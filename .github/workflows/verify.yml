@@ -245,7 +245,8 @@ jobs:
 
       - uses: actions/checkout@v6
         with:
-          ref: ${{ github.event_name == 'pull_request' && github.head_ref || '' }}
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || '' }}
           token: ${{ github.token }}
 
       - name: Regenerate derived artifacts
@@ -259,7 +260,7 @@ jobs:
           python3 scripts/sync_verification_status_doc.py
 
       - name: Auto-commit refreshed artifacts
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         run: |
           git diff --quiet || {
             git config user.name  "github-actions[bot]"
