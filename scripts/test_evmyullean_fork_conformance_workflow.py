@@ -9,13 +9,13 @@ WORKFLOW = ROOT / ".github" / "workflows" / "evmyullean-fork-conformance.yml"
 TRUST_ASSUMPTIONS = ROOT / "TRUST_ASSUMPTIONS.md"
 AXIOMS = ROOT / "AXIOMS.md"
 MAKEFILE = ROOT / "Makefile"
-ADAPTER_REPORT = ROOT / "artifacts" / "evmyullean_adapter_report.json"
+NATIVE_LOWERING_REPORT = ROOT / "artifacts" / "evmyullean_native_lowering_report.json"
 ROADMAP = ROOT / "docs" / "ROADMAP.md"
 
 
 class EvmYulLeanForkConformanceWorkflowTests(unittest.TestCase):
-    def test_concrete_bridge_test_count_matches_adapter_report(self) -> None:
-        report = json.loads(ADAPTER_REPORT.read_text(encoding="utf-8"))
+    def test_concrete_bridge_test_count_matches_native_lowering_report(self) -> None:
+        report = json.loads(NATIVE_LOWERING_REPORT.read_text(encoding="utf-8"))
         count = report["concrete_test_count"]
         test_count_re = re.compile(
             r"\b(\d+)\s+(?:concrete\s+)?(?:`native_decide`\s+|native_decide\s+)?"
@@ -50,10 +50,10 @@ class EvmYulLeanForkConformanceWorkflowTests(unittest.TestCase):
         self.assertNotIn("continue-on-error", text)
         for path in [
             "Compiler/Proofs/EndToEnd.lean",
-            "scripts/generate_evmyullean_adapter_report.py",
+            "scripts/generate_evmyullean_native_lowering_report.py",
             "scripts/test_evmyullean_fork_conformance_workflow.py",
-            "artifacts/evmyullean_adapter_report.json",
-            "Compiler/Proofs/YulGeneration/Backends/EvmYulLeanAdapter.lean",
+            "artifacts/evmyullean_native_lowering_report.json",
+            "Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeLowering.lean",
             "Compiler/Proofs/YulGeneration/Backends/EvmYulLeanBodyClosure.lean",
             "Compiler/Proofs/YulGeneration/Backends/EvmYulLeanBridgeLemmas.lean",
             "Compiler/Proofs/YulGeneration/Backends/EvmYulLeanBridgeTest.lean",
@@ -96,7 +96,7 @@ class EvmYulLeanForkConformanceWorkflowTests(unittest.TestCase):
         self.assertIn("github.rest.issues.create({", text)
         self.assertIn("make test-evmyullean-fork", text)
         makefile_text = MAKEFILE.read_text(encoding="utf-8")
-        self.assertIn("python3 scripts/generate_evmyullean_adapter_report.py --check", makefile_text)
+        self.assertIn("python3 scripts/generate_evmyullean_native_lowering_report.py --check", makefile_text)
         self.assertIn("lake build Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeHarness", makefile_text)
         self.assertIn("lake build Compiler.Proofs.EndToEnd", makefile_text)
 

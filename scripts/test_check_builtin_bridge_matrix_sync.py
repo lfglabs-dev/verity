@@ -71,8 +71,8 @@ class BuiltinBridgeMatrixSyncTests(unittest.TestCase):
             for entry in builtin_features
             if entry.get("sorry_dependent") is True
         ]
-        adapter_report = root / "artifacts" / "evmyullean_adapter_report.json"
-        adapter_report.write_text(json.dumps({"admitted_bridge_lemmas": admitted}), encoding="utf-8")
+        native_lowering_report = root / "artifacts" / "evmyullean_native_lowering_report.json"
+        native_lowering_report.write_text(json.dumps({"admitted_bridge_lemmas": admitted}), encoding="utf-8")
 
         target_doc = root / "docs" / "INTERPRETER_FEATURE_MATRIX.md"
         target_doc.parent.mkdir(parents=True, exist_ok=True)
@@ -85,11 +85,11 @@ class BuiltinBridgeMatrixSyncTests(unittest.TestCase):
 
             old_root = check.ROOT
             old_feature_matrix = check.FEATURE_MATRIX
-            old_adapter_report = check.ADAPTER_REPORT
+            old_native_lowering_report = check.NATIVE_LOWERING_REPORT
             old_target_doc = check.TARGET_DOC
             check.ROOT = root
             check.FEATURE_MATRIX = root / "artifacts" / "interpreter_feature_matrix.json"
-            check.ADAPTER_REPORT = root / "artifacts" / "evmyullean_adapter_report.json"
+            check.NATIVE_LOWERING_REPORT = root / "artifacts" / "evmyullean_native_lowering_report.json"
             check.TARGET_DOC = root / "docs" / "INTERPRETER_FEATURE_MATRIX.md"
             try:
                 stdout = io.StringIO()
@@ -100,7 +100,7 @@ class BuiltinBridgeMatrixSyncTests(unittest.TestCase):
             finally:
                 check.ROOT = old_root
                 check.FEATURE_MATRIX = old_feature_matrix
-                check.ADAPTER_REPORT = old_adapter_report
+                check.NATIVE_LOWERING_REPORT = old_native_lowering_report
                 check.TARGET_DOC = old_target_doc
 
     def test_missing_delegated_builtin_fails_closed(self) -> None:
@@ -248,8 +248,8 @@ class BuiltinBridgeMatrixSyncTests(unittest.TestCase):
             check.CONCRETE_ONLY_BUILTINS = old_concrete
             check.DELEGATED_BUILTINS = old_delegated
 
-    def test_adapter_report_admitted_set_drives_validation(self) -> None:
-        """Repository check should use the adapter report, not the fallback constant."""
+    def test_native_lowering_report_admitted_set_drives_validation(self) -> None:
+        """Repository check should use the native lowering report, not the fallback constant."""
         features = _make_builtin_features()
         matrix = {"builtin_features": features}
         with self.assertRaisesRegex(ValueError, "smod should have sorry_dependent=true"):
