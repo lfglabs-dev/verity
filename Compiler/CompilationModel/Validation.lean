@@ -1429,6 +1429,8 @@ private def iterateFunctionEffects
       iterateFunctionEffects functions fuel (inferFunctionEffectsStep functions effects)
 
 def inferFunctionEffects (functions : List FunctionSpec) : List (String × FunctionEffect) :=
+  -- Start optimistic and iterate once per function edge so internal-call read/write
+  -- effects propagate through helper chains and cycles before mutability validation.
   let initial := functions.map fun fn => (fn.name, { writesState := false, readsStateOrEnv := false })
   iterateFunctionEffects functions (functions.length + 1) initial
 
