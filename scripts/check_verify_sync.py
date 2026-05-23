@@ -366,6 +366,8 @@ def _extract_literal_top_level_mapping(body: str, key: str) -> dict[str, str]:
     for line in block_lines:
         if not line.strip():
             continue
+        if line.lstrip().startswith("#"):
+            continue
         child_indent = len(line) - len(line.lstrip(" "))
         if child_indent != min_child_indent:
             continue

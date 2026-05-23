@@ -209,7 +209,7 @@
     "contents": "read"
   },
   "expected_workflow_concurrency": {
-    "group": "${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}",
+    "group": "${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || (github.event_name == 'schedule' && format('schedule-{0}', github.ref) || github.ref) }}",
     "cancel-in-progress": "${{ github.event_name != 'schedule' }}"
   },
   "expected_workflow_env": {
