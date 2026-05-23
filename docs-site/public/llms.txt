@@ -1,7 +1,7 @@
 # Verity
 
 > Lean 4 framework for writing smart contracts that compile to EVM bytecode and carry machine-checked correctness proofs.
-> Add `.md` to any docs URL on veritylang.com to get raw markdown (saves tokens). Or fetch `/api/docs/_all` for everything concatenated.
+> Add `.md` to any docs URL on veritylang.com to get raw markdown (saves tokens). Or fetch `/llms-full.txt` for everything concatenated.
 
 ## What it is
 
@@ -58,6 +58,14 @@ The dominant pattern is `_meets_spec`: each EDSL operation has a `_spec` predica
 [lfglabs-dev/verity-benchmark](https://github.com/lfglabs-dev/verity-benchmark) measures AI agent capability at proving contract specs in this framework: 30 tasks across six real-world protocols (Ethereum deposit, Lido VaultHub, Nexus Mutual RAMM, Kleros sortition, Paladin Votes, Damn Vulnerable DeFi). No `sorry`/`admit`/`axiom` placeholders allowed.
 
 ## Documentation index
+
+Agent endpoints:
+- https://veritylang.com/llms.txt, compact agent index
+- https://veritylang.com/llms-full.txt, all docs concatenated as Markdown
+- https://veritylang.com/skill.md, operational agent workflow
+- https://veritylang.com/.well-known/skill.md, operational agent workflow alias
+- https://veritylang.com/api/docs/_index, JSON docs index
+- https://veritylang.com/api/docs/_all, all docs concatenated through the API
 
 Introduction:
 - https://veritylang.com/architecture, single-page system map

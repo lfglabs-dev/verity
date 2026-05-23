@@ -38,12 +38,15 @@ npm start
 ```
 docs-site/
 ├── app/api/docs/[...slug]/route.ts  # API for serving markdown
+├── app/llms-full.txt/route.ts       # Full-docs markdown endpoint
+├── agent-discovery.mjs              # Shared agent discovery headers/routes
 ├── content/                         # Documentation pages (MDX)
 │   ├── index.mdx                    # Homepage
 │   ├── examples.mdx                 # Example contracts
 │   ├── core.mdx                     # Core architecture
 │   └── _meta.js                     # Navigation config
 ├── public/llms.txt                  # AI agent index
+├── public/skill.md                  # Operational workflow for agents
 ├── proxy.ts                         # Middleware for AI agent detection
 └── next.config.mjs                  # Next.js config with Nextra
 ```
@@ -61,7 +64,14 @@ The site automatically serves markdown to AI agents through:
 1. **Auto-detection**: Known AI user agents get markdown automatically
 2. **Explicit format**: Any page with `.md` extension or `?format=md` query
 3. **Accept header**: Requests with `Accept: text/markdown`
-4. **API routes**:
+4. **Plain text fallback**: Requests with `Accept: text/plain`
+5. **Discovery endpoints**:
+   - `/llms.txt` and `/.well-known/llms.txt` - Compact agent index
+   - `/llms-full.txt` and `/.well-known/llms-full.txt` - All docs concatenated (Markdown)
+   - `/skill.md` and `/.well-known/skill.md` - Operational workflow for agents working in Verity
+   - `/.well-known/agent-skills` - JSON skill discovery index
+6. **Discovery headers**: Every response advertises `Link`, `X-Llms-Txt`, `X-Llms-Full-Txt`, and `X-Agent-Skill`
+7. **API routes**:
    - `/api/docs/_index` - List all documents (JSON)
    - `/api/docs/_all` - All docs concatenated (Markdown)
    - `/api/docs/[page]` - Single document (Markdown)

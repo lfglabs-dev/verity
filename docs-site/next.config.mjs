@@ -3,6 +3,7 @@ import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import nextra from "nextra";
 import { bundledLanguages, createHighlighter } from "shiki";
+import { AGENT_DISCOVERY_HEADERS, AGENT_DISCOVERY_REWRITES } from "./agent-discovery.mjs";
 
 const configDir = dirname(fileURLToPath(import.meta.url));
 const isDev = process.env.NODE_ENV !== "production";
@@ -53,6 +54,17 @@ export default withNextra({
   ...(isDev ? { turbopack: { root: configDir } } : {}),
   images: {
     formats: ["image/avif", "image/webp"],
+  },
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: AGENT_DISCOVERY_HEADERS,
+      },
+    ];
+  },
+  async rewrites() {
+    return AGENT_DISCOVERY_REWRITES;
   },
   // Redirect legacy URLs to the new IA so old bookmarks / external
   // links don't 404 after the restructure.
