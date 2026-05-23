@@ -71,6 +71,11 @@ on:
         required: false
         default: false
         type: boolean
+      lean_profile:
+        description: 'Run optional Lean module timing profiling after the proof build'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -1101,7 +1106,7 @@ jobs:
     # Profiling is diagnostic telemetry. Keep it behind the proof build and
     # non-blocking so interrupted profiling cannot cancel validation.
     continue-on-error: true
-    if: github.event_name == 'workflow_dispatch' && needs.changes.outputs.build == 'true' && needs.build.result == 'success'
+    if: github.event_name == 'workflow_dispatch' && inputs.lean_profile && needs.changes.outputs.build == 'true' && needs.build.result == 'success'
     steps:
       - uses: actions/checkout@v6
 

@@ -122,6 +122,7 @@ SPEC = {'check_only_paths': ['.github/workflows/**',
                                                         '&& needs.changes.outputs.compiler == '
                                                         "'true'",
                                 'lean-profile': "github.event_name == 'workflow_dispatch' && "
+                                                "inputs.lean_profile && "
                                                 "needs.changes.outputs.build == 'true' && "
                                                 "needs.build.result == 'success'",
                                 'foundry-gas-calibration': 'needs.changes.outputs.compiler == '

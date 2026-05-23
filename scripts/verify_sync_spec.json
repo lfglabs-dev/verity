@@ -138,7 +138,7 @@
     "build-compiler-binaries": "needs.checks.result == 'success' && needs.build.result == 'success' && needs.changes.outputs.compiler == 'true'",
     "compiler-audits": "needs.checks.result == 'success' && needs.build.result == 'success' && needs.build-compiler-binaries.result == 'success' && needs.changes.outputs.compiler == 'true'",
     "compiler-regressions": "needs.checks.result == 'success' && needs.build.result == 'success' && needs.build-compiler-binaries.result == 'success' && needs.changes.outputs.compiler == 'true'",
-    "lean-profile": "github.event_name == 'workflow_dispatch' && needs.changes.outputs.build == 'true' && needs.build.result == 'success'",
+    "lean-profile": "github.event_name == 'workflow_dispatch' && inputs.lean_profile && needs.changes.outputs.build == 'true' && needs.build.result == 'success'",
     "foundry-gas-calibration": "needs.changes.outputs.compiler == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)",
     "foundry": "needs.changes.outputs.compiler == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)",
     "foundry-patched": "needs.changes.outputs.compiler == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)",
