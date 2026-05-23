@@ -6,6 +6,7 @@ import Contracts.OwnedCounter
 import Contracts.SafeCounter
 import Contracts.Ledger
 import Contracts.Vault
+import Contracts.XStockVault
 import Contracts.SimpleToken
 import Contracts.ERC20
 import Contracts.ERC721
@@ -32,6 +33,9 @@ def ledgerSpec : CompilationModel := Contracts.Ledger.spec
 
 /-- Legacy compatibility alias. Canonical source is macro-generated. -/
 def vaultSpec : CompilationModel := Contracts.Vault.spec
+
+/-- xStocks integration POC. Canonical source is macro-generated. -/
+def xStockVaultSpec : CompilationModel := Contracts.XStockVault.spec
 
 /-- Legacy compatibility alias. Canonical source is macro-generated. -/
 def ownedCounterSpec : CompilationModel := Contracts.OwnedCounter.spec

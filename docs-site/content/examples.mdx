@@ -206,6 +206,12 @@ verity_contract Vault where
 
 The spec layer (`deposit_spec`, `withdraw_spec`, isolation predicates) lives in `Contracts/Vault/Spec.lean`. Native IR-lowering proofs are checked in [`Contracts/Vault/Proofs/Native.lean`](https://github.com/lfglabs-dev/verity/blob/main/Contracts/Vault/Proofs/Native.lean); deeper Basic/Correctness/Conservation coverage is tracked under issue [#1163](https://github.com/lfglabs-dev/verity/issues/1163).
 
+## XStockVault
+
+Ink xStocks integration POC showing reusable specs for vault accounting around EVM xStocks. The example is an accounting skeleton, not a production custody contract: token transfers, access control, and oracle authorization remain integration boundaries. The key distinction from ordinary ERC-20 vaults is that xStock `balanceOf()` on Ink/EVM is already multiplier-adjusted for dividends, splits, and reverse splits.
+
+Source: [`Verity/Specs/Ink/XStocks.lean`](https://github.com/lfglabs-dev/verity/blob/main/Verity/Specs/Ink/XStocks.lean), [`Contracts/XStockVault/Proofs/XStocks.lean`](https://github.com/lfglabs-dev/verity/blob/main/Contracts/XStockVault/Proofs/XStocks.lean), [`docs/ink-xstocks-spec-poc.md`](https://github.com/lfglabs-dev/verity/blob/main/docs/ink-xstocks-spec-poc.md), [`docs/ink-xstocks-research.md`](https://github.com/lfglabs-dev/verity/blob/main/docs/ink-xstocks-research.md).
+
 ## ReentrancyExample
 
 Two parallel bank contracts, one vulnerable, one safe, demonstrating that reentrancy is a *provable* property, not just a testing concern.

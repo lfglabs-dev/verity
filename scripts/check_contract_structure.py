@@ -31,6 +31,7 @@ EXCLUDED_FROM_DIFFERENTIAL_TESTS = {
     "CryptoHash",         # External-library oracle behavior is not differential-tested
     "ReentrancyExample",  # Reentrancy model requires dedicated external-call harnessing
     "Vault",              # Minimal scaffolding landed before differential harness completion
+    "XStockVault",        # Ink xStocks POC is an accounting/model example without a generated-Yul differential harness
 }
 
 # Expected files for each contract (relative to ROOT)

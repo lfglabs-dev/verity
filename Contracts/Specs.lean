@@ -98,6 +98,7 @@ def allSpecs : List CompilationModel := [
   ownedSpec,
   ledgerSpec,
   vaultSpec,
+  xStockVaultSpec,
   ownedCounterSpec,
   simpleTokenSpec,
   safeCounterSpec,

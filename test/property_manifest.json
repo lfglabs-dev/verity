@@ -305,5 +305,20 @@
     "vaultMinimal_functions_bridged",
     "vaultMinimal_runtime_lowers_native",
     "vaultMinimal_totalAssets_nativeResultsMatchOn_revert_of_nonzero_value"
+  ],
+  "XStockVault": [
+    "corporate_action_preserves_fraction_and_scales_claim",
+    "deposit_spec_preserves_multiplier_epoch",
+    "deposit_spec_preserves_pause_flag",
+    "multiplierEpoch_spec_reads_slot_four",
+    "stale_epoch_deposit_spec_impossible",
+    "stale_multiplier_epoch_cannot_settle_deposit",
+    "syncFromBalanceOf_preserves_unrelated_storage",
+    "syncFromBalanceOf_sets_assets_to_adjusted_balance",
+    "sync_uses_evm_adjusted_balance_exactly_once",
+    "totalAssets_spec_reads_slot_one",
+    "totalSupply_spec_reads_slot_two",
+    "withdraw_spec_preserves_multiplier_epoch",
+    "withdraw_spec_preserves_pause_flag"
   ]
 }

@@ -29,6 +29,9 @@ import Contracts.SimpleToken.Proofs.Correctness
 import Contracts.SimpleToken.Proofs.Isolation
 import Contracts.SimpleToken.Proofs.Supply
 import Contracts.Vault.Proofs.Native
+import Contracts.XStockVault.Proofs.Basic
+import Contracts.XStockVault.Proofs.Correctness
+import Contracts.XStockVault.Proofs.XStocks
 import Verity.Proofs.Stdlib.Automation
 import Verity.Proofs.Stdlib.ListSum
 import Verity.Proofs.Stdlib.MappingAutomation
@@ -544,6 +547,25 @@ end Verity.AxiomAudit
   Contracts.Vault.Proofs.Native.vaultMinimal_functions_bridged
   Contracts.Vault.Proofs.Native.vaultMinimal_runtime_lowers_native
   Contracts.Vault.Proofs.Native.vaultMinimal_totalAssets_nativeResultsMatchOn_revert_of_nonzero_value
+
+  -- Contracts/XStockVault/Proofs/Basic.lean
+  Contracts.XStockVault.Proofs.Basic.totalAssets_spec_reads_slot_one
+  Contracts.XStockVault.Proofs.Basic.totalSupply_spec_reads_slot_two
+  Contracts.XStockVault.Proofs.Basic.multiplierEpoch_spec_reads_slot_four
+
+  -- Contracts/XStockVault/Proofs/Correctness.lean
+  Contracts.XStockVault.Proofs.Correctness.syncFromBalanceOf_sets_assets_to_adjusted_balance
+  Contracts.XStockVault.Proofs.Correctness.syncFromBalanceOf_preserves_unrelated_storage
+  Contracts.XStockVault.Proofs.Correctness.stale_epoch_deposit_spec_impossible
+  Contracts.XStockVault.Proofs.Correctness.deposit_spec_preserves_multiplier_epoch
+  Contracts.XStockVault.Proofs.Correctness.deposit_spec_preserves_pause_flag
+  Contracts.XStockVault.Proofs.Correctness.withdraw_spec_preserves_multiplier_epoch
+  Contracts.XStockVault.Proofs.Correctness.withdraw_spec_preserves_pause_flag
+
+  -- Contracts/XStockVault/Proofs/XStocks.lean
+  Contracts.XStockVault.Proofs.XStocks.sync_uses_evm_adjusted_balance_exactly_once
+  Contracts.XStockVault.Proofs.XStocks.corporate_action_preserves_fraction_and_scales_claim
+  Contracts.XStockVault.Proofs.XStocks.stale_multiplier_epoch_cannot_settle_deposit
 
   -- Verity/Proofs/Stdlib/Automation.lean
   Verity.Proofs.Stdlib.Automation.isSuccess_success
@@ -3943,6 +3965,11 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.compileStmtList_internalCall_bridged
   Compiler.Proofs.YulGeneration.Backends.compileStmt_externalCallBind_bridged
   Compiler.Proofs.YulGeneration.Backends.compileStmtList_externalCallBind_bridged
+  -- Compiler.Proofs.YulGeneration.Backends.compileStmtList_noFuncDefs_of_perStmtBridge  -- private
+  Compiler.Proofs.YulGeneration.Backends.compileStmt_internalCall_noFuncDefs
+  Compiler.Proofs.YulGeneration.Backends.compileStmtList_internalCall_noFuncDefs
+  Compiler.Proofs.YulGeneration.Backends.compileStmt_externalCallBind_noFuncDefs
+  Compiler.Proofs.YulGeneration.Backends.compileStmtList_externalCallBind_noFuncDefs
   Compiler.Proofs.YulGeneration.Backends.compileStmt_ecm_bridged
   Compiler.Proofs.YulGeneration.Backends.compileStmtList_ecm_bridged
   Compiler.Proofs.YulGeneration.Backends.compileStmtList_append_ok_inv
@@ -5457,4 +5484,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5162 theorems/lemmas (3583 public, 1579 private, 0 sorry'd)
+-- Total: 5180 theorems/lemmas (3600 public, 1580 private, 0 sorry'd)

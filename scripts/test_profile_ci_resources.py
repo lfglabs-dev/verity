@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -106,9 +107,13 @@ class ProfileCiResourcesTests(unittest.TestCase):
             self.assertIn("mem_used_mb", summary)
             self.assertIn("disk", summary)
             self.assertIn("gnu_time", summary)
-            self.assertIn("Command being timed", summary["gnu_time"])
+            if shutil.which("/usr/bin/time") is not None:
+                self.assertIn("Command being timed", summary["gnu_time"])
+                self.assertTrue(Path(summary["time_path"]).exists())
+            else:
+                self.assertEqual(summary["gnu_time"], {})
+                self.assertIsNone(summary["time_path"])
             self.assertTrue(Path(summary["log_path"]).exists())
-            self.assertTrue(Path(summary["time_path"]).exists())
             self.assertIn("profile-smoke", Path(summary["log_path"]).read_text(encoding="utf-8"))
 
 

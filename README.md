@@ -24,10 +24,10 @@
 <!-- BEGIN GENERATED STATS -->
 | Metric | Value |
 |--------|-------|
-| Theorems | 283 (283 proven, 0 sorry) |
+| Theorems | 296 (296 proven, 0 sorry) |
 | Axioms | 0 |
-| Foundry tests | 522 (239 property) |
-| Verified contracts | 12 |
+| Foundry tests | 534 (245 property) |
+| Verified contracts | 13 |
 | Core EDSL | 649 lines |
 | Lean | 4.22.0 |
 <!-- END GENERATED STATS -->
