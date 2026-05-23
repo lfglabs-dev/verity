@@ -1,14 +1,14 @@
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeCalldata
-import Lean
 
 namespace Compiler.Proofs.YulGeneration.Backends.Native
 
-open Compiler.Yul
-open Compiler.Proofs.YulGeneration
-open Compiler.Proofs.YulGeneration.Backends.StateBridge
-open Lean Elab Tactic Meta
-open Compiler.Proofs.IRGeneration
-  (IRResult IRState IRStorageSlot IRStorageWord IRTransaction)
+/-! ## Native EVMYulLean primitive step lemmas
+
+This module collects direct `EvmYul.step` facts that are reused by the native
+runtime harness and its primitive-call proofs. Keeping these definitional facts
+out of the harness leaves the dispatcher and projection proof layers easier to
+scan without changing theorem statements or proof strength.
+-/
 
 @[simp] theorem step_calldataload_ok
     (shared : EvmYul.SharedState .Yul)
