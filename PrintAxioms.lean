@@ -2,6 +2,7 @@
 -- Runs a memoized axiom audit on all top-level theorems/lemmas in proof directories.
 -- Regenerate with: python3 scripts/generate_print_axioms.py
 
+import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeStepLemmas
 import Contracts.Counter.Proofs.Basic
 import Contracts.Counter.Proofs.Correctness
 import Contracts.ERC20.Proofs.Basic
@@ -62,7 +63,6 @@ import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeHarness
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeLowering
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeSignedArithLemmas
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeState
-import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeStepLemmas
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanPureBuiltinLemmas
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanSignedArithSpec
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanSourceExprClosure
@@ -159,6 +159,39 @@ syntax (name := verityPrintAxioms) "#verity_print_axioms " "[" ident* "]" : comm
 end Verity.AxiomAudit
 
 #verity_print_axioms [
+
+  -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeStepLemmas.lean
+  Compiler.Proofs.YulGeneration.Backends.Native.step_calldataload_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_shr_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_add_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_sub_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_mul_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_eq_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_iszero_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_lt_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_calldatasize_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_calldatasize_any
+  Compiler.Proofs.YulGeneration.Backends.Native.step_callvalue_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_callvalue_any
+  Compiler.Proofs.YulGeneration.Backends.Native.step_address_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_address_any
+  Compiler.Proofs.YulGeneration.Backends.Native.step_balance_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_origin_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_caller_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_caller_any
+  Compiler.Proofs.YulGeneration.Backends.Native.step_timestamp_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_timestamp_any
+  Compiler.Proofs.YulGeneration.Backends.Native.step_number_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_number_any
+  Compiler.Proofs.YulGeneration.Backends.Native.step_chainid_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_chainid_any
+  Compiler.Proofs.YulGeneration.Backends.Native.step_blobbasefee_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_blobbasefee_any
+  Compiler.Proofs.YulGeneration.Backends.Native.step_gasprice_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_coinbase_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_gaslimit_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_selfbalance_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_and_ok
 
   -- Contracts/Counter/Proofs/Basic.lean
   Contracts.Counter.Proofs.setStorage_updates_count
@@ -5276,39 +5309,6 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.initialState_blockNumber
   Compiler.Proofs.YulGeneration.Backends.Native.initialState_calldata
   Compiler.Proofs.YulGeneration.Backends.Native.initialState_calldataSize
-
-  -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeStepLemmas.lean
-  Compiler.Proofs.YulGeneration.Backends.Native.step_calldataload_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_shr_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_add_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_sub_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_mul_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_eq_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_iszero_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_lt_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_calldatasize_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_calldatasize_any
-  Compiler.Proofs.YulGeneration.Backends.Native.step_callvalue_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_callvalue_any
-  Compiler.Proofs.YulGeneration.Backends.Native.step_address_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_address_any
-  Compiler.Proofs.YulGeneration.Backends.Native.step_balance_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_origin_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_caller_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_caller_any
-  Compiler.Proofs.YulGeneration.Backends.Native.step_timestamp_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_timestamp_any
-  Compiler.Proofs.YulGeneration.Backends.Native.step_number_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_number_any
-  Compiler.Proofs.YulGeneration.Backends.Native.step_chainid_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_chainid_any
-  Compiler.Proofs.YulGeneration.Backends.Native.step_blobbasefee_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_blobbasefee_any
-  Compiler.Proofs.YulGeneration.Backends.Native.step_gasprice_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_coinbase_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_gaslimit_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_selfbalance_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_and_ok
 
   -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanPureBuiltinLemmas.lean
   -- Compiler.Proofs.YulGeneration.Backends.uint256_size_eq_evmModulus  -- private
