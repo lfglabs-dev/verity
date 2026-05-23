@@ -618,7 +618,12 @@
         }
       },
       {
+        "name": "Restore compiler binaries (local)",
+        "run": "source_dir=\"${VERIFY_LOCAL_ARTIFACT_ROOT}/${{ github.run_id }}/verity-compiler-binaries\"\nif [ -f \"$source_dir/.ready\" ]; then\n  mkdir -p compiler/bin\n  cp -a \"$source_dir/.\" compiler/bin/\n  rm -f compiler/bin/.ready\nelse\n  exit 1\nfi"
+      },
+      {
         "name": "Download compiler binaries",
+        "if": "steps.local-restore-compiler-binaries.outcome != 'success'",
         "uses": "actions/download-artifact@v7",
         "with": {
           "name": "verity-compiler-binaries",
@@ -678,7 +683,12 @@
         }
       },
       {
+        "name": "Restore compiler binaries (local)",
+        "run": "source_dir=\"${VERIFY_LOCAL_ARTIFACT_ROOT}/${{ github.run_id }}/verity-compiler-binaries\"\nif [ -f \"$source_dir/.ready\" ]; then\n  mkdir -p compiler/bin\n  cp -a \"$source_dir/.\" compiler/bin/\n  rm -f compiler/bin/.ready\nelse\n  exit 1\nfi"
+      },
+      {
         "name": "Download compiler binaries",
+        "if": "steps.local-restore-compiler-binaries.outcome != 'success'",
         "uses": "actions/download-artifact@v7",
         "with": {
           "name": "verity-compiler-binaries",

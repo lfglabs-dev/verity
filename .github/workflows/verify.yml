@@ -1020,7 +1020,21 @@ jobs:
           name: patch-coverage-report
           path: compiler
 
+      - name: Restore compiler binaries (local)
+        id: local-restore-compiler-binaries
+        continue-on-error: true
+        run: |
+          source_dir="${VERIFY_LOCAL_ARTIFACT_ROOT}/${{ github.run_id }}/verity-compiler-binaries"
+          if [ -f "$source_dir/.ready" ]; then
+            mkdir -p compiler/bin
+            cp -a "$source_dir/." compiler/bin/
+            rm -f compiler/bin/.ready
+          else
+            exit 1
+          fi
+
       - name: Download compiler binaries
+        if: steps.local-restore-compiler-binaries.outcome != 'success'
         uses: actions/download-artifact@v7
         with:
           name: verity-compiler-binaries
@@ -1269,7 +1283,21 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Restore compiler binaries (local)
+        id: local-restore-compiler-binaries
+        continue-on-error: true
+        run: |
+          source_dir="${VERIFY_LOCAL_ARTIFACT_ROOT}/${{ github.run_id }}/verity-compiler-binaries"
+          if [ -f "$source_dir/.ready" ]; then
+            mkdir -p compiler/bin
+            cp -a "$source_dir/." compiler/bin/
+            rm -f compiler/bin/.ready
+          else
+            exit 1
+          fi
+
       - name: Download compiler binaries
+        if: steps.local-restore-compiler-binaries.outcome != 'success'
         uses: actions/download-artifact@v7
         with:
           name: verity-compiler-binaries
@@ -1495,7 +1523,21 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Restore compiler binaries (local)
+        id: local-restore-compiler-binaries
+        continue-on-error: true
+        run: |
+          source_dir="${VERIFY_LOCAL_ARTIFACT_ROOT}/${{ github.run_id }}/verity-compiler-binaries"
+          if [ -f "$source_dir/.ready" ]; then
+            mkdir -p compiler/bin
+            cp -a "$source_dir/." compiler/bin/
+            rm -f compiler/bin/.ready
+          else
+            exit 1
+          fi
+
       - name: Download compiler binaries
+        if: steps.local-restore-compiler-binaries.outcome != 'success'
         uses: actions/download-artifact@v7
         with:
           name: verity-compiler-binaries
