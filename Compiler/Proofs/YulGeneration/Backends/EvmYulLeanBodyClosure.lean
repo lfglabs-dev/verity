@@ -23,6 +23,7 @@
 
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBridgePredicates
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanSourceExprClosure
+import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanCallClosure
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeHarness
 import Compiler.TypedIRCompilerCorrectness
 import Compiler.CompilationModel.Compile
@@ -16491,10 +16492,11 @@ theorem compileStmtList_mappingPackedWordMultiSlotNonzero_noFuncDefs
 
 `BridgedSafeStmts` is the source-level whitelist used by the EVMYulLean native
 lowering report: it collects the statement-list fragments that this module has
-proved to compile into `BridgedStmts`. The external-call family
-(`internalCall`, `internalCallAssign`, `externalCallBind`, and `ecm`) is
-intentionally absent; those statements still need function-table simulation
-before they can be discharged without explicit hypotheses.
+proved to compile into `BridgedStmts`. Internal helper calls and typed external
+call binds are admitted through an explicit `BridgedFunctionTable` witness,
+which proves the called Yul functions resolve to bridged bodies. Opaque ECM
+statements remain outside this universal whitelist until concrete modules
+provide bridgeable-output obligations.
 -/
 
 inductive BridgedSafeStmts
@@ -16613,6 +16615,14 @@ inductive BridgedSafeStmts
       BridgedSafeStmts fields errors dynamicSource internalRetNames isInternal stmts
   | storageArrayPop {isInternal : Bool} {stmts : List Stmt}
       (hStmts : BridgedSourceStorageArrayPopStmts fields stmts) :
+      BridgedSafeStmts fields errors dynamicSource internalRetNames isInternal stmts
+  | internalCall {isInternal : Bool} {stmts : List Stmt}
+      {table : BridgedFunctionTable}
+      (hStmts : BridgedSourceInternalCallStmts table stmts) :
+      BridgedSafeStmts fields errors dynamicSource internalRetNames isInternal stmts
+  | externalCallBind {isInternal : Bool} {stmts : List Stmt}
+      {table : BridgedFunctionTable}
+      (hStmts : BridgedSourceExternalCallBindStmts table stmts) :
       BridgedSafeStmts fields errors dynamicSource internalRetNames isInternal stmts
   | append {isInternal : Bool} {pfx sfx : List Stmt}
       (hPfx : BridgedSafeStmts fields errors dynamicSource internalRetNames
@@ -17487,6 +17497,12 @@ theorem compileStmtList_always_bridged
   | storageArrayPop hStmts =>
       exact compileStmtList_storageArrayPop_bridged fields events errors
         dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
+  | internalCall hStmts =>
+      exact compileStmtList_internalCall_bridged fields events errors
+        dynamicSource internalRetNames _ [] _ hStmts inScopeNames hOk
+  | externalCallBind hStmts =>
+      exact compileStmtList_externalCallBind_bridged fields events errors
+        dynamicSource internalRetNames _ [] _ hStmts inScopeNames hOk
   | append hPfx hSfx ihPfx ihSfx =>
       rename_i localIsInternal pfx sfx
       rw [compileStmtList_append_eq fields events errors dynamicSource
@@ -17637,6 +17653,12 @@ theorem compileStmtList_always_noFuncDefs
   | storageArrayPop hStmts =>
       exact compileStmtList_storageArrayPop_noFuncDefs fields events errors
         dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
+  | internalCall hStmts =>
+      exact compileStmtList_internalCall_noFuncDefs fields events errors
+        dynamicSource internalRetNames _ [] _ hStmts inScopeNames hOk
+  | externalCallBind hStmts =>
+      exact compileStmtList_externalCallBind_noFuncDefs fields events errors
+        dynamicSource internalRetNames _ [] _ hStmts inScopeNames hOk
   | append hPfx hSfx ihPfx ihSfx =>
       rename_i localIsInternal pfx sfx
       rw [compileStmtList_append_eq fields events errors dynamicSource

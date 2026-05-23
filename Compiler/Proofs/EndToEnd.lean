@@ -41453,9 +41453,11 @@ expose the public surface this file needs.
 - 36 of 36 builtins are bridged, including `mappingSlot` via the shared
   keccak-faithful `abstractMappingSlot` derivation.
 - All bridge lemmas are complete; all builtin bridge equivalences are proven.
-- The external-call/function-table family remains outside `BridgedSafeStmts`
-  and needs separate simulation work before it can be admitted into the
-  safe-body EndToEnd wrapper.
+- Statement-position `internalCall` / `internalCallAssign` and
+  `externalCallBind` source bodies are admitted into `BridgedSafeStmts` when
+  their compiled callees resolve in an explicit `BridgedFunctionTable`; opaque
+  ECM statements remain outside the safe-body wrapper until concrete modules
+  provide bridgeable-output obligations.
 
 The Phase 4 backend-fuel module has been removed; the equivalent transition
 theorems are no longer needed because the public EndToEnd surface targets

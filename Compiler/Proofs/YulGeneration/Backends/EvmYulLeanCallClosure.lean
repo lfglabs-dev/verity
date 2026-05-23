@@ -20,6 +20,7 @@
 
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBridgePredicates
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanSourceExprClosure
+import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeState
 import Compiler.CompilationModel.Compile
 import Compiler.CompilationModel.InternalNaming
 import Compiler.ECM
@@ -405,6 +406,129 @@ theorem compileStmtList_externalCallBind_bridged
     (perStmt := BridgedSourceExternalCallBindStmt table)
     (fun h hOk' =>
       compileStmt_externalCallBind_bridged fields events errors dynamicSource
+        internalRetNames isInternal _ adtTypes h hOk')
+    stmts hStmts inScopeNames hOk
+
+private theorem compileStmtList_noFuncDefs_of_perStmtBridge
+    {fields : List Field} {events : List EventDef} {errors : List ErrorDef}
+    {dynamicSource : DynamicDataSource} {internalRetNames : List String}
+    {isInternal : Bool} {adtTypes : List AdtTypeDef}
+    {perStmt : Stmt → Prop}
+    (perStmtNoFunc : ∀ {s : Stmt} {inScopeNames : List String}
+      {out : List YulStmt},
+      perStmt s →
+      compileStmt fields events errors dynamicSource internalRetNames
+          isInternal inScopeNames adtTypes s = .ok out →
+      Native.yulStmtsContainFuncDef out = false) :
+    ∀ (stmts : List Stmt), (∀ s ∈ stmts, perStmt s) →
+      ∀ (inScopeNames : List String) {out : List YulStmt},
+        compileStmtList fields events errors dynamicSource internalRetNames
+          isInternal inScopeNames adtTypes stmts = .ok out →
+        Native.yulStmtsContainFuncDef out = false := by
+  intro stmts
+  induction stmts with
+  | nil =>
+    intro _ _ _ hOk
+    simp [compileStmtList, Pure.pure, Except.pure] at hOk
+    subst hOk
+    simp [Native.yulStmtsContainFuncDef]
+  | cons s ss ih =>
+    intro hAll inScopeNames out hOk
+    obtain ⟨headOut, tailOut, hHead, hTail, hEq⟩ :=
+      compileStmtList_cons_ok_inv_generic hOk
+    subst hEq
+    rw [Native.yulStmtsContainFuncDef_append]
+    simp [
+      perStmtNoFunc (hAll s List.mem_cons_self) hHead,
+      ih (fun s' hMem => hAll s' (List.mem_cons_of_mem s hMem)) _ hTail]
+
+theorem compileStmt_internalCall_noFuncDefs
+    {table : BridgedFunctionTable}
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
+    (isInternal : Bool) (inScopeNames : List String) (adtTypes : List AdtTypeDef)
+    {stmt : Stmt} (hStmt : BridgedSourceInternalCallStmt table stmt)
+    {out : List YulStmt}
+    (hOk : compileStmt fields events errors dynamicSource internalRetNames
+      isInternal inScopeNames adtTypes stmt = .ok out) :
+    Native.yulStmtsContainFuncDef out = false := by
+  cases hStmt with
+  | call funcName args hArgs hFn =>
+    simp only [compileStmt, bind, Except.bind] at hOk
+    cases hExprs : compileExprList fields dynamicSource args with
+    | error _ => simp [hExprs] at hOk
+    | ok argExprs =>
+      simp [hExprs, Pure.pure, Except.pure] at hOk
+      subst out
+      simp [Native.yulStmtContainsFuncDef]
+  | callAssign names funcName args hArgs hFn =>
+    simp only [compileStmt, bind, Except.bind] at hOk
+    cases hExprs : compileExprList fields dynamicSource args with
+    | error _ => simp [hExprs] at hOk
+    | ok argExprs =>
+      simp [hExprs, Pure.pure, Except.pure] at hOk
+      subst out
+      simp [Native.yulStmtContainsFuncDef]
+
+theorem compileStmtList_internalCall_noFuncDefs
+    {table : BridgedFunctionTable}
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
+    (isInternal : Bool) (adtTypes : List AdtTypeDef)
+    (stmts : List Stmt) (hStmts : BridgedSourceInternalCallStmts table stmts)
+    (inScopeNames : List String) {out : List YulStmt}
+    (hOk : compileStmtList fields events errors dynamicSource internalRetNames
+      isInternal inScopeNames adtTypes stmts = .ok out) :
+    Native.yulStmtsContainFuncDef out = false :=
+  compileStmtList_noFuncDefs_of_perStmtBridge
+    (perStmt := BridgedSourceInternalCallStmt table)
+    (fun h hOk' =>
+      compileStmt_internalCall_noFuncDefs fields events errors dynamicSource
+        internalRetNames isInternal _ adtTypes h hOk')
+    stmts hStmts inScopeNames hOk
+
+theorem compileStmt_externalCallBind_noFuncDefs
+    {table : BridgedFunctionTable}
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
+    (isInternal : Bool) (inScopeNames : List String) (adtTypes : List AdtTypeDef)
+    {stmt : Stmt} (hStmt : BridgedSourceExternalCallBindStmt table stmt)
+    {out : List YulStmt}
+    (hOk : compileStmt fields events errors dynamicSource internalRetNames
+      isInternal inScopeNames adtTypes stmt = .ok out) :
+    Native.yulStmtsContainFuncDef out = false := by
+  cases hStmt with
+  | mk resultVars externalName args hArgs hFn =>
+    simp only [compileStmt, bind, Except.bind] at hOk
+    cases hExprs : compileExprList fields dynamicSource args with
+    | error _ => simp [hExprs] at hOk
+    | ok argExprs =>
+      simp [hExprs] at hOk
+      cases hEmpty : resultVars with
+      | nil =>
+        simp [hEmpty, Pure.pure, Except.pure] at hOk
+        subst out
+        simp [Native.yulStmtContainsFuncDef]
+      | cons head tail =>
+        simp [hEmpty, Pure.pure, Except.pure] at hOk
+        subst out
+        simp [Native.yulStmtContainsFuncDef]
+
+theorem compileStmtList_externalCallBind_noFuncDefs
+    {table : BridgedFunctionTable}
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
+    (isInternal : Bool) (adtTypes : List AdtTypeDef)
+    (stmts : List Stmt)
+    (hStmts : BridgedSourceExternalCallBindStmts table stmts)
+    (inScopeNames : List String) {out : List YulStmt}
+    (hOk : compileStmtList fields events errors dynamicSource internalRetNames
+      isInternal inScopeNames adtTypes stmts = .ok out) :
+    Native.yulStmtsContainFuncDef out = false :=
+  compileStmtList_noFuncDefs_of_perStmtBridge
+    (perStmt := BridgedSourceExternalCallBindStmt table)
+    (fun h hOk' =>
+      compileStmt_externalCallBind_noFuncDefs fields events errors dynamicSource
         internalRetNames isInternal _ adtTypes h hOk')
     stmts hStmts inScopeNames hOk
 

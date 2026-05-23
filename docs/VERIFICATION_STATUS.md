@@ -138,13 +138,16 @@ closures unconditionally for the supported fragment.
 - `compileStmtList_internal_nested_body_fragment_bridged`: mixed internal source-body fragments plus two `Stmt.ite` layers around mixed/structured branches compile to `BridgedStmts`
 - `compileStmtList_external_recursive_body_fragment_bridged`: mixed external source-body fragments closed recursively under `Stmt.ite` compile to `BridgedStmts`
 - `compileStmtList_internal_recursive_body_fragment_bridged`: mixed internal source-body fragments closed recursively under `Stmt.ite` compile to `BridgedStmts`
-- `compileStmtList_always_bridged`: universal aggregation theorem for `BridgedSafeStmts`; the external-call family (`internalCall`, `internalCallAssign`, `externalCallBind`, and `ecm`) remains outside the whitelist and behind explicit function-table hypotheses
+- `compileStmt_internalCall_bridged` / `compileStmtList_internalCall_bridged`: statement-position `Stmt.internalCall` and `Stmt.internalCallAssign` whose arguments are `BridgedSourceExpr` and whose compiled helper name resolves in an explicit `BridgedFunctionTable` compile to `BridgedStmts`
+- `compileStmt_externalCallBind_bridged` / `compileStmtList_externalCallBind_bridged`: `Stmt.externalCallBind` whose arguments are `BridgedSourceExpr` and whose target stub resolves in an explicit `BridgedFunctionTable` compiles to `BridgedStmts`
+- `compileStmtList_always_bridged`: universal aggregation theorem for `BridgedSafeStmts`, now including the table-resolved `internalCall` / `internalCallAssign` and `externalCallBind` families; opaque `Stmt.ecm` remains outside the whitelist until concrete modules provide bridgeable-output obligations
 
 The backend-parameterized bridge has been deleted. Body
 closure now has a universal safe-body aggregation theorem for
 `BridgedSafeStmts`, while the public EndToEnd theorem family targets native
-dispatcher execution through `interpretIRRuntimeNative` and keeps the
-external-call/function-table family carved out where needed.
+dispatcher execution through `interpretIRRuntimeNative`. The call-family path
+now requires an explicit bridged function table witness for each admitted
+callee rather than trusting arbitrary runtime dispatch.
 
 Native-runtime transition status: the public theorem target is native EVMYulLean dispatcher execution. The executable native EVMYulLean path lives in [`EvmYulLeanNativeHarness.lean`](../Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeHarness.lean). The public native EndToEnd surface is the native result comparison/composition surface, the generated call-dispatcher and dispatcher-exec theorem family, and the concrete SimpleStorage theorem; the fuel-indexed `nativeIRRuntimeMatchesIR` seams and positive dispatcher-exec match family are file-local instead of public theorem authority. The no-mapping and mapping generated-dispatcher wrappers consume concrete dispatcher lowering and construct full emitted-runtime native lowering internally, while the call-dispatcher variants expose the actual generated `EvmYul.Yul.callDispatcher` premise and derive the dispatcher-exec projection internally.
 
@@ -154,12 +157,12 @@ been removed; it is not a
 runtime authority for public compiler correctness.
 
 Not yet proven in this module:
-- external-call/function-table body closure beyond the current `BridgedSafeStmts` whitelist
+- opaque ECM body closure beyond the current `BridgedSafeStmts` whitelist
 - full native `EvmYul.Yul.callDispatcher` preservation for emitted runtime Yul without the remaining concrete dispatcher-exec obligations
 
 Remaining gaps for whole-program retargeting:
 - 0 sorry-backed core equivalences
-- extend `BridgedSafeStmts` or add a separate function-table simulation for the external-call family (`internalCall`, `internalCallAssign`, `externalCallBind`, and `ecm`)
+- connect the table-resolved `BridgedSafeStmts` call-family constructors to whole-program emitted helper/stub tables, and add bridgeable-output obligations for remaining opaque ECM modules
 
 ## Example Contract Compilation Coverage
 
