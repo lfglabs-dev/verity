@@ -2,6 +2,7 @@
 -- Runs a memoized axiom audit on all top-level theorems/lemmas in proof directories.
 -- Regenerate with: python3 scripts/generate_print_axioms.py
 
+import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeStepLemmas
 import Contracts.Counter.Proofs.Basic
 import Contracts.Counter.Proofs.Correctness
 import Contracts.ERC20.Proofs.Basic
@@ -62,7 +63,6 @@ import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeHarness
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeLowering
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeSignedArithLemmas
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeState
-import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeStepLemmas
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanPureBuiltinLemmas
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanSignedArithSpec
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanSourceExprClosure
