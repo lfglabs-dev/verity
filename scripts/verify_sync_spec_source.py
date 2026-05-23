@@ -74,7 +74,7 @@ SPEC = {'check_only_paths': ['.github/workflows/**',
                                                  'checks',
                                                  'build',
                                                  'build-compiler-binaries'],
-                        'lean-profile': ['changes'],
+                        'lean-profile': ['changes', 'build'],
                         'foundry-gas-calibration': ['changes',
                                                     'build-compiler-binaries'],
                         'foundry': ['changes', 'build-compiler-binaries'],
@@ -122,7 +122,8 @@ SPEC = {'check_only_paths': ['.github/workflows/**',
                                                         '&& needs.changes.outputs.compiler == '
                                                         "'true'",
                                 'lean-profile': "github.event_name == 'workflow_dispatch' && "
-                                                "needs.changes.outputs.build == 'true'",
+                                                "needs.changes.outputs.build == 'true' && "
+                                                "needs.build.result == 'success'",
                                 'foundry-gas-calibration': 'needs.changes.outputs.compiler == '
                                                            "'true' && (github.event_name != "
                                                            "'pull_request' || "
@@ -749,7 +750,7 @@ SPEC['expected_job_needs'] = {
     'build-compiler-binaries': ['changes', 'checks', 'build'],
     'compiler-audits': ['changes', 'checks', 'build', 'build-compiler-binaries'],
     'compiler-regressions': ['changes', 'checks', 'build', 'build-compiler-binaries'],
-    'lean-profile': ['changes'],
+    'lean-profile': ['changes', 'build'],
     'foundry-gas-calibration': ['changes', 'build-compiler-binaries'],
     'foundry': ['changes', 'build-compiler-binaries'],
     'foundry-patched': ['changes', 'build-compiler-binaries'],

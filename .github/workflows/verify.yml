@@ -1097,8 +1097,11 @@ jobs:
   lean-profile:
     runs-on: [self-hosted, linux, x64, verity, build]
     timeout-minutes: 45
-    needs: changes
-    if: github.event_name == 'workflow_dispatch' && needs.changes.outputs.build == 'true'
+    needs: [changes, build]
+    # Profiling is diagnostic telemetry. Keep it behind the proof build and
+    # non-blocking so interrupted profiling cannot cancel validation.
+    continue-on-error: true
+    if: github.event_name == 'workflow_dispatch' && needs.changes.outputs.build == 'true' && needs.build.result == 'success'
     steps:
       - uses: actions/checkout@v6
 
