@@ -160,6 +160,14 @@ def generate() -> str:
         and str(f.relative_to(ROOT)) not in EXCLUDED_PATHS
     ]
 
+    # Some proof modules are imported transitively by broad end-to-end proofs.
+    # Keep direct dependencies before their transitive dependents so Lean does
+    # not load stale/generated declaration internals in the opposite order.
+    IMPORT_PRIORITY = {
+        "Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeStepLemmas.lean": -1,
+    }
+    all_files.sort(key=lambda f: IMPORT_PRIORITY.get(str(f.relative_to(ROOT)), 0))
+
     imports: list[str] = []
     sections: list[str] = []
 
