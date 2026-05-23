@@ -261,7 +261,7 @@ theorem eval_lowerExprNative_callvalue_fuel
         (Backends.lowerExprNative (Yul.YulExpr.call "callvalue" []))
         codeOverride s =
       .ok (s, s.executionEnv.weiValue) := by
-  simp [Backends.lowerExprNative, Backends.lookupRuntimePrimOp,
+  simp [Backends.lookupRuntimePrimOp,
     EvmYul.Yul.eval, EvmYul.Yul.evalArgs, EvmYul.Yul.evalPrimCall,
     EvmYul.Yul.reverse', EvmYul.Yul.head']
 
@@ -274,7 +274,7 @@ theorem eval_lowerExprNative_callvalue_fuel_ge_2
         (Backends.lowerExprNative (Yul.YulExpr.call "callvalue" []))
         codeOverride s =
       .ok (s, s.executionEnv.weiValue) := by
-  simp [Backends.lowerExprNative, Backends.lookupRuntimePrimOp,
+  simp [Backends.lookupRuntimePrimOp,
     EvmYul.Yul.eval, EvmYul.Yul.evalArgs, EvmYul.Yul.evalPrimCall,
     EvmYul.Yul.reverse', EvmYul.Yul.head']
 
@@ -372,9 +372,9 @@ private theorem eval_lowerExprNative_callvalue_lt2_not_ok
   rcases fuel with _ | _ | _
   all_goals first
     | omega
-    | (simp [Backends.lowerExprNative, Backends.lookupRuntimePrimOp,
+    | (simp [Backends.lookupRuntimePrimOp,
         EvmYul.Yul.eval, EvmYul.Yul.evalArgs, EvmYul.Yul.evalPrimCall,
-        EvmYul.Yul.reverse', EvmYul.Yul.head'] at hEval)
+        EvmYul.Yul.reverse'] at hEval)
 
 /-- UNIVERSAL-INPUT reviveJump discharge for the dispatcher's `callvalue()`
 guard: for ANY fuel and ANY state, a successful eval preserves `reviveJump`.
@@ -1482,8 +1482,7 @@ theorem exec_let_lowerExprNative_iszero_lt_calldatasize_4_postInitFreeMemory_sto
           observableSlots) store : EvmYul.Yul.State).insert name
         (EvmYul.UInt256.ofNat 1)))
   rw [exec_let_lowerExprNative_iszero_lt_calldatasize_4_ok_fuel]
-  simp [nativeSwitchPostInitFreeMemoryState,
-    nativeSwitchPostInitFreeMemorySharedState, calldataToByteArray_size,
+  simp [nativeSwitchPostInitFreeMemorySharedState, calldataToByteArray_size,
     uint256_lt_ofNat_4_eq_zero_of_ge _ (by omega) hNoWrap,
     uint256_isZero_ofNat_zero]
 
