@@ -3943,6 +3943,11 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.compileStmtList_internalCall_bridged
   Compiler.Proofs.YulGeneration.Backends.compileStmt_externalCallBind_bridged
   Compiler.Proofs.YulGeneration.Backends.compileStmtList_externalCallBind_bridged
+  -- Compiler.Proofs.YulGeneration.Backends.compileStmtList_noFuncDefs_of_perStmtBridge  -- private
+  Compiler.Proofs.YulGeneration.Backends.compileStmt_internalCall_noFuncDefs
+  Compiler.Proofs.YulGeneration.Backends.compileStmtList_internalCall_noFuncDefs
+  Compiler.Proofs.YulGeneration.Backends.compileStmt_externalCallBind_noFuncDefs
+  Compiler.Proofs.YulGeneration.Backends.compileStmtList_externalCallBind_noFuncDefs
   Compiler.Proofs.YulGeneration.Backends.compileStmt_ecm_bridged
   Compiler.Proofs.YulGeneration.Backends.compileStmtList_ecm_bridged
   Compiler.Proofs.YulGeneration.Backends.compileStmtList_append_ok_inv
@@ -5457,4 +5462,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5162 theorems/lemmas (3583 public, 1579 private, 0 sorry'd)
+-- Total: 5167 theorems/lemmas (3587 public, 1580 private, 0 sorry'd)
