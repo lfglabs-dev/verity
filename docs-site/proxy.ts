@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { applyAgentDiscoveryHeaders } from "@/server/agent-discovery";
 
 /**
  * Known LLM/AI user agent patterns
@@ -33,8 +34,9 @@ function isLLMUserAgent(userAgent: string | null): boolean {
  * Routes to raw markdown API when:
  * 1. URL ends with .md extension (e.g., /setup.md)
  * 2. Accept header includes text/markdown
- * 3. Query param ?format=md is present
- * 4. User-Agent is a known LLM (ChatGPT, GPTBot, PerplexityBot, etc.)
+ * 3. Accept header includes text/plain
+ * 4. Query param ?format=md is present
+ * 5. User-Agent is a known LLM (ChatGPT, GPTBot, PerplexityBot, etc.)
  *
  * This allows AI agents to fetch documentation as raw markdown
  * while browsers get the rendered HTML version.
@@ -45,6 +47,7 @@ export function proxy(request: NextRequest) {
   // Skip API routes, static files, and Next.js internals
   if (
     pathname.startsWith("/api/") ||
+    pathname.startsWith("/.well-known/") ||
     pathname.startsWith("/_next/") ||
     pathname.startsWith("/static/") ||
     pathname.startsWith("/_pagefind/") ||
@@ -59,6 +62,7 @@ export function proxy(request: NextRequest) {
   const wantsMarkdown =
     pathname.endsWith(".md") ||
     request.headers.get("Accept")?.includes("text/markdown") ||
+    request.headers.get("Accept")?.includes("text/plain") ||
     request.nextUrl.searchParams.get("format") === "md" ||
     isLLMUserAgent(userAgent);
 
@@ -77,10 +81,10 @@ export function proxy(request: NextRequest) {
     url.searchParams.delete("format");
 
     // Rewrite to the API route (internal redirect, URL doesn't change for client)
-    return NextResponse.rewrite(url);
+    return applyAgentDiscoveryHeaders(NextResponse.rewrite(url));
   }
 
-  return NextResponse.next();
+  return applyAgentDiscoveryHeaders(NextResponse.next());
 }
 
 // Only run proxy on relevant paths
