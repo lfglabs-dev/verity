@@ -162,7 +162,7 @@ return (first, second)
 
 Tuple-typed parameters stay shape-preserved as right-nested Lean products; ABI-flattened aliases (`pair_0`, `pair_1`, …) are injected so you can use them directly. `_` binders are accepted and discarded hygienically.
 
-### Stateless contracts and payable / initializer constructors
+### Stateless contracts and mutability markers
 
 ```verity
 verity_contract Stateless where
@@ -179,6 +179,17 @@ constructor (seedOwner : Address) payable := do
 ```
 
 `payable` removes the `callvalue` guard and emits `stateMutability: "payable"` in the ABI.
+
+```verity
+function pure double (value : Uint256) : Uint256 := do
+  return (add value value)
+```
+
+`view` functions may read storage and the execution environment but cannot write state.
+`pure` functions cannot read or write state or environment values. Mutability checks include
+internal helper calls, so a `view` or `pure` wrapper is rejected if a helper it calls violates
+that marker. Generated ABI JSON emits `stateMutability: "view"` or `"pure"` for the matching
+function marker.
 
 ```verity
 function initOwner (seedOwner : Address) initializer(initializedVersion) : Unit := ...
