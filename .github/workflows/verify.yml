@@ -1621,7 +1621,8 @@ jobs:
         run: |
           echo "::group::Testing with seed ${{ matrix.seed }}"
           echo "DIFFTEST_RANDOM_SEED=${{ matrix.seed }}"
-          forge test
+          echo "Skipping Random10000 here; the sharded seed-42 Foundry job owns that stress lane."
+          forge test --no-match-test "Random10000"
           echo "::endgroup::"
 
       - name: Report seed-specific failure

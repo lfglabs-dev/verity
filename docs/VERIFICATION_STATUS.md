@@ -225,7 +225,7 @@ Also note that the macro-generated `*_semantic_preservation` theorems are not co
 
 ## Differential Testing
 
-**Status**: CI runs large sharded randomized differential suites against the current contract set, comparing EDSL interpreter output against Solidity-compiled EVM execution.
+**Status**: CI runs large sharded randomized differential suites against the current contract set, comparing EDSL interpreter output against Solidity-compiled EVM execution. The seed-42 shard set owns the `Random10000` stress lane; the multi-seed lane skips that target so it can cover cheaper randomized/property tests across several seeds without serially repeating the slowest stress suite.
 
 ## Solidity Interop Support Matrix (Issue #586)
 

@@ -1294,8 +1294,13 @@ def check_foundry(snapshot: Snapshot, spec: dict) -> CheckResult:
             "foundry-patched --no-match-test target mismatch: "
             f"workflow={patched_target!r}, spec={spec['expected_foundry_patched']['no_match_test']!r}"
         )
-    if _extract_no_match_target(multiseed_cmd) is not None:
-        errors.append("foundry-multi-seed must not use --no-match-test")
+    multiseed_expected = spec["expected_foundry_multi_seed"]
+    multiseed_target = _extract_no_match_target(multiseed_cmd)
+    if multiseed_target != multiseed_expected["no_match_test"]:
+        errors.append(
+            "foundry-multi-seed --no-match-test target mismatch: "
+            f"workflow={multiseed_target!r}, spec={multiseed_expected['no_match_test']!r}"
+        )
 
     patched_expected = spec["expected_foundry_patched"]
     for key, expected in [

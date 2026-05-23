@@ -34,7 +34,10 @@ for seed in "${SEEDS[@]}"; do
     echo "Testing seed: $seed"
     echo "--------------------------------------"
 
-    if FOUNDRY_PROFILE=difftest DIFFTEST_RANDOM_SEED="$seed" DIFFTEST_SHARD_COUNT=1 DIFFTEST_SHARD_INDEX=0 DIFFTEST_RANDOM_SMALL=100 DIFFTEST_RANDOM_LARGE=10000 forge test; then
+    # The sharded seed-42 CI lane owns Random10000 stress coverage. This
+    # script is the multi-seed lane, so keep it focused on cheaper randomized
+    # and property coverage across seeds.
+    if FOUNDRY_PROFILE=difftest DIFFTEST_RANDOM_SEED="$seed" DIFFTEST_SHARD_COUNT=1 DIFFTEST_SHARD_INDEX=0 DIFFTEST_RANDOM_SMALL=100 DIFFTEST_RANDOM_LARGE=10000 forge test --no-match-test "Random10000"; then
         echo "✅ Seed $seed: PASSED"
     else
         echo "❌ Seed $seed: FAILED"
@@ -56,7 +59,7 @@ if [ ${#FAILED_SEEDS[@]} -gt 0 ]; then
     echo ""
     echo "To reproduce a failure:"
     for failed_seed in "${FAILED_SEEDS[@]}"; do
-        echo "  FOUNDRY_PROFILE=difftest DIFFTEST_RANDOM_SEED=$failed_seed DIFFTEST_SHARD_COUNT=1 DIFFTEST_SHARD_INDEX=0 DIFFTEST_RANDOM_SMALL=100 DIFFTEST_RANDOM_LARGE=10000 forge test -vv"
+        echo "  FOUNDRY_PROFILE=difftest DIFFTEST_RANDOM_SEED=$failed_seed DIFFTEST_SHARD_COUNT=1 DIFFTEST_SHARD_INDEX=0 DIFFTEST_RANDOM_SMALL=100 DIFFTEST_RANDOM_LARGE=10000 forge test --no-match-test \"Random10000\" -vv"
     done
     exit 1
 else
