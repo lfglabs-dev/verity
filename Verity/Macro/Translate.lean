@@ -3510,18 +3510,18 @@ private partial def inferTupleSourceTypes?
         | `(term| structMembers $field:term $key:term $members:term) => do
             let fieldName := ← expectStringOrIdent field
             let memberNames := ← expectStringList members
-            for memberName in memberNames do
-              let _ ← lookupStructMemberDecl fields fieldName memberName false
+            let memberDecls ← memberNames.mapM fun memberName =>
+              lookupStructMemberDecl fields fieldName memberName false
             requireWordLikeType key "structMembers key" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals key)
-            pure (some (Array.replicate memberNames.size .uint256))
+            pure (some (memberDecls.map (·.ty)))
         | `(term| structMembers2 $field:term $key1:term $key2:term $members:term) => do
             let fieldName := ← expectStringOrIdent field
             let memberNames := ← expectStringList members
-            for memberName in memberNames do
-              let _ ← lookupStructMemberDecl fields fieldName memberName true
+            let memberDecls ← memberNames.mapM fun memberName =>
+              lookupStructMemberDecl fields fieldName memberName true
             requireWordLikeType key1 "structMembers2 key" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals key1)
             requireWordLikeType key2 "structMembers2 key" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals key2)
-            pure (some (Array.replicate memberNames.size .uint256))
+            pure (some (memberDecls.map (·.ty)))
         | `(term| arrayElement $name:term $index:term) => do
             requireWordLikeType index "arrayElement index"
               (← inferPureExprType fields constDecls immutableDecls externalDecls params locals index)

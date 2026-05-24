@@ -101,61 +101,6 @@ theorem supportedScalarHeadSize_eq
   have hlt : ¬ 4 + 32 * idx < 4 := by omega
   simp [Compiler.Proofs.YulGeneration.calldataloadWord, hlt]
 
-theorem exec_genScalarLoad_supported
-    (state : IRState) (name : String) (ty : ParamType) (idx value : Nat)
-    (hsupported : SupportedExternalParamType ty)
-    (hdecode : SourceSemantics.decodeSupportedParamWord ty (state.calldata.getD idx 0) = some value) :
-    execIRStmts ((genScalarLoad (fun pos => YulExpr.call "calldataload" [pos]) name ty (4 + 32 * idx)).length + 1)
-      state
-      (genScalarLoad (fun pos => YulExpr.call "calldataload" [pos]) name ty (4 + 32 * idx)) =
-      .continue (state.setVar name value) := by
-  cases ty <;> try cases hsupported
-  case uint256 | int256 | bytes32 =>
-    have hvalue : value = state.calldata.getD idx 0 % Compiler.Constants.evmModulus := by
-      simpa [SourceSemantics.decodeSupportedParamWord, SourceSemantics.wordNormalize,
-        Verity.Core.UINT256_MODULUS, uint256_modulus_eq_evm] using hdecode.symm
-    cases hvalue
-    simp [genScalarLoad, execIRStmts, execIRStmt, evalIRExpr, evalIRCall, evalIRExprs,
-      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
-      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallViaEvmYulLean, calldataloadWord_aligned]
-  case uint8 =>
-    simp [SourceSemantics.decodeSupportedParamWord, SourceSemantics.wordNormalize,
-      SourceSemantics.uint8Modulus] at hdecode
-    subst value
-    have h255 : (255 : Nat) % Compiler.Constants.evmModulus = 255 := by
-      norm_num [Compiler.Constants.evmModulus]
-    simp [genScalarLoad, execIRStmts, execIRStmt, evalIRExpr, evalIRCall, evalIRExprs,
-      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
-      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallViaEvmYulLean, calldataloadWord_aligned, h255]
-  case uint16 =>
-    simp [SourceSemantics.decodeSupportedParamWord, SourceSemantics.wordNormalize] at hdecode
-    subst value
-    have h65535 : (65535 : Nat) % Compiler.Constants.evmModulus = 65535 := by
-      norm_num [Compiler.Constants.evmModulus]
-    simp [genScalarLoad, execIRStmts, execIRStmt, evalIRExpr, evalIRCall, evalIRExprs,
-      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
-      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallViaEvmYulLean, calldataloadWord_aligned, h65535]
-  case address =>
-    simp [SourceSemantics.decodeSupportedParamWord, SourceSemantics.wordNormalize] at hdecode
-    subst value
-    have hmask : Compiler.Constants.addressMask % Compiler.Constants.evmModulus =
-        Compiler.Constants.addressMask := by
-      have hlt : Compiler.Constants.addressMask < Compiler.Constants.evmModulus := by
-        dsimp [Compiler.Constants.addressMask, Compiler.Constants.evmModulus]
-        omega
-      exact Nat.mod_eq_of_lt hlt
-    simp [genScalarLoad, execIRStmts, execIRStmt, evalIRExpr, evalIRCall, evalIRExprs,
-      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
-      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallViaEvmYulLean, calldataloadWord_aligned, hmask]
-  case bool =>
-    simp only [SourceSemantics.decodeSupportedParamWord, SourceSemantics.wordNormalize,
-      Option.some.injEq] at hdecode
-    subst value
-    simp [genScalarLoad, execIRStmts, execIRStmt, evalIRExpr, evalIRCall, evalIRExprs,
-      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
-      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallViaEvmYulLean, calldataloadWord_aligned]
-    split <;> simp_all
-
 private theorem getD_eq_of_drop_eq_cons
     {xs : List Nat} {idx arg : Nat} {rest : List Nat}
     (hdrop : xs.drop idx = arg :: rest) :

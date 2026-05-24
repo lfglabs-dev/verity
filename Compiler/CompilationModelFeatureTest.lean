@@ -4513,6 +4513,10 @@ verity_contract TypedVerifierRouter where
       outputCount : Uint16 @word 0 packed(176,16),
       active : Bool @word 0 packed(192,8)
     ]) := slot 2
+    routeFlags : MappingStruct2(Bytes32,Bytes32,[
+      enabled : Bool @word 0 packed(0,8),
+      limit : Uint16 @word 0 packed(8,16)
+    ]) := slot 3
 
   struct Circuit where
     verifier : Address,
@@ -4545,6 +4549,14 @@ verity_contract TypedVerifierRouter where
     let active ← structMember "circuits" circuitId "active"
     return Circuit.mk verifierAddr inputCount outputCount active
 
+  function view getCircuitViaMembers (circuitId : Bytes32) : Circuit := do
+    let (verifierAddr, inputCount, outputCount, active) :=
+      structMembers "circuits" circuitId ["verifier", "inputCount", "outputCount", "active"]
+    return Circuit.mk verifierAddr inputCount outputCount active
+
+  function view getRouteFlag (sourceId : Bytes32, targetId : Bytes32) : Tuple [Bool, Uint16] := do
+    return structMembers2 "routeFlags" sourceId targetId ["enabled", "limit"]
+
 def routerSpecUsesBytes32MappingKey : Bool :=
   TypedVerifierRouter.spec.fields.any (fun field =>
     field.name == "circuits" &&
@@ -4573,8 +4585,17 @@ def routerSpecUsesTypedEventsAndReturns : Bool :=
       fn.params.map (fun param => param.ty) == [ParamType.bytes32] &&
       fn.returns == [ParamType.address, ParamType.uint16, ParamType.uint16, ParamType.bool])
 
+def routerStructMembersDestructuringKeepsMemberTypes : Bool :=
+  TypedVerifierRouter.spec.functions.any (fun fn =>
+    fn.name == "getCircuitViaMembers" &&
+      fn.returns == [ParamType.address, ParamType.uint16, ParamType.uint16, ParamType.bool]) &&
+  TypedVerifierRouter.spec.functions.any (fun fn =>
+    fn.name == "getRouteFlag" &&
+      fn.returns == [ParamType.bool, ParamType.uint16])
+
 example : routerSpecUsesBytes32MappingKey = true := by native_decide
 example : routerSpecUsesTypedEventsAndReturns = true := by native_decide
+example : routerStructMembersDestructuringKeepsMemberTypes = true := by native_decide
 
 end MacroSolidityTypeFidelitySmoke
 
