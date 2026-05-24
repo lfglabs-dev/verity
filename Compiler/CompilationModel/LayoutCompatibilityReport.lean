@@ -19,6 +19,7 @@ private def jsonOption (render : α → String) : Option α → String
 private def mappingKeyTypeString : MappingKeyType → String
   | .address => "address"
   | .uint256 => "uint256"
+  | .bytes32 => "bytes32"
 
 private def mappingKeyChainString (keys : List MappingKeyType) : String :=
   String.intercalate "=>" (keys.map mappingKeyTypeString)

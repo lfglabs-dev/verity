@@ -14,6 +14,7 @@ private def abiTypeString : ParamType → String
   | .uint256 => "uint256"
   | .int256 => "int256"
   | .uint8 => "uint8"
+  | .uint16 => "uint16"
   | .address => "address"
   | .bool => "bool"
   | .bytes32 => "bytes32"

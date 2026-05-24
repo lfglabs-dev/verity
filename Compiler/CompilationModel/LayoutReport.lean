@@ -17,6 +17,14 @@ private def jsonOption (render : α → String) : Option α → String
 private def mappingKeyTypeString : MappingKeyType → String
   | .address => "address"
   | .uint256 => "uint256"
+  | .bytes32 => "bytes32"
+
+private def structMemberTypeString : StructMemberType → String
+  | .uint256 => "uint256"
+  | .uint16 => "uint16"
+  | .address => "address"
+  | .bool => "bool"
+  | .bytes32 => "bytes32"
 
 private def mappingKeysJson (keys : List MappingKeyType) : String :=
   jsonArray (keys.map (fun keyType => jsonString (mappingKeyTypeString keyType)))
@@ -30,6 +38,7 @@ private def packedBitsJson (packed : PackedBits) : String :=
 private def structMemberJson (member : StructMember) : String :=
   jsonObject [
     ("name", jsonString member.name),
+    ("type", jsonString (structMemberTypeString member.ty)),
     ("wordOffset", jsonNat member.wordOffset),
     ("packedBits", jsonOption packedBitsJson member.packed)
   ]

@@ -4499,6 +4499,85 @@ private def erc4626DepositSmokeSpec : CompilationModel := {
   ]
 }
 
+namespace MacroSolidityTypeFidelitySmoke
+
+open Contracts
+open Verity hiding pure bind
+open Verity.EVM.Uint256
+
+verity_contract TypedVerifierRouter where
+  storage
+    circuits : MappingStruct(Bytes32,[
+      verifier : Address @word 0 packed(0,160),
+      inputCount : Uint16 @word 0 packed(160,16),
+      outputCount : Uint16 @word 0 packed(176,16),
+      active : Bool @word 0 packed(192,8)
+    ]) := slot 2
+
+  struct Circuit where
+    verifier : Address,
+    inputCount : Uint16,
+    outputCount : Uint16,
+    active : Bool
+
+  event_defs
+    event CircuitRegistered(@indexed circuitId : Bytes32, verifier : Address,
+      inputCount : Uint16, outputCount : Uint16)
+    event CircuitActiveSet(@indexed circuitId : Bytes32, active : Bool)
+
+  function setCircuit
+      (circuitId : Bytes32, verifierAddr : Address, inputCount : Uint16,
+       outputCount : Uint16) : Unit := do
+    setStructMember "circuits" circuitId "verifier" verifierAddr
+    setStructMember "circuits" circuitId "inputCount" inputCount
+    setStructMember "circuits" circuitId "outputCount" outputCount
+    setStructMember "circuits" circuitId "active" true
+    emit "CircuitRegistered" [circuitId, addressToWord verifierAddr, inputCount, outputCount]
+
+  function pauseCircuit (circuitId : Bytes32) : Unit := do
+    setStructMember "circuits" circuitId "active" false
+    emit "CircuitActiveSet" [circuitId, false]
+
+  function view getCircuit (circuitId : Bytes32) : Circuit := do
+    let verifierAddr ← structMember "circuits" circuitId "verifier"
+    let inputCount ← structMember "circuits" circuitId "inputCount"
+    let outputCount ← structMember "circuits" circuitId "outputCount"
+    let active ← structMember "circuits" circuitId "active"
+    return Circuit.mk verifierAddr inputCount outputCount active
+
+def routerSpecUsesBytes32MappingKey : Bool :=
+  TypedVerifierRouter.spec.fields.any (fun field =>
+    field.name == "circuits" &&
+      match field.ty with
+      | FieldType.mappingStruct MappingKeyType.bytes32 members =>
+          members.any (fun member =>
+            member.name == "inputCount" &&
+              member.ty == StructMemberType.uint16 &&
+              member.packed == some { offset := 160, width := 16 }) &&
+          members.any (fun member =>
+            member.name == "active" &&
+              member.ty == StructMemberType.bool &&
+              member.packed == some { offset := 192, width := 8 })
+      | _ => false)
+
+def routerSpecUsesTypedEventsAndReturns : Bool :=
+  TypedVerifierRouter.spec.events.any (fun eventDef =>
+    eventDef.name == "CircuitRegistered" &&
+      eventDef.params.map (fun param => param.ty) ==
+        [ParamType.bytes32, ParamType.address, ParamType.uint16, ParamType.uint16]) &&
+  TypedVerifierRouter.spec.events.any (fun eventDef =>
+    eventDef.name == "CircuitActiveSet" &&
+      eventDef.params.map (fun param => param.ty) == [ParamType.bytes32, ParamType.bool]) &&
+  TypedVerifierRouter.spec.functions.any (fun fn =>
+    fn.name == "getCircuit" &&
+      fn.params.map (fun param => param.ty) == [ParamType.bytes32] &&
+      fn.returns == [ParamType.address, ParamType.uint16, ParamType.uint16, ParamType.bool])
+
+example : routerSpecUsesBytes32MappingKey = true := by native_decide
+example : routerSpecUsesTypedEventsAndReturns = true := by native_decide
+
+end MacroSolidityTypeFidelitySmoke
+
 set_option maxRecDepth 4096 in
 #eval! do
   let compiled :=

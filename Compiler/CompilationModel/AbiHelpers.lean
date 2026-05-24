@@ -47,6 +47,7 @@ mutual
     | ParamType.uint256 => "uint256"
     | ParamType.int256 => "int256"
     | ParamType.uint8 => "uint8"
+    | ParamType.uint16 => "uint16"
     | ParamType.address => "address"
     | ParamType.bool => "bool"
     | ParamType.bytes32 => "bytes32"

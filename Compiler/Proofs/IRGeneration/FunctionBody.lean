@@ -944,14 +944,18 @@ private theorem decodeSupportedParamWord_passthrough_lt_evmModulus
 private theorem decodeSupportedParamWord_masked_lt_evmModulus
     {ty : ParamType}
     {word value : Nat}
-    (hmasked : ty = .uint8 ∨ ty = .address)
+    (hmasked : ty = .uint8 ∨ ty = .uint16 ∨ ty = .address)
     (hdecode : SourceSemantics.decodeSupportedParamWord ty word = some value) :
     value < Compiler.Constants.evmModulus := by
-  rcases hmasked with rfl | rfl
+  rcases hmasked with rfl | rfl | rfl
   · have hvalue : value = SourceSemantics.wordNormalize word &&& (SourceSemantics.uint8Modulus - 1) := by
       simpa [SourceSemantics.decodeSupportedParamWord] using hdecode.symm
     cases hvalue
     exact maskedWordNormalize_lt_evmModulus word (SourceSemantics.uint8Modulus - 1)
+  · have hvalue : value = SourceSemantics.wordNormalize word &&& (2^16 - 1) := by
+      simpa [SourceSemantics.decodeSupportedParamWord] using hdecode.symm
+    cases hvalue
+    exact maskedWordNormalize_lt_evmModulus word (2^16 - 1)
   · have hvalue : value = SourceSemantics.wordNormalize word &&& Compiler.Constants.addressMask := by
       simpa [SourceSemantics.decodeSupportedParamWord] using hdecode.symm
     cases hvalue
@@ -978,8 +982,10 @@ theorem decodeSupportedParamWord_lt_evmModulus
       exact decodeSupportedParamWord_passthrough_lt_evmModulus (hpassthrough := .inr (.inl rfl)) hdecode
   | uint8 =>
       exact decodeSupportedParamWord_masked_lt_evmModulus (hmasked := .inl rfl) hdecode
+  | uint16 =>
+      exact decodeSupportedParamWord_masked_lt_evmModulus (hmasked := .inr (.inl rfl)) hdecode
   | address =>
-      exact decodeSupportedParamWord_masked_lt_evmModulus (hmasked := .inr rfl) hdecode
+      exact decodeSupportedParamWord_masked_lt_evmModulus (hmasked := .inr (.inr rfl)) hdecode
   | bool =>
       exact decodeSupportedParamWord_bool_lt_evmModulus hdecode
   | bytes32 =>

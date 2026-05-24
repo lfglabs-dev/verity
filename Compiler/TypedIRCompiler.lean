@@ -52,6 +52,7 @@ private def paramTypeToTy : ParamType → Except String Ty
   | .uint256 => Except.ok Ty.uint256
   | .int256 => Except.ok Ty.uint256
   | .uint8 => Except.ok Ty.uint256
+  | .uint16 => Except.ok Ty.uint256
   | .address => Except.ok Ty.address
   | .bool => Except.ok Ty.bool
   | .bytes32 => Except.ok Ty.uint256
