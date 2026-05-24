@@ -549,6 +549,36 @@ inductive StmtResult where
   | return (value : Nat) (state : RuntimeState)
   | revert
 
+def execForEachLoop
+    (varName : String)
+    (runBody : RuntimeState → StmtResult) :
+    RuntimeState → Nat → Nat → StmtResult
+  | state, _, 0 => .continue state
+  | state, index, remaining + 1 =>
+      let loopState :=
+        { state with bindings := bindValue state.bindings varName (wordNormalize index) }
+      match runBody loopState with
+      | .continue next => execForEachLoop varName runBody next (index + 1) remaining
+      | .stop next => .stop next
+      | .return value next => .return value next
+      | .revert => .revert
+
+theorem execForEachLoop_congr
+    {varName : String}
+    {runBodyA runBodyB : RuntimeState → StmtResult}
+    (hbody : ∀ state, runBodyA state = runBodyB state) :
+    ∀ (state : RuntimeState) (index remaining : Nat),
+      execForEachLoop varName runBodyA state index remaining =
+        execForEachLoop varName runBodyB state index remaining
+  | state, index, 0 => by
+      simp [execForEachLoop]
+  | state, index, remaining + 1 => by
+      simp only [execForEachLoop]
+      rw [hbody]
+      cases hrun : runBodyB
+        { state with bindings := bindValue state.bindings varName (wordNormalize index) } <;>
+        simp [hrun, execForEachLoop_congr hbody]
+
 private def storageArraySetAt : List Verity.Core.Uint256 → Nat → Verity.Core.Uint256 → Option (List Verity.Core.Uint256)
   | [], _, _ => none
   | _ :: rest, 0, value => some (value :: rest)
@@ -1871,6 +1901,13 @@ mutual
                     events := state.world.events ++ [event] } }
             | _, _ => .revert
         | none => .revert
+    | state, .forEach varName count body =>
+        match evalExpr fields state count with
+        | some bound =>
+            execForEachLoop varName
+              (fun loopState => execStmtListWithEvents fields events loopState body)
+              state 0 bound
+        | none => .revert
     | _, _ => .revert
 
   def execStmtListWithEvents (fields : List Field) (events : List EventDef) :
@@ -2105,6 +2142,13 @@ mutual
                     memory := memory
                     events := state.world.events ++ [event] } }
             | _, _ => .revert
+        | none => .revert
+    | state, .forEach varName count body =>
+        match evalExpr fields state count with
+        | some bound =>
+            execForEachLoop varName
+              (fun loopState => execStmtList fields loopState body)
+              state 0 bound
         | none => .revert
     | _, _ => .revert
 
@@ -3112,6 +3156,13 @@ mutual
                     memory := memory
                     events := state.world.events ++ [event] } }
             | _, _ => .revert
+        | none => .revert
+    | .forEach varName count body =>
+        match evalExprWithHelpers spec fields fuel state count with
+        | some bound =>
+            execForEachLoop varName
+              (fun loopState => execStmtListWithHelpers spec fields fuel loopState body)
+              state 0 bound
         | none => .revert
     | _ => .revert
   termination_by stmt => (fuel, sizeOf stmt)
@@ -4163,6 +4214,13 @@ mutual
     simp [Stmt.ite.sizeOf_spec]
     omega
 
+  private theorem stmt_sizeOf_lt_forEach_body
+      (varName : String) (count : Expr) (body : List Stmt) :
+      sizeOf body + 1 < sizeOf (Stmt.forEach varName count body) := by
+    have hcount : 0 < sizeOf count := expr_sizeOf_pos count
+    simp [Stmt.forEach.sizeOf_spec]
+    omega
+
   private theorem stmt_sizeOf_lt_cons (stmt : Stmt) (rest : List Stmt) :
       sizeOf stmt + 1 < sizeOf (stmt :: rest) := by
     cases rest with
@@ -4344,7 +4402,30 @@ private theorem execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux
   | .ecm _ _ => simp [execStmtWithHelpers, execStmtWithEvents]
   | .forEach _ _ _ =>
       simp only [stmtTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
-      simp [execStmtWithHelpers, execStmtWithEvents]
+      rename_i varName count body
+      have hcount :=
+        evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed
+          spec fields fuel state count hsurface.1
+      simp only [execStmtWithHelpers, execStmtWithEvents, hcount]
+      cases evalExpr fields state count with
+      | none => rfl
+      | some bound =>
+          exact execForEachLoop_congr
+            (varName := varName)
+            (runBodyA := fun loopState =>
+              execStmtListWithHelpers spec fields fuel loopState body)
+            (runBodyB := fun loopState =>
+              execStmtListWithEvents fields spec.events loopState body)
+            (fun loopState =>
+              execStmtListWithHelpers_eq_execStmtList_of_helperSurfaceClosed_inner
+                spec fields fuel loopState body hsurface.2
+                (fun st s hs hsf =>
+                  have : sizeOf s < sizeOf (Stmt.forEach varName count body) := by
+                    have hbody := stmt_sizeOf_lt_forEach_body varName count body
+                    omega
+                  execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux
+                    spec fields fuel st s hsf))
+            state 0 bound
 termination_by sizeOf stmt
 
 theorem execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed

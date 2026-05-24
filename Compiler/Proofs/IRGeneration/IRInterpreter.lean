@@ -366,9 +366,10 @@ private def prepareInternalCalleeState
 
 /-- Legacy IR-theorem compatibility subset for external bodies. This excludes the
 helper-only Yul forms whose semantics differ from the current helper-free
-interpreter target (`letMany`, `leave`, `switch`, and `for`) while still
-allowing nested blocks / branches so the conservative-extension theorem can
-talk about today's compiled external-body shape explicitly. -/
+interpreter target (`letMany`, `leave`, and `switch`) while still allowing
+nested blocks, branches, and structurally compatible loops so the
+conservative-extension theorem can talk about today's compiled external-body
+shape explicitly. -/
 inductive LegacyCompatibleExternalStmtList : List YulStmt → Prop
   | nil :
       LegacyCompatibleExternalStmtList []
@@ -392,6 +393,12 @@ inductive LegacyCompatibleExternalStmtList : List YulStmt → Prop
       LegacyCompatibleExternalStmtList body →
       LegacyCompatibleExternalStmtList rest →
       LegacyCompatibleExternalStmtList (.block body :: rest)
+  | for_ (init : List YulStmt) (cond : YulExpr) (post body rest : List YulStmt) :
+      LegacyCompatibleExternalStmtList init →
+      LegacyCompatibleExternalStmtList post →
+      LegacyCompatibleExternalStmtList body →
+      LegacyCompatibleExternalStmtList rest →
+      LegacyCompatibleExternalStmtList (.for_ init cond post body :: rest)
   | funcDef (name : String) (params rets : List String) (body rest : List YulStmt) :
       LegacyCompatibleExternalStmtList body →
       LegacyCompatibleExternalStmtList rest →
@@ -3035,6 +3042,10 @@ theorem YulStmtListCallsDisjointFromInternalTable_of_internalFunctions_nil
         (yulExprCallsDisjointFromInternalTable_of_internalFunctions_nil contract hinternal cond) ihBody ihRest
   | block body rest hbody _ ihBody ihRest =>
       exact .block body rest ihBody ihRest
+  | for_ init cond post body rest hinit hpost hbody _ ihInit ihPost ihBody ihRest =>
+      exact .for_ init cond post body rest ihInit
+        (yulExprCallsDisjointFromInternalTable_of_internalFunctions_nil contract hinternal cond)
+        ihPost ihBody ihRest
   | funcDef name params rets body rest hbody _ ihBody ihRest =>
       exact .funcDef name params rets body rest ihBody ihRest
 
@@ -3567,6 +3578,81 @@ theorem execIRStmtsWithInternals_eq_execIRStmts_of_exprCompatibility
               rw [execIRStmtsWithInternals, execIRStmts, hhead]
               cases hstep : execIRStmt fuel state (.block body) <;>
                 simp only [ihRest]
+      | for_ init cond post body rest hinit hpost hbody hrest ihInit ihPost ihBody ihRest =>
+          cases fuel with
+          | zero =>
+              simp only [execIRStmtsWithInternals, execIRStmts]
+          | succ fuel =>
+              have hhead :
+                  execIRStmtWithInternals contract fuel state (.for_ init cond post body) =
+                    match execIRStmt fuel state (.for_ init cond post body) with
+                    | .continue next => .continue next
+                    | .return value next => .return value next
+                    | .stop next => .stop next
+                    | .revert next => .revert next := by
+                suffices hgen : ∀ (f : Nat) (s : IRState) (initStmts : List YulStmt),
+                    (∀ f' s', execIRStmtsWithInternals contract f' s' initStmts =
+                      match execIRStmts f' s' initStmts with
+                      | .continue n => .continue n | .return v n => .return v n
+                      | .stop n => .stop n | .revert n => .revert n) →
+                    execIRStmtWithInternals contract f s (.for_ initStmts cond post body) =
+                      match execIRStmt f s (.for_ initStmts cond post body) with
+                      | .continue next => .continue next
+                      | .return value next => .return value next
+                      | .stop next => .stop next
+                      | .revert next => .revert next by
+                  exact hgen fuel state init (ihInit · ·)
+                intro f
+                induction f with
+                | zero =>
+                    intro s initStmts _
+                    simp only [execIRStmtWithInternals, execIRStmt]
+                | succ f ihFuel =>
+                    intro s initStmts hInitEq
+                    simp only [execIRStmtWithInternals, execIRStmt]
+                    rw [hInitEq]
+                    cases hInitStep : execIRStmts f s initStmts with
+                    | «continue» s' =>
+                        simp only []
+                        rw [evalIRExprWithInternals_eq_evalIRExpr_of_no_internal
+                          contract hinternal f s' cond]
+                        cases hCondVal : evalIRExpr s' cond with
+                        | none =>
+                            simp
+                        | some condValue =>
+                            by_cases hnonzero : condValue ≠ 0
+                            · simp only [if_pos hnonzero]
+                              rw [ihBody f s']
+                              cases hBodyStep : execIRStmts f s' body with
+                              | «continue» s'' =>
+                                  simp only []
+                                  rw [ihPost f s'']
+                                  cases hPostStep : execIRStmts f s'' post with
+                                  | «continue» s''' =>
+                                      simp only []
+                                      have hNilEq : ∀ f' s',
+                                          execIRStmtsWithInternals contract f' s' [] =
+                                            match execIRStmts f' s' [] with
+                                            | .continue n => .continue n
+                                            | .return v n => .return v n
+                                            | .stop n => .stop n
+                                            | .revert n => .revert n := by
+                                        intro f' s'
+                                        simp only [execIRStmtsWithInternals, execIRStmts]
+                                      exact ihFuel s''' [] hNilEq
+                                  | «return» v s''' => simp
+                                  | stop s''' => simp
+                                  | revert s''' => simp
+                              | «return» v s'' => simp
+                              | stop s'' => simp
+                              | revert s'' => simp
+                            · simp only [if_neg hnonzero]
+                    | «return» v s' => simp
+                    | stop s' => simp
+                    | revert s' => simp
+              rw [execIRStmtsWithInternals, execIRStmts, hhead]
+              cases hstep : execIRStmt fuel state (.for_ init cond post body) <;>
+                simp only [ihRest]
       | funcDef name params rets body rest hbody hrest ihBody ihRest =>
           cases fuel with
           | zero =>
@@ -3749,6 +3835,18 @@ theorem execIRStmtsWithInternals_eq_execIRStmts_of_stmtCompatibility
               (LegacyCompatibleExternalStmtList.block body [] hbody LegacyCompatibleExternalStmtList.nil)
           rw [execIRStmtsWithInternals, execIRStmts, hhead]
           cases hstep : execIRStmt fuel state (.block body) <;>
+            simp only [ihRest]
+  | for_ init cond post body rest hinit hpost hbody hrest ihInit ihPost ihBody ihRest =>
+      cases fuel with
+      | zero =>
+          simp only [execIRStmtsWithInternals, execIRStmts]
+      | succ fuel =>
+          have hhead :=
+            hstmt hinternal fuel state (.for_ init cond post body)
+              (LegacyCompatibleExternalStmtList.for_ init cond post body []
+                hinit hpost hbody LegacyCompatibleExternalStmtList.nil)
+          rw [execIRStmtsWithInternals, execIRStmts, hhead]
+          cases hstep : execIRStmt fuel state (.for_ init cond post body) <;>
             simp only [ihRest]
   | funcDef name params rets body rest hbody hrest ihBody ihRest =>
       cases fuel with
