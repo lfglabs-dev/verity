@@ -1229,9 +1229,7 @@ def stmtTouchesUnsupportedStateSurface : Stmt → Bool
       exprTouchesUnsupportedStateSurface cond ||
         stmtListTouchesUnsupportedStateSurface thenBranch ||
         stmtListTouchesUnsupportedStateSurface elseBranch
-  | .forEach _ count body =>
-      exprTouchesUnsupportedStateSurface count ||
-        stmtListTouchesUnsupportedStateSurface body
+  | .forEach _ _ _ => true
 
 /-- Weaker Tier 2 state-surface gate used by the singleton storage-write bridge:
 all existing unsupported stateful forms remain excluded except for the proved
@@ -3006,6 +3004,10 @@ theorem SupportedStmtList.helperSurfaceClosed
       exact supportedStmtList_setMapping2WordSingle_helperSurfaceClosed hkey1 hkey2 hvalue
   | setStructMember2Single hkey1 _ hkey2 _ hvalue _ _ _ _ =>
       exact supportedStmtList_setStructMember2Single_helperSurfaceClosed hkey1 hkey2 hvalue
+  | forEachLiteralBounded _ _ ih =>
+      simpa [stmtListTouchesUnsupportedHelperSurface,
+        stmtTouchesUnsupportedHelperSurface,
+        exprTouchesUnsupportedHelperSurface] using ih
   | requireClause clause _ ih =>
       simp [stmtListTouchesUnsupportedHelperSurface]
       constructor
@@ -3184,6 +3186,10 @@ theorem SupportedStmtList.internalHelperCallNames_nil
         exprCompileCore_internalHelperCallNames_nil hkey2,
         exprCompileCore_internalHelperCallNames_nil hvalue,
         List.nil_append, List.append_nil]
+  | forEachLiteralBounded _ _ ih =>
+      simpa [stmtListInternalHelperCallNames,
+        stmtInternalHelperCallNames,
+        exprInternalHelperCallNames] using ih
   | requireClause clause _ ih =>
       simp [stmtListInternalHelperCallNames]
       constructor
@@ -5043,6 +5049,9 @@ private theorem supportedStmtList_usesArrayElement_false
         exprCompileCore_usesArrayElement_false hkey1,
         exprCompileCore_usesArrayElement_false hkey2,
         exprCompileCore_usesArrayElement_false hvalue, Bool.false_or]
+  | forEachLiteralBounded _ _ ih =>
+      simpa [stmtListUsesArrayElement, stmtUsesArrayElement,
+        exprUsesArrayElement] using ih
   | requireClause clause _ ih =>
       simp only [stmtListUsesArrayElement, Bool.or_eq_false_iff, Bool.false_or]
       exact ⟨by cases clause with | mk family n m p q message =>
@@ -5157,6 +5166,9 @@ private theorem supportedStmtList_usesStorageArrayElement_false
         exprCompileCore_usesStorageArrayElement_false hkey1,
         exprCompileCore_usesStorageArrayElement_false hkey2,
         exprCompileCore_usesStorageArrayElement_false hvalue, Bool.false_or]
+  | forEachLiteralBounded _ _ ih =>
+      simpa [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
+        exprUsesStorageArrayElement] using ih
   | requireClause clause _ ih =>
       simp only [stmtListUsesStorageArrayElement, Bool.or_eq_false_iff, Bool.false_or]
       exact ⟨by cases clause with | mk family n m p q message =>
@@ -5264,6 +5276,9 @@ private theorem supportedStmtList_usesDynamicBytesEq_false
         exprCompileCore_usesDynamicBytesEq_false hkey1,
         exprCompileCore_usesDynamicBytesEq_false hkey2,
         exprCompileCore_usesDynamicBytesEq_false hvalue, Bool.false_or]
+  | forEachLiteralBounded _ _ ih =>
+      simpa [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq,
+        exprUsesDynamicBytesEq] using ih
   | requireClause clause _ ih =>
       simp only [stmtListUsesDynamicBytesEq, Bool.or_eq_false_iff, Bool.false_or]
       exact ⟨by cases clause with | mk family n m p q message =>
@@ -5629,6 +5644,9 @@ private theorem supportedStmtList_usesMulDiv512_false
         exprCompileCore_usesMulDiv512_false hkey1,
         exprCompileCore_usesMulDiv512_false hkey2,
         exprCompileCore_usesMulDiv512_false hvalue, Bool.false_or]
+  | forEachLiteralBounded _ _ ih =>
+      simpa [stmtListUsesMulDiv512, stmtUsesMulDiv512,
+        exprUsesMulDiv512] using ih
   | requireClause clause _ ih =>
       simp only [stmtListUsesMulDiv512, Bool.or_eq_false_iff, Bool.false_or]
       exact ⟨by cases clause with | mk family n m p q message =>
@@ -5736,6 +5754,9 @@ private theorem supportedStmtList_usesParamDynamicHeadWord_false
         exprCompileCore_usesParamDynamicHeadWord_false hkey1,
         exprCompileCore_usesParamDynamicHeadWord_false hkey2,
         exprCompileCore_usesParamDynamicHeadWord_false hvalue, Bool.false_or]
+  | forEachLiteralBounded _ _ ih =>
+      simpa [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord,
+        exprUsesParamDynamicHeadWord] using ih
   | requireClause clause _ ih =>
       simp only [stmtListUsesParamDynamicHeadWord, Bool.or_eq_false_iff, Bool.false_or]
       exact ⟨by cases clause with | mk family n m p q message =>

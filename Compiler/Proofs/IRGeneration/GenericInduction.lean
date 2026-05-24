@@ -14055,6 +14055,9 @@ theorem stmtListGenericCore_of_supportedStmtList_of_surface
       exact False.elim (false_of_supportedStmtList_setMapping2WordSingle_surface hsurface)
   | setStructMember2Single hkey1 hscope1 hkey2 hscope2 hvalue hscopeValue hslot hmembers hmember =>
       exact False.elim (false_of_supportedStmtList_setStructMember2Single_surface hsurface)
+  | forEachLiteralBounded _ _ _ =>
+      simp [stmtListTouchesUnsupportedContractSurface,
+        stmtTouchesUnsupportedContractSurface] at hsurface
   | requireClause clause _ ih =>
       simp [stmtListTouchesUnsupportedContractSurface] at hsurface
       apply stmtListGenericCore_append
@@ -14183,6 +14186,10 @@ theorem stmtListGenericCore_of_supportedStmtList_of_surface_exceptMappingWrites
         hvalue hscopeValue hslot hmembers hmember with ⟨hm, hws, hss⟩
       exact stmtListGenericCore_singleton_setStructMember2Single_of_slotSafety
         hkey1 hscope1 hkey2 hscope2 hvalue hscopeValue hm hmembers hmember hws hss
+  | forEachLiteralBounded _ _ _ =>
+      simp [stmtListTouchesUnsupportedContractSurfaceExceptMappingWrites,
+        stmtTouchesUnsupportedContractSurfaceExceptMappingWrites,
+        stmtTouchesUnsupportedContractSurface] at hsurface
   | requireClause clause _ ih =>
       exact stmtListGenericCore_of_supportedStmtList_requireClause_of_surface_exceptMappingWrites
         clause ih hsurface
@@ -14500,6 +14507,10 @@ theorem stmtListGenericCore_of_supportedStmtList_of_surface_exceptMappingWrites_
       subst hwordOffsetEq
       exact stmtListGenericCore_singleton_setStructMember2Single_of_slotSafety
         hkey1 hscope1 hkey2 hscope2 hvalue hscopeValue hm hmembers hmember hws hss
+  | forEachLiteralBounded _ _ _ =>
+      simp [stmtListTouchesUnsupportedContractSurfaceExceptMappingWrites,
+        stmtTouchesUnsupportedContractSurfaceExceptMappingWrites,
+        stmtTouchesUnsupportedContractSurface] at hsurface
   | requireClause clause hsupportedRest ih =>
       exact stmtListGenericCore_of_supportedStmtList_requireClause_of_surface_exceptMappingWrites
         clause

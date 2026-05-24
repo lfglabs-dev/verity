@@ -340,6 +340,14 @@ inductive SupportedStmtList (fields : List Field) : List String → List Stmt �
       findStructMember members memberName =
         some { name := memberName, wordOffset := wordOffset, packed := none } →
       SupportedStmtList fields scope [Stmt.setStructMember2 fieldName key1 key2 memberName value]
+  | forEachLiteralBounded
+      {scope : List String}
+      {varName : String}
+      {n : Nat}
+      {body : List Stmt} :
+      (∀ name, name ∈ collectStmtListNames body → name ∈ varName :: scope) →
+      SupportedStmtList fields (varName :: scope) body →
+      SupportedStmtList fields scope [Stmt.forEach varName (.literal n) body]
   | requireClause
       {scope : List String}
       (clause : RequireLiteralGuardFamilyClause)
