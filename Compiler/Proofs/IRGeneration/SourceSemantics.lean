@@ -1904,9 +1904,11 @@ mutual
     | state, .forEach varName count body =>
         match evalExpr fields state count with
         | some bound =>
+            let initialLoopState :=
+              { state with bindings := bindValue state.bindings varName (wordNormalize 0) }
             execForEachLoop varName
               (fun loopState => execStmtListWithEvents fields events loopState body)
-              state 0 bound
+              initialLoopState 0 bound
         | none => .revert
     | _, _ => .revert
 
@@ -2146,9 +2148,11 @@ mutual
     | state, .forEach varName count body =>
         match evalExpr fields state count with
         | some bound =>
+            let initialLoopState :=
+              { state with bindings := bindValue state.bindings varName (wordNormalize 0) }
             execForEachLoop varName
               (fun loopState => execStmtList fields loopState body)
-              state 0 bound
+              initialLoopState 0 bound
         | none => .revert
     | _, _ => .revert
 
@@ -3160,9 +3164,11 @@ mutual
     | .forEach varName count body =>
         match evalExprWithHelpers spec fields fuel state count with
         | some bound =>
+            let initialLoopState :=
+              { state with bindings := bindValue state.bindings varName (wordNormalize 0) }
             execForEachLoop varName
               (fun loopState => execStmtListWithHelpers spec fields fuel loopState body)
-              state 0 bound
+              initialLoopState 0 bound
         | none => .revert
     | _ => .revert
   termination_by stmt => (fuel, sizeOf stmt)
@@ -4410,6 +4416,8 @@ private theorem execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux
       cases evalExpr fields state count with
       | none => rfl
       | some bound =>
+          let initialLoopState :=
+            { state with bindings := bindValue state.bindings varName (wordNormalize 0) }
           exact execForEachLoop_congr
             (varName := varName)
             (runBodyA := fun loopState =>
@@ -4425,7 +4433,7 @@ private theorem execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux
                     omega
                   execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux
                     spec fields fuel st s hsf))
-            state 0 bound
+            initialLoopState 0 bound
 termination_by sizeOf stmt
 
 theorem execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed
