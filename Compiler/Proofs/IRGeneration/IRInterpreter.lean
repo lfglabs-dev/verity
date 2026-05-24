@@ -983,6 +983,73 @@ def execIRStmts (fuel : Nat) (state : IRState) : List YulStmt → IRExecResult
 
 end -- mutual
 
+theorem execIRStmt_for_init_noncontinue
+    (fuel : Nat) (state : IRState)
+    (init post body : List YulStmt) (cond : YulExpr) (r : IRExecResult)
+    (hinit : execIRStmts fuel state init = r)
+    (hterm : ∀ s, r ≠ .continue s) :
+    execIRStmt (Nat.succ fuel) state (.for_ init cond post body) = r := by
+  simp only [execIRStmt, hinit]
+
+theorem execIRStmt_for_cond_none
+    (fuel : Nat) (state sInit : IRState)
+    (init post body : List YulStmt) (cond : YulExpr)
+    (hinit : execIRStmts fuel state init = .continue sInit)
+    (hcond : evalIRExpr sInit cond = none) :
+    execIRStmt (Nat.succ fuel) state (.for_ init cond post body) =
+      .revert sInit := by
+  simp [execIRStmt, hinit, hcond]
+
+theorem execIRStmt_for_init_cond_zero
+    (fuel : Nat) (state sInit : IRState)
+    (init post body : List YulStmt) (cond : YulExpr)
+    (hinit : execIRStmts fuel state init = .continue sInit)
+    (hcond : evalIRExpr sInit cond = some 0) :
+    execIRStmt (Nat.succ fuel) state (.for_ init cond post body) =
+      .continue sInit := by
+  simp [execIRStmt, hinit, hcond]
+
+theorem execIRStmt_for_body_noncontinue
+    (fuel : Nat) (state sInit : IRState)
+    (init post body : List YulStmt) (cond : YulExpr)
+    (condValue : Nat) (r : IRExecResult)
+    (hinit : execIRStmts fuel state init = .continue sInit)
+    (hcond : evalIRExpr sInit cond = some condValue)
+    (hcondNZ : condValue ≠ 0)
+    (hbody : execIRStmts fuel sInit body = r)
+    (hterm : ∀ s, r ≠ .continue s) :
+    execIRStmt (Nat.succ fuel) state (.for_ init cond post body) = r := by
+  simp only [execIRStmt, hinit, hcond]
+  simp [hcondNZ, hbody]
+
+theorem execIRStmt_for_post_noncontinue
+    (fuel : Nat) (state sInit sBody : IRState)
+    (init post body : List YulStmt) (cond : YulExpr)
+    (condValue : Nat) (r : IRExecResult)
+    (hinit : execIRStmts fuel state init = .continue sInit)
+    (hcond : evalIRExpr sInit cond = some condValue)
+    (hcondNZ : condValue ≠ 0)
+    (hbody : execIRStmts fuel sInit body = .continue sBody)
+    (hpost : execIRStmts fuel sBody post = r)
+    (hterm : ∀ s, r ≠ .continue s) :
+    execIRStmt (Nat.succ fuel) state (.for_ init cond post body) = r := by
+  simp only [execIRStmt, hinit, hcond]
+  simp [hcondNZ, hbody, hpost]
+
+theorem execIRStmt_for_one_continue
+    (fuel : Nat) (state sInit sBody sPost : IRState)
+    (init post body : List YulStmt) (cond : YulExpr)
+    (condValue : Nat)
+    (hinit : execIRStmts fuel state init = .continue sInit)
+    (hcond : evalIRExpr sInit cond = some condValue)
+    (hcondNZ : condValue ≠ 0)
+    (hbody : execIRStmts fuel sInit body = .continue sBody)
+    (hpost : execIRStmts fuel sBody post = .continue sPost) :
+    execIRStmt (Nat.succ fuel) state (.for_ init cond post body) =
+      execIRStmt fuel sPost (.for_ [] cond post body) := by
+  simp only [execIRStmt, hinit, hcond]
+  simp [hcondNZ, hbody, hpost]
+
 @[simp] theorem execIRStmt_stop_succ (fuel : Nat) (state : IRState) :
     execIRStmt (Nat.succ fuel) state (YulStmt.expr (YulExpr.call "stop" [])) =
       .stop state := by
