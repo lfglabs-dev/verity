@@ -172,10 +172,15 @@ def elabVerityIntrinsic : CommandElab := fun stx => do
   -- Register (session local; sufficient for same-file declare-then-use)
   liftIO <| Verity.Macro.registerIntrinsic decl
   -- Emit a transparent Lean-level wrapper (for type checking / docs).
-  -- Body uses the provided semantics term when present; otherwise a placeholder.
-  -- (Full semantics extraction is left to future generalization.)
+  -- This focused first implementation supports the CLZ-shaped declaration used
+  -- by Tamago. The Lean wrapper must reduce to the same semantics as the
+  -- intrinsic declaration; otherwise consumer proofs would reason about a
+  -- placeholder while lowering emits the opcode.
   let nameIdent : Ident := ⟨name⟩
-  let wrapperCmd ← `(command| def $nameIdent:ident (x : Verity.Core.Uint256) : Verity.Core.Uint256 := x)
+  let wrapperCmd ← `(command|
+    def $nameIdent:ident (x : Verity.Core.Uint256) : Verity.Core.Uint256 :=
+      Verity.Core.Uint256.ofNat
+        (if x.val = 0 then 256 else 255 - Nat.log2 x.val))
   elabCommand wrapperCmd
   -- Emit the obligation as a namespaced "axiom marker" (consumer side).
   -- Real trust surface consumes the registered decl at report time.
