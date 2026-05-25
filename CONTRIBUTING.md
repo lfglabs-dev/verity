@@ -65,6 +65,12 @@ Every PR that touches proof files must satisfy all of the following.
 Each requirement is enforced by CI and cannot be bypassed without updating
 the corresponding enforcement script.
 
+## Adding an Intrinsic
+
+Declare consumer-owned opcode bindings with `verity_intrinsic` and document the generated obligation in the consumer `AXIOMS.md`.
+Keep Verity opcode-agnostic; add only generic mechanism changes here.
+See [docs/INTRINSICS.md](docs/INTRINSICS.md) for the declaration format and trust-report expectations.
+
 1. **Zero `sorry`**: `lake build` rejects incomplete proofs at the Lean kernel level.
    CI runs an independent grep scan as defense in depth
    ([`check_lean_hygiene.py`](scripts/check_lean_hygiene.py)).

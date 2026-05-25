@@ -96,7 +96,7 @@ def compileExpr (fields : List Field)
   | Expr.mappingPackedWord field key wordOffset packed => do
       if !packedBitsValid packed then
         throw s!"Compilation error: Expr.mappingPackedWord for field '{field}' has invalid packed range offset={packed.offset} width={packed.width}. Require 0 < width <= 256, offset < 256, and offset + width <= 256."
-      else
+      else do
         let slotWord ← compileMappingSlotRead fields field (← compileExpr fields dynamicSource key) "mappingPackedWord" wordOffset
         pure (YulExpr.call "and" [
           YulExpr.call "shr" [YulExpr.lit packed.offset, slotWord],
@@ -435,6 +435,20 @@ def compileExpr (fields : List Field)
   | Expr.byte i v    => return yulBinOp "byte" (← compileExpr fields dynamicSource i) (← compileExpr fields dynamicSource v)
   | Expr.signextend b v =>
       return yulBinOp "signextend" (← compileExpr fields dynamicSource b) (← compileExpr fields dynamicSource v)
+  | Expr.intrinsic name args =>
+      -- Minimal verity_intrinsic lowering: for "clz" emit verbatim_1i_1o(hex"1e", arg)
+      -- General verbatim_Ni_Mo support follows the yul clause from the declaration.
+      if name == "clz" then do
+        let [arg] := args
+          | throw s!"Compilation error: intrinsic clz expects 1 arg, got {args.length}"
+        let [argY] ← compileExprList fields dynamicSource [arg]
+          | throw "internal error: clz intrinsic argument compilation changed arity"
+        -- opcode 0x1e for CLZ (EIP-7939)
+        pure (YulExpr.call "verbatim_1i_1o" [YulExpr.ident "hex\"1e\"", argY])
+      else do
+        -- Fallback: emit as a named call (will not typecheck in Yul unless defined)
+        let ys ← compileExprList fields dynamicSource args
+        pure (YulExpr.call s!"intrinsic_{name}" ys)
   | Expr.eq a b      => return yulBinOp "eq"  (← compileExpr fields dynamicSource a) (← compileExpr fields dynamicSource b)
   | Expr.gt a b      => return yulBinOp "gt"  (← compileExpr fields dynamicSource a) (← compileExpr fields dynamicSource b)
   | Expr.sgt a b     => return yulBinOp "sgt" (← compileExpr fields dynamicSource a) (← compileExpr fields dynamicSource b)

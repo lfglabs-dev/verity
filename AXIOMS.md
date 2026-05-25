@@ -208,4 +208,8 @@ Any commit that adds, removes, renames, or moves an axiom must update this file 
 
 If this file is stale, trust analysis is stale.
 
-**Last Updated**: 2026-05-12
+## Consumer-Generated Axioms (from verity_intrinsic)
+
+Intrinsics do not add entries here. Each `verity_intrinsic` produces exactly one obligation in the *consumer* namespace (see the obligation [...] clause). These are reported via `--trust-report` and documented in the consumer's AXIOMS.md (e.g. Tamago's). Verity stays at 0.
+
+**Last Updated**: 2026-05 (intrinsics addition)

@@ -53,6 +53,7 @@ actually use this family is the next milestone.
 | `artifacts/evmyullean_fork_audit.json` | Pinned fork divergence and non-semantic fork delta | `python3 scripts/generate_evmyullean_fork_audit.py --check` |
 | `artifacts/evmyullean_capability_report.json` | EVMYulLean capability surface and reference-oracle paths | `python3 scripts/generate_evmyullean_capability_report.py --check` |
 | `PrintAxioms.lean` / generated axiom report | Axiom dependency visibility | `python3 scripts/generate_print_axioms.py --check` and `lake build PrintAxioms` |
+| `trust_report.intrinsics[*]` | Planned consumer-declared intrinsic trust surface: name, semantics-term hash, obligation, `min_fork`, and source location | Not implemented in the current prototype |
 
 ## CI Guards
 
@@ -76,4 +77,4 @@ actually use this family is the next milestone.
    command.
 5. Run `make check`; run targeted Lean builds for changed proof modules.
 
-**Last Updated**: 2026-05-12
+**Last Updated**: 2026-05 (intrinsics addition)

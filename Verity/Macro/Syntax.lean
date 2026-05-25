@@ -32,6 +32,9 @@ declare_syntax_cat veritySpecialEntrypoint
 declare_syntax_cat verityModifier
 declare_syntax_cat verityModifierUse
 declare_syntax_cat verityFunction
+declare_syntax_cat verityIntrinsicClause
+declare_syntax_cat verityIntrinsicYul
+declare_syntax_cat verityIntrinsicObligation
 
 syntax ident " : " term " := " "slot" num : verityStorageField
 syntax ident " : " term " := " "slot" num : verityStorageItem
@@ -106,6 +109,24 @@ syntax "fallback" (ppSpace verityLocalObligations)? " := " term : veritySpecialE
 syntax "modifier " ident " := " term : verityModifier
 syntax "with " sepBy1(ident, ",") : verityModifierUse
 syntax "function " verityMutability* (pureMutabilityMarker)? verityMutability* ident " (" sepBy(verityParam, ",") ")" (ppSpace verityInitGuard)? (ppSpace verityModifierUse)? (ppSpace verityRequiresRole)? (ppSpace verityModifies)? (ppSpace verityLocalObligations)? " : " term " := " term : verityFunction
+
+-- verity_intrinsic syntax (minimal shape for CLZ-style one-arg Uint256 intrinsics)
+-- `pure` is parsed as an identifier here to avoid reserving it as a global
+-- keyword and breaking ordinary `pure` calls in imported Lean code.
+syntax (priority := low) ident : verityIntrinsicClause
+syntax &"yul" " := " verityIntrinsicYul : verityIntrinsicClause
+syntax &"min_fork" " := " ident : verityIntrinsicClause
+syntax &"semantics" " := " term : verityIntrinsicClause
+syntax &"obligation" "[" sepBy(verityIntrinsicObligation, ",") "]" : verityIntrinsicClause
+
+syntax ident num num "(" ident str ")" : verityIntrinsicYul
+syntax ident str : verityIntrinsicYul
+syntax ident " := " ident str : verityIntrinsicObligation
+
+syntax (name := verityIntrinsicCmd)
+  "verity_intrinsic " ident " (" sepBy(verityParam, ",") ")" " : " term
+  " where " ident ";" ident " := " verityIntrinsicYul ";" ident " := " ident ";"
+  ident " := " term ";" ident "[" sepBy(verityIntrinsicObligation, ",") "]" : command
 
 syntax (name := verityContractCmd)
   "verity_contract " ident " where "

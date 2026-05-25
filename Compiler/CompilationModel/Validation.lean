@@ -301,6 +301,7 @@ def exprReadsStateOrEnv : Expr → Bool
     Expr.wMulDown a b | Expr.wDivUp a b | Expr.min a b | Expr.max a b |
     Expr.ceilDiv a b =>
       exprReadsStateOrEnv a || exprReadsStateOrEnv b
+  | Expr.intrinsic _ args => exprListReadsStateOrEnv args
   | Expr.mulDivDown a b c | Expr.mulDivUp a b c
   | Expr.mulDiv512Down a b c | Expr.mulDiv512Up a b c =>
       exprReadsStateOrEnv a || exprReadsStateOrEnv b || exprReadsStateOrEnv c
@@ -359,6 +360,7 @@ def exprWritesState : Expr → Bool
       false
   | Expr.externalCall name args =>
       if name == builtinExpName then exprListWritesState args else true
+  | Expr.intrinsic _ args => exprListWritesState args
   | Expr.internalCall _ _ => true
   | Expr.adtConstruct _ _ args => exprListWritesState args
   | Expr.extcodesize addr =>
@@ -514,7 +516,9 @@ def exprHasUntrackableWrites : Expr → Bool
   | Expr.add a b | Expr.sub a b | Expr.mul a b | Expr.div a b | Expr.sdiv a b
   | Expr.mod a b | Expr.smod a b
   | Expr.bitAnd a b | Expr.bitOr a b | Expr.bitXor a b | Expr.shl a b | Expr.shr a b | Expr.sar a b
-  | Expr.byte a b
+  | Expr.byte a b =>
+      exprHasUntrackableWrites a || exprHasUntrackableWrites b
+  | Expr.intrinsic _ args => exprListHasUntrackableWrites args
   | Expr.lt a b | Expr.gt a b | Expr.slt a b | Expr.sgt a b | Expr.eq a b
   | Expr.ge a b | Expr.le a b | Expr.signextend a b
   | Expr.logicalAnd a b | Expr.logicalOr a b
@@ -664,7 +668,9 @@ def exprContainsExternalCall : Expr → Bool
   | Expr.add a b | Expr.sub a b | Expr.mul a b | Expr.div a b | Expr.sdiv a b
   | Expr.mod a b | Expr.smod a b
   | Expr.bitAnd a b | Expr.bitOr a b | Expr.bitXor a b | Expr.shl a b | Expr.shr a b | Expr.sar a b
-  | Expr.byte a b
+  | Expr.byte a b =>
+      exprContainsExternalCall a || exprContainsExternalCall b
+  | Expr.intrinsic _ args => exprListContainsExternalCall args
   | Expr.lt a b | Expr.gt a b | Expr.slt a b | Expr.sgt a b | Expr.eq a b
   | Expr.ge a b | Expr.le a b | Expr.signextend a b
   | Expr.logicalAnd a b | Expr.logicalOr a b
@@ -744,7 +750,9 @@ def exprMayContainExternalCall : Expr → Bool
   | Expr.add a b | Expr.sub a b | Expr.mul a b | Expr.div a b | Expr.sdiv a b
   | Expr.mod a b | Expr.smod a b
   | Expr.bitAnd a b | Expr.bitOr a b | Expr.bitXor a b | Expr.shl a b | Expr.shr a b | Expr.sar a b
-  | Expr.byte a b
+  | Expr.byte a b =>
+      exprMayContainExternalCall a || exprMayContainExternalCall b
+  | Expr.intrinsic _ args => exprListMayContainExternalCall args
   | Expr.lt a b | Expr.gt a b | Expr.slt a b | Expr.sgt a b | Expr.eq a b
   | Expr.ge a b | Expr.le a b | Expr.signextend a b
   | Expr.logicalAnd a b | Expr.logicalOr a b
@@ -1056,6 +1064,7 @@ def exprWritesStateWithFunctionEffects
     Expr.ceilDiv a b =>
       exprWritesStateWithFunctionEffects effects a ||
         exprWritesStateWithFunctionEffects effects b
+  | Expr.intrinsic _ args => exprListWritesStateWithFunctionEffects effects args
   | Expr.mulDivDown a b c | Expr.mulDivUp a b c
   | Expr.mulDiv512Down a b c | Expr.mulDiv512Up a b c =>
       exprWritesStateWithFunctionEffects effects a ||
@@ -1302,6 +1311,7 @@ def exprReadsStateOrEnvWithFunctionEffects
     Expr.ceilDiv a b =>
       exprReadsStateOrEnvWithFunctionEffects effects a ||
         exprReadsStateOrEnvWithFunctionEffects effects b
+  | Expr.intrinsic _ args => exprListReadsStateOrEnvWithFunctionEffects effects args
   | Expr.mulDivDown a b c | Expr.mulDivUp a b c
   | Expr.mulDiv512Down a b c | Expr.mulDiv512Up a b c =>
       exprReadsStateOrEnvWithFunctionEffects effects a ||
@@ -1620,7 +1630,9 @@ def exprContainsAdtConstruct : Expr → Bool
   | Expr.add a b | Expr.sub a b | Expr.mul a b | Expr.div a b | Expr.sdiv a b
   | Expr.mod a b | Expr.smod a b
   | Expr.bitAnd a b | Expr.bitOr a b | Expr.bitXor a b | Expr.shl a b | Expr.shr a b | Expr.sar a b
-  | Expr.byte a b
+  | Expr.byte a b =>
+      exprContainsAdtConstruct a || exprContainsAdtConstruct b
+  | Expr.intrinsic _ args => exprListContainsAdtConstruct args
   | Expr.lt a b | Expr.gt a b | Expr.slt a b | Expr.sgt a b | Expr.eq a b
   | Expr.ge a b | Expr.le a b | Expr.signextend a b
   | Expr.logicalAnd a b | Expr.logicalOr a b

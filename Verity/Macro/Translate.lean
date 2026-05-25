@@ -4,6 +4,7 @@ import Compiler.Modules.Precompiles
 import Compiler.CompilationModel.InternalNaming
 import Compiler.Keccak.Sponge
 import Verity.Macro.Syntax
+import Verity.Core.Intrinsics
 
 namespace Verity.Macro
 
@@ -17,6 +18,17 @@ abbrev Term := TSyntax `term
 abbrev Cmd := TSyntax `command
 abbrev Ident := TSyntax `ident
 abbrev DoSeq := TSyntax `Lean.Parser.Term.doSeq
+
+/-! Minimal session-local registry for intrinsics declared via `verity_intrinsic`.
+   Sufficient for same-module declaration-before-use (our focused CLZ test/example).
+   Cross-module requires attribute-based collection (future). -/
+private initialize intrinsicDeclRegistry : IO.Ref (Array Verity.Core.Intrinsics.IntrinsicDecl) ← IO.mkRef #[]
+
+def getRegisteredIntrinsics : IO (Array Verity.Core.Intrinsics.IntrinsicDecl) :=
+  intrinsicDeclRegistry.get
+
+def registerIntrinsic (d : Verity.Core.Intrinsics.IntrinsicDecl) : IO Unit :=
+  intrinsicDeclRegistry.modify (·.push d)
 
 inductive ValueType where
   | uint256
@@ -4097,6 +4109,10 @@ partial def translatePureExprWithTypes
   | `(term| sar $shift $value) => `(Compiler.CompilationModel.Expr.sar $(← translatePureExprWithTypes fields constDecls immutableDecls params locals shift visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value visitingConstants))
   | `(term| byte $index $value) => `(Compiler.CompilationModel.Expr.byte $(← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value visitingConstants))
   | `(term| signextend $byteIndex $value) => `(Compiler.CompilationModel.Expr.signextend $(← translatePureExprWithTypes fields constDecls immutableDecls params locals byteIndex visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value visitingConstants))
+  -- verity_intrinsic support (minimal): `clz x` lowers to intrinsic node for Yul verbatim emission.
+  | `(term| clz $arg:term) => do
+      let e ← translatePureExprWithTypes fields constDecls immutableDecls params locals arg visitingConstants
+      `(Compiler.CompilationModel.Expr.intrinsic "clz" [ $e ])
   | `(term| $a == $b) => do
       let lhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals a visitingConstants
       let rhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals b visitingConstants

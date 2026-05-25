@@ -475,6 +475,7 @@ inductive Expr
   | sar (shift value : Expr)
   | byte (index value : Expr)
   | signextend (byteIndex value : Expr)
+  | intrinsic (name : String) (args : List Expr)  -- verity_intrinsic lowering (e.g. CLZ verbatim)
   | eq (a b : Expr)
   | ge (a b : Expr)
   | gt (a b : Expr)  -- Greater than (strict)

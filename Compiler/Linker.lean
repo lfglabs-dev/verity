@@ -246,6 +246,9 @@ private def yulBuiltins : List String :=
    "return", "revert", "selfdestruct", "invalid", "stop",
    "datasize", "dataoffset", "datacopy"]
 
+private def isYulBuiltinCall (name : String) : Bool :=
+  yulBuiltins.contains name || name.startsWith "verbatim_"
+
 -- Collect all function definitions from Yul statements
 mutual
 private def defsFromStmt : YulStmt → List String
@@ -302,7 +305,7 @@ def validateNoNameCollisions (obj : YulObject) (libraries : List LibraryFunction
   if !localCollisions.isEmpty then
     throw s!"Library function(s) shadow generated code: {String.intercalate ", " localCollisions}"
   -- Check library names vs Yul builtins
-  let builtinCollisions := libNames.filter fun name => yulBuiltins.contains name
+  let builtinCollisions := libNames.filter fun name => isYulBuiltinCall name
   if !builtinCollisions.isEmpty then
     throw s!"Library function(s) shadow Yul builtins: {String.intercalate ", " builtinCollisions}"
   pure ()
@@ -364,7 +367,7 @@ private def externalReferenceContext
 private def collectExternalCallNames (obj : YulObject) (libraries : List LibraryFunction) : List String :=
   let (allCalls, localDefs, providedFunctions) := externalReferenceContext obj libraries
   allCalls.filter fun call =>
-    !yulBuiltins.contains call && !localDefs.contains call && providedFunctions.contains call
+    !isYulBuiltinCall call && !localDefs.contains call && providedFunctions.contains call
 
 /-- Keep only referenced external library functions (transitive closure), preserving
     input order.
@@ -422,9 +425,8 @@ example :
 -- Excludes Yul builtins and locally-defined functions
 def validateExternalReferences (obj : YulObject) (libraries : List LibraryFunction) : Except String Unit := do
   let (allCalls, localDefs, providedFunctions) := externalReferenceContext obj libraries
-  let known := yulBuiltins ++ localDefs ++ providedFunctions
   let missingFunctions := allCalls.filter fun call =>
-    !known.contains call
+    !isYulBuiltinCall call && !localDefs.contains call && !providedFunctions.contains call
   if !missingFunctions.isEmpty then
     throw s!"Unresolved external references: {String.intercalate ", " missingFunctions}"
   pure ()

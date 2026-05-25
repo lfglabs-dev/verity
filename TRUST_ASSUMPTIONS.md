@@ -111,7 +111,11 @@ High-level semantics can expose intermediate state in reverted computations. EVM
 - [AUDIT.md](AUDIT.md) | [AXIOMS.md](AXIOMS.md) | [docs/ARITHMETIC_PROFILE.md](docs/ARITHMETIC_PROFILE.md) | [docs/REVERT_STATE_MODEL.md](docs/REVERT_STATE_MODEL.md)
 - [docs/EXTERNAL_CALL_MODULES.md](docs/EXTERNAL_CALL_MODULES.md) | [docs/ROADMAP.md](docs/ROADMAP.md) | [docs/VERIFICATION_STATUS.md](docs/VERIFICATION_STATUS.md)
 
+## Trusted Intrinsics (new in this change)
+
+`verity_intrinsic` declarations (e.g. the CLZ example) produce one consumer-namespaced obligation marker per declaration. The current prototype lowers CLZ-shaped uses to `verbatim_1i_1o(hex"1e", ...)` and keeps Verity's own AXIOMS.md at zero project-level axioms. Full `--trust-report` integration and hard-error `min_fork` enforcement are planned follow-ups before this should be treated as production-ready. See docs/INTRINSICS.md and the declaration in Contracts/Smoke.lean .
+
 ---
 
-**Last Updated**: 2026-05-12
+**Last Updated**: 2026-05 (intrinsics addition)
 **Maintainer Rule**: Update on every trust-boundary-relevant code change.

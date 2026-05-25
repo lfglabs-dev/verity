@@ -28,6 +28,16 @@ def plusInt256Helper (a : Uint256) (b : Int256) : Uint256 :=
 def eqWordHelper (a : Uint256) (b : Uint256) : Uint256 :=
   if a = b then 1 else 0
 
+-- Focused minimal verity_intrinsic example (CLZ via EIP-7939 Fusaka).
+-- Declaration shape per plan.md; `clz x` use site emits verbatim_1i_1o(hex"1e", x) in Yul.
+verity_intrinsic clz (x : Uint256) : Uint256 where pure; yul := verbatim 1 1 (hex "1e"); min_fork := fusaka; semantics := (fun x => x); obligation [clz_matches_eip7939 := assumed "EIP-7939 CLZ opcode; chain must be Fusaka+"]
+
+verity_contract IntrinsicClzSmoke where
+  storage
+
+  function countLeadingZeros (x : Uint256) : Uint256 := do
+    return (clz x)
+
 private def genericECMEffectDemoModule : Compiler.ECM.ExternalCallModule where
   name := "genericEffectDemo"
   numArgs := 2
@@ -2483,6 +2493,7 @@ end SpecGenSmoke
 #check_contract SafeMulRequireSmoke
 #check_contract ArithmeticPanicSmoke
 #check_contract MulDiv512Smoke
+#check_contract IntrinsicClzSmoke
 #check_contract ByteBuiltinSmoke
 #check_contract SignedBuiltinSmoke
 #check_contract StatelessSmoke

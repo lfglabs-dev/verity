@@ -103,6 +103,8 @@ def validateInteropExpr (context : String) : Expr → Except String Unit
     Expr.ceilDiv a b => do
       validateInteropExpr context a
       validateInteropExpr context b
+  | Expr.intrinsic _ args =>
+      validateInteropExprList context args
   | Expr.mulDivDown a b c | Expr.mulDivUp a b c
   | Expr.mulDiv512Down a b c | Expr.mulDiv512Up a b c => do
       validateInteropExpr context a
