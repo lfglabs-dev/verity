@@ -1989,6 +1989,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.FunctionBody.eval_compileRequireFailCond_core_onExpr
   Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesIR_setVar_bindValue
   Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesIR_setVar_irrelevant
+  Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesIR_setVars_irrelevant
   Compiler.Proofs.IRGeneration.FunctionBody.compileStmt_core_ok
   Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesIR_setBothMemory
   Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesIR_updateMemoryEvents
@@ -1996,6 +1997,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.FunctionBody.bindingsExactlyMatchIRVars_setMemory
   Compiler.Proofs.IRGeneration.FunctionBody.bindingsExactlyMatchIRVarsOnScope_setMemory
   Compiler.Proofs.IRGeneration.FunctionBody.bindingsExactlyMatchIRVarsOnScope_setVar_irrelevant
+  Compiler.Proofs.IRGeneration.FunctionBody.bindingsExactlyMatchIRVarsOnScope_setVars_irrelevant
   Compiler.Proofs.IRGeneration.FunctionBody.bindingsExactlyMatchIRVarsOnScope_setVar_bindValue
   Compiler.Proofs.IRGeneration.FunctionBody.encodeEvents_withTransactionContext
   Compiler.Proofs.IRGeneration.FunctionBody.encodeStorage_withTransactionContext
@@ -2592,6 +2594,12 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.execIRStmtWithInternals_log3_of_eval_args
   Compiler.Proofs.IRGeneration.execIRStmtWithInternals_log4_of_eval_args
   Compiler.Proofs.IRGeneration.execIRInternalFunctionWithInternals_hides_caller_only_locals
+  Compiler.Proofs.IRGeneration.execIRStmt_for_init_noncontinue
+  Compiler.Proofs.IRGeneration.execIRStmt_for_cond_none
+  Compiler.Proofs.IRGeneration.execIRStmt_for_init_cond_zero
+  Compiler.Proofs.IRGeneration.execIRStmt_for_body_noncontinue
+  Compiler.Proofs.IRGeneration.execIRStmt_for_post_noncontinue
+  Compiler.Proofs.IRGeneration.execIRStmt_for_one_continue
   Compiler.Proofs.IRGeneration.execIRStmt_stop_succ
   Compiler.Proofs.IRGeneration.execIRStmt_stop_one_add
   Compiler.Proofs.IRGeneration.execIRStmt_stop_one_add_add
@@ -2828,6 +2836,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.SourceSemantics.exists_writeUnindexedEventScratch_of_length_zero
   Compiler.Proofs.IRGeneration.SourceSemantics.exists_eventScratchMemoryAfterEmit?_of_supported_length
   Compiler.Proofs.IRGeneration.SourceSemantics.UInt256_size_eq_UINT256_MODULUS
+  Compiler.Proofs.IRGeneration.SourceSemantics.execForEachLoop_congr
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_literal  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_param  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_localVar  -- private
@@ -2968,6 +2977,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.SourceSemantics.expr_sizeOf_pos  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.stmt_sizeOf_lt_ite_then  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.stmt_sizeOf_lt_ite_else  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemantics.stmt_sizeOf_lt_forEach_body  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.stmt_sizeOf_lt_cons  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.execStmtListWithHelpers_eq_execStmtList_of_helperSurfaceClosed_inner  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux  -- private
@@ -5462,4 +5472,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5167 theorems/lemmas (3587 public, 1580 private, 0 sorry'd)
+-- Total: 5177 theorems/lemmas (3596 public, 1581 private, 0 sorry'd)
