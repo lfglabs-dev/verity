@@ -216,6 +216,29 @@ private theorem legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_uint2
         loadWord sizeExpr headSize baseOffset rest (headOffset + paramHeadSize ParamType.uint256))
       hrest
 
+private theorem legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_int256
+    (loadWord : YulExpr → YulExpr)
+    (sizeExpr : YulExpr)
+    (headSize baseOffset : Nat)
+    (name : String)
+    (rest : List Param)
+    (headOffset : Nat)
+    (hrest :
+      LegacyCompatibleExternalStmtList
+        (CompilationModel.genParamLoadBodyFrom
+          loadWord sizeExpr headSize baseOffset rest
+            (headOffset + paramHeadSize ParamType.int256))) :
+    LegacyCompatibleExternalStmtList
+      (CompilationModel.genParamLoadBodyFrom
+        loadWord sizeExpr headSize baseOffset ({ name := name, ty := ParamType.int256 } :: rest) headOffset) := by
+  simpa [CompilationModel.genParamLoadBodyFrom, CompilationModel.genScalarLoad] using
+    LegacyCompatibleExternalStmtList.let_
+      name
+      (loadWord (YulExpr.lit headOffset))
+      (CompilationModel.genParamLoadBodyFrom
+        loadWord sizeExpr headSize baseOffset rest (headOffset + paramHeadSize ParamType.int256))
+      hrest
+
 private theorem legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_uint8
     (loadWord : YulExpr → YulExpr)
     (sizeExpr : YulExpr)
@@ -237,6 +260,29 @@ private theorem legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_uint8
       (YulExpr.call "and" [loadWord (YulExpr.lit headOffset), YulExpr.lit 255])
       (CompilationModel.genParamLoadBodyFrom
         loadWord sizeExpr headSize baseOffset rest (headOffset + paramHeadSize ParamType.uint8))
+      hrest
+
+private theorem legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_uint16
+    (loadWord : YulExpr → YulExpr)
+    (sizeExpr : YulExpr)
+    (headSize baseOffset : Nat)
+    (name : String)
+    (rest : List Param)
+    (headOffset : Nat)
+    (hrest :
+      LegacyCompatibleExternalStmtList
+        (CompilationModel.genParamLoadBodyFrom
+          loadWord sizeExpr headSize baseOffset rest
+            (headOffset + paramHeadSize ParamType.uint16))) :
+    LegacyCompatibleExternalStmtList
+      (CompilationModel.genParamLoadBodyFrom
+        loadWord sizeExpr headSize baseOffset ({ name := name, ty := ParamType.uint16 } :: rest) headOffset) := by
+  simpa [CompilationModel.genParamLoadBodyFrom, CompilationModel.genScalarLoad] using
+    LegacyCompatibleExternalStmtList.let_
+      name
+      (YulExpr.call "and" [loadWord (YulExpr.lit headOffset), YulExpr.lit 65535])
+      (CompilationModel.genParamLoadBodyFrom
+        loadWord sizeExpr headSize baseOffset rest (headOffset + paramHeadSize ParamType.uint16))
       hrest
 
 private theorem legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_address
@@ -285,6 +331,29 @@ private theorem legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_bytes
         loadWord sizeExpr headSize baseOffset rest (headOffset + paramHeadSize ParamType.bytes32))
       hrest
 
+private theorem legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_bool
+    (loadWord : YulExpr → YulExpr)
+    (sizeExpr : YulExpr)
+    (headSize baseOffset : Nat)
+    (name : String)
+    (rest : List Param)
+    (headOffset : Nat)
+    (hrest :
+      LegacyCompatibleExternalStmtList
+        (CompilationModel.genParamLoadBodyFrom
+          loadWord sizeExpr headSize baseOffset rest
+            (headOffset + paramHeadSize ParamType.bool))) :
+    LegacyCompatibleExternalStmtList
+      (CompilationModel.genParamLoadBodyFrom
+        loadWord sizeExpr headSize baseOffset ({ name := name, ty := ParamType.bool } :: rest) headOffset) := by
+  simpa [CompilationModel.genParamLoadBodyFrom, CompilationModel.genScalarLoad] using
+    LegacyCompatibleExternalStmtList.let_
+      name
+      (YulExpr.call "iszero" [YulExpr.call "iszero" [loadWord (YulExpr.lit headOffset)]])
+      (CompilationModel.genParamLoadBodyFrom
+        loadWord sizeExpr headSize baseOffset rest (headOffset + paramHeadSize ParamType.bool))
+      hrest
+
 private theorem legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_scalar
     (loadWord : YulExpr → YulExpr)
     (sizeExpr : YulExpr)
@@ -308,16 +377,13 @@ private theorem legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_scala
         exact legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_uint256
           loadWord sizeExpr headSize baseOffset name rest headOffset hrest
       case int256 =>
-        simpa [CompilationModel.genParamLoadBodyFrom, CompilationModel.genScalarLoad] using
-          LegacyCompatibleExternalStmtList.let_
-            name
-            (loadWord (YulExpr.lit headOffset))
-            (CompilationModel.genParamLoadBodyFrom
-              loadWord sizeExpr headSize baseOffset rest
-                (headOffset + paramHeadSize ParamType.int256))
-            hrest
+        exact legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_int256
+          loadWord sizeExpr headSize baseOffset name rest headOffset hrest
       case uint8 =>
         exact legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_uint8
+          loadWord sizeExpr headSize baseOffset name rest headOffset hrest
+      case uint16 =>
+        exact legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_uint16
           loadWord sizeExpr headSize baseOffset name rest headOffset hrest
       case address =>
         exact legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_address
@@ -326,14 +392,8 @@ private theorem legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_scala
         exact legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_bytes32
           loadWord sizeExpr headSize baseOffset name rest headOffset hrest
       case bool =>
-        simpa [CompilationModel.genParamLoadBodyFrom, CompilationModel.genScalarLoad] using
-          LegacyCompatibleExternalStmtList.let_
-            name
-            (YulExpr.call "iszero" [YulExpr.call "iszero" [loadWord (YulExpr.lit headOffset)]])
-            (CompilationModel.genParamLoadBodyFrom
-              loadWord sizeExpr headSize baseOffset rest
-                (headOffset + paramHeadSize ParamType.bool))
-            hrest
+        exact legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_bool
+          loadWord sizeExpr headSize baseOffset name rest headOffset hrest
 
 private theorem legacyCompatibleExternalStmtList_genParamLoadBodyFrom_of_supported
     (loadWord : YulExpr → YulExpr)

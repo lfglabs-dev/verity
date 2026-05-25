@@ -59,6 +59,7 @@ Support flexible mapping types: single-key, double-key (nested), and uint256 key
 inductive MappingKeyType
   | address    -- mapping(address => ...)
   | uint256    -- mapping(uint256 => ...)
+  | bytes32    -- mapping(bytes32 => ...)
   deriving Repr, BEq
 
 inductive MappingType
@@ -74,12 +75,22 @@ structure PackedBits where
   width : Nat
   deriving Repr, BEq
 
+inductive StructMemberType
+  | uint256
+  | uint16
+  | address
+  | bool
+  | bytes32
+  deriving Repr, BEq
+
 /-- A named member within a struct-valued mapping.
     Each member occupies a specific word within the struct's storage region,
     and may optionally be packed into a subregion of that word. -/
 structure StructMember where
   /-- The member name (used in `Expr.structMember` / `Stmt.setStructMember`). -/
   name : String
+  /-- Solidity surface type of the packed/full-word member. -/
+  ty : StructMemberType := StructMemberType.uint256
   /-- Zero-based word offset from the struct's base slot. -/
   wordOffset : Nat
   /-- Optional packed subfield within the word. When `none`, the member occupies
@@ -159,6 +170,7 @@ inductive ParamType
   | uint256
   | int256
   | uint8
+  | uint16
   | address
   | bool                                   -- Solidity bool (ABI-encoded as 32-byte 0/1)
   | bytes32                                -- Fixed 32-byte value
@@ -181,6 +193,7 @@ def ParamType.toIRType : ParamType → IRType
   | uint256 => IRType.uint256
   | int256 => IRType.uint256
   | uint8 => IRType.uint256
+  | uint16 => IRType.uint256
   | address => IRType.address
   | bool => IRType.uint256
   | bytes32 => IRType.uint256  -- bytes32 is a 256-bit value

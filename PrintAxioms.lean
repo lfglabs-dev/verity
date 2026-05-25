@@ -1608,9 +1608,12 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.Contract.legacyCompatibleExternalStmtList_of_exprStmtExprs  -- private
   -- Compiler.Proofs.IRGeneration.Contract.legacyCompatibleExternalStmtList_revertWithMessage  -- private
   -- Compiler.Proofs.IRGeneration.Contract.legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_uint256  -- private
+  -- Compiler.Proofs.IRGeneration.Contract.legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_int256  -- private
   -- Compiler.Proofs.IRGeneration.Contract.legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_uint8  -- private
+  -- Compiler.Proofs.IRGeneration.Contract.legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_uint16  -- private
   -- Compiler.Proofs.IRGeneration.Contract.legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_address  -- private
   -- Compiler.Proofs.IRGeneration.Contract.legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_bytes32  -- private
+  -- Compiler.Proofs.IRGeneration.Contract.legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_bool  -- private
   -- Compiler.Proofs.IRGeneration.Contract.legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_scalar  -- private
   -- Compiler.Proofs.IRGeneration.Contract.legacyCompatibleExternalStmtList_genParamLoadBodyFrom_of_supported  -- private
   -- Compiler.Proofs.IRGeneration.Contract.legacyCompatibleExternalStmtList_genParamLoads_of_supported  -- private
@@ -2802,7 +2805,6 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.ParamLoading.supportedParamHeadSize_eq_32
   Compiler.Proofs.IRGeneration.ParamLoading.supportedScalarHeadSize_eq
   Compiler.Proofs.IRGeneration.ParamLoading.calldataloadWord_aligned
-  Compiler.Proofs.IRGeneration.ParamLoading.exec_genScalarLoad_supported
   -- Compiler.Proofs.IRGeneration.ParamLoading.getD_eq_of_drop_eq_cons  -- private
   -- Compiler.Proofs.IRGeneration.ParamLoading.drop_succ_eq_of_drop_eq_cons  -- private
   -- Compiler.Proofs.IRGeneration.ParamLoading.supportedExternalParamType_cases  -- private
@@ -2810,6 +2812,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.ParamLoading.execIRStmts_cons_of_execIRStmt_continue_extraFuel  -- private
   -- Compiler.Proofs.IRGeneration.ParamLoading.exec_genScalarLoad_supported_then_word_passthrough  -- private
   -- Compiler.Proofs.IRGeneration.ParamLoading.exec_genScalarLoad_supported_then_uint8  -- private
+  -- Compiler.Proofs.IRGeneration.ParamLoading.exec_genScalarLoad_supported_then_uint16  -- private
   -- Compiler.Proofs.IRGeneration.ParamLoading.exec_genScalarLoad_supported_then_address  -- private
   -- Compiler.Proofs.IRGeneration.ParamLoading.exec_genScalarLoad_supported_then_bool  -- private
   Compiler.Proofs.IRGeneration.ParamLoading.exec_genScalarLoad_supported_then
@@ -5465,4 +5468,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5167 theorems/lemmas (3587 public, 1580 private, 0 sorry'd)
+-- Total: 5170 theorems/lemmas (3586 public, 1584 private, 0 sorry'd)

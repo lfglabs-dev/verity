@@ -99,6 +99,9 @@ class CustomErrorArg (α : Type) where
 instance : CustomErrorArg Uint256 where
   encode value := toString (value : Nat)
 
+instance : CustomErrorArg Uint16 where
+  encode value := toString value.toNat
+
 instance : CustomErrorArg Nat where
   encode value := toString value
 
@@ -251,6 +254,12 @@ end EventArg
 instance : Coe Uint256 EventArg where
   coe value := EventArg.word (pure value)
 
+instance : Coe Uint16 EventArg where
+  coe value := EventArg.word (pure value.toUint256)
+
+instance : Coe Bool EventArg where
+  coe value := EventArg.word (pure (if value then 1 else 0))
+
 instance (α : Type) : CoeTC (Array α) EventArg where
   coe values := EventArg.dynamicArray (pure values.size)
 
@@ -289,6 +298,8 @@ class ExternalResult (α : Type) where
   fromWord : Uint256 → α
 instance : ExternalArg Uint256 where
   toWord value := value
+instance : ExternalArg Uint16 where
+  toWord value := value.toUint256
 instance : ExternalArg Int256 where
   toWord value := value.word
 instance : ExternalArg Address where
@@ -301,6 +312,8 @@ instance : ExternalArg ByteArray where
   toWord bytes := bytes.size
 instance : ExternalResult Uint256 where
   fromWord value := value
+instance : ExternalResult Uint16 where
+  fromWord value := Verity.wordToUint16 value
 instance : ExternalResult Int256 where
   fromWord value := toInt256 value
 instance : ExternalResult Address where
@@ -380,6 +393,14 @@ class StorageWord (α : Type) where
 instance : StorageWord Uint256 where
   fromWord word := word
   toWord word := word
+
+instance : StorageWord Uint16 where
+  fromWord word := Verity.wordToUint16 word
+  toWord value := value.toUint256
+
+instance : StorageWord Bool where
+  fromWord word := word != 0
+  toWord value := Verity.boolToWord value
 
 instance : StorageWord Address where
   fromWord word := Verity.wordToAddress word

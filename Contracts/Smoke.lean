@@ -1262,19 +1262,15 @@ verity_contract NamedStructDynamicRootLeafProjection where
   function goodDynamicLeaf (config : DynamicConfig) : Address := do
     return config.maker
 
-/--
-error: function return types cannot be named structs; return an explicit Tuple [...] instead
--/
-#guard_msgs in
-verity_contract NamedStructReturnRejected where
+verity_contract NamedStructReturnSmoke where
   storage
 
   struct FeeConfig where
     borrowTakerFeeRatio : Uint256,
     lendMakerFeeRatio : Uint256
 
-  function badReturn (feeConfig : FeeConfig) : FeeConfig := do
-    return feeConfig
+  function goodReturn (borrowFee : Uint256, lendFee : Uint256) : FeeConfig := do
+    return FeeConfig.mk borrowFee lendFee
 
 verity_contract CurveCutArraySmoke where
   storage

@@ -43,7 +43,7 @@ open Verity.Core.Free
 the `ParamType` constructors whose head word is consumed directly from
 calldata without offset/length bookkeeping. -/
 def IsScalarParamType : ParamType → Prop
-  | .uint256 | .int256 | .uint8 | .address | .bool | .bytes32 => True
+  | .uint256 | .int256 | .uint8 | .uint16 | .address | .bool | .bytes32 => True
   | _ => False
 
 /-- Static ABI parameter types whose leaves are all scalar words. This extends
@@ -64,12 +64,9 @@ theorem isDynamicParamType_false_of_static_scalar
     isDynamicParamType ty = false := by
   induction hStatic with
   | @scalar scalarTy hScalar =>
-      cases scalarTy <;> simp [IsScalarParamType, isDynamicParamType.eq_1,
-        isDynamicParamType.eq_2, isDynamicParamType.eq_3, isDynamicParamType.eq_4,
-        isDynamicParamType.eq_5, isDynamicParamType.eq_6] at hScalar ⊢
+      cases scalarTy <;> simp [IsScalarParamType, isDynamicParamType] at hScalar ⊢
   | fixedArray hElem ih =>
-      rw [isDynamicParamType.eq_10]
-      exact ih
+      simpa [isDynamicParamType] using ih
   | tuple hElems hElems_ih =>
       rw [isDynamicParamType.eq_def]
       suffices hList :
@@ -197,6 +194,12 @@ theorem genScalarLoad_calldataload_bridged
       exact BridgedStmt.straight _
         (BridgedStraightStmt.let_ name _
           (bridgedExpr_and_lit_mask _ (bridgedExpr_calldataload_lit offset) 255))
+  | ParamType.uint16, _ =>
+      simp only [genScalarLoad, List.mem_singleton] at hMem
+      subst hMem
+      exact BridgedStmt.straight _
+        (BridgedStraightStmt.let_ name _
+          (bridgedExpr_and_lit_mask _ (bridgedExpr_calldataload_lit offset) 65535))
   | ParamType.bytes32, _ =>
       simp only [genScalarLoad, List.mem_singleton] at hMem
       subst hMem
@@ -237,12 +240,12 @@ theorem genStaticTypeLoads_calldataload_bridged
       all_goals
         exact genScalarLoad_calldataload_bridged name _ offset (by trivial)
   | @fixedArray elemTy n hElem ih =>
-      rw [genStaticTypeLoads.eq_7]
+      rw [genStaticTypeLoads.eq_8]
       apply BridgedStmts_flatMap
       intro i hi
       exact ih (name := s!"{name}_{i}") (offset := offset + i * paramHeadSize _)
   | @tuple elemTys hElems hElems_ih =>
-      rw [genStaticTypeLoads.eq_8]
+      rw [genStaticTypeLoads.eq_9]
       suffices hGo :
           ∀ (tys : List ParamType) (idx curOffset : Nat),
             (∀ ty ∈ tys, IsStaticScalarParamType ty) →
@@ -326,7 +329,7 @@ private theorem genParamLoadBodyFrom_cons_scalar
       genParamLoadBodyFrom loadWord sizeExpr headSize baseOffset rest
         (headOffset + paramHeadSize param.ty) := by
   match hTy : param.ty, hScalar with
-  | ParamType.uint256, _ | ParamType.int256, _ | ParamType.uint8, _
+  | ParamType.uint256, _ | ParamType.int256, _ | ParamType.uint8, _ | ParamType.uint16, _
   | ParamType.address, _ | ParamType.bool, _ | ParamType.bytes32, _ =>
       simp [genParamLoadBodyFrom, genSingleParamLoad, hTy]
 
@@ -486,7 +489,7 @@ private theorem genStaticTypeLoads_noFuncDefs
       all_goals
         exact genScalarLoad_noFuncDefs loadWord name _ offset
   | @fixedArray elemTy n hElem ih =>
-      rw [genStaticTypeLoads.eq_7]
+      rw [genStaticTypeLoads.eq_8]
       exact Native.yulStmtsContainFuncDef_flatMap_false
         (List.range n)
         (fun i =>
@@ -496,7 +499,7 @@ private theorem genStaticTypeLoads_noFuncDefs
           intro i _hi
           exact ih s!"{name}_{i}" (offset + i * paramHeadSize elemTy))
   | @tuple elemTys hElems hElems_ih =>
-      rw [genStaticTypeLoads.eq_8]
+      rw [genStaticTypeLoads.eq_9]
       exact genStaticTypeLoads_go_noFuncDefs loadWord name elemTys 0 offset
         hElems_ih
 
