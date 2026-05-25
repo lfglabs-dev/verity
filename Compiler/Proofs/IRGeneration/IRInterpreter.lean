@@ -1057,6 +1057,130 @@ theorem execIRStmt_for_one_continue
   simp only [execIRStmt, hinit, hcond]
   simp [hcondNZ, hbody, hpost]
 
+/-- Singleton-list form of `execIRStmt_for_init_cond_zero`.
+
+This is the shape needed when a compiled source statement is represented by a
+single Yul `for` statement inside `execIRStmts`. -/
+theorem execIRStmts_single_for_init_cond_zero
+    (fuel : Nat) (state sInit : IRState)
+    (init post body : List YulStmt) (cond : YulExpr)
+    (hinit : execIRStmts fuel state init = .continue sInit)
+    (hcond : evalIRExpr sInit cond = some 0) :
+    execIRStmts (Nat.succ (Nat.succ fuel)) state [.for_ init cond post body] =
+      .continue sInit := by
+  simp only [execIRStmts]
+  rw [execIRStmt_for_init_cond_zero fuel state sInit init post body cond hinit hcond]
+
+/-- Head/tail form of `execIRStmt_for_init_cond_zero`.
+
+After the `for` condition evaluates to zero, statement-list execution continues
+with the tail from the state produced by the init block. -/
+theorem execIRStmts_cons_for_init_cond_zero
+    (fuel : Nat) (state sInit : IRState)
+    (init post body tail : List YulStmt) (cond : YulExpr)
+    (hinit : execIRStmts fuel state init = .continue sInit)
+    (hcond : evalIRExpr sInit cond = some 0) :
+    execIRStmts (Nat.succ (Nat.succ fuel)) state
+        (.for_ init cond post body :: tail) =
+      execIRStmts (Nat.succ fuel) sInit tail := by
+  simp only [execIRStmts]
+  rw [execIRStmt_for_init_cond_zero fuel state sInit init post body cond hinit hcond]
+
+/-- Singleton-list form of one successful `for` iteration.
+
+The init block, first condition check, body, and post block are discharged, and
+the remaining execution is exactly the recursive empty-init loop. -/
+theorem execIRStmts_single_for_one_continue
+    (fuel : Nat) (state sInit sBody sPost : IRState)
+    (init post body : List YulStmt) (cond : YulExpr)
+    (condValue : Nat)
+    (hinit : execIRStmts fuel state init = .continue sInit)
+    (hcond : evalIRExpr sInit cond = some condValue)
+    (hcondNZ : condValue ≠ 0)
+    (hbody : execIRStmts fuel sInit body = .continue sBody)
+    (hpost : execIRStmts fuel sBody post = .continue sPost) :
+    execIRStmts (Nat.succ (Nat.succ fuel)) state [.for_ init cond post body] =
+      match execIRStmt fuel sPost (.for_ [] cond post body) with
+      | .continue sLoop => .continue sLoop
+      | .return value sLoop => .return value sLoop
+      | .stop sLoop => .stop sLoop
+      | .revert sLoop => .revert sLoop := by
+  simp only [execIRStmts]
+  rw [execIRStmt_for_one_continue fuel state sInit sBody sPost init post body cond
+    condValue hinit hcond hcondNZ hbody hpost]
+
+/-- Head/tail form of one successful `for` iteration.
+
+This threads the tail through the recursive empty-init loop produced after the
+first successful body/post execution. -/
+theorem execIRStmts_cons_for_one_continue
+    (fuel : Nat) (state sInit sBody sPost : IRState)
+    (init post body tail : List YulStmt) (cond : YulExpr)
+    (condValue : Nat)
+    (hinit : execIRStmts fuel state init = .continue sInit)
+    (hcond : evalIRExpr sInit cond = some condValue)
+    (hcondNZ : condValue ≠ 0)
+    (hbody : execIRStmts fuel sInit body = .continue sBody)
+    (hpost : execIRStmts fuel sBody post = .continue sPost) :
+    execIRStmts (Nat.succ (Nat.succ fuel)) state
+        (.for_ init cond post body :: tail) =
+      match execIRStmt fuel sPost (.for_ [] cond post body) with
+      | .continue sLoop => execIRStmts (Nat.succ fuel) sLoop tail
+      | .return value sLoop => .return value sLoop
+      | .stop sLoop => .stop sLoop
+      | .revert sLoop => .revert sLoop := by
+  simp only [execIRStmts]
+  rw [execIRStmt_for_one_continue fuel state sInit sBody sPost init post body cond
+    condValue hinit hcond hcondNZ hbody hpost]
+
+/-- Convenient continuation-only corollary of `execIRStmts_cons_for_one_continue`.
+
+Use this when the recursive empty-init loop is known to finish with `.continue`;
+the list tail then resumes from that state. -/
+theorem execIRStmts_cons_for_one_continue_of_loop_continue
+    (fuel : Nat) (state sInit sBody sPost sLoop : IRState)
+    (init post body tail : List YulStmt) (cond : YulExpr)
+    (condValue : Nat)
+    (hinit : execIRStmts fuel state init = .continue sInit)
+    (hcond : evalIRExpr sInit cond = some condValue)
+    (hcondNZ : condValue ≠ 0)
+    (hbody : execIRStmts fuel sInit body = .continue sBody)
+    (hpost : execIRStmts fuel sBody post = .continue sPost)
+    (hloop : execIRStmt fuel sPost (.for_ [] cond post body) = .continue sLoop) :
+    execIRStmts (Nat.succ (Nat.succ fuel)) state
+        (.for_ init cond post body :: tail) =
+      execIRStmts (Nat.succ fuel) sLoop tail := by
+  rw [execIRStmts_cons_for_one_continue fuel state sInit sBody sPost init post body
+    tail cond condValue hinit hcond hcondNZ hbody hpost, hloop]
+
+/-- forEach-shaped zero-condition lemma.
+
+The statement syntax is specialized to the compiler's current forEach loop
+layout: init statements, `lt(idx, count)`, `idx := add(idx, 1)`, and a leading
+assignment of the element variable before the compiled body. The semantic facts
+remain explicit hypotheses so callers can provide them from their local loop
+invariants. -/
+theorem execIRStmt_forEach_shape_init_cond_zero
+    (fuel : Nat) (state sInit : IRState)
+    (init bodyIR : List YulStmt)
+    (idxName countName varName : String)
+    (hinit : execIRStmts fuel state init = .continue sInit)
+    (hcond :
+      evalIRExpr sInit
+        (.call "lt" [.ident idxName, .ident countName]) = some 0) :
+    execIRStmt (Nat.succ fuel) state
+        (.for_
+          init
+          (.call "lt" [.ident idxName, .ident countName])
+          [.assign idxName (.call "add" [.ident idxName, .lit 1])]
+          (.assign varName (.ident idxName) :: bodyIR)) =
+      .continue sInit := by
+  exact execIRStmt_for_init_cond_zero fuel state sInit init
+    [.assign idxName (.call "add" [.ident idxName, .lit 1])]
+    (.assign varName (.ident idxName) :: bodyIR)
+    (.call "lt" [.ident idxName, .ident countName])
+    hinit hcond
+
 @[simp] theorem execIRStmt_stop_succ (fuel : Nat) (state : IRState) :
     execIRStmt (Nat.succ fuel) state (YulStmt.expr (YulExpr.call "stop" [])) =
       .stop state := by
