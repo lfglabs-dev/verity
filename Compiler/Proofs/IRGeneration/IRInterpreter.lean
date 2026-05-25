@@ -1181,6 +1181,21 @@ theorem execIRStmt_forEach_shape_init_cond_zero
     (.call "lt" [.ident idxName, .ident countName])
     hinit hcond
 
+/-- The three initializer statements emitted for a zero-literal `forEach`
+execute to the expected cached-counter state once enough fuel is available. -/
+theorem execIRStmts_forEach_init_literal_zero
+    (fuel : Nat) (state : IRState)
+    (idxName countName varName : String)
+    (hfuel : 4 ≤ fuel) :
+    execIRStmts fuel state
+        [ YulStmt.let_ idxName (YulExpr.lit 0)
+        , YulStmt.let_ countName (YulExpr.lit 0)
+        , YulStmt.let_ varName (YulExpr.lit 0) ] =
+      .continue (((state.setVar idxName 0).setVar countName 0).setVar varName 0) := by
+  rcases Nat.exists_eq_add_of_le hfuel with ⟨extra, rfl⟩
+  rw [Nat.add_comm]
+  simp [execIRStmts, execIRStmt, evalIRExpr]
+
 @[simp] theorem execIRStmt_stop_succ (fuel : Nat) (state : IRState) :
     execIRStmt (Nat.succ fuel) state (YulStmt.expr (YulExpr.call "stop" [])) =
       .stop state := by
