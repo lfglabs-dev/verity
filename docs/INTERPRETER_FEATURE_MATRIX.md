@@ -100,7 +100,7 @@ Legend: **ok** = supported, **0** = returns 0 (not modeled), **del** = delegated
 | Return (storage words) | `Stmt.returnStorageWords` | ok | ok | -- | proved |
 | Stop | `Stmt.stop` | ok | ok | ok | proved |
 | If/else | `Stmt.ite` | ok | ok | ok | proved |
-| For-each loop | `Stmt.forEach` | **rev** | ok | ok | proved |
+| For-each loop | `Stmt.forEach` | **rev** | ok | ok | partial |
 | Event emission | `Stmt.emit` | ok | ok | -- | proved |
 | Internal call (stmt) | `Stmt.internalCall` | **rev** | ok | -- | proved |
 | Internal call assign | `Stmt.internalCallAssign` | **rev** | ok | -- | proved |
@@ -188,7 +188,7 @@ Legend: **ok** = native evaluation.
 | Category | Proved | Assumed | Partial | Not Modeled |
 |---|---|---|---|---|
 | Expression features | 24 | 1 (`externalCall`) | 6 | 6 (`keccak256`, `call`, `staticcall`, `delegatecall`, `arrayElementDynamicWord`, `paramDynamicHeadWord`) |
-| Statement features | 25 | 0 | 1 (`mstore`) | 6 (`calldatacopy`, `returndataCopy`, `revertReturndata`, `rawLog`, `externalCallBind`, `ecm`) |
+| Statement features | 24 | 0 | 2 (`forEach`, `mstore`) | 6 (`calldatacopy`, `returndataCopy`, `revertReturndata`, `rawLog`, `externalCallBind`, `ecm`) |
 | Builtins (agreement) | 36 | 0 | 0 | 0 (delegated) |
 
 Proof-boundary features split across two buckets. Partially modeled features currently include runtime introspection (`blockNumber`, `contractAddress`, `chainid`) and single-word linear-memory forms (`mload`, `mstore`, `returndataOptionalBoolAt`). `selfBalance` is also partially modeled: it is compiler-supported and source-executable, but not yet included in the generic proof interpreter fragment. Fully not-modeled features currently include `keccak256`, low-level call / returndata plumbing (`call`, `staticcall`, `delegatecall`, `calldatacopy`, `returndataCopy`, `revertReturndata`), event emission (`rawLog`), and external call modules (`externalCallBind`, `ecm`). Dynamic struct-array head-word decoding (`arrayElementDynamicWord`) and direct dynamic-struct parameter head-word decoding (`paramDynamicHeadWord`) are also not modeled by proof interpreters yet. These features are still compiler-supported and are validated by differential testing (70,000+ test vectors against actual EVM execution).

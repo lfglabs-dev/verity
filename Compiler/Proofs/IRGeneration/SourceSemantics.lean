@@ -563,6 +563,108 @@ def execForEachLoop
       | .return value next => .return value next
       | .revert => .revert
 
+@[simp] theorem execForEachLoop_zero
+    (varName : String)
+    (runBody : RuntimeState → StmtResult)
+    (state : RuntimeState)
+    (index : Nat) :
+    execForEachLoop varName runBody state index 0 = .continue state := rfl
+
+theorem execForEachLoop_succ
+    (varName : String)
+    (runBody : RuntimeState → StmtResult)
+    (state : RuntimeState)
+    (index remaining : Nat) :
+    execForEachLoop varName runBody state index (remaining + 1) =
+      let loopState :=
+        { state with bindings := bindValue state.bindings varName (wordNormalize index) }
+      match runBody loopState with
+      | .continue next => execForEachLoop varName runBody next (index + 1) remaining
+      | .stop next => .stop next
+      | .return value next => .return value next
+      | .revert => .revert := rfl
+
+@[simp] theorem lookupBinding?_bindValue_same
+    (bindings : List (String × Nat))
+    (name : String)
+    (value : Nat) :
+    lookupBinding? (bindValue bindings name value) name = some value := by
+  simp [lookupBinding?, bindValue]
+
+@[simp] theorem lookupValue_bindValue_same
+    (bindings : List (String × Nat))
+    (name : String)
+    (value : Nat) :
+    lookupValue (bindValue bindings name value) name = value := by
+  simp [lookupValue, bindValue]
+
+@[simp] theorem execForEachLoop_boundState_lookupBinding?
+    (varName : String)
+    (state : RuntimeState)
+    (index : Nat) :
+    lookupBinding?
+        (bindValue state.bindings varName (wordNormalize index))
+        varName =
+      some (wordNormalize index) := by
+  simp
+
+@[simp] theorem execForEachLoop_boundState_lookupValue
+    (varName : String)
+    (state : RuntimeState)
+    (index : Nat) :
+    lookupValue
+        (bindValue state.bindings varName (wordNormalize index))
+        varName =
+      wordNormalize index := by
+  simp
+
+theorem execForEachLoop_zero_continue_state
+    {varName : String}
+    {runBody : RuntimeState → StmtResult}
+    {state final : RuntimeState}
+    {index : Nat}
+    (hloop : execForEachLoop varName runBody state index 0 = .continue final) :
+    final = state := by
+  simpa [execForEachLoop] using hloop.symm
+
+theorem execForEachLoop_succ_continue_iff
+    {varName : String}
+    {runBody : RuntimeState → StmtResult}
+    {state final : RuntimeState}
+    {index remaining : Nat} :
+    execForEachLoop varName runBody state index (remaining + 1) = .continue final ↔
+      ∃ next,
+        runBody
+            { state with
+              bindings := bindValue state.bindings varName (wordNormalize index) } =
+          .continue next ∧
+        execForEachLoop varName runBody next (index + 1) remaining =
+          .continue final := by
+  simp only [execForEachLoop]
+  cases hbody :
+      runBody
+        { state with
+          bindings := bindValue state.bindings varName (wordNormalize index) } <;>
+    simp [hbody]
+
+theorem execForEachLoop_succ_continue
+    {varName : String}
+    {runBody : RuntimeState → StmtResult}
+    {state next final : RuntimeState}
+    {index remaining : Nat}
+    (hbody :
+      runBody
+          { state with
+            bindings := bindValue state.bindings varName (wordNormalize index) } =
+        .continue next)
+    (hloop :
+      execForEachLoop varName runBody next (index + 1) remaining =
+        .continue final) :
+    execForEachLoop varName runBody state index (remaining + 1) =
+      .continue final := by
+  rw [execForEachLoop_succ]
+  simpa only [hbody] using hloop
+
 theorem execForEachLoop_congr
     {varName : String}
     {runBodyA runBodyB : RuntimeState → StmtResult}

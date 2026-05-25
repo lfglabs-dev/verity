@@ -535,7 +535,7 @@
       "SpecInterpreter_basic": "unsupported",
       "SpecInterpreter_fuel": "supported",
       "IRInterpreter": "supported",
-      "proof_status": "proved"
+      "proof_status": "partial"
     },
     {
       "feature": "emit",
