@@ -65,14 +65,16 @@ The declaration has five responsibilities:
 - `semantics := ...` is the Lean function used by source-level and consumer
   proofs.
 - `obligation [...]` names the consumer-owned trust boundary. While the
-  obligation is `assumed`, the consumer must document it in its own `AXIOMS.md`.
+  obligation is `assumed`, the consumer must document it in its own `AXIOMS.md`
+  or equivalent trust-boundary file.
 
 ## Trust Model
 
 Intrinsics deliberately keep Verity's project-level axiom count at zero. The
-trust boundary is generated in the consumer namespace from the declaration's
-obligation clause and should appear in the consumer repository's axiom/trust
-documentation.
+declaration records the consumer-owned obligation next to the generated Lean
+semantic wrapper, but it does not create a Verity project axiom and the current
+implementation does not yet emit a machine-readable trust-report row. Consumers
+must document each assumed obligation in their own axiom/trust-boundary file.
 
 For an assumed intrinsic, reviewers should check:
 
@@ -150,7 +152,9 @@ Tamago:
   requirements are not missed by code generation.
 
 Machine-readable intrinsic trust-report rows are still future hardening; the
-build-time fork gate is enforced now.
+build-time fork gate is enforced now. Until those rows exist, the generated
+`<name>_intrinsic_obligations` string and the consumer's documented `AXIOMS.md`
+entry are the human-auditable obligation record.
 
 These proofs intentionally stop before opcode semantics. Until EVMYulLean
 models CLZ, the statement "opcode `0x1e` computes the declared Lean semantics"

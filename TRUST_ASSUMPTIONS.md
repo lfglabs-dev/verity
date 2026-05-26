@@ -91,9 +91,10 @@ Current theorem totals, property-test coverage, and proof status live in [docs/V
   to `verbatim_1i_1o(hex"1e", x)`.
 - **Trust**: While an intrinsic obligation is `assumed`, the consumer owns the
   claim that the declared Lean `semantics` matches the emitted opcode on the
-  selected chain fork. The generated obligation lives in the consumer namespace
-  and must be documented in the consumer repository, not as a Verity
-  project-level axiom.
+  selected chain fork. The declaration records the obligation in the consumer
+  namespace next to the generated semantic wrapper, and the consumer must
+  document it in its repository rather than treating it as a Verity project-level
+  axiom.
 - **Status**: This change introduces a generic intrinsic lowering path and
   keeps Verity's own `AXIOMS.md` at zero project-level axioms.
   `min_fork` checks are enforced against the compiler target fork, defaulting

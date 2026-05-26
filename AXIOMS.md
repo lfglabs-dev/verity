@@ -196,7 +196,8 @@ specification.
 ## Consumer Intrinsic Obligations (from verity_intrinsic)
 
 Intrinsics do not add project-level Verity axioms. Each `verity_intrinsic`
-declaration names a consumer-owned obligation in its `obligation [...]` clause.
+declaration names a consumer-owned obligation in its `obligation [...]` clause
+and records that obligation next to the generated consumer semantic wrapper.
 While that obligation is `assumed`, the consumer repository must document it in
 its own `AXIOMS.md` or equivalent trust-boundary document.
 
@@ -206,8 +207,9 @@ proofs matches the EIP-7939 opcode emitted as `verbatim_1i_1o(hex"1e", x)` on
 Fusaka-or-later chains.
 
 These obligations are outside this registry because they are not axioms in the
-Verity project. They should be surfaced by consumer trust reports and reviewed
-by grepping consumer code for `verity_intrinsic`.
+Verity project. Future consumer trust reports should surface them
+machine-readably; until that integration exists, review them by grepping
+consumer code for `verity_intrinsic`.
 
 The Verity-side proof module `Compiler.Proofs.IRGeneration.IntrinsicProofs`
 proves only compiler-owned plumbing around the generic intrinsic path:
