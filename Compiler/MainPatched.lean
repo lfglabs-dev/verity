@@ -211,6 +211,7 @@ private def parseArgs (args : List String) : IO CLIArgs := do
                     targetFork :=
                       if cfg.targetForkExplicit then cfg.targetFork
                       else (Compiler.CompileDriverCommon.parseTargetFork? pack.compat.evmVersion).getD cfg.targetFork
+                    targetForkExplicit := true
                     mappingSlotScratchBase :=
                       if cfg.mappingSlotScratchBaseExplicit then cfg.mappingSlotScratchBase else 0x200
                }
