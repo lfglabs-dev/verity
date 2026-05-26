@@ -435,7 +435,7 @@ def compileExpr (fields : List Field)
   | Expr.byte i v    => return yulBinOp "byte" (← compileExpr fields dynamicSource i) (← compileExpr fields dynamicSource v)
   | Expr.signextend b v =>
       return yulBinOp "signextend" (← compileExpr fields dynamicSource b) (← compileExpr fields dynamicSource v)
-  | Expr.intrinsic name lowering args => do
+  | Expr.intrinsic name lowering _minFork args => do
       let argExprs ← compileExprList fields dynamicSource args
       match lowering with
       | .verbatim inArity outArity opcodeHex =>

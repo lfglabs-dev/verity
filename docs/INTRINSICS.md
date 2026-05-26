@@ -54,8 +54,8 @@ The declaration has five responsibilities:
 - `yul := verbatim N M (hex "...")` states the compiler lowering. The generated
   Yul call is `verbatim_Ni_Mo(hex"...", args...)`.
 - `min_fork := ...` records the minimum chain fork where the emitted opcode is
-  valid. Verity's intended policy is fail-closed: builds targeting an older fork
-  must error unless the caller explicitly opts into future-fork output.
+  valid. Verity enforces this fail-closed: builds targeting an older fork error
+  unless the caller explicitly passes `--allow-future-fork-intrinsics`.
 - `semantics := ...` is the Lean function used by source-level and consumer
   proofs.
 - `obligation [...]` names the consumer-owned trust boundary. While the
@@ -81,11 +81,33 @@ This is a consumer trust boundary, not a Verity proof-system axiom. Verity's
 own `AXIOMS.md` remains the registry of project-level axioms and should stay at
 zero unless Verity itself introduces an axiom.
 
+## Fork Targeting
+
+The pinned EVMYulLean fork used by Verity declares
+`EvmYul.TargetSchedule := "Cancun"` and models Cancun-era opcodes such as
+`BLOBHASH`, `BLOBBASEFEE`, `TLOAD`, `TSTORE`, `MCOPY`, and `PUSH0`. For that
+reason, Verity's intrinsic fork enum starts at `cancun`.
+
+Supported intrinsic fork labels are:
+
+- `cancun`
+- `prague`
+- `fusaka`
+- `osaka` as an accepted alias for the Fusaka execution-layer fork name
+
+The compiler default is `--target-fork cancun`. Use `--target-fork prague` or
+`--target-fork fusaka` for newer deployments. Parity packs set the target from
+their `evmVersion` when possible. If a build intentionally emits newer-fork
+intrinsics while using an older target, it must pass
+`--allow-future-fork-intrinsics`; otherwise compilation fails before Yul is
+written.
+
 ## Audit Surface
 
 Consumer builds that use intrinsics should archive the normal compiler
-artifacts plus the trust report once intrinsic reporting is wired. The report
-entry is expected to include:
+artifacts, the selected `--target-fork`, and the `verity_intrinsic`
+declarations they rely on. A future machine-readable trust-report entry should
+include:
 
 - intrinsic name;
 - emission mode (`verbatim_Ni_Mo` or named builtin);
@@ -108,6 +130,9 @@ Tamago:
 - Yul lowering from the declaration's `yul := ...` clause;
 - validation plumbing so intrinsic arguments participate in purity and usage
   checks.
+- fail-closed `min_fork` enforcement through `YulEmitOptions.targetFork`, the
+  `--target-fork` CLI flag, and the explicit
+  `--allow-future-fork-intrinsics` override.
 - proof plumbing for the Verity-owned part of the feature:
   `Compiler.Proofs.IRGeneration.IntrinsicProofs` proves the fork-order facts,
   intrinsic argument scope accounting, generic verbatim/builtin lowering shape, and
@@ -118,9 +143,8 @@ Tamago:
 - usage-analysis plumbing recurses through intrinsic arguments so helper
   requirements are not missed by code generation.
 
-Machine-readable trust-report rows and enforced `min_fork` target checks are
-the next hardening steps before this feature should be treated as a general
-public surface.
+Machine-readable intrinsic trust-report rows are still future hardening; the
+build-time fork gate is enforced now.
 
 These proofs intentionally stop before opcode semantics. Until EVMYulLean
 models CLZ, the statement "opcode `0x1e` computes the declared Lean semantics"

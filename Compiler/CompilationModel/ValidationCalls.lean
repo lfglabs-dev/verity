@@ -240,7 +240,7 @@ def validateInternalCallShapesInExpr
     Expr.ceilDiv a b => do
       validateInternalCallShapesInExpr functions callerName a
       validateInternalCallShapesInExpr functions callerName b
-  | Expr.intrinsic _ _ args =>
+  | Expr.intrinsic _ _ _ args =>
       validateInternalCallShapesInExprList functions callerName args
   | Expr.mulDivDown a b c | Expr.mulDivUp a b c
   | Expr.mulDiv512Down a b c | Expr.mulDiv512Up a b c => do
@@ -515,7 +515,7 @@ def validateExternalCallTargetsInExpr
     Expr.ceilDiv a b => do
       validateExternalCallTargetsInExpr externals context a
       validateExternalCallTargetsInExpr externals context b
-  | Expr.intrinsic _ _ args =>
+  | Expr.intrinsic _ _ _ args =>
       validateExternalCallTargetsInExprList externals context args
   | Expr.mulDivDown a b c | Expr.mulDivUp a b c
   | Expr.mulDiv512Down a b c | Expr.mulDiv512Up a b c => do

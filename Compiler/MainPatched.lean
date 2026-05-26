@@ -1,6 +1,7 @@
 import Compiler.CompileDriver
 import Compiler.ModuleInput
 import Compiler.ParityPacks
+import Verity.Core.Intrinsics
 
 /-!
 ## CLI Argument Parsing
@@ -22,6 +23,9 @@ private structure CLIArgs where
   backendProfile : Compiler.BackendProfile := .semantic
   backendProfileExplicit : Bool := false
   parityPackId : Option String := none
+  targetFork : Verity.Core.Intrinsics.HardFork := .cancun
+  targetForkExplicit : Bool := false
+  allowFutureForkIntrinsics : Bool := false
   patchEnabled : Bool := false
   patchMaxIterations : Nat := 2
   patchMaxIterationsExplicit : Bool := false
@@ -103,6 +107,9 @@ private def backendProfileString (profile : Compiler.BackendProfile) : String :=
   | .solidityParityOrdering => "solidity-parity-ordering"
   | .solidityParity => "solidity-parity"
 
+private def parseTargetFork (raw : String) : Option Verity.Core.Intrinsics.HardFork :=
+  Verity.Core.Intrinsics.HardFork.parse? raw
+
 private def parseArgs (args : List String) : IO CLIArgs := do
   let rec go (remaining : List String) (cfg : CLIArgs) : IO CLIArgs :=
     match remaining with
@@ -121,6 +128,8 @@ private def parseArgs (args : List String) : IO CLIArgs := do
         IO.println "  --module <name>    Import a Lean module and compile its canonical `<Module>.spec`"
         IO.println "  --backend-profile <semantic|solidity-parity-ordering|solidity-parity>"
         IO.println "  --parity-pack <id> Versioned parity-pack tuple (see docs/PARITY_PACKS.md)"
+        IO.println "  --target-fork <cancun|prague|fusaka|osaka>  EVM fork target for intrinsic min_fork checks (default: cancun)"
+        IO.println "  --allow-future-fork-intrinsics  Allow intrinsics whose min_fork is newer than --target-fork"
         IO.println "  --enable-patches   Enable deterministic Yul patch pass"
         IO.println "  --patch-max-iterations <n>  Max patch-pass fixpoint iterations (default: 2)"
         IO.println "  --patch-report <path>       Write TSV patch coverage report"
@@ -201,6 +210,9 @@ private def parseArgs (args : List String) : IO CLIArgs := do
                     patchEnabled := cfg.patchEnabled || pack.forcePatches
                     patchMaxIterations :=
                       if cfg.patchMaxIterationsExplicit then cfg.patchMaxIterations else pack.defaultPatchMaxIterations
+                    targetFork :=
+                      if cfg.targetForkExplicit then cfg.targetFork
+                      else (Verity.Core.Intrinsics.HardFork.parse? pack.compat.evmVersion).getD cfg.targetFork
                     mappingSlotScratchBase :=
                       if cfg.mappingSlotScratchBaseExplicit then cfg.mappingSlotScratchBase else 0x200
                }
@@ -209,6 +221,16 @@ private def parseArgs (args : List String) : IO CLIArgs := do
                 s!"Invalid value for --parity-pack: {raw} (supported: {String.intercalate ", " Compiler.supportedParityPackIds})")
     | ["--parity-pack"] =>
         throw (IO.userError "Missing value for --parity-pack")
+    | "--target-fork" :: raw :: rest =>
+        match parseTargetFork raw with
+        | some fork => go rest { cfg with targetFork := fork, targetForkExplicit := true }
+        | none =>
+            throw (IO.userError
+              s!"Invalid value for --target-fork: {raw} (expected cancun, prague, fusaka, or osaka alias)")
+    | ["--target-fork"] =>
+        throw (IO.userError "Missing value for --target-fork")
+    | "--allow-future-fork-intrinsics" :: rest =>
+        go rest { cfg with allowFutureForkIntrinsics := true }
     | "--enable-patches" :: rest =>
         go rest { cfg with patchEnabled := true }
     | "--patch-max-iterations" :: raw :: rest =>
@@ -288,6 +310,9 @@ unsafe def main (args : List String) : IO Unit := do
       if !rawModules.isEmpty then
         IO.println s!"Modules: {String.intercalate ", " rawModules}"
       IO.println s!"Backend profile: {backendProfileString cfg.backendProfile}"
+      IO.println s!"Target fork: {cfg.targetFork}"
+      if cfg.allowFutureForkIntrinsics then
+        IO.println "Future-fork intrinsics: allowed"
       match cfg.parityPackId with
       | some packId =>
           IO.println s!"Parity pack: {packId}"
@@ -349,6 +374,8 @@ unsafe def main (args : List String) : IO Unit := do
     let packRewriteBundleId := defaultRewriteBundleIdFor cfg
     let options : Compiler.YulEmitOptions := {
       backendProfile := cfg.backendProfile
+      targetFork := cfg.targetFork
+      allowFutureForkIntrinsics := cfg.allowFutureForkIntrinsics
       patchConfig := {
         enabled := patchEnabled
         maxIterations := cfg.patchMaxIterations

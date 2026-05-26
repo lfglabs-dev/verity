@@ -9,46 +9,72 @@ See docs/INTRINSICS.md and plan.md for usage and trust model.
 
 namespace Verity.Core.Intrinsics
 
-/-- Hard fork levels used for `min_fork` guards on intrinsics. -/
+/-- Hard fork levels used for `min_fork` guards on intrinsics.
+
+    The first entry is Cancun because the pinned EVMYulLean fork exposes
+    `EvmYul.TargetSchedule := "Cancun"` and models Cancun-era opcodes such as
+    `BLOBHASH`, `TSTORE`, `MCOPY`, and `PUSH0`. Newer forks are represented so
+    consumer intrinsics can state future-chain requirements even before
+    EVMYulLean models those opcodes. -/
 inductive HardFork where
-  | shanghai
+  | cancun
+  | prague
   | fusaka
-  deriving Repr, BEq, Inhabited
+  deriving Repr, BEq, DecidableEq, Inhabited
 
 def HardFork.rank : HardFork → Nat
-  | .shanghai => 0
-  | .fusaka   => 1
+  | .cancun => 0
+  | .prague => 1
+  | .fusaka => 2
 
 /-- `allows target required` is the fail-closed fork guard used by intrinsic
     callers: the target fork must be at least the intrinsic's minimum fork. -/
 def HardFork.allows (target required : HardFork) : Bool :=
-  match target, required with
-  | .shanghai, .shanghai => true
-  | .shanghai, .fusaka => false
-  | .fusaka, .shanghai => true
-  | .fusaka, .fusaka => true
+  decide (required.rank ≤ target.rank)
 
 def HardFork.toString : HardFork → String
-  | .shanghai => "shanghai"
-  | .fusaka   => "fusaka"
+  | .cancun => "cancun"
+  | .prague => "prague"
+  | .fusaka => "fusaka"
 
 instance : ToString HardFork := ⟨HardFork.toString⟩
 
+def HardFork.parse? (raw : String) : Option HardFork :=
+  match raw with
+  | "cancun" => some .cancun
+  | "prague" => some .prague
+  | "fusaka" => some .fusaka
+  -- Solidity's execution-layer name for the Fusaka execution upgrade.
+  | "osaka" => some .fusaka
+  | _ => none
+
 @[simp] theorem HardFork.allows_refl (fork : HardFork) :
     HardFork.allows fork fork = true := by
-  cases fork <;> rfl
+  simp [HardFork.allows]
 
-@[simp] theorem HardFork.shanghai_not_allow_fusaka :
-    HardFork.allows .shanghai .fusaka = false := rfl
+@[simp] theorem HardFork.cancun_not_allow_prague :
+    HardFork.allows .cancun .prague = false := rfl
 
-@[simp] theorem HardFork.fusaka_allows_shanghai :
-    HardFork.allows .fusaka .shanghai = true := rfl
+@[simp] theorem HardFork.cancun_not_allow_fusaka :
+    HardFork.allows .cancun .fusaka = false := rfl
+
+@[simp] theorem HardFork.prague_not_allow_fusaka :
+    HardFork.allows .prague .fusaka = false := rfl
+
+@[simp] theorem HardFork.prague_allows_cancun :
+    HardFork.allows .prague .cancun = true := rfl
+
+@[simp] theorem HardFork.fusaka_allows_cancun :
+    HardFork.allows .fusaka .cancun = true := rfl
+
+@[simp] theorem HardFork.fusaka_allows_prague :
+    HardFork.allows .fusaka .prague = true := rfl
 
 theorem HardFork.allows_trans {a b c : HardFork}
     (hab : HardFork.allows a b = true)
     (hbc : HardFork.allows b c = true) :
     HardFork.allows a c = true := by
-  cases a <;> cases b <;> cases c <;> simp [HardFork.allows] at *
+  cases a <;> cases b <;> cases c <;> simp [HardFork.allows, HardFork.rank] at *
 
 /-- Yul emission strategy for an intrinsic. -/
 inductive YulLowering where

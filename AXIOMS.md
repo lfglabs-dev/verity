@@ -212,8 +212,9 @@ by grepping consumer code for `verity_intrinsic`.
 The Verity-side proof module `Compiler.Proofs.IRGeneration.IntrinsicProofs`
 proves only compiler-owned plumbing around the generic intrinsic path:
 argument scope accounting, verbatim/builtin lowering shape, fork-order facts,
-and arity rejection. It adds no axiom asserting that any emitted opcode
-implements the declared consumer semantics. The current end-to-end proven fragment remains
+arity rejection, and the fail-closed `min_fork` predicate used by the compiler
+fork gate. It adds no axiom asserting that any emitted opcode implements the
+declared consumer semantics. The current end-to-end proven fragment remains
 fail-closed over intrinsics: `SupportedSpec` and helper-aware source semantics
 classify `Expr.intrinsic` as unsupported/unmodeled until an opcode semantics
 proof exists.

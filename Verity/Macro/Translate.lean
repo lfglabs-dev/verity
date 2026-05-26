@@ -4372,12 +4372,25 @@ partial def translatePureExprWithTypes
       `(Compiler.CompilationModel.Expr.externalCall $(strTerm extName) [ $[$argsExprs],* ])
   | `(term| intrinsic $name:term $lowering:term $args:term) =>
       let intrinsicName := ← expectStringOrIdent name
+      let registered ← liftIO getRegisteredIntrinsics
+      let minFork ←
+        match registered.find? (fun decl => decl.name = intrinsicName) with
+        | some decl => pure decl.minFork
+        | none =>
+            throwErrorAt name
+              s!"unknown intrinsic '{intrinsicName}'; declare it first with `verity_intrinsic` so the compiler can enforce min_fork"
+      let minForkTerm : Term ←
+        match minFork with
+        | .cancun => `(Verity.Core.Intrinsics.HardFork.cancun)
+        | .prague => `(Verity.Core.Intrinsics.HardFork.prague)
+        | .fusaka => `(Verity.Core.Intrinsics.HardFork.fusaka)
       let argsExprs ←
         match stripParens args with
         | `(term| [ $[$xs],* ]) =>
             xs.mapM (translatePureExprWithTypes fields constDecls immutableDecls params locals · visitingConstants)
         | _ => throwErrorAt args "expected list literal [..]"
-      `(Compiler.CompilationModel.Expr.intrinsic $(strTerm intrinsicName) $lowering [ $[$argsExprs],* ])
+      `(Compiler.CompilationModel.Expr.intrinsic $(strTerm intrinsicName) $lowering
+          $minForkTerm [ $[$argsExprs],* ])
   | `(term| structMember $field:term $key:term $member:term) =>
       let fieldName := ← expectStringOrIdent field
       let memberName := ← expectStringOrIdent member

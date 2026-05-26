@@ -171,7 +171,7 @@ def exprUsesArrayElementKind (includePlain includeWord : Bool) : Expr → Bool
     Expr.ceilDiv a b =>
       exprUsesArrayElementKind includePlain includeWord a ||
         exprUsesArrayElementKind includePlain includeWord b
-  | Expr.intrinsic _ _ args =>
+  | Expr.intrinsic _ _ _ args =>
       exprListUsesArrayElementKind includePlain includeWord args
   | Expr.mulDivDown a b c | Expr.mulDivUp a b c | Expr.mulDiv512Down a b c | Expr.mulDiv512Up a b c =>
       exprUsesArrayElementKind includePlain includeWord a ||
@@ -355,7 +355,7 @@ def exprUsesArrayElement : Expr → Bool
     Expr.wMulDown a b | Expr.wDivUp a b | Expr.min a b | Expr.max a b |
     Expr.ceilDiv a b =>
       exprUsesArrayElement a || exprUsesArrayElement b
-  | Expr.intrinsic _ _ args => exprListUsesArrayElement args
+  | Expr.intrinsic _ _ _ args => exprListUsesArrayElement args
   | Expr.mulDivDown a b c | Expr.mulDivUp a b c | Expr.mulDiv512Down a b c | Expr.mulDiv512Up a b c =>
       exprUsesArrayElement a || exprUsesArrayElement b || exprUsesArrayElement c
   | Expr.bitNot a | Expr.logicalNot a =>
@@ -558,7 +558,7 @@ def exprUsesParamDynamicHeadWord : Expr → Bool
   | Expr.le a b | Expr.logicalAnd a b | Expr.logicalOr a b
   | Expr.wMulDown a b | Expr.wDivUp a b | Expr.min a b | Expr.max a b | Expr.ceilDiv a b =>
       exprUsesParamDynamicHeadWord a || exprUsesParamDynamicHeadWord b
-  | Expr.intrinsic _ _ args => exprListUsesParamDynamicHeadWord args
+  | Expr.intrinsic _ _ _ args => exprListUsesParamDynamicHeadWord args
   | Expr.mulDivDown a b c | Expr.mulDivUp a b c
   | Expr.mulDiv512Down a b c | Expr.mulDiv512Up a b c
   | Expr.ite a b c =>
@@ -700,7 +700,7 @@ def exprUsesMulDiv512 : Expr → Bool
   | Expr.le a b | Expr.logicalAnd a b | Expr.logicalOr a b
   | Expr.wMulDown a b | Expr.wDivUp a b | Expr.min a b | Expr.max a b | Expr.ceilDiv a b =>
       exprUsesMulDiv512 a || exprUsesMulDiv512 b
-  | Expr.intrinsic _ _ args => exprListUsesMulDiv512 args
+  | Expr.intrinsic _ _ _ args => exprListUsesMulDiv512 args
   | Expr.mulDivDown a b c | Expr.mulDivUp a b c | Expr.ite a b c =>
       exprUsesMulDiv512 a || exprUsesMulDiv512 b || exprUsesMulDiv512 c
   | Expr.literal _ | Expr.param _ | Expr.constructorArg _
@@ -858,7 +858,7 @@ def exprUsesStorageArrayElement : Expr → Bool
     Expr.wMulDown a b | Expr.wDivUp a b | Expr.min a b | Expr.max a b |
     Expr.ceilDiv a b =>
       exprUsesStorageArrayElement a || exprUsesStorageArrayElement b
-  | Expr.intrinsic _ _ args => exprListUsesStorageArrayElement args
+  | Expr.intrinsic _ _ _ args => exprListUsesStorageArrayElement args
   | Expr.mulDivDown a b c | Expr.mulDivUp a b c | Expr.mulDiv512Down a b c | Expr.mulDiv512Up a b c =>
       exprUsesStorageArrayElement a || exprUsesStorageArrayElement b || exprUsesStorageArrayElement c
   | Expr.bitNot a | Expr.logicalNot a =>
@@ -1020,7 +1020,7 @@ def exprUsesDynamicBytesEq : Expr → Bool
   | Expr.wMulDown a b | Expr.wDivUp a b | Expr.min a b | Expr.max a b
   | Expr.ceilDiv a b =>
       exprUsesDynamicBytesEq a || exprUsesDynamicBytesEq b
-  | Expr.intrinsic _ _ args => exprListUsesDynamicBytesEq args
+  | Expr.intrinsic _ _ _ args => exprListUsesDynamicBytesEq args
   | Expr.mulDivDown a b c | Expr.mulDivUp a b c | Expr.mulDiv512Down a b c | Expr.mulDiv512Up a b c =>
       exprUsesDynamicBytesEq a || exprUsesDynamicBytesEq b || exprUsesDynamicBytesEq c
   | Expr.bitNot a | Expr.logicalNot a =>

@@ -166,10 +166,10 @@ def elabVerityIntrinsic : CommandElab := fun stx => do
         | _ =>
             throwErrorAt yul "expected `verbatim <inputs> <outputs> (hex \"...\")` or `builtin \"...\"`"
       let minFork ←
-        match toString fork.getId with
-        | "shanghai" => pure Verity.Core.Intrinsics.HardFork.shanghai
-        | "fusaka" => pure Verity.Core.Intrinsics.HardFork.fusaka
-        | other => throwErrorAt fork s!"unknown intrinsic min_fork '{other}'"
+        match Verity.Core.Intrinsics.HardFork.parse? (toString fork.getId) with
+        | some parsed => pure parsed
+        | none => throwErrorAt fork
+            s!"unknown intrinsic min_fork '{toString fork.getId}' (expected cancun, prague, fusaka, or osaka alias)"
       let parsedObligations ← obligations.mapM fun obligation => do
         match obligation with
         | `(verityIntrinsicObligation| $obligationName:ident := $status:ident $message:str) =>

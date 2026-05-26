@@ -96,17 +96,18 @@ Current theorem totals, property-test coverage, and proof status live in [docs/V
   project-level axiom.
 - **Status**: This change introduces a generic intrinsic lowering path and
   keeps Verity's own `AXIOMS.md` at zero project-level axioms.
-  Machine-readable intrinsic trust-report entries and enforced `min_fork`
-  checks remain follow-up hardening. The Verity-owned proof fragment now
-  covers intrinsic argument scope accounting, generic verbatim/builtin
-  lowering shape, fork-order facts, arity rejection, and fail-closed exclusion
-  from the current end-to-end proven fragment; it does not assert any opcode
-  semantics.
+  `min_fork` checks are enforced against the compiler target fork, defaulting
+  to Cancun because the pinned EVMYulLean fork declares
+  `EvmYul.TargetSchedule := "Cancun"`. Machine-readable intrinsic trust-report
+  entries remain follow-up hardening. The Verity-owned proof fragment now
+  covers intrinsic argument scope accounting, generic verbatim/builtin lowering
+  shape, fork-order facts, arity rejection, and fail-closed exclusion from the
+  current end-to-end proven fragment; it does not assert any opcode semantics.
 - **Mitigation**: Audit every `verity_intrinsic` declaration in consumer code.
   Check opcode bytes, fork requirement, semantic edge cases, and the obligation
-  status. The intended production policy is fail-closed fork enforcement: a
-  contract targeting a fork lower than an intrinsic's `min_fork` must error
-  unless an explicit future-fork override is passed.
+  status. Fork enforcement is fail-closed: a contract targeting a fork lower
+  than an intrinsic's `min_fork` errors unless
+  `--allow-future-fork-intrinsics` is passed.
 - **Reference**: See [docs/INTRINSICS.md](docs/INTRINSICS.md).
 
 ## Semantic Caveats
