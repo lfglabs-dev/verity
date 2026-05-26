@@ -91,6 +91,10 @@ syntax "reinitializer(" ident ", " num ")" : verityInitGuard
 syntax "ecmCall " term:max ppSpace term:max : term
 syntax "ecmDo " term:max ppSpace term:max : term
 syntax "intrinsic " term:max ppSpace term:max ppSpace term:max : term
+syntax "intrinsic_cancun " term:max ppSpace term:max ppSpace term:max : term
+syntax "intrinsic_prague " term:max ppSpace term:max ppSpace term:max : term
+syntax "intrinsic_fusaka " term:max ppSpace term:max ppSpace term:max : term
+syntax "intrinsic_osaka " term:max ppSpace term:max ppSpace term:max : term
 syntax "adt " str : term
 syntax "adt " str " [" sepBy(term, ",") "]" : term
 syntax "tryCatch " term:max ppSpace term:max : doElem
@@ -98,6 +102,14 @@ syntax "tryCatch " term:max ppSpace term:max : doElem
 macro_rules
   | `(intrinsic $_name:term $_lowering:term [ $arg:term ]) => `($arg)
   | `(intrinsic $_name:term $_lowering:term $_args:term) => `(0)
+  | `(intrinsic_cancun $_name:term $_lowering:term [ $arg:term ]) => `($arg)
+  | `(intrinsic_cancun $_name:term $_lowering:term $_args:term) => `(0)
+  | `(intrinsic_prague $_name:term $_lowering:term [ $arg:term ]) => `($arg)
+  | `(intrinsic_prague $_name:term $_lowering:term $_args:term) => `(0)
+  | `(intrinsic_fusaka $_name:term $_lowering:term [ $arg:term ]) => `($arg)
+  | `(intrinsic_fusaka $_name:term $_lowering:term $_args:term) => `(0)
+  | `(intrinsic_osaka $_name:term $_lowering:term [ $arg:term ]) => `($arg)
+  | `(intrinsic_osaka $_name:term $_lowering:term $_args:term) => `(0)
   | `(adt $_variant:str) => `(0)
   | `(adt $_variant:str [ $[$_args:term],* ]) => `(0)
 syntax "revert " ident "(" sepBy(term, ",") ")" : doElem
