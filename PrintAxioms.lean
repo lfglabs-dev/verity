@@ -2438,12 +2438,21 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.forEachLiteral_fresh_facts  -- private
   -- Compiler.Proofs.IRGeneration.evalIRExpr_forEachZeroCond_after_init  -- private
   -- Compiler.Proofs.IRGeneration.forEachZero_initFuel_of_slack  -- private
-  -- Compiler.Proofs.IRGeneration.execIRStmts_forEach_literal_zero_compiled  -- private
+  -- Compiler.Proofs.IRGeneration.execIRStmts_forEach_empty_body_assign  -- private
+  -- Compiler.Proofs.IRGeneration.execIRStmts_forEach_empty_post_increment  -- private
+  -- Compiler.Proofs.IRGeneration.evalIRExpr_forEach_empty_cond_lt  -- private
+  -- Compiler.Proofs.IRGeneration.evalIRExpr_forEach_empty_cond_eq  -- private
+  -- Compiler.Proofs.IRGeneration.execIRStmt_forEach_empty_loop_from_idx  -- private
+  -- Compiler.Proofs.IRGeneration.execIRStmt_forEach_empty_loop_idx_bound  -- private
+  -- Compiler.Proofs.IRGeneration.forEachLiteral_loopFuel_of_slack  -- private
+  -- Compiler.Proofs.IRGeneration.forEachLiteral_initFuel_of_slack  -- private
   -- Compiler.Proofs.IRGeneration.execIRStmts_forEach_literal_empty_compiled  -- private
+  -- Compiler.Proofs.IRGeneration.execIRStmts_forEach_literal_zero_compiled  -- private
   -- Compiler.Proofs.IRGeneration.forEachZero_nextScopeIncluded  -- private
   -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_forEachZeroLoop  -- private
   -- Compiler.Proofs.IRGeneration.bindingsExactly_forEachZeroBase  -- private
   -- Compiler.Proofs.IRGeneration.stmtStepMatches_forEach_literal_zero_final  -- private
+  -- Compiler.Proofs.IRGeneration.forEach_empty_final_rel  -- private
   -- Compiler.Proofs.IRGeneration.stmtStepMatches_forEach_literal_empty_final  -- private
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_forEach_literal_zero  -- private
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_forEach_literal_empty  -- private
@@ -2503,6 +2512,8 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.stmtNextScope_requireLiteralGuardFamilyClause  -- private
   -- Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_append_of_surface_exceptMappingWrites  -- private
   -- Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_requireClause_of_surface_exceptMappingWrites  -- private
+  -- Compiler.Proofs.IRGeneration.stmtListTouchesUnsupportedContractSurface_body_of_singleton_forEach_zero  -- private
+  -- Compiler.Proofs.IRGeneration.stmtListTouchesUnsupportedContractSurface_body_of_singleton_forEach_zero_exceptMappingWrites  -- private
   Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_of_surface
   Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_of_surface_exceptMappingWrites
   Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_of_surface_exceptMappingWrites_stmtSafety
@@ -2622,10 +2633,13 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.execIRStmt_for_init_noncontinue
   Compiler.Proofs.IRGeneration.execIRStmt_for_cond_none
   Compiler.Proofs.IRGeneration.execIRStmt_for_init_cond_zero
+  Compiler.Proofs.IRGeneration.execIRStmt_for_init_continue
   Compiler.Proofs.IRGeneration.execIRStmt_for_body_noncontinue
   Compiler.Proofs.IRGeneration.execIRStmt_for_post_noncontinue
   Compiler.Proofs.IRGeneration.execIRStmt_for_one_continue
+  Compiler.Proofs.IRGeneration.execIRStmt_for_empty_init_recurrence
   Compiler.Proofs.IRGeneration.execIRStmts_single_for_init_cond_zero
+  Compiler.Proofs.IRGeneration.execIRStmts_single_for_init_continue
   Compiler.Proofs.IRGeneration.execIRStmts_cons_for_init_cond_zero
   Compiler.Proofs.IRGeneration.execIRStmts_single_for_one_continue
   Compiler.Proofs.IRGeneration.execIRStmts_cons_for_one_continue
@@ -2879,6 +2893,9 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.SourceSemantics.execForEachLoop_succ_continue_iff
   Compiler.Proofs.IRGeneration.SourceSemantics.execForEachLoop_succ_continue
   Compiler.Proofs.IRGeneration.SourceSemantics.execForEachLoop_congr
+  Compiler.Proofs.IRGeneration.SourceSemantics.execForEachLoop_empty_body
+  Compiler.Proofs.IRGeneration.SourceSemantics.execForEachLoop_empty_body_zero_bound
+  Compiler.Proofs.IRGeneration.SourceSemantics.execForEachLoop_empty_body_positive_bound
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_literal  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_param  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_localVar  -- private
@@ -5516,4 +5533,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5223 theorems/lemmas (3612 public, 1611 private, 0 sorry'd)
+-- Total: 5235 theorems/lemmas (3618 public, 1617 private, 0 sorry'd)
