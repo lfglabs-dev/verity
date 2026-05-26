@@ -80,6 +80,14 @@ ALLOWLIST: set[str] = {
     "compiledStmtStep_require",
     "compiledStmtStep_return",
     "compiledStmtStep_ite",
+    # Staged forEach proof witnesses for PR #1935. These are deliberately
+    # explicit loop-shape proofs for bounds 1 and 2; the next proof step is to
+    # replace them with a Nat-indexed recurrence instead of mechanically
+    # splitting the same init/cond/body/post state facts into tiny local lemmas.
+    "execIRStmts_forEach_literal_one_empty_compiled",
+    "execIRStmts_forEach_literal_two_empty_compiled",
+    "stmtStepMatches_forEach_literal_one_empty_final",
+    "stmtStepMatches_forEach_literal_two_empty_final",
     # --- Storage write compiled step proofs ---
     "compiledStmtStep_setStorage_singleSlot",
     "compiledStmtStep_setStorage_aliasSlots",
