@@ -5297,6 +5297,9 @@ theorem supportedStmtList_safe_of_state_effect_closed
   | forEachLiteralOneEmpty =>
       simp [stmtListTouchesUnsupportedStateSurface,
         stmtTouchesUnsupportedStateSurface] at hState
+  | forEachLiteralTwoEmpty =>
+      simp [stmtListTouchesUnsupportedStateSurface,
+        stmtTouchesUnsupportedStateSurface] at hState
   | requireClause clause _ ih =>
       simpa using
         Compiler.Proofs.YulGeneration.Backends.BridgedSafeStmts.append
@@ -5568,6 +5571,10 @@ theorem supportedStmtList_safe_of_state_except_mapping_writes_stmt_safety
         stmtTouchesUnsupportedStateSurfaceExceptMappingWrites,
         stmtTouchesUnsupportedStateSurface] at hState
   | forEachLiteralOneEmpty =>
+      simp [stmtListTouchesUnsupportedStateSurfaceExceptMappingWrites,
+        stmtTouchesUnsupportedStateSurfaceExceptMappingWrites,
+        stmtTouchesUnsupportedStateSurface] at hState
+  | forEachLiteralTwoEmpty =>
       simp [stmtListTouchesUnsupportedStateSurfaceExceptMappingWrites,
         stmtTouchesUnsupportedStateSurfaceExceptMappingWrites,
         stmtTouchesUnsupportedStateSurface] at hState

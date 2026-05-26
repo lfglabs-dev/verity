@@ -354,6 +354,13 @@ inductive SupportedStmtList (fields : List Field) : List String â†’ List Stmt â†
       {scope : List String}
       {varName : String} :
       SupportedStmtList fields scope [Stmt.forEach varName (.literal 1) []]
+  /-- Second positive loop-preservation case: a two-iteration loop with an
+  empty body. This proves one recursive empty-init `for` step after the first
+  post, which is the recurrence shape needed for larger literal bounds. -/
+  | forEachLiteralTwoEmpty
+      {scope : List String}
+      {varName : String} :
+      SupportedStmtList fields scope [Stmt.forEach varName (.literal 2) []]
   | requireClause
       {scope : List String}
       (clause : RequireLiteralGuardFamilyClause)
