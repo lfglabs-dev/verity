@@ -209,7 +209,7 @@ UnlinkPool, a ZK privacy pool, was the first non-trivial contract built with Ver
 | Feature | Issue | CompilationModel | Core/Interpreter |
 |---------|-------|-------------|-----------------|
 | If/else branching | #179 | `Stmt.ite` | `execStmt` mutual recursion |
-| ForEach loops | #179 | `Stmt.forEach` | `execStmtsFuel` + `expandForEach` desugaring |
+| ForEach loops | #179 | `Stmt.forEach` | `execStmtsFuel` + `expandForEach` desugaring; proofs cover zero-bound loops with supported bodies and arbitrary literal-bound empty-body loops, while positive non-empty bodies remain future work |
 | Array/bytes params | #180 | `ParamType.bytes32`, `.array`, `.fixedArray`, `.bytes` | `arrayParams` in `EvalContext` |
 | Storage dynamic arrays | #1571 | `FieldType.dynamicArray`, `Expr.storageArrayLength` / `.storageArrayElement`, `Stmt.storageArrayPush` / `.storageArrayPop` / `.setStorageArrayElement` | compile-time/Yul lowering, source-side runtime semantics, and macro surface are in place; whole-contract proofs still pending |
 | Internal function calls | #181 | `Stmt.internalCall`, `Expr.internalCall`, `FunctionSpec.isInternal` | Statement + expression evaluation |

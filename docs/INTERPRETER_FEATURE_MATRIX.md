@@ -115,6 +115,10 @@ Legend: **ok** = supported, **0** = returns 0 (not modeled), **del** = delegated
 
 Legend: **ok** = supported, **rev** = reverts (not modeled), **nop** = no-op (codegen concern), **--** = not applicable, **n/m** = not modeled.
 
+`Stmt.forEach` proof coverage is intentionally partial: zero-bound loops with
+supported bodies are proved, arbitrary literal-bound empty-body loops are
+proved, and positive literal loops with non-empty bodies remain future work.
+
 ECMs include standard Verity-core modules for generic external-call mechanics,
 including `Compiler.Modules.Calls.bubblingValueCall`, which lowers
 Solidity-style `call{value: v}(data)` wrappers to Yul `call` and forwards exact
