@@ -3958,6 +3958,15 @@ partial def translatePureExprWithTypes
     (visitingConstants : List String := []) : CommandElabM Term := do
   let stx := stripParens stx
   let localNames := typedLocalNames locals
+  let translateIntrinsic (name lowering args minForkTerm : Term) : CommandElabM Term := do
+    let intrinsicName := ← expectStringOrIdent name
+    let argsExprs ←
+      match stripParens args with
+      | `(term| [ $[$xs],* ]) =>
+          xs.mapM (translatePureExprWithTypes fields constDecls immutableDecls params locals · visitingConstants)
+      | _ => throwErrorAt args "expected list literal [..]"
+    `(Compiler.CompilationModel.Expr.intrinsic $(strTerm intrinsicName) $lowering
+        $minForkTerm [ $[$argsExprs],* ])
   if let some (paramName, index, _fieldTy, elemTy, wordOffset) := arrayElementStructProjection? params stx then
     let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants
     if valueTypeUsesDynamicData elemTy then
@@ -4381,41 +4390,13 @@ partial def translatePureExprWithTypes
         | _ => throwErrorAt args "expected list literal [..]"
       `(Compiler.CompilationModel.Expr.externalCall $(strTerm extName) [ $[$argsExprs],* ])
   | `(term| intrinsic_fusaka $name:term $lowering:term $args:term) =>
-      let intrinsicName := ← expectStringOrIdent name
-      let argsExprs ←
-        match stripParens args with
-        | `(term| [ $[$xs],* ]) =>
-            xs.mapM (translatePureExprWithTypes fields constDecls immutableDecls params locals · visitingConstants)
-        | _ => throwErrorAt args "expected list literal [..]"
-      `(Compiler.CompilationModel.Expr.intrinsic $(strTerm intrinsicName) $lowering
-          Verity.Core.Intrinsics.HardFork.fusaka [ $[$argsExprs],* ])
+      translateIntrinsic name lowering args (← `(Verity.Core.Intrinsics.HardFork.fusaka))
   | `(term| intrinsic_osaka $name:term $lowering:term $args:term) =>
-      let intrinsicName := ← expectStringOrIdent name
-      let argsExprs ←
-        match stripParens args with
-        | `(term| [ $[$xs],* ]) =>
-            xs.mapM (translatePureExprWithTypes fields constDecls immutableDecls params locals · visitingConstants)
-        | _ => throwErrorAt args "expected list literal [..]"
-      `(Compiler.CompilationModel.Expr.intrinsic $(strTerm intrinsicName) $lowering
-          Verity.Core.Intrinsics.HardFork.fusaka [ $[$argsExprs],* ])
+      translateIntrinsic name lowering args (← `(Verity.Core.Intrinsics.HardFork.fusaka))
   | `(term| intrinsic_prague $name:term $lowering:term $args:term) =>
-      let intrinsicName := ← expectStringOrIdent name
-      let argsExprs ←
-        match stripParens args with
-        | `(term| [ $[$xs],* ]) =>
-            xs.mapM (translatePureExprWithTypes fields constDecls immutableDecls params locals · visitingConstants)
-        | _ => throwErrorAt args "expected list literal [..]"
-      `(Compiler.CompilationModel.Expr.intrinsic $(strTerm intrinsicName) $lowering
-          Verity.Core.Intrinsics.HardFork.prague [ $[$argsExprs],* ])
+      translateIntrinsic name lowering args (← `(Verity.Core.Intrinsics.HardFork.prague))
   | `(term| intrinsic_cancun $name:term $lowering:term $args:term) =>
-      let intrinsicName := ← expectStringOrIdent name
-      let argsExprs ←
-        match stripParens args with
-        | `(term| [ $[$xs],* ]) =>
-            xs.mapM (translatePureExprWithTypes fields constDecls immutableDecls params locals · visitingConstants)
-        | _ => throwErrorAt args "expected list literal [..]"
-      `(Compiler.CompilationModel.Expr.intrinsic $(strTerm intrinsicName) $lowering
-          Verity.Core.Intrinsics.HardFork.cancun [ $[$argsExprs],* ])
+      translateIntrinsic name lowering args (← `(Verity.Core.Intrinsics.HardFork.cancun))
   | `(term| intrinsic $name:term $lowering:term $args:term) =>
       let intrinsicName := ← expectStringOrIdent name
       let registered ← liftIO getRegisteredIntrinsics
@@ -4426,13 +4407,7 @@ partial def translatePureExprWithTypes
             throwErrorAt name
               s!"unknown intrinsic '{intrinsicName}'; declare it first with `verity_intrinsic` so the compiler can enforce min_fork"
       let minForkTerm ← hardForkTermFromParsed minFork
-      let argsExprs ←
-        match stripParens args with
-        | `(term| [ $[$xs],* ]) =>
-            xs.mapM (translatePureExprWithTypes fields constDecls immutableDecls params locals · visitingConstants)
-        | _ => throwErrorAt args "expected list literal [..]"
-      `(Compiler.CompilationModel.Expr.intrinsic $(strTerm intrinsicName) $lowering
-          $minForkTerm [ $[$argsExprs],* ])
+      translateIntrinsic name lowering args minForkTerm
   | `(term| structMember $field:term $key:term $member:term) =>
       let fieldName := ← expectStringOrIdent field
       let memberName := ← expectStringOrIdent member

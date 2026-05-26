@@ -100,16 +100,16 @@ syntax "adt " str " [" sepBy(term, ",") "]" : term
 syntax "tryCatch " term:max ppSpace term:max : doElem
 
 macro_rules
-  | `(intrinsic $_name:term $_lowering:term [ $arg:term ]) => `($arg)
-  | `(intrinsic $_name:term $_lowering:term $_args:term) => `(0)
-  | `(intrinsic_cancun $_name:term $_lowering:term [ $arg:term ]) => `($arg)
-  | `(intrinsic_cancun $_name:term $_lowering:term $_args:term) => `(0)
-  | `(intrinsic_prague $_name:term $_lowering:term [ $arg:term ]) => `($arg)
-  | `(intrinsic_prague $_name:term $_lowering:term $_args:term) => `(0)
-  | `(intrinsic_fusaka $_name:term $_lowering:term [ $arg:term ]) => `($arg)
-  | `(intrinsic_fusaka $_name:term $_lowering:term $_args:term) => `(0)
-  | `(intrinsic_osaka $_name:term $_lowering:term [ $arg:term ]) => `($arg)
-  | `(intrinsic_osaka $_name:term $_lowering:term $_args:term) => `(0)
+  | `(intrinsic $_name:term $_lowering:term $_args:term) =>
+      `(panic! "verity intrinsic has no default EDSL semantics; add a consumer macro_rules override")
+  | `(intrinsic_cancun $_name:term $_lowering:term $_args:term) =>
+      `(panic! "verity intrinsic has no default EDSL semantics; add a consumer macro_rules override")
+  | `(intrinsic_prague $_name:term $_lowering:term $_args:term) =>
+      `(panic! "verity intrinsic has no default EDSL semantics; add a consumer macro_rules override")
+  | `(intrinsic_fusaka $_name:term $_lowering:term $_args:term) =>
+      `(panic! "verity intrinsic has no default EDSL semantics; add a consumer macro_rules override")
+  | `(intrinsic_osaka $_name:term $_lowering:term $_args:term) =>
+      `(panic! "verity intrinsic has no default EDSL semantics; add a consumer macro_rules override")
   | `(adt $_variant:str) => `(0)
   | `(adt $_variant:str [ $[$_args:term],* ]) => `(0)
 syntax "revert " ident "(" sepBy(term, ",") ")" : doElem
