@@ -100,6 +100,45 @@ def YulLowering.hexLiteral? : YulLowering → Option String
   | .verbatim _ _ opcodeHex => some s!"hex\"{opcodeHex}\""
   | .builtin _ => none
 
+def yulBuiltinArity? (name : String) : Option (Nat × Nat) :=
+  match name with
+  | "stop" | "invalid" => some (0, 0)
+  | "add" | "sub" | "mul" | "div" | "sdiv" | "mod" | "smod"
+  | "exp" | "lt" | "gt" | "slt" | "sgt" | "eq" | "and" | "or" | "xor"
+  | "byte" | "shl" | "shr" | "sar" | "signextend" | "keccak256" => some (2, 1)
+  | "addmod" | "mulmod" => some (3, 1)
+  | "iszero" | "not" | "balance" | "calldataload" | "extcodesize"
+  | "blobhash" | "mload" | "sload" | "tload" => some (1, 1)
+  | "address" | "selfbalance" | "origin" | "caller" | "callvalue"
+  | "calldatasize" | "codesize" | "gasprice" | "coinbase" | "timestamp"
+  | "number" | "difficulty" | "prevrandao" | "gaslimit" | "chainid"
+  | "basefee" | "blobbasefee" | "returndatasize" | "msize" | "gas"
+  | "pc" => some (0, 1)
+  | "calldatacopy" | "codecopy" | "returndatacopy" | "mstore" | "mstore8"
+  | "sstore" | "tstore" | "mcopy" | "log0" => some (3, 0)
+  | "extcodecopy" => some (4, 0)
+  | "log1" => some (4, 0)
+  | "log2" => some (5, 0)
+  | "log3" => some (6, 0)
+  | "log4" => some (7, 0)
+  | "create" => some (3, 1)
+  | "create2" => some (4, 1)
+  | "call" | "callcode" => some (7, 1)
+  | "delegatecall" | "staticcall" => some (6, 1)
+  | "return" | "revert" => some (2, 0)
+  | "selfdestruct" | "pop" => some (1, 0)
+  | "datasize" | "dataoffset" => some (1, 1)
+  | "datacopy" => some (3, 0)
+  | _ => none
+
+def YulLowering.inputArity? : YulLowering → Option Nat
+  | .verbatim inArity _ _ => some inArity
+  | .builtin name => (yulBuiltinArity? name).map Prod.fst
+
+def YulLowering.outputArity? : YulLowering → Option Nat
+  | .verbatim _ outArity _ => some outArity
+  | .builtin name => (yulBuiltinArity? name).map Prod.snd
+
 @[simp] theorem YulLowering.callName_verbatim
     (inArity outArity : Nat) (opcodeHex : String) :
     YulLowering.callName (.verbatim inArity outArity opcodeHex) =

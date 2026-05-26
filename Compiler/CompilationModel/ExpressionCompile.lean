@@ -444,8 +444,14 @@ def compileExpr (fields : List Field)
           if args.length != inArity then
             throw s!"Compilation error: intrinsic {name} expects {inArity} arg(s), got {args.length}"
           pure (YulExpr.call (Verity.Core.Intrinsics.YulLowering.callName lowering)
-            (YulExpr.ident s!"hex\"{opcodeHex}\"" :: argExprs))
+            (YulExpr.verbatimHex opcodeHex :: argExprs))
       | .builtin builtinName =>
+          let some (inArity, outArity) := Verity.Core.Intrinsics.yulBuiltinArity? builtinName
+            | throw s!"Compilation error: intrinsic {name} targets unknown Yul builtin '{builtinName}'"
+          if outArity != 1 then
+            throw s!"Compilation error: intrinsic {name} builtin {builtinName} must produce exactly 1 output, got {outArity}"
+          if args.length != inArity then
+            throw s!"Compilation error: intrinsic {name} builtin {builtinName} expects {inArity} arg(s), got {args.length}"
           pure (YulExpr.call builtinName argExprs)
   | Expr.eq a b      => return yulBinOp "eq"  (← compileExpr fields dynamicSource a) (← compileExpr fields dynamicSource b)
   | Expr.gt a b      => return yulBinOp "gt"  (← compileExpr fields dynamicSource a) (← compileExpr fields dynamicSource b)

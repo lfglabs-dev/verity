@@ -60,16 +60,16 @@ theorem compileExpr_intrinsic_verbatim_one_param
     (name opcodeHex x : String) :
     compileExpr fields dynamicSource (.intrinsic name (.verbatim 1 1 opcodeHex) .cancun [.param x]) =
       .ok (YulExpr.call s!"verbatim_{1}i_{1}o"
-        [YulExpr.ident s!"hex\"{opcodeHex}\"", YulExpr.ident x]) := by
+        [YulExpr.verbatimHex opcodeHex, YulExpr.ident x]) := by
   simp [compileExpr, compileExprList, YulLowering.callName, Pure.pure, Except.pure,
     bind, Except.bind]
 
 theorem compileExpr_intrinsic_builtin_one_param
     (fields : List Field) (dynamicSource : DynamicDataSource)
-    (name builtinName x : String) :
-    compileExpr fields dynamicSource (.intrinsic name (.builtin builtinName) .cancun [.param x]) =
-      .ok (YulExpr.call builtinName [YulExpr.ident x]) := by
-  simp [compileExpr, compileExprList, Pure.pure, Except.pure, bind, Except.bind]
+    (name x : String) :
+    compileExpr fields dynamicSource (.intrinsic name (.builtin "not") .cancun [.param x]) =
+      .ok (YulExpr.call "not" [YulExpr.ident x]) := by
+  simp [compileExpr, compileExprList, yulBuiltinArity?, Pure.pure, Except.pure, bind, Except.bind]
 
 theorem compileExpr_intrinsic_verbatim_zero_output_error
     (fields : List Field) (dynamicSource : DynamicDataSource)

@@ -18,7 +18,10 @@ def ppExpr : YulExpr → String
         "0x" ++ raw
       else
         "0x0" ++ raw
-  | str s => "\"" ++ (s.replace "\\" "\\\\").replace "\"" "\\\"" ++ "\""
+  | str s =>
+      match YulExpr.verbatimHex? (.str s) with
+      | some opcodeHex => "hex\"" ++ opcodeHex ++ "\""
+      | none => "\"" ++ (s.replace "\\" "\\\\").replace "\"" "\\\"" ++ "\""
   | ident name => name
   | call func args =>
       s!"{func}({", ".intercalate (ppExprs args)})"
