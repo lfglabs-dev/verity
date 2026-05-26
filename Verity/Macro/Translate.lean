@@ -22,6 +22,7 @@ inductive ValueType where
   | uint256
   | int256
   | uint8
+  | uint16
   | address
   | bytes32
   | bool
@@ -39,10 +40,12 @@ inductive ValueType where
 inductive MappingKeyType where
   | address
   | uint256
+  | bytes32
   deriving BEq
 
 structure StructMemberDecl where
   name : String
+  ty : ValueType := .uint256
   wordOffset : Nat
   packed : Option (Nat × Nat) := none
   deriving BEq
@@ -207,6 +210,7 @@ private partial def valueTypeSignatureComponent : ValueType → String
   | .uint256 => "scalar_uint256"
   | .int256 => "scalar_int256"
   | .uint8 => "scalar_uint8"
+  | .uint16 => "scalar_uint16"
   | .address => "scalar_address"
   | .bool => "scalar_bool"
   | .bytes32 => "scalar_bytes32"
@@ -383,6 +387,7 @@ private partial def valueTypeFromSyntax
   | `(term| Uint256) => pure .uint256
   | `(term| Int256) => pure .int256
   | `(term| Uint8) => pure .uint8
+  | `(term| Uint16) => pure .uint16
   | `(term| Address) => pure .address
   | `(term| Bytes32) => pure .bytes32
   | `(term| Bool) => pure .bool
@@ -421,16 +426,17 @@ private partial def valueTypeFromSyntax
           | some decl =>
               let maxFields := decl.variants.foldl (fun acc v => max acc v.fields.size) 0
               pure (.adt decl.name maxFields)
-          | none => throwErrorAt ty "unsupported type '{ty}'; expected Uint256, Int256, Uint8, Address, Bytes32, Bool, String, Bytes, Array <type>, FixedArray <type> <size>, Tuple [...], Unit, a user-defined struct, or a user-defined type from the `types` or `inductive` section"
+          | none => throwErrorAt ty "unsupported type '{ty}'; expected Uint256, Int256, Uint8, Uint16, Address, Bytes32, Bool, String, Bytes, Array <type>, FixedArray <type> <size>, Tuple [...], Unit, a user-defined struct, or a user-defined type from the `types` or `inductive` section"
   | _ =>
-      throwErrorAt ty "unsupported type '{ty}'; expected Uint256, Int256, Uint8, Address, Bytes32, Bool, String, Bytes, Array <type>, FixedArray <type> <size>, Tuple [...], Unit, a user-defined struct, or a user-defined type from the `types` or `inductive` section"
+      throwErrorAt ty "unsupported type '{ty}'; expected Uint256, Int256, Uint8, Uint16, Address, Bytes32, Bool, String, Bytes, Array <type>, FixedArray <type> <size>, Tuple [...], Unit, a user-defined struct, or a user-defined type from the `types` or `inductive` section"
 
 private def storageTypeFromSyntax (newtypes : Array NewtypeDecl) (structDecls : Array StructDecl := #[]) (adtDecls : Array AdtDecl := #[]) (ty : Term) : CommandElabM StorageType := do
   let keyTypeFromSyntax (stx : Term) : CommandElabM MappingKeyType := do
     match stx with
     | `(term| Address) => pure .address
     | `(term| Uint256) => pure .uint256
-    | _ => throwErrorAt stx "unsupported mapping key type; expected Address or Uint256"
+    | `(term| Bytes32) => pure .bytes32
+    | _ => throwErrorAt stx "unsupported mapping key type; expected Address, Uint256, or Bytes32"
 
   let structMemberFromSyntax (stx : TSyntax `verityStructMember) : CommandElabM StructMemberDecl := do
     match stx with
@@ -439,9 +445,22 @@ private def storageTypeFromSyntax (newtypes : Array NewtypeDecl) (structDecls : 
           name := toString name.getId
           wordOffset := ← natFromSyntax wordOffset
         }
+    | `(verityStructMember| $name:ident : $memberTy:term @word $wordOffset:num) =>
+        pure {
+          name := toString name.getId
+          ty := ← valueTypeFromSyntax newtypes structDecls adtDecls memberTy
+          wordOffset := ← natFromSyntax wordOffset
+        }
     | `(verityStructMember| $name:ident @word $wordOffset:num packed($offset:num,$width:num)) =>
         pure {
           name := toString name.getId
+          wordOffset := ← natFromSyntax wordOffset
+          packed := some (← natFromSyntax offset, ← natFromSyntax width)
+        }
+    | `(verityStructMember| $name:ident : $memberTy:term @word $wordOffset:num packed($offset:num,$width:num)) =>
+        pure {
+          name := toString name.getId
+          ty := ← valueTypeFromSyntax newtypes structDecls adtDecls memberTy
           wordOffset := ← natFromSyntax wordOffset
           packed := some (← natFromSyntax offset, ← natFromSyntax width)
         }
@@ -493,6 +512,7 @@ private def storageTypeFromSyntax (newtypes : Array NewtypeDecl) (structDecls : 
 private def modelMappingKeyTypeTerm : MappingKeyType → CommandElabM Term
   | .address => `(Compiler.CompilationModel.MappingKeyType.address)
   | .uint256 => `(Compiler.CompilationModel.MappingKeyType.uint256)
+  | .bytes32 => `(Compiler.CompilationModel.MappingKeyType.bytes32)
 
 private def storageTypeMappingKeyTypes? : StorageType → Option (List MappingKeyType)
   | .mappingAddressToUint256 => some [.address]
@@ -507,6 +527,7 @@ private def storageTypeMappingDepth? (ty : StorageType) : Option Nat :=
 private def storageKeyTypeContractTerm : MappingKeyType → CommandElabM Term
   | .address => `(Address)
   | .uint256 => `(Uint256)
+  | .bytes32 => `(Bytes32)
 
 private def modelStructMemberTerm (member : StructMemberDecl) : CommandElabM Term := do
   let packedTerm ←
@@ -514,8 +535,23 @@ private def modelStructMemberTerm (member : StructMemberDecl) : CommandElabM Ter
     | none => `(none)
     | some (offset, width) =>
         `(some { offset := $(natTerm offset), width := $(natTerm width) })
+  let memberTypeTerm ←
+    match member.ty with
+    | .uint256 | .int256 | .uint8 =>
+        `(Compiler.CompilationModel.StructMemberType.uint256)
+    | .uint16 =>
+        `(Compiler.CompilationModel.StructMemberType.uint16)
+    | .address =>
+        `(Compiler.CompilationModel.StructMemberType.address)
+    | .bool =>
+        `(Compiler.CompilationModel.StructMemberType.bool)
+    | .bytes32 =>
+        `(Compiler.CompilationModel.StructMemberType.bytes32)
+    | _ =>
+        throwError "mapping struct member '{member.name}' has unsupported type {repr member.ty}; expected Uint256, Uint16, Address, Bool, or Bytes32"
   `(Compiler.CompilationModel.StructMember.mk
       $(strTerm member.name)
+      $memberTypeTerm
       $(natTerm member.wordOffset)
       $packedTerm)
 
@@ -524,6 +560,7 @@ private def modelFieldTypeTerm (ty : StorageType) : CommandElabM Term :=
   | .scalar .uint256 => `(Compiler.CompilationModel.FieldType.uint256)
   | .scalar .int256 => `(Compiler.CompilationModel.FieldType.uint256)
   | .scalar .uint8 => throwError "storage fields cannot be Uint8; use Uint256 encoding"
+  | .scalar .uint16 => throwError "storage fields cannot be Uint16; use Uint256 encoding"
   | .scalar .address => `(Compiler.CompilationModel.FieldType.address)
   | .scalar .bytes32 => throwError "storage fields cannot be Bytes32; use Uint256 encoding"
   | .scalar .bool => throwError "storage fields cannot be Bool; use Uint256 (0/1) encoding"
@@ -574,6 +611,7 @@ private partial def modelParamTypeTerm (ty : ValueType) : CommandElabM Term :=
   | .uint256 => `(Compiler.CompilationModel.ParamType.uint256)
   | .int256 => `(Compiler.CompilationModel.ParamType.int256)
   | .uint8 => `(Compiler.CompilationModel.ParamType.uint8)
+  | .uint16 => `(Compiler.CompilationModel.ParamType.uint16)
   | .address => `(Compiler.CompilationModel.ParamType.address)
   | .bytes32 => `(Compiler.CompilationModel.ParamType.bytes32)
   | .bool => `(Compiler.CompilationModel.ParamType.bool)
@@ -602,6 +640,7 @@ private def modelReturnTypeTerm (ty : ValueType) : CommandElabM Term :=
   | .uint256 => `(some Compiler.CompilationModel.FieldType.uint256)
   | .int256 => `(none)
   | .uint8 => `(none)
+  | .uint16 => `(none)
   | .address => `(some Compiler.CompilationModel.FieldType.address)
   | .bytes32 => `(none)
   | .bool => `(none)
@@ -620,6 +659,7 @@ private partial def modelReturnsTerm (ty : ValueType) : CommandElabM Term :=
   | .uint256 => `([Compiler.CompilationModel.ParamType.uint256])
   | .int256 => `([Compiler.CompilationModel.ParamType.int256])
   | .uint8 => `([Compiler.CompilationModel.ParamType.uint8])
+  | .uint16 => `([Compiler.CompilationModel.ParamType.uint16])
   | .address => `([Compiler.CompilationModel.ParamType.address])
   | .bytes32 => `([Compiler.CompilationModel.ParamType.bytes32])
   | .bool => `([Compiler.CompilationModel.ParamType.bool])
@@ -645,6 +685,7 @@ private partial def valueTypeFromModelParamType? : Compiler.CompilationModel.Par
   | .uint256 => some .uint256
   | .int256 => some .int256
   | .uint8 => some .uint8
+  | .uint16 => some .uint16
   | .address => some .address
   | .bool => some .bool
   | .bytes32 => some .bytes32
@@ -704,8 +745,9 @@ private partial def contractValueTypeTerm (ty : ValueType) : CommandElabM Term :
   | .uint256 => `(Uint256)
   | .int256 => `(Int256)
   | .uint8 => `(Uint256)
+  | .uint16 => `(Uint16)
   | .address => `(Address)
-  | .bytes32 => `(Uint256)
+  | .bytes32 => `(Bytes32)
   | .bool => `(Bool)
   | .string => `(String)
   | .bytes => `(ByteArray)
@@ -1156,10 +1198,6 @@ private def parseFunction (newtypes : Array NewtypeDecl) (structDecls : Array St
       let mut_ := { mut_ with isPure := pureMod?.isSome }
       let parsedParams ← params.mapM (parseParam newtypes structDecls adtDecls)
       let parsedReturnTy ← valueTypeFromSyntax newtypes structDecls adtDecls retTy
-      match parsedReturnTy with
-      | .struct _ _ =>
-          throwErrorAt retTy "function return types cannot be named structs; return an explicit Tuple [...] instead"
-      | _ => pure ()
       let parsedGuard? ←
         match guard? with
         | some guard => pure (some (← parseInitGuard guard))
@@ -1256,7 +1294,7 @@ def immutableStorageFieldDecl
     ident := immutableSlotIdent imm
     name := immutableHiddenName imm
     ty := match imm.ty with
-      | .uint256 | .int256 | .uint8 | .bytes32 | .bool => .scalar .uint256
+      | .uint256 | .int256 | .uint8 | .uint16 | .bytes32 | .bool => .scalar .uint256
       | .address => .scalar .address
       | _ => .scalar imm.ty
     slotNum := immutableSlotIndex fields idx
@@ -1265,7 +1303,7 @@ def immutableStorageFieldDecl
 
 private def validateImmutableType (imm : ImmutableDecl) : CommandElabM Unit :=
   match imm.ty with
-  | .uint256 | .int256 | .uint8 | .address | .bytes32 | .bool => pure ()
+  | .uint256 | .int256 | .uint8 | .uint16 | .address | .bytes32 | .bool => pure ()
   | _ =>
       throwErrorAt imm.ident
         s!"contract immutables currently support only Uint256, Int256, Uint8, Address, Bytes32, and Bool; '{imm.name}' uses unsupported type"
@@ -1299,7 +1337,7 @@ private def rejectExecutableBoundaryAdt
       s!"{context} uses an ADT at the executable contract boundary. ADT storage is supported, but ABI/function boundary ADT lowering is not yet implemented; pass scalar fields explicitly or keep the ADT in storage."
 
 private def externalExecutableWordType? : ValueType → Bool
-  | .uint256 | .int256 | .uint8 | .address | .bytes32 | .bool => true
+  | .uint256 | .int256 | .uint8 | .uint16 | .address | .bytes32 | .bool => true
   | .newtype _ baseType => externalExecutableWordType? baseType
   | _ => false
 
@@ -1719,7 +1757,7 @@ private def isSignedWordValueType : ValueType → Bool
   | _ => false
 
 private def isWordLikeValueType : ValueType → Bool
-  | .uint256 | .int256 | .uint8 | .address | .bytes32 => true
+  | .uint256 | .int256 | .uint8 | .uint16 | .address | .bytes32 => true
   | .newtype _ baseType => isWordLikeValueType baseType
   | _ => false
 
@@ -1735,7 +1773,7 @@ private def externalCallDynamicArgSupported (ty : ValueType) : Bool :=
   | _ => false
 
 private partial def staticAbiWordCount? : ValueType → Option Nat
-  | .uint256 | .int256 | .uint8 | .address | .bytes32 | .bool => some 1
+  | .uint256 | .int256 | .uint8 | .uint16 | .address | .bytes32 | .bool => some 1
   | .fixedArray elemTy size => do
       let elemWords ← staticAbiWordCount? elemTy
       some (size * elemWords)
@@ -1757,7 +1795,7 @@ private partial def staticAbiWordCount? : ValueType → Option Nat
   | _ => none
 
 private partial def staticAbiLeafNames? : ValueType → Option (List String)
-  | .uint256 | .int256 | .uint8 | .address | .bytes32 | .bool => some [""]
+  | .uint256 | .int256 | .uint8 | .uint16 | .address | .bytes32 | .bool => some [""]
   | .fixedArray elemTy size => do
       let elemNames ← staticAbiLeafNames? elemTy
       let mut out : List String := []
@@ -1801,7 +1839,7 @@ private def flattenExternalResultNames
       throwError s!"external result '{baseName}' has a dynamic type; bind dynamic external returns explicitly"
 
 private partial def abiLocalHeadWordCount? : ValueType → Option Nat
-  | .uint256 | .int256 | .uint8 | .address | .bytes32 | .bool
+  | .uint256 | .int256 | .uint8 | .uint16 | .address | .bytes32 | .bool
   | .string | .bytes | .array _ => some 1
   | .fixedArray elemTy size => do
       match staticAbiWordCount? elemTy with
@@ -1831,7 +1869,7 @@ private partial def valueTypeUsesDynamicData : ValueType → Bool
   | .struct _ fields => fields.any (fun field => valueTypeUsesDynamicData field.snd)
   | .newtype _ baseType => valueTypeUsesDynamicData baseType
   | .adt _ _ => false  -- ADTs are stored as tag + fixed-width slots, not dynamic
-  | .uint256 | .int256 | .uint8 | .address | .bytes32 | .bool | .unit => false
+  | .uint256 | .int256 | .uint8 | .uint16 | .address | .bytes32 | .bool | .unit => false
 
 private partial def abiParentHeadWordCount? (ty : ValueType) : Option Nat :=
   match ty with
@@ -1847,7 +1885,7 @@ private partial def abiParentHeadWordCount? (ty : ValueType) : Option Nat :=
       else
         abiLocalHeadWordCount? ty
   | .newtype _ baseType => abiParentHeadWordCount? baseType
-  | .uint256 | .int256 | .uint8 | .address | .bytes32 | .bool => some 1
+  | .uint256 | .int256 | .uint8 | .uint16 | .address | .bytes32 | .bool => some 1
   | .adt _ _ | .unit => none
 
 private def classifyWordArithmeticResultType
@@ -1883,7 +1921,7 @@ private def isNatLiteralTerm (stx : Term) : Bool :=
   | _ => false
 
 private def numericLiteralCompatibleValueType : ValueType → Bool
-  | .uint256 | .int256 | .uint8 => true
+  | .uint256 | .int256 | .uint8 | .uint16 => true
   | .newtype _ baseType => numericLiteralCompatibleValueType baseType
   | _ => false
 
@@ -2554,7 +2592,7 @@ private unsafe def qualifiedSingleBindType
         s!"qualified helper '{qualifiedFunctionDisplayName fnName}' returns multiple values; use tuple destructuring"
 
 private def customErrorRequiresDirectParamRef : ValueType → Bool
-  | .uint256 | .int256 | .uint8 | .address | .bool | .bytes32 => false
+  | .uint256 | .int256 | .uint8 | .uint16 | .address | .bool | .bytes32 => false
   | .newtype _ baseType => customErrorRequiresDirectParamRef baseType
   | _ => true
 
@@ -3153,16 +3191,16 @@ private partial def inferPureExprType
   | `(term| structMember $field:term $key:term $member:term) => do
       let fieldName := ← expectStringOrIdent field
       let memberName := ← expectStringOrIdent member
-      let _ ← lookupStructMemberDecl fields fieldName memberName false
+      let memberDecl ← lookupStructMemberDecl fields fieldName memberName false
       requireWordLikeType key "structMember key" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals key visitingConstants)
-      pure .uint256
+      pure memberDecl.ty
   | `(term| structMember2 $field:term $key1:term $key2:term $member:term) => do
       let fieldName := ← expectStringOrIdent field
       let memberName := ← expectStringOrIdent member
-      let _ ← lookupStructMemberDecl fields fieldName memberName true
+      let memberDecl ← lookupStructMemberDecl fields fieldName memberName true
       requireWordLikeType key1 "structMember2 key" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals key1 visitingConstants)
       requireWordLikeType key2 "structMember2 key" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals key2 visitingConstants)
-      pure .uint256
+      pure memberDecl.ty
   | _ =>
       match qualifiedFunctionAppSyntax? stx with
       | some (fnName, _) =>
@@ -3302,16 +3340,16 @@ private partial def inferBindSourceType
   | `(term| structMember $field:term $key:term $member:term) => do
       let fieldName := ← expectStringOrIdent field
       let memberName := ← expectStringOrIdent member
-      let _ ← lookupStructMemberDecl fields fieldName memberName false
+      let memberDecl ← lookupStructMemberDecl fields fieldName memberName false
       requireWordLikeType key "structMember key" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals key)
-      pure .uint256
+      pure memberDecl.ty
   | `(term| structMember2 $field:term $key1:term $key2:term $member:term) => do
       let fieldName := ← expectStringOrIdent field
       let memberName := ← expectStringOrIdent member
-      let _ ← lookupStructMemberDecl fields fieldName memberName true
+      let memberDecl ← lookupStructMemberDecl fields fieldName memberName true
       requireWordLikeType key1 "structMember2 key" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals key1)
       requireWordLikeType key2 "structMember2 key" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals key2)
-      pure .uint256
+      pure memberDecl.ty
   | `(term| msgSender) | `(term| Verity.msgSender) =>
       pure .address
   | `(term| msgValue) | `(term| Verity.msgValue) | `(term| selfBalance)
@@ -3435,78 +3473,100 @@ private partial def inferTupleSourceTypes?
     (params : Array ParamDecl)
     (locals : Array TypedLocal)
     (rhs : Term) : CommandElabM (Option (Array ValueType)) := do
+  let structCtorTypes? : CommandElabM (Option (Array ValueType)) := do
+    match qualifiedFunctionAppSyntax? (stripParens rhs) with
+    | some (name, ctorArgs) =>
+        if name.toString.endsWith ".mk" then
+          pure (some (← ctorArgs.mapM (inferPureExprType fields constDecls immutableDecls externalDecls params locals)))
+        else
+          pure none
+    | none =>
+        match (stripParens rhs).raw with
+        | .node _ `Lean.Parser.Term.app args =>
+            match args.getD 0 Syntax.missing with
+            | .ident _ raw _ _ =>
+                if raw.toString.endsWith ".mk" then
+                  let ctorArgs := (args.getD 1 Syntax.missing).getArgs.map (fun syn => ⟨syn⟩)
+                  pure (some (← ctorArgs.mapM (inferPureExprType fields constDecls immutableDecls externalDecls params locals)))
+                else
+                  pure none
+            | _ => pure none
+        | _ => pure none
   match tupleElemsFromTerm? rhs with
   | some elems =>
       pure <| some (← elems.mapM (inferPureExprType fields constDecls immutableDecls externalDecls params locals))
   | none =>
-      match stripParens rhs with
-      | `(term| $id:ident) =>
-          match params.find? (fun p => p.name == toString id.getId) with
-          | some p =>
-              match p.ty with
-              | .tuple elemTys => pure (some elemTys.toArray)
-              | _ => pure none
-          | none => pure none
-      | `(term| structMembers $field:term $key:term $members:term) => do
-          let fieldName := ← expectStringOrIdent field
-          let memberNames := ← expectStringList members
-          for memberName in memberNames do
-            let _ ← lookupStructMemberDecl fields fieldName memberName false
-          requireWordLikeType key "structMembers key" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals key)
-          pure (some (Array.replicate memberNames.size .uint256))
-      | `(term| structMembers2 $field:term $key1:term $key2:term $members:term) => do
-          let fieldName := ← expectStringOrIdent field
-          let memberNames := ← expectStringList members
-          for memberName in memberNames do
-            let _ ← lookupStructMemberDecl fields fieldName memberName true
-          requireWordLikeType key1 "structMembers2 key" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals key1)
-          requireWordLikeType key2 "structMembers2 key" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals key2)
-          pure (some (Array.replicate memberNames.size .uint256))
-      | `(term| arrayElement $name:term $index:term) => do
-          requireWordLikeType index "arrayElement index"
-            (← inferPureExprType fields constDecls immutableDecls externalDecls params locals index)
-          -- verity#1849, G2: `arrayElement (arrayElement <param> <i>).<dynField> <k>`
-          -- never destructures into a tuple — fall through to the scalar
-          -- return path. The compound projection's name isn't a direct param
-          -- ref so `requireDirectParamRef` would throw if invoked here.
-          if (arrayElementDynamicMemberProjection? params name).isSome ||
-              (localArrayElementDynamicMemberProjection? locals name).isSome then
-            pure none
-          else
-            match directParamNameWithType? params name with
-            | none => pure none
-            | some _ =>
-                let sourceTy ← requireDirectParamRef name "arrayElement" params
-                match sourceTy with
-                | .array (.tuple elemTys) =>
-                    let _ ← requireSupportedArrayElementTupleSourceType name "arrayElement tuple destructuring" sourceTy
-                    pure (some elemTys.toArray)
+      match ← structCtorTypes? with
+      | some tys => pure (some tys)
+      | none =>
+        match stripParens rhs with
+        | `(term| $id:ident) =>
+            match params.find? (fun p => p.name == toString id.getId) with
+            | some p =>
+                match p.ty with
+                | .tuple elemTys => pure (some elemTys.toArray)
                 | _ => pure none
-      | `(term| tryExternalCall $name:term $args:term) =>
-          let extName := ← expectStringOrIdent name
-          match stripParens args with
-          | `(term| [ $[$xs],* ]) =>
-              for x in xs do
-                requireWordOrDirectArrayType x s!"tryExternalCall '{extName}' argument"
-                  (← inferPureExprType fields constDecls immutableDecls externalDecls params locals x)
-          | _ => throwErrorAt args "expected list literal [..]"
-          match externalDecls.find? (fun ext => ext.name == extName) with
-          | some ext =>
-              -- tryExternalCall returns (success : Bool, result₁ : T₁, ..., resultₙ : Tₙ)
-              pure (some (#[.bool] ++ ext.returnTys))
-          | none =>
-              -- When called from translation path with empty externalDecls, return none
-              -- to let the tryExternalCallBindStmt? helper handle translation.
-              -- The validation path (with real externalDecls) catches actual errors.
+            | none => pure none
+        | `(term| structMembers $field:term $key:term $members:term) => do
+            let fieldName := ← expectStringOrIdent field
+            let memberNames := ← expectStringList members
+            let memberDecls ← memberNames.mapM fun memberName =>
+              lookupStructMemberDecl fields fieldName memberName false
+            requireWordLikeType key "structMembers key" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals key)
+            pure (some (memberDecls.map (·.ty)))
+        | `(term| structMembers2 $field:term $key1:term $key2:term $members:term) => do
+            let fieldName := ← expectStringOrIdent field
+            let memberNames := ← expectStringList members
+            let memberDecls ← memberNames.mapM fun memberName =>
+              lookupStructMemberDecl fields fieldName memberName true
+            requireWordLikeType key1 "structMembers2 key" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals key1)
+            requireWordLikeType key2 "structMembers2 key" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals key2)
+            pure (some (memberDecls.map (·.ty)))
+        | `(term| arrayElement $name:term $index:term) => do
+            requireWordLikeType index "arrayElement index"
+              (← inferPureExprType fields constDecls immutableDecls externalDecls params locals index)
+            -- verity#1849, G2: `arrayElement (arrayElement <param> <i>).<dynField> <k>`
+            -- never destructures into a tuple — fall through to the scalar
+            -- return path. The compound projection's name isn't a direct param
+            -- ref so `requireDirectParamRef` would throw if invoked here.
+            if (arrayElementDynamicMemberProjection? params name).isSome ||
+                (localArrayElementDynamicMemberProjection? locals name).isSome then
               pure none
-      | other =>
-          match ← resolveLocalFunctionApp? fields constDecls immutableDecls externalDecls functions params locals other with
-          | some (fn, _argTerms) =>
-              ensureSupportsInternalHelperSpec rhs fn
-              match fn.returnTy with
-              | .tuple elemTys => pure (some elemTys.toArray)
-              | _ => pure none
-          | none => pure none
+            else
+              match directParamNameWithType? params name with
+              | none => pure none
+              | some _ =>
+                  let sourceTy ← requireDirectParamRef name "arrayElement" params
+                  match sourceTy with
+                  | .array (.tuple elemTys) =>
+                      let _ ← requireSupportedArrayElementTupleSourceType name "arrayElement tuple destructuring" sourceTy
+                      pure (some elemTys.toArray)
+                  | _ => pure none
+        | `(term| tryExternalCall $name:term $args:term) =>
+            let extName := ← expectStringOrIdent name
+            match stripParens args with
+            | `(term| [ $[$xs],* ]) =>
+                for x in xs do
+                  requireWordOrDirectArrayType x s!"tryExternalCall '{extName}' argument"
+                    (← inferPureExprType fields constDecls immutableDecls externalDecls params locals x)
+            | _ => throwErrorAt args "expected list literal [..]"
+            match externalDecls.find? (fun ext => ext.name == extName) with
+            | some ext =>
+                -- tryExternalCall returns (success : Bool, result₁ : T₁, ..., resultₙ : Tₙ)
+                pure (some (#[.bool] ++ ext.returnTys))
+            | none =>
+                -- When called from translation path with empty externalDecls, return none
+                -- to let the tryExternalCallBindStmt? helper handle translation.
+                -- The validation path (with real externalDecls) catches actual errors.
+                pure none
+        | other =>
+            match ← resolveLocalFunctionApp? fields constDecls immutableDecls externalDecls functions params locals other with
+            | some (fn, _argTerms) =>
+                ensureSupportsInternalHelperSpec rhs fn
+                match fn.returnTy with
+                | .tuple elemTys => pure (some elemTys.toArray)
+                | _ => pure none
+            | none => pure none
 
 private partial def resolveLocalFunctionApp?
     (fields : Array StorageFieldDecl)
@@ -3972,7 +4032,7 @@ partial def translatePureExprWithTypes
         `(Compiler.CompilationModel.Expr.literal 0)
       else if let some imm := immutableDecls.find? (fun imm => declaredNameMatches name imm.name) then
         match imm.ty with
-        | .uint256 | .int256 | .uint8 | .bytes32 | .bool =>
+        | .uint256 | .int256 | .uint8 | .uint16 | .bytes32 | .bool =>
             `(Compiler.CompilationModel.Expr.storage $(strTerm (immutableHiddenName imm)))
         | .address => `(Compiler.CompilationModel.Expr.storageAddr $(strTerm (immutableHiddenName imm)))
         | _ => throwErrorAt stx s!"immutable '{name}' uses unsupported type"
@@ -4691,6 +4751,25 @@ private def tupleLiteralOrStructValueExprs?
     (params : Array ParamDecl)
     (locals : Array TypedLocal)
     (rhs : Term) : CommandElabM (Option (Array Term)) := do
+  let structCtorValueExprs? : CommandElabM (Option (Array Term)) := do
+    match qualifiedFunctionAppSyntax? (stripParens rhs) with
+    | some (name, ctorArgs) =>
+        if name.toString.endsWith ".mk" then
+          pure (some (← ctorArgs.mapM (translatePureExprWithTypes fields constDecls immutableDecls params locals)))
+        else
+          pure none
+    | none =>
+        match (stripParens rhs).raw with
+        | .node _ `Lean.Parser.Term.app args =>
+            match args.getD 0 Syntax.missing with
+            | .ident _ raw _ _ =>
+                if raw.toString.endsWith ".mk" then
+                  let ctorArgs := (args.getD 1 Syntax.missing).getArgs.map (fun syn => ⟨syn⟩)
+                  pure (some (← ctorArgs.mapM (translatePureExprWithTypes fields constDecls immutableDecls params locals)))
+                else
+                  pure none
+            | _ => pure none
+        | _ => pure none
   let structValueExprs? : CommandElabM (Option (Array Term)) := do
     match stripParens rhs with
     | `(term| structMembers $field:term $key:term $members:term) => do
@@ -4721,7 +4800,10 @@ private def tupleLiteralOrStructValueExprs?
   | none =>
       match ← arrayElementTupleElemExprs? fields constDecls immutableDecls params locals rhs with
       | some exprs => pure (some exprs)
-      | none => structValueExprs?
+      | none =>
+          match ← structCtorValueExprs? with
+          | some exprs => pure (some exprs)
+          | none => structValueExprs?
 
 private def tupleValueExprs
     (fields : Array StorageFieldDecl)
@@ -4759,7 +4841,7 @@ private def tupleReturnValueExprs?
 
 private partial def staticInternalHelperBindingNames (name : String) (ty : ValueType) : List String :=
   match ty with
-  | .uint256 | .int256 | .uint8 | .address | .bool | .bytes32 => [name]
+  | .uint256 | .int256 | .uint8 | .uint16 | .address | .bool | .bytes32 => [name]
   | .fixedArray elemTy size =>
       (List.range size).flatMap fun idx =>
         staticInternalHelperBindingNames s!"{name}_{idx}" elemTy
@@ -6934,7 +7016,7 @@ private def immutableInitStmtTerms
     let slotField := immutableStorageFieldDecl fields imm idx
     let valueExpr ← translatePureExpr fields constDecls #[] ctorParams #[] imm.body
     match imm.ty with
-    | .uint256 | .int256 | .uint8 | .bytes32 | .bool =>
+    | .uint256 | .int256 | .uint8 | .uint16 | .bytes32 | .bool =>
         `(Compiler.CompilationModel.Stmt.setStorage $(strTerm slotField.name) $valueExpr)
     | .address =>
         `(Compiler.CompilationModel.Stmt.setStorageAddr $(strTerm slotField.name) $valueExpr)
@@ -7080,6 +7162,7 @@ private def storageSlotInnerTypeTerm (ty : StorageType) : CommandElabM Term := d
     | .scalar .uint256 => `(Uint256)
     | .scalar .int256 => `(Uint256)
     | .scalar .uint8 => throwError "storage field cannot be Uint8; use Uint256 encoding"
+    | .scalar .uint16 => throwError "storage field cannot be Uint16; use Uint256 encoding"
     | .scalar .address => `(Address)
     | .scalar .bytes32 => throwError "storage field cannot be Bytes32; use Uint256 encoding"
     | .scalar .bool => throwError "storage field cannot be Bool; use Uint256 (0/1) encoding"
@@ -7106,12 +7189,9 @@ private def storageSlotInnerTypeTerm (ty : StorageType) : CommandElabM Term := d
     | .mapping2AddressToAddressToUint256 => `(Address → Address → Uint256)
     | .mappingUintToUint256 => `(Uint256 → Uint256)
     | .mappingChain keyTypes => mkStorageMappingTy keyTypes
-    | .mappingStruct .address _ => `(Address → Uint256)
-    | .mappingStruct .uint256 _ => `(Uint256 → Uint256)
-    | .mappingStruct2 .address .address _ => `(Address → Address → Uint256)
-    | .mappingStruct2 .address .uint256 _ => `(Address → Uint256 → Uint256)
-    | .mappingStruct2 .uint256 .address _ => `(Uint256 → Address → Uint256)
-    | .mappingStruct2 .uint256 .uint256 _ => `(Uint256 → Uint256 → Uint256)
+    | .mappingStruct keyType _ => `(($(← storageKeyTypeContractTerm keyType) → Uint256))
+    | .mappingStruct2 outerKey innerKey _ =>
+        `(($(← storageKeyTypeContractTerm outerKey) → $(← storageKeyTypeContractTerm innerKey) → Uint256))
 
 private def mkStorageDefCommand (field : StorageFieldDecl) : CommandElabM Cmd := do
   let storageTy ← storageSlotInnerTypeTerm field.ty
@@ -7365,7 +7445,8 @@ private partial def collectQualifiedFunctionAppsFromSyntax (stx : Syntax) : Arra
   | .node _ `Lean.Parser.Term.app args =>
       match args.getD 0 Syntax.missing with
       | .ident _ _ raw _ =>
-          if isQualifiedFunctionName raw && (nameComponents raw).head? != some "Verity" then
+          if isQualifiedFunctionName raw && (nameComponents raw).head? != some "Verity" &&
+              !raw.toString.endsWith ".mk" then
             fromChildren.push raw
           else
             fromChildren

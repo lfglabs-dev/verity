@@ -7,6 +7,7 @@
 
 import Verity.Core.Address
 import Verity.Core.Int256
+import Verity.Core.Uint16
 import Verity.Core.Uint256
 import Verity.Core.FiniteSet
 
@@ -16,7 +17,9 @@ open Verity.Core (FiniteAddressSet)
 
 -- Basic Ethereum types
 abbrev Address := Verity.Core.Address
+abbrev Bytes32 := Verity.Core.Uint256
 abbrev Int256 := Verity.Core.Int256
+abbrev Uint16 := Verity.Core.Uint16
 abbrev Uint256 := Verity.Core.Uint256
 
 @[simp] def toInt256 (value : Uint256) : Int256 :=
@@ -35,6 +38,18 @@ abbrev Uint256 := Verity.Core.Uint256
 
 @[simp] def boolToWord (b : Bool) : Uint256 :=
   if b then 1 else 0
+
+@[simp] def uint16ToWord (value : Uint16) : Uint256 :=
+  value.toUint256
+
+@[simp] def wordToUint16 (value : Uint256) : Uint16 :=
+  Verity.Core.Uint16.ofUint256 value
+
+@[simp] def bytes32ToWord (value : Bytes32) : Uint256 :=
+  value
+
+@[simp] def wordToBytes32 (value : Uint256) : Bytes32 :=
+  value
 
 @[simp] def isZeroAddress (a : Address) : Bool :=
   a == zeroAddress

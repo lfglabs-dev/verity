@@ -61,6 +61,7 @@ import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanCallClosure
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeCalldata
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeHarness
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeLowering
+import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativePrimOps
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeSignedArithLemmas
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeState
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanPureBuiltinLemmas
@@ -1607,9 +1608,12 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.Contract.legacyCompatibleExternalStmtList_of_exprStmtExprs  -- private
   -- Compiler.Proofs.IRGeneration.Contract.legacyCompatibleExternalStmtList_revertWithMessage  -- private
   -- Compiler.Proofs.IRGeneration.Contract.legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_uint256  -- private
+  -- Compiler.Proofs.IRGeneration.Contract.legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_int256  -- private
   -- Compiler.Proofs.IRGeneration.Contract.legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_uint8  -- private
+  -- Compiler.Proofs.IRGeneration.Contract.legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_uint16  -- private
   -- Compiler.Proofs.IRGeneration.Contract.legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_address  -- private
   -- Compiler.Proofs.IRGeneration.Contract.legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_bytes32  -- private
+  -- Compiler.Proofs.IRGeneration.Contract.legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_bool  -- private
   -- Compiler.Proofs.IRGeneration.Contract.legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_scalar  -- private
   -- Compiler.Proofs.IRGeneration.Contract.legacyCompatibleExternalStmtList_genParamLoadBodyFrom_of_supported  -- private
   -- Compiler.Proofs.IRGeneration.Contract.legacyCompatibleExternalStmtList_genParamLoads_of_supported  -- private
@@ -2176,6 +2180,7 @@ end Verity.AxiomAudit
   -- Compiler/Proofs/IRGeneration/GenericInduction.lean
   -- Compiler.Proofs.IRGeneration.stmtStepMatchesIRExecWithInternals_of_stmtStepMatchesIRExec  -- private
   Compiler.Proofs.IRGeneration.CompiledStmtStep.withHelpers_of_helperSurfaceClosed
+  -- Compiler.Proofs.IRGeneration.compileStmtList_ok_of_stmtListGenericCore_early  -- private
   -- Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_append  -- private
   -- Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_of_exprStmtExprs  -- private
   -- Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_revertWithMessage  -- private
@@ -2403,6 +2408,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.compiledStmtStep_ite
   -- Compiler.Proofs.IRGeneration.stmtListTouchesUnsupportedContractSurface_append  -- private
   -- Compiler.Proofs.IRGeneration.stmtListTouchesUnsupportedContractSurfaceExceptMappingWrites_append  -- private
+  -- Compiler.Proofs.IRGeneration.stmtTouchesUnsupportedContractSurfaceExceptMappingWrites_eq_false_of_contractSurface  -- private
+  -- Compiler.Proofs.IRGeneration.stmtListTouchesUnsupportedContractSurfaceExceptMappingWrites_eq_false_of_contractSurface  -- private
   -- Compiler.Proofs.IRGeneration.stmtListCompileCore_of_requireLiteralGuardFamilyClauses  -- private
   -- Compiler.Proofs.IRGeneration.foldl_stmtNextScope_requireLiteralGuardFamilyClauses  -- private
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_letStorageField  -- private
@@ -2422,6 +2429,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_setStorageAddrSingleSlot_of_surface  -- private
   -- Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_mstoreSingle_of_surface  -- private
   -- Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_tstoreSingle_of_surface  -- private
+  -- Compiler.Proofs.IRGeneration.compiledStmtStep_forEach_literal_zero  -- private
   -- Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_setMappingUintSingle_of_slotSafety  -- private
   -- Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_setMappingChainSingle_of_slotSafety  -- private
   -- Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_setMappingSingle_of_slotSafety  -- private
@@ -2600,6 +2608,13 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.execIRStmt_for_body_noncontinue
   Compiler.Proofs.IRGeneration.execIRStmt_for_post_noncontinue
   Compiler.Proofs.IRGeneration.execIRStmt_for_one_continue
+  Compiler.Proofs.IRGeneration.execIRStmts_single_for_init_cond_zero
+  Compiler.Proofs.IRGeneration.execIRStmts_cons_for_init_cond_zero
+  Compiler.Proofs.IRGeneration.execIRStmts_single_for_one_continue
+  Compiler.Proofs.IRGeneration.execIRStmts_cons_for_one_continue
+  Compiler.Proofs.IRGeneration.execIRStmts_cons_for_one_continue_of_loop_continue
+  Compiler.Proofs.IRGeneration.execIRStmt_forEach_shape_init_cond_zero
+  Compiler.Proofs.IRGeneration.execIRStmts_forEach_init_literal_zero
   Compiler.Proofs.IRGeneration.execIRStmt_stop_succ
   Compiler.Proofs.IRGeneration.execIRStmt_stop_one_add
   Compiler.Proofs.IRGeneration.execIRStmt_stop_one_add_add
@@ -2809,7 +2824,6 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.ParamLoading.supportedParamHeadSize_eq_32
   Compiler.Proofs.IRGeneration.ParamLoading.supportedScalarHeadSize_eq
   Compiler.Proofs.IRGeneration.ParamLoading.calldataloadWord_aligned
-  Compiler.Proofs.IRGeneration.ParamLoading.exec_genScalarLoad_supported
   -- Compiler.Proofs.IRGeneration.ParamLoading.getD_eq_of_drop_eq_cons  -- private
   -- Compiler.Proofs.IRGeneration.ParamLoading.drop_succ_eq_of_drop_eq_cons  -- private
   -- Compiler.Proofs.IRGeneration.ParamLoading.supportedExternalParamType_cases  -- private
@@ -2817,6 +2831,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.ParamLoading.execIRStmts_cons_of_execIRStmt_continue_extraFuel  -- private
   -- Compiler.Proofs.IRGeneration.ParamLoading.exec_genScalarLoad_supported_then_word_passthrough  -- private
   -- Compiler.Proofs.IRGeneration.ParamLoading.exec_genScalarLoad_supported_then_uint8  -- private
+  -- Compiler.Proofs.IRGeneration.ParamLoading.exec_genScalarLoad_supported_then_uint16  -- private
   -- Compiler.Proofs.IRGeneration.ParamLoading.exec_genScalarLoad_supported_then_address  -- private
   -- Compiler.Proofs.IRGeneration.ParamLoading.exec_genScalarLoad_supported_then_bool  -- private
   Compiler.Proofs.IRGeneration.ParamLoading.exec_genScalarLoad_supported_then
@@ -2836,6 +2851,15 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.SourceSemantics.exists_writeUnindexedEventScratch_of_length_zero
   Compiler.Proofs.IRGeneration.SourceSemantics.exists_eventScratchMemoryAfterEmit?_of_supported_length
   Compiler.Proofs.IRGeneration.SourceSemantics.UInt256_size_eq_UINT256_MODULUS
+  Compiler.Proofs.IRGeneration.SourceSemantics.execForEachLoop_zero
+  Compiler.Proofs.IRGeneration.SourceSemantics.execForEachLoop_succ
+  Compiler.Proofs.IRGeneration.SourceSemantics.lookupBinding?_bindValue_same
+  Compiler.Proofs.IRGeneration.SourceSemantics.lookupValue_bindValue_same
+  Compiler.Proofs.IRGeneration.SourceSemantics.execForEachLoop_boundState_lookupBinding?
+  Compiler.Proofs.IRGeneration.SourceSemantics.execForEachLoop_boundState_lookupValue
+  Compiler.Proofs.IRGeneration.SourceSemantics.execForEachLoop_zero_continue_state
+  Compiler.Proofs.IRGeneration.SourceSemantics.execForEachLoop_succ_continue_iff
+  Compiler.Proofs.IRGeneration.SourceSemantics.execForEachLoop_succ_continue
   Compiler.Proofs.IRGeneration.SourceSemantics.execForEachLoop_congr
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_literal  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_param  -- private
@@ -4023,269 +4047,6 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.lowerExprNative_selectorExpr
 
   -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeHarness.lean
-  Compiler.Proofs.YulGeneration.Backends.Native.step_mstore_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_mstore_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_mstore_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_mstore_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_mstore8_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_mstore8_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_mstore8_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_mstore8_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_sload_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_mload_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_keccak256_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_log0_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_log0_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_log0_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_log0_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_log1_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_log1_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_log1_pair_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_log1_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_log1_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_log2_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_log2_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_log2_pair_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_log2_triple_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_log2_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_log2_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_log3_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_log3_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_log3_pair_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_log3_triple_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_log3_quad_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_log3_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_log3_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_log4_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_log4_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_log4_pair_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_log4_triple_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_log4_quad_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_log4_quint_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_log4_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_log4_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_sstore_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_sstore_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_sstore_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_sstore_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_tload_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_tstore_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_tstore_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_tstore_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_tstore_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_msize_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_gas_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_returndatasize_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_calldatacopy_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_calldatacopy_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_calldatacopy_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_calldatacopy_pair_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_calldatacopy_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_returndatacopy_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_returndatacopy_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_returndatacopy_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_returndatacopy_pair_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_returndatacopy_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_pop_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_stop_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_return_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_return_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_return_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_return_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_revert_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_revert_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_revert_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_revert_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_calldataload_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_calldataload4_initialState_arg0_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_calldataload4_initialState_arg0_ok_withStore
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_calldataload4_initialState_ofIR_arg0_ok_withStore
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_shr_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_add_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_add_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_add_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_add_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_sub_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_sub_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_sub_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_sub_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_mul_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_mul_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_mul_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_mul_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_div_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_div_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_div_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_div_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_div_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_div_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_div_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_mod_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_mod_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_mod_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_mod_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_mod_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_mod_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_mod_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_sdiv_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_smod_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_addmod_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_mulmod_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_exp_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_signextend_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_calldataload0_then_shr224_initialState_selector_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_eq_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_eq_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_eq_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_eq_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_eq_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_eq_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_eq_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_iszero_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_iszero_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_iszero_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_iszero_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_iszero_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_lt_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_lt_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_lt_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_lt_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_lt_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_lt_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_lt_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_gt_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_gt_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_gt_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_gt_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_gt_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_gt_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_gt_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_slt_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_sgt_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_calldatasize_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_callvalue_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_address_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_balance_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_origin_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_caller_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_timestamp_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_number_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_chainid_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_blobbasefee_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_calldatasize_any_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_callvalue_any_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_address_any_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_caller_any_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_timestamp_any_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_number_any_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_chainid_any_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_blobbasefee_any_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_gasprice_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_coinbase_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_gaslimit_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_selfbalance_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_and_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_or_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_xor_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_not_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_not_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_not_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_not_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_not_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_shl_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_byte_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_sar_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.step_sdiv_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_sdiv_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_sdiv_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_smod_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_smod_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_smod_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_exp_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_exp_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_exp_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_signextend_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_signextend_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_signextend_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_slt_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_slt_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_slt_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_sgt_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_sgt_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_sgt_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_and_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_and_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_and_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_or_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_or_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_or_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_xor_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_xor_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_xor_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_shl_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_shl_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_shl_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_shr_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_shr_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_shr_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_byte_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_byte_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_byte_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_sar_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_sar_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_sar_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_sload_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_sload_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_calldataload_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_calldataload_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_mload_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_mload_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_tload_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_tload_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_keccak256_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_keccak256_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_keccak256_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_addmod_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_addmod_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_addmod_pair_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_addmod_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_mulmod_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_mulmod_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_mulmod_pair_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.step_mulmod_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_mstore_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_mstore_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_mstore_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_mstore_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_mstore8_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_mstore8_nil_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_mstore8_singleton_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_mstore8_overarity_invalid
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_sload_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_mload_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_keccak256_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.nativeMappingSlotFunctionDefinition_exec_revivable
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_log0_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_log1_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_log2_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_log3_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_log4_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_sstore_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_tload_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_tstore_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_msize_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_gas_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_returndatasize_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_calldatacopy_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_returndatacopy_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_pop_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_stop_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_return_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.primCall_revert_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.lowerStmtsNative_revert_zero_zero
-  Compiler.Proofs.YulGeneration.Backends.Native.exec_revert_zero_zero_error
-  Compiler.Proofs.YulGeneration.Backends.Native.exec_expr_prim_ok
-  Compiler.Proofs.YulGeneration.Backends.Native.exec_let_prim_one_ok
   Compiler.Proofs.YulGeneration.Backends.Native.eval_lowerExprNative_selectorExpr_ok
   Compiler.Proofs.YulGeneration.Backends.Native.eval_lowerExprNative_selectorExpr_initialState_ok
   Compiler.Proofs.YulGeneration.Backends.Native.eval_lowerExprNative_iszero_lt_calldatasize_4_ok
@@ -5150,6 +4911,271 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.lowerRuntimeContractNativeAux_stmt_cons
   Compiler.Proofs.YulGeneration.Backends.lowerRuntimeContractNative_empty
 
+  -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativePrimOps.lean
+  Compiler.Proofs.YulGeneration.Backends.Native.step_mstore_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_mstore_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_mstore_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_mstore_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_mstore8_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_mstore8_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_mstore8_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_mstore8_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_sload_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_mload_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_keccak256_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_log0_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_log0_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_log0_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_log0_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_log1_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_log1_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_log1_pair_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_log1_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_log1_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_log2_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_log2_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_log2_pair_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_log2_triple_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_log2_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_log2_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_log3_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_log3_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_log3_pair_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_log3_triple_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_log3_quad_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_log3_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_log3_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_log4_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_log4_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_log4_pair_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_log4_triple_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_log4_quad_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_log4_quint_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_log4_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_log4_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_sstore_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_sstore_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_sstore_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_sstore_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_tload_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_tstore_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_tstore_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_tstore_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_tstore_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_msize_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_gas_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_returndatasize_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_calldatacopy_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_calldatacopy_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_calldatacopy_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_calldatacopy_pair_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_calldatacopy_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_returndatacopy_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_returndatacopy_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_returndatacopy_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_returndatacopy_pair_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_returndatacopy_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_pop_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_stop_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_return_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_return_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_return_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_return_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_revert_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_revert_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_revert_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_revert_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_calldataload_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_calldataload4_initialState_arg0_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_calldataload4_initialState_arg0_ok_withStore
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_calldataload4_initialState_ofIR_arg0_ok_withStore
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_shr_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_add_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_add_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_add_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_add_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_sub_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_sub_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_sub_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_sub_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_mul_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_mul_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_mul_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_mul_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_div_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_div_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_div_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_div_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_div_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_div_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_div_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_mod_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_mod_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_mod_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_mod_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_mod_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_mod_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_mod_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_sdiv_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_smod_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_addmod_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_mulmod_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_exp_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_signextend_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_calldataload0_then_shr224_initialState_selector_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_eq_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_eq_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_eq_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_eq_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_eq_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_eq_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_eq_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_iszero_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_iszero_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_iszero_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_iszero_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_iszero_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_lt_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_lt_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_lt_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_lt_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_lt_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_lt_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_lt_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_gt_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_gt_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_gt_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_gt_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_gt_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_gt_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_gt_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_slt_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_sgt_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_calldatasize_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_callvalue_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_address_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_balance_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_origin_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_caller_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_timestamp_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_number_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_chainid_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_blobbasefee_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_calldatasize_any_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_callvalue_any_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_address_any_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_caller_any_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_timestamp_any_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_number_any_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_chainid_any_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_blobbasefee_any_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_gasprice_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_coinbase_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_gaslimit_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_selfbalance_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_and_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_or_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_xor_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_not_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_not_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_not_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_not_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_not_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_shl_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_byte_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_sar_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_sdiv_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_sdiv_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_sdiv_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_smod_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_smod_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_smod_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_exp_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_exp_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_exp_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_signextend_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_signextend_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_signextend_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_slt_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_slt_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_slt_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_sgt_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_sgt_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_sgt_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_and_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_and_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_and_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_or_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_or_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_or_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_xor_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_xor_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_xor_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_shl_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_shl_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_shl_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_shr_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_shr_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_shr_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_byte_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_byte_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_byte_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_sar_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_sar_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_sar_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_sload_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_sload_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_calldataload_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_calldataload_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_mload_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_mload_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_tload_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_tload_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_keccak256_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_keccak256_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_keccak256_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_addmod_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_addmod_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_addmod_pair_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_addmod_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_mulmod_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_mulmod_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_mulmod_pair_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.step_mulmod_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_mstore_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_mstore_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_mstore_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_mstore_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_mstore8_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_mstore8_nil_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_mstore8_singleton_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_mstore8_overarity_invalid
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_sload_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_mload_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_keccak256_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.nativeMappingSlotFunctionDefinition_exec_revivable
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_log0_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_log1_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_log2_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_log3_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_log4_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_sstore_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_tload_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_tstore_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_msize_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_gas_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_returndatasize_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_calldatacopy_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_returndatacopy_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_pop_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_stop_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_return_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_revert_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.lowerStmtsNative_revert_zero_zero
+  Compiler.Proofs.YulGeneration.Backends.Native.exec_revert_zero_zero_error
+  Compiler.Proofs.YulGeneration.Backends.Native.exec_expr_prim_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.exec_let_prim_one_ok
+
   -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeSignedArithLemmas.lean
   -- Compiler.Proofs.YulGeneration.Backends.fin_val_mul_neg1  -- private
   -- Compiler.Proofs.YulGeneration.Backends.natAbs_ofNat_sub  -- private
@@ -5472,4 +5498,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5177 theorems/lemmas (3596 public, 1581 private, 0 sorry'd)
+-- Total: 5200 theorems/lemmas (3611 public, 1589 private, 0 sorry'd)

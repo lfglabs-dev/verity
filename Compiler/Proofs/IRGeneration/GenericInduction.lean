@@ -14867,7 +14867,7 @@ theorem stmtListGenericCore_of_supportedStmtList_of_surface_exceptMappingWrites_
       have hwordOffsetEq : wordOffset = wordOffset0 := by
         rw [hmember] at hmember'
         injection hmember' with hmemberEq
-        injection hmemberEq with _ hEq
+        injection hmemberEq with _ _ hEq
         exact hEq.symm
       subst hwordOffsetEq
       exact stmtListGenericCore_singleton_setStructMemberSingle_of_slotSafety
@@ -14912,7 +14912,7 @@ theorem stmtListGenericCore_of_supportedStmtList_of_surface_exceptMappingWrites_
       have hwordOffsetEq : wordOffset = wordOffset0 := by
         rw [hmember] at hmember'
         injection hmember' with hmemberEq
-        injection hmemberEq with _ hEq
+        injection hmemberEq with _ _ hEq
         exact hEq.symm
       subst hwordOffsetEq
       exact stmtListGenericCore_singleton_setStructMember2Single_of_slotSafety

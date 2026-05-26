@@ -166,7 +166,7 @@ private def mkFieldFrameConjunct (field : StorageFieldDecl) : CommandElabM Term 
       `(∀ k, s'.storageMap $slotLit k = s.storageMap $slotLit k)
   | .mappingUintToUint256 | .mappingStruct .uint256 _ =>
       `(∀ k, s'.storageMapUint $slotLit k = s.storageMapUint $slotLit k)
-  | .mappingChain _ | .mapping2AddressToAddressToUint256 | .mappingStruct2 _ _ _ =>
+  | .mappingStruct .bytes32 _ | .mappingChain _ | .mapping2AddressToAddressToUint256 | .mappingStruct2 _ _ _ =>
       -- These shapes compile to hashed `storage` slots rather than the legacy
       -- storageMap mirrors, so the conservative frame predicate must constrain
       -- the hashed storage surface.

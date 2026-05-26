@@ -61,6 +61,7 @@ def normalizeEventValue (ty : ParamType) (value : Nat) : Nat :=
   let word := wordNormalize value
   match ty with
   | .uint8 => word &&& (uint8Modulus - 1)
+  | .uint16 => word &&& (2^16 - 1)
   | .address => word &&& Compiler.Constants.addressMask
   | .bool => if word = 0 then 0 else 1
   | _ => word
@@ -509,6 +510,7 @@ def decodeSupportedParamWord (ty : ParamType) (word : Nat) : Option Nat :=
   match ty with
   | .uint256 | .int256 | .bytes32 => some word
   | .uint8 => some (word &&& (uint8Modulus - 1))
+  | .uint16 => some (word &&& (2^16 - 1))
   | .address => some (word &&& Compiler.Constants.addressMask)
   | .bool => some (if word = 0 then 0 else 1)
   | _ => none
@@ -2554,7 +2556,7 @@ def bindConstructorArgAliasesFrom
           rawArgs[headWord]? |> Option.map wordNormalize
         else
           match param.ty with
-          | .uint256 | .int256 | .uint8 | .address | .bool | .bytes32 =>
+          | .uint256 | .int256 | .uint8 | .uint16 | .address | .bool | .bytes32 =>
               lookupBinding? bindings param.name
           | _ =>
               rawArgs[headWord]? |> Option.map wordNormalize

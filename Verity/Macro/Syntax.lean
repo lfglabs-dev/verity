@@ -44,6 +44,8 @@ syntax "storage_namespace " str : verityStorageItem
 syntax "storage_namespace " "erc7201 " str : verityStorageItem
 syntax ident " @word " num : verityStructMember
 syntax ident " @word " num " packed(" num "," num ")" : verityStructMember
+syntax ident " : " term " @word " num : verityStructMember
+syntax ident " : " term " @word " num " packed(" num "," num ")" : verityStructMember
 syntax "MappingStruct(" term "," "[" sepBy(verityStructMember, ",") "]" ")" : term
 syntax "MappingStruct2(" term "," term "," "[" sepBy(verityStructMember, ",") "]" ")" : term
 syntax ident " : " term : verityParam
