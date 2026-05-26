@@ -1236,6 +1236,7 @@ def stmtTouchesUnsupportedStateSurface : Stmt → Bool
       exprTouchesUnsupportedStateSurface cond ||
         stmtListTouchesUnsupportedStateSurface thenBranch ||
         stmtListTouchesUnsupportedStateSurface elseBranch
+  | .forEach _ (.literal _) [] => false
   | .forEach _ _ _ => true
 
 /-- Weaker Tier 2 state-surface gate used by the singleton storage-write bridge:

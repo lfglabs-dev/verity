@@ -12923,24 +12923,6 @@ private def forEachZeroRuntimeLoop
     SourceSemantics.RuntimeState :=
   { runtime with bindings := SourceSemantics.bindValue runtime.bindings varName 0 }
 
-private theorem source_bindValue_idem
-    (bindings : List (String × Nat)) (name : String) (value : Nat) :
-    SourceSemantics.bindValue (SourceSemantics.bindValue bindings name value) name value =
-      SourceSemantics.bindValue bindings name value := by
-  simp [SourceSemantics.bindValue, List.filter_filter]
-
-private theorem source_bindValue_overwrite
-    (bindings : List (String × Nat)) (name : String) (first second : Nat) :
-    SourceSemantics.bindValue (SourceSemantics.bindValue bindings name first) name second =
-      SourceSemantics.bindValue bindings name second := by
-  simp [SourceSemantics.bindValue, List.filter_filter]
-
-private theorem irState_setVar_idem
-    (state : IRState) (name : String) (value : Nat) :
-    (state.setVar name value).setVar name value = state.setVar name value := by
-  cases state
-  simp [IRState.setVar, List.filter_filter]
-
 private theorem sourceExec_forEach_literal_zero
     {fields : List Field}
     {runtime : SourceSemantics.RuntimeState}
