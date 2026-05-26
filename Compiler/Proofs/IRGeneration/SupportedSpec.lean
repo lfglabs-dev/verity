@@ -1557,10 +1557,13 @@ def stmtTouchesUnsupportedContractSurface (stmt : Stmt) : Bool :=
   | .storageArrayPush _ _ | .storageArrayPop _ | .setStorageArrayElement _ _ _
   | .requireError _ _ _ | .revertError _ _ | .returnValues _ | .returnArray _
   | .returnBytes _ | .returnStorageWords _ | .calldatacopy _ _ _
-  | .returndataCopy _ _ _ | .revertReturndata | .forEach _ _ _
+  | .returndataCopy _ _ _ | .revertReturndata
   | .emit _ _ | .internalCall _ _ | .internalCallAssign _ _ _
   | .rawLog _ _ _ | .externalCallBind _ _ _ | .ecm _ _
   | .tryExternalCallBind _ _ _ _ | .unsafeBlock _ _ | .matchAdt _ _ _ => true
+  | .forEach _ (.literal 0) body =>
+      stmtListTouchesUnsupportedContractSurface body
+  | .forEach _ _ _ => true
 
 def stmtTouchesUnsupportedContractSurfaceWithEvents
     (events : List EventDef) (stmt : Stmt) : Bool :=
@@ -4375,9 +4378,20 @@ theorem stmtTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
   | storageArrayPop _ | setStorageArrayElement _ _ _ | requireError _ _ _
   | revertError _ _ | returnValues _ | returnArray _ | returnBytes _
   | returnStorageWords _ | calldatacopy _ _ _ | returndataCopy _ _ _
-  | revertReturndata | forEach _ _ _ | emit _ _ | internalCall _ _
+  | revertReturndata | emit _ _ | internalCall _ _
   | internalCallAssign _ _ _ | rawLog _ _ _ | externalCallBind _ _ _ | ecm _ _ =>
       cases hsurface
+  | forEach varName count body =>
+      cases count with
+      | literal n =>
+          cases n with
+          | zero =>
+            simp only [stmtTouchesUnsupportedContractSurface] at hsurface
+            simpa [stmtTouchesUnsupportedHelperSurface, exprTouchesUnsupportedHelperSurface] using
+              stmtListTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
+                hsurface
+          | succ n => simp [stmtTouchesUnsupportedContractSurface] at hsurface
+      | _ => simp [stmtTouchesUnsupportedContractSurface] at hsurface
 termination_by sizeOf stmt
 
 theorem stmtListTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed

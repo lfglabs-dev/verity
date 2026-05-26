@@ -343,11 +343,10 @@ inductive SupportedStmtList (fields : List Field) : List String → List Stmt �
   | forEachLiteralBounded
       {scope : List String}
       {varName : String}
-      {n : Nat}
       {body : List Stmt} :
       (∀ name, name ∈ collectStmtListNames body → name ∈ varName :: scope) →
       SupportedStmtList fields (varName :: scope) body →
-      SupportedStmtList fields scope [Stmt.forEach varName (.literal n) body]
+      SupportedStmtList fields scope [Stmt.forEach varName (.literal 0) body]
   | requireClause
       {scope : List String}
       (clause : RequireLiteralGuardFamilyClause)
