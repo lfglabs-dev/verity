@@ -81,7 +81,13 @@ ALLOWLIST: set[str] = {
     "compiledStmtStep_return",
     "compiledStmtStep_ite",
     # Nat-indexed forEach empty-body proof witnesses. Positive non-empty
-    # literal loops intentionally remain outside the supported fragment.
+    # literal loops intentionally remain outside the supported fragment. The
+    # longer witnesses below are recurrence/state-relation proofs where
+    # splitting would duplicate the same loop-index, binder, and fuel facts.
+    "execIRStmt_forEach_empty_loop_from_idx",
+    "execIRStmt_for_empty_init_recurrence",
+    "forEach_empty_final_rel",
+    "stmtTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed",
     "execIRStmts_forEach_literal_empty_compiled",
     "stmtStepMatches_forEach_literal_empty_final",
     # --- Storage write compiled step proofs ---
