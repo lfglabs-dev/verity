@@ -13,6 +13,9 @@ boundary checks change.
 - The previous reference-comparison modules have been removed from the live
   proof tree; native EVMYulLean is the checked runtime boundary.
 - Yul-to-bytecode compilation remains trusted through pinned `solc` 0.8.33.
+- Consumer-declared intrinsics are consumer-owned trust boundaries. The CLZ
+  prototype keeps Verity at 0 project-level axioms and requires downstream
+  packages to document any assumed intrinsic obligation they declare.
 - Gas safety is not modeled by the semantic preservation theorems.
 
 ## Issue #1722: EVMYulLean Semantic Target
@@ -53,7 +56,7 @@ actually use this family is the next milestone.
 | `artifacts/evmyullean_fork_audit.json` | Pinned fork divergence and non-semantic fork delta | `python3 scripts/generate_evmyullean_fork_audit.py --check` |
 | `artifacts/evmyullean_capability_report.json` | EVMYulLean capability surface and reference-oracle paths | `python3 scripts/generate_evmyullean_capability_report.py --check` |
 | `PrintAxioms.lean` / generated axiom report | Axiom dependency visibility | `python3 scripts/generate_print_axioms.py --check` and `lake build PrintAxioms` |
-| `trust_report.intrinsics[*]` | Planned consumer-declared intrinsic trust surface: name, semantics-term hash, obligation, `min_fork`, and source location | Not implemented in the current prototype |
+| `trust_report.intrinsics[*]` | Planned consumer-declared intrinsic trust surface: name, emission mode, opcode/builtin target, obligation, `min_fork`, and source location | Follow-up hardening; until then, grep consumer trees for `verity_intrinsic` |
 
 ## CI Guards
 
@@ -66,6 +69,10 @@ actually use this family is the next milestone.
 - `.github/workflows/evmyullean-fork-conformance.yml` runs the EVMYulLean fork
   conformance probe weekly. Scheduled or manual failures fail the workflow and
   open or update a GitHub issue for drift triage.
+- Intrinsic fork enforcement is intended to be fail-closed: once the target-fork
+  check is wired, builds using an intrinsic whose `min_fork` exceeds the
+  contract target must fail unless the caller passes an explicit future-fork
+  override.
 
 ## Update Checklist
 

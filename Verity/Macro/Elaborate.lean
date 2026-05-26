@@ -182,7 +182,7 @@ def elabVerityIntrinsic : CommandElab := fun stx => do
       Verity.Core.Uint256.ofNat
         (if x.val = 0 then 256 else 255 - Nat.log2 x.val))
   elabCommand wrapperCmd
-  -- Emit the obligation as a namespaced "axiom marker" (consumer side).
+  -- Emit the obligation as a namespaced trust marker (consumer side).
   -- Real trust surface consumes the registered decl at report time.
   let obligationName : Ident := ⟨mkIdent (name.getId.appendAfter "ClzIntrinsic_clz_matches_eip7939")⟩
   let obligationCmd ← `(command| def $obligationName:ident : String :=

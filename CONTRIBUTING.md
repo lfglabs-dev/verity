@@ -59,17 +59,22 @@ FOUNDRY_PROFILE=difftest forge test  # Must pass — runs all Foundry tests
 - Run `python3 scripts/generate_verification_status.py --check` to verify the machine-readable status artifact is current
 - Run `python3 scripts/check_lean_hygiene.py` to verify no `#eval` in proof files and `allowUnsafeReducibility` count is correct
 
+## Adding an Intrinsic
+
+Declare consumer-owned opcode bindings with `verity_intrinsic` only when the
+consumer owns the temporary trust boundary. Keep Verity opcode-agnostic: changes
+in this repository should add generic intrinsic mechanics, not opcode-specific
+business logic. The consumer repository must document any generated obligation
+in its own `AXIOMS.md` or trust-boundary document.
+
+See [docs/INTRINSICS.md](docs/INTRINSICS.md) for the declaration format,
+audit checklist, and CLZ example.
+
 ## Proof Hygiene Requirements
 
 Every PR that touches proof files must satisfy all of the following.
 Each requirement is enforced by CI and cannot be bypassed without updating
 the corresponding enforcement script.
-
-## Adding an Intrinsic
-
-Declare consumer-owned opcode bindings with `verity_intrinsic` and document the generated obligation in the consumer `AXIOMS.md`.
-Keep Verity opcode-agnostic; add only generic mechanism changes here.
-See [docs/INTRINSICS.md](docs/INTRINSICS.md) for the declaration format and trust-report expectations.
 
 1. **Zero `sorry`**: `lake build` rejects incomplete proofs at the Lean kernel level.
    CI runs an independent grep scan as defense in depth

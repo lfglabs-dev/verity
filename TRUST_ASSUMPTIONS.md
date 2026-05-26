@@ -84,6 +84,28 @@ Current theorem totals, property-test coverage, and proof status live in [docs/V
 - **Status**: Surfaced explicitly in `--trust-report`, `--verbose`, and `proofStatus.*.localObligations`.
 - **Mitigation**: `verity-compiler --deny-local-obligations` fails closed on any obligation that remains `assumed` or `unchecked`.
 
+### 11. Consumer-Declared Intrinsics
+- **Role**: Let downstream packages bind a source-level Verity function to a
+  target EVM opcode or Yul builtin without adding opcode-specific code to
+  Verity. The first use case is Tamago's EIP-7939 `CLZ` binding, which lowers
+  to `verbatim_1i_1o(hex"1e", x)`.
+- **Trust**: While an intrinsic obligation is `assumed`, the consumer owns the
+  claim that the declared Lean `semantics` matches the emitted opcode on the
+  selected chain fork. The generated obligation lives in the consumer namespace
+  and must be documented in the consumer repository, not as a Verity
+  project-level axiom.
+- **Status**: This change introduces the CLZ-shaped intrinsic path and keeps
+  Verity's own `AXIOMS.md` at zero project-level axioms. General
+  registry-driven lowering, machine-readable intrinsic trust-report entries,
+  and enforced `min_fork` checks are follow-up hardening before the feature is
+  considered a general public surface.
+- **Mitigation**: Audit every `verity_intrinsic` declaration in consumer code.
+  Check opcode bytes, fork requirement, semantic edge cases, and the obligation
+  status. The intended production policy is fail-closed fork enforcement: a
+  contract targeting a fork lower than an intrinsic's `min_fork` must error
+  unless an explicit future-fork override is passed.
+- **Reference**: See [docs/INTRINSICS.md](docs/INTRINSICS.md).
+
 ## Semantic Caveats
 
 ### Wrapping Arithmetic
@@ -108,12 +130,8 @@ High-level semantics can expose intermediate state in reverted computations. EVM
 
 ## Related Documents
 
-- [AUDIT.md](AUDIT.md) | [AXIOMS.md](AXIOMS.md) | [docs/ARITHMETIC_PROFILE.md](docs/ARITHMETIC_PROFILE.md) | [docs/REVERT_STATE_MODEL.md](docs/REVERT_STATE_MODEL.md)
+- [AUDIT.md](AUDIT.md) | [AXIOMS.md](AXIOMS.md) | [docs/INTRINSICS.md](docs/INTRINSICS.md) | [docs/ARITHMETIC_PROFILE.md](docs/ARITHMETIC_PROFILE.md) | [docs/REVERT_STATE_MODEL.md](docs/REVERT_STATE_MODEL.md)
 - [docs/EXTERNAL_CALL_MODULES.md](docs/EXTERNAL_CALL_MODULES.md) | [docs/ROADMAP.md](docs/ROADMAP.md) | [docs/VERIFICATION_STATUS.md](docs/VERIFICATION_STATUS.md)
-
-## Trusted Intrinsics (new in this change)
-
-`verity_intrinsic` declarations (e.g. the CLZ example) produce one consumer-namespaced obligation marker per declaration. The current prototype lowers CLZ-shaped uses to `verbatim_1i_1o(hex"1e", ...)` and keeps Verity's own AXIOMS.md at zero project-level axioms. Full `--trust-report` integration and hard-error `min_fork` enforcement are planned follow-ups before this should be treated as production-ready. See docs/INTRINSICS.md and the declaration in Contracts/Smoke.lean .
 
 ---
 

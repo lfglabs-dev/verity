@@ -30,7 +30,7 @@ def eqWordHelper (a : Uint256) (b : Uint256) : Uint256 :=
 
 -- Focused minimal verity_intrinsic example (CLZ via EIP-7939 Fusaka).
 -- Declaration shape per plan.md; `clz x` use site emits verbatim_1i_1o(hex"1e", x) in Yul.
-verity_intrinsic clz (x : Uint256) : Uint256 where pure; yul := verbatim 1 1 (hex "1e"); min_fork := fusaka; semantics := (fun x => x); obligation [clz_matches_eip7939 := assumed "EIP-7939 CLZ opcode; chain must be Fusaka+"]
+verity_intrinsic clz (x : Uint256) : Uint256 where pure; yul := verbatim 1 1 (hex "1e"); min_fork := fusaka; semantics := (fun x => Uint256.ofNat (if x.val = 0 then 256 else 255 - Nat.log2 x.val)); obligation [clz_matches_eip7939 := assumed "EIP-7939 CLZ opcode; chain must be Fusaka+"]
 
 verity_contract IntrinsicClzSmoke where
   storage

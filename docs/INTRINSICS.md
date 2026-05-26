@@ -1,42 +1,127 @@
 # Verity Intrinsics
 
-`verity_intrinsic` lets consumers register opcode-level primitives (e.g. CLZ / EIP-7939) without modifying Verity.
+`verity_intrinsic` is the extension point for consumer-owned opcode bindings.
+It lets a downstream package use an EVM primitive before Verity or EVMYulLean
+models it as a first-class builtin.
 
-## Declaration Shape (prototype)
+The motivating example is EIP-7939 `CLZ`. Tamago can declare `clz` in its own
+tree, compile calls to `verbatim_1i_1o(hex"1e", x)`, and keep the CLZ trust
+assumption local to Tamago. Verity stays opcode-agnostic and does not add a
+project-level axiom for every new opcode.
+
+## When to Use This
+
+Use an intrinsic when all of the following are true:
+
+- The target behavior is a single EVM primitive or named Yul builtin.
+- The opcode is not yet modeled as a proven Verity/EVMYulLean builtin.
+- The consumer can state the source-level Lean semantics that proofs should use.
+- The consumer is willing to own the trust obligation until the opcode is
+  modeled upstream.
+
+Do not use an intrinsic for multi-step libraries, contract calls, precompile
+protocols, or code whose behavior should be audited as ordinary linked Yul.
+Those belong in External Call Modules, linked libraries, or first-class compiler
+support.
+
+## Declaration
 
 ```lean
-verity_intrinsic clz (x : Uint256) : Uint256 where pure; yul := verbatim 1 1 (hex "1e"); min_fork := fusaka; semantics := (fun x => x); obligation [clz_matches_eip7939 := assumed "EIP-7939 CLZ opcode; chain must be Fusaka+"]
+verity_intrinsic clz (x : Uint256) : Uint256 where
+  pure;
+  yul := verbatim 1 1 (hex "1e");
+  min_fork := fusaka;
+  semantics :=
+    fun x =>
+      Uint256.ofNat
+        (if x.toNat = 0 then 256 else 255 - Nat.log2 x.toNat);
+  obligation [clz_matches_eip7939 :=
+    assumed "EIP-7939 CLZ opcode; chain must be Fusaka+"]
 ```
 
-Use site: `let c := clz x`.
+Call sites use the declared name as a normal Verity function:
 
-## Yul Emission (minimal implementation)
-
-For a `verbatim N M (hex "XX")` clause the compiler emits:
-
-```
-verbatim_Ni_Mo(hex"XX", arg0, ...)
+```lean
+let leadingZeros <- clz x
 ```
 
-See `Compiler/CompilationModel/ExpressionCompile.lean` (intrinsic case) and the CLZ example in `Contracts/Smoke.lean`.
+The declaration has five responsibilities:
+
+- `pure` states that the intrinsic has no storage, environment, or external-call
+  effects.
+- `yul := verbatim N M (hex "...")` states the compiler lowering. The generated
+  Yul call is `verbatim_Ni_Mo(hex"...", args...)`.
+- `min_fork := ...` records the minimum chain fork where the emitted opcode is
+  valid. Verity's intended policy is fail-closed: builds targeting an older fork
+  must error unless the caller explicitly opts into future-fork output.
+- `semantics := ...` is the Lean function used by source-level and consumer
+  proofs.
+- `obligation [...]` names the consumer-owned trust boundary. While the
+  obligation is `assumed`, the consumer must document it in its own `AXIOMS.md`.
 
 ## Trust Model
 
-- One consumer-namespaced obligation marker per intrinsic.
-- `--trust-report` integration is still planned.
-- `min_fork` hard-error enforcement is still planned.
-- Verity AXIOMS.md stays at 0 project axioms.
+Intrinsics deliberately keep Verity's project-level axiom count at zero. The
+trust boundary is generated in the consumer namespace from the declaration's
+obligation clause and should appear in the consumer repository's axiom/trust
+documentation.
 
-See `TRUST_ASSUMPTIONS.md` § "Trusted Intrinsics" and `AXIOMS.md`.
+For an assumed intrinsic, reviewers should check:
+
+- the emitted opcode bytes or builtin name match the intended EVM primitive;
+- the `semantics` function matches the EIP or target-chain behavior, including
+  edge cases such as `clz(0)`;
+- the `min_fork` is correct for the deployment target;
+- the obligation text names the EIP, fork assumption, and any temporary nature
+  of the trust boundary.
+
+This is a consumer trust boundary, not a Verity proof-system axiom. Verity's
+own `AXIOMS.md` remains the registry of project-level axioms and should stay at
+zero unless Verity itself introduces an axiom.
+
+## Audit Surface
+
+Consumer builds that use intrinsics should archive the normal compiler
+artifacts plus the trust report once intrinsic reporting is wired. The report
+entry is expected to include:
+
+- intrinsic name;
+- emission mode (`verbatim_Ni_Mo` or named builtin);
+- opcode bytes or builtin name;
+- minimum fork;
+- obligation name and status;
+- declaration source location.
+
+Until trust-report integration is complete, reviewers should grep the consumer
+tree for `verity_intrinsic` and audit each declaration manually.
+
+## Current Implementation Scope
+
+This branch implements the CLZ-shaped path needed by Tamago:
+
+- syntax for `verity_intrinsic`;
+- a Lean wrapper using the declared CLZ semantics;
+- `CompilationModel.Expr.intrinsic`;
+- Yul lowering for `clz` to `verbatim_1i_1o(hex"1e", x)`;
+- validation plumbing so intrinsic arguments participate in purity and usage
+  checks.
+
+The general registry-driven lowering, machine-readable trust-report rows, and
+enforced `min_fork` target checks are the next hardening steps before this
+feature should be treated as a general public surface.
 
 ## Upgrade Path
 
-When EVMYulLean models the opcode, the consumer obligation can be changed from `assumed` to `proved` with no change to call sites.
+When EVMYulLean models the opcode, the consumer should replace the `assumed`
+obligation with a proved bridge to the upstream semantics. Call sites and Yul
+emission do not need to change.
 
-## Adding an Intrinsic (for contributors)
+For CLZ, the intended path is:
 
-1. Add the declaration in your consumer tree (no Verity change needed after this mechanism lands).
-2. Document the obligation in your AXIOMS.md.
-3. (Optional) later: upstream opcode to EVMYulLean + flip status.
-
-See plan.md and the reference byte opcode PR (#1912).
+1. Tamago declares `clz` as an assumed intrinsic and documents
+   `clz_matches_eip7939`.
+2. Verity emits `verbatim_1i_1o(hex"1e", x)` for Tamago builds targeting
+   Fusaka-or-later chains.
+3. EVMYulLean adds first-class CLZ semantics.
+4. Tamago flips the obligation from assumed to proved, removing the consumer
+   trust assumption without changing source call sites.
