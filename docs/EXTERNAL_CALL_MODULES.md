@@ -97,6 +97,7 @@ Standard modules ship in `Compiler/Modules/`:
 | `ERC20.safeTransferFrom` | `transferFrom(from, to, amount)` | ERC-20 transferFrom with optional-bool-return handling | `erc20_transferFrom_interface` |
 | `ERC20.safeApprove` | `approve(spender, amount)` | ERC-20 approve with optional-bool-return handling | `erc20_approve_interface` |
 | `Hashing.abiEncodePackedWords` / `Hashing.abiEncodePacked` | Static-word packed Keccak | Writes 32-byte words contiguously and binds `keccak256(0, wordCount * 32)` | `keccak256_memory_slice_matches_evm`, `abi_packed_static_word_layout` |
+| `Hashing.abiEncodeDynamicArrayStaticElements` | Standard dynamic-array Keccak | Writes ABI head offset, array length, and contiguous fixed-width static elements before hashing | `keccak256_memory_slice_matches_evm`, `abi_standard_dynamic_array_static_element_layout` |
 | `Hashing.sha256PackedWords` / `Hashing.sha256Packed` | Static-word packed SHA-256 | Writes 32-byte words contiguously, calls precompile 0x02, and binds digest word | `evm_sha256_precompile`, `abi_packed_static_word_layout` |
 | `Hashing.abiEncodePackedStaticSegments` | Static byte-width packed Keccak | Writes 1- to 32-byte static segments at byte-precise offsets and binds `keccak256(0, totalBytes)` | `keccak256_memory_slice_matches_evm`, `abi_packed_static_segment_layout` |
 | `Hashing.sha256PackedStaticSegments` | Static byte-width packed SHA-256 | Writes 1- to 32-byte static segments, calls precompile 0x02 over the exact byte length, and binds digest word | `evm_sha256_precompile`, `abi_packed_static_segment_layout` |

@@ -45,6 +45,28 @@ axiom solidityMappingSlot_lt_evmModulus (baseSlot key : Nat) :
 **Runtime performance**: An `@[implemented_by]` annotation optionally redirects to
 the FFI version at runtime for speed, without affecting proof soundness.
 
+## Trusted Reduction and Codegen Surface (Non-Axiom)
+
+Verity currently has zero project-level Lean axioms, but some proofs and tests
+intentionally rely on Lean mechanisms that sit outside ordinary kernel
+elaboration:
+
+- `native_decide` proofs depend on Lean's native code generation and the builtin
+  `Lean.ofReduceBool` axiom. They are acceptable for executable smoke tests,
+  concrete bridge checks, and explicitly documented reduction witnesses, but
+  they are tracked as trusted reduction surface rather than counted as
+  project-level axioms.
+- `@[implemented_by ...]` may redirect runtime execution to a faster
+  implementation. The proof term still sees the kernel-computable definition,
+  so this is a runtime/codegen trust boundary rather than a Lean axiom.
+- `partial def` marks recursive executable helpers whose termination is not
+  kernel-proved. These helpers are allowed in macro, codegen, reporting, and
+  native-test infrastructure, and their presence is registry-gated.
+
+CI runs `scripts/check_trust_surface_registry.py` to ensure these mechanisms and
+all explicit ECM assumptions (`axioms := [...]`) remain documented when their
+source footprint changes.
+
 ### 2. Selector computation (eliminated earlier)
 
 Function selector derivation (`bytes4(keccak256(signature))`) was previously
@@ -166,6 +188,14 @@ compilation fail if any assumption hasn't been reviewed.
 | `Precompiles.bn256Pairing` | `evm_bn256_pairing_precompile` | EVM precompile at address 0x08 behaves per EIP-197 (BN254 optimal-Ate pairing) |
 | `Callbacks.callback` | `callback_target_interface` | Callback target processes ABI-encoded arguments correctly |
 | `Calls.withReturn` | `external_call_abi_interface` | Target contract function matches declared selector and ABI |
+| `Hashing.abiEncodeDynamicArrayStaticElements` | `abi_standard_dynamic_array_static_element_layout` | Memory layout matches Solidity standard ABI encoding for one dynamic array of fixed-width static elements |
+
+### Test-Only ECM Assumptions
+
+| Fixture | Assumption | Meaning |
+|---------|------------|---------|
+| `Compiler.CompileDriverTest` | `test_call_interface` | Synthetic compile-driver fixture for ECM trust reporting |
+| `Compiler.CompileDriverTest` | `ctor_hook_interface` | Synthetic constructor fixture for ECM trust reporting |
 
 ### Third-Party Module Assumptions
 

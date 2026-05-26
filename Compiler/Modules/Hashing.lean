@@ -139,22 +139,25 @@ def abiEncodeStaticArrayModule
     if elementWords == 0 then
       throw "abiEncodeStaticArray requires elementWords > 0"
     let ptrName := s!"__{resultVar}_abi_array_ptr"
+    let lengthName := s!"__{resultVar}_abi_array_length"
     let dataBytesName := s!"__{resultVar}_abi_array_data_bytes"
     let totalBytesName := s!"__{resultVar}_abi_array_total_bytes"
     let paddedTotalName := s!"__{resultVar}_abi_array_padded_total"
     let ptr := YulExpr.ident ptrName
+    let length := YulExpr.ident lengthName
     let dataBytes := YulExpr.ident dataBytesName
     let totalBytes := YulExpr.ident totalBytesName
     pure [
       YulStmt.block ([
         YulStmt.let_ ptrName (YulExpr.call "mload" [YulExpr.lit freeMemoryPointer]),
+        YulStmt.let_ lengthName arrayLengthExpr,
         YulStmt.expr (YulExpr.call "mstore" [ptr, YulExpr.lit 32]),
         YulStmt.expr (YulExpr.call "mstore" [
           YulExpr.call "add" [ptr, YulExpr.lit 32],
-          arrayLengthExpr
+          length
         ]),
         YulStmt.let_ dataBytesName (YulExpr.call "mul" [
-          arrayLengthExpr,
+          length,
           YulExpr.lit (elementWords * 32)
         ])
       ] ++ ECM.dynamicCopyData ctx

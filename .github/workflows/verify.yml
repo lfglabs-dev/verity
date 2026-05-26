@@ -419,36 +419,8 @@ jobs:
       - name: Build split Lake packages independently
         run: python3 scripts/check_split_package_builds.py
 
-      - name: Check for axioms in proof files
-        run: |
-          echo "Checking for axioms in Compiler/ and Verity/..."
-          grep -rnE "^(private |protected )?axiom " Compiler/ Verity/ --include="*.lean" | tee axioms.txt || true
-          AXIOM_COUNT=$(wc -l < axioms.txt 2>/dev/null | tr -d ' ')
-          echo "Found $AXIOM_COUNT axiom declaration(s)"
-          if [ "$AXIOM_COUNT" -gt 0 ]; then
-            echo "::warning::Found $AXIOM_COUNT axiom(s) in proof files"
-            if [ ! -f "AXIOMS.md" ]; then
-              echo "::error::AXIOMS.md not found. All axioms must be documented."
-              exit 1
-            fi
-            AXIOM_NAMES=$(sed -E 's/.*:(private |protected )?axiom ([a-zA-Z0-9_]*).*/\2/' axioms.txt | sort -u)
-            UNDOCUMENTED=""
-            for axiom_name in $AXIOM_NAMES; do
-              if ! grep -q "$axiom_name" AXIOMS.md; then
-                echo "::error::Axiom '$axiom_name' not documented in AXIOMS.md"
-                UNDOCUMENTED="$UNDOCUMENTED $axiom_name"
-              else
-                echo "✓ Axiom '$axiom_name' is documented"
-              fi
-            done
-            if [ -n "$UNDOCUMENTED" ]; then
-              echo "::error::Undocumented axioms:$UNDOCUMENTED"
-              exit 1
-            fi
-            echo "✓ All $AXIOM_COUNT axioms are documented in AXIOMS.md"
-          else
-            echo "✓ No axioms found in proof files"
-          fi
+      - name: Check documented Lean axioms
+        run: python3 scripts/check_axioms.py
 
       - name: Build proof modules for axiom audit
         run: lake build PrintAxioms

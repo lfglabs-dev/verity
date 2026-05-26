@@ -71,13 +71,16 @@ def domainSuffix (v : HashVariant) : UInt8 :=
 /-- Pads the message tail (0 to 135 bytes) to a full 136-byte block. -/
 def padBlock (leftover : ByteArray) (variant : HashVariant) : ByteArray :=
   let rate := 136
-  let arr1 := leftover.data.push (domainSuffix variant)
-  let padLen := rate - arr1.size
-  let arr2 := arr1 ++ Array.replicate padLen 0
-  let lastIdx := rate - 1
-  let lastVal := arr2[lastIdx]? |>.getD 0
-  let arr3 := arr2.set! lastIdx (lastVal ||| 0x80)
-  ⟨arr3⟩
+  if leftover.size >= rate then
+    panic! "Keccak.padBlock: leftover block must be shorter than rate"
+  else
+    let arr1 := leftover.data.push (domainSuffix variant)
+    let padLen := rate - arr1.size
+    let arr2 := arr1 ++ Array.replicate padLen 0
+    let lastIdx := rate - 1
+    let lastVal := arr2[lastIdx]? |>.getD 0
+    let arr3 := arr2.set! lastIdx (lastVal ||| 0x80)
+    ⟨arr3⟩
 
 /-- Kernel-friendly evaluation of a single bitwise instruction. -/
 @[always_inline, inline]
