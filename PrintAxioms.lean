@@ -47,6 +47,7 @@ import Compiler.Proofs.IRGeneration.FunctionShape
 import Compiler.Proofs.IRGeneration.GenericInduction
 import Compiler.Proofs.IRGeneration.IRInterpreter
 import Compiler.Proofs.IRGeneration.IRStorageWord
+import Compiler.Proofs.IRGeneration.IntrinsicProofs
 import Compiler.Proofs.IRGeneration.ParamLoading
 import Compiler.Proofs.IRGeneration.SourceSemantics
 import Compiler.Proofs.IRGeneration.SupportedSpec
@@ -2797,6 +2798,20 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.IRStorageSlot.eq_of_toNat_eq
   Compiler.Proofs.IRGeneration.IRStorageSlot.toNat_ne_of_ne
 
+  -- Compiler/Proofs/IRGeneration/IntrinsicProofs.lean
+  Compiler.Proofs.IRGeneration.IntrinsicProofs.hardFork_allows_eq_rank_decide
+  Compiler.Proofs.IRGeneration.IntrinsicProofs.hardFork_allows_iff_rank_le
+  Compiler.Proofs.IRGeneration.IntrinsicProofs.exprBoundNames_intrinsic
+  Compiler.Proofs.IRGeneration.IntrinsicProofs.intrinsic_boundNamesInScope_of_args
+  Compiler.Proofs.IRGeneration.IntrinsicProofs.clz_minFork_not_allowed_on_shanghai
+  Compiler.Proofs.IRGeneration.IntrinsicProofs.clz_minFork_allowed_on_fusaka
+  Compiler.Proofs.IRGeneration.IntrinsicProofs.clz_lowering_arity
+  Compiler.Proofs.IRGeneration.IntrinsicProofs.clz_lowering_callName
+  Compiler.Proofs.IRGeneration.IntrinsicProofs.clz_lowering_hex
+  Compiler.Proofs.IRGeneration.IntrinsicProofs.compileExpr_clz_param
+  Compiler.Proofs.IRGeneration.IntrinsicProofs.compileExpr_clz_of_arg_ok
+  Compiler.Proofs.IRGeneration.IntrinsicProofs.compileExpr_clz_wrong_arity_error
+
   -- Compiler/Proofs/IRGeneration/ParamLoading.lean
   Compiler.Proofs.IRGeneration.ParamLoading.uint256_modulus_eq_evm
   Compiler.Proofs.IRGeneration.ParamLoading.wordNormalize_eq_mod
@@ -5468,4 +5483,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5170 theorems/lemmas (3586 public, 1584 private, 0 sorry'd)
+-- Total: 5182 theorems/lemmas (3598 public, 1584 private, 0 sorry'd)

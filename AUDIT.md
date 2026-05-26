@@ -56,6 +56,7 @@ actually use this family is the next milestone.
 | `artifacts/evmyullean_fork_audit.json` | Pinned fork divergence and non-semantic fork delta | `python3 scripts/generate_evmyullean_fork_audit.py --check` |
 | `artifacts/evmyullean_capability_report.json` | EVMYulLean capability surface and reference-oracle paths | `python3 scripts/generate_evmyullean_capability_report.py --check` |
 | `PrintAxioms.lean` / generated axiom report | Axiom dependency visibility | `python3 scripts/generate_print_axioms.py --check` and `lake build PrintAxioms` |
+| `Compiler.Proofs.IRGeneration.IntrinsicProofs` | Proven Verity-owned intrinsic plumbing: scope accounting, CLZ lowering shape, fork-order facts, and arity rejection | `lake build Compiler.Proofs.IRGeneration.IntrinsicProofs` |
 | `trust_report.intrinsics[*]` | Planned consumer-declared intrinsic trust surface: name, emission mode, opcode/builtin target, obligation, `min_fork`, and source location | Follow-up hardening; until then, grep consumer trees for `verity_intrinsic` |
 
 ## CI Guards

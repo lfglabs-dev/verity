@@ -105,10 +105,24 @@ This branch implements the CLZ-shaped path needed by Tamago:
 - Yul lowering for `clz` to `verbatim_1i_1o(hex"1e", x)`;
 - validation plumbing so intrinsic arguments participate in purity and usage
   checks.
+- proof plumbing for the Verity-owned part of the feature:
+  `Compiler.Proofs.IRGeneration.IntrinsicProofs` proves the fork-order facts,
+  intrinsic argument scope accounting, exact CLZ verbatim lowering shape, and
+  fail-closed arity rejection.
+- fail-closed proof-fragment coverage: `SupportedSpec` and helper-aware source
+  semantics classify intrinsics as unsupported/unmodeled until opcode semantics
+  are available.
+- usage-analysis plumbing recurses through intrinsic arguments so helper
+  requirements are not missed by code generation.
 
 The general registry-driven lowering, machine-readable trust-report rows, and
 enforced `min_fork` target checks are the next hardening steps before this
 feature should be treated as a general public surface.
+
+These proofs intentionally stop before opcode semantics. Until EVMYulLean
+models CLZ, the statement "opcode `0x1e` computes the declared Lean semantics"
+remains the consumer-owned obligation documented next to the
+`verity_intrinsic` declaration.
 
 ## Upgrade Path
 
