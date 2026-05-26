@@ -1,4 +1,5 @@
 import Compiler.CompileDriver
+import Compiler.CompileDriverCommon
 import Compiler.ModuleInput
 import Compiler.ParityPacks
 import Verity.Core.Intrinsics
@@ -107,36 +108,6 @@ private def backendProfileString (profile : Compiler.BackendProfile) : String :=
   | .solidityParityOrdering => "solidity-parity-ordering"
   | .solidityParity => "solidity-parity"
 
-private def parseTargetFork (raw : String) : Option Verity.Core.Intrinsics.HardFork :=
-  Verity.Core.Intrinsics.HardFork.parse? raw
-
-private def parseTomlStringValue? (line : String) : Option String :=
-  match line.splitOn "=" with
-  | _ :: rhsParts =>
-      let rhs := String.intercalate "=" rhsParts
-      let value := (rhs.splitOn "#").head!.trim
-      match value.splitOn "\"" with
-      | _ :: quoted :: _ => some quoted.trim
-      | _ => some value
-  | _ => none
-
-private def tamaTomlTargetFork? : IO (Option Verity.Core.Intrinsics.HardFork) := do
-  try
-    let text ← IO.FS.readFile "tama.toml"
-    let rec scan (inYul : Bool) : List String → Option String
-      | [] => none
-      | line :: rest =>
-          let trimmed := line.trim
-          if trimmed.startsWith "[" then
-            scan (trimmed == "[yul]") rest
-          else if inYul && trimmed.startsWith "evm_version" then
-            parseTomlStringValue? trimmed
-          else
-            scan inYul rest
-    pure <| (scan false (text.splitOn "\n")).bind parseTargetFork
-  catch _ =>
-    pure none
-
 private def parseArgs (args : List String) : IO CLIArgs := do
   let rec go (remaining : List String) (cfg : CLIArgs) : IO CLIArgs :=
     match remaining with
@@ -239,7 +210,7 @@ private def parseArgs (args : List String) : IO CLIArgs := do
                       if cfg.patchMaxIterationsExplicit then cfg.patchMaxIterations else pack.defaultPatchMaxIterations
                     targetFork :=
                       if cfg.targetForkExplicit then cfg.targetFork
-                      else (Verity.Core.Intrinsics.HardFork.parse? pack.compat.evmVersion).getD cfg.targetFork
+                      else (Compiler.CompileDriverCommon.parseTargetFork? pack.compat.evmVersion).getD cfg.targetFork
                     mappingSlotScratchBase :=
                       if cfg.mappingSlotScratchBaseExplicit then cfg.mappingSlotScratchBase else 0x200
                }
@@ -249,7 +220,7 @@ private def parseArgs (args : List String) : IO CLIArgs := do
     | ["--parity-pack"] =>
         throw (IO.userError "Missing value for --parity-pack")
     | "--target-fork" :: raw :: rest =>
-        match parseTargetFork raw with
+        match Compiler.CompileDriverCommon.parseTargetFork? raw with
         | some fork => go rest { cfg with targetFork := fork, targetForkExplicit := true }
         | none =>
             throw (IO.userError
@@ -325,7 +296,7 @@ unsafe def main (args : List String) : IO Unit := do
       if parsedCfg.targetForkExplicit then
         pure parsedCfg
       else
-        match ← tamaTomlTargetFork? with
+        match ← Compiler.CompileDriverCommon.tamaTomlTargetFork? with
         | some fork => pure { parsedCfg with targetFork := fork }
         | none => pure parsedCfg
     let rawModules ←

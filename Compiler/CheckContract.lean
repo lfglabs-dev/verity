@@ -36,7 +36,7 @@ def elabCheckContract : CommandElab := fun stx => do
               resolvedContractName := some contractName
               resolvedSpec := some spec
               break
-          | .error _ => return ()
+          | .error _ => pure ()
       let contractName ←
         match resolvedContractName with
         | some name => pure name
