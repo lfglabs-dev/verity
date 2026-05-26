@@ -32,6 +32,9 @@ declare_syntax_cat veritySpecialEntrypoint
 declare_syntax_cat verityModifier
 declare_syntax_cat verityModifierUse
 declare_syntax_cat verityFunction
+declare_syntax_cat verityIntrinsicClause
+declare_syntax_cat verityIntrinsicYul
+declare_syntax_cat verityIntrinsicObligation
 
 syntax ident " : " term " := " "slot" num : verityStorageField
 syntax ident " : " term " := " "slot" num : verityStorageItem
@@ -87,11 +90,26 @@ syntax "initializer(" ident ")" : verityInitGuard
 syntax "reinitializer(" ident ", " num ")" : verityInitGuard
 syntax "ecmCall " term:max ppSpace term:max : term
 syntax "ecmDo " term:max ppSpace term:max : term
+syntax "intrinsic " term:max ppSpace term:max ppSpace term:max : term
+syntax "intrinsic_cancun " term:max ppSpace term:max ppSpace term:max : term
+syntax "intrinsic_prague " term:max ppSpace term:max ppSpace term:max : term
+syntax "intrinsic_fusaka " term:max ppSpace term:max ppSpace term:max : term
+syntax "intrinsic_osaka " term:max ppSpace term:max ppSpace term:max : term
 syntax "adt " str : term
 syntax "adt " str " [" sepBy(term, ",") "]" : term
 syntax "tryCatch " term:max ppSpace term:max : doElem
 
 macro_rules
+  | `(intrinsic $_name:term $_lowering:term $_args:term) =>
+      `(panic! "verity intrinsic has no default EDSL semantics; add a consumer macro_rules override")
+  | `(intrinsic_cancun $_name:term $_lowering:term $_args:term) =>
+      `(panic! "verity intrinsic has no default EDSL semantics; add a consumer macro_rules override")
+  | `(intrinsic_prague $_name:term $_lowering:term $_args:term) =>
+      `(panic! "verity intrinsic has no default EDSL semantics; add a consumer macro_rules override")
+  | `(intrinsic_fusaka $_name:term $_lowering:term $_args:term) =>
+      `(panic! "verity intrinsic has no default EDSL semantics; add a consumer macro_rules override")
+  | `(intrinsic_osaka $_name:term $_lowering:term $_args:term) =>
+      `(panic! "verity intrinsic has no default EDSL semantics; add a consumer macro_rules override")
   | `(adt $_variant:str) => `(0)
   | `(adt $_variant:str [ $[$_args:term],* ]) => `(0)
 syntax "revert " ident "(" sepBy(term, ",") ")" : doElem
@@ -106,6 +124,24 @@ syntax "fallback" (ppSpace verityLocalObligations)? " := " term : veritySpecialE
 syntax "modifier " ident " := " term : verityModifier
 syntax "with " sepBy1(ident, ",") : verityModifierUse
 syntax "function " verityMutability* (pureMutabilityMarker)? verityMutability* ident " (" sepBy(verityParam, ",") ")" (ppSpace verityInitGuard)? (ppSpace verityModifierUse)? (ppSpace verityRequiresRole)? (ppSpace verityModifies)? (ppSpace verityLocalObligations)? " : " term " := " term : verityFunction
+
+-- verity_intrinsic syntax (minimal one-argument shape for consumer-owned intrinsics)
+-- `pure` is parsed as an identifier here to avoid reserving it as a global
+-- keyword and breaking ordinary `pure` calls in imported Lean code.
+syntax (priority := low) ident : verityIntrinsicClause
+syntax &"yul" " := " verityIntrinsicYul : verityIntrinsicClause
+syntax &"min_fork" " := " ident : verityIntrinsicClause
+syntax &"semantics" " := " term : verityIntrinsicClause
+syntax &"obligation" "[" sepBy(verityIntrinsicObligation, ",") "]" : verityIntrinsicClause
+
+syntax ident num num "(" ident str ")" : verityIntrinsicYul
+syntax ident str : verityIntrinsicYul
+syntax ident " := " ident str : verityIntrinsicObligation
+
+syntax (name := verityIntrinsicCmd)
+  "verity_intrinsic " ident " (" sepBy(verityParam, ",") ")" " : " term
+  " where " ident ";" ident " := " verityIntrinsicYul ";" ident " := " ident ";"
+  ident " := " term ";" ident "[" sepBy(verityIntrinsicObligation, ",") "]" : command
 
 syntax (name := verityContractCmd)
   "verity_contract " ident " where "

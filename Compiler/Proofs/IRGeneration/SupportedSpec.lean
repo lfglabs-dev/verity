@@ -603,6 +603,7 @@ def exprTouchesUnsupportedConstructorRawCalldataSurface : Expr → Bool
   | .paramDynamicMemberDataOffset _ _ => false
   | .mappingChain _ keys | .internalCall _ keys | .externalCall _ keys =>
       exprListTouchesUnsupportedConstructorRawCalldataSurface keys
+  | .intrinsic _ _ _ _ => true
   | .keccak256 a b =>
       exprTouchesUnsupportedConstructorRawCalldataSurface a ||
         exprTouchesUnsupportedConstructorRawCalldataSurface b
@@ -746,7 +747,7 @@ def exprTouchesUnsupportedCoreSurface : Expr → Bool
   | .paramDynamicMemberDataOffset _ _ | .paramDynamicMemberElement _ _ _
   | .mulDiv512Down _ _ _ | .mulDiv512Up _ _ _
   | .storageArrayLength _ | .storageArrayElement _ _
-  | .dynamicBytesEq _ _
+  | .dynamicBytesEq _ _ | .intrinsic _ _ _ _
   | .adtConstruct _ _ _ | .adtTag _ _ | .adtField _ _ _ _ _ => true
 
 /-- Stateful expression surfaces not yet carried by the generic Layer 2 body
@@ -778,6 +779,7 @@ def exprTouchesUnsupportedStateSurface : Expr → Bool
   | .mulDiv512Down a b c | .mulDiv512Up a b c =>
       exprTouchesUnsupportedStateSurface a || exprTouchesUnsupportedStateSurface b ||
         exprTouchesUnsupportedStateSurface c
+  | .intrinsic _ _ _ _ => true
   | .constructorArg _ | .blobbasefee | .keccak256 _ _
   | .call _ _ _ _ _ _ _ | .staticcall _ _ _ _ _ _ | .delegatecall _ _ _ _ _ _
   | .calldatasize | .returndataSize | .extcodesize _
@@ -848,6 +850,7 @@ def exprTouchesUnsupportedCallSurface : Expr → Bool
   | .shl a b | .shr a b | .sar a b | .byte a b | .signextend a b =>
       exprTouchesUnsupportedCallSurface a || exprTouchesUnsupportedCallSurface b
   | .dynamicBytesEq _ _ => false
+  | .intrinsic _ _ _ _ => true
   | .adtConstruct _ _ _ | .adtTag _ _ | .adtField _ _ _ _ _ => true
 
 /-- Internal helper-call surfaces not yet modeled compositionally in the current
@@ -902,6 +905,7 @@ def exprTouchesUnsupportedHelperSurface : Expr → Bool
   | .shl a b | .shr a b | .sar a b | .byte a b | .signextend a b =>
       exprTouchesUnsupportedHelperSurface a || exprTouchesUnsupportedHelperSurface b
   | .dynamicBytesEq _ _ => false
+  | .intrinsic _ _ _ _ => true
   | .adtConstruct _ _ _ | .adtTag _ _ | .adtField _ _ _ _ _ => true
 
 def exprListTouchesUnsupportedHelperSurface : List Expr → Bool
@@ -967,6 +971,7 @@ def exprTouchesInternalHelperSurface : Expr → Bool
   | .shl a b | .shr a b | .sar a b | .byte a b | .signextend a b =>
       exprTouchesInternalHelperSurface a || exprTouchesInternalHelperSurface b
   | .dynamicBytesEq _ _ => false
+  | .intrinsic _ _ _ _ => true
   | .adtConstruct _ _ _ | .adtTag _ _ | .adtField _ _ _ _ _ => true
 
 /-- Foreign-call/library-hook surfaces still outside the current generic
@@ -1022,6 +1027,7 @@ def exprTouchesUnsupportedForeignSurface : Expr → Bool
   | .shl a b | .shr a b | .sar a b | .byte a b | .signextend a b =>
       exprTouchesUnsupportedForeignSurface a || exprTouchesUnsupportedForeignSurface b
   | .dynamicBytesEq _ _ => false
+  | .intrinsic _ _ _ _ => true
   | .adtConstruct _ _ _ | .adtTag _ _ | .adtField _ _ _ _ _ => true
 
 /-- Low-level call/runtime-mechanic surfaces still outside the current generic
@@ -1076,6 +1082,7 @@ def exprTouchesUnsupportedLowLevelSurface : Expr → Bool
   | .shl a b | .shr a b | .sar a b | .byte a b | .signextend a b =>
       exprTouchesUnsupportedLowLevelSurface a || exprTouchesUnsupportedLowLevelSurface b
   | .dynamicBytesEq _ _ => false
+  | .intrinsic _ _ _ _ => true
   | .adtConstruct _ _ _ | .adtTag _ _ | .adtField _ _ _ _ _ => true
 
 /-- Compatibility expression scan retained for the current generic-induction
@@ -1127,7 +1134,7 @@ def exprTouchesUnsupportedContractSurface (expr : Expr) : Bool :=
   | .paramDynamicMemberDataOffset _ _ | .paramDynamicMemberElement _ _ _
   | .mulDiv512Down _ _ _ | .mulDiv512Up _ _ _
   | .storageArrayLength _ | .storageArrayElement _ _
-  | .dynamicBytesEq _ _
+  | .dynamicBytesEq _ _ | .intrinsic _ _ _ _
   | .adtConstruct _ _ _ | .adtTag _ _ | .adtField _ _ _ _ _ => true
 
 mutual
@@ -1775,7 +1782,7 @@ mutual
     | .ite cond thenVal elseVal =>
         exprInternalHelperCallNames cond ++ exprInternalHelperCallNames thenVal ++
           exprInternalHelperCallNames elseVal
-    | .externalCall _ args =>
+    | .externalCall _ args | .intrinsic _ _ _ args =>
         exprListInternalHelperCallNames args
     -- Pure leaves: no internal helper calls. Listed explicitly (rather than
     -- via `| _ => []`) so the equation-lemma deriver does not have to
@@ -3244,6 +3251,7 @@ mutual
     cases expr with
     | internalCall _ _ => simp [exprTouchesUnsupportedHelperSurface] at hsurface
     | mappingChain _ _ => simp [exprTouchesUnsupportedHelperSurface] at hsurface
+    | intrinsic _ _ _ _ => simp [exprTouchesUnsupportedHelperSurface] at hsurface
     | literal _ | param _ | caller | contractAddress | chainid | msgValue | selfBalance
     | blockTimestamp | blockNumber | localVar _ | storage _ | storageAddr _
     | constructorArg _ | blobbasefee | calldatasize | returndataSize
@@ -3661,6 +3669,9 @@ private theorem exprTouchesUnsupportedCallSurface_eq_featureOr
   | internalCall _ _ | externalCall _ _ =>
       simp [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
         exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface]
+  | intrinsic _ _ _ _ =>
+      simp [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
+        exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface]
   | call _ _ _ _ _ _ _ | staticcall _ _ _ _ _ _ | delegatecall _ _ _ _ _ _ =>
       simp [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
         exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface]
@@ -3951,6 +3962,8 @@ private theorem exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed
       simp [exprTouchesUnsupportedContractSurface,
         exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed a hcore hstate hcalls]
   | adtConstruct _ _ _ | adtTag _ _ | adtField _ _ _ _ _ =>
+      cases hcore
+  | intrinsic _ _ _ _ =>
       cases hcore
   | mapping _ _ | mappingWord _ _ _ | mappingPackedWord _ _ _ _
   | mapping2 _ _ _ | mapping2Word _ _ _ _ | mappingUint _ _
@@ -4303,6 +4316,8 @@ theorem exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
         exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.1.2,
         exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.2]
   | mulDiv512Down _ _ _ | mulDiv512Up _ _ _ =>
+      simp [exprTouchesUnsupportedContractSurface] at hsurface
+  | intrinsic _ _ _ _ =>
       simp [exprTouchesUnsupportedContractSurface] at hsurface
   | ite cond thenVal elseVal =>
       simp only [exprTouchesUnsupportedContractSurface, Bool.or_eq_false_iff] at hsurface

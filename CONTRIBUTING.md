@@ -59,6 +59,20 @@ FOUNDRY_PROFILE=difftest forge test  # Must pass — runs all Foundry tests
 - Run `python3 scripts/generate_verification_status.py --check` to verify the machine-readable status artifact is current
 - Run `python3 scripts/check_lean_hygiene.py` to verify no `#eval` in proof files and `allowUnsafeReducibility` count is correct
 
+## Adding an Intrinsic
+
+Declare consumer-owned opcode bindings with `verity_intrinsic` only when the
+consumer owns the temporary trust boundary. Keep Verity opcode-agnostic: changes
+in this repository should add generic intrinsic mechanics, not opcode-specific
+business logic. The consumer repository must document any generated obligation
+in its own `AXIOMS.md` or trust-boundary document. Set `min_fork` to the first
+fork where the emitted opcode is valid; Verity accepts `cancun`, `prague`, and
+`fusaka` (`osaka` is parsed as the Fusaka execution-layer alias) and enforces
+the declaration against `--target-fork`.
+
+See [docs/INTRINSICS.md](docs/INTRINSICS.md) for the declaration format,
+audit checklist, and worked example.
+
 ## Proof Hygiene Requirements
 
 Every PR that touches proof files must satisfy all of the following.

@@ -47,6 +47,7 @@ import Compiler.Proofs.IRGeneration.FunctionShape
 import Compiler.Proofs.IRGeneration.GenericInduction
 import Compiler.Proofs.IRGeneration.IRInterpreter
 import Compiler.Proofs.IRGeneration.IRStorageWord
+import Compiler.Proofs.IRGeneration.IntrinsicProofs
 import Compiler.Proofs.IRGeneration.ParamLoading
 import Compiler.Proofs.IRGeneration.SourceSemantics
 import Compiler.Proofs.IRGeneration.SupportedSpec
@@ -2797,6 +2798,18 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.IRStorageSlot.eq_of_toNat_eq
   Compiler.Proofs.IRGeneration.IRStorageSlot.toNat_ne_of_ne
 
+  -- Compiler/Proofs/IRGeneration/IntrinsicProofs.lean
+  Compiler.Proofs.IRGeneration.IntrinsicProofs.hardFork_allows_eq_rank_decide
+  Compiler.Proofs.IRGeneration.IntrinsicProofs.hardFork_allows_iff_rank_le
+  Compiler.Proofs.IRGeneration.IntrinsicProofs.exprBoundNames_intrinsic
+  Compiler.Proofs.IRGeneration.IntrinsicProofs.intrinsic_boundNamesInScope_of_args
+  Compiler.Proofs.IRGeneration.IntrinsicProofs.verbatim_lowering_callName
+  Compiler.Proofs.IRGeneration.IntrinsicProofs.verbatim_lowering_hexLiteral
+  Compiler.Proofs.IRGeneration.IntrinsicProofs.compileExpr_intrinsic_verbatim_one_param
+  Compiler.Proofs.IRGeneration.IntrinsicProofs.compileExpr_intrinsic_builtin_one_param
+  Compiler.Proofs.IRGeneration.IntrinsicProofs.compileExpr_intrinsic_verbatim_zero_output_error
+  Compiler.Proofs.IRGeneration.IntrinsicProofs.compileExpr_intrinsic_verbatim_wrong_arity_error
+
   -- Compiler/Proofs/IRGeneration/ParamLoading.lean
   Compiler.Proofs.IRGeneration.ParamLoading.uint256_modulus_eq_evm
   Compiler.Proofs.IRGeneration.ParamLoading.wordNormalize_eq_mod
@@ -5468,4 +5481,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5170 theorems/lemmas (3586 public, 1584 private, 0 sorry'd)
+-- Total: 5180 theorems/lemmas (3596 public, 1584 private, 0 sorry'd)

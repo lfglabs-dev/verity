@@ -2836,7 +2836,7 @@ mutual
     | .extcodesize _ | .returndataSize | .returndataOptionalBoolAt _
     | .keccak256 _ _
     | .call _ _ _ _ _ _ _ | .staticcall _ _ _ _ _ _ | .delegatecall _ _ _ _ _ _
-    | .externalCall _ _ | .mappingChain _ _
+    | .externalCall _ _ | .mappingChain _ _ | .intrinsic _ _ _ _
     | .dynamicBytesEq _ _
     | .adtConstruct _ _ _ | .adtTag _ _ | .adtField _ _ _ _ _ => none
   termination_by expr => (fuel, sizeOf expr)
@@ -3722,6 +3722,8 @@ mutual
     set_option maxHeartbeats 800000 in
     cases expr with
     | internalCall _ _ =>
+        simp [exprTouchesUnsupportedHelperSurface] at hsurface
+    | intrinsic _ _ _ _ =>
         simp [exprTouchesUnsupportedHelperSurface] at hsurface
     | adtConstruct _ _ _ | adtTag _ _ | adtField _ _ _ _ _ =>
         simp [exprTouchesUnsupportedHelperSurface] at hsurface

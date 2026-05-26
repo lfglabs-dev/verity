@@ -124,6 +124,16 @@ Delivery policy for unsupported features:
 2. Error text must suggest the nearest currently-supported pattern.
 3. Error text must include the tracking issue reference.
 
+### Generic Compiler Extension Points
+
+These items are protocol-agnostic compiler surfaces used by downstream packages
+to model newer EVM behavior without adding package-specific logic to Verity
+core.
+
+| Priority | Work item | Scope | Exit criteria |
+|---|---|---|---|
+| P1 | Verified intrinsics | Upgrade trusted consumer intrinsics to derived proofs as EVMYulLean upstream models new opcodes. | CLZ via EIP-7939 is the first target: consumers can initially declare `verity_intrinsic clz ...` with an explicit obligation, then flip the obligation from assumed to proved when the opcode is modeled upstream. |
+
 ### Unlink Audit Readiness: Verity-Core Scope
 
 The Unlink audit should keep Verity focused on generic Solidity-modeling

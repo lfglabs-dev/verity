@@ -43,12 +43,14 @@ partial def exprContainsCallLike (expr : Expr) : Bool :=
   | Expr.add a b | Expr.sub a b | Expr.mul a b | Expr.div a b | Expr.sdiv a b
   | Expr.mod a b | Expr.smod a b |
     Expr.bitAnd a b | Expr.bitOr a b | Expr.bitXor a b | Expr.shl a b | Expr.shr a b
-  | Expr.sar a b | Expr.byte a b | Expr.signextend a b |
-    Expr.eq a b | Expr.ge a b | Expr.gt a b | Expr.sgt a b | Expr.lt a b | Expr.slt a b | Expr.le a b |
+  | Expr.sar a b | Expr.byte a b | Expr.signextend a b
+  | Expr.eq a b | Expr.ge a b | Expr.gt a b | Expr.sgt a b | Expr.lt a b | Expr.slt a b | Expr.le a b |
     Expr.logicalAnd a b | Expr.logicalOr a b |
     Expr.wMulDown a b | Expr.wDivUp a b | Expr.min a b | Expr.max a b |
     Expr.ceilDiv a b =>
       exprContainsCallLike a || exprContainsCallLike b
+  | Expr.intrinsic _ _ _ args =>
+      exprListContainsCallLike args
   | Expr.mulDivDown a b c | Expr.mulDivUp a b c
   | Expr.mulDiv512Down a b c | Expr.mulDiv512Up a b c =>
       exprContainsCallLike a || exprContainsCallLike b || exprContainsCallLike c
@@ -151,10 +153,12 @@ def exprContainsUnsafeLogicalCallLike (expr : Expr) : Bool :=
   | Expr.add a b | Expr.sub a b | Expr.mul a b | Expr.div a b | Expr.sdiv a b
   | Expr.mod a b | Expr.smod a b |
     Expr.bitAnd a b | Expr.bitOr a b | Expr.bitXor a b | Expr.shl a b | Expr.shr a b
-  | Expr.sar a b | Expr.byte a b | Expr.signextend a b |
-    Expr.eq a b | Expr.ge a b | Expr.gt a b | Expr.sgt a b | Expr.lt a b | Expr.slt a b | Expr.le a b |
+  | Expr.sar a b | Expr.byte a b | Expr.signextend a b
+  | Expr.eq a b | Expr.ge a b | Expr.gt a b | Expr.sgt a b | Expr.lt a b | Expr.slt a b | Expr.le a b |
     Expr.wMulDown a b | Expr.ceilDiv a b =>
       exprContainsUnsafeLogicalCallLike a || exprContainsUnsafeLogicalCallLike b
+  | Expr.intrinsic _ _ _ args =>
+      exprListAnyUnsafeLogicalCallLike args
   | Expr.mulDivDown a b c
   | Expr.mulDiv512Down a b c =>
       exprContainsUnsafeLogicalCallLike a || exprContainsUnsafeLogicalCallLike b || exprContainsUnsafeLogicalCallLike c

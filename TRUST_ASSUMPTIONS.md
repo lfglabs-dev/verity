@@ -84,6 +84,33 @@ Current theorem totals, property-test coverage, and proof status live in [docs/V
 - **Status**: Surfaced explicitly in `--trust-report`, `--verbose`, and `proofStatus.*.localObligations`.
 - **Mitigation**: `verity-compiler --deny-local-obligations` fails closed on any obligation that remains `assumed` or `unchecked`.
 
+### 11. Consumer-Declared Intrinsics
+- **Role**: Let downstream packages bind a source-level Verity function to a
+  target EVM opcode or Yul builtin without adding opcode-specific code to
+  Verity. The first use case is Tamago's EIP-7939 `CLZ` binding, which lowers
+  to `verbatim_1i_1o(hex"1e", x)`.
+- **Trust**: While an intrinsic obligation is `assumed`, the consumer owns the
+  claim that the declared Lean `semantics` matches the emitted opcode on the
+  selected chain fork. The declaration records the obligation in the consumer
+  namespace next to the generated semantic wrapper, and the consumer must
+  document it in its repository rather than treating it as a Verity project-level
+  axiom.
+- **Status**: This change introduces a generic intrinsic lowering path and
+  keeps Verity's own `AXIOMS.md` at zero project-level axioms.
+  `min_fork` checks are enforced against the compiler target fork, defaulting
+  to Cancun because the pinned EVMYulLean fork declares
+  `EvmYul.TargetSchedule := "Cancun"`. Machine-readable intrinsic trust-report
+  entries remain follow-up hardening. The Verity-owned proof fragment now
+  covers intrinsic argument scope accounting, generic verbatim/builtin lowering
+  shape, fork-order facts, arity rejection, and fail-closed exclusion from the
+  current end-to-end proven fragment; it does not assert any opcode semantics.
+- **Mitigation**: Audit every `verity_intrinsic` declaration in consumer code.
+  Check opcode bytes, fork requirement, semantic edge cases, and the obligation
+  status. Fork enforcement is fail-closed: a contract targeting a fork lower
+  than an intrinsic's `min_fork` errors unless
+  `--allow-future-fork-intrinsics` is passed.
+- **Reference**: See [docs/INTRINSICS.md](docs/INTRINSICS.md).
+
 ## Semantic Caveats
 
 ### Wrapping Arithmetic
@@ -108,10 +135,10 @@ High-level semantics can expose intermediate state in reverted computations. EVM
 
 ## Related Documents
 
-- [AUDIT.md](AUDIT.md) | [AXIOMS.md](AXIOMS.md) | [docs/ARITHMETIC_PROFILE.md](docs/ARITHMETIC_PROFILE.md) | [docs/REVERT_STATE_MODEL.md](docs/REVERT_STATE_MODEL.md)
+- [AUDIT.md](AUDIT.md) | [AXIOMS.md](AXIOMS.md) | [docs/INTRINSICS.md](docs/INTRINSICS.md) | [docs/ARITHMETIC_PROFILE.md](docs/ARITHMETIC_PROFILE.md) | [docs/REVERT_STATE_MODEL.md](docs/REVERT_STATE_MODEL.md)
 - [docs/EXTERNAL_CALL_MODULES.md](docs/EXTERNAL_CALL_MODULES.md) | [docs/ROADMAP.md](docs/ROADMAP.md) | [docs/VERIFICATION_STATUS.md](docs/VERIFICATION_STATUS.md)
 
 ---
 
-**Last Updated**: 2026-05-12
+**Last Updated**: 2026-05 (intrinsics addition)
 **Maintainer Rule**: Update on every trust-boundary-relevant code change.
