@@ -2430,9 +2430,6 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_setStorageAddrSingleSlot_of_surface  -- private
   -- Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_mstoreSingle_of_surface  -- private
   -- Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_tstoreSingle_of_surface  -- private
-  -- Compiler.Proofs.IRGeneration.source_bindValue_idem  -- private
-  -- Compiler.Proofs.IRGeneration.source_bindValue_overwrite  -- private
-  -- Compiler.Proofs.IRGeneration.irState_setVar_idem  -- private
   -- Compiler.Proofs.IRGeneration.sourceExec_forEach_literal_zero  -- private
   -- Compiler.Proofs.IRGeneration.sourceExec_forEach_literal_empty  -- private
   -- Compiler.Proofs.IRGeneration.forEachZero_fresh_facts  -- private
@@ -5546,4 +5543,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5245 theorems/lemmas (3628 public, 1617 private, 0 sorry'd)
+-- Total: 5242 theorems/lemmas (3628 public, 1614 private, 0 sorry'd)
