@@ -4,6 +4,7 @@ export default {
   '-- introduction': { type: 'separator', title: 'Introduction' },
   architecture: 'Architecture Overview',
   'trust-model': 'Trust Model',
+  intrinsics: 'Intrinsics',
 
   '-- tutorials': { type: 'separator', title: 'Tutorials' },
   'getting-started': 'Getting Started',

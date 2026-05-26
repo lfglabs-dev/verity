@@ -70,6 +70,7 @@ Agent endpoints:
 Introduction:
 - https://veritylang.com/architecture, single-page system map
 - https://veritylang.com/trust-model, what is verified vs trusted
+- https://veritylang.com/intrinsics, consumer-declared opcode/builtin bindings, fork gating, and proof boundary
 
 Tutorials:
 - https://veritylang.com/getting-started, local setup
