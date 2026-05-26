@@ -3214,6 +3214,10 @@ private partial def inferPureExprType
           | [] => throwErrorAt name s!"externalCall '{extName}' returns no values; use `let success ← tryExternalCall \"{extName}\" [...]` instead"
           | _ => throwErrorAt name s!"externalCall '{extName}' returns {ext.returnTys.size} values; use `let (success, ...) ← tryExternalCall \"{extName}\" [...]` for multi-return"
       | none => pure .uint256
+  | `(term| intrinsic_cancun $name:term $_lowering:term $args:term)
+  | `(term| intrinsic_prague $name:term $_lowering:term $args:term)
+  | `(term| intrinsic_fusaka $name:term $_lowering:term $args:term)
+  | `(term| intrinsic_osaka $name:term $_lowering:term $args:term)
   | `(term| intrinsic $name:term $_lowering:term $args:term) =>
       let _ := ← expectStringOrIdent name
       match stripParens args with
