@@ -150,44 +150,55 @@ def elabVerityContract : CommandElab := fun stx => do
 
 @[command_elab verityIntrinsicCmd]
 def elabVerityIntrinsic : CommandElab := fun stx => do
-  -- Delegate parsing + expansion to Translate (keeps macro logic colocated).
-  -- For minimal implementation we perform a lightweight parse here and
-  -- register a canonical CLZ-shaped intrinsic when the shape matches the
-  -- Tamago CLZ example. Full clause parsing lives in Translate helpers.
-  let name := stx[1]
-  let nameStr := toString (name.getId)
-  -- Always register a CLZ-shaped intrinsic for the focused test (name may vary
-  -- but lowering is name-driven; we key on "clz" for Yul emission).
-  let decl : Verity.Core.Intrinsics.IntrinsicDecl := {
-    name := nameStr,
-    paramNames := ["x"],
-    paramTypes := ["Uint256"],
-    returnType := "Uint256",
-    isPure := true,
-    yul := .verbatim 1 1 "1e",
-    minFork := .fusaka,
-    obligations := [("clz_matches_eip7939", "assumed", "EIP-7939 CLZ opcode; chain must be Fusaka+")],
-    sourceHint := some "elabVerityIntrinsic"
-  }
-  -- Register (session local; sufficient for same-file declare-then-use)
-  liftIO <| Verity.Macro.registerIntrinsic decl
-  -- Emit a transparent Lean-level wrapper (for type checking / docs).
-  -- This focused first implementation supports the CLZ-shaped declaration used
-  -- by Tamago. The Lean wrapper must reduce to the same semantics as the
-  -- intrinsic declaration; otherwise consumer proofs would reason about a
-  -- placeholder while lowering emits the opcode.
-  let nameIdent : Ident := ⟨name⟩
-  let wrapperCmd ← `(command|
-    def $nameIdent:ident (x : Verity.Core.Uint256) : Verity.Core.Uint256 :=
-      Verity.Core.Uint256.ofNat
-        (if x.val = 0 then 256 else 255 - Nat.log2 x.val))
-  elabCommand wrapperCmd
-  -- Emit the obligation as a namespaced trust marker (consumer side).
-  -- Real trust surface consumes the registered decl at report time.
-  let obligationName : Ident := ⟨mkIdent (name.getId.appendAfter "ClzIntrinsic_clz_matches_eip7939")⟩
-  let obligationCmd ← `(command| def $obligationName:ident : String :=
-    "EIP-7939 CLZ opcode; chain must be Fusaka+ (assumed; see verity_intrinsic declaration)")
-  elabCommand obligationCmd
-  pure ()
+  match stx with
+  | `(verity_intrinsic $name:ident ($paramName:ident : $paramTy:term) : $retTy:term
+        where $pureKw:ident; yul := $yul:verityIntrinsicYul; min_fork := $fork:ident;
+        semantics := $semantics:term; obligation [ $[$obligations:verityIntrinsicObligation],* ]) => do
+      unless toString pureKw.getId == "pure" do
+        throwErrorAt pureKw "verity_intrinsic currently supports only pure intrinsics"
+      let yulLowering ←
+        match yul with
+        | `(verityIntrinsicYul| verbatim $inArity:num $outArity:num (hex $opcode:str)) =>
+            pure <| Verity.Core.Intrinsics.YulLowering.verbatim
+              inArity.getNat outArity.getNat opcode.getString
+        | `(verityIntrinsicYul| builtin $builtin:str) =>
+            pure <| Verity.Core.Intrinsics.YulLowering.builtin builtin.getString
+        | _ =>
+            throwErrorAt yul "expected `verbatim <inputs> <outputs> (hex \"...\")` or `builtin \"...\"`"
+      let minFork ←
+        match toString fork.getId with
+        | "shanghai" => pure Verity.Core.Intrinsics.HardFork.shanghai
+        | "fusaka" => pure Verity.Core.Intrinsics.HardFork.fusaka
+        | other => throwErrorAt fork s!"unknown intrinsic min_fork '{other}'"
+      let parsedObligations ← obligations.mapM fun obligation => do
+        match obligation with
+        | `(verityIntrinsicObligation| $obligationName:ident := $status:ident $message:str) =>
+            pure (toString obligationName.getId, toString status.getId, message.getString)
+        | _ =>
+            throwErrorAt obligation "expected obligation entry `<name> := assumed \"reason\"`"
+      let nameStr := toString name.getId
+      let decl : Verity.Core.Intrinsics.IntrinsicDecl := {
+        name := nameStr,
+        paramNames := [toString paramName.getId],
+        paramTypes := [toString paramTy],
+        returnType := toString retTy,
+        isPure := true,
+        yul := yulLowering,
+        minFork := minFork,
+        obligations := parsedObligations.toList,
+        sourceHint := some "elabVerityIntrinsic"
+      }
+      liftIO <| Verity.Macro.registerIntrinsic decl
+      let wrapperCmd ← `(command| def $name:ident : $paramTy -> $retTy := $semantics)
+      elabCommand wrapperCmd
+      let obligationSummaryName : Ident :=
+        ⟨mkIdent (name.getId.appendAfter "_intrinsic_obligations")⟩
+      let obligationSummary := String.intercalate "\n" <|
+        parsedObligations.toList.map (fun (n, status, msg) => s!"{n}: {status} {msg}")
+      let obligationCmd ← `(command| def $obligationSummaryName:ident : String := $(strTermPublic obligationSummary))
+      elabCommand obligationCmd
+  | _ =>
+      throwErrorAt stx
+        "unsupported verity_intrinsic declaration; expected one parameter, yul, min_fork, semantics, and obligation clauses"
 
 end Verity.Macro

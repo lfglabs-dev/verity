@@ -20,7 +20,7 @@ abbrev Ident := TSyntax `ident
 abbrev DoSeq := TSyntax `Lean.Parser.Term.doSeq
 
 /-! Minimal session-local registry for intrinsics declared via `verity_intrinsic`.
-   Sufficient for same-module declaration-before-use (our focused CLZ test/example).
+   Sufficient for same-module declaration-before-use.
    Cross-module requires attribute-based collection (future). -/
 private initialize intrinsicDeclRegistry : IO.Ref (Array Verity.Core.Intrinsics.IntrinsicDecl) ← IO.mkRef #[]
 
@@ -341,6 +341,14 @@ structure ConstructorDecl where
 
 private def strTerm (s : String) : Term := ⟨Syntax.mkStrLit s⟩
 private def natTerm (n : Nat) : Term := ⟨Syntax.mkNumLit (toString n)⟩
+
+def yulLoweringTerm (lowering : Verity.Core.Intrinsics.YulLowering) : CommandElabM Term := do
+  match lowering with
+  | .verbatim inArity outArity opcodeHex =>
+      `(Verity.Core.Intrinsics.YulLowering.verbatim
+          $(natTerm inArity) $(natTerm outArity) $(strTerm opcodeHex))
+  | .builtin name =>
+      `(Verity.Core.Intrinsics.YulLowering.builtin $(strTerm name))
 
 private partial def expectTermListLiteral (stx : Term) : CommandElabM (Array Term) := do
   match stx with
@@ -3200,6 +3208,15 @@ private partial def inferPureExprType
           | [] => throwErrorAt name s!"externalCall '{extName}' returns no values; use `let success ← tryExternalCall \"{extName}\" [...]` instead"
           | _ => throwErrorAt name s!"externalCall '{extName}' returns {ext.returnTys.size} values; use `let (success, ...) ← tryExternalCall \"{extName}\" [...]` for multi-return"
       | none => pure .uint256
+  | `(term| intrinsic $name:term $_lowering:term $args:term) =>
+      let _ := ← expectStringOrIdent name
+      match stripParens args with
+      | `(term| [ $[$xs],* ]) =>
+          for x in xs do
+            requireWordLikeType x "intrinsic argument"
+              (← inferPureExprType fields constDecls immutableDecls externalDecls params locals x visitingConstants)
+          pure .uint256
+      | _ => throwErrorAt args "expected list literal [..]"
   | `(term| structMember $field:term $key:term $member:term) => do
       let fieldName := ← expectStringOrIdent field
       let memberName := ← expectStringOrIdent member
@@ -3828,7 +3845,7 @@ private partial def translateLeanExprFromDef
                 $(← translateLeanExprFromDef fields constDecls immutableDecls params locals origin fnDisplay argExprs lhs)
                 $(← translateLeanExprFromDef fields constDecls immutableDecls params locals origin fnDisplay argExprs rhs))
         | _ => throwErrorAt origin s!"Lean helper '{fnDisplay}' contains an unsupported equality form"
-      else if leanConstNameMatches fn [``LT.lt, ``LE.le] then
+      else if leanConstNameMatches fn [``LT.lt, ``LE.le, ``GT.gt, ``GE.ge] then
         match args.toList with
         | [tyExpr, _inst, lhs, rhs] =>
             let lhsExpr ← translateLeanExprFromDef fields constDecls immutableDecls params locals origin fnDisplay argExprs lhs
@@ -3839,6 +3856,17 @@ private partial def translateLeanExprFromDef
                   `(Compiler.CompilationModel.Expr.slt $lhsExpr $rhsExpr)
                 else
                   `(Compiler.CompilationModel.Expr.lt $lhsExpr $rhsExpr)
+            | some ``GT.gt =>
+                if valueTypeFromLeanTypeExpr? tyExpr == some .int256 then
+                  `(Compiler.CompilationModel.Expr.sgt $lhsExpr $rhsExpr)
+                else
+                  `(Compiler.CompilationModel.Expr.gt $lhsExpr $rhsExpr)
+            | some ``GE.ge =>
+                if valueTypeFromLeanTypeExpr? tyExpr == some .int256 then
+                  `(Compiler.CompilationModel.Expr.logicalNot
+                      (Compiler.CompilationModel.Expr.slt $lhsExpr $rhsExpr))
+                else
+                  `(Compiler.CompilationModel.Expr.ge $lhsExpr $rhsExpr)
             | _ =>
                 if valueTypeFromLeanTypeExpr? tyExpr == some .int256 then
                   `(Compiler.CompilationModel.Expr.logicalNot
@@ -4109,10 +4137,6 @@ partial def translatePureExprWithTypes
   | `(term| sar $shift $value) => `(Compiler.CompilationModel.Expr.sar $(← translatePureExprWithTypes fields constDecls immutableDecls params locals shift visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value visitingConstants))
   | `(term| byte $index $value) => `(Compiler.CompilationModel.Expr.byte $(← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value visitingConstants))
   | `(term| signextend $byteIndex $value) => `(Compiler.CompilationModel.Expr.signextend $(← translatePureExprWithTypes fields constDecls immutableDecls params locals byteIndex visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value visitingConstants))
-  -- verity_intrinsic support (minimal): `clz x` lowers to intrinsic node for Yul verbatim emission.
-  | `(term| clz $arg:term) => do
-      let e ← translatePureExprWithTypes fields constDecls immutableDecls params locals arg visitingConstants
-      `(Compiler.CompilationModel.Expr.intrinsic "clz" [ $e ])
   | `(term| $a == $b) => do
       let lhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals a visitingConstants
       let rhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals b visitingConstants
@@ -4346,6 +4370,14 @@ partial def translatePureExprWithTypes
             pure out
         | _ => throwErrorAt args "expected list literal [..]"
       `(Compiler.CompilationModel.Expr.externalCall $(strTerm extName) [ $[$argsExprs],* ])
+  | `(term| intrinsic $name:term $lowering:term $args:term) =>
+      let intrinsicName := ← expectStringOrIdent name
+      let argsExprs ←
+        match stripParens args with
+        | `(term| [ $[$xs],* ]) =>
+            xs.mapM (translatePureExprWithTypes fields constDecls immutableDecls params locals · visitingConstants)
+        | _ => throwErrorAt args "expected list literal [..]"
+      `(Compiler.CompilationModel.Expr.intrinsic $(strTerm intrinsicName) $lowering [ $[$argsExprs],* ])
   | `(term| structMember $field:term $key:term $member:term) =>
       let fieldName := ← expectStringOrIdent field
       let memberName := ← expectStringOrIdent member

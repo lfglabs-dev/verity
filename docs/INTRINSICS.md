@@ -33,16 +33,18 @@ verity_intrinsic clz (x : Uint256) : Uint256 where
   min_fork := fusaka;
   semantics :=
     fun x =>
-      Uint256.ofNat
+      Verity.Core.Uint256.ofNat
         (if x.toNat = 0 then 256 else 255 - Nat.log2 x.toNat);
   obligation [clz_matches_eip7939 :=
     assumed "EIP-7939 CLZ opcode; chain must be Fusaka+"]
 ```
 
-Call sites use the declared name as a normal Verity function:
+Lean proofs can use the generated wrapper `clz x`. Verity contract bodies use
+the explicit intrinsic form so the compiler sees the lowering descriptor:
 
 ```lean
-let leadingZeros <- clz x
+let leadingZeros :=
+  intrinsic "clz" (Verity.Core.Intrinsics.YulLowering.verbatim 1 1 "1e") [x]
 ```
 
 The declaration has five responsibilities:
@@ -97,17 +99,18 @@ tree for `verity_intrinsic` and audit each declaration manually.
 
 ## Current Implementation Scope
 
-This branch implements the CLZ-shaped path needed by Tamago:
+This branch implements the generic intrinsic path needed by consumers such as
+Tamago:
 
 - syntax for `verity_intrinsic`;
-- a Lean wrapper using the declared CLZ semantics;
+- a Lean wrapper using the declared consumer semantics;
 - `CompilationModel.Expr.intrinsic`;
-- Yul lowering for `clz` to `verbatim_1i_1o(hex"1e", x)`;
+- Yul lowering from the declaration's `yul := ...` clause;
 - validation plumbing so intrinsic arguments participate in purity and usage
   checks.
 - proof plumbing for the Verity-owned part of the feature:
   `Compiler.Proofs.IRGeneration.IntrinsicProofs` proves the fork-order facts,
-  intrinsic argument scope accounting, exact CLZ verbatim lowering shape, and
+  intrinsic argument scope accounting, generic verbatim/builtin lowering shape, and
   fail-closed arity rejection.
 - fail-closed proof-fragment coverage: `SupportedSpec` and helper-aware source
   semantics classify intrinsics as unsupported/unmodeled until opcode semantics
@@ -115,9 +118,9 @@ This branch implements the CLZ-shaped path needed by Tamago:
 - usage-analysis plumbing recurses through intrinsic arguments so helper
   requirements are not missed by code generation.
 
-The general registry-driven lowering, machine-readable trust-report rows, and
-enforced `min_fork` target checks are the next hardening steps before this
-feature should be treated as a general public surface.
+Machine-readable trust-report rows and enforced `min_fork` target checks are
+the next hardening steps before this feature should be treated as a general
+public surface.
 
 These proofs intentionally stop before opcode semantics. Until EVMYulLean
 models CLZ, the statement "opcode `0x1e` computes the declared Lean semantics"

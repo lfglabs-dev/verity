@@ -27,6 +27,7 @@ import Compiler.IR
 import Compiler.ProofStatus
 import Compiler.Yul.Ast
 import Compiler.Identifier
+import Verity.Core.Intrinsics
 
 namespace Compiler.CompilationModel
 
@@ -475,7 +476,9 @@ inductive Expr
   | sar (shift value : Expr)
   | byte (index value : Expr)
   | signextend (byteIndex value : Expr)
-  | intrinsic (name : String) (args : List Expr)  -- verity_intrinsic lowering (e.g. CLZ verbatim)
+  /-- Consumer-owned opcode intrinsic. Verity lowers using the supplied generic
+      Yul descriptor and does not attach opcode-specific semantics. -/
+  | intrinsic (name : String) (lowering : Verity.Core.Intrinsics.YulLowering) (args : List Expr)
   | eq (a b : Expr)
   | ge (a b : Expr)
   | gt (a b : Expr)  -- Greater than (strict)

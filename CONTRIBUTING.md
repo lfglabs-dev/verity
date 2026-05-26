@@ -68,7 +68,7 @@ business logic. The consumer repository must document any generated obligation
 in its own `AXIOMS.md` or trust-boundary document.
 
 See [docs/INTRINSICS.md](docs/INTRINSICS.md) for the declaration format,
-audit checklist, and CLZ example.
+audit checklist, and worked example.
 
 ## Proof Hygiene Requirements
 

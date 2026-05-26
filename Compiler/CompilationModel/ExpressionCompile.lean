@@ -435,20 +435,18 @@ def compileExpr (fields : List Field)
   | Expr.byte i v    => return yulBinOp "byte" (← compileExpr fields dynamicSource i) (← compileExpr fields dynamicSource v)
   | Expr.signextend b v =>
       return yulBinOp "signextend" (← compileExpr fields dynamicSource b) (← compileExpr fields dynamicSource v)
-  | Expr.intrinsic name args =>
-      -- Minimal verity_intrinsic lowering: for "clz" emit verbatim_1i_1o(hex"1e", arg)
-      -- General verbatim_Ni_Mo support follows the yul clause from the declaration.
-      if name == "clz" then do
-        let [arg] := args
-          | throw s!"Compilation error: intrinsic clz expects 1 arg, got {args.length}"
-        let [argY] ← compileExprList fields dynamicSource [arg]
-          | throw "internal error: clz intrinsic argument compilation changed arity"
-        -- opcode 0x1e for CLZ (EIP-7939)
-        pure (YulExpr.call "verbatim_1i_1o" [YulExpr.ident "hex\"1e\"", argY])
-      else do
-        -- Fallback: emit as a named call (will not typecheck in Yul unless defined)
-        let ys ← compileExprList fields dynamicSource args
-        pure (YulExpr.call s!"intrinsic_{name}" ys)
+  | Expr.intrinsic name lowering args => do
+      let argExprs ← compileExprList fields dynamicSource args
+      match lowering with
+      | .verbatim inArity outArity opcodeHex =>
+          if outArity != 1 then
+            throw s!"Compilation error: intrinsic {name} must produce exactly 1 output, got {outArity}"
+          if args.length != inArity then
+            throw s!"Compilation error: intrinsic {name} expects {inArity} arg(s), got {args.length}"
+          pure (YulExpr.call (Verity.Core.Intrinsics.YulLowering.callName lowering)
+            (YulExpr.ident s!"hex\"{opcodeHex}\"" :: argExprs))
+      | .builtin builtinName =>
+          pure (YulExpr.call builtinName argExprs)
   | Expr.eq a b      => return yulBinOp "eq"  (← compileExpr fields dynamicSource a) (← compileExpr fields dynamicSource b)
   | Expr.gt a b      => return yulBinOp "gt"  (← compileExpr fields dynamicSource a) (← compileExpr fields dynamicSource b)
   | Expr.sgt a b     => return yulBinOp "sgt" (← compileExpr fields dynamicSource a) (← compileExpr fields dynamicSource b)

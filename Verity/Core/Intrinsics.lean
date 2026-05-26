@@ -2,7 +2,7 @@
 Verity.Core.Intrinsics
 
 Minimal registry and descriptors for `verity_intrinsic` declarations.
-Enables opcode-level intrinsics (e.g. CLZ via EIP-7939) without forking Verity per opcode.
+Enables consumer-owned opcode-level intrinsics without forking Verity per opcode.
 
 See docs/INTRINSICS.md and plan.md for usage and trust model.
 -/

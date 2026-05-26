@@ -365,7 +365,7 @@ def validateScopedExprIdentifiers
     Expr.wMulDown a b => do
       validateScopedExprIdentifiers context params paramScope dynamicParams localScope constructorArgCount a
       validateScopedExprIdentifiers context params paramScope dynamicParams localScope constructorArgCount b
-  | Expr.intrinsic _ args =>
+  | Expr.intrinsic _ _ args =>
       validateScopedExprIdentifiersList context params paramScope dynamicParams localScope constructorArgCount args
   | Expr.wDivUp a b => do
       validateArithDuplicatedOperandPurity context [b]

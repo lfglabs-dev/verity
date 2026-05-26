@@ -49,7 +49,7 @@ partial def exprContainsCallLike (expr : Expr) : Bool :=
     Expr.wMulDown a b | Expr.wDivUp a b | Expr.min a b | Expr.max a b |
     Expr.ceilDiv a b =>
       exprContainsCallLike a || exprContainsCallLike b
-  | Expr.intrinsic _ args =>
+  | Expr.intrinsic _ _ args =>
       exprListContainsCallLike args
   | Expr.mulDivDown a b c | Expr.mulDivUp a b c
   | Expr.mulDiv512Down a b c | Expr.mulDiv512Up a b c =>
@@ -157,7 +157,7 @@ def exprContainsUnsafeLogicalCallLike (expr : Expr) : Bool :=
   | Expr.eq a b | Expr.ge a b | Expr.gt a b | Expr.sgt a b | Expr.lt a b | Expr.slt a b | Expr.le a b |
     Expr.wMulDown a b | Expr.ceilDiv a b =>
       exprContainsUnsafeLogicalCallLike a || exprContainsUnsafeLogicalCallLike b
-  | Expr.intrinsic _ args =>
+  | Expr.intrinsic _ _ args =>
       exprListAnyUnsafeLogicalCallLike args
   | Expr.mulDivDown a b c
   | Expr.mulDiv512Down a b c =>

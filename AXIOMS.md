@@ -210,10 +210,10 @@ Verity project. They should be surfaced by consumer trust reports and reviewed
 by grepping consumer code for `verity_intrinsic`.
 
 The Verity-side proof module `Compiler.Proofs.IRGeneration.IntrinsicProofs`
-proves only compiler-owned plumbing around the current CLZ-shaped path:
-argument scope accounting, exact verbatim lowering, fork-order facts, and
-arity rejection. It adds no axiom asserting that opcode `0x1e` implements the
-declared CLZ semantics. The current end-to-end proven fragment remains
+proves only compiler-owned plumbing around the generic intrinsic path:
+argument scope accounting, verbatim/builtin lowering shape, fork-order facts,
+and arity rejection. It adds no axiom asserting that any emitted opcode
+implements the declared consumer semantics. The current end-to-end proven fragment remains
 fail-closed over intrinsics: `SupportedSpec` and helper-aware source semantics
 classify `Expr.intrinsic` as unsupported/unmodeled until an opcode semantics
 proof exists.

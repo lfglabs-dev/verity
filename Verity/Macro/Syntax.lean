@@ -90,11 +90,14 @@ syntax "initializer(" ident ")" : verityInitGuard
 syntax "reinitializer(" ident ", " num ")" : verityInitGuard
 syntax "ecmCall " term:max ppSpace term:max : term
 syntax "ecmDo " term:max ppSpace term:max : term
+syntax "intrinsic " term:max ppSpace term:max ppSpace term:max : term
 syntax "adt " str : term
 syntax "adt " str " [" sepBy(term, ",") "]" : term
 syntax "tryCatch " term:max ppSpace term:max : doElem
 
 macro_rules
+  | `(intrinsic $_name:term $_lowering:term [ $arg:term ]) => `($arg)
+  | `(intrinsic $_name:term $_lowering:term $_args:term) => `(0)
   | `(adt $_variant:str) => `(0)
   | `(adt $_variant:str [ $[$_args:term],* ]) => `(0)
 syntax "revert " ident "(" sepBy(term, ",") ")" : doElem
@@ -110,7 +113,7 @@ syntax "modifier " ident " := " term : verityModifier
 syntax "with " sepBy1(ident, ",") : verityModifierUse
 syntax "function " verityMutability* (pureMutabilityMarker)? verityMutability* ident " (" sepBy(verityParam, ",") ")" (ppSpace verityInitGuard)? (ppSpace verityModifierUse)? (ppSpace verityRequiresRole)? (ppSpace verityModifies)? (ppSpace verityLocalObligations)? " : " term " := " term : verityFunction
 
--- verity_intrinsic syntax (minimal shape for CLZ-style one-arg Uint256 intrinsics)
+-- verity_intrinsic syntax (minimal one-argument shape for consumer-owned intrinsics)
 -- `pure` is parsed as an identifier here to avoid reserving it as a global
 -- keyword and breaking ordinary `pure` calls in imported Lean code.
 syntax (priority := low) ident : verityIntrinsicClause
