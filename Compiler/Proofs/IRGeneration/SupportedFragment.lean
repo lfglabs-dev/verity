@@ -347,20 +347,15 @@ inductive SupportedStmtList (fields : List Field) : List String → List Stmt �
       (∀ name, name ∈ collectStmtListNames body → name ∈ varName :: scope) →
       SupportedStmtList fields (varName :: scope) body →
       SupportedStmtList fields scope [Stmt.forEach varName (.literal 0) body]
-  /-- First positive loop-preservation case: a one-iteration loop with an empty
-  body. This exercises the compiled Yul `for` init/condition/body-bind/post
-  path without yet admitting arbitrary positive loop bodies. -/
-  | forEachLiteralOneEmpty
+  /-- Positive literal loops are supported only for the empty-body case. This
+  exercises arbitrary Yul `for` recurrence while keeping non-empty positive
+  loop bodies outside the fragment until their body-preservation proof is
+  threaded through the loop step. -/
+  | forEachLiteralEmpty
       {scope : List String}
       {varName : String} :
-      SupportedStmtList fields scope [Stmt.forEach varName (.literal 1) []]
-  /-- Second positive loop-preservation case: a two-iteration loop with an
-  empty body. This proves one recursive empty-init `for` step after the first
-  post, which is the recurrence shape needed for larger literal bounds. -/
-  | forEachLiteralTwoEmpty
-      {scope : List String}
-      {varName : String} :
-      SupportedStmtList fields scope [Stmt.forEach varName (.literal 2) []]
+      (n : Nat) →
+      SupportedStmtList fields scope [Stmt.forEach varName (.literal n) []]
   | requireClause
       {scope : List String}
       (clause : RequireLiteralGuardFamilyClause)

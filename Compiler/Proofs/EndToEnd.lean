@@ -5294,10 +5294,7 @@ theorem supportedStmtList_safe_of_state_effect_closed
   | forEachLiteralBounded =>
       simp [stmtListTouchesUnsupportedStateSurface,
         stmtTouchesUnsupportedStateSurface] at hState
-  | forEachLiteralOneEmpty =>
-      simp [stmtListTouchesUnsupportedStateSurface,
-        stmtTouchesUnsupportedStateSurface] at hState
-  | forEachLiteralTwoEmpty =>
+  | forEachLiteralEmpty _ =>
       simp [stmtListTouchesUnsupportedStateSurface,
         stmtTouchesUnsupportedStateSurface] at hState
   | requireClause clause _ ih =>
@@ -5570,11 +5567,7 @@ theorem supportedStmtList_safe_of_state_except_mapping_writes_stmt_safety
       simp [stmtListTouchesUnsupportedStateSurfaceExceptMappingWrites,
         stmtTouchesUnsupportedStateSurfaceExceptMappingWrites,
         stmtTouchesUnsupportedStateSurface] at hState
-  | forEachLiteralOneEmpty =>
-      simp [stmtListTouchesUnsupportedStateSurfaceExceptMappingWrites,
-        stmtTouchesUnsupportedStateSurfaceExceptMappingWrites,
-        stmtTouchesUnsupportedStateSurface] at hState
-  | forEachLiteralTwoEmpty =>
+  | forEachLiteralEmpty _ =>
       simp [stmtListTouchesUnsupportedStateSurfaceExceptMappingWrites,
         stmtTouchesUnsupportedStateSurfaceExceptMappingWrites,
         stmtTouchesUnsupportedStateSurface] at hState

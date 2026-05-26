@@ -1016,6 +1016,14 @@ theorem execIRStmt_for_init_cond_zero
       .continue sInit := by
   simp [execIRStmt, hinit, hcond]
 
+theorem execIRStmt_for_init_continue
+    (fuel : Nat) (state sInit : IRState)
+    (init post body : List YulStmt) (cond : YulExpr)
+    (hinit : execIRStmts fuel state init = .continue sInit) :
+    execIRStmt (Nat.succ fuel) state (.for_ init cond post body) =
+      execIRStmt (Nat.succ fuel) sInit (.for_ [] cond post body) := by
+  simp [execIRStmt, hinit, execIRStmts]
+
 theorem execIRStmt_for_body_noncontinue
     (fuel : Nat) (state sInit : IRState)
     (init post body : List YulStmt) (cond : YulExpr)
@@ -1057,6 +1065,88 @@ theorem execIRStmt_for_one_continue
   simp only [execIRStmt, hinit, hcond]
   simp [hcondNZ, hbody, hpost]
 
+/-- Nat-indexed recurrence for the recursive empty-init `for` form.
+
+After the first iteration of a compiled Yul `for`, the interpreter recurs on
+`.for_ [] cond post body` with one less fuel. This theorem packages that
+repeated step: callers provide the per-index condition/body/post preservation
+facts for states `states k`, and the theorem threads them until the terminal
+condition at `states remaining`. -/
+theorem execIRStmt_for_empty_init_recurrence
+    (fuel remaining : Nat)
+    (states : Nat → IRState)
+    (cond : YulExpr)
+    (post body : List YulStmt)
+    (hterminal : evalIRExpr (states remaining) cond = some 0)
+    (hstep :
+      ∀ k, k < remaining →
+        ∃ condValue bodyState postState,
+          evalIRExpr (states k) cond = some condValue ∧
+          condValue ≠ 0 ∧
+          execIRStmts (fuel - k - 1) (states k) body = .continue bodyState ∧
+          execIRStmts (fuel - k - 1) bodyState post = .continue postState ∧
+          postState = states (k + 1))
+    (hfuel : remaining < fuel) :
+    execIRStmt fuel (states 0) (.for_ [] cond post body) =
+      .continue (states remaining) := by
+  induction remaining generalizing fuel states with
+  | zero =>
+      cases fuel with
+      | zero => omega
+      | succ fuel =>
+          exact execIRStmt_for_init_cond_zero fuel (states 0) (states 0) []
+            post body cond (by simp [execIRStmts]) hterminal
+  | succ remaining ih =>
+      cases fuel with
+      | zero => omega
+      | succ fuel =>
+          rcases hstep 0 (by omega) with
+            ⟨condValue, bodyState, postState, hcond, hcondNZ, hbody, hpost, hpostState⟩
+          have htail :
+              execIRStmt fuel (states 1) (.for_ [] cond post body) =
+                .continue (states (remaining + 1)) := by
+            let tailStates : Nat → IRState := fun k => states (k + 1)
+            have hterminalTail :
+                evalIRExpr (tailStates remaining) cond = some 0 := by
+              simpa [tailStates, Nat.add_assoc] using hterminal
+            have hstepTail :
+                ∀ k, k < remaining →
+                  ∃ condValue bodyState postState,
+                    evalIRExpr (tailStates k) cond = some condValue ∧
+                    condValue ≠ 0 ∧
+                    execIRStmts (fuel - k - 1) (tailStates k) body =
+                      .continue bodyState ∧
+                    execIRStmts (fuel - k - 1) bodyState post =
+                      .continue postState ∧
+                    postState = tailStates (k + 1) := by
+              intro k hk
+              rcases hstep (k + 1) (by omega) with
+                ⟨cv, bs, ps, hc, hcv, hb, hp, hps⟩
+              refine ⟨cv, bs, ps, ?_, hcv, ?_, ?_, ?_⟩
+              · simpa [tailStates, Nat.add_assoc] using hc
+              · have hfuelEq : Nat.succ fuel - (k + 1) - 1 = fuel - k - 1 := by
+                  omega
+                simpa [tailStates, hfuelEq, Nat.add_assoc] using hb
+              · have hfuelEq : Nat.succ fuel - (k + 1) - 1 = fuel - k - 1 := by
+                  omega
+                simpa [hfuelEq] using hp
+              · simpa [tailStates, Nat.add_assoc] using hps
+            have hfuelTail : remaining < fuel := by omega
+            simpa [tailStates] using
+              ih (fuel := fuel) (states := tailStates)
+                hterminalTail hstepTail hfuelTail
+          have hbody' : execIRStmts fuel (states 0) body = .continue bodyState := by
+            simpa using hbody
+          have hpost' : execIRStmts fuel bodyState post = .continue postState := by
+            simpa using hpost
+          rw [execIRStmt_for_one_continue
+            (fuel := fuel) (state := states 0) (sInit := states 0)
+            (sBody := bodyState) (sPost := postState)
+            (init := []) (post := post) (body := body) (cond := cond)
+            (condValue := condValue)
+            (by simp [execIRStmts]) hcond hcondNZ hbody' hpost']
+          simpa [hpostState] using htail
+
 /-- Singleton-list form of `execIRStmt_for_init_cond_zero`.
 
 This is the shape needed when a compiled source statement is represented by a
@@ -1070,6 +1160,17 @@ theorem execIRStmts_single_for_init_cond_zero
       .continue sInit := by
   simp only [execIRStmts]
   rw [execIRStmt_for_init_cond_zero fuel state sInit init post body cond hinit hcond]
+
+theorem execIRStmts_single_for_init_continue
+    (fuel : Nat) (state sInit sFinal : IRState)
+    (init post body : List YulStmt) (cond : YulExpr)
+    (hinit : execIRStmts fuel state init = .continue sInit)
+    (hloop : execIRStmt (Nat.succ fuel) sInit (.for_ [] cond post body) = .continue sFinal) :
+    execIRStmts (Nat.succ (Nat.succ fuel)) state [.for_ init cond post body] =
+      .continue sFinal := by
+  simp only [execIRStmts]
+  rw [execIRStmt_for_init_continue fuel state sInit init post body cond hinit]
+  rw [hloop]
 
 /-- Head/tail form of `execIRStmt_for_init_cond_zero`.
 

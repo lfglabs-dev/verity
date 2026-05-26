@@ -683,6 +683,47 @@ theorem execForEachLoop_congr
         { state with bindings := bindValue state.bindings varName (wordNormalize index) } <;>
         simp [hrun, execForEachLoop_congr hbody]
 
+def execForEachEmptyLoopFinal
+    (varName : String) : RuntimeState → Nat → Nat → RuntimeState
+  | state, _, 0 => state
+  | state, index, remaining + 1 =>
+      execForEachEmptyLoopFinal varName
+        { state with bindings := bindValue state.bindings varName (wordNormalize index) }
+        (index + 1) remaining
+
+theorem execForEachLoop_empty_body
+    (varName : String)
+    (state : RuntimeState)
+    (index remaining : Nat) :
+    execForEachLoop varName (fun loopState => .continue loopState)
+        state index remaining =
+      .continue (execForEachEmptyLoopFinal varName state index remaining) := by
+  induction remaining generalizing state index with
+  | zero =>
+      rfl
+  | succ remaining ih =>
+      simp [execForEachLoop, execForEachEmptyLoopFinal, ih]
+
+theorem execForEachLoop_empty_body_zero_bound
+    (varName : String)
+    (state : RuntimeState)
+    (index : Nat) :
+    execForEachLoop varName (fun loopState => .continue loopState)
+        state index 0 =
+      .continue state := rfl
+
+theorem execForEachLoop_empty_body_positive_bound
+    (varName : String)
+    (state : RuntimeState)
+    (index remaining : Nat) :
+    execForEachLoop varName (fun loopState => .continue loopState)
+        state index (remaining + 1) =
+      .continue
+        (execForEachEmptyLoopFinal varName
+          { state with bindings := bindValue state.bindings varName (wordNormalize index) }
+          (index + 1) remaining) := by
+  simp [execForEachLoop_empty_body, execForEachEmptyLoopFinal]
+
 private def storageArraySetAt : List Verity.Core.Uint256 → Nat → Verity.Core.Uint256 → Option (List Verity.Core.Uint256)
   | [], _, _ => none
   | _ :: rest, 0, value => some (value :: rest)

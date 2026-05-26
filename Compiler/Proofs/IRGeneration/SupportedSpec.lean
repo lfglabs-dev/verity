@@ -1563,6 +1563,7 @@ def stmtTouchesUnsupportedContractSurface (stmt : Stmt) : Bool :=
   | .tryExternalCallBind _ _ _ _ | .unsafeBlock _ _ | .matchAdt _ _ _ => true
   | .forEach _ (.literal 0) body =>
       stmtListTouchesUnsupportedContractSurface body
+  | .forEach _ (.literal _) [] => false
   | .forEach _ _ _ => true
 
 def stmtTouchesUnsupportedContractSurfaceWithEvents
@@ -3011,11 +3012,7 @@ theorem SupportedStmtList.helperSurfaceClosed
       simpa [stmtListTouchesUnsupportedHelperSurface,
         stmtTouchesUnsupportedHelperSurface,
         exprTouchesUnsupportedHelperSurface] using ih
-  | forEachLiteralOneEmpty =>
-      simp [stmtListTouchesUnsupportedHelperSurface,
-        stmtTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedHelperSurface]
-  | forEachLiteralTwoEmpty =>
+  | forEachLiteralEmpty _ =>
       simp [stmtListTouchesUnsupportedHelperSurface,
         stmtTouchesUnsupportedHelperSurface,
         exprTouchesUnsupportedHelperSurface]
@@ -3201,10 +3198,7 @@ theorem SupportedStmtList.internalHelperCallNames_nil
       simpa [stmtListInternalHelperCallNames,
         stmtInternalHelperCallNames,
         exprInternalHelperCallNames] using ih
-  | forEachLiteralOneEmpty =>
-      simp [stmtListInternalHelperCallNames, stmtInternalHelperCallNames,
-        exprInternalHelperCallNames]
-  | forEachLiteralTwoEmpty =>
+  | forEachLiteralEmpty _ =>
       simp [stmtListInternalHelperCallNames, stmtInternalHelperCallNames,
         exprInternalHelperCallNames]
   | requireClause clause _ ih =>
@@ -4400,11 +4394,32 @@ theorem stmtTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
       | literal n =>
           cases n with
           | zero =>
-            simp only [stmtTouchesUnsupportedContractSurface] at hsurface
-            simpa [stmtTouchesUnsupportedHelperSurface, exprTouchesUnsupportedHelperSurface] using
-              stmtListTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
-                hsurface
-          | succ n => simp [stmtTouchesUnsupportedContractSurface] at hsurface
+            cases body with
+            | nil =>
+                simp [stmtTouchesUnsupportedHelperSurface,
+                  stmtListTouchesUnsupportedHelperSurface,
+                  exprTouchesUnsupportedHelperSurface]
+            | cons stmt rest =>
+                simp only [stmtTouchesUnsupportedContractSurface,
+                  stmtListTouchesUnsupportedContractSurface,
+                  Bool.or_eq_false_iff] at hsurface
+                simp [stmtTouchesUnsupportedHelperSurface,
+                  stmtListTouchesUnsupportedHelperSurface,
+                  exprTouchesUnsupportedHelperSurface,
+                  Bool.or_eq_false_iff]
+                exact ⟨
+                  stmtTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
+                    hsurface.1,
+                  stmtListTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
+                    hsurface.2⟩
+          | succ n =>
+              cases body with
+              | nil =>
+                  simp [stmtTouchesUnsupportedHelperSurface,
+                    stmtListTouchesUnsupportedHelperSurface,
+                    exprTouchesUnsupportedHelperSurface]
+              | cons _ _ =>
+                  simp [stmtTouchesUnsupportedContractSurface] at hsurface
       | _ => simp [stmtTouchesUnsupportedContractSurface] at hsurface
 termination_by sizeOf stmt
 
@@ -5080,9 +5095,7 @@ private theorem supportedStmtList_usesArrayElement_false
   | forEachLiteralBounded _ _ ih =>
       simpa [stmtListUsesArrayElement, stmtUsesArrayElement,
         exprUsesArrayElement] using ih
-  | forEachLiteralOneEmpty =>
-      simp [stmtListUsesArrayElement, stmtUsesArrayElement, exprUsesArrayElement]
-  | forEachLiteralTwoEmpty =>
+  | forEachLiteralEmpty _ =>
       simp [stmtListUsesArrayElement, stmtUsesArrayElement, exprUsesArrayElement]
   | requireClause clause _ ih =>
       simp only [stmtListUsesArrayElement, Bool.or_eq_false_iff, Bool.false_or]
@@ -5201,10 +5214,7 @@ private theorem supportedStmtList_usesStorageArrayElement_false
   | forEachLiteralBounded _ _ ih =>
       simpa [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
         exprUsesStorageArrayElement] using ih
-  | forEachLiteralOneEmpty =>
-      simp [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
-        exprUsesStorageArrayElement]
-  | forEachLiteralTwoEmpty =>
+  | forEachLiteralEmpty _ =>
       simp [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
         exprUsesStorageArrayElement]
   | requireClause clause _ ih =>
@@ -5317,10 +5327,7 @@ private theorem supportedStmtList_usesDynamicBytesEq_false
   | forEachLiteralBounded _ _ ih =>
       simpa [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq,
         exprUsesDynamicBytesEq] using ih
-  | forEachLiteralOneEmpty =>
-      simp [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq,
-        exprUsesDynamicBytesEq]
-  | forEachLiteralTwoEmpty =>
+  | forEachLiteralEmpty _ =>
       simp [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq,
         exprUsesDynamicBytesEq]
   | requireClause clause _ ih =>
@@ -5691,9 +5698,7 @@ private theorem supportedStmtList_usesMulDiv512_false
   | forEachLiteralBounded _ _ ih =>
       simpa [stmtListUsesMulDiv512, stmtUsesMulDiv512,
         exprUsesMulDiv512] using ih
-  | forEachLiteralOneEmpty =>
-      simp [stmtListUsesMulDiv512, stmtUsesMulDiv512, exprUsesMulDiv512]
-  | forEachLiteralTwoEmpty =>
+  | forEachLiteralEmpty _ =>
       simp [stmtListUsesMulDiv512, stmtUsesMulDiv512, exprUsesMulDiv512]
   | requireClause clause _ ih =>
       simp only [stmtListUsesMulDiv512, Bool.or_eq_false_iff, Bool.false_or]
@@ -5805,10 +5810,7 @@ private theorem supportedStmtList_usesParamDynamicHeadWord_false
   | forEachLiteralBounded _ _ ih =>
       simpa [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord,
         exprUsesParamDynamicHeadWord] using ih
-  | forEachLiteralOneEmpty =>
-      simp [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord,
-        exprUsesParamDynamicHeadWord]
-  | forEachLiteralTwoEmpty =>
+  | forEachLiteralEmpty _ =>
       simp [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord,
         exprUsesParamDynamicHeadWord]
   | requireClause clause _ ih =>
