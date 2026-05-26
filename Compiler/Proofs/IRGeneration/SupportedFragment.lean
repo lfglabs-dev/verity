@@ -347,6 +347,13 @@ inductive SupportedStmtList (fields : List Field) : List String → List Stmt �
       (∀ name, name ∈ collectStmtListNames body → name ∈ varName :: scope) →
       SupportedStmtList fields (varName :: scope) body →
       SupportedStmtList fields scope [Stmt.forEach varName (.literal 0) body]
+  /-- First positive loop-preservation case: a one-iteration loop with an empty
+  body. This exercises the compiled Yul `for` init/condition/body-bind/post
+  path without yet admitting arbitrary positive loop bodies. -/
+  | forEachLiteralOneEmpty
+      {scope : List String}
+      {varName : String} :
+      SupportedStmtList fields scope [Stmt.forEach varName (.literal 1) []]
   | requireClause
       {scope : List String}
       (clause : RequireLiteralGuardFamilyClause)

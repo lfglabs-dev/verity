@@ -1196,6 +1196,22 @@ theorem execIRStmts_forEach_init_literal_zero
   rw [Nat.add_comm]
   simp [execIRStmts, execIRStmt, evalIRExpr]
 
+/-- The three initializer statements emitted for a literal-bound `forEach`
+execute to the expected cached-counter state once enough fuel is available. -/
+theorem execIRStmts_forEach_init_literal
+    (fuel : Nat) (state : IRState)
+    (idxName countName varName : String)
+    (bound : Nat)
+    (hfuel : 4 ≤ fuel) :
+    execIRStmts fuel state
+        [ YulStmt.let_ idxName (YulExpr.lit 0)
+        , YulStmt.let_ countName (YulExpr.lit bound)
+        , YulStmt.let_ varName (YulExpr.lit 0) ] =
+      .continue (((state.setVar idxName 0).setVar countName bound).setVar varName 0) := by
+  rcases Nat.exists_eq_add_of_le hfuel with ⟨extra, rfl⟩
+  rw [Nat.add_comm]
+  simp [execIRStmts, execIRStmt, evalIRExpr]
+
 @[simp] theorem execIRStmt_stop_succ (fuel : Nat) (state : IRState) :
     execIRStmt (Nat.succ fuel) state (YulStmt.expr (YulExpr.call "stop" [])) =
       .stop state := by

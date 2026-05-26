@@ -12752,10 +12752,53 @@ private def forEachZeroCompiledIR
     (forEachZeroPostStmts scope varName body)
     (forEachZeroBodyWithBind scope varName body bodyIR)]
 
+private def forEachOneUsedNames (scope : List String) (varName : String) :
+    List String :=
+  varName :: (scope ++ collectExprNames (Expr.literal 1) ++ collectStmtListNames [])
+
+private def forEachOneIdxName (scope : List String) (varName : String) :
+    String :=
+  pickFreshName "__forEach_idx" (forEachOneUsedNames scope varName)
+
+private def forEachOneCountName (scope : List String) (varName : String) :
+    String :=
+  pickFreshName "__forEach_count"
+    (forEachOneIdxName scope varName :: forEachOneUsedNames scope varName)
+
+private def forEachOneInitStmts (scope : List String) (varName : String) :
+    List YulStmt :=
+  [
+    YulStmt.let_ (forEachOneIdxName scope varName) (YulExpr.lit 0),
+    YulStmt.let_ (forEachOneCountName scope varName) (YulExpr.lit 1),
+    YulStmt.let_ varName (YulExpr.lit 0)
+  ]
+
+private def forEachOneCompiledIR (scope : List String) (varName : String) :
+    List YulStmt :=
+  [YulStmt.for_ (forEachOneInitStmts scope varName)
+    (YulExpr.call "lt"
+      [YulExpr.ident (forEachOneIdxName scope varName),
+        YulExpr.ident (forEachOneCountName scope varName)])
+    [YulStmt.assign (forEachOneIdxName scope varName)
+      (YulExpr.call "add" [YulExpr.ident (forEachOneIdxName scope varName), YulExpr.lit 1])]
+    [YulStmt.assign varName (YulExpr.ident (forEachOneIdxName scope varName))]]
+
 private def forEachZeroRuntimeLoop
     (runtime : SourceSemantics.RuntimeState) (varName : String) :
     SourceSemantics.RuntimeState :=
   { runtime with bindings := SourceSemantics.bindValue runtime.bindings varName 0 }
+
+private theorem source_bindValue_idem
+    (bindings : List (String × Nat)) (name : String) (value : Nat) :
+    SourceSemantics.bindValue (SourceSemantics.bindValue bindings name value) name value =
+      SourceSemantics.bindValue bindings name value := by
+  simp [SourceSemantics.bindValue, List.filter_filter]
+
+private theorem irState_setVar_idem
+    (state : IRState) (name : String) (value : Nat) :
+    (state.setVar name value).setVar name value = state.setVar name value := by
+  cases state
+  simp [IRState.setVar, List.filter_filter]
 
 private theorem sourceExec_forEach_literal_zero
     {fields : List Field}
@@ -12770,6 +12813,20 @@ private theorem sourceExec_forEach_literal_zero
       (forEachZeroRuntimeLoop runtime varName) 0 0 =
         .continue (forEachZeroRuntimeLoop runtime varName)
   rfl
+
+private theorem sourceExec_forEach_literal_one_empty
+    {fields : List Field}
+    {runtime : SourceSemantics.RuntimeState}
+    {varName : String} :
+    SourceSemantics.execStmt fields runtime (Stmt.forEach varName (Expr.literal 1) []) =
+      .continue (forEachZeroRuntimeLoop runtime varName) := by
+  change
+    SourceSemantics.execForEachLoop varName
+      (fun loopState => SourceSemantics.execStmtList fields loopState [])
+      (forEachZeroRuntimeLoop runtime varName) 0 1 =
+        .continue (forEachZeroRuntimeLoop runtime varName)
+  simp [SourceSemantics.execForEachLoop, SourceSemantics.execStmtList,
+    forEachZeroRuntimeLoop, SourceSemantics.wordNormalize, source_bindValue_idem]
 
 private theorem forEachZero_fresh_facts
     {scope : List String}
@@ -12799,6 +12856,34 @@ private theorem forEachZero_fresh_facts
   constructor
   · intro hmem; exact hidxFreshUsed (by simp [forEachZeroUsedNames, hmem])
   · intro hmem; exact hcountFreshUsed (by simp [forEachZeroUsedNames, hmem])
+
+private theorem forEachOne_fresh_facts
+    {scope : List String}
+    {varName : String} :
+    let idxName := forEachOneIdxName scope varName
+    let countName := forEachOneCountName scope varName
+    idxName ≠ varName ∧ countName ≠ varName ∧ countName ≠ idxName ∧
+      idxName ∉ scope ∧ countName ∉ scope := by
+  intro idxName countName
+  have hidxFreshUsed :
+      idxName ∉ forEachOneUsedNames scope varName := by
+    simpa [idxName, forEachOneIdxName] using
+      CompilationModel.pickFreshName_not_mem_usedNames "__forEach_idx"
+        (forEachOneUsedNames scope varName)
+  have hcountFreshUsed :
+      countName ∉ idxName :: forEachOneUsedNames scope varName := by
+    simpa [countName, forEachOneCountName, idxName] using
+      CompilationModel.pickFreshName_not_mem_usedNames "__forEach_count"
+        (idxName :: forEachOneUsedNames scope varName)
+  constructor
+  · intro h; exact hidxFreshUsed (by simp [forEachOneUsedNames, h])
+  constructor
+  · intro h; exact hcountFreshUsed (by simp [forEachOneUsedNames, h])
+  constructor
+  · intro h; exact hcountFreshUsed (by simp [h])
+  constructor
+  · intro hmem; exact hidxFreshUsed (by simp [forEachOneUsedNames, hmem])
+  · intro hmem; exact hcountFreshUsed (by simp [forEachOneUsedNames, hmem])
 
 private theorem evalIRExpr_forEachZeroCond_after_init
     {scope : List String}
@@ -12894,6 +12979,127 @@ private theorem execIRStmts_forEach_literal_zero_compiled
     (post := forEachZeroPostStmts scope varName body)
     (body := forEachZeroBodyWithBind scope varName body bodyIR)
     (cond := forEachZeroCondExpr scope varName body) hinit hcond
+
+private theorem execIRStmts_forEach_literal_one_empty_compiled
+    {scope : List String}
+    {varName : String}
+    {state : IRState}
+    {extraFuel : Nat}
+    (hslack : sizeOf (forEachOneCompiledIR scope varName) -
+      (forEachOneCompiledIR scope varName).length ≤ extraFuel)
+    (hidx_ne_var : forEachOneIdxName scope varName ≠ varName)
+    (hcount_ne_var : forEachOneCountName scope varName ≠ varName)
+    (hcount_ne_idx :
+      forEachOneCountName scope varName ≠ forEachOneIdxName scope varName) :
+    execIRStmts ((forEachOneCompiledIR scope varName).length + extraFuel + 1) state
+        (forEachOneCompiledIR scope varName) =
+      .continue ((((state.setVar (forEachOneIdxName scope varName) 0).setVar
+        (forEachOneCountName scope varName) 1).setVar varName 0).setVar
+          (forEachOneIdxName scope varName) 1) := by
+  let idxName := forEachOneIdxName scope varName
+  let countName := forEachOneCountName scope varName
+  let stateIdx := state.setVar idxName 0
+  let stateCount := stateIdx.setVar countName 1
+  let stateLoop := stateCount.setVar varName 0
+  let statePost := stateLoop.setVar idxName 1
+  have hfuelInit : 4 ≤ extraFuel := by
+    have hmin : 4 ≤
+        sizeOf (forEachOneCompiledIR scope varName) -
+          (forEachOneCompiledIR scope varName).length := by
+      dsimp [forEachOneCompiledIR, forEachOneInitStmts, forEachZeroCondExpr,
+        forEachZeroPostStmts, forEachZeroBodyWithBind]
+      simp only [List.cons.sizeOf_spec, List.nil.sizeOf_spec, YulStmt.for_.sizeOf_spec,
+        YulStmt.let_.sizeOf_spec, YulStmt.assign.sizeOf_spec, YulExpr.call.sizeOf_spec,
+        YulExpr.ident.sizeOf_spec, YulExpr.lit.sizeOf_spec]
+      omega
+    omega
+  have hinit : execIRStmts extraFuel state
+      (forEachOneInitStmts scope varName) = .continue stateLoop := by
+    simpa [forEachOneInitStmts, stateIdx, stateCount, stateLoop, idxName, countName] using
+      execIRStmts_forEach_init_literal
+        (fuel := extraFuel) (state := state) (idxName := idxName)
+        (countName := countName) (varName := varName) (bound := 1) (hfuel := hfuelInit)
+  have hidx_after_init : stateLoop.getVar idxName = some 0 := by
+    dsimp [stateLoop, stateCount, stateIdx]
+    rw [FunctionBody.getVar_setVar_ne _ varName idxName 0 hidx_ne_var]
+    rw [FunctionBody.getVar_setVar_ne _ countName idxName 1 hcount_ne_idx.symm]
+    simp
+  have hcount_after_init : stateLoop.getVar countName = some 1 := by
+    dsimp [stateLoop, stateCount, stateIdx]
+    rw [FunctionBody.getVar_setVar_ne _ varName countName 0 hcount_ne_var]
+    simp
+  have hcondOne :
+      evalIRExpr stateLoop (YulExpr.call "lt" [YulExpr.ident (forEachOneIdxName scope varName), YulExpr.ident (forEachOneCountName scope varName)]) = some 1 := by
+    simp [forEachZeroCondExpr, idxName, countName, evalIRExpr, evalIRExprs, evalIRCall,
+      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
+      hidx_after_init, hcount_after_init]
+  have hbody : execIRStmts extraFuel stateLoop
+      ([YulStmt.assign varName (YulExpr.ident (forEachOneIdxName scope varName))]) = .continue stateLoop := by
+    have hidx_read : stateLoop.getVar idxName = some 0 := hidx_after_init
+    cases extraFuel with
+    | zero => omega
+    | succ fuel =>
+        cases fuel with
+        | zero => omega
+        | succ fuel =>
+            have hidx_read' :
+                stateLoop.getVar (forEachOneIdxName scope varName) = some 0 := by
+              simpa [idxName] using hidx_read
+            have hloop_idem : stateLoop.setVar varName 0 = stateLoop := by
+              simpa [stateLoop] using irState_setVar_idem stateCount varName 0
+            simp [execIRStmts, execIRStmt, evalIRExpr, hidx_read', hloop_idem]
+  have hpost : execIRStmts extraFuel stateLoop
+      ([YulStmt.assign (forEachOneIdxName scope varName) (YulExpr.call "add" [YulExpr.ident (forEachOneIdxName scope varName), YulExpr.lit 1])]) = .continue statePost := by
+    have hidx_read : stateLoop.getVar idxName = some 0 := hidx_after_init
+    cases extraFuel with
+    | zero => omega
+    | succ fuel =>
+        cases fuel with
+        | zero => omega
+        | succ fuel =>
+            have hidx_read' :
+                stateLoop.getVar (forEachOneIdxName scope varName) = some 0 := by
+              simpa [idxName] using hidx_read
+            dsimp [idxName, statePost]
+            simp [execIRStmts, execIRStmt, evalIRExpr, evalIRExprs, evalIRCall,
+              Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
+              hidx_read']
+  have hidx_after_post : statePost.getVar idxName = some 1 := by
+    exact FunctionBody.getVar_setVar_eq stateLoop idxName 1
+  have hcount_after_post : statePost.getVar countName = some 1 := by
+    dsimp [statePost, stateLoop, stateCount, stateIdx]
+    rw [FunctionBody.getVar_setVar_ne _ idxName countName 1 hcount_ne_idx]
+    rw [FunctionBody.getVar_setVar_ne _ varName countName 0 hcount_ne_var]
+    simp
+  have hcondZero :
+      evalIRExpr statePost (YulExpr.call "lt" [YulExpr.ident (forEachOneIdxName scope varName), YulExpr.ident (forEachOneCountName scope varName)]) = some 0 := by
+    simp [forEachZeroCondExpr, idxName, countName, evalIRExpr, evalIRExprs, evalIRCall,
+      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
+      hidx_after_post, hcount_after_post]
+  have hloop :
+      execIRStmt extraFuel statePost
+        (.for_ [] (YulExpr.call "lt" [YulExpr.ident (forEachOneIdxName scope varName), YulExpr.ident (forEachOneCountName scope varName)])
+          ([YulStmt.assign (forEachOneIdxName scope varName) (YulExpr.call "add" [YulExpr.ident (forEachOneIdxName scope varName), YulExpr.lit 1])])
+          ([YulStmt.assign varName (YulExpr.ident (forEachOneIdxName scope varName))])) =
+        .continue statePost := by
+    cases extraFuel with
+    | zero => omega
+    | succ fuel =>
+        exact execIRStmt_for_init_cond_zero fuel statePost statePost []
+          ([YulStmt.assign (forEachOneIdxName scope varName) (YulExpr.call "add" [YulExpr.ident (forEachOneIdxName scope varName), YulExpr.lit 1])])
+          ([YulStmt.assign varName (YulExpr.ident (forEachOneIdxName scope varName))])
+          (YulExpr.call "lt" [YulExpr.ident (forEachOneIdxName scope varName), YulExpr.ident (forEachOneCountName scope varName)]) (by simp [execIRStmts]) hcondZero
+  dsimp [forEachOneCompiledIR]
+  have hfuelEq : extraFuel + 1 + 1 = 1 + extraFuel + 1 := by omega
+  rw [← hfuelEq]
+  rw [execIRStmts_single_for_one_continue
+    (fuel := extraFuel) (state := state) (sInit := stateLoop) (sBody := stateLoop)
+    (sPost := statePost) (init := forEachOneInitStmts scope varName)
+    (post := [YulStmt.assign (forEachOneIdxName scope varName) (YulExpr.call "add" [YulExpr.ident (forEachOneIdxName scope varName), YulExpr.lit 1])])
+    (body := [YulStmt.assign varName (YulExpr.ident (forEachOneIdxName scope varName))])
+    (cond := YulExpr.call "lt" [YulExpr.ident (forEachOneIdxName scope varName), YulExpr.ident (forEachOneCountName scope varName)]) (condValue := 1)
+    hinit hcondOne (by norm_num) hbody hpost]
+  simpa [hloop, statePost, idxName, countName, stateLoop, stateCount, stateIdx]
 
 private theorem forEachZero_nextScopeIncluded
     {scope : List String}
@@ -12998,6 +13204,90 @@ private theorem stmtStepMatches_forEach_literal_zero_final
     hboundedLoop,
     FunctionBody.scopeNamesPresent_of_included hscopeBase hNextScopeIncl⟩
 
+private theorem stmtStepMatches_forEach_literal_one_empty_final
+    {fields : List Field}
+    {scope : List String}
+    {varName : String}
+    {runtime : SourceSemantics.RuntimeState}
+    {state : IRState}
+    (hidx_ne_var : forEachOneIdxName scope varName ≠ varName)
+    (hidx_not_scope : forEachOneIdxName scope varName ∉ scope)
+    (hcount_not_scope : forEachOneCountName scope varName ∉ scope)
+    (hexact : FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state)
+    (hscope : FunctionBody.scopeNamesPresent scope runtime.bindings)
+    (hbounded : FunctionBody.bindingsBounded runtime.bindings)
+    (hruntime : FunctionBody.runtimeStateMatchesIR fields runtime state) :
+    stmtStepMatchesIRExec fields
+      (stmtNextScope scope (Stmt.forEach varName (Expr.literal 1) []))
+      (.continue (forEachZeroRuntimeLoop runtime varName))
+      (.continue ((((state.setVar (forEachOneIdxName scope varName) 0).setVar
+        (forEachOneCountName scope varName) 1).setVar varName 0).setVar
+          (forEachOneIdxName scope varName) 1)) := by
+  let idxName := forEachOneIdxName scope varName
+  let countName := forEachOneCountName scope varName
+  let runtimeLoop := forEachZeroRuntimeLoop runtime varName
+  let stateCount := (state.setVar idxName 0).setVar countName 1
+  let stateLoop := stateCount.setVar varName 0
+  let statePost := stateLoop.setVar idxName 1
+  have hidx_not_next : idxName ∉ varName :: scope := by
+    intro hmem
+    simp at hmem
+    rcases hmem with hvar | hscopeMem
+    · exact hidx_ne_var hvar
+    · exact hidx_not_scope hscopeMem
+  have hexactCount :
+      FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings stateCount := by
+    exact FunctionBody.bindingsExactlyMatchIRVarsOnScope_setVar_irrelevant
+      (FunctionBody.bindingsExactlyMatchIRVarsOnScope_setVar_irrelevant hexact hidx_not_scope)
+      hcount_not_scope
+  have hexactLoop :
+      FunctionBody.bindingsExactlyMatchIRVarsOnScope (varName :: scope)
+        runtimeLoop.bindings stateLoop := by
+    simpa [runtimeLoop, forEachZeroRuntimeLoop, stateLoop] using
+      FunctionBody.bindingsExactlyMatchIRVarsOnScope_setVar_bindValue
+        (boundName := varName) (value := 0) hexactCount
+  have hexactPost :
+      FunctionBody.bindingsExactlyMatchIRVarsOnScope (varName :: scope)
+        runtimeLoop.bindings statePost := by
+    exact FunctionBody.bindingsExactlyMatchIRVarsOnScope_setVar_irrelevant
+      (state := stateLoop) (tempName := idxName) (value := 1)
+      hexactLoop hidx_not_next
+  have hruntimePost :
+      FunctionBody.runtimeStateMatchesIR fields runtimeLoop statePost := by
+    simpa [runtimeLoop, forEachZeroRuntimeLoop, stateLoop, stateCount, statePost] using
+      FunctionBody.runtimeStateMatchesIR_setVar_irrelevant
+        (state := stateCount.setVar varName 0) (name := idxName) (value := 1)
+        (FunctionBody.runtimeStateMatchesIR_setVar_bindValue
+          (fields := fields)
+          (runtime := runtime)
+          (state := stateCount)
+          (FunctionBody.runtimeStateMatchesIR_setVar_irrelevant
+            (FunctionBody.runtimeStateMatchesIR_setVar_irrelevant hruntime))
+          varName 0)
+  have hscopeLoop : FunctionBody.scopeNamesPresent (varName :: scope) runtimeLoop.bindings := by
+    simpa [runtimeLoop, forEachZeroRuntimeLoop] using
+      FunctionBody.scopeNamesPresent_cons_bindValue
+        (boundName := varName) (value := 0) hscope
+  have hboundedLoop : FunctionBody.bindingsBounded runtimeLoop.bindings :=
+    FunctionBody.bindingsBounded_bindValue hbounded varName 0
+      (by norm_num [Compiler.Constants.evmModulus, Verity.Core.UINT256_MODULUS])
+  have hNextScopeIncl :
+      FunctionBody.scopeNamesIncluded
+        (stmtNextScope scope (Stmt.forEach varName (Expr.literal 1) []))
+        (varName :: scope) := by
+    intro name hmem
+    simp [stmtNextScope, collectStmtNames, collectExprNames] at hmem
+    rcases hmem with hvar | hscopeMem
+    · simp [hvar]
+    · rcases hscopeMem with hbody | hscopeMem
+      · exact False.elim (by simpa [collectStmtListNames] using hbody)
+      · simp [hscopeMem]
+  simp [stmtStepMatchesIRExec]
+  exact ⟨hruntimePost,
+    FunctionBody.bindingsExactlyMatchIRVarsOnScope_of_included hexactPost hNextScopeIncl,
+    hboundedLoop,
+    FunctionBody.scopeNamesPresent_of_included hscopeLoop hNextScopeIncl⟩
+
 private theorem compiledStmtStep_forEach_literal_zero
     {fields : List Field}
     {scope : List String}
@@ -13037,6 +13327,40 @@ private theorem compiledStmtStep_forEach_literal_zero
         (fields := fields) (scope := scope) (varName := varName) (body := body)
         (runtime := runtime) (state := state) hbodyNames hidx_not_scope
         hcount_not_scope hexact hscope hbounded hruntime
+
+private theorem compiledStmtStep_forEach_literal_one_empty
+    {fields : List Field}
+    {scope : List String}
+    {varName : String} :
+    ∃ compiledIR,
+      CompiledStmtStep fields scope (Stmt.forEach varName (Expr.literal 1) []) compiledIR := by
+  refine ⟨forEachOneCompiledIR scope varName, ?_⟩
+  refine
+    { compileOk := ?_
+      preserves := ?_ }
+  · dsimp [forEachOneCompiledIR, forEachOneInitStmts, forEachOneIdxName,
+      forEachOneCountName, forEachOneUsedNames]
+    simp [CompilationModel.compileStmt, CompilationModel.compileStmtList,
+      CompilationModel.compileExpr,
+      CompilationModel.uint256Modulus]
+    rfl
+  · intro runtime state extraFuel hexact hscope hbounded hruntime hslack
+    rcases forEachOne_fresh_facts (scope := scope) (varName := varName) with
+      ⟨hidx_ne_var, hcount_ne_var, hcount_ne_idx, hidx_not_scope, hcount_not_scope⟩
+    refine ⟨.continue (forEachZeroRuntimeLoop runtime varName),
+      .continue ((((state.setVar (forEachOneIdxName scope varName) 0).setVar
+        (forEachOneCountName scope varName) 1).setVar varName 0).setVar
+          (forEachOneIdxName scope varName) 1),
+      sourceExec_forEach_literal_one_empty, ?_, ?_⟩
+    · exact execIRStmts_forEach_literal_one_empty_compiled
+        (scope := scope) (varName := varName)
+        (state := state) (extraFuel := extraFuel) hslack
+        hidx_ne_var hcount_ne_var hcount_ne_idx
+    · exact stmtStepMatches_forEach_literal_one_empty_final
+        (fields := fields) (scope := scope) (varName := varName)
+        (runtime := runtime) (state := state)
+        hidx_ne_var hidx_not_scope hcount_not_scope
+        hexact hscope hbounded hruntime
 
 
 /-- Extra Tier 2 assumptions needed to turn the singleton mapping-write
@@ -14623,6 +14947,12 @@ theorem stmtListGenericCore_of_supportedStmtList_of_surface
             stmtTouchesUnsupportedContractSurface] using hsurface)) with
         ⟨compiledIR, hstep⟩
       exact StmtListGenericCore.cons hstep StmtListGenericCore.nil
+  | forEachLiteralOneEmpty =>
+      rename_i scope varName
+      rcases compiledStmtStep_forEach_literal_one_empty
+          (fields := fields) (scope := scope) (varName := varName) with
+        ⟨compiledIR, hstep⟩
+      exact StmtListGenericCore.cons hstep StmtListGenericCore.nil
   | requireClause clause _ ih =>
       simp [stmtListTouchesUnsupportedContractSurface] at hsurface
       apply stmtListGenericCore_append
@@ -14758,6 +15088,12 @@ theorem stmtListGenericCore_of_supportedStmtList_of_surface_exceptMappingWrites
               (by simpa [stmtListTouchesUnsupportedContractSurfaceExceptMappingWrites,
                 stmtTouchesUnsupportedContractSurfaceExceptMappingWrites,
                 stmtTouchesUnsupportedContractSurface] using hsurface))) with
+        ⟨compiledIR, hstep⟩
+      exact StmtListGenericCore.cons hstep StmtListGenericCore.nil
+  | forEachLiteralOneEmpty =>
+      rename_i scope varName
+      rcases compiledStmtStep_forEach_literal_one_empty
+          (fields := fields) (scope := scope) (varName := varName) with
         ⟨compiledIR, hstep⟩
       exact StmtListGenericCore.cons hstep StmtListGenericCore.nil
   | requireClause clause _ ih =>
@@ -15084,6 +15420,12 @@ theorem stmtListGenericCore_of_supportedStmtList_of_surface_exceptMappingWrites_
               simpa [stmtListTouchesUnsupportedContractSurfaceExceptMappingWrites,
                 stmtTouchesUnsupportedContractSurfaceExceptMappingWrites,
                 stmtTouchesUnsupportedContractSurface] using hsurface)) with
+        ⟨compiledIR, hstep⟩
+      exact StmtListGenericCore.cons hstep StmtListGenericCore.nil
+  | forEachLiteralOneEmpty =>
+      rename_i scope varName
+      rcases compiledStmtStep_forEach_literal_one_empty
+          (fields := fields) (scope := scope) (varName := varName) with
         ⟨compiledIR, hstep⟩
       exact StmtListGenericCore.cons hstep StmtListGenericCore.nil
   | requireClause clause hsupportedRest ih =>

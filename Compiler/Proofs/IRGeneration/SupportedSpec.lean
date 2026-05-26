@@ -3011,6 +3011,10 @@ theorem SupportedStmtList.helperSurfaceClosed
       simpa [stmtListTouchesUnsupportedHelperSurface,
         stmtTouchesUnsupportedHelperSurface,
         exprTouchesUnsupportedHelperSurface] using ih
+  | forEachLiteralOneEmpty =>
+      simp [stmtListTouchesUnsupportedHelperSurface,
+        stmtTouchesUnsupportedHelperSurface,
+        exprTouchesUnsupportedHelperSurface]
   | requireClause clause _ ih =>
       simp [stmtListTouchesUnsupportedHelperSurface]
       constructor
@@ -3193,6 +3197,9 @@ theorem SupportedStmtList.internalHelperCallNames_nil
       simpa [stmtListInternalHelperCallNames,
         stmtInternalHelperCallNames,
         exprInternalHelperCallNames] using ih
+  | forEachLiteralOneEmpty =>
+      simp [stmtListInternalHelperCallNames, stmtInternalHelperCallNames,
+        exprInternalHelperCallNames]
   | requireClause clause _ ih =>
       simp [stmtListInternalHelperCallNames]
       constructor
@@ -5066,6 +5073,8 @@ private theorem supportedStmtList_usesArrayElement_false
   | forEachLiteralBounded _ _ ih =>
       simpa [stmtListUsesArrayElement, stmtUsesArrayElement,
         exprUsesArrayElement] using ih
+  | forEachLiteralOneEmpty =>
+      simp [stmtListUsesArrayElement, stmtUsesArrayElement, exprUsesArrayElement]
   | requireClause clause _ ih =>
       simp only [stmtListUsesArrayElement, Bool.or_eq_false_iff, Bool.false_or]
       exact ⟨by cases clause with | mk family n m p q message =>
@@ -5183,6 +5192,9 @@ private theorem supportedStmtList_usesStorageArrayElement_false
   | forEachLiteralBounded _ _ ih =>
       simpa [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
         exprUsesStorageArrayElement] using ih
+  | forEachLiteralOneEmpty =>
+      simp [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
+        exprUsesStorageArrayElement]
   | requireClause clause _ ih =>
       simp only [stmtListUsesStorageArrayElement, Bool.or_eq_false_iff, Bool.false_or]
       exact ⟨by cases clause with | mk family n m p q message =>
@@ -5293,6 +5305,9 @@ private theorem supportedStmtList_usesDynamicBytesEq_false
   | forEachLiteralBounded _ _ ih =>
       simpa [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq,
         exprUsesDynamicBytesEq] using ih
+  | forEachLiteralOneEmpty =>
+      simp [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq,
+        exprUsesDynamicBytesEq]
   | requireClause clause _ ih =>
       simp only [stmtListUsesDynamicBytesEq, Bool.or_eq_false_iff, Bool.false_or]
       exact ⟨by cases clause with | mk family n m p q message =>
@@ -5661,6 +5676,8 @@ private theorem supportedStmtList_usesMulDiv512_false
   | forEachLiteralBounded _ _ ih =>
       simpa [stmtListUsesMulDiv512, stmtUsesMulDiv512,
         exprUsesMulDiv512] using ih
+  | forEachLiteralOneEmpty =>
+      simp [stmtListUsesMulDiv512, stmtUsesMulDiv512, exprUsesMulDiv512]
   | requireClause clause _ ih =>
       simp only [stmtListUsesMulDiv512, Bool.or_eq_false_iff, Bool.false_or]
       exact ⟨by cases clause with | mk family n m p q message =>
@@ -5771,6 +5788,9 @@ private theorem supportedStmtList_usesParamDynamicHeadWord_false
   | forEachLiteralBounded _ _ ih =>
       simpa [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord,
         exprUsesParamDynamicHeadWord] using ih
+  | forEachLiteralOneEmpty =>
+      simp [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord,
+        exprUsesParamDynamicHeadWord]
   | requireClause clause _ ih =>
       simp only [stmtListUsesParamDynamicHeadWord, Bool.or_eq_false_iff, Bool.false_or]
       exact ⟨by cases clause with | mk family n m p q message =>
