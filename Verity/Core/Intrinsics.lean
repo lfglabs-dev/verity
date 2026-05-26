@@ -114,13 +114,13 @@ def yulBuiltinArity? (name : String) : Option (Nat × Nat) :=
   | "number" | "difficulty" | "prevrandao" | "gaslimit" | "chainid"
   | "basefee" | "blobbasefee" | "returndatasize" | "msize" | "gas"
   | "pc" => some (0, 1)
-  | "calldatacopy" | "codecopy" | "returndatacopy" | "mstore" | "mstore8"
-  | "sstore" | "tstore" | "mcopy" | "log0" => some (3, 0)
+  | "calldatacopy" | "codecopy" | "returndatacopy" | "mcopy" => some (3, 0)
+  | "mstore" | "mstore8" | "sstore" | "tstore" | "log0" => some (2, 0)
   | "extcodecopy" => some (4, 0)
-  | "log1" => some (4, 0)
-  | "log2" => some (5, 0)
-  | "log3" => some (6, 0)
-  | "log4" => some (7, 0)
+  | "log1" => some (3, 0)
+  | "log2" => some (4, 0)
+  | "log3" => some (5, 0)
+  | "log4" => some (6, 0)
   | "create" => some (3, 1)
   | "create2" => some (4, 1)
   | "call" | "callcode" => some (7, 1)
