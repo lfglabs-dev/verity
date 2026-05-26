@@ -118,6 +118,8 @@ Legend: **ok** = supported, **rev** = reverts (not modeled), **nop** = no-op (co
 `Stmt.forEach` proof coverage is intentionally partial: zero-bound loops with
 supported bodies are proved, arbitrary literal-bound empty-body loops are
 proved, and positive literal loops with non-empty bodies remain future work.
+This is the current IR-generation proof boundary, not a claim about arbitrary
+non-empty loop-body preservation.
 
 ECMs include standard Verity-core modules for generic external-call mechanics,
 including `Compiler.Modules.Calls.bubblingValueCall`, which lowers
