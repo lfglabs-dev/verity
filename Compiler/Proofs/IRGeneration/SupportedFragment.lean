@@ -347,10 +347,10 @@ inductive SupportedStmtList (fields : List Field) : List String → List Stmt �
       (∀ name, name ∈ collectStmtListNames body → name ∈ varName :: scope) →
       SupportedStmtList fields (varName :: scope) body →
       SupportedStmtList fields scope [Stmt.forEach varName (.literal 0) body]
-  /-- Positive literal loops are supported only for the empty-body case. This
-  exercises arbitrary Yul `for` recurrence while keeping non-empty positive
-  loop bodies outside the fragment until their body-preservation proof is
-  threaded through the loop step. -/
+  /-- Literal loops with any bound are supported for empty bodies. This exercises
+  arbitrary Yul `for` recurrence while keeping non-empty positive loop bodies
+  outside the fragment until their body-preservation proof is threaded through
+  the loop step. -/
   | forEachLiteralEmpty
       {scope : List String}
       {varName : String} :
