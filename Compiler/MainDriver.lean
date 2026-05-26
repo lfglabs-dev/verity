@@ -1,5 +1,7 @@
 import Compiler.CompileDriverBase
+import Compiler.CompileDriverCommon
 import Compiler.ModuleInput
+import Verity.Core.Intrinsics
 
 /-!
 ## Baseline CLI Argument Parsing
@@ -19,6 +21,9 @@ private structure CLIArgs where
   libs : List String := []
   verbose : Bool := false
   backendProfile : Compiler.Base.BackendProfile := .semantic
+  targetFork : Verity.Core.Intrinsics.HardFork := .cancun
+  targetForkExplicit : Bool := false
+  allowFutureForkIntrinsics : Bool := false
   mappingSlotScratchBase : Nat := 0
   denyUncheckedDependencies : Bool := false
   denyAssumedDependencies : Bool := false
@@ -68,6 +73,8 @@ private def parseArgs (args : List String) : IO CLIArgs := do
         IO.println "  --manifest <path>  Manifest file with one Lean module per line"
         IO.println "  --module <name>    Import a Lean module and compile its canonical `<Module>.spec`"
         IO.println "  --backend-profile <semantic|solidity-parity-ordering>"
+        IO.println "  --target-fork <cancun|prague|fusaka|osaka>  EVM fork target for intrinsic min_fork checks (default: cancun)"
+        IO.println "  --allow-future-fork-intrinsics  Allow intrinsics whose min_fork is newer than --target-fork"
         IO.println "  --trust-report <path>       Write JSON trust-surface report"
         IO.println "  --assumption-report <path>  Write JSON assumption inventory report"
         IO.println "  --layout-report <path>      Write JSON storage-layout report"
@@ -130,6 +137,16 @@ private def parseArgs (args : List String) : IO CLIArgs := do
                   s!"Invalid value for --backend-profile: {raw} (expected semantic or solidity-parity-ordering)")
     | ["--backend-profile"] =>
         throw (IO.userError "Missing value for --backend-profile")
+    | "--target-fork" :: raw :: rest =>
+        match Compiler.CompileDriverCommon.parseTargetFork? raw with
+        | some fork => go rest { cfg with targetFork := fork, targetForkExplicit := true }
+        | none =>
+            throw (IO.userError
+              s!"Invalid value for --target-fork: {raw} (expected cancun, prague, fusaka, or osaka alias)")
+    | ["--target-fork"] =>
+        throw (IO.userError "Missing value for --target-fork")
+    | "--allow-future-fork-intrinsics" :: rest =>
+        go rest { cfg with allowFutureForkIntrinsics := true }
     | "--enable-patches" :: _ =>
         throw (IO.userError s!"`--enable-patches` requires `verity-compiler-patched`. {patchedCompilerHint}")
     | "--patch-max-iterations" :: _ =>
@@ -192,7 +209,14 @@ namespace Compiler.Main
 
 unsafe def run (args : List String) : IO Unit := do
   try
-    let cfg ← parseArgs args
+    let parsedCfg ← parseArgs args
+    let cfg ←
+      if parsedCfg.targetForkExplicit then
+        pure parsedCfg
+      else
+        match ← Compiler.CompileDriverCommon.tamaTomlTargetFork? with
+        | some fork => pure { parsedCfg with targetFork := fork }
+        | none => pure parsedCfg
     let rawModules ←
       match ← Compiler.ModuleInput.resolveRawModules cfg.manifestPath cfg.modules with
       | .ok modules => pure modules
@@ -208,6 +232,9 @@ unsafe def run (args : List String) : IO Unit := do
       if !rawModules.isEmpty then
         IO.println s!"Modules: {String.intercalate ", " rawModules}"
       IO.println s!"Backend profile: {backendProfileString cfg.backendProfile}"
+      IO.println s!"Target fork: {cfg.targetFork}"
+      if cfg.allowFutureForkIntrinsics then
+        IO.println "Future-fork intrinsics: allowed"
       match cfg.abiOutDir with
       | some dir => IO.println s!"ABI output directory: {dir}"
       | none => pure ()
@@ -227,6 +254,8 @@ unsafe def run (args : List String) : IO Unit := do
       IO.println ""
     let options : Compiler.Base.YulEmitOptions := {
       backendProfile := cfg.backendProfile
+      targetFork := cfg.targetFork
+      allowFutureForkIntrinsics := cfg.allowFutureForkIntrinsics
       mappingSlotScratchBase := cfg.mappingSlotScratchBase
     }
     Compiler.Base.compileModulesWithOptions

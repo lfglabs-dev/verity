@@ -149,7 +149,8 @@ def nativePrimCall
 
 partial def yulExprIdentifierNames : YulExpr → List String
   | .lit _ | .hex _ => []
-  | .str name | .ident name => [name]
+  | .str _ => []
+  | .ident name => [name]
   | .call _ args => args.foldl (fun acc arg => acc ++ yulExprIdentifierNames arg) []
 
 mutual

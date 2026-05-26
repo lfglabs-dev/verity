@@ -68,6 +68,25 @@ private def abiSmokeSpec : CompilationModel := {
   ]
 }
 
+private def futureForkIntrinsicSpec : CompilationModel := {
+  name := "FutureForkIntrinsicSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "useFutureIntrinsic"
+      params := [{ name := "x", ty := ParamType.uint256 }]
+      returnType := some FieldType.uint256
+      body := [
+        Stmt.return
+          (Expr.intrinsic "futureIntrinsic"
+            (Verity.Core.Intrinsics.YulLowering.verbatim 1 1 "1e")
+            Verity.Core.Intrinsics.HardFork.fusaka
+            [Expr.param "x"])
+      ]
+    }
+  ]
+}
+
 private def layoutReportSpec : CompilationModel := {
   name := "LayoutReportSmoke"
   fields := [
@@ -1130,6 +1149,21 @@ unsafe def runTests : IO Unit := do
   if !hasEarlySuccessfulAbi then
     throw (IO.userError s!"✗ expected ABI artifact for early successful contract, missing: {earlySuccessfulAbi}")
   IO.println "✓ ABI artifacts still emitted for contracts compiled before failure"
+
+  expectFailureContains
+    "compileSpecsWithOptions rejects future-fork intrinsics by default"
+    (compileSpecsWithOptions [futureForkIntrinsicSpec]
+      s!"/tmp/verity-compile-driver-test-{nonce}-future-intrinsic-fail"
+      false [] {} none none none none)
+    "requires min_fork=fusaka, but target_fork=cancun"
+  compileSpecsWithOptions [futureForkIntrinsicSpec]
+    s!"/tmp/verity-compile-driver-test-{nonce}-future-intrinsic-ok"
+    false [] { targetFork := Verity.Core.Intrinsics.HardFork.fusaka } none none none none
+  IO.println "✓ compileSpecsWithOptions accepts intrinsic at matching target fork"
+  compileSpecsWithOptions [futureForkIntrinsicSpec]
+    s!"/tmp/verity-compile-driver-test-{nonce}-future-intrinsic-override"
+    false [] { allowFutureForkIntrinsics := true } none none none none
+  IO.println "✓ compileSpecsWithOptions accepts future-fork intrinsic with explicit override"
 
   IO.FS.writeFile linkedLib
     "function PoseidonT3_hash(a, b) -> out {\n    out := add(a, b)\n}\n"

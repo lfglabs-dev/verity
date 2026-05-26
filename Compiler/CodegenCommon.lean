@@ -2,6 +2,7 @@ import Compiler.Constants
 import Compiler.IR
 import Compiler.Yul.PrettyPrint
 import Compiler.Yul.PatchFramework
+import Verity.Core.Intrinsics
 
 namespace Compiler.CodegenCommon
 
@@ -20,6 +21,12 @@ instance : Inhabited BackendProfile where
 structure YulEmitOptions where
   backendProfile : BackendProfile := .semantic
   patchConfig : PatchPassConfig := { enabled := false }
+  /-- EVM fork targeted by emitted Yul. Defaults to Cancun, the target schedule
+      modeled by the pinned EVMYulLean fork. -/
+  targetFork : Verity.Core.Intrinsics.HardFork := .cancun
+  /-- Explicit escape hatch for building code that uses intrinsics from a fork
+      newer than `targetFork`. Off by default. -/
+  allowFutureForkIntrinsics : Bool := false
   /-- Scratch memory base used by compiler-generated mapping-slot helpers.
       Default `0` preserves historical behavior (`mstore(0, key); mstore(32, baseSlot)`). -/
   mappingSlotScratchBase : Nat := 0
