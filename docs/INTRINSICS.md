@@ -44,8 +44,14 @@ the explicit intrinsic form so the compiler sees the lowering descriptor:
 
 ```lean
 let leadingZeros :=
-  intrinsic "clz" (Verity.Core.Intrinsics.YulLowering.verbatim 1 1 "1e") [x]
+  intrinsic_fusaka "clz" (Verity.Core.Intrinsics.YulLowering.verbatim 1 1 "1e") [x]
 ```
+
+The three-argument contract form can infer `min_fork` only when the
+`verity_intrinsic` declaration is in the same elaboration session. Cross-module
+uses should use the explicit fork form shown above:
+`intrinsic_cancun`, `intrinsic_prague`, `intrinsic_fusaka`, or
+`intrinsic_osaka` (alias for Fusaka).
 
 The declaration has five responsibilities:
 

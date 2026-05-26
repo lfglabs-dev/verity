@@ -30,6 +30,12 @@ def getRegisteredIntrinsics : IO (Array Verity.Core.Intrinsics.IntrinsicDecl) :=
 def registerIntrinsic (d : Verity.Core.Intrinsics.IntrinsicDecl) : IO Unit :=
   intrinsicDeclRegistry.modify (·.push d)
 
+private def hardForkTermFromParsed (fork : Verity.Core.Intrinsics.HardFork) : CommandElabM Term := do
+  match fork with
+  | .cancun => `(Verity.Core.Intrinsics.HardFork.cancun)
+  | .prague => `(Verity.Core.Intrinsics.HardFork.prague)
+  | .fusaka => `(Verity.Core.Intrinsics.HardFork.fusaka)
+
 inductive ValueType where
   | uint256
   | int256
@@ -4370,6 +4376,42 @@ partial def translatePureExprWithTypes
             pure out
         | _ => throwErrorAt args "expected list literal [..]"
       `(Compiler.CompilationModel.Expr.externalCall $(strTerm extName) [ $[$argsExprs],* ])
+  | `(term| intrinsic_fusaka $name:term $lowering:term $args:term) =>
+      let intrinsicName := ← expectStringOrIdent name
+      let argsExprs ←
+        match stripParens args with
+        | `(term| [ $[$xs],* ]) =>
+            xs.mapM (translatePureExprWithTypes fields constDecls immutableDecls params locals · visitingConstants)
+        | _ => throwErrorAt args "expected list literal [..]"
+      `(Compiler.CompilationModel.Expr.intrinsic $(strTerm intrinsicName) $lowering
+          Verity.Core.Intrinsics.HardFork.fusaka [ $[$argsExprs],* ])
+  | `(term| intrinsic_osaka $name:term $lowering:term $args:term) =>
+      let intrinsicName := ← expectStringOrIdent name
+      let argsExprs ←
+        match stripParens args with
+        | `(term| [ $[$xs],* ]) =>
+            xs.mapM (translatePureExprWithTypes fields constDecls immutableDecls params locals · visitingConstants)
+        | _ => throwErrorAt args "expected list literal [..]"
+      `(Compiler.CompilationModel.Expr.intrinsic $(strTerm intrinsicName) $lowering
+          Verity.Core.Intrinsics.HardFork.fusaka [ $[$argsExprs],* ])
+  | `(term| intrinsic_prague $name:term $lowering:term $args:term) =>
+      let intrinsicName := ← expectStringOrIdent name
+      let argsExprs ←
+        match stripParens args with
+        | `(term| [ $[$xs],* ]) =>
+            xs.mapM (translatePureExprWithTypes fields constDecls immutableDecls params locals · visitingConstants)
+        | _ => throwErrorAt args "expected list literal [..]"
+      `(Compiler.CompilationModel.Expr.intrinsic $(strTerm intrinsicName) $lowering
+          Verity.Core.Intrinsics.HardFork.prague [ $[$argsExprs],* ])
+  | `(term| intrinsic_cancun $name:term $lowering:term $args:term) =>
+      let intrinsicName := ← expectStringOrIdent name
+      let argsExprs ←
+        match stripParens args with
+        | `(term| [ $[$xs],* ]) =>
+            xs.mapM (translatePureExprWithTypes fields constDecls immutableDecls params locals · visitingConstants)
+        | _ => throwErrorAt args "expected list literal [..]"
+      `(Compiler.CompilationModel.Expr.intrinsic $(strTerm intrinsicName) $lowering
+          Verity.Core.Intrinsics.HardFork.cancun [ $[$argsExprs],* ])
   | `(term| intrinsic $name:term $lowering:term $args:term) =>
       let intrinsicName := ← expectStringOrIdent name
       let registered ← liftIO getRegisteredIntrinsics
@@ -4379,11 +4421,7 @@ partial def translatePureExprWithTypes
         | none =>
             throwErrorAt name
               s!"unknown intrinsic '{intrinsicName}'; declare it first with `verity_intrinsic` so the compiler can enforce min_fork"
-      let minForkTerm : Term ←
-        match minFork with
-        | .cancun => `(Verity.Core.Intrinsics.HardFork.cancun)
-        | .prague => `(Verity.Core.Intrinsics.HardFork.prague)
-        | .fusaka => `(Verity.Core.Intrinsics.HardFork.fusaka)
+      let minForkTerm ← hardForkTermFromParsed minFork
       let argsExprs ←
         match stripParens args with
         | `(term| [ $[$xs],* ]) =>
