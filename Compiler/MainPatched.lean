@@ -110,6 +110,33 @@ private def backendProfileString (profile : Compiler.BackendProfile) : String :=
 private def parseTargetFork (raw : String) : Option Verity.Core.Intrinsics.HardFork :=
   Verity.Core.Intrinsics.HardFork.parse? raw
 
+private def parseTomlStringValue? (line : String) : Option String :=
+  match line.splitOn "=" with
+  | _ :: rhsParts =>
+      let rhs := String.intercalate "=" rhsParts
+      let value := (rhs.splitOn "#").head!.trim
+      match value.splitOn "\"" with
+      | _ :: quoted :: _ => some quoted.trim
+      | _ => some value
+  | _ => none
+
+private def tamaTomlTargetFork? : IO (Option Verity.Core.Intrinsics.HardFork) := do
+  try
+    let text ← IO.FS.readFile "tama.toml"
+    let rec scan (inYul : Bool) : List String → Option String
+      | [] => none
+      | line :: rest =>
+          let trimmed := line.trim
+          if trimmed.startsWith "[" then
+            scan (trimmed == "[yul]") rest
+          else if inYul && trimmed.startsWith "evm_version" then
+            parseTomlStringValue? trimmed
+          else
+            scan inYul rest
+    pure <| (scan false (text.splitOn "\n")).bind parseTargetFork
+  catch _ =>
+    pure none
+
 private def parseArgs (args : List String) : IO CLIArgs := do
   let rec go (remaining : List String) (cfg : CLIArgs) : IO CLIArgs :=
     match remaining with
@@ -293,7 +320,14 @@ private def parseArgs (args : List String) : IO CLIArgs := do
 
 unsafe def main (args : List String) : IO Unit := do
   try
-    let cfg ← parseArgs args
+    let parsedCfg ← parseArgs args
+    let cfg ←
+      if parsedCfg.targetForkExplicit then
+        pure parsedCfg
+      else
+        match ← tamaTomlTargetFork? with
+        | some fork => pure { parsedCfg with targetFork := fork }
+        | none => pure parsedCfg
     let rawModules ←
       match ← Compiler.ModuleInput.resolveRawModules cfg.manifestPath cfg.modules with
       | .ok modules => pure modules
