@@ -2429,16 +2429,23 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_setStorageAddrSingleSlot_of_surface  -- private
   -- Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_mstoreSingle_of_surface  -- private
   -- Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_tstoreSingle_of_surface  -- private
+  -- Compiler.Proofs.IRGeneration.source_bindValue_idem  -- private
+  -- Compiler.Proofs.IRGeneration.irState_setVar_idem  -- private
   -- Compiler.Proofs.IRGeneration.sourceExec_forEach_literal_zero  -- private
+  -- Compiler.Proofs.IRGeneration.sourceExec_forEach_literal_one_empty  -- private
   -- Compiler.Proofs.IRGeneration.forEachZero_fresh_facts  -- private
+  -- Compiler.Proofs.IRGeneration.forEachOne_fresh_facts  -- private
   -- Compiler.Proofs.IRGeneration.evalIRExpr_forEachZeroCond_after_init  -- private
   -- Compiler.Proofs.IRGeneration.forEachZero_initFuel_of_slack  -- private
   -- Compiler.Proofs.IRGeneration.execIRStmts_forEach_literal_zero_compiled  -- private
+  -- Compiler.Proofs.IRGeneration.execIRStmts_forEach_literal_one_empty_compiled  -- private
   -- Compiler.Proofs.IRGeneration.forEachZero_nextScopeIncluded  -- private
   -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_forEachZeroLoop  -- private
   -- Compiler.Proofs.IRGeneration.bindingsExactly_forEachZeroBase  -- private
   -- Compiler.Proofs.IRGeneration.stmtStepMatches_forEach_literal_zero_final  -- private
+  -- Compiler.Proofs.IRGeneration.stmtStepMatches_forEach_literal_one_empty_final  -- private
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_forEach_literal_zero  -- private
+  -- Compiler.Proofs.IRGeneration.compiledStmtStep_forEach_literal_one_empty  -- private
   -- Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_setMappingUintSingle_of_slotSafety  -- private
   -- Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_setMappingChainSingle_of_slotSafety  -- private
   -- Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_setMappingSingle_of_slotSafety  -- private
@@ -2624,6 +2631,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.execIRStmts_cons_for_one_continue_of_loop_continue
   Compiler.Proofs.IRGeneration.execIRStmt_forEach_shape_init_cond_zero
   Compiler.Proofs.IRGeneration.execIRStmts_forEach_init_literal_zero
+  Compiler.Proofs.IRGeneration.execIRStmts_forEach_init_literal
   Compiler.Proofs.IRGeneration.execIRStmt_stop_succ
   Compiler.Proofs.IRGeneration.execIRStmt_stop_one_add
   Compiler.Proofs.IRGeneration.execIRStmt_stop_one_add_add
@@ -5507,4 +5515,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5209 theorems/lemmas (3611 public, 1598 private, 0 sorry'd)
+-- Total: 5217 theorems/lemmas (3612 public, 1605 private, 0 sorry'd)
