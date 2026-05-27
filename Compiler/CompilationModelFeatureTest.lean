@@ -2,6 +2,7 @@ import Compiler.CompilationModel
 import Compiler.ABI
 import Compiler.Codegen
 import Compiler.Modules.Calls
+import Compiler.Modules.Callbacks
 import Compiler.Modules.ERC4626
 import Compiler.Modules.ERC20
 import Compiler.Modules.Hashing
@@ -23,6 +24,7 @@ import Verity.Macro.Translate
 -- Disable it at file scope, matching the precedent in
 -- `Compiler/Proofs/IRGeneration/GenericInduction.lean`.
 set_option linter.unnecessarySeqFocus false
+set_option linter.unusedTactic false
 
 namespace Compiler.CompilationModelFeatureTest
 
@@ -1235,6 +1237,66 @@ def safeDivRequireLowersToZeroGuard : Bool :=
   | _ => false
 
 example : safeDivRequireLowersToZeroGuard = true := by native_decide
+
+def addPanicLowersToSolidity08Guard : Bool :=
+  match Contracts.Smoke.ArithmeticPanicSmoke.deposit_modelBody with
+  | [ Stmt.letVar "current" (Expr.storage "balance"),
+      Stmt.require
+        (Expr.ge
+          (Expr.add (Expr.localVar "current") (Expr.param "amount"))
+          (Expr.localVar "current"))
+        "Panic(0x11): arithmetic overflow",
+      Stmt.letVar "next" (Expr.add (Expr.localVar "current") (Expr.param "amount")),
+      Stmt.setStorage "balance" (Expr.localVar "next"),
+      Stmt.return (Expr.localVar "next") ] => true
+  | _ => false
+
+example : addPanicLowersToSolidity08Guard = true := by native_decide
+
+def subPanicLowersToSolidity08Guard : Bool :=
+  match Contracts.Smoke.ArithmeticPanicSmoke.withdraw_modelBody with
+  | [ Stmt.letVar "current" (Expr.storage "balance"),
+      Stmt.require
+        (Expr.ge (Expr.localVar "current") (Expr.param "amount"))
+        "Panic(0x11): arithmetic underflow",
+      Stmt.letVar "next" (Expr.sub (Expr.localVar "current") (Expr.param "amount")),
+      Stmt.setStorage "balance" (Expr.localVar "next"),
+      Stmt.return (Expr.localVar "next") ] => true
+  | _ => false
+
+example : subPanicLowersToSolidity08Guard = true := by native_decide
+
+def mulPanicLowersToSolidity08Guard : Bool :=
+  match Contracts.Smoke.ArithmeticPanicSmoke.scaleStored_modelBody with
+  | [ Stmt.letVar "current" (Expr.storage "balance"),
+      Stmt.require
+        (Expr.logicalOr
+          (Expr.eq (Expr.param "factor") (Expr.literal 0))
+          (Expr.eq
+            (Expr.div
+              (Expr.mul (Expr.localVar "current") (Expr.param "factor"))
+              (Expr.param "factor"))
+            (Expr.localVar "current")))
+        "Panic(0x11): arithmetic overflow",
+      Stmt.letVar "next" (Expr.mul (Expr.localVar "current") (Expr.param "factor")),
+      Stmt.setStorage "balance" (Expr.localVar "next"),
+      Stmt.return (Expr.localVar "next") ] => true
+  | _ => false
+
+example : mulPanicLowersToSolidity08Guard = true := by native_decide
+
+def divPanicLowersToSolidity08Guard : Bool :=
+  match Contracts.Smoke.ArithmeticPanicSmoke.shareStored_modelBody with
+  | [ Stmt.letVar "current" (Expr.storage "balance"),
+      Stmt.require
+        (Expr.logicalNot (Expr.eq (Expr.param "divisor") (Expr.literal 0)))
+        "Panic(0x12): division by zero",
+      Stmt.letVar "next" (Expr.div (Expr.localVar "current") (Expr.param "divisor")),
+      Stmt.setStorage "balance" (Expr.localVar "next"),
+      Stmt.return (Expr.localVar "next") ] => true
+  | _ => false
+
+example : divPanicLowersToSolidity08Guard = true := by native_decide
 
 end MacroSafeMulRequireSmoke
 
@@ -2624,6 +2686,25 @@ private def rawLogTraceSmokeSpec : CompilationModel := {
   ]
 }
 
+private def rawLogTooManyTopicsSpec : CompilationModel := {
+  name := "RawLogTooManyTopics"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "bad"
+      params := []
+      returnType := none
+      body := [
+        Stmt.rawLog
+          [Expr.literal 1, Expr.literal 2, Expr.literal 3, Expr.literal 4, Expr.literal 5]
+          (Expr.literal 0)
+          (Expr.literal 32),
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
 private def reservedEcmResultVarSpec : CompilationModel := {
   name := "ReservedEcmResultVar"
   fields := [{ name := "value", ty := FieldType.uint256 }]
@@ -3567,6 +3648,29 @@ private def sha256PackedWordsSmokeSpec : CompilationModel := {
   ]
 }
 
+private def abiEncodeStaticWordsSmokeSpec : CompilationModel := {
+  name := "AbiEncodeStaticWordsSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "hash"
+      params := [
+        { name := "marketId", ty := ParamType.bytes32 }
+        , { name := "assets", ty := ParamType.uint256 }
+        , { name := "shares", ty := ParamType.uint256 }
+      ]
+      returnType := none
+      returns := [ParamType.bytes32]
+      body := [
+        Compiler.Modules.Hashing.abiEncodeStaticWords
+          "digest"
+          [Expr.param "marketId", Expr.param "assets", Expr.param "shares"],
+        Stmt.returnValues [Expr.localVar "digest"]
+      ]
+    }
+  ]
+}
+
 private def abiEncodeStaticArraySmokeSpec : CompilationModel := {
   name := "AbiEncodeStaticArraySmoke"
   fields := []
@@ -3605,6 +3709,29 @@ private def abiEncodePackedStaticSegmentsSmokeSpec : CompilationModel := {
         Compiler.Modules.Hashing.abiEncodePackedStaticSegments
           "digest"
           [(Expr.param "who", 20), (Expr.param "amount", 32)],
+        Stmt.returnValues [Expr.localVar "digest"]
+      ]
+    }
+  ]
+}
+
+private def eip712DigestSmokeSpec : CompilationModel := {
+  name := "Eip712DigestSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "hashTypedData"
+      params := [
+        { name := "domainSeparator", ty := ParamType.bytes32 }
+        , { name := "structHash", ty := ParamType.bytes32 }
+      ]
+      returnType := none
+      returns := [ParamType.bytes32]
+      body := [
+        Compiler.Modules.Hashing.eip712Digest
+          "digest"
+          (Expr.param "domainSeparator")
+          (Expr.param "structHash"),
         Stmt.returnValues [Expr.localVar "digest"]
       ]
     }
@@ -3661,6 +3788,23 @@ private def abiEncodePackedWordsBadAritySpec : CompilationModel := {
       body := [
         Stmt.ecm (Compiler.Modules.Hashing.abiEncodePackedWordsModule "digest" 2)
           [Expr.param "a"],
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def abiEncodeStaticWordsBadAritySpec : CompilationModel := {
+  name := "AbiEncodeStaticWordsBadArity"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "bad"
+      params := [{ name := "marketId", ty := ParamType.bytes32 }]
+      returnType := none
+      body := [
+        Stmt.ecm (Compiler.Modules.Hashing.abiEncodeStaticWordsModule "digest" 2)
+          [Expr.param "marketId"],
         Stmt.stop
       ]
     }
@@ -3782,6 +3926,23 @@ private def sha256PackedStaticSegmentsBadAritySpec : CompilationModel := {
       body := [
         Stmt.ecm (Compiler.Modules.Hashing.sha256PackedStaticSegmentsModule "digest" [20, 32])
           [Expr.param "who"],
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def eip712DigestBadAritySpec : CompilationModel := {
+  name := "Eip712DigestBadArity"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "bad"
+      params := [{ name := "domainSeparator", ty := ParamType.bytes32 }]
+      returnType := none
+      body := [
+        Stmt.ecm (Compiler.Modules.Hashing.eip712DigestModule "digest")
+          [Expr.param "domainSeparator"],
         Stmt.stop
       ]
     }
@@ -3991,6 +4152,30 @@ private def bubblingValueCallNoOutputBadAritySpec : CompilationModel := {
   ]
 }
 
+private def callbackSmokeSpec : CompilationModel := {
+  name := "CallbackSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "notify"
+      params := [
+        { name := "target", ty := ParamType.address }
+        , { name := "assets", ty := ParamType.uint256 }
+        , { name := "data", ty := ParamType.bytes }
+      ]
+      returnType := none
+      body := [
+        Compiler.Modules.Callbacks.callback
+          (Expr.param "target")
+          0x12345678
+          [Expr.param "assets"]
+          "data",
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
 private def erc20BalanceOfSmokeSpec : CompilationModel := {
   name := "ERC20BalanceOfSmoke"
   fields := []
@@ -4057,6 +4242,80 @@ private def erc20SafeTransferFromSmokeSpec : CompilationModel := {
           (Expr.param "token")
           (Expr.param "owner")
           (Expr.param "recipient")
+          (Expr.param "amount"),
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def erc20SolmateSafeTransferSmokeSpec : CompilationModel := {
+  name := "ERC20SolmateSafeTransferSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "send"
+      params := [
+        { name := "token", ty := ParamType.address }
+        , { name := "recipient", ty := ParamType.address }
+        , { name := "amount", ty := ParamType.uint256 }
+      ]
+      returnType := none
+      returns := []
+      body := [
+        Compiler.Modules.ERC20.solmateSafeTransfer
+          (Expr.param "token")
+          (Expr.param "recipient")
+          (Expr.param "amount"),
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def erc20SolmateSafeTransferFromSmokeSpec : CompilationModel := {
+  name := "ERC20SolmateSafeTransferFromSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "pull"
+      params := [
+        { name := "token", ty := ParamType.address }
+        , { name := "owner", ty := ParamType.address }
+        , { name := "recipient", ty := ParamType.address }
+        , { name := "amount", ty := ParamType.uint256 }
+      ]
+      returnType := none
+      returns := []
+      body := [
+        Compiler.Modules.ERC20.solmateSafeTransferFrom
+          (Expr.param "token")
+          (Expr.param "owner")
+          (Expr.param "recipient")
+          (Expr.param "amount"),
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def erc20SafeApproveSmokeSpec : CompilationModel := {
+  name := "ERC20SafeApproveSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "approve"
+      params := [
+        { name := "token", ty := ParamType.address }
+        , { name := "spender", ty := ParamType.address }
+        , { name := "amount", ty := ParamType.uint256 }
+      ]
+      returnType := none
+      returns := []
+      body := [
+        Compiler.Modules.ERC20.safeApprove
+          (Expr.param "token")
+          (Expr.param "spender")
           (Expr.param "amount"),
         Stmt.stop
       ]
@@ -4767,8 +5026,12 @@ set_option maxRecDepth 4096 in
   let rawLogTraceYul ← expectCompileToYul
     "rawLog trace smoke spec"
     rawLogTraceSmokeSpec
-  expectTrue "rawLog with dynamic topic expressions lowers to log2 in rendered Yul"
-    (contains rawLogTraceYul "log2(")
+  expectTrue "rawLog preserves the modeled memory slice and topic expressions in rendered Yul"
+    (contains rawLogTraceYul "log2(dataOffset, dataSize, topic0, add(topic1, 1))")
+  expectCompileErrorContains
+    "compiler rawLog rejects more than four topics"
+    rawLogTooManyTopicsSpec
+    "rawLog supports at most 4 topics"
   let envRuntimeYul ← expectCompileToYul "env runtime smoke compiles" envRuntimeSmokeSpec
   expectTrue "env runtime smoke lowers block.number" (contains envRuntimeYul "number()")
   let stringCompiled :=
@@ -5164,6 +5427,26 @@ set_option maxRecDepth 4096 in
       contains abiEncodePackedWordsYul "mstore(64, add(__digest_packed_words_ptr, 96))")
   expectTrue "abiEncodePackedWords hashes the exact packed byte length"
     (contains abiEncodePackedWordsYul "digest := keccak256(__digest_packed_words_ptr, 96)")
+  let abiEncodeStaticWordsYul ←
+    expectCompileToYul "abiEncodeStaticWords smoke spec" abiEncodeStaticWordsSmokeSpec
+  expectTrue "abiEncodeStaticWords stores full ABI words contiguously"
+    (contains abiEncodeStaticWordsYul "let __digest_abi_static_words_ptr := mload(64)" &&
+      contains abiEncodeStaticWordsYul "mstore(add(__digest_abi_static_words_ptr, 0), __packed_word_0)" &&
+      contains abiEncodeStaticWordsYul "mstore(add(__digest_abi_static_words_ptr, 32), __packed_word_1)" &&
+      contains abiEncodeStaticWordsYul "mstore(add(__digest_abi_static_words_ptr, 64), __packed_word_2)" &&
+      contains abiEncodeStaticWordsYul "mstore(64, add(__digest_abi_static_words_ptr, 96))")
+  expectTrue "abiEncodeStaticWords hashes the exact ABI static byte length"
+    (contains abiEncodeStaticWordsYul
+      "digest := keccak256(__digest_abi_static_words_ptr, 96)")
+  expectCompileErrorContains
+    "abiEncodeStaticWords ECM rejects invalid argument counts"
+    abiEncodeStaticWordsBadAritySpec
+    "uses ECM 'abiEncodeStaticWords' with 1 arguments but it expects 2"
+  let abiEncodeStaticWordsTrustReport := emitTrustReportJson [abiEncodeStaticWordsSmokeSpec]
+  expectTrue "abiEncodeStaticWords trust report surfaces standard static ABI and keccak assumptions"
+    (contains abiEncodeStaticWordsTrustReport "\"module\":\"abiEncodeStaticWords\"" &&
+      contains abiEncodeStaticWordsTrustReport "\"assumption\":\"abi_standard_static_word_layout\"" &&
+      contains abiEncodeStaticWordsTrustReport "\"assumption\":\"keccak256_memory_slice_matches_evm\"")
   let abiEncodeStaticArrayYul ←
     expectCompileToYul "abiEncodeStaticArray smoke spec" abiEncodeStaticArraySmokeSpec
   expectTrue "abiEncodeStaticArray writes the single dynamic argument head and length"
@@ -5242,6 +5525,25 @@ set_option maxRecDepth 4096 in
     (contains abiEncodePackedStaticSegmentsTrustReport "\"module\":\"abiEncodePackedStaticSegments\"" &&
       contains abiEncodePackedStaticSegmentsTrustReport "\"assumption\":\"abi_packed_static_segment_layout\"" &&
       contains abiEncodePackedStaticSegmentsTrustReport "\"assumption\":\"keccak256_memory_slice_matches_evm\"")
+  let eip712DigestYul ←
+    expectCompileToYul "eip712Digest smoke spec" eip712DigestSmokeSpec
+  expectTrue "eip712Digest writes the byte-exact typed-data preimage"
+    (contains eip712DigestYul "let __digest_eip712_ptr := mload(64)" &&
+      contains eip712DigestYul "mstore(__digest_eip712_ptr, shl(240, 0x1901))" &&
+      contains eip712DigestYul "mstore(add(__digest_eip712_ptr, 2), domainSeparator)" &&
+      contains eip712DigestYul "mstore(add(__digest_eip712_ptr, 34), structHash)")
+  expectTrue "eip712Digest hashes exactly 66 bytes and advances memory by 96 bytes"
+    (contains eip712DigestYul "digest := keccak256(__digest_eip712_ptr, 66)" &&
+      contains eip712DigestYul "mstore(64, add(__digest_eip712_ptr, 96))")
+  expectCompileErrorContains
+    "eip712Digest ECM rejects invalid argument counts"
+    eip712DigestBadAritySpec
+    "uses ECM 'eip712Digest' with 1 arguments but it expects 2"
+  let eip712DigestTrustReport := emitTrustReportJson [eip712DigestSmokeSpec]
+  expectTrue "eip712Digest trust report surfaces typed-data layout and keccak assumptions"
+    (contains eip712DigestTrustReport "\"module\":\"eip712Digest\"" &&
+      contains eip712DigestTrustReport "\"assumption\":\"eip712_digest_layout\"" &&
+      contains eip712DigestTrustReport "\"assumption\":\"keccak256_memory_slice_matches_evm\"")
   let sha256PackedStaticSegmentsYul ←
     expectCompileToYul "sha256PackedStaticSegments smoke spec" sha256PackedStaticSegmentsSmokeSpec
   expectTrue "sha256PackedStaticSegments masks and left-aligns sub-word static values"
@@ -5348,6 +5650,23 @@ set_option maxRecDepth 4096 in
       contains bubblingValueCallNoOutputTrustReport
         "\"assumption\":\"generic_low_level_value_call_interface\"" &&
       contains bubblingValueCallNoOutputTrustReport "\"status\":\"assumed\"")
+  let callbackYul ←
+    expectCompileToYul "callback smoke spec" callbackSmokeSpec
+  expectTrue "callback ECM builds calldata at free memory and advances the pointer"
+    (contains callbackYul "let __cb_ptr := mload(64)" &&
+      contains callbackYul "mstore(__cb_ptr, shl(224, 0x12345678))" &&
+      contains callbackYul "mstore(add(__cb_ptr, 4), assets)" &&
+      contains callbackYul "mstore(add(__cb_ptr, 36), 64)" &&
+      contains callbackYul "mstore(add(__cb_ptr, 68), data_length)" &&
+      contains callbackYul "mstore(64, add(__cb_ptr, and(add(add(100, and(add(data_length, 31), not(31))), 31), not(31))))")
+  expectTrue "callback ECM calls the target and bubbles revert returndata"
+    (contains callbackYul "call(gas(), target, 0, __cb_ptr, add(100, and(add(data_length, 31), not(31))), 0, 0)" &&
+      contains callbackYul "returndatacopy(0, 0, __cb_rds)" &&
+      contains callbackYul "revert(0, __cb_rds)")
+  let callbackTrustReport := emitTrustReportJson [callbackSmokeSpec]
+  expectTrue "callback trust report surfaces callback target interface"
+    (contains callbackTrustReport "\"module\":\"callback\"" &&
+      contains callbackTrustReport "\"assumption\":\"callback_target_interface\"")
   let erc20BalanceOfYul ←
     expectCompileToYul "erc20 balanceOf smoke spec" erc20BalanceOfSmokeSpec
   expectTrue "erc20 balanceOf ECM lowers to staticcall"
@@ -5376,6 +5695,12 @@ set_option maxRecDepth 4096 in
     (contains erc20SafeTransferYul "mstore(0, 0x5274afe700000000000000000000000000000000000000000000000000000000)" &&
       contains erc20SafeTransferYul "extcodesize(token)" &&
       contains erc20SafeTransferYul "revert(0, 36)")
+  expectTrue "erc20 safeTransfer ECM rejects malformed optional bool returndata"
+    (contains erc20SafeTransferYul "let __erc20_rds := returndatasize()" &&
+      contains erc20SafeTransferYul "if iszero(__erc20_rds) {" &&
+      contains erc20SafeTransferYul "if __erc20_rds {" &&
+      contains erc20SafeTransferYul "if iszero(eq(__erc20_rds, 32)) {" &&
+      contains erc20SafeTransferYul "if iszero(eq(mload(__st_ptr), 1)) {")
   let erc20SafeTransferFromYul ←
     expectCompileToYul "erc20 safeTransferFrom smoke spec" erc20SafeTransferFromSmokeSpec
   expectTrue "erc20 safeTransferFrom ECM allocates calldata from the free-memory pointer"
@@ -5391,6 +5716,48 @@ set_option maxRecDepth 4096 in
     (contains erc20SafeTransferFromYul "mstore(0, 0x5274afe700000000000000000000000000000000000000000000000000000000)" &&
       contains erc20SafeTransferFromYul "extcodesize(token)" &&
       contains erc20SafeTransferFromYul "revert(0, 36)")
+  expectTrue "erc20 safeTransferFrom ECM rejects malformed optional bool returndata"
+    (contains erc20SafeTransferFromYul "let __erc20_rds := returndatasize()" &&
+      contains erc20SafeTransferFromYul "if iszero(__erc20_rds) {" &&
+      contains erc20SafeTransferFromYul "if __erc20_rds {" &&
+      contains erc20SafeTransferFromYul "if iszero(eq(__erc20_rds, 32)) {" &&
+      contains erc20SafeTransferFromYul "if iszero(eq(mload(__stf_ptr), 1)) {")
+  let erc20SolmateSafeTransferYul ←
+    expectCompileToYul "erc20 solmateSafeTransfer smoke spec" erc20SolmateSafeTransferSmokeSpec
+  expectTrue "erc20 solmateSafeTransfer ECM uses Solmate optional bool semantics"
+    (contains erc20SolmateSafeTransferYul "let __sst_ptr := mload(64)" &&
+      contains erc20SolmateSafeTransferYul "call(gas(), token, 0, __sst_ptr, 68, __sst_ptr, 32)" &&
+      contains erc20SolmateSafeTransferYul "let __erc20_rds := returndatasize()" &&
+      contains erc20SolmateSafeTransferYul "gt(__erc20_rds, 31)" &&
+      contains erc20SolmateSafeTransferYul "eq(mload(__sst_ptr), 1)" &&
+      contains erc20SolmateSafeTransferYul "revert(0, 0)")
+  let erc20SolmateSafeTransferFromYul ←
+    expectCompileToYul "erc20 solmateSafeTransferFrom smoke spec" erc20SolmateSafeTransferFromSmokeSpec
+  expectTrue "erc20 solmateSafeTransferFrom ECM uses Solmate optional bool semantics"
+    (contains erc20SolmateSafeTransferFromYul "let __sstf_ptr := mload(64)" &&
+      contains erc20SolmateSafeTransferFromYul "call(gas(), token, 0, __sstf_ptr, 100, __sstf_ptr, 32)" &&
+      contains erc20SolmateSafeTransferFromYul "let __erc20_rds := returndatasize()" &&
+      contains erc20SolmateSafeTransferFromYul "gt(__erc20_rds, 31)" &&
+      contains erc20SolmateSafeTransferFromYul "eq(mload(__sstf_ptr), 1)" &&
+      contains erc20SolmateSafeTransferFromYul "revert(0, 0)")
+  let erc20SolmateTrustReport := emitTrustReportJson [erc20SolmateSafeTransferSmokeSpec, erc20SolmateSafeTransferFromSmokeSpec]
+  expectTrue "erc20 solmate helpers surface distinct SafeTransferLib assumptions"
+    (contains erc20SolmateTrustReport "\"module\":\"solmateSafeTransfer\"" &&
+      contains erc20SolmateTrustReport "\"assumption\":\"erc20_solmate_safe_transfer_interface\"" &&
+      contains erc20SolmateTrustReport "\"module\":\"solmateSafeTransferFrom\"" &&
+      contains erc20SolmateTrustReport "\"assumption\":\"erc20_solmate_safe_transferFrom_interface\"")
+  let erc20SafeApproveYul ←
+    expectCompileToYul "erc20 safeApprove smoke spec" erc20SafeApproveSmokeSpec
+  expectTrue "erc20 safeApprove ECM allocates calldata from the free-memory pointer"
+    (contains erc20SafeApproveYul "let __sa_ptr := mload(64)" &&
+      contains erc20SafeApproveYul "mstore(__sa_ptr, 0x095ea7b300000000000000000000000000000000000000000000000000000000)" &&
+      contains erc20SafeApproveYul "call(gas(), token, 0, __sa_ptr, 68, __sa_ptr, 32)")
+  expectTrue "erc20 safeApprove ECM rejects malformed optional bool returndata"
+    (contains erc20SafeApproveYul "let __erc20_rds := returndatasize()" &&
+      contains erc20SafeApproveYul "if iszero(__erc20_rds) {" &&
+      contains erc20SafeApproveYul "if __erc20_rds {" &&
+      contains erc20SafeApproveYul "if iszero(eq(__erc20_rds, 32)) {" &&
+      contains erc20SafeApproveYul "if iszero(eq(mload(__sa_ptr), 1)) {")
   let callWithValueYul ←
     expectCompileToYul "generic callWithValue smoke spec" callWithValueSmokeSpec
   expectTrue "callWithValue ECM lowers to an ETH-aware generic call"
