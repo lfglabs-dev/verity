@@ -456,7 +456,7 @@
         },
         {
           "name": "support.function.guard.verity",
-          "match": "\\b(require|requireSomeUint|requireError|revert|revertError)\\b"
+          "match": "\\b(require|requireSomeUint|requireSomeUintError|requireError|revert|revertError)\\b"
         },
         {
           "name": "support.function.external-call.verity",

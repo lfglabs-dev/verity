@@ -3468,6 +3468,20 @@ private partial def inferBindSourceType
           requireWordLikeType b "safe uint helper" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals b)
           pure .uint256
       | _ => throwErrorAt rhs "unsupported requireSomeUint source; expected safeAdd, safeSub, safeMul, or safeDiv"
+  -- Typed-error counterpart to `requireSomeUint`. `requireSomeUintError
+  -- (safeXxx a b) ErrName(args)` validates the same `safeXxx` source shape
+  -- and result type; argument-type validation against the contract's
+  -- `errors` block happens in the do-element walk before the lowering pass.
+  | `(term| requireSomeUintError $optExpr:term $_errorName:ident($_args,*)) =>
+      match stripParens optExpr with
+      | `(term| safeAdd $a:term $b:term)
+      | `(term| safeSub $a:term $b:term)
+      | `(term| safeMul $a:term $b:term)
+      | `(term| safeDiv $a:term $b:term) => do
+          requireWordLikeType a "safe uint helper" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals a)
+          requireWordLikeType b "safe uint helper" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals b)
+          pure .uint256
+      | _ => throwErrorAt rhs "unsupported requireSomeUintError source; expected safeAdd, safeSub, safeMul, or safeDiv"
   -- Solidity-0.8 default-revert arithmetic (verity#1752). `addPanic`,
   -- `subPanic`, `mulPanic`, `divPanic` are ergonomic shorthands for the
   -- corresponding `requireSomeUint (safeXxx a b) <fixed Panic-style message>`
@@ -5659,6 +5673,60 @@ private def translateSafeRequireBind
           ])
       | _ =>
           throwErrorAt rhs "unsupported requireSomeUint source; expected safeAdd, safeSub, safeMul, or safeDiv"
+  -- Typed-error counterpart to `requireSomeUint`. The lowering mirrors the
+  -- string-message variant exactly, except the guard becomes a
+  -- `Stmt.requireError` emitting a 4-byte selector revert with the supplied
+  -- error name and argument list.
+  | `(term| requireSomeUintError $optExpr:term $errorName:ident($args,*)) =>
+      let errorNameLit := strTerm (toString errorName.getId)
+      let argExprs ← args.getElems.mapM (translatePureExprWithTypes fields constDecls immutableDecls params locals)
+      let optExpr := stripParens optExpr
+      match optExpr with
+      | `(term| safeAdd $a:term $b:term) =>
+          let aExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals a
+          let bExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals b
+          let valueExpr : Term ← `(Compiler.CompilationModel.Expr.add $aExpr $bExpr)
+          let guardExpr : Term ← `(Compiler.CompilationModel.Expr.ge $valueExpr $aExpr)
+          pure (some #[
+            (← `(Compiler.CompilationModel.Stmt.requireError $guardExpr $errorNameLit [ $[$argExprs],* ])),
+            (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $valueExpr))
+          ])
+      | `(term| safeSub $a:term $b:term) =>
+          let aExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals a
+          let bExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals b
+          let valueExpr : Term ← `(Compiler.CompilationModel.Expr.sub $aExpr $bExpr)
+          let guardExpr : Term ← `(Compiler.CompilationModel.Expr.ge $aExpr $bExpr)
+          pure (some #[
+            (← `(Compiler.CompilationModel.Stmt.requireError $guardExpr $errorNameLit [ $[$argExprs],* ])),
+            (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $valueExpr))
+          ])
+      | `(term| safeMul $a:term $b:term) =>
+          let aExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals a
+          let bExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals b
+          let valueExpr : Term ← `(Compiler.CompilationModel.Expr.mul $aExpr $bExpr)
+          let zeroExpr : Term ← `(Compiler.CompilationModel.Expr.literal 0)
+          let divisorZeroExpr : Term ← `(Compiler.CompilationModel.Expr.eq $bExpr $zeroExpr)
+          let quotientExpr : Term ← `(Compiler.CompilationModel.Expr.div $valueExpr $bExpr)
+          let noOverflowExpr : Term ← `(Compiler.CompilationModel.Expr.eq $quotientExpr $aExpr)
+          let guardExpr : Term ← `(Compiler.CompilationModel.Expr.logicalOr $divisorZeroExpr $noOverflowExpr)
+          pure (some #[
+            (← `(Compiler.CompilationModel.Stmt.requireError $guardExpr $errorNameLit [ $[$argExprs],* ])),
+            (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $valueExpr))
+          ])
+      | `(term| safeDiv $a:term $b:term) =>
+          let aExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals a
+          let bExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals b
+          let valueExpr : Term ← `(Compiler.CompilationModel.Expr.div $aExpr $bExpr)
+          let zeroExpr : Term ← `(Compiler.CompilationModel.Expr.literal 0)
+          let guardExpr : Term ←
+            `(Compiler.CompilationModel.Expr.logicalNot
+                (Compiler.CompilationModel.Expr.eq $bExpr $zeroExpr))
+          pure (some #[
+            (← `(Compiler.CompilationModel.Stmt.requireError $guardExpr $errorNameLit [ $[$argExprs],* ])),
+            (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $valueExpr))
+          ])
+      | _ =>
+          throwErrorAt rhs "unsupported requireSomeUintError source; expected safeAdd, safeSub, safeMul, or safeDiv"
   -- Solidity-0.8 default-revert arithmetic (verity#1752): `let x ← addPanic a b`
   -- lowers to the same IR as
   -- `let x ← requireSomeUint (safeAdd a b) "Panic(0x11): arithmetic overflow"`,
@@ -5857,6 +5925,17 @@ private partial def validateDoElemExprTypes
                       ty := .array elemTy
                       source := .memoryArray }
               | none =>
+                  -- requireSomeUintError is the only bind source that takes
+                  -- a custom-error name; validate the error name against the
+                  -- contract's `errors` block before falling through to the
+                  -- generic bind-source typer.
+                  match stripParens rhs with
+                  | `(term| requireSomeUintError $_optExpr:term $errorName:ident($args,*)) =>
+                      for arg in args.getElems do
+                        let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals arg
+                      validateCustomErrorCall ownerName (toString errorName.getId)
+                        params errorDecls args.getElems
+                  | _ => pure ()
                   let ty ← inferBindSourceType fields constDecls immutableDecls externalDecls functions params locals rhs
                   requireSupportedLocalBindingType name s!"local binding '{toString name.getId}'" ty
                   pure <| locals.push (mkTypedLocal (toString name.getId) ty)
