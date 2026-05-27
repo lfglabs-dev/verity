@@ -8,9 +8,9 @@ structure that the compiler can plug in without modification.
 
 | File | Modules | Replaces |
 |------|---------|----------|
-| `ERC20.lean` | `safeTransfer`, `safeTransferFrom`, `safeApprove`, `balanceOf`, `allowance`, `totalSupply` | `Stmt.safeTransfer`, `Stmt.safeTransferFrom`, canonical ERC-20 read wrappers |
+| `ERC20.lean` | `safeTransfer`, `safeTransferFrom`, `safeApprove`, `solmateSafeTransfer`, `solmateSafeTransferFrom`, `balanceOf`, `allowance`, `totalSupply` | OpenZeppelin-style and Solmate-style optional-return write wrappers plus canonical ERC-20 read wrappers |
 | `ERC4626.lean` | `previewDeposit`, `previewMint`, `previewWithdraw`, `previewRedeem`, `convertToAssets`, `convertToShares`, `totalAssets`, `asset`, `maxDeposit`, `maxMint`, `maxWithdraw`, `maxRedeem`, `deposit` | canonical vault preview/conversion wrappers plus a standard deposit wrapper |
-| `Hashing.lean` | `abiEncodePackedWords` / `abiEncodePacked`, `sha256PackedWords` / `sha256Packed`, `abiEncodePackedStaticSegments`, `sha256PackedStaticSegments` | handwritten static packed hash preimage `mstore` choreography |
+| `Hashing.lean` | `abiEncodeStaticWords`, `abiEncodePackedWords` / `abiEncodePacked`, `sha256PackedWords` / `sha256Packed`, `abiEncodePackedStaticSegments`, `sha256PackedStaticSegments`, `eip712Digest` | handwritten static ABI, packed, and EIP-712 hash preimage `mstore` choreography |
 | `Oracle.lean` | `oracleReadUint256` | canonical oracle read wrappers |
 | `Precompiles.lean` | `ecrecover`, `sha256Memory` / `sha256`, `bn256Add`, `bn256ScalarMul`, `bn256Pairing` | `Stmt.ecrecover`, handwritten SHA-256 / BN254 (alt_bn128) precompile calls |
 | `Callbacks.lean` | `callback` | `Stmt.callback` |
@@ -31,10 +31,20 @@ body := [
 ]
 ```
 
+Choose the ERC-20 write wrapper whose optional-return policy matches the
+Solidity source. `safeTransfer` / `safeTransferFrom` / `safeApprove` use
+OpenZeppelin-style code-existence and exact-bool checks; `solmateSafeTransfer`
+and `solmateSafeTransferFrom` match Solmate SafeTransferLib's
+`returndatasize() == 0 || (returndatasize() > 31 && mload(ptr) == 1)` shape.
+
 Static-word packed hashing helpers are available for ZK/audit preimages whose
 items are already 32-byte words:
 
 ```lean
+Modules.Hashing.abiEncodeStaticWords
+  "digest"
+  [Expr.param "marketId", Expr.param "assets", Expr.param "shares"]
+
 Modules.Hashing.abiEncodePackedWords
   "digest"
   [Expr.param "root", Expr.param "contextHash", Expr.param "nullifier"]
@@ -44,11 +54,13 @@ Modules.Hashing.sha256PackedWords
   [Expr.param "root", Expr.param "contextHash"]
 ```
 
-The shorter `Modules.Hashing.abiEncodePacked` and
+Use `abiEncodeStaticWords` for the static-word subset of
+`keccak256(abi.encode(...))`. The shorter `Modules.Hashing.abiEncodePacked` and
 `Modules.Hashing.sha256Packed` aliases are available for the same static-word
-semantics. These helpers write words contiguously at scratch memory offset zero.
-For static packed preimages with byte-width segments such as address-sized
-values, use the segment helpers:
+packed semantics as `abiEncodePackedWords` and `sha256PackedWords`. These
+helpers write words contiguously at the Solidity free-memory pointer. For
+static packed preimages with byte-width segments such as address-sized values,
+use the segment helpers:
 
 ```lean
 Modules.Hashing.abiEncodePackedStaticSegments
@@ -64,6 +76,18 @@ Segment widths are explicit byte counts from 1 to 32. Sub-word values are
 masked to their requested width and left-aligned before `mstore`, and subsequent
 segments are placed at byte-precise offsets. These helpers still do not
 implement dynamic Solidity packed encoding for `bytes` or `string`.
+
+For EIP-712's final typed-data digest, use:
+
+```lean
+Modules.Hashing.eip712Digest
+  "digest"
+  (Expr.param "domainSeparator")
+  (Expr.param "structHash")
+```
+
+This helper fixes the `hex"1901" || domainSeparator || structHash` preimage;
+domain separator and struct hash construction remain explicit model code.
 
 ## Writing a New Standard Module
 

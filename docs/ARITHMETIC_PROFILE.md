@@ -78,10 +78,22 @@ For contracts that require overflow protection, the EDSL provides checked operat
 | `safeSub a b` | `Option Uint256` | `none` if `b > a` |
 | `safeMul a b` | `Option Uint256` | `none` if `a * b > 2^256 - 1` |
 | `safeDiv a b` | `Option Uint256` | `none` if `b = 0` |
+| `addPanic a b` | `Contract Uint256` | reverts with `Panic(0x11)` if `a + b > 2^256 - 1` |
+| `subPanic a b` | `Contract Uint256` | reverts with `Panic(0x11)` if `b > a` |
+| `mulPanic a b` | `Contract Uint256` | reverts with `Panic(0x11)` if `a * b > 2^256 - 1` |
+| `divPanic a b` | `Contract Uint256` | reverts with `Panic(0x12)` if `b = 0` |
 | `mulDiv512Down? a b c` | `Option Uint256` | `none` if `c = 0` or `floor(a * b / c) > 2^256 - 1`; product is unbounded |
 | `mulDiv512Up? a b c` | `Option Uint256` | `none` if `c = 0` or `ceil(a * b / c) > 2^256 - 1`; product is unbounded |
 
 Checked operations are **explicit EDSL-level constructs**. The compiler does not insert overflow checks for bare `add`/`sub`/`mul`, and bare `div` keeps EVM division-by-zero semantics. Contracts that need checked behavior must explicitly use `safeAdd`/`safeSub`/`safeMul`/`safeDiv` and handle the `Option` result. In `verity_contract`, `requireSomeUint (safeAdd ...)`, `requireSomeUint (safeSub ...)`, `requireSomeUint (safeMul ...)`, and `requireSomeUint (safeDiv ...)` lower to concrete `require` guards followed by the corresponding arithmetic result binding. The `mulDiv512...?` helpers are proof/modeling helpers for full-precision Solidity `Math.mulDiv` semantics; compiled Yul lowering for a first-class 512-bit division primitive is still tracked by #1761.
+
+For Solidity-0.8-style source models, prefer the panic wrappers
+`addPanic`/`subPanic`/`mulPanic`/`divPanic`. They are thin `Contract` wrappers
+around the safe operations with canonical panic messages, and the
+`verity_contract` macro lowers binds such as `let total ← addPanic total amount`
+to the same checked guard/result shape as the explicit `requireSomeUint`
+spelling. The generated-Yul feature tests assert the guard lowering for all four
+safe arithmetic operations.
 
 **Correctness proofs**: `Verity/Proofs/Stdlib/Math.lean` proves that checked operations return the correct result within bounds and `none` otherwise (e.g., `safeAdd_some`, `safeAdd_none`).
 

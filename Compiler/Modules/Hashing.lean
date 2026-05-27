@@ -1,9 +1,11 @@
 /-
-  Compiler.Modules.Hashing: packed static hash helpers
+  Compiler.Modules.Hashing: static ABI and packed hash helpers
 
   These helpers cover common audit-modeling hash preimages:
+  - static ABI-encoded 32-byte words
   - static 32-byte words
   - static byte-width segments from 1 to 32 bytes
+  - the final EIP-712 typed-data digest preimage
 
   They intentionally do not model dynamic Solidity packed encoding for bytes or
   strings yet.
@@ -109,6 +111,46 @@ def abiEncodePackedWords (resultVar : String) (words : List Expr) : Stmt :=
     the call site. -/
 def abiEncodePacked (resultVar : String) (words : List Expr) : Stmt :=
   abiEncodePackedWords resultVar words
+
+/-- Keccak-256 over Solidity `abi.encode(...)` for static values already
+    represented as full ABI words.
+
+    For complete-word static values, the ABI encoding is the contiguous sequence
+    of 32-byte words. Sub-word normalization (for example address/bool masking)
+    is expected to happen at the expression/lowering layer before this helper is
+    called. -/
+def abiEncodeStaticWordsModule (resultVar : String) (wordCount : Nat) : ExternalCallModule where
+  name := "abiEncodeStaticWords"
+  numArgs := wordCount
+  resultVars := [resultVar]
+  writesState := false
+  readsState := false
+  axioms := ["keccak256_memory_slice_matches_evm", "abi_standard_static_word_layout"]
+  compile := fun _ctx args => do
+    if args.length != wordCount then
+      throw s!"abiEncodeStaticWords expects {wordCount} static word argument(s)"
+    let size := wordCount * 32
+    let ptrName := s!"__{resultVar}_abi_static_words_ptr"
+    let ptr := YulExpr.ident ptrName
+    pure [
+      YulStmt.let_ resultVar (YulExpr.lit 0),
+      YulStmt.block (
+        packedWordBindings args ++
+        [YulStmt.let_ ptrName (YulExpr.call "mload" [YulExpr.lit freeMemoryPointer])] ++
+        packedWordTempStoresAt ptr wordCount ++
+        [
+          YulStmt.expr (YulExpr.call "mstore" [
+            YulExpr.lit freeMemoryPointer,
+            YulExpr.call "add" [ptr, YulExpr.lit (alignUp32 size)]
+          ]),
+          YulStmt.assign resultVar (YulExpr.call "keccak256" [ptr, YulExpr.lit size])
+        ])
+    ]
+
+/-- Convenience constructor for `keccak256(abi.encode(...))` over static ABI
+    word arguments. -/
+def abiEncodeStaticWords (resultVar : String) (words : List Expr) : Stmt :=
+  .ecm (abiEncodeStaticWordsModule resultVar words.length) words
 
 /-- Keccak-256 over Solidity `abi.encode(array)` for a direct dynamic-array
     parameter whose elements have a fixed static word width.
@@ -218,6 +260,54 @@ def abiEncodePackedStaticSegmentsModule (resultVar : String) (widths : List Nat)
 def abiEncodePackedStaticSegments (resultVar : String) (segments : List (Expr × Nat)) : Stmt :=
   .ecm (abiEncodePackedStaticSegmentsModule resultVar (segments.map Prod.snd))
     (segments.map Prod.fst)
+
+/-- EIP-712 typed-data digest helper.
+
+    Computes `keccak256(abi.encodePacked(hex"1901", domainSeparator, structHash))`
+    over a scratch memory slice. The cryptographic Keccak equivalence remains
+    the standard memory-slice Keccak assumption, while the helper fixes the
+    byte-exact EIP-712 preimage layout at one audited call site. -/
+def eip712DigestModule (resultVar : String) : ExternalCallModule where
+  name := "eip712Digest"
+  numArgs := 2
+  resultVars := [resultVar]
+  writesState := false
+  readsState := false
+  axioms := ["keccak256_memory_slice_matches_evm", "eip712_digest_layout"]
+  compile := fun _ctx args => do
+    let (domainSeparatorExpr, structHashExpr) ←
+      match args with
+      | [domainSeparatorExpr, structHashExpr] => pure (domainSeparatorExpr, structHashExpr)
+      | _ => throw s!"eip712Digest expects 2 arguments (domainSeparator, structHash)"
+    let ptrName := s!"__{resultVar}_eip712_ptr"
+    let ptr := YulExpr.ident ptrName
+    pure [
+      YulStmt.let_ resultVar (YulExpr.lit 0),
+      YulStmt.block [
+        YulStmt.let_ ptrName (YulExpr.call "mload" [YulExpr.lit freeMemoryPointer]),
+        YulStmt.expr (YulExpr.call "mstore" [
+          ptr,
+          YulExpr.call "shl" [YulExpr.lit 240, YulExpr.hex 0x1901]
+        ]),
+        YulStmt.expr (YulExpr.call "mstore" [
+          YulExpr.call "add" [ptr, YulExpr.lit 2],
+          domainSeparatorExpr
+        ]),
+        YulStmt.expr (YulExpr.call "mstore" [
+          YulExpr.call "add" [ptr, YulExpr.lit 34],
+          structHashExpr
+        ]),
+        YulStmt.expr (YulExpr.call "mstore" [
+          YulExpr.lit freeMemoryPointer,
+          YulExpr.call "add" [ptr, YulExpr.lit 96]
+        ]),
+        YulStmt.assign resultVar (YulExpr.call "keccak256" [ptr, YulExpr.lit 66])
+      ]
+    ]
+
+/-- Convenience constructor for EIP-712 typed-data digest hashing. -/
+def eip712Digest (resultVar : String) (domainSeparator structHash : Expr) : Stmt :=
+  .ecm (eip712DigestModule resultVar) [domainSeparator, structHash]
 
 /-- SHA-256 over packed static 32-byte words stored at free memory.
     The digest is written after the packed input words and then bound from

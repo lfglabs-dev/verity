@@ -142,6 +142,8 @@ compilation fail if any assumption hasn't been reviewed.
 | `ERC20.safeTransfer` | `erc20_transfer_interface` | Target implements ERC-20 `transfer(address,uint256)` |
 | `ERC20.safeTransferFrom` | `erc20_transferFrom_interface` | Target implements ERC-20 `transferFrom(address,address,uint256)` |
 | `ERC20.safeApprove` | `erc20_approve_interface` | Target implements ERC-20 `approve(address,uint256)` |
+| `ERC20.solmateSafeTransfer` | `erc20_solmate_safe_transfer_interface` | Target implements ERC-20 `transfer(address,uint256)`; optional-return acceptance follows Solmate SafeTransferLib |
+| `ERC20.solmateSafeTransferFrom` | `erc20_solmate_safe_transferFrom_interface` | Target implements ERC-20 `transferFrom(address,address,uint256)`; optional-return acceptance follows Solmate SafeTransferLib |
 | `ERC20.balanceOf` | `erc20_balanceOf_interface` | Target implements `balanceOf(address)` and returns a `uint256` |
 | `ERC20.allowance` | `erc20_allowance_interface` | Target implements `allowance(address,address)` and returns a `uint256` |
 | `ERC20.totalSupply` | `erc20_totalSupply_interface` | Target implements `totalSupply()` and returns a `uint256` |
@@ -166,6 +168,15 @@ compilation fail if any assumption hasn't been reviewed.
 | `Precompiles.bn256Pairing` | `evm_bn256_pairing_precompile` | EVM precompile at address 0x08 behaves per EIP-197 (BN254 optimal-Ate pairing) |
 | `Callbacks.callback` | `callback_target_interface` | Callback target processes ABI-encoded arguments correctly |
 | `Calls.withReturn` | `external_call_abi_interface` | Target contract function matches declared selector and ABI |
+| `Calls.callWithValue` / `Calls.callWithValueBytes` | `generic_call_with_value_interface` | Target accepts caller-provided calldata and ETH value; failures bubble returndata |
+| `Calls.bubblingValueCall` / `Calls.bubblingValueCallNoOutput` | `generic_low_level_value_call_interface` | Generic low-level `call` mechanics are emitted; calldata and successful returndata meaning remain package assumptions |
+| `Hashing.abiEncodeStaticWords` | `keccak256_memory_slice_matches_evm`, `abi_standard_static_word_layout` | Static ABI words are laid out contiguously before Keccak |
+| `Hashing.abiEncodePackedWords` / `Hashing.abiEncodePacked` | `keccak256_memory_slice_matches_evm`, `abi_packed_static_word_layout` | Static packed words are laid out contiguously before Keccak |
+| `Hashing.abiEncodeStaticArray` | `keccak256_memory_slice_matches_evm`, `abi_standard_dynamic_array_static_element_layout` | Single dynamic-array ABI encoding with static-width elements is laid out before Keccak |
+| `Hashing.abiEncodePackedStaticSegments` | `keccak256_memory_slice_matches_evm`, `abi_packed_static_segment_layout` | Static packed byte-width segments are laid out before Keccak |
+| `Hashing.eip712Digest` | `keccak256_memory_slice_matches_evm`, `eip712_digest_layout` | Final EIP-712 typed-data preimage is laid out as `0x1901 || domainSeparator || structHash` before Keccak |
+| `Hashing.sha256PackedWords` / `Hashing.sha256Packed` | `evm_sha256_precompile`, `abi_packed_static_word_layout` | Static packed words are laid out before SHA-256 precompile call |
+| `Hashing.sha256PackedStaticSegments` | `evm_sha256_precompile`, `abi_packed_static_segment_layout` | Static packed byte-width segments are laid out before SHA-256 precompile call |
 
 ### Third-Party Module Assumptions
 
