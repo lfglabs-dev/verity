@@ -40,7 +40,7 @@ Verity proves that compilation preserves behavior at three stages. Each layer is
 
 **Layer 1** (EDSL to CompilationModel): the `verity_contract` macro generates both an executable Lean program and a compiler-facing model from a single definition. Per-contract bridge theorems prove they agree.
 
-**Layer 2** (CompilationModel to IR): a generic whole-contract theorem covers the supported fragment with zero axioms. No per-contract proof effort needed.
+**Layer 2** (CompilationModel to IR): a generic whole-contract theorem covers the supported fragment with zero axioms. No per-contract proof effort needed. `forEach` support is deliberately partial: zero-bound loops with supported bodies and arbitrary literal-bound empty-body loops are proved, while positive non-empty loop bodies remain outside the current theorem.
 
 **Layer 3** (IR to Yul): all statement types are proven equivalent. The dispatch bridge is an explicit theorem hypothesis, not an axiom.
 

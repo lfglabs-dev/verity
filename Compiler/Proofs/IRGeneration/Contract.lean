@@ -132,6 +132,11 @@ private theorem legacyCompatibleExternalStmtList_append
   | block body rest hbody hrest ihBody ihRest =>
       intro after hafter
       simpa using LegacyCompatibleExternalStmtList.block body (rest ++ after) hbody (ihRest after hafter)
+  | for_ init cond post body rest hinit hpost hbody hrest ihInit ihPost ihBody ihRest =>
+      intro after hafter
+      simpa using
+        LegacyCompatibleExternalStmtList.for_ init cond post body (rest ++ after)
+          hinit hpost hbody (ihRest after hafter)
   | funcDef name params rets body rest hbody hrest ihBody ihRest =>
       intro after hafter
       simpa using LegacyCompatibleExternalStmtList.funcDef name params rets body (rest ++ after) hbody (ihRest after hafter)

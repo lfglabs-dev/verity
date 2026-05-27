@@ -7275,6 +7275,23 @@ theorem runtimeStateMatchesIR_setVar_irrelevant
   cases state
   simpa [runtimeStateMatchesIR, IRState.setVar] using hmatch
 
+theorem runtimeStateMatchesIR_setVars_irrelevant
+    {fields : List Field}
+    {runtime : SourceSemantics.RuntimeState}
+    {state : IRState}
+    {updates : List (String × Nat)}
+    (hmatch : runtimeStateMatchesIR fields runtime state) :
+    runtimeStateMatchesIR fields runtime (state.setVars updates) := by
+  induction updates generalizing state with
+  | nil =>
+      simpa [IRState.setVars] using hmatch
+  | cons update updates ih =>
+      cases update with
+      | mk name value =>
+          simp [IRState.setVars]
+          exact ih (runtimeStateMatchesIR_setVar_irrelevant
+            (state := state) (name := name) (value := value) hmatch)
+
 def stmtResultMatchesIRExecExact :
     SourceSemantics.StmtResult → IRExecResult → Prop
   | .continue runtime, .continue state =>
@@ -7491,6 +7508,28 @@ theorem bindingsExactlyMatchIRVarsOnScope_setVar_irrelevant
     exact False.elim (hfresh hname)
   · rw [getVar_setVar_ne state tempName name value hEq]
     exact hexact name hname
+
+theorem bindingsExactlyMatchIRVarsOnScope_setVars_irrelevant
+    {scope : List String}
+    {bindings : List (String × Nat)}
+    {state : IRState}
+    {updates : List (String × Nat)}
+    (hexact : bindingsExactlyMatchIRVarsOnScope scope bindings state)
+    (hfresh : ∀ update ∈ updates, update.1 ∉ scope) :
+    bindingsExactlyMatchIRVarsOnScope scope bindings (state.setVars updates) := by
+  induction updates generalizing state with
+  | nil =>
+      simpa [IRState.setVars] using hexact
+  | cons update updates ih =>
+      cases update with
+      | mk name value =>
+          simp [IRState.setVars]
+          apply ih
+          · exact bindingsExactlyMatchIRVarsOnScope_setVar_irrelevant
+              (state := state) (tempName := name) (value := value)
+              hexact (hfresh (name, value) (by simp))
+          · intro update hmem
+            exact hfresh update (by simp [hmem])
 
 theorem bindingsExactlyMatchIRVarsOnScope_setVar_bindValue
     {scope : List String}

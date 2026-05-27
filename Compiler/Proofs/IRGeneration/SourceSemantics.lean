@@ -551,6 +551,179 @@ inductive StmtResult where
   | return (value : Nat) (state : RuntimeState)
   | revert
 
+def execForEachLoop
+    (varName : String)
+    (runBody : RuntimeState → StmtResult) :
+    RuntimeState → Nat → Nat → StmtResult
+  | state, _, 0 => .continue state
+  | state, index, remaining + 1 =>
+      let loopState :=
+        { state with bindings := bindValue state.bindings varName (wordNormalize index) }
+      match runBody loopState with
+      | .continue next => execForEachLoop varName runBody next (index + 1) remaining
+      | .stop next => .stop next
+      | .return value next => .return value next
+      | .revert => .revert
+
+@[simp] theorem execForEachLoop_zero
+    (varName : String)
+    (runBody : RuntimeState → StmtResult)
+    (state : RuntimeState)
+    (index : Nat) :
+    execForEachLoop varName runBody state index 0 = .continue state := rfl
+
+theorem execForEachLoop_succ
+    (varName : String)
+    (runBody : RuntimeState → StmtResult)
+    (state : RuntimeState)
+    (index remaining : Nat) :
+    execForEachLoop varName runBody state index (remaining + 1) =
+      let loopState :=
+        { state with bindings := bindValue state.bindings varName (wordNormalize index) }
+      match runBody loopState with
+      | .continue next => execForEachLoop varName runBody next (index + 1) remaining
+      | .stop next => .stop next
+      | .return value next => .return value next
+      | .revert => .revert := rfl
+
+@[simp] theorem lookupBinding?_bindValue_same
+    (bindings : List (String × Nat))
+    (name : String)
+    (value : Nat) :
+    lookupBinding? (bindValue bindings name value) name = some value := by
+  simp [lookupBinding?, bindValue]
+
+@[simp] theorem lookupValue_bindValue_same
+    (bindings : List (String × Nat))
+    (name : String)
+    (value : Nat) :
+    lookupValue (bindValue bindings name value) name = value := by
+  simp [lookupValue, bindValue]
+
+@[simp] theorem execForEachLoop_boundState_lookupBinding?
+    (varName : String)
+    (state : RuntimeState)
+    (index : Nat) :
+    lookupBinding?
+        (bindValue state.bindings varName (wordNormalize index))
+        varName =
+      some (wordNormalize index) := by
+  simp
+
+@[simp] theorem execForEachLoop_boundState_lookupValue
+    (varName : String)
+    (state : RuntimeState)
+    (index : Nat) :
+    lookupValue
+        (bindValue state.bindings varName (wordNormalize index))
+        varName =
+      wordNormalize index := by
+  simp
+
+theorem execForEachLoop_zero_continue_state
+    {varName : String}
+    {runBody : RuntimeState → StmtResult}
+    {state final : RuntimeState}
+    {index : Nat}
+    (hloop : execForEachLoop varName runBody state index 0 = .continue final) :
+    final = state := by
+  simpa [execForEachLoop] using hloop.symm
+
+theorem execForEachLoop_succ_continue_iff
+    {varName : String}
+    {runBody : RuntimeState → StmtResult}
+    {state final : RuntimeState}
+    {index remaining : Nat} :
+    execForEachLoop varName runBody state index (remaining + 1) = .continue final ↔
+      ∃ next,
+        runBody
+            { state with
+              bindings := bindValue state.bindings varName (wordNormalize index) } =
+          .continue next ∧
+        execForEachLoop varName runBody next (index + 1) remaining =
+          .continue final := by
+  simp only [execForEachLoop]
+  cases hbody :
+      runBody
+        { state with
+          bindings := bindValue state.bindings varName (wordNormalize index) } <;>
+    simp [hbody]
+
+theorem execForEachLoop_succ_continue
+    {varName : String}
+    {runBody : RuntimeState → StmtResult}
+    {state next final : RuntimeState}
+    {index remaining : Nat}
+    (hbody :
+      runBody
+          { state with
+            bindings := bindValue state.bindings varName (wordNormalize index) } =
+        .continue next)
+    (hloop :
+      execForEachLoop varName runBody next (index + 1) remaining =
+        .continue final) :
+    execForEachLoop varName runBody state index (remaining + 1) =
+      .continue final := by
+  rw [execForEachLoop_succ]
+  simpa only [hbody] using hloop
+
+theorem execForEachLoop_congr
+    {varName : String}
+    {runBodyA runBodyB : RuntimeState → StmtResult}
+    (hbody : ∀ state, runBodyA state = runBodyB state) :
+    ∀ (state : RuntimeState) (index remaining : Nat),
+      execForEachLoop varName runBodyA state index remaining =
+        execForEachLoop varName runBodyB state index remaining
+  | state, index, 0 => by
+      simp [execForEachLoop]
+  | state, index, remaining + 1 => by
+      simp only [execForEachLoop]
+      rw [hbody]
+      cases hrun : runBodyB
+        { state with bindings := bindValue state.bindings varName (wordNormalize index) } <;>
+        simp [hrun, execForEachLoop_congr hbody]
+
+def execForEachEmptyLoopFinal
+    (varName : String) : RuntimeState → Nat → Nat → RuntimeState
+  | state, _, 0 => state
+  | state, index, remaining + 1 =>
+      execForEachEmptyLoopFinal varName
+        { state with bindings := bindValue state.bindings varName (wordNormalize index) }
+        (index + 1) remaining
+
+theorem execForEachLoop_empty_body
+    (varName : String)
+    (state : RuntimeState)
+    (index remaining : Nat) :
+    execForEachLoop varName (fun loopState => .continue loopState)
+        state index remaining =
+      .continue (execForEachEmptyLoopFinal varName state index remaining) := by
+  induction remaining generalizing state index with
+  | zero =>
+      rfl
+  | succ remaining ih =>
+      simp [execForEachLoop, execForEachEmptyLoopFinal, ih]
+
+theorem execForEachLoop_empty_body_zero_bound
+    (varName : String)
+    (state : RuntimeState)
+    (index : Nat) :
+    execForEachLoop varName (fun loopState => .continue loopState)
+        state index 0 =
+      .continue state := rfl
+
+theorem execForEachLoop_empty_body_positive_bound
+    (varName : String)
+    (state : RuntimeState)
+    (index remaining : Nat) :
+    execForEachLoop varName (fun loopState => .continue loopState)
+        state index (remaining + 1) =
+      .continue
+        (execForEachEmptyLoopFinal varName
+          { state with bindings := bindValue state.bindings varName (wordNormalize index) }
+          (index + 1) remaining) := by
+  simp [execForEachLoop_empty_body, execForEachEmptyLoopFinal]
+
 private def storageArraySetAt : List Verity.Core.Uint256 → Nat → Verity.Core.Uint256 → Option (List Verity.Core.Uint256)
   | [], _, _ => none
   | _ :: rest, 0, value => some (value :: rest)
@@ -1873,6 +2046,15 @@ mutual
                     events := state.world.events ++ [event] } }
             | _, _ => .revert
         | none => .revert
+    | state, .forEach varName count body =>
+        match evalExpr fields state count with
+        | some bound =>
+            let initialLoopState :=
+              { state with bindings := bindValue state.bindings varName (wordNormalize 0) }
+            execForEachLoop varName
+              (fun loopState => execStmtListWithEvents fields events loopState body)
+              initialLoopState 0 bound
+        | none => .revert
     | _, _ => .revert
 
   def execStmtListWithEvents (fields : List Field) (events : List EventDef) :
@@ -2107,6 +2289,15 @@ mutual
                     memory := memory
                     events := state.world.events ++ [event] } }
             | _, _ => .revert
+        | none => .revert
+    | state, .forEach varName count body =>
+        match evalExpr fields state count with
+        | some bound =>
+            let initialLoopState :=
+              { state with bindings := bindValue state.bindings varName (wordNormalize 0) }
+            execForEachLoop varName
+              (fun loopState => execStmtList fields loopState body)
+              initialLoopState 0 bound
         | none => .revert
     | _, _ => .revert
 
@@ -3114,6 +3305,15 @@ mutual
                     memory := memory
                     events := state.world.events ++ [event] } }
             | _, _ => .revert
+        | none => .revert
+    | .forEach varName count body =>
+        match evalExprWithHelpers spec fields fuel state count with
+        | some bound =>
+            let initialLoopState :=
+              { state with bindings := bindValue state.bindings varName (wordNormalize 0) }
+            execForEachLoop varName
+              (fun loopState => execStmtListWithHelpers spec fields fuel loopState body)
+              initialLoopState 0 bound
         | none => .revert
     | _ => .revert
   termination_by stmt => (fuel, sizeOf stmt)
@@ -4167,6 +4367,13 @@ mutual
     simp [Stmt.ite.sizeOf_spec]
     omega
 
+  private theorem stmt_sizeOf_lt_forEach_body
+      (varName : String) (count : Expr) (body : List Stmt) :
+      sizeOf body + 1 < sizeOf (Stmt.forEach varName count body) := by
+    have hcount : 0 < sizeOf count := expr_sizeOf_pos count
+    simp [Stmt.forEach.sizeOf_spec]
+    omega
+
   private theorem stmt_sizeOf_lt_cons (stmt : Stmt) (rest : List Stmt) :
       sizeOf stmt + 1 < sizeOf (stmt :: rest) := by
     cases rest with
@@ -4348,7 +4555,32 @@ private theorem execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux
   | .ecm _ _ => simp [execStmtWithHelpers, execStmtWithEvents]
   | .forEach _ _ _ =>
       simp only [stmtTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
-      simp [execStmtWithHelpers, execStmtWithEvents]
+      rename_i varName count body
+      have hcount :=
+        evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed
+          spec fields fuel state count hsurface.1
+      simp only [execStmtWithHelpers, execStmtWithEvents, hcount]
+      cases evalExpr fields state count with
+      | none => rfl
+      | some bound =>
+          let initialLoopState :=
+            { state with bindings := bindValue state.bindings varName (wordNormalize 0) }
+          exact execForEachLoop_congr
+            (varName := varName)
+            (runBodyA := fun loopState =>
+              execStmtListWithHelpers spec fields fuel loopState body)
+            (runBodyB := fun loopState =>
+              execStmtListWithEvents fields spec.events loopState body)
+            (fun loopState =>
+              execStmtListWithHelpers_eq_execStmtList_of_helperSurfaceClosed_inner
+                spec fields fuel loopState body hsurface.2
+                (fun st s hs hsf =>
+                  have : sizeOf s < sizeOf (Stmt.forEach varName count body) := by
+                    have hbody := stmt_sizeOf_lt_forEach_body varName count body
+                    omega
+                  execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux
+                    spec fields fuel st s hsf))
+            initialLoopState 0 bound
 termination_by sizeOf stmt
 
 theorem execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed

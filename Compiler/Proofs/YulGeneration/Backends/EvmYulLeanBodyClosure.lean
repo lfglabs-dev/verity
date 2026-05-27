@@ -4026,34 +4026,58 @@ theorem compileStmt_forEach_with_bridged_body
           intro yulStmt hMem
           simp only [List.mem_singleton] at hMem
           subst yulStmt
+          let usedNames := varName :: (inScopeNames ++ (collectExprNames count ++ collectStmtListNames body))
+          let idxName := pickFreshName "__forEach_idx" usedNames
+          let countName := pickFreshName "__forEach_count" (idxName :: usedNames)
           refine BridgedStmt.for_ _ _ _ _ ?_ ?_ ?_ ?_
-          · -- init: [YulStmt.let_ varName (YulExpr.lit 0)]
+          · -- init: idx := 0; cached count := countExpr; varName := 0
             intro stmt hMemInit
-            simp only [List.mem_singleton] at hMemInit
-            subst stmt
-            exact BridgedStmt.straight _
-              (BridgedStraightStmt.let_ varName (.lit 0) (BridgedExpr.lit 0))
-          · -- cond: lt(ident varName, countExpr)
+            simp only [List.mem_cons, List.mem_singleton] at hMemInit
+            rcases hMemInit with rfl | hMemInit
+            · exact BridgedStmt.straight _
+                (by
+                  simpa [idxName] using
+                    BridgedStraightStmt.let_ idxName (.lit 0) (BridgedExpr.lit 0))
+            rcases hMemInit with rfl | hMemInit
+            · exact BridgedStmt.straight _
+                (by
+                  simpa [countName] using
+                    BridgedStraightStmt.let_ countName countExpr hBC)
+            rcases hMemInit with rfl | hMemInit
+            · exact BridgedStmt.straight _
+                (BridgedStraightStmt.let_ varName (.lit 0) (BridgedExpr.lit 0))
+            · cases hMemInit
+          · -- cond: lt(ident idxName, ident countName)
             refine BridgedExpr.call "lt" _ (Or.inl (by simp [bridgedBuiltins])) ?_
             intro arg hMemArg
             simp only [List.mem_cons, List.not_mem_nil, or_false] at hMemArg
             rcases hMemArg with rfl | rfl
-            · exact BridgedExpr.ident varName
-            · exact hBC
-          · -- post: [YulStmt.assign varName (add(ident varName, lit 1))]
+            · simpa [idxName] using BridgedExpr.ident idxName
+            · simpa [countName] using BridgedExpr.ident countName
+          · -- post: idxName := add(idxName, 1)
             intro stmt hMemPost
             simp only [List.mem_singleton] at hMemPost
             subst stmt
-            refine BridgedStmt.straight _
-              (BridgedStraightStmt.assign varName _ ?_)
-            refine BridgedExpr.call "add" _ (Or.inl (by simp [bridgedBuiltins])) ?_
-            intro arg hMemArg
-            simp only [List.mem_cons, List.not_mem_nil, or_false] at hMemArg
-            rcases hMemArg with rfl | rfl
-            · exact BridgedExpr.ident varName
-            · exact BridgedExpr.lit 1
-          · -- body
-            exact hBBody
+            exact BridgedStmt.straight _
+              (by
+                simpa [idxName] using
+                  BridgedStraightStmt.assign idxName
+                    (YulExpr.call "add" [YulExpr.ident idxName, YulExpr.lit 1])
+                    (by
+                      refine BridgedExpr.call "add" _ (Or.inl (by simp [bridgedBuiltins])) ?_
+                      intro arg hMemArg
+                      simp only [List.mem_cons, List.not_mem_nil, or_false] at hMemArg
+                      rcases hMemArg with rfl | rfl
+                      · exact BridgedExpr.ident idxName
+                      · exact BridgedExpr.lit 1))
+          · -- body: assign the user-visible loop variable, then run the compiled body
+            exact BridgedStmts_cons
+              (BridgedStmt.straight _
+                (by
+                  simpa [idxName] using
+                    BridgedStraightStmt.assign varName (YulExpr.ident idxName)
+                      (BridgedExpr.ident idxName)))
+              hBBody
 
 theorem compileStmt_ite_with_noFuncDefs_body
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)

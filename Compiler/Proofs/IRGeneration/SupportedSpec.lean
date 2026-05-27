@@ -1236,9 +1236,8 @@ def stmtTouchesUnsupportedStateSurface : Stmt → Bool
       exprTouchesUnsupportedStateSurface cond ||
         stmtListTouchesUnsupportedStateSurface thenBranch ||
         stmtListTouchesUnsupportedStateSurface elseBranch
-  | .forEach _ count body =>
-      exprTouchesUnsupportedStateSurface count ||
-        stmtListTouchesUnsupportedStateSurface body
+  | .forEach _ (.literal _) [] => false
+  | .forEach _ _ _ => true
 
 /-- Weaker Tier 2 state-surface gate used by the singleton storage-write bridge:
 all existing unsupported stateful forms remain excluded except for the proved
@@ -1566,10 +1565,14 @@ def stmtTouchesUnsupportedContractSurface (stmt : Stmt) : Bool :=
   | .storageArrayPush _ _ | .storageArrayPop _ | .setStorageArrayElement _ _ _
   | .requireError _ _ _ | .revertError _ _ | .returnValues _ | .returnArray _
   | .returnBytes _ | .returnStorageWords _ | .calldatacopy _ _ _
-  | .returndataCopy _ _ _ | .revertReturndata | .forEach _ _ _
+  | .returndataCopy _ _ _ | .revertReturndata
   | .emit _ _ | .internalCall _ _ | .internalCallAssign _ _ _
   | .rawLog _ _ _ | .externalCallBind _ _ _ | .ecm _ _
   | .tryExternalCallBind _ _ _ _ | .unsafeBlock _ _ | .matchAdt _ _ _ => true
+  | .forEach _ (.literal 0) body =>
+      stmtListTouchesUnsupportedContractSurface body
+  | .forEach _ (.literal _) [] => false
+  | .forEach _ _ _ => true
 
 def stmtTouchesUnsupportedContractSurfaceWithEvents
     (events : List EventDef) (stmt : Stmt) : Bool :=
@@ -3013,6 +3016,14 @@ theorem SupportedStmtList.helperSurfaceClosed
       exact supportedStmtList_setMapping2WordSingle_helperSurfaceClosed hkey1 hkey2 hvalue
   | setStructMember2Single hkey1 _ hkey2 _ hvalue _ _ _ _ =>
       exact supportedStmtList_setStructMember2Single_helperSurfaceClosed hkey1 hkey2 hvalue
+  | forEachLiteralBounded _ _ ih =>
+      simpa [stmtListTouchesUnsupportedHelperSurface,
+        stmtTouchesUnsupportedHelperSurface,
+        exprTouchesUnsupportedHelperSurface] using ih
+  | forEachLiteralEmpty _ =>
+      simp [stmtListTouchesUnsupportedHelperSurface,
+        stmtTouchesUnsupportedHelperSurface,
+        exprTouchesUnsupportedHelperSurface]
   | requireClause clause _ ih =>
       simp [stmtListTouchesUnsupportedHelperSurface]
       constructor
@@ -3191,6 +3202,13 @@ theorem SupportedStmtList.internalHelperCallNames_nil
         exprCompileCore_internalHelperCallNames_nil hkey2,
         exprCompileCore_internalHelperCallNames_nil hvalue,
         List.nil_append, List.append_nil]
+  | forEachLiteralBounded _ _ ih =>
+      simpa [stmtListInternalHelperCallNames,
+        stmtInternalHelperCallNames,
+        exprInternalHelperCallNames] using ih
+  | forEachLiteralEmpty _ =>
+      simp [stmtListInternalHelperCallNames, stmtInternalHelperCallNames,
+        exprInternalHelperCallNames]
   | requireClause clause _ ih =>
       simp [stmtListInternalHelperCallNames]
       constructor
@@ -4384,9 +4402,41 @@ theorem stmtTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
   | storageArrayPop _ | setStorageArrayElement _ _ _ | requireError _ _ _
   | revertError _ _ | returnValues _ | returnArray _ | returnBytes _
   | returnStorageWords _ | calldatacopy _ _ _ | returndataCopy _ _ _
-  | revertReturndata | forEach _ _ _ | emit _ _ | internalCall _ _
+  | revertReturndata | emit _ _ | internalCall _ _
   | internalCallAssign _ _ _ | rawLog _ _ _ | externalCallBind _ _ _ | ecm _ _ =>
       cases hsurface
+  | forEach varName count body =>
+      cases count with
+      | literal n =>
+          cases n with
+          | zero =>
+            cases body with
+            | nil =>
+                simp [stmtTouchesUnsupportedHelperSurface,
+                  stmtListTouchesUnsupportedHelperSurface,
+                  exprTouchesUnsupportedHelperSurface]
+            | cons stmt rest =>
+                simp only [stmtTouchesUnsupportedContractSurface,
+                  stmtListTouchesUnsupportedContractSurface,
+                  Bool.or_eq_false_iff] at hsurface
+                simp [stmtTouchesUnsupportedHelperSurface,
+                  stmtListTouchesUnsupportedHelperSurface,
+                  exprTouchesUnsupportedHelperSurface,
+                  Bool.or_eq_false_iff]
+                exact ⟨
+                  stmtTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
+                    hsurface.1,
+                  stmtListTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
+                    hsurface.2⟩
+          | succ n =>
+              cases body with
+              | nil =>
+                  simp [stmtTouchesUnsupportedHelperSurface,
+                    stmtListTouchesUnsupportedHelperSurface,
+                    exprTouchesUnsupportedHelperSurface]
+              | cons _ _ =>
+                  simp [stmtTouchesUnsupportedContractSurface] at hsurface
+      | _ => simp [stmtTouchesUnsupportedContractSurface] at hsurface
 termination_by sizeOf stmt
 
 theorem stmtListTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
@@ -5058,6 +5108,11 @@ private theorem supportedStmtList_usesArrayElement_false
         exprCompileCore_usesArrayElement_false hkey1,
         exprCompileCore_usesArrayElement_false hkey2,
         exprCompileCore_usesArrayElement_false hvalue, Bool.false_or]
+  | forEachLiteralBounded _ _ ih =>
+      simpa [stmtListUsesArrayElement, stmtUsesArrayElement,
+        exprUsesArrayElement] using ih
+  | forEachLiteralEmpty _ =>
+      simp [stmtListUsesArrayElement, stmtUsesArrayElement, exprUsesArrayElement]
   | requireClause clause _ ih =>
       simp only [stmtListUsesArrayElement, Bool.or_eq_false_iff, Bool.false_or]
       exact ⟨by cases clause with | mk family n m p q message =>
@@ -5172,6 +5227,12 @@ private theorem supportedStmtList_usesStorageArrayElement_false
         exprCompileCore_usesStorageArrayElement_false hkey1,
         exprCompileCore_usesStorageArrayElement_false hkey2,
         exprCompileCore_usesStorageArrayElement_false hvalue, Bool.false_or]
+  | forEachLiteralBounded _ _ ih =>
+      simpa [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
+        exprUsesStorageArrayElement] using ih
+  | forEachLiteralEmpty _ =>
+      simp [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
+        exprUsesStorageArrayElement]
   | requireClause clause _ ih =>
       simp only [stmtListUsesStorageArrayElement, Bool.or_eq_false_iff, Bool.false_or]
       exact ⟨by cases clause with | mk family n m p q message =>
@@ -5279,6 +5340,12 @@ private theorem supportedStmtList_usesDynamicBytesEq_false
         exprCompileCore_usesDynamicBytesEq_false hkey1,
         exprCompileCore_usesDynamicBytesEq_false hkey2,
         exprCompileCore_usesDynamicBytesEq_false hvalue, Bool.false_or]
+  | forEachLiteralBounded _ _ ih =>
+      simpa [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq,
+        exprUsesDynamicBytesEq] using ih
+  | forEachLiteralEmpty _ =>
+      simp [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq,
+        exprUsesDynamicBytesEq]
   | requireClause clause _ ih =>
       simp only [stmtListUsesDynamicBytesEq, Bool.or_eq_false_iff, Bool.false_or]
       exact ⟨by cases clause with | mk family n m p q message =>
@@ -5644,6 +5711,11 @@ private theorem supportedStmtList_usesMulDiv512_false
         exprCompileCore_usesMulDiv512_false hkey1,
         exprCompileCore_usesMulDiv512_false hkey2,
         exprCompileCore_usesMulDiv512_false hvalue, Bool.false_or]
+  | forEachLiteralBounded _ _ ih =>
+      simpa [stmtListUsesMulDiv512, stmtUsesMulDiv512,
+        exprUsesMulDiv512] using ih
+  | forEachLiteralEmpty _ =>
+      simp [stmtListUsesMulDiv512, stmtUsesMulDiv512, exprUsesMulDiv512]
   | requireClause clause _ ih =>
       simp only [stmtListUsesMulDiv512, Bool.or_eq_false_iff, Bool.false_or]
       exact ⟨by cases clause with | mk family n m p q message =>
@@ -5751,6 +5823,12 @@ private theorem supportedStmtList_usesParamDynamicHeadWord_false
         exprCompileCore_usesParamDynamicHeadWord_false hkey1,
         exprCompileCore_usesParamDynamicHeadWord_false hkey2,
         exprCompileCore_usesParamDynamicHeadWord_false hvalue, Bool.false_or]
+  | forEachLiteralBounded _ _ ih =>
+      simpa [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord,
+        exprUsesParamDynamicHeadWord] using ih
+  | forEachLiteralEmpty _ =>
+      simp [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord,
+        exprUsesParamDynamicHeadWord]
   | requireClause clause _ ih =>
       simp only [stmtListUsesParamDynamicHeadWord, Bool.or_eq_false_iff, Bool.false_or]
       exact ⟨by cases clause with | mk family n m p q message =>
