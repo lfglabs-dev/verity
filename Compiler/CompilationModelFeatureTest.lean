@@ -5658,7 +5658,7 @@ set_option maxRecDepth 4096 in
       contains callbackYul "mstore(add(__cb_ptr, 4), assets)" &&
       contains callbackYul "mstore(add(__cb_ptr, 36), 64)" &&
       contains callbackYul "mstore(add(__cb_ptr, 68), data_length)" &&
-      contains callbackYul "mstore(64, add(__cb_ptr, add(100, and(add(data_length, 31), not(31)))))")
+      contains callbackYul "mstore(64, add(__cb_ptr, and(add(add(100, and(add(data_length, 31), not(31))), 31), not(31))))")
   expectTrue "callback ECM calls the target and bubbles revert returndata"
     (contains callbackYul "call(gas(), target, 0, __cb_ptr, add(100, and(add(data_length, 31), not(31))), 0, 0)" &&
       contains callbackYul "returndatacopy(0, 0, __cb_rds)" &&

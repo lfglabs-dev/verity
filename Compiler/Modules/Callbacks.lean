@@ -84,9 +84,13 @@ def callbackModule (selector : Nat) (numStaticArgs : Nat) (bytesParam : String)
       YulExpr.call "not" [YulExpr.lit 31]
     ]
     let totalSize := YulExpr.call "add" [YulExpr.lit bytesDataSlot, paddedBytesLen]
+    let paddedTotalSize := YulExpr.call "and" [
+      YulExpr.call "add" [totalSize, YulExpr.lit 31],
+      YulExpr.call "not" [YulExpr.lit 31]
+    ]
     let advancePtr := YulStmt.expr (YulExpr.call "mstore" [
       YulExpr.lit freeMemoryPointer,
-      YulExpr.call "add" [ptrExpr, totalSize]
+      YulExpr.call "add" [ptrExpr, paddedTotalSize]
     ])
     let callExpr := YulExpr.call "call" [
       YulExpr.call "gas" [],
