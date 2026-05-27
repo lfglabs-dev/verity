@@ -73,8 +73,9 @@ def collect_trust_surface(root: Path = ROOT) -> tuple[dict[str, int], dict[str, 
         rel = str(path.relative_to(root))
         for name, pattern in MECHANISM_PATTERNS:
             mechanisms[name] += len(pattern.findall(text))
-        for line_no, line in enumerate(text_without_comments.splitlines(), 1):
-            for axiom_name in _extract_ecm_axioms(line):
+        for match in re.finditer(r"axioms\s*:=\s*\[(.*?)\]", text_without_comments, flags=re.DOTALL):
+            line_no = text_without_comments.count("\n", 0, match.start()) + 1
+            for axiom_name in ECM_AXIOM_STRING_RE.findall(match.group(1)):
                 ecm_axioms.setdefault(axiom_name, (rel, line_no))
 
     return mechanisms, ecm_axioms

@@ -54,6 +54,34 @@ class CheckTrustSurfaceRegistryTests(unittest.TestCase):
             {"benchmark_external_surface": ("Benchmark/Case.lean", 1)},
         )
 
+    def test_collects_multiline_ecm_axioms(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "Compiler").mkdir(parents=True)
+            (root / "Compiler" / "A.lean").write_text(
+                "\n".join(
+                    [
+                        "def mod where",
+                        "  axioms := [",
+                        '    "first_surface",',
+                        '    "second_surface"',
+                        "  ]",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            _, ecm_axioms = check_trust_surface_registry.collect_trust_surface(root)
+
+        self.assertEqual(
+            ecm_axioms,
+            {
+                "first_surface": ("Compiler/A.lean", 2),
+                "second_surface": ("Compiler/A.lean", 2),
+            },
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
