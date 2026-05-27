@@ -2994,6 +2994,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_mulDivDown  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_mulDivUp  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_ite  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_forkIfAtLeast  -- private
   Compiler.Proofs.IRGeneration.SourceSemantics.execStmtWithEvents_nil_eq_execStmt
   Compiler.Proofs.IRGeneration.SourceSemantics.execStmtListWithEvents_nil_eq_execStmtList
   Compiler.Proofs.IRGeneration.SourceSemantics.bindSupportedParams_take_param_length
@@ -5543,4 +5544,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5242 theorems/lemmas (3628 public, 1614 private, 0 sorry'd)
+-- Total: 5243 theorems/lemmas (3628 public, 1615 private, 0 sorry'd)
