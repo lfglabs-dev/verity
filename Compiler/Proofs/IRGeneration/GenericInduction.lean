@@ -3381,6 +3381,11 @@ private theorem exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_fals
         (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hsurface.1.1)
         (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hsurface.1.2)
         (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hsurface.2)
+  | .forkIfAtLeast _ _ _, hsurface =>
+      -- Unspecialized fork conditionals are rejected by source semantics and
+      -- expression compilation. They must be specialized by the compile driver
+      -- before reaching the generic proof surface.
+      simp [exprTouchesUnsupportedContractSurface] at hsurface
   | .mulDiv512Down _ _ _, hsurface | .mulDiv512Up _ _ _, hsurface =>
       -- `mulDiv512Down/Up` is unsupported by the contract surface (verity#1761
       -- codegen-only; no `ExprCompileCore` constructor), so this branch is
