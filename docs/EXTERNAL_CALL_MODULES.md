@@ -93,14 +93,18 @@ Standard modules ship in `Compiler/Modules/`:
 
 | Module | Function | What it does | Axioms |
 |--------|----------|--------------|--------|
-| `ERC20.safeTransfer` | `transfer(to, amount)` | ERC-20 transfer with optional-bool-return handling | `erc20_transfer_interface` |
-| `ERC20.safeTransferFrom` | `transferFrom(from, to, amount)` | ERC-20 transferFrom with optional-bool-return handling | `erc20_transferFrom_interface` |
-| `ERC20.safeApprove` | `approve(spender, amount)` | ERC-20 approve with optional-bool-return handling | `erc20_approve_interface` |
-| `Hashing.abiEncodePackedWords` / `Hashing.abiEncodePacked` | Static-word packed Keccak | Writes 32-byte words contiguously and binds `keccak256(0, wordCount * 32)` | `keccak256_memory_slice_matches_evm`, `abi_packed_static_word_layout` |
-| `Hashing.abiEncodeDynamicArrayStaticElements` | Standard dynamic-array Keccak | Writes ABI head offset, array length, and contiguous fixed-width static elements before hashing | `keccak256_memory_slice_matches_evm`, `abi_standard_dynamic_array_static_element_layout` |
+| `ERC20.safeTransfer` | `transfer(to, amount)` | ERC-20 transfer with optional-bool-return handling: accepts exactly `true` or no returndata from a contract address | `erc20_transfer_interface` |
+| `ERC20.safeTransferFrom` | `transferFrom(from, to, amount)` | ERC-20 transferFrom with optional-bool-return handling: accepts exactly `true` or no returndata from a contract address | `erc20_transferFrom_interface` |
+| `ERC20.safeApprove` | `approve(spender, amount)` | ERC-20 approve with optional-bool-return handling: accepts exactly `true` or no returndata from a contract address | `erc20_approve_interface` |
+| `ERC20.solmateSafeTransfer` | `transfer(to, amount)` | Solmate SafeTransferLib semantics: accepts no returndata or first returned word equal to `true` when `returndatasize() > 31` | `erc20_solmate_safe_transfer_interface` |
+| `ERC20.solmateSafeTransferFrom` | `transferFrom(from, to, amount)` | Solmate SafeTransferLib semantics: accepts no returndata or first returned word equal to `true` when `returndatasize() > 31` | `erc20_solmate_safe_transferFrom_interface` |
+| `Hashing.abiEncodeStaticWords` | Static-word `abi.encode` Keccak | Writes full 32-byte ABI words contiguously at the Solidity free-memory pointer and binds `keccak256(ptr, wordCount * 32)` | `keccak256_memory_slice_matches_evm`, `abi_standard_static_word_layout` |
+| `Hashing.abiEncodePackedWords` / `Hashing.abiEncodePacked` | Static-word packed Keccak | Writes 32-byte words contiguously at the Solidity free-memory pointer and binds `keccak256(ptr, wordCount * 32)` | `keccak256_memory_slice_matches_evm`, `abi_packed_static_word_layout` |
+| `Hashing.abiEncodeStaticArray` | Standard dynamic-array Keccak | Writes ABI head offset, binds array length once, writes contiguous fixed-width static elements, and hashes the ABI frame | `keccak256_memory_slice_matches_evm`, `abi_standard_dynamic_array_static_element_layout` |
 | `Hashing.sha256PackedWords` / `Hashing.sha256Packed` | Static-word packed SHA-256 | Writes 32-byte words contiguously, calls precompile 0x02, and binds digest word | `evm_sha256_precompile`, `abi_packed_static_word_layout` |
-| `Hashing.abiEncodePackedStaticSegments` | Static byte-width packed Keccak | Writes 1- to 32-byte static segments at byte-precise offsets and binds `keccak256(0, totalBytes)` | `keccak256_memory_slice_matches_evm`, `abi_packed_static_segment_layout` |
+| `Hashing.abiEncodePackedStaticSegments` | Static byte-width packed Keccak | Writes 1- to 32-byte static segments at byte-precise offsets from the Solidity free-memory pointer and binds `keccak256(ptr, totalBytes)` | `keccak256_memory_slice_matches_evm`, `abi_packed_static_segment_layout` |
 | `Hashing.sha256PackedStaticSegments` | Static byte-width packed SHA-256 | Writes 1- to 32-byte static segments, calls precompile 0x02 over the exact byte length, and binds digest word | `evm_sha256_precompile`, `abi_packed_static_segment_layout` |
+| `Hashing.eip712Digest` | EIP-712 digest | Writes `hex"1901"`, `domainSeparator`, and `structHash` to a 66-byte preimage and binds `keccak256(preimage)` | `keccak256_memory_slice_matches_evm`, `eip712_digest_layout` |
 | `Precompiles.ecrecover` | Precompile 0x01 | ECDSA recovery, binds result address | `evm_ecrecover_precompile` |
 | `Precompiles.sha256Memory` / `Precompiles.sha256` | Precompile 0x02 | SHA-256 over an existing memory slice, binds digest word | `evm_sha256_precompile` |
 | `Precompiles.bn256Add` | Precompile 0x06 (EIP-196) | BN254 (alt_bn128) point addition; binds two output coordinate words and reverts on precompile failure | `evm_bn256_add_precompile` |
@@ -162,7 +166,39 @@ inputSize`. It is backed by the four-argument
 `bubblingValueCallNoOutput` module name with the same
 `generic_low_level_value_call_interface` assumption.
 
+### ERC-20 Optional Return Policies
+
+`Compiler.Modules.ERC20.safeTransfer`, `safeTransferFrom`, and `safeApprove`
+use an OpenZeppelin-style optional-return policy: a successful call is accepted
+only if it returns exactly one ABI bool word equal to `true`, or if it returns no
+data and the token address has code. Malformed short or oversized returndata,
+`false`, and no-return EOAs revert with `SafeERC20FailedOperation(address)`.
+
+`Compiler.Modules.ERC20.solmateSafeTransfer` and
+`solmateSafeTransferFrom` are provided for contracts that need Solmate
+`SafeTransferLib` parity. They accept successful empty returndata without an
+`extcodesize` check, and accept non-empty returndata when
+`returndatasize() > 31` and the first returned word is `true`. Failed calls
+bubble returndata before the optional-return guard runs.
+
+### Callback Helpers
+
+`Compiler.Modules.Callbacks.callback` builds callback calldata at the Solidity
+free-memory pointer, advances the pointer by the padded ABI frame, performs a
+plain `call`, and bubbles exact revert returndata on failure. The helper fixes
+the selector/static-argument/dynamic-bytes ABI layout, while the callback
+target's protocol-specific behavior remains the `callback_target_interface`
+assumption.
+
 ### Packed Hashing Helpers
+
+`Compiler.Modules.Hashing.abiEncodeStaticWords` covers
+`keccak256(abi.encode(...))` when every argument is already represented as a
+complete 32-byte ABI word. This is the common static preimage shape for
+`uint256` / `bytes32` hashes and EIP-712 struct hashes after the caller has
+constructed any nested field hashes. Dynamic values, nested dynamic tails, and
+sub-word normalization remain explicit caller responsibilities or should use a
+more specific helper.
 
 `Compiler.Modules.Hashing.abiEncodePackedWords` and
 `Compiler.Modules.Hashing.sha256PackedWords` cover the audit-critical static
@@ -192,6 +228,13 @@ segment helpers expose
 `abi_packed_static_segment_layout` separately from the word-only layout
 assumption. Dynamic packed inputs should still be spelled out explicitly or
 added through a focused helper with its own tests and trust-report assumption.
+
+For EIP-712 typed-data digests, use `Compiler.Modules.Hashing.eip712Digest`.
+It fixes the standard `keccak256(abi.encodePacked(hex"1901",
+domainSeparator, structHash))` preimage layout at 66 bytes. Domain separator
+and struct-hash construction remain explicit model code, and `ecrecover`
+cryptographic correctness remains the EVM precompile assumption surfaced by
+`Compiler.Modules.Precompiles.ecrecover`.
 
 ## Writing Your Own ECM
 

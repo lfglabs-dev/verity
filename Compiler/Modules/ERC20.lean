@@ -5,14 +5,17 @@
   - `safeTransfer`:     transfer(address,uint256)       selector 0xa9059cbb
   - `safeTransferFrom`: transferFrom(address,address,uint256) selector 0x23b872dd
   - `safeApprove`:      approve(address,uint256)        selector 0x095ea7b3
+  - `solmateSafeTransfer` / `solmateSafeTransferFrom`: Solmate SafeTransferLib
+    optional-return semantics for projects that need exact Solmate parity
   - `balanceOf`:        balanceOf(address)              selector 0x70a08231
   - `allowance`:        allowance(address,address)      selector 0xdd62ed3e
   - `totalSupply`:      totalSupply()                   selector 0x18160ddd
 
-  All modules handle the ERC-20 optional-bool-return pattern: if the call
-  succeeds but returndatasize == 32 and the returned word is zero, the
-  module reverts.  This correctly handles both standard (bool-returning)
-  and non-standard (void-returning) ERC-20 tokens.
+  The OpenZeppelin-style write modules accept exactly one ABI bool word equal to
+  true, or no returndata from a contract address. The Solmate write modules
+  accept no returndata, or the first returned word equal to true when at least
+  32 bytes were returned. Both variants bubble failed-call returndata before
+  checking the optional bool.
 
   Trust assumption: the target address implements the ERC-20 interface
   (or is a non-standard token that doesn't return a bool).
@@ -43,23 +46,49 @@ private def revertSafeERC20FailedOperation (tokenExpr : YulExpr) : List YulStmt 
 ]
 
 /-- Post-call guard for OpenZeppelin-style optional-bool ERC-20 operations.
-    A successful call is accepted only if it returned exactly `true`, or returned
-    no data and the token address has code. Failing calls are bubbled earlier. -/
+    Failing calls are bubbled before this guard. After a successful call, accept
+    either empty returndata from a contract address or exactly one ABI bool word
+    equal to true. Reject short, oversized, false, or EOA no-return results with
+    the same custom error selector as OpenZeppelin v5 SafeERC20. -/
 private def requireOptionalBoolSuccess
     (tokenExpr returnPtr : YulExpr) : List YulStmt := [
-  YulStmt.if_
-    (YulExpr.call "iszero" [
+  YulStmt.let_ "__erc20_rds" (YulExpr.call "returndatasize" []),
+  YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident "__erc20_rds"]) [
+    YulStmt.if_ (YulExpr.call "iszero" [
+      YulExpr.call "gt" [YulExpr.call "extcodesize" [tokenExpr], YulExpr.lit 0]
+    ]) (revertSafeERC20FailedOperation tokenExpr)
+  ],
+  YulStmt.if_ (YulExpr.ident "__erc20_rds") [
+    YulStmt.if_ (YulExpr.call "iszero" [
+      YulExpr.call "eq" [YulExpr.ident "__erc20_rds", YulExpr.lit 32]
+    ]) (revertSafeERC20FailedOperation tokenExpr),
+    YulStmt.if_ (YulExpr.call "iszero" [
       YulExpr.call "eq" [YulExpr.call "mload" [returnPtr], YulExpr.lit 1]
-    ]) [
-      YulStmt.if_
-        (YulExpr.call "iszero" [
-          YulExpr.call "and" [
-            YulExpr.call "iszero" [YulExpr.call "returndatasize" []],
-            YulExpr.call "gt" [YulExpr.call "extcodesize" [tokenExpr], YulExpr.lit 0]
-          ]
-        ])
-        (revertSafeERC20FailedOperation tokenExpr)
+    ]) (revertSafeERC20FailedOperation tokenExpr)
+  ]
+]
+
+/-- Post-call guard for Solmate `SafeTransferLib` write operations.
+
+    Solmate accepts a successful token call when returndata is empty, or when
+    at least one ABI word was returned and that first word is exactly `true`.
+    It intentionally does not require code at the token address on the empty
+    returndata path; projects that want OpenZeppelin-style code existence
+    checks should use `safeTransfer` / `safeTransferFrom` / `safeApprove`. -/
+private def requireSolmateOptionalBoolSuccess
+    (returnPtr : YulExpr) : List YulStmt := [
+  YulStmt.let_ "__erc20_rds" (YulExpr.call "returndatasize" []),
+  YulStmt.if_ (YulExpr.call "iszero" [
+    YulExpr.call "or" [
+      YulExpr.call "iszero" [YulExpr.ident "__erc20_rds"],
+      YulExpr.call "and" [
+        YulExpr.call "gt" [YulExpr.ident "__erc20_rds", YulExpr.lit 31],
+        YulExpr.call "eq" [YulExpr.call "mload" [returnPtr], YulExpr.lit 1]
+      ]
     ]
+  ]) [
+    YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+  ]
 ]
 
 /-- Shared implementation for read-only ERC-20 calls that return one
@@ -217,6 +246,100 @@ def safeTransferFromModule : ExternalCallModule where
 /-- Convenience: create a `Stmt.ecm` for safeTransferFrom. -/
 def safeTransferFrom (token fromAddr to amount : Expr) : Stmt :=
   .ecm safeTransferFromModule [token, fromAddr, to, amount]
+
+/-- ERC-20 transfer module with Solmate SafeTransferLib optional-return
+    semantics.
+
+    This differs from the OpenZeppelin-style `safeTransferModule`: successful
+    empty returndata is accepted without an `extcodesize` check, and return data
+    larger than one word is accepted when the first word is `true`, matching
+    Solmate's `gt(returndatasize(), 31)` guard. -/
+def solmateSafeTransferModule : ExternalCallModule where
+  name := "solmateSafeTransfer"
+  numArgs := 3
+  writesState := true
+  readsState := false
+  axioms := ["erc20_solmate_safe_transfer_interface"]
+  compile := fun _ctx args => do
+    let (tokenExpr, toExpr, amountExpr) ← match args with
+      | [t, to, a] => pure (t, to, a)
+      | _ => throw "solmateSafeTransfer expects 3 arguments (token, to, amount)"
+    let selectorWord := 0xa9059cbb00000000000000000000000000000000000000000000000000000000
+    let optionalBoolGuard := requireSolmateOptionalBoolSuccess (YulExpr.ident "__sst_ptr")
+    pure [YulStmt.block ([
+      YulStmt.let_ "__sst_ptr" (YulExpr.call "mload" [YulExpr.lit freeMemoryPointer]),
+      YulStmt.expr (YulExpr.call "mstore" [YulExpr.ident "__sst_ptr", YulExpr.hex selectorWord]),
+      YulStmt.expr (YulExpr.call "mstore" [YulExpr.call "add" [YulExpr.ident "__sst_ptr", YulExpr.lit 4], toExpr]),
+      YulStmt.expr (YulExpr.call "mstore" [YulExpr.call "add" [YulExpr.ident "__sst_ptr", YulExpr.lit 36], amountExpr]),
+      YulStmt.expr (YulExpr.call "mstore" [
+        YulExpr.lit freeMemoryPointer,
+        YulExpr.call "and" [
+          YulExpr.call "add" [
+            YulExpr.call "add" [YulExpr.ident "__sst_ptr", YulExpr.lit 68],
+            YulExpr.lit 31
+          ],
+          YulExpr.call "not" [YulExpr.lit 31]
+        ]
+      ]),
+      YulStmt.let_ "__sst_success" (YulExpr.call "call" [
+        YulExpr.call "gas" [], tokenExpr, YulExpr.lit 0,
+        YulExpr.ident "__sst_ptr", YulExpr.lit 68, YulExpr.ident "__sst_ptr", YulExpr.lit 32
+      ]),
+      YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident "__sst_success"]) [
+        YulStmt.let_ "__sst_rds" (YulExpr.call "returndatasize" []),
+        YulStmt.expr (YulExpr.call "returndatacopy" [YulExpr.lit 0, YulExpr.lit 0, YulExpr.ident "__sst_rds"]),
+        YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.ident "__sst_rds"])
+      ]
+    ] ++ optionalBoolGuard)]
+
+/-- Convenience: create a `Stmt.ecm` for Solmate-style safeTransfer. -/
+def solmateSafeTransfer (token to amount : Expr) : Stmt :=
+  .ecm solmateSafeTransferModule [token, to, amount]
+
+/-- ERC-20 transferFrom module with Solmate SafeTransferLib optional-return
+    semantics. -/
+def solmateSafeTransferFromModule : ExternalCallModule where
+  name := "solmateSafeTransferFrom"
+  numArgs := 4
+  writesState := true
+  readsState := false
+  axioms := ["erc20_solmate_safe_transferFrom_interface"]
+  compile := fun _ctx args => do
+    let (tokenExpr, fromExpr, toExpr, amountExpr) ← match args with
+      | [t, f, to, a] => pure (t, f, to, a)
+      | _ => throw "solmateSafeTransferFrom expects 4 arguments (token, from, to, amount)"
+    let selectorWord := 0x23b872dd00000000000000000000000000000000000000000000000000000000
+    let optionalBoolGuard := requireSolmateOptionalBoolSuccess (YulExpr.ident "__sstf_ptr")
+    pure [YulStmt.block ([
+      YulStmt.let_ "__sstf_ptr" (YulExpr.call "mload" [YulExpr.lit freeMemoryPointer]),
+      YulStmt.expr (YulExpr.call "mstore" [YulExpr.ident "__sstf_ptr", YulExpr.hex selectorWord]),
+      YulStmt.expr (YulExpr.call "mstore" [YulExpr.call "add" [YulExpr.ident "__sstf_ptr", YulExpr.lit 4], fromExpr]),
+      YulStmt.expr (YulExpr.call "mstore" [YulExpr.call "add" [YulExpr.ident "__sstf_ptr", YulExpr.lit 36], toExpr]),
+      YulStmt.expr (YulExpr.call "mstore" [YulExpr.call "add" [YulExpr.ident "__sstf_ptr", YulExpr.lit 68], amountExpr]),
+      YulStmt.expr (YulExpr.call "mstore" [
+        YulExpr.lit freeMemoryPointer,
+        YulExpr.call "and" [
+          YulExpr.call "add" [
+            YulExpr.call "add" [YulExpr.ident "__sstf_ptr", YulExpr.lit 100],
+            YulExpr.lit 31
+          ],
+          YulExpr.call "not" [YulExpr.lit 31]
+        ]
+      ]),
+      YulStmt.let_ "__sstf_success" (YulExpr.call "call" [
+        YulExpr.call "gas" [], tokenExpr, YulExpr.lit 0,
+        YulExpr.ident "__sstf_ptr", YulExpr.lit 100, YulExpr.ident "__sstf_ptr", YulExpr.lit 32
+      ]),
+      YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident "__sstf_success"]) [
+        YulStmt.let_ "__sstf_rds" (YulExpr.call "returndatasize" []),
+        YulStmt.expr (YulExpr.call "returndatacopy" [YulExpr.lit 0, YulExpr.lit 0, YulExpr.ident "__sstf_rds"]),
+        YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.ident "__sstf_rds"])
+      ]
+    ] ++ optionalBoolGuard)]
+
+/-- Convenience: create a `Stmt.ecm` for Solmate-style safeTransferFrom. -/
+def solmateSafeTransferFrom (token fromAddr to amount : Expr) : Stmt :=
+  .ecm solmateSafeTransferFromModule [token, fromAddr, to, amount]
 
 /-- ERC-20 safeApprove module (new — demonstrates ECM extensibility).
     Calls `approve(address spender, uint256 amount)` with optional-bool-return handling.

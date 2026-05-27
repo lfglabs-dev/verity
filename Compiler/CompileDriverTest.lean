@@ -80,7 +80,7 @@ private def futureForkIntrinsicSpec : CompilationModel := {
         Stmt.return
           (Expr.intrinsic "futureIntrinsic"
             (Verity.Core.Intrinsics.YulLowering.verbatim 1 1 "1e")
-            Verity.Core.Intrinsics.HardFork.fusaka
+            Verity.Core.Intrinsics.HardFork.osaka
             [Expr.param "x"])
       ]
     }
@@ -1155,10 +1155,10 @@ unsafe def runTests : IO Unit := do
     (compileSpecsWithOptions [futureForkIntrinsicSpec]
       s!"/tmp/verity-compile-driver-test-{nonce}-future-intrinsic-fail"
       false [] {} none none none none)
-    "requires min_fork=fusaka, but target_fork=cancun"
+    "requires min_fork=osaka, but target_fork=cancun"
   compileSpecsWithOptions [futureForkIntrinsicSpec]
     s!"/tmp/verity-compile-driver-test-{nonce}-future-intrinsic-ok"
-    false [] { targetFork := Verity.Core.Intrinsics.HardFork.fusaka } none none none none
+    false [] { targetFork := Verity.Core.Intrinsics.HardFork.osaka } none none none none
   IO.println "✓ compileSpecsWithOptions accepts intrinsic at matching target fork"
   compileSpecsWithOptions [futureForkIntrinsicSpec]
     s!"/tmp/verity-compile-driver-test-{nonce}-future-intrinsic-override"

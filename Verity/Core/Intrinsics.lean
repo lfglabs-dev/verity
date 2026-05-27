@@ -19,13 +19,13 @@ namespace Verity.Core.Intrinsics
 inductive HardFork where
   | cancun
   | prague
-  | fusaka
+  | osaka
   deriving Repr, BEq, DecidableEq, Inhabited
 
 def HardFork.rank : HardFork → Nat
   | .cancun => 0
   | .prague => 1
-  | .fusaka => 2
+  | .osaka => 2
 
 /-- `allows target required` is the fail-closed fork guard used by intrinsic
     callers: the target fork must be at least the intrinsic's minimum fork. -/
@@ -35,7 +35,7 @@ def HardFork.allows (target required : HardFork) : Bool :=
 def HardFork.toString : HardFork → String
   | .cancun => "cancun"
   | .prague => "prague"
-  | .fusaka => "fusaka"
+  | .osaka => "osaka"
 
 instance : ToString HardFork := ⟨HardFork.toString⟩
 
@@ -43,9 +43,10 @@ def HardFork.parse? (raw : String) : Option HardFork :=
   match raw with
   | "cancun" => some .cancun
   | "prague" => some .prague
-  | "fusaka" => some .fusaka
-  -- Solidity's execution-layer name for the Fusaka execution upgrade.
-  | "osaka" => some .fusaka
+  -- Ethereum's combined network upgrade name is Fusaka; the execution-layer
+  -- fork relevant to compiler targets is Osaka.
+  | "fusaka" => some .osaka
+  | "osaka" => some .osaka
   | _ => none
 
 @[simp] theorem HardFork.allows_refl (fork : HardFork) :
@@ -55,20 +56,20 @@ def HardFork.parse? (raw : String) : Option HardFork :=
 @[simp] theorem HardFork.cancun_not_allow_prague :
     HardFork.allows .cancun .prague = false := rfl
 
-@[simp] theorem HardFork.cancun_not_allow_fusaka :
-    HardFork.allows .cancun .fusaka = false := rfl
+@[simp] theorem HardFork.cancun_not_allow_osaka :
+    HardFork.allows .cancun .osaka = false := rfl
 
-@[simp] theorem HardFork.prague_not_allow_fusaka :
-    HardFork.allows .prague .fusaka = false := rfl
+@[simp] theorem HardFork.prague_not_allow_osaka :
+    HardFork.allows .prague .osaka = false := rfl
 
 @[simp] theorem HardFork.prague_allows_cancun :
     HardFork.allows .prague .cancun = true := rfl
 
-@[simp] theorem HardFork.fusaka_allows_cancun :
-    HardFork.allows .fusaka .cancun = true := rfl
+@[simp] theorem HardFork.osaka_allows_cancun :
+    HardFork.allows .osaka .cancun = true := rfl
 
-@[simp] theorem HardFork.fusaka_allows_prague :
-    HardFork.allows .fusaka .prague = true := rfl
+@[simp] theorem HardFork.osaka_allows_prague :
+    HardFork.allows .osaka .prague = true := rfl
 
 theorem HardFork.allows_trans {a b c : HardFork}
     (hab : HardFork.allows a b = true)

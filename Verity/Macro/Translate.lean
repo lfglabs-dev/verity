@@ -34,7 +34,7 @@ private def hardForkTermFromParsed (fork : Verity.Core.Intrinsics.HardFork) : Co
   match fork with
   | .cancun => `(Verity.Core.Intrinsics.HardFork.cancun)
   | .prague => `(Verity.Core.Intrinsics.HardFork.prague)
-  | .fusaka => `(Verity.Core.Intrinsics.HardFork.fusaka)
+  | .osaka => `(Verity.Core.Intrinsics.HardFork.osaka)
 
 inductive ValueType where
   | uint256
@@ -4390,9 +4390,9 @@ partial def translatePureExprWithTypes
         | _ => throwErrorAt args "expected list literal [..]"
       `(Compiler.CompilationModel.Expr.externalCall $(strTerm extName) [ $[$argsExprs],* ])
   | `(term| intrinsic_fusaka $name:term $lowering:term $args:term) =>
-      translateIntrinsic name lowering args (← `(Verity.Core.Intrinsics.HardFork.fusaka))
+      translateIntrinsic name lowering args (← `(Verity.Core.Intrinsics.HardFork.osaka))
   | `(term| intrinsic_osaka $name:term $lowering:term $args:term) =>
-      translateIntrinsic name lowering args (← `(Verity.Core.Intrinsics.HardFork.fusaka))
+      translateIntrinsic name lowering args (← `(Verity.Core.Intrinsics.HardFork.osaka))
   | `(term| intrinsic_prague $name:term $lowering:term $args:term) =>
       translateIntrinsic name lowering args (← `(Verity.Core.Intrinsics.HardFork.prague))
   | `(term| intrinsic_cancun $name:term $lowering:term $args:term) =>

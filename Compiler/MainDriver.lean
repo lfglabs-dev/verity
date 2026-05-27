@@ -73,7 +73,7 @@ private def parseArgs (args : List String) : IO CLIArgs := do
         IO.println "  --manifest <path>  Manifest file with one Lean module per line"
         IO.println "  --module <name>    Import a Lean module and compile its canonical `<Module>.spec`"
         IO.println "  --backend-profile <semantic|solidity-parity-ordering>"
-        IO.println "  --target-fork <cancun|prague|fusaka|osaka>  EVM fork target for intrinsic min_fork checks (default: cancun)"
+        IO.println "  --target-fork <cancun|prague|osaka|fusaka>  EVM fork target for intrinsic min_fork checks (default: cancun; fusaka is an alias for osaka)"
         IO.println "  --allow-future-fork-intrinsics  Allow intrinsics whose min_fork is newer than --target-fork"
         IO.println "  --trust-report <path>       Write JSON trust-surface report"
         IO.println "  --assumption-report <path>  Write JSON assumption inventory report"
@@ -142,7 +142,7 @@ private def parseArgs (args : List String) : IO CLIArgs := do
         | some fork => go rest { cfg with targetFork := fork, targetForkExplicit := true }
         | none =>
             throw (IO.userError
-              s!"Invalid value for --target-fork: {raw} (expected cancun, prague, fusaka, or osaka alias)")
+              s!"Invalid value for --target-fork: {raw} (expected cancun, prague, osaka, or fusaka alias)")
     | ["--target-fork"] =>
         throw (IO.userError "Missing value for --target-fork")
     | "--allow-future-fork-intrinsics" :: rest =>

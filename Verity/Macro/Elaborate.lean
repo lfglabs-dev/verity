@@ -169,7 +169,7 @@ def elabVerityIntrinsic : CommandElab := fun stx => do
         match Verity.Core.Intrinsics.HardFork.parse? (toString fork.getId) with
         | some parsed => pure parsed
         | none => throwErrorAt fork
-            s!"unknown intrinsic min_fork '{toString fork.getId}' (expected cancun, prague, fusaka, or osaka alias)"
+            s!"unknown intrinsic min_fork '{toString fork.getId}' (expected cancun, prague, osaka, or fusaka alias)"
       let parsedObligations ← obligations.mapM fun obligation => do
         match obligation with
         | `(verityIntrinsicObligation| $obligationName:ident := $status:ident $message:str) =>

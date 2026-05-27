@@ -22,7 +22,6 @@ SCAN_ROOTS = ("Compiler", "Verity", "Contracts", "Benchmark")
 DOC_PATHS = ("AXIOMS.md", "TRUST_ASSUMPTIONS.md")
 DOC_DIRS = ("docs",)
 
-ECM_AXIOM_RE = re.compile(r'axioms\s*:=\s*\[[^\]]*"([^"]+)"', re.MULTILINE)
 ECM_AXIOM_STRING_RE = re.compile(r'"([^"]+)"')
 
 MECHANISM_PATTERNS = (
@@ -53,13 +52,6 @@ def _read_doc_corpus(root: Path = ROOT) -> str:
             for path in sorted(base.rglob("*.md")):
                 chunks.append(path.read_text(encoding="utf-8"))
     return "\n".join(chunks)
-
-
-def _extract_ecm_axioms(text: str) -> set[str]:
-    names: set[str] = set()
-    for match in re.finditer(r"axioms\s*:=\s*\[(.*?)\]", text, flags=re.DOTALL):
-        names.update(ECM_AXIOM_STRING_RE.findall(match.group(1)))
-    return names
 
 
 def collect_trust_surface(root: Path = ROOT) -> tuple[dict[str, int], dict[str, tuple[str, int]]]:
