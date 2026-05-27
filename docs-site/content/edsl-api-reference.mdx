@@ -66,7 +66,9 @@ If `attempt` reverts with message `msg`, `tryCatch` runs `handler msg` on the st
 
 ### `forEach`
 
-Bounded iteration in the compilation-model surface (`Stmt.forEach`). Accumulator-style loops use `Stmt.assignVar` inside `Stmt.forEach`; the macro path currently rejects mutating `let mut` locals from nested `forEach` bodies, so macro-authored contracts should use explicit memory scratch space for accumulators.
+Bounded iteration in the compilation-model surface (`Stmt.forEach`). The current compiler proof covers zero-bound loops with supported bodies and arbitrary literal-bound empty-body loops. Positive loops with non-empty bodies compile at the surface but are not yet part of the generic IR-generation preservation theorem.
+
+Accumulator-style loops use `Stmt.assignVar` inside `Stmt.forEach`; the macro path currently rejects mutating `let mut` locals from nested `forEach` bodies, so macro-authored contracts should use explicit memory scratch space for accumulators.
 
 ```verity
 forEach "i" count (do

@@ -165,7 +165,7 @@ constructor := some {
 >
 > **Axiomatized-primitive boundary**: The `keccak256` intrinsic also compiles, but it remains axiomatized in the current proof stack rather than fully modeled end to end. When it appears, archive `--trust-report` and add `--deny-axiomatized-primitives` if the selected contracts must stay inside the proved subset (see issue `#1411`).
 
-**Statements** cover local variables, storage and mapping writes, `require`, `return`, memory writes, returndata copy and revert bubbling, `stop`, `ite` branching, bounded `forEach` loops, event emission, and internal calls.
+**Statements** cover local variables, storage and mapping writes, `require`, `return`, memory writes, returndata copy and revert bubbling, `stop`, `ite` branching, event emission, internal calls, and a precisely scoped `forEach` fragment. The proved `forEach` cases are zero-bound loops with supported bodies and arbitrary literal-bound empty-body loops; positive literal loops with non-empty bodies remain future proof work.
 
 Low-level calls, linear-memory primitives, `rawLog`, and `keccak256` compile but remain partially modeled in the proof interpreter. Functions or constructors that use direct assembly-shaped primitives without `localObligations [...]` fail closed under `--deny-axiomatized-primitives`.
 
