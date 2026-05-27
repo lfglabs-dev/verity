@@ -31,9 +31,14 @@ def parse_case_yaml(path: Path) -> dict[str, str]:
     return values
 
 
-def check_benchmark_cases(root: Path = ROOT) -> list[str]:
+def discover_case_files(root: Path = ROOT) -> list[Path]:
     case_files = sorted((root / "Benchmark").glob("Cases/**/case.yaml"))
     case_files += sorted((root / "cases").glob("**/case.yaml"))
+    return case_files
+
+
+def check_benchmark_cases(root: Path = ROOT) -> list[str]:
+    case_files = discover_case_files(root)
     if not case_files:
         return []
 
@@ -59,8 +64,7 @@ def check_benchmark_cases(root: Path = ROOT) -> list[str]:
 
 
 def main() -> int:
-    case_files = sorted((ROOT / "Benchmark").glob("Cases/**/case.yaml"))
-    case_files += sorted((ROOT / "cases").glob("**/case.yaml"))
+    case_files = discover_case_files()
     if not case_files:
         print("OK: no benchmark case metadata found; benchmark metadata check skipped")
         return 0
