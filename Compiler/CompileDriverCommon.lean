@@ -21,6 +21,36 @@ open Compiler.Yul
 
 abbrev YulEmitOptions := Compiler.CodegenCommon.YulEmitOptions
 
+def parseTargetFork? (raw : String) : Option Verity.Core.Intrinsics.HardFork :=
+  Verity.Core.Intrinsics.HardFork.parse? raw
+
+private def parseTomlStringValue? (line : String) : Option String :=
+  match line.splitOn "=" with
+  | _ :: rhsParts =>
+      let rhs := String.intercalate "=" rhsParts
+      let value := (rhs.splitOn "#").head!.trim
+      match value.splitOn "\"" with
+      | _ :: quoted :: _ => some quoted.trim
+      | _ => some value
+  | _ => none
+
+def tamaTomlTargetFork? : IO (Option Verity.Core.Intrinsics.HardFork) := do
+  try
+    let text ← IO.FS.readFile "tama.toml"
+    let rec scan (inYul : Bool) : List String → Option String
+      | [] => none
+      | line :: rest =>
+          let trimmed := line.trim
+          if trimmed.startsWith "[" then
+            scan (trimmed == "[yul]") rest
+          else if inYul && trimmed.startsWith "evm_version" then
+            parseTomlStringValue? trimmed
+          else
+            scan inYul rest
+    pure <| (scan false (text.splitOn "\n")).bind parseTargetFork?
+  catch _ =>
+    pure none
+
 structure CodegenBackend where
   emitYulWithOptionsReport : IRContract → YulEmitOptions → YulObject × Yul.PatchPassReport
 
@@ -87,6 +117,117 @@ private def writeLayoutCompatibilityReport
   let (baseline, candidate) ← requireLayoutCompatibilityPair specs
   ensureParentDirExists path
   IO.FS.writeFile path (emitLayoutCompatibilityReportJson baseline candidate ++ "\n")
+
+private structure IntrinsicUse where
+  name : String
+  minFork : Verity.Core.Intrinsics.HardFork
+
+private partial def collectIntrinsicUsesExpr : Expr → List IntrinsicUse
+  | .call gas target value inOffset inSize outOffset outSize =>
+      [gas, target, value, inOffset, inSize, outOffset, outSize].flatMap collectIntrinsicUsesExpr
+  | .staticcall gas target inOffset inSize outOffset outSize =>
+      [gas, target, inOffset, inSize, outOffset, outSize].flatMap collectIntrinsicUsesExpr
+  | .delegatecall gas target inOffset inSize outOffset outSize =>
+      [gas, target, inOffset, inSize, outOffset, outSize].flatMap collectIntrinsicUsesExpr
+  | .keccak256 offset size
+  | .add offset size | .sub offset size | .mul offset size | .div offset size
+  | .sdiv offset size | .mod offset size | .smod offset size
+  | .bitAnd offset size | .bitOr offset size | .bitXor offset size
+  | .shl offset size | .shr offset size | .sar offset size
+  | .byte offset size | .signextend offset size
+  | .eq offset size | .ge offset size | .gt offset size | .sgt offset size
+  | .lt offset size | .slt offset size | .le offset size
+  | .logicalAnd offset size | .logicalOr offset size
+  | .ceilDiv offset size | .wMulDown offset size | .wDivUp offset size
+  | .min offset size | .max offset size =>
+      collectIntrinsicUsesExpr offset ++ collectIntrinsicUsesExpr size
+  | .mulDivDown a b c | .mulDivUp a b c
+  | .mulDiv512Down a b c | .mulDiv512Up a b c
+  | .ite a b c =>
+      collectIntrinsicUsesExpr a ++ collectIntrinsicUsesExpr b ++ collectIntrinsicUsesExpr c
+  | .bitNot value | .logicalNot value | .mload value | .tload value
+  | .calldataload value | .extcodesize value | .returndataOptionalBoolAt value
+  | .mapping _ value | .mappingWord _ value _ | .mappingPackedWord _ value _ _
+  | .mappingUint _ value | .structMember _ value _
+  | .storageArrayElement _ value | .arrayElement _ value
+  | .memoryArrayElement _ value | .arrayElementWord _ value _ _
+  | .arrayElementDynamicWord _ value _
+  | .arrayElementDynamicDataOffset _ value
+  | .arrayElementDynamicMemberLength _ value _
+  | .paramDynamicMemberElement _ _ value
+  | .arrayElementDynamicMemberDataOffset _ value _
+  | .adtConstruct _ _ [value] =>
+      collectIntrinsicUsesExpr value
+  | .mapping2 _ a b | .mapping2Word _ a b _ | .structMember2 _ a b _
+  | .arrayElementDynamicMemberElement _ a _ b =>
+      collectIntrinsicUsesExpr a ++ collectIntrinsicUsesExpr b
+  | .mappingChain _ keys | .externalCall _ keys | .internalCall _ keys
+  | .adtConstruct _ _ keys =>
+      keys.flatMap collectIntrinsicUsesExpr
+  | .intrinsic name _ minFork args =>
+      { name := name, minFork := minFork } :: args.flatMap collectIntrinsicUsesExpr
+  | .dynamicBytesEq _ _ =>
+      []
+  | _ => []
+
+private partial def collectIntrinsicUsesStmt : Stmt → List IntrinsicUse
+  | .letVar _ value | .assignVar _ value | .setStorage _ value
+  | .setStorageAddr _ value | .setStorageWord _ _ value
+  | .storageArrayPush _ value | .return value | .require value _ =>
+      collectIntrinsicUsesExpr value
+  | .setStorageArrayElement _ index value
+  | .setMapping _ index value | .setMappingWord _ index _ value
+  | .setMappingPackedWord _ index _ _ value | .setMappingUint _ index value
+  | .setStructMember _ index _ value
+  | .mstore index value | .tstore index value =>
+      collectIntrinsicUsesExpr index ++ collectIntrinsicUsesExpr value
+  | .setMapping2 _ a b value | .setMapping2Word _ a b _ value
+  | .setStructMember2 _ a b _ value =>
+      collectIntrinsicUsesExpr a ++ collectIntrinsicUsesExpr b ++ collectIntrinsicUsesExpr value
+  | .setMappingChain _ keys value =>
+      keys.flatMap collectIntrinsicUsesExpr ++ collectIntrinsicUsesExpr value
+  | .requireError cond _ args =>
+      collectIntrinsicUsesExpr cond ++ args.flatMap collectIntrinsicUsesExpr
+  | .revertError _ args | .returnValues args | .emit _ args
+  | .internalCall _ args | .internalCallAssign _ _ args
+  | .externalCallBind _ _ args | .tryExternalCallBind _ _ _ args
+  | .ecm _ args =>
+      args.flatMap collectIntrinsicUsesExpr
+  | .calldatacopy destOffset sourceOffset size
+  | .returndataCopy destOffset sourceOffset size =>
+      [destOffset, sourceOffset, size].flatMap collectIntrinsicUsesExpr
+  | .rawLog topics dataOffset dataSize =>
+      topics.flatMap collectIntrinsicUsesExpr ++ collectIntrinsicUsesExpr dataOffset ++
+        collectIntrinsicUsesExpr dataSize
+  | .ite cond thenBranch elseBranch =>
+      collectIntrinsicUsesExpr cond ++ thenBranch.flatMap collectIntrinsicUsesStmt ++
+        elseBranch.flatMap collectIntrinsicUsesStmt
+  | .forEach _ count body =>
+      collectIntrinsicUsesExpr count ++ body.flatMap collectIntrinsicUsesStmt
+  | .unsafeBlock _ body =>
+      body.flatMap collectIntrinsicUsesStmt
+  | .matchAdt _ scrutinee branches =>
+      collectIntrinsicUsesExpr scrutinee ++
+        branches.flatMap fun (_, _, body) => body.flatMap collectIntrinsicUsesStmt
+  | .storageArrayPop _ | .returnArray _ | .returnBytes _ | .returnStorageWords _
+  | .revertReturndata | .stop =>
+      []
+
+private def collectIntrinsicUsesSpec (spec : CompilationModel) : List IntrinsicUse :=
+  let ctorUses :=
+    match spec.constructor with
+    | some ctor => ctor.body.flatMap collectIntrinsicUsesStmt
+    | none => []
+  ctorUses ++ spec.functions.flatMap fun fn => fn.body.flatMap collectIntrinsicUsesStmt
+
+private def ensureIntrinsicForksAllowed
+    (targetFork : Verity.Core.Intrinsics.HardFork)
+    (specs : List CompilationModel) : IO Unit := do
+  for spec in specs do
+    for use in collectIntrinsicUsesSpec spec do
+      unless Verity.Core.Intrinsics.HardFork.allows targetFork use.minFork do
+        throw (IO.userError
+          s!"Intrinsic '{use.name}' in {spec.name} requires min_fork={use.minFork}, but target_fork={targetFork}. Re-run with a newer --target-fork or --allow-future-fork-intrinsics.")
 
 private def ensureNoUncheckedDependencies (specs : List CompilationModel) : IO Unit := do
   let uncheckedSites := emitUncheckedUsageSiteLines specs
@@ -224,6 +365,9 @@ def compileSpecsWithOptions
   match abiOutDir with
   | some dir => IO.FS.createDirAll dir
   | none => pure ()
+
+  unless options.allowFutureForkIntrinsics do
+    ensureIntrinsicForksAllowed options.targetFork specs
 
   if !libraryPaths.isEmpty then
     if verbose then

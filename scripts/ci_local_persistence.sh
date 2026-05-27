@@ -20,7 +20,15 @@ EOF
 }
 
 sanitize_key() {
-  printf '%s' "$1" | tr -cs 'A-Za-z0-9._-' '_'
+  local sanitized hash
+  sanitized="$(printf '%s' "$1" | tr -cs 'A-Za-z0-9._-' '_')"
+  if [ "${#sanitized}" -le 200 ]; then
+    printf '%s' "$sanitized"
+    return
+  fi
+
+  hash="$(printf '%s' "$1" | sha256sum | awk '{print $1}')"
+  printf '%s-%s' "${sanitized:0:160}" "$hash"
 }
 
 is_dir_empty() {

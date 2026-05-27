@@ -40,7 +40,7 @@ Verity proves that compilation preserves behavior at three stages. Each layer is
 
 **Layer 1** (EDSL to CompilationModel): the `verity_contract` macro generates both an executable Lean program and a compiler-facing model from a single definition. Per-contract bridge theorems prove they agree.
 
-**Layer 2** (CompilationModel to IR): a generic whole-contract theorem covers the supported fragment with zero axioms. No per-contract proof effort needed.
+**Layer 2** (CompilationModel to IR): a generic whole-contract theorem covers the supported fragment with zero axioms. No per-contract proof effort needed. `forEach` support is deliberately partial: zero-bound loops with supported bodies and arbitrary literal-bound empty-body loops are proved, while positive non-empty loop bodies remain outside the current theorem.
 
 **Layer 3** (IR to Yul): all statement types are proven equivalent. The dispatch bridge is an explicit theorem hypothesis, not an axiom.
 
@@ -94,6 +94,7 @@ Verity is complementary to these tools. It is for cases where you need mathemati
 | [Solidity to Verity](https://veritylang.com/guides/solidity-to-verity) | Practical syntax and semantic mappings for Solidity ports |
 | [Production Solidity Patterns](https://veritylang.com/guides/production-solidity-patterns) | Agent guidance for production ports, reusable Verity features, and oracle/spec boundaries |
 | [docs/VERIFICATION_STATUS.md](docs/VERIFICATION_STATUS.md) | Theorem counts, proof status, test coverage |
+| [docs/INTRINSICS.md](docs/INTRINSICS.md) | Consumer-owned opcode bindings and their trust model |
 | [TRUST_ASSUMPTIONS.md](TRUST_ASSUMPTIONS.md) | What is verified vs. what is trusted |
 | [AXIOMS.md](AXIOMS.md) | Documented axioms (currently 0) |
 | [AUDIT.md](AUDIT.md) | Trust-boundary audit evidence and CI guards |

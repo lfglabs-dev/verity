@@ -124,6 +124,16 @@ Delivery policy for unsupported features:
 2. Error text must suggest the nearest currently-supported pattern.
 3. Error text must include the tracking issue reference.
 
+### Generic Compiler Extension Points
+
+These items are protocol-agnostic compiler surfaces used by downstream packages
+to model newer EVM behavior without adding package-specific logic to Verity
+core.
+
+| Priority | Work item | Scope | Exit criteria |
+|---|---|---|---|
+| P1 | Verified intrinsics | Upgrade trusted consumer intrinsics to derived proofs as EVMYulLean upstream models new opcodes. | CLZ via EIP-7939 is the first target: consumers can initially declare `verity_intrinsic clz ...` with an explicit obligation, then flip the obligation from assumed to proved when the opcode is modeled upstream. |
+
 ### Unlink Audit Readiness: Verity-Core Scope
 
 The Unlink audit should keep Verity focused on generic Solidity-modeling
@@ -209,7 +219,7 @@ UnlinkPool, a ZK privacy pool, was the first non-trivial contract built with Ver
 | Feature | Issue | CompilationModel | Core/Interpreter |
 |---------|-------|-------------|-----------------|
 | If/else branching | #179 | `Stmt.ite` | `execStmt` mutual recursion |
-| ForEach loops | #179 | `Stmt.forEach` | `execStmtsFuel` + `expandForEach` desugaring |
+| ForEach loops | #179 | `Stmt.forEach` | `execStmtsFuel` + `expandForEach` desugaring; proofs cover zero-bound loops with supported bodies and arbitrary literal-bound empty-body loops, while positive non-empty bodies remain future work |
 | Array/bytes params | #180 | `ParamType.bytes32`, `.array`, `.fixedArray`, `.bytes` | `arrayParams` in `EvalContext` |
 | Storage dynamic arrays | #1571 | `FieldType.dynamicArray`, `Expr.storageArrayLength` / `.storageArrayElement`, `Stmt.storageArrayPush` / `.storageArrayPop` / `.setStorageArrayElement` | compile-time/Yul lowering, source-side runtime semantics, and macro surface are in place; whole-contract proofs still pending |
 | Internal function calls | #181 | `Stmt.internalCall`, `Expr.internalCall`, `FunctionSpec.isInternal` | Statement + expression evaluation |

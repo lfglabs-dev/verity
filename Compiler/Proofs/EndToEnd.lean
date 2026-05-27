@@ -5291,6 +5291,27 @@ theorem supportedStmtList_safe_of_state_effect_closed
   | setStructMember2Single =>
       simp [stmtListTouchesUnsupportedStateSurface,
         stmtTouchesUnsupportedStateSurface] at hState
+  | @forEachLiteralBounded scope varName body _ _ _ =>
+      cases body with
+      | nil =>
+          exact Compiler.Proofs.YulGeneration.Backends.BridgedSafeStmts.externalRecursiveRawLog
+            (Compiler.Proofs.YulGeneration.Backends.BridgedSourceExternalRecursiveBodyWithRawLogStmts.cons
+              (Compiler.Proofs.YulGeneration.Backends.BridgedSourceExternalRecursiveBodyWithRawLogStmt.forEach
+                _ _ _
+                (Compiler.Proofs.YulGeneration.Backends.BridgedSourceExpr.literal _)
+                Compiler.Proofs.YulGeneration.Backends.BridgedSourceExternalRecursiveBodyWithRawLogStmts.nil)
+              Compiler.Proofs.YulGeneration.Backends.BridgedSourceExternalRecursiveBodyWithRawLogStmts.nil)
+      | cons _ _ =>
+          simp [stmtListTouchesUnsupportedStateSurface,
+            stmtTouchesUnsupportedStateSurface] at hState
+  | forEachLiteralEmpty _ =>
+      exact Compiler.Proofs.YulGeneration.Backends.BridgedSafeStmts.externalRecursiveRawLog
+        (Compiler.Proofs.YulGeneration.Backends.BridgedSourceExternalRecursiveBodyWithRawLogStmts.cons
+          (Compiler.Proofs.YulGeneration.Backends.BridgedSourceExternalRecursiveBodyWithRawLogStmt.forEach
+            _ _ _
+            (Compiler.Proofs.YulGeneration.Backends.BridgedSourceExpr.literal _)
+            Compiler.Proofs.YulGeneration.Backends.BridgedSourceExternalRecursiveBodyWithRawLogStmts.nil)
+          Compiler.Proofs.YulGeneration.Backends.BridgedSourceExternalRecursiveBodyWithRawLogStmts.nil)
   | requireClause clause _ ih =>
       simpa using
         Compiler.Proofs.YulGeneration.Backends.BridgedSafeStmts.append
@@ -5557,6 +5578,28 @@ theorem supportedStmtList_safe_of_state_except_mapping_writes_stmt_safety
           (Compiler.Proofs.YulGeneration.Backends.bridgedSourceExpr_of_exprCompileCore hKey2)
           (Compiler.Proofs.YulGeneration.Backends.bridgedSourceExpr_of_exprCompileCore hValue)
           hMapping2 hMembers hFindMember rfl hZero hSlots
+  | @forEachLiteralBounded scope varName body _ _ _ =>
+      cases body with
+      | nil =>
+          exact Compiler.Proofs.YulGeneration.Backends.BridgedSafeStmts.externalRecursiveRawLog
+            (Compiler.Proofs.YulGeneration.Backends.BridgedSourceExternalRecursiveBodyWithRawLogStmts.cons
+              (Compiler.Proofs.YulGeneration.Backends.BridgedSourceExternalRecursiveBodyWithRawLogStmt.forEach
+                _ _ _
+                (Compiler.Proofs.YulGeneration.Backends.BridgedSourceExpr.literal _)
+                Compiler.Proofs.YulGeneration.Backends.BridgedSourceExternalRecursiveBodyWithRawLogStmts.nil)
+              Compiler.Proofs.YulGeneration.Backends.BridgedSourceExternalRecursiveBodyWithRawLogStmts.nil)
+      | cons _ _ =>
+          simp [stmtListTouchesUnsupportedStateSurfaceExceptMappingWrites,
+            stmtTouchesUnsupportedStateSurfaceExceptMappingWrites,
+            stmtTouchesUnsupportedStateSurface] at hState
+  | forEachLiteralEmpty _ =>
+      exact Compiler.Proofs.YulGeneration.Backends.BridgedSafeStmts.externalRecursiveRawLog
+        (Compiler.Proofs.YulGeneration.Backends.BridgedSourceExternalRecursiveBodyWithRawLogStmts.cons
+          (Compiler.Proofs.YulGeneration.Backends.BridgedSourceExternalRecursiveBodyWithRawLogStmt.forEach
+            _ _ _
+            (Compiler.Proofs.YulGeneration.Backends.BridgedSourceExpr.literal _)
+            Compiler.Proofs.YulGeneration.Backends.BridgedSourceExternalRecursiveBodyWithRawLogStmts.nil)
+          Compiler.Proofs.YulGeneration.Backends.BridgedSourceExternalRecursiveBodyWithRawLogStmts.nil)
   | @requireClause scope clause rest _ ih =>
       have hTailSafety :
           ∀ stmt ∈ rest, StmtMappingWriteSlotSafe fields stmt := by

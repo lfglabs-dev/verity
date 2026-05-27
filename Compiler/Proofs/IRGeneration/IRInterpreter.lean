@@ -366,9 +366,10 @@ private def prepareInternalCalleeState
 
 /-- Legacy IR-theorem compatibility subset for external bodies. This excludes the
 helper-only Yul forms whose semantics differ from the current helper-free
-interpreter target (`letMany`, `leave`, `switch`, and `for`) while still
-allowing nested blocks / branches so the conservative-extension theorem can
-talk about today's compiled external-body shape explicitly. -/
+interpreter target (`letMany`, `leave`, and `switch`) while still allowing
+nested blocks, branches, and structurally compatible loops so the
+conservative-extension theorem can talk about today's compiled external-body
+shape explicitly. -/
 inductive LegacyCompatibleExternalStmtList : List YulStmt → Prop
   | nil :
       LegacyCompatibleExternalStmtList []
@@ -392,6 +393,12 @@ inductive LegacyCompatibleExternalStmtList : List YulStmt → Prop
       LegacyCompatibleExternalStmtList body →
       LegacyCompatibleExternalStmtList rest →
       LegacyCompatibleExternalStmtList (.block body :: rest)
+  | for_ (init : List YulStmt) (cond : YulExpr) (post body rest : List YulStmt) :
+      LegacyCompatibleExternalStmtList init →
+      LegacyCompatibleExternalStmtList post →
+      LegacyCompatibleExternalStmtList body →
+      LegacyCompatibleExternalStmtList rest →
+      LegacyCompatibleExternalStmtList (.for_ init cond post body :: rest)
   | funcDef (name : String) (params rets : List String) (body rest : List YulStmt) :
       LegacyCompatibleExternalStmtList body →
       LegacyCompatibleExternalStmtList rest →
@@ -982,6 +989,329 @@ def execIRStmts (fuel : Nat) (state : IRState) : List YulStmt → IRExecResult
           | .revert s => .revert s
 
 end -- mutual
+
+theorem execIRStmt_for_init_noncontinue
+    (fuel : Nat) (state : IRState)
+    (init post body : List YulStmt) (cond : YulExpr) (r : IRExecResult)
+    (hinit : execIRStmts fuel state init = r)
+    (hterm : ∀ s, r ≠ .continue s) :
+    execIRStmt (Nat.succ fuel) state (.for_ init cond post body) = r := by
+  simp only [execIRStmt, hinit]
+
+theorem execIRStmt_for_cond_none
+    (fuel : Nat) (state sInit : IRState)
+    (init post body : List YulStmt) (cond : YulExpr)
+    (hinit : execIRStmts fuel state init = .continue sInit)
+    (hcond : evalIRExpr sInit cond = none) :
+    execIRStmt (Nat.succ fuel) state (.for_ init cond post body) =
+      .revert sInit := by
+  simp [execIRStmt, hinit, hcond]
+
+theorem execIRStmt_for_init_cond_zero
+    (fuel : Nat) (state sInit : IRState)
+    (init post body : List YulStmt) (cond : YulExpr)
+    (hinit : execIRStmts fuel state init = .continue sInit)
+    (hcond : evalIRExpr sInit cond = some 0) :
+    execIRStmt (Nat.succ fuel) state (.for_ init cond post body) =
+      .continue sInit := by
+  simp [execIRStmt, hinit, hcond]
+
+theorem execIRStmt_for_init_continue
+    (fuel : Nat) (state sInit : IRState)
+    (init post body : List YulStmt) (cond : YulExpr)
+    (hinit : execIRStmts fuel state init = .continue sInit) :
+    execIRStmt (Nat.succ fuel) state (.for_ init cond post body) =
+      execIRStmt (Nat.succ fuel) sInit (.for_ [] cond post body) := by
+  simp [execIRStmt, hinit, execIRStmts]
+
+theorem execIRStmt_for_body_noncontinue
+    (fuel : Nat) (state sInit : IRState)
+    (init post body : List YulStmt) (cond : YulExpr)
+    (condValue : Nat) (r : IRExecResult)
+    (hinit : execIRStmts fuel state init = .continue sInit)
+    (hcond : evalIRExpr sInit cond = some condValue)
+    (hcondNZ : condValue ≠ 0)
+    (hbody : execIRStmts fuel sInit body = r)
+    (hterm : ∀ s, r ≠ .continue s) :
+    execIRStmt (Nat.succ fuel) state (.for_ init cond post body) = r := by
+  simp only [execIRStmt, hinit, hcond]
+  simp [hcondNZ, hbody]
+
+theorem execIRStmt_for_post_noncontinue
+    (fuel : Nat) (state sInit sBody : IRState)
+    (init post body : List YulStmt) (cond : YulExpr)
+    (condValue : Nat) (r : IRExecResult)
+    (hinit : execIRStmts fuel state init = .continue sInit)
+    (hcond : evalIRExpr sInit cond = some condValue)
+    (hcondNZ : condValue ≠ 0)
+    (hbody : execIRStmts fuel sInit body = .continue sBody)
+    (hpost : execIRStmts fuel sBody post = r)
+    (hterm : ∀ s, r ≠ .continue s) :
+    execIRStmt (Nat.succ fuel) state (.for_ init cond post body) = r := by
+  simp only [execIRStmt, hinit, hcond]
+  simp [hcondNZ, hbody, hpost]
+
+theorem execIRStmt_for_one_continue
+    (fuel : Nat) (state sInit sBody sPost : IRState)
+    (init post body : List YulStmt) (cond : YulExpr)
+    (condValue : Nat)
+    (hinit : execIRStmts fuel state init = .continue sInit)
+    (hcond : evalIRExpr sInit cond = some condValue)
+    (hcondNZ : condValue ≠ 0)
+    (hbody : execIRStmts fuel sInit body = .continue sBody)
+    (hpost : execIRStmts fuel sBody post = .continue sPost) :
+    execIRStmt (Nat.succ fuel) state (.for_ init cond post body) =
+      execIRStmt fuel sPost (.for_ [] cond post body) := by
+  simp only [execIRStmt, hinit, hcond]
+  simp [hcondNZ, hbody, hpost]
+
+/-- Nat-indexed recurrence for the recursive empty-init `for` form.
+
+After the first iteration of a compiled Yul `for`, the interpreter recurs on
+`.for_ [] cond post body` with one less fuel. This theorem packages that
+repeated step: callers provide the per-index condition/body/post preservation
+facts for states `states k`, and the theorem threads them until the terminal
+condition at `states remaining`. -/
+theorem execIRStmt_for_empty_init_recurrence
+    (fuel remaining : Nat)
+    (states : Nat → IRState)
+    (cond : YulExpr)
+    (post body : List YulStmt)
+    (hterminal : evalIRExpr (states remaining) cond = some 0)
+    (hstep :
+      ∀ k, k < remaining →
+        ∃ condValue bodyState postState,
+          evalIRExpr (states k) cond = some condValue ∧
+          condValue ≠ 0 ∧
+          execIRStmts (fuel - k - 1) (states k) body = .continue bodyState ∧
+          execIRStmts (fuel - k - 1) bodyState post = .continue postState ∧
+          postState = states (k + 1))
+    (hfuel : remaining < fuel) :
+    execIRStmt fuel (states 0) (.for_ [] cond post body) =
+      .continue (states remaining) := by
+  induction remaining generalizing fuel states with
+  | zero =>
+      cases fuel with
+      | zero => omega
+      | succ fuel =>
+          exact execIRStmt_for_init_cond_zero fuel (states 0) (states 0) []
+            post body cond (by simp [execIRStmts]) hterminal
+  | succ remaining ih =>
+      cases fuel with
+      | zero => omega
+      | succ fuel =>
+          rcases hstep 0 (by omega) with
+            ⟨condValue, bodyState, postState, hcond, hcondNZ, hbody, hpost, hpostState⟩
+          have htail :
+              execIRStmt fuel (states 1) (.for_ [] cond post body) =
+                .continue (states (remaining + 1)) := by
+            let tailStates : Nat → IRState := fun k => states (k + 1)
+            have hterminalTail :
+                evalIRExpr (tailStates remaining) cond = some 0 := by
+              simpa [tailStates, Nat.add_assoc] using hterminal
+            have hstepTail :
+                ∀ k, k < remaining →
+                  ∃ condValue bodyState postState,
+                    evalIRExpr (tailStates k) cond = some condValue ∧
+                    condValue ≠ 0 ∧
+                    execIRStmts (fuel - k - 1) (tailStates k) body =
+                      .continue bodyState ∧
+                    execIRStmts (fuel - k - 1) bodyState post =
+                      .continue postState ∧
+                    postState = tailStates (k + 1) := by
+              intro k hk
+              rcases hstep (k + 1) (by omega) with
+                ⟨cv, bs, ps, hc, hcv, hb, hp, hps⟩
+              refine ⟨cv, bs, ps, ?_, hcv, ?_, ?_, ?_⟩
+              · simpa [tailStates, Nat.add_assoc] using hc
+              · have hfuelEq : Nat.succ fuel - (k + 1) - 1 = fuel - k - 1 := by
+                  omega
+                simpa [tailStates, hfuelEq, Nat.add_assoc] using hb
+              · have hfuelEq : Nat.succ fuel - (k + 1) - 1 = fuel - k - 1 := by
+                  omega
+                simpa [hfuelEq] using hp
+              · simpa [tailStates, Nat.add_assoc] using hps
+            have hfuelTail : remaining < fuel := by omega
+            simpa [tailStates] using
+              ih (fuel := fuel) (states := tailStates)
+                hterminalTail hstepTail hfuelTail
+          have hbody' : execIRStmts fuel (states 0) body = .continue bodyState := by
+            simpa using hbody
+          have hpost' : execIRStmts fuel bodyState post = .continue postState := by
+            simpa using hpost
+          rw [execIRStmt_for_one_continue
+            (fuel := fuel) (state := states 0) (sInit := states 0)
+            (sBody := bodyState) (sPost := postState)
+            (init := []) (post := post) (body := body) (cond := cond)
+            (condValue := condValue)
+            (by simp [execIRStmts]) hcond hcondNZ hbody' hpost']
+          simpa [hpostState] using htail
+
+/-- Singleton-list form of `execIRStmt_for_init_cond_zero`.
+
+This is the shape needed when a compiled source statement is represented by a
+single Yul `for` statement inside `execIRStmts`. -/
+theorem execIRStmts_single_for_init_cond_zero
+    (fuel : Nat) (state sInit : IRState)
+    (init post body : List YulStmt) (cond : YulExpr)
+    (hinit : execIRStmts fuel state init = .continue sInit)
+    (hcond : evalIRExpr sInit cond = some 0) :
+    execIRStmts (Nat.succ (Nat.succ fuel)) state [.for_ init cond post body] =
+      .continue sInit := by
+  simp only [execIRStmts]
+  rw [execIRStmt_for_init_cond_zero fuel state sInit init post body cond hinit hcond]
+
+theorem execIRStmts_single_for_init_continue
+    (fuel : Nat) (state sInit sFinal : IRState)
+    (init post body : List YulStmt) (cond : YulExpr)
+    (hinit : execIRStmts fuel state init = .continue sInit)
+    (hloop : execIRStmt (Nat.succ fuel) sInit (.for_ [] cond post body) = .continue sFinal) :
+    execIRStmts (Nat.succ (Nat.succ fuel)) state [.for_ init cond post body] =
+      .continue sFinal := by
+  simp only [execIRStmts]
+  rw [execIRStmt_for_init_continue fuel state sInit init post body cond hinit]
+  rw [hloop]
+
+/-- Head/tail form of `execIRStmt_for_init_cond_zero`.
+
+After the `for` condition evaluates to zero, statement-list execution continues
+with the tail from the state produced by the init block. -/
+theorem execIRStmts_cons_for_init_cond_zero
+    (fuel : Nat) (state sInit : IRState)
+    (init post body tail : List YulStmt) (cond : YulExpr)
+    (hinit : execIRStmts fuel state init = .continue sInit)
+    (hcond : evalIRExpr sInit cond = some 0) :
+    execIRStmts (Nat.succ (Nat.succ fuel)) state
+        (.for_ init cond post body :: tail) =
+      execIRStmts (Nat.succ fuel) sInit tail := by
+  simp only [execIRStmts]
+  rw [execIRStmt_for_init_cond_zero fuel state sInit init post body cond hinit hcond]
+
+/-- Singleton-list form of one successful `for` iteration.
+
+The init block, first condition check, body, and post block are discharged, and
+the remaining execution is exactly the recursive empty-init loop. -/
+theorem execIRStmts_single_for_one_continue
+    (fuel : Nat) (state sInit sBody sPost : IRState)
+    (init post body : List YulStmt) (cond : YulExpr)
+    (condValue : Nat)
+    (hinit : execIRStmts fuel state init = .continue sInit)
+    (hcond : evalIRExpr sInit cond = some condValue)
+    (hcondNZ : condValue ≠ 0)
+    (hbody : execIRStmts fuel sInit body = .continue sBody)
+    (hpost : execIRStmts fuel sBody post = .continue sPost) :
+    execIRStmts (Nat.succ (Nat.succ fuel)) state [.for_ init cond post body] =
+      match execIRStmt fuel sPost (.for_ [] cond post body) with
+      | .continue sLoop => .continue sLoop
+      | .return value sLoop => .return value sLoop
+      | .stop sLoop => .stop sLoop
+      | .revert sLoop => .revert sLoop := by
+  simp only [execIRStmts]
+  rw [execIRStmt_for_one_continue fuel state sInit sBody sPost init post body cond
+    condValue hinit hcond hcondNZ hbody hpost]
+
+/-- Head/tail form of one successful `for` iteration.
+
+This threads the tail through the recursive empty-init loop produced after the
+first successful body/post execution. -/
+theorem execIRStmts_cons_for_one_continue
+    (fuel : Nat) (state sInit sBody sPost : IRState)
+    (init post body tail : List YulStmt) (cond : YulExpr)
+    (condValue : Nat)
+    (hinit : execIRStmts fuel state init = .continue sInit)
+    (hcond : evalIRExpr sInit cond = some condValue)
+    (hcondNZ : condValue ≠ 0)
+    (hbody : execIRStmts fuel sInit body = .continue sBody)
+    (hpost : execIRStmts fuel sBody post = .continue sPost) :
+    execIRStmts (Nat.succ (Nat.succ fuel)) state
+        (.for_ init cond post body :: tail) =
+      match execIRStmt fuel sPost (.for_ [] cond post body) with
+      | .continue sLoop => execIRStmts (Nat.succ fuel) sLoop tail
+      | .return value sLoop => .return value sLoop
+      | .stop sLoop => .stop sLoop
+      | .revert sLoop => .revert sLoop := by
+  simp only [execIRStmts]
+  rw [execIRStmt_for_one_continue fuel state sInit sBody sPost init post body cond
+    condValue hinit hcond hcondNZ hbody hpost]
+
+/-- Convenient continuation-only corollary of `execIRStmts_cons_for_one_continue`.
+
+Use this when the recursive empty-init loop is known to finish with `.continue`;
+the list tail then resumes from that state. -/
+theorem execIRStmts_cons_for_one_continue_of_loop_continue
+    (fuel : Nat) (state sInit sBody sPost sLoop : IRState)
+    (init post body tail : List YulStmt) (cond : YulExpr)
+    (condValue : Nat)
+    (hinit : execIRStmts fuel state init = .continue sInit)
+    (hcond : evalIRExpr sInit cond = some condValue)
+    (hcondNZ : condValue ≠ 0)
+    (hbody : execIRStmts fuel sInit body = .continue sBody)
+    (hpost : execIRStmts fuel sBody post = .continue sPost)
+    (hloop : execIRStmt fuel sPost (.for_ [] cond post body) = .continue sLoop) :
+    execIRStmts (Nat.succ (Nat.succ fuel)) state
+        (.for_ init cond post body :: tail) =
+      execIRStmts (Nat.succ fuel) sLoop tail := by
+  rw [execIRStmts_cons_for_one_continue fuel state sInit sBody sPost init post body
+    tail cond condValue hinit hcond hcondNZ hbody hpost, hloop]
+
+/-- forEach-shaped zero-condition lemma.
+
+The statement syntax is specialized to the compiler's current forEach loop
+layout: init statements, `lt(idx, count)`, `idx := add(idx, 1)`, and a leading
+assignment of the element variable before the compiled body. The semantic facts
+remain explicit hypotheses so callers can provide them from their local loop
+invariants. -/
+theorem execIRStmt_forEach_shape_init_cond_zero
+    (fuel : Nat) (state sInit : IRState)
+    (init bodyIR : List YulStmt)
+    (idxName countName varName : String)
+    (hinit : execIRStmts fuel state init = .continue sInit)
+    (hcond :
+      evalIRExpr sInit
+        (.call "lt" [.ident idxName, .ident countName]) = some 0) :
+    execIRStmt (Nat.succ fuel) state
+        (.for_
+          init
+          (.call "lt" [.ident idxName, .ident countName])
+          [.assign idxName (.call "add" [.ident idxName, .lit 1])]
+          (.assign varName (.ident idxName) :: bodyIR)) =
+      .continue sInit := by
+  exact execIRStmt_for_init_cond_zero fuel state sInit init
+    [.assign idxName (.call "add" [.ident idxName, .lit 1])]
+    (.assign varName (.ident idxName) :: bodyIR)
+    (.call "lt" [.ident idxName, .ident countName])
+    hinit hcond
+
+/-- The three initializer statements emitted for a zero-literal `forEach`
+execute to the expected cached-counter state once enough fuel is available. -/
+theorem execIRStmts_forEach_init_literal_zero
+    (fuel : Nat) (state : IRState)
+    (idxName countName varName : String)
+    (hfuel : 4 ≤ fuel) :
+    execIRStmts fuel state
+        [ YulStmt.let_ idxName (YulExpr.lit 0)
+        , YulStmt.let_ countName (YulExpr.lit 0)
+        , YulStmt.let_ varName (YulExpr.lit 0) ] =
+      .continue (((state.setVar idxName 0).setVar countName 0).setVar varName 0) := by
+  rcases Nat.exists_eq_add_of_le hfuel with ⟨extra, rfl⟩
+  rw [Nat.add_comm]
+  simp [execIRStmts, execIRStmt, evalIRExpr]
+
+/-- The three initializer statements emitted for a literal-bound `forEach`
+execute to the expected cached-counter state once enough fuel is available. -/
+theorem execIRStmts_forEach_init_literal
+    (fuel : Nat) (state : IRState)
+    (idxName countName varName : String)
+    (bound : Nat)
+    (hfuel : 4 ≤ fuel) :
+    execIRStmts fuel state
+        [ YulStmt.let_ idxName (YulExpr.lit 0)
+        , YulStmt.let_ countName (YulExpr.lit bound)
+        , YulStmt.let_ varName (YulExpr.lit 0) ] =
+      .continue (((state.setVar idxName 0).setVar countName bound).setVar varName 0) := by
+  rcases Nat.exists_eq_add_of_le hfuel with ⟨extra, rfl⟩
+  rw [Nat.add_comm]
+  simp [execIRStmts, execIRStmt, evalIRExpr]
 
 @[simp] theorem execIRStmt_stop_succ (fuel : Nat) (state : IRState) :
     execIRStmt (Nat.succ fuel) state (YulStmt.expr (YulExpr.call "stop" [])) =
@@ -2968,6 +3298,10 @@ theorem YulStmtListCallsDisjointFromInternalTable_of_internalFunctions_nil
         (yulExprCallsDisjointFromInternalTable_of_internalFunctions_nil contract hinternal cond) ihBody ihRest
   | block body rest hbody _ ihBody ihRest =>
       exact .block body rest ihBody ihRest
+  | for_ init cond post body rest hinit hpost hbody _ ihInit ihPost ihBody ihRest =>
+      exact .for_ init cond post body rest ihInit
+        (yulExprCallsDisjointFromInternalTable_of_internalFunctions_nil contract hinternal cond)
+        ihPost ihBody ihRest
   | funcDef name params rets body rest hbody _ ihBody ihRest =>
       exact .funcDef name params rets body rest ihBody ihRest
 
@@ -3500,6 +3834,81 @@ theorem execIRStmtsWithInternals_eq_execIRStmts_of_exprCompatibility
               rw [execIRStmtsWithInternals, execIRStmts, hhead]
               cases hstep : execIRStmt fuel state (.block body) <;>
                 simp only [ihRest]
+      | for_ init cond post body rest hinit hpost hbody hrest ihInit ihPost ihBody ihRest =>
+          cases fuel with
+          | zero =>
+              simp only [execIRStmtsWithInternals, execIRStmts]
+          | succ fuel =>
+              have hhead :
+                  execIRStmtWithInternals contract fuel state (.for_ init cond post body) =
+                    match execIRStmt fuel state (.for_ init cond post body) with
+                    | .continue next => .continue next
+                    | .return value next => .return value next
+                    | .stop next => .stop next
+                    | .revert next => .revert next := by
+                suffices hgen : ∀ (f : Nat) (s : IRState) (initStmts : List YulStmt),
+                    (∀ f' s', execIRStmtsWithInternals contract f' s' initStmts =
+                      match execIRStmts f' s' initStmts with
+                      | .continue n => .continue n | .return v n => .return v n
+                      | .stop n => .stop n | .revert n => .revert n) →
+                    execIRStmtWithInternals contract f s (.for_ initStmts cond post body) =
+                      match execIRStmt f s (.for_ initStmts cond post body) with
+                      | .continue next => .continue next
+                      | .return value next => .return value next
+                      | .stop next => .stop next
+                      | .revert next => .revert next by
+                  exact hgen fuel state init (ihInit · ·)
+                intro f
+                induction f with
+                | zero =>
+                    intro s initStmts _
+                    simp only [execIRStmtWithInternals, execIRStmt]
+                | succ f ihFuel =>
+                    intro s initStmts hInitEq
+                    simp only [execIRStmtWithInternals, execIRStmt]
+                    rw [hInitEq]
+                    cases hInitStep : execIRStmts f s initStmts with
+                    | «continue» s' =>
+                        simp only []
+                        rw [evalIRExprWithInternals_eq_evalIRExpr_of_no_internal
+                          contract hinternal f s' cond]
+                        cases hCondVal : evalIRExpr s' cond with
+                        | none =>
+                            simp
+                        | some condValue =>
+                            by_cases hnonzero : condValue ≠ 0
+                            · simp only [if_pos hnonzero]
+                              rw [ihBody f s']
+                              cases hBodyStep : execIRStmts f s' body with
+                              | «continue» s'' =>
+                                  simp only []
+                                  rw [ihPost f s'']
+                                  cases hPostStep : execIRStmts f s'' post with
+                                  | «continue» s''' =>
+                                      simp only []
+                                      have hNilEq : ∀ f' s',
+                                          execIRStmtsWithInternals contract f' s' [] =
+                                            match execIRStmts f' s' [] with
+                                            | .continue n => .continue n
+                                            | .return v n => .return v n
+                                            | .stop n => .stop n
+                                            | .revert n => .revert n := by
+                                        intro f' s'
+                                        simp only [execIRStmtsWithInternals, execIRStmts]
+                                      exact ihFuel s''' [] hNilEq
+                                  | «return» v s''' => simp
+                                  | stop s''' => simp
+                                  | revert s''' => simp
+                              | «return» v s'' => simp
+                              | stop s'' => simp
+                              | revert s'' => simp
+                            · simp only [if_neg hnonzero]
+                    | «return» v s' => simp
+                    | stop s' => simp
+                    | revert s' => simp
+              rw [execIRStmtsWithInternals, execIRStmts, hhead]
+              cases hstep : execIRStmt fuel state (.for_ init cond post body) <;>
+                simp only [ihRest]
       | funcDef name params rets body rest hbody hrest ihBody ihRest =>
           cases fuel with
           | zero =>
@@ -3682,6 +4091,18 @@ theorem execIRStmtsWithInternals_eq_execIRStmts_of_stmtCompatibility
               (LegacyCompatibleExternalStmtList.block body [] hbody LegacyCompatibleExternalStmtList.nil)
           rw [execIRStmtsWithInternals, execIRStmts, hhead]
           cases hstep : execIRStmt fuel state (.block body) <;>
+            simp only [ihRest]
+  | for_ init cond post body rest hinit hpost hbody hrest ihInit ihPost ihBody ihRest =>
+      cases fuel with
+      | zero =>
+          simp only [execIRStmtsWithInternals, execIRStmts]
+      | succ fuel =>
+          have hhead :=
+            hstmt hinternal fuel state (.for_ init cond post body)
+              (LegacyCompatibleExternalStmtList.for_ init cond post body []
+                hinit hpost hbody LegacyCompatibleExternalStmtList.nil)
+          rw [execIRStmtsWithInternals, execIRStmts, hhead]
+          cases hstep : execIRStmt fuel state (.for_ init cond post body) <;>
             simp only [ihRest]
   | funcDef name params rets body rest hbody hrest ihBody ihRest =>
       cases fuel with

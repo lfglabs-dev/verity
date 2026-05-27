@@ -96,7 +96,7 @@ def compileExpr (fields : List Field)
   | Expr.mappingPackedWord field key wordOffset packed => do
       if !packedBitsValid packed then
         throw s!"Compilation error: Expr.mappingPackedWord for field '{field}' has invalid packed range offset={packed.offset} width={packed.width}. Require 0 < width <= 256, offset < 256, and offset + width <= 256."
-      else
+      else do
         let slotWord ← compileMappingSlotRead fields field (← compileExpr fields dynamicSource key) "mappingPackedWord" wordOffset
         pure (YulExpr.call "and" [
           YulExpr.call "shr" [YulExpr.lit packed.offset, slotWord],
@@ -435,6 +435,24 @@ def compileExpr (fields : List Field)
   | Expr.byte i v    => return yulBinOp "byte" (← compileExpr fields dynamicSource i) (← compileExpr fields dynamicSource v)
   | Expr.signextend b v =>
       return yulBinOp "signextend" (← compileExpr fields dynamicSource b) (← compileExpr fields dynamicSource v)
+  | Expr.intrinsic name lowering _minFork args => do
+      let argExprs ← compileExprList fields dynamicSource args
+      match lowering with
+      | .verbatim inArity outArity opcodeHex =>
+          if outArity != 1 then
+            throw s!"Compilation error: intrinsic {name} must produce exactly 1 output, got {outArity}"
+          if args.length != inArity then
+            throw s!"Compilation error: intrinsic {name} expects {inArity} arg(s), got {args.length}"
+          pure (YulExpr.call (Verity.Core.Intrinsics.YulLowering.callName lowering)
+            (YulExpr.verbatimHex opcodeHex :: argExprs))
+      | .builtin builtinName =>
+          let some (inArity, outArity) := Verity.Core.Intrinsics.yulBuiltinArity? builtinName
+            | throw s!"Compilation error: intrinsic {name} targets unknown Yul builtin '{builtinName}'"
+          if outArity != 1 then
+            throw s!"Compilation error: intrinsic {name} builtin {builtinName} must produce exactly 1 output, got {outArity}"
+          if args.length != inArity then
+            throw s!"Compilation error: intrinsic {name} builtin {builtinName} expects {inArity} arg(s), got {args.length}"
+          pure (YulExpr.call builtinName argExprs)
   | Expr.eq a b      => return yulBinOp "eq"  (← compileExpr fields dynamicSource a) (← compileExpr fields dynamicSource b)
   | Expr.gt a b      => return yulBinOp "gt"  (← compileExpr fields dynamicSource a) (← compileExpr fields dynamicSource b)
   | Expr.sgt a b     => return yulBinOp "sgt" (← compileExpr fields dynamicSource a) (← compileExpr fields dynamicSource b)

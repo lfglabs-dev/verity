@@ -2,6 +2,8 @@ import Lean
 import Verity.Macro.Syntax
 import Verity.Macro.Translate
 import Verity.Macro.Bridge
+import Verity.Core.Intrinsics
+import Verity.Core.Uint256
 
 namespace Verity.Macro
 
@@ -145,5 +147,58 @@ def elabVerityContract : CommandElab := fun stx => do
   catch err =>
     elabCommand (← `(end $contractName))
     throw err
+
+@[command_elab verityIntrinsicCmd]
+def elabVerityIntrinsic : CommandElab := fun stx => do
+  match stx with
+  | `(verity_intrinsic $name:ident ($paramName:ident : $paramTy:term) : $retTy:term
+        where $pureKw:ident; yul := $yul:verityIntrinsicYul; min_fork := $fork:ident;
+        semantics := $semantics:term; obligation [ $[$obligations:verityIntrinsicObligation],* ]) => do
+      unless toString pureKw.getId == "pure" do
+        throwErrorAt pureKw "verity_intrinsic currently supports only pure intrinsics"
+      let yulLowering ←
+        match yul with
+        | `(verityIntrinsicYul| verbatim $inArity:num $outArity:num (hex $opcode:str)) =>
+            pure <| Verity.Core.Intrinsics.YulLowering.verbatim
+              inArity.getNat outArity.getNat opcode.getString
+        | `(verityIntrinsicYul| builtin $builtin:str) =>
+            pure <| Verity.Core.Intrinsics.YulLowering.builtin builtin.getString
+        | _ =>
+            throwErrorAt yul "expected `verbatim <inputs> <outputs> (hex \"...\")` or `builtin \"...\"`"
+      let minFork ←
+        match Verity.Core.Intrinsics.HardFork.parse? (toString fork.getId) with
+        | some parsed => pure parsed
+        | none => throwErrorAt fork
+            s!"unknown intrinsic min_fork '{toString fork.getId}' (expected cancun, prague, fusaka, or osaka alias)"
+      let parsedObligations ← obligations.mapM fun obligation => do
+        match obligation with
+        | `(verityIntrinsicObligation| $obligationName:ident := $status:ident $message:str) =>
+            pure (toString obligationName.getId, toString status.getId, message.getString)
+        | _ =>
+            throwErrorAt obligation "expected obligation entry `<name> := assumed \"reason\"`"
+      let nameStr := toString name.getId
+      let decl : Verity.Core.Intrinsics.IntrinsicDecl := {
+        name := nameStr,
+        paramNames := [toString paramName.getId],
+        paramTypes := [toString paramTy],
+        returnType := toString retTy,
+        isPure := true,
+        yul := yulLowering,
+        minFork := minFork,
+        obligations := parsedObligations.toList,
+        sourceHint := some "elabVerityIntrinsic"
+      }
+      liftIO <| Verity.Macro.registerIntrinsic decl
+      let wrapperCmd ← `(command| def $name:ident : $paramTy -> $retTy := $semantics)
+      elabCommand wrapperCmd
+      let obligationSummaryName : Ident :=
+        ⟨mkIdent (name.getId.appendAfter "_intrinsic_obligations")⟩
+      let obligationSummary := String.intercalate "\n" <|
+        parsedObligations.toList.map (fun (n, status, msg) => s!"{n}: {status} {msg}")
+      let obligationCmd ← `(command| def $obligationSummaryName:ident : String := $(strTermPublic obligationSummary))
+      elabCommand obligationCmd
+  | _ =>
+      throwErrorAt stx
+        "unsupported verity_intrinsic declaration; expected one parameter, yul, min_fork, semantics, and obligation clauses"
 
 end Verity.Macro

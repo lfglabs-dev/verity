@@ -223,10 +223,39 @@ correctness in the `ExprCompileCore` fragment: `min`, `max`, `ceilDiv`, `ite`
 [`docs/ARITHMETIC_PROFILE.md`](docs/ARITHMETIC_PROFILE.md) for the full
 specification.
 
+## Consumer Intrinsic Obligations (from verity_intrinsic)
+
+Intrinsics do not add project-level Verity axioms. Each `verity_intrinsic`
+declaration names a consumer-owned obligation in its `obligation [...]` clause
+and records that obligation next to the generated consumer semantic wrapper.
+While that obligation is `assumed`, the consumer repository must document it in
+its own `AXIOMS.md` or equivalent trust-boundary document.
+
+For example, a Tamago CLZ intrinsic should document the consumer-side
+`clz_matches_eip7939` assumption: the Lean `semantics` function used by Tamago
+proofs matches the EIP-7939 opcode emitted as `verbatim_1i_1o(hex"1e", x)` on
+Fusaka-or-later chains.
+
+These obligations are outside this registry because they are not axioms in the
+Verity project. Future consumer trust reports should surface them
+machine-readably; until that integration exists, review them by grepping
+consumer code for `verity_intrinsic`.
+
+The Verity-side proof module `Compiler.Proofs.IRGeneration.IntrinsicProofs`
+proves only compiler-owned plumbing around the generic intrinsic path:
+argument scope accounting, verbatim/builtin lowering shape, fork-order facts,
+arity rejection, and the fail-closed `min_fork` predicate used by the compiler
+fork gate. It adds no axiom asserting that any emitted opcode implements the
+declared consumer semantics. The current end-to-end proven fragment remains
+fail-closed over intrinsics: `SupportedSpec` and helper-aware source semantics
+classify `Expr.intrinsic` as unsupported/unmodeled until an opcode semantics
+proof exists.
+
 ## Trust Summary
 
-- Active axioms: 0
-- Production blockers from axioms: 0
+- Active project-level axioms: 0
+- Production blockers from project-level axioms: 0
+- Consumer intrinsic obligations: owned and documented by consumer packages
 - Enforcement: `scripts/check_axioms.py` ensures this file tracks exact source locations.
 - All internal compiler functions are proven to terminate (no axioms involved).
 - The macro front-end and typed-IR pipeline do not use any
@@ -234,8 +263,11 @@ specification.
 
 ## Maintenance Rule
 
-Any commit that adds, removes, renames, or moves an axiom must update this file in the same commit.
+Any commit that adds, removes, renames, or moves a project-level axiom must
+update this file in the same commit. Any commit that changes intrinsic trust
+semantics must update this file, [TRUST_ASSUMPTIONS.md](TRUST_ASSUMPTIONS.md),
+and [AUDIT.md](AUDIT.md).
 
 If this file is stale, trust analysis is stale.
 
-**Last Updated**: 2026-05-12
+**Last Updated**: 2026-05 (intrinsics addition)

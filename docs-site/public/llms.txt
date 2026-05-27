@@ -14,7 +14,7 @@ EDSL  -->  CompilationModel  -->  IR  -->  Yul  -->  EVM bytecode
 
 Every transition inside the proof envelope is either fully verified or recorded as an explicit assumption in the per-build trust report. The Yul-to-bytecode step is delegated to `solc --strict-assembly`.
 
-**Layer 2**: Generic whole-contract theorem for the supported fragment. 0 axioms. 0 documented Lean axioms remain (AXIOMS.md).
+**Layer 2**: Generic whole-contract theorem for the supported fragment. 0 axioms. 0 documented Lean axioms remain (AXIOMS.md). `forEach` proof support is partial: zero-bound loops with supported bodies and arbitrary literal-bound empty-body loops are proved; positive non-empty loop bodies and nonliteral bounds are not yet proved.
 
 ## Quick facts
 
@@ -87,6 +87,7 @@ Reference:
 - https://veritylang.com/core, ContractState, Contract monad, spec helpers (`sameAddrMapContext` etc.)
 - https://veritylang.com/edsl-api-reference, every primitive, plus `verity_contract` macro features
 - https://veritylang.com/compiler, pipeline, CLI flags, audit artifacts
+- https://veritylang.com/intrinsics, consumer-declared opcode/builtin bindings, fork gating, and proof boundary
 - https://veritylang.com/verification, per-contract theorem inventory
 - https://veritylang.com/glossary
 

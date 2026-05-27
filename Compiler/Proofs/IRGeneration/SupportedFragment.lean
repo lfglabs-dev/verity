@@ -340,6 +340,22 @@ inductive SupportedStmtList (fields : List Field) : List String → List Stmt �
       findStructMember members memberName =
         some { name := memberName, wordOffset := wordOffset, packed := none } →
       SupportedStmtList fields scope [Stmt.setStructMember2 fieldName key1 key2 memberName value]
+  | forEachLiteralBounded
+      {scope : List String}
+      {varName : String}
+      {body : List Stmt} :
+      (∀ name, name ∈ collectStmtListNames body → name ∈ varName :: scope) →
+      SupportedStmtList fields (varName :: scope) body →
+      SupportedStmtList fields scope [Stmt.forEach varName (.literal 0) body]
+  /-- Literal loops with any bound are supported for empty bodies. This exercises
+  arbitrary Yul `for` recurrence while keeping non-empty positive loop bodies
+  outside the fragment until their body-preservation proof is threaded through
+  the loop step. -/
+  | forEachLiteralEmpty
+      {scope : List String}
+      {varName : String} :
+      (n : Nat) →
+      SupportedStmtList fields scope [Stmt.forEach varName (.literal n) []]
   | requireClause
       {scope : List String}
       (clause : RequireLiteralGuardFamilyClause)

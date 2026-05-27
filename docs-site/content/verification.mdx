@@ -47,6 +47,8 @@ Reusable proof infrastructure in `Verity/Proofs/Stdlib/`:
 - **Typed IR**: `Compiler/TypedIRCompilerCorrectness.lean`, 36 supported statement fragments including ABI-head tuples, bytes, fixed/dynamic arrays, and strings as word-typed inputs.
 - **Yul semantics + preservation**: `Compiler/Proofs/YulGeneration/`, with an EVMYulLean-bridged native backend in `Compiler/Proofs/YulGeneration/Backends/`.
 
+The Layer 2 `forEach` boundary is intentionally narrow: the generic theorem covers `Stmt.forEach varName (.literal 0) body` when `body` is supported, and `Stmt.forEach varName (.literal n) []` for any literal natural bound `n`. It does not yet prove positive loops with non-empty bodies or nonliteral bounds.
+
 ## See also
 
 - [Proof Techniques](/proof-techniques), guard modeling, unfolding, list-sum reasoning.

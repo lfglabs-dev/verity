@@ -8,6 +8,19 @@ inductive YulExpr
   | call (func : String) (args : List YulExpr)
   deriving Repr
 
+namespace YulExpr
+
+private def verbatimHexPrefix : String := "__verity_verbatim_hex:"
+
+def verbatimHex (opcodeHex : String) : YulExpr :=
+  .str (verbatimHexPrefix ++ opcodeHex)
+
+def verbatimHex? : YulExpr → Option String
+  | .str s => (s.dropPrefix? verbatimHexPrefix).map (·.toString)
+  | _ => none
+
+end YulExpr
+
 inductive YulStmt
   | comment (text : String)
   | let_ (name : String) (value : YulExpr)

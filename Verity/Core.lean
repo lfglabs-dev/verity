@@ -10,6 +10,7 @@ import Verity.Core.Int256
 import Verity.Core.Uint16
 import Verity.Core.Uint256
 import Verity.Core.FiniteSet
+import Verity.Core.Intrinsics
 
 namespace Verity
 

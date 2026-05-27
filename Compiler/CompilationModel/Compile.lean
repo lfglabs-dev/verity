@@ -246,13 +246,25 @@ def compileStmt (fields : List Field) (events : List EventDef := [])
         ]]
 
   | Stmt.forEach varName count body => do
-      -- Bounded loop: for { let i := 0 } lt(i, count) { i := add(i, 1) } { body } (#179)
+      -- Bounded loop: evaluate `count` once into a cached local, drive iteration
+      -- with a fresh internal counter, and assign the user-visible `varName` to
+      -- the current counter at the top of each iteration. This matches the source
+      -- semantics where `count` is evaluated once and `varName` holds the last
+      -- iteration state after the loop rather than the post-incremented counter.
       let countExpr ← compileExpr fields dynamicSource count
       let bodyStmts ← compileStmtList fields events errors dynamicSource internalRetNames isInternal (varName :: inScopeNames) adtTypes body
-      let initStmts := [YulStmt.let_ varName (YulExpr.lit 0)]
-      let condExpr := YulExpr.call "lt" [YulExpr.ident varName, countExpr]
-      let postStmts := [YulStmt.assign varName (YulExpr.call "add" [YulExpr.ident varName, YulExpr.lit 1])]
-      pure [YulStmt.for_ initStmts condExpr postStmts bodyStmts]
+      let forUsedNames := varName :: (inScopeNames ++ collectExprNames count ++ collectStmtListNames body)
+      let idxName := pickFreshName "__forEach_idx" forUsedNames
+      let countName := pickFreshName "__forEach_count" (idxName :: forUsedNames)
+      let initStmts := [
+        YulStmt.let_ idxName (YulExpr.lit 0),
+        YulStmt.let_ countName countExpr,
+        YulStmt.let_ varName (YulExpr.lit 0)
+      ]
+      let condExpr := YulExpr.call "lt" [YulExpr.ident idxName, YulExpr.ident countName]
+      let postStmts := [YulStmt.assign idxName (YulExpr.call "add" [YulExpr.ident idxName, YulExpr.lit 1])]
+      let bodyWithBind := YulStmt.assign varName (YulExpr.ident idxName) :: bodyStmts
+      pure [YulStmt.for_ initStmts condExpr postStmts bodyWithBind]
 
   | Stmt.unsafeBlock _ body => do
       -- Unsafe block: transparent wrapper, compile inner body directly (#1728, Axis 6 Step 6a)

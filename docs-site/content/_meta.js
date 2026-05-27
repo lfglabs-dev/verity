@@ -17,6 +17,7 @@ export default {
   core: 'Core',
   'edsl-api-reference': 'EDSL API',
   compiler: 'Compiler & CLI',
+  intrinsics: 'Compiler Intrinsics',
   verification: 'Verification Status',
   glossary: 'Glossary',
 
