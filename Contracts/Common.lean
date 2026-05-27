@@ -56,6 +56,14 @@ macro_rules
           $cond
           $(Lean.quote (toString errorName.getId))
           [ $[$encodedArgs],* ])
+  | `(requireSomeUintError $optExpr:term $errorName:ident($args,*)) => do
+      let requireFn := Lean.mkIdentFrom errorName `_root_.Contracts.requireSomeUintCustomError
+      let encodeFn := Lean.mkIdentFrom errorName `_root_.Contracts.CustomErrorArg.encode
+      let encodedArgs ← args.getElems.mapM fun arg => `(term| $encodeFn:ident $arg)
+      `($requireFn:ident
+          $optExpr
+          $(Lean.quote (toString errorName.getId))
+          [ $[$encodedArgs],* ])
   | `(doElem| let $name:ident := arrayElement $values:term $index:term) => do
       let checked := Lean.mkIdentFrom name `_root_.Contracts.arrayElementChecked
       `(doElem| let $name ← $checked:ident $values $index)
@@ -131,6 +139,21 @@ def revertCustomError (name : String) (args : List String) : Contract Unit :=
 
 def requireCustomError (condition : Bool) (name : String) (args : List String) : Contract Unit :=
   if condition then pure () else revertCustomError name args
+
+/-- Typed-error counterpart to `Verity.Stdlib.Math.requireSomeUint`. When the
+optional value is `some`, the wrapper unwraps it. When `none`, the wrapper
+reverts with the supplied custom error name and ABI-style argument list,
+matching the revert payload emitted by `requireError`. The runtime helper is
+named `requireSomeUintCustomError` rather than `requireSomeUintError` because
+the latter is a reserved EDSL keyword (see `Verity/Macro/Syntax.lean`); the
+fallback `return 0` is unreachable in real execution because the preceding
+revert always returns. -/
+def requireSomeUintCustomError (opt : Option Uint256) (name : String) (args : List String) : Contract Uint256 := do
+  match opt with
+  | some value => return value
+  | none => do
+    let _ ← revertCustomError name args
+    return 0
 
 private def wordToSigned (value : Uint256) : Int :=
   (toInt256 value : Int)
