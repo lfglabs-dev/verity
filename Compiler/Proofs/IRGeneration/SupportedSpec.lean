@@ -718,9 +718,7 @@ def exprTouchesUnsupportedCoreSurface : Expr → Bool
   | .ite a b c =>
       exprTouchesUnsupportedCoreSurface a || exprTouchesUnsupportedCoreSurface b ||
         exprTouchesUnsupportedCoreSurface c
-  | .forkIfAtLeast _ thenExpr elseExpr =>
-      exprTouchesUnsupportedCoreSurface thenExpr ||
-        exprTouchesUnsupportedCoreSurface elseExpr
+  | .forkIfAtLeast _ _ _ => true
   | .wMulDown a b | .wDivUp a b =>
       exprTouchesUnsupportedCoreSurface a || exprTouchesUnsupportedCoreSurface b
   | .mulDivDown a b c | .mulDivUp a b c =>
@@ -1133,9 +1131,7 @@ def exprTouchesUnsupportedContractSurface (expr : Expr) : Bool :=
   | .ite a b c =>
       exprTouchesUnsupportedContractSurface a || exprTouchesUnsupportedContractSurface b ||
         exprTouchesUnsupportedContractSurface c
-  | .forkIfAtLeast _ thenExpr elseExpr =>
-      exprTouchesUnsupportedContractSurface thenExpr ||
-        exprTouchesUnsupportedContractSurface elseExpr
+  | .forkIfAtLeast _ _ _ => true
   | .wMulDown a b | .wDivUp a b =>
       exprTouchesUnsupportedContractSurface a || exprTouchesUnsupportedContractSurface b
   | .mulDivDown a b c | .mulDivUp a b c =>
@@ -3997,12 +3993,7 @@ private theorem exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed
         exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed thenVal hcore.1.2 hstate.1.2 hcalls.1.2,
         exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed elseVal hcore.2 hstate.2 hcalls.2]
   | forkIfAtLeast _ thenExpr elseExpr =>
-      simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
-      simp only [exprTouchesUnsupportedStateSurface, Bool.or_eq_false_iff] at hstate
-      simp only [exprTouchesUnsupportedCallSurface, Bool.or_eq_false_iff] at hcalls
-      simp [exprTouchesUnsupportedContractSurface,
-        exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed thenExpr hcore.1 hstate.1 hcalls.1,
-        exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed elseExpr hcore.2 hstate.2 hcalls.2]
+      simp [exprTouchesUnsupportedCoreSurface] at hcore
   | wMulDown lhs rhs | wDivUp lhs rhs =>
       simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
       simp only [exprTouchesUnsupportedStateSurface, Bool.or_eq_false_iff] at hstate
@@ -4099,10 +4090,7 @@ private theorem exprTouchesUnsupportedCallSurface_eq_false_of_coreClosed
         exprTouchesUnsupportedCallSurface_eq_false_of_coreClosed thenVal hcore.1.2,
         exprTouchesUnsupportedCallSurface_eq_false_of_coreClosed elseVal hcore.2]
   | forkIfAtLeast _ thenExpr elseExpr =>
-      simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
-      simp [exprTouchesUnsupportedCallSurface,
-        exprTouchesUnsupportedCallSurface_eq_false_of_coreClosed thenExpr hcore.1,
-        exprTouchesUnsupportedCallSurface_eq_false_of_coreClosed elseExpr hcore.2]
+      simp [exprTouchesUnsupportedCoreSurface] at hcore
   | mulDivDown a b c | mulDivUp a b c =>
       simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
       simp [exprTouchesUnsupportedCallSurface,
@@ -4396,10 +4384,7 @@ theorem exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
         exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.1.2,
         exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.2]
   | forkIfAtLeast _ thenExpr elseExpr =>
-      simp only [exprTouchesUnsupportedContractSurface, Bool.or_eq_false_iff] at hsurface
-      simp [exprTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.1,
-        exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.2]
+      simp [exprTouchesUnsupportedContractSurface] at hsurface
   | bitNot a =>
       simp only [exprTouchesUnsupportedContractSurface] at hsurface
       simp [exprTouchesUnsupportedHelperSurface,
@@ -4635,10 +4620,7 @@ private theorem exprUsesArrayElement_eq_false_of_coreClosed
         exprUsesArrayElement_eq_false_of_coreClosed hcore.1.2,
         exprUsesArrayElement_eq_false_of_coreClosed hcore.2]
   | forkIfAtLeast _ thenExpr elseExpr =>
-      simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
-      simp [exprUsesArrayElement,
-        exprUsesArrayElement_eq_false_of_coreClosed hcore.1,
-        exprUsesArrayElement_eq_false_of_coreClosed hcore.2]
+      simp [exprTouchesUnsupportedCoreSurface] at hcore
   | storage _ | storageAddr _ => simp [exprUsesArrayElement]
   | _ => simp [exprTouchesUnsupportedCoreSurface] at hcore
 termination_by sizeOf expr
@@ -4688,10 +4670,7 @@ private theorem exprUsesStorageArrayElement_eq_false_of_coreClosed
         exprUsesStorageArrayElement_eq_false_of_coreClosed hcore.1.2,
         exprUsesStorageArrayElement_eq_false_of_coreClosed hcore.2]
   | forkIfAtLeast _ thenExpr elseExpr =>
-      simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
-      simp [exprUsesStorageArrayElement,
-        exprUsesStorageArrayElement_eq_false_of_coreClosed hcore.1,
-        exprUsesStorageArrayElement_eq_false_of_coreClosed hcore.2]
+      simp [exprTouchesUnsupportedCoreSurface] at hcore
   | storage _ | storageAddr _ => simp [exprUsesStorageArrayElement]
   | arrayElement _ _ =>
       simp [exprTouchesUnsupportedCoreSurface] at hcore
@@ -4743,10 +4722,7 @@ private theorem exprUsesDynamicBytesEq_eq_false_of_coreClosed
         exprUsesDynamicBytesEq_eq_false_of_coreClosed hcore.1.2,
         exprUsesDynamicBytesEq_eq_false_of_coreClosed hcore.2]
   | forkIfAtLeast _ thenExpr elseExpr =>
-      simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
-      simp [exprUsesDynamicBytesEq,
-        exprUsesDynamicBytesEq_eq_false_of_coreClosed hcore.1,
-        exprUsesDynamicBytesEq_eq_false_of_coreClosed hcore.2]
+      simp [exprTouchesUnsupportedCoreSurface] at hcore
   | storage _ | storageAddr _ => simp [exprUsesDynamicBytesEq]
   | _ => simp [exprTouchesUnsupportedCoreSurface] at hcore
 termination_by sizeOf expr
