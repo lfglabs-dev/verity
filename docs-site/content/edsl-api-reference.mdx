@@ -14,7 +14,7 @@ open Verity.EVM.Uint256
 open Verity.Stdlib.Math
 ```
 
-Every primitive is a `Contract α = ContractState → ContractResult α`. Read-only primitives never revert; write primitives return `success ()`; only `require` and `requireSomeUint` (and `revertError`) may emit `ContractResult.revert`. Proof lemmas for every primitive live in `Verity/Core.lean` (one `_run` lemma per primitive) and `Verity/Proofs/Stdlib/Automation.lean` / `Verity/Proofs/Stdlib/MappingAutomation.lean` (`_runState` / `_runValue` mirrors). See [Core Architecture](/core) for the model.
+Every primitive is a `Contract α = ContractState → ContractResult α`. Read-only primitives never revert; write primitives return `success ()`; only `require`, `requireSomeUint`, `requireSomeUintError`, and explicit error reverts such as `revertError` may emit `ContractResult.revert`. Proof lemmas for every primitive live in `Verity/Core.lean` (one `_run` lemma per primitive) and `Verity/Proofs/Stdlib/Automation.lean` / `Verity/Proofs/Stdlib/MappingAutomation.lean` (`_runState` / `_runValue` mirrors). See [Core Architecture](/core) for the model.
 
 ## Storage
 
@@ -48,7 +48,7 @@ def require (condition : Bool) (message : String) : Contract Unit
 def bind {α β : Type} (ma : Contract α) (f : α → Contract β) : Contract β
 ```
 
-`require false msg` is the only revert primitive. Use it in place of an explicit `revert`. `bind` short-circuits on revert and powers do-notation.
+`require false msg` emits a string-message revert. Use `revertError` or helpers such as `requireSomeUintError` when a typed custom-error revert is required. `bind` short-circuits on revert and powers do-notation.
 
 ```verity
 require (amount > 0) "amount must be nonzero"
@@ -104,13 +104,25 @@ def safeMul (a b : Uint256) : Option Uint256
 def safeDiv (a b : Uint256) : Option Uint256
 
 def requireSomeUint (opt : Option Uint256) (message : String) : Contract Uint256
+def requireSomeUintError (opt : Option Uint256) ErrorName(args...) : Contract Uint256
 
 let sum     <- requireSomeUint (safeAdd a b) "overflow"
 let product <- requireSomeUint (safeMul a b) "overflow"
 let quot    <- requireSomeUint (safeDiv a b) "division by zero"
 ```
 
-`verity_contract` lowers `requireSomeUint` over `safeAdd`/`Sub`/`Mul`/`Div` to explicit compiled `require` guards. Bare `add`/`sub`/`mul`/`div` stay wrapping.
+`verity_contract` lowers `requireSomeUint` over `safeAdd`/`Sub`/`Mul`/`Div` to explicit compiled `require` guards. Use `requireSomeUintError` with errors declared in the contract's `errors` block when checked arithmetic should revert with a typed custom error instead of a string message.
+
+```verity
+errors
+  error AddOverflow()
+  error MulOverflow(Uint256, Uint256)
+
+let sum     <- requireSomeUintError (safeAdd a b) AddOverflow()
+let product <- requireSomeUintError (safeMul sum b) MulOverflow(sum, b)
+```
+
+Bare `add`/`sub`/`mul`/`div` stay wrapping.
 
 ### Fixed-point helpers
 
