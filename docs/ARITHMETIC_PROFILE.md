@@ -85,7 +85,20 @@ For contracts that require overflow protection, the EDSL provides checked operat
 | `mulDiv512Down? a b c` | `Option Uint256` | `none` if `c = 0` or `floor(a * b / c) > 2^256 - 1`; product is unbounded |
 | `mulDiv512Up? a b c` | `Option Uint256` | `none` if `c = 0` or `ceil(a * b / c) > 2^256 - 1`; product is unbounded |
 
-Checked operations are **explicit EDSL-level constructs**. The compiler does not insert overflow checks for bare `add`/`sub`/`mul`, and bare `div` keeps EVM division-by-zero semantics. Contracts that need checked behavior must explicitly use `safeAdd`/`safeSub`/`safeMul`/`safeDiv` and handle the `Option` result. In `verity_contract`, `requireSomeUint (safeAdd ...)`, `requireSomeUint (safeSub ...)`, `requireSomeUint (safeMul ...)`, and `requireSomeUint (safeDiv ...)` lower to concrete `require` guards followed by the corresponding arithmetic result binding. The `mulDiv512...?` helpers are proof/modeling helpers for full-precision Solidity `Math.mulDiv` semantics; compiled Yul lowering for a first-class 512-bit division primitive is still tracked by #1761.
+Checked operations are **explicit EDSL-level constructs**. The compiler does not insert overflow checks for bare `add`/`sub`/`mul`, and bare `div` keeps EVM division-by-zero semantics. Contracts that need checked behavior must explicitly use `safeAdd`/`safeSub`/`safeMul`/`safeDiv` and handle the `Option` result. In `verity_contract`, `requireSomeUint (safeAdd ...)`, `requireSomeUint (safeSub ...)`, `requireSomeUint (safeMul ...)`, and `requireSomeUint (safeDiv ...)` lower to concrete `require` guards followed by the corresponding arithmetic result binding. `requireSomeUintError (safeAdd ...) ErrorName(args)` and the corresponding `safeSub`/`safeMul`/`safeDiv` forms lower to the same guards but emit typed custom errors through `requireError`. The `mulDiv512...?` helpers are proof/modeling helpers for full-precision Solidity `Math.mulDiv` semantics; compiled Yul lowering for a first-class 512-bit division primitive is still tracked by #1761.
+
+Example checked arithmetic with a typed custom error:
+
+```lean
+errors
+  error AddOverflow ()
+  error MulOverflow (Uint256, Uint256)
+
+function checked (a : Uint256, b : Uint256) : Uint256 := do
+  let sum ← requireSomeUintError (safeAdd a b) AddOverflow()
+  let product ← requireSomeUintError (safeMul sum b) MulOverflow(sum, b)
+  return product
+```
 
 For Solidity-0.8-style source models, prefer the panic wrappers
 `addPanic`/`subPanic`/`mulPanic`/`divPanic`. They are thin `Contract` wrappers
@@ -175,7 +188,7 @@ The arithmetic model is invariant across profiles. See [`docs/SOLIDITY_PARITY_PR
 
 1. Confirm that the contract's arithmetic assumptions match wrapping semantics.
 2. If overflow or division-by-zero protection is required, verify the contract uses `safeAdd`/`safeSub`/`safeMul`/`safeDiv`.
-3. Check that `requireSomeUint` is used to revert on overflow/underflow or zero divisors.
+3. Check that `requireSomeUint` or `requireSomeUintError` is used to revert on overflow/underflow or zero divisors.
 4. Review `Compiler/Proofs/ArithmeticProfile.lean` for the formal wrapping proofs.
 5. Confirm the backend profile does not affect arithmetic behavior (it doesn't).
 

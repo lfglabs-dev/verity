@@ -5622,57 +5622,51 @@ private def translateSafeRequireBind
     (locals : Array TypedLocal)
     (varName : String)
     (rhs : Term) : CommandElabM (Option (Array Term)) := do
+  let translateSafeUintGuardAndValue (optExpr : Term) (label : String) :
+      CommandElabM (Term × Term) := do
+    match stripParens optExpr with
+    | `(term| safeAdd $a:term $b:term) =>
+        let aExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals a
+        let bExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals b
+        let valueExpr : Term ← `(Compiler.CompilationModel.Expr.add $aExpr $bExpr)
+        let guardExpr : Term ← `(Compiler.CompilationModel.Expr.ge $valueExpr $aExpr)
+        pure (guardExpr, valueExpr)
+    | `(term| safeSub $a:term $b:term) =>
+        let aExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals a
+        let bExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals b
+        let valueExpr : Term ← `(Compiler.CompilationModel.Expr.sub $aExpr $bExpr)
+        let guardExpr : Term ← `(Compiler.CompilationModel.Expr.ge $aExpr $bExpr)
+        pure (guardExpr, valueExpr)
+    | `(term| safeMul $a:term $b:term) =>
+        let aExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals a
+        let bExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals b
+        let valueExpr : Term ← `(Compiler.CompilationModel.Expr.mul $aExpr $bExpr)
+        let zeroExpr : Term ← `(Compiler.CompilationModel.Expr.literal 0)
+        let divisorZeroExpr : Term ← `(Compiler.CompilationModel.Expr.eq $bExpr $zeroExpr)
+        let quotientExpr : Term ← `(Compiler.CompilationModel.Expr.div $valueExpr $bExpr)
+        let noOverflowExpr : Term ← `(Compiler.CompilationModel.Expr.eq $quotientExpr $aExpr)
+        let guardExpr : Term ← `(Compiler.CompilationModel.Expr.logicalOr $divisorZeroExpr $noOverflowExpr)
+        pure (guardExpr, valueExpr)
+    | `(term| safeDiv $a:term $b:term) =>
+        let aExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals a
+        let bExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals b
+        let valueExpr : Term ← `(Compiler.CompilationModel.Expr.div $aExpr $bExpr)
+        let zeroExpr : Term ← `(Compiler.CompilationModel.Expr.literal 0)
+        let guardExpr : Term ←
+          `(Compiler.CompilationModel.Expr.logicalNot
+              (Compiler.CompilationModel.Expr.eq $bExpr $zeroExpr))
+        pure (guardExpr, valueExpr)
+    | _ =>
+        throwErrorAt rhs s!"unsupported {label} source; expected safeAdd, safeSub, safeMul, or safeDiv"
   let rhs := stripParens rhs
   match rhs with
   | `(term| requireSomeUint $optExpr:term $msg:term) =>
       let msgLit ← strTerm <$> expectStringLiteral msg
-      let optExpr := stripParens optExpr
-      match optExpr with
-      | `(term| safeAdd $a:term $b:term) =>
-          let aExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals a
-          let bExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals b
-          let valueExpr : Term ← `(Compiler.CompilationModel.Expr.add $aExpr $bExpr)
-          let guardExpr : Term ← `(Compiler.CompilationModel.Expr.ge $valueExpr $aExpr)
-          pure (some #[
-            (← `(Compiler.CompilationModel.Stmt.require $guardExpr $msgLit)),
-            (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $valueExpr))
-          ])
-      | `(term| safeSub $a:term $b:term) =>
-          let aExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals a
-          let bExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals b
-          let valueExpr : Term ← `(Compiler.CompilationModel.Expr.sub $aExpr $bExpr)
-          let guardExpr : Term ← `(Compiler.CompilationModel.Expr.ge $aExpr $bExpr)
-          pure (some #[
-            (← `(Compiler.CompilationModel.Stmt.require $guardExpr $msgLit)),
-            (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $valueExpr))
-          ])
-      | `(term| safeMul $a:term $b:term) =>
-          let aExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals a
-          let bExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals b
-          let valueExpr : Term ← `(Compiler.CompilationModel.Expr.mul $aExpr $bExpr)
-          let zeroExpr : Term ← `(Compiler.CompilationModel.Expr.literal 0)
-          let divisorZeroExpr : Term ← `(Compiler.CompilationModel.Expr.eq $bExpr $zeroExpr)
-          let quotientExpr : Term ← `(Compiler.CompilationModel.Expr.div $valueExpr $bExpr)
-          let noOverflowExpr : Term ← `(Compiler.CompilationModel.Expr.eq $quotientExpr $aExpr)
-          let guardExpr : Term ← `(Compiler.CompilationModel.Expr.logicalOr $divisorZeroExpr $noOverflowExpr)
-          pure (some #[
-            (← `(Compiler.CompilationModel.Stmt.require $guardExpr $msgLit)),
-            (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $valueExpr))
-          ])
-      | `(term| safeDiv $a:term $b:term) =>
-          let aExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals a
-          let bExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals b
-          let valueExpr : Term ← `(Compiler.CompilationModel.Expr.div $aExpr $bExpr)
-          let zeroExpr : Term ← `(Compiler.CompilationModel.Expr.literal 0)
-          let guardExpr : Term ←
-            `(Compiler.CompilationModel.Expr.logicalNot
-                (Compiler.CompilationModel.Expr.eq $bExpr $zeroExpr))
-          pure (some #[
-            (← `(Compiler.CompilationModel.Stmt.require $guardExpr $msgLit)),
-            (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $valueExpr))
-          ])
-      | _ =>
-          throwErrorAt rhs "unsupported requireSomeUint source; expected safeAdd, safeSub, safeMul, or safeDiv"
+      let (guardExpr, valueExpr) ← translateSafeUintGuardAndValue optExpr "requireSomeUint"
+      pure (some #[
+        (← `(Compiler.CompilationModel.Stmt.require $guardExpr $msgLit)),
+        (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $valueExpr))
+      ])
   -- Typed-error counterpart to `requireSomeUint`. The lowering mirrors the
   -- string-message variant exactly, except the guard becomes a
   -- `Stmt.requireError` emitting a 4-byte selector revert with the supplied
@@ -5680,53 +5674,11 @@ private def translateSafeRequireBind
   | `(term| requireSomeUintError $optExpr:term $errorName:ident($args,*)) =>
       let errorNameLit := strTerm (toString errorName.getId)
       let argExprs ← args.getElems.mapM (translatePureExprWithTypes fields constDecls immutableDecls params locals)
-      let optExpr := stripParens optExpr
-      match optExpr with
-      | `(term| safeAdd $a:term $b:term) =>
-          let aExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals a
-          let bExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals b
-          let valueExpr : Term ← `(Compiler.CompilationModel.Expr.add $aExpr $bExpr)
-          let guardExpr : Term ← `(Compiler.CompilationModel.Expr.ge $valueExpr $aExpr)
-          pure (some #[
-            (← `(Compiler.CompilationModel.Stmt.requireError $guardExpr $errorNameLit [ $[$argExprs],* ])),
-            (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $valueExpr))
-          ])
-      | `(term| safeSub $a:term $b:term) =>
-          let aExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals a
-          let bExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals b
-          let valueExpr : Term ← `(Compiler.CompilationModel.Expr.sub $aExpr $bExpr)
-          let guardExpr : Term ← `(Compiler.CompilationModel.Expr.ge $aExpr $bExpr)
-          pure (some #[
-            (← `(Compiler.CompilationModel.Stmt.requireError $guardExpr $errorNameLit [ $[$argExprs],* ])),
-            (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $valueExpr))
-          ])
-      | `(term| safeMul $a:term $b:term) =>
-          let aExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals a
-          let bExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals b
-          let valueExpr : Term ← `(Compiler.CompilationModel.Expr.mul $aExpr $bExpr)
-          let zeroExpr : Term ← `(Compiler.CompilationModel.Expr.literal 0)
-          let divisorZeroExpr : Term ← `(Compiler.CompilationModel.Expr.eq $bExpr $zeroExpr)
-          let quotientExpr : Term ← `(Compiler.CompilationModel.Expr.div $valueExpr $bExpr)
-          let noOverflowExpr : Term ← `(Compiler.CompilationModel.Expr.eq $quotientExpr $aExpr)
-          let guardExpr : Term ← `(Compiler.CompilationModel.Expr.logicalOr $divisorZeroExpr $noOverflowExpr)
-          pure (some #[
-            (← `(Compiler.CompilationModel.Stmt.requireError $guardExpr $errorNameLit [ $[$argExprs],* ])),
-            (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $valueExpr))
-          ])
-      | `(term| safeDiv $a:term $b:term) =>
-          let aExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals a
-          let bExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals b
-          let valueExpr : Term ← `(Compiler.CompilationModel.Expr.div $aExpr $bExpr)
-          let zeroExpr : Term ← `(Compiler.CompilationModel.Expr.literal 0)
-          let guardExpr : Term ←
-            `(Compiler.CompilationModel.Expr.logicalNot
-                (Compiler.CompilationModel.Expr.eq $bExpr $zeroExpr))
-          pure (some #[
-            (← `(Compiler.CompilationModel.Stmt.requireError $guardExpr $errorNameLit [ $[$argExprs],* ])),
-            (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $valueExpr))
-          ])
-      | _ =>
-          throwErrorAt rhs "unsupported requireSomeUintError source; expected safeAdd, safeSub, safeMul, or safeDiv"
+      let (guardExpr, valueExpr) ← translateSafeUintGuardAndValue optExpr "requireSomeUintError"
+      pure (some #[
+        (← `(Compiler.CompilationModel.Stmt.requireError $guardExpr $errorNameLit [ $[$argExprs],* ])),
+        (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $valueExpr))
+      ])
   -- Solidity-0.8 default-revert arithmetic (verity#1752): `let x ← addPanic a b`
   -- lowers to the same IR as
   -- `let x ← requireSomeUint (safeAdd a b) "Panic(0x11): arithmetic overflow"`,

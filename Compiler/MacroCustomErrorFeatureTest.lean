@@ -170,4 +170,43 @@ example : checkAddExecutableRevertsOnOverflow = true := by native_decide
 
 end RequireSomeUintErrorSmoke
 
+/--
+error: unknown custom error 'MissingOverflow'
+-/
+#guard_msgs in
+verity_contract RequireSomeUintErrorUnknownErrorRejected where
+  storage
+  errors
+    error AddOverflow ()
+
+  function bad (a : Uint256, b : Uint256) : Uint256 := do
+    let result ← requireSomeUintError (safeAdd a b) MissingOverflow()
+    return result
+
+/--
+error: custom error 'MulOverflow' expects 2 args, got 1
+-/
+#guard_msgs in
+verity_contract RequireSomeUintErrorWrongArityRejected where
+  storage
+  errors
+    error MulOverflow (Uint256, Uint256)
+
+  function bad (a : Uint256, b : Uint256) : Uint256 := do
+    let result ← requireSomeUintError (safeMul a b) MulOverflow(a)
+    return result
+
+/--
+error: unsupported requireSomeUintError source; expected safeAdd, safeSub, safeMul, or safeDiv
+-/
+#guard_msgs in
+verity_contract RequireSomeUintErrorInvalidSourceRejected where
+  storage
+  errors
+    error AddOverflow ()
+
+  function bad (a : Uint256) : Uint256 := do
+    let result ← requireSomeUintError a AddOverflow()
+    return result
+
 end Compiler.MacroCustomErrorFeatureTest
