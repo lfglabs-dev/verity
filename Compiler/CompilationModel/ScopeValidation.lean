@@ -367,6 +367,9 @@ def validateScopedExprIdentifiers
       validateScopedExprIdentifiers context params paramScope dynamicParams localScope constructorArgCount b
   | Expr.intrinsic _ _ _ args =>
       validateScopedExprIdentifiersList context params paramScope dynamicParams localScope constructorArgCount args
+  | Expr.forkIfAtLeast _ thenExpr elseExpr => do
+      validateScopedExprIdentifiers context params paramScope dynamicParams localScope constructorArgCount thenExpr
+      validateScopedExprIdentifiers context params paramScope dynamicParams localScope constructorArgCount elseExpr
   | Expr.wDivUp a b => do
       validateArithDuplicatedOperandPurity context [b]
       validateScopedExprIdentifiers context params paramScope dynamicParams localScope constructorArgCount a

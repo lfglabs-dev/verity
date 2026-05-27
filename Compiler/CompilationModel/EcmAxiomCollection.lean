@@ -23,6 +23,7 @@ where
     | _ => []
   collectExprEcmAxioms : Expr → List (String × String)
     | .ite cond a b => collectExprEcmAxioms cond ++ collectExprEcmAxioms a ++ collectExprEcmAxioms b
+    | .forkIfAtLeast _ thenExpr elseExpr => collectExprEcmAxioms thenExpr ++ collectExprEcmAxioms elseExpr
     | _ => []
 
 end Compiler.CompilationModel

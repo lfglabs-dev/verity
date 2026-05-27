@@ -95,6 +95,7 @@ syntax "intrinsic_cancun " term:max ppSpace term:max ppSpace term:max : term
 syntax "intrinsic_prague " term:max ppSpace term:max ppSpace term:max : term
 syntax "intrinsic_fusaka " term:max ppSpace term:max ppSpace term:max : term
 syntax "intrinsic_osaka " term:max ppSpace term:max ppSpace term:max : term
+syntax "fork_if_at_least " ident ppSpace "then " term:max ppSpace "else " term:max : term
 syntax "adt " str : term
 syntax "adt " str " [" sepBy(term, ",") "]" : term
 syntax "tryCatch " term:max ppSpace term:max : doElem
@@ -110,6 +111,8 @@ macro_rules
       `(panic! "verity intrinsic has no default EDSL semantics; add a consumer macro_rules override")
   | `(intrinsic_osaka $_name:term $_lowering:term $_args:term) =>
       `(panic! "verity intrinsic has no default EDSL semantics; add a consumer macro_rules override")
+  | `(fork_if_at_least $_fork:ident then $thenExpr:term else $_elseExpr:term) =>
+      `($thenExpr)
   | `(adt $_variant:str) => `(0)
   | `(adt $_variant:str [ $[$_args:term],* ]) => `(0)
 syntax "revert " ident "(" sepBy(term, ",") ")" : doElem

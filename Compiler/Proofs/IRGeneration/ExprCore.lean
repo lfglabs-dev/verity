@@ -68,6 +68,8 @@ def exprBoundNames : Expr → List String
   | .bitNot a | .logicalNot a => exprBoundNames a
   | .ite cond thenVal elseVal =>
       exprBoundNames cond ++ exprBoundNames thenVal ++ exprBoundNames elseVal
+  | .forkIfAtLeast _ thenExpr elseExpr =>
+      exprBoundNames thenExpr ++ exprBoundNames elseExpr
   | .mappingChain _ keys => exprListBoundNames keys
   | .dynamicBytesEq lhsName rhsName => [lhsName, rhsName]
   | .literal _ | .constructorArg _ | .storage _ | .storageAddr _ | .caller

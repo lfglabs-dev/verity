@@ -105,6 +105,9 @@ def validateInteropExpr (context : String) : Expr → Except String Unit
       validateInteropExpr context b
   | Expr.intrinsic _ _ _ args =>
       validateInteropExprList context args
+  | Expr.forkIfAtLeast _ thenExpr elseExpr => do
+      validateInteropExpr context thenExpr
+      validateInteropExpr context elseExpr
   | Expr.mulDivDown a b c | Expr.mulDivUp a b c
   | Expr.mulDiv512Down a b c | Expr.mulDiv512Up a b c => do
       validateInteropExpr context a

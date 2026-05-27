@@ -302,6 +302,8 @@ def exprReadsStateOrEnv : Expr → Bool
     Expr.ceilDiv a b =>
       exprReadsStateOrEnv a || exprReadsStateOrEnv b
   | Expr.intrinsic _ _ _ args => exprListReadsStateOrEnv args
+  | Expr.forkIfAtLeast _ thenExpr elseExpr =>
+      exprReadsStateOrEnv thenExpr || exprReadsStateOrEnv elseExpr
   | Expr.mulDivDown a b c | Expr.mulDivUp a b c
   | Expr.mulDiv512Down a b c | Expr.mulDiv512Up a b c =>
       exprReadsStateOrEnv a || exprReadsStateOrEnv b || exprReadsStateOrEnv c
@@ -361,6 +363,8 @@ def exprWritesState : Expr → Bool
   | Expr.externalCall name args =>
       if name == builtinExpName then exprListWritesState args else true
   | Expr.intrinsic _ _ _ args => exprListWritesState args
+  | Expr.forkIfAtLeast _ thenExpr elseExpr =>
+      exprWritesState thenExpr || exprWritesState elseExpr
   | Expr.internalCall _ _ => true
   | Expr.adtConstruct _ _ args => exprListWritesState args
   | Expr.extcodesize addr =>
@@ -519,6 +523,8 @@ def exprHasUntrackableWrites : Expr → Bool
   | Expr.byte a b =>
       exprHasUntrackableWrites a || exprHasUntrackableWrites b
   | Expr.intrinsic _ _ _ args => exprListHasUntrackableWrites args
+  | Expr.forkIfAtLeast _ thenExpr elseExpr =>
+      exprHasUntrackableWrites thenExpr || exprHasUntrackableWrites elseExpr
   | Expr.lt a b | Expr.gt a b | Expr.slt a b | Expr.sgt a b | Expr.eq a b
   | Expr.ge a b | Expr.le a b | Expr.signextend a b
   | Expr.logicalAnd a b | Expr.logicalOr a b
@@ -671,6 +677,8 @@ def exprContainsExternalCall : Expr → Bool
   | Expr.byte a b =>
       exprContainsExternalCall a || exprContainsExternalCall b
   | Expr.intrinsic _ _ _ args => exprListContainsExternalCall args
+  | Expr.forkIfAtLeast _ thenExpr elseExpr =>
+      exprContainsExternalCall thenExpr || exprContainsExternalCall elseExpr
   | Expr.lt a b | Expr.gt a b | Expr.slt a b | Expr.sgt a b | Expr.eq a b
   | Expr.ge a b | Expr.le a b | Expr.signextend a b
   | Expr.logicalAnd a b | Expr.logicalOr a b
@@ -753,6 +761,8 @@ def exprMayContainExternalCall : Expr → Bool
   | Expr.byte a b =>
       exprMayContainExternalCall a || exprMayContainExternalCall b
   | Expr.intrinsic _ _ _ args => exprListMayContainExternalCall args
+  | Expr.forkIfAtLeast _ thenExpr elseExpr =>
+      exprMayContainExternalCall thenExpr || exprMayContainExternalCall elseExpr
   | Expr.lt a b | Expr.gt a b | Expr.slt a b | Expr.sgt a b | Expr.eq a b
   | Expr.ge a b | Expr.le a b | Expr.signextend a b
   | Expr.logicalAnd a b | Expr.logicalOr a b
@@ -1065,6 +1075,9 @@ def exprWritesStateWithFunctionEffects
       exprWritesStateWithFunctionEffects effects a ||
         exprWritesStateWithFunctionEffects effects b
   | Expr.intrinsic _ _ _ args => exprListWritesStateWithFunctionEffects effects args
+  | Expr.forkIfAtLeast _ thenExpr elseExpr =>
+      exprWritesStateWithFunctionEffects effects thenExpr ||
+        exprWritesStateWithFunctionEffects effects elseExpr
   | Expr.mulDivDown a b c | Expr.mulDivUp a b c
   | Expr.mulDiv512Down a b c | Expr.mulDiv512Up a b c =>
       exprWritesStateWithFunctionEffects effects a ||
@@ -1312,6 +1325,9 @@ def exprReadsStateOrEnvWithFunctionEffects
       exprReadsStateOrEnvWithFunctionEffects effects a ||
         exprReadsStateOrEnvWithFunctionEffects effects b
   | Expr.intrinsic _ _ _ args => exprListReadsStateOrEnvWithFunctionEffects effects args
+  | Expr.forkIfAtLeast _ thenExpr elseExpr =>
+      exprReadsStateOrEnvWithFunctionEffects effects thenExpr ||
+        exprReadsStateOrEnvWithFunctionEffects effects elseExpr
   | Expr.mulDivDown a b c | Expr.mulDivUp a b c
   | Expr.mulDiv512Down a b c | Expr.mulDiv512Up a b c =>
       exprReadsStateOrEnvWithFunctionEffects effects a ||
@@ -1633,6 +1649,8 @@ def exprContainsAdtConstruct : Expr → Bool
   | Expr.byte a b =>
       exprContainsAdtConstruct a || exprContainsAdtConstruct b
   | Expr.intrinsic _ _ _ args => exprListContainsAdtConstruct args
+  | Expr.forkIfAtLeast _ thenExpr elseExpr =>
+      exprContainsAdtConstruct thenExpr || exprContainsAdtConstruct elseExpr
   | Expr.lt a b | Expr.gt a b | Expr.slt a b | Expr.sgt a b | Expr.eq a b
   | Expr.ge a b | Expr.le a b | Expr.signextend a b
   | Expr.logicalAnd a b | Expr.logicalOr a b

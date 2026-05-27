@@ -453,6 +453,8 @@ def compileExpr (fields : List Field)
           if args.length != inArity then
             throw s!"Compilation error: intrinsic {name} builtin {builtinName} expects {inArity} arg(s), got {args.length}"
           pure (YulExpr.call builtinName argExprs)
+  | Expr.forkIfAtLeast required _thenExpr _elseExpr =>
+      throw s!"Compilation error: unresolved fork_if_at_least {required}; compile through compileSpecsWithOptions so the branch can be selected from --target-fork before Yul emission"
   | Expr.eq a b      => return yulBinOp "eq"  (← compileExpr fields dynamicSource a) (← compileExpr fields dynamicSource b)
   | Expr.gt a b      => return yulBinOp "gt"  (← compileExpr fields dynamicSource a) (← compileExpr fields dynamicSource b)
   | Expr.sgt a b     => return yulBinOp "sgt" (← compileExpr fields dynamicSource a) (← compileExpr fields dynamicSource b)

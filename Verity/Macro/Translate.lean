@@ -36,6 +36,13 @@ private def hardForkTermFromParsed (fork : Verity.Core.Intrinsics.HardFork) : Co
   | .prague => `(Verity.Core.Intrinsics.HardFork.prague)
   | .osaka => `(Verity.Core.Intrinsics.HardFork.osaka)
 
+private def hardForkTermFromIdent (fork : TSyntax `ident) : CommandElabM Term := do
+  match Verity.Core.Intrinsics.HardFork.parse? (toString fork.getId) with
+  | some parsed => hardForkTermFromParsed parsed
+  | none =>
+      throwErrorAt fork
+        s!"unknown fork '{toString fork.getId}' (expected cancun, prague, osaka, or fusaka alias)"
+
 inductive ValueType where
   | uint256
   | int256
@@ -3227,6 +3234,14 @@ private partial def inferPureExprType
               (← inferPureExprType fields constDecls immutableDecls externalDecls params locals x visitingConstants)
           pure .uint256
       | _ => throwErrorAt args "expected list literal [..]"
+  | `(term| fork_if_at_least $fork:ident then $thenExpr:term else $elseExpr:term) =>
+      let thenTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals thenExpr visitingConstants
+      let elseTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals elseExpr visitingConstants
+      unless thenTy == elseTy do
+        throwErrorAt elseExpr
+          s!"fork_if_at_least branches must have the same type, got {renderValueType thenTy} and {renderValueType elseTy}"
+      let _ ← hardForkTermFromIdent fork
+      pure thenTy
   | `(term| structMember $field:term $key:term $member:term) => do
       let fieldName := ← expectStringOrIdent field
       let memberName := ← expectStringOrIdent member
@@ -4408,6 +4423,11 @@ partial def translatePureExprWithTypes
               s!"unknown intrinsic '{intrinsicName}'; declare it first with `verity_intrinsic` so the compiler can enforce min_fork"
       let minForkTerm ← hardForkTermFromParsed minFork
       translateIntrinsic name lowering args minForkTerm
+  | `(term| fork_if_at_least $fork:ident then $thenExpr:term else $elseExpr:term) =>
+      `(Compiler.CompilationModel.Expr.forkIfAtLeast
+          $(← hardForkTermFromIdent fork)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals thenExpr visitingConstants)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals elseExpr visitingConstants))
   | `(term| structMember $field:term $key:term $member:term) =>
       let fieldName := ← expectStringOrIdent field
       let memberName := ← expectStringOrIdent member

@@ -242,6 +242,9 @@ def validateInternalCallShapesInExpr
       validateInternalCallShapesInExpr functions callerName b
   | Expr.intrinsic _ _ _ args =>
       validateInternalCallShapesInExprList functions callerName args
+  | Expr.forkIfAtLeast _ thenExpr elseExpr => do
+      validateInternalCallShapesInExpr functions callerName thenExpr
+      validateInternalCallShapesInExpr functions callerName elseExpr
   | Expr.mulDivDown a b c | Expr.mulDivUp a b c
   | Expr.mulDiv512Down a b c | Expr.mulDiv512Up a b c => do
       validateInternalCallShapesInExpr functions callerName a
@@ -517,6 +520,9 @@ def validateExternalCallTargetsInExpr
       validateExternalCallTargetsInExpr externals context b
   | Expr.intrinsic _ _ _ args =>
       validateExternalCallTargetsInExprList externals context args
+  | Expr.forkIfAtLeast _ thenExpr elseExpr => do
+      validateExternalCallTargetsInExpr externals context thenExpr
+      validateExternalCallTargetsInExpr externals context elseExpr
   | Expr.mulDivDown a b c | Expr.mulDivUp a b c
   | Expr.mulDiv512Down a b c | Expr.mulDiv512Up a b c => do
       validateExternalCallTargetsInExpr externals context a

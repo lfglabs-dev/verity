@@ -166,9 +166,157 @@ private partial def collectIntrinsicUsesExpr : Expr → List IntrinsicUse
       keys.flatMap collectIntrinsicUsesExpr
   | .intrinsic name _ minFork args =>
       { name := name, minFork := minFork } :: args.flatMap collectIntrinsicUsesExpr
+  | .forkIfAtLeast _ thenExpr elseExpr =>
+      collectIntrinsicUsesExpr thenExpr ++ collectIntrinsicUsesExpr elseExpr
   | .dynamicBytesEq _ _ =>
       []
   | _ => []
+
+private partial def specializeForkExpr
+    (targetFork : Verity.Core.Intrinsics.HardFork) : Expr → Expr
+  | .mapping field key => .mapping field (specializeForkExpr targetFork key)
+  | .mappingWord field key wordOffset => .mappingWord field (specializeForkExpr targetFork key) wordOffset
+  | .mappingPackedWord field key wordOffset packed => .mappingPackedWord field (specializeForkExpr targetFork key) wordOffset packed
+  | .mapping2 field key1 key2 => .mapping2 field (specializeForkExpr targetFork key1) (specializeForkExpr targetFork key2)
+  | .mapping2Word field key1 key2 wordOffset => .mapping2Word field (specializeForkExpr targetFork key1) (specializeForkExpr targetFork key2) wordOffset
+  | .mappingUint field key => .mappingUint field (specializeForkExpr targetFork key)
+  | .mappingChain field keys => .mappingChain field (keys.map (specializeForkExpr targetFork))
+  | .structMember field key memberName => .structMember field (specializeForkExpr targetFork key) memberName
+  | .structMember2 field key1 key2 memberName => .structMember2 field (specializeForkExpr targetFork key1) (specializeForkExpr targetFork key2) memberName
+  | .extcodesize addr => .extcodesize (specializeForkExpr targetFork addr)
+  | .mload offset => .mload (specializeForkExpr targetFork offset)
+  | .tload offset => .tload (specializeForkExpr targetFork offset)
+  | .keccak256 offset size => .keccak256 (specializeForkExpr targetFork offset) (specializeForkExpr targetFork size)
+  | .call gas target value inOffset inSize outOffset outSize =>
+      .call (specializeForkExpr targetFork gas) (specializeForkExpr targetFork target)
+        (specializeForkExpr targetFork value) (specializeForkExpr targetFork inOffset)
+        (specializeForkExpr targetFork inSize) (specializeForkExpr targetFork outOffset)
+        (specializeForkExpr targetFork outSize)
+  | .staticcall gas target inOffset inSize outOffset outSize =>
+      .staticcall (specializeForkExpr targetFork gas) (specializeForkExpr targetFork target)
+        (specializeForkExpr targetFork inOffset) (specializeForkExpr targetFork inSize)
+        (specializeForkExpr targetFork outOffset) (specializeForkExpr targetFork outSize)
+  | .delegatecall gas target inOffset inSize outOffset outSize =>
+      .delegatecall (specializeForkExpr targetFork gas) (specializeForkExpr targetFork target)
+        (specializeForkExpr targetFork inOffset) (specializeForkExpr targetFork inSize)
+        (specializeForkExpr targetFork outOffset) (specializeForkExpr targetFork outSize)
+  | .calldataload offset => .calldataload (specializeForkExpr targetFork offset)
+  | .returndataOptionalBoolAt outOffset => .returndataOptionalBoolAt (specializeForkExpr targetFork outOffset)
+  | .externalCall name args => .externalCall name (args.map (specializeForkExpr targetFork))
+  | .internalCall name args => .internalCall name (args.map (specializeForkExpr targetFork))
+  | .arrayElement name index => .arrayElement name (specializeForkExpr targetFork index)
+  | .memoryArrayElement name index => .memoryArrayElement name (specializeForkExpr targetFork index)
+  | .arrayElementWord name index elementWords wordOffset => .arrayElementWord name (specializeForkExpr targetFork index) elementWords wordOffset
+  | .arrayElementDynamicWord name index wordOffset => .arrayElementDynamicWord name (specializeForkExpr targetFork index) wordOffset
+  | .arrayElementDynamicDataOffset name index => .arrayElementDynamicDataOffset name (specializeForkExpr targetFork index)
+  | .paramDynamicMemberElement name wordOffset innerIndex => .paramDynamicMemberElement name wordOffset (specializeForkExpr targetFork innerIndex)
+  | .arrayElementDynamicMemberLength name index wordOffset => .arrayElementDynamicMemberLength name (specializeForkExpr targetFork index) wordOffset
+  | .arrayElementDynamicMemberDataOffset name index wordOffset => .arrayElementDynamicMemberDataOffset name (specializeForkExpr targetFork index) wordOffset
+  | .arrayElementDynamicMemberElement name index wordOffset innerIndex =>
+      .arrayElementDynamicMemberElement name (specializeForkExpr targetFork index) wordOffset (specializeForkExpr targetFork innerIndex)
+  | .storageArrayElement field index => .storageArrayElement field (specializeForkExpr targetFork index)
+  | .add a b => .add (specializeForkExpr targetFork a) (specializeForkExpr targetFork b)
+  | .sub a b => .sub (specializeForkExpr targetFork a) (specializeForkExpr targetFork b)
+  | .mul a b => .mul (specializeForkExpr targetFork a) (specializeForkExpr targetFork b)
+  | .div a b => .div (specializeForkExpr targetFork a) (specializeForkExpr targetFork b)
+  | .sdiv a b => .sdiv (specializeForkExpr targetFork a) (specializeForkExpr targetFork b)
+  | .mod a b => .mod (specializeForkExpr targetFork a) (specializeForkExpr targetFork b)
+  | .smod a b => .smod (specializeForkExpr targetFork a) (specializeForkExpr targetFork b)
+  | .bitAnd a b => .bitAnd (specializeForkExpr targetFork a) (specializeForkExpr targetFork b)
+  | .bitOr a b => .bitOr (specializeForkExpr targetFork a) (specializeForkExpr targetFork b)
+  | .bitXor a b => .bitXor (specializeForkExpr targetFork a) (specializeForkExpr targetFork b)
+  | .bitNot a => .bitNot (specializeForkExpr targetFork a)
+  | .shl a b => .shl (specializeForkExpr targetFork a) (specializeForkExpr targetFork b)
+  | .shr a b => .shr (specializeForkExpr targetFork a) (specializeForkExpr targetFork b)
+  | .sar a b => .sar (specializeForkExpr targetFork a) (specializeForkExpr targetFork b)
+  | .byte a b => .byte (specializeForkExpr targetFork a) (specializeForkExpr targetFork b)
+  | .signextend a b => .signextend (specializeForkExpr targetFork a) (specializeForkExpr targetFork b)
+  | .intrinsic name lowering minFork args => .intrinsic name lowering minFork (args.map (specializeForkExpr targetFork))
+  | .forkIfAtLeast required thenExpr elseExpr =>
+      specializeForkExpr targetFork
+        (if Verity.Core.Intrinsics.HardFork.allows targetFork required then thenExpr else elseExpr)
+  | .eq a b => .eq (specializeForkExpr targetFork a) (specializeForkExpr targetFork b)
+  | .ge a b => .ge (specializeForkExpr targetFork a) (specializeForkExpr targetFork b)
+  | .gt a b => .gt (specializeForkExpr targetFork a) (specializeForkExpr targetFork b)
+  | .sgt a b => .sgt (specializeForkExpr targetFork a) (specializeForkExpr targetFork b)
+  | .lt a b => .lt (specializeForkExpr targetFork a) (specializeForkExpr targetFork b)
+  | .slt a b => .slt (specializeForkExpr targetFork a) (specializeForkExpr targetFork b)
+  | .le a b => .le (specializeForkExpr targetFork a) (specializeForkExpr targetFork b)
+  | .logicalAnd a b => .logicalAnd (specializeForkExpr targetFork a) (specializeForkExpr targetFork b)
+  | .logicalOr a b => .logicalOr (specializeForkExpr targetFork a) (specializeForkExpr targetFork b)
+  | .logicalNot a => .logicalNot (specializeForkExpr targetFork a)
+  | .ceilDiv a b => .ceilDiv (specializeForkExpr targetFork a) (specializeForkExpr targetFork b)
+  | .mulDivDown a b c => .mulDivDown (specializeForkExpr targetFork a) (specializeForkExpr targetFork b) (specializeForkExpr targetFork c)
+  | .mulDivUp a b c => .mulDivUp (specializeForkExpr targetFork a) (specializeForkExpr targetFork b) (specializeForkExpr targetFork c)
+  | .mulDiv512Down a b c => .mulDiv512Down (specializeForkExpr targetFork a) (specializeForkExpr targetFork b) (specializeForkExpr targetFork c)
+  | .mulDiv512Up a b c => .mulDiv512Up (specializeForkExpr targetFork a) (specializeForkExpr targetFork b) (specializeForkExpr targetFork c)
+  | .wMulDown a b => .wMulDown (specializeForkExpr targetFork a) (specializeForkExpr targetFork b)
+  | .wDivUp a b => .wDivUp (specializeForkExpr targetFork a) (specializeForkExpr targetFork b)
+  | .min a b => .min (specializeForkExpr targetFork a) (specializeForkExpr targetFork b)
+  | .max a b => .max (specializeForkExpr targetFork a) (specializeForkExpr targetFork b)
+  | .ite a b c => .ite (specializeForkExpr targetFork a) (specializeForkExpr targetFork b) (specializeForkExpr targetFork c)
+  | .adtConstruct adt variant args => .adtConstruct adt variant (args.map (specializeForkExpr targetFork))
+  | other => other
+
+private partial def specializeForkStmt
+    (targetFork : Verity.Core.Intrinsics.HardFork) : Stmt → Stmt
+  | .letVar name value => .letVar name (specializeForkExpr targetFork value)
+  | .assignVar name value => .assignVar name (specializeForkExpr targetFork value)
+  | .setStorage field value => .setStorage field (specializeForkExpr targetFork value)
+  | .setStorageAddr field value => .setStorageAddr field (specializeForkExpr targetFork value)
+  | .setStorageWord field wordOffset value => .setStorageWord field wordOffset (specializeForkExpr targetFork value)
+  | .storageArrayPush field value => .storageArrayPush field (specializeForkExpr targetFork value)
+  | .setStorageArrayElement field index value => .setStorageArrayElement field (specializeForkExpr targetFork index) (specializeForkExpr targetFork value)
+  | .setMapping field key value => .setMapping field (specializeForkExpr targetFork key) (specializeForkExpr targetFork value)
+  | .setMappingWord field key wordOffset value => .setMappingWord field (specializeForkExpr targetFork key) wordOffset (specializeForkExpr targetFork value)
+  | .setMappingPackedWord field key wordOffset packed value => .setMappingPackedWord field (specializeForkExpr targetFork key) wordOffset packed (specializeForkExpr targetFork value)
+  | .setMapping2 field key1 key2 value => .setMapping2 field (specializeForkExpr targetFork key1) (specializeForkExpr targetFork key2) (specializeForkExpr targetFork value)
+  | .setMapping2Word field key1 key2 wordOffset value => .setMapping2Word field (specializeForkExpr targetFork key1) (specializeForkExpr targetFork key2) wordOffset (specializeForkExpr targetFork value)
+  | .setMappingUint field key value => .setMappingUint field (specializeForkExpr targetFork key) (specializeForkExpr targetFork value)
+  | .setMappingChain field keys value => .setMappingChain field (keys.map (specializeForkExpr targetFork)) (specializeForkExpr targetFork value)
+  | .setStructMember field key memberName value => .setStructMember field (specializeForkExpr targetFork key) memberName (specializeForkExpr targetFork value)
+  | .setStructMember2 field key1 key2 memberName value => .setStructMember2 field (specializeForkExpr targetFork key1) (specializeForkExpr targetFork key2) memberName (specializeForkExpr targetFork value)
+  | .require cond message => .require (specializeForkExpr targetFork cond) message
+  | .requireError cond errorName args => .requireError (specializeForkExpr targetFork cond) errorName (args.map (specializeForkExpr targetFork))
+  | .revertError errorName args => .revertError errorName (args.map (specializeForkExpr targetFork))
+  | .return value => .return (specializeForkExpr targetFork value)
+  | .returnValues values => .returnValues (values.map (specializeForkExpr targetFork))
+  | .mstore offset value => .mstore (specializeForkExpr targetFork offset) (specializeForkExpr targetFork value)
+  | .tstore offset value => .tstore (specializeForkExpr targetFork offset) (specializeForkExpr targetFork value)
+  | .calldatacopy dest source size => .calldatacopy (specializeForkExpr targetFork dest) (specializeForkExpr targetFork source) (specializeForkExpr targetFork size)
+  | .returndataCopy dest source size => .returndataCopy (specializeForkExpr targetFork dest) (specializeForkExpr targetFork source) (specializeForkExpr targetFork size)
+  | .ite cond thenBranch elseBranch => .ite (specializeForkExpr targetFork cond) (thenBranch.map (specializeForkStmt targetFork)) (elseBranch.map (specializeForkStmt targetFork))
+  | .forEach varName count body => .forEach varName (specializeForkExpr targetFork count) (body.map (specializeForkStmt targetFork))
+  | .emit eventName args => .emit eventName (args.map (specializeForkExpr targetFork))
+  | .internalCall functionName args => .internalCall functionName (args.map (specializeForkExpr targetFork))
+  | .internalCallAssign names functionName args => .internalCallAssign names functionName (args.map (specializeForkExpr targetFork))
+  | .rawLog topics dataOffset dataSize => .rawLog (topics.map (specializeForkExpr targetFork)) (specializeForkExpr targetFork dataOffset) (specializeForkExpr targetFork dataSize)
+  | .externalCallBind resultVars externalName args => .externalCallBind resultVars externalName (args.map (specializeForkExpr targetFork))
+  | .tryExternalCallBind successVar resultVars externalName args => .tryExternalCallBind successVar resultVars externalName (args.map (specializeForkExpr targetFork))
+  | .ecm mod args => .ecm mod (args.map (specializeForkExpr targetFork))
+  | .unsafeBlock reason body => .unsafeBlock reason (body.map (specializeForkStmt targetFork))
+  | .matchAdt adtName scrutinee branches =>
+      .matchAdt adtName (specializeForkExpr targetFork scrutinee)
+        (branches.map fun (variantName, boundVarNames, body) =>
+          (variantName, boundVarNames, body.map (specializeForkStmt targetFork)))
+  | other => other
+
+private def specializeForkConstructor
+    (targetFork : Verity.Core.Intrinsics.HardFork)
+    (ctor : ConstructorSpec) : ConstructorSpec :=
+  { ctor with body := ctor.body.map (specializeForkStmt targetFork) }
+
+private def specializeForkFunction
+    (targetFork : Verity.Core.Intrinsics.HardFork)
+    (fn : FunctionSpec) : FunctionSpec :=
+  { fn with body := fn.body.map (specializeForkStmt targetFork) }
+
+private def specializeForkSpec
+    (targetFork : Verity.Core.Intrinsics.HardFork)
+    (spec : CompilationModel) : CompilationModel :=
+  { spec with
+    «constructor» := spec.constructor.map (specializeForkConstructor targetFork)
+    functions := spec.functions.map (specializeForkFunction targetFork) }
 
 private partial def collectIntrinsicUsesStmt : Stmt → List IntrinsicUse
   | .letVar _ value | .assignVar _ value | .setStorage _ value
@@ -365,6 +513,8 @@ def compileSpecsWithOptions
   match abiOutDir with
   | some dir => IO.FS.createDirAll dir
   | none => pure ()
+
+  let specs := specs.map (specializeForkSpec options.targetFork)
 
   unless options.allowFutureForkIntrinsics do
     ensureIntrinsicForksAllowed options.targetFork specs

@@ -112,6 +112,7 @@ def collectExprNames : Expr → List String
   | Expr.byte index value => collectExprNames index ++ collectExprNames value
   | Expr.signextend byteIndex value => collectExprNames byteIndex ++ collectExprNames value
   | Expr.intrinsic _name _ _ args => collectExprListNames args
+  | Expr.forkIfAtLeast _ thenExpr elseExpr => collectExprNames thenExpr ++ collectExprNames elseExpr
   | Expr.eq a b => collectExprNames a ++ collectExprNames b
   | Expr.ge a b => collectExprNames a ++ collectExprNames b
   | Expr.gt a b => collectExprNames a ++ collectExprNames b
