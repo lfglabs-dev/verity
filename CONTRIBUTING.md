@@ -67,7 +67,7 @@ in this repository should add generic intrinsic mechanics, not opcode-specific
 business logic. The consumer repository must document any generated obligation
 in its own `AXIOMS.md` or trust-boundary document. Set `min_fork` to the first
 fork where the emitted opcode is valid; Verity accepts `cancun`, `prague`, and
-`fusaka` (`osaka` is parsed as the Fusaka execution-layer alias) and enforces
+`osaka` (`fusaka` is parsed as the Ethereum combined-upgrade alias) and enforces
 the declaration against `--target-fork`.
 
 See [docs/INTRINSICS.md](docs/INTRINSICS.md) for the declaration format,

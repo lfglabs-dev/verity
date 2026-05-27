@@ -36,11 +36,11 @@ def clzLowering : Verity.Core.Intrinsics.YulLowering :=
 verity_intrinsic clz (x : Uint256) : Uint256 where
   pure
   yul := verbatim 1 1 (hex "1e")
-  min_fork := fusaka
+  min_fork := osaka
   semantics := fun x =>
     Uint256.ofNat (if x.val = 0 then 256 else 255 - Nat.log2 x.val)
   obligation [clz_matches_eip7939 :=
-    assumed "EIP-7939 CLZ opcode; chain must be Fusaka+"]
+    assumed "EIP-7939 CLZ opcode; chain must support Osaka+ execution semantics"]
 ```
 
 Lean proofs can use the generated wrapper `clz x`. Verity contract bodies use
@@ -48,14 +48,15 @@ the explicit intrinsic form so the compiler sees the lowering descriptor:
 
 ```verity
 let xClz :=
-  intrinsic_fusaka "clz" (Verity.Core.Intrinsics.YulLowering.verbatim 1 1 "1e") [x]
+  intrinsic_osaka "clz" (Verity.Core.Intrinsics.YulLowering.verbatim 1 1 "1e") [x]
 ```
 
 The three-argument contract form can infer `min_fork` only when the
 `verity_intrinsic` declaration is in the same elaboration session. Cross-module
 uses should use the explicit fork form:
-`intrinsic_cancun`, `intrinsic_prague`, `intrinsic_fusaka`, or
-`intrinsic_osaka` (alias for Fusaka).
+`intrinsic_cancun`, `intrinsic_prague`, or `intrinsic_osaka`.
+`intrinsic_fusaka` is accepted as a compatibility alias for the Ethereum
+combined network-upgrade name.
 
 The declaration has five responsibilities:
 
@@ -83,11 +84,11 @@ Supported intrinsic fork labels are:
 
 - `cancun`
 - `prague`
-- `fusaka`
-- `osaka` as an accepted alias for the Fusaka execution-layer fork name
+- `osaka`
+- `fusaka` as an accepted alias for Ethereum's combined Fulu/Osaka network-upgrade name
 
 The compiler default is `--target-fork cancun`. Use `--target-fork prague` or
-`--target-fork fusaka` for newer deployments. Parity packs set the target from
+`--target-fork osaka` for newer deployments. Parity packs set the target from
 their `evmVersion` when possible. If a build intentionally emits newer-fork
 intrinsics while using an older target, it must pass
 `--allow-future-fork-intrinsics`; otherwise compilation fails before Yul is
@@ -146,7 +147,7 @@ For CLZ, the intended lifecycle is:
 1. Tamago declares `clz` as an assumed intrinsic and documents
    `clz_matches_eip7939`.
 2. Verity emits `verbatim_1i_1o(hex"1e", x)` for Tamago builds targeting
-   Fusaka-or-later chains.
+   chains that support Osaka-or-later execution semantics.
 3. EVMYulLean adds first-class CLZ semantics.
 4. Tamago flips the obligation from assumed to proved, removing the consumer
    trust assumption without changing source call sites.

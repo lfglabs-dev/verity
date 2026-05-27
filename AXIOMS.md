@@ -204,7 +204,7 @@ its own `AXIOMS.md` or equivalent trust-boundary document.
 For example, a Tamago CLZ intrinsic should document the consumer-side
 `clz_matches_eip7939` assumption: the Lean `semantics` function used by Tamago
 proofs matches the EIP-7939 opcode emitted as `verbatim_1i_1o(hex"1e", x)` on
-Fusaka-or-later chains.
+chains that support Osaka-or-later execution semantics.
 
 These obligations are outside this registry because they are not axioms in the
 Verity project. Future consumer trust reports should surface them
