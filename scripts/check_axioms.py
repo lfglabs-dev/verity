@@ -18,6 +18,7 @@ from pathlib import Path
 from property_utils import ROOT, die, report_errors, scrub_lean_code
 
 AXIOM_DECL_RE = re.compile(r"^(?:private |protected )?axiom\s+([A-Za-z_][A-Za-z0-9_']*)\b")
+DEFAULT_AXIOM_ROOTS = ("Compiler", "Verity", "Contracts", "Benchmark")
 
 LEAN_BUILTIN_AXIOMS = frozenset([
     "propext",
@@ -56,7 +57,7 @@ def parse_active_axiom_count(axioms_md_text: str) -> int | None:
 def discover_repo_axioms() -> dict[str, tuple[str, int]]:
     """Return all Lean axiom declarations as ``{name: (relative_path, line)}``."""
     discovered: dict[str, tuple[str, int]] = {}
-    for subdir in ("Compiler", "Verity"):
+    for subdir in DEFAULT_AXIOM_ROOTS:
         base_dir = ROOT / subdir
         if not base_dir.exists():
             continue

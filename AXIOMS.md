@@ -45,6 +45,28 @@ axiom solidityMappingSlot_lt_evmModulus (baseSlot key : Nat) :
 **Runtime performance**: An `@[implemented_by]` annotation optionally redirects to
 the FFI version at runtime for speed, without affecting proof soundness.
 
+## Trusted Reduction and Codegen Surface (Non-Axiom)
+
+Verity currently has zero project-level Lean axioms, but some proofs and tests
+intentionally rely on Lean mechanisms that sit outside ordinary kernel
+elaboration:
+
+- `native_decide` proofs depend on Lean's native code generation and the builtin
+  `Lean.ofReduceBool` axiom. They are acceptable for executable smoke tests,
+  concrete bridge checks, and explicitly documented reduction witnesses, but
+  they are tracked as trusted reduction surface rather than counted as
+  project-level axioms.
+- `@[implemented_by ...]` may redirect runtime execution to a faster
+  implementation. The proof term still sees the kernel-computable definition,
+  so this is a runtime/codegen trust boundary rather than a Lean axiom.
+- `partial def` marks recursive executable helpers whose termination is not
+  kernel-proved. These helpers are allowed in macro, codegen, reporting, and
+  native-test infrastructure, and their presence is registry-gated.
+
+CI runs `scripts/check_trust_surface_registry.py` to ensure these mechanisms and
+all explicit ECM assumptions (`axioms := [...]`) remain documented when their
+source footprint changes.
+
 ### 2. Selector computation (eliminated earlier)
 
 Function selector derivation (`bytes4(keccak256(signature))`) was previously
@@ -177,6 +199,13 @@ compilation fail if any assumption hasn't been reviewed.
 | `Hashing.eip712Digest` | `keccak256_memory_slice_matches_evm`, `eip712_digest_layout` | Final EIP-712 typed-data preimage is laid out as `0x1901 || domainSeparator || structHash` before Keccak |
 | `Hashing.sha256PackedWords` / `Hashing.sha256Packed` | `evm_sha256_precompile`, `abi_packed_static_word_layout` | Static packed words are laid out before SHA-256 precompile call |
 | `Hashing.sha256PackedStaticSegments` | `evm_sha256_precompile`, `abi_packed_static_segment_layout` | Static packed byte-width segments are laid out before SHA-256 precompile call |
+
+### Test-Only ECM Assumptions
+
+| Fixture | Assumption | Meaning |
+|---------|------------|---------|
+| `Compiler.CompileDriverTest` | `test_call_interface` | Synthetic compile-driver fixture for ECM trust reporting |
+| `Compiler.CompileDriverTest` | `ctor_hook_interface` | Synthetic constructor fixture for ECM trust reporting |
 
 ### Third-Party Module Assumptions
 

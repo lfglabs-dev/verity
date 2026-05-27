@@ -232,6 +232,27 @@ example : hashSliceExecutableUsesRuntimeStub = true := by native_decide
 
 end MacroKeccakSmoke
 
+namespace MappingWordSmoke
+
+open Contracts.Smoke
+
+example :
+    MappingWordSmoke.setWord1_modelBody =
+      [ Stmt.setMappingWord "words" (Expr.param "key") 1 (Expr.param "value"),
+        Stmt.stop ] := rfl
+
+example :
+    MappingWordSmoke.getWord1_modelBody =
+      [ Stmt.letVar "word" (Expr.mappingWord "words" (Expr.param "key") 1),
+        Stmt.return (Expr.localVar "word") ] := rfl
+
+example :
+    MappingWordSmoke.isWord1NonZero_modelBody =
+      [ Stmt.letVar "word" (Expr.mappingWord "words" (Expr.param "key") 1),
+        Stmt.return (Expr.logicalNot (Expr.eq (Expr.localVar "word") (Expr.literal 0))) ] := rfl
+
+end MappingWordSmoke
+
 namespace MacroExternalSmoke
 
 open Contracts
@@ -5451,10 +5472,11 @@ set_option maxRecDepth 4096 in
     expectCompileToYul "abiEncodeStaticArray smoke spec" abiEncodeStaticArraySmokeSpec
   expectTrue "abiEncodeStaticArray writes the single dynamic argument head and length"
     (contains abiEncodeStaticArrayYul "mstore(__digest_abi_array_ptr, 32)" &&
-      contains abiEncodeStaticArrayYul "mstore(add(__digest_abi_array_ptr, 32), items_length)")
+      contains abiEncodeStaticArrayYul "let __digest_abi_array_length := items_length" &&
+      contains abiEncodeStaticArrayYul "mstore(add(__digest_abi_array_ptr, 32), __digest_abi_array_length)")
   expectTrue "abiEncodeStaticArray copies the fixed-width element payload"
     (contains abiEncodeStaticArrayYul
-      "let __digest_abi_array_data_bytes := mul(items_length, 128)" &&
+      "let __digest_abi_array_data_bytes := mul(__digest_abi_array_length, 128)" &&
       contains abiEncodeStaticArrayYul
       "calldatacopy(add(__digest_abi_array_ptr, 64), items_data_offset, __digest_abi_array_data_bytes)")
   expectTrue "abiEncodeStaticArray hashes the ABI-encoded dynamic array byte length"

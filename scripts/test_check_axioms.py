@@ -38,6 +38,7 @@ class CheckAxiomsLocationTests(unittest.TestCase):
             root = Path(tmpdir)
             (root / "Compiler").mkdir(parents=True, exist_ok=True)
             (root / "Verity").mkdir(parents=True, exist_ok=True)
+            (root / "Benchmark").mkdir(parents=True, exist_ok=True)
             (root / "Compiler" / "A.lean").write_text(
                 "\n".join(
                     [
@@ -50,6 +51,10 @@ class CheckAxiomsLocationTests(unittest.TestCase):
                 + "\n",
                 encoding="utf-8",
             )
+            (root / "Benchmark" / "Case.lean").write_text(
+                "axiom benchmark_axiom : True\n",
+                encoding="utf-8",
+            )
 
             old_root = check_axioms.ROOT
             try:
@@ -58,7 +63,13 @@ class CheckAxiomsLocationTests(unittest.TestCase):
             finally:
                 check_axioms.ROOT = old_root
 
-        self.assertEqual(discovered, {"real_axiom": ("Compiler/A.lean", 4)})
+        self.assertEqual(
+            discovered,
+            {
+                "real_axiom": ("Compiler/A.lean", 4),
+                "benchmark_axiom": ("Benchmark/Case.lean", 1),
+            },
+        )
 
     def test_main_reports_missing_registry_entries_and_count_drift(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
