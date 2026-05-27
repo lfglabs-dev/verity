@@ -87,6 +87,27 @@ private def futureForkIntrinsicSpec : CompilationModel := {
   ]
 }
 
+private def forkConditionalIntrinsicSpec : CompilationModel := {
+  name := "ForkConditionalIntrinsicSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "useSelectedIntrinsic"
+      params := [{ name := "x", ty := ParamType.uint256 }]
+      returnType := some FieldType.uint256
+      body := [
+        Stmt.return
+          (Expr.forkIfAtLeast Verity.Core.Intrinsics.HardFork.osaka
+            (Expr.intrinsic "futureIntrinsic"
+              (Verity.Core.Intrinsics.YulLowering.verbatim 1 1 "1e")
+              Verity.Core.Intrinsics.HardFork.osaka
+              [Expr.param "x"])
+            (Expr.add (Expr.param "x") (Expr.literal 7)))
+      ]
+    }
+  ]
+}
+
 private def layoutReportSpec : CompilationModel := {
   name := "LayoutReportSmoke"
   fields := [
@@ -1124,6 +1145,8 @@ unsafe def runTests : IO Unit := do
   let missingLib := "/tmp/definitely-missing-library.yul"
   let linkedLib := s!"/tmp/verity-compile-driver-test-{nonce}-poseidon.yul"
   let earlySuccessfulAbi := s!"{abiDir}/AbiSmoke.abi.json"
+  let forkCondCancunOut := s!"/tmp/verity-compile-driver-test-{nonce}-fork-cond-cancun"
+  let forkCondOsakaOut := s!"/tmp/verity-compile-driver-test-{nonce}-fork-cond-osaka"
 
   IO.FS.createDirAll outDir
   IO.FS.createDirAll abiDir
@@ -1164,6 +1187,21 @@ unsafe def runTests : IO Unit := do
     s!"/tmp/verity-compile-driver-test-{nonce}-future-intrinsic-override"
     false [] { allowFutureForkIntrinsics := true } none none none none
   IO.println "✓ compileSpecsWithOptions accepts future-fork intrinsic with explicit override"
+
+  compileSpecsWithOptions [forkConditionalIntrinsicSpec]
+    forkCondCancunOut
+    false [] { targetFork := Verity.Core.Intrinsics.HardFork.cancun } none none none none
+  expectFileContains
+    "fork_if_at_least selects fallback below required fork"
+    s!"{forkCondCancunOut}/ForkConditionalIntrinsicSmoke.yul"
+    [ "add(x, 7)" ]
+  compileSpecsWithOptions [forkConditionalIntrinsicSpec]
+    forkCondOsakaOut
+    false [] { targetFork := Verity.Core.Intrinsics.HardFork.osaka } none none none none
+  expectFileContains
+    "fork_if_at_least selects intrinsic at matching fork"
+    s!"{forkCondOsakaOut}/ForkConditionalIntrinsicSmoke.yul"
+    [ "verbatim_1i_1o(hex\"1e\", x)" ]
 
   IO.FS.writeFile linkedLib
     "function PoseidonT3_hash(a, b) -> out {\n    out := add(a, b)\n}\n"

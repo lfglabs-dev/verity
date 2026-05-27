@@ -111,6 +111,33 @@ intrinsics while using an older target, it must pass
 `--allow-future-fork-intrinsics`; otherwise compilation fails before Yul is
 written.
 
+## Fork-Aware Fallback
+
+Use `fork_if_at_least` when a library has two semantically equivalent
+implementations and one implementation uses a newer opcode intrinsic:
+
+```lean
+def clz (x : Uint256) : Uint256 :=
+  fork_if_at_least osaka then
+    intrinsic_osaka "clz"
+      (Verity.Core.Intrinsics.YulLowering.verbatim 1 1 "1e")
+      [x]
+  else
+    clz_emulated x
+```
+
+This is compile-time selection. Both branches are typechecked by Verity, but the
+compiler erases the unselected branch according to `--target-fork` before
+running intrinsic fork checks and before emitting Yul. That means the native
+branch above remains a strict Osaka intrinsic, while a Cancun or Prague build
+sees only the emulated fallback.
+
+The semantic obligation belongs to the consumer: the selected branches should be
+proved or documented as equivalent for the source-level function. The default
+Lean elaboration of `fork_if_at_least` reduces to the `then` branch, so consumers
+that need fork-specific proof behavior should add their own local wrapper lemma
+or macro rule.
+
 ## Audit Surface
 
 Consumer builds that use intrinsics should archive the normal compiler

@@ -483,6 +483,14 @@ inductive Expr
       (lowering : Verity.Core.Intrinsics.YulLowering)
       (minFork : Verity.Core.Intrinsics.HardFork)
       (args : List Expr)
+  /-- Compile-time fork selection. `thenExpr` is selected when the compiler
+      target fork is at least `required`; otherwise `elseExpr` is selected.
+      The unselected branch is removed before intrinsic fork gates and Yul
+      lowering run, so this is suitable for explicit opcode/emulation fallback
+      pairs without silently weakening `min_fork` on the intrinsic itself. -/
+  | forkIfAtLeast
+      (required : Verity.Core.Intrinsics.HardFork)
+      (thenExpr elseExpr : Expr)
   | eq (a b : Expr)
   | ge (a b : Expr)
   | gt (a b : Expr)  -- Greater than (strict)

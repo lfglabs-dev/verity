@@ -895,6 +895,7 @@ def evalExpr (fields : List Field) (state : RuntimeState) : Expr → Option Nat
         evalExpr fields state thenVal
       else
         evalExpr fields state elseVal
+  | .forkIfAtLeast _ _ _ => none
   | .shl shift value => do
       let shiftVal ← evalExpr fields state shift
       let wordVal ← evalExpr fields state value
@@ -1822,6 +1823,13 @@ private theorem evalExpr_ite
         evalExpr fields state thenVal
       else
         evalExpr fields state elseVal) := rfl
+
+private theorem evalExpr_forkIfAtLeast
+    (fields : List Field)
+    (state : RuntimeState)
+    (required : Verity.Core.Intrinsics.HardFork)
+    (thenExpr elseExpr : Expr) :
+    evalExpr fields state (.forkIfAtLeast required thenExpr elseExpr) = none := rfl
 
 mutual
   def execStmtWithEvents (fields : List Field) (events : List EventDef) :
@@ -3028,6 +3036,7 @@ mutual
     | .keccak256 _ _
     | .call _ _ _ _ _ _ _ | .staticcall _ _ _ _ _ _ | .delegatecall _ _ _ _ _ _
     | .externalCall _ _ | .mappingChain _ _ | .intrinsic _ _ _ _
+    | .forkIfAtLeast _ _ _
     | .dynamicBytesEq _ _
     | .adtConstruct _ _ _ | .adtTag _ _ | .adtField _ _ _ _ _ => none
   termination_by expr => (fuel, sizeOf expr)
@@ -4127,6 +4136,8 @@ mutual
         have helse :=
           evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed spec fields fuel state elseVal hsurface.2
         simpa [evalExprWithHelpers, evalExpr_ite, hcond, hthen, helse]
+    | forkIfAtLeast required thenExpr elseExpr =>
+        simpa [evalExprWithHelpers, evalExpr_forkIfAtLeast]
 
   theorem evalExprListWithHelpers_eq_evalExprList_of_helperSurfaceClosed
       (spec : CompilationModel)
