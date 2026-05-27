@@ -70,7 +70,6 @@ Agent endpoints:
 Introduction:
 - https://veritylang.com/architecture, single-page system map
 - https://veritylang.com/trust-model, what is verified vs trusted
-- https://veritylang.com/intrinsics, consumer-declared opcode/builtin bindings, fork gating, and proof boundary
 
 Tutorials:
 - https://veritylang.com/getting-started, local setup
@@ -88,6 +87,7 @@ Reference:
 - https://veritylang.com/core, ContractState, Contract monad, spec helpers (`sameAddrMapContext` etc.)
 - https://veritylang.com/edsl-api-reference, every primitive, plus `verity_contract` macro features
 - https://veritylang.com/compiler, pipeline, CLI flags, audit artifacts
+- https://veritylang.com/intrinsics, consumer-declared opcode/builtin bindings, fork gating, and proof boundary
 - https://veritylang.com/verification, per-contract theorem inventory
 - https://veritylang.com/glossary
 

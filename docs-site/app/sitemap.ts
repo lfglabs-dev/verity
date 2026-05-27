@@ -19,6 +19,7 @@ const ROUTES = [
   '/core',
   '/edsl-api-reference',
   '/compiler',
+  '/intrinsics',
   '/verification',
   '/glossary',
   // Explanation

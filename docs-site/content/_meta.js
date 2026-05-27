@@ -4,7 +4,6 @@ export default {
   '-- introduction': { type: 'separator', title: 'Introduction' },
   architecture: 'Architecture Overview',
   'trust-model': 'Trust Model',
-  intrinsics: 'Intrinsics',
 
   '-- tutorials': { type: 'separator', title: 'Tutorials' },
   'getting-started': 'Getting Started',
@@ -18,6 +17,7 @@ export default {
   core: 'Core',
   'edsl-api-reference': 'EDSL API',
   compiler: 'Compiler & CLI',
+  intrinsics: 'Compiler Intrinsics',
   verification: 'Verification Status',
   glossary: 'Glossary',
 
