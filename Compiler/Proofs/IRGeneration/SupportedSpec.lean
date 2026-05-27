@@ -604,6 +604,9 @@ def exprTouchesUnsupportedConstructorRawCalldataSurface : Expr → Bool
   | .mappingChain _ keys | .internalCall _ keys | .externalCall _ keys =>
       exprListTouchesUnsupportedConstructorRawCalldataSurface keys
   | .intrinsic _ _ _ _ => true
+  | .forkIfAtLeast _ thenExpr elseExpr =>
+      exprTouchesUnsupportedConstructorRawCalldataSurface thenExpr ||
+        exprTouchesUnsupportedConstructorRawCalldataSurface elseExpr
   | .keccak256 a b =>
       exprTouchesUnsupportedConstructorRawCalldataSurface a ||
         exprTouchesUnsupportedConstructorRawCalldataSurface b
@@ -715,6 +718,9 @@ def exprTouchesUnsupportedCoreSurface : Expr → Bool
   | .ite a b c =>
       exprTouchesUnsupportedCoreSurface a || exprTouchesUnsupportedCoreSurface b ||
         exprTouchesUnsupportedCoreSurface c
+  | .forkIfAtLeast _ thenExpr elseExpr =>
+      exprTouchesUnsupportedCoreSurface thenExpr ||
+        exprTouchesUnsupportedCoreSurface elseExpr
   | .wMulDown a b | .wDivUp a b =>
       exprTouchesUnsupportedCoreSurface a || exprTouchesUnsupportedCoreSurface b
   | .mulDivDown a b c | .mulDivUp a b c =>
@@ -773,6 +779,9 @@ def exprTouchesUnsupportedStateSurface : Expr → Bool
       exprTouchesUnsupportedStateSurface cond ||
         exprTouchesUnsupportedStateSurface thenVal ||
         exprTouchesUnsupportedStateSurface elseVal
+  | .forkIfAtLeast _ thenExpr elseExpr =>
+      exprTouchesUnsupportedStateSurface thenExpr ||
+        exprTouchesUnsupportedStateSurface elseExpr
   | .shl a b | .shr a b | .sar a b | .byte a b | .signextend a b =>
       exprTouchesUnsupportedStateSurface a || exprTouchesUnsupportedStateSurface b
   | .mulDivDown a b c | .mulDivUp a b c
@@ -840,6 +849,9 @@ def exprTouchesUnsupportedCallSurface : Expr → Bool
       exprTouchesUnsupportedCallSurface cond ||
         exprTouchesUnsupportedCallSurface thenVal ||
         exprTouchesUnsupportedCallSurface elseVal
+  | .forkIfAtLeast _ thenExpr elseExpr =>
+      exprTouchesUnsupportedCallSurface thenExpr ||
+        exprTouchesUnsupportedCallSurface elseExpr
   | .mapping2 _ a b | .mapping2Word _ a b _ | .structMember2 _ a b _ =>
       exprTouchesUnsupportedCallSurface a || exprTouchesUnsupportedCallSurface b
   | .mulDivDown a b c | .mulDivUp a b c
@@ -895,6 +907,9 @@ def exprTouchesUnsupportedHelperSurface : Expr → Bool
       exprTouchesUnsupportedHelperSurface cond ||
         exprTouchesUnsupportedHelperSurface thenVal ||
         exprTouchesUnsupportedHelperSurface elseVal
+  | .forkIfAtLeast _ thenExpr elseExpr =>
+      exprTouchesUnsupportedHelperSurface thenExpr ||
+        exprTouchesUnsupportedHelperSurface elseExpr
   | .mapping2 _ a b | .mapping2Word _ a b _ | .structMember2 _ a b _ =>
       exprTouchesUnsupportedHelperSurface a || exprTouchesUnsupportedHelperSurface b
   | .mulDivDown a b c | .mulDivUp a b c
@@ -961,6 +976,9 @@ def exprTouchesInternalHelperSurface : Expr → Bool
       exprTouchesInternalHelperSurface cond ||
         exprTouchesInternalHelperSurface thenVal ||
         exprTouchesInternalHelperSurface elseVal
+  | .forkIfAtLeast _ thenExpr elseExpr =>
+      exprTouchesInternalHelperSurface thenExpr ||
+        exprTouchesInternalHelperSurface elseExpr
   | .mapping2 _ a b | .mapping2Word _ a b _ | .structMember2 _ a b _ =>
       exprTouchesInternalHelperSurface a || exprTouchesInternalHelperSurface b
   | .mulDivDown a b c | .mulDivUp a b c
@@ -1017,6 +1035,9 @@ def exprTouchesUnsupportedForeignSurface : Expr → Bool
       exprTouchesUnsupportedForeignSurface cond ||
         exprTouchesUnsupportedForeignSurface thenVal ||
         exprTouchesUnsupportedForeignSurface elseVal
+  | .forkIfAtLeast _ thenExpr elseExpr =>
+      exprTouchesUnsupportedForeignSurface thenExpr ||
+        exprTouchesUnsupportedForeignSurface elseExpr
   | .mapping2 _ a b | .mapping2Word _ a b _ | .structMember2 _ a b _ =>
       exprTouchesUnsupportedForeignSurface a || exprTouchesUnsupportedForeignSurface b
   | .mulDivDown a b c | .mulDivUp a b c
@@ -1072,6 +1093,9 @@ def exprTouchesUnsupportedLowLevelSurface : Expr → Bool
       exprTouchesUnsupportedLowLevelSurface cond ||
         exprTouchesUnsupportedLowLevelSurface thenVal ||
         exprTouchesUnsupportedLowLevelSurface elseVal
+  | .forkIfAtLeast _ thenExpr elseExpr =>
+      exprTouchesUnsupportedLowLevelSurface thenExpr ||
+        exprTouchesUnsupportedLowLevelSurface elseExpr
   | .mapping2 _ a b | .mapping2Word _ a b _ | .structMember2 _ a b _ =>
       exprTouchesUnsupportedLowLevelSurface a || exprTouchesUnsupportedLowLevelSurface b
   | .mulDivDown a b c | .mulDivUp a b c
@@ -1109,6 +1133,9 @@ def exprTouchesUnsupportedContractSurface (expr : Expr) : Bool :=
   | .ite a b c =>
       exprTouchesUnsupportedContractSurface a || exprTouchesUnsupportedContractSurface b ||
         exprTouchesUnsupportedContractSurface c
+  | .forkIfAtLeast _ thenExpr elseExpr =>
+      exprTouchesUnsupportedContractSurface thenExpr ||
+        exprTouchesUnsupportedContractSurface elseExpr
   | .wMulDown a b | .wDivUp a b =>
       exprTouchesUnsupportedContractSurface a || exprTouchesUnsupportedContractSurface b
   | .mulDivDown a b c | .mulDivUp a b c =>
@@ -1785,6 +1812,8 @@ mutual
     | .ite cond thenVal elseVal =>
         exprInternalHelperCallNames cond ++ exprInternalHelperCallNames thenVal ++
           exprInternalHelperCallNames elseVal
+    | .forkIfAtLeast _ thenExpr elseExpr =>
+        exprInternalHelperCallNames thenExpr ++ exprInternalHelperCallNames elseExpr
     | .externalCall _ args | .intrinsic _ _ _ args =>
         exprListInternalHelperCallNames args
     -- Pure leaves: no internal helper calls. Listed explicitly (rather than
@@ -3361,6 +3390,11 @@ mutual
           exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.1.1,
           exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.1.2,
           exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.2]
+    | forkIfAtLeast _ thenExpr elseExpr =>
+        simp only [exprTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
+        simp [exprTouchesInternalHelperSurface,
+          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.1,
+          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.2]
   termination_by sizeOf expr
 
   theorem exprListTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed
@@ -3758,6 +3792,12 @@ private theorem exprTouchesUnsupportedCallSurface_eq_featureOr
           exprTouchesUnsupportedCallSurface_eq_featureOr thenVal,
           exprTouchesUnsupportedCallSurface_eq_featureOr elseVal]
       simp [Bool.or_assoc, Bool.or_left_comm, Bool.or_comm]
+  | forkIfAtLeast _ thenExpr elseExpr =>
+      simp only [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
+        exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface]
+      rw [exprTouchesUnsupportedCallSurface_eq_featureOr thenExpr,
+          exprTouchesUnsupportedCallSurface_eq_featureOr elseExpr]
+      simp [Bool.or_assoc, Bool.or_left_comm, Bool.or_comm]
   | mapping2 _ a b | mapping2Word _ a b _
   | structMember2 _ a b _ =>
       simp only [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
@@ -3956,6 +3996,13 @@ private theorem exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed
         exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed cond hcore.1.1 hstate.1.1 hcalls.1.1,
         exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed thenVal hcore.1.2 hstate.1.2 hcalls.1.2,
         exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed elseVal hcore.2 hstate.2 hcalls.2]
+  | forkIfAtLeast _ thenExpr elseExpr =>
+      simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
+      simp only [exprTouchesUnsupportedStateSurface, Bool.or_eq_false_iff] at hstate
+      simp only [exprTouchesUnsupportedCallSurface, Bool.or_eq_false_iff] at hcalls
+      simp [exprTouchesUnsupportedContractSurface,
+        exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed thenExpr hcore.1 hstate.1 hcalls.1,
+        exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed elseExpr hcore.2 hstate.2 hcalls.2]
   | wMulDown lhs rhs | wDivUp lhs rhs =>
       simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
       simp only [exprTouchesUnsupportedStateSurface, Bool.or_eq_false_iff] at hstate
@@ -4051,6 +4098,11 @@ private theorem exprTouchesUnsupportedCallSurface_eq_false_of_coreClosed
         exprTouchesUnsupportedCallSurface_eq_false_of_coreClosed cond hcore.1.1,
         exprTouchesUnsupportedCallSurface_eq_false_of_coreClosed thenVal hcore.1.2,
         exprTouchesUnsupportedCallSurface_eq_false_of_coreClosed elseVal hcore.2]
+  | forkIfAtLeast _ thenExpr elseExpr =>
+      simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
+      simp [exprTouchesUnsupportedCallSurface,
+        exprTouchesUnsupportedCallSurface_eq_false_of_coreClosed thenExpr hcore.1,
+        exprTouchesUnsupportedCallSurface_eq_false_of_coreClosed elseExpr hcore.2]
   | mulDivDown a b c | mulDivUp a b c =>
       simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
       simp [exprTouchesUnsupportedCallSurface,
@@ -4343,6 +4395,11 @@ theorem exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
         exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.1.1,
         exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.1.2,
         exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.2]
+  | forkIfAtLeast _ thenExpr elseExpr =>
+      simp only [exprTouchesUnsupportedContractSurface, Bool.or_eq_false_iff] at hsurface
+      simp [exprTouchesUnsupportedHelperSurface,
+        exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.1,
+        exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.2]
   | bitNot a =>
       simp only [exprTouchesUnsupportedContractSurface] at hsurface
       simp [exprTouchesUnsupportedHelperSurface,
@@ -4577,6 +4634,11 @@ private theorem exprUsesArrayElement_eq_false_of_coreClosed
         exprUsesArrayElement_eq_false_of_coreClosed hcore.1.1,
         exprUsesArrayElement_eq_false_of_coreClosed hcore.1.2,
         exprUsesArrayElement_eq_false_of_coreClosed hcore.2]
+  | forkIfAtLeast _ thenExpr elseExpr =>
+      simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
+      simp [exprUsesArrayElement,
+        exprUsesArrayElement_eq_false_of_coreClosed hcore.1,
+        exprUsesArrayElement_eq_false_of_coreClosed hcore.2]
   | storage _ | storageAddr _ => simp [exprUsesArrayElement]
   | _ => simp [exprTouchesUnsupportedCoreSurface] at hcore
 termination_by sizeOf expr
@@ -4624,6 +4686,11 @@ private theorem exprUsesStorageArrayElement_eq_false_of_coreClosed
       simp [exprUsesStorageArrayElement,
         exprUsesStorageArrayElement_eq_false_of_coreClosed hcore.1.1,
         exprUsesStorageArrayElement_eq_false_of_coreClosed hcore.1.2,
+        exprUsesStorageArrayElement_eq_false_of_coreClosed hcore.2]
+  | forkIfAtLeast _ thenExpr elseExpr =>
+      simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
+      simp [exprUsesStorageArrayElement,
+        exprUsesStorageArrayElement_eq_false_of_coreClosed hcore.1,
         exprUsesStorageArrayElement_eq_false_of_coreClosed hcore.2]
   | storage _ | storageAddr _ => simp [exprUsesStorageArrayElement]
   | arrayElement _ _ =>
@@ -4674,6 +4741,11 @@ private theorem exprUsesDynamicBytesEq_eq_false_of_coreClosed
       simp [exprUsesDynamicBytesEq,
         exprUsesDynamicBytesEq_eq_false_of_coreClosed hcore.1.1,
         exprUsesDynamicBytesEq_eq_false_of_coreClosed hcore.1.2,
+        exprUsesDynamicBytesEq_eq_false_of_coreClosed hcore.2]
+  | forkIfAtLeast _ thenExpr elseExpr =>
+      simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
+      simp [exprUsesDynamicBytesEq,
+        exprUsesDynamicBytesEq_eq_false_of_coreClosed hcore.1,
         exprUsesDynamicBytesEq_eq_false_of_coreClosed hcore.2]
   | storage _ | storageAddr _ => simp [exprUsesDynamicBytesEq]
   | _ => simp [exprTouchesUnsupportedCoreSurface] at hcore
