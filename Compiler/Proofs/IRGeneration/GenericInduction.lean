@@ -1830,7 +1830,7 @@ theorem legacyCompatibleExternalStmtList_of_compileStmt_ok_on_supportedContractS
   | require _ | requireError _ _ | revertError _ _
   | «return» _ | returnValues _ | returnArray _ | returnBytes _
   | returnStorageWords _ | mstore _ _ | tstore _ _ | calldatacopy _ _ _
-  | returndataCopy _ _ _ | revertReturndata | stop
+  | returndataCopy _ _ _ | revertReturndata | rawRevert _ _ | stop
   | ite _ _ _ | forEach _ _ _ | emit _ _
   | internalCall _ _ | internalCallAssign _ _ _ | rawLog _ _ _
   | externalCallBind _ _ _ | tryExternalCallBind _ _ _ _ | ecm _ _
@@ -3778,7 +3778,7 @@ theorem stmtListScopeCore_prefix_of_compileStmtList_ok_of_stmtListTouchesUnsuppo
       | storageArrayPush _ _ | storageArrayPop _ | setStorageArrayElement _ _ _
       | requireError _ _ _ | revertError _ _ | returnValues _ | returnArray _
       | returnBytes _ | returnStorageWords _ | calldatacopy _ _ _
-      | returndataCopy _ _ _ | revertReturndata
+      | returndataCopy _ _ _ | revertReturndata | rawRevert _ _
       | emit _ _ | internalCall _ _ | internalCallAssign _ _ _
       | rawLog _ _ _ | externalCallBind _ _ _ | tryExternalCallBind _ _ _ _ | ecm _ _
       | unsafeBlock _ _ | matchAdt _ _ _ =>
