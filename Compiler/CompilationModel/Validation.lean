@@ -223,7 +223,7 @@ mutual
   private def stmtAlwaysReturnsOrReverts : Stmt → Bool
     | Stmt.return _ | Stmt.returnValues _ | Stmt.returnArray _
     | Stmt.returnBytes _ | Stmt.returnStorageWords _
-    | Stmt.revertError _ _ | Stmt.revertReturndata =>
+    | Stmt.revertError _ _ | Stmt.revertReturndata | Stmt.rawRevert _ _ =>
         true
     | Stmt.ite _ thenBranch elseBranch =>
         stmtListAlwaysReturnsOrReverts thenBranch && stmtListAlwaysReturnsOrReverts elseBranch

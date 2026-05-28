@@ -282,11 +282,12 @@ private partial def collectAxiomatizedStmtPrimitives : Stmt → List String
   | .rawLog topics dataOffset dataSize =>
       topics.flatMap collectAxiomatizedExprPrimitives ++ collectAxiomatizedExprPrimitives dataOffset ++
         collectAxiomatizedExprPrimitives dataSize
+  | .rawRevert offset size =>
+      collectAxiomatizedExprPrimitives offset ++ collectAxiomatizedExprPrimitives size
   | .returnArray _
   | .returnBytes _
   | .returnStorageWords _
   | .revertReturndata
-  | .rawRevert _ _
   | .stop =>
       []
 
@@ -545,11 +546,12 @@ private partial def collectEventEmissionStmtMechanics : Stmt → List String
   | .rawLog topics dataOffset dataSize =>
       ["rawLog"] ++ topics.flatMap collectEventEmissionExprMechanics ++
         collectEventEmissionExprMechanics dataOffset ++ collectEventEmissionExprMechanics dataSize
+  | .rawRevert offset size =>
+      collectEventEmissionExprMechanics offset ++ collectEventEmissionExprMechanics size
   | .returnArray _
   | .returnBytes _
   | .returnStorageWords _
   | .revertReturndata
-  | .rawRevert _ _
   | .stop =>
       []
 
@@ -718,11 +720,12 @@ private partial def collectRuntimeIntrospectionStmtMechanics : Stmt → List Str
       topics.flatMap collectRuntimeIntrospectionExprMechanics ++
         collectRuntimeIntrospectionExprMechanics dataOffset ++
         collectRuntimeIntrospectionExprMechanics dataSize
+  | .rawRevert offset size =>
+      collectRuntimeIntrospectionExprMechanics offset ++ collectRuntimeIntrospectionExprMechanics size
   | .returnArray _
   | .returnBytes _
   | .returnStorageWords _
   | .revertReturndata
-  | .rawRevert _ _
   | .stop =>
       []
 
@@ -842,6 +845,21 @@ example : collectRuntimeIntrospectionExprMechanics arrayElementWordRuntimeIndexS
 example : collectExternalExprNames arrayElementWordExternalIndexSmoke = ["oracle"] := by
   native_decide
 
+private def rawRevertAxiomatizedArgSmoke : Stmt :=
+  Stmt.rawRevert (Expr.keccak256 (Expr.literal 0) (Expr.literal 64)) (Expr.literal 32)
+
+private def rawRevertRuntimeArgSmoke : Stmt :=
+  Stmt.rawRevert Expr.blockNumber (Expr.literal 32)
+
+private def rawRevertExternalArgSmoke : Stmt :=
+  Stmt.rawRevert (Expr.externalCall "oracle" []) (Expr.literal 32)
+
+example : collectAxiomatizedStmtPrimitives rawRevertAxiomatizedArgSmoke = ["keccak256"] := by
+  native_decide
+
+example : collectRuntimeIntrospectionStmtMechanics rawRevertRuntimeArgSmoke = ["blockNumber"] := by
+  native_decide
+
 private partial def collectExternalStmtNames : Stmt → List String
   | .letVar _ value
   | .assignVar _ value
@@ -900,13 +918,17 @@ private partial def collectExternalStmtNames : Stmt → List String
       externalName :: args.flatMap collectExternalExprNames
   | .rawLog topics dataOffset dataSize =>
       topics.flatMap collectExternalExprNames ++ collectExternalExprNames dataOffset ++ collectExternalExprNames dataSize
+  | .rawRevert offset size =>
+      collectExternalExprNames offset ++ collectExternalExprNames size
   | .returnArray _
   | .returnBytes _
   | .returnStorageWords _
   | .revertReturndata
-  | .rawRevert _ _
   | .stop =>
       []
+
+example : collectExternalStmtNames rawRevertExternalArgSmoke = ["oracle"] := by
+  native_decide
 
 private def collectUsedExternalNamesFromStmts (stmts : List Stmt) : List String :=
   dedupPreserve (stmts.flatMap collectExternalStmtNames)
