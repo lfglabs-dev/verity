@@ -4548,6 +4548,7 @@ private theorem execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux
   | .calldatacopy _ _ _ => simp [execStmtWithHelpers, execStmtWithEvents]
   | .returndataCopy _ _ _ => simp [execStmtWithHelpers, execStmtWithEvents]
   | .revertReturndata => simp [execStmtWithHelpers, execStmtWithEvents]
+  | .rawRevert _ _ => simp [execStmtWithHelpers, execStmtWithEvents]
   | .emit _ args =>
       simp only [stmtTouchesUnsupportedHelperSurface] at hsurface
       have hall : args.all (fun expr => exprTouchesUnsupportedHelperSurface expr == false) = true := by
