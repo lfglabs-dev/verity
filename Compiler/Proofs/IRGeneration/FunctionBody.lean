@@ -8160,7 +8160,7 @@ private theorem compileStmt_ok_any_scope_aux
       | setMappingChain | setStructMember | setStructMember2 | require
       | requireError | revertError | «return» | returnValues | returnArray
       | returnBytes | returnStorageWords | mstore | tstore | calldatacopy
-      | returndataCopy | revertReturndata | stop | emit | internalCall
+      | returndataCopy | revertReturndata | rawRevert | stop | emit | internalCall
       | internalCallAssign | externalCallBind | tryExternalCallBind | ecm | rawLog =>
           simp only [CompilationModel.compileStmt] at hok ⊢; exact hok
     · -- compileStmtList part
@@ -8277,7 +8277,7 @@ private theorem compileStmt_ok_any_scope_with_surface_aux
       | setMappingChain | setStructMember | setStructMember2 | require
       | requireError | revertError | «return» | returnValues | returnArray
       | returnBytes | returnStorageWords | mstore | tstore | calldatacopy
-      | returndataCopy | revertReturndata | stop | emit | internalCall
+      | returndataCopy | revertReturndata | rawRevert | stop | emit | internalCall
       | internalCallAssign | externalCallBind | tryExternalCallBind
       | ecm | rawLog =>
           simp only [CompilationModel.compileStmt] at hok ⊢; exact hok
