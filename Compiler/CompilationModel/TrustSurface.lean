@@ -185,6 +185,8 @@ private partial def collectLowLevelStmtMechanics : Stmt → List String
       ["returndataCopy"] ++ collectLowLevelExprMechanics destOffset ++ collectLowLevelExprMechanics sourceOffset ++ collectLowLevelExprMechanics size
   | .revertReturndata =>
       ["revertReturndata"]
+  | .rawRevert offset size =>
+      ["rawRevert"] ++ collectLowLevelExprMechanics offset ++ collectLowLevelExprMechanics size
   | .setMapping _ key value
   | .setMappingWord _ key _ value
   | .setMappingPackedWord _ key _ _ value
@@ -284,6 +286,7 @@ private partial def collectAxiomatizedStmtPrimitives : Stmt → List String
   | .returnBytes _
   | .returnStorageWords _
   | .revertReturndata
+  | .rawRevert _ _
   | .stop =>
       []
 
@@ -336,6 +339,8 @@ private partial def collectUnguardedLowLevelStmtMechanics : Stmt → List String
       ["returndataCopy"] ++ collectLowLevelExprMechanics destOffset ++ collectLowLevelExprMechanics sourceOffset ++ collectLowLevelExprMechanics size
   | .revertReturndata =>
       ["revertReturndata"]
+  | .rawRevert offset size =>
+      ["rawRevert"] ++ collectLowLevelExprMechanics offset ++ collectLowLevelExprMechanics size
   | .setMapping _ key value
   | .setMappingWord _ key _ value
   | .setMappingPackedWord _ key _ _ value
@@ -544,6 +549,7 @@ private partial def collectEventEmissionStmtMechanics : Stmt → List String
   | .returnBytes _
   | .returnStorageWords _
   | .revertReturndata
+  | .rawRevert _ _
   | .stop =>
       []
 
@@ -562,7 +568,7 @@ def collectEventEmissionMechanics (spec : CompilationModel) : List String :=
 private def isDeniedLowLevelMechanic (mechanic : String) : Bool :=
   match mechanic with
   | "call" | "staticcall" | "delegatecall" | "returndataSize" | "returndataCopy"
-  | "revertReturndata" | "returndataOptionalBoolAt" | "blobbasefee" => true
+  | "revertReturndata" | "rawRevert" | "returndataOptionalBoolAt" | "blobbasefee" => true
   | _ => false
 
 private def collectDeniedLowLevelMechanicsFromMechanics (mechanics : List String) : List String :=
@@ -716,6 +722,7 @@ private partial def collectRuntimeIntrospectionStmtMechanics : Stmt → List Str
   | .returnBytes _
   | .returnStorageWords _
   | .revertReturndata
+  | .rawRevert _ _
   | .stop =>
       []
 
@@ -897,6 +904,7 @@ private partial def collectExternalStmtNames : Stmt → List String
   | .returnBytes _
   | .returnStorageWords _
   | .revertReturndata
+  | .rawRevert _ _
   | .stop =>
       []
 

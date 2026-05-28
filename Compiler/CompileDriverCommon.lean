@@ -285,6 +285,7 @@ private partial def specializeForkStmt
   | .tstore offset value => .tstore (specializeForkExpr targetFork offset) (specializeForkExpr targetFork value)
   | .calldatacopy dest source size => .calldatacopy (specializeForkExpr targetFork dest) (specializeForkExpr targetFork source) (specializeForkExpr targetFork size)
   | .returndataCopy dest source size => .returndataCopy (specializeForkExpr targetFork dest) (specializeForkExpr targetFork source) (specializeForkExpr targetFork size)
+  | .rawRevert offset size => .rawRevert (specializeForkExpr targetFork offset) (specializeForkExpr targetFork size)
   | .ite cond thenBranch elseBranch => .ite (specializeForkExpr targetFork cond) (thenBranch.map (specializeForkStmt targetFork)) (elseBranch.map (specializeForkStmt targetFork))
   | .forEach varName count body => .forEach varName (specializeForkExpr targetFork count) (body.map (specializeForkStmt targetFork))
   | .emit eventName args => .emit eventName (args.map (specializeForkExpr targetFork))
@@ -344,6 +345,8 @@ private partial def collectIntrinsicUsesStmt : Stmt → List IntrinsicUse
   | .calldatacopy destOffset sourceOffset size
   | .returndataCopy destOffset sourceOffset size =>
       [destOffset, sourceOffset, size].flatMap collectIntrinsicUsesExpr
+  | .rawRevert offset size =>
+      collectIntrinsicUsesExpr offset ++ collectIntrinsicUsesExpr size
   | .rawLog topics dataOffset dataSize =>
       topics.flatMap collectIntrinsicUsesExpr ++ collectIntrinsicUsesExpr dataOffset ++
         collectIntrinsicUsesExpr dataSize

@@ -415,6 +415,11 @@ def compileStmt (fields : List Field) (events : List EventDef := [])
           YulExpr.ident "__returndata_size"
         ])
       ]]
+  | Stmt.rawRevert offset size => do
+      pure [YulStmt.expr (YulExpr.call "revert" [
+        ← compileExpr fields dynamicSource offset,
+        ← compileExpr fields dynamicSource size
+      ])]
   | Stmt.rawLog topics dataOffset dataSize => do
       if topics.length > 4 then
         throw s!"Compilation error: rawLog supports at most 4 topics (log0–log4), got {topics.length}"

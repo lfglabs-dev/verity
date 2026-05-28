@@ -2726,6 +2726,24 @@ private def rawLogTooManyTopicsSpec : CompilationModel := {
   ]
 }
 
+private def rawRevertSmokeSpec : CompilationModel := {
+  name := "RawRevertSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "fail"
+      params := [
+        { name := "offset", ty := ParamType.uint256 },
+        { name := "size", ty := ParamType.uint256 }
+      ]
+      returnType := none
+      body := [
+        Stmt.rawRevert (Expr.param "offset") (Expr.param "size")
+      ]
+    }
+  ]
+}
+
 private def reservedEcmResultVarSpec : CompilationModel := {
   name := "ReservedEcmResultVar"
   fields := [{ name := "value", ty := FieldType.uint256 }]
@@ -5053,6 +5071,17 @@ set_option maxRecDepth 4096 in
     "compiler rawLog rejects more than four topics"
     rawLogTooManyTopicsSpec
     "rawLog supports at most 4 topics"
+  let rawRevertYul ← expectCompileToYul
+    "rawRevert smoke spec"
+    rawRevertSmokeSpec
+  expectTrue "rawRevert preserves the modeled memory slice in rendered Yul"
+    (contains rawRevertYul "revert(offset, size)")
+  let rawRevertTrustReport := emitTrustReportJson [rawRevertSmokeSpec]
+  let rawRevertLowLevelLines := emitLowLevelMechanicsUsageSiteLines [rawRevertSmokeSpec]
+  expectTrue "rawRevert trust report classifies raw memory reverts as denied low-level mechanics"
+    (contains rawRevertTrustReport "\"modeledLowLevelMechanics\"" &&
+      contains rawRevertTrustReport "\"rawRevert\"" &&
+      rawRevertLowLevelLines.any (fun line => contains line "RawRevertSmoke [function:fail]: rawRevert"))
   let envRuntimeYul ← expectCompileToYul "env runtime smoke compiles" envRuntimeSmokeSpec
   expectTrue "env runtime smoke lowers block.number" (contains envRuntimeYul "number()")
   let stringCompiled :=

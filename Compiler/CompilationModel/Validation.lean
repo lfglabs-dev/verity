@@ -438,6 +438,8 @@ def stmtWritesState : Stmt → Bool
       exprWritesState destOffset || exprWritesState sourceOffset || exprWritesState size
   | Stmt.returndataCopy destOffset sourceOffset size =>
       exprWritesState destOffset || exprWritesState sourceOffset || exprWritesState size
+  | Stmt.rawRevert offset size =>
+      exprWritesState offset || exprWritesState size
   | Stmt.revertReturndata =>
       false
   | Stmt.stop =>
@@ -1008,6 +1010,8 @@ def stmtReadsStateOrEnv : Stmt → Bool
   | Stmt.tstore offset value =>
       exprReadsStateOrEnv offset || exprReadsStateOrEnv value
   | Stmt.calldatacopy _ _ _ | Stmt.returndataCopy _ _ _ => true
+  | Stmt.rawRevert offset size =>
+      exprReadsStateOrEnv offset || exprReadsStateOrEnv size
   | Stmt.revertReturndata =>
       true
   | Stmt.stop =>
@@ -1208,6 +1212,9 @@ def stmtWritesStateWithFunctionEffects
       exprWritesStateWithFunctionEffects effects destOffset ||
         exprWritesStateWithFunctionEffects effects sourceOffset ||
         exprWritesStateWithFunctionEffects effects size
+  | Stmt.rawRevert offset size =>
+      exprWritesStateWithFunctionEffects effects offset ||
+        exprWritesStateWithFunctionEffects effects size
   | Stmt.revertReturndata =>
       false
   | Stmt.stop =>
@@ -1383,6 +1390,8 @@ def stmtReadsStateOrEnvWithFunctionEffects
       exprReadsStateOrEnvWithFunctionEffects effects offset ||
         exprReadsStateOrEnvWithFunctionEffects effects value
   | Stmt.calldatacopy _ _ _ | Stmt.returndataCopy _ _ _ => true
+  | Stmt.rawRevert offset size =>
+      exprReadsStateOrEnvWithFunctionEffects effects offset || exprReadsStateOrEnvWithFunctionEffects effects size
   | Stmt.revertReturndata =>
       true
   | Stmt.stop =>
@@ -1790,6 +1799,11 @@ def validateNoUnsupportedAdtConstructInStmt : Stmt → Except String Unit
       if exprContainsAdtConstruct destOffset || exprContainsAdtConstruct sourceOffset ||
           exprContainsAdtConstruct size then
         throw "Compilation error: ADT construction cannot be used in copy offsets or sizes."
+  | Stmt.rawRevert offset size =>
+      if exprContainsAdtConstruct offset || exprContainsAdtConstruct size then
+        throw "Compilation error: ADT construction cannot be used in raw revert offsets or sizes."
+      else
+        pure ()
   | Stmt.storageArrayPop _ | Stmt.returnArray _ | Stmt.returnBytes _
   | Stmt.returnStorageWords _ | Stmt.revertReturndata | Stmt.stop =>
       pure ()

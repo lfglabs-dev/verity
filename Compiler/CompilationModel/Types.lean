@@ -597,6 +597,10 @@ inductive Stmt
   | returndataCopy (destOffset sourceOffset size : Expr)
   /-- Forward current returndata as revert payload (`returndatacopy` + `revert`). -/
   | revertReturndata
+  /-- Raw low-level revert with caller-specified memory slice.  This models
+      handwritten assembly such as `revert(0, 0)` without forcing callers to
+      encode a Solidity `Error(string)` or custom error. -/
+  | rawRevert (offset size : Expr)
   | stop
   | ite (cond : Expr) (thenBranch : List Stmt) (elseBranch : List Stmt)  -- If/else (#179)
   | forEach (varName : String) (count : Expr) (body : List Stmt)  -- Bounded loop (#179)
