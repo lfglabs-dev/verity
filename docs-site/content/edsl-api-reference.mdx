@@ -397,4 +397,20 @@ When the low-level form is `delegatecall`, the trust report now also isolates it
 
 First-class linear-memory forms (`Expr.mload`, `Stmt.mstore`, `Stmt.calldatacopy`, `Stmt.returndataCopy`, `Expr.returndataOptionalBoolAt`) also compile today, but they are still only partially modeled by the current proof interpreters. When they appear, treat them as an explicit memory/ABI trust boundary, archive `--trust-report`, and use `--deny-linear-memory-mechanics` for proof-strict runs (see issue `#1411`).
 
+One-off raw Yul instructions should use `Stmt.unsafeYul` with an
+`UnsafeYulFragment` helper instead of becoming new first-class statements. Raw
+memory revert is the canonical small helper:
+
+```lean
+Stmt.unsafeYul
+  (UnsafeYulFragment.rawRevert
+    (Compiler.Yul.YulExpr.ident "offset")
+    (Compiler.Yul.YulExpr.ident "size")
+    { name := "raw_revert_memory_slice_refinement"
+      obligation := "Caller-provided raw revert memory slice must refine the intended failure payload."
+      proofStatus := .assumed })
+```
+
+Raw memory reverts should use the explicit raw-Yul fragment boundary.
+
 Prefer ECM wrappers when they fit. For the remaining unavoidable cases, attach a `localObligations` entry at the usage site and discharge it before shipping.

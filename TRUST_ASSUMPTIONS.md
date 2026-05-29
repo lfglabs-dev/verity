@@ -84,6 +84,20 @@ Current theorem totals, property-test coverage, and proof status live in [docs/V
 - **Status**: Surfaced explicitly in `--trust-report`, `--verbose`, and `proofStatus.*.localObligations`.
 - **Mitigation**: `verity-compiler --deny-local-obligations` fails closed on any obligation that remains `assumed` or `unchecked`.
 
+### 10a. Raw Yul Escape Hatch
+- **Role**: Model ad-hoc handwritten Yul through `Stmt.unsafeYul` and
+  `UnsafeYulFragment` when the surface is only a single instruction or otherwise
+  too local to justify a first-class `Stmt` constructor.
+- **Status**: Raw Yul fragments lower through the single
+  `unsafeYulToEVMYul` bridge and carry their own mechanics, termination
+  metadata, and local obligations. Raw memory reverts use
+  `UnsafeYulFragment.rawRevert` through `Stmt.unsafeYul`.
+- **Mitigation**: Keep common typed primitives such as `mstore` and
+  `calldatacopy` first-class only when Verity has stable semantics and they are
+  useful for proofs. Treat other raw Yul as an explicit trust-report surface,
+  and use `--deny-local-obligations` / low-level deny gates for strict builds.
+- **Reference**: See [docs/LOW_LEVEL_YUL.md](docs/LOW_LEVEL_YUL.md).
+
 ### 11. Consumer-Declared Intrinsics
 - **Role**: Let downstream packages bind a source-level Verity function to a
   target EVM opcode or Yul builtin without adding opcode-specific code to

@@ -4,8 +4,19 @@ namespace Compiler.CompilationModel
 
 mutual
 def collectStmtBindNames : Stmt → List String
-  | stmt => (stmt.metadataDeep).scopeEffects.bindNames
-termination_by s => sizeOf s
+  | .letVar name _ => [name]
+  | .internalCallAssign names _ _ => names
+  | .externalCallBind resultVars _ _ => resultVars
+  | .tryExternalCallBind successVar resultVars _ _ => successVar :: resultVars
+  | .ecm mod _ => mod.resultVars
+  | .ite _ thenBranch elseBranch =>
+      collectStmtListBindNames thenBranch ++ collectStmtListBindNames elseBranch
+  | .forEach varName _ body => varName :: collectStmtListBindNames body
+  | .unsafeBlock _ body => collectStmtListBindNames body
+  | .matchAdt _ _ branches => collectMatchBranchBindNames branches
+  | .unsafeYul fragment => fragment.scopeEffects.bindNames
+  | _ => []
+termination_by stmt => sizeOf stmt
 decreasing_by all_goals simp_wf; all_goals omega
 
 def collectStmtListBindNames : List Stmt → List String
@@ -25,8 +36,15 @@ end
 
 mutual
 def collectStmtAssignedNames : Stmt → List String
-  | stmt => (stmt.metadataDeep).scopeEffects.assignNames
-termination_by s => sizeOf s
+  | .assignVar name _ => [name]
+  | .unsafeBlock _ body => collectStmtListAssignedNames body
+  | .ite _ thenBranch elseBranch =>
+      collectStmtListAssignedNames thenBranch ++ collectStmtListAssignedNames elseBranch
+  | .forEach _ _ body => collectStmtListAssignedNames body
+  | .matchAdt _ _ branches => collectMatchBranchAssignedNames branches
+  | .unsafeYul fragment => fragment.scopeEffects.assignNames
+  | _ => []
+termination_by stmt => sizeOf stmt
 decreasing_by all_goals simp_wf; all_goals omega
 
 def collectStmtListAssignedNames : List Stmt → List String
@@ -231,9 +249,6 @@ def stmtUsesArrayElementKind (includePlain includeWord : Bool) : Stmt → Bool
       exprListUsesArrayElementKind includePlain includeWord args
   | Stmt.ecm _ args =>
       exprListUsesArrayElementKind includePlain includeWord args
-  | Stmt.rawRevert offset size =>
-      exprUsesArrayElementKind includePlain includeWord offset ||
-        exprUsesArrayElementKind includePlain includeWord size
   | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ =>
       false
   | Stmt.revertReturndata | Stmt.stop =>
@@ -392,8 +407,6 @@ def stmtUsesArrayElement : Stmt → Bool
       exprListUsesArrayElement topics || exprUsesArrayElement dataOffset || exprUsesArrayElement dataSize
   | Stmt.externalCallBind _ _ args | Stmt.tryExternalCallBind _ _ _ args | Stmt.ecm _ args =>
       exprListUsesArrayElement args
-  | Stmt.rawRevert offset size =>
-      exprUsesArrayElement offset || exprUsesArrayElement size
   | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ =>
       false
   | Stmt.revertReturndata | Stmt.stop =>
@@ -602,8 +615,6 @@ def stmtUsesParamDynamicHeadWord : Stmt → Bool
       exprListUsesParamDynamicHeadWord topics ||
         exprUsesParamDynamicHeadWord dataOffset ||
         exprUsesParamDynamicHeadWord dataSize
-  | Stmt.rawRevert offset size =>
-      exprUsesParamDynamicHeadWord offset || exprUsesParamDynamicHeadWord size
   | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ =>
       false
   | Stmt.revertReturndata | Stmt.stop =>
@@ -751,8 +762,6 @@ def stmtUsesMulDiv512 : Stmt → Bool
   | Stmt.rawLog topics dataOffset dataSize =>
       exprListUsesMulDiv512 topics ||
         exprUsesMulDiv512 dataOffset || exprUsesMulDiv512 dataSize
-  | Stmt.rawRevert offset size =>
-      exprUsesMulDiv512 offset || exprUsesMulDiv512 size
   | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ =>
       false
   | Stmt.revertReturndata | Stmt.stop =>
@@ -929,8 +938,6 @@ def stmtUsesStorageArrayElement : Stmt → Bool
       exprListUsesStorageArrayElement topics || exprUsesStorageArrayElement dataOffset || exprUsesStorageArrayElement dataSize
   | Stmt.ecm _ args =>
       exprListUsesStorageArrayElement args
-  | Stmt.rawRevert offset size =>
-      exprUsesStorageArrayElement offset || exprUsesStorageArrayElement size
   | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ =>
       false
   | Stmt.revertReturndata | Stmt.stop =>
@@ -1087,8 +1094,6 @@ def stmtUsesDynamicBytesEq : Stmt → Bool
       exprListUsesDynamicBytesEq args
   | Stmt.rawLog topics dataOffset dataSize =>
       exprListUsesDynamicBytesEq topics || exprUsesDynamicBytesEq dataOffset || exprUsesDynamicBytesEq dataSize
-  | Stmt.rawRevert offset size =>
-      exprUsesDynamicBytesEq offset || exprUsesDynamicBytesEq size
   | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ =>
       false
   | Stmt.revertReturndata | Stmt.stop =>

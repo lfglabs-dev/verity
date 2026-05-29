@@ -508,10 +508,6 @@ def validateScopedStmtIdentifiers
       validateScopedExprIdentifiers context params paramScope dynamicParams localScope constructorArgCount sourceOffset
       validateScopedExprIdentifiers context params paramScope dynamicParams localScope constructorArgCount size
       pure localScope
-  | Stmt.rawRevert offset size => do
-      validateScopedExprIdentifiers context params paramScope dynamicParams localScope constructorArgCount offset
-      validateScopedExprIdentifiers context params paramScope dynamicParams localScope constructorArgCount size
-      pure localScope
   | Stmt.ite cond thenBranch elseBranch => do
       validateScopedExprIdentifiers context params paramScope dynamicParams localScope constructorArgCount cond
       let _ ← validateScopedStmtListIdentifiers context params paramScope dynamicParams localScope constructorArgCount thenBranch

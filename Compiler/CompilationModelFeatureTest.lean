@@ -75,6 +75,65 @@ example : dischargedEdgeExecutableStillRuns = true := by native_decide
 
 end MacroLocalObligationSmoke
 
+namespace YulImporterSmoke
+
+open Compiler.Yul
+
+private def importedAssemblyStmt : Stmt :=
+  YulImporter.importBlock {
+    label := "sol_inline_assembly"
+    sourceSpan := some {
+      sourceName := "Contract.sol"
+      startLine := 12
+      startColumn := 8
+      endLine := 18
+      endColumn := 5
+    }
+    stmts := [
+      YulStmt.let_ "ptr" (YulExpr.call "mload" [YulExpr.lit 64]),
+      YulStmt.assign "ptr" (YulExpr.call "add" [YulExpr.ident "ptr", YulExpr.lit 32]),
+      YulStmt.expr (YulExpr.call "mstore" [YulExpr.ident "ptr", YulExpr.lit 1]),
+      YulStmt.expr (YulExpr.call "sstore" [YulExpr.lit 0, YulExpr.lit 1]),
+      YulStmt.expr (YulExpr.call "revert" [YulExpr.ident "ptr", YulExpr.lit 32])
+    ]
+  }
+
+def importedAssemblyCarriesDerivedMetadata : Bool :=
+  match importedAssemblyStmt with
+  | Stmt.unsafeYul fragment =>
+      fragment.label == "sol_inline_assembly" &&
+      (match fragment.obligations with
+       | [{ name := "sol_inline_assembly"
+            obligation := "Imported Solidity inline assembly at Contract.sol:12:8-18:5 block 'sol_inline_assembly' must refine the declared Verity state transition."
+            proofStatus := .assumed }] => true
+       | _ => false) &&
+      fragment.mechanics.contains .mload &&
+      fragment.mechanics.contains .mstore &&
+      fragment.mechanics.contains .storageWrite &&
+      fragment.mechanics.contains .rawRevert &&
+      fragment.scopeEffects.bindNames == ["ptr"] &&
+      fragment.scopeEffects.assignNames == ["ptr"] &&
+      !fragment.scopeEffects.storageWrites.isEmpty &&
+      fragment.controlFlow == .reverts
+  | _ => false
+
+example : importedAssemblyCarriesDerivedMetadata = true := by native_decide
+
+def importedAssemblyPassesUnsafeYulValidation : Bool :=
+  let spec : FunctionSpec := {
+    name := "usesImportedAssembly"
+    params := []
+    returnType := none
+    body := [importedAssemblyStmt, Stmt.stop]
+  }
+  match validateFunctionSpec spec with
+  | .ok _ => true
+  | .error _ => false
+
+example : importedAssemblyPassesUnsafeYulValidation = true := by native_decide
+
+end YulImporterSmoke
+
 namespace MacroProxyUpgradeabilitySmoke
 
 open Contracts
@@ -2738,7 +2797,79 @@ private def rawRevertSmokeSpec : CompilationModel := {
       ]
       returnType := none
       body := [
-        Stmt.rawRevert (Expr.param "offset") (Expr.param "size")
+        Stmt.unsafeYul
+          (UnsafeYulFragment.rawRevert
+            (Compiler.Yul.YulExpr.ident "offset")
+            (Compiler.Yul.YulExpr.ident "size")
+            { name := "raw_revert_memory_slice_refinement"
+              obligation := "Caller-provided raw revert memory slice must refine the intended failure payload."
+              proofStatus := .assumed })
+      ]
+    }
+  ]
+}
+
+private def unsafeYulScopeObligation (name : String) : LocalObligation :=
+  { name := name
+    obligation := "Raw Yul scope effects must conservatively describe the Yul payload."
+    proofStatus := .assumed }
+
+private def unsafeYulUnderDeclaredBindSpec : CompilationModel := {
+  name := "UnsafeYulUnderDeclaredBind"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "bad"
+      params := []
+      returnType := none
+      body := [
+        Stmt.unsafeYul {
+          label := "under_declared_bind"
+          stmts := [Compiler.Yul.YulStmt.let_ "tmp" (Compiler.Yul.YulExpr.lit 1)]
+          obligations := [unsafeYulScopeObligation "under_declared_bind_obligation"]
+        }
+      ]
+    }
+  ]
+}
+
+private def unsafeYulUnderDeclaredAssignSpec : CompilationModel := {
+  name := "UnsafeYulUnderDeclaredAssign"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "bad"
+      params := []
+      returnType := none
+      body := [
+        Stmt.letVar "tmp" (Expr.literal 0),
+        Stmt.unsafeYul {
+          label := "under_declared_assign"
+          stmts := [Compiler.Yul.YulStmt.assign "tmp" (Compiler.Yul.YulExpr.lit 1)]
+          obligations := [unsafeYulScopeObligation "under_declared_assign_obligation"]
+        }
+      ]
+    }
+  ]
+}
+
+private def unsafeYulUnderDeclaredStorageSpec : CompilationModel := {
+  name := "UnsafeYulUnderDeclaredStorage"
+  fields := [{ name := "value", ty := FieldType.uint256 }]
+  «constructor» := none
+  functions := [
+    { name := "bad"
+      params := []
+      returnType := none
+      body := [
+        Stmt.unsafeYul {
+          label := "under_declared_storage"
+          stmts := [
+            Compiler.Yul.YulStmt.expr
+              (Compiler.Yul.YulExpr.call "sstore" [Compiler.Yul.YulExpr.lit 0, Compiler.Yul.YulExpr.lit 1])
+          ]
+          obligations := [unsafeYulScopeObligation "under_declared_storage_obligation"]
+        }
       ]
     }
   ]
@@ -5082,6 +5213,21 @@ set_option maxRecDepth 4096 in
     (contains rawRevertTrustReport "\"modeledLowLevelMechanics\"" &&
       contains rawRevertTrustReport "\"rawRevert\"" &&
       rawRevertLowLevelLines.any (fun line => contains line "RawRevertSmoke [function:fail]: rawRevert"))
+  expectTrue "rawRevert trust report includes structured unsafe Yul contract"
+    (contains rawRevertTrustReport "\"unsafeYulContracts\":[{\"name\":\"raw_revert_memory_slice_refinement\"" &&
+      contains rawRevertTrustReport "\"memoryReads\":[\"revertPayload\"]")
+  expectCompileErrorContains
+    "unsafeYul validation rejects under-declared Yul let bindings"
+    unsafeYulUnderDeclaredBindSpec
+    "under-declares bound local(s): tmp"
+  expectCompileErrorContains
+    "unsafeYul validation rejects under-declared Yul assignments"
+    unsafeYulUnderDeclaredAssignSpec
+    "under-declares assigned local(s): tmp"
+  expectCompileErrorContains
+    "unsafeYul validation rejects under-declared Yul storage writes"
+    unsafeYulUnderDeclaredStorageSpec
+    "under-declares storage effects"
   let envRuntimeYul ← expectCompileToYul "env runtime smoke compiles" envRuntimeSmokeSpec
   expectTrue "env runtime smoke lowers block.number" (contains envRuntimeYul "number()")
   let stringCompiled :=

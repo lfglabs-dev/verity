@@ -428,11 +428,6 @@ def compileStmt (fields : List Field) (events : List EventDef := [])
           YulExpr.ident "__returndata_size"
         ])
       ]]
-  | Stmt.rawRevert offset size => do
-      pure [YulStmt.expr (YulExpr.call "revert" [
-        ← compileExpr fields dynamicSource offset,
-        ← compileExpr fields dynamicSource size
-      ])]
   | Stmt.rawLog topics dataOffset dataSize => do
       if topics.length > 4 then
         throw s!"Compilation error: rawLog supports at most 4 topics (log0–log4), got {topics.length}"
@@ -484,5 +479,18 @@ def compileMatchAdtBranches (fields : List Field) (events : List EventDef)
         inScopeNames adtTypes def_ baseSlot rest
       pure ((variant.tag, fieldBindings ++ bodyStmts) :: restCases)
 end
+
+theorem compileStmt_unsafeYul
+    (fields : List Field) (events : List EventDef := [])
+    (errors : List ErrorDef := [])
+    (dynamicSource : DynamicDataSource := .calldata)
+    (internalRetNames : List String := [])
+    (isInternal : Bool := false)
+    (inScopeNames : List String := [])
+    (adtTypes : List AdtTypeDef := [])
+    (fragment : UnsafeYulFragment) :
+    compileStmt fields events errors dynamicSource internalRetNames isInternal inScopeNames adtTypes
+      (Stmt.unsafeYul fragment) = pure fragment.stmts := by
+  simp [compileStmt, unsafeYulToEVMYul]
 
 end Compiler.CompilationModel

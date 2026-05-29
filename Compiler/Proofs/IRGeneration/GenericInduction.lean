@@ -1830,11 +1830,11 @@ theorem legacyCompatibleExternalStmtList_of_compileStmt_ok_on_supportedContractS
   | require _ | requireError _ _ | revertError _ _
   | «return» _ | returnValues _ | returnArray _ | returnBytes _
   | returnStorageWords _ | mstore _ _ | tstore _ _ | calldatacopy _ _ _
-  | returndataCopy _ _ _ | revertReturndata | rawRevert _ _ | stop
+  | returndataCopy _ _ _ | revertReturndata | stop
   | ite _ _ _ | forEach _ _ _ | emit _ _
   | internalCall _ _ | internalCallAssign _ _ _ | rawLog _ _ _
   | externalCallBind _ _ _ | tryExternalCallBind _ _ _ _ | ecm _ _
-  | unsafeBlock _ _ | matchAdt _ _ _ =>
+  | unsafeBlock _ _ | unsafeYul _ | matchAdt _ _ _ =>
       exact legacyCompatibleExternalStmtList_of_compileStmt_ok_on_supportedContractSurface
         hnoPacked
         (by simpa [stmtTouchesUnsupportedContractSurfaceExceptMappingWrites] using hsurface)
@@ -3778,10 +3778,10 @@ theorem stmtListScopeCore_prefix_of_compileStmtList_ok_of_stmtListTouchesUnsuppo
       | storageArrayPush _ _ | storageArrayPop _ | setStorageArrayElement _ _ _
       | requireError _ _ _ | revertError _ _ | returnValues _ | returnArray _
       | returnBytes _ | returnStorageWords _ | calldatacopy _ _ _
-      | returndataCopy _ _ _ | revertReturndata | rawRevert _ _
+      | returndataCopy _ _ _ | revertReturndata
       | emit _ _ | internalCall _ _ | internalCallAssign _ _ _
       | rawLog _ _ _ | externalCallBind _ _ _ | tryExternalCallBind _ _ _ _ | ecm _ _
-      | unsafeBlock _ _ | matchAdt _ _ _ =>
+      | unsafeBlock _ _ | unsafeYul _ | matchAdt _ _ _ =>
           simp [stmtTouchesUnsupportedContractSurface] at hstmtSurface
 
 private theorem stmtTouchesUnsupportedContractSurface_of_stmtListTouchesUnsupportedContractSurface_append_cons

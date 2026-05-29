@@ -22,6 +22,7 @@ import Compiler.CompilationModel.MappingWrites
 import Compiler.CompilationModel.ScopeValidation
 import Compiler.CompilationModel.StorageWrites
 import Compiler.CompilationModel.TrustSurface
+import Compiler.CompilationModel.YulImporter
 import Compiler.CompilationModel.UsageAnalysis
 import Compiler.CompilationModel.ValidationCalls
 import Compiler.CompilationModel.ValidationEvents

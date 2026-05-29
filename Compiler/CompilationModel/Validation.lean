@@ -32,6 +32,100 @@ private def firstDuplicateString : List String → Option String
   | name :: rest =>
       if rest.contains name then some name else firstDuplicateString rest
 
+private def missingDeclaredNames (actual declared : List String) : List String :=
+  actual.foldl
+    (fun acc name =>
+      if declared.contains name || acc.contains name then acc else acc ++ [name])
+    []
+
+mutual
+private def yulExprWritesStorage : YulExpr → Bool
+  | .call func args =>
+      func == "sstore" || func == "tstore" || yulExprListWritesStorage args
+  | _ => false
+
+private def yulExprListWritesStorage : List YulExpr → Bool
+  | [] => false
+  | expr :: rest =>
+      yulExprWritesStorage expr || yulExprListWritesStorage rest
+end
+
+private def mergeScopeEffects (a b : StmtScopeEffects) : StmtScopeEffects :=
+  { bindNames := a.bindNames ++ b.bindNames
+    assignNames := a.assignNames ++ b.assignNames
+    storageWrites := a.storageWrites ++ b.storageWrites }
+
+mutual
+private partial def yulStmtActualScopeEffects : YulStmt → StmtScopeEffects
+  | .comment _ | .leave =>
+      {}
+  | .let_ name value =>
+      { bindNames := [name]
+        storageWrites := if yulExprWritesStorage value then ["<raw-yul-storage-write>"] else [] }
+  | .letMany names value =>
+      { bindNames := names
+        storageWrites := if yulExprWritesStorage value then ["<raw-yul-storage-write>"] else [] }
+  | .assign name value =>
+      { assignNames := [name]
+        storageWrites := if yulExprWritesStorage value then ["<raw-yul-storage-write>"] else [] }
+  | .expr expr =>
+      { storageWrites := if yulExprWritesStorage expr then ["<raw-yul-storage-write>"] else [] }
+  | .if_ cond body =>
+      let bodyEffects := yulStmtListActualScopeEffects body
+      { bodyEffects with
+        storageWrites :=
+          (if yulExprWritesStorage cond then ["<raw-yul-storage-write>"] else []) ++
+            bodyEffects.storageWrites }
+  | .for_ init cond post body =>
+      let initEffects := yulStmtListActualScopeEffects init
+      let postEffects := yulStmtListActualScopeEffects post
+      let bodyEffects := yulStmtListActualScopeEffects body
+      { bindNames := initEffects.bindNames ++ postEffects.bindNames ++ bodyEffects.bindNames
+        assignNames := initEffects.assignNames ++ postEffects.assignNames ++ bodyEffects.assignNames
+        storageWrites :=
+          initEffects.storageWrites ++
+          (if yulExprWritesStorage cond then ["<raw-yul-storage-write>"] else []) ++
+          postEffects.storageWrites ++ bodyEffects.storageWrites }
+  | .switch expr cases default =>
+      let casesEffects :=
+        cases.foldl
+          (fun acc (_, body) => mergeScopeEffects acc (yulStmtListActualScopeEffects body))
+          ({} : StmtScopeEffects)
+      let defaultEffects :=
+        match default with
+        | none => ({} : StmtScopeEffects)
+        | some body => yulStmtListActualScopeEffects body
+      { bindNames := casesEffects.bindNames ++ defaultEffects.bindNames
+        assignNames := casesEffects.assignNames ++ defaultEffects.assignNames
+        storageWrites :=
+          (if yulExprWritesStorage expr then ["<raw-yul-storage-write>"] else []) ++
+          casesEffects.storageWrites ++ defaultEffects.storageWrites }
+  | .block stmts =>
+      yulStmtListActualScopeEffects stmts
+  | .funcDef name _params _rets body =>
+      let bodyEffects := yulStmtListActualScopeEffects body
+      { bindNames := [name]
+        assignNames := []
+        storageWrites := bodyEffects.storageWrites }
+
+private partial def yulStmtListActualScopeEffects : List YulStmt → StmtScopeEffects
+  | [] => {}
+  | stmt :: rest =>
+      mergeScopeEffects (yulStmtActualScopeEffects stmt) (yulStmtListActualScopeEffects rest)
+end
+
+private def validateUnsafeYulDeclaredScopeEffects (fragment : UnsafeYulFragment) :
+    Except String Unit := do
+  let actual := yulStmtListActualScopeEffects fragment.stmts
+  let missingBinds := missingDeclaredNames actual.bindNames fragment.scopeEffects.bindNames
+  if !missingBinds.isEmpty then
+    throw s!"Compilation error: unsafe Yul fragment '{fragment.label}' under-declares bound local(s): {String.intercalate ", " missingBinds}"
+  let missingAssigns := missingDeclaredNames actual.assignNames fragment.scopeEffects.assignNames
+  if !missingAssigns.isEmpty then
+    throw s!"Compilation error: unsafe Yul fragment '{fragment.label}' under-declares assigned local(s): {String.intercalate ", " missingAssigns}"
+  if !actual.storageWrites.isEmpty && fragment.scopeEffects.storageWrites.isEmpty then
+    throw s!"Compilation error: unsafe Yul fragment '{fragment.label}' under-declares storage effects for raw Yul storage write(s)."
+
 private def adtPayloadParamNames (params : List Param) : List String :=
   params.flatMap fun param =>
     match param.ty with
@@ -209,40 +303,8 @@ termination_by bs => sizeOf bs
 decreasing_by all_goals simp_wf; all_goals omega
 end
 
-mutual
-  private def stmtListAlwaysReturnsOrReverts : List Stmt → Bool
-    | [] => false
-    | stmt :: rest =>
-        if stmtAlwaysReturnsOrReverts stmt then
-          true
-        else
-          stmtListAlwaysReturnsOrReverts rest
-  termination_by ss => sizeOf ss
-  decreasing_by all_goals simp_wf; all_goals omega
-
-  private def stmtAlwaysReturnsOrReverts : Stmt → Bool
-    | Stmt.return _ | Stmt.returnValues _ | Stmt.returnArray _
-    | Stmt.returnBytes _ | Stmt.returnStorageWords _
-    | Stmt.revertError _ _ | Stmt.revertReturndata | Stmt.rawRevert _ _ =>
-        true
-    | Stmt.ite _ thenBranch elseBranch =>
-        stmtListAlwaysReturnsOrReverts thenBranch && stmtListAlwaysReturnsOrReverts elseBranch
-    | Stmt.unsafeBlock _ body =>
-        stmtListAlwaysReturnsOrReverts body
-    | Stmt.matchAdt _ _ branches =>
-        matchBranchesAllReturnOrRevert branches
-    | _ =>
-        false
-  termination_by s => sizeOf s
-  decreasing_by all_goals simp_wf; all_goals omega
-
-  private def matchBranchesAllReturnOrRevert : List (String × List String × List Stmt) → Bool
-    | [] => true
-    | (_, _, body) :: rest =>
-        stmtListAlwaysReturnsOrReverts body && matchBranchesAllReturnOrRevert rest
-  termination_by bs => sizeOf bs
-  decreasing_by all_goals simp_wf; all_goals omega
-end
+private def stmtListAlwaysReturnsOrReverts (stmts : List Stmt) : Bool :=
+  !(Stmt.controlFlowList stmts).mayFallThrough
 
 def exprReadsStateOrEnv : Expr → Bool
   | Expr.literal _ => false
@@ -440,8 +502,6 @@ def stmtWritesState : Stmt → Bool
       exprWritesState destOffset || exprWritesState sourceOffset || exprWritesState size
   | Stmt.returndataCopy destOffset sourceOffset size =>
       exprWritesState destOffset || exprWritesState sourceOffset || exprWritesState size
-  | Stmt.rawRevert offset size =>
-      exprWritesState offset || exprWritesState size
   | Stmt.revertReturndata =>
       false
   | Stmt.stop =>
@@ -1012,8 +1072,6 @@ def stmtReadsStateOrEnv : Stmt → Bool
   | Stmt.tstore offset value =>
       exprReadsStateOrEnv offset || exprReadsStateOrEnv value
   | Stmt.calldatacopy _ _ _ | Stmt.returndataCopy _ _ _ => true
-  | Stmt.rawRevert offset size =>
-      exprReadsStateOrEnv offset || exprReadsStateOrEnv size
   | Stmt.revertReturndata =>
       true
   | Stmt.stop =>
@@ -1216,9 +1274,6 @@ def stmtWritesStateWithFunctionEffects
       exprWritesStateWithFunctionEffects effects destOffset ||
         exprWritesStateWithFunctionEffects effects sourceOffset ||
         exprWritesStateWithFunctionEffects effects size
-  | Stmt.rawRevert offset size =>
-      exprWritesStateWithFunctionEffects effects offset ||
-        exprWritesStateWithFunctionEffects effects size
   | Stmt.revertReturndata =>
       false
   | Stmt.stop =>
@@ -1396,8 +1451,6 @@ def stmtReadsStateOrEnvWithFunctionEffects
       exprReadsStateOrEnvWithFunctionEffects effects offset ||
         exprReadsStateOrEnvWithFunctionEffects effects value
   | Stmt.calldatacopy _ _ _ | Stmt.returndataCopy _ _ _ => true
-  | Stmt.rawRevert offset size =>
-      exprReadsStateOrEnvWithFunctionEffects effects offset || exprReadsStateOrEnvWithFunctionEffects effects size
   | Stmt.revertReturndata =>
       true
   | Stmt.stop =>
@@ -1512,7 +1565,7 @@ def stmtIsPersistentWrite : Stmt → Bool
   | Stmt.matchAdt _ _ branches =>
       matchBranchesPersistentWrite branches
   | Stmt.unsafeYul fragment =>
-      !fragment.scopeEffects.storageWrites.isEmpty || fragment.mechanics.contains "tstore"
+      !fragment.scopeEffects.storageWrites.isEmpty || fragment.mechanics.contains .tstore
   | _ => false
 termination_by s => sizeOf s
 decreasing_by all_goals simp_wf; all_goals omega
@@ -1549,7 +1602,7 @@ def stmtMayPersistentlyWrite : Stmt → Bool
   | Stmt.matchAdt _ _ branches =>
       matchBranchesMayPersistentlyWrite branches
   | Stmt.unsafeYul fragment =>
-      !fragment.scopeEffects.storageWrites.isEmpty || fragment.mechanics.contains "tstore"
+      !fragment.scopeEffects.storageWrites.isEmpty || fragment.mechanics.contains .tstore
   | s => stmtIsPersistentWrite s
 termination_by s => sizeOf s
 decreasing_by all_goals simp_wf; all_goals omega
@@ -1812,11 +1865,6 @@ def validateNoUnsupportedAdtConstructInStmt : Stmt → Except String Unit
       if exprContainsAdtConstruct destOffset || exprContainsAdtConstruct sourceOffset ||
           exprContainsAdtConstruct size then
         throw "Compilation error: ADT construction cannot be used in copy offsets or sizes."
-  | Stmt.rawRevert offset size =>
-      if exprContainsAdtConstruct offset || exprContainsAdtConstruct size then
-        throw "Compilation error: ADT construction cannot be used in raw revert offsets or sizes."
-      else
-        pure ()
   | Stmt.storageArrayPop _ | Stmt.returnArray _ | Stmt.returnBytes _
   | Stmt.returnStorageWords _ | Stmt.revertReturndata | Stmt.stop =>
       pure ()
@@ -1824,7 +1872,7 @@ def validateNoUnsupportedAdtConstructInStmt : Stmt → Except String Unit
       if fragment.obligations.isEmpty then
         throw s!"Compilation error: unsafe Yul fragment '{fragment.label}' must declare at least one local proof obligation."
       else
-        pure ()
+        validateUnsafeYulDeclaredScopeEffects fragment
 termination_by s => sizeOf s
 decreasing_by all_goals simp_wf; all_goals omega
 

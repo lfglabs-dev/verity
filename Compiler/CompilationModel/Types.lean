@@ -291,6 +291,50 @@ structure ExternalFunction where
   linkMode : ForeignLinkMode := .objectLinked
   deriving Repr
 
+structure YulState where
+  vars : List (String × Nat) := []
+  memory : Nat → Nat := fun _ => 0
+  storage : Nat → Nat := fun _ => 0
+  transientStorage : Nat → Nat := fun _ => 0
+  returndata : List Nat := []
+  reverted : Bool := false
+
+structure FrameSpec where
+  localReads : List String := []
+  localWrites : List String := []
+  memoryReads : List String := []
+  memoryWrites : List String := []
+  storageReads : List String := []
+  storageWrites : List String := []
+  transientReads : List String := []
+  transientWrites : List String := []
+  deriving Repr, BEq, Inhabited
+
+/-- Structured refinement contract for localized unsafe Yul boundaries.
+    The predicates give proof code a real target while `summary` remains the
+    stable human-readable report text. -/
+structure UnsafeYulContract where
+  name : String
+  summary : String
+  pre : YulState → Prop
+  post : YulState → YulState → Prop
+  frame : FrameSpec := {}
+
+instance : Repr UnsafeYulContract where
+  reprPrec contract prec :=
+    reprPrec (contract.name, contract.summary, contract.frame) prec
+
+namespace UnsafeYulContract
+
+def rawRevert (name summary : String) : UnsafeYulContract :=
+  { name := name
+    summary := summary
+    pre := fun _ => True
+    post := fun _ after => after.reverted = true
+    frame := { memoryReads := ["revertPayload"] } }
+
+end UnsafeYulContract
+
 structure LocalObligation where
   name : String
   /-- User-supplied summary of the local refinement contract that must hold
@@ -309,12 +353,122 @@ inductive StmtTermination where
   | mayTerminate
   deriving Repr, BEq
 
+/-- Finer control-flow summary for statements and statement lists.
+    This intentionally coexists with `StmtTermination` while callers migrate:
+    the old field answers the coarse "can execution continue?" question, while
+    this summary records which terminal behaviors may occur. -/
+structure ControlFlowSummary where
+  mayFallThrough : Bool := true
+  mayRevert : Bool := false
+  mayReturn : Bool := false
+  mayStop : Bool := false
+  deriving Repr, BEq, Inhabited
+
+namespace ControlFlowSummary
+
+def fallsThrough : ControlFlowSummary := {}
+
+def mayReverting : ControlFlowSummary :=
+  { mayFallThrough := true, mayRevert := true }
+
+def reverts : ControlFlowSummary :=
+  { mayFallThrough := false, mayRevert := true }
+
+def returns : ControlFlowSummary :=
+  { mayFallThrough := false, mayReturn := true }
+
+def stops : ControlFlowSummary :=
+  { mayFallThrough := false, mayStop := true }
+
+def unknown : ControlFlowSummary :=
+  { mayFallThrough := true, mayRevert := true, mayReturn := true, mayStop := true }
+
+def union (a b : ControlFlowSummary) : ControlFlowSummary :=
+  { mayFallThrough := a.mayFallThrough || b.mayFallThrough
+    mayRevert := a.mayRevert || b.mayRevert
+    mayReturn := a.mayReturn || b.mayReturn
+    mayStop := a.mayStop || b.mayStop }
+
+/-- Sequential composition: `b` is reachable only along fall-through paths of `a`. -/
+def seq (a b : ControlFlowSummary) : ControlFlowSummary :=
+  { mayFallThrough := a.mayFallThrough && b.mayFallThrough
+    mayRevert := a.mayRevert || (a.mayFallThrough && b.mayRevert)
+    mayReturn := a.mayReturn || (a.mayFallThrough && b.mayReturn)
+    mayStop := a.mayStop || (a.mayFallThrough && b.mayStop) }
+
+def fromTermination : StmtTermination → ControlFlowSummary
+  | .fallsThrough => fallsThrough
+  | .alwaysTerminates => unknown
+  | .mayTerminate => unknown
+
+end ControlFlowSummary
+
 /-- Scope effects exposed by the generic statement metadata layer. -/
 structure StmtScopeEffects where
   bindNames : List String := []
   assignNames : List String := []
   storageWrites : List String := []
-  deriving Repr
+  deriving Repr, Inhabited
+
+/-- Typed trust-report mechanics emitted by low-level statements and raw Yul fragments.
+    JSON and human-readable reports still render these through `toReportString`,
+    preserving the existing public report format while keeping the model boundary
+    from depending on ad-hoc string literals. -/
+inductive LowLevelMechanic where
+  | call
+  | staticcall
+  | delegatecall
+  | returndataSize
+  | returndataCopy
+  | revertReturndata
+  | rawRevert
+  | returndataOptionalBoolAt
+  | blobbasefee
+  | mload
+  | mstore
+  | calldataload
+  | calldatacopy
+  | extcodesize
+  | tload
+  | tstore
+  | rawLog
+  | contractAddress
+  | chainid
+  | selfBalance
+  | blockNumber
+  | storageWrite
+  deriving Repr, BEq, Inhabited
+
+namespace LowLevelMechanic
+
+def toReportString : LowLevelMechanic → String
+  | .call => "call"
+  | .staticcall => "staticcall"
+  | .delegatecall => "delegatecall"
+  | .returndataSize => "returndataSize"
+  | .returndataCopy => "returndataCopy"
+  | .revertReturndata => "revertReturndata"
+  | .rawRevert => "rawRevert"
+  | .returndataOptionalBoolAt => "returndataOptionalBoolAt"
+  | .blobbasefee => "blobbasefee"
+  | .mload => "mload"
+  | .mstore => "mstore"
+  | .calldataload => "calldataload"
+  | .calldatacopy => "calldatacopy"
+  | .extcodesize => "extcodesize"
+  | .tload => "tload"
+  | .tstore => "tstore"
+  | .rawLog => "rawLog"
+  | .contractAddress => "contractAddress"
+  | .chainid => "chainid"
+  | .selfBalance => "selfBalance"
+  | .blockNumber => "blockNumber"
+  | .storageWrite => "storageWrite"
+
+instance : ToString LowLevelMechanic where
+  toString := toReportString
+
+end LowLevelMechanic
 
 /-- Typed handwritten Yul fragment. This is intentionally not just a string:
     callers provide an EVMYul AST payload plus explicit proof obligations and
@@ -324,13 +478,39 @@ structure UnsafeYulFragment where
   label : String
   stmts : List YulStmt
   obligations : List LocalObligation
-  mechanics : List String := []
+  contracts : List UnsafeYulContract := []
+  mechanics : List LowLevelMechanic := []
   scopeEffects : StmtScopeEffects := {}
   termination : StmtTermination := .mayTerminate
+  controlFlow : ControlFlowSummary := .unknown
   deriving Repr
 
 /-- Backwards-friendly name for explicitly trusted raw Yul fragments. -/
 abbrev RawYul := UnsafeYulFragment
+
+namespace UnsafeYulFragment
+
+/-- Helper constructor for the single Yul `revert(offset, size)` instruction.
+
+    Prefer this through `Stmt.unsafeYul` for one-off raw instruction escapes.
+    Stable typed primitives such as `Stmt.mstore` and `Stmt.calldatacopy`
+    remain first-class statements because Verity has explicit semantics and
+    proof/audit surfaces for them; ad-hoc raw instructions should carry their
+    trust metadata at the `UnsafeYulFragment` boundary instead of growing `Stmt`.
+    Raw memory reverts are intentionally modeled as unsafe Yul fragments rather
+    than first-class `Stmt` constructors. -/
+def rawRevert (offset size : YulExpr) (obligation : LocalObligation)
+    (label : String := obligation.name) : UnsafeYulFragment := {
+  label := label
+  stmts := [YulStmt.expr (YulExpr.call "revert" [offset, size])]
+  obligations := [obligation]
+  contracts := [UnsafeYulContract.rawRevert obligation.name obligation.obligation]
+  mechanics := [.rawRevert]
+  termination := .alwaysTerminates
+  controlFlow := .reverts
+}
+
+end UnsafeYulFragment
 
 /-!
 ### ADT Type Definitions (#1727, Phase 5 Step 5b)
@@ -629,10 +809,6 @@ inductive Stmt
   | returndataCopy (destOffset sourceOffset size : Expr)
   /-- Forward current returndata as revert payload (`returndatacopy` + `revert`). -/
   | revertReturndata
-  /-- Raw low-level revert with caller-specified memory slice.  This models
-      handwritten assembly such as `revert(0, 0)` without forcing callers to
-      encode a Solidity `Error(string)` or custom error. -/
-  | rawRevert (offset size : Expr)
   | stop
   | ite (cond : Expr) (thenBranch : List Stmt) (elseBranch : List Stmt)  -- If/else (#179)
   | forEach (varName : String) (count : Expr) (body : List Stmt)  -- Bounded loop (#179)
@@ -683,9 +859,11 @@ inductive Stmt
 structure StmtMetadata where
   subexpressions : List Expr := []
   termination : StmtTermination := .fallsThrough
-  lowLevelMechanics : List String := []
+  controlFlow : ControlFlowSummary := {}
+  lowLevelMechanics : List LowLevelMechanic := []
   scopeEffects : StmtScopeEffects := {}
   localObligations : List LocalObligation := []
+  unsafeYulContracts : List UnsafeYulContract := []
   unsafeReasons : List String := []
   deriving Repr
 
@@ -723,33 +901,31 @@ def directMetadata : Stmt → StmtMetadata
   | .setStructMember2 field key1 key2 _ value =>
       { subexpressions := [key1, key2, value], scopeEffects := { storageWrites := [field] } }
   | .require cond _ =>
-      { subexpressions := [cond], termination := .mayTerminate }
+      { subexpressions := [cond], termination := .mayTerminate, controlFlow := .mayReverting }
   | .requireError cond _ args =>
-      { subexpressions := cond :: args, termination := .mayTerminate }
+      { subexpressions := cond :: args, termination := .mayTerminate, controlFlow := .mayReverting }
   | .revertError _ args =>
-      { subexpressions := args, termination := .alwaysTerminates }
+      { subexpressions := args, termination := .alwaysTerminates, controlFlow := .reverts }
   | .return value =>
-      { subexpressions := [value], termination := .alwaysTerminates }
+      { subexpressions := [value], termination := .alwaysTerminates, controlFlow := .returns }
   | .returnValues values =>
-      { subexpressions := values, termination := .alwaysTerminates }
+      { subexpressions := values, termination := .alwaysTerminates, controlFlow := .returns }
   | .returnArray _ | .returnBytes _ | .returnStorageWords _ =>
-      { termination := .alwaysTerminates }
+      { termination := .alwaysTerminates, controlFlow := .returns }
   | .mstore offset value =>
-      { subexpressions := [offset, value], lowLevelMechanics := ["mstore"] }
+      { subexpressions := [offset, value], lowLevelMechanics := [.mstore] }
   | .tstore offset value =>
-      { subexpressions := [offset, value], lowLevelMechanics := ["tstore"] }
+      { subexpressions := [offset, value], lowLevelMechanics := [.tstore] }
   | .calldatacopy destOffset sourceOffset size =>
-      { subexpressions := [destOffset, sourceOffset, size], lowLevelMechanics := ["calldatacopy"] }
+      { subexpressions := [destOffset, sourceOffset, size], lowLevelMechanics := [.calldatacopy] }
   | .returndataCopy destOffset sourceOffset size =>
-      { subexpressions := [destOffset, sourceOffset, size], lowLevelMechanics := ["returndataCopy"] }
+      { subexpressions := [destOffset, sourceOffset, size], lowLevelMechanics := [.returndataCopy] }
   | .revertReturndata =>
-      { termination := .alwaysTerminates, lowLevelMechanics := ["revertReturndata"] }
-  | .rawRevert offset size =>
-      { subexpressions := [offset, size], termination := .alwaysTerminates, lowLevelMechanics := ["rawRevert"] }
+      { termination := .alwaysTerminates, controlFlow := .reverts, lowLevelMechanics := [.revertReturndata] }
   | .stop =>
-      { termination := .alwaysTerminates }
+      { termination := .alwaysTerminates, controlFlow := .stops }
   | .ite cond _ _ =>
-      { subexpressions := [cond], termination := .mayTerminate }
+      { subexpressions := [cond], termination := .mayTerminate, controlFlow := .unknown }
   | .forEach varName count _ =>
       { subexpressions := [count], scopeEffects := { bindNames := [varName] } }
   | .emit _ args =>
@@ -770,13 +946,16 @@ def directMetadata : Stmt → StmtMetadata
       { unsafeReasons := [reason] }
   | .unsafeYul fragment =>
       { termination := fragment.termination
+        controlFlow := fragment.controlFlow
         lowLevelMechanics := fragment.mechanics
         scopeEffects := fragment.scopeEffects
         localObligations := fragment.obligations
+        unsafeYulContracts := fragment.contracts
         unsafeReasons := [fragment.label] }
   | .matchAdt _ scrutinee branches =>
       { subexpressions := [scrutinee]
         termination := .mayTerminate
+        controlFlow := .unknown
         scopeEffects := { bindNames := branches.flatMap (fun (_, names, _) => names) } }
 
 partial def fold (f : α → Stmt → StmtMetadata → α) (init : α) (stmt : Stmt) : α :=
@@ -789,17 +968,61 @@ partial def fold (f : α → Stmt → StmtMetadata → α) (init : α) (stmt : S
 partial def foldList (f : α → Stmt → StmtMetadata → α) (init : α) (stmts : List Stmt) : α :=
   stmts.foldl (fun acc stmt => stmt.fold f acc) init
 
+mutual
+partial def controlFlow : Stmt → ControlFlowSummary
+  | .require _ _ | .requireError _ _ _ =>
+      .mayReverting
+  | .revertError _ _ | .revertReturndata =>
+      .reverts
+  | .return _ | .returnValues _ | .returnArray _ | .returnBytes _ | .returnStorageWords _ =>
+      .returns
+  | .stop =>
+      .stops
+  | .ite _ thenBranch elseBranch =>
+      ControlFlowSummary.union (controlFlowList thenBranch) (controlFlowList elseBranch)
+  | .forEach _ _ body =>
+      -- Loops are bounded and may execute zero times, so the loop itself can fall through
+      -- even if some body path returns or reverts.
+      ControlFlowSummary.union .fallsThrough (controlFlowList body)
+  | .unsafeBlock _ body =>
+      controlFlowList body
+  | .matchAdt _ _ branches =>
+      controlFlowBranches branches
+  | .unsafeYul fragment =>
+      fragment.controlFlow
+  | _ =>
+      .fallsThrough
+
+partial def controlFlowList : List Stmt → ControlFlowSummary
+  | [] => .fallsThrough
+  | stmt :: rest =>
+      ControlFlowSummary.seq (controlFlow stmt) (controlFlowList rest)
+
+partial def controlFlowBranches : List (String × List String × List Stmt) → ControlFlowSummary
+  | [] => .fallsThrough
+  | (_, _, body) :: rest =>
+      ControlFlowSummary.union (controlFlowList body) (controlFlowBranches rest)
+end
+
+example : (controlFlowList [Stmt.return (Expr.literal 1), Stmt.stop]).mayStop = false := by
+  native_decide
+
+example : (controlFlow (Stmt.require (Expr.literal 1) "ok")).mayRevert = true := by
+  native_decide
+
 partial def metadataDeep (stmt : Stmt) : StmtMetadata :=
   stmt.fold
     (fun acc _ md =>
       { subexpressions := acc.subexpressions ++ md.subexpressions
         termination := if acc.termination == .alwaysTerminates then .alwaysTerminates else md.termination
+        controlFlow := ControlFlowSummary.union acc.controlFlow md.controlFlow
         lowLevelMechanics := acc.lowLevelMechanics ++ md.lowLevelMechanics
         scopeEffects :=
           { bindNames := acc.scopeEffects.bindNames ++ md.scopeEffects.bindNames
             assignNames := acc.scopeEffects.assignNames ++ md.scopeEffects.assignNames
             storageWrites := acc.scopeEffects.storageWrites ++ md.scopeEffects.storageWrites }
         localObligations := acc.localObligations ++ md.localObligations
+        unsafeYulContracts := acc.unsafeYulContracts ++ md.unsafeYulContracts
         unsafeReasons := acc.unsafeReasons ++ md.unsafeReasons })
     {}
 
@@ -808,12 +1031,14 @@ def metadataListDeep (stmts : List Stmt) : StmtMetadata :=
     (fun acc _ md =>
       { subexpressions := acc.subexpressions ++ md.subexpressions
         termination := if acc.termination == .alwaysTerminates then .alwaysTerminates else md.termination
+        controlFlow := ControlFlowSummary.union acc.controlFlow md.controlFlow
         lowLevelMechanics := acc.lowLevelMechanics ++ md.lowLevelMechanics
         scopeEffects :=
           { bindNames := acc.scopeEffects.bindNames ++ md.scopeEffects.bindNames
             assignNames := acc.scopeEffects.assignNames ++ md.scopeEffects.assignNames
             storageWrites := acc.scopeEffects.storageWrites ++ md.scopeEffects.storageWrites }
         localObligations := acc.localObligations ++ md.localObligations
+        unsafeYulContracts := acc.unsafeYulContracts ++ md.unsafeYulContracts
         unsafeReasons := acc.unsafeReasons ++ md.unsafeReasons })
     {}
     stmts

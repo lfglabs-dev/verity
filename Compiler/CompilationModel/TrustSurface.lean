@@ -156,150 +156,12 @@ private partial def collectAxiomatizedExprPrimitives : Expr → List String
   | _ =>
       []
 
-private partial def collectLowLevelStmtMechanics : Stmt → List String
-  | .letVar _ value
-  | .assignVar _ value
-  | .setStorage _ value
-  | .setStorageAddr _ value
-  | .setStorageWord _ _ value
-  | .storageArrayPush _ value
-  | .return value
-  | .require value _ =>
-      collectLowLevelExprMechanics value
-  | .setStorageArrayElement _ index value =>
-      collectLowLevelExprMechanics index ++ collectLowLevelExprMechanics value
-  | .storageArrayPop _ =>
-      []
-  | .requireError cond _ args =>
-      collectLowLevelExprMechanics cond ++ args.flatMap collectLowLevelExprMechanics
-  | .revertError _ args =>
-      args.flatMap collectLowLevelExprMechanics
-  | .mstore offset value =>
-      ["mstore"] ++ collectLowLevelExprMechanics offset ++ collectLowLevelExprMechanics value
-  | .tstore offset value =>
-      ["tstore"] ++ collectLowLevelExprMechanics offset ++ collectLowLevelExprMechanics value
-  | .calldatacopy destOffset sourceOffset size =>
-      ["calldatacopy"] ++ collectLowLevelExprMechanics destOffset ++
-        collectLowLevelExprMechanics sourceOffset ++ collectLowLevelExprMechanics size
-  | .returndataCopy destOffset sourceOffset size =>
-      ["returndataCopy"] ++ collectLowLevelExprMechanics destOffset ++ collectLowLevelExprMechanics sourceOffset ++ collectLowLevelExprMechanics size
-  | .revertReturndata =>
-      ["revertReturndata"]
-  | .rawRevert offset size =>
-      ["rawRevert"] ++ collectLowLevelExprMechanics offset ++ collectLowLevelExprMechanics size
-  | .setMapping _ key value
-  | .setMappingWord _ key _ value
-  | .setMappingPackedWord _ key _ _ value
-  | .setMappingUint _ key value
-  | .setStructMember _ key _ value =>
-      collectLowLevelExprMechanics key ++ collectLowLevelExprMechanics value
-  | .setMappingChain _ keys value =>
-      keys.flatMap collectLowLevelExprMechanics ++ collectLowLevelExprMechanics value
-  | .setMapping2 _ key1 key2 value
-  | .setMapping2Word _ key1 key2 _ value
-  | .setStructMember2 _ key1 key2 _ value =>
-      collectLowLevelExprMechanics key1 ++ collectLowLevelExprMechanics key2 ++ collectLowLevelExprMechanics value
-  | .ite cond thenBr elseBr =>
-      collectLowLevelExprMechanics cond ++ thenBr.flatMap collectLowLevelStmtMechanics ++ elseBr.flatMap collectLowLevelStmtMechanics
-  | .forEach _ count body =>
-      collectLowLevelExprMechanics count ++ body.flatMap collectLowLevelStmtMechanics
-  | .unsafeBlock _ body =>
-      body.flatMap collectLowLevelStmtMechanics
-  | .matchAdt _ scrutinee branches =>
-      collectLowLevelExprMechanics scrutinee ++
-        branches.flatMap fun (_, _, body) => body.flatMap collectLowLevelStmtMechanics
-  | .emit _ args
-  | .internalCall _ args
-  | .externalCallBind _ _ args | .tryExternalCallBind _ _ _ args
-  | .returnValues args
-  | .ecm _ args
-  | .internalCallAssign _ _ args =>
-      args.flatMap collectLowLevelExprMechanics
-  | .rawLog topics dataOffset dataSize =>
-      topics.flatMap collectLowLevelExprMechanics ++ collectLowLevelExprMechanics dataOffset ++ collectLowLevelExprMechanics dataSize
-  | .unsafeYul fragment =>
-      fragment.mechanics
-  | .returnArray _
-  | .returnBytes _
-  | .returnStorageWords _
-  | .stop =>
-      []
-
-private partial def collectAxiomatizedStmtPrimitives : Stmt → List String
-  | .letVar _ value
-  | .assignVar _ value
-  | .setStorage _ value
-  | .setStorageAddr _ value
-  | .setStorageWord _ _ value
-  | .storageArrayPush _ value
-  | .return value
-  | .require value _ =>
-      collectAxiomatizedExprPrimitives value
-  | .setStorageArrayElement _ index value =>
-      collectAxiomatizedExprPrimitives index ++ collectAxiomatizedExprPrimitives value
-  | .storageArrayPop _ =>
-      []
-  | .requireError cond _ args =>
-      collectAxiomatizedExprPrimitives cond ++ args.flatMap collectAxiomatizedExprPrimitives
-  | .revertError _ args =>
-      args.flatMap collectAxiomatizedExprPrimitives
-  | .mstore offset value =>
-      collectAxiomatizedExprPrimitives offset ++ collectAxiomatizedExprPrimitives value
-  | .tstore offset value =>
-      collectAxiomatizedExprPrimitives offset ++ collectAxiomatizedExprPrimitives value
-  | .calldatacopy destOffset sourceOffset size
-  | .returndataCopy destOffset sourceOffset size =>
-      collectAxiomatizedExprPrimitives destOffset ++ collectAxiomatizedExprPrimitives sourceOffset ++
-        collectAxiomatizedExprPrimitives size
-  | .setMapping _ key value
-  | .setMappingWord _ key _ value
-  | .setMappingPackedWord _ key _ _ value
-  | .setMappingUint _ key value
-  | .setStructMember _ key _ value =>
-      collectAxiomatizedExprPrimitives key ++ collectAxiomatizedExprPrimitives value
-  | .setMappingChain _ keys value =>
-      keys.flatMap collectAxiomatizedExprPrimitives ++ collectAxiomatizedExprPrimitives value
-  | .setMapping2 _ key1 key2 value
-  | .setMapping2Word _ key1 key2 _ value
-  | .setStructMember2 _ key1 key2 _ value =>
-      collectAxiomatizedExprPrimitives key1 ++ collectAxiomatizedExprPrimitives key2 ++
-        collectAxiomatizedExprPrimitives value
-  | .ite cond thenBr elseBr =>
-      collectAxiomatizedExprPrimitives cond ++ thenBr.flatMap collectAxiomatizedStmtPrimitives ++
-        elseBr.flatMap collectAxiomatizedStmtPrimitives
-  | .forEach _ count body =>
-      collectAxiomatizedExprPrimitives count ++ body.flatMap collectAxiomatizedStmtPrimitives
-  | .unsafeBlock _ body =>
-      body.flatMap collectAxiomatizedStmtPrimitives
-  | .matchAdt _ scrutinee branches =>
-      collectAxiomatizedExprPrimitives scrutinee ++
-        branches.flatMap fun (_, _, body) => body.flatMap collectAxiomatizedStmtPrimitives
-  | .emit _ args
-  | .internalCall _ args
-  | .externalCallBind _ _ args | .tryExternalCallBind _ _ _ args
-  | .returnValues args
-  | .ecm _ args
-  | .internalCallAssign _ _ args =>
-      args.flatMap collectAxiomatizedExprPrimitives
-  | .rawLog topics dataOffset dataSize =>
-      topics.flatMap collectAxiomatizedExprPrimitives ++ collectAxiomatizedExprPrimitives dataOffset ++
-        collectAxiomatizedExprPrimitives dataSize
-  | .rawRevert offset size =>
-      collectAxiomatizedExprPrimitives offset ++ collectAxiomatizedExprPrimitives size
-  | .unsafeYul _ =>
-      []
-  | .returnArray _
-  | .returnBytes _
-  | .returnStorageWords _
-  | .revertReturndata
-  | .stop =>
-      []
-
 private def collectLowLevelMechanicsFromStmts (stmts : List Stmt) : List String :=
   dedupPreserve <|
     Stmt.foldList
       (fun acc _ md =>
-        acc ++ md.lowLevelMechanics ++ md.subexpressions.flatMap collectLowLevelExprMechanics)
+        acc ++ md.lowLevelMechanics.map LowLevelMechanic.toReportString ++
+          md.subexpressions.flatMap collectLowLevelExprMechanics)
       []
       stmts
 
@@ -322,7 +184,7 @@ private def isUnsafeBoundaryMechanic (mechanic : String) : Bool :=
 def collectUnsafeBoundaryMechanicsFromStmts (stmts : List Stmt) : List String :=
   dedupPreserve ((collectLowLevelMechanicsFromStmts stmts).filter isUnsafeBoundaryMechanic)
 
-/-- Like `collectLowLevelStmtMechanics` but skips `unsafeBlock` bodies —
+/-- Like `collectLowLevelMechanicsFromStmts` but skips `unsafeBlock` bodies —
     returns only mechanics that appear *outside* any `unsafe` wrapper. -/
 private partial def collectUnguardedLowLevelStmtMechanics : Stmt → List String
   | .letVar _ value
@@ -353,8 +215,6 @@ private partial def collectUnguardedLowLevelStmtMechanics : Stmt → List String
       ["returndataCopy"] ++ collectLowLevelExprMechanics destOffset ++ collectLowLevelExprMechanics sourceOffset ++ collectLowLevelExprMechanics size
   | .revertReturndata =>
       ["revertReturndata"]
-  | .rawRevert offset size =>
-      ["rawRevert"] ++ collectLowLevelExprMechanics offset ++ collectLowLevelExprMechanics size
   | .setMapping _ key value
   | .setMappingWord _ key _ value
   | .setMappingPackedWord _ key _ _ value
@@ -401,18 +261,6 @@ private def collectUnguardedLowLevelMechanicsFromStmts (stmts : List Stmt) : Lis
     `local_obligations`. -/
 def collectUnguardedUnsafeBoundaryMechanicsFromStmts (stmts : List Stmt) : List String :=
   dedupPreserve ((collectUnguardedLowLevelMechanicsFromStmts stmts).filter isUnsafeBoundaryMechanic)
-
-/-- Collect `unsafe "reason" do` block reason strings from a statement, recursing into branches. -/
-private partial def collectUnsafeBlockReasonsInStmt : Stmt → List String
-  | .unsafeBlock reason body =>
-      [reason] ++ body.flatMap collectUnsafeBlockReasonsInStmt
-  | .ite _ thenBr elseBr =>
-      thenBr.flatMap collectUnsafeBlockReasonsInStmt ++ elseBr.flatMap collectUnsafeBlockReasonsInStmt
-  | .forEach _ _ body =>
-      body.flatMap collectUnsafeBlockReasonsInStmt
-  | .matchAdt _ _ branches =>
-      branches.flatMap fun (_, _, body) => body.flatMap collectUnsafeBlockReasonsInStmt
-  | _ => []
 
 private def collectUnsafeBlockReasonsFromStmts (stmts : List Stmt) : List String :=
   Stmt.foldList (fun acc _ md => acc ++ md.unsafeReasons) [] stmts
@@ -502,76 +350,6 @@ private partial def collectEventEmissionExprMechanics : Expr → List String
   | _ =>
       []
 
-private partial def collectEventEmissionStmtMechanics : Stmt → List String
-  | .letVar _ value
-  | .assignVar _ value
-  | .setStorage _ value
-  | .setStorageAddr _ value
-  | .setStorageWord _ _ value
-  | .storageArrayPush _ value
-  | .return value
-  | .require value _ =>
-      collectEventEmissionExprMechanics value
-  | .setStorageArrayElement _ index value =>
-      collectEventEmissionExprMechanics index ++ collectEventEmissionExprMechanics value
-  | .storageArrayPop _ =>
-      []
-  | .requireError cond _ args =>
-      collectEventEmissionExprMechanics cond ++ args.flatMap collectEventEmissionExprMechanics
-  | .revertError _ args =>
-      args.flatMap collectEventEmissionExprMechanics
-  | .mstore offset value
-  | .tstore offset value =>
-      collectEventEmissionExprMechanics offset ++ collectEventEmissionExprMechanics value
-  | .calldatacopy destOffset sourceOffset size
-  | .returndataCopy destOffset sourceOffset size =>
-      collectEventEmissionExprMechanics destOffset ++ collectEventEmissionExprMechanics sourceOffset ++
-        collectEventEmissionExprMechanics size
-  | .setMapping _ key value
-  | .setMappingWord _ key _ value
-  | .setMappingPackedWord _ key _ _ value
-  | .setMappingUint _ key value
-  | .setStructMember _ key _ value =>
-      collectEventEmissionExprMechanics key ++ collectEventEmissionExprMechanics value
-  | .setMappingChain _ keys value =>
-      keys.flatMap collectEventEmissionExprMechanics ++ collectEventEmissionExprMechanics value
-  | .setMapping2 _ key1 key2 value
-  | .setMapping2Word _ key1 key2 _ value
-  | .setStructMember2 _ key1 key2 _ value =>
-      collectEventEmissionExprMechanics key1 ++ collectEventEmissionExprMechanics key2 ++
-        collectEventEmissionExprMechanics value
-  | .ite cond thenBr elseBr =>
-      collectEventEmissionExprMechanics cond ++
-        thenBr.flatMap collectEventEmissionStmtMechanics ++
-        elseBr.flatMap collectEventEmissionStmtMechanics
-  | .forEach _ count body =>
-      collectEventEmissionExprMechanics count ++ body.flatMap collectEventEmissionStmtMechanics
-  | .unsafeBlock _ body =>
-      body.flatMap collectEventEmissionStmtMechanics
-  | .matchAdt _ scrutinee branches =>
-      collectEventEmissionExprMechanics scrutinee ++
-        branches.flatMap fun (_, _, body) => body.flatMap collectEventEmissionStmtMechanics
-  | .emit _ args
-  | .internalCall _ args
-  | .externalCallBind _ _ args | .tryExternalCallBind _ _ _ args
-  | .returnValues args
-  | .ecm _ args
-  | .internalCallAssign _ _ args =>
-      args.flatMap collectEventEmissionExprMechanics
-  | .rawLog topics dataOffset dataSize =>
-      ["rawLog"] ++ topics.flatMap collectEventEmissionExprMechanics ++
-        collectEventEmissionExprMechanics dataOffset ++ collectEventEmissionExprMechanics dataSize
-  | .rawRevert offset size =>
-      collectEventEmissionExprMechanics offset ++ collectEventEmissionExprMechanics size
-  | .unsafeYul fragment =>
-      if fragment.mechanics.contains "rawLog" then ["rawLog"] else []
-  | .returnArray _
-  | .returnBytes _
-  | .returnStorageWords _
-  | .revertReturndata
-  | .stop =>
-      []
-
 private def collectEventEmissionMechanicsFromStmts (stmts : List Stmt) : List String :=
   dedupPreserve <|
     Stmt.foldList
@@ -579,7 +357,7 @@ private def collectEventEmissionMechanicsFromStmts (stmts : List Stmt) : List St
         let direct :=
           match stmt with
           | .rawLog _ _ _ => ["rawLog"]
-          | .unsafeYul fragment => if fragment.mechanics.contains "rawLog" then ["rawLog"] else []
+          | .unsafeYul fragment => if fragment.mechanics.contains .rawLog then ["rawLog"] else []
           | _ => []
         acc ++ direct ++ md.subexpressions.flatMap collectEventEmissionExprMechanics)
       []
@@ -685,82 +463,6 @@ private partial def collectRuntimeIntrospectionExprMechanics : Expr → List Str
   | _ =>
       []
 
-private partial def collectRuntimeIntrospectionStmtMechanics : Stmt → List String
-  | .letVar _ value
-  | .assignVar _ value
-  | .setStorage _ value
-  | .setStorageAddr _ value
-  | .setStorageWord _ _ value
-  | .storageArrayPush _ value
-  | .return value
-  | .require value _ =>
-      collectRuntimeIntrospectionExprMechanics value
-  | .setStorageArrayElement _ index value =>
-      collectRuntimeIntrospectionExprMechanics index ++ collectRuntimeIntrospectionExprMechanics value
-  | .storageArrayPop _ =>
-      []
-  | .requireError cond _ args =>
-      collectRuntimeIntrospectionExprMechanics cond ++ args.flatMap collectRuntimeIntrospectionExprMechanics
-  | .revertError _ args =>
-      args.flatMap collectRuntimeIntrospectionExprMechanics
-  | .mstore offset value
-  | .tstore offset value =>
-      collectRuntimeIntrospectionExprMechanics offset ++ collectRuntimeIntrospectionExprMechanics value
-  | .calldatacopy destOffset sourceOffset size
-  | .returndataCopy destOffset sourceOffset size =>
-      collectRuntimeIntrospectionExprMechanics destOffset ++
-        collectRuntimeIntrospectionExprMechanics sourceOffset ++
-        collectRuntimeIntrospectionExprMechanics size
-  | .setMapping _ key value
-  | .setMappingWord _ key _ value
-  | .setMappingPackedWord _ key _ _ value
-  | .setMappingUint _ key value
-  | .setStructMember _ key _ value =>
-      collectRuntimeIntrospectionExprMechanics key ++ collectRuntimeIntrospectionExprMechanics value
-  | .setMappingChain _ keys value =>
-      keys.flatMap collectRuntimeIntrospectionExprMechanics ++ collectRuntimeIntrospectionExprMechanics value
-  | .setMapping2 _ key1 key2 value
-  | .setMapping2Word _ key1 key2 _ value
-  | .setStructMember2 _ key1 key2 _ value =>
-      collectRuntimeIntrospectionExprMechanics key1 ++ collectRuntimeIntrospectionExprMechanics key2 ++
-        collectRuntimeIntrospectionExprMechanics value
-  | .ite cond thenBr elseBr =>
-      collectRuntimeIntrospectionExprMechanics cond ++
-        thenBr.flatMap collectRuntimeIntrospectionStmtMechanics ++
-        elseBr.flatMap collectRuntimeIntrospectionStmtMechanics
-  | .forEach _ count body =>
-      collectRuntimeIntrospectionExprMechanics count ++ body.flatMap collectRuntimeIntrospectionStmtMechanics
-  | .unsafeBlock _ body =>
-      body.flatMap collectRuntimeIntrospectionStmtMechanics
-  | .matchAdt _ scrutinee branches =>
-      collectRuntimeIntrospectionExprMechanics scrutinee ++
-        branches.flatMap fun (_, _, body) => body.flatMap collectRuntimeIntrospectionStmtMechanics
-  | .emit _ args
-  | .internalCall _ args
-  | .returnValues args
-  | .ecm _ args
-  | .internalCallAssign _ _ args =>
-      args.flatMap collectRuntimeIntrospectionExprMechanics
-  | .externalCallBind _ _ args | .tryExternalCallBind _ _ _ args =>
-      args.flatMap collectRuntimeIntrospectionExprMechanics
-  | .rawLog topics dataOffset dataSize =>
-      topics.flatMap collectRuntimeIntrospectionExprMechanics ++
-        collectRuntimeIntrospectionExprMechanics dataOffset ++
-        collectRuntimeIntrospectionExprMechanics dataSize
-  | .rawRevert offset size =>
-      collectRuntimeIntrospectionExprMechanics offset ++ collectRuntimeIntrospectionExprMechanics size
-  | .unsafeYul fragment =>
-      fragment.mechanics.filter (fun mechanic =>
-        mechanic == "contractAddress" || mechanic == "chainid" ||
-        mechanic == "selfBalance" || mechanic == "blockNumber" ||
-        mechanic == "blobbasefee")
-  | .returnArray _
-  | .returnBytes _
-  | .returnStorageWords _
-  | .revertReturndata
-  | .stop =>
-      []
-
 private def collectRuntimeIntrospectionMechanicsFromStmts (stmts : List Stmt) : List String :=
   dedupPreserve <|
     Stmt.foldList
@@ -768,10 +470,13 @@ private def collectRuntimeIntrospectionMechanicsFromStmts (stmts : List Stmt) : 
         let direct :=
           match stmt with
           | .unsafeYul fragment =>
-              fragment.mechanics.filter (fun mechanic =>
-                mechanic == "contractAddress" || mechanic == "chainid" ||
-                mechanic == "selfBalance" || mechanic == "blockNumber" ||
-                mechanic == "blobbasefee")
+              fragment.mechanics.filterMap (fun mechanic =>
+                if mechanic == .contractAddress || mechanic == .chainid ||
+                    mechanic == .selfBalance || mechanic == .blockNumber ||
+                    mechanic == .blobbasefee then
+                  some mechanic.toReportString
+                else
+                  none)
           | _ => []
         acc ++ direct ++ md.subexpressions.flatMap collectRuntimeIntrospectionExprMechanics)
       []
@@ -890,91 +595,19 @@ example : collectRuntimeIntrospectionExprMechanics arrayElementWordRuntimeIndexS
 example : collectExternalExprNames arrayElementWordExternalIndexSmoke = ["oracle"] := by
   native_decide
 
-private def rawRevertAxiomatizedArgSmoke : Stmt :=
-  Stmt.rawRevert (Expr.keccak256 (Expr.literal 0) (Expr.literal 64)) (Expr.literal 32)
+private def stmtAxiomatizedArgSmoke : Stmt :=
+  Stmt.mstore (Expr.keccak256 (Expr.literal 0) (Expr.literal 64)) (Expr.literal 32)
 
-private def rawRevertRuntimeArgSmoke : Stmt :=
-  Stmt.rawRevert Expr.blockNumber (Expr.literal 32)
+private def stmtRuntimeArgSmoke : Stmt :=
+  Stmt.mstore Expr.blockNumber (Expr.literal 32)
 
-private def rawRevertExternalArgSmoke : Stmt :=
-  Stmt.rawRevert (Expr.externalCall "oracle" []) (Expr.literal 32)
+private def stmtExternalArgSmoke : Stmt :=
+  Stmt.mstore (Expr.externalCall "oracle" []) (Expr.literal 32)
 
-example : collectAxiomatizedStmtPrimitives rawRevertAxiomatizedArgSmoke = ["keccak256"] := by
+example : collectAxiomatizedPrimitivesFromStmts [stmtAxiomatizedArgSmoke] = ["keccak256"] := by
   native_decide
 
-example : collectRuntimeIntrospectionStmtMechanics rawRevertRuntimeArgSmoke = ["blockNumber"] := by
-  native_decide
-
-private partial def collectExternalStmtNames : Stmt → List String
-  | .letVar _ value
-  | .assignVar _ value
-  | .setStorage _ value
-  | .setStorageAddr _ value
-  | .setStorageWord _ _ value
-  | .storageArrayPush _ value
-  | .return value
-  | .require value _ =>
-      collectExternalExprNames value
-  | .setStorageArrayElement _ index value =>
-      collectExternalExprNames index ++ collectExternalExprNames value
-  | .storageArrayPop _ =>
-      []
-  | .requireError cond _ args =>
-      collectExternalExprNames cond ++ args.flatMap collectExternalExprNames
-  | .revertError _ args =>
-      args.flatMap collectExternalExprNames
-  | .mstore offset value =>
-      collectExternalExprNames offset ++ collectExternalExprNames value
-  | .tstore offset value =>
-      collectExternalExprNames offset ++ collectExternalExprNames value
-  | .calldatacopy destOffset sourceOffset size
-  | .returndataCopy destOffset sourceOffset size =>
-      collectExternalExprNames destOffset ++ collectExternalExprNames sourceOffset ++ collectExternalExprNames size
-  | .setMapping _ key value
-  | .setMappingWord _ key _ value
-  | .setMappingPackedWord _ key _ _ value
-  | .setMappingUint _ key value
-  | .setStructMember _ key _ value =>
-      collectExternalExprNames key ++ collectExternalExprNames value
-  | .setMappingChain _ keys value =>
-      keys.flatMap collectExternalExprNames ++ collectExternalExprNames value
-  | .setMapping2 _ key1 key2 value
-  | .setMapping2Word _ key1 key2 _ value
-  | .setStructMember2 _ key1 key2 _ value =>
-      collectExternalExprNames key1 ++ collectExternalExprNames key2 ++ collectExternalExprNames value
-  | .ite cond thenBr elseBr =>
-      collectExternalExprNames cond ++ thenBr.flatMap collectExternalStmtNames ++ elseBr.flatMap collectExternalStmtNames
-  | .forEach _ count body =>
-      collectExternalExprNames count ++ body.flatMap collectExternalStmtNames
-  | .unsafeBlock _ body =>
-      body.flatMap collectExternalStmtNames
-  | .matchAdt _ scrutinee branches =>
-      collectExternalExprNames scrutinee ++
-        branches.flatMap fun (_, _, body) => body.flatMap collectExternalStmtNames
-  | .emit _ args
-  | .internalCall _ args
-  | .returnValues args
-  | .ecm _ args
-  | .internalCallAssign _ _ args =>
-      args.flatMap collectExternalExprNames
-  | .externalCallBind _ externalName args =>
-      externalName :: args.flatMap collectExternalExprNames
-  | .tryExternalCallBind _ _ externalName args =>
-      externalName :: args.flatMap collectExternalExprNames
-  | .rawLog topics dataOffset dataSize =>
-      topics.flatMap collectExternalExprNames ++ collectExternalExprNames dataOffset ++ collectExternalExprNames dataSize
-  | .rawRevert offset size =>
-      collectExternalExprNames offset ++ collectExternalExprNames size
-  | .unsafeYul _ =>
-      []
-  | .returnArray _
-  | .returnBytes _
-  | .returnStorageWords _
-  | .revertReturndata
-  | .stop =>
-      []
-
-example : collectExternalStmtNames rawRevertExternalArgSmoke = ["oracle"] := by
+example : collectRuntimeIntrospectionMechanicsFromStmts [stmtRuntimeArgSmoke] = ["blockNumber"] := by
   native_decide
 
 private def collectUsedExternalNamesFromStmts (stmts : List Stmt) : List String :=
@@ -1020,17 +653,18 @@ private def collectUsedExternalNamesByStatus
     (fun acc ext => if ext.proofStatus == status then acc ++ [ext.name] else acc)
     []
 
-private partial def collectUsedEcmModulesInStmt : Stmt → List ECM.ExternalCallModule
-  | stmt =>
-      stmt.fold
-        (fun acc s _ =>
-          match s with
-          | .ecm mod _ => acc ++ [mod]
-          | _ => acc)
-        []
+example : collectUsedExternalNamesFromStmts [stmtExternalArgSmoke] = ["oracle"] := by
+  native_decide
 
 private def collectUsedEcmModulesFromStmts (stmts : List Stmt) : List ECM.ExternalCallModule :=
-  dedupEcmModules (stmts.flatMap collectUsedEcmModulesInStmt)
+  dedupEcmModules <|
+    Stmt.foldList
+      (fun acc stmt _ =>
+        match stmt with
+        | .ecm mod _ => acc ++ [mod]
+        | _ => acc)
+      []
+      stmts
 
 /-- Collect ECM modules that are actually referenced by the spec, including
     constructor bodies. This shared view keeps machine-readable reports and
@@ -1070,6 +704,9 @@ def collectLocalObligations (spec : CompilationModel) : List LocalObligation :=
   let functionObligations :=
     spec.functions.flatMap fun fn => collectLocalObligationsFromStmts fn.localObligations fn.body
   dedupLocalObligations (ctorObligations ++ functionObligations)
+
+private def collectUnsafeYulContractsFromStmts (stmts : List Stmt) : List UnsafeYulContract :=
+  Stmt.foldList (fun acc _ md => acc ++ md.unsafeYulContracts) [] stmts
 
 private def collectLocalObligationNamesByStatus
     (spec : CompilationModel)
@@ -1114,6 +751,25 @@ private def ecmModuleJson (entry : ECM.ExternalCallModule) : String :=
     ("module", jsonString entry.name),
     ("status", proofStatusString entry.proofStatus),
     ("axioms", jsonArray (entry.axioms.map jsonString))
+  ]
+
+private def frameSpecJson (frame : FrameSpec) : String :=
+  jsonObject [
+    ("localReads", jsonArray (frame.localReads.map jsonString)),
+    ("localWrites", jsonArray (frame.localWrites.map jsonString)),
+    ("memoryReads", jsonArray (frame.memoryReads.map jsonString)),
+    ("memoryWrites", jsonArray (frame.memoryWrites.map jsonString)),
+    ("storageReads", jsonArray (frame.storageReads.map jsonString)),
+    ("storageWrites", jsonArray (frame.storageWrites.map jsonString)),
+    ("transientReads", jsonArray (frame.transientReads.map jsonString)),
+    ("transientWrites", jsonArray (frame.transientWrites.map jsonString))
+  ]
+
+private def unsafeYulContractJson (contract : UnsafeYulContract) : String :=
+  jsonObject [
+    ("name", jsonString contract.name),
+    ("summary", jsonString contract.summary),
+    ("frame", frameSpecJson contract.frame)
   ]
 
 private def localObligationJson (entry : LocalObligation) : String :=
@@ -1229,6 +885,7 @@ private structure UsageSiteSummary where
   externals : List ExternalFunction
   modules : List ECM.ExternalCallModule
   localObligations : List LocalObligation
+  unsafeYulContracts : List UnsafeYulContract
   unsafeBlocks : List String
 
 private def ecmAxiomsFromModules (modules : List ECM.ExternalCallModule) : List (String × String) :=
@@ -1246,6 +903,7 @@ private def siteHasTrustSurface
     !(collectUsedExternalAssumptionsFromStmts externals stmts).isEmpty ||
     !(collectUsedEcmModulesFromStmts stmts).isEmpty ||
     !(collectLocalObligationsFromStmts localObligations stmts).isEmpty ||
+    !(collectUnsafeYulContractsFromStmts stmts).isEmpty ||
     !(collectUnsafeBlockReasonsFromStmts stmts).isEmpty
 
 private def usageSiteSummary
@@ -1262,6 +920,7 @@ private def usageSiteSummary
   let siteExternals := collectUsedExternalAssumptionsFromStmts spec.externals stmts
   let siteModules := collectUsedEcmModulesFromStmts stmts
   let siteLocalObligations := collectLocalObligationsFromStmts localObligations stmts
+  let siteUnsafeYulContracts := collectUnsafeYulContractsFromStmts stmts
   let siteUnsafeBlocks := collectUnsafeBlockReasonsFromStmts stmts
   { kind := kind
     name := name
@@ -1273,6 +932,7 @@ private def usageSiteSummary
     externals := siteExternals
     modules := siteModules
     localObligations := siteLocalObligations
+    unsafeYulContracts := siteUnsafeYulContracts
     unsafeBlocks := siteUnsafeBlocks }
 
 private def collectUsageSiteSummaries (spec : CompilationModel) : List UsageSiteSummary :=
@@ -1308,6 +968,7 @@ private def usageSitesJson (spec : CompilationModel) : String :=
       ("axiomatizedPrimitives", jsonArray (site.primitives.map jsonString)),
       ("proofStatus", proofStatusJsonForSite site.primitives site.externals site.modules site.localObligations),
       ("localObligations", jsonArray (site.localObligations.map localObligationJson)),
+      ("unsafeYulContracts", jsonArray (site.unsafeYulContracts.map unsafeYulContractJson)),
       ("unsafeBlocks", jsonArray (site.unsafeBlocks.map jsonString)),
       ("hasUncheckedDependencies",
         if hasUncheckedDependenciesForSite site.externals site.modules then "true" else "false"),

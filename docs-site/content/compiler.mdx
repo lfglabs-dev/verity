@@ -166,6 +166,8 @@ constructor := some {
 > **Linear-memory boundary**: Memory-oriented intrinsics (`mload`, `mstore`, `calldatacopy`, `returndataCopy`, `returndataOptionalBoolAt`) compile, but the current proof interpreters still model them only partially. When they appear, surface that boundary with `--trust-report` / `--deny-linear-memory-mechanics`; the remaining gap is tracked under issue `#1411`.
 >
 > **Axiomatized-primitive boundary**: The `keccak256` intrinsic also compiles, but it remains axiomatized in the current proof stack rather than fully modeled end to end. When it appears, archive `--trust-report` and add `--deny-axiomatized-primitives` if the selected contracts must stay inside the proved subset (see issue `#1411`).
+>
+> **Raw Yul boundary**: One-off single-instruction escapes should be modeled as `Stmt.unsafeYul` fragments, not new `Stmt` constructors. For example, raw memory reverts should use `UnsafeYulFragment.rawRevert`. Keep typed primitives such as `mstore` and `calldatacopy` first-class when Verity has stable semantics and proof/audit value for them.
 
 **Statements** cover local variables, storage and mapping writes, `require`, `return`, memory writes, returndata copy and revert bubbling, `stop`, `ite` branching, event emission, internal calls, and a precisely scoped `forEach` fragment. The proved `forEach` cases are zero-bound loops with supported bodies and arbitrary literal-bound empty-body loops; positive literal loops with non-empty bodies remain future proof work.
 

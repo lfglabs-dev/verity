@@ -8160,8 +8160,9 @@ private theorem compileStmt_ok_any_scope_aux
       | setMappingChain | setStructMember | setStructMember2 | require
       | requireError | revertError | «return» | returnValues | returnArray
       | returnBytes | returnStorageWords | mstore | tstore | calldatacopy
-      | returndataCopy | revertReturndata | rawRevert | stop | emit | internalCall
-      | internalCallAssign | externalCallBind | tryExternalCallBind | ecm | rawLog =>
+      | returndataCopy | revertReturndata | stop | emit | internalCall
+      | internalCallAssign | externalCallBind | tryExternalCallBind | ecm | rawLog
+      | unsafeYul =>
           simp only [CompilationModel.compileStmt] at hok ⊢; exact hok
     · -- compileStmtList part
       intro stmts scope1 scope2 hlt hok
@@ -8277,9 +8278,9 @@ private theorem compileStmt_ok_any_scope_with_surface_aux
       | setMappingChain | setStructMember | setStructMember2 | require
       | requireError | revertError | «return» | returnValues | returnArray
       | returnBytes | returnStorageWords | mstore | tstore | calldatacopy
-      | returndataCopy | revertReturndata | rawRevert | stop | emit | internalCall
+      | returndataCopy | revertReturndata | stop | emit | internalCall
       | internalCallAssign | externalCallBind | tryExternalCallBind
-      | ecm | rawLog =>
+      | ecm | rawLog | unsafeYul =>
           simp only [CompilationModel.compileStmt] at hok ⊢; exact hok
     · intro stmts scope1 scope2 hlt hok
       cases stmts with

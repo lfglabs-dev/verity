@@ -140,6 +140,13 @@ segment followed by a 32-byte value, use
 32-byte widths. Dynamic `bytes` / `string` packed encoding remains outside the
 current core surface.
 
+One-off raw instruction surfaces should not be added to this statement table by
+default. Use `Stmt.unsafeYul` with a small `UnsafeYulFragment` helper, such as
+`UnsafeYulFragment.rawRevert`, when the feature is just an explicit Yul escape
+hatch. Keep common typed primitives such as `Stmt.mstore` and
+`Stmt.calldatacopy` first-class when they have stable Verity semantics and are
+useful for proofs.
+
 ---
 
 ## Builtin Bridge (Verity vs EVMYulLean)

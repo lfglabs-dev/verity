@@ -4548,7 +4548,6 @@ private theorem execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux
   | .calldatacopy _ _ _ => simp [execStmtWithHelpers, execStmtWithEvents]
   | .returndataCopy _ _ _ => simp [execStmtWithHelpers, execStmtWithEvents]
   | .revertReturndata => simp [execStmtWithHelpers, execStmtWithEvents]
-  | .rawRevert _ _ => simp [execStmtWithHelpers, execStmtWithEvents]
   | .emit _ args =>
       simp only [stmtTouchesUnsupportedHelperSurface] at hsurface
       have hall : args.all (fun expr => exprTouchesUnsupportedHelperSurface expr == false) = true := by
@@ -4562,6 +4561,7 @@ private theorem execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux
         evalExprListWithHelpers_eq_evalExprList_of_helperSurfaceClosed spec fields fuel state args hall,
         evalExprList_eq_mapM]
   | .rawLog _ _ _ => simp [execStmtWithHelpers, execStmtWithEvents]
+  | .unsafeYul _ => cases hsurface
   | .externalCallBind _ _ _ => simp [execStmtWithHelpers, execStmtWithEvents]
   | .tryExternalCallBind _ _ _ _ => simp [execStmtWithHelpers, execStmtWithEvents]
   | .ecm _ _ => simp [execStmtWithHelpers, execStmtWithEvents]

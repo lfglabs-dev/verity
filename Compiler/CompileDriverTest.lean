@@ -632,7 +632,7 @@ private def rawYulTrustSurfaceSpec : CompilationModel := {
               obligation := "Handwritten Yul memory write must refine the high-level memory contract."
               proofStatus := .assumed }
           ]
-          mechanics := ["mstore"]
+          mechanics := [.mstore]
           termination := .fallsThrough
         },
         Stmt.stop

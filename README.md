@@ -95,6 +95,7 @@ Verity is complementary to these tools. It is for cases where you need mathemati
 | [Production Solidity Patterns](https://veritylang.com/guides/production-solidity-patterns) | Agent guidance for production ports, reusable Verity features, and oracle/spec boundaries |
 | [docs/VERIFICATION_STATUS.md](docs/VERIFICATION_STATUS.md) | Theorem counts, proof status, test coverage |
 | [docs/INTRINSICS.md](docs/INTRINSICS.md) | Consumer-owned opcode bindings and their trust model |
+| [docs/LOW_LEVEL_YUL.md](docs/LOW_LEVEL_YUL.md) | Policy for typed low-level primitives vs. raw Yul escape hatches |
 | [TRUST_ASSUMPTIONS.md](TRUST_ASSUMPTIONS.md) | What is verified vs. what is trusted |
 | [AXIOMS.md](AXIOMS.md) | Documented axioms (currently 0) |
 | [AUDIT.md](AUDIT.md) | Trust-boundary audit evidence and CI guards |

@@ -225,8 +225,6 @@ def stmtContainsUnsafeLogicalCallLike : Stmt → Bool
       exprContainsUnsafeLogicalCallLike destOffset ||
       exprContainsUnsafeLogicalCallLike sourceOffset ||
       exprContainsUnsafeLogicalCallLike size
-  | Stmt.rawRevert offset size =>
-      exprContainsUnsafeLogicalCallLike offset || exprContainsUnsafeLogicalCallLike size
   | Stmt.revertReturndata | Stmt.stop =>
       false
   | Stmt.setMapping _ key value | Stmt.setMappingWord _ key _ value | Stmt.setMappingPackedWord _ key _ _ value | Stmt.setMappingUint _ key value
