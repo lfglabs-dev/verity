@@ -49,6 +49,9 @@ open Compiler.Yul
 def unsafeYulToEVMYul (fragment : UnsafeYulFragment) : List YulStmt :=
   fragment.stmts
 
+theorem unsafeYulToEVMYul_eq (fragment : UnsafeYulFragment) :
+    unsafeYulToEVMYul fragment = fragment.stmts := rfl
+
 private def compileAdtStorageWrite (fields : List Field)
     (dynamicSource : DynamicDataSource) (adtTypes : List AdtTypeDef)
     (storageField adtName variantName : String) (args : List Expr) :
