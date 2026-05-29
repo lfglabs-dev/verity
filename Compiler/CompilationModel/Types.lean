@@ -368,6 +368,10 @@ namespace ControlFlowSummary
 
 def fallsThrough : ControlFlowSummary := {}
 
+/-- Empty control-flow set, used as the identity when unioning alternatives. -/
+def noPaths : ControlFlowSummary :=
+  { mayFallThrough := false, mayRevert := false, mayReturn := false, mayStop := false }
+
 def mayReverting : ControlFlowSummary :=
   { mayFallThrough := true, mayRevert := true }
 
@@ -409,6 +413,93 @@ structure StmtScopeEffects where
   assignNames : List String := []
   storageWrites : List String := []
   deriving Repr, Inhabited
+
+namespace StmtScopeEffects
+
+def merge (a b : StmtScopeEffects) : StmtScopeEffects :=
+  { bindNames := a.bindNames ++ b.bindNames
+    assignNames := a.assignNames ++ b.assignNames
+    storageWrites := a.storageWrites ++ b.storageWrites }
+
+end StmtScopeEffects
+
+mutual
+/-- Conservative scan for storage-like writes inside raw Yul expressions.
+    Transient `tstore` is intentionally classified as a storage write for
+    effect validation because it mutates EVM transaction-local state. -/
+partial def yulExprWritesStorage : YulExpr → Bool
+  | .call func args =>
+      func == "sstore" || func == "tstore" || yulExprListWritesStorage args
+  | _ => false
+
+partial def yulExprListWritesStorage : List YulExpr → Bool
+  | [] => false
+  | expr :: rest =>
+      yulExprWritesStorage expr || yulExprListWritesStorage rest
+end
+
+mutual
+/-- Conservative scope/effect derivation for embedded Yul AST fragments.
+    This is the single source of truth used by both imported-Yul construction
+    and unsafe-Yul validation, so generated declarations and validation checks
+    cannot drift apart. -/
+partial def yulStmtScopeEffects : YulStmt → StmtScopeEffects
+  | .comment _ | .leave =>
+      {}
+  | .let_ name value =>
+      { bindNames := [name]
+        storageWrites := if yulExprWritesStorage value then ["<raw-yul-storage-write>"] else [] }
+  | .letMany names value =>
+      { bindNames := names
+        storageWrites := if yulExprWritesStorage value then ["<raw-yul-storage-write>"] else [] }
+  | .assign name value =>
+      { assignNames := [name]
+        storageWrites := if yulExprWritesStorage value then ["<raw-yul-storage-write>"] else [] }
+  | .expr expr =>
+      { storageWrites := if yulExprWritesStorage expr then ["<raw-yul-storage-write>"] else [] }
+  | .if_ cond body =>
+      let bodyEffects := yulStmtListScopeEffects body
+      { bodyEffects with
+        storageWrites :=
+          (if yulExprWritesStorage cond then ["<raw-yul-storage-write>"] else []) ++
+            bodyEffects.storageWrites }
+  | .for_ init cond post body =>
+      let initEffects := yulStmtListScopeEffects init
+      let postEffects := yulStmtListScopeEffects post
+      let bodyEffects := yulStmtListScopeEffects body
+      { bindNames := initEffects.bindNames ++ postEffects.bindNames ++ bodyEffects.bindNames
+        assignNames := initEffects.assignNames ++ postEffects.assignNames ++ bodyEffects.assignNames
+        storageWrites :=
+          initEffects.storageWrites ++
+          (if yulExprWritesStorage cond then ["<raw-yul-storage-write>"] else []) ++
+          postEffects.storageWrites ++ bodyEffects.storageWrites }
+  | .switch expr cases default =>
+      let casesEffects :=
+        cases.foldl
+          (fun acc (_, body) => StmtScopeEffects.merge acc (yulStmtListScopeEffects body))
+          ({} : StmtScopeEffects)
+      let defaultEffects :=
+        match default with
+        | none => ({} : StmtScopeEffects)
+        | some body => yulStmtListScopeEffects body
+      { bindNames := casesEffects.bindNames ++ defaultEffects.bindNames
+        assignNames := casesEffects.assignNames ++ defaultEffects.assignNames
+        storageWrites :=
+          (if yulExprWritesStorage expr then ["<raw-yul-storage-write>"] else []) ++
+          casesEffects.storageWrites ++ defaultEffects.storageWrites }
+  | .block stmts =>
+      yulStmtListScopeEffects stmts
+  | .funcDef name _params _rets body =>
+      let bodyEffects := yulStmtListScopeEffects body
+      { bindNames := [name]
+        assignNames := []
+        storageWrites := bodyEffects.storageWrites }
+
+partial def yulStmtListScopeEffects : List YulStmt → StmtScopeEffects
+  | [] => {}
+  | stmt :: rest =>
+      StmtScopeEffects.merge (yulStmtScopeEffects stmt) (yulStmtListScopeEffects rest)
+end
 
 /-- Typed trust-report mechanics emitted by low-level statements and raw Yul fragments.
     JSON and human-readable reports still render these through `toReportString`,
@@ -999,7 +1090,7 @@ partial def controlFlowList : List Stmt → ControlFlowSummary
       ControlFlowSummary.seq (controlFlow stmt) (controlFlowList rest)
 
 partial def controlFlowBranches : List (String × List String × List Stmt) → ControlFlowSummary
-  | [] => .fallsThrough
+  | [] => .noPaths
   | (_, _, body) :: rest =>
       ControlFlowSummary.union (controlFlowList body) (controlFlowBranches rest)
 end

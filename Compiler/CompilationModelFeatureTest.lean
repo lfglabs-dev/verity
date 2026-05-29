@@ -2875,6 +2875,53 @@ private def unsafeYulUnderDeclaredStorageSpec : CompilationModel := {
   ]
 }
 
+private def unsafeYulTstoreMechanicViewRejectedSpec : CompilationModel := {
+  name := "UnsafeYulTstoreMechanicViewRejected"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "bad"
+      params := []
+      returnType := none
+      isView := true
+      body := [
+        Stmt.unsafeYul {
+          label := "declared_tstore_mechanic"
+          stmts := [Compiler.Yul.YulStmt.comment "mechanic-only tstore boundary"]
+          obligations := [unsafeYulScopeObligation "declared_tstore_mechanic_obligation"]
+          mechanics := [.tstore]
+        }
+      ]
+    }
+  ]
+}
+
+private def matchAdtAllBranchesTerminateSpec : CompilationModel := {
+  name := "MatchAdtAllBranchesTerminate"
+  fields := [{ name := "choice", ty := FieldType.adt "Choice" 1 }]
+  «constructor» := none
+  functions := [
+    { name := "pick"
+      params := []
+      returnType := some FieldType.uint256
+      body := [
+        Stmt.matchAdt "Choice" (Expr.adtTag "Choice" "choice") [
+          ("None", [], [Stmt.return (Expr.literal 0)]),
+          ("Some", ["amount"], [Stmt.return (Expr.localVar "amount")])
+        ]
+      ]
+    }
+  ]
+  adtTypes := [
+    { name := "Choice"
+      variants := [
+        { name := "None", tag := 0, fields := [] },
+        { name := "Some", tag := 1, fields := [{ name := "amount", ty := ParamType.uint256 }] }
+      ]
+    }
+  ]
+}
+
 private def reservedEcmResultVarSpec : CompilationModel := {
   name := "ReservedEcmResultVar"
   fields := [{ name := "value", ty := FieldType.uint256 }]
@@ -5228,6 +5275,13 @@ set_option maxRecDepth 4096 in
     "unsafeYul validation rejects under-declared Yul storage writes"
     unsafeYulUnderDeclaredStorageSpec
     "under-declares storage effects"
+  expectCompileErrorContains
+    "unsafeYul tstore mechanic is rejected from view functions"
+    unsafeYulTstoreMechanicViewRejectedSpec
+    "function 'bad' is marked view but writes state"
+  discard <| expectCompile
+    "matchAdt with terminating branches"
+    matchAdtAllBranchesTerminateSpec
   let envRuntimeYul ← expectCompileToYul "env runtime smoke compiles" envRuntimeSmokeSpec
   expectTrue "env runtime smoke lowers block.number" (contains envRuntimeYul "number()")
   let stringCompiled :=

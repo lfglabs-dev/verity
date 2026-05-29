@@ -107,74 +107,6 @@ private partial def mechanicsOfStmts : List YulStmt → List LowLevelMechanic
   | stmt :: rest => mechanicsOfStmt stmt ++ mechanicsOfStmts rest
 end
 
-private partial def exprWritesStorage : YulExpr → Bool
-  | .call name args =>
-      name == "sstore" || name == "tstore" || args.any exprWritesStorage
-  | _ => false
-
-private def mergeScopeEffects (a b : StmtScopeEffects) : StmtScopeEffects :=
-  { bindNames := a.bindNames ++ b.bindNames
-    assignNames := a.assignNames ++ b.assignNames
-    storageWrites := a.storageWrites ++ b.storageWrites }
-
-mutual
-private partial def scopeEffectsOfStmt : YulStmt → StmtScopeEffects
-  | .comment _ | .leave =>
-      {}
-  | .let_ name value =>
-      { bindNames := [name]
-        storageWrites := if exprWritesStorage value then ["<raw-yul-storage-write>"] else [] }
-  | .letMany names value =>
-      { bindNames := names
-        storageWrites := if exprWritesStorage value then ["<raw-yul-storage-write>"] else [] }
-  | .assign name value =>
-      { assignNames := [name]
-        storageWrites := if exprWritesStorage value then ["<raw-yul-storage-write>"] else [] }
-  | .expr expr =>
-      { storageWrites := if exprWritesStorage expr then ["<raw-yul-storage-write>"] else [] }
-  | .if_ cond body =>
-      let bodyEffects := scopeEffectsOfStmts body
-      { bodyEffects with
-        storageWrites :=
-          (if exprWritesStorage cond then ["<raw-yul-storage-write>"] else []) ++
-            bodyEffects.storageWrites }
-  | .for_ init cond post body =>
-      let initEffects := scopeEffectsOfStmts init
-      let postEffects := scopeEffectsOfStmts post
-      let bodyEffects := scopeEffectsOfStmts body
-      { bindNames := initEffects.bindNames ++ postEffects.bindNames ++ bodyEffects.bindNames
-        assignNames := initEffects.assignNames ++ postEffects.assignNames ++ bodyEffects.assignNames
-        storageWrites :=
-          initEffects.storageWrites ++
-          (if exprWritesStorage cond then ["<raw-yul-storage-write>"] else []) ++
-          postEffects.storageWrites ++ bodyEffects.storageWrites }
-  | .switch expr cases default =>
-      let casesEffects :=
-        cases.foldl
-          (fun acc (_, body) => mergeScopeEffects acc (scopeEffectsOfStmts body))
-          ({} : StmtScopeEffects)
-      let defaultEffects :=
-        match default with
-        | none => ({} : StmtScopeEffects)
-        | some body => scopeEffectsOfStmts body
-      { bindNames := casesEffects.bindNames ++ defaultEffects.bindNames
-        assignNames := casesEffects.assignNames ++ defaultEffects.assignNames
-        storageWrites :=
-          (if exprWritesStorage expr then ["<raw-yul-storage-write>"] else []) ++
-          casesEffects.storageWrites ++ defaultEffects.storageWrites }
-  | .block stmts =>
-      scopeEffectsOfStmts stmts
-  | .funcDef name _ _ body =>
-      let bodyEffects := scopeEffectsOfStmts body
-      { bindNames := [name]
-        storageWrites := bodyEffects.storageWrites }
-
-private partial def scopeEffectsOfStmts : List YulStmt → StmtScopeEffects
-  | [] => {}
-  | stmt :: rest =>
-      mergeScopeEffects (scopeEffectsOfStmt stmt) (scopeEffectsOfStmts rest)
-end
-
 private def controlFlowOfExpr : YulExpr → ControlFlowSummary
   | .call "revert" _ => .reverts
   | .call "return" _ => .returns
@@ -222,7 +154,7 @@ def importBlock (block : ImportedYulBlock) : Stmt :=
     obligations := [obligation]
     contracts := block.extraContracts
     mechanics := uniqueMechanics (mechanicsOfStmts block.stmts ++ block.extraMechanics)
-    scopeEffects := scopeEffectsOfStmts block.stmts
+    scopeEffects := yulStmtListScopeEffects block.stmts
     termination := block.termination
     controlFlow :=
       if block.controlFlow == .unknown then
