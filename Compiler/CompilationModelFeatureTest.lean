@@ -2922,6 +2922,19 @@ private def matchAdtAllBranchesTerminateSpec : CompilationModel := {
   ]
 }
 
+private def returnValueStopRejectedSpec : CompilationModel := {
+  name := "ReturnValueStopRejected"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "bad"
+      params := []
+      returnType := some FieldType.uint256
+      body := [Stmt.stop]
+    }
+  ]
+}
+
 private def reservedEcmResultVarSpec : CompilationModel := {
   name := "ReservedEcmResultVar"
   fields := [{ name := "value", ty := FieldType.uint256 }]
@@ -5282,6 +5295,10 @@ set_option maxRecDepth 4096 in
   discard <| expectCompile
     "matchAdt with terminating branches"
     matchAdtAllBranchesTerminateSpec
+  expectCompileErrorContains
+    "function with return value rejects stop-only termination"
+    returnValueStopRejectedSpec
+    "not all control-flow paths end in return/revert"
   let envRuntimeYul ← expectCompileToYul "env runtime smoke compiles" envRuntimeSmokeSpec
   expectTrue "env runtime smoke lowers block.number" (contains envRuntimeYul "number()")
   let stringCompiled :=

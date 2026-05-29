@@ -400,6 +400,12 @@ def seq (a b : ControlFlowSummary) : ControlFlowSummary :=
     mayReturn := a.mayReturn || (a.mayFallThrough && b.mayReturn)
     mayStop := a.mayStop || (a.mayFallThrough && b.mayStop) }
 
+/-- True when every path terminates specifically through a Solidity-style
+return or revert. A raw `stop` also halts execution, but it does not produce the
+return data required by functions that declare return values. -/
+def alwaysReturnsOrReverts (cf : ControlFlowSummary) : Bool :=
+  !cf.mayFallThrough && !cf.mayStop && (cf.mayReturn || cf.mayRevert)
+
 def fromTermination : StmtTermination → ControlFlowSummary
   | .fallsThrough => fallsThrough
   | .alwaysTerminates => unknown

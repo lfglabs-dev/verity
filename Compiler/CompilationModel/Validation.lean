@@ -228,7 +228,7 @@ decreasing_by all_goals simp_wf; all_goals omega
 end
 
 private def stmtListAlwaysReturnsOrReverts (stmts : List Stmt) : Bool :=
-  !(Stmt.controlFlowList stmts).mayFallThrough
+  ControlFlowSummary.alwaysReturnsOrReverts (Stmt.controlFlowList stmts)
 
 def exprReadsStateOrEnv : Expr → Bool
   | Expr.literal _ => false
