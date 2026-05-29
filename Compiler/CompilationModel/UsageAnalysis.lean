@@ -4,32 +4,7 @@ namespace Compiler.CompilationModel
 
 mutual
 def collectStmtBindNames : Stmt → List String
-  | Stmt.letVar name _ => [name]
-  | Stmt.ite _ thenBranch elseBranch =>
-      collectStmtListBindNames thenBranch ++ collectStmtListBindNames elseBranch
-  | Stmt.forEach varName _ body =>
-      varName :: collectStmtListBindNames body
-  | Stmt.unsafeBlock _ body =>
-      collectStmtListBindNames body
-  | Stmt.matchAdt _ _ branches =>
-      collectMatchBranchBindNames branches
-  | Stmt.internalCallAssign names _ _ => names
-  | Stmt.externalCallBind resultVars _ _ => resultVars
-  | Stmt.tryExternalCallBind successVar resultVars _ _ => successVar :: resultVars
-  | Stmt.ecm mod _ => mod.resultVars
-  -- Statements that never bind new names.
-  | Stmt.assignVar _ _ | Stmt.setStorage _ _ | Stmt.setStorageAddr _ _ | Stmt.setStorageWord _ _ _
-  | Stmt.storageArrayPush _ _ | Stmt.storageArrayPop _ | Stmt.setStorageArrayElement _ _ _
-  | Stmt.return _
-  | Stmt.setMapping _ _ _ | Stmt.setMappingWord _ _ _ _ | Stmt.setMappingPackedWord _ _ _ _ _ | Stmt.setMappingUint _ _ _
-  | Stmt.setMappingChain _ _ _
-  | Stmt.setMapping2 _ _ _ _ | Stmt.setMapping2Word _ _ _ _ _
-  | Stmt.setStructMember _ _ _ _ | Stmt.setStructMember2 _ _ _ _ _
-  | Stmt.require _ _ | Stmt.requireError _ _ _ | Stmt.revertError _ _
-  | Stmt.returnValues _ | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _
-  | Stmt.mstore _ _ | Stmt.tstore _ _ | Stmt.calldatacopy _ _ _ | Stmt.returndataCopy _ _ _ | Stmt.rawRevert _ _ | Stmt.revertReturndata | Stmt.stop
-  | Stmt.emit _ _ | Stmt.internalCall _ _ | Stmt.rawLog _ _ _ =>
-      []
+  | stmt => (stmt.metadataDeep).scopeEffects.bindNames
 termination_by s => sizeOf s
 decreasing_by all_goals simp_wf; all_goals omega
 
@@ -50,28 +25,7 @@ end
 
 mutual
 def collectStmtAssignedNames : Stmt → List String
-  | Stmt.assignVar name _ => [name]
-  | Stmt.ite _ thenBranch elseBranch =>
-      collectStmtListAssignedNames thenBranch ++ collectStmtListAssignedNames elseBranch
-  | Stmt.forEach _ _ body =>
-      collectStmtListAssignedNames body
-  | Stmt.unsafeBlock _ body =>
-      collectStmtListAssignedNames body
-  | Stmt.matchAdt _ _ branches =>
-      collectMatchBranchAssignedNames branches
-  | Stmt.letVar _ _ | Stmt.setStorage _ _ | Stmt.setStorageAddr _ _ | Stmt.setStorageWord _ _ _
-  | Stmt.storageArrayPush _ _ | Stmt.storageArrayPop _ | Stmt.setStorageArrayElement _ _ _
-  | Stmt.return _
-  | Stmt.setMapping _ _ _ | Stmt.setMappingWord _ _ _ _ | Stmt.setMappingPackedWord _ _ _ _ _ | Stmt.setMappingUint _ _ _
-  | Stmt.setMappingChain _ _ _
-  | Stmt.setMapping2 _ _ _ _ | Stmt.setMapping2Word _ _ _ _ _
-  | Stmt.setStructMember _ _ _ _ | Stmt.setStructMember2 _ _ _ _ _
-  | Stmt.require _ _ | Stmt.requireError _ _ _ | Stmt.revertError _ _
-  | Stmt.returnValues _ | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _
-  | Stmt.mstore _ _ | Stmt.tstore _ _ | Stmt.calldatacopy _ _ _ | Stmt.returndataCopy _ _ _ | Stmt.rawRevert _ _ | Stmt.revertReturndata | Stmt.stop
-  | Stmt.emit _ _ | Stmt.internalCall _ _ | Stmt.internalCallAssign _ _ _
-  | Stmt.rawLog _ _ _ | Stmt.externalCallBind _ _ _ | Stmt.tryExternalCallBind _ _ _ _ | Stmt.ecm _ _ =>
-      []
+  | stmt => (stmt.metadataDeep).scopeEffects.assignNames
 termination_by s => sizeOf s
 decreasing_by all_goals simp_wf; all_goals omega
 
@@ -284,6 +238,8 @@ def stmtUsesArrayElementKind (includePlain includeWord : Bool) : Stmt → Bool
       false
   | Stmt.revertReturndata | Stmt.stop =>
       false
+  | Stmt.unsafeYul _ =>
+      false
 termination_by s => sizeOf s
 decreasing_by all_goals simp_wf; all_goals omega
 
@@ -441,6 +397,8 @@ def stmtUsesArrayElement : Stmt → Bool
   | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ =>
       false
   | Stmt.revertReturndata | Stmt.stop =>
+      false
+  | Stmt.unsafeYul _ =>
       false
 termination_by s => sizeOf s
 decreasing_by all_goals simp_wf; all_goals omega
@@ -650,6 +608,8 @@ def stmtUsesParamDynamicHeadWord : Stmt → Bool
       false
   | Stmt.revertReturndata | Stmt.stop =>
       false
+  | Stmt.unsafeYul _ =>
+      false
 termination_by s => sizeOf s
 decreasing_by all_goals simp_wf; all_goals omega
 
@@ -796,6 +756,8 @@ def stmtUsesMulDiv512 : Stmt → Bool
   | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ =>
       false
   | Stmt.revertReturndata | Stmt.stop =>
+      false
+  | Stmt.unsafeYul _ =>
       false
 termination_by s => sizeOf s
 decreasing_by all_goals simp_wf; all_goals omega
@@ -973,6 +935,8 @@ def stmtUsesStorageArrayElement : Stmt → Bool
       false
   | Stmt.revertReturndata | Stmt.stop =>
       false
+  | Stmt.unsafeYul _ =>
+      false
 termination_by s => sizeOf s
 decreasing_by all_goals simp_wf; all_goals omega
 
@@ -1128,6 +1092,8 @@ def stmtUsesDynamicBytesEq : Stmt → Bool
   | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ =>
       false
   | Stmt.revertReturndata | Stmt.stop =>
+      false
+  | Stmt.unsafeYul _ =>
       false
 termination_by s => sizeOf s
 decreasing_by all_goals simp_wf; all_goals omega

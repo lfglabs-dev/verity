@@ -300,6 +300,38 @@ structure LocalObligation where
   proofStatus : Compiler.ProofStatus := .assumed
   deriving Repr
 
+/-- Coarse statement termination classification used by generic statement
+    metadata. `mayTerminate` covers handwritten/raw Yul fragments unless a
+    caller supplies a more precise contract. -/
+inductive StmtTermination where
+  | fallsThrough
+  | alwaysTerminates
+  | mayTerminate
+  deriving Repr, BEq
+
+/-- Scope effects exposed by the generic statement metadata layer. -/
+structure StmtScopeEffects where
+  bindNames : List String := []
+  assignNames : List String := []
+  storageWrites : List String := []
+  deriving Repr
+
+/-- Typed handwritten Yul fragment. This is intentionally not just a string:
+    callers provide an EVMYul AST payload plus explicit proof obligations and
+    trust-surface metadata at the same boundary where the raw fragment enters
+    the compilation model. -/
+structure UnsafeYulFragment where
+  label : String
+  stmts : List YulStmt
+  obligations : List LocalObligation
+  mechanics : List String := []
+  scopeEffects : StmtScopeEffects := {}
+  termination : StmtTermination := .mayTerminate
+  deriving Repr
+
+/-- Backwards-friendly name for explicitly trusted raw Yul fragments. -/
+abbrev RawYul := UnsafeYulFragment
+
 /-!
 ### ADT Type Definitions (#1727, Phase 5 Step 5b)
 
@@ -634,12 +666,159 @@ inductive Stmt
       Marks a region where restricted operations (Step 6b) are permitted.
       The reason string is preserved for trust reporting (Step 6c). -/
   | unsafeBlock (reason : String) (body : List Stmt)
+  /-- Typed handwritten Yul fragment with localized proof obligations and
+      trust-surface metadata. Lowering to EVMYul AST is centralized in
+      `CompilationModel.unsafeYulToEVMYul`. -/
+  | unsafeYul (fragment : UnsafeYulFragment)
   /-- Pattern match on an ADT value: `matchAdt adtName scrutinee branches`.
       Each branch is `(variantName, boundVarNames, body)`.
       Compiles to `YulStmt.switch` on the tag byte. (#1727 Step 5b) -/
   | matchAdt (adtName : String) (scrutinee : Expr)
       (branches : List (String × List String × List Stmt))
   deriving Repr
+
+/-- Common statement metadata. New `Stmt` constructors should be represented
+    here once, then generic traversals and collectors can consume this surface
+    instead of duplicating constructor-by-constructor walks. -/
+structure StmtMetadata where
+  subexpressions : List Expr := []
+  termination : StmtTermination := .fallsThrough
+  lowLevelMechanics : List String := []
+  scopeEffects : StmtScopeEffects := {}
+  localObligations : List LocalObligation := []
+  unsafeReasons : List String := []
+  deriving Repr
+
+namespace Stmt
+
+def childLists : Stmt → List (List Stmt)
+  | .ite _ thenBranch elseBranch => [thenBranch, elseBranch]
+  | .forEach _ _ body => [body]
+  | .unsafeBlock _ body => [body]
+  | .matchAdt _ _ branches => branches.map (fun (_, _, body) => body)
+  | _ => []
+
+def directMetadata : Stmt → StmtMetadata
+  | .letVar name value =>
+      { subexpressions := [value], scopeEffects := { bindNames := [name] } }
+  | .assignVar name value =>
+      { subexpressions := [value], scopeEffects := { assignNames := [name] } }
+  | .setStorage field value | .setStorageAddr field value =>
+      { subexpressions := [value], scopeEffects := { storageWrites := [field] } }
+  | .setStorageWord field _ value =>
+      { subexpressions := [value], scopeEffects := { storageWrites := [field] } }
+  | .storageArrayPush field value =>
+      { subexpressions := [value], scopeEffects := { storageWrites := [field] } }
+  | .storageArrayPop field =>
+      { scopeEffects := { storageWrites := [field] } }
+  | .setStorageArrayElement field index value =>
+      { subexpressions := [index, value], scopeEffects := { storageWrites := [field] } }
+  | .setMapping field key value | .setMappingWord field key _ value
+  | .setMappingPackedWord field key _ _ value | .setMappingUint field key value
+  | .setStructMember field key _ value =>
+      { subexpressions := [key, value], scopeEffects := { storageWrites := [field] } }
+  | .setMappingChain field keys value =>
+      { subexpressions := keys ++ [value], scopeEffects := { storageWrites := [field] } }
+  | .setMapping2 field key1 key2 value | .setMapping2Word field key1 key2 _ value
+  | .setStructMember2 field key1 key2 _ value =>
+      { subexpressions := [key1, key2, value], scopeEffects := { storageWrites := [field] } }
+  | .require cond _ =>
+      { subexpressions := [cond], termination := .mayTerminate }
+  | .requireError cond _ args =>
+      { subexpressions := cond :: args, termination := .mayTerminate }
+  | .revertError _ args =>
+      { subexpressions := args, termination := .alwaysTerminates }
+  | .return value =>
+      { subexpressions := [value], termination := .alwaysTerminates }
+  | .returnValues values =>
+      { subexpressions := values, termination := .alwaysTerminates }
+  | .returnArray _ | .returnBytes _ | .returnStorageWords _ =>
+      { termination := .alwaysTerminates }
+  | .mstore offset value =>
+      { subexpressions := [offset, value], lowLevelMechanics := ["mstore"] }
+  | .tstore offset value =>
+      { subexpressions := [offset, value], lowLevelMechanics := ["tstore"] }
+  | .calldatacopy destOffset sourceOffset size =>
+      { subexpressions := [destOffset, sourceOffset, size], lowLevelMechanics := ["calldatacopy"] }
+  | .returndataCopy destOffset sourceOffset size =>
+      { subexpressions := [destOffset, sourceOffset, size], lowLevelMechanics := ["returndataCopy"] }
+  | .revertReturndata =>
+      { termination := .alwaysTerminates, lowLevelMechanics := ["revertReturndata"] }
+  | .rawRevert offset size =>
+      { subexpressions := [offset, size], termination := .alwaysTerminates, lowLevelMechanics := ["rawRevert"] }
+  | .stop =>
+      { termination := .alwaysTerminates }
+  | .ite cond _ _ =>
+      { subexpressions := [cond], termination := .mayTerminate }
+  | .forEach varName count _ =>
+      { subexpressions := [count], scopeEffects := { bindNames := [varName] } }
+  | .emit _ args =>
+      { subexpressions := args }
+  | .internalCall _ args =>
+      { subexpressions := args }
+  | .internalCallAssign names _ args =>
+      { subexpressions := args, scopeEffects := { bindNames := names } }
+  | .rawLog topics dataOffset dataSize =>
+      { subexpressions := topics ++ [dataOffset, dataSize] }
+  | .externalCallBind resultVars _ args =>
+      { subexpressions := args, scopeEffects := { bindNames := resultVars } }
+  | .tryExternalCallBind successVar resultVars _ args =>
+      { subexpressions := args, scopeEffects := { bindNames := successVar :: resultVars } }
+  | .ecm mod args =>
+      { subexpressions := args, scopeEffects := { bindNames := mod.resultVars } }
+  | .unsafeBlock reason _ =>
+      { unsafeReasons := [reason] }
+  | .unsafeYul fragment =>
+      { termination := fragment.termination
+        lowLevelMechanics := fragment.mechanics
+        scopeEffects := fragment.scopeEffects
+        localObligations := fragment.obligations
+        unsafeReasons := [fragment.label] }
+  | .matchAdt _ scrutinee branches =>
+      { subexpressions := [scrutinee]
+        termination := .mayTerminate
+        scopeEffects := { bindNames := branches.flatMap (fun (_, names, _) => names) } }
+
+partial def fold (f : α → Stmt → StmtMetadata → α) (init : α) (stmt : Stmt) : α :=
+  let md := stmt.directMetadata
+  let acc := f init stmt md
+  stmt.childLists.foldl
+    (fun acc childList => childList.foldl (fun inner child => child.fold f inner) acc)
+    acc
+
+partial def foldList (f : α → Stmt → StmtMetadata → α) (init : α) (stmts : List Stmt) : α :=
+  stmts.foldl (fun acc stmt => stmt.fold f acc) init
+
+partial def metadataDeep (stmt : Stmt) : StmtMetadata :=
+  stmt.fold
+    (fun acc _ md =>
+      { subexpressions := acc.subexpressions ++ md.subexpressions
+        termination := if acc.termination == .alwaysTerminates then .alwaysTerminates else md.termination
+        lowLevelMechanics := acc.lowLevelMechanics ++ md.lowLevelMechanics
+        scopeEffects :=
+          { bindNames := acc.scopeEffects.bindNames ++ md.scopeEffects.bindNames
+            assignNames := acc.scopeEffects.assignNames ++ md.scopeEffects.assignNames
+            storageWrites := acc.scopeEffects.storageWrites ++ md.scopeEffects.storageWrites }
+        localObligations := acc.localObligations ++ md.localObligations
+        unsafeReasons := acc.unsafeReasons ++ md.unsafeReasons })
+    {}
+
+def metadataListDeep (stmts : List Stmt) : StmtMetadata :=
+  foldList
+    (fun acc _ md =>
+      { subexpressions := acc.subexpressions ++ md.subexpressions
+        termination := if acc.termination == .alwaysTerminates then .alwaysTerminates else md.termination
+        lowLevelMechanics := acc.lowLevelMechanics ++ md.lowLevelMechanics
+        scopeEffects :=
+          { bindNames := acc.scopeEffects.bindNames ++ md.scopeEffects.bindNames
+            assignNames := acc.scopeEffects.assignNames ++ md.scopeEffects.assignNames
+            storageWrites := acc.scopeEffects.storageWrites ++ md.scopeEffects.storageWrites }
+        localObligations := acc.localObligations ++ md.localObligations
+        unsafeReasons := acc.unsafeReasons ++ md.unsafeReasons })
+    {}
+    stmts
+
+end Stmt
 
 structure FunctionSpec where
   name : String

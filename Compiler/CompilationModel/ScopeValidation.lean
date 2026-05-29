@@ -570,6 +570,18 @@ def validateScopedStmtIdentifiers
   | Stmt.returnBytes _ | Stmt.returnStorageWords _
   | Stmt.revertReturndata | Stmt.stop =>
       pure localScope
+  | Stmt.unsafeYul fragment => do
+      let mut scope := localScope
+      for name in fragment.scopeEffects.bindNames do
+        if paramScope.contains name then
+          throw s!"Compilation error: {context} unsafe Yul fragment '{fragment.label}' result '{name}' shadows a parameter"
+        if scope.contains name then
+          throw s!"Compilation error: {context} unsafe Yul fragment '{fragment.label}' redeclares result '{name}' in the same scope"
+        scope := name :: scope
+      for name in fragment.scopeEffects.assignNames do
+        if !scope.contains name then
+          throw s!"Compilation error: {context} unsafe Yul fragment '{fragment.label}' assigns to undeclared local variable '{name}'"
+      pure scope
 termination_by s => sizeOf s
 decreasing_by all_goals simp_wf; all_goals omega
 

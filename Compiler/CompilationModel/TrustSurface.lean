@@ -217,6 +217,8 @@ private partial def collectLowLevelStmtMechanics : Stmt → List String
       args.flatMap collectLowLevelExprMechanics
   | .rawLog topics dataOffset dataSize =>
       topics.flatMap collectLowLevelExprMechanics ++ collectLowLevelExprMechanics dataOffset ++ collectLowLevelExprMechanics dataSize
+  | .unsafeYul fragment =>
+      fragment.mechanics
   | .returnArray _
   | .returnBytes _
   | .returnStorageWords _
@@ -284,6 +286,8 @@ private partial def collectAxiomatizedStmtPrimitives : Stmt → List String
         collectAxiomatizedExprPrimitives dataSize
   | .rawRevert offset size =>
       collectAxiomatizedExprPrimitives offset ++ collectAxiomatizedExprPrimitives size
+  | .unsafeYul _ =>
+      []
   | .returnArray _
   | .returnBytes _
   | .returnStorageWords _
@@ -292,10 +296,19 @@ private partial def collectAxiomatizedStmtPrimitives : Stmt → List String
       []
 
 private def collectLowLevelMechanicsFromStmts (stmts : List Stmt) : List String :=
-  dedupPreserve (stmts.flatMap collectLowLevelStmtMechanics)
+  dedupPreserve <|
+    Stmt.foldList
+      (fun acc _ md =>
+        acc ++ md.lowLevelMechanics ++ md.subexpressions.flatMap collectLowLevelExprMechanics)
+      []
+      stmts
 
 private def collectAxiomatizedPrimitivesFromStmts (stmts : List Stmt) : List String :=
-  dedupPreserve (stmts.flatMap collectAxiomatizedStmtPrimitives)
+  dedupPreserve <|
+    Stmt.foldList
+      (fun acc _ md => acc ++ md.subexpressions.flatMap collectAxiomatizedExprPrimitives)
+      []
+      stmts
 
 private def isUnsafeBoundaryMechanic (mechanic : String) : Bool :=
   match mechanic with
@@ -372,6 +385,8 @@ private partial def collectUnguardedLowLevelStmtMechanics : Stmt → List String
       args.flatMap collectLowLevelExprMechanics
   | .rawLog topics dataOffset dataSize =>
       topics.flatMap collectLowLevelExprMechanics ++ collectLowLevelExprMechanics dataOffset ++ collectLowLevelExprMechanics dataSize
+  | .unsafeYul _ =>
+      []
   | .returnArray _
   | .returnBytes _
   | .returnStorageWords _
@@ -400,7 +415,7 @@ private partial def collectUnsafeBlockReasonsInStmt : Stmt → List String
   | _ => []
 
 private def collectUnsafeBlockReasonsFromStmts (stmts : List Stmt) : List String :=
-  stmts.flatMap collectUnsafeBlockReasonsInStmt
+  Stmt.foldList (fun acc _ md => acc ++ md.unsafeReasons) [] stmts
 
 /-- Collect all `unsafe "reason" do` block reasons used by a spec. -/
 def collectUnsafeBlockReasons (spec : CompilationModel) : List String :=
@@ -548,6 +563,8 @@ private partial def collectEventEmissionStmtMechanics : Stmt → List String
         collectEventEmissionExprMechanics dataOffset ++ collectEventEmissionExprMechanics dataSize
   | .rawRevert offset size =>
       collectEventEmissionExprMechanics offset ++ collectEventEmissionExprMechanics size
+  | .unsafeYul fragment =>
+      if fragment.mechanics.contains "rawLog" then ["rawLog"] else []
   | .returnArray _
   | .returnBytes _
   | .returnStorageWords _
@@ -556,7 +573,17 @@ private partial def collectEventEmissionStmtMechanics : Stmt → List String
       []
 
 private def collectEventEmissionMechanicsFromStmts (stmts : List Stmt) : List String :=
-  dedupPreserve (stmts.flatMap collectEventEmissionStmtMechanics)
+  dedupPreserve <|
+    Stmt.foldList
+      (fun acc stmt md =>
+        let direct :=
+          match stmt with
+          | .rawLog _ _ _ => ["rawLog"]
+          | .unsafeYul fragment => if fragment.mechanics.contains "rawLog" then ["rawLog"] else []
+          | _ => []
+        acc ++ direct ++ md.subexpressions.flatMap collectEventEmissionExprMechanics)
+      []
+      stmts
 
 /-- Collect not-modeled raw event-emission mechanics used by a spec. -/
 def collectEventEmissionMechanics (spec : CompilationModel) : List String :=
@@ -722,6 +749,11 @@ private partial def collectRuntimeIntrospectionStmtMechanics : Stmt → List Str
         collectRuntimeIntrospectionExprMechanics dataSize
   | .rawRevert offset size =>
       collectRuntimeIntrospectionExprMechanics offset ++ collectRuntimeIntrospectionExprMechanics size
+  | .unsafeYul fragment =>
+      fragment.mechanics.filter (fun mechanic =>
+        mechanic == "contractAddress" || mechanic == "chainid" ||
+        mechanic == "selfBalance" || mechanic == "blockNumber" ||
+        mechanic == "blobbasefee")
   | .returnArray _
   | .returnBytes _
   | .returnStorageWords _
@@ -730,7 +762,20 @@ private partial def collectRuntimeIntrospectionStmtMechanics : Stmt → List Str
       []
 
 private def collectRuntimeIntrospectionMechanicsFromStmts (stmts : List Stmt) : List String :=
-  dedupPreserve (stmts.flatMap collectRuntimeIntrospectionStmtMechanics)
+  dedupPreserve <|
+    Stmt.foldList
+      (fun acc stmt md =>
+        let direct :=
+          match stmt with
+          | .unsafeYul fragment =>
+              fragment.mechanics.filter (fun mechanic =>
+                mechanic == "contractAddress" || mechanic == "chainid" ||
+                mechanic == "selfBalance" || mechanic == "blockNumber" ||
+                mechanic == "blobbasefee")
+          | _ => []
+        acc ++ direct ++ md.subexpressions.flatMap collectRuntimeIntrospectionExprMechanics)
+      []
+      stmts
 
 /-- Collect partially modeled runtime-introspection mechanics used by a spec. -/
 def collectRuntimeIntrospectionMechanics (spec : CompilationModel) : List String :=
@@ -920,6 +965,8 @@ private partial def collectExternalStmtNames : Stmt → List String
       topics.flatMap collectExternalExprNames ++ collectExternalExprNames dataOffset ++ collectExternalExprNames dataSize
   | .rawRevert offset size =>
       collectExternalExprNames offset ++ collectExternalExprNames size
+  | .unsafeYul _ =>
+      []
   | .returnArray _
   | .returnBytes _
   | .returnStorageWords _
@@ -931,7 +978,17 @@ example : collectExternalStmtNames rawRevertExternalArgSmoke = ["oracle"] := by
   native_decide
 
 private def collectUsedExternalNamesFromStmts (stmts : List Stmt) : List String :=
-  dedupPreserve (stmts.flatMap collectExternalStmtNames)
+  dedupPreserve <|
+    Stmt.foldList
+      (fun acc stmt md =>
+        let direct :=
+          match stmt with
+          | .externalCallBind _ externalName _ => [externalName]
+          | .tryExternalCallBind _ _ externalName _ => [externalName]
+          | _ => []
+        acc ++ direct ++ md.subexpressions.flatMap collectExternalExprNames)
+      []
+      stmts
 
 private def collectUsedExternalAssumptionsFromStmts
     (externals : List ExternalFunction)
@@ -964,17 +1021,13 @@ private def collectUsedExternalNamesByStatus
     []
 
 private partial def collectUsedEcmModulesInStmt : Stmt → List ECM.ExternalCallModule
-  | .ecm mod _ => [mod]
-  | .ite _ thenBr elseBr =>
-      thenBr.flatMap collectUsedEcmModulesInStmt ++ elseBr.flatMap collectUsedEcmModulesInStmt
-  | .forEach _ _ body =>
-      body.flatMap collectUsedEcmModulesInStmt
-  | .unsafeBlock _ body =>
-      body.flatMap collectUsedEcmModulesInStmt
-  | .matchAdt _ _ branches =>
-      branches.flatMap fun (_, _, body) => body.flatMap collectUsedEcmModulesInStmt
-  | _ =>
-      []
+  | stmt =>
+      stmt.fold
+        (fun acc s _ =>
+          match s with
+          | .ecm mod _ => acc ++ [mod]
+          | _ => acc)
+        []
 
 private def collectUsedEcmModulesFromStmts (stmts : List Stmt) : List ECM.ExternalCallModule :=
   dedupEcmModules (stmts.flatMap collectUsedEcmModulesInStmt)
@@ -999,8 +1052,9 @@ private def collectUsedEcmModuleNamesByStatus
 
 private def collectLocalObligationsFromStmts
     (obligations : List LocalObligation)
-    (_stmts : List Stmt) : List LocalObligation :=
-  obligations
+    (stmts : List Stmt) : List LocalObligation :=
+  dedupLocalObligations
+    (obligations ++ Stmt.foldList (fun acc _ md => acc ++ md.localObligations) [] stmts)
 
 private def collectConstructorLocalObligations (spec : CompilationModel) : List LocalObligation :=
   match spec.constructor with
@@ -1009,8 +1063,13 @@ private def collectConstructorLocalObligations (spec : CompilationModel) : List 
 
 /-- Collect local proof obligations attached to functions/constructors. -/
 def collectLocalObligations (spec : CompilationModel) : List LocalObligation :=
-  let functionObligations := spec.functions.flatMap (·.localObligations)
-  dedupLocalObligations (collectConstructorLocalObligations spec ++ functionObligations)
+  let ctorObligations :=
+    match spec.constructor with
+    | some ctor => collectLocalObligationsFromStmts ctor.localObligations ctor.body
+    | none => []
+  let functionObligations :=
+    spec.functions.flatMap fun fn => collectLocalObligationsFromStmts fn.localObligations fn.body
+  dedupLocalObligations (ctorObligations ++ functionObligations)
 
 private def collectLocalObligationNamesByStatus
     (spec : CompilationModel)

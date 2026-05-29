@@ -42,6 +42,13 @@ namespace Compiler.CompilationModel
 open Compiler
 open Compiler.Yul
 
+/-- Single bridge from typed unsafe/raw Yul fragments into the EVMYul AST.
+    Proof obligations and trust metadata live on `UnsafeYulFragment`; this
+    function is intentionally the only compiler lowering point for that escape
+    hatch. -/
+def unsafeYulToEVMYul (fragment : UnsafeYulFragment) : List YulStmt :=
+  fragment.stmts
+
 private def compileAdtStorageWrite (fields : List Field)
     (dynamicSource : DynamicDataSource) (adtTypes : List AdtTypeDef)
     (storageField adtName variantName : String) (args : List Expr) :
@@ -269,6 +276,9 @@ def compileStmt (fields : List Field) (events : List EventDef := [])
   | Stmt.unsafeBlock _ body => do
       -- Unsafe block: transparent wrapper, compile inner body directly (#1728, Axis 6 Step 6a)
       compileStmtList fields events errors dynamicSource internalRetNames isInternal inScopeNames adtTypes body
+
+  | Stmt.unsafeYul fragment =>
+      pure (unsafeYulToEVMYul fragment)
 
   | Stmt.emit eventName args => do
       compileEmit fields events dynamicSource eventName args

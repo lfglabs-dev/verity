@@ -428,6 +428,8 @@ def stmtWritesState : Stmt → Bool
       false
   | Stmt.returnBytes _ =>
       false
+  | Stmt.unsafeYul fragment =>
+      !fragment.scopeEffects.storageWrites.isEmpty
   | Stmt.returnStorageWords _ =>
       false
   | Stmt.mstore offset value =>
@@ -1034,6 +1036,8 @@ def stmtReadsStateOrEnv : Stmt → Bool
   | Stmt.matchAdt _ scrutinee branches =>
       exprReadsStateOrEnv scrutinee ||
         matchBranchesReadStateOrEnv branches
+  | Stmt.unsafeYul fragment =>
+      !fragment.mechanics.isEmpty || !fragment.scopeEffects.storageWrites.isEmpty
 termination_by s => sizeOf s
 decreasing_by all_goals simp_wf; all_goals omega
 
@@ -1238,6 +1242,8 @@ def stmtWritesStateWithFunctionEffects
   | Stmt.matchAdt _ scrutinee branches =>
       exprWritesStateWithFunctionEffects effects scrutinee ||
         matchBranchesWriteStateWithFunctionEffects effects branches
+  | Stmt.unsafeYul fragment =>
+      !fragment.scopeEffects.storageWrites.isEmpty
 termination_by s => sizeOf s
 decreasing_by all_goals simp_wf; all_goals omega
 
@@ -1423,6 +1429,8 @@ def stmtReadsStateOrEnvWithFunctionEffects
   | Stmt.matchAdt _ scrutinee branches =>
       exprReadsStateOrEnvWithFunctionEffects effects scrutinee ||
         matchBranchesReadStateOrEnvWithFunctionEffects effects branches
+  | Stmt.unsafeYul fragment =>
+      !fragment.mechanics.isEmpty || !fragment.scopeEffects.storageWrites.isEmpty
 termination_by s => sizeOf s
 decreasing_by all_goals simp_wf; all_goals omega
 
@@ -1503,6 +1511,8 @@ def stmtIsPersistentWrite : Stmt → Bool
       stmtListContainsPersistentWrite body
   | Stmt.matchAdt _ _ branches =>
       matchBranchesPersistentWrite branches
+  | Stmt.unsafeYul fragment =>
+      !fragment.scopeEffects.storageWrites.isEmpty || fragment.mechanics.contains "tstore"
   | _ => false
 termination_by s => sizeOf s
 decreasing_by all_goals simp_wf; all_goals omega
@@ -1538,6 +1548,8 @@ def stmtMayPersistentlyWrite : Stmt → Bool
       stmtListMayPersistentlyWrite body
   | Stmt.matchAdt _ _ branches =>
       matchBranchesMayPersistentlyWrite branches
+  | Stmt.unsafeYul fragment =>
+      !fragment.scopeEffects.storageWrites.isEmpty || fragment.mechanics.contains "tstore"
   | s => stmtIsPersistentWrite s
 termination_by s => sizeOf s
 decreasing_by all_goals simp_wf; all_goals omega
@@ -1635,6 +1647,7 @@ def stmtInternalCEIViolation : Stmt → Bool → Option String
       -- `match adtTag (externalCall ...) { ... setStorage ... }` is correctly flagged
       let scrutineeSeenCall := seenCall || exprMayContainExternalCall scrutinee
       matchBranchesCEIViolation branches scrutineeSeenCall
+  | Stmt.unsafeYul _, _ => none
   | _, _ => none
 termination_by s => sizeOf s
 decreasing_by all_goals simp_wf; all_goals omega
@@ -1807,6 +1820,11 @@ def validateNoUnsupportedAdtConstructInStmt : Stmt → Except String Unit
   | Stmt.storageArrayPop _ | Stmt.returnArray _ | Stmt.returnBytes _
   | Stmt.returnStorageWords _ | Stmt.revertReturndata | Stmt.stop =>
       pure ()
+  | Stmt.unsafeYul fragment =>
+      if fragment.obligations.isEmpty then
+        throw s!"Compilation error: unsafe Yul fragment '{fragment.label}' must declare at least one local proof obligation."
+      else
+        pure ()
 termination_by s => sizeOf s
 decreasing_by all_goals simp_wf; all_goals omega
 
@@ -1829,11 +1847,22 @@ decreasing_by all_goals simp_wf; all_goals omega
 end
 
 def validateFunctionSpec (spec : FunctionSpec) : Except String Unit := do
+  let rawYulObligations :=
+    Stmt.foldList
+      (fun acc _ md => acc ++ md.localObligations)
+      []
+      spec.body
+  if spec.body.any (fun stmt =>
+      stmt.fold (fun acc s _ =>
+        match s with
+        | Stmt.unsafeYul fragment => acc || fragment.obligations.isEmpty
+        | _ => acc) false) then
+    throw s!"Compilation error: function '{spec.name}' contains an unsafe Yul fragment without explicit local proof obligations."
   -- Check for unsafe boundary mechanics outside `unsafe "reason" do` blocks.
   -- Mechanics inside `unsafe` blocks are documented by the reason string and
   -- do not independently require `local_obligations` (#1728, Phase 6 Step 6b).
   let unguardedMechanics := collectUnguardedUnsafeBoundaryMechanicsFromStmts spec.body
-  if !unguardedMechanics.isEmpty && spec.localObligations.isEmpty then
+  if !unguardedMechanics.isEmpty && spec.localObligations.isEmpty && rawYulObligations.isEmpty then
     throw s!"Compilation error: function '{spec.name}' uses low-level/assembly mechanic(s) {String.intercalate ", " unguardedMechanics} outside an unsafe block without any local_obligations entry ({issue1424Ref}). Wrap the low-level code in `unsafe \"reason\" do` or add local_obligations [...] to make the trust boundary explicit."
   if spec.isPayable && (spec.isView || spec.isPure) then
     throw s!"Compilation error: function '{spec.name}' cannot be both payable and view/pure ({issue586Ref})"
@@ -1915,8 +1944,19 @@ def validateConstructorSpec (ctor : Option ConstructorSpec) : Except String Unit
   match ctor with
   | none => pure ()
   | some spec =>
+      let rawYulObligations :=
+        Stmt.foldList
+          (fun acc _ md => acc ++ md.localObligations)
+          []
+          spec.body
+      if spec.body.any (fun stmt =>
+          stmt.fold (fun acc s _ =>
+            match s with
+            | Stmt.unsafeYul fragment => acc || fragment.obligations.isEmpty
+            | _ => acc) false) then
+        throw "Compilation error: constructor contains an unsafe Yul fragment without explicit local proof obligations."
       let unguardedMechanics := collectUnguardedUnsafeBoundaryMechanicsFromStmts spec.body
-      if !unguardedMechanics.isEmpty && spec.localObligations.isEmpty then
+      if !unguardedMechanics.isEmpty && spec.localObligations.isEmpty && rawYulObligations.isEmpty then
         throw s!"Compilation error: constructor uses low-level/assembly mechanic(s) {String.intercalate ", " unguardedMechanics} outside an unsafe block without any local_obligations entry ({issue1424Ref}). Wrap the low-level code in `unsafe \"reason\" do` or add local_obligations [...] to make the trust boundary explicit."
       if spec.body.any stmtContainsUnsafeLogicalCallLike then
         throw s!"Compilation error: constructor uses Expr.logicalAnd/Expr.logicalOr/Expr.ite or arithmetic helpers (mulDivUp/wDivUp/min/max) with call-like operand(s) that would be duplicated in Yul output ({issue748Ref}). Move call-like expressions into Stmt.letVar before combining."

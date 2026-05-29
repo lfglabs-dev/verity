@@ -363,6 +363,8 @@ private partial def collectIntrinsicUsesStmt : Stmt → List IntrinsicUse
   | .storageArrayPop _ | .returnArray _ | .returnBytes _ | .returnStorageWords _
   | .revertReturndata | .stop =>
       []
+  | .unsafeYul _ =>
+      []
 
 private def collectIntrinsicUsesSpec (spec : CompilationModel) : List IntrinsicUse :=
   let ctorUses :=
