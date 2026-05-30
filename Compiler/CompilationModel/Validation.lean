@@ -480,6 +480,8 @@ def stmtWrittenFields : Stmt → List String
       stmtListWrittenFields body
   | Stmt.unsafeBlock _ body =>
       stmtListWrittenFields body
+  | Stmt.unsafeYul fragment =>
+      fragment.scopeEffects.storageWrites
   | Stmt.matchAdt _ _ branches =>
       matchBranchesWrittenFields branches
   | _ => []
@@ -631,6 +633,10 @@ def stmtHasUntrackableWrites : Stmt → Bool
       exprHasUntrackableWrites count || stmtListHasUntrackableWrites body
   | Stmt.unsafeBlock _ body =>
       stmtListHasUntrackableWrites body
+  | Stmt.unsafeYul fragment =>
+      -- Raw Yul storage writes target computed slots that cannot be tied back to
+      -- declared storage fields, so any storage-writing fragment is untrackable.
+      !fragment.scopeEffects.storageWrites.isEmpty || fragment.mechanics.contains .storageWrite
   | Stmt.matchAdt _ scrutinee branches =>
       exprHasUntrackableWrites scrutinee || matchBranchesHasUntrackableWrites branches
   | _ => false
@@ -875,6 +881,10 @@ def stmtContainsExternalCall : Stmt → Bool
         matchBranchesContainExternalCall branches
   | Stmt.internalCall _ args | Stmt.internalCallAssign _ _ args =>
       args.any exprContainsExternalCall
+  | Stmt.unsafeYul fragment =>
+      fragment.mechanics.contains .call ||
+        fragment.mechanics.contains .staticcall ||
+        fragment.mechanics.contains .delegatecall
   | _ => false
 termination_by s => sizeOf s
 decreasing_by all_goals simp_wf; all_goals omega
@@ -1624,7 +1634,23 @@ def stmtInternalCEIViolation : Stmt → Bool → Option String
       -- `match adtTag (externalCall ...) { ... setStorage ... }` is correctly flagged
       let scrutineeSeenCall := seenCall || exprMayContainExternalCall scrutinee
       matchBranchesCEIViolation branches scrutineeSeenCall
-  | Stmt.unsafeYul _, _ => none
+  | Stmt.unsafeYul fragment, seenCall =>
+      -- A raw Yul fragment whose mechanics include an external interaction must be
+      -- treated like a call for CEI purposes. Flag a violation when a storage write
+      -- happens after a prior external call, or within a fragment that both calls
+      -- out and writes storage.
+      let fragmentCalls :=
+        fragment.mechanics.contains .call ||
+          fragment.mechanics.contains .staticcall ||
+          fragment.mechanics.contains .delegatecall
+      let fragmentWrites :=
+        !fragment.scopeEffects.storageWrites.isEmpty ||
+          fragment.mechanics.contains .storageWrite ||
+          fragment.mechanics.contains .tstore
+      if (seenCall || fragmentCalls) && fragmentWrites then
+        some "raw Yul fragment writes state after an external call"
+      else
+        none
   | _, _ => none
 termination_by s => sizeOf s
 decreasing_by all_goals simp_wf; all_goals omega
