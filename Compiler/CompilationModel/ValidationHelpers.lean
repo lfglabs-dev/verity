@@ -209,6 +209,8 @@ def collectStmtNames : Stmt → List String
       successVar :: resultVars ++ externalName :: collectExprListNames args
   | Stmt.ecm mod args =>
       mod.resultVars ++ collectExprListNames args
+  | Stmt.unsafeYul fragment =>
+      fragment.scopeEffects.bindNames ++ fragment.scopeEffects.assignNames
 termination_by stmt => sizeOf stmt
 decreasing_by
   all_goals simp_wf

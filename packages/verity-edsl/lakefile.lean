@@ -27,5 +27,6 @@ lean_lib «Verity» where
     .one `Verity.Specs.Common,
     .one `Verity.Specs.Common.Sum,
     .one `Verity.Proofs.Stdlib.Math,
-    .one `Verity.Proofs.Stdlib.ListSum
+    .one `Verity.Proofs.Stdlib.ListSum,
+    .one `Verity.Proofs.Stdlib.Automation
   ]

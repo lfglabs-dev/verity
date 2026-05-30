@@ -32,6 +32,24 @@ private def firstDuplicateString : List String → Option String
   | name :: rest =>
       if rest.contains name then some name else firstDuplicateString rest
 
+private def missingDeclaredNames (actual declared : List String) : List String :=
+  actual.foldl
+    (fun acc name =>
+      if declared.contains name || acc.contains name then acc else acc ++ [name])
+    []
+
+private def validateUnsafeYulDeclaredScopeEffects (fragment : UnsafeYulFragment) :
+    Except String Unit := do
+  let actual := yulStmtListScopeEffects fragment.stmts
+  let missingBinds := missingDeclaredNames actual.bindNames fragment.scopeEffects.bindNames
+  if !missingBinds.isEmpty then
+    throw s!"Compilation error: unsafe Yul fragment '{fragment.label}' under-declares bound local(s): {String.intercalate ", " missingBinds}"
+  let missingAssigns := missingDeclaredNames actual.assignNames fragment.scopeEffects.assignNames
+  if !missingAssigns.isEmpty then
+    throw s!"Compilation error: unsafe Yul fragment '{fragment.label}' under-declares assigned local(s): {String.intercalate ", " missingAssigns}"
+  if !actual.storageWrites.isEmpty && fragment.scopeEffects.storageWrites.isEmpty then
+    throw s!"Compilation error: unsafe Yul fragment '{fragment.label}' under-declares storage effects for raw Yul storage write(s)."
+
 private def adtPayloadParamNames (params : List Param) : List String :=
   params.flatMap fun param =>
     match param.ty with
@@ -209,40 +227,8 @@ termination_by bs => sizeOf bs
 decreasing_by all_goals simp_wf; all_goals omega
 end
 
-mutual
-  private def stmtListAlwaysReturnsOrReverts : List Stmt → Bool
-    | [] => false
-    | stmt :: rest =>
-        if stmtAlwaysReturnsOrReverts stmt then
-          true
-        else
-          stmtListAlwaysReturnsOrReverts rest
-  termination_by ss => sizeOf ss
-  decreasing_by all_goals simp_wf; all_goals omega
-
-  private def stmtAlwaysReturnsOrReverts : Stmt → Bool
-    | Stmt.return _ | Stmt.returnValues _ | Stmt.returnArray _
-    | Stmt.returnBytes _ | Stmt.returnStorageWords _
-    | Stmt.revertError _ _ | Stmt.revertReturndata =>
-        true
-    | Stmt.ite _ thenBranch elseBranch =>
-        stmtListAlwaysReturnsOrReverts thenBranch && stmtListAlwaysReturnsOrReverts elseBranch
-    | Stmt.unsafeBlock _ body =>
-        stmtListAlwaysReturnsOrReverts body
-    | Stmt.matchAdt _ _ branches =>
-        matchBranchesAllReturnOrRevert branches
-    | _ =>
-        false
-  termination_by s => sizeOf s
-  decreasing_by all_goals simp_wf; all_goals omega
-
-  private def matchBranchesAllReturnOrRevert : List (String × List String × List Stmt) → Bool
-    | [] => true
-    | (_, _, body) :: rest =>
-        stmtListAlwaysReturnsOrReverts body && matchBranchesAllReturnOrRevert rest
-  termination_by bs => sizeOf bs
-  decreasing_by all_goals simp_wf; all_goals omega
-end
+private def stmtListAlwaysReturnsOrReverts (stmts : List Stmt) : Bool :=
+  ControlFlowSummary.alwaysReturnsOrReverts (Stmt.controlFlowList stmts)
 
 def exprReadsStateOrEnv : Expr → Bool
   | Expr.literal _ => false
@@ -428,6 +414,8 @@ def stmtWritesState : Stmt → Bool
       false
   | Stmt.returnBytes _ =>
       false
+  | Stmt.unsafeYul fragment =>
+      !fragment.scopeEffects.storageWrites.isEmpty || fragment.mechanics.contains .tstore
   | Stmt.returnStorageWords _ =>
       false
   | Stmt.mstore offset value =>
@@ -492,6 +480,8 @@ def stmtWrittenFields : Stmt → List String
       stmtListWrittenFields body
   | Stmt.unsafeBlock _ body =>
       stmtListWrittenFields body
+  | Stmt.unsafeYul fragment =>
+      fragment.scopeEffects.storageWrites
   | Stmt.matchAdt _ _ branches =>
       matchBranchesWrittenFields branches
   | _ => []
@@ -643,6 +633,10 @@ def stmtHasUntrackableWrites : Stmt → Bool
       exprHasUntrackableWrites count || stmtListHasUntrackableWrites body
   | Stmt.unsafeBlock _ body =>
       stmtListHasUntrackableWrites body
+  | Stmt.unsafeYul fragment =>
+      -- Raw Yul storage writes target computed slots that cannot be tied back to
+      -- declared storage fields, so any storage-writing fragment is untrackable.
+      !fragment.scopeEffects.storageWrites.isEmpty || fragment.mechanics.contains .storageWrite
   | Stmt.matchAdt _ scrutinee branches =>
       exprHasUntrackableWrites scrutinee || matchBranchesHasUntrackableWrites branches
   | _ => false
@@ -887,6 +881,10 @@ def stmtContainsExternalCall : Stmt → Bool
         matchBranchesContainExternalCall branches
   | Stmt.internalCall _ args | Stmt.internalCallAssign _ _ args =>
       args.any exprContainsExternalCall
+  | Stmt.unsafeYul fragment =>
+      fragment.mechanics.contains .call ||
+        fragment.mechanics.contains .staticcall ||
+        fragment.mechanics.contains .delegatecall
   | _ => false
 termination_by s => sizeOf s
 decreasing_by all_goals simp_wf; all_goals omega
@@ -1030,6 +1028,8 @@ def stmtReadsStateOrEnv : Stmt → Bool
   | Stmt.matchAdt _ scrutinee branches =>
       exprReadsStateOrEnv scrutinee ||
         matchBranchesReadStateOrEnv branches
+  | Stmt.unsafeYul fragment =>
+      !fragment.mechanics.isEmpty || !fragment.scopeEffects.storageWrites.isEmpty
 termination_by s => sizeOf s
 decreasing_by all_goals simp_wf; all_goals omega
 
@@ -1231,6 +1231,8 @@ def stmtWritesStateWithFunctionEffects
   | Stmt.matchAdt _ scrutinee branches =>
       exprWritesStateWithFunctionEffects effects scrutinee ||
         matchBranchesWriteStateWithFunctionEffects effects branches
+  | Stmt.unsafeYul fragment =>
+      !fragment.scopeEffects.storageWrites.isEmpty || fragment.mechanics.contains .tstore
 termination_by s => sizeOf s
 decreasing_by all_goals simp_wf; all_goals omega
 
@@ -1414,6 +1416,8 @@ def stmtReadsStateOrEnvWithFunctionEffects
   | Stmt.matchAdt _ scrutinee branches =>
       exprReadsStateOrEnvWithFunctionEffects effects scrutinee ||
         matchBranchesReadStateOrEnvWithFunctionEffects effects branches
+  | Stmt.unsafeYul fragment =>
+      !fragment.mechanics.isEmpty || !fragment.scopeEffects.storageWrites.isEmpty
 termination_by s => sizeOf s
 decreasing_by all_goals simp_wf; all_goals omega
 
@@ -1494,6 +1498,8 @@ def stmtIsPersistentWrite : Stmt → Bool
       stmtListContainsPersistentWrite body
   | Stmt.matchAdt _ _ branches =>
       matchBranchesPersistentWrite branches
+  | Stmt.unsafeYul fragment =>
+      !fragment.scopeEffects.storageWrites.isEmpty || fragment.mechanics.contains .tstore
   | _ => false
 termination_by s => sizeOf s
 decreasing_by all_goals simp_wf; all_goals omega
@@ -1529,6 +1535,8 @@ def stmtMayPersistentlyWrite : Stmt → Bool
       stmtListMayPersistentlyWrite body
   | Stmt.matchAdt _ _ branches =>
       matchBranchesMayPersistentlyWrite branches
+  | Stmt.unsafeYul fragment =>
+      !fragment.scopeEffects.storageWrites.isEmpty || fragment.mechanics.contains .tstore
   | s => stmtIsPersistentWrite s
 termination_by s => sizeOf s
 decreasing_by all_goals simp_wf; all_goals omega
@@ -1626,6 +1634,23 @@ def stmtInternalCEIViolation : Stmt → Bool → Option String
       -- `match adtTag (externalCall ...) { ... setStorage ... }` is correctly flagged
       let scrutineeSeenCall := seenCall || exprMayContainExternalCall scrutinee
       matchBranchesCEIViolation branches scrutineeSeenCall
+  | Stmt.unsafeYul fragment, seenCall =>
+      -- A raw Yul fragment whose mechanics include an external interaction must be
+      -- treated like a call for CEI purposes. Flag a violation when a storage write
+      -- happens after a prior external call, or within a fragment that both calls
+      -- out and writes storage.
+      let fragmentCalls :=
+        fragment.mechanics.contains .call ||
+          fragment.mechanics.contains .staticcall ||
+          fragment.mechanics.contains .delegatecall
+      let fragmentWrites :=
+        !fragment.scopeEffects.storageWrites.isEmpty ||
+          fragment.mechanics.contains .storageWrite ||
+          fragment.mechanics.contains .tstore
+      if (seenCall || fragmentCalls) && fragmentWrites then
+        some "raw Yul fragment writes state after an external call"
+      else
+        none
   | _, _ => none
 termination_by s => sizeOf s
 decreasing_by all_goals simp_wf; all_goals omega
@@ -1793,6 +1818,11 @@ def validateNoUnsupportedAdtConstructInStmt : Stmt → Except String Unit
   | Stmt.storageArrayPop _ | Stmt.returnArray _ | Stmt.returnBytes _
   | Stmt.returnStorageWords _ | Stmt.revertReturndata | Stmt.stop =>
       pure ()
+  | Stmt.unsafeYul fragment =>
+      if fragment.obligations.isEmpty then
+        throw s!"Compilation error: unsafe Yul fragment '{fragment.label}' must declare at least one local proof obligation."
+      else
+        validateUnsafeYulDeclaredScopeEffects fragment
 termination_by s => sizeOf s
 decreasing_by all_goals simp_wf; all_goals omega
 
@@ -1815,11 +1845,22 @@ decreasing_by all_goals simp_wf; all_goals omega
 end
 
 def validateFunctionSpec (spec : FunctionSpec) : Except String Unit := do
+  let rawYulObligations :=
+    Stmt.foldList
+      (fun acc _ md => acc ++ md.localObligations)
+      []
+      spec.body
+  if spec.body.any (fun stmt =>
+      stmt.fold (fun acc s _ =>
+        match s with
+        | Stmt.unsafeYul fragment => acc || fragment.obligations.isEmpty
+        | _ => acc) false) then
+    throw s!"Compilation error: function '{spec.name}' contains an unsafe Yul fragment without explicit local proof obligations."
   -- Check for unsafe boundary mechanics outside `unsafe "reason" do` blocks.
   -- Mechanics inside `unsafe` blocks are documented by the reason string and
   -- do not independently require `local_obligations` (#1728, Phase 6 Step 6b).
   let unguardedMechanics := collectUnguardedUnsafeBoundaryMechanicsFromStmts spec.body
-  if !unguardedMechanics.isEmpty && spec.localObligations.isEmpty then
+  if !unguardedMechanics.isEmpty && spec.localObligations.isEmpty && rawYulObligations.isEmpty then
     throw s!"Compilation error: function '{spec.name}' uses low-level/assembly mechanic(s) {String.intercalate ", " unguardedMechanics} outside an unsafe block without any local_obligations entry ({issue1424Ref}). Wrap the low-level code in `unsafe \"reason\" do` or add local_obligations [...] to make the trust boundary explicit."
   if spec.isPayable && (spec.isView || spec.isPure) then
     throw s!"Compilation error: function '{spec.name}' cannot be both payable and view/pure ({issue586Ref})"
@@ -1901,8 +1942,19 @@ def validateConstructorSpec (ctor : Option ConstructorSpec) : Except String Unit
   match ctor with
   | none => pure ()
   | some spec =>
+      let rawYulObligations :=
+        Stmt.foldList
+          (fun acc _ md => acc ++ md.localObligations)
+          []
+          spec.body
+      if spec.body.any (fun stmt =>
+          stmt.fold (fun acc s _ =>
+            match s with
+            | Stmt.unsafeYul fragment => acc || fragment.obligations.isEmpty
+            | _ => acc) false) then
+        throw "Compilation error: constructor contains an unsafe Yul fragment without explicit local proof obligations."
       let unguardedMechanics := collectUnguardedUnsafeBoundaryMechanicsFromStmts spec.body
-      if !unguardedMechanics.isEmpty && spec.localObligations.isEmpty then
+      if !unguardedMechanics.isEmpty && spec.localObligations.isEmpty && rawYulObligations.isEmpty then
         throw s!"Compilation error: constructor uses low-level/assembly mechanic(s) {String.intercalate ", " unguardedMechanics} outside an unsafe block without any local_obligations entry ({issue1424Ref}). Wrap the low-level code in `unsafe \"reason\" do` or add local_obligations [...] to make the trust boundary explicit."
       if spec.body.any stmtContainsUnsafeLogicalCallLike then
         throw s!"Compilation error: constructor uses Expr.logicalAnd/Expr.logicalOr/Expr.ite or arithmetic helpers (mulDivUp/wDivUp/min/max) with call-like operand(s) that would be duplicated in Yul output ({issue748Ref}). Move call-like expressions into Stmt.letVar before combining."

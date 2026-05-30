@@ -612,6 +612,35 @@ private def localObligationTrustSurfaceSpec : CompilationModel := {
   ]
 }
 
+private def rawYulTrustSurfaceSpec : CompilationModel := {
+  name := "RawYulTrustSurface"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "unsafeMemory"
+      params := []
+      returnType := none
+      body := [
+        Stmt.unsafeYul {
+          label := "manual_memory_refinement"
+          stmts := [
+            Compiler.Yul.YulStmt.expr
+              (Compiler.Yul.YulExpr.call "mstore" [Compiler.Yul.YulExpr.lit 0, Compiler.Yul.YulExpr.lit 1])
+          ]
+          obligations := [
+            { name := "manual_memory_refinement"
+              obligation := "Handwritten Yul memory write must refine the high-level memory contract."
+              proofStatus := .assumed }
+          ]
+          mechanics := [.mstore]
+          termination := .fallsThrough
+        },
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
 private def unsafeBlockTrustSurfaceSpec : CompilationModel := {
   name := "UnsafeBlockTrustSurface"
   fields := []
@@ -1496,6 +1525,24 @@ unsafe def runTests : IO Unit := do
   if !contains localObligationUsageSiteReport "- LocalObligationTrustSurface [function:unsafeEdge]: assumed local obligations: manual_delegatecall_refinement" then
     throw (IO.userError "✗ local-obligation diagnostics localize usage sites")
   IO.println "✓ trust report surfaces local unsafe/refinement obligations"
+
+  let rawYulTrustReport := emitTrustReportJson [rawYulTrustSurfaceSpec]
+  if !contains rawYulTrustReport "\"contract\":\"RawYulTrustSurface\"" then
+    throw (IO.userError "✗ raw Yul trust report emits contract name")
+  if !contains rawYulTrustReport "\"modeledLowLevelMechanics\":[\"mstore\"]" then
+    throw (IO.userError "✗ raw Yul trust report emits fragment low-level mechanics")
+  if !contains rawYulTrustReport "\"localObligations\":[{\"name\":\"manual_memory_refinement\",\"status\":\"assumed\",\"obligation\":\"Handwritten Yul memory write must refine the high-level memory contract.\"}]" then
+    throw (IO.userError "✗ raw Yul trust report emits fragment local obligations")
+  if !contains rawYulTrustReport "\"usageSites\":[{\"kind\":\"function\",\"name\":\"unsafeMemory\"" ||
+      !contains rawYulTrustReport "\"unsafeBlocks\":[\"manual_memory_refinement\"]" then
+    throw (IO.userError "✗ raw Yul trust report localizes fragment usage site")
+  let rawYulOutDir := s!"/tmp/verity-compile-driver-test-{nonce}-raw-yul-out"
+  IO.FS.createDirAll rawYulOutDir
+  compileSpecsWithOptions [rawYulTrustSurfaceSpec] rawYulOutDir false [] {} none none none none
+  let rawYulArtifact ← IO.FS.readFile s!"{rawYulOutDir}/RawYulTrustSurface.yul"
+  if !contains rawYulArtifact "mstore(0, 1)" then
+    throw (IO.userError "✗ raw Yul fragment lowers through the central EVMYul bridge")
+  IO.println "✓ raw Yul fragments lower and surface trust obligations"
 
   let assumptionReport := emitAssumptionReportJson [trustSurfaceSpec, localObligationTrustSurfaceSpec]
   if !contains assumptionReport "\"contract\":\"TrustSurfaceSmoke\"" then

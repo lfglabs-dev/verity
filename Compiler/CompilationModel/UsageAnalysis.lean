@@ -4,33 +4,19 @@ namespace Compiler.CompilationModel
 
 mutual
 def collectStmtBindNames : Stmt → List String
-  | Stmt.letVar name _ => [name]
-  | Stmt.ite _ thenBranch elseBranch =>
+  | .letVar name _ => [name]
+  | .internalCallAssign names _ _ => names
+  | .externalCallBind resultVars _ _ => resultVars
+  | .tryExternalCallBind successVar resultVars _ _ => successVar :: resultVars
+  | .ecm mod _ => mod.resultVars
+  | .ite _ thenBranch elseBranch =>
       collectStmtListBindNames thenBranch ++ collectStmtListBindNames elseBranch
-  | Stmt.forEach varName _ body =>
-      varName :: collectStmtListBindNames body
-  | Stmt.unsafeBlock _ body =>
-      collectStmtListBindNames body
-  | Stmt.matchAdt _ _ branches =>
-      collectMatchBranchBindNames branches
-  | Stmt.internalCallAssign names _ _ => names
-  | Stmt.externalCallBind resultVars _ _ => resultVars
-  | Stmt.tryExternalCallBind successVar resultVars _ _ => successVar :: resultVars
-  | Stmt.ecm mod _ => mod.resultVars
-  -- Statements that never bind new names.
-  | Stmt.assignVar _ _ | Stmt.setStorage _ _ | Stmt.setStorageAddr _ _ | Stmt.setStorageWord _ _ _
-  | Stmt.storageArrayPush _ _ | Stmt.storageArrayPop _ | Stmt.setStorageArrayElement _ _ _
-  | Stmt.return _
-  | Stmt.setMapping _ _ _ | Stmt.setMappingWord _ _ _ _ | Stmt.setMappingPackedWord _ _ _ _ _ | Stmt.setMappingUint _ _ _
-  | Stmt.setMappingChain _ _ _
-  | Stmt.setMapping2 _ _ _ _ | Stmt.setMapping2Word _ _ _ _ _
-  | Stmt.setStructMember _ _ _ _ | Stmt.setStructMember2 _ _ _ _ _
-  | Stmt.require _ _ | Stmt.requireError _ _ _ | Stmt.revertError _ _
-  | Stmt.returnValues _ | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _
-  | Stmt.mstore _ _ | Stmt.tstore _ _ | Stmt.calldatacopy _ _ _ | Stmt.returndataCopy _ _ _ | Stmt.revertReturndata | Stmt.stop
-  | Stmt.emit _ _ | Stmt.internalCall _ _ | Stmt.rawLog _ _ _ =>
-      []
-termination_by s => sizeOf s
+  | .forEach varName _ body => varName :: collectStmtListBindNames body
+  | .unsafeBlock _ body => collectStmtListBindNames body
+  | .matchAdt _ _ branches => collectMatchBranchBindNames branches
+  | .unsafeYul fragment => fragment.scopeEffects.bindNames
+  | _ => []
+termination_by stmt => sizeOf stmt
 decreasing_by all_goals simp_wf; all_goals omega
 
 def collectStmtListBindNames : List Stmt → List String
@@ -50,29 +36,15 @@ end
 
 mutual
 def collectStmtAssignedNames : Stmt → List String
-  | Stmt.assignVar name _ => [name]
-  | Stmt.ite _ thenBranch elseBranch =>
+  | .assignVar name _ => [name]
+  | .unsafeBlock _ body => collectStmtListAssignedNames body
+  | .ite _ thenBranch elseBranch =>
       collectStmtListAssignedNames thenBranch ++ collectStmtListAssignedNames elseBranch
-  | Stmt.forEach _ _ body =>
-      collectStmtListAssignedNames body
-  | Stmt.unsafeBlock _ body =>
-      collectStmtListAssignedNames body
-  | Stmt.matchAdt _ _ branches =>
-      collectMatchBranchAssignedNames branches
-  | Stmt.letVar _ _ | Stmt.setStorage _ _ | Stmt.setStorageAddr _ _ | Stmt.setStorageWord _ _ _
-  | Stmt.storageArrayPush _ _ | Stmt.storageArrayPop _ | Stmt.setStorageArrayElement _ _ _
-  | Stmt.return _
-  | Stmt.setMapping _ _ _ | Stmt.setMappingWord _ _ _ _ | Stmt.setMappingPackedWord _ _ _ _ _ | Stmt.setMappingUint _ _ _
-  | Stmt.setMappingChain _ _ _
-  | Stmt.setMapping2 _ _ _ _ | Stmt.setMapping2Word _ _ _ _ _
-  | Stmt.setStructMember _ _ _ _ | Stmt.setStructMember2 _ _ _ _ _
-  | Stmt.require _ _ | Stmt.requireError _ _ _ | Stmt.revertError _ _
-  | Stmt.returnValues _ | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _
-  | Stmt.mstore _ _ | Stmt.tstore _ _ | Stmt.calldatacopy _ _ _ | Stmt.returndataCopy _ _ _ | Stmt.revertReturndata | Stmt.stop
-  | Stmt.emit _ _ | Stmt.internalCall _ _ | Stmt.internalCallAssign _ _ _
-  | Stmt.rawLog _ _ _ | Stmt.externalCallBind _ _ _ | Stmt.tryExternalCallBind _ _ _ _ | Stmt.ecm _ _ =>
-      []
-termination_by s => sizeOf s
+  | .forEach _ _ body => collectStmtListAssignedNames body
+  | .matchAdt _ _ branches => collectMatchBranchAssignedNames branches
+  | .unsafeYul fragment => fragment.scopeEffects.assignNames
+  | _ => []
+termination_by stmt => sizeOf stmt
 decreasing_by all_goals simp_wf; all_goals omega
 
 def collectStmtListAssignedNames : List Stmt → List String
@@ -277,8 +249,11 @@ def stmtUsesArrayElementKind (includePlain includeWord : Bool) : Stmt → Bool
       exprListUsesArrayElementKind includePlain includeWord args
   | Stmt.ecm _ args =>
       exprListUsesArrayElementKind includePlain includeWord args
-  | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _
+  | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ =>
+      false
   | Stmt.revertReturndata | Stmt.stop =>
+      false
+  | Stmt.unsafeYul _ =>
       false
 termination_by s => sizeOf s
 decreasing_by all_goals simp_wf; all_goals omega
@@ -432,8 +407,11 @@ def stmtUsesArrayElement : Stmt → Bool
       exprListUsesArrayElement topics || exprUsesArrayElement dataOffset || exprUsesArrayElement dataSize
   | Stmt.externalCallBind _ _ args | Stmt.tryExternalCallBind _ _ _ args | Stmt.ecm _ args =>
       exprListUsesArrayElement args
-  | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _
+  | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ =>
+      false
   | Stmt.revertReturndata | Stmt.stop =>
+      false
+  | Stmt.unsafeYul _ =>
       false
 termination_by s => sizeOf s
 decreasing_by all_goals simp_wf; all_goals omega
@@ -637,8 +615,11 @@ def stmtUsesParamDynamicHeadWord : Stmt → Bool
       exprListUsesParamDynamicHeadWord topics ||
         exprUsesParamDynamicHeadWord dataOffset ||
         exprUsesParamDynamicHeadWord dataSize
-  | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _
+  | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ =>
+      false
   | Stmt.revertReturndata | Stmt.stop =>
+      false
+  | Stmt.unsafeYul _ =>
       false
 termination_by s => sizeOf s
 decreasing_by all_goals simp_wf; all_goals omega
@@ -781,8 +762,11 @@ def stmtUsesMulDiv512 : Stmt → Bool
   | Stmt.rawLog topics dataOffset dataSize =>
       exprListUsesMulDiv512 topics ||
         exprUsesMulDiv512 dataOffset || exprUsesMulDiv512 dataSize
-  | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _
+  | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ =>
+      false
   | Stmt.revertReturndata | Stmt.stop =>
+      false
+  | Stmt.unsafeYul _ =>
       false
 termination_by s => sizeOf s
 decreasing_by all_goals simp_wf; all_goals omega
@@ -954,8 +938,11 @@ def stmtUsesStorageArrayElement : Stmt → Bool
       exprListUsesStorageArrayElement topics || exprUsesStorageArrayElement dataOffset || exprUsesStorageArrayElement dataSize
   | Stmt.ecm _ args =>
       exprListUsesStorageArrayElement args
-  | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _
+  | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ =>
+      false
   | Stmt.revertReturndata | Stmt.stop =>
+      false
+  | Stmt.unsafeYul _ =>
       false
 termination_by s => sizeOf s
 decreasing_by all_goals simp_wf; all_goals omega
@@ -1107,8 +1094,11 @@ def stmtUsesDynamicBytesEq : Stmt → Bool
       exprListUsesDynamicBytesEq args
   | Stmt.rawLog topics dataOffset dataSize =>
       exprListUsesDynamicBytesEq topics || exprUsesDynamicBytesEq dataOffset || exprUsesDynamicBytesEq dataSize
-  | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _
+  | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ =>
+      false
   | Stmt.revertReturndata | Stmt.stop =>
+      false
+  | Stmt.unsafeYul _ =>
       false
 termination_by s => sizeOf s
 decreasing_by all_goals simp_wf; all_goals omega

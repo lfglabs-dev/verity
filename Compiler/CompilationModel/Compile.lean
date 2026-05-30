@@ -42,6 +42,16 @@ namespace Compiler.CompilationModel
 open Compiler
 open Compiler.Yul
 
+/-- Single bridge from typed unsafe/raw Yul fragments into the EVMYul AST.
+    Proof obligations and trust metadata live on `UnsafeYulFragment`; this
+    function is intentionally the only compiler lowering point for that escape
+    hatch. -/
+def unsafeYulToEVMYul (fragment : UnsafeYulFragment) : List YulStmt :=
+  fragment.stmts
+
+theorem unsafeYulToEVMYul_eq (fragment : UnsafeYulFragment) :
+    unsafeYulToEVMYul fragment = fragment.stmts := rfl
+
 private def compileAdtStorageWrite (fields : List Field)
     (dynamicSource : DynamicDataSource) (adtTypes : List AdtTypeDef)
     (storageField adtName variantName : String) (args : List Expr) :
@@ -270,6 +280,9 @@ def compileStmt (fields : List Field) (events : List EventDef := [])
       -- Unsafe block: transparent wrapper, compile inner body directly (#1728, Axis 6 Step 6a)
       compileStmtList fields events errors dynamicSource internalRetNames isInternal inScopeNames adtTypes body
 
+  | Stmt.unsafeYul fragment =>
+      pure (unsafeYulToEVMYul fragment)
+
   | Stmt.emit eventName args => do
       compileEmit fields events dynamicSource eventName args
 
@@ -466,5 +479,18 @@ def compileMatchAdtBranches (fields : List Field) (events : List EventDef)
         inScopeNames adtTypes def_ baseSlot rest
       pure ((variant.tag, fieldBindings ++ bodyStmts) :: restCases)
 end
+
+theorem compileStmt_unsafeYul
+    (fields : List Field) (events : List EventDef := [])
+    (errors : List ErrorDef := [])
+    (dynamicSource : DynamicDataSource := .calldata)
+    (internalRetNames : List String := [])
+    (isInternal : Bool := false)
+    (inScopeNames : List String := [])
+    (adtTypes : List AdtTypeDef := [])
+    (fragment : UnsafeYulFragment) :
+    compileStmt fields events errors dynamicSource internalRetNames isInternal inScopeNames adtTypes
+      (Stmt.unsafeYul fragment) = pure fragment.stmts := by
+  simp [compileStmt, unsafeYulToEVMYul]
 
 end Compiler.CompilationModel

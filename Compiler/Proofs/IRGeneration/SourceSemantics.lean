@@ -4561,6 +4561,7 @@ private theorem execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux
         evalExprListWithHelpers_eq_evalExprList_of_helperSurfaceClosed spec fields fuel state args hall,
         evalExprList_eq_mapM]
   | .rawLog _ _ _ => simp [execStmtWithHelpers, execStmtWithEvents]
+  | .unsafeYul _ => cases hsurface
   | .externalCallBind _ _ _ => simp [execStmtWithHelpers, execStmtWithEvents]
   | .tryExternalCallBind _ _ _ _ => simp [execStmtWithHelpers, execStmtWithEvents]
   | .ecm _ _ => simp [execStmtWithHelpers, execStmtWithEvents]
