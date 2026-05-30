@@ -2,6 +2,7 @@ import Compiler.Proofs.IRGeneration.SupportedSpec
 import Compiler.Proofs.IRGeneration.IRInterpreter
 import Compiler.Proofs.MappingSlot
 import Compiler.CompilationModel.LayoutValidation
+import Compiler.Keccak.Sponge
 
 set_option linter.unnecessarySimpa false
 set_option linter.unusedSimpArgs false
@@ -28,6 +29,32 @@ def addressModulus : Nat := 2 ^ 160
 
 def boolWord (b : Bool) : Nat :=
   if b then 1 else 0
+
+/-- Big-endian 32-byte encoding of a 256-bit word (byte 0 most significant). -/
+def wordToBytesBE (w : Nat) : ByteArray :=
+  ⟨((List.range 32).map (fun i => UInt8.ofNat ((w / (256 ^ (31 - i))) % 256))).toArray⟩
+
+/-- Concatenate the big-endian bytes of the word-aligned memory cells covering
+`[offset, offset + size)` and keep the first `size` bytes.
+
+This is faithful to EVM `keccak256(offset, size)` for the word-aligned access
+pattern Verity's compiler emits: one 32-byte cell per slot at `offset + 32*i`,
+matching how `mload`/`mstore` are modelled here (memory is keyed by byte offset
+and returns the full word stored at that key). -/
+def memorySliceBytesBE (memory : Nat → Verity.Core.Uint256) (offset size : Nat) :
+    ByteArray :=
+  let nWords := (size + 31) / 32
+  let full := (List.range nWords).foldl
+    (fun acc i => acc ++ wordToBytesBE (memory (offset + 32 * i)).val) ByteArray.empty
+  full.extract 0 size
+
+/-- Source-semantics model of `keccak256(offset, size)`: the in-tree pure Keccak
+engine applied to the word-aligned memory slice, returned as a big-endian word.
+Uses the real `KeccakEngine.keccak256`, so the modelled digest is the genuine
+Keccak-256 of the slice (no abstract placeholder). -/
+def keccakMemorySlice (memory : Nat → Verity.Core.Uint256) (offset size : Nat) : Nat :=
+  wordNormalize (KeccakEngine.byteArrayToNatBE
+    (KeccakEngine.keccak256 (memorySliceBytesBE memory offset size)))
 
 /-- Low-level proof encoding of an emitted event.
 
@@ -1040,6 +1067,10 @@ def evalExpr (fields : List Field) (state : RuntimeState) : Expr → Option Nat
   | .calldataload offset => do
       let resolvedOffset ← evalExpr fields state offset
       some (Compiler.Proofs.YulGeneration.calldataloadWord state.selector state.world.calldata resolvedOffset)
+  | .keccak256 offExpr sizeExpr => do
+      let off ← evalExpr fields state offExpr
+      let size ← evalExpr fields state sizeExpr
+      some (keccakMemorySlice state.world.memory off size)
   | .constructorArg idx =>
       lookupBinding? state.bindings s!"arg{idx}"
   | _ => none
@@ -1218,7 +1249,10 @@ private theorem evalExpr_keccak256
     (fields : List Field)
     (state : RuntimeState)
     (a b : Expr) :
-    evalExpr fields state (.keccak256 a b) = none := rfl
+    evalExpr fields state (.keccak256 a b) = (do
+      let off ← evalExpr fields state a
+      let size ← evalExpr fields state b
+      some (keccakMemorySlice state.world.memory off size)) := rfl
 
 private theorem evalExpr_mulDiv512Down
     (fields : List Field)
@@ -3016,6 +3050,14 @@ mutual
     | .calldataload offset => do
         let resolvedOffset ← evalExprWithHelpers spec fields fuel state offset
         some (Compiler.Proofs.YulGeneration.calldataloadWord state.selector state.world.calldata resolvedOffset)
+    | .keccak256 offExpr sizeExpr => do
+        -- Offset/size args of compiled `keccak256` are pointer/length
+        -- expressions, never internal-helper calls, so we evaluate them with
+        -- the plain `evalExpr`. This makes the helper-aware reading
+        -- definitionally equal to `evalExpr (.keccak256 …)`.
+        let off ← evalExpr fields state offExpr
+        let size ← evalExpr fields state sizeExpr
+        some (keccakMemorySlice state.world.memory off size)
     -- Unmodeled / codegen-only constructors (no helper-aware semantics yet).
     -- Listed explicitly rather than via `| _ => none` so the
     -- `_mutual.eq_def` deriver does not enumerate the complement and trip
@@ -3033,7 +3075,6 @@ mutual
     | .arrayElementDynamicMemberDataOffset _ _ _
     | .arrayElementDynamicMemberElement _ _ _ _
     | .extcodesize _ | .returndataSize | .returndataOptionalBoolAt _
-    | .keccak256 _ _
     | .call _ _ _ _ _ _ _ | .staticcall _ _ _ _ _ _ | .delegatecall _ _ _ _ _ _
     | .externalCall _ _ | .mappingChain _ _ | .intrinsic _ _ _ _
     | .forkIfAtLeast _ _ _

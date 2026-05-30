@@ -118,6 +118,34 @@ structurally via `Compiler/Keccak/SpongeProperties.lean`.
 - End-to-end regression suites that exercise mapping reads/writes.
 - CI cross-checks kernel Keccak output against FFI Keccak output.
 
+### Kernel-computable source-semantics `keccak256(offset, size)`
+
+**Location**: `Compiler/Proofs/IRGeneration/SourceSemantics.lean`
+(`keccakMemorySlice`, `memorySliceBytesBE`, and the `.keccak256` arms of
+`evalExpr` / `evalExprWithHelpers`).
+
+**Role**:
+The executable source semantics evaluates `Expr.keccak256 offset size` by reading
+the `RuntimeState` memory as 256-bit words at `offset, offset+32, …`,
+concatenating them big-endian, truncating the result to `size` bytes, and hashing
+with the in-tree `KeccakEngine.keccak256`. Previously this expression evaluated to
+`none` (modeled as a revert), so any contract performing a native `keccak256` fell
+outside the modeled fragment; it is now executably modeled.
+
+**What we trust** (`keccak256_memory_slice_matches_evm`):
+Verity's compiled output writes scratch memory in whole 32-byte words (`mstore`),
+so reading whole words and truncating the big-endian concatenation to `size` bytes
+reproduces the EVM's byte-addressed `keccak256(offset, size)` preimage exactly. The
+`RuntimeState` memory is word-keyed, so sub-word / byte-granular aliasing is not
+modeled; this is faithful for the word-aligned access shape Verity emits and is the
+same assumption already surfaced in `--trust-report` for `Expr.keccak256`.
+
+**Soundness controls**:
+- Reuses the same kernel-computable `KeccakEngine.keccak256` that CI cross-checks
+  against FFI/EVM keccak; no new hash implementation is introduced.
+- `keccakMemorySlice` is an ordinary computable definition, not an axiom: it adds
+  no `axiom`/`sorry` to the trust surface.
+
 ## EVMYulLean Runtime Semantics (Non-Axiom)
 
 **Location**:
