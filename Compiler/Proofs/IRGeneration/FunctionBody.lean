@@ -1966,9 +1966,9 @@ private theorem calldataloadWord_lt_evmModulus
     · -- offset ≥ 4: let binding then conditional
       dsimp only []
       split
-      · -- unaligned: returns 0
-        norm_num [Compiler.Constants.evmModulus]
-      · -- aligned: returns calldata.getD idx 0 % evmModulus
+      · -- aligned (r = 0): calldata.getD q 0 % evmModulus
+        exact Nat.mod_lt _ (by norm_num [Compiler.Constants.evmModulus])
+      · -- unaligned (r ≠ 0): composed hi/lo window reduced mod evmModulus
         exact Nat.mod_lt _ (by norm_num [Compiler.Constants.evmModulus])
 
 theorem compileExpr_calldataload_ok

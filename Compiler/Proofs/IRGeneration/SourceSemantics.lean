@@ -3053,8 +3053,13 @@ mutual
     | .keccak256 offExpr sizeExpr => do
         -- Offset/size args of compiled `keccak256` are pointer/length
         -- expressions, never internal-helper calls, so we evaluate them with
-        -- the plain `evalExpr`. This makes the helper-aware reading
-        -- definitionally equal to `evalExpr (.keccak256 …)`.
+        -- the plain `evalExpr`. This is load-bearing, not just an optimization:
+        -- `exprTouchesUnsupportedHelperSurface` treats `.keccak256` as a leaf and
+        -- does not recurse into its sub-expressions, so the equivalence theorem
+        -- `evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed` relies on this
+        -- arm being definitionally equal to `evalExpr (.keccak256 …)`. Switching to
+        -- `evalExprWithHelpers` here would break that proof unless the surface
+        -- predicate is also taught to recurse into offset/size.
         let off ← evalExpr fields state offExpr
         let size ← evalExpr fields state sizeExpr
         some (keccakMemorySlice state.world.memory off size)

@@ -259,6 +259,13 @@ def stmtContainsUnsafeLogicalCallLike : Stmt → Bool
   | Stmt.ecm _ args =>
       exprListAnyUnsafeLogicalCallLike args
   | Stmt.unsafeYul _ =>
+      -- Raw Yul is emitted verbatim, so the expression compiler never duplicates
+      -- its operands — the logicalAnd/logicalOr/ite operand-duplication hazard this
+      -- predicate guards against cannot arise for a raw fragment, so `false` is
+      -- correct. External calls inside a fragment are still caught for CEI /
+      -- no_external_calls by `stmtContainsExternalCall` / `stmtMayContainExternalCall`
+      -- in Validation; folding that detection in here instead produced a misleading
+      -- "move call-like expressions into Stmt.letVar" diagnostic.
       false
 termination_by s => sizeOf s
 decreasing_by all_goals simp_wf; all_goals omega
