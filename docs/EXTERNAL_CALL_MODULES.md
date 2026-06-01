@@ -342,6 +342,43 @@ For a machine-readable version, run `verity-compiler --trust-report <path>`. The
 | `--deny-unchecked-dependencies` | Any `unchecked` linked external or ECM module |
 | `--deny-assumed-dependencies` | Any `assumed` or `unchecked` linked external or ECM module |
 
+## Executable Semantics (ECM environment)
+
+`verity_contract` produces two artifacts from one spec: the Yul codegen path
+(`mod.compile`, described above) and an executable `Contract` definition used by
+Lean proofs and tests. The two paths are independent. This section is only about
+the executable one.
+
+In the executable semantics, an external call cannot run real EVM code, so its
+result must come from somewhere. `ContractState` carries an ECM environment:
+
+```lean
+ecmResults : String → List Uint256 → Nat → Uint256 := fun _ _ _ => 0
+```
+
+It maps a module name, the call's argument words, and a result-word index to the
+value the call yields. The readers live in `Contracts.Common`:
+
+- `ecmCall factory args` reads result word `0`: `ecmEnvRead (factory "_ecm") args 0`.
+- `ecmBind [a, b] mod args` binds `a` to word `0`, `b` to word `1`, and so on.
+- `ecmDo mod args` is a no-op: it models a fire-and-forget effect (an ERC-20
+  transfer, a callback) that is assumed to succeed.
+
+The environment is keyed by `(name, args)` with no call counter. Within a single
+transaction this is faithful: `keccak`/`abiEncode` words are pure functions of
+their inputs, and oracle or IRM staticcalls return a constant for the duration of
+the call. A proof that needs a specific price or market id supplies it through
+`ecmResults`; it is then a named hypothesis, not a hidden zero. The default
+all-zero environment keeps tests that never inspect external-call values working
+unchanged.
+
+This turns the executable trust boundary from "every external call returns 0" (a
+falsehood that made any downstream value degenerate) into "external call results
+are environment inputs, validated against the contract by the parity suite." The
+two irreducible gaps that remain are named: ERC-20 transfer success (`ecmDo`) and
+EDSL-to-bytecode fidelity (codegen vs. executable). Both are covered empirically
+by the differential tests, not by a Lean proof.
+
 ## Trust Model
 
 - The compiler trusts that `mod.compile` produces Yul that correctly implements

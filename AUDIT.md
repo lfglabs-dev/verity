@@ -48,6 +48,20 @@ arbitrary `pfx ++ sfx` split. End-to-end smoke proof in the same file.
 Wiring of `SupportedFragment` / `SupportedSpec` for contracts that
 actually use this family is the next milestone.
 
+## Executable ECM Environment
+
+`ContractState` carries an ECM environment field `ecmResults : String → List
+Uint256 → Nat → Uint256` (default all-zero). The executable `ecmCall`/`ecmBind`
+readers in `Contracts/Common.lean` take external-call result words from it
+instead of returning a hardcoded zero; `ecmDo` stays a no-op success. This only
+affects the executable `Contract` semantics used by proofs and tests; the Yul
+codegen path is unchanged, so emitted bytecode and the differential parity suite
+are unaffected. Two assumptions are confined to this path and remain checked only
+by parity: `ecm_environment_matches_chain` and `ecm_effect_succeeds` (see
+`AXIOMS.md`). The environment is keyed by `(name, args)` with no call counter,
+which is faithful within a single transaction because keccak/abiEncode words are
+pure and oracle/IRM staticcalls are constant for the call's duration.
+
 ## Audit Artifacts
 
 | Artifact | Purpose | Check |
@@ -85,4 +99,4 @@ actually use this family is the next milestone.
    command.
 5. Run `make check`; run targeted Lean builds for changed proof modules.
 
-**Last Updated**: 2026-05 (intrinsics addition)
+**Last Updated**: 2026-06 (executable ECM environment)

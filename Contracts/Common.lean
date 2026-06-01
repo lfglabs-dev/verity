@@ -13,19 +13,25 @@ open Verity.EVM.Uint256
 open Verity.Stdlib.Math
 
 macro_rules
-  | `(term| ecmCall $_moduleFactory:term $_args:term) =>
-      `(term| do
-          let _ := $_moduleFactory
-          pure (0 : Uint256))
+  | `(term| ecmCall $moduleFactory:term $args:term) => do
+      let readFn := Lean.mkIdentFrom moduleFactory `_root_.Contracts.ecmEnvRead
+      `(term| $readFn:ident ($moduleFactory "_ecm") $args 0)
   | `(term| ecmDo $_module:term $_args:term) =>
+      -- Fire-and-forget effects (ERC-20 transfers, callbacks) are modeled as
+      -- no-ops: the executable semantics assumes they succeed. That success is
+      -- a named trust assumption, checked empirically by the parity suite.
       `(term| do
           let _ := $_module
           pure ())
-  | `(doElem| ecmBind [ $[$names:ident],* ] $_module:term $_args:term) =>
+  | `(doElem| ecmBind [ $[$names:ident],* ] $module:term $args:term) => do
+      let readFn := Lean.mkIdentFrom module `_root_.Contracts.ecmEnvRead
+      let idxs : Array (Lean.TSyntax `term) :=
+        (Array.range names.size).map fun i => Lean.quote i
       `(doElem| do
-          let _ := $_module
-          $[let $names := (0 : Uint256)]*
-          pure ())
+          let __ecmBindMod := $module
+          let __ecmBindArgs := $args
+          let __ecmRead := $readFn:ident
+          $[let $names ← __ecmRead __ecmBindMod __ecmBindArgs $idxs]*)
   | `(doElem| unsafe $_reason:str do $body:doSeq) =>
       `(doElem| do $body)
   | `(doElem| tryCatch $attempt:term (fun $name:ident => do $[$elems:doElem]*)) => do
@@ -425,6 +431,24 @@ private def encodePackedWord (current value : Uint256) (offset width : Nat) : Ui
   let packedValue := Verity.Core.Uint256.and value mask
   let cleared := Verity.Core.Uint256.and current (Verity.Core.Uint256.not shiftedMask)
   Verity.Core.Uint256.or cleared (Verity.Core.Uint256.shl offset packedValue)
+
+/-- Executable reader for one result word of an external call.
+
+    The ECM environment `state.ecmResults` supplies the value an external call
+    returns on-chain (a keccak/abiEncode word, an oracle or IRM staticcall
+    result), keyed by the module name, the call's argument words, and the
+    result-word index. Reading does not change state. Reverting external calls
+    are out of scope here: the executable semantics only models the success
+    path, exactly as the proof obligations assume. See `ContractState.ecmResults`
+    and docs/EXTERNAL_CALL_MODULES.md. -/
+def ecmEnvRead (mod : Compiler.ECM.ExternalCallModule)
+    (args : List Uint256) (idx : Nat) : Contract Uint256 :=
+  fun state => ContractResult.success (state.ecmResults mod.name args idx) state
+
+@[simp] theorem ecmEnvRead_run (mod : Compiler.ECM.ExternalCallModule)
+    (args : List Uint256) (idx : Nat) (state : ContractState) :
+    (ecmEnvRead mod args idx).run state
+      = ContractResult.success (state.ecmResults mod.name args idx) state := rfl
 
 def structMemberAt {κ α : Type} [StorageKey κ] [StorageWord α]
     (baseSlot : Nat) (wordOffset : Nat) (packed : Option (Nat × Nat)) (key : κ) :

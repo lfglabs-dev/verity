@@ -89,6 +89,16 @@ structure ContractState where
   memory : Nat → Uint256 := fun _ => 0     -- EVM memory (word-addressed, zero-initialized)
   knownAddresses : Nat → FiniteAddressSet  -- Tracked addresses per storage slot (for sum properties)
   events : List Event := []  -- Emitted events, append-only log (#153)
+  -- ECM external-call environment (#964 follow-up). Indexed by module name,
+  -- the call's argument words, and the result-word index. This models the
+  -- values external calls (keccak/abiEncode words, oracle/IRM staticcall
+  -- returns) yield on-chain, instead of stubbing them to zero. Within one
+  -- transaction these reads are pure functions of (name, args): keccak is
+  -- deterministic and oracle/IRM staticcalls are constant, so no call counter
+  -- is needed. Default is the all-zero environment used by tests that do not
+  -- exercise external-call values. See Contracts/Common.lean for the readers
+  -- and docs/EXTERNAL_CALL_MODULES.md for the trust boundary.
+  ecmResults : String → List Uint256 → Nat → Uint256 := fun _ _ _ => 0
 
 -- Default zero state — all storage zero, empty addresses, no events.
 -- Use `{ defaultState with sender := "0xAlice" }` to customize individual fields.

@@ -69,6 +69,7 @@ Current theorem totals, property-test coverage, and proof status live in [docs/V
 - **Role**: Reusable typed external call patterns (ERC-20 writes/reads including `totalSupply`, ERC-4626 preview/conversion helpers plus `totalAssets`, `asset`, `max*` limit reads, and `deposit`, oracle reads, precompiles 0x01 / 0x02 / 0x06 / 0x07 / 0x08 — `ecrecover`, `sha256`, BN254 `bn256Add`, `bn256ScalarMul`, `bn256Pairing` — callbacks).
 - **Trust**: Each module's `compile` produces correct Yul. Bug in one module doesn't affect others.
 - **Mitigation**: Axiom aggregation at compile time (`--verbose`), machine-readable trust-surface emission via `--trust-report <path>`, and a fail-closed verification gate via `--deny-unchecked-dependencies` when unchecked foreign surfaces must be excluded. See [docs/EXTERNAL_CALL_MODULES.md](docs/EXTERNAL_CALL_MODULES.md).
+- **Executable semantics**: In the `Contract` monad used by proofs, external-call results come from the ECM environment `ContractState.ecmResults` rather than from real EVM execution. `ecmCall`/`ecmBind` read result words; `ecmDo` is a no-op success. Two assumptions are confined to this path and remain checked only by the differential parity suite: `ecm_environment_matches_chain` (supplied values equal on-chain returns) and `ecm_effect_succeeds` (fire-and-forget effects succeed). See `AXIOMS.md` and [docs/EXTERNAL_CALL_MODULES.md](docs/EXTERNAL_CALL_MODULES.md).
 
 ### 8. Lean Kernel
 - **Role**: Proof checker soundness. Foundational assumption for all Lean-based verification.

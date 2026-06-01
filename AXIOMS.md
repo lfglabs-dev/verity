@@ -178,6 +178,23 @@ compilation fail if any assumption hasn't been reviewed.
 | `Hashing.sha256PackedWords` / `Hashing.sha256Packed` | `evm_sha256_precompile`, `abi_packed_static_word_layout` | Static packed words are laid out before SHA-256 precompile call |
 | `Hashing.sha256PackedStaticSegments` | `evm_sha256_precompile`, `abi_packed_static_segment_layout` | Static packed byte-width segments are laid out before SHA-256 precompile call |
 
+### Executable ECM Environment
+
+The assumptions above concern the Yul codegen path. The executable `Contract`
+semantics used by Lean proofs takes external-call results from the ECM
+environment on `ContractState` (`ecmResults : String → List Uint256 → Nat →
+Uint256`). The readers are `ecmCall` (result word 0), `ecmBind` (one word per
+bound name), and `ecmDo` (a no-op fire-and-forget effect). See
+`docs/EXTERNAL_CALL_MODULES.md` for the full description.
+
+Two assumptions live only in the executable path and are not discharged by any
+Lean proof; both are covered empirically by the differential parity suite:
+
+| Assumption | Where | Meaning |
+|------------|-------|---------|
+| `ecm_environment_matches_chain` | `ecmCall` / `ecmBind` readers | The values supplied through `ecmResults` (keccak/abiEncode words, oracle and IRM staticcall returns) equal what the deployed contracts return on-chain. Keyed by `(name, args)` with no call counter, which is faithful within one transaction because these reads are pure or constant. |
+| `ecm_effect_succeeds` | `ecmDo` | A fire-and-forget effect (ERC-20 transfer, callback) succeeds and reverts nothing. This is the executable counterpart of the per-module ERC-20 interface assumptions above. |
+
 ### Third-Party Module Assumptions
 
 Third-party ECMs (external Lean packages) document their assumptions in their own
