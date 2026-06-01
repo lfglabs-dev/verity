@@ -8,6 +8,8 @@ import Compiler.Codegen
 import Compiler.Linker
 import Compiler.Selector
 import Compiler.Selectors
+import Compiler.Sha256.Engine
+import Compiler.Sha256.EngineTest
 import Compiler.ParityPacks
 import Compiler.RandomGen
 import Compiler.CompilationModel
