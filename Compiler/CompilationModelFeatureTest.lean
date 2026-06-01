@@ -2832,8 +2832,8 @@ private def unsafeYulRawCallStmt : Stmt :=
     obligations := [unsafeYulScopeObligation "raw_yul_call_obligation"]
   }
 
-private def unsafeYulRawCallLogicalPurityRejectedSpec : CompilationModel := {
-  name := "UnsafeYulRawCallLogicalPurityRejected"
+private def unsafeYulRawCallAllowedSpec : CompilationModel := {
+  name := "UnsafeYulRawCallAllowed"
   fields := []
   «constructor» := none
   functions := [
@@ -5333,10 +5333,9 @@ set_option maxRecDepth 4096 in
     "unsafeYul tstore mechanic is rejected from view functions"
     unsafeYulTstoreMechanicViewRejectedSpec
     "function 'bad' is marked view but writes state"
-  expectCompileErrorContains
-    "unsafeYul raw call AST is rejected by logical purity"
-    unsafeYulRawCallLogicalPurityRejectedSpec
-    "uses Expr.logicalAnd/Expr.logicalOr/Expr.ite or arithmetic helpers"
+  discard <| expectCompile
+    "unsafeYul raw call AST is allowed by logical-purity validation"
+    unsafeYulRawCallAllowedSpec
   expectTrue
     "unsafeYul raw call AST propagates CEI seen-call state"
     unsafeYulRawCallPropagatesCEI
