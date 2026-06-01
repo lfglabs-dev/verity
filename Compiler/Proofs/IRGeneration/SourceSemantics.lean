@@ -3051,17 +3051,10 @@ mutual
         let resolvedOffset ← evalExprWithHelpers spec fields fuel state offset
         some (Compiler.Proofs.YulGeneration.calldataloadWord state.selector state.world.calldata resolvedOffset)
     | .keccak256 offExpr sizeExpr => do
-        -- Offset/size args of compiled `keccak256` are pointer/length
-        -- expressions, never internal-helper calls, so we evaluate them with
-        -- the plain `evalExpr`. This is load-bearing, not just an optimization:
-        -- `exprTouchesUnsupportedHelperSurface` treats `.keccak256` as a leaf and
-        -- does not recurse into its sub-expressions, so the equivalence theorem
-        -- `evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed` relies on this
-        -- arm being definitionally equal to `evalExpr (.keccak256 …)`. Switching to
-        -- `evalExprWithHelpers` here would break that proof unless the surface
-        -- predicate is also taught to recurse into offset/size.
-        let off ← evalExpr fields state offExpr
-        let size ← evalExpr fields state sizeExpr
+        -- Keep this in sync with the helper/call surface scans, which recurse
+        -- into the offset and size expressions.
+        let off ← evalExprWithHelpers spec fields fuel state offExpr
+        let size ← evalExprWithHelpers spec fields fuel state sizeExpr
         some (keccakMemorySlice state.world.memory off size)
     -- Unmodeled / codegen-only constructors (no helper-aware semantics yet).
     -- Listed explicitly rather than via `| _ => none` so the
@@ -4031,7 +4024,12 @@ mutual
         simp [evalExprWithHelpers, evalExpr_extcodesize,
           evalExpr_returndataOptionalBoolAt]
     | keccak256 a b =>
-        simpa [evalExprWithHelpers, evalExpr_keccak256]
+        simp only [exprTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
+        have ha :=
+          evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed spec fields fuel state a hsurface.1
+        have hb :=
+          evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed spec fields fuel state b hsurface.2
+        simpa [evalExprWithHelpers, evalExpr_keccak256, ha, hb]
     | call g t v io is oo os =>
         simpa [evalExprWithHelpers, evalExpr_call]
     | staticcall g t io is oo os =>
