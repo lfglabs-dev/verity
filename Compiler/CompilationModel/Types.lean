@@ -507,6 +507,53 @@ partial def yulStmtListScopeEffects : List YulStmt → StmtScopeEffects
       StmtScopeEffects.merge (yulStmtScopeEffects stmt) (yulStmtListScopeEffects rest)
 end
 
+mutual
+/-- Conservative scan for EVM external-call builtins inside raw Yul ASTs.
+    Unsafe-Yul fragments also declare mechanics metadata, but validation should
+    not miss a handwritten `call`/`staticcall`/`delegatecall` if the metadata is
+    under-declared. -/
+partial def yulExprContainsExternalCall : YulExpr → Bool
+  | .call func args =>
+      func == "call" ||
+        func == "staticcall" ||
+        func == "delegatecall" ||
+        yulExprListContainsExternalCall args
+  | _ => false
+
+partial def yulExprListContainsExternalCall : List YulExpr → Bool
+  | [] => false
+  | expr :: rest =>
+      yulExprContainsExternalCall expr || yulExprListContainsExternalCall rest
+
+partial def yulStmtContainsExternalCall : YulStmt → Bool
+  | .comment _ | .leave =>
+      false
+  | .let_ _ value | .letMany _ value | .assign _ value | .expr value =>
+      yulExprContainsExternalCall value
+  | .if_ cond body =>
+      yulExprContainsExternalCall cond || yulStmtListContainsExternalCall body
+  | .for_ init cond post body =>
+      yulStmtListContainsExternalCall init ||
+        yulExprContainsExternalCall cond ||
+        yulStmtListContainsExternalCall post ||
+        yulStmtListContainsExternalCall body
+  | .switch discr cases default =>
+      yulExprContainsExternalCall discr ||
+        cases.any (fun (_, body) => yulStmtListContainsExternalCall body) ||
+        match default with
+        | none => false
+        | some body => yulStmtListContainsExternalCall body
+  | .block stmts =>
+      yulStmtListContainsExternalCall stmts
+  | .funcDef _ _ _ body =>
+      yulStmtListContainsExternalCall body
+
+partial def yulStmtListContainsExternalCall : List YulStmt → Bool
+  | [] => false
+  | stmt :: rest =>
+      yulStmtContainsExternalCall stmt || yulStmtListContainsExternalCall rest
+end
+
 /-- Typed trust-report mechanics emitted by low-level statements and raw Yul fragments.
     JSON and human-readable reports still render these through `toReportString`,
     preserving the existing public report format while keeping the model boundary

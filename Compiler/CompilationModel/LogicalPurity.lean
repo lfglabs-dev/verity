@@ -258,8 +258,11 @@ def stmtContainsUnsafeLogicalCallLike : Stmt → Bool
       exprListAnyUnsafeLogicalCallLike args
   | Stmt.ecm _ args =>
       exprListAnyUnsafeLogicalCallLike args
-  | Stmt.unsafeYul _ =>
-      false
+  | Stmt.unsafeYul fragment =>
+      fragment.mechanics.contains .call ||
+        fragment.mechanics.contains .staticcall ||
+        fragment.mechanics.contains .delegatecall ||
+        yulStmtListContainsExternalCall fragment.stmts
 termination_by s => sizeOf s
 decreasing_by all_goals simp_wf; all_goals omega
 

@@ -884,7 +884,8 @@ def stmtContainsExternalCall : Stmt → Bool
   | Stmt.unsafeYul fragment =>
       fragment.mechanics.contains .call ||
         fragment.mechanics.contains .staticcall ||
-        fragment.mechanics.contains .delegatecall
+        fragment.mechanics.contains .delegatecall ||
+        yulStmtListContainsExternalCall fragment.stmts
   | _ => false
 termination_by s => sizeOf s
 decreasing_by all_goals simp_wf; all_goals omega
@@ -920,6 +921,11 @@ def stmtMayContainExternalCall : Stmt → Bool
       stmtListMayContainExternalCall body
   | Stmt.matchAdt _ scrutinee branches =>
       exprMayContainExternalCall scrutinee || matchBranchesMayContainExternalCall branches
+  | Stmt.unsafeYul fragment =>
+      fragment.mechanics.contains .call ||
+        fragment.mechanics.contains .staticcall ||
+        fragment.mechanics.contains .delegatecall ||
+        yulStmtListContainsExternalCall fragment.stmts
   | Stmt.letVar _ value | Stmt.assignVar _ value =>
       exprMayContainExternalCall value
   | Stmt.setStorage _ value | Stmt.setStorageAddr _ value | Stmt.setStorageWord _ _ value
@@ -1642,7 +1648,8 @@ def stmtInternalCEIViolation : Stmt → Bool → Option String
       let fragmentCalls :=
         fragment.mechanics.contains .call ||
           fragment.mechanics.contains .staticcall ||
-          fragment.mechanics.contains .delegatecall
+          fragment.mechanics.contains .delegatecall ||
+          yulStmtListContainsExternalCall fragment.stmts
       let fragmentWrites :=
         !fragment.scopeEffects.storageWrites.isEmpty ||
           fragment.mechanics.contains .storageWrite ||

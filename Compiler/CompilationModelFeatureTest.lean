@@ -2814,6 +2814,47 @@ private def unsafeYulScopeObligation (name : String) : LocalObligation :=
     obligation := "Raw Yul scope effects must conservatively describe the Yul payload."
     proofStatus := .assumed }
 
+private def unsafeYulRawCallExpr : Compiler.Yul.YulExpr :=
+  Compiler.Yul.YulExpr.call "call" [
+    Compiler.Yul.YulExpr.lit 5000,
+    Compiler.Yul.YulExpr.lit 0,
+    Compiler.Yul.YulExpr.lit 0,
+    Compiler.Yul.YulExpr.lit 0,
+    Compiler.Yul.YulExpr.lit 0,
+    Compiler.Yul.YulExpr.lit 0,
+    Compiler.Yul.YulExpr.lit 0
+  ]
+
+private def unsafeYulRawCallStmt : Stmt :=
+  Stmt.unsafeYul {
+    label := "raw_yul_call"
+    stmts := [Compiler.Yul.YulStmt.expr unsafeYulRawCallExpr]
+    obligations := [unsafeYulScopeObligation "raw_yul_call_obligation"]
+  }
+
+private def unsafeYulRawCallLogicalPurityRejectedSpec : CompilationModel := {
+  name := "UnsafeYulRawCallLogicalPurityRejected"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "bad"
+      params := []
+      returnType := none
+      body := [unsafeYulRawCallStmt, Stmt.stop]
+    }
+  ]
+}
+
+def unsafeYulRawCallPropagatesCEI : Bool :=
+  match stmtListCEIViolation [
+      unsafeYulRawCallStmt,
+      Stmt.setStorage "value" (Expr.literal 1)
+    ] false with
+  | some msg => contains msg "state write after external call"
+  | none => false
+
+example : unsafeYulRawCallPropagatesCEI = true := by native_decide
+
 private def unsafeYulUnderDeclaredBindSpec : CompilationModel := {
   name := "UnsafeYulUnderDeclaredBind"
   fields := []
@@ -5292,6 +5333,13 @@ set_option maxRecDepth 4096 in
     "unsafeYul tstore mechanic is rejected from view functions"
     unsafeYulTstoreMechanicViewRejectedSpec
     "function 'bad' is marked view but writes state"
+  expectCompileErrorContains
+    "unsafeYul raw call AST is rejected by logical purity"
+    unsafeYulRawCallLogicalPurityRejectedSpec
+    "uses Expr.logicalAnd/Expr.logicalOr/Expr.ite or arithmetic helpers"
+  expectTrue
+    "unsafeYul raw call AST propagates CEI seen-call state"
+    unsafeYulRawCallPropagatesCEI
   discard <| expectCompile
     "matchAdt with terminating branches"
     matchAdtAllBranchesTerminateSpec
