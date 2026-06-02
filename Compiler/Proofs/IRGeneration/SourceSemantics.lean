@@ -3944,6 +3944,131 @@ theorem SupportedSpecHelperProofs.functionSummariesSound
       (hSupported.supportedFunctionOfSelectorDispatched hfn).body.calls.helpers :=
   (SupportedSpecHelperProofs.functionProofs hSupported hProofs fn hfn).summariesSound
 
+/-!
+### Compositional helper-summary reuse across callers (#1630)
+
+`SupportedSpecHelperProofs` carries a single global proof catalog
+(`helperCatalog : SupportedHelperSummaryProofCatalog spec`) in which every internal
+helper summary is proved sound exactly once. The theorems below *thread that
+one-time proof through to every caller and every syntactic call site*, which is the
+reuse that whole-contract correctness needs: a helper proved once is consumed at
+each call without re-discharging its summary.
+
+* `helperCallSummarySound` delivers the summary-soundness fact at an arbitrary
+  helper call site of any selector-dispatched function, sourced purely from the
+  shared catalog in `hProofs`.
+* `evalInternalCallObeysSummary`, `execInternalCallObeysSummary` and
+  `execInternalCallAssignObeysSummary` specialise that fact to the three helper
+  call shapes of the source semantics (expression position, void statement and
+  assigning statement), landing the helper's summary contract directly on the
+  interpreter result at the call site.
+-/
+
+/-- Summary soundness at a helper call site of a selector-dispatched caller,
+obtained purely by reusing the once-proved global catalog carried in `hProofs`.
+This is the compositional bridge for #1630: the same helper proof services every
+caller, so callers never re-prove a helper they share. -/
+theorem SupportedSpecHelperProofs.helperCallSummarySound
+    {spec : CompilationModel}
+    {selectors : List Nat}
+    (hSupported : SupportedSpec spec selectors)
+    (hProofs : SupportedSpecHelperProofs spec selectors hSupported)
+    {fn : FunctionSpec}
+    (hfn : fn ∈ selectorDispatchedFunctions spec)
+    {calleeName : String}
+    (hmem : calleeName ∈ helperCallNames fn) :
+    InternalHelperSummarySound spec
+      ((hSupported.supportedFunctionOfSelectorDispatched hfn).body.calls.helpers.summaryOfCall hmem).callee
+      ((hSupported.supportedFunctionOfSelectorDispatched hfn).body.calls.helpers.summaryContractOfCall hmem) :=
+  SupportedSpecHelperProofs.functionSummariesSound hSupported hProofs hfn calleeName hmem
+
+/-- Expression-position helper call (`Expr.internalCall`) at a call site of a
+selector-dispatched caller obeys the reused helper summary contract. The proof
+reuses the shared catalog via `helperCallSummarySound`; only the call-site
+witness (callee identity + name uniqueness) is supplied locally. -/
+theorem SupportedSpecHelperProofs.evalInternalCallObeysSummary
+    {spec : CompilationModel}
+    {selectors : List Nat}
+    (hSupported : SupportedSpec spec selectors)
+    (hProofs : SupportedSpecHelperProofs spec selectors hSupported)
+    {fn : FunctionSpec}
+    (hfn : fn ∈ selectorDispatchedFunctions spec)
+    {calleeName : String}
+    (hmem : calleeName ∈ helperCallNames fn)
+    {fields : List Field}
+    {fuel : Nat}
+    {state : RuntimeState}
+    {args : List Expr}
+    {argVals : List Nat}
+    (hargs : evalExprListWithHelpers spec fields fuel state args = some argVals) :
+    let witness := (hSupported.supportedFunctionOfSelectorDispatched hfn).body.calls.helpers.summaryOfCall hmem
+    let result := interpretInternalFunctionFuel spec fuel witness.callee state.world argVals
+    witness.summary.contract.post fuel state.world argVals
+      result.success result.returnValue result.world := by
+  exact evalExprWithHelpers_internalCall_obeys_summary
+    (findUniqueInternalFunction?_of_witness
+      ((hSupported.supportedFunctionOfSelectorDispatched hfn).body.calls.helpers.summaryOfCall hmem)
+      hSupported.functionNamesNodup)
+    (SupportedSpecHelperProofs.helperCallSummarySound hSupported hProofs hfn hmem)
+    hargs
+
+/-- Void-statement helper call (`Stmt.internalCall`) at a call site of a
+selector-dispatched caller obeys the reused helper summary contract. -/
+theorem SupportedSpecHelperProofs.execInternalCallObeysSummary
+    {spec : CompilationModel}
+    {selectors : List Nat}
+    (hSupported : SupportedSpec spec selectors)
+    (hProofs : SupportedSpecHelperProofs spec selectors hSupported)
+    {fn : FunctionSpec}
+    (hfn : fn ∈ selectorDispatchedFunctions spec)
+    {calleeName : String}
+    (hmem : calleeName ∈ helperCallNames fn)
+    {fields : List Field}
+    {fuel : Nat}
+    {state : RuntimeState}
+    {args : List Expr}
+    {argVals : List Nat}
+    (hargs : evalExprListWithHelpers spec fields fuel state args = some argVals) :
+    let witness := (hSupported.supportedFunctionOfSelectorDispatched hfn).body.calls.helpers.summaryOfCall hmem
+    let result := interpretInternalFunctionFuel spec fuel witness.callee state.world argVals
+    witness.summary.contract.post fuel state.world argVals
+      result.success result.returnValue result.world := by
+  exact execStmtWithHelpers_internalCall_obeys_summary
+    (findUniqueInternalFunction?_of_witness
+      ((hSupported.supportedFunctionOfSelectorDispatched hfn).body.calls.helpers.summaryOfCall hmem)
+      hSupported.functionNamesNodup)
+    (SupportedSpecHelperProofs.helperCallSummarySound hSupported hProofs hfn hmem)
+    hargs
+
+/-- Assigning-statement helper call (`Stmt.internalCallAssign`) at a call site of
+a selector-dispatched caller obeys the reused helper summary contract. -/
+theorem SupportedSpecHelperProofs.execInternalCallAssignObeysSummary
+    {spec : CompilationModel}
+    {selectors : List Nat}
+    (hSupported : SupportedSpec spec selectors)
+    (hProofs : SupportedSpecHelperProofs spec selectors hSupported)
+    {fn : FunctionSpec}
+    (hfn : fn ∈ selectorDispatchedFunctions spec)
+    {calleeName : String}
+    (hmem : calleeName ∈ helperCallNames fn)
+    {fields : List Field}
+    {fuel : Nat}
+    {state : RuntimeState}
+    {names : List String}
+    {args : List Expr}
+    {argVals : List Nat}
+    (hargs : evalExprListWithHelpers spec fields fuel state args = some argVals) :
+    let witness := (hSupported.supportedFunctionOfSelectorDispatched hfn).body.calls.helpers.summaryOfCall hmem
+    let result := interpretInternalFunctionFuel spec fuel witness.callee state.world argVals
+    witness.summary.contract.post fuel state.world argVals
+      result.success result.returnValue result.world := by
+  exact execStmtWithHelpers_internalCallAssign_obeys_summary_of_witness
+    (names := names)
+    ((hSupported.supportedFunctionOfSelectorDispatched hfn).body.calls.helpers.summaryOfCall hmem)
+    hSupported.functionNamesNodup
+    (SupportedSpecHelperProofs.helperCallSummarySound hSupported hProofs hfn hmem)
+    hargs
+
 set_option maxHeartbeats 800000 in
 mutual
   private theorem exprList_all_helperSurfaceClosed

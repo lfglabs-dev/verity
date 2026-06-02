@@ -1466,10 +1466,14 @@ theorem compileFunctionSpec_correct_generic_except_mapping_writes_stmtSafety
     (hSupported := hSupported) hfn tx initialWorld] using hcorrect
 
 /-- Helper-proof-carrying function-level generic theorem.
-This is the proof-ready theorem surface for the next helper-composition step.
-Today the additional helper-proof argument is compatibility-redundant because
-the body proof still closes helpers through the helper-excluding
-`SupportedStmtList` fragment. -/
+This is the proof-ready theorem surface for the helper-composition step (#1630).
+The `hHelperProofs` argument is now backed by a first-class *source-level* reuse
+interface: `SourceSemantics.SupportedSpecHelperProofs.helperCallSummarySound` (and
+its `eval`/`exec` call-site corollaries) thread the once-proved helper catalog
+through to every selector-dispatched caller and call site. This compiled-side
+function proof still reduces through the helper-excluding `SupportedStmtList`
+fragment, so consuming that reuse interface here — retargeting the body proof —
+is the tracked next step; the trusted boundary is unchanged. -/
 theorem compileFunctionSpec_correct_generic_with_helper_proofs
     (model : CompilationModel)
     (selectors : List Nat)
@@ -1942,12 +1946,15 @@ theorem compile_preserves_semantics_except_mapping_writes_and_helper_ir_supporte
         (FunctionBody.initialIRStateForTx model tx initialWorld))
 
 /-- Helper-proof-carrying whole-contract Layer 2 theorem.
-This theorem family is the intended stable public interface for the helper
-composition step tracked by `#1630`: callers can already pass explicit
-summary-soundness evidence today, and once the body proof consumes it this
-theorem can strengthen without another theorem-shape rewrite. The current proof
-still reduces through the legacy helper-closed path, so the trusted boundary is
-unchanged. -/
+This theorem family is the stable public interface for the helper-composition
+step tracked by `#1630`. Callers pass explicit summary-soundness evidence
+(`hHelperProofs`), which is now reusable across callers through the source-level
+interface `SourceSemantics.SupportedSpecHelperProofs.helperCallSummarySound` (and
+its `eval`/`exec` call-site corollaries): one helper proof in the shared catalog
+discharges every call site of every selector-dispatched function. This
+whole-contract proof still reduces through the helper-closed path on the compiled
+side, so retargeting the body proof to consume that reuse is the remaining step;
+the trusted boundary is unchanged. -/
 theorem compile_preserves_semantics_with_helper_proofs
     (model : CompilationModel)
     (selectors : List Nat)
