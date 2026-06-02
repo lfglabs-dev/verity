@@ -30,7 +30,7 @@ function myHash(a, b) -> result {
 def myHash (a b : Uint256) : Contract Uint256 := return add a b
 ```
 
-**`CompilationModel`** (`Compiler/Specs.lean`):
+**`CompilationModel`** (`Contracts/Specs.lean`):
 
 ```verity
 def myCompilationModel : CompilationModel := {
@@ -72,7 +72,7 @@ Unresolved external references: myHash
 
 ## Reference example: CryptoHash
 
-The repo includes a working setup in [`Contracts/CryptoHash/Contract.lean`](https://github.com/lfglabs-dev/verity/blob/main/Contracts/CryptoHash/Contract.lean) with libraries in [`examples/external-libs/`](https://github.com/lfglabs-dev/verity/tree/main/examples/external-libs). Look at `cryptoHashSpec` in `Compiler/Specs.lean` for a complete `externals` declaration.
+The repo includes a working setup in [`Contracts/CryptoHash/Contract.lean`](https://github.com/lfglabs-dev/verity/blob/main/Contracts/CryptoHash/Contract.lean) with libraries in [`examples/external-libs/`](https://github.com/lfglabs-dev/verity/tree/main/examples/external-libs). Look at `cryptoHashSpec` in `Contracts/Specs.lean` for a complete `externals` declaration.
 
 ## Trust model
 

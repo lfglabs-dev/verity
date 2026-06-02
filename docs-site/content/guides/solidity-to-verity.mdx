@@ -3,11 +3,17 @@ title: Solidity to Verity
 description: Practical mappings for porting a Solidity contract into the verity_contract surface, first-pass syntax, restructuring patterns, and a worked walkthrough.
 ---
 
+import { CanonicalSurface } from '../../components/CanonicalSurface'
+
 # Solidity-to-Verity Translation Guide
 
 This guide is the practical path for converting a Solidity contract into the
 `verity_contract` surface. Add proofs once the source shape and generated model
 are stable.
+
+<CanonicalSurface>
+So your port target is the `verity_contract` block; the monad/spec/proof forms in §3 are what it lowers to.
+</CanonicalSurface>
 
 It focuses on:
 
@@ -187,6 +193,8 @@ For Solidity `mapping(K => Struct)` and nested mappings to structs, prefer
 ## 3. Worked Walkthrough: Minimal ERC20 Transfer Path
 
 This is a focused translation of common ERC20 state + transfer logic.
+
+> **Steps A–D are the proof layer.** They show the `StorageSlot`/`Contract`-monad `def`s, the `_spec` predicate, and the `_meets_spec` theorem that a `verity_contract` block (the canonical surface, §2) lowers to. Author in `verity_contract`; reach for these forms when you write or read the proofs.
 
 ### Solidity source fragment
 

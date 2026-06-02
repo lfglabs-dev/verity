@@ -18,6 +18,8 @@ export default {
   'edsl-api-reference': 'EDSL API',
   compiler: 'Compiler & CLI',
   intrinsics: 'Compiler Intrinsics',
+  capabilities: 'Capabilities & Limits',
+  diagnostics: 'Diagnostics',
   verification: 'Verification Status',
   glossary: 'Glossary',
 

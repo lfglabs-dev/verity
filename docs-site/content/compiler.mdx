@@ -17,14 +17,14 @@ EDSL Contract  →  CompilationModel  →  IR  →  Yul  →  EVM Bytecode
 
 > Verity has two **distinct** "spec" concepts:
 > 1. **Logical specs** in `Contracts/<Name>/Spec.lean`, `Prop` statements used for proofs.
-> 2. **Compiler specs** in `Compiler/Specs.lean`, `CompilationModel` values used for code generation.
+> 2. **Compiler specs** in `Contracts/Specs.lean`, `CompilationModel` values used for code generation.
 
 ### Modules
 
 | Module | Role |
 |--------|------|
 | `Compiler/CompilationModel.lean` | Declarative DSL: expressions, statements, constructors, storage inference. |
-| `Compiler/Specs.lean` | The validated contract specs, registered via `allSpecs`. |
+| `Contracts/Specs.lean` | The validated contract specs, registered via `allSpecs`. |
 | `Compiler/Selector.lean` | Canonical selector computation; kernel-checkable `keccak256_first_4_bytes`; CI cross-check against `solc --hashes`. |
 | `Compiler/Codegen.lean` | IR → Yul: dispatcher, mapping-slot helper, deploy/runtime split. |
 | `Compiler/Linker.lean` | External Yul library linking with reference validation. |
@@ -97,7 +97,7 @@ def retrieve : Contract Uint256 := do
   getStorage storedData
 ```
 
-**CompilationModel** (`Compiler/Specs.lean`):
+**CompilationModel** (`Contracts/Specs.lean`):
 
 ```verity
 def simpleStorageSpec : CompilationModel := {
@@ -193,7 +193,7 @@ For Morpho-style `mapping(K => Struct)` / `mapping(K1 => mapping(K2 => Struct))`
 
    Stateless contracts may leave the `storage` block empty.
 
-2. Register it in `Compiler/Specs.lean` under `allSpecs`:
+2. Register it in `Contracts/Specs.lean` under `allSpecs`:
 
    ```lean
    Contracts.MyContract.spec

@@ -69,7 +69,7 @@ class Field:
 
     @property
     def compiler_field_type(self) -> str:
-        """FieldType variant for Compiler/Specs.lean."""
+        """FieldType variant for Contracts/Specs.lean."""
         if self.ty == "mapping":
             return "FieldType.mappingTyped (.simple .address)"
         if self.ty == "mapping_uint":
@@ -97,7 +97,7 @@ class Param:
 
     @property
     def compiler_type(self) -> str:
-        """ParamType variant for Compiler/Specs.lean."""
+        """ParamType variant for Contracts/Specs.lean."""
         if self.ty == "address":
             return "ParamType.address"
         return "ParamType.uint256"
@@ -1149,7 +1149,7 @@ def _gen_test_helpers(cfg: ContractConfig) -> str:
 
 
 def gen_compiler_spec(cfg: ContractConfig) -> str:
-    """Generate a legacy Compiler/Specs.lean entry for migration/special workflows."""
+    """Generate a legacy Contracts/Specs.lean entry for migration/special workflows."""
     fields_str = ",\n    ".join(
         f'{{ name := "{f.name}", ty := {f.compiler_field_type} }}'
         for f in cfg.fields
@@ -1197,7 +1197,7 @@ def gen_compiler_spec(cfg: ContractConfig) -> str:
       params := {params_str}
       returnType := none
       body := [
-        Stmt.stop  -- TODO: Implement body (see Compiler/Specs.lean for examples)
+        Stmt.stop  -- TODO: Implement body (see Contracts/Specs.lean for examples)
       ]
     }}""")
     functions_str = ",\n".join(func_strs)
@@ -1348,7 +1348,7 @@ Examples:
     print(gen_all_lean_imports(cfg))
     print()
 
-    print("2. Legacy bridge (optional): add compiler spec to Compiler/Specs.lean if needed:")
+    print("2. Legacy bridge (optional): add compiler spec to Contracts/Specs.lean if needed:")
     print(gen_compiler_spec(cfg))
     print()
 

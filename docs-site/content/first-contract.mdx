@@ -3,6 +3,8 @@ title: Adding Your First Contract
 description: Step-by-step tutorial for creating a verified smart contract in Verity
 ---
 
+import { CanonicalSurface } from '../components/CanonicalSurface'
+
 # Adding Your First Contract to Verity
 
 **Time Required**: 2-3 hours for first contract
@@ -11,6 +13,90 @@ description: Step-by-step tutorial for creating a verified smart contract in Ver
 > **New to Lean 4?** You'll need `do` notation, `def`/`theorem`, and basic tactics (`simp`, `intro`, `constructor`). Start with [Theorem Proving in Lean 4](https://leanprover.github.io/theorem_proving_in_lean4/) (chapters 1–5) and [Functional Programming in Lean](https://lean-lang.org/functional_programming_in_lean/) (chapter 4 on `do` and monads).
 
 This tutorial walks you through creating a complete verified smart contract from scratch. We build a **TipJar**, a simple balance ledger where users deposit tips and check balances. It uses the core EDSL features (mappings, `msgSender`, `require`, arithmetic) while staying small enough to prove fully on the first attempt.
+
+<CanonicalSurface>
+The skeleton below is the smallest complete example; Phases 2–4 then build the proof layer for the larger TipJar.
+</CanonicalSurface>
+
+## Minimal skeleton
+
+A complete verified contract is four pieces: a `verity_contract` block (storage + one function), one spec, one proof, and one line registering it with the compiler. The smallest one that ships in the repo is `Contracts/SimpleStorage/`, copy it as your starting point.
+
+**1. Implementation**, `Contracts/SimpleStorage/SimpleStorage.lean`. This is the canonical authoring surface:
+
+```verity
+import Contracts.Common
+
+namespace Contracts
+
+open Verity hiding pure bind
+open Verity.EVM.Uint256
+
+verity_contract SimpleStorage where
+  storage
+    storedData : Uint256 := slot 0
+
+  function store (value : Uint256) : Unit := do
+    setStorage storedData value
+
+end Contracts
+```
+
+**2. Spec**, `Contracts/SimpleStorage/Spec.lean`. The proof layer: *what* `store` must do. `#gen_spec` expands the triple `(slot, new-value, context-frame)` into a `store_spec` predicate:
+
+```verity
+import Verity.Specs.Common
+import Verity.Macro
+import Contracts.SimpleStorage.SimpleStorage
+
+namespace Contracts.SimpleStorage.Spec
+
+open Verity
+open Verity.Specs
+
+-- store writes `value` to slot 0; every other slot and the call context stay unchanged.
+#gen_spec store_spec for (value : Uint256) (0, (fun _ => value), sameAddrMapContext)
+
+end Contracts.SimpleStorage.Spec
+```
+
+**3. Proof**, `Contracts/SimpleStorage/Proofs/Basic.lean`. The proof layer: implementation and spec *agree*. The three `refine` goals line up with the three parts of the spec triple:
+
+```verity
+import Contracts.SimpleStorage.Spec
+import Verity.Proofs.Stdlib.Automation
+
+namespace Contracts.SimpleStorage.Proofs
+
+open Verity
+open Contracts.SimpleStorage
+open Contracts.SimpleStorage.Spec
+
+theorem store_meets_spec (s : ContractState) (value : Uint256) :
+  let s' := ((store value).run s).snd
+  store_spec value s s' := by
+  verity_unfold store
+  refine ⟨?_, ?_, ?_⟩
+  · simp [storedData]
+  · intro slotIdx h_neq
+    simp [storedData, h_neq]
+  · simp [Specs.sameAddrMapContext, Specs.sameStorageAddr, Specs.sameStorageArray,
+      Specs.sameStorageMap, Specs.sameContext]
+
+end Contracts.SimpleStorage.Proofs
+```
+
+**4. Register**, add your contract's generated spec to `allSpecs` in `Contracts/Specs.lean`:
+
+```verity
+def allSpecs : List CompilationModel := [
+  simpleStorageSpec,
+  -- ...
+  Contracts.MyContract.spec,   -- your new contract
+]
+```
+
+`lake build` checks the proof; `lake exe verity-compiler` emits `artifacts/yul/SimpleStorage.yul`. That is the whole loop. The rest of this page expands each piece into a full tutorial using the larger **TipJar**.
 
 ## Overview
 
@@ -41,6 +127,8 @@ This creates all required files:
 Our goal: users deposit a tip (adding to their balance) via `tip(uint256)`, anyone reads a balance via `getBalance(address)`. Balances use EVM modular arithmetic; for Solidity ^0.8 checked behavior, add `require` guards (see `SafeCounter`).
 
 ## Phase 2: Specification
+
+> **Phases 2–4 build the proof layer** — the `_spec` predicate, the `Contract`-monad `def`, and the `_meets_spec` theorem. These are what the compiler lowers your `verity_contract` to (Phase 5) and what the proofs check against.
 
 Specifications describe **what** the contract should do, not **how**.
 
@@ -146,7 +234,7 @@ Stuck on a proof? See the [Proof Debugging Handbook](/guides/debugging-proofs).
 
 ## Phase 5: Add to Compiler
 
-Define the contract with `verity_contract` in `Contracts/<Name>/<Name>.lean`, then register `Contracts.<Name>.spec` in `Compiler/Specs.lean` under `allSpecs`:
+Define the contract with `verity_contract` in `Contracts/<Name>/<Name>.lean`, then register `Contracts.<Name>.spec` in `Contracts/Specs.lean` under `allSpecs`:
 
 ```verity
 verity_contract TipJar where

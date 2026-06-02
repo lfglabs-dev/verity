@@ -70,16 +70,11 @@ satisfied. See [`/compiler`](/compiler) for the pipeline narrative and CLI refer
 
 ## Verification layers (1 / 2 / 3)
 
-Verity organizes its correctness story in three layers. **Layer 1** is the
-frontend bridge: an EDSL implementation is proven equivalent to its
-`CompilationModel`. **Layer 2** is the compiler middle: a generic
-whole-contract theorem in `Compiler/Proofs/IRGeneration/Contract.lean` proves
-that `CompilationModel.compile` produces IR with matching semantics for the
-current supported fragment. **Layer 3** is the backend: `IR → Yul` preserves
-semantics, with the dispatcher bridge exposed as an explicit hypothesis rather
-than a Lean axiom. See [`/trust-model`](/trust-model) for what is verified and
-what is trusted at each layer, and [`/verification`](/verification) for the
-live theorem inventory.
+The pipeline annotations above mark where each layer applies — Layer 1 (EDSL →
+`CompilationModel`), Layer 2 (`CompilationModel` → IR), Layer 3 (IR → Yul). The
+canonical breakdown of what is proved versus trusted at each layer lives on the
+[Trust Model](/trust-model), and the live theorem inventory is on
+[Verification Status](/verification).
 
 ## Where to next
 
