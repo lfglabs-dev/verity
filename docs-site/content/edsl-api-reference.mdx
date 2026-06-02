@@ -164,6 +164,31 @@ let (assets, shares) ← preview seed
 
 The macro lowers effect-only calls to `Stmt.internalCall`, result bindings to `Stmt.internalCallAssign`, expression-position calls to `Expr.internalCall`. Supports scalar parameters, static tuples/structs, direct `Bytes`/dynamic-array forwarding from caller ABI. Dynamic returns use explicit return surfaces only.
 
+### Higher-order helpers (function pointers)
+
+A helper parameter with a function type (`Uint256 → Uint256`) makes the helper *higher-order*: it receives another helper and calls it. Pass the callee by its bare helper name at the call site.
+
+```verity
+function inc (x : Uint256) : Uint256 := do
+  return (add x 1)
+
+function apply (f : Uint256 → Uint256, x : Uint256) : Uint256 := do
+  let y ← f x
+  return y
+
+function runInc (n : Uint256) : Uint256 := do
+  let r ← apply inc n          -- pass the helper `inc` by name
+  return r
+```
+
+The function-pointer argument must be a **statically-known internal helper named in the same contract**. A compile-time monomorphization pre-pass (#1747) clones the higher-order helper into a first-order specialization per concrete callee (`apply` applied to `inc` becomes `apply_mono_inc`), drops the function-pointer parameter, and rewrites the call site to target the clone. Specialization runs to a fixpoint (a clone may itself forward a pointer to another higher-order helper) and the clones are topologically ordered callee-before-caller, so nothing downstream of the macro ever sees a function pointer: the existing first-order lowering and proofs apply unchanged, with zero overhead when no helper is higher-order.
+
+Dynamic dispatch, a runtime value or expression in the function-pointer position, is rejected at elaboration:
+
+```
+#1747: function-pointer argument 'n' is not a known internal helper in this contract
+```
+
 ### Tuple sugar
 
 ```verity
@@ -234,16 +259,36 @@ Storage, constants, immutables, and functions share one namespace; duplicate or 
 
 ### Linked externals
 
+Declare each foreign function in a `linked_externals` block, then call it. There are three call surfaces depending on the return shape:
+
 ```verity
 linked_externals
-  external echo(Uint256) -> (Uint256)
+  external echo(Uint256) -> (Uint256)         -- single word back
+  external hashArray(Array Uint256) -> (Uint256)
+  external notifyArray(Array Uint256)         -- no return
 
+-- value position: external returns exactly one word
 function storeQuote (value : Uint256) : Unit := do
   let quoted := externalCall "echo" [value]
   setStorage lastQuote quoted
+
+-- try form: prepends a success Bool, so the call cannot revert the caller
+function tryQuote (value : Uint256) : Unit := do
+  let (success, quoted) ← tryExternalCall "echo" [value]
+  if success then setStorage lastQuote quoted
+
+-- statement position, no return: bind the empty result list
+function notify (leaves : Array Uint256) : Unit := do
+  externalCallBind [] "notifyArray" [leaves]
 ```
 
-Populates `spec.externals` with assumed foreign signatures. Single-word argument/return types only (`Uint256`, `Uint8`, `Address`, `Bytes32`, `Bool`); at most one return. Dynamic and tuple-shaped linked externals are rejected at elaboration.
+Populates `spec.externals` with assumed foreign signatures.
+
+- **`externalCall "name" [args]`** is value-position and requires the external to return *exactly one* word; a zero- or multi-return external is a compile error pointing you at `tryExternalCall`.
+- **`tryExternalCall "name" [args]`** reuses the same declaration and prepends a `success : Bool` flag, so a reverting callee is observed as `success = false` instead of bubbling up. Destructure as `let (success, r₁, …) ← …`; a zero-return external uses `let success ← …`. Multi-return externals are supported here.
+- **`externalCallBind [v₁, …] "name" [args]`** is the statement-position form; bind `[]` for a no-return ("fire and forget") external.
+
+Argument types may be word-like (`Uint256`, `Uint8`, `Address`, `Bytes32`, `Bool`) or directly-forwarded `Array<wordLike>` / `Bytes` from the caller's ABI (including projected struct/array members). Return types must be word-like values or static ABI composites of word-like values; dynamic return types (e.g. `String`) are rejected at elaboration. These generic foreign calls are distinct from the named [ECM modules](#external-calls-ecm) (ERC-20, ERC-4626, precompiles, oracle), which carry their own trust-report metadata.
 
 ### Raw log surface
 
