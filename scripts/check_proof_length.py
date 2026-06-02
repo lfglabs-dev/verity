@@ -1077,6 +1077,24 @@ ALLOWLIST: set[str] = {
     "exec_block_lowerNativeSwitchBlock_selector_find_hit_postInitFreeMemory_hasSelectorState_ok_projectResult_eq_finalMatched",
     "contractDispatcherExecResult_initFreeMemoryPointer_buildSwitch_noFallback_noReceive_peel",
     "lowerRuntimeContractNative_emitYul_mapping_noInternals_noFallback_noReceive_reserved",
+    # --- #1630 helper-composition theorem surface (commit `45b338ed`) ---
+    # Minimal single-delegation body (`have hcorrect := … ; simpa …`); the
+    # 41-line signature+proof is pushed to a reported 51-line span by the
+    # trailing blank line plus the 9-line `#1630` doc-comment preamble of the
+    # *next* theorem (`compileFunctionSpec_correct_generic_with_helper_proofs`),
+    # which the comment-preserving scanner attributes to this proof's span.
+    # Same doc-comment displacement pattern as the `_bridged` list closures
+    # above; the body just delegates to
+    # `Function.supported_function_correct_except_mapping_writes_stmtSafety`,
+    # so there is no proof logic to decompose.
+    "compileFunctionSpec_correct_generic_except_mapping_writes_stmtSafety",
+    # Minimal single-delegation body (`exact
+    # compile_preserves_semantics_except_mapping_writes_and_helper_ir …`); the
+    # 41-line signature+proof is pushed to a reported 52-line span by the
+    # trailing blank line plus the 10-line `#1630` doc-comment preamble of the
+    # *next* theorem (`compile_preserves_semantics_with_helper_proofs`) being
+    # attributed to this proof's span, same displacement pattern as above.
+    "compile_preserves_semantics_except_mapping_writes_and_helper_ir_supported",
 }
 
 # PR #1822 native EVMYulLean generic-dispatcher closure. These regexes cover

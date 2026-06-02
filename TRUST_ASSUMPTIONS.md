@@ -55,6 +55,15 @@ Current theorem totals, property-test coverage, and proof status live in [docs/V
 - **Trust**: external keccak implementation (`ffi.KEC` via EVMYul FFI) + standard collision-resistance assumptions (same trust class as Solidity/EVM).
 - **Mitigation**: Abstraction-boundary CI, selector/hash cross-checks.
 - **Audit surface**: machine-readable trust reports now emit the explicit primitive assumption `keccak256_memory_slice_matches_evm` whenever a contract uses `Expr.keccak256`.
+- **Source-semantics realization**: the executable source interpreter
+  (`Compiler/Proofs/IRGeneration/SourceSemantics.lean`) now evaluates
+  `Expr.keccak256 offset size` via `keccakMemorySlice` — reading word-aligned
+  `RuntimeState` memory, concatenating big-endian, truncating to `size`, and
+  hashing with the in-tree `KeccakEngine.keccak256` (previously it returned
+  `none`/revert). The trust assumption `keccak256_memory_slice_matches_evm` is the
+  word-aligned-access faithfulness of that memory slice; the model is word-keyed
+  and does not represent sub-word memory aliasing. See AXIOMS.md
+  "Kernel-computable source-semantics `keccak256(offset, size)`".
 
 ### 6. EVM/Yul Semantics and Gas
 - **Role**: Runtime execution model.

@@ -3,6 +3,17 @@
 > Lean 4 framework for writing smart contracts that compile to EVM bytecode and carry machine-checked correctness proofs.
 > Add `.md` to any docs URL on veritylang.com to get raw markdown (saves tokens). Or fetch `/llms-full.txt` for everything concatenated.
 
+## Common tasks
+
+You author contracts in the `verity_contract { … }` block — that is the canonical surface. The `Contract` monad, `_spec` predicates, and `_meets_spec` theorems are the proof layer beneath it; the compiler lowers `verity_contract` to that model and the proofs run against it.
+
+I want to…
+- **start a new contract from an idea** -> https://veritylang.com/first-contract — storage → function → spec → proof → register (copy the minimal skeleton: https://veritylang.com/first-contract#minimal-skeleton)
+- **port an existing Solidity contract** -> https://veritylang.com/guides/solidity-to-verity — direct mappings, restructuring patterns, a worked port
+- **prove a contract that already exists** -> https://veritylang.com/proof-techniques — write the `_spec` and the `_meets_spec` theorem
+
+Quick reference: what's expressible vs on a trust boundary -> https://veritylang.com/capabilities · decode a compiler/macro error -> https://veritylang.com/diagnostics
+
 ## What it is
 
 Three-layer verified compilation:
@@ -88,6 +99,8 @@ Reference:
 - https://veritylang.com/edsl-api-reference, every primitive, plus `verity_contract` macro features
 - https://veritylang.com/compiler, pipeline, CLI flags, audit artifacts
 - https://veritylang.com/intrinsics, consumer-declared opcode/builtin bindings, fork gating, and proof boundary
+- https://veritylang.com/capabilities, what the verified fragment expresses vs partial / trust-boundary features
+- https://veritylang.com/diagnostics, compiler / macro / linker error -> cause -> fix index
 - https://veritylang.com/verification, per-contract theorem inventory
 - https://veritylang.com/glossary
 

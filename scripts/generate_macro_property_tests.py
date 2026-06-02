@@ -165,6 +165,24 @@ def _normalize_type(type_src: str) -> str:
     return " ".join(type_src.strip().split())
 
 
+def _param_is_func_ptr(param: ParamDecl) -> bool:
+    """Whether `param` is a function-pointer parameter (e.g. `f : Uint256 → Uint256`)."""
+    return "→" in param.lean_type or "->" in param.lean_type
+
+
+def _function_is_higher_order(fn: FunctionDecl) -> bool:
+    """Whether `fn` takes a function-pointer parameter.
+
+    Higher-order internal helpers (#1747) are eliminated by the compiler's
+    monomorphization pre-pass (`monomorphizeHigherOrderHelpers` in
+    Verity/Macro/Translate.lean) before any IR lowering: each is specialized
+    into first-order clones and the original is dropped. They are therefore
+    never external ABI entry points and have no Solidity signature to exercise,
+    so the property-test generator excludes them to match the compiled surface.
+    """
+    return any(_param_is_func_ptr(p) for p in fn.params)
+
+
 def _strip_lean_comments(src: str, in_block_comment: bool = False) -> tuple[str, bool]:
     """Strip Lean line and block comments from a struct field list fragment."""
     out: list[str] = []
@@ -289,14 +307,17 @@ def parse_contracts(text: str, source: Path) -> dict[str, ContractDecl]:
         nonlocal current_function, current_body
         if current_function is None:
             return
-        current_functions.append(
-            FunctionDecl(
-                name=current_function.name,
-                params=current_function.params,
-                return_type=current_function.return_type,
-                body=tuple(current_body),
-            )
+        fn = FunctionDecl(
+            name=current_function.name,
+            params=current_function.params,
+            return_type=current_function.return_type,
+            body=tuple(current_body),
         )
+        # Higher-order internal helpers (#1747) are monomorphized away before
+        # lowering, so they never reach the external ABI; drop them here to
+        # match the compiled surface (see `_function_is_higher_order`).
+        if not _function_is_higher_order(fn):
+            current_functions.append(fn)
         current_function = None
         current_body = []
 

@@ -1,0 +1,90 @@
+---
+title: Capabilities & Limits
+description: What the verified Verity fragment can express today, what is partially modeled, and what compiles but sits on an explicit trust boundary.
+---
+
+import { Callout } from 'nextra/components'
+
+# Capabilities & Limits
+
+This page is the honest map of what you can write in `verity_contract` today: what is **fully expressible and machine-checked**, what is **partially modeled**, and what **compiles but sits on an explicit trust boundary**. It is the curated companion to the per-constructor [Interpreter Feature Matrix](https://github.com/lfglabs-dev/verity/blob/main/docs/INTERPRETER_FEATURE_MATRIX.md), which is the machine-readable source of truth; when the two disagree, the matrix wins.
+
+For *why* some features are trusted rather than proved, see the [Trust Model](/trust-model) — the Layer 1/2/3 framing lives there. For the live theorem inventory, see [Verification Status](/verification).
+
+<Callout type="info">
+Everything below — proved, partial, or trust-boundary — is additionally exercised by 70,000+ differential test vectors against real EVM execution. "Not modeled in proofs" means the proof interpreters do not yet cover it, not that it is untested.
+</Callout>
+
+## Fully expressible and verified
+
+Modeled end-to-end and carrying machine-checked preservation proofs.
+
+**Storage**
+- Scalar fields (`Uint256`, `Address`, `Bool`, `Bytes32`) at explicit slots.
+- Mappings: single, double (`mapping2`), `Uint256`-keyed, plus word-offset and packed-word variants.
+- Structs and nested storage structs; struct-valued mappings (`MappingStruct`).
+- ERC-7201 namespaced storage roots (`storage_namespace`).
+
+**Computation**
+- Checked arithmetic via `safeAdd` / `safeSub` / `safeMul` / `safeDiv` + `requireSomeUint`; wrapping `add` / `sub` / `mul` / `div` / `mod` / `pow`.
+- Bitwise (`and` / `or` / `xor` / `shl` / `shr`), comparison (`eq` / `lt` / `gt` / `le` / `ge`), logical (`logicalAnd` / `logicalOr` / `logicalNot`).
+- Fixed-point helpers (`mulDivDown` / `mulDivUp`, `wMulDown` / `wDivUp`, `min` / `max`).
+
+**Control & I/O**
+- `if` / `ite` branching; `require` / `requireError` / `revertError` (custom errors).
+- Returns: single, multi (`returnValues`), array, bytes, and storage words.
+- Event emission (`emitEvent`).
+- Context reads: `msgSender` (`caller`), `msg.value`, `block.timestamp`.
+
+**Composition**
+- Internal helpers called directly by name. A helper's proved summary is now reusable at every call site through the first-class interface `SupportedSpecHelperProofs.helperCallSummarySound` and its three call-shape corollaries (`evalInternalCallObeysSummary`, `execInternalCallObeysSummary`, `execInternalCallAssignObeysSummary`) covering expression position, void statement, and assigning statement ([#1630](https://github.com/lfglabs-dev/verity/issues/1630)).
+- Higher-order internal calls (function-pointer parameters) via a compile-time monomorphization pre-pass; nothing downstream of the parser sees a function pointer, so the first-order proof machinery applies unchanged ([#1747](https://github.com/lfglabs-dev/verity/issues/1747)).
+- External linked libraries (`externalCall`) — sound **by assumption** on the linked Yul (e.g. Poseidon), recorded as a trust surface.
+
+**Builtins**: all 36 EVM builtins carry proved agreement between the Verity evaluator and the EVMYulLean reference semantics.
+
+## Partially modeled
+
+Compiler-supported and differential-tested, but only partially covered by the proof interpreters.
+
+| Feature | Status | Issue |
+|---|---|---|
+| `forEach` loops | zero-bound and empty-body literal-bound loops proved; positive non-empty loop bodies are future work | — |
+| Single-word linear memory (`mload` / `mstore`) | single-word support in the IR interpreter; full coverage needs EVMYulLean integration | [#1411](https://github.com/lfglabs-dev/verity/issues/1411) |
+| Runtime introspection (`block.number`, `address(this)`, `chainid`) | compiler-supported and source-executable; outside the generic proof fragment | — |
+| `selfbalance()` / `address(this).balance` | source-executable with differential coverage; not yet in the proof fragment | — |
+| Low-level `try/catch` | lowers to a raw call + success-word `ite`; first-class catch over higher-level helpers and payload decoding are unsupported | [#1161](https://github.com/lfglabs-dev/verity/issues/1161) |
+
+## Compiles, but on a trust boundary
+
+These lower to correct Yul and are differential-tested, but are **not modeled in the proof interpreters**. Treat each as an explicit trust assumption and archive `--trust-report`.
+
+- **`keccak256`** — compiles through the typed intrinsic but relies on an explicit hashing axiom. Enforce exclusion with `--deny-axiomatized-primitives`.
+- **Low-level calls** — `call` / `staticcall` / `delegatecall`, `externalCallBind`, and ECMs (`callWithValue`, `bubblingValueCall`, SafeTransferLib-style optional-return helpers, and the precompile ECMs `ecrecover` / `sha256` / BN254). Enforce with `--deny-low-level-mechanics`; each precompile carries its own `evm_*_precompile` axiom (see [`docs/EXTERNAL_CALL_MODULES.md`](https://github.com/lfglabs-dev/verity/blob/main/docs/EXTERNAL_CALL_MODULES.md) and [`AXIOMS.md`](https://github.com/lfglabs-dev/verity/blob/main/AXIOMS.md)).
+- **`delegatecall` / proxy upgradeability** — additionally a dedicated proxy boundary. Enforce with `--deny-proxy-upgradeability` ([#1420](https://github.com/lfglabs-dev/verity/issues/1420)).
+- **Raw payload plumbing** — `calldatacopy`, `returndataCopy`, `revertReturndata`, `rawLog`. Enforce raw-event exclusion with `--deny-event-emission` and low-level mechanics with `--deny-low-level-mechanics`.
+- **Nested dynamic ABI decoding** — `arrayElementDynamicWord` / `paramDynamicHeadWord` read checked static leaf words from dynamic-shaped calldata; the decoded words are not modeled in proofs ([#1832](https://github.com/lfglabs-dev/verity/issues/1832)).
+
+## Not supported in `verity_contract` today
+
+- **String storage and layout** — ABI-level `String` works for calldata flow, `returnBytes`, event/custom-error payloads, and direct parameter `==` / `!=`. String *storage*, dynamic linked externals, dynamic local aliases, and word-style operators over `String` are unsupported; prefer numeric / address / bytes logic ([#1159](https://github.com/lfglabs-dev/verity/issues/1159)).
+- **Solidity-style first-class `try/catch`** over high-level external calls (see the partial note above, [#1161](https://github.com/lfglabs-dev/verity/issues/1161)).
+- **Whole-mapping reads or function-shaped writes** — operate per key with `getMapping` / `setMapping`.
+- **Inheritance and modifiers as language constructs** — model them by explicit composition and guard helpers (see [Solidity → Verity](/guides/solidity-to-verity#2-patterns-that-need-restructuring)).
+- **Dynamic dispatch on function pointers** — a function-pointer argument that is a runtime value, an expression, or a non-helper name has no statically-known target to monomorphize and fails fast with an issue-linked diagnostic ([#1747](https://github.com/lfglabs-dev/verity/issues/1747)). Pass an explicit mode/enum and dispatch to direct helper calls instead.
+
+## Staying inside the proved subset
+
+The compiler can fail the build when a contract leaves the verified envelope. Pass the relevant `--deny-*` flag(s) and archive `--trust-report <path>` for the JSON trust surface:
+
+| Flag | Rejects |
+|---|---|
+| `--deny-axiomatized-primitives` | `keccak256` and other axiomatized primitives |
+| `--deny-linear-memory-mechanics` | partially modeled `mload` / `mstore` / copy mechanics |
+| `--deny-runtime-introspection` | `block.number`, `address(this)`, `chainid`, … |
+| `--deny-low-level-mechanics` | `call` / `staticcall` / `delegatecall`, ECMs, returndata plumbing |
+| `--deny-proxy-upgradeability` | `delegatecall`-style proxy / upgradeability |
+| `--deny-event-emission` | raw `rawLog` event emission |
+| `--deny-assumed-dependencies` | any `assumed` or `unchecked` foreign surface |
+
+See [Compiler & CLI](/compiler) for the full flag list and the [Trust Model](/trust-model) for how these map to Layer 1/2/3.

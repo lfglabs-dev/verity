@@ -7,10 +7,16 @@ import { Callout } from 'nextra/components'
 import { VerityHero } from '../components/VerityHero'
 import { CodeCompare } from '../components/CodeCompare'
 import { ReportCallout } from '../components/ReportCallout'
+import { CanonicalSurface } from '../components/CanonicalSurface'
+import { TaskRouter } from '../components/TaskRouter'
 
 <VerityHero />
 
 <CodeCompare />
+
+## Start here
+
+<TaskRouter />
 
 <ReportCallout title="Where the trust comes from">
 A small, audited Lean EDSL with example contracts that compile to EVM artifacts.
@@ -26,6 +32,10 @@ on the [Trust Model](/trust-model) page; the live theorem inventory is on
 
 Every contract is three things at once: a **specification** of what it should do,
 an **implementation** that runs, and a **proof** that ties them together.
+
+<CanonicalSurface>
+The spec/implementation/proof below are exactly that proof layer.
+</CanonicalSurface>
 
 ### Specification &nbsp;·&nbsp; *what should be true*
 
@@ -71,6 +81,8 @@ import { ReadingList } from '../components/ReadingList'
   { href: '/architecture', title: 'Architecture Overview', note: 'One screen: EDSL → CompilationModel → IR → Yul → EVM.' },
   { href: '/getting-started', title: 'Getting Started', note: 'Local setup and your first verification run.' },
   { href: '/first-contract', title: 'Your First Contract', note: 'A guided spec-to-proof walkthrough.' },
+  { href: '/guides/solidity-to-verity', title: 'Solidity to Verity', note: 'Porting an existing Solidity contract into the verity_contract surface.' },
+  { href: '/capabilities', title: 'Capabilities & Limits', note: 'What the verified fragment expresses today, and what is partial or unsupported.' },
   { href: '/trust-model', title: 'Trust Model', note: 'What is verified, what is trusted, and the Layer 1/2/3 framing.' },
   { href: '/verification', title: 'Verification Status', note: 'Theorem inventory and proof status.' },
   { href: '/faq', title: 'FAQ', note: 'Why Lean, why an EDSL, how Verity compares to other formal-methods tools.' },

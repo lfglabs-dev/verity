@@ -242,6 +242,35 @@ class ParseContractsTests(unittest.TestCase):
         parsed = gen.parse_contracts(src, Path("dummy.lean"))
         self.assertEqual(parsed["StringSmoke"].functions[0].body, ("returnBytes message",))
 
+    def test_parse_contracts_skips_higher_order_helpers(self) -> None:
+        # Higher-order internal helpers (#1747) are monomorphized away by the
+        # compiler before lowering, so they are never external ABI entry points.
+        # The generator must drop them; emitting a Solidity signature for a
+        # function-pointer parameter is impossible and previously crashed.
+        src = textwrap.dedent(
+            """
+            verity_contract FunctionPointerParamSmoke where
+              storage
+
+              function inc (x : Uint256) : Uint256 := do
+                return (add x 1)
+
+              function apply (f : Uint256 → Uint256, x : Uint256) : Uint256 := do
+                let y ← f x
+                return y
+
+              function runInc (n : Uint256) : Uint256 := do
+                let r ← apply inc n
+                return r
+            """
+        )
+        parsed = gen.parse_contracts(src, gen.ROOT / "Contracts/Smoke.lean")
+        fn_names = [fn.name for fn in parsed["FunctionPointerParamSmoke"].functions]
+        self.assertEqual(fn_names, ["inc", "runInc"])
+        # Rendering must not raise on the dropped higher-order helper.
+        rendered = gen.render_contract_test(parsed["FunctionPointerParamSmoke"])
+        self.assertNotIn("apply(", rendered)
+
 
 class RenderTests(unittest.TestCase):
     def test_render_unit_and_non_unit_tests(self) -> None:

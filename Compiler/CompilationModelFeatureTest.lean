@@ -1046,6 +1046,69 @@ example : storeHelperPairTailNameCollisionExecutablePreservesParam = true := by 
 
 end MacroTupleDestructuringSmoke
 
+namespace MacroHigherOrderInternalCallSmoke
+
+open Contracts
+open Verity hiding pure bind
+open Verity.EVM.Uint256
+
+-- #1747: higher-order internal helpers (function-pointer parameters) are
+-- eliminated by a compile-time monomorphization pre-pass.  `applyTwice` takes a
+-- function pointer `op` and applies it twice; `runDouble` calls it with the
+-- statically-known helper `double`.  After the pre-pass the contract contains
+-- only first-order helpers: a synthesized clone `applyTwice_mono_double` (with
+-- `op` removed and every `op` call replaced by `double`) plus the rewritten
+-- call site.  Nothing downstream — model, IR, Yul — ever sees a function
+-- pointer, so the existing machinery applies unchanged.
+verity_contract HigherOrderDemo where
+  storage
+    result : Uint256 := slot 0
+
+  function double (x : Uint256) : Uint256 := do
+    return add x x
+
+  function applyTwice (op : Uint256 → Uint256, x : Uint256) : Uint256 := do
+    let once ← op x
+    let twice ← op once
+    return twice
+
+  function runDouble (seed : Uint256) : Uint256 := do
+    let out ← applyTwice double seed
+    return out
+
+-- The higher-order call `applyTwice double seed` is rewritten to a first-order
+-- call to the synthesized clone; the model never sees a function pointer.
+def runDoubleModelMonomorphizesHigherOrderCall : Bool :=
+  match HigherOrderDemo.runDouble_modelBody with
+  | [Stmt.letVar "out" (Expr.internalCall helperName [Expr.param "seed"]),
+      Stmt.return (Expr.localVar "out")] =>
+      helperName == "internal_applyTwice_mono_double"
+  | _ => false
+
+example : runDoubleModelMonomorphizesHigherOrderCall = true := by native_decide
+
+-- The synthesized clone is an ordinary first-order helper whose body calls the
+-- concrete helper `double` directly (the function pointer `op` is gone).
+def applyTwiceCloneModelCallsConcreteHelper : Bool :=
+  match HigherOrderDemo.applyTwice_mono_double_modelBody with
+  | [Stmt.letVar "once" (Expr.internalCall op1 [Expr.param "x"]),
+      Stmt.letVar "twice" (Expr.internalCall op2 [Expr.localVar "once"]),
+      Stmt.return (Expr.localVar "twice")] =>
+      op1 == "internal_double" && op2 == "internal_double"
+  | _ => false
+
+example : applyTwiceCloneModelCallsConcreteHelper = true := by native_decide
+
+-- End-to-end: the monomorphized contract still computes double (double seed).
+def runDoubleExecutableComputesDoubleApplication : Bool :=
+  match HigherOrderDemo.runDouble 5 Verity.defaultState with
+  | .success out _ => out == 20
+  | .revert _ _ => false
+
+example : runDoubleExecutableComputesDoubleApplication = true := by native_decide
+
+end MacroHigherOrderInternalCallSmoke
+
 namespace MacroQualifiedLibraryCallSmoke
 
 open Contracts
@@ -2813,6 +2876,47 @@ private def unsafeYulScopeObligation (name : String) : LocalObligation :=
   { name := name
     obligation := "Raw Yul scope effects must conservatively describe the Yul payload."
     proofStatus := .assumed }
+
+private def unsafeYulRawCallExpr : Compiler.Yul.YulExpr :=
+  Compiler.Yul.YulExpr.call "call" [
+    Compiler.Yul.YulExpr.lit 5000,
+    Compiler.Yul.YulExpr.lit 0,
+    Compiler.Yul.YulExpr.lit 0,
+    Compiler.Yul.YulExpr.lit 0,
+    Compiler.Yul.YulExpr.lit 0,
+    Compiler.Yul.YulExpr.lit 0,
+    Compiler.Yul.YulExpr.lit 0
+  ]
+
+private def unsafeYulRawCallStmt : Stmt :=
+  Stmt.unsafeYul {
+    label := "raw_yul_call"
+    stmts := [Compiler.Yul.YulStmt.expr unsafeYulRawCallExpr]
+    obligations := [unsafeYulScopeObligation "raw_yul_call_obligation"]
+  }
+
+private def unsafeYulRawCallAllowedSpec : CompilationModel := {
+  name := "UnsafeYulRawCallAllowed"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "bad"
+      params := []
+      returnType := none
+      body := [unsafeYulRawCallStmt, Stmt.stop]
+    }
+  ]
+}
+
+def unsafeYulRawCallPropagatesCEI : Bool :=
+  match stmtListCEIViolation [
+      unsafeYulRawCallStmt,
+      Stmt.setStorage "value" (Expr.literal 1)
+    ] false with
+  | some msg => contains msg "state write after external call"
+  | none => false
+
+example : unsafeYulRawCallPropagatesCEI = true := by native_decide
 
 private def unsafeYulUnderDeclaredBindSpec : CompilationModel := {
   name := "UnsafeYulUnderDeclaredBind"
@@ -5292,6 +5396,12 @@ set_option maxRecDepth 4096 in
     "unsafeYul tstore mechanic is rejected from view functions"
     unsafeYulTstoreMechanicViewRejectedSpec
     "function 'bad' is marked view but writes state"
+  discard <| expectCompile
+    "unsafeYul raw call AST is allowed by logical-purity validation"
+    unsafeYulRawCallAllowedSpec
+  expectTrue
+    "unsafeYul raw call AST propagates CEI seen-call state"
+    unsafeYulRawCallPropagatesCEI
   discard <| expectCompile
     "matchAdt with terminating branches"
     matchAdtAllBranchesTerminateSpec

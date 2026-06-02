@@ -1,0 +1,137 @@
+---
+title: Diagnostics
+description: Compiler, macro, and linker error messages mapped to their cause and the fix — a searchable error → fix index for Verity.
+---
+
+# Diagnostics: error → fix
+
+Hit a compiler, macro, or linker error? Search this page for the literal text of
+the message (the parts outside `{…}` placeholders are verbatim). Each entry gives
+the **cause** and the **fix**. Messages tagged `#NNNN` link to the tracking issue,
+and most map to a boundary explained on [Capabilities & Limits](/capabilities).
+
+## Selector mismatch
+
+```text
+{Contract}: compile selector list mismatch: expected [0x…, …] got [0x…, …]
+```
+
+**Cause** — `scripts/check_selectors.py` found that the 4-byte selector list a
+proof asserts (in its `compile` hypothesis) no longer matches the selectors
+computed from the contract's function signatures. Usually a function was renamed,
+its parameter types changed, or the function order shifted.
+
+**Fix** — run `python3 scripts/check_selectors.py` to see *expected* vs *got*.
+If the signature change was intentional, update the proof's expected selector
+list to the recomputed values; otherwise restore the signature. Cross-check the
+canonical selectors with `solc --hashes`. A selector mismatch can make proofs
+pass while runtime dispatch is wrong, so never ignore it.
+
+## Unresolved external / linking
+
+```text
+Unresolved external references: {fn, …}
+```
+
+**Cause** — a call site targets a name that is not a Yul builtin, not a function
+defined in the contract, and not provided by any linked library.
+
+**Fix** — link the library that defines it: `lake exe verity-compiler --link
+path/to/Lib.yul`. Make sure the `externals` declaration name matches the library
+function name exactly. See [Linking Libraries](/guides/linking-libraries).
+
+```text
+Arity mismatch: {fn}: called with {N} args but library defines {M} params
+```
+
+**Cause** — the linked library function takes a different number of arguments
+than the contract's `externals` declaration / call site.
+
+**Fix** — align the `externals` parameter list with the library signature.
+
+```text
+Failed to find runtime code injection site in {object}. Library functions could not be linked.
+```
+
+**Cause** — the linker could not locate the runtime `code { … }` block to splice
+library functions into; the Yul object shape is non-standard.
+
+**Fix** — recompile the contract without hand-edited Yul; if it persists on
+generated output, it is a codegen bug worth reporting.
+
+## Unsupported type
+
+These fire when a type cannot be lowered. See [Capabilities & Limits](/capabilities)
+for the full list of expressible types.
+
+```text
+Lean helper '{fn}' uses an unsupported return type; supported pure helper returns are Uint256, Int256, Address, Bytes32/Uint256, and Bool
+```
+
+```text
+Lean helper '{fn}' uses an unsupported parameter type; supported pure helper parameters are Uint256, Int256, Address, Bytes32/Uint256, Bool, String, and Bytes
+```
+
+**Cause** — a pure Lean helper uses a type outside the supported scalar set.
+Note returns are stricter than parameters (no `String` / `Bytes` return).
+
+**Fix** — return or accept a supported scalar. Move `String`/`Bytes` handling to
+ABI transport (calldata params, `returnBytes`) rather than helper return values.
+
+```text
+linked external '{fn}' uses unsupported {return|parameter} type; executable externalCall currently supports …word-like values…
+```
+
+**Cause** — a linked-external signature uses a type the executable `externalCall`
+path cannot encode (returns must be word-like or static ABI composites of
+word-like values; params also allow `Array<word-like>`, `Bytes`, `String`).
+
+**Fix** — restructure the external interface to word-like values (or the allowed
+calldata composites), or keep the call on the trusted ECM path.
+
+```text
+qualified helper '{Contract.fn}' returns unsupported value type {ty}
+```
+
+**Cause** — a cross-contract qualified helper call returns a type the lowering
+cannot handle.
+
+**Fix** — return a supported value type, or invoke through a supported call shape.
+
+## Function pointers / dynamic dispatch (#1747)
+
+Internal function-pointer parameters are supported only when the target is a
+statically-known helper that the compiler can monomorphize. Runtime dispatch is
+the genuine limit — see [Capabilities & Limits](/capabilities#not-supported-in-verity_contract-today).
+
+```text
+unsupported function type in verity_contract boundary (#1747); internal function-pointer parameters are not first-class in the CompilationModel yet. Pass an explicit mode/enum and dispatch to direct internal helper calls, or inline the helper call at each call site.
+```
+
+**Cause** — a contract function/helper declares a function-pointer (`f : T → U`)
+parameter that cannot be specialized away.
+
+**Fix** — pass an explicit mode/enum and `if`/`ite` to direct helper calls, or
+inline the helper at each call site.
+
+```text
+#1747: a higher-order argument must be a statically-known internal helper name (no expressions, runtime values, or qualified cross-contract names)
+```
+
+```text
+#1747: function-pointer argument '{name}' is not a known internal helper in this contract
+```
+
+**Cause** — the value passed in a function-pointer position is not a bare,
+locally-defined helper name (it is an expression, a runtime value, or an unknown
+/ cross-contract name), so there is no static target to monomorphize.
+
+**Fix** — pass the bare name of a helper defined in the same contract.
+
+```text
+#1747: call to higher-order helper '{fn}' expects {N} argument(s), got {M}
+```
+
+**Cause** — a call to a higher-order helper has the wrong argument count.
+
+**Fix** — supply exactly the parameters the helper declares.

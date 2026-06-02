@@ -92,6 +92,33 @@ private def storageWordSpec : CompilationModel :=
 private def storageWordState : SourceSemantics.RuntimeState :=
   { world := Verity.defaultState, bindings := [] }
 
+private def helperKeccakOffset : FunctionSpec :=
+  { name := "hashOffset"
+    params := []
+    returnType := some .uint256
+    isInternal := true
+    body := [Stmt.return (.literal 64)] }
+
+private def helperKeccakSize : FunctionSpec :=
+  { name := "hashSize"
+    params := []
+    returnType := some .uint256
+    isInternal := true
+    body := [Stmt.return (.literal 32)] }
+
+private def helperKeccakSpec : CompilationModel :=
+  { name := "HelperKeccak"
+    fields := []
+    constructor := none
+    functions := [helperKeccakOffset, helperKeccakSize] }
+
+private def helperKeccakWorld : Verity.ContractState :=
+  { Verity.defaultState with
+    memory := fun offset => if offset = 64 then 0x1234 else 0 }
+
+private def helperKeccakState : SourceSemantics.RuntimeState :=
+  { world := helperKeccakWorld, bindings := [] }
+
 private def resultStorageAt? (slot : Nat) : SourceSemantics.StmtResult → Option Nat
   | .continue st => some (st.world.storage slot).val
   | .stop st => some (st.world.storage slot).val
@@ -200,6 +227,14 @@ example :
                      { name := "value", ty := .uint256, kind := .unindexed }
                    ] },
                Verity.Core.Uint256.ofNat (11 % Compiler.Constants.evmModulus)] }] := by
+  native_decide
+
+example :
+    SourceSemantics.evalExprWithHelpers helperKeccakSpec [] 1 helperKeccakState
+      (Expr.keccak256
+        (Expr.internalCall "hashOffset" [])
+        (Expr.internalCall "hashSize" [])) =
+      some (SourceSemantics.keccakMemorySlice helperKeccakWorld.memory 64 32) := by
   native_decide
 
 example :
