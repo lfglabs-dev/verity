@@ -1046,6 +1046,69 @@ example : storeHelperPairTailNameCollisionExecutablePreservesParam = true := by 
 
 end MacroTupleDestructuringSmoke
 
+namespace MacroHigherOrderInternalCallSmoke
+
+open Contracts
+open Verity hiding pure bind
+open Verity.EVM.Uint256
+
+-- #1747: higher-order internal helpers (function-pointer parameters) are
+-- eliminated by a compile-time monomorphization pre-pass.  `applyTwice` takes a
+-- function pointer `op` and applies it twice; `runDouble` calls it with the
+-- statically-known helper `double`.  After the pre-pass the contract contains
+-- only first-order helpers: a synthesized clone `applyTwice_mono_double` (with
+-- `op` removed and every `op` call replaced by `double`) plus the rewritten
+-- call site.  Nothing downstream — model, IR, Yul — ever sees a function
+-- pointer, so the existing machinery applies unchanged.
+verity_contract HigherOrderDemo where
+  storage
+    result : Uint256 := slot 0
+
+  function double (x : Uint256) : Uint256 := do
+    return add x x
+
+  function applyTwice (op : Uint256 → Uint256, x : Uint256) : Uint256 := do
+    let once ← op x
+    let twice ← op once
+    return twice
+
+  function runDouble (seed : Uint256) : Uint256 := do
+    let out ← applyTwice double seed
+    return out
+
+-- The higher-order call `applyTwice double seed` is rewritten to a first-order
+-- call to the synthesized clone; the model never sees a function pointer.
+def runDoubleModelMonomorphizesHigherOrderCall : Bool :=
+  match HigherOrderDemo.runDouble_modelBody with
+  | [Stmt.letVar "out" (Expr.internalCall helperName [Expr.param "seed"]),
+      Stmt.return (Expr.localVar "out")] =>
+      helperName == "internal_applyTwice_mono_double"
+  | _ => false
+
+example : runDoubleModelMonomorphizesHigherOrderCall = true := by native_decide
+
+-- The synthesized clone is an ordinary first-order helper whose body calls the
+-- concrete helper `double` directly (the function pointer `op` is gone).
+def applyTwiceCloneModelCallsConcreteHelper : Bool :=
+  match HigherOrderDemo.applyTwice_mono_double_modelBody with
+  | [Stmt.letVar "once" (Expr.internalCall op1 [Expr.param "x"]),
+      Stmt.letVar "twice" (Expr.internalCall op2 [Expr.localVar "once"]),
+      Stmt.return (Expr.localVar "twice")] =>
+      op1 == "internal_double" && op2 == "internal_double"
+  | _ => false
+
+example : applyTwiceCloneModelCallsConcreteHelper = true := by native_decide
+
+-- End-to-end: the monomorphized contract still computes double (double seed).
+def runDoubleExecutableComputesDoubleApplication : Bool :=
+  match HigherOrderDemo.runDouble 5 Verity.defaultState with
+  | .success out _ => out == 20
+  | .revert _ _ => false
+
+example : runDoubleExecutableComputesDoubleApplication = true := by native_decide
+
+end MacroHigherOrderInternalCallSmoke
+
 namespace MacroQualifiedLibraryCallSmoke
 
 open Contracts

@@ -918,15 +918,40 @@ verity_contract FunctionOverloadSmoke where
   function echo (a : Uint256, b : Uint256) : Uint256 := do
     return (add a b)
 
+-- #1747: higher-order internal helpers (function-pointer parameters) are now
+-- supported via a compile-time monomorphization pre-pass. `apply` takes a
+-- function pointer and is specialized at each call site that passes a
+-- statically-known helper, so the contract lowers to first-order helpers only.
+verity_contract FunctionPointerParamSmoke where
+  storage
+
+  function inc (x : Uint256) : Uint256 := do
+    return (add x 1)
+
+  function apply (f : Uint256 → Uint256, x : Uint256) : Uint256 := do
+    let y ← f x
+    return y
+
+  function runInc (n : Uint256) : Uint256 := do
+    let r ← apply inc n
+    return r
+
+-- The remaining genuine restriction (#1747): a function-pointer argument must be
+-- a statically-known internal helper name, not a runtime value or expression.
 /--
-error: unsupported function type in verity_contract boundary (#1747); internal function-pointer parameters are not first-class in the CompilationModel yet. Pass an explicit mode/enum and dispatch to direct internal helper calls, or inline the helper call at each call site.
+error: #1747: function-pointer argument 'n' is not a known internal helper in this contract
 -/
 #guard_msgs in
-verity_contract FunctionPointerParamRejected where
+verity_contract FunctionPointerDynamicArgRejected where
   storage
 
   function apply (f : Uint256 → Uint256, x : Uint256) : Uint256 := do
-    return (f x)
+    let y ← f x
+    return y
+
+  function bad (n : Uint256) : Uint256 := do
+    let r ← apply n n
+    return r
 
 /--
 error: duplicate function ABI signature 'echo(scalar_uint256)' after ABI erasure
@@ -2520,6 +2545,7 @@ end SpecGenSmoke
 #check_contract ZeroAddressShadowSmoke
 #check_contract ContextAccessorShadowSmoke
 #check_contract FunctionOverloadSmoke
+#check_contract FunctionPointerParamSmoke
 #check_contract HelperExternalArgumentSmoke
 #check_contract BlockTimestampSmoke
 #check_contract StructMappingSmoke
