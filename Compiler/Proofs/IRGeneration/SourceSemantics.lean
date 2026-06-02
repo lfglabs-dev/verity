@@ -3983,9 +3983,13 @@ theorem SupportedSpecHelperProofs.helperCallSummarySound
   SupportedSpecHelperProofs.functionSummariesSound hSupported hProofs hfn calleeName hmem
 
 /-- Expression-position helper call (`Expr.internalCall`) at a call site of a
-selector-dispatched caller obeys the reused helper summary contract. The proof
-reuses the shared catalog via `helperCallSummarySound`; only the call-site
-witness (callee identity + name uniqueness) is supplied locally. -/
+selector-dispatched caller. The first conjunct is the *expression-shape*
+characterization — `evalExprWithHelpers` on the `Expr.internalCall` node reduces to
+the callee's return value — and the second lands the reused helper summary contract
+on that callee result. The shape-specific reduction is what distinguishes this
+theorem's *type* from the void- and assigning-statement variants below (they share
+the summary payload but characterize different evaluators / AST shapes). The summary
+fact is reused from the shared catalog via `helperCallSummarySound`. -/
 theorem SupportedSpecHelperProofs.evalInternalCallObeysSummary
     {spec : CompilationModel}
     {selectors : List Nat}
@@ -4000,20 +4004,26 @@ theorem SupportedSpecHelperProofs.evalInternalCallObeysSummary
     {state : RuntimeState}
     {args : List Expr}
     {argVals : List Nat}
-    (hargs : evalExprListWithHelpers spec fields fuel state args = some argVals) :
+    (hargs : evalExprListWithHelpers spec fields (fuel + 1) state args = some argVals) :
     let witness := (hSupported.supportedFunctionOfSelectorDispatched hfn).body.calls.helpers.summaryOfCall hmem
     let result := interpretInternalFunctionFuel spec fuel witness.callee state.world argVals
-    witness.summary.contract.post fuel state.world argVals
-      result.success result.returnValue result.world := by
-  exact evalExprWithHelpers_internalCall_obeys_summary
-    (findUniqueInternalFunction?_of_witness
-      ((hSupported.supportedFunctionOfSelectorDispatched hfn).body.calls.helpers.summaryOfCall hmem)
-      hSupported.functionNamesNodup)
-    (SupportedSpecHelperProofs.helperCallSummarySound hSupported hProofs hfn hmem)
-    hargs
+    evalExprWithHelpers spec fields (fuel + 1) state (Expr.internalCall calleeName args)
+        = (if result.success then result.returnValue else none)
+      ∧ witness.summary.contract.post fuel state.world argVals
+          result.success result.returnValue result.world := by
+  intro witness result
+  refine ⟨?_, ?_⟩
+  · simp +zetaDelta [evalExprWithHelpers_internalCall_of_witness witness hSupported.functionNamesNodup, hargs]
+  · exact SupportedSpecHelperProofs.helperCallSummarySound hSupported hProofs hfn hmem
+      fuel state.world argVals
 
 /-- Void-statement helper call (`Stmt.internalCall`) at a call site of a
-selector-dispatched caller obeys the reused helper summary contract. -/
+selector-dispatched caller. The first conjunct is the *void-statement-shape*
+characterization — `execStmtWithHelpers` on the `Stmt.internalCall` node reduces to a
+world update (or revert) driven by the callee result — and the second lands the
+reused helper summary contract on that result. The reduction over
+`execStmtWithHelpers`/`Stmt.internalCall` distinguishes this theorem's type from the
+expression-position and assigning-statement variants. -/
 theorem SupportedSpecHelperProofs.execInternalCallObeysSummary
     {spec : CompilationModel}
     {selectors : List Nat}
@@ -4028,20 +4038,26 @@ theorem SupportedSpecHelperProofs.execInternalCallObeysSummary
     {state : RuntimeState}
     {args : List Expr}
     {argVals : List Nat}
-    (hargs : evalExprListWithHelpers spec fields fuel state args = some argVals) :
+    (hargs : evalExprListWithHelpers spec fields (fuel + 1) state args = some argVals) :
     let witness := (hSupported.supportedFunctionOfSelectorDispatched hfn).body.calls.helpers.summaryOfCall hmem
     let result := interpretInternalFunctionFuel spec fuel witness.callee state.world argVals
-    witness.summary.contract.post fuel state.world argVals
-      result.success result.returnValue result.world := by
-  exact execStmtWithHelpers_internalCall_obeys_summary
-    (findUniqueInternalFunction?_of_witness
-      ((hSupported.supportedFunctionOfSelectorDispatched hfn).body.calls.helpers.summaryOfCall hmem)
-      hSupported.functionNamesNodup)
-    (SupportedSpecHelperProofs.helperCallSummarySound hSupported hProofs hfn hmem)
-    hargs
+    execStmtWithHelpers spec fields (fuel + 1) state (Stmt.internalCall calleeName args)
+        = (if result.success then .continue { state with world := result.world } else .revert)
+      ∧ witness.summary.contract.post fuel state.world argVals
+          result.success result.returnValue result.world := by
+  intro witness result
+  refine ⟨?_, ?_⟩
+  · simp +zetaDelta [execStmtWithHelpers_internalCall_of_witness witness hSupported.functionNamesNodup, hargs]
+  · exact SupportedSpecHelperProofs.helperCallSummarySound hSupported hProofs hfn hmem
+      fuel state.world argVals
 
 /-- Assigning-statement helper call (`Stmt.internalCallAssign`) at a call site of
-a selector-dispatched caller obeys the reused helper summary contract. -/
+a selector-dispatched caller. The first conjunct is the *assigning-statement-shape*
+characterization — `execStmtWithHelpers` on the `Stmt.internalCallAssign names …`
+node reduces to a single-name binding update on success — and the second lands the
+reused helper summary contract on the callee result. The reduction over
+`Stmt.internalCallAssign` (carrying `names`) distinguishes this theorem's type from
+the expression-position and void-statement variants. -/
 theorem SupportedSpecHelperProofs.execInternalCallAssignObeysSummary
     {spec : CompilationModel}
     {selectors : List Nat}
@@ -4057,17 +4073,23 @@ theorem SupportedSpecHelperProofs.execInternalCallAssignObeysSummary
     {names : List String}
     {args : List Expr}
     {argVals : List Nat}
-    (hargs : evalExprListWithHelpers spec fields fuel state args = some argVals) :
+    (hargs : evalExprListWithHelpers spec fields (fuel + 1) state args = some argVals) :
     let witness := (hSupported.supportedFunctionOfSelectorDispatched hfn).body.calls.helpers.summaryOfCall hmem
     let result := interpretInternalFunctionFuel spec fuel witness.callee state.world argVals
-    witness.summary.contract.post fuel state.world argVals
-      result.success result.returnValue result.world := by
-  exact execStmtWithHelpers_internalCallAssign_obeys_summary_of_witness
-    (names := names)
-    ((hSupported.supportedFunctionOfSelectorDispatched hfn).body.calls.helpers.summaryOfCall hmem)
-    hSupported.functionNamesNodup
-    (SupportedSpecHelperProofs.helperCallSummarySound hSupported hProofs hfn hmem)
-    hargs
+    execStmtWithHelpers spec fields (fuel + 1) state (Stmt.internalCallAssign names calleeName args)
+        = (if result.success then
+            match names, result.returnValue with
+            | [name], some value =>
+                .continue { world := result.world, bindings := bindValue state.bindings name value }
+            | _, _ => .revert
+          else .revert)
+      ∧ witness.summary.contract.post fuel state.world argVals
+          result.success result.returnValue result.world := by
+  intro witness result
+  refine ⟨?_, ?_⟩
+  · simp +zetaDelta [execStmtWithHelpers_internalCallAssign_of_witness witness hSupported.functionNamesNodup, hargs]
+  · exact SupportedSpecHelperProofs.helperCallSummarySound hSupported hProofs hfn hmem
+      fuel state.world argVals
 
 set_option maxHeartbeats 800000 in
 mutual
