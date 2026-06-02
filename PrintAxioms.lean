@@ -3028,6 +3028,10 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.SourceSemantics.SupportedBodyHelperSummariesSound_of_proofCatalog
   Compiler.Proofs.IRGeneration.SourceSemantics.SupportedSpecHelperProofs.functionProofs
   Compiler.Proofs.IRGeneration.SourceSemantics.SupportedSpecHelperProofs.functionSummariesSound
+  Compiler.Proofs.IRGeneration.SourceSemantics.SupportedSpecHelperProofs.helperCallSummarySound
+  Compiler.Proofs.IRGeneration.SourceSemantics.SupportedSpecHelperProofs.evalInternalCallObeysSummary
+  Compiler.Proofs.IRGeneration.SourceSemantics.SupportedSpecHelperProofs.execInternalCallObeysSummary
+  Compiler.Proofs.IRGeneration.SourceSemantics.SupportedSpecHelperProofs.execInternalCallAssignObeysSummary
   -- Compiler.Proofs.IRGeneration.SourceSemantics.exprList_all_helperSurfaceClosed  -- private
   Compiler.Proofs.IRGeneration.SourceSemantics.evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed
   Compiler.Proofs.IRGeneration.SourceSemantics.evalExprListWithHelpers_eq_evalExprList_of_helperSurfaceClosed
@@ -5544,4 +5548,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5243 theorems/lemmas (3628 public, 1615 private, 0 sorry'd)
+-- Total: 5247 theorems/lemmas (3632 public, 1615 private, 0 sorry'd)
