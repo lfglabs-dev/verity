@@ -94,6 +94,20 @@ private def compileAdtStorageWrite (fields : List Field)
         compileAdtFieldWrite (YulExpr.lit slot) idx (YulExpr.lit 0)
   pure (payloadBindings ++ tagStores ++ payloadStores ++ clearStores)
 
+/-- Scope visible while compiling a `Stmt.forEach` body. The loop's synthetic
+counters `__forEach_idx`/`__forEach_count` are live across the whole body (Yul
+for-loop init variables are in scope in the body), so they must be tracked while
+compiling it. Otherwise a nested `forEach` re-derives the same names and the inner
+`let` collides with the outer one ("Variable name already taken in this scope").
+This is defeq to the codegen's inline `idxName :: countName :: varName :: inScopeNames`,
+so the generated Yul is unchanged; it exists as a named handle for the proofs. -/
+def forEachBodyScope (inScopeNames : List String) (varName : String)
+    (count : Expr) (body : List Stmt) : List String :=
+  let forUsedNames := varName :: (inScopeNames ++ collectExprNames count ++ collectStmtListNames body)
+  let idxName := pickFreshName "__forEach_idx" forUsedNames
+  let countName := pickFreshName "__forEach_count" (idxName :: forUsedNames)
+  idxName :: countName :: varName :: inScopeNames
+
 -- Compile statement to Yul (using mutual recursion for lists).
 -- When isInternal=true, Stmt.return compiles to `__ret := value; leave` so internal
 -- function execution terminates immediately without exiting the outer EVM call.
@@ -262,10 +276,12 @@ def compileStmt (fields : List Field) (events : List EventDef := [])
       -- semantics where `count` is evaluated once and `varName` holds the last
       -- iteration state after the loop rather than the post-incremented counter.
       let countExpr ← compileExpr fields dynamicSource count
-      let bodyStmts ← compileStmtList fields events errors dynamicSource internalRetNames isInternal (varName :: inScopeNames) adtTypes body
       let forUsedNames := varName :: (inScopeNames ++ collectExprNames count ++ collectStmtListNames body)
       let idxName := pickFreshName "__forEach_idx" forUsedNames
       let countName := pickFreshName "__forEach_count" (idxName :: forUsedNames)
+      -- Compile the body with the synthetic counters in scope (see `forEachBodyScope`),
+      -- so a nested `forEach` cannot re-derive colliding `__forEach_idx`/`__forEach_count`.
+      let bodyStmts ← compileStmtList fields events errors dynamicSource internalRetNames isInternal (forEachBodyScope inScopeNames varName count body) adtTypes body
       let initStmts := [
         YulStmt.let_ idxName (YulExpr.lit 0),
         YulStmt.let_ countName countExpr,
