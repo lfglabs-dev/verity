@@ -6173,6 +6173,25 @@ set_option maxRecDepth 4096 in
     (contains macroCallWithValueTrustReport "\"module\":\"callWithValue\"" &&
       contains macroCallWithValueTrustReport "\"module\":\"callWithValueBytes\"" &&
       contains macroCallWithValueTrustReport "\"assumption\":\"generic_call_with_value_interface\"")
+  let macroCreate2SSTORE2Yul ←
+    expectCompileToYul "macro create2/SSTORE2 smoke spec" Contracts.Smoke.Create2SSTORE2Smoke.spec
+  expectTrue "macro create2 surface lowers to the create2 builtin"
+    (contains macroCreate2SSTORE2Yul "create2(value, initOffset, initSize, salt)")
+  expectTrue "macro SSTORE2 read surface lowers to extcodecopy"
+    (contains macroCreate2SSTORE2Yul "extcodecopy(pointer, destOffset, codeOffset, size)")
+  let macroCreate2SSTORE2TrustReport := emitTrustReportJson [Contracts.Smoke.Create2SSTORE2Smoke.spec]
+  expectTrue "macro create2/SSTORE2 trust report surfaces code-as-data assumptions"
+    (contains macroCreate2SSTORE2TrustReport "\"module\":\"create2Deploy\"" &&
+      contains macroCreate2SSTORE2TrustReport "\"module\":\"sstore2ReadCode\"" &&
+      contains macroCreate2SSTORE2TrustReport "\"assumption\":\"create2_initcode_layout\"" &&
+      contains macroCreate2SSTORE2TrustReport "\"assumption\":\"sstore2_pointer_code_layout\"")
+  let macroCallbackYul ←
+    expectCompileToYul "macro callback ABI smoke spec" Contracts.Smoke.CallbackABISmoke.spec
+  expectTrue "macro callback ABI surface stores selector and bytes length"
+    (contains macroCallbackYul "mstore(__cb_ptr, shl(224, 0x12345678))" &&
+      contains macroCallbackYul "mstore(add(__cb_ptr, 68), data_length)")
+  expectTrue "macro callback ABI surface copies calldata bytes payload"
+    (contains macroCallbackYul "calldatacopy(add(__cb_ptr, 100), data_data_offset, data_length)")
   let erc20AllowanceYul ←
     expectCompileToYul "erc20 allowance smoke spec" erc20AllowanceSmokeSpec
   expectTrue "erc20 allowance ECM lowers to staticcall"

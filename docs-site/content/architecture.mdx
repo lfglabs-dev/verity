@@ -46,6 +46,44 @@ by `solc --strict-assembly`. Layer 3 proves IR-to-Yul preservation.
 `forge create` or any standard toolchain. Not in the proof envelope: `solc`,
 the EVM spec, and the deployment pipeline are explicit trust assumptions.
 
+## Layer responsibilities
+
+When a Solidity-facing feature is added, the first question is which layer should
+own it. Verity works best when features enter as typed source or
+`CompilationModel` constructs and the later layers only lower those constructs.
+
+| Feature kind | Owner | Examples |
+|---|---|---|
+| Source syntax | `verity_contract` macro | Source-level `internal` helpers, storage declarations, function parameters |
+| Storage layout | Macro lowering plus `CompilationModel` fields | `MappingStruct`, `MappingStruct2`, fixed-array struct members like `roots[1]` |
+| Reusable call mechanics | External Call Modules | ERC-20 wrappers, callbacks, CREATE2, SSTORE2, precompiles |
+| Low-level primitives | `CompilationModel` mechanics and trust reports | `call`, `staticcall`, `create2`, `extcodecopy`, `codecopy` |
+| Proof widening | Supported-fragment witnesses and theorem interfaces | Moving a feature from tested/trusted into the proved subset |
+
+That split matters because many production ports need Solidity mechanisms that
+are useful but not yet fully modeled in the proof interpreters. Verity should
+still compile them directly, but it must also surface the remaining assumption in
+`--trust-report` and let proof-strict users reject it with a `--deny-*` flag.
+
+## Source-to-model boundary
+
+The `verity_contract` macro emits both executable Lean code and a
+`CompilationModel`. The model is the compiler-facing artifact; selector dispatch,
+ABI output, storage layout, trust reporting, and later proofs all consume it.
+
+Source-level `internal` functions become internal `FunctionSpec`s. They are
+callable by other functions, but they are excluded from external selector
+dispatch and ABI JSON. Entry points with special EVM meaning, such as `receive`
+and `fallback`, should stay external because their names control dispatcher
+behavior.
+
+Storage declarations lower to typed fields. For Morpho-style mapping structs,
+fixed-array members are expanded into stable word-addressed member names. A
+declaration such as `roots : FixedArray Bytes32 2 @word 1` exposes
+`roots[0]` and `roots[1]`; nested arrays expose names like `proof[1][1]`.
+Those names are what `structMember` and `setStructMember` use, so generated Yul
+remains layout-reviewable without post-processing.
+
 ## Source layer (EDSL)
 
 The EDSL is intentionally small. `Verity/Core.lean` provides `ContractState`,
@@ -68,6 +106,25 @@ linker (`Compiler/Linker.lean`) splices external Yul libraries (`--link`) into
 the runtime section after validating that every non-builtin call site is
 satisfied. See [`/compiler`](/compiler) for the pipeline narrative and CLI reference.
 
+## Extension surfaces
+
+External Call Modules, or ECMs, are the standard extension point for reusable
+low-level or protocol-shaped calls. An ECM packages argument count, result
+bindings, mutability flags, Yul lowering, and named assumptions. Standard ECMs
+ship for ERC-20 optional-return wrappers, ERC-4626 reads, callbacks, generic
+value calls, precompiles, CREATE2 deployment, and SSTORE2-style code-as-data
+reads.
+
+The CREATE2/SSTORE2 helpers are a representative boundary:
+
+- `create2Deploy` lowers `create2(value, offset, size, salt)` and records
+  `create2_initcode_layout` plus `create2_address_derivation`.
+- `sstore2ReadCode` lowers `extcodecopy(pointer, dest, codeOffset, size)` and
+  records `sstore2_pointer_code_layout`.
+
+The compiler owns the mechanics. The contract or protocol proof owns the meaning
+of the initcode, derived address, pointer bytecode layout, and returned data.
+
 ## Verification layers (1 / 2 / 3)
 
 The pipeline annotations above mark where each layer applies — Layer 1 (EDSL →
@@ -75,6 +132,20 @@ The pipeline annotations above mark where each layer applies — Layer 1 (EDSL �
 canonical breakdown of what is proved versus trusted at each layer lives on the
 [Trust Model](/trust-model), and the live theorem inventory is on
 [Verification Status](/verification).
+
+## Contributor checklist
+
+For a new production feature, check every row before relying on it:
+
+| Area | Question |
+|---|---|
+| Source surface | Is there source syntax or a documented API, with validation errors for unsupported forms? |
+| Model surface | Does it lower to typed `CompilationModel` data rather than patched generated Yul? |
+| ABI and dispatch | Are external selectors, ABI output, internal helpers, `receive`, and `fallback` handled explicitly? |
+| Storage layout | Are resolved names, offsets, packing, and aliases visible in the model and layout report? |
+| Trust reporting | Do all unproved mechanics appear in `--trust-report`, with fail-closed deny flags when appropriate? |
+| Tests | Is there source smoke coverage, lowering coverage, trust-report coverage, and generated property-test coverage where relevant? |
+| Docs | Do the architecture, capabilities, and feature-specific docs describe both behavior and remaining trust boundary? |
 
 ## Where to next
 

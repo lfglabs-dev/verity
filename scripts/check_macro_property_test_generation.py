@@ -40,6 +40,10 @@ EXCLUDED_CONTRACTS = {
     # Lean macro/model tests; the standalone compiler artifact path does not
     # materialize these ECM smoke contracts for generated no-revert stubs.
     "PackedHashECMSmoke",
+    # Callback target behavior is intentionally external; generated no-revert
+    # fuzz stubs can pick a target that reverts. Lean/Yul/trust-report tests
+    # cover the ABI layout.
+    "CallbackABISmoke",
 }
 
 

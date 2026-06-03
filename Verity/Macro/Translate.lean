@@ -514,6 +514,39 @@ private def storageTypeFromSyntax (newtypes : Array NewtypeDecl) (structDecls : 
         }
     | _ => throwErrorAt stx "invalid struct member declaration"
 
+  let rec storageStructMemberElementWords (memberName : String) : ValueType → CommandElabM Nat
+    | .uint256 | .int256 | .uint16 | .address | .bool | .bytes32 => pure 1
+    | .newtype _ baseType => storageStructMemberElementWords memberName baseType
+    | .fixedArray elemTy size => do
+        let elemWords ← storageStructMemberElementWords memberName elemTy
+        pure (elemWords * size)
+    | other =>
+        throwErrorAt ty
+          s!"mapping struct member '{memberName}' has unsupported storage type {repr other}; expected a word-like type or FixedArray of word-like types"
+
+  let rec expandStructMemberDecl (memberPrefix : String) (baseOffset : Nat) (memberTy : ValueType)
+      (packed : Option (Nat × Nat)) : CommandElabM (List StructMemberDecl) := do
+    match memberTy with
+    | .newtype _ baseType =>
+        expandStructMemberDecl memberPrefix baseOffset baseType packed
+    | .fixedArray elemTy size => do
+        if packed.isSome then
+          throwErrorAt ty s!"mapping struct fixed-array member '{memberPrefix}' cannot be packed"
+        let elemWords ← storageStructMemberElementWords memberPrefix elemTy
+        let nested ← (List.range size).mapM fun idx =>
+          expandStructMemberDecl s!"{memberPrefix}[{idx}]" (baseOffset + idx * elemWords) elemTy none
+        pure nested.flatten
+    | .uint256 | .int256 | .uint16 | .address | .bool | .bytes32 =>
+        pure [{ name := memberPrefix, ty := memberTy, wordOffset := baseOffset, packed := packed }]
+    | other =>
+        throwErrorAt ty
+          s!"mapping struct member '{memberPrefix}' has unsupported storage type {repr other}; expected a word-like type or FixedArray of word-like types"
+
+  let expandStructMembers (members : Array StructMemberDecl) : CommandElabM (List StructMemberDecl) := do
+    let expanded ← members.mapM fun member =>
+      expandStructMemberDecl member.name member.wordOffset member.ty member.packed
+    pure expanded.toList.flatten
+
   let storageArrayElemTypeFromValueType (elemTy : ValueType) : CommandElabM Compiler.CompilationModel.StorageArrayElemType :=
     match elemTy with
     | .uint256 => pure .uint256
@@ -541,12 +574,12 @@ private def storageTypeFromSyntax (newtypes : Array NewtypeDecl) (structDecls : 
   | `(term| MappingStruct($keyTy:term,[ $[$members:verityStructMember],* ])) =>
       pure <| .mappingStruct
         (← keyTypeFromSyntax keyTy)
-        ((← members.mapM structMemberFromSyntax).toList)
+        (← expandStructMembers (← members.mapM structMemberFromSyntax))
   | `(term| MappingStruct2($outerKey:term,$innerKey:term,[ $[$members:verityStructMember],* ])) =>
       pure <| .mappingStruct2
         (← keyTypeFromSyntax outerKey)
         (← keyTypeFromSyntax innerKey)
-        ((← members.mapM structMemberFromSyntax).toList)
+        (← expandStructMembers (← members.mapM structMemberFromSyntax))
   | _ => do
       let vt ← valueTypeFromSyntax newtypes structDecls adtDecls ty
       match vt with

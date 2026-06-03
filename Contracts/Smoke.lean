@@ -11,6 +11,8 @@ import Contracts.SimpleToken.SimpleToken
 import Contracts.ERC20.ERC20
 import Contracts.ERC721.ERC721
 import Compiler.Modules.Calls
+import Compiler.Modules.Callbacks
+import Compiler.Modules.Create2SSTORE2
 import Compiler.Modules.ERC20
 import Compiler.Modules.Oracle
 import Compiler.Modules.Precompiles
@@ -91,6 +93,38 @@ verity_contract MixedMappingChainSmoke where
   function getApproval (owner : Address, tokenId : Uint256, delegate_ : Address) : Uint256 := do
     let current ← getMappingN approvals [addressToWord owner, tokenId, addressToWord delegate_]
     return current
+
+verity_contract FixedArrayMappingStructSmoke where
+  storage
+    rows : MappingStruct(Uint256,[
+      owner : Address @word 0,
+      roots : FixedArray Bytes32 2 @word 1,
+      proof : FixedArray (FixedArray Uint256 2) 2 @word 3
+    ]) := slot 0
+
+  function writeRoot1 (id : Uint256, root : Bytes32) : Unit := do
+    setStructMember "rows" id "roots[1]" root
+
+  function readRoot1 (id : Uint256) : Bytes32 := do
+    let root ← structMember "rows" id "roots[1]"
+    return root
+
+  function writeProof11 (id : Uint256, value : Uint256) : Unit := do
+    setStructMember "rows" id "proof[1][1]" value
+
+  function readProof11 (id : Uint256) : Uint256 := do
+    let value ← structMember "rows" id "proof[1][1]"
+    return value
+
+example :
+    FixedArrayMappingStructSmoke.spec.fields.any (fun field =>
+      field.name == "rows" &&
+        match field.ty with
+        | Compiler.CompilationModel.FieldType.mappingStruct
+            Compiler.CompilationModel.MappingKeyType.uint256 members =>
+            members.any (fun member => member.name == "roots[1]" && member.wordOffset == 2) &&
+            members.any (fun member => member.name == "proof[1][1]" && member.wordOffset == 6)
+        | _ => false) = true := by decide
 
 verity_contract Bytes32Smoke where
   storage
@@ -2161,6 +2195,29 @@ verity_contract BubblingValueCallECMSmoke where
       [addressToWord target, ethValue, inputOffset, inputSize]
 
 set_option linter.unusedVariables false in
+verity_contract Create2SSTORE2Smoke where
+  storage
+    lastPointer : Address := slot 0
+
+  function allow_post_interaction_writes deploy (value : Uint256, initOffset : Uint256, initSize : Uint256, salt : Uint256) : Address := do
+    let pointer ← ecmCall Compiler.Modules.Create2SSTORE2.deployModule
+      [value, initOffset, initSize, salt]
+    setStorageAddr lastPointer (wordToAddress pointer)
+    return wordToAddress pointer
+
+  function readCode (pointer : Address, destOffset : Uint256, codeOffset : Uint256, size : Uint256) : Unit := do
+    ecmDo Compiler.Modules.Create2SSTORE2.readCodeModule
+      [addressToWord pointer, destOffset, codeOffset, size]
+
+set_option linter.unusedVariables false in
+verity_contract CallbackABISmoke where
+  storage
+
+  function onAction (target : Address, amount : Uint256, data : Bytes) : Unit := do
+    ecmDo (Compiler.Modules.Callbacks.callbackModule 0x12345678 1 "data")
+      [addressToWord target, amount]
+
+set_option linter.unusedVariables false in
 verity_contract CallWithValueSmoke where
   storage
 
@@ -2549,6 +2606,7 @@ end SpecGenSmoke
 #check_contract HelperExternalArgumentSmoke
 #check_contract BlockTimestampSmoke
 #check_contract StructMappingSmoke
+#check_contract FixedArrayMappingStructSmoke
 #check_contract UintKeyStructMappingSmoke
 #check_contract ExternalCallSmoke
 #check_contract TryExternalCallSmoke
@@ -2556,6 +2614,8 @@ end SpecGenSmoke
 #check_contract LinkedExternalProjectedArrayArgSmoke
 #check_contract NestedStructArrayProjectionSmoke
 #check_contract ExternalCallMultiReturn
+#check_contract Create2SSTORE2Smoke
+#check_contract CallbackABISmoke
 #check_contract Contracts.Vault
 
 example : TupleSmoke.setFromPair = (TupleSmoke.setFromPair : (Uint256 × Uint256) → Verity.Contract Unit) := rfl
