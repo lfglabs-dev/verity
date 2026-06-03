@@ -175,6 +175,25 @@ private def collectLowLevelMechanicsFromStmts (stmts : List Stmt) : List String 
       []
       stmts
 
+private def lowLevelMechanicsFromEcmModule (mod : ECM.ExternalCallModule) : List String :=
+  match mod.name with
+  | "create2Deploy" => ["create2"]
+  | "sstore2ReadCode" => ["extcodecopy"]
+  | _ => []
+
+private def collectLowLevelMechanicsFromEcmModules (modules : List ECM.ExternalCallModule) : List String :=
+  dedupPreserve (modules.flatMap lowLevelMechanicsFromEcmModule)
+
+private def collectUsedEcmModulesFromStmts (stmts : List Stmt) : List ECM.ExternalCallModule :=
+  dedupEcmModules <|
+    Stmt.foldList
+      (fun acc stmt _ =>
+        match stmt with
+        | .ecm mod _ => acc ++ [mod]
+        | _ => acc)
+      []
+      stmts
+
 private def collectAxiomatizedPrimitivesFromStmts (stmts : List Stmt) : List String :=
   dedupPreserve <|
     Stmt.foldList
@@ -385,7 +404,8 @@ def collectEventEmissionMechanics (spec : CompilationModel) : List String :=
 
 private def isDeniedLowLevelMechanic (mechanic : String) : Bool :=
   match mechanic with
-  | "call" | "staticcall" | "delegatecall" | "create2" | "returndataSize" | "returndataCopy"
+  | "call" | "staticcall" | "delegatecall" | "create2" | "codecopy" | "extcodecopy"
+  | "returndataSize" | "returndataCopy"
   | "revertReturndata" | "rawRevert" | "returndataOptionalBoolAt" | "blobbasefee" => true
   | _ => false
 
@@ -399,7 +419,8 @@ def collectLowLevelMechanics (spec : CompilationModel) : List String :=
     | some ctor => ctor.body
     | none => []
   let allStmts := stmtsFromCtor ++ spec.functions.flatMap stmtsFromFn
-  collectLowLevelMechanicsFromStmts allStmts
+  dedupPreserve (collectLowLevelMechanicsFromStmts allStmts ++
+    collectLowLevelMechanicsFromEcmModules (collectUsedEcmModulesFromStmts allStmts))
 
 /-- Collect partially modeled linear-memory mechanics used by a spec. -/
 def collectLinearMemoryMechanics (spec : CompilationModel) : List String :=
@@ -667,16 +688,6 @@ private def collectUsedExternalNamesByStatus
 example : collectUsedExternalNamesFromStmts [stmtExternalArgSmoke] = ["oracle"] := by
   native_decide
 
-private def collectUsedEcmModulesFromStmts (stmts : List Stmt) : List ECM.ExternalCallModule :=
-  dedupEcmModules <|
-    Stmt.foldList
-      (fun acc stmt _ =>
-        match stmt with
-        | .ecm mod _ => acc ++ [mod]
-        | _ => acc)
-      []
-      stmts
-
 /-- Collect ECM modules that are actually referenced by the spec, including
     constructor bodies. This shared view keeps machine-readable reports and
     compiler summaries aligned. -/
@@ -923,13 +934,15 @@ private def usageSiteSummary
     (localObligations : List LocalObligation)
     (stmts : List Stmt) :
     UsageSiteSummary :=
-  let mechanics := collectLowLevelMechanicsFromStmts stmts
+  let siteModules := collectUsedEcmModulesFromStmts stmts
+  let mechanics :=
+    dedupPreserve (collectLowLevelMechanicsFromStmts stmts ++
+      collectLowLevelMechanicsFromEcmModules siteModules)
   let eventEmission := collectEventEmissionMechanicsFromStmts stmts
   let proxyUpgradeability := collectProxyUpgradeabilityMechanicsFromMechanics mechanics
   let runtimeIntrospection := collectRuntimeIntrospectionMechanicsFromStmts stmts
   let primitives := collectAxiomatizedPrimitivesFromStmts stmts
   let siteExternals := collectUsedExternalAssumptionsFromStmts spec.externals stmts
-  let siteModules := collectUsedEcmModulesFromStmts stmts
   let siteLocalObligations := collectLocalObligationsFromStmts localObligations stmts
   let siteUnsafeYulContracts := collectUnsafeYulContractsFromStmts stmts
   let siteUnsafeBlocks := collectUnsafeBlockReasonsFromStmts stmts

@@ -6185,6 +6185,13 @@ set_option maxRecDepth 4096 in
       contains macroCreate2SSTORE2TrustReport "\"module\":\"sstore2ReadCode\"" &&
       contains macroCreate2SSTORE2TrustReport "\"assumption\":\"create2_initcode_layout\"" &&
       contains macroCreate2SSTORE2TrustReport "\"assumption\":\"sstore2_pointer_code_layout\"")
+  expectTrue "macro create2/SSTORE2 trust report surfaces low-level mechanics"
+    (contains macroCreate2SSTORE2TrustReport "\"modeledLowLevelMechanics\":[\"create2\",\"extcodecopy\"]")
+  let macroCreate2SSTORE2LowLevelLines :=
+    String.intercalate "\n" (emitLowLevelMechanicsUsageSiteLines [Contracts.Smoke.Create2SSTORE2Smoke.spec])
+  expectTrue "macro create2/SSTORE2 deny-low-level diagnostics include ECM mechanics"
+    (contains macroCreate2SSTORE2LowLevelLines "- Create2SSTORE2Smoke [function:deploy]: create2" &&
+      contains macroCreate2SSTORE2LowLevelLines "- Create2SSTORE2Smoke [function:readCode]: extcodecopy")
   let macroCallbackYul ←
     expectCompileToYul "macro callback ABI smoke spec" Contracts.Smoke.CallbackABISmoke.spec
   expectTrue "macro callback ABI surface stores selector and bytes length"
