@@ -93,6 +93,7 @@ Verity is complementary to these tools. It is for cases where you need mathemati
 | [veritylang.com](https://veritylang.com/) | Full documentation site |
 | [Solidity to Verity](https://veritylang.com/guides/solidity-to-verity) | Practical syntax and semantic mappings for Solidity ports |
 | [Production Solidity Patterns](https://veritylang.com/guides/production-solidity-patterns) | Agent guidance for production ports, reusable Verity features, and oracle/spec boundaries |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Contributor map for source features, proof layers, trust surfaces, and regression checks |
 | [docs/VERIFICATION_STATUS.md](docs/VERIFICATION_STATUS.md) | Theorem counts, proof status, test coverage |
 | [docs/INTRINSICS.md](docs/INTRINSICS.md) | Consumer-owned opcode bindings and their trust model |
 | [docs/LOW_LEVEL_YUL.md](docs/LOW_LEVEL_YUL.md) | Policy for typed low-level primitives vs. raw Yul escape hatches |

@@ -173,9 +173,11 @@ constructor := some {
 
 Low-level calls, linear-memory primitives, `rawLog`, and `keccak256` compile but remain partially modeled in the proof interpreter. Functions or constructors that use direct assembly-shaped primitives without `localObligations [...]` fail closed under `--deny-axiomatized-primitives`.
 
-**Internal functions** via `isInternal := true` and `Stmt.internalCall`; **events** via the `events` block and `Stmt.emit` (topic0 computed from the event signature); **double mappings** via `mapping2`/`setMapping2`; **uint256-keyed mappings**; **dynamic, fixed-size, and bytes array parameters** with ABI offset-based decoding.
+**Internal functions** via source-level `internal` helpers, `isInternal := true`, and `Stmt.internalCall`; these helpers stay out of selector dispatch and ABI JSON. **Events** via the `events` block and `Stmt.emit` (topic0 computed from the event signature); **double mappings** via `mapping2`/`setMapping2`; **uint256-keyed mappings**; **dynamic, fixed-size, and bytes array parameters** with ABI offset-based decoding.
 
-For Morpho-style `mapping(K => Struct)` / `mapping(K1 => mapping(K2 => Struct))` layouts, declare `FieldType.mappingStruct` / `FieldType.mappingStruct2` and access members with `structMember "f" key "member"`, `structMember2 "f" k1 k2 "member"`, `setStructMember "f" key "member" val`, `setStructMember2 "f" k1 k2 "member" val`. Member offsets and packed sub-word widths are part of the declaration, so the generated Yul keeps Solidity's storage layout reviewable.
+For Morpho-style `mapping(K => Struct)` / `mapping(K1 => mapping(K2 => Struct))` layouts, declare `FieldType.mappingStruct` / `FieldType.mappingStruct2` and access members with `structMember "f" key "member"`, `structMember2 "f" k1 k2 "member"`, `setStructMember "f" key "member" val`, `setStructMember2 "f" k1 k2 "member" val`. Member offsets and packed sub-word widths are part of the declaration, so the generated Yul keeps Solidity's storage layout reviewable. Fixed-array members are expanded at elaboration time into stable member names such as `roots[1]` and `proof[1][1]`.
+
+Standard External Call Modules cover reusable low-level call patterns without generated-Yul patching. The CREATE2/SSTORE2 module lowers source-level `create2Deploy` and `sstore2ReadCode` ECM calls to `create2` and `extcodecopy`, while trust reports keep the initcode layout, address derivation, and pointer bytecode layout assumptions visible.
 
 ## Add a new contract
 

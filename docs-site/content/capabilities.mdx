@@ -22,7 +22,7 @@ Modeled end-to-end and carrying machine-checked preservation proofs.
 **Storage**
 - Scalar fields (`Uint256`, `Address`, `Bool`, `Bytes32`) at explicit slots.
 - Mappings: single, double (`mapping2`), `Uint256`-keyed, plus word-offset and packed-word variants.
-- Structs and nested storage structs; struct-valued mappings (`MappingStruct`).
+- Structs and nested storage structs; struct-valued mappings (`MappingStruct` / `MappingStruct2`), including fixed-array members expanded into stable names such as `roots[1]` and `proof[1][1]`.
 - ERC-7201 namespaced storage roots (`storage_namespace`).
 
 **Computation**
@@ -37,6 +37,7 @@ Modeled end-to-end and carrying machine-checked preservation proofs.
 - Context reads: `msgSender` (`caller`), `msg.value`, `block.timestamp`.
 
 **Composition**
+- Source-level `internal` functions. They compile as internal helpers, stay out of selector dispatch and ABI JSON, and are called by direct helper syntax.
 - Internal helpers called directly by name. A helper's proved summary is now reusable at every call site through the first-class interface `SupportedSpecHelperProofs.helperCallSummarySound` and its three call-shape corollaries (`evalInternalCallObeysSummary`, `execInternalCallObeysSummary`, `execInternalCallAssignObeysSummary`) covering expression position, void statement, and assigning statement ([#1630](https://github.com/lfglabs-dev/verity/issues/1630)).
 - Higher-order internal calls (function-pointer parameters) via a compile-time monomorphization pre-pass; nothing downstream of the parser sees a function pointer, so the first-order proof machinery applies unchanged ([#1747](https://github.com/lfglabs-dev/verity/issues/1747)).
 - External linked libraries (`externalCall`) — sound **by assumption** on the linked Yul (e.g. Poseidon), recorded as a trust surface.
@@ -60,7 +61,7 @@ Compiler-supported and differential-tested, but only partially covered by the pr
 These lower to correct Yul and are differential-tested, but are **not modeled in the proof interpreters**. Treat each as an explicit trust assumption and archive `--trust-report`.
 
 - **`keccak256`** — compiles through the typed intrinsic but relies on an explicit hashing axiom. Enforce exclusion with `--deny-axiomatized-primitives`.
-- **Low-level calls** — `call` / `staticcall` / `delegatecall`, `externalCallBind`, and ECMs (`callWithValue`, `bubblingValueCall`, SafeTransferLib-style optional-return helpers, and the precompile ECMs `ecrecover` / `sha256` / BN254). Enforce with `--deny-low-level-mechanics`; each precompile carries its own `evm_*_precompile` axiom (see [`docs/EXTERNAL_CALL_MODULES.md`](https://github.com/lfglabs-dev/verity/blob/main/docs/EXTERNAL_CALL_MODULES.md) and [`AXIOMS.md`](https://github.com/lfglabs-dev/verity/blob/main/AXIOMS.md)).
+- **Low-level calls and code mechanics** — `call` / `staticcall` / `delegatecall`, `externalCallBind`, CREATE2, SSTORE2-style `extcodecopy`, and ECMs (`callWithValue`, `bubblingValueCall`, SafeTransferLib-style optional-return helpers, callback helpers, CREATE2/SSTORE2 helpers, and the precompile ECMs `ecrecover` / `sha256` / BN254). Enforce with `--deny-low-level-mechanics`; each precompile carries its own `evm_*_precompile` axiom, while CREATE2/SSTORE2 carry layout/address assumptions (see [`docs/EXTERNAL_CALL_MODULES.md`](https://github.com/lfglabs-dev/verity/blob/main/docs/EXTERNAL_CALL_MODULES.md) and [`AXIOMS.md`](https://github.com/lfglabs-dev/verity/blob/main/AXIOMS.md)).
 - **`delegatecall` / proxy upgradeability** — additionally a dedicated proxy boundary. Enforce with `--deny-proxy-upgradeability` ([#1420](https://github.com/lfglabs-dev/verity/issues/1420)).
 - **Raw payload plumbing** — `calldatacopy`, `returndataCopy`, `revertReturndata`, `rawLog`. Enforce raw-event exclusion with `--deny-event-emission` and low-level mechanics with `--deny-low-level-mechanics`.
 - **Nested dynamic ABI decoding** — `arrayElementDynamicWord` / `paramDynamicHeadWord` read checked static leaf words from dynamic-shaped calldata; the decoded words are not modeled in proofs ([#1832](https://github.com/lfglabs-dev/verity/issues/1832)).
