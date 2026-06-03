@@ -70,6 +70,7 @@ syntax "external " ident "(" sepBy(term, ",") ")" " -> " "(" sepBy(term, ",") ")
 syntax ident " := " ident ppSpace str : verityLocalObligation
 syntax "local_obligations " "[" sepBy(verityLocalObligation, ",") "]" : verityLocalObligations
 syntax "payable" : verityMutability
+syntax "internal" : verityMutability
 syntax "view" : verityMutability
 syntax pureMutabilityMarker := &"pure"
 syntax "no_external_calls" : verityMutability

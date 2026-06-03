@@ -210,6 +210,8 @@ structure FunctionDecl where
   params : Array ParamDecl
   returnTy : ValueType
   isPayable : Bool := false
+  /-- Whether this function is internal-only and excluded from selector dispatch/ABI. -/
+  isInternal : Bool := false
   isView : Bool := false
   isPure : Bool := false
   noExternalCalls : Bool := false
@@ -1148,6 +1150,7 @@ private def parseLocalObligation (stx : Syntax) : CommandElabM LocalObligationDe
 
 private structure ParsedMutability where
   isPayable : Bool := false
+  isInternal : Bool := false
   isView : Bool := false
   isPure : Bool := false
   noExternalCalls : Bool := false
@@ -1165,6 +1168,10 @@ private def parseMutabilityModifiers
         if result.isPayable then
           throwErrorAt mod "duplicate 'payable' modifier"
         result := { result with isPayable := true }
+    | `(verityMutability| internal) =>
+        if result.isInternal then
+          throwErrorAt mod "duplicate 'internal' modifier"
+        result := { result with isInternal := true }
     | `(verityMutability| view) =>
         if result.isView then
           throwErrorAt mod "duplicate 'view' modifier"
@@ -1304,6 +1311,7 @@ private def parseFunction (newtypes : Array NewtypeDecl) (structDecls : Array St
         params := parsedParams
         returnTy := parsedReturnTy
         isPayable := mut_.isPayable
+        isInternal := mut_.isInternal
         isView := mut_.isView
         isPure := mut_.isPure
         noExternalCalls := mut_.noExternalCalls
@@ -7910,7 +7918,7 @@ private def mkSpecCommand
         })
   let functionModelIds ← functions.mapM fun fn => mkSuffixedIdent fn.ident "_model"
   let internalFunctionTerms ← functions.filterMapM fun fn => do
-    if supportsInternalHelperSpec fn then
+    if supportsInternalHelperSpec fn && !fn.isInternal then
       let modelBodyName ← mkSuffixedIdent fn.ident "_modelBody"
       let modelParams ← mkModelParamsTerm fn.params
       let localObligationTerms ← fn.localObligations.mapM mkModelLocalObligationTerm
@@ -8580,6 +8588,7 @@ def mkFunctionCommandsPublic
   let modelParams ← mkModelParamsTerm fn.params
   let localObligationTerms ← fn.localObligations.mapM mkModelLocalObligationTerm
   let payableTerm ← if fn.isPayable then `(true) else `(false)
+  let internalTerm ← if fn.isInternal then `(true) else `(false)
   let viewTerm ← if fn.isView then `(true) else `(false)
   let pureTerm ← if fn.isPure then `(true) else `(false)
   let noExternalCallsTerm ← if fn.noExternalCalls then `(true) else `(false)
@@ -8594,11 +8603,13 @@ def mkFunctionCommandsPublic
   let modifiesTerms : Array Term := fn.modifies.map fun ident => strTerm (toString ident.getId)
   let returnTypeTerm ← modelReturnTypeTerm fn.returnTy
   let returnsTerm ← modelReturnsTerm fn.returnTy
+  let modelSpecName :=
+    if fn.isInternal then internalHelperSpecNameFor fn else fn.name
 
   let fnCmd : Cmd ← `(command| def $fn.ident : $fnType := $fnValue)
   let bodyCmd : Cmd ← `(command| def $modelBodyName : List Compiler.CompilationModel.Stmt := [ $[$stmtTerms],* ])
   let modelCmd : Cmd ← `(command| def $modelName : Compiler.CompilationModel.FunctionSpec := {
-    name := $(strTerm fn.name)
+    name := $(strTerm modelSpecName)
     params := $modelParams
     returnType := $returnTypeTerm
     «returns» := $returnsTerm
@@ -8613,6 +8624,7 @@ def mkFunctionCommandsPublic
     modifies := [ $[$modifiesTerms],* ]
     localObligations := [ $[$localObligationTerms],* ]
     body := $modelBodyName
+    isInternal := $internalTerm
   })
   pure #[fnCmd, bodyCmd, modelCmd]
 
