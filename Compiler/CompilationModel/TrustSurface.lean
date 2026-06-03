@@ -24,6 +24,14 @@ private def dedupEcmModules (items : List ECM.ExternalCallModule) : List ECM.Ext
   items.foldl (fun acc item => if acc.contains item then acc else acc ++ [item]) []
 
 private partial def collectLowLevelExprMechanics : Expr → List String
+  | .intrinsic _ (.builtin "create2") _ args =>
+      ["create2"] ++ args.flatMap collectLowLevelExprMechanics
+  | .intrinsic _ (.builtin "extcodecopy") _ args =>
+      ["extcodecopy"] ++ args.flatMap collectLowLevelExprMechanics
+  | .intrinsic _ (.builtin "codecopy") _ args =>
+      ["codecopy"] ++ args.flatMap collectLowLevelExprMechanics
+  | .intrinsic _ _ _ args =>
+      args.flatMap collectLowLevelExprMechanics
   | .call gas target value inOffset inSize outOffset outSize =>
       ["call"] ++ collectLowLevelExprMechanics gas ++ collectLowLevelExprMechanics target ++
         collectLowLevelExprMechanics value ++ collectLowLevelExprMechanics inOffset ++
@@ -94,6 +102,8 @@ private partial def collectLowLevelExprMechanics : Expr → List String
       []
 
 private partial def collectAxiomatizedExprPrimitives : Expr → List String
+  | .intrinsic _ _ _ args =>
+      args.flatMap collectAxiomatizedExprPrimitives
   | .keccak256 offset size =>
       ["keccak256"] ++ collectAxiomatizedExprPrimitives offset ++ collectAxiomatizedExprPrimitives size
   | .call gas target value inOffset inSize outOffset outSize =>
@@ -176,8 +186,8 @@ private def isUnsafeBoundaryMechanic (mechanic : String) : Bool :=
   match mechanic with
   | "call" | "staticcall" | "delegatecall"
   | "returndataSize" | "returndataCopy" | "revertReturndata" | "returndataOptionalBoolAt"
-  | "mload" | "mstore" | "calldataload" | "calldatacopy"
-  | "extcodesize" | "tload" | "tstore" => true
+  | "mload" | "mstore" | "calldataload" | "calldatacopy" | "codecopy"
+  | "extcodesize" | "extcodecopy" | "create2" | "tload" | "tstore" => true
   | _ => false
 
 /-- Collect assembly-shaped low-level mechanics that require an explicit local obligation. -/
@@ -276,7 +286,8 @@ def collectUnsafeBlockReasons (spec : CompilationModel) : List String :=
 
 private def isLinearMemoryMechanic (mechanic : String) : Bool :=
   match mechanic with
-  | "mload" | "mstore" | "calldatacopy" | "returndataCopy" | "returndataOptionalBoolAt" => true
+  | "mload" | "mstore" | "calldatacopy" | "codecopy" | "extcodecopy"
+  | "returndataCopy" | "returndataOptionalBoolAt" => true
   | _ => false
 
 private def collectLinearMemoryMechanicsFromMechanics (mechanics : List String) : List String :=
@@ -374,7 +385,7 @@ def collectEventEmissionMechanics (spec : CompilationModel) : List String :=
 
 private def isDeniedLowLevelMechanic (mechanic : String) : Bool :=
   match mechanic with
-  | "call" | "staticcall" | "delegatecall" | "returndataSize" | "returndataCopy"
+  | "call" | "staticcall" | "delegatecall" | "create2" | "returndataSize" | "returndataCopy"
   | "revertReturndata" | "rawRevert" | "returndataOptionalBoolAt" | "blobbasefee" => true
   | _ => false
 

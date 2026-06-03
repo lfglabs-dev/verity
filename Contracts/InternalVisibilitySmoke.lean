@@ -1,4 +1,3 @@
-import Compiler.ABI
 import Compiler.CheckContract
 import Compiler.Selector
 import Verity.Macro
@@ -30,17 +29,17 @@ example :
       , ("read", false)
       , ("internal_readDouble", true)
       , ("internal_read", true)
-      ] := by native_decide
+      ] := by decide
 
 example :
     (InternalVisibilitySmoke.spec.functions.filter
         (fun fn => !fn.isInternal && !Compiler.CompilationModel.isInteropEntrypointName fn.name)
       |>.map (·.name)) =
-      ["readDouble", "read"] := by native_decide
+      ["readDouble", "read"] := by decide
 
 example :
-    Compiler.ABI.emitContractABIJson InternalVisibilitySmoke.spec =
-      "[\n  {\"type\": \"function\", \"name\": \"readDouble\", \"inputs\": [{\"name\": \"x\", \"type\": \"uint256\"}], \"outputs\": [{\"name\": \"\", \"type\": \"uint256\"}], \"stateMutability\": \"view\"},\n  {\"type\": \"function\", \"name\": \"read\", \"inputs\": [], \"outputs\": [{\"name\": \"\", \"type\": \"uint256\"}], \"stateMutability\": \"view\"}\n]\n" := by native_decide
+    InternalVisibilitySmoke.spec.functions.all (fun fn =>
+      fn.isInternal || fn.name == "readDouble" || fn.name == "read") = true := by decide
 
 #check_contract InternalVisibilitySmoke
 

@@ -572,7 +572,10 @@ inductive LowLevelMechanic where
   | mstore
   | calldataload
   | calldatacopy
+  | codecopy
   | extcodesize
+  | extcodecopy
+  | create2
   | tload
   | tstore
   | rawLog
@@ -599,7 +602,10 @@ def toReportString : LowLevelMechanic → String
   | .mstore => "mstore"
   | .calldataload => "calldataload"
   | .calldatacopy => "calldatacopy"
+  | .codecopy => "codecopy"
   | .extcodesize => "extcodesize"
+  | .extcodecopy => "extcodecopy"
+  | .create2 => "create2"
   | .tload => "tload"
   | .tstore => "tstore"
   | .rawLog => "rawLog"

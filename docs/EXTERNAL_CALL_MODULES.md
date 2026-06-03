@@ -115,6 +115,8 @@ Standard modules ship in `Compiler/Modules/`:
 | `Calls.callWithValue` | Parameterized | Generic `call{value:v}` over an already prepared calldata slice, with revert bubbling | `generic_call_with_value_interface` |
 | `Calls.callWithValueBytes` | Parameterized | Generic `call{value:v}` over a `bytes` parameter, with revert bubbling | `generic_call_with_value_interface` |
 | `Calls.bubblingValueCall` / `Calls.bubblingValueCallNoOutput` | `call{value: v}(data)` shape | Generic low-level value call over caller-provided memory slices; bubbles exact revert returndata on failure | `generic_low_level_value_call_interface` |
+| `Create2SSTORE2.create2Deploy` | Parameterized | `create2(value, offset, size, salt)` over caller-prepared initcode | `create2_initcode_layout`, `create2_address_derivation` |
+| `Create2SSTORE2.sstore2ReadCode` | Parameterized | `extcodecopy(pointer, dest, codeOffset, size)` for code-as-data reads | `sstore2_pointer_code_layout` |
 
 See `Compiler/Modules/README.md` for the full checklist on adding new standard modules.
 
@@ -189,6 +191,19 @@ plain `call`, and bubbles exact revert returndata on failure. The helper fixes
 the selector/static-argument/dynamic-bytes ABI layout, while the callback
 target's protocol-specific behavior remains the `callback_target_interface`
 assumption.
+
+### CREATE2 and SSTORE2 Helpers
+
+`Compiler.Modules.Create2SSTORE2.deployModule` lowers a source-level ECM call to
+`create2(value, offset, size, salt)` and binds the returned address word. The
+caller is responsible for preparing the initcode memory slice and for proving or
+assuming the `create2_initcode_layout` and `create2_address_derivation`
+boundaries.
+
+`Compiler.Modules.Create2SSTORE2.readCodeModule` lowers to `extcodecopy` for
+SSTORE2-style code-as-data reads. The helper only models the copy mechanic; the
+meaning of the pointer's bytecode layout remains the
+`sstore2_pointer_code_layout` assumption.
 
 ### Packed Hashing Helpers
 
