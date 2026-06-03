@@ -1054,7 +1054,7 @@ theorem legacyCompatibleExternalStmtList_of_compileStmt_ok_on_supportedContractS
               simp only [CompilationModel.compileStmt, bind, Except.bind] at hcompile
               cases hbody :
                   CompilationModel.compileStmtList fields events errors .calldata [] false
-                    (varName :: inScopeNames) [] body with
+                    (CompilationModel.forEachBodyScope inScopeNames varName (Expr.literal 0) body) [] body with
               | error e => simp [CompilationModel.compileExpr, pure, Except.pure, hbody] at hcompile
               | ok loopBodyIR =>
                   simp [CompilationModel.compileExpr, hbody] at hcompile
@@ -3620,12 +3620,13 @@ private theorem stmtListScopeCore_of_unsupportedContractSurface_eq_false
                   simp only [CompilationModel.compileStmt, bind, Except.bind] at hhead
                   cases hbody :
                       CompilationModel.compileStmtList fields [] [] .calldata [] false
-                        (varName :: scope) [] body with
+                        (CompilationModel.forEachBodyScope scope varName (Expr.literal 0) body) [] body with
                   | error e => simp [CompilationModel.compileExpr, pure, Except.pure, hbody] at hhead
                   | ok loopBodyIR =>
                       exact .forEachLiteralZero
                         (stmtListScopeCore_of_unsupportedContractSurface_eq_false
-                          fields (varName :: scope) body loopBodyIR hbodySurface hbody)
+                          fields (CompilationModel.forEachBodyScope scope varName (Expr.literal 0) body)
+                            body loopBodyIR hbodySurface hbody)
                         ihRest
               | succ n =>
                   cases body with
@@ -3756,12 +3757,13 @@ theorem stmtListScopeCore_prefix_of_compileStmtList_ok_of_stmtListTouchesUnsuppo
                   simp only [CompilationModel.compileStmt, bind, Except.bind] at hhead
                   cases hbody :
                       CompilationModel.compileStmtList fields [] [] .calldata [] false
-                        (varName :: scope) [] body with
+                        (CompilationModel.forEachBodyScope scope varName (Expr.literal 0) body) [] body with
                   | error e => simp [CompilationModel.compileExpr, pure, Except.pure, hbody] at hhead
                   | ok loopBodyIR =>
                       exact StmtListScopeCore.forEachLiteralZero
                         (stmtListScopeCore_of_unsupportedContractSurface_eq_false
-                          fields (varName :: scope) body loopBodyIR hbodySurface hbody)
+                          fields (CompilationModel.forEachBodyScope scope varName (Expr.literal 0) body)
+                            body loopBodyIR hbodySurface hbody)
                         (ih hrestSurface htail)
               | succ n =>
                   cases body with
@@ -13708,9 +13710,9 @@ private theorem compiledStmtStep_forEach_literal_zero
   rcases compileStmtList_ok_of_stmtListGenericCore_early
       (fields := fields)
       (scope := varName :: scope)
-      (inScopeNames := varName :: scope)
+      (inScopeNames := CompilationModel.forEachBodyScope scope varName (Expr.literal 0) body)
       hbodyGeneric
-      FunctionBody.scopeNamesIncluded_refl with
+      (fun name hmem => List.mem_cons_of_mem _ (List.mem_cons_of_mem _ hmem)) with
     ⟨bodyIR, hbodyCompile⟩
   refine ⟨forEachZeroCompiledIR scope varName body bodyIR, ?_⟩
   refine

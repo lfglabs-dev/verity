@@ -4002,7 +4002,7 @@ theorem compileStmt_forEach_with_bridged_body
     (hCount : BridgedSourceExpr count)
     (hBody : ∀ {out : List YulStmt},
       compileStmtList fields events errors dynamicSource internalRetNames
-        isInternal (varName :: inScopeNames) [] body = .ok out →
+        isInternal (forEachBodyScope inScopeNames varName count body) [] body = .ok out →
       BridgedStmts out) :
     ∀ {out : List YulStmt},
       compileStmt fields events errors dynamicSource internalRetNames isInternal
@@ -4015,7 +4015,7 @@ theorem compileStmt_forEach_with_bridged_body
   | ok countExpr =>
       simp [hCExpr] at hOk
       cases hBodyOk : compileStmtList fields events errors dynamicSource
-          internalRetNames isInternal (varName :: inScopeNames) [] body with
+          internalRetNames isInternal (forEachBodyScope inScopeNames varName count body) [] body with
       | error err => simp [hBodyOk] at hOk
       | ok bodyOut =>
           simp [hBodyOk, Pure.pure, Except.pure] at hOk
@@ -4128,7 +4128,7 @@ theorem compileStmt_forEach_with_noFuncDefs_body
     (varName : String) (count : Expr) (body : List Stmt)
     (hBody : ∀ {out : List YulStmt},
       compileStmtList fields events errors dynamicSource internalRetNames
-        isInternal (varName :: inScopeNames) [] body = .ok out →
+        isInternal (forEachBodyScope inScopeNames varName count body) [] body = .ok out →
       Native.yulStmtsContainFuncDef out = false) :
     ∀ {out : List YulStmt},
       compileStmt fields events errors dynamicSource internalRetNames isInternal
@@ -4141,7 +4141,7 @@ theorem compileStmt_forEach_with_noFuncDefs_body
   | ok countExpr =>
       simp [hCExpr] at hOk
       cases hBodyOk : compileStmtList fields events errors dynamicSource
-          internalRetNames isInternal (varName :: inScopeNames) [] body with
+          internalRetNames isInternal (forEachBodyScope inScopeNames varName count body) [] body with
       | error err => simp [hBodyOk] at hOk
       | ok bodyOut =>
           have hBodyNoFunc := hBody hBodyOk
@@ -5595,7 +5595,7 @@ theorem compileStmt_external_forEach_body_with_errors_bridged
         hCount ?_ hOk
       intro bodyOut hBodyOk
       exact compileStmtList_external_body_with_errors_bridged fields events
-        errors dynamicSource internalRetNames body (varName :: inScopeNames)
+        errors dynamicSource internalRetNames body _
         hBody hBodyOk
 
 /-- External forEach-wrapped with-errors source bodies compile to Yul lists
@@ -5673,7 +5673,7 @@ theorem compileStmt_internal_forEach_body_with_errors_bridged
         hCount ?_ hOk
       intro bodyOut hBodyOk
       exact compileStmtList_internal_body_with_errors_bridged fields events
-        errors dynamicSource internalRetNames body (varName :: inScopeNames)
+        errors dynamicSource internalRetNames body _
         hBody hBodyOk
 
 /-- Internal forEach-wrapped with-errors source bodies compile to Yul lists
@@ -5895,7 +5895,7 @@ mutual
         intro bodyOut hBodyOk
         exact compileStmtList_external_recursive_body_with_errors_bridged fields
           events errors dynamicSource internalRetNames hBody
-          (varName :: inScopeNames) hBodyOk
+          _ hBodyOk
 
   theorem compileStmtList_external_recursive_body_with_errors_bridged
       (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
@@ -6012,7 +6012,7 @@ mutual
         intro bodyOut hBodyOk
         exact compileStmtList_internal_recursive_body_with_errors_bridged fields
           events errors dynamicSource internalRetNames hBody
-          (varName :: inScopeNames) hBodyOk
+          _ hBodyOk
 
   theorem compileStmtList_internal_recursive_body_with_errors_bridged
       (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
@@ -7921,7 +7921,7 @@ mutual
         intro bodyOut hBodyOk
         exact compileStmtList_external_recursive_body_with_raw_log_bridged fields
           events errors dynamicSource internalRetNames hBody
-          (varName :: inScopeNames) hBodyOk
+          _ hBodyOk
 
   theorem compileStmtList_external_recursive_body_with_raw_log_bridged
       (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
@@ -8038,7 +8038,7 @@ mutual
         intro bodyOut hBodyOk
         exact compileStmtList_internal_recursive_body_with_raw_log_bridged fields
           events errors dynamicSource internalRetNames hBody
-          (varName :: inScopeNames) hBodyOk
+          _ hBodyOk
 
   theorem compileStmtList_internal_recursive_body_with_raw_log_bridged
       (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
@@ -8111,7 +8111,7 @@ mutual
           dynamicSource internalRetNames false inScopeNames varName count body ?_ hOk
         exact compileStmtList_external_recursive_body_with_raw_log_noFuncDefs
           fields events errors dynamicSource internalRetNames hBody
-          (varName :: inScopeNames)
+          _
 
   theorem compileStmtList_external_recursive_body_with_raw_log_noFuncDefs
       (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
@@ -8181,7 +8181,7 @@ mutual
           dynamicSource internalRetNames true inScopeNames varName count body ?_ hOk
         exact compileStmtList_internal_recursive_body_with_raw_log_noFuncDefs
           fields events errors dynamicSource internalRetNames hBody
-          (varName :: inScopeNames)
+          _
 
   theorem compileStmtList_internal_recursive_body_with_raw_log_noFuncDefs
       (fields : List Field) (events : List EventDef) (errors : List ErrorDef)

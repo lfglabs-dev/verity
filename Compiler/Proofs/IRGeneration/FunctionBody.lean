@@ -8135,10 +8135,12 @@ private theorem compileStmt_ok_any_scope_aux
           | ok countIR =>
             simp only [hcount] at hir ⊢
             cases hbody1 : CompilationModel.compileStmtList
-                fields [] [] .calldata [] false (varName :: scope1) [] body with
+                fields [] [] .calldata [] false
+                (CompilationModel.forEachBodyScope scope1 varName count body) [] body with
             | error e => simp [hbody1] at hir
             | ok bodyIR1 =>
-              rcases ih.2 body (varName :: scope1) (varName :: scope2)
+              rcases ih.2 body (CompilationModel.forEachBodyScope scope1 varName count body)
+                  (CompilationModel.forEachBodyScope scope2 varName count body)
                   (by simp [Stmt.forEach.sizeOf_spec] at hlt; omega) ⟨bodyIR1, hbody1⟩
                 with ⟨bodyIR2, hbody2⟩
               simp only [hbody2]
@@ -8255,10 +8257,12 @@ private theorem compileStmt_ok_any_scope_with_surface_aux
           | ok countIR =>
             simp only [hcount] at hir ⊢
             cases hbody1 : CompilationModel.compileStmtList
-                fields events errors .calldata [] false (varName :: scope1) [] body with
+                fields events errors .calldata [] false
+                (CompilationModel.forEachBodyScope scope1 varName count body) [] body with
             | error e => simp [hbody1] at hir
             | ok bodyIR1 =>
-              rcases ih.2 body (varName :: scope1) (varName :: scope2)
+              rcases ih.2 body (CompilationModel.forEachBodyScope scope1 varName count body)
+                  (CompilationModel.forEachBodyScope scope2 varName count body)
                   (by simp [Stmt.forEach.sizeOf_spec] at hlt; omega) ⟨bodyIR1, hbody1⟩
                 with ⟨bodyIR2, hbody2⟩
               simp only [hbody2]
