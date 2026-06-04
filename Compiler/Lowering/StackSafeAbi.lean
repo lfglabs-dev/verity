@@ -11,6 +11,13 @@ structure LoweredFrame where
   layout : FrameLayout
   deriving Repr
 
+def eventNameTopicWord (eventName : String) : Nat :=
+  UInt64.toNat (hash eventName)
+
+def inlinePayloadToScratch (words : List YulExpr) : List YulStmt :=
+  words.zipIdx.map fun (word, idx) =>
+    YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit (idx * 32), word])
+
 def lowerFrameSpilled (base : String) (fields : List FrameField) : Except String LoweredFrame := do
   let l := layout fields
   if !layoutSourcesSupported l then
@@ -21,29 +28,32 @@ def lowerFrameSpilled (base : String) (fields : List FrameField) : Except String
     | .inlineWords => []
   pure { prologue, args := loweredArgs base l, layout := l }
 
-def lowerEvent (eventName : String) (fields : List FrameField) : Except String (List YulStmt) := do
-  let lowered ← lowerFrameSpilled eventName fields
+def lowerFrameAsMemoryPayload (base : String) (fields : List FrameField) : Except String (List YulStmt × List YulExpr × FrameLayout) := do
+  let lowered ← lowerFrameSpilled base fields
   match lowered.layout.mode with
   | .pointer =>
-      pure (lowered.prologue ++
-        [YulStmt.expr (YulExpr.call "log1" (lowered.args ++ [YulExpr.call "keccak256" [YulExpr.str eventName, YulExpr.lit 0]]))])
+      pure (lowered.prologue, lowered.args, lowered.layout)
   | .inlineWords =>
-      pure (lowered.prologue ++
-        [YulStmt.expr (YulExpr.call "log1" [YulExpr.lit 0, YulExpr.lit 0, YulExpr.call "keccak256" [YulExpr.str eventName, YulExpr.lit 0]])])
+      pure (lowered.prologue ++ inlinePayloadToScratch lowered.args,
+        [YulExpr.lit 0, YulExpr.lit (lowered.layout.headWords * 32)],
+        lowered.layout)
+
+def lowerEventWithTopic (base : String) (topic0 : YulExpr) (fields : List FrameField) : Except String (List YulStmt) := do
+  let (prologue, payloadArgs, _) ← lowerFrameAsMemoryPayload base fields
+  pure (prologue ++
+    [YulStmt.expr (YulExpr.call "log1" (payloadArgs ++ [topic0]))])
+
+def lowerEvent (eventName : String) (fields : List FrameField) : Except String (List YulStmt) := do
+  lowerEventWithTopic eventName (YulExpr.lit (eventNameTopicWord eventName)) fields
 
 def lowerExternalCall (callName : String) (target value : YulExpr) (fields : List FrameField) : Except String (List YulStmt) := do
-  let lowered ← lowerFrameSpilled callName fields
-  let callArgs :=
-    match lowered.layout.mode with
-    | .pointer => [YulExpr.call "gas" [], target, value] ++ lowered.args ++ [YulExpr.lit 0, YulExpr.lit 0]
-    | .inlineWords => [YulExpr.call "gas" [], target, value, YulExpr.lit 0, YulExpr.lit 0, YulExpr.lit 0, YulExpr.lit 0]
-  pure (lowered.prologue ++ [YulStmt.let_ ("__" ++ callName ++ "_ok") (YulExpr.call "call" callArgs)])
+  let (prologue, payloadArgs, _) ← lowerFrameAsMemoryPayload callName fields
+  let callArgs := [YulExpr.call "gas" [], target, value] ++ payloadArgs ++ [YulExpr.lit 0, YulExpr.lit 0]
+  pure (prologue ++ [YulStmt.let_ ("__" ++ callName ++ "_ok") (YulExpr.call "call" callArgs)])
 
 def lowerDynamicReturn (returnName : String) (fields : List FrameField) : Except String (List YulStmt) := do
-  let lowered ← lowerFrameSpilled returnName fields
-  match lowered.layout.mode with
-  | .pointer => pure (lowered.prologue ++ [YulStmt.expr (YulExpr.call "return" lowered.args)])
-  | .inlineWords => pure (lowered.prologue ++ [YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])])
+  let (prologue, payloadArgs, _) ← lowerFrameAsMemoryPayload returnName fields
+  pure (prologue ++ [YulStmt.expr (YulExpr.call "return" payloadArgs)])
 
 def usesPointerAbi (stmts : List YulStmt) : Bool :=
   stmts.any fun stmt =>

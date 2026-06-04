@@ -101,15 +101,15 @@ def spillPayloadToMemory (base : String) (l : FrameLayout) : List YulStmt :=
 def pointerArgs (base : String) (l : FrameLayout) : List YulExpr :=
   [YulExpr.ident (ptrName base), YulExpr.lit (frameSizeBytes l)]
 
-private partial def inlineArgsFrom (idx : Nat) : List FrameField → List YulExpr
+private partial def inlineArgsFrom : List FrameField → List YulExpr
   | [] => []
   | field :: rest =>
       (List.range (fieldHeadWords field)).map (fun wordIdx =>
-        materializeSourceWord field (idx + wordIdx)) ++
-      inlineArgsFrom (idx + 1) rest
+        materializeSourceWord field wordIdx) ++
+      inlineArgsFrom rest
 
 def inlineArgs (l : FrameLayout) : List YulExpr :=
-  inlineArgsFrom 0 l.fields
+  inlineArgsFrom l.fields
 
 def loweredArgs (base : String) (l : FrameLayout) : List YulExpr :=
   match l.mode with

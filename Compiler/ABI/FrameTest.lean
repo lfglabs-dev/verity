@@ -4,6 +4,7 @@ namespace Compiler.ABI.FrameTest
 
 open Compiler.ABI.Frame
 open Compiler.CompilationModel
+open Compiler.Yul
 
 private def assert (label : String) (ok : Bool) : IO Unit := do
   if !ok then
@@ -21,6 +22,14 @@ private def sourceFields : List FrameField :=
   , { name := "x", ty := .bytes32, source := .code }
   , { name := "s", ty := .uint256, source := .storage } ]
 
+private def inlineFields : List FrameField :=
+  [ { name := "pair", ty := .tuple [.uint256, .bytes32], source := .calldata }
+  , { name := "amount", ty := .uint256, source := .calldata } ]
+
+private def calldataLoadName? : YulExpr → Option String
+  | .call "calldataload" [.ident name] => some name
+  | _ => none
+
 #eval! do
   let takeLayout := layout takeFields
   assert "nested struct supported" (supportsNestedStructs takeLayout)
@@ -30,5 +39,8 @@ private def sourceFields : List FrameField :=
   let srcLayout := layout sourceFields
   assert "calldata/memory/code/storage sources supported" (layoutSourcesSupported srcLayout)
   assert "dynamic source frame is pointer mode" (srcLayout.mode == FramePassMode.pointer)
+  let inlineNames := (inlineArgs (layout inlineFields)).filterMap calldataLoadName?
+  assert "inline source words are indexed per field"
+    (inlineNames == ["__abi_frame_src_pair_0", "__abi_frame_src_pair_1", "__abi_frame_src_amount_0"])
 
 end Compiler.ABI.FrameTest
