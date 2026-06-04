@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { applyAgentDiscoveryHeaders } from "@/server/agent-discovery";
+import { negotiateContentType } from "@/server/content-negotiation";
 
 /**
  * Known LLM/AI user agent patterns
@@ -26,6 +27,19 @@ function isLLMUserAgent(userAgent: string | null): boolean {
   return LLM_USER_AGENTS.some(bot =>
     userAgent.toLowerCase().includes(bot.toLowerCase())
   );
+}
+
+function withVaryAccept(response: NextResponse): NextResponse {
+  response.headers.set("Vary", "Accept");
+  return response;
+}
+
+function mentionsNegotiatedAgentType(acceptHeader: string | null): boolean {
+  if (!acceptHeader) {
+    return false;
+  }
+
+  return /\b(text\/markdown|text\/plain|application\/json)\b/i.test(acceptHeader);
 }
 
 /**
@@ -57,12 +71,38 @@ export function proxy(request: NextRequest) {
   }
 
   const userAgent = request.headers.get("User-Agent");
+  const negotiatedType = negotiateContentType(request.headers.get("Accept"));
+
+  if (
+    pathname === "/" &&
+    (negotiatedType !== "text/html" ||
+      mentionsNegotiatedAgentType(request.headers.get("Accept")))
+  ) {
+    const url = new URL(request.url);
+    url.pathname = "/api/agentgrade/root";
+    url.searchParams.set("type", negotiatedType);
+    return withVaryAccept(applyAgentDiscoveryHeaders(NextResponse.rewrite(url)));
+  }
+
+  if (pathname !== "/" && negotiatedType === "application/json") {
+    return withVaryAccept(
+      applyAgentDiscoveryHeaders(
+        NextResponse.json(
+          {
+            error: "not_found",
+            path: pathname,
+          },
+          { status: 404 }
+        )
+      )
+    );
+  }
 
   // Check if this is a docs page request that wants markdown
   const wantsMarkdown =
     pathname.endsWith(".md") ||
-    request.headers.get("Accept")?.includes("text/markdown") ||
-    request.headers.get("Accept")?.includes("text/plain") ||
+    negotiatedType === "text/markdown" ||
+    negotiatedType === "text/plain" ||
     request.nextUrl.searchParams.get("format") === "md" ||
     isLLMUserAgent(userAgent);
 
@@ -81,10 +121,10 @@ export function proxy(request: NextRequest) {
     url.searchParams.delete("format");
 
     // Rewrite to the API route (internal redirect, URL doesn't change for client)
-    return applyAgentDiscoveryHeaders(NextResponse.rewrite(url));
+    return withVaryAccept(applyAgentDiscoveryHeaders(NextResponse.rewrite(url)));
   }
 
-  return applyAgentDiscoveryHeaders(NextResponse.next());
+  return withVaryAccept(applyAgentDiscoveryHeaders(NextResponse.next()));
 }
 
 // Only run proxy on relevant paths
