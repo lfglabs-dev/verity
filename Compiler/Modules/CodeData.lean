@@ -10,8 +10,6 @@ open Compiler.Yul
 structure CodeDataWrite where
   salt : YulExpr
   value : YulExpr := YulExpr.lit 0
-  initcodeOffset : YulExpr
-  initcodeSize : YulExpr
   payload : FrameLayout
   deriving Repr
 
@@ -32,12 +30,17 @@ def trustSurface : List String :=
 def writeTyped (resultVar base : String) (write : CodeDataWrite) : Except String (List YulStmt) := do
   if !layoutSourcesSupported write.payload then
     throw "CodeData write payload has unsupported frame source"
-  let prelude :=
-    match write.payload.mode with
-    | .pointer => spillPayloadToMemory base write.payload
-    | .inlineWords => []
+  let (prelude, payloadArgs) := materializePayloadToMemory base write.payload
+  let initcodeOffset ←
+    match payloadArgs with
+    | [offset, _size] => pure offset
+    | _ => throw "CodeData write expected a memory payload pointer and size"
+  let initcodeSize ←
+    match payloadArgs with
+    | [_offset, size] => pure size
+    | _ => throw "CodeData write expected a memory payload pointer and size"
   let deploy ← (Compiler.Modules.Create2SSTORE2.deployModule resultVar).compile {}
-    [write.value, write.initcodeOffset, write.initcodeSize, write.salt]
+    [write.value, initcodeOffset, initcodeSize, write.salt]
   pure (prelude ++ deploy)
 
 def readTyped (read : CodeDataRead) : Except String (List YulStmt) := do
