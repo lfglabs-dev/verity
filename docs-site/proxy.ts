@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { applyAgentDiscoveryHeaders } from "@/server/agent-discovery";
+import { negotiateContentType } from "@/server/content-negotiation";
 
 /**
  * Known LLM/AI user agent patterns
@@ -28,13 +29,18 @@ function isLLMUserAgent(userAgent: string | null): boolean {
   );
 }
 
+function withVaryAccept(response: NextResponse): NextResponse {
+  response.headers.set("Vary", "Accept");
+  return response;
+}
+
 /**
  * Proxy to serve raw markdown for AI agents
  *
  * Routes to raw markdown API when:
  * 1. URL ends with .md extension (e.g., /setup.md)
- * 2. Accept header includes text/markdown
- * 3. Accept header includes text/plain
+ * 2. Non-root Accept negotiation selects text/markdown
+ * 3. Non-root Accept negotiation selects text/plain
  * 4. Query param ?format=md is present
  * 5. User-Agent is a known LLM (ChatGPT, GPTBot, PerplexityBot, etc.)
  *
@@ -57,14 +63,18 @@ export function proxy(request: NextRequest) {
   }
 
   const userAgent = request.headers.get("User-Agent");
+  const acceptHeader = request.headers.get("Accept");
+  const negotiatedType = negotiateContentType(acceptHeader);
+  const hasExplicitMarkdownCue =
+    pathname.endsWith(".md") ||
+    request.nextUrl.searchParams.get("format") === "md" ||
+    isLLMUserAgent(userAgent);
 
   // Check if this is a docs page request that wants markdown
   const wantsMarkdown =
-    pathname.endsWith(".md") ||
-    request.headers.get("Accept")?.includes("text/markdown") ||
-    request.headers.get("Accept")?.includes("text/plain") ||
-    request.nextUrl.searchParams.get("format") === "md" ||
-    isLLMUserAgent(userAgent);
+    hasExplicitMarkdownCue ||
+    (pathname !== "/" &&
+      (negotiatedType === "text/markdown" || negotiatedType === "text/plain"));
 
   if (wantsMarkdown) {
     // Normalize the path (remove .md extension if present)
@@ -81,10 +91,31 @@ export function proxy(request: NextRequest) {
     url.searchParams.delete("format");
 
     // Rewrite to the API route (internal redirect, URL doesn't change for client)
-    return applyAgentDiscoveryHeaders(NextResponse.rewrite(url));
+    return withVaryAccept(applyAgentDiscoveryHeaders(NextResponse.rewrite(url)));
   }
 
-  return applyAgentDiscoveryHeaders(NextResponse.next());
+  if (pathname === "/" && negotiatedType !== "text/html") {
+    const url = new URL(request.url);
+    url.pathname = "/api/agentgrade/root";
+    url.searchParams.set("type", negotiatedType);
+    return withVaryAccept(applyAgentDiscoveryHeaders(NextResponse.rewrite(url)));
+  }
+
+  if (pathname !== "/" && negotiatedType === "application/json") {
+    return withVaryAccept(
+      applyAgentDiscoveryHeaders(
+        NextResponse.json(
+          {
+            error: "not_found",
+            path: pathname,
+          },
+          { status: 404 }
+        )
+      )
+    );
+  }
+
+  return withVaryAccept(applyAgentDiscoveryHeaders(NextResponse.next()));
 }
 
 // Only run proxy on relevant paths

@@ -127,7 +127,10 @@ const navbar = (
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" dir="ltr" suppressHydrationWarning>
-      <Head />
+      <head>
+        <Head />
+        <link rel="alternate" type="text/plain" title="llms.txt" href="/llms.txt" />
+      </head>
       <body>
         <Layout
           navbar={navbar}

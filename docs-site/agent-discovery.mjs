@@ -6,6 +6,7 @@ export const AGENT_DISCOVERY_LINKS = [
 
 export const AGENT_DISCOVERY_HEADERS = [
   { key: "Link", value: AGENT_DISCOVERY_LINKS },
+  { key: "Vary", value: "Accept" },
   { key: "X-Llms-Txt", value: "/llms.txt" },
   { key: "X-Llms-Full-Txt", value: "/llms-full.txt" },
   { key: "X-Agent-Skill", value: "/skill.md" },
