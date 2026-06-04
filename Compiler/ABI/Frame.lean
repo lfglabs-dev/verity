@@ -22,6 +22,8 @@ structure FrameField where
   name : String
   ty : ParamType
   source : FrameSource
+  sourceBase : String := ""
+  tailBytes : Nat := 0
   deriving Repr, BEq
 
 structure FrameLayout where
@@ -60,7 +62,14 @@ def layoutSourcesSupported (l : FrameLayout) : Bool :=
   l.fields.all (fun field => sourceCanMaterializeEarly field.source)
 
 def frameSizeBytes (l : FrameLayout) : Nat :=
-  l.headWords * 32
+  l.fields.foldl (fun acc field => acc + fieldHeadWords field * 32 +
+    (if isDynamicParamType field.ty then field.tailBytes else 0)) 0
+
+def fieldPayloadWords (field : FrameField) : Nat :=
+  fieldHeadWords field + if isDynamicParamType field.ty then (field.tailBytes + 31) / 32 else 0
+
+def frameAllocBytes (l : FrameLayout) : Nat :=
+  l.fields.foldl (fun acc field => acc + fieldPayloadWords field * 32) 0
 
 def ptrName (base : String) : String :=
   "__abi_frame_" ++ base
@@ -72,25 +81,39 @@ def allocateFrame (base : String) (l : FrameLayout) : List YulStmt :=
   [ YulStmt.let_ (ptrName base) (YulExpr.call "mload" [YulExpr.lit 64])
   , YulStmt.expr (YulExpr.call "mstore"
       [ YulExpr.lit 64
-      , YulExpr.call "add" [YulExpr.ident (ptrName base), YulExpr.lit (frameSizeBytes l)] ])]
+      , YulExpr.call "add" [YulExpr.ident (ptrName base), YulExpr.lit (frameAllocBytes l)] ])]
+
+def sourceBaseName (field : FrameField) : String :=
+  if field.sourceBase.isEmpty then field.name else field.sourceBase
+
+private def sourceByteOffset (field : FrameField) (idx : Nat) : YulExpr :=
+  if idx == 0 then
+    YulExpr.ident (sourceBaseName field)
+  else
+    YulExpr.call "add" [YulExpr.ident (sourceBaseName field), YulExpr.lit (idx * 32)]
+
+private def sourceStorageSlot (field : FrameField) (idx : Nat) : YulExpr :=
+  if idx == 0 then
+    YulExpr.ident (sourceBaseName field)
+  else
+    YulExpr.call "add" [YulExpr.ident (sourceBaseName field), YulExpr.lit idx]
 
 private def materializeSourceWord (field : FrameField) (idx : Nat) : YulExpr :=
-  let name := fieldWordName "src" field idx
   match field.source with
-  | .calldata => YulExpr.call "calldataload" [YulExpr.ident name]
-  | .memory => YulExpr.call "mload" [YulExpr.ident name]
-  | .code => YulExpr.call "mload" [YulExpr.ident name]
-  | .storage => YulExpr.call "sload" [YulExpr.ident name]
+  | .calldata => YulExpr.call "calldataload" [sourceByteOffset field idx]
+  | .memory => YulExpr.call "mload" [sourceByteOffset field idx]
+  | .code => YulExpr.call "mload" [sourceByteOffset field idx]
+  | .storage => YulExpr.call "sload" [sourceStorageSlot field idx]
 
 partial def spillField (base : String) (offsetWords : Nat) (field : FrameField) : List YulStmt :=
-  (List.range (fieldHeadWords field)).map fun idx =>
+  (List.range (fieldPayloadWords field)).map fun idx =>
     YulStmt.expr (YulExpr.call "mstore"
       [ YulExpr.call "add" [YulExpr.ident (ptrName base), YulExpr.lit ((offsetWords + idx) * 32)]
       , materializeSourceWord field idx ])
 
 partial def spillFields (base : String) (offsetWords : Nat) : List FrameField → List YulStmt
   | [] => []
-  | field :: rest => spillField base offsetWords field ++ spillFields base (offsetWords + fieldHeadWords field) rest
+  | field :: rest => spillField base offsetWords field ++ spillFields base (offsetWords + fieldPayloadWords field) rest
 
 /-- Materialize a typed ABI frame into memory before lowering calls/logs/returns.
     Large or dynamic payloads are then passed as `(ptr, size)` instead of as a
@@ -100,6 +123,10 @@ def spillPayloadToMemory (base : String) (l : FrameLayout) : List YulStmt :=
 
 def pointerArgs (base : String) (l : FrameLayout) : List YulExpr :=
   [YulExpr.ident (ptrName base), YulExpr.lit (frameSizeBytes l)]
+
+def inlinePayloadToScratch (words : List YulExpr) : List YulStmt :=
+  words.zipIdx.map fun (word, idx) =>
+    YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit (idx * 32), word])
 
 private partial def inlineArgsFrom : List FrameField → List YulExpr
   | [] => []
@@ -115,6 +142,13 @@ def loweredArgs (base : String) (l : FrameLayout) : List YulExpr :=
   match l.mode with
   | .pointer => pointerArgs base l
   | .inlineWords => inlineArgs l
+
+def materializePayloadToMemory (base : String) (l : FrameLayout) : List YulStmt × List YulExpr :=
+  match l.mode with
+  | .pointer =>
+      (spillPayloadToMemory base l, pointerArgs base l)
+  | .inlineWords =>
+      (inlinePayloadToScratch (inlineArgs l), [YulExpr.lit 0, YulExpr.lit (frameSizeBytes l)])
 
 def containsDynamicArrayOrBytes (l : FrameLayout) : Bool :=
   l.fields.any fun field =>

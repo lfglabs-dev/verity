@@ -15,7 +15,7 @@ private def assert (label : String) (ok : Bool) : IO Unit := do
 private def bigDynamicPayload : List FrameField :=
   [ { name := "toId", ty := .bytes32, source := .calldata }
   , { name := "toMarket", ty := .tuple [.address, .uint256, .uint256, .address], source := .calldata }
-  , { name := "takes", ty := .array (.tuple [.address, .uint256, .bytes]), source := .calldata } ]
+  , { name := "takes", ty := .array (.tuple [.address, .uint256, .bytes]), source := .calldata, tailBytes := 128 } ]
 
 private def smallStaticPayload : List FrameField :=
   [ { name := "id", ty := .bytes32, source := .calldata }

@@ -14,10 +14,6 @@ structure LoweredFrame where
 def eventNameTopicWord (eventName : String) : Nat :=
   UInt64.toNat (hash eventName)
 
-def inlinePayloadToScratch (words : List YulExpr) : List YulStmt :=
-  words.zipIdx.map fun (word, idx) =>
-    YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit (idx * 32), word])
-
 def lowerFrameSpilled (base : String) (fields : List FrameField) : Except String LoweredFrame := do
   let l := layout fields
   if !layoutSourcesSupported l then
@@ -30,13 +26,8 @@ def lowerFrameSpilled (base : String) (fields : List FrameField) : Except String
 
 def lowerFrameAsMemoryPayload (base : String) (fields : List FrameField) : Except String (List YulStmt × List YulExpr × FrameLayout) := do
   let lowered ← lowerFrameSpilled base fields
-  match lowered.layout.mode with
-  | .pointer =>
-      pure (lowered.prologue, lowered.args, lowered.layout)
-  | .inlineWords =>
-      pure (lowered.prologue ++ inlinePayloadToScratch lowered.args,
-        [YulExpr.lit 0, YulExpr.lit (lowered.layout.headWords * 32)],
-        lowered.layout)
+  let (prologue, args) := materializePayloadToMemory base lowered.layout
+  pure (prologue, args, lowered.layout)
 
 def lowerEventWithTopic (base : String) (topic0 : YulExpr) (fields : List FrameField) : Except String (List YulStmt) := do
   let (prologue, payloadArgs, _) ← lowerFrameAsMemoryPayload base fields
