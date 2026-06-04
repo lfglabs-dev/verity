@@ -73,31 +73,6 @@ export function proxy(request: NextRequest) {
   const userAgent = request.headers.get("User-Agent");
   const negotiatedType = negotiateContentType(request.headers.get("Accept"));
 
-  if (
-    pathname === "/" &&
-    (negotiatedType !== "text/html" ||
-      mentionsNegotiatedAgentType(request.headers.get("Accept")))
-  ) {
-    const url = new URL(request.url);
-    url.pathname = "/api/agentgrade/root";
-    url.searchParams.set("type", negotiatedType);
-    return withVaryAccept(applyAgentDiscoveryHeaders(NextResponse.rewrite(url)));
-  }
-
-  if (pathname !== "/" && negotiatedType === "application/json") {
-    return withVaryAccept(
-      applyAgentDiscoveryHeaders(
-        NextResponse.json(
-          {
-            error: "not_found",
-            path: pathname,
-          },
-          { status: 404 }
-        )
-      )
-    );
-  }
-
   // Check if this is a docs page request that wants markdown
   const wantsMarkdown =
     pathname.endsWith(".md") ||
@@ -122,6 +97,31 @@ export function proxy(request: NextRequest) {
 
     // Rewrite to the API route (internal redirect, URL doesn't change for client)
     return withVaryAccept(applyAgentDiscoveryHeaders(NextResponse.rewrite(url)));
+  }
+
+  if (
+    pathname === "/" &&
+    (negotiatedType !== "text/html" ||
+      mentionsNegotiatedAgentType(request.headers.get("Accept")))
+  ) {
+    const url = new URL(request.url);
+    url.pathname = "/api/agentgrade/root";
+    url.searchParams.set("type", negotiatedType);
+    return withVaryAccept(applyAgentDiscoveryHeaders(NextResponse.rewrite(url)));
+  }
+
+  if (pathname !== "/" && negotiatedType === "application/json") {
+    return withVaryAccept(
+      applyAgentDiscoveryHeaders(
+        NextResponse.json(
+          {
+            error: "not_found",
+            path: pathname,
+          },
+          { status: 404 }
+        )
+      )
+    );
   }
 
   return withVaryAccept(applyAgentDiscoveryHeaders(NextResponse.next()));
