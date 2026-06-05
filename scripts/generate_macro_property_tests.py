@@ -36,6 +36,7 @@ NEWTYPE_RE = re.compile(
     r"^\s*([A-Z][A-Za-z0-9_]*)\s*:\s*([A-Za-z0-9_]+)\s*$",
 )
 STRUCT_RE = re.compile(r"^\s*struct\s+([A-Za-z_][A-Za-z0-9_]*)\s+where\s*(.*?)\s*$")
+INTERFACE_RE = re.compile(r"^\s*interface\s+([A-Za-z_][A-Za-z0-9_]*)\s+where\s*$")
 STORAGE_RE = re.compile(
     rf"^\s*{_IDENT}\s*:\s*(.+?)\s*:=\s*slot\s+([0-9]+)\s*$",
 )
@@ -452,6 +453,18 @@ def parse_contracts(text: str, source: Path) -> dict[str, ContractDecl]:
             else:
                 current_struct_name = sm.group(1)
                 current_struct_fields = []
+            in_types_block = False
+            in_storage_block = False
+            in_constants_block = False
+            in_immutables_block = False
+            pending_storage_lines = []
+            continue
+
+        im = INTERFACE_RE.match(line)
+        if im:
+            flush_function()
+            flush_struct()
+            current_newtypes[im.group(1)] = "Address"
             in_types_block = False
             in_storage_block = False
             in_constants_block = False

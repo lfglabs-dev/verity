@@ -55,6 +55,25 @@ metadata as the trust reports. A dependency declared `linked_as := external`
 must be lowered through an ABI-call ECM such as `Calls.withReturn`; raw
 `externalCall` / `externalCallBind` helper lowering is rejected for that mode.
 
+Source-level typed interfaces provide a higher-level wrapper over this same ECM
+path:
+
+```lean
+interfaces
+  interface IERC20 where
+    function balanceOf(Address) view returns (Uint256)
+  end
+
+function readBalance (token : IERC20, owner : Address) : Uint256 := do
+  let bal ← token.balanceOf owner
+  return bal
+```
+
+The interface-typed parameter is ABI-encoded as `Address`. The dot call emits
+`Compiler.Modules.Calls.withReturnModule`; `view` selects `staticcall`, while
+non-`view` selects `call`. Interface calls currently support one return value
+and type-only interface parameter lists.
+
 When the compiler encounters `Stmt.ecm mod args`, it:
 
 1. Validates argument count matches `mod.numArgs`

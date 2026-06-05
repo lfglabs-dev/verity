@@ -157,12 +157,17 @@ Each entry lowers into `localObligations`, surfaces in `--trust-report`, and par
 Call helpers with ordinary function-call syntax, do not write `internalCall` directly (those are post-lowering IR nodes).
 
 ```verity
+function internal bump (x : Uint256) : Uint256 := do
+  return (add x 1)
+
 storeBump x
 let y ← bump x
 let (assets, shares) ← preview seed
 ```
 
 The macro lowers effect-only calls to `Stmt.internalCall`, result bindings to `Stmt.internalCallAssign`, expression-position calls to `Expr.internalCall`. Supports scalar parameters, static tuples/structs, direct `Bytes`/dynamic-array forwarding from caller ABI. Dynamic returns use explicit return surfaces only.
+
+Mark helper-only functions with `internal`. Internal helpers are emitted as `FunctionSpec.isInternal := true` and are omitted from selector dispatch and ABI JSON. They still get an executable Lean wrapper for local testing, but they are not externally callable in the compiled contract.
 
 ### Higher-order helpers (function pointers)
 
@@ -289,6 +294,30 @@ Populates `spec.externals` with assumed foreign signatures.
 - **`externalCallBind [v₁, …] "name" [args]`** is the statement-position form; bind `[]` for a no-return ("fire and forget") external.
 
 Argument types may be word-like (`Uint256`, `Uint8`, `Address`, `Bytes32`, `Bool`) or directly-forwarded `Array<wordLike>` / `Bytes` from the caller's ABI (including projected struct/array members). Return types must be word-like values or static ABI composites of word-like values; dynamic return types (e.g. `String`) are rejected at elaboration. These generic foreign calls are distinct from the named [ECM modules](#external-calls-ecm) (ERC-20, ERC-4626, precompiles, oracle), which carry their own trust-report metadata.
+
+### Typed interface calls
+
+Declare contract interfaces in an `interfaces` block, then use an interface name as a parameter type. Interface-typed parameters erase to `Address` in the ABI, while dot calls lower to `Compiler.Modules.Calls.withReturnModule`.
+
+```verity
+interfaces
+  interface IERC20 where
+    function balanceOf(Address) view returns (Uint256)
+  end
+
+function readBalance (token : IERC20, owner : Address) : Uint256 := do
+  let bal ← token.balanceOf owner
+  return bal
+```
+
+Current limits:
+
+- Interface function parameters are declared as ABI types, not named parameters.
+- Interface declarations use an explicit `end` terminator.
+- Typed calls currently support exactly one return value.
+- Use Lean-native dot application, e.g. `token.balanceOf owner`.
+- `view` calls lower to `staticcall`; non-`view` calls lower to `call`.
+- The executable Lean wrapper uses a compiler-only placeholder for the call result. The generated `CompilationModel` contains the real ECM call and trust-report surface.
 
 ### Raw log surface
 
