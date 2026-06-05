@@ -840,7 +840,10 @@ def validateIdentifierShapes (spec : CompilationModel) : Except String Unit := d
   for err in spec.errors do
     ensureContractIdentifier "custom error" err.name
   for ext in spec.externals do
-    ensureContractIdentifier "external declaration" ext.name
+    -- dotted abi-interface externals (e.g. `IPool.supply`) lower by selector, never as a yul
+    -- identifier; the id-check applies only to object-linked externals. (fixes #1952)
+    unless ext.name.contains '.' do
+      ensureContractIdentifier "external declaration" ext.name
 
 private theorem ensureNonReservedYulIdentifier_ok
     {kind name : String}
