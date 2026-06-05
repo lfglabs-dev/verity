@@ -29,6 +29,7 @@ verity_contract TypedInterfaceCallSmoke where
   interfaces
     interface IERC20 where
       function balanceOf(Address) view returns (Uint256)
+      function transfer(Address, Uint256) returns (Bool)
     end
 
   function readBalance (token : IERC20, owner : Address) : Uint256 := do
@@ -39,6 +40,10 @@ verity_contract TypedInterfaceCallSmoke where
     let t := token
     let bal ← t.balanceOf owner
     return bal
+
+  function transferToken (token : IERC20, recipient : Address, amount : Uint256) : Bool := do
+    let ok ← token.transfer recipient amount
+    return ok
 
 example :
     (TypedInterfaceCallSmoke.spec.externals).any (fun ext =>
@@ -72,6 +77,21 @@ example :
                 mod.readsState &&
                 !mod.writesState &&
                 args.length == 2
+          | _ => false)) = true := by
+  decide
+
+example :
+    (TypedInterfaceCallSmoke.spec.functions).any (fun fn =>
+      fn.name == "transferToken" &&
+        fn.body.any (fun stmt =>
+          match stmt with
+          | Compiler.CompilationModel.Stmt.ecm mod args =>
+                mod.name == "externalCallWithReturn" &&
+                mod.numArgs == 3 &&
+                mod.resultVars == ["ok"] &&
+                mod.readsState &&
+                mod.writesState &&
+                args.length == 3
           | _ => false)) = true := by
   decide
 

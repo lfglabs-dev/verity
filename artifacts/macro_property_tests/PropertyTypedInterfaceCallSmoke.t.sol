@@ -35,4 +35,13 @@ contract PropertyTypedInterfaceCallSmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
+    // Property 3: TODO decode and assert `transferToken` result
+    function testTODO_TransferToken_DecodeAndAssert() public {
+        vm.prank(alice);
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("transferToken(address,address,uint256)", alice, alice, uint256(1)));
+        require(ok, "transferToken reverted unexpectedly");
+        assertEq(ret.length, 32, "transferToken ABI return length mismatch (expected 32 bytes)");
+        // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
+        ret;
+    }
 }
