@@ -47,6 +47,9 @@ reporting:
 - Source-level `internal` functions compile as internal helper specs, are omitted
   from selector dispatch and ABI output, and must not be used for `receive` or
   `fallback` entrypoints.
+- Source-level `interfaces` are syntax over the existing external-call module
+  path. Interface-typed parameters erase to `Address`; typed dot calls lower to
+  `Calls.withReturnModule` and stay visible in trust reports as ECM calls.
 - `MappingStruct` and `MappingStruct2` support fixed-array members by expanding
   them into stable member names such as `roots[1]` and `proof[1][1]`. The
   expanded names are the storage-access names used by `structMember` and
