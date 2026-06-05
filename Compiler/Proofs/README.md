@@ -29,16 +29,16 @@ All three layers carry zero project-specific axioms.
 
 ## Layer 2 Boundary Status
 
-The `SupportedSpec` split and current boundary are recorded in [`artifacts/layer2_boundary_catalog.json`](../../artifacts/layer2_boundary_catalog.json). The `calls.helpers` sub-interface tracks internal helper call coverage.
+The `SupportedSpec` split and current `SupportedBodyInterface.stmtList` boundary are recorded in [`artifacts/layer2_boundary_catalog.json`](../../artifacts/layer2_boundary_catalog.json). The `calls.helpers` sub-interface tracks internal helper call coverage.
 
 **What is proved:**
 - Generic whole-contract theorem for the supported fragment
 - The helper-free conservative-extension goal is now closed: `interpretIRWithInternalsZeroConservativeExtensionGoal_closed`
-- Conservative-extension decomposition: `InterpretIRWithInternalsZeroConservativeExtensionGoal`, `InterpretIRWithInternalsZeroConservativeExtensionDispatchGoal`, `InterpretIRWithInternalsZeroConservativeExtensionStmtSubgoals`
-- Lift theorems: `interpretIRWithInternalsZeroConservativeExtensionGoal_of_dispatchGoal`, `interpretIRWithInternalsZeroConservativeExtensionInterfaces_of_stmtSubgoals`
+- Conservative-extension decomposition: `InterpretIRWithInternalsZeroConservativeExtensionGoal`, `InterpretIRWithInternalsZeroConservativeExtensionDispatchGoal`, `InterpretIRWithInternalsZeroConservativeExtensionInterfaces`, `InterpretIRWithInternalsZeroConservativeExtensionStmtSubgoals`, `interpretIRWithInternalsZeroConservativeExtensionStmtSubgoals_closed`
+- Lift theorems: `interpretIRWithInternalsZeroConservativeExtensionGoal_of_dispatchGoal`, `interpretIRWithInternalsZeroConservativeExtensionInterfaces_of_stmtCompatibility`, `interpretIRWithInternalsZeroConservativeExtensionInterfaces_of_stmtSubgoals`
 - Helper-aware theorem variants: `compile_preserves_semantics_with_helper_proofs_and_helper_ir_goal`, `compile_preserves_semantics_with_helper_proofs_and_helper_ir_closed`
 - Expr-statement builtin classification via `exprStmtUsesDedicatedBuiltinSemantics`, with direct helper-free lemmas for `stop`, `mstore`, `revert`, `return`, and mapping-slot `sstore`
-- The helper-aware compiled target provides total fuel-indexed helper-aware IR semantics
+- The helper-aware compiled target provides total fuel-indexed helper-aware IR semantics through `evalIRExprWithInternals`
 - The legacy-compatible external-body Yul subset witness is derived from the supported body interface
 
 **Remaining work ([#1638](https://github.com/lfglabs-dev/verity/issues/1638)):**
