@@ -1,6 +1,8 @@
 import Lean
 import Compiler.Modules.ERC20
+import Compiler.Modules.Calls
 import Compiler.Modules.Precompiles
+import Compiler.Selectors
 import Compiler.CompilationModel.InternalNaming
 import Compiler.Keccak.Sponge
 import Verity.Macro.Syntax
@@ -117,6 +119,7 @@ structure ParamDecl where
   ident : Ident
   name : String
   ty : ValueType
+  interfaceName? : Option String := none
   /-- When `some sig`, this parameter is a higher-order function pointer
       (e.g. `op : (Uint256) -> Uint256`).  The CompilationModel has no
       first-class function values, so such parameters exist only transiently:
@@ -159,6 +162,8 @@ structure ExternalDecl where
   params : Array ValueType
   returnTys : Array ValueType
   linkMode : Compiler.CompilationModel.ForeignLinkMode := .objectLinked
+  interfaceName? : Option String := none
+  isView : Bool := false
 
 /-- A user-defined semantic newtype declared in the `types` section.
     At the language level the type is distinct from its base type; at the
@@ -212,6 +217,7 @@ structure FunctionDecl where
   isPayable : Bool := false
   isView : Bool := false
   isPure : Bool := false
+  isInternal : Bool := false
   noExternalCalls : Bool := false
   /-- When true, the function is annotated `allow_post_interaction_writes` and
       CEI (Checks-Effects-Interactions) enforcement is bypassed.  This is the
@@ -240,6 +246,18 @@ structure FunctionDecl where
   localObligations : Array LocalObligationDecl := #[]
   modifiers : Array Ident := #[]
   body : Term
+
+structure InterfaceFunctionDecl where
+  ident : Ident
+  name : String
+  params : Array ParamDecl
+  returnTys : Array ValueType
+  isView : Bool := false
+
+structure InterfaceDecl where
+  ident : Ident
+  name : String
+  functions : Array InterfaceFunctionDecl
 
 structure ModifierDecl where
   ident : Ident
@@ -296,6 +314,11 @@ private def mapNameLastComponent (f : String → String) : Name → Name
 
 private def isQualifiedFunctionName (name : Name) : Bool :=
   (nameComponents name).length == 2
+
+private def startsWithLowercaseAscii (s : String) : Bool :=
+  match s.data with
+  | c :: _ => 'a' ≤ c && c ≤ 'z'
+  | [] => false
 
 private def qualifiedFunctionModelName (name : Name) : Name :=
   mapNameLastComponent (fun part => part ++ "_model") name
@@ -715,6 +738,31 @@ private partial def modelParamTypeTerm (ty : ValueType) : CommandElabM Term :=
   | .adt name maxFields => do
       `(Compiler.CompilationModel.ParamType.adt $(Lean.quote name) $(Lean.quote maxFields))
 
+private partial def valueTypeToSolidityString : ValueType → String
+  | .uint256 => "uint256"
+  | .int256 => "int256"
+  | .uint8 => "uint8"
+  | .uint16 => "uint16"
+  | .address => "address"
+  | .bytes32 => "bytes32"
+  | .bool => "bool"
+  | .string => "string"
+  | .bytes => "bytes"
+  | .array elemTy => valueTypeToSolidityString elemTy ++ "[]"
+  | .fixedArray elemTy size => valueTypeToSolidityString elemTy ++ "[" ++ toString size ++ "]"
+  | .tuple elemTys =>
+      "(" ++ String.intercalate "," (elemTys.map valueTypeToSolidityString) ++ ")"
+  | .struct _ fields =>
+      "(" ++ String.intercalate "," (fields.map (fun field => valueTypeToSolidityString field.snd)) ++ ")"
+  | .newtype _ baseType => valueTypeToSolidityString baseType
+  | .adt name _ => name
+  | .unit => "()"
+
+private def interfaceFunctionSignature (methodName : String) (params : Array ValueType) : String :=
+  methodName ++ "(" ++
+    String.intercalate "," (params.toList.map valueTypeToSolidityString) ++
+    ")"
+
 private def modelReturnTypeTerm (ty : ValueType) : CommandElabM Term :=
   match ty with
   | .unit => `(none)
@@ -982,6 +1030,44 @@ private def parseFunctionParam (newtypes : Array NewtypeDecl) (structDecls : Arr
         }
   | _ => throwErrorAt stx "invalid parameter declaration"
 
+private def parseFunctionParamWithInterfaces
+    (newtypes : Array NewtypeDecl)
+    (structDecls : Array StructDecl)
+    (adtDecls : Array AdtDecl)
+    (interfaceNames : Array String)
+    (stx : Syntax) : CommandElabM ParamDecl := do
+  match stx with
+  | `(verityParam| $name:ident : $ty:term) =>
+      match stripParens ty with
+      | `(term| $interfaceIdent:ident) =>
+          let interfaceName := toString interfaceIdent.getId
+          if interfaceNames.contains interfaceName then
+            pure {
+              ident := name
+              name := toString name.getId
+              ty := .address
+              interfaceName? := some interfaceName
+            }
+          else
+            parseFunctionParam newtypes structDecls adtDecls stx
+      | _ => parseFunctionParam newtypes structDecls adtDecls stx
+  | _ => throwErrorAt stx "invalid parameter declaration"
+
+private def parseInterfaceParam
+    (newtypes : Array NewtypeDecl)
+    (structDecls : Array StructDecl)
+    (adtDecls : Array AdtDecl)
+    (stx : Syntax) : CommandElabM ParamDecl := do
+  match stx with
+  | `(verityInterfaceParam| $name:ident : $ty:term) => do
+      let parsedTy ← valueTypeFromSyntax newtypes structDecls adtDecls ty
+      pure {
+        ident := name
+        name := toString name.getId
+        ty := parsedTy
+      }
+  | _ => throwErrorAt stx "invalid interface parameter declaration"
+
 private def parseNewtype (stx : Syntax) : CommandElabM NewtypeDecl := do
   match stx with
   | `(verityNewtype| $name:ident : $ty:term) =>
@@ -1157,6 +1243,81 @@ private def parseExternal (newtypes : Array NewtypeDecl) (structDecls : Array St
       }
   | _ => throwErrorAt stx "invalid external declaration"
 
+private def parseInterfaceFunction
+    (newtypes : Array NewtypeDecl)
+    (structDecls : Array StructDecl)
+    (adtDecls : Array AdtDecl)
+    (stx : Syntax) : CommandElabM InterfaceFunctionDecl := do
+  let expectReturnsMarker (marker : Ident) : CommandElabM Unit := do
+    unless toString marker.getId == "returns" do
+      throwErrorAt marker "expected 'returns'"
+  let parseParts (name : Ident) (params : Array ParamDecl)
+      (mods : TSyntaxArray `verityMutability) (returnTys : TSyntaxArray `term) := do
+    let mut isView := false
+    for mod in mods do
+      match mod with
+      | `(verityMutability| view) =>
+          if isView then
+            throwErrorAt mod "duplicate 'view' modifier"
+          isView := true
+      | _ => throwErrorAt mod "interface functions currently support only the optional `view` modifier"
+    let parsedReturns ← returnTys.mapM (valueTypeFromSyntax newtypes structDecls adtDecls)
+    if parsedReturns.isEmpty then
+      throwErrorAt stx "interface function returns clause must contain at least one return type"
+    if parsedReturns.size > 1 then
+      throwErrorAt stx "typed interface calls currently support exactly one return value"
+    pure {
+      ident := name
+      name := toString name.getId
+      params := params
+      returnTys := parsedReturns
+      isView := isView
+    }
+  match stx with
+  | `(verityInterfaceFunction| function $name:ident ($[$params:verityInterfaceParam],*) $[$mods:verityMutability]* $returnsMarker:ident ($[$returnTys:term],*)) => do
+      expectReturnsMarker returnsMarker
+      parseParts name (← params.mapM (parseInterfaceParam newtypes structDecls adtDecls)) mods returnTys
+  | `(verityInterfaceFunction| function $name:ident ($[$paramTys:term],*) $[$mods:verityMutability]* $returnsMarker:ident ($[$returnTys:term],*)) => do
+      expectReturnsMarker returnsMarker
+      let parsedParams ← paramTys.mapIdxM fun idx ty => do
+        pure {
+          ident := mkIdent (Name.mkSimple s!"arg{idx}")
+          name := s!"arg{idx}"
+          ty := ← valueTypeFromSyntax newtypes structDecls adtDecls ty
+        }
+      parseParts name parsedParams mods returnTys
+  | _ => throwErrorAt stx "invalid interface function declaration"
+
+private def parseInterface
+    (newtypes : Array NewtypeDecl)
+    (structDecls : Array StructDecl)
+    (adtDecls : Array AdtDecl)
+    (stx : Syntax) : CommandElabM InterfaceDecl := do
+  match stx with
+  | `(verityInterface| interface $name:ident where $[$fns:verityInterfaceFunction]* end) =>
+      let parsedFns ← fns.mapM (parseInterfaceFunction newtypes structDecls adtDecls)
+      if parsedFns.isEmpty then
+        throwErrorAt name s!"interface '{toString name.getId}' must declare at least one function"
+      pure { ident := name, name := toString name.getId, functions := parsedFns }
+  | _ => throwErrorAt stx "invalid interface declaration"
+
+private def interfaceExternalName (interfaceName methodName : String) : String :=
+  s!"{interfaceName}.{methodName}"
+
+private def interfaceExternals (ifaces : Array InterfaceDecl) : Array ExternalDecl :=
+  ifaces.foldl
+    (fun acc iface =>
+      acc ++ iface.functions.map (fun fn => {
+        ident := fn.ident
+        name := interfaceExternalName iface.name fn.name
+        params := fn.params.map (·.ty)
+        returnTys := fn.returnTys
+        linkMode := Compiler.CompilationModel.ForeignLinkMode.external
+        interfaceName? := some iface.name
+        isView := fn.isView
+      }))
+    #[]
+
 private def parseProofStatusIdent (stx : Syntax) : CommandElabM Compiler.ProofStatus := do
   match stx with
   | .ident _ raw _ _ =>
@@ -1183,6 +1344,7 @@ private structure ParsedMutability where
   isPayable : Bool := false
   isView : Bool := false
   isPure : Bool := false
+  isInternal : Bool := false
   noExternalCalls : Bool := false
   allowPostInteractionWrites : Bool := false
   nonReentrantLock : Option Ident := none
@@ -1202,6 +1364,10 @@ private def parseMutabilityModifiers
         if result.isView then
           throwErrorAt mod "duplicate 'view' modifier"
         result := { result with isView := true }
+    | `(verityMutability| internal) =>
+        if result.isInternal then
+          throwErrorAt mod "duplicate 'internal' modifier"
+        result := { result with isInternal := true }
     | `(verityMutability| no_external_calls) =>
         if result.noExternalCalls then
           throwErrorAt mod "duplicate 'no_external_calls' modifier"
@@ -1301,12 +1467,12 @@ private def parseModifierUse (stx : TSyntax `verityModifierUse) : CommandElabM (
   | `(verityModifierUse| with $[$names:ident],*) => pure names
   | _ => throwErrorAt stx "invalid modifier use"
 
-private def parseFunction (newtypes : Array NewtypeDecl) (structDecls : Array StructDecl := #[]) (adtDecls : Array AdtDecl := #[]) (stx : Syntax) : CommandElabM FunctionDecl := do
+private def parseFunction (newtypes : Array NewtypeDecl) (structDecls : Array StructDecl := #[]) (adtDecls : Array AdtDecl := #[]) (interfaceNames : Array String := #[]) (stx : Syntax) : CommandElabM FunctionDecl := do
   match stx with
   | `(verityFunction| function $[$modsBefore:verityMutability]* $[$pureMod?:pureMutabilityMarker]? $[$modsAfter:verityMutability]* $name:ident ($[$params:verityParam],*) $[$guard?:verityInitGuard]? $[$modifierUse?:verityModifierUse]? $[$requiresRoleClause?:verityRequiresRole]? $[$modifiesClause?:verityModifies]? $[$localObligations?:verityLocalObligations]? : $retTy:term := $body:term) => do
       let mut_ ← parseMutabilityModifiers (modsBefore ++ modsAfter) stx
       let mut_ := { mut_ with isPure := pureMod?.isSome }
-      let parsedParams ← params.mapM (parseFunctionParam newtypes structDecls adtDecls)
+      let parsedParams ← params.mapM (parseFunctionParamWithInterfaces newtypes structDecls adtDecls interfaceNames)
       let parsedReturnTy ← valueTypeFromSyntax newtypes structDecls adtDecls retTy
       let parsedGuard? ←
         match guard? with
@@ -1339,6 +1505,7 @@ private def parseFunction (newtypes : Array NewtypeDecl) (structDecls : Array St
         isPayable := mut_.isPayable
         isView := mut_.isView
         isPure := mut_.isPure
+        isInternal := mut_.isInternal
         noExternalCalls := mut_.noExternalCalls
         allowPostInteractionWrites := mut_.allowPostInteractionWrites
         nonReentrantLock := mut_.nonReentrantLock
@@ -1825,9 +1992,10 @@ private structure TypedLocal where
   name : String
   ty : ValueType
   source : LocalSource := .value
+  interfaceName? : Option String := none
 
-private def mkTypedLocal (name : String) (ty : ValueType) : TypedLocal :=
-  { name, ty }
+private def mkTypedLocal (name : String) (ty : ValueType) (interfaceName? : Option String := none) : TypedLocal :=
+  { name, ty, interfaceName? }
 
 private def memoryArrayDataOffsetName (name : String) : String :=
   s!"{name}_data_offset"
@@ -2064,6 +2232,23 @@ private def preferSignedNumericLiteralPeer
 private def lookupTypedLocalType? (locals : Array TypedLocal) (name : String) : Option ValueType :=
   locals.findSome? fun localTy =>
     if localTy.name == name then some localTy.ty else none
+
+private def lookupInterfaceName?
+    (params : Array ParamDecl)
+    (locals : Array TypedLocal)
+    (name : String) : Option String :=
+  params.findSome? (fun p =>
+    if p.name == name then p.interfaceName? else none)
+  <|> locals.findSome? (fun localTy =>
+    if localTy.name == name then localTy.interfaceName? else none)
+
+private def interfaceNameOfTerm?
+    (params : Array ParamDecl)
+    (locals : Array TypedLocal)
+    (stx : Term) : CommandElabM (Option String) := do
+  match stripParens stx with
+  | `(term| $ident:ident) => pure (lookupInterfaceName? params locals (toString ident.getId))
+  | _ => pure none
 
 private def tupleParamElemType? (params : Array ParamDecl) (name : String) : Option ValueType :=
   match name.splitOn "_" with
@@ -6057,6 +6242,54 @@ private def lookupFunctionByNameAndArity
     (arity : Nat) : Option FunctionDecl :=
   functions.find? fun fn => fn.name == name && fn.params.size == arity
 
+private partial def typedDotCallSyntax? (stx : Term) : Option (Term × String × Array Term) :=
+  let stx := stripParens stx
+  match stx.raw with
+  | .node _ `Lean.Parser.Term.app appArgs =>
+      match appArgs.getD 0 Syntax.missing with
+      | .ident _ _ raw _ =>
+          match nameComponents raw with
+          | [targetName, methodName] =>
+              let target : Term := mkIdent (Name.mkSimple targetName)
+              let argTerms := (appArgs.getD 1 Syntax.missing).getArgs.map (fun syn => ⟨syn⟩)
+              some (target, methodName, argTerms)
+          | _ => none
+      | _ => none
+  | _ => none
+
+private partial def resolveTypedInterfaceCall?
+    (fields : Array StorageFieldDecl)
+    (constDecls : Array ConstantDecl)
+    (immutableDecls : Array ImmutableDecl)
+    (externalDecls : Array ExternalDecl)
+    (params : Array ParamDecl)
+    (locals : Array TypedLocal)
+    (stx : Term) : CommandElabM (Option (ExternalDecl × Term × Array Term × ValueType × Nat)) := do
+  let some (target, methodName, argTerms) := typedDotCallSyntax? stx
+    | pure none
+  let targetName ←
+    match stripParens target with
+    | `(term| $targetIdent:ident) => pure (toString targetIdent.getId)
+    | _ => pure ""
+  let some interfaceName := lookupInterfaceName? params locals targetName
+    | pure none
+  let externalName := interfaceExternalName interfaceName methodName
+  let some ext := externalDecls.find? (fun ext => ext.name == externalName)
+    | throwErrorAt stx s!"interface '{interfaceName}' has no method '{methodName}'"
+  if argTerms.size != ext.params.size then
+    throwErrorAt stx s!"interface call '{interfaceName}.{methodName}' expects {ext.params.size} argument(s), got {argTerms.size}"
+  for (argTerm, expectedTy) in argTerms.zip ext.params do
+    let actualTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals argTerm
+    unless actualTy == expectedTy || (isNatLiteralTerm argTerm && numericLiteralCompatibleValueType expectedTy) do
+      throwErrorAt argTerm
+        s!"interface call '{interfaceName}.{methodName}' argument expects {renderValueType expectedTy}, got {renderValueType actualTy}"
+  match ext.returnTys.toList with
+  | [retTy] =>
+      let selector := Compiler.keccak256_first_4_bytes (interfaceFunctionSignature methodName ext.params)
+      pure (some (ext, target, argTerms, retTy, selector))
+  | [] => throwErrorAt stx s!"interface call '{interfaceName}.{methodName}' returns no values"
+  | _ => throwErrorAt stx s!"interface call '{interfaceName}.{methodName}' returns multiple values; typed dot calls currently support one return value"
+
 mutual
 private partial def validateDoSeqExprTypes
     (ownerName : String)
@@ -6163,7 +6396,8 @@ private partial def validateDoElemExprTypes
       | `(doElem| let mut $name:ident := $rhs:term) =>
           let ty ← inferPureExprType fields constDecls immutableDecls externalDecls params locals rhs
           requireSupportedLocalBindingType name s!"local binding '{toString name.getId}'" ty
-          pure <| locals.push (mkTypedLocal (toString name.getId) ty)
+          let interfaceName? ← interfaceNameOfTerm? params locals rhs
+          pure <| locals.push (mkTypedLocal (toString name.getId) ty interfaceName?)
       | `(doElem| let $name:ident := $rhs:term) =>
           match arrayElementAliasSource? params rhs with
           | some (paramName, index, elemTy) =>
@@ -6176,7 +6410,8 @@ private partial def validateDoElemExprTypes
           | none =>
               let ty ← inferPureExprType fields constDecls immutableDecls externalDecls params locals rhs
               requireSupportedLocalBindingType name s!"local binding '{toString name.getId}'" ty
-              pure <| locals.push (mkTypedLocal (toString name.getId) ty)
+              let interfaceName? ← interfaceNameOfTerm? params locals rhs
+              pure <| locals.push (mkTypedLocal (toString name.getId) ty interfaceName?)
       | `(doElem| let $name:ident ← $rhs:term) =>
           match stripParens rhs with
           | `(term| allocArray $len:term) =>
@@ -6205,9 +6440,14 @@ private partial def validateDoElemExprTypes
                       validateCustomErrorCall ownerName (toString errorName.getId)
                         params errorDecls args.getElems
                   | _ => pure ()
-                  let ty ← inferBindSourceType fields constDecls immutableDecls externalDecls functions params locals rhs
-                  requireSupportedLocalBindingType name s!"local binding '{toString name.getId}'" ty
-                  pure <| locals.push (mkTypedLocal (toString name.getId) ty)
+                  match ← resolveTypedInterfaceCall? fields constDecls immutableDecls externalDecls params locals rhs with
+                  | some (_, _, _, retTy, _) =>
+                      requireSupportedLocalBindingType name s!"local binding '{toString name.getId}'" retTy
+                      pure <| locals.push (mkTypedLocal (toString name.getId) retTy)
+                  | none =>
+                      let ty ← inferBindSourceType fields constDecls immutableDecls externalDecls functions params locals rhs
+                      requireSupportedLocalBindingType name s!"local binding '{toString name.getId}'" ty
+                      pure <| locals.push (mkTypedLocal (toString name.getId) ty)
       | `(doElem| $name:ident := $rhs:term) =>
           let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals rhs
           pure locals
@@ -7115,9 +7355,10 @@ private partial def translateDoElem
             throwErrorAt name s!"duplicate local variable '{varName}'"
           let rhsExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals rhs
           let ty ← inferPureExprType fields constDecls immutableDecls externalDecls params locals rhs
+          let interfaceName? ← interfaceNameOfTerm? params locals rhs
           pure
             (#[(← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $rhsExpr))],
-              locals.push (mkTypedLocal varName ty),
+              locals.push (mkTypedLocal varName ty interfaceName?),
               mutableLocals.push varName)
       | `(doElem| let $name:ident := $rhs:term) =>
           let varName := toString name.getId
@@ -7137,9 +7378,10 @@ private partial def translateDoElem
           | none =>
               let rhsExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals rhs
               let ty ← inferPureExprType fields constDecls immutableDecls externalDecls params locals rhs
+              let interfaceName? ← interfaceNameOfTerm? params locals rhs
               pure
                 (#[(← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $rhsExpr))],
-                  locals.push (mkTypedLocal varName ty),
+                  locals.push (mkTypedLocal varName ty interfaceName?),
                   mutableLocals)
       | `(doElem| let $name:ident ← $rhs:term) =>
           let varName := toString name.getId
@@ -7242,12 +7484,29 @@ private partial def translateDoElem
                       | some stmt =>
                           pure (#[(stmt)], locals.push (mkTypedLocal varName .uint256), mutableLocals)
                       | none =>
-                          let rhsExpr ← translateBindSource fields constDecls immutableDecls externalDecls functions params locals rhs
-                          let ty ← inferBindSourceType fields constDecls immutableDecls externalDecls functions params locals rhs
-                          pure
-                            (#[(← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $rhsExpr))],
-                              locals.push (mkTypedLocal varName ty),
-                              mutableLocals)
+                          match ← resolveTypedInterfaceCall? fields constDecls immutableDecls externalDecls params locals rhs with
+                          | some (ext, target, argTerms, retTy, selector) =>
+                              let targetExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals target
+                              let argExprs ← argTerms.mapM
+                                (translatePureExprWithTypes fields constDecls immutableDecls params locals)
+                              let isStaticTerm ← if ext.isView then `(true) else `(false)
+                              pure
+                                (#[(← `(Compiler.CompilationModel.Stmt.ecm
+                                        (Compiler.Modules.Calls.withReturnModule
+                                          $(strTerm varName)
+                                          $(natTerm selector)
+                                          $(natTerm argExprs.size)
+                                          $isStaticTerm)
+                                        [ $targetExpr, $[$argExprs],* ]))],
+                                  locals.push (mkTypedLocal varName retTy),
+                                  mutableLocals)
+                          | none =>
+                              let rhsExpr ← translateBindSource fields constDecls immutableDecls externalDecls functions params locals rhs
+                              let ty ← inferBindSourceType fields constDecls immutableDecls externalDecls functions params locals rhs
+                              pure
+                                (#[(← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $rhsExpr))],
+                                  locals.push (mkTypedLocal varName ty),
+                                  mutableLocals)
       | `(doElem| $name:ident := $rhs:term) =>
           let varName := toString name.getId
           if !localNames.contains varName then
@@ -7491,28 +7750,72 @@ private def injectTupleParamAliases (params : Array ParamDecl) (body : Term) : C
     | _ => pure ()
   pure wrappedBody
 
+private def typedInterfaceCallReturnType?
+    (externalDecls : Array ExternalDecl)
+    (params : Array ParamDecl)
+    (locals : Array TypedLocal)
+    (stx : Term) : CommandElabM (Option ValueType) := do
+  let some (target, methodName, _argTerms) := typedDotCallSyntax? stx
+    | pure none
+  let targetName ←
+    match stripParens target with
+    | `(term| $targetIdent:ident) => pure (toString targetIdent.getId)
+    | _ => pure ""
+  let some interfaceName := lookupInterfaceName? params locals targetName
+    | pure none
+  let externalName := interfaceExternalName interfaceName methodName
+  let some ext := externalDecls.find? (fun ext => ext.name == externalName)
+    | pure none
+  match ext.returnTys.toList with
+  | [retTy] => pure (some retTy)
+  | _ => pure none
+
 mutual
 private partial def rewriteForEachExecutableDoSeq
     (externalDecls : Array ExternalDecl)
+    (params : Array ParamDecl)
+    (locals : Array TypedLocal)
     (doSeq : DoSeq) : CommandElabM DoSeq := do
   match doSeq with
   | `(doSeq| $[$elems:doElem]*) =>
-      let elems ← rewriteForEachExecutableDoElems externalDecls elems
+      let (elems, _) ← rewriteForEachExecutableDoElems externalDecls params locals elems
       `(doSeq| $[$elems:doElem]*)
   | _ => throwErrorAt doSeq "unsupported branch body; expected do-sequence"
 
 private partial def rewriteForEachExecutableDoElems
     (externalDecls : Array ExternalDecl)
-    (elems : Array (TSyntax `doElem)) : CommandElabM (Array (TSyntax `doElem)) := do
+    (params : Array ParamDecl)
+    (locals : Array TypedLocal)
+    (elems : Array (TSyntax `doElem)) : CommandElabM (Array (TSyntax `doElem) × Array TypedLocal) := do
   let mut rewritten : Array (TSyntax `doElem) := #[]
+  let mut currentLocals := locals
   for elem in elems do
-    rewritten := rewritten ++ (← rewriteForEachExecutableDoElem externalDecls elem)
-  pure rewritten
+    let (newElems, newLocals) ← rewriteForEachExecutableDoElem externalDecls params currentLocals elem
+    rewritten := rewritten ++ newElems
+    currentLocals := newLocals
+  pure (rewritten, currentLocals)
 
 private partial def rewriteForEachExecutableDoElem
     (externalDecls : Array ExternalDecl)
-    (elem : TSyntax `doElem) : CommandElabM (Array (TSyntax `doElem)) := do
+    (params : Array ParamDecl)
+    (locals : Array TypedLocal)
+    (elem : TSyntax `doElem) : CommandElabM (Array (TSyntax `doElem) × Array TypedLocal) := do
   match elem with
+  | `(doElem| let $name:ident := $rhs:term) =>
+      let varName := toString name.getId
+      let interfaceName? ← interfaceNameOfTerm? params locals rhs
+      let locals :=
+        match interfaceName? with
+        | some iface => locals.push (mkTypedLocal varName .address (some iface))
+        | none => locals
+      pure (#[elem], locals)
+  | `(doElem| let $name:ident ← $rhs:term) =>
+      match ← typedInterfaceCallReturnType? externalDecls params locals rhs with
+      | some retTy =>
+          let retTyTerm ← contractValueTypeTerm retTy
+          pure (#[← `(doElem| let $name:ident := (panic! "typed interface calls are compiler-only in executable wrappers" : $retTyTerm))],
+            locals.push (mkTypedLocal (toString name.getId) retTy))
+      | none => pure (#[elem], locals)
   | `(doElem| let $pat:term ← $rhs:term) =>
       match tupleBinderNames? pat with
       | some _ =>
@@ -7524,45 +7827,45 @@ private partial def rewriteForEachExecutableDoElem
                   match ext.returnTys.toList with
                   | [retTy] =>
                       let retTyTerm ← contractValueTypeTerm retTy
-                      pure #[← `(doElem| let $pat:term ← ($rhs : _root_.Verity.Contract (Bool × $retTyTerm)))]
-                  | _ => pure #[elem]
-              | none => pure #[elem]
-          | _ => pure #[elem]
-      | none => pure #[elem]
+                      pure (#[← `(doElem| let $pat:term ← ($rhs : _root_.Verity.Contract (Bool × $retTyTerm)))], locals)
+                  | _ => pure (#[elem], locals)
+              | none => pure (#[elem], locals)
+          | _ => pure (#[elem], locals)
+      | none => pure (#[elem], locals)
   | `(doElem| forEach $name:term $_count:term $body:term) =>
       let loopIdent := mkIdent (Name.mkSimple (← expectStringOrIdent name))
       match stripParens body with
       | `(term| do $[$inner:doElem]*) =>
-          let inner ← rewriteForEachExecutableDoElems externalDecls inner
-          pure <| #[← `(doElem| let $loopIdent : Uint256 := 0)] ++ inner
+          let (inner, _) ← rewriteForEachExecutableDoElems externalDecls params locals inner
+          pure (#[← `(doElem| let $loopIdent : Uint256 := 0)] ++ inner, locals)
       | _ => throwErrorAt body "forEach body must be a do block"
   | `(doElem| if $cond:term then $thenBranch:doSeq else $elseBranch:doSeq) =>
-      let thenBranch ← rewriteForEachExecutableDoSeq externalDecls thenBranch
-      let elseBranch ← rewriteForEachExecutableDoSeq externalDecls elseBranch
-      pure #[← `(doElem| if $cond then $thenBranch else $elseBranch)]
+      let thenBranch ← rewriteForEachExecutableDoSeq externalDecls params locals thenBranch
+      let elseBranch ← rewriteForEachExecutableDoSeq externalDecls params locals elseBranch
+      pure (#[← `(doElem| if $cond then $thenBranch else $elseBranch)], locals)
   | `(doElem| tryCatch $attempt:term $handler:term) =>
       let tryCatchFn := Lean.mkIdentFrom attempt `_root_.Contracts.tryCatchWord
       match stripParens handler with
       | `(term| fun $name:ident => do $[$catchElems:doElem]*) =>
-          let catchElems ← rewriteForEachExecutableDoElems externalDecls catchElems
-          pure #[← `(doElem| $tryCatchFn:ident $attempt (fun $name => do $[$catchElems:doElem]*))]
+          let (catchElems, _) ← rewriteForEachExecutableDoElems externalDecls params locals catchElems
+          pure (#[← `(doElem| $tryCatchFn:ident $attempt (fun $name => do $[$catchElems:doElem]*))], locals)
       | `(term| do $[$catchElems:doElem]*) =>
-          let catchElems ← rewriteForEachExecutableDoElems externalDecls catchElems
-          pure #[← `(doElem| $tryCatchFn:ident $attempt (fun _ => do $[$catchElems:doElem]*))]
+          let (catchElems, _) ← rewriteForEachExecutableDoElems externalDecls params locals catchElems
+          pure (#[← `(doElem| $tryCatchFn:ident $attempt (fun _ => do $[$catchElems:doElem]*))], locals)
       | _ =>
           throwErrorAt handler
             "tryCatch handler must be `fun _ => do ...` or a direct `do ...` block"
   | `(doElem| unsafe $_reason:str do $body:doSeq) =>
-      let body ← rewriteForEachExecutableDoSeq externalDecls body
-      pure #[← `(doElem| do $body)]
+      let body ← rewriteForEachExecutableDoSeq externalDecls params locals body
+      pure (#[← `(doElem| do $body)], locals)
   | other =>
-      pure #[other]
+      pure (#[other], locals)
 end
 
-private def rewriteForEachExecutableBody (externalDecls : Array ExternalDecl) (body : Term) : CommandElabM Term := do
+private def rewriteForEachExecutableBody (externalDecls : Array ExternalDecl) (params : Array ParamDecl) (body : Term) : CommandElabM Term := do
   match body with
   | `(term| do $[$elems:doElem]*) =>
-      let elems ← rewriteForEachExecutableDoElems externalDecls elems
+      let (elems, _) ← rewriteForEachExecutableDoElems externalDecls params #[] elems
       `(do $[$elems:doElem]*)
   | _ => pure body
 
@@ -7861,17 +8164,20 @@ private def mkAdtTypeDefTerm (adtDecl : AdtDecl) : CommandElabM Term := do
       $(strTerm adtDecl.name)
       [ $[$variantTerms],* ])
 
-private partial def collectQualifiedFunctionAppsFromSyntax (stx : Syntax) : Array Name :=
+private partial def collectQualifiedFunctionAppsFromSyntax (interfaceParamNames : Array String) (stx : Syntax) : Array Name :=
   let fromChildren : Array Name :=
     match stx with
     | .node _ _ args =>
-        args.foldl (fun acc child => acc ++ collectQualifiedFunctionAppsFromSyntax child) #[]
+        args.foldl (fun acc child => acc ++ collectQualifiedFunctionAppsFromSyntax interfaceParamNames child) #[]
     | _ => #[]
   match stx with
   | .node _ `Lean.Parser.Term.app args =>
       match args.getD 0 Syntax.missing with
       | .ident _ _ raw _ =>
+          let components := nameComponents raw
           if isQualifiedFunctionName raw && (nameComponents raw).head? != some "Verity" &&
+              !interfaceParamNames.contains (components.headD "") &&
+              !startsWithLowercaseAscii (components.headD "") &&
               !raw.toString.endsWith ".mk" then
             fromChildren.push raw
           else
@@ -7885,10 +8191,12 @@ private def uniqueNames (names : Array Name) : Array Name :=
     #[]
 
 private def collectQualifiedFunctionAppsFromFunction (fn : FunctionDecl) : Array Name :=
-  collectQualifiedFunctionAppsFromSyntax fn.body.raw
+  collectQualifiedFunctionAppsFromSyntax
+    (fn.params.filterMap fun p => p.interfaceName?.map (fun _ => p.name))
+    fn.body.raw
 
 private def collectQualifiedFunctionAppsFromConstructor (ctor : ConstructorDecl) : Array Name :=
-  collectQualifiedFunctionAppsFromSyntax ctor.body.raw
+  collectQualifiedFunctionAppsFromSyntax #[] ctor.body.raw
 
 private def mkQualifiedInternalFunctionTerm
     (usedNames : List String)
@@ -7941,7 +8249,8 @@ private def mkSpecCommand
           localObligations := []
           body := [ $[$immutableInitTerms],* ]
         })
-  let functionModelIds ← functions.mapM fun fn => mkSuffixedIdent fn.ident "_model"
+  let publicFunctions := functions.filter (fun fn => !fn.isInternal)
+  let functionModelIds ← publicFunctions.mapM fun fn => mkSuffixedIdent fn.ident "_model"
   let internalFunctionTerms ← functions.filterMapM fun fn => do
     if supportsInternalHelperSpec fn then
       let modelBodyName ← mkSuffixedIdent fn.ident "_modelBody"
@@ -8200,7 +8509,7 @@ def parseContractSyntax
     (stx : Syntax)
     : CommandElabM ParsedContractSyntax := do
   match stx with
-  | `(command| verity_contract $contractName:ident where $[types $[$newtypeDecls:verityNewtype]*]? $[inductive $[$adtDecls:verityAdtDecl]*]? $[$nsSpec:verityNamespaceSpec]? storage $[$storageItems:verityStorageItem]* $[$structDecls:verityStructDecl]* $[errors $[$errorDecls:verityError]*]? $[event_defs $[$eventDecls:verityEvent]*]? $[constants $[$constantDecls:verityConstant]*]? $[immutables $[$immutableDecls:verityImmutable]*]? $[linked_externals $[$externalDecls:verityExternal]*]? $[$ctor:verityConstructor]? $[$entrypoints:veritySpecialEntrypoint]* $[$modifierDecls:verityModifier]* $[$functions:verityFunction]*) =>
+  | `(command| verity_contract $contractName:ident where $[types $[$newtypeDecls:verityNewtype]*]? $[inductive $[$adtDecls:verityAdtDecl]*]? $[$nsSpec:verityNamespaceSpec]? storage $[$storageItems:verityStorageItem]* $[$structDecls:verityStructDecl]* $[errors $[$errorDecls:verityError]*]? $[event_defs $[$eventDecls:verityEvent]*]? $[constants $[$constantDecls:verityConstant]*]? $[immutables $[$immutableDecls:verityImmutable]*]? $[interfaces $[$interfaceDecls:verityInterface]*]? $[linked_externals $[$externalDecls:verityExternal]*]? $[$ctor:verityConstructor]? $[$entrypoints:veritySpecialEntrypoint]* $[$modifierDecls:verityModifier]* $[$functions:verityFunction]*) =>
       -- Parse newtypes first — they are needed by all downstream type resolution
       let parsedNewtypes ←
         match newtypeDecls with
@@ -8263,10 +8572,16 @@ def parseContractSyntax
         match immutableDecls with
         | some decls => decls.mapM (parseImmutable parsedNewtypes)
         | none => pure #[]
+      let parsedInterfaces ←
+        match interfaceDecls with
+        | some decls => decls.mapM (parseInterface parsedNewtypes parsedStructs parsedAdts)
+        | none => pure #[]
+      let interfaceNames := parsedInterfaces.map (·.name)
       let parsedExternals ←
         match externalDecls with
         | some decls => decls.mapM (parseExternal parsedNewtypes parsedStructs parsedAdts)
         | none => pure #[]
+      let parsedExternals := interfaceExternals parsedInterfaces ++ parsedExternals
       -- Apply namespace offsets to parsed storage fields (#1730).  In-storage
       -- `storage_namespace` items switch the active namespace for subsequent
       -- fields, allowing multiple ERC-7201 roots in one contract model.
@@ -8313,7 +8628,7 @@ def parseContractSyntax
           assignOverloadInternalIdents
             (← monomorphizeHigherOrderHelpers
               ((← entrypoints.mapM parseSpecialEntrypoint) ++
-                (← functions.mapM (parseFunction parsedNewtypes parsedStructs parsedAdts))))
+                (← functions.mapM (parseFunction parsedNewtypes parsedStructs parsedAdts interfaceNames))))
         storageNamespace := namespaceOpt
       }
   | _ => throwErrorAt stx "invalid verity_contract declaration"
@@ -8554,6 +8869,8 @@ def validateFunctionDeclsPublic
     for param in fn.params do
       rejectExecutableBoundaryAdt param.ident s!"function '{fn.name}' parameter '{param.name}'" param.ty
     rejectExecutableBoundaryAdt fn.ident s!"function '{fn.name}' return type" fn.returnTy
+    if fn.isInternal then
+      ensureSupportsInternalHelperSpec fn.ident.raw fn
     validateLocalObligationDecls s!"function '{fn.name}'" fn.localObligations
     for modifierIdent in fn.modifiers do
       let modifierName := toString modifierIdent.getId
@@ -8605,7 +8922,7 @@ def mkFunctionCommandsPublic
   let fnDecl := { fn with body := fnRoleGuardedBody }
   let fnGuardedBody ← mkInitGuardedBody fields fnDecl
   let fnBody ← mkImmutableBoundBody fields immutableDecls fn fnGuardedBody
-  let fnExecutableBody ← rewriteForEachExecutableBody externalDecls fnBody
+  let fnExecutableBody ← rewriteForEachExecutableBody externalDecls fn.params fnBody
   let fnValue ← mkContractFnValue fn.params fnExecutableBody
   let modelBodyName ← mkSuffixedIdent fn.ident "_modelBody"
   let modelName ← mkSuffixedIdent fn.ident "_model"
@@ -8630,8 +8947,14 @@ def mkFunctionCommandsPublic
 
   let fnCmd : Cmd ← `(command| def $fn.ident : $fnType := $fnValue)
   let bodyCmd : Cmd ← `(command| def $modelBodyName : List Compiler.CompilationModel.Stmt := [ $[$stmtTerms],* ])
+  let modelNameTerm :=
+    if fn.isInternal then
+      strTerm (internalHelperSpecNameFor fn)
+    else
+      strTerm fn.name
+  let internalTerm ← if fn.isInternal then `(true) else `(false)
   let modelCmd : Cmd ← `(command| def $modelName : Compiler.CompilationModel.FunctionSpec := {
-    name := $(strTerm fn.name)
+    name := $modelNameTerm
     params := $modelParams
     returnType := $returnTypeTerm
     «returns» := $returnsTerm
@@ -8646,6 +8969,7 @@ def mkFunctionCommandsPublic
     modifies := [ $[$modifiesTerms],* ]
     localObligations := [ $[$localObligationTerms],* ]
     body := $modelBodyName
+    isInternal := $internalTerm
   })
   pure #[fnCmd, bodyCmd, modelCmd]
 

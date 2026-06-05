@@ -16,6 +16,9 @@ declare_syntax_cat verityConstant
 declare_syntax_cat verityImmutable
 declare_syntax_cat verityExternal
 declare_syntax_cat verityExternalLinkMode
+declare_syntax_cat verityInterface
+declare_syntax_cat verityInterfaceFunction
+declare_syntax_cat verityInterfaceParam
 declare_syntax_cat verityLocalObligation
 declare_syntax_cat verityLocalObligations
 declare_syntax_cat verityConstructor
@@ -67,10 +70,17 @@ syntax "external " ident "(" sepBy(term, ",") ")" : verityExternal
 syntax "external " ident "(" sepBy(term, ",") ")" " -> " "(" sepBy(term, ",") ")" : verityExternal
 syntax "external " ident "(" sepBy(term, ",") ")" ppSpace "linked_as" " := " verityExternalLinkMode : verityExternal
 syntax "external " ident "(" sepBy(term, ",") ")" " -> " "(" sepBy(term, ",") ")" ppSpace "linked_as" " := " verityExternalLinkMode : verityExternal
+syntax ident " : " term : verityInterfaceParam
+syntax "function " ident "(" sepBy(term, ",") ")" verityMutability* ident "(" sepBy(term, ",") ")" : verityInterfaceFunction
+syntax "function " ident " (" sepBy(term, ",") ")" verityMutability* ident "(" sepBy(term, ",") ")" : verityInterfaceFunction
+syntax "function " ident "(" sepBy(verityInterfaceParam, ",") ")" verityMutability* ident "(" sepBy(term, ",") ")" : verityInterfaceFunction
+syntax "function " ident " (" sepBy(verityInterfaceParam, ",") ")" verityMutability* ident "(" sepBy(term, ",") ")" : verityInterfaceFunction
+syntax "interface " ident " where " verityInterfaceFunction* "end" : verityInterface
 syntax ident " := " ident ppSpace str : verityLocalObligation
 syntax "local_obligations " "[" sepBy(verityLocalObligation, ",") "]" : verityLocalObligations
 syntax "payable" : verityMutability
 syntax "view" : verityMutability
+syntax "internal" : verityMutability
 syntax pureMutabilityMarker := &"pure"
 syntax "no_external_calls" : verityMutability
 syntax "allow_post_interaction_writes" : verityMutability
@@ -158,6 +168,7 @@ syntax (name := verityContractCmd)
   ("event_defs " verityEvent+)?
   ("constants " verityConstant+)?
   ("immutables " verityImmutable+)?
+  ("interfaces " verityInterface+)?
   ("linked_externals " verityExternal+)?
   (verityConstructor)?
   (veritySpecialEntrypoint)*
