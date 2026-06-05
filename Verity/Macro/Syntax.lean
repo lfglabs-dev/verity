@@ -75,6 +75,11 @@ syntax "function " ident "(" sepBy(term, ",") ")" verityMutability* ident "(" se
 syntax "function " ident " (" sepBy(term, ",") ")" verityMutability* ident "(" sepBy(term, ",") ")" : verityInterfaceFunction
 syntax "function " ident "(" sepBy(verityInterfaceParam, ",") ")" verityMutability* ident "(" sepBy(term, ",") ")" : verityInterfaceFunction
 syntax "function " ident " (" sepBy(verityInterfaceParam, ",") ")" verityMutability* ident "(" sepBy(term, ",") ")" : verityInterfaceFunction
+-- void interface methods: no returns clause (e.g. aave supply/borrow are `void`)
+syntax "function " ident "(" sepBy(term, ",") ")" verityMutability* : verityInterfaceFunction
+syntax "function " ident " (" sepBy(term, ",") ")" verityMutability* : verityInterfaceFunction
+syntax "function " ident "(" sepBy(verityInterfaceParam, ",") ")" verityMutability* : verityInterfaceFunction
+syntax "function " ident " (" sepBy(verityInterfaceParam, ",") ")" verityMutability* : verityInterfaceFunction
 syntax "interface " ident " where " verityInterfaceFunction* "end" : verityInterface
 syntax ident " := " ident ppSpace str : verityLocalObligation
 syntax "local_obligations " "[" sepBy(verityLocalObligation, ",") "]" : verityLocalObligations
