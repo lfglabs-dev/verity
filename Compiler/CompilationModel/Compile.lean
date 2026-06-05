@@ -417,14 +417,18 @@ def compileStmt (fields : List Field) (events : List EventDef := [])
         YulStmt.block [
           YulStmt.let_ "__return_code_pointer"
             (YulExpr.call "and" [pointerExpr, YulExpr.hex addressMask]),
+          YulStmt.let_ "__return_code_offset" (YulExpr.lit 1),
           YulStmt.let_ "__return_code_size"
-            (YulExpr.call "extcodesize" [YulExpr.ident "__return_code_pointer"]),
+            (YulExpr.call "sub" [
+              YulExpr.call "extcodesize" [YulExpr.ident "__return_code_pointer"],
+              YulExpr.ident "__return_code_offset"
+            ]),
           YulStmt.let_ "__return_code_ptr"
             (YulExpr.call "mload" [YulExpr.lit freeMemoryPointer]),
           YulStmt.expr (YulExpr.call "extcodecopy" [
             YulExpr.ident "__return_code_pointer",
             YulExpr.ident "__return_code_ptr",
-            YulExpr.lit 0,
+            YulExpr.ident "__return_code_offset",
             YulExpr.ident "__return_code_size"
           ]),
           YulStmt.expr (YulExpr.call "return" [

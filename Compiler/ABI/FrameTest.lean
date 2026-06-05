@@ -31,6 +31,24 @@ private def calldataLoadName? : YulExpr → Option String
   | .call "calldataload" [.call "add" [.ident name, _]] => some name
   | _ => none
 
+private def hasExtcodecopy : List YulStmt → Bool :=
+  fun stmts => stmts.any fun
+    | .expr (.call "extcodecopy" _) => true
+    | _ => false
+
+private def hasDynamicCalldataTailCopy : List YulStmt → Bool :=
+  fun stmts => stmts.any fun
+    | .expr (.call "mstore" [
+        _,
+        .call "calldataload" [
+          .call "add" [
+            .call "add" [.ident "ratifierData", .call "calldataload" [.ident "ratifierData"]],
+            .lit 0
+          ]
+        ]
+      ]) => true
+    | _ => false
+
 #eval! do
   let takeLayout := layout takeFields
   assert "nested struct supported" (supportsNestedStructs takeLayout)
@@ -42,6 +60,9 @@ private def calldataLoadName? : YulExpr → Option String
   let srcLayout := layout sourceFields
   assert "calldata/memory/code/storage sources supported" (layoutSourcesSupported srcLayout)
   assert "dynamic source frame is pointer mode" (srcLayout.mode == FramePassMode.pointer)
+  assert "code source spills through extcodecopy" (hasExtcodecopy (spillPayloadToMemory "src" srcLayout))
+  assert "dynamic calldata tail follows ABI offset"
+    (hasDynamicCalldataTailCopy (spillPayloadToMemory "take" takeLayout))
   let inlineNames := (inlineArgs (layout inlineFields)).filterMap calldataLoadName?
   assert "inline source words are indexed per field"
     (inlineNames == ["pair", "pair", "amount"])
