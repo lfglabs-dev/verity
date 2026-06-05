@@ -1001,6 +1001,9 @@ private def parseParam (newtypes : Array NewtypeDecl) (structDecls : Array Struc
       }
   | _ => throwErrorAt stx "invalid parameter declaration"
 
+private def localDeclName (name : String) : String :=
+  (name.splitOn ".").getLastD name
+
 /-- Like `parseParam`, but additionally recognizes a higher-order
     function-pointer parameter type (e.g. `op : (Uint256) -> Uint256`) and
     records it as `ParamDecl.funcPtr?` instead of rejecting it (#1747).  Used
@@ -1042,6 +1045,13 @@ private def parseFunctionParamWithInterfaces
       | `(term| $interfaceIdent:ident) =>
           let interfaceName := toString interfaceIdent.getId
           if interfaceNames.contains interfaceName then
+            let typeLocalNames :=
+              (newtypes.map (fun decl => localDeclName decl.name)) ++
+              (structDecls.map (fun decl => localDeclName decl.name)) ++
+              (adtDecls.map (fun decl => localDeclName decl.name))
+            if typeLocalNames.contains (localDeclName interfaceName) then
+              throwErrorAt interfaceIdent
+                s!"interface name '{localDeclName interfaceName}' conflicts with an existing type name"
             pure {
               ident := name
               name := toString name.getId
@@ -8588,6 +8598,17 @@ def parseContractSyntax
         match interfaceDecls with
         | some decls => decls.mapM (parseInterface parsedNewtypes parsedStructs parsedAdts)
         | none => pure #[]
+      let seenTypeLocalNames := seenNames.map localDeclName
+      let mut seenInterfaceNames : Array String := #[]
+      for iface in parsedInterfaces do
+        let ifaceLocalName := localDeclName iface.name
+        if seenTypeLocalNames.contains ifaceLocalName then
+          throwErrorAt iface.ident s!"interface name '{ifaceLocalName}' conflicts with an existing type name"
+        if builtinTypeNames.contains ifaceLocalName then
+          throwErrorAt iface.ident s!"interface name '{ifaceLocalName}' shadows a built-in type"
+        if seenInterfaceNames.contains ifaceLocalName then
+          throwErrorAt iface.ident s!"duplicate interface name '{ifaceLocalName}'"
+        seenInterfaceNames := seenInterfaceNames.push ifaceLocalName
       let interfaceNames := parsedInterfaces.map (·.name)
       let parsedExternals ←
         match externalDecls with

@@ -95,4 +95,22 @@ example :
           | _ => false)) = true := by
   decide
 
+/--
+error: interface name 'Clash' conflicts with an existing type name
+-/
+#guard_msgs in
+verity_contract InterfaceTypeNameClashRejected where
+  types
+    Clash : Uint256
+
+  storage
+
+  interfaces
+    interface Clash where
+      function read() view returns (Uint256)
+    end
+
+  function noop (_item : Clash) : Unit := do
+    pure ()
+
 end Contracts.Smoke
