@@ -755,7 +755,7 @@ private partial def modelReturnsTerm (ty : ValueType) : CommandElabM Term :=
       `([ $[$elemTerms.toArray],* ])
   | .struct _ fields => do
       let elemTerms ← fields.mapM (fun field => modelParamTypeTerm field.snd)
-      `([ $[$elemTerms.toArray],* ])
+      `([Compiler.CompilationModel.ParamType.tuple [ $[$elemTerms.toArray],* ]])
   | .newtype name baseType => do
       let baseTerm ← modelParamTypeTerm baseType
       `([Compiler.CompilationModel.ParamType.newtypeOf $(Lean.quote name) $baseTerm])
@@ -6408,6 +6408,9 @@ private partial def validateEffectStmtExprTypes
   | `(term| returnStorageWords $name:term) => do
       let ty ← requireDirectParamRef name "returnStorageWords" params
       requireSupportedReturnStorageWordsType name "returnStorageWords" ty
+  | `(term| returnCodeData $pointer:term) => do
+      requireDeclaredValueType pointer "returnCodeData pointer" .address
+        (← inferPureExprType fields constDecls immutableDecls externalDecls params locals pointer)
   | `(term| externalCallBind $_names:term $_fnName:term $args:term)
     | `(term| tryExternalCallBind $_successVar:term $_names:term $_fnName:term $args:term) =>
       match stripParens args with
@@ -6872,6 +6875,9 @@ private def translateEffectStmt
       `(Compiler.CompilationModel.Stmt.returnBytes $(strTerm (← expectStringOrIdent name)))
   | `(term| returnStorageWords $name:term) =>
       `(Compiler.CompilationModel.Stmt.returnStorageWords $(strTerm (← expectStringOrIdent name)))
+  | `(term| returnCodeData $pointer:term) =>
+      `(Compiler.CompilationModel.Stmt.returnCodeData
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals pointer))
   | `(term| emit $eventName:term $args:term) =>
       let evName := ← expectStringOrIdent eventName
       let argExprs ← expectEmitExprList fields constDecls immutableDecls params locals args

@@ -5176,12 +5176,12 @@ def routerSpecUsesTypedEventsAndReturns : Bool :=
   TypedVerifierRouter.spec.functions.any (fun fn =>
     fn.name == "getCircuit" &&
       fn.params.map (fun param => param.ty) == [ParamType.bytes32] &&
-      fn.returns == [ParamType.address, ParamType.uint16, ParamType.uint16, ParamType.bool])
+      fn.returns == [ParamType.tuple [ParamType.address, ParamType.uint16, ParamType.uint16, ParamType.bool]])
 
 def routerStructMembersDestructuringKeepsMemberTypes : Bool :=
   TypedVerifierRouter.spec.functions.any (fun fn =>
     fn.name == "getCircuitViaMembers" &&
-      fn.returns == [ParamType.address, ParamType.uint16, ParamType.uint16, ParamType.bool]) &&
+      fn.returns == [ParamType.tuple [ParamType.address, ParamType.uint16, ParamType.uint16, ParamType.bool]]) &&
   TypedVerifierRouter.spec.functions.any (fun fn =>
     fn.name == "getRouteFlag" &&
       fn.returns == [ParamType.bool, ParamType.uint16])

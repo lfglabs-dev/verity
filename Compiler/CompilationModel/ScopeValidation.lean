@@ -563,6 +563,9 @@ def validateScopedStmtIdentifiers
             pure localScope
           else
             throw s!"Compilation error: {context} Stmt.returnArray '{name}' requires parameter '{name}' or local bindings '{name}_data_offset' and '{name}_length'"
+  | Stmt.returnCodeData pointer => do
+      validateScopedExprIdentifiers context params paramScope dynamicParams localScope constructorArgCount pointer
+      pure localScope
   | Stmt.returnBytes _ | Stmt.returnStorageWords _
   | Stmt.revertReturndata | Stmt.stop =>
       pure localScope

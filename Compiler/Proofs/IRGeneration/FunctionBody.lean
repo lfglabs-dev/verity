@@ -8159,7 +8159,7 @@ private theorem compileStmt_ok_any_scope_aux
       | setMappingPackedWord | setMapping2 | setMapping2Word | setMappingUint
       | setMappingChain | setStructMember | setStructMember2 | require
       | requireError | revertError | «return» | returnValues | returnArray
-      | returnBytes | returnStorageWords | mstore | tstore | calldatacopy
+      | returnBytes | returnStorageWords | returnCodeData | mstore | tstore | calldatacopy
       | returndataCopy | revertReturndata | stop | emit | internalCall
       | internalCallAssign | externalCallBind | tryExternalCallBind | ecm | rawLog
       | unsafeYul =>
@@ -8277,7 +8277,7 @@ private theorem compileStmt_ok_any_scope_with_surface_aux
       | setMappingPackedWord | setMapping2 | setMapping2Word | setMappingUint
       | setMappingChain | setStructMember | setStructMember2 | require
       | requireError | revertError | «return» | returnValues | returnArray
-      | returnBytes | returnStorageWords | mstore | tstore | calldatacopy
+      | returnBytes | returnStorageWords | returnCodeData | mstore | tstore | calldatacopy
       | returndataCopy | revertReturndata | stop | emit | internalCall
       | internalCallAssign | externalCallBind | tryExternalCallBind
       | ecm | rawLog | unsafeYul =>
