@@ -641,6 +641,8 @@ def stmtTouchesUnsupportedConstructorRawCalldataSurface : Stmt → Bool
   | .require value _ | .return value
   | .storageArrayPush _ value =>
       exprTouchesUnsupportedConstructorRawCalldataSurface value
+  | .returnCodeData pointer =>
+      exprTouchesUnsupportedConstructorRawCalldataSurface pointer
   | .setMapping _ key value | .setMappingWord _ key _ value
   | .setMappingPackedWord _ key _ _ value | .setMappingUint _ key value
   | .setStructMember _ key _ value | .setStorageArrayElement _ key value
@@ -1175,7 +1177,7 @@ mutual
 theorem: richer returns, logs, typed errors, and raw external effect hooks. -/
 def stmtTouchesUnsupportedEffectSurface : Stmt → Bool
   | .requireError _ _ _ | .revertError _ _ | .returnValues _ | .returnArray _
-  | .returnBytes _ | .returnStorageWords _ | .emit _ _ | .rawLog _ _ _
+  | .returnBytes _ | .returnStorageWords _ | .returnCodeData _ | .emit _ _ | .rawLog _ _ _
   | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _ | .ecm _ _ => true
   | .letVar _ _ | .assignVar _ _ | .setStorage _ _ | .setStorageAddr _ _
   | .setStorageWord _ _ _
@@ -1235,7 +1237,7 @@ def stmtTouchesUnsupportedCoreSurface : Stmt → Bool
   | .forEach _ _ _ => true
   | .storageArrayPop _
   | .requireError _ _ _ | .revertError _ _ | .returnValues _ | .returnArray _
-  | .returnBytes _ | .returnStorageWords _ | .calldatacopy _ _ _
+  | .returnBytes _ | .returnStorageWords _ | .returnCodeData _ | .calldatacopy _ _ _
   | .returndataCopy _ _ _ | .revertReturndata
   | .emit _ _ | .internalCall _ _ | .internalCallAssign _ _ _
   | .rawLog _ _ _ | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _ | .ecm _ _ => false
@@ -1260,7 +1262,7 @@ def stmtTouchesUnsupportedStateSurface : Stmt → Bool
         exprTouchesUnsupportedStateSurface value
   | .stop
   | .requireError _ _ _ | .revertError _ _ | .returnValues _ | .returnArray _
-  | .returnBytes _ | .returnStorageWords _ | .calldatacopy _ _ _
+  | .returnBytes _ | .returnStorageWords _ | .returnCodeData _ | .calldatacopy _ _ _
   | .returndataCopy _ _ _ | .revertReturndata
   | .emit _ _ | .internalCall _ _ | .internalCallAssign _ _ _
   | .rawLog _ _ _ | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _ | .ecm _ _ => false
@@ -1307,6 +1309,7 @@ def stmtTouchesUnsupportedCallSurface : Stmt → Bool
         exprTouchesUnsupportedCallSurface value
   | .require cond _ | .return cond =>
       exprTouchesUnsupportedCallSurface cond
+  | .returnCodeData _ => true
   | .internalCall _ _ | .internalCallAssign _ _ _ => true
   | .calldatacopy _ _ _
   | .returndataCopy _ _ _ | .revertReturndata
@@ -1348,6 +1351,8 @@ def stmtTouchesUnsupportedHelperSurface : Stmt → Bool
         exprTouchesUnsupportedHelperSurface value
   | .require cond _ | .return cond =>
       exprTouchesUnsupportedHelperSurface cond
+  | .returnCodeData pointer =>
+      exprTouchesUnsupportedHelperSurface pointer
   | .internalCall _ _ | .internalCallAssign _ _ _ => true
   | .stop | .calldatacopy _ _ _
   | .returndataCopy _ _ _ | .revertReturndata | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _
@@ -1390,6 +1395,8 @@ def stmtTouchesInternalHelperSurface : Stmt → Bool
         exprTouchesInternalHelperSurface value
   | .require cond _ | .return cond =>
       exprTouchesInternalHelperSurface cond
+  | .returnCodeData pointer =>
+      exprTouchesInternalHelperSurface pointer
   | .internalCall _ _ | .internalCallAssign _ _ _ => true
   | .stop | .calldatacopy _ _ _
   | .returndataCopy _ _ _ | .revertReturndata | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _
@@ -1455,6 +1462,8 @@ def stmtTouchesExprInternalHelperSurface : Stmt → Bool
         exprTouchesInternalHelperSurface value
   | .require cond _ | .return cond =>
       exprTouchesInternalHelperSurface cond
+  | .returnCodeData pointer =>
+      exprTouchesInternalHelperSurface pointer
   | .ite cond _ _ =>
       exprTouchesInternalHelperSurface cond
   | .forEach _ count _ =>
@@ -1478,7 +1487,7 @@ def stmtTouchesStructuralInternalHelperSurface : Stmt → Bool
   | .forEach _ _ body =>
       stmtListTouchesInternalHelperSurface body
   | .letVar _ _ | .assignVar _ _ | .setStorage _ _ | .require _ _
-  | .return _ | .internalCall _ _ | .internalCallAssign _ _ _
+  | .return _ | .returnCodeData _ | .internalCall _ _ | .internalCallAssign _ _ _
   | .stop | .setStorageAddr _ _ | .setStorageWord _ _ _ | .mstore _ _ | .tstore _ _
  
   | .calldatacopy _ _ _ | .returndataCopy _ _ _
@@ -1518,6 +1527,8 @@ def stmtTouchesUnsupportedForeignSurface : Stmt → Bool
         exprTouchesUnsupportedForeignSurface value
   | .require cond _ | .return cond =>
       exprTouchesUnsupportedForeignSurface cond
+  | .returnCodeData pointer =>
+      exprTouchesUnsupportedForeignSurface pointer
   | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _ | .ecm _ _ => true
   | .stop
   | .internalCall _ _ | .internalCallAssign _ _ _
@@ -1558,6 +1569,7 @@ def stmtTouchesUnsupportedLowLevelSurface : Stmt → Bool
         exprTouchesUnsupportedLowLevelSurface value
   | .require cond _ | .return cond =>
       exprTouchesUnsupportedLowLevelSurface cond
+  | .returnCodeData _ => true
   | .calldatacopy _ _ _
   | .returndataCopy _ _ _ | .revertReturndata => true
   | .stop
@@ -1585,6 +1597,7 @@ def stmtTouchesUnsupportedContractSurface (stmt : Stmt) : Bool :=
       exprTouchesUnsupportedContractSurface value
   | .require cond _ | .return cond =>
       exprTouchesUnsupportedContractSurface cond
+  | .returnCodeData _ => true
   | .mstore offset value | .tstore offset value =>
       exprTouchesUnsupportedContractSurface offset ||
         exprTouchesUnsupportedContractSurface value
@@ -1862,6 +1875,8 @@ mutual
     | .setStorageWord _ _ value
     | .storageArrayPush _ value | .return value | .require value _ =>
         exprInternalHelperCallNames value
+    | .returnCodeData pointer =>
+        exprInternalHelperCallNames pointer
     | .setStorageArrayElement _ index value =>
         exprInternalHelperCallNames index ++ exprInternalHelperCallNames value
     | .requireError cond _ args =>
@@ -1927,6 +1942,8 @@ mutual
     | .setStorageWord _ _ value
     | .storageArrayPush _ value | .return value | .require value _ =>
         exprInternalHelperCallNames value
+    | .returnCodeData pointer =>
+        exprInternalHelperCallNames pointer
     | .setStorageArrayElement _ index value =>
         exprInternalHelperCallNames index ++ exprInternalHelperCallNames value
     | .requireError cond _ args =>
@@ -3477,6 +3494,10 @@ mutual
           stmtListTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.2]
     | unsafeBlock _ _ | unsafeYul _ | matchAdt _ _ _ =>
         simp [stmtTouchesUnsupportedHelperSurface] at hsurface
+    | returnCodeData pointer =>
+        simp [stmtTouchesUnsupportedHelperSurface] at hsurface
+        simp [stmtTouchesInternalHelperSurface,
+          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface]
     | stop | calldatacopy _ _ _ | returndataCopy _ _ _ | revertReturndata
     | externalCallBind _ _ _ | tryExternalCallBind _ _ _ _ | ecm _ _ | storageArrayPop _ | requireError _ _ _
     | revertError _ _ | returnValues _ | returnArray _ | returnBytes _
@@ -4467,7 +4488,7 @@ theorem stmtTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
   | setMappingChain _ _ _ | setStructMember _ _ _ _ | setStructMember2 _ _ _ _ _
   | storageArrayPop _ | setStorageArrayElement _ _ _ | requireError _ _ _
   | revertError _ _ | returnValues _ | returnArray _ | returnBytes _
-  | returnStorageWords _ | calldatacopy _ _ _ | returndataCopy _ _ _
+  | returnStorageWords _ | returnCodeData _ | calldatacopy _ _ _ | returndataCopy _ _ _
   | revertReturndata | emit _ _ | internalCall _ _
   | internalCallAssign _ _ _ | rawLog _ _ _ | externalCallBind _ _ _ | ecm _ _ =>
       cases hsurface

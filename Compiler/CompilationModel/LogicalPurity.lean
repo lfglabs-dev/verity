@@ -213,6 +213,8 @@ def stmtContainsUnsafeLogicalCallLike : Stmt → Bool
       exprListAnyUnsafeLogicalCallLike args
   | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ =>
       false
+  | Stmt.returnCodeData pointer =>
+      exprContainsUnsafeLogicalCallLike pointer
   | Stmt.mstore offset value =>
       exprContainsUnsafeLogicalCallLike offset || exprContainsUnsafeLogicalCallLike value
   | Stmt.tstore offset value =>

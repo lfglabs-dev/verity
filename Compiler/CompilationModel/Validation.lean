@@ -101,6 +101,10 @@ def validateStmtParamReferences (fnName : String) (params : List Param) :
             throw s!"Compilation error: function '{fnName}' returnStorageWords '{name}' requires an array parameter with single-word static elements, got {repr ty}"
       | none =>
           throw s!"Compilation error: function '{fnName}' returnStorageWords references unknown parameter '{name}'"
+  | Stmt.returnCodeData _pointer =>
+      -- `returnCodeData` may return a pointer computed into a local; the scope-aware
+      -- validator checks the expression once local bindings are available.
+      pure ()
   | Stmt.ite _ thenBranch elseBranch => do
       validateStmtParamReferencesInList fnName params thenBranch
       validateStmtParamReferencesInList fnName params elseBranch
@@ -194,6 +198,13 @@ def validateReturnShapesInStmt (fnName : String) (params : List Param)
         pure ()
       else
         throw s!"Compilation error: function '{fnName}' uses Stmt.returnStorageWords but declared returns are {repr expectedReturns}"
+  | Stmt.returnCodeData _ =>
+      if isInternal then
+        throw s!"Compilation error: internal function '{fnName}' cannot use Stmt.returnCodeData; only static returns via Stmt.return/Stmt.returnValues are supported ({issue625Ref})."
+      else if expectedReturns.isEmpty then
+        throw s!"Compilation error: function '{fnName}' uses Stmt.returnCodeData but declares no return values"
+      else
+        pure ()
   | Stmt.ite _ thenBranch elseBranch => do
       validateReturnShapesInStmtList fnName params expectedReturns isInternal thenBranch
       validateReturnShapesInStmtList fnName params expectedReturns isInternal elseBranch
@@ -418,6 +429,8 @@ def stmtWritesState : Stmt → Bool
       !fragment.scopeEffects.storageWrites.isEmpty || fragment.mechanics.contains .tstore
   | Stmt.returnStorageWords _ =>
       false
+  | Stmt.returnCodeData pointer =>
+      exprWritesState pointer
   | Stmt.mstore offset value =>
       exprWritesState offset || exprWritesState value
   | Stmt.tstore _ _ =>
@@ -1007,6 +1020,8 @@ def stmtReadsStateOrEnv : Stmt → Bool
       false
   | Stmt.returnStorageWords _ =>
       true
+  | Stmt.returnCodeData pointer =>
+      true || exprReadsStateOrEnv pointer
   | Stmt.mstore offset value =>
       exprReadsStateOrEnv offset || exprReadsStateOrEnv value
   | Stmt.tstore offset value =>
@@ -1201,6 +1216,8 @@ def stmtWritesStateWithFunctionEffects
       false
   | Stmt.returnStorageWords _ =>
       false
+  | Stmt.returnCodeData pointer =>
+      exprWritesStateWithFunctionEffects effects pointer
   | Stmt.mstore offset value =>
       exprWritesStateWithFunctionEffects effects offset ||
         exprWritesStateWithFunctionEffects effects value
@@ -1384,6 +1401,8 @@ def stmtReadsStateOrEnvWithFunctionEffects
       false
   | Stmt.returnStorageWords _ =>
       true
+  | Stmt.returnCodeData pointer =>
+      true || exprReadsStateOrEnvWithFunctionEffects effects pointer
   | Stmt.mstore offset value =>
       exprReadsStateOrEnvWithFunctionEffects effects offset ||
         exprReadsStateOrEnvWithFunctionEffects effects value
@@ -1823,7 +1842,7 @@ def validateNoUnsupportedAdtConstructInStmt : Stmt → Except String Unit
           exprContainsAdtConstruct size then
         throw "Compilation error: ADT construction cannot be used in copy offsets or sizes."
   | Stmt.storageArrayPop _ | Stmt.returnArray _ | Stmt.returnBytes _
-  | Stmt.returnStorageWords _ | Stmt.revertReturndata | Stmt.stop =>
+  | Stmt.returnStorageWords _ | Stmt.returnCodeData _ | Stmt.revertReturndata | Stmt.stop =>
       pure ()
   | Stmt.unsafeYul fragment =>
       if fragment.obligations.isEmpty then
@@ -1912,7 +1931,7 @@ def validateFunctionSpec (spec : FunctionSpec) : Except String Unit := do
 mutual
 def validateNoRuntimeReturnsInConstructorStmt : Stmt → Except String Unit
   | Stmt.return _ | Stmt.returnValues _ | Stmt.returnArray _
-  | Stmt.returnBytes _ | Stmt.returnStorageWords _ =>
+  | Stmt.returnBytes _ | Stmt.returnStorageWords _ | Stmt.returnCodeData _ =>
       throw "Compilation error: constructor must not return runtime data directly"
   | Stmt.ite _ thenBranch elseBranch => do
       validateNoRuntimeReturnsInConstructorStmtList thenBranch

@@ -119,6 +119,30 @@ verity_contract BytesEqSmoke where
     else
       return 0
 
+verity_contract CodeDataReturnSmoke where
+  storage
+    sentinel : Uint256 := slot 0
+
+  struct Item where
+    owner : Address,
+    amount : Uint256,
+    payload : Bytes
+
+  function load (pointer : Address) : Item := do
+    returnCodeData pointer
+
+example :
+    CodeDataReturnSmoke.load_model.returns =
+      [Compiler.CompilationModel.ParamType.tuple
+        [Compiler.CompilationModel.ParamType.address,
+         Compiler.CompilationModel.ParamType.uint256,
+         Compiler.CompilationModel.ParamType.bytes]] := rfl
+
+example :
+    CodeDataReturnSmoke.load_model.body =
+      [Compiler.CompilationModel.Stmt.returnCodeData
+        (Compiler.CompilationModel.Expr.param "pointer")] := rfl
+
 def bytesEqExecutableMatches : Bool :=
   let mkBytes (xs : List UInt8) : ByteArray := ByteArray.mk xs.toArray
   let abc : ByteArray := mkBytes [0x01, 0x02, 0x03]

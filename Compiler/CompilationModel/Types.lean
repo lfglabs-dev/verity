@@ -951,6 +951,7 @@ inductive Stmt
   | returnArray (name : String)        -- ABI-encode dynamic uint256[] parameter loaded from calldata
   | returnBytes (name : String)        -- ABI-encode dynamic bytes parameter loaded from calldata
   | returnStorageWords (name : String) -- ABI-encode dynamic uint256[] from sload over a dynamic word-array parameter
+  | returnCodeData (pointer : Expr)    -- Return an ABI payload stored as runtime code at `pointer`.
   | mstore (offset value : Expr)
   | tstore (offset value : Expr)
   /-- First-class `calldatacopy(destOffset, sourceOffset, size)` statement. -/
@@ -1060,7 +1061,7 @@ def directMetadata : Stmt → StmtMetadata
       { subexpressions := [value], termination := .alwaysTerminates, controlFlow := .returns }
   | .returnValues values =>
       { subexpressions := values, termination := .alwaysTerminates, controlFlow := .returns }
-  | .returnArray _ | .returnBytes _ | .returnStorageWords _ =>
+  | .returnArray _ | .returnBytes _ | .returnStorageWords _ | .returnCodeData _ =>
       { termination := .alwaysTerminates, controlFlow := .returns }
   | .mstore offset value =>
       { subexpressions := [offset, value], lowLevelMechanics := [.mstore] }
@@ -1124,7 +1125,7 @@ partial def controlFlow : Stmt → ControlFlowSummary
       .mayReverting
   | .revertError _ _ | .revertReturndata =>
       .reverts
-  | .return _ | .returnValues _ | .returnArray _ | .returnBytes _ | .returnStorageWords _ =>
+  | .return _ | .returnValues _ | .returnArray _ | .returnBytes _ | .returnStorageWords _ | .returnCodeData _ =>
       .returns
   | .stop =>
       .stops

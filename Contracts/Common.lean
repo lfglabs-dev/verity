@@ -261,6 +261,8 @@ def returnArray {α : Type} (values : Array α) : Contract (Array α) := pure va
 def returnValues (_values : List Uint256) : Contract Unit := pure ()
 def returnBytes {α : Type} (value : α) : Contract α := pure value
 def returnStorageWords {α : Type} (_slots : Array α) : Contract (Array Uint256) := pure #[]
+def returnCodeData {α : Type} [Inhabited α] (_pointer : Address) : Contract α :=
+  pure (Inhabited.default : α)
 
 inductive EventArg where
   | word (value : Contract Uint256)

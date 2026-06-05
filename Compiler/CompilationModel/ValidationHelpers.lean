@@ -181,6 +181,7 @@ def collectStmtNames : Stmt → List String
   | Stmt.returnArray name => [name]
   | Stmt.returnBytes name => [name]
   | Stmt.returnStorageWords name => [name]
+  | Stmt.returnCodeData pointer => collectExprNames pointer
   | Stmt.mstore offset value => collectExprNames offset ++ collectExprNames value
   | Stmt.tstore offset value => collectExprNames offset ++ collectExprNames value
   | Stmt.calldatacopy destOffset sourceOffset size =>

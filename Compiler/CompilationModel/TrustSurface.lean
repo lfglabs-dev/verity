@@ -281,6 +281,9 @@ private partial def collectUnguardedLowLevelStmtMechanics : Stmt → List String
   | .returnStorageWords _
   | .stop =>
       []
+  | .returnCodeData pointer =>
+      "runtime introspection: extcodesize/extcodecopy returnCodeData" ::
+        collectLowLevelExprMechanics pointer
 
 private def collectUnguardedLowLevelMechanicsFromStmts (stmts : List Stmt) : List String :=
   dedupPreserve (stmts.flatMap collectUnguardedLowLevelStmtMechanics)
