@@ -6242,18 +6242,24 @@ private def lookupFunctionByNameAndArity
     (arity : Nat) : Option FunctionDecl :=
   functions.find? fun fn => fn.name == name && fn.params.size == arity
 
-private partial def typedDotCallSyntax? (stx : Term) : Option (Term × String × Array Term) :=
+private partial def flattenAppSyntax (stx : Term) : Term × Array Term :=
   let stx := stripParens stx
   match stx.raw with
   | .node _ `Lean.Parser.Term.app appArgs =>
-      match appArgs.getD 0 Syntax.missing with
-      | .ident _ _ raw _ =>
-          match nameComponents raw with
-          | [targetName, methodName] =>
-              let target : Term := mkIdent (Name.mkSimple targetName)
-              let argTerms := (appArgs.getD 1 Syntax.missing).getArgs.map (fun syn => ⟨syn⟩)
-              some (target, methodName, argTerms)
-          | _ => none
+      let head : Term := ⟨appArgs.getD 0 Syntax.missing⟩
+      let argTerms := (appArgs.getD 1 Syntax.missing).getArgs.map (fun syn => ⟨syn⟩)
+      let (head, priorArgs) := flattenAppSyntax head
+      (head, priorArgs ++ argTerms)
+  | _ => (stx, #[])
+
+private partial def typedDotCallSyntax? (stx : Term) : Option (Term × String × Array Term) :=
+  let (head, argTerms) := flattenAppSyntax stx
+  match head.raw with
+  | .ident _ _ raw _ =>
+      match nameComponents raw with
+      | [targetName, methodName] =>
+          let target : Term := mkIdent (Name.mkSimple targetName)
+          some (target, methodName, argTerms)
       | _ => none
   | _ => none
 
