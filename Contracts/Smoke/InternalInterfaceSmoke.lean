@@ -95,6 +95,97 @@ example :
           | _ => false)) = true := by
   decide
 
+-- Void (no-`returns`) interface methods lower to the no-output `externalCallNoReturn` ECM:
+-- a selector+args `call(...)` that bubbles failure returndata but performs no `returndatasize`
+-- check and binds no result. This is what real void callees (e.g. Aave V3 `supply`/`borrow`,
+-- ERC20 `approve` in OZ's no-return variant) need; the strict `externalCallWithReturn` ECM would
+-- otherwise revert after the callee already ran. The selector is computed from the params only, so
+-- a void method's canonical signature matches its non-void counterpart exactly.
+verity_contract VoidInterfaceCallSmoke where
+  storage
+
+  interfaces
+    interface IPool where
+      function supply(Address, Uint256, Address, Uint16)
+      function balanceOf(Address) view returns (Uint256)
+    end
+
+  -- statement-position call to a void method → no-output ECM
+  function doSupply (pool : IPool, asset : Address, amount : Uint256, onBehalfOf : Address) : Unit := do
+    pool.supply asset amount onBehalfOf 0
+
+  -- a non-void method on the same interface still binds and return-checks as before
+  function readBal (pool : IPool, owner : Address) : Uint256 := do
+    let bal ← pool.balanceOf owner
+    return bal
+
+-- the void method is recorded as an external with no return type
+example :
+    (VoidInterfaceCallSmoke.spec.externals).any (fun ext =>
+      ext.name == "IPool.supply" && ext.returns.isEmpty && ext.returnType.isNone) = true := by
+  decide
+
+-- `supply` lowers to the void ECM: `externalCallNoReturn`, no result vars, writes state,
+-- 5 args (pool + asset, amount, onBehalfOf, referralCode).
+example :
+    (VoidInterfaceCallSmoke.spec.functions).any (fun fn =>
+      fn.name == "doSupply" &&
+        fn.body.any (fun stmt =>
+          match stmt with
+          | Compiler.CompilationModel.Stmt.ecm mod args =>
+              mod.name == "externalCallNoReturn" &&
+                mod.numArgs == 5 &&
+                mod.resultVars == [] &&
+                mod.writesState &&
+                args.length == 5
+          | _ => false)) = true := by
+  decide
+
+-- the non-void method on the same interface is unaffected: still `externalCallWithReturn`,
+-- binds its result, performs the 32-byte returndata check.
+example :
+    (VoidInterfaceCallSmoke.spec.functions).any (fun fn =>
+      fn.name == "readBal" &&
+        fn.body.any (fun stmt =>
+          match stmt with
+          | Compiler.CompilationModel.Stmt.ecm mod args =>
+              mod.name == "externalCallWithReturn" &&
+                mod.resultVars == ["bal"] &&
+                args.length == 2
+          | _ => false)) = true := by
+  decide
+
+/--
+error: interface call returns Verity.Macro.ValueType.uint256; bind it with `let ... ← ...`
+-/
+#guard_msgs in
+verity_contract VoidCallBindNonVoidAsStmtRejected where
+  storage
+
+  interfaces
+    interface IPool where
+      function balanceOf(Address) view returns (Uint256)
+    end
+
+  function bad (pool : IPool, owner : Address) : Unit := do
+    pool.balanceOf owner
+
+/--
+error: interface call 'b' binds a void method; call it as a statement, not `let ... ←`
+-/
+#guard_msgs in
+verity_contract VoidCallLetBindVoidRejected where
+  storage
+
+  interfaces
+    interface IPool where
+      function supply(Address, Uint256, Address, Uint16)
+    end
+
+  function bad (pool : IPool, asset : Address, amount : Uint256, onBehalfOf : Address) : Unit := do
+    let b ← pool.supply asset amount onBehalfOf 0
+    pure ()
+
 /--
 error: interface name 'Clash' conflicts with an existing type name
 -/
