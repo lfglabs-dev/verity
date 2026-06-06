@@ -5,3 +5,5 @@ import Compiler.Modules.ERC20
 import Compiler.Modules.Hashing
 import Compiler.Modules.Oracle
 import Compiler.Modules.Precompiles
+import Compiler.Modules.Create2SSTORE2
+import Compiler.Modules.CodeData

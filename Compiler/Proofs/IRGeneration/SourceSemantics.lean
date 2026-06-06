@@ -4736,6 +4736,7 @@ private theorem execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux
   | .returnArray _ => simp [execStmtWithHelpers, execStmtWithEvents]
   | .returnBytes _ => simp [execStmtWithHelpers, execStmtWithEvents]
   | .returnStorageWords _ => simp [execStmtWithHelpers, execStmtWithEvents]
+  | .returnCodeData _ => simp [execStmtWithHelpers, execStmtWithEvents]
   | .calldatacopy _ _ _ => simp [execStmtWithHelpers, execStmtWithEvents]
   | .returndataCopy _ _ _ => simp [execStmtWithHelpers, execStmtWithEvents]
   | .revertReturndata => simp [execStmtWithHelpers, execStmtWithEvents]

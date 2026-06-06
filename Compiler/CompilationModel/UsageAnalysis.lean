@@ -249,7 +249,7 @@ def stmtUsesArrayElementKind (includePlain includeWord : Bool) : Stmt → Bool
       exprListUsesArrayElementKind includePlain includeWord args
   | Stmt.ecm _ args =>
       exprListUsesArrayElementKind includePlain includeWord args
-  | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ =>
+  | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ | Stmt.returnCodeData _ =>
       false
   | Stmt.revertReturndata | Stmt.stop =>
       false
@@ -407,7 +407,7 @@ def stmtUsesArrayElement : Stmt → Bool
       exprListUsesArrayElement topics || exprUsesArrayElement dataOffset || exprUsesArrayElement dataSize
   | Stmt.externalCallBind _ _ args | Stmt.tryExternalCallBind _ _ _ args | Stmt.ecm _ args =>
       exprListUsesArrayElement args
-  | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ =>
+  | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ | Stmt.returnCodeData _ =>
       false
   | Stmt.revertReturndata | Stmt.stop =>
       false
@@ -615,7 +615,7 @@ def stmtUsesParamDynamicHeadWord : Stmt → Bool
       exprListUsesParamDynamicHeadWord topics ||
         exprUsesParamDynamicHeadWord dataOffset ||
         exprUsesParamDynamicHeadWord dataSize
-  | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ =>
+  | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ | Stmt.returnCodeData _ =>
       false
   | Stmt.revertReturndata | Stmt.stop =>
       false
@@ -762,7 +762,7 @@ def stmtUsesMulDiv512 : Stmt → Bool
   | Stmt.rawLog topics dataOffset dataSize =>
       exprListUsesMulDiv512 topics ||
         exprUsesMulDiv512 dataOffset || exprUsesMulDiv512 dataSize
-  | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ =>
+  | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ | Stmt.returnCodeData _ =>
       false
   | Stmt.revertReturndata | Stmt.stop =>
       false
@@ -938,7 +938,7 @@ def stmtUsesStorageArrayElement : Stmt → Bool
       exprListUsesStorageArrayElement topics || exprUsesStorageArrayElement dataOffset || exprUsesStorageArrayElement dataSize
   | Stmt.ecm _ args =>
       exprListUsesStorageArrayElement args
-  | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ =>
+  | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ | Stmt.returnCodeData _ =>
       false
   | Stmt.revertReturndata | Stmt.stop =>
       false
@@ -1094,7 +1094,7 @@ def stmtUsesDynamicBytesEq : Stmt → Bool
       exprListUsesDynamicBytesEq args
   | Stmt.rawLog topics dataOffset dataSize =>
       exprListUsesDynamicBytesEq topics || exprUsesDynamicBytesEq dataOffset || exprUsesDynamicBytesEq dataSize
-  | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ =>
+  | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ | Stmt.returnCodeData _ =>
       false
   | Stmt.revertReturndata | Stmt.stop =>
       false
