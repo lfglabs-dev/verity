@@ -29,6 +29,12 @@ private def inlineFields : List FrameField :=
 private def dynamicStorageFields : List FrameField :=
   [ { name := "blob", ty := .bytes, source := .storage, tailBytes := 64 } ]
 
+private def dynamicCodeFields : List FrameField :=
+  [ { name := "blob", ty := .bytes, source := .code, tailBytes := 64 } ]
+
+private def dynamicMemoryFields : List FrameField :=
+  [ { name := "payload", ty := .bytes, source := .memory, sourceOffset := 32, tailBytes := 64 } ]
+
 private def calldataLoadName? : YulExpr → Option String
   | .call "calldataload" [.ident name] => some name
   | .call "calldataload" [.call "add" [.ident name, _]] => some name
@@ -52,6 +58,19 @@ private def hasDynamicCalldataTailCopy : List YulStmt → Bool :=
       ]) => true
     | _ => false
 
+private def hasDynamicMemoryTailCopy : List YulStmt → Bool :=
+  fun stmts => stmts.any fun
+    | .expr (.call "mstore" [
+        _,
+        .call "mload" [
+          .call "add" [
+            .call "add" [.ident "payload", .call "mload" [.call "add" [.ident "payload", .lit 32]]],
+            .lit 0
+          ]
+        ]
+      ]) => true
+    | _ => false
+
 #eval! do
   let takeLayout := layout takeFields
   assert "nested struct supported" (supportsNestedStructs takeLayout)
@@ -64,10 +83,14 @@ private def hasDynamicCalldataTailCopy : List YulStmt → Bool :=
   assert "calldata/memory/code/storage sources supported" (layoutSourcesSupported srcLayout)
   assert "dynamic storage tails are not lowered as sequential slots"
     (!layoutSourcesSupported (layout dynamicStorageFields))
+  assert "dynamic code tails are rejected instead of using a fixed offset"
+    (!layoutSourcesSupported (layout dynamicCodeFields))
   assert "dynamic source frame is pointer mode" (srcLayout.mode == FramePassMode.pointer)
   assert "code source spills through extcodecopy" (hasExtcodecopy (spillPayloadToMemory "src" srcLayout))
   assert "dynamic calldata tail follows ABI offset"
     (hasDynamicCalldataTailCopy (spillPayloadToMemory "take" takeLayout))
+  assert "dynamic memory tail follows ABI offset"
+    (hasDynamicMemoryTailCopy (spillPayloadToMemory "mem" (layout dynamicMemoryFields)))
   let inlineNames := (inlineArgs (layout inlineFields)).filterMap calldataLoadName?
   assert "inline source words are indexed per field"
     (inlineNames == ["pair", "pair", "amount"])

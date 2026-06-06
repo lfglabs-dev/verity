@@ -64,7 +64,8 @@ def fieldSourceSupported (field : FrameField) : Bool :=
 
 def fieldLayoutSupported (field : FrameField) : Bool :=
   fieldSourceSupported field &&
-    !(field.source == .storage && isDynamicParamType field.ty)
+    !(field.source == .storage && isDynamicParamType field.ty) &&
+    !(field.source == .code && isDynamicParamType field.ty)
 
 def layoutSourcesSupported (l : FrameLayout) : Bool :=
   l.fields.all fieldLayoutSupported
@@ -114,13 +115,13 @@ private def dynamicTailByteOffset (field : FrameField) (idx : Nat) : YulExpr :=
   let wordOffset := YulExpr.lit (idx * 32)
   match field.source with
   | .calldata =>
+      let head := sourceByteOffset field 0
       let base := YulExpr.ident (sourceBaseName field)
-      YulExpr.call "add" [YulExpr.call "add" [base, YulExpr.call "calldataload" [base]], wordOffset]
+      YulExpr.call "add" [YulExpr.call "add" [base, YulExpr.call "calldataload" [head]], wordOffset]
   | .memory =>
-      if field.sourceOffset + idx * 32 == 0 then
-        YulExpr.ident (sourceBaseName field)
-      else
-        YulExpr.call "add" [YulExpr.ident (sourceBaseName field), YulExpr.lit (field.sourceOffset + idx * 32)]
+      let head := sourceByteOffset field 0
+      let base := YulExpr.ident (sourceBaseName field)
+      YulExpr.call "add" [YulExpr.call "add" [base, YulExpr.call "mload" [head]], wordOffset]
   | .code => YulExpr.lit (field.sourceOffset + idx * 32)
   | .storage => sourceStorageSlot field idx
 
