@@ -62,8 +62,12 @@ def fieldSourceSupported (field : FrameField) : Bool :=
   | .memory | .code | .storage => true
   | .calldata => true
 
+def fieldLayoutSupported (field : FrameField) : Bool :=
+  fieldSourceSupported field &&
+    !(field.source == .storage && isDynamicParamType field.ty)
+
 def layoutSourcesSupported (l : FrameLayout) : Bool :=
-  l.fields.all fieldSourceSupported
+  l.fields.all fieldLayoutSupported
 
 def frameSizeBytes (l : FrameLayout) : Nat :=
   l.fields.foldl (fun acc field => acc + fieldHeadWords field * 32 +
