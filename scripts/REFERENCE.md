@@ -20,6 +20,7 @@ This document is the long-form reference for script responsibilities.
 
 - `generate_verification_status.py`: refresh/check `artifacts/verification_status.json`.
 - `generate_layer2_boundary_catalog.py`: refresh/check `artifacts/layer2_boundary_catalog.json`.
+- `check_feature_ownership.py`: validate `artifacts/feature_ownership.json`, the major feature-surface ownership and proof-boundary registry.
 - `check_verification_status_doc.py`: keep `docs/VERIFICATION_STATUS.md` aligned with the artifact-backed live totals.
 - `check_layer2_boundary_sync.py`: keep Layer 2 proof-boundary claims aligned across README/trust/docs/docs-site surfaces.
 - `check_layer2_boundary_catalog_sync.py`: keep Layer 2 docs aligned with the machine-readable boundary catalog.

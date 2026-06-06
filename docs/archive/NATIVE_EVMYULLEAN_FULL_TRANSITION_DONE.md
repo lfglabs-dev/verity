@@ -242,8 +242,8 @@ Before doing anything:
        "$VERITY_MEMORY_DIR"/MEMORY.md
        any native EVMYulLean transition memory files
        any IRStorageWord / IRStorageSlot memory files
-       docs/NATIVE_EVMYULLEAN_DONE_GRAPH.md
-       docs/NATIVE_EVMYULLEAN_FULL_TRANSITION_DONE.md
+       docs/archive/NATIVE_EVMYULLEAN_DONE_GRAPH.md
+       docs/archive/NATIVE_EVMYULLEAN_FULL_TRANSITION_DONE.md
   4. git fetch --all --prune
   5. Inspect current open PRs and relevant branches with gh.
 
@@ -262,14 +262,14 @@ Current architecture:
   authority.
 
 Definition of done:
-  Follow docs/NATIVE_EVMYULLEAN_FULL_TRANSITION_DONE.md exactly. Do not claim
+  Follow docs/archive/NATIVE_EVMYULLEAN_FULL_TRANSITION_DONE.md exactly. Do not claim
   the transition is complete until every criterion in that document holds.
 
 Per-session rule:
   Pick the bottom-most open PR in the native EVMYulLean transition stack that is
   not merge-ready and make it merge-ready. If no PR exists, create the smallest
   useful PR that advances one durable boundary from the "Incremental PR Shape"
-  section of docs/NATIVE_EVMYULLEAN_FULL_TRANSITION_DONE.md.
+  section of docs/archive/NATIVE_EVMYULLEAN_FULL_TRANSITION_DONE.md.
 
 Preferred work order:
   1. Generated-fragment characterization and fail-closed checks.

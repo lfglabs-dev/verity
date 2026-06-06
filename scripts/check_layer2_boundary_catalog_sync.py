@@ -38,77 +38,74 @@ def validate_catalog(catalog: dict) -> None:
         raise ValueError("Layer 2 boundary catalog is missing helper blocking seams")
 
 
+def lean_name(ref: str) -> str:
+    return ref.rsplit(".", 1)[-1]
+
+
+def catalog_surface_snippets(catalog: dict) -> list[str]:
+    helper = catalog["supported_spec_split"]["helper_boundary"]
+    compat = helper["compiled_target_compatibility_subset"]
+    source_helper = helper["source_helper_goal_surface"]
+    compiled_target = helper["compiled_target_proof_surface"]
+
+    refs = [
+        compat["goal_surface"],
+        compat["dispatch_goal_surface"],
+        compat["goal_composition_surface"],
+        compat["goal_decomposition_surface"],
+        compat["interface_builder_surface"],
+        compat["stmt_subgoal_surface"],
+        compat["stmt_subgoal_closed_surface"],
+        compat["expr_stmt_dedicated_builtin_classifier"],
+        source_helper["direct_body_goal"],
+        source_helper["direct_body_goal_helper_ir"],
+        catalog["current_theorem"]["helper_ir_goal_ready_variant"],
+        catalog["current_theorem"]["helper_ir_closed_variant"],
+        compiled_target["source"],
+    ]
+    return [f"`{lean_name(ref)}`" for ref in refs]
+
+
+def common_boundary_snippets(catalog: dict) -> list[str]:
+    helper = catalog["supported_spec_split"]["helper_boundary"]
+    return [
+        "`artifacts/layer2_boundary_catalog.json`",
+        f"`{helper['current_fail_closed_gate']}`",
+        "total fuel-indexed helper-aware IR semantics",
+        "direct helper-free lemmas for `stop`, `mstore`, `revert`, `return`, and mapping-slot `sstore`",
+        "helper-free conservative-extension goal is now closed",
+        "[#1638]",
+        *catalog_surface_snippets(catalog),
+    ]
+
+
 def expected_snippets(catalog: dict) -> dict[str, list[str]]:
     helper = catalog["supported_spec_split"]["helper_boundary"]
     theorem_target = catalog["theorem_target"]
     assert theorem_target["intended_claim"] == "proof_complete_macro_lowered_verity_contract_image"
     assert helper["current_fail_closed_gate"] == "SupportedBodyInterface.stmtList"
+    common = common_boundary_snippets(catalog)
     return {
         "ROADMAP": [
-            "`artifacts/layer2_boundary_catalog.json`",
+            *common,
             "macro-lowered `verity_contract` image",
             "`SupportedStmtList.helperSurfaceClosed`",
-            "`SupportedFunctionBodyWithHelpersIRPreservationGoal`",
-            "`SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal`",
             "`execIRFunctionWithInternals` / `interpretIRWithInternals`",
             "conservative extension of `interpretIR`",
-            "`InterpretIRWithInternalsZeroConservativeExtensionGoal`",
-            "`InterpretIRWithInternalsZeroConservativeExtensionDispatchGoal`",
-            "`interpretIRWithInternalsZeroConservativeExtensionGoal_of_dispatchGoal`",
-            "`InterpretIRWithInternalsZeroConservativeExtensionStmtSubgoals`",
-            "`interpretIRWithInternalsZeroConservativeExtensionInterfaces_of_stmtSubgoals`",
-            "`interpretIRWithInternalsZeroConservativeExtensionGoal_closed`",
-            "`compile_preserves_semantics_with_helper_proofs_and_helper_ir_goal`",
-            "`compile_preserves_semantics_with_helper_proofs_and_helper_ir_closed`",
-            "total fuel-indexed helper-aware IR semantics",
-            "`exprStmtUsesDedicatedBuiltinSemantics`",
-            "direct helper-free lemmas for `stop`, `mstore`, `revert`, `return`, and mapping-slot `sstore`",
-            "helper-free conservative-extension goal is now closed",
-            "[#1638]",
         ],
         "VERIFICATION_STATUS": [
-            "`artifacts/layer2_boundary_catalog.json`",
+            *common,
             "macro-lowered image of `verity_contract`",
             "`SupportedBodyInterface.stmtList` gate",
-            "`SupportedFunctionBodyWithHelpersIRPreservationGoal`",
-            "`SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal`",
             "helper-aware body theorem does not yet consume helper-summary soundness/rank evidence",
             "legacy-compatible external-body Yul subset",
-            "`InterpretIRWithInternalsZeroConservativeExtensionGoal`",
-            "`InterpretIRWithInternalsZeroConservativeExtensionDispatchGoal`",
-            "`interpretIRWithInternalsZeroConservativeExtensionGoal_of_dispatchGoal`",
-            "`InterpretIRWithInternalsZeroConservativeExtensionStmtSubgoals`",
-            "`interpretIRWithInternalsZeroConservativeExtensionInterfaces_of_stmtSubgoals`",
-            "`interpretIRWithInternalsZeroConservativeExtensionGoal_closed`",
-            "`compile_preserves_semantics_with_helper_proofs_and_helper_ir_goal`",
-            "`compile_preserves_semantics_with_helper_proofs_and_helper_ir_closed`",
-            "total fuel-indexed helper-aware IR semantics",
-            "`exprStmtUsesDedicatedBuiltinSemantics`",
-            "direct helper-free lemmas for `stop`, `mstore`, `revert`, `return`, and mapping-slot `sstore`",
-            "helper-free conservative-extension goal is now closed",
-            "[#1638]",
         ],
         "COMPILER_PROOFS_README": [
-            "`artifacts/layer2_boundary_catalog.json`",
+            *common,
             "`SupportedSpec` split",
             "`calls.helpers`",
             "summary-soundness evidence",
-            "`SupportedFunctionBodyWithHelpersIRPreservationGoal`",
-            "`SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal`",
             "legacy-compatible external-body Yul subset",
-            "`InterpretIRWithInternalsZeroConservativeExtensionGoal`",
-            "`InterpretIRWithInternalsZeroConservativeExtensionDispatchGoal`",
-            "`interpretIRWithInternalsZeroConservativeExtensionGoal_of_dispatchGoal`",
-            "`InterpretIRWithInternalsZeroConservativeExtensionStmtSubgoals`",
-            "`interpretIRWithInternalsZeroConservativeExtensionInterfaces_of_stmtSubgoals`",
-            "`interpretIRWithInternalsZeroConservativeExtensionGoal_closed`",
-            "`compile_preserves_semantics_with_helper_proofs_and_helper_ir_goal`",
-            "`compile_preserves_semantics_with_helper_proofs_and_helper_ir_closed`",
-            "total fuel-indexed helper-aware IR semantics",
-            "`exprStmtUsesDedicatedBuiltinSemantics`",
-            "direct helper-free lemmas for `stop`, `mstore`, `revert`, `return`, and mapping-slot `sstore`",
-            "helper-free conservative-extension goal is now closed",
-            "[#1638]",
         ],
     }
 

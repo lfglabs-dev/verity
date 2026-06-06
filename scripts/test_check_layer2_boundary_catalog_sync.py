@@ -22,6 +22,16 @@ class Layer2BoundaryCatalogSyncTests(unittest.TestCase):
         artifact.write_text(
             json.dumps(
                 {
+                    "current_theorem": {
+                        "helper_ir_goal_ready_variant": (
+                            "Compiler.Proofs.IRGeneration.Contract."
+                            "compile_preserves_semantics_with_helper_proofs_and_helper_ir_goal"
+                        ),
+                        "helper_ir_closed_variant": (
+                            "Compiler.Proofs.IRGeneration.Contract."
+                            "compile_preserves_semantics_with_helper_proofs_and_helper_ir_closed"
+                        ),
+                    },
                     "theorem_target": {
                         "intended_claim": "proof_complete_macro_lowered_verity_contract_image",
                         "excludes_arbitrary_lean_compilation_models": True,
@@ -32,6 +42,56 @@ class Layer2BoundaryCatalogSyncTests(unittest.TestCase):
                             "blocking_seams": [
                                 {"name": "legacy_stmt_fragment_witness"}
                             ],
+                            "compiled_target_compatibility_subset": {
+                                "goal_surface": (
+                                    "Compiler.Proofs.IRGeneration.IRInterpreter."
+                                    "InterpretIRWithInternalsZeroConservativeExtensionGoal"
+                                ),
+                                "dispatch_goal_surface": (
+                                    "Compiler.Proofs.IRGeneration.IRInterpreter."
+                                    "InterpretIRWithInternalsZeroConservativeExtensionDispatchGoal"
+                                ),
+                                "goal_composition_surface": (
+                                    "Compiler.Proofs.IRGeneration.IRInterpreter."
+                                    "interpretIRWithInternalsZeroConservativeExtensionGoal_of_dispatchGoal"
+                                ),
+                                "goal_decomposition_surface": (
+                                    "Compiler.Proofs.IRGeneration.IRInterpreter."
+                                    "InterpretIRWithInternalsZeroConservativeExtensionInterfaces"
+                                ),
+                                "interface_builder_surface": (
+                                    "Compiler.Proofs.IRGeneration.IRInterpreter."
+                                    "interpretIRWithInternalsZeroConservativeExtensionInterfaces_of_stmtCompatibility"
+                                ),
+                                "stmt_subgoal_surface": (
+                                    "Compiler.Proofs.IRGeneration.IRInterpreter."
+                                    "InterpretIRWithInternalsZeroConservativeExtensionStmtSubgoals"
+                                ),
+                                "stmt_subgoal_closed_surface": (
+                                    "Compiler.Proofs.IRGeneration.IRInterpreter."
+                                    "interpretIRWithInternalsZeroConservativeExtensionStmtSubgoals_closed"
+                                ),
+                                "expr_stmt_dedicated_builtin_classifier": (
+                                    "Compiler.Proofs.IRGeneration.IRInterpreter."
+                                    "exprStmtUsesDedicatedBuiltinSemantics"
+                                ),
+                            },
+                            "compiled_target_proof_surface": {
+                                "source": (
+                                    "Compiler.Proofs.IRGeneration.IRInterpreter."
+                                    "evalIRExprWithInternals"
+                                ),
+                            },
+                            "source_helper_goal_surface": {
+                                "direct_body_goal": (
+                                    "Compiler.Proofs.IRGeneration.GenericInduction."
+                                    "SupportedFunctionBodyWithHelpersIRPreservationGoal"
+                                ),
+                                "direct_body_goal_helper_ir": (
+                                    "Compiler.Proofs.IRGeneration.GenericInduction."
+                                    "SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal"
+                                ),
+                            },
                         }
                     },
                 }
@@ -39,76 +99,10 @@ class Layer2BoundaryCatalogSyncTests(unittest.TestCase):
             encoding="utf-8",
         )
 
+        catalog = json.loads(artifact.read_text(encoding="utf-8"))
+        expected = check.expected_snippets(catalog)
         docs = {
-            "ROADMAP": (
-                "`artifacts/layer2_boundary_catalog.json`\n"
-                "macro-lowered `verity_contract` image\n"
-                "`SupportedStmtList.helperSurfaceClosed`\n"
-                "`SupportedFunctionBodyWithHelpersIRPreservationGoal`\n"
-                "`SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal`\n"
-                "`execIRFunctionWithInternals` / `interpretIRWithInternals`\n"
-                "conservative extension of `interpretIR`\n"
-                "`InterpretIRWithInternalsZeroConservativeExtensionGoal`\n"
-                "`InterpretIRWithInternalsZeroConservativeExtensionDispatchGoal`\n"
-                "`interpretIRWithInternalsZeroConservativeExtensionGoal_of_dispatchGoal`\n"
-                "`InterpretIRWithInternalsZeroConservativeExtensionStmtSubgoals`\n"
-                "`interpretIRWithInternalsZeroConservativeExtensionInterfaces_of_stmtSubgoals`\n"
-                "`interpretIRWithInternalsZeroConservativeExtensionGoal_closed`\n"
-                "`compile_preserves_semantics_with_helper_proofs_and_helper_ir_goal`\n"
-                "`compile_preserves_semantics_with_helper_proofs_and_helper_ir_closed`\n"
-                "total fuel-indexed helper-aware IR semantics\n"
-                "`exprStmtUsesDedicatedBuiltinSemantics`\n"
-                "direct helper-free lemmas for `stop`, `mstore`, `revert`, `return`, and mapping-slot `sstore`\n"
-                "helper-free conservative-extension goal is now closed\n"
-                "`InterpretIRWithInternalsZeroConservativeExtensionInterfaces`\n"
-                "[#1638]\n"
-            ),
-            "VERIFICATION_STATUS": (
-                "`artifacts/layer2_boundary_catalog.json`\n"
-                "macro-lowered image of `verity_contract`\n"
-                "`SupportedBodyInterface.stmtList` gate\n"
-                "`SupportedFunctionBodyWithHelpersIRPreservationGoal`\n"
-                "`SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal`\n"
-                "helper-aware body theorem does not yet consume helper-summary soundness/rank evidence\n"
-                "legacy-compatible external-body Yul subset\n"
-                "`InterpretIRWithInternalsZeroConservativeExtensionGoal`\n"
-                "`InterpretIRWithInternalsZeroConservativeExtensionDispatchGoal`\n"
-                "`interpretIRWithInternalsZeroConservativeExtensionGoal_of_dispatchGoal`\n"
-                "`InterpretIRWithInternalsZeroConservativeExtensionStmtSubgoals`\n"
-                "`interpretIRWithInternalsZeroConservativeExtensionInterfaces_of_stmtSubgoals`\n"
-                "`interpretIRWithInternalsZeroConservativeExtensionGoal_closed`\n"
-                "`compile_preserves_semantics_with_helper_proofs_and_helper_ir_goal`\n"
-                "`compile_preserves_semantics_with_helper_proofs_and_helper_ir_closed`\n"
-                "total fuel-indexed helper-aware IR semantics\n"
-                "`exprStmtUsesDedicatedBuiltinSemantics`\n"
-                "direct helper-free lemmas for `stop`, `mstore`, `revert`, `return`, and mapping-slot `sstore`\n"
-                "helper-free conservative-extension goal is now closed\n"
-                "`InterpretIRWithInternalsZeroConservativeExtensionInterfaces`\n"
-                "[#1638]\n"
-            ),
-            "COMPILER_PROOFS_README": (
-                "`artifacts/layer2_boundary_catalog.json`\n"
-                "`SupportedSpec` split\n"
-                "`calls.helpers`\n"
-                "summary-soundness evidence\n"
-                "`SupportedFunctionBodyWithHelpersIRPreservationGoal`\n"
-                "`SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal`\n"
-                "legacy-compatible external-body Yul subset\n"
-                "`InterpretIRWithInternalsZeroConservativeExtensionGoal`\n"
-                "`InterpretIRWithInternalsZeroConservativeExtensionDispatchGoal`\n"
-                "`interpretIRWithInternalsZeroConservativeExtensionGoal_of_dispatchGoal`\n"
-                "`InterpretIRWithInternalsZeroConservativeExtensionStmtSubgoals`\n"
-                "`interpretIRWithInternalsZeroConservativeExtensionInterfaces_of_stmtSubgoals`\n"
-                "`interpretIRWithInternalsZeroConservativeExtensionGoal_closed`\n"
-                "`compile_preserves_semantics_with_helper_proofs_and_helper_ir_goal`\n"
-                "`compile_preserves_semantics_with_helper_proofs_and_helper_ir_closed`\n"
-                "total fuel-indexed helper-aware IR semantics\n"
-                "`exprStmtUsesDedicatedBuiltinSemantics`\n"
-                "direct helper-free lemmas for `stop`, `mstore`, `revert`, `return`, and mapping-slot `sstore`\n"
-                "helper-free conservative-extension goal is now closed\n"
-                "`InterpretIRWithInternalsZeroConservativeExtensionInterfaces`\n"
-                "[#1638]\n"
-            ),
+            label: "\n".join(snippets) + "\n" for label, snippets in expected.items()
         }
         if not good_docs:
             docs["ROADMAP"] = "stale roadmap\n"

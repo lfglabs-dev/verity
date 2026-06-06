@@ -7,6 +7,8 @@ import json
 import sys
 from pathlib import Path
 
+from interpreter_feature_matrix import interpreter_status, load_feature_matrix
+
 ROOT = Path(__file__).resolve().parents[1]
 FEATURE_MATRIX = ROOT / "artifacts" / "interpreter_feature_matrix.json"
 TARGET_FILES = {
@@ -18,10 +20,6 @@ TARGET_FILES = {
 
 def normalize_ws(text: str) -> str:
     return " ".join(text.split())
-
-
-def load_feature_matrix(path: Path) -> dict:
-    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def low_level_calls_need_boundary_note(matrix: dict) -> bool:
@@ -36,9 +34,9 @@ def low_level_calls_need_boundary_note(matrix: dict) -> bool:
     for entry in expr_features.values():
         if entry.get("proof_status") != "proved":
             return True
-        if entry.get("SpecInterpreter_basic") != "supported":
+        if interpreter_status(entry, "SourceInterpreter_basic") != "supported":
             return True
-        if entry.get("SpecInterpreter_fuel") != "supported":
+        if interpreter_status(entry, "SourceInterpreter_fuel") != "supported":
             return True
     return False
 

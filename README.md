@@ -40,7 +40,7 @@ Verity proves that compilation preserves behavior at three stages. Each layer is
 
 **Layer 1** (EDSL to CompilationModel): the `verity_contract` macro generates both an executable Lean program and a compiler-facing model from a single definition. Per-contract bridge theorems prove they agree.
 
-**Layer 2** (CompilationModel to IR): a generic whole-contract theorem covers the supported fragment with zero axioms. No per-contract proof effort needed. `forEach` support is deliberately partial: zero-bound loops with supported bodies and arbitrary literal-bound empty-body loops are proved, while positive non-empty loop bodies remain outside the current theorem.
+**Layer 2** (CompilationModel to IR): a generic whole-contract theorem covers the supported fragment with zero axioms. No per-contract proof effort needed. Internal helper calls now exist at the source level, and helper-summary proof reuse is available in source-semantics lemmas, but that reuse is not yet fully consumed through the generic body/IR theorem path. ECMs, typed interface calls, external calls, and low-level call/returndata mechanics are trust-reported or compiler-supported rather than fully proof-modeled. Constructors, fallback/receive, events/logs, typed errors, proxy/delegatecall, local obligations, and richer storage-layout features remain outside the generic proof fragment or partial. `forEach` support is deliberately partial: zero-bound loops with supported bodies and arbitrary literal-bound empty-body loops are proved, while positive non-empty loop bodies remain outside the current theorem.
 
 **Layer 3** (IR to Yul): all statement types are proven equivalent. The dispatch bridge is an explicit theorem hypothesis, not an axiom.
 

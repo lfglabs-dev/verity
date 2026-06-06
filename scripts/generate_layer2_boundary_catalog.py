@@ -29,6 +29,7 @@ def build_catalog() -> dict:
             "source_refs": [
                 "docs/ROADMAP.md",
                 "docs/VERIFICATION_STATUS.md",
+                "Compiler/Proofs/README.md",
             ],
         },
         "current_theorem": {

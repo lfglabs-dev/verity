@@ -33,8 +33,8 @@ class AxiomatizedPrimitiveBoundarySyncTests(unittest.TestCase):
                 {
                     "feature": "keccak256",
                     "proof_status": proof_status,
-                    "SpecInterpreter_basic": basic_status,
-                    "SpecInterpreter_fuel": fuel_status,
+                    "SourceInterpreter_basic": basic_status,
+                    "SourceInterpreter_fuel": fuel_status,
                 }
             ],
             "stmt_features": [],

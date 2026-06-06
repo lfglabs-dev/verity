@@ -1,0 +1,172 @@
+{
+  "schema_version": 1,
+  "description": "Authoritative ownership and proof-boundary status for major Verity feature surfaces. Use this to distinguish source syntax, compiler lowering, proof coverage, trust reporting, and compatibility shims.",
+  "status_values": [
+    "supported",
+    "partial",
+    "unsupported",
+    "not_applicable"
+  ],
+  "surfaces": [
+    {
+      "id": "source_internal_helpers",
+      "name": "Source-level internal helper functions",
+      "owner": "Verity.Macro / Compiler.CompilationModel / Compiler.Proofs.SourceSemantics",
+      "source_supported": "supported",
+      "compile_supported": "supported",
+      "proof_modeled": "partial",
+      "trust_reported": "not_applicable",
+      "deprecated": false,
+      "canonical_entrypoints": [
+        "Verity/Macro/Translate.lean",
+        "Compiler/CompilationModel.lean",
+        "Compiler/Proofs/SourceSemantics.lean"
+      ],
+      "notes": "Internal helpers stay out of ABI dispatch. Helper-summary reuse is available in source-semantics lemmas but is not yet fully consumed through the generic body/IR theorem path."
+    },
+    {
+      "id": "typed_external_interface_calls",
+      "name": "Typed external interface calls",
+      "owner": "Verity.Macro / Compiler.Modules.Calls",
+      "source_supported": "supported",
+      "compile_supported": "supported",
+      "proof_modeled": "unsupported",
+      "trust_reported": "supported",
+      "deprecated": false,
+      "canonical_entrypoints": [
+        "Verity/Macro/Translate.lean",
+        "Compiler/Modules/Calls.lean",
+        "docs/EXTERNAL_CALL_MODULES.md"
+      ],
+      "notes": "Interface dot calls lower through the standard ABI-call ECM surface and remain explicit trust-report entries."
+    },
+    {
+      "id": "low_level_call_returndata",
+      "name": "Low-level calls and returndata mechanics",
+      "owner": "Compiler.CompilationModel / Compiler.Modules.Calls",
+      "source_supported": "partial",
+      "compile_supported": "supported",
+      "proof_modeled": "unsupported",
+      "trust_reported": "supported",
+      "deprecated": false,
+      "canonical_entrypoints": [
+        "Compiler/CompilationModel.lean",
+        "Compiler/CompilationModel/Compile.lean",
+        "Compiler/Modules/Calls.lean",
+        "docs/INTERPRETER_FEATURE_MATRIX.md"
+      ],
+      "notes": "call/staticcall/delegatecall and returndata plumbing are compiler-supported and tested, but outside proof interpreters."
+    },
+    {
+      "id": "constructors_fallback_receive",
+      "name": "Constructors, fallback, and receive",
+      "owner": "Verity.Macro / Compiler.CompilationModel",
+      "source_supported": "partial",
+      "compile_supported": "partial",
+      "proof_modeled": "partial",
+      "trust_reported": "supported",
+      "deprecated": false,
+      "canonical_entrypoints": [
+        "Verity/Macro/Translate.lean",
+        "Compiler/CompilationModel.lean",
+        "docs/VERIFICATION_STATUS.md"
+      ],
+      "notes": "Constructor and special-entrypoint syntax exists, but the generic proof fragment only covers selected initialization and entrypoint shapes."
+    },
+    {
+      "id": "events_logs_typed_errors",
+      "name": "Events, logs, and typed errors",
+      "owner": "Verity.Macro / Compiler.CompilationModel",
+      "source_supported": "supported",
+      "compile_supported": "supported",
+      "proof_modeled": "partial",
+      "trust_reported": "supported",
+      "deprecated": false,
+      "canonical_entrypoints": [
+        "Verity/Macro/Translate.lean",
+        "Compiler/CompilationModel/Compile.lean",
+        "docs/EXTERNAL_CALL_MODULES.md"
+      ],
+      "notes": "User-facing forms compile, while raw logs and richer ABI payload mechanics remain proof-boundary surfaces."
+    },
+    {
+      "id": "rich_storage_layout",
+      "name": "Rich storage layout features",
+      "owner": "Verity.Macro / Compiler.CompilationModel",
+      "source_supported": "partial",
+      "compile_supported": "partial",
+      "proof_modeled": "partial",
+      "trust_reported": "supported",
+      "deprecated": false,
+      "canonical_entrypoints": [
+        "Verity/Macro/Translate.lean",
+        "Compiler/CompilationModel/StorageLayout.lean",
+        "docs/SOLIDITY_PARITY_PROFILE.md"
+      ],
+      "notes": "Many scalar, mapping, struct, packed-word, and ERC-7201 forms are present, but compatibility layout features are not all inside the generic proof fragment."
+    },
+    {
+      "id": "foreach_positive_nonempty",
+      "name": "Positive non-empty forEach bodies",
+      "owner": "Compiler.Proofs.IRGeneration",
+      "source_supported": "supported",
+      "compile_supported": "supported",
+      "proof_modeled": "partial",
+      "trust_reported": "not_applicable",
+      "deprecated": false,
+      "canonical_entrypoints": [
+        "Compiler/Proofs/IRGeneration/GenericInduction.lean",
+        "artifacts/layer2_boundary_catalog.json",
+        "docs/VERIFICATION_STATUS.md"
+      ],
+      "notes": "Zero-bound supported bodies and literal-bound empty bodies are covered. Positive non-empty loop bodies remain outside the current generic theorem."
+    },
+    {
+      "id": "legacy_spec_aliases",
+      "name": "Legacy CompilationModel spec aliases",
+      "owner": "Contracts.Legacy",
+      "source_supported": "not_applicable",
+      "compile_supported": "supported",
+      "proof_modeled": "not_applicable",
+      "trust_reported": "not_applicable",
+      "deprecated": true,
+      "canonical_entrypoints": [
+        "Contracts/Legacy/SpecAliases.lean",
+        "Contracts/SpecAliases.lean"
+      ],
+      "notes": "Historical names remain available through a compatibility namespace. New code should import the canonical contract module and use Contracts.<Name>.spec directly."
+    },
+    {
+      "id": "patched_compiler_entrypoint",
+      "name": "Patch-enabled compiler binary",
+      "owner": "Compiler.MainPatched",
+      "source_supported": "not_applicable",
+      "compile_supported": "supported",
+      "proof_modeled": "not_applicable",
+      "trust_reported": "supported",
+      "deprecated": false,
+      "canonical_entrypoints": [
+        "Compiler/Main.lean",
+        "Compiler/MainPatched.lean",
+        "lakefile.lean",
+        "packages/verity-compiler/lakefile.lean"
+      ],
+      "notes": "The canonical compiler binary is Compiler.Main / verity-compiler. MainPatched remains as the intentionally separate parity and patch-enabled binary."
+    },
+    {
+      "id": "external_call_with_return_ecm_name",
+      "name": "externalCallWithReturn ECM module name",
+      "owner": "Compiler.Modules.Calls",
+      "source_supported": "not_applicable",
+      "compile_supported": "supported",
+      "proof_modeled": "unsupported",
+      "trust_reported": "supported",
+      "deprecated": true,
+      "canonical_entrypoints": [
+        "Compiler/Modules/Calls.lean",
+        "docs/EXTERNAL_CALL_MODULES.md"
+      ],
+      "notes": "The public API is Calls.withReturn / Calls.withReturnModule. The old module name remains in emitted metadata for compatibility and should be migrated in a future focused PR."
+    }
+  ]
+}
