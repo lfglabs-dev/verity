@@ -69,8 +69,11 @@ def fieldLayoutSupported (field : FrameField) : Bool :=
 def layoutSourcesSupported (l : FrameLayout) : Bool :=
   l.fields.all fieldLayoutSupported
 
+def dynamicTailWords (field : FrameField) : Nat :=
+  1 + (field.tailBytes + 31) / 32
+
 def fieldPayloadWords (field : FrameField) : Nat :=
-  fieldHeadWords field + if isDynamicParamType field.ty then (field.tailBytes + 31) / 32 else 0
+  fieldHeadWords field + if isDynamicParamType field.ty then dynamicTailWords field else 0
 
 def frameSizeBytes (l : FrameLayout) : Nat :=
   l.fields.foldl (fun acc field => acc + fieldPayloadWords field * 32) 0
@@ -147,7 +150,7 @@ private def spillDynamicField (base : String) (headOffsetWords tailOffsetWords :
   let tailOffsetBytes := tailOffsetWords * 32
   let headDest := YulExpr.call "add" [YulExpr.ident (ptrName base), YulExpr.lit (headOffsetWords * 32)]
   let head := [YulStmt.expr (YulExpr.call "mstore" [headDest, YulExpr.lit tailOffsetBytes])]
-  let tailWords := (field.tailBytes + 31) / 32
+  let tailWords := dynamicTailWords field
   head ++ (List.range tailWords).map fun idx =>
     let dest := YulExpr.call "add" [YulExpr.ident (ptrName base), YulExpr.lit ((tailOffsetWords + idx) * 32)]
     match field.source with
@@ -168,7 +171,7 @@ partial def spillFieldsAbi (base : String) (headOffsetWords tailOffsetWords : Na
       let headWords := fieldHeadWords field
       if isDynamicParamType field.ty then
         spillDynamicField base headOffsetWords tailOffsetWords field ++
-          spillFieldsAbi base (headOffsetWords + headWords) (tailOffsetWords + (field.tailBytes + 31) / 32) rest
+          spillFieldsAbi base (headOffsetWords + headWords) (tailOffsetWords + dynamicTailWords field) rest
       else
         spillStaticField base headOffsetWords field ++
           spillFieldsAbi base (headOffsetWords + headWords) tailOffsetWords rest

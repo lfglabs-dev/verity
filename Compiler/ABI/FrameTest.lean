@@ -50,10 +50,10 @@ private def hasExtcodecopy : List YulStmt → Bool :=
   assert "nested struct supported" (supportsNestedStructs takeLayout)
   assert "dynamic bytes/arrays force pointer mode" (takeLayout.mode == FramePassMode.pointer)
   assert "Take frame passes pointer pair" ((loweredArgs "take" takeLayout).length == 2)
-  assert "dynamic tail contributes to pointer payload size" (frameSizeBytes takeLayout == 288)
-  assert "dynamic tail contributes to allocated words" (frameAllocBytes takeLayout == 288)
+  assert "dynamic tail contributes to pointer payload size" (frameSizeBytes takeLayout == 320)
+  assert "dynamic tail contributes to allocated words" (frameAllocBytes takeLayout == 320)
   assert "dynamic tail size is padded to full ABI words"
-    (frameSizeBytes (layout unpaddedDynamicFields) == 96)
+    (frameSizeBytes (layout unpaddedDynamicFields) == 128)
   assert "dynamic calldata frames are not lowered with static tail sizes"
     (!layoutSourcesSupported takeLayout)
   let srcLayout := layout sourceFields
