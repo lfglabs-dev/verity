@@ -142,12 +142,12 @@ def withReturn (resultVar : String) (target : Expr) (selector : Nat)
     - `numArgs`: number of ABI-encoded arguments (not counting target)
 
     Arguments passed to compile: [target] ++ argExprs -/
-def noReturnModule (selector : Nat) (numArgs : Nat)
+def noReturnModule (selector : Nat) (numArgs : Nat) (isStatic : Bool := false)
     : ExternalCallModule where
   name := "externalCallNoReturn"
   numArgs := 1 + numArgs  -- target + args
   resultVars := []
-  writesState := true
+  writesState := !isStatic
   readsState := true
   axioms := ["external_call_abi_interface"]
   compile := fun _ctx args => do
@@ -172,14 +172,21 @@ def noReturnModule (selector : Nat) (numArgs : Nat)
       YulExpr.call "add" [ptrExpr, YulExpr.lit frameSize]
     ])
     -- no output slice: return data is intentionally ignored
+    let opcode := if isStatic then "staticcall" else "call"
+    let callArgs :=
+      if isStatic then
+        [ YulExpr.call "gas" []
+        , targetExpr
+        , ptrExpr, YulExpr.lit calldataSize
+        , YulExpr.lit 0, YulExpr.lit 0 ]
+      else
+        [ YulExpr.call "gas" []
+        , targetExpr
+        , YulExpr.lit 0
+        , ptrExpr, YulExpr.lit calldataSize
+        , YulExpr.lit 0, YulExpr.lit 0 ]
     let callExpr :=
-      YulExpr.call "call" [
-        YulExpr.call "gas" [],
-        targetExpr,
-        YulExpr.lit 0,
-        ptrExpr, YulExpr.lit calldataSize,
-        YulExpr.lit 0, YulExpr.lit 0
-      ]
+      YulExpr.call opcode callArgs
     let letSuccess := YulStmt.let_ "__ecnr_success" callExpr
     -- bubble failure returndata exactly, like withReturnModule; but on success
     -- do NOT check returndatasize or decode a return value
@@ -191,8 +198,8 @@ def noReturnModule (selector : Nat) (numArgs : Nat)
     pure [YulStmt.block ([loadPtr, storeSelector] ++ storeArgs ++ [advancePtr, letSuccess, revertBlock])]
 
 /-- Convenience: create a `Stmt.ecm` for a void external call (no return). -/
-def noReturn (target : Expr) (selector : Nat) (args : List Expr) : Stmt :=
-  .ecm (noReturnModule selector args.length) ([target] ++ args)
+def noReturn (target : Expr) (selector : Nat) (args : List Expr) (isStatic : Bool := false) : Stmt :=
+  .ecm (noReturnModule selector args.length isStatic) ([target] ++ args)
 
 /-- Generic Solidity-style low-level value call with revert-data bubbling.
 

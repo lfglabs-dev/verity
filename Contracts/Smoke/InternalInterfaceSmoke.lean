@@ -155,6 +155,32 @@ example :
           | _ => false)) = true := by
   decide
 
+verity_contract VoidViewInterfaceCallSmoke where
+  storage
+
+  interfaces
+    interface IHook where
+      function ping(Address) view
+    end
+
+  function pingHook (hook : IHook, account : Address) : Unit := do
+    hook.ping account
+
+example :
+    (VoidViewInterfaceCallSmoke.spec.functions).any (fun fn =>
+      fn.name == "pingHook" &&
+        fn.body.any (fun stmt =>
+          match stmt with
+          | Compiler.CompilationModel.Stmt.ecm mod args =>
+              mod.name == "externalCallNoReturn" &&
+                mod.numArgs == 2 &&
+                mod.resultVars == [] &&
+                mod.readsState &&
+                !mod.writesState &&
+                args.length == 2
+          | _ => false)) = true := by
+  decide
+
 /--
 error: interface call returns Verity.Macro.ValueType.uint256; bind it with `let ... ← ...`
 -/
@@ -185,6 +211,21 @@ verity_contract VoidCallLetBindVoidRejected where
   function bad (pool : IPool, asset : Address, amount : Uint256, onBehalfOf : Address) : Unit := do
     let b ← pool.supply asset amount onBehalfOf 0
     pure ()
+
+/--
+error: void typed interface call 'IPool.submit' currently supports only static single-word parameters; argument 1 has Verity.Macro.ValueType.bytes
+-/
+#guard_msgs in
+verity_contract VoidCallDynamicParamRejected where
+  storage
+
+  interfaces
+    interface IPool where
+      function submit(Bytes)
+    end
+
+  function bad (pool : IPool, payload : Bytes) : Unit := do
+    pool.submit payload
 
 /--
 error: interface name 'Clash' conflicts with an existing type name
