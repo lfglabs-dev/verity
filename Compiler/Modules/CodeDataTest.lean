@@ -1,4 +1,5 @@
 import Compiler.Modules.CodeData
+import Compiler.CompilationModel.Compile
 
 namespace Compiler.Modules.CodeDataTest
 
@@ -22,6 +23,21 @@ private def deployUsesPayloadBuffer : List YulStmt → Bool :=
     | .let_ _ (.call "create2" [_value, .ident "__abi_frame_sstore2", .lit 192, _salt]) => true
     | _ => false
 
+private def returnCodeDataHasExtentGuard : List YulStmt → Bool
+  | [YulStmt.block stmts] =>
+      stmts.any fun stmt =>
+        match stmt with
+        | YulStmt.if_
+            (.call "iszero" [
+              .call "gt" [
+                .ident "__return_code_extent",
+                .ident "__return_code_offset"
+              ]
+            ])
+            [YulStmt.expr (.call "revert" [.lit 0, .lit 0])] => true
+        | _ => false
+  | _ => false
+
 #eval! do
   let write : CodeDataWrite :=
     { salt := YulExpr.ident "salt"
@@ -39,5 +55,11 @@ private def deployUsesPayloadBuffer : List YulStmt → Bool :=
   assert "typed roundtrip has create2 and extcodecopy" (hasCreate2AndExtcodecopy roundtrip)
   assert "typed write deploys the materialized payload buffer" (deployUsesPayloadBuffer roundtrip)
   assert "trust surface is explicit" (trustSurface.length == 4)
+  let returnCodeData ←
+    match compileStmt [] [] [] .calldata [] false [] [] (Stmt.returnCodeData (Expr.param "ptr")) with
+    | .ok stmts => pure stmts
+    | .error err => throw (IO.userError err)
+  assert "returnCodeData guards extcodesize before subtracting code offset"
+    (returnCodeDataHasExtentGuard returnCodeData)
 
 end Compiler.Modules.CodeDataTest
