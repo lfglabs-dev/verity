@@ -187,6 +187,21 @@ verity_contract VoidCallLetBindVoidRejected where
     pure ()
 
 /--
+error: void typed interface call 'IPool.submit' currently supports only static single-word parameters; argument 1 has Verity.Macro.ValueType.bytes
+-/
+#guard_msgs in
+verity_contract VoidCallDynamicParamRejected where
+  storage
+
+  interfaces
+    interface IPool where
+      function submit(Bytes)
+    end
+
+  function bad (pool : IPool, payload : Bytes) : Unit := do
+    pool.submit payload
+
+/--
 error: interface name 'Clash' conflicts with an existing type name
 -/
 #guard_msgs in

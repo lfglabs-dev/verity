@@ -2697,6 +2697,14 @@ private def throwStructNonLeafProjectionError (stx : Term) : CommandElabM α :=
 private def renderValueType (ty : ValueType) : String :=
   reprStr ty
 
+private def requireNoReturnInterfaceStaticParams
+    (stx : Syntax) (externalName : String) (params : Array ValueType) : CommandElabM Unit := do
+  for h : i in [:params.size] do
+    let ty := params[i]
+    unless isSingleWordStaticValueType ty do
+      throwErrorAt stx
+        s!"void typed interface call '{externalName}' currently supports only static single-word parameters; argument {i + 1} has {renderValueType ty}"
+
 /-- verity#1849, G3: allow `Array <wordLike>` and `bytes` / `string` as
     external-call / event / custom-error argument types when the argument
     is a direct param reference. The lowering still happens through
@@ -6696,7 +6704,9 @@ private partial def validateEffectStmtExprTypes
       -- method is void; `resolveTypedInterfaceCall?` already validates arg
       -- count and arg types.
       match ← resolveTypedInterfaceCall? fields constDecls immutableDecls externalDecls params locals stx with
-      | some (_, _, _, none, _) => pure ()
+      | some (ext, _, _, none, _) => do
+          requireNoReturnInterfaceStaticParams stx ext.name ext.params
+          pure ()
       | some (_, _, _, some retTy, _) =>
           throwErrorAt stx
             s!"interface call returns {renderValueType retTy}; bind it with `let ... ← ...`"
@@ -7202,7 +7212,8 @@ private def translateEffectStmt
       -- no-return ECM (selector + args call, failure-returndata bubbled, but
       -- no returndatasize check and no return decode).
       match ← resolveTypedInterfaceCall? fields constDecls immutableDecls externalDecls params locals stx with
-      | some (_, target, argTerms, none, selector) =>
+      | some (ext, target, argTerms, none, selector) =>
+          requireNoReturnInterfaceStaticParams stx ext.name ext.params
           let targetExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals target
           let argExprs ← argTerms.mapM
             (translatePureExprWithTypes fields constDecls immutableDecls params locals)
