@@ -1,4 +1,5 @@
 import Compiler.ABI.Frame
+import Compiler.Keccak.Sponge
 
 namespace Compiler.Lowering.StackSafeAbi
 
@@ -12,7 +13,7 @@ structure LoweredFrame where
   deriving Repr
 
 def eventNameTopicWord (eventName : String) : Nat :=
-  UInt64.toNat (hash eventName)
+  KeccakEngine.keccak256_str_nat eventName
 
 def lowerFrameSpilled (base : String) (fields : List FrameField) : Except String LoweredFrame := do
   let l := layout fields
