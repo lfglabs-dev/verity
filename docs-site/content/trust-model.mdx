@@ -36,11 +36,16 @@ supported fragment. The former exact-state body-simulation axiom has been
 eliminated; legacy contract-specific bridge theorems now sit above the generic
 compiler theorem as wrappers. **What's verified:** every statement and
 expression constructor in the supported fragment lowers to semantically
-equivalent IR. **What's not:** features marked as "not modeled" in the trust
-report, including parts of low-level call mechanics, linear-memory primitives
-(`mload`/`mstore`/`calldatacopy`/`returndatacopy`), raw `rawLog` event
-emission, and `keccak256` (still axiomatized end-to-end). Each carries a
-`--deny-*` flag for proof-strict builds.
+equivalent IR. **What's not:** internal helper calls exist at the source level,
+and helper-summary proof reuse is available in source-semantics lemmas, but that
+reuse is not yet fully consumed through the generic body/IR theorem path. ECMs,
+typed interface calls, external calls, and low-level call/returndata mechanics
+are trust-reported or compiler-supported rather than fully proof-modeled.
+Constructors, fallback/receive, events/logs, typed errors, proxy/delegatecall,
+local obligations, richer storage-layout features, linear-memory primitives
+(`mload`/`mstore`/`calldatacopy`/`returndatacopy`), raw `rawLog` event emission,
+and `keccak256` remain outside the generic proof fragment or partial. Each
+carries a `--deny-*` flag for proof-strict builds where applicable.
 
 ### Layer 3, IR ↔ Yul / EVM
 

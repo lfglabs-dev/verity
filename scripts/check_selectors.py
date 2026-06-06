@@ -29,7 +29,7 @@ from keccak256 import selector as keccak_selector
 from property_utils import ROOT, YUL_DIR, die, report_errors, strip_lean_comments
 SPEC_FILES = (
     ROOT / "Contracts" / "Specs.lean",
-    ROOT / "Contracts" / "SpecAliases.lean",
+    ROOT / "Contracts" / "Legacy" / "SpecAliases.lean",
 )
 PROOFS_DIR = ROOT / "Compiler" / "Proofs"
 CHECK_CONTRACT_FILE = ROOT / "Compiler" / "CheckContract.lean"

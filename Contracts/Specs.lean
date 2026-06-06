@@ -2,12 +2,14 @@
   Contracts.Specs: Declarative Contract Specifications
 
   Shipped compiler inputs are the macro-generated `CompilationModel` values
-  emitted by `verity_contract`. This module keeps compatibility aliases for
-  existing tests and the manual `cryptoHashSpec` special case.
+  emitted by `verity_contract`. Legacy aliases live under
+  `Contracts.Legacy.SpecAliases`; this module keeps the manual `cryptoHashSpec`
+  special case plus the current compatibility `allSpecs` list while callers
+  migrate to generated canonical names.
 -/
 
 import Compiler.CompilationModel
-import Contracts.SpecAliases
+import Contracts.Legacy.SpecAliases
 
 namespace Compiler.Specs
 
