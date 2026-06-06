@@ -1261,8 +1261,9 @@ private def parseInterfaceFunction
   let expectReturnsMarker (marker : Ident) : CommandElabM Unit := do
     unless toString marker.getId == "returns" do
       throwErrorAt marker "expected 'returns'"
+  -- `returnTys?` is `none` for a void interface method (no returns clause).
   let parseParts (name : Ident) (params : Array ParamDecl)
-      (mods : TSyntaxArray `verityMutability) (returnTys : TSyntaxArray `term) := do
+      (mods : TSyntaxArray `verityMutability) (returnTys? : Option (TSyntaxArray `term)) := do
     let mut isView := false
     for mod in mods do
       match mod with
@@ -1271,11 +1272,16 @@ private def parseInterfaceFunction
             throwErrorAt mod "duplicate 'view' modifier"
           isView := true
       | _ => throwErrorAt mod "interface functions currently support only the optional `view` modifier"
-    let parsedReturns ← returnTys.mapM (valueTypeFromSyntax newtypes structDecls adtDecls)
-    if parsedReturns.isEmpty then
-      throwErrorAt stx "interface function returns clause must contain at least one return type"
-    if parsedReturns.size > 1 then
-      throwErrorAt stx "typed interface calls currently support exactly one return value"
+    let parsedReturns ←
+      match returnTys? with
+      | none => pure #[]
+      | some returnTys => do
+          let parsed ← returnTys.mapM (valueTypeFromSyntax newtypes structDecls adtDecls)
+          if parsed.isEmpty then
+            throwErrorAt stx "interface function returns clause must contain at least one return type"
+          if parsed.size > 1 then
+            throwErrorAt stx "typed interface calls currently support exactly one return value"
+          pure parsed
     pure {
       ident := name
       name := toString name.getId
@@ -1283,19 +1289,26 @@ private def parseInterfaceFunction
       returnTys := parsedReturns
       isView := isView
     }
+  -- positional (`(term, ...)`) params lower to synthetic arg0/arg1/... names.
+  let parsePositionalParams (paramTys : TSyntaxArray `term) : CommandElabM (Array ParamDecl) :=
+    paramTys.mapIdxM fun idx ty => do
+      pure {
+        ident := mkIdent (Name.mkSimple s!"arg{idx}")
+        name := s!"arg{idx}"
+        ty := ← valueTypeFromSyntax newtypes structDecls adtDecls ty
+      }
   match stx with
   | `(verityInterfaceFunction| function $name:ident ($[$params:verityInterfaceParam],*) $[$mods:verityMutability]* $returnsMarker:ident ($[$returnTys:term],*)) => do
       expectReturnsMarker returnsMarker
-      parseParts name (← params.mapM (parseInterfaceParam newtypes structDecls adtDecls)) mods returnTys
+      parseParts name (← params.mapM (parseInterfaceParam newtypes structDecls adtDecls)) mods (some returnTys)
   | `(verityInterfaceFunction| function $name:ident ($[$paramTys:term],*) $[$mods:verityMutability]* $returnsMarker:ident ($[$returnTys:term],*)) => do
       expectReturnsMarker returnsMarker
-      let parsedParams ← paramTys.mapIdxM fun idx ty => do
-        pure {
-          ident := mkIdent (Name.mkSimple s!"arg{idx}")
-          name := s!"arg{idx}"
-          ty := ← valueTypeFromSyntax newtypes structDecls adtDecls ty
-        }
-      parseParts name parsedParams mods returnTys
+      parseParts name (← parsePositionalParams paramTys) mods (some returnTys)
+  -- void forms: no returns clause
+  | `(verityInterfaceFunction| function $name:ident ($[$params:verityInterfaceParam],*) $[$mods:verityMutability]*) => do
+      parseParts name (← params.mapM (parseInterfaceParam newtypes structDecls adtDecls)) mods none
+  | `(verityInterfaceFunction| function $name:ident ($[$paramTys:term],*) $[$mods:verityMutability]*) => do
+      parseParts name (← parsePositionalParams paramTys) mods none
   | _ => throwErrorAt stx "invalid interface function declaration"
 
 private def parseInterface
@@ -6280,7 +6293,7 @@ private partial def resolveTypedInterfaceCall?
     (externalDecls : Array ExternalDecl)
     (params : Array ParamDecl)
     (locals : Array TypedLocal)
-    (stx : Term) : CommandElabM (Option (ExternalDecl × Term × Array Term × ValueType × Nat)) := do
+    (stx : Term) : CommandElabM (Option (ExternalDecl × Term × Array Term × Option ValueType × Nat)) := do
   let some (target, methodName, argTerms) := typedDotCallSyntax? stx
     | pure none
   let targetName ←
@@ -6299,11 +6312,13 @@ private partial def resolveTypedInterfaceCall?
     unless actualTy == expectedTy || (isNatLiteralTerm argTerm && numericLiteralCompatibleValueType expectedTy) do
       throwErrorAt argTerm
         s!"interface call '{interfaceName}.{methodName}' argument expects {renderValueType expectedTy}, got {renderValueType actualTy}"
+  -- the selector is computed from the params only, so a void method's canonical
+  -- signature is identical to its non-void counterpart (e.g. aave
+  -- `supply(address,uint256,address,uint16)`).
+  let selector := Compiler.keccak256_first_4_bytes (interfaceFunctionSignature methodName ext.params)
   match ext.returnTys.toList with
-  | [retTy] =>
-      let selector := Compiler.keccak256_first_4_bytes (interfaceFunctionSignature methodName ext.params)
-      pure (some (ext, target, argTerms, retTy, selector))
-  | [] => throwErrorAt stx s!"interface call '{interfaceName}.{methodName}' returns no values"
+  | [retTy] => pure (some (ext, target, argTerms, some retTy, selector))
+  | [] => pure (some (ext, target, argTerms, none, selector))  -- void interface method
   | _ => throwErrorAt stx s!"interface call '{interfaceName}.{methodName}' returns multiple values; typed dot calls currently support one return value"
 
 mutual
@@ -6457,9 +6472,12 @@ private partial def validateDoElemExprTypes
                         params errorDecls args.getElems
                   | _ => pure ()
                   match ← resolveTypedInterfaceCall? fields constDecls immutableDecls externalDecls params locals rhs with
-                  | some (_, _, _, retTy, _) =>
+                  | some (_, _, _, some retTy, _) =>
                       requireSupportedLocalBindingType name s!"local binding '{toString name.getId}'" retTy
                       pure <| locals.push (mkTypedLocal (toString name.getId) retTy)
+                  | some (_, _, _, none, _) =>
+                      -- void interface method: cannot bind its (empty) result
+                      throwErrorAt rhs s!"interface call '{toString name.getId}' binds a void method; call it as a statement, not `let ... ←`"
                   | none =>
                       let ty ← inferBindSourceType fields constDecls immutableDecls externalDecls functions params locals rhs
                       requireSupportedLocalBindingType name s!"local binding '{toString name.getId}'" ty
@@ -6674,6 +6692,15 @@ private partial def validateEffectStmtExprTypes
   | `(term| revertReturndata) =>
       pure ()
   | _ =>
+      -- a typed interface call in statement position is only valid when the
+      -- method is void; `resolveTypedInterfaceCall?` already validates arg
+      -- count and arg types.
+      match ← resolveTypedInterfaceCall? fields constDecls immutableDecls externalDecls params locals stx with
+      | some (_, _, _, none, _) => pure ()
+      | some (_, _, _, some retTy, _) =>
+          throwErrorAt stx
+            s!"interface call returns {renderValueType retTy}; bind it with `let ... ← ...`"
+      | none =>
       match ← resolveLocalFunctionApp? fields constDecls immutableDecls externalDecls functions params locals stx with
       | some (fn, argTerms) =>
           ensureSupportsInternalHelperSpec stx fn
@@ -7171,6 +7198,23 @@ private def translateEffectStmt
           $(strTerm memberName)
           $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value))
   | _ =>
+      -- void typed interface call in statement position lowers to the
+      -- no-return ECM (selector + args call, failure-returndata bubbled, but
+      -- no returndatasize check and no return decode).
+      match ← resolveTypedInterfaceCall? fields constDecls immutableDecls externalDecls params locals stx with
+      | some (_, target, argTerms, none, selector) =>
+          let targetExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals target
+          let argExprs ← argTerms.mapM
+            (translatePureExprWithTypes fields constDecls immutableDecls params locals)
+          `(Compiler.CompilationModel.Stmt.ecm
+              (Compiler.Modules.Calls.noReturnModule
+                $(natTerm selector)
+                $(natTerm argExprs.size))
+              [ $targetExpr, $[$argExprs],* ])
+      | some (_, _, _, some retTy, _) =>
+          throwErrorAt stx
+            s!"interface call returns {renderValueType retTy}; bind it with `let ... ← ...`"
+      | none =>
       match ← resolveLocalFunctionApp? fields constDecls immutableDecls externalDecls functions params locals stx with
       | some (fn, argTerms) =>
           ensureSupportsInternalHelperSpec stx fn
@@ -7501,7 +7545,7 @@ private partial def translateDoElem
                           pure (#[(stmt)], locals.push (mkTypedLocal varName .uint256), mutableLocals)
                       | none =>
                           match ← resolveTypedInterfaceCall? fields constDecls immutableDecls externalDecls params locals rhs with
-                          | some (ext, target, argTerms, retTy, selector) =>
+                          | some (ext, target, argTerms, some retTy, selector) =>
                               let targetExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals target
                               let argExprs ← argTerms.mapM
                                 (translatePureExprWithTypes fields constDecls immutableDecls params locals)
@@ -7516,6 +7560,9 @@ private partial def translateDoElem
                                         [ $targetExpr, $[$argExprs],* ]))],
                                   locals.push (mkTypedLocal varName retTy),
                                   mutableLocals)
+                          | some (_, _, _, none, _) =>
+                              -- void interface method bound with `let ... ←`: not allowed
+                              throwErrorAt rhs s!"interface call '{varName}' binds a void method; call it as a statement, not `let ... ←`"
                           | none =>
                               let rhsExpr ← translateBindSource fields constDecls immutableDecls externalDecls functions params locals rhs
                               let ty ← inferBindSourceType fields constDecls immutableDecls externalDecls functions params locals rhs
@@ -7786,6 +7833,27 @@ private def typedInterfaceCallReturnType?
   | [retTy] => pure (some retTy)
   | _ => pure none
 
+/-- True when `stx` is a typed interface call whose method is void (no returns
+    clause). Used to drop statement-position void calls from the executable
+    wrapper, where they have nothing to bind. -/
+private def isVoidTypedInterfaceCall?
+    (externalDecls : Array ExternalDecl)
+    (params : Array ParamDecl)
+    (locals : Array TypedLocal)
+    (stx : Term) : CommandElabM Bool := do
+  let some (target, methodName, _argTerms) := typedDotCallSyntax? stx
+    | pure false
+  let targetName ←
+    match stripParens target with
+    | `(term| $targetIdent:ident) => pure (toString targetIdent.getId)
+    | _ => pure ""
+  let some interfaceName := lookupInterfaceName? params locals targetName
+    | pure false
+  let externalName := interfaceExternalName interfaceName methodName
+  let some ext := externalDecls.find? (fun ext => ext.name == externalName)
+    | pure false
+  pure ext.returnTys.isEmpty
+
 mutual
 private partial def rewriteForEachExecutableDoSeq
     (externalDecls : Array ExternalDecl)
@@ -7874,6 +7942,13 @@ private partial def rewriteForEachExecutableDoElem
   | `(doElem| unsafe $_reason:str do $body:doSeq) =>
       let body ← rewriteForEachExecutableDoSeq externalDecls params locals body
       pure (#[← `(doElem| do $body)], locals)
+  | `(doElem| $stmt:term) =>
+      -- a void typed interface call in statement position is compiler-only;
+      -- drop it from the executable wrapper (it returns nothing to bind).
+      if (← isVoidTypedInterfaceCall? externalDecls params locals stmt) then
+        pure (#[← `(doElem| pure ())], locals)
+      else
+        pure (#[elem], locals)
   | other =>
       pure (#[other], locals)
 end
