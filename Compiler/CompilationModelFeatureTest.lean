@@ -6431,4 +6431,58 @@ set_option maxRecDepth 4096 in
   expectTrue "macro locals and params shadow contract constants"
     MacroConstantSmoke.shadowedConstantModelPrefersLocalAndParamBindings
 
+/- Regression for lfglabs-dev/verity#1952. Identifier-shape validation must treat the two external
+forms differently: an ABI-boundary external derived from a typed `interface` carries a dotted
+`Interface.method` audit label (`IPool.supply`) that is lowered by *selector* and never emitted as a
+Yul identifier, so it must be accepted; an object-linked external's name *is* the Yul function
+identifier at the link site, so an invalid one must still be rejected. The fix skips the
+Yul-identifier check exactly for the dotted form. -/
+namespace ExternalNameValidationSmoke
+
+-- a typed-interface ABI external: dotted label, lowered by selector
+private def dottedAbiInterfaceSpec : CompilationModel := {
+  name := "DottedAbiInterface"
+  fields := []
+  «constructor» := none
+  externals := [
+    { name := "IPool.supply"
+      params := [ParamType.address, ParamType.uint256, ParamType.address, ParamType.uint16]
+      returnType := none
+      returns := []
+      axiomNames := []
+      linkMode := .external }
+  ]
+  functions := []
+}
+
+-- an object-linked external whose name is not a valid Yul identifier (hyphen, not dotted)
+private def invalidObjectLinkedSpec : CompilationModel := {
+  name := "InvalidObjectLinkedExternal"
+  fields := []
+  «constructor» := none
+  externals := [
+    { name := "poseidon-hash"
+      params := [ParamType.uint256]
+      returnType := some ParamType.uint256
+      returns := [ParamType.uint256]
+      axiomNames := []
+      linkMode := .objectLinked }
+  ]
+  functions := []
+}
+
+-- dotted ABI-interface external name is accepted (skipped — lowered by selector, never a Yul ident)
+example :
+    (match validateIdentifierShapes dottedAbiInterfaceSpec with
+      | .ok _ => true
+      | .error _ => false) = true := by native_decide
+
+-- object-linked external with an invalid (non-dotted) Yul identifier is still rejected
+example :
+    (match validateIdentifierShapes invalidObjectLinkedSpec with
+      | .ok _ => false
+      | .error _ => true) = true := by native_decide
+
+end ExternalNameValidationSmoke
+
 end Compiler.CompilationModelFeatureTest
