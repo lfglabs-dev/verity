@@ -5,6 +5,15 @@ import Compiler.ParityPacks
 import Verity.Core.Intrinsics
 
 /-!
+## Transitional Patch-Enabled Entrypoint
+
+`Compiler.Main` is the canonical `verity-compiler` entrypoint.  This module is
+kept only for the separate `verity-compiler-patched` binary while patch-enabled
+Solidity-parity output is compared against the baseline compiler in CI.  Remove
+this module and fold any still-required patch flags into `Compiler.MainDriver`
+once parity-pack/patched-Yul CI no longer needs a separate baseline-vs-patched
+artifact set.
+
 ## CLI Argument Parsing
 
 Supports:

@@ -36,8 +36,8 @@ class LinearMemoryBoundarySyncTests(unittest.TestCase):
                 {
                     "feature": feature,
                     "proof_status": expr_proof_status,
-                    "SpecInterpreter_basic": expr_basic_status,
-                    "SpecInterpreter_fuel": expr_fuel_status,
+                    "SourceInterpreter_basic": expr_basic_status,
+                    "SourceInterpreter_fuel": expr_fuel_status,
                 }
                 for feature in ("mload", "returndataOptionalBoolAt")
             ],
@@ -45,8 +45,8 @@ class LinearMemoryBoundarySyncTests(unittest.TestCase):
                 {
                     "feature": feature,
                     "proof_status": stmt_proof_status,
-                    "SpecInterpreter_basic": stmt_basic_status,
-                    "SpecInterpreter_fuel": stmt_fuel_status,
+                    "SourceInterpreter_basic": stmt_basic_status,
+                    "SourceInterpreter_fuel": stmt_fuel_status,
                 }
                 for feature in ("mstore", "calldatacopy", "returndataCopy")
             ],

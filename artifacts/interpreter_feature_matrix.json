@@ -2,15 +2,15 @@
   "schema_version": 1,
   "description": "Interpreter feature-support matrix for Verity's reference interpreters and the native EVMYulLean builtin bridge.",
   "interpreters": {
-    "SpecInterpreter_basic": {
-      "file": "Verity/Proofs/Stdlib/SpecInterpreter.lean",
-      "entry": "execStmts",
-      "description": "Basic scalar reference interpreter for Layer-1 proofs. No fuel parameter, no loops, no internal calls."
+    "SourceInterpreter_basic": {
+      "file": "Contracts/Interpreter.lean",
+      "entry": "Compiler.Interpreter.interpret",
+      "description": "Source-level executable interpreter used for differential testing of generated contract surfaces."
     },
-    "SpecInterpreter_fuel": {
-      "file": "Verity/Proofs/Stdlib/SpecInterpreter.lean",
-      "entry": "execStmtsFuel",
-      "description": "Fuel-bounded reference interpreter extending the basic path with loops (forEach) and internal calls."
+    "SourceInterpreter_fuel": {
+      "file": "Contracts/Interpreter.lean",
+      "entry": "Compiler.Interpreter.interpret",
+      "description": "Canonical source-level executable path for feature coverage rows that previously used the fuel-bounded SpecInterpreter column."
     },
     "IRInterpreter": {
       "file": "Compiler/Proofs/IRGeneration/IRInterpreter.lean",
@@ -23,14 +23,14 @@
       "description": "Builtin evaluation bridge delegating pure arithmetic/bitwise/comparison to EVMYulLean UInt256 operations."
     }
   },
-  "default_execution_path": "SpecInterpreter_fuel",
-  "default_path_rationale": "The fuel-based path supports the full CompilationModel construct set used by verified contracts. The basic path is used only for proofs that do not require loops or internal calls.",
+  "default_execution_path": "SourceInterpreter_fuel",
+  "default_path_rationale": "The source-interpreter path reflects the current generated executable contract surface. The retired SpecInterpreter_* artifact keys are accepted only by migration readers.",
   "expr_features": [
     {
       "feature": "literal",
       "constructor": "Expr.literal",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "supported",
       "EVMYulLean_bridge": "n/a",
       "proof_status": "proved"
@@ -38,8 +38,8 @@
     {
       "feature": "param",
       "constructor": "Expr.param",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "supported",
       "EVMYulLean_bridge": "n/a",
       "proof_status": "proved"
@@ -47,8 +47,8 @@
     {
       "feature": "constructorArg",
       "constructor": "Expr.constructorArg",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "n/a",
       "EVMYulLean_bridge": "n/a",
       "proof_status": "proved"
@@ -56,8 +56,8 @@
     {
       "feature": "storage",
       "constructor": "Expr.storage",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "supported",
       "EVMYulLean_bridge": "n/a",
       "proof_status": "proved"
@@ -65,8 +65,8 @@
     {
       "feature": "mapping",
       "constructor": "Expr.mapping",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "supported",
       "EVMYulLean_bridge": "n/a",
       "proof_status": "proved"
@@ -74,8 +74,8 @@
     {
       "feature": "mappingWord",
       "constructor": "Expr.mappingWord",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "n/a",
       "EVMYulLean_bridge": "n/a",
       "proof_status": "proved"
@@ -83,8 +83,8 @@
     {
       "feature": "mappingPackedWord",
       "constructor": "Expr.mappingPackedWord",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "n/a",
       "EVMYulLean_bridge": "n/a",
       "proof_status": "proved"
@@ -92,8 +92,8 @@
     {
       "feature": "mapping2",
       "constructor": "Expr.mapping2",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "n/a",
       "EVMYulLean_bridge": "n/a",
       "proof_status": "proved"
@@ -101,8 +101,8 @@
     {
       "feature": "mapping2Word",
       "constructor": "Expr.mapping2Word",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "n/a",
       "EVMYulLean_bridge": "n/a",
       "proof_status": "proved"
@@ -110,8 +110,8 @@
     {
       "feature": "mappingUint",
       "constructor": "Expr.mappingUint",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "n/a",
       "EVMYulLean_bridge": "n/a",
       "proof_status": "proved"
@@ -119,8 +119,8 @@
     {
       "feature": "structMember",
       "constructor": "Expr.structMember",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "n/a",
       "EVMYulLean_bridge": "n/a",
       "proof_status": "proved"
@@ -128,8 +128,8 @@
     {
       "feature": "structMember2",
       "constructor": "Expr.structMember2",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "n/a",
       "EVMYulLean_bridge": "n/a",
       "proof_status": "proved"
@@ -137,8 +137,8 @@
     {
       "feature": "caller",
       "constructor": "Expr.caller",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "supported",
       "EVMYulLean_bridge": "supported",
       "proof_status": "proved"
@@ -146,8 +146,8 @@
     {
       "feature": "msgValue",
       "constructor": "Expr.msgValue",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "n/a",
       "EVMYulLean_bridge": "n/a",
       "proof_status": "proved"
@@ -155,8 +155,8 @@
     {
       "feature": "selfBalance",
       "constructor": "Expr.selfBalance",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "n/a",
       "EVMYulLean_bridge": "n/a",
       "proof_status": "partial"
@@ -164,8 +164,8 @@
     {
       "feature": "blockTimestamp",
       "constructor": "Expr.blockTimestamp",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "supported",
       "EVMYulLean_bridge": "n/a",
       "proof_status": "proved"
@@ -173,8 +173,8 @@
     {
       "feature": "blockNumber",
       "constructor": "Expr.blockNumber",
-      "SpecInterpreter_basic": "fallback_zero",
-      "SpecInterpreter_fuel": "fallback_zero",
+      "SourceInterpreter_basic": "fallback_zero",
+      "SourceInterpreter_fuel": "fallback_zero",
       "IRInterpreter": "supported",
       "EVMYulLean_bridge": "n/a",
       "proof_status": "partial"
@@ -182,8 +182,8 @@
     {
       "feature": "contractAddress",
       "constructor": "Expr.contractAddress",
-      "SpecInterpreter_basic": "fallback_zero",
-      "SpecInterpreter_fuel": "fallback_zero",
+      "SourceInterpreter_basic": "fallback_zero",
+      "SourceInterpreter_fuel": "fallback_zero",
       "IRInterpreter": "supported",
       "EVMYulLean_bridge": "supported",
       "proof_status": "partial"
@@ -191,8 +191,8 @@
     {
       "feature": "chainid",
       "constructor": "Expr.chainid",
-      "SpecInterpreter_basic": "fallback_zero",
-      "SpecInterpreter_fuel": "fallback_zero",
+      "SourceInterpreter_basic": "fallback_zero",
+      "SourceInterpreter_fuel": "fallback_zero",
       "IRInterpreter": "supported",
       "EVMYulLean_bridge": "n/a",
       "proof_status": "partial"
@@ -200,8 +200,8 @@
     {
       "feature": "mload",
       "constructor": "Expr.mload",
-      "SpecInterpreter_basic": "fallback_zero",
-      "SpecInterpreter_fuel": "fallback_zero",
+      "SourceInterpreter_basic": "fallback_zero",
+      "SourceInterpreter_fuel": "fallback_zero",
       "IRInterpreter": "supported",
       "EVMYulLean_bridge": "n/a",
       "proof_status": "partial"
@@ -209,8 +209,8 @@
     {
       "feature": "returndataOptionalBoolAt",
       "constructor": "Expr.returndataOptionalBoolAt",
-      "SpecInterpreter_basic": "fallback_zero",
-      "SpecInterpreter_fuel": "fallback_zero",
+      "SourceInterpreter_basic": "fallback_zero",
+      "SourceInterpreter_fuel": "fallback_zero",
       "IRInterpreter": "n/a",
       "EVMYulLean_bridge": "n/a",
       "proof_status": "partial"
@@ -218,8 +218,8 @@
     {
       "feature": "keccak256",
       "constructor": "Expr.keccak256",
-      "SpecInterpreter_basic": "fallback_zero",
-      "SpecInterpreter_fuel": "fallback_zero",
+      "SourceInterpreter_basic": "fallback_zero",
+      "SourceInterpreter_fuel": "fallback_zero",
       "IRInterpreter": "n/a",
       "EVMYulLean_bridge": "n/a",
       "proof_status": "not_modeled"
@@ -227,8 +227,8 @@
     {
       "feature": "call",
       "constructor": "Expr.call",
-      "SpecInterpreter_basic": "fallback_zero",
-      "SpecInterpreter_fuel": "fallback_zero",
+      "SourceInterpreter_basic": "fallback_zero",
+      "SourceInterpreter_fuel": "fallback_zero",
       "IRInterpreter": "n/a",
       "EVMYulLean_bridge": "n/a",
       "proof_status": "not_modeled"
@@ -236,8 +236,8 @@
     {
       "feature": "staticcall",
       "constructor": "Expr.staticcall",
-      "SpecInterpreter_basic": "fallback_zero",
-      "SpecInterpreter_fuel": "fallback_zero",
+      "SourceInterpreter_basic": "fallback_zero",
+      "SourceInterpreter_fuel": "fallback_zero",
       "IRInterpreter": "n/a",
       "EVMYulLean_bridge": "n/a",
       "proof_status": "not_modeled"
@@ -245,8 +245,8 @@
     {
       "feature": "delegatecall",
       "constructor": "Expr.delegatecall",
-      "SpecInterpreter_basic": "fallback_zero",
-      "SpecInterpreter_fuel": "fallback_zero",
+      "SourceInterpreter_basic": "fallback_zero",
+      "SourceInterpreter_fuel": "fallback_zero",
       "IRInterpreter": "n/a",
       "EVMYulLean_bridge": "n/a",
       "proof_status": "not_modeled"
@@ -254,8 +254,8 @@
     {
       "feature": "arithmetic",
       "constructor": "Expr.add/sub/mul/div/mod",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "supported",
       "EVMYulLean_bridge": "supported",
       "proof_status": "proved"
@@ -263,8 +263,8 @@
     {
       "feature": "bitwise",
       "constructor": "Expr.bitAnd/bitOr/bitXor/bitNot/shl/shr",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "supported",
       "EVMYulLean_bridge": "supported",
       "proof_status": "proved"
@@ -272,8 +272,8 @@
     {
       "feature": "comparison",
       "constructor": "Expr.eq/lt/gt/le/ge",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "supported",
       "EVMYulLean_bridge": "supported",
       "proof_status": "proved"
@@ -281,8 +281,8 @@
     {
       "feature": "logical",
       "constructor": "Expr.logicalAnd/logicalOr/logicalNot",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "n/a",
       "EVMYulLean_bridge": "n/a",
       "proof_status": "proved"
@@ -290,8 +290,8 @@
     {
       "feature": "fixed_point_math",
       "constructor": "Expr.mulDivDown/mulDivUp/wMulDown/wDivUp/min/max",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "n/a",
       "EVMYulLean_bridge": "n/a",
       "proof_status": "proved"
@@ -299,8 +299,8 @@
     {
       "feature": "internalCall_expr",
       "constructor": "Expr.internalCall",
-      "SpecInterpreter_basic": "fallback_zero",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "fallback_zero",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "n/a",
       "EVMYulLean_bridge": "n/a",
       "proof_status": "proved"
@@ -308,8 +308,8 @@
     {
       "feature": "localVar",
       "constructor": "Expr.localVar",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "supported",
       "EVMYulLean_bridge": "n/a",
       "proof_status": "proved"
@@ -317,8 +317,8 @@
     {
       "feature": "externalCall_expr",
       "constructor": "Expr.externalCall",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "n/a",
       "EVMYulLean_bridge": "n/a",
       "proof_status": "assumed"
@@ -326,8 +326,8 @@
     {
       "feature": "arrayLength",
       "constructor": "Expr.arrayLength",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "n/a",
       "EVMYulLean_bridge": "n/a",
       "proof_status": "proved"
@@ -335,8 +335,8 @@
     {
       "feature": "arrayElement",
       "constructor": "Expr.arrayElement",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "n/a",
       "EVMYulLean_bridge": "n/a",
       "proof_status": "proved"
@@ -344,8 +344,8 @@
     {
       "feature": "arrayElementDynamicWord",
       "constructor": "Expr.arrayElementDynamicWord",
-      "SpecInterpreter_basic": "unsupported",
-      "SpecInterpreter_fuel": "unsupported",
+      "SourceInterpreter_basic": "unsupported",
+      "SourceInterpreter_fuel": "unsupported",
       "IRInterpreter": "n/a",
       "EVMYulLean_bridge": "n/a",
       "proof_status": "not_modeled"
@@ -353,8 +353,8 @@
     {
       "feature": "paramDynamicHeadWord",
       "constructor": "Expr.paramDynamicHeadWord",
-      "SpecInterpreter_basic": "unsupported",
-      "SpecInterpreter_fuel": "unsupported",
+      "SourceInterpreter_basic": "unsupported",
+      "SourceInterpreter_fuel": "unsupported",
       "IRInterpreter": "n/a",
       "EVMYulLean_bridge": "n/a",
       "proof_status": "not_modeled"
@@ -364,256 +364,256 @@
     {
       "feature": "letVar",
       "constructor": "Stmt.letVar",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "supported",
       "proof_status": "proved"
     },
     {
       "feature": "assignVar",
       "constructor": "Stmt.assignVar",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "supported",
       "proof_status": "proved"
     },
     {
       "feature": "setStorage",
       "constructor": "Stmt.setStorage",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "supported",
       "proof_status": "proved"
     },
     {
       "feature": "setMapping",
       "constructor": "Stmt.setMapping",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "supported",
       "proof_status": "proved"
     },
     {
       "feature": "setMappingWord",
       "constructor": "Stmt.setMappingWord",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "n/a",
       "proof_status": "proved"
     },
     {
       "feature": "setMappingPackedWord",
       "constructor": "Stmt.setMappingPackedWord",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "n/a",
       "proof_status": "proved"
     },
     {
       "feature": "setMapping2",
       "constructor": "Stmt.setMapping2",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "n/a",
       "proof_status": "proved"
     },
     {
       "feature": "setMapping2Word",
       "constructor": "Stmt.setMapping2Word",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "n/a",
       "proof_status": "proved"
     },
     {
       "feature": "setMappingUint",
       "constructor": "Stmt.setMappingUint",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "n/a",
       "proof_status": "proved"
     },
     {
       "feature": "setStructMember",
       "constructor": "Stmt.setStructMember",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "n/a",
       "proof_status": "proved"
     },
     {
       "feature": "setStructMember2",
       "constructor": "Stmt.setStructMember2",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "n/a",
       "proof_status": "proved"
     },
     {
       "feature": "require",
       "constructor": "Stmt.require",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "supported",
       "proof_status": "proved"
     },
     {
       "feature": "requireError",
       "constructor": "Stmt.requireError",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "n/a",
       "proof_status": "proved"
     },
     {
       "feature": "revertError",
       "constructor": "Stmt.revertError",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "n/a",
       "proof_status": "proved"
     },
     {
       "feature": "return",
       "constructor": "Stmt.return",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "supported",
       "proof_status": "proved"
     },
     {
       "feature": "returnValues",
       "constructor": "Stmt.returnValues",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "n/a",
       "proof_status": "proved"
     },
     {
       "feature": "returnArray",
       "constructor": "Stmt.returnArray",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "n/a",
       "proof_status": "proved"
     },
     {
       "feature": "returnBytes",
       "constructor": "Stmt.returnBytes",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "n/a",
       "proof_status": "proved"
     },
     {
       "feature": "returnStorageWords",
       "constructor": "Stmt.returnStorageWords",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "n/a",
       "proof_status": "proved"
     },
     {
       "feature": "stop",
       "constructor": "Stmt.stop",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "supported",
       "proof_status": "proved"
     },
     {
       "feature": "ite",
       "constructor": "Stmt.ite",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "supported",
       "proof_status": "proved"
     },
     {
       "feature": "forEach",
       "constructor": "Stmt.forEach",
-      "SpecInterpreter_basic": "unsupported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "unsupported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "supported",
       "proof_status": "partial"
     },
     {
       "feature": "emit",
       "constructor": "Stmt.emit",
-      "SpecInterpreter_basic": "supported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "n/a",
       "proof_status": "proved"
     },
     {
       "feature": "internalCall",
       "constructor": "Stmt.internalCall",
-      "SpecInterpreter_basic": "unsupported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "unsupported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "n/a",
       "proof_status": "proved"
     },
     {
       "feature": "internalCallAssign",
       "constructor": "Stmt.internalCallAssign",
-      "SpecInterpreter_basic": "unsupported",
-      "SpecInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "unsupported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "n/a",
       "proof_status": "proved"
     },
     {
       "feature": "mstore",
       "constructor": "Stmt.mstore",
-      "SpecInterpreter_basic": "unsupported",
-      "SpecInterpreter_fuel": "unsupported",
+      "SourceInterpreter_basic": "unsupported",
+      "SourceInterpreter_fuel": "unsupported",
       "IRInterpreter": "supported",
       "proof_status": "partial"
     },
     {
       "feature": "calldatacopy",
       "constructor": "Stmt.calldatacopy",
-      "SpecInterpreter_basic": "no_op",
-      "SpecInterpreter_fuel": "no_op",
+      "SourceInterpreter_basic": "no_op",
+      "SourceInterpreter_fuel": "no_op",
       "IRInterpreter": "n/a",
       "proof_status": "not_modeled"
     },
     {
       "feature": "returndataCopy",
       "constructor": "Stmt.returndataCopy",
-      "SpecInterpreter_basic": "unsupported",
-      "SpecInterpreter_fuel": "unsupported",
+      "SourceInterpreter_basic": "unsupported",
+      "SourceInterpreter_fuel": "unsupported",
       "IRInterpreter": "n/a",
       "proof_status": "not_modeled"
     },
     {
       "feature": "revertReturndata",
       "constructor": "Stmt.revertReturndata",
-      "SpecInterpreter_basic": "unsupported",
-      "SpecInterpreter_fuel": "unsupported",
+      "SourceInterpreter_basic": "unsupported",
+      "SourceInterpreter_fuel": "unsupported",
       "IRInterpreter": "n/a",
       "proof_status": "not_modeled"
     },
     {
       "feature": "rawLog",
       "constructor": "Stmt.rawLog",
-      "SpecInterpreter_basic": "unsupported",
-      "SpecInterpreter_fuel": "unsupported",
+      "SourceInterpreter_basic": "unsupported",
+      "SourceInterpreter_fuel": "unsupported",
       "IRInterpreter": "n/a",
       "proof_status": "not_modeled"
     },
     {
       "feature": "externalCallBind",
       "constructor": "Stmt.externalCallBind",
-      "SpecInterpreter_basic": "unsupported",
-      "SpecInterpreter_fuel": "unsupported",
+      "SourceInterpreter_basic": "unsupported",
+      "SourceInterpreter_fuel": "unsupported",
       "IRInterpreter": "n/a",
       "proof_status": "not_modeled"
     },
     {
       "feature": "ecm",
       "constructor": "Stmt.ecm",
-      "SpecInterpreter_basic": "unsupported",
-      "SpecInterpreter_fuel": "unsupported",
+      "SourceInterpreter_basic": "unsupported",
+      "SourceInterpreter_fuel": "unsupported",
       "IRInterpreter": "n/a",
       "proof_status": "not_modeled"
     }

@@ -33,8 +33,8 @@ class LowLevelCallBoundarySyncTests(unittest.TestCase):
                 {
                     "feature": feature,
                     "proof_status": proof_status,
-                    "SpecInterpreter_basic": basic_status,
-                    "SpecInterpreter_fuel": fuel_status,
+                    "SourceInterpreter_basic": basic_status,
+                    "SourceInterpreter_fuel": fuel_status,
                 }
                 for feature in ("call", "staticcall", "delegatecall")
             ]
