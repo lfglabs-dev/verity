@@ -35,6 +35,9 @@ private def dynamicCodeFields : List FrameField :=
 private def dynamicMemoryFields : List FrameField :=
   [ { name := "payload", ty := .bytes, source := .memory, sourceOffset := 32, tailBytes := 64 } ]
 
+private def unpaddedDynamicFields : List FrameField :=
+  [ { name := "payload", ty := .bytes, source := .calldata, tailBytes := 33 } ]
+
 private def calldataLoadName? : YulExpr → Option String
   | .call "calldataload" [.ident name] => some name
   | .call "calldataload" [.call "add" [.ident name, _]] => some name
@@ -79,6 +82,8 @@ private def hasDynamicMemoryTailCopy : List YulStmt → Bool :=
   assert "Take spills early to memory" ((spillPayloadToMemory "take" takeLayout).length > 2)
   assert "dynamic tail contributes to pointer payload size" (frameSizeBytes takeLayout == 288)
   assert "dynamic tail contributes to allocated words" (frameAllocBytes takeLayout == 288)
+  assert "dynamic tail size is padded to full ABI words"
+    (frameSizeBytes (layout unpaddedDynamicFields) == 96)
   let srcLayout := layout sourceFields
   assert "calldata/memory/code/storage sources supported" (layoutSourcesSupported srcLayout)
   assert "dynamic storage tails are not lowered as sequential slots"

@@ -70,12 +70,11 @@ def fieldLayoutSupported (field : FrameField) : Bool :=
 def layoutSourcesSupported (l : FrameLayout) : Bool :=
   l.fields.all fieldLayoutSupported
 
-def frameSizeBytes (l : FrameLayout) : Nat :=
-  l.fields.foldl (fun acc field => acc + fieldHeadWords field * 32 +
-    (if isDynamicParamType field.ty then field.tailBytes else 0)) 0
-
 def fieldPayloadWords (field : FrameField) : Nat :=
   fieldHeadWords field + if isDynamicParamType field.ty then (field.tailBytes + 31) / 32 else 0
+
+def frameSizeBytes (l : FrameLayout) : Nat :=
+  l.fields.foldl (fun acc field => acc + fieldPayloadWords field * 32) 0
 
 def frameAllocBytes (l : FrameLayout) : Nat :=
   l.fields.foldl (fun acc field => acc + fieldPayloadWords field * 32) 0
