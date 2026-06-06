@@ -6431,4 +6431,53 @@ set_option maxRecDepth 4096 in
   expectTrue "macro locals and params shadow contract constants"
     MacroConstantSmoke.shadowedConstantModelPrefersLocalAndParamBindings
 
+/- Regression for lfglabs-dev/verity#1952. Identifier-shape validation must treat the two external
+forms differently: an ABI-boundary external derived from a typed `interface` carries a dotted
+`Interface.method` audit label (`IPool.supply`) that is lowered by selector and never emitted as a
+Yul identifier, so it must be accepted; an object-linked external's name is the Yul function
+identifier at the link site, so an invalid one must still be rejected. -/
+namespace ExternalNameValidationSmoke
+
+private def dottedAbiInterfaceSpec : CompilationModel := {
+  name := "DottedAbiInterface"
+  fields := []
+  «constructor» := none
+  externals := [
+    { name := "IPool.supply"
+      params := [ParamType.address, ParamType.uint256, ParamType.address, ParamType.uint16]
+      returnType := none
+      returns := []
+      axiomNames := []
+      linkMode := .external }
+  ]
+  functions := []
+}
+
+private def invalidObjectLinkedSpec : CompilationModel := {
+  name := "InvalidObjectLinkedExternal"
+  fields := []
+  «constructor» := none
+  externals := [
+    { name := "poseidon-hash"
+      params := [ParamType.uint256]
+      returnType := some ParamType.uint256
+      returns := [ParamType.uint256]
+      axiomNames := []
+      linkMode := .objectLinked }
+  ]
+  functions := []
+}
+
+#eval! do
+  expectTrue "dotted ABI-interface external names skip Yul identifier validation"
+    (match validateIdentifierShapes dottedAbiInterfaceSpec with
+      | .ok _ => true
+      | .error _ => false)
+  expectTrue "object-linked external names still require valid Yul identifiers"
+    (match validateIdentifierShapes invalidObjectLinkedSpec with
+      | .ok _ => false
+      | .error _ => true)
+
+end ExternalNameValidationSmoke
+
 end Compiler.CompilationModelFeatureTest

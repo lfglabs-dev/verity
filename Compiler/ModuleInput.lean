@@ -105,7 +105,10 @@ unsafe def loadSpecsFromModules (moduleNames : List Name) : IO (Except String (L
   let extraSearchRoots ← existingSplitPackageSearchRoots
   searchPathRef.set (originalSearchPath ++ extraSearchRoots)
   try
+    -- `loadExts := true` so `evalConstCheck` can evaluate specs that apply imported functions
+    -- (the `withReturnModule` ecm from typed-interface calls), not just inductive constructors. (#1951)
     let env ← Lean.importModules (moduleNames.toArray.map fun moduleName => { module := moduleName }) {}
+                (loadExts := true)
     let opts : Options := {}
     pure <| moduleNames.mapM (fun moduleName => evalSpecConst env opts (specNameOfModule moduleName))
   catch e =>

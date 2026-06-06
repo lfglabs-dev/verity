@@ -51,9 +51,13 @@ lean_lib «PrintAxioms» where
 
 lean_exe «verity-compiler» where
   root := `Compiler.Main
+  -- interpreter eval of ecm/interface specs forces init/std decls (e.g. `UInt64.ofNatLT`). (#1951)
+  supportInterpreter := true
 
 lean_exe «verity-compiler-patched» where
   root := `Compiler.MainPatched
+  -- interpreter eval of ecm/interface specs forces init/std decls (e.g. `UInt64.ofNatLT`). (#1951)
+  supportInterpreter := true
 
 lean_exe «difftest-interpreter» where
   root := `Contracts.Interpreter
@@ -63,6 +67,9 @@ lean_exe «random-gen» where
 
 lean_exe «gas-report» where
   root := `Compiler.Gas.Report
+  -- Static gas reporting evaluates compiled terms that may depend on init/std
+  -- interpreter support through typed-interface ECMs.
+  supportInterpreter := true
 
 lean_exe «compiler-main-test» where
   root := `Compiler.MainTestRunner

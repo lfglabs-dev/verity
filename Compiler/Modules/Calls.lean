@@ -127,6 +127,80 @@ def withReturn (resultVar : String) (target : Expr) (selector : Nat)
     (args : List Expr) (isStatic : Bool := false) : Stmt :=
   .ecm (withReturnModule resultVar selector args.length isStatic) ([target] ++ args)
 
+/-- Generic external call to a void (no-return) function.
+
+    Identical ABI-encoding and revert-forward-on-failure behaviour to
+    `withReturnModule`, but binds no result and performs no `returndatasize`
+    check or return decode. This is the ECM behind statement-position typed
+    interface calls whose method declares no return type (e.g. Aave V3
+    `supply`/`borrow`, which are `void`): such callees leave returndata empty,
+    so the strict 32-byte check in `withReturnModule` would revert *after* the
+    callee already ran and committed state.
+
+    The module is parameterized by:
+    - `selector`: the 4-byte function selector
+    - `numArgs`: number of ABI-encoded arguments (not counting target)
+
+    Arguments passed to compile: [target] ++ argExprs -/
+def noReturnModule (selector : Nat) (numArgs : Nat) (isStatic : Bool := false)
+    : ExternalCallModule where
+  name := "externalCallNoReturn"
+  numArgs := 1 + numArgs  -- target + args
+  resultVars := []
+  writesState := !isStatic
+  readsState := true
+  axioms := ["external_call_abi_interface"]
+  compile := fun _ctx args => do
+    let targetExpr ← match args.head? with
+      | some t => pure t
+      | none => throw "externalCallNoReturn expects at least 1 argument (target)"
+    let argExprs := args.drop 1
+    let selectorExpr := YulExpr.call "shl" [YulExpr.lit 224, YulExpr.hex selector]
+    let ptrName := "__ecnr_ptr"
+    let ptrExpr := YulExpr.ident ptrName
+    let storeSelector := YulStmt.expr (YulExpr.call "mstore" [ptrExpr, selectorExpr])
+    let storeArgs := argExprs.zipIdx.map fun (argExpr, i) =>
+      YulStmt.expr (YulExpr.call "mstore" [
+        YulExpr.call "add" [ptrExpr, YulExpr.lit (4 + i * 32)],
+        argExpr
+      ])
+    let calldataSize := 4 + numArgs * 32
+    let frameSize := ((Nat.max calldataSize 32 + 31) / 32) * 32
+    let loadPtr := YulStmt.let_ ptrName (YulExpr.call "mload" [YulExpr.lit freeMemoryPointer])
+    let advancePtr := YulStmt.expr (YulExpr.call "mstore" [
+      YulExpr.lit freeMemoryPointer,
+      YulExpr.call "add" [ptrExpr, YulExpr.lit frameSize]
+    ])
+    -- no output slice: return data is intentionally ignored
+    let opcode := if isStatic then "staticcall" else "call"
+    let callArgs :=
+      if isStatic then
+        [ YulExpr.call "gas" []
+        , targetExpr
+        , ptrExpr, YulExpr.lit calldataSize
+        , YulExpr.lit 0, YulExpr.lit 0 ]
+      else
+        [ YulExpr.call "gas" []
+        , targetExpr
+        , YulExpr.lit 0
+        , ptrExpr, YulExpr.lit calldataSize
+        , YulExpr.lit 0, YulExpr.lit 0 ]
+    let callExpr :=
+      YulExpr.call opcode callArgs
+    let letSuccess := YulStmt.let_ "__ecnr_success" callExpr
+    -- bubble failure returndata exactly, like withReturnModule; but on success
+    -- do NOT check returndatasize or decode a return value
+    let revertBlock := YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident "__ecnr_success"]) [
+      YulStmt.let_ "__ecnr_rds" (YulExpr.call "returndatasize" []),
+      YulStmt.expr (YulExpr.call "returndatacopy" [YulExpr.lit 0, YulExpr.lit 0, YulExpr.ident "__ecnr_rds"]),
+      YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.ident "__ecnr_rds"])
+    ]
+    pure [YulStmt.block ([loadPtr, storeSelector] ++ storeArgs ++ [advancePtr, letSuccess, revertBlock])]
+
+/-- Convenience: create a `Stmt.ecm` for a void external call (no return). -/
+def noReturn (target : Expr) (selector : Nat) (args : List Expr) (isStatic : Bool := false) : Stmt :=
+  .ecm (noReturnModule selector args.length isStatic) ([target] ++ args)
+
 /-- Generic Solidity-style low-level value call with revert-data bubbling.
 
     This models the common wrapper:
