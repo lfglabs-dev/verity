@@ -12,10 +12,10 @@ private def assert (label : String) (ok : Bool) : IO Unit := do
     throw (IO.userError s!"stack safe ABI test failed: {label}")
   IO.println s!"ok: {label}"
 
-private def bigDynamicPayload : List FrameField :=
+private def bigStaticPayload : List FrameField :=
   [ { name := "toId", ty := .bytes32, source := .calldata }
   , { name := "toMarket", ty := .tuple [.address, .uint256, .uint256, .address], source := .calldata }
-  , { name := "takes", ty := .array (.tuple [.address, .uint256, .bytes]), source := .calldata, tailBytes := 128 } ]
+  , { name := "units", ty := .tuple [.uint256, .uint256, .uint256], source := .calldata } ]
 
 private def smallStaticPayload : List FrameField :=
   [ { name := "id", ty := .bytes32, source := .calldata }
@@ -46,18 +46,21 @@ private def logsWithDataBytes (bytes : Nat) : List YulStmt → Bool :=
     | _ => false
 
 #eval! do
-  match lowerEvent "Take" bigDynamicPayload with
+  match lowerEvent "Take" bigStaticPayload with
   | .ok ev => assert "event lowering uses memory pointer" (usesPointerAbi ev)
   | .error err => throw (IO.userError err)
-  match lowerExternalCall "callback" (YulExpr.ident "target") (YulExpr.lit 0) bigDynamicPayload with
+  match lowerExternalCall "callback" (YulExpr.ident "target") (YulExpr.lit 0) bigStaticPayload with
   | .ok call => assert "external-call lowering uses memory pointer" (usesPointerAbi call)
   | .error err => throw (IO.userError err)
-  match lowerDynamicReturn "dynamicReturn" bigDynamicPayload with
+  match lowerDynamicReturn "dynamicReturn" bigStaticPayload with
   | .ok ret => assert "dynamic return lowering uses memory pointer" (usesPointerAbi ret)
   | .error err => throw (IO.userError err)
-  match lowerFrameSpilled "toMarket" bigDynamicPayload with
+  match lowerFrameSpilled "toMarket" bigStaticPayload with
   | .ok lowered => assert "frame-spilled lowering allocates memory early" (!lowered.prologue.isEmpty && lowered.args.length == 2)
   | .error err => throw (IO.userError err)
+  match lowerDynamicReturn "dynamicUnsupported" [{ name := "payload", ty := .bytes, source := .calldata, tailBytes := 64 }] with
+  | .ok _ => throw (IO.userError "dynamic ABI frame unexpectedly lowered")
+  | .error _ => assert "dynamic ABI frames are rejected until runtime-sized lowering exists" true
   match lowerEvent "SmallStatic" smallStaticPayload with
   | .ok ev =>
       assert "inline event lowering stores payload" (countMstores ev == 2)

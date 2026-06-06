@@ -64,8 +64,7 @@ def fieldSourceSupported (field : FrameField) : Bool :=
 
 def fieldLayoutSupported (field : FrameField) : Bool :=
   fieldSourceSupported field &&
-    !(field.source == .storage && isDynamicParamType field.ty) &&
-    !(field.source == .code && isDynamicParamType field.ty)
+    !isDynamicParamType field.ty
 
 def layoutSourcesSupported (l : FrameLayout) : Bool :=
   l.fields.all fieldLayoutSupported

@@ -18,7 +18,7 @@ private def takeFields : List FrameField :=
 
 private def sourceFields : List FrameField :=
   [ { name := "c", ty := .uint256, source := .calldata }
-  , { name := "m", ty := .bytes, source := .memory, tailBytes := 64 }
+  , { name := "m", ty := .bytes32, source := .memory }
   , { name := "x", ty := .bytes32, source := .code }
   , { name := "s", ty := .uint256, source := .storage } ]
 
@@ -28,9 +28,6 @@ private def inlineFields : List FrameField :=
 
 private def dynamicStorageFields : List FrameField :=
   [ { name := "blob", ty := .bytes, source := .storage, tailBytes := 64 } ]
-
-private def dynamicCodeFields : List FrameField :=
-  [ { name := "blob", ty := .bytes, source := .code, tailBytes := 64 } ]
 
 private def dynamicMemoryFields : List FrameField :=
   [ { name := "payload", ty := .bytes, source := .memory, sourceOffset := 32, tailBytes := 64 } ]
@@ -48,54 +45,25 @@ private def hasExtcodecopy : List YulStmt → Bool :=
     | .expr (.call "extcodecopy" _) => true
     | _ => false
 
-private def hasDynamicCalldataTailCopy : List YulStmt → Bool :=
-  fun stmts => stmts.any fun
-    | .expr (.call "mstore" [
-        _,
-        .call "calldataload" [
-          .call "add" [
-            .call "add" [.ident "ratifierData", .call "calldataload" [.ident "ratifierData"]],
-            .lit 0
-          ]
-        ]
-      ]) => true
-    | _ => false
-
-private def hasDynamicMemoryTailCopy : List YulStmt → Bool :=
-  fun stmts => stmts.any fun
-    | .expr (.call "mstore" [
-        _,
-        .call "mload" [
-          .call "add" [
-            .call "add" [.ident "payload", .call "mload" [.call "add" [.ident "payload", .lit 32]]],
-            .lit 0
-          ]
-        ]
-      ]) => true
-    | _ => false
-
 #eval! do
   let takeLayout := layout takeFields
   assert "nested struct supported" (supportsNestedStructs takeLayout)
   assert "dynamic bytes/arrays force pointer mode" (takeLayout.mode == FramePassMode.pointer)
   assert "Take frame passes pointer pair" ((loweredArgs "take" takeLayout).length == 2)
-  assert "Take spills early to memory" ((spillPayloadToMemory "take" takeLayout).length > 2)
   assert "dynamic tail contributes to pointer payload size" (frameSizeBytes takeLayout == 288)
   assert "dynamic tail contributes to allocated words" (frameAllocBytes takeLayout == 288)
   assert "dynamic tail size is padded to full ABI words"
     (frameSizeBytes (layout unpaddedDynamicFields) == 96)
+  assert "dynamic calldata frames are not lowered with static tail sizes"
+    (!layoutSourcesSupported takeLayout)
   let srcLayout := layout sourceFields
   assert "calldata/memory/code/storage sources supported" (layoutSourcesSupported srcLayout)
-  assert "dynamic storage tails are not lowered as sequential slots"
+  assert "dynamic storage tails are rejected"
     (!layoutSourcesSupported (layout dynamicStorageFields))
-  assert "dynamic code tails are rejected instead of using a fixed offset"
-    (!layoutSourcesSupported (layout dynamicCodeFields))
+  assert "dynamic memory tails are rejected until runtime-sized ABI frames exist"
+    (!layoutSourcesSupported (layout dynamicMemoryFields))
   assert "dynamic source frame is pointer mode" (srcLayout.mode == FramePassMode.pointer)
   assert "code source spills through extcodecopy" (hasExtcodecopy (spillPayloadToMemory "src" srcLayout))
-  assert "dynamic calldata tail follows ABI offset"
-    (hasDynamicCalldataTailCopy (spillPayloadToMemory "take" takeLayout))
-  assert "dynamic memory tail follows ABI offset"
-    (hasDynamicMemoryTailCopy (spillPayloadToMemory "mem" (layout dynamicMemoryFields)))
   let inlineNames := (inlineArgs (layout inlineFields)).filterMap calldataLoadName?
   assert "inline source words are indexed per field"
     (inlineNames == ["pair", "pair", "amount"])

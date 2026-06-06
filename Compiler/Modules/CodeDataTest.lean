@@ -14,13 +14,13 @@ private def assert (label : String) (ok : Bool) : IO Unit := do
   IO.println s!"ok: {label}"
 
 private def payload := layout
-  [ { name := "blob", ty := .bytes, source := .memory, tailBytes := 96 }
+  [ { name := "blob", ty := .tuple [.bytes32, .bytes32, .bytes32], source := .memory }
   , { name := "meta", ty := .tuple [.bytes32, .uint256], source := .calldata } ]
 
 private def deployUsesPayloadBuffer : List YulStmt → Bool :=
   fun stmts => stmts.any fun stmt =>
     match stmt with
-    | .let_ _ (.call "create2" [_value, .ident "__abi_frame_sstore2", .lit 192, _salt]) => true
+    | .let_ _ (.call "create2" [_value, .ident "__abi_frame_sstore2", .lit 160, _salt]) => true
     | _ => false
 
 private def returnCodeDataHasExtentGuard : List YulStmt → Bool
