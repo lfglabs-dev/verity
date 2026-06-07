@@ -185,6 +185,29 @@ to contracts that use the module. The compiler lists all of them at compile
 time in `--verbose` output. Use `--deny-unchecked-dependencies` to make
 compilation fail if any assumption hasn't been reviewed.
 
+### Caller-frame preservation theorems
+
+Independently of the ECM interface assumptions above, the *EVM frame
+condition* that an external `CALL` cannot mutate the caller's storage,
+transient storage, or memory outside the declared output buffer is now a
+**theorem** of `Verity.EVM.Frame`, no longer an assumption. The relevant
+results are:
+
+- `Verity.EVM.Frame.external_call_preserves_caller_storage`
+- `Verity.EVM.Frame.external_call_preserves_caller_transient_storage`
+- `Verity.EVM.Frame.external_call_preserves_caller_memory_outside_output_buffer`
+- `Verity.EVM.Frame.external_call_preserves_caller_memory` (disjoint-region form)
+- their iterated-CALL variants `Verity.EVM.Frame.external_calls_preserve_*`
+
+The theorems quantify universally over `Verity.EVM.Frame.CalleeResult`,
+which is the observational interface of any EVM callee program. Downstream
+contract proofs can consume these theorems directly to discharge the EVM
+frame condition without re-stating it.
+
+The abstract memory model on which these theorems compose lives at
+`Verity.EVM.MemoryModel`; the standard solc memory-layout schema and the
+call-buffer-disjoint-from-heap theorem live at `Verity.EVM.Layout`.
+
 ### Standard Module Assumptions
 
 | Module | Assumption | Meaning |
