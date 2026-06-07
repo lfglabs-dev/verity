@@ -51,6 +51,7 @@ import Compiler.Proofs.IRGeneration.GenericInduction.InternalCalls
 import Compiler.Proofs.IRGeneration.GenericInduction.LegacyCompatibility
 import Compiler.Proofs.IRGeneration.GenericInduction.ResultRelation
 import Compiler.Proofs.IRGeneration.GenericInduction.Scope
+import Compiler.Proofs.IRGeneration.GenericInduction.Storage
 import Compiler.Proofs.IRGeneration.IRInterpreter
 import Compiler.Proofs.IRGeneration.IRStorageWord
 import Compiler.Proofs.IRGeneration.IntrinsicProofs
