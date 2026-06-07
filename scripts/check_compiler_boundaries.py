@@ -8,6 +8,7 @@ import argparse
 import check_builtin_list_sync
 import check_compiler_contract_imports
 import check_evmyullean_capability_boundary
+import check_layer_import_boundaries
 import check_mapping_slot_boundary
 import check_package_glob_surfaces
 import check_package_import_boundaries
@@ -17,6 +18,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--skip-builtin-list-sync", action="store_true")
     parser.add_argument("--skip-compiler-contract-imports", action="store_true")
+    parser.add_argument("--skip-layer-import-boundaries", action="store_true")
     parser.add_argument("--skip-mapping-slot", action="store_true")
     parser.add_argument("--skip-evmyullean-capability", action="store_true")
     parser.add_argument("--skip-package-glob-surfaces", action="store_true")
@@ -39,6 +41,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.skip_package_import_boundaries:
         rc = check_package_import_boundaries.main()
+        if rc != 0:
+            return rc
+
+    if not args.skip_layer_import_boundaries:
+        rc = check_layer_import_boundaries.main()
         if rc != 0:
             return rc
 
