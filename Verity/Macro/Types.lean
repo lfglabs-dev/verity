@@ -6,6 +6,7 @@ import Verity.Core.Intrinsics
 namespace Verity.Macro
 
 open Lean
+open Lean.Elab.Command
 
 abbrev Term := TSyntax `term
 abbrev Cmd := TSyntax `command
@@ -236,5 +237,105 @@ structure ConstructorDecl where
   isPayable : Bool := false
   localObligations : Array LocalObligationDecl := #[]
   body : Term
+
+partial def expectTermListLiteral (stx : Term) : CommandElabM (Array Term) := do
+  match stx with
+  | `(term| [ $[$xs],* ]) => pure xs
+  | `(term| ($inner:term)) => expectTermListLiteral inner
+  | _ => throwErrorAt stx "expected list literal [..]"
+
+partial def collectTupleElems (stx : Syntax) : Array Syntax :=
+  if stx.isAtom then
+    #[]
+  else if stx.getKind == `null then
+    stx.getArgs.foldl (fun acc child => acc ++ collectTupleElems child) #[]
+  else
+    #[stx]
+
+def tupleElemsFromSyntax? (stx : Syntax) : Option (Array Syntax) :=
+  if stx.getKind == `Lean.Parser.Term.tuple then
+    some (collectTupleElems stx[1])
+  else
+    none
+
+partial def expectMappingKeyTerms (stx : Term) : CommandElabM (Array Term) := do
+  expectTermListLiteral stx
+
+partial def collectArrowChainTypes (stx : Term) : CommandElabM (List Term × Term) := do
+  match stx with
+  | `(term| $lhs:term → $rhs:term) =>
+      let (rest, resultTy) ← collectArrowChainTypes rhs
+      pure (lhs :: rest, resultTy)
+  | _ => pure ([], stx)
+
+def natFromSyntax (stx : Syntax) : CommandElabM Nat :=
+  match stx.isNatLit? with
+  | some n => pure n
+  | none => throwErrorAt stx "expected natural literal"
+
+partial def stripParens (stx : Term) : Term :=
+  match stx with
+  | `(term| ($inner)) => stripParens inner
+  | _ => stx
+
+def structValueTypeFields (decl : StructDecl) : List (String × ValueType) :=
+  decl.fields.toList.map fun field => (field.name, field.ty)
+
+partial def valueTypeFromSyntax
+    (newtypes : Array NewtypeDecl)
+    (structDecls : Array StructDecl)
+    (adtDecls : Array AdtDecl)
+    (ty : Term) : CommandElabM ValueType := do
+  let ty := stripParens ty
+  let (arrowArgs, _arrowResult) ← collectArrowChainTypes ty
+  if !arrowArgs.isEmpty then
+    throwErrorAt ty
+      "unsupported function type in verity_contract boundary (#1747); internal function-pointer parameters are not first-class in the CompilationModel yet. Pass an explicit mode/enum and dispatch to direct internal helper calls, or inline the helper call at each call site."
+  match ty with
+  | `(term| Uint256) => pure .uint256
+  | `(term| Int256) => pure .int256
+  | `(term| Uint8) => pure .uint8
+  | `(term| Uint16) => pure .uint16
+  | `(term| Address) => pure .address
+  | `(term| Bytes32) => pure .bytes32
+  | `(term| Bool) => pure .bool
+  | `(term| String) => pure .string
+  | `(term| Bytes) => pure .bytes
+  | `(term| Array $elemTy:term) =>
+      let elem ← valueTypeFromSyntax newtypes structDecls adtDecls elemTy
+      match elem with
+      | .unit => throwErrorAt ty "unsupported type '{ty}'; Array Unit is not allowed"
+      | .array _ => throwErrorAt ty "unsupported type '{ty}'; nested arrays are not supported"
+      | _ => pure (.array elem)
+  | `(term| FixedArray $elemTy:term $size:num) =>
+      let elem ← valueTypeFromSyntax newtypes structDecls adtDecls elemTy
+      let n ← natFromSyntax size
+      match elem with
+      | .unit => throwErrorAt ty "unsupported type '{ty}'; FixedArray Unit is not allowed"
+      | .array _ => throwErrorAt ty "unsupported type '{ty}'; FixedArray of dynamic Array is not supported"
+      | _ => pure (.fixedArray elem n)
+  | `(term| Tuple [ $[$elemTys:term],* ]) =>
+      let elems ← elemTys.mapM (valueTypeFromSyntax newtypes structDecls adtDecls)
+      if elems.size < 2 then
+        throwErrorAt ty "tuple types must have at least 2 elements"
+      pure (.tuple elems.toList)
+  | `(term| Unit) => pure .unit
+  | `(term| $id:ident) =>
+      let tyName := toString id.getId
+      -- Try resolving as a user-defined newtype (#1727, Axis 1 Steps 3a/3b)
+      match newtypes.find? (fun nt => nt.name == tyName) with
+      | some nt => pure (.newtype nt.name nt.baseType)
+      | none =>
+        -- Try resolving as a user-defined ADT (#1727, Axis 1 Step 5b)
+        match structDecls.find? (fun s => s.name == tyName) with
+        | some decl => pure (.struct decl.name (structValueTypeFields decl))
+        | none =>
+          match adtDecls.find? (fun a => a.name == tyName) with
+          | some decl =>
+              let maxFields := decl.variants.foldl (fun acc v => max acc v.fields.size) 0
+              pure (.adt decl.name maxFields)
+          | none => throwErrorAt ty "unsupported type '{ty}'; expected Uint256, Int256, Uint8, Uint16, Address, Bytes32, Bool, String, Bytes, Array <type>, FixedArray <type> <size>, Tuple [...], Unit, a user-defined struct, or a user-defined type from the `types` or `inductive` section"
+  | _ =>
+      throwErrorAt ty "unsupported type '{ty}'; expected Uint256, Int256, Uint8, Uint16, Address, Bytes32, Bool, String, Bytes, Array <type>, FixedArray <type> <size>, Tuple [...], Unit, a user-defined struct, or a user-defined type from the `types` or `inductive` section"
 
 end Verity.Macro
