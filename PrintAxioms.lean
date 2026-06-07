@@ -2184,13 +2184,6 @@ end Verity.AxiomAudit
   -- Compiler/Proofs/IRGeneration/FunctionShape.lean
   Compiler.Proofs.IRGeneration.FunctionShape.compileFunctionSpec_ok_components
 
-  -- Compiler/Proofs/IRGeneration/GenericInduction/ExprStmt.lean
-  Compiler.Proofs.IRGeneration.compiledStmtStep_letVar
-  Compiler.Proofs.IRGeneration.compiledStmtStep_assignVar
-  Compiler.Proofs.IRGeneration.compiledStmtStep_require
-  Compiler.Proofs.IRGeneration.compiledStmtStep_return
-  Compiler.Proofs.IRGeneration.compiledStmtStep_stop
-
   -- Compiler/Proofs/IRGeneration/GenericInduction/Core.lean
   -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeUintSlots_singleton_other  -- private
   -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeUintSlots_other  -- private
@@ -2474,6 +2467,13 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_with_helpers_and_helper_ir_except_mapping_writes
   Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_with_helpers_goal
   Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_with_helpers
+
+  -- Compiler/Proofs/IRGeneration/GenericInduction/ExprStmt.lean
+  Compiler.Proofs.IRGeneration.compiledStmtStep_letVar
+  Compiler.Proofs.IRGeneration.compiledStmtStep_assignVar
+  Compiler.Proofs.IRGeneration.compiledStmtStep_require
+  Compiler.Proofs.IRGeneration.compiledStmtStep_return
+  Compiler.Proofs.IRGeneration.compiledStmtStep_stop
 
   -- Compiler/Proofs/IRGeneration/GenericInduction/InterfaceAssembly.lean
   Compiler.Proofs.IRGeneration.stmtListHelperFreeStepInterface_of_core
