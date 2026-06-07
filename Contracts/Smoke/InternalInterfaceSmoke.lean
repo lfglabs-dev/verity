@@ -45,6 +45,10 @@ verity_contract TypedInterfaceCallSmoke where
     let ok ← token.transfer recipient amount
     return ok
 
+  function transferTokenDiscard (token : IERC20, recipient : Address, amount : Uint256) : Unit := do
+    let _ ← token.transfer recipient amount
+    return ()
+
 example :
     (TypedInterfaceCallSmoke.spec.externals).any (fun ext =>
       ext.name == "IERC20.balanceOf") = true := by
@@ -89,6 +93,21 @@ example :
                 mod.name == "externalCallWithReturn" &&
                 mod.numArgs == 3 &&
                 mod.resultVars == ["ok"] &&
+                mod.readsState &&
+                mod.writesState &&
+                args.length == 3
+          | _ => false)) = true := by
+  decide
+
+example :
+    (TypedInterfaceCallSmoke.spec.functions).any (fun fn =>
+      fn.name == "transferTokenDiscard" &&
+        fn.body.any (fun stmt =>
+          match stmt with
+          | Compiler.CompilationModel.Stmt.ecm mod args =>
+                mod.name == "externalCallWithReturn" &&
+                mod.numArgs == 3 &&
+                mod.resultVars == ["__discard"] &&
                 mod.readsState &&
                 mod.writesState &&
                 args.length == 3

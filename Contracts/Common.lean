@@ -13,14 +13,6 @@ open Verity.EVM.Uint256
 open Verity.Stdlib.Math
 
 macro_rules
-  -- DSL ergonomics: rewrite `let _ := rhs` into a do-block-friendly form
-  -- so that consumers can discard an external-call result naturally.
-  -- (Without this rule the verity_contract function-body parser rejects
-  -- `let _ := …` as an unsupported do element.)
-  | `(doElem| let _ := $rhs:term) => do
-      let fresh ← Lean.Macro.addMacroScope `_callResult
-      let freshIdent := Lean.mkIdent fresh
-      `(doElem| let $freshIdent := $rhs)
   | `(term| ecmCall $_moduleFactory:term $_args:term) =>
       `(term| do
           let _ := $_moduleFactory
