@@ -127,9 +127,19 @@ private partial def validateDoElemExprTypes
   match tupleCase? with
   | some typedLocals => pure typedLocals
   | none => match elem with
+      | `(doElem| let _ := ($rhs:term : $_ty:term)) =>
+          validateDoElemExprTypes ownerName fields constDecls immutableDecls externalDecls
+            errorDecls functions params locals (← `(doElem| let _ := $rhs:term))
       | `(doElem| let _ := $rhs:term) =>
-          let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals rhs
-          pure locals
+          let discardName := freshSyntheticLocalName "discard" params locals #[]
+          let discardIdent := mkIdent (Name.mkSimple discardName)
+          validateDoElemExprTypes ownerName fields constDecls immutableDecls externalDecls
+            errorDecls functions params locals (← `(doElem| let $discardIdent:ident := $rhs:term))
+      | `(doElem| let _ ← $rhs:term) =>
+          let discardName := freshSyntheticLocalName "__discard" params locals #[]
+          let discardIdent := mkIdent (Name.mkSimple discardName)
+          validateDoElemExprTypes ownerName fields constDecls immutableDecls externalDecls
+            errorDecls functions params locals (← `(doElem| let $discardIdent:ident ← $rhs:term))
       | `(doElem| let mut $name:ident := $rhs:term) =>
           let ty ← inferPureExprType fields constDecls immutableDecls externalDecls params locals rhs
           requireSupportedLocalBindingType name s!"local binding '{toString name.getId}'" ty
@@ -1126,16 +1136,19 @@ private partial def translateDoElem
   match tupleCase? with
   | some result => pure result
   | none => match elem with
+      | `(doElem| let _ := ($rhs:term : $_ty:term)) =>
+          translateDoElem fields constDecls immutableDecls externalDecls functions params locals mutableLocals
+            (← `(doElem| let _ := $rhs:term))
       | `(doElem| let _ := $rhs:term) =>
-          let discardName :=
-            freshSyntheticLocalName "discard" params locals mutableLocals
-          let rhsExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals rhs
-          let ty ← inferPureExprType fields constDecls immutableDecls externalDecls params locals rhs
-          let interfaceName? ← interfaceNameOfTerm? params locals rhs
-          pure
-            (#[(← `(Compiler.CompilationModel.Stmt.letVar $(strTerm discardName) $rhsExpr))],
-              locals.push (mkTypedLocal discardName ty interfaceName?),
-              mutableLocals)
+          let discardName := freshSyntheticLocalName "discard" params locals mutableLocals
+          let discardIdent := mkIdent (Name.mkSimple discardName)
+          translateDoElem fields constDecls immutableDecls externalDecls functions params locals mutableLocals
+            (← `(doElem| let $discardIdent:ident := $rhs:term))
+      | `(doElem| let _ ← $rhs:term) =>
+          let discardName := freshSyntheticLocalName "__discard" params locals mutableLocals
+          let discardIdent := mkIdent (Name.mkSimple discardName)
+          translateDoElem fields constDecls immutableDecls externalDecls functions params locals mutableLocals
+            (← `(doElem| let $discardIdent:ident ← $rhs:term))
       | `(doElem| let mut $name:ident := $rhs:term) =>
           let varName := toString name.getId
           if localNames.contains varName then
@@ -1612,6 +1625,16 @@ private partial def rewriteForEachExecutableDoElem
     (locals : Array TypedLocal)
     (elem : TSyntax `doElem) : CommandElabM (Array (TSyntax `doElem) × Array TypedLocal) := do
   match elem with
+  | `(doElem| let _ := $rhs:term) =>
+      let discardName := freshSyntheticLocalName "__discard" params locals #[]
+      let discardIdent := mkIdent (Name.mkSimple discardName)
+      rewriteForEachExecutableDoElem externalDecls params locals
+        (← `(doElem| let $discardIdent:ident := $rhs:term))
+  | `(doElem| let _ ← $rhs:term) =>
+      let discardName := freshSyntheticLocalName "__discard" params locals #[]
+      let discardIdent := mkIdent (Name.mkSimple discardName)
+      rewriteForEachExecutableDoElem externalDecls params locals
+        (← `(doElem| let $discardIdent:ident ← $rhs:term))
   | `(doElem| let $name:ident := $rhs:term) =>
       let varName := toString name.getId
       let interfaceName? ← interfaceNameOfTerm? params locals rhs

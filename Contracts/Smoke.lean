@@ -1911,7 +1911,7 @@ verity_contract LinkedExternalDynamicArgSmoke where
     externalCallBind [] "notifyArray" [leaves]
 
   function discardHash (leaves : Array Uint256) : Unit := do
-    let _ := externalCall "hashArray" [leaves]
+    let _ := (externalCall "hashArray" [leaves] : Uint256)
 
   function tryHash (leaves : Array Uint256) : Uint256 := do
     let (_success, h) ← tryExternalCall "hashArray" [leaves]
