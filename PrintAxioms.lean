@@ -44,9 +44,9 @@ import Compiler.Proofs.IRGeneration.Dispatch
 import Compiler.Proofs.IRGeneration.Function
 import Compiler.Proofs.IRGeneration.FunctionBody
 import Compiler.Proofs.IRGeneration.FunctionShape
-import Compiler.Proofs.IRGeneration.GenericInduction.ResultRelation
 import Compiler.Proofs.IRGeneration.GenericInduction.Core
 import Compiler.Proofs.IRGeneration.GenericInduction.InternalCalls
+import Compiler.Proofs.IRGeneration.GenericInduction.ResultRelation
 import Compiler.Proofs.IRGeneration.IRInterpreter
 import Compiler.Proofs.IRGeneration.IRStorageWord
 import Compiler.Proofs.IRGeneration.IntrinsicProofs
@@ -2180,11 +2180,6 @@ end Verity.AxiomAudit
   -- Compiler/Proofs/IRGeneration/FunctionShape.lean
   Compiler.Proofs.IRGeneration.FunctionShape.compileFunctionSpec_ok_components
 
-  -- Compiler/Proofs/IRGeneration/GenericInduction/ResultRelation.lean
-  Compiler.Proofs.IRGeneration.stmtStepMatchesIRExecWithInternals_of_stmtStepMatchesIRExec
-  Compiler.Proofs.IRGeneration.CompiledStmtStep.withHelpers_of_helperSurfaceClosed
-  Compiler.Proofs.IRGeneration.compileStmtList_ok_of_stmtListGenericCore_early
-
   -- Compiler/Proofs/IRGeneration/GenericInduction/Core.lean
   -- Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_append  -- private
   -- Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_of_exprStmtExprs  -- private
@@ -2607,6 +2602,11 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.internalFunctionYulName_ne_return  -- private
   Compiler.Proofs.IRGeneration.execIRStmtsWithInternals_of_internalCallAssign_compiledHelperWitness
   Compiler.Proofs.IRGeneration.execIRStmtsWithInternals_of_internalCall_compiledHelperWitness
+
+  -- Compiler/Proofs/IRGeneration/GenericInduction/ResultRelation.lean
+  Compiler.Proofs.IRGeneration.stmtStepMatchesIRExecWithInternals_of_stmtStepMatchesIRExec
+  Compiler.Proofs.IRGeneration.CompiledStmtStep.withHelpers_of_helperSurfaceClosed
+  Compiler.Proofs.IRGeneration.compileStmtList_ok_of_stmtListGenericCore_early
 
   -- Compiler/Proofs/IRGeneration/IRInterpreter.lean
   -- Compiler.Proofs.IRGeneration.exprSize_lt_exprsSize_cons  -- private
@@ -5554,4 +5554,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5247 theorems/lemmas (3632 public, 1615 private, 0 sorry'd)
+-- Total: 5247 theorems/lemmas (3634 public, 1613 private, 0 sorry'd)
