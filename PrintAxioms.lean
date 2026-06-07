@@ -2186,149 +2186,6 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.FunctionShape.compileFunctionSpec_ok_components
 
   -- Compiler/Proofs/IRGeneration/GenericInduction/Core.lean
-  -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeUintSlots_singleton_other  -- private
-  -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeUintSlots_other  -- private
-  -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeUintKeyedMappingSlots_singleton_other  -- private
-  -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeAddressKeyedMappingChainSlots_singleton_other  -- private
-  -- Compiler.Proofs.IRGeneration.IRStorageSlot.toNat_ofNat_wordNormalize  -- private
-  -- Compiler.Proofs.IRGeneration.IRStorageSlot.toNat_ofNat_wordNormalize_arg  -- private
-  -- Compiler.Proofs.IRGeneration.IRStorageSlot.ofNat_wordNormalize  -- private
-  -- Compiler.Proofs.IRGeneration.SourceSemantics.wordNormalize_lt_evmModulus  -- private
-  -- Compiler.Proofs.IRGeneration.IRStorageSlot.toNat_ofNat_of_lt  -- private
-  -- Compiler.Proofs.IRGeneration.IRStorageSlot.ne_toNat_wordNormalize_of_ne_ofNat  -- private
-  -- Compiler.Proofs.IRGeneration.IRStorageSlot.ne_toNat_of_ne_ofNat_of_lt  -- private
-  -- Compiler.Proofs.IRGeneration.uint256_add_val_eq_mod  -- private
-  -- Compiler.Proofs.IRGeneration.mappingWordTargetSlot_eq_uint256_add  -- private
-  -- Compiler.Proofs.IRGeneration.mapping2WordTargetSlot_eq_uint256_add  -- private
-  -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeAddressKeyedMappingWordSlots_singleton_other  -- private
-  -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeAddressKeyedMappingPackedWordSlots_singleton_other  -- private
-  -- Compiler.Proofs.IRGeneration.SourceSemantics.wordNormalize_idem  -- private
-  -- Compiler.Proofs.IRGeneration.findResolvedFieldAtSlotCopyFrom_wordNormalize  -- private
-  -- Compiler.Proofs.IRGeneration.findResolvedFieldAtSlotCopy_wordNormalize  -- private
-  -- Compiler.Proofs.IRGeneration.findResolvedFieldAtSlot_go_eq_copy  -- private
-  -- Compiler.Proofs.IRGeneration.findResolvedFieldAtSlotCopy_eq  -- private
-  -- Compiler.Proofs.IRGeneration.findDynamicArrayElementAtSlot_scanElements_eq_copy  -- private
-  -- Compiler.Proofs.IRGeneration.findDynamicArrayElementAtSlot_go_eq_copy  -- private
-  -- Compiler.Proofs.IRGeneration.findDynamicArrayElementAtSlotCopy_eq  -- private
-  -- Compiler.Proofs.IRGeneration.findDynamicArrayElementAtSlotCopy_scanElements_wordNormalize  -- private
-  -- Compiler.Proofs.IRGeneration.findDynamicArrayElementAtSlotCopy_go_wordNormalize  -- private
-  -- Compiler.Proofs.IRGeneration.findDynamicArrayElementAtSlotCopy_wordNormalize  -- private
-  -- Compiler.Proofs.IRGeneration.encodeStorageAt_eq_copy  -- private
-  -- Compiler.Proofs.IRGeneration.fieldWriteEntriesAt_base_mem  -- private
-  -- Compiler.Proofs.IRGeneration.exists_mem_zipIdx_of_mem  -- private
-  -- Compiler.Proofs.IRGeneration.fieldWriteEntriesAt_alias_mem  -- private
-  -- Compiler.Proofs.IRGeneration.fieldWriteEntriesAt_packed_none_of_unpacked  -- private
-  -- Compiler.Proofs.IRGeneration.list_findSlotPackedNone_ne_none  -- private
-  -- Compiler.Proofs.IRGeneration.firstInFieldConflictCopy_ne_none_of_seen_slot_unpacked  -- private
-  -- Compiler.Proofs.IRGeneration.firstFieldWriteSlotConflictCopyFrom_some_of_seen_slot_member  -- private
-  -- Compiler.Proofs.IRGeneration.firstFieldWriteSlotConflictCopyFrom_some_of_seen_slot_singleton  -- private
-  -- Compiler.Proofs.IRGeneration.findResolvedFieldAtSlotCopyFrom_of_member  -- private
-  -- Compiler.Proofs.IRGeneration.findResolvedFieldAtSlotCopy_go_eq_CopyFrom  -- private
-  -- Compiler.Proofs.IRGeneration.firstInFieldConflict_eq_Copy  -- private
-  -- Compiler.Proofs.IRGeneration.firstFieldWriteSlotConflict_go_eq_CopyFrom  -- private
-  -- Compiler.Proofs.IRGeneration.findResolvedFieldAtSlotCopy_of_findFieldWithResolvedSlot_member  -- private
-  -- Compiler.Proofs.IRGeneration.findResolvedFieldAtSlotCopy_of_findFieldWithResolvedSlot_singleton  -- private
-  -- Compiler.Proofs.IRGeneration.encodeStorageAt_eq_storage_of_resolvedSlot  -- private
-  -- Compiler.Proofs.IRGeneration.encodeStorageAt_eq_storageAddr_of_resolvedSlot  -- private
-  -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeUintKeyedMappingSlots_singleton_eq_written  -- private
-  -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeAddressKeyedMappingChainSlots_singleton_eq_written  -- private
-  -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeAddressKeyedMappingWordSlots_singleton_eq_written  -- private
-  -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeAddressKeyedMappingPackedWordSlots_singleton_eq_written  -- private
-  -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeAddressKeyedMapping2Slots_singleton_other  -- private
-  -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeAddressKeyedMapping2Slots_singleton_eq_written  -- private
-  -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeAddressKeyedMapping2WordSlots_singleton_other  -- private
-  -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeAddressKeyedMapping2WordSlots_singleton_eq_written  -- private
-  -- Compiler.Proofs.IRGeneration.abstractStoreStorageOrMappingMany_eq  -- private
-  -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeUintSlot  -- private
-  -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeAddressSlot  -- private
-  -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeUintSlots  -- private
-  -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeUintKeyedMappingSlot  -- private
-  -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeAddressKeyedMappingChainSlot  -- private
-  -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeAddressKeyedMappingSlot  -- private
-  -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeAddressKeyedMappingWordSlot  -- private
-  -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeAddressKeyedMappingPackedWordSlot  -- private
-  -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeAddressKeyedMapping2Slot  -- private
-  -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeAddressKeyedMapping2WordSlot  -- private
-  -- Compiler.Proofs.IRGeneration.bindingsExactlyMatchIRVarsOnScope_writeUintSlot  -- private
-  -- Compiler.Proofs.IRGeneration.bindingsExactlyMatchIRVarsOnScope_writeMappingSlot  -- private
-  -- Compiler.Proofs.IRGeneration.bindingsExactlyMatchIRVarsOnScope_writeUintSlots  -- private
-  -- Compiler.Proofs.IRGeneration.execIRStmts_sstore_lit_ident_slots_continue  -- private
-  -- Compiler.Proofs.IRGeneration.execIRStmts_let_then_sstore_lit_ident_slots_continue  -- private
-  -- Compiler.Proofs.IRGeneration.execIRStmts_single_block_of_continue  -- private
-  -- Compiler.Proofs.IRGeneration.singletonBlock_sizeOf_slack  -- private
-  -- Compiler.Proofs.IRGeneration.compatValue_not_mem_scope_of_reservedPrefix  -- private
-  -- Compiler.Proofs.IRGeneration.compatScratch_startsWith_reserved  -- private
-  -- Compiler.Proofs.IRGeneration.compatScratch_not_internalImmutable  -- private
-  -- Compiler.Proofs.IRGeneration.validateIdentifierShapes_fieldName_ne_reservedScratch  -- private
-  -- Compiler.Proofs.IRGeneration.scopeAvoidsReservedCompilerPrefix_of_validateIdentifierShapes  -- private
-  -- Compiler.Proofs.IRGeneration.findFieldWriteSlots_of_findFieldWithResolvedSlot  -- private
-  Compiler.Proofs.IRGeneration.compiledStmtStep_setStorage_singleSlot
-  -- Compiler.Proofs.IRGeneration.compiledStmtStep_setStorageAddr_singleSlot_preserves  -- private
-  Compiler.Proofs.IRGeneration.compiledStmtStep_setStorageAddr_singleSlot
-  -- Compiler.Proofs.IRGeneration.compiledStmtStep_mstore_single_preserves  -- private
-  Compiler.Proofs.IRGeneration.compiledStmtStep_mstore_single
-  -- Compiler.Proofs.IRGeneration.compiledStmtStep_tstore_single_preserves  -- private
-  Compiler.Proofs.IRGeneration.compiledStmtStep_tstore_single
-  -- Compiler.Proofs.IRGeneration.compiledStmtStep_setMappingUint_singleSlot_of_slotSafety_preserves  -- private
-  Compiler.Proofs.IRGeneration.compiledStmtStep_setMappingUint_singleSlot_of_slotSafety
-  -- Compiler.Proofs.IRGeneration.compileExprList_core_ok  -- private
-  -- Compiler.Proofs.IRGeneration.compileStmt_emit_scalar_supported_ok  -- private
-  Compiler.Proofs.IRGeneration.eventHeadStepBridgeCatalog_of_semanticBridgeCatalog
-  -- Compiler.Proofs.IRGeneration.eval_compileExpr_core_some_of_scope  -- private
-  -- Compiler.Proofs.IRGeneration.eval_compileExprList_core_of_scope  -- private
-  -- Compiler.Proofs.IRGeneration.evalIRExpr_mappingSlotChain  -- private
-  -- Compiler.Proofs.IRGeneration.execIRStmt_sstore_of_eval  -- private
-  -- Compiler.Proofs.IRGeneration.execIRStmt_sstore_foldl_mappingSlot  -- private
-  -- Compiler.Proofs.IRGeneration.compiledStmtStep_setMappingChain_singleSlot_of_slotSafety_preserves  -- private
-  Compiler.Proofs.IRGeneration.compiledStmtStep_setMappingChain_singleSlot_of_slotSafety
-  -- Compiler.Proofs.IRGeneration.compiledStmtStep_setMapping_singleSlot_of_slotSafety_preserves  -- private
-  Compiler.Proofs.IRGeneration.compiledStmtStep_setMapping_singleSlot_of_slotSafety
-  -- Compiler.Proofs.IRGeneration.compiledStmtStep_setMappingWord_singleSlot_of_slotSafety_preserves  -- private
-  Compiler.Proofs.IRGeneration.compiledStmtStep_setMappingWord_singleSlot_of_slotSafety
-  -- Compiler.Proofs.IRGeneration.uint256_and_val_eq_land_mod  -- private
-  -- Compiler.Proofs.IRGeneration.uint256_or_val_eq_lor_mod  -- private
-  -- Compiler.Proofs.IRGeneration.uint256_not_val_eq_xor_allOnes_mod  -- private
-  -- Compiler.Proofs.IRGeneration.uint256_shl_val_eq_mul_pow_mod  -- private
-  -- Compiler.Proofs.IRGeneration.compiledStmtStep_setMappingPackedWord_singleSlot_of_slotSafety_preserves  -- private
-  Compiler.Proofs.IRGeneration.compiledStmtStep_setMappingPackedWord_singleSlot_of_slotSafety
-  -- Compiler.Proofs.IRGeneration.compiledStmtStep_setStructMember_singleSlot_of_slotSafety_preserves  -- private
-  Compiler.Proofs.IRGeneration.compiledStmtStep_setStructMember_singleSlot_of_slotSafety
-  -- Compiler.Proofs.IRGeneration.compiledStmtStep_setMapping2_singleSlot_of_slotSafety_preserves  -- private
-  Compiler.Proofs.IRGeneration.compiledStmtStep_setMapping2_singleSlot_of_slotSafety
-  -- Compiler.Proofs.IRGeneration.compiledStmtStep_setMapping2Word_singleSlot_of_slotSafety_preserves  -- private
-  Compiler.Proofs.IRGeneration.compiledStmtStep_setMapping2Word_singleSlot_of_slotSafety
-  -- Compiler.Proofs.IRGeneration.compiledStmtStep_setStructMember2_singleSlot_of_slotSafety_preserves  -- private
-  Compiler.Proofs.IRGeneration.compiledStmtStep_setStructMember2_singleSlot_of_slotSafety
-  Compiler.Proofs.IRGeneration.compiledStmtStep_setStorage_aliasSlots
-  Compiler.Proofs.IRGeneration.compiledStmtStep_setStorage_of_validateIdentifierShapes
-  Compiler.Proofs.IRGeneration.compiledStmtStep_setStorage_of_validateIdentifierShapes_of_scopeDiscipline
-  Compiler.Proofs.IRGeneration.compiledStmtStep_setStorage_of_validateIdentifierShapes_of_validateFunctionIdentifierReferences
-  Compiler.Proofs.IRGeneration.compiledStmtStep_setStorage_of_validateIdentifierShapes_of_validateFunctionIdentifierReferences_of_compileStmtList_of_bodySurface
-  -- Compiler.Proofs.IRGeneration.terminal_stmtResultMatchesIRExec_implies_stmtStepMatchesIRExec  -- private
-  Compiler.Proofs.IRGeneration.compiledStmtStep_ite
-  -- Compiler.Proofs.IRGeneration.stmtListTouchesUnsupportedContractSurface_append  -- private
-  -- Compiler.Proofs.IRGeneration.stmtListTouchesUnsupportedContractSurfaceExceptMappingWrites_append  -- private
-  -- Compiler.Proofs.IRGeneration.stmtTouchesUnsupportedContractSurfaceExceptMappingWrites_eq_false_of_contractSurface  -- private
-  -- Compiler.Proofs.IRGeneration.stmtListTouchesUnsupportedContractSurfaceExceptMappingWrites_eq_false_of_contractSurface  -- private
-  -- Compiler.Proofs.IRGeneration.stmtListCompileCore_of_requireLiteralGuardFamilyClauses  -- private
-  -- Compiler.Proofs.IRGeneration.foldl_stmtNextScope_requireLiteralGuardFamilyClauses  -- private
-  -- Compiler.Proofs.IRGeneration.compiledStmtStep_letStorageField  -- private
-  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_letStorageField  -- private
-  -- Compiler.Proofs.IRGeneration.compiledStmtStep_letStorageAddrField  -- private
-  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_letStorageAddrField  -- private
-  -- Compiler.Proofs.IRGeneration.compiledStmtStep_assignStorageField  -- private
-  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_assignStorageField  -- private
-  -- Compiler.Proofs.IRGeneration.compiledStmtStep_assignStorageAddrField  -- private
-  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_assignStorageAddrField  -- private
-  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_iteTerminal  -- private
-  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_setStorage_singleSlot  -- private
-  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_setStorageAddr_singleSlot  -- private
-  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_mstore_single  -- private
-  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_tstore_single  -- private
-  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_setStorageSingleSlot_of_surface  -- private
-  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_setStorageAddrSingleSlot_of_surface  -- private
-  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_mstoreSingle_of_surface  -- private
-  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_tstoreSingle_of_surface  -- private
   -- Compiler.Proofs.IRGeneration.sourceExec_forEach_literal_zero  -- private
   -- Compiler.Proofs.IRGeneration.sourceExec_forEach_literal_empty  -- private
   -- Compiler.Proofs.IRGeneration.forEachZero_fresh_facts  -- private
@@ -2620,6 +2477,151 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.mem_foldl_stmtNextScope_of_mem_scope  -- private
   Compiler.Proofs.IRGeneration.stmtListNames_subset_foldl_stmtNextScope
   Compiler.Proofs.IRGeneration.stmtListScopeDiscipline_scope_names
+
+  -- Compiler/Proofs/IRGeneration/GenericInduction/Storage.lean
+  -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeUintSlots_singleton_other  -- private
+  -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeUintSlots_other  -- private
+  -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeUintKeyedMappingSlots_singleton_other  -- private
+  -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeAddressKeyedMappingChainSlots_singleton_other  -- private
+  -- Compiler.Proofs.IRGeneration.IRStorageSlot.toNat_ofNat_wordNormalize  -- private
+  -- Compiler.Proofs.IRGeneration.IRStorageSlot.toNat_ofNat_wordNormalize_arg  -- private
+  -- Compiler.Proofs.IRGeneration.IRStorageSlot.ofNat_wordNormalize  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemantics.wordNormalize_lt_evmModulus  -- private
+  -- Compiler.Proofs.IRGeneration.IRStorageSlot.toNat_ofNat_of_lt  -- private
+  -- Compiler.Proofs.IRGeneration.IRStorageSlot.ne_toNat_wordNormalize_of_ne_ofNat  -- private
+  -- Compiler.Proofs.IRGeneration.IRStorageSlot.ne_toNat_of_ne_ofNat_of_lt  -- private
+  -- Compiler.Proofs.IRGeneration.uint256_add_val_eq_mod  -- private
+  Compiler.Proofs.IRGeneration.mappingWordTargetSlot_eq_uint256_add
+  Compiler.Proofs.IRGeneration.mapping2WordTargetSlot_eq_uint256_add
+  -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeAddressKeyedMappingWordSlots_singleton_other  -- private
+  -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeAddressKeyedMappingPackedWordSlots_singleton_other  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemantics.wordNormalize_idem  -- private
+  Compiler.Proofs.IRGeneration.findResolvedFieldAtSlotCopyFrom_wordNormalize
+  Compiler.Proofs.IRGeneration.findResolvedFieldAtSlotCopy_wordNormalize
+  -- Compiler.Proofs.IRGeneration.findResolvedFieldAtSlot_go_eq_copy  -- private
+  Compiler.Proofs.IRGeneration.findResolvedFieldAtSlotCopy_eq
+  -- Compiler.Proofs.IRGeneration.findDynamicArrayElementAtSlot_scanElements_eq_copy  -- private
+  -- Compiler.Proofs.IRGeneration.findDynamicArrayElementAtSlot_go_eq_copy  -- private
+  Compiler.Proofs.IRGeneration.findDynamicArrayElementAtSlotCopy_eq
+  Compiler.Proofs.IRGeneration.findDynamicArrayElementAtSlotCopy_scanElements_wordNormalize
+  Compiler.Proofs.IRGeneration.findDynamicArrayElementAtSlotCopy_go_wordNormalize
+  Compiler.Proofs.IRGeneration.findDynamicArrayElementAtSlotCopy_wordNormalize
+  -- Compiler.Proofs.IRGeneration.encodeStorageAt_eq_copy  -- private
+  -- Compiler.Proofs.IRGeneration.fieldWriteEntriesAt_base_mem  -- private
+  -- Compiler.Proofs.IRGeneration.exists_mem_zipIdx_of_mem  -- private
+  -- Compiler.Proofs.IRGeneration.fieldWriteEntriesAt_alias_mem  -- private
+  -- Compiler.Proofs.IRGeneration.fieldWriteEntriesAt_packed_none_of_unpacked  -- private
+  -- Compiler.Proofs.IRGeneration.list_findSlotPackedNone_ne_none  -- private
+  -- Compiler.Proofs.IRGeneration.firstInFieldConflictCopy_ne_none_of_seen_slot_unpacked  -- private
+  -- Compiler.Proofs.IRGeneration.firstFieldWriteSlotConflictCopyFrom_some_of_seen_slot_member  -- private
+  -- Compiler.Proofs.IRGeneration.firstFieldWriteSlotConflictCopyFrom_some_of_seen_slot_singleton  -- private
+  Compiler.Proofs.IRGeneration.findResolvedFieldAtSlotCopyFrom_of_member
+  Compiler.Proofs.IRGeneration.findResolvedFieldAtSlotCopy_go_eq_CopyFrom
+  -- Compiler.Proofs.IRGeneration.firstInFieldConflict_eq_Copy  -- private
+  -- Compiler.Proofs.IRGeneration.firstFieldWriteSlotConflict_go_eq_CopyFrom  -- private
+  Compiler.Proofs.IRGeneration.findResolvedFieldAtSlotCopy_of_findFieldWithResolvedSlot_member
+  Compiler.Proofs.IRGeneration.findResolvedFieldAtSlotCopy_of_findFieldWithResolvedSlot_singleton
+  -- Compiler.Proofs.IRGeneration.encodeStorageAt_eq_storage_of_resolvedSlot  -- private
+  -- Compiler.Proofs.IRGeneration.encodeStorageAt_eq_storageAddr_of_resolvedSlot  -- private
+  -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeUintKeyedMappingSlots_singleton_eq_written  -- private
+  -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeAddressKeyedMappingChainSlots_singleton_eq_written  -- private
+  -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeAddressKeyedMappingWordSlots_singleton_eq_written  -- private
+  -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeAddressKeyedMappingPackedWordSlots_singleton_eq_written  -- private
+  -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeAddressKeyedMapping2Slots_singleton_other  -- private
+  -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeAddressKeyedMapping2Slots_singleton_eq_written  -- private
+  -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeAddressKeyedMapping2WordSlots_singleton_other  -- private
+  -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeAddressKeyedMapping2WordSlots_singleton_eq_written  -- private
+  -- Compiler.Proofs.IRGeneration.abstractStoreStorageOrMappingMany_eq  -- private
+  -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeUintSlot  -- private
+  -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeAddressSlot  -- private
+  -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeUintSlots  -- private
+  -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeUintKeyedMappingSlot  -- private
+  -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeAddressKeyedMappingChainSlot  -- private
+  -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeAddressKeyedMappingSlot  -- private
+  -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeAddressKeyedMappingWordSlot  -- private
+  -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeAddressKeyedMappingPackedWordSlot  -- private
+  -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeAddressKeyedMapping2Slot  -- private
+  -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeAddressKeyedMapping2WordSlot  -- private
+  -- Compiler.Proofs.IRGeneration.bindingsExactlyMatchIRVarsOnScope_writeUintSlot  -- private
+  -- Compiler.Proofs.IRGeneration.bindingsExactlyMatchIRVarsOnScope_writeMappingSlot  -- private
+  -- Compiler.Proofs.IRGeneration.bindingsExactlyMatchIRVarsOnScope_writeUintSlots  -- private
+  -- Compiler.Proofs.IRGeneration.execIRStmts_sstore_lit_ident_slots_continue  -- private
+  -- Compiler.Proofs.IRGeneration.execIRStmts_let_then_sstore_lit_ident_slots_continue  -- private
+  -- Compiler.Proofs.IRGeneration.execIRStmts_single_block_of_continue  -- private
+  -- Compiler.Proofs.IRGeneration.singletonBlock_sizeOf_slack  -- private
+  -- Compiler.Proofs.IRGeneration.compatValue_not_mem_scope_of_reservedPrefix  -- private
+  -- Compiler.Proofs.IRGeneration.compatScratch_startsWith_reserved  -- private
+  -- Compiler.Proofs.IRGeneration.compatScratch_not_internalImmutable  -- private
+  -- Compiler.Proofs.IRGeneration.validateIdentifierShapes_fieldName_ne_reservedScratch  -- private
+  -- Compiler.Proofs.IRGeneration.scopeAvoidsReservedCompilerPrefix_of_validateIdentifierShapes  -- private
+  -- Compiler.Proofs.IRGeneration.findFieldWriteSlots_of_findFieldWithResolvedSlot  -- private
+  Compiler.Proofs.IRGeneration.compiledStmtStep_setStorage_singleSlot
+  -- Compiler.Proofs.IRGeneration.compiledStmtStep_setStorageAddr_singleSlot_preserves  -- private
+  Compiler.Proofs.IRGeneration.compiledStmtStep_setStorageAddr_singleSlot
+  -- Compiler.Proofs.IRGeneration.compiledStmtStep_mstore_single_preserves  -- private
+  Compiler.Proofs.IRGeneration.compiledStmtStep_mstore_single
+  -- Compiler.Proofs.IRGeneration.compiledStmtStep_tstore_single_preserves  -- private
+  Compiler.Proofs.IRGeneration.compiledStmtStep_tstore_single
+  -- Compiler.Proofs.IRGeneration.compiledStmtStep_setMappingUint_singleSlot_of_slotSafety_preserves  -- private
+  Compiler.Proofs.IRGeneration.compiledStmtStep_setMappingUint_singleSlot_of_slotSafety
+  Compiler.Proofs.IRGeneration.compileExprList_core_ok
+  -- Compiler.Proofs.IRGeneration.compileStmt_emit_scalar_supported_ok  -- private
+  Compiler.Proofs.IRGeneration.eventHeadStepBridgeCatalog_of_semanticBridgeCatalog
+  -- Compiler.Proofs.IRGeneration.eval_compileExpr_core_some_of_scope  -- private
+  -- Compiler.Proofs.IRGeneration.eval_compileExprList_core_of_scope  -- private
+  -- Compiler.Proofs.IRGeneration.evalIRExpr_mappingSlotChain  -- private
+  -- Compiler.Proofs.IRGeneration.execIRStmt_sstore_of_eval  -- private
+  -- Compiler.Proofs.IRGeneration.execIRStmt_sstore_foldl_mappingSlot  -- private
+  -- Compiler.Proofs.IRGeneration.compiledStmtStep_setMappingChain_singleSlot_of_slotSafety_preserves  -- private
+  Compiler.Proofs.IRGeneration.compiledStmtStep_setMappingChain_singleSlot_of_slotSafety
+  -- Compiler.Proofs.IRGeneration.compiledStmtStep_setMapping_singleSlot_of_slotSafety_preserves  -- private
+  Compiler.Proofs.IRGeneration.compiledStmtStep_setMapping_singleSlot_of_slotSafety
+  -- Compiler.Proofs.IRGeneration.compiledStmtStep_setMappingWord_singleSlot_of_slotSafety_preserves  -- private
+  Compiler.Proofs.IRGeneration.compiledStmtStep_setMappingWord_singleSlot_of_slotSafety
+  -- Compiler.Proofs.IRGeneration.uint256_and_val_eq_land_mod  -- private
+  -- Compiler.Proofs.IRGeneration.uint256_or_val_eq_lor_mod  -- private
+  -- Compiler.Proofs.IRGeneration.uint256_not_val_eq_xor_allOnes_mod  -- private
+  -- Compiler.Proofs.IRGeneration.uint256_shl_val_eq_mul_pow_mod  -- private
+  -- Compiler.Proofs.IRGeneration.compiledStmtStep_setMappingPackedWord_singleSlot_of_slotSafety_preserves  -- private
+  Compiler.Proofs.IRGeneration.compiledStmtStep_setMappingPackedWord_singleSlot_of_slotSafety
+  -- Compiler.Proofs.IRGeneration.compiledStmtStep_setStructMember_singleSlot_of_slotSafety_preserves  -- private
+  Compiler.Proofs.IRGeneration.compiledStmtStep_setStructMember_singleSlot_of_slotSafety
+  -- Compiler.Proofs.IRGeneration.compiledStmtStep_setMapping2_singleSlot_of_slotSafety_preserves  -- private
+  Compiler.Proofs.IRGeneration.compiledStmtStep_setMapping2_singleSlot_of_slotSafety
+  -- Compiler.Proofs.IRGeneration.compiledStmtStep_setMapping2Word_singleSlot_of_slotSafety_preserves  -- private
+  Compiler.Proofs.IRGeneration.compiledStmtStep_setMapping2Word_singleSlot_of_slotSafety
+  -- Compiler.Proofs.IRGeneration.compiledStmtStep_setStructMember2_singleSlot_of_slotSafety_preserves  -- private
+  Compiler.Proofs.IRGeneration.compiledStmtStep_setStructMember2_singleSlot_of_slotSafety
+  Compiler.Proofs.IRGeneration.compiledStmtStep_setStorage_aliasSlots
+  Compiler.Proofs.IRGeneration.compiledStmtStep_setStorage_of_validateIdentifierShapes
+  Compiler.Proofs.IRGeneration.compiledStmtStep_setStorage_of_validateIdentifierShapes_of_scopeDiscipline
+  Compiler.Proofs.IRGeneration.compiledStmtStep_setStorage_of_validateIdentifierShapes_of_validateFunctionIdentifierReferences
+  Compiler.Proofs.IRGeneration.compiledStmtStep_setStorage_of_validateIdentifierShapes_of_validateFunctionIdentifierReferences_of_compileStmtList_of_bodySurface
+  -- Compiler.Proofs.IRGeneration.terminal_stmtResultMatchesIRExec_implies_stmtStepMatchesIRExec  -- private
+  Compiler.Proofs.IRGeneration.compiledStmtStep_ite
+  Compiler.Proofs.IRGeneration.stmtListTouchesUnsupportedContractSurface_append
+  Compiler.Proofs.IRGeneration.stmtListTouchesUnsupportedContractSurfaceExceptMappingWrites_append
+  -- Compiler.Proofs.IRGeneration.stmtTouchesUnsupportedContractSurfaceExceptMappingWrites_eq_false_of_contractSurface  -- private
+  Compiler.Proofs.IRGeneration.stmtListTouchesUnsupportedContractSurfaceExceptMappingWrites_eq_false_of_contractSurface
+  Compiler.Proofs.IRGeneration.stmtListCompileCore_of_requireLiteralGuardFamilyClauses
+  Compiler.Proofs.IRGeneration.foldl_stmtNextScope_requireLiteralGuardFamilyClauses
+  -- Compiler.Proofs.IRGeneration.compiledStmtStep_letStorageField  -- private
+  Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_letStorageField
+  -- Compiler.Proofs.IRGeneration.compiledStmtStep_letStorageAddrField  -- private
+  Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_letStorageAddrField
+  -- Compiler.Proofs.IRGeneration.compiledStmtStep_assignStorageField  -- private
+  Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_assignStorageField
+  -- Compiler.Proofs.IRGeneration.compiledStmtStep_assignStorageAddrField  -- private
+  Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_assignStorageAddrField
+  Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_iteTerminal
+  Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_setStorage_singleSlot
+  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_setStorageAddr_singleSlot  -- private
+  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_mstore_single  -- private
+  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_tstore_single  -- private
+  Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_setStorageSingleSlot_of_surface
+  Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_setStorageAddrSingleSlot_of_surface
+  Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_mstoreSingle_of_surface
+  Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_tstoreSingle_of_surface
 
   -- Compiler/Proofs/IRGeneration/IRInterpreter.lean
   -- Compiler.Proofs.IRGeneration.exprSize_lt_exprsSize_cons  -- private
@@ -5567,4 +5569,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5247 theorems/lemmas (3643 public, 1604 private, 0 sorry'd)
+-- Total: 5247 theorems/lemmas (3672 public, 1575 private, 0 sorry'd)
