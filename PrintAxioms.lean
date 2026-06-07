@@ -44,7 +44,8 @@ import Compiler.Proofs.IRGeneration.Dispatch
 import Compiler.Proofs.IRGeneration.Function
 import Compiler.Proofs.IRGeneration.FunctionBody
 import Compiler.Proofs.IRGeneration.FunctionShape
-import Compiler.Proofs.IRGeneration.GenericInduction
+import Compiler.Proofs.IRGeneration.GenericInduction.Core
+import Compiler.Proofs.IRGeneration.GenericInduction.InternalCalls
 import Compiler.Proofs.IRGeneration.IRInterpreter
 import Compiler.Proofs.IRGeneration.IRStorageWord
 import Compiler.Proofs.IRGeneration.IntrinsicProofs
@@ -2178,7 +2179,7 @@ end Verity.AxiomAudit
   -- Compiler/Proofs/IRGeneration/FunctionShape.lean
   Compiler.Proofs.IRGeneration.FunctionShape.compileFunctionSpec_ok_components
 
-  -- Compiler/Proofs/IRGeneration/GenericInduction.lean
+  -- Compiler/Proofs/IRGeneration/GenericInduction/Core.lean
   -- Compiler.Proofs.IRGeneration.stmtStepMatchesIRExecWithInternals_of_stmtStepMatchesIRExec  -- private
   Compiler.Proofs.IRGeneration.CompiledStmtStep.withHelpers_of_helperSurfaceClosed
   -- Compiler.Proofs.IRGeneration.compileStmtList_ok_of_stmtListGenericCore_early  -- private
@@ -2569,6 +2570,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_with_helpers_and_helper_ir_except_mapping_writes
   Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_with_helpers_goal
   Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_with_helpers
+
+  -- Compiler/Proofs/IRGeneration/GenericInduction/InternalCalls.lean
   Compiler.Proofs.IRGeneration.compiledStmtStepWithHelpersAndHelperIR_internalCallAssign
   Compiler.Proofs.IRGeneration.compiledStmtStepWithHelpersAndHelperIR_internalCall
   Compiler.Proofs.IRGeneration.stmtListDirectInternalHelperAssignStepInterface_cons_internalCallAssign
