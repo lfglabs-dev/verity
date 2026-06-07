@@ -74,14 +74,43 @@ inductive Result where
   | error (msg : String)
   deriving Repr
 
+/-- Locate the Lake workspace root containing the current process, if any. -/
+partial def findWorkspaceRoot? (dir : System.FilePath) : IO (Option System.FilePath) := do
+  if ← (dir / "lakefile.lean").pathExists then
+    pure (some dir)
+  else if ← (dir / "lakefile.toml").pathExists then
+    pure (some dir)
+  else
+    match dir.parent with
+    | some parent =>
+        if parent == dir then
+          pure none
+        else
+          findWorkspaceRoot? parent
+    | none => pure none
+
+/-- Resolve `path` according to the `Options.path` contract.
+
+Absolute paths are preserved. Relative paths are anchored at the Lake workspace
+root containing the current process, falling back to the process working
+directory when the command is run outside a Lake workspace. -/
+def resolveSourcePath (path : System.FilePath) : IO System.FilePath := do
+  if path.isAbsolute then
+    pure path.normalize
+  else
+    let cwd ← IO.currentDir
+    let root ← findWorkspaceRoot? cwd
+    pure (((root.getD cwd) / path).normalize)
+
 /-- Invoke `verity-cli compile path --emit lean`. Returns the emitted
     Lean source on stdout or an error message. -/
 def runVerityCliCompile (opts : Options) : IO Result := do
+  let sourcePath ← resolveSourcePath opts.path
   let args := match opts.contractName with
     | some c =>
-        #["compile", opts.path.toString, "--contract", c, "--emit", "lean"]
+        #["compile", sourcePath.toString, "--contract", c, "--emit", "lean"]
     | none =>
-        #["compile", opts.path.toString, "--emit", "lean"]
+        #["compile", sourcePath.toString, "--emit", "lean"]
   try
     let out ← IO.Process.run { cmd := opts.cliBinary, args }
     return .ok out
@@ -104,7 +133,9 @@ def elabFromSolidity : CommandElab := fun stx => do
     (fun e => IO.userError s!"fromSolidity IO failure: {e.toString}")
   match result with
   | .ok _emitted =>
-      logInfo m!"fromSolidity scaffold: would elaborate {opts.path}; in-process translator pending"
+      let sourcePath ← (resolveSourcePath opts.path).toIO
+        (fun e => IO.userError s!"fromSolidity path resolution failure: {e.toString}")
+      logInfo m!"fromSolidity scaffold: would elaborate {sourcePath}; in-process translator pending"
   | .error msg =>
       throwError m!"fromSolidity: {msg}. Falling back: declare the verity_contract block by hand for now."
 
