@@ -1910,6 +1910,9 @@ verity_contract LinkedExternalDynamicArgSmoke where
   function sendLeaves (leaves : Array Uint256) : Unit := do
     externalCallBind [] "notifyArray" [leaves]
 
+  function discardHash (leaves : Array Uint256) : Unit := do
+    let _ := externalCall "hashArray" [leaves]
+
   function tryHash (leaves : Array Uint256) : Uint256 := do
     let (_success, h) ← tryExternalCall "hashArray" [leaves]
     return h
@@ -1935,6 +1938,18 @@ example :
           [ Compiler.CompilationModel.Expr.param "leaves_data_offset"
           , Compiler.CompilationModel.Expr.param "leaves_length"
           ]
+      , Compiler.CompilationModel.Stmt.stop
+      ] := rfl
+
+example :
+    LinkedExternalDynamicArgSmoke.discardHash_modelBody =
+      [ Compiler.CompilationModel.Stmt.letVar
+          "discard"
+          (Compiler.CompilationModel.Expr.externalCall
+            "hashArray"
+            [ Compiler.CompilationModel.Expr.param "leaves_data_offset"
+            , Compiler.CompilationModel.Expr.param "leaves_length"
+            ])
       , Compiler.CompilationModel.Stmt.stop
       ] := rfl
 

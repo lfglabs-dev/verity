@@ -127,6 +127,9 @@ private partial def validateDoElemExprTypes
   match tupleCase? with
   | some typedLocals => pure typedLocals
   | none => match elem with
+      | `(doElem| let _ := $rhs:term) =>
+          let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals rhs
+          pure locals
       | `(doElem| let mut $name:ident := $rhs:term) =>
           let ty ← inferPureExprType fields constDecls immutableDecls externalDecls params locals rhs
           requireSupportedLocalBindingType name s!"local binding '{toString name.getId}'" ty
@@ -1123,6 +1126,16 @@ private partial def translateDoElem
   match tupleCase? with
   | some result => pure result
   | none => match elem with
+      | `(doElem| let _ := $rhs:term) =>
+          let discardName :=
+            freshSyntheticLocalName "discard" params locals mutableLocals
+          let rhsExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals rhs
+          let ty ← inferPureExprType fields constDecls immutableDecls externalDecls params locals rhs
+          let interfaceName? ← interfaceNameOfTerm? params locals rhs
+          pure
+            (#[(← `(Compiler.CompilationModel.Stmt.letVar $(strTerm discardName) $rhsExpr))],
+              locals.push (mkTypedLocal discardName ty interfaceName?),
+              mutableLocals)
       | `(doElem| let mut $name:ident := $rhs:term) =>
           let varName := toString name.getId
           if localNames.contains varName then
