@@ -64,7 +64,8 @@ import Compiler.Proofs.IRGeneration.SupportedSpec
 import Compiler.Proofs.KeccakBound
 import Compiler.Proofs.MappingSlot
 import Compiler.Proofs.StorageBounds
-import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBodyClosure
+import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBodyClosure.Base
+import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBodyClosure.Safe
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBridgeLemmas
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBridgePredicates
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBuiltinSemantics
@@ -3356,7 +3357,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.StorageBounds.writeStorageArray_storage_unchanged
   Compiler.Proofs.StorageBounds.writeStorageArray_events_unchanged
 
-  -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanBodyClosure.lean
+  -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanBodyClosure/Base.lean
   Compiler.Proofs.YulGeneration.Backends.isDynamicParamType_false_of_static_scalar
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_calldataload_lit  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_and_lit_mask  -- private
@@ -3870,6 +3871,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.compileStmt_mappingPackedWordMultiSlotNonzero_noFuncDefs
   Compiler.Proofs.YulGeneration.Backends.compileStmtList_mappingPackedWordMultiSlotNonzero_bridged
   Compiler.Proofs.YulGeneration.Backends.compileStmtList_mappingPackedWordMultiSlotNonzero_noFuncDefs
+
+  -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanBodyClosure/Safe.lean
   -- Compiler.Proofs.YulGeneration.Backends.compileStmtList_append_eq  -- private
   Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_mstoreSingle_of_exprCompileCore
   Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_setStorageSingleSlot_of_exprCompileCore
