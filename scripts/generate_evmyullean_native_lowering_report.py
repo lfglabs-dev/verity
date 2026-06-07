@@ -24,6 +24,11 @@ BRIDGE_PREDICATES_FILE = BACKENDS_DIR / "EvmYulLeanBridgePredicates.lean"
 BRIDGE_LEMMAS_FILE = BACKENDS_DIR / "EvmYulLeanBridgeLemmas.lean"
 BRIDGE_TEST_FILE = BACKENDS_DIR / "EvmYulLeanBridgeTest.lean"
 CORRECTNESS_FILE = BACKENDS_DIR / "EvmYulLeanNativeHarness.lean"
+CORRECTNESS_FILES = [
+    CORRECTNESS_FILE,
+    BACKENDS_DIR / "EvmYulLeanNativeHarness" / "Base.lean",
+    BACKENDS_DIR / "EvmYulLeanNativeHarness" / "Runtime.lean",
+]
 DEFAULT_OUTPUT = ROOT / "artifacts" / "evmyullean_native_lowering_report.json"
 
 EXPECTED_EXPR_CASES = ["lit", "hex", "str", "ident", "call"]
@@ -475,7 +480,8 @@ def _parse_bridged_builtins_defs() -> tuple[list[str], list[str]]:
 
 def _parse_correctness_proofs() -> dict[str, object]:
     """Report native harness status for the historical correctness slot."""
-    if not CORRECTNESS_FILE.exists():
+    existing_files = [path for path in CORRECTNESS_FILES if path.exists()]
+    if not existing_files:
         try:
             file_label = str(CORRECTNESS_FILE.relative_to(ROOT))
         except ValueError:
@@ -485,7 +491,7 @@ def _parse_correctness_proofs() -> dict[str, object]:
             "runtime_lowering": "missing",
             "dispatcher_tail": "missing",
         }
-    text = CORRECTNESS_FILE.read_text(encoding="utf-8")
+    text = "\n".join(path.read_text(encoding="utf-8") for path in existing_files)
     code = _strip_lean_strings(_strip_lean_comments(text))
     return {
         "file": str(CORRECTNESS_FILE.relative_to(ROOT)),

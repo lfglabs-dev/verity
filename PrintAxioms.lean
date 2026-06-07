@@ -70,7 +70,8 @@ import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBridgePredicates
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBuiltinSemantics
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanCallClosure
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeCalldata
-import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeHarness
+import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeHarness.Base
+import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeHarness.Runtime
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeLowering
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativePrimOps
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeSignedArithLemmas
@@ -4126,7 +4127,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.initialState_selectorExpr_native_uint256
   Compiler.Proofs.YulGeneration.Backends.Native.lowerExprNative_selectorExpr
 
-  -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeHarness.lean
+  -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeHarness/Base.lean
   Compiler.Proofs.YulGeneration.Backends.Native.eval_lowerExprNative_selectorExpr_ok
   Compiler.Proofs.YulGeneration.Backends.Native.eval_lowerExprNative_selectorExpr_initialState_ok
   Compiler.Proofs.YulGeneration.Backends.Native.eval_lowerExprNative_iszero_lt_calldatasize_4_ok
@@ -4933,6 +4934,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_find_some_ok_withSwitchIds_atFuel_projectResult_eq_finalMatched_forall
   Compiler.Proofs.YulGeneration.Backends.Native.contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_find_none_withSwitchIds_projectResult_eq
   Compiler.Proofs.YulGeneration.Backends.Native.contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_find_none_withSwitchIds_atFuel_projectResult_eq
+
+  -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeHarness/Runtime.lean
   -- Compiler.Proofs.YulGeneration.Backends.Native.simpleStorageSelectors_tagsRange  -- private
   -- Compiler.Proofs.YulGeneration.Backends.Native.exec_lowerNativeSwitchBlock_simpleStorageSelectors_find_none_with_revert_default_projectResult  -- private
   -- Compiler.Proofs.YulGeneration.Backends.Native.exec_lowerNativeSwitchBlock_simpleStorageSelectors_find_none_with_revert_default_projectResult_eq  -- private

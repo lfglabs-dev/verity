@@ -529,6 +529,7 @@ class ParseCorrectnessProofsTests(unittest.TestCase):
               | done
         """)
         with patch.object(gen, "CORRECTNESS_FILE", p), \
+             patch.object(gen, "CORRECTNESS_FILES", [p]), \
              patch.object(gen, "ROOT", Path(self._tmpdir.name)):
             result = gen._parse_correctness_proofs()
         self.assertEqual(result["runtime_lowering"], "present")
@@ -539,6 +540,7 @@ class ParseCorrectnessProofsTests(unittest.TestCase):
             def helper := 42
         """)
         with patch.object(gen, "CORRECTNESS_FILE", p), \
+             patch.object(gen, "CORRECTNESS_FILES", [p]), \
              patch.object(gen, "ROOT", Path(self._tmpdir.name)):
             result = gen._parse_correctness_proofs()
         self.assertEqual(result["runtime_lowering"], "missing")
@@ -546,7 +548,9 @@ class ParseCorrectnessProofsTests(unittest.TestCase):
 
     def test_missing_file_reports_missing(self) -> None:
         """The native harness status is fail-closed when the source file is absent."""
-        with patch.object(gen, "CORRECTNESS_FILE", Path("/nonexistent/Correctness.lean")):
+        missing = Path("/nonexistent/Correctness.lean")
+        with patch.object(gen, "CORRECTNESS_FILE", missing), \
+             patch.object(gen, "CORRECTNESS_FILES", [missing]):
             result = gen._parse_correctness_proofs()
         self.assertEqual(result["runtime_lowering"], "missing")
         self.assertEqual(result["dispatcher_tail"], "missing")
