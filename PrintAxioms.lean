@@ -2187,30 +2187,6 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.FunctionShape.compileFunctionSpec_ok_components
 
   -- Compiler/Proofs/IRGeneration/GenericInduction/Core.lean
-  -- Compiler.Proofs.IRGeneration.sourceExec_forEach_literal_zero  -- private
-  -- Compiler.Proofs.IRGeneration.sourceExec_forEach_literal_empty  -- private
-  -- Compiler.Proofs.IRGeneration.forEachZero_fresh_facts  -- private
-  -- Compiler.Proofs.IRGeneration.forEachLiteral_fresh_facts  -- private
-  -- Compiler.Proofs.IRGeneration.evalIRExpr_forEachZeroCond_after_init  -- private
-  -- Compiler.Proofs.IRGeneration.forEachZero_initFuel_of_slack  -- private
-  -- Compiler.Proofs.IRGeneration.execIRStmts_forEach_empty_body_assign  -- private
-  -- Compiler.Proofs.IRGeneration.execIRStmts_forEach_empty_post_increment  -- private
-  -- Compiler.Proofs.IRGeneration.evalIRExpr_forEach_empty_cond_lt  -- private
-  -- Compiler.Proofs.IRGeneration.evalIRExpr_forEach_empty_cond_eq  -- private
-  -- Compiler.Proofs.IRGeneration.execIRStmt_forEach_empty_loop_from_idx  -- private
-  -- Compiler.Proofs.IRGeneration.execIRStmt_forEach_empty_loop_idx_bound  -- private
-  -- Compiler.Proofs.IRGeneration.forEachLiteral_loopFuel_of_slack  -- private
-  -- Compiler.Proofs.IRGeneration.forEachLiteral_initFuel_of_slack  -- private
-  -- Compiler.Proofs.IRGeneration.execIRStmts_forEach_literal_empty_compiled  -- private
-  -- Compiler.Proofs.IRGeneration.execIRStmts_forEach_literal_zero_compiled  -- private
-  -- Compiler.Proofs.IRGeneration.forEachZero_nextScopeIncluded  -- private
-  -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_forEachZeroLoop  -- private
-  -- Compiler.Proofs.IRGeneration.bindingsExactly_forEachZeroBase  -- private
-  -- Compiler.Proofs.IRGeneration.stmtStepMatches_forEach_literal_zero_final  -- private
-  -- Compiler.Proofs.IRGeneration.forEach_empty_final_rel  -- private
-  -- Compiler.Proofs.IRGeneration.stmtStepMatches_forEach_literal_empty_final  -- private
-  -- Compiler.Proofs.IRGeneration.compiledStmtStep_forEach_literal_zero  -- private
-  -- Compiler.Proofs.IRGeneration.compiledStmtStep_forEach_literal_empty  -- private
   -- Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_setMappingUintSingle_of_slotSafety  -- private
   -- Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_setMappingChainSingle_of_slotSafety  -- private
   -- Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_setMappingSingle_of_slotSafety  -- private
@@ -2448,6 +2424,32 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_of_compileStmtList_ok_on_supportedContractSurface_exceptMappingWrites
   Compiler.Proofs.IRGeneration.stmtListHelperFreeCompiledLegacyCompatible_of_supportedContractSurface_exceptMappingWrites
   Compiler.Proofs.IRGeneration.stmtListHelperFreeCompiledCallsDisjoint_of_supportedContractSurface_exceptMappingWrites
+
+  -- Compiler/Proofs/IRGeneration/GenericInduction/Loops.lean
+  -- Compiler.Proofs.IRGeneration.sourceExec_forEach_literal_zero  -- private
+  -- Compiler.Proofs.IRGeneration.sourceExec_forEach_literal_empty  -- private
+  -- Compiler.Proofs.IRGeneration.forEachZero_fresh_facts  -- private
+  -- Compiler.Proofs.IRGeneration.forEachLiteral_fresh_facts  -- private
+  -- Compiler.Proofs.IRGeneration.evalIRExpr_forEachZeroCond_after_init  -- private
+  -- Compiler.Proofs.IRGeneration.forEachZero_initFuel_of_slack  -- private
+  -- Compiler.Proofs.IRGeneration.execIRStmts_forEach_empty_body_assign  -- private
+  -- Compiler.Proofs.IRGeneration.execIRStmts_forEach_empty_post_increment  -- private
+  -- Compiler.Proofs.IRGeneration.evalIRExpr_forEach_empty_cond_lt  -- private
+  -- Compiler.Proofs.IRGeneration.evalIRExpr_forEach_empty_cond_eq  -- private
+  -- Compiler.Proofs.IRGeneration.execIRStmt_forEach_empty_loop_from_idx  -- private
+  -- Compiler.Proofs.IRGeneration.execIRStmt_forEach_empty_loop_idx_bound  -- private
+  -- Compiler.Proofs.IRGeneration.forEachLiteral_loopFuel_of_slack  -- private
+  -- Compiler.Proofs.IRGeneration.forEachLiteral_initFuel_of_slack  -- private
+  -- Compiler.Proofs.IRGeneration.execIRStmts_forEach_literal_empty_compiled  -- private
+  -- Compiler.Proofs.IRGeneration.execIRStmts_forEach_literal_zero_compiled  -- private
+  -- Compiler.Proofs.IRGeneration.forEachZero_nextScopeIncluded  -- private
+  -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_forEachZeroLoop  -- private
+  -- Compiler.Proofs.IRGeneration.bindingsExactly_forEachZeroBase  -- private
+  -- Compiler.Proofs.IRGeneration.stmtStepMatches_forEach_literal_zero_final  -- private
+  -- Compiler.Proofs.IRGeneration.forEach_empty_final_rel  -- private
+  -- Compiler.Proofs.IRGeneration.stmtStepMatches_forEach_literal_empty_final  -- private
+  Compiler.Proofs.IRGeneration.compiledStmtStep_forEach_literal_zero
+  Compiler.Proofs.IRGeneration.compiledStmtStep_forEach_literal_empty
 
   -- Compiler/Proofs/IRGeneration/GenericInduction/ResultRelation.lean
   Compiler.Proofs.IRGeneration.stmtStepMatchesIRExecWithInternals_of_stmtStepMatchesIRExec
@@ -5570,4 +5572,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5247 theorems/lemmas (3672 public, 1575 private, 0 sorry'd)
+-- Total: 5247 theorems/lemmas (3674 public, 1573 private, 0 sorry'd)
