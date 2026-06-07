@@ -64,6 +64,8 @@ RULES = (
         allowed_path_imports=(
             ("Verity/Macro/Translate.lean", "Compiler.Modules."),
             ("Verity/Macro/Translate.lean", "Compiler.Keccak.Sponge"),
+            ("Verity/Macro/Translate/Expr.lean", "Compiler.Modules."),
+            ("Verity/Macro/Translate/Expr.lean", "Compiler.Keccak.Sponge"),
             ("Verity/Macro/KeccakLit.lean", "Compiler.Keccak.Sponge"),
         ),
         message=(

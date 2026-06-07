@@ -73,6 +73,7 @@ class CheckLayerImportBoundariesTests(unittest.TestCase):
         rc, stdout, stderr = self._run_check(
             {
                 "Verity/Macro/Translate.lean": "import Compiler.Modules.ERC20\n",
+                "Verity/Macro/Translate/Expr.lean": "import Compiler.Keccak.Sponge\n",
             }
         )
         self.assertEqual(rc, 0)
