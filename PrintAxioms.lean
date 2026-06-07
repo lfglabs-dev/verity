@@ -43,7 +43,8 @@ import Compiler.Proofs.IRGeneration.ContractFeatureTest
 import Compiler.Proofs.IRGeneration.ContractShape
 import Compiler.Proofs.IRGeneration.Dispatch
 import Compiler.Proofs.IRGeneration.Function
-import Compiler.Proofs.IRGeneration.FunctionBody
+import Compiler.Proofs.IRGeneration.FunctionBody.Base
+import Compiler.Proofs.IRGeneration.FunctionBody.Stmt
 import Compiler.Proofs.IRGeneration.FunctionShape
 import Compiler.Proofs.IRGeneration.GenericInduction.Calls
 import Compiler.Proofs.IRGeneration.GenericInduction.ExprStmt
@@ -1796,7 +1797,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.Function.supported_function_correct_with_helper_proofs_goal
   Compiler.Proofs.IRGeneration.Function.supported_function_correct_with_helper_proofs
 
-  -- Compiler/Proofs/IRGeneration/FunctionBody.lean
+  -- Compiler/Proofs/IRGeneration/FunctionBody/Base.lean
   Compiler.Proofs.IRGeneration.FunctionBody.lookupValue_eq_of_lookupBinding?_some
   Compiler.Proofs.IRGeneration.FunctionBody.bindingsExactlyMatchIRVars_implies_bindingsMatchIRVars
   Compiler.Proofs.IRGeneration.FunctionBody.bindingsExactlyMatchIRVars_implies_onScope
@@ -2006,6 +2007,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.FunctionBody.evalExpr_lt_evmModulus_core
   Compiler.Proofs.IRGeneration.FunctionBody.compileRequireFailCond_core_ok
   Compiler.Proofs.IRGeneration.FunctionBody.eval_compileRequireFailCond_core_onExpr
+
+  -- Compiler/Proofs/IRGeneration/FunctionBody/Stmt.lean
   Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesIR_setVar_bindValue
   Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesIR_setVar_irrelevant
   Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesIR_setVars_irrelevant
