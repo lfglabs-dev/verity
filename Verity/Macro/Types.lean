@@ -238,6 +238,10 @@ structure ConstructorDecl where
   localObligations : Array LocalObligationDecl := #[]
   body : Term
 
+def strTerm (s : String) : Term := ⟨Syntax.mkStrLit s⟩
+
+def natTerm (n : Nat) : Term := ⟨Syntax.mkNumLit (toString n)⟩
+
 partial def expectTermListLiteral (stx : Term) : CommandElabM (Array Term) := do
   match stx with
   | `(term| [ $[$xs],* ]) => pure xs
