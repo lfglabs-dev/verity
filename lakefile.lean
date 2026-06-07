@@ -73,3 +73,6 @@ lean_exe «gas-report» where
 
 lean_exe «compiler-main-test» where
   root := `Compiler.MainTestRunner
+  -- Mirrors `verity-compiler`: CLI regression tests evaluate typed-interface ECMs
+  -- through the Lean interpreter.
+  supportInterpreter := true
