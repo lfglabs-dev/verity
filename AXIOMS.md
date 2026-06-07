@@ -185,6 +185,29 @@ to contracts that use the module. The compiler lists all of them at compile
 time in `--verbose` output. Use `--deny-unchecked-dependencies` to make
 compilation fail if any assumption hasn't been reviewed.
 
+### Caller-frame preservation theorems
+
+Independently of the ECM interface assumptions above, the *EVM frame
+condition* that an external `CALL` cannot mutate the caller's storage,
+transient storage, or memory outside the declared output buffer is now a
+**theorem** of `Verity.EVM.Frame`, no longer an assumption. The relevant
+results are:
+
+- `Verity.EVM.Frame.external_call_preserves_caller_storage`
+- `Verity.EVM.Frame.external_call_preserves_caller_transient_storage`
+- `Verity.EVM.Frame.external_call_preserves_caller_memory_outside_output_buffer`
+- `Verity.EVM.Frame.external_call_preserves_caller_memory` (disjoint-region form)
+- their iterated-CALL variants `Verity.EVM.Frame.external_calls_preserve_*`
+
+The theorems quantify universally over `Verity.EVM.Frame.CalleeResult`,
+which is the observational interface of any EVM callee program. Downstream
+contract proofs can consume these theorems directly to discharge the EVM
+frame condition without re-stating it.
+
+The abstract memory model on which these theorems compose lives at
+`Verity.EVM.MemoryModel`; the standard solc memory-layout schema and the
+call-buffer-disjoint-from-heap theorem live at `Verity.EVM.Layout`.
+
 ### Standard Module Assumptions
 
 | Module | Assumption | Meaning |
@@ -217,6 +240,11 @@ compilation fail if any assumption hasn't been reviewed.
 | `Precompiles.bn256ScalarMul` | `evm_bn256_scalar_mul_precompile` | EVM precompile at address 0x07 behaves per EIP-196 (BN254 scalar multiplication) |
 | `Precompiles.bn256Pairing` | `evm_bn256_pairing_precompile` | EVM precompile at address 0x08 behaves per EIP-197 (BN254 optimal-Ate pairing) |
 | `Callbacks.callback` | `callback_target_interface` | Callback target processes ABI-encoded arguments correctly |
+| `ERC4337.account_validateUserOp` | `erc4337_account_validateUserOp_interface` | Target implements `IAccount.validateUserOp((PackedUserOperation, bytes32, uint256))` returning a `validationData` word per the v0.9 spec |
+| `ERC4337.paymaster_validatePaymasterUserOp` | `erc4337_paymaster_validate_interface` | Target implements `IPaymaster.validatePaymasterUserOp((PackedUserOperation, bytes32, uint256))` returning `(context, validationData)` per the v0.9 spec |
+| `ERC4337.paymaster_postOp` | `erc4337_paymaster_postOp_interface` | Target implements `IPaymaster.postOp(uint8, bytes, uint256, uint256)` per the v0.9 spec |
+| `ERC4337.aggregator_validateSignatures` | `erc4337_aggregator_validate_signatures_interface` | Target implements `IAggregator.validateSignatures((PackedUserOperation[], bytes))` returning success/failure; BLS pairing math is the aggregator contract's responsibility, not EntryPoint's |
+| `ERC4337.sender_creator_createSender` | `erc4337_sender_creator_createSender_interface` | Target implements `SenderCreator.createSender(bytes initCode)` returning the deployed sender address |
 | `Calls.withReturn` | `external_call_abi_interface` | Target contract function matches declared selector and ABI |
 | `Calls.callWithValue` / `Calls.callWithValueBytes` | `generic_call_with_value_interface` | Target accepts caller-provided calldata and ETH value; failures bubble returndata |
 | `Calls.bubblingValueCall` / `Calls.bubblingValueCallNoOutput` | `generic_low_level_value_call_interface` | Generic low-level `call` mechanics are emitted; calldata and successful returndata meaning remain package assumptions |

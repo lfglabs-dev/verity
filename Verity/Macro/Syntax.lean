@@ -139,6 +139,13 @@ syntax "modifier " ident " := " term : verityModifier
 syntax "with " sepBy1(ident, ",") : verityModifierUse
 syntax "function " verityMutability* (pureMutabilityMarker)? verityMutability* ident " (" sepBy(verityParam, ",") ")" (ppSpace verityInitGuard)? (ppSpace verityModifierUse)? (ppSpace verityRequiresRole)? (ppSpace verityModifies)? (ppSpace verityLocalObligations)? " : " term " := " term : verityFunction
 
+-- Doc-comment-prefixed variant: accepts an optional `/-- … -/` doc string
+-- before the `function` keyword. The doc string is parsed but currently
+-- discarded by the translator (propagating it to the elaborated declaration
+-- is a follow-up). This avoids the parser rejecting documentation that
+-- benchmark contract files want to use in front of each function. -/
+syntax docComment "function " verityMutability* (pureMutabilityMarker)? verityMutability* ident " (" sepBy(verityParam, ",") ")" (ppSpace verityInitGuard)? (ppSpace verityModifierUse)? (ppSpace verityRequiresRole)? (ppSpace verityModifies)? (ppSpace verityLocalObligations)? " : " term " := " term : verityFunction
+
 -- verity_intrinsic syntax (minimal one-argument shape for consumer-owned intrinsics)
 -- `pure` is parsed as an identifier here to avoid reserving it as a global
 -- keyword and breaking ordinary `pure` calls in imported Lean code.

@@ -272,6 +272,31 @@ Execution priorities:
 5. Extend preserved observables to events/logs and typed errors.
 6. Widen storage/layout-rich whole-contract coverage, then constructor / `fallback` / `receive`.
 
+### ✅ **ERC-4337 Frame Primitives Landed**
+**What**: Reusable primitives extracted from the ERC-4337 EntryPoint benchmark.
+**Status**: Landed as `Verity.EVM.Frame`, `Verity.EVM.MemoryModel`,
+`Verity.EVM.Layout`, `Verity.Trace`, `Verity.Compiler.FromSolidity`, plus
+`nonReentrantTransient` in `Verity.Core` and a `let _ := …` discard rule in
+`Contracts.Common`. Each closes a trust gap for every benchmark, not just
+ERC-4337.
+
+**Follow-up items tracked here:**
+
+- **EvmYul ↔ frame correspondence**: prove `Verity.EVM.Frame.applyCallToCaller`
+  is the projection of EvmYul's `CALL` opcode semantics through the caller
+  frame. Closes the abstract-model gap. ~2-4 weeks. **Not yet scheduled**;
+  no PR or issue open as of this writing.
+- **`solc_disjoint` tactic**: today `Verity.EVM.Layout.call_buffer_disjoint_from_heap`
+  discharges the disjointness premise from `SolcLayout` invariants. A
+  proper tactic that closes `MemoryModel.Disjoint` goals automatically would
+  remove the boilerplate. ~1 week.
+- **`verity_contract` doc-comment support**: `/-- … -/` doc strings inside
+  the contract DSL still break the parser. The fix requires adding a
+  doc-comment-prefixed alternative to the `verityFunction` syntax and
+  threading it through `parseFunction`. ~1 day, deferred from the present PR
+  because the parser surgery touches a hot path that needs cross-benchmark
+  testing.
+
 ### 🟡 **Trust Reduction** (2 Remaining Components)
 **What**: Eliminate or verify remaining trusted components
 **Status**: 1/3 complete (function selectors resolved)

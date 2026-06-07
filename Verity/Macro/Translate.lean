@@ -1477,8 +1477,14 @@ private def parseModifierUse (stx : TSyntax `verityModifierUse) : CommandElabM (
   | `(verityModifierUse| with $[$names:ident],*) => pure names
   | _ => throwErrorAt stx "invalid modifier use"
 
-private def parseFunction (newtypes : Array NewtypeDecl) (structDecls : Array StructDecl := #[]) (adtDecls : Array AdtDecl := #[]) (interfaceNames : Array String := #[]) (stx : Syntax) : CommandElabM FunctionDecl := do
+private partial def parseFunction (newtypes : Array NewtypeDecl) (structDecls : Array StructDecl := #[]) (adtDecls : Array AdtDecl := #[]) (interfaceNames : Array String := #[]) (stx : Syntax) : CommandElabM FunctionDecl := do
   match stx with
+  | `(verityFunction| $_doc:docComment function $[$modsBefore:verityMutability]* $[$pureMod?:pureMutabilityMarker]? $[$modsAfter:verityMutability]* $name:ident ($[$params:verityParam],*) $[$guard?:verityInitGuard]? $[$modifierUse?:verityModifierUse]? $[$requiresRoleClause?:verityRequiresRole]? $[$modifiesClause?:verityModifies]? $[$localObligations?:verityLocalObligations]? : $retTy:term := $body:term) => do
+      -- Doc-comment-prefixed variant: re-quote without the doc comment and
+      -- recurse, so the rest of the elaborator path is unchanged.
+      let stx' ←
+        `(verityFunction| function $[$modsBefore:verityMutability]* $[$pureMod?:pureMutabilityMarker]? $[$modsAfter:verityMutability]* $name:ident ($[$params:verityParam],*) $[$guard?:verityInitGuard]? $[$modifierUse?:verityModifierUse]? $[$requiresRoleClause?:verityRequiresRole]? $[$modifiesClause?:verityModifies]? $[$localObligations?:verityLocalObligations]? : $retTy:term := $body:term)
+      parseFunction newtypes structDecls adtDecls interfaceNames stx'
   | `(verityFunction| function $[$modsBefore:verityMutability]* $[$pureMod?:pureMutabilityMarker]? $[$modsAfter:verityMutability]* $name:ident ($[$params:verityParam],*) $[$guard?:verityInitGuard]? $[$modifierUse?:verityModifierUse]? $[$requiresRoleClause?:verityRequiresRole]? $[$modifiesClause?:verityModifies]? $[$localObligations?:verityLocalObligations]? : $retTy:term := $body:term) => do
       let mut_ ← parseMutabilityModifiers (modsBefore ++ modsAfter) stx
       let mut_ := { mut_ with isPure := pureMod?.isSome }
