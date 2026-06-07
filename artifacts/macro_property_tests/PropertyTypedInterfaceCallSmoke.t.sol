@@ -44,4 +44,10 @@ contract PropertyTypedInterfaceCallSmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
+    // Property 4: transferTokenDiscard has no unexpected revert
+    function testAuto_TransferTokenDiscard_NoUnexpectedRevert() public {
+        vm.prank(alice);
+        (bool ok,) = target.call(abi.encodeWithSignature("transferTokenDiscard(address,address,uint256)", alice, alice, uint256(1)));
+        require(ok, "transferTokenDiscard reverted unexpectedly");
+    }
 }
