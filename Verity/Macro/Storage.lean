@@ -7,6 +7,8 @@ namespace Verity.Macro
 open Lean
 open Lean.Elab.Command
 
+set_option hygiene false
+
 def storageTypeFromSyntax
     (newtypes : Array NewtypeDecl)
     (structDecls : Array StructDecl := #[])
