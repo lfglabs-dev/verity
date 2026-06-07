@@ -46,6 +46,7 @@ import Compiler.Proofs.IRGeneration.FunctionBody
 import Compiler.Proofs.IRGeneration.FunctionShape
 import Compiler.Proofs.IRGeneration.GenericInduction.Core
 import Compiler.Proofs.IRGeneration.GenericInduction.InternalCalls
+import Compiler.Proofs.IRGeneration.GenericInduction.LegacyCompatibility
 import Compiler.Proofs.IRGeneration.GenericInduction.ResultRelation
 import Compiler.Proofs.IRGeneration.IRInterpreter
 import Compiler.Proofs.IRGeneration.IRStorageWord
@@ -2180,7 +2181,7 @@ end Verity.AxiomAudit
   -- Compiler/Proofs/IRGeneration/FunctionShape.lean
   Compiler.Proofs.IRGeneration.FunctionShape.compileFunctionSpec_ok_components
 
-  -- Compiler/Proofs/IRGeneration/GenericInduction/Core.lean
+  -- Compiler/Proofs/IRGeneration/GenericInduction/LegacyCompatibility.lean
   -- Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_append  -- private
   -- Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_of_exprStmtExprs  -- private
   -- Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_revertWithMessage  -- private
