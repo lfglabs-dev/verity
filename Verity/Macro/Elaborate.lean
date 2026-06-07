@@ -1,5 +1,6 @@
 import Lean
 import Verity.Macro.Syntax
+import Verity.Macro.Executable
 import Verity.Macro.Translate
 import Verity.Macro.Bridge
 import Verity.Core.Intrinsics
