@@ -45,6 +45,7 @@ import Compiler.Proofs.IRGeneration.Function
 import Compiler.Proofs.IRGeneration.FunctionBody
 import Compiler.Proofs.IRGeneration.FunctionShape
 import Compiler.Proofs.IRGeneration.GenericInduction.Core
+import Compiler.Proofs.IRGeneration.GenericInduction.InterfaceAssembly
 import Compiler.Proofs.IRGeneration.GenericInduction.InternalCalls
 import Compiler.Proofs.IRGeneration.GenericInduction.LegacyCompatibility
 import Compiler.Proofs.IRGeneration.GenericInduction.ResultRelation
@@ -2181,7 +2182,7 @@ end Verity.AxiomAudit
   -- Compiler/Proofs/IRGeneration/FunctionShape.lean
   Compiler.Proofs.IRGeneration.FunctionShape.compileFunctionSpec_ok_components
 
-  -- Compiler/Proofs/IRGeneration/GenericInduction/Core.lean
+  -- Compiler/Proofs/IRGeneration/GenericInduction/InterfaceAssembly.lean
   Compiler.Proofs.IRGeneration.stmtListHelperFreeStepInterface_of_core
   Compiler.Proofs.IRGeneration.eventHeadStepCatalog_of_bridgeCatalog
   Compiler.Proofs.IRGeneration.stmtListEventSurfaceStepInterface_of_eventHeadStepCatalog_of_surfaceWithEvents
@@ -2217,6 +2218,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.stmtListGenericWithHelpersAndHelperIR_of_core_helperSurfaceClosed_and_helperFreeCompiledCallsDisjoint
   Compiler.Proofs.IRGeneration.stmtListGenericWithHelpersAndHelperIR_of_core_helperSurfaceClosed_and_helperFreeCompiledLegacyCompatible
   Compiler.Proofs.IRGeneration.stmtListGenericWithHelpersAndHelperIR_of_core_helperSurfaceClosed_and_compiledLegacyCompatible
+
+  -- Compiler/Proofs/IRGeneration/GenericInduction/Core.lean
   -- Compiler.Proofs.IRGeneration.exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false  -- private
   -- Compiler.Proofs.IRGeneration.fieldName_mem_fields_of_findFieldWithResolvedSlot_some  -- private
   -- Compiler.Proofs.IRGeneration.fieldName_mem_fields_of_compileSetStorage_ok  -- private
