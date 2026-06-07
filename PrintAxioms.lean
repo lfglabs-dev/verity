@@ -2183,31 +2183,6 @@ end Verity.AxiomAudit
   -- Compiler/Proofs/IRGeneration/FunctionShape.lean
   Compiler.Proofs.IRGeneration.FunctionShape.compileFunctionSpec_ok_components
 
-  -- Compiler/Proofs/IRGeneration/GenericInduction/Scope.lean
-  Compiler.Proofs.IRGeneration.exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
-  -- Compiler.Proofs.IRGeneration.fieldName_mem_fields_of_findFieldWithResolvedSlot_some  -- private
-  -- Compiler.Proofs.IRGeneration.fieldName_mem_fields_of_compileSetStorage_ok  -- private
-  -- Compiler.Proofs.IRGeneration.isMapping_false_of_compileSetStorage_ok  -- private
-  Compiler.Proofs.IRGeneration.compileStmt_ok_of_compileStmtList_append_cons
-  Compiler.Proofs.IRGeneration.isMapping_false_of_compileStmt_setStorage_ok
-  -- Compiler.Proofs.IRGeneration.compileStmt_ite_ok_inv  -- private
-  -- Compiler.Proofs.IRGeneration.stmtListScopeCore_of_unsupportedContractSurface_eq_false  -- private
-  Compiler.Proofs.IRGeneration.stmtListScopeCore_prefix_of_compileStmtList_ok_of_stmtListTouchesUnsupportedContractSurface
-  Compiler.Proofs.IRGeneration.stmtTouchesUnsupportedContractSurface_of_stmtListTouchesUnsupportedContractSurface_append_cons
-  Compiler.Proofs.IRGeneration.mem_stmtNextScope_of_mem_scope
-  -- Compiler.Proofs.IRGeneration.mem_stmtNextScopeList_of_mem_scope  -- private
-  -- Compiler.Proofs.IRGeneration.validateScopedExprIdentifiers_pair_ok_left  -- private
-  -- Compiler.Proofs.IRGeneration.validateScopedExprIdentifiers_pair_ok_right  -- private
-  -- Compiler.Proofs.IRGeneration.exprBoundNamesInScope_of_validateScopedExprIdentifiers_core  -- private
-  -- Compiler.Proofs.IRGeneration.stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers  -- private
-  Compiler.Proofs.IRGeneration.stmtListScopeDiscipline_of_validateFunctionIdentifierReferences_prefix
-  -- Compiler.Proofs.IRGeneration.scopeNamesPresent_foldl_stmtNextScope_of_validateScopedStmtListIdentifiers  -- private
-  Compiler.Proofs.IRGeneration.exprBoundNamesInScope_setStorage_of_validateFunctionIdentifierReferences
-  Compiler.Proofs.IRGeneration.collectExprNames_mem_exprBoundNames_of_core
-  -- Compiler.Proofs.IRGeneration.mem_foldl_stmtNextScope_of_mem_scope  -- private
-  Compiler.Proofs.IRGeneration.stmtListNames_subset_foldl_stmtNextScope
-  Compiler.Proofs.IRGeneration.stmtListScopeDiscipline_scope_names
-
   -- Compiler/Proofs/IRGeneration/GenericInduction/Core.lean
   Compiler.Proofs.IRGeneration.compiledStmtStep_letVar
   Compiler.Proofs.IRGeneration.compiledStmtStep_assignVar
@@ -2616,6 +2591,31 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.stmtStepMatchesIRExecWithInternals_of_stmtStepMatchesIRExec
   Compiler.Proofs.IRGeneration.CompiledStmtStep.withHelpers_of_helperSurfaceClosed
   Compiler.Proofs.IRGeneration.compileStmtList_ok_of_stmtListGenericCore_early
+
+  -- Compiler/Proofs/IRGeneration/GenericInduction/Scope.lean
+  Compiler.Proofs.IRGeneration.exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
+  -- Compiler.Proofs.IRGeneration.fieldName_mem_fields_of_findFieldWithResolvedSlot_some  -- private
+  -- Compiler.Proofs.IRGeneration.fieldName_mem_fields_of_compileSetStorage_ok  -- private
+  -- Compiler.Proofs.IRGeneration.isMapping_false_of_compileSetStorage_ok  -- private
+  Compiler.Proofs.IRGeneration.compileStmt_ok_of_compileStmtList_append_cons
+  Compiler.Proofs.IRGeneration.isMapping_false_of_compileStmt_setStorage_ok
+  -- Compiler.Proofs.IRGeneration.compileStmt_ite_ok_inv  -- private
+  -- Compiler.Proofs.IRGeneration.stmtListScopeCore_of_unsupportedContractSurface_eq_false  -- private
+  Compiler.Proofs.IRGeneration.stmtListScopeCore_prefix_of_compileStmtList_ok_of_stmtListTouchesUnsupportedContractSurface
+  Compiler.Proofs.IRGeneration.stmtTouchesUnsupportedContractSurface_of_stmtListTouchesUnsupportedContractSurface_append_cons
+  Compiler.Proofs.IRGeneration.mem_stmtNextScope_of_mem_scope
+  -- Compiler.Proofs.IRGeneration.mem_stmtNextScopeList_of_mem_scope  -- private
+  -- Compiler.Proofs.IRGeneration.validateScopedExprIdentifiers_pair_ok_left  -- private
+  -- Compiler.Proofs.IRGeneration.validateScopedExprIdentifiers_pair_ok_right  -- private
+  -- Compiler.Proofs.IRGeneration.exprBoundNamesInScope_of_validateScopedExprIdentifiers_core  -- private
+  -- Compiler.Proofs.IRGeneration.stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers  -- private
+  Compiler.Proofs.IRGeneration.stmtListScopeDiscipline_of_validateFunctionIdentifierReferences_prefix
+  -- Compiler.Proofs.IRGeneration.scopeNamesPresent_foldl_stmtNextScope_of_validateScopedStmtListIdentifiers  -- private
+  Compiler.Proofs.IRGeneration.exprBoundNamesInScope_setStorage_of_validateFunctionIdentifierReferences
+  Compiler.Proofs.IRGeneration.collectExprNames_mem_exprBoundNames_of_core
+  -- Compiler.Proofs.IRGeneration.mem_foldl_stmtNextScope_of_mem_scope  -- private
+  Compiler.Proofs.IRGeneration.stmtListNames_subset_foldl_stmtNextScope
+  Compiler.Proofs.IRGeneration.stmtListScopeDiscipline_scope_names
 
   -- Compiler/Proofs/IRGeneration/IRInterpreter.lean
   -- Compiler.Proofs.IRGeneration.exprSize_lt_exprsSize_cons  -- private
@@ -5563,4 +5563,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5247 theorems/lemmas (3634 public, 1613 private, 0 sorry'd)
+-- Total: 5247 theorems/lemmas (3643 public, 1604 private, 0 sorry'd)
