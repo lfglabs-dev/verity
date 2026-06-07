@@ -49,6 +49,7 @@ import Compiler.Proofs.IRGeneration.GenericInduction.ExprStmt
 import Compiler.Proofs.IRGeneration.GenericInduction.InterfaceAssembly
 import Compiler.Proofs.IRGeneration.GenericInduction.InternalCalls
 import Compiler.Proofs.IRGeneration.GenericInduction.LegacyCompatibility
+import Compiler.Proofs.IRGeneration.GenericInduction.Loops
 import Compiler.Proofs.IRGeneration.GenericInduction.ResultRelation
 import Compiler.Proofs.IRGeneration.GenericInduction.Scope
 import Compiler.Proofs.IRGeneration.GenericInduction.Storage
