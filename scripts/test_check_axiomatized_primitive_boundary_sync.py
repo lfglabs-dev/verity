@@ -101,11 +101,11 @@ class AxiomatizedPrimitiveBoundarySyncTests(unittest.TestCase):
     def test_boundary_note_required_when_axiomatized_primitive_not_fully_modeled(self) -> None:
         note = textwrap.dedent(
             """
-            `Expr.keccak256` also remains an explicit proof boundary today: the compiler supports it directly, but the current proof stack still treats it as an axiomatized primitive instead of a fully modeled operation.
+            `Expr.keccak256` also remains an explicit proof boundary today: the compiler supports it directly, but the current proof stack still treats dynamic memory hashing as an explicit primitive assumption instead of a fully modeled operation.
             archive `--trust-report` and use `--deny-axiomatized-primitives` for proof-strict runs (see issue `#1411`).
-            The `keccak256` intrinsic also compiles, but it remains axiomatized in the current proof stack rather than fully modeled end to end.
+            The `keccak256` intrinsic also compiles, but dynamic memory hashing remains an explicit primitive assumption in the current proof stack rather than a fully modeled operation.
             archive `--trust-report` and add `--deny-axiomatized-primitives` if the selected contracts must stay inside the proved subset (see issue `#1411`).
-            Raw `keccak256` hashing also compiles through the typed intrinsic surface, but it still relies on an explicit axiom in the current proof stack.
+            Raw `keccak256` hashing also compiles through the typed intrinsic surface, but dynamic memory hashing still relies on an explicit primitive assumption in the current proof stack.
             archive `--trust-report`, and use `--deny-axiomatized-primitives` when the translated contract must stay inside the proved subset (see issue `#1411`).
             """
         )
