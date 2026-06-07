@@ -621,6 +621,52 @@ theorem require_succeeds (cond : Bool) (msg : String) (s : ContractState) :
     simp [hLocked]
   simp [Contract.run, nonReentrant, hNe]
 
+/-- EIP-1153 transient-storage reentrancy guard primitive.
+
+Uses the transient-storage slot at `lockOffset` as a mutex (`0` = unlocked,
+nonzero = locked), sets it before running `body`, and clears it on both
+success and revert paths. Mirrors OpenZeppelin's `ReentrancyGuardTransient`.
+
+The transient-storage variant is preferred over storage-slot
+`nonReentrant` for new contracts: it is automatically cleared at the end
+of every transaction, eliminating the upgrade-related storage-layout
+concerns of storage-slot guards. -/
+def nonReentrantTransient (lockOffset : Uint256) (body : Contract α) : Contract α :=
+  fun s =>
+    if s.transientStorage (lockOffset : Nat) == 0 then
+      let sLocked := { s with
+        transientStorage := fun i =>
+          if i == (lockOffset : Nat) then 1 else s.transientStorage i }
+      match body sLocked with
+      | ContractResult.success a s' =>
+          ContractResult.success a
+            { s' with
+              transientStorage := fun i =>
+                if i == (lockOffset : Nat) then 0 else s'.transientStorage i }
+      | ContractResult.revert msg s' =>
+          ContractResult.revert msg
+            { s' with
+              transientStorage := fun i =>
+                if i == (lockOffset : Nat) then 0 else s'.transientStorage i }
+    else
+      ContractResult.revert "ReentrancyGuardTransient: reentrant call" s
+
+@[simp] theorem nonReentrantTransient_locked_reverts
+    (lockOffset : Uint256) (body : Contract α) (s : ContractState)
+    (hLocked : s.transientStorage (lockOffset : Nat) ≠ 0) :
+    (nonReentrantTransient lockOffset body).run s =
+      ContractResult.revert "ReentrancyGuardTransient: reentrant call" s := by
+  have hNe : (s.transientStorage (lockOffset : Nat) == 0) = false := by
+    simp [hLocked]
+  simp [Contract.run, nonReentrantTransient, hNe]
+
+theorem nonReentrantTransient_revert_preserves_state
+    (lockOffset : Uint256) (body : Contract α) (s : ContractState)
+    (hLocked : s.transientStorage (lockOffset : Nat) ≠ 0) :
+    ((nonReentrantTransient lockOffset body).run s).snd = s := by
+  rw [nonReentrantTransient_locked_reverts lockOffset body s hLocked]
+  rfl
+
 -- Regression for #254: mutations before a revert do not leak through `run`.
 theorem run_revert_rolls_back_storage (value : Uint256) (s : ContractState) :
   ((bind (setStorage ⟨0⟩ value) (fun _ => require false "revert")).run s) =
