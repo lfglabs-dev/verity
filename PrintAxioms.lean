@@ -34,7 +34,8 @@ import Verity.Proofs.Stdlib.ListSum
 import Verity.Proofs.Stdlib.MappingAutomation
 import Verity.Proofs.Stdlib.Math
 import Compiler.Proofs.ArithmeticProfile
-import Compiler.Proofs.EndToEnd
+import Compiler.Proofs.EndToEnd.Base
+import Compiler.Proofs.EndToEnd.SimpleStorage
 import Compiler.Proofs.EventSemantics
 import Compiler.Proofs.HelperStepProofs
 import Compiler.Proofs.IRGeneration.Contract
@@ -895,8 +896,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.ArithmeticProfile.shl_bridge
   Compiler.Proofs.ArithmeticProfile.shr_bridge
 
-  -- Compiler/Proofs/EndToEnd.lean
-  -- Compiler.Proofs.EndToEnd.sourceResultMatchesNativeOn_of_sourceResultMatchesIRResult_of_nativeResultsMatchOn  -- private
+  -- Compiler/Proofs/EndToEnd/Base.lean
+  Compiler.Proofs.EndToEnd.sourceResultMatchesNativeOn_of_sourceResultMatchesIRResult_of_nativeResultsMatchOn
   -- Compiler.Proofs.EndToEnd.compile_preserves_native_evmYulLean_of_nativeResultsMatchOn  -- private
   -- Compiler.Proofs.EndToEnd.txNoWrap_of_calldataSizeFits  -- private
   -- Compiler.Proofs.EndToEnd.DispatchGuardsSafe.of_payable_of_args_le_of_noWrap  -- private
@@ -904,7 +905,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.EndToEnd.DispatchGuardsSafe.of_value_safe_of_args_le_of_noWrap
   Compiler.Proofs.EndToEnd.DispatchGuardsSafe.of_value_safe_of_threshold
   -- Compiler.Proofs.EndToEnd.compiledFunctionCalldataThreshold_of_forall₂  -- private
-  -- Compiler.Proofs.EndToEnd.generatedFunctionCalldataThreshold_of_compile_ok_supported  -- private
+  Compiler.Proofs.EndToEnd.generatedFunctionCalldataThreshold_of_compile_ok_supported
   -- Compiler.Proofs.EndToEnd.sourceResultMatchesNativeOn_of_sourceResultMatchesIRResult_of_nativeIRRuntimeMatchesIR  -- private
   -- Compiler.Proofs.EndToEnd.nativeGeneratedCallDispatcherMatchesIROn_of_dispatcherExec  -- private
   Compiler.Proofs.EndToEnd.nativeResultsMatchOn_interpretIR_of_execIRFunction_guards
@@ -923,40 +924,40 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.EndToEnd.sizeOf_emitYul_runtimeCode_mapping_ge_lowered_cases_length_plus24  -- private
   -- Compiler.Proofs.EndToEnd.sizeOf_emitYul_runtimeCode_mapping_ge_lowered_cases_length_plus25  -- private
   -- Compiler.Proofs.EndToEnd.nativeIRRuntimeMatchesIR_of_generated_lowered_dispatcherExec_positive_match  -- private
-  -- Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_project_eq_match  -- private
+  Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_project_eq_match
   -- Compiler.Proofs.EndToEnd.nativeIRRuntimeMatchesIR_of_generated_lowered_dispatcherExec_project_eq_match  -- private
-  -- Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_exec_yulHalt_project_eq_match  -- private
-  -- Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_exec_error_project_eq_match  -- private
-  -- Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_miss_noFallback_noReceive  -- private
-  -- Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_miss_noFallback_noReceive_atFuel  -- private
-  -- Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_miss_noFallback_noReceive_withSwitchIds  -- private
-  -- Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_miss_noFallback_noReceive_withSwitchIds_atFuel  -- private
-  -- Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_initFreeMemoryPointer_buildSwitch_selector_miss_noFallback_noReceive_atFuel  -- private
-  -- Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_initFreeMemoryPointer_buildSwitch_selector_miss_noFallback_noReceive  -- private
-  -- Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_initFreeMemoryPointer_buildSwitch_selector_miss_noFallback_noReceive_withSwitchIds_atFuel  -- private
-  -- Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_initFreeMemoryPointer_buildSwitch_selector_miss_noFallback_noReceive_withSwitchIds  -- private
-  -- Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_error_noFallback_noReceive  -- private
-  -- Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_error_noFallback_noReceive_atFuel  -- private
-  -- Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_error_noFallback_noReceive_atFuel_artifact  -- private
-  -- Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_error_noFallback_noReceive_withSwitchIds  -- private
-  -- Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_error_noFallback_noReceive_withSwitchIds_atFuel  -- private
-  -- Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_error_noFallback_noReceive_withSwitchIds_atFuel_artifact  -- private
-  -- Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_ok_noFallback_noReceive  -- private
-  -- Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_ok_noFallback_noReceive_payable_generated_prefix  -- private
-  -- Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_ok_noFallback_noReceive_nonpayable_generated_prefix  -- private
-  -- Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_ok_noFallback_noReceive_payable_generated_prefix_atFuel  -- private
-  -- Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_ok_noFallback_noReceive_nonpayable_generated_prefix_atFuel  -- private
-  -- Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_ok_noFallback_noReceive_atFuel  -- private
-  -- Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_ok_noFallback_noReceive_atFuel_forall  -- private
-  -- Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_ok_noFallback_noReceive_withSwitchIds  -- private
-  -- Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_ok_noFallback_noReceive_payable_withSwitchIds_generated_prefix  -- private
-  -- Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_ok_noFallback_noReceive_nonpayable_withSwitchIds_generated_prefix  -- private
-  -- Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_ok_noFallback_noReceive_payable_withSwitchIds_generated_prefix_atFuel  -- private
-  -- Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_ok_noFallback_noReceive_nonpayable_withSwitchIds_generated_prefix_atFuel  -- private
-  -- Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_ok_noFallback_noReceive_withSwitchIds_atFuel  -- private
-  -- Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_ok_noFallback_noReceive_withSwitchIds_atFuel_forall  -- private
-  -- Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_ok_noFallback_noReceive_withSwitchIds_atFuel_forall_finalMatched  -- private
-  -- Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_ok_noFallback_noReceive_atFuel_forall_finalMatched  -- private
+  Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_exec_yulHalt_project_eq_match
+  Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_exec_error_project_eq_match
+  Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_miss_noFallback_noReceive
+  Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_miss_noFallback_noReceive_atFuel
+  Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_miss_noFallback_noReceive_withSwitchIds
+  Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_miss_noFallback_noReceive_withSwitchIds_atFuel
+  Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_initFreeMemoryPointer_buildSwitch_selector_miss_noFallback_noReceive_atFuel
+  Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_initFreeMemoryPointer_buildSwitch_selector_miss_noFallback_noReceive
+  Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_initFreeMemoryPointer_buildSwitch_selector_miss_noFallback_noReceive_withSwitchIds_atFuel
+  Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_initFreeMemoryPointer_buildSwitch_selector_miss_noFallback_noReceive_withSwitchIds
+  Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_error_noFallback_noReceive
+  Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_error_noFallback_noReceive_atFuel
+  Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_error_noFallback_noReceive_atFuel_artifact
+  Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_error_noFallback_noReceive_withSwitchIds
+  Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_error_noFallback_noReceive_withSwitchIds_atFuel
+  Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_error_noFallback_noReceive_withSwitchIds_atFuel_artifact
+  Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_ok_noFallback_noReceive
+  Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_ok_noFallback_noReceive_payable_generated_prefix
+  Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_ok_noFallback_noReceive_nonpayable_generated_prefix
+  Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_ok_noFallback_noReceive_payable_generated_prefix_atFuel
+  Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_ok_noFallback_noReceive_nonpayable_generated_prefix_atFuel
+  Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_ok_noFallback_noReceive_atFuel
+  Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_ok_noFallback_noReceive_atFuel_forall
+  Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_ok_noFallback_noReceive_withSwitchIds
+  Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_ok_noFallback_noReceive_payable_withSwitchIds_generated_prefix
+  Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_ok_noFallback_noReceive_nonpayable_withSwitchIds_generated_prefix
+  Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_ok_noFallback_noReceive_payable_withSwitchIds_generated_prefix_atFuel
+  Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_ok_noFallback_noReceive_nonpayable_withSwitchIds_generated_prefix_atFuel
+  Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_ok_noFallback_noReceive_withSwitchIds_atFuel
+  Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_ok_noFallback_noReceive_withSwitchIds_atFuel_forall
+  Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_ok_noFallback_noReceive_withSwitchIds_atFuel_forall_finalMatched
+  Compiler.Proofs.EndToEnd.nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_hit_ok_noFallback_noReceive_atFuel_forall_finalMatched
   -- Compiler.Proofs.EndToEnd.compileFunctionSpec_noFuncDefs_of_static_params_and_body  -- private
   -- Compiler.Proofs.EndToEnd.compileFunctionSpec_noFuncDefs_of_safe_static_params  -- private
   -- Compiler.Proofs.EndToEnd.compileFunctionSpec_bridged_of_safe_static_params  -- private
@@ -1056,7 +1057,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.EndToEnd.validateGeneratedRuntimeNativeFragment_of_compile_ok_supported_except_mapping_writes_stmt_safety
   -- Compiler.Proofs.EndToEnd.nativeGeneratedCallDispatcherResultOf_eq_interpretIRRuntimeNative_of_lowerRuntimeContractNative_supported  -- private
   -- Compiler.Proofs.EndToEnd.nativeGeneratedCallDispatcherResultOf_eq_interpretIRRuntimeNative_of_lowerRuntimeContractNative_supported_except_mapping_writes_stmt_safety  -- private
-  -- Compiler.Proofs.EndToEnd.compile_preserves_native_evmYulLean_of_nativeGeneratedCallDispatcherResult_match  -- private
+  Compiler.Proofs.EndToEnd.compile_preserves_native_evmYulLean_of_nativeGeneratedCallDispatcherResult_match
   -- Compiler.Proofs.EndToEnd.compile_preserves_native_evmYulLean_of_interpretIRRuntimeNative_match  -- private
   -- Compiler.Proofs.EndToEnd.compile_preserves_native_evmYulLean_of_interpretIRRuntimeNative_match_ofIR_environment  -- private
   -- Compiler.Proofs.EndToEnd.compile_preserves_native_evmYulLean_of_interpretIRRuntimeNative_match_ofIR_globalDefaults  -- private
@@ -1069,7 +1070,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.EndToEnd.lowerStmtsNativeWithSwitchIds_selectedSwitchCaseBody_exists_of_compile_ok_supported
   Compiler.Proofs.EndToEnd.lowerStmtsNativeWithSwitchIds_selectedFunctionBody_exists_of_compile_ok_supported
   Compiler.Proofs.EndToEnd.selectedFunctionBodyBridgedAndLowered_of_compile_ok_supported
-  -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectedUserBodyResultBridgeAtFuel.selected_body_closure_of_compile_ok_supported  -- private
+  Compiler.Proofs.EndToEnd.NativeGeneratedSelectedUserBodyResultBridgeAtFuel.selected_body_closure_of_compile_ok_supported
   Compiler.Proofs.EndToEnd.lowerRuntimeContractNative_of_compile_ok_supported_exists
   -- Compiler.Proofs.EndToEnd.lowerRuntimeContractNative_of_compile_ok_supported_mapping_ok_dispatcher_reserved  -- private
   -- Compiler.Proofs.EndToEnd.lowerRuntimeContractNative_of_compile_ok_supported_mapping_ok_public_dispatcher_reserved  -- private
@@ -1219,7 +1220,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.EndToEnd.nativeGeneratedSelectorHitLoweredArtifacts_of_compile_ok_supported  -- private
   -- Compiler.Proofs.EndToEnd.nativeGeneratedSelectorHitSuccessUserBodyLoweredArtifacts_of_compile_ok_supported  -- private
   Compiler.Proofs.EndToEnd.nativeGeneratedSelectorHitSuccessUserBodyLoweredArtifacts_exists_of_compile_ok_supported
-  -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectedUserBodyResultBridgeAtFuel.selected_body_artifacts_of_compile_ok_supported  -- private
+  Compiler.Proofs.EndToEnd.NativeGeneratedSelectedUserBodyResultBridgeAtFuel.selected_body_artifacts_of_compile_ok_supported
   -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectorHitBodyHaltExecBridgeAtFuel.of_selected_user_body_halt  -- private
   -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectorHitSuccessBridge.of_body_halt_exec_atFuel  -- private
   -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectorHitSuccessBridge.of_selected_user_body_halt_exec_atFuel  -- private
@@ -1241,15 +1242,15 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectedUserBodyExecOnlyBridgeAtFuelRevived.of_singleton_comment  -- private
   -- Compiler.Proofs.EndToEnd.nativeResultsMatchOn_execIRFunction_stop_body_markedPrefix  -- private
   -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel.of_stop_body  -- private
-  -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectedUserBodyResultBridgeAtFuel.of_halt  -- private
-  -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectedUserBodyResultBridgeAtFuel.of_stop_body  -- private
-  -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectedUserBodyResultBridgeAtFuel.of_exec_only_and_preserves  -- private
+  Compiler.Proofs.EndToEnd.NativeGeneratedSelectedUserBodyResultBridgeAtFuel.of_halt
+  Compiler.Proofs.EndToEnd.NativeGeneratedSelectedUserBodyResultBridgeAtFuel.of_stop_body
+  Compiler.Proofs.EndToEnd.NativeGeneratedSelectedUserBodyResultBridgeAtFuel.of_exec_only_and_preserves
   -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectorHitUserBodyExecOnlyBridgeAtFuelRevived.of_exec_bridge  -- private
   -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectorHitUserBodyExecOnlyBridgeAtFuelRevived.of_selected_user_body_exec_only  -- private
   -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectorHitUserBodyPreservesBridgeAtFuel.of_exec_bridge  -- private
   -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectorHitUserBodyPreservesBridgeAtFuel.of_forall_stmt_write_not_mem  -- private
   -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectorHitUserBodyPreservesBridgeAtFuel.of_nativeStmtsWriteNames_not_mem  -- private
-  -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectedUserBodyResultBridgeAtFuel.of_exec_only_and_nativeStmtsWriteNames_not_mem  -- private
+  Compiler.Proofs.EndToEnd.NativeGeneratedSelectedUserBodyResultBridgeAtFuel.of_exec_only_and_nativeStmtsWriteNames_not_mem
   -- Compiler.Proofs.EndToEnd.nativeStmtsWriteNames_not_mem_of_two_prefix  -- private
   -- Compiler.Proofs.EndToEnd.nativeStmtsWriteNames_not_mem_of_three_prefix  -- private
   -- Compiler.Proofs.EndToEnd.lowerStmtsNativeWithSwitchIds_ok_body_eq_of_same_input  -- private
@@ -1258,10 +1259,10 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.EndToEnd.nativeGeneratedSelectedUserBodyMatchedFresh_of_switchFresh  -- private
   -- Compiler.Proofs.EndToEnd.selectedUserBodyClosureAndMatchedFresh_of_compile_ok_supported_switchFresh  -- private
   -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectorHitUserBodyPreservesBridgeAtFuel.of_mappingFreePreservableStraightStmts  -- private
-  -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectedUserBodyResultBridgeAtFuel.of_exec_only_and_mappingFreePreservableStraightStmts  -- private
-  -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectedUserBodyResultBridgeAtFuel.of_exec_only_and_bridgedStraightStmts_mappingFree  -- private
+  Compiler.Proofs.EndToEnd.NativeGeneratedSelectedUserBodyResultBridgeAtFuel.of_exec_only_and_mappingFreePreservableStraightStmts
+  Compiler.Proofs.EndToEnd.NativeGeneratedSelectedUserBodyResultBridgeAtFuel.of_exec_only_and_bridgedStraightStmts_mappingFree
   -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectorHitUserBodyPreservesBridgeAtFuel.of_bridgedStraightStmts_mapping  -- private
-  -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectedUserBodyResultBridgeAtFuel.of_exec_only_and_bridgedStraightStmts_mapping  -- private
+  Compiler.Proofs.EndToEnd.NativeGeneratedSelectedUserBodyResultBridgeAtFuel.of_exec_only_and_bridgedStraightStmts_mapping
   -- Compiler.Proofs.EndToEnd.NativeBlockPreservesWord_nativeRevertZeroZero  -- private
   -- Compiler.Proofs.EndToEnd.NativeExprPreservesWord_lowerExprNative_callvalue_any  -- private
   -- Compiler.Proofs.EndToEnd.NativeExprPreservesWord_lowerExprNative_lt_calldatasize_lit_any  -- private
@@ -1294,7 +1295,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectorHitUserBodyPreservesBridgeAtFuel.of_singleton_comment  -- private
   -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectorHitUserBodyPreservesBridgeAtFuel.of_bridgedStraightStmts_falling_through  -- private
   -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectorHitUserBodyExecBridgeAtFuelRevived.of_empty_body  -- private
-  -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectedUserBodyResultBridgeAtFuel.of_empty_body  -- private
+  Compiler.Proofs.EndToEnd.NativeGeneratedSelectedUserBodyResultBridgeAtFuel.of_empty_body
   -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectorHitUserBodyBridgeAtFuelRevived.of_execIRFunction  -- private
   -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectorHitUserBodyBridgeAtFuelRestored.of_revived  -- private
   -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectorHitUserBodyBridgeAtFuelRestored.of_execIRFunction  -- private
@@ -1343,7 +1344,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.EndToEnd.nativeGeneratedCallDispatcherMatchesIR_of_compile_ok_supported_with_selected_user_body_exec_only_and_bridgedStraightStmts_mappingFree_caseFresh  -- private
   -- Compiler.Proofs.EndToEnd.nativeGeneratedCallDispatcherMatchesIR_of_compile_ok_supported_with_selected_user_body_exec_only_and_bridgedStraightStmts_mapping_caseFresh  -- private
   -- Compiler.Proofs.EndToEnd.nativeGeneratedCallDispatcherMatchesIR_of_compile_ok_supported_with_selected_user_body_result  -- private
-  -- Compiler.Proofs.EndToEnd.nativeGeneratedCallDispatcherMatchesIR_of_compile_ok_supported_with_selected_user_body_result_threshold  -- private
+  Compiler.Proofs.EndToEnd.nativeGeneratedCallDispatcherMatchesIR_of_compile_ok_supported_with_selected_user_body_result_threshold
   -- Compiler.Proofs.EndToEnd.nativeGeneratedCallDispatcherMatchesIR_of_compile_ok_supported_stop_body  -- private
   Compiler.Proofs.EndToEnd.nativeGeneratedCallDispatcherMatchesIR_of_compile_ok_supported
   -- Compiler.Proofs.EndToEnd.compile_preserves_native_evmYulLean_of_compile_ok_supported_generated_callDispatcher_via_result  -- private
@@ -1428,6 +1429,8 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.EndToEnd.layers2_3_ir_matches_native_evmYulLean_of_generated_lowered_runtime_dispatcherStmts_positive_body_closure_mapping_reserved_ofIR_globalDefaults  -- private
   -- Compiler.Proofs.EndToEnd.layers2_3_ir_matches_native_evmYulLean_of_generated_lowered_runtime_dispatcherStmts_project_body_closure_mapping_reserved_ofIR_environment  -- private
   -- Compiler.Proofs.EndToEnd.layers2_3_ir_matches_native_evmYulLean_of_generated_lowered_runtime_dispatcherStmts_project_body_closure_mapping_reserved_ofIR_globalDefaults  -- private
+
+  -- Compiler/Proofs/EndToEnd/SimpleStorage.lean
   -- Compiler.Proofs.EndToEnd.simpleStorage_functions_bridged  -- private
   -- Compiler.Proofs.EndToEnd.simpleStorage_functions_loop_free  -- private
   -- Compiler.Proofs.EndToEnd.simpleStorage_runtimeCode_eq_single_dispatcher  -- private
@@ -5575,4 +5578,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5247 theorems/lemmas (3675 public, 1572 private, 0 sorry'd)
+-- Total: 5247 theorems/lemmas (3722 public, 1525 private, 0 sorry'd)
