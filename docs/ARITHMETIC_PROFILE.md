@@ -61,7 +61,9 @@ Beyond the 15 low-level builtins, the `ExprCompileCore` proven fragment includes
 | `mulDivDown(a, b, c)` | ternary | `(a * b) / c` |
 | `mulDivUp(a, b, c)` | ternary | `(a * b + c - 1) / c` |
 
-These proofs are in `Compiler/Proofs/IRGeneration/FunctionBody.lean` and cover both IR compilation correctness and end-to-end evaluation semantics.
+These proofs are in `Compiler/Proofs/IRGeneration/FunctionBody/Base.lean` and
+`Compiler/Proofs/IRGeneration/FunctionBody/Stmt.lean`, and cover both IR
+compilation correctness and end-to-end evaluation semantics.
 
 The compiled `mulDivDown` / `mulDivUp` operators still use 256-bit EVM
 multiplication before division. They are suitable for fixed-point code whose

@@ -65,7 +65,7 @@ For proof-strict builds, deny flags lock down the trust surface. Each one fails 
 |------|-----------------|
 | `--deny-unchecked-dependencies` | Module dependencies that haven't been checked |
 | `--deny-assumed-dependencies` | Dependencies marked as assumed rather than verified |
-| `--deny-axiomatized-primitives` | Primitives still treated as axioms (e.g., raw `keccak256`) |
+| `--deny-axiomatized-primitives` | Primitive assumptions such as dynamic-memory `keccak256` |
 | `--deny-local-obligations` | Any undischarged `local_obligations [...]` |
 | `--deny-linear-memory-mechanics` | `mload` / `mstore` / `calldatacopy` / `returndatacopy` use |
 | `--deny-event-emission` | `rawLog` and not-yet-modeled event emission |
@@ -165,7 +165,7 @@ constructor := some {
 >
 > **Linear-memory boundary**: Memory-oriented intrinsics (`mload`, `mstore`, `calldatacopy`, `returndataCopy`, `returndataOptionalBoolAt`) compile, but the current proof interpreters still model them only partially. When they appear, surface that boundary with `--trust-report` / `--deny-linear-memory-mechanics`; the remaining gap is tracked under issue `#1411`.
 >
-> **Axiomatized-primitive boundary**: The `keccak256` intrinsic also compiles, but it remains axiomatized in the current proof stack rather than fully modeled end to end. When it appears, archive `--trust-report` and add `--deny-axiomatized-primitives` if the selected contracts must stay inside the proved subset (see issue `#1411`).
+> **Axiomatized-primitive boundary**: The `keccak256` intrinsic also compiles, but dynamic memory hashing remains an explicit primitive assumption in the current proof stack rather than a fully modeled operation. When it appears, archive `--trust-report` and add `--deny-axiomatized-primitives` if the selected contracts must stay inside the proved subset (see issue `#1411`).
 >
 > **Raw Yul boundary**: One-off single-instruction escapes should be modeled as `Stmt.unsafeYul` fragments, not new `Stmt` constructors. For example, raw memory reverts should use `UnsafeYulFragment.rawRevert`. Keep typed primitives such as `mstore` and `calldatacopy` first-class when Verity has stable semantics and proof/audit value for them.
 

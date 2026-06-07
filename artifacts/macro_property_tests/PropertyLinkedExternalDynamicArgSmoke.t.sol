@@ -32,7 +32,13 @@ contract PropertyLinkedExternalDynamicArgSmokeTest is YulTestBase {
         (bool ok,) = target.call(abi.encodeWithSignature("sendLeaves(uint256[])", _singletonUintArray(1)));
         require(ok, "sendLeaves reverted unexpectedly");
     }
-    // Property 3: TODO decode and assert `tryHash` result
+    // Property 3: discardHash has no unexpected revert
+    function testAuto_DiscardHash_NoUnexpectedRevert() public {
+        vm.prank(alice);
+        (bool ok,) = target.call(abi.encodeWithSignature("discardHash(uint256[])", _singletonUintArray(1)));
+        require(ok, "discardHash reverted unexpectedly");
+    }
+    // Property 4: TODO decode and assert `tryHash` result
     function testTODO_TryHash_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("tryHash(uint256[])", _singletonUintArray(1)));
@@ -41,7 +47,7 @@ contract PropertyLinkedExternalDynamicArgSmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 4: TODO decode and assert `hashPayload` result
+    // Property 5: TODO decode and assert `hashPayload` result
     function testTODO_HashPayload_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("hashPayload(bytes)", hex"CAFE"));
