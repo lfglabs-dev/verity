@@ -46,6 +46,7 @@ import Compiler.Proofs.IRGeneration.FunctionBody
 import Compiler.Proofs.IRGeneration.FunctionShape
 import Compiler.Proofs.IRGeneration.GenericInduction.Core
 import Compiler.Proofs.IRGeneration.GenericInduction.ExprStmt
+import Compiler.Proofs.IRGeneration.GenericInduction.Helpers
 import Compiler.Proofs.IRGeneration.GenericInduction.InterfaceAssembly
 import Compiler.Proofs.IRGeneration.GenericInduction.InternalCalls
 import Compiler.Proofs.IRGeneration.GenericInduction.LegacyCompatibility
@@ -2187,6 +2188,31 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.FunctionShape.compileFunctionSpec_ok_components
 
   -- Compiler/Proofs/IRGeneration/GenericInduction/Core.lean
+  Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic
+  -- Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_helper_steps_raw  -- private
+  Compiler.Proofs.IRGeneration.supported_function_body_with_helpers_and_helper_ir_goal_of_legacy_ir_goal_callsDisjoint
+  Compiler.Proofs.IRGeneration.supported_function_body_with_helpers_ir_goal_of_helper_ir_goal_callsDisjoint
+  Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_helper_steps
+  Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_helper_steps_and_helper_ir
+  Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_helper_surface_steps_and_helper_ir
+  Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_internal_helper_surface_steps_and_helper_ir
+  Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_finer_split_internal_helper_surface_steps_and_helper_ir
+  Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_split_internal_helper_surface_steps_and_helper_ir
+  Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_finer_split_internal_helper_surface_steps_and_helper_ir_callsDisjoint
+  Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_with_helpers_and_helper_ir_callsDisjoint
+  Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_with_helpers_and_helper_ir
+  Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_with_helpers_and_helper_ir_except_mapping_writes
+  Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_with_helpers_goal
+  Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_with_helpers
+
+  -- Compiler/Proofs/IRGeneration/GenericInduction/ExprStmt.lean
+  Compiler.Proofs.IRGeneration.compiledStmtStep_letVar
+  Compiler.Proofs.IRGeneration.compiledStmtStep_assignVar
+  Compiler.Proofs.IRGeneration.compiledStmtStep_require
+  Compiler.Proofs.IRGeneration.compiledStmtStep_return
+  Compiler.Proofs.IRGeneration.compiledStmtStep_stop
+
+  -- Compiler/Proofs/IRGeneration/GenericInduction/Helpers.lean
   -- Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_setMappingUintSingle_of_slotSafety  -- private
   -- Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_setMappingChainSingle_of_slotSafety  -- private
   -- Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_setMappingSingle_of_slotSafety  -- private
@@ -2273,7 +2299,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.stmtStepMatchesIRExecWithInternals_of_included
   Compiler.Proofs.IRGeneration.stmtStepMatchesIRExec_implies_stmtResultMatchesIRExec
   Compiler.Proofs.IRGeneration.stmtStepMatchesIRExecWithInternals_implies_stmtResultMatchesIRExecWithInternals
-  -- Compiler.Proofs.IRGeneration.yulStmtList_length_add_sizeOf_le_append  -- private
+  Compiler.Proofs.IRGeneration.yulStmtList_length_add_sizeOf_le_append
   -- Compiler.Proofs.IRGeneration.yulStmtList_sizeOf_append_left_le  -- private
   -- Compiler.Proofs.IRGeneration.scopeNamesIncluded_stmtNextScope  -- private
   -- Compiler.Proofs.IRGeneration.execIRStmts_append_of_continue  -- private
@@ -2286,29 +2312,6 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.exec_compileStmtList_generic_sizeOf_extraFuel
   Compiler.Proofs.IRGeneration.exec_compileStmtList_generic_with_helpers_sizeOf_extraFuel
   Compiler.Proofs.IRGeneration.exec_compileStmtList_generic_with_helpers_and_helper_ir_sizeOf_extraFuel
-  Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic
-  -- Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_helper_steps_raw  -- private
-  Compiler.Proofs.IRGeneration.supported_function_body_with_helpers_and_helper_ir_goal_of_legacy_ir_goal_callsDisjoint
-  Compiler.Proofs.IRGeneration.supported_function_body_with_helpers_ir_goal_of_helper_ir_goal_callsDisjoint
-  Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_helper_steps
-  Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_helper_steps_and_helper_ir
-  Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_helper_surface_steps_and_helper_ir
-  Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_internal_helper_surface_steps_and_helper_ir
-  Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_finer_split_internal_helper_surface_steps_and_helper_ir
-  Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_split_internal_helper_surface_steps_and_helper_ir
-  Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_finer_split_internal_helper_surface_steps_and_helper_ir_callsDisjoint
-  Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_with_helpers_and_helper_ir_callsDisjoint
-  Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_with_helpers_and_helper_ir
-  Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_with_helpers_and_helper_ir_except_mapping_writes
-  Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_with_helpers_goal
-  Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_with_helpers
-
-  -- Compiler/Proofs/IRGeneration/GenericInduction/ExprStmt.lean
-  Compiler.Proofs.IRGeneration.compiledStmtStep_letVar
-  Compiler.Proofs.IRGeneration.compiledStmtStep_assignVar
-  Compiler.Proofs.IRGeneration.compiledStmtStep_require
-  Compiler.Proofs.IRGeneration.compiledStmtStep_return
-  Compiler.Proofs.IRGeneration.compiledStmtStep_stop
 
   -- Compiler/Proofs/IRGeneration/GenericInduction/InterfaceAssembly.lean
   Compiler.Proofs.IRGeneration.stmtListHelperFreeStepInterface_of_core
@@ -5572,4 +5575,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5247 theorems/lemmas (3674 public, 1573 private, 0 sorry'd)
+-- Total: 5247 theorems/lemmas (3675 public, 1572 private, 0 sorry'd)
