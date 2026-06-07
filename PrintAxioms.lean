@@ -44,10 +44,10 @@ import Compiler.Proofs.IRGeneration.Dispatch
 import Compiler.Proofs.IRGeneration.Function
 import Compiler.Proofs.IRGeneration.FunctionBody
 import Compiler.Proofs.IRGeneration.FunctionShape
+import Compiler.Proofs.IRGeneration.GenericInduction.Calls
 import Compiler.Proofs.IRGeneration.GenericInduction.ExprStmt
 import Compiler.Proofs.IRGeneration.GenericInduction.Helpers
 import Compiler.Proofs.IRGeneration.GenericInduction.InterfaceAssembly
-import Compiler.Proofs.IRGeneration.GenericInduction.InternalCalls
 import Compiler.Proofs.IRGeneration.GenericInduction.LegacyCompatibility
 import Compiler.Proofs.IRGeneration.GenericInduction.Loops
 import Compiler.Proofs.IRGeneration.GenericInduction.Main
@@ -2187,6 +2187,40 @@ end Verity.AxiomAudit
   -- Compiler/Proofs/IRGeneration/FunctionShape.lean
   Compiler.Proofs.IRGeneration.FunctionShape.compileFunctionSpec_ok_components
 
+  -- Compiler/Proofs/IRGeneration/GenericInduction/Calls.lean
+  Compiler.Proofs.IRGeneration.compiledStmtStepWithHelpersAndHelperIR_internalCallAssign
+  Compiler.Proofs.IRGeneration.compiledStmtStepWithHelpersAndHelperIR_internalCall
+  Compiler.Proofs.IRGeneration.stmtListDirectInternalHelperAssignStepInterface_cons_internalCallAssign
+  Compiler.Proofs.IRGeneration.directInternalHelperPerCalleeBridgeCatalog_of_supportedBody_and_assignBridgeCatalog
+  Compiler.Proofs.IRGeneration.directInternalHelperPerCalleeCallCompileCatalog_of_supportedBody
+  Compiler.Proofs.IRGeneration.directInternalHelperHeadStepBridgeCatalog_of_perCalleeBridgeCatalog
+  Compiler.Proofs.IRGeneration.directInternalHelperHeadStepBridgeCatalog_of_supportedBody_and_assignBridgeCatalog
+  -- Compiler.Proofs.IRGeneration.directInternalHelperHeadStepCatalog_call_of_bridgeCatalog  -- private
+  -- Compiler.Proofs.IRGeneration.directInternalHelperHeadStepCatalog_assign_of_bridgeCatalog  -- private
+  Compiler.Proofs.IRGeneration.directInternalHelperHeadStepCatalog_of_bridgeCatalog
+  Compiler.Proofs.IRGeneration.directInternalHelperHeadStepCatalog_of_perCalleeBridgeCatalog
+  Compiler.Proofs.IRGeneration.directInternalHelperHeadStepCatalog_of_supportedBody_and_assignBridgeCatalog
+  -- Compiler.Proofs.IRGeneration.eraseDups_nodup_and_mem_aux_local  -- private
+  -- Compiler.Proofs.IRGeneration.List.mem_eraseDups_iff_local  -- private
+  -- Compiler.Proofs.IRGeneration.List.mem_eraseDups_of_mem_local  -- private
+  -- Compiler.Proofs.IRGeneration.List.mem_of_mem_eraseDups_local  -- private
+  -- Compiler.Proofs.IRGeneration.internalCallAssign_callee_mem_stmtListInternalHelperCallNames_eraseDups  -- private
+  -- Compiler.Proofs.IRGeneration.internalCall_callee_mem_stmtListInternalHelperCallNames_eraseDups  -- private
+  -- Compiler.Proofs.IRGeneration.mem_stmtListInternalHelperCallNames_cons_of_mem_tail  -- private
+  Compiler.Proofs.IRGeneration.stmtListDirectInternalHelperAssignStepInterface_of_internalCallAssignSteps
+  Compiler.Proofs.IRGeneration.stmtListDirectInternalHelperAssignStepInterface_of_internalCallAssignSteps_of_helperCallNames
+  Compiler.Proofs.IRGeneration.stmtListDirectInternalHelperCallStepInterface_cons_internalCall
+  Compiler.Proofs.IRGeneration.stmtListDirectInternalHelperCallStepInterface_of_internalCallSteps
+  Compiler.Proofs.IRGeneration.stmtListDirectInternalHelperCallStepInterface_of_internalCallSteps_of_helperCallNames
+  Compiler.Proofs.IRGeneration.stmtListDirectInternalHelperStepInterfaces_of_headStepCatalog
+  -- Compiler.Proofs.IRGeneration.internalFunctionYulName_ne_stop  -- private
+  -- Compiler.Proofs.IRGeneration.internalFunctionYulName_ne_sstore  -- private
+  -- Compiler.Proofs.IRGeneration.internalFunctionYulName_ne_mstore  -- private
+  -- Compiler.Proofs.IRGeneration.internalFunctionYulName_ne_revert  -- private
+  -- Compiler.Proofs.IRGeneration.internalFunctionYulName_ne_return  -- private
+  Compiler.Proofs.IRGeneration.execIRStmtsWithInternals_of_internalCallAssign_compiledHelperWitness
+  Compiler.Proofs.IRGeneration.execIRStmtsWithInternals_of_internalCall_compiledHelperWitness
+
   -- Compiler/Proofs/IRGeneration/GenericInduction/ExprStmt.lean
   Compiler.Proofs.IRGeneration.compiledStmtStep_letVar
   Compiler.Proofs.IRGeneration.compiledStmtStep_assignVar
@@ -2331,40 +2365,6 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.stmtListGenericWithHelpersAndHelperIR_of_core_helperSurfaceClosed_and_helperFreeCompiledCallsDisjoint
   Compiler.Proofs.IRGeneration.stmtListGenericWithHelpersAndHelperIR_of_core_helperSurfaceClosed_and_helperFreeCompiledLegacyCompatible
   Compiler.Proofs.IRGeneration.stmtListGenericWithHelpersAndHelperIR_of_core_helperSurfaceClosed_and_compiledLegacyCompatible
-
-  -- Compiler/Proofs/IRGeneration/GenericInduction/InternalCalls.lean
-  Compiler.Proofs.IRGeneration.compiledStmtStepWithHelpersAndHelperIR_internalCallAssign
-  Compiler.Proofs.IRGeneration.compiledStmtStepWithHelpersAndHelperIR_internalCall
-  Compiler.Proofs.IRGeneration.stmtListDirectInternalHelperAssignStepInterface_cons_internalCallAssign
-  Compiler.Proofs.IRGeneration.directInternalHelperPerCalleeBridgeCatalog_of_supportedBody_and_assignBridgeCatalog
-  Compiler.Proofs.IRGeneration.directInternalHelperPerCalleeCallCompileCatalog_of_supportedBody
-  Compiler.Proofs.IRGeneration.directInternalHelperHeadStepBridgeCatalog_of_perCalleeBridgeCatalog
-  Compiler.Proofs.IRGeneration.directInternalHelperHeadStepBridgeCatalog_of_supportedBody_and_assignBridgeCatalog
-  -- Compiler.Proofs.IRGeneration.directInternalHelperHeadStepCatalog_call_of_bridgeCatalog  -- private
-  -- Compiler.Proofs.IRGeneration.directInternalHelperHeadStepCatalog_assign_of_bridgeCatalog  -- private
-  Compiler.Proofs.IRGeneration.directInternalHelperHeadStepCatalog_of_bridgeCatalog
-  Compiler.Proofs.IRGeneration.directInternalHelperHeadStepCatalog_of_perCalleeBridgeCatalog
-  Compiler.Proofs.IRGeneration.directInternalHelperHeadStepCatalog_of_supportedBody_and_assignBridgeCatalog
-  -- Compiler.Proofs.IRGeneration.eraseDups_nodup_and_mem_aux_local  -- private
-  -- Compiler.Proofs.IRGeneration.List.mem_eraseDups_iff_local  -- private
-  -- Compiler.Proofs.IRGeneration.List.mem_eraseDups_of_mem_local  -- private
-  -- Compiler.Proofs.IRGeneration.List.mem_of_mem_eraseDups_local  -- private
-  -- Compiler.Proofs.IRGeneration.internalCallAssign_callee_mem_stmtListInternalHelperCallNames_eraseDups  -- private
-  -- Compiler.Proofs.IRGeneration.internalCall_callee_mem_stmtListInternalHelperCallNames_eraseDups  -- private
-  -- Compiler.Proofs.IRGeneration.mem_stmtListInternalHelperCallNames_cons_of_mem_tail  -- private
-  Compiler.Proofs.IRGeneration.stmtListDirectInternalHelperAssignStepInterface_of_internalCallAssignSteps
-  Compiler.Proofs.IRGeneration.stmtListDirectInternalHelperAssignStepInterface_of_internalCallAssignSteps_of_helperCallNames
-  Compiler.Proofs.IRGeneration.stmtListDirectInternalHelperCallStepInterface_cons_internalCall
-  Compiler.Proofs.IRGeneration.stmtListDirectInternalHelperCallStepInterface_of_internalCallSteps
-  Compiler.Proofs.IRGeneration.stmtListDirectInternalHelperCallStepInterface_of_internalCallSteps_of_helperCallNames
-  Compiler.Proofs.IRGeneration.stmtListDirectInternalHelperStepInterfaces_of_headStepCatalog
-  -- Compiler.Proofs.IRGeneration.internalFunctionYulName_ne_stop  -- private
-  -- Compiler.Proofs.IRGeneration.internalFunctionYulName_ne_sstore  -- private
-  -- Compiler.Proofs.IRGeneration.internalFunctionYulName_ne_mstore  -- private
-  -- Compiler.Proofs.IRGeneration.internalFunctionYulName_ne_revert  -- private
-  -- Compiler.Proofs.IRGeneration.internalFunctionYulName_ne_return  -- private
-  Compiler.Proofs.IRGeneration.execIRStmtsWithInternals_of_internalCallAssign_compiledHelperWitness
-  Compiler.Proofs.IRGeneration.execIRStmtsWithInternals_of_internalCall_compiledHelperWitness
 
   -- Compiler/Proofs/IRGeneration/GenericInduction/LegacyCompatibility.lean
   -- Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_append  -- private
