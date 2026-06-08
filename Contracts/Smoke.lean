@@ -3387,6 +3387,71 @@ example : CustomNamespacedSmoke.storageNamespace = CustomNamespacedSmoke.spec.st
 example : CustomNamespacedSmoke.storageNamespace = 105542539407630759878214364786123406227647255732885741380220581264062975076298 := rfl
 example : CustomNamespacedSmoke.storageNamespace ≠ 67387409610395734986217237394999073412260967828994783805404864304835768435504 := by decide
 
+-- Automatic default namespace policy (#1896). Existing modules keep legacy
+-- slot layout unless they opt in with this option; once enabled, omitting an
+-- explicit `storage_namespace` derives the stable contract-name namespace.
+set_option verity.storageNamespace.default true in
+verity_contract DefaultNamespacedStorageSmoke where
+  storage
+    balance : Uint256 := slot 0
+    owner : Address := slot 1
+
+  function write (amount : Uint256, newOwner : Address) : Unit := do
+    setStorage balance amount
+    setStorageAddr owner newOwner
+
+#check_contract DefaultNamespacedStorageSmoke
+
+example : DefaultNamespacedStorageSmoke.balance.slot ≠ 0 := by decide
+example : DefaultNamespacedStorageSmoke.owner.slot ≠ 1 := by decide
+example : DefaultNamespacedStorageSmoke.spec.storageNamespace.isSome = true := rfl
+example : DefaultNamespacedStorageSmoke.balance.slot =
+    DefaultNamespacedStorageSmoke.storageNamespace := rfl
+example : DefaultNamespacedStorageSmoke.owner.slot =
+    DefaultNamespacedStorageSmoke.storageNamespace + 1 := rfl
+
+-- Explicit keys override the automatic default namespace policy.
+set_option verity.storageNamespace.default true in
+verity_contract DefaultNamespaceOverrideSmoke where
+  storage_namespace "override.namespace.v0"
+  storage
+    balance : Uint256 := slot 0
+
+  function write (amount : Uint256) : Unit := do
+    setStorage balance amount
+
+#check_contract DefaultNamespaceOverrideSmoke
+
+example :
+    DefaultNamespaceOverrideSmoke.storageNamespace =
+      DefaultNamespaceOverrideSmoke.spec.storageNamespace.get! := rfl
+example : DefaultNamespaceOverrideSmoke.balance.slot =
+    DefaultNamespaceOverrideSmoke.storageNamespace := rfl
+example :
+    DefaultNamespaceOverrideSmoke.storageNamespace ≠
+      DefaultNamespacedStorageSmoke.storageNamespace := by
+  decide
+
+-- `storage_namespace legacy` is the compatibility escape hatch when the
+-- automatic policy is enabled for a file but a specific contract must retain
+-- historical raw slots.
+set_option verity.storageNamespace.default true in
+verity_contract DefaultNamespaceLegacyOptOutSmoke where
+  storage_namespace legacy
+  storage
+    balance : Uint256 := slot 0
+    owner : Address := slot 1
+
+  function write (amount : Uint256, newOwner : Address) : Unit := do
+    setStorage balance amount
+    setStorageAddr owner newOwner
+
+#check_contract DefaultNamespaceLegacyOptOutSmoke
+
+example : DefaultNamespaceLegacyOptOutSmoke.balance.slot = 0 := rfl
+example : DefaultNamespaceLegacyOptOutSmoke.owner.slot = 1 := rfl
+example : DefaultNamespaceLegacyOptOutSmoke.spec.storageNamespace.isNone = true := rfl
+
 -- Multiple namespace roots in one contract. Each `storage_namespace` item
 -- inside the storage block applies to subsequent fields until the next item.
 verity_contract MultiNamespaceStorageSmoke where

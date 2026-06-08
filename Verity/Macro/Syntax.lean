@@ -99,6 +99,7 @@ syntax "| " ident "(" sepBy(verityParam, ",") ")" : verityAdtVariant
 syntax "| " ident : verityAdtVariant
 syntax ident " := " verityAdtVariant+ : verityAdtDecl
 syntax "storage_namespace " : verityNamespaceSpec
+syntax "storage_namespace " "legacy" : verityNamespaceSpec
 syntax "storage_namespace " str : verityNamespaceSpec
 syntax "storage_namespace " "erc7201 " str : verityNamespaceSpec
 syntax "initializer(" ident ")" : verityInitGuard

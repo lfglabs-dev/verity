@@ -24,6 +24,11 @@ open Lean.Elab.Command
 
 set_option hygiene false
 
+register_option verity.storageNamespace.default : Bool := {
+  defValue := false
+  descr := "Apply the default contract-name storage namespace to verity_contract declarations that omit storage_namespace"
+}
+
 mutual
 private partial def validateDoSeqExprTypes
     (ownerName : String)
@@ -2285,19 +2290,24 @@ def computeERC7201StorageNamespaceKey (key : String) : Nat :=
   let slotHash := KeccakEngine.byteArrayToNatBE (KeccakEngine.keccak256 encoded)
   (slotHash / 256) * 256
 
+private def defaultStorageNamespaceEnabled : CommandElabM Bool := do
+  pure (verity.storageNamespace.default.get (← getOptions))
+
 private def namespaceOffsetFromSpec
-    (contractName : Ident) (spec : TSyntax `verityNamespaceSpec) : CommandElabM Nat := do
+    (contractName : Ident) (spec : TSyntax `verityNamespaceSpec) : CommandElabM (Option Nat) := do
   match spec with
   | `(verityNamespaceSpec| storage_namespace erc7201 $customKey:str) =>
       match customKey.raw.isStrLit? with
-      | some key => pure (computeERC7201StorageNamespaceKey key)
+      | some key => pure (some (computeERC7201StorageNamespaceKey key))
       | none => throwErrorAt customKey "expected storage namespace string literal"
   | `(verityNamespaceSpec| storage_namespace $customKey:str) =>
       match customKey.raw.isStrLit? with
-      | some key => pure (computeStorageNamespaceKey key)
+      | some key => pure (some (computeStorageNamespaceKey key))
       | none => throwErrorAt customKey "expected storage namespace string literal"
+  | `(verityNamespaceSpec| storage_namespace legacy) =>
+      pure none
   | `(verityNamespaceSpec| storage_namespace) =>
-      pure (computeStorageNamespace (toString contractName.getId))
+      pure (some (computeStorageNamespace (toString contractName.getId)))
   | _ =>
       throwErrorAt spec "unsupported storage namespace syntax"
 
@@ -2388,13 +2398,20 @@ def parseContractSyntax
       for adtDecl in parsedAdts do
         if builtinTypeNames.contains adtDecl.name then
           throwErrorAt adtDecl.ident s!"ADT name '{adtDecl.name}' shadows a built-in type"
-      -- Compute the initial namespace offset (#1730, Axis 4 Steps 4b/4c).
-      -- A legacy `storage_namespace` before `storage` applies to all following
-      -- fields until overridden by an in-storage `storage_namespace` item.
-      let namespaceOffset : Nat ←
+      -- Compute the initial namespace offset (#1730, #1896).
+      -- Explicit `storage_namespace` syntax wins. Otherwise
+      -- `set_option verity.storageNamespace.default true` applies the stable
+      -- contract-name namespace to all following fields until overridden by an
+      -- in-storage `storage_namespace` item. Contract-level
+      -- `storage_namespace legacy` opts out of the automatic policy.
+      let namespaceOpt : Option Nat ←
         match nsSpec with
         | some spec => namespaceOffsetFromSpec contractName spec
-        | none => pure 0
+        | none =>
+            if (← defaultStorageNamespaceEnabled) then
+              pure (some (computeStorageNamespace (toString contractName.getId)))
+            else
+              pure none
       let parsedErrors ←
         match errorDecls with
         | some decls => decls.mapM (parseError parsedNewtypes parsedStructs parsedAdts)
@@ -2437,15 +2454,14 @@ def parseContractSyntax
       -- fields, allowing multiple ERC-7201 roots in one contract model.
       let mut parsedFields : Array StorageFieldDecl := #[]
       let mut parsedStorageStructAccessors : Array StorageStructAccessorDecl := #[]
-      let mut currentNamespaceOffset := namespaceOffset
-      let mut namespaceOpt : Option Nat :=
-        if nsSpec.isSome then some namespaceOffset else none
+      let mut currentNamespaceOffset := namespaceOpt.getD 0
+      let mut firstNamespaceOpt := namespaceOpt
       for item in storageItems do
         match (← namespaceOffsetFromStorageItem? contractName item) with
         | some offset =>
             currentNamespaceOffset := offset
-            if namespaceOpt.isNone then
-              namespaceOpt := some offset
+            if firstNamespaceOpt.isNone then
+              firstNamespaceOpt := some offset
         | none =>
             match (← parseStorageStructItem parsedNewtypes parsedStructs parsedAdts item) with
             | some (structFields, accessor) =>
@@ -2479,7 +2495,7 @@ def parseContractSyntax
             (← monomorphizeHigherOrderHelpers
               ((← entrypoints.mapM parseSpecialEntrypoint) ++
                 (← functions.mapM (parseFunction parsedNewtypes parsedStructs parsedAdts interfaceNames))))
-        storageNamespace := namespaceOpt
+        storageNamespace := firstNamespaceOpt
       }
   | _ => throwErrorAt stx "invalid verity_contract declaration"
 

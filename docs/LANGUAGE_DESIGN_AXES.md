@@ -76,8 +76,8 @@ SAFE BY DEFAULT (compiler enforces)
 |---|---|---|---|
 | 4a | Namespace computation | 1 week | Compute `keccak256("{ContractName}.storage.v0")` at elaboration time using kernel Keccak |
 | 4b | Slot offsetting | 1 week | All `slot N` declarations become `slot (namespace_base + N)` |
-| 4c | Override attributes | 0.5 weeks | `@[no_namespace]` to opt out; `@[namespace "custom"]` for custom string |
-| 4d | ABI + tooling integration | 0.5 weeks | Emit namespace in ABI JSON; `--print-storage-layout` flag |
+| 4c | Override syntax | 0.5 weeks | `storage_namespace legacy` opts out; `storage_namespace "custom"` and `storage_namespace erc7201 "custom"` select explicit roots |
+| 4d | ABI + tooling integration | 0.5 weeks | Emit namespace in layout reports via `--layout-report`; opt in to automatic roots with `set_option verity.storageNamespace.default true` |
 
 **Files touched**: `Macro/Elaborate.lean`, `Macro/Translate.lean`, `CompilationModel/AbiHelpers.lean`
 **Estimated total**: 2–3 weeks
