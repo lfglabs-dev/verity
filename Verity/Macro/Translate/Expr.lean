@@ -2076,6 +2076,12 @@ partial def inferPureExprType
       requireWordLikeType key1 "structMember2 key" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals key1 visitingConstants)
       requireWordLikeType key2 "structMember2 key" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals key2 visitingConstants)
       pure memberDecl.ty
+  -- `Verity.keccak256_lit "literal"` / `keccak256_lit "literal"` —
+  -- compile-time Keccak-256 of a UTF-8 string literal.  Always
+  -- `.uint256` (the hash is 256 bits, fits exactly).  Validated +
+  -- lowered to `Expr.literal n` later in the same file.
+  | `(term| Verity.keccak256_lit $_:str) | `(term| keccak256_lit $_:str) =>
+      pure .uint256
   | _ =>
       match qualifiedFunctionAppSyntax? stx with
       | some (fnName, _) =>
