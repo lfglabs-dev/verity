@@ -2104,10 +2104,6 @@ private def mkSpecCommand
       let viewTerm ← if fn.isView then `(true) else `(false)
       let pureTerm ← if fn.isPure then `(true) else `(false)
       let noExternalCallsTerm ← if fn.noExternalCalls then `(true) else `(false)
-      let allowPostInteractionWritesTerm ← if fn.allowPostInteractionWrites then `(true) else `(false)
-      let nonReentrantLockTerm ← match fn.nonReentrantLock with
-        | some lockIdent => `(some $(strTerm (toString lockIdent.getId)))
-        | none => `(none)
       -- The internal helper shadow runs *inside* an already-guarded call
       -- chain (the transient-storage reentrancy guard is attached at the
       -- external dispatch boundary via `attachNonReentrantGuard`, #1893),
@@ -2124,6 +2120,62 @@ private def mkSpecCommand
           `(true)
         else
           `(false)
+      -- Internal-shadow reentrancy guard (#1893 Bugbot follow-up):
+      -- `attachNonReentrantGuard` only injects the transient-storage
+      -- acquire prologue at the external dispatch boundary, so any other
+      -- contract function that calls this body via `internalCall internal_*`
+      -- would otherwise run the post-interaction writes without ever
+      -- acquiring the lock — letting an attacker re-enter through a
+      -- non-guarded sibling public entry and bypass the guard. Prepend the
+      -- same `if eq(tload(lockSlot), 1) { revert(0, 0) }; tstore(lockSlot, 1)`
+      -- prologue to the shadow body itself so an internal-call entry path
+      -- acquires the lock too. Transient storage acquire is idempotent
+      -- across same-transaction reentry (the second check fires and
+      -- reverts), so an outer guarded entry followed by a same-tx
+      -- internal-call to the same shadow correctly reverts.
+      let shadowGuardPrologueTerms : Array Term ←
+        match fn.nonReentrantLock with
+        | some lockIdent =>
+            let lockName := toString lockIdent.getId
+            match fields.find? (fun field => field.name == lockName) with
+            | some lockField =>
+                let slotLit := natTerm lockField.slotNum
+                -- `revertReturndata` at function entry sees `returndatasize() == 0`,
+                -- so it lowers to an empty-payload `returndatacopy(0,0,0); revert(0,0)`
+                -- pair. Using it keeps the guard inside the typed Stmt surface
+                -- (no `unsafeYul` trust-surface obligation).
+                let guardCheck ← `(Compiler.CompilationModel.Stmt.ite
+                  (Compiler.CompilationModel.Expr.eq
+                    (Compiler.CompilationModel.Expr.tload (Compiler.CompilationModel.Expr.literal $slotLit))
+                    (Compiler.CompilationModel.Expr.literal 1))
+                  [Compiler.CompilationModel.Stmt.revertReturndata]
+                  [])
+                let guardAcquire ← `(Compiler.CompilationModel.Stmt.tstore
+                  (Compiler.CompilationModel.Expr.literal $slotLit)
+                  (Compiler.CompilationModel.Expr.literal 1))
+                pure #[guardCheck, guardAcquire]
+            | none => pure #[]
+        | none => pure #[]
+      -- When the shadow inherits a transient-storage reentrancy guard
+      -- prologue (`tload` / `tstore` / `revertReturndata`), the
+      -- compilation-model validator's "no unguarded low-level mechanics
+      -- without a local_obligations entry" gate (#1424) requires a
+      -- matching local obligation. Auto-inject it alongside the
+      -- user-declared obligations so the trust boundary is documented
+      -- on the shadow itself, not only the public path.
+      let shadowGuardObligationTerm? : Option Term ←
+        if fn.nonReentrantLock.isSome then
+          let term ← `(Compiler.CompilationModel.LocalObligation.mk
+              $(strTerm s!"{fn.name}_internal_reentrancy_guard")
+              $(strTerm "Auto-injected internal-call reentrancy guard for nonreentrant function: tload/tstore on the lock slot acquires the transient lock at shadow entry so internal-call paths cannot bypass the external dispatch guard (#1893).")
+              Compiler.ProofStatus.assumed)
+          pure (some term)
+        else
+          pure none
+      let shadowLocalObligationTerms : Array Term :=
+        match shadowGuardObligationTerm? with
+        | some term => #[term] ++ localObligationTerms
+        | none => localObligationTerms
       let ceiSafeTerm ← if fn.ceiSafe then `(true) else `(false)
       let requiresRoleTerm ← match fn.requiresRole with
         | some roleIdent => `(some $(strTerm (toString roleIdent.getId)))
@@ -2150,8 +2202,8 @@ private def mkSpecCommand
         ceiSafe := $ceiSafeTerm
         requiresRole := $requiresRoleTerm
         modifies := [ $[$internalModifiesTerms],* ]
-        localObligations := [ $[$localObligationTerms],* ]
-        body := $modelBodyName
+        localObligations := [ $[$shadowLocalObligationTerms],* ]
+        body := ([ $[$shadowGuardPrologueTerms],* ] ++ $modelBodyName)
         isInternal := true
       } : Compiler.CompilationModel.FunctionSpec) ))
     else

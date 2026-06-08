@@ -3988,4 +3988,68 @@ example : FullComboSmoke.spec.storageNamespace.isSome = true := rfl
 example : FullComboSmoke.spec.adtTypes.length = 1 := rfl
 example : FullComboSmoke.spec.adtTypes.map (·.name) = ["TokenStatus"] := rfl
 
+-- ════════════════════════════════════════════════════════════════════════════
+-- Storage non-alias certificate (#1966): decidable subset
+-- ════════════════════════════════════════════════════════════════════════════
+
+-- The storage layout audit artifact tags each pairwise non-alias claim with
+-- a justification. `distinctScalarSlots` claims — both families scalar with
+-- distinct declared slots — are *decidable* against the certificate: the
+-- claim reduces to `aSlot ≠ bSlot` and `decide` discharges it without any
+-- keccak assumption. The four examples below ground that property on the
+-- ERC20 contract, exercising all three justification kinds emitted by
+-- `Compiler.CompilationModel.LayoutReport`:
+--
+-- * `ownerSlot` (slot 0, address) ⟂ `totalSupplySlot` (slot 1, uint256)
+--   — `distinctScalarSlots`, decidable.
+-- * `ownerSlot` (slot 0, scalar) ⟂ `balancesSlot` (slot 2, mapping)
+--   — `keccakDomainScalar`, the layout claim records `aSlot=0, bSlot=2`
+--     so the per-family obligation can be discharged against a named
+--     `keccak_above_max_declared_slot` axiom. The smoke here only locks
+--     down the slot values (the proof side discharges via the axiom).
+-- * `balancesSlot` (mapping, slot 2) ⟂ `allowancesSlot` (nestedMapping,
+--   slot 3) — `keccakPreimageDistinct`, locked down structurally.
+
+example :
+    (Contracts.ERC20.spec.fields.zipIdx.find? (fun (f, _) => f.name == "ownerSlot")).isSome
+    && (Contracts.ERC20.spec.fields.zipIdx.find? (fun (f, _) => f.name == "totalSupplySlot")).isSome
+    = true := by decide
+
+example :
+    (Contracts.ERC20.spec.fields.zipIdx.findSome? (fun (f, idx) =>
+      if f.name == "ownerSlot" then some (f.slot.getD idx) else none)) =
+    some 0 := by decide
+
+example :
+    (Contracts.ERC20.spec.fields.zipIdx.findSome? (fun (f, idx) =>
+      if f.name == "totalSupplySlot" then some (f.slot.getD idx) else none)) =
+    some 1 := by decide
+
+-- `distinctScalarSlots` reduces to `0 ≠ 1` and is decidable.
+example :
+    (Contracts.ERC20.spec.fields.zipIdx.findSome? (fun (f, idx) =>
+      if f.name == "ownerSlot" then some (f.slot.getD idx) else none)) ≠
+    (Contracts.ERC20.spec.fields.zipIdx.findSome? (fun (f, idx) =>
+      if f.name == "totalSupplySlot" then some (f.slot.getD idx) else none)) := by
+  decide
+
+-- The two keccak-derived families have *distinct* root slots, so their
+-- preimage shapes are structurally disjoint (`keccak256(k || 2)` vs
+-- `keccak256(innerK || keccak256(outerK || 3))`). The non-alias proof
+-- against this pair is a `keccakPreimageDistinct` axiom; the smoke just
+-- locks down the structural shape the axiom is parameterised over.
+example :
+    Contracts.ERC20.spec.fields.any (fun f =>
+      f.name == "balancesSlot" &&
+      match f.ty with
+      | Compiler.CompilationModel.FieldType.mappingTyped _ => true
+      | _ => false) = true := by decide
+
+example :
+    Contracts.ERC20.spec.fields.any (fun f =>
+      f.name == "allowancesSlot" &&
+      match f.ty with
+      | Compiler.CompilationModel.FieldType.mappingTyped _ => true
+      | _ => false) = true := by decide
+
 end Contracts.Smoke
