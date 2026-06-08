@@ -413,10 +413,9 @@ private partial def validateEffectStmtExprTypes
   | _ =>
       -- a typed interface call in statement position is only valid when the
       -- method is void; `resolveTypedInterfaceCall?` already validates arg
-      -- count and arg types.
+      -- count, arg types, and the supported typed-interface ABI fragment.
       match ← resolveTypedInterfaceCall? fields constDecls immutableDecls externalDecls params locals stx with
-      | some (ext, _, _, none, _) => do
-          requireNoReturnInterfaceStaticParams stx ext.name ext.params
+      | some (_, _, _, none, _) => do
           pure ()
       | some (_, _, _, some retTy, _) =>
           throwErrorAt stx
@@ -927,7 +926,6 @@ private def translateEffectStmt
       -- no returndatasize check and no return decode).
       match ← resolveTypedInterfaceCall? fields constDecls immutableDecls externalDecls params locals stx with
       | some (ext, target, argTerms, none, selector) =>
-          requireNoReturnInterfaceStaticParams stx ext.name ext.params
           let targetExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals target
           let argExprs ← argTerms.mapM
             (translatePureExprWithTypes fields constDecls immutableDecls params locals)
@@ -2672,13 +2670,16 @@ def validateExternalDeclsPublic
     if seenNames.contains ext.name then
       throwErrorAt ext.ident
         s!"duplicate external declaration '{ext.name}'"
-    -- Multi-return externals are allowed; the auto-revert expression form (externalCall)
-    -- only supports single-return, but tryExternalCall supports any return count.
-    -- (#1727, Axis 1 Step 5f)
-    for paramTy in ext.params do
-      validateExternalExecutableParamType ext.ident ext.name paramTy
-    for returnTy in ext.returnTys do
-      validateExternalExecutableType ext.ident ext.name returnTy "return"
+    if ext.interfaceName?.isSome then
+      requireTypedInterfaceStaticParams ext.ident ext.name ext.params
+    else
+      -- Multi-return externals are allowed; the auto-revert expression form (externalCall)
+      -- only supports single-return, but tryExternalCall supports any return count.
+      -- (#1727, Axis 1 Step 5f)
+      for paramTy in ext.params do
+        validateExternalExecutableParamType ext.ident ext.name paramTy
+      for returnTy in ext.returnTys do
+        validateExternalExecutableType ext.ident ext.name returnTy "return"
     seenNames := seenNames.push ext.name
 
 private def validateLocalObligationDecls

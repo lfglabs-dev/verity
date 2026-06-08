@@ -1272,13 +1272,13 @@ def throwStructNonLeafProjectionError (stx : Term) : CommandElabM α :=
 def renderValueType (ty : ValueType) : String :=
   reprStr ty
 
-def requireNoReturnInterfaceStaticParams
+def requireTypedInterfaceStaticParams
     (stx : Syntax) (externalName : String) (params : Array ValueType) : CommandElabM Unit := do
   for h : i in [:params.size] do
     let ty := params[i]
     unless isSingleWordStaticValueType ty do
       throwErrorAt stx
-        s!"void typed interface call '{externalName}' currently supports only static single-word parameters; argument {i + 1} has {renderValueType ty}"
+        s!"typed interface call '{externalName}' currently supports only static single-word parameters; argument {i + 1} has {renderValueType ty}. Dynamic and composite ABI parameters require ABI-frame typed-interface lowering, which is not implemented yet."
 
 /-- verity#1849, G3: allow `Array <wordLike>` and `bytes` / `string` as
     external-call / event / custom-error argument types when the argument
@@ -4625,6 +4625,7 @@ partial def resolveTypedInterfaceCall?
     unless actualTy == expectedTy || (isNatLiteralTerm argTerm && numericLiteralCompatibleValueType expectedTy) do
       throwErrorAt argTerm
         s!"interface call '{interfaceName}.{methodName}' argument expects {renderValueType expectedTy}, got {renderValueType actualTy}"
+  requireTypedInterfaceStaticParams stx externalName ext.params
   -- the selector is computed from the params only, so a void method's canonical
   -- signature is identical to its non-void counterpart (e.g. aave
   -- `supply(address,uint256,address,uint16)`).

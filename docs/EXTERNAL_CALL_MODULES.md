@@ -71,8 +71,17 @@ function readBalance (token : IERC20, owner : Address) : Uint256 := do
 
 The interface-typed parameter is ABI-encoded as `Address`. The dot call emits
 `Compiler.Modules.Calls.withReturnModule`; `view` selects `staticcall`, while
-non-`view` selects `call`. Interface calls currently support one return value
-and type-only interface parameter lists.
+non-`view` selects `call`. Interface methods with no `returns` clause lower to
+`Compiler.Modules.Calls.noReturnModule` in statement position. Interface calls
+currently support one return value and type-only interface parameter lists.
+
+Typed-interface parameters are deliberately limited to static single-word ABI
+values (`Uint256`, `Int256`, `Uint8`, `Uint16`, `Address`, `Bytes32`, `Bool`,
+and newtypes over those values). Dynamic or composite parameter shapes such as
+`Bytes`, `String`, arrays, tuples, and structs are rejected at elaboration time.
+Those shapes need ABI-frame typed-interface lowering so calldata heads, dynamic
+tails, and total sizes are encoded honestly; until that path exists, both
+return-bearing and no-return typed-interface calls fail closed.
 
 When the compiler encounters `Stmt.ecm mod args`, it:
 

@@ -217,7 +217,7 @@ verity_contract VoidCallLetBindVoidRejected where
     pure ()
 
 /--
-error: void typed interface call 'IPool.submit' currently supports only static single-word parameters; argument 1 has Verity.Macro.ValueType.bytes
+error: typed interface call 'IPool.submit' currently supports only static single-word parameters; argument 1 has Verity.Macro.ValueType.bytes. Dynamic and composite ABI parameters require ABI-frame typed-interface lowering, which is not implemented yet.
 -/
 #guard_msgs in
 verity_contract VoidCallDynamicParamRejected where
@@ -230,6 +230,111 @@ verity_contract VoidCallDynamicParamRejected where
 
   function bad (pool : IPool, payload : Bytes) : Unit := do
     pool.submit payload
+
+/--
+error: typed interface call 'IPool.submit' currently supports only static single-word parameters; argument 1 has Verity.Macro.ValueType.bytes. Dynamic and composite ABI parameters require ABI-frame typed-interface lowering, which is not implemented yet.
+-/
+#guard_msgs in
+verity_contract ReturnCallBytesParamRejected where
+  storage
+
+  interfaces
+    interface IPool where
+      function submit(Bytes) returns (Uint256)
+    end
+
+  function bad (pool : IPool, payload : Bytes) : Uint256 := do
+    let result ← pool.submit payload
+    return result
+
+/--
+error: typed interface call 'IPool.submit' currently supports only static single-word parameters; argument 1 has Verity.Macro.ValueType.string. Dynamic and composite ABI parameters require ABI-frame typed-interface lowering, which is not implemented yet.
+-/
+#guard_msgs in
+verity_contract ReturnCallStringParamRejected where
+  storage
+
+  interfaces
+    interface IPool where
+      function submit(String) returns (Uint256)
+    end
+
+  function bad (pool : IPool, message : String) : Uint256 := do
+    let result ← pool.submit message
+    return result
+
+/--
+error: typed interface call 'IPool.submit' currently supports only static single-word parameters; argument 1 has Verity.Macro.ValueType.array (Verity.Macro.ValueType.uint256). Dynamic and composite ABI parameters require ABI-frame typed-interface lowering, which is not implemented yet.
+-/
+#guard_msgs in
+verity_contract ReturnCallArrayParamRejected where
+  storage
+
+  interfaces
+    interface IPool where
+      function submit(Array Uint256) returns (Uint256)
+    end
+
+  function bad (pool : IPool, amounts : Array Uint256) : Uint256 := do
+    let result ← pool.submit amounts
+    return result
+
+/--
+error: typed interface call 'IPool.submit' currently supports only static single-word parameters; argument 1 has Verity.Macro.ValueType.tuple [Verity.Macro.ValueType.uint256, Verity.Macro.ValueType.address]. Dynamic and composite ABI parameters require ABI-frame typed-interface lowering, which is not implemented yet.
+-/
+#guard_msgs in
+verity_contract ReturnCallTupleParamRejected where
+  storage
+
+  interfaces
+    interface IPool where
+      function submit(Tuple [Uint256, Address]) returns (Uint256)
+    end
+
+  function bad (pool : IPool, item : Tuple [Uint256, Address]) : Uint256 := do
+    let result ← pool.submit item
+    return result
+
+/--
+error: typed interface call 'IPool.submit' currently supports only static single-word parameters; argument 1 has Verity.Macro.ValueType.struct
+  "Outer"
+  [("inner", Verity.Macro.ValueType.struct "Inner" [("amount", Verity.Macro.ValueType.uint256)]),
+   ("owner", Verity.Macro.ValueType.address)]. Dynamic and composite ABI parameters require ABI-frame typed-interface lowering, which is not implemented yet.
+-/
+#guard_msgs in
+verity_contract ReturnCallNestedStructParamRejected where
+  storage
+
+  struct Inner where
+    amount : Uint256
+
+  struct Outer where
+    inner : Inner,
+    owner : Address
+
+  interfaces
+    interface IPool where
+      function submit(Outer) returns (Uint256)
+    end
+
+  function bad (pool : IPool, item : Outer) : Uint256 := do
+    let result ← pool.submit item
+    return result
+
+/--
+error: typed interface call 'IPool.submit' currently supports only static single-word parameters; argument 1 has Verity.Macro.ValueType.string. Dynamic and composite ABI parameters require ABI-frame typed-interface lowering, which is not implemented yet.
+-/
+#guard_msgs in
+verity_contract VoidCallStringParamRejected where
+  storage
+
+  interfaces
+    interface IPool where
+      function submit(String)
+    end
+
+  function bad (pool : IPool, message : String) : Unit := do
+    pool.submit message
 
 example :
     (TypedInterfaceCallSmoke.spec.functions).any (fun fn =>
