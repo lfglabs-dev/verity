@@ -67,6 +67,7 @@ RULES = (
             ("Verity/Macro/Translate/Expr.lean", "Compiler.Modules."),
             ("Verity/Macro/Translate/Expr.lean", "Compiler.Keccak.Sponge"),
             ("Verity/Macro/KeccakLit.lean", "Compiler.Keccak.Sponge"),
+            ("Verity/Macro/KeccakString.lean", "Compiler.Keccak.Sponge"),
         ),
         message=(
             "Verity/Macro production code may only import the compilation model, "

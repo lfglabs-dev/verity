@@ -17,6 +17,7 @@ import Compiler.Modules.ERC20
 import Compiler.Modules.Oracle
 import Compiler.Modules.Precompiles
 import Contracts.Smoke.InternalInterfaceSmoke
+import Contracts.Smoke.KeccakStringSmoke
 
 namespace Contracts.Smoke
 

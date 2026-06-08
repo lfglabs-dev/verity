@@ -116,6 +116,14 @@ syntax "adt " str : term
 syntax "adt " str " [" sepBy(term, ",") "]" : term
 syntax "tryCatch " term:max ppSpace term:max : doElem
 
+-- Compile-time Keccak-256 of a string literal (#1973). The hash is
+-- materialised at elaboration time (outside contracts) or contract
+-- translation time (inside `verity_contract` bodies). Non-literal
+-- arguments are rejected by the parser. Declared at `:max` precedence so
+-- it fits the right-hand side of `verity_contract` `constants` /
+-- `immutable` declarations, which require a `term:max` term.
+syntax:max (name := keccakStringTerm) "keccakString " str : term
+
 macro_rules
   | `(intrinsic $_name:term $_lowering:term $_args:term) =>
       `(panic! "verity intrinsic has no default EDSL semantics; add a consumer macro_rules override")

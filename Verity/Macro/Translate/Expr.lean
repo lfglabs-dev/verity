@@ -1911,6 +1911,10 @@ partial def inferPureExprType
       requireWordLikeType offset "keccak256" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals offset visitingConstants)
       requireWordLikeType size "keccak256" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals size visitingConstants)
       pure .uint256
+  -- Compile-time Keccak-256 of a string literal (#1973). The hash is
+  -- computed during contract translation, so the result is unconditionally
+  -- a `uint256` regardless of the literal content.
+  | `(term| keccakString $_s:str) => pure .uint256
   | `(term| call $gas $target $value $inOffset $inSize $outOffset $outSize) => do
       for arg in [gas, target, value, inOffset, inSize, outOffset, outSize] do
         requireWordLikeType arg "low-level call" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals arg visitingConstants)
@@ -2605,6 +2609,9 @@ partial def validateConstantBody
   | `(term| calldataload $offset) => throwNonCompileTimeConstantError offset "calldataload"
   | `(term| extcodesize $addr) => throwNonCompileTimeConstantError addr "extcodesize"
   | `(term| keccak256 $offset $_size) => throwNonCompileTimeConstantError offset "keccak256"
+  -- Compile-time Keccak-256 of a string literal (#1973). Allowed in
+  -- `constants`: the digest is evaluated at contract translation time.
+  | `(term| keccakString $_s:str) => pure ()
   | `(term| call $gas $_target $_value $_inOffset $_inSize $_outOffset $_outSize) =>
       throwNonCompileTimeConstantError gas "call"
   | `(term| staticcall $gas $_target $_inOffset $_inSize $_outOffset $_outSize) =>
@@ -3090,6 +3097,12 @@ partial def translatePureExprWithTypes
       `(Compiler.CompilationModel.Expr.keccak256
           $(← translatePureExprWithTypes fields constDecls immutableDecls params locals offset visitingConstants)
           $(← translatePureExprWithTypes fields constDecls immutableDecls params locals size visitingConstants))
+  -- Compile-time Keccak-256 of a string literal (#1973): hash the literal
+  -- now and emit a plain numeric literal. The parser already rejects
+  -- non-literal arguments, so the digest is unconditionally static.
+  | `(term| keccakString $s:str) =>
+      let digest := KeccakEngine.keccak256_str_nat s.getString
+      `(Compiler.CompilationModel.Expr.literal $(natTerm digest))
   | `(term| call $gas $target $value $inOffset $inSize $outOffset $outSize) =>
       `(Compiler.CompilationModel.Expr.call
           $(← translatePureExprWithTypes fields constDecls immutableDecls params locals gas visitingConstants)
