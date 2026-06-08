@@ -2631,6 +2631,21 @@ partial def validateConstantBody
       validateConstantBody constDecls cond visiting *>
       validateConstantBody constDecls thenVal visiting *>
       validateConstantBody constDecls elseVal visiting
+  -- Native Lean `if cond then thenVal else elseVal` term.  Validated
+  -- the same way as `ite`; lowered identically in the corresponding
+  -- branch of `translatePureExprWithTypes`.
+  | `(term| if $cond:term then $thenVal:term else $elseVal:term) =>
+      validateConstantBody constDecls cond visiting *>
+      validateConstantBody constDecls thenVal visiting *>
+      validateConstantBody constDecls elseVal visiting
+  -- `Verity.keccak256_lit "literal"` / `keccak256_lit "literal"` —
+  -- compile-time Keccak-256 of a UTF-8 string literal.  Backed by the
+  -- in-tree Keccak engine (see `Verity/Macro/KeccakLit.lean`); no
+  -- runtime cost, deterministic at elaboration time.  Required for
+  -- EIP-712 type/name/version hashes to bind the *exact* strings
+  -- Solidity does, rather than opaque placeholder constants.
+  | `(term| Verity.keccak256_lit $_:str) => pure ()
+  | `(term| keccak256_lit $_:str) => pure ()
   | _ => throwErrorAt stx "unsupported expression in contract constant"
 
 partial def translateConstantExpr
@@ -2879,6 +2894,13 @@ partial def translatePureExprWithTypes
   match stx with
   | `(term| true) => `(Compiler.CompilationModel.Expr.literal 1)
   | `(term| false) => `(Compiler.CompilationModel.Expr.literal 0)
+  -- `Verity.keccak256_lit "literal"` / `keccak256_lit "literal"`:
+  -- elaborate the in-tree `keccak256_nat` at macro-expansion time and
+  -- emit the result as a `literal` constant.  Used for EIP-712 type
+  -- hashes, ERC-7201 storage namespaces, event topic constants, etc.
+  | `(term| Verity.keccak256_lit $s:str) | `(term| keccak256_lit $s:str) =>
+      let n := KeccakEngine.keccak256_str_nat s.getString
+      `(Compiler.CompilationModel.Expr.literal $(natTerm n))
   | `(term| constructorArg $idx:num) =>
       `(Compiler.CompilationModel.Expr.constructorArg $idx)
   | `(term| abiHeadWord $target:term $wordOffset:num) => do
@@ -3221,6 +3243,16 @@ partial def translatePureExprWithTypes
   | `(term| min $a $b) => `(Compiler.CompilationModel.Expr.min $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
   | `(term| max $a $b) => `(Compiler.CompilationModel.Expr.max $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
   | `(term| ite $cond $thenVal $elseVal) =>
+      `(Compiler.CompilationModel.Expr.ite
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals cond visitingConstants)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals thenVal visitingConstants)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals elseVal visitingConstants))
+  -- Native Lean `if ... then ... else ...` term, equivalent to
+  -- `ite cond thenVal elseVal` for the macro lowering.  Lets contract
+  -- authors write idiomatic expressions like
+  -- `let x := if a > b then a else b` directly in `let :=` bindings,
+  -- without falling back to per-shape helper functions.
+  | `(term| if $cond:term then $thenVal:term else $elseVal:term) =>
       `(Compiler.CompilationModel.Expr.ite
           $(← translatePureExprWithTypes fields constDecls immutableDecls params locals cond visitingConstants)
           $(← translatePureExprWithTypes fields constDecls immutableDecls params locals thenVal visitingConstants)
