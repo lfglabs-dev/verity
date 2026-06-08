@@ -211,6 +211,24 @@ data and the token address has code. Malformed short or oversized returndata,
 `returndatasize() > 31` and the first returned word is `true`. Failed calls
 bubble returndata before the optional-return guard runs.
 
+These reusable helpers can be used with typed-interface token parameters; the
+interface parameter still lowers as an address, while the helper selects the
+SafeERC20 ECM instead of the ordinary typed-interface `transfer` call:
+
+```lean
+interfaces
+  interface IERC20 where
+    function transfer(Address, Uint256) returns (Bool)
+  end
+
+function pushTokens (token : IERC20, to : Address, amount : Uint256) : Unit := do
+  safeTransfer token to amount
+```
+
+Use the direct helper form when a token boundary needs optional-return
+semantics. A dot call such as `let ok ← token.transfer to amount` remains the
+ordinary typed-interface call path and requires exactly one returned word.
+
 ### Callback Helpers
 
 `Compiler.Modules.Callbacks.callback` builds callback calldata at the Solidity

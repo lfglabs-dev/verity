@@ -351,6 +351,74 @@ example :
           | _ => false)) = true := by
   decide
 
+verity_contract TypedInterfaceSafeERC20Smoke where
+  storage
+
+  interfaces
+    interface IERC20 where
+      function transfer(Address, Uint256) returns (Bool)
+      function transferFrom(Address, Address, Uint256) returns (Bool)
+      function approve(Address, Uint256) returns (Bool)
+    end
+
+  function pushTokens (token : IERC20, toAddr : Address, amount : Uint256) : Unit := do
+    safeTransfer token toAddr amount
+
+  function pullTokens (token : IERC20, fromAddr : Address, toAddr : Address, amount : Uint256) : Unit := do
+    safeTransferFrom token fromAddr toAddr amount
+
+  function approveTokens (token : IERC20, spender : Address, amount : Uint256) : Unit := do
+    safeApprove token spender amount
+
+example :
+    (TypedInterfaceSafeERC20Smoke.spec.functions).any (fun fn =>
+      fn.name == "pushTokens" &&
+        fn.body.any (fun stmt =>
+          match stmt with
+          | Compiler.CompilationModel.Stmt.ecm mod
+              [Compiler.CompilationModel.Expr.param "token",
+               Compiler.CompilationModel.Expr.param "toAddr",
+               Compiler.CompilationModel.Expr.param "amount"] =>
+              mod.name == "safeTransfer" &&
+                mod.axioms == ["erc20_transfer_interface"] &&
+                mod.resultVars == [] &&
+                mod.writesState
+          | _ => false)) = true := by
+  decide
+
+example :
+    (TypedInterfaceSafeERC20Smoke.spec.functions).any (fun fn =>
+      fn.name == "pullTokens" &&
+        fn.body.any (fun stmt =>
+          match stmt with
+          | Compiler.CompilationModel.Stmt.ecm mod
+              [Compiler.CompilationModel.Expr.param "token",
+               Compiler.CompilationModel.Expr.param "fromAddr",
+               Compiler.CompilationModel.Expr.param "toAddr",
+               Compiler.CompilationModel.Expr.param "amount"] =>
+              mod.name == "safeTransferFrom" &&
+                mod.axioms == ["erc20_transferFrom_interface"] &&
+                mod.resultVars == [] &&
+                mod.writesState
+          | _ => false)) = true := by
+  decide
+
+example :
+    (TypedInterfaceSafeERC20Smoke.spec.functions).any (fun fn =>
+      fn.name == "approveTokens" &&
+        fn.body.any (fun stmt =>
+          match stmt with
+          | Compiler.CompilationModel.Stmt.ecm mod
+              [Compiler.CompilationModel.Expr.param "token",
+               Compiler.CompilationModel.Expr.param "spender",
+               Compiler.CompilationModel.Expr.param "amount"] =>
+              mod.name == "safeApprove" &&
+                mod.axioms == ["erc20_approve_interface"] &&
+                mod.resultVars == [] &&
+                mod.writesState
+          | _ => false)) = true := by
+  decide
+
 /--
 error: interface name 'Clash' conflicts with an existing type name
 -/
