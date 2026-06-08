@@ -1,0 +1,335 @@
+{
+  "contracts": [
+    {
+      "contract": "SimpleStorage",
+      "fields": [
+        {
+          "canonicalSlot": 0,
+          "declaredAliasSlots": [],
+          "declaredSlot": 0,
+          "effectiveAliasSlots": [],
+          "name": "storedData",
+          "packedBits": null,
+          "type": {
+            "kind": "uint256"
+          },
+          "writeSlots": [
+            0
+          ]
+        }
+      ],
+      "reservedSlotRanges": [],
+      "slotAliasRanges": [],
+      "storageNamespace": null
+    },
+    {
+      "contract": "Counter",
+      "fields": [
+        {
+          "canonicalSlot": 0,
+          "declaredAliasSlots": [],
+          "declaredSlot": 0,
+          "effectiveAliasSlots": [],
+          "name": "count",
+          "packedBits": null,
+          "type": {
+            "kind": "uint256"
+          },
+          "writeSlots": [
+            0
+          ]
+        }
+      ],
+      "reservedSlotRanges": [],
+      "slotAliasRanges": [],
+      "storageNamespace": null
+    },
+    {
+      "contract": "Owned",
+      "fields": [
+        {
+          "canonicalSlot": 0,
+          "declaredAliasSlots": [],
+          "declaredSlot": 0,
+          "effectiveAliasSlots": [],
+          "name": "owner",
+          "packedBits": null,
+          "type": {
+            "kind": "address"
+          },
+          "writeSlots": [
+            0
+          ]
+        }
+      ],
+      "reservedSlotRanges": [],
+      "slotAliasRanges": [],
+      "storageNamespace": null
+    },
+    {
+      "contract": "Ledger",
+      "fields": [
+        {
+          "canonicalSlot": 0,
+          "declaredAliasSlots": [],
+          "declaredSlot": 0,
+          "effectiveAliasSlots": [],
+          "name": "balances",
+          "packedBits": null,
+          "type": {
+            "keys": [
+              "address"
+            ],
+            "kind": "mapping",
+            "valueKind": "uint256"
+          },
+          "writeSlots": [
+            0
+          ]
+        }
+      ],
+      "reservedSlotRanges": [],
+      "slotAliasRanges": [],
+      "storageNamespace": null
+    },
+    {
+      "contract": "Vault",
+      "fields": [
+        {
+          "canonicalSlot": 0,
+          "declaredAliasSlots": [],
+          "declaredSlot": 0,
+          "effectiveAliasSlots": [],
+          "name": "totalAssetsSlot",
+          "packedBits": null,
+          "type": {
+            "kind": "uint256"
+          },
+          "writeSlots": [
+            0
+          ]
+        },
+        {
+          "canonicalSlot": 1,
+          "declaredAliasSlots": [],
+          "declaredSlot": 1,
+          "effectiveAliasSlots": [],
+          "name": "totalSupplySlot",
+          "packedBits": null,
+          "type": {
+            "kind": "uint256"
+          },
+          "writeSlots": [
+            1
+          ]
+        },
+        {
+          "canonicalSlot": 2,
+          "declaredAliasSlots": [],
+          "declaredSlot": 2,
+          "effectiveAliasSlots": [],
+          "name": "shareBalancesSlot",
+          "packedBits": null,
+          "type": {
+            "keys": [
+              "address"
+            ],
+            "kind": "mapping",
+            "valueKind": "uint256"
+          },
+          "writeSlots": [
+            2
+          ]
+        }
+      ],
+      "reservedSlotRanges": [],
+      "slotAliasRanges": [],
+      "storageNamespace": null
+    },
+    {
+      "contract": "OwnedCounter",
+      "fields": [
+        {
+          "canonicalSlot": 0,
+          "declaredAliasSlots": [],
+          "declaredSlot": 0,
+          "effectiveAliasSlots": [],
+          "name": "owner",
+          "packedBits": null,
+          "type": {
+            "kind": "address"
+          },
+          "writeSlots": [
+            0
+          ]
+        },
+        {
+          "canonicalSlot": 1,
+          "declaredAliasSlots": [],
+          "declaredSlot": 1,
+          "effectiveAliasSlots": [],
+          "name": "count",
+          "packedBits": null,
+          "type": {
+            "kind": "uint256"
+          },
+          "writeSlots": [
+            1
+          ]
+        }
+      ],
+      "reservedSlotRanges": [],
+      "slotAliasRanges": [],
+      "storageNamespace": null
+    },
+    {
+      "contract": "SimpleToken",
+      "fields": [
+        {
+          "canonicalSlot": 0,
+          "declaredAliasSlots": [],
+          "declaredSlot": 0,
+          "effectiveAliasSlots": [],
+          "name": "ownerSlot",
+          "packedBits": null,
+          "type": {
+            "kind": "address"
+          },
+          "writeSlots": [
+            0
+          ]
+        },
+        {
+          "canonicalSlot": 1,
+          "declaredAliasSlots": [],
+          "declaredSlot": 1,
+          "effectiveAliasSlots": [],
+          "name": "balancesSlot",
+          "packedBits": null,
+          "type": {
+            "keys": [
+              "address"
+            ],
+            "kind": "mapping",
+            "valueKind": "uint256"
+          },
+          "writeSlots": [
+            1
+          ]
+        },
+        {
+          "canonicalSlot": 2,
+          "declaredAliasSlots": [],
+          "declaredSlot": 2,
+          "effectiveAliasSlots": [],
+          "name": "totalSupplySlot",
+          "packedBits": null,
+          "type": {
+            "kind": "uint256"
+          },
+          "writeSlots": [
+            2
+          ]
+        }
+      ],
+      "reservedSlotRanges": [],
+      "slotAliasRanges": [],
+      "storageNamespace": null
+    },
+    {
+      "contract": "SafeCounter",
+      "fields": [
+        {
+          "canonicalSlot": 0,
+          "declaredAliasSlots": [],
+          "declaredSlot": 0,
+          "effectiveAliasSlots": [],
+          "name": "count",
+          "packedBits": null,
+          "type": {
+            "kind": "uint256"
+          },
+          "writeSlots": [
+            0
+          ]
+        }
+      ],
+      "reservedSlotRanges": [],
+      "slotAliasRanges": [],
+      "storageNamespace": null
+    },
+    {
+      "contract": "ERC20",
+      "fields": [
+        {
+          "canonicalSlot": 0,
+          "declaredAliasSlots": [],
+          "declaredSlot": 0,
+          "effectiveAliasSlots": [],
+          "name": "ownerSlot",
+          "packedBits": null,
+          "type": {
+            "kind": "address"
+          },
+          "writeSlots": [
+            0
+          ]
+        },
+        {
+          "canonicalSlot": 1,
+          "declaredAliasSlots": [],
+          "declaredSlot": 1,
+          "effectiveAliasSlots": [],
+          "name": "totalSupplySlot",
+          "packedBits": null,
+          "type": {
+            "kind": "uint256"
+          },
+          "writeSlots": [
+            1
+          ]
+        },
+        {
+          "canonicalSlot": 2,
+          "declaredAliasSlots": [],
+          "declaredSlot": 2,
+          "effectiveAliasSlots": [],
+          "name": "balancesSlot",
+          "packedBits": null,
+          "type": {
+            "keys": [
+              "address"
+            ],
+            "kind": "mapping",
+            "valueKind": "uint256"
+          },
+          "writeSlots": [
+            2
+          ]
+        },
+        {
+          "canonicalSlot": 3,
+          "declaredAliasSlots": [],
+          "declaredSlot": 3,
+          "effectiveAliasSlots": [],
+          "name": "allowancesSlot",
+          "packedBits": null,
+          "type": {
+            "keys": [
+              "address",
+              "address"
+            ],
+            "kind": "mapping",
+            "valueKind": "uint256"
+          },
+          "writeSlots": [
+            3
+          ]
+        }
+      ],
+      "reservedSlotRanges": [],
+      "slotAliasRanges": [],
+      "storageNamespace": null
+    }
+  ]
+}

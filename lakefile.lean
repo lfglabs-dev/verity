@@ -76,3 +76,13 @@ lean_exe «compiler-main-test» where
   -- Mirrors `verity-compiler`: CLI regression tests evaluate typed-interface ECMs
   -- through the Lean interpreter.
   supportInterpreter := true
+
+-- Emits the canonical storage-layout audit artifact (#1897). Lives at the
+-- package root because it imports both Compiler and Contracts, which the
+-- Compiler -> Contracts boundary forbids inside `Compiler/`.
+lean_lib «StorageLayoutReport» where
+  globs := #[.one `StorageLayoutReport]
+
+lean_exe «verity-storage-layout-report» where
+  root := `StorageLayoutReport
+  supportInterpreter := true

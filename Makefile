@@ -90,6 +90,10 @@ compile: ## Build compiler + interpreter
 	set -- $$(grep -vE '^[[:space:]]*($$|#)' packages/verity-examples/contracts.manifest); \
 	lake build "$$@" verity-compiler verity-compiler-patched difftest-interpreter
 
+verify-storage-layout: ## Check committed storage layout artifacts against current Lean source (#1897)
+	lake build verity-storage-layout-report
+	python3 scripts/generate_storage_layout_report.py --check
+
 generate-yul: compile ## Compile all contracts to Yul
 	./.lake/build/bin/verity-compiler
 
@@ -149,6 +153,7 @@ check: ## Run local CI-equivalent checks job (no Lean build, no solc)
 	python3 scripts/check_docs_workflow_sync.py
 	python3 scripts/check_macro_health.py
 	python3 scripts/check_storage_layout.py
+	python3 scripts/generate_storage_layout_report.py --check --no-lean
 	python3 scripts/check_lean_hygiene.py
 	python3 scripts/check_gas.py coverage
 	python3 scripts/check_compiler_boundaries.py
@@ -167,6 +172,9 @@ check: ## Run local CI-equivalent checks job (no Lean build, no solc)
 
 refresh-status: ## Regenerate verification artifact
 	scripts/refresh_verification_artifacts.sh
+
+regen-storage-layout-report: ## Regenerate the storage layout audit artifacts (needs Lean)
+	python3 scripts/generate_storage_layout_report.py
 
 # ---------------------------------------------------------------------------
 # Full pipeline

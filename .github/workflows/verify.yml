@@ -344,6 +344,9 @@ jobs:
           set -o pipefail
           lake build PrintAxioms 2>&1 | tee -a lake-build.log
 
+      - name: Check storage layout audit artifacts (#1897)
+        run: make verify-storage-layout
+
       - name: Package prepared Lean workspace build
         run: tar -hcf lean-workspace-build.tar .lake/build .lake/lakefile.olean .lake/lakefile.olean.trace
 

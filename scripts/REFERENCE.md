@@ -43,6 +43,7 @@ Primary guards:
 - `check_axiomatized_primitive_boundary_sync.py`: keep docs aligned with the current axiomatized-primitive proof boundary.
 - `check_struct_mapping_surface_sync.py`: keep struct-mapping storage docs aligned with the current compiler surface.
 - `check_storage_layout.py`
+- `generate_storage_layout_report.py`: emit the per-contract storage layout JSON artifact (`artifacts/storage_layout_report.json`) and human-readable summary (`artifacts/STORAGE_LAYOUT_SUMMARY.md`) for migration/audit review (#1897). The Lean executable `verity-storage-layout-report` is the JSON source of truth; `--check --no-lean` is the drift gate run by `make check`.
 - `check_lean_hygiene.py`
 - `check_proof_length.py`
 - `check_macro_health.py`

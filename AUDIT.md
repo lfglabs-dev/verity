@@ -55,6 +55,7 @@ actually use this family is the next milestone.
 | `artifacts/evmyullean_adapter_report.json` | Adapter coverage, admitted bridge lemmas, safe-body integration status | `python3 scripts/generate_evmyullean_adapter_report.py --check` |
 | `artifacts/evmyullean_fork_audit.json` | Pinned fork divergence and non-semantic fork delta | `python3 scripts/generate_evmyullean_fork_audit.py --check` |
 | `artifacts/evmyullean_capability_report.json` | EVMYulLean capability surface and reference-oracle paths | `python3 scripts/generate_evmyullean_capability_report.py --check` |
+| `artifacts/storage_layout_report.json` + `artifacts/STORAGE_LAYOUT_SUMMARY.md` | Per-contract storage layout for migration/audit review: explicit slots, alias ranges, reserved ranges, packed subfields, mappings, dynamic arrays, opt-in namespaces (#1897) | `python3 scripts/generate_storage_layout_report.py --check --no-lean` (drift gate in `make check`); regenerate with `make regen-storage-layout-report` |
 | `PrintAxioms.lean` / generated axiom report | Axiom dependency visibility | `python3 scripts/generate_print_axioms.py --check` and `lake build PrintAxioms` |
 | `Compiler.Proofs.IRGeneration.IntrinsicProofs` | Proven Verity-owned intrinsic plumbing: scope accounting, generic lowering shape, fork-order facts, and arity rejection | `lake build Compiler.Proofs.IRGeneration.IntrinsicProofs` |
 | Intrinsic fork gate | Fail-closed `min_fork` enforcement against `--target-fork` / `YulEmitOptions.targetFork` | `lake build Compiler.CompileDriverTest` |
@@ -85,4 +86,4 @@ actually use this family is the next milestone.
    command.
 5. Run `make check`; run targeted Lean builds for changed proof modules.
 
-**Last Updated**: 2026-05 (intrinsics addition)
+**Last Updated**: 2026-06 (storage layout audit artifacts, #1897)
