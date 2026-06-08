@@ -183,6 +183,7 @@ def compileExpr (fields : List Field)
             | none => throw s!"Compilation error: unknown mapping field '{field}'"
   | Expr.caller => pure (YulExpr.call "caller" [])
   | Expr.contractAddress => pure (YulExpr.call "address" [])
+  | Expr.txOrigin => pure (YulExpr.call "origin" [])
   | Expr.chainid => pure (YulExpr.call "chainid" [])
   | Expr.extcodesize addr => do
       pure (YulExpr.call "extcodesize" [← compileExpr fields dynamicSource addr])

@@ -50,6 +50,7 @@ def collectExprNames : Expr → List String
   | Expr.structMember2 field key1 key2 _ => field :: collectExprNames key1 ++ collectExprNames key2
   | Expr.caller => []
   | Expr.contractAddress => []
+  | Expr.txOrigin => []
   | Expr.chainid => []
   | Expr.extcodesize addr => collectExprNames addr
   | Expr.msgValue => []

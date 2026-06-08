@@ -423,7 +423,7 @@ def validateScopedExprIdentifiers
       pure ()
   | Expr.adtField _ _ _ _ _ =>
       pure ()
-  | Expr.literal _ | Expr.storage _ | Expr.storageAddr _ | Expr.caller | Expr.contractAddress | Expr.chainid
+  | Expr.literal _ | Expr.storage _ | Expr.storageAddr _ | Expr.caller | Expr.contractAddress | Expr.txOrigin | Expr.chainid
   | Expr.msgValue | Expr.selfBalance | Expr.blockTimestamp | Expr.blockNumber | Expr.blobbasefee
   | Expr.calldatasize | Expr.returndataSize =>
       pure ()
