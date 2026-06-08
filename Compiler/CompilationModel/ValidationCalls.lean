@@ -772,6 +772,14 @@ def ensureContractIdentifier (kind name : String) : Except String Unit := do
   | .ok _ => pure ()
   | .error err => throw s!"Compilation error: {err}"
 
+private def ensureAbiInterfaceExternalIdentifier (name : String) : Except String Unit := do
+  match name.splitOn "." with
+  | [iface, method] => do
+      ensureContractIdentifier "external interface" iface
+      ensureContractIdentifier "external interface method" method
+  | _ =>
+      throw s!"Compilation error: external ABI declaration name must be '<Interface>.<method>': {name}"
+
 /-- Source identifiers that lower directly to Yul variables must avoid the
 compiler-reserved `__` prefix used by dispatch and scratch temporaries. -/
 private def ensureNonReservedYulIdentifier (kind name : String) : Except String Unit := do
@@ -840,9 +848,11 @@ def validateIdentifierShapes (spec : CompilationModel) : Except String Unit := d
   for err in spec.errors do
     ensureContractIdentifier "custom error" err.name
   for ext in spec.externals do
-    -- dotted abi-interface externals (e.g. `IPool.supply`) lower by selector, never as a yul
-    -- identifier; the id-check applies only to object-linked externals. (fixes #1952)
-    unless ext.name.contains '.' do
+    if ext.linkMode == .external && ext.name.contains '.' then
+      -- Dotted ABI-interface externals (e.g. `IPool.supply`) lower by selector, never
+      -- as a Yul identifier. Other external forms are linked/called by their name.
+      ensureAbiInterfaceExternalIdentifier ext.name
+    else
       ensureContractIdentifier "external declaration" ext.name
 
 private theorem ensureNonReservedYulIdentifier_ok
