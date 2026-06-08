@@ -169,7 +169,18 @@ def elabVerityIntrinsic : CommandElab := fun stx => do
             pure <| Verity.Core.Intrinsics.YulLowering.verbatim
               inArity.getNat outArity.getNat opcode.getString
         | `(verityIntrinsicYul| builtin $builtin:str) =>
-            pure <| Verity.Core.Intrinsics.YulLowering.builtin builtin.getString
+            -- Cross-check builtin input arity against the declared parameter
+            -- count when the builtin has a known fixed arity. Builtins not
+            -- listed in `yulBuiltinArity?` (e.g. custom precompile wrappers)
+            -- still go through without enforcement so consumers can register
+            -- novel names.
+            let builtinName := builtin.getString
+            match Verity.Core.Intrinsics.yulBuiltinArity? builtinName with
+            | some (inArity, _outArity) =>
+                if inArity != paramNames.size then
+                  throwErrorAt yul s!"verity_intrinsic `builtin \"{builtinName}\"` expects {inArity} input(s) but {paramNames.size} parameter(s) were declared"
+            | none => pure ()
+            pure <| Verity.Core.Intrinsics.YulLowering.builtin builtinName
         | _ =>
             throwErrorAt yul "expected `verbatim <inputs> <outputs> (hex \"...\")` or `builtin \"...\"`"
       let minFork ←

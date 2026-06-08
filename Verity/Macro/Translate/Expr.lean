@@ -1280,6 +1280,20 @@ def requireTypedInterfaceStaticParams
       throwErrorAt stx
         s!"typed interface call '{externalName}' currently supports only static single-word parameters; argument {i + 1} has {renderValueType ty}. Dynamic and composite ABI parameters require ABI-frame typed-interface lowering, which is not implemented yet."
 
+/-- Companion of `requireTypedInterfaceStaticParams` for the return-type
+    side (#1962). Typed dot calls decode returndata as a single static
+    word, so a typed interface that declares e.g. `returns (Bytes)` or
+    `returns (Tuple [...])` must be rejected at declaration time — running
+    the call would single-word-decode an ABI head/tail payload and
+    silently truncate. -/
+def requireTypedInterfaceStaticReturns
+    (stx : Syntax) (externalName : String) (returnTys : Array ValueType) : CommandElabM Unit := do
+  for h : i in [:returnTys.size] do
+    let ty := returnTys[i]
+    unless isSingleWordStaticValueType ty do
+      throwErrorAt stx
+        s!"typed interface call '{externalName}' currently supports only static single-word returns; return {i + 1} has {renderValueType ty}. Dynamic and composite ABI returns require ABI-frame typed-interface lowering, which is not implemented yet."
+
 /-- verity#1849, G3: allow `Array <wordLike>` and `bytes` / `string` as
     external-call / event / custom-error argument types when the argument
     is a direct param reference. The lowering still happens through

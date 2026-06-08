@@ -437,4 +437,42 @@ verity_contract InterfaceTypeNameClashRejected where
   function noop (_item : Clash) : Unit := do
     pure ()
 
+/- Regression for the Bugbot review on PR #1971: typed-interface externals
+   must reject dynamic / composite return shapes at declaration time too,
+   not just on the parameter side. Without the return-side guard a typed
+   dot call would single-word-decode an ABI head/tail return payload and
+   silently truncate. -/
+
+/--
+error: typed interface call 'IPool.fetch' currently supports only static single-word returns; return 1 has Verity.Macro.ValueType.bytes. Dynamic and composite ABI returns require ABI-frame typed-interface lowering, which is not implemented yet.
+-/
+#guard_msgs in
+verity_contract TypedInterfaceBytesReturnRejected where
+  storage
+
+  interfaces
+    interface IPool where
+      function fetch() returns (Bytes)
+    end
+
+  function bad (pool : IPool) : Unit := do
+    let _payload ← pool.fetch
+    pure ()
+
+/--
+error: typed interface call 'IPool.fetch' currently supports only static single-word returns; return 1 has Verity.Macro.ValueType.array (Verity.Macro.ValueType.uint256). Dynamic and composite ABI returns require ABI-frame typed-interface lowering, which is not implemented yet.
+-/
+#guard_msgs in
+verity_contract TypedInterfaceArrayReturnRejected where
+  storage
+
+  interfaces
+    interface IPool where
+      function fetch() returns (Array Uint256)
+    end
+
+  function bad (pool : IPool) : Unit := do
+    let _payload ← pool.fetch
+    pure ()
+
 end Contracts.Smoke

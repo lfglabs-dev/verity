@@ -2404,6 +2404,14 @@ def parseContractSyntax
       -- contract-name namespace to all following fields until overridden by an
       -- in-storage `storage_namespace` item. Contract-level
       -- `storage_namespace legacy` opts out of the automatic policy.
+      --
+      -- `namespaceFromContractSpec` records whether the seed namespace came
+      -- from a contract-level `storage_namespace` directive (authoritative)
+      -- or from the opt-in auto-default policy (overridable by the first
+      -- in-storage `storage_namespace` item encountered). The distinction
+      -- matters for `spec.storageNamespace` / layout & trust reports: an
+      -- in-storage ERC-7201 root that comes before any field should be the
+      -- reported root, not the auto-default contract-name root.
       let namespaceOpt : Option Nat ←
         match nsSpec with
         | some spec => namespaceOffsetFromSpec contractName spec
@@ -2412,6 +2420,7 @@ def parseContractSyntax
               pure (some (computeStorageNamespace (toString contractName.getId)))
             else
               pure none
+      let namespaceFromContractSpec : Bool := nsSpec.isSome
       let parsedErrors ←
         match errorDecls with
         | some decls => decls.mapM (parseError parsedNewtypes parsedStructs parsedAdts)
@@ -2456,12 +2465,20 @@ def parseContractSyntax
       let mut parsedStorageStructAccessors : Array StorageStructAccessorDecl := #[]
       let mut currentNamespaceOffset := namespaceOpt.getD 0
       let mut firstNamespaceOpt := namespaceOpt
+      -- An auto-default seed is provisional: if the storage block opens with
+      -- an explicit `storage_namespace` directive (before any field has been
+      -- recorded), that directive describes where the first declared field
+      -- actually lives, so we replace the auto-default seed for reporting.
+      -- A contract-level `storage_namespace` is authoritative and never
+      -- overwritten here.
+      let mut firstNamespaceLocked : Bool := namespaceFromContractSpec
       for item in storageItems do
         match (← namespaceOffsetFromStorageItem? contractName item) with
         | some offset =>
             currentNamespaceOffset := offset
-            if firstNamespaceOpt.isNone then
+            if !firstNamespaceLocked then
               firstNamespaceOpt := some offset
+              firstNamespaceLocked := true
         | none =>
             match (← parseStorageStructItem parsedNewtypes parsedStructs parsedAdts item) with
             | some (structFields, accessor) =>
@@ -2469,11 +2486,16 @@ def parseContractSyntax
                   (structFields.map fun field => { field with slotNum := field.slotNum + currentNamespaceOffset })
                 parsedStorageStructAccessors := parsedStorageStructAccessors.push
                   { accessor with tree := offsetStorageAccessorTree currentNamespaceOffset accessor.tree }
+                -- A field has now been recorded under the active namespace; later
+                -- in-storage `storage_namespace` items must not retroactively
+                -- relabel where the first field lives.
+                firstNamespaceLocked := true
             | none =>
                 match (← storageFieldFromItem? item) with
                 | some fieldStx =>
                     let field ← parseStorageField parsedNewtypes parsedStructs parsedAdts fieldStx
                     parsedFields := parsedFields.push { field with slotNum := field.slotNum + currentNamespaceOffset }
+                    firstNamespaceLocked := true
                 | none =>
                     throwErrorAt item "unsupported storage item"
       pure {
@@ -2687,7 +2709,13 @@ def validateExternalDeclsPublic
       throwErrorAt ext.ident
         s!"duplicate external declaration '{ext.name}'"
     if ext.interfaceName?.isSome then
+      -- Typed-interface externals lower through the static single-word
+      -- ABI fragment (#1962); reject dynamic/composite shapes on both
+      -- params and returns at declaration time so the failure surfaces
+      -- next to the offending `interface` block instead of at the call
+      -- site.
       requireTypedInterfaceStaticParams ext.ident ext.name ext.params
+      requireTypedInterfaceStaticReturns ext.ident ext.name ext.returnTys
     else
       -- Multi-return externals are allowed; the auto-revert expression form (externalCall)
       -- only supports single-return, but tryExternalCall supports any return count.

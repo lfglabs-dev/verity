@@ -3487,6 +3487,36 @@ example : MultiNamespaceStorageSmoke.relayersSlot.slot =
 example : MultiNamespaceStorageSmoke.stateMerkleRoot.slot ≠ MultiNamespaceStorageSmoke.relayersSlot.slot := by decide
 example : MultiNamespaceStorageSmoke.spec.storageNamespace.isSome = true := rfl
 
+-- Regression for the Bugbot review on PR #1971: when
+-- `verity.storageNamespace.default` is enabled and the storage block opens
+-- with an explicit `storage_namespace` directive (no contract-level
+-- `storage_namespace`), the reported `spec.storageNamespace` must be the
+-- in-storage root (the one the first field actually lives under), not the
+-- provisional auto-default contract-name root.
+set_option verity.storageNamespace.default true in
+verity_contract DefaultNamespaceInStorageOverrideSmoke where
+  storage
+    storage_namespace erc7201 "unlink.storage.State"
+    stateMerkleRoot : Uint256 := slot 0
+
+  function writeRoot (root : Uint256) : Unit := do
+    setStorage stateMerkleRoot root
+
+#check_contract DefaultNamespaceInStorageOverrideSmoke
+
+example :
+    DefaultNamespaceInStorageOverrideSmoke.stateMerkleRoot.slot =
+      0xd7df6c02d48ad87762ead6689b0b308617a10b99ac21276cc6fd199681dcb000 := by decide
+example :
+    DefaultNamespaceInStorageOverrideSmoke.spec.storageNamespace =
+      some 0xd7df6c02d48ad87762ead6689b0b308617a10b99ac21276cc6fd199681dcb000 := by decide
+-- The auto-default would have used the keccak of "DefaultNamespaceInStorageOverrideSmoke.storage.v0";
+-- check the in-storage root replaced it instead of co-existing.
+example :
+    DefaultNamespaceInStorageOverrideSmoke.spec.storageNamespace ≠
+      some (Verity.keccak256_nat "DefaultNamespaceInStorageOverrideSmoke.storage.v0") := by
+  native_decide
+
 -- ADT (inductive) section smoke test (#1727, Axis 1 Steps 5a/5b)
 -- Declares algebraic data types with typed variant fields.
 -- ADT type definitions flow through to ContractSpec.adtTypes.
