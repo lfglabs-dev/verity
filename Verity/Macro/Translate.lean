@@ -2108,6 +2108,22 @@ private def mkSpecCommand
       let nonReentrantLockTerm ← match fn.nonReentrantLock with
         | some lockIdent => `(some $(strTerm (toString lockIdent.getId)))
         | none => `(none)
+      -- The internal helper shadow runs *inside* an already-guarded call
+      -- chain (the transient-storage reentrancy guard is attached at the
+      -- external dispatch boundary via `attachNonReentrantGuard`, #1893),
+      -- so it must drop `nonReentrantLock` to avoid double-guarding /
+      -- false "internal nonreentrant" rejection at the
+      -- compilation-model boundary. We propagate the CEI exemption that
+      -- the public spec would have got from `nonReentrantLock` onto the
+      -- shadow as `allowPostInteractionWrites := true` instead, so the
+      -- shared body — which may legitimately contain post-external-call
+      -- state writes once the public path has a guard — still validates
+      -- through the shadow.
+      let shadowAllowPostInteractionWritesTerm ←
+        if fn.nonReentrantLock.isSome || fn.allowPostInteractionWrites then
+          `(true)
+        else
+          `(false)
       let ceiSafeTerm ← if fn.ceiSafe then `(true) else `(false)
       let requiresRoleTerm ← match fn.requiresRole with
         | some roleIdent => `(some $(strTerm (toString roleIdent.getId)))
@@ -2115,6 +2131,11 @@ private def mkSpecCommand
       let internalModifiesTerms : Array Term := fn.modifies.map fun ident => strTerm (toString ident.getId)
       let returnTypeTerm ← modelReturnTypeTerm fn.returnTy
       let returnsTerm ← modelReturnsTerm fn.returnTy
+      -- Internal helper shadow specs inherit most metadata from the public
+      -- function, but `nonReentrantLock` is intentionally cleared and the
+      -- CEI-exempt status is propagated through `allowPostInteractionWrites`
+      -- instead — see the comment block above the shadow term for the
+      -- rationale (#1893 Bugbot follow-up).
       pure <| some (← `( ({
         name := $(strTerm (internalHelperSpecNameFor fn))
         params := $modelParams
@@ -2124,8 +2145,8 @@ private def mkSpecCommand
         isView := $viewTerm
         isPure := $pureTerm
         noExternalCalls := $noExternalCallsTerm
-        allowPostInteractionWrites := $allowPostInteractionWritesTerm
-        nonReentrantLock := $nonReentrantLockTerm
+        allowPostInteractionWrites := $shadowAllowPostInteractionWritesTerm
+        nonReentrantLock := none
         ceiSafe := $ceiSafeTerm
         requiresRole := $requiresRoleTerm
         modifies := [ $[$internalModifiesTerms],* ]
@@ -2784,9 +2805,17 @@ def validateFunctionDeclsPublic
       throwErrorAt fn.ident s!"function '{fn.name}' is marked view and modifies(...); view already guarantees no state writes"
     if fn.isPure && !fn.modifies.isEmpty then
       throwErrorAt fn.ident s!"function '{fn.name}' is marked pure and modifies(...); pure already guarantees no state writes"
-    -- Validate nonreentrant lock field references a valid storage field of scalar uint256 type
+    -- Validate nonreentrant lock field references a valid storage field of scalar uint256 type.
+    -- The transient-storage guard prologue is only injected for *external*
+    -- entrypoints (see `Compiler.CompilationModel.Dispatch.attachNonReentrantGuard`,
+    -- #1893), so an `internal` function carrying `nonreentrant(lock)` would
+    -- be CEI-exempted at the compilation-model boundary without ever
+    -- materialising a runtime guard. Reject that combination at parse time
+    -- to fail closed.
     match fn.nonReentrantLock with
     | some lockField =>
+        if fn.isInternal then
+          throwErrorAt lockField s!"function '{fn.name}': nonreentrant(<lock>) is only supported on external entrypoints; the synthesised transient-storage guard runs at the dispatch boundary, so internal helpers cannot rely on it. Move the guard to the public caller or drop the annotation."
         let lockName := toString lockField.getId
         let allFieldNames := fields.map (·.name)
         match fields.find? (fun field => field.name == lockName) with

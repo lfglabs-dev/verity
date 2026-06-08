@@ -3637,6 +3637,22 @@ verity_contract NonreentrantAddressLockRejected where
   function nonreentrant(lock) guarded () : Unit := do
     pure ()
 
+-- Regression for the Bugbot review on PR #1971 ("Internal nonreentrant
+-- skips guard", High Severity): the transient-storage reentrancy guard
+-- prologue is only attached to external dispatch entries, so an
+-- `internal` helper carrying `nonreentrant(<lock>)` would be CEI-exempted
+-- without ever materialising a runtime guard. Fail closed at parse time.
+/--
+error: function 'guardedHelper': nonreentrant(<lock>) is only supported on external entrypoints; the synthesised transient-storage guard runs at the dispatch boundary, so internal helpers cannot rely on it. Move the guard to the public caller or drop the annotation.
+-/
+#guard_msgs in
+verity_contract NonreentrantInternalHelperRejected where
+  storage
+    lock : Uint256 := slot 0
+
+  function internal nonreentrant(lock) guardedHelper () : Unit := do
+    pure ()
+
 -- ════════════════════════════════════════════════════════════════════════════
 -- Stress-test contracts: edge-case coverage for Language Design Axes (#1731)
 -- ════════════════════════════════════════════════════════════════════════════

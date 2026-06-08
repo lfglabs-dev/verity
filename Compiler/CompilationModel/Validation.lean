@@ -1916,16 +1916,28 @@ def validateFunctionSpec (spec : FunctionSpec) : Except String Unit := do
   -- (since callee bodies may contain external calls not visible at this scope).
   if spec.noExternalCalls && spec.body.any stmtMayContainExternalCall then
     throw s!"Compilation error: function '{spec.name}' is annotated no_external_calls but contains statements that may perform external calls (including internal function calls whose bodies cannot be verified here)"
+  -- An internal function annotated `nonreentrant(<lock>)` would receive
+  -- the CEI exemption below without ever materialising a runtime guard
+  -- — `attachNonReentrantGuard` (#1893) only injects the transient-storage
+  -- prologue for external dispatch entries. Reject that combination at
+  -- the compilation-model boundary too, so callers that build specs
+  -- without going through the macro pipeline can't silently get an
+  -- unguarded post-interaction-write window.
+  if spec.isInternal && spec.nonReentrantLock.isSome then
+    throw s!"Compilation error: internal function '{spec.name}' carries a nonreentrant(<lock>) annotation, but the synthesised reentrancy guard only runs on external entrypoints. Move the annotation to the public caller or drop it ({issue1728Ref})."
   -- CEI enforcement: reject state writes after external calls unless the
   -- function explicitly records a trust-surface opt-out. `cei_safe`
   -- remains a proof-only hook (a discharge obligation rather than a
   -- runtime guard), so it does NOT exempt CEI here. `nonreentrant(field)`
-  -- now synthesizes a real transient-storage reentrancy guard during
-  -- `compileFunctionSpec` (#1893), so the post-interaction-write window
-  -- is closed at runtime; that justifies exempting CEI for the
-  -- annotation. `allow_post_interaction_writes` is the legacy untyped
-  -- opt-out for callers that audit CEI manually.
-  let ceiExempt := spec.allowPostInteractionWrites || spec.nonReentrantLock.isSome
+  -- on an external entrypoint synthesises a real transient-storage
+  -- reentrancy guard during contract assembly (#1893), so the
+  -- post-interaction-write window is closed at runtime — that justifies
+  -- exempting CEI for the annotation, but only for externals (internals
+  -- are already rejected above). `allow_post_interaction_writes` is the
+  -- legacy untyped opt-out for callers that audit CEI manually.
+  let ceiExempt :=
+    spec.allowPostInteractionWrites ||
+      (spec.nonReentrantLock.isSome && !spec.isInternal)
   if !ceiExempt then
     match stmtListCEIViolation spec.body false with
     | some violation =>
