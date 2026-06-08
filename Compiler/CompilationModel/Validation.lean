@@ -1916,15 +1916,20 @@ def validateFunctionSpec (spec : FunctionSpec) : Except String Unit := do
   -- (since callee bodies may contain external calls not visible at this scope).
   if spec.noExternalCalls && spec.body.any stmtMayContainExternalCall then
     throw s!"Compilation error: function '{spec.name}' is annotated no_external_calls but contains statements that may perform external calls (including internal function calls whose bodies cannot be verified here)"
-  -- CEI enforcement: reject state writes after external calls unless the function
-  -- explicitly records a trust-surface opt-out. `nonreentrant(field)` and
-  -- `cei_safe` are metadata/proof hooks in the current pipeline; until they
-  -- synthesize a real guard or check a proof term, they must not suppress CEI.
-  let ceiExempt := spec.allowPostInteractionWrites
+  -- CEI enforcement: reject state writes after external calls unless the
+  -- function explicitly records a trust-surface opt-out. `cei_safe`
+  -- remains a proof-only hook (a discharge obligation rather than a
+  -- runtime guard), so it does NOT exempt CEI here. `nonreentrant(field)`
+  -- now synthesizes a real transient-storage reentrancy guard during
+  -- `compileFunctionSpec` (#1893), so the post-interaction-write window
+  -- is closed at runtime; that justifies exempting CEI for the
+  -- annotation. `allow_post_interaction_writes` is the legacy untyped
+  -- opt-out for callers that audit CEI manually.
+  let ceiExempt := spec.allowPostInteractionWrites || spec.nonReentrantLock.isSome
   if !ceiExempt then
     match stmtListCEIViolation spec.body false with
     | some violation =>
-        throw s!"Compilation error: function '{spec.name}' violates CEI (Checks-Effects-Interactions) ordering: {violation}. Reorder state writes before external calls, or annotate with allow_post_interaction_writes to opt out ({issue1728Ref})"
+        throw s!"Compilation error: function '{spec.name}' violates CEI (Checks-Effects-Interactions) ordering: {violation}. Reorder state writes before external calls, or annotate with allow_post_interaction_writes / nonreentrant(<lock>) to opt out ({issue1728Ref})"
     | none => pure ()
   validateFunctionIdentifierReferences spec
 

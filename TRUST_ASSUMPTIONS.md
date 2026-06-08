@@ -143,6 +143,21 @@ Current theorem totals, property-test coverage, and proof status live in [docs/V
 ### Revert-State Modeling
 High-level semantics can expose intermediate state in reverted computations. EVM reverts discard state. Contracts should use checks-before-effects. See [docs/REVERT_STATE_MODEL.md](docs/REVERT_STATE_MODEL.md).
 
+### Reentrancy Guard (`nonreentrant(lockField)`)
+Functions annotated `nonreentrant(lockField)` are compiled with a
+**transient-storage** reentrancy guard prologue (#1893): an
+`if eq(tload(lockSlot), 1) { revert(0, 0) }; tstore(lockSlot, 1)` pair runs
+before any user-authored Yul. Transient storage (EIP-1153, Cancun+) auto-clears
+at end-of-transaction, so the guard does not need an explicit release path —
+early `return`, `revert`, or panic cannot leak the lock across transactions.
+The guard exempts the function from CEI ordering enforcement, so state writes
+after external calls are permitted within reentrancy-protected entry points.
+Trust boundary: the guard's correctness reduces to EVM TLOAD/TSTORE
+semantics (already in the trusted EVM target) plus the macro-level invariant
+that the lock field is a scalar `uint256` storage field used solely by the
+guard. Guarded functions sit outside `SupportedSpec` in this version;
+proof-side guard preservation lemmas are deferred follow-up work.
+
 ## Security Audit Checklist
 
 1. Confirm deployment uses the supported EDSL CLI path.

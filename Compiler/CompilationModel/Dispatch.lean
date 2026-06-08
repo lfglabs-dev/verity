@@ -207,6 +207,62 @@ def compileFunctionSpec (fields : List Field) (events : List EventDef) (errors :
     body := allStmts
   }
 
+/-- Build the Yul prologue for a `nonreentrant(lockField)` function (#1893).
+
+    Uses **transient storage** (TLOAD / TSTORE introduced in Cancun) so the
+    guard auto-clears at end-of-transaction and no exit-side cleanup is
+    needed — even on early `return`, `revert`, or panic the lock cannot
+    leak across transactions.
+
+    The emitted Yul is:
+    ```yul
+    if eq(tload(<lockSlot>), 1) { revert(0, 0) }
+    tstore(<lockSlot>, 1)
+    ```
+
+    `lockSlot` is the canonical slot resolved from the lock field name. The
+    field is required to be a scalar `uint256` storage field by the macro
+    validator (`Verity/Macro/Translate.lean` enforces this). Persistent
+    storage at that slot is left untouched — only the transient mirror at
+    the same numeric slot is used as the active lock, so legacy callers
+    that initialise the field to zero need no migration. -/
+def nonReentrantGuardPrologue (fields : List Field) (lockField : String) :
+    Except String (List YulStmt) := do
+  match findFieldWithResolvedSlot fields lockField with
+  | none =>
+      throw s!"Compilation error: nonreentrant lock '{lockField}' is not a declared storage field; declare it as a scalar uint256 field before annotating any function"
+  | some (_field, slot) =>
+      let lockSlot := YulExpr.lit slot
+      let revertOnReentry :=
+        YulStmt.if_
+          (YulExpr.call "eq" [YulExpr.call "tload" [lockSlot], YulExpr.lit 1])
+          [YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]
+      let acquire :=
+        YulStmt.expr (YulExpr.call "tstore" [lockSlot, YulExpr.lit 1])
+      pure [revertOnReentry, acquire]
+
+/-- Wrap an already-compiled `IRFunction` with the `nonreentrant(lockField)`
+    guard prologue (#1893) when the source `FunctionSpec` carries the
+    annotation. The prologue is inserted **after** parameter loading and
+    **before** the user-authored body so the lock check runs on every
+    entry path before any user Yul can execute. Returns the input
+    function unchanged when there is no `nonReentrantLock`.
+
+    Kept separate from `compileFunctionSpec` so the IR-generation proof
+    modules (which prove `compileFunctionSpec` produces a specific
+    parameter-loads + body shape) are unaffected: the guard is a
+    post-compilation transformation only applied to externals at the
+    contract-assembly layer. -/
+def attachNonReentrantGuard (fields : List Field) (spec : FunctionSpec)
+    (irFn : IRFunction) : Except String IRFunction :=
+  match spec.nonReentrantLock with
+  | none => pure irFn
+  | some lockField => do
+      let guardStmts ← nonReentrantGuardPrologue fields lockField
+      let paramLoadCount := (genParamLoads spec.params).length
+      let (prefixLoads, suffix) := irFn.body.splitAt paramLoadCount
+      pure { irFn with body := prefixLoads ++ guardStmts ++ suffix }
+
 private def compileSpecialEntrypoint (fields : List Field) (events : List EventDef)
     (errors : List ErrorDef) (adtTypes : List AdtTypeDef := []) (spec : FunctionSpec) :
     Except String IREntrypoint := do
@@ -444,8 +500,14 @@ def compileValidatedCore (spec : CompilationModel) (selectors : List Nat) : Exce
   let dynamicBytesEqHelpersRequired := contractUsesDynamicBytesEq spec
   let fallbackSpec ← pickUniqueFunctionByName "fallback" spec.functions
   let receiveSpec ← pickUniqueFunctionByName "receive" spec.functions
-  let functions ← (externalFns.zip selectors).mapM fun (fnSpec, sel) =>
-    compileFunctionSpec fields spec.events spec.errors spec.adtTypes sel fnSpec
+  let functions ← (externalFns.zip selectors).mapM fun (fnSpec, sel) => do
+    let irFn ← compileFunctionSpec fields spec.events spec.errors spec.adtTypes sel fnSpec
+    -- Inject the transient-storage reentrancy guard prologue immediately
+    -- after parameter loading for `nonreentrant(lockField)` externals
+    -- (#1893). Kept outside `compileFunctionSpec` so the IR-generation
+    -- proof modules continue to characterise the underlying body shape
+    -- without a nonReentrantLock case split.
+    attachNonReentrantGuard fields fnSpec irFn
   let internalFuncDefs ← internalFns.mapM (compileInternalFunction fields spec.events spec.errors spec.adtTypes)
   let arrayElementHelpers :=
     (if arrayHelpersRequired then

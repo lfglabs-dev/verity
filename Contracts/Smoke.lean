@@ -3191,10 +3191,13 @@ verity_contract CEILadderSmoke where
   linked_externals
     external echo(Uint256) -> (Uint256)
 
-  -- nonreentrant is recorded as metadata; it does not bypass CEI by itself.
+  -- `nonreentrant(lock)` now synthesizes a transient-storage reentrancy
+  -- guard during compileFunctionSpec (#1893), so CEI ordering inside the
+  -- body is no longer required: state writes after external calls are
+  -- safe because the guard reverts on reentry.
   function nonreentrant(lock) callThenStoreGuarded (x : Uint256) : Uint256 := do
-    setStorage counter x
     let echoed := externalCall "echo" [x]
+    setStorage counter echoed
     return echoed
 
   -- cei_safe is recorded as metadata; it does not bypass CEI by itself.
@@ -3213,6 +3216,20 @@ verity_contract CEILadderSmoke where
   function increment () : Unit := do
     let current ← getStorage counter
     setStorage counter (add current 1)
+
+-- Regression for #1893 (real nonreentrant guard semantics). The
+-- compileFunctionSpec injection emits a transient-storage acquire
+-- prologue for any `nonreentrant(lockField)` function: a `tload`/`eq`
+-- reentry-revert guard followed by a `tstore` that takes the lock. The
+-- guard runs before any user-authored Yul, so the function reverts on
+-- reentry; transient storage auto-clears at end of transaction,
+-- removing the need for explicit release Yul on every return path. The
+-- visible behavioural change is that CEI ordering inside the body is no
+-- longer required — `callThenStoreGuarded` writes to `counter` *after*
+-- calling `echo`, which would have been rejected as a CEI violation
+-- before this issue, but now compiles cleanly because the synthesized
+-- guard prevents reentrant state corruption at runtime.
+#check_contract CEILadderSmoke
 
 -- Roles / requires(field) smoke test (#1728, Axis 2 Step 2c)
 verity_contract RolesSmoke where
@@ -3604,7 +3621,7 @@ verity_contract CEIViolationRejected where
     setStorage result echoed
 
 /--
-error: #check_contract failed for 'Contracts.Smoke.CEIViolationRejected': Compilation error: function 'callThenStore' violates CEI (Checks-Effects-Interactions) ordering: state write after external call. Reorder state writes before external calls, or annotate with allow_post_interaction_writes to opt out (Issue #1728 (CEI enforcement — Checks-Effects-Interactions ordering))
+error: #check_contract failed for 'Contracts.Smoke.CEIViolationRejected': Compilation error: function 'callThenStore' violates CEI (Checks-Effects-Interactions) ordering: state write after external call. Reorder state writes before external calls, or annotate with allow_post_interaction_writes / nonreentrant(<lock>) to opt out (Issue #1728 (CEI enforcement — Checks-Effects-Interactions ordering))
 -/
 #guard_msgs in
 #check_contract CEIViolationRejected
@@ -3640,7 +3657,7 @@ verity_contract CEIWriteInBranchAfterCall where
       pure ()
 
 /--
-error: #check_contract failed for 'Contracts.Smoke.CEIWriteInBranchAfterCall': Compilation error: function 'callThenConditionalWrite' violates CEI (Checks-Effects-Interactions) ordering: in if-then branch: state write after external call. Reorder state writes before external calls, or annotate with allow_post_interaction_writes to opt out (Issue #1728 (CEI enforcement — Checks-Effects-Interactions ordering))
+error: #check_contract failed for 'Contracts.Smoke.CEIWriteInBranchAfterCall': Compilation error: function 'callThenConditionalWrite' violates CEI (Checks-Effects-Interactions) ordering: in if-then branch: state write after external call. Reorder state writes before external calls, or annotate with allow_post_interaction_writes / nonreentrant(<lock>) to opt out (Issue #1728 (CEI enforcement — Checks-Effects-Interactions ordering))
 -/
 #guard_msgs in
 #check_contract CEIWriteInBranchAfterCall
@@ -3661,7 +3678,7 @@ verity_contract CEICallBothBranchesWrite where
       setStorage counter 0
 
 /--
-error: #check_contract failed for 'Contracts.Smoke.CEICallBothBranchesWrite': Compilation error: function 'callThenBranchWrite' violates CEI (Checks-Effects-Interactions) ordering: in if-then branch: state write after external call. Reorder state writes before external calls, or annotate with allow_post_interaction_writes to opt out (Issue #1728 (CEI enforcement — Checks-Effects-Interactions ordering))
+error: #check_contract failed for 'Contracts.Smoke.CEICallBothBranchesWrite': Compilation error: function 'callThenBranchWrite' violates CEI (Checks-Effects-Interactions) ordering: in if-then branch: state write after external call. Reorder state writes before external calls, or annotate with allow_post_interaction_writes / nonreentrant(<lock>) to opt out (Issue #1728 (CEI enforcement — Checks-Effects-Interactions ordering))
 -/
 #guard_msgs in
 #check_contract CEICallBothBranchesWrite
@@ -3803,7 +3820,7 @@ verity_contract UnsafeCEIViolation where
       setStorage counter echoed
 
 /--
-error: #check_contract failed for 'Contracts.Smoke.UnsafeCEIViolation': Compilation error: function 'unsafeCallThenWrite' violates CEI (Checks-Effects-Interactions) ordering: in unsafe block: state write after external call. Reorder state writes before external calls, or annotate with allow_post_interaction_writes to opt out (Issue #1728 (CEI enforcement — Checks-Effects-Interactions ordering))
+error: #check_contract failed for 'Contracts.Smoke.UnsafeCEIViolation': Compilation error: function 'unsafeCallThenWrite' violates CEI (Checks-Effects-Interactions) ordering: in unsafe block: state write after external call. Reorder state writes before external calls, or annotate with allow_post_interaction_writes / nonreentrant(<lock>) to opt out (Issue #1728 (CEI enforcement — Checks-Effects-Interactions ordering))
 -/
 #guard_msgs in
 #check_contract UnsafeCEIViolation
@@ -3840,7 +3857,7 @@ verity_contract CEIInternalCallAfterExternalRejected where
     increment echoed
 
 /--
-error: #check_contract failed for 'Contracts.Smoke.CEIInternalCallAfterExternalRejected': Compilation error: function 'callThenHelper' violates CEI (Checks-Effects-Interactions) ordering: state write after external call. Reorder state writes before external calls, or annotate with allow_post_interaction_writes to opt out (Issue #1728 (CEI enforcement — Checks-Effects-Interactions ordering))
+error: #check_contract failed for 'Contracts.Smoke.CEIInternalCallAfterExternalRejected': Compilation error: function 'callThenHelper' violates CEI (Checks-Effects-Interactions) ordering: state write after external call. Reorder state writes before external calls, or annotate with allow_post_interaction_writes / nonreentrant(<lock>) to opt out (Issue #1728 (CEI enforcement — Checks-Effects-Interactions ordering))
 -/
 #guard_msgs in
 #check_contract CEIInternalCallAfterExternalRejected
