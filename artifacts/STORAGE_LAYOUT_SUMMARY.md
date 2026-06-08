@@ -8,6 +8,31 @@ Source of truth: `Compiler.Specs.allSpecs` (canonical production
 contract surface). See `AUDIT.md` for the audit-artifact registry
 and issue #1897 for the migration-review motivation.
 
+## Non-alias certificate justifications (#1966)
+
+Each pairwise non-alias claim in the per-contract sections below
+is tagged with a *justification kind*. The justification tells a
+downstream proof how to discharge the obligation:
+
+- `distinctScalarSlots` — both families are scalar (uint256 /
+  address / ADT) at *distinct* declared storage slots. The claim
+  reduces to `aSlot ≠ bSlot` and is decidable by `decide` against
+  the certificate.
+- `keccakDomainScalar` — one family is keccak-derived (mapping,
+  dynamic array, mapping-struct), the other a scalar at a small
+  declared slot. Discharged by the standard keccak preimage
+  assumption that `keccak256` digests do not collide with any
+  slot below `maxDeclaredSlot` (named here as
+  `keccak_above_max_declared_slot`).
+- `keccakPreimageDistinct` — both families are keccak-derived
+  with *disjoint* preimage shapes (their `keccakPreimage`
+  strings differ). Discharged by a `keccak256` injectivity
+  assumption named after the concrete preimage families.
+
+Together these obligations replace a single global
+`Loc.slot_inj` boundary with per-family local axioms plus a
+decidable finite subset.
+
 Contracts covered: **9**
 
 ## SimpleStorage
@@ -19,6 +44,16 @@ Contracts covered: **9**
 | ----- | -------------- | ------------- | ----------- | ---- | ----------- |
 | `storedData` | 0 | 0 | — | uint256 | — |
 
+### Non-alias certificate (#1966)
+
+Each storage field is classified as a *family* — the set of runtime storage locations it can occupy. Scalar families collapse to a single declared slot; keccak-derived families (mappings, dynamic arrays, mapping-structs) span a preimage-parameterised neighbourhood. The pairwise non-alias claims below are the obligations a downstream proof must discharge to replace a global keccak-injectivity assumption with per-family local obligations.
+
+| Family | Kind | Root slot | Keccak preimage | Struct word range |
+| ------ | ---- | --------- | --------------- | ----------------- |
+| `storedData` | scalar | 0 | — | — |
+
+_No non-alias claims (single-field contract)._
+
 ## Counter
 
 - Storage namespace: _none_ (slots start at 0)
@@ -27,6 +62,16 @@ Contracts covered: **9**
 | Field | Canonical slot | Declared slot | Alias slots | Type | Packed bits |
 | ----- | -------------- | ------------- | ----------- | ---- | ----------- |
 | `count` | 0 | 0 | — | uint256 | — |
+
+### Non-alias certificate (#1966)
+
+Each storage field is classified as a *family* — the set of runtime storage locations it can occupy. Scalar families collapse to a single declared slot; keccak-derived families (mappings, dynamic arrays, mapping-structs) span a preimage-parameterised neighbourhood. The pairwise non-alias claims below are the obligations a downstream proof must discharge to replace a global keccak-injectivity assumption with per-family local obligations.
+
+| Family | Kind | Root slot | Keccak preimage | Struct word range |
+| ------ | ---- | --------- | --------------- | ----------------- |
+| `count` | scalar | 0 | — | — |
+
+_No non-alias claims (single-field contract)._
 
 ## Owned
 
@@ -37,6 +82,16 @@ Contracts covered: **9**
 | ----- | -------------- | ------------- | ----------- | ---- | ----------- |
 | `owner` | 0 | 0 | — | address | — |
 
+### Non-alias certificate (#1966)
+
+Each storage field is classified as a *family* — the set of runtime storage locations it can occupy. Scalar families collapse to a single declared slot; keccak-derived families (mappings, dynamic arrays, mapping-structs) span a preimage-parameterised neighbourhood. The pairwise non-alias claims below are the obligations a downstream proof must discharge to replace a global keccak-injectivity assumption with per-family local obligations.
+
+| Family | Kind | Root slot | Keccak preimage | Struct word range |
+| ------ | ---- | --------- | --------------- | ----------------- |
+| `owner` | scalar | 0 | — | — |
+
+_No non-alias claims (single-field contract)._
+
 ## Ledger
 
 - Storage namespace: _none_ (slots start at 0)
@@ -45,6 +100,16 @@ Contracts covered: **9**
 | Field | Canonical slot | Declared slot | Alias slots | Type | Packed bits |
 | ----- | -------------- | ------------- | ----------- | ---- | ----------- |
 | `balances` | 0 | 0 | — | mapping(address => uint256) | — |
+
+### Non-alias certificate (#1966)
+
+Each storage field is classified as a *family* — the set of runtime storage locations it can occupy. Scalar families collapse to a single declared slot; keccak-derived families (mappings, dynamic arrays, mapping-structs) span a preimage-parameterised neighbourhood. The pairwise non-alias claims below are the obligations a downstream proof must discharge to replace a global keccak-injectivity assumption with per-family local obligations.
+
+| Family | Kind | Root slot | Keccak preimage | Struct word range |
+| ------ | ---- | --------- | --------------- | ----------------- |
+| `balances` | mapping | 0 | `keccak256(key || slot=0) [keys: address]` | — |
+
+_No non-alias claims (single-field contract)._
 
 ## Vault
 
@@ -57,6 +122,24 @@ Contracts covered: **9**
 | `totalSupplySlot` | 1 | 1 | — | uint256 | — |
 | `shareBalancesSlot` | 2 | 2 | — | mapping(address => uint256) | — |
 
+### Non-alias certificate (#1966)
+
+Each storage field is classified as a *family* — the set of runtime storage locations it can occupy. Scalar families collapse to a single declared slot; keccak-derived families (mappings, dynamic arrays, mapping-structs) span a preimage-parameterised neighbourhood. The pairwise non-alias claims below are the obligations a downstream proof must discharge to replace a global keccak-injectivity assumption with per-family local obligations.
+
+| Family | Kind | Root slot | Keccak preimage | Struct word range |
+| ------ | ---- | --------- | --------------- | ----------------- |
+| `totalAssetsSlot` | scalar | 0 | — | — |
+| `totalSupplySlot` | scalar | 1 | — | — |
+| `shareBalancesSlot` | mapping | 2 | `keccak256(key || slot=2) [keys: address]` | — |
+
+**Non-alias claims** (grouped by justification):
+
+- `distinctScalarSlots` (1 pair):
+  - `totalAssetsSlot` (slot 0) ⟂ `totalSupplySlot` (slot 1)
+- `keccakDomainScalar` (2 pairs):
+  - `totalAssetsSlot` (slot 0) ⟂ `shareBalancesSlot` (slot 2)
+  - `totalSupplySlot` (slot 1) ⟂ `shareBalancesSlot` (slot 2)
+
 ## OwnedCounter
 
 - Storage namespace: _none_ (slots start at 0)
@@ -66,6 +149,20 @@ Contracts covered: **9**
 | ----- | -------------- | ------------- | ----------- | ---- | ----------- |
 | `owner` | 0 | 0 | — | address | — |
 | `count` | 1 | 1 | — | uint256 | — |
+
+### Non-alias certificate (#1966)
+
+Each storage field is classified as a *family* — the set of runtime storage locations it can occupy. Scalar families collapse to a single declared slot; keccak-derived families (mappings, dynamic arrays, mapping-structs) span a preimage-parameterised neighbourhood. The pairwise non-alias claims below are the obligations a downstream proof must discharge to replace a global keccak-injectivity assumption with per-family local obligations.
+
+| Family | Kind | Root slot | Keccak preimage | Struct word range |
+| ------ | ---- | --------- | --------------- | ----------------- |
+| `owner` | scalar | 0 | — | — |
+| `count` | scalar | 1 | — | — |
+
+**Non-alias claims** (grouped by justification):
+
+- `distinctScalarSlots` (1 pair):
+  - `owner` (slot 0) ⟂ `count` (slot 1)
 
 ## SimpleToken
 
@@ -78,6 +175,24 @@ Contracts covered: **9**
 | `balancesSlot` | 1 | 1 | — | mapping(address => uint256) | — |
 | `totalSupplySlot` | 2 | 2 | — | uint256 | — |
 
+### Non-alias certificate (#1966)
+
+Each storage field is classified as a *family* — the set of runtime storage locations it can occupy. Scalar families collapse to a single declared slot; keccak-derived families (mappings, dynamic arrays, mapping-structs) span a preimage-parameterised neighbourhood. The pairwise non-alias claims below are the obligations a downstream proof must discharge to replace a global keccak-injectivity assumption with per-family local obligations.
+
+| Family | Kind | Root slot | Keccak preimage | Struct word range |
+| ------ | ---- | --------- | --------------- | ----------------- |
+| `ownerSlot` | scalar | 0 | — | — |
+| `balancesSlot` | mapping | 1 | `keccak256(key || slot=1) [keys: address]` | — |
+| `totalSupplySlot` | scalar | 2 | — | — |
+
+**Non-alias claims** (grouped by justification):
+
+- `distinctScalarSlots` (1 pair):
+  - `ownerSlot` (slot 0) ⟂ `totalSupplySlot` (slot 2)
+- `keccakDomainScalar` (2 pairs):
+  - `ownerSlot` (slot 0) ⟂ `balancesSlot` (slot 1)
+  - `balancesSlot` (slot 1) ⟂ `totalSupplySlot` (slot 2)
+
 ## SafeCounter
 
 - Storage namespace: _none_ (slots start at 0)
@@ -86,6 +201,16 @@ Contracts covered: **9**
 | Field | Canonical slot | Declared slot | Alias slots | Type | Packed bits |
 | ----- | -------------- | ------------- | ----------- | ---- | ----------- |
 | `count` | 0 | 0 | — | uint256 | — |
+
+### Non-alias certificate (#1966)
+
+Each storage field is classified as a *family* — the set of runtime storage locations it can occupy. Scalar families collapse to a single declared slot; keccak-derived families (mappings, dynamic arrays, mapping-structs) span a preimage-parameterised neighbourhood. The pairwise non-alias claims below are the obligations a downstream proof must discharge to replace a global keccak-injectivity assumption with per-family local obligations.
+
+| Family | Kind | Root slot | Keccak preimage | Struct word range |
+| ------ | ---- | --------- | --------------- | ----------------- |
+| `count` | scalar | 0 | — | — |
+
+_No non-alias claims (single-field contract)._
 
 ## ERC20
 
@@ -98,3 +223,26 @@ Contracts covered: **9**
 | `totalSupplySlot` | 1 | 1 | — | uint256 | — |
 | `balancesSlot` | 2 | 2 | — | mapping(address => uint256) | — |
 | `allowancesSlot` | 3 | 3 | — | mapping(address, address => uint256) | — |
+
+### Non-alias certificate (#1966)
+
+Each storage field is classified as a *family* — the set of runtime storage locations it can occupy. Scalar families collapse to a single declared slot; keccak-derived families (mappings, dynamic arrays, mapping-structs) span a preimage-parameterised neighbourhood. The pairwise non-alias claims below are the obligations a downstream proof must discharge to replace a global keccak-injectivity assumption with per-family local obligations.
+
+| Family | Kind | Root slot | Keccak preimage | Struct word range |
+| ------ | ---- | --------- | --------------- | ----------------- |
+| `ownerSlot` | scalar | 0 | — | — |
+| `totalSupplySlot` | scalar | 1 | — | — |
+| `balancesSlot` | mapping | 2 | `keccak256(key || slot=2) [keys: address]` | — |
+| `allowancesSlot` | nestedMapping | 3 | `keccak256(innerKey || keccak256(outerKey || slot=3)) [keys: address, address]` | — |
+
+**Non-alias claims** (grouped by justification):
+
+- `distinctScalarSlots` (1 pair):
+  - `ownerSlot` (slot 0) ⟂ `totalSupplySlot` (slot 1)
+- `keccakDomainScalar` (4 pairs):
+  - `ownerSlot` (slot 0) ⟂ `balancesSlot` (slot 2)
+  - `ownerSlot` (slot 0) ⟂ `allowancesSlot` (slot 3)
+  - `totalSupplySlot` (slot 1) ⟂ `balancesSlot` (slot 2)
+  - `totalSupplySlot` (slot 1) ⟂ `allowancesSlot` (slot 3)
+- `keccakPreimageDistinct` (1 pair):
+  - `balancesSlot` (slot 2) ⟂ `allowancesSlot` (slot 3)

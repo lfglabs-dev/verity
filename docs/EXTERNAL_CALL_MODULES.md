@@ -251,6 +251,32 @@ SSTORE2-style code-as-data reads. The helper only models the copy mechanic; the
 meaning of the pointer's bytecode layout remains the
 `sstore2_pointer_code_layout` assumption.
 
+### Typed CodeData Facade (#1967)
+
+`Compiler.Modules.CodeData` is the typed source-level facade over the
+CREATE2 / SSTORE2 helpers above. It pairs each write/read site with a
+`Compiler.ABI.Frame.FrameLayout` so the payload shape is statically
+typed, materialises the payload into memory via `Frame.materializePayloadToMemory`,
+and routes through the underlying ECMs:
+
+- `Compiler.Modules.CodeData.writeTyped resultVar base write` — typed
+  write. The `write : CodeDataWrite` carries a `FrameLayout` payload, an
+  optional ETH value, and a salt. Fails closed if the layout contains
+  any dynamic field (`Frame.layoutSourcesSupported` is the gate); this
+  is intentional because SSTORE2-style code-as-data is only sound for
+  static layouts.
+- `Compiler.Modules.CodeData.readTyped read` — typed read. Lowers to the
+  underlying `extcodecopy` ECM after a matching layout-sources check.
+- `Compiler.Modules.CodeData.roundtripShape resultVar base write read` —
+  combined write+read, useful for tests and Midnight-style
+  `toId`/`toMarket`/`touchMarket` round-trip patterns.
+
+Coverage in `Compiler.Modules.CodeDataTest` exercises the typed surface
+on (a) the full multi-field blob+meta payload, (b) an empty payload (no
+fields), (c) a one-word short payload, and (d) a dynamic payload — the
+last must be rejected with an explicit error so callers never silently
+store ABI-encoded dynamic tails into pointer code.
+
 ### Packed Hashing Helpers
 
 `Compiler.Modules.Hashing.abiEncodeStaticWords` covers

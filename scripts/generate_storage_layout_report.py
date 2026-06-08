@@ -126,6 +126,31 @@ def render_summary(report: dict) -> str:
         "contract surface). See `AUDIT.md` for the audit-artifact registry",
         "and issue #1897 for the migration-review motivation.",
         "",
+        "## Non-alias certificate justifications (#1966)",
+        "",
+        "Each pairwise non-alias claim in the per-contract sections below",
+        "is tagged with a *justification kind*. The justification tells a",
+        "downstream proof how to discharge the obligation:",
+        "",
+        "- `distinctScalarSlots` — both families are scalar (uint256 /",
+        "  address / ADT) at *distinct* declared storage slots. The claim",
+        "  reduces to `aSlot ≠ bSlot` and is decidable by `decide` against",
+        "  the certificate.",
+        "- `keccakDomainScalar` — one family is keccak-derived (mapping,",
+        "  dynamic array, mapping-struct), the other a scalar at a small",
+        "  declared slot. Discharged by the standard keccak preimage",
+        "  assumption that `keccak256` digests do not collide with any",
+        "  slot below `maxDeclaredSlot` (named here as",
+        "  `keccak_above_max_declared_slot`).",
+        "- `keccakPreimageDistinct` — both families are keccak-derived",
+        "  with *disjoint* preimage shapes (their `keccakPreimage`",
+        "  strings differ). Discharged by a `keccak256` injectivity",
+        "  assumption named after the concrete preimage families.",
+        "",
+        "Together these obligations replace a single global",
+        "`Loc.slot_inj` boundary with per-family local axioms plus a",
+        "decidable finite subset.",
+        "",
         f"Contracts covered: **{len(contracts)}**",
         "",
     ]
@@ -175,6 +200,55 @@ def render_summary(report: dict) -> str:
                     lines.append(f"- `{f['name']}` struct members:")
                     lines.append("")
                     lines.extend(_struct_members_table(members))
+
+        # Non-alias certificate (#1966): per-contract storage families plus
+        # the pairwise non-alias claims and the justification each demands.
+        families = spec.get("storageFamilies", [])
+        claims = spec.get("nonAliasClaims", [])
+        if families:
+            lines.append("")
+            lines.append("### Non-alias certificate (#1966)")
+            lines.append("")
+            lines.append(
+                "Each storage field is classified as a *family* — the set of"
+                " runtime storage locations it can occupy. Scalar families"
+                " collapse to a single declared slot; keccak-derived"
+                " families (mappings, dynamic arrays, mapping-structs) span"
+                " a preimage-parameterised neighbourhood. The pairwise"
+                " non-alias claims below are the obligations a downstream"
+                " proof must discharge to replace a global"
+                " keccak-injectivity assumption with per-family local"
+                " obligations."
+            )
+            lines.append("")
+            lines.extend([
+                "| Family | Kind | Root slot | Keccak preimage | Struct word range |",
+                "| ------ | ---- | --------- | --------------- | ----------------- |",
+            ])
+            for fam in families:
+                preimage = fam.get("keccakPreimage")
+                preimage_cell = "—" if preimage is None else f"`{preimage}`"
+                rng = fam.get("structWordRange")
+                rng_cell = "—" if rng is None else f"[{rng['min']}..{rng['maxInclusive']}]"
+                lines.append(
+                    f"| `{fam['name']}` | {fam['kind']} | {fam['rootSlot']} | {preimage_cell} | {rng_cell} |"
+                )
+            if claims:
+                lines.append("")
+                lines.append("**Non-alias claims** (grouped by justification):")
+                lines.append("")
+                grouped: dict[str, list[dict]] = {}
+                for c in claims:
+                    grouped.setdefault(c["justification"], []).append(c)
+                for justification, group in sorted(grouped.items()):
+                    lines.append(f"- `{justification}` ({len(group)} pair{'s' if len(group) != 1 else ''}):")
+                    for c in group:
+                        lines.append(
+                            f"  - `{c['a']}` (slot {c['aSlot']}) ⟂ `{c['b']}` (slot {c['bSlot']})"
+                        )
+            else:
+                lines.append("")
+                lines.append("_No non-alias claims (single-field contract)._")
         lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"

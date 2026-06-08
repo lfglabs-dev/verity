@@ -18,8 +18,18 @@
           ]
         }
       ],
+      "nonAliasClaims": [],
       "reservedSlotRanges": [],
       "slotAliasRanges": [],
+      "storageFamilies": [
+        {
+          "keccakPreimage": null,
+          "kind": "scalar",
+          "name": "storedData",
+          "rootSlot": 0,
+          "structWordRange": null
+        }
+      ],
       "storageNamespace": null
     },
     {
@@ -40,8 +50,18 @@
           ]
         }
       ],
+      "nonAliasClaims": [],
       "reservedSlotRanges": [],
       "slotAliasRanges": [],
+      "storageFamilies": [
+        {
+          "keccakPreimage": null,
+          "kind": "scalar",
+          "name": "count",
+          "rootSlot": 0,
+          "structWordRange": null
+        }
+      ],
       "storageNamespace": null
     },
     {
@@ -62,8 +82,18 @@
           ]
         }
       ],
+      "nonAliasClaims": [],
       "reservedSlotRanges": [],
       "slotAliasRanges": [],
+      "storageFamilies": [
+        {
+          "keccakPreimage": null,
+          "kind": "scalar",
+          "name": "owner",
+          "rootSlot": 0,
+          "structWordRange": null
+        }
+      ],
       "storageNamespace": null
     },
     {
@@ -88,8 +118,18 @@
           ]
         }
       ],
+      "nonAliasClaims": [],
       "reservedSlotRanges": [],
       "slotAliasRanges": [],
+      "storageFamilies": [
+        {
+          "keccakPreimage": "keccak256(key || slot=0) [keys: address]",
+          "kind": "mapping",
+          "name": "balances",
+          "rootSlot": 0,
+          "structWordRange": null
+        }
+      ],
       "storageNamespace": null
     },
     {
@@ -142,8 +182,54 @@
           ]
         }
       ],
+      "nonAliasClaims": [
+        {
+          "a": "totalAssetsSlot",
+          "aSlot": 0,
+          "b": "totalSupplySlot",
+          "bSlot": 1,
+          "justification": "distinctScalarSlots"
+        },
+        {
+          "a": "totalAssetsSlot",
+          "aSlot": 0,
+          "b": "shareBalancesSlot",
+          "bSlot": 2,
+          "justification": "keccakDomainScalar"
+        },
+        {
+          "a": "totalSupplySlot",
+          "aSlot": 1,
+          "b": "shareBalancesSlot",
+          "bSlot": 2,
+          "justification": "keccakDomainScalar"
+        }
+      ],
       "reservedSlotRanges": [],
       "slotAliasRanges": [],
+      "storageFamilies": [
+        {
+          "keccakPreimage": null,
+          "kind": "scalar",
+          "name": "totalAssetsSlot",
+          "rootSlot": 0,
+          "structWordRange": null
+        },
+        {
+          "keccakPreimage": null,
+          "kind": "scalar",
+          "name": "totalSupplySlot",
+          "rootSlot": 1,
+          "structWordRange": null
+        },
+        {
+          "keccakPreimage": "keccak256(key || slot=2) [keys: address]",
+          "kind": "mapping",
+          "name": "shareBalancesSlot",
+          "rootSlot": 2,
+          "structWordRange": null
+        }
+      ],
       "storageNamespace": null
     },
     {
@@ -178,8 +264,33 @@
           ]
         }
       ],
+      "nonAliasClaims": [
+        {
+          "a": "owner",
+          "aSlot": 0,
+          "b": "count",
+          "bSlot": 1,
+          "justification": "distinctScalarSlots"
+        }
+      ],
       "reservedSlotRanges": [],
       "slotAliasRanges": [],
+      "storageFamilies": [
+        {
+          "keccakPreimage": null,
+          "kind": "scalar",
+          "name": "owner",
+          "rootSlot": 0,
+          "structWordRange": null
+        },
+        {
+          "keccakPreimage": null,
+          "kind": "scalar",
+          "name": "count",
+          "rootSlot": 1,
+          "structWordRange": null
+        }
+      ],
       "storageNamespace": null
     },
     {
@@ -232,8 +343,54 @@
           ]
         }
       ],
+      "nonAliasClaims": [
+        {
+          "a": "ownerSlot",
+          "aSlot": 0,
+          "b": "balancesSlot",
+          "bSlot": 1,
+          "justification": "keccakDomainScalar"
+        },
+        {
+          "a": "ownerSlot",
+          "aSlot": 0,
+          "b": "totalSupplySlot",
+          "bSlot": 2,
+          "justification": "distinctScalarSlots"
+        },
+        {
+          "a": "balancesSlot",
+          "aSlot": 1,
+          "b": "totalSupplySlot",
+          "bSlot": 2,
+          "justification": "keccakDomainScalar"
+        }
+      ],
       "reservedSlotRanges": [],
       "slotAliasRanges": [],
+      "storageFamilies": [
+        {
+          "keccakPreimage": null,
+          "kind": "scalar",
+          "name": "ownerSlot",
+          "rootSlot": 0,
+          "structWordRange": null
+        },
+        {
+          "keccakPreimage": "keccak256(key || slot=1) [keys: address]",
+          "kind": "mapping",
+          "name": "balancesSlot",
+          "rootSlot": 1,
+          "structWordRange": null
+        },
+        {
+          "keccakPreimage": null,
+          "kind": "scalar",
+          "name": "totalSupplySlot",
+          "rootSlot": 2,
+          "structWordRange": null
+        }
+      ],
       "storageNamespace": null
     },
     {
@@ -254,8 +411,18 @@
           ]
         }
       ],
+      "nonAliasClaims": [],
       "reservedSlotRanges": [],
       "slotAliasRanges": [],
+      "storageFamilies": [
+        {
+          "keccakPreimage": null,
+          "kind": "scalar",
+          "name": "count",
+          "rootSlot": 0,
+          "structWordRange": null
+        }
+      ],
       "storageNamespace": null
     },
     {
@@ -327,8 +494,82 @@
           ]
         }
       ],
+      "nonAliasClaims": [
+        {
+          "a": "ownerSlot",
+          "aSlot": 0,
+          "b": "totalSupplySlot",
+          "bSlot": 1,
+          "justification": "distinctScalarSlots"
+        },
+        {
+          "a": "ownerSlot",
+          "aSlot": 0,
+          "b": "balancesSlot",
+          "bSlot": 2,
+          "justification": "keccakDomainScalar"
+        },
+        {
+          "a": "ownerSlot",
+          "aSlot": 0,
+          "b": "allowancesSlot",
+          "bSlot": 3,
+          "justification": "keccakDomainScalar"
+        },
+        {
+          "a": "totalSupplySlot",
+          "aSlot": 1,
+          "b": "balancesSlot",
+          "bSlot": 2,
+          "justification": "keccakDomainScalar"
+        },
+        {
+          "a": "totalSupplySlot",
+          "aSlot": 1,
+          "b": "allowancesSlot",
+          "bSlot": 3,
+          "justification": "keccakDomainScalar"
+        },
+        {
+          "a": "balancesSlot",
+          "aSlot": 2,
+          "b": "allowancesSlot",
+          "bSlot": 3,
+          "justification": "keccakPreimageDistinct"
+        }
+      ],
       "reservedSlotRanges": [],
       "slotAliasRanges": [],
+      "storageFamilies": [
+        {
+          "keccakPreimage": null,
+          "kind": "scalar",
+          "name": "ownerSlot",
+          "rootSlot": 0,
+          "structWordRange": null
+        },
+        {
+          "keccakPreimage": null,
+          "kind": "scalar",
+          "name": "totalSupplySlot",
+          "rootSlot": 1,
+          "structWordRange": null
+        },
+        {
+          "keccakPreimage": "keccak256(key || slot=2) [keys: address]",
+          "kind": "mapping",
+          "name": "balancesSlot",
+          "rootSlot": 2,
+          "structWordRange": null
+        },
+        {
+          "keccakPreimage": "keccak256(innerKey || keccak256(outerKey || slot=3)) [keys: address, address]",
+          "kind": "nestedMapping",
+          "name": "allowancesSlot",
+          "rootSlot": 3,
+          "structWordRange": null
+        }
+      ],
       "storageNamespace": null
     }
   ]
