@@ -9,6 +9,15 @@ import check_macro_property_test_generation
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse command-line arguments for macro-health checks.
+
+    Args:
+        argv: List of command-line arguments. Defaults to None, which
+            uses sys.argv[1:].
+
+    Returns:
+        argparse.Namespace object containing parsed arguments.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--skip-property-tests", action="store_true")
     return parser.parse_args(argv)
