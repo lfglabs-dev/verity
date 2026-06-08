@@ -618,6 +618,7 @@ def contextAccessorBareName? (name : String) : Option String :=
   else if matchesBareName name "blockNumber" then some "blockNumber"
   else if matchesBareName name "blobbasefee" then some "blobbasefee"
   else if matchesBareName name "contractAddress" then some "contractAddress"
+  else if matchesBareName name "txOrigin" then some "txOrigin"
   else if matchesBareName name "chainid" then some "chainid"
   else none
 
@@ -1785,6 +1786,8 @@ partial def inferPureExprType
       throwPureContextAccessorError stx "chainid"
   | `(term| Verity.contractAddress) =>
       throwPureContextAccessorError stx "contractAddress"
+  | `(term| Verity.txOrigin) =>
+      throwPureContextAccessorError stx "txOrigin"
   | `(term| $id:ident) =>
       let name := toString id.getId
       match params.findSome? (fun p => if p.name == name then some p.ty else none)
@@ -2232,6 +2235,8 @@ partial def inferBindSourceType
       pure .uint256
   | `(term| contractAddress) | `(term| Verity.contractAddress) =>
       pure .address
+  | `(term| txOrigin) | `(term| Verity.txOrigin) =>
+      pure .address
   | `(term| tload $offset:term) => do
       requireWordLikeType offset "tload offset" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals offset)
       pure .uint256
@@ -2553,6 +2558,7 @@ partial def validateConstantBody
   | `(term| blobbasefee) | `(term| Verity.blobbasefee) =>
       throwNonCompileTimeConstantError stx "blobbasefee"
   | `(term| contractAddress) => throwNonCompileTimeConstantError stx "contractAddress"
+  | `(term| txOrigin) => throwNonCompileTimeConstantError stx "txOrigin"
   | `(term| chainid) => throwNonCompileTimeConstantError stx "chainid"
   | `(term| calldatasize) => throwNonCompileTimeConstantError stx "calldatasize"
   | `(term| returndataSize) => throwNonCompileTimeConstantError stx "returndataSize"
@@ -2922,6 +2928,8 @@ partial def translatePureExprWithTypes
       throwPureContextAccessorError stx "blobbasefee"
   | `(term| Verity.contractAddress) =>
       throwPureContextAccessorError stx "contractAddress"
+  | `(term| Verity.txOrigin) =>
+      throwPureContextAccessorError stx "txOrigin"
   | `(term| Verity.chainid) =>
       throwPureContextAccessorError stx "chainid"
   | `(term| $id:ident) =>
@@ -4426,6 +4434,8 @@ def translateBindSource
       `(Compiler.CompilationModel.Expr.blobbasefee)
   | `(term| contractAddress) | `(term| Verity.contractAddress) =>
       `(Compiler.CompilationModel.Expr.contractAddress)
+  | `(term| txOrigin) | `(term| Verity.txOrigin) =>
+      `(Compiler.CompilationModel.Expr.txOrigin)
   | `(term| chainid) | `(term| Verity.chainid) =>
       `(Compiler.CompilationModel.Expr.chainid)
   | `(term| tload $offset:term) =>

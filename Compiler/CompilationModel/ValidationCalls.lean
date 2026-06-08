@@ -267,7 +267,7 @@ def validateInternalCallShapesInExpr
   -- land (e.g. verity#1832's `paramDynamicHeadWord`).
   | Expr.literal _ | Expr.param _ | Expr.constructorArg _
   | Expr.storage _ | Expr.storageAddr _
-  | Expr.caller | Expr.contractAddress | Expr.chainid
+  | Expr.caller | Expr.contractAddress | Expr.txOrigin | Expr.chainid
   | Expr.msgValue | Expr.selfBalance
   | Expr.blockTimestamp | Expr.blockNumber | Expr.blobbasefee
   | Expr.calldatasize | Expr.returndataSize
@@ -543,7 +543,7 @@ def validateExternalCallTargetsInExpr
   -- land (e.g. verity#1832's `paramDynamicHeadWord`).
   | Expr.literal _ | Expr.param _ | Expr.constructorArg _
   | Expr.storage _ | Expr.storageAddr _
-  | Expr.caller | Expr.contractAddress | Expr.chainid
+  | Expr.caller | Expr.contractAddress | Expr.txOrigin | Expr.chainid
   | Expr.msgValue | Expr.selfBalance
   | Expr.blockTimestamp | Expr.blockNumber | Expr.blobbasefee
   | Expr.calldatasize | Expr.returndataSize
