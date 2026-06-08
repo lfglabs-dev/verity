@@ -393,9 +393,21 @@ ECM axiom report:
     [ecrecover] evm_ecrecover_precompile
 ```
 
-Each assumption is tagged `proved`, `assumed`, or `unchecked`, and localized to the constructor or function that introduced it.
+Each assumption is tagged `proved`, `assumed`, or `unchecked`, localized to the
+constructor or function that introduced it, and classified with a
+machine-readable `boundaryClass`. Current classes include `compilerIntrinsic`,
+`abiBoundary`, `externalCall`, `oracleSummary`, `tokenModel`, `callback`,
+`event`, `gate`, and `storageLayoutAssumption`.
 
-For a machine-readable version, run `verity-compiler --trust-report <path>`. The JSON covers ECM assumptions, linked externals, axiomatized primitives, low-level mechanics, proof-gap categories, and a `hasUncheckedDependencies` flag for CI gating. See [VERIFICATION_STATUS.md](./VERIFICATION_STATUS.md#solidity-interop-support-matrix-issue-586) for the full trust-report schema.
+For a machine-readable version, run `verity-compiler --trust-report <path>`. The JSON covers ECM assumptions, linked externals, axiomatized primitives, low-level mechanics, proof-gap categories, boundary classes, and a `hasUncheckedDependencies` flag for CI gating. Use `--assumption-report <path>` when audit tooling needs a flat inventory of every localized obligation. See [VERIFICATION_STATUS.md](./VERIFICATION_STATUS.md#solidity-interop-support-matrix-issue-586) for the full trust-report schema.
+
+To discharge an obligation, replace the relevant linked external / ECM / local
+obligation status with a proved surface and keep its axiom name stable so audit
+manifests can track the proof. To intentionally assume a boundary, keep the
+status as `assumed`, document the assumption beside the module or contract, and
+archive the trust or assumption report. For proof-strict runs, use the
+fail-closed flags below so any remaining assumed or unchecked boundary aborts
+compilation with the exact usage site.
 
 **Fail-closed flags**: a set of `--deny-*` flags lets you reject specific trust surfaces at compile time. Each flag fails the build and reports the exact usage site. See the [full flag table in VERIFICATION_STATUS.md](./VERIFICATION_STATUS.md#solidity-interop-support-matrix-issue-586) for the complete list. The most relevant for ECM users:
 

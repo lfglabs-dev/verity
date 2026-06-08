@@ -744,12 +744,73 @@ private def collectLocalObligationNamesByStatus
 private def proofStatusString (status : Compiler.ProofStatus) : String :=
   jsonString status.toJsonString
 
+private def stringContainsSubstring (haystack needle : String) : Bool :=
+  (haystack.splitOn needle).length > 1
+
+private def boundaryClassFromAxiom (assumption : String) : String :=
+  if assumption.startsWith "erc20_" || assumption.startsWith "erc4626_" then
+    "tokenModel"
+  else if assumption.startsWith "oracle_" then
+    "oracleSummary"
+  else if assumption.startsWith "callback_" then
+    "callback"
+  else if assumption.startsWith "evm_" then
+    "compilerIntrinsic"
+  else if stringContainsSubstring assumption "storage" || stringContainsSubstring assumption "layout" then
+    "storageLayoutAssumption"
+  else if stringContainsSubstring assumption "abi" ||
+      stringContainsSubstring assumption "call" ||
+      stringContainsSubstring assumption "interface" then
+    "abiBoundary"
+  else
+    "externalCall"
+
+private def boundaryClassFromAxioms (axioms : List String) : String :=
+  match axioms with
+  | [] => "externalCall"
+  | assumption :: _ => boundaryClassFromAxiom assumption
+
+private def boundaryClassFromModule (mod : ECM.ExternalCallModule) : String :=
+  match mod.name with
+  | "ecrecover" | "sha256Memory" | "sha256" | "bn256Add" | "bn256ScalarMul" | "bn256Pairing" =>
+      "compilerIntrinsic"
+  | "oracleReadUint256" =>
+      "oracleSummary"
+  | "callback" =>
+      "callback"
+  | "safeTransfer" | "safeTransferFrom" | "safeApprove"
+  | "solmateSafeTransfer" | "solmateSafeTransferFrom"
+  | "balanceOf" | "allowance" | "totalSupply"
+  | "previewDeposit" | "previewMint" | "previewWithdraw" | "previewRedeem"
+  | "convertToAssets" | "convertToShares" | "totalAssets" | "asset"
+  | "maxDeposit" | "maxMint" | "maxWithdraw" | "maxRedeem" | "deposit" =>
+      "tokenModel"
+  | "externalCallWithReturn" | "externalCallNoReturn" | "callWithValue" | "callWithValueBytes"
+  | "bubblingValueCall" | "bubblingValueCallNoOutput" =>
+      "abiBoundary"
+  | "create2Deploy" | "sstore2ReadCode" =>
+      "storageLayoutAssumption"
+  | _ =>
+      boundaryClassFromAxioms mod.axioms
+
+private def boundaryClassFromExternal (entry : ExternalFunction) : String :=
+  if entry.axiomNames.any (fun assumption => assumption.startsWith "oracle_") then
+    "oracleSummary"
+  else if entry.axiomNames.any (fun assumption =>
+      assumption.startsWith "erc20_" || assumption.startsWith "erc4626_") then
+    "tokenModel"
+  else
+    match entry.linkMode with
+    | .external => "externalCall"
+    | .objectLinked | .inline | .compilerRuntime => "compilerIntrinsic"
+
 private def assumptionJson (entry : ExternalFunction) : String :=
   jsonObject [
     ("name", jsonString entry.name),
     ("status", proofStatusString entry.proofStatus),
     ("linkMode", jsonString entry.linkMode.toJsonString),
-    ("axioms", jsonArray (entry.axiomNames.map jsonString))
+    ("axioms", jsonArray (entry.axiomNames.map jsonString)),
+    ("boundaryClass", jsonString (boundaryClassFromExternal entry))
   ]
 
 /-- Stable machine-readable assumption name for a trusted primitive boundary. -/
@@ -762,20 +823,23 @@ private def primitiveAssumptionJson (primitive : String) : String :=
   jsonObject [
     ("primitive", jsonString primitive),
     ("status", proofStatusString .assumed),
-    ("assumption", jsonString (primitiveAssumptionName primitive))
+    ("assumption", jsonString (primitiveAssumptionName primitive)),
+    ("boundaryClass", jsonString "compilerIntrinsic")
   ]
 
 private def ecmJson (entry : String × String) : String :=
   jsonObject [
     ("module", jsonString entry.1),
-    ("assumption", jsonString entry.2)
+    ("assumption", jsonString entry.2),
+    ("boundaryClass", jsonString (boundaryClassFromAxiom entry.2))
   ]
 
 private def ecmModuleJson (entry : ECM.ExternalCallModule) : String :=
   jsonObject [
     ("module", jsonString entry.name),
     ("status", proofStatusString entry.proofStatus),
-    ("axioms", jsonArray (entry.axioms.map jsonString))
+    ("axioms", jsonArray (entry.axioms.map jsonString)),
+    ("boundaryClass", jsonString (boundaryClassFromModule entry))
   ]
 
 private def frameSpecJson (frame : FrameSpec) : String :=
@@ -806,6 +870,7 @@ private def localObligationJson (entry : LocalObligation) : String :=
 
 private structure AssumptionReportEntry where
   category : String
+  boundaryClass : String
   siteKind : String
   siteName : String
   name : String
@@ -827,7 +892,8 @@ private def assumptionReportEntryJson (entry : AssumptionReportEntry) : String :
     ("assumption", jsonString entry.assumption),
     ("linkMode", jsonString entry.linkMode),
     ("module", jsonString entry.moduleName),
-    ("axioms", jsonArray (entry.axioms.map jsonString))
+    ("axioms", jsonArray (entry.axioms.map jsonString)),
+    ("boundaryClass", jsonString entry.boundaryClass)
   ]
 
 private def proofStatusBucketJson
@@ -916,6 +982,17 @@ private structure UsageSiteSummary where
 private def ecmAxiomsFromModules (modules : List ECM.ExternalCallModule) : List (String × String) :=
   modules.flatMap (fun mod => mod.axioms.map (fun assumption => (mod.name, assumption)))
 
+private def boundaryClassesForSite (site : UsageSiteSummary) : List String :=
+  dedupPreserve <|
+    (site.primitives.map (fun _ => "compilerIntrinsic")) ++
+    (site.externals.map boundaryClassFromExternal) ++
+    (site.modules.map boundaryClassFromModule) ++
+    (site.localObligations.map (fun _ => "gate")) ++
+    (site.eventEmission.map (fun _ => "event")) ++
+    (site.proxyUpgradeability.map (fun _ => "externalCall")) ++
+    (site.runtimeIntrospection.map (fun _ => "compilerIntrinsic")) ++
+    ((collectLinearMemoryMechanicsFromMechanics site.mechanics).map (fun _ => "abiBoundary"))
+
 private def siteHasTrustSurface
     (externals : List ExternalFunction)
     (localObligations : List LocalObligation)
@@ -981,12 +1058,16 @@ private def collectUsageSiteSummaries (spec : CompilationModel) : List UsageSite
       []
   constructorSites ++ functionSites
 
+private def boundaryClassesForSpec (spec : CompilationModel) : List String :=
+  dedupPreserve ((collectUsageSiteSummaries spec).flatMap boundaryClassesForSite)
+
 private def usageSitesJson (spec : CompilationModel) : String :=
   let siteJson (site : UsageSiteSummary) : String :=
     let linearMemoryMechanics := collectLinearMemoryMechanicsFromMechanics site.mechanics
     jsonObject [
       ("kind", jsonString site.kind),
       ("name", jsonString site.name),
+      ("boundaryClasses", jsonArray ((boundaryClassesForSite site).map jsonString)),
       ("modeledLowLevelMechanics", jsonArray (site.mechanics.map jsonString)),
       ("notModeledEventEmission", jsonArray (site.eventEmission.map jsonString)),
       ("notModeledProxyUpgradeability", jsonArray (site.proxyUpgradeability.map jsonString)),
@@ -1012,6 +1093,7 @@ private def assumptionReportEntriesForSite (site : UsageSiteSummary) : List Assu
   let primitiveEntries :=
     site.primitives.map (fun primitive =>
       { category := "axiomatizedPrimitive"
+        boundaryClass := "compilerIntrinsic"
         siteKind := site.kind
         siteName := site.name
         name := primitive
@@ -1020,6 +1102,7 @@ private def assumptionReportEntriesForSite (site : UsageSiteSummary) : List Assu
   let externalEntries :=
     site.externals.map (fun ext =>
       { category := "linkedExternal"
+        boundaryClass := boundaryClassFromExternal ext
         siteKind := site.kind
         siteName := site.name
         name := ext.name
@@ -1029,6 +1112,7 @@ private def assumptionReportEntriesForSite (site : UsageSiteSummary) : List Assu
   let moduleEntries :=
     site.modules.map (fun mod =>
       { category := "ecmModule"
+        boundaryClass := boundaryClassFromModule mod
         siteKind := site.kind
         siteName := site.name
         name := mod.name
@@ -1038,6 +1122,7 @@ private def assumptionReportEntriesForSite (site : UsageSiteSummary) : List Assu
     site.modules.flatMap (fun mod =>
       mod.axioms.map (fun assumptionName =>
         { category := "ecmAxiom"
+          boundaryClass := boundaryClassFromAxiom assumptionName
           siteKind := site.kind
           siteName := site.name
           name := assumptionName
@@ -1046,6 +1131,7 @@ private def assumptionReportEntriesForSite (site : UsageSiteSummary) : List Assu
   let localObligationEntries :=
     site.localObligations.map (fun obligation =>
       { category := "localObligation"
+        boundaryClass := "gate"
         siteKind := site.kind
         siteName := site.name
         name := obligation.name
@@ -1396,6 +1482,7 @@ where
       ("partiallyModeledLinearMemoryMechanics", jsonArray ((collectLinearMemoryMechanics spec).map jsonString)),
       ("partiallyModeledRuntimeIntrospection", jsonArray ((collectRuntimeIntrospectionMechanics spec).map jsonString)),
       ("axiomatizedPrimitives", jsonArray ((collectAxiomatizedPrimitives spec).map jsonString)),
+      ("boundaryClasses", jsonArray ((boundaryClassesForSpec spec).map jsonString)),
       ("localObligations", jsonArray ((collectLocalObligations spec).map localObligationJson)),
       ("unsafeBlocks", jsonArray ((collectUnsafeBlockReasons spec).map jsonString)),
       ("proofStatus", proofStatusJson spec),
