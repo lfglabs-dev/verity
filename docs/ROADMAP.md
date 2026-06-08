@@ -134,7 +134,7 @@ core.
 
 | Priority | Work item | Scope | Exit criteria |
 |---|---|---|---|
-| P1 | Verified intrinsics | Upgrade trusted consumer intrinsics to derived proofs as EVMYulLean upstream models new opcodes. | CLZ via EIP-7939 is the first target: consumers can initially declare `verity_intrinsic clz ...` with an explicit obligation, then flip the obligation from assumed to proved when the opcode is modeled upstream. |
+| P1 | Verified intrinsics | Upgrade trusted consumer intrinsics to derived proofs as EVMYulLean upstream models new opcodes. | CLZ via EIP-7939 is the first target: consumers can initially declare `verity_intrinsic clz ...` with an explicit obligation, then flip the obligation from assumed to proved when the opcode is modeled upstream. `verity_intrinsic` now accepts any non-zero number of comma-separated typed parameters (#1977): the elaborator records the full parameter list in the intrinsic registry, emits a curried wrapper definition (`T1 -> T2 -> ... -> retTy`), and enforces that any `verbatim` lowering's declared input arity matches the parameter count. This unblocks multi-arg patterns such as ERC-4337 `innerHandleOp` self-calls, Uniswap V4 callback flows, and similar low-level bundles. |
 
 ### Unlink Audit Readiness: Verity-Core Scope
 
