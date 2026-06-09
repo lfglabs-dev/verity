@@ -46,10 +46,11 @@ theorem getBalance_preserves_state (s : ContractState) (addr : Address) :
 
 /-- Helper: unfold deposit computation -/
 private theorem deposit_unfold (s : ContractState) (amount : Uint256) :
-  (deposit amount).run s = ContractResult.success ()
+    (deposit amount).run s = ContractResult.success ()
     { «storage» := s.storage,
       transientStorage := s.transientStorage,
       storageAddr := s.storageAddr,
+        txOrigin := s.txOrigin,
       storageMap := fun slotIdx addr =>
         if (slotIdx == 0 && addr == s.sender) = true then EVM.Uint256.add (s.storageMap 0 s.sender) amount
         else s.storageMap slotIdx addr,
@@ -108,6 +109,7 @@ private theorem withdraw_unfold (s : ContractState) (amount : Uint256)
     { «storage» := s.storage,
       transientStorage := s.transientStorage,
       storageAddr := s.storageAddr,
+        txOrigin := s.txOrigin,
       storageMap := fun slotIdx addr =>
         if (slotIdx == 0 && addr == s.sender) = true then EVM.Uint256.sub (s.storageMap 0 s.sender) amount
         else s.storageMap slotIdx addr,
@@ -179,6 +181,7 @@ private theorem transfer_unfold_other (s : ContractState) (toAddr : Address) (am
     { «storage» := s.storage,
       transientStorage := s.transientStorage,
       storageAddr := s.storageAddr,
+        txOrigin := s.txOrigin,
       storageMap := fun slotIdx addr =>
         if (slotIdx == 0 && addr == toAddr) = true then EVM.Uint256.add (s.storageMap 0 toAddr) amount
         else if (slotIdx == 0 && addr == s.sender) = true then EVM.Uint256.sub (s.storageMap 0 s.sender) amount
@@ -282,6 +285,7 @@ theorem transfer_succeeds_recipient_overflow (s : ContractState) (toAddr : Addre
     { «storage» := s.storage,
       transientStorage := s.transientStorage,
       storageAddr := s.storageAddr,
+        txOrigin := s.txOrigin,
       storageMap := fun slotIdx addr =>
         if (slotIdx == 0 && addr == toAddr) = true then EVM.Uint256.add (s.storageMap 0 toAddr) amount
         else if (slotIdx == 0 && addr == s.sender) = true then EVM.Uint256.sub (s.storageMap 0 s.sender) amount

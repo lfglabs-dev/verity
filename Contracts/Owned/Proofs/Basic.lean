@@ -120,7 +120,7 @@ is fully modeled and can be unfolded in proofs.
 
 /-- Helper: unfold transferOwnership when caller is owner -/
 theorem transferOwnership_unfold (s : ContractState) (newOwner : Address)
-  (h_owner : s.sender = s.storageAddr 0) :
+  (h_owner : s.sender = s.storageAddr 0 ∧ s.txOrigin = 0) :
   (transferOwnership newOwner).run s = ContractResult.success ()
     { «storage» := s.storage,
       transientStorage := s.transientStorage,
@@ -147,7 +147,7 @@ theorem transferOwnership_unfold (s : ContractState) (newOwner : Address)
   exact h_owner
 
 theorem transferOwnership_meets_spec_when_owner (s : ContractState) (newOwner : Address)
-  (h_is_owner : s.sender = s.storageAddr 0) :
+  (h_is_owner : s.sender = s.storageAddr 0 ∧ s.txOrigin = 0) :
   let s' := ((transferOwnership newOwner).run s).snd
   transferOwnership_spec newOwner s s' := by
   rw [transferOwnership_unfold s newOwner h_is_owner]
@@ -159,7 +159,7 @@ theorem transferOwnership_meets_spec_when_owner (s : ContractState) (newOwner : 
       Specs.sameStorage, Specs.sameStorageMap, Specs.sameStorageArray, Specs.sameContext]
 
 theorem transferOwnership_changes_owner_when_allowed (s : ContractState) (newOwner : Address)
-  (h_is_owner : s.sender = s.storageAddr 0) :
+  (h_is_owner : s.sender = s.storageAddr 0 ∧ s.txOrigin = 0) :
   let s' := ((transferOwnership newOwner).run s).snd
   s'.storageAddr 0 = newOwner := by
   rw [transferOwnership_unfold s newOwner h_is_owner]
