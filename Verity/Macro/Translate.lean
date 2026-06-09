@@ -961,17 +961,21 @@ private def translateEffectStmt
       -- no-return ECM (selector + args call, failure-returndata bubbled, but
       -- no returndatasize check and no return decode).
       match ← resolveTypedInterfaceCall? fields constDecls immutableDecls externalDecls params locals stx with
-      | some (ext, target, argTerms, none, selector) =>
-          let targetExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals target
-          let argExprs ← argTerms.mapM
-            (translatePureExprWithTypes fields constDecls immutableDecls params locals)
-          let isStaticTerm ← if ext.isView then `(true) else `(false)
-          `(Compiler.CompilationModel.Stmt.ecm
-              (Compiler.Modules.Calls.noReturnModule
-                $(natTerm selector)
-                $(natTerm argExprs.size)
-                $isStaticTerm)
-              [ $targetExpr, $[$argExprs],* ])
+       | some (ext, target, argTerms, none, selector) =>
+           let targetExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals target
+           let argExprs ← argTerms.mapM
+             (translatePureExprWithTypes fields constDecls immutableDecls params locals)
+           let isStaticTerm ← if ext.isView then `(true) else `(false)
+           -- #1982: use the total static ABI word count (not the number of
+           -- high-level params) so that static composite params (tuples etc.)
+           -- produce correctly sized calldata for the interface call.
+           let numArgWords := ext.params.foldl (fun acc ty => acc + (staticAbiWordCount? ty).getD 0) 0
+           `(Compiler.CompilationModel.Stmt.ecm
+               (Compiler.Modules.Calls.noReturnModule
+                 $(natTerm selector)
+                 $(natTerm numArgWords)
+                 $isStaticTerm)
+               [ $targetExpr, $[$argExprs],* ])
       | some (_, _, _, some retTy, _) =>
           throwErrorAt stx
             s!"interface call returns {renderValueType retTy}; bind it with `let ... ← ...`"
@@ -1319,21 +1323,24 @@ private partial def translateDoElem
                           pure (#[(stmt)], locals.push (mkTypedLocal varName .uint256), mutableLocals)
                       | none =>
                           match ← resolveTypedInterfaceCall? fields constDecls immutableDecls externalDecls params locals rhs with
-                          | some (ext, target, argTerms, some retTy, selector) =>
-                              let targetExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals target
-                              let argExprs ← argTerms.mapM
-                                (translatePureExprWithTypes fields constDecls immutableDecls params locals)
-                              let isStaticTerm ← if ext.isView then `(true) else `(false)
-                              pure
-                                (#[(← `(Compiler.CompilationModel.Stmt.ecm
-                                        (Compiler.Modules.Calls.withReturnModule
-                                          $(strTerm varName)
-                                          $(natTerm selector)
-                                          $(natTerm argExprs.size)
-                                          $isStaticTerm)
-                                        [ $targetExpr, $[$argExprs],* ]))],
-                                  locals.push (mkTypedLocal varName retTy),
-                                  mutableLocals)
+                           | some (ext, target, argTerms, some retTy, selector) =>
+                               let targetExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals target
+                               let argExprs ← argTerms.mapM
+                                 (translatePureExprWithTypes fields constDecls immutableDecls params locals)
+                               let isStaticTerm ← if ext.isView then `(true) else `(false)
+                               -- #1982: use total static ABI word count for the call (supports
+                               -- the composite params we now accept in validation).
+                               let numArgWords := ext.params.foldl (fun acc ty => acc + (staticAbiWordCount? ty).getD 0) 0
+                               pure
+                                 (#[(← `(Compiler.CompilationModel.Stmt.ecm
+                                         (Compiler.Modules.Calls.withReturnModule
+                                           $(strTerm varName)
+                                           $(natTerm selector)
+                                           $(natTerm numArgWords)
+                                           $isStaticTerm)
+                                         [ $targetExpr, $[$argExprs],* ]))],
+                                   locals.push (mkTypedLocal varName retTy),
+                                   mutableLocals)
                           | some (_, _, _, none, _) =>
                               -- void interface method bound with `let ... ←`: not allowed
                               throwErrorAt rhs s!"interface call '{varName}' binds a void method; call it as a statement, not `let ... ←`"

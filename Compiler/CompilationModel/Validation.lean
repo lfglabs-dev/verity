@@ -204,6 +204,9 @@ def validateReturnShapesInStmt (fnName : String) (params : List Param)
       else if expectedReturns.isEmpty then
         throw s!"Compilation error: function '{fnName}' uses Stmt.returnCodeData but declares no return values"
       else
+        -- #1982: CodeData (SSTORE2-style) returns remain static-only for now.
+        -- Full lifting of the static gate (dynamic payloads, broader return shapes)
+        -- is tracked under the 1982 dynamic/composite ABI work.
         pure ()
   | Stmt.ite _ thenBranch elseBranch => do
       validateReturnShapesInStmtList fnName params expectedReturns isInternal thenBranch

@@ -261,15 +261,37 @@ def attachNonReentrantGuard (fields : List Field) (spec : FunctionSpec)
       let guardStmts ← nonReentrantGuardPrologue fields lockField
       let paramLoadCount := (genParamLoads spec.params).length
       let (prefixLoads, suffix) := irFn.body.splitAt paramLoadCount
-      pure { irFn with body := prefixLoads ++ guardStmts ++ suffix }
+      -- Release the transient lock on normal exit so that a second top-level
+      -- call to the same nonreentrant function in the same tx is allowed
+      -- (the guard only protects against reentrancy *during* execution).
+      -- Early returns/reverts inside the body may leave the lock set until
+      -- tx end (transient), but this fixes the "never clears" case for the
+      -- common fall-through path.
+      let releaseSlot := match findFieldWithResolvedSlot fields lockField with
+        | some (_, s) => s
+        | none => 0   -- unreachable after prologue validation
+      let release := YulStmt.expr (YulExpr.call "tstore" [YulExpr.lit releaseSlot, YulExpr.lit 0])
+      pure { irFn with body := prefixLoads ++ guardStmts ++ suffix ++ [release] }
 
 private def compileSpecialEntrypoint (fields : List Field) (events : List EventDef)
     (errors : List ErrorDef) (adtTypes : List AdtTypeDef := []) (spec : FunctionSpec) :
     Except String IREntrypoint := do
   let bodyChunks ← compileStmtList fields events errors .calldata [] false [] adtTypes spec.body
+  -- Apply nonreentrant guard for fallback/receive if annotated (high-severity
+  -- Bugbot: previously these special entrypoints were compiled without the
+  -- transient lock even when `nonreentrant(lock)` was declared).
+  let guardedBody ← match spec.nonReentrantLock with
+    | none => pure bodyChunks
+    | some lockField =>
+        let guardStmts ← nonReentrantGuardPrologue fields lockField
+        let releaseSlot := match findFieldWithResolvedSlot fields lockField with
+          | some (_, s) => s
+          | none => 0
+        let release := YulStmt.expr (YulExpr.call "tstore" [YulExpr.lit releaseSlot, YulExpr.lit 0])
+        pure (guardStmts ++ bodyChunks ++ [release])
   pure {
     payable := spec.isPayable
-    body := bodyChunks
+    body := guardedBody
   }
 
 def pickUniqueFunctionByName (name : String) (funcs : List FunctionSpec) :
