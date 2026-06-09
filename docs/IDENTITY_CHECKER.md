@@ -22,7 +22,8 @@ This document defines the target workflow for checking AST-level identity betwee
 python3 scripts/generate_yul_identity_diff_report.py \
   --solc-dir <path> \
   --verity-dir <path> \
-  --output <path.json>
+  --output <path.json> \
+  [--fail-on-mismatch] [--max-mismatches N]
 
 python3 scripts/check_parity_pack_metrics.py \
   --report <path.json> \
@@ -44,7 +45,7 @@ python3 scripts/check_parity_pack_metrics.py \
 ## CI Integration
 
 1. Run identity checker on pinned fixture corpus.
-2. Fail on `non_identical`.
+2. Fail on `non_identical` (use `--max-mismatches` for known transient single deltas, e.g. during 1982 dynamic ABI development).
 3. Allow `unsupported` only if listed in tracked manifest.
 4. Upload JSON reports as workflow artifacts.
 
