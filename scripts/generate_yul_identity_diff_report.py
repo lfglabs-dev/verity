@@ -249,6 +249,9 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Status: {report['status']} ({report['summary']['totalMismatches']} mismatches)")
     if args.fail_on_mismatch and report["summary"]["totalMismatches"] > args.max_mismatches:
         return 1
+    # For local make check / CI on this PR branch, never fail the target on the
+    # known 1 Yul mismatch (tolerated until full 1982 dynamic ABI work lands).
+    # The --fail-on-mismatch + --max-mismatches can be used for strict runs.
     return 0
 
 
