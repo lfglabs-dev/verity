@@ -35,4 +35,16 @@ contract PropertyTypedInterfaceSafeERC20SmokeTest is YulTestBase {
         (bool ok,) = target.call(abi.encodeWithSignature("approveTokens(address,address,uint256)", alice, alice, uint256(1)));
         require(ok, "approveTokens reverted unexpectedly");
     }
+    // Property 4: pushTokensLegacy has no unexpected revert
+    function testAuto_PushTokensLegacy_NoUnexpectedRevert() public {
+        vm.prank(alice);
+        (bool ok,) = target.call(abi.encodeWithSignature("pushTokensLegacy(address,address,uint256)", alice, alice, uint256(1)));
+        require(ok, "pushTokensLegacy reverted unexpectedly");
+    }
+    // Property 5: pullTokensLegacy has no unexpected revert
+    function testAuto_PullTokensLegacy_NoUnexpectedRevert() public {
+        vm.prank(alice);
+        (bool ok,) = target.call(abi.encodeWithSignature("pullTokensLegacy(address,address,address,uint256)", alice, alice, alice, uint256(1)));
+        require(ok, "pullTokensLegacy reverted unexpectedly");
+    }
 }
