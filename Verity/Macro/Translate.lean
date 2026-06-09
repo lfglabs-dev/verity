@@ -2760,11 +2760,10 @@ def validateExternalDeclsPublic
       throwErrorAt ext.ident
         s!"duplicate external declaration '{ext.name}'"
     if ext.interfaceName?.isSome then
-      -- Typed-interface externals lower through the static single-word
-      -- ABI fragment (#1962); reject dynamic/composite shapes on both
-      -- params and returns at declaration time so the failure surfaces
-      -- next to the offending `interface` block instead of at the call
-      -- site.
+      -- Typed-interface externals: #1982 progress — static composites
+      -- (tuples/fixed-arrays of word-likes) now accepted on params and
+      -- returns. True dynamic shapes still rejected at declaration time
+      -- (error points at #1982).
       requireTypedInterfaceStaticParams ext.ident ext.name ext.params
       requireTypedInterfaceStaticReturns ext.ident ext.name ext.returnTys
     else

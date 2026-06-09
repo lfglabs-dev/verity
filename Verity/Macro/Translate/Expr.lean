@@ -1277,23 +1277,27 @@ def requireTypedInterfaceStaticParams
     (stx : Syntax) (externalName : String) (params : Array ValueType) : CommandElabM Unit := do
   for h : i in [:params.size] do
     let ty := params[i]
-    unless isSingleWordStaticValueType ty do
+    -- #1982 progress: accept static composites (tuples / fixed-arrays of
+    -- word-likes) on typed interface params. Only true dynamic shapes are
+    -- still rejected here (the lowering helper already has the word-count
+    -- path and produces the #1982 error for dynamic cases).
+    if staticAbiWordCount? ty |>.isNone then
       throwErrorAt stx
-        s!"typed interface call '{externalName}' currently supports only static single-word parameters; argument {i + 1} has {renderValueType ty}. Dynamic and composite ABI parameters require ABI-frame typed-interface lowering, which is not implemented yet."
+        s!"typed interface call '{externalName}' currently supports only static (single-word or composite) parameters; argument {i + 1} has {renderValueType ty}. Dynamic and composite ABI parameters require ABI-frame typed-interface lowering, which is not implemented yet (#1982)."
 
 /-- Companion of `requireTypedInterfaceStaticParams` for the return-type
-    side (#1962). Typed dot calls decode returndata as a single static
-    word, so a typed interface that declares e.g. `returns (Bytes)` or
-    `returns (Tuple [...])` must be rejected at declaration time — running
-    the call would single-word-decode an ABI head/tail payload and
-    silently truncate. -/
+    side. Progress on #1982: we now accept static composites (tuples,
+    fixed-arrays of word-likes) as typed-interface return shapes.
+    True dynamic returns (bytes/string, arrays with dynamic elements) are
+    still rejected here with the #1982 error until full ABI-frame
+    typed-interface lowering exists. -/
 def requireTypedInterfaceStaticReturns
     (stx : Syntax) (externalName : String) (returnTys : Array ValueType) : CommandElabM Unit := do
   for h : i in [:returnTys.size] do
     let ty := returnTys[i]
-    unless isSingleWordStaticValueType ty do
+    if staticAbiWordCount? ty |>.isNone then
       throwErrorAt stx
-        s!"typed interface call '{externalName}' currently supports only static single-word returns; return {i + 1} has {renderValueType ty}. Dynamic and composite ABI returns require ABI-frame typed-interface lowering, which is not implemented yet."
+        s!"typed interface call '{externalName}' currently supports only static (single-word or composite) returns; return {i + 1} has {renderValueType ty}. Dynamic and composite ABI returns require ABI-frame typed-interface lowering, which is not implemented yet (#1982)."
 
 /-- verity#1849, G3: allow `Array <wordLike>` and `bytes` / `string` as
     external-call / event / custom-error argument types when the argument

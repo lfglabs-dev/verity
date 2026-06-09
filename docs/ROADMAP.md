@@ -97,6 +97,12 @@ Recent progress for dynamic ABI-shaped parameters:
   with `@word` offsets. Use named `struct` declarations for ABI/source value
   types, `StorageStruct` for top-level storage roots, and `MappingStruct(...)`
   / `MappingStruct2(...)` for struct-valued mappings.
+- Typed interface (dot-call) externals now accept static composites (flat
+  tuples and fixed-arrays of word-likes) on both parameter and return
+  positions (#1982 increment on the guard from #1971). True dynamic shapes
+  (bytes/string, dynamic-element arrays, etc.) are still rejected at
+  declaration/call time with an explicit #1982 error until full ABI-frame
+  typed-interface lowering exists.
 
 Recent progress for arithmetic modeling:
 - `Stdlib.Math` now exposes `mulDiv512Down?` and `mulDiv512Up?` as proof-facing full-precision multiply-divide helpers. They compute `a * b` in unbounded natural-number precision and return `none` only when the divisor is zero or the final floor/ceil quotient does not fit in `uint256`, removing the artificial intermediate-product overflow hypothesis when modeling Solidity `Math.mulDiv` behavior. A compiled Yul primitive using the usual 512-bit division algorithm is still tracked by #1761.
