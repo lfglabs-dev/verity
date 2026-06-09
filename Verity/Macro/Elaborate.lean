@@ -152,14 +152,32 @@ def elabVerityContract : CommandElab := fun stx => do
 @[command_elab verityIntrinsicCmd]
 def elabVerityIntrinsic : CommandElab := fun stx => do
   match stx with
-  | `(verity_intrinsic $name:ident ($paramName:ident : $paramTy:term) : $retTy:term
+  | `(verity_intrinsic $name:ident ( $[$params:verityParam],* ) : $retTy:term
         where $pureKw:ident; yul := $yul:verityIntrinsicYul; min_fork := $fork:ident;
         semantics := $semantics:term; obligation [ $[$obligations:verityIntrinsicObligation],* ]) => do
       unless toString pureKw.getId == "pure" do
         throwErrorAt pureKw "verity_intrinsic currently supports only pure intrinsics"
+      -- Destructure each `verityParam` into (name, type) — accepts any
+      -- non-zero arity.  The syntax category at the parser level
+      -- (`sepBy(verityParam, ",")`) has always accepted multiple
+      -- params; this elaborator now matches the parser shape instead
+      -- of hard-coding a single param.
+      if params.isEmpty then
+        throwErrorAt stx "verity_intrinsic requires at least one parameter"
+      let parsedParams ← params.mapM fun p => do
+        match p with
+        | `(verityParam| $pn:ident : $pt:term) => pure (pn, pt)
+        | _ => throwErrorAt p "expected `name : Type`"
+      let paramNamesStr := parsedParams.toList.map (fun (pn, _) => toString pn.getId)
+      let paramTypesStr := parsedParams.toList.map (fun (_, pt) => toString pt)
       let yulLowering ←
         match yul with
         | `(verityIntrinsicYul| verbatim $inArity:num $outArity:num (hex $opcode:str)) =>
+            -- Sanity-check: declared param count matches Yul opcode
+            -- input arity, so consumers can't ship a mismatched stub.
+            unless inArity.getNat == params.size do
+              throwErrorAt inArity
+                s!"verbatim Yul lowering declares {inArity.getNat} input(s) but intrinsic has {params.size} parameter(s)"
             pure <| Verity.Core.Intrinsics.YulLowering.verbatim
               inArity.getNat outArity.getNat opcode.getString
         | `(verityIntrinsicYul| builtin $builtin:str) =>
@@ -180,8 +198,8 @@ def elabVerityIntrinsic : CommandElab := fun stx => do
       let nameStr := toString name.getId
       let decl : Verity.Core.Intrinsics.IntrinsicDecl := {
         name := nameStr,
-        paramNames := [toString paramName.getId],
-        paramTypes := [toString paramTy],
+        paramNames := paramNamesStr,
+        paramTypes := paramTypesStr,
         returnType := toString retTy,
         isPure := true,
         yul := yulLowering,
@@ -190,7 +208,11 @@ def elabVerityIntrinsic : CommandElab := fun stx => do
         sourceHint := some "elabVerityIntrinsic"
       }
       liftIO <| Verity.Macro.registerIntrinsic decl
-      let wrapperCmd ← `(command| def $name:ident : $paramTy -> $retTy := $semantics)
+      -- Build the curried function type `T1 → T2 → ... → Tn → R`.
+      let funcTy ← parsedParams.foldrM
+        (fun (_, pt) acc => `($pt -> $acc))
+        (← `($retTy))
+      let wrapperCmd ← `(command| def $name:ident : $funcTy := $semantics)
       elabCommand wrapperCmd
       let obligationSummaryName : Ident :=
         ⟨mkIdent (name.getId.appendAfter "_intrinsic_obligations")⟩
@@ -200,6 +222,6 @@ def elabVerityIntrinsic : CommandElab := fun stx => do
       elabCommand obligationCmd
   | _ =>
       throwErrorAt stx
-        "unsupported verity_intrinsic declaration; expected one parameter, yul, min_fork, semantics, and obligation clauses"
+        "unsupported verity_intrinsic declaration; expected `verity_intrinsic name (p1 : T1, ..., pn : Tn) : R where ...`"
 
 end Verity.Macro
