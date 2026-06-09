@@ -253,6 +253,7 @@ def exprReadsStateOrEnv : Expr → Bool
   | Expr.structMember _ _ _ | Expr.structMember2 _ _ _ _ => true
   | Expr.caller => true
   | Expr.contractAddress => true
+  | Expr.txOrigin => true
   | Expr.chainid => true
   | Expr.extcodesize _ => true
   | Expr.msgValue => true
@@ -381,7 +382,7 @@ def exprWritesState : Expr → Bool
   -- Pure leaves: no state writes. Listed explicitly to avoid `_mutual.eq_def`
   -- heartbeat-ceiling failures when new constructors land.
   | Expr.literal _ | Expr.param _ | Expr.constructorArg _ | Expr.storage _ | Expr.storageAddr _
-  | Expr.caller | Expr.contractAddress | Expr.chainid | Expr.msgValue | Expr.selfBalance
+  | Expr.caller | Expr.contractAddress | Expr.txOrigin | Expr.chainid | Expr.msgValue | Expr.selfBalance
   | Expr.blockTimestamp | Expr.blockNumber | Expr.blobbasefee
   | Expr.calldatasize | Expr.returndataSize | Expr.localVar _ | Expr.arrayLength _
   | Expr.memoryArrayLength _
@@ -567,7 +568,7 @@ def exprHasUntrackableWrites : Expr → Bool
   -- Pure leaves: cannot write state. Listed explicitly to avoid
   -- `_mutual.eq_def` heartbeat-ceiling failures when new constructors land.
   | Expr.literal _ | Expr.param _ | Expr.constructorArg _ | Expr.storage _ | Expr.storageAddr _
-  | Expr.caller | Expr.contractAddress | Expr.chainid | Expr.msgValue | Expr.selfBalance
+  | Expr.caller | Expr.contractAddress | Expr.txOrigin | Expr.chainid | Expr.msgValue | Expr.selfBalance
   | Expr.blockTimestamp | Expr.blockNumber | Expr.blobbasefee
   | Expr.calldatasize | Expr.returndataSize | Expr.localVar _ | Expr.arrayLength _
   | Expr.memoryArrayLength _
@@ -730,7 +731,7 @@ def exprContainsExternalCall : Expr → Bool
   -- Pure leaves: no external call inside. Listed explicitly to avoid
   -- `_mutual.eq_def` heartbeat-ceiling failures when new constructors land.
   | Expr.literal _ | Expr.param _ | Expr.constructorArg _ | Expr.storage _ | Expr.storageAddr _
-  | Expr.caller | Expr.contractAddress | Expr.chainid | Expr.msgValue | Expr.selfBalance
+  | Expr.caller | Expr.contractAddress | Expr.txOrigin | Expr.chainid | Expr.msgValue | Expr.selfBalance
   | Expr.blockTimestamp | Expr.blockNumber | Expr.blobbasefee
   | Expr.calldatasize | Expr.returndataSize | Expr.localVar _ | Expr.arrayLength _
   | Expr.memoryArrayLength _
@@ -812,7 +813,7 @@ def exprMayContainExternalCall : Expr → Bool
   -- Pure leaves: no external call inside. Listed explicitly to avoid
   -- `_mutual.eq_def` heartbeat-ceiling failures when new constructors land.
   | Expr.literal _ | Expr.param _ | Expr.constructorArg _ | Expr.storage _ | Expr.storageAddr _
-  | Expr.caller | Expr.contractAddress | Expr.chainid | Expr.msgValue | Expr.selfBalance
+  | Expr.caller | Expr.contractAddress | Expr.txOrigin | Expr.chainid | Expr.msgValue | Expr.selfBalance
   | Expr.blockTimestamp | Expr.blockNumber | Expr.blobbasefee
   | Expr.calldatasize | Expr.returndataSize | Expr.localVar _ | Expr.arrayLength _
   | Expr.memoryArrayLength _
@@ -1165,7 +1166,7 @@ def exprWritesStateWithFunctionEffects
       exprWritesStateWithFunctionEffects effects index ||
         exprWritesStateWithFunctionEffects effects innerIndex
   | Expr.literal _ | Expr.param _ | Expr.constructorArg _ | Expr.storage _ | Expr.storageAddr _
-  | Expr.caller | Expr.contractAddress | Expr.chainid | Expr.msgValue | Expr.selfBalance
+  | Expr.caller | Expr.contractAddress | Expr.txOrigin | Expr.chainid | Expr.msgValue | Expr.selfBalance
   | Expr.blockTimestamp | Expr.blockNumber | Expr.blobbasefee
   | Expr.calldatasize | Expr.returndataSize | Expr.localVar _ | Expr.arrayLength _
   | Expr.memoryArrayLength _
@@ -1293,6 +1294,7 @@ def exprReadsStateOrEnvWithFunctionEffects
   | Expr.structMember _ _ _ | Expr.structMember2 _ _ _ _ => true
   | Expr.caller => true
   | Expr.contractAddress => true
+  | Expr.txOrigin => true
   | Expr.chainid => true
   | Expr.extcodesize _ => true
   | Expr.msgValue => true
@@ -1754,7 +1756,7 @@ def exprContainsAdtConstruct : Expr → Bool
   | Expr.externalCall _ args | Expr.internalCall _ args =>
       exprListContainsAdtConstruct args
   | Expr.dynamicBytesEq _ _ | Expr.literal _ | Expr.param _ | Expr.constructorArg _
-  | Expr.storage _ | Expr.storageAddr _ | Expr.caller | Expr.contractAddress
+  | Expr.storage _ | Expr.storageAddr _ | Expr.caller | Expr.contractAddress | Expr.txOrigin
   | Expr.chainid | Expr.msgValue | Expr.selfBalance | Expr.blockTimestamp | Expr.blockNumber
   | Expr.blobbasefee | Expr.calldatasize | Expr.returndataSize
   | Expr.localVar _

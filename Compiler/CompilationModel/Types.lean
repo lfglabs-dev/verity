@@ -580,6 +580,7 @@ inductive LowLevelMechanic where
   | tstore
   | rawLog
   | contractAddress
+  | txOrigin
   | chainid
   | selfBalance
   | blockNumber
@@ -610,6 +611,7 @@ def toReportString : LowLevelMechanic → String
   | .tstore => "tstore"
   | .rawLog => "rawLog"
   | .contractAddress => "contractAddress"
+  | .txOrigin => "txOrigin"
   | .chainid => "chainid"
   | .selfBalance => "selfBalance"
   | .blockNumber => "blockNumber"
@@ -716,6 +718,10 @@ inductive Expr
   | structMember2 (field : String) (key1 key2 : Expr) (memberName : String)
   | caller
   | contractAddress
+  /-- `tx.origin` — the EOA at the root of the call chain.  Lowers to
+      the EVM `origin()` opcode.  Distinct from `caller` whenever the
+      call passes through a contract intermediary. -/
+  | txOrigin
   | chainid
   | msgValue
   | selfBalance

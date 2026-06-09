@@ -435,6 +435,7 @@ def collectProxyUpgradeabilityMechanics (spec : CompilationModel) : List String 
 
 private partial def collectRuntimeIntrospectionExprMechanics : Expr → List String
   | .contractAddress => ["contractAddress"]
+  | .txOrigin => ["txOrigin"]
   | .chainid => ["chainid"]
   | .selfBalance => ["selfBalance"]
   | .blockNumber => ["blockNumber"]

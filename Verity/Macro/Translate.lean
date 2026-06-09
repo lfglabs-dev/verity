@@ -2151,62 +2151,6 @@ private def mkSpecCommand
           `(true)
         else
           `(false)
-      -- Internal-shadow reentrancy guard (#1893 Bugbot follow-up):
-      -- `attachNonReentrantGuard` only injects the transient-storage
-      -- acquire prologue at the external dispatch boundary, so any other
-      -- contract function that calls this body via `internalCall internal_*`
-      -- would otherwise run the post-interaction writes without ever
-      -- acquiring the lock — letting an attacker re-enter through a
-      -- non-guarded sibling public entry and bypass the guard. Prepend the
-      -- same `if eq(tload(lockSlot), 1) { revert(0, 0) }; tstore(lockSlot, 1)`
-      -- prologue to the shadow body itself so an internal-call entry path
-      -- acquires the lock too. Transient storage acquire is idempotent
-      -- across same-transaction reentry (the second check fires and
-      -- reverts), so an outer guarded entry followed by a same-tx
-      -- internal-call to the same shadow correctly reverts.
-      let shadowGuardPrologueTerms : Array Term ←
-        match fn.nonReentrantLock with
-        | some lockIdent =>
-            let lockName := toString lockIdent.getId
-            match fields.find? (fun field => field.name == lockName) with
-            | some lockField =>
-                let slotLit := natTerm lockField.slotNum
-                -- `revertReturndata` at function entry sees `returndatasize() == 0`,
-                -- so it lowers to an empty-payload `returndatacopy(0,0,0); revert(0,0)`
-                -- pair. Using it keeps the guard inside the typed Stmt surface
-                -- (no `unsafeYul` trust-surface obligation).
-                let guardCheck ← `(Compiler.CompilationModel.Stmt.ite
-                  (Compiler.CompilationModel.Expr.eq
-                    (Compiler.CompilationModel.Expr.tload (Compiler.CompilationModel.Expr.literal $slotLit))
-                    (Compiler.CompilationModel.Expr.literal 1))
-                  [Compiler.CompilationModel.Stmt.revertReturndata]
-                  [])
-                let guardAcquire ← `(Compiler.CompilationModel.Stmt.tstore
-                  (Compiler.CompilationModel.Expr.literal $slotLit)
-                  (Compiler.CompilationModel.Expr.literal 1))
-                pure #[guardCheck, guardAcquire]
-            | none => pure #[]
-        | none => pure #[]
-      -- When the shadow inherits a transient-storage reentrancy guard
-      -- prologue (`tload` / `tstore` / `revertReturndata`), the
-      -- compilation-model validator's "no unguarded low-level mechanics
-      -- without a local_obligations entry" gate (#1424) requires a
-      -- matching local obligation. Auto-inject it alongside the
-      -- user-declared obligations so the trust boundary is documented
-      -- on the shadow itself, not only the public path.
-      let shadowGuardObligationTerm? : Option Term ←
-        if fn.nonReentrantLock.isSome then
-          let term ← `(Compiler.CompilationModel.LocalObligation.mk
-              $(strTerm s!"{fn.name}_internal_reentrancy_guard")
-              $(strTerm "Auto-injected internal-call reentrancy guard for nonreentrant function: tload/tstore on the lock slot acquires the transient lock at shadow entry so internal-call paths cannot bypass the external dispatch guard (#1893).")
-              Compiler.ProofStatus.assumed)
-          pure (some term)
-        else
-          pure none
-      let shadowLocalObligationTerms : Array Term :=
-        match shadowGuardObligationTerm? with
-        | some term => #[term] ++ localObligationTerms
-        | none => localObligationTerms
       let ceiSafeTerm ← if fn.ceiSafe then `(true) else `(false)
       let requiresRoleTerm ← match fn.requiresRole with
         | some roleIdent => `(some $(strTerm (toString roleIdent.getId)))
@@ -2214,11 +2158,14 @@ private def mkSpecCommand
       let internalModifiesTerms : Array Term := fn.modifies.map fun ident => strTerm (toString ident.getId)
       let returnTypeTerm ← modelReturnTypeTerm fn.returnTy
       let returnsTerm ← modelReturnsTerm fn.returnTy
-      -- Internal helper shadow specs inherit most metadata from the public
-      -- function, but `nonReentrantLock` is intentionally cleared and the
-      -- CEI-exempt status is propagated through `allowPostInteractionWrites`
-      -- instead — see the comment block above the shadow term for the
-      -- rationale (#1893 Bugbot follow-up).
+      -- Internal helper shadow specs (for calls via `internalCall`) inherit most
+      -- metadata from the public function. For `nonreentrant` functions the lock
+      -- annotation is cleared on the shadow (the transient guard is only injected
+      -- at the external dispatch boundary via `attachNonReentrantGuard` in
+      -- Dispatch); CEI exemption is instead carried via `allowPostInteractionWrites`.
+      -- This allows legitimate intra-contract / same-function calls through the
+      -- shadow while the public entry remains protected against external reentrancy.
+      -- (Addresses "Shadow guard blocks same-function calls" follow-up to #1893.)
       pure <| some (← `( ({
         name := $(strTerm (internalHelperSpecNameFor fn))
         params := $modelParams
@@ -2233,8 +2180,8 @@ private def mkSpecCommand
         ceiSafe := $ceiSafeTerm
         requiresRole := $requiresRoleTerm
         modifies := [ $[$internalModifiesTerms],* ]
-        localObligations := [ $[$shadowLocalObligationTerms],* ]
-        body := ([ $[$shadowGuardPrologueTerms],* ] ++ $modelBodyName)
+        localObligations := [ $[$localObligationTerms],* ]
+        body := $modelBodyName
         isInternal := true
       } : Compiler.CompilationModel.FunctionSpec) ))
     else

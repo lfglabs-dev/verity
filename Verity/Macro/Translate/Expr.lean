@@ -618,6 +618,7 @@ def contextAccessorBareName? (name : String) : Option String :=
   else if matchesBareName name "blockNumber" then some "blockNumber"
   else if matchesBareName name "blobbasefee" then some "blobbasefee"
   else if matchesBareName name "contractAddress" then some "contractAddress"
+  else if matchesBareName name "txOrigin" then some "txOrigin"
   else if matchesBareName name "chainid" then some "chainid"
   else none
 
@@ -1799,6 +1800,8 @@ partial def inferPureExprType
       throwPureContextAccessorError stx "chainid"
   | `(term| Verity.contractAddress) =>
       throwPureContextAccessorError stx "contractAddress"
+  | `(term| Verity.txOrigin) =>
+      throwPureContextAccessorError stx "txOrigin"
   | `(term| $id:ident) =>
       let name := toString id.getId
       match params.findSome? (fun p => if p.name == name then some p.ty else none)
@@ -2091,6 +2094,12 @@ partial def inferPureExprType
       requireWordLikeType key1 "structMember2 key" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals key1 visitingConstants)
       requireWordLikeType key2 "structMember2 key" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals key2 visitingConstants)
       pure memberDecl.ty
+  -- `Verity.keccak256_lit "literal"` / `keccak256_lit "literal"` —
+  -- compile-time Keccak-256 of a UTF-8 string literal.  Always
+  -- `.uint256` (the hash is 256 bits, fits exactly).  Validated +
+  -- lowered to `Expr.literal n` later in the same file.
+  | `(term| Verity.keccak256_lit $_:str) | `(term| keccak256_lit $_:str) =>
+      pure .uint256
   | _ =>
       match qualifiedFunctionAppSyntax? stx with
       | some (fnName, _) =>
@@ -2249,6 +2258,8 @@ partial def inferBindSourceType
     | `(term| Verity.chainid) =>
       pure .uint256
   | `(term| contractAddress) | `(term| Verity.contractAddress) =>
+      pure .address
+  | `(term| txOrigin) | `(term| Verity.txOrigin) =>
       pure .address
   | `(term| tload $offset:term) => do
       requireWordLikeType offset "tload offset" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals offset)
@@ -2571,6 +2582,7 @@ partial def validateConstantBody
   | `(term| blobbasefee) | `(term| Verity.blobbasefee) =>
       throwNonCompileTimeConstantError stx "blobbasefee"
   | `(term| contractAddress) => throwNonCompileTimeConstantError stx "contractAddress"
+  | `(term| txOrigin) => throwNonCompileTimeConstantError stx "txOrigin"
   | `(term| chainid) => throwNonCompileTimeConstantError stx "chainid"
   | `(term| calldatasize) => throwNonCompileTimeConstantError stx "calldatasize"
   | `(term| returndataSize) => throwNonCompileTimeConstantError stx "returndataSize"
@@ -2646,6 +2658,21 @@ partial def validateConstantBody
       validateConstantBody constDecls cond visiting *>
       validateConstantBody constDecls thenVal visiting *>
       validateConstantBody constDecls elseVal visiting
+  -- Native Lean `if cond then thenVal else elseVal` term.  Validated
+  -- the same way as `ite`; lowered identically in the corresponding
+  -- branch of `translatePureExprWithTypes`.
+  | `(term| if $cond:term then $thenVal:term else $elseVal:term) =>
+      validateConstantBody constDecls cond visiting *>
+      validateConstantBody constDecls thenVal visiting *>
+      validateConstantBody constDecls elseVal visiting
+  -- `Verity.keccak256_lit "literal"` / `keccak256_lit "literal"` —
+  -- compile-time Keccak-256 of a UTF-8 string literal.  Backed by the
+  -- in-tree Keccak engine (see `Verity/Macro/KeccakLit.lean`); no
+  -- runtime cost, deterministic at elaboration time.  Required for
+  -- EIP-712 type/name/version hashes to bind the *exact* strings
+  -- Solidity does, rather than opaque placeholder constants.
+  | `(term| Verity.keccak256_lit $_:str) => pure ()
+  | `(term| keccak256_lit $_:str) => pure ()
   | _ => throwErrorAt stx "unsupported expression in contract constant"
 
 partial def translateConstantExpr
@@ -2894,6 +2921,13 @@ partial def translatePureExprWithTypes
   match stx with
   | `(term| true) => `(Compiler.CompilationModel.Expr.literal 1)
   | `(term| false) => `(Compiler.CompilationModel.Expr.literal 0)
+  -- `Verity.keccak256_lit "literal"` / `keccak256_lit "literal"`:
+  -- elaborate the in-tree `keccak256_nat` at macro-expansion time and
+  -- emit the result as a `literal` constant.  Used for EIP-712 type
+  -- hashes, ERC-7201 storage namespaces, event topic constants, etc.
+  | `(term| Verity.keccak256_lit $s:str) | `(term| keccak256_lit $s:str) =>
+      let n := KeccakEngine.keccak256_str_nat s.getString
+      `(Compiler.CompilationModel.Expr.literal $(natTerm n))
   | `(term| constructorArg $idx:num) =>
       `(Compiler.CompilationModel.Expr.constructorArg $idx)
   | `(term| abiHeadWord $target:term $wordOffset:num) => do
@@ -2943,6 +2977,8 @@ partial def translatePureExprWithTypes
       throwPureContextAccessorError stx "blobbasefee"
   | `(term| Verity.contractAddress) =>
       throwPureContextAccessorError stx "contractAddress"
+  | `(term| Verity.txOrigin) =>
+      throwPureContextAccessorError stx "txOrigin"
   | `(term| Verity.chainid) =>
       throwPureContextAccessorError stx "chainid"
   | `(term| $id:ident) =>
@@ -3240,6 +3276,16 @@ partial def translatePureExprWithTypes
   | `(term| min $a $b) => `(Compiler.CompilationModel.Expr.min $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
   | `(term| max $a $b) => `(Compiler.CompilationModel.Expr.max $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
   | `(term| ite $cond $thenVal $elseVal) =>
+      `(Compiler.CompilationModel.Expr.ite
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals cond visitingConstants)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals thenVal visitingConstants)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals elseVal visitingConstants))
+  -- Native Lean `if ... then ... else ...` term, equivalent to
+  -- `ite cond thenVal elseVal` for the macro lowering.  Lets contract
+  -- authors write idiomatic expressions like
+  -- `let x := if a > b then a else b` directly in `let :=` bindings,
+  -- without falling back to per-shape helper functions.
+  | `(term| if $cond:term then $thenVal:term else $elseVal:term) =>
       `(Compiler.CompilationModel.Expr.ite
           $(← translatePureExprWithTypes fields constDecls immutableDecls params locals cond visitingConstants)
           $(← translatePureExprWithTypes fields constDecls immutableDecls params locals thenVal visitingConstants)
@@ -4453,6 +4499,8 @@ def translateBindSource
       `(Compiler.CompilationModel.Expr.blobbasefee)
   | `(term| contractAddress) | `(term| Verity.contractAddress) =>
       `(Compiler.CompilationModel.Expr.contractAddress)
+  | `(term| txOrigin) | `(term| Verity.txOrigin) =>
+      `(Compiler.CompilationModel.Expr.txOrigin)
   | `(term| chainid) | `(term| Verity.chainid) =>
       `(Compiler.CompilationModel.Expr.chainid)
   | `(term| tload $offset:term) =>

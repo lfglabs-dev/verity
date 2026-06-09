@@ -78,6 +78,12 @@ structure ContractState where
   storageArray : Nat → List Uint256  -- Dynamic-array storage grouped by base slot (#1571)
   sender : Address
   thisAddress : Address
+  -- `tx.origin` — the externally owned account that initiated the
+  -- top-level transaction.  Equal to `sender` when the contract is
+  -- called directly from an EOA; differs when a contract intermediary
+  -- forwards the call.  Defaults to `0` for backwards compatibility
+  -- with state literals that pre-date this field.
+  txOrigin : Address := 0
   msgValue : Uint256
   selfBalance : Uint256 := 0
   blockTimestamp : Uint256
@@ -102,6 +108,7 @@ def defaultState : ContractState where
   storageArray := fun _ => []
   sender := 0
   thisAddress := 0
+  txOrigin := 0
   msgValue := 0
   selfBalance := 0
   blockTimestamp := 0
@@ -538,6 +545,14 @@ def msgSender : Contract Address :=
 def contractAddress : Contract Address :=
   fun state => ContractResult.success state.thisAddress state
 
+/-- `tx.origin` — the EOA at the root of the call chain.  Distinct
+    from `msgSender`/`caller` when the call passes through a contract
+    intermediary.  ERC-4337 v0.9's `nonReentrant` modifier uses
+    `tx.origin == msg.sender` together with `extcodesize(msg.sender) ==
+    0` to reject every contract caller. -/
+def txOrigin : Contract Address :=
+  fun state => ContractResult.success state.txOrigin state
+
 def msgValue : Contract Uint256 :=
   fun state => ContractResult.success state.msgValue state
 
@@ -561,6 +576,9 @@ def chainid : Contract Uint256 :=
 
 @[simp] theorem contractAddress_run (state : ContractState) :
   contractAddress.run state = ContractResult.success state.thisAddress state := rfl
+
+@[simp] theorem txOrigin_run (state : ContractState) :
+  txOrigin.run state = ContractResult.success state.txOrigin state := rfl
 
 @[simp] theorem msgValue_run (state : ContractState) :
   msgValue.run state = ContractResult.success state.msgValue state := rfl
