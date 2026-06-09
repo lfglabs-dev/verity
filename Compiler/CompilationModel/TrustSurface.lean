@@ -780,6 +780,7 @@ private def boundaryClassFromModule (mod : ECM.ExternalCallModule) : String :=
       "callback"
   | "safeTransfer" | "safeTransferFrom" | "safeApprove"
   | "solmateSafeTransfer" | "solmateSafeTransferFrom"
+  | "legacyStringSafeTransfer" | "legacyStringSafeTransferFrom"
   | "balanceOf" | "allowance" | "totalSupply"
   | "previewDeposit" | "previewMint" | "previewWithdraw" | "previewRedeem"
   | "convertToAssets" | "convertToShares" | "totalAssets" | "asset"

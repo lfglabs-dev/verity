@@ -217,6 +217,8 @@ call-buffer-disjoint-from-heap theorem live at `Verity.EVM.Layout`.
 | `ERC20.safeApprove` | `erc20_approve_interface` | Target implements ERC-20 `approve(address,uint256)` |
 | `ERC20.solmateSafeTransfer` | `erc20_solmate_safe_transfer_interface` | Target implements ERC-20 `transfer(address,uint256)`; optional-return acceptance follows Solmate SafeTransferLib |
 | `ERC20.solmateSafeTransferFrom` | `erc20_solmate_safe_transferFrom_interface` | Target implements ERC-20 `transferFrom(address,address,uint256)`; optional-return acceptance follows Solmate SafeTransferLib |
+| `ERC20.legacyStringSafeTransfer` | `erc20_legacy_string_safe_transfer_interface` | Target implements ERC-20 `transfer(address,uint256)`; uses legacy string `Error("...")` reverts + extcodesize check (Morpho-style) |
+| `ERC20.legacyStringSafeTransferFrom` | `erc20_legacy_string_safe_transferFrom_interface` | Target implements ERC-20 `transferFrom(address,address,uint256)`; uses legacy string `Error("...")` reverts + extcodesize check (Morpho-style) |
 | `ERC20.balanceOf` | `erc20_balanceOf_interface` | Target implements `balanceOf(address)` and returns a `uint256` |
 | `ERC20.allowance` | `erc20_allowance_interface` | Target implements `allowance(address,address)` and returns a `uint256` |
 | `ERC20.totalSupply` | `erc20_totalSupply_interface` | Target implements `totalSupply()` and returns a `uint256` |
