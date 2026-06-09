@@ -307,6 +307,12 @@ private partial def validateEffectStmtExprTypes
   | `(term| safeApprove $token:term $spender:term $amount:term) =>
       for arg in [token, spender, amount] do
         requireWordLikeType arg "ERC-20 helper" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals arg)
+  | `(term| legacyStringSafeTransfer $token:term $to:term $amount:term) =>
+      for arg in [token, to, amount] do
+        requireWordLikeType arg "ERC-20 helper" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals arg)
+  | `(term| legacyStringSafeTransferFrom $token:term $fromAddr:term $to:term $amount:term) =>
+      for arg in [token, fromAddr, to, amount] do
+        requireWordLikeType arg "ERC-20 helper" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals arg)
   | `(term| setStorage $field:ident $value:term) =>
       let f ← lookupStorageField fields (toString field.getId)
       match f.adtInfo?, f.ty with
@@ -616,19 +622,44 @@ private def translateEffectStmt
           `(Compiler.CompilationModel.Stmt.ecm
               Compiler.Modules.ERC20.safeTransferFromModule
               [$tokenExpr, $fromExpr, $toExpr, $amountExpr])
-  | `(term| safeApprove $token:term $spender:term $amount:term) =>
-      match lookupFunctionByNameAndArity functions "safeApprove" 3 with
-      | some localFn =>
-          throwErrorAt stx
-            s!"ERC-20 helper form '{localFn.name}' conflicts with contract function '{localFn.name}'; rename the function or avoid the direct helper syntax here"
-      | _ =>
-          let tokenExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals token
-          let spenderExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals spender
-          let amountExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals amount
-          `(Compiler.CompilationModel.Stmt.ecm
-              Compiler.Modules.ERC20.safeApproveModule
-              [$tokenExpr, $spenderExpr, $amountExpr])
-  | `(term| ecmDo $module:term $args:term) =>
+   | `(term| safeApprove $token:term $spender:term $amount:term) =>
+       match lookupFunctionByNameAndArity functions "safeApprove" 3 with
+       | some localFn =>
+           throwErrorAt stx
+             s!"ERC-20 helper form '{localFn.name}' conflicts with contract function '{localFn.name}'; rename the function or avoid the direct helper syntax here"
+       | _ =>
+           let tokenExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals token
+           let spenderExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals spender
+           let amountExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals amount
+           `(Compiler.CompilationModel.Stmt.ecm
+               Compiler.Modules.ERC20.safeApproveModule
+               [$tokenExpr, $spenderExpr, $amountExpr])
+   | `(term| legacyStringSafeTransfer $token:term $to:term $amount:term) =>
+       match lookupFunctionByNameAndArity functions "legacyStringSafeTransfer" 3 with
+       | some localFn =>
+           throwErrorAt stx
+             s!"ERC-20 helper form '{localFn.name}' conflicts with contract function '{localFn.name}'; rename the function or avoid the direct helper syntax here"
+       | _ =>
+           let tokenExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals token
+           let toExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals to
+           let amountExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals amount
+           `(Compiler.CompilationModel.Stmt.ecm
+               Compiler.Modules.ERC20.legacyStringSafeTransferModule
+               [$tokenExpr, $toExpr, $amountExpr])
+   | `(term| legacyStringSafeTransferFrom $token:term $fromAddr:term $to:term $amount:term) =>
+       match lookupFunctionByNameAndArity functions "legacyStringSafeTransferFrom" 4 with
+       | some localFn =>
+           throwErrorAt stx
+             s!"ERC-20 helper form '{localFn.name}' conflicts with contract function '{localFn.name}'; rename the function or avoid the direct helper syntax here"
+       | _ =>
+           let tokenExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals token
+           let fromExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals fromAddr
+           let toExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals to
+           let amountExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals amount
+           `(Compiler.CompilationModel.Stmt.ecm
+               Compiler.Modules.ERC20.legacyStringSafeTransferFromModule
+               [$tokenExpr, $fromExpr, $toExpr, $amountExpr])
+   | `(term| ecmDo $module:term $args:term) =>
       validateEffectOnlyEcmModuleTerm module
       let argExprs ← expectExprList fields constDecls immutableDecls params locals args
       `(Compiler.CompilationModel.Stmt.ecm
