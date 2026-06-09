@@ -211,9 +211,19 @@ data and the token address has code. Malformed short or oversized returndata,
 `returndatasize() > 31` and the first returned word is `true`. Failed calls
 bubble returndata before the optional-return guard runs.
 
+`Compiler.Modules.ERC20.legacyStringSafeTransfer` and
+`legacyStringSafeTransferFrom` implement the "legacy string error" style used by
+Morpho Blue's `SafeTransferLib` (and some other older custom SafeTransferLib
+libraries). They always perform an `extcodesize` check (reverting with the classic
+`Error("no code")` string), and on failure or bad optional bool they revert with
+specific `Error("transfer reverted")` / `Error("transfer returned false")` etc.
+strings (using the classic `Error(string)` encoding). Inner returndata is not
+bubbled on call failure. This produces byte-compatible observable behavior with
+contracts that chose this particular SafeTransferLib flavor.
+
 These reusable helpers can be used with typed-interface token parameters; the
 interface parameter still lowers as an address, while the helper selects the
-SafeERC20 ECM instead of the ordinary typed-interface `transfer` call:
+appropriate Safe* ECM instead of the ordinary typed-interface `transfer` call:
 
 ```lean
 interfaces
@@ -225,9 +235,21 @@ function pushTokens (token : IERC20, to : Address, amount : Uint256) : Unit := d
   safeTransfer token to amount
 ```
 
+For the legacy string style used by Morpho, use the explicit legacy helpers:
+
+```lean
+function pushTokensLegacy (token : IERC20, to : Address, amount : Uint256) : Unit := do
+  legacyStringSafeTransfer token to amount
+```
+
 Use the direct helper form when a token boundary needs optional-return
 semantics. A dot call such as `let ok ← token.transfer to amount` remains the
 ordinary typed-interface call path and requires exactly one returned word.
+
+The choice of helper determines the exact revert data and guard semantics. This
+keeps the three common real-world SafeTransferLib styles (OZ, Solmate, legacy
+string) first-class and explicitly named, rather than hidden behind a generic
+"policy" parameter.
 
 ### Callback Helpers
 

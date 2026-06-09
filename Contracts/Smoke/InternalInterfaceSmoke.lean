@@ -370,6 +370,12 @@ verity_contract TypedInterfaceSafeERC20Smoke where
   function approveTokens (token : IERC20, spender : Address, amount : Uint256) : Unit := do
     safeApprove token spender amount
 
+  function pushTokensLegacy (token : IERC20, toAddr : Address, amount : Uint256) : Unit := do
+    legacyStringSafeTransfer token toAddr amount
+
+  function pullTokensLegacy (token : IERC20, fromAddr : Address, toAddr : Address, amount : Uint256) : Unit := do
+    legacyStringSafeTransferFrom token fromAddr toAddr amount
+
 example :
     (TypedInterfaceSafeERC20Smoke.spec.functions).any (fun fn =>
       fn.name == "pushTokens" &&
@@ -414,6 +420,39 @@ example :
                Compiler.CompilationModel.Expr.param "amount"] =>
               mod.name == "safeApprove" &&
                 mod.axioms == ["erc20_approve_interface"] &&
+                mod.resultVars == [] &&
+                mod.writesState
+          | _ => false)) = true := by
+  decide
+
+example :
+    (TypedInterfaceSafeERC20Smoke.spec.functions).any (fun fn =>
+      fn.name == "pushTokensLegacy" &&
+        fn.body.any (fun stmt =>
+          match stmt with
+          | Compiler.CompilationModel.Stmt.ecm mod
+              [Compiler.CompilationModel.Expr.param "token",
+               Compiler.CompilationModel.Expr.param "toAddr",
+               Compiler.CompilationModel.Expr.param "amount"] =>
+              mod.name == "legacyStringSafeTransfer" &&
+                mod.axioms == ["erc20_legacy_string_safe_transfer_interface"] &&
+                mod.resultVars == [] &&
+                mod.writesState
+          | _ => false)) = true := by
+  decide
+
+example :
+    (TypedInterfaceSafeERC20Smoke.spec.functions).any (fun fn =>
+      fn.name == "pullTokensLegacy" &&
+        fn.body.any (fun stmt =>
+          match stmt with
+          | Compiler.CompilationModel.Stmt.ecm mod
+              [Compiler.CompilationModel.Expr.param "token",
+               Compiler.CompilationModel.Expr.param "fromAddr",
+               Compiler.CompilationModel.Expr.param "toAddr",
+               Compiler.CompilationModel.Expr.param "amount"] =>
+              mod.name == "legacyStringSafeTransferFrom" &&
+                mod.axioms == ["erc20_legacy_string_safe_transferFrom_interface"] &&
                 mod.resultVars == [] &&
                 mod.writesState
           | _ => false)) = true := by
