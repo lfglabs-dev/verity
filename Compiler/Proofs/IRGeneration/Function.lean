@@ -38,7 +38,8 @@ def TxContextNormalized (tx : IRTransaction) : Prop :=
   tx.blockTimestamp < Compiler.Constants.evmModulus ∧
   tx.blockNumber < Compiler.Constants.evmModulus ∧
   tx.chainId < Compiler.Constants.evmModulus ∧
-  tx.blobBaseFee < Compiler.Constants.evmModulus
+  tx.blobBaseFee < Compiler.Constants.evmModulus ∧
+  tx.txOrigin < Compiler.Constants.addressModulus
 
 def compiledFunctionIR
     (selector : Nat) (spec : FunctionSpec) (returns : List ParamType) (bodyStmts : List YulStmt) :
@@ -771,7 +772,7 @@ theorem initialIRStateForTx_matches_runtime
         selector := tx.functionSelector }
       (FunctionBody.initialIRStateForTx model tx initialWorld) := by
   rcases htxNormalized with
-    ⟨hsender, hthis, hmsgValue, htimestamp, hnumber, hchain, hblob⟩
+    ⟨hsender, hthis, hmsgValue, htimestamp, hnumber, hchain, hblob, htxOrigin⟩
   have hsenderEvm : tx.sender < Compiler.Constants.evmModulus := by
     dsimp [Compiler.Constants.addressModulus, Compiler.Constants.evmModulus] at hsender ⊢
     omega
@@ -782,7 +783,12 @@ theorem initialIRStateForTx_matches_runtime
     simpa [Verity.Core.Address.modulus, Compiler.Constants.addressModulus] using hsender
   have hthisAddr : tx.thisAddress < Verity.Core.Address.modulus := by
     simpa [Verity.Core.Address.modulus, Compiler.Constants.addressModulus] using hthis
-  refine ⟨?_, rfl, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  have htxOriginEvm : tx.txOrigin < Compiler.Constants.evmModulus := by
+    dsimp [Compiler.Constants.addressModulus, Compiler.Constants.evmModulus] at htxOrigin ⊢
+    omega
+  have htxOriginAddr : tx.txOrigin < Verity.Core.Address.modulus := by
+    simpa [Verity.Core.Address.modulus, Compiler.Constants.addressModulus] using htxOrigin
+  refine ⟨?_, rfl, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · simpa [FunctionBody.initialIRStateForTx, SourceSemantics.effectiveFields,
       SourceSemantics.encodeStorage] using
       (FunctionBody.encodeStorage_withTransactionContext model initialWorld tx).symm
@@ -818,6 +824,14 @@ theorem initialIRStateForTx_matches_runtime
     simp [FunctionBody.initialIRStateForTx, SourceSemantics.withTransactionContext]
     symm
     exact Nat.mod_eq_of_lt hblob
+  · -- txOrigin
+    simp [FunctionBody.initialIRStateForTx, SourceSemantics.withTransactionContext, Verity.wordToAddress]
+    symm
+    calc
+      tx.txOrigin % Compiler.Constants.evmModulus % Verity.Core.Address.modulus
+          = tx.txOrigin % Verity.Core.Address.modulus := by
+              rw [Nat.mod_eq_of_lt htxOriginEvm]
+      _ = tx.txOrigin := Nat.mod_eq_of_lt htxOriginAddr
   · -- selector
     rfl
   · -- calldata
@@ -857,7 +871,7 @@ theorem initialIRStateForTx_matches_constructor_runtime
         selector := tx.functionSelector }
       (FunctionBody.initialIRStateForTx model tx initialWorld) := by
   rcases htxNormalized with
-    ⟨hsender, hthis, hmsgValue, htimestamp, hnumber, hchain, hblob⟩
+    ⟨hsender, hthis, hmsgValue, htimestamp, hnumber, hchain, hblob, htxOrigin⟩
   have hsenderEvm : tx.sender < Compiler.Constants.evmModulus := by
     dsimp [Compiler.Constants.addressModulus, Compiler.Constants.evmModulus] at hsender ⊢
     omega
@@ -2064,6 +2078,7 @@ private theorem compileExpr_constructor_mode_eq
   | .structMember2 _ _ _ _, hcore, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
   | .caller, _, _ => by simp [compileExpr]
   | .contractAddress, _, _ => by simp [compileExpr]
+  | .txOrigin, _, _ => by simp [compileExpr]
   | .chainid, _, _ => by simp [compileExpr]
   | .msgValue, _, _ => by simp [compileExpr]
   | .blockTimestamp, _, _ => by simp [compileExpr]

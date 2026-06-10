@@ -25,6 +25,7 @@ private def testBlockTimestamp : Nat := 0x123456
 private def testBlockNumber : Nat := 0xABCDEF
 private def testChainId : Nat := 1
 private def testBlobBaseFee : Nat := 0xB10B
+private def testTxOrigin : Nat := 0xDEAD
 private def testSelector : Nat := 0x12345678
 private def testCalldata : List Nat := [0xDEADBEEF]
 
@@ -41,6 +42,7 @@ private def nativeEvalWithContext (func : String) (args : List Nat) : Option Nat
     testBlockNumber
     testChainId
     testBlobBaseFee
+    testTxOrigin
     testSelector
     testCalldata
     func

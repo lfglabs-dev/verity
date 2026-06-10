@@ -2499,7 +2499,7 @@ private theorem exprCompileCore_helperSurfaceClosed
     (hcore : FunctionBody.ExprCompileCore expr) :
     exprTouchesUnsupportedHelperSurface expr = false := by
   induction hcore with
-  | literal | param | localVar | caller | contractAddress | msgValue
+  | literal | param | localVar | caller | contractAddress | txOrigin | msgValue
     | blockTimestamp | blockNumber | chainid | blobbasefee | calldatasize =>
       simp only [exprTouchesUnsupportedHelperSurface]
   | add _ _ ihL ihR
@@ -2539,7 +2539,7 @@ private theorem exprCompileCore_internalHelperCallNames_nil
     (hcore : FunctionBody.ExprCompileCore expr) :
     exprInternalHelperCallNames expr = [] := by
   induction hcore with
-  | literal | param | localVar | caller | contractAddress | msgValue
+  | literal | param | localVar | caller | contractAddress | txOrigin | msgValue
     | blockTimestamp | blockNumber | chainid | blobbasefee | calldatasize =>
       simp only [exprInternalHelperCallNames]
   | add _ _ ihL ihR
@@ -4782,7 +4782,7 @@ private theorem exprCompileCore_usesArrayElement_false
     (hcore : FunctionBody.ExprCompileCore expr) :
     exprUsesArrayElement expr = false := by
   induction hcore with
-  | literal | param | localVar | caller | contractAddress | msgValue
+  | literal | param | localVar | caller | contractAddress | txOrigin | msgValue
     | blockTimestamp | blockNumber | chainid
     | blobbasefee | calldatasize =>
       simp only [exprUsesArrayElement, Bool.false_or]
@@ -4810,7 +4810,7 @@ private theorem exprCompileCore_usesStorageArrayElement_false
     (hcore : FunctionBody.ExprCompileCore expr) :
     exprUsesStorageArrayElement expr = false := by
   induction hcore with
-  | literal | param | localVar | caller | contractAddress | msgValue
+  | literal | param | localVar | caller | contractAddress | txOrigin | msgValue
     | blockTimestamp | blockNumber | chainid
     | blobbasefee | calldatasize =>
       simp only [exprUsesStorageArrayElement, Bool.false_or]
@@ -4838,7 +4838,7 @@ private theorem exprCompileCore_usesDynamicBytesEq_false
     (hcore : FunctionBody.ExprCompileCore expr) :
     exprUsesDynamicBytesEq expr = false := by
   induction hcore with
-  | literal | param | localVar | caller | contractAddress | msgValue
+  | literal | param | localVar | caller | contractAddress | txOrigin | msgValue
     | blockTimestamp | blockNumber | chainid
     | blobbasefee | calldatasize =>
       simp only [exprUsesDynamicBytesEq, Bool.false_or]
@@ -5500,7 +5500,7 @@ private theorem exprCompileCore_usesMulDiv512_false
     (hcore : FunctionBody.ExprCompileCore expr) :
     exprUsesMulDiv512 expr = false := by
   induction hcore with
-  | literal | param | localVar | caller | contractAddress | msgValue
+  | literal | param | localVar | caller | contractAddress | txOrigin | msgValue
     | blockTimestamp | blockNumber | chainid
     | blobbasefee | calldatasize =>
       simp only [exprUsesMulDiv512, Bool.false_or]
@@ -5528,7 +5528,7 @@ private theorem exprCompileCore_usesParamDynamicHeadWord_false
     (hcore : FunctionBody.ExprCompileCore expr) :
     exprUsesParamDynamicHeadWord expr = false := by
   induction hcore with
-  | literal | param | localVar | caller | contractAddress | msgValue
+  | literal | param | localVar | caller | contractAddress | txOrigin | msgValue
     | blockTimestamp | blockNumber | chainid
     | blobbasefee | calldatasize =>
       simp only [exprUsesParamDynamicHeadWord, Bool.false_or]

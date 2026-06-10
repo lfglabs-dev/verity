@@ -2459,6 +2459,7 @@ def withTransactionContext (world : Verity.ContractState) (tx : IRTransaction) :
     blockNumber := tx.blockNumber
     chainId := tx.chainId
     blobBaseFee := tx.blobBaseFee
+    txOrigin := Verity.wordToAddress tx.txOrigin
     calldataSize := Verity.Core.Uint256.ofNat (4 + tx.args.length * 32)
     calldata := tx.args }
 
@@ -2472,6 +2473,7 @@ def withConstructorTransactionContext (world : Verity.ContractState) (tx : IRTra
     blockNumber := tx.blockNumber
     chainId := tx.chainId
     blobBaseFee := tx.blobBaseFee
+    txOrigin := Verity.wordToAddress tx.txOrigin
     calldataSize := Verity.Core.Uint256.ofNat (tx.args.length * 32)
     calldata := tx.args }
 

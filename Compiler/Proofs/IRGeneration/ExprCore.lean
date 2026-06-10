@@ -100,6 +100,7 @@ inductive ExprCompileCore : Expr → Prop where
   | localVar (name : String) : ExprCompileCore (.localVar name)
   | caller : ExprCompileCore .caller
   | contractAddress : ExprCompileCore .contractAddress
+  | txOrigin : ExprCompileCore .txOrigin
   | msgValue : ExprCompileCore .msgValue
   | blockTimestamp : ExprCompileCore .blockTimestamp
   | blockNumber : ExprCompileCore .blockNumber
