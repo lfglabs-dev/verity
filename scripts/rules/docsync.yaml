@@ -1,0 +1,57 @@
+# Sync rules for the prototype doc-sync engine.
+# Each rule maps a Python extractor function to an artifact target file.
+# Run with: python3 scripts/sync_engine.py --rule <id>
+# Check with: python3 scripts/sync_engine.py --rule <id> --check
+
+rules:
+  - id: verify-sync-spec
+    description: "Regenerate verify workflow sync spec from the authoritative Python module"
+    cluster: artifact-generator
+    # Source: scripts/verify_sync_spec_source.py (hardcoded path/trigger spec)
+    source_globs:
+      - scripts/verify_sync_spec_source.py
+    extractor:
+      module: verify_sync_spec_source
+      function: build_spec
+    output_format: json
+    json_options:
+      indent: 2
+      sort_keys: false   # original uses plain json.dumps order
+    target: scripts/verify_sync_spec.json
+    original_script: scripts/generate_verify_sync_spec.py
+
+  - id: layer2-catalog
+    description: "Regenerate Layer 2 proof-boundary catalog from hardcoded Python dict"
+    cluster: artifact-generator
+    # Source: generate_layer2_boundary_catalog.build_catalog() — pure Python, no external tools
+    source_globs:
+      - scripts/generate_layer2_boundary_catalog.py
+    extractor:
+      module: generate_layer2_boundary_catalog
+      function: build_catalog
+    output_format: json
+    json_options:
+      indent: 2
+      sort_keys: true
+    target: artifacts/layer2_boundary_catalog.json
+    original_script: scripts/generate_layer2_boundary_catalog.py
+
+  - id: verification-status
+    description: "Regenerate verification status artifact from live repository metrics"
+    cluster: artifact-generator
+    # Source: Lean files in Compiler/ Verity/ Contracts/, test/ manifests
+    source_globs:
+      - Compiler/**/*.lean
+      - Verity/**/*.lean
+      - Contracts/**/*.lean
+      - test/property_manifest.json
+      - test/property_exclusions.json
+    extractor:
+      module: verification_metrics
+      function: collect_metrics
+    output_format: json
+    json_options:
+      indent: 2
+      sort_keys: true
+    target: artifacts/verification_status.json
+    original_script: scripts/generate_verification_status.py
