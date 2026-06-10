@@ -73,8 +73,9 @@ private def validateAdtPayloadParamNameCollisions
 def isStorageWordArrayParam : ParamType → Bool
   | ty => isWordArrayParam ty
 
-mutual
-def validateStmtParamReferences (fnName : String) (params : List Param) :
+/-- Node-local check for statement parameter references; nested statement
+    bodies are reached via the canonical `Stmt.forDeepM`. -/
+def validateStmtParamReferencesNode (fnName : String) (params : List Param) :
     Stmt → Except String Unit
   | Stmt.returnArray name =>
       match findParamType params name with
@@ -105,40 +106,24 @@ def validateStmtParamReferences (fnName : String) (params : List Param) :
       -- `returnCodeData` may return a pointer computed into a local; the scope-aware
       -- validator checks the expression once local bindings are available.
       pure ()
-  | Stmt.ite _ thenBranch elseBranch => do
-      validateStmtParamReferencesInList fnName params thenBranch
-      validateStmtParamReferencesInList fnName params elseBranch
-  | Stmt.forEach _ _ body => do
-      validateStmtParamReferencesInList fnName params body
-  | Stmt.unsafeBlock _ body => do
-      validateStmtParamReferencesInList fnName params body
-  | Stmt.matchAdt _ _ branches =>
-      validateStmtParamReferencesInBranches fnName params branches
   | _ => pure ()
-termination_by s => sizeOf s
-decreasing_by all_goals simp_wf; all_goals omega
 
-def validateStmtParamReferencesInList (fnName : String) (params : List Param) :
-    List Stmt → Except String Unit
-  | [] => pure ()
-  | s :: ss => do
-      validateStmtParamReferences fnName params s
-      validateStmtParamReferencesInList fnName params ss
-termination_by ss => sizeOf ss
-decreasing_by all_goals simp_wf; all_goals omega
+def validateStmtParamReferences (fnName : String) (params : List Param)
+    (stmt : Stmt) : Except String Unit :=
+  stmt.forDeepM (validateStmtParamReferencesNode fnName params)
 
-def validateStmtParamReferencesInBranches (fnName : String) (params : List Param) :
-    List (String × List String × List Stmt) → Except String Unit
-  | [] => pure ()
-  | (_, _, body) :: rest => do
-      validateStmtParamReferencesInList fnName params body
-      validateStmtParamReferencesInBranches fnName params rest
-termination_by bs => sizeOf bs
-decreasing_by all_goals simp_wf; all_goals omega
-end
+def validateStmtParamReferencesInList (fnName : String) (params : List Param)
+    (stmts : List Stmt) : Except String Unit :=
+  Stmt.forDeepListM (validateStmtParamReferencesNode fnName params) stmts
 
-mutual
-def validateReturnShapesInStmt (fnName : String) (params : List Param)
+def validateStmtParamReferencesInBranches (fnName : String) (params : List Param)
+    (branches : List (String × List String × List Stmt)) : Except String Unit :=
+  branches.forM fun (_, _, body) =>
+    validateStmtParamReferencesInList fnName params body
+
+/-- Node-local return-shape check; nested statement bodies are reached via
+    the canonical `Stmt.forDeepM`. -/
+def validateReturnShapesNode (fnName : String) (params : List Param)
     (expectedReturns : List ParamType) (isInternal : Bool) : Stmt → Except String Unit
   | Stmt.return _ =>
       if isInternal then
@@ -208,205 +193,70 @@ def validateReturnShapesInStmt (fnName : String) (params : List Param)
         -- Full lifting of the static gate (dynamic payloads, broader return shapes)
         -- is tracked under the 1982 dynamic/composite ABI work.
         pure ()
-  | Stmt.ite _ thenBranch elseBranch => do
-      validateReturnShapesInStmtList fnName params expectedReturns isInternal thenBranch
-      validateReturnShapesInStmtList fnName params expectedReturns isInternal elseBranch
-  | Stmt.forEach _ _ body =>
-      validateReturnShapesInStmtList fnName params expectedReturns isInternal body
-  | Stmt.unsafeBlock _ body =>
-      validateReturnShapesInStmtList fnName params expectedReturns isInternal body
-  | Stmt.matchAdt _ _ branches =>
-      validateReturnShapesInBranches fnName params expectedReturns isInternal branches
   | _ => pure ()
-termination_by s => sizeOf s
-decreasing_by all_goals simp_wf; all_goals omega
+
+def validateReturnShapesInStmt (fnName : String) (params : List Param)
+    (expectedReturns : List ParamType) (isInternal : Bool) (stmt : Stmt) :
+    Except String Unit :=
+  stmt.forDeepM (validateReturnShapesNode fnName params expectedReturns isInternal)
 
 def validateReturnShapesInStmtList (fnName : String)
-    (params : List Param) (expectedReturns : List ParamType) (isInternal : Bool) : List Stmt → Except String Unit
-  | [] => pure ()
-  | s :: ss => do
-      validateReturnShapesInStmt fnName params expectedReturns isInternal s
-      validateReturnShapesInStmtList fnName params expectedReturns isInternal ss
-termination_by ss => sizeOf ss
-decreasing_by all_goals simp_wf; all_goals omega
+    (params : List Param) (expectedReturns : List ParamType) (isInternal : Bool)
+    (stmts : List Stmt) : Except String Unit :=
+  Stmt.forDeepListM (validateReturnShapesNode fnName params expectedReturns isInternal) stmts
 
 def validateReturnShapesInBranches (fnName : String)
-    (params : List Param) (expectedReturns : List ParamType) (isInternal : Bool) :
-    List (String × List String × List Stmt) → Except String Unit
-  | [] => pure ()
-  | (_, _, body) :: rest => do
-      validateReturnShapesInStmtList fnName params expectedReturns isInternal body
-      validateReturnShapesInBranches fnName params expectedReturns isInternal rest
-termination_by bs => sizeOf bs
-decreasing_by all_goals simp_wf; all_goals omega
-end
+    (params : List Param) (expectedReturns : List ParamType) (isInternal : Bool)
+    (branches : List (String × List String × List Stmt)) : Except String Unit :=
+  branches.forM fun (_, _, body) =>
+    validateReturnShapesInStmtList fnName params expectedReturns isInternal body
 
 private def stmtListAlwaysReturnsOrReverts (stmts : List Stmt) : Bool :=
   ControlFlowSummary.alwaysReturnsOrReverts (Stmt.controlFlowList stmts)
 
-def exprReadsStateOrEnv : Expr → Bool
-  | Expr.literal _ => false
-  | Expr.param _ => false
-  | Expr.constructorArg _ => false
-  | Expr.storage _ | Expr.storageAddr _ => true
+/-- Node-local classifier: does this expression itself read state or the
+    environment? `externalCall` to the builtin exponentiation helper is pure.
+    Lifted with the canonical `Expr.anyDeep`. -/
+def exprReadsStateOrEnvNode : Expr → Bool
+  | Expr.storage _ | Expr.storageAddr _
   | Expr.mapping _ _ | Expr.mappingWord _ _ _ | Expr.mappingPackedWord _ _ _ _
   | Expr.mapping2 _ _ _ | Expr.mapping2Word _ _ _ _
-  | Expr.mappingUint _ _
-  | Expr.mappingChain _ _
-  | Expr.structMember _ _ _ | Expr.structMember2 _ _ _ _ => true
-  | Expr.caller => true
-  | Expr.contractAddress => true
-  | Expr.txOrigin => true
-  | Expr.chainid => true
-  | Expr.extcodesize _ => true
-  | Expr.msgValue => true
-  | Expr.selfBalance => true
-  | Expr.blockTimestamp => true
-  | Expr.blockNumber => true
-  | Expr.blobbasefee => true
-  | Expr.calldatasize => true
-  | Expr.calldataload _ => true
-  | Expr.mload offset => exprReadsStateOrEnv offset
-  | Expr.tload _ => true
-  | Expr.keccak256 offset size => exprReadsStateOrEnv offset || exprReadsStateOrEnv size
-  | Expr.call _ _ _ _ _ _ _ | Expr.staticcall _ _ _ _ _ _
-  | Expr.delegatecall _ _ _ _ _ _ => true
-  | Expr.returndataSize => true
-  | Expr.returndataOptionalBoolAt _ => true
-  | Expr.dynamicBytesEq _ _ => false
-  | Expr.localVar _ => false
-  | Expr.externalCall name args =>
-      if name == builtinExpName then exprListReadsStateOrEnv args else true
-  | Expr.internalCall _ _ => true
-  | Expr.arrayLength _ | Expr.memoryArrayLength _ => false
-  | Expr.paramDynamicHeadWord _ _
-  | Expr.paramDynamicStaticComposite _ _
-  | Expr.paramDynamicMemberLength _ _
-  | Expr.paramDynamicMemberDataOffset _ _ => false
-  | Expr.paramDynamicMemberElement _ _ innerIndex => exprReadsStateOrEnv innerIndex
-  | Expr.storageArrayLength _ => true
-  | Expr.storageArrayElement _ index => true || exprReadsStateOrEnv index
-  | Expr.arrayElement _ index | Expr.memoryArrayElement _ index
-  | Expr.arrayElementWord _ index _ _ | Expr.arrayElementDynamicWord _ index _
-  | Expr.arrayElementDynamicDataOffset _ index
-  | Expr.arrayElementDynamicMemberDataOffset _ index _
-  | Expr.arrayElementDynamicMemberLength _ index _ => exprReadsStateOrEnv index
-  | Expr.arrayElementDynamicMemberElement _ index _ innerIndex =>
-      exprReadsStateOrEnv index || exprReadsStateOrEnv innerIndex
-  | Expr.add a b | Expr.sub a b | Expr.mul a b | Expr.div a b | Expr.sdiv a b
-  | Expr.mod a b | Expr.smod a b |
-    Expr.bitAnd a b | Expr.bitOr a b | Expr.bitXor a b | Expr.shl a b | Expr.shr a b
-  | Expr.sar a b | Expr.signextend a b | Expr.byte a b |
-    Expr.eq a b | Expr.ge a b | Expr.gt a b | Expr.sgt a b | Expr.lt a b | Expr.slt a b | Expr.le a b |
-    Expr.logicalAnd a b | Expr.logicalOr a b |
-    Expr.wMulDown a b | Expr.wDivUp a b | Expr.min a b | Expr.max a b |
-    Expr.ceilDiv a b =>
-      exprReadsStateOrEnv a || exprReadsStateOrEnv b
-  | Expr.intrinsic _ _ _ args => exprListReadsStateOrEnv args
-  | Expr.forkIfAtLeast _ thenExpr elseExpr =>
-      exprReadsStateOrEnv thenExpr || exprReadsStateOrEnv elseExpr
-  | Expr.mulDivDown a b c | Expr.mulDivUp a b c
-  | Expr.mulDiv512Down a b c | Expr.mulDiv512Up a b c =>
-      exprReadsStateOrEnv a || exprReadsStateOrEnv b || exprReadsStateOrEnv c
-  | Expr.bitNot a | Expr.logicalNot a =>
-      exprReadsStateOrEnv a
-  | Expr.ite cond thenVal elseVal =>
-      exprReadsStateOrEnv cond || exprReadsStateOrEnv thenVal || exprReadsStateOrEnv elseVal
-  | Expr.adtConstruct _ _ args => exprListReadsStateOrEnv args
-  | Expr.adtTag _ _ | Expr.adtField _ _ _ _ _ => true
-where
-  exprListReadsStateOrEnv : List Expr → Bool
-    | [] => false
-    | e :: es => exprReadsStateOrEnv e || exprListReadsStateOrEnv es
-
-mutual
-def exprWritesState : Expr → Bool
-  | Expr.add a b | Expr.sub a b | Expr.mul a b | Expr.div a b | Expr.sdiv a b
-  | Expr.mod a b | Expr.smod a b |
-    Expr.bitAnd a b | Expr.bitOr a b | Expr.bitXor a b | Expr.shl a b | Expr.shr a b
-  | Expr.sar a b | Expr.signextend a b | Expr.byte a b |
-    Expr.eq a b | Expr.ge a b | Expr.gt a b | Expr.sgt a b | Expr.lt a b | Expr.slt a b | Expr.le a b |
-    Expr.logicalAnd a b | Expr.logicalOr a b |
-    Expr.wMulDown a b | Expr.wDivUp a b | Expr.min a b | Expr.max a b |
-    Expr.ceilDiv a b =>
-      exprWritesState a || exprWritesState b
-  | Expr.mulDivDown a b c | Expr.mulDivUp a b c
-  | Expr.mulDiv512Down a b c | Expr.mulDiv512Up a b c =>
-      exprWritesState a || exprWritesState b || exprWritesState c
-  | Expr.bitNot a | Expr.logicalNot a =>
-      exprWritesState a
-  | Expr.ite cond thenVal elseVal =>
-      exprWritesState cond || exprWritesState thenVal || exprWritesState elseVal
-  | Expr.mapping _ key | Expr.mappingWord _ key _ | Expr.mappingPackedWord _ key _ _ | Expr.mappingUint _ key
-  | Expr.structMember _ key _ =>
-      exprWritesState key
-  | Expr.mappingChain _ keys =>
-      exprListWritesState keys
-  | Expr.mapping2 _ key1 key2 | Expr.mapping2Word _ key1 key2 _
-  | Expr.structMember2 _ key1 key2 _ =>
-      exprWritesState key1 || exprWritesState key2
-  | Expr.call _ _ _ _ _ _ _ => true
-  | Expr.staticcall gas target inOffset inSize outOffset outSize =>
-      exprWritesState gas || exprWritesState target ||
-      exprWritesState inOffset || exprWritesState inSize ||
-      exprWritesState outOffset || exprWritesState outSize
-  | Expr.delegatecall _ _ _ _ _ _ => true
-  | Expr.mload offset | Expr.tload offset =>
-      exprWritesState offset
-  | Expr.calldataload offset =>
-      exprWritesState offset
-  | Expr.keccak256 offset size =>
-      exprWritesState offset || exprWritesState size
-  | Expr.returndataOptionalBoolAt outOffset =>
-      exprWritesState outOffset
-  | Expr.dynamicBytesEq _ _ =>
-      false
-  | Expr.externalCall name args =>
-      if name == builtinExpName then exprListWritesState args else true
-  | Expr.intrinsic _ _ _ args => exprListWritesState args
-  | Expr.forkIfAtLeast _ thenExpr elseExpr =>
-      exprWritesState thenExpr || exprWritesState elseExpr
-  | Expr.internalCall _ _ => true
-  | Expr.adtConstruct _ _ args => exprListWritesState args
-  | Expr.extcodesize addr =>
-      exprWritesState addr
-  | Expr.storageArrayLength _ =>
-      false
-  | Expr.storageArrayElement _ index =>
-      exprWritesState index
-  | Expr.arrayElement _ index | Expr.memoryArrayElement _ index
-  | Expr.arrayElementWord _ index _ _ | Expr.arrayElementDynamicWord _ index _
-  | Expr.arrayElementDynamicDataOffset _ index
-  | Expr.arrayElementDynamicMemberDataOffset _ index _
-  | Expr.arrayElementDynamicMemberLength _ index _ =>
-      exprWritesState index
-  | Expr.arrayElementDynamicMemberElement _ index _ innerIndex =>
-      exprWritesState index || exprWritesState innerIndex
-  -- Pure leaves: no state writes. Listed explicitly to avoid `_mutual.eq_def`
-  -- heartbeat-ceiling failures when new constructors land.
-  | Expr.literal _ | Expr.param _ | Expr.constructorArg _ | Expr.storage _ | Expr.storageAddr _
-  | Expr.caller | Expr.contractAddress | Expr.txOrigin | Expr.chainid | Expr.msgValue | Expr.selfBalance
+  | Expr.mappingUint _ _ | Expr.mappingChain _ _
+  | Expr.structMember _ _ _ | Expr.structMember2 _ _ _ _
+  | Expr.caller | Expr.contractAddress | Expr.txOrigin | Expr.chainid
+  | Expr.extcodesize _ | Expr.msgValue | Expr.selfBalance
   | Expr.blockTimestamp | Expr.blockNumber | Expr.blobbasefee
-  | Expr.calldatasize | Expr.returndataSize | Expr.localVar _ | Expr.arrayLength _
-  | Expr.memoryArrayLength _
-  | Expr.paramDynamicHeadWord _ _
-  | Expr.paramDynamicStaticComposite _ _
-  | Expr.paramDynamicMemberLength _ _
-  | Expr.paramDynamicMemberDataOffset _ _
-  | Expr.adtTag _ _ | Expr.adtField _ _ _ _ _ =>
-      false
-  | Expr.paramDynamicMemberElement _ _ innerIndex =>
-      exprWritesState innerIndex
-termination_by e => sizeOf e
-decreasing_by all_goals simp_wf; all_goals omega
+  | Expr.calldatasize | Expr.calldataload _ | Expr.tload _
+  | Expr.call _ _ _ _ _ _ _ | Expr.staticcall _ _ _ _ _ _
+  | Expr.delegatecall _ _ _ _ _ _
+  | Expr.returndataSize | Expr.returndataOptionalBoolAt _
+  | Expr.internalCall _ _
+  | Expr.storageArrayLength _ | Expr.storageArrayElement _ _
+  | Expr.adtTag _ _ | Expr.adtField _ _ _ _ _ => true
+  | Expr.externalCall name _ => name != builtinExpName
+  | _ => false
 
-def exprListWritesState : List Expr → Bool
-  | [] => false
-  | e :: es => exprWritesState e || exprListWritesState es
-termination_by es => sizeOf es
-decreasing_by all_goals simp_wf; all_goals omega
+def exprReadsStateOrEnv (e : Expr) : Bool :=
+  e.anyDeep exprReadsStateOrEnvNode
 
-def stmtWritesState : Stmt → Bool
+/-- Node-local classifier: does this expression itself write state? Lifted
+    with the canonical `Expr.anyDeep` (so `staticcall` operands etc. are still
+    scanned, exactly like the old walk). -/
+def exprWritesStateNode : Expr → Bool
+  | Expr.call _ _ _ _ _ _ _ | Expr.delegatecall _ _ _ _ _ _ => true
+  | Expr.externalCall name _ => name != builtinExpName
+  | Expr.internalCall _ _ => true
+  | _ => false
+
+def exprWritesState (e : Expr) : Bool :=
+  e.anyDeep exprWritesStateNode
+
+def exprListWritesState (es : List Expr) : Bool :=
+  es.any exprWritesState
+
+/-- Node-local statement classifier for state writes; nested statement bodies
+    are reached via the canonical `Stmt.anyDeep`. -/
+def stmtWritesStateNode : Stmt → Bool
   | Stmt.letVar _ value | Stmt.assignVar _ value =>
       exprWritesState value
   | Stmt.setStorage _ _ | Stmt.setStorageAddr _ _ | Stmt.setStorageWord _ _ _
@@ -425,187 +275,83 @@ def stmtWritesState : Stmt → Bool
       exprWritesState value
   | Stmt.returnValues values =>
       exprListWritesState values
-  | Stmt.returnArray _ =>
-      false
-  | Stmt.returnBytes _ =>
-      false
-  | Stmt.unsafeYul fragment =>
-      !fragment.scopeEffects.storageWrites.isEmpty || fragment.mechanics.contains .tstore
-  | Stmt.returnStorageWords _ =>
-      false
   | Stmt.returnCodeData pointer =>
       exprWritesState pointer
+  | Stmt.unsafeYul fragment =>
+      !fragment.scopeEffects.storageWrites.isEmpty || fragment.mechanics.contains .tstore
   | Stmt.mstore offset value =>
       exprWritesState offset || exprWritesState value
   | Stmt.tstore _ _ =>
       true
-  | Stmt.calldatacopy destOffset sourceOffset size =>
-      exprWritesState destOffset || exprWritesState sourceOffset || exprWritesState size
+  | Stmt.calldatacopy destOffset sourceOffset size
   | Stmt.returndataCopy destOffset sourceOffset size =>
       exprWritesState destOffset || exprWritesState sourceOffset || exprWritesState size
-  | Stmt.revertReturndata =>
-      false
-  | Stmt.stop =>
-      false
-  | Stmt.ite cond thenBranch elseBranch =>
-      exprWritesState cond || stmtListWritesState thenBranch || stmtListWritesState elseBranch
-  | Stmt.forEach _ count body =>
-      exprWritesState count || stmtListWritesState body
-  | Stmt.unsafeBlock _ body =>
-      stmtListWritesState body
+  | Stmt.ite cond _ _ =>
+      exprWritesState cond
+  | Stmt.forEach _ count _ =>
+      exprWritesState count
   | Stmt.emit _ _ | Stmt.rawLog _ _ _
   | Stmt.internalCall _ _ | Stmt.internalCallAssign _ _ _
   | Stmt.externalCallBind _ _ _ | Stmt.tryExternalCallBind _ _ _ _ => true
   | Stmt.ecm mod args =>
       mod.writesState || exprListWritesState args
-  | Stmt.matchAdt _ scrutinee branches =>
-      exprWritesState scrutinee ||
-        matchBranchesWriteState branches
-termination_by s => sizeOf s
-decreasing_by all_goals simp_wf; all_goals omega
+  | Stmt.matchAdt _ scrutinee _ =>
+      exprWritesState scrutinee
+  | _ => false
 
-def stmtListWritesState : List Stmt → Bool
-  | [] => false
-  | s :: ss => stmtWritesState s || stmtListWritesState ss
-termination_by ss => sizeOf ss
-decreasing_by all_goals simp_wf; all_goals omega
+def stmtWritesState (s : Stmt) : Bool :=
+  s.anyDeep stmtWritesStateNode
 
-def matchBranchesWriteState : List (String × List String × List Stmt) → Bool
-  | [] => false
-  | (_, _, body) :: rest =>
-      stmtListWritesState body || matchBranchesWriteState rest
-termination_by bs => sizeOf bs
-decreasing_by all_goals simp_wf; all_goals omega
-end
+def stmtListWritesState (stmts : List Stmt) : Bool :=
+  Stmt.anyDeepList stmtWritesStateNode stmts
 
-mutual
+def matchBranchesWriteState (branches : List (String × List String × List Stmt)) : Bool :=
+  branches.any fun (_, _, body) => stmtListWritesState body
+
 /-- Collect the set of storage field names written by a statement.
-    Returns a list of field name strings found in `setStorage`, `setStorageAddr`,
-    `setMapping*`, `storageArray*`, and `setStructMember*` constructors.
-    Used by `modifies(...)` validation (#1729, Axis 3 Step 1b). -/
-def stmtWrittenFields : Stmt → List String
-  | Stmt.setStorage field _ | Stmt.setStorageAddr field _ | Stmt.setStorageWord field _ _
-  | Stmt.storageArrayPush field _ | Stmt.storageArrayPop field | Stmt.setStorageArrayElement field _ _
-  | Stmt.setMapping field _ _ | Stmt.setMappingWord field _ _ _ | Stmt.setMappingPackedWord field _ _ _ _
-  | Stmt.setMappingUint field _ _
-  | Stmt.setMappingChain field _ _
-  | Stmt.setMapping2 field _ _ _ | Stmt.setMapping2Word field _ _ _ _
-  | Stmt.setStructMember field _ _ _ | Stmt.setStructMember2 field _ _ _ _ => [field]
-  | Stmt.ite _ thenBranch elseBranch =>
-      stmtListWrittenFields thenBranch ++ stmtListWrittenFields elseBranch
-  | Stmt.forEach _ _ body =>
-      stmtListWrittenFields body
-  | Stmt.unsafeBlock _ body =>
-      stmtListWrittenFields body
-  | Stmt.unsafeYul fragment =>
-      fragment.scopeEffects.storageWrites
-  | Stmt.matchAdt _ _ branches =>
-      matchBranchesWrittenFields branches
-  | _ => []
-termination_by s => sizeOf s
-decreasing_by all_goals simp_wf; all_goals omega
+    The per-statement contribution is exactly the canonical
+    `directMetadata.scopeEffects.storageWrites` (which also covers raw
+    `unsafeYul` fragments); nested statement bodies are reached via
+    `Stmt.childLists`. Used by `modifies(...)` validation (#1729, Axis 3 Step 1b). -/
+def stmtWrittenFields (s : Stmt) : List String :=
+  s.directMetadata.scopeEffects.storageWrites ++
+    (Stmt.childLists s).attach.flatMap (fun ⟨l, hl⟩ =>
+      l.attach.flatMap (fun ⟨c, hc⟩ =>
+        have := Stmt.childLists_sizeOf_lt s l hl c hc
+        stmtWrittenFields c))
+termination_by sizeOf s
+decreasing_by exact Nat.lt_trans this.1 this.2
 
-def stmtListWrittenFields : List Stmt → List String
-  | [] => []
-  | s :: ss => stmtWrittenFields s ++ stmtListWrittenFields ss
-termination_by ss => sizeOf ss
-decreasing_by all_goals simp_wf; all_goals omega
+def stmtListWrittenFields (stmts : List Stmt) : List String :=
+  stmts.flatMap stmtWrittenFields
 
-def matchBranchesWrittenFields : List (String × List String × List Stmt) → List String
-  | [] => []
-  | (_, _, body) :: rest =>
-      stmtListWrittenFields body ++ matchBranchesWrittenFields rest
-termination_by bs => sizeOf bs
-decreasing_by all_goals simp_wf; all_goals omega
-end
+def matchBranchesWrittenFields (branches : List (String × List String × List Stmt)) : List String :=
+  branches.flatMap fun (_, _, body) => stmtListWrittenFields body
 
-mutual
 /-- Detect expression-position internal helper calls whose callee write set is
-    not visible to single-function `modifies(...)` validation. -/
+    not visible to single-function `modifies(...)` validation. External-call
+    forms (`externalCall`/`call`/`staticcall`/`delegatecall`) deliberately do
+    NOT recurse into their operands, exactly like the old walk; all other
+    constructors recurse via the canonical `Expr.children`. -/
 def exprHasUntrackableWrites : Expr → Bool
   | Expr.internalCall _ _ => true
-  | Expr.add a b | Expr.sub a b | Expr.mul a b | Expr.div a b | Expr.sdiv a b
-  | Expr.mod a b | Expr.smod a b
-  | Expr.bitAnd a b | Expr.bitOr a b | Expr.bitXor a b | Expr.shl a b | Expr.shr a b | Expr.sar a b
-  | Expr.byte a b =>
-      exprHasUntrackableWrites a || exprHasUntrackableWrites b
-  | Expr.intrinsic _ _ _ args => exprListHasUntrackableWrites args
-  | Expr.forkIfAtLeast _ thenExpr elseExpr =>
-      exprHasUntrackableWrites thenExpr || exprHasUntrackableWrites elseExpr
-  | Expr.lt a b | Expr.gt a b | Expr.slt a b | Expr.sgt a b | Expr.eq a b
-  | Expr.ge a b | Expr.le a b | Expr.signextend a b
-  | Expr.logicalAnd a b | Expr.logicalOr a b
-  | Expr.wMulDown a b | Expr.wDivUp a b | Expr.min a b | Expr.max a b
-  | Expr.ceilDiv a b =>
-      exprHasUntrackableWrites a || exprHasUntrackableWrites b
-  | Expr.mulDivDown a b c | Expr.mulDivUp a b c
-  | Expr.mulDiv512Down a b c | Expr.mulDiv512Up a b c =>
-      exprHasUntrackableWrites a || exprHasUntrackableWrites b || exprHasUntrackableWrites c
-  | Expr.bitNot a | Expr.logicalNot a | Expr.extcodesize a =>
-      exprHasUntrackableWrites a
-  | Expr.ite cond thenVal elseVal =>
-      exprHasUntrackableWrites cond || exprHasUntrackableWrites thenVal || exprHasUntrackableWrites elseVal
-  | Expr.mapping _ key | Expr.mappingWord _ key _ | Expr.mappingPackedWord _ key _ _ | Expr.mappingUint _ key
-  | Expr.structMember _ key _ | Expr.arrayElement _ key | Expr.memoryArrayElement _ key
-  | Expr.arrayElementWord _ key _ _
-  | Expr.arrayElementDynamicWord _ key _
-  | Expr.arrayElementDynamicDataOffset _ key
-  | Expr.arrayElementDynamicMemberDataOffset _ key _
-  | Expr.arrayElementDynamicMemberLength _ key _
-  | Expr.storageArrayElement _ key =>
-      exprHasUntrackableWrites key
-  | Expr.arrayElementDynamicMemberElement _ key _ innerKey =>
-      exprHasUntrackableWrites key || exprHasUntrackableWrites innerKey
-  | Expr.mappingChain _ keys =>
-      exprListHasUntrackableWrites keys
-  | Expr.mapping2 _ key1 key2 | Expr.mapping2Word _ key1 key2 _
-  | Expr.structMember2 _ key1 key2 _ =>
-      exprHasUntrackableWrites key1 || exprHasUntrackableWrites key2
-  | Expr.mload offset | Expr.tload offset | Expr.calldataload offset
-  | Expr.returndataOptionalBoolAt offset =>
-      exprHasUntrackableWrites offset
-  | Expr.keccak256 offset size =>
-      exprHasUntrackableWrites offset || exprHasUntrackableWrites size
-  | Expr.adtConstruct _ _ args =>
-      exprListHasUntrackableWrites args
-  -- Pure leaves: cannot write state. Listed explicitly to avoid
-  -- `_mutual.eq_def` heartbeat-ceiling failures when new constructors land.
-  | Expr.literal _ | Expr.param _ | Expr.constructorArg _ | Expr.storage _ | Expr.storageAddr _
-  | Expr.caller | Expr.contractAddress | Expr.txOrigin | Expr.chainid | Expr.msgValue | Expr.selfBalance
-  | Expr.blockTimestamp | Expr.blockNumber | Expr.blobbasefee
-  | Expr.calldatasize | Expr.returndataSize | Expr.localVar _ | Expr.arrayLength _
-  | Expr.memoryArrayLength _
-  | Expr.storageArrayLength _
-  | Expr.paramDynamicHeadWord _ _
-  | Expr.paramDynamicStaticComposite _ _
-  | Expr.paramDynamicMemberLength _ _
-  | Expr.paramDynamicMemberDataOffset _ _
-  | Expr.dynamicBytesEq _ _
   | Expr.externalCall _ _ | Expr.call _ _ _ _ _ _ _
-  | Expr.staticcall _ _ _ _ _ _ | Expr.delegatecall _ _ _ _ _ _
-  | Expr.adtTag _ _ | Expr.adtField _ _ _ _ _ =>
-      false
-  | Expr.paramDynamicMemberElement _ _ innerIndex =>
-      exprHasUntrackableWrites innerIndex
+  | Expr.staticcall _ _ _ _ _ _ | Expr.delegatecall _ _ _ _ _ _ => false
+  | e =>
+      (Expr.children e).attach.any (fun ⟨c, hc⟩ =>
+        have := Expr.children_sizeOf_lt e c hc
+        exprHasUntrackableWrites c)
 termination_by e => sizeOf e
-decreasing_by all_goals simp_wf; all_goals omega
 
-def exprListHasUntrackableWrites : List Expr → Bool
-  | [] => false
-  | e :: es => exprHasUntrackableWrites e || exprListHasUntrackableWrites es
-termination_by es => sizeOf es
-decreasing_by all_goals simp_wf; all_goals omega
-end
+def exprListHasUntrackableWrites (es : List Expr) : Bool :=
+  es.any exprHasUntrackableWrites
 
-mutual
-/-- Check whether a statement may write to storage fields that `stmtWrittenFields`
-    cannot track — specifically internal calls whose callee bodies are not visible
-    at single-function validation scope.  External calls (`externalCallBind`,
-    `tryExternalCallBind`, `ecm`) target other contracts and cannot directly modify
-    the current contract's storage fields, so they are safe for `modifies()`.
-    Used by `modifies(...)` validation to conservatively reject annotations when
-    write-set tracking is incomplete. -/
-def stmtHasUntrackableWrites : Stmt → Bool
+/-- Node-local statement classifier for untrackable writes; nested statement
+    bodies are reached via the canonical `Stmt.anyDeep`. External calls
+    (`externalCallBind`, `tryExternalCallBind`, `ecm`) target other contracts
+    and cannot directly modify the current contract's storage fields, so they
+    are safe for `modifies()` (as in the old walk). -/
+def stmtHasUntrackableWritesNode : Stmt → Bool
   | Stmt.internalCall _ _ | Stmt.internalCallAssign _ _ _ => true
   | Stmt.letVar _ value | Stmt.assignVar _ value =>
       exprHasUntrackableWrites value
@@ -642,206 +388,65 @@ def stmtHasUntrackableWrites : Stmt → Bool
       exprHasUntrackableWrites offset || exprHasUntrackableWrites value
   | Stmt.calldatacopy destOffset sourceOffset size | Stmt.returndataCopy destOffset sourceOffset size =>
       exprHasUntrackableWrites destOffset || exprHasUntrackableWrites sourceOffset || exprHasUntrackableWrites size
-  | Stmt.ite cond thenBranch elseBranch =>
-      exprHasUntrackableWrites cond ||
-        stmtListHasUntrackableWrites thenBranch ||
-        stmtListHasUntrackableWrites elseBranch
-  | Stmt.forEach _ count body =>
-      exprHasUntrackableWrites count || stmtListHasUntrackableWrites body
-  | Stmt.unsafeBlock _ body =>
-      stmtListHasUntrackableWrites body
+  | Stmt.ite cond _ _ =>
+      exprHasUntrackableWrites cond
+  | Stmt.forEach _ count _ =>
+      exprHasUntrackableWrites count
   | Stmt.unsafeYul fragment =>
       -- Raw Yul storage writes target computed slots that cannot be tied back to
       -- declared storage fields, so any storage-writing fragment is untrackable.
       !fragment.scopeEffects.storageWrites.isEmpty || fragment.mechanics.contains .storageWrite
-  | Stmt.matchAdt _ scrutinee branches =>
-      exprHasUntrackableWrites scrutinee || matchBranchesHasUntrackableWrites branches
+  | Stmt.matchAdt _ scrutinee _ =>
+      exprHasUntrackableWrites scrutinee
   | _ => false
-termination_by s => sizeOf s
-decreasing_by all_goals simp_wf; all_goals omega
 
-def stmtListHasUntrackableWrites : List Stmt → Bool
-  | [] => false
-  | s :: ss => stmtHasUntrackableWrites s || stmtListHasUntrackableWrites ss
-termination_by ss => sizeOf ss
-decreasing_by all_goals simp_wf; all_goals omega
+/-- Check whether a statement may write to storage fields that `stmtWrittenFields`
+    cannot track. Used by `modifies(...)` validation to conservatively reject
+    annotations when write-set tracking is incomplete. -/
+def stmtHasUntrackableWrites (s : Stmt) : Bool :=
+  s.anyDeep stmtHasUntrackableWritesNode
 
-def matchBranchesHasUntrackableWrites : List (String × List String × List Stmt) → Bool
-  | [] => false
-  | (_, _, body) :: rest =>
-      stmtListHasUntrackableWrites body || matchBranchesHasUntrackableWrites rest
-termination_by bs => sizeOf bs
-decreasing_by all_goals simp_wf; all_goals omega
-end
+def stmtListHasUntrackableWrites (stmts : List Stmt) : Bool :=
+  Stmt.anyDeepList stmtHasUntrackableWritesNode stmts
 
-mutual
-/-- Check whether an expression contains an external call (call, staticcall, delegatecall,
-    or externalCall).  Used by `no_external_calls` validation (#1729, Axis 3 Step 1c). -/
-def exprContainsExternalCall : Expr → Bool
+def matchBranchesHasUntrackableWrites (branches : List (String × List String × List Stmt)) : Bool :=
+  branches.any fun (_, _, body) => stmtListHasUntrackableWrites body
+
+/-- Node-local classifier: is this expression itself an external call (call,
+    staticcall, delegatecall, or non-builtin externalCall)? Lifted with the
+    canonical `Expr.anyDeep`. Used by `no_external_calls` validation
+    (#1729, Axis 3 Step 1c). -/
+def exprContainsExternalCallNode : Expr → Bool
   | Expr.call _ _ _ _ _ _ _ | Expr.staticcall _ _ _ _ _ _
   | Expr.delegatecall _ _ _ _ _ _ => true
-  | Expr.externalCall name args =>
-      if name == builtinExpName then exprListContainsExternalCall args else true
-  | Expr.add a b | Expr.sub a b | Expr.mul a b | Expr.div a b | Expr.sdiv a b
-  | Expr.mod a b | Expr.smod a b
-  | Expr.bitAnd a b | Expr.bitOr a b | Expr.bitXor a b | Expr.shl a b | Expr.shr a b | Expr.sar a b
-  | Expr.byte a b =>
-      exprContainsExternalCall a || exprContainsExternalCall b
-  | Expr.intrinsic _ _ _ args => exprListContainsExternalCall args
-  | Expr.forkIfAtLeast _ thenExpr elseExpr =>
-      exprContainsExternalCall thenExpr || exprContainsExternalCall elseExpr
-  | Expr.lt a b | Expr.gt a b | Expr.slt a b | Expr.sgt a b | Expr.eq a b
-  | Expr.ge a b | Expr.le a b | Expr.signextend a b
-  | Expr.logicalAnd a b | Expr.logicalOr a b
-  | Expr.wMulDown a b | Expr.wDivUp a b | Expr.min a b | Expr.max a b
-  | Expr.ceilDiv a b =>
-      exprContainsExternalCall a || exprContainsExternalCall b
-  | Expr.mulDivDown a b c | Expr.mulDivUp a b c
-  | Expr.mulDiv512Down a b c | Expr.mulDiv512Up a b c =>
-      exprContainsExternalCall a || exprContainsExternalCall b || exprContainsExternalCall c
-  | Expr.bitNot a | Expr.logicalNot a | Expr.extcodesize a =>
-      exprContainsExternalCall a
-  | Expr.ite cond thenVal elseVal =>
-      exprContainsExternalCall cond || exprContainsExternalCall thenVal || exprContainsExternalCall elseVal
-  | Expr.mapping _ key | Expr.mappingWord _ key _ | Expr.mappingPackedWord _ key _ _ | Expr.mappingUint _ key
-  | Expr.structMember _ key _ | Expr.arrayElement _ key | Expr.memoryArrayElement _ key
-  | Expr.arrayElementWord _ key _ _
-  | Expr.arrayElementDynamicWord _ key _
-  | Expr.arrayElementDynamicDataOffset _ key
-  | Expr.arrayElementDynamicMemberDataOffset _ key _
-  | Expr.arrayElementDynamicMemberLength _ key _
-  | Expr.storageArrayElement _ key =>
-      exprContainsExternalCall key
-  | Expr.arrayElementDynamicMemberElement _ key _ innerKey =>
-      exprContainsExternalCall key || exprContainsExternalCall innerKey
-  | Expr.paramDynamicMemberElement _ _ innerIndex =>
-      exprContainsExternalCall innerIndex
-  | Expr.mappingChain _ keys =>
-      exprListContainsExternalCall keys
-  | Expr.mapping2 _ key1 key2 | Expr.mapping2Word _ key1 key2 _
-  | Expr.structMember2 _ key1 key2 _ =>
-      exprContainsExternalCall key1 || exprContainsExternalCall key2
-  | Expr.mload offset | Expr.tload offset | Expr.calldataload offset
-  | Expr.returndataOptionalBoolAt offset =>
-      exprContainsExternalCall offset
-  | Expr.keccak256 offset size =>
-      exprContainsExternalCall offset || exprContainsExternalCall size
-  | Expr.internalCall _ args =>
-      exprListContainsExternalCall args
-  | Expr.adtConstruct _ _ args =>
-      exprListContainsExternalCall args
-  | Expr.dynamicBytesEq _ _ => false
-  -- Pure leaves: no external call inside. Listed explicitly to avoid
-  -- `_mutual.eq_def` heartbeat-ceiling failures when new constructors land.
-  | Expr.literal _ | Expr.param _ | Expr.constructorArg _ | Expr.storage _ | Expr.storageAddr _
-  | Expr.caller | Expr.contractAddress | Expr.txOrigin | Expr.chainid | Expr.msgValue | Expr.selfBalance
-  | Expr.blockTimestamp | Expr.blockNumber | Expr.blobbasefee
-  | Expr.calldatasize | Expr.returndataSize | Expr.localVar _ | Expr.arrayLength _
-  | Expr.memoryArrayLength _
-  | Expr.storageArrayLength _
-  | Expr.paramDynamicHeadWord _ _
-  | Expr.paramDynamicStaticComposite _ _
-  | Expr.paramDynamicMemberLength _ _
-  | Expr.paramDynamicMemberDataOffset _ _
-  | Expr.adtTag _ _ | Expr.adtField _ _ _ _ _ =>
-      false
-termination_by e => sizeOf e
-decreasing_by all_goals simp_wf; all_goals omega
+  | Expr.externalCall name _ => name != builtinExpName
+  | _ => false
 
-def exprListContainsExternalCall : List Expr → Bool
-  | [] => false
-  | e :: es => exprContainsExternalCall e || exprListContainsExternalCall es
-termination_by es => sizeOf es
-decreasing_by all_goals simp_wf; all_goals omega
-end
+def exprContainsExternalCall (e : Expr) : Bool :=
+  e.anyDeep exprContainsExternalCallNode
 
-mutual
-/-- Conservative expression call detector for annotations such as
-    `no_external_calls`, where an internal helper expression may itself perform
-    an external interaction. CEI uses `exprContainsExternalCall` instead so that
-    local helper reads do not become false interaction barriers. -/
-def exprMayContainExternalCall : Expr → Bool
+def exprListContainsExternalCall (es : List Expr) : Bool :=
+  es.any exprContainsExternalCall
+
+/-- Conservative variant of `exprContainsExternalCallNode` for annotations such
+    as `no_external_calls`, where an internal helper expression may itself
+    perform an external interaction. CEI uses `exprContainsExternalCall`
+    instead so that local helper reads do not become false interaction
+    barriers. -/
+def exprMayContainExternalCallNode : Expr → Bool
   | Expr.internalCall _ _ => true
-  | Expr.call _ _ _ _ _ _ _ | Expr.staticcall _ _ _ _ _ _
-  | Expr.delegatecall _ _ _ _ _ _ => true
-  | Expr.externalCall name args =>
-      if name == builtinExpName then exprListMayContainExternalCall args else true
-  | Expr.add a b | Expr.sub a b | Expr.mul a b | Expr.div a b | Expr.sdiv a b
-  | Expr.mod a b | Expr.smod a b
-  | Expr.bitAnd a b | Expr.bitOr a b | Expr.bitXor a b | Expr.shl a b | Expr.shr a b | Expr.sar a b
-  | Expr.byte a b =>
-      exprMayContainExternalCall a || exprMayContainExternalCall b
-  | Expr.intrinsic _ _ _ args => exprListMayContainExternalCall args
-  | Expr.forkIfAtLeast _ thenExpr elseExpr =>
-      exprMayContainExternalCall thenExpr || exprMayContainExternalCall elseExpr
-  | Expr.lt a b | Expr.gt a b | Expr.slt a b | Expr.sgt a b | Expr.eq a b
-  | Expr.ge a b | Expr.le a b | Expr.signextend a b
-  | Expr.logicalAnd a b | Expr.logicalOr a b
-  | Expr.wMulDown a b | Expr.wDivUp a b | Expr.min a b | Expr.max a b
-  | Expr.ceilDiv a b =>
-      exprMayContainExternalCall a || exprMayContainExternalCall b
-  | Expr.mulDivDown a b c | Expr.mulDivUp a b c
-  | Expr.mulDiv512Down a b c | Expr.mulDiv512Up a b c =>
-      exprMayContainExternalCall a || exprMayContainExternalCall b || exprMayContainExternalCall c
-  | Expr.bitNot a | Expr.logicalNot a | Expr.extcodesize a =>
-      exprMayContainExternalCall a
-  | Expr.ite cond thenVal elseVal =>
-      exprMayContainExternalCall cond || exprMayContainExternalCall thenVal || exprMayContainExternalCall elseVal
-  | Expr.mapping _ key | Expr.mappingWord _ key _ | Expr.mappingPackedWord _ key _ _ | Expr.mappingUint _ key
-  | Expr.structMember _ key _ | Expr.arrayElement _ key | Expr.memoryArrayElement _ key
-  | Expr.arrayElementWord _ key _ _
-  | Expr.arrayElementDynamicWord _ key _
-  | Expr.arrayElementDynamicDataOffset _ key
-  | Expr.arrayElementDynamicMemberDataOffset _ key _
-  | Expr.arrayElementDynamicMemberLength _ key _
-  | Expr.storageArrayElement _ key =>
-      exprMayContainExternalCall key
-  | Expr.arrayElementDynamicMemberElement _ key _ innerKey =>
-      exprMayContainExternalCall key || exprMayContainExternalCall innerKey
-  | Expr.paramDynamicMemberElement _ _ innerIndex =>
-      exprMayContainExternalCall innerIndex
-  | Expr.mappingChain _ keys =>
-      exprListMayContainExternalCall keys
-  | Expr.mapping2 _ key1 key2 | Expr.mapping2Word _ key1 key2 _
-  | Expr.structMember2 _ key1 key2 _ =>
-      exprMayContainExternalCall key1 || exprMayContainExternalCall key2
-  | Expr.mload offset | Expr.tload offset | Expr.calldataload offset
-  | Expr.returndataOptionalBoolAt offset =>
-      exprMayContainExternalCall offset
-  | Expr.keccak256 offset size =>
-      exprMayContainExternalCall offset || exprMayContainExternalCall size
-  | Expr.adtConstruct _ _ args =>
-      exprListMayContainExternalCall args
-  | Expr.dynamicBytesEq _ _ => false
-  -- Pure leaves: no external call inside. Listed explicitly to avoid
-  -- `_mutual.eq_def` heartbeat-ceiling failures when new constructors land.
-  | Expr.literal _ | Expr.param _ | Expr.constructorArg _ | Expr.storage _ | Expr.storageAddr _
-  | Expr.caller | Expr.contractAddress | Expr.txOrigin | Expr.chainid | Expr.msgValue | Expr.selfBalance
-  | Expr.blockTimestamp | Expr.blockNumber | Expr.blobbasefee
-  | Expr.calldatasize | Expr.returndataSize | Expr.localVar _ | Expr.arrayLength _
-  | Expr.memoryArrayLength _
-  | Expr.storageArrayLength _
-  | Expr.paramDynamicHeadWord _ _
-  | Expr.paramDynamicStaticComposite _ _
-  | Expr.paramDynamicMemberLength _ _
-  | Expr.paramDynamicMemberDataOffset _ _
-  | Expr.adtTag _ _ | Expr.adtField _ _ _ _ _ =>
-      false
-termination_by e => sizeOf e
-decreasing_by all_goals simp_wf; all_goals omega
+  | e => exprContainsExternalCallNode e
 
-def exprListMayContainExternalCall : List Expr → Bool
-  | [] => false
-  | e :: es => exprMayContainExternalCall e || exprListMayContainExternalCall es
-termination_by es => sizeOf es
-decreasing_by all_goals simp_wf; all_goals omega
-end
+def exprMayContainExternalCall (e : Expr) : Bool :=
+  e.anyDeep exprMayContainExternalCallNode
 
-mutual
-/-- Check whether a statement contains an external call (externalCallBind, ecm, or
-    an expression with call/staticcall/delegatecall/externalCall).
+def exprListMayContainExternalCall (es : List Expr) : Bool :=
+  es.any exprMayContainExternalCall
+
+/-- Node-local statement classifier for external calls; nested statement
+    bodies are reached via the canonical `Stmt.anyDeep`.
     Used by `no_external_calls` validation (#1729, Axis 3 Step 1c). -/
-def stmtContainsExternalCall : Stmt → Bool
+def stmtContainsExternalCallNode : Stmt → Bool
   | Stmt.externalCallBind _ _ _ | Stmt.tryExternalCallBind _ _ _ _ => true
   | Stmt.ecm _ _ => true
   | Stmt.letVar _ value | Stmt.assignVar _ value =>
@@ -887,15 +492,12 @@ def stmtContainsExternalCall : Stmt → Bool
       exprContainsExternalCall destOffset || exprContainsExternalCall sourceOffset || exprContainsExternalCall size
   | Stmt.returndataCopy destOffset sourceOffset size =>
       exprContainsExternalCall destOffset || exprContainsExternalCall sourceOffset || exprContainsExternalCall size
-  | Stmt.ite cond thenBranch elseBranch =>
-      exprContainsExternalCall cond || stmtListContainsExternalCall thenBranch || stmtListContainsExternalCall elseBranch
-  | Stmt.forEach _ count body =>
-      exprContainsExternalCall count || stmtListContainsExternalCall body
-  | Stmt.unsafeBlock _ body =>
-      stmtListContainsExternalCall body
-  | Stmt.matchAdt _ scrutinee branches =>
-      exprContainsExternalCall scrutinee ||
-        matchBranchesContainExternalCall branches
+  | Stmt.ite cond _ _ =>
+      exprContainsExternalCall cond
+  | Stmt.forEach _ count _ =>
+      exprContainsExternalCall count
+  | Stmt.matchAdt _ scrutinee _ =>
+      exprContainsExternalCall scrutinee
   | Stmt.internalCall _ args | Stmt.internalCallAssign _ _ args =>
       args.any exprContainsExternalCall
   | Stmt.unsafeYul fragment =>
@@ -904,45 +506,28 @@ def stmtContainsExternalCall : Stmt → Bool
         fragment.mechanics.contains .delegatecall ||
         yulStmtListContainsExternalCall fragment.stmts
   | _ => false
-termination_by s => sizeOf s
-decreasing_by all_goals simp_wf; all_goals omega
 
-def stmtListContainsExternalCall : List Stmt → Bool
-  | [] => false
-  | s :: ss => stmtContainsExternalCall s || stmtListContainsExternalCall ss
-termination_by ss => sizeOf ss
-decreasing_by all_goals simp_wf; all_goals omega
+def stmtContainsExternalCall (s : Stmt) : Bool :=
+  s.anyDeep stmtContainsExternalCallNode
 
-def matchBranchesContainExternalCall : List (String × List String × List Stmt) → Bool
-  | [] => false
-  | (_, _, body) :: rest =>
-      stmtListContainsExternalCall body || matchBranchesContainExternalCall rest
-termination_by bs => sizeOf bs
-decreasing_by all_goals simp_wf; all_goals omega
-end
+def stmtListContainsExternalCall (stmts : List Stmt) : Bool :=
+  Stmt.anyDeepList stmtContainsExternalCallNode stmts
 
-mutual
-/-- Conservative variant of `stmtContainsExternalCall` for `no_external_calls`
-    validation. Returns `true` for internal calls anywhere in the statement tree,
-    because callee bodies may contain external calls that are not visible at
+def matchBranchesContainExternalCall (branches : List (String × List String × List Stmt)) : Bool :=
+  branches.any fun (_, _, body) => stmtListContainsExternalCall body
+
+/-- Conservative variant of `stmtContainsExternalCallNode` for
+    `no_external_calls` validation. Returns `true` for internal calls because
+    callee bodies may contain external calls that are not visible at
     single-function validation scope. -/
-def stmtMayContainExternalCall : Stmt → Bool
+def stmtMayContainExternalCallNode : Stmt → Bool
   | Stmt.internalCall _ _ | Stmt.internalCallAssign _ _ _ => true
-  | Stmt.ite cond thenBranch elseBranch =>
-      exprMayContainExternalCall cond ||
-        stmtListMayContainExternalCall thenBranch ||
-        stmtListMayContainExternalCall elseBranch
-  | Stmt.forEach _ count body =>
-      exprMayContainExternalCall count || stmtListMayContainExternalCall body
-  | Stmt.unsafeBlock _ body =>
-      stmtListMayContainExternalCall body
-  | Stmt.matchAdt _ scrutinee branches =>
-      exprMayContainExternalCall scrutinee || matchBranchesMayContainExternalCall branches
-  | Stmt.unsafeYul fragment =>
-      fragment.mechanics.contains .call ||
-        fragment.mechanics.contains .staticcall ||
-        fragment.mechanics.contains .delegatecall ||
-        yulStmtListContainsExternalCall fragment.stmts
+  | Stmt.ite cond _ _ =>
+      exprMayContainExternalCall cond
+  | Stmt.forEach _ count _ =>
+      exprMayContainExternalCall count
+  | Stmt.matchAdt _ scrutinee _ =>
+      exprMayContainExternalCall scrutinee
   | Stmt.letVar _ value | Stmt.assignVar _ value =>
       exprMayContainExternalCall value
   | Stmt.setStorage _ value | Stmt.setStorageAddr _ value | Stmt.setStorageWord _ _ value
@@ -986,35 +571,25 @@ def stmtMayContainExternalCall : Stmt → Bool
       exprMayContainExternalCall destOffset || exprMayContainExternalCall sourceOffset || exprMayContainExternalCall size
   | Stmt.returndataCopy destOffset sourceOffset size =>
       exprMayContainExternalCall destOffset || exprMayContainExternalCall sourceOffset || exprMayContainExternalCall size
-  | s => stmtContainsExternalCall s
-termination_by s => sizeOf s
-decreasing_by all_goals simp_wf; all_goals omega
+  | s => stmtContainsExternalCallNode s
 
-def stmtListMayContainExternalCall : List Stmt → Bool
-  | [] => false
-  | s :: ss => stmtMayContainExternalCall s || stmtListMayContainExternalCall ss
-termination_by ss => sizeOf ss
-decreasing_by all_goals simp_wf; all_goals omega
+def stmtMayContainExternalCall (s : Stmt) : Bool :=
+  s.anyDeep stmtMayContainExternalCallNode
 
-def matchBranchesMayContainExternalCall : List (String × List String × List Stmt) → Bool
-  | [] => false
-  | (_, _, body) :: rest =>
-      stmtListMayContainExternalCall body || matchBranchesMayContainExternalCall rest
-termination_by bs => sizeOf bs
-decreasing_by all_goals simp_wf; all_goals omega
-end
+def stmtListMayContainExternalCall (stmts : List Stmt) : Bool :=
+  Stmt.anyDeepList stmtMayContainExternalCallNode stmts
 
-mutual
-def stmtReadsStateOrEnv : Stmt → Bool
+def matchBranchesMayContainExternalCall (branches : List (String × List String × List Stmt)) : Bool :=
+  branches.any fun (_, _, body) => stmtListMayContainExternalCall body
+
+/-- Node-local statement classifier for state/environment reads; nested
+    statement bodies are reached via the canonical `Stmt.anyDeep`. -/
+def stmtReadsStateOrEnvNode : Stmt → Bool
   | Stmt.letVar _ value | Stmt.assignVar _ value | Stmt.setStorage _ value | Stmt.setStorageAddr _ value
   | Stmt.setStorageWord _ _ value |
     Stmt.return value | Stmt.require value _ =>
       exprReadsStateOrEnv value
-  | Stmt.storageArrayPush _ value =>
-      true || exprReadsStateOrEnv value
-  | Stmt.setStorageArrayElement _ index value =>
-      true || exprReadsStateOrEnv index || exprReadsStateOrEnv value
-  | Stmt.storageArrayPop _ =>
+  | Stmt.storageArrayPush _ _ | Stmt.setStorageArrayElement _ _ _ | Stmt.storageArrayPop _ =>
       true
   | Stmt.requireError cond _ args =>
       exprReadsStateOrEnv cond || args.any exprReadsStateOrEnv
@@ -1024,11 +599,9 @@ def stmtReadsStateOrEnv : Stmt → Bool
       false
   | Stmt.returnStorageWords _ =>
       true
-  | Stmt.returnCodeData pointer =>
-      true || exprReadsStateOrEnv pointer
-  | Stmt.mstore offset value =>
-      exprReadsStateOrEnv offset || exprReadsStateOrEnv value
-  | Stmt.tstore offset value =>
+  | Stmt.returnCodeData _ =>
+      true
+  | Stmt.mstore offset value | Stmt.tstore offset value =>
       exprReadsStateOrEnv offset || exprReadsStateOrEnv value
   | Stmt.calldatacopy _ _ _ | Stmt.returndataCopy _ _ _ => true
   | Stmt.revertReturndata =>
@@ -1039,38 +612,30 @@ def stmtReadsStateOrEnv : Stmt → Bool
   | Stmt.setMappingChain _ _ _
   | Stmt.setMapping2 _ _ _ _ | Stmt.setMapping2Word _ _ _ _ _
   | Stmt.setStructMember _ _ _ _ | Stmt.setStructMember2 _ _ _ _ _ => true
-  | Stmt.ite cond thenBranch elseBranch =>
-      exprReadsStateOrEnv cond || stmtListReadsStateOrEnv thenBranch || stmtListReadsStateOrEnv elseBranch
-  | Stmt.forEach _ count body =>
-      exprReadsStateOrEnv count || stmtListReadsStateOrEnv body
-  | Stmt.unsafeBlock _ body =>
-      stmtListReadsStateOrEnv body
+  | Stmt.ite cond _ _ =>
+      exprReadsStateOrEnv cond
+  | Stmt.forEach _ count _ =>
+      exprReadsStateOrEnv count
+  | Stmt.unsafeBlock _ _ =>
+      false
   | Stmt.rawLog topics dataOffset dataSize =>
       topics.any exprReadsStateOrEnv || exprReadsStateOrEnv dataOffset || exprReadsStateOrEnv dataSize
   | Stmt.internalCall _ _ | Stmt.internalCallAssign _ _ _
   | Stmt.externalCallBind _ _ _ | Stmt.tryExternalCallBind _ _ _ _ => true
   | Stmt.ecm mod args => mod.readsState || mod.writesState || args.any exprReadsStateOrEnv
-  | Stmt.matchAdt _ scrutinee branches =>
-      exprReadsStateOrEnv scrutinee ||
-        matchBranchesReadStateOrEnv branches
+  | Stmt.matchAdt _ scrutinee _ =>
+      exprReadsStateOrEnv scrutinee
   | Stmt.unsafeYul fragment =>
       !fragment.mechanics.isEmpty || !fragment.scopeEffects.storageWrites.isEmpty
-termination_by s => sizeOf s
-decreasing_by all_goals simp_wf; all_goals omega
 
-def stmtListReadsStateOrEnv : List Stmt → Bool
-  | [] => false
-  | s :: ss => stmtReadsStateOrEnv s || stmtListReadsStateOrEnv ss
-termination_by ss => sizeOf ss
-decreasing_by all_goals simp_wf; all_goals omega
+def stmtReadsStateOrEnv (s : Stmt) : Bool :=
+  s.anyDeep stmtReadsStateOrEnvNode
 
-def matchBranchesReadStateOrEnv : List (String × List String × List Stmt) → Bool
-  | [] => false
-  | (_, _, body) :: rest =>
-      stmtListReadsStateOrEnv body || matchBranchesReadStateOrEnv rest
-termination_by bs => sizeOf bs
-decreasing_by all_goals simp_wf; all_goals omega
-end
+def stmtListReadsStateOrEnv (stmts : List Stmt) : Bool :=
+  Stmt.anyDeepList stmtReadsStateOrEnvNode stmts
+
+def matchBranchesReadStateOrEnv (branches : List (String × List String × List Stmt)) : Bool :=
+  branches.any fun (_, _, body) => stmtListReadsStateOrEnv body
 
 structure FunctionEffect where
   writesState : Bool := false
@@ -1086,114 +651,26 @@ private def lookupFunctionEffect
   | some (_, effect) => effect
   | none => unknownFunctionEffect
 
-mutual
-def exprWritesStateWithFunctionEffects
+/-- Node-local classifier for state writes with inferred per-function
+    effects; lifted with the canonical `Expr.anyDeep`. -/
+def exprWritesStateWithFunctionEffectsNode
     (effects : List (String × FunctionEffect)) : Expr → Bool
-  | Expr.add a b | Expr.sub a b | Expr.mul a b | Expr.div a b | Expr.sdiv a b
-  | Expr.mod a b | Expr.smod a b |
-    Expr.bitAnd a b | Expr.bitOr a b | Expr.bitXor a b | Expr.shl a b | Expr.shr a b
-  | Expr.sar a b | Expr.signextend a b | Expr.byte a b |
-    Expr.eq a b | Expr.ge a b | Expr.gt a b | Expr.sgt a b | Expr.lt a b | Expr.slt a b | Expr.le a b |
-    Expr.logicalAnd a b | Expr.logicalOr a b |
-    Expr.wMulDown a b | Expr.wDivUp a b | Expr.min a b | Expr.max a b |
-    Expr.ceilDiv a b =>
-      exprWritesStateWithFunctionEffects effects a ||
-        exprWritesStateWithFunctionEffects effects b
-  | Expr.intrinsic _ _ _ args => exprListWritesStateWithFunctionEffects effects args
-  | Expr.forkIfAtLeast _ thenExpr elseExpr =>
-      exprWritesStateWithFunctionEffects effects thenExpr ||
-        exprWritesStateWithFunctionEffects effects elseExpr
-  | Expr.mulDivDown a b c | Expr.mulDivUp a b c
-  | Expr.mulDiv512Down a b c | Expr.mulDiv512Up a b c =>
-      exprWritesStateWithFunctionEffects effects a ||
-        exprWritesStateWithFunctionEffects effects b ||
-        exprWritesStateWithFunctionEffects effects c
-  | Expr.bitNot a | Expr.logicalNot a =>
-      exprWritesStateWithFunctionEffects effects a
-  | Expr.ite cond thenVal elseVal =>
-      exprWritesStateWithFunctionEffects effects cond ||
-        exprWritesStateWithFunctionEffects effects thenVal ||
-        exprWritesStateWithFunctionEffects effects elseVal
-  | Expr.mapping _ key | Expr.mappingWord _ key _ | Expr.mappingPackedWord _ key _ _ | Expr.mappingUint _ key
-  | Expr.structMember _ key _ =>
-      exprWritesStateWithFunctionEffects effects key
-  | Expr.mappingChain _ keys =>
-      exprListWritesStateWithFunctionEffects effects keys
-  | Expr.mapping2 _ key1 key2 | Expr.mapping2Word _ key1 key2 _
-  | Expr.structMember2 _ key1 key2 _ =>
-      exprWritesStateWithFunctionEffects effects key1 ||
-        exprWritesStateWithFunctionEffects effects key2
-  | Expr.call _ _ _ _ _ _ _ => true
-  | Expr.staticcall gas target inOffset inSize outOffset outSize =>
-      exprWritesStateWithFunctionEffects effects gas ||
-        exprWritesStateWithFunctionEffects effects target ||
-        exprWritesStateWithFunctionEffects effects inOffset ||
-        exprWritesStateWithFunctionEffects effects inSize ||
-        exprWritesStateWithFunctionEffects effects outOffset ||
-        exprWritesStateWithFunctionEffects effects outSize
-  | Expr.delegatecall _ _ _ _ _ _ => true
-  | Expr.mload offset | Expr.tload offset =>
-      exprWritesStateWithFunctionEffects effects offset
-  | Expr.calldataload offset =>
-      exprWritesStateWithFunctionEffects effects offset
-  | Expr.keccak256 offset size =>
-      exprWritesStateWithFunctionEffects effects offset ||
-        exprWritesStateWithFunctionEffects effects size
-  | Expr.returndataOptionalBoolAt outOffset =>
-      exprWritesStateWithFunctionEffects effects outOffset
-  | Expr.dynamicBytesEq _ _ =>
-      false
-  | Expr.externalCall name args =>
-      if name == builtinExpName then
-        exprListWritesStateWithFunctionEffects effects args
-      else
-        true
-  | Expr.internalCall name args =>
-      (lookupFunctionEffect effects name).writesState ||
-        exprListWritesStateWithFunctionEffects effects args
-  | Expr.adtConstruct _ _ args =>
-      exprListWritesStateWithFunctionEffects effects args
-  | Expr.extcodesize addr =>
-      exprWritesStateWithFunctionEffects effects addr
-  | Expr.storageArrayLength _ =>
-      false
-  | Expr.storageArrayElement _ index =>
-      exprWritesStateWithFunctionEffects effects index
-  | Expr.arrayElement _ index | Expr.memoryArrayElement _ index
-  | Expr.arrayElementWord _ index _ _ | Expr.arrayElementDynamicWord _ index _
-  | Expr.arrayElementDynamicDataOffset _ index
-  | Expr.arrayElementDynamicMemberDataOffset _ index _
-  | Expr.arrayElementDynamicMemberLength _ index _ =>
-      exprWritesStateWithFunctionEffects effects index
-  | Expr.arrayElementDynamicMemberElement _ index _ innerIndex =>
-      exprWritesStateWithFunctionEffects effects index ||
-        exprWritesStateWithFunctionEffects effects innerIndex
-  | Expr.literal _ | Expr.param _ | Expr.constructorArg _ | Expr.storage _ | Expr.storageAddr _
-  | Expr.caller | Expr.contractAddress | Expr.txOrigin | Expr.chainid | Expr.msgValue | Expr.selfBalance
-  | Expr.blockTimestamp | Expr.blockNumber | Expr.blobbasefee
-  | Expr.calldatasize | Expr.returndataSize | Expr.localVar _ | Expr.arrayLength _
-  | Expr.memoryArrayLength _
-  | Expr.paramDynamicHeadWord _ _
-  | Expr.paramDynamicStaticComposite _ _
-  | Expr.paramDynamicMemberLength _ _
-  | Expr.paramDynamicMemberDataOffset _ _
-  | Expr.adtTag _ _ | Expr.adtField _ _ _ _ _ =>
-      false
-  | Expr.paramDynamicMemberElement _ _ innerIndex =>
-      exprWritesStateWithFunctionEffects effects innerIndex
-termination_by e => sizeOf e
-decreasing_by all_goals simp_wf; all_goals omega
+  | Expr.call _ _ _ _ _ _ _ | Expr.delegatecall _ _ _ _ _ _ => true
+  | Expr.externalCall name _ => name != builtinExpName
+  | Expr.internalCall name _ => (lookupFunctionEffect effects name).writesState
+  | _ => false
+
+def exprWritesStateWithFunctionEffects
+    (effects : List (String × FunctionEffect)) (e : Expr) : Bool :=
+  e.anyDeep (exprWritesStateWithFunctionEffectsNode effects)
 
 def exprListWritesStateWithFunctionEffects
-    (effects : List (String × FunctionEffect)) : List Expr → Bool
-  | [] => false
-  | e :: es =>
-      exprWritesStateWithFunctionEffects effects e ||
-        exprListWritesStateWithFunctionEffects effects es
-termination_by es => sizeOf es
-decreasing_by all_goals simp_wf; all_goals omega
+    (effects : List (String × FunctionEffect)) (es : List Expr) : Bool :=
+  es.any (exprWritesStateWithFunctionEffects effects)
 
-def stmtWritesStateWithFunctionEffects
+/-- Node-local statement classifier for state writes with inferred
+    per-function effects; nested bodies via the canonical `Stmt.anyDeep`. -/
+def stmtWritesStateWithFunctionEffectsNode
     (effects : List (String × FunctionEffect)) : Stmt → Bool
   | Stmt.letVar _ value | Stmt.assignVar _ value =>
       exprWritesStateWithFunctionEffects effects value
@@ -1214,12 +691,6 @@ def stmtWritesStateWithFunctionEffects
       exprWritesStateWithFunctionEffects effects value
   | Stmt.returnValues values =>
       exprListWritesStateWithFunctionEffects effects values
-  | Stmt.returnArray _ =>
-      false
-  | Stmt.returnBytes _ =>
-      false
-  | Stmt.returnStorageWords _ =>
-      false
   | Stmt.returnCodeData pointer =>
       exprWritesStateWithFunctionEffects effects pointer
   | Stmt.mstore offset value =>
@@ -1227,27 +698,15 @@ def stmtWritesStateWithFunctionEffects
         exprWritesStateWithFunctionEffects effects value
   | Stmt.tstore _ _ =>
       true
-  | Stmt.calldatacopy destOffset sourceOffset size =>
-      exprWritesStateWithFunctionEffects effects destOffset ||
-        exprWritesStateWithFunctionEffects effects sourceOffset ||
-        exprWritesStateWithFunctionEffects effects size
+  | Stmt.calldatacopy destOffset sourceOffset size
   | Stmt.returndataCopy destOffset sourceOffset size =>
       exprWritesStateWithFunctionEffects effects destOffset ||
         exprWritesStateWithFunctionEffects effects sourceOffset ||
         exprWritesStateWithFunctionEffects effects size
-  | Stmt.revertReturndata =>
-      false
-  | Stmt.stop =>
-      false
-  | Stmt.ite cond thenBranch elseBranch =>
-      exprWritesStateWithFunctionEffects effects cond ||
-        stmtListWritesStateWithFunctionEffects effects thenBranch ||
-        stmtListWritesStateWithFunctionEffects effects elseBranch
-  | Stmt.forEach _ count body =>
-      exprWritesStateWithFunctionEffects effects count ||
-        stmtListWritesStateWithFunctionEffects effects body
-  | Stmt.unsafeBlock _ body =>
-      stmtListWritesStateWithFunctionEffects effects body
+  | Stmt.ite cond _ _ =>
+      exprWritesStateWithFunctionEffects effects cond
+  | Stmt.forEach _ count _ =>
+      exprWritesStateWithFunctionEffects effects count
   | Stmt.emit _ _ | Stmt.rawLog _ _ _
   | Stmt.externalCallBind _ _ _ | Stmt.tryExternalCallBind _ _ _ _ => true
   | Stmt.internalCall name args | Stmt.internalCallAssign _ name args =>
@@ -1255,147 +714,52 @@ def stmtWritesStateWithFunctionEffects
         exprListWritesStateWithFunctionEffects effects args
   | Stmt.ecm mod args =>
       mod.writesState || exprListWritesStateWithFunctionEffects effects args
-  | Stmt.matchAdt _ scrutinee branches =>
-      exprWritesStateWithFunctionEffects effects scrutinee ||
-        matchBranchesWriteStateWithFunctionEffects effects branches
+  | Stmt.matchAdt _ scrutinee _ =>
+      exprWritesStateWithFunctionEffects effects scrutinee
   | Stmt.unsafeYul fragment =>
       !fragment.scopeEffects.storageWrites.isEmpty || fragment.mechanics.contains .tstore
-termination_by s => sizeOf s
-decreasing_by all_goals simp_wf; all_goals omega
+  | _ => false
+
+def stmtWritesStateWithFunctionEffects
+    (effects : List (String × FunctionEffect)) (s : Stmt) : Bool :=
+  s.anyDeep (stmtWritesStateWithFunctionEffectsNode effects)
 
 def stmtListWritesStateWithFunctionEffects
-    (effects : List (String × FunctionEffect)) : List Stmt → Bool
-  | [] => false
-  | s :: ss =>
-      stmtWritesStateWithFunctionEffects effects s ||
-        stmtListWritesStateWithFunctionEffects effects ss
-termination_by ss => sizeOf ss
-decreasing_by all_goals simp_wf; all_goals omega
+    (effects : List (String × FunctionEffect)) (stmts : List Stmt) : Bool :=
+  Stmt.anyDeepList (stmtWritesStateWithFunctionEffectsNode effects) stmts
 
 def matchBranchesWriteStateWithFunctionEffects
-    (effects : List (String × FunctionEffect)) :
-    List (String × List String × List Stmt) → Bool
-  | [] => false
-  | (_, _, body) :: rest =>
-      stmtListWritesStateWithFunctionEffects effects body ||
-        matchBranchesWriteStateWithFunctionEffects effects rest
-termination_by bs => sizeOf bs
-decreasing_by all_goals simp_wf; all_goals omega
-end
+    (effects : List (String × FunctionEffect))
+    (branches : List (String × List String × List Stmt)) : Bool :=
+  branches.any fun (_, _, body) => stmtListWritesStateWithFunctionEffects effects body
 
-mutual
-def exprReadsStateOrEnvWithFunctionEffects
+/-- Node-local classifier for state/environment reads with inferred
+    per-function effects; lifted with the canonical `Expr.anyDeep`. -/
+def exprReadsStateOrEnvWithFunctionEffectsNode
     (effects : List (String × FunctionEffect)) : Expr → Bool
-  | Expr.literal _ => false
-  | Expr.param _ => false
-  | Expr.constructorArg _ => false
-  | Expr.storage _ | Expr.storageAddr _ => true
-  | Expr.mapping _ _ | Expr.mappingWord _ _ _ | Expr.mappingPackedWord _ _ _ _
-  | Expr.mapping2 _ _ _ | Expr.mapping2Word _ _ _ _
-  | Expr.mappingUint _ _
-  | Expr.mappingChain _ _
-  | Expr.structMember _ _ _ | Expr.structMember2 _ _ _ _ => true
-  | Expr.caller => true
-  | Expr.contractAddress => true
-  | Expr.txOrigin => true
-  | Expr.chainid => true
-  | Expr.extcodesize _ => true
-  | Expr.msgValue => true
-  | Expr.selfBalance => true
-  | Expr.blockTimestamp => true
-  | Expr.blockNumber => true
-  | Expr.blobbasefee => true
-  | Expr.calldatasize => true
-  | Expr.calldataload _ => true
-  | Expr.mload offset => exprReadsStateOrEnvWithFunctionEffects effects offset
-  | Expr.tload _ => true
-  | Expr.keccak256 offset size =>
-      exprReadsStateOrEnvWithFunctionEffects effects offset ||
-        exprReadsStateOrEnvWithFunctionEffects effects size
-  | Expr.call _ _ _ _ _ _ _ | Expr.staticcall _ _ _ _ _ _
-  | Expr.delegatecall _ _ _ _ _ _ => true
-  | Expr.returndataSize => true
-  | Expr.returndataOptionalBoolAt _ => true
-  | Expr.dynamicBytesEq _ _ => false
-  | Expr.localVar _ => false
-  | Expr.externalCall name args =>
-      if name == builtinExpName then
-        exprListReadsStateOrEnvWithFunctionEffects effects args
-      else
-        true
-  | Expr.internalCall name args =>
-      (lookupFunctionEffect effects name).readsStateOrEnv ||
-        exprListReadsStateOrEnvWithFunctionEffects effects args
-  | Expr.arrayLength _ | Expr.memoryArrayLength _ => false
-  | Expr.paramDynamicHeadWord _ _
-  | Expr.paramDynamicStaticComposite _ _
-  | Expr.paramDynamicMemberLength _ _
-  | Expr.paramDynamicMemberDataOffset _ _ => false
-  | Expr.paramDynamicMemberElement _ _ innerIndex =>
-      exprReadsStateOrEnvWithFunctionEffects effects innerIndex
-  | Expr.storageArrayLength _ => true
-  | Expr.storageArrayElement _ index => true || exprReadsStateOrEnvWithFunctionEffects effects index
-  | Expr.arrayElement _ index | Expr.memoryArrayElement _ index
-  | Expr.arrayElementWord _ index _ _ | Expr.arrayElementDynamicWord _ index _
-  | Expr.arrayElementDynamicDataOffset _ index
-  | Expr.arrayElementDynamicMemberDataOffset _ index _
-  | Expr.arrayElementDynamicMemberLength _ index _ =>
-      exprReadsStateOrEnvWithFunctionEffects effects index
-  | Expr.arrayElementDynamicMemberElement _ index _ innerIndex =>
-      exprReadsStateOrEnvWithFunctionEffects effects index ||
-        exprReadsStateOrEnvWithFunctionEffects effects innerIndex
-  | Expr.add a b | Expr.sub a b | Expr.mul a b | Expr.div a b | Expr.sdiv a b
-  | Expr.mod a b | Expr.smod a b |
-    Expr.bitAnd a b | Expr.bitOr a b | Expr.bitXor a b | Expr.shl a b | Expr.shr a b
-  | Expr.sar a b | Expr.signextend a b | Expr.byte a b |
-    Expr.eq a b | Expr.ge a b | Expr.gt a b | Expr.sgt a b | Expr.lt a b | Expr.slt a b | Expr.le a b |
-    Expr.logicalAnd a b | Expr.logicalOr a b |
-    Expr.wMulDown a b | Expr.wDivUp a b | Expr.min a b | Expr.max a b |
-    Expr.ceilDiv a b =>
-      exprReadsStateOrEnvWithFunctionEffects effects a ||
-        exprReadsStateOrEnvWithFunctionEffects effects b
-  | Expr.intrinsic _ _ _ args => exprListReadsStateOrEnvWithFunctionEffects effects args
-  | Expr.forkIfAtLeast _ thenExpr elseExpr =>
-      exprReadsStateOrEnvWithFunctionEffects effects thenExpr ||
-        exprReadsStateOrEnvWithFunctionEffects effects elseExpr
-  | Expr.mulDivDown a b c | Expr.mulDivUp a b c
-  | Expr.mulDiv512Down a b c | Expr.mulDiv512Up a b c =>
-      exprReadsStateOrEnvWithFunctionEffects effects a ||
-        exprReadsStateOrEnvWithFunctionEffects effects b ||
-        exprReadsStateOrEnvWithFunctionEffects effects c
-  | Expr.bitNot a | Expr.logicalNot a =>
-      exprReadsStateOrEnvWithFunctionEffects effects a
-  | Expr.ite cond thenVal elseVal =>
-      exprReadsStateOrEnvWithFunctionEffects effects cond ||
-        exprReadsStateOrEnvWithFunctionEffects effects thenVal ||
-        exprReadsStateOrEnvWithFunctionEffects effects elseVal
-  | Expr.adtConstruct _ _ args =>
-      exprListReadsStateOrEnvWithFunctionEffects effects args
-  | Expr.adtTag _ _ | Expr.adtField _ _ _ _ _ => true
-termination_by e => sizeOf e
-decreasing_by all_goals simp_wf; all_goals omega
+  | Expr.internalCall name _ => (lookupFunctionEffect effects name).readsStateOrEnv
+  | e => exprReadsStateOrEnvNode e
+
+def exprReadsStateOrEnvWithFunctionEffects
+    (effects : List (String × FunctionEffect)) (e : Expr) : Bool :=
+  e.anyDeep (exprReadsStateOrEnvWithFunctionEffectsNode effects)
 
 def exprListReadsStateOrEnvWithFunctionEffects
-    (effects : List (String × FunctionEffect)) : List Expr → Bool
-  | [] => false
-  | e :: es =>
-      exprReadsStateOrEnvWithFunctionEffects effects e ||
-        exprListReadsStateOrEnvWithFunctionEffects effects es
-termination_by es => sizeOf es
-decreasing_by all_goals simp_wf; all_goals omega
+    (effects : List (String × FunctionEffect)) (es : List Expr) : Bool :=
+  es.any (exprReadsStateOrEnvWithFunctionEffects effects)
 
-def stmtReadsStateOrEnvWithFunctionEffects
+/-- Node-local statement classifier for state/environment reads with inferred
+    per-function effects; nested bodies via the canonical `Stmt.anyDeep`. -/
+def stmtReadsStateOrEnvWithFunctionEffectsNode
     (effects : List (String × FunctionEffect)) : Stmt → Bool
+  | Stmt.internalCall name args | Stmt.internalCallAssign _ name args =>
+      (lookupFunctionEffect effects name).readsStateOrEnv ||
+        exprListReadsStateOrEnvWithFunctionEffects effects args
   | Stmt.letVar _ value | Stmt.assignVar _ value | Stmt.setStorage _ value | Stmt.setStorageAddr _ value
   | Stmt.setStorageWord _ _ value |
     Stmt.return value | Stmt.require value _ =>
       exprReadsStateOrEnvWithFunctionEffects effects value
-  | Stmt.storageArrayPush _ value =>
-      true || exprReadsStateOrEnvWithFunctionEffects effects value
-  | Stmt.setStorageArrayElement _ index value =>
-      true || exprReadsStateOrEnvWithFunctionEffects effects index ||
-        exprReadsStateOrEnvWithFunctionEffects effects value
-  | Stmt.storageArrayPop _ =>
+  | Stmt.storageArrayPush _ _ | Stmt.setStorageArrayElement _ _ _ | Stmt.storageArrayPop _ =>
       true
   | Stmt.requireError cond _ args =>
       exprReadsStateOrEnvWithFunctionEffects effects cond ||
@@ -1406,12 +770,9 @@ def stmtReadsStateOrEnvWithFunctionEffects
       false
   | Stmt.returnStorageWords _ =>
       true
-  | Stmt.returnCodeData pointer =>
-      true || exprReadsStateOrEnvWithFunctionEffects effects pointer
-  | Stmt.mstore offset value =>
-      exprReadsStateOrEnvWithFunctionEffects effects offset ||
-        exprReadsStateOrEnvWithFunctionEffects effects value
-  | Stmt.tstore offset value =>
+  | Stmt.returnCodeData _ =>
+      true
+  | Stmt.mstore offset value | Stmt.tstore offset value =>
       exprReadsStateOrEnvWithFunctionEffects effects offset ||
         exprReadsStateOrEnvWithFunctionEffects effects value
   | Stmt.calldatacopy _ _ _ | Stmt.returndataCopy _ _ _ => true
@@ -1423,53 +784,37 @@ def stmtReadsStateOrEnvWithFunctionEffects
   | Stmt.setMappingChain _ _ _
   | Stmt.setMapping2 _ _ _ _ | Stmt.setMapping2Word _ _ _ _ _
   | Stmt.setStructMember _ _ _ _ | Stmt.setStructMember2 _ _ _ _ _ => true
-  | Stmt.ite cond thenBranch elseBranch =>
-      exprReadsStateOrEnvWithFunctionEffects effects cond ||
-        stmtListReadsStateOrEnvWithFunctionEffects effects thenBranch ||
-        stmtListReadsStateOrEnvWithFunctionEffects effects elseBranch
-  | Stmt.forEach _ count body =>
-      exprReadsStateOrEnvWithFunctionEffects effects count ||
-        stmtListReadsStateOrEnvWithFunctionEffects effects body
-  | Stmt.unsafeBlock _ body =>
-      stmtListReadsStateOrEnvWithFunctionEffects effects body
+  | Stmt.ite cond _ _ =>
+      exprReadsStateOrEnvWithFunctionEffects effects cond
+  | Stmt.forEach _ count _ =>
+      exprReadsStateOrEnvWithFunctionEffects effects count
+  | Stmt.unsafeBlock _ _ =>
+      false
   | Stmt.rawLog topics dataOffset dataSize =>
       topics.any (exprReadsStateOrEnvWithFunctionEffects effects) ||
         exprReadsStateOrEnvWithFunctionEffects effects dataOffset ||
         exprReadsStateOrEnvWithFunctionEffects effects dataSize
   | Stmt.externalCallBind _ _ _ | Stmt.tryExternalCallBind _ _ _ _ => true
-  | Stmt.internalCall name args | Stmt.internalCallAssign _ name args =>
-      (lookupFunctionEffect effects name).readsStateOrEnv ||
-        exprListReadsStateOrEnvWithFunctionEffects effects args
   | Stmt.ecm mod args =>
       mod.readsState || mod.writesState ||
         exprListReadsStateOrEnvWithFunctionEffects effects args
-  | Stmt.matchAdt _ scrutinee branches =>
-      exprReadsStateOrEnvWithFunctionEffects effects scrutinee ||
-        matchBranchesReadStateOrEnvWithFunctionEffects effects branches
+  | Stmt.matchAdt _ scrutinee _ =>
+      exprReadsStateOrEnvWithFunctionEffects effects scrutinee
   | Stmt.unsafeYul fragment =>
       !fragment.mechanics.isEmpty || !fragment.scopeEffects.storageWrites.isEmpty
-termination_by s => sizeOf s
-decreasing_by all_goals simp_wf; all_goals omega
+
+def stmtReadsStateOrEnvWithFunctionEffects
+    (effects : List (String × FunctionEffect)) (s : Stmt) : Bool :=
+  s.anyDeep (stmtReadsStateOrEnvWithFunctionEffectsNode effects)
 
 def stmtListReadsStateOrEnvWithFunctionEffects
-    (effects : List (String × FunctionEffect)) : List Stmt → Bool
-  | [] => false
-  | s :: ss =>
-      stmtReadsStateOrEnvWithFunctionEffects effects s ||
-        stmtListReadsStateOrEnvWithFunctionEffects effects ss
-termination_by ss => sizeOf ss
-decreasing_by all_goals simp_wf; all_goals omega
+    (effects : List (String × FunctionEffect)) (stmts : List Stmt) : Bool :=
+  Stmt.anyDeepList (stmtReadsStateOrEnvWithFunctionEffectsNode effects) stmts
 
 def matchBranchesReadStateOrEnvWithFunctionEffects
-    (effects : List (String × FunctionEffect)) :
-    List (String × List String × List Stmt) → Bool
-  | [] => false
-  | (_, _, body) :: rest =>
-      stmtListReadsStateOrEnvWithFunctionEffects effects body ||
-        matchBranchesReadStateOrEnvWithFunctionEffects effects rest
-termination_by bs => sizeOf bs
-decreasing_by all_goals simp_wf; all_goals omega
-end
+    (effects : List (String × FunctionEffect))
+    (branches : List (String × List String × List Stmt)) : Bool :=
+  branches.any fun (_, _, body) => stmtListReadsStateOrEnvWithFunctionEffects effects body
 
 private def functionEffectWithFunctionEffects
     (effects : List (String × FunctionEffect)) (fn : FunctionSpec) : FunctionEffect :=
@@ -1504,14 +849,13 @@ def validateFunctionSpecMutability
   if spec.isPure && effect.readsStateOrEnv then
     throw s!"Compilation error: function '{spec.name}' is marked pure but reads state/environment ({issue734Ref})"
 
-mutual
-/-- Check whether a single statement contains a persistent-storage write (recursively).
-    This covers all `setStorage*`, `setMapping*`, `storageArray*`, `setStructMember*`,
-    and `tstore` constructors, and recurses into `ite`, `forEach`, `unsafeBlock`, and
-    `matchAdt` to detect nested writes.  Events, local variables, and memory writes are
-    NOT considered persistent state writes for CEI purposes.
+/-- Node-local classifier: is this statement itself a persistent-storage
+    write? Covers all `setStorage*`, `setMapping*`, `storageArray*`,
+    `setStructMember*`, and `tstore` constructors plus storage-writing raw
+    Yul fragments. Events, local variables, and memory writes are NOT
+    considered persistent state writes for CEI purposes.
     (#1728, Axis 2 Step 2a) -/
-def stmtIsPersistentWrite : Stmt → Bool
+def stmtIsPersistentWriteNode : Stmt → Bool
   | Stmt.setStorage _ _ | Stmt.setStorageAddr _ _ | Stmt.setStorageWord _ _ _
   | Stmt.storageArrayPush _ _ | Stmt.storageArrayPop _ | Stmt.setStorageArrayElement _ _ _
   | Stmt.setMapping _ _ _ | Stmt.setMappingWord _ _ _ _ | Stmt.setMappingPackedWord _ _ _ _ _ | Stmt.setMappingUint _ _ _
@@ -1520,70 +864,39 @@ def stmtIsPersistentWrite : Stmt → Bool
   | Stmt.setStructMember _ _ _ _ | Stmt.setStructMember2 _ _ _ _ _
   | Stmt.tstore _ _  -- transient storage persists across calls within a transaction
   => true
-  | Stmt.ite _ thenBranch elseBranch =>
-      stmtListContainsPersistentWrite thenBranch || stmtListContainsPersistentWrite elseBranch
-  | Stmt.forEach _ _ body =>
-      stmtListContainsPersistentWrite body
-  | Stmt.unsafeBlock _ body =>
-      stmtListContainsPersistentWrite body
-  | Stmt.matchAdt _ _ branches =>
-      matchBranchesPersistentWrite branches
   | Stmt.unsafeYul fragment =>
       !fragment.scopeEffects.storageWrites.isEmpty || fragment.mechanics.contains .tstore
   | _ => false
-termination_by s => sizeOf s
-decreasing_by all_goals simp_wf; all_goals omega
 
-def stmtListContainsPersistentWrite : List Stmt → Bool
-  | [] => false
-  | s :: rest => stmtIsPersistentWrite s || stmtListContainsPersistentWrite rest
-termination_by ss => sizeOf ss
-decreasing_by all_goals simp_wf; all_goals omega
+/-- Check whether a statement contains a persistent-storage write, recursing
+    into `ite`/`forEach`/`unsafeBlock`/`matchAdt` bodies via the canonical
+    `Stmt.anyDeep`. -/
+def stmtIsPersistentWrite (s : Stmt) : Bool :=
+  s.anyDeep stmtIsPersistentWriteNode
 
-def matchBranchesPersistentWrite : List (String × List String × List Stmt) → Bool
-  | [] => false
-  | (_, _, body) :: rest =>
-      stmtListContainsPersistentWrite body || matchBranchesPersistentWrite rest
-termination_by bs => sizeOf bs
-decreasing_by all_goals simp_wf; all_goals omega
-end
+def stmtListContainsPersistentWrite (stmts : List Stmt) : Bool :=
+  Stmt.anyDeepList stmtIsPersistentWriteNode stmts
 
-mutual
-/-- Conservative variant of `stmtIsPersistentWrite` for CEI validation.
-    Returns `true` for internal calls and internal call assignments because
-    their callee bodies may write to storage but we cannot inspect them at
-    single-function validation scope. Recurses through compound statements so
-    nested helper calls are not missed by loop/cross-branch CEI checks. -/
-def stmtMayPersistentlyWrite : Stmt → Bool
+def matchBranchesPersistentWrite (branches : List (String × List String × List Stmt)) : Bool :=
+  branches.any fun (_, _, body) => stmtListContainsPersistentWrite body
+
+/-- Conservative node-local variant of `stmtIsPersistentWriteNode` for CEI
+    validation. Returns `true` for internal calls and internal call
+    assignments because their callee bodies may write to storage but we
+    cannot inspect them at single-function validation scope. -/
+def stmtMayPersistentlyWriteNode : Stmt → Bool
   | Stmt.internalCall _ _ | Stmt.internalCallAssign _ _ _ => true
   | Stmt.ecm mod _ => mod.writesState
-  | Stmt.ite _ thenBranch elseBranch =>
-      stmtListMayPersistentlyWrite thenBranch || stmtListMayPersistentlyWrite elseBranch
-  | Stmt.forEach _ _ body =>
-      stmtListMayPersistentlyWrite body
-  | Stmt.unsafeBlock _ body =>
-      stmtListMayPersistentlyWrite body
-  | Stmt.matchAdt _ _ branches =>
-      matchBranchesMayPersistentlyWrite branches
-  | Stmt.unsafeYul fragment =>
-      !fragment.scopeEffects.storageWrites.isEmpty || fragment.mechanics.contains .tstore
-  | s => stmtIsPersistentWrite s
-termination_by s => sizeOf s
-decreasing_by all_goals simp_wf; all_goals omega
+  | s => stmtIsPersistentWriteNode s
 
-def stmtListMayPersistentlyWrite : List Stmt → Bool
-  | [] => false
-  | s :: rest => stmtMayPersistentlyWrite s || stmtListMayPersistentlyWrite rest
-termination_by ss => sizeOf ss
-decreasing_by all_goals simp_wf; all_goals omega
+def stmtMayPersistentlyWrite (s : Stmt) : Bool :=
+  s.anyDeep stmtMayPersistentlyWriteNode
 
-def matchBranchesMayPersistentlyWrite : List (String × List String × List Stmt) → Bool
-  | [] => false
-  | (_, _, body) :: rest =>
-      stmtListMayPersistentlyWrite body || matchBranchesMayPersistentlyWrite rest
-termination_by bs => sizeOf bs
-decreasing_by all_goals simp_wf; all_goals omega
-end
+def stmtListMayPersistentlyWrite (stmts : List Stmt) : Bool :=
+  Stmt.anyDeepList stmtMayPersistentlyWriteNode stmts
+
+def matchBranchesMayPersistentlyWrite (branches : List (String × List String × List Stmt)) : Bool :=
+  branches.any fun (_, _, body) => stmtListMayPersistentlyWrite body
 
 mutual
 /-- CEI analysis: walk a statement list sequentially and return a descriptive
@@ -1696,92 +1009,20 @@ termination_by bs => sizeOf bs
 decreasing_by all_goals simp_wf; all_goals omega
 end
 
-mutual
-def exprContainsAdtConstruct : Expr → Bool
+/-- Node-local classifier lifted with the canonical `Expr.anyDeep`. -/
+def exprContainsAdtConstructNode : Expr → Bool
   | Expr.adtConstruct _ _ _ => true
-  | Expr.add a b | Expr.sub a b | Expr.mul a b | Expr.div a b | Expr.sdiv a b
-  | Expr.mod a b | Expr.smod a b
-  | Expr.bitAnd a b | Expr.bitOr a b | Expr.bitXor a b | Expr.shl a b | Expr.shr a b | Expr.sar a b
-  | Expr.byte a b =>
-      exprContainsAdtConstruct a || exprContainsAdtConstruct b
-  | Expr.intrinsic _ _ _ args => exprListContainsAdtConstruct args
-  | Expr.forkIfAtLeast _ thenExpr elseExpr =>
-      exprContainsAdtConstruct thenExpr || exprContainsAdtConstruct elseExpr
-  | Expr.lt a b | Expr.gt a b | Expr.slt a b | Expr.sgt a b | Expr.eq a b
-  | Expr.ge a b | Expr.le a b | Expr.signextend a b
-  | Expr.logicalAnd a b | Expr.logicalOr a b
-  | Expr.wMulDown a b | Expr.wDivUp a b | Expr.min a b | Expr.max a b
-  | Expr.ceilDiv a b =>
-      exprContainsAdtConstruct a || exprContainsAdtConstruct b
-  | Expr.mulDivDown a b c | Expr.mulDivUp a b c
-  | Expr.mulDiv512Down a b c | Expr.mulDiv512Up a b c =>
-      exprContainsAdtConstruct a || exprContainsAdtConstruct b || exprContainsAdtConstruct c
-  | Expr.bitNot a | Expr.logicalNot a | Expr.extcodesize a
-  | Expr.mload a | Expr.tload a | Expr.calldataload a
-  | Expr.returndataOptionalBoolAt a
-  | Expr.storageArrayElement _ a | Expr.arrayElement _ a | Expr.memoryArrayElement _ a
-  | Expr.arrayElementWord _ a _ _
-  | Expr.arrayElementDynamicWord _ a _
-  | Expr.arrayElementDynamicDataOffset _ a
-  | Expr.arrayElementDynamicMemberDataOffset _ a _
-  | Expr.arrayElementDynamicMemberLength _ a _ =>
-      exprContainsAdtConstruct a
-  | Expr.arrayElementDynamicMemberElement _ a _ b =>
-      exprContainsAdtConstruct a || exprContainsAdtConstruct b
-  | Expr.paramDynamicMemberElement _ _ a =>
-      exprContainsAdtConstruct a
-  | Expr.ite cond thenVal elseVal =>
-      exprContainsAdtConstruct cond || exprContainsAdtConstruct thenVal ||
-        exprContainsAdtConstruct elseVal
-  | Expr.mapping _ key | Expr.mappingWord _ key _ | Expr.mappingPackedWord _ key _ _
-  | Expr.mappingUint _ key | Expr.structMember _ key _ =>
-      exprContainsAdtConstruct key
-  | Expr.mappingChain _ keys =>
-      exprListContainsAdtConstruct keys
-  | Expr.mapping2 _ key1 key2 | Expr.mapping2Word _ key1 key2 _
-  | Expr.structMember2 _ key1 key2 _ =>
-      exprContainsAdtConstruct key1 || exprContainsAdtConstruct key2
-  | Expr.keccak256 offset size =>
-      exprContainsAdtConstruct offset || exprContainsAdtConstruct size
-  | Expr.call gas target value inOffset inSize outOffset outSize =>
-      exprContainsAdtConstruct gas || exprContainsAdtConstruct target ||
-        exprContainsAdtConstruct value || exprContainsAdtConstruct inOffset ||
-        exprContainsAdtConstruct inSize || exprContainsAdtConstruct outOffset ||
-        exprContainsAdtConstruct outSize
-  | Expr.staticcall gas target inOffset inSize outOffset outSize =>
-      exprContainsAdtConstruct gas || exprContainsAdtConstruct target ||
-        exprContainsAdtConstruct inOffset || exprContainsAdtConstruct inSize ||
-        exprContainsAdtConstruct outOffset || exprContainsAdtConstruct outSize
-  | Expr.delegatecall gas target inOffset inSize outOffset outSize =>
-      exprContainsAdtConstruct gas || exprContainsAdtConstruct target ||
-        exprContainsAdtConstruct inOffset || exprContainsAdtConstruct inSize ||
-        exprContainsAdtConstruct outOffset || exprContainsAdtConstruct outSize
-  | Expr.externalCall _ args | Expr.internalCall _ args =>
-      exprListContainsAdtConstruct args
-  | Expr.dynamicBytesEq _ _ | Expr.literal _ | Expr.param _ | Expr.constructorArg _
-  | Expr.storage _ | Expr.storageAddr _ | Expr.caller | Expr.contractAddress | Expr.txOrigin
-  | Expr.chainid | Expr.msgValue | Expr.selfBalance | Expr.blockTimestamp | Expr.blockNumber
-  | Expr.blobbasefee | Expr.calldatasize | Expr.returndataSize
-  | Expr.localVar _
-  | Expr.arrayLength _ | Expr.memoryArrayLength _ | Expr.storageArrayLength _
-  | Expr.paramDynamicHeadWord _ _
-  | Expr.paramDynamicStaticComposite _ _
-  | Expr.paramDynamicMemberLength _ _
-  | Expr.paramDynamicMemberDataOffset _ _
-  | Expr.adtTag _ _ | Expr.adtField _ _ _ _ _ =>
-      false
-termination_by e => sizeOf e
-decreasing_by all_goals simp_wf; all_goals omega
+  | _ => false
 
-def exprListContainsAdtConstruct : List Expr → Bool
-  | [] => false
-  | expr :: rest => exprContainsAdtConstruct expr || exprListContainsAdtConstruct rest
-termination_by es => sizeOf es
-decreasing_by all_goals simp_wf; all_goals omega
-end
+def exprContainsAdtConstruct (e : Expr) : Bool :=
+  e.anyDeep exprContainsAdtConstructNode
 
-mutual
-def validateNoUnsupportedAdtConstructInStmt : Stmt → Except String Unit
+def exprListContainsAdtConstruct (es : List Expr) : Bool :=
+  es.any exprContainsAdtConstruct
+
+/-- Node-local ADT-construction placement check; nested statement bodies are
+    reached via the canonical `Stmt.forDeepM`. -/
+def validateNoUnsupportedAdtConstructNode : Stmt → Except String Unit
   | Stmt.setStorage _ (Expr.adtConstruct _ _ args) =>
       if exprListContainsAdtConstruct args then
         throw "Compilation error: ADT construction arguments cannot themselves contain ADT construction; construct nested ADTs in storage explicitly."
@@ -1816,21 +1057,17 @@ def validateNoUnsupportedAdtConstructInStmt : Stmt → Except String Unit
         throw "Compilation error: ADT construction is only supported as the direct value of setStorage for ADT storage fields; expression-position ADT values are not scalar Yul expressions."
       else
         pure ()
-  | Stmt.ite cond thenBranch elseBranch => do
+  | Stmt.ite cond _ _ => do
       if exprContainsAdtConstruct cond then
         throw "Compilation error: ADT construction cannot be used as an if condition."
-      validateNoUnsupportedAdtConstructInStmtList thenBranch
-      validateNoUnsupportedAdtConstructInStmtList elseBranch
-  | Stmt.forEach _ count body => do
+  | Stmt.forEach _ count _ => do
       if exprContainsAdtConstruct count then
         throw "Compilation error: ADT construction cannot be used as a loop bound."
-      validateNoUnsupportedAdtConstructInStmtList body
-  | Stmt.unsafeBlock _ body =>
-      validateNoUnsupportedAdtConstructInStmtList body
-  | Stmt.matchAdt _ scrutinee branches => do
+  | Stmt.unsafeBlock _ _ =>
+      pure ()
+  | Stmt.matchAdt _ scrutinee _ => do
       if exprContainsAdtConstruct scrutinee then
         throw "Compilation error: ADT construction cannot be used as a match scrutinee; match storage-backed ADT tags instead."
-      validateNoUnsupportedAdtConstructInBranches branches
   | Stmt.internalCall _ args | Stmt.internalCallAssign _ _ args
   | Stmt.externalCallBind _ _ args | Stmt.tryExternalCallBind _ _ _ args
   | Stmt.ecm _ args =>
@@ -1854,26 +1091,17 @@ def validateNoUnsupportedAdtConstructInStmt : Stmt → Except String Unit
         throw s!"Compilation error: unsafe Yul fragment '{fragment.label}' must declare at least one local proof obligation."
       else
         validateUnsafeYulDeclaredScopeEffects fragment
-termination_by s => sizeOf s
-decreasing_by all_goals simp_wf; all_goals omega
 
-def validateNoUnsupportedAdtConstructInStmtList : List Stmt → Except String Unit
-  | [] => pure ()
-  | stmt :: rest => do
-      validateNoUnsupportedAdtConstructInStmt stmt
-      validateNoUnsupportedAdtConstructInStmtList rest
-termination_by ss => sizeOf ss
-decreasing_by all_goals simp_wf; all_goals omega
+def validateNoUnsupportedAdtConstructInStmt (stmt : Stmt) : Except String Unit :=
+  stmt.forDeepM validateNoUnsupportedAdtConstructNode
 
-def validateNoUnsupportedAdtConstructInBranches :
-    List (String × List String × List Stmt) → Except String Unit
-  | [] => pure ()
-  | (_, _, body) :: rest => do
-      validateNoUnsupportedAdtConstructInStmtList body
-      validateNoUnsupportedAdtConstructInBranches rest
-termination_by bs => sizeOf bs
-decreasing_by all_goals simp_wf; all_goals omega
-end
+def validateNoUnsupportedAdtConstructInStmtList (stmts : List Stmt) : Except String Unit :=
+  Stmt.forDeepListM validateNoUnsupportedAdtConstructNode stmts
+
+def validateNoUnsupportedAdtConstructInBranches
+    (branches : List (String × List String × List Stmt)) : Except String Unit :=
+  branches.forM fun (_, _, body) =>
+    validateNoUnsupportedAdtConstructInStmtList body
 
 def validateFunctionSpec (spec : FunctionSpec) : Except String Unit := do
   let rawYulObligations :=
@@ -1950,41 +1178,24 @@ def validateFunctionSpec (spec : FunctionSpec) : Except String Unit := do
     | none => pure ()
   validateFunctionIdentifierReferences spec
 
-mutual
-def validateNoRuntimeReturnsInConstructorStmt : Stmt → Except String Unit
+/-- Node-local constructor return check; nested statement bodies are reached
+    via the canonical `Stmt.forDeepM`. -/
+def validateNoRuntimeReturnsInConstructorNode : Stmt → Except String Unit
   | Stmt.return _ | Stmt.returnValues _ | Stmt.returnArray _
   | Stmt.returnBytes _ | Stmt.returnStorageWords _ | Stmt.returnCodeData _ =>
       throw "Compilation error: constructor must not return runtime data directly"
-  | Stmt.ite _ thenBranch elseBranch => do
-      validateNoRuntimeReturnsInConstructorStmtList thenBranch
-      validateNoRuntimeReturnsInConstructorStmtList elseBranch
-  | Stmt.forEach _ _ body =>
-      validateNoRuntimeReturnsInConstructorStmtList body
-  | Stmt.unsafeBlock _ body =>
-      validateNoRuntimeReturnsInConstructorStmtList body
-  | Stmt.matchAdt _ _ branches =>
-      validateNoRuntimeReturnsInConstructorBranches branches
   | _ => pure ()
-termination_by s => sizeOf s
-decreasing_by all_goals simp_wf; all_goals omega
 
-def validateNoRuntimeReturnsInConstructorStmtList : List Stmt → Except String Unit
-  | [] => pure ()
-  | s :: ss => do
-      validateNoRuntimeReturnsInConstructorStmt s
-      validateNoRuntimeReturnsInConstructorStmtList ss
-termination_by ss => sizeOf ss
-decreasing_by all_goals simp_wf; all_goals omega
+def validateNoRuntimeReturnsInConstructorStmt (stmt : Stmt) : Except String Unit :=
+  stmt.forDeepM validateNoRuntimeReturnsInConstructorNode
 
-def validateNoRuntimeReturnsInConstructorBranches :
-    List (String × List String × List Stmt) → Except String Unit
-  | [] => pure ()
-  | (_, _, body) :: rest => do
-      validateNoRuntimeReturnsInConstructorStmtList body
-      validateNoRuntimeReturnsInConstructorBranches rest
-termination_by bs => sizeOf bs
-decreasing_by all_goals simp_wf; all_goals omega
-end
+def validateNoRuntimeReturnsInConstructorStmtList (stmts : List Stmt) : Except String Unit :=
+  Stmt.forDeepListM validateNoRuntimeReturnsInConstructorNode stmts
+
+def validateNoRuntimeReturnsInConstructorBranches
+    (branches : List (String × List String × List Stmt)) : Except String Unit :=
+  branches.forM fun (_, _, body) =>
+    validateNoRuntimeReturnsInConstructorStmtList body
 
 def validateConstructorSpec (ctor : Option ConstructorSpec) : Except String Unit := do
   match ctor with
