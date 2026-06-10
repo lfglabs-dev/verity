@@ -1000,6 +1000,17 @@ def forDeepM (check : Expr → Except String Unit) (e : Expr) : Except String Un
     forDeepM check c)
 termination_by sizeOf e
 
+/-- Deep monadic check in post-order: run `check` on every (transitive)
+    sub-expression before the expression itself, short-circuiting on the
+    first error. Matches validators that check a node's operands before the
+    node's own shape. -/
+def forDeepPostM (check : Expr → Except String Unit) (e : Expr) : Except String Unit := do
+  (children e).attach.forM (fun ⟨c, hc⟩ =>
+    have := children_sizeOf_lt e c hc
+    forDeepPostM check c)
+  check e
+termination_by sizeOf e
+
 end Expr
 
 inductive Stmt
