@@ -386,10 +386,6 @@
         "uses": "./.github/actions/build-compiler-target"
       },
       {
-        "name": "Build verity-compiler-patched",
-        "uses": "./.github/actions/build-compiler-target"
-      },
-      {
         "name": "Build difftest-interpreter",
         "uses": "./.github/actions/build-compiler-target"
       },
@@ -777,7 +773,6 @@
   "expected_build_compiler_commands": [],
   "required_build_compiler_run_commands": [
     "verity-compiler",
-    "verity-compiler-patched",
     "difftest-interpreter",
     "gas-report",
     "--output compiler/yul",

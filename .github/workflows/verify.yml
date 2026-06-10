@@ -573,16 +573,6 @@ jobs:
           expected-paths: |
             .lake/build/bin/verity-compiler
 
-      - name: Build verity-compiler-patched
-        uses: ./.github/actions/build-compiler-target
-        with:
-          checkpoint-key: verity-compiler-patched
-          lake-targets: |
-            verity-compiler-patched
-          use-lean-cc: "true"
-          expected-paths: |
-            .lake/build/bin/verity-compiler-patched
-
       - name: Build difftest-interpreter
         uses: ./.github/actions/build-compiler-target
         with:
@@ -644,7 +634,6 @@ jobs:
         run: |
           mkdir -p compiler/bin
           cp ./.lake/build/bin/verity-compiler compiler/bin/
-          cp ./.lake/build/bin/verity-compiler-patched compiler/bin/
           cp ./.lake/build/bin/difftest-interpreter compiler/bin/
 
       - name: Generate Yul (all contracts + CryptoHash with linked libraries)
@@ -691,7 +680,7 @@ jobs:
 
       - name: Generate patched Yul + patch coverage report
         run: |
-          ./compiler/bin/verity-compiler-patched \
+          ./compiler/bin/verity-compiler \
             --manifest packages/verity-examples/contracts.manifest \
             --enable-patches \
             --patch-report compiler/patch-report.tsv \
@@ -706,7 +695,7 @@ jobs:
           if [ -f "${artifact}" ]; then
             exit 0
           fi
-          ./compiler/bin/verity-compiler-patched \
+          ./compiler/bin/verity-compiler \
             --module Contracts.LocalObligationMacroSmoke.LocalObligationMacroSmoke \
             --output compiler/yul-patched \
             --enable-patches >/dev/null
@@ -727,7 +716,7 @@ jobs:
           )
           mkdir -p compiler/yul-patched-smoke
           for module in "${smoke_modules[@]}"; do
-            ./compiler/bin/verity-compiler-patched \
+            ./compiler/bin/verity-compiler \
               --module "$module" \
               --output compiler/yul-patched-smoke \
               --enable-patches >/dev/null
@@ -1016,7 +1005,7 @@ jobs:
           path: compiler/bin
 
       - name: Restore compiler executable bits
-        run: chmod +x compiler/bin/verity-compiler compiler/bin/verity-compiler-patched compiler/bin/difftest-interpreter
+        run: chmod +x compiler/bin/verity-compiler compiler/bin/difftest-interpreter
 
       - name: Setup solc
         uses: ./.github/actions/setup-solc
@@ -1279,7 +1268,7 @@ jobs:
           path: compiler/bin
 
       - name: Restore compiler executable bits
-        run: chmod +x compiler/bin/verity-compiler compiler/bin/verity-compiler-patched compiler/bin/difftest-interpreter
+        run: chmod +x compiler/bin/verity-compiler compiler/bin/difftest-interpreter
 
       - name: Restore smoke Yul (local)
         id: local-restore-yul-smoke
@@ -1519,7 +1508,7 @@ jobs:
           path: compiler/bin
 
       - name: Restore compiler executable bits
-        run: chmod +x compiler/bin/verity-compiler compiler/bin/verity-compiler-patched compiler/bin/difftest-interpreter
+        run: chmod +x compiler/bin/verity-compiler compiler/bin/difftest-interpreter
 
       - name: Restore smoke Yul (local)
         id: local-restore-yul-smoke

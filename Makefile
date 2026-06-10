@@ -88,7 +88,7 @@ axiom-report: ## Generate axiom dependency report for all 550 theorems
 
 compile: ## Build compiler + interpreter
 	set -- $$(grep -vE '^[[:space:]]*($$|#)' packages/verity-examples/contracts.manifest); \
-	lake build "$$@" verity-compiler verity-compiler-patched difftest-interpreter
+	lake build "$$@" verity-compiler difftest-interpreter
 
 verify-storage-layout: ## Check committed storage layout artifacts against current Lean source (#1897)
 	lake build verity-storage-layout-report
