@@ -4026,7 +4026,7 @@ private theorem exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed
   | chainid | msgValue | blockTimestamp | blockNumber | blobbasefee
   | calldatasize =>
       simp [exprTouchesUnsupportedContractSurface]
-  | selfBalance | txOrigin =>
+  | selfBalance =>
       simp [exprTouchesUnsupportedCoreSurface] at hcore
   | storage _ | storageAddr _ =>
       cases hstate
@@ -4415,7 +4415,7 @@ theorem exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
   | chainid | msgValue | blockTimestamp | blockNumber | blobbasefee
   | calldatasize =>
       simp [exprTouchesUnsupportedHelperSurface]
-  | selfBalance | txOrigin =>
+  | selfBalance =>
       simp [exprTouchesUnsupportedContractSurface] at hsurface
   | adtConstruct _ _ _ | adtTag _ _ | adtField _ _ _ _ _ =>
       simp [exprTouchesUnsupportedContractSurface] at hsurface
