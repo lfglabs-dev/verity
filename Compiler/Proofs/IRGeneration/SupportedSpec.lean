@@ -554,7 +554,7 @@ decoding. Raw constructor calldata observations therefore remain outside the
 current body-level support interface until the deploy-wrapper proof exists. -/
 def exprTouchesUnsupportedConstructorRawCalldataSurface : Expr → Bool
   | .literal _ | .param _ | .localVar _ | .caller | .contractAddress
-  | .chainid | .msgValue | .selfBalance | .blockTimestamp | .blockNumber
+  | .chainid | .msgValue | .selfBalance | .txOrigin | .blockTimestamp | .blockNumber
   | .blobbasefee | .constructorArg _ | .returndataSize | .extcodesize _ => false
   | .calldatasize => true
   | .storage _ | .storageAddr _ | .arrayLength _ | .memoryArrayLength _
@@ -706,7 +706,7 @@ def exprTouchesUnsupportedCoreSurface : Expr → Bool
   | .literal _ | .param _ | .caller | .contractAddress
   | .chainid | .msgValue | .blockTimestamp | .blockNumber
   | .blobbasefee | .calldatasize | .localVar _ => false
-  | .selfBalance => true
+  | .selfBalance | .txOrigin => true
   | .storage _ | .storageAddr _ => false
   | .add a b | .sub a b | .mul a b | .div a b | .mod a b
   | .eq a b | .ge a b | .gt a b | .lt a b | .le a b
@@ -760,7 +760,7 @@ def exprTouchesUnsupportedCoreSurface : Expr → Bool
 interface. These are the next storage/layout-style widening targets. -/
 def exprTouchesUnsupportedStateSurface : Expr → Bool
   | .literal _ | .param _ | .caller | .contractAddress
-  | .chainid | .msgValue | .selfBalance | .blockTimestamp | .blockNumber
+  | .chainid | .msgValue | .selfBalance | .txOrigin | .blockTimestamp | .blockNumber
   | .localVar _ => false
   | .storage _ | .storageAddr _ => true
   | .mapping _ _ | .mappingWord _ _ _ | .mappingPackedWord _ _ _ _
@@ -813,7 +813,7 @@ def exprTouchesUnsupportedCallSurface : Expr → Bool
   | .internalCall _ _ | .externalCall _ _ => true
   | .call _ _ _ _ _ _ _ | .staticcall _ _ _ _ _ _ | .delegatecall _ _ _ _ _ _ => true
   | .literal _ | .param _ | .caller | .contractAddress
-  | .chainid | .msgValue | .selfBalance | .blockTimestamp | .blockNumber
+  | .chainid | .msgValue | .selfBalance | .txOrigin | .blockTimestamp | .blockNumber
   | .localVar _ | .storage _ | .storageAddr _
   | .constructorArg _ | .blobbasefee
   | .calldatasize | .returndataSize | .extcodesize _
@@ -872,7 +872,7 @@ generic whole-contract theorem. -/
 def exprTouchesUnsupportedHelperSurface : Expr → Bool
   | .internalCall _ _ => true
   | .literal _ | .param _ | .caller | .contractAddress
-  | .chainid | .msgValue | .selfBalance | .blockTimestamp | .blockNumber
+  | .chainid | .msgValue | .selfBalance | .txOrigin | .blockTimestamp | .blockNumber
   | .localVar _ | .storage _ | .storageAddr _
   | .constructorArg _ | .blobbasefee
   | .calldatasize | .returndataSize | .extcodesize _
@@ -940,7 +940,7 @@ still-unsupported expression shapes that currently share the coarse
 def exprTouchesInternalHelperSurface : Expr → Bool
   | .internalCall _ _ => true
   | .literal _ | .param _ | .caller | .contractAddress
-  | .chainid | .msgValue | .selfBalance | .blockTimestamp | .blockNumber
+  | .chainid | .msgValue | .selfBalance | .txOrigin | .blockTimestamp | .blockNumber
   | .localVar _ | .storage _ | .storageAddr _
   | .constructorArg _ | .blobbasefee
   | .calldatasize | .returndataSize | .extcodesize _
@@ -1003,7 +1003,7 @@ whole-contract theorem. -/
 def exprTouchesUnsupportedForeignSurface : Expr → Bool
   | .externalCall _ _ => true
   | .literal _ | .param _ | .caller | .contractAddress
-  | .chainid | .msgValue | .selfBalance | .blockTimestamp | .blockNumber
+  | .chainid | .msgValue | .selfBalance | .txOrigin | .blockTimestamp | .blockNumber
   | .localVar _ | .storage _ | .storageAddr _
   | .constructorArg _ | .blobbasefee
   | .calldatasize | .returndataSize | .extcodesize _
@@ -1064,7 +1064,7 @@ whole-contract theorem. -/
 def exprTouchesUnsupportedLowLevelSurface : Expr → Bool
   | .call _ _ _ _ _ _ _ | .staticcall _ _ _ _ _ _ | .delegatecall _ _ _ _ _ _ => true
   | .literal _ | .param _ | .caller | .contractAddress
-  | .chainid | .msgValue | .selfBalance | .blockTimestamp | .blockNumber
+  | .chainid | .msgValue | .selfBalance | .txOrigin | .blockTimestamp | .blockNumber
   | .localVar _ | .storage _ | .storageAddr _
   | .constructorArg _ | .blobbasefee
   | .calldatasize | .returndataSize | .extcodesize _
@@ -1128,7 +1128,7 @@ def exprTouchesUnsupportedContractSurface (expr : Expr) : Bool :=
   | .literal _ | .param _ | .caller | .contractAddress
   | .chainid | .msgValue | .blockTimestamp | .blockNumber
   | .blobbasefee | .calldatasize | .localVar _ => false
-  | .selfBalance => true
+  | .selfBalance | .txOrigin => true
   | .storage _ | .storageAddr _ => true
   | .add a b | .sub a b | .mul a b | .div a b | .mod a b
   | .bitAnd a b | .bitOr a b | .bitXor a b | .eq a b
@@ -1845,7 +1845,7 @@ mutual
     -- validators).
     | .literal _ | .param _ | .constructorArg _
     | .storage _ | .storageAddr _
-    | .caller | .contractAddress | .chainid | .msgValue | .selfBalance
+    | .caller | .contractAddress | .chainid | .msgValue | .selfBalance | .txOrigin
     | .blockTimestamp | .blockNumber | .blobbasefee
     | .calldatasize | .returndataSize
     | .localVar _ | .arrayLength _ | .memoryArrayLength _ | .storageArrayLength _
@@ -3327,6 +3327,7 @@ mutual
     | mappingChain _ _ => simp [exprTouchesUnsupportedHelperSurface] at hsurface
     | intrinsic _ _ _ _ => simp [exprTouchesUnsupportedHelperSurface] at hsurface
     | literal _ | param _ | caller | contractAddress | chainid | msgValue | selfBalance
+    | txOrigin
     | blockTimestamp | blockNumber | localVar _ | storage _ | storageAddr _
     | constructorArg _ | blobbasefee | calldatasize | returndataSize
     | arrayLength _ | memoryArrayLength _ | storageArrayLength _ | dynamicBytesEq _ _
@@ -3742,7 +3743,7 @@ private theorem exprTouchesUnsupportedCallSurface_eq_featureOr
         exprTouchesUnsupportedLowLevelSurface expr) := by
   cases expr with
   | literal _ | param _ | caller | contractAddress
-  | chainid | msgValue | selfBalance | blockTimestamp | blockNumber
+  | chainid | msgValue | selfBalance | txOrigin | blockTimestamp | blockNumber
   | localVar _ | storage _ | storageAddr _
   | paramDynamicHeadWord _ _ | paramDynamicStaticComposite _ _
   | paramDynamicMemberLength _ _
@@ -3977,7 +3978,7 @@ private theorem exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed
   | chainid | msgValue | blockTimestamp | blockNumber | blobbasefee
   | calldatasize =>
       simp [exprTouchesUnsupportedContractSurface]
-  | selfBalance =>
+  | selfBalance | txOrigin =>
       simp [exprTouchesUnsupportedCoreSurface] at hcore
   | storage _ | storageAddr _ =>
       cases hstate
@@ -4364,7 +4365,7 @@ theorem exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
   | chainid | msgValue | blockTimestamp | blockNumber | blobbasefee
   | calldatasize =>
       simp [exprTouchesUnsupportedHelperSurface]
-  | selfBalance =>
+  | selfBalance | txOrigin =>
       simp [exprTouchesUnsupportedContractSurface] at hsurface
   | adtConstruct _ _ _ | adtTag _ _ | adtField _ _ _ _ _ =>
       simp [exprTouchesUnsupportedContractSurface] at hsurface
