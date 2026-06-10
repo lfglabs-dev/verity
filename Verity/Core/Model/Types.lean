@@ -1138,8 +1138,10 @@ def directMetadata : Stmt → StmtMetadata
       { subexpressions := [value], termination := .alwaysTerminates, controlFlow := .returns }
   | .returnValues values =>
       { subexpressions := values, termination := .alwaysTerminates, controlFlow := .returns }
-  | .returnArray _ | .returnBytes _ | .returnStorageWords _ | .returnCodeData _ =>
+  | .returnArray _ | .returnBytes _ | .returnStorageWords _ =>
       { termination := .alwaysTerminates, controlFlow := .returns }
+  | .returnCodeData pointer =>
+      { subexpressions := [pointer], termination := .alwaysTerminates, controlFlow := .returns }
   | .mstore offset value =>
       { subexpressions := [offset, value], lowLevelMechanics := [.mstore] }
   | .tstore offset value =>
@@ -1195,6 +1197,45 @@ partial def fold (f : α → Stmt → StmtMetadata → α) (init : α) (stmt : S
 
 partial def foldList (f : α → Stmt → StmtMetadata → α) (init : α) (stmts : List Stmt) : α :=
   stmts.foldl (fun acc stmt => stmt.fold f acc) init
+
+/-- Every statement in a child list is structurally smaller than its parent,
+    so well-founded deep traversals over `childLists` terminate. -/
+theorem childLists_sizeOf_lt (s : Stmt) :
+    ∀ l ∈ childLists s, ∀ c ∈ l, sizeOf c < sizeOf l ∧ sizeOf l < sizeOf s := by
+  intro l hl c hc
+  refine ⟨List.sizeOf_lt_of_mem hc, ?_⟩
+  cases s <;> simp only [childLists] at hl <;>
+    first
+      | exact absurd hl (List.not_mem_nil)
+      | (simp at hl;
+         (first
+           | subst hl
+           | (rcases hl with rfl | rfl)) <;>
+         (simp <;> omega))
+      | (rename_i branches
+         simp only [List.mem_map] at hl
+         obtain ⟨branch, hbranch, rfl⟩ := hl
+         have h1 := List.sizeOf_lt_of_mem hbranch
+         obtain ⟨name, vars, body⟩ := branch
+         simp at h1 ⊢
+         omega)
+
+/-- Deep statement predicate: does `p` hold for this statement or any
+    statement nested inside it (if/loop/unsafe-block/match bodies)? Total via
+    `childLists_sizeOf_lt`, so usable in both compiler passes and proofs.
+    Expression-level conditions are expressed inside `p` via
+    `directMetadata.subexpressions`. -/
+def anyDeep (p : Stmt → Bool) (s : Stmt) : Bool :=
+  p s || (childLists s).attach.any (fun ⟨l, hl⟩ =>
+    l.attach.any (fun ⟨c, hc⟩ =>
+      have := childLists_sizeOf_lt s l hl c hc
+      anyDeep p c))
+termination_by sizeOf s
+decreasing_by exact Nat.lt_trans this.1 this.2
+
+/-- Deep statement predicate over a statement list. -/
+def anyDeepList (p : Stmt → Bool) (stmts : List Stmt) : Bool :=
+  stmts.any (anyDeep p)
 
 mutual
 partial def controlFlow : Stmt → ControlFlowSummary
