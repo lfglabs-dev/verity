@@ -1,14 +1,2 @@
-namespace Compiler
-
-inductive ProofStatus
-  | proved
-  | assumed
-  | unchecked
-  deriving Repr, BEq, DecidableEq, Inhabited
-
-def ProofStatus.toJsonString : ProofStatus → String
-  | .proved => "proved"
-  | .assumed => "assumed"
-  | .unchecked => "unchecked"
-
-end Compiler
+-- Compatibility shim: moved to the compiler-free core module (#1313).
+import Verity.Core.Model.ProofStatus
