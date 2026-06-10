@@ -6,7 +6,7 @@ import "./yul/YulTestBase.sol";
 /**
  * @title PropertyUintKeyStructMappingSmokeTest
  * @notice Auto-generated baseline property stubs from `verity_contract` declarations.
- * @dev Source: Contracts/Smoke.lean
+ * @dev Source: Contracts/Smoke/StructMappings.lean
  */
 contract PropertyUintKeyStructMappingSmokeTest is YulTestBase {
     address target;

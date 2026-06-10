@@ -6,7 +6,7 @@ import "./yul/YulTestBase.sol";
 /**
  * @title PropertyDefaultNamespaceOverrideSmokeTest
  * @notice Auto-generated baseline property stubs from `verity_contract` declarations.
- * @dev Source: Contracts/Smoke.lean
+ * @dev Source: Contracts/Smoke/Namespaces.lean
  */
 contract PropertyDefaultNamespaceOverrideSmokeTest is YulTestBase {
     address target;

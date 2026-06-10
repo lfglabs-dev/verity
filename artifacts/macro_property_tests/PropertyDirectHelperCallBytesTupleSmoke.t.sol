@@ -6,7 +6,7 @@ import "./yul/YulTestBase.sol";
 /**
  * @title PropertyDirectHelperCallBytesTupleSmokeTest
  * @notice Auto-generated baseline property stubs from `verity_contract` declarations.
- * @dev Source: Contracts/Smoke.lean
+ * @dev Source: Contracts/Smoke/HelperCalls.lean
  */
 contract PropertyDirectHelperCallBytesTupleSmokeTest is YulTestBase {
     address target;

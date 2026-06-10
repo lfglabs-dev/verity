@@ -178,7 +178,7 @@ def main() -> None:
         for lean_file in proof_dir.rglob("*.lean"):
             rel = lean_file.relative_to(ROOT)
             stem = lean_file.stem
-            if "Test" in stem or "Profile" in stem or "Smoke" in stem:
+            if "Test" in stem or "Profile" in stem or "Smoke" in stem or "Smoke" in rel.parts:
                 continue
             scrubbed_lines = scrub_lean_code(lean_file.read_text(encoding="utf-8")).splitlines()
             for i, line in enumerate(scrubbed_lines, 1):
