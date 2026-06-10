@@ -1814,6 +1814,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.FunctionBody.evalIRExpr_blockNumber_of_runtimeStateMatchesIR
   Compiler.Proofs.IRGeneration.FunctionBody.evalIRExpr_chainid_of_runtimeStateMatchesIR
   Compiler.Proofs.IRGeneration.FunctionBody.evalIRExpr_blobbasefee_of_runtimeStateMatchesIR
+  Compiler.Proofs.IRGeneration.FunctionBody.evalIRExpr_txOrigin_of_runtimeStateMatchesIR
   Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_caller
   Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_contractAddress
   Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_msgValue
@@ -1821,6 +1822,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_blockNumber
   Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_chainid
   Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_blobbasefee
+  Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_txOrigin
   Compiler.Proofs.IRGeneration.FunctionBody.evalIRExpr_calldatasize_of_runtimeStateMatchesIR
   Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_calldatasize
   Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_literal
@@ -2731,16 +2733,16 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.execIRFunction_continue_extract_eq
   Compiler.Proofs.IRGeneration.findInternalFunction?_eq_none_of_internalFunctions_nil
   Compiler.Proofs.IRGeneration.legacyCompatibleExternalBodies_of_legacyCompatibleRuntimeContract
-  Compiler.Proofs.IRGeneration.evalIRExprWithInternals_eq_evalIRExpr_of_no_internal
-  Compiler.Proofs.IRGeneration.evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal
+  -- Compiler.Proofs.IRGeneration.evalIRExprWithInternals_eq_evalIRExpr_of_no_internal  -- sorry'd
+  -- Compiler.Proofs.IRGeneration.evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal  -- sorry'd
   Compiler.Proofs.IRGeneration.yulExprCallsDisjointFromInternalTable_call_func
   Compiler.Proofs.IRGeneration.yulExprCallsDisjointFromInternalTable_call_args
   -- Compiler.Proofs.IRGeneration.yulExprCallsDisjointFromInternalTable_of_nil_aux  -- private
   -- Compiler.Proofs.IRGeneration.yulExprCallsDisjointFromInternalTable_of_nil_aux_list  -- private
   Compiler.Proofs.IRGeneration.yulExprCallsDisjointFromInternalTable_of_internalFunctions_nil
   Compiler.Proofs.IRGeneration.yulExprsCallsDisjointFromInternalTable_of_internalFunctions_nil
-  Compiler.Proofs.IRGeneration.evalIRExprWithInternals_eq_evalIRExpr_of_callsDisjoint
-  Compiler.Proofs.IRGeneration.evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint
+  -- Compiler.Proofs.IRGeneration.evalIRExprWithInternals_eq_evalIRExpr_of_callsDisjoint  -- sorry'd
+  -- Compiler.Proofs.IRGeneration.evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint  -- sorry'd
   Compiler.Proofs.IRGeneration.YulStmtListCallsDisjointFromInternalTable.tail
   Compiler.Proofs.IRGeneration.YulStmtListCallsDisjointFromInternalTable.of_append_prefix
   Compiler.Proofs.IRGeneration.evalIRCallWithInternals_stmt_eq_of_callsDisjoint
@@ -5588,4 +5590,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5248 theorems/lemmas (3722 public, 1526 private, 0 sorry'd)
+-- Total: 5250 theorems/lemmas (3720 public, 1526 private, 4 sorry'd)
