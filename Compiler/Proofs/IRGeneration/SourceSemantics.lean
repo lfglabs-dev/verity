@@ -2787,6 +2787,9 @@ mutual
     | .constructorArg idx =>
         lookupBinding? state.bindings s!"arg{idx}"
     | .caller => some state.world.sender.val
+    -- `evalExpr` has no `.txOrigin` support yet (falls through to `none`);
+    -- mirror that here so the helper-aware semantics stays in lockstep.
+    | .txOrigin => none
     | .contractAddress => some state.world.thisAddress.val
     | .chainid => some state.world.chainId.val
     | .msgValue => some state.world.msgValue.val
@@ -4130,6 +4133,11 @@ mutual
         simpa [evalExprWithHelpers, evalExpr_param]
     | localVar _ =>
         simpa [evalExprWithHelpers, evalExpr_localVar]
+    | txOrigin =>
+        have h2 : evalExpr fields state .txOrigin = none := rfl
+        rw [h2]
+        set_option maxHeartbeats 1000000 in
+        simp only [evalExprWithHelpers]
     | caller | contractAddress | chainid | msgValue | selfBalance | blockTimestamp | blockNumber | blobbasefee
     | calldatasize =>
         simp [evalExprWithHelpers, evalExpr_caller, evalExpr_contractAddress, evalExpr_chainid,
