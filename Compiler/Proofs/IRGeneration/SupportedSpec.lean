@@ -29,11 +29,59 @@ def SupportedExternalReturnProfile : List ParamType → Prop
   | [ty] => SupportedExternalParamType ty
   | _ => False
 
+/-- Proof-side scalar-parameter predicate tied to the compiler's actual gating
+function `isScalarParamType`. Mirrors the `eventParamScalarProofSupported` /
+`eventParamScalarCompileSupported` pattern: instead of duplicating the case
+list in the proof layer, the proof-side name delegates to the compile-side
+Bool so the two cannot drift apart. The hand-restated `SupportedExternalParamType`
+Prop is retained for existing call sites; the agreement theorem
+`SupportedExternalParamType_iff_externalParamScalarProofSupported` proves they
+denote the same set of types. -/
+def externalParamScalarProofSupported (ty : ParamType) : Bool :=
+  isScalarParamType ty
+
+/-- Proof-side scalar-return-profile predicate tied to the compiler's scalar
+gating function. Encodes the "zero or one single-word return" envelope of
+`SupportedExternalReturnProfile` while delegating the per-type decision to
+the compiler's `isScalarParamType`. -/
+def externalReturnProfileProofSupported : List ParamType → Bool
+  | [] => true
+  | [ty] => isScalarParamType ty
+  | _ => false
+
 def eventParamScalarProofSupported (ty : ParamType) : Bool :=
   eventParamScalarCompileSupported ty
 
 def eventDefScalarProofSupported (eventDef : EventDef) : Bool :=
   eventDefScalarCompileSupported eventDef
+
+/-- Agreement oracle: the hand-restated `SupportedExternalParamType` Prop holds
+iff the compile-driven `externalParamScalarProofSupported` Bool is `true`.
+This is the meaning-preservation lemma for the conversion pattern: any future
+relaxation/tightening of `isScalarParamType` becomes visible at the proof
+boundary, instead of silently drifting from a hand-written enumeration. -/
+theorem SupportedExternalParamType_iff_externalParamScalarProofSupported
+    (ty : ParamType) :
+    SupportedExternalParamType ty ↔ externalParamScalarProofSupported ty = true := by
+  cases ty <;>
+    simp [SupportedExternalParamType, externalParamScalarProofSupported,
+      isScalarParamType]
+
+/-- Agreement oracle for the return-profile shape. -/
+theorem SupportedExternalReturnProfile_iff_externalReturnProfileProofSupported
+    (returns : List ParamType) :
+    SupportedExternalReturnProfile returns ↔
+      externalReturnProfileProofSupported returns = true := by
+  rcases returns with _ | ⟨ty, tail⟩
+  · -- []
+    simp [SupportedExternalReturnProfile, externalReturnProfileProofSupported]
+  · rcases tail with _ | ⟨ty2, rest⟩
+    · -- [ty]
+      simp [SupportedExternalReturnProfile, externalReturnProfileProofSupported,
+        SupportedExternalParamType_iff_externalParamScalarProofSupported,
+        externalParamScalarProofSupported]
+    · -- ty :: ty2 :: rest
+      simp [SupportedExternalReturnProfile, externalReturnProfileProofSupported]
 
 theorem eventDefScalarProofSupported_params_all
     {eventDef : EventDef}
