@@ -152,6 +152,15 @@ at end-of-transaction, so the guard does not need an explicit release path —
 early `return`, `revert`, or panic cannot leak the lock across transactions.
 The guard exempts the function from CEI ordering enforcement, so state writes
 after external calls are permitted within reentrancy-protected entry points.
+**Fork requirement**: the compile driver rejects any contract carrying a
+`nonreentrant(<lock>)` annotation when the targeted EVM fork predates
+Cancun (the `validateNonReentrantForkCompatibility` pre-check in
+`Compiler.CompilationModel.Dispatch`); on pre-Cancun chains the synthesised
+TLOAD/TSTORE opcodes would not be available, so silently emitting them
+would leave the post-external-call reentry window open while validation
+still treated the function as CEI-exempt (#1968). Either raise the target
+fork to Cancun+ or drop the annotation; manual reentrancy guards (e.g.
+SSTORE-based) on pre-Cancun chains remain the caller's responsibility.
 Trust boundary: the guard's correctness reduces to EVM TLOAD/TSTORE
 semantics (already in the trusted EVM target) plus the macro-level invariant
 that the lock field is a scalar `uint256` storage field used solely by the

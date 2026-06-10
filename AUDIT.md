@@ -86,4 +86,4 @@ actually use this family is the next milestone.
    command.
 5. Run `make check`; run targeted Lean builds for changed proof modules.
 
-**Last Updated**: 2026-06 (storage layout audit artifacts, #1897; nonreentrant transient-storage guard, #1893)
+**Last Updated**: 2026-06 (storage layout audit artifacts, #1897; nonreentrant transient-storage guard, #1893; non-alias certificate write-set overlap, #1967; nonreentrant fork requirement, #1968)

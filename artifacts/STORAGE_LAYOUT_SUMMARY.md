@@ -15,9 +15,16 @@ is tagged with a *justification kind*. The justification tells a
 downstream proof how to discharge the obligation:
 
 - `distinctScalarSlots` — both families are scalar (uint256 /
-  address / ADT) at *distinct* declared storage slots. The claim
-  reduces to `aSlot ≠ bSlot` and is decidable by `decide` against
-  the certificate.
+  address / ADT) with disjoint *effective* write slot sets
+  (canonical slot ∪ `aliasSlots` ∪ `slotAliasRanges`-derived
+  aliases). The claim reduces to `aWriteSlots ∩ bWriteSlots = ∅`
+  and is decidable by `decide` against the certificate.
+- `writeSetsOverlap` — both families are scalar but their
+  effective write slot sets intersect (Bugbot #1967). The
+  certificate surfaces this as a real aliasing conflict that
+  must be resolved at the source, not a decidable non-aliasing
+  claim. The shared write slots are listed in `aWriteSlots` ∩
+  `bWriteSlots` for the auditor.
 - `keccakDomainScalar` — one family is keccak-derived (mapping,
   dynamic array, mapping-struct), the other a scalar at a small
   declared slot. Discharged by the standard keccak preimage
@@ -135,10 +142,10 @@ Each storage field is classified as a *family* — the set of runtime storage lo
 **Non-alias claims** (grouped by justification):
 
 - `distinctScalarSlots` (1 pair):
-  - `totalAssetsSlot` (slot 0) ⟂ `totalSupplySlot` (slot 1)
+  - `totalAssetsSlot` (writes 0) ⟂ `totalSupplySlot` (writes 1)
 - `keccakDomainScalar` (2 pairs):
-  - `totalAssetsSlot` (slot 0) ⟂ `shareBalancesSlot` (slot 2)
-  - `totalSupplySlot` (slot 1) ⟂ `shareBalancesSlot` (slot 2)
+  - `totalAssetsSlot` (writes 0) ⟂ `shareBalancesSlot` (writes 2)
+  - `totalSupplySlot` (writes 1) ⟂ `shareBalancesSlot` (writes 2)
 
 ## OwnedCounter
 
@@ -162,7 +169,7 @@ Each storage field is classified as a *family* — the set of runtime storage lo
 **Non-alias claims** (grouped by justification):
 
 - `distinctScalarSlots` (1 pair):
-  - `owner` (slot 0) ⟂ `count` (slot 1)
+  - `owner` (writes 0) ⟂ `count` (writes 1)
 
 ## SimpleToken
 
@@ -188,10 +195,10 @@ Each storage field is classified as a *family* — the set of runtime storage lo
 **Non-alias claims** (grouped by justification):
 
 - `distinctScalarSlots` (1 pair):
-  - `ownerSlot` (slot 0) ⟂ `totalSupplySlot` (slot 2)
+  - `ownerSlot` (writes 0) ⟂ `totalSupplySlot` (writes 2)
 - `keccakDomainScalar` (2 pairs):
-  - `ownerSlot` (slot 0) ⟂ `balancesSlot` (slot 1)
-  - `balancesSlot` (slot 1) ⟂ `totalSupplySlot` (slot 2)
+  - `ownerSlot` (writes 0) ⟂ `balancesSlot` (writes 1)
+  - `balancesSlot` (writes 1) ⟂ `totalSupplySlot` (writes 2)
 
 ## SafeCounter
 
@@ -238,11 +245,11 @@ Each storage field is classified as a *family* — the set of runtime storage lo
 **Non-alias claims** (grouped by justification):
 
 - `distinctScalarSlots` (1 pair):
-  - `ownerSlot` (slot 0) ⟂ `totalSupplySlot` (slot 1)
+  - `ownerSlot` (writes 0) ⟂ `totalSupplySlot` (writes 1)
 - `keccakDomainScalar` (4 pairs):
-  - `ownerSlot` (slot 0) ⟂ `balancesSlot` (slot 2)
-  - `ownerSlot` (slot 0) ⟂ `allowancesSlot` (slot 3)
-  - `totalSupplySlot` (slot 1) ⟂ `balancesSlot` (slot 2)
-  - `totalSupplySlot` (slot 1) ⟂ `allowancesSlot` (slot 3)
+  - `ownerSlot` (writes 0) ⟂ `balancesSlot` (writes 2)
+  - `ownerSlot` (writes 0) ⟂ `allowancesSlot` (writes 3)
+  - `totalSupplySlot` (writes 1) ⟂ `balancesSlot` (writes 2)
+  - `totalSupplySlot` (writes 1) ⟂ `allowancesSlot` (writes 3)
 - `keccakPreimageDistinct` (1 pair):
-  - `balancesSlot` (slot 2) ⟂ `allowancesSlot` (slot 3)
+  - `balancesSlot` (writes 2) ⟂ `allowancesSlot` (writes 3)

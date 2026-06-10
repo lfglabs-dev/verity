@@ -1,4 +1,4 @@
-/- 
+/-
   Compiler.CompilationModel.Dispatch: Contract assembly and entrypoint wiring
 
   This module builds IR functions, constructor code, and whole contracts from
@@ -8,11 +8,13 @@ import Compiler.CompilationModel.Compile
 import Compiler.CompilationModel.ParamLoading
 import Compiler.CompilationModel.ScopeValidation
 import Compiler.CompilationModel.TrustSurface
+import Verity.Core.Intrinsics
 
 namespace Compiler.CompilationModel
 
 open Compiler
 open Compiler.Yul
+open Verity.Core.Intrinsics (HardFork)
 
 /-- Pick a fresh internal return variable name for the given index. -/
 def pickFreshInternalRetName (usedNames : List String) (idx : Nat) : String :=
@@ -324,6 +326,28 @@ def compileConstructor (fields : List Field) (events : List EventDef) (errors : 
 -- Use `Compiler.Selector.compileChecked` on caller-provided selector lists.
 -- WARNING: Order matters! If selector list is reordered but function list isn't,
 -- functions will be mapped to wrong selectors with no runtime error.
+
+/-- Reject specs that use the `nonreentrant(lockField)` annotation on a target
+    fork that does not expose transient storage (EIP-1153, Cancun+).
+
+    `attachNonReentrantGuard` synthesises a `TLOAD`/`TSTORE` guard and the CEI
+    exemption for `nonreentrant` externals assumes that guard runs; emitting
+    transient-storage opcodes on a pre-Cancun target (or evaluating the CEI
+    exemption as if the guard existed) leaves the post-external-call write
+    window open (Bugbot high-severity reentrancy thread). Fail closed at the
+    compiler-model boundary so the bug cannot be expressed in a successful
+    build (#1893 follow-up, also tracked under #1968). -/
+def validateNonReentrantForkCompatibility
+    (targetFork : HardFork) (spec : CompilationModel) : Except String Unit := do
+  if HardFork.allows targetFork .cancun then
+    pure ()
+  else
+    match spec.functions.find? (fun fn => fn.nonReentrantLock.isSome) with
+    | some fn =>
+        throw s!"Compilation error: function '{fn.name}' is annotated nonreentrant({fn.nonReentrantLock.getD ""}) but the targeted EVM fork {targetFork} does not expose transient storage (EIP-1153, Cancun+). The synthesised tload/tstore guard cannot run on pre-Cancun chains, so the post-external-call reentry window would be left unguarded. Either raise targetFork to at least Cancun, drop the annotation, or add an explicit pre-Cancun reentrancy guard ({issue1728Ref})."
+    | none =>
+        pure ()
+
 private def validateCompileInputsBeforeFieldWriteConflict
     (spec : CompilationModel) : Except String Unit := do
   validateIdentifierShapes spec
@@ -438,7 +462,18 @@ private def validateCompileInputsBeforeFieldWriteConflict
       pure ()
   firstInvalidStructField spec.fields
 
-def validateCompileInputs (spec : CompilationModel) (selectors : List Nat) : Except String Unit := do
+/-- Validate a `CompilationModel` end-to-end, including the
+    `nonreentrant(<lock>)` ↔ `targetFork` pre-check (#1968).
+
+    The default `targetFork := .cancun` preserves the historical single-arg
+    call shape for tests, proofs, and `lake exe`-style executables that
+    don't have a fork in scope. The compile driver in
+    `Compiler.CompileDriverCommon.compileSpecsWithOptions` always passes
+    the actual `options.targetFork` so transient-storage guards cannot
+    be silently emitted against a pre-Cancun chain. -/
+def validateCompileInputs (spec : CompilationModel) (selectors : List Nat)
+    (targetFork : HardFork := .cancun) : Except String Unit := do
+  validateNonReentrantForkCompatibility targetFork spec
   validateCompileInputsBeforeFieldWriteConflict spec
   let fields := applySlotAliasRanges spec.fields spec.slotAliasRanges
   let externalFns := spec.functions.filter (fun fn => !fn.isInternal && !isInteropEntrypointName fn.name)
@@ -603,8 +638,18 @@ def compileValidatedCore (spec : CompilationModel) (selectors : List Nat) : Exce
     internalFunctions := arrayElementHelpers ++ storageArrayElementHelpers ++ dynamicBytesEqHelpers ++ internalFuncDefs
   }
 
-def compile (spec : CompilationModel) (selectors : List Nat) : Except String IRContract := do
-  validateCompileInputs spec selectors
+/-- Compile a `CompilationModel` to an `IRContract`.
+
+    The optional `targetFork` parameter is threaded through to
+    `validateCompileInputs` so the `nonreentrant(<lock>)` ↔
+    `HardFork.allows targetFork .cancun` pre-check (#1968) runs against
+    the actual target chain. The default `.cancun` preserves the
+    historical two-arg call shape for tests, proofs, and executables
+    that don't model the fork; the compile driver always passes
+    `options.targetFork`. -/
+def compile (spec : CompilationModel) (selectors : List Nat)
+    (targetFork : HardFork := .cancun) : Except String IRContract := do
+  validateCompileInputs spec selectors targetFork
   compileValidatedCore spec selectors
 
 theorem validateCompileInputs_identifierShapes_ok

@@ -133,9 +133,16 @@ def render_summary(report: dict) -> str:
         "downstream proof how to discharge the obligation:",
         "",
         "- `distinctScalarSlots` — both families are scalar (uint256 /",
-        "  address / ADT) at *distinct* declared storage slots. The claim",
-        "  reduces to `aSlot ≠ bSlot` and is decidable by `decide` against",
-        "  the certificate.",
+        "  address / ADT) with disjoint *effective* write slot sets",
+        "  (canonical slot ∪ `aliasSlots` ∪ `slotAliasRanges`-derived",
+        "  aliases). The claim reduces to `aWriteSlots ∩ bWriteSlots = ∅`",
+        "  and is decidable by `decide` against the certificate.",
+        "- `writeSetsOverlap` — both families are scalar but their",
+        "  effective write slot sets intersect (Bugbot #1967). The",
+        "  certificate surfaces this as a real aliasing conflict that",
+        "  must be resolved at the source, not a decidable non-aliasing",
+        "  claim. The shared write slots are listed in `aWriteSlots` ∩",
+        "  `bWriteSlots` for the auditor.",
         "- `keccakDomainScalar` — one family is keccak-derived (mapping,",
         "  dynamic array, mapping-struct), the other a scalar at a small",
         "  declared slot. Discharged by the standard keccak preimage",
@@ -243,9 +250,17 @@ def render_summary(report: dict) -> str:
                 for justification, group in sorted(grouped.items()):
                     lines.append(f"- `{justification}` ({len(group)} pair{'s' if len(group) != 1 else ''}):")
                     for c in group:
-                        lines.append(
-                            f"  - `{c['a']}` (slot {c['aSlot']}) ⟂ `{c['b']}` (slot {c['bSlot']})"
-                        )
+                        a_writes = c.get("aWriteSlots") or [c.get("aSlot")]
+                        b_writes = c.get("bWriteSlots") or [c.get("bSlot")]
+                        a_str = _fmt_slots(list(a_writes))
+                        b_str = _fmt_slots(list(b_writes))
+                        line = f"  - `{c['a']}` (writes {a_str}) ⟂ `{c['b']}` (writes {b_str})"
+                        if justification == "writeSetsOverlap":
+                            shared = sorted(
+                                set(a_writes) & set(b_writes)
+                            )
+                            line += f"  — **shared write slot{'s' if len(shared) != 1 else ''}: {shared}**"
+                        lines.append(line)
             else:
                 lines.append("")
                 lines.append("_No non-alias claims (single-field contract)._")

@@ -124,5 +124,64 @@ class RenderSummaryEmptyTests(unittest.TestCase):
         self.assertNotIn("Slot alias ranges:", summary)
 
 
+class NonAliasClaimsTests(unittest.TestCase):
+    """Bugbot #1967: the certificate must surface overlapping write slot
+    sets as `writeSetsOverlap` rather than asserting a false
+    `distinctScalarSlots` claim. The summary must also include each
+    family's effective write slot set so auditors can confirm the
+    conflict."""
+
+    def _render(self, claims: list[dict]) -> str:
+        report = {
+            "contracts": [
+                {
+                    "contract": "Demo",
+                    "storageNamespace": None,
+                    "fields": [],
+                    "reservedSlotRanges": [],
+                    "slotAliasRanges": [],
+                    "storageFamilies": [
+                        {"name": "a", "kind": "scalar", "rootSlot": 0,
+                         "keccakPreimage": None, "structWordRange": None},
+                        {"name": "b", "kind": "scalar", "rootSlot": 1,
+                         "keccakPreimage": None, "structWordRange": None},
+                    ],
+                    "nonAliasClaims": claims,
+                }
+            ]
+        }
+        return render_summary(report)
+
+    def test_distinct_scalar_slots_kept_distinct(self) -> None:
+        summary = self._render([
+            {
+                "a": "a", "b": "b",
+                "aSlot": 0, "bSlot": 1,
+                "aWriteSlots": [0], "bWriteSlots": [1],
+                "justification": "distinctScalarSlots",
+            },
+        ])
+        # Look for the per-claim rendering, not the documentation header.
+        claims_section = summary.split("**Non-alias claims**", 1)[1]
+        self.assertIn("`distinctScalarSlots`", claims_section)
+        self.assertIn("`a` (writes 0)", claims_section)
+        self.assertIn("`b` (writes 1)", claims_section)
+        self.assertNotIn("`writeSetsOverlap`", claims_section)
+
+    def test_overlapping_write_slots_surfaced_as_conflict(self) -> None:
+        summary = self._render([
+            {
+                "a": "a", "b": "b",
+                "aSlot": 0, "bSlot": 1,
+                "aWriteSlots": [0, 5], "bWriteSlots": [1, 5],
+                "justification": "writeSetsOverlap",
+            },
+        ])
+        claims_section = summary.split("**Non-alias claims**", 1)[1]
+        self.assertIn("`writeSetsOverlap`", claims_section)
+        self.assertIn("shared write slot: [5]", claims_section)
+        self.assertNotIn("`distinctScalarSlots`", claims_section)
+
+
 if __name__ == "__main__":
     unittest.main()

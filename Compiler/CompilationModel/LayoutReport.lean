@@ -166,8 +166,14 @@ private def storageFamilyJson (declaredField : Field) (idx : Nat) : String :=
 /-- Pairwise non-alias claim: an unordered pair of family names paired
     with a *justification* the obligation discharger should use:
 
-    - `distinctScalarSlots`  — both are scalar families at distinct
-      declared slots; the claim is a closed-form finite decision.
+    - `distinctScalarSlots`  — both are scalar families whose *effective
+      write slot sets* (canonical slot ∪ `aliasSlots` ∪
+      `slotAliasRanges`-derived aliases) are disjoint; the claim is a
+      closed-form finite decision the proof side discharges with `decide`.
+    - `writeSetsOverlap`     — both are scalar families but their
+      effective write slot sets intersect; this is a real aliasing
+      conflict the certificate must surface rather than silently assert
+      `distinctScalarSlots` for (Bugbot #1967).
     - `keccakDomainScalar`   — one is keccak-derived, the other a scalar
       at a declared slot < 2^32 (say); the claim assumes keccak digest >
       maxDeclaredSlot, which is a standard preimage assumption.
@@ -184,32 +190,72 @@ private def isKeccakDerivedFamily : FieldType → Bool
   | .uint256 | .address | .adt _ _ => false
   | _ => true
 
-private def nonAliasJustification (a b : FieldType) : String :=
-  let aKeccak := isKeccakDerivedFamily a
-  let bKeccak := isKeccakDerivedFamily b
-  if !aKeccak && !bKeccak then "distinctScalarSlots"
+/-- Effective scalar write slot set for a single field: the declared/derived
+    canonical slot union the field's own `aliasSlots` and any
+    `slotAliasRanges`-derived aliases. This is the set of storage words the
+    field *actually writes to* at runtime, so it is the set the pairwise
+    non-alias certificate must compare against. -/
+private def effectiveScalarWriteSlots
+    (f : Field) (idx : Nat) (aliasRanges : List SlotAliasRange) : List Nat :=
+  let canonical := f.slot.getD idx
+  let mergedAliases := dedupNatPreserve
+    (f.aliasSlots ++ derivedAliasSlotsForSource canonical aliasRanges)
+  dedupNatPreserve (canonical :: mergedAliases)
+
+/-- Predicate: do two scalar fields share any effective write slot?
+    Two scalars only truly non-alias when their effective write slot sets
+    are disjoint; the declared slots alone are insufficient because
+    `aliasSlots` and `slotAliasRanges` can still fold them onto the same
+    canonical word. -/
+private def scalarWriteSetsOverlap
+    (a b : Field) (idxA idxB : Nat) (aliasRanges : List SlotAliasRange) : Bool :=
+  let writeA := effectiveScalarWriteSlots a idxA aliasRanges
+  let writeB := effectiveScalarWriteSlots b idxB aliasRanges
+  writeA.any (fun s => writeB.contains s)
+
+/-- Justification for a pairwise non-alias claim. Both the family kinds and
+    the effective scalar write sets feed into the choice: when two scalar
+    families have overlapping write slot sets the certificate must report a
+    real aliasing conflict (`writeSetsOverlap`) rather than assert a
+    decidable `distinctScalarSlots` claim the proof side would happily
+    discharge. -/
+private def nonAliasJustification
+    (a b : Field) (idxA idxB : Nat) (aliasRanges : List SlotAliasRange) : String :=
+  let aKeccak := isKeccakDerivedFamily a.ty
+  let bKeccak := isKeccakDerivedFamily b.ty
+  if !aKeccak && !bKeccak then
+    if scalarWriteSetsOverlap a b idxA idxB aliasRanges then
+      "writeSetsOverlap"
+    else
+      "distinctScalarSlots"
   else if aKeccak && bKeccak then "keccakPreimageDistinct"
   else "keccakDomainScalar"
 
-private def nonAliasClaimJson (a b : Field) (idxA idxB : Nat) : String :=
+private def nonAliasClaimJson (a b : Field) (idxA idxB : Nat)
+    (aliasRanges : List SlotAliasRange) : String :=
   let slotA := a.slot.getD idxA
   let slotB := b.slot.getD idxB
+  let writeA := effectiveScalarWriteSlots a idxA aliasRanges
+  let writeB := effectiveScalarWriteSlots b idxB aliasRanges
   jsonObject [
     ("a", jsonString a.name),
     ("b", jsonString b.name),
     ("aSlot", jsonNat slotA),
     ("bSlot", jsonNat slotB),
-    ("justification", jsonString (nonAliasJustification a.ty b.ty))
+    ("aWriteSlots", jsonArray (writeA.map jsonNat)),
+    ("bWriteSlots", jsonArray (writeB.map jsonNat)),
+    ("justification", jsonString (nonAliasJustification a b idxA idxB aliasRanges))
   ]
 
 /-- Build the list of unordered pairwise non-alias claims for a contract. -/
-private def nonAliasClaimsJson (fields : List Field) : List String :=
+private def nonAliasClaimsJson (fields : List Field)
+    (aliasRanges : List SlotAliasRange) : List String :=
   let indexed := fields.zipIdx
   let rec go : List (Field × Nat) → List (Field × Nat) → List String
     | [], _ => []
-    | (a, ai) :: rest, all =>
-        let here := rest.map (fun (b, bi) => nonAliasClaimJson a b ai bi)
-        here ++ go rest all
+    | (a, ai) :: rest, _all =>
+        let here := rest.map (fun (b, bi) => nonAliasClaimJson a b ai bi aliasRanges)
+        here ++ go rest _all
   go indexed indexed
 
 /-- Render a machine-readable storage layout report for upgrade/layout auditing.
@@ -231,7 +277,7 @@ where
     let familiesJson :=
       spec.fields.zipIdx.map fun (declaredField, idx) =>
         storageFamilyJson declaredField idx
-    let claimsJson := nonAliasClaimsJson spec.fields
+    let claimsJson := nonAliasClaimsJson spec.fields spec.slotAliasRanges
     let nsField := match spec.storageNamespace with
       | some ns => jsonString (toString ns)
       | none => "null"

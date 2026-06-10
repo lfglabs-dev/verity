@@ -6499,4 +6499,95 @@ private def dottedObjectLinkedSpec : CompilationModel := {
 
 end ExternalNameValidationSmoke
 
+namespace NonreentrantForkCompatibilitySmoke
+
+/-! ## Bugbot #1968: `nonreentrant(<lock>)` ↔ `targetFork` pre-check
+
+The synthesised transient-storage reentrancy guard (#1893) emits
+`tload`/`tstore` opcodes that only exist on EIP-1153 (Cancun+). Emitting
+them on a pre-Cancun chain would either fail at deploy time or
+silently no-op depending on the toolchain, while validation still
+granted the function a CEI exemption, leaving the post-external-call
+reentry window open. The pre-check rejects the spec at compile time
+so the bug cannot be expressed in a successful build. -/
+
+private def preCancelForkSpec : CompilationModel := {
+  name := "PreCancelNonreentrant"
+  fields := [{ name := "lock", ty := FieldType.uint256, slot := some 0 }]
+  «constructor» := none
+  functions := [
+    { name := "guarded"
+      params := []
+      returnType := none
+      nonReentrantLock := some "lock"
+      body := [Stmt.stop]
+    }
+  ]
+}
+
+/-- Cancun allows the annotation: validation succeeds. -/
+def nonreentrantAcceptedOnCancun : Bool :=
+  match Compiler.CompilationModel.validateCompileInputs
+          preCancelForkSpec (selectorsFor preCancelForkSpec)
+          Verity.Core.Intrinsics.HardFork.cancun with
+  | .ok _ => true
+  | .error _ => false
+
+example : nonreentrantAcceptedOnCancun = true := by native_decide
+
+/-- Cancun (or any fork that ranks ≥ Cancun) is the in-tree minimum;
+the pre-check accepts the spec because the synthesised tload/tstore
+guard is sound on those chains. The driver passes the actual
+`options.targetFork` through `compile` so a future pre-Cancun fork
+constructor hits the rejection branch automatically. -/
+def nonreentrantValidateForkCompatCancun : Bool :=
+  match Compiler.CompilationModel.validateNonReentrantForkCompatibility
+          Verity.Core.Intrinsics.HardFork.cancun preCancelForkSpec with
+  | .ok _ => true
+  | .error _ => false
+
+example : nonreentrantValidateForkCompatCancun = true := by native_decide
+
+/-- Specs without `nonreentrant(<lock>)` are unaffected by the
+pre-check: the gate is independent of fork rank. -/
+def nonreentrantValidateForkCompatPrague : Bool :=
+  match Compiler.CompilationModel.validateNonReentrantForkCompatibility
+          Verity.Core.Intrinsics.HardFork.prague preCancelForkSpec with
+  | .ok _ => true
+  | .error _ => false
+
+example : nonreentrantValidateForkCompatPrague = true := by native_decide
+
+/-- Driver path: `compile` is invoked with the actual `targetFork`,
+and the spec still succeeds under Cancun (the synthesised tload/tstore
+guard is emitted). -/
+def nonreentrantCompileAcceptedAtCancun : Bool :=
+  match Compiler.CompilationModel.compile
+          preCancelForkSpec (selectorsFor preCancelForkSpec)
+          Verity.Core.Intrinsics.HardFork.cancun with
+  | .ok _ => true
+  | .error _ => false
+
+/-- The default `compile` (no explicit fork) keeps the historical
+Cancun assumption so single-arg callers, tests, and proof modules
+continue to work. -/
+def nonreentrantCompileAcceptedAtDefaultFork : Bool :=
+  match Compiler.CompilationModel.compile preCancelForkSpec (selectorsFor preCancelForkSpec) with
+  | .ok _ => true
+  | .error _ => false
+
+#eval! do
+  expectTrue "nonreentrant(<lock>) passes validateCompileInputs on Cancun"
+    nonreentrantAcceptedOnCancun
+  expectTrue "nonreentrant(<lock>) still compiles under the default Cancun assumption"
+    nonreentrantCompileAcceptedAtDefaultFork
+  expectTrue "nonreentrant(<lock>) compiles under explicit Cancun fork"
+    nonreentrantCompileAcceptedAtCancun
+  expectTrue "validateNonReentrantForkCompatibility accepts the spec on Cancun"
+    nonreentrantValidateForkCompatCancun
+  expectTrue "validateNonReentrantForkCompatibility accepts the spec on Prague"
+    nonreentrantValidateForkCompatPrague
+
+end NonreentrantForkCompatibilitySmoke
+
 end Compiler.CompilationModelFeatureTest
