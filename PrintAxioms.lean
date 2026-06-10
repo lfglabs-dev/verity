@@ -2947,6 +2947,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_caller  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_contractAddress  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_chainid  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_txOrigin  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_msgValue  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_selfBalance  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_blockTimestamp  -- private
@@ -5587,4 +5588,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5247 theorems/lemmas (3722 public, 1525 private, 0 sorry'd)
+-- Total: 5248 theorems/lemmas (3722 public, 1526 private, 0 sorry'd)
