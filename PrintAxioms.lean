@@ -2733,16 +2733,16 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.execIRFunction_continue_extract_eq
   Compiler.Proofs.IRGeneration.findInternalFunction?_eq_none_of_internalFunctions_nil
   Compiler.Proofs.IRGeneration.legacyCompatibleExternalBodies_of_legacyCompatibleRuntimeContract
-  -- Compiler.Proofs.IRGeneration.evalIRExprWithInternals_eq_evalIRExpr_of_no_internal  -- sorry'd
-  -- Compiler.Proofs.IRGeneration.evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal  -- sorry'd
+  Compiler.Proofs.IRGeneration.evalIRExprWithInternals_eq_evalIRExpr_of_no_internal
+  Compiler.Proofs.IRGeneration.evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal
   Compiler.Proofs.IRGeneration.yulExprCallsDisjointFromInternalTable_call_func
   Compiler.Proofs.IRGeneration.yulExprCallsDisjointFromInternalTable_call_args
   -- Compiler.Proofs.IRGeneration.yulExprCallsDisjointFromInternalTable_of_nil_aux  -- private
   -- Compiler.Proofs.IRGeneration.yulExprCallsDisjointFromInternalTable_of_nil_aux_list  -- private
   Compiler.Proofs.IRGeneration.yulExprCallsDisjointFromInternalTable_of_internalFunctions_nil
   Compiler.Proofs.IRGeneration.yulExprsCallsDisjointFromInternalTable_of_internalFunctions_nil
-  -- Compiler.Proofs.IRGeneration.evalIRExprWithInternals_eq_evalIRExpr_of_callsDisjoint  -- sorry'd
-  -- Compiler.Proofs.IRGeneration.evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint  -- sorry'd
+  Compiler.Proofs.IRGeneration.evalIRExprWithInternals_eq_evalIRExpr_of_callsDisjoint
+  Compiler.Proofs.IRGeneration.evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint
   Compiler.Proofs.IRGeneration.YulStmtListCallsDisjointFromInternalTable.tail
   Compiler.Proofs.IRGeneration.YulStmtListCallsDisjointFromInternalTable.of_append_prefix
   Compiler.Proofs.IRGeneration.evalIRCallWithInternals_stmt_eq_of_callsDisjoint
@@ -5592,4 +5592,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5252 theorems/lemmas (3722 public, 1526 private, 4 sorry'd)
+-- Total: 5252 theorems/lemmas (3726 public, 1526 private, 0 sorry'd)
