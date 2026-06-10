@@ -810,6 +810,7 @@ def evalExpr (fields : List Field) (state : RuntimeState) : Expr → Option Nat
       | _ => none
   | .caller => some state.world.sender.val
   | .contractAddress => some state.world.thisAddress.val
+  | .txOrigin => some state.world.txOrigin.val
   | .chainid => some state.world.chainId.val
   | .msgValue => some state.world.msgValue.val
   | .selfBalance => some state.world.selfBalance.val
@@ -1114,6 +1115,11 @@ private theorem evalExpr_chainid
     (fields : List Field)
     (state : RuntimeState) :
     evalExpr fields state .chainid = some state.world.chainId.val := rfl
+
+private theorem evalExpr_txOrigin
+    (fields : List Field)
+    (state : RuntimeState) :
+    evalExpr fields state .txOrigin = some state.world.txOrigin.val := rfl
 
 private theorem evalExpr_msgValue
     (fields : List Field)
@@ -2788,6 +2794,7 @@ mutual
         lookupBinding? state.bindings s!"arg{idx}"
     | .caller => some state.world.sender.val
     | .contractAddress => some state.world.thisAddress.val
+    | .txOrigin => some state.world.txOrigin.val
     | .chainid => some state.world.chainId.val
     | .msgValue => some state.world.msgValue.val
     | .selfBalance => some state.world.selfBalance.val
@@ -4130,9 +4137,9 @@ mutual
         simpa [evalExprWithHelpers, evalExpr_param]
     | localVar _ =>
         simpa [evalExprWithHelpers, evalExpr_localVar]
-    | caller | contractAddress | chainid | msgValue | selfBalance | blockTimestamp | blockNumber | blobbasefee
+    | caller | contractAddress | txOrigin | chainid | msgValue | selfBalance | blockTimestamp | blockNumber | blobbasefee
     | calldatasize =>
-        simp [evalExprWithHelpers, evalExpr_caller, evalExpr_contractAddress, evalExpr_chainid,
+        simp [evalExprWithHelpers, evalExpr_caller, evalExpr_contractAddress, evalExpr_txOrigin, evalExpr_chainid,
           evalExpr_msgValue, evalExpr_selfBalance, evalExpr_blockTimestamp, evalExpr_blockNumber, evalExpr_blobbasefee,
           evalExpr_calldatasize]
     | storage _ =>
