@@ -45,8 +45,9 @@ def validateEventDynamicArrayArg
   | _ =>
       throw s!"Compilation error: function '{fnName}' dynamic array event param '{paramName}' in event '{eventName}' currently requires a direct or projected dynamic array reference ({issue586Ref})."
 
-mutual
-def validateCustomErrorArgShapesInStmt (fnName : String) (params : List Param)
+/-- Node-local check: custom-error argument shapes for a single statement.
+    Nested statement bodies are reached via the canonical `Stmt.forDeepM`. -/
+def validateCustomErrorArgShapesNode (fnName : String) (params : List Param)
     (errors : List ErrorDef) : Stmt → Except String Unit
   | Stmt.requireError _ errorName args | Stmt.revertError errorName args => do
       let errorDef ←
@@ -58,43 +59,29 @@ def validateCustomErrorArgShapesInStmt (fnName : String) (params : List Param)
       for (ty, arg) in errorDef.params.zip args do
         if customErrorRequiresDirectParamRef ty then
           validateDirectParamCustomErrorArg fnName errorName params ty arg
-  | Stmt.ite _ thenBranch elseBranch => do
-      validateCustomErrorArgShapesInStmtList fnName params errors thenBranch
-      validateCustomErrorArgShapesInStmtList fnName params errors elseBranch
-  | Stmt.forEach _ _ body =>
-      validateCustomErrorArgShapesInStmtList fnName params errors body
-  | Stmt.unsafeBlock _ body =>
-      validateCustomErrorArgShapesInStmtList fnName params errors body
-  | Stmt.matchAdt _ _ branches =>
-      validateCustomErrorArgShapesInMatchBranches fnName params errors branches
   | _ => pure ()
-termination_by s => sizeOf s
-decreasing_by all_goals simp_wf; all_goals omega
+
+def validateCustomErrorArgShapesInStmt (fnName : String) (params : List Param)
+    (errors : List ErrorDef) (stmt : Stmt) : Except String Unit :=
+  stmt.forDeepM (validateCustomErrorArgShapesNode fnName params errors)
 
 def validateCustomErrorArgShapesInStmtList (fnName : String) (params : List Param)
-    (errors : List ErrorDef) : List Stmt → Except String Unit
-  | [] => pure ()
-  | s :: ss => do
-      validateCustomErrorArgShapesInStmt fnName params errors s
-      validateCustomErrorArgShapesInStmtList fnName params errors ss
-termination_by ss => sizeOf ss
-decreasing_by all_goals simp_wf; all_goals omega
+    (errors : List ErrorDef) (stmts : List Stmt) : Except String Unit :=
+  Stmt.forDeepListM (validateCustomErrorArgShapesNode fnName params errors) stmts
 
 def validateCustomErrorArgShapesInMatchBranches (fnName : String) (params : List Param)
-    (errors : List ErrorDef) : List (String × List String × List Stmt) → Except String Unit
-  | [] => pure ()
-  | (_, _, body) :: rest => do
-      validateCustomErrorArgShapesInStmtList fnName params errors body
-      validateCustomErrorArgShapesInMatchBranches fnName params errors rest
-termination_by bs => sizeOf bs
-decreasing_by all_goals simp_wf; all_goals omega
-end
+    (errors : List ErrorDef) (branches : List (String × List String × List Stmt)) :
+    Except String Unit :=
+  branches.forM fun (_, _, body) =>
+    validateCustomErrorArgShapesInStmtList fnName params errors body
 
 def validateCustomErrorArgShapesInFunction (spec : FunctionSpec) (errors : List ErrorDef) :
     Except String Unit := do
   spec.body.forM (validateCustomErrorArgShapesInStmt spec.name spec.params errors)
 
-partial def validateEventArgShapesInStmt (fnName : String) (params : List Param)
+/-- Node-local check: event argument shapes for a single statement.
+    Nested statement bodies are reached via the canonical `Stmt.forDeepM`. -/
+def validateEventArgShapesNode (fnName : String) (params : List Param)
     (events : List EventDef) : Stmt → Except String Unit
   | Stmt.emit eventName args => do
       let eventDef ←
@@ -223,17 +210,11 @@ partial def validateEventArgShapesInStmt (fnName : String) (params : List Param)
               | _ =>
                   throw s!"Compilation error: function '{fnName}' indexed composite event param '{eventParam.name}' in event '{eventName}' currently requires direct parameter reference or projected static composite source ({issue586Ref})."
           | _ => pure ()
-  | Stmt.ite _ thenBranch elseBranch => do
-      thenBranch.forM (validateEventArgShapesInStmt fnName params events)
-      elseBranch.forM (validateEventArgShapesInStmt fnName params events)
-  | Stmt.forEach _ _ body =>
-      body.forM (validateEventArgShapesInStmt fnName params events)
-  | Stmt.unsafeBlock _ body =>
-      body.forM (validateEventArgShapesInStmt fnName params events)
-  | Stmt.matchAdt _ _ branches => do
-      for (_, _, body) in branches do
-        body.forM (validateEventArgShapesInStmt fnName params events)
   | _ => pure ()
+
+def validateEventArgShapesInStmt (fnName : String) (params : List Param)
+    (events : List EventDef) (stmt : Stmt) : Except String Unit :=
+  stmt.forDeepM (validateEventArgShapesNode fnName params events)
 
 def validateEventArgShapesInFunction (spec : FunctionSpec) (events : List EventDef) :
     Except String Unit := do

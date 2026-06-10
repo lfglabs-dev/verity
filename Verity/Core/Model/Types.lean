@@ -990,6 +990,16 @@ def allDeep (p : Expr → Bool) (e : Expr) : Bool :=
     allDeep p c)
 termination_by sizeOf e
 
+/-- Deep monadic check: run `check` on this expression and every (transitive)
+    sub-expression in pre-order, short-circuiting on the first error. Total via
+    `children_sizeOf_lt`. -/
+def forDeepM (check : Expr → Except String Unit) (e : Expr) : Except String Unit := do
+  check e
+  (children e).attach.forM (fun ⟨c, hc⟩ =>
+    have := children_sizeOf_lt e c hc
+    forDeepM check c)
+termination_by sizeOf e
+
 end Expr
 
 inductive Stmt
@@ -1236,6 +1246,24 @@ decreasing_by exact Nat.lt_trans this.1 this.2
 /-- Deep statement predicate over a statement list. -/
 def anyDeepList (p : Stmt → Bool) (stmts : List Stmt) : Bool :=
   stmts.any (anyDeep p)
+
+/-- Deep monadic check: run `check` on this statement and every statement
+    nested inside it (pre-order; child lists in declaration order),
+    short-circuiting on the first error. Statement-local expression conditions
+    are expressed inside `check` via `directMetadata.subexpressions`. -/
+def forDeepM (check : Stmt → Except String Unit) (s : Stmt) : Except String Unit := do
+  check s
+  (childLists s).attach.forM (fun ⟨l, hl⟩ =>
+    l.attach.forM (fun ⟨c, hc⟩ =>
+      have := childLists_sizeOf_lt s l hl c hc
+      forDeepM check c))
+termination_by sizeOf s
+decreasing_by exact Nat.lt_trans this.1 this.2
+
+/-- Deep monadic check over a statement list. -/
+def forDeepListM (check : Stmt → Except String Unit) (stmts : List Stmt) :
+    Except String Unit :=
+  stmts.forM (forDeepM check)
 
 mutual
 partial def controlFlow : Stmt → ControlFlowSummary
