@@ -901,6 +901,97 @@ inductive Expr
   | adtField (adtName variantName fieldName : String) (fieldIndex : Nat) (storageField : String)
   deriving Repr
 
+namespace Expr
+
+/-- Immediate sub-expressions of an expression, enumerated once for the whole
+    AST. Generic traversals (`anyDeep`, `foldDeep`, validator passes) consume
+    this surface instead of duplicating constructor-by-constructor walks: a new
+    `Expr` constructor fails to compile here (and in `children_sizeOf_lt`)
+    rather than silently falling through a dozen independent walkers. -/
+def children : Expr → List Expr
+  | .literal _ | .param _ | .constructorArg _ | .storage _ | .storageAddr _
+  | .caller | .contractAddress | .txOrigin | .chainid | .msgValue
+  | .selfBalance | .blockTimestamp | .blockNumber | .blobbasefee
+  | .calldatasize | .returndataSize | .localVar _
+  | .arrayLength _ | .memoryArrayLength _
+  | .paramDynamicHeadWord _ _ | .paramDynamicMemberLength _ _
+  | .paramDynamicMemberDataOffset _ _ | .paramDynamicStaticComposite _ _
+  | .storageArrayLength _ | .dynamicBytesEq _ _
+  | .adtTag _ _ | .adtField _ _ _ _ _ => []
+  | .mapping _ key | .mappingWord _ key _ | .mappingPackedWord _ key _ _
+  | .mappingUint _ key | .structMember _ key _ => [key]
+  | .mapping2 _ key1 key2 | .mapping2Word _ key1 key2 _
+  | .structMember2 _ key1 key2 _ => [key1, key2]
+  | .mappingChain _ keys => keys
+  | .mload offset | .tload offset | .calldataload offset
+  | .extcodesize offset | .returndataOptionalBoolAt offset => [offset]
+  | .keccak256 offset size => [offset, size]
+  | .call gas target value inOffset inSize outOffset outSize =>
+      [gas, target, value, inOffset, inSize, outOffset, outSize]
+  | .staticcall gas target inOffset inSize outOffset outSize
+  | .delegatecall gas target inOffset inSize outOffset outSize =>
+      [gas, target, inOffset, inSize, outOffset, outSize]
+  | .externalCall _ args | .internalCall _ args
+  | .intrinsic _ _ _ args | .adtConstruct _ _ args => args
+  | .arrayElement _ index | .memoryArrayElement _ index
+  | .arrayElementWord _ index _ _ | .arrayElementDynamicWord _ index _
+  | .arrayElementDynamicDataOffset _ index
+  | .arrayElementDynamicMemberLength _ index _
+  | .arrayElementDynamicMemberDataOffset _ index _
+  | .storageArrayElement _ index => [index]
+  | .arrayElementDynamicMemberElement _ index _ innerIndex => [index, innerIndex]
+  | .paramDynamicMemberElement _ _ innerIndex => [innerIndex]
+  | .add a b | .sub a b | .mul a b | .div a b | .sdiv a b | .mod a b
+  | .smod a b | .bitAnd a b | .bitOr a b | .bitXor a b
+  | .shl a b | .shr a b | .sar a b | .byte a b | .signextend a b
+  | .eq a b | .ge a b | .gt a b | .sgt a b | .lt a b | .slt a b | .le a b
+  | .logicalAnd a b | .logicalOr a b
+  | .ceilDiv a b | .wMulDown a b | .wDivUp a b | .min a b | .max a b => [a, b]
+  | .bitNot a | .logicalNot a => [a]
+  | .forkIfAtLeast _ thenExpr elseExpr => [thenExpr, elseExpr]
+  | .ite cond thenVal elseVal => [cond, thenVal, elseVal]
+  | .mulDivDown a b c | .mulDivUp a b c
+  | .mulDiv512Down a b c | .mulDiv512Up a b c => [a, b, c]
+
+/-- Every immediate child is structurally smaller, so well-founded traversals
+    over `children` terminate. -/
+theorem children_sizeOf_lt (e : Expr) :
+    ∀ c ∈ children e, sizeOf c < sizeOf e := by
+  have step : ∀ (c : Expr) (l : List Expr), c ∈ l → sizeOf c < sizeOf l := by
+    intro c l hc
+    exact List.sizeOf_lt_of_mem hc
+  intro c hc
+  cases e <;> simp only [children] at hc <;>
+    first
+      | exact absurd hc (List.not_mem_nil)
+      | (simp at hc
+         first
+           | subst hc
+           | (rcases hc with rfl | rfl)
+           | (rcases hc with rfl | rfl | rfl)
+           | (rcases hc with rfl | rfl | rfl | rfl | rfl | rfl)
+           | (rcases hc with rfl | rfl | rfl | rfl | rfl | rfl | rfl)
+         all_goals (simp <;> omega))
+      | (have hlt := step c _ hc; simp <;> omega)
+
+/-- Deep predicate: does `p` hold for this expression or any (transitive)
+    sub-expression? Total via the `children_sizeOf_lt` measure, so it can be
+    used in proofs as well as compiler passes. -/
+def anyDeep (p : Expr → Bool) (e : Expr) : Bool :=
+  p e || (children e).attach.any (fun ⟨c, hc⟩ =>
+    have := children_sizeOf_lt e c hc
+    anyDeep p c)
+termination_by sizeOf e
+
+/-- Deep universal: `p` holds for this expression and all sub-expressions. -/
+def allDeep (p : Expr → Bool) (e : Expr) : Bool :=
+  p e && (children e).attach.all (fun ⟨c, hc⟩ =>
+    have := children_sizeOf_lt e c hc
+    allDeep p c)
+termination_by sizeOf e
+
+end Expr
+
 inductive Stmt
   | letVar (name : String) (value : Expr)  -- Declare local variable
   | assignVar (name : String) (value : Expr)  -- Reassign existing variable
