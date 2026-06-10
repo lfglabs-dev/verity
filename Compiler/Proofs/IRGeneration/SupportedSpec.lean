@@ -553,7 +553,7 @@ mutual
 decoding. Raw constructor calldata observations therefore remain outside the
 current body-level support interface until the deploy-wrapper proof exists. -/
 def exprTouchesUnsupportedConstructorRawCalldataSurface : Expr → Bool
-  | .literal _ | .param _ | .localVar _ | .caller | .contractAddress
+  | .literal _ | .param _ | .localVar _ | .caller | .contractAddress | .txOrigin
   | .chainid | .msgValue | .selfBalance | .blockTimestamp | .blockNumber
   | .blobbasefee | .constructorArg _ | .returndataSize | .extcodesize _ => false
   | .calldatasize => true
@@ -703,7 +703,7 @@ structure SupportedReturnProfile (fn : FunctionSpec) : Prop where
 before any richer contract surface is considered. This tracks proof-core gaps
 rather than a semantic trust boundary. -/
 def exprTouchesUnsupportedCoreSurface : Expr → Bool
-  | .literal _ | .param _ | .caller | .contractAddress
+  | .literal _ | .param _ | .caller | .contractAddress | .txOrigin
   | .chainid | .msgValue | .blockTimestamp | .blockNumber
   | .blobbasefee | .calldatasize | .localVar _ => false
   | .selfBalance => true
@@ -759,7 +759,7 @@ def exprTouchesUnsupportedCoreSurface : Expr → Bool
 /-- Stateful expression surfaces not yet carried by the generic Layer 2 body
 interface. These are the next storage/layout-style widening targets. -/
 def exprTouchesUnsupportedStateSurface : Expr → Bool
-  | .literal _ | .param _ | .caller | .contractAddress
+  | .literal _ | .param _ | .caller | .contractAddress | .txOrigin
   | .chainid | .msgValue | .selfBalance | .blockTimestamp | .blockNumber
   | .localVar _ => false
   | .storage _ | .storageAddr _ => true
@@ -812,7 +812,7 @@ body theorem: internal helper reuse, low-level calls, and foreign call hooks. -/
 def exprTouchesUnsupportedCallSurface : Expr → Bool
   | .internalCall _ _ | .externalCall _ _ => true
   | .call _ _ _ _ _ _ _ | .staticcall _ _ _ _ _ _ | .delegatecall _ _ _ _ _ _ => true
-  | .literal _ | .param _ | .caller | .contractAddress
+  | .literal _ | .param _ | .caller | .contractAddress | .txOrigin
   | .chainid | .msgValue | .selfBalance | .blockTimestamp | .blockNumber
   | .localVar _ | .storage _ | .storageAddr _
   | .constructorArg _ | .blobbasefee
@@ -871,7 +871,7 @@ def exprTouchesUnsupportedCallSurface : Expr → Bool
 generic whole-contract theorem. -/
 def exprTouchesUnsupportedHelperSurface : Expr → Bool
   | .internalCall _ _ => true
-  | .literal _ | .param _ | .caller | .contractAddress
+  | .literal _ | .param _ | .caller | .contractAddress | .txOrigin
   | .chainid | .msgValue | .selfBalance | .blockTimestamp | .blockNumber
   | .localVar _ | .storage _ | .storageAddr _
   | .constructorArg _ | .blobbasefee
@@ -939,7 +939,7 @@ still-unsupported expression shapes that currently share the coarse
 `exprTouchesUnsupportedHelperSurface` approximation. -/
 def exprTouchesInternalHelperSurface : Expr → Bool
   | .internalCall _ _ => true
-  | .literal _ | .param _ | .caller | .contractAddress
+  | .literal _ | .param _ | .caller | .contractAddress | .txOrigin
   | .chainid | .msgValue | .selfBalance | .blockTimestamp | .blockNumber
   | .localVar _ | .storage _ | .storageAddr _
   | .constructorArg _ | .blobbasefee
@@ -1002,7 +1002,7 @@ def exprTouchesInternalHelperSurface : Expr → Bool
 whole-contract theorem. -/
 def exprTouchesUnsupportedForeignSurface : Expr → Bool
   | .externalCall _ _ => true
-  | .literal _ | .param _ | .caller | .contractAddress
+  | .literal _ | .param _ | .caller | .contractAddress | .txOrigin
   | .chainid | .msgValue | .selfBalance | .blockTimestamp | .blockNumber
   | .localVar _ | .storage _ | .storageAddr _
   | .constructorArg _ | .blobbasefee
@@ -1063,7 +1063,7 @@ def exprTouchesUnsupportedForeignSurface : Expr → Bool
 whole-contract theorem. -/
 def exprTouchesUnsupportedLowLevelSurface : Expr → Bool
   | .call _ _ _ _ _ _ _ | .staticcall _ _ _ _ _ _ | .delegatecall _ _ _ _ _ _ => true
-  | .literal _ | .param _ | .caller | .contractAddress
+  | .literal _ | .param _ | .caller | .contractAddress | .txOrigin
   | .chainid | .msgValue | .selfBalance | .blockTimestamp | .blockNumber
   | .localVar _ | .storage _ | .storageAddr _
   | .constructorArg _ | .blobbasefee
@@ -1125,7 +1125,7 @@ generic-induction boundary does not silently widen or tighten while the new
 feature-local interfaces are introduced alongside it. -/
 def exprTouchesUnsupportedContractSurface (expr : Expr) : Bool :=
   match expr with
-  | .literal _ | .param _ | .caller | .contractAddress
+  | .literal _ | .param _ | .caller | .contractAddress | .txOrigin
   | .chainid | .msgValue | .blockTimestamp | .blockNumber
   | .blobbasefee | .calldatasize | .localVar _ => false
   | .selfBalance => true
@@ -1845,7 +1845,7 @@ mutual
     -- validators).
     | .literal _ | .param _ | .constructorArg _
     | .storage _ | .storageAddr _
-    | .caller | .contractAddress | .chainid | .msgValue | .selfBalance
+    | .caller | .contractAddress | .txOrigin | .chainid | .msgValue | .selfBalance
     | .blockTimestamp | .blockNumber | .blobbasefee
     | .calldatasize | .returndataSize
     | .localVar _ | .arrayLength _ | .memoryArrayLength _ | .storageArrayLength _
@@ -3326,7 +3326,8 @@ mutual
     | internalCall _ _ => simp [exprTouchesUnsupportedHelperSurface] at hsurface
     | mappingChain _ _ => simp [exprTouchesUnsupportedHelperSurface] at hsurface
     | intrinsic _ _ _ _ => simp [exprTouchesUnsupportedHelperSurface] at hsurface
-    | literal _ | param _ | caller | contractAddress | chainid | msgValue | selfBalance
+    | literal _ | param _ | caller | contractAddress | txOrigin
+    | chainid | msgValue | selfBalance
     | blockTimestamp | blockNumber | localVar _ | storage _ | storageAddr _
     | constructorArg _ | blobbasefee | calldatasize | returndataSize
     | arrayLength _ | memoryArrayLength _ | storageArrayLength _ | dynamicBytesEq _ _
@@ -3741,7 +3742,7 @@ private theorem exprTouchesUnsupportedCallSurface_eq_featureOr
         exprTouchesUnsupportedForeignSurface expr ||
         exprTouchesUnsupportedLowLevelSurface expr) := by
   cases expr with
-  | literal _ | param _ | caller | contractAddress
+  | literal _ | param _ | caller | contractAddress | txOrigin
   | chainid | msgValue | selfBalance | blockTimestamp | blockNumber
   | localVar _ | storage _ | storageAddr _
   | paramDynamicHeadWord _ _ | paramDynamicStaticComposite _ _
@@ -3973,7 +3974,7 @@ private theorem exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed
     (hcalls : exprTouchesUnsupportedCallSurface expr = false) :
     exprTouchesUnsupportedContractSurface expr = false := by
   cases expr with
-  | literal _ | param _ | localVar _ | caller | contractAddress
+  | literal _ | param _ | localVar _ | caller | contractAddress | txOrigin
   | chainid | msgValue | blockTimestamp | blockNumber | blobbasefee
   | calldatasize =>
       simp [exprTouchesUnsupportedContractSurface]
@@ -4136,6 +4137,8 @@ private theorem exprTouchesUnsupportedCallSurface_eq_false_of_coreClosed
         exprTouchesUnsupportedCallSurface_eq_false_of_coreClosed elseVal hcore.2]
   | forkIfAtLeast _ thenExpr elseExpr =>
       simp [exprTouchesUnsupportedCoreSurface] at hcore
+  | txOrigin =>
+      simp [exprTouchesUnsupportedCallSurface]
   | mulDivDown a b c | mulDivUp a b c =>
       simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
       simp [exprTouchesUnsupportedCallSurface,
@@ -4360,7 +4363,7 @@ theorem exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
     (hsurface : exprTouchesUnsupportedContractSurface expr = false) :
     exprTouchesUnsupportedHelperSurface expr = false := by
   cases expr with
-  | literal _ | param _ | localVar _ | caller | contractAddress
+  | literal _ | param _ | localVar _ | caller | contractAddress | txOrigin
   | chainid | msgValue | blockTimestamp | blockNumber | blobbasefee
   | calldatasize =>
       simp [exprTouchesUnsupportedHelperSurface]
@@ -4626,7 +4629,7 @@ private theorem exprUsesArrayElement_eq_false_of_coreClosed
     (hcore : exprTouchesUnsupportedCoreSurface expr = false) :
     exprUsesArrayElement expr = false := by
   cases expr with
-  | literal _ | param _ | localVar _ | caller | contractAddress
+  | literal _ | param _ | localVar _ | caller | contractAddress | txOrigin
   | chainid | msgValue | blockTimestamp | blockNumber
   | blobbasefee | calldatasize =>
       simp [exprUsesArrayElement]
@@ -4676,7 +4679,7 @@ private theorem exprUsesStorageArrayElement_eq_false_of_coreClosed
     (hcore : exprTouchesUnsupportedCoreSurface expr = false) :
     exprUsesStorageArrayElement expr = false := by
   cases expr with
-  | literal _ | param _ | localVar _ | caller | contractAddress
+  | literal _ | param _ | localVar _ | caller | contractAddress | txOrigin
   | chainid | msgValue | blockTimestamp | blockNumber
   | blobbasefee | calldatasize =>
       simp [exprUsesStorageArrayElement]
@@ -4728,7 +4731,7 @@ private theorem exprUsesDynamicBytesEq_eq_false_of_coreClosed
     (hcore : exprTouchesUnsupportedCoreSurface expr = false) :
     exprUsesDynamicBytesEq expr = false := by
   cases expr with
-  | literal _ | param _ | localVar _ | caller | contractAddress
+  | literal _ | param _ | localVar _ | caller | contractAddress | txOrigin
   | chainid | msgValue | blockTimestamp | blockNumber
   | blobbasefee | calldatasize =>
       simp [exprUsesDynamicBytesEq]
