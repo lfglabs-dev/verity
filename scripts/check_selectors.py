@@ -29,7 +29,6 @@ from keccak256 import selector as keccak_selector
 from property_utils import ROOT, YUL_DIR, die, report_errors, strip_lean_comments
 SPEC_FILES = (
     ROOT / "Contracts" / "Specs.lean",
-    ROOT / "Contracts" / "Legacy" / "SpecAliases.lean",
 )
 PROOFS_DIR = ROOT / "Compiler" / "Proofs"
 CHECK_CONTRACT_FILE = ROOT / "Compiler" / "CheckContract.lean"
@@ -55,6 +54,7 @@ COMPILER_FILTERED_ALIAS_RE = re.compile(
     r"\{\s*canonical\s+with\s+functions\s*:=\s*canonical\.functions\.filter\s+fun\s+fn\s*=>\s*(.*?)\s*\}",
     re.DOTALL,
 )
+DIRECT_MACRO_SPEC_RE = re.compile(r"Contracts\.(\w+)\.spec")
 MACRO_FUNCTION_RE = re.compile(
     r"^\s*function\s+(\w+)\s*\((.*?)\)\s*:\s*([A-Za-z0-9_→ ]+)\s*:=\s*do",
     re.MULTILINE,
@@ -195,6 +195,17 @@ def extract_specs(text: str) -> List[SpecInfo]:
             continue
         specs.append(_extract_filtered_macro_spec(def_name, contract_name, filter_body))
         seen_def_names.add(def_name)
+
+    # Canonical macro-generated specs referenced directly (e.g. inside
+    # `allSpecs := [Contracts.Counter.spec, ...]`) without a local alias def.
+    seen_contracts = {spec.contract_name for spec in specs}
+    for contract_name in DIRECT_MACRO_SPEC_RE.findall(text):
+        if contract_name in seen_contracts:
+            continue
+        specs.append(
+            _extract_macro_spec(f"Contracts.{contract_name}.spec", contract_name)
+        )
+        seen_contracts.add(contract_name)
     return specs
 
 
