@@ -2461,6 +2461,7 @@ end Verity.AxiomAudit
   -- Compiler/Proofs/IRGeneration/GenericInduction/ResultRelation.lean
   Compiler.Proofs.IRGeneration.stmtStepMatchesIRExecWithInternals_of_stmtStepMatchesIRExec
   Compiler.Proofs.IRGeneration.CompiledStmtStep.withHelpers_of_helperSurfaceClosed
+  Compiler.Proofs.IRGeneration.CompiledStmtStep.withHelpers_of_contractSurfaceClosed
   Compiler.Proofs.IRGeneration.compileStmtList_ok_of_stmtListGenericCore_early
 
   -- Compiler/Proofs/IRGeneration/GenericInduction/Scope.lean
@@ -3027,6 +3028,8 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_forkIfAtLeast  -- private
   Compiler.Proofs.IRGeneration.SourceSemantics.execStmtWithEvents_nil_eq_execStmt
   Compiler.Proofs.IRGeneration.SourceSemantics.execStmtListWithEvents_nil_eq_execStmtList
+  Compiler.Proofs.IRGeneration.SourceSemantics.execStmtWithEvents_eq_execStmt_of_contractSurfaceClosed
+  Compiler.Proofs.IRGeneration.SourceSemantics.execStmtListWithEvents_eq_execStmtList_of_contractSurfaceClosed
   Compiler.Proofs.IRGeneration.SourceSemantics.bindSupportedParams_take_param_length
   Compiler.Proofs.IRGeneration.SourceSemantics.findDynamicArrayElementAtSlot_withTransactionContext
   Compiler.Proofs.IRGeneration.SourceSemantics.findDynamicArrayElementAtSlot_congr_storageArray
@@ -3138,6 +3141,10 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.eventEmissionProofSupported_eventIndexedArgs_length_le_three
   Compiler.Proofs.IRGeneration.eventLogFunction_mem_logBuiltins_of_le_three
   Compiler.Proofs.IRGeneration.eventLogArgs_length
+  Compiler.Proofs.IRGeneration.stmtListTouchesUnsupportedContractSurface_of_forEach_surfaceClosed
+  -- Compiler.Proofs.IRGeneration.compileStmt_eventsErrorsAgnostic_aux  -- private
+  Compiler.Proofs.IRGeneration.compileStmt_eventsErrorsAgnostic_of_contractSurfaceClosed
+  Compiler.Proofs.IRGeneration.compileStmtList_eventsErrorsAgnostic_of_contractSurfaceClosed
   Compiler.Proofs.IRGeneration.exprListTouchesUnsupportedContractSurface_eq_false_of_emit_contractSurfaceWithEventsClosed
   Compiler.Proofs.IRGeneration.eventEmissionProofSupported_eq_true_of_emit_contractSurfaceWithEventsClosed
   -- Compiler.Proofs.IRGeneration.eraseDups_nodup_and_mem_aux  -- private
@@ -5353,4 +5360,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5004 theorems/lemmas (3536 public, 1468 private, 0 sorry'd)
+-- Total: 5011 theorems/lemmas (3542 public, 1469 private, 0 sorry'd)

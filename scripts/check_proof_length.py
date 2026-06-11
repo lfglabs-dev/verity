@@ -73,6 +73,10 @@ ALLOWLIST: set[str] = {
     "compileStmtList_terminal_ite_ok_inv",
     "compileStmt_terminal_ite_ok_inv",
     "compileStmt_ok_any_scope_aux",
+    # Fuel-indexed mutual stmt/list induction proving compileStmt ignores the
+    # event/error catalogs off the contract surface; one mechanical arm per
+    # statement constructor (~35 cases), so splitting would only duplicate it.
+    "compileStmt_eventsErrorsAgnostic_aux",
     "eval_compileExpr_core_onExpr",
     "evalExpr_lt_evmModulus_core_onExpr",
     "eval_compileRequireFailCond_core_onExpr",

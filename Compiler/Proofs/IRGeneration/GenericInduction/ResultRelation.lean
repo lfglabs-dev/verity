@@ -223,6 +223,36 @@ theorem CompiledStmtStep.withHelpers_of_helperSurfaceClosed
       (stmt := stmt)
       hsurface] using hsource
 
+/-- Events-agnostic sibling of
+`CompiledStmtStep.withHelpers_of_helperSurfaceClosed`: instead of requiring the
+whole spec to declare no events/errors, only the statement itself must stay off
+the plain contract surface. This lets event-carrying specs reuse the helper-free
+generic step library for every non-emit head. -/
+theorem CompiledStmtStep.withHelpers_of_contractSurfaceClosed
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {stmt : Stmt}
+    {compiledIR : List YulStmt}
+    (hstep : CompiledStmtStep fields scope stmt compiledIR)
+    (hcontractSurface : stmtTouchesUnsupportedContractSurface stmt = false)
+    (hhelperSurface : stmtTouchesUnsupportedHelperSurface stmt = false) :
+    CompiledStmtStepWithHelpers spec fields scope stmt compiledIR where
+  compileOk := by
+    rw [compileStmt_eventsErrorsAgnostic_of_contractSurfaceClosed hcontractSurface]
+    exact hstep.compileOk
+  preserves := by
+    intro runtime state helperFuel extraFuel hexact hscope hbounded hruntime hslack
+    rcases hstep.preserves runtime state extraFuel
+        hexact hscope hbounded hruntime hslack with
+      ⟨sourceResult, irExec, hsource, hir, hmatch⟩
+    refine ⟨sourceResult, irExec, ?_, hir, hmatch⟩
+    rw [SourceSemantics.execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed
+        spec fields helperFuel runtime stmt hhelperSurface,
+      SourceSemantics.execStmtWithEvents_eq_execStmt_of_contractSurfaceClosed
+        fields spec.events stmt hcontractSurface runtime]
+    exact hsource
+
 /-- Statement lists whose heads all admit a generic compiled-step proof. -/
 inductive StmtListGenericCore (fields : List Field) : List String → List Stmt → Prop where
   | nil {scope : List String} :

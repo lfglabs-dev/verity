@@ -1801,6 +1801,120 @@ def stmtListTouchesUnsupportedContractSurfaceExceptMappingWrites : List Stmt →
         stmtListTouchesUnsupportedContractSurfaceExceptMappingWrites rest
 end
 
+/-- The body of a contract-surface-closed `forEach` head is itself
+contract-surface closed: the gate only admits literal-zero bounds (with a
+closed body) or nonzero literal bounds with an empty body. -/
+theorem stmtListTouchesUnsupportedContractSurface_of_forEach_surfaceClosed
+    {varName : String}
+    {count : Expr}
+    {body : List Stmt}
+    (hsurface :
+      stmtTouchesUnsupportedContractSurface (.forEach varName count body) = false) :
+    stmtListTouchesUnsupportedContractSurface body = false := by
+  cases body with
+  | nil => rfl
+  | cons s rest =>
+      cases count
+      case literal k =>
+        cases k with
+        | zero => exact hsurface
+        | succ k => exact Bool.noConfusion hsurface
+      all_goals exact Bool.noConfusion hsurface
+
+/-- `compileStmt` consults `events` only in the `.emit` arm and `errors` only in
+the `.requireError`/`.revertError` arms, all of which the plain contract-surface
+gate excludes. Surface-closed statements therefore compile identically under any
+event/error catalog, which lets event-aware specs reuse the helper-free generic
+step library for their non-emit heads. -/
+private theorem compileStmt_eventsErrorsAgnostic_aux
+    (n : Nat)
+    (fields : List Field)
+    (events : List EventDef)
+    (errors : List ErrorDef) :
+    (∀ (stmt : Stmt) (scope : List String),
+      sizeOf stmt < n →
+      stmtTouchesUnsupportedContractSurface stmt = false →
+      CompilationModel.compileStmt fields events errors .calldata [] false scope [] stmt =
+        CompilationModel.compileStmt fields [] [] .calldata [] false scope [] stmt) ∧
+    (∀ (stmts : List Stmt) (scope : List String),
+      sizeOf stmts < n →
+      stmtListTouchesUnsupportedContractSurface stmts = false →
+      CompilationModel.compileStmtList fields events errors .calldata [] false scope [] stmts =
+        CompilationModel.compileStmtList fields [] [] .calldata [] false scope [] stmts) := by
+  induction n with
+  | zero =>
+      exact ⟨fun _ _ hlt => absurd hlt (Nat.not_lt_zero _),
+        fun _ _ hlt => absurd hlt (Nat.not_lt_zero _)⟩
+  | succ n ih =>
+      constructor
+      · intro stmt scope hlt hsurface
+        cases stmt with
+        | ite cond thenBranch elseBranch =>
+            simp only [stmtTouchesUnsupportedContractSurface,
+              Bool.or_eq_false_iff] at hsurface
+            simp only [CompilationModel.compileStmt,
+              ih.2 thenBranch scope
+                (by simp [Stmt.ite.sizeOf_spec] at hlt; omega) hsurface.1.2,
+              ih.2 elseBranch scope
+                (by simp [Stmt.ite.sizeOf_spec] at hlt; omega) hsurface.2]
+        | forEach varName count body =>
+            simp only [CompilationModel.compileStmt,
+              ih.2 body (CompilationModel.forEachBodyScope scope varName count body)
+                (by simp [Stmt.forEach.sizeOf_spec] at hlt; omega)
+                (stmtListTouchesUnsupportedContractSurface_of_forEach_surfaceClosed
+                  hsurface)]
+        | letVar | assignVar | setStorage | setStorageAddr | setStorageWord
+        | require | «return» | mstore | tstore | stop =>
+            simp only [CompilationModel.compileStmt]
+        | setMapping | setMappingWord | setMappingPackedWord | setMapping2
+        | setMapping2Word | setMappingUint | setMappingChain | setStructMember
+        | setStructMember2 | storageArrayPush | storageArrayPop
+        | setStorageArrayElement | requireError | revertError | returnValues
+        | returnArray | returnBytes | returnStorageWords | returnCodeData
+        | calldatacopy | returndataCopy | revertReturndata | emit | internalCall
+        | internalCallAssign | rawLog | externalCallBind | ecm
+        | tryExternalCallBind | unsafeBlock | unsafeYul | matchAdt =>
+            simp [stmtTouchesUnsupportedContractSurface] at hsurface
+      · intro stmts scope hlt hsurface
+        cases stmts with
+        | nil => rfl
+        | cons s ss =>
+            simp only [stmtListTouchesUnsupportedContractSurface,
+              Bool.or_eq_false_iff] at hsurface
+            simp only [CompilationModel.compileStmtList,
+              ih.1 s scope
+                (by simp [List.cons.sizeOf_spec] at hlt; omega) hsurface.1,
+              ih.2 ss (collectStmtNames s ++ scope)
+                (by simp [List.cons.sizeOf_spec] at hlt; omega) hsurface.2]
+
+/-- Surface-closed statements compile identically under any event/error
+catalog. -/
+theorem compileStmt_eventsErrorsAgnostic_of_contractSurfaceClosed
+    {fields : List Field}
+    {events : List EventDef}
+    {errors : List ErrorDef}
+    {scope : List String}
+    {stmt : Stmt}
+    (hsurface : stmtTouchesUnsupportedContractSurface stmt = false) :
+    CompilationModel.compileStmt fields events errors .calldata [] false scope [] stmt =
+      CompilationModel.compileStmt fields [] [] .calldata [] false scope [] stmt :=
+  (compileStmt_eventsErrorsAgnostic_aux (sizeOf stmt + 1) fields events errors).1
+    stmt scope (Nat.lt_succ_of_le (Nat.le_refl _)) hsurface
+
+/-- Surface-closed statement lists compile identically under any event/error
+catalog. -/
+theorem compileStmtList_eventsErrorsAgnostic_of_contractSurfaceClosed
+    {fields : List Field}
+    {events : List EventDef}
+    {errors : List ErrorDef}
+    {scope : List String}
+    {stmts : List Stmt}
+    (hsurface : stmtListTouchesUnsupportedContractSurface stmts = false) :
+    CompilationModel.compileStmtList fields events errors .calldata [] false scope [] stmts =
+      CompilationModel.compileStmtList fields [] [] .calldata [] false scope [] stmts :=
+  (compileStmt_eventsErrorsAgnostic_aux (sizeOf stmts + 1) fields events errors).2
+    stmts scope (Nat.lt_succ_of_le (Nat.le_refl _)) hsurface
+
 theorem exprListTouchesUnsupportedContractSurface_eq_false_of_emit_contractSurfaceWithEventsClosed
     {events : List EventDef}
     {eventName : String}

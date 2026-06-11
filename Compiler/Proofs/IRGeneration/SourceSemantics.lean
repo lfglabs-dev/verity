@@ -2377,6 +2377,54 @@ mutual
           execStmtListWithEvents_nil_eq_execStmtList]
 end
 
+mutual
+  /-- Source execution of a contract-surface-closed statement is agnostic to
+  the event catalog: `execStmtWithEvents` and `execStmt` differ only in the
+  `.emit` arm, which the plain contract-surface gate excludes. -/
+  theorem execStmtWithEvents_eq_execStmt_of_contractSurfaceClosed
+      (fields : List Field) (events : List EventDef) (stmt : Stmt)
+      (hsurface : stmtTouchesUnsupportedContractSurface stmt = false)
+      (state : RuntimeState) :
+      execStmtWithEvents fields events state stmt = execStmt fields state stmt := by
+    cases stmt
+    case ite cond thenBranch elseBranch =>
+        simp only [stmtTouchesUnsupportedContractSurface,
+          Bool.or_eq_false_iff] at hsurface
+        simp [execStmtWithEvents, execStmt,
+          execStmtListWithEvents_eq_execStmtList_of_contractSurfaceClosed
+            fields events thenBranch hsurface.1.2,
+          execStmtListWithEvents_eq_execStmtList_of_contractSurfaceClosed
+            fields events elseBranch hsurface.2]
+    case forEach varName count body =>
+        simp [execStmtWithEvents, execStmt,
+          execStmtListWithEvents_eq_execStmtList_of_contractSurfaceClosed
+            fields events body
+            (stmtListTouchesUnsupportedContractSurface_of_forEach_surfaceClosed
+              hsurface)]
+    case emit eventName args =>
+        simp [stmtTouchesUnsupportedContractSurface] at hsurface
+    all_goals simp [execStmtWithEvents, execStmt]
+
+  /-- List version of
+  `execStmtWithEvents_eq_execStmt_of_contractSurfaceClosed`. -/
+  theorem execStmtListWithEvents_eq_execStmtList_of_contractSurfaceClosed
+      (fields : List Field) (events : List EventDef) (stmts : List Stmt)
+      (hsurface : stmtListTouchesUnsupportedContractSurface stmts = false)
+      (state : RuntimeState) :
+      execStmtListWithEvents fields events state stmts =
+        execStmtList fields state stmts := by
+    cases stmts with
+    | nil => simp [execStmtListWithEvents, execStmtList]
+    | cons stmt rest =>
+        simp only [stmtListTouchesUnsupportedContractSurface,
+          Bool.or_eq_false_iff] at hsurface
+        simp [execStmtListWithEvents, execStmtList,
+          execStmtWithEvents_eq_execStmt_of_contractSurfaceClosed
+            fields events stmt hsurface.1,
+          execStmtListWithEvents_eq_execStmtList_of_contractSurfaceClosed
+            fields events rest hsurface.2]
+end
+
 structure SourceContractResult where
   success : Bool
   returnValue : Option Nat
