@@ -164,8 +164,14 @@ SSTORE-based) on pre-Cancun chains remain the caller's responsibility.
 Trust boundary: the guard's correctness reduces to EVM TLOAD/TSTORE
 semantics (already in the trusted EVM target) plus the macro-level invariant
 that the lock field is a scalar `uint256` storage field used solely by the
-guard. Guarded functions sit outside `SupportedSpec` in this version;
-proof-side guard preservation lemmas are deferred follow-up work.
+guard. Guarded functions sit outside `SupportedSpec` in this version, and
+this boundary is now machine-checked rather than prose-only: the
+`SupportedFunction.noNonReentrant` field (`fn.nonReentrantLock = none`)
+makes any attempt to include a guarded function in the proven fragment a
+type error, and `ContractShape.guardedFunctionsMapM_eq` discharges the
+guard attachment as the identity on the lock-free fragment. Proof-side
+guard preservation lemmas (modelling the TLOAD/TSTORE prologue itself)
+remain deferred follow-up work.
 
 ## Security Audit Checklist
 
