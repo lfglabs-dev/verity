@@ -289,6 +289,51 @@ private theorem evalIRExpr_atomic_memory
   · simp only [evalIRExpr]
     exact evalIRCall_nil_memory state mem func
 
+private theorem eventForall₂_eval_atomic_setVar
+    {scope : List String} {state : IRState}
+    {exprIRs : List YulExpr} {values : List Nat}
+    (hshapes : List.Forall₂ (fun exprIR _ => AtomicArgIR scope exprIR)
+      exprIRs values)
+    (hevals : List.Forall₂ (fun exprIR value => evalIRExpr state exprIR = some value)
+      exprIRs values)
+    {name : String} (hname : name ∉ scope) (newValue : Nat) :
+    List.Forall₂
+      (fun exprIR argValue =>
+        evalIRExpr (state.setVar name newValue) exprIR = some argValue)
+      exprIRs values := by
+  induction hshapes with
+  | nil => cases hevals; exact .nil
+  | cons hshape hshapeTail ih =>
+      cases hevals with
+      | cons heval hevalTail =>
+          exact .cons
+            (by
+              rw [evalIRExpr_atomic_setVar hshape hname state newValue]
+              exact heval)
+            (ih hevalTail)
+
+private theorem eventForall₂_eval_atomic_memory
+    {scope : List String} {state : IRState}
+    {exprIRs : List YulExpr} {values : List Nat}
+    (hshapes : List.Forall₂ (fun exprIR _ => AtomicArgIR scope exprIR)
+      exprIRs values)
+    (hevals : List.Forall₂ (fun exprIR value => evalIRExpr state exprIR = some value)
+      exprIRs values)
+    (mem : Nat → Nat) :
+    List.Forall₂
+      (fun exprIR value => evalIRExpr { state with memory := mem } exprIR = some value)
+      exprIRs values := by
+  induction hshapes with
+  | nil => cases hevals; exact .nil
+  | cons hshape hshapeTail ih =>
+      cases hevals with
+      | cons heval hevalTail =>
+          exact .cons
+            (by
+              rw [evalIRExpr_atomic_memory hshape state mem]
+              exact heval)
+            (ih hevalTail)
+
 /-! ## Per-statement step lemmas -/
 
 private theorem eventExecIRStmt_let_step
