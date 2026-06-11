@@ -1329,4 +1329,78 @@ private theorem eventWriteUnindexedScratch_preserve_before :
   | _ :: _, [], _, _, _, _, _, hwrite, _, _, _, _ => by
       simp [SourceSemantics.writeUnindexedEventScratchFrom] at hwrite
 
+private theorem eventWriteUnindexedScratch_read_head
+    {param : EventParam} {params : List EventParam} {value : Nat}
+    {values : List Nat} {ptr wordIdx : Nat}
+    {memory memory' : Nat → Verity.Core.Uint256}
+    (hwrite : SourceSemantics.writeUnindexedEventScratchFrom
+        (param :: params) (value :: values) ptr wordIdx memory = some memory')
+    (hall : ∀ p ∈ param :: params,
+      (p.kind == EventParamKind.unindexed) = true)
+    (hlimit : wordIdx + (param :: params).length ≤ eventScratchSizeLimit) :
+    (memory' ((ptr + wordIdx * 32) % Compiler.Constants.evmModulus)).val =
+      SourceSemantics.normalizeEventValue param.ty value := by
+  have hkind : (param.kind == EventParamKind.unindexed) = true := hall param (by simp)
+  simp [SourceSemantics.writeUnindexedEventScratchFrom, hkind] at hwrite
+  have hpres := eventWriteUnindexedScratch_preserve_before
+    (params := params) (values := values) (ptr := ptr)
+    (wordIdx := wordIdx + 1) (baseIdx := wordIdx)
+    (memory := fun offset =>
+      if offset = (ptr + wordIdx * 32) % Compiler.Constants.evmModulus then
+        (SourceSemantics.normalizeEventValue param.ty value : Verity.Core.Uint256)
+      else memory offset)
+    (memory' := memory') hwrite (by intro p hp; exact hall p (by simp [hp]))
+    (by have hlimit' : wordIdx + (params.length + 1) ≤ eventScratchSizeLimit := by
+          simpa using hlimit
+        omega)
+    (by omega)
+    (lt_of_lt_of_le (by omega : wordIdx < wordIdx + (params.length + 1))
+      (by simpa using hlimit))
+  have hnorm := eventNormalizeEventValue_lt_evmModulus_any param.ty value
+  simpa [hpres, Nat.mod_eq_of_lt hnorm]
+
+private theorem eventWriteUnindexedScratch_read_getElem :
+    ∀ {params : List EventParam} {values : List Nat}
+      {ptr wordIdx : Nat} {memory memory' : Nat → Verity.Core.Uint256},
+      SourceSemantics.writeUnindexedEventScratchFrom
+          params values ptr wordIdx memory = some memory' →
+      (∀ param ∈ params, (param.kind == EventParamKind.unindexed) = true) →
+      values.length = params.length →
+      wordIdx + params.length ≤ eventScratchSizeLimit →
+      ∀ i (hi : i < values.length) (hpi : i < params.length),
+        (memory' ((ptr + (wordIdx + i) * 32) %
+          Compiler.Constants.evmModulus)).val =
+          SourceSemantics.normalizeEventValue (params[i]'hpi).ty values[i]
+  | param :: params, value :: values, ptr, wordIdx, memory, memory',
+      hwrite, hall, hlen, hlimit, i, hi, hpi => by
+      have hkind : (param.kind == EventParamKind.unindexed) = true := hall param (by simp)
+      simp [SourceSemantics.writeUnindexedEventScratchFrom, hkind] at hwrite
+      cases i with
+      | zero =>
+          simpa using eventWriteUnindexedScratch_read_head
+            (param := param) (params := params) (value := value)
+            (values := values) (ptr := ptr) (wordIdx := wordIdx)
+            (memory := memory) (memory' := memory') (by
+              simpa [SourceSemantics.writeUnindexedEventScratchFrom, hkind] using hwrite)
+            hall hlimit
+      | succ i =>
+          have htailLen : values.length = params.length := by
+            simpa using Nat.succ.inj hlen
+          have htailLimit : wordIdx + 1 + params.length ≤ eventScratchSizeLimit := by
+            have hlimit' : wordIdx + (params.length + 1) ≤ eventScratchSizeLimit := by
+              simpa using hlimit
+            omega
+          have htail := eventWriteUnindexedScratch_read_getElem
+            (params := params) (values := values) (ptr := ptr)
+            (wordIdx := wordIdx + 1) (memory' := memory') hwrite
+            (by intro p hp; exact hall p (by simp [hp])) htailLen htailLimit i
+            (by simpa using hi) (by simpa using hpi)
+          simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using htail
+  | [], [], _, _, _, _, hwrite, _, _, _, i, hi, _ => by
+      simp at hi
+  | [], _ :: _, _, _, _, _, hwrite, _, hlen, _, _, _, _ => by
+      simp at hlen
+  | _ :: _, [], _, _, _, _, hwrite, _, hlen, _, _, hi, _ => by
+      simp at hi
+
 end Compiler.Proofs.IRGeneration
