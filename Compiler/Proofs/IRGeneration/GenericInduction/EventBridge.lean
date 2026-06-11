@@ -1371,6 +1371,20 @@ private theorem eventSignatureWords_length
       byteWordCount sigBytes.length := by
   simp [eventChunkBytes32_length]
 
+private theorem eventSignatureWords_length_le_scratch
+    {events : List EventDef} {eventName : String} {args : List Expr}
+    {eventDef : EventDef}
+    (hsupport : eventEmissionProofSupported events eventName args = true)
+    (hfind : events.find? (·.name == eventName) = some eventDef) :
+    ((chunkBytes32 (bytesFromString (eventSignature eventDef))).map wordFromBytes).length ≤
+      eventScratchSizeLimit := by
+  have hbounded := eventDefScratchBounded_of_eventEmissionProofSupported
+    hsupport hfind
+  unfold eventDefScratchBounded at hbounded
+  simp [Bool.and_eq_true] at hbounded
+  rw [eventSignatureWords_length]
+  exact le_trans (eventByteWordCount_le_self _) hbounded.1
+
 private theorem eventChunkBytes32_mem_length_le :
     ∀ {bs chunk : List UInt8}, chunk ∈ chunkBytes32 bs → chunk.length ≤ 32
   | [], chunk, hmem => by
@@ -1918,6 +1932,21 @@ private theorem eventCompileStmt_emit_scalar_shape
   simp [hfind, hlen, hargExprs, hindexedGuard, hscalarCompile,
     Bind.bind, Except.bind, pure, Except.pure] at hcompile
   exact ⟨eventDef, argExprs, hfind, hargExprs, hcompile.symm⟩
+
+private theorem eventParams_supported_and_head_size
+    {events : List EventDef} {eventName : String} {args : List Expr}
+    {eventDef : EventDef}
+    (hsupport : eventEmissionProofSupported events eventName args = true)
+    (hfind : events.find? (·.name == eventName) = some eventDef) :
+    (∀ param ∈ eventDef.params, eventParamScalarProofSupported param.ty = true) ∧
+      (∀ param ∈ eventDef.params, eventHeadWordSize param.ty = 32) := by
+  constructor
+  · intro param hparam
+    exact eventParamScalarProofSupported_eq_true_of_eventEmissionProofSupported
+      hsupport hfind hparam
+  · intro param hparam
+    exact eventEmissionProofSupported_param_eventHeadWordSize_eq_thirty_two
+      hsupport hfind hparam
 
 private theorem eventUnindexedEntriesOk_of_eval :
     ∀ {scope : List String} {state : IRState}
