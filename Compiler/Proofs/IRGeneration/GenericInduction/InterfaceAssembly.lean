@@ -36,6 +36,9 @@ structure EventHeadStepCatalog
     ∀ {scope : List String} {eventName : String} {args : List Expr},
       eventEmissionProofSupported spec.events eventName args = true →
       args.any exprTouchesUnsupportedContractSurface = false →
+      (∀ arg ∈ args, FunctionBody.exprBoundNamesInScope arg scope) →
+      ("__evt_ptr" ∉ scope ∧ "__evt_topic0" ∉ scope) →
+      runtimeContract.internalFunctions = [] →
       ∃ compiledIR,
         CompiledStmtStepWithHelpersAndHelperIR
           runtimeContract spec fields scope (Stmt.emit eventName args) compiledIR
@@ -64,6 +67,9 @@ structure EventHeadStepBridgeCatalog
       args.any exprTouchesUnsupportedContractSurface = false →
       CompilationModel.compileStmt fields spec.events spec.errors .calldata
         [] false scope [] (Stmt.emit eventName args) = Except.ok compiledIR →
+      (∀ arg ∈ args, FunctionBody.exprBoundNamesInScope arg scope) →
+      ("__evt_ptr" ∉ scope ∧ "__evt_topic0" ∉ scope) →
+      runtimeContract.internalFunctions = [] →
       ∀ (runtime : SourceSemantics.RuntimeState)
         (state : IRState)
         (helperFuel : Nat)
@@ -97,6 +103,9 @@ structure EventHeadStepSemanticBridgeCatalog
       args.any exprTouchesUnsupportedContractSurface = false →
       CompilationModel.compileStmt fields spec.events spec.errors .calldata
         [] false scope [] (Stmt.emit eventName args) = Except.ok compiledIR →
+      (∀ arg ∈ args, FunctionBody.exprBoundNamesInScope arg scope) →
+      ("__evt_ptr" ∉ scope ∧ "__evt_topic0" ∉ scope) →
+      runtimeContract.internalFunctions = [] →
       ∀ (runtime : SourceSemantics.RuntimeState)
         (state : IRState)
         (helperFuel : Nat)
@@ -122,10 +131,11 @@ theorem eventHeadStepCatalog_of_bridgeCatalog
     {runtimeContract : IRContract}
     {spec : CompilationModel}
     {fields : List Field}
-    (hbridge : EventHeadStepBridgeCatalog runtimeContract spec fields) :
+    (hbridge : EventHeadStepBridgeCatalog runtimeContract spec fields)
+    (hinternal : runtimeContract.internalFunctions = []) :
     EventHeadStepCatalog runtimeContract spec fields := by
   refine ⟨?_⟩
-  intro scope eventName args hsupport hsurface
+  intro scope eventName args hsupport hsurface hinScope hfresh _hinternal
   rcases hbridge.compile
       (scope := scope)
       (eventName := eventName)
@@ -140,7 +150,7 @@ theorem eventHeadStepCatalog_of_bridgeCatalog
       (eventName := eventName)
       (args := args)
       (compiledIR := compiledIR)
-      hsupport hsurface hcompile }
+      hsupport hsurface hcompile hinScope hfresh hinternal }
 
 /-- Assemble the direct-event list interface from a reusable event head-step
 catalog and the event-aware contract-surface gate. This is the structural bridge
@@ -153,31 +163,43 @@ theorem stmtListEventSurfaceStepInterface_of_eventHeadStepCatalog_of_surfaceWith
     {scope : List String}
     {stmts : List Stmt}
     (hcatalog : EventHeadStepCatalog runtimeContract spec fields)
-    (hsurface : stmtListTouchesUnsupportedContractSurfaceWithEvents spec.events stmts = false) :
+    (hsurface : stmtListTouchesUnsupportedContractSurfaceWithEvents spec.events stmts = false)
+    (hinternal : runtimeContract.internalFunctions = [])
+    (hfresh : "__evt_ptr" ∉ scope ∧ "__evt_topic0" ∉ scope)
+    (hfreshStmts : ∀ s ∈ stmts,
+        "__evt_ptr" ∉ collectStmtNames s ∧ "__evt_topic0" ∉ collectStmtNames s)
+    (hinScopeEmit : ∀ s ∈ stmts, ∀ (eventName : String) (args : List Expr),
+        s = Stmt.emit eventName args →
+        ∀ arg ∈ args, FunctionBody.exprBoundNamesInScope arg scope) :
     StmtListEventSurfaceStepInterface runtimeContract spec fields scope stmts := by
   induction stmts generalizing scope with
-  | nil =>
-      exact .nil
+  | nil => exact .nil
   | cons stmt rest ih =>
-      have hsplit := Bool.or_eq_false_iff.mp <| by
+      obtain ⟨hstmtSurface, hrestSurface⟩ := Bool.or_eq_false_iff.mp <| by
         simpa [stmtListTouchesUnsupportedContractSurfaceWithEvents] using hsurface
-      have hstmtSurface :
-          stmtTouchesUnsupportedContractSurfaceWithEvents spec.events stmt = false := hsplit.1
-      have hrestSurface :
-          stmtListTouchesUnsupportedContractSurfaceWithEvents spec.events rest = false := hsplit.2
-      refine .cons ?_ (ih hrestSurface)
+      have hfreshNext : "__evt_ptr" ∉ stmtNextScope scope stmt ∧
+          "__evt_topic0" ∉ stmtNextScope scope stmt := by
+        simp only [stmtNextScope, List.mem_append, not_or]
+        exact ⟨⟨(hfreshStmts stmt List.mem_cons_self).1, hfresh.1⟩,
+               ⟨(hfreshStmts stmt List.mem_cons_self).2, hfresh.2⟩⟩
+      refine .cons ?_ (ih hrestSurface hfreshNext
+        (fun s hmem => hfreshStmts s (List.mem_cons_of_mem stmt hmem))
+        (fun s hmem eventName args heq arg harg name hmemN => by
+          simp only [stmtNextScope]
+          exact List.mem_append_right _
+            (hinScopeEmit s (List.mem_cons_of_mem _ hmem) eventName args heq arg harg
+              name hmemN)))
       intro hevent
       cases stmt with
       | emit eventName args =>
           exact hcatalog.emit
-            (eventName := eventName)
-            (args := args)
             (eventEmissionProofSupported_eq_true_of_emit_contractSurfaceWithEventsClosed
               hstmtSurface)
             (exprListTouchesUnsupportedContractSurface_eq_false_of_emit_contractSurfaceWithEventsClosed
               hstmtSurface)
-      | _ =>
-          simp [stmtTouchesEventSurface] at hevent
+            (hinScopeEmit _ List.mem_cons_self eventName args rfl)
+            hfresh hinternal
+      | _ => simp [stmtTouchesEventSurface] at hevent
 
 /-- Helper-surface-closed statement lists satisfy the exact helper-surface step
 interface vacuously: no head ever needs a genuinely new helper-aware step

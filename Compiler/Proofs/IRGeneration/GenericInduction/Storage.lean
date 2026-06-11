@@ -3117,7 +3117,7 @@ theorem eventHeadStepBridgeCatalog_of_semanticBridgeCatalog
       (args := args)
       hsupport
       hsurface
-  · intro scope eventName args compiledIR hsupport hsurface hcompile
+  · intro scope eventName args compiledIR hsupport hsurface hcompile hinScope hfresh hinternal
       runtime state helperFuel extraFuel hfuel hbindings hpresent hbounded hmatch
       hfuelIR
     exact hsemantic.bridge
@@ -3128,6 +3128,9 @@ theorem eventHeadStepBridgeCatalog_of_semanticBridgeCatalog
       hsupport
       hsurface
       hcompile
+      hinScope
+      hfresh
+      hinternal
       runtime
       state
       helperFuel
