@@ -11,15 +11,17 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-import check_layer2_boundary_sync as check
+import docsync
+
+ENTRY = docsync.get_entry("layer2_boundary")
 
 
 class Layer2BoundarySyncTests(unittest.TestCase):
     def _write_fixture_tree(self, root: Path, *, use_expected: bool, add_forbidden: bool) -> None:
-        expected = check.expected_snippets()
-        forbidden = check.forbidden_snippets()
-        for label, path in check.TARGETS.items():
-            target = root / path.relative_to(check.ROOT)
+        expected = ENTRY.required
+        forbidden = ENTRY.forbidden
+        for label, rel_path in ENTRY.targets.items():
+            target = root / rel_path
             target.parent.mkdir(parents=True, exist_ok=True)
             parts: list[str] = []
             if use_expected:
@@ -35,22 +37,11 @@ class Layer2BoundarySyncTests(unittest.TestCase):
             root = Path(tmpdir)
             self._write_fixture_tree(root, use_expected=use_expected, add_forbidden=add_forbidden)
 
-            old_root = check.ROOT
-            old_targets = check.TARGETS
-            check.ROOT = root
-            check.TARGETS = {
-                label: root / path.relative_to(old_root)
-                for label, path in old_targets.items()
-            }
-            try:
-                stdout = io.StringIO()
-                stderr = io.StringIO()
-                with redirect_stdout(stdout), redirect_stderr(stderr):
-                    rc = check.main()
-                return rc, stdout.getvalue() + stderr.getvalue()
-            finally:
-                check.ROOT = old_root
-                check.TARGETS = old_targets
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                rc = docsync.run_entry("layer2_boundary", root=root)
+            return rc, stdout.getvalue() + stderr.getvalue()
 
     def test_matching_docs_pass(self) -> None:
         rc, output = self._run_check(use_expected=True, add_forbidden=False)
@@ -71,7 +62,7 @@ class Layer2BoundarySyncTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             self._write_fixture_tree(root, use_expected=True, add_forbidden=False)
-            target = root / check.TARGETS["ROOT_README"].relative_to(check.ROOT)
+            target = root / ENTRY.targets["ROOT_README"]
             target.write_text(
                 target.read_text(encoding="utf-8").replace(
                     "0 axioms",
@@ -80,28 +71,17 @@ class Layer2BoundarySyncTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            old_root = check.ROOT
-            old_targets = check.TARGETS
-            check.ROOT = root
-            check.TARGETS = {
-                label: root / path.relative_to(old_root)
-                for label, path in old_targets.items()
-            }
-            try:
-                stdout = io.StringIO()
-                stderr = io.StringIO()
-                with redirect_stdout(stdout), redirect_stderr(stderr):
-                    rc = check.main()
-                output = stdout.getvalue() + stderr.getvalue()
-            finally:
-                check.ROOT = old_root
-                check.TARGETS = old_targets
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                rc = docsync.run_entry("layer2_boundary", root=root)
+            output = stdout.getvalue() + stderr.getvalue()
 
         self.assertEqual(rc, 1)
         self.assertIn("missing `0 axioms", output)
 
     def test_compiler_proofs_readme_stale_axiom_wording_is_forbidden(self) -> None:
-        forbidden = check.forbidden_snippets()
+        forbidden = ENTRY.forbidden
         self.assertIn("COMPILER_PROOFS_README", forbidden)
         self.assertIn(
             "it still depends on 2 documented axioms in `Compiler.Proofs.IRGeneration.Function`",
@@ -112,7 +92,7 @@ class Layer2BoundarySyncTests(unittest.TestCase):
         stdout = io.StringIO()
         stderr = io.StringIO()
         with redirect_stdout(stdout), redirect_stderr(stderr):
-            rc = check.main()
+            rc = docsync.run_entry("layer2_boundary")
         output = stdout.getvalue() + stderr.getvalue()
         self.assertEqual(rc, 0, output)
 

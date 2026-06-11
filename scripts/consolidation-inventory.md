@@ -184,6 +184,28 @@ These depend on solc/Foundry/lake build logs/GitHub events rather than the
 Lean↔artifact↔doc axis. Consolidating them buys little and risks much; out of
 scope for the doc-sync pipeline. (check_gas.py already is its own dispatcher.)
 
+## 2.1 Migrated so far (P7 status)
+
+`scripts/docsync.py` (declarative entry registry + engine, `--check` / `--only` /
+`--list`) has landed. Migrated entries — each legacy script is now a thin shim
+that delegates to docsync, its Makefile line invokes
+`python3 scripts/docsync.py --check --only <entry>`, and its unit tests target
+docsync directly:
+
+- [x] check_low_level_call_boundary_sync.py → `low_level_call_boundary` (Cluster B)
+- [x] check_linear_memory_boundary_sync.py → `linear_memory_boundary` (Cluster B)
+- [x] check_axiomatized_primitive_boundary_sync.py → `axiomatized_primitive_boundary` (Cluster B)
+- [x] check_struct_mapping_surface_sync.py → `struct_mapping_surface` (Cluster B)
+- [x] check_layer2_boundary_sync.py → `layer2_boundary` (Cluster A)
+- [x] check_interpreter_feature_boundary_catalog_sync.py → `interpreter_feature_boundary_catalog` (Cluster A)
+
+Still pending from Cluster A: the verification-status trio +
+update_doc_numbers.py, layer2 catalog generator/checker, the EVMYulLean report
+generators, builtin-bridge / feature-summary matrix checkers,
+generate_storage_layout_report.py, generate_print_axioms.py.
+`verify_sync_spec_source.py` pins the new docsync Makefile commands
+(regenerate `verify_sync_spec.json` after any further migration).
+
 ## 3. Summary
 
 | Cluster | Today | Proposed | Surviving entry point |

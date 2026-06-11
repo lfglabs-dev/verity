@@ -13,7 +13,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-import check_low_level_call_boundary_sync as check
+import docsync
 
 
 class LowLevelCallBoundarySyncTests(unittest.TestCase):
@@ -77,83 +77,8 @@ class LowLevelCallBoundarySyncTests(unittest.TestCase):
                 solidity_guide=solidity_guide,
             )
 
-            old_root = check.ROOT
-            old_matrix = check.FEATURE_MATRIX
-            old_targets = check.TARGET_FILES
-            check.ROOT = root
-            check.FEATURE_MATRIX = root / "artifacts" / "interpreter_feature_matrix.json"
-            check.TARGET_FILES = {
-                "EDSL_API": root / "docs-site" / "content" / "edsl-api-reference.mdx",
-                "COMPILER_DOC": root / "docs-site" / "content" / "compiler.mdx",
-                "SOLIDITY_GUIDE": root / "docs-site" / "content" / "guides" / "solidity-to-verity.mdx",
-            }
-            try:
-                stdout = io.StringIO()
-                stderr = io.StringIO()
-                with redirect_stdout(stdout), redirect_stderr(stderr):
-                    rc = check.main()
-                return rc, stdout.getvalue() + stderr.getvalue()
-            finally:
-                check.ROOT = old_root
-                check.FEATURE_MATRIX = old_matrix
-                check.TARGET_FILES = old_targets
-
-    def test_boundary_note_required_when_calls_not_modeled(self) -> None:
-        note = textwrap.dedent(
-            """
-            They are not yet modeled by the current proof interpreters.
-            low-level call plumbing and returndata behavior remain a compiler-and-testing trust boundary rather than a proved semantic feature today.
-            When the low-level form is `delegatecall`, the trust report now also isolates it as a dedicated proxy / upgradeability boundary; archive `--trust-report` and use `--deny-proxy-upgradeability` for proof-strict runs (see issue `#1420`).
-            their runtime semantics are still outside the current native verified runtime model.
-            call success / returndata mechanics remain validated by differential testing and tracked under issue `#1332`.
-            `delegatecall` also remains a separate proxy / upgradeability trust boundary; archive `--trust-report` and add `--deny-proxy-upgradeability` if those semantics must stay outside the selected verification envelope (see issue `#1420`).
-            Those low-level call mechanics compile, but they are still outside the current native verified runtime semantics; see issue `#1332`.
-            Treat `delegatecall` even more strictly: it is also tracked as a dedicated proxy / upgradeability boundary, so archive `--trust-report` and use `--deny-proxy-upgradeability` when proxy semantics must remain outside the verified subset (see issue `#1420`).
-            """
-        )
-        rc, output = self._run_check(
-            proof_status="not_modeled",
-            basic_status="fallback_zero",
-            fuel_status="fallback_zero",
-            edsl_doc=note,
-            compiler_doc=note,
-            solidity_guide=note,
-        )
-        self.assertEqual(rc, 0, output)
-        self.assertIn("boundary note required", output)
-
-    def test_missing_boundary_note_fails_when_calls_not_modeled(self) -> None:
-        rc, output = self._run_check(
-            proof_status="not_modeled",
-            basic_status="fallback_zero",
-            fuel_status="fallback_zero",
-            edsl_doc="low-level calls exist\n",
-            compiler_doc="low-level calls compile\n",
-            solidity_guide="use low-level call result checks\n",
-        )
-        self.assertEqual(rc, 1)
-        self.assertIn("edsl-api-reference.mdx is out of sync", output)
-
-    def test_boundary_note_not_required_once_calls_are_fully_modeled(self) -> None:
-        rc, output = self._run_check(
-            proof_status="proved",
-            basic_status="supported",
-            fuel_status="supported",
-            edsl_doc="low-level calls exist\n",
-            compiler_doc="low-level calls compile\n",
-            solidity_guide="use low-level call result checks\n",
-        )
-        self.assertEqual(rc, 0, output)
-        self.assertIn("boundary note not required", output)
-
-    def test_repository_docs_are_currently_in_sync(self) -> None:
-        stdout = io.StringIO()
-        stderr = io.StringIO()
-        with redirect_stdout(stdout), redirect_stderr(stderr):
-            rc = check.main()
-        output = stdout.getvalue() + stderr.getvalue()
-        self.assertEqual(rc, 0, output)
-
-
-if __name__ == "__main__":
-    unittest.main()
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                rc = docsync.run_entry("low_level_call_boundary", root=root)
+            return rc, stdout.getvalue() + stderr.getvalue()
