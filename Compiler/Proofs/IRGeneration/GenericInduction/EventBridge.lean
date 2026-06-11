@@ -1238,6 +1238,35 @@ private theorem eventIndexedTopicParts_eval_values
 
 /-! ## Log data readback -/
 
+private theorem eventScratchKey_injective_of_lt
+    {ptr i j : Nat}
+    (hi : i < eventScratchSizeLimit)
+    (hj : j < eventScratchSizeLimit)
+    (hkey :
+      (ptr + i * 32) % Compiler.Constants.evmModulus =
+        (ptr + j * 32) % Compiler.Constants.evmModulus) :
+    i = j := by
+  have hmodeqPtr :
+      ptr + i * 32 ≡ ptr + j * 32 [MOD Compiler.Constants.evmModulus] := hkey
+  have hmodeqMul :
+      i * 32 ≡ j * 32 [MOD Compiler.Constants.evmModulus] :=
+    Nat.ModEq.add_left_cancel' ptr hmodeqPtr
+  have hmodeq :
+      i ≡ j [MOD Compiler.Constants.evmModulus / Nat.gcd Compiler.Constants.evmModulus 32] :=
+    Nat.ModEq.cancel_right_div_gcd
+      (by norm_num [Compiler.Constants.evmModulus]) hmodeqMul
+  have hdiv :
+      Compiler.Constants.evmModulus / Nat.gcd Compiler.Constants.evmModulus 32 =
+        2 ^ 251 := by
+    native_decide
+  have hi' : i < Compiler.Constants.evmModulus / Nat.gcd Compiler.Constants.evmModulus 32 := by
+    rw [hdiv]
+    exact lt_of_lt_of_le hi (by norm_num [eventScratchSizeLimit])
+  have hj' : j < Compiler.Constants.evmModulus / Nat.gcd Compiler.Constants.evmModulus 32 := by
+    rw [hdiv]
+    exact lt_of_lt_of_le hj (by norm_num [eventScratchSizeLimit])
+  exact Nat.ModEq.eq_of_lt_of_lt hmodeq hi' hj'
+
 private theorem eventYulLogDataWords_eq_of_getElem
     {memory : Nat → Nat} {ptr : Nat} :
     ∀ {values : List Nat},
