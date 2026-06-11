@@ -17,6 +17,37 @@
 
 ---
 
+## One AST / One Traversal / One State Map Refactor (in progress, 2026-06)
+
+Architecture program to collapse the per-feature fan-out across semantic
+surfaces (the txOrigin postmortem). Landed so far on this branch:
+
+- ✅ Canonical model types moved to the compiler-free `Verity.Core.Model`
+  (#1313 step 1); old `Compiler.*` paths remain as import shims.
+- ✅ One traversal surface: `Expr.children`/`anyDeep`/`allDeep`,
+  `Stmt.anyDeep`/`forDeepM` in the core model; LogicalPurity,
+  ValidationEvents, ValidationCalls and Validation now ride it (new AST
+  constructors fail to compile in one place per pass). ScopeValidation and
+  the CEI analysis deliberately keep bespoke walks (proof-coupled /
+  order-sensitive).
+- ✅ Single compiler binary: `verity-compiler-patched` folded into
+  `verity-compiler` (patch pass is a proven identity when disabled).
+- ✅ `SupportedFunction.noNonReentrant`: the guarded-functions-outside-
+  SupportedSpec boundary is machine-checked.
+- ✅ `Contracts/Smoke.lean` split by feature surface; doc-sync consolidation
+  inventory at `scripts/consolidation-inventory.md`.
+
+Next: derive the executable shallow program from the deep model
+(`Stmt.denote`, macro retarget per-contract behind a flag), collapse the
+per-function `_bridge` theorems into one AST-induction theorem (retiring
+`GenericInduction/LegacyCompatibility` with it), then flatten
+`ContractState`'s typed storage channels into one word-addressed map with
+lens views — the enabler for FixedArray-under-mapping, dynamic CodeData,
+arbitrary transient storage and multicall/delegatecall (#1962, #1967,
+#1976, #1889).
+
+---
+
 ## Migration + Optimization Execution Tracker (P0 -> P2)
 
 This tracker is the execution order for migration-oriented compiler work. Later phases are blocked on earlier phases unless noted.
