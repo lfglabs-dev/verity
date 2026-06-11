@@ -42,6 +42,7 @@ import Compiler.Proofs.IRGeneration.ContractShape
 import Compiler.Proofs.IRGeneration.FunctionShape
 import Compiler.Proofs.IRGeneration.Expr
 import Compiler.Proofs.IRGeneration.FunctionBody
+import Compiler.Proofs.IRGeneration.DenoteFunctionAgreement
 import Compiler.SimpleStorageNativeWitness
 
 namespace Compiler.Proofs.EndToEnd
@@ -118,6 +119,40 @@ theorem sourceResultMatchesNativeOn_of_sourceResultMatchesIRResult_of_nativeResu
           congrArg (fun f => f (IRStorageSlot.ofNat slot)) hSourceStorage
         exact hStorageAt.trans (hNativeStorage slot hslot)
       · exact hSourceEvents.trans hNativeEvents
+
+/-- Observable denote-result comparison surface for native EVMYulLean
+execution: the compiler-free denotation's observable result, compared on the
+same projected-storage boundary as `sourceResultMatchesNativeOn`. -/
+def denoteResultMatchesNativeOn
+    (observableSlots : List Nat)
+    (denote : CompilationModel.Denote.DenoteResult)
+    (native : Except Compiler.Proofs.YulGeneration.Backends.NativeLoweringError YulResult) :
+    Prop :=
+  sourceResultMatchesNativeOn observableSlots
+    (DenoteAgreement.toSourceResult denote) native
+
+/-- Compose function-level denote/source agreement with source-to-native
+correctness: on the event-free fragment, the compiler-free denotation of a
+function matches native execution whenever the trusted source interpretation
+does. -/
+theorem denoteResultMatchesNativeOn_of_sourceResultMatchesNativeOn
+    {observableSlots : List Nat}
+    {spec : CompilationModel.CompilationModel}
+    {fn : CompilationModel.FunctionSpec}
+    {tx : IRTransaction}
+    {initialWorld : Verity.ContractState}
+    {native : Except Compiler.Proofs.YulGeneration.Backends.NativeLoweringError YulResult}
+    (hnoEvents : spec.events = [])
+    (hSource :
+      sourceResultMatchesNativeOn observableSlots
+        (SourceSemantics.interpretFunction spec fn tx initialWorld) native) :
+    denoteResultMatchesNativeOn observableSlots
+      (CompilationModel.Denote.denoteFunction DenoteAgreement.sourceOracle spec fn
+        (DenoteAgreement.ofIRTransaction tx) initialWorld)
+      native := by
+  unfold denoteResultMatchesNativeOn
+  rw [DenoteAgreement.denoteFunction_eq spec fn tx initialWorld hnoEvents]
+  exact hSource
 
 /-- File-local supported-compiler correctness theorem over native EVMYulLean
 runtime execution.

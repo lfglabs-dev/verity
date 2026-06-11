@@ -42,12 +42,14 @@ import Compiler.Proofs.IRGeneration.Contract
 import Compiler.Proofs.IRGeneration.ContractFeatureTest
 import Compiler.Proofs.IRGeneration.ContractShape
 import Compiler.Proofs.IRGeneration.DenoteAgreement
+import Compiler.Proofs.IRGeneration.DenoteFunctionAgreement
 import Compiler.Proofs.IRGeneration.Dispatch
 import Compiler.Proofs.IRGeneration.Function
 import Compiler.Proofs.IRGeneration.FunctionBody.Base
 import Compiler.Proofs.IRGeneration.FunctionBody.Stmt
 import Compiler.Proofs.IRGeneration.FunctionShape
 import Compiler.Proofs.IRGeneration.GenericInduction.Calls
+import Compiler.Proofs.IRGeneration.GenericInduction.DenoteSound
 import Compiler.Proofs.IRGeneration.GenericInduction.ExprStmt
 import Compiler.Proofs.IRGeneration.GenericInduction.Helpers
 import Compiler.Proofs.IRGeneration.GenericInduction.InterfaceAssembly
@@ -903,6 +905,7 @@ end Verity.AxiomAudit
 
   -- Compiler/Proofs/EndToEnd/Base.lean
   Compiler.Proofs.EndToEnd.sourceResultMatchesNativeOn_of_sourceResultMatchesIRResult_of_nativeResultsMatchOn
+  Compiler.Proofs.EndToEnd.denoteResultMatchesNativeOn_of_sourceResultMatchesNativeOn
   -- Compiler.Proofs.EndToEnd.compile_preserves_native_evmYulLean_of_nativeResultsMatchOn  -- private
   -- Compiler.Proofs.EndToEnd.txNoWrap_of_calldataSizeFits  -- private
   -- Compiler.Proofs.EndToEnd.DispatchGuardsSafe.of_payable_of_args_le_of_noWrap  -- private
@@ -1597,6 +1600,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.EndToEnd.simpleStorageNativeCallDispatcherMatchBridge_of_per_case  -- private
   Compiler.Proofs.EndToEnd.simpleStorage_endToEnd_native_evmYulLean
   Compiler.Proofs.EndToEnd.simpleStorage_source_endToEnd_native_evmYulLean_of_sourceIR
+  Compiler.Proofs.EndToEnd.simpleStorage_denote_endToEnd_native_evmYulLean_of_sourceIR
 
   -- Compiler/Proofs/EventSemantics.lean
   Compiler.Proofs.EventSemantics.encodeEvents_append
@@ -1755,6 +1759,30 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.DenoteAgreement.execForEachLoop_agree
   Compiler.Proofs.IRGeneration.DenoteAgreement.execStmt_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.execStmtList_eq
+
+  -- Compiler/Proofs/IRGeneration/DenoteFunctionAgreement.lean
+  Compiler.Proofs.IRGeneration.DenoteAgreement.dedupNatPreserve_go_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.dedupNatPreserve_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.derivedAliasSlotsForSource_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.applySlotAliasRanges_go_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.applySlotAliasRanges_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.effectiveFields_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.encodeEvents_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.decodeSupportedParamWord_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.bindSupportedParams_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.ofIRTransaction_args
+  Compiler.Proofs.IRGeneration.DenoteAgreement.ofIRTransaction_functionSelector
+  Compiler.Proofs.IRGeneration.DenoteAgreement.withTransactionContext_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.findResolvedFieldAtSlot_go_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.findResolvedFieldAtSlot_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.findDynamicArrayElementAtSlot_scanElements_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.findDynamicArrayElementAtSlot_go_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.findDynamicArrayElementAtSlot_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.encodeStorageAt_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.encodeStorage_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.toSourceResult_revertedResult
+  Compiler.Proofs.IRGeneration.DenoteAgreement.toSourceResult_successResult
+  Compiler.Proofs.IRGeneration.DenoteAgreement.denoteFunction_eq
 
   -- Compiler/Proofs/IRGeneration/Dispatch.lean
   Compiler.Proofs.IRGeneration.Dispatch.runtimeContractOfFunctions_internalFunctions
@@ -2272,6 +2300,10 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.internalFunctionYulName_ne_return  -- private
   Compiler.Proofs.IRGeneration.execIRStmtsWithInternals_of_internalCallAssign_compiledHelperWitness
   Compiler.Proofs.IRGeneration.execIRStmtsWithInternals_of_internalCall_compiledHelperWitness
+
+  -- Compiler/Proofs/IRGeneration/GenericInduction/DenoteSound.lean
+  Compiler.Proofs.IRGeneration.denote_sound
+  Compiler.Proofs.IRGeneration.denote_sound_with_helpers
 
   -- Compiler/Proofs/IRGeneration/GenericInduction/ExprStmt.lean
   Compiler.Proofs.IRGeneration.compiledStmtStep_letVar
@@ -5636,4 +5668,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5293 theorems/lemmas (3766 public, 1527 private, 0 sorry'd)
+-- Total: 5319 theorems/lemmas (3792 public, 1527 private, 0 sorry'd)

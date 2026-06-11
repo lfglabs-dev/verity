@@ -230,6 +230,11 @@ ALLOWLIST: set[str] = {
     "supported_function_body_correct_from_exact_state_core_extraFuel",
     "supported_function_body_correct_from_exact_state_terminal_core_extraFuel",
     "supported_function_body_correct_from_exact_state_generic",
+    # denote_sound{,_with_helpers}: thin Denote-headed restatements of the
+    # generic keystones above; the line count is the inherited hypothesis
+    # block, not proof complexity (proof bodies are <10 lines each).
+    "denote_sound",
+    "denote_sound_with_helpers",
     "supported_function_correct",
     "supported_function_correct_except_mapping_writes",
     "supported_function_correct_except_mapping_writes_stmtSafety",
@@ -1163,6 +1168,9 @@ ALLOWLIST_REGEXES: tuple[re.Pattern[str], ...] = tuple(
         r"^supportedStmtList_safe_of_state_"
         r"(?:effect_closed|except_mapping_writes_stmt_safety)$",
         r"^simpleStorage_source_endToEnd_native_evmYulLean_of_sourceIR$",
+        # Thin denote-headed wrapper; the count is inflated by the trailing
+        # module comment block (proof body is a single composition term).
+        r"^simpleStorage_denote_endToEnd_native_evmYulLean_of_sourceIR$",
         r"^compileStmt_setStructMember2_singleSlot_nonzero_bridged$",
         r"^compileStmtList_append_eq$",
         r"^compile_ok_yields_noReceiveEntrypoint_except_mapping_writes$",
