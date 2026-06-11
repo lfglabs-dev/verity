@@ -1267,6 +1267,82 @@ private theorem eventScratchKey_injective_of_lt
     exact lt_of_lt_of_le hj (by norm_num [eventScratchSizeLimit])
   exact Nat.ModEq.eq_of_lt_of_lt hmodeq hi' hj'
 
+private theorem eventWriteSignatureScratch_preserve_before :
+    ∀ {words : List Nat} {ptr idx baseIdx : Nat}
+      {memory : Nat → Verity.Core.Uint256},
+      idx + words.length ≤ eventScratchSizeLimit →
+      baseIdx < idx →
+      baseIdx < eventScratchSizeLimit →
+      SourceSemantics.writeEventSignatureScratchFrom words ptr idx memory
+          ((ptr + baseIdx * 32) % Compiler.Constants.evmModulus) =
+        memory ((ptr + baseIdx * 32) % Compiler.Constants.evmModulus)
+  | [], _, _, _, _, _, _, _ => by
+      simp [SourceSemantics.writeEventSignatureScratchFrom]
+  | word :: words, ptr, idx, baseIdx, memory, hlimit, hbefore, hbaseLimit => by
+      have htail := eventWriteSignatureScratch_preserve_before
+        (words := words) (ptr := ptr) (idx := idx + 1) (baseIdx := baseIdx)
+        (memory := fun offset =>
+          if offset = (ptr + idx * 32) % Compiler.Constants.evmModulus then
+            (word : Verity.Core.Uint256)
+          else memory offset)
+        (by simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using hlimit)
+        (by omega) hbaseLimit
+      have hne :
+          (ptr + baseIdx * 32) % Compiler.Constants.evmModulus ≠
+            (ptr + idx * 32) % Compiler.Constants.evmModulus := by
+        intro hkey
+        have hidx : idx < eventScratchSizeLimit := by
+          exact lt_of_lt_of_le (by simp : idx < idx + (word :: words).length) hlimit
+        have heq := eventScratchKey_injective_of_lt hbaseLimit hidx hkey
+        omega
+      simpa [SourceSemantics.writeEventSignatureScratchFrom, hne] using htail
+
+private theorem eventWriteSignatureScratch_read_head
+    {word : Nat} {words : List Nat} {ptr idx : Nat}
+    {memory : Nat → Verity.Core.Uint256}
+    (hlimit : idx + (word :: words).length ≤ eventScratchSizeLimit) :
+    SourceSemantics.writeEventSignatureScratchFrom (word :: words) ptr idx memory
+        ((ptr + idx * 32) % Compiler.Constants.evmModulus) =
+      (word : Verity.Core.Uint256) := by
+  have hpres := eventWriteSignatureScratch_preserve_before
+    (words := words) (ptr := ptr) (idx := idx + 1) (baseIdx := idx)
+    (memory := fun offset =>
+      if offset = (ptr + idx * 32) % Compiler.Constants.evmModulus then
+        (word : Verity.Core.Uint256)
+      else memory offset)
+    (by simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using hlimit)
+    (by omega)
+    (lt_of_lt_of_le (by simp : idx < idx + (word :: words).length) hlimit)
+  simpa [SourceSemantics.writeEventSignatureScratchFrom, hpres]
+
+private theorem eventWriteSignatureScratch_read_getElem :
+    ∀ {words : List Nat} {ptr idx : Nat} {memory : Nat → Verity.Core.Uint256},
+      idx + words.length ≤ eventScratchSizeLimit →
+      (∀ word ∈ words, word < Compiler.Constants.evmModulus) →
+      ∀ i (hi : i < words.length),
+        SourceSemantics.writeEventSignatureScratchFrom words ptr idx memory
+            ((ptr + (idx + i) * 32) % Compiler.Constants.evmModulus) =
+          (words[i] : Verity.Core.Uint256)
+  | word :: words, ptr, idx, memory, hlimit, hbounded, i, hi => by
+      cases i with
+      | zero =>
+          simpa using eventWriteSignatureScratch_read_head
+            (word := word) (words := words) (ptr := ptr) (idx := idx)
+            (memory := memory) hlimit
+      | succ i =>
+          have htail := eventWriteSignatureScratch_read_getElem
+            (words := words) (ptr := ptr) (idx := idx + 1)
+            (memory := fun offset =>
+              if offset = (ptr + idx * 32) % Compiler.Constants.evmModulus then
+                (word : Verity.Core.Uint256)
+              else memory offset)
+            (by simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using hlimit)
+            (by intro w hw; exact hbounded w (by simp [hw])) i (by simpa using hi)
+          simpa [SourceSemantics.writeEventSignatureScratchFrom, Nat.add_assoc,
+            Nat.add_comm, Nat.add_left_comm] using htail
+  | [], _, _, _, _, _, i, hi => by
+      simp at hi
+
 private theorem eventYulLogDataWords_eq_of_getElem
     {memory : Nat → Nat} {ptr : Nat} :
     ∀ {values : List Nat},
