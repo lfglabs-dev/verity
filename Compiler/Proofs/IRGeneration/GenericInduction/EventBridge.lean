@@ -260,6 +260,124 @@ private theorem eventExecIRStmt_mstore_step
         memory := fun o => if o = offset then val else state.memory o } := by
   simp [execIRStmt, hoff, hval]
 
+/-! ## Event signature scratch stores -/
+
+private theorem eventIRState_set_memory_eq_self
+    (state : IRState) {mem : Nat → Nat}
+    (hmem : ∀ offset, mem offset = state.memory offset) :
+    { state with memory := mem } = state := by
+  cases state
+  simp only
+  congr
+  funext offset
+  exact hmem offset
+
+private def eventSignatureStoreStmtsFromWords :
+    List Nat → Nat → List YulStmt
+  | [], _ => []
+  | word :: rest, startIdx =>
+    YulStmt.expr (YulExpr.call "mstore" [
+      YulExpr.call "add" [
+        YulExpr.ident "__evt_ptr",
+        YulExpr.lit (startIdx * 32)
+      ],
+      YulExpr.hex word
+    ]) :: eventSignatureStoreStmtsFromWords rest (startIdx + 1)
+
+private theorem eventEvalIRExpr_evtPtr_add
+    {state : IRState} {ptr idx : Nat}
+    (hptr : state.getVar "__evt_ptr" = some ptr) :
+    evalIRExpr state
+        (YulExpr.call "add" [
+          YulExpr.ident "__evt_ptr",
+          YulExpr.lit (idx * 32)
+        ]) =
+      some ((ptr + idx * 32) % Compiler.Constants.evmModulus) := by
+  exact FunctionBody.evalIRExpr_add_of_eval
+    (state := state)
+    (lhs := YulExpr.ident "__evt_ptr")
+    (rhs := YulExpr.lit (idx * 32))
+    (a := ptr)
+    (b := idx * 32)
+    (by simpa [evalIRExpr] using hptr)
+    (by simp [evalIRExpr])
+
+private theorem eventSignatureStoreStmtsFromWords_cons
+    (word : Nat) (words : List Nat) (startIdx : Nat) :
+    eventSignatureStoreStmtsFromWords (word :: words) startIdx =
+      YulStmt.expr (YulExpr.call "mstore" [
+        YulExpr.call "add" [
+          YulExpr.ident "__evt_ptr",
+          YulExpr.lit (startIdx * 32)
+        ],
+        YulExpr.hex word
+      ]) :: eventSignatureStoreStmtsFromWords words (startIdx + 1) := by
+  rfl
+
+private theorem eventSignatureScratchStore_memoryRel
+    {state : IRState} {srcMemory : Nat → Verity.Core.Uint256}
+    {ptr startIdx word : Nat}
+    (hmem : ∀ offset, state.memory offset = (srcMemory offset).val)
+    (hword : word < Compiler.Constants.evmModulus) :
+    ∀ offset,
+      (if offset = (ptr + startIdx * 32) % Compiler.Constants.evmModulus
+        then word else state.memory offset) =
+      ((fun offset =>
+        if offset = (ptr + startIdx * 32) % Compiler.Constants.evmModulus then
+          (word : Verity.Core.Uint256)
+        else
+          srcMemory offset) offset).val := by
+  intro offset
+  by_cases hkey :
+      offset = (ptr + startIdx * 32) % Compiler.Constants.evmModulus
+  · simp [hkey, Nat.mod_eq_of_lt hword]
+  · simp [hkey, hmem offset]
+
+private theorem eventSignatureScratchStores_continue {state : IRState}
+    {srcMemory : Nat → Verity.Core.Uint256} {ptr startIdx : Nat} {words : List Nat}
+    (hptr : state.getVar "__evt_ptr" = some ptr)
+    (hmem : ∀ offset, state.memory offset = (srcMemory offset).val)
+    (hbounded : ∀ word ∈ words, word < Compiler.Constants.evmModulus) :
+    StmtsContinueFromTo state (eventSignatureStoreStmtsFromWords words startIdx)
+      { state with memory := fun offset =>
+          (SourceSemantics.writeEventSignatureScratchFrom words ptr startIdx
+            srcMemory offset).val } := by
+  induction words generalizing state srcMemory startIdx with
+  | nil =>
+      simpa [eventSignatureStoreStmtsFromWords,
+        SourceSemantics.writeEventSignatureScratchFrom] using
+        (eventIRState_set_memory_eq_self state
+          (by intro offset; exact (hmem offset).symm)).symm
+  | cons word rest ih =>
+      rw [eventSignatureStoreStmtsFromWords_cons]
+      have hoff := eventEvalIRExpr_evtPtr_add (state := state) (ptr := ptr) (idx := startIdx) hptr
+      have hval : evalIRExpr state (YulExpr.hex word) = some word := by simp [evalIRExpr]
+      refine ⟨{ state with memory :=
+        fun o => if o = (ptr + startIdx * 32) % Compiler.Constants.evmModulus
+          then word else state.memory o }, ?_, ?_⟩
+      · intro extraFuel
+        simpa using eventExecIRStmt_mstore_step hoff hval extraFuel
+      · have hptr' :
+            ({ state with memory :=
+              fun o => if o = (ptr + startIdx * 32) % Compiler.Constants.evmModulus
+                then word else state.memory o }).getVar "__evt_ptr" = some ptr := by
+          simpa [IRState.getVar] using hptr
+        let nextSrcMemory : Nat → Verity.Core.Uint256 := fun offset =>
+          if offset = (ptr + startIdx * 32) % Compiler.Constants.evmModulus then
+            (word : Verity.Core.Uint256)
+          else srcMemory offset
+        have hmem' := eventSignatureScratchStore_memoryRel
+          (state := state) (srcMemory := srcMemory) (ptr := ptr)
+          (startIdx := startIdx) (word := word) hmem (hbounded word (by simp))
+        have hbounded' : ∀ w ∈ rest, w < Compiler.Constants.evmModulus := by
+          intro w hw
+          exact hbounded w (by simp [hw])
+        simpa [SourceSemantics.writeEventSignatureScratchFrom, nextSrcMemory]
+          using ih (state := { state with memory := (fun o =>
+            if o = (ptr + startIdx * 32) % Compiler.Constants.evmModulus
+            then word else state.memory o) }) (srcMemory := nextSrcMemory)
+            (startIdx := startIdx + 1) hptr' hmem' hbounded'
+
 /-! ## Word normalization bridge
 
 The compiled `normalizeEventWord` masking matches the source-side
