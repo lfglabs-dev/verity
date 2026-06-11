@@ -84,6 +84,51 @@ private theorem eventEvalExprListWithHelpers_eq_evalExprList_of_contractSurfaceC
   · exact (eventEvalExprList_eq_mapM fields state exprs).symm
   · exact eventExprList_all_helperSurfaceClosed_of_contractSurfaceClosed hsurface
 
+private theorem eventEvalExprList_values_lt
+    {fields : List Field} {scope : List String}
+    {runtime : SourceSemantics.RuntimeState} {state : IRState}
+    {args : List Expr} {values : List Nat}
+    (hcore : ∀ expr ∈ args, FunctionBody.ExprCompileCore expr)
+    (hexact : FunctionBody.bindingsExactlyMatchIRVarsOnScope
+      scope runtime.bindings state)
+    (hinScope : ∀ expr ∈ args, FunctionBody.exprBoundNamesInScope expr scope)
+    (hbounded : FunctionBody.bindingsBounded runtime.bindings)
+    (hscope : FunctionBody.scopeNamesPresent scope runtime.bindings)
+    (hruntime : FunctionBody.runtimeStateMatchesIR fields runtime state)
+    (heval : SourceSemantics.evalExprList fields runtime args = some values) :
+    ∀ value ∈ values, value < Compiler.Constants.evmModulus := by
+  induction args generalizing values with
+  | nil =>
+      simp [SourceSemantics.evalExprList] at heval
+      subst values
+      simp
+  | cons expr rest ih =>
+      cases hhead : SourceSemantics.evalExpr fields runtime expr with
+      | none =>
+          simp [SourceSemantics.evalExprList, hhead] at heval
+      | some headValue =>
+          cases htail : SourceSemantics.evalExprList fields runtime rest with
+          | none =>
+              simp [SourceSemantics.evalExprList, hhead, htail] at heval
+          | some tailValues =>
+              simp [SourceSemantics.evalExprList, hhead, htail] at heval
+              subst values
+              simp only [List.mem_cons, forall_eq_or_imp]
+              constructor
+              · have hsrcLt := FunctionBody.evalExpr_lt_evmModulus_core_onExpr
+                  (hcore expr (by simp))
+                  (FunctionBody.bindingsExactlyMatchIRVarsOnScope_implies_onExpr
+                    hexact (hinScope expr (by simp)))
+                  hbounded
+                  (FunctionBody.exprBoundNamesPresent_of_scope hscope
+                    (hinScope expr (by simp)))
+                  hruntime
+                simpa [hhead] using hsrcLt
+              · exact ih
+                  (by intro e he; exact hcore e (by simp [he]))
+                  (by intro e he; exact hinScope e (by simp [he]))
+                  htail
+
 private theorem eventExprList_compile_core_of_contractSurfaceClosed
     {exprs : List Expr}
     (hsurface : exprs.any exprTouchesUnsupportedContractSurface = false) :
