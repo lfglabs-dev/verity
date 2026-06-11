@@ -1731,6 +1731,30 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.DenoteAgreement.bindAgree
   Compiler.Proofs.IRGeneration.DenoteAgreement.denote_evalExpr_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.denote_evalExprList_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.storageArraySetAt_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.storageArrayDropLast?_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.storageRel_base
+  Compiler.Proofs.IRGeneration.DenoteAgreement.storageRel_step
+  Compiler.Proofs.IRGeneration.DenoteAgreement.storageRel_foldl
+  Compiler.Proofs.IRGeneration.DenoteAgreement.storage_field_eq_of_rel
+  Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMappingSlots_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.writeUintKeyedMappingSlots_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMapping2Slots_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.wordNormalize_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.bindValue_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.valuesAsEventArgs_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.writeUintSlots_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.writeStorageWordSlots_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressSlots_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMappingWordSlots_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMappingPackedWordSlots_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMapping2WordSlots_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMappingChainSlots_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.writeStorageArray_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.packedBitsValid_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.execForEachLoop_agree
+  Compiler.Proofs.IRGeneration.DenoteAgreement.execStmt_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.execStmtList_eq
 
   -- Compiler/Proofs/IRGeneration/Dispatch.lean
   Compiler.Proofs.IRGeneration.Dispatch.runtimeContractOfFunctions_internalFunctions
@@ -5612,4 +5636,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5269 theorems/lemmas (3742 public, 1527 private, 0 sorry'd)
+-- Total: 5293 theorems/lemmas (3766 public, 1527 private, 0 sorry'd)
