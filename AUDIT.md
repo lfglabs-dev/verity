@@ -22,6 +22,41 @@ boundary checks change.
 
 Status: full semantic integration for safe compiler-produced bodies.
 
+### Event Emission Proof-Model Alignment (2026-06)
+
+Source-semantics `normalizeEventValue` (Compiler/Proofs/IRGeneration/SourceSemantics.lean)
+now includes a `.newtypeOf _ baseType => normalizeEventValue baseType value` arm, mirroring
+the compiler's newtype erasure in `normalizeEventWord` (Compiler/CompilationModel/EventAbiHelpers.lean).
+This proof-model alignment ensures that source event values normalize consistently with
+compiled event word normalization for scalar newtype parameters. Affects the event proof
+path only (non-events statements are unchanged).
+
+New proof module `Compiler/Proofs/IRGeneration/GenericInduction/EventBridge.lean` bridges
+scalar event emission semantics, discharging the `EventHeadStepSemanticBridgeCatalog.bridge`
+obligation with per-statement step lemmas, memory wrapping facts, and normalized-word
+equivalence theorems. Proof-only scaffolding; no compiler output changes.
+
+### Compiler-Side Emit-Argument Scope Collection (2026-06)
+
+`collectStmtNames` (Compiler/CompilationModel/ValidationHelpers.lean) emit arm now returns
+`collectExprListNames args` rather than `eventName :: collectExprListNames args`. Event
+argument expressions now participate in scope-name collection for statement sequence
+validation; the event name itself is resolved against the event table and does not enter
+the identifier scope. Enables scope-aware event argument validation without shadowing
+event name resolution.
+
+### Proof-Side Scratch Memory Wrapping (2026-06)
+
+Memory-access functions in the proof IR model now wrap byte/word offsets modulo `2^256`
+to match compiled code's wrapping `add` builtin semantics. Affected functions:
+- `memorySliceWords` (IRInterpreter.lean): word-reading offset wrapping
+- `yulLogDataWords` (IRInterpreter.lean): log data extraction offset wrapping
+- `writeEventSignatureScratchFrom`, `writeUnindexedEventScratchFrom` (SourceSemantics.lean):
+  scratch memory write offset wrapping
+
+Ensures proof-side scratch addressing matches compiled emit block's offset arithmetic
+under EVM `Uint256` wrapping, preventing false misalignment in the semantic bridge.
+
 The EVMYulLean transition moved the safe-body EndToEnd runtime target from
 Verity-owned Yul builtin scaffolding to native EVMYulLean runtime execution.
 The current proof surface has:
@@ -86,4 +121,4 @@ actually use this family is the next milestone.
    command.
 5. Run `make check`; run targeted Lean builds for changed proof modules.
 
-**Last Updated**: 2026-06 (storage layout audit artifacts, #1897; nonreentrant transient-storage guard, #1893; non-alias certificate write-set overlap, #1967; nonreentrant fork requirement, #1968)
+**Last Updated**: 2026-06 (event emission proof-model alignment, emit-argument scope collection, scratch memory wrapping; storage layout audit artifacts, #1897; nonreentrant transient-storage guard, #1893; non-alias certificate write-set overlap, #1967; nonreentrant fork requirement, #1968)
