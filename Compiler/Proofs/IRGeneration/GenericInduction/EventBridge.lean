@@ -1643,4 +1643,33 @@ private theorem eventBindingsExactlyMatch_after_emit
   intro name hname
   simpa [IRState.getVar] using hexactTopic name hname
 
+private theorem eventCompileStmt_emit_scalar_shape
+    {fields : List Field} {spec : CompilationModel} {scope : List String}
+    {eventName : String} {args : List Expr} {compiledIR : List YulStmt}
+    (hsupport : eventEmissionProofSupported spec.events eventName args = true)
+    (hsurface : args.any exprTouchesUnsupportedContractSurface = false)
+    (hcompile :
+      CompilationModel.compileStmt fields spec.events spec.errors .calldata
+        [] false scope [] (Stmt.emit eventName args) = Except.ok compiledIR) :
+    ∃ eventDef argExprs,
+      spec.events.find? (·.name == eventName) = some eventDef ∧
+      CompilationModel.compileExprList fields .calldata args = Except.ok argExprs ∧
+      compiledIR = compileScalarEmitFromCompiledArgs eventDef args argExprs := by
+  have hcore := eventExprList_compile_core_of_contractSurfaceClosed hsurface
+  rcases compileExprList_core_ok (fields := fields) hcore with ⟨argExprs, hargExprs⟩
+  rcases exists_eventDef_of_eventEmissionProofSupported hsupport with
+    ⟨eventDef, hfind, hscalar, hlen⟩
+  have hindexedGuard :
+      ¬ 3 < (eventIndexedArgs (eventZippedWithSource eventDef args argExprs)).length := by
+    exact Nat.not_lt.mpr
+      (eventEmissionProofSupported_eventIndexedArgs_length_le_three
+        argExprs hsupport hfind)
+  have hscalarCompile :
+      eventDefScalarCompileSupported eventDef = true := by
+    simpa [eventDefScalarProofSupported] using hscalar
+  simp only [CompilationModel.compileStmt, CompilationModel.compileEmit] at hcompile
+  simp [hfind, hlen, hargExprs, hindexedGuard, hscalarCompile,
+    Bind.bind, Except.bind, pure, Except.pure] at hcompile
+  exact ⟨eventDef, argExprs, hfind, hargExprs, hcompile.symm⟩
+
 end Compiler.Proofs.IRGeneration
