@@ -1,4 +1,4 @@
-import Compiler.Proofs.IRGeneration.GenericInduction.LegacyCompatibility
+import Compiler.Proofs.IRGeneration.GenericInduction.ResultRelation
 
 set_option linter.unnecessarySeqFocus false
 set_option linter.unnecessarySimpa false
@@ -1212,35 +1212,5 @@ theorem stmtListGenericWithHelpersAndHelperIR_of_core_helperSurfaceClosed_and_he
       (hnoEvents := hnoEvents)
       (hnoErrors := hnoErrors)
       hinternal
-
-/-- Combined fail-closed lifting bridge from the existing helper-free generic
-statement library to the exact helper-aware compiled induction seam. The only
-additional input beyond the already-proved helper-free cases is a
-compiled-side legacy-compatibility witness for the statement list. -/
-theorem stmtListGenericWithHelpersAndHelperIR_of_core_helperSurfaceClosed_and_compiledLegacyCompatible
-    {runtimeContract : IRContract}
-    {spec : CompilationModel}
-    {fields : List Field}
-    {scope : List String}
-    {stmts : List Stmt}
-    (hgeneric : StmtListGenericCore fields scope stmts)
-    (hsurface : stmtListTouchesUnsupportedHelperSurface stmts = false)
-    (hlegacy : StmtListCompiledLegacyCompatible fields scope stmts)
-    (hnoEvents : spec.events = [])
-    (hnoErrors : spec.errors = [])
-    (hinternal : runtimeContract.internalFunctions = []) :
-    StmtListGenericWithHelpersAndHelperIR runtimeContract spec fields scope stmts := by
-  exact
-    stmtListGenericWithHelpersAndHelperIR_of_core_helperSurfaceClosed_and_helperFreeCompiledLegacyCompatible
-      (runtimeContract := runtimeContract)
-      (spec := spec)
-      (hgeneric := hgeneric)
-      (hsurface := hsurface)
-      (hlegacy :=
-        stmtListHelperFreeCompiledLegacyCompatible_of_compiledLegacyCompatible hlegacy)
-      (hnoEvents := hnoEvents)
-      (hnoErrors := hnoErrors)
-      hinternal
-
 
 end Compiler.Proofs.IRGeneration

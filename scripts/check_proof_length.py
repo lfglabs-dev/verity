@@ -241,10 +241,6 @@ ALLOWLIST: set[str] = {
     "supported_function_correct_with_body_interface_except_mapping_writes",
     "supported_function_correct_with_body_interface_except_mapping_writes_stmtSafety",
     # --- Legacy compatibility and dispatch ---
-    "legacyCompatibleExternalStmtList_of_compileStmt_ok_on_supportedContractSurface",
-    "legacyCompatibleExternalStmtList_of_compileSetStorage_ok_of_noPackedFields_resolved",
-    "legacyCompatibleExternalStmtList_of_compileStmt_ok_on_supportedContractSurface_exceptMappingWrites",
-    "legacyCompatibleExternalStmtList_of_compileSetStructMember2_ok",
     "interpretContract_correct_of_compiled_functions",
     "interpretContract_correct_of_compiled_functions_except_mapping_writes_and_helper_ir_closed",
     # Constructor-bearing compile output adds one extra compileConstructor split
@@ -284,9 +280,7 @@ ALLOWLIST: set[str] = {
     # --- Helper-aware theorem stack (Issue #1630 / PR #1633 / PR #1639) ---
     "supported_function_body_correct_from_exact_state_generic_with_helpers",
     "supported_function_body_correct_from_exact_state_generic_with_helpers_goal",
-    "supported_function_body_correct_from_exact_state_generic_with_helpers_and_helper_ir",
     "supported_function_body_correct_from_exact_state_generic_with_helpers_and_helper_ir_callsDisjoint",
-    "supported_function_body_correct_from_exact_state_generic_with_helpers_and_helper_ir_except_mapping_writes",
     "supported_function_body_correct_from_exact_state_generic_helper_steps_raw",
     "supported_function_body_correct_from_exact_state_generic_helper_surface_steps_and_helper_ir",
     "supported_function_body_correct_from_exact_state_generic_internal_helper_surface_steps_and_helper_ir",
@@ -1099,13 +1093,6 @@ ALLOWLIST: set[str] = {
     # `Function.supported_function_correct_except_mapping_writes_stmtSafety`,
     # so there is no proof logic to decompose.
     "compileFunctionSpec_correct_generic_except_mapping_writes_stmtSafety",
-    # Minimal single-delegation body (`exact
-    # compile_preserves_semantics_except_mapping_writes_and_helper_ir …`); the
-    # 41-line signature+proof is pushed to a reported 52-line span by the
-    # trailing blank line plus the 10-line `#1630` doc-comment preamble of the
-    # *next* theorem (`compile_preserves_semantics_with_helper_proofs`) being
-    # attributed to this proof's span, same displacement pattern as above.
-    "compile_preserves_semantics_except_mapping_writes_and_helper_ir_supported",
 }
 
 # PR #1822 native EVMYulLean generic-dispatcher closure. These regexes cover

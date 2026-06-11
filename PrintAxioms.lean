@@ -53,7 +53,6 @@ import Compiler.Proofs.IRGeneration.GenericInduction.DenoteSound
 import Compiler.Proofs.IRGeneration.GenericInduction.ExprStmt
 import Compiler.Proofs.IRGeneration.GenericInduction.Helpers
 import Compiler.Proofs.IRGeneration.GenericInduction.InterfaceAssembly
-import Compiler.Proofs.IRGeneration.GenericInduction.LegacyCompatibility
 import Compiler.Proofs.IRGeneration.GenericInduction.Loops
 import Compiler.Proofs.IRGeneration.GenericInduction.Main
 import Compiler.Proofs.IRGeneration.GenericInduction.ResultRelation
@@ -1626,19 +1625,6 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.Contract.compiled_functions_forall₂_of_mapM_ok  -- private
   -- Compiler.Proofs.IRGeneration.Contract.compiled_internal_functions_forall₂_of_mapM_ok  -- private
   -- Compiler.Proofs.IRGeneration.Contract.exists_right_of_forall₂_mem_left  -- private
-  -- Compiler.Proofs.IRGeneration.Contract.legacyCompatibleExternalStmtList_append  -- private
-  -- Compiler.Proofs.IRGeneration.Contract.legacyCompatibleExternalStmtList_of_exprStmtExprs  -- private
-  -- Compiler.Proofs.IRGeneration.Contract.legacyCompatibleExternalStmtList_revertWithMessage  -- private
-  -- Compiler.Proofs.IRGeneration.Contract.legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_uint256  -- private
-  -- Compiler.Proofs.IRGeneration.Contract.legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_int256  -- private
-  -- Compiler.Proofs.IRGeneration.Contract.legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_uint8  -- private
-  -- Compiler.Proofs.IRGeneration.Contract.legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_uint16  -- private
-  -- Compiler.Proofs.IRGeneration.Contract.legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_address  -- private
-  -- Compiler.Proofs.IRGeneration.Contract.legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_bytes32  -- private
-  -- Compiler.Proofs.IRGeneration.Contract.legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_bool  -- private
-  -- Compiler.Proofs.IRGeneration.Contract.legacyCompatibleExternalStmtList_genParamLoadBodyFrom_cons_scalar  -- private
-  -- Compiler.Proofs.IRGeneration.Contract.legacyCompatibleExternalStmtList_genParamLoadBodyFrom_of_supported  -- private
-  -- Compiler.Proofs.IRGeneration.Contract.legacyCompatibleExternalStmtList_genParamLoads_of_supported  -- private
   -- Compiler.Proofs.IRGeneration.Contract.compileValidatedCore_ok_yields_compiled_functions  -- private
   -- Compiler.Proofs.IRGeneration.Contract.compileValidatedCore_ok_yields_compiled_functions_except_mapping_writes  -- private
   -- Compiler.Proofs.IRGeneration.Contract.filterInternalFunctions_eq_nil_of_all_nonInternal  -- private
@@ -1660,14 +1646,6 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.Contract.compile_ok_yields_internalFunctions_nil_except_mapping_writes
   Compiler.Proofs.IRGeneration.Contract.compile_ok_yields_noFallbackEntrypoint_except_mapping_writes
   Compiler.Proofs.IRGeneration.Contract.compile_ok_yields_noReceiveEntrypoint_except_mapping_writes
-  Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_ok_yields_legacyCompatibleExternalStmtList
-  Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_ok_yields_legacyCompatibleExternalStmtList_except_mapping_writes
-  -- Compiler.Proofs.IRGeneration.Contract.compiled_functions_legacyCompatibleExternalBodies  -- private
-  -- Compiler.Proofs.IRGeneration.Contract.compiled_functions_legacyCompatibleExternalBodies_except_mapping_writes  -- private
-  Compiler.Proofs.IRGeneration.Contract.compile_ok_yields_legacyCompatibleExternalBodies
-  Compiler.Proofs.IRGeneration.Contract.compile_ok_yields_legacyCompatibleExternalBodies_except_mapping_writes
-  Compiler.Proofs.IRGeneration.Contract.compile_ok_yields_legacyCompatibleRuntimeContract
-  Compiler.Proofs.IRGeneration.Contract.compile_ok_yields_legacyCompatibleRuntimeContract_except_mapping_writes
   Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_correct_generic
   Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_correct_generic_except_mapping_writes
   Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_correct_generic_except_mapping_writes_stmtSafety
@@ -1678,13 +1656,11 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_except_mapping_writes
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_except_mapping_writes_stmtSafety
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_except_mapping_writes_and_helper_ir
-  Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_except_mapping_writes_and_helper_ir_supported
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_with_helper_proofs
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_with_helper_proofs_and_helper_ir
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_with_helper_proofs_and_helper_ir_goal
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_with_helper_proofs_and_helper_ir_of_disjointRuntimeContract
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_with_helper_proofs_and_helper_ir_closed
-  Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_with_helper_proofs_and_helper_ir_supported
   Compiler.Proofs.IRGeneration.Contract.counter_supported_spec_compile_preserves_semantics
 
   -- Compiler/Proofs/IRGeneration/ContractFeatureTest.lean
@@ -2448,51 +2424,6 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.stmtListGenericWithHelpersAndHelperIR_of_core_directInternalHelperCallStepInterface_and_directInternalHelperAssignStepInterface_and_exprInternalHelperStepInterface_and_structuralInternalHelperStepInterface_and_residualHelperSurfaceStepInterface_and_helperFreeCompiledCallsDisjoint
   Compiler.Proofs.IRGeneration.stmtListGenericWithHelpersAndHelperIR_of_core_helperSurfaceClosed_and_helperFreeCompiledCallsDisjoint
   Compiler.Proofs.IRGeneration.stmtListGenericWithHelpersAndHelperIR_of_core_helperSurfaceClosed_and_helperFreeCompiledLegacyCompatible
-  Compiler.Proofs.IRGeneration.stmtListGenericWithHelpersAndHelperIR_of_core_helperSurfaceClosed_and_compiledLegacyCompatible
-
-  -- Compiler/Proofs/IRGeneration/GenericInduction/LegacyCompatibility.lean
-  -- Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_append  -- private
-  -- Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_of_exprStmtExprs  -- private
-  -- Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_revertWithMessage  -- private
-  -- Compiler.Proofs.IRGeneration.field_mem_of_findFieldWithResolvedSlot_some  -- private
-  -- Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_of_compileSetStorage_ok_of_noPackedFields_resolved  -- private
-  -- Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_of_compileSetStorage_ok_of_noPackedFields_aux  -- private
-  Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_of_compileSetStorage_ok_of_noPackedFields
-  -- Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_of_compileStmt_ok_letVar  -- private
-  -- Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_of_compileStmt_ok_assignVar  -- private
-  -- Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_of_compileStmt_ok_require  -- private
-  -- Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_of_compileStmt_ok_return  -- private
-  -- Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_of_compileStmt_ok_stop  -- private
-  -- Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_of_compileStmt_ok_mstore  -- private
-  -- Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_of_compileStmt_ok_tstore  -- private
-  -- Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_setStorageWord_aliasBlock  -- private
-  -- Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_of_compileStmt_ok_setStorageWord  -- private
-  Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_of_compileStmt_ok_on_supportedContractSurface
-  Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_of_compileStmtList_ok_on_supportedContractSurface
-  Compiler.Proofs.IRGeneration.stmtListCompiledLegacyCompatible_of_supportedContractSurface
-  Compiler.Proofs.IRGeneration.stmtListHelperFreeCompiledLegacyCompatible_of_compiledLegacyCompatible
-  Compiler.Proofs.IRGeneration.stmtListHelperFreeCompiledCallsDisjoint_of_supportedContractSurface
-  -- Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_of_exprMap  -- private
-  -- Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_of_letBindings  -- private
-  -- Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_of_mappingWriteCompatBlock  -- private
-  -- Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_of_mapping2CompatBlock  -- private
-  -- Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_of_compileMappingSlotWrite_ok  -- private
-  -- Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_of_mapping2WordCompatBlock  -- private
-  -- Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_of_compileSetMapping2Word_ok  -- private
-  -- Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_of_mapLetStmts  -- private
-  -- Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_of_mapExprStmts  -- private
-  -- Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_of_mapBlockStmts  -- private
-  -- Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_of_compileSetMappingChain_ok  -- private
-  -- Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_of_compileMappingPackedSlotWrite_ok  -- private
-  -- Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_of_compileSetStructMember_ok  -- private
-  -- Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_of_compileSetStructMember2_ok  -- private
-  -- Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_of_compileSetMapping2_ok  -- private
-  -- Compiler.Proofs.IRGeneration.stmtListTouchesUnsupportedContractSurfaceExceptMappingWrites_cons_inv  -- private
-  Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_of_compileStmt_ok_on_supportedContractSurface_exceptMappingWrites
-  Compiler.Proofs.IRGeneration.stmtListCompiledLegacyCompatible_of_supportedContractSurface_exceptMappingWrites
-  Compiler.Proofs.IRGeneration.legacyCompatibleExternalStmtList_of_compileStmtList_ok_on_supportedContractSurface_exceptMappingWrites
-  Compiler.Proofs.IRGeneration.stmtListHelperFreeCompiledLegacyCompatible_of_supportedContractSurface_exceptMappingWrites
-  Compiler.Proofs.IRGeneration.stmtListHelperFreeCompiledCallsDisjoint_of_supportedContractSurface_exceptMappingWrites
 
   -- Compiler/Proofs/IRGeneration/GenericInduction/Loops.lean
   -- Compiler.Proofs.IRGeneration.sourceExec_forEach_literal_zero  -- private
@@ -2533,8 +2464,6 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_split_internal_helper_surface_steps_and_helper_ir
   Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_finer_split_internal_helper_surface_steps_and_helper_ir_callsDisjoint
   Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_with_helpers_and_helper_ir_callsDisjoint
-  Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_with_helpers_and_helper_ir
-  Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_with_helpers_and_helper_ir_except_mapping_writes
   Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_with_helpers_goal
   Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_with_helpers
 
@@ -5668,4 +5597,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5319 theorems/lemmas (3792 public, 1527 private, 0 sorry'd)
+-- Total: 5251 theorems/lemmas (3770 public, 1481 private, 0 sorry'd)
