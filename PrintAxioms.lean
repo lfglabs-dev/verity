@@ -68,6 +68,7 @@ import Compiler.Proofs.KeccakBound
 import Compiler.Proofs.MappingSlot
 import Compiler.Proofs.StorageBounds
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBodyClosure.Base
+import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBodyClosure.Generic
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBodyClosure.Safe
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBridgeLemmas
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBridgePredicates
@@ -3883,8 +3884,14 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.compileStmtList_mappingPackedWordMultiSlotNonzero_bridged
   Compiler.Proofs.YulGeneration.Backends.compileStmtList_mappingPackedWordMultiSlotNonzero_noFuncDefs
 
+  -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanBodyClosure/Generic.lean
+  Compiler.Proofs.YulGeneration.Backends.compileStmt_bridgedSource_bridged
+  Compiler.Proofs.YulGeneration.Backends.compileStmt_bridgedSource_noFuncDefs
+  -- Compiler.Proofs.YulGeneration.Backends.compileStmtList_cons_ok_inv  -- private
+  Compiler.Proofs.YulGeneration.Backends.compileStmtList_bridgedSource_bridged
+  Compiler.Proofs.YulGeneration.Backends.compileStmtList_bridgedSource_noFuncDefs
+
   -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanBodyClosure/Safe.lean
-  -- Compiler.Proofs.YulGeneration.Backends.compileStmtList_append_eq  -- private
   Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_mstoreSingle_of_exprCompileCore
   Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_setStorageSingleSlot_of_exprCompileCore
   Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_setStorageAddrSingleSlot_of_exprCompileCore
@@ -3913,6 +3920,9 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_setStructMember2SingleSlot
   Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_setStructMemberSingleSlotNonzero
   Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_setStructMember2SingleSlotNonzero
+  -- Compiler.Proofs.YulGeneration.Backends.mem_of_externalRecursiveRawLogStmts  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.mem_of_internalRecursiveRawLogStmts  -- private
+  Compiler.Proofs.YulGeneration.Backends.BridgedSafeStmts.toBridgedSource
   Compiler.Proofs.YulGeneration.Backends.compileStmtList_always_bridged
   Compiler.Proofs.YulGeneration.Backends.compileStmtList_always_noFuncDefs
 
@@ -5597,4 +5607,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5251 theorems/lemmas (3770 public, 1481 private, 0 sorry'd)
+-- Total: 5258 theorems/lemmas (3775 public, 1483 private, 0 sorry'd)

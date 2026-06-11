@@ -1033,16 +1033,19 @@ ALLOWLIST: set[str] = {
     # same displacement pattern as prior multi-slot list closures
     # (proof body unchanged).
     "compileStmtList_structMember2MultiSlotNonzero_bridged",
-    # Universal safe-body aggregation is one constructor dispatch over
-    # BridgedSafeStmts. Each branch delegates to an existing fragment-specific
-    # closure theorem; splitting would create a parallel dispatch helper with
-    # the same 24-case shape.
-    "compileStmtList_always_bridged",
-    # Universal no-function-definition aggregation mirrors
-    # compileStmtList_always_bridged: one constructor dispatch over
-    # BridgedSafeStmts, with each branch delegating to a fragment-specific
-    # noFuncDefs theorem.
-    "compileStmtList_always_noFuncDefs",
+    # Master per-statement safe-body closure is one constructor dispatch over
+    # BridgedSourceStmt (39 fragment arms). Each branch delegates to an
+    # existing fragment-specific closure lemma; splitting would create a
+    # parallel dispatch helper with the same arm shape.
+    "compileStmt_bridgedSource_bridged",
+    # Mirrors compileStmt_bridgedSource_bridged: one constructor dispatch over
+    # BridgedSourceStmt, with each branch delegating to a fragment-specific
+    # noFuncDefs lemma.
+    "compileStmt_bridgedSource_noFuncDefs",
+    # Flattening BridgedSafeStmts into the per-statement union is one
+    # constructor dispatch over its 40 arms; each pointwise arm is a one-line
+    # forward, so splitting would just duplicate the dispatch skeleton.
+    "BridgedSafeStmts.toBridgedSource",
     # --- Misc ---
     "findUniqueInternalFunction",
     # Native generated-switch block append/error lemmas mirror the existing
