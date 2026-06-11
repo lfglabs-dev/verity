@@ -41,6 +41,7 @@ import Compiler.Proofs.HelperStepProofs
 import Compiler.Proofs.IRGeneration.Contract
 import Compiler.Proofs.IRGeneration.ContractFeatureTest
 import Compiler.Proofs.IRGeneration.ContractShape
+import Compiler.Proofs.IRGeneration.DenoteAgreement
 import Compiler.Proofs.IRGeneration.Dispatch
 import Compiler.Proofs.IRGeneration.Function
 import Compiler.Proofs.IRGeneration.FunctionBody.Base
@@ -1720,6 +1721,16 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.ContractShape.compile_ok_yields_deploy_compileConstructor
   Compiler.Proofs.IRGeneration.ContractShape.compile_ok_yields_noFallbackEntrypoint
   Compiler.Proofs.IRGeneration.ContractShape.compile_ok_yields_noReceiveEntrypoint
+
+  -- Compiler/Proofs/IRGeneration/DenoteAgreement.lean
+  Compiler.Proofs.IRGeneration.DenoteAgreement.toRuntimeState_world
+  Compiler.Proofs.IRGeneration.DenoteAgreement.toRuntimeState_bindings
+  Compiler.Proofs.IRGeneration.DenoteAgreement.toRuntimeState_selector
+  Compiler.Proofs.IRGeneration.DenoteAgreement.sourceOracle_mappingSlot
+  Compiler.Proofs.IRGeneration.DenoteAgreement.sourceOracle_keccakMemorySlice
+  Compiler.Proofs.IRGeneration.DenoteAgreement.bindAgree
+  Compiler.Proofs.IRGeneration.DenoteAgreement.denote_evalExpr_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.denote_evalExprList_eq
 
   -- Compiler/Proofs/IRGeneration/Dispatch.lean
   Compiler.Proofs.IRGeneration.Dispatch.runtimeContractOfFunctions_internalFunctions
@@ -5601,4 +5612,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5261 theorems/lemmas (3734 public, 1527 private, 0 sorry'd)
+-- Total: 5269 theorems/lemmas (3742 public, 1527 private, 0 sorry'd)
