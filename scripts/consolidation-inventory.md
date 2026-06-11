@@ -199,6 +199,43 @@ docsync directly:
 - [x] check_layer2_boundary_sync.py → `layer2_boundary` (Cluster A)
 - [x] check_interpreter_feature_boundary_catalog_sync.py → `interpreter_feature_boundary_catalog` (Cluster A)
 
+Cluster C landed as `scripts/property_pipeline.py` (subcommands `check
+[--only manifest|coverage|lean-sync]`, `extract`, `report`; one manifest parse
+for all three checks). The legacy scripts are thin shims; the three Makefile
+check lines collapsed into `python3 scripts/property_pipeline.py check`:
+
+- [x] check_property_manifest.py → `property_pipeline.py check --only manifest` (Cluster C)
+- [x] check_property_coverage.py → `property_pipeline.py check --only coverage` (Cluster C)
+- [x] check_property_manifest_sync.py → `property_pipeline.py check --only lean-sync` (Cluster C)
+- [x] extract_property_manifest.py → `property_pipeline.py extract` (Cluster C)
+- [x] report_property_coverage.py → `property_pipeline.py report` (Cluster C)
+
+Cluster E landed as `scripts/lean_lint.py` (rule registry with `--only` /
+`--skip` / `--list`, generalizing the check_compiler_boundaries.py dispatcher
+pattern). The legacy scripts stay as the rule modules — their logic, output,
+and exit codes are untouched (verified byte-identical per rule), so the
+arg-bearing CI invocations (`check_axioms.py --log`, `check_proof_length.py
+--format=markdown`, `check_storage_layout.py --format=markdown`) keep calling
+them directly; `make check` goes through lean_lint:
+
+- [x] check_contract_structure.py → `lean_lint.py --only contract_structure` (Cluster E)
+- [x] check_paths.py → `lean_lint.py --only paths` (Cluster E)
+- [x] check_compilationmodel_split.py → `lean_lint.py --only compilationmodel_split` (Cluster E)
+- [x] check_axioms.py → `lean_lint.py --only axioms` (Cluster E)
+- [x] check_trust_surface_registry.py → `lean_lint.py --only trust_surface_registry` (Cluster E)
+- [x] check_storage_layout.py → `lean_lint.py --only storage_layout` (Cluster E)
+- [x] check_lean_hygiene.py → `lean_lint.py --only lean_hygiene` (Cluster E; module invoked unmodified — empty sorry allowlist, Smoke native_decide carve-out, and debug-command rules unchanged)
+- [x] check_split_compiler_test_artifacts.py → `lean_lint.py --only split_compiler_test_artifacts` (Cluster E)
+- [x] check_rewrite_proof_metadata.py → `lean_lint.py --only rewrite_proof_metadata` (Cluster E)
+- [x] check_proof_length.py → `lean_lint.py --only proof_length` (Cluster E)
+
+Cluster E note: the single-tree-walk unification (one parse pass shared across
+rules) is deliberately deferred — the rules' scrubbing/walk scopes differ
+(Proofs-only vs whole tree vs Contracts layout) and check_lean_hygiene.py is a
+trust gate, so the dispatcher keeps each rule's parsing byte-exact; sharing the
+walk can land later behind the same `lean_lint.py` interface without touching
+callers.
+
 Still pending from Cluster A: the verification-status trio +
 update_doc_numbers.py, layer2 catalog generator/checker, the EVMYulLean report
 generators, builtin-bridge / feature-summary matrix checkers,
