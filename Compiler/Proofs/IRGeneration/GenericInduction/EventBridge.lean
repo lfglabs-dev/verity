@@ -202,6 +202,51 @@ private theorem compileExpr_atomic_shape
   case calldatasize =>
       exact Or.inr (Or.inr ⟨"calldatasize", by simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm⟩)
 
+private theorem eventExprCompileCore_of_exprEventArgAtomic
+    {expr : Expr}
+    (hatomic : exprEventArgAtomic expr = true) :
+    FunctionBody.ExprCompileCore expr := by
+  cases expr <;> simp [exprEventArgAtomic] at hatomic <;> constructor
+
+private theorem eventCompileExprList_atomic_shapes
+    {fields : List Field} {scope : List String}
+    {args : List Expr} {argExprs : List YulExpr}
+    (hatomic : args.all exprEventArgAtomic = true)
+    (hinScope : ∀ arg ∈ args, FunctionBody.exprBoundNamesInScope arg scope)
+    (hcompile :
+      CompilationModel.compileExprList fields .calldata args = Except.ok argExprs) :
+    List.Forall₂ (fun argExpr _ => AtomicArgIR scope argExpr) argExprs args := by
+  induction args generalizing argExprs with
+  | nil =>
+      simp [CompilationModel.compileExprList] at hcompile
+      injection hcompile with hargs
+      subst hargs
+      exact .nil
+  | cons arg rest ih =>
+      simp only [List.all_cons, Bool.and_eq_true] at hatomic
+      have hheadScope := hinScope arg (by simp)
+      have htailScope :
+          ∀ tailArg ∈ rest, FunctionBody.exprBoundNamesInScope tailArg scope := by
+        intro tailArg hmem
+        exact hinScope tailArg (by simp [hmem])
+      have hcore : FunctionBody.ExprCompileCore arg :=
+        eventExprCompileCore_of_exprEventArgAtomic hatomic.1
+      rcases FunctionBody.compileExpr_core_ok (fields := fields) hcore with
+        ⟨argIR, hargIR⟩
+      have htailCore :
+          ∀ tailArg ∈ rest, FunctionBody.ExprCompileCore tailArg := by
+        intro tailArg hmem
+        exact eventExprCompileCore_of_exprEventArgAtomic
+          ((List.all_eq_true.mp hatomic.2) tailArg hmem)
+      rcases compileExprList_core_ok (fields := fields) htailCore with
+        ⟨restIRs, hrestIRs⟩
+      rw [CompilationModel.compileExprList, hargIR, hrestIRs] at hcompile
+      injection hcompile with hcompiledTail
+      subst hcompiledTail
+      exact .cons
+        (compileExpr_atomic_shape hatomic.1 hheadScope hargIR)
+        (ih hatomic.2 htailScope hrestIRs)
+
 /-! ## Stability of atomic argument IR under scratch effects -/
 
 private theorem evalIRCall_nil_setVar
