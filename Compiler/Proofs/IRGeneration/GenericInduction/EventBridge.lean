@@ -1318,12 +1318,11 @@ private theorem eventWriteSignatureScratch_read_head
 private theorem eventWriteSignatureScratch_read_getElem :
     ∀ {words : List Nat} {ptr idx : Nat} {memory : Nat → Verity.Core.Uint256},
       idx + words.length ≤ eventScratchSizeLimit →
-      (∀ word ∈ words, word < Compiler.Constants.evmModulus) →
       ∀ i (hi : i < words.length),
         SourceSemantics.writeEventSignatureScratchFrom words ptr idx memory
             ((ptr + (idx + i) * 32) % Compiler.Constants.evmModulus) =
           (words[i] : Verity.Core.Uint256)
-  | word :: words, ptr, idx, memory, hlimit, hbounded, i, hi => by
+  | word :: words, ptr, idx, memory, hlimit, i, hi => by
       cases i with
       | zero =>
           simpa using eventWriteSignatureScratch_read_head
@@ -1337,11 +1336,68 @@ private theorem eventWriteSignatureScratch_read_getElem :
                 (word : Verity.Core.Uint256)
               else memory offset)
             (by simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using hlimit)
-            (by intro w hw; exact hbounded w (by simp [hw])) i (by simpa using hi)
+            i (by simpa using hi)
           simpa [SourceSemantics.writeEventSignatureScratchFrom, Nat.add_assoc,
             Nat.add_comm, Nat.add_left_comm] using htail
-  | [], _, _, _, _, _, i, hi => by
+  | [], _, _, _, _, i, hi => by
       simp at hi
+
+private theorem eventChunkBytes32_length (bs : List UInt8) :
+    (chunkBytes32 bs).length = byteWordCount bs.length := by
+  rw [chunkBytes32]
+  cases bs with
+  | nil =>
+      simp [byteWordCount]
+  | cons b rest =>
+      simp
+      have hrec := eventChunkBytes32_length (rest.drop 31)
+      rw [hrec]
+      simp [byteWordCount, List.length_drop]
+      omega
+termination_by bs.length
+
+private theorem eventByteWordCount_le_self (n : Nat) :
+    byteWordCount n ≤ n := by
+  cases n with
+  | zero =>
+      simp [byteWordCount]
+  | succ n =>
+      simp [byteWordCount]
+      omega
+
+private theorem eventSignatureWords_length
+    (sigBytes : List UInt8) :
+    ((chunkBytes32 sigBytes).map wordFromBytes).length =
+      byteWordCount sigBytes.length := by
+  simp [eventChunkBytes32_length]
+
+private theorem eventSignatureMemory_read_getElem
+    {eventDef : EventDef} {i : Nat}
+    (hi : i <
+      ((chunkBytes32 (bytesFromString (eventSignature eventDef))).map wordFromBytes).length)
+    (hlimit :
+      ((chunkBytes32 (bytesFromString (eventSignature eventDef))).map wordFromBytes).length ≤
+        eventScratchSizeLimit) :
+    SourceSemantics.eventSignatureMemory eventDef
+        ((0 + i * 32) % Compiler.Constants.evmModulus) =
+      ((chunkBytes32 (bytesFromString (eventSignature eventDef))).map wordFromBytes)[i] := by
+  have hiLimit : i < eventScratchSizeLimit := lt_of_lt_of_le hi hlimit
+  have hltMod : i * 32 < Compiler.Constants.evmModulus := by
+    exact lt_of_lt_of_le (Nat.mul_lt_mul_of_pos_right hiLimit (by norm_num))
+      (by norm_num [eventScratchSizeLimit, Compiler.Constants.evmModulus])
+  have hmod : (0 + i * 32) % Compiler.Constants.evmModulus = i * 32 := by
+    simpa using Nat.mod_eq_of_lt hltMod
+  have hmod' : i * 32 % Compiler.Constants.evmModulus = i * 32 := by
+    simpa using Nat.mod_eq_of_lt hltMod
+  have halign : (i * 32) % 32 = 0 := by simp [Nat.mul_comm]
+  have hdiv : (i * 32) / 32 = i := by simp [Nat.mul_comm]
+  have hichunk : i < (chunkBytes32 (bytesFromString (eventSignature eventDef))).length := by
+    simpa using hi
+  have hget :
+      ((chunkBytes32 (bytesFromString (eventSignature eventDef)))[i]?) =
+        some ((chunkBytes32 (bytesFromString (eventSignature eventDef)))[i]) := by
+    simpa using List.getElem?_eq_getElem hichunk
+  simp [SourceSemantics.eventSignatureMemory, hmod, hmod', halign, hdiv, hget]
 
 private theorem eventYulLogDataWords_eq_of_getElem
     {memory : Nat → Nat} {ptr : Nat} :
