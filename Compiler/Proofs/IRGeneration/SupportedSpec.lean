@@ -3371,6 +3371,10 @@ theorem SupportedBodyInterfaceExceptMappingWrites.helperCallNames_nil
     helperCallNames fn = [] := by
   simp [helperCallNames, hBody.stmtList.internalHelperCallNames_nil]
 
+-- The default heartbeat budget is borderline for the helper-surface closure
+-- proofs' isDefEq search on a cache-cold elaboration; it passes incrementally
+-- but times out on fresh builds. Bump it for the whole mutual block.
+set_option maxHeartbeats 800000 in
 mutual
   theorem exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed
       {expr : Expr}

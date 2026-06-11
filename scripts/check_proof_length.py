@@ -36,6 +36,12 @@ HARD_LIMIT = 50
 # before the check was introduced. New proofs must not be added here without a
 # justification comment in the PR explaining why decomposition is not feasible.
 ALLOWLIST: set[str] = {
+    # --- Denote/SourceSemantics agreement (P4 seed) ---
+    # Structural recursion over the fuelless forEach loop; the succ case must
+    # spell out the loop-state literal inside a `show`-match to align the two
+    # interpreters' unfoldings, which cannot be factored without changing the
+    # mutual recursion shape.
+    "execForEachLoop_agree",
     # --- Expression compilation correctness proofs ---
     "eval_compileExpr_ceilDiv_of_compiled",
     "eval_compileExpr_wDivUp_of_compiled",
