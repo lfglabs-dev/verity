@@ -400,6 +400,33 @@ private theorem eventSignatureScratchStores_continue {state : IRState}
             then word else state.memory o) }) (srcMemory := nextSrcMemory)
             (startIdx := startIdx + 1) hptr' hmem' hbounded'
 
+private theorem eventSignatureTopic_of_memorySliceWords_eq
+    {eventDef : EventDef} {memory : Nat → Nat} {ptr : Nat}
+    (hslice :
+      memorySliceWords memory ptr (bytesFromString (eventSignature eventDef)).length =
+        memorySliceWords (SourceSemantics.eventSignatureMemory eventDef) 0
+          (bytesFromString (eventSignature eventDef)).length) :
+    abstractKeccakMemorySlice memory ptr
+        (bytesFromString (eventSignature eventDef)).length =
+      SourceSemantics.eventSignatureTopic eventDef := by
+  simp [abstractKeccakMemorySlice, SourceSemantics.eventSignatureTopic, hslice]
+
+private theorem eventEvalIRExpr_topic0
+    {state : IRState} {eventDef : EventDef} {ptr : Nat}
+    (hptr : state.getVar "__evt_ptr" = some ptr)
+    (hslice :
+      memorySliceWords state.memory ptr (bytesFromString (eventSignature eventDef)).length =
+        memorySliceWords (SourceSemantics.eventSignatureMemory eventDef) 0
+          (bytesFromString (eventSignature eventDef)).length) :
+    evalIRExpr state
+        (YulExpr.call "keccak256" [
+          YulExpr.ident "__evt_ptr",
+          YulExpr.lit (bytesFromString (eventSignature eventDef)).length
+        ]) =
+      some (SourceSemantics.eventSignatureTopic eventDef) := by
+  simp [evalIRExpr, evalIRCall, evalIRExprs, hptr,
+    eventSignatureTopic_of_memorySliceWords_eq hslice]
+
 /-! ## Word normalization bridge
 
 The compiled `normalizeEventWord` masking matches the source-side
