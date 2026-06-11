@@ -1192,4 +1192,48 @@ private theorem eventFromResolvedArgs?_encoded
       simp [SourceSemantics.encodeEvent, henc, List.map_append,
         Nat.mod_eq_of_lt htopic]
 
+private def EventIndexedEntryOk (scope : List String) (state : IRState) :
+    (EventParam × Expr × YulExpr) → Nat → Prop
+  | (param, _, argExpr), value =>
+      evalIRExpr state argExpr = some value ∧
+      eventParamScalarProofSupported param.ty = true ∧
+      value < Compiler.Constants.evmModulus ∧
+      AtomicArgIR scope argExpr ∧
+      (param.kind == EventParamKind.indexed) = true
+
+private theorem eventIndexedTopicParts_eval
+    {scope : List String} {state : IRState}
+    {entries : List (EventParam × Expr × YulExpr)} {values : List Nat}
+    (hrel : List.Forall₂ (EventIndexedEntryOk scope state) entries values) :
+    evalIRExprs state ((scalarEventIndexedTopicParts entries).map (fun part => part.2)) =
+      some (entries.zip values |>.map (fun (entry, value) =>
+        SourceSemantics.normalizeEventValue entry.1.ty value)) := by
+  induction hrel with
+  | nil =>
+      simp [scalarEventIndexedTopicParts, evalIRExprs]
+  | cons hok htail ih =>
+      rcases hok with ⟨heval, hsupport, hlt, _hshape, _hkind⟩
+      have hnorm := eventEvalIRExpr_normalizeEventWord _ hsupport heval hlt
+      have htailEval := by
+        simpa [scalarEventIndexedTopicParts] using ih
+      simp [evalIRExprs, scalarEventIndexedTopicParts, hnorm, htailEval]
+
+private theorem eventIndexedTopicParts_eval_values
+    {scope : List String} {state : IRState}
+    {entries : List (EventParam × Expr × YulExpr)} {values : List Nat}
+    (hrel : List.Forall₂ (EventIndexedEntryOk scope state) entries values) :
+    evalIRExprs state ((scalarEventIndexedTopicParts entries).map (fun part => part.2)) =
+      some (eventEncodedValuesForKind EventParamKind.indexed
+        (entries.map (fun entry => entry.1)) values) := by
+  induction hrel with
+  | nil =>
+      simp [scalarEventIndexedTopicParts, eventEncodedValuesForKind, evalIRExprs]
+  | cons hok htail ih =>
+      rcases hok with ⟨heval, hsupport, hlt, _hshape, hkind⟩
+      have hnorm := eventEvalIRExpr_normalizeEventWord _ hsupport heval hlt
+      have htailEval := by
+        simpa [scalarEventIndexedTopicParts] using ih
+      simp [evalIRExprs, scalarEventIndexedTopicParts, eventEncodedValuesForKind,
+        hkind, hnorm, htailEval]
+
 end Compiler.Proofs.IRGeneration
