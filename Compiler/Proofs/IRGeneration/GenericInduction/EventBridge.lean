@@ -1672,4 +1672,53 @@ private theorem eventCompileStmt_emit_scalar_shape
     Bind.bind, Except.bind, pure, Except.pure] at hcompile
   exact ⟨eventDef, argExprs, hfind, hargExprs, hcompile.symm⟩
 
+private theorem eventUnindexedEntriesOk_of_eval :
+    ∀ {scope : List String} {state : IRState}
+      {params : List EventParam} {args : List Expr}
+      {argExprs : List YulExpr} {values : List Nat},
+      List.Forall₂ (fun argExpr value => evalIRExpr state argExpr = some value)
+        argExprs values →
+      List.Forall₂ (fun argExpr _ => AtomicArgIR scope argExpr) argExprs args →
+      (∀ param ∈ params, eventParamScalarProofSupported param.ty = true) →
+      (∀ param ∈ params, eventHeadWordSize param.ty = 32) →
+      (∀ value ∈ values, value < Compiler.Constants.evmModulus) →
+      args.length = params.length →
+      List.Forall₂ (EventUnindexedEntryOk scope state)
+        (((params.zip args).zip argExprs |>.map
+          (fun ((p, srcExpr), argExpr) => (p, srcExpr, argExpr))).filter
+            (fun (p, _, _) => p.kind == EventParamKind.unindexed))
+        (eventValuesForKind EventParamKind.unindexed params values)
+  | _, _, [], [], [], [], _, _, _, _, _, _ => by
+      simp [eventValuesForKind]
+  | scope, state, param :: params, arg :: args, argExpr :: argExprs,
+      value :: values, hevals, hshapes, hsupport, hsizes, hvaluesLt, hlen => by
+      rcases hevals with _ | ⟨heval, hevalsTail⟩
+      rcases hshapes with _ | ⟨hshape, hshapesTail⟩
+      have htail := eventUnindexedEntriesOk_of_eval
+        (scope := scope) (state := state) (params := params) (args := args)
+        (argExprs := argExprs) (values := values) hevalsTail hshapesTail
+        (by intro p hp; exact hsupport p (by simp [hp]))
+        (by intro p hp; exact hsizes p (by simp [hp]))
+        (by intro v hv; exact hvaluesLt v (by simp [hv]))
+        (by simpa using Nat.succ.inj hlen)
+      by_cases hkind : (param.kind == EventParamKind.unindexed) = true
+      · simp [eventValuesForKind, hkind, htail, EventUnindexedEntryOk, heval,
+          hshape, hsupport param (by simp), hsizes param (by simp)]
+        exact hvaluesLt value (by simp)
+      · have hkindFalse : (param.kind == EventParamKind.unindexed) = false := by
+          cases h : param.kind == EventParamKind.unindexed <;> simp [h] at hkind ⊢
+        simp [eventValuesForKind, hkindFalse, htail]
+  | _, _, [], [], [], _ :: _, hevals, _, _, _, _, _ => by
+      cases hevals
+  | _, _, [], [], _ :: _, _, _, hshapes, _, _, _, _ => by
+      cases hshapes
+  | _, _, [], _ :: _, _, _, _, _, _, _, _, hlen => by
+      simp at hlen
+  | _, _, _ :: _, [], _, _, _, _, _, _, _, hlen => by
+      simp at hlen
+  | _, _, _ :: _, _ :: _, [], _, _, hshapes, _, _, _, _ => by
+      cases hshapes
+  | _, _, _ :: _, _ :: _, _ :: _, [], hevals, _, _, _, _, _ => by
+      cases hevals
+
 end Compiler.Proofs.IRGeneration
