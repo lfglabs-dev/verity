@@ -260,6 +260,41 @@ private theorem eventExecIRStmt_mstore_step
         memory := fun o => if o = offset then val else state.memory o } := by
   simp [execIRStmt, hoff, hval]
 
+private theorem eventExecIRStmt_log1_step
+    {state : IRState} {args : List YulExpr} {offset size topic0 : Nat}
+    (heval : evalIRExprs state args = some [offset, size, topic0])
+    (extraFuel : Nat) :
+    execIRStmt (extraFuel + 1) state (YulStmt.expr (YulExpr.call "log1" args)) =
+      .continue (state.appendYulLog offset size [topic0]) := by
+  simp [execIRStmt, isYulLogName, heval]
+
+private theorem eventExecIRStmt_log2_step
+    {state : IRState} {args : List YulExpr} {offset size topic0 topic1 : Nat}
+    (heval : evalIRExprs state args = some [offset, size, topic0, topic1])
+    (extraFuel : Nat) :
+    execIRStmt (extraFuel + 1) state (YulStmt.expr (YulExpr.call "log2" args)) =
+      .continue (state.appendYulLog offset size [topic0, topic1]) := by
+  simp [execIRStmt, isYulLogName, heval]
+
+private theorem eventExecIRStmt_log3_step
+    {state : IRState} {args : List YulExpr} {offset size topic0 topic1 topic2 : Nat}
+    (heval : evalIRExprs state args = some [offset, size, topic0, topic1, topic2])
+    (extraFuel : Nat) :
+    execIRStmt (extraFuel + 1) state (YulStmt.expr (YulExpr.call "log3" args)) =
+      .continue (state.appendYulLog offset size [topic0, topic1, topic2]) := by
+  simp [execIRStmt, isYulLogName, heval]
+
+private theorem eventExecIRStmt_log4_step
+    {state : IRState} {args : List YulExpr}
+    {offset size topic0 topic1 topic2 topic3 : Nat}
+    (heval : evalIRExprs state args =
+      some [offset, size, topic0, topic1, topic2, topic3])
+    (extraFuel : Nat) :
+    execIRStmt (extraFuel + 1) state (YulStmt.expr (YulExpr.call "log4" args)) =
+      .continue (state.appendYulLog offset size
+        [topic0, topic1, topic2, topic3]) := by
+  simp [execIRStmt, isYulLogName, heval]
+
 /-! ## Event signature scratch stores -/
 
 private theorem eventIRState_set_memory_eq_self
