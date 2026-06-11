@@ -1236,4 +1236,19 @@ private theorem eventIndexedTopicParts_eval_values
       simp [evalIRExprs, scalarEventIndexedTopicParts, eventEncodedValuesForKind,
         hkind, hnorm, htailEval]
 
+/-! ## Log data readback -/
+
+private theorem eventYulLogDataWords_eq_of_getElem
+    {memory : Nat → Nat} {ptr : Nat} :
+    ∀ {values : List Nat},
+      (∀ i (hi : i < values.length),
+        memory ((ptr + i * 32) % Compiler.Constants.evmModulus) =
+          values[i]) →
+      yulLogDataWords memory ptr (32 * values.length) = values
+  | values, hread => by
+      apply List.ext_getElem
+      · simp [yulLogDataWords]
+      · intro i hleft hright
+        simpa [yulLogDataWords] using hread i hright
+
 end Compiler.Proofs.IRGeneration
