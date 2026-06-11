@@ -2369,6 +2369,48 @@ private theorem eventIndexedEntriesOk_of_eval :
   | _, _, _ :: _, _ :: _, _ :: _, [], hevals, _, _, _, _ => by
       cases hevals
 
+private theorem eventZippedWithSource_filter_params_eq :
+    ∀ {params : List EventParam} {args : List Expr} {argExprs : List YulExpr}
+      {kind : EventParamKind},
+      args.length = params.length →
+      argExprs.length = params.length →
+      (((params.zip args).zip argExprs |>.map
+        (fun ((p, srcExpr), argExpr) => (p, srcExpr, argExpr))).filter
+          (fun entry => entry.1.kind == kind)).map (fun entry => entry.1) =
+        params.filter (fun param => param.kind == kind)
+  | [], [], [], _, _, _ => by
+      simp
+  | param :: params, arg :: args, argExpr :: argExprs, kind, hargs, hirs => by
+      have htail := eventZippedWithSource_filter_params_eq
+        (params := params) (args := args) (argExprs := argExprs) (kind := kind)
+        (by simpa using Nat.succ.inj hargs)
+        (by simpa using Nat.succ.inj hirs)
+      by_cases hkind : (param.kind == kind) = true
+      · simp [hkind, htail]
+      · have hkindFalse : (param.kind == kind) = false := by
+          cases h : param.kind == kind <;> simp [h] at hkind ⊢
+        simp [hkindFalse, htail]
+  | [], _ :: _, _, _, hargs, _ => by
+      simp at hargs
+  | _ :: _, [], _, _, hargs, _ => by
+      simp at hargs
+  | [], [], _ :: _, _, _, hirs => by
+      simp at hirs
+  | _ :: _, _ :: _, [], _, _, hirs => by
+      simp at hirs
+
+private theorem eventUnindexedEntryParams_eq_filter
+    {eventDef : EventDef} {args : List Expr} {argExprs : List YulExpr}
+    (hargs : args.length = eventDef.params.length)
+    (hirs : argExprs.length = eventDef.params.length) :
+    (eventUnindexedArgs (eventZippedWithSource eventDef args argExprs)).map
+        (fun entry => entry.1) =
+      eventDef.params.filter (fun param => param.kind == EventParamKind.unindexed) := by
+  simpa [eventZippedWithSource, eventUnindexedArgs] using
+    eventZippedWithSource_filter_params_eq
+      (params := eventDef.params) (args := args) (argExprs := argExprs)
+      (kind := EventParamKind.unindexed) hargs hirs
+
 private theorem eventCollectExprListNames_subset_scope
     {scope : List String} {args : List Expr}
     (hcore : ∀ expr ∈ args, FunctionBody.ExprCompileCore expr)
