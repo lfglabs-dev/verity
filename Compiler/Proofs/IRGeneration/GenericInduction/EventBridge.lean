@@ -1487,4 +1487,112 @@ private theorem eventYulLogDataWords_of_writeUnindexedScratch
     (values := eventEncodedValuesForKind EventParamKind.unindexed params values) hread
   simpa [hencLen] using hyul
 
+/-! ## Log statement execution -/
+
+private theorem eventLogStmt_continue_zero
+    {state : IRState} {ptr dataSize topic0 : Nat}
+    (hptr : state.getVar "__evt_ptr" = some ptr)
+    (htopic0 : state.getVar "__evt_topic0" = some topic0) :
+    StmtsContinueFromTo state
+      [YulStmt.expr (YulExpr.call (eventLogFunction ([] : List (EventParam × Expr × YulExpr)).length)
+        (eventLogArgs (YulExpr.lit dataSize)
+          (scalarEventIndexedTopicParts ([] : List (EventParam × Expr × YulExpr)))))]
+      (state.appendYulLog ptr dataSize [topic0]) := by
+  refine ⟨state.appendYulLog ptr dataSize [topic0], ?_, rfl⟩
+  intro extraFuel
+  apply eventExecIRStmt_log1_step
+  simp [eventLogFunction, eventLogArgs, scalarEventIndexedTopicParts, evalIRExprs,
+    evalIRExpr, hptr, htopic0]
+
+private theorem eventLogStmt_continue_one
+    {scope : List String} {state : IRState}
+    {ptr dataSize topic0 : Nat}
+    {p1 : EventParam × Expr × YulExpr} {v1 : Nat}
+    (hptr : state.getVar "__evt_ptr" = some ptr)
+    (htopic0 : state.getVar "__evt_topic0" = some topic0)
+    (hrel : List.Forall₂ (EventIndexedEntryOk scope state) [p1] [v1]) :
+    StmtsContinueFromTo state
+      [YulStmt.expr (YulExpr.call (eventLogFunction [p1].length)
+        (eventLogArgs (YulExpr.lit dataSize)
+          (scalarEventIndexedTopicParts [p1])))]
+      (state.appendYulLog ptr dataSize
+        [topic0, SourceSemantics.normalizeEventValue p1.1.ty v1]) := by
+  rcases hrel with _ | ⟨hpv, _⟩
+  rcases p1 with ⟨param1, src1, arg1⟩
+  rcases hpv with ⟨heval1, hsupport1, hlt1, _hshape1, hkind1⟩
+  have hnorm1 := eventEvalIRExpr_normalizeEventWord param1.ty hsupport1 heval1 hlt1
+  refine ⟨state.appendYulLog ptr dataSize
+      [topic0, SourceSemantics.normalizeEventValue param1.ty v1], ?_, rfl⟩
+  intro extraFuel
+  apply eventExecIRStmt_log2_step
+  simp [eventLogFunction, eventLogArgs, scalarEventIndexedTopicParts,
+    evalIRExprs, evalIRExpr, hptr, htopic0, hnorm1]
+
+private theorem eventLogStmt_continue_two
+    {scope : List String} {state : IRState}
+    {ptr dataSize topic0 : Nat}
+    {p1 p2 : EventParam × Expr × YulExpr} {v1 v2 : Nat}
+    (hptr : state.getVar "__evt_ptr" = some ptr)
+    (htopic0 : state.getVar "__evt_topic0" = some topic0)
+    (hrel : List.Forall₂ (EventIndexedEntryOk scope state) [p1, p2] [v1, v2]) :
+    StmtsContinueFromTo state
+      [YulStmt.expr (YulExpr.call (eventLogFunction [p1, p2].length)
+        (eventLogArgs (YulExpr.lit dataSize)
+          (scalarEventIndexedTopicParts [p1, p2])))]
+      (state.appendYulLog ptr dataSize
+        [topic0, SourceSemantics.normalizeEventValue p1.1.ty v1,
+          SourceSemantics.normalizeEventValue p2.1.ty v2]) := by
+  rcases hrel with _ | ⟨hpv1, hrelTail⟩
+  rcases hrelTail with _ | ⟨hpv2, _⟩
+  rcases p1 with ⟨param1, src1, arg1⟩
+  rcases p2 with ⟨param2, src2, arg2⟩
+  rcases hpv1 with ⟨heval1, hsupport1, hlt1, _hshape1, _hkind1⟩
+  rcases hpv2 with ⟨heval2, hsupport2, hlt2, _hshape2, _hkind2⟩
+  have hnorm1 := eventEvalIRExpr_normalizeEventWord param1.ty hsupport1 heval1 hlt1
+  have hnorm2 := eventEvalIRExpr_normalizeEventWord param2.ty hsupport2 heval2 hlt2
+  refine ⟨state.appendYulLog ptr dataSize
+      [topic0, SourceSemantics.normalizeEventValue param1.ty v1,
+        SourceSemantics.normalizeEventValue param2.ty v2], ?_, rfl⟩
+  intro extraFuel
+  apply eventExecIRStmt_log3_step
+  simp [eventLogFunction, eventLogArgs, scalarEventIndexedTopicParts,
+    evalIRExprs, evalIRExpr, hptr, htopic0, hnorm1, hnorm2]
+
+private theorem eventLogStmt_continue_three
+    {scope : List String} {state : IRState}
+    {ptr dataSize topic0 : Nat}
+    {p1 p2 p3 : EventParam × Expr × YulExpr} {v1 v2 v3 : Nat}
+    (hptr : state.getVar "__evt_ptr" = some ptr)
+    (htopic0 : state.getVar "__evt_topic0" = some topic0)
+    (hrel : List.Forall₂ (EventIndexedEntryOk scope state)
+      [p1, p2, p3] [v1, v2, v3]) :
+    StmtsContinueFromTo state
+      [YulStmt.expr (YulExpr.call (eventLogFunction [p1, p2, p3].length)
+        (eventLogArgs (YulExpr.lit dataSize)
+          (scalarEventIndexedTopicParts [p1, p2, p3])))]
+      (state.appendYulLog ptr dataSize
+        [topic0, SourceSemantics.normalizeEventValue p1.1.ty v1,
+          SourceSemantics.normalizeEventValue p2.1.ty v2,
+          SourceSemantics.normalizeEventValue p3.1.ty v3]) := by
+  rcases hrel with _ | ⟨hpv1, hrelTail⟩
+  rcases hrelTail with _ | ⟨hpv2, hrelTail⟩
+  rcases hrelTail with _ | ⟨hpv3, _⟩
+  rcases p1 with ⟨param1, src1, arg1⟩
+  rcases p2 with ⟨param2, src2, arg2⟩
+  rcases p3 with ⟨param3, src3, arg3⟩
+  rcases hpv1 with ⟨heval1, hsupport1, hlt1, _hshape1, _hkind1⟩
+  rcases hpv2 with ⟨heval2, hsupport2, hlt2, _hshape2, _hkind2⟩
+  rcases hpv3 with ⟨heval3, hsupport3, hlt3, _hshape3, _hkind3⟩
+  have hnorm1 := eventEvalIRExpr_normalizeEventWord param1.ty hsupport1 heval1 hlt1
+  have hnorm2 := eventEvalIRExpr_normalizeEventWord param2.ty hsupport2 heval2 hlt2
+  have hnorm3 := eventEvalIRExpr_normalizeEventWord param3.ty hsupport3 heval3 hlt3
+  refine ⟨state.appendYulLog ptr dataSize
+      [topic0, SourceSemantics.normalizeEventValue param1.ty v1,
+        SourceSemantics.normalizeEventValue param2.ty v2,
+        SourceSemantics.normalizeEventValue param3.ty v3], ?_, rfl⟩
+  intro extraFuel
+  apply eventExecIRStmt_log4_step
+  simp [eventLogFunction, eventLogArgs, scalarEventIndexedTopicParts,
+    evalIRExprs, evalIRExpr, hptr, htopic0, hnorm1, hnorm2, hnorm3]
+
 end Compiler.Proofs.IRGeneration
