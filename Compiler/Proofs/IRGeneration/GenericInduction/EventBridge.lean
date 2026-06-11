@@ -941,6 +941,19 @@ private theorem eventUnindexedEntriesOk_memory
   | cons hok htail ih =>
       exact .cons (eventUnindexedEntryOk_memory hok) ih
 
+private theorem eventUnindexedHeadSize_eq_values
+    {scope : List String} {state : IRState}
+    {entries : List (EventParam × Expr × YulExpr)} {values : List Nat}
+    (hrel : List.Forall₂ (EventUnindexedEntryOk scope state) entries values) :
+    eventUnindexedHeadSize entries = 32 * values.length := by
+  induction hrel with
+  | nil =>
+      simp [eventUnindexedHeadSize]
+  | cons hok htail ih =>
+      rcases hok with ⟨_, _, _, _, hsize, _⟩
+      simp [eventUnindexedHeadSize, hsize, ih]
+      omega
+
 private def eventUnindexedNextMemory
     (srcMemory : Nat → Verity.Core.Uint256)
     (ptr wordIdx : Nat) (ty : ParamType) (value : Nat) :
