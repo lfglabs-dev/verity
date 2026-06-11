@@ -57,6 +57,45 @@ private theorem eventEvalExprList_eq_mapM
   | cons expr rest ih =>
       simp [SourceSemantics.evalExprList, ih]
 
+private theorem eventExprList_all_helperSurfaceClosed_of_contractSurfaceClosed
+    {exprs : List Expr}
+    (hsurface : exprs.any exprTouchesUnsupportedContractSurface = false) :
+    exprs.all (fun expr => exprTouchesUnsupportedHelperSurface expr == false) = true := by
+  induction exprs with
+  | nil =>
+      simp
+  | cons expr rest ih =>
+      simp only [List.any_cons, Bool.or_eq_false_iff] at hsurface
+      have hhead :=
+        exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.1
+      simp only [List.all_cons, BEq.rfl, Bool.and_eq_true]
+      exact ⟨by simpa [hhead], ih hsurface.2⟩
+
+private theorem eventEvalExprListWithHelpers_eq_evalExprList_of_contractSurfaceClosed
+    (spec : CompilationModel)
+    (fields : List Field)
+    (fuel : Nat)
+    (state : SourceSemantics.RuntimeState)
+    {exprs : List Expr}
+    (hsurface : exprs.any exprTouchesUnsupportedContractSurface = false) :
+    SourceSemantics.evalExprListWithHelpers spec fields fuel state exprs =
+      SourceSemantics.evalExprList fields state exprs := by
+  rw [SourceSemantics.evalExprListWithHelpers_eq_evalExprList_of_helperSurfaceClosed]
+  · exact (eventEvalExprList_eq_mapM fields state exprs).symm
+  · exact eventExprList_all_helperSurfaceClosed_of_contractSurfaceClosed hsurface
+
+private theorem eventExprList_compile_core_of_contractSurfaceClosed
+    {exprs : List Expr}
+    (hsurface : exprs.any exprTouchesUnsupportedContractSurface = false) :
+    ∀ expr ∈ exprs, FunctionBody.ExprCompileCore expr := by
+  intro expr hmem
+  have hnotTrue :
+      ¬ exprTouchesUnsupportedContractSurface expr = true :=
+    (List.any_eq_false.mp hsurface) expr hmem
+  have hclosed : exprTouchesUnsupportedContractSurface expr = false := by
+    cases h : exprTouchesUnsupportedContractSurface expr <;> simp [h] at hnotTrue ⊢
+  exact exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hclosed
+
 /-! ## Final-state-tracking statement continuation
 
 `StmtsContinueFrom` (IRInterpreter.lean) only yields an existential final
@@ -139,32 +178,23 @@ private theorem compileExpr_atomic_shape
       · simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm
       · exact hinScope name (by simp [FunctionBody.exprBoundNames])
   case caller =>
-      exact Or.inr (Or.inr ⟨"caller",
-        by simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm⟩)
+      exact Or.inr (Or.inr ⟨"caller", by simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm⟩)
   case contractAddress =>
-      exact Or.inr (Or.inr ⟨"address",
-        by simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm⟩)
+      exact Or.inr (Or.inr ⟨"address", by simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm⟩)
   case txOrigin =>
-      exact Or.inr (Or.inr ⟨"origin",
-        by simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm⟩)
+      exact Or.inr (Or.inr ⟨"origin", by simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm⟩)
   case msgValue =>
-      exact Or.inr (Or.inr ⟨"callvalue",
-        by simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm⟩)
+      exact Or.inr (Or.inr ⟨"callvalue", by simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm⟩)
   case blockTimestamp =>
-      exact Or.inr (Or.inr ⟨"timestamp",
-        by simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm⟩)
+      exact Or.inr (Or.inr ⟨"timestamp", by simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm⟩)
   case blockNumber =>
-      exact Or.inr (Or.inr ⟨"number",
-        by simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm⟩)
+      exact Or.inr (Or.inr ⟨"number", by simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm⟩)
   case chainid =>
-      exact Or.inr (Or.inr ⟨"chainid",
-        by simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm⟩)
+      exact Or.inr (Or.inr ⟨"chainid", by simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm⟩)
   case blobbasefee =>
-      exact Or.inr (Or.inr ⟨"blobbasefee",
-        by simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm⟩)
+      exact Or.inr (Or.inr ⟨"blobbasefee", by simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm⟩)
   case calldatasize =>
-      exact Or.inr (Or.inr ⟨"calldatasize",
-        by simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm⟩)
+      exact Or.inr (Or.inr ⟨"calldatasize", by simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm⟩)
 
 /-! ## Stability of atomic argument IR under scratch effects -/
 
@@ -188,7 +218,7 @@ private theorem evalIRExpr_atomic_setVar
     (value : Nat) :
     evalIRExpr (state.setVar name value) exprIR = evalIRExpr state exprIR := by
   rcases hshape with ⟨n, rfl⟩ | ⟨varName, rfl, hmem⟩ | ⟨func, rfl⟩
-  · rfl
+  · simp [evalIRExpr]
   · have hne : varName ≠ name := fun h => hname (h ▸ hmem)
     simp only [evalIRExpr]
     exact FunctionBody.getVar_setVar_ne state name varName value hne
@@ -203,7 +233,7 @@ private theorem evalIRExpr_atomic_memory
     (mem : Nat → Nat) :
     evalIRExpr { state with memory := mem } exprIR = evalIRExpr state exprIR := by
   rcases hshape with ⟨n, rfl⟩ | ⟨varName, rfl, hmem⟩ | ⟨func, rfl⟩
-  · rfl
+  · simp [evalIRExpr]
   · simp [evalIRExpr, IRState.getVar]
   · simp only [evalIRExpr]
     exact evalIRCall_nil_memory state mem func
@@ -235,6 +265,57 @@ private theorem eventExecIRStmt_mstore_step
 The compiled `normalizeEventWord` masking matches the source-side
 `normalizeEventValue` on every proof-supported scalar parameter type. -/
 
+private theorem eventEvalIRExpr_normalizeEventWord_uint8
+    {state : IRState} {exprIR : YulExpr} {value : Nat}
+    (heval : evalIRExpr state exprIR = some value) :
+    evalIRExpr state (normalizeEventWord ParamType.uint8 exprIR) =
+      some (SourceSemantics.normalizeEventValue ParamType.uint8 value) := by
+  have h255 : (255 : Nat) % Compiler.Constants.evmModulus = 255 :=
+    Nat.mod_eq_of_lt (by norm_num [Compiler.Constants.evmModulus])
+  simp [normalizeEventWord, SourceSemantics.normalizeEventValue,
+    SourceSemantics.uint8Modulus, evalIRExpr, evalIRCall, evalIRExprs,
+    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
+    heval, h255]
+
+private theorem eventEvalIRExpr_normalizeEventWord_uint16
+    {state : IRState} {exprIR : YulExpr} {value : Nat}
+    (heval : evalIRExpr state exprIR = some value) :
+    evalIRExpr state (normalizeEventWord ParamType.uint16 exprIR) =
+      some (SourceSemantics.normalizeEventValue ParamType.uint16 value) := by
+  have h65535 : (65535 : Nat) % Compiler.Constants.evmModulus = 65535 :=
+    Nat.mod_eq_of_lt (by norm_num [Compiler.Constants.evmModulus])
+  simp [normalizeEventWord, SourceSemantics.normalizeEventValue,
+    evalIRExpr, evalIRCall, evalIRExprs,
+    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
+    heval, h65535]
+
+private theorem eventEvalIRExpr_normalizeEventWord_address
+    {state : IRState} {exprIR : YulExpr} {value : Nat}
+    (heval : evalIRExpr state exprIR = some value) :
+    evalIRExpr state (normalizeEventWord ParamType.address exprIR) =
+      some (SourceSemantics.normalizeEventValue ParamType.address value) := by
+  have hmask : Compiler.Constants.addressMask % Compiler.Constants.evmModulus =
+      Compiler.Constants.addressMask :=
+    Nat.mod_eq_of_lt
+      (by norm_num [Compiler.Constants.addressMask, Compiler.Constants.evmModulus])
+  simp [normalizeEventWord, SourceSemantics.normalizeEventValue,
+    evalIRExpr, evalIRCall, evalIRExprs,
+    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
+    heval, hmask]
+
+private theorem eventEvalIRExpr_normalizeEventWord_bool
+    {state : IRState} {exprIR : YulExpr} {value : Nat}
+    (heval : evalIRExpr state exprIR = some value) :
+    evalIRExpr state (normalizeEventWord ParamType.bool exprIR) =
+      some (SourceSemantics.normalizeEventValue ParamType.bool value) := by
+  have hone : (1 : Nat) % Compiler.Constants.evmModulus = 1 :=
+    Nat.mod_eq_of_lt (by norm_num [Compiler.Constants.evmModulus])
+  by_cases hzero : value % Compiler.Constants.evmModulus = 0 <;>
+    simp [normalizeEventWord, CompilationModel.yulToBool,
+      SourceSemantics.normalizeEventValue, evalIRExpr, evalIRCall, evalIRExprs,
+      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
+      heval, hzero, hone]
+
 private theorem eventEvalIRExpr_normalizeEventWord :
     ∀ (ty : ParamType) {state : IRState} {exprIR : YulExpr} {value : Nat},
       eventParamScalarProofSupported ty = true →
@@ -252,36 +333,13 @@ private theorem eventEvalIRExpr_normalizeEventWord :
       simpa [normalizeEventWord, SourceSemantics.normalizeEventValue,
         Nat.mod_eq_of_lt hlt] using heval
   | .uint8, _, _, _, _, heval, _ => by
-      have h255 : (255 : Nat) % Compiler.Constants.evmModulus = 255 :=
-        Nat.mod_eq_of_lt (by norm_num [Compiler.Constants.evmModulus])
-      simp [normalizeEventWord, SourceSemantics.normalizeEventValue,
-        SourceSemantics.uint8Modulus, evalIRExpr, evalIRCall, evalIRExprs,
-        Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
-        heval, h255]
+      exact eventEvalIRExpr_normalizeEventWord_uint8 heval
   | .uint16, _, _, _, _, heval, _ => by
-      have h65535 : (65535 : Nat) % Compiler.Constants.evmModulus = 65535 :=
-        Nat.mod_eq_of_lt (by norm_num [Compiler.Constants.evmModulus])
-      simp [normalizeEventWord, SourceSemantics.normalizeEventValue,
-        evalIRExpr, evalIRCall, evalIRExprs,
-        Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
-        heval, h65535]
+      exact eventEvalIRExpr_normalizeEventWord_uint16 heval
   | .address, _, _, _, _, heval, _ => by
-      have hmask : Compiler.Constants.addressMask % Compiler.Constants.evmModulus =
-          Compiler.Constants.addressMask :=
-        Nat.mod_eq_of_lt
-          (by norm_num [Compiler.Constants.addressMask, Compiler.Constants.evmModulus])
-      simp [normalizeEventWord, SourceSemantics.normalizeEventValue,
-        evalIRExpr, evalIRCall, evalIRExprs,
-        Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
-        heval, hmask]
-  | .bool, state, exprIR, value, _, heval, _ => by
-      have hone : (1 : Nat) % Compiler.Constants.evmModulus = 1 :=
-        Nat.mod_eq_of_lt (by norm_num [Compiler.Constants.evmModulus])
-      by_cases hzero : value % Compiler.Constants.evmModulus = 0 <;>
-        simp [normalizeEventWord, CompilationModel.yulToBool,
-          SourceSemantics.normalizeEventValue, evalIRExpr, evalIRCall, evalIRExprs,
-          Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
-          heval, hzero, hone]
+      exact eventEvalIRExpr_normalizeEventWord_address heval
+  | .bool, _, _, _, _, heval, _ => by
+      exact eventEvalIRExpr_normalizeEventWord_bool heval
   | .newtypeOf _ baseType, _, _, _, hsupport, heval, hlt => by
       have hbase : eventParamScalarProofSupported baseType = true := by
         simpa [eventParamScalarProofSupported, eventParamScalarCompileSupported]
