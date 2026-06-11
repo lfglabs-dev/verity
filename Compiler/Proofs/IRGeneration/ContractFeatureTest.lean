@@ -52,6 +52,7 @@ private def literalMappingWrite_supported_function :
   exact
     { nonInternal := rfl
       nonSpecialEntrypoint := rfl
+      noNonReentrant := rfl
       params :=
         { namesNodup := by decide
           supported := by

@@ -1,4 +1,5 @@
 import Compiler.Proofs.IRGeneration.Dispatch
+import Compiler.Proofs.IRGeneration.ContractShape
 
 set_option linter.unnecessarySimpa false
 
@@ -464,6 +465,8 @@ private theorem compileValidatedCore_ok_yields_compiled_functions
     hSupported.noAdtTypes, hSupported.noEvents, hSupported.noErrors,
     hfallback, hreceive] at hcore
   simp only [bind, Except.bind, pure, Except.pure] at hcore
+  rw [ContractShape.guardedFunctionsMapM_eq model.fields [] [] [] _
+    (ContractShape.supportedSpec_entries_lock_free hSupported)] at hcore
   rcases hmap :
       ((model.functions.filter
           (fun fn => !fn.isInternal && !isInteropEntrypointName fn.name)).zip selectors).mapM
@@ -520,6 +523,8 @@ private theorem compileValidatedCore_ok_yields_compiled_functions_except_mapping
     hSupported.noAdtTypes, hSupported.noEvents, hSupported.noErrors,
     hfallback, hreceive] at hcore
   simp only [bind, Except.bind, pure, Except.pure] at hcore
+  rw [ContractShape.guardedFunctionsMapM_eq model.fields [] [] [] _
+    (ContractShape.supportedSpecExceptMappingWrites_entries_lock_free hSupported)] at hcore
   rcases hmap :
       ((model.functions.filter
           (fun fn => !fn.isInternal && !isInteropEntrypointName fn.name)).zip selectors).mapM
@@ -614,6 +619,8 @@ private theorem compileValidatedCore_ok_yields_internalFunctions_nil
     hstorageArray, hdynamicBytesEq, hmulDiv512, hparamDyn,
     hnoInternalFns, hSupported.noAdtTypes] at hcore
   simp only [bind, Except.bind, pure, Except.pure, List.mapM_nil] at hcore
+  rw [ContractShape.guardedFunctionsMapM_eq model.fields model.events model.errors [] _
+    (ContractShape.supportedSpec_entries_lock_free hSupported)] at hcore
   rcases hmap :
       ((model.functions.filter
           (fun fn => !fn.isInternal && !isInteropEntrypointName fn.name)).zip selectors).mapM
@@ -645,6 +652,9 @@ private theorem compileValidatedCore_ok_yields_noFallbackEntrypoint
   unfold compileValidatedCore at hcore
   rw [hfallback, hreceive] at hcore
   simp only [bind, Except.bind, Option.mapM_none, pure, Except.pure] at hcore
+  rw [ContractShape.guardedFunctionsMapM_eq (applySlotAliasRanges model.fields model.slotAliasRanges)
+    model.events model.errors model.adtTypes _
+    (ContractShape.supportedSpec_entries_lock_free hSupported)] at hcore
   rcases hmap :
       ((model.functions.filter
           (fun fn => !fn.isInternal && !isInteropEntrypointName fn.name)).zip selectors).mapM
@@ -682,6 +692,9 @@ private theorem compileValidatedCore_ok_yields_noReceiveEntrypoint
   unfold compileValidatedCore at hcore
   rw [hfallback, hreceive] at hcore
   simp only [bind, Except.bind, Option.mapM_none, pure, Except.pure] at hcore
+  rw [ContractShape.guardedFunctionsMapM_eq (applySlotAliasRanges model.fields model.slotAliasRanges)
+    model.events model.errors model.adtTypes _
+    (ContractShape.supportedSpec_entries_lock_free hSupported)] at hcore
   rcases hmap :
       ((model.functions.filter
           (fun fn => !fn.isInternal && !isInteropEntrypointName fn.name)).zip selectors).mapM
@@ -960,6 +973,8 @@ theorem compile_ok_yields_internalFunctions_nil_except_mapping_writes
       hstorageArray, hdynamicBytesEq, hmulDiv512, hparamDyn,
       hnoInternalFns, hSupported.noAdtTypes] at hcompile
     simp only [bind, Except.bind, pure, Except.pure, List.mapM_nil] at hcompile
+    rw [ContractShape.guardedFunctionsMapM_eq model.fields model.events model.errors [] _
+      (ContractShape.supportedSpecExceptMappingWrites_entries_lock_free hSupported)] at hcompile
     rcases hmap :
         ((model.functions.filter
             (fun fn => !fn.isInternal && !isInteropEntrypointName fn.name)).zip selectors).mapM
@@ -1008,6 +1023,8 @@ theorem compile_ok_yields_noFallbackEntrypoint_except_mapping_writes
       contractUsesPlainArrayElement, contractUsesArrayElementWord, harray,
       hstorageArray, hdynamicBytesEq, hnoInternalFns, hSupported.noAdtTypes] at hcompile
     simp only [bind, Except.bind, pure, Except.pure, List.mapM_nil] at hcompile
+    rw [ContractShape.guardedFunctionsMapM_eq model.fields model.events model.errors [] _
+      (ContractShape.supportedSpecExceptMappingWrites_entries_lock_free hSupported)] at hcompile
     rcases hmap :
         ((model.functions.filter
             (fun fn => !fn.isInternal && !isInteropEntrypointName fn.name)).zip selectors).mapM
@@ -1056,6 +1073,8 @@ theorem compile_ok_yields_noReceiveEntrypoint_except_mapping_writes
       contractUsesPlainArrayElement, contractUsesArrayElementWord, harray,
       hstorageArray, hdynamicBytesEq, hnoInternalFns, hSupported.noAdtTypes] at hcompile
     simp only [bind, Except.bind, pure, Except.pure, List.mapM_nil] at hcompile
+    rw [ContractShape.guardedFunctionsMapM_eq model.fields model.events model.errors [] _
+      (ContractShape.supportedSpecExceptMappingWrites_entries_lock_free hSupported)] at hcompile
     rcases hmap :
         ((model.functions.filter
             (fun fn => !fn.isInternal && !isInteropEntrypointName fn.name)).zip selectors).mapM

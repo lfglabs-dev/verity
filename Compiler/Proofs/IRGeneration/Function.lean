@@ -855,6 +855,19 @@ theorem initialIRStateForTx_matches_runtime
     rw [this]
     rfl
 
+/-- An address-ranged transaction-context word survives the word/address
+normalization round trip. -/
+private theorem addressWord_roundtrip_of_lt_addressModulus
+    {v : Nat} (h : v < Compiler.Constants.addressModulus) :
+    v % Compiler.Constants.evmModulus % Verity.Core.Address.modulus = v := by
+  have hEvm : v < Compiler.Constants.evmModulus := by
+    dsimp [Compiler.Constants.addressModulus, Compiler.Constants.evmModulus] at h ⊢
+    omega
+  have hAddr : v < Verity.Core.Address.modulus := by
+    simpa [Verity.Core.Address.modulus, Compiler.Constants.addressModulus] using h
+  rw [Nat.mod_eq_of_lt hEvm, Nat.mod_eq_of_lt hAddr]
+
+
 /-- The same initial IR state matches constructor source execution when the
 source runtime is initialized with constructor-shaped calldata size, i.e. no
 external-call selector prefix. -/
@@ -891,13 +904,14 @@ theorem initialIRStateForTx_matches_constructor_runtime
     rw [Nat.mod_eq_of_lt hthisEvm, Nat.mod_eq_of_lt hthisAddr]
   have hcalldataSizeFits' : tx.args.length * 32 < Verity.Core.Uint256.modulus := by
     simpa [TxConstructorCalldataSizeFitsEvm, Verity.Core.Uint256.modulus] using hcalldataSizeFits
+  have htxOriginWord := addressWord_roundtrip_of_lt_addressModulus htxOrigin
   refine ⟨?_, ?_⟩
   · simpa [FunctionBody.initialIRStateForTx, SourceSemantics.effectiveFields,
       SourceSemantics.encodeStorage] using
       (SourceSemantics.encodeStorage_withConstructorTransactionContext model initialWorld tx).symm
   · simp [FunctionBody.initialIRStateForTx,
       SourceSemantics.withConstructorTransactionContext, Verity.wordToAddress, hsenderWord, hthisWord,
-      Nat.mod_eq_of_lt hmsgValue, Nat.mod_eq_of_lt htimestamp, Nat.mod_eq_of_lt hnumber,
+      htxOriginWord, Nat.mod_eq_of_lt hmsgValue, Nat.mod_eq_of_lt htimestamp, Nat.mod_eq_of_lt hnumber,
       Nat.mod_eq_of_lt hchain, Nat.mod_eq_of_lt hblob]
     exact hcalldataSizeFits'
 

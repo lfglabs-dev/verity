@@ -25,6 +25,10 @@ import Verity.Macro.Translate
 -- `Compiler/Proofs/IRGeneration/GenericInduction.lean`.
 set_option linter.unnecessarySeqFocus false
 set_option linter.unusedTactic false
+-- The Batteries unreachable-tactic linter stack-overflows on this file's
+-- size after the canonical-traversal validator port; it adds no value on a
+-- pure smoke/regression module.
+set_option linter.unreachableTactic false
 
 namespace Compiler.CompilationModelFeatureTest
 
@@ -6513,7 +6517,7 @@ so the bug cannot be expressed in a successful build. -/
 
 private def preCancelForkSpec : CompilationModel := {
   name := "PreCancelNonreentrant"
-  fields := [{ name := "lock", ty := FieldType.uint256, slot := some 0 }]
+  fields := [{ name := "lock", ty := FieldType.uint256, «slot» := some 0 }]
   «constructor» := none
   functions := [
     { name := "guarded"

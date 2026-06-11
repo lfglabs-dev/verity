@@ -408,6 +408,8 @@ def setStructMember2 {κ₁ κ₂ α : Type}
 def safeTransfer (_token _to : Address) (_amount : Uint256) : Contract Unit := pure ()
 def safeTransferFrom (_token _fromAddr _to : Address) (_amount : Uint256) : Contract Unit := pure ()
 def safeApprove (_token _spender : Address) (_amount : Uint256) : Contract Unit := pure ()
+def legacyStringSafeTransfer (_token _to : Address) (_amount : Uint256) : Contract Unit := pure ()
+def legacyStringSafeTransferFrom (_token _fromAddr _to : Address) (_amount : Uint256) : Contract Unit := pure ()
 def balanceOf (token owner : Address) : Contract Uint256 := pure <| erc20ReadStubWord "balanceOf" [token.toNat, owner.toNat]
 def allowance (token owner spender : Address) : Contract Uint256 := pure <| erc20ReadStubWord "allowance" [token.toNat, owner.toNat, spender.toNat]
 def totalSupply (token : Address) : Contract Uint256 := pure <| erc20ReadStubWord "totalSupply" [token.toNat]

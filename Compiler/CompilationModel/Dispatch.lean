@@ -544,6 +544,18 @@ def validateCompileInputs (spec : CompilationModel) (selectors : List Nat)
       throw s!"Selector collision in {spec.name}: {dup} assigned to {nameStr}"
   | none => pure ()
 
+/-- Compile one selector-dispatched external and inject the transient-storage
+    reentrancy guard prologue for `nonreentrant(lockField)` externals (#1893).
+    Kept outside `compileFunctionSpec` so the IR-generation proof modules
+    continue to characterise the underlying body shape without a
+    nonReentrantLock case split; for lock-free functions this is exactly
+    `compileFunctionSpec` (see `attachNonReentrantGuard`). -/
+def compileGuardedFunctionSpec (fields : List Field) (events : List EventDef)
+    (errors : List ErrorDef) (adtTypes : List AdtTypeDef)
+    (sel : Nat) (fnSpec : FunctionSpec) : Except String IRFunction := do
+  let irFn ← compileFunctionSpec fields events errors adtTypes sel fnSpec
+  attachNonReentrantGuard fields fnSpec irFn
+
 def compileValidatedCore (spec : CompilationModel) (selectors : List Nat) : Except String IRContract := do
   let fields := applySlotAliasRanges spec.fields spec.slotAliasRanges
   let externalFns := spec.functions.filter (fun fn => !fn.isInternal && !isInteropEntrypointName fn.name)
@@ -557,14 +569,8 @@ def compileValidatedCore (spec : CompilationModel) (selectors : List Nat) : Exce
   let dynamicBytesEqHelpersRequired := contractUsesDynamicBytesEq spec
   let fallbackSpec ← pickUniqueFunctionByName "fallback" spec.functions
   let receiveSpec ← pickUniqueFunctionByName "receive" spec.functions
-  let functions ← (externalFns.zip selectors).mapM fun (fnSpec, sel) => do
-    let irFn ← compileFunctionSpec fields spec.events spec.errors spec.adtTypes sel fnSpec
-    -- Inject the transient-storage reentrancy guard prologue immediately
-    -- after parameter loading for `nonreentrant(lockField)` externals
-    -- (#1893). Kept outside `compileFunctionSpec` so the IR-generation
-    -- proof modules continue to characterise the underlying body shape
-    -- without a nonReentrantLock case split.
-    attachNonReentrantGuard fields fnSpec irFn
+  let functions ← (externalFns.zip selectors).mapM fun entry =>
+    compileGuardedFunctionSpec fields spec.events spec.errors spec.adtTypes entry.2 entry.1
   let internalFuncDefs ← internalFns.mapM (compileInternalFunction fields spec.events spec.errors spec.adtTypes)
   let arrayElementHelpers :=
     (if arrayHelpersRequired then

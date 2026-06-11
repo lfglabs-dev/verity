@@ -2384,6 +2384,11 @@ makes the whole-contract scope auditable without proof-internal inspection. -/
 structure SupportedFunction (spec : CompilationModel) (fn : FunctionSpec) where
   nonInternal : fn.isInternal = false
   nonSpecialEntrypoint : isInteropEntrypointName fn.name = false
+  /-- `nonreentrant(lockField)` guards sit outside the proven fragment: the
+      TLOAD/TSTORE prologue injected by `attachNonReentrantGuard` is not yet
+      modelled by the source semantics. This makes the documented boundary
+      (TRUST_ASSUMPTIONS.md) machine-checked instead of prose-only. -/
+  noNonReentrant : fn.nonReentrantLock = none
   params : SupportedParamProfile fn.params
   returns : SupportedReturnProfile fn
   body : SupportedBodyInterface spec fn
@@ -2394,6 +2399,7 @@ structure SupportedFunctionExceptMappingWrites
     (spec : CompilationModel) (fn : FunctionSpec) where
   nonInternal : fn.isInternal = false
   nonSpecialEntrypoint : isInteropEntrypointName fn.name = false
+  noNonReentrant : fn.nonReentrantLock = none
   params : SupportedParamProfile fn.params
   returns : SupportedReturnProfile fn
   body : SupportedBodyInterfaceExceptMappingWrites spec fn
@@ -6564,6 +6570,7 @@ private def counter_supported_function :
   exact
     { nonInternal := rfl
       nonSpecialEntrypoint := rfl
+      noNonReentrant := rfl
       params :=
         { namesNodup := by decide
           supported := by intro param hparam; cases hparam
@@ -6648,6 +6655,7 @@ private def simpleStorage_supported_function :
   exact
     { nonInternal := rfl
       nonSpecialEntrypoint := rfl
+      noNonReentrant := rfl
       params :=
         { namesNodup := by decide
           supported := by intro param hparam; cases hparam

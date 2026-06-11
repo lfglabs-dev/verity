@@ -193,6 +193,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.step_balance_ok
   Compiler.Proofs.YulGeneration.Backends.Native.step_origin_ok
   Compiler.Proofs.YulGeneration.Backends.Native.step_caller_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.step_origin_any
   Compiler.Proofs.YulGeneration.Backends.Native.step_caller_any
   Compiler.Proofs.YulGeneration.Backends.Native.step_timestamp_ok
   Compiler.Proofs.YulGeneration.Backends.Native.step_timestamp_any
@@ -1702,6 +1703,11 @@ end Verity.AxiomAudit
   -- Compiler/Proofs/IRGeneration/ContractShape.lean
   -- Compiler.Proofs.IRGeneration.ContractShape.pickUniqueFunctionByName_eq_ok_none_of_absent  -- private
   -- Compiler.Proofs.IRGeneration.ContractShape.compiled_functions_forall₂_of_mapM_ok  -- private
+  Compiler.Proofs.IRGeneration.ContractShape.attachNonReentrantGuard_eq_of_none
+  Compiler.Proofs.IRGeneration.ContractShape.compileGuardedFunctionSpec_eq_of_none
+  Compiler.Proofs.IRGeneration.ContractShape.guardedFunctionsMapM_eq
+  Compiler.Proofs.IRGeneration.ContractShape.supportedSpecExceptMappingWrites_entries_lock_free
+  Compiler.Proofs.IRGeneration.ContractShape.supportedSpec_entries_lock_free
   -- Compiler.Proofs.IRGeneration.ContractShape.compileValidatedCore_ok_yields_compiled_functions  -- private
   -- Compiler.Proofs.IRGeneration.ContractShape.filterInternalFunctions_eq_nil_of_all_nonInternal  -- private
   -- Compiler.Proofs.IRGeneration.ContractShape.filterInternalFunctions_eq_nil_of_supported  -- private
@@ -1764,6 +1770,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.Function.lookupBinding?_eq_none_of_not_mem  -- private
   -- Compiler.Proofs.IRGeneration.Function.lookupBinding?_some_of_mem  -- private
   Compiler.Proofs.IRGeneration.Function.initialIRStateForTx_matches_runtime
+  -- Compiler.Proofs.IRGeneration.Function.addressWord_roundtrip_of_lt_addressModulus  -- private
   Compiler.Proofs.IRGeneration.Function.initialIRStateForTx_matches_constructor_runtime
   Compiler.Proofs.IRGeneration.Function.initialIRStateForTx_matches_bound_constructor_runtime
   Compiler.Proofs.IRGeneration.Function.supported_function_param_state_exact
@@ -4279,6 +4286,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_address_values
   Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_balance
   Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_origin
+  Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_origin_values
   Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_caller
   Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_caller_values
   Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_timestamp
@@ -5158,6 +5166,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.primCall_calldatasize_any_ok
   Compiler.Proofs.YulGeneration.Backends.Native.primCall_callvalue_any_ok
   Compiler.Proofs.YulGeneration.Backends.Native.primCall_address_any_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_origin_any_ok
   Compiler.Proofs.YulGeneration.Backends.Native.primCall_caller_any_ok
   Compiler.Proofs.YulGeneration.Backends.Native.primCall_timestamp_any_ok
   Compiler.Proofs.YulGeneration.Backends.Native.primCall_number_any_ok
@@ -5592,4 +5601,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5252 theorems/lemmas (3726 public, 1526 private, 0 sorry'd)
+-- Total: 5261 theorems/lemmas (3734 public, 1527 private, 0 sorry'd)
