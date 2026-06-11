@@ -98,8 +98,12 @@ private theorem internal_call_measure_decreases (fuel measure : Nat) :
 def byteWordCount (size : Nat) : Nat :=
   (size + 31) / 32
 
+/-- Word reads wrap the byte offset mod `2^256`, matching EVM `UInt256`
+address arithmetic (compiled code computes scratch offsets with the wrapping
+`add` builtin, so reads must land on the same keys as the stores). -/
 def memorySliceWords (memory : Nat → Nat) (offset size : Nat) : List Nat :=
-  (List.range (byteWordCount size)).map (fun i => memory (offset + i * 32))
+  (List.range (byteWordCount size)).map
+    (fun i => memory ((offset + i * 32) % Compiler.Constants.evmModulus))
 
 /-- Proof-side model of `keccak256(offset, size)` over linear memory.
 
@@ -115,7 +119,8 @@ def abstractKeccakMemorySlice (memory : Nat → Nat) (offset size : Nat) : Nat :
 The proof IR models log data at word granularity, so byte sizes are truncated to
 complete 32-byte words. -/
 def yulLogDataWords (memory : Nat → Nat) (offset size : Nat) : List Nat :=
-  (List.range (size / 32)).map (fun i => memory (offset + i * 32))
+  (List.range (size / 32)).map
+    (fun i => memory ((offset + i * 32) % Compiler.Constants.evmModulus))
 
 /-- Canonical proof-side encoding of a Yul log entry: topics followed by the
 word-aligned data payload. -/

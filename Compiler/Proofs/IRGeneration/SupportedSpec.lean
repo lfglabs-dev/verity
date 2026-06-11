@@ -190,13 +190,38 @@ theorem eventParamScalarProofSupported_ne_tuple
   intro h; subst h; simp [eventParamScalarProofSupported,
     eventParamScalarCompileSupported] at hsupport
 
+/-- Generous size ceiling on event scratch geometry. The compiled emit block
+addresses scratch words with the wrapping `add` builtin, so the semantic
+bridge needs every scratch word offset `k * 32` to stay strictly below
+`2^256`; bounding the signature byte length and parameter count by `2^32`
+keeps all offsets distinct mod `2^256` while admitting every realistic event. -/
+def eventScratchSizeLimit : Nat := 2 ^ 32
+
+def eventDefScratchBounded (eventDef : EventDef) : Bool :=
+  decide ((bytesFromString (eventSignature eventDef)).length ≤ eventScratchSizeLimit) &&
+    decide (eventDef.params.length ≤ eventScratchSizeLimit)
+
+/-- Event arguments admitted by the semantic bridge: atomic word-pure
+expressions (literals, scope variables, transaction context). The compiled
+emit block evaluates argument expressions *after* the signature words have
+been stored into scratch memory, while source semantics resolves arguments
+*before* the emit takes effect; atomic arguments cannot observe memory (or
+the block-local scratch bindings), so the two evaluation points agree. -/
+def exprEventArgAtomic : Expr → Bool
+  | .literal _ | .param _ | .localVar _ | .caller | .contractAddress
+  | .txOrigin | .msgValue | .blockTimestamp | .blockNumber | .chainid
+  | .blobbasefee | .calldatasize => true
+  | _ => false
+
 def eventEmissionProofSupported
     (events : List EventDef) (eventName : String) (args : List Expr) : Bool :=
   match events.find? (·.name == eventName) with
   | none => false
   | some eventDef =>
       eventDefScalarProofSupported eventDef &&
-        decide (args.length = eventDef.params.length)
+        decide (args.length = eventDef.params.length) &&
+        eventDefScratchBounded eventDef &&
+        args.all exprEventArgAtomic
 
 theorem exists_eventDef_of_eventEmissionProofSupported
     {events : List EventDef}
@@ -213,7 +238,34 @@ theorem exists_eventDef_of_eventEmissionProofSupported
       simp [hfind] at hsupport
   | some eventDef =>
       simp [hfind, Bool.and_eq_true] at hsupport
-      exact ⟨eventDef, rfl, hsupport.1, hsupport.2⟩
+      exact ⟨eventDef, rfl, hsupport.1.1.1, hsupport.1.1.2⟩
+
+theorem eventDefScratchBounded_of_eventEmissionProofSupported
+    {events : List EventDef}
+    {eventName : String}
+    {args : List Expr}
+    {eventDef : EventDef}
+    (hsupport : eventEmissionProofSupported events eventName args = true)
+    (hfind : events.find? (·.name == eventName) = some eventDef) :
+    eventDefScratchBounded eventDef = true := by
+  unfold eventEmissionProofSupported at hsupport
+  rw [hfind] at hsupport
+  simp [Bool.and_eq_true] at hsupport
+  exact hsupport.1.2
+
+theorem args_all_atomic_of_eventEmissionProofSupported
+    {events : List EventDef}
+    {eventName : String}
+    {args : List Expr}
+    (hsupport : eventEmissionProofSupported events eventName args = true) :
+    args.all exprEventArgAtomic = true := by
+  unfold eventEmissionProofSupported at hsupport
+  cases hfind : events.find? (fun x => x.name == eventName) with
+  | none => simp [hfind] at hsupport
+  | some eventDef =>
+      rw [hfind] at hsupport
+      simp [Bool.and_eq_true] at hsupport
+      simpa using hsupport.2
 
 theorem eventEmissionProofSupported_find?_isSome
     {events : List EventDef}

@@ -91,6 +91,8 @@ def normalizeEventValue (ty : ParamType) (value : Nat) : Nat :=
   | .uint16 => word &&& (2^16 - 1)
   | .address => word &&& Compiler.Constants.addressMask
   | .bool => if word = 0 then 0 else 1
+  -- Mirrors the compiler's newtype erasure in `normalizeEventWord`.
+  | .newtypeOf _ baseType => normalizeEventValue baseType value
   | _ => word
 
 def splitEventArgsByParams :
@@ -159,17 +161,25 @@ theorem exists_eventFromResolvedArgs?_of_supported_length
               (eventSignatureTopic eventDef : Verity.Core.Uint256) :: indexedArgs }, ?_⟩
   simp [eventFromResolvedArgs?, hfind, hsplit]
 
+/-- Sequential scratch stores of the signature chunk words, starting at word
+index `wordIdx`. Write keys wrap mod `2^256`, mirroring the compiled code's
+wrapping `add` offset arithmetic. -/
+def writeEventSignatureScratchFrom :
+    List Nat → Nat → Nat → (Nat → Verity.Core.Uint256) → (Nat → Verity.Core.Uint256)
+  | [], _, _, memory => memory
+  | word :: words, ptr, wordIdx, memory =>
+      writeEventSignatureScratchFrom words ptr (wordIdx + 1)
+        (fun offset =>
+          if offset = (ptr + wordIdx * 32) % Compiler.Constants.evmModulus then
+            (word : Verity.Core.Uint256)
+          else
+            memory offset)
+
 def writeEventSignatureScratch (eventDef : EventDef)
     (ptr : Nat) (memory : Nat → Verity.Core.Uint256) : Nat → Verity.Core.Uint256 :=
-  let chunks := (chunkBytes32 (bytesFromString (eventSignature eventDef))).map wordFromBytes
-  fun offset =>
-    match chunks[(offset - ptr) / 32]? with
-    | some word =>
-        if ptr ≤ offset ∧ (offset - ptr) % 32 = 0 then
-          (word : Verity.Core.Uint256)
-        else
-          memory offset
-    | none => memory offset
+  writeEventSignatureScratchFrom
+    ((chunkBytes32 (bytesFromString (eventSignature eventDef))).map wordFromBytes)
+    ptr 0 memory
 
 def writeUnindexedEventScratchFrom :
     List EventParam → List Nat → Nat → Nat → (Nat → Verity.Core.Uint256) →
@@ -180,7 +190,7 @@ def writeUnindexedEventScratchFrom :
       let next :=
         if param.kind == EventParamKind.unindexed then
           fun offset =>
-            if offset = ptr + wordIdx * 32 then
+            if offset = (ptr + wordIdx * 32) % Compiler.Constants.evmModulus then
               (normalized : Verity.Core.Uint256)
             else
               memory offset
@@ -216,7 +226,7 @@ theorem exists_writeUnindexedEventScratch_of_length :
             (params := params) (values := values) (ptr := ptr)
             (wordIdx := wordIdx + 1)
             (memory := fun offset =>
-              if offset = ptr + wordIdx * 32 then
+              if offset = (ptr + wordIdx * 32) % Compiler.Constants.evmModulus then
                 (normalizeEventValue param.ty value : Verity.Core.Uint256)
               else
                 memory offset)

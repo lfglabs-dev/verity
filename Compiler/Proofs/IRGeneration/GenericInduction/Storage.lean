@@ -3058,7 +3058,7 @@ theorem compileExprList_core_ok
         rfl
       ⟩
 
-private theorem compileStmt_emit_scalar_supported_ok
+theorem compileStmt_emit_scalar_supported_ok
     {fields : List Field}
     {spec : CompilationModel}
     {scope : List String}
@@ -3139,7 +3139,7 @@ theorem eventHeadStepBridgeCatalog_of_semanticBridgeCatalog
       hmatch
       hfuelIR
 
-private theorem eval_compileExpr_core_some_of_scope
+theorem eval_compileExpr_core_some_of_scope
     {fields : List Field}
     {scope : List String}
     {expr : Expr}
@@ -3176,7 +3176,7 @@ private theorem eval_compileExpr_core_some_of_scope
           exact rfl
     exact ⟨value, rfl, hIRsome⟩
 
-private theorem eval_compileExprList_core_of_scope
+theorem eval_compileExprList_core_of_scope
     {fields : List Field}
     {scope : List String}
     {exprs : List Expr}
