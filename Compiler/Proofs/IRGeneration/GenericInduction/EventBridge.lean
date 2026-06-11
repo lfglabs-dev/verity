@@ -1414,6 +1414,15 @@ private theorem eventWordFromBytes_lt_evmModulus_of_length_le
   rw [hlenPadded] at hbound
   simpa [wordFromBytes, Compiler.Constants.evmModulus] using hbound
 
+private theorem eventSignatureWords_bounded (eventDef : EventDef) :
+    ∀ word ∈
+      ((chunkBytes32 (bytesFromString (eventSignature eventDef))).map wordFromBytes),
+      word < Compiler.Constants.evmModulus := by
+  intro word hmem
+  rcases List.mem_map.mp hmem with ⟨chunk, hchunk, rfl⟩
+  exact eventWordFromBytes_lt_evmModulus_of_length_le
+    (eventChunkBytes32_mem_length_le hchunk)
+
 private theorem eventSignatureMemory_read_getElem
     {eventDef : EventDef} {i : Nat}
     (hi : i <
@@ -1441,6 +1450,69 @@ private theorem eventSignatureMemory_read_getElem
         some ((chunkBytes32 (bytesFromString (eventSignature eventDef)))[i]) := by
     simpa using List.getElem?_eq_getElem hichunk
   simp [SourceSemantics.eventSignatureMemory, hmod, hmod', halign, hdiv, hget]
+
+private theorem eventSignatureScratch_read_getElem_val
+    {eventDef : EventDef} {ptr i : Nat}
+    {srcMemory : Nat → Verity.Core.Uint256}
+    (hi : i <
+      ((chunkBytes32 (bytesFromString (eventSignature eventDef))).map wordFromBytes).length)
+    (hlimit :
+      ((chunkBytes32 (bytesFromString (eventSignature eventDef))).map wordFromBytes).length ≤
+        eventScratchSizeLimit) :
+    (SourceSemantics.writeEventSignatureScratchFrom
+        ((chunkBytes32 (bytesFromString (eventSignature eventDef))).map wordFromBytes)
+        ptr 0 srcMemory ((ptr + i * 32) % Compiler.Constants.evmModulus)).val =
+      ((chunkBytes32 (bytesFromString (eventSignature eventDef))).map wordFromBytes)[i] := by
+  have hwrite := eventWriteSignatureScratch_read_getElem
+    (words := (chunkBytes32 (bytesFromString (eventSignature eventDef))).map wordFromBytes)
+    (ptr := ptr) (idx := 0) (memory := srcMemory) (by simpa using hlimit) i hi
+  have hwordLt :
+      ((chunkBytes32 (bytesFromString (eventSignature eventDef))).map wordFromBytes)[i] <
+        Compiler.Constants.evmModulus :=
+    eventSignatureWords_bounded eventDef _
+      (List.get_mem _ ⟨i, hi⟩)
+  have hiChunk :
+      i < (chunkBytes32 (bytesFromString (eventSignature eventDef))).length := by
+    simpa using hi
+  have hwordLt' :
+      wordFromBytes ((chunkBytes32 (bytesFromString (eventSignature eventDef)))[i]'hiChunk) <
+        Compiler.Constants.evmModulus := by
+    simpa using hwordLt
+  simpa [Nat.zero_add, Nat.mod_eq_of_lt hwordLt'] using
+    (congrArg Verity.Core.Uint256.val hwrite)
+
+private theorem eventSignatureScratch_memorySliceWords_eq
+    {eventDef : EventDef} {ptr : Nat} {srcMemory : Nat → Verity.Core.Uint256}
+    (hlimit :
+      ((chunkBytes32 (bytesFromString (eventSignature eventDef))).map wordFromBytes).length ≤
+        eventScratchSizeLimit) :
+    memorySliceWords
+        (fun offset =>
+          (SourceSemantics.writeEventSignatureScratchFrom
+            ((chunkBytes32 (bytesFromString (eventSignature eventDef))).map wordFromBytes)
+            ptr 0 srcMemory offset).val)
+        ptr (bytesFromString (eventSignature eventDef)).length =
+      memorySliceWords (SourceSemantics.eventSignatureMemory eventDef) 0
+        (bytesFromString (eventSignature eventDef)).length := by
+  apply List.ext_getElem
+  · simp [memorySliceWords]
+  · intro i hleft hright
+    have hiWords :
+        i < ((chunkBytes32 (bytesFromString (eventSignature eventDef))).map wordFromBytes).length := by
+      simpa [memorySliceWords, List.length_map, eventChunkBytes32_length] using hright
+    have hwrite := eventSignatureScratch_read_getElem_val
+      (eventDef := eventDef) (ptr := ptr) (srcMemory := srcMemory)
+      hiWords hlimit
+    have hsrc := eventSignatureMemory_read_getElem
+      (eventDef := eventDef) (i := i) hiWords hlimit
+    simpa [memorySliceWords] using
+      (calc
+        (SourceSemantics.writeEventSignatureScratchFrom
+            ((chunkBytes32 (bytesFromString (eventSignature eventDef))).map wordFromBytes)
+            ptr 0 srcMemory ((ptr + i * 32) % Compiler.Constants.evmModulus)).val =
+          ((chunkBytes32 (bytesFromString (eventSignature eventDef))).map wordFromBytes)[i] := hwrite
+        _ = SourceSemantics.eventSignatureMemory eventDef ((0 + i * 32) % Compiler.Constants.evmModulus) :=
+          hsrc.symm)
 
 private theorem eventYulLogDataWords_eq_of_getElem
     {memory : Nat → Nat} {ptr : Nat} :
