@@ -706,6 +706,45 @@ private theorem eventNormalizeEventValue_lt_evmModulus :
   | .adt _ _, _, hsupport, _ => by
       simp [eventParamScalarProofSupported, eventParamScalarCompileSupported] at hsupport
 
+private theorem eventNormalizeEventValue_lt_evmModulus_any :
+    ∀ (ty : ParamType) (value : Nat),
+      SourceSemantics.normalizeEventValue ty value < Compiler.Constants.evmModulus
+  | .uint256, value => by
+      exact FunctionBody.wordNormalize_lt_evmModulus value
+  | .int256, value => by
+      exact FunctionBody.wordNormalize_lt_evmModulus value
+  | .bytes32, value => by
+      exact FunctionBody.wordNormalize_lt_evmModulus value
+  | .uint8, value => by
+      exact Nat.lt_of_le_of_lt Nat.and_le_left
+        (FunctionBody.wordNormalize_lt_evmModulus value)
+  | .uint16, value => by
+      exact Nat.lt_of_le_of_lt Nat.and_le_left
+        (FunctionBody.wordNormalize_lt_evmModulus value)
+  | .address, value => by
+      exact Nat.lt_of_le_of_lt Nat.and_le_left
+        (FunctionBody.wordNormalize_lt_evmModulus value)
+  | .bool, value => by
+      by_cases hzero :
+          value % Compiler.Constants.evmModulus = 0 <;>
+        simp [SourceSemantics.normalizeEventValue, hzero,
+          SourceSemantics.wordNormalize, Compiler.Constants.evmModulus]
+  | .newtypeOf _ baseType, value => by
+      simpa [SourceSemantics.normalizeEventValue]
+        using eventNormalizeEventValue_lt_evmModulus_any baseType value
+  | .string, value => by
+      exact FunctionBody.wordNormalize_lt_evmModulus value
+  | .tuple _, value => by
+      exact FunctionBody.wordNormalize_lt_evmModulus value
+  | .array _, value => by
+      exact FunctionBody.wordNormalize_lt_evmModulus value
+  | .fixedArray _ _, value => by
+      exact FunctionBody.wordNormalize_lt_evmModulus value
+  | .bytes, value => by
+      exact FunctionBody.wordNormalize_lt_evmModulus value
+  | .adt _ _, value => by
+      exact FunctionBody.wordNormalize_lt_evmModulus value
+
 private theorem eventUnindexedScratchStore_memoryRel
     {state : IRState} {srcMemory : Nat → Verity.Core.Uint256}
     {ptr wordIdx value : Nat} {ty : ParamType}
@@ -959,5 +998,198 @@ private theorem eventWriteUnindexed_filter_unindexed
                 simp [h] at hkind ⊢
             simp [SourceSemantics.writeUnindexedEventScratchFrom, hkindFalse,
               eventValuesForKind_unindexed_cons_false hkindFalse, ih htail]
+
+private def eventEncodedValuesForKind :
+    EventParamKind → List EventParam → List Nat → List Nat
+  | _, [], _ => []
+  | _, _ :: _, [] => []
+  | kind, param :: params, value :: values =>
+      if param.kind == kind then
+        SourceSemantics.normalizeEventValue param.ty value ::
+          eventEncodedValuesForKind kind params values
+      else
+        eventEncodedValuesForKind kind params values
+
+private theorem eventKind_unindexed_true_of_not_indexed
+    {kind : EventParamKind}
+    (hindexed : ¬(kind == EventParamKind.indexed) = true) :
+    (kind == EventParamKind.unindexed) = true := by
+  cases kind
+  · exact False.elim (hindexed rfl)
+  · rfl
+
+private theorem eventKind_indexed_false_of_unindexed_true
+    {kind : EventParamKind}
+    (hunindexed : (kind == EventParamKind.unindexed) = true) :
+    (kind == EventParamKind.indexed) = false := by
+  cases kind
+  · cases hunindexed
+  · rfl
+
+private theorem eventKind_unindexed_false_of_indexed_true
+    {kind : EventParamKind}
+    (hindexed : (kind == EventParamKind.indexed) = true) :
+    (kind == EventParamKind.unindexed) = false := by
+  cases kind
+  · rfl
+  · cases hindexed
+
+private theorem eventSplitEventArgsByParams_unindexed_encoded
+    {params : List EventParam} {values : List Nat}
+    {args indexedArgs : List Verity.Core.Uint256}
+    (hsplit : SourceSemantics.splitEventArgsByParams params values =
+      some (args, indexedArgs)) :
+    args.map (fun value => value.val) =
+        eventEncodedValuesForKind EventParamKind.unindexed params values := by
+  induction params generalizing values args indexedArgs with
+  | nil =>
+      cases values with
+      | nil =>
+          simp [SourceSemantics.splitEventArgsByParams,
+            eventEncodedValuesForKind] at hsplit
+          rcases hsplit with ⟨hargs, _⟩
+          subst args
+          rfl
+      | cons value values =>
+          simp [SourceSemantics.splitEventArgsByParams] at hsplit
+  | cons param params ih =>
+      cases values with
+      | nil =>
+          simp [SourceSemantics.splitEventArgsByParams] at hsplit
+      | cons value values =>
+          simp only [SourceSemantics.splitEventArgsByParams] at hsplit
+          cases htail :
+              SourceSemantics.splitEventArgsByParams params values with
+          | none => simp [htail] at hsplit
+          | some pair =>
+              rcases pair with ⟨tailArgs, tailIndexed⟩
+              have htailEnc := ih htail
+              by_cases hindexed : (param.kind == EventParamKind.indexed) = true
+              · simp [htail, hindexed] at hsplit
+                rcases hsplit with ⟨hargs, _⟩
+                subst args
+                have hunindexedFalse :
+                    (param.kind == EventParamKind.unindexed) = false := by
+                  exact eventKind_unindexed_false_of_indexed_true hindexed
+                simp [eventEncodedValuesForKind, hindexed, hunindexedFalse, htailEnc]
+              · have hunindexed := eventKind_unindexed_true_of_not_indexed hindexed
+                have hindexedFalse :
+                    (param.kind == EventParamKind.indexed) = false := by
+                  exact eventKind_indexed_false_of_unindexed_true hunindexed
+                simp [htail, hindexedFalse] at hsplit
+                rcases hsplit with ⟨hargs, _⟩
+                subst args
+                have hnorm := eventNormalizeEventValue_lt_evmModulus_any
+                  param.ty value
+                simp [eventEncodedValuesForKind, hunindexed, htailEnc,
+                  Nat.mod_eq_of_lt hnorm]
+
+private theorem eventSplitEventArgsByParams_indexed_encoded
+    {params : List EventParam} {values : List Nat}
+    {args indexedArgs : List Verity.Core.Uint256}
+    (hsplit :
+      SourceSemantics.splitEventArgsByParams params values =
+        some (args, indexedArgs)) :
+    indexedArgs.map (fun value => value.val) =
+        eventEncodedValuesForKind EventParamKind.indexed params values := by
+  induction params generalizing values args indexedArgs with
+  | nil =>
+      cases values with
+      | nil =>
+          simp [SourceSemantics.splitEventArgsByParams,
+            eventEncodedValuesForKind] at hsplit
+          rcases hsplit with ⟨_, hindexedArgs⟩
+          subst indexedArgs
+          rfl
+      | cons value values =>
+          simp [SourceSemantics.splitEventArgsByParams] at hsplit
+  | cons param params ih =>
+      cases values with
+      | nil => simp [SourceSemantics.splitEventArgsByParams] at hsplit
+      | cons value values =>
+          simp only [SourceSemantics.splitEventArgsByParams] at hsplit
+          cases htail : SourceSemantics.splitEventArgsByParams params values with
+          | none => simp [htail] at hsplit
+          | some pair =>
+              rcases pair with ⟨tailArgs, tailIndexed⟩
+              have htailEnc := ih htail
+              by_cases hindexed : (param.kind == EventParamKind.indexed) = true
+              · simp [htail, hindexed] at hsplit
+                rcases hsplit with ⟨_, hindexedArgs⟩
+                subst indexedArgs
+                have hnorm := eventNormalizeEventValue_lt_evmModulus_any
+                  param.ty value
+                simp [eventEncodedValuesForKind, hindexed, htailEnc,
+                  Nat.mod_eq_of_lt hnorm]
+              · have hunindexed := eventKind_unindexed_true_of_not_indexed hindexed
+                have hindexedFalse :=
+                  eventKind_indexed_false_of_unindexed_true hunindexed
+                simp [htail, hindexedFalse] at hsplit
+                rcases hsplit with ⟨_, hindexedArgs⟩
+                subst indexedArgs
+                simp [eventEncodedValuesForKind, hindexedFalse, htailEnc]
+
+private theorem eventSplitEventArgsByParams_encoded
+    {params : List EventParam} {values : List Nat}
+    {args indexedArgs : List Verity.Core.Uint256}
+    (hsplit :
+      SourceSemantics.splitEventArgsByParams params values =
+        some (args, indexedArgs)) :
+    args.map (fun value => value.val) =
+        eventEncodedValuesForKind EventParamKind.unindexed params values ∧
+      indexedArgs.map (fun value => value.val) =
+        eventEncodedValuesForKind EventParamKind.indexed params values := by
+  exact ⟨eventSplitEventArgsByParams_unindexed_encoded hsplit,
+    eventSplitEventArgsByParams_indexed_encoded hsplit⟩
+
+private theorem eventKeccakFold_lt_evmModulus (words : List Nat) (acc : Nat) :
+    words.foldl
+        (fun acc word =>
+          (acc * 16777619 + word) % Compiler.Constants.evmModulus)
+        (acc % Compiler.Constants.evmModulus) <
+      Compiler.Constants.evmModulus := by
+  induction words generalizing acc with
+  | nil =>
+      exact Nat.mod_lt acc (by norm_num [Compiler.Constants.evmModulus])
+  | cons word rest ih =>
+      change rest.foldl
+          (fun acc word =>
+            (acc * 16777619 + word) % Compiler.Constants.evmModulus)
+          (((acc % Compiler.Constants.evmModulus) * 16777619 + word) %
+            Compiler.Constants.evmModulus) <
+        Compiler.Constants.evmModulus
+      exact ih ((acc % Compiler.Constants.evmModulus) * 16777619 + word)
+
+private theorem eventSignatureTopic_lt_evmModulus (eventDef : EventDef) :
+    SourceSemantics.eventSignatureTopic eventDef <
+      Compiler.Constants.evmModulus := by
+  simpa [SourceSemantics.eventSignatureTopic, abstractKeccakMemorySlice] using
+    eventKeccakFold_lt_evmModulus
+      (memorySliceWords (SourceSemantics.eventSignatureMemory eventDef) 0
+        (bytesFromString (eventSignature eventDef)).length)
+      (bytesFromString (eventSignature eventDef)).length
+
+private theorem eventFromResolvedArgs?_encoded
+    {events : List EventDef} {eventName : String} {values : List Nat}
+    {eventDef : EventDef} {event : Verity.Event}
+    (hfind : events.find? (·.name == eventName) = some eventDef)
+    (hevent :
+      SourceSemantics.eventFromResolvedArgs? events eventName values = some event) :
+    SourceSemantics.encodeEvent event =
+      SourceSemantics.eventSignatureTopic eventDef ::
+        eventEncodedValuesForKind EventParamKind.indexed eventDef.params values ++
+        eventEncodedValuesForKind EventParamKind.unindexed eventDef.params values := by
+  simp only [SourceSemantics.eventFromResolvedArgs?, hfind] at hevent
+  cases hsplit :
+      SourceSemantics.splitEventArgsByParams eventDef.params values with
+  | none => simp [hsplit] at hevent
+  | some pair =>
+      rcases pair with ⟨args, indexedArgs⟩
+      simp [hsplit] at hevent
+      cases hevent
+      have henc := eventSplitEventArgsByParams_encoded hsplit
+      have htopic := eventSignatureTopic_lt_evmModulus eventDef
+      simp [SourceSemantics.encodeEvent, henc, List.map_append,
+        Nat.mod_eq_of_lt htopic]
 
 end Compiler.Proofs.IRGeneration
