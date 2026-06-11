@@ -284,6 +284,17 @@ private def eventSignatureStoreStmtsFromWords :
       YulExpr.hex word
     ]) :: eventSignatureStoreStmtsFromWords rest (startIdx + 1)
 
+private def eventSignatureStoreStmtsFromChunks
+    (chunks : List (List UInt8)) (startIdx : Nat) : List YulStmt :=
+  (chunks.zipIdx startIdx).map fun (chunk, idx) =>
+    YulStmt.expr (YulExpr.call "mstore" [
+      YulExpr.call "add" [
+        YulExpr.ident "__evt_ptr",
+        YulExpr.lit (idx * 32)
+      ],
+      YulExpr.hex (wordFromBytes chunk)
+    ])
+
 private theorem eventEvalIRExpr_evtPtr_add
     {state : IRState} {ptr idx : Nat}
     (hptr : state.getVar "__evt_ptr" = some ptr) :
@@ -313,6 +324,17 @@ private theorem eventSignatureStoreStmtsFromWords_cons
         YulExpr.hex word
       ]) :: eventSignatureStoreStmtsFromWords words (startIdx + 1) := by
   rfl
+
+private theorem eventSignatureStoreStmtsFromChunks_eq_words
+    (chunks : List (List UInt8)) (startIdx : Nat) :
+    eventSignatureStoreStmtsFromChunks chunks startIdx =
+      eventSignatureStoreStmtsFromWords (chunks.map wordFromBytes) startIdx := by
+  induction chunks generalizing startIdx with
+  | nil =>
+      simp [eventSignatureStoreStmtsFromChunks, eventSignatureStoreStmtsFromWords]
+  | cons chunk rest ih =>
+      simp [eventSignatureStoreStmtsFromChunks, eventSignatureStoreStmtsFromWords]
+      exact ih (startIdx + 1)
 
 private theorem eventSignatureScratchStore_memoryRel
     {state : IRState} {srcMemory : Nat → Verity.Core.Uint256}
