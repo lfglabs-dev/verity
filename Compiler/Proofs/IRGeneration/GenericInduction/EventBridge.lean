@@ -1403,4 +1403,54 @@ private theorem eventWriteUnindexedScratch_read_getElem :
   | _ :: _, [], _, _, _, _, hwrite, _, hlen, _, _, hi, _ => by
       simp at hi
 
+private theorem eventEncodedValuesForKind_unindexed_all_length :
+    ∀ {params : List EventParam} {values : List Nat},
+      (∀ param ∈ params, (param.kind == EventParamKind.unindexed) = true) →
+      values.length = params.length →
+      (eventEncodedValuesForKind EventParamKind.unindexed params values).length =
+        values.length
+  | [], [], _, _ => by
+      simp [eventEncodedValuesForKind]
+  | param :: params, value :: values, hall, hlen => by
+      have hkind : (param.kind == EventParamKind.unindexed) = true := hall param (by simp)
+      have htail := eventEncodedValuesForKind_unindexed_all_length
+        (params := params) (values := values)
+        (by intro p hp; exact hall p (by simp [hp]))
+        (by simpa using Nat.succ.inj hlen)
+      simp [eventEncodedValuesForKind, hkind, htail]
+  | [], _ :: _, _, hlen => by
+      simp at hlen
+  | _ :: _, [], _, hlen => by
+      simp at hlen
+
+private theorem eventEncodedValuesForKind_unindexed_all_getElem :
+    ∀ {params : List EventParam} {values : List Nat},
+      (hall : ∀ param ∈ params,
+        (param.kind == EventParamKind.unindexed) = true) →
+      (hlen : values.length = params.length) →
+      ∀ i (hi : i < values.length) (hpi : i < params.length)
+        (hei : i <
+          (eventEncodedValuesForKind EventParamKind.unindexed params values).length),
+        (eventEncodedValuesForKind EventParamKind.unindexed params values)[i]'hei =
+          SourceSemantics.normalizeEventValue (params[i]'hpi).ty values[i]
+  | param :: params, value :: values, hall, hlen, i, hi, hpi, hei => by
+      have hkind : (param.kind == EventParamKind.unindexed) = true := hall param (by simp)
+      cases i with
+      | zero =>
+          simp [eventEncodedValuesForKind, hkind]
+      | succ i =>
+          have htail := eventEncodedValuesForKind_unindexed_all_getElem
+            (params := params) (values := values)
+            (by intro p hp; exact hall p (by simp [hp]))
+            (by simpa using Nat.succ.inj hlen) i
+            (by simpa using hi) (by simpa using hpi)
+            (by simpa [eventEncodedValuesForKind, hkind] using hei)
+          simpa [eventEncodedValuesForKind, hkind] using htail
+  | [], [], _, _, i, hi, _, _ => by
+      simp at hi
+  | [], _ :: _, _, hlen, _, _, _, _ => by
+      simp at hlen
+  | _ :: _, [], _, _, _, hi, _, _ => by
+      simp at hi
+
 end Compiler.Proofs.IRGeneration
