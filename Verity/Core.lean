@@ -11,6 +11,7 @@ import Verity.Core.Uint16
 import Verity.Core.Uint256
 import Verity.Core.FiniteSet
 import Verity.Core.Intrinsics
+import Verity.Core.StorageAttr
 
 namespace Verity
 
@@ -95,6 +96,122 @@ structure ContractState where
   memory : Nat → Uint256 := fun _ => 0     -- EVM memory (word-addressed, zero-initialized)
   knownAddresses : Nat → FiniteAddressSet  -- Tracked addresses per storage slot (for sum properties)
   events : List Event := []  -- Emitted events, append-only log (#153)
+
+namespace ContractState
+
+/-!
+## Canonical storage lens API (P5-A)
+
+The one sanctioned read/write surface over `ContractState`'s storage
+channels. Interpreters, denotations and proofs should use these lenses
+instead of raw field access/record updates, so the planned word-addressed
+storage representation flip (one `Nat → Uint256` map with Solidity-layout
+slot derivation) is a swap of lens implementations under stable names and
+the `storage_simps` simp set — not another ~1400-site rewrite.
+-/
+
+def readSlot (s : ContractState) (slot : Nat) : Uint256 :=
+  s.storage slot
+
+def writeSlot (s : ContractState) (slot : Nat) (value : Uint256) : ContractState :=
+  { s with storage := fun sl => if sl == slot then value else s.storage sl }
+
+def readAddrSlot (s : ContractState) (slot : Nat) : Address :=
+  s.storageAddr slot
+
+def writeAddrSlot (s : ContractState) (slot : Nat) (value : Address) : ContractState :=
+  { s with storageAddr := fun sl => if sl == slot then value else s.storageAddr sl }
+
+def readTransient (s : ContractState) (slot : Nat) : Uint256 :=
+  s.transientStorage slot
+
+def writeTransient (s : ContractState) (slot : Nat) (value : Uint256) : ContractState :=
+  { s with transientStorage := fun sl => if sl == slot then value else s.transientStorage sl }
+
+def readMap (s : ContractState) (slot : Nat) (key : Address) : Uint256 :=
+  s.storageMap slot key
+
+def writeMap (s : ContractState) (slot : Nat) (key : Address) (value : Uint256) : ContractState :=
+  { s with storageMap := fun sl k =>
+      if sl == slot && k == key then value else s.storageMap sl k }
+
+def readMapUint (s : ContractState) (slot : Nat) (key : Uint256) : Uint256 :=
+  s.storageMapUint slot key
+
+def writeMapUint (s : ContractState) (slot : Nat) (key : Uint256) (value : Uint256) : ContractState :=
+  { s with storageMapUint := fun sl k =>
+      if sl == slot && k == key then value else s.storageMapUint sl k }
+
+def readMap2 (s : ContractState) (slot : Nat) (key1 key2 : Address) : Uint256 :=
+  s.storageMap2 slot key1 key2
+
+def writeMap2 (s : ContractState) (slot : Nat) (key1 key2 : Address) (value : Uint256) :
+    ContractState :=
+  { s with storageMap2 := fun sl k1 k2 =>
+      if sl == slot && k1 == key1 && k2 == key2 then value else s.storageMap2 sl k1 k2 }
+
+def readArray (s : ContractState) (slot : Nat) : List Uint256 :=
+  s.storageArray slot
+
+def writeArray (s : ContractState) (slot : Nat) (values : List Uint256) : ContractState :=
+  { s with storageArray := fun sl => if sl == slot then values else s.storageArray sl }
+
+@[storage_simps] theorem readSlot_writeSlot_same (s : ContractState) (slot : Nat) (v : Uint256) :
+    (s.writeSlot slot v).readSlot slot = v := by
+  simp [readSlot, writeSlot]
+
+@[storage_simps] theorem readSlot_writeSlot_other (s : ContractState) {slot slot' : Nat}
+    (h : slot' ≠ slot) (v : Uint256) :
+    (s.writeSlot slot v).readSlot slot' = s.readSlot slot' := by
+  simp [readSlot, writeSlot, h]
+
+@[storage_simps] theorem readAddrSlot_writeAddrSlot_same (s : ContractState) (slot : Nat)
+    (v : Address) : (s.writeAddrSlot slot v).readAddrSlot slot = v := by
+  simp [readAddrSlot, writeAddrSlot]
+
+@[storage_simps] theorem readAddrSlot_writeAddrSlot_other (s : ContractState)
+    {slot slot' : Nat} (h : slot' ≠ slot) (v : Address) :
+    (s.writeAddrSlot slot v).readAddrSlot slot' = s.readAddrSlot slot' := by
+  simp [readAddrSlot, writeAddrSlot, h]
+
+@[storage_simps] theorem readTransient_writeTransient_same (s : ContractState) (slot : Nat)
+    (v : Uint256) : (s.writeTransient slot v).readTransient slot = v := by
+  simp [readTransient, writeTransient]
+
+@[storage_simps] theorem readTransient_writeTransient_other (s : ContractState)
+    {slot slot' : Nat} (h : slot' ≠ slot) (v : Uint256) :
+    (s.writeTransient slot v).readTransient slot' = s.readTransient slot' := by
+  simp [readTransient, writeTransient, h]
+
+@[storage_simps] theorem readMap_writeMap_same (s : ContractState) (slot : Nat) (key : Address)
+    (v : Uint256) : (s.writeMap slot key v).readMap slot key = v := by
+  simp [readMap, writeMap]
+
+@[storage_simps] theorem readMap_writeMap_other_key (s : ContractState) (slot : Nat)
+    {key key' : Address} (h : key' ≠ key) (v : Uint256) :
+    (s.writeMap slot key v).readMap slot key' = s.readMap slot key' := by
+  simp [readMap, writeMap, h]
+
+@[storage_simps] theorem readMapUint_writeMapUint_same (s : ContractState) (slot : Nat)
+    (key : Uint256) (v : Uint256) :
+    (s.writeMapUint slot key v).readMapUint slot key = v := by
+  simp [readMapUint, writeMapUint]
+
+@[storage_simps] theorem readMap2_writeMap2_same (s : ContractState) (slot : Nat)
+    (key1 key2 : Address) (v : Uint256) :
+    (s.writeMap2 slot key1 key2 v).readMap2 slot key1 key2 = v := by
+  simp [readMap2, writeMap2]
+
+@[storage_simps] theorem readArray_writeArray_same (s : ContractState) (slot : Nat)
+    (vs : List Uint256) : (s.writeArray slot vs).readArray slot = vs := by
+  simp [readArray, writeArray]
+
+@[storage_simps] theorem readArray_writeArray_other (s : ContractState) {slot slot' : Nat}
+    (h : slot' ≠ slot) (vs : List Uint256) :
+    (s.writeArray slot vs).readArray slot' = s.readArray slot' := by
+  simp [readArray, writeArray, h]
+
+end ContractState
 
 -- Default zero state — all storage zero, empty addresses, no events.
 -- Use `{ defaultState with sender := "0xAlice" }` to customize individual fields.
