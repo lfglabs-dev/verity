@@ -903,4 +903,61 @@ private theorem eventUnindexedStores_continue
               (by simpa [nextSrcMemory] using htailContinue)
             exact ⟨srcMemory', hcons.1, hcons.2⟩
 
+private def eventValuesForKind :
+    EventParamKind → List EventParam → List Nat → List Nat
+  | _, [], _ => []
+  | _, _ :: _, [] => []
+  | kind, param :: params, value :: values =>
+      if param.kind == kind then
+        value :: eventValuesForKind kind params values
+      else
+        eventValuesForKind kind params values
+
+private theorem eventValuesForKind_unindexed_cons_true
+    {param : EventParam} {params : List EventParam}
+    {value : Nat} {values : List Nat}
+    (hkind : (param.kind == EventParamKind.unindexed) = true) :
+    eventValuesForKind EventParamKind.unindexed
+        (param :: params) (value :: values) =
+      value :: eventValuesForKind EventParamKind.unindexed params values := by
+  simp [eventValuesForKind, hkind]
+
+private theorem eventValuesForKind_unindexed_cons_false
+    {param : EventParam} {params : List EventParam}
+    {value : Nat} {values : List Nat}
+    (hkind : (param.kind == EventParamKind.unindexed) = false) :
+    eventValuesForKind EventParamKind.unindexed
+        (param :: params) (value :: values) =
+      eventValuesForKind EventParamKind.unindexed params values := by
+  simp [eventValuesForKind, hkind]
+
+private theorem eventWriteUnindexed_filter_unindexed
+    {params : List EventParam} {values : List Nat}
+    {ptr wordIdx : Nat} {memory : Nat → Verity.Core.Uint256}
+    (hlen : values.length = params.length) :
+    SourceSemantics.writeUnindexedEventScratchFrom
+        (params.filter (fun param => param.kind == EventParamKind.unindexed))
+        (eventValuesForKind EventParamKind.unindexed params values)
+        ptr wordIdx memory =
+      SourceSemantics.writeUnindexedEventScratchFrom
+        params values ptr wordIdx memory := by
+  induction params generalizing values wordIdx memory with
+  | nil =>
+      cases values <;> simp [eventValuesForKind] at hlen ⊢
+  | cons param params ih =>
+      cases values with
+      | nil => simp at hlen
+      | cons value values =>
+          have htail : values.length = params.length := by
+            simpa using Nat.succ.inj hlen
+          by_cases hkind : (param.kind == EventParamKind.unindexed) = true
+          · simp [SourceSemantics.writeUnindexedEventScratchFrom, hkind,
+              eventValuesForKind_unindexed_cons_true hkind, ih htail]
+          · have hkindFalse :
+                (param.kind == EventParamKind.unindexed) = false := by
+              cases h : param.kind == EventParamKind.unindexed <;>
+                simp [h] at hkind ⊢
+            simp [SourceSemantics.writeUnindexedEventScratchFrom, hkindFalse,
+              eventValuesForKind_unindexed_cons_false hkindFalse, ih htail]
+
 end Compiler.Proofs.IRGeneration
