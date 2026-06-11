@@ -2359,16 +2359,6 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.SupportedBodyInterface.helperFreeStepInterface
   Compiler.Proofs.IRGeneration.SupportedBodyInterfaceExceptMappingWrites.helperFreeStepInterface
   Compiler.Proofs.IRGeneration.SupportedBodyInterfaceExceptMappingWrites.helperFreeStepInterface_stmtSafety
-  -- Compiler.Proofs.IRGeneration.scopeNamesIncluded_foldl_stmtNextScope  -- private
-  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_of_requireClausesOnly  -- private
-  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_of_requireClausesThenReturnLiteral  -- private
-  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_of_requireClausesThenLetReturnLocalLiteral  -- private
-  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_of_requireClausesThenSetStorageLiteral  -- private
-  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_of_requireClausesThenLetSetStorageLocalLiteral  -- private
-  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_of_requireClausesThenLetAssignSetStorageLocalLiteral  -- private
-  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_of_requireClausesThenLetAssignAddSetStorageLocalLiteral  -- private
-  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_of_requireClausesThenLetAssignSubSetStorageLocalLiteral  -- private
-  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_of_requireClausesThenLetAssignMulSetStorageLocalLiteral  -- private
   Compiler.Proofs.IRGeneration.compileStmtList_ok_of_stmtListGenericCore
   Compiler.Proofs.IRGeneration.compileStmtList_ok_of_stmtListGenericWithHelpers
   Compiler.Proofs.IRGeneration.compileStmtList_ok_of_stmtListGenericWithHelpersAndHelperIR
@@ -2623,8 +2613,6 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.stmtListTouchesUnsupportedContractSurfaceExceptMappingWrites_append
   -- Compiler.Proofs.IRGeneration.stmtTouchesUnsupportedContractSurfaceExceptMappingWrites_eq_false_of_contractSurface  -- private
   Compiler.Proofs.IRGeneration.stmtListTouchesUnsupportedContractSurfaceExceptMappingWrites_eq_false_of_contractSurface
-  Compiler.Proofs.IRGeneration.stmtListCompileCore_of_requireLiteralGuardFamilyClauses
-  Compiler.Proofs.IRGeneration.foldl_stmtNextScope_requireLiteralGuardFamilyClauses
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_letStorageField  -- private
   Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_letStorageField
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_letStorageAddrField  -- private
@@ -5365,4 +5353,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5016 theorems/lemmas (3538 public, 1478 private, 0 sorry'd)
+-- Total: 5004 theorems/lemmas (3536 public, 1468 private, 0 sorry'd)

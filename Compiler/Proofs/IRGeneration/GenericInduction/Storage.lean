@@ -6703,59 +6703,6 @@ theorem stmtListTouchesUnsupportedContractSurfaceExceptMappingWrites_eq_false_of
         stmtTouchesUnsupportedContractSurfaceExceptMappingWrites_eq_false_of_contractSurface hsplit.1,
         ih hsplit.2]
 
-theorem stmtListCompileCore_of_requireLiteralGuardFamilyClauses
-    {scope : List String}
-    (clauses : List Verity.Core.Free.RequireLiteralGuardFamilyClause) :
-    FunctionBody.StmtListCompileCore scope
-      (clauses.map Verity.Core.Free.RequireLiteralGuardFamilyClause.toStmt) := by
-  induction clauses generalizing scope with
-  | nil =>
-      simpa using FunctionBody.StmtListCompileCore.nil (scope := scope)
-  | cons clause rest ih =>
-      refine FunctionBody.StmtListCompileCore.require_ ?_ ?_ ih
-      · cases clause with
-        | mk family n m p q message =>
-            cases family with
-            | binary guard =>
-                cases guard <;> repeat constructor
-            | andEqLt =>
-                exact .logicalAnd (.eq (.literal n) (.literal m)) (.lt (.literal p) (.literal q))
-            | orEqLt =>
-                exact .logicalOr (.eq (.literal n) (.literal m)) (.lt (.literal p) (.literal q))
-      · intro name hmem
-        cases clause with
-        | mk family n m p q message =>
-            cases family with
-            | binary guard =>
-                cases guard <;> simp [FunctionBody.exprBoundNames] at hmem
-            | andEqLt =>
-                simp [FunctionBody.exprBoundNames] at hmem
-            | orEqLt =>
-                simp [FunctionBody.exprBoundNames] at hmem
-
-theorem foldl_stmtNextScope_requireLiteralGuardFamilyClauses
-    {scope : List String}
-    (clauses : List Verity.Core.Free.RequireLiteralGuardFamilyClause) :
-    List.foldl stmtNextScope scope
-      (clauses.map Verity.Core.Free.RequireLiteralGuardFamilyClause.toStmt) = scope := by
-  induction clauses generalizing scope with
-  | nil =>
-      rfl
-  | cons clause rest ih =>
-      cases clause with
-      | mk family n m p q message =>
-          cases family with
-          | binary guard =>
-              cases guard <;>
-                simp [stmtNextScope, Verity.Core.Free.RequireLiteralGuardFamilyClause.toStmt,
-                  collectStmtNames, collectExprNames, ih]
-          | andEqLt =>
-              simp [stmtNextScope, Verity.Core.Free.RequireLiteralGuardFamilyClause.toStmt,
-                collectStmtNames, collectExprNames, ih]
-          | orEqLt =>
-              simp [stmtNextScope, Verity.Core.Free.RequireLiteralGuardFamilyClause.toStmt,
-                collectStmtNames, collectExprNames, ih]
-
 set_option maxHeartbeats 800000 in
 private theorem compiledStmtStep_letStorageField
     {fields : List Field}
