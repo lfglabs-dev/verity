@@ -499,6 +499,44 @@ private theorem eventStorePtr_continue
   apply eventExecIRStmt_let_step
   simp [evalIRExpr, evalIRExprs, evalIRCall, hptr]
 
+private theorem eventLegacy_append
+    {front back : List YulStmt}
+    (hfront : LegacyCompatibleExternalStmtList front)
+    (hback : LegacyCompatibleExternalStmtList back) :
+    LegacyCompatibleExternalStmtList (front ++ back) := by
+  induction front generalizing back with
+  | nil =>
+      cases hfront
+      simpa using hback
+  | cons stmt rest ih =>
+      cases hfront with
+      | comment msg _ hrest =>
+          exact .comment msg (rest ++ back) (ih hrest hback)
+      | let_ name value _ hrest =>
+          exact .let_ name value (rest ++ back) (ih hrest hback)
+      | assign name value _ hrest =>
+          exact .assign name value (rest ++ back) (ih hrest hback)
+      | expr value _ hrest =>
+          exact .expr value (rest ++ back) (ih hrest hback)
+      | if_ cond body _ hbody hrest =>
+          exact .if_ cond body (rest ++ back) hbody (ih hrest hback)
+      | block body _ hbody hrest =>
+          exact .block body (rest ++ back) hbody (ih hrest hback)
+      | for_ init cond post body _ hinit hpost hbody hrest =>
+          exact .for_ init cond post body (rest ++ back) hinit hpost hbody
+            (ih hrest hback)
+      | funcDef name params rets body _ hbody hrest =>
+          exact .funcDef name params rets body (rest ++ back) hbody
+            (ih hrest hback)
+
+private theorem eventLegacy_singleton_let (name : String) (value : YulExpr) :
+    LegacyCompatibleExternalStmtList [YulStmt.let_ name value] :=
+  .let_ name value [] .nil
+
+private theorem eventLegacy_singleton_expr (value : YulExpr) :
+    LegacyCompatibleExternalStmtList [YulStmt.expr value] :=
+  .expr value [] .nil
+
 private theorem eventIRState_set_memory_eq_self
     (state : IRState) {mem : Nat → Nat}
     (hmem : ∀ offset, mem offset = state.memory offset) :
@@ -572,6 +610,25 @@ private theorem eventSignatureStoreStmtsFromChunks_eq_words
   | cons chunk rest ih =>
       simp [eventSignatureStoreStmtsFromChunks, eventSignatureStoreStmtsFromWords]
       exact ih (startIdx + 1)
+
+private theorem eventSignatureStoreStmtsFromWords_legacy
+    (words : List Nat) (startIdx : Nat) :
+    LegacyCompatibleExternalStmtList
+      (eventSignatureStoreStmtsFromWords words startIdx) := by
+  induction words generalizing startIdx with
+  | nil =>
+      simp [eventSignatureStoreStmtsFromWords]
+      exact .nil
+  | cons word rest ih =>
+      rw [eventSignatureStoreStmtsFromWords_cons]
+      exact .expr _ _ (ih (startIdx + 1))
+
+private theorem eventSignatureStoreStmtsFromChunks_legacy
+    (chunks : List (List UInt8)) (startIdx : Nat) :
+    LegacyCompatibleExternalStmtList
+      (eventSignatureStoreStmtsFromChunks chunks startIdx) := by
+  rw [eventSignatureStoreStmtsFromChunks_eq_words]
+  exact eventSignatureStoreStmtsFromWords_legacy _ _
 
 private theorem eventSignatureScratchStore_memoryRel
     {state : IRState} {srcMemory : Nat → Verity.Core.Uint256}
@@ -966,6 +1023,55 @@ private theorem eventUnindexedHeadSize_eq_values
       rw [hsize, eventFoldl_add_start, ih]
       simp
       omega
+
+private theorem eventScalarUnindexedStoresFrom_legacy
+    (entries : List (EventParam × Expr × YulExpr)) (headOffset : Nat) :
+    LegacyCompatibleExternalStmtList
+      (scalarEventUnindexedStoresFrom entries headOffset) := by
+  induction entries generalizing headOffset with
+  | nil =>
+      simp [scalarEventUnindexedStoresFrom]
+      exact .nil
+  | cons entry rest ih =>
+      rcases entry with ⟨param, srcExpr, argExpr⟩
+      simp [scalarEventUnindexedStoresFrom]
+      exact .expr _ _ (ih (headOffset + eventHeadWordSize param.ty))
+
+private theorem eventCompiledScalarEmit_legacy
+    (eventDef : EventDef) (args : List Expr) (argExprs : List YulExpr) :
+    LegacyCompatibleExternalStmtList
+      (compileScalarEmitFromCompiledArgs eventDef args argExprs) := by
+  let zipped := eventZippedWithSource eventDef args argExprs
+  let unindexed := eventUnindexedArgs zipped
+  let sigBytes := bytesFromString (eventSignature eventDef)
+  let sigStores := eventSignatureStoreStmtsFromChunks (chunkBytes32 sigBytes) 0
+  let topic0Store := YulStmt.let_ "__evt_topic0"
+    (YulExpr.call "keccak256" [YulExpr.ident "__evt_ptr", YulExpr.lit sigBytes.length])
+  let unindexedStores := scalarEventUnindexedStores unindexed
+  let logStmt := YulStmt.expr (YulExpr.call (eventLogFunction (eventIndexedArgs zipped).length)
+    (eventLogArgs (YulExpr.lit (eventUnindexedHeadSize unindexed))
+      (scalarEventIndexedTopicParts (eventIndexedArgs zipped))))
+  have hbody : LegacyCompatibleExternalStmtList
+      ([YulStmt.let_ "__evt_ptr"
+        (YulExpr.call "mload" [YulExpr.lit Compiler.Constants.freeMemoryPointer])] ++
+        sigStores ++ [topic0Store] ++ unindexedStores ++ [logStmt]) := by
+    simpa [List.append_assoc] using (@eventLegacy_append
+      [YulStmt.let_ "__evt_ptr"
+        (YulExpr.call "mload" [YulExpr.lit Compiler.Constants.freeMemoryPointer])]
+      (sigStores ++ ([topic0Store] ++ unindexedStores ++ [logStmt]))
+      (eventLegacy_singleton_let _ _)
+      (@eventLegacy_append sigStores
+        ([topic0Store] ++ unindexedStores ++ [logStmt])
+        (eventSignatureStoreStmtsFromChunks_legacy _ _)
+        (@eventLegacy_append [topic0Store] (unindexedStores ++ [logStmt])
+          (eventLegacy_singleton_let _ _)
+          (@eventLegacy_append unindexedStores [logStmt]
+            (eventScalarUnindexedStoresFrom_legacy _ _)
+            (eventLegacy_singleton_expr _)))))
+  simpa [compileScalarEmitFromCompiledArgs, scalarEventUnindexedStores,
+    eventSignatureStoreStmtsFromChunks, zipped, unindexed, sigBytes, sigStores,
+    topic0Store, unindexedStores, logStmt] using
+    (LegacyCompatibleExternalStmtList.block _ _ hbody .nil)
 
 private def eventUnindexedNextMemory
     (srcMemory : Nat → Verity.Core.Uint256)
