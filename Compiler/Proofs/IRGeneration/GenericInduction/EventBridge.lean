@@ -526,4 +526,112 @@ private theorem eventEvalIRExpr_normalizeEventWord :
   | .adt _ _, _, _, _, hsupport, _, _ => by
       simp [eventParamScalarProofSupported, eventParamScalarCompileSupported] at hsupport
 
+/-! ## Unindexed scalar scratch stores -/
+
+private theorem eventNormalizeEventValue_lt_evmModulus :
+    ∀ (ty : ParamType) (value : Nat),
+      eventParamScalarProofSupported ty = true →
+      value < Compiler.Constants.evmModulus →
+      SourceSemantics.normalizeEventValue ty value < Compiler.Constants.evmModulus
+  | .uint256, value, _, hlt => by
+      simpa [SourceSemantics.normalizeEventValue,
+        SourceSemantics.wordNormalize, Nat.mod_eq_of_lt hlt]
+  | .int256, value, _, hlt => by
+      simpa [SourceSemantics.normalizeEventValue,
+        SourceSemantics.wordNormalize, Nat.mod_eq_of_lt hlt]
+  | .bytes32, value, _, hlt => by
+      simpa [SourceSemantics.normalizeEventValue,
+        SourceSemantics.wordNormalize, Nat.mod_eq_of_lt hlt]
+  | .uint8, value, _, _ => by
+      exact Nat.lt_of_le_of_lt Nat.and_le_left
+        (FunctionBody.wordNormalize_lt_evmModulus value)
+  | .uint16, value, _, _ => by
+      exact Nat.lt_of_le_of_lt Nat.and_le_left
+        (FunctionBody.wordNormalize_lt_evmModulus value)
+  | .address, value, _, _ => by
+      exact Nat.lt_of_le_of_lt Nat.and_le_left
+        (FunctionBody.wordNormalize_lt_evmModulus value)
+  | .bool, value, _, _ => by
+      by_cases hzero :
+          value % Compiler.Constants.evmModulus = 0 <;>
+        simp [SourceSemantics.normalizeEventValue, hzero,
+          SourceSemantics.wordNormalize, Compiler.Constants.evmModulus]
+  | .newtypeOf _ baseType, value, hsupport, hlt => by
+      have hbase : eventParamScalarProofSupported baseType = true := by
+        simpa [eventParamScalarProofSupported, eventParamScalarCompileSupported]
+          using hsupport
+      simpa [SourceSemantics.normalizeEventValue]
+        using eventNormalizeEventValue_lt_evmModulus baseType value hbase hlt
+  | .string, _, hsupport, _ => by
+      simp [eventParamScalarProofSupported, eventParamScalarCompileSupported] at hsupport
+  | .tuple _, _, hsupport, _ => by
+      simp [eventParamScalarProofSupported, eventParamScalarCompileSupported] at hsupport
+  | .array _, _, hsupport, _ => by
+      simp [eventParamScalarProofSupported, eventParamScalarCompileSupported] at hsupport
+  | .fixedArray _ _, _, hsupport, _ => by
+      simp [eventParamScalarProofSupported, eventParamScalarCompileSupported] at hsupport
+  | .bytes, _, hsupport, _ => by
+      simp [eventParamScalarProofSupported, eventParamScalarCompileSupported] at hsupport
+  | .adt _ _, _, hsupport, _ => by
+      simp [eventParamScalarProofSupported, eventParamScalarCompileSupported] at hsupport
+
+private theorem eventUnindexedScratchStore_memoryRel
+    {state : IRState} {srcMemory : Nat → Verity.Core.Uint256}
+    {ptr wordIdx value : Nat} {ty : ParamType}
+    (hmem : ∀ offset, state.memory offset = (srcMemory offset).val)
+    (hbounded :
+      SourceSemantics.normalizeEventValue ty value < Compiler.Constants.evmModulus) :
+    ∀ offset,
+      (if offset = (ptr + wordIdx * 32) % Compiler.Constants.evmModulus then
+        SourceSemantics.normalizeEventValue ty value
+      else
+        state.memory offset) =
+      ((fun offset =>
+        if offset = (ptr + wordIdx * 32) % Compiler.Constants.evmModulus then
+          (SourceSemantics.normalizeEventValue ty value : Verity.Core.Uint256)
+        else
+          srcMemory offset) offset).val := by
+  intro offset
+  by_cases hkey :
+      offset = (ptr + wordIdx * 32) % Compiler.Constants.evmModulus
+  · simp [hkey, Nat.mod_eq_of_lt hbounded]
+  · simp [hkey, hmem offset]
+
+private theorem eventUnindexedStore_one_continue
+    {state : IRState} {srcMemory : Nat → Verity.Core.Uint256}
+    {ptr wordIdx value : Nat} {ty : ParamType} {argExpr : YulExpr}
+    (hptr : state.getVar "__evt_ptr" = some ptr)
+    (heval : evalIRExpr state argExpr = some value)
+    (hsupport : eventParamScalarProofSupported ty = true)
+    (hvalueLt : value < Compiler.Constants.evmModulus)
+    (hmem : ∀ offset, state.memory offset = (srcMemory offset).val) :
+    StmtsContinueFromTo state
+      [YulStmt.expr (YulExpr.call "mstore" [
+        YulExpr.call "add" [YulExpr.ident "__evt_ptr", YulExpr.lit (wordIdx * 32)],
+        normalizeEventWord ty argExpr
+      ])]
+      { state with memory := fun offset =>
+          (if offset = (ptr + wordIdx * 32) % Compiler.Constants.evmModulus then
+            (SourceSemantics.normalizeEventValue ty value : Verity.Core.Uint256)
+          else
+            srcMemory offset).val } := by
+  have hoff := eventEvalIRExpr_evtPtr_add
+    (state := state) (ptr := ptr) (idx := wordIdx) hptr
+  have hval := eventEvalIRExpr_normalizeEventWord ty hsupport heval hvalueLt
+  refine ⟨{ state with memory := fun offset =>
+      if offset = (ptr + wordIdx * 32) % Compiler.Constants.evmModulus then
+        SourceSemantics.normalizeEventValue ty value
+      else state.memory offset }, ?_, ?_⟩
+  · intro extraFuel
+    simpa using eventExecIRStmt_mstore_step hoff hval extraFuel
+  · have hnormLt :
+        SourceSemantics.normalizeEventValue ty value < Compiler.Constants.evmModulus := by
+      exact eventNormalizeEventValue_lt_evmModulus ty value hsupport hvalueLt
+    exact (eventIRState_set_memory_eq_self _ (by
+      intro offset
+      exact (eventUnindexedScratchStore_memoryRel
+        (state := state) (srcMemory := srcMemory) (ptr := ptr)
+        (wordIdx := wordIdx) (value := value) (ty := ty)
+        hmem hnormLt offset).symm)).symm
+
 end Compiler.Proofs.IRGeneration
