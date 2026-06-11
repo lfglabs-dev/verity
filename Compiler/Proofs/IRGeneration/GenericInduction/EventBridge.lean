@@ -2168,6 +2168,47 @@ private theorem eventRuntimeStateMatchesIR_after_emit
     hmatch sourceMemory irMemory (runtime.world.events ++ [event])
       (state.events ++ [irEvent]) hmemory hevents
 
+private theorem eventRuntimeStateMatchesIR_setVar
+    {fields : List Field} {runtime : SourceSemantics.RuntimeState}
+    {state : IRState} {name : String} {value : Nat}
+    (hmatch : FunctionBody.runtimeStateMatchesIR fields runtime state) :
+    FunctionBody.runtimeStateMatchesIR fields runtime (state.setVar name value) := by
+  simpa [FunctionBody.runtimeStateMatchesIR, IRState.setVar] using hmatch
+
+private theorem eventRuntimeStateMatchesIR_after_emit_scratch
+    {fields : List Field}
+    {runtime : SourceSemantics.RuntimeState} {state : IRState}
+    {sourceMemory : Nat → Verity.Core.Uint256} {irMemory : Nat → Nat}
+    {event : Verity.Event} {ptr dataSize topic0 : Nat}
+    {topics : List Nat}
+    (hmatch : FunctionBody.runtimeStateMatchesIR fields runtime state)
+    (hmemory : irMemory = fun o => (sourceMemory o).val)
+    (hlog :
+      encodeYulLogEvent irMemory ptr dataSize (topic0 :: topics) =
+        SourceSemantics.encodeEvent event) :
+    FunctionBody.runtimeStateMatchesIR fields
+      { runtime with
+          world := {
+            runtime.world with
+            memory := sourceMemory
+            events := runtime.world.events ++ [event] } }
+      ({ (state.setVar "__evt_ptr" ptr).setVar "__evt_topic0" topic0 with
+          memory := irMemory }.appendYulLog ptr dataSize (topic0 :: topics)) := by
+  have hvars : FunctionBody.runtimeStateMatchesIR fields runtime
+      ((state.setVar "__evt_ptr" ptr).setVar "__evt_topic0" topic0) :=
+    eventRuntimeStateMatchesIR_setVar
+      (eventRuntimeStateMatchesIR_setVar hmatch)
+  have hbase := FunctionBody.runtimeStateMatchesIR_updateMemoryEvents
+    hvars sourceMemory irMemory (runtime.world.events ++ [event])
+      (((state.setVar "__evt_ptr" ptr).setVar "__evt_topic0" topic0).events ++
+        [SourceSemantics.encodeEvent event]) hmemory (by
+          have hstateEvents :
+              ((state.setVar "__evt_ptr" ptr).setVar "__evt_topic0" topic0).events =
+                SourceSemantics.encodeEvents runtime.world.events := by
+            exact hvars.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2
+          rw [hstateEvents, eventEncodeEvents_snoc])
+  simpa [IRState.appendYulLog, hlog] using hbase
+
 private theorem eventBindingsExactlyMatch_after_emit
     {scope : List String} {bindings : List (String × Nat)} {state : IRState}
     {ptr topic0 : Nat} {irMemory : Nat → Nat}
