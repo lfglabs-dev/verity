@@ -31,6 +31,7 @@ private theorem constructor_isolation (s : ContractState) (initialOwner : Addres
   (∀ addr, ((simpleTokenConstructor initialOwner).run s).snd.storageMap slotIdx addr = s.storageMap slotIdx addr) ∧
   (slotIdx ≠ 0 → ((simpleTokenConstructor initialOwner).run s).snd.storageAddr slotIdx = s.storageAddr slotIdx) := by
   simp only [simpleTokenConstructor, setStorageAddr, setStorage,
+    ContractState.writeAddrSlot, ContractState.writeSlot,
     Contracts.SimpleToken.ownerSlot, Contracts.SimpleToken.totalSupplySlot,
     Verity.bind, Bind.bind, Contract.run, ContractResult.snd]
   refine ⟨fun h_ne => ?_, fun _ => trivial, fun h_ne => ?_⟩ <;>
@@ -66,6 +67,8 @@ private theorem mint_isolation (s : ContractState) (toAddr : Address) (amount : 
   simp only [mint,
     Contracts.SimpleToken.ownerSlot, Contracts.SimpleToken.balancesSlot, Contracts.SimpleToken.totalSupplySlot,
     msgSender, getStorageAddr, getStorage, setStorage, getMapping, setMapping,
+    ContractState.readSlot, ContractState.writeSlot, ContractState.readAddrSlot,
+    ContractState.readMap, ContractState.writeMap,
     Verity.require, Verity.bind, Bind.bind,
     Contract.run, ContractResult.snd,
     h_owner, beq_self_eq_true, ite_true]

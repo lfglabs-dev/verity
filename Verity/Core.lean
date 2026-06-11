@@ -211,6 +211,13 @@ def writeArray (s : ContractState) (slot : Nat) (values : List Uint256) : Contra
     (s.writeArray slot vs).readArray slot' = s.readArray slot' := by
   simp [readArray, writeArray, h]
 
+-- Until the C5 storage-representation flip, the lenses stay default-simp
+-- transparent so the existing raw-field proof surface keeps working unchanged.
+-- C5 removes this attribute and migrates proofs onto `storage_simps`.
+attribute [simp] readSlot writeSlot readAddrSlot writeAddrSlot readTransient
+  writeTransient readMap writeMap readMapUint writeMapUint readMap2 writeMap2
+  readArray writeArray
+
 end ContractState
 
 -- Default zero state — all storage zero, empty addresses, no events.
@@ -372,14 +379,12 @@ def runState {α : Type} (c : Contract α) (s : ContractState) : ContractState :
 
 end Contract
 
--- Storage operations for Uint256
+-- Storage operations for Uint256 (routed through the canonical lens API)
 def getStorage (s : StorageSlot Uint256) : Contract Uint256 :=
-  fun state => ContractResult.success (state.storage s.slot) state
+  fun state => ContractResult.success (state.readSlot s.slot) state
 
 def setStorage (s : StorageSlot Uint256) (value : Uint256) : Contract Unit :=
-  fun state => ContractResult.success () { state with
-    storage := fun slot => if slot == s.slot then value else state.storage slot
-  }
+  fun state => ContractResult.success () (state.writeSlot s.slot value)
 
 @[simp] theorem getStorage_run (s : StorageSlot Uint256) (state : ContractState) :
   (getStorage s).run state = ContractResult.success (state.storage s.slot) state := rfl
@@ -389,14 +394,12 @@ def setStorage (s : StorageSlot Uint256) (value : Uint256) : Contract Unit :=
     storage := fun slot => if slot == s.slot then value else state.storage slot
   } := rfl
 
--- Storage operations for Address
+-- Storage operations for Address (routed through the canonical lens API)
 def getStorageAddr (s : StorageSlot Address) : Contract Address :=
-  fun state => ContractResult.success (state.storageAddr s.slot) state
+  fun state => ContractResult.success (state.readAddrSlot s.slot) state
 
 def setStorageAddr (s : StorageSlot Address) (value : Address) : Contract Unit :=
-  fun state => ContractResult.success () { state with
-    storageAddr := fun slot => if slot == s.slot then value else state.storageAddr slot
-  }
+  fun state => ContractResult.success () (state.writeAddrSlot s.slot value)
 
 @[simp] theorem getStorageAddr_run (s : StorageSlot Address) (state : ContractState) :
   (getStorageAddr s).run state = ContractResult.success (state.storageAddr s.slot) state := rfl
@@ -406,15 +409,13 @@ def setStorageAddr (s : StorageSlot Address) (value : Address) : Contract Unit :
     storageAddr := fun slot => if slot == s.slot then value else state.storageAddr slot
   } := rfl
 
--- Mapping operations (Address → Uint256)
+-- Mapping operations (Address → Uint256), routed through the canonical lens API.
+-- `setMapping` additionally tracks the key in `knownAddresses` (sum properties).
 def getMapping (s : StorageSlot (Address → Uint256)) (key : Address) : Contract Uint256 :=
-  fun state => ContractResult.success (state.storageMap s.slot key) state
+  fun state => ContractResult.success (state.readMap s.slot key) state
 
 def setMapping (s : StorageSlot (Address → Uint256)) (key : Address) (value : Uint256) : Contract Unit :=
-  fun state => ContractResult.success () { state with
-    storageMap := fun slot addr =>
-      if slot == s.slot && addr == key then value
-      else state.storageMap slot addr,
+  fun state => ContractResult.success () { state.writeMap s.slot key value with
     knownAddresses := fun slot =>
       if slot == s.slot then
         (state.knownAddresses slot).insert key
@@ -439,7 +440,7 @@ def setMapping (s : StorageSlot (Address → Uint256)) (key : Address) (value : 
 
 -- Typed address-valued mapping helpers on top of the word-backed storage model.
 def getMappingAddr (s : StorageSlot (Address → Uint256)) (key : Address) : Contract Address :=
-  fun state => ContractResult.success (wordToAddress (state.storageMap s.slot key)) state
+  fun state => ContractResult.success (wordToAddress (state.readMap s.slot key)) state
 
 def setMappingAddr (s : StorageSlot (Address → Uint256)) (key value : Address) : Contract Unit :=
   setMapping s key (addressToWord value)
@@ -456,14 +457,10 @@ def setMappingAddr (s : StorageSlot (Address → Uint256)) (key value : Address)
 
 -- Double mapping operations (Address → Address → Uint256) (#154)
 def getMapping2 (s : StorageSlot (Address → Address → Uint256)) (key1 key2 : Address) : Contract Uint256 :=
-  fun state => ContractResult.success (state.storageMap2 s.slot key1 key2) state
+  fun state => ContractResult.success (state.readMap2 s.slot key1 key2) state
 
 def setMapping2 (s : StorageSlot (Address → Address → Uint256)) (key1 key2 : Address) (value : Uint256) : Contract Unit :=
-  fun state => ContractResult.success () { state with
-    storageMap2 := fun slot addr1 addr2 =>
-      if slot == s.slot && addr1 == key1 && addr2 == key2 then value
-      else state.storageMap2 slot addr1 addr2
-  }
+  fun state => ContractResult.success () (state.writeMap2 s.slot key1 key2 value)
 
 -- Full-result simp lemmas for double mappings
 @[simp] theorem getMapping2_run (s : StorageSlot (Address → Address → Uint256)) (key1 key2 : Address) (state : ContractState) :
@@ -478,14 +475,10 @@ def setMapping2 (s : StorageSlot (Address → Address → Uint256)) (key1 key2 :
 
 -- Uint256-keyed mapping operations (#154)
 def getMappingUint (s : StorageSlot (Uint256 → Uint256)) (key : Uint256) : Contract Uint256 :=
-  fun state => ContractResult.success (state.storageMapUint s.slot key) state
+  fun state => ContractResult.success (state.readMapUint s.slot key) state
 
 def setMappingUint (s : StorageSlot (Uint256 → Uint256)) (key : Uint256) (value : Uint256) : Contract Unit :=
-  fun state => ContractResult.success () { state with
-    storageMapUint := fun slot k =>
-      if slot == s.slot && k == key then value
-      else state.storageMapUint slot k
-  }
+  fun state => ContractResult.success () (state.writeMapUint s.slot key value)
 
 -- Full-result simp lemmas for uint mappings
 @[simp] theorem getMappingUint_run (s : StorageSlot (Uint256 → Uint256)) (key : Uint256) (state : ContractState) :
@@ -499,7 +492,7 @@ def setMappingUint (s : StorageSlot (Uint256 → Uint256)) (key : Uint256) (valu
   } := rfl
 
 def getMappingUintAddr (s : StorageSlot (Uint256 → Uint256)) (key : Uint256) : Contract Address :=
-  fun state => ContractResult.success (wordToAddress (state.storageMapUint s.slot key)) state
+  fun state => ContractResult.success (wordToAddress (state.readMapUint s.slot key)) state
 
 def setMappingUintAddr (s : StorageSlot (Uint256 → Uint256)) (key : Uint256) (value : Address) :
     Contract Unit :=
@@ -545,43 +538,34 @@ instance : StorageArrayElem Bool where
   toWord value := boolToWord value
   fromWord value := value != 0
 
--- Storage dynamic-array operations (#1571)
+-- Storage dynamic-array operations (#1571), routed through the canonical lens API
 def getStorageArrayLength {α : Type} (s : StorageSlot (List α)) : Contract Uint256 :=
-  fun state => ContractResult.success (((state.storageArray s.slot).length : Nat) : Uint256) state
+  fun state => ContractResult.success (((state.readArray s.slot).length : Nat) : Uint256) state
 
 def getStorageArrayElement {α : Type} [StorageArrayElem α]
     (s : StorageSlot (List α)) (index : Uint256) : Contract α :=
   fun state =>
-    match (state.storageArray s.slot)[index.val]? with
+    match (state.readArray s.slot)[index.val]? with
     | some value => ContractResult.success (StorageArrayElem.fromWord value) state
     | none => ContractResult.revert "Storage array index out of bounds" state
 
 def pushStorageArray {α : Type} [StorageArrayElem α]
     (s : StorageSlot (List α)) (value : α) : Contract Unit :=
   fun state =>
-    let current := state.storageArray s.slot
-    ContractResult.success () { state with
-      storageArray := fun slot =>
-        if slot == s.slot then current ++ [StorageArrayElem.toWord value] else state.storageArray slot
-    }
+    ContractResult.success ()
+      (state.writeArray s.slot (state.readArray s.slot ++ [StorageArrayElem.toWord value]))
 
 def popStorageArray {α : Type} (s : StorageSlot (List α)) : Contract Unit :=
   fun state =>
-    match storageArrayDropLast? (state.storageArray s.slot) with
-    | some updated =>
-        ContractResult.success () { state with
-          storageArray := fun slot => if slot == s.slot then updated else state.storageArray slot
-        }
+    match storageArrayDropLast? (state.readArray s.slot) with
+    | some updated => ContractResult.success () (state.writeArray s.slot updated)
     | none => ContractResult.revert "Storage array pop on empty array" state
 
 def setStorageArrayElement {α : Type} [StorageArrayElem α]
     (s : StorageSlot (List α)) (index : Uint256) (value : α) : Contract Unit :=
   fun state =>
-    match storageArraySetAt (state.storageArray s.slot) index.val (StorageArrayElem.toWord value) with
-    | some updated =>
-        ContractResult.success () { state with
-          storageArray := fun slot => if slot == s.slot then updated else state.storageArray slot
-        }
+    match storageArraySetAt (state.readArray s.slot) index.val (StorageArrayElem.toWord value) with
+    | some updated => ContractResult.success () (state.writeArray s.slot updated)
     | none => ContractResult.revert "Storage array index out of bounds" state
 
 @[simp] theorem getStorageArrayLength_run {α : Type} (s : StorageSlot (List α)) (state : ContractState) :

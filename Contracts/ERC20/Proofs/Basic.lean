@@ -216,7 +216,8 @@ private theorem transfer_unfold_other (s : ContractState) (toAddr : Address) (am
         events := s.events } := by
   have h_balance' := uint256_ge_val_le h_balance
   have h_safe := safeAdd_some (s.storageMap 2 toAddr) amount h_no_overflow
-  simp only [transfer, balancesSlot, msgSender, getMapping, setMapping, requireSomeUint,
+  simp only [transfer, balancesSlot, msgSender, getMapping, setMapping,
+    ContractState.readMap, ContractState.writeMap, requireSomeUint,
     Verity.require, Verity.pure, Verity.bind, Bind.bind, Pure.pure,
     Contract.run, h_balance, h_ne, beq_iff_eq, h_safe, decide_eq_true_eq,
     ite_true, ite_false, HAdd.hAdd]

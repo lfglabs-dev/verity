@@ -50,6 +50,16 @@ def verity_simp_set : List Lean.Name := [
   ``getMappingUint,
   ``setMappingUint,
   ``getMapping2,
+  ``ContractState.readSlot,
+  ``ContractState.writeSlot,
+  ``ContractState.readAddrSlot,
+  ``ContractState.writeAddrSlot,
+  ``ContractState.readMap,
+  ``ContractState.writeMap,
+  ``ContractState.readMapUint,
+  ``ContractState.writeMapUint,
+  ``ContractState.readMap2,
+  ``ContractState.writeMap2,
   ``Verity.require,
   ``Verity.pure,
   ``Verity.bind,
@@ -109,6 +119,10 @@ macro_rules
       `(tactic| simp only [
         $fn, msgSender, getStorageAddr, getStorage, setStorage, setStorageAddr,
         getMapping, setMapping, setMapping2, getMappingUint, setMappingUint, getMapping2,
+        ContractState.readSlot, ContractState.writeSlot, ContractState.readAddrSlot,
+        ContractState.writeAddrSlot, ContractState.readMap, ContractState.writeMap,
+        ContractState.readMapUint, ContractState.writeMapUint, ContractState.readMap2,
+        ContractState.writeMap2,
         Verity.require, Verity.pure, Verity.bind, Bind.bind, Pure.pure,
         Contract.run, ContractResult.snd, ContractResult.fst
       ])
@@ -116,6 +130,10 @@ macro_rules
       `(tactic| simp only [
         $fn, msgSender, getStorageAddr, getStorage, setStorage, setStorageAddr,
         getMapping, setMapping, setMapping2, getMappingUint, setMappingUint, getMapping2,
+        ContractState.readSlot, ContractState.writeSlot, ContractState.readAddrSlot,
+        ContractState.writeAddrSlot, ContractState.readMap, ContractState.writeMap,
+        ContractState.readMapUint, ContractState.writeMapUint, ContractState.readMap2,
+        ContractState.writeMap2,
         Verity.require, Verity.pure, Verity.bind, Bind.bind, Pure.pure,
         Contract.run, ContractResult.snd, ContractResult.fst,
         $extra
@@ -141,6 +159,14 @@ macro_rules
         (simp only [
            $fn, msgSender, getStorageAddr, getStorage, setStorage, setStorageAddr,
            getMapping, setMapping, setMapping2, getMappingUint, setMappingUint, getMapping2,
+           ContractState.readSlot, ContractState.writeSlot, ContractState.readAddrSlot,
+           ContractState.writeAddrSlot, ContractState.readMap, ContractState.writeMap,
+           ContractState.readMapUint, ContractState.writeMapUint, ContractState.readMap2,
+           ContractState.writeMap2,
+        ContractState.readSlot, ContractState.writeSlot, ContractState.readAddrSlot,
+        ContractState.writeAddrSlot, ContractState.readMap, ContractState.writeMap,
+        ContractState.readMapUint, ContractState.writeMapUint, ContractState.readMap2,
+        ContractState.writeMap2,
            Verity.require, Verity.pure, Verity.bind, Bind.bind, Pure.pure,
            Contract.run, ContractResult.snd, ContractResult.fst
          ]
@@ -152,6 +178,14 @@ macro_rules
         (simp only [
            $fn, msgSender, getStorageAddr, getStorage, setStorage, setStorageAddr,
            getMapping, setMapping, setMapping2, getMappingUint, setMappingUint, getMapping2,
+           ContractState.readSlot, ContractState.writeSlot, ContractState.readAddrSlot,
+           ContractState.writeAddrSlot, ContractState.readMap, ContractState.writeMap,
+           ContractState.readMapUint, ContractState.writeMapUint, ContractState.readMap2,
+           ContractState.writeMap2,
+        ContractState.readSlot, ContractState.writeSlot, ContractState.readAddrSlot,
+        ContractState.writeAddrSlot, ContractState.readMap, ContractState.writeMap,
+        ContractState.readMapUint, ContractState.writeMapUint, ContractState.readMap2,
+        ContractState.writeMap2,
            Verity.require, Verity.pure, Verity.bind, Bind.bind, Pure.pure,
            Contract.run, ContractResult.snd, ContractResult.fst, $extra
          ]

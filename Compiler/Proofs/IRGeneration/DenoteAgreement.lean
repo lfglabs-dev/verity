@@ -318,8 +318,7 @@ theorem execForEachLoop_agree {varName : String}
         SourceSemantics.bindValue st.bindings varName (SourceSemantics.wordNormalize index),
         st.selector⟩
       rw [SourceSemantics.execForEachLoop_succ]
-      simp only [toRuntimeState, toRuntimeState_world, toRuntimeState_bindings,
-        toRuntimeState_selector] at hb ⊢
+      simp only [toRuntimeState] at hb ⊢
       rw [← hb]
       show toStmtResult
           (match runBody ⟨st.world,

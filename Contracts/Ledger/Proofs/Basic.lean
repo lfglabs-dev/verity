@@ -206,6 +206,7 @@ private theorem transfer_unfold_other (s : ContractState) (toAddr : Address) (am
       events := s.events } := by
   simp only [transfer, Contracts.Ledger.balances,
     msgSender, getMapping, setMapping,
+    ContractState.readMap, ContractState.writeMap,
     Verity.require, Verity.bind, Bind.bind, Pure.pure,
     Contract.run, h_balance, h_ne, beq_iff_eq,
     decide_eq_true_eq, ite_true, ite_false]

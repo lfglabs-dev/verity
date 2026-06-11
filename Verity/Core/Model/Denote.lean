@@ -226,7 +226,7 @@ def findDynamicArrayElementAtSlot (oracle : DenoteOracle)
         let resolvedSlot := field.slot.getD idx
         match field.ty with
         | .dynamicArray _ =>
-            match scanElements resolvedSlot (world.storageArray resolvedSlot) 0 with
+            match scanElements resolvedSlot (world.readArray resolvedSlot) 0 with
             | some value => some value
             | none => go rest (idx + 1)
         | _ => go rest (idx + 1)
@@ -237,15 +237,15 @@ def encodeStorageAt (oracle : DenoteOracle)
   match findResolvedFieldAtSlot fields slot with
   | some field =>
       if fieldUsesAddressStorage field then
-        (world.storageAddr slot).val
+        (world.readAddrSlot slot).val
       else if fieldUsesDynamicArrayStorage field then
-        (world.storageArray slot).length
+        (world.readArray slot).length
       else
-        (world.storage slot).val
+        (world.readSlot slot).val
   | none =>
       match findDynamicArrayElementAtSlot oracle fields world slot with
       | some value => value
-      | none => (world.storage slot).val
+      | none => (world.readSlot slot).val
 
 def encodeStorage (oracle : DenoteOracle)
     (spec : CompilationModel) (world : Verity.ContractState) : Nat → Nat :=
@@ -293,7 +293,7 @@ def storeMappingEntryNat (oracle : DenoteOracle)
 /-- Word-normalized flat-storage view of the world, the Nat-level analogue of
 `SourceSemantics`' `IRStorageSlot → IRStorageWord` round-trip. -/
 def storageNatView (world : Verity.ContractState) : Nat → Nat :=
-  fun s => (world.storage (wordNormalize s)).val
+  fun s => (world.readSlot (wordNormalize s)).val
 
 def writeAddressKeyedMappingSlots (oracle : DenoteOracle)
     (world : Verity.ContractState) (slots : List Nat) (key value : Nat) :
@@ -427,8 +427,7 @@ def storageArrayDropLast? : List Verity.Core.Uint256 → Option (List Verity.Cor
 
 def writeStorageArray (world : Verity.ContractState) (slot : Nat)
     (values : List Verity.Core.Uint256) : Verity.ContractState :=
-  { world with
-    storageArray := fun s => if s == slot then values else world.storageArray s }
+  world.writeArray slot values
 
 /-- Ceiling-division helper matching Solidity's `Math256.ceilDiv`. -/
 def ceilDivVal (lhs rhs : Verity.Core.Uint256) : Nat :=
@@ -452,21 +451,21 @@ def evalExpr (oracle : DenoteOracle) (fields : List Field) (state : DenoteState)
   | .param name => some (lookupValue state.bindings name)
   | .storage fieldName =>
       match findFieldWithResolvedSlot fields fieldName with
-      | some (_, slot) => some (state.world.storage (wordNormalize slot)).val
+      | some (_, slot) => some (state.world.readSlot (wordNormalize slot)).val
       | none => none
   | .storageAddr fieldName =>
       match findFieldWithResolvedSlot fields fieldName with
-      | some (_, slot) => some (state.world.storageAddr (wordNormalize slot)).val
+      | some (_, slot) => some (state.world.readAddrSlot (wordNormalize slot)).val
       | none => none
   | .storageArrayLength fieldName =>
       match findFieldWithResolvedSlot fields fieldName with
-      | some ({ ty := .dynamicArray _, .. }, slot) => some (state.world.storageArray slot).length
+      | some ({ ty := .dynamicArray _, .. }, slot) => some (state.world.readArray slot).length
       | _ => none
   | .storageArrayElement fieldName index => do
       let idx ← evalExpr oracle fields state index
       match findFieldWithResolvedSlot fields fieldName with
       | some ({ ty := .dynamicArray _, .. }, slot) =>
-          match (state.world.storageArray slot)[idx]? with
+          match (state.world.readArray slot)[idx]? with
           | some value => some value.val
           | none => none
       | _ => none
@@ -640,20 +639,20 @@ def evalExpr (oracle : DenoteOracle) (fields : List Field) (state : DenoteState)
       let keyVal ← evalExpr oracle fields state key
       match findFieldSlot fields field with
       | some slot =>
-          some (state.world.storage (oracle.mappingSlot slot keyVal)).val
+          some (state.world.readSlot (oracle.mappingSlot slot keyVal)).val
       | none => none
   | .mappingWord field key wordOffset => do
       let keyVal ← evalExpr oracle fields state key
       match findFieldSlot fields field with
       | some slot =>
-          some (state.world.storage
+          some (state.world.readSlot
             (wordNormalize (oracle.mappingSlot slot keyVal + wordOffset))).val
       | none => none
   | .mappingUint field key => do
       let keyVal ← evalExpr oracle fields state key
       match findFieldSlot fields field with
       | some slot =>
-          some (state.world.storage (oracle.mappingSlot slot keyVal)).val
+          some (state.world.readSlot (oracle.mappingSlot slot keyVal)).val
       | none => none
   | .mapping2 field key1 key2 => do
       let key1Val ← evalExpr oracle fields state key1
@@ -661,7 +660,7 @@ def evalExpr (oracle : DenoteOracle) (fields : List Field) (state : DenoteState)
       match findFieldSlot fields field with
       | some slot =>
           let innerSlot := oracle.mappingSlot slot key1Val
-          some (state.world.storage (oracle.mappingSlot innerSlot key2Val)).val
+          some (state.world.readSlot (oracle.mappingSlot innerSlot key2Val)).val
       | none => none
   | .mapping2Word field key1 key2 wordOffset => do
       let key1Val ← evalExpr oracle fields state key1
@@ -670,7 +669,7 @@ def evalExpr (oracle : DenoteOracle) (fields : List Field) (state : DenoteState)
       | some slot =>
           let innerSlot := oracle.mappingSlot slot key1Val
           let outerSlot := oracle.mappingSlot innerSlot key2Val
-          some (state.world.storage (wordNormalize (outerSlot + wordOffset))).val
+          some (state.world.readSlot (wordNormalize (outerSlot + wordOffset))).val
       | none => none
   -- mappingChain reads: deferred, exactly as in SourceSemantics.
   | .structMember field key memberName => do
@@ -681,7 +680,7 @@ def evalExpr (oracle : DenoteOracle) (fields : List Field) (state : DenoteState)
           | some member =>
               let targetSlot := wordNormalize
                 (oracle.mappingSlot slot keyVal + member.wordOffset)
-              let rawWord := (state.world.storage targetSlot).val
+              let rawWord := (state.world.readSlot targetSlot).val
               match member.packed with
               | none => some rawWord
               | some packed =>
@@ -700,7 +699,7 @@ def evalExpr (oracle : DenoteOracle) (fields : List Field) (state : DenoteState)
               let innerSlot := oracle.mappingSlot slot key1Val
               let outerSlot := oracle.mappingSlot innerSlot key2Val
               let targetSlot := wordNormalize (outerSlot + member.wordOffset)
-              let rawWord := (state.world.storage targetSlot).val
+              let rawWord := (state.world.readSlot targetSlot).val
               match member.packed with
               | none => some rawWord
               | some packed =>
@@ -715,7 +714,7 @@ def evalExpr (oracle : DenoteOracle) (fields : List Field) (state : DenoteState)
       | some slot =>
           let targetSlot := wordNormalize
             (oracle.mappingSlot slot keyVal + wordOffset)
-          let rawWord := (state.world.storage targetSlot).val
+          let rawWord := (state.world.readSlot targetSlot).val
           some (Verity.Core.Uint256.and
             (Verity.Core.Uint256.shr packed.offset rawWord)
             (packedMaskNat packed)).val
@@ -725,7 +724,7 @@ def evalExpr (oracle : DenoteOracle) (fields : List Field) (state : DenoteState)
       some (state.world.memory resolvedOffset).val
   | .tload offset => do
       let resolvedOffset ← evalExpr oracle fields state offset
-      some (state.world.transientStorage resolvedOffset).val
+      some (state.world.readTransient resolvedOffset).val
   | .calldataload offset => do
       let resolvedOffset ← evalExpr oracle fields state offset
       some (calldataloadWord state.selector state.world.calldata resolvedOffset)
@@ -907,13 +906,13 @@ mutual
     | state, .storageArrayPush fieldName value =>
         match findFieldWithResolvedSlot fields fieldName, evalExpr oracle fields state value with
         | some ({ ty := .dynamicArray _, .. }, slot), some resolved =>
-            let updated := state.world.storageArray slot ++ [(resolved : Verity.Core.Uint256)]
+            let updated := state.world.readArray slot ++ [(resolved : Verity.Core.Uint256)]
             .continue { state with world := writeStorageArray state.world slot updated }
         | _, _ => .revert
     | state, .storageArrayPop fieldName =>
         match findFieldWithResolvedSlot fields fieldName with
         | some ({ ty := .dynamicArray _, .. }, slot) =>
-            match storageArrayDropLast? (state.world.storageArray slot) with
+            match storageArrayDropLast? (state.world.readArray slot) with
             | some updated =>
                 .continue { state with world := writeStorageArray state.world slot updated }
             | none => .revert
@@ -923,7 +922,7 @@ mutual
             evalExpr oracle fields state index,
             evalExpr oracle fields state value with
         | some ({ ty := .dynamicArray _, .. }, slot), some idx, some resolved =>
-            match storageArraySetAt (state.world.storageArray slot) idx resolved with
+            match storageArraySetAt (state.world.readArray slot) idx resolved with
             | some updated =>
                 .continue { state with world := writeStorageArray state.world slot updated }
             | none => .revert
