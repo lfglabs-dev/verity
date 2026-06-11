@@ -1371,6 +1371,23 @@ private theorem eventSignatureWords_length
       byteWordCount sigBytes.length := by
   simp [eventChunkBytes32_length]
 
+private theorem eventChunkBytes32_mem_length_le :
+    ∀ {bs chunk : List UInt8}, chunk ∈ chunkBytes32 bs → chunk.length ≤ 32
+  | [], chunk, hmem => by
+      unfold chunkBytes32 at hmem
+      simp at hmem
+  | b :: rest, chunk, hmem => by
+      unfold chunkBytes32 at hmem
+      simp only [List.isEmpty_cons, Bool.false_eq_true, if_false, List.mem_cons] at hmem
+      rcases hmem with hhead | htail
+      · subst chunk
+        exact List.length_take_le 32 (b :: rest)
+      · exact eventChunkBytes32_mem_length_le (bs := (b :: rest).drop 32) htail
+termination_by bs => bs.length
+decreasing_by
+  simp_wf
+  omega
+
 private theorem eventFoldBytes_bound (bs : List UInt8) (acc : Nat) :
     bs.foldl (fun acc b => acc * 256 + b.toNat) acc <
       (acc + 1) * 256 ^ bs.length := by
