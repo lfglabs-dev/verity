@@ -52,7 +52,7 @@ actually use this family is the next milestone.
 
 | Artifact | Purpose | Check |
 |----------|---------|-------|
-| `artifacts/evmyullean_adapter_report.json` | Adapter coverage, admitted bridge lemmas, safe-body integration status | `python3 scripts/generate_evmyullean_adapter_report.py --check` |
+| `artifacts/evmyullean_native_lowering_report.json` | Native lowering coverage, admitted bridge lemmas, safe-body integration status | `python3 scripts/generate_evmyullean_native_lowering_report.py --check` |
 | `artifacts/evmyullean_fork_audit.json` | Pinned fork divergence and non-semantic fork delta | `python3 scripts/generate_evmyullean_fork_audit.py --check` |
 | `artifacts/evmyullean_capability_report.json` | EVMYulLean capability surface and reference-oracle paths | `python3 scripts/generate_evmyullean_capability_report.py --check` |
 | `artifacts/storage_layout_report.json` + `artifacts/STORAGE_LAYOUT_SUMMARY.md` | Per-contract storage layout for migration/audit review: explicit slots, alias ranges, reserved ranges, packed subfields, mappings, dynamic arrays, opt-in namespaces (#1897) | `python3 scripts/generate_storage_layout_report.py --check --no-lean` (drift gate in `make check`); regenerate with `make regen-storage-layout-report` |
@@ -67,8 +67,8 @@ actually use this family is the next milestone.
   builtin bridge matrix synchronization, Lean hygiene, proof length, and
   documentation counters.
 - `make test-evmyullean-fork` validates the pinned fork audit, checks the
-  adapter report, rebuilds the public EndToEnd EVMYulLean target, and runs
-  the concrete bridge-equivalence tests.
+  native lowering report, rebuilds the public EndToEnd EVMYulLean target, and
+  runs the concrete bridge-equivalence tests.
 - `.github/workflows/evmyullean-fork-conformance.yml` runs the EVMYulLean fork
   conformance probe weekly. Scheduled or manual failures fail the workflow and
   open or update a GitHub issue for drift triage.
