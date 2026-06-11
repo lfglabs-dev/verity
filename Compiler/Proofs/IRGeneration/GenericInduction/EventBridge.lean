@@ -1453,4 +1453,38 @@ private theorem eventEncodedValuesForKind_unindexed_all_getElem :
   | _ :: _, [], _, _, _, hi, _, _ => by
       simp at hi
 
+private theorem eventYulLogDataWords_of_writeUnindexedScratch
+    {params : List EventParam} {values : List Nat}
+    {ptr : Nat} {memory memory' : Nat → Verity.Core.Uint256}
+    (hwrite : SourceSemantics.writeUnindexedEventScratchFrom
+        params values ptr 0 memory = some memory')
+    (hall : ∀ param ∈ params,
+      (param.kind == EventParamKind.unindexed) = true)
+    (hlen : values.length = params.length)
+    (hlimit : params.length ≤ eventScratchSizeLimit) :
+    yulLogDataWords (fun offset => (memory' offset).val) ptr
+        (32 * values.length) =
+      eventEncodedValuesForKind EventParamKind.unindexed params values := by
+  have hencLen := eventEncodedValuesForKind_unindexed_all_length
+    (params := params) (values := values) hall hlen
+  have hread :
+      ∀ i (hi : i <
+          (eventEncodedValuesForKind EventParamKind.unindexed params values).length),
+        (memory' ((ptr + i * 32) % Compiler.Constants.evmModulus)).val =
+          (eventEncodedValuesForKind EventParamKind.unindexed params values)[i] := by
+    intro i hi
+    have hiv : i < values.length := by simpa [hencLen] using hi
+    have hip : i < params.length := by omega
+    have hmem := eventWriteUnindexedScratch_read_getElem
+      (params := params) (values := values) (ptr := ptr) (wordIdx := 0)
+      (memory := memory) (memory' := memory') hwrite hall hlen (by simpa using hlimit)
+      i hiv hip
+    have henc := eventEncodedValuesForKind_unindexed_all_getElem
+      (params := params) (values := values) hall hlen i hiv hip hi
+    simpa [henc] using hmem
+  have hyul := eventYulLogDataWords_eq_of_getElem
+    (memory := fun offset => (memory' offset).val) (ptr := ptr)
+    (values := eventEncodedValuesForKind EventParamKind.unindexed params values) hread
+  simpa [hencLen] using hyul
+
 end Compiler.Proofs.IRGeneration
