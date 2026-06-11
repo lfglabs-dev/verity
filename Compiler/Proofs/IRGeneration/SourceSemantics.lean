@@ -751,21 +751,21 @@ theorem execForEachLoop_empty_body_positive_bound
           (index + 1) remaining) := by
   simp [execForEachLoop_empty_body, execForEachEmptyLoopFinal]
 
-private def storageArraySetAt : List Verity.Core.Uint256 → Nat → Verity.Core.Uint256 → Option (List Verity.Core.Uint256)
+def storageArraySetAt : List Verity.Core.Uint256 → Nat → Verity.Core.Uint256 → Option (List Verity.Core.Uint256)
   | [], _, _ => none
   | _ :: rest, 0, value => some (value :: rest)
   | head :: rest, idx + 1, value => do
       let updatedRest ← storageArraySetAt rest idx value
       some (head :: updatedRest)
 
-private def storageArrayDropLast? : List Verity.Core.Uint256 → Option (List Verity.Core.Uint256)
+def storageArrayDropLast? : List Verity.Core.Uint256 → Option (List Verity.Core.Uint256)
   | [] => none
   | [_] => some []
   | head :: rest => do
       let updatedRest ← storageArrayDropLast? rest
       some (head :: updatedRest)
 
-private def writeStorageArray (world : Verity.ContractState) (slot : Nat)
+def writeStorageArray (world : Verity.ContractState) (slot : Nat)
     (values : List Verity.Core.Uint256) : Verity.ContractState :=
   { world with
     storageArray := fun s => if s == slot then values else world.storageArray s }
