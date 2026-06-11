@@ -1371,6 +1371,32 @@ private theorem eventSignatureWords_length
       byteWordCount sigBytes.length := by
   simp [eventChunkBytes32_length]
 
+private theorem eventFoldBytes_bound (bs : List UInt8) (acc : Nat) :
+    bs.foldl (fun acc b => acc * 256 + b.toNat) acc <
+      (acc + 1) * 256 ^ bs.length := by
+  induction bs generalizing acc with
+  | nil =>
+      simp
+  | cons b rest ih =>
+      have hb : b.toNat < 256 := by exact UInt8.toNat_lt b
+      have hstep : acc * 256 + b.toNat + 1 ≤ (acc + 1) * 256 := by omega
+      have hmul := Nat.mul_le_mul_right (256 ^ rest.length) hstep
+      have hrest := ih (acc * 256 + b.toNat)
+      simp [List.foldl_cons, List.length_cons]
+      exact lt_of_lt_of_le hrest (by simpa [Nat.mul_assoc, Nat.mul_comm,
+        Nat.mul_left_comm, pow_succ] using hmul)
+
+private theorem eventWordFromBytes_lt_evmModulus_of_length_le
+    {bs : List UInt8} (hlen : bs.length ≤ 32) :
+    wordFromBytes bs < Compiler.Constants.evmModulus := by
+  have hbound := eventFoldBytes_bound
+    (bs ++ List.replicate (32 - bs.length) (0 : UInt8)) 0
+  have hlenPadded :
+      (bs ++ List.replicate (32 - bs.length) (0 : UInt8)).length = 32 := by
+    simp [hlen]
+  rw [hlenPadded] at hbound
+  simpa [wordFromBytes, Compiler.Constants.evmModulus] using hbound
+
 private theorem eventSignatureMemory_read_getElem
     {eventDef : EventDef} {i : Nat}
     (hi : i <
