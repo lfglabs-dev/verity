@@ -1595,4 +1595,52 @@ private theorem eventLogStmt_continue_three
   simp [eventLogFunction, eventLogArgs, scalarEventIndexedTopicParts,
     evalIRExprs, evalIRExpr, hptr, htopic0, hnorm1, hnorm2, hnorm3]
 
+private theorem eventRuntimeStateMatchesIR_after_emit
+    {fields : List Field}
+    {runtime : SourceSemantics.RuntimeState} {state : IRState}
+    {sourceMemory : Nat → Verity.Core.Uint256} {irMemory : Nat → Nat}
+    {event : Verity.Event} {irEvent : List Nat}
+    (hmatch : FunctionBody.runtimeStateMatchesIR fields runtime state)
+    (hmemory : irMemory = fun o => (sourceMemory o).val)
+    (hevent : irEvent = SourceSemantics.encodeEvent event) :
+    FunctionBody.runtimeStateMatchesIR fields
+      { runtime with
+          world := {
+            runtime.world with
+            memory := sourceMemory
+            events := runtime.world.events ++ [event] } }
+      { state with
+          memory := irMemory
+          events := state.events ++ [irEvent] } := by
+  have hevents :
+      state.events ++ [irEvent] =
+        SourceSemantics.encodeEvents (runtime.world.events ++ [event]) := by
+    have hstateEvents :
+        state.events = SourceSemantics.encodeEvents runtime.world.events := by
+      exact hmatch.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2
+    simp [hstateEvents, hevent, eventEncodeEvents_snoc]
+  exact FunctionBody.runtimeStateMatchesIR_updateMemoryEvents
+    hmatch sourceMemory irMemory (runtime.world.events ++ [event])
+      (state.events ++ [irEvent]) hmemory hevents
+
+private theorem eventBindingsExactlyMatch_after_emit
+    {scope : List String} {bindings : List (String × Nat)} {state : IRState}
+    {ptr topic0 : Nat} {irMemory : Nat → Nat}
+    (hexact : FunctionBody.bindingsExactlyMatchIRVarsOnScope scope bindings state)
+    (hfresh : "__evt_ptr" ∉ scope ∧ "__evt_topic0" ∉ scope) :
+    FunctionBody.bindingsExactlyMatchIRVarsOnScope scope bindings
+      { (state.setVar "__evt_ptr" ptr).setVar "__evt_topic0" topic0 with
+          memory := irMemory
+          events := ((state.setVar "__evt_ptr" ptr).setVar "__evt_topic0" topic0).events } := by
+  have hexactPtr :
+      FunctionBody.bindingsExactlyMatchIRVarsOnScope scope bindings
+        (state.setVar "__evt_ptr" ptr) :=
+    FunctionBody.bindingsExactlyMatchIRVarsOnScope_setVar_irrelevant hexact hfresh.1
+  have hexactTopic :
+      FunctionBody.bindingsExactlyMatchIRVarsOnScope scope bindings
+        ((state.setVar "__evt_ptr" ptr).setVar "__evt_topic0" topic0) :=
+    FunctionBody.bindingsExactlyMatchIRVarsOnScope_setVar_irrelevant hexactPtr hfresh.2
+  intro name hname
+  simpa [IRState.getVar] using hexactTopic name hname
+
 end Compiler.Proofs.IRGeneration
