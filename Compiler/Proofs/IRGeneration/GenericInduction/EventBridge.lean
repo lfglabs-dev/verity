@@ -96,6 +96,12 @@ private theorem eventExprList_compile_core_of_contractSurfaceClosed
     cases h : exprTouchesUnsupportedContractSurface expr <;> simp [h] at hnotTrue ⊢
   exact exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hclosed
 
+private theorem eventEncodeEvents_snoc
+    (events : List Verity.Event) (event : Verity.Event) :
+    SourceSemantics.encodeEvents (events ++ [event]) =
+      SourceSemantics.encodeEvents events ++ [SourceSemantics.encodeEvent event] := by
+  simp [SourceSemantics.encodeEvents]
+
 /-! ## Final-state-tracking statement continuation
 
 `StmtsContinueFrom` (IRInterpreter.lean) only yields an existential final
