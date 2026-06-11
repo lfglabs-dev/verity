@@ -961,7 +961,10 @@ private theorem eventUnindexedHeadSize_eq_values
       simp [eventUnindexedHeadSize]
   | cons hok htail ih =>
       rcases hok with ⟨_, _, _, _, hsize, _⟩
-      simp [eventUnindexedHeadSize, hsize, eventFoldl_add_start, ih]
+      simp only [eventUnindexedHeadSize] at ih ⊢
+      simp only [List.map_cons, List.foldl_cons]
+      rw [hsize, eventFoldl_add_start, ih]
+      simp
       omega
 
 private def eventUnindexedNextMemory
