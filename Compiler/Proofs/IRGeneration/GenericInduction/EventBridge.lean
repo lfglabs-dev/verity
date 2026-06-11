@@ -1517,6 +1517,31 @@ private theorem eventSignatureWords_length_le_scratch
   rw [eventSignatureWords_length]
   exact le_trans (eventByteWordCount_le_self _) hbounded.1
 
+private theorem eventParams_length_le_scratch
+    {events : List EventDef} {eventName : String} {args : List Expr}
+    {eventDef : EventDef}
+    (hsupport : eventEmissionProofSupported events eventName args = true)
+    (hfind : events.find? (·.name == eventName) = some eventDef) :
+    eventDef.params.length ≤ eventScratchSizeLimit := by
+  have hbounded := eventDefScratchBounded_of_eventEmissionProofSupported
+    hsupport hfind
+  unfold eventDefScratchBounded at hbounded
+  simp [Bool.and_eq_true] at hbounded
+  exact hbounded.2
+
+private theorem eventUnindexedParams_length_le_scratch
+    {events : List EventDef} {eventName : String} {args : List Expr}
+    {eventDef : EventDef}
+    (hsupport : eventEmissionProofSupported events eventName args = true)
+    (hfind : events.find? (·.name == eventName) = some eventDef) :
+    (eventDef.params.filter
+      (fun param => param.kind == EventParamKind.unindexed)).length ≤
+        eventScratchSizeLimit := by
+  exact le_trans
+    (List.length_filter_le
+      (fun param => param.kind == EventParamKind.unindexed) eventDef.params)
+    (eventParams_length_le_scratch hsupport hfind)
+
 private theorem eventChunkBytes32_mem_length_le :
     ∀ {bs chunk : List UInt8}, chunk ∈ chunkBytes32 bs → chunk.length ≤ 32
   | [], chunk, hmem => by
