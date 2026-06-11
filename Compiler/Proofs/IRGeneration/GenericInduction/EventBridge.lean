@@ -1280,4 +1280,53 @@ private theorem eventYulLogDataWords_eq_of_getElem
       · intro i hleft hright
         simpa [yulLogDataWords] using hread i hright
 
+private theorem eventWriteUnindexedScratch_preserve_before :
+    ∀ {params : List EventParam} {values : List Nat}
+      {ptr wordIdx baseIdx : Nat}
+      {memory memory' : Nat → Verity.Core.Uint256},
+      SourceSemantics.writeUnindexedEventScratchFrom
+          params values ptr wordIdx memory = some memory' →
+      (∀ param ∈ params, (param.kind == EventParamKind.unindexed) = true) →
+      wordIdx + params.length ≤ eventScratchSizeLimit →
+      baseIdx < wordIdx →
+      baseIdx < eventScratchSizeLimit →
+      memory' ((ptr + baseIdx * 32) % Compiler.Constants.evmModulus) =
+        memory ((ptr + baseIdx * 32) % Compiler.Constants.evmModulus)
+  | [], [], _, _, _, _, _, hwrite, _, _, _, _ => by
+      simp [SourceSemantics.writeUnindexedEventScratchFrom] at hwrite
+      cases hwrite
+      rfl
+  | param :: params, value :: values, ptr, wordIdx, baseIdx, memory, memory',
+      hwrite, hall, hlimit, hbefore, hbaseLimit => by
+      have hkind : (param.kind == EventParamKind.unindexed) = true := hall param (by simp)
+      simp [SourceSemantics.writeUnindexedEventScratchFrom, hkind] at hwrite
+      have hpres := eventWriteUnindexedScratch_preserve_before
+        (params := params) (values := values) (ptr := ptr)
+        (wordIdx := wordIdx + 1) (baseIdx := baseIdx)
+        (memory := fun offset =>
+          if offset = (ptr + wordIdx * 32) % Compiler.Constants.evmModulus then
+            (SourceSemantics.normalizeEventValue param.ty value : Verity.Core.Uint256)
+          else memory offset)
+        (memory' := memory') hwrite (by intro p hp; exact hall p (by simp [hp]))
+        (by have hlimit' : wordIdx + (params.length + 1) ≤ eventScratchSizeLimit := by
+              simpa using hlimit
+            omega)
+        (by omega) hbaseLimit
+      have hne :
+          (ptr + baseIdx * 32) % Compiler.Constants.evmModulus ≠
+            (ptr + wordIdx * 32) % Compiler.Constants.evmModulus := by
+        intro hkey
+        have heq := eventScratchKey_injective_of_lt hbaseLimit
+          (by have hlimit' : wordIdx + (params.length + 1) ≤ eventScratchSizeLimit := by
+                simpa using hlimit
+              omega)
+          hkey
+        omega
+      rw [hpres]
+      simp [hne]
+  | [], _ :: _, _, _, _, _, _, hwrite, _, _, _, _ => by
+      simp [SourceSemantics.writeUnindexedEventScratchFrom] at hwrite
+  | _ :: _, [], _, _, _, _, _, hwrite, _, _, _, _ => by
+      simp [SourceSemantics.writeUnindexedEventScratchFrom] at hwrite
+
 end Compiler.Proofs.IRGeneration
