@@ -941,6 +941,16 @@ private theorem eventUnindexedEntriesOk_memory
   | cons hok htail ih =>
       exact .cons (eventUnindexedEntryOk_memory hok) ih
 
+private theorem eventFoldl_add_start (xs : List Nat) (start : Nat) :
+    xs.foldl (fun acc value => acc + value) start =
+      start + xs.foldl (fun acc value => acc + value) 0 := by
+  induction xs generalizing start with
+  | nil => simp
+  | cons x xs ih =>
+      simp
+      rw [ih (start + x), ih x]
+      omega
+
 private theorem eventUnindexedHeadSize_eq_values
     {scope : List String} {state : IRState}
     {entries : List (EventParam × Expr × YulExpr)} {values : List Nat}
@@ -951,7 +961,7 @@ private theorem eventUnindexedHeadSize_eq_values
       simp [eventUnindexedHeadSize]
   | cons hok htail ih =>
       rcases hok with ⟨_, _, _, _, hsize, _⟩
-      simp [eventUnindexedHeadSize, hsize, ih]
+      simp [eventUnindexedHeadSize, hsize, eventFoldl_add_start, ih]
       omega
 
 private def eventUnindexedNextMemory
