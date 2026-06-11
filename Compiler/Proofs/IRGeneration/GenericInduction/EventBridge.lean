@@ -1542,6 +1542,27 @@ private theorem eventUnindexedParams_length_le_scratch
       (fun param => param.kind == EventParamKind.unindexed) eventDef.params)
     (eventParams_length_le_scratch hsupport hfind)
 
+private theorem eventFilteredZippedParams_length_le_scratch
+    {events : List EventDef} {eventName : String} {args : List Expr}
+    {eventDef : EventDef} {argExprs : List YulExpr}
+    (hsupport : eventEmissionProofSupported events eventName args = true)
+    (hfind : events.find? (·.name == eventName) = some eventDef)
+    (kind : EventParamKind) :
+    (((eventZippedWithSource eventDef args argExprs).filter
+      (fun entry => entry.1.kind == kind)).map (fun entry => entry.1)).length ≤
+        eventScratchSizeLimit := by
+  have hfilter :
+      ((eventZippedWithSource eventDef args argExprs).filter
+        (fun entry => entry.1.kind == kind)).length ≤
+          (eventZippedWithSource eventDef args argExprs).length :=
+    List.length_filter_le _ _
+  have hzipped :
+      (eventZippedWithSource eventDef args argExprs).length ≤
+        eventDef.params.length := by
+    simp [eventZippedWithSource]
+  simpa using le_trans (by simpa using hfilter)
+    (le_trans hzipped (eventParams_length_le_scratch hsupport hfind))
+
 private theorem eventChunkBytes32_mem_length_le :
     ∀ {bs chunk : List UInt8}, chunk ∈ chunkBytes32 bs → chunk.length ≤ 32
   | [], chunk, hmem => by
