@@ -634,4 +634,142 @@ private theorem eventUnindexedStore_one_continue
         (wordIdx := wordIdx) (value := value) (ty := ty)
         hmem hnormLt offset).symm)).symm
 
+private def EventUnindexedEntryOk (scope : List String) (state : IRState) :
+    (EventParam × Expr × YulExpr) → Nat → Prop
+  | (param, _, argExpr), value =>
+      evalIRExpr state argExpr = some value ∧
+      eventParamScalarProofSupported param.ty = true ∧
+      value < Compiler.Constants.evmModulus ∧
+      AtomicArgIR scope argExpr ∧
+      eventHeadWordSize param.ty = 32 ∧
+      (param.kind == EventParamKind.unindexed) = true
+
+private theorem eventUnindexedEntryOk_memory
+    {scope : List String} {state : IRState} {mem : Nat → Nat}
+    {entry : EventParam × Expr × YulExpr} {value : Nat}
+    (hok : EventUnindexedEntryOk scope state entry value) :
+    EventUnindexedEntryOk scope { state with memory := mem } entry value := by
+  rcases entry with ⟨param, srcExpr, argExpr⟩
+  rcases hok with ⟨heval, hsupport, hlt, hshape, hsize, hkind⟩
+  exact ⟨by simpa using (evalIRExpr_atomic_memory hshape state mem).trans heval,
+    hsupport, hlt, hshape, hsize, hkind⟩
+
+private theorem eventUnindexedEntriesOk_memory
+    {scope : List String} {state : IRState} {mem : Nat → Nat}
+    {entries : List (EventParam × Expr × YulExpr)} {values : List Nat}
+    (hrel : List.Forall₂ (EventUnindexedEntryOk scope state) entries values) :
+    List.Forall₂ (EventUnindexedEntryOk scope { state with memory := mem })
+      entries values := by
+  induction hrel with
+  | nil => exact .nil
+  | cons hok htail ih =>
+      exact .cons (eventUnindexedEntryOk_memory hok) ih
+
+private def eventUnindexedNextMemory
+    (srcMemory : Nat → Verity.Core.Uint256)
+    (ptr wordIdx : Nat) (ty : ParamType) (value : Nat) :
+    Nat → Verity.Core.Uint256 :=
+  fun offset =>
+    if offset = (ptr + wordIdx * 32) % Compiler.Constants.evmModulus then
+      (SourceSemantics.normalizeEventValue ty value : Verity.Core.Uint256)
+    else srcMemory offset
+
+private theorem eventUnindexedStores_cons_continue
+    {scope : List String} {state : IRState}
+    {srcMemory srcMemory' : Nat → Verity.Core.Uint256}
+    {ptr wordIdx value : Nat} {param : EventParam} {srcExpr : Expr}
+    {argExpr : YulExpr} {rest : List (EventParam × Expr × YulExpr)} {values : List Nat}
+    (hptr : state.getVar "__evt_ptr" = some ptr)
+    (hmem : ∀ offset, state.memory offset = (srcMemory offset).val)
+    (hok : EventUnindexedEntryOk scope state (param, srcExpr, argExpr) value)
+    (hwriteTail : SourceSemantics.writeUnindexedEventScratchFrom
+        (rest.map (fun entry => entry.1)) values ptr (wordIdx + 1)
+        (eventUnindexedNextMemory srcMemory ptr wordIdx param.ty value) = some srcMemory')
+    (htailContinue : StmtsContinueFromTo { state with memory := fun offset =>
+          ((eventUnindexedNextMemory srcMemory ptr wordIdx param.ty value)
+            offset).val }
+        (scalarEventUnindexedStoresFrom rest ((wordIdx + 1) * 32))
+        { state with memory := fun offset => (srcMemory' offset).val }) :
+    SourceSemantics.writeUnindexedEventScratchFrom
+        (((param, srcExpr, argExpr) :: rest).map (fun entry => entry.1))
+        (value :: values) ptr wordIdx srcMemory = some srcMemory' ∧
+      StmtsContinueFromTo state
+        (scalarEventUnindexedStoresFrom ((param, srcExpr, argExpr) :: rest)
+          (wordIdx * 32))
+        { state with memory := fun offset => (srcMemory' offset).val } := by
+  rcases hok with ⟨heval, hsupport, hlt, hshape, hsize, hkind⟩
+  constructor
+  · simp [SourceSemantics.writeUnindexedEventScratchFrom, hkind]
+    simpa [eventUnindexedNextMemory] using hwriteTail
+  · have hstmt :
+        scalarEventUnindexedStoresFrom ((param, srcExpr, argExpr) :: rest)
+            (wordIdx * 32) =
+          YulStmt.expr (YulExpr.call "mstore" [
+            YulExpr.call "add" [
+              YulExpr.ident "__evt_ptr", YulExpr.lit (wordIdx * 32)],
+            normalizeEventWord param.ty argExpr]) ::
+          scalarEventUnindexedStoresFrom rest ((wordIdx + 1) * 32) := by
+      have hoff : wordIdx * 32 + eventHeadWordSize param.ty =
+          (wordIdx + 1) * 32 := by
+        rw [hsize]
+        omega
+      simp [scalarEventUnindexedStoresFrom, hoff]
+    rw [hstmt]
+    exact StmtsContinueFromTo_append
+      (eventUnindexedStore_one_continue
+        (state := state) (srcMemory := srcMemory) (ptr := ptr)
+        (wordIdx := wordIdx) (value := value)
+        (ty := param.ty) (argExpr := argExpr)
+        hptr heval hsupport hlt hmem)
+      htailContinue
+
+private theorem eventUnindexedStores_continue
+    {scope : List String} {state : IRState}
+    {srcMemory : Nat → Verity.Core.Uint256} {ptr wordIdx : Nat}
+    {entries : List (EventParam × Expr × YulExpr)} {values : List Nat}
+    (hptr : state.getVar "__evt_ptr" = some ptr)
+    (hmem : ∀ offset, state.memory offset = (srcMemory offset).val)
+    (hrel : List.Forall₂ (EventUnindexedEntryOk scope state) entries values) :
+    ∃ srcMemory',
+      SourceSemantics.writeUnindexedEventScratchFrom
+        (entries.map (fun entry => entry.1)) values ptr wordIdx srcMemory =
+          some srcMemory' ∧
+      StmtsContinueFromTo state
+        (scalarEventUnindexedStoresFrom entries (wordIdx * 32))
+        { state with memory := fun offset => (srcMemory' offset).val } := by
+  induction entries generalizing values state srcMemory wordIdx with
+  | nil =>
+      cases values with
+      | nil =>
+          refine ⟨srcMemory, ?_, ?_⟩
+          · simp [SourceSemantics.writeUnindexedEventScratchFrom]
+          · simpa [scalarEventUnindexedStoresFrom] using
+              (eventIRState_set_memory_eq_self state
+                (by intro offset; exact (hmem offset).symm)).symm
+      | cons value values => cases hrel
+  | cons entry rest ih =>
+      cases values with
+      | nil => cases hrel
+      | cons value values =>
+          cases hrel with
+          | cons hok htail =>
+          rcases entry with ⟨param, srcExpr, argExpr⟩
+          let nextSrcMemory :=
+            eventUnindexedNextMemory srcMemory ptr wordIdx param.ty value
+          rcases ih (state := { state with memory := fun offset =>
+              (nextSrcMemory offset).val })
+            (srcMemory := nextSrcMemory)
+            (wordIdx := wordIdx + 1) (values := values)
+            (by simpa [IRState.getVar] using hptr)
+            (by intro offset; rfl)
+            (eventUnindexedEntriesOk_memory htail) with
+            ⟨srcMemory', hwriteTail, htailContinue⟩
+          · have hcons := eventUnindexedStores_cons_continue
+              (state := state) (srcMemory := srcMemory)
+              (srcMemory' := srcMemory') (ptr := ptr) (wordIdx := wordIdx) (value := value)
+              (param := param) (srcExpr := srcExpr) (argExpr := argExpr) (rest := rest) (values := values)
+              hptr hmem hok (by simpa [nextSrcMemory] using hwriteTail)
+              (by simpa [nextSrcMemory] using htailContinue)
+            exact ⟨srcMemory', hcons.1, hcons.2⟩
+
 end Compiler.Proofs.IRGeneration
