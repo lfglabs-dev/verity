@@ -2089,4 +2089,37 @@ private theorem eventIndexedEntriesOk_of_eval :
   | _, _, _ :: _, _ :: _, _ :: _, [], hevals, _, _, _, _ => by
       cases hevals
 
+private theorem eventCollectExprListNames_subset_scope
+    {scope : List String} {args : List Expr}
+    (hcore : ∀ expr ∈ args, FunctionBody.ExprCompileCore expr)
+    (hinScope : ∀ expr ∈ args, FunctionBody.exprBoundNamesInScope expr scope) :
+    ∀ name, name ∈ collectExprListNames args → name ∈ scope := by
+  induction args with
+  | nil =>
+      intro name hmem
+      simp [collectExprListNames] at hmem
+  | cons arg rest ih =>
+      intro name hmem
+      simp [collectExprListNames] at hmem
+      rcases hmem with hmem | hmem
+      · exact hinScope arg (by simp) name
+          (collectExprNames_mem_exprBoundNames_of_core
+            (hcore arg (by simp)) name hmem)
+      · exact ih
+          (by intro expr hexpr; exact hcore expr (by simp [hexpr]))
+          (by intro expr hexpr; exact hinScope expr (by simp [hexpr]))
+          name hmem
+
+private theorem eventStmtNextScope_emit_included
+    {scope : List String} {eventName : String} {args : List Expr}
+    (hcore : ∀ expr ∈ args, FunctionBody.ExprCompileCore expr)
+    (hinScope : ∀ expr ∈ args, FunctionBody.exprBoundNamesInScope expr scope) :
+    FunctionBody.scopeNamesIncluded
+      (stmtNextScope scope (Stmt.emit eventName args)) scope := by
+  intro name hmem
+  simp [stmtNextScope, collectStmtNames] at hmem
+  rcases hmem with hmem | hmem
+  · exact eventCollectExprListNames_subset_scope hcore hinScope name hmem
+  · exact hmem
+
 end Compiler.Proofs.IRGeneration
