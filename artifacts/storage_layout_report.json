@@ -186,22 +186,40 @@
         {
           "a": "totalAssetsSlot",
           "aSlot": 0,
+          "aWriteSlots": [
+            0
+          ],
           "b": "totalSupplySlot",
           "bSlot": 1,
+          "bWriteSlots": [
+            1
+          ],
           "justification": "distinctScalarSlots"
         },
         {
           "a": "totalAssetsSlot",
           "aSlot": 0,
+          "aWriteSlots": [
+            0
+          ],
           "b": "shareBalancesSlot",
           "bSlot": 2,
+          "bWriteSlots": [
+            2
+          ],
           "justification": "keccakDomainScalar"
         },
         {
           "a": "totalSupplySlot",
           "aSlot": 1,
+          "aWriteSlots": [
+            1
+          ],
           "b": "shareBalancesSlot",
           "bSlot": 2,
+          "bWriteSlots": [
+            2
+          ],
           "justification": "keccakDomainScalar"
         }
       ],
@@ -268,8 +286,14 @@
         {
           "a": "owner",
           "aSlot": 0,
+          "aWriteSlots": [
+            0
+          ],
           "b": "count",
           "bSlot": 1,
+          "bWriteSlots": [
+            1
+          ],
           "justification": "distinctScalarSlots"
         }
       ],
@@ -347,22 +371,40 @@
         {
           "a": "ownerSlot",
           "aSlot": 0,
+          "aWriteSlots": [
+            0
+          ],
           "b": "balancesSlot",
           "bSlot": 1,
+          "bWriteSlots": [
+            1
+          ],
           "justification": "keccakDomainScalar"
         },
         {
           "a": "ownerSlot",
           "aSlot": 0,
+          "aWriteSlots": [
+            0
+          ],
           "b": "totalSupplySlot",
           "bSlot": 2,
+          "bWriteSlots": [
+            2
+          ],
           "justification": "distinctScalarSlots"
         },
         {
           "a": "balancesSlot",
           "aSlot": 1,
+          "aWriteSlots": [
+            1
+          ],
           "b": "totalSupplySlot",
           "bSlot": 2,
+          "bWriteSlots": [
+            2
+          ],
           "justification": "keccakDomainScalar"
         }
       ],
@@ -498,43 +540,79 @@
         {
           "a": "ownerSlot",
           "aSlot": 0,
+          "aWriteSlots": [
+            0
+          ],
           "b": "totalSupplySlot",
           "bSlot": 1,
+          "bWriteSlots": [
+            1
+          ],
           "justification": "distinctScalarSlots"
         },
         {
           "a": "ownerSlot",
           "aSlot": 0,
+          "aWriteSlots": [
+            0
+          ],
           "b": "balancesSlot",
           "bSlot": 2,
+          "bWriteSlots": [
+            2
+          ],
           "justification": "keccakDomainScalar"
         },
         {
           "a": "ownerSlot",
           "aSlot": 0,
+          "aWriteSlots": [
+            0
+          ],
           "b": "allowancesSlot",
           "bSlot": 3,
+          "bWriteSlots": [
+            3
+          ],
           "justification": "keccakDomainScalar"
         },
         {
           "a": "totalSupplySlot",
           "aSlot": 1,
+          "aWriteSlots": [
+            1
+          ],
           "b": "balancesSlot",
           "bSlot": 2,
+          "bWriteSlots": [
+            2
+          ],
           "justification": "keccakDomainScalar"
         },
         {
           "a": "totalSupplySlot",
           "aSlot": 1,
+          "aWriteSlots": [
+            1
+          ],
           "b": "allowancesSlot",
           "bSlot": 3,
+          "bWriteSlots": [
+            3
+          ],
           "justification": "keccakDomainScalar"
         },
         {
           "a": "balancesSlot",
           "aSlot": 2,
+          "aWriteSlots": [
+            2
+          ],
           "b": "allowancesSlot",
           "bSlot": 3,
+          "bWriteSlots": [
+            3
+          ],
           "justification": "keccakPreimageDistinct"
         }
       ],
