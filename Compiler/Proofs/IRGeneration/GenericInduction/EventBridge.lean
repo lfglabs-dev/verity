@@ -487,6 +487,18 @@ private theorem eventExecIRStmt_log4_step
 
 /-! ## Event signature scratch stores -/
 
+private theorem eventStorePtr_continue
+    {state : IRState} {ptr : Nat}
+    (hptr : state.memory Compiler.Constants.freeMemoryPointer = ptr) :
+    StmtsContinueFromTo state
+      [YulStmt.let_ "__evt_ptr"
+        (YulExpr.call "mload" [YulExpr.lit Compiler.Constants.freeMemoryPointer])]
+      (state.setVar "__evt_ptr" ptr) := by
+  refine ⟨state.setVar "__evt_ptr" ptr, ?_, rfl⟩
+  intro extraFuel
+  apply eventExecIRStmt_let_step
+  simp [evalIRExpr, evalIRExprs, evalIRCall, hptr]
+
 private theorem eventIRState_set_memory_eq_self
     (state : IRState) {mem : Nat → Nat}
     (hmem : ∀ offset, mem offset = state.memory offset) :
