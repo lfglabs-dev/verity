@@ -2906,5 +2906,14 @@ theorem eventEmitHeadStepSemanticBridge
             sourceResult irExec := by
   event_emit_semantic_bridge_tac
 
+/-- Discharge the event-head semantic bridge catalog with the scalar `.emit`
+bridge theorem, completing the evidence chain from the surface interface down
+to the compiled-IR log semantics. -/
+theorem eventHeadStepSemanticBridgeCatalog
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field} :
+    EventHeadStepSemanticBridgeCatalog runtimeContract spec fields :=
+  ⟨eventEmitHeadStepSemanticBridge⟩
 
 end Compiler.Proofs.IRGeneration
