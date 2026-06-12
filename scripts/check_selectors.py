@@ -35,7 +35,7 @@ CHECK_CONTRACT_FILE = ROOT / "Compiler" / "CheckContract.lean"
 DISPATCH_FILE = ROOT / "Compiler" / "CompilationModel" / "Dispatch.lean"
 INTERNAL_NAMING_FILE = ROOT / "Compiler" / "CompilationModel" / "InternalNaming.lean"
 SELECTOR_INTEROP_FILE = ROOT / "Compiler" / "CompilationModel" / "SelectorInteropHelpers.lean"
-CONSTANTS_FILE = ROOT / "Compiler" / "Constants.lean"
+CONSTANTS_FILE = ROOT / "Verity" / "Core" / "Model" / "Constants.lean"
 YUL_DIR_LEGACY = ("yul", YUL_DIR)
 
 SIMPLE_PARAM_MAP = {
@@ -567,7 +567,7 @@ def check_error_selector_sync() -> List[str]:
     """Verify the Error(string) selector constant is consistent.
 
     Checks that Constants.errorStringSelectorWord matches the expected value.
-    (The canonical definition now lives in Compiler/Constants.lean.)
+    (The canonical definition now lives in Verity/Core/Model/Constants.lean.)
     """
     errors: List[str] = []
 
@@ -610,7 +610,7 @@ def check_address_mask_sync() -> List[str]:
     """Verify the address mask/modulus constants exist in Constants.lean.
 
     Checks that Constants.addressMask and Constants.addressModulus exist.
-    (The canonical definitions now live in Compiler/Constants.lean.)
+    (The canonical definitions now live in Verity/Core/Model/Constants.lean.)
     """
     errors: List[str] = []
 
@@ -645,7 +645,7 @@ _SELECTOR_SHIFT_RE = re.compile(
 def check_selector_shift_sync() -> List[str]:
     """Verify the selectorShift constant (224) exists in Constants.lean.
 
-    The canonical definition now lives in Compiler/Constants.lean;
+    The canonical definition now lives in Verity/Core/Model/Constants.lean;
     CompilationModel, Codegen, and Builtins import it from there.
     """
     errors: List[str] = []
