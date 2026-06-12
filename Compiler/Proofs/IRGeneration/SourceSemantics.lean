@@ -602,6 +602,57 @@ def execForEachLoop
       | .return value next => .return value next
       | .revert => .revert
 
+def msbIndex (bitmap : Nat) : Nat :=
+  if bitmap = 0 then 0 else Nat.log2 bitmap
+
+def clearMsb (bitmap : Nat) : Nat :=
+  let idx := msbIndex bitmap
+  if bitmap = 0 then 0 else bitmap - 2 ^ idx
+
+def execForEachSetBitLoop
+    (varName : String)
+    (runBody : RuntimeState → StmtResult) :
+    Nat → RuntimeState → Nat → StmtResult
+  | 0, state, _ => .continue state
+  | fuel + 1, state, bitmap =>
+      if bitmap = 0 then
+        .continue state
+      else
+        let idx := msbIndex bitmap
+        let loopState :=
+          { state with bindings := bindValue state.bindings varName (wordNormalize idx) }
+        match runBody loopState with
+        | .continue next => execForEachSetBitLoop varName runBody fuel next (clearMsb bitmap)
+        | .stop next => .stop next
+        | .return value next => .return value next
+        | .revert => .revert
+
+@[simp] theorem execForEachSetBitLoop_zero
+    (varName : String)
+    (runBody : RuntimeState → StmtResult)
+    (state : RuntimeState)
+    (bitmap : Nat) :
+    execForEachSetBitLoop varName runBody 0 state bitmap = .continue state := rfl
+
+theorem execForEachSetBitLoop_succ
+    (varName : String)
+    (runBody : RuntimeState → StmtResult)
+    (fuel : Nat)
+    (state : RuntimeState)
+    (bitmap : Nat) :
+    execForEachSetBitLoop varName runBody (fuel + 1) state bitmap =
+      if bitmap = 0 then
+        .continue state
+      else
+        let idx := msbIndex bitmap
+        let loopState :=
+          { state with bindings := bindValue state.bindings varName (wordNormalize idx) }
+        match runBody loopState with
+        | .continue next => execForEachSetBitLoop varName runBody fuel next (clearMsb bitmap)
+        | .stop next => .stop next
+        | .return value next => .return value next
+        | .revert => .revert := rfl
+
 @[simp] theorem execForEachLoop_zero
     (varName : String)
     (runBody : RuntimeState → StmtResult)
@@ -719,6 +770,25 @@ theorem execForEachLoop_congr
       cases hrun : runBodyB
         { state with bindings := bindValue state.bindings varName (wordNormalize index) } <;>
         simp [hrun, execForEachLoop_congr hbody]
+
+theorem execForEachSetBitLoop_congr
+    {varName : String}
+    {runBodyA runBodyB : RuntimeState → StmtResult}
+    (hbody : ∀ state, runBodyA state = runBodyB state) :
+    ∀ (fuel : Nat) (state : RuntimeState) (bitmap : Nat),
+      execForEachSetBitLoop varName runBodyA fuel state bitmap =
+        execForEachSetBitLoop varName runBodyB fuel state bitmap
+  | 0, state, bitmap => by
+      simp [execForEachSetBitLoop]
+  | fuel + 1, state, bitmap => by
+      simp only [execForEachSetBitLoop]
+      by_cases hbitmap : bitmap = 0
+      · simp [hbitmap]
+      · simp [hbitmap]
+        rw [hbody]
+        cases hrun : runBodyB
+          { state with bindings := bindValue state.bindings varName (wordNormalize (msbIndex bitmap)) } <;>
+          simp [hrun, execForEachSetBitLoop_congr hbody]
 
 def execForEachEmptyLoopFinal
     (varName : String) : RuntimeState → Nat → Nat → RuntimeState
@@ -2113,6 +2183,13 @@ mutual
               (fun loopState => execStmtListWithEvents fields events loopState body)
               initialLoopState 0 bound
         | none => .revert
+    | state, .forEachSetBit varName bitmap body =>
+        match evalExpr fields state bitmap with
+        | some bits =>
+            execForEachSetBitLoop varName
+              (fun loopState => execStmtListWithEvents fields events loopState body)
+              256 state bits
+        | none => .revert
     | _, _ => .revert
 
   def execStmtListWithEvents (fields : List Field) (events : List EventDef) :
@@ -2357,6 +2434,13 @@ mutual
               (fun loopState => execStmtList fields loopState body)
               initialLoopState 0 bound
         | none => .revert
+    | state, .forEachSetBit varName bitmap body =>
+        match evalExpr fields state bitmap with
+        | some bits =>
+            execForEachSetBitLoop varName
+              (fun loopState => execStmtList fields loopState body)
+              256 state bits
+        | none => .revert
     | _, _ => .revert
 
   def execStmtList (fields : List Field) : RuntimeState → List Stmt → StmtResult
@@ -2411,6 +2495,8 @@ mutual
             fields events body
             (stmtListTouchesUnsupportedContractSurface_of_forEach_surfaceClosed
               hsurface)]
+    case forEachSetBit =>
+        simp [stmtTouchesUnsupportedContractSurface] at hsurface
     case emit eventName args =>
         simp [stmtTouchesUnsupportedContractSurface] at hsurface
     all_goals simp [execStmtWithEvents, execStmt]
@@ -3429,6 +3515,13 @@ mutual
             execForEachLoop varName
               (fun loopState => execStmtListWithHelpers spec fields fuel loopState body)
               initialLoopState 0 bound
+        | none => .revert
+    | .forEachSetBit varName bitmap body =>
+        match evalExprWithHelpers spec fields fuel state bitmap with
+        | some bits =>
+            execForEachSetBitLoop varName
+              (fun loopState => execStmtListWithHelpers spec fields fuel loopState body)
+              256 state bits
         | none => .revert
     | _ => .revert
   termination_by stmt => (fuel, sizeOf stmt)
@@ -4643,6 +4736,13 @@ mutual
     simp [Stmt.forEach.sizeOf_spec]
     omega
 
+  private theorem stmt_sizeOf_lt_forEachSetBit_body
+      (varName : String) (bitmap : Expr) (body : List Stmt) :
+      sizeOf body + 1 < sizeOf (Stmt.forEachSetBit varName bitmap body) := by
+    have hbitmap : 0 < sizeOf bitmap := expr_sizeOf_pos bitmap
+    simp [Stmt.forEachSetBit.sizeOf_spec]
+    omega
+
   private theorem stmt_sizeOf_lt_cons (stmt : Stmt) (rest : List Stmt) :
       sizeOf stmt + 1 < sizeOf (stmt :: rest) := by
     cases rest with
@@ -4852,6 +4952,32 @@ private theorem execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux
                   execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux
                     spec fields fuel st s hsf))
             initialLoopState 0 bound
+  | .forEachSetBit _ _ _ =>
+      simp only [stmtTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
+      rename_i varName bitmap body
+      have hbitmap :=
+        evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed
+          spec fields fuel state bitmap hsurface.1
+      simp only [execStmtWithHelpers, execStmtWithEvents, hbitmap]
+      cases evalExpr fields state bitmap with
+      | none => rfl
+      | some bits =>
+          exact execForEachSetBitLoop_congr
+            (varName := varName)
+            (runBodyA := fun loopState =>
+              execStmtListWithHelpers spec fields fuel loopState body)
+            (runBodyB := fun loopState =>
+              execStmtListWithEvents fields spec.events loopState body)
+            (fun loopState =>
+              execStmtListWithHelpers_eq_execStmtList_of_helperSurfaceClosed_inner
+                spec fields fuel loopState body hsurface.2
+                (fun st s hs hsf =>
+                  have : sizeOf s < sizeOf (Stmt.forEachSetBit varName bitmap body) := by
+                    have hbody := stmt_sizeOf_lt_forEachSetBit_body varName bitmap body
+                    omega
+                  execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux
+                    spec fields fuel st s hsf))
+            256 state bits
 termination_by sizeOf stmt
 
 theorem execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed

@@ -335,6 +335,59 @@ theorem execForEachLoop_agree {varName : String}
           | rfl
           | exact execForEachLoop_agree h _ (index + 1) remaining
 
+theorem execForEachSetBitLoop_agree {varName : String}
+    {runBody : DenoteState → StmtOutcome}
+    {runBody' : SourceSemantics.RuntimeState → SourceSemantics.StmtResult}
+    (h : ∀ ls, toStmtResult (runBody ls) = runBody' (toRuntimeState ls)) :
+    ∀ (fuel : Nat) (st : DenoteState) (bitmap : Nat),
+      toStmtResult (Denote.execForEachSetBitLoop varName runBody fuel st bitmap) =
+        SourceSemantics.execForEachSetBitLoop varName runBody' fuel (toRuntimeState st) bitmap
+  | 0, _, _ => rfl
+  | fuel + 1, st, bitmap => by
+      rw [SourceSemantics.execForEachSetBitLoop_succ]
+      by_cases hbitmap : bitmap = 0
+      · simp [Denote.execForEachSetBitLoop, hbitmap, toStmtResult]
+      · have hb := h ⟨st.world,
+          SourceSemantics.bindValue st.bindings varName
+            (SourceSemantics.wordNormalize (SourceSemantics.msbIndex bitmap)),
+          st.selector⟩
+        simp only [Denote.execForEachSetBitLoop, hbitmap, if_false, toRuntimeState] at hb ⊢
+        rw [← hb]
+        show toStmtResult
+            (match runBody ⟨st.world,
+                SourceSemantics.bindValue st.bindings varName
+                  (SourceSemantics.wordNormalize (SourceSemantics.msbIndex bitmap)),
+                st.selector⟩ with
+              | .continue next =>
+                  Denote.execForEachSetBitLoop varName runBody fuel next
+                    (SourceSemantics.clearMsb bitmap)
+              | .stop next => .stop next
+              | .return value next => .return value next
+              | .revert => .revert) = _
+        cases runBody ⟨st.world,
+            SourceSemantics.bindValue st.bindings varName
+              (SourceSemantics.wordNormalize (SourceSemantics.msbIndex bitmap)),
+            st.selector⟩ <;>
+          first
+            | rfl
+            | exact execForEachSetBitLoop_agree h fuel _ (SourceSemantics.clearMsb bitmap)
+
+theorem execStmt_forEachSetBit_eq (fields : List Field)
+    (st : DenoteState) (v : String) (bitmap : Expr) (body : List Stmt)
+    (hbody : ∀ ls,
+      toStmtResult (Denote.execStmtList sourceOracle fields ls body) =
+        SourceSemantics.execStmtList fields (toRuntimeState ls) body) :
+    toStmtResult
+        (Denote.execStmt sourceOracle fields st (.forEachSetBit v bitmap body)) =
+      SourceSemantics.execStmt fields (toRuntimeState st) (.forEachSetBit v bitmap body) := by
+  simp only [Denote.execStmt, SourceSemantics.execStmt, ← denote_evalExpr_eq]
+  cases Denote.evalExpr sourceOracle fields st bitmap with
+  | none => rfl
+  | some bits =>
+      exact execForEachSetBitLoop_agree
+        (runBody' := fun ls => SourceSemantics.execStmtList fields ls body)
+        hbody 256 st bits
+
 /-- Generic discharge tactic for the non-recursive `execStmt` arms: align the
 expression evaluators, split every residual match/ite, then close each leaf
 definitionally or by the mapping-write/array bridges. -/
@@ -404,12 +457,13 @@ theorem execStmt_eq (fields : List Field) :
             (fun ls => execStmtList_eq fields ls body)
             ⟨st.world, Denote.bindValue st.bindings v (Denote.wordNormalize 0), st.selector⟩
             0 bound
-  | _, .requireError .. | _, .revertError .. | _, .returnValues ..
-  | _, .returnArray .. | _, .returnBytes .. | _, .returnStorageWords ..
-  | _, .returnCodeData .. | _, .calldatacopy .. | _, .returndataCopy ..
-  | _, .revertReturndata .. | _, .internalCall .. | _, .internalCallAssign ..
-  | _, .rawLog .. | _, .externalCallBind .. | _, .tryExternalCallBind ..
-  | _, .ecm .. | _, .unsafeBlock .. | _, .unsafeYul .. | _, .matchAdt .. => rfl
+  | st, .forEachSetBit v bitmap body =>
+      execStmt_forEachSetBit_eq fields st v bitmap body (fun ls => execStmtList_eq fields ls body)
+  | _, .requireError .. | _, .revertError .. | _, .returnValues .. | _, .returnArray ..
+  | _, .returnBytes .. | _, .returnStorageWords .. | _, .returnCodeData .. | _, .calldatacopy ..
+  | _, .returndataCopy .. | _, .revertReturndata .. | _, .internalCall .. | _, .internalCallAssign ..
+  | _, .rawLog .. | _, .externalCallBind .. | _, .tryExternalCallBind .. | _, .ecm ..
+  | _, .unsafeBlock .. | _, .unsafeYul .. | _, .matchAdt .. => rfl
 
 theorem execStmtList_eq (fields : List Field) :
     ∀ (st : DenoteState) (stmts : List Stmt),

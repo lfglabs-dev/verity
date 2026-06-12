@@ -612,6 +612,8 @@ theorem stmtListScopeCore_prefix_of_compileStmtList_ok_of_stmtListTouchesUnsuppo
                       simp [stmtTouchesUnsupportedContractSurface] at hstmtSurface
           | _ =>
               simp [stmtTouchesUnsupportedContractSurface] at hstmtSurface
+      | forEachSetBit _ _ _ =>
+          simp [stmtTouchesUnsupportedContractSurface] at hstmtSurface
       | setMapping _ _ _ | setMappingWord _ _ _ _ | setMappingPackedWord _ _ _ _ _
       | setMapping2 _ _ _ _ | setMapping2Word _ _ _ _ _ | setMappingUint _ _ _
       | setMappingChain _ _ _

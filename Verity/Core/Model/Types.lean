@@ -1061,6 +1061,11 @@ inductive Stmt
   | stop
   | ite (cond : Expr) (thenBranch : List Stmt) (elseBranch : List Stmt)  -- If/else (#179)
   | forEach (varName : String) (count : Expr) (body : List Stmt)  -- Bounded loop (#179)
+  /-- Iterate over the set bits of `bitmap` from most significant to least
+      significant.  The loop variable is bound to the current set-bit index.
+      Lowering uses the EIP-7939 CLZ/MSB pattern:
+      `idx := 255 - clz(bitmap); bitmap := bitmap & ~(1 << idx)`. -/
+  | forEachSetBit (varName : String) (bitmap : Expr) (body : List Stmt)
   | emit (eventName : String) (args : List Expr)  -- Emit event (#153)
   | internalCall (functionName : String) (args : List Expr)  -- Internal call as statement (#181)
   | internalCallAssign (names : List String) (functionName : String) (args : List Expr)
@@ -1121,6 +1126,7 @@ namespace Stmt
 def childLists : Stmt → List (List Stmt)
   | .ite _ thenBranch elseBranch => [thenBranch, elseBranch]
   | .forEach _ _ body => [body]
+  | .forEachSetBit _ _ body => [body]
   | .unsafeBlock _ body => [body]
   | .matchAdt _ _ branches => branches.map (fun (_, _, body) => body)
   | _ => []
@@ -1179,6 +1185,8 @@ def directMetadata : Stmt → StmtMetadata
       { subexpressions := [cond], termination := .mayTerminate, controlFlow := .unknown }
   | .forEach varName count _ =>
       { subexpressions := [count], scopeEffects := { bindNames := [varName] } }
+  | .forEachSetBit varName bitmap _ =>
+      { subexpressions := [bitmap], scopeEffects := { bindNames := [varName] } }
   | .emit _ args =>
       { subexpressions := args }
   | .internalCall _ args =>
@@ -1291,6 +1299,8 @@ partial def controlFlow : Stmt → ControlFlowSummary
   | .forEach _ _ body =>
       -- Loops are bounded and may execute zero times, so the loop itself can fall through
       -- even if some body path returns or reverts.
+      ControlFlowSummary.union .fallsThrough (controlFlowList body)
+  | .forEachSetBit _ _ body =>
       ControlFlowSummary.union .fallsThrough (controlFlowList body)
   | .unsafeBlock _ body =>
       controlFlowList body

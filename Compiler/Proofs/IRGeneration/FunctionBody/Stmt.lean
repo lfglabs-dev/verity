@@ -906,6 +906,25 @@ private theorem compileStmt_ok_any_scope_aux
                 with ⟨bodyIR2, hbody2⟩
               simp only [hbody2]
               exact ⟨_, rfl⟩
+      | forEachSetBit varName bitmap body =>
+          rcases hok with ⟨ir, hir⟩
+          simp only [CompilationModel.compileStmt, bind, Except.bind] at hir ⊢
+          cases hbitmap : CompilationModel.compileExpr fields .calldata bitmap with
+          | error e => simp [hbitmap] at hir
+          | ok bitmapIR =>
+            simp only [hbitmap] at hir ⊢
+            cases hbody1 : CompilationModel.compileStmtList
+                fields [] [] .calldata [] false
+                (CompilationModel.forEachSetBitBodyScope scope1 varName bitmap body) [] body with
+            | error e => simp [hbody1] at hir
+            | ok bodyIR1 =>
+              rcases ih.2 body
+                  (CompilationModel.forEachSetBitBodyScope scope1 varName bitmap body)
+                  (CompilationModel.forEachSetBitBodyScope scope2 varName bitmap body)
+                  (by simp [Stmt.forEachSetBit.sizeOf_spec] at hlt; omega)
+                  ⟨bodyIR1, hbody1⟩ with ⟨bodyIR2, hbody2⟩
+              simp only [hbody2]
+              exact ⟨_, rfl⟩
       | unsafeBlock _ body =>
           rcases hok with ⟨ir, hir⟩
           simp only [CompilationModel.compileStmt] at hir ⊢
@@ -1026,6 +1045,25 @@ private theorem compileStmt_ok_any_scope_with_surface_aux
                   (CompilationModel.forEachBodyScope scope2 varName count body)
                   (by simp [Stmt.forEach.sizeOf_spec] at hlt; omega) ⟨bodyIR1, hbody1⟩
                 with ⟨bodyIR2, hbody2⟩
+              simp only [hbody2]
+              exact ⟨_, rfl⟩
+      | forEachSetBit varName bitmap body =>
+          rcases hok with ⟨ir, hir⟩
+          simp only [CompilationModel.compileStmt, bind, Except.bind] at hir ⊢
+          cases hbitmap : CompilationModel.compileExpr fields .calldata bitmap with
+          | error e => simp [hbitmap] at hir
+          | ok bitmapIR =>
+            simp only [hbitmap] at hir ⊢
+            cases hbody1 : CompilationModel.compileStmtList
+                fields events errors .calldata [] false
+                (CompilationModel.forEachSetBitBodyScope scope1 varName bitmap body) [] body with
+            | error e => simp [hbody1] at hir
+            | ok bodyIR1 =>
+              rcases ih.2 body
+                  (CompilationModel.forEachSetBitBodyScope scope1 varName bitmap body)
+                  (CompilationModel.forEachSetBitBodyScope scope2 varName bitmap body)
+                  (by simp [Stmt.forEachSetBit.sizeOf_spec] at hlt; omega)
+                  ⟨bodyIR1, hbody1⟩ with ⟨bodyIR2, hbody2⟩
               simp only [hbody2]
               exact ⟨_, rfl⟩
       | unsafeBlock reason body =>

@@ -763,6 +763,31 @@ def execForEachLoop
       | .return value next => .return value next
       | .revert => .revert
 
+def msbIndex (bitmap : Nat) : Nat :=
+  if bitmap = 0 then 0 else Nat.log2 bitmap
+
+def clearMsb (bitmap : Nat) : Nat :=
+  let idx := msbIndex bitmap
+  if bitmap = 0 then 0 else bitmap - 2 ^ idx
+
+def execForEachSetBitLoop
+    (varName : String)
+    (runBody : DenoteState → StmtOutcome) :
+    Nat → DenoteState → Nat → StmtOutcome
+  | 0, state, _ => .continue state
+  | fuel + 1, state, bitmap =>
+      if bitmap = 0 then
+        .continue state
+      else
+        let idx := msbIndex bitmap
+        let loopState :=
+          { state with bindings := bindValue state.bindings varName (wordNormalize idx) }
+        match runBody loopState with
+        | .continue next => execForEachSetBitLoop varName runBody fuel next (clearMsb bitmap)
+        | .stop next => .stop next
+        | .return value next => .return value next
+        | .revert => .revert
+
 mutual
   def execStmt (oracle : DenoteOracle) (fields : List Field) :
       DenoteState → Stmt → StmtOutcome
@@ -998,6 +1023,13 @@ mutual
             execForEachLoop varName
               (fun loopState => execStmtList oracle fields loopState body)
               initialLoopState 0 bound
+        | none => .revert
+    | state, .forEachSetBit varName bitmap body =>
+        match evalExpr oracle fields state bitmap with
+        | some bits =>
+            execForEachSetBitLoop varName
+              (fun loopState => execStmtList oracle fields loopState body)
+              256 state bits
         | none => .revert
     | _, _ => .revert
 

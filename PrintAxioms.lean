@@ -1756,6 +1756,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeStorageArray_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.packedBitsValid_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.execForEachLoop_agree
+  Compiler.Proofs.IRGeneration.DenoteAgreement.execForEachSetBitLoop_agree
+  Compiler.Proofs.IRGeneration.DenoteAgreement.execStmt_forEachSetBit_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.execStmt_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.execStmtList_eq
 
@@ -3093,6 +3095,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.SourceSemantics.exists_writeUnindexedEventScratch_of_length_zero
   Compiler.Proofs.IRGeneration.SourceSemantics.exists_eventScratchMemoryAfterEmit?_of_supported_length
   Compiler.Proofs.IRGeneration.SourceSemantics.UInt256_size_eq_UINT256_MODULUS
+  Compiler.Proofs.IRGeneration.SourceSemantics.execForEachSetBitLoop_zero
+  Compiler.Proofs.IRGeneration.SourceSemantics.execForEachSetBitLoop_succ
   Compiler.Proofs.IRGeneration.SourceSemantics.execForEachLoop_zero
   Compiler.Proofs.IRGeneration.SourceSemantics.execForEachLoop_succ
   Compiler.Proofs.IRGeneration.SourceSemantics.lookupBinding?_bindValue_same
@@ -3103,6 +3107,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.SourceSemantics.execForEachLoop_succ_continue_iff
   Compiler.Proofs.IRGeneration.SourceSemantics.execForEachLoop_succ_continue
   Compiler.Proofs.IRGeneration.SourceSemantics.execForEachLoop_congr
+  Compiler.Proofs.IRGeneration.SourceSemantics.execForEachSetBitLoop_congr
   Compiler.Proofs.IRGeneration.SourceSemantics.execForEachLoop_empty_body
   Compiler.Proofs.IRGeneration.SourceSemantics.execForEachLoop_empty_body_zero_bound
   Compiler.Proofs.IRGeneration.SourceSemantics.execForEachLoop_empty_body_positive_bound
@@ -3255,6 +3260,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.SourceSemantics.stmt_sizeOf_lt_ite_then  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.stmt_sizeOf_lt_ite_else  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.stmt_sizeOf_lt_forEach_body  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemantics.stmt_sizeOf_lt_forEachSetBit_body  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.stmt_sizeOf_lt_cons  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.execStmtListWithHelpers_eq_execStmtList_of_helperSurfaceClosed_inner  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux  -- private
@@ -5551,4 +5557,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5196 theorems/lemmas (3590 public, 1606 private, 0 sorry'd)
+-- Total: 5202 theorems/lemmas (3595 public, 1607 private, 0 sorry'd)

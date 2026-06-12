@@ -288,7 +288,7 @@ def stmtWritesStateNode : Stmt → Bool
       exprWritesState destOffset || exprWritesState sourceOffset || exprWritesState size
   | Stmt.ite cond _ _ =>
       exprWritesState cond
-  | Stmt.forEach _ count _ =>
+  | Stmt.forEach _ count _ | Stmt.forEachSetBit _ count _ =>
       exprWritesState count
   | Stmt.emit _ _ | Stmt.rawLog _ _ _
   | Stmt.internalCall _ _ | Stmt.internalCallAssign _ _ _
@@ -390,7 +390,7 @@ def stmtHasUntrackableWritesNode : Stmt → Bool
       exprHasUntrackableWrites destOffset || exprHasUntrackableWrites sourceOffset || exprHasUntrackableWrites size
   | Stmt.ite cond _ _ =>
       exprHasUntrackableWrites cond
-  | Stmt.forEach _ count _ =>
+  | Stmt.forEach _ count _ | Stmt.forEachSetBit _ count _ =>
       exprHasUntrackableWrites count
   | Stmt.unsafeYul fragment =>
       -- Raw Yul storage writes target computed slots that cannot be tied back to
@@ -494,7 +494,7 @@ def stmtContainsExternalCallNode : Stmt → Bool
       exprContainsExternalCall destOffset || exprContainsExternalCall sourceOffset || exprContainsExternalCall size
   | Stmt.ite cond _ _ =>
       exprContainsExternalCall cond
-  | Stmt.forEach _ count _ =>
+  | Stmt.forEach _ count _ | Stmt.forEachSetBit _ count _ =>
       exprContainsExternalCall count
   | Stmt.matchAdt _ scrutinee _ =>
       exprContainsExternalCall scrutinee
@@ -524,7 +524,7 @@ def stmtMayContainExternalCallNode : Stmt → Bool
   | Stmt.internalCall _ _ | Stmt.internalCallAssign _ _ _ => true
   | Stmt.ite cond _ _ =>
       exprMayContainExternalCall cond
-  | Stmt.forEach _ count _ =>
+  | Stmt.forEach _ count _ | Stmt.forEachSetBit _ count _ =>
       exprMayContainExternalCall count
   | Stmt.matchAdt _ scrutinee _ =>
       exprMayContainExternalCall scrutinee
@@ -614,7 +614,7 @@ def stmtReadsStateOrEnvNode : Stmt → Bool
   | Stmt.setStructMember _ _ _ _ | Stmt.setStructMember2 _ _ _ _ _ => true
   | Stmt.ite cond _ _ =>
       exprReadsStateOrEnv cond
-  | Stmt.forEach _ count _ =>
+  | Stmt.forEach _ count _ | Stmt.forEachSetBit _ count _ =>
       exprReadsStateOrEnv count
   | Stmt.unsafeBlock _ _ =>
       false
@@ -705,7 +705,7 @@ def stmtWritesStateWithFunctionEffectsNode
         exprWritesStateWithFunctionEffects effects size
   | Stmt.ite cond _ _ =>
       exprWritesStateWithFunctionEffects effects cond
-  | Stmt.forEach _ count _ =>
+  | Stmt.forEach _ count _ | Stmt.forEachSetBit _ count _ =>
       exprWritesStateWithFunctionEffects effects count
   | Stmt.emit _ _ | Stmt.rawLog _ _ _
   | Stmt.externalCallBind _ _ _ | Stmt.tryExternalCallBind _ _ _ _ => true
@@ -786,7 +786,7 @@ def stmtReadsStateOrEnvWithFunctionEffectsNode
   | Stmt.setStructMember _ _ _ _ | Stmt.setStructMember2 _ _ _ _ _ => true
   | Stmt.ite cond _ _ =>
       exprReadsStateOrEnvWithFunctionEffects effects cond
-  | Stmt.forEach _ count _ =>
+  | Stmt.forEach _ count _ | Stmt.forEachSetBit _ count _ =>
       exprReadsStateOrEnvWithFunctionEffects effects count
   | Stmt.unsafeBlock _ _ =>
       false
@@ -917,7 +917,7 @@ def stmtListCEIViolation : List Stmt → Bool → Option String
           -- For compound statements (ite, forEach, unsafeBlock, matchAdt), the internal
           -- CEI check above already verified ordering within the statement's branches.
           let isCompound := match s with
-            | Stmt.ite _ _ _ | Stmt.forEach _ _ _ | Stmt.unsafeBlock _ _
+            | Stmt.ite _ _ _ | Stmt.forEach _ _ _ | Stmt.forEachSetBit _ _ _ | Stmt.unsafeBlock _ _
             | Stmt.matchAdt _ _ _ => true
             | _ => false
           -- Update seenCall conservatively: statement-form internal calls may
@@ -954,7 +954,7 @@ def stmtInternalCEIViolation : Stmt → Bool → Option String
           match stmtListCEIViolation elseBranch condSeenCall with
           | some msg => some s!"in if-else branch: {msg}"
           | none => none
-  | Stmt.forEach _ count body, seenCall =>
+  | Stmt.forEach _ count body, seenCall | Stmt.forEachSetBit _ count body, seenCall =>
       -- In a loop, if the body has both an external call and a state write,
       -- a second iteration would violate CEI even if the first doesn't
       let bodyHasCall := body.any stmtMayContainExternalCall
@@ -1060,7 +1060,7 @@ def validateNoUnsupportedAdtConstructNode : Stmt → Except String Unit
   | Stmt.ite cond _ _ => do
       if exprContainsAdtConstruct cond then
         throw "Compilation error: ADT construction cannot be used as an if condition."
-  | Stmt.forEach _ count _ => do
+  | Stmt.forEach _ count _ | Stmt.forEachSetBit _ count _ => do
       if exprContainsAdtConstruct count then
         throw "Compilation error: ADT construction cannot be used as a loop bound."
   | Stmt.unsafeBlock _ _ =>

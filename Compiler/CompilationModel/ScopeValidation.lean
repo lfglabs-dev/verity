@@ -517,6 +517,10 @@ def validateScopedStmtIdentifiers
       validateScopedExprIdentifiers context params paramScope dynamicParams localScope constructorArgCount count
       let _ ← validateScopedStmtListIdentifiers context params paramScope dynamicParams (varName :: localScope) constructorArgCount body
       pure localScope
+  | Stmt.forEachSetBit varName bitmap body => do
+      validateScopedExprIdentifiers context params paramScope dynamicParams localScope constructorArgCount bitmap
+      let _ ← validateScopedStmtListIdentifiers context params paramScope dynamicParams (varName :: localScope) constructorArgCount body
+      pure localScope
   | Stmt.unsafeBlock _ body => do
       let _ ← validateScopedStmtListIdentifiers context params paramScope dynamicParams localScope constructorArgCount body
       pure localScope

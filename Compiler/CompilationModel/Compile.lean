@@ -108,6 +108,12 @@ def forEachBodyScope (inScopeNames : List String) (varName : String)
   let countName := pickFreshName "__forEach_count" (idxName :: forUsedNames)
   idxName :: countName :: varName :: inScopeNames
 
+def forEachSetBitBodyScope (inScopeNames : List String) (varName : String)
+    (bitmap : Expr) (body : List Stmt) : List String :=
+  let usedNames := varName :: (inScopeNames ++ collectExprNames bitmap ++ collectStmtListNames body)
+  let bitmapName := pickFreshName "__forEach_bitmap" usedNames
+  bitmapName :: varName :: inScopeNames
+
 -- Compile statement to Yul (using mutual recursion for lists).
 -- When isInternal=true, Stmt.return compiles to `__ret := value; leave` so internal
 -- function execution terminates immediately without exiting the outer EVM call.
@@ -291,6 +297,25 @@ def compileStmt (fields : List Field) (events : List EventDef := [])
       let postStmts := [YulStmt.assign idxName (YulExpr.call "add" [YulExpr.ident idxName, YulExpr.lit 1])]
       let bodyWithBind := YulStmt.assign varName (YulExpr.ident idxName) :: bodyStmts
       pure [YulStmt.for_ initStmts condExpr postStmts bodyWithBind]
+
+  | Stmt.forEachSetBit varName bitmap body => do
+      let bitmapExpr ← compileExpr fields dynamicSource bitmap
+      let usedNames := varName :: (inScopeNames ++ collectExprNames bitmap ++ collectStmtListNames body)
+      let bitmapName := pickFreshName "__forEach_bitmap" usedNames
+      let bodyStmts ← compileStmtList fields events errors dynamicSource internalRetNames isInternal
+        (forEachSetBitBodyScope inScopeNames varName bitmap body) adtTypes body
+      let bitExpr := YulExpr.call "shl" [YulExpr.ident varName, YulExpr.lit 1]
+      let clzExpr := YulExpr.call "verbatim_1i_1o"
+        [YulExpr.verbatimHex "1e", YulExpr.ident bitmapName]
+      let bindIndex := YulStmt.assign varName
+        (YulExpr.call "sub" [YulExpr.lit 255, clzExpr])
+      let clearBit := YulStmt.assign bitmapName
+        (YulExpr.call "and" [YulExpr.ident bitmapName, YulExpr.call "not" [bitExpr]])
+      pure [YulStmt.block [
+        YulStmt.let_ bitmapName bitmapExpr,
+        YulStmt.let_ varName (YulExpr.lit 0),
+        YulStmt.for_ [] (YulExpr.ident bitmapName) [] (bindIndex :: bodyStmts ++ [clearBit])
+      ]]
 
   | Stmt.unsafeBlock _ body => do
       -- Unsafe block: transparent wrapper, compile inner body directly (#1728, Axis 6 Step 6a)

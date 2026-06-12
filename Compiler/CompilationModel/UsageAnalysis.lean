@@ -11,7 +11,8 @@ def collectStmtBindNames : Stmt → List String
   | .ecm mod _ => mod.resultVars
   | .ite _ thenBranch elseBranch =>
       collectStmtListBindNames thenBranch ++ collectStmtListBindNames elseBranch
-  | .forEach varName _ body => varName :: collectStmtListBindNames body
+  | .forEach varName _ body | .forEachSetBit varName _ body =>
+      varName :: collectStmtListBindNames body
   | .unsafeBlock _ body => collectStmtListBindNames body
   | .matchAdt _ _ branches => collectMatchBranchBindNames branches
   | .unsafeYul fragment => fragment.scopeEffects.bindNames
@@ -40,7 +41,7 @@ def collectStmtAssignedNames : Stmt → List String
   | .unsafeBlock _ body => collectStmtListAssignedNames body
   | .ite _ thenBranch elseBranch =>
       collectStmtListAssignedNames thenBranch ++ collectStmtListAssignedNames elseBranch
-  | .forEach _ _ body => collectStmtListAssignedNames body
+  | .forEach _ _ body | .forEachSetBit _ _ body => collectStmtListAssignedNames body
   | .matchAdt _ _ branches => collectMatchBranchAssignedNames branches
   | .unsafeYul fragment => fragment.scopeEffects.assignNames
   | _ => []
@@ -231,7 +232,7 @@ def stmtUsesArrayElementKind (includePlain includeWord : Bool) : Stmt → Bool
       exprUsesArrayElementKind includePlain includeWord cond ||
         stmtListUsesArrayElementKind includePlain includeWord thenBranch ||
         stmtListUsesArrayElementKind includePlain includeWord elseBranch
-  | Stmt.forEach _ count body =>
+  | Stmt.forEach _ count body | Stmt.forEachSetBit _ count body =>
       exprUsesArrayElementKind includePlain includeWord count ||
         stmtListUsesArrayElementKind includePlain includeWord body
   | Stmt.unsafeBlock _ body =>
@@ -395,7 +396,7 @@ def stmtUsesArrayElement : Stmt → Bool
   | Stmt.ite cond thenBranch elseBranch =>
       exprUsesArrayElement cond || stmtListUsesArrayElement thenBranch ||
         stmtListUsesArrayElement elseBranch
-  | Stmt.forEach _ count body =>
+  | Stmt.forEach _ count body | Stmt.forEachSetBit _ count body =>
       exprUsesArrayElement count || stmtListUsesArrayElement body
   | Stmt.unsafeBlock _ body =>
       stmtListUsesArrayElement body
@@ -601,7 +602,7 @@ def stmtUsesParamDynamicHeadWord : Stmt → Bool
       exprUsesParamDynamicHeadWord cond ||
         stmtListUsesParamDynamicHeadWord thenBranch ||
         stmtListUsesParamDynamicHeadWord elseBranch
-  | Stmt.forEach _ count body =>
+  | Stmt.forEach _ count body | Stmt.forEachSetBit _ count body =>
       exprUsesParamDynamicHeadWord count || stmtListUsesParamDynamicHeadWord body
   | Stmt.unsafeBlock _ body =>
       stmtListUsesParamDynamicHeadWord body
@@ -749,7 +750,7 @@ def stmtUsesMulDiv512 : Stmt → Bool
       exprUsesMulDiv512 cond ||
         stmtListUsesMulDiv512 thenBranch ||
         stmtListUsesMulDiv512 elseBranch
-  | Stmt.forEach _ count body =>
+  | Stmt.forEach _ count body | Stmt.forEachSetBit _ count body =>
       exprUsesMulDiv512 count || stmtListUsesMulDiv512 body
   | Stmt.unsafeBlock _ body =>
       stmtListUsesMulDiv512 body
@@ -924,7 +925,7 @@ def stmtUsesStorageArrayElement : Stmt → Bool
       exprUsesStorageArrayElement key1 || exprUsesStorageArrayElement key2 || exprUsesStorageArrayElement value
   | Stmt.ite cond thenBranch elseBranch =>
       exprUsesStorageArrayElement cond || stmtListUsesStorageArrayElement thenBranch || stmtListUsesStorageArrayElement elseBranch
-  | Stmt.forEach _ count body =>
+  | Stmt.forEach _ count body | Stmt.forEachSetBit _ count body =>
       exprUsesStorageArrayElement count || stmtListUsesStorageArrayElement body
   | Stmt.unsafeBlock _ body =>
       stmtListUsesStorageArrayElement body
@@ -1081,7 +1082,7 @@ def stmtUsesDynamicBytesEq : Stmt → Bool
       exprUsesDynamicBytesEq key1 || exprUsesDynamicBytesEq key2 || exprUsesDynamicBytesEq value
   | Stmt.ite cond thenBranch elseBranch =>
       exprUsesDynamicBytesEq cond || stmtListUsesDynamicBytesEq thenBranch || stmtListUsesDynamicBytesEq elseBranch
-  | Stmt.forEach _ count body =>
+  | Stmt.forEach _ count body | Stmt.forEachSetBit _ count body =>
       exprUsesDynamicBytesEq count || stmtListUsesDynamicBytesEq body
   | Stmt.unsafeBlock _ body =>
       stmtListUsesDynamicBytesEq body
