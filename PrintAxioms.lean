@@ -737,6 +737,9 @@ end Verity.AxiomAudit
   Verity.Proofs.Stdlib.MappingAutomation.setMapping2_preserves_events
 
   -- Verity/Proofs/Stdlib/Math.lean
+  Verity.Proofs.Stdlib.Math.CheckedArithmetic.safeAdd_isSome_iff_addNoOverflow
+  Verity.Proofs.Stdlib.Math.CheckedArithmetic.safeSub_isSome_iff_subNoUnderflow
+  Verity.Proofs.Stdlib.Math.CheckedArithmetic.safeMul_isSome_iff_mulNoOverflow
   Verity.Proofs.Stdlib.Math.SNARK_SCALAR_FIELD_ne_zero
   Verity.Proofs.Stdlib.Math.SNARK_SCALAR_FIELD_lt_modulus
   Verity.Proofs.Stdlib.Math.modField_nat_eq
@@ -5555,4 +5558,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5200 theorems/lemmas (3599 public, 1601 private, 0 sorry'd)
+-- Total: 5203 theorems/lemmas (3602 public, 1601 private, 0 sorry'd)

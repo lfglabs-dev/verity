@@ -2022,6 +2022,85 @@ private def mkModelLocalObligationTerm (obligation : LocalObligationDecl) : Comm
       $(strTerm obligation.obligation)
       $proofStatusTerm)
 
+private def termSource (term : Term) : String :=
+  (term.raw.reprint.getD (toString term.raw)).trim
+
+private def isIdentChar (c : Char) : Bool :=
+  ('a' ≤ c && c ≤ 'z') || ('A' ≤ c && c ≤ 'Z') || ('0' ≤ c && c ≤ '9')
+
+private def sanitizeObligationPart (s : String) : String :=
+  let chars := s.toList.map fun c => if isIdentChar c then c else '_'
+  let collapsed := chars.foldl
+    (fun acc c =>
+      match acc.getLast? with
+      | some '_' => if c == '_' then acc else acc ++ [c]
+      | _ => acc ++ [c])
+    []
+  let trimmed := (collapsed.dropWhile (· == '_')).reverse.dropWhile (· == '_') |>.reverse
+  let rendered := String.mk trimmed
+  if rendered.isEmpty then "expr" else rendered
+
+private def checkedArithmeticApp? (term : Term) : Option (String × String × Term × Term) :=
+  match stripParens term with
+  | `(term| safeAdd $a:term $b:term) =>
+      some ("add_no_overflow", "Verity.Proofs.Stdlib.Math.CheckedArithmetic.AddNoOverflow", a, b)
+  | `(term| safeSub $a:term $b:term) =>
+      some ("sub_no_underflow", "Verity.Proofs.Stdlib.Math.CheckedArithmetic.SubNoUnderflow", a, b)
+  | `(term| safeMul $a:term $b:term) =>
+      some ("mul_no_overflow", "Verity.Proofs.Stdlib.Math.CheckedArithmetic.MulNoOverflow", a, b)
+  | `(term| addPanic $a:term $b:term) =>
+      some ("add_no_overflow", "Verity.Proofs.Stdlib.Math.CheckedArithmetic.AddNoOverflow", a, b)
+  | `(term| subPanic $a:term $b:term) =>
+      some ("sub_no_underflow", "Verity.Proofs.Stdlib.Math.CheckedArithmetic.SubNoUnderflow", a, b)
+  | `(term| mulPanic $a:term $b:term) =>
+      some ("mul_no_overflow", "Verity.Proofs.Stdlib.Math.CheckedArithmetic.MulNoOverflow", a, b)
+  | _ => none
+
+private partial def collectCheckedArithmeticApps (stx : Syntax) : Array (String × String × Term × Term) :=
+  let here :=
+    match checkedArithmeticApp? ⟨stx⟩ with
+    | some app => #[app]
+    | none => #[]
+  stx.getArgs.foldl
+    (fun acc child => acc ++ collectCheckedArithmeticApps child)
+    here
+
+private def generatedArithmeticObligations
+    (owner : String)
+    (body : Term) : Array LocalObligationDecl :=
+  let apps := (collectCheckedArithmeticApps body.raw).foldl
+    (fun acc app =>
+      let (kind, pred, lhs, rhs) := app
+      let duplicate := acc.any fun prev =>
+        let (prevKind, prevPred, prevLhs, prevRhs) := prev
+        prevKind == kind && prevPred == pred &&
+          termSource prevLhs == termSource lhs &&
+          termSource prevRhs == termSource rhs
+      if duplicate then acc else acc.push app)
+    #[]
+  apps.mapIdx fun idx (kind, pred, lhs, rhs) =>
+    let name :=
+      s!"checked_arithmetic_{sanitizeObligationPart owner}_{idx + 1}_{kind}"
+    let obligation :=
+      s!"Prove `{pred} ({termSource lhs}) ({termSource rhs})` for the checked arithmetic operation emitted at this entrypoint."
+    { ident := mkIdent (Name.mkSimple name)
+      name := name
+      obligation := obligation
+      proofStatus := .assumed }
+
+private def mergeGeneratedLocalObligations
+    (declared generated : Array LocalObligationDecl) : Array LocalObligationDecl :=
+  generated.foldl
+    (fun acc obligation =>
+      if acc.any (fun prev => prev.name == obligation.name) then acc else acc.push obligation)
+    declared
+
+private def functionLocalObligationsWithArithmetic (fn : FunctionDecl) : Array LocalObligationDecl :=
+  mergeGeneratedLocalObligations fn.localObligations (generatedArithmeticObligations fn.name fn.body)
+
+private def constructorLocalObligationsWithArithmetic (ctor : ConstructorDecl) : Array LocalObligationDecl :=
+  mergeGeneratedLocalObligations ctor.localObligations (generatedArithmeticObligations "constructor" ctor.body)
+
 private def mkAdtVariantTerm (variant : AdtVariantDecl) (tag : Nat) : CommandElabM Term := do
   let fieldTerms ← variant.fields.mapM fun p => do
     let tyTerm ← modelParamTypeTerm p.ty
@@ -2106,7 +2185,7 @@ private def mkSpecCommand
     | some ctor, _ =>
         let ctorParams ← mkModelParamsTerm ctor.params
         let ctorPayable ← if ctor.isPayable then `(true) else `(false)
-        let ctorLocalObligationTerms ← ctor.localObligations.mapM mkModelLocalObligationTerm
+        let ctorLocalObligationTerms ← (constructorLocalObligationsWithArithmetic ctor).mapM mkModelLocalObligationTerm
         let immutableInitTerms ← immutableInitStmtTerms fields constDecls immutableDecls ctor.params
         let ctorBodyTerms ← translateConstructorBodyToStmtTerms fields constDecls immutableDecls externalDecls functions ctor
         let ctorAllTerms := immutableInitTerms ++ ctorBodyTerms
@@ -2130,7 +2209,7 @@ private def mkSpecCommand
     if supportsInternalHelperSpec fn then
       let modelBodyName ← mkSuffixedIdent fn.ident "_modelBody"
       let modelParams ← mkModelParamsTerm fn.params
-      let localObligationTerms ← fn.localObligations.mapM mkModelLocalObligationTerm
+      let localObligationTerms ← (functionLocalObligationsWithArithmetic fn).mapM mkModelLocalObligationTerm
       let payableTerm ← if fn.isPayable then `(true) else `(false)
       let viewTerm ← if fn.isView then `(true) else `(false)
       let pureTerm ← if fn.isPure then `(true) else `(false)
@@ -2883,7 +2962,7 @@ def mkFunctionCommandsPublic
   let modelName ← mkSuffixedIdent fn.ident "_model"
   let stmtTerms ← translateBodyToStmtTerms fields constDecls immutableDecls externalDecls functions fn
   let modelParams ← mkModelParamsTerm fn.params
-  let localObligationTerms ← fn.localObligations.mapM mkModelLocalObligationTerm
+  let localObligationTerms ← (functionLocalObligationsWithArithmetic fn).mapM mkModelLocalObligationTerm
   let payableTerm ← if fn.isPayable then `(true) else `(false)
   let viewTerm ← if fn.isView then `(true) else `(false)
   let pureTerm ← if fn.isPure then `(true) else `(false)

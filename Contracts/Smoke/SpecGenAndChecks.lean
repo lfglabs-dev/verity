@@ -102,6 +102,37 @@ end SpecGenSmoke
 #check_contract CallbackABISmoke
 #check_contract Contracts.Vault
 
+namespace CheckedArithmeticObligationSmoke
+
+def safeAddRequireSurfacesOverflowObligation : Bool :=
+  match Contracts.SafeCounter.increment_model.localObligations with
+  | [{ name := "checked_arithmetic_increment_1_add_no_overflow"
+       obligation := "Prove `Verity.Proofs.Stdlib.Math.CheckedArithmetic.AddNoOverflow (current) (1)` for the checked arithmetic operation emitted at this entrypoint."
+       proofStatus := .assumed }] => true
+  | _ => false
+
+example : safeAddRequireSurfacesOverflowObligation = true := by rfl
+
+def safeSubRequireSurfacesUnderflowObligation : Bool :=
+  match Contracts.SafeCounter.decrement_model.localObligations with
+  | [{ name := "checked_arithmetic_decrement_1_sub_no_underflow"
+       obligation := "Prove `Verity.Proofs.Stdlib.Math.CheckedArithmetic.SubNoUnderflow (current) (1)` for the checked arithmetic operation emitted at this entrypoint."
+       proofStatus := .assumed }] => true
+  | _ => false
+
+example : safeSubRequireSurfacesUnderflowObligation = true := by rfl
+
+def safeMulRequireSurfacesOverflowObligation : Bool :=
+  match Contracts.Smoke.SafeMulRequireSmoke.multiplyStored_model.localObligations with
+  | [{ name := "checked_arithmetic_multiplyStored_1_mul_no_overflow"
+       obligation := "Prove `Verity.Proofs.Stdlib.Math.CheckedArithmetic.MulNoOverflow (current) (factor)` for the checked arithmetic operation emitted at this entrypoint."
+       proofStatus := .assumed }] => true
+  | _ => false
+
+example : safeMulRequireSurfacesOverflowObligation = true := by rfl
+
+end CheckedArithmeticObligationSmoke
+
 example : TupleSmoke.setFromPair = (TupleSmoke.setFromPair : (Uint256 × Uint256) → Verity.Contract Unit) := rfl
 example : TupleSmoke.getPair = (TupleSmoke.getPair : Uint256 → Verity.Contract (Uint256 × Uint256)) := rfl
 example :
