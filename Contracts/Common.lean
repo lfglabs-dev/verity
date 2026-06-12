@@ -256,7 +256,20 @@ def ecrecover (hash v r sigS : Uint256) : Contract Address := fun state =>
 def calldatacopy (_destOffset _sourceOffset _size : Uint256) : Contract Unit := pure ()
 def returndataCopy (_destOffset _sourceOffset _size : Uint256) : Contract Unit := pure ()
 def revertReturndata : Contract Unit := pure ()
-def arrayLength {α : Type} (values : Array α) : Uint256 := values.size
+/-- Executable length surface for `arrayLength`: dynamic ABI values that
+carry a length word (`bytes`, `string`, `T[]`). Deliberately not
+instantiated for word types: `Bytes32` is a reducible abbrev of `Uint256`,
+so an instance there would make `arrayLength` typecheck (and return 32)
+for arbitrary words. -/
+class ArrayLength (α : Type) where
+  size : α → Nat
+instance : ArrayLength ByteArray where
+  size := ByteArray.size
+instance : ArrayLength String where
+  size := String.utf8ByteSize
+instance {α : Type} : ArrayLength (Array α) where
+  size := Array.size
+def arrayLength {α : Type} [ArrayLength α] (values : α) : Uint256 := ArrayLength.size values
 def arrayElement {α : Type} [Inhabited α] (values : Array α) (index : Uint256) : α :=
   values.getD (index : Nat) (Inhabited.default : α)
 def abiHeadWord {α : Type} [Inhabited α] (_value : α) (_wordOffset : Uint256) : Uint256 := 0
