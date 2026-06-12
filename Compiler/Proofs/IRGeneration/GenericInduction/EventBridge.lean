@@ -18,6 +18,9 @@ open Compiler
 open Compiler.CompilationModel
 open Compiler.Yul
 
+
+
+
 /-! ## Fuel arithmetic helpers -/
 
 private theorem length_le_sizeOf (stmts : List YulStmt) :
@@ -1248,6 +1251,30 @@ private def eventEncodedValuesForKind :
       else
         eventEncodedValuesForKind kind params values
 
+private theorem eventEncodedValuesForKind_filter_self :
+    ∀ {kind : EventParamKind} {params : List EventParam} {values : List Nat},
+      values.length = params.length →
+      eventEncodedValuesForKind kind
+          (params.filter (fun param => param.kind == kind))
+          (eventValuesForKind kind params values) =
+        eventEncodedValuesForKind kind params values
+  | _, [], [], _ => by
+      simp [eventEncodedValuesForKind, eventValuesForKind]
+  | kind, param :: params, value :: values, hlen => by
+      have htail : values.length = params.length := by
+        simpa using Nat.succ.inj hlen
+      by_cases hkind : (param.kind == kind) = true
+      · simp [eventEncodedValuesForKind, eventValuesForKind, hkind,
+          eventEncodedValuesForKind_filter_self htail]
+      · have hkindFalse : (param.kind == kind) = false := by
+          cases h : param.kind == kind <;> simp [h] at hkind ⊢
+        simp [eventEncodedValuesForKind, eventValuesForKind, hkindFalse,
+          eventEncodedValuesForKind_filter_self htail]
+  | _, [], _ :: _, hlen => by
+      simp at hlen
+  | _, _ :: _, [], hlen => by
+      simp at hlen
+
 private theorem eventKind_unindexed_true_of_not_indexed
     {kind : EventParamKind}
     (hindexed : ¬(kind == EventParamKind.indexed) = true) :
@@ -2443,5 +2470,441 @@ private theorem eventStmtNextScope_emit_included
   rcases hmem with hmem | hmem
   · exact eventCollectExprListNames_subset_scope hcore hinScope name hmem
   · exact hmem
+
+private theorem eventIndexedEntryParams_eq_filter
+    {eventDef : EventDef} {args : List Expr} {argExprs : List YulExpr}
+    (hargs : args.length = eventDef.params.length)
+    (hirs : argExprs.length = eventDef.params.length) :
+    (eventIndexedArgs (eventZippedWithSource eventDef args argExprs)).map
+        (fun entry => entry.1) =
+      eventDef.params.filter (fun param => param.kind == EventParamKind.indexed) := by
+  simpa [eventZippedWithSource, eventIndexedArgs] using
+    eventZippedWithSource_filter_params_eq
+      (params := eventDef.params) (args := args) (argExprs := argExprs)
+      (kind := EventParamKind.indexed) hargs hirs
+
+
+section EventLogStmtContinueMacro
+macro "event_log_stmt_continue_le_three_tac" : tactic => `(tactic| unhygienic (
+  rename_i scope state ptr dataSize topic0 entries values hptr htopic0 hrel hlen
+  cases entries with
+  | nil =>
+      cases values
+      · simpa [eventEncodedValuesForKind] using eventLogStmt_continue_zero hptr htopic0
+      · cases hrel
+  | cons p1 rest =>
+      cases rest with
+      | nil =>
+          cases values with
+          | nil => cases hrel
+          | cons v1 vs =>
+              cases vs
+              · have hkind1 : (p1.1.kind == EventParamKind.indexed) = true := by
+                  rcases hrel with _ | ⟨hpv, _⟩
+                  exact hpv.2.2.2.2
+                simpa [eventEncodedValuesForKind, hkind1] using
+                  eventLogStmt_continue_one hptr htopic0 hrel
+              · cases hrel with
+                | cons _ htail => cases htail
+      | cons p2 rest =>
+          cases rest with
+          | nil =>
+              cases values with
+              | nil => cases hrel
+              | cons v1 vs =>
+                  cases vs with
+                  | nil => cases hrel with | cons _ htail => cases htail
+                  | cons v2 vs2 =>
+                      cases vs2
+                      · have hkind1 : (p1.1.kind == EventParamKind.indexed) = true := by
+                          rcases hrel with _ | ⟨hpv, _⟩
+                          exact hpv.2.2.2.2
+                        have hkind2 : (p2.1.kind == EventParamKind.indexed) = true := by
+                          rcases hrel with _ | ⟨_, htail⟩
+                          rcases htail with _ | ⟨hpv, _⟩
+                          exact hpv.2.2.2.2
+                        simpa [eventEncodedValuesForKind, hkind1, hkind2] using
+                          eventLogStmt_continue_two hptr htopic0 hrel
+                      · cases hrel with
+                        | cons _ htail => cases htail with
+                          | cons _ htail2 => cases htail2
+          | cons p3 rest =>
+              cases rest with
+              | nil =>
+                  cases values with
+                  | nil => cases hrel
+                  | cons v1 vs =>
+                      cases vs with
+                      | nil => cases hrel with | cons _ htail => cases htail
+                      | cons v2 vs2 =>
+                          cases vs2 with
+                          | nil => cases hrel with | cons _ htail => cases htail with
+                            | cons _ htail2 => cases htail2
+                          | cons v3 vs3 =>
+                              cases vs3
+                              · have hkind1 : (p1.1.kind == EventParamKind.indexed) = true := by
+                                  rcases hrel with _ | ⟨hpv, _⟩
+                                  exact hpv.2.2.2.2
+                                have hkind2 : (p2.1.kind == EventParamKind.indexed) = true := by
+                                  rcases hrel with _ | ⟨_, htail⟩
+                                  rcases htail with _ | ⟨hpv, _⟩
+                                  exact hpv.2.2.2.2
+                                have hkind3 : (p3.1.kind == EventParamKind.indexed) = true := by
+                                  rcases hrel with _ | ⟨_, htail⟩
+                                  rcases htail with _ | ⟨_, htail2⟩
+                                  rcases htail2 with _ | ⟨hpv, _⟩
+                                  exact hpv.2.2.2.2
+                                simpa [eventEncodedValuesForKind, hkind1, hkind2, hkind3] using
+                                  eventLogStmt_continue_three hptr htopic0 hrel
+                              · cases hrel with
+                                | cons _ htail => cases htail with
+                                  | cons _ htail2 => cases htail2 with
+                                    | cons _ htail3 => cases htail3
+              | cons _ _ =>
+                  simp at hlen
+
+))
+
+end EventLogStmtContinueMacro
+
+private theorem eventLogStmt_continue_le_three
+    {scope : List String} {state : IRState}
+    {ptr dataSize topic0 : Nat}
+    {entries : List (EventParam × Expr × YulExpr)} {values : List Nat}
+    (hptr : state.getVar "__evt_ptr" = some ptr)
+    (htopic0 : state.getVar "__evt_topic0" = some topic0)
+    (hrel : List.Forall₂ (EventIndexedEntryOk scope state) entries values)
+    (hlen : entries.length ≤ 3) :
+    StmtsContinueFromTo state
+      [YulStmt.expr (YulExpr.call (eventLogFunction entries.length)
+        (eventLogArgs (YulExpr.lit dataSize)
+          (scalarEventIndexedTopicParts entries)))]
+      (state.appendYulLog ptr dataSize
+        (topic0 :: eventEncodedValuesForKind EventParamKind.indexed
+          (entries.map (fun entry => entry.1)) values)) := by
+  event_log_stmt_continue_le_three_tac
+
+private theorem eventExecIRStmts_single_event_block
+    {state next : IRState} {body compiledIR : List YulStmt} {extraFuel : Nat}
+    (hcompiled : compiledIR = [YulStmt.block body])
+    (hslack : sizeOf compiledIR - compiledIR.length ≤ extraFuel)
+    (hbody : StmtsContinueFromTo state body next) :
+    execIRStmts (compiledIR.length + extraFuel + 1) state compiledIR =
+      .continue next := by
+  subst compiledIR
+  have hslack' : sizeOf body + 2 ≤ extraFuel := by
+    have hs : 1 + (1 + sizeOf body) ≤ extraFuel := by
+      simpa [eventSingletonBlock_sizeOf_slack] using hslack
+    omega
+  let bodyExtra := extraFuel - body.length - 1
+  have hbodyExec :
+      execIRStmts (body.length + bodyExtra + 1) state body = .continue next :=
+    execIRStmts_of_StmtsContinueFromTo hbody bodyExtra
+  have hfuel :
+      body.length + bodyExtra + 1 + 2 = [YulStmt.block body].length + extraFuel + 1 := by
+    have hlen := length_le_sizeOf body
+    simp [bodyExtra]
+    omega
+  rw [← hfuel]
+  exact eventExecIRStmts_single_block_of_continue
+    (body.length + bodyExtra + 1) state next body hbodyExec
+
+section EventEmitSemanticBridgeMacro
+macro "event_emit_semantic_bridge_tac" : tactic => `(tactic| unhygienic (
+  rename_i runtimeContract spec fields
+  intro scope eventName args compiledIR hsupport hsurface hcompile hinScope
+    hfresh hinternal runtime state helperFuel extraFuel _hfuel hexact hscope
+    hbounded hmatch hslack
+  rcases eventCompileStmt_emit_scalar_shape hsupport hsurface hcompile with
+    ⟨eventDef, argExprs, hfind, hargExprs, hcompiled⟩
+  let zipped := eventZippedWithSource eventDef args argExprs
+  let indexed := eventIndexedArgs zipped
+  let unindexed := eventUnindexedArgs zipped
+  let sigWords := (chunkBytes32 (bytesFromString (eventSignature eventDef))).map wordFromBytes
+  have hcore := eventExprList_compile_core_of_contractSurfaceClosed hsurface
+  have hparams := eventParams_supported_and_head_size hsupport hfind
+  have hargsLen := eventEmissionProofSupported_args_length hsupport hfind
+  rcases eval_compileExprList_core_of_scope hcore hexact hinScope hbounded hscope
+      hmatch hargExprs with
+    ⟨values, heval, hirEval⟩
+  have hhelperEval :
+      SourceSemantics.evalExprListWithHelpers spec fields helperFuel runtime args =
+        some values := by
+    rw [eventEvalExprListWithHelpers_eq_evalExprList_of_contractSurfaceClosed
+      spec fields helperFuel runtime hsurface, heval]
+  rcases SourceSemantics.execStmtWithHelpers_emit_supported_continues
+      hhelperEval hsupport with
+    ⟨event, sourceMemory, hevent, hsourceMemory, hsource⟩
+  have hshapes := eventCompileExprList_atomic_shapes
+    (args_all_atomic_of_eventEmissionProofSupported hsupport) hinScope hargExprs
+  have hvaluesLt := eventEvalExprList_values_lt hcore hexact hinScope hbounded
+    hscope hmatch heval
+  have hmem0 : ∀ o, state.memory o = (runtime.world.memory o).val := by
+    have hm := hmatch.2.2.2.2.2.2.2.2.2.2.2.2.2.1
+    intro o
+    rw [hm]
+  let ptr := state.memory Compiler.Constants.freeMemoryPointer
+  have hstorePtr := eventStorePtr_continue (state := state) (ptr := ptr) rfl
+  have hsigLimit := eventSignatureWords_length_le_scratch hsupport hfind
+  have hsig := eventSignatureScratchStores_continue
+    (state := state.setVar "__evt_ptr" ptr) (srcMemory := runtime.world.memory)
+    (ptr := ptr) (startIdx := 0) (words := sigWords)
+    (by simp [IRState.getVar, IRState.setVar])
+    (by intro o; simpa [IRState.setVar] using hmem0 o)
+    (eventSignatureWords_bounded eventDef)
+  let sigMemory := SourceSemantics.writeEventSignatureScratchFrom sigWords ptr 0
+    runtime.world.memory
+  let stateSig : IRState := { state.setVar "__evt_ptr" ptr with
+    memory := fun o => (sigMemory o).val }
+  have hslice :
+      memorySliceWords stateSig.memory ptr
+          (bytesFromString (eventSignature eventDef)).length =
+        memorySliceWords (SourceSemantics.eventSignatureMemory eventDef) 0
+          (bytesFromString (eventSignature eventDef)).length := by
+    simpa [stateSig, sigMemory, sigWords] using
+      eventSignatureScratch_memorySliceWords_eq
+        (eventDef := eventDef) (ptr := ptr) (srcMemory := runtime.world.memory)
+        hsigLimit
+  let topic0 := SourceSemantics.eventSignatureTopic eventDef
+  have htopicStore : StmtsContinueFromTo stateSig
+      [YulStmt.let_ "__evt_topic0" (YulExpr.call "keccak256"
+        [YulExpr.ident "__evt_ptr",
+          YulExpr.lit (bytesFromString (eventSignature eventDef)).length])]
+      (stateSig.setVar "__evt_topic0" topic0) := by
+    refine ⟨stateSig.setVar "__evt_topic0" topic0, ?_, rfl⟩
+    intro fuel
+    apply eventExecIRStmt_let_step
+    exact eventEvalIRExpr_topic0
+      (state := stateSig) (eventDef := eventDef) (ptr := ptr)
+      (by simp [stateSig, IRState.getVar, IRState.setVar]) hslice
+  let stateTopic := stateSig.setVar "__evt_topic0" topic0
+  have hirEvalTopic :
+      List.Forall₂ (fun exprIR value => evalIRExpr stateTopic exprIR = some value)
+        argExprs values := by
+    exact eventForall₂_eval_atomic_setVar_of_args hshapes
+      (eventForall₂_eval_atomic_memory_of_args hshapes
+        (eventForall₂_eval_atomic_setVar_of_args hshapes hirEval hfresh.1 ptr)
+        stateSig.memory)
+      hfresh.2 topic0
+  have hunindexedRel : List.Forall₂ (EventUnindexedEntryOk scope stateTopic)
+      unindexed (eventValuesForKind EventParamKind.unindexed eventDef.params values) := by
+    simpa [zipped, unindexed] using eventUnindexedEntriesOk_of_eval
+      hirEvalTopic hshapes hparams.1 hparams.2 hvaluesLt hargsLen
+  rcases eventUnindexedStores_continue
+      (scope := scope) (state := stateTopic) (srcMemory := sigMemory)
+      (ptr := ptr) (wordIdx := 0) (entries := unindexed)
+      (values := eventValuesForKind EventParamKind.unindexed eventDef.params values)
+      (by simp [stateTopic, stateSig, IRState.getVar, IRState.setVar])
+      (by intro o; rfl) hunindexedRel with
+    ⟨irSourceMemory, hirWriteUnindexed, hunindexedContinue⟩
+  have hvalueLen : values.length = eventDef.params.length := by
+    simpa [hargsLen] using SourceSemantics.evalExprListWithHelpers_length_of_some hhelperEval
+  have hargExprsLen : argExprs.length = eventDef.params.length := by
+    rw [List.Forall₂.length_eq hirEval, hvalueLen]
+  have hsourceMemoryEq : sourceMemory = irSourceMemory := by
+    have hscalar := eventDefScalarProofSupported_eq_true_of_eventEmissionProofSupported
+      hsupport hfind
+    have hptrSrc : ptr = (runtime.world.memory Compiler.Constants.freeMemoryPointer).val := by
+      simpa [ptr] using hmem0 Compiler.Constants.freeMemoryPointer
+    have hwriteFull : SourceSemantics.writeUnindexedEventScratch eventDef.params
+        values ptr sigMemory = some irSourceMemory := by
+      have hwriteFiltered :
+          SourceSemantics.writeUnindexedEventScratchFrom
+            (eventDef.params.filter (fun param => param.kind == EventParamKind.unindexed))
+            (eventValuesForKind EventParamKind.unindexed eventDef.params values)
+            ptr 0 sigMemory = some irSourceMemory := by
+        simpa [eventUnindexedEntryParams_eq_filter hargsLen hargExprsLen,
+          unindexed, zipped] using hirWriteUnindexed
+      rw [eventWriteUnindexed_filter_unindexed hvalueLen] at hwriteFiltered
+      simpa [SourceSemantics.writeUnindexedEventScratch] using hwriteFiltered
+    simp [SourceSemantics.eventScratchMemoryAfterEmit?, hfind, hscalar, ptr,
+      hmem0 Compiler.Constants.freeMemoryPointer, sigMemory, sigWords,
+      SourceSemantics.writeEventSignatureScratch] at hsourceMemory
+    rw [← hptrSrc] at hsourceMemory
+    change SourceSemantics.writeUnindexedEventScratch eventDef.params values
+      ptr sigMemory = some sourceMemory at hsourceMemory
+    rw [hwriteFull] at hsourceMemory
+    cases hsourceMemory
+    rfl
+  subst sourceMemory
+  have hindexedRel : List.Forall₂ (EventIndexedEntryOk scope
+      { stateTopic with memory := fun o => (irSourceMemory o).val })
+      indexed (eventValuesForKind EventParamKind.indexed eventDef.params values) := by
+    have hirEvalFinal := eventForall₂_eval_atomic_memory_of_args hshapes
+      hirEvalTopic (fun o => (irSourceMemory o).val)
+    simpa [zipped, indexed] using eventIndexedEntriesOk_of_eval
+      hirEvalFinal hshapes hparams.1 hvaluesLt hargsLen
+  have hindexedLen : indexed.length ≤ 3 := by
+    simpa [indexed, zipped] using
+      eventEmissionProofSupported_eventIndexedArgs_length_le_three
+        argExprs hsupport hfind
+  have hlogContinue := eventLogStmt_continue_le_three
+    (scope := scope) (state := { stateTopic with memory := fun o => (irSourceMemory o).val })
+    (ptr := ptr) (dataSize := eventUnindexedHeadSize unindexed) (topic0 := topic0)
+    (entries := indexed) (values := eventValuesForKind EventParamKind.indexed eventDef.params values)
+    (by simp [stateTopic, stateSig, IRState.getVar, IRState.setVar])
+    (by simp [stateTopic, IRState.getVar, IRState.setVar])
+    hindexedRel hindexedLen
+  let body := [YulStmt.let_ "__evt_ptr"
+        (YulExpr.call "mload" [YulExpr.lit Compiler.Constants.freeMemoryPointer])] ++
+      eventSignatureStoreStmtsFromChunks (chunkBytes32 (bytesFromString (eventSignature eventDef))) 0 ++
+      [YulStmt.let_ "__evt_topic0" (YulExpr.call "keccak256"
+        [YulExpr.ident "__evt_ptr",
+          YulExpr.lit (bytesFromString (eventSignature eventDef)).length])] ++
+      scalarEventUnindexedStores unindexed ++
+      [YulStmt.expr (YulExpr.call (eventLogFunction indexed.length)
+        (eventLogArgs (YulExpr.lit (eventUnindexedHeadSize unindexed))
+          (scalarEventIndexedTopicParts indexed)))]
+  have hbodyContinue : StmtsContinueFromTo state body
+      (({ stateTopic with memory := fun o => (irSourceMemory o).val }).appendYulLog
+        ptr (eventUnindexedHeadSize unindexed)
+        (topic0 :: eventEncodedValuesForKind EventParamKind.indexed
+          (indexed.map (fun entry : EventParam × Expr × YulExpr => entry.1))
+          (eventValuesForKind EventParamKind.indexed eventDef.params values))) := by
+    simpa [body, scalarEventUnindexedStores, stateSig, stateTopic,
+      eventSignatureStoreStmtsFromChunks_eq_words, sigWords, sigMemory] using
+      StmtsContinueFromTo_append hstorePtr
+        (StmtsContinueFromTo_append hsig
+          (StmtsContinueFromTo_append htopicStore
+            (StmtsContinueFromTo_append hunindexedContinue hlogContinue)))
+  have hplainIR := eventExecIRStmts_single_event_block
+    (state := state) (next := (({ stateTopic with memory := fun o => (irSourceMemory o).val }).appendYulLog
+        ptr (eventUnindexedHeadSize unindexed)
+        (topic0 :: eventEncodedValuesForKind EventParamKind.indexed
+          (indexed.map (fun entry : EventParam × Expr × YulExpr => entry.1))
+          (eventValuesForKind EventParamKind.indexed eventDef.params values))))
+    (body := body) (compiledIR := compiledIR) (extraFuel := extraFuel)
+    (by simpa [compileScalarEmitFromCompiledArgs, body, zipped, indexed, unindexed,
+      eventSignatureStoreStmtsFromChunks] using hcompiled)
+    hslack hbodyContinue
+  let irExec := externalIRExecResultToWithInternals
+    (IRExecResult.continue (({ stateTopic with memory := fun o => (irSourceMemory o).val }).appendYulLog
+      ptr (eventUnindexedHeadSize unindexed)
+      (topic0 :: eventEncodedValuesForKind EventParamKind.indexed
+        (indexed.map (fun entry : EventParam × Expr × YulExpr => entry.1))
+        (eventValuesForKind EventParamKind.indexed eventDef.params values))))
+  refine ⟨_, irExec, hsource, ?_, ?_⟩
+  · exact (execIRStmtsWithInternals_eq_execIRStmts_of_callsDisjoint runtimeContract
+      (compiledIR.length + extraFuel + 1) state compiledIR
+      (YulStmtListCallsDisjointFromInternalTable_of_internalFunctions_nil
+        runtimeContract hinternal compiledIR
+        (by rw [hcompiled]; exact eventCompiledScalarEmit_legacy eventDef args argExprs))).trans
+        (by simpa [irExec] using congrArg externalIRExecResultToWithInternals hplainIR)
+  · have hindexedParams := eventIndexedEntryParams_eq_filter hargsLen
+        hargExprsLen
+    have hunindexedParams := eventUnindexedEntryParams_eq_filter hargsLen
+        hargExprsLen
+    have hencodedIndexed :
+        eventEncodedValuesForKind EventParamKind.indexed
+            (indexed.map (fun entry : EventParam × Expr × YulExpr => entry.1))
+            (eventValuesForKind EventParamKind.indexed eventDef.params values) =
+          eventEncodedValuesForKind EventParamKind.indexed eventDef.params values := by
+      rw [hindexedParams]
+      exact eventEncodedValuesForKind_filter_self hvalueLen
+    have hencodedUnindexed :
+        eventEncodedValuesForKind EventParamKind.unindexed
+            (eventDef.params.filter (fun param => param.kind == EventParamKind.unindexed))
+            (eventValuesForKind EventParamKind.unindexed eventDef.params values) =
+          eventEncodedValuesForKind EventParamKind.unindexed eventDef.params values :=
+      eventEncodedValuesForKind_filter_self hvalueLen
+    have hunindexedValueLen :
+        (eventValuesForKind EventParamKind.unindexed eventDef.params values).length =
+          (eventDef.params.filter (fun param => param.kind == EventParamKind.unindexed)).length := by
+      rw [← List.Forall₂.length_eq hunindexedRel]
+      simpa [unindexed, zipped] using congrArg List.length hunindexedParams
+    have hlog :
+        encodeYulLogEvent (fun o => (irSourceMemory o).val) ptr
+            (eventUnindexedHeadSize unindexed)
+            (topic0 :: eventEncodedValuesForKind EventParamKind.indexed
+              (indexed.map (fun entry : EventParam × Expr × YulExpr => entry.1))
+              (eventValuesForKind EventParamKind.indexed eventDef.params values)) =
+          SourceSemantics.encodeEvent event := by
+      have hdata := eventYulLogDataWords_of_writeUnindexedScratch
+        (params := eventDef.params.filter (fun param => param.kind == EventParamKind.unindexed))
+        (values := eventValuesForKind EventParamKind.unindexed eventDef.params values)
+        (ptr := ptr) (memory := sigMemory) (memory' := irSourceMemory)
+        (by simpa [(eventUnindexedEntryParams_eq_filter hargsLen
+          hargExprsLen), unindexed, zipped]
+          using hirWriteUnindexed)
+        (by intro p hp; simpa using (List.mem_filter.mp hp).2)
+        hunindexedValueLen
+        (eventUnindexedParams_length_le_scratch hsupport hfind)
+      have henc := eventFromResolvedArgs?_encoded hfind hevent
+      simpa [encodeYulLogEvent, hdata, topic0, hindexedParams,
+        hunindexedParams, hencodedIndexed, hencodedUnindexed,
+        eventUnindexedHeadSize_eq_values hunindexedRel] using henc.symm
+    simp [irExec, externalIRExecResultToWithInternals,
+      stmtStepMatchesIRExecWithInternals]
+    refine ⟨?_, ?_, hbounded, ?_⟩
+    · exact eventRuntimeStateMatchesIR_after_emit_scratch
+        (fields := fields) (runtime := runtime) (state := state)
+        (sourceMemory := irSourceMemory) (irMemory := fun o => (irSourceMemory o).val)
+        (event := event) (ptr := ptr) (dataSize := eventUnindexedHeadSize unindexed)
+        (topic0 := topic0)
+        (topics := eventEncodedValuesForKind EventParamKind.indexed
+          (indexed.map (fun entry : EventParam × Expr × YulExpr => entry.1))
+          (eventValuesForKind EventParamKind.indexed eventDef.params values))
+        hmatch rfl hlog
+    · have hincl :
+          FunctionBody.scopeNamesIncluded
+            (stmtNextScope scope (Stmt.emit eventName args)) scope :=
+        eventStmtNextScope_emit_included (eventName := eventName) hcore hinScope
+      have hexactNext :
+          FunctionBody.bindingsExactlyMatchIRVarsOnScope
+            (stmtNextScope scope (Stmt.emit eventName args)) runtime.bindings state := by
+        intro name hname
+        exact hexact name (hincl name hname)
+      have hfreshNext :
+          "__evt_ptr" ∉ stmtNextScope scope (Stmt.emit eventName args) ∧
+            "__evt_topic0" ∉ stmtNextScope scope (Stmt.emit eventName args) := by
+        constructor <;> intro hmem
+        · exact hfresh.1 (hincl "__evt_ptr" hmem)
+        · exact hfresh.2 (hincl "__evt_topic0" hmem)
+      simpa [IRState.appendYulLog, stateTopic, stateSig] using
+        eventBindingsExactlyMatch_after_emit
+          (scope := stmtNextScope scope (Stmt.emit eventName args))
+          (bindings := runtime.bindings) (state := state)
+          (ptr := ptr) (topic0 := topic0)
+          (irMemory := fun o => (irSourceMemory o).val) hexactNext hfreshNext
+    · exact FunctionBody.scopeNamesPresent_of_included hscope
+        (eventStmtNextScope_emit_included hcore hinScope)
+))
+
+end EventEmitSemanticBridgeMacro
+
+set_option maxHeartbeats 400000 in
+theorem eventEmitHeadStepSemanticBridge
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field} :
+    ∀ {scope : List String} {eventName : String} {args : List Expr}
+        {compiledIR : List YulStmt},
+      eventEmissionProofSupported spec.events eventName args = true →
+      args.any exprTouchesUnsupportedContractSurface = false →
+      CompilationModel.compileStmt fields spec.events spec.errors .calldata
+        [] false scope [] (Stmt.emit eventName args) = Except.ok compiledIR →
+      (∀ arg ∈ args, FunctionBody.exprBoundNamesInScope arg scope) →
+      ("__evt_ptr" ∉ scope ∧ "__evt_topic0" ∉ scope) →
+      runtimeContract.internalFunctions = [] →
+      ∀ (runtime : SourceSemantics.RuntimeState)
+        (state : IRState)
+        (helperFuel : Nat)
+        (extraFuel : Nat),
+        0 < helperFuel →
+        FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state →
+        FunctionBody.scopeNamesPresent scope runtime.bindings →
+        FunctionBody.bindingsBounded runtime.bindings →
+        FunctionBody.runtimeStateMatchesIR fields runtime state →
+        sizeOf compiledIR - compiledIR.length ≤ extraFuel →
+        ∃ sourceResult irExec,
+          SourceSemantics.execStmtWithHelpers spec fields helperFuel runtime
+            (Stmt.emit eventName args) = sourceResult ∧
+          execIRStmtsWithInternals runtimeContract
+            (compiledIR.length + extraFuel + 1) state compiledIR = irExec ∧
+          stmtStepMatchesIRExecWithInternals
+            fields (stmtNextScope scope (Stmt.emit eventName args))
+            sourceResult irExec := by
+  event_emit_semantic_bridge_tac
+
 
 end Compiler.Proofs.IRGeneration
