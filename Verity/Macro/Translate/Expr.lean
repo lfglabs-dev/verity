@@ -2139,6 +2139,20 @@ partial def inferBindSourceType
     (rhs : Term) : CommandElabM ValueType := do
   let rhs := stripParens rhs
   match rhs with
+  | `(term| callResult $name:term $_args:term) =>
+      let extName := ← expectStringOrIdent name
+      let ext ←
+        match externalDecls.find? (fun ext => ext.name == extName) with
+        | some ext => pure ext
+        | none => throwErrorAt rhs s!"unknown external function '{extName}'"
+      let fields :=
+        match ext.returnTys.toList with
+        | [] => [("success", .bool)]
+        | [retTy] => [("success", .bool), ("returndata", retTy)]
+        | retTys =>
+            ("success", .bool) ::
+              retTys.zipIdx.map (fun (retTy, idx) => (s!"returndata{idx}", retTy))
+      pure (.struct "Call.Result" fields)
   | `(term| getStorage $field:ident) =>
       let f ← lookupStorageField fields (toString field.getId)
       match f.ty with
@@ -4164,6 +4178,68 @@ def tryExternalCallBindStmt?
           $(strTerm extName)
           [ $[$argExprs],* ])
       pure (some (stmt, visibleLocals))
+  | _ => pure none
+
+/-- Translate `let r ← callResult "name" [args]` into the existing try-call
+    lowering while exposing `r.success` and `r.returndata` (or
+    `r.returndata0`, `r.returndata1`, ...) as one source-level result value. -/
+def callResultBindStmt?
+    (fields : Array StorageFieldDecl)
+    (constDecls : Array ConstantDecl)
+    (immutableDecls : Array ImmutableDecl)
+    (externalDecls : Array ExternalDecl)
+    (params : Array ParamDecl)
+    (locals : Array TypedLocal)
+    (rhs : Term)
+    (resultName : String) : CommandElabM (Option (Term × TypedLocal)) := do
+  let rhs := stripParens rhs
+  match rhs with
+  | `(term| callResult $name:term $args:term) =>
+      let extName := ← expectStringOrIdent name
+      let argExprs ← match stripParens args with
+        | `(term| [ $[$xs],* ]) =>
+            translateLinkedExternalCallArgs fields constDecls immutableDecls params locals xs
+        | _ => throwErrorAt args "expected list literal [..]"
+      let ext ←
+        match externalDecls.find? (fun ext => ext.name == extName) with
+        | some ext => pure ext
+        | none => throwErrorAt rhs s!"unknown external function '{extName}'"
+      for retTy in ext.returnTys do
+        unless isSingleWordStaticValueType retTy do
+          throwErrorAt rhs
+            s!"callResult '{extName}' currently supports only zero or more single-word static return values; got {renderValueType retTy}"
+      let successVar := freshSyntheticLocalName s!"{resultName}_success" params locals #[]
+      let usedAfterSuccess : Array TypedLocal := locals.push (mkTypedLocal successVar .bool)
+      let mut fieldLocals : List (String × String) := [("success", successVar)]
+      let mut resultVars : Array String := #[]
+      let mut resultFields : List (String × ValueType) := [("success", .bool)]
+      match ext.returnTys.toList with
+      | [] => pure ()
+      | [retTy] =>
+          let payloadVar := freshSyntheticLocalName s!"{resultName}_returndata" params usedAfterSuccess #[]
+          resultVars := resultVars.push payloadVar
+          fieldLocals := fieldLocals ++ [("returndata", payloadVar)]
+          resultFields := resultFields ++ [("returndata", retTy)]
+      | retTys =>
+          let mut indexedLocals := usedAfterSuccess
+          for (retTy, idx) in retTys.zipIdx do
+            let fieldName := s!"returndata{idx}"
+            let payloadVar := freshSyntheticLocalName s!"{resultName}_{fieldName}" params indexedLocals #[]
+            indexedLocals := indexedLocals.push (mkTypedLocal payloadVar retTy)
+            resultVars := resultVars.push payloadVar
+            fieldLocals := fieldLocals ++ [(fieldName, payloadVar)]
+            resultFields := resultFields ++ [(fieldName, retTy)]
+      let resultVarTerms := resultVars.map strTerm
+      let stmt ← `(Compiler.CompilationModel.Stmt.tryExternalCallBind
+          $(strTerm successVar)
+          [ $[$resultVarTerms],* ]
+          $(strTerm extName)
+          [ $[$argExprs],* ])
+      let resultLocal : TypedLocal :=
+        { name := resultName
+          ty := .struct "Call.Result" resultFields
+          source := .externalStaticStruct fieldLocals }
+      pure (some (stmt, resultLocal))
   | _ => pure none
 
 def expectExprList
