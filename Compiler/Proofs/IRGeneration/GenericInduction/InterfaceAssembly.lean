@@ -821,7 +821,7 @@ theorem
     {fields : List Field}
     {scope : List String}
     {stmts : List Stmt}
-    (hhelperFree : StmtListHelperFreeStepInterface fields scope stmts)
+    (hhelperFree : StmtListHelperFreeNonEventStepInterface fields scope stmts)
     (hevents : StmtListEventSurfaceStepInterface runtimeContract spec fields scope stmts)
     (hheads : ∀ s ∈ stmts,
       stmtTouchesEventSurface s = true ∨
@@ -849,7 +849,9 @@ theorem
                     stmtTouchesUnsupportedHelperSurface stmt = false :=
                   stmtTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
                     hplain
-                obtain ⟨compiledIR, hcore⟩ := hheadFree hhelper
+                have heventFalse : stmtTouchesEventSurface stmt = false := by
+                  cases h : stmtTouchesEventSurface stmt <;> simp [h] at hevent ⊢
+                obtain ⟨compiledIR, hcore⟩ := hheadFree hhelper heventFalse
                 exact .cons
                   ((hcore.withHelpers_of_contractSurfaceClosed hplain hhelper).withHelperIR_of_callsDisjoint
                     (hheadDisjoint hhelper compiledIR hcore.compileOk))

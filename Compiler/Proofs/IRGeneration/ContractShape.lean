@@ -119,6 +119,16 @@ theorem supportedSpec_entries_lock_free
   have hmem := (List.of_mem_zip he).1
   exact (hSupported.functions e.1 (List.mem_filter.mp hmem).1).noNonReentrant
 
+theorem supportedSpecWithScalarEvents_entries_lock_free
+    {model : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecWithScalarEvents model selectors) :
+    ∀ e ∈ (model.functions.filter
+        (fun fn => !fn.isInternal && !isInteropEntrypointName fn.name)).zip selectors,
+      (e : FunctionSpec × Nat).1.nonReentrantLock = none := by
+  intro e he
+  have hmem := (List.of_mem_zip he).1
+  exact (hSupported.functions e.1 (List.mem_filter.mp hmem).1).noNonReentrant
+
 private theorem compileValidatedCore_ok_yields_compiled_functions
     (model : CompilationModel)
     (selectors : List Nat)

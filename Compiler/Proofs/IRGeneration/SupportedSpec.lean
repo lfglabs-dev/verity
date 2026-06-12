@@ -3990,6 +3990,12 @@ theorem SupportedBodyInterface.helperSurfaceClosed
     stmtListTouchesUnsupportedHelperSurface fn.body = false := by
   exact hBody.stmtList.helperSurfaceClosed
 
+theorem SupportedBodyInterfaceWithScalarEvents.helperSurfaceClosed
+    {spec : CompilationModel} {fn : FunctionSpec}
+    (hBody : SupportedBodyInterfaceWithScalarEvents spec fn) :
+    stmtListTouchesUnsupportedHelperSurface fn.body = false := by
+  exact hBody.stmtList.helperSurfaceClosed
+
 theorem SupportedBodyInterfaceExceptMappingWrites.helperSurfaceClosed
     {spec : CompilationModel} {fn : FunctionSpec}
     (hBody : SupportedBodyInterfaceExceptMappingWrites spec fn) :

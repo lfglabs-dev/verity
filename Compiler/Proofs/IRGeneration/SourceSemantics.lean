@@ -5037,6 +5037,31 @@ theorem interpretContractWithHelpers_eq_interpretContract_of_supportedSpecExcept
         (hSupported.supportedFunctionOfSelectorDispatched hfn).body.helperSurfaceClosed
   · rfl
 
+theorem interpretContractWithHelpers_eq_interpretContract_of_supportedSpecWithScalarEvents
+    {spec : CompilationModel}
+    {selectors : List Nat}
+    (hSupported : SupportedSpecWithScalarEvents spec selectors)
+    (fuel : Nat)
+    (tx : IRTransaction)
+    (initialWorld : Verity.ContractState) :
+    interpretContractWithHelpers spec selectors fuel tx initialWorld =
+      interpretContract spec selectors tx initialWorld := by
+  unfold interpretContractWithHelpers interpretContract
+  split
+  · rename_i fn hfind
+    have hfn : fn ∈ selectorDispatchedFunctions spec :=
+      findFunctionBySelector_mem_selectorDispatchedFunctions hfind
+    split
+    · rfl
+    · exact interpretFunctionWithHelpers_eq_interpretFunction_of_helperSurfaceClosed
+        (spec := spec)
+        (fuel := fuel)
+        (fn := fn)
+        (tx := tx)
+        (initialWorld := initialWorld)
+        (hSupported.supportedFunctionOfSelectorDispatched hfn).body.helperSurfaceClosed
+  · rfl
+
 end SourceSemantics
 
 /-- Whole-contract source-side semantics for the first generic Layer 2 fragment.
@@ -5076,10 +5101,30 @@ noncomputable def supportedSourceFunctionSemanticsExceptMappingWrites
   SourceSemantics.interpretFunctionWithHelpers
     spec hSupported.helperFuel fn tx initialWorld
 
+noncomputable def supportedSourceFunctionSemanticsWithScalarEvents
+    (spec : CompilationModel)
+    (selectors : List Nat)
+    (hSupported : SupportedSpecWithScalarEvents spec selectors)
+    (fn : FunctionSpec)
+    (tx : IRTransaction)
+    (initialWorld : Verity.ContractState) :
+    SourceSemantics.SourceContractResult :=
+  SourceSemantics.interpretFunctionWithHelpers
+    spec hSupported.helperFuel fn tx initialWorld
+
 noncomputable def supportedSourceContractSemantics
     (spec : CompilationModel)
     (selectors : List Nat)
     (hSupported : SupportedSpec spec selectors)
+    (tx : IRTransaction)
+    (initialWorld : Verity.ContractState) :
+  SourceSemantics.SourceContractResult :=
+  sourceContractSemanticsWithHelpers spec selectors hSupported.helperFuel tx initialWorld
+
+noncomputable def supportedSourceContractSemanticsWithScalarEvents
+    (spec : CompilationModel)
+    (selectors : List Nat)
+    (hSupported : SupportedSpecWithScalarEvents spec selectors)
     (tx : IRTransaction)
     (initialWorld : Verity.ContractState) :
     SourceSemantics.SourceContractResult :=
@@ -5120,6 +5165,19 @@ theorem sourceContractSemanticsWithHelpers_eq_sourceContractSemantics_of_support
     SourceSemantics.interpretContractWithHelpers_eq_interpretContract_of_supportedSpecExceptMappingWrites
       hSupported fuel tx initialWorld
 
+theorem sourceContractSemanticsWithHelpers_eq_sourceContractSemantics_of_supportedSpecWithScalarEvents
+    {spec : CompilationModel}
+    {selectors : List Nat}
+    (hSupported : SupportedSpecWithScalarEvents spec selectors)
+    (fuel : Nat)
+    (tx : IRTransaction)
+    (initialWorld : Verity.ContractState) :
+    sourceContractSemanticsWithHelpers spec selectors fuel tx initialWorld =
+      sourceContractSemantics spec selectors tx initialWorld := by
+  simpa [sourceContractSemanticsWithHelpers, sourceContractSemantics] using
+    SourceSemantics.interpretContractWithHelpers_eq_interpretContract_of_supportedSpecWithScalarEvents
+      hSupported fuel tx initialWorld
+
 theorem supportedSourceFunctionSemantics_eq_interpretFunction_of_selectorDispatched
     {spec : CompilationModel}
     {selectors : List Nat}
@@ -5131,6 +5189,25 @@ theorem supportedSourceFunctionSemantics_eq_interpretFunction_of_selectorDispatc
     supportedSourceFunctionSemantics spec selectors hSupported fn tx initialWorld =
       SourceSemantics.interpretFunction spec fn tx initialWorld := by
   simpa [supportedSourceFunctionSemantics] using
+    SourceSemantics.interpretFunctionWithHelpers_eq_interpretFunction_of_helperSurfaceClosed
+      (spec := spec)
+      (fuel := hSupported.helperFuel)
+      (fn := fn)
+      (tx := tx)
+      (initialWorld := initialWorld)
+      (hSupported.supportedFunctionOfSelectorDispatched hfn).body.helperSurfaceClosed
+
+theorem supportedSourceFunctionSemanticsWithScalarEvents_eq_interpretFunction_of_selectorDispatched
+    {spec : CompilationModel}
+    {selectors : List Nat}
+    (hSupported : SupportedSpecWithScalarEvents spec selectors)
+    {fn : FunctionSpec}
+    (hfn : fn ∈ selectorDispatchedFunctions spec)
+    (tx : IRTransaction)
+    (initialWorld : Verity.ContractState) :
+    supportedSourceFunctionSemanticsWithScalarEvents spec selectors hSupported fn tx initialWorld =
+      SourceSemantics.interpretFunction spec fn tx initialWorld := by
+  simpa [supportedSourceFunctionSemanticsWithScalarEvents] using
     SourceSemantics.interpretFunctionWithHelpers_eq_interpretFunction_of_helperSurfaceClosed
       (spec := spec)
       (fuel := hSupported.helperFuel)
@@ -5167,6 +5244,17 @@ theorem supportedSourceContractSemantics_eq_sourceContractSemantics
     supportedSourceContractSemantics spec selectors hSupported tx initialWorld =
       sourceContractSemantics spec selectors tx initialWorld := by
   exact sourceContractSemanticsWithHelpers_eq_sourceContractSemantics_of_supportedSpec
+    hSupported hSupported.helperFuel tx initialWorld
+
+theorem supportedSourceContractSemanticsWithScalarEvents_eq_sourceContractSemantics
+    {spec : CompilationModel}
+    {selectors : List Nat}
+    (hSupported : SupportedSpecWithScalarEvents spec selectors)
+    (tx : IRTransaction)
+    (initialWorld : Verity.ContractState) :
+    supportedSourceContractSemanticsWithScalarEvents spec selectors hSupported tx initialWorld =
+      sourceContractSemantics spec selectors tx initialWorld := by
+  exact sourceContractSemanticsWithHelpers_eq_sourceContractSemantics_of_supportedSpecWithScalarEvents
     hSupported hSupported.helperFuel tx initialWorld
 
 theorem supportedSourceContractSemanticsExceptMappingWrites_eq_sourceContractSemantics
