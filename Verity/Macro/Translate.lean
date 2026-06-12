@@ -187,10 +187,10 @@ private partial def validateDoElemExprTypes
                   -- generic bind-source typer.
                   match stripParens rhs with
                   | `(term| requireSomeUintError $_optExpr:term $errorName:ident($args,*)) =>
-                      for arg in args.getElems do
-                        let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals arg
+                      let argTypes ← args.getElems.mapM
+                        (inferPureExprType fields constDecls immutableDecls externalDecls params locals)
                       validateCustomErrorCall ownerName (toString errorName.getId)
-                        params errorDecls args.getElems
+                        params errorDecls args.getElems argTypes
                   | _ => pure ()
                   match ← resolveTypedInterfaceCall? fields constDecls immutableDecls externalDecls params locals rhs with
                   | some (_, _, _, some retTy, _) =>
@@ -231,22 +231,22 @@ private partial def validateDoElemExprTypes
           | _ => throwErrorAt body "forEach body must be a do block"
       | `(doElem| requireError $cond:term $errorName:ident($args,*)) =>
           requireBoolType cond "requireError condition" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals cond)
-          for arg in args.getElems do
-            let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals arg
+          let argTypes ← args.getElems.mapM
+            (inferPureExprType fields constDecls immutableDecls externalDecls params locals)
           validateCustomErrorCall ownerName (toString errorName.getId)
-            params errorDecls args.getElems
+            params errorDecls args.getElems argTypes
           pure locals
       | `(doElem| revert $errorName:ident($args,*)) =>
-          for arg in args.getElems do
-            let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals arg
+          let argTypes ← args.getElems.mapM
+            (inferPureExprType fields constDecls immutableDecls externalDecls params locals)
           validateCustomErrorCall ownerName (toString errorName.getId)
-            params errorDecls args.getElems
+            params errorDecls args.getElems argTypes
           pure locals
       | `(doElem| revertError $errorName:ident($args,*)) =>
-          for arg in args.getElems do
-            let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals arg
+          let argTypes ← args.getElems.mapM
+            (inferPureExprType fields constDecls immutableDecls externalDecls params locals)
           validateCustomErrorCall ownerName (toString errorName.getId)
-            params errorDecls args.getElems
+            params errorDecls args.getElems argTypes
           pure locals
       | `(doElem| tryCatch $attempt:term $handler:term) => do
           requireWordLikeType attempt "tryCatch attempt"

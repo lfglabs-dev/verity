@@ -369,7 +369,7 @@ function rejectLarge (amount : Uint256) : Unit := do
     revert AmountTooLarge(amount, 100)
 ```
 
-Populates `CompilationModel.errors`; guarded and unconditional custom-error exits lower to `Stmt.requireError` / `Stmt.revertError`.
+Populates `CompilationModel.errors`; guarded and unconditional custom-error exits lower to `Stmt.requireError` / `Stmt.revertError`. Scalar ABI arguments (`Uint256`, `Address`, `Bool`, fixed-width word aliases, and newtypes over them) may be runtime expressions of the declared parameter type. Dynamic and composite payloads remain direct-parameter ABI surfaces.
 
 ## External Calls (ECM)
 
