@@ -1633,6 +1633,15 @@ end Verity.AxiomAudit
   Compiler.Proofs.Frames.stmtWritesOnly_assignVar
   Compiler.Proofs.Frames.stmtWritesOnly_mstore
   Compiler.Proofs.Frames.stmtWritesOnly_tstore
+  Compiler.Proofs.Frames.evalExpr_staticValue
+  Compiler.Proofs.Frames.stmtWritesOnly_tstore_any
+  Compiler.Proofs.Frames.stmtWritesOnly_require
+  Compiler.Proofs.Frames.stmtWritesOnly_return
+  Compiler.Proofs.Frames.stmtWritesOnly_stop
+  Compiler.Proofs.Frames.stmtWritesOnly_writeFootprint
+  Compiler.Proofs.Frames.stmtListWritesOnly_writeFootprint
+  Compiler.Proofs.Frames.execStmt_frame_rule_writeFootprint
+  Compiler.Proofs.Frames.execStmts_frame_rule_writeFootprint
   Compiler.Proofs.Frames.execStmt_letVar_preserves_bindings_except
   Compiler.Proofs.Frames.execStmt_mstore_preserves_bindings_except
   Compiler.Proofs.Frames.execStmt_letVar_preserves_selector_calldata
@@ -5558,4 +5567,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5203 theorems/lemmas (3604 public, 1599 private, 0 sorry'd)
+-- Total: 5212 theorems/lemmas (3613 public, 1599 private, 0 sorry'd)
