@@ -37,6 +37,7 @@ import Compiler.Proofs.ArithmeticProfile
 import Compiler.Proofs.EndToEnd.Base
 import Compiler.Proofs.EndToEnd.SimpleStorage
 import Compiler.Proofs.EventSemantics
+import Compiler.Proofs.Frames
 import Compiler.Proofs.HelperStepProofs
 import Compiler.Proofs.IRGeneration.Contract
 import Compiler.Proofs.IRGeneration.ContractFeatureTest
@@ -1614,6 +1615,12 @@ end Verity.AxiomAudit
   Compiler.Proofs.EventSemantics.emit_step_spec
   Compiler.Proofs.EventSemantics.events_update_preserves_transientStorage
   Compiler.Proofs.EventSemantics.events_update_preserves_sender
+
+  -- Compiler/Proofs/Frames.lean
+  Compiler.Proofs.Frames.execStmt_letVar_preserves_bindings_except
+  Compiler.Proofs.Frames.execStmt_mstore_preserves_bindings_except
+  Compiler.Proofs.Frames.execStmt_letVar_preserves_selector_calldata
+  Compiler.Proofs.Frames.execStmt_mstore_preserves_selector_calldata
 
   -- Compiler/Proofs/HelperStepProofs.lean
   Compiler.Proofs.HelperStepProofs.allHelperInterfacesSatisfied_of_helperSurfaceClosed
@@ -5535,4 +5542,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5183 theorems/lemmas (3584 public, 1599 private, 0 sorry'd)
+-- Total: 5187 theorems/lemmas (3588 public, 1599 private, 0 sorry'd)
