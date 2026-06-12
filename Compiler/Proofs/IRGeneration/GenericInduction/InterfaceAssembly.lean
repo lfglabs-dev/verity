@@ -811,6 +811,52 @@ theorem
                 rcases hheadStep hsurfaceTrue with ⟨compiledIR, hcompiled⟩
                 exact .cons hcompiled (ih htailFree htailDisjoint)
 
+/-- Top-level scalar-event list bridge. Direct `.emit` heads are supplied by
+the event interface; every other head must be plain contract-surface closed, so
+the helper-free generic step can be transported across event/error catalogs. -/
+theorem
+    stmtListGenericWithHelpersAndHelperIR_of_helperFreeStepInterface_and_eventSurfaceStepInterface_and_helperFreeCompiledCallsDisjoint
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {stmts : List Stmt}
+    (hhelperFree : StmtListHelperFreeStepInterface fields scope stmts)
+    (hevents : StmtListEventSurfaceStepInterface runtimeContract spec fields scope stmts)
+    (hheads : ∀ s ∈ stmts,
+      stmtTouchesEventSurface s = true ∨
+        stmtTouchesUnsupportedContractSurface s = false)
+    (hdisjoint : StmtListHelperFreeCompiledCallsDisjoint runtimeContract fields scope stmts) :
+    StmtListGenericWithHelpersAndHelperIR runtimeContract spec fields scope stmts := by
+  induction hevents with
+  | nil =>
+      exact .nil
+  | @cons scope stmt rest hheadEvent htailEvents ih =>
+      cases hhelperFree with
+      | cons hheadFree htailFree =>
+          cases hdisjoint with
+          | cons hheadDisjoint htailDisjoint =>
+              by_cases hevent : stmtTouchesEventSurface stmt = true
+              · rcases hheadEvent hevent with ⟨compiledIR, hcompiled⟩
+                exact .cons hcompiled (ih htailFree
+                  (fun s hmem => hheads s (List.mem_cons_of_mem stmt hmem))
+                  htailDisjoint)
+              · have hplain : stmtTouchesUnsupportedContractSurface stmt = false := by
+                  rcases hheads stmt List.mem_cons_self with hhead | hhead
+                  · exact False.elim (hevent hhead)
+                  · exact hhead
+                have hhelper :
+                    stmtTouchesUnsupportedHelperSurface stmt = false :=
+                  stmtTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
+                    hplain
+                obtain ⟨compiledIR, hcore⟩ := hheadFree hhelper
+                exact .cons
+                  ((hcore.withHelpers_of_contractSurfaceClosed hplain hhelper).withHelperIR_of_callsDisjoint
+                    (hheadDisjoint hhelper compiledIR hcore.compileOk))
+                  (ih htailFree
+                    (fun s hmem => hheads s (List.mem_cons_of_mem stmt hmem))
+                    htailDisjoint)
+
 /-- Exact helper-aware list bridge with the helper-positive work split cleanly:
 genuine internal-helper heads are supplied through a narrow helper-specific
 interface, while residual coarse helper-surface heads are tracked separately so

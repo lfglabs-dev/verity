@@ -303,14 +303,6 @@ inductive StmtListHelperFreeStepInterface
       StmtListHelperFreeStepInterface fields (stmtNextScope scope stmt) rest →
       StmtListHelperFreeStepInterface fields scope (stmt :: rest)
 
-/-- Direct event-emission heads are the non-helper effect still being threaded
-into the exact generic induction seam. The predicate is deliberately head-only:
-recursive event occurrences are handled by the statement-list recursion and by
-dedicated structural statement proofs. -/
-def stmtTouchesEventSurface : Stmt → Bool
-  | .emit _ _ => true
-  | _ => false
-
 /-- Exact step interface for direct event-emission heads. Non-event heads are
 discharged elsewhere; `.emit` heads must provide a helper-aware compiled step
 because event compilation depends on `spec.events`. -/
