@@ -340,6 +340,86 @@ private theorem
   rw [hfuel] at hgenericSem
   exact ⟨_, _, rfl, rfl, hgenericSem⟩
 
+/-- Events-preserving variant of
+`supported_function_body_correct_from_exact_state_generic_helper_steps_and_helper_ir_raw`.
+The generic list witness may contain scalar event heads; the compiled body is
+matched without erasing `model.events`. -/
+private theorem
+    supported_function_body_correct_from_exact_state_generic_helper_steps_and_helper_ir_raw_with_scalar_events
+    (runtimeContract : IRContract)
+    (model : CompilationModel)
+    (fn : FunctionSpec)
+    (bodyStmts : List YulStmt)
+    (helperFuel : Nat)
+    (tx : IRTransaction)
+    (initialWorld : Verity.ContractState)
+    (state : IRState)
+    (bindings : List (String × Nat))
+    (extraFuel : Nat)
+    (hextraFuel : sizeOf bodyStmts - bodyStmts.length ≤ extraFuel)
+    (hfuelPos : 0 < helperFuel)
+    (hnormalized : SourceSemantics.effectiveFields model = model.fields)
+    (hnoErrors : model.errors = [])
+    (hnoAdtTypes : model.adtTypes = [])
+    (hgeneric :
+      StmtListGenericWithHelpersAndHelperIR
+        runtimeContract model (SourceSemantics.effectiveFields model)
+        (fn.params.map (·.name)) fn.body)
+    (hbodyCompile :
+      compileStmtList model.fields model.events model.errors .calldata [] false
+        (fn.params.map (·.name)) model.adtTypes fn.body = Except.ok bodyStmts)
+    (hscope : FunctionBody.scopeNamesPresent (fn.params.map (·.name)) bindings)
+    (hbounded : FunctionBody.bindingsBounded bindings)
+    (hstateRuntime :
+      FunctionBody.runtimeStateMatchesIR
+        (SourceSemantics.effectiveFields model)
+        { world := SourceSemantics.withTransactionContext initialWorld tx
+          bindings := []
+          selector := tx.functionSelector } state)
+    (hstateBindings : FunctionBody.bindingsExactlyMatchIRVars bindings state) :
+    SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
+      runtimeContract model fn bodyStmts helperFuel tx initialWorld state bindings extraFuel := by
+  have hstateRuntime' :
+      FunctionBody.runtimeStateMatchesIR
+        (SourceSemantics.effectiveFields model)
+        { world := SourceSemantics.withTransactionContext initialWorld tx
+          bindings := bindings
+          selector := tx.functionSelector } state := by
+    simpa [FunctionBody.runtimeStateMatchesIR] using hstateRuntime
+  have hbodyCompile' :
+      compileStmtList (SourceSemantics.effectiveFields model) model.events [] .calldata [] false
+        (fn.params.map (·.name)) [] fn.body = Except.ok bodyStmts := by
+    simpa [hnormalized, hnoErrors, hnoAdtTypes] using hbodyCompile
+  have hscopeExact :
+      FunctionBody.bindingsExactlyMatchIRVarsOnScope
+        (fn.params.map (·.name)) bindings state :=
+    FunctionBody.bindingsExactlyMatchIRVars_implies_onScope hstateBindings
+  let sizeSlack := extraFuel - (sizeOf bodyStmts - bodyStmts.length)
+  rcases exec_compileStmtList_generic_with_helpers_and_helper_ir_sizeOf_extraFuel_with_events
+      (runtimeContract := runtimeContract) (spec := model)
+      (fields := SourceSemantics.effectiveFields model)
+      (runtime := { world := SourceSemantics.withTransactionContext initialWorld tx
+                    bindings := bindings
+                    selector := tx.functionSelector })
+      (state := state) (scope := fn.params.map (·.name)) (stmts := fn.body)
+      (helperFuel := helperFuel) (extraFuel := sizeSlack)
+      hfuelPos hgeneric hscope hscopeExact hbounded hnoErrors hstateRuntime' with
+    ⟨bodyIR, hbodyGenericCompile, hgenericSem⟩
+  have hbodyEq : bodyIR = bodyStmts := by
+    rw [hbodyCompile'] at hbodyGenericCompile
+    injection hbodyGenericCompile with hEq
+    exact hEq.symm
+  subst bodyIR
+  have hfuel :
+      sizeOf bodyStmts + sizeSlack + 1 =
+        bodyStmts.length + extraFuel + 1 := by
+    dsimp [sizeSlack]
+    have := yulStmtList_length_add_sizeOf_le_append bodyStmts []
+    simp at this
+    omega
+  rw [hfuel] at hgenericSem
+  exact ⟨_, _, rfl, rfl, hgenericSem⟩
+
 /-- Transitional helper-aware body/IR preservation target for the non-core
 generic body theorem. This already moves the source side onto helper-aware
 semantics, but the compiled side still runs through legacy `execIRStmts`, so it

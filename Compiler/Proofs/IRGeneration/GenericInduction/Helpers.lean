@@ -2758,7 +2758,6 @@ theorem exec_compileStmtList_generic_with_helpers_sizeOf_extraFuel_step
     (hscope : FunctionBody.scopeNamesPresent scope runtime.bindings)
     (hexact : FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state)
     (hbounded : FunctionBody.bindingsBounded runtime.bindings)
-    (_hnoEvents : spec.events = [])
     (_hnoErrors : spec.errors = [])
     (hruntime : FunctionBody.runtimeStateMatchesIR fields runtime state) :
     ∃ bodyIR,
@@ -2925,7 +2924,6 @@ theorem exec_compileStmtList_generic_with_helpers_and_helper_ir_sizeOf_extraFuel
     (hscope : FunctionBody.scopeNamesPresent scope runtime.bindings)
     (hexact : FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state)
     (hbounded : FunctionBody.bindingsBounded runtime.bindings)
-    (_hnoEvents : spec.events = [])
     (_hnoErrors : spec.errors = [])
     (hruntime : FunctionBody.runtimeStateMatchesIR fields runtime state) :
     ∃ bodyIR,
@@ -3158,7 +3156,6 @@ theorem exec_compileStmtList_generic_with_helpers_sizeOf_extraFuel
       hscope
       hexact
       hbounded
-      hnoEvents
       hnoErrors
       hruntime with
     ⟨bodyIR, hcompile, hstep⟩
@@ -3205,9 +3202,57 @@ theorem exec_compileStmtList_generic_with_helpers_and_helper_ir_sizeOf_extraFuel
       hscope
       hexact
       hbounded
-      hnoEvents
       hnoErrors
       hruntime with
     ⟨bodyIR, hcompile, hstep⟩
   refine ⟨bodyIR, by simpa [hnoEvents, hnoErrors] using hcompile, ?_⟩
+  exact stmtStepMatchesIRExecWithInternals_implies_stmtResultMatchesIRExecWithInternals hstep
+
+/-- Events-preserving sibling of
+`exec_compileStmtList_generic_with_helpers_and_helper_ir_sizeOf_extraFuel`.
+The step theorem already compiles against `spec.events`; callers that admit
+scalar event heads only need to erase the still-unsupported error catalog. -/
+theorem exec_compileStmtList_generic_with_helpers_and_helper_ir_sizeOf_extraFuel_with_events
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {runtime : SourceSemantics.RuntimeState}
+    {state : IRState}
+    {scope : List String}
+    {stmts : List Stmt}
+    (helperFuel : Nat)
+    (extraFuel : Nat)
+    (hfuelPos : 0 < helperFuel)
+    (hgeneric :
+      StmtListGenericWithHelpersAndHelperIR runtimeContract spec fields scope stmts)
+    (hscope : FunctionBody.scopeNamesPresent scope runtime.bindings)
+    (hexact : FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state)
+    (hbounded : FunctionBody.bindingsBounded runtime.bindings)
+    (hnoErrors : spec.errors = [])
+    (hruntime : FunctionBody.runtimeStateMatchesIR fields runtime state) :
+    ∃ bodyIR,
+      CompilationModel.compileStmtList
+        fields spec.events [] .calldata [] false scope [] stmts = Except.ok bodyIR ∧
+      let sourceResult := SourceSemantics.execStmtListWithHelpers spec fields helperFuel runtime stmts
+      let irExec := execIRStmtsWithInternals runtimeContract (sizeOf bodyIR + extraFuel + 1) state bodyIR
+      stmtResultMatchesIRExecWithInternals fields sourceResult irExec := by
+  rcases exec_compileStmtList_generic_with_helpers_and_helper_ir_sizeOf_extraFuel_step
+      (runtimeContract := runtimeContract)
+      (spec := spec)
+      (fields := fields)
+      (runtime := runtime)
+      (state := state)
+      (scope := scope)
+      (stmts := stmts)
+      (helperFuel := helperFuel)
+      (extraFuel := extraFuel)
+      hfuelPos
+      hgeneric
+      hscope
+      hexact
+      hbounded
+      hnoErrors
+      hruntime with
+    ⟨bodyIR, hcompile, hstep⟩
+  refine ⟨bodyIR, by simpa [hnoErrors] using hcompile, ?_⟩
   exact stmtStepMatchesIRExecWithInternals_implies_stmtResultMatchesIRExecWithInternals hstep
