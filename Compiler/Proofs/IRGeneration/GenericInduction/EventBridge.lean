@@ -1523,7 +1523,7 @@ private theorem eventScratchKey_injective_of_lt
   have hdiv :
       Compiler.Constants.evmModulus / Nat.gcd Compiler.Constants.evmModulus 32 =
         2 ^ 251 := by
-    native_decide
+    decide
   have hi' : i < Compiler.Constants.evmModulus / Nat.gcd Compiler.Constants.evmModulus 32 := by
     rw [hdiv]
     exact lt_of_lt_of_le hi (by norm_num [eventScratchSizeLimit])

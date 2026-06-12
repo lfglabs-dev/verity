@@ -50,6 +50,7 @@ import Compiler.Proofs.IRGeneration.FunctionBody.Stmt
 import Compiler.Proofs.IRGeneration.FunctionShape
 import Compiler.Proofs.IRGeneration.GenericInduction.Calls
 import Compiler.Proofs.IRGeneration.GenericInduction.DenoteSound
+import Compiler.Proofs.IRGeneration.GenericInduction.EventBridge
 import Compiler.Proofs.IRGeneration.GenericInduction.ExprStmt
 import Compiler.Proofs.IRGeneration.GenericInduction.Helpers
 import Compiler.Proofs.IRGeneration.GenericInduction.InterfaceAssembly
@@ -2282,6 +2283,128 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.denote_sound
   Compiler.Proofs.IRGeneration.denote_sound_with_helpers
 
+  -- Compiler/Proofs/IRGeneration/GenericInduction/EventBridge.lean
+  -- Compiler.Proofs.IRGeneration.length_le_sizeOf  -- private
+  -- Compiler.Proofs.IRGeneration.eventSingletonBlock_sizeOf_slack  -- private
+  -- Compiler.Proofs.IRGeneration.eventExecIRStmts_single_block_of_continue  -- private
+  -- Compiler.Proofs.IRGeneration.eventEvalExprList_eq_mapM  -- private
+  -- Compiler.Proofs.IRGeneration.eventExprList_all_helperSurfaceClosed_of_contractSurfaceClosed  -- private
+  -- Compiler.Proofs.IRGeneration.eventEvalExprListWithHelpers_eq_evalExprList_of_contractSurfaceClosed  -- private
+  -- Compiler.Proofs.IRGeneration.eventEvalExprList_values_lt  -- private
+  -- Compiler.Proofs.IRGeneration.eventExprList_compile_core_of_contractSurfaceClosed  -- private
+  -- Compiler.Proofs.IRGeneration.eventEncodeEvents_snoc  -- private
+  -- Compiler.Proofs.IRGeneration.execIRStmts_of_StmtsContinueFromTo  -- private
+  -- Compiler.Proofs.IRGeneration.StmtsContinueFromTo_append  -- private
+  -- Compiler.Proofs.IRGeneration.compileExpr_atomic_shape  -- private
+  -- Compiler.Proofs.IRGeneration.eventExprCompileCore_of_exprEventArgAtomic  -- private
+  -- Compiler.Proofs.IRGeneration.eventCompileExprList_atomic_shapes  -- private
+  -- Compiler.Proofs.IRGeneration.evalIRCall_nil_setVar  -- private
+  -- Compiler.Proofs.IRGeneration.evalIRCall_nil_memory  -- private
+  -- Compiler.Proofs.IRGeneration.evalIRExpr_atomic_setVar  -- private
+  -- Compiler.Proofs.IRGeneration.evalIRExpr_atomic_memory  -- private
+  -- Compiler.Proofs.IRGeneration.eventForall₂_eval_atomic_setVar  -- private
+  -- Compiler.Proofs.IRGeneration.eventForall₂_eval_atomic_memory  -- private
+  -- Compiler.Proofs.IRGeneration.eventForall₂_eval_atomic_setVar_of_args  -- private
+  -- Compiler.Proofs.IRGeneration.eventForall₂_eval_atomic_memory_of_args  -- private
+  -- Compiler.Proofs.IRGeneration.eventExecIRStmt_let_step  -- private
+  -- Compiler.Proofs.IRGeneration.eventExecIRStmt_mstore_step  -- private
+  -- Compiler.Proofs.IRGeneration.eventExecIRStmt_log1_step  -- private
+  -- Compiler.Proofs.IRGeneration.eventExecIRStmt_log2_step  -- private
+  -- Compiler.Proofs.IRGeneration.eventExecIRStmt_log3_step  -- private
+  -- Compiler.Proofs.IRGeneration.eventExecIRStmt_log4_step  -- private
+  -- Compiler.Proofs.IRGeneration.eventStorePtr_continue  -- private
+  -- Compiler.Proofs.IRGeneration.eventLegacy_append  -- private
+  -- Compiler.Proofs.IRGeneration.eventLegacy_singleton_let  -- private
+  -- Compiler.Proofs.IRGeneration.eventLegacy_singleton_expr  -- private
+  -- Compiler.Proofs.IRGeneration.eventIRState_set_memory_eq_self  -- private
+  -- Compiler.Proofs.IRGeneration.eventEvalIRExpr_evtPtr_add  -- private
+  -- Compiler.Proofs.IRGeneration.eventSignatureStoreStmtsFromWords_cons  -- private
+  -- Compiler.Proofs.IRGeneration.eventSignatureStoreStmtsFromChunks_eq_words  -- private
+  -- Compiler.Proofs.IRGeneration.eventSignatureStoreStmtsFromWords_legacy  -- private
+  -- Compiler.Proofs.IRGeneration.eventSignatureStoreStmtsFromChunks_legacy  -- private
+  -- Compiler.Proofs.IRGeneration.eventSignatureScratchStore_memoryRel  -- private
+  -- Compiler.Proofs.IRGeneration.eventSignatureScratchStores_continue  -- private
+  -- Compiler.Proofs.IRGeneration.eventSignatureTopic_of_memorySliceWords_eq  -- private
+  -- Compiler.Proofs.IRGeneration.eventEvalIRExpr_topic0  -- private
+  -- Compiler.Proofs.IRGeneration.eventEvalIRExpr_normalizeEventWord_uint8  -- private
+  -- Compiler.Proofs.IRGeneration.eventEvalIRExpr_normalizeEventWord_uint16  -- private
+  -- Compiler.Proofs.IRGeneration.eventEvalIRExpr_normalizeEventWord_address  -- private
+  -- Compiler.Proofs.IRGeneration.eventEvalIRExpr_normalizeEventWord_bool  -- private
+  -- Compiler.Proofs.IRGeneration.eventEvalIRExpr_normalizeEventWord  -- private
+  -- Compiler.Proofs.IRGeneration.eventNormalizeEventValue_lt_evmModulus  -- private
+  -- Compiler.Proofs.IRGeneration.eventNormalizeEventValue_lt_evmModulus_any  -- private
+  -- Compiler.Proofs.IRGeneration.eventUnindexedScratchStore_memoryRel  -- private
+  -- Compiler.Proofs.IRGeneration.eventUnindexedStore_one_continue  -- private
+  -- Compiler.Proofs.IRGeneration.eventUnindexedEntryOk_memory  -- private
+  -- Compiler.Proofs.IRGeneration.eventUnindexedEntriesOk_memory  -- private
+  -- Compiler.Proofs.IRGeneration.eventFoldl_add_start  -- private
+  -- Compiler.Proofs.IRGeneration.eventUnindexedHeadSize_eq_values  -- private
+  -- Compiler.Proofs.IRGeneration.eventScalarUnindexedStoresFrom_legacy  -- private
+  -- Compiler.Proofs.IRGeneration.eventCompiledScalarEmit_legacy  -- private
+  -- Compiler.Proofs.IRGeneration.eventUnindexedStores_cons_continue  -- private
+  -- Compiler.Proofs.IRGeneration.eventUnindexedStores_continue  -- private
+  -- Compiler.Proofs.IRGeneration.eventValuesForKind_unindexed_cons_true  -- private
+  -- Compiler.Proofs.IRGeneration.eventValuesForKind_unindexed_cons_false  -- private
+  -- Compiler.Proofs.IRGeneration.eventWriteUnindexed_filter_unindexed  -- private
+  -- Compiler.Proofs.IRGeneration.eventEncodedValuesForKind_filter_self  -- private
+  -- Compiler.Proofs.IRGeneration.eventKind_unindexed_true_of_not_indexed  -- private
+  -- Compiler.Proofs.IRGeneration.eventKind_indexed_false_of_unindexed_true  -- private
+  -- Compiler.Proofs.IRGeneration.eventKind_unindexed_false_of_indexed_true  -- private
+  -- Compiler.Proofs.IRGeneration.eventSplitEventArgsByParams_unindexed_encoded  -- private
+  -- Compiler.Proofs.IRGeneration.eventSplitEventArgsByParams_indexed_encoded  -- private
+  -- Compiler.Proofs.IRGeneration.eventSplitEventArgsByParams_encoded  -- private
+  -- Compiler.Proofs.IRGeneration.eventKeccakFold_lt_evmModulus  -- private
+  -- Compiler.Proofs.IRGeneration.eventSignatureTopic_lt_evmModulus  -- private
+  -- Compiler.Proofs.IRGeneration.eventFromResolvedArgs?_encoded  -- private
+  -- Compiler.Proofs.IRGeneration.eventIndexedTopicParts_eval  -- private
+  -- Compiler.Proofs.IRGeneration.eventIndexedTopicParts_eval_values  -- private
+  -- Compiler.Proofs.IRGeneration.eventScratchKey_injective_of_lt  -- private
+  -- Compiler.Proofs.IRGeneration.eventWriteSignatureScratch_preserve_before  -- private
+  -- Compiler.Proofs.IRGeneration.eventWriteSignatureScratch_read_head  -- private
+  -- Compiler.Proofs.IRGeneration.eventWriteSignatureScratch_read_getElem  -- private
+  -- Compiler.Proofs.IRGeneration.eventChunkBytes32_length  -- private
+  -- Compiler.Proofs.IRGeneration.eventByteWordCount_le_self  -- private
+  -- Compiler.Proofs.IRGeneration.eventSignatureWords_length  -- private
+  -- Compiler.Proofs.IRGeneration.eventSignatureWords_length_le_scratch  -- private
+  -- Compiler.Proofs.IRGeneration.eventParams_length_le_scratch  -- private
+  -- Compiler.Proofs.IRGeneration.eventUnindexedParams_length_le_scratch  -- private
+  -- Compiler.Proofs.IRGeneration.eventFilteredZippedParams_length_le_scratch  -- private
+  -- Compiler.Proofs.IRGeneration.eventChunkBytes32_mem_length_le  -- private
+  -- Compiler.Proofs.IRGeneration.eventFoldBytes_bound  -- private
+  -- Compiler.Proofs.IRGeneration.eventWordFromBytes_lt_evmModulus_of_length_le  -- private
+  -- Compiler.Proofs.IRGeneration.eventSignatureWords_bounded  -- private
+  -- Compiler.Proofs.IRGeneration.eventSignatureMemory_read_getElem  -- private
+  -- Compiler.Proofs.IRGeneration.eventSignatureScratch_read_getElem_val  -- private
+  -- Compiler.Proofs.IRGeneration.eventSignatureScratch_memorySliceWords_eq  -- private
+  -- Compiler.Proofs.IRGeneration.eventYulLogDataWords_eq_of_getElem  -- private
+  -- Compiler.Proofs.IRGeneration.eventWriteUnindexedScratch_preserve_before  -- private
+  -- Compiler.Proofs.IRGeneration.eventWriteUnindexedScratch_read_head  -- private
+  -- Compiler.Proofs.IRGeneration.eventWriteUnindexedScratch_read_getElem  -- private
+  -- Compiler.Proofs.IRGeneration.eventEncodedValuesForKind_unindexed_all_length  -- private
+  -- Compiler.Proofs.IRGeneration.eventEncodedValuesForKind_unindexed_all_getElem  -- private
+  -- Compiler.Proofs.IRGeneration.eventYulLogDataWords_of_writeUnindexedScratch  -- private
+  -- Compiler.Proofs.IRGeneration.eventLogStmt_continue_zero  -- private
+  -- Compiler.Proofs.IRGeneration.eventLogStmt_continue_one  -- private
+  -- Compiler.Proofs.IRGeneration.eventLogStmt_continue_two  -- private
+  -- Compiler.Proofs.IRGeneration.eventLogStmt_continue_three  -- private
+  -- Compiler.Proofs.IRGeneration.eventRuntimeStateMatchesIR_after_emit  -- private
+  -- Compiler.Proofs.IRGeneration.eventRuntimeStateMatchesIR_setVar  -- private
+  -- Compiler.Proofs.IRGeneration.eventRuntimeStateMatchesIR_after_emit_scratch  -- private
+  -- Compiler.Proofs.IRGeneration.eventBindingsExactlyMatch_after_emit  -- private
+  -- Compiler.Proofs.IRGeneration.eventCompileStmt_emit_scalar_shape  -- private
+  -- Compiler.Proofs.IRGeneration.eventParams_supported_and_head_size  -- private
+  -- Compiler.Proofs.IRGeneration.eventUnindexedEntriesOk_of_eval  -- private
+  -- Compiler.Proofs.IRGeneration.eventIndexedEntriesOk_of_eval  -- private
+  -- Compiler.Proofs.IRGeneration.eventZippedWithSource_filter_params_eq  -- private
+  -- Compiler.Proofs.IRGeneration.eventUnindexedEntryParams_eq_filter  -- private
+  -- Compiler.Proofs.IRGeneration.eventCollectExprListNames_subset_scope  -- private
+  -- Compiler.Proofs.IRGeneration.eventStmtNextScope_emit_included  -- private
+  -- Compiler.Proofs.IRGeneration.eventIndexedEntryParams_eq_filter  -- private
+  -- Compiler.Proofs.IRGeneration.eventLogStmt_continue_le_three  -- private
+  -- Compiler.Proofs.IRGeneration.eventExecIRStmts_single_event_block  -- private
+  Compiler.Proofs.IRGeneration.eventEmitHeadStepSemanticBridge
+  Compiler.Proofs.IRGeneration.eventHeadStepSemanticBridgeCatalog
+
   -- Compiler/Proofs/IRGeneration/GenericInduction/ExprStmt.lean
   Compiler.Proofs.IRGeneration.compiledStmtStep_letVar
   Compiler.Proofs.IRGeneration.compiledStmtStep_assignVar
@@ -2576,10 +2699,10 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_setMappingUint_singleSlot_of_slotSafety_preserves  -- private
   Compiler.Proofs.IRGeneration.compiledStmtStep_setMappingUint_singleSlot_of_slotSafety
   Compiler.Proofs.IRGeneration.compileExprList_core_ok
-  -- Compiler.Proofs.IRGeneration.compileStmt_emit_scalar_supported_ok  -- private
+  Compiler.Proofs.IRGeneration.compileStmt_emit_scalar_supported_ok
   Compiler.Proofs.IRGeneration.eventHeadStepBridgeCatalog_of_semanticBridgeCatalog
-  -- Compiler.Proofs.IRGeneration.eval_compileExpr_core_some_of_scope  -- private
-  -- Compiler.Proofs.IRGeneration.eval_compileExprList_core_of_scope  -- private
+  Compiler.Proofs.IRGeneration.eval_compileExpr_core_some_of_scope
+  Compiler.Proofs.IRGeneration.eval_compileExprList_core_of_scope
   -- Compiler.Proofs.IRGeneration.evalIRExpr_mappingSlotChain  -- private
   -- Compiler.Proofs.IRGeneration.execIRStmt_sstore_of_eval  -- private
   -- Compiler.Proofs.IRGeneration.execIRStmt_sstore_foldl_mappingSlot  -- private
@@ -3119,6 +3242,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.eventParamScalarProofSupported_ne_fixedArray
   Compiler.Proofs.IRGeneration.eventParamScalarProofSupported_ne_tuple
   Compiler.Proofs.IRGeneration.exists_eventDef_of_eventEmissionProofSupported
+  Compiler.Proofs.IRGeneration.eventDefScratchBounded_of_eventEmissionProofSupported
+  Compiler.Proofs.IRGeneration.args_all_atomic_of_eventEmissionProofSupported
   Compiler.Proofs.IRGeneration.eventEmissionProofSupported_find?_isSome
   Compiler.Proofs.IRGeneration.eventDefScalarProofSupported_eq_true_of_eventEmissionProofSupported
   Compiler.Proofs.IRGeneration.eventParamScalarProofSupported_eq_true_of_eventEmissionProofSupported
@@ -5360,4 +5485,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5011 theorems/lemmas (3542 public, 1469 private, 0 sorry'd)
+-- Total: 5133 theorems/lemmas (3549 public, 1584 private, 0 sorry'd)
