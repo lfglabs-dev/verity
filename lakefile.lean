@@ -25,7 +25,7 @@ lean_lib «Contracts» where
     .one `Contracts.Common,
     .one `Contracts.Specs,
     .one `Contracts.Interpreter,
-    .one `Contracts.Smoke,
+    .andSubmodules `Contracts.Smoke,
     .andSubmodules `Contracts.Counter,
     .andSubmodules `Contracts.SimpleStorage,
     .andSubmodules `Contracts.Owned,
@@ -53,11 +53,6 @@ lean_exe «verity-compiler» where
   -- interpreter eval of ecm/interface specs forces init/std decls (e.g. `UInt64.ofNatLT`). (#1951)
   supportInterpreter := true
 
-lean_exe «verity-compiler-patched» where
-  root := `Compiler.MainPatched
-  -- interpreter eval of ecm/interface specs forces init/std decls (e.g. `UInt64.ofNatLT`). (#1951)
-  supportInterpreter := true
-
 lean_exe «difftest-interpreter» where
   root := `Contracts.Interpreter
 
@@ -66,6 +61,22 @@ lean_exe «random-gen» where
 
 lean_exe «gas-report» where
   root := `Compiler.Gas.Report
+  -- Static gas reporting evaluates compiled terms that may depend on init/std
+  -- interpreter support through typed-interface ECMs.
+  supportInterpreter := true
 
 lean_exe «compiler-main-test» where
   root := `Compiler.MainTestRunner
+  -- Mirrors `verity-compiler`: CLI regression tests evaluate typed-interface ECMs
+  -- through the Lean interpreter.
+  supportInterpreter := true
+
+-- Emits the canonical storage-layout audit artifact (#1897). Lives at the
+-- package root because it imports both Compiler and Contracts, which the
+-- Compiler -> Contracts boundary forbids inside `Compiler/`.
+lean_lib «StorageLayoutReport» where
+  globs := #[.one `StorageLayoutReport]
+
+lean_exe «verity-storage-layout-report» where
+  root := `StorageLayoutReport
+  supportInterpreter := true

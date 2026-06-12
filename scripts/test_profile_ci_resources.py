@@ -70,6 +70,10 @@ class ProfileCiResourcesTests(unittest.TestCase):
             {"cpu_percent": 50.0, "iowait_percent": 10.0},
         )
 
+    @unittest.skipUnless(
+        Path("/proc/stat").exists(),
+        "profile_ci_resources reads /proc/stat (Linux-only)",
+    )
     def test_script_runs_command_and_writes_json_and_log(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir)

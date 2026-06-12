@@ -48,6 +48,8 @@ private def contractArtifactPath (outDir : String) (moduleName : String) : Strin
 
 set_option maxRecDepth 100000 in
 unsafe def runTests : IO Unit := do
+  let tempRoot := (← IO.getEnv "TMPDIR").getD "/tmp"
+  let tempPath (name : String) : String := s!"{tempRoot}/{name}"
   expectErrorContains "missing --link value" ["--link"] "Missing value for --link"
   expectErrorContains "missing --output value" ["--output"] "Missing value for --output"
   expectErrorContains "missing -o value" ["-o"] "Missing value for --output"
@@ -57,69 +59,69 @@ unsafe def runTests : IO Unit := do
   expectErrorContains "missing --module value" ["--module"] "Missing value for --module"
   expectErrorContains
     "duplicate --module value"
-    (["--module", "Contracts.Counter.Counter", "--module", "Contracts.Counter.Counter"] ++ ["--output", "/tmp/verity-main-test-dup"])
+    (["--module", "Contracts.Counter.Counter", "--module", "Contracts.Counter.Counter"] ++ ["--output", tempPath "verity-main-test-dup"])
     "Duplicate module input: Contracts.Counter.Counter"
   expectErrorContains
     "empty compiler input is rejected"
-    ["--output", "/tmp/verity-main-test-empty"]
+    ["--output", tempPath "verity-main-test-empty"]
     "No compiler input provided. Use --manifest and/or --module."
   expectErrorContains
     "invalid module name is rejected"
-    ["--module", "Contracts..Counter", "--output", "/tmp/verity-main-test-invalid"]
+    ["--module", "Contracts..Counter", "--output", tempPath "verity-main-test-invalid"]
     "Invalid module name: Contracts..Counter"
   expectErrorContains
     "missing manifest file is rejected"
-    ["--manifest", "/tmp/definitely-missing-verty-manifest", "--output", "/tmp/verity-main-test-missing-manifest"]
+    ["--manifest", tempPath "definitely-missing-verty-manifest", "--output", tempPath "verity-main-test-missing-manifest"]
     "Failed to read manifest"
 
   let nonce ← IO.monoMsNow
-  let allOutDir := s!"/tmp/verity-main-test-{nonce}-all-out"
+  let allOutDir := tempPath s!"verity-main-test-{nonce}-all-out"
   IO.FS.createDirAll allOutDir
   Compiler.Main.run (moduleArgs canonicalModules ++ ["--output", allOutDir])
   let allArtifactsPresent ←
     canonicalModules.allM (fun moduleName => fileExists (contractArtifactPath allOutDir moduleName))
   expectTrue "module input mode compiles every requested artifact" allArtifactsPresent
 
-  let singleOutDir := s!"/tmp/verity-main-test-{nonce}-single-out"
+  let singleOutDir := tempPath s!"verity-main-test-{nonce}-single-out"
   IO.FS.createDirAll singleOutDir
   Compiler.Main.run (["--module", "Contracts.Counter.Counter", "--output", singleOutDir])
   let selectedCounterArtifact ← fileExists s!"{singleOutDir}/Counter.yul"
   expectTrue "module input mode compiles explicitly selected contract" selectedCounterArtifact
-  let strictOutDir := s!"/tmp/verity-main-test-{nonce}-strict-out"
+  let strictOutDir := tempPath s!"verity-main-test-{nonce}-strict-out"
   IO.FS.createDirAll strictOutDir
   Compiler.Main.run (["--module", "Contracts.Counter.Counter", "--deny-unchecked-dependencies", "--output", strictOutDir])
   let strictCounterArtifact ← fileExists s!"{strictOutDir}/Counter.yul"
   expectTrue "strict unchecked-dependency gate accepts proved local modules" strictCounterArtifact
-  let proofStrictOutDir := s!"/tmp/verity-main-test-{nonce}-proof-strict-out"
+  let proofStrictOutDir := tempPath s!"verity-main-test-{nonce}-proof-strict-out"
   IO.FS.createDirAll proofStrictOutDir
   Compiler.Main.run (["--module", "Contracts.Counter.Counter", "--deny-assumed-dependencies", "--output", proofStrictOutDir])
   let proofStrictCounterArtifact ← fileExists s!"{proofStrictOutDir}/Counter.yul"
   expectTrue "strict assumed-dependency gate accepts proved local modules" proofStrictCounterArtifact
-  let primitiveStrictOutDir := s!"/tmp/verity-main-test-{nonce}-primitive-strict-out"
+  let primitiveStrictOutDir := tempPath s!"verity-main-test-{nonce}-primitive-strict-out"
   IO.FS.createDirAll primitiveStrictOutDir
   Compiler.Main.run (["--module", "Contracts.SimpleStorage.SimpleStorage", "--deny-axiomatized-primitives", "--output", primitiveStrictOutDir])
   let primitiveStrictArtifact ← fileExists s!"{primitiveStrictOutDir}/SimpleStorage.yul"
   expectTrue "strict axiomatized-primitive gate accepts contracts without axiomatized primitives" primitiveStrictArtifact
   expectErrorContains
     "strict axiomatized-primitive gate rejects axiomatized primitives"
-    ["--module", "Contracts.Counter.Counter", "--deny-axiomatized-primitives", "--output", s!"/tmp/verity-main-test-{nonce}-primitive-fail-out"]
+    ["--module", "Contracts.Counter.Counter", "--deny-axiomatized-primitives", "--output", tempPath s!"verity-main-test-{nonce}-primitive-fail-out"]
     "Counter [function:previewEnvOps]: keccak256"
-  let localObligationStrictOutDir := s!"/tmp/verity-main-test-{nonce}-local-obligation-strict-out"
+  let localObligationStrictOutDir := tempPath s!"verity-main-test-{nonce}-local-obligation-strict-out"
   IO.FS.createDirAll localObligationStrictOutDir
   Compiler.Main.run (["--module", "Contracts.SimpleStorage.SimpleStorage", "--deny-local-obligations", "--output", localObligationStrictOutDir])
   let localObligationStrictArtifact ← fileExists s!"{localObligationStrictOutDir}/SimpleStorage.yul"
   expectTrue "strict local-obligation gate accepts contracts without local obligations" localObligationStrictArtifact
   expectErrorContains
     "strict local-obligation gate rejects undischarged local obligations"
-    ["--module", "Contracts.LocalObligationTrustSurface", "--deny-local-obligations", "--output", s!"/tmp/verity-main-test-{nonce}-local-obligation-fail-out"]
+    ["--module", "Contracts.LocalObligationTrustSurface", "--deny-local-obligations", "--output", tempPath s!"verity-main-test-{nonce}-local-obligation-fail-out"]
     "LocalObligationTrustSurface [function:unsafeEdge]: assumed local obligations: manual_delegatecall_refinement"
   expectErrorContains
     "strict local-obligation gate rejects direct unsafe-boundary annotations"
-    ["--module", "Contracts.Counter.Counter", "--deny-local-obligations", "--output", s!"/tmp/verity-main-test-{nonce}-counter-local-obligation-fail-out"]
+    ["--module", "Contracts.Counter.Counter", "--deny-local-obligations", "--output", tempPath s!"verity-main-test-{nonce}-counter-local-obligation-fail-out"]
     "Counter [function:previewEnvOps]: assumed local obligations: env_memory_refinement"
-  let macroLocalObligationTrustReportPath := s!"/tmp/verity-main-test-{nonce}-macro-local-obligation-trust-report.json"
-  let macroLocalObligationAssumptionReportPath := s!"/tmp/verity-main-test-{nonce}-macro-local-obligation-assumption-report.json"
-  let macroLocalObligationOutDir := s!"/tmp/verity-main-test-{nonce}-macro-local-obligation-out"
+  let macroLocalObligationTrustReportPath := tempPath s!"verity-main-test-{nonce}-macro-local-obligation-trust-report.json"
+  let macroLocalObligationAssumptionReportPath := tempPath s!"verity-main-test-{nonce}-macro-local-obligation-assumption-report.json"
+  let macroLocalObligationOutDir := tempPath s!"verity-main-test-{nonce}-macro-local-obligation-out"
   IO.FS.createDirAll macroLocalObligationOutDir
   Compiler.Main.run
     [ "--module", "Contracts.LocalObligationMacroSmoke.LocalObligationMacroSmoke"
@@ -147,55 +149,55 @@ unsafe def runTests : IO Unit := do
       (contains macroLocalObligationAssumptionReport "\"name\":\"manual_delegatecall_refinement\",\"status\":\"assumed\""))
   expectErrorContains
     "strict local-obligation gate rejects macro-declared undischarged obligations"
-    ["--module", "Contracts.LocalObligationMacroSmoke.LocalObligationMacroSmoke", "--deny-local-obligations", "--output", s!"/tmp/verity-main-test-{nonce}-macro-local-obligation-fail-out"]
+    ["--module", "Contracts.LocalObligationMacroSmoke.LocalObligationMacroSmoke", "--deny-local-obligations", "--output", tempPath s!"verity-main-test-{nonce}-macro-local-obligation-fail-out"]
     "LocalObligationMacroSmoke [constructor:constructor]: unchecked local obligations: constructor_storage_layout"
-  let memoryStrictOutDir := s!"/tmp/verity-main-test-{nonce}-memory-strict-out"
+  let memoryStrictOutDir := tempPath s!"verity-main-test-{nonce}-memory-strict-out"
   IO.FS.createDirAll memoryStrictOutDir
   Compiler.Main.run (["--module", "Contracts.SimpleStorage.SimpleStorage", "--deny-linear-memory-mechanics", "--output", memoryStrictOutDir])
   let memoryStrictArtifact ← fileExists s!"{memoryStrictOutDir}/SimpleStorage.yul"
   expectTrue "strict linear-memory gate accepts contracts without partially modeled memory mechanics" memoryStrictArtifact
   expectErrorContains
     "strict linear-memory gate rejects partially modeled memory mechanics"
-    ["--module", "Contracts.Counter.Counter", "--deny-linear-memory-mechanics", "--output", s!"/tmp/verity-main-test-{nonce}-memory-fail-out"]
+    ["--module", "Contracts.Counter.Counter", "--deny-linear-memory-mechanics", "--output", tempPath s!"verity-main-test-{nonce}-memory-fail-out"]
     "Counter [function:previewEnvOps]: mload"
-  let eventStrictOutDir := s!"/tmp/verity-main-test-{nonce}-event-strict-out"
+  let eventStrictOutDir := tempPath s!"verity-main-test-{nonce}-event-strict-out"
   IO.FS.createDirAll eventStrictOutDir
   Compiler.Main.run (["--module", "Contracts.SimpleStorage.SimpleStorage", "--deny-event-emission", "--output", eventStrictOutDir])
   let eventStrictArtifact ← fileExists s!"{eventStrictOutDir}/SimpleStorage.yul"
   expectTrue "strict event-emission gate accepts contracts without raw event emission" eventStrictArtifact
   expectErrorContains
     "strict event-emission gate rejects raw event emission"
-    ["--module", "Contracts.RawLogTrustSurface", "--deny-event-emission", "--output", s!"/tmp/verity-main-test-{nonce}-event-fail-out"]
+    ["--module", "Contracts.RawLogTrustSurface", "--deny-event-emission", "--output", tempPath s!"verity-main-test-{nonce}-event-fail-out"]
     "RawLogTrustSurface [function:emitTrace]: rawLog"
-  let lowLevelStrictOutDir := s!"/tmp/verity-main-test-{nonce}-low-level-strict-out"
+  let lowLevelStrictOutDir := tempPath s!"verity-main-test-{nonce}-low-level-strict-out"
   IO.FS.createDirAll lowLevelStrictOutDir
   Compiler.Main.run (["--module", "Contracts.SimpleStorage.SimpleStorage", "--deny-low-level-mechanics", "--output", lowLevelStrictOutDir])
   let lowLevelStrictArtifact ← fileExists s!"{lowLevelStrictOutDir}/SimpleStorage.yul"
   expectTrue "strict low-level gate accepts contracts without low-level mechanics" lowLevelStrictArtifact
   expectErrorContains
     "strict low-level gate rejects low-level mechanics"
-    ["--module", "Contracts.Counter.Counter", "--deny-low-level-mechanics", "--output", s!"/tmp/verity-main-test-{nonce}-low-level-fail-out"]
+    ["--module", "Contracts.Counter.Counter", "--deny-low-level-mechanics", "--output", tempPath s!"verity-main-test-{nonce}-low-level-fail-out"]
     "Counter [function:previewLowLevel]: call, staticcall, delegatecall, revertReturndata, returndataCopy, returndataSize"
-  let runtimeStrictOutDir := s!"/tmp/verity-main-test-{nonce}-runtime-strict-out"
+  let runtimeStrictOutDir := tempPath s!"verity-main-test-{nonce}-runtime-strict-out"
   IO.FS.createDirAll runtimeStrictOutDir
   Compiler.Main.run (["--module", "Contracts.SimpleStorage.SimpleStorage", "--deny-runtime-introspection", "--output", runtimeStrictOutDir])
   let runtimeStrictArtifact ← fileExists s!"{runtimeStrictOutDir}/SimpleStorage.yul"
   expectTrue "strict runtime-introspection gate accepts contracts without partially modeled runtime introspection" runtimeStrictArtifact
   expectErrorContains
     "strict runtime-introspection gate rejects partially modeled runtime introspection"
-    ["--module", "Contracts.Counter.Counter", "--deny-runtime-introspection", "--output", s!"/tmp/verity-main-test-{nonce}-runtime-fail-out"]
+    ["--module", "Contracts.Counter.Counter", "--deny-runtime-introspection", "--output", tempPath s!"verity-main-test-{nonce}-runtime-fail-out"]
     "Counter [function:previewEnvOps]: blockNumber, contractAddress, chainid"
-  let proxyStrictOutDir := s!"/tmp/verity-main-test-{nonce}-proxy-strict-out"
+  let proxyStrictOutDir := tempPath s!"verity-main-test-{nonce}-proxy-strict-out"
   IO.FS.createDirAll proxyStrictOutDir
   Compiler.Main.run (["--module", "Contracts.SimpleStorage.SimpleStorage", "--deny-proxy-upgradeability", "--output", proxyStrictOutDir])
   let proxyStrictArtifact ← fileExists s!"{proxyStrictOutDir}/SimpleStorage.yul"
   expectTrue "strict proxy-upgradeability gate accepts contracts without delegatecall" proxyStrictArtifact
   expectErrorContains
     "strict proxy-upgradeability gate rejects delegatecall mechanics"
-    ["--module", "Contracts.Counter.Counter", "--deny-proxy-upgradeability", "--output", s!"/tmp/verity-main-test-{nonce}-proxy-fail-out"]
+    ["--module", "Contracts.Counter.Counter", "--deny-proxy-upgradeability", "--output", tempPath s!"verity-main-test-{nonce}-proxy-fail-out"]
     "Counter [function:previewLowLevel]: delegatecall"
-  let proxyMacroTrustReportPath := s!"/tmp/verity-main-test-{nonce}-proxy-macro-trust-report.json"
-  let proxyMacroOutDir := s!"/tmp/verity-main-test-{nonce}-proxy-macro-out"
+  let proxyMacroTrustReportPath := tempPath s!"verity-main-test-{nonce}-proxy-macro-trust-report.json"
+  let proxyMacroOutDir := tempPath s!"verity-main-test-{nonce}-proxy-macro-out"
   IO.FS.createDirAll proxyMacroOutDir
   Compiler.Main.run
     [ "--module", "Contracts.ProxyUpgradeabilityMacroSmoke"
@@ -214,14 +216,14 @@ unsafe def runTests : IO Unit := do
     (contains proxyMacroTrustReport "\"kind\":\"function\",\"name\":\"forward\"")
   expectErrorContains
     "strict proxy-upgradeability gate rejects macro proxy delegatecall"
-    ["--module", "Contracts.ProxyUpgradeabilityMacroSmoke", "--deny-proxy-upgradeability", "--output", s!"/tmp/verity-main-test-{nonce}-proxy-macro-fail-out"]
+    ["--module", "Contracts.ProxyUpgradeabilityMacroSmoke", "--deny-proxy-upgradeability", "--output", tempPath s!"verity-main-test-{nonce}-proxy-macro-fail-out"]
     "ProxyUpgradeabilityMacroSmoke [function:forward]: delegatecall"
   expectErrorContains
     "strict local-obligation gate rejects macro proxy obligations"
-    ["--module", "Contracts.ProxyUpgradeabilityMacroSmoke", "--deny-local-obligations", "--output", s!"/tmp/verity-main-test-{nonce}-proxy-macro-local-fail-out"]
+    ["--module", "Contracts.ProxyUpgradeabilityMacroSmoke", "--deny-local-obligations", "--output", tempPath s!"verity-main-test-{nonce}-proxy-macro-local-fail-out"]
     "ProxyUpgradeabilityMacroSmoke [function:initProxy]: assumed local obligations: implementation_slot_discipline"
-  let proxyMacroLayoutReportPath := s!"/tmp/verity-main-test-{nonce}-proxy-macro-layout-report.json"
-  let proxyMacroLayoutOutDir := s!"/tmp/verity-main-test-{nonce}-proxy-macro-layout-out"
+  let proxyMacroLayoutReportPath := tempPath s!"verity-main-test-{nonce}-proxy-macro-layout-report.json"
+  let proxyMacroLayoutOutDir := tempPath s!"verity-main-test-{nonce}-proxy-macro-layout-out"
   IO.FS.createDirAll proxyMacroLayoutOutDir
   Compiler.Main.run
     [ "--module", "Contracts.ProxyUpgradeabilityMacroSmoke"
@@ -236,8 +238,8 @@ unsafe def runTests : IO Unit := do
   expectTrue "macro proxy layout report keeps empty alias policies explicit"
     ((contains proxyMacroLayoutReport "\"reservedSlotRanges\":[]") &&
       (contains proxyMacroLayoutReport "\"slotAliasRanges\":[]"))
-  let proxyLayoutCompatReportPath := s!"/tmp/verity-main-test-{nonce}-proxy-layout-compat-report.json"
-  let proxyLayoutCompatOutDir := s!"/tmp/verity-main-test-{nonce}-proxy-layout-compat-out"
+  let proxyLayoutCompatReportPath := tempPath s!"verity-main-test-{nonce}-proxy-layout-compat-report.json"
+  let proxyLayoutCompatOutDir := tempPath s!"verity-main-test-{nonce}-proxy-layout-compat-out"
   IO.FS.createDirAll proxyLayoutCompatOutDir
   Compiler.Main.run
     [ "--module", "Contracts.ProxyUpgradeabilityMacroSmoke"
@@ -255,7 +257,7 @@ unsafe def runTests : IO Unit := do
     [ "--module", "Contracts.ProxyUpgradeabilityMacroSmoke"
     , "--module", "Contracts.ProxyUpgradeabilityLayoutIncompatibleSmoke"
     , "--deny-layout-incompatibility"
-    , "--output", s!"/tmp/verity-main-test-{nonce}-proxy-layout-compat-fail-out"
+    , "--output", tempPath s!"verity-main-test-{nonce}-proxy-layout-compat-fail-out"
     ]
     "field 'admin' moved slots: 1 -> 2"
   let nonSelectedArtifactFlags ←
@@ -264,19 +266,19 @@ unsafe def runTests : IO Unit := do
   let nonSelectedArtifactsAbsent := nonSelectedArtifactFlags.all (fun isPresent => !isPresent)
   expectTrue "selected module mode does not emit non-selected artifacts" nonSelectedArtifactsAbsent
 
-  expectErrorContains "patch report flag is redirected to patched compiler" ["--patch-report"] "verity-compiler-patched"
+  expectErrorContains "bare --patch-report errors missing value" ["--patch-report"] "Missing value for --patch-report"
   expectErrorContains "missing --assumption-report value" ["--assumption-report"] "Missing value for --assumption-report"
   expectErrorContains "missing --layout-report value" ["--layout-report"] "Missing value for --layout-report"
   expectErrorContains "missing --layout-compat-report value" ["--layout-compat-report"] "Missing value for --layout-compat-report"
-  expectErrorContains "patch max iterations flag is redirected to patched compiler" ["--patch-max-iterations"] "verity-compiler-patched"
+  expectErrorContains "bare --patch-max-iterations errors missing value" ["--patch-max-iterations"] "Missing value for --patch-max-iterations"
   expectErrorContains "missing --backend-profile value" ["--backend-profile"] "Missing value for --backend-profile"
-  expectErrorContains "invalid --backend-profile value" ["--backend-profile", "invalid-profile"] "expected semantic or solidity-parity-ordering"
-  expectErrorContains "solidity parity profile is redirected to patched compiler" ["--backend-profile", "solidity-parity"] "verity-compiler-patched"
-  expectErrorContains "parity pack flag is redirected to patched compiler" ["--parity-pack"] "verity-compiler-patched"
-  expectErrorContains "invalid parity pack is still redirected to patched compiler" ["--parity-pack", "invalid-pack"] "verity-compiler-patched"
-  expectErrorContains "duplicate parity pack still redirects to patched compiler" ["--parity-pack", "solc-0.8.33-o200-viair-false-evm-shanghai", "--parity-pack", "solc-0.8.28-o999999-viair-true-evm-paris"] "verity-compiler-patched"
-  expectErrorContains "backend-profile + parity-pack conflict is handled by patched compiler redirect (profile first)" ["--backend-profile", "semantic", "--parity-pack", "solc-0.8.33-o200-viair-false-evm-shanghai"] "verity-compiler-patched"
-  expectErrorContains "backend-profile + parity-pack conflict is handled by patched compiler redirect (pack first)" ["--parity-pack", "solc-0.8.33-o200-viair-false-evm-shanghai", "--backend-profile", "semantic"] "verity-compiler-patched"
+  expectErrorContains "invalid --backend-profile value" ["--backend-profile", "invalid-profile"] "expected semantic, solidity-parity-ordering, or solidity-parity"
+  expectErrorContains "solidity-parity backend profile accepted; errors no input" ["--backend-profile", "solidity-parity"] "No compiler input provided"
+  expectErrorContains "bare --parity-pack errors missing value" ["--parity-pack"] "Missing value for --parity-pack"
+  expectErrorContains "invalid parity pack id is rejected" ["--parity-pack", "invalid-pack"] "Invalid value for --parity-pack"
+  expectErrorContains "unknown parity pack id is rejected" ["--parity-pack", "solc-0.8.33-o200-viair-false-evm-shanghai", "--parity-pack", "solc-0.8.28-o999999-viair-true-evm-paris"] "Invalid value for --parity-pack"
+  expectErrorContains "backend-profile + parity-pack conflict is rejected (profile first)" ["--backend-profile", "semantic", "--parity-pack", "solc-0.8.33-o200-viair-false-evm-shanghai"] "Cannot combine --parity-pack with --backend-profile"
+  expectErrorContains "unknown parity pack id rejected before backend-profile conflict check" ["--parity-pack", "solc-0.8.33-o200-viair-false-evm-shanghai", "--backend-profile", "semantic"] "Invalid value for --parity-pack"
   expectErrorContains "missing --mapping-slot-scratch-base value" ["--mapping-slot-scratch-base"] "Missing value for --mapping-slot-scratch-base"
   expectErrorContains "invalid --mapping-slot-scratch-base value" ["--mapping-slot-scratch-base", "not-a-number"] "Invalid value for --mapping-slot-scratch-base: not-a-number"
   expectErrorContains "removed --ast flag is rejected" ["--ast"] "Unknown argument: --ast"

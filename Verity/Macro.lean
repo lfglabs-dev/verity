@@ -4,3 +4,4 @@ import Verity.Macro.Bridge
 import Verity.Macro.Elaborate
 import Verity.Macro.SpecGen
 import Verity.Macro.KeccakLit
+import Verity.Macro.KeccakString

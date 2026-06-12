@@ -31,6 +31,12 @@ When adding a source-level feature, update the earliest layer that can express i
 precisely. Avoid patching generated Yul when the feature has a stable source or
 `CompilationModel` shape.
 
+The machine-readable ownership registry is
+[`artifacts/feature_ownership.json`](../artifacts/feature_ownership.json). It
+records whether major surfaces are source-supported, compiler-supported,
+proof-modeled, trust-reported, or deprecated, and should be updated when a
+compatibility shim is added or a proof boundary changes.
+
 | Feature kind | Preferred owner | Examples | Notes |
 |---|---|---|---|
 | Ordinary source syntax | `Verity/Macro/*` | `internal` source helpers, storage declarations, ABI-shaped parameters | Must lower to ordinary `CompilationModel` fields/functions/statements. |

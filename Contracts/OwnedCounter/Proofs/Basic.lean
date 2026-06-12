@@ -114,6 +114,7 @@ theorem increment_unfold (s : ContractState)
     { «storage» := fun slotIdx => if (slotIdx == 1) = true then EVM.Uint256.add (s.storage 1) 1 else s.storage slotIdx,
       transientStorage := s.transientStorage,
       storageAddr := s.storageAddr,
+        txOrigin := s.txOrigin,
       storageMap := s.storageMap,
       storageMapUint := s.storageMapUint,
       storageMap2 := s.storageMap2,
@@ -167,6 +168,7 @@ theorem decrement_unfold (s : ContractState)
     { «storage» := fun slotIdx => if (slotIdx == 1) = true then EVM.Uint256.sub (s.storage 1) 1 else s.storage slotIdx,
       transientStorage := s.transientStorage,
       storageAddr := s.storageAddr,
+        txOrigin := s.txOrigin,
       storageMap := s.storageMap,
       storageMapUint := s.storageMapUint,
       storageMap2 := s.storageMap2,
@@ -231,19 +233,20 @@ theorem transferOwnership_unfold (s : ContractState) (newOwner : Address)
       blockNumber := s.blockNumber,
       chainId := s.chainId,
       blobBaseFee := s.blobBaseFee,
-      calldataSize := s.calldataSize,
-      calldata := s.calldata,
-      memory := s.memory,
-      knownAddresses := s.knownAddresses,
-      events := s.events } := by
+       calldataSize := s.calldataSize,
+       calldata := s.calldata,
+       memory := s.memory,
+       knownAddresses := s.knownAddresses,
+       events := s.events,
+       txOrigin := s.txOrigin } := by
   verity_unfold transferOwnership
   simp [owner, h_owner]
 
 theorem transferOwnership_meets_spec_when_owner (s : ContractState) (newOwner : Address)
-  (h_owner : s.sender = s.storageAddr 0) :
+  (h_owner : s.sender = s.storageAddr 0 ∧ s.txOrigin = 0) :
   let s' := ((transferOwnership newOwner).run s).snd
   transferOwnership_spec newOwner s s' := by
-  rw [transferOwnership_unfold s newOwner h_owner]
+  rw [transferOwnership_unfold s newOwner h_owner.1]
   refine ⟨?_, ?_, ?_⟩
   · simp [ContractResult.snd]
   · intro slotIdx h_neq

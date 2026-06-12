@@ -1335,6 +1335,14 @@ theorem primCall_address_any_ok
       .ok (state, [EvmYul.UInt256.ofNat state.executionEnv.codeOwner.val]) := by
   cases fuel <;> simp [EvmYul.Yul.primCall, step_address_any]
 
+theorem primCall_origin_any_ok
+    (fuel : Nat)
+    (state : EvmYul.Yul.State)
+    (values : List EvmYul.UInt256) :
+    EvmYul.Yul.primCall (fuel + 1) state EvmYul.Operation.ORIGIN values =
+      .ok (state, [EvmYul.UInt256.ofNat state.executionEnv.sender.val]) := by
+  cases fuel <;> simp [EvmYul.Yul.primCall, step_origin_any]
+
 theorem primCall_caller_any_ok
     (fuel : Nat)
     (state : EvmYul.Yul.State)

@@ -14,7 +14,8 @@ HARNESS = (
     / "Proofs"
     / "YulGeneration"
     / "Backends"
-    / "EvmYulLeanNativeHarness.lean"
+    / "EvmYulLeanNativeHarness"
+    / "Runtime.lean"
 )
 
 

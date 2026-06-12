@@ -1,4 +1,5 @@
 import Compiler.Proofs.IRGeneration.SourceSemantics
+import Compiler.Proofs.IRGeneration.FunctionBody.Base
 
 /-!
 Generic EVM Frames (minimal extraction for climb / loop proofs).
@@ -17,7 +18,7 @@ open Compiler.Proofs.IRGeneration.SourceSemantics
 open Compiler.CompilationModel (Expr Stmt)
 
 abbrev PreservesBindingsExcept (st s : RuntimeState) (written : List String) : Prop :=
-  forall key, key notin written -> lookupValue s.bindings key = lookupValue st.bindings key
+  forall key, key ∉ written -> lookupValue s.bindings key = lookupValue st.bindings key
 
 theorem execStmt_letVar_preserves_bindings_except
     (st s : RuntimeState) (name : String) (e : Expr)
@@ -32,7 +33,8 @@ theorem execStmt_letVar_preserves_bindings_except
       rw [hev] at h
       injection h with hh; subst hh
       intro key hne
-      simp [lookupValue_bindValue_ne _ _ _ _ hne]
+      have hNe : key ≠ name := by simpa using hne
+      simp [Compiler.Proofs.IRGeneration.FunctionBody.lookupValue_bindValue_ne _ _ _ _ hNe]
 
 theorem execStmt_mstore_preserves_bindings_except
     (st s : RuntimeState) (off val : Expr)

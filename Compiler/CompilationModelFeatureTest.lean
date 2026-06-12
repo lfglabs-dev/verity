@@ -25,6 +25,10 @@ import Verity.Macro.Translate
 -- `Compiler/Proofs/IRGeneration/GenericInduction.lean`.
 set_option linter.unnecessarySeqFocus false
 set_option linter.unusedTactic false
+-- The Batteries unreachable-tactic linter stack-overflows on this file's
+-- size after the canonical-traversal validator port; it adds no value on a
+-- pure smoke/regression module.
+set_option linter.unreachableTactic false
 
 namespace Compiler.CompilationModelFeatureTest
 
@@ -5176,12 +5180,12 @@ def routerSpecUsesTypedEventsAndReturns : Bool :=
   TypedVerifierRouter.spec.functions.any (fun fn =>
     fn.name == "getCircuit" &&
       fn.params.map (fun param => param.ty) == [ParamType.bytes32] &&
-      fn.returns == [ParamType.address, ParamType.uint16, ParamType.uint16, ParamType.bool])
+      fn.returns == [ParamType.tuple [ParamType.address, ParamType.uint16, ParamType.uint16, ParamType.bool]])
 
 def routerStructMembersDestructuringKeepsMemberTypes : Bool :=
   TypedVerifierRouter.spec.functions.any (fun fn =>
     fn.name == "getCircuitViaMembers" &&
-      fn.returns == [ParamType.address, ParamType.uint16, ParamType.uint16, ParamType.bool]) &&
+      fn.returns == [ParamType.tuple [ParamType.address, ParamType.uint16, ParamType.uint16, ParamType.bool]]) &&
   TypedVerifierRouter.spec.functions.any (fun fn =>
     fn.name == "getRouteFlag" &&
       fn.returns == [ParamType.bool, ParamType.uint16])
@@ -6430,5 +6434,164 @@ set_option maxRecDepth 4096 in
     MacroConstantSmoke.treasuryAsWordModelInlinesNestedConstants
   expectTrue "macro locals and params shadow contract constants"
     MacroConstantSmoke.shadowedConstantModelPrefersLocalAndParamBindings
+
+/- Regression for lfglabs-dev/verity#1961. Identifier-shape validation must treat the two external
+forms differently: an ABI-boundary external derived from a typed `interface` carries a dotted
+`Interface.method` audit label (`IPool.supply`) that is lowered by selector and never emitted as a
+Yul identifier, so it must be accepted; an object-linked external's name is the Yul function
+identifier at the link site, so an invalid one must still be rejected. -/
+namespace ExternalNameValidationSmoke
+
+private def dottedAbiInterfaceSpec : CompilationModel := {
+  name := "DottedAbiInterface"
+  fields := []
+  «constructor» := none
+  externals := [
+    { name := "IPool.supply"
+      params := [ParamType.address, ParamType.uint256, ParamType.address, ParamType.uint16]
+      returnType := none
+      returns := []
+      axiomNames := []
+      linkMode := .external }
+  ]
+  functions := []
+}
+
+private def invalidObjectLinkedSpec : CompilationModel := {
+  name := "InvalidObjectLinkedExternal"
+  fields := []
+  «constructor» := none
+  externals := [
+    { name := "poseidon-hash"
+      params := [ParamType.uint256]
+      returnType := some ParamType.uint256
+      returns := [ParamType.uint256]
+      axiomNames := []
+      linkMode := .objectLinked }
+  ]
+  functions := []
+}
+
+private def dottedObjectLinkedSpec : CompilationModel := {
+  name := "DottedObjectLinkedExternal"
+  fields := []
+  «constructor» := none
+  externals := [
+    { name := "Poseidon.hash"
+      params := [ParamType.uint256]
+      returnType := some ParamType.uint256
+      returns := [ParamType.uint256]
+      axiomNames := []
+      linkMode := .objectLinked }
+  ]
+  functions := []
+}
+
+#eval! do
+  expectTrue "dotted ABI-interface external names skip Yul identifier validation"
+    (match validateIdentifierShapes dottedAbiInterfaceSpec with
+      | .ok _ => true
+      | .error _ => false)
+  expectTrue "object-linked external names still require valid Yul identifiers"
+    (match validateIdentifierShapes invalidObjectLinkedSpec with
+      | .ok _ => false
+      | .error _ => true)
+  expectTrue "dotted object-linked external names are rejected"
+    (match validateIdentifierShapes dottedObjectLinkedSpec with
+      | .ok _ => false
+      | .error _ => true)
+
+end ExternalNameValidationSmoke
+
+namespace NonreentrantForkCompatibilitySmoke
+
+/-! ## Bugbot #1968: `nonreentrant(<lock>)` ↔ `targetFork` pre-check
+
+The synthesised transient-storage reentrancy guard (#1893) emits
+`tload`/`tstore` opcodes that only exist on EIP-1153 (Cancun+). Emitting
+them on a pre-Cancun chain would either fail at deploy time or
+silently no-op depending on the toolchain, while validation still
+granted the function a CEI exemption, leaving the post-external-call
+reentry window open. The pre-check rejects the spec at compile time
+so the bug cannot be expressed in a successful build. -/
+
+private def preCancelForkSpec : CompilationModel := {
+  name := "PreCancelNonreentrant"
+  fields := [{ name := "lock", ty := FieldType.uint256, «slot» := some 0 }]
+  «constructor» := none
+  functions := [
+    { name := "guarded"
+      params := []
+      returnType := none
+      nonReentrantLock := some "lock"
+      body := [Stmt.stop]
+    }
+  ]
+}
+
+/-- Cancun allows the annotation: validation succeeds. -/
+def nonreentrantAcceptedOnCancun : Bool :=
+  match Compiler.CompilationModel.validateCompileInputs
+          preCancelForkSpec (selectorsFor preCancelForkSpec)
+          Verity.Core.Intrinsics.HardFork.cancun with
+  | .ok _ => true
+  | .error _ => false
+
+example : nonreentrantAcceptedOnCancun = true := by native_decide
+
+/-- Cancun (or any fork that ranks ≥ Cancun) is the in-tree minimum;
+the pre-check accepts the spec because the synthesised tload/tstore
+guard is sound on those chains. The driver passes the actual
+`options.targetFork` through `compile` so a future pre-Cancun fork
+constructor hits the rejection branch automatically. -/
+def nonreentrantValidateForkCompatCancun : Bool :=
+  match Compiler.CompilationModel.validateNonReentrantForkCompatibility
+          Verity.Core.Intrinsics.HardFork.cancun preCancelForkSpec with
+  | .ok _ => true
+  | .error _ => false
+
+example : nonreentrantValidateForkCompatCancun = true := by native_decide
+
+/-- Specs without `nonreentrant(<lock>)` are unaffected by the
+pre-check: the gate is independent of fork rank. -/
+def nonreentrantValidateForkCompatPrague : Bool :=
+  match Compiler.CompilationModel.validateNonReentrantForkCompatibility
+          Verity.Core.Intrinsics.HardFork.prague preCancelForkSpec with
+  | .ok _ => true
+  | .error _ => false
+
+example : nonreentrantValidateForkCompatPrague = true := by native_decide
+
+/-- Driver path: `compile` is invoked with the actual `targetFork`,
+and the spec still succeeds under Cancun (the synthesised tload/tstore
+guard is emitted). -/
+def nonreentrantCompileAcceptedAtCancun : Bool :=
+  match Compiler.CompilationModel.compile
+          preCancelForkSpec (selectorsFor preCancelForkSpec)
+          Verity.Core.Intrinsics.HardFork.cancun with
+  | .ok _ => true
+  | .error _ => false
+
+/-- The default `compile` (no explicit fork) keeps the historical
+Cancun assumption so single-arg callers, tests, and proof modules
+continue to work. -/
+def nonreentrantCompileAcceptedAtDefaultFork : Bool :=
+  match Compiler.CompilationModel.compile preCancelForkSpec (selectorsFor preCancelForkSpec) with
+  | .ok _ => true
+  | .error _ => false
+
+#eval! do
+  expectTrue "nonreentrant(<lock>) passes validateCompileInputs on Cancun"
+    nonreentrantAcceptedOnCancun
+  expectTrue "nonreentrant(<lock>) still compiles under the default Cancun assumption"
+    nonreentrantCompileAcceptedAtDefaultFork
+  expectTrue "nonreentrant(<lock>) compiles under explicit Cancun fork"
+    nonreentrantCompileAcceptedAtCancun
+  expectTrue "validateNonReentrantForkCompatibility accepts the spec on Cancun"
+    nonreentrantValidateForkCompatCancun
+  expectTrue "validateNonReentrantForkCompatibility accepts the spec on Prague"
+    nonreentrantValidateForkCompatPrague
+
+end NonreentrantForkCompatibilitySmoke
 
 end Compiler.CompilationModelFeatureTest

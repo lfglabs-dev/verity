@@ -1,84 +1,32 @@
 import Compiler.CompilationModel.Types
 import Compiler.CompilationModel.IssueRefs
 
+/-!
+Call-like-operand purity analysis, expressed over the canonical `Expr.children`
+/ `Stmt.childLists` traversal surface: each predicate is a node-local
+classifier lifted with `anyDeep`, so new AST constructors fail to compile in
+the canonical traversal instead of silently falling through a bespoke walk.
+-/
+
 namespace Compiler.CompilationModel
 
-mutual
-partial def exprContainsCallLike (expr : Expr) : Bool :=
-  match expr with
+/-- Node-local classifier: is this expression itself a call-like node?
+    `externalCall` to the compiler-synthesized exponentiation builtin is pure
+    (its lowering is a loop, not a CALL), so only its operands matter. -/
+def exprIsCallLikeNode : Expr → Bool
   | Expr.call _ _ _ _ _ _ _ => true
   | Expr.staticcall _ _ _ _ _ _ => true
   | Expr.delegatecall _ _ _ _ _ _ => true
-  | Expr.externalCall name args =>
-      if name == builtinExpName then exprListContainsCallLike args else true
   | Expr.internalCall _ _ => true
-  | Expr.mapping _ key | Expr.mappingWord _ key _ | Expr.mappingPackedWord _ key _ _ | Expr.mappingUint _ key
-  | Expr.structMember _ key _ =>
-      exprContainsCallLike key
-  | Expr.mappingChain _ keys =>
-      exprListContainsCallLike keys
-  | Expr.mapping2 _ key1 key2 | Expr.mapping2Word _ key1 key2 _
-  | Expr.structMember2 _ key1 key2 _ =>
-      exprContainsCallLike key1 || exprContainsCallLike key2
-  | Expr.storageArrayElement _ index
-  | Expr.arrayElement _ index
-  | Expr.memoryArrayElement _ index
-  | Expr.arrayElementWord _ index _ _
-  | Expr.arrayElementDynamicWord _ index _
-  | Expr.arrayElementDynamicDataOffset _ index
-  | Expr.arrayElementDynamicMemberDataOffset _ index _
-  | Expr.arrayElementDynamicMemberLength _ index _ =>
-      exprContainsCallLike index
-  | Expr.arrayElementDynamicMemberElement _ index _ innerIndex =>
-      exprContainsCallLike index || exprContainsCallLike innerIndex
-  | Expr.paramDynamicMemberElement _ _ innerIndex =>
-      exprContainsCallLike innerIndex
-  | Expr.dynamicBytesEq _ _ =>
-      false
-  | Expr.mload offset | Expr.tload offset | Expr.calldataload offset | Expr.extcodesize offset |
-    Expr.returndataOptionalBoolAt offset =>
-      exprContainsCallLike offset
-  | Expr.keccak256 offset size =>
-      exprContainsCallLike offset || exprContainsCallLike size
-  | Expr.add a b | Expr.sub a b | Expr.mul a b | Expr.div a b | Expr.sdiv a b
-  | Expr.mod a b | Expr.smod a b |
-    Expr.bitAnd a b | Expr.bitOr a b | Expr.bitXor a b | Expr.shl a b | Expr.shr a b
-  | Expr.sar a b | Expr.byte a b | Expr.signextend a b
-  | Expr.eq a b | Expr.ge a b | Expr.gt a b | Expr.sgt a b | Expr.lt a b | Expr.slt a b | Expr.le a b |
-    Expr.logicalAnd a b | Expr.logicalOr a b |
-    Expr.wMulDown a b | Expr.wDivUp a b | Expr.min a b | Expr.max a b |
-    Expr.ceilDiv a b =>
-      exprContainsCallLike a || exprContainsCallLike b
-  | Expr.intrinsic _ _ _ args =>
-      exprListContainsCallLike args
-  | Expr.forkIfAtLeast _ thenExpr elseExpr =>
-      exprContainsCallLike thenExpr || exprContainsCallLike elseExpr
-  | Expr.mulDivDown a b c | Expr.mulDivUp a b c
-  | Expr.mulDiv512Down a b c | Expr.mulDiv512Up a b c =>
-      exprContainsCallLike a || exprContainsCallLike b || exprContainsCallLike c
-  | Expr.bitNot a | Expr.logicalNot a =>
-      exprContainsCallLike a
-  | Expr.ite cond thenVal elseVal =>
-      exprContainsCallLike cond || exprContainsCallLike thenVal || exprContainsCallLike elseVal
-  | Expr.adtConstruct _ _ args =>
-      exprListContainsCallLike args
-  | Expr.adtField _ _ _ _ _ =>
-      false
-  | Expr.literal _ | Expr.param _ | Expr.constructorArg _ | Expr.storage _ | Expr.storageAddr _
-  | Expr.caller | Expr.contractAddress | Expr.chainid | Expr.msgValue | Expr.selfBalance | Expr.blockTimestamp
-  | Expr.blockNumber | Expr.blobbasefee
-  | Expr.calldatasize | Expr.returndataSize | Expr.localVar _ | Expr.arrayLength _
-  | Expr.memoryArrayLength _ | Expr.storageArrayLength _
-  | Expr.paramDynamicHeadWord _ _
-  | Expr.paramDynamicStaticComposite _ _
-  | Expr.paramDynamicMemberLength _ _
-  | Expr.paramDynamicMemberDataOffset _ _
-  | Expr.adtTag _ _ =>
-      false
-partial def exprListContainsCallLike : List Expr → Bool
-  | [] => false
-  | expr :: exprs => exprContainsCallLike expr || exprListContainsCallLike exprs
-end
+  | Expr.externalCall name _ => name != builtinExpName
+  | _ => false
+
+/-- Does the expression contain a call-like node anywhere? -/
+def exprContainsCallLike (expr : Expr) : Bool :=
+  expr.anyDeep exprIsCallLikeNode
+
+def exprListContainsCallLike (exprs : List Expr) : Bool :=
+  exprs.any exprContainsCallLike
 
 def validateLogicalOperandPurity (context : String) (a b : Expr) : Except String Unit := do
   if exprContainsCallLike a || exprContainsCallLike b then
@@ -88,200 +36,43 @@ def validateArithDuplicatedOperandPurity (context : String) (duplicated : List E
   if duplicated.any exprContainsCallLike then
     throw s!"Compilation error: {context} uses an arithmetic helper (mulDivUp/wDivUp/min/max) with call-like operand(s) that would be duplicated in Yul output ({issue748Ref}). Move call-like expressions into Stmt.letVar before using them in arithmetic helpers."
 
-mutual
-def exprContainsUnsafeLogicalCallLike (expr : Expr) : Bool :=
-  match expr with
-  | Expr.logicalAnd a b | Expr.logicalOr a b =>
-      (exprContainsCallLike a || exprContainsCallLike b) ||
-      exprContainsUnsafeLogicalCallLike a || exprContainsUnsafeLogicalCallLike b
-  | Expr.mulDivUp a b c =>
-      exprContainsCallLike c ||
-      exprContainsUnsafeLogicalCallLike a || exprContainsUnsafeLogicalCallLike b || exprContainsUnsafeLogicalCallLike c
-  | Expr.mulDiv512Up a b c =>
-      -- `mulDiv512Up` lowers to a single helper-function call where each
-      -- operand is evaluated once at the call site, so a call-like `c` is
-      -- safe (no duplication). Treat it like `mulDiv512Down`. (verity#1761)
-      exprContainsUnsafeLogicalCallLike a || exprContainsUnsafeLogicalCallLike b || exprContainsUnsafeLogicalCallLike c
-  | Expr.wDivUp a b =>
-      exprContainsCallLike b ||
-      exprContainsUnsafeLogicalCallLike a || exprContainsUnsafeLogicalCallLike b
+/-- Node-local classifier for the operand-duplication hazard: expression forms
+    whose Yul lowering duplicates (or eagerly evaluates) specific operands, so
+    a call-like expression in those positions would execute more than once or
+    unconditionally. `mulDiv512Up`/`mulDiv512Down` lower to a single helper
+    call where each operand is evaluated once, so they are safe (verity#1761). -/
+def exprIsUnsafeLogicalNode : Expr → Bool
+  | Expr.logicalAnd a b | Expr.logicalOr a b
   | Expr.min a b | Expr.max a b =>
-      (exprContainsCallLike a || exprContainsCallLike b) ||
-      exprContainsUnsafeLogicalCallLike a || exprContainsUnsafeLogicalCallLike b
-  | Expr.call gas target value inOffset inSize outOffset outSize =>
-      exprContainsUnsafeLogicalCallLike gas || exprContainsUnsafeLogicalCallLike target ||
-      exprContainsUnsafeLogicalCallLike value || exprContainsUnsafeLogicalCallLike inOffset ||
-      exprContainsUnsafeLogicalCallLike inSize || exprContainsUnsafeLogicalCallLike outOffset ||
-      exprContainsUnsafeLogicalCallLike outSize
-  | Expr.mload offset | Expr.tload offset =>
-      exprContainsUnsafeLogicalCallLike offset
-  | Expr.calldataload offset =>
-      exprContainsUnsafeLogicalCallLike offset
-  | Expr.keccak256 offset size =>
-      exprContainsUnsafeLogicalCallLike offset || exprContainsUnsafeLogicalCallLike size
-  | Expr.staticcall gas target inOffset inSize outOffset outSize =>
-      exprContainsUnsafeLogicalCallLike gas || exprContainsUnsafeLogicalCallLike target ||
-      exprContainsUnsafeLogicalCallLike inOffset || exprContainsUnsafeLogicalCallLike inSize ||
-      exprContainsUnsafeLogicalCallLike outOffset || exprContainsUnsafeLogicalCallLike outSize
-  | Expr.delegatecall gas target inOffset inSize outOffset outSize =>
-      exprContainsUnsafeLogicalCallLike gas || exprContainsUnsafeLogicalCallLike target ||
-      exprContainsUnsafeLogicalCallLike inOffset || exprContainsUnsafeLogicalCallLike inSize ||
-      exprContainsUnsafeLogicalCallLike outOffset || exprContainsUnsafeLogicalCallLike outSize
-  | Expr.externalCall _ args | Expr.internalCall _ args =>
-      exprListAnyUnsafeLogicalCallLike args
-  | Expr.mapping _ key | Expr.mappingWord _ key _ | Expr.mappingPackedWord _ key _ _ | Expr.mappingUint _ key
-  | Expr.structMember _ key _ =>
-      exprContainsUnsafeLogicalCallLike key
-  | Expr.mappingChain _ keys =>
-      exprListAnyUnsafeLogicalCallLike keys
-  | Expr.mapping2 _ key1 key2 | Expr.mapping2Word _ key1 key2 _
-  | Expr.structMember2 _ key1 key2 _ =>
-      exprContainsUnsafeLogicalCallLike key1 || exprContainsUnsafeLogicalCallLike key2
-  | Expr.storageArrayElement _ index | Expr.arrayElement _ index | Expr.memoryArrayElement _ index
-  | Expr.arrayElementWord _ index _ _ | Expr.arrayElementDynamicWord _ index _
-  | Expr.arrayElementDynamicDataOffset _ index
-  | Expr.arrayElementDynamicMemberDataOffset _ index _
-  | Expr.arrayElementDynamicMemberLength _ index _
-  | Expr.returndataOptionalBoolAt index =>
-      exprContainsUnsafeLogicalCallLike index
-  | Expr.arrayElementDynamicMemberElement _ index _ innerIndex =>
-      exprContainsUnsafeLogicalCallLike index || exprContainsUnsafeLogicalCallLike innerIndex
-  | Expr.paramDynamicMemberElement _ _ innerIndex =>
-      exprContainsUnsafeLogicalCallLike innerIndex
-  | Expr.dynamicBytesEq _ _ =>
-      false
-  | Expr.extcodesize addr =>
-      exprContainsUnsafeLogicalCallLike addr
-  | Expr.add a b | Expr.sub a b | Expr.mul a b | Expr.div a b | Expr.sdiv a b
-  | Expr.mod a b | Expr.smod a b |
-    Expr.bitAnd a b | Expr.bitOr a b | Expr.bitXor a b | Expr.shl a b | Expr.shr a b
-  | Expr.sar a b | Expr.byte a b | Expr.signextend a b
-  | Expr.eq a b | Expr.ge a b | Expr.gt a b | Expr.sgt a b | Expr.lt a b | Expr.slt a b | Expr.le a b |
-    Expr.wMulDown a b | Expr.ceilDiv a b =>
-      exprContainsUnsafeLogicalCallLike a || exprContainsUnsafeLogicalCallLike b
-  | Expr.intrinsic _ _ _ args =>
-      exprListAnyUnsafeLogicalCallLike args
-  | Expr.forkIfAtLeast _ thenExpr elseExpr =>
-      exprContainsUnsafeLogicalCallLike thenExpr || exprContainsUnsafeLogicalCallLike elseExpr
-  | Expr.mulDivDown a b c
-  | Expr.mulDiv512Down a b c =>
-      exprContainsUnsafeLogicalCallLike a || exprContainsUnsafeLogicalCallLike b || exprContainsUnsafeLogicalCallLike c
-  | Expr.bitNot a | Expr.logicalNot a =>
-      exprContainsUnsafeLogicalCallLike a
+      exprContainsCallLike a || exprContainsCallLike b
+  | Expr.mulDivUp _ _ c => exprContainsCallLike c
+  | Expr.wDivUp _ b => exprContainsCallLike b
   | Expr.ite cond thenVal elseVal =>
-      (exprContainsCallLike cond || exprContainsCallLike thenVal || exprContainsCallLike elseVal) ||
-      exprContainsUnsafeLogicalCallLike cond ||
-      exprContainsUnsafeLogicalCallLike thenVal ||
-      exprContainsUnsafeLogicalCallLike elseVal
-  | Expr.adtConstruct _ _ args =>
-      exprListAnyUnsafeLogicalCallLike args
-  | Expr.adtField _ _ _ _ _ =>
-      false
-  | Expr.literal _ | Expr.param _ | Expr.constructorArg _ | Expr.storage _ | Expr.storageAddr _
-  | Expr.caller | Expr.contractAddress | Expr.chainid | Expr.msgValue | Expr.selfBalance | Expr.blockTimestamp
-  | Expr.blockNumber | Expr.blobbasefee
-  | Expr.calldatasize | Expr.returndataSize | Expr.localVar _ | Expr.arrayLength _
-  | Expr.memoryArrayLength _ | Expr.storageArrayLength _
-  | Expr.paramDynamicHeadWord _ _
-  | Expr.paramDynamicStaticComposite _ _
-  | Expr.paramDynamicMemberLength _ _
-  | Expr.paramDynamicMemberDataOffset _ _
-  | Expr.adtTag _ _ =>
-      false
-termination_by sizeOf expr
-decreasing_by all_goals simp_wf; all_goals omega
+      exprContainsCallLike cond || exprContainsCallLike thenVal ||
+        exprContainsCallLike elseVal
+  | _ => false
 
-def exprListAnyUnsafeLogicalCallLike : List Expr → Bool
-  | [] => false
-  | e :: es => exprContainsUnsafeLogicalCallLike e || exprListAnyUnsafeLogicalCallLike es
-termination_by es => sizeOf es
-decreasing_by all_goals simp_wf; all_goals omega
+/-- Does the expression contain a duplication-hazardous node anywhere? -/
+def exprContainsUnsafeLogicalCallLike (expr : Expr) : Bool :=
+  expr.anyDeep exprIsUnsafeLogicalNode
 
-def stmtContainsUnsafeLogicalCallLike : Stmt → Bool
-  | Stmt.letVar _ value | Stmt.assignVar _ value | Stmt.setStorage _ value | Stmt.setStorageAddr _ value
-  | Stmt.setStorageWord _ _ value |
-    Stmt.storageArrayPush _ value |
-    Stmt.return value | Stmt.require value _ =>
-      exprContainsUnsafeLogicalCallLike value
-  | Stmt.setStorageArrayElement _ index value =>
-      exprContainsUnsafeLogicalCallLike index || exprContainsUnsafeLogicalCallLike value
-  | Stmt.storageArrayPop _ =>
-      false
-  | Stmt.requireError cond _ args =>
-      exprContainsUnsafeLogicalCallLike cond || exprListAnyUnsafeLogicalCallLike args
-  | Stmt.revertError _ args | Stmt.emit _ args | Stmt.returnValues args =>
-      exprListAnyUnsafeLogicalCallLike args
-  | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ =>
-      false
-  | Stmt.mstore offset value =>
-      exprContainsUnsafeLogicalCallLike offset || exprContainsUnsafeLogicalCallLike value
-  | Stmt.tstore offset value =>
-      exprContainsUnsafeLogicalCallLike offset || exprContainsUnsafeLogicalCallLike value
-  | Stmt.calldatacopy destOffset sourceOffset size =>
-      exprContainsUnsafeLogicalCallLike destOffset ||
-      exprContainsUnsafeLogicalCallLike sourceOffset ||
-      exprContainsUnsafeLogicalCallLike size
-  | Stmt.returndataCopy destOffset sourceOffset size =>
-      exprContainsUnsafeLogicalCallLike destOffset ||
-      exprContainsUnsafeLogicalCallLike sourceOffset ||
-      exprContainsUnsafeLogicalCallLike size
-  | Stmt.revertReturndata | Stmt.stop =>
-      false
-  | Stmt.setMapping _ key value | Stmt.setMappingWord _ key _ value | Stmt.setMappingPackedWord _ key _ _ value | Stmt.setMappingUint _ key value
-  | Stmt.setStructMember _ key _ value =>
-      exprContainsUnsafeLogicalCallLike key || exprContainsUnsafeLogicalCallLike value
-  | Stmt.setMappingChain _ keys value =>
-      exprListAnyUnsafeLogicalCallLike keys || exprContainsUnsafeLogicalCallLike value
-  | Stmt.setMapping2 _ key1 key2 value | Stmt.setMapping2Word _ key1 key2 _ value
-  | Stmt.setStructMember2 _ key1 key2 _ value =>
-      exprContainsUnsafeLogicalCallLike key1 ||
-      exprContainsUnsafeLogicalCallLike key2 ||
-      exprContainsUnsafeLogicalCallLike value
-  | Stmt.ite cond thenBranch elseBranch =>
-      exprContainsUnsafeLogicalCallLike cond ||
-      stmtListAnyUnsafeLogicalCallLike thenBranch ||
-      stmtListAnyUnsafeLogicalCallLike elseBranch
-  | Stmt.forEach _ count body =>
-      exprContainsUnsafeLogicalCallLike count || stmtListAnyUnsafeLogicalCallLike body
-  | Stmt.unsafeBlock _ body =>
-      stmtListAnyUnsafeLogicalCallLike body
-  | Stmt.matchAdt _ scrutinee branches =>
-      exprContainsUnsafeLogicalCallLike scrutinee ||
-      matchBranchesAnyUnsafeLogicalCallLike branches
-  | Stmt.internalCall _ args | Stmt.internalCallAssign _ _ args =>
-      exprListAnyUnsafeLogicalCallLike args
-  | Stmt.rawLog topics dataOffset dataSize =>
-      exprListAnyUnsafeLogicalCallLike topics ||
-      exprContainsUnsafeLogicalCallLike dataOffset ||
-      exprContainsUnsafeLogicalCallLike dataSize
-  | Stmt.externalCallBind _ _ args | Stmt.tryExternalCallBind _ _ _ args =>
-      exprListAnyUnsafeLogicalCallLike args
-  | Stmt.ecm _ args =>
-      exprListAnyUnsafeLogicalCallLike args
-  | Stmt.unsafeYul _ =>
-      -- Raw Yul is emitted verbatim, so the expression compiler never duplicates
-      -- its operands — the logicalAnd/logicalOr/ite operand-duplication hazard this
-      -- predicate guards against cannot arise for a raw fragment, so `false` is
-      -- correct. External calls inside a fragment are still caught for CEI /
-      -- no_external_calls by `stmtContainsExternalCall` / `stmtMayContainExternalCall`
-      -- in Validation; folding that detection in here instead produced a misleading
-      -- "move call-like expressions into Stmt.letVar" diagnostic.
-      false
-termination_by s => sizeOf s
-decreasing_by all_goals simp_wf; all_goals omega
+def exprListAnyUnsafeLogicalCallLike (exprs : List Expr) : Bool :=
+  exprs.any exprContainsUnsafeLogicalCallLike
 
-def matchBranchesAnyUnsafeLogicalCallLike : List (String × List String × List Stmt) → Bool
-  | [] => false
-  | (_, _, body) :: rest =>
-      stmtListAnyUnsafeLogicalCallLike body || matchBranchesAnyUnsafeLogicalCallLike rest
-termination_by bs => sizeOf bs
-decreasing_by all_goals simp_wf; all_goals omega
+/-- Statement-level lift: scans every statement-local expression (via the
+    canonical `directMetadata.subexpressions`) and recurses through nested
+    statement bodies. Raw `unsafeYul` fragments are emitted verbatim — the
+    expression compiler never duplicates their operands — so they contribute
+    no subexpressions here by construction. -/
+def stmtContainsUnsafeLogicalCallLike (stmt : Stmt) : Bool :=
+  stmt.anyDeep fun s =>
+    s.directMetadata.subexpressions.any exprContainsUnsafeLogicalCallLike
 
-def stmtListAnyUnsafeLogicalCallLike : List Stmt → Bool
-  | [] => false
-  | s :: ss => stmtContainsUnsafeLogicalCallLike s || stmtListAnyUnsafeLogicalCallLike ss
-termination_by ss => sizeOf ss
-decreasing_by all_goals simp_wf; all_goals omega
-end
+def stmtListAnyUnsafeLogicalCallLike (stmts : List Stmt) : Bool :=
+  stmts.any stmtContainsUnsafeLogicalCallLike
+
+def matchBranchesAnyUnsafeLogicalCallLike
+    (branches : List (String × List String × List Stmt)) : Bool :=
+  branches.any fun (_, _, body) => stmtListAnyUnsafeLogicalCallLike body
 
 end Compiler.CompilationModel

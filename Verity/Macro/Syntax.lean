@@ -99,6 +99,7 @@ syntax "| " ident "(" sepBy(verityParam, ",") ")" : verityAdtVariant
 syntax "| " ident : verityAdtVariant
 syntax ident " := " verityAdtVariant+ : verityAdtDecl
 syntax "storage_namespace " : verityNamespaceSpec
+syntax "storage_namespace " "legacy" : verityNamespaceSpec
 syntax "storage_namespace " str : verityNamespaceSpec
 syntax "storage_namespace " "erc7201 " str : verityNamespaceSpec
 syntax "initializer(" ident ")" : verityInitGuard
@@ -114,6 +115,14 @@ syntax "fork_if_at_least " ident ppSpace "then " term:max ppSpace "else " term:m
 syntax "adt " str : term
 syntax "adt " str " [" sepBy(term, ",") "]" : term
 syntax "tryCatch " term:max ppSpace term:max : doElem
+
+-- Compile-time Keccak-256 of a string literal (#1973). The hash is
+-- materialised at elaboration time (outside contracts) or contract
+-- translation time (inside `verity_contract` bodies). Non-literal
+-- arguments are rejected by the parser. Declared at `:max` precedence so
+-- it fits the right-hand side of `verity_contract` `constants` /
+-- `immutable` declarations, which require a `term:max` term.
+syntax:max (name := keccakStringTerm) "keccakString " str : term
 
 macro_rules
   | `(intrinsic $_name:term $_lowering:term $_args:term) =>

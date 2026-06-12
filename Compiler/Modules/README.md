@@ -16,6 +16,7 @@ structure that the compiler can plug in without modification.
 | `Callbacks.lean` | `callback` | `Stmt.callback` |
 | `Calls.lean` | `withReturn`, `callWithValue`, `callWithValueBytes`, `bubblingValueCall`, `bubblingValueCallNoOutput` | `Stmt.externalCallWithReturn`; generic `call{value:v}` adapter calls; handwritten low-level `call{value: ...}` wrappers |
 | `Create2SSTORE2.lean` | `create2Deploy`, `sstore2ReadCode` | handwritten CREATE2 deployment and SSTORE2-style `extcodecopy` code-as-data reads |
+| `CodeData.lean` | `writeTyped`, `readTyped`, `roundtripShape` | typed CREATE2/SSTORE2 code-as-data facade using `Compiler.ABI.Frame` layouts and an explicit trust surface |
 
 ## Usage
 

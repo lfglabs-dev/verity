@@ -1,45 +1,25 @@
 #!/usr/bin/env python3
-"""Check that all theorems in the manifest have property tests (or are excluded)."""
+"""Deprecated shim: this checker now lives in scripts/property_pipeline.py (check `coverage`).
+
+Prefer `python3 scripts/property_pipeline.py check --only coverage`.
+This wrapper is kept so existing callers of this path keep working.
+"""
 
 from __future__ import annotations
 
-from property_utils import collect_covered, load_exclusions, load_manifest, report_errors
+import sys
+from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from property_pipeline import main as pipeline_main
 
 
-def main() -> None:
-    manifest = load_manifest()
-    exclusions = load_exclusions()
-    covered = collect_covered()
-
-    errors: list[str] = []
-
-    for contract, names in exclusions.items():
-        if contract not in manifest:
-            errors.append(f"Exclusion contract not in manifest: {contract}")
-            continue
-        unknown = names - manifest[contract]
-        if unknown:
-            errors.append(
-                f"Exclusions for {contract} include unknown theorem(s): {', '.join(sorted(unknown))}"
-            )
-
-    for contract, names in manifest.items():
-        covered_names = covered.get(contract, set())
-        excluded_names = exclusions.get(contract, set())
-        stale = covered_names & excluded_names
-        if stale:
-            errors.append(
-                f"{contract}: exclusions list covered theorem(s): {', '.join(sorted(stale))}"
-            )
-        missing = names - covered_names - excluded_names
-        if missing:
-            errors.append(
-                f"{contract}: missing property tests for {len(missing)} theorem(s): {', '.join(sorted(missing))}"
-            )
-
-    report_errors(errors, "Property coverage check failed")
-    print("Property coverage check passed.")
+def main() -> int:
+    return pipeline_main(["check", "--only", "coverage"])
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

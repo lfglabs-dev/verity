@@ -7,7 +7,7 @@ import { Callout } from 'nextra/components'
 
 # Capabilities & Limits
 
-This page is the honest map of what you can write in `verity_contract` today: what is **fully expressible and machine-checked**, what is **partially modeled**, and what **compiles but sits on an explicit trust boundary**. It is the curated companion to the per-constructor [Interpreter Feature Matrix](https://github.com/lfglabs-dev/verity/blob/main/docs/INTERPRETER_FEATURE_MATRIX.md), which is the machine-readable source of truth; when the two disagree, the matrix wins.
+This page is the honest map of what you can write in `verity_contract` today: what is **fully expressible and machine-checked**, what is **partially modeled**, and what **compiles but sits on an explicit trust boundary**. It is the curated companion to the per-constructor [Interpreter Feature Matrix](https://github.com/lfglabs-dev/verity/blob/main/docs/INTERPRETER_FEATURE_MATRIX.md) and [`artifacts/feature_ownership.json`](https://github.com/lfglabs-dev/verity/blob/main/artifacts/feature_ownership.json); when the docs and artifacts disagree, the artifacts win.
 
 For *why* some features are trusted rather than proved, see the [Trust Model](/trust-model) — the Layer 1/2/3 framing lives there. For the live theorem inventory, see [Verification Status](/verification).
 
@@ -17,7 +17,7 @@ Everything below — proved, partial, or trust-boundary — is additionally exer
 
 ## Fully expressible and verified
 
-Modeled end-to-end and carrying machine-checked preservation proofs.
+Modeled end-to-end in the current supported fragment and carrying machine-checked preservation proofs.
 
 **Storage**
 - Scalar fields (`Uint256`, `Address`, `Bool`, `Bytes32`) at explicit slots.
@@ -31,16 +31,9 @@ Modeled end-to-end and carrying machine-checked preservation proofs.
 - Fixed-point helpers (`mulDivDown` / `mulDivUp`, `wMulDown` / `wDivUp`, `min` / `max`).
 
 **Control & I/O**
-- `if` / `ite` branching; `require` / `requireError` / `revertError` (custom errors).
+- `if` / `ite` branching; `require` / string-message revert control flow. Custom-error control-flow forms exist, while richer typed ABI error payload mechanics remain a partial proof-boundary surface.
 - Returns: single, multi (`returnValues`), array, bytes, and storage words.
-- Event emission (`emitEvent`).
 - Context reads: `msgSender` (`caller`), `msg.value`, `block.timestamp`.
-
-**Composition**
-- Source-level `internal` functions. They compile as internal helpers, stay out of selector dispatch and ABI JSON, and are called by direct helper syntax.
-- Internal helpers called directly by name. A helper's proved summary is now reusable at every call site through the first-class interface `SupportedSpecHelperProofs.helperCallSummarySound` and its three call-shape corollaries (`evalInternalCallObeysSummary`, `execInternalCallObeysSummary`, `execInternalCallAssignObeysSummary`) covering expression position, void statement, and assigning statement ([#1630](https://github.com/lfglabs-dev/verity/issues/1630)).
-- Higher-order internal calls (function-pointer parameters) via a compile-time monomorphization pre-pass; nothing downstream of the parser sees a function pointer, so the first-order proof machinery applies unchanged ([#1747](https://github.com/lfglabs-dev/verity/issues/1747)).
-- External linked libraries (`externalCall`) — sound **by assumption** on the linked Yul (e.g. Poseidon), recorded as a trust surface.
 
 **Builtins**: all 36 EVM builtins carry proved agreement between the Verity evaluator and the EVMYulLean reference semantics.
 
@@ -50,7 +43,12 @@ Compiler-supported and differential-tested, but only partially covered by the pr
 
 | Feature | Status | Issue |
 |---|---|---|
+| Source-level internal helpers | compiler-supported and hidden from selector dispatch / ABI JSON; helper-summary reuse exists in source-semantics lemmas, but the generic body/IR theorem still gates helper-positive callers behind the helper-excluding supported statement fragment | [#1630](https://github.com/lfglabs-dev/verity/issues/1630) |
+| Higher-order internal calls | function-pointer parameters are monomorphized at compile time, so downstream compiler/proof layers see first-order helper calls; remaining proof coverage follows the internal-helper boundary above | [#1747](https://github.com/lfglabs-dev/verity/issues/1747) |
 | `forEach` loops | zero-bound and empty-body literal-bound loops proved; positive non-empty loop bodies are future work | — |
+| Constructors, fallback, and receive | compiler-supported entrypoint surfaces; outside the generic Layer 2 proof fragment | — |
+| Events / logs and typed errors | source-level event and custom-error forms compile; ABI log/error payload mechanics and raw logs remain partial or trust-boundary surfaces | — |
+| Richer storage layout features | many scalar, mapping, struct, packed-word, and ERC-7201 forms are covered; additional layout compatibility and richer dynamic layouts are compiler-supported or trust-reported rather than generically proof-modeled | — |
 | Single-word linear memory (`mload` / `mstore`) | single-word support in the IR interpreter; full coverage needs EVMYulLean integration | [#1411](https://github.com/lfglabs-dev/verity/issues/1411) |
 | Runtime introspection (`block.number`, `address(this)`, `chainid`) | compiler-supported and source-executable; outside the generic proof fragment | — |
 | `selfbalance()` / `address(this).balance` | source-executable with differential coverage; not yet in the proof fragment | — |
@@ -58,12 +56,12 @@ Compiler-supported and differential-tested, but only partially covered by the pr
 
 ## Compiles, but on a trust boundary
 
-These lower to correct Yul and are differential-tested, but are **not modeled in the proof interpreters**. Treat each as an explicit trust assumption and archive `--trust-report`.
+These lower to intended Yul and are differential-tested, but their runtime semantics are **not fully modeled by the proof interpreters**. Treat each use as an explicit trust-boundary assumption and archive `--trust-report`.
 
-- **`keccak256`** — compiles through the typed intrinsic but relies on an explicit hashing axiom. Enforce exclusion with `--deny-axiomatized-primitives`.
-- **Low-level calls and code mechanics** — `call` / `staticcall` / `delegatecall`, `externalCallBind`, CREATE2, SSTORE2-style `extcodecopy`, and ECMs (`callWithValue`, `bubblingValueCall`, SafeTransferLib-style optional-return helpers, callback helpers, CREATE2/SSTORE2 helpers, and the precompile ECMs `ecrecover` / `sha256` / BN254). Enforce with `--deny-low-level-mechanics`; each precompile carries its own `evm_*_precompile` axiom, while CREATE2/SSTORE2 carry layout/address assumptions (see [`docs/EXTERNAL_CALL_MODULES.md`](https://github.com/lfglabs-dev/verity/blob/main/docs/EXTERNAL_CALL_MODULES.md) and [`AXIOMS.md`](https://github.com/lfglabs-dev/verity/blob/main/AXIOMS.md)).
+- **`keccak256`** — compiles through the typed intrinsic and uses the in-tree Keccak implementation on the executable source path, but the proof stack still treats dynamic memory hashing as an explicit primitive assumption (`keccak256_memory_slice_matches_evm`) rather than a fully modeled operation. Enforce exclusion with `--deny-axiomatized-primitives`.
+- **ECMs, typed interface calls, external calls, and low-level mechanics** — `call` / `staticcall` / `delegatecall`, returndata plumbing, `externalCallBind`, typed Solidity interface dot-calls, linked Yul libraries such as Poseidon, CREATE2, SSTORE2-style `extcodecopy`, and ECMs (`callWithValue`, `bubblingValueCall`, no-output adapters/routers, SafeTransferLib-style optional-return helpers, callback helpers, CREATE2/SSTORE2 helpers, and the precompile ECMs `ecrecover` / `sha256` / BN254). Enforce with `--deny-low-level-mechanics` or `--deny-assumed-dependencies` depending on the surface; each precompile carries its own `evm_*_precompile` trust-report assumption, while CREATE2/SSTORE2 carry layout/address assumptions (see [`docs/EXTERNAL_CALL_MODULES.md`](https://github.com/lfglabs-dev/verity/blob/main/docs/EXTERNAL_CALL_MODULES.md) and [`AXIOMS.md`](https://github.com/lfglabs-dev/verity/blob/main/AXIOMS.md)).
 - **`delegatecall` / proxy upgradeability** — additionally a dedicated proxy boundary. Enforce with `--deny-proxy-upgradeability` ([#1420](https://github.com/lfglabs-dev/verity/issues/1420)).
-- **Raw payload plumbing** — `calldatacopy`, `returndataCopy`, `revertReturndata`, `rawLog`. Enforce raw-event exclusion with `--deny-event-emission` and low-level mechanics with `--deny-low-level-mechanics`.
+- **Raw payload plumbing, local obligations, and proxy-specific refinements** — `calldatacopy`, `returndataCopy`, `revertReturndata`, `rawLog`, `local_obligations`, `unsafe "reason" do` blocks, and delegatecall/proxy refinements. Enforce raw-event exclusion with `--deny-event-emission`, local-obligation exclusion with `--deny-local-obligations`, unsafe-block exclusion with `--deny-unsafe`, and low-level mechanics with `--deny-low-level-mechanics`.
 - **Nested dynamic ABI decoding** — `arrayElementDynamicWord` / `paramDynamicHeadWord` read checked static leaf words from dynamic-shaped calldata; the decoded words are not modeled in proofs ([#1832](https://github.com/lfglabs-dev/verity/issues/1832)).
 
 ## Not supported in `verity_contract` today
@@ -81,11 +79,15 @@ The compiler can fail the build when a contract leaves the verified envelope. Pa
 | Flag | Rejects |
 |---|---|
 | `--deny-axiomatized-primitives` | `keccak256` and other axiomatized primitives |
+| `--deny-local-obligations` | explicit `local_obligations [...]` refinements |
 | `--deny-linear-memory-mechanics` | partially modeled `mload` / `mstore` / copy mechanics |
 | `--deny-runtime-introspection` | `block.number`, `address(this)`, `chainid`, … |
 | `--deny-low-level-mechanics` | `call` / `staticcall` / `delegatecall`, ECMs, returndata plumbing |
 | `--deny-proxy-upgradeability` | `delegatecall`-style proxy / upgradeability |
 | `--deny-event-emission` | raw `rawLog` event emission |
+| `--deny-unchecked-dependencies` | dependencies marked `unchecked` |
 | `--deny-assumed-dependencies` | any `assumed` or `unchecked` foreign surface |
+| `--deny-layout-incompatibility` | candidate storage layout breaks a baseline layout report |
+| `--deny-unsafe` | catch-all for unsafe blocks and all deny-gated trust surfaces |
 
 See [Compiler & CLI](/compiler) for the full flag list and the [Trust Model](/trust-model) for how these map to Layer 1/2/3.

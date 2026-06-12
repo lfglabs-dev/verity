@@ -423,7 +423,7 @@ def validateScopedExprIdentifiers
       pure ()
   | Expr.adtField _ _ _ _ _ =>
       pure ()
-  | Expr.literal _ | Expr.storage _ | Expr.storageAddr _ | Expr.caller | Expr.contractAddress | Expr.chainid
+  | Expr.literal _ | Expr.storage _ | Expr.storageAddr _ | Expr.caller | Expr.contractAddress | Expr.txOrigin | Expr.chainid
   | Expr.msgValue | Expr.selfBalance | Expr.blockTimestamp | Expr.blockNumber | Expr.blobbasefee
   | Expr.calldatasize | Expr.returndataSize =>
       pure ()
@@ -563,6 +563,9 @@ def validateScopedStmtIdentifiers
             pure localScope
           else
             throw s!"Compilation error: {context} Stmt.returnArray '{name}' requires parameter '{name}' or local bindings '{name}_data_offset' and '{name}_length'"
+  | Stmt.returnCodeData pointer => do
+      validateScopedExprIdentifiers context params paramScope dynamicParams localScope constructorArgCount pointer
+      pure localScope
   | Stmt.returnBytes _ | Stmt.returnStorageWords _
   | Stmt.revertReturndata | Stmt.stop =>
       pure localScope

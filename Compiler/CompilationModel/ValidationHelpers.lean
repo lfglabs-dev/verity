@@ -50,6 +50,7 @@ def collectExprNames : Expr → List String
   | Expr.structMember2 field key1 key2 _ => field :: collectExprNames key1 ++ collectExprNames key2
   | Expr.caller => []
   | Expr.contractAddress => []
+  | Expr.txOrigin => []
   | Expr.chainid => []
   | Expr.extcodesize addr => collectExprNames addr
   | Expr.msgValue => []
@@ -181,6 +182,7 @@ def collectStmtNames : Stmt → List String
   | Stmt.returnArray name => [name]
   | Stmt.returnBytes name => [name]
   | Stmt.returnStorageWords name => [name]
+  | Stmt.returnCodeData pointer => collectExprNames pointer
   | Stmt.mstore offset value => collectExprNames offset ++ collectExprNames value
   | Stmt.tstore offset value => collectExprNames offset ++ collectExprNames value
   | Stmt.calldatacopy destOffset sourceOffset size =>
@@ -197,7 +199,9 @@ def collectStmtNames : Stmt → List String
       collectStmtListNames body
   | Stmt.matchAdt _ scrutinee branches =>
       collectExprNames scrutinee ++ collectMatchBranchNames branches
-  | Stmt.emit eventName args => eventName :: collectExprListNames args
+  -- The event name is resolved against the event table, never bound as a Yul
+  -- identifier, so it must not enter the scope threaded to later statements.
+  | Stmt.emit _ args => collectExprListNames args
   | Stmt.internalCall functionName args => functionName :: collectExprListNames args
   | Stmt.internalCallAssign names functionName args =>
       names ++ functionName :: collectExprListNames args

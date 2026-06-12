@@ -198,12 +198,11 @@ jobs:
           mkdir -p "$CCACHE_DIR" compiler/bin compiler/yul compiler/yul-patched
           ccache -z || true
           "$RUNNER_TEMP/time-step" "build verity-compiler" lake build verity-compiler
-          "$RUNNER_TEMP/time-step" "build verity-compiler-patched" lake build verity-compiler-patched
+          "$RUNNER_TEMP/time-step" "build verity-compiler (patched mode)" lake build verity-compiler
           "$RUNNER_TEMP/time-step" "build difftest-interpreter" lake build difftest-interpreter
           "$RUNNER_TEMP/time-step" "build gas-report" lake build gas-report
 
           cp ./.lake/build/bin/verity-compiler compiler/bin/
-          cp ./.lake/build/bin/verity-compiler-patched compiler/bin/
           cp ./.lake/build/bin/difftest-interpreter compiler/bin/
 
           "$RUNNER_TEMP/time-step" "generate Yul" ./compiler/bin/verity-compiler \
@@ -212,7 +211,7 @@ jobs:
             --link examples/external-libs/PoseidonT3.yul \
             --link examples/external-libs/PoseidonT4.yul
 
-          "$RUNNER_TEMP/time-step" "generate patched Yul" ./compiler/bin/verity-compiler-patched \
+          "$RUNNER_TEMP/time-step" "generate patched Yul" ./compiler/bin/verity-compiler \
             --manifest packages/verity-examples/contracts.manifest \
             --enable-patches \
             --patch-report compiler/patch-report.tsv \

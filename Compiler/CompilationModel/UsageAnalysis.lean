@@ -161,7 +161,7 @@ def exprUsesArrayElementKind (includePlain includeWord : Bool) : Expr → Bool
   | Expr.adtConstruct _ _ args => exprListUsesArrayElementKind includePlain includeWord args
   | Expr.adtField _ _ _ _ _ => false
   | Expr.literal _ | Expr.param _ | Expr.constructorArg _ | Expr.storage _ | Expr.storageAddr _
-  | Expr.caller | Expr.contractAddress | Expr.chainid | Expr.msgValue | Expr.selfBalance | Expr.blockTimestamp
+  | Expr.caller | Expr.contractAddress | Expr.txOrigin | Expr.chainid | Expr.msgValue | Expr.selfBalance | Expr.blockTimestamp
   | Expr.blockNumber | Expr.blobbasefee
   | Expr.calldatasize | Expr.returndataSize | Expr.localVar _ | Expr.arrayLength _
   | Expr.memoryArrayLength _
@@ -249,7 +249,7 @@ def stmtUsesArrayElementKind (includePlain includeWord : Bool) : Stmt → Bool
       exprListUsesArrayElementKind includePlain includeWord args
   | Stmt.ecm _ args =>
       exprListUsesArrayElementKind includePlain includeWord args
-  | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ =>
+  | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ | Stmt.returnCodeData _ =>
       false
   | Stmt.revertReturndata | Stmt.stop =>
       false
@@ -343,7 +343,7 @@ def exprUsesArrayElement : Expr → Bool
   | Expr.ite cond thenVal elseVal =>
       exprUsesArrayElement cond || exprUsesArrayElement thenVal || exprUsesArrayElement elseVal
   | Expr.literal _ | Expr.param _ | Expr.constructorArg _ | Expr.storage _ | Expr.storageAddr _
-  | Expr.caller | Expr.contractAddress | Expr.chainid | Expr.msgValue | Expr.selfBalance | Expr.blockTimestamp
+  | Expr.caller | Expr.contractAddress | Expr.txOrigin | Expr.chainid | Expr.msgValue | Expr.selfBalance | Expr.blockTimestamp
   | Expr.blockNumber | Expr.blobbasefee
   | Expr.calldatasize | Expr.returndataSize | Expr.localVar _ | Expr.arrayLength _
   | Expr.memoryArrayLength _
@@ -407,7 +407,7 @@ def stmtUsesArrayElement : Stmt → Bool
       exprListUsesArrayElement topics || exprUsesArrayElement dataOffset || exprUsesArrayElement dataSize
   | Stmt.externalCallBind _ _ args | Stmt.tryExternalCallBind _ _ _ args | Stmt.ecm _ args =>
       exprListUsesArrayElement args
-  | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ =>
+  | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ | Stmt.returnCodeData _ =>
       false
   | Stmt.revertReturndata | Stmt.stop =>
       false
@@ -551,7 +551,7 @@ def exprUsesParamDynamicHeadWord : Expr → Bool
       exprUsesParamDynamicHeadWord c
   | Expr.literal _ | Expr.param _ | Expr.constructorArg _
   | Expr.storage _ | Expr.storageAddr _
-  | Expr.caller | Expr.contractAddress | Expr.chainid | Expr.msgValue | Expr.selfBalance
+  | Expr.caller | Expr.contractAddress | Expr.txOrigin | Expr.chainid | Expr.msgValue | Expr.selfBalance
   | Expr.blockTimestamp | Expr.blockNumber | Expr.blobbasefee
   | Expr.calldatasize | Expr.returndataSize | Expr.localVar _ | Expr.arrayLength _
   | Expr.memoryArrayLength _
@@ -615,7 +615,7 @@ def stmtUsesParamDynamicHeadWord : Stmt → Bool
       exprListUsesParamDynamicHeadWord topics ||
         exprUsesParamDynamicHeadWord dataOffset ||
         exprUsesParamDynamicHeadWord dataSize
-  | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ =>
+  | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ | Stmt.returnCodeData _ =>
       false
   | Stmt.revertReturndata | Stmt.stop =>
       false
@@ -695,7 +695,7 @@ def exprUsesMulDiv512 : Expr → Bool
       exprUsesMulDiv512 a || exprUsesMulDiv512 b || exprUsesMulDiv512 c
   | Expr.literal _ | Expr.param _ | Expr.constructorArg _
   | Expr.storage _ | Expr.storageAddr _
-  | Expr.caller | Expr.contractAddress | Expr.chainid | Expr.msgValue | Expr.selfBalance
+  | Expr.caller | Expr.contractAddress | Expr.txOrigin | Expr.chainid | Expr.msgValue | Expr.selfBalance
   | Expr.blockTimestamp | Expr.blockNumber | Expr.blobbasefee
   | Expr.calldatasize | Expr.returndataSize | Expr.localVar _ | Expr.arrayLength _
   | Expr.memoryArrayLength _
@@ -762,7 +762,7 @@ def stmtUsesMulDiv512 : Stmt → Bool
   | Stmt.rawLog topics dataOffset dataSize =>
       exprListUsesMulDiv512 topics ||
         exprUsesMulDiv512 dataOffset || exprUsesMulDiv512 dataSize
-  | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ =>
+  | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ | Stmt.returnCodeData _ =>
       false
   | Stmt.revertReturndata | Stmt.stop =>
       false
@@ -863,7 +863,7 @@ def exprUsesStorageArrayElement : Expr → Bool
   | Expr.adtConstruct _ _ args => exprListUsesStorageArrayElement args
   | Expr.adtField _ _ _ _ _ => false
   | Expr.literal _ | Expr.param _ | Expr.constructorArg _ | Expr.storage _ | Expr.storageAddr _
-  | Expr.caller | Expr.contractAddress | Expr.chainid | Expr.msgValue | Expr.selfBalance | Expr.blockTimestamp
+  | Expr.caller | Expr.contractAddress | Expr.txOrigin | Expr.chainid | Expr.msgValue | Expr.selfBalance | Expr.blockTimestamp
   | Expr.blockNumber | Expr.blobbasefee
   | Expr.calldatasize | Expr.returndataSize | Expr.localVar _ | Expr.arrayLength _
   | Expr.memoryArrayLength _ | Expr.storageArrayLength _
@@ -938,7 +938,7 @@ def stmtUsesStorageArrayElement : Stmt → Bool
       exprListUsesStorageArrayElement topics || exprUsesStorageArrayElement dataOffset || exprUsesStorageArrayElement dataSize
   | Stmt.ecm _ args =>
       exprListUsesStorageArrayElement args
-  | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ =>
+  | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ | Stmt.returnCodeData _ =>
       false
   | Stmt.revertReturndata | Stmt.stop =>
       false
@@ -1030,7 +1030,7 @@ def exprUsesDynamicBytesEq : Expr → Bool
   | Expr.adtConstruct _ _ args => exprListUsesDynamicBytesEq args
   | Expr.adtField _ _ _ _ _ => false
   | Expr.literal _ | Expr.param _ | Expr.constructorArg _ | Expr.storage _ | Expr.storageAddr _
-  | Expr.caller | Expr.contractAddress | Expr.chainid | Expr.msgValue | Expr.selfBalance | Expr.blockTimestamp
+  | Expr.caller | Expr.contractAddress | Expr.txOrigin | Expr.chainid | Expr.msgValue | Expr.selfBalance | Expr.blockTimestamp
   | Expr.blockNumber | Expr.blobbasefee
   | Expr.calldatasize | Expr.returndataSize | Expr.localVar _ | Expr.arrayLength _
   | Expr.memoryArrayLength _ | Expr.storageArrayLength _
@@ -1094,7 +1094,7 @@ def stmtUsesDynamicBytesEq : Stmt → Bool
       exprListUsesDynamicBytesEq args
   | Stmt.rawLog topics dataOffset dataSize =>
       exprListUsesDynamicBytesEq topics || exprUsesDynamicBytesEq dataOffset || exprUsesDynamicBytesEq dataSize
-  | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ =>
+  | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ | Stmt.returnCodeData _ =>
       false
   | Stmt.revertReturndata | Stmt.stop =>
       false

@@ -281,6 +281,7 @@ private partial def specializeForkStmt
   | .revertError errorName args => .revertError errorName (args.map (specializeForkExpr targetFork))
   | .return value => .return (specializeForkExpr targetFork value)
   | .returnValues values => .returnValues (values.map (specializeForkExpr targetFork))
+  | .returnCodeData pointer => .returnCodeData (specializeForkExpr targetFork pointer)
   | .mstore offset value => .mstore (specializeForkExpr targetFork offset) (specializeForkExpr targetFork value)
   | .tstore offset value => .tstore (specializeForkExpr targetFork offset) (specializeForkExpr targetFork value)
   | .calldatacopy dest source size => .calldatacopy (specializeForkExpr targetFork dest) (specializeForkExpr targetFork source) (specializeForkExpr targetFork size)
@@ -341,6 +342,8 @@ private partial def collectIntrinsicUsesStmt : Stmt → List IntrinsicUse
   | .externalCallBind _ _ args | .tryExternalCallBind _ _ _ args
   | .ecm _ args =>
       args.flatMap collectIntrinsicUsesExpr
+  | .returnCodeData pointer =>
+      collectIntrinsicUsesExpr pointer
   | .calldatacopy destOffset sourceOffset size
   | .returndataCopy destOffset sourceOffset size =>
       [destOffset, sourceOffset, size].flatMap collectIntrinsicUsesExpr
@@ -528,7 +531,7 @@ def compileSpecsWithOptions
   let mut patchRows : List (String × Yul.PatchPassReport) := []
   for spec in specs do
     let selectors ← computeSelectors spec
-    match compile spec selectors with
+    match compile spec selectors options.targetFork with
     | .ok contract =>
         let contractLibs := if spec.externals.isEmpty then [] else libraryPaths
         let patchReport ← writeContract backend spec outDir contract contractLibs verbose options

@@ -6,7 +6,7 @@ import "./yul/YulTestBase.sol";
 /**
  * @title PropertyTypedImmutableSmokeTest
  * @notice Auto-generated baseline property stubs from `verity_contract` declarations.
- * @dev Source: Contracts/Smoke.lean
+ * @dev Source: Contracts/Smoke/Declarations.lean
  */
 contract PropertyTypedImmutableSmokeTest is YulTestBase {
     address target;

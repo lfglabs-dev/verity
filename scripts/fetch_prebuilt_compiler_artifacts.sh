@@ -65,7 +65,6 @@ cp -R "$bin_src/." "$dest/.lake/build/bin/"
 
 chmod +x \
   "$dest/.lake/build/bin/verity-compiler" \
-  "$dest/.lake/build/bin/verity-compiler-patched" \
   "$dest/.lake/build/bin/difftest-interpreter"
 
 echo "Restored compiler artifacts into:"

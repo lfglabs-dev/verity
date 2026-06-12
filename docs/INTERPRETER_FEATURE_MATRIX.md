@@ -21,15 +21,16 @@ authority.
 The old `SpecInterpreter` module has been removed. Source semantics now live in
 `Verity/Core.lean`, with the supported whole-contract Layer-2 source-side model
 assembled in `Compiler/Proofs/IRGeneration/SourceSemantics.lean`. This matrix
-keeps the legacy `Spec (basic)` / `Spec (fuel)` column names, and the
-machine-readable artifact keeps `SpecInterpreter_*` keys, for compatibility
-with the existing sync scripts and boundary checks.
+uses `Source (basic)` / `Source (fuel)` column names. The machine-readable
+artifact uses `SourceInterpreter_*` keys; sync scripts accept retired
+`SpecInterpreter_*` keys only as a one-shot compatibility path for old local
+fixtures and downstream migration checks.
 
 ---
 
 ## Expression Features
 
-| Feature | Constructor | Spec (basic) | Spec (fuel) | IR | EVMYulLean | Proof |
+| Feature | Constructor | Source (basic) | Source (fuel) | IR | EVMYulLean | Proof |
 |---|---|:---:|:---:|:---:|:---:|:---:|
 | Literals | `Expr.literal` | ok | ok | ok | -- | proved |
 | Parameters | `Expr.param` | ok | ok | -- | -- | proved |

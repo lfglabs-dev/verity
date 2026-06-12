@@ -36,11 +36,16 @@ supported fragment. The former exact-state body-simulation axiom has been
 eliminated; legacy contract-specific bridge theorems now sit above the generic
 compiler theorem as wrappers. **What's verified:** every statement and
 expression constructor in the supported fragment lowers to semantically
-equivalent IR. **What's not:** features marked as "not modeled" in the trust
-report, including parts of low-level call mechanics, linear-memory primitives
-(`mload`/`mstore`/`calldatacopy`/`returndatacopy`), raw `rawLog` event
-emission, and `keccak256` (still axiomatized end-to-end). Each carries a
-`--deny-*` flag for proof-strict builds.
+equivalent IR. **What's not:** internal helper calls exist at the source level,
+and helper-summary proof reuse is available in source-semantics lemmas, but that
+reuse is not yet fully consumed through the generic body/IR theorem path. ECMs,
+typed interface calls, external calls, and low-level call/returndata mechanics
+are trust-reported or compiler-supported rather than fully proof-modeled.
+Constructors, fallback/receive, events/logs, typed errors, proxy/delegatecall,
+local obligations, richer storage-layout features, linear-memory primitives
+(`mload`/`mstore`/`calldatacopy`/`returndatacopy`), raw `rawLog` event emission,
+and `keccak256` remain outside the generic proof fragment or partial. Each
+carries a `--deny-*` flag for proof-strict builds where applicable.
 
 ### Layer 3, IR ↔ Yul / EVM
 
@@ -68,7 +73,7 @@ What remains outside the proof envelope is **assumptions**, not axioms:
 - **Consumer-declared intrinsics** bind small opcodes or Yul builtins that Verity does not yet model directly. They do not add Verity project axioms; the consumer owns the declared obligation and `min_fork` target. See [Intrinsics](/intrinsics).
 - **Not-modeled features** (parts of low-level call mechanics, linear-memory primitives, raw `rawLog`, dynamic `keccak256` over memory) compile but the proof interpreter does not yet model their full semantics.
 
-The compiler exports the per-build view of all of this: `--assumption-report <path>` writes the flat inventory of every assumption that any selected contract depends on, grouped by contract and usage site. Pair it with `--trust-report` for the structured proof-boundary view, and add the matching `--deny-*` flag (`--deny-axiomatized-primitives`, `--deny-event-emission`, `--deny-linear-memory-mechanics`, `--deny-proxy-upgradeability`, `--deny-local-obligations`, `--deny-layout-incompatibility`) when a build must fail closed.
+The compiler exports the per-build view of all of this: `--assumption-report <path>` writes the flat inventory of every assumption that any selected contract depends on, grouped by contract and usage site. Pair it with `--trust-report` for the structured proof-boundary view, and add the matching `--deny-*` flag (`--deny-unchecked-dependencies`, `--deny-assumed-dependencies`, `--deny-axiomatized-primitives`, `--deny-local-obligations`, `--deny-linear-memory-mechanics`, `--deny-event-emission`, `--deny-low-level-mechanics`, `--deny-runtime-introspection`, `--deny-proxy-upgradeability`, `--deny-layout-incompatibility`, `--deny-unsafe`) when a build must fail closed.
 
 ## What is trusted
 

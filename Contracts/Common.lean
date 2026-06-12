@@ -13,6 +13,22 @@ open Verity.EVM.Uint256
 open Verity.Stdlib.Math
 
 macro_rules
+  | `(doElem| let _ := externalCall $name:ident [ $[$args:term],* ]) => do
+      let fresh ← Lean.Macro.addMacroScope `_callResult
+      let freshIdent := Lean.mkIdent fresh
+      `(doElem| let $freshIdent : Uint256 := externalCall $name [ $[$args],* ])
+  | `(doElem| let _ := externalCall $name:str [ $[$args:term],* ]) => do
+      let fresh ← Lean.Macro.addMacroScope `_callResult
+      let freshIdent := Lean.mkIdent fresh
+      `(doElem| let $freshIdent : Uint256 := externalCall $name [ $[$args],* ])
+  -- DSL ergonomics: rewrite `let _ := rhs` into a do-block-friendly form
+  -- so that consumers can discard an external-call result naturally.
+  -- (Without this rule the verity_contract function-body parser rejects
+  -- `let _ := …` as an unsupported do element.)
+  | `(doElem| let _ := $rhs:term) => do
+      let fresh ← Lean.Macro.addMacroScope `_callResult
+      let freshIdent := Lean.mkIdent fresh
+      `(doElem| let $freshIdent := $rhs)
   | `(term| ecmCall $_moduleFactory:term $_args:term) =>
       `(term| do
           let _ := $_moduleFactory
@@ -261,6 +277,8 @@ def returnArray {α : Type} (values : Array α) : Contract (Array α) := pure va
 def returnValues (_values : List Uint256) : Contract Unit := pure ()
 def returnBytes {α : Type} (value : α) : Contract α := pure value
 def returnStorageWords {α : Type} (_slots : Array α) : Contract (Array Uint256) := pure #[]
+def returnCodeData {α : Type} [Inhabited α] (_pointer : Address) : Contract α :=
+  pure (Inhabited.default : α)
 
 inductive EventArg where
   | word (value : Contract Uint256)
@@ -390,6 +408,8 @@ def setStructMember2 {κ₁ κ₂ α : Type}
 def safeTransfer (_token _to : Address) (_amount : Uint256) : Contract Unit := pure ()
 def safeTransferFrom (_token _fromAddr _to : Address) (_amount : Uint256) : Contract Unit := pure ()
 def safeApprove (_token _spender : Address) (_amount : Uint256) : Contract Unit := pure ()
+def legacyStringSafeTransfer (_token _to : Address) (_amount : Uint256) : Contract Unit := pure ()
+def legacyStringSafeTransferFrom (_token _fromAddr _to : Address) (_amount : Uint256) : Contract Unit := pure ()
 def balanceOf (token owner : Address) : Contract Uint256 := pure <| erc20ReadStubWord "balanceOf" [token.toNat, owner.toNat]
 def allowance (token owner spender : Address) : Contract Uint256 := pure <| erc20ReadStubWord "allowance" [token.toNat, owner.toNat, spender.toNat]
 def totalSupply (token : Address) : Contract Uint256 := pure <| erc20ReadStubWord "totalSupply" [token.toNat]

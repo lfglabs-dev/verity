@@ -452,7 +452,7 @@ let digest := keccak256 offset size
 
 Elaborates to `Expr.keccak256`; lowers to Yul `keccak256(offset, size)`. The machine-readable trust report records the explicit primitive assumption `keccak256_memory_slice_matches_evm`.
 
-`Expr.keccak256` also remains an explicit proof boundary today: the compiler supports it directly, but the current proof stack still treats it as an axiomatized primitive instead of a fully modeled operation. When it appears, archive `--trust-report` and use `--deny-axiomatized-primitives` for proof-strict runs (see issue `#1411`).
+`Expr.keccak256` also remains an explicit proof boundary today: the compiler supports it directly, but the current proof stack still treats dynamic memory hashing as an explicit primitive assumption instead of a fully modeled operation. When it appears, archive `--trust-report` and use `--deny-axiomatized-primitives` for proof-strict runs (see issue `#1411`).
 
 ### `tryCatch`
 

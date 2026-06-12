@@ -409,6 +409,44 @@ def compileStmt (fields : List Field) (events : List EventDef := [])
           YulExpr.call "add" [YulExpr.lit 64, YulExpr.call "mul" [lenIdent, YulExpr.lit 32]]
         ])
       ]
+  | Stmt.returnCodeData pointer => do
+      if isInternal then
+        throw s!"Compilation error: internal functions cannot use returnCodeData"
+      let pointerExpr ← compileExpr fields dynamicSource pointer
+      pure [
+        YulStmt.block [
+          YulStmt.let_ "__return_code_pointer"
+            (YulExpr.call "and" [pointerExpr, YulExpr.hex addressMask]),
+          YulStmt.let_ "__return_code_offset" (YulExpr.lit 1),
+          YulStmt.let_ "__return_code_extent"
+            (YulExpr.call "extcodesize" [YulExpr.ident "__return_code_pointer"]),
+          YulStmt.if_
+            (YulExpr.call "iszero" [
+              YulExpr.call "gt" [
+                YulExpr.ident "__return_code_extent",
+                YulExpr.ident "__return_code_offset"
+              ]
+            ])
+            [YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])],
+          YulStmt.let_ "__return_code_size"
+            (YulExpr.call "sub" [
+              YulExpr.ident "__return_code_extent",
+              YulExpr.ident "__return_code_offset"
+            ]),
+          YulStmt.let_ "__return_code_ptr"
+            (YulExpr.call "mload" [YulExpr.lit freeMemoryPointer]),
+          YulStmt.expr (YulExpr.call "extcodecopy" [
+            YulExpr.ident "__return_code_pointer",
+            YulExpr.ident "__return_code_ptr",
+            YulExpr.ident "__return_code_offset",
+            YulExpr.ident "__return_code_size"
+          ]),
+          YulStmt.expr (YulExpr.call "return" [
+            YulExpr.ident "__return_code_ptr",
+            YulExpr.ident "__return_code_size"
+          ])
+        ]
+      ]
   | Stmt.mstore offset value => do
       pure [YulStmt.expr (YulExpr.call "mstore" [
         ← compileExpr fields dynamicSource offset,

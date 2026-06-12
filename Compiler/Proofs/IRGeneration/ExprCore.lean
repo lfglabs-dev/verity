@@ -74,7 +74,7 @@ def exprBoundNames : Expr → List String
   | .dynamicBytesEq lhsName rhsName => [lhsName, rhsName]
   | .literal _ | .constructorArg _ | .storage _ | .storageAddr _ | .caller
   | .contractAddress | .chainid | .msgValue | .blockTimestamp | .blockNumber
-  | .selfBalance | .blobbasefee | .calldatasize | .returndataSize => []
+  | .selfBalance | .blobbasefee | .calldatasize | .returndataSize | .txOrigin => []
 termination_by expr => sizeOf expr
 decreasing_by
   all_goals simp_wf
@@ -100,6 +100,7 @@ inductive ExprCompileCore : Expr → Prop where
   | localVar (name : String) : ExprCompileCore (.localVar name)
   | caller : ExprCompileCore .caller
   | contractAddress : ExprCompileCore .contractAddress
+  | txOrigin : ExprCompileCore .txOrigin
   | msgValue : ExprCompileCore .msgValue
   | blockTimestamp : ExprCompileCore .blockTimestamp
   | blockNumber : ExprCompileCore .blockNumber
