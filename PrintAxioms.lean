@@ -2502,6 +2502,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.exec_compileStmtList_generic_sizeOf_extraFuel
   Compiler.Proofs.IRGeneration.exec_compileStmtList_generic_with_helpers_sizeOf_extraFuel
   Compiler.Proofs.IRGeneration.exec_compileStmtList_generic_with_helpers_and_helper_ir_sizeOf_extraFuel
+  Compiler.Proofs.IRGeneration.exec_compileStmtList_generic_with_helpers_and_helper_ir_sizeOf_extraFuel_with_events
 
   -- Compiler/Proofs/IRGeneration/GenericInduction/InterfaceAssembly.lean
   Compiler.Proofs.IRGeneration.stmtListHelperFreeStepInterface_of_core
@@ -2578,6 +2579,9 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_split_internal_helper_surface_steps_and_helper_ir
   Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_finer_split_internal_helper_surface_steps_and_helper_ir_callsDisjoint
   Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_with_helpers_and_helper_ir_callsDisjoint
+  Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_with_helpers_and_helper_ir_callsDisjoint_with_scalar_events
+  -- Compiler.Proofs.IRGeneration.scalar_events_proof_length_delimiter  -- private
+  Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_with_helpers_and_helper_ir_except_mapping_writes_callsDisjoint
   Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_with_helpers_goal
   Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_with_helpers
 
@@ -3290,6 +3294,10 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.SupportedFunction.paramsSupported
   Compiler.Proofs.IRGeneration.SupportedFunction.paramCalldataThreshold
   Compiler.Proofs.IRGeneration.SupportedFunction.returnsSupported
+  Compiler.Proofs.IRGeneration.SupportedFunctionWithScalarEvents.paramNamesNodup
+  Compiler.Proofs.IRGeneration.SupportedFunctionWithScalarEvents.paramsSupported
+  Compiler.Proofs.IRGeneration.SupportedFunctionWithScalarEvents.paramCalldataThreshold
+  Compiler.Proofs.IRGeneration.SupportedFunctionWithScalarEvents.returnsSupported
   Compiler.Proofs.IRGeneration.SupportedFunctionExceptMappingWrites.paramNamesNodup
   Compiler.Proofs.IRGeneration.SupportedFunctionExceptMappingWrites.paramsSupported
   Compiler.Proofs.IRGeneration.SupportedFunctionExceptMappingWrites.paramCalldataThreshold
@@ -3421,8 +3429,10 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.SupportedSpecExceptMappingWrites.contractUsesDynamicBytesEq_eq_false
   Compiler.Proofs.IRGeneration.SupportedSpec.normalizedFields
   Compiler.Proofs.IRGeneration.SupportedSpecExceptMappingWrites.normalizedFields
+  Compiler.Proofs.IRGeneration.SupportedSpecWithScalarEvents.normalizedFields
   Compiler.Proofs.IRGeneration.SupportedSpec.noPackedFields
   Compiler.Proofs.IRGeneration.SupportedSpecExceptMappingWrites.noPackedFields
+  Compiler.Proofs.IRGeneration.SupportedSpecWithScalarEvents.noPackedFields
   Compiler.Proofs.IRGeneration.SupportedSpec.selectorCount
   Compiler.Proofs.IRGeneration.SupportedSpecExceptMappingWrites.selectorCount
   Compiler.Proofs.IRGeneration.SupportedSpec.selectorsDistinct
@@ -3433,10 +3443,13 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.SupportedSpecExceptMappingWrites.noEvents
   Compiler.Proofs.IRGeneration.SupportedSpec.noErrors
   Compiler.Proofs.IRGeneration.SupportedSpecExceptMappingWrites.noErrors
+  Compiler.Proofs.IRGeneration.SupportedSpecWithScalarEvents.noErrors
   Compiler.Proofs.IRGeneration.SupportedSpec.noExternals
   Compiler.Proofs.IRGeneration.SupportedSpecExceptMappingWrites.noExternals
+  Compiler.Proofs.IRGeneration.SupportedSpecWithScalarEvents.noExternals
   Compiler.Proofs.IRGeneration.SupportedSpec.noAdtTypes
   Compiler.Proofs.IRGeneration.SupportedSpecExceptMappingWrites.noAdtTypes
+  Compiler.Proofs.IRGeneration.SupportedSpecWithScalarEvents.noAdtTypes
   Compiler.Proofs.IRGeneration.SupportedSpec.noFallback
   Compiler.Proofs.IRGeneration.SupportedSpecExceptMappingWrites.noFallback
   Compiler.Proofs.IRGeneration.SupportedSpec.noReceive
@@ -3445,10 +3458,14 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.SupportedSpec.selectorFunctionParamCalldataThreshold
   Compiler.Proofs.IRGeneration.SupportedSpecExceptMappingWrites.selectorFunctionParamsSupported
   Compiler.Proofs.IRGeneration.SupportedSpecExceptMappingWrites.selectorFunctionParamCalldataThreshold
+  Compiler.Proofs.IRGeneration.SupportedSpecWithScalarEvents.selectorFunctionParamsSupported
+  Compiler.Proofs.IRGeneration.SupportedSpecWithScalarEvents.selectorFunctionParamCalldataThreshold
   Compiler.Proofs.IRGeneration.SupportedSpec.selectorFunctionParamNamesNodup
   Compiler.Proofs.IRGeneration.SupportedSpecExceptMappingWrites.selectorFunctionParamNamesNodup
+  Compiler.Proofs.IRGeneration.SupportedSpecWithScalarEvents.selectorFunctionParamNamesNodup
   Compiler.Proofs.IRGeneration.SupportedSpec.selectorFunctionReturnsSupported
   Compiler.Proofs.IRGeneration.SupportedSpecExceptMappingWrites.selectorFunctionReturnsSupported
+  Compiler.Proofs.IRGeneration.SupportedSpecWithScalarEvents.selectorFunctionReturnsSupported
   -- Compiler.Proofs.IRGeneration.counter_noPackedFields  -- private
   -- Compiler.Proofs.IRGeneration.counter_noFallback  -- private
   -- Compiler.Proofs.IRGeneration.counter_noReceive  -- private
@@ -5485,4 +5502,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5133 theorems/lemmas (3549 public, 1584 private, 0 sorry'd)
+-- Total: 5150 theorems/lemmas (3565 public, 1585 private, 0 sorry'd)
