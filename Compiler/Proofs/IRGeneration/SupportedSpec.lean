@@ -6409,6 +6409,13 @@ theorem SupportedSpecExceptMappingWrites.noInternalFunctions
   intro fn hmem
   exact (hSupported.functions fn hmem).nonInternal
 
+theorem SupportedSpecWithScalarEvents.noInternalFunctions
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecWithScalarEvents spec selectors) :
+    ∀ fn ∈ spec.functions, fn.isInternal = false := by
+  intro fn hmem
+  exact (hSupported.functions fn hmem).nonInternal
+
 theorem SupportedSpec.contractUsesArrayElement_eq_false
     {spec : CompilationModel} {selectors : List Nat}
     (hSupported : SupportedSpec spec selectors) :

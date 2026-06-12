@@ -1,6 +1,7 @@
 import Compiler.CompilationModel.Dispatch
 import Compiler.Proofs.IRGeneration.FunctionBody
 import Compiler.Proofs.IRGeneration.GenericInduction
+import Compiler.Proofs.IRGeneration.GenericInduction.EventBridge
 import Compiler.Proofs.IRGeneration.ParamLoading
 import Compiler.Proofs.IRGeneration.SourceSemantics
 import Compiler.Proofs.IRGeneration.SupportedSpec
@@ -2289,6 +2290,166 @@ theorem stmtListHelperFreeCompiledCallsDisjoint_of_internalFunctions_nil
           YulStmtListCallsDisjointFromInternalTable_of_internalFunctions_nil
             runtimeContract hinternal compiledIR (hhead hhelper compiledIR hcompile))
         (stmtListHelperFreeCompiledCallsDisjoint_of_internalFunctions_nil runtimeContract hinternal htail)
+
+private theorem legacyCompatibleExternalStmtList_append
+    {front back : List YulStmt}
+    (hfront : LegacyCompatibleExternalStmtList front)
+    (hback : LegacyCompatibleExternalStmtList back) :
+    LegacyCompatibleExternalStmtList (front ++ back) := by
+  induction hfront generalizing back with
+  | nil => simpa using hback
+  | comment msg rest _ ih => exact .comment msg (rest ++ back) (ih hback)
+  | let_ name value rest _ ih => exact .let_ name value (rest ++ back) (ih hback)
+  | assign name value rest _ ih => exact .assign name value (rest ++ back) (ih hback)
+  | expr value rest _ ih => exact .expr value (rest ++ back) (ih hback)
+  | if_ cond body rest hbody _ _ ihRest =>
+      exact .if_ cond body (rest ++ back) hbody (ihRest hback)
+  | block body rest hbody _ _ ihRest =>
+      exact .block body (rest ++ back) hbody (ihRest hback)
+  | for_ init cond post body rest hinit hpost hbody _ _ _ _ ihRest =>
+      exact .for_ init cond post body (rest ++ back) hinit hpost hbody (ihRest hback)
+  | funcDef name params rets body rest hbody _ _ ihRest =>
+      exact .funcDef name params rets body (rest ++ back) hbody (ihRest hback)
+
+private theorem yulStmtListCallsDisjoint_append
+    {runtimeContract : IRContract} {front back : List YulStmt}
+    (hfront : YulStmtListCallsDisjointFromInternalTable runtimeContract front)
+    (hback : YulStmtListCallsDisjointFromInternalTable runtimeContract back) :
+    YulStmtListCallsDisjointFromInternalTable runtimeContract (front ++ back) := by
+  induction hfront generalizing back with
+  | nil => simpa using hback
+  | comment msg rest _ ih => exact .comment msg (rest ++ back) (ih hback)
+  | let_ name value rest hval _ ih => exact .let_ name value (rest ++ back) hval (ih hback)
+  | assign name value rest hval _ ih => exact .assign name value (rest ++ back) hval (ih hback)
+  | expr value rest hval _ ih => exact .expr value (rest ++ back) hval (ih hback)
+  | if_ cond body rest hcond hbody _ _ ihRest =>
+      exact .if_ cond body (rest ++ back) hcond hbody (ihRest hback)
+  | block body rest hbody _ _ ihRest =>
+      exact .block body (rest ++ back) hbody (ihRest hback)
+  | funcDef name params rets body rest hbody _ _ ihRest =>
+      exact .funcDef name params rets body (rest ++ back) hbody (ihRest hback)
+  | switch_ expr cases defaultCase rest hexpr hcases hdefault _ _ _ ihRest =>
+      exact .switch_ expr cases defaultCase (rest ++ back) hexpr hcases hdefault (ihRest hback)
+  | for_ init cond post body rest hinit hcond hpost hbody _ _ _ _ ihRest =>
+      exact .for_ init cond post body (rest ++ back) hinit hcond hpost hbody (ihRest hback)
+
+private theorem genScalarLoad_legacy
+    (loadWord : YulExpr → YulExpr) (name : String) (ty : ParamType) (offset : Nat)
+    (hsupported : SupportedExternalParamType ty) :
+    LegacyCompatibleExternalStmtList (genScalarLoad loadWord name ty offset) := by
+  cases ty <;> simp [SupportedExternalParamType] at hsupported ⊢
+  all_goals exact .let_ _ _ [] .nil
+
+private theorem genParamLoadBodyFrom_scalar_legacy
+    (loadWord : YulExpr → YulExpr) (sizeExpr : YulExpr) (headSize baseOffset : Nat) :
+    ∀ (params : List Param) (headOffset : Nat),
+      (∀ param ∈ params, SupportedExternalParamType param.ty) →
+        LegacyCompatibleExternalStmtList
+          (genParamLoadBodyFrom loadWord sizeExpr headSize baseOffset params headOffset)
+  | [], _, _ => .nil
+  | param :: rest, headOffset, hsupported => by
+      have htail := genParamLoadBodyFrom_scalar_legacy loadWord sizeExpr headSize
+        baseOffset rest (headOffset + paramHeadSize param.ty)
+        (by intro p hp; exact hsupported p (by simp [hp]))
+      cases hty : param.ty <;> simp [SupportedExternalParamType, hty] at hsupported
+      · simpa [genParamLoadBodyFrom, genSingleParamLoad, genScalarLoad, hty]
+          using legacyCompatibleExternalStmtList_append (.let_ _ _ [] .nil) htail
+      · simpa [genParamLoadBodyFrom, genSingleParamLoad, genScalarLoad, hty]
+          using legacyCompatibleExternalStmtList_append (.let_ _ _ [] .nil) htail
+      · simpa [genParamLoadBodyFrom, genSingleParamLoad, genScalarLoad, hty]
+          using legacyCompatibleExternalStmtList_append (.let_ _ _ [] .nil) htail
+      · simpa [genParamLoadBodyFrom, genSingleParamLoad, genScalarLoad, hty]
+          using legacyCompatibleExternalStmtList_append (.let_ _ _ [] .nil) htail
+      · simpa [genParamLoadBodyFrom, genSingleParamLoad, genScalarLoad, hty]
+          using legacyCompatibleExternalStmtList_append (.let_ _ _ [] .nil) htail
+      · simpa [genParamLoadBodyFrom, genSingleParamLoad, genScalarLoad, hty]
+          using legacyCompatibleExternalStmtList_append (.let_ _ _ [] .nil) htail
+      · simpa [genParamLoadBodyFrom, genSingleParamLoad, genScalarLoad, hty]
+          using legacyCompatibleExternalStmtList_append (.let_ _ _ [] .nil) htail
+
+private theorem genParamLoads_scalar_legacy
+    (params : List Param)
+    (hsupported : ∀ param ∈ params, SupportedExternalParamType param.ty) :
+    LegacyCompatibleExternalStmtList (genParamLoads params) := by
+  have hbody := genParamLoadBodyFrom_scalar_legacy
+    (fun pos => YulExpr.call "calldataload" [pos]) (YulExpr.call "calldatasize" [])
+    ((params.map (fun p => paramHeadSize p.ty)).foldl (· + ·) 0) 4 params 4 hsupported
+  simp [genParamLoads, genParamLoadsFrom]
+  exact .if_ _ _ _ (.expr _ _ .nil) hbody
+
+private theorem compiledStmt_scalar_events_callsDisjoint
+    (runtimeContract : IRContract) (hinternal : runtimeContract.internalFunctions = [])
+    {fields : List Field} {spec : CompilationModel} {scope : List String}
+    {stmt : Stmt} {compiledIR : List YulStmt}
+    (hstmtSurface :
+      stmtTouchesUnsupportedContractSurfaceWithEvents spec.events stmt = false)
+    (hhead :
+      stmtTouchesEventSurface stmt = true ∨
+        stmtTouchesUnsupportedContractSurface stmt = false)
+    (hplainDisjoint :
+      stmtTouchesUnsupportedHelperSurface stmt = false →
+        ∀ compiledIR,
+          CompilationModel.compileStmt fields [] [] .calldata [] false scope [] stmt =
+            Except.ok compiledIR →
+          YulStmtListCallsDisjointFromInternalTable runtimeContract compiledIR)
+    (hcompile :
+      CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope [] stmt =
+        Except.ok compiledIR) :
+    YulStmtListCallsDisjointFromInternalTable runtimeContract compiledIR := by
+  rcases hhead with hevent | hplain
+  · cases stmt with
+    | emit eventName args =>
+        rcases eventCompileStmt_emit_scalar_shape
+            (eventEmissionProofSupported_eq_true_of_emit_contractSurfaceWithEventsClosed
+              hstmtSurface)
+            (exprListTouchesUnsupportedContractSurface_eq_false_of_emit_contractSurfaceWithEventsClosed
+              hstmtSurface)
+            hcompile with ⟨eventDef, argExprs, _, _, hshape⟩
+        rw [hshape]
+        exact YulStmtListCallsDisjointFromInternalTable_of_internalFunctions_nil
+          runtimeContract hinternal _
+          (eventCompiledScalarEmit_legacy eventDef args argExprs)
+    | _ => simp [stmtTouchesEventSurface] at hevent
+  · have hhelper := stmtTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hplain
+    have hcompilePlain :
+        CompilationModel.compileStmt fields [] [] .calldata [] false scope [] stmt =
+          Except.ok compiledIR := by
+      rw [← compileStmt_eventsErrorsAgnostic_of_contractSurfaceClosed
+        (events := spec.events) (errors := spec.errors) hplain]
+      exact hcompile
+    exact hplainDisjoint hhelper compiledIR hcompilePlain
+
+private theorem compileStmtList_scalar_events_callsDisjoint
+    (runtimeContract : IRContract) (hinternal : runtimeContract.internalFunctions = [])
+    {fields : List Field} {spec : CompilationModel} :
+    ∀ {scope : List String} {stmts : List Stmt} {compiledIR : List YulStmt},
+      stmtListTouchesUnsupportedContractSurfaceWithEvents spec.events stmts = false →
+      (∀ s ∈ stmts,
+        stmtTouchesEventSurface s = true ∨
+          stmtTouchesUnsupportedContractSurface s = false) →
+      StmtListHelperFreeCompiledCallsDisjoint runtimeContract fields scope stmts →
+      CompilationModel.compileStmtList fields spec.events spec.errors .calldata [] false
+        scope [] stmts = Except.ok compiledIR →
+      YulStmtListCallsDisjointFromInternalTable runtimeContract compiledIR
+  | _, [], _, _, _, _, hcompile => by
+      simp [CompilationModel.compileStmtList] at hcompile
+      cases hcompile
+      exact .nil
+  | scope, stmt :: rest, compiledIR, hsurface, hheads, hdisjoint, hcompile => by
+      obtain ⟨hstmtSurface, hrestSurface⟩ := Bool.or_eq_false_iff.mp <| by
+        simpa [stmtListTouchesUnsupportedContractSurfaceWithEvents] using hsurface
+      rcases FunctionBody.compileStmtList_cons_ok_inv hcompile with
+        ⟨headIR, tailIR, hheadCompile, htailCompile, hbody⟩
+      cases hdisjoint with
+      | cons hheadDisjoint htailDisjoint =>
+          rw [hbody]
+          exact yulStmtListCallsDisjoint_append
+            (compiledStmt_scalar_events_callsDisjoint runtimeContract hinternal
+              hstmtSurface (hheads stmt List.mem_cons_self) hheadDisjoint hheadCompile)
+            (compileStmtList_scalar_events_callsDisjoint runtimeContract hinternal
+              hrestSurface
+              (fun s hmem => hheads s (List.mem_cons_of_mem stmt hmem))
+              htailDisjoint htailCompile)
 
 private theorem supported_function_correct_with_scalar_events_state_runtime
     (model : CompilationModel) (fn : FunctionSpec) (tx : IRTransaction)
