@@ -2265,6 +2265,31 @@ theorem supported_function_correct_with_scalar_events_body_goal_and_helper_ir
     hcompiledBodyFuel hlegacyBody hcalldataSizeFits
   simpa [hhelperIR] using hlegacy
 
+theorem stmtListHelperFreeNonEventStepInterface_of_helperFreeStepInterface
+    {fields : List Field} :
+    ∀ {scope : List String} {stmts : List Stmt},
+      StmtListHelperFreeStepInterface fields scope stmts →
+        StmtListHelperFreeNonEventStepInterface fields scope stmts
+  | _, [], .nil => .nil
+  | _, _ :: _, .cons hhead htail =>
+      .cons (fun hhelper _hevent => hhead hhelper)
+        (stmtListHelperFreeNonEventStepInterface_of_helperFreeStepInterface htail)
+
+theorem stmtListHelperFreeCompiledCallsDisjoint_of_internalFunctions_nil
+    (runtimeContract : IRContract)
+    (hinternal : runtimeContract.internalFunctions = [])
+    {fields : List Field} :
+    ∀ {scope : List String} {stmts : List Stmt},
+      StmtListHelperFreeCompiledLegacyCompatible fields scope stmts →
+        StmtListHelperFreeCompiledCallsDisjoint runtimeContract fields scope stmts
+  | _, [], .nil => .nil
+  | _, _ :: _, .cons hhead htail =>
+      .cons
+        (fun hhelper compiledIR hcompile =>
+          YulStmtListCallsDisjointFromInternalTable_of_internalFunctions_nil
+            runtimeContract hinternal compiledIR (hhead hhelper compiledIR hcompile))
+        (stmtListHelperFreeCompiledCallsDisjoint_of_internalFunctions_nil runtimeContract hinternal htail)
+
 private theorem supported_function_correct_with_scalar_events_state_runtime
     (model : CompilationModel) (fn : FunctionSpec) (tx : IRTransaction)
     (initialWorld : Verity.ContractState) (bindings : List (String × Nat))
