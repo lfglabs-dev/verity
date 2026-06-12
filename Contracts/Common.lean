@@ -256,7 +256,15 @@ def ecrecover (hash v r sigS : Uint256) : Contract Address := fun state =>
 def calldatacopy (_destOffset _sourceOffset _size : Uint256) : Contract Unit := pure ()
 def returndataCopy (_destOffset _sourceOffset _size : Uint256) : Contract Unit := pure ()
 def revertReturndata : Contract Unit := pure ()
-def arrayLength {α : Type} (values : Array α) : Uint256 := values.size
+class ArrayLength (α : Type) where
+  size: α → Nat
+instance : ArrayLength ByteArray where
+  size := ByteArray.size
+instance {α : Type } : ArrayLength (Array α) where
+  size := Array.size
+instance : ArrayLength Verity.Bytes32 where
+  size := 32
+def arrayLength {α : Type} [ArrayLength α] (values : α) : Uint256 := ArrayLength.size values
 def arrayElement {α : Type} [Inhabited α] (values : Array α) (index : Uint256) : α :=
   values.getD (index : Nat) (Inhabited.default : α)
 def abiHeadWord {α : Type} [Inhabited α] (_value : α) (_wordOffset : Uint256) : Uint256 := 0
