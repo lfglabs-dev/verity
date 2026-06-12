@@ -2612,6 +2612,71 @@ theorem supported_function_correct_with_scalar_events_of_bodyCallsDisjoint
       runtimeContract irFn tx.args
       (FunctionBody.initialIRStateForTx model tx initialWorld) hfnBodyDisjoint)
 
+private theorem compiledFunctionIR_scalar_events_callsDisjoint
+    (runtimeContract : IRContract) (hinternal : runtimeContract.internalFunctions = [])
+    (model : CompilationModel) (selectors : List Nat)
+    (hSupported : SupportedSpecWithScalarEvents model selectors)
+    (fn : FunctionSpec) (selector : Nat) (returns : List ParamType)
+    (bodyStmts : List YulStmt)
+    (hfn : fn ∈ selectorDispatchedFunctions model)
+    (hbodyCompile : compileStmtList model.fields model.events model.errors .calldata [] false
+      (fn.params.map (·.name)) [] fn.body = Except.ok bodyStmts)
+    (hstmtDisjoint : StmtListHelperFreeCompiledCallsDisjoint runtimeContract
+      (SourceSemantics.effectiveFields model) (fn.params.map (·.name)) fn.body) :
+    YulStmtListCallsDisjointFromInternalTable runtimeContract
+      (compiledFunctionIR selector fn returns bodyStmts).body := by
+  have hsupportedFn := hSupported.supportedFunctionOfSelectorDispatched hfn
+  have hbodyDisjoint := compileStmtList_scalar_events_callsDisjoint
+    runtimeContract hinternal hsupportedFn.body.contractSurfaceWithEvents
+    hsupportedFn.body.topLevelEventHeads hstmtDisjoint
+    (by simpa [SourceSemantics.effectiveFields, hSupported.normalizedFields] using hbodyCompile)
+  have hparamLegacy := genParamLoads_scalar_legacy fn.params
+    (hSupported.selectorFunctionParamsSupported hfn)
+  have hparamDisjoint :=
+    YulStmtListCallsDisjointFromInternalTable_of_internalFunctions_nil
+      runtimeContract hinternal (genParamLoads fn.params) hparamLegacy
+  simpa [compiledFunctionIR] using
+    yulStmtListCallsDisjoint_append hparamDisjoint hbodyDisjoint
+
+theorem compileFunctionSpec_correct_with_scalar_events
+    (runtimeContract : IRContract) (model : CompilationModel) (selectors : List Nat)
+    (hSupported : SupportedSpecWithScalarEvents model selectors)
+    (fn : FunctionSpec) (sel : Nat) (irFn : IRFunction) (tx : IRTransaction)
+    (initialWorld : Verity.ContractState) (htxNormalized : TxContextNormalized tx)
+    (bindings : List (String × Nat)) (hcalldataSizeFits : TxCalldataSizeFitsEvm tx)
+    (hfn : fn ∈ selectorDispatchedFunctions model)
+    (hcompileFn : compileFunctionSpec model.fields model.events model.errors [] sel fn = Except.ok irFn)
+    (hbind : SourceSemantics.bindSupportedParams fn.params tx.args = some bindings)
+    (hfuelPos : 0 < hSupported.helperFuel)
+    (hhelperFree : StmtListHelperFreeNonEventStepInterface
+      (SourceSemantics.effectiveFields model) (fn.params.map (·.name)) fn.body)
+    (hstmtDisjoint : StmtListHelperFreeCompiledCallsDisjoint runtimeContract
+      (SourceSemantics.effectiveFields model) (fn.params.map (·.name)) fn.body)
+    (hinternal : runtimeContract.internalFunctions = []) :
+    FunctionBody.sourceResultMatchesIRResult
+      (supportedSourceFunctionSemanticsWithScalarEvents model selectors hSupported fn tx initialWorld)
+      (execIRFunction irFn tx.args (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
+  rcases compileFunctionSpec_ok_components model.fields model.events model.errors sel fn irFn
+      hcompileFn with ⟨returns, bodyStmts, hvalidate, hreturns, hbodyCompile, hirFn⟩
+  subst hirFn
+  have hbodyDisjoint := compileStmtList_scalar_events_callsDisjoint
+    runtimeContract hinternal
+    (hSupported.supportedFunctionOfSelectorDispatched hfn).body.contractSurfaceWithEvents
+    (hSupported.supportedFunctionOfSelectorDispatched hfn).body.topLevelEventHeads
+    hstmtDisjoint
+    (by simpa [SourceSemantics.effectiveFields, hSupported.normalizedFields] using hbodyCompile)
+  have hfnDisjoint := compiledFunctionIR_scalar_events_callsDisjoint
+    runtimeContract hinternal model selectors hSupported fn sel returns bodyStmts hfn
+    hbodyCompile hstmtDisjoint
+  have hcorrect := supported_function_correct_with_scalar_events_of_bodyCallsDisjoint
+    runtimeContract model selectors hSupported fn sel returns bodyStmts
+    (compiledFunctionIR sel fn returns bodyStmts) tx initialWorld bindings hfn
+    hvalidate hreturns hbodyCompile (by simpa using hcompileFn) hbind htxNormalized
+    hcalldataSizeFits hfuelPos hhelperFree hstmtDisjoint hbodyDisjoint hfnDisjoint hinternal
+  simpa [execIRFunctionWithInternals_eq_execIRFunction_of_bodyCallsDisjoint
+    runtimeContract (compiledFunctionIR sel fn returns bodyStmts) tx.args
+    (FunctionBody.initialIRStateForTx model tx initialWorld) hfnDisjoint] using hcorrect
+
 /-- On the constructor body surface, expression compilation does not depend on
 the dynamic-data source. The only expression forms whose generated Yul differs
 between memory and calldata are excluded by the core/raw-calldata surfaces. -/
