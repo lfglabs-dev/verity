@@ -348,6 +348,8 @@ returnArray amounts
 
 `String`/`Bytes` support ABI transport (`returnBytes`, custom-error/event payloads, parameter flow) and direct `==`/`!=` checks. Other word-level operators (`<`, `add`, `logicalAnd`) on `String`/`Bytes` are rejected, applies to function bodies, constructor bodies, constants, and immutable initializers.
 
+`arrayLength` also works on `Bytes`/`String` dynamic struct members (e.g. `arrayLength ops.callData`, `arrayLength (arrayElement ops i).callData`), reading the ABI length word in bytes. It lowers through `Expr.paramDynamicMemberLength` / `Expr.arrayElementDynamicMemberLength`; the executable path is backed by the `ArrayLength` typeclass (`ByteArray`, `String`, `Array α`). Fixed-width word types such as `Bytes32` intentionally have no length surface — `bytes32` carries no ABI length word.
+
 ### Modifiers, structs, ADTs, and namespaced storage
 
 `verity_contract` also supports Solidity-style **modifiers** (`modifier onlyRelayer := do ...` then `with onlyRelayer`), **struct declarations** (including packed storage structs via `@word N packed(byteOffset, byteWidth)`), **algebraic data types**, **newtype wrappers**, **storage namespaces** (`storage_namespace erc7201 "myapp.storage.X"`), and **mapping-of-struct** sugar (`MappingStruct`, `MappingStruct2`). The full grammar lives in [`Verity/Macro/Syntax.lean`](https://github.com/lfglabs-dev/verity/blob/main/Verity/Macro/Syntax.lean); concrete usage shapes are in the [production Solidity patterns guide](/guides/production-solidity-patterns).
