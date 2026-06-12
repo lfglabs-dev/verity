@@ -1747,6 +1747,12 @@ def stmtListTouchesUnsupportedContractSurfaceWithEvents
       stmtTouchesUnsupportedContractSurfaceWithEvents events stmt ||
         stmtListTouchesUnsupportedContractSurfaceWithEvents events rest
 
+/-- Direct event-emission heads admitted by the top-level scalar-event slice.
+Recursive event occurrences remain outside this predicate. -/
+def stmtTouchesEventSurface : Stmt → Bool
+  | .emit _ _ => true
+  | _ => false
+
 /-- Weaker contract-surface gate used by the Tier 2 singleton storage-write
 bridge: ordinary unsupported contract effects remain excluded, but the proved
 singleton mapping-write heads are admitted. -/
@@ -2532,6 +2538,35 @@ structure SupportedBodyInterface (spec : CompilationModel) (fn : FunctionSpec) w
   effects : SupportedBodyEffectInterface fn
   noLocalObligations : fn.localObligations = []
 
+/-- Body-level support for the scalar-event slice. Event emissions are admitted
+only as top-level statement heads; structural statements such as `ite` and
+`forEach` must remain fully plain contract-surface closed. -/
+structure SupportedBodyInterfaceWithScalarEvents
+    (spec : CompilationModel) (fn : FunctionSpec) where
+  stmtList : SupportedStmtList spec.fields (fn.params.map (·.name)) fn.body
+  core : SupportedBodyCoreInterface fn
+  state : SupportedBodyStateInterface fn
+  calls : SupportedBodyCallInterface spec fn
+  effects : SupportedBodyEffectInterface fn
+  contractSurfaceWithEvents :
+    stmtListTouchesUnsupportedContractSurfaceWithEvents spec.events fn.body = false
+  topLevelEventHeads :
+    ∀ s ∈ fn.body,
+      stmtTouchesEventSurface s = true ∨
+        stmtTouchesUnsupportedContractSurface s = false
+  eventScratchFreshInitial :
+    "__evt_ptr" ∉ fn.params.map (·.name) ∧
+      "__evt_topic0" ∉ fn.params.map (·.name)
+  eventScratchFreshStmts :
+    ∀ s ∈ fn.body,
+      "__evt_ptr" ∉ collectStmtNames s ∧ "__evt_topic0" ∉ collectStmtNames s
+  emitArgsInScope :
+    ∀ s ∈ fn.body, ∀ (eventName : String) (args : List Expr),
+      s = Stmt.emit eventName args →
+      ∀ arg ∈ args,
+        FunctionBody.exprBoundNamesInScope arg (fn.params.map (·.name))
+  noLocalObligations : fn.localObligations = []
+
 /-- Tier 2 body-level interface that weakens only the state-surface closure to
 admit the currently proved singleton storage-write shapes; all other fail-closed
 boundaries remain unchanged. -/
@@ -2558,6 +2593,16 @@ structure SupportedFunction (spec : CompilationModel) (fn : FunctionSpec) where
   params : SupportedParamProfile fn.params
   returns : SupportedReturnProfile fn
   body : SupportedBodyInterface spec fn
+
+/-- Supported external function for the scalar-event Layer 2 slice. -/
+structure SupportedFunctionWithScalarEvents
+    (spec : CompilationModel) (fn : FunctionSpec) where
+  nonInternal : fn.isInternal = false
+  nonSpecialEntrypoint : isInteropEntrypointName fn.name = false
+  noNonReentrant : fn.nonReentrantLock = none
+  params : SupportedParamProfile fn.params
+  returns : SupportedReturnProfile fn
+  body : SupportedBodyInterfaceWithScalarEvents spec fn
 
 /-- Tier 2 function-level support witness that weakens only the body state
 surface closure to admit the currently proved singleton storage-write shapes. -/
@@ -2629,6 +2674,20 @@ structure SupportedSpecSurface (spec : CompilationModel) : Prop where
   noReceive :
     ∀ fn ∈ spec.functions, fn.name != "receive"
 
+/-- Whole-contract scalar-event surface. Events may be declared, but every
+declared event must live in the scalar proof-supported fragment: scalar params
+and at most three indexed parameters. -/
+structure SupportedSpecSurfaceWithScalarEvents (spec : CompilationModel) : Prop where
+  eventsSupported :
+    ∀ eventDef ∈ spec.events, eventDefScalarProofSupported eventDef = true
+  noErrors : spec.errors = []
+  noExternals : spec.externals = []
+  noAdtTypes : spec.adtTypes = []
+  noFallback :
+    ∀ fn ∈ spec.functions, fn.name != "fallback"
+  noReceive :
+    ∀ fn ∈ spec.functions, fn.name != "receive"
+
 /-- Whole-contract support witness for the first generic Layer 2 theorem.
 The initial scope is deliberately narrow: selector-dispatched external entrypoints only,
 no constructor, no fallback/receive, no foreign/linking surface, and every function body
@@ -2640,6 +2699,16 @@ structure SupportedSpec (spec : CompilationModel) (selectors : List Nat) where
     ∀ ctor, spec.constructor = some ctor → SupportedConstructor spec ctor
   functions :
     ∀ fn, fn ∈ spec.functions → SupportedFunction spec fn
+
+/-- Whole-contract support witness for the top-level scalar-event theorem. -/
+structure SupportedSpecWithScalarEvents
+    (spec : CompilationModel) (selectors : List Nat) where
+  invariants : SupportedSpecInvariants spec selectors
+  surface : SupportedSpecSurfaceWithScalarEvents spec
+  constructor :
+    ∀ ctor, spec.constructor = some ctor → SupportedConstructor spec ctor
+  functions :
+    ∀ fn, fn ∈ spec.functions → SupportedFunctionWithScalarEvents spec fn
 
 /-- Tier 2 whole-contract support witness that weakens only the function-body
 state closure to admit the currently proved singleton storage-write shapes. -/
@@ -2678,6 +2747,32 @@ theorem SupportedFunction.returnsSupported
         SupportedExternalReturnProfile resolvedReturns :=
   hSupported.returns.resolved
 
+theorem SupportedFunctionWithScalarEvents.paramNamesNodup
+    {spec : CompilationModel} {fn : FunctionSpec}
+    (hSupported : SupportedFunctionWithScalarEvents spec fn) :
+    (fn.params.map (·.name)).Nodup :=
+  hSupported.params.namesNodup
+
+theorem SupportedFunctionWithScalarEvents.paramsSupported
+    {spec : CompilationModel} {fn : FunctionSpec}
+    (hSupported : SupportedFunctionWithScalarEvents spec fn) :
+    ∀ param ∈ fn.params, SupportedExternalParamType param.ty :=
+  hSupported.params.supported
+
+theorem SupportedFunctionWithScalarEvents.paramCalldataThreshold
+    {spec : CompilationModel} {fn : FunctionSpec}
+    (hSupported : SupportedFunctionWithScalarEvents spec fn) :
+    4 + fn.params.length * 32 < Compiler.Constants.evmModulus :=
+  hSupported.params.calldataThreshold
+
+theorem SupportedFunctionWithScalarEvents.returnsSupported
+    {spec : CompilationModel} {fn : FunctionSpec}
+    (hSupported : SupportedFunctionWithScalarEvents spec fn) :
+    ∃ resolvedReturns,
+      functionReturns fn = Except.ok resolvedReturns ∧
+        SupportedExternalReturnProfile resolvedReturns :=
+  hSupported.returns.resolved
+
 theorem SupportedFunctionExceptMappingWrites.paramNamesNodup
     {spec : CompilationModel} {fn : FunctionSpec}
     (hSupported : SupportedFunctionExceptMappingWrites spec fn) :
@@ -2707,6 +2802,11 @@ theorem SupportedFunctionExceptMappingWrites.returnsSupported
 def SupportedFunction.helperFuel
     {spec : CompilationModel} {fn : FunctionSpec}
     (hSupported : SupportedFunction spec fn) : Nat :=
+  hSupported.body.calls.helpers.helperRank
+
+def SupportedFunctionWithScalarEvents.helperFuel
+    {spec : CompilationModel} {fn : FunctionSpec}
+    (hSupported : SupportedFunctionWithScalarEvents spec fn) : Nat :=
   hSupported.body.calls.helpers.helperRank
 
 def SupportedFunctionExceptMappingWrites.helperFuel
@@ -6464,6 +6564,12 @@ theorem SupportedSpecExceptMappingWrites.normalizedFields
     applySlotAliasRanges spec.fields spec.slotAliasRanges = spec.fields :=
   hSupported.invariants.normalizedFields
 
+theorem SupportedSpecWithScalarEvents.normalizedFields
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecWithScalarEvents spec selectors) :
+    applySlotAliasRanges spec.fields spec.slotAliasRanges = spec.fields :=
+  hSupported.invariants.normalizedFields
+
 theorem SupportedSpec.noPackedFields
     {spec : CompilationModel} {selectors : List Nat}
     (hSupported : SupportedSpec spec selectors) :
@@ -6473,6 +6579,12 @@ theorem SupportedSpec.noPackedFields
 theorem SupportedSpecExceptMappingWrites.noPackedFields
     {spec : CompilationModel} {selectors : List Nat}
     (hSupported : SupportedSpecExceptMappingWrites spec selectors) :
+    ∀ field ∈ spec.fields, field.packedBits = none :=
+  hSupported.invariants.noPackedFields
+
+theorem SupportedSpecWithScalarEvents.noPackedFields
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecWithScalarEvents spec selectors) :
     ∀ field ∈ spec.fields, field.packedBits = none :=
   hSupported.invariants.noPackedFields
 
@@ -6536,6 +6648,12 @@ theorem SupportedSpecExceptMappingWrites.noErrors
     spec.errors = [] :=
   hSupported.surface.noErrors
 
+theorem SupportedSpecWithScalarEvents.noErrors
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecWithScalarEvents spec selectors) :
+    spec.errors = [] :=
+  hSupported.surface.noErrors
+
 theorem SupportedSpec.noExternals
     {spec : CompilationModel} {selectors : List Nat}
     (hSupported : SupportedSpec spec selectors) :
@@ -6548,6 +6666,12 @@ theorem SupportedSpecExceptMappingWrites.noExternals
     spec.externals = [] :=
   hSupported.surface.noExternals
 
+theorem SupportedSpecWithScalarEvents.noExternals
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecWithScalarEvents spec selectors) :
+    spec.externals = [] :=
+  hSupported.surface.noExternals
+
 theorem SupportedSpec.noAdtTypes
     {spec : CompilationModel} {selectors : List Nat}
     (hSupported : SupportedSpec spec selectors) :
@@ -6557,6 +6681,12 @@ theorem SupportedSpec.noAdtTypes
 theorem SupportedSpecExceptMappingWrites.noAdtTypes
     {spec : CompilationModel} {selectors : List Nat}
     (hSupported : SupportedSpecExceptMappingWrites spec selectors) :
+    spec.adtTypes = [] :=
+  hSupported.surface.noAdtTypes
+
+theorem SupportedSpecWithScalarEvents.noAdtTypes
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecWithScalarEvents spec selectors) :
     spec.adtTypes = [] :=
   hSupported.surface.noAdtTypes
 
@@ -6600,6 +6730,14 @@ def SupportedSpecExceptMappingWrites.supportedFunctionOfSelectorDispatched
     SupportedFunctionExceptMappingWrites spec fn :=
   hSupported.functions fn ((List.mem_filter.mp hfn).1)
 
+def SupportedSpecWithScalarEvents.supportedFunctionOfSelectorDispatched
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecWithScalarEvents spec selectors)
+    {fn : FunctionSpec}
+    (hfn : fn ∈ selectorDispatchedFunctions spec) :
+    SupportedFunctionWithScalarEvents spec fn :=
+  hSupported.functions fn ((List.mem_filter.mp hfn).1)
+
 noncomputable def SupportedSpec.helperFuelOfFunction
     {spec : CompilationModel} {selectors : List Nat}
     (hSupported : SupportedSpec spec selectors)
@@ -6620,6 +6758,16 @@ noncomputable def SupportedSpecExceptMappingWrites.helperFuelOfFunction
   else
     0
 
+noncomputable def SupportedSpecWithScalarEvents.helperFuelOfFunction
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecWithScalarEvents spec selectors)
+    (fn : FunctionSpec) : Nat :=
+  open Classical in
+  if hfn : fn ∈ selectorDispatchedFunctions spec then
+    (hSupported.supportedFunctionOfSelectorDispatched hfn).helperFuel
+  else
+    0
+
 
 noncomputable def SupportedSpec.helperFuel
     {spec : CompilationModel} {selectors : List Nat}
@@ -6631,6 +6779,13 @@ noncomputable def SupportedSpec.helperFuel
 noncomputable def SupportedSpecExceptMappingWrites.helperFuel
     {spec : CompilationModel} {selectors : List Nat}
     (hSupported : SupportedSpecExceptMappingWrites spec selectors) : Nat :=
+  (selectorDispatchedFunctions spec).foldl
+    (fun fuel fn => max fuel (hSupported.helperFuelOfFunction fn))
+    0
+
+noncomputable def SupportedSpecWithScalarEvents.helperFuel
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecWithScalarEvents spec selectors) : Nat :=
   (selectorDispatchedFunctions spec).foldl
     (fun fuel fn => max fuel (hSupported.helperFuelOfFunction fn))
     0
@@ -6667,6 +6822,22 @@ theorem SupportedSpecExceptMappingWrites.selectorFunctionParamCalldataThreshold
     4 + fn.params.length * 32 < Compiler.Constants.evmModulus :=
   (hSupported.supportedFunctionOfSelectorDispatched hfn).params.calldataThreshold
 
+theorem SupportedSpecWithScalarEvents.selectorFunctionParamsSupported
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecWithScalarEvents spec selectors)
+    {fn : FunctionSpec}
+    (hfn : fn ∈ selectorDispatchedFunctions spec) :
+    ∀ param ∈ fn.params, SupportedExternalParamType param.ty :=
+  (hSupported.supportedFunctionOfSelectorDispatched hfn).params.supported
+
+theorem SupportedSpecWithScalarEvents.selectorFunctionParamCalldataThreshold
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecWithScalarEvents spec selectors)
+    {fn : FunctionSpec}
+    (hfn : fn ∈ selectorDispatchedFunctions spec) :
+    4 + fn.params.length * 32 < Compiler.Constants.evmModulus :=
+  (hSupported.supportedFunctionOfSelectorDispatched hfn).params.calldataThreshold
+
 theorem SupportedSpec.selectorFunctionParamNamesNodup
     {spec : CompilationModel} {selectors : List Nat}
     (hSupported : SupportedSpec spec selectors)
@@ -6678,6 +6849,14 @@ theorem SupportedSpec.selectorFunctionParamNamesNodup
 theorem SupportedSpecExceptMappingWrites.selectorFunctionParamNamesNodup
     {spec : CompilationModel} {selectors : List Nat}
     (hSupported : SupportedSpecExceptMappingWrites spec selectors)
+    {fn : FunctionSpec}
+    (hfn : fn ∈ selectorDispatchedFunctions spec) :
+    (fn.params.map (·.name)).Nodup :=
+  (hSupported.supportedFunctionOfSelectorDispatched hfn).params.namesNodup
+
+theorem SupportedSpecWithScalarEvents.selectorFunctionParamNamesNodup
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecWithScalarEvents spec selectors)
     {fn : FunctionSpec}
     (hfn : fn ∈ selectorDispatchedFunctions spec) :
     (fn.params.map (·.name)).Nodup :=
@@ -6696,6 +6875,16 @@ theorem SupportedSpec.selectorFunctionReturnsSupported
 theorem SupportedSpecExceptMappingWrites.selectorFunctionReturnsSupported
     {spec : CompilationModel} {selectors : List Nat}
     (hSupported : SupportedSpecExceptMappingWrites spec selectors)
+    {fn : FunctionSpec}
+    (hfn : fn ∈ selectorDispatchedFunctions spec) :
+    ∃ resolvedReturns,
+      functionReturns fn = Except.ok resolvedReturns ∧
+        SupportedExternalReturnProfile resolvedReturns :=
+  (hSupported.supportedFunctionOfSelectorDispatched hfn).returns.resolved
+
+theorem SupportedSpecWithScalarEvents.selectorFunctionReturnsSupported
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecWithScalarEvents spec selectors)
     {fn : FunctionSpec}
     (hfn : fn ∈ selectorDispatchedFunctions spec) :
     ∃ resolvedReturns,

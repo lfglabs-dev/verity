@@ -1,3 +1,4 @@
+import Compiler.Proofs.IRGeneration.GenericInduction.EventBridge
 import Compiler.Proofs.IRGeneration.GenericInduction.Loops
 
 set_option linter.unnecessarySeqFocus false
