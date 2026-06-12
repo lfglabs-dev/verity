@@ -74,6 +74,43 @@ example :
         defaultState := by
   rfl
 
+namespace StatefulExternalSmoke
+
+open Compiler.ECM.StatefulExternal
+
+private def world : ExternalWorld :=
+  { accountState := fun address index => address + index }
+
+private def request : Request :=
+  { caller := 1
+    target := 2
+    selector := some 305419896
+    calldata := [7]
+    value := 0
+    world := world }
+
+private def balanceSummary : Summary :=
+  { name := "balanceOf"
+    selector := some 1889561905
+    mutability := .staticcall
+    assumptionNames := ["erc20_balanceOf_interface"] }
+
+example :
+    world = request.world := by
+  have h :
+      balanceSummary.interprets request (.success world [7]) := by
+    simp [Summary.interprets, balanceSummary, request]
+  have hsame :=
+    Summary.static_success_preserves_world (summary := balanceSummary)
+      (request := request) (world := world) (data := [7]) rfl h
+  exact hsame
+
+example :
+    (Outcome.revert [1, 2, 3]).committedWorld? = none := by
+  exact Summary.revert_has_no_committed_world [1, 2, 3]
+
+end StatefulExternalSmoke
+
 verity_contract LinkedExternalDynamicArgSmoke where
   storage
   linked_externals
