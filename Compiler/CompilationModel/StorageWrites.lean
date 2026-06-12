@@ -22,7 +22,8 @@ def validateDynamicArrayField (fields : List Field) (field : String) :
   | none =>
       throw s!"Compilation error: unknown storage field '{field}'"
 
-def compilePackedStorageWrite (writeSlot valueExpr : YulExpr) (packed : PackedBits) :
+def compilePackedStorageWrite (writeSlot valueExpr : YulExpr) (packed : PackedBits)
+    (loadBuiltin : String := "sload") (storeBuiltin : String := "sstore") :
     List YulStmt :=
   let maskNat := packedMaskNat packed
   let shiftedMaskNat := packedShiftedMaskNat packed
@@ -30,12 +31,12 @@ def compilePackedStorageWrite (writeSlot valueExpr : YulExpr) (packed : PackedBi
     YulStmt.block [
       YulStmt.let_ "__compat_value" valueExpr,
       YulStmt.let_ "__compat_packed" (YulExpr.call "and" [YulExpr.ident "__compat_value", YulExpr.lit maskNat]),
-      YulStmt.let_ "__compat_slot_word" (YulExpr.call "sload" [writeSlot]),
+      YulStmt.let_ "__compat_slot_word" (YulExpr.call loadBuiltin [writeSlot]),
       YulStmt.let_ "__compat_slot_cleared" (YulExpr.call "and" [
         YulExpr.ident "__compat_slot_word",
         YulExpr.call "not" [YulExpr.lit shiftedMaskNat]
       ]),
-      YulStmt.expr (YulExpr.call "sstore" [
+      YulStmt.expr (YulExpr.call storeBuiltin [
         writeSlot,
         YulExpr.call "or" [
           YulExpr.ident "__compat_slot_cleared",
@@ -46,7 +47,8 @@ def compilePackedStorageWrite (writeSlot valueExpr : YulExpr) (packed : PackedBi
   ]
 
 def compileCompatPackedStorageWrites (writeSlots : List YulExpr) (valueExpr : YulExpr)
-    (packed : PackedBits) : List YulStmt :=
+    (packed : PackedBits) (loadBuiltin : String := "sload")
+    (storeBuiltin : String := "sstore") : List YulStmt :=
   let maskNat := packedMaskNat packed
   let shiftedMaskNat := packedShiftedMaskNat packed
   [
@@ -55,12 +57,12 @@ def compileCompatPackedStorageWrites (writeSlots : List YulExpr) (valueExpr : Yu
        YulStmt.let_ "__compat_packed" (YulExpr.call "and" [YulExpr.ident "__compat_value", YulExpr.lit maskNat])] ++
       writeSlots.map (fun writeSlot =>
         YulStmt.block [
-          YulStmt.let_ "__compat_slot_word" (YulExpr.call "sload" [writeSlot]),
+          YulStmt.let_ "__compat_slot_word" (YulExpr.call loadBuiltin [writeSlot]),
           YulStmt.let_ "__compat_slot_cleared" (YulExpr.call "and" [
             YulExpr.ident "__compat_slot_word",
             YulExpr.call "not" [YulExpr.lit shiftedMaskNat]
           ]),
-          YulStmt.expr (YulExpr.call "sstore" [
+          YulStmt.expr (YulExpr.call storeBuiltin [
             writeSlot,
             YulExpr.call "or" [
               YulExpr.ident "__compat_slot_cleared",
@@ -85,6 +87,8 @@ def compileSetStorage (fields : List Field) (dynamicSource : DynamicDataSource)
           | _ =>
               throw s!"Compilation error: field '{field}' is not address-typed; use Stmt.setStorage instead"
         let slots := slot :: f.aliasSlots
+        let loadBuiltin := if f.isTransient then "tload" else "sload"
+        let storeBuiltin := if f.isTransient then "tstore" else "sstore"
         let valueExpr ← compileExpr fields dynamicSource value
         let storedValueExpr :=
           if requireAddressField then
@@ -101,9 +105,9 @@ def compileSetStorage (fields : List Field) (dynamicSource : DynamicDataSource)
             | [singleSlot] =>
                 match f.packedBits with
                 | none =>
-                    pure [YulStmt.expr (YulExpr.call "sstore" [YulExpr.lit singleSlot, storedValueExpr])]
+                    pure [YulStmt.expr (YulExpr.call storeBuiltin [YulExpr.lit singleSlot, storedValueExpr])]
                 | some packed =>
-                    pure (compilePackedStorageWrite (YulExpr.lit singleSlot) storedValueExpr packed)
+                    pure (compilePackedStorageWrite (YulExpr.lit singleSlot) storedValueExpr packed loadBuiltin storeBuiltin)
             | _ =>
                 let writeSlots := slots.map YulExpr.lit
                 match f.packedBits with
@@ -112,11 +116,11 @@ def compileSetStorage (fields : List Field) (dynamicSource : DynamicDataSource)
                       YulStmt.block (
                         [YulStmt.let_ "__compat_value" storedValueExpr] ++
                         writeSlots.map (fun writeSlot =>
-                          YulStmt.expr (YulExpr.call "sstore" [writeSlot, YulExpr.ident "__compat_value"]))
+                          YulStmt.expr (YulExpr.call storeBuiltin [writeSlot, YulExpr.ident "__compat_value"]))
                       )
                     ]
                 | some packed =>
-                    pure (compileCompatPackedStorageWrites writeSlots storedValueExpr packed)
+                    pure (compileCompatPackedStorageWrites writeSlots storedValueExpr packed loadBuiltin storeBuiltin)
     | none => throw s!"Compilation error: unknown storage field '{field}' in setStorage"
 
 def compileStorageArrayPush (fields : List Field) (dynamicSource : DynamicDataSource)

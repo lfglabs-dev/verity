@@ -459,7 +459,7 @@ private theorem fieldWriteEntriesAt_base_mem
     (idx : Nat) (field : Field) :
     SourceSemantics.wordNormalize (field.slot.getD idx) ∈
       (fieldWriteEntriesAt idx field).map (fun entry => entry.1) := by
-  obtain ⟨name, ty, slotOpt, packedBits, aliasSlots⟩ := field
+  obtain ⟨name, ty, isTransient, slotOpt, packedBits, aliasSlots⟩ := field
   cases ty with
   | adt _ maxFields =>
       simp [fieldWriteEntriesAt, firstFieldWriteSlotConflict.fieldOccupiedSlots,
@@ -487,7 +487,7 @@ private theorem fieldWriteEntriesAt_alias_mem
     (hmem : slot ∈ field.aliasSlots) :
     SourceSemantics.wordNormalize slot ∈
       (fieldWriteEntriesAt idx field).map (fun entry => entry.1) := by
-    obtain ⟨name, ty, slotOpt, packedBits, aliasSlots⟩ := field
+    obtain ⟨name, ty, isTransient, slotOpt, packedBits, aliasSlots⟩ := field
     obtain ⟨aliasIdx, halias⟩ : ∃ i, (slot, i) ∈ aliasSlots.zipIdx :=
       exists_mem_zipIdx_of_mem hmem
     cases ty with
@@ -2375,6 +2375,7 @@ theorem compiledStmtStep_setStorage_singleSlot
     (hnoConflict : firstFieldWriteSlotConflict fields = none)
     (hnotAddr : SourceSemantics.fieldUsesAddressStorage f = false)
     (hnotDyn : SourceSemantics.fieldUsesDynamicArrayStorage f = false)
+    (hnotTransient : f.isTransient = false)
     (hNotMapping : isMapping fields fieldName = false)
     (hNotAdt : ∀ name maxFields, f.ty ≠ FieldType.adt name maxFields)
     (hvalueIR : CompilationModel.compileExpr fields .calldata value = Except.ok valueIR) :
@@ -2382,7 +2383,7 @@ theorem compiledStmtStep_setStorage_singleSlot
       [YulStmt.expr (YulExpr.call "sstore" [YulExpr.lit slot, valueIR])] where
   compileOk := by
     simp [CompilationModel.compileStmt, CompilationModel.compileSetStorage,
-      hNotMapping, hfind, halias, hunpacked, hvalueIR]
+      hNotMapping, hfind, halias, hunpacked, hnotTransient, hvalueIR]
   preserves runtime state extraFuel hexact hscope hbounded hruntime hslack := by
     let compiledIR := [YulStmt.expr (YulExpr.call "sstore" [YulExpr.lit slot, valueIR])]
     have hresolvedSlot :
@@ -2412,9 +2413,13 @@ theorem compiledStmtStep_setStorage_singleSlot
             Compiler.Proofs.abstractStoreStorageOrMapping state.storage slot valueNat }
       set runtime' := { runtime with
           world := SourceSemantics.writeUintSlots runtime.world [slot] valueNat }
+      have hfieldTransient :
+          SourceSemantics.fieldIsTransient fields fieldName = false := by
+        simp [SourceSemantics.fieldIsTransient, hfind, hnotTransient]
       have hSrcExec : SourceSemantics.execStmt fields runtime
           (.setStorage fieldName value) = .continue runtime' := by
-        simp [SourceSemantics.execStmt, hwriteSlots, hValueSrc, runtime']
+        simp [SourceSemantics.execStmt, SourceSemantics.writeUintFieldSlots,
+          SourceSemantics.writeMappingTargets, hwriteSlots, hValueSrc, hfieldTransient, runtime']
       have hExecStmt :
           execIRStmt (extraFuel + 1) state
             (YulStmt.expr (YulExpr.call "sstore" [YulExpr.lit slot, valueIR])) =
@@ -2539,9 +2544,13 @@ private theorem compiledStmtStep_setStorageAddr_singleSlot_preserves
             (valueNat &&& Compiler.Constants.addressMask) }
     set runtime' := { runtime with
         world := SourceSemantics.writeAddressSlots runtime.world [slot] valueNat }
+    have hfieldTransient :
+        SourceSemantics.fieldIsTransient fields fieldName = false := by
+      simp [SourceSemantics.fieldIsTransient, hfind]
     have hSrcExec : SourceSemantics.execStmt fields runtime
         (.setStorageAddr fieldName value) = .continue runtime' := by
-      simp [SourceSemantics.execStmt, hwriteSlots, hValueSrc, runtime']
+      simp [SourceSemantics.execStmt, SourceSemantics.writeAddressFieldSlots,
+        hwriteSlots, hValueSrc, hfieldTransient, runtime']
     have hExecStmt :
         execIRStmt (extraFuel + 1) state
           (YulStmt.expr
@@ -5983,6 +5992,7 @@ theorem compiledStmtStep_setStorage_aliasSlots
     (hnoConflict : firstFieldWriteSlotConflict fields = none)
     (hnotAddr : SourceSemantics.fieldUsesAddressStorage f = false)
     (hnotDyn : SourceSemantics.fieldUsesDynamicArrayStorage f = false)
+    (hnotTransient : f.isTransient = false)
     (hNotMapping : isMapping fields fieldName = false)
     (hNotAdt : ∀ name maxFields, f.ty ≠ FieldType.adt name maxFields)
     (hvalueIR : CompilationModel.compileExpr fields .calldata value = Except.ok valueIR) :
@@ -5998,7 +6008,7 @@ theorem compiledStmtStep_setStorage_aliasSlots
         exact False.elim (hNotAdt name maxFields hty)
     | uint256 | address | dynamicArray | mappingTyped | mappingStruct | mappingStruct2 =>
         simp [CompilationModel.compileStmt, CompilationModel.compileSetStorage,
-          hNotMapping, hfind, hwriteSlots, halias, hunpacked, hvalueIR, hty,
+          hNotMapping, hfind, hwriteSlots, halias, hunpacked, hnotTransient, hvalueIR, hty,
           pure, Except.pure, Bind.bind, Except.bind]
   preserves runtime state extraFuel hexact hscope hbounded hruntime hslack := by
     let slots := slot :: f.aliasSlots
@@ -6096,11 +6106,15 @@ theorem compiledStmtStep_setStorage_aliasSlots
       rw [hValueSrc] at hvalueLt
       simp at hvalueLt
       -- Source execution
+      have hfieldTransient :
+          SourceSemantics.fieldIsTransient fields fieldName = false := by
+        simp [SourceSemantics.fieldIsTransient, hfind, hnotTransient]
       have hSrcExec : SourceSemantics.execStmt fields runtime
           (.setStorage fieldName value) = .continue
             { runtime with
                 world := SourceSemantics.writeUintSlots runtime.world (slot :: f.aliasSlots) valueNat } := by
-        simp [SourceSemantics.execStmt, hwriteSlots, hValueSrc, slots]
+        simp [SourceSemantics.execStmt, SourceSemantics.writeUintFieldSlots,
+          SourceSemantics.writeMappingTargets, hwriteSlots, hValueSrc, hfieldTransient, slots]
       -- Scope inclusion
       have hincl : FunctionBody.scopeNamesIncluded
           (stmtNextScope scope (.setStorage fieldName value)) scope := by
@@ -6163,6 +6177,7 @@ theorem compiledStmtStep_setStorage_of_validateIdentifierShapes
     (hnoConflict : firstFieldWriteSlotConflict spec.fields = none)
     (hnotAddr : SourceSemantics.fieldUsesAddressStorage f = false)
     (hnotDyn : SourceSemantics.fieldUsesDynamicArrayStorage f = false)
+    (hnotTransient : f.isTransient = false)
     (hNotMapping : isMapping spec.fields fieldName = false)
     (hNotAdt : ∀ name maxFields, f.ty ≠ FieldType.adt name maxFields)
     (hvalueIR : CompilationModel.compileExpr spec.fields .calldata value = Except.ok valueIR) :
@@ -6179,6 +6194,7 @@ theorem compiledStmtStep_setStorage_of_validateIdentifierShapes
       (hnoConflict := hnoConflict)
       (hnotAddr := hnotAddr)
       (hnotDyn := hnotDyn)
+      (hnotTransient := hnotTransient)
       (hNotMapping := hNotMapping)
       (hNotAdt := hNotAdt)
       (hvalueIR := hvalueIR)
@@ -6202,6 +6218,7 @@ theorem compiledStmtStep_setStorage_of_validateIdentifierShapes
       (hnoConflict := hnoConflict)
       (hnotAddr := hnotAddr)
       (hnotDyn := hnotDyn)
+      (hnotTransient := hnotTransient)
       (hNotMapping := hNotMapping)
       (hNotAdt := hNotAdt)
       (hvalueIR := hvalueIR)
@@ -6234,6 +6251,7 @@ theorem compiledStmtStep_setStorage_of_validateIdentifierShapes_of_scopeDiscipli
     (hnoConflict : firstFieldWriteSlotConflict spec.fields = none)
     (hnotAddr : SourceSemantics.fieldUsesAddressStorage f = false)
     (hnotDyn : SourceSemantics.fieldUsesDynamicArrayStorage f = false)
+    (hnotTransient : f.isTransient = false)
     (hNotMapping : isMapping spec.fields fieldName = false)
     (hNotAdt : ∀ name maxFields, f.ty ≠ FieldType.adt name maxFields)
     (hvalueIR : CompilationModel.compileExpr spec.fields .calldata value = Except.ok valueIR) :
@@ -6255,6 +6273,7 @@ theorem compiledStmtStep_setStorage_of_validateIdentifierShapes_of_scopeDiscipli
     (hnoConflict := hnoConflict)
     (hnotAddr := hnotAddr)
     (hnotDyn := hnotDyn)
+    (hnotTransient := hnotTransient)
     (hNotMapping := hNotMapping)
     (hNotAdt := hNotAdt)
     (hvalueIR := hvalueIR)
@@ -6317,6 +6336,7 @@ theorem compiledStmtStep_setStorage_of_validateIdentifierShapes_of_validateFunct
     (hnoConflict : firstFieldWriteSlotConflict spec.fields = none)
     (hnotAddr : SourceSemantics.fieldUsesAddressStorage f = false)
     (hnotDyn : SourceSemantics.fieldUsesDynamicArrayStorage f = false)
+    (hnotTransient : f.isTransient = false)
     (hNotMapping : isMapping spec.fields fieldName = false)
     (hNotAdt : ∀ name maxFields, f.ty ≠ FieldType.adt name maxFields)
     (hvalueIR : CompilationModel.compileExpr spec.fields .calldata value = Except.ok valueIR) :
@@ -6340,6 +6360,7 @@ theorem compiledStmtStep_setStorage_of_validateIdentifierShapes_of_validateFunct
     (hnoConflict := hnoConflict)
     (hnotAddr := hnotAddr)
     (hnotDyn := hnotDyn)
+    (hnotTransient := hnotTransient)
     (hNotMapping := hNotMapping)
     (hNotAdt := hNotAdt)
     (hvalueIR := hvalueIR)
@@ -6373,6 +6394,7 @@ theorem compiledStmtStep_setStorage_of_validateIdentifierShapes_of_validateFunct
     (hnoConflict : firstFieldWriteSlotConflict spec.fields = none)
     (hnotAddr : SourceSemantics.fieldUsesAddressStorage f = false)
     (hnotDyn : SourceSemantics.fieldUsesDynamicArrayStorage f = false)
+    (hnotTransient : f.isTransient = false)
     (hvalueIR : CompilationModel.compileExpr spec.fields .calldata value = Except.ok valueIR) :
     ∃ compiledIR,
       CompiledStmtStep spec.fields
@@ -6404,7 +6426,8 @@ theorem compiledStmtStep_setStorage_of_validateIdentifierShapes_of_validateFunct
       Bind.bind, Except.bind] at hstmt
   exact compiledStmtStep_setStorage_of_validateIdentifierShapes_of_validateFunctionIdentifierReferences
     hvalidateShapes hvalidateRefs hfn hparamScope hprefixCore hbody hvalueCore hinScope
-    hfind hwriteSlots hunpacked hnoConflict hnotAddr hnotDyn hNotMapping hNotAdt hvalueIR
+    hfind hwriteSlots hunpacked hnoConflict hnotAddr hnotDyn hnotTransient
+    hNotMapping hNotAdt hvalueIR
 
 private theorem terminal_stmtResultMatchesIRExec_implies_stmtStepMatchesIRExec
     {fields : List Field}
@@ -6725,10 +6748,11 @@ private theorem compiledStmtStep_letStorageField
   preserves runtime state extraFuel hexact hscope hbounded hruntime hslack := by
     have hEvalSrc : SourceSemantics.evalExpr fields runtime (.storage fieldName) =
         some (runtime.world.storage (SourceSemantics.wordNormalize slot)).val := by
-      show (match findFieldWithResolvedSlot fields fieldName with
-        | some (_, s) => some (runtime.world.storage (SourceSemantics.wordNormalize s)).val
+      change (match findFieldWithResolvedSlot fields fieldName with
+        | some (field, s) => some (SourceSemantics.readFieldWord runtime.world field s).val
         | none => none) = _
       rw [hfind]
+      rfl
     have hresolved := findResolvedFieldAtSlotCopy_of_findFieldWithResolvedSlot_singleton
       hnoConflict hfind
       (by simpa using findFieldWriteSlots_of_findFieldWithResolvedSlot hfind) (by rfl)
@@ -6803,10 +6827,15 @@ private theorem compiledStmtStep_letStorageAddrField
   preserves runtime state extraFuel hexact hscope hbounded hruntime hslack := by
     have hEvalSrc : SourceSemantics.evalExpr fields runtime (.storageAddr fieldName) =
         some (runtime.world.storageAddr (SourceSemantics.wordNormalize slot)).val := by
-      show (match findFieldWithResolvedSlot fields fieldName with
-        | some (_, s) => some (runtime.world.storageAddr (SourceSemantics.wordNormalize s)).val
+      change (match findFieldWithResolvedSlot fields fieldName with
+        | some (field, s) =>
+            if field.isTransient then
+              some (runtime.world.transientStorage (SourceSemantics.wordNormalize s)).val
+            else
+              some (runtime.world.storageAddr (SourceSemantics.wordNormalize s)).val
         | none => none) = _
       rw [hfind]
+      rfl
     have hresolved := findResolvedFieldAtSlotCopy_of_findFieldWithResolvedSlot_singleton
       hnoConflict hfind
       (by simpa using findFieldWriteSlots_of_findFieldWithResolvedSlot hfind) (by rfl)
@@ -6882,10 +6911,11 @@ private theorem compiledStmtStep_assignStorageField
   preserves runtime state extraFuel hexact hscope hbounded hruntime hslack := by
     have hEvalSrc : SourceSemantics.evalExpr fields runtime (.storage fieldName) =
         some (runtime.world.storage (SourceSemantics.wordNormalize slot)).val := by
-      show (match findFieldWithResolvedSlot fields fieldName with
-        | some (_, s) => some (runtime.world.storage (SourceSemantics.wordNormalize s)).val
+      change (match findFieldWithResolvedSlot fields fieldName with
+        | some (field, s) => some (SourceSemantics.readFieldWord runtime.world field s).val
         | none => none) = _
       rw [hfind]
+      rfl
     have hresolved := findResolvedFieldAtSlotCopy_of_findFieldWithResolvedSlot_singleton
       hnoConflict hfind
       (by simpa using findFieldWriteSlots_of_findFieldWithResolvedSlot hfind) (by rfl)
@@ -6960,10 +6990,15 @@ private theorem compiledStmtStep_assignStorageAddrField
   preserves runtime state extraFuel hexact hscope hbounded hruntime hslack := by
     have hEvalSrc : SourceSemantics.evalExpr fields runtime (.storageAddr fieldName) =
         some (runtime.world.storageAddr (SourceSemantics.wordNormalize slot)).val := by
-      show (match findFieldWithResolvedSlot fields fieldName with
-        | some (_, s) => some (runtime.world.storageAddr (SourceSemantics.wordNormalize s)).val
+      change (match findFieldWithResolvedSlot fields fieldName with
+        | some (field, s) =>
+            if field.isTransient then
+              some (runtime.world.transientStorage (SourceSemantics.wordNormalize s)).val
+            else
+              some (runtime.world.storageAddr (SourceSemantics.wordNormalize s)).val
         | none => none) = _
       rw [hfind]
+      rfl
     have hresolved := findResolvedFieldAtSlotCopy_of_findFieldWithResolvedSlot_singleton
       hnoConflict hfind
       (by simpa using findFieldWriteSlots_of_findFieldWithResolvedSlot hfind) (by rfl)
@@ -7060,6 +7095,7 @@ theorem stmtListGenericCore_singleton_setStorage_singleSlot
       (hnoConflict := hnoConflict)
       (hnotAddr := by rfl)
       (hnotDyn := by rfl)
+      (hnotTransient := by rfl)
       (hNotMapping := isMapping_false_of_findFieldWithResolvedSlot_uint256 hfind rfl)
       (hNotAdt := by
         intro name maxFields hty

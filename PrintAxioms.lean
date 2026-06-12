@@ -1753,6 +1753,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMappingPackedWordSlots_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMapping2WordSlots_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMappingChainSlots_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMappingWordFieldSlots_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMapping2WordFieldSlots_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeStorageArray_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.packedBitsValid_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.execForEachLoop_agree
@@ -3556,6 +3558,11 @@ end Verity.AxiomAudit
   Compiler.Proofs.StorageBounds.writeStorageArray_events_unchanged
 
   -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanBodyClosure/Base.lean
+  -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_mappingSlot_local  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_add_local  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.bridgedStraightStmt_storageStore_lit  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.bridgedStraightStmt_storageStore_mapping  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.bridgedStraightStmt_storageStore_add  -- private
   Compiler.Proofs.YulGeneration.Backends.isDynamicParamType_false_of_static_scalar
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_calldataload_lit  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_and_lit_mask  -- private
@@ -5478,13 +5485,25 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.YulGeneration.Backends.compileExpr_unopBuiltin_ok  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_sload_lit  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_sload  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_storageLoad  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_storageLoad_lit  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_mappingSlot  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_sload_mappingSlot_lit  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_storageLoad_mappingSlot_lit  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_sload_mappingSlot_lit_add  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_storageLoad_mappingSlot_lit_add  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_storageLoad_mappingSlot_lit_offset  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_sload_mappingSlot2_lit  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_storageLoad_mappingSlot2_lit  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_sload_mappingSlot2_lit_add  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_storageLoad_mappingSlot2_lit_add  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_storageLoad_mappingSlot2_lit_offset  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_resolvedStorageLoad_mappingSlot2_lit  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_resolvedStorageLoad_mappingSlot2_lit_offset  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_foldl_mappingSlot  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_sload_mappingSlotChain_lit  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_storageLoad_mappingSlotChain_lit  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_resolvedStorageLoad_mappingSlotChain_lit  -- private
   -- Compiler.Proofs.YulGeneration.Backends.compileMappingSlotRead_bridged  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_adtTagRead_lit  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_adtFieldRead_lit  -- private
@@ -5551,4 +5570,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5196 theorems/lemmas (3590 public, 1606 private, 0 sorry'd)
+-- Total: 5215 theorems/lemmas (3592 public, 1623 private, 0 sorry'd)

@@ -1956,9 +1956,11 @@ private def mkModelFieldTerm (field : StorageFieldDecl) : CommandElabM Term := d
     | none => `(none)
     | some (offset, width) =>
         `(some { offset := $(natTerm offset), width := $(natTerm width) })
+  let transientTerm ← if field.isTransient then `(true) else `(false)
   `(Compiler.CompilationModel.Field.mk
       $(strTerm field.name)
       $(← modelFieldTypeTerm field.ty)
+      $transientTerm
       (some $(natTerm field.slotNum))
       $packedTerm
       [])
@@ -2531,24 +2533,29 @@ def parseContractSyntax
               firstNamespaceOpt := some offset
               firstNamespaceLocked := true
         | none =>
-            match (← parseStorageStructItem parsedNewtypes parsedStructs parsedAdts item) with
-            | some (structFields, accessor) =>
-                parsedFields := parsedFields ++
-                  (structFields.map fun field => { field with slotNum := field.slotNum + currentNamespaceOffset })
-                parsedStorageStructAccessors := parsedStorageStructAccessors.push
-                  { accessor with tree := offsetStorageAccessorTree currentNamespaceOffset accessor.tree }
-                -- A field has now been recorded under the active namespace; later
-                -- in-storage `storage_namespace` items must not retroactively
-                -- relabel where the first field lives.
+            match (← parseTransientStorageItem parsedNewtypes parsedStructs parsedAdts item) with
+            | some field =>
+                parsedFields := parsedFields.push { field with slotNum := field.slotNum + currentNamespaceOffset }
                 firstNamespaceLocked := true
             | none =>
-                match (← storageFieldFromItem? item) with
-                | some fieldStx =>
-                    let field ← parseStorageField parsedNewtypes parsedStructs parsedAdts fieldStx
-                    parsedFields := parsedFields.push { field with slotNum := field.slotNum + currentNamespaceOffset }
+                match (← parseStorageStructItem parsedNewtypes parsedStructs parsedAdts item) with
+                | some (structFields, accessor) =>
+                    parsedFields := parsedFields ++
+                      (structFields.map fun field => { field with slotNum := field.slotNum + currentNamespaceOffset })
+                    parsedStorageStructAccessors := parsedStorageStructAccessors.push
+                      { accessor with tree := offsetStorageAccessorTree currentNamespaceOffset accessor.tree }
+                    -- A field has now been recorded under the active namespace; later
+                    -- in-storage `storage_namespace` items must not retroactively
+                    -- relabel where the first field lives.
                     firstNamespaceLocked := true
                 | none =>
-                    throwErrorAt item "unsupported storage item"
+                    match (← storageFieldFromItem? item) with
+                    | some fieldStx =>
+                        let field ← parseStorageField parsedNewtypes parsedStructs parsedAdts fieldStx
+                        parsedFields := parsedFields.push { field with slotNum := field.slotNum + currentNamespaceOffset }
+                        firstNamespaceLocked := true
+                    | none =>
+                        throwErrorAt item "unsupported storage item"
       pure {
         contractName := contractName
         newtypeDecls := parsedNewtypes

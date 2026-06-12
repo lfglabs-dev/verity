@@ -61,6 +61,7 @@ structure StorageFieldDecl where
   name : String
   ty : StorageType
   slotNum : Nat
+  isTransient : Bool := false
   adtInfo? : Option (String × Nat) := none
   packedBits : Option (Nat × Nat) := none
   emitDef : Bool := true

@@ -7,38 +7,51 @@ open Compiler
 open Compiler.Yul
 
 def compileMappingSlotWrite (fields : List Field) (field : String)
-    (keyExpr valueExpr : YulExpr) (label : String) (wordOffset : Nat := 0) : Except String (List YulStmt) :=
+    (keyExpr valueExpr : YulExpr) (label : String) (wordOffset : Nat := 0)
+    (allowTransient : Bool := false) : Except String (List YulStmt) :=
   if !isMapping fields field then
     throw s!"Compilation error: field '{field}' is not a mapping"
   else
     match findFieldWriteSlots fields field with
     | some slots =>
         match slots with
-        | [] =>
-            throw s!"Compilation error: internal invariant failure: no write slots for mapping field '{field}' in {label}"
-        | [slot] =>
-            let mappingBase := YulExpr.call "mappingSlot" [YulExpr.lit slot, keyExpr]
-            let writeSlot := if wordOffset == 0 then mappingBase else YulExpr.call "add" [mappingBase, YulExpr.lit wordOffset]
-            pure [
-              YulStmt.expr (YulExpr.call "sstore" [
-                writeSlot,
-                valueExpr
-              ])
-            ]
-        | _ =>
-            let compatSlotExpr := fun (slot : Nat) =>
-              let mappingBase := YulExpr.call "mappingSlot" [YulExpr.lit slot, YulExpr.ident "__compat_key"]
-              if wordOffset == 0 then mappingBase else YulExpr.call "add" [mappingBase, YulExpr.lit wordOffset]
-            pure [
-              YulStmt.block (
-                [YulStmt.let_ "__compat_key" keyExpr, YulStmt.let_ "__compat_value" valueExpr] ++
-                slots.map (fun slot =>
+          | [] =>
+              throw s!"Compilation error: internal invariant failure: no write slots for mapping field '{field}' in {label}"
+          | [slot] =>
+              let mappingBase := YulExpr.call "mappingSlot" [YulExpr.lit slot, keyExpr]
+              let writeSlot := if wordOffset == 0 then mappingBase else YulExpr.call "add" [mappingBase, YulExpr.lit wordOffset]
+              if allowTransient then
+                match findFieldWithResolvedSlot fields field with
+                | some (f, _) =>
+                    let storeBuiltin := if f.isTransient then "tstore" else "sstore"
+                    pure [
+                      YulStmt.expr (YulExpr.call storeBuiltin [
+                        writeSlot,
+                        valueExpr
+                      ])
+                    ]
+                | none => throw s!"Compilation error: unknown mapping field '{field}' in {label}"
+              else
+                pure [
                   YulStmt.expr (YulExpr.call "sstore" [
-                    compatSlotExpr slot,
-                    YulExpr.ident "__compat_value"
-                  ]))
-              )
-            ]
+                    writeSlot,
+                    valueExpr
+                  ])
+                ]
+          | _ =>
+              let compatSlotExpr := fun (slot : Nat) =>
+                let mappingBase := YulExpr.call "mappingSlot" [YulExpr.lit slot, YulExpr.ident "__compat_key"]
+                if wordOffset == 0 then mappingBase else YulExpr.call "add" [mappingBase, YulExpr.lit wordOffset]
+              pure [
+                YulStmt.block (
+                  [YulStmt.let_ "__compat_key" keyExpr, YulStmt.let_ "__compat_value" valueExpr] ++
+                  slots.map (fun slot =>
+                    YulStmt.expr (YulExpr.call "sstore" [
+                      compatSlotExpr slot,
+                      YulExpr.ident "__compat_value"
+                    ]))
+                )
+              ]
     | none => throw s!"Compilation error: unknown mapping field '{field}' in {label}"
 
 def compileMappingPackedSlotWrite (fields : List Field) (field : String)

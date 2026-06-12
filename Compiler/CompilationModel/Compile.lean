@@ -154,18 +154,19 @@ def compileStmt (fields : List Field) (events : List EventDef := [])
       match findFieldWithResolvedSlot fields field with
       | some (f, slot) => do
           let valueExpr ← compileExpr fields dynamicSource value
+          let storeBuiltin := if f.isTransient then "tstore" else "sstore"
           let slotExpr (baseSlot : Nat) :=
             if wordOffset == 0 then YulExpr.lit baseSlot
             else YulExpr.call "add" [YulExpr.lit baseSlot, YulExpr.lit wordOffset]
           match f.aliasSlots with
           | [] =>
-              pure [YulStmt.expr (YulExpr.call "sstore" [slotExpr slot, valueExpr])]
+              pure [YulStmt.expr (YulExpr.call storeBuiltin [slotExpr slot, valueExpr])]
           | _ =>
               pure [
                 YulStmt.block (
                   [YulStmt.let_ "__compat_value" valueExpr] ++
                   (slot :: f.aliasSlots).map (fun writeSlot =>
-                    YulStmt.expr (YulExpr.call "sstore" [
+                    YulStmt.expr (YulExpr.call storeBuiltin [
                       slotExpr writeSlot,
                       YulExpr.ident "__compat_value"
                     ]))

@@ -41,6 +41,7 @@ declare_syntax_cat verityIntrinsicObligation
 
 syntax ident " : " term " := " "slot" num : verityStorageField
 syntax ident " : " term " := " "slot" num : verityStorageItem
+syntax "transient " ident " : " term " := " "slot" num : verityStorageItem
 syntax ident " : " term " @word " num : verityStorageStructMember
 syntax ident " : " term " @word " num " packed(" num "," num ")" : verityStorageStructMember
 syntax ident " : " "StorageStruct" "[" sepBy(verityStorageStructMember, ",") "]" " @word " num : verityStorageStructMember

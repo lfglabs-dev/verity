@@ -574,6 +574,20 @@ private theorem bridgedExpr_sload {slot : YulExpr} (hSlot : BridgedExpr slot) :
   subst arg
   exact hSlot
 
+private theorem bridgedExpr_storageLoad (isTransient : Bool)
+    {slot : YulExpr} (hSlot : BridgedExpr slot) :
+    BridgedExpr
+      (YulExpr.call (if isTransient then "tload" else "sload") [slot]) := by
+  cases isTransient
+  · exact bridgedExpr_sload hSlot
+  · exact bridgedExpr_tload slot hSlot
+
+private theorem bridgedExpr_storageLoad_lit (isTransient : Bool) (slot : Nat) :
+    BridgedExpr
+      (YulExpr.call (if isTransient then "tload" else "sload")
+        [YulExpr.lit slot]) :=
+  bridgedExpr_storageLoad isTransient (BridgedExpr.lit slot)
+
 /-- `mappingSlot(base, key)` is in the native bridged expression fragment
     whenever both slot arguments are bridged. -/
 private theorem bridgedExpr_mappingSlot {base key : YulExpr}
@@ -590,6 +604,15 @@ private theorem bridgedExpr_sload_mappingSlot_lit
   bridgedExpr_sload
     (bridgedExpr_mappingSlot (BridgedExpr.lit slot) hKey)
 
+private theorem bridgedExpr_storageLoad_mappingSlot_lit
+    (isTransient : Bool) (slot : Nat) {key : YulExpr}
+    (hKey : BridgedExpr key) :
+    BridgedExpr
+      (YulExpr.call (if isTransient then "tload" else "sload")
+        [YulExpr.call "mappingSlot" [YulExpr.lit slot, key]]) :=
+  bridgedExpr_storageLoad isTransient
+    (bridgedExpr_mappingSlot (BridgedExpr.lit slot) hKey)
+
 /-- `sload(add(mappingSlot(lit slot, key), lit wordOffset))` is bridged for
     bridged keys. -/
 private theorem bridgedExpr_sload_mappingSlot_lit_add
@@ -604,6 +627,37 @@ private theorem bridgedExpr_sload_mappingSlot_lit_add
       (bridgedExpr_mappingSlot (BridgedExpr.lit slot) hKey)
       (BridgedExpr.lit wordOffset))
 
+private theorem bridgedExpr_storageLoad_mappingSlot_lit_add
+    (isTransient : Bool) (slot wordOffset : Nat) {key : YulExpr}
+    (hKey : BridgedExpr key) :
+    BridgedExpr
+      (YulExpr.call (if isTransient then "tload" else "sload")
+        [YulExpr.call "add"
+          [YulExpr.call "mappingSlot" [YulExpr.lit slot, key],
+            YulExpr.lit wordOffset]]) :=
+  bridgedExpr_storageLoad isTransient
+    (bridgedExpr_binopBuiltin (by simp [bridgedBuiltins])
+      (bridgedExpr_mappingSlot (BridgedExpr.lit slot) hKey)
+      (BridgedExpr.lit wordOffset))
+
+private theorem bridgedExpr_storageLoad_mappingSlot_lit_offset
+    (isTransient : Bool) (slot wordOffset : Nat) {key : YulExpr}
+    (hKey : BridgedExpr key) :
+    BridgedExpr
+      (YulExpr.call (if isTransient then "tload" else "sload")
+        [if wordOffset = 0 then
+          YulExpr.call "mappingSlot" [YulExpr.lit slot, key]
+        else
+          YulExpr.call "add"
+            [YulExpr.call "mappingSlot" [YulExpr.lit slot, key],
+              YulExpr.lit wordOffset]]) := by
+  by_cases hOffset : wordOffset = 0
+  · simp [hOffset]
+    exact bridgedExpr_storageLoad_mappingSlot_lit isTransient slot hKey
+  · simp [hOffset]
+    exact bridgedExpr_storageLoad_mappingSlot_lit_add
+      isTransient slot wordOffset hKey
+
 /-- `sload(mappingSlot(mappingSlot(lit slot, key1), key2))` is bridged for
     bridged nested mapping keys. -/
 private theorem bridgedExpr_sload_mappingSlot2_lit
@@ -614,6 +668,18 @@ private theorem bridgedExpr_sload_mappingSlot2_lit
         [YulExpr.call "mappingSlot"
           [YulExpr.call "mappingSlot" [YulExpr.lit slot, key1], key2]]) :=
   bridgedExpr_sload
+    (bridgedExpr_mappingSlot
+      (bridgedExpr_mappingSlot (BridgedExpr.lit slot) hKey1)
+      hKey2)
+
+private theorem bridgedExpr_storageLoad_mappingSlot2_lit
+    (isTransient : Bool) (slot : Nat) {key1 key2 : YulExpr}
+    (hKey1 : BridgedExpr key1) (hKey2 : BridgedExpr key2) :
+    BridgedExpr
+      (YulExpr.call (if isTransient then "tload" else "sload")
+        [YulExpr.call "mappingSlot"
+          [YulExpr.call "mappingSlot" [YulExpr.lit slot, key1], key2]]) :=
+  bridgedExpr_storageLoad isTransient
     (bridgedExpr_mappingSlot
       (bridgedExpr_mappingSlot (BridgedExpr.lit slot) hKey1)
       hKey2)
@@ -635,6 +701,93 @@ private theorem bridgedExpr_sload_mappingSlot2_lit_add
         (bridgedExpr_mappingSlot (BridgedExpr.lit slot) hKey1)
         hKey2)
       (BridgedExpr.lit wordOffset))
+
+private theorem bridgedExpr_storageLoad_mappingSlot2_lit_add
+    (isTransient : Bool) (slot wordOffset : Nat) {key1 key2 : YulExpr}
+    (hKey1 : BridgedExpr key1) (hKey2 : BridgedExpr key2) :
+    BridgedExpr
+      (YulExpr.call (if isTransient then "tload" else "sload")
+        [YulExpr.call "add"
+          [YulExpr.call "mappingSlot"
+            [YulExpr.call "mappingSlot" [YulExpr.lit slot, key1], key2],
+            YulExpr.lit wordOffset]]) :=
+  bridgedExpr_storageLoad isTransient
+    (bridgedExpr_binopBuiltin (by simp [bridgedBuiltins])
+      (bridgedExpr_mappingSlot
+        (bridgedExpr_mappingSlot (BridgedExpr.lit slot) hKey1)
+        hKey2)
+      (BridgedExpr.lit wordOffset))
+
+private theorem bridgedExpr_storageLoad_mappingSlot2_lit_offset
+    (isTransient : Bool) (slot wordOffset : Nat) {key1 key2 : YulExpr}
+    (hKey1 : BridgedExpr key1) (hKey2 : BridgedExpr key2) :
+    BridgedExpr
+      (YulExpr.call (if isTransient then "tload" else "sload")
+        [if wordOffset = 0 then
+          YulExpr.call "mappingSlot"
+            [YulExpr.call "mappingSlot" [YulExpr.lit slot, key1], key2]
+        else
+          YulExpr.call "add"
+            [YulExpr.call "mappingSlot"
+              [YulExpr.call "mappingSlot" [YulExpr.lit slot, key1], key2],
+              YulExpr.lit wordOffset]]) := by
+  by_cases hOffset : wordOffset = 0
+  · simp [hOffset]
+    exact bridgedExpr_storageLoad_mappingSlot2_lit
+      isTransient slot hKey1 hKey2
+  · simp [hOffset]
+    exact bridgedExpr_storageLoad_mappingSlot2_lit_add
+      isTransient slot wordOffset hKey1 hKey2
+
+private theorem bridgedExpr_resolvedStorageLoad_mappingSlot2_lit
+    (fields : List CompilationModel.Field) (fieldName : String)
+    (slot : Nat) {key1 key2 : YulExpr}
+    (hKey1 : BridgedExpr key1) (hKey2 : BridgedExpr key2) :
+    BridgedExpr
+      (YulExpr.call
+        (match findFieldWithResolvedSlot fields fieldName with
+        | some (f, _) => if f.isTransient then "tload" else "sload"
+        | none => "sload")
+        [YulExpr.call "mappingSlot"
+          [YulExpr.call "mappingSlot" [YulExpr.lit slot, key1], key2]]) := by
+  cases hResolved : findFieldWithResolvedSlot fields fieldName with
+  | none =>
+      simpa [hResolved] using
+        bridgedExpr_storageLoad_mappingSlot2_lit false slot hKey1 hKey2
+  | some resolved =>
+      cases resolved with
+      | mk f resolvedSlot =>
+          simpa [hResolved] using
+            bridgedExpr_storageLoad_mappingSlot2_lit f.isTransient slot hKey1 hKey2
+
+private theorem bridgedExpr_resolvedStorageLoad_mappingSlot2_lit_offset
+    (fields : List CompilationModel.Field) (fieldName : String)
+    (slot wordOffset : Nat) {key1 key2 : YulExpr}
+    (hKey1 : BridgedExpr key1) (hKey2 : BridgedExpr key2) :
+    BridgedExpr
+      (YulExpr.call
+        (match findFieldWithResolvedSlot fields fieldName with
+        | some (f, _) => if f.isTransient then "tload" else "sload"
+        | none => "sload")
+        [if wordOffset = 0 then
+          YulExpr.call "mappingSlot"
+            [YulExpr.call "mappingSlot" [YulExpr.lit slot, key1], key2]
+        else
+          YulExpr.call "add"
+            [YulExpr.call "mappingSlot"
+              [YulExpr.call "mappingSlot" [YulExpr.lit slot, key1], key2],
+              YulExpr.lit wordOffset]]) := by
+  cases hResolved : findFieldWithResolvedSlot fields fieldName with
+  | none =>
+      simpa [hResolved] using
+        bridgedExpr_storageLoad_mappingSlot2_lit_offset
+          false slot wordOffset hKey1 hKey2
+  | some resolved =>
+      cases resolved with
+      | mk f resolvedSlot =>
+          simpa [hResolved] using
+            bridgedExpr_storageLoad_mappingSlot2_lit_offset
+              f.isTransient slot wordOffset hKey1 hKey2
 
 /-- A `foldl mappingSlot` chain over bridged key expressions stays in the
     native bridged expression fragment. -/
@@ -670,6 +823,37 @@ private theorem bridgedExpr_sload_mappingSlotChain_lit
   exact bridgedExpr_sload
     (bridgedExpr_foldl_mappingSlot keys (BridgedExpr.lit slot) hKeys)
 
+private theorem bridgedExpr_storageLoad_mappingSlotChain_lit
+    (isTransient : Bool) (slot : Nat) (keys : List YulExpr)
+    (hKeys : ∀ key ∈ keys, BridgedExpr key) :
+    BridgedExpr
+      (YulExpr.call (if isTransient then "tload" else "sload")
+        [compileMappingSlotChain (YulExpr.lit slot) keys]) := by
+  unfold compileMappingSlotChain
+  exact bridgedExpr_storageLoad isTransient
+    (bridgedExpr_foldl_mappingSlot keys (BridgedExpr.lit slot) hKeys)
+
+private theorem bridgedExpr_resolvedStorageLoad_mappingSlotChain_lit
+    (fields : List CompilationModel.Field) (fieldName : String)
+    (slot : Nat) (keys : List YulExpr)
+    (hKeys : ∀ key ∈ keys, BridgedExpr key) :
+    BridgedExpr
+      (YulExpr.call
+        (match findFieldWithResolvedSlot fields fieldName with
+        | some (f, _) => if f.isTransient then "tload" else "sload"
+        | none => "sload")
+        [compileMappingSlotChain (YulExpr.lit slot) keys]) := by
+  cases hResolved : findFieldWithResolvedSlot fields fieldName with
+  | none =>
+      simpa [hResolved] using
+        bridgedExpr_storageLoad_mappingSlotChain_lit false slot keys hKeys
+  | some resolved =>
+      cases resolved with
+      | mk f resolvedSlot =>
+          simpa [hResolved] using
+            bridgedExpr_storageLoad_mappingSlotChain_lit
+              f.isTransient slot keys hKeys
+
 /-- The compiler's singleton mapping-read helper emits only native-bridged
     Yul when field lookup succeeds and the key expression is bridged.
 
@@ -686,15 +870,12 @@ private theorem compileMappingSlotRead_bridged
   split at hOk
   · simp at hOk
   · split at hOk
-    · rename_i slot hFind
+    · rename_i f slot hFind
       dsimp at hOk
-      split at hOk
-      · simp [Pure.pure, Except.pure] at hOk
-        subst out
-        exact bridgedExpr_sload_mappingSlot_lit slot hKey
-      · simp [Pure.pure, Except.pure] at hOk
-        subst out
-        exact bridgedExpr_sload_mappingSlot_lit_add slot wordOffset hKey
+      simp [Pure.pure, Except.pure] at hOk
+      subst out
+      exact bridgedExpr_storageLoad_mappingSlot_lit_offset
+        f.isTransient slot wordOffset hKey
     · simp at hOk
 
 /-- ADT tag reads compile to `and(sload(baseSlot), 0xff)`. -/
@@ -842,11 +1023,12 @@ theorem compileExpr_bridgedSource
           | none =>
               simp [hPacked, Pure.pure, Except.pure] at hOk
               subst out
-              exact bridgedExpr_sload_lit slot
+              exact bridgedExpr_storageLoad_lit f.isTransient slot
           | some packed =>
               simp [hPacked, Pure.pure, Except.pure] at hOk
               subst out
-              exact bridgedExpr_packed_sload_lit slot packed.offset
+              exact bridgedExpr_packed_read
+                (bridgedExpr_storageLoad_lit f.isTransient slot) packed.offset
                 (packedMaskNat packed)
         · simp at hOk
   | storageAddr fieldName =>
@@ -862,11 +1044,12 @@ theorem compileExpr_bridgedSource
               | none =>
                   simp [hTy, hPacked, Pure.pure, Except.pure] at hOk
                   subst out
-                  exact bridgedExpr_sload_lit slot
+                  exact bridgedExpr_storageLoad_lit f.isTransient slot
               | some packed =>
                   simp [hTy, hPacked, Pure.pure, Except.pure] at hOk
                   subst out
-                  exact bridgedExpr_packed_sload_lit slot packed.offset
+                  exact bridgedExpr_packed_read
+                    (bridgedExpr_storageLoad_lit f.isTransient slot) packed.offset
                     (packedMaskNat packed)
           | uint256 | dynamicArray | mappingTyped | mappingStruct
             | mappingStruct2 | adt =>
@@ -955,7 +1138,8 @@ theorem compileExpr_bridgedSource
                   rw [hCompiledKey2] at hOk
                   simp [Pure.pure, Except.pure] at hOk
                   subst out
-                  exact bridgedExpr_sload_mappingSlot2_lit slot
+                  exact bridgedExpr_resolvedStorageLoad_mappingSlot2_lit
+                    fields fieldName slot
                     (ihKey1 hCompiledKey1) (ihKey2 hCompiledKey2)
         · simp at hOk
   | mapping2Word fieldName hKey1 hKey2 wordOffset ihKey1 ihKey2 =>
@@ -979,15 +1163,11 @@ theorem compileExpr_bridgedSource
               | ok keyExpr2 =>
                   rw [hCompiledKey2] at hOk
                   dsimp at hOk
-                  split at hOk
-                  · simp [Pure.pure, Except.pure] at hOk
-                    subst out
-                    exact bridgedExpr_sload_mappingSlot2_lit slot
-                      (ihKey1 hCompiledKey1) (ihKey2 hCompiledKey2)
-                  · simp [Pure.pure, Except.pure] at hOk
-                    subst out
-                    exact bridgedExpr_sload_mappingSlot2_lit_add slot wordOffset
-                      (ihKey1 hCompiledKey1) (ihKey2 hCompiledKey2)
+                  simp [Pure.pure, Except.pure] at hOk
+                  subst out
+                  exact bridgedExpr_resolvedStorageLoad_mappingSlot2_lit_offset
+                    fields fieldName slot wordOffset
+                    (ihKey1 hCompiledKey1) (ihKey2 hCompiledKey2)
         · simp at hOk
   | structMember fieldName hKey memberName ihKey =>
       intro out hOk
@@ -1062,33 +1242,21 @@ theorem compileExpr_bridgedSource
                       | none =>
                           rw [hPacked] at hOk
                           simp at hOk
-                          split at hOk
-                          · simp [Pure.pure, Except.pure] at hOk
-                            subst out
-                            exact bridgedExpr_sload_mappingSlot2_lit slot
-                              (ihKey1 hCompiledKey1) (ihKey2 hCompiledKey2)
-                          · simp [Pure.pure, Except.pure] at hOk
-                            subst out
-                            exact bridgedExpr_sload_mappingSlot2_lit_add slot
-                              member.wordOffset
-                              (ihKey1 hCompiledKey1) (ihKey2 hCompiledKey2)
+                          simp [Pure.pure, Except.pure] at hOk
+                          subst out
+                          exact bridgedExpr_resolvedStorageLoad_mappingSlot2_lit_offset
+                            fields fieldName slot member.wordOffset
+                            (ihKey1 hCompiledKey1) (ihKey2 hCompiledKey2)
                       | some packed =>
                           rw [hPacked] at hOk
                           simp at hOk
-                          split at hOk
-                          · simp [Pure.pure, Except.pure] at hOk
-                            subst out
-                            exact bridgedExpr_packed_read
-                              (bridgedExpr_sload_mappingSlot2_lit slot
-                                (ihKey1 hCompiledKey1) (ihKey2 hCompiledKey2))
-                              packed.offset (packedMaskNat packed)
-                          · simp [Pure.pure, Except.pure] at hOk
-                            subst out
-                            exact bridgedExpr_packed_read
-                              (bridgedExpr_sload_mappingSlot2_lit_add slot
-                                member.wordOffset
-                                (ihKey1 hCompiledKey1) (ihKey2 hCompiledKey2))
-                              packed.offset (packedMaskNat packed)
+                          simp [Pure.pure, Except.pure] at hOk
+                          subst out
+                          exact bridgedExpr_packed_read
+                            (bridgedExpr_resolvedStorageLoad_mappingSlot2_lit_offset
+                              fields fieldName slot member.wordOffset
+                              (ihKey1 hCompiledKey1) (ihKey2 hCompiledKey2))
+                            packed.offset (packedMaskNat packed)
             · simp at hOk
   | caller =>
       intro out hOk
@@ -1699,14 +1867,15 @@ theorem compileExpr_mappingChain_bridgedSource
   split at hOk
   · simp at hOk
   · split at hOk
-    · rename_i slot hFind
+    · rename_i f slot hFind
       cases hCompiledKeys : compileExprList fields src keys with
       | error err =>
           simp [bind, Except.bind, hCompiledKeys] at hOk
       | ok keyExprs =>
           simp [bind, Except.bind, hCompiledKeys, Pure.pure, Except.pure] at hOk
           subst out
-          exact bridgedExpr_sload_mappingSlotChain_lit slot keyExprs
+          exact bridgedExpr_storageLoad_mappingSlotChain_lit
+            f.isTransient slot keyExprs
             (compileExprList_bridgedSource fields src hKeys hCompiledKeys)
     · simp at hOk
 

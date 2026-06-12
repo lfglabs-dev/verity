@@ -39,6 +39,68 @@ open Compiler.CompilationModel
 open Compiler.Proofs.YulGeneration
 open Verity.Core.Free
 
+private theorem bridgedExpr_mappingSlot_local {base key : YulExpr}
+    (hBase : BridgedExpr base) (hKey : BridgedExpr key) :
+    BridgedExpr (YulExpr.call "mappingSlot" [base, key]) := by
+  refine BridgedExpr.call "mappingSlot" _ (Or.inl (by simp [bridgedBuiltins])) ?_
+  intro arg hMem
+  simp only [List.mem_cons, List.mem_nil_iff, or_false] at hMem
+  rcases hMem with rfl | rfl
+  · exact hBase
+  · exact hKey
+
+private theorem bridgedExpr_add_local {left right : YulExpr}
+    (hLeft : BridgedExpr left) (hRight : BridgedExpr right) :
+    BridgedExpr (YulExpr.call "add" [left, right]) := by
+  refine BridgedExpr.call "add" _ (Or.inl (by simp [bridgedBuiltins])) ?_
+  intro arg hMem
+  simp only [List.mem_cons, List.mem_nil_iff, or_false] at hMem
+  rcases hMem with rfl | rfl
+  · exact hLeft
+  · exact hRight
+
+private theorem bridgedStraightStmt_storageStore_lit
+    (isTransient : Bool) (slot : Nat) (valueExpr : YulExpr)
+    (hValue : BridgedExpr valueExpr) :
+    BridgedStraightStmt
+      (YulStmt.expr
+        (YulExpr.call (if isTransient then "tstore" else "sstore")
+          [YulExpr.lit slot, valueExpr])) := by
+  cases isTransient
+  · exact BridgedStraightStmt.expr_sstore_lit slot valueExpr hValue
+  · exact BridgedStraightStmt.expr_tstore (YulExpr.lit slot) valueExpr
+      (BridgedExpr.lit slot) hValue
+
+private theorem bridgedStraightStmt_storageStore_mapping
+    (isTransient : Bool) (baseExpr keyExpr valueExpr : YulExpr)
+    (hBase : BridgedExpr baseExpr) (hKey : BridgedExpr keyExpr)
+    (hValue : BridgedExpr valueExpr) :
+    BridgedStraightStmt
+      (YulStmt.expr
+        (YulExpr.call (if isTransient then "tstore" else "sstore")
+          [YulExpr.call "mappingSlot" [baseExpr, keyExpr], valueExpr])) := by
+  cases isTransient
+  · exact BridgedStraightStmt.expr_sstore_mapping
+      baseExpr keyExpr valueExpr hBase hKey hValue
+  · exact BridgedStraightStmt.expr_tstore
+      (YulExpr.call "mappingSlot" [baseExpr, keyExpr]) valueExpr
+      (bridgedExpr_mappingSlot_local hBase hKey) hValue
+
+private theorem bridgedStraightStmt_storageStore_add
+    (isTransient : Bool) (leftExpr rightExpr valueExpr : YulExpr)
+    (hLeft : BridgedExpr leftExpr) (hRight : BridgedExpr rightExpr)
+    (hValue : BridgedExpr valueExpr) :
+    BridgedStraightStmt
+      (YulStmt.expr
+        (YulExpr.call (if isTransient then "tstore" else "sstore")
+          [YulExpr.call "add" [leftExpr, rightExpr], valueExpr])) := by
+  cases isTransient
+  · exact BridgedStraightStmt.expr_sstore_add
+      leftExpr rightExpr valueExpr hLeft hRight hValue
+  · exact BridgedStraightStmt.expr_tstore
+      (YulExpr.call "add" [leftExpr, rightExpr]) valueExpr
+      (bridgedExpr_add_local hLeft hRight) hValue
+
 /-- Scalar ABI parameter types handled inline by `genScalarLoad`. These are
 the `ParamType` constructors whose head word is consumed directly from
 calldata without offset/length bookkeeping. -/
@@ -842,7 +904,8 @@ theorem compileStmt_setStorage_singleSlot_pure_bridged
           simp only [List.mem_singleton] at hMem
           subst yulStmt
           exact BridgedStmt.straight _
-            (BridgedStraightStmt.expr_sstore_lit slot valueExpr hBridged)
+            (bridgedStraightStmt_storageStore_lit
+              f.isTransient slot valueExpr hBridged)
 
 /-- An unpacked single-slot `setStorage` source statement with a pure bridged
 right-hand side compiles to a Yul list with no nested function declarations. -/
@@ -1358,15 +1421,16 @@ private theorem compileMappingSlotWrite_singleSlot_bridged
     ∀ {out : List YulStmt},
       compileMappingSlotWrite fields field keyExpr valueExpr label 0 = .ok out →
       BridgedStmts out := by
-  intro out hOk
-  simp [compileMappingSlotWrite, hMapping, hSlots, Pure.pure, Except.pure] at hOk
-  subst hOk
-  intro yulStmt hMem
-  simp only [List.mem_singleton] at hMem
-  subst yulStmt
-  exact BridgedStmt.straight _
-    (BridgedStraightStmt.expr_sstore_mapping (.lit slot) keyExpr valueExpr
-      (BridgedExpr.lit slot) hKey hValue)
+    intro out hOk
+    simp [compileMappingSlotWrite, hMapping, hSlots, Pure.pure, Except.pure] at hOk
+    subst out
+    intro yulStmt hMem
+    simp only [List.mem_singleton] at hMem
+    subst yulStmt
+    exact BridgedStmt.straight _
+      (bridgedStraightStmt_storageStore_mapping
+        false (.lit slot) keyExpr valueExpr
+        (BridgedExpr.lit slot) hKey hValue)
 
 private theorem compileMappingSlotWrite_singleSlot_noFuncDefs
     (fields : List Field) (field : String) {slot : Nat}
@@ -1376,10 +1440,10 @@ private theorem compileMappingSlotWrite_singleSlot_noFuncDefs
     ∀ {out : List YulStmt},
       compileMappingSlotWrite fields field keyExpr valueExpr label 0 = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
-  intro out hOk
-  simp [compileMappingSlotWrite, hMapping, hSlots, Pure.pure, Except.pure] at hOk
-  subst hOk
-  simp [Native.yulStmtContainsFuncDef]
+    intro out hOk
+    simp [compileMappingSlotWrite, hMapping, hSlots, Pure.pure, Except.pure] at hOk
+    subst out
+    simp [Native.yulStmtContainsFuncDef]
 
 /-- A single-slot `Stmt.setMapping` source write with a pure bridged key and
 value compiles to `BridgedStmts`. -/
@@ -4463,7 +4527,8 @@ theorem compileStmt_setStorageAddr_singleSlot_bridged
       simp only [List.mem_singleton] at hMem
       subst yulStmt
       exact BridgedStmt.straight _
-        (BridgedStraightStmt.expr_sstore_lit slot _ hMasked)
+        (bridgedStraightStmt_storageStore_lit
+          f.isTransient slot _ hMasked)
 
 /-- Each statement in the setStorageAddr fragment compiles to Yul satisfying
 `BridgedStmts`. -/
@@ -4651,27 +4716,23 @@ private theorem compileMappingSlotWrite_singleSlot_nonzero_bridged
     ∀ {out : List YulStmt},
       compileMappingSlotWrite fields field keyExpr valueExpr label wordOffset = .ok out →
       BridgedStmts out := by
-  intro out hOk
-  have hBeq : (wordOffset == 0) = false := by
-    cases wordOffset with
-    | zero => exact absurd rfl hNonzero
-    | succ n => rfl
-  simp [compileMappingSlotWrite, hMapping, hSlots, hBeq, Pure.pure, Except.pure] at hOk
-  subst hOk
-  intro yulStmt hMem
-  simp only [List.mem_singleton] at hMem
-  subst yulStmt
-  have hMappingExpr : BridgedExpr (.call "mappingSlot" [.lit slot, keyExpr]) := by
-    refine BridgedExpr.call "mappingSlot" _ (Or.inl (by simp [bridgedBuiltins])) ?_
-    intro arg hArg
-    simp only [List.mem_cons, List.not_mem_nil, or_false] at hArg
-    rcases hArg with rfl | rfl
-    · exact BridgedExpr.lit slot
-    · exact hKey
-  exact BridgedStmt.straight _
-    (BridgedStraightStmt.expr_sstore_add
-      (.call "mappingSlot" [.lit slot, keyExpr]) (.lit wordOffset) valueExpr
-      hMappingExpr (BridgedExpr.lit wordOffset) hValue)
+    intro out hOk
+    have hBeq : (wordOffset == 0) = false := by
+      cases wordOffset with
+      | zero => exact absurd rfl hNonzero
+      | succ n => rfl
+    simp [compileMappingSlotWrite, hMapping, hSlots, hBeq, Pure.pure, Except.pure] at hOk
+    subst out
+    intro yulStmt hMem
+    simp only [List.mem_singleton] at hMem
+    subst yulStmt
+    exact BridgedStmt.straight _
+      (bridgedStraightStmt_storageStore_add
+        false
+        (.call "mappingSlot" [.lit slot, keyExpr]) (.lit wordOffset)
+        valueExpr
+        (bridgedExpr_mappingSlot_local (BridgedExpr.lit slot) hKey)
+        (BridgedExpr.lit wordOffset) hValue)
 
 private theorem compileMappingSlotWrite_singleSlot_nonzero_noFuncDefs
     (fields : List Field) (field : String) {slot wordOffset : Nat}
@@ -4682,14 +4743,14 @@ private theorem compileMappingSlotWrite_singleSlot_nonzero_noFuncDefs
     ∀ {out : List YulStmt},
       compileMappingSlotWrite fields field keyExpr valueExpr label wordOffset = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
-  intro out hOk
-  have hBeq : (wordOffset == 0) = false := by
-    cases wordOffset with
-    | zero => exact absurd rfl hNonzero
-    | succ n => rfl
-  simp [compileMappingSlotWrite, hMapping, hSlots, hBeq, Pure.pure, Except.pure] at hOk
-  subst hOk
-  simp [Native.yulStmtContainsFuncDef]
+    intro out hOk
+    have hBeq : (wordOffset == 0) = false := by
+      cases wordOffset with
+      | zero => exact absurd rfl hNonzero
+      | succ n => rfl
+    simp [compileMappingSlotWrite, hMapping, hSlots, hBeq, Pure.pure, Except.pure] at hOk
+    subst out
+    simp [Native.yulStmtContainsFuncDef]
 
 /-! ## Source statement body closure: single-slot `setStructMember`
 (wordOffset ≠ 0) -/

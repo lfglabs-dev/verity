@@ -29,6 +29,25 @@ def parseStorageField (newtypes : Array NewtypeDecl) (structDecls : Array Struct
       }
   | _ => throwErrorAt stx "invalid storage field declaration"
 
+def parseTransientStorageItem (newtypes : Array NewtypeDecl) (structDecls : Array StructDecl := #[]) (adtDecls : Array AdtDecl := #[])
+    (stx : TSyntax `verityStorageItem) : CommandElabM (Option StorageFieldDecl) := do
+  match stx with
+  | `(verityStorageItem| transient $name:ident : $ty:term := slot $slotNum:num) =>
+      let parsedTy ← storageTypeFromSyntax newtypes structDecls adtDecls ty
+      let adtInfo? :=
+        match parsedTy with
+        | .scalar (.adt adtName maxFields) => some (adtName, maxFields)
+        | _ => none
+      pure <| some {
+        ident := name
+        name := toString name.getId
+        ty := parsedTy
+        slotNum := ← natFromSyntax slotNum
+        isTransient := true
+        adtInfo? := adtInfo?
+      }
+  | _ => pure none
+
 def pathFieldName (parts : List String) : String :=
   String.intercalate "." parts
 
