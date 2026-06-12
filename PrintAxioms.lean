@@ -1636,11 +1636,13 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.Contract.compileValidatedCore_ok_yields_noFallbackEntrypoint  -- private
   -- Compiler.Proofs.IRGeneration.Contract.compileValidatedCore_ok_yields_noReceiveEntrypoint  -- private
   Compiler.Proofs.IRGeneration.Contract.supported_params_of_supportedSpec
+  Compiler.Proofs.IRGeneration.Contract.supported_params_of_supportedSpec_with_scalar_events
   Compiler.Proofs.IRGeneration.Contract.supported_params_of_supportedSpec_except_mapping_writes
   Compiler.Proofs.IRGeneration.Contract.interpretIR_eq_runtimeContractOfFunctions
   Compiler.Proofs.IRGeneration.Contract.interpretContract_correct_of_ir_functions
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_of_compiled_functions
   Compiler.Proofs.IRGeneration.Contract.compile_ok_yields_compiled_functions
+  Compiler.Proofs.IRGeneration.Contract.compile_ok_yields_compiled_functions_with_scalar_events
   Compiler.Proofs.IRGeneration.Contract.compile_ok_yields_compiled_functions_except_mapping_writes
   Compiler.Proofs.IRGeneration.Contract.compile_ok_yields_internalFunctions_nil
   Compiler.Proofs.IRGeneration.Contract.compile_ok_yields_noFallbackEntrypoint
@@ -1691,6 +1693,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.ContractShape.guardedFunctionsMapM_eq
   Compiler.Proofs.IRGeneration.ContractShape.supportedSpecExceptMappingWrites_entries_lock_free
   Compiler.Proofs.IRGeneration.ContractShape.supportedSpec_entries_lock_free
+  Compiler.Proofs.IRGeneration.ContractShape.supportedSpecWithScalarEvents_entries_lock_free
   -- Compiler.Proofs.IRGeneration.ContractShape.compileValidatedCore_ok_yields_compiled_functions  -- private
   -- Compiler.Proofs.IRGeneration.ContractShape.filterInternalFunctions_eq_nil_of_all_nonInternal  -- private
   -- Compiler.Proofs.IRGeneration.ContractShape.filterInternalFunctions_eq_nil_of_supported  -- private
@@ -1699,6 +1702,8 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.ContractShape.compileValidatedCore_ok_yields_noFallbackEntrypoint  -- private
   -- Compiler.Proofs.IRGeneration.ContractShape.compileValidatedCore_ok_yields_noReceiveEntrypoint  -- private
   Compiler.Proofs.IRGeneration.ContractShape.compile_ok_yields_compiled_functions
+  -- Compiler.Proofs.IRGeneration.ContractShape.compileValidatedCore_ok_yields_compiled_functions_with_scalar_events  -- private
+  Compiler.Proofs.IRGeneration.ContractShape.compile_ok_yields_compiled_functions_with_scalar_events
   Compiler.Proofs.IRGeneration.ContractShape.compile_ok_yields_internalFunctions_nil
   Compiler.Proofs.IRGeneration.ContractShape.compile_ok_yields_deploy_compileConstructor
   Compiler.Proofs.IRGeneration.ContractShape.compile_ok_yields_noFallbackEntrypoint
@@ -1824,8 +1829,30 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.Function.compileFunctionSpec_correct_of_body_supported_extraFuel
   Compiler.Proofs.IRGeneration.Function.supported_function_correct
   Compiler.Proofs.IRGeneration.Function.supported_function_correct_with_helper_proofs_body_goal
+  -- Compiler.Proofs.IRGeneration.Function.supported_function_correct_with_scalar_events_body_goal_source_match  -- private
+  -- Compiler.Proofs.IRGeneration.Function.supported_function_correct_with_scalar_events_body_goal_compiled_exec  -- private
+  -- Compiler.Proofs.IRGeneration.Function.supported_function_correct_with_scalar_events_body_goal_fuel  -- private
+  Compiler.Proofs.IRGeneration.Function.supported_function_correct_with_scalar_events_body_goal
   Compiler.Proofs.IRGeneration.Function.supported_function_correct_with_helper_proofs_body_goal_and_helper_ir
   Compiler.Proofs.IRGeneration.Function.supported_function_correct_with_helper_proofs_body_goal_and_helper_ir_of_bodyCallsDisjoint
+  Compiler.Proofs.IRGeneration.Function.supported_function_correct_with_scalar_events_body_goal_and_helper_ir
+  Compiler.Proofs.IRGeneration.Function.stmtListHelperFreeNonEventStepInterface_of_helperFreeStepInterface
+  Compiler.Proofs.IRGeneration.Function.stmtListHelperFreeCompiledCallsDisjoint_of_internalFunctions_nil
+  -- Compiler.Proofs.IRGeneration.Function.legacyCompatibleExternalStmtList_append  -- private
+  -- Compiler.Proofs.IRGeneration.Function.yulStmtListCallsDisjoint_append  -- private
+  -- Compiler.Proofs.IRGeneration.Function.genScalarLoad_legacy  -- private
+  -- Compiler.Proofs.IRGeneration.Function.genParamLoadBodyFrom_scalar_legacy  -- private
+  -- Compiler.Proofs.IRGeneration.Function.genParamLoads_scalar_legacy  -- private
+  -- Compiler.Proofs.IRGeneration.Function.compiledStmt_scalar_events_callsDisjoint  -- private
+  -- Compiler.Proofs.IRGeneration.Function.compileStmtList_scalar_events_callsDisjoint  -- private
+  -- Compiler.Proofs.IRGeneration.Function.supported_function_correct_with_scalar_events_state_runtime  -- private
+  -- Compiler.Proofs.IRGeneration.Function.supported_function_correct_with_scalar_events_body_extraFuelLower  -- private
+  -- Compiler.Proofs.IRGeneration.Function.supported_function_correct_with_scalar_events_body_fuel  -- private
+  -- Compiler.Proofs.IRGeneration.Function.supported_function_correct_with_scalar_events_body_correct  -- private
+  Compiler.Proofs.IRGeneration.Function.supported_function_correct_with_scalar_events
+  Compiler.Proofs.IRGeneration.Function.supported_function_correct_with_scalar_events_of_bodyCallsDisjoint
+  -- Compiler.Proofs.IRGeneration.Function.compiledFunctionIR_scalar_events_callsDisjoint  -- private
+  Compiler.Proofs.IRGeneration.Function.compileFunctionSpec_correct_with_scalar_events
   -- Compiler.Proofs.IRGeneration.Function.compileExpr_constructor_mode_eq  -- private
   -- Compiler.Proofs.IRGeneration.Function.compileExprList_constructor_mode_eq  -- private
   -- Compiler.Proofs.IRGeneration.Function.compileRequireFailCond_constructor_mode_eq  -- private
@@ -2340,7 +2367,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.eventFoldl_add_start  -- private
   -- Compiler.Proofs.IRGeneration.eventUnindexedHeadSize_eq_values  -- private
   -- Compiler.Proofs.IRGeneration.eventScalarUnindexedStoresFrom_legacy  -- private
-  -- Compiler.Proofs.IRGeneration.eventCompiledScalarEmit_legacy  -- private
+  Compiler.Proofs.IRGeneration.eventCompiledScalarEmit_legacy
   -- Compiler.Proofs.IRGeneration.eventUnindexedStores_cons_continue  -- private
   -- Compiler.Proofs.IRGeneration.eventUnindexedStores_continue  -- private
   -- Compiler.Proofs.IRGeneration.eventValuesForKind_unindexed_cons_true  -- private
@@ -2391,7 +2418,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.eventRuntimeStateMatchesIR_setVar  -- private
   -- Compiler.Proofs.IRGeneration.eventRuntimeStateMatchesIR_after_emit_scratch  -- private
   -- Compiler.Proofs.IRGeneration.eventBindingsExactlyMatch_after_emit  -- private
-  -- Compiler.Proofs.IRGeneration.eventCompileStmt_emit_scalar_shape  -- private
+  Compiler.Proofs.IRGeneration.eventCompileStmt_emit_scalar_shape
   -- Compiler.Proofs.IRGeneration.eventParams_supported_and_head_size  -- private
   -- Compiler.Proofs.IRGeneration.eventUnindexedEntriesOk_of_eval  -- private
   -- Compiler.Proofs.IRGeneration.eventIndexedEntriesOk_of_eval  -- private
@@ -3224,11 +3251,15 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.SourceSemantics.findFunctionBySelector_mem_selectorDispatchedFunctions
   Compiler.Proofs.IRGeneration.SourceSemantics.interpretContractWithHelpers_eq_interpretContract_of_supportedSpec
   Compiler.Proofs.IRGeneration.SourceSemantics.interpretContractWithHelpers_eq_interpretContract_of_supportedSpecExceptMappingWrites
+  Compiler.Proofs.IRGeneration.SourceSemantics.interpretContractWithHelpers_eq_interpretContract_of_supportedSpecWithScalarEvents
   Compiler.Proofs.IRGeneration.sourceContractSemanticsWithHelpers_eq_sourceContractSemantics_of_supportedSpec
   Compiler.Proofs.IRGeneration.sourceContractSemanticsWithHelpers_eq_sourceContractSemantics_of_supportedSpecExceptMappingWrites
+  Compiler.Proofs.IRGeneration.sourceContractSemanticsWithHelpers_eq_sourceContractSemantics_of_supportedSpecWithScalarEvents
   Compiler.Proofs.IRGeneration.supportedSourceFunctionSemantics_eq_interpretFunction_of_selectorDispatched
+  Compiler.Proofs.IRGeneration.supportedSourceFunctionSemanticsWithScalarEvents_eq_interpretFunction_of_selectorDispatched
   Compiler.Proofs.IRGeneration.supportedSourceFunctionSemanticsExceptMappingWrites_eq_interpretFunction_of_selectorDispatched
   Compiler.Proofs.IRGeneration.supportedSourceContractSemantics_eq_sourceContractSemantics
+  Compiler.Proofs.IRGeneration.supportedSourceContractSemanticsWithScalarEvents_eq_sourceContractSemantics
   Compiler.Proofs.IRGeneration.supportedSourceContractSemanticsExceptMappingWrites_eq_sourceContractSemantics
 
   -- Compiler/Proofs/IRGeneration/SupportedSpec.lean
@@ -3349,6 +3380,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.stmtListTouchesStructuralInternalHelperSurface_eq_false_of_helperSurfaceClosed
   Compiler.Proofs.IRGeneration.SupportedStmtList.internalHelperSurfaceClosed
   Compiler.Proofs.IRGeneration.SupportedBodyInterface.helperSurfaceClosed
+  Compiler.Proofs.IRGeneration.SupportedBodyInterfaceWithScalarEvents.helperSurfaceClosed
   Compiler.Proofs.IRGeneration.SupportedBodyInterfaceExceptMappingWrites.helperSurfaceClosed
   Compiler.Proofs.IRGeneration.SupportedBodyHelperInterface.calleeRank_lt
   Compiler.Proofs.IRGeneration.SupportedBodyHelperInterface.exprSummaryPreservesWorld
@@ -3421,6 +3453,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.SupportedSpecExceptMappingWrites.contractUsesParamDynamicHeadWord_eq_false
   Compiler.Proofs.IRGeneration.SupportedSpec.noInternalFunctions
   Compiler.Proofs.IRGeneration.SupportedSpecExceptMappingWrites.noInternalFunctions
+  Compiler.Proofs.IRGeneration.SupportedSpecWithScalarEvents.noInternalFunctions
   Compiler.Proofs.IRGeneration.SupportedSpec.contractUsesArrayElement_eq_false
   Compiler.Proofs.IRGeneration.SupportedSpecExceptMappingWrites.contractUsesArrayElement_eq_false
   Compiler.Proofs.IRGeneration.SupportedSpec.contractUsesStorageArrayElement_eq_false
@@ -5502,4 +5535,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5150 theorems/lemmas (3565 public, 1585 private, 0 sorry'd)
+-- Total: 5183 theorems/lemmas (3584 public, 1599 private, 0 sorry'd)
