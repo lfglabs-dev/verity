@@ -55,6 +55,54 @@ def mkViewTheoremCommand (fnDecl : FunctionDecl) : CommandElabM Cmd := do
         (Compiler.CompilationModel.FunctionSpec.isView
           ($modelName : Compiler.CompilationModel.FunctionSpec)) = true := rfl)
 
+/-- Apply a generated executable function to all of its source parameters. -/
+private def mkFunctionApplication (fnDecl : FunctionDecl) : CommandElabM Term := do
+  let mut fnApp : Term := mkIdent fnDecl.ident.getId
+  for param in fnDecl.params do
+    let paramIdent : Term := mkIdent param.ident.getId
+    fnApp ← `($fnApp $paramIdent)
+  pure fnApp
+
+/-- Quantify a theorem proposition over a function's parameters followed by
+    the pre-state. -/
+private def mkFunctionStateForall (fnDecl : FunctionDecl) (body : Term) : CommandElabM Term := do
+  let mut prop := body
+  prop ← `(∀ (s : Verity.ContractState), $prop)
+  for param in fnDecl.params.reverse do
+    let pid := param.ident
+    let pty ← contractValueTypeTerm param.ty
+    prop ← `(∀ ($pid : $pty), $prop)
+  pure prop
+
+/-- Auto-generated execution-level frame theorem for `view` functions.
+    Validation guarantees that view bodies do not write contract state; this
+    theorem exposes that guarantee as a reusable preservation fact. -/
+def mkViewFrameTheoremCommand (fnDecl : FunctionDecl) : CommandElabM Cmd := do
+  let viewFrameName ← mkSuffixedIdent fnDecl.ident "_view_frame"
+  let fnIdent := fnDecl.ident
+  let fnApp ← mkFunctionApplication fnDecl
+  let prop ← mkFunctionStateForall fnDecl
+    (← `(Verity.Specs.viewPreservesState s (($fnApp).run s).snd))
+  `(command|
+    /-- Auto-generated execution frame: this `view` function preserves state. -/
+    theorem $viewFrameName : $prop := by
+      intros
+      unfold $fnIdent
+      simp [msgSender, getStorageAddr, getStorage, setStorage, setStorageAddr,
+        getMapping, setMapping, setMapping2, getMappingUint, setMappingUint,
+        getMapping2, ContractState.readSlot, ContractState.writeSlot,
+        ContractState.readAddrSlot, ContractState.writeAddrSlot,
+        ContractState.readMap, ContractState.writeMap, ContractState.readMapUint,
+        ContractState.writeMapUint, ContractState.readMap2, ContractState.writeMap2,
+        Verity.require, Verity.pure, Verity.bind, Bind.bind, Pure.pure,
+        Contract.run, ContractResult.snd, ContractResult.fst,
+        Verity.Specs.viewPreservesState, Verity.Specs.sameAllStorage,
+        Verity.Specs.sameContext, Verity.Specs.sameEvents,
+        Verity.Specs.sameKnownAddresses, Verity.Specs.sameStorage,
+        Verity.Specs.sameStorageAddr, Verity.Specs.sameStorageMap,
+        Verity.Specs.sameStorageMapUint, Verity.Specs.sameStorageMap2,
+        Verity.Specs.sameStorageArray])
+
 /-- Auto-generated `_is_pure` theorem for pure functions.
     Emits a `@[simp]` lemma stating the model's `isPure` flag is `true`, making this
     fact available to downstream proof automation. Only called when `fnDecl.isPure`. -/
@@ -181,6 +229,7 @@ def mkFrameDefCommand
     (fnDecl : FunctionDecl) : CommandElabM (Array Cmd) := do
   let frameName ← mkSuffixedIdent fnDecl.ident "_frame"
   let frameRflName ← mkSuffixedIdent fnDecl.ident "_frame_rfl"
+  let frameHoldsName ← mkSuffixedIdent fnDecl.ident "_frame_holds"
   let modifiesNames := fnDecl.modifies.map fun ident => toString ident.getId
   let unmodifiedFields := fields.filter fun f => !modifiesNames.contains f.name
 
@@ -201,7 +250,31 @@ def mkFrameDefCommand
       simp [Verity.Specs.sameContext, Verity.Specs.sameStorageSlot,
             Verity.Specs.sameStorageAddrSlot, Verity.Specs.sameStorage])
 
-  pure #[frameCmd, frameRflCmd]
+  if fnDecl.requiresRole.isSome || fnDecl.nonReentrantLock.isSome || fnDecl.initGuard?.isSome then
+    pure #[frameCmd, frameRflCmd]
+  else
+    let fnApp ← mkFunctionApplication fnDecl
+    let fnIdent := fnDecl.ident
+    let fieldSimpLemmas ← fields.mapM fun field =>
+      `(Lean.Parser.Tactic.simpLemma| $(field.ident):ident)
+    let frameHoldsProp ← mkFunctionStateForall fnDecl
+      (← `($frameName s (($fnApp).run s).snd))
+    let frameHoldsCmd : Cmd ← `(command|
+      /-- Auto-generated execution frame: fields outside `modifies(...)` are preserved. -/
+      theorem $frameHoldsName : $frameHoldsProp := by
+        intros
+        unfold $frameName $fnIdent
+        simp [$[$fieldSimpLemmas],*, msgSender, getStorageAddr, getStorage, setStorage, setStorageAddr,
+          getMapping, setMapping, setMapping2, getMappingUint, setMappingUint,
+          getMapping2, ContractState.readSlot, ContractState.writeSlot,
+          ContractState.readAddrSlot, ContractState.writeAddrSlot,
+          ContractState.readMap, ContractState.writeMap, ContractState.readMapUint,
+          ContractState.writeMapUint, ContractState.readMap2, ContractState.writeMap2,
+          Verity.require, Verity.pure, Verity.bind, Bind.bind, Pure.pure,
+          Contract.run, ContractResult.snd, ContractResult.fst,
+          Verity.Specs.sameContext, Verity.Specs.sameStorageSlot,
+          Verity.Specs.sameStorageAddrSlot, Verity.Specs.sameStorage])
+    pure #[frameCmd, frameRflCmd, frameHoldsCmd]
 
 /-- Count how many effect annotations are active on a function declaration. -/
 def effectAnnotationCount (fnDecl : FunctionDecl) : Nat :=

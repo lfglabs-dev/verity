@@ -89,6 +89,8 @@ def elabVerityContract : CommandElab := fun stx => do
     for fn in functions do
       if fn.isView then
         elabCommand (← mkViewTheoremCommand fn)
+        if fn.params.isEmpty && fn.requiresRole.isNone && fn.nonReentrantLock.isNone then
+          elabCommand (← mkViewFrameTheoremCommand fn)
 
     -- Emit per-function _is_pure theorems for pure functions.
     for fn in functions do
