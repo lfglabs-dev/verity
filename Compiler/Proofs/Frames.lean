@@ -450,6 +450,304 @@ theorem execStmts_frame_rule_writeFootprint
     OwnedEq r st s :=
   execStmts_frame_rule (stmtListWritesOnly_writeFootprint hfp) hdisj hexec
 
+/-- A coupling invariant relates a concrete interpreter state to an abstract
+model state. -/
+structure Coupling (Abs : Type u) where
+  Inv : RuntimeState → Abs → Prop
+
+namespace Coupling
+
+/-- The conjunction of two couplings over a product abstract state. -/
+def and (left : Coupling Abs) (right : Coupling Beta) :
+    Coupling (Abs × Beta) where
+  Inv st ab := left.Inv st ab.1 ∧ right.Inv st ab.2
+
+/-- A resource support is sufficient for a coupling when agreement on every
+supported resource transports the invariant between concrete states. -/
+def Supported (c : Coupling Abs) (support : List Resource) : Prop :=
+  ∀ ⦃st s : RuntimeState⦄ ⦃a : Abs⦄,
+    (∀ r, r ∈ support → OwnedEq r st s) → c.Inv st a → c.Inv s a
+
+theorem supported_mono {c : Coupling Abs} {support support' : List Resource}
+    (hs : Supported c support)
+    (hsub : ∀ r, r ∈ support → r ∈ support') :
+    Supported c support' := by
+  intro st s a hsame hinv
+  exact hs (fun r hr => hsame r (hsub r hr)) hinv
+
+theorem supported_and {left : Coupling Abs} {right : Coupling Beta}
+    {leftSupport rightSupport : List Resource}
+    (hleft : Supported left leftSupport)
+    (hright : Supported right rightSupport) :
+    Supported (Coupling.and left right) (leftSupport ++ rightSupport) := by
+  intro st s ab hsame hinv
+  exact ⟨
+    hleft (fun r hr => hsame r (List.mem_append_left _ hr)) hinv.1,
+    hright (fun r hr => hsame r (List.mem_append_right _ hr)) hinv.2⟩
+
+/-- Abstract transition produced by iterating an indexed step from `index` for
+`remaining` iterations. -/
+def iterFrom (step : Nat → Abs → Abs) :
+    Nat → Nat → Abs → Abs
+  | _, 0, a => a
+  | index, remaining + 1, a =>
+      iterFrom step (index + 1) remaining (step index a)
+
+@[simp] theorem iterFrom_zero
+    (step : Nat → Abs → Abs) (index : Nat) :
+    iterFrom step index 0 = _root_.id := by
+  funext a
+  rfl
+
+@[simp] theorem iterFrom_succ
+    (step : Nat → Abs → Abs) (index remaining : Nat) (a : Abs) :
+    iterFrom step index (remaining + 1) a =
+      iterFrom step (index + 1) remaining (step index a) := rfl
+
+end Coupling
+
+/-- Generalized segment simulation for a source IR program under a field
+environment. The issue-facing `SegmentSim` below specializes this to `[]`. -/
+def SegmentSimWithFields (fields : List Field) (c : Coupling Abs)
+    (prog : List Stmt) (f : Abs → Abs) : Prop :=
+  ∀ ⦃st : RuntimeState⦄ ⦃a : Abs⦄ ⦃s : RuntimeState⦄,
+    c.Inv st a → execStmtList fields st prog = .continue s → c.Inv s (f a)
+
+/-- Issue-facing simulation predicate for source IR segments. -/
+abbrev SegmentSim (c : Coupling Abs) (prog : List Stmt) (f : Abs → Abs) : Prop :=
+  SegmentSimWithFields [] c prog f
+
+theorem execStmtList_append_continue
+    {fields : List Field} {p q : List Stmt} {st s : RuntimeState}
+    (hexec : execStmtList fields st (p ++ q) = .continue s) :
+    ∃ mid,
+      execStmtList fields st p = .continue mid ∧
+      execStmtList fields mid q = .continue s := by
+  induction p generalizing st with
+  | nil =>
+      exact ⟨st, rfl, hexec⟩
+  | cons stmt rest ih =>
+      simp only [List.cons_append, execStmtList] at hexec ⊢
+      cases hstmt : execStmt fields st stmt with
+      | «continue» next =>
+          rw [hstmt] at hexec
+          rcases ih hexec with ⟨mid, hrest, hq⟩
+          exact ⟨mid, by simp [hrest], hq⟩
+      | stop next => rw [hstmt] at hexec; cases hexec
+      | «return» value next => rw [hstmt] at hexec; cases hexec
+      | revert => rw [hstmt] at hexec; cases hexec
+
+theorem execStmtList_append_continue_of
+    {fields : List Field} {p q : List Stmt} {st mid s : RuntimeState}
+    (hp : execStmtList fields st p = .continue mid)
+    (hq : execStmtList fields mid q = .continue s) :
+    execStmtList fields st (p ++ q) = .continue s := by
+  induction p generalizing st with
+  | nil =>
+      simp [execStmtList] at hp
+      cases hp
+      exact hq
+  | cons stmt rest ih =>
+      simp only [List.cons_append, execStmtList] at hp ⊢
+      cases hstmt : execStmt fields st stmt with
+      | «continue» next =>
+          rw [hstmt] at hp
+          exact ih hp
+      | stop next => rw [hstmt] at hp; cases hp
+      | «return» value next => rw [hstmt] at hp; cases hp
+      | revert => rw [hstmt] at hp; cases hp
+
+namespace SegmentSimWithFields
+
+theorem id (fields : List Field) (c : Coupling Abs) :
+    SegmentSimWithFields fields c [] _root_.id := by
+  intro st a s hinv hexec
+  simp [execStmtList] at hexec
+  cases hexec
+  exact hinv
+
+theorem seq {fields : List Field} {c : Coupling Abs}
+    {p q : List Stmt} {f g : Abs → Abs}
+    (hp : SegmentSimWithFields fields c p f)
+    (hq : SegmentSimWithFields fields c q g) :
+    SegmentSimWithFields fields c (p ++ q) (g ∘ f) := by
+  intro st a s hinv hexec
+  rcases execStmtList_append_continue hexec with ⟨mid, hpExec, hqExec⟩
+  exact hq (hp hinv hpExec) hqExec
+
+theorem weaken {fields : List Field} {c d : Coupling Abs}
+    {prog : List Stmt} {f : Abs → Abs}
+    (hcd : ∀ ⦃st a⦄, d.Inv st a → c.Inv st a)
+    (hdc : ∀ ⦃st a⦄, c.Inv st (f a) → d.Inv st (f a))
+    (hsim : SegmentSimWithFields fields c prog f) :
+    SegmentSimWithFields fields d prog f := by
+  intro st a s hinv hexec
+  exact hdc (hsim (hcd hinv) hexec)
+
+/-- A segment whose writes are disjoint from a coupling support preserves that
+coupling with the identity abstract transition. -/
+theorem frame {fields : List Field} {c : Coupling Abs}
+    {prog : List Stmt} {written support : List Resource}
+    (hsupport : Coupling.Supported c support)
+    (hwrite : StmtsWriteOnly fields prog written)
+    (hdisj : ∀ r, r ∈ support → ∀ w, w ∈ written → Disjoint r w) :
+    SegmentSimWithFields fields c prog _root_.id := by
+  intro st a s hinv hexec
+  exact hsupport
+    (fun r hr => execStmts_frame_rule hwrite (hdisj r hr) hexec)
+    hinv
+
+theorem frame_writeFootprint {fields : List Field} {c : Coupling Abs}
+    {prog : List Stmt} {written support : List Resource}
+    (hsupport : Coupling.Supported c support)
+    (hfp : Stmt.writeFootprintList prog = some written)
+    (hdisj : ∀ r, r ∈ support → ∀ w, w ∈ written → Disjoint r w) :
+    SegmentSimWithFields fields c prog _root_.id :=
+  frame hsupport (stmtListWritesOnly_writeFootprint hfp) hdisj
+
+/-- Combine a local simulation with a framed invariant for untouched resources. -/
+theorem and_frame {fields : List Field}
+    {localCoupling : Coupling Abs} {framed : Coupling Beta}
+    {prog : List Stmt} {written support : List Resource}
+    {f : Abs → Abs}
+    (hlocal : SegmentSimWithFields fields localCoupling prog f)
+    (hsupport : Coupling.Supported framed support)
+    (hwrite : StmtsWriteOnly fields prog written)
+    (hdisj : ∀ r, r ∈ support → ∀ w, w ∈ written → Disjoint r w) :
+    SegmentSimWithFields fields (Coupling.and localCoupling framed) prog
+      (fun ab => (f ab.1, ab.2)) := by
+  intro st ab s hinv hexec
+  exact ⟨
+    hlocal hinv.1 hexec,
+    frame hsupport hwrite hdisj hinv.2 hexec⟩
+
+theorem execForEachLoop_sim
+    {fields : List Field} {c : Coupling Abs} {varName : String}
+    {body : List Stmt} {step : Nat → Abs → Abs}
+    (hbody : ∀ index, SegmentSimWithFields fields c body (step index))
+    (hbind : ∀ ⦃st : RuntimeState⦄ ⦃a : Abs⦄ index,
+      c.Inv st a →
+      c.Inv { st with bindings := bindValue st.bindings varName (wordNormalize index) } a) :
+    ∀ ⦃remaining index : Nat⦄ ⦃st s : RuntimeState⦄ ⦃a : Abs⦄,
+      c.Inv st a →
+      execForEachLoop varName
+        (fun loopState => execStmtList fields loopState body)
+        st index remaining = .continue s →
+      c.Inv s (Coupling.iterFrom step index remaining a) := by
+  intro remaining
+  induction remaining with
+  | zero =>
+      intro index st s a hinv hexec
+      simp [execForEachLoop] at hexec
+      cases hexec
+      exact hinv
+  | succ remaining ih =>
+      intro index st s a hinv hexec
+      rw [execForEachLoop_succ] at hexec
+      let loopState :=
+        { st with bindings := bindValue st.bindings varName (wordNormalize index) }
+      cases hrun : execStmtList fields loopState body with
+      | «continue» next =>
+          simp only [loopState, hrun] at hexec
+          exact ih
+            (hbody index (hbind index hinv) hrun)
+            hexec
+      | stop next => simp only [loopState, hrun] at hexec; cases hexec
+      | «return» value next => simp only [loopState, hrun] at hexec; cases hexec
+      | revert => simp only [loopState, hrun] at hexec; cases hexec
+
+theorem forEach
+    {fields : List Field} {c : Coupling Abs} {varName : String}
+    {count : Expr} {body : List Stmt} {step : Nat → Abs → Abs} {bound : Nat}
+    (hbody : ∀ index, SegmentSimWithFields fields c body (step index))
+    (hbind : ∀ ⦃st : RuntimeState⦄ ⦃a : Abs⦄ index,
+      c.Inv st a →
+      c.Inv { st with bindings := bindValue st.bindings varName (wordNormalize index) } a)
+    (hcount : ∀ ⦃st s : RuntimeState⦄,
+      execStmt fields st (.forEach varName count body) = .continue s →
+      evalExpr fields st count = some bound) :
+    SegmentSimWithFields fields c [.forEach varName count body]
+      (Coupling.iterFrom step 0 bound) := by
+  intro st a s hinv hexec
+  simp [execStmtList] at hexec
+  cases hstmt : execStmt fields st (.forEach varName count body) with
+  | «continue» next =>
+      rw [hstmt] at hexec
+      cases hexec
+      rw [show execStmt fields st (.forEach varName count body) =
+        match evalExpr fields st count with
+        | some bound =>
+            let initialLoopState :=
+              { st with bindings := bindValue st.bindings varName (wordNormalize 0) }
+            execForEachLoop varName
+              (fun loopState => execStmtList fields loopState body)
+              initialLoopState 0 bound
+        | none => .revert from rfl] at hstmt
+      rw [hcount hstmt] at hstmt
+      exact execForEachLoop_sim hbody hbind (hbind 0 hinv) hstmt
+  | stop next => rw [hstmt] at hexec; cases hexec
+  | «return» value next => rw [hstmt] at hexec; cases hexec
+  | revert => rw [hstmt] at hexec; cases hexec
+
+end SegmentSimWithFields
+
+namespace SegmentSim
+
+theorem id (c : Coupling Abs) : SegmentSim c [] id :=
+  SegmentSimWithFields.id [] c
+
+theorem seq {c : Coupling Abs} {p q : List Stmt} {f g : Abs → Abs}
+    (hp : SegmentSim c p f) (hq : SegmentSim c q g) :
+    SegmentSim c (p ++ q) (g ∘ f) :=
+  SegmentSimWithFields.seq hp hq
+
+theorem weaken {c d : Coupling Abs} {prog : List Stmt} {f : Abs → Abs}
+    (hcd : ∀ ⦃st a⦄, d.Inv st a → c.Inv st a)
+    (hdc : ∀ ⦃st a⦄, c.Inv st (f a) → d.Inv st (f a))
+    (hsim : SegmentSim c prog f) :
+    SegmentSim d prog f :=
+  SegmentSimWithFields.weaken hcd hdc hsim
+
+theorem frame {c : Coupling Abs} {prog : List Stmt}
+    {written support : List Resource}
+    (hsupport : Coupling.Supported c support)
+    (hwrite : StmtsWriteOnly [] prog written)
+    (hdisj : ∀ r, r ∈ support → ∀ w, w ∈ written → Disjoint r w) :
+    SegmentSim c prog _root_.id :=
+  SegmentSimWithFields.frame hsupport hwrite hdisj
+
+theorem frame_writeFootprint {c : Coupling Abs} {prog : List Stmt}
+    {written support : List Resource}
+    (hsupport : Coupling.Supported c support)
+    (hfp : Stmt.writeFootprintList prog = some written)
+    (hdisj : ∀ r, r ∈ support → ∀ w, w ∈ written → Disjoint r w) :
+    SegmentSim c prog _root_.id :=
+  SegmentSimWithFields.frame_writeFootprint hsupport hfp hdisj
+
+theorem and_frame {localCoupling : Coupling Abs} {framed : Coupling Beta}
+    {prog : List Stmt} {written support : List Resource} {f : Abs → Abs}
+    (hlocal : SegmentSim localCoupling prog f)
+    (hsupport : Coupling.Supported framed support)
+    (hwrite : StmtsWriteOnly [] prog written)
+    (hdisj : ∀ r, r ∈ support → ∀ w, w ∈ written → Disjoint r w) :
+    SegmentSim (Coupling.and localCoupling framed) prog (fun ab => (f ab.1, ab.2)) :=
+  SegmentSimWithFields.and_frame hlocal hsupport hwrite hdisj
+
+theorem forEach
+    {c : Coupling Abs} {varName : String} {count : Expr}
+    {body : List Stmt} {step : Nat → Abs → Abs} {bound : Nat}
+    (hbody : ∀ index, SegmentSim c body (step index))
+    (hbind : ∀ ⦃st : RuntimeState⦄ ⦃a : Abs⦄ index,
+      c.Inv st a →
+      c.Inv { st with bindings := bindValue st.bindings varName (wordNormalize index) } a)
+    (hcount : ∀ ⦃st s : RuntimeState⦄,
+      execStmt [] st (.forEach varName count body) = .continue s →
+      evalExpr [] st count = some bound) :
+    SegmentSim c [.forEach varName count body] (Coupling.iterFrom step 0 bound) :=
+  SegmentSimWithFields.forEach hbody hbind hcount
+
+end SegmentSim
+
 abbrev PreservesBindingsExcept (st s : RuntimeState) (written : List String) : Prop :=
   forall key, key ∉ written -> lookupValue s.bindings key = lookupValue st.bindings key
 

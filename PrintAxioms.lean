@@ -1642,6 +1642,27 @@ end Verity.AxiomAudit
   Compiler.Proofs.Frames.stmtListWritesOnly_writeFootprint
   Compiler.Proofs.Frames.execStmt_frame_rule_writeFootprint
   Compiler.Proofs.Frames.execStmts_frame_rule_writeFootprint
+  Compiler.Proofs.Frames.Coupling.supported_mono
+  Compiler.Proofs.Frames.Coupling.supported_and
+  Compiler.Proofs.Frames.Coupling.iterFrom_zero
+  Compiler.Proofs.Frames.Coupling.iterFrom_succ
+  Compiler.Proofs.Frames.execStmtList_append_continue
+  Compiler.Proofs.Frames.execStmtList_append_continue_of
+  Compiler.Proofs.Frames.SegmentSimWithFields.id
+  Compiler.Proofs.Frames.SegmentSimWithFields.seq
+  Compiler.Proofs.Frames.SegmentSimWithFields.weaken
+  Compiler.Proofs.Frames.SegmentSimWithFields.frame
+  Compiler.Proofs.Frames.SegmentSimWithFields.frame_writeFootprint
+  Compiler.Proofs.Frames.SegmentSimWithFields.and_frame
+  Compiler.Proofs.Frames.SegmentSimWithFields.execForEachLoop_sim
+  Compiler.Proofs.Frames.SegmentSimWithFields.forEach
+  Compiler.Proofs.Frames.SegmentSim.id
+  Compiler.Proofs.Frames.SegmentSim.seq
+  Compiler.Proofs.Frames.SegmentSim.weaken
+  Compiler.Proofs.Frames.SegmentSim.frame
+  Compiler.Proofs.Frames.SegmentSim.frame_writeFootprint
+  Compiler.Proofs.Frames.SegmentSim.and_frame
+  Compiler.Proofs.Frames.SegmentSim.forEach
   Compiler.Proofs.Frames.execStmt_letVar_preserves_bindings_except
   Compiler.Proofs.Frames.execStmt_mstore_preserves_bindings_except
   Compiler.Proofs.Frames.execStmt_letVar_preserves_selector_calldata
@@ -5567,4 +5588,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5212 theorems/lemmas (3613 public, 1599 private, 0 sorry'd)
+-- Total: 5233 theorems/lemmas (3634 public, 1599 private, 0 sorry'd)
