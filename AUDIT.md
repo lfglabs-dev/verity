@@ -38,8 +38,11 @@ equivalence theorems. Proof-only scaffolding; no compiler output changes.
 
 The current generic scalar-event slice is intentionally top-level only: supported
 `emit` statements may appear as function-body heads with scalar parameters and at
-most three indexed parameters. Nested emits inside structural statements remain
-future work, and the Yul/EndToEnd proof layers still exclude event/log semantics.
+most three indexed parameters. This slice is proved at the body/function level;
+the contract-level scalar-events theorem and its witness contract have not landed
+yet, so whole-contract correctness still assumes no events. Nested emits inside
+structural statements remain future work, and the Yul/EndToEnd proof layers still
+exclude event/log semantics.
 
 ### Compiler-Side Emit-Argument Scope Collection (2026-06)
 
