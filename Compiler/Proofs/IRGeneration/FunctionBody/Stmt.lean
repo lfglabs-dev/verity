@@ -930,7 +930,7 @@ private theorem compileStmt_ok_any_scope_aux
     · -- compileStmtList part
       intro stmts scope1 scope2 hlt hok
       cases stmts with
-      | nil => exact ⟨[], rfl⟩
+      | nil => exact ⟨[], by simp [CompilationModel.compileStmtList, Pure.pure, Except.pure]⟩
       | cons s ss =>
           rcases hok with ⟨ir, hir⟩
           simp only [CompilationModel.compileStmtList, bind, Except.bind] at hir ⊢
@@ -1049,7 +1049,7 @@ private theorem compileStmt_ok_any_scope_with_surface_aux
           simp only [CompilationModel.compileStmt] at hok ⊢; exact hok
     · intro stmts scope1 scope2 hlt hok
       cases stmts with
-      | nil => exact ⟨[], rfl⟩
+      | nil => exact ⟨[], by simp [CompilationModel.compileStmtList, Pure.pure, Except.pure]⟩
       | cons s ss =>
           rcases hok with ⟨ir, hir⟩
           simp only [CompilationModel.compileStmtList, bind, Except.bind] at hir ⊢
@@ -1309,7 +1309,7 @@ theorem compileStmtList_core_ok
         fields [] [] .calldata [] false inScopeNames [] stmts = Except.ok bodyIR := by
   induction hcore generalizing inScopeNames
   case nil =>
-      exact ⟨[], rfl⟩
+      exact ⟨[], by simp [CompilationModel.compileStmtList, Pure.pure, Except.pure]⟩
   case letVar scope name value rest hvalue _ hrest ih =>
       rcases compileStmt_core_ok_any_scope (fields := fields) (inScopeNames := inScopeNames)
         (stmt := .letVar name value) (.letVar hvalue) with ⟨headIR, hheadIR⟩
@@ -2765,7 +2765,7 @@ theorem exec_compileStmtList_core
       stmtResultMatchesIRExecExact sourceResult irExec := by
   induction hcore generalizing runtime state inScopeNames with
   | nil =>
-      refine ⟨[], rfl, ?_⟩
+      refine ⟨[], by simp [CompilationModel.compileStmtList, Pure.pure, Except.pure], ?_⟩
       constructor
       · simpa [SourceSemantics.execStmtList, execIRStmts, stmtResultMatchesIRExec] using hruntime
       · simpa [SourceSemantics.execStmtList, execIRStmts, stmtResultMatchesIRExecExact] using
@@ -3182,7 +3182,7 @@ theorem exec_compileStmtList_core_extraFuel
       stmtResultMatchesIRExecExact sourceResult irExec := by
   induction hcore generalizing runtime state inScopeNames with
   | nil =>
-      refine ⟨[], rfl, ?_⟩
+      refine ⟨[], by simp [CompilationModel.compileStmtList, Pure.pure, Except.pure], ?_⟩
       constructor
       · simpa [SourceSemantics.execStmtList, execIRStmts, stmtResultMatchesIRExec] using hruntime
       · simpa [SourceSemantics.execStmtList, execIRStmts, stmtResultMatchesIRExecExact] using

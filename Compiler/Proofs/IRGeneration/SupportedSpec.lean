@@ -1892,13 +1892,13 @@ private theorem compileStmt_eventsErrorsAgnostic_aux
     (∀ (stmt : Stmt) (scope : List String),
       sizeOf stmt < n →
       stmtTouchesUnsupportedContractSurface stmt = false →
-      CompilationModel.compileStmt fields events errors .calldata [] false scope [] stmt =
-        CompilationModel.compileStmt fields [] [] .calldata [] false scope [] stmt) ∧
+      CompilationModel.compileStmt fields events errors .calldata [] false scope [] stmt [] =
+        CompilationModel.compileStmt fields [] [] .calldata [] false scope [] stmt []) ∧
     (∀ (stmts : List Stmt) (scope : List String),
       sizeOf stmts < n →
       stmtListTouchesUnsupportedContractSurface stmts = false →
-      CompilationModel.compileStmtList fields events errors .calldata [] false scope [] stmts =
-        CompilationModel.compileStmtList fields [] [] .calldata [] false scope [] stmts) := by
+      CompilationModel.compileStmtList fields events errors .calldata [] false scope [] stmts [] =
+        CompilationModel.compileStmtList fields [] [] .calldata [] false scope [] stmts []) := by
   induction n with
   | zero =>
       exact ⟨fun _ _ hlt => absurd hlt (Nat.not_lt_zero _),
@@ -1935,7 +1935,7 @@ private theorem compileStmt_eventsErrorsAgnostic_aux
             simp [stmtTouchesUnsupportedContractSurface] at hsurface
       · intro stmts scope hlt hsurface
         cases stmts with
-        | nil => rfl
+        | nil => simp only [CompilationModel.compileStmtList]
         | cons s ss =>
             simp only [stmtListTouchesUnsupportedContractSurface,
               Bool.or_eq_false_iff] at hsurface
@@ -1954,8 +1954,8 @@ theorem compileStmt_eventsErrorsAgnostic_of_contractSurfaceClosed
     {scope : List String}
     {stmt : Stmt}
     (hsurface : stmtTouchesUnsupportedContractSurface stmt = false) :
-    CompilationModel.compileStmt fields events errors .calldata [] false scope [] stmt =
-      CompilationModel.compileStmt fields [] [] .calldata [] false scope [] stmt :=
+    CompilationModel.compileStmt fields events errors .calldata [] false scope [] stmt [] =
+      CompilationModel.compileStmt fields [] [] .calldata [] false scope [] stmt [] :=
   (compileStmt_eventsErrorsAgnostic_aux (sizeOf stmt + 1) fields events errors).1
     stmt scope (Nat.lt_succ_of_le (Nat.le_refl _)) hsurface
 
@@ -1968,8 +1968,8 @@ theorem compileStmtList_eventsErrorsAgnostic_of_contractSurfaceClosed
     {scope : List String}
     {stmts : List Stmt}
     (hsurface : stmtListTouchesUnsupportedContractSurface stmts = false) :
-    CompilationModel.compileStmtList fields events errors .calldata [] false scope [] stmts =
-      CompilationModel.compileStmtList fields [] [] .calldata [] false scope [] stmts :=
+    CompilationModel.compileStmtList fields events errors .calldata [] false scope [] stmts [] =
+      CompilationModel.compileStmtList fields [] [] .calldata [] false scope [] stmts [] :=
   (compileStmt_eventsErrorsAgnostic_aux (sizeOf stmts + 1) fields events errors).2
     stmts scope (Nat.lt_succ_of_le (Nat.le_refl _)) hsurface
 

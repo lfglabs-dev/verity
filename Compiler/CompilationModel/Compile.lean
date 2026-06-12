@@ -26,6 +26,7 @@ import Compiler.CompilationModel.AbiEncoding
 import Compiler.CompilationModel.DynamicData
 import Compiler.CompilationModel.EcmAxiomCollection
 import Compiler.CompilationModel.EventEmission
+import Compiler.CompilationModel.InternalArgs
 import Compiler.CompilationModel.InternalNaming
 import Compiler.CompilationModel.LayoutValidation
 import Compiler.CompilationModel.MappingWrites
@@ -51,6 +52,52 @@ def unsafeYulToEVMYul (fragment : UnsafeYulFragment) : List YulStmt :=
 
 theorem unsafeYulToEVMYul_eq (fragment : UnsafeYulFragment) :
     unsafeYulToEVMYul fragment = fragment.stmts := rfl
+
+def findInternalFunctionForCall? (functions : List FunctionSpec) (name : String) : Option FunctionSpec :=
+  match functions.filter (fun fn => fn.isInternal && fn.name == name) with
+  | [fn] => some fn
+  | _ => none
+
+def directForwardedInternalCallArgName? : Expr → Option String
+  | Expr.param name => some name
+  | Expr.localVar name => some name
+  | _ => none
+
+def compileInternalCallArg (fields : List Field) (dynamicSource : DynamicDataSource)
+    (calleeName : String) (param : Param) (arg : Expr) : Except String (List YulExpr) := do
+  if isExpandedInternalParamType param.ty then
+    match directForwardedInternalCallArgName? arg with
+    | some name =>
+        pure ((internalCallYulArgNamesForParam name param).map YulExpr.ident)
+    | none =>
+        throw s!"Compilation error: internal call '{calleeName}' argument for parameter '{param.name}' with type {repr param.ty} must be a direct parameter/local forwarding expression (issue #1889)."
+  else
+    pure [← compileExpr fields dynamicSource arg]
+
+def compileInternalCallArgsWithParams (fields : List Field) (dynamicSource : DynamicDataSource)
+    (calleeName : String) : List Param → List Expr → Except String (List YulExpr)
+  | [], [] => pure []
+  | param :: params, arg :: args => do
+      let head ← compileInternalCallArg fields dynamicSource calleeName param arg
+      let tail ← compileInternalCallArgsWithParams fields dynamicSource calleeName params args
+      pure (head ++ tail)
+  | params, args =>
+      throw s!"Compilation error: internal call '{calleeName}' received {args.length} source arg(s), expected {params.length} (issue #1889)."
+
+def compileInternalCallArgs (fields : List Field) (dynamicSource : DynamicDataSource)
+    (internalFunctions : List FunctionSpec) (calleeName : String) (args : List Expr) :
+    Except String (List YulExpr) :=
+  match findInternalFunctionForCall? internalFunctions calleeName with
+  | some callee =>
+      let legacyArgCount :=
+        callee.params.foldl (fun acc param => acc + (internalFunctionYulParamNames [param]).length) 0
+      if args.length == callee.params.length then
+        compileInternalCallArgsWithParams fields dynamicSource calleeName callee.params args
+      else if args.length == legacyArgCount then
+        compileExprList fields dynamicSource args
+      else
+        compileInternalCallArgsWithParams fields dynamicSource calleeName callee.params args
+  | none => compileExprList fields dynamicSource args
 
 private def compileAdtStorageWrite (fields : List Field)
     (dynamicSource : DynamicDataSource) (adtTypes : List AdtTypeDef)
@@ -118,13 +165,15 @@ def compileStmtList (fields : List Field) (events : List EventDef := [])
     (internalRetNames : List String := [])
     (isInternal : Bool := false)
     (inScopeNames : List String := [])
-    (adtTypes : List AdtTypeDef := []) :
-    List Stmt → Except String (List YulStmt)
+    (adtTypes : List AdtTypeDef := [])
+    (stmts : List Stmt) (internalFunctions : List FunctionSpec := []) :
+    Except String (List YulStmt) :=
+  match stmts with
   | [] => pure []
   | s :: ss => do
-      let head ← compileStmt fields events errors dynamicSource internalRetNames isInternal inScopeNames adtTypes s
+      let head ← compileStmt fields events errors dynamicSource internalRetNames isInternal inScopeNames adtTypes s internalFunctions
       let nextScopeNames := collectStmtNames s ++ inScopeNames
-      let tail ← compileStmtList fields events errors dynamicSource internalRetNames isInternal nextScopeNames adtTypes ss
+      let tail ← compileStmtList fields events errors dynamicSource internalRetNames isInternal nextScopeNames adtTypes ss internalFunctions
       pure (head ++ tail)
 
 def compileStmt (fields : List Field) (events : List EventDef := [])
@@ -133,8 +182,10 @@ def compileStmt (fields : List Field) (events : List EventDef := [])
     (internalRetNames : List String := [])
     (isInternal : Bool := false)
     (inScopeNames : List String := [])
-    (adtTypes : List AdtTypeDef := []) :
-    Stmt → Except String (List YulStmt)
+    (adtTypes : List AdtTypeDef := [])
+    (stmt : Stmt) (internalFunctions : List FunctionSpec := []) :
+    Except String (List YulStmt)
+  := match stmt with
   | Stmt.letVar name value => do
       pure [YulStmt.let_ name (← compileExpr fields dynamicSource value)]
   | Stmt.assignVar name value => do
@@ -251,8 +302,8 @@ def compileStmt (fields : List Field) (events : List EventDef := [])
   | Stmt.ite cond thenBranch elseBranch => do
       -- If/else: compile to Yul if + negated if (#179)
       let condExpr ← compileExpr fields dynamicSource cond
-      let thenStmts ← compileStmtList fields events errors dynamicSource internalRetNames isInternal inScopeNames adtTypes thenBranch
-      let elseStmts ← compileStmtList fields events errors dynamicSource internalRetNames isInternal inScopeNames adtTypes elseBranch
+      let thenStmts ← compileStmtList fields events errors dynamicSource internalRetNames isInternal inScopeNames adtTypes thenBranch internalFunctions
+      let elseStmts ← compileStmtList fields events errors dynamicSource internalRetNames isInternal inScopeNames adtTypes elseBranch internalFunctions
       if elseBranch.isEmpty then
         -- Simple if (no else)
         pure [YulStmt.if_ condExpr thenStmts]
@@ -281,7 +332,7 @@ def compileStmt (fields : List Field) (events : List EventDef := [])
       let countName := pickFreshName "__forEach_count" (idxName :: forUsedNames)
       -- Compile the body with the synthetic counters in scope (see `forEachBodyScope`),
       -- so a nested `forEach` cannot re-derive colliding `__forEach_idx`/`__forEach_count`.
-      let bodyStmts ← compileStmtList fields events errors dynamicSource internalRetNames isInternal (forEachBodyScope inScopeNames varName count body) adtTypes body
+      let bodyStmts ← compileStmtList fields events errors dynamicSource internalRetNames isInternal (forEachBodyScope inScopeNames varName count body) adtTypes body internalFunctions
       let initStmts := [
         YulStmt.let_ idxName (YulExpr.lit 0),
         YulStmt.let_ countName countExpr,
@@ -294,7 +345,7 @@ def compileStmt (fields : List Field) (events : List EventDef := [])
 
   | Stmt.unsafeBlock _ body => do
       -- Unsafe block: transparent wrapper, compile inner body directly (#1728, Axis 6 Step 6a)
-      compileStmtList fields events errors dynamicSource internalRetNames isInternal inScopeNames adtTypes body
+      compileStmtList fields events errors dynamicSource internalRetNames isInternal inScopeNames adtTypes body internalFunctions
 
   | Stmt.unsafeYul fragment =>
       pure (unsafeYulToEVMYul fragment)
@@ -304,10 +355,10 @@ def compileStmt (fields : List Field) (events : List EventDef := [])
 
   | Stmt.internalCall functionName args => do
       -- Internal function call as statement (#181)
-      let argExprs ← compileExprList fields dynamicSource args
+      let argExprs ← compileInternalCallArgs fields dynamicSource internalFunctions functionName args
       pure [YulStmt.expr (YulExpr.call (internalFunctionYulName functionName) argExprs)]
   | Stmt.internalCallAssign names functionName args => do
-      let argExprs ← compileExprList fields dynamicSource args
+      let argExprs ← compileInternalCallArgs fields dynamicSource internalFunctions functionName args
       pure [YulStmt.letMany names (YulExpr.call (internalFunctionYulName functionName) argExprs)]
   | Stmt.externalCallBind resultVars externalName args => do
       let argExprs ← compileExprList fields dynamicSource args
@@ -508,7 +559,7 @@ def compileStmt (fields : List Field) (events : List EventDef := [])
         | none => throw s!"Compilation error: unknown storage field '{storageFieldName}' for matchAdt on '{adtName}'"
       -- Build switch cases: each branch matches on the variant's tag
       let cases ← compileMatchAdtBranches fields events errors dynamicSource internalRetNames isInternal
-        inScopeNames adtTypes def_ baseSlot branches
+        inScopeNames adtTypes internalFunctions def_ baseSlot branches
       -- Default case: revert (should be unreachable for exhaustive matches)
       let defaultCase := [YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]
       pure [YulStmt.switch scrutineeExpr cases (some defaultCase)]
@@ -517,6 +568,7 @@ def compileMatchAdtBranches (fields : List Field) (events : List EventDef)
     (errors : List ErrorDef) (dynamicSource : DynamicDataSource)
     (internalRetNames : List String) (isInternal : Bool)
     (inScopeNames : List String) (adtTypes : List AdtTypeDef)
+    (internalFunctions : List FunctionSpec)
     (def_ : AdtTypeDef) (baseSlot : Nat) :
     List (String × List String × List Stmt) → Except String (List (Nat × List YulStmt))
   | [] => pure []
@@ -528,9 +580,9 @@ def compileMatchAdtBranches (fields : List Field) (events : List EventDef)
       let fieldBindings := boundVarNames.zipIdx.map fun (varName, idx) =>
         YulStmt.let_ varName (compileAdtFieldRead (YulExpr.lit baseSlot) idx)
       let bodyStmts ← compileStmtList fields events errors dynamicSource internalRetNames isInternal
-        (boundVarNames.reverse ++ inScopeNames) adtTypes body
+        (boundVarNames.reverse ++ inScopeNames) adtTypes body internalFunctions
       let restCases ← compileMatchAdtBranches fields events errors dynamicSource internalRetNames isInternal
-        inScopeNames adtTypes def_ baseSlot rest
+        inScopeNames adtTypes internalFunctions def_ baseSlot rest
       pure ((variant.tag, fieldBindings ++ bodyStmts) :: restCases)
 end
 

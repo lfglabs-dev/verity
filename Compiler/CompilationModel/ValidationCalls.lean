@@ -5,6 +5,7 @@ import Compiler.CompilationModel.Types
 import Compiler.CompilationModel.AbiHelpers
 import Compiler.CompilationModel.AbiTypeLayout
 import Compiler.CompilationModel.DynamicData
+import Compiler.CompilationModel.InternalArgs
 import Compiler.CompilationModel.InternalNaming
 import Compiler.CompilationModel.IssueRefs
 import Compiler.CompilationModel.ScopeValidation
@@ -156,90 +157,133 @@ def findInternalFunctionByName (functions : List FunctionSpec)
   | _ =>
       throw s!"Compilation error: function '{callerName}' references ambiguous internal function '{calleeName}' ({issue625Ref})."
 
+def directForwardedInternalArgName? : Expr → Option String
+  | Expr.param name => some name
+  | Expr.localVar name => some name
+  | _ => none
+
+def validateInternalCallArgForParam
+    (callerParams : List Param) (callerName calleeName : String)
+    (param : Param) (arg : Expr) : Except String Unit := do
+  if isExpandedInternalParamType param.ty then
+    match directForwardedInternalArgName? arg with
+    | none =>
+        throw s!"Compilation error: function '{callerName}' calls internal function '{calleeName}' with a computed argument for expanded parameter '{param.name}' ({repr param.ty}); issue #1889 currently supports direct parameter/local forwarding only."
+    | some _ => pure ()
+  else
+    pure ()
+  if isExpandedInternalParamType param.ty then
+    match arg with
+    | Expr.param sourceName =>
+        match findParamType callerParams sourceName with
+        | some sourceTy =>
+            if sourceTy == param.ty then
+              pure ()
+            else
+              throw s!"Compilation error: function '{callerName}' calls internal function '{calleeName}' with parameter '{sourceName}' of type {repr sourceTy}, expected {repr param.ty} for expanded callee parameter '{param.name}' (issue #1889)."
+        | none => pure ()
+    | _ => pure ()
+  else
+    pure ()
+
+def validateInternalCallSourceArgs
+    (callerParams : List Param) (callerName calleeName : String)
+    (params : List Param) (args : List Expr) : Except String Unit := do
+  let legacyArgCount :=
+    params.foldl (fun acc param => acc + (internalFunctionYulParamNames [param]).length) 0
+  if args.length == legacyArgCount && args.length != params.length then
+    pure ()
+  else if args.length != params.length then
+    throw s!"Compilation error: function '{callerName}' calls internal function '{calleeName}' with {args.length} source arg(s), expected {params.length} (or {legacyArgCount} expanded Yul arg(s) for legacy call sites) ({issue625Ref}, issue #1889)."
+  else
+    let rec go : List Param → List Expr → Except String Unit
+      | [], [] => pure ()
+      | param :: params, arg :: args => do
+          validateInternalCallArgForParam callerParams callerName calleeName param arg
+          go params args
+      | _, _ => pure ()
+    go params args
+
 /-- Node-local check: shape of an `Expr.internalCall` node. Operands are
     reached via the canonical post-order `Expr.forDeepPostM`, matching the old
     walk which validated arguments before the call's own arity/return shape. -/
 def validateInternalCallShapesNodeExpr
-    (functions : List FunctionSpec) (callerName : String) : Expr → Except String Unit
+    (functions : List FunctionSpec) (callerName : String) (callerParams : List Param) : Expr → Except String Unit
   | Expr.internalCall calleeName args => do
       let callee ← findInternalFunctionByName functions callerName calleeName
-      let expectedArgs := internalCallYulArgCount callee.params
-      if args.length != expectedArgs then
-        throw s!"Compilation error: function '{callerName}' calls internal function '{calleeName}' with {args.length} Yul arg(s), expected {expectedArgs} ({issue625Ref})."
+      validateInternalCallSourceArgs callerParams callerName calleeName callee.params args
       let returns ← functionReturns callee
       if returns.length != 1 || internalReturnYulCount returns != 1 then
         throw s!"Compilation error: function '{callerName}' uses Expr.internalCall '{calleeName}' but callee returns {returns.length} logical value(s) / {internalReturnYulCount returns} Yul value(s); use Stmt.internalCallAssign for multi-return calls ({issue625Ref})."
   | _ => pure ()
 
 def validateInternalCallShapesInExpr
-    (functions : List FunctionSpec) (callerName : String) (e : Expr) : Except String Unit :=
-  e.forDeepPostM (validateInternalCallShapesNodeExpr functions callerName)
+    (functions : List FunctionSpec) (callerName : String) (callerParams : List Param) (e : Expr) : Except String Unit :=
+  e.forDeepPostM (validateInternalCallShapesNodeExpr functions callerName callerParams)
 
 def validateInternalCallShapesInExprList
-    (functions : List FunctionSpec) (callerName : String) (es : List Expr) : Except String Unit :=
-  es.forM (validateInternalCallShapesInExpr functions callerName)
+    (functions : List FunctionSpec) (callerName : String) (callerParams : List Param) (es : List Expr) : Except String Unit :=
+  es.forM (validateInternalCallShapesInExpr functions callerName callerParams)
 
 /-- Node-local statement check: validates the statement's own expressions and
     internal-call shape; nested statement bodies are reached via the canonical
     `Stmt.forDeepM`. `returnArray`/`returnBytes`/`returnStorageWords`/
     `returnCodeData` deliberately contribute nothing here (as in the old walk). -/
 def validateInternalCallShapesNodeStmt
-    (functions : List FunctionSpec) (callerName : String) : Stmt → Except String Unit
+    (functions : List FunctionSpec) (callerName : String) (callerParams : List Param) : Stmt → Except String Unit
   | Stmt.letVar _ value | Stmt.assignVar _ value | Stmt.setStorage _ value | Stmt.setStorageAddr _ value
   | Stmt.setStorageWord _ _ value |
     Stmt.storageArrayPush _ value |
     Stmt.return value | Stmt.require value _ =>
-      validateInternalCallShapesInExpr functions callerName value
+      validateInternalCallShapesInExpr functions callerName callerParams value
   | Stmt.setStorageArrayElement _ index value => do
-      validateInternalCallShapesInExpr functions callerName index
-      validateInternalCallShapesInExpr functions callerName value
+      validateInternalCallShapesInExpr functions callerName callerParams index
+      validateInternalCallShapesInExpr functions callerName callerParams value
   | Stmt.storageArrayPop _ =>
       pure ()
   | Stmt.requireError cond _ args => do
-      validateInternalCallShapesInExpr functions callerName cond
-      validateInternalCallShapesInExprList functions callerName args
+      validateInternalCallShapesInExpr functions callerName callerParams cond
+      validateInternalCallShapesInExprList functions callerName callerParams args
   | Stmt.revertError _ args =>
-      validateInternalCallShapesInExprList functions callerName args
+      validateInternalCallShapesInExprList functions callerName callerParams args
   | Stmt.mstore offset value | Stmt.tstore offset value => do
-      validateInternalCallShapesInExpr functions callerName offset
-      validateInternalCallShapesInExpr functions callerName value
+      validateInternalCallShapesInExpr functions callerName callerParams offset
+      validateInternalCallShapesInExpr functions callerName callerParams value
   | Stmt.calldatacopy destOffset sourceOffset size
   | Stmt.returndataCopy destOffset sourceOffset size => do
-      validateInternalCallShapesInExpr functions callerName destOffset
-      validateInternalCallShapesInExpr functions callerName sourceOffset
-      validateInternalCallShapesInExpr functions callerName size
+      validateInternalCallShapesInExpr functions callerName callerParams destOffset
+      validateInternalCallShapesInExpr functions callerName callerParams sourceOffset
+      validateInternalCallShapesInExpr functions callerName callerParams size
   | Stmt.revertReturndata =>
       pure ()
   | Stmt.setMapping _ key value | Stmt.setMappingWord _ key _ value | Stmt.setMappingPackedWord _ key _ _ value | Stmt.setMappingUint _ key value
   | Stmt.setStructMember _ key _ value => do
-      validateInternalCallShapesInExpr functions callerName key
-      validateInternalCallShapesInExpr functions callerName value
+      validateInternalCallShapesInExpr functions callerName callerParams key
+      validateInternalCallShapesInExpr functions callerName callerParams value
   | Stmt.setMappingChain _ keys value => do
-      validateInternalCallShapesInExprList functions callerName keys
-      validateInternalCallShapesInExpr functions callerName value
+      validateInternalCallShapesInExprList functions callerName callerParams keys
+      validateInternalCallShapesInExpr functions callerName callerParams value
   | Stmt.setMapping2 _ key1 key2 value | Stmt.setMapping2Word _ key1 key2 _ value
   | Stmt.setStructMember2 _ key1 key2 _ value => do
-      validateInternalCallShapesInExpr functions callerName key1
-      validateInternalCallShapesInExpr functions callerName key2
-      validateInternalCallShapesInExpr functions callerName value
+      validateInternalCallShapesInExpr functions callerName callerParams key1
+      validateInternalCallShapesInExpr functions callerName callerParams key2
+      validateInternalCallShapesInExpr functions callerName callerParams value
   | Stmt.ite cond _ _ =>
-      validateInternalCallShapesInExpr functions callerName cond
+      validateInternalCallShapesInExpr functions callerName callerParams cond
   | Stmt.forEach _ count _ =>
-      validateInternalCallShapesInExpr functions callerName count
+      validateInternalCallShapesInExpr functions callerName callerParams count
   | Stmt.unsafeBlock _ _ =>
       pure ()
   | Stmt.matchAdt _ scrutinee _ =>
-      validateInternalCallShapesInExpr functions callerName scrutinee
+      validateInternalCallShapesInExpr functions callerName callerParams scrutinee
   | Stmt.emit _ args =>
-      validateInternalCallShapesInExprList functions callerName args
+      validateInternalCallShapesInExprList functions callerName callerParams args
   | Stmt.returnValues values =>
-      validateInternalCallShapesInExprList functions callerName values
+      validateInternalCallShapesInExprList functions callerName callerParams values
   | Stmt.internalCall calleeName args => do
-      validateInternalCallShapesInExprList functions callerName args
+      validateInternalCallShapesInExprList functions callerName callerParams args
       let callee ← findInternalFunctionByName functions callerName calleeName
-      let expectedArgs := internalCallYulArgCount callee.params
-      if args.length != expectedArgs then
-        throw s!"Compilation error: function '{callerName}' calls internal function '{calleeName}' with {args.length} Yul arg(s), expected {expectedArgs} ({issue625Ref})."
+      validateInternalCallSourceArgs callerParams callerName calleeName callee.params args
       let returns ← functionReturns callee
       if !returns.isEmpty then
         throw s!"Compilation error: function '{callerName}' uses Stmt.internalCall '{calleeName}' but callee returns {returns.length} values; use Expr.internalCall for single-return or Stmt.internalCallAssign for multi-return calls ({issue625Ref})."
@@ -258,45 +302,45 @@ def validateInternalCallShapesNodeStmt
           throw s!"Compilation error: function '{callerName}' uses Stmt.internalCallAssign with duplicate target '{dup}' ({issue625Ref})."
       | none =>
           pure ()
-      validateInternalCallShapesInExprList functions callerName args
+      validateInternalCallShapesInExprList functions callerName callerParams args
       let callee ← findInternalFunctionByName functions callerName calleeName
-      let expectedArgs := internalCallYulArgCount callee.params
-      if args.length != expectedArgs then
-        throw s!"Compilation error: function '{callerName}' calls internal function '{calleeName}' with {args.length} Yul arg(s), expected {expectedArgs} ({issue625Ref})."
+      validateInternalCallSourceArgs callerParams callerName calleeName callee.params args
       let returns ← functionReturns callee
       let expectedReturns := internalReturnYulCount returns
       if expectedReturns != names.length then
         throw s!"Compilation error: function '{callerName}' binds {names.length} Yul value(s) from internal function '{calleeName}', but callee returns {returns.length} logical value(s) / {expectedReturns} Yul value(s) ({issue625Ref})."
   | Stmt.rawLog topics dataOffset dataSize => do
-      validateInternalCallShapesInExprList functions callerName topics
-      validateInternalCallShapesInExpr functions callerName dataOffset
-      validateInternalCallShapesInExpr functions callerName dataSize
+      validateInternalCallShapesInExprList functions callerName callerParams topics
+      validateInternalCallShapesInExpr functions callerName callerParams dataOffset
+      validateInternalCallShapesInExpr functions callerName callerParams dataSize
   | Stmt.externalCallBind _resultVars _ args =>
-      validateInternalCallShapesInExprList functions callerName args
+      validateInternalCallShapesInExprList functions callerName callerParams args
   | Stmt.tryExternalCallBind _ _resultVars _ args =>
-      validateInternalCallShapesInExprList functions callerName args
+      validateInternalCallShapesInExprList functions callerName callerParams args
   | Stmt.ecm _ args =>
-      validateInternalCallShapesInExprList functions callerName args
+      validateInternalCallShapesInExprList functions callerName callerParams args
   | _ =>
       pure ()
 
 def validateInternalCallShapesInStmt
-    (functions : List FunctionSpec) (callerName : String) (stmt : Stmt) : Except String Unit :=
-  stmt.forDeepM (validateInternalCallShapesNodeStmt functions callerName)
+    (functions : List FunctionSpec) (callerName : String) (callerParams : List Param)
+    (stmt : Stmt) : Except String Unit :=
+  stmt.forDeepM (validateInternalCallShapesNodeStmt functions callerName callerParams)
 
 def validateInternalCallShapesInStmtList
-    (functions : List FunctionSpec) (callerName : String) (stmts : List Stmt) : Except String Unit :=
-  Stmt.forDeepListM (validateInternalCallShapesNodeStmt functions callerName) stmts
+    (functions : List FunctionSpec) (callerName : String) (callerParams : List Param)
+    (stmts : List Stmt) : Except String Unit :=
+  Stmt.forDeepListM (validateInternalCallShapesNodeStmt functions callerName callerParams) stmts
 
 def validateInternalCallShapesInMatchBranches
-    (functions : List FunctionSpec) (callerName : String)
+    (functions : List FunctionSpec) (callerName : String) (callerParams : List Param)
     (branches : List (String × List String × List Stmt)) : Except String Unit :=
   branches.forM fun (_, _, body) =>
-    validateInternalCallShapesInStmtList functions callerName body
+    validateInternalCallShapesInStmtList functions callerName callerParams body
 
 def validateInternalCallShapesInFunction (functions : List FunctionSpec)
     (spec : FunctionSpec) : Except String Unit := do
-  spec.body.forM (validateInternalCallShapesInStmt functions spec.name)
+  spec.body.forM (validateInternalCallShapesInStmt functions spec.name spec.params)
 
 /-- Node-local check: shape of an `Expr.externalCall` node. Operands are
     reached via the canonical pre-order `Expr.forDeepM`, matching the old walk

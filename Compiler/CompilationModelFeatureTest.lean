@@ -2054,6 +2054,55 @@ def forwardedEchoedAmountPassesMemoryArray : Bool :=
 
 example : forwardedEchoedAmountPassesMemoryArray = true := by native_decide
 
+namespace InternalHelperDynamicArgs
+
+open Compiler.Yul
+
+def permitTy : ParamType :=
+  ParamType.tuple [ParamType.address, ParamType.uint256]
+
+def transferWithBalanceCheck : FunctionSpec := {
+  name := "_transferWithBalanceCheck"
+  params :=
+    [ { name := "permit", ty := permitTy }
+    , { name := "depositor", ty := ParamType.address }
+    , { name := "signature", ty := ParamType.bytes }
+    , { name := "amount", ty := ParamType.uint256 }
+    , { name := "noteCommitment", ty := ParamType.bytes32 }
+    ]
+  returnType := none
+  body := []
+  isInternal := true
+}
+
+def helperParamNamesExpandStaticCompositeAndBytes : Bool :=
+  internalFunctionYulParamNames transferWithBalanceCheck.params ==
+    [ "permit_0", "permit_1", "depositor", "signature_data_offset"
+    , "signature_length", "amount", "noteCommitment" ]
+
+def sourceInternalCallArgsExpandStaticCompositeAndBytes : Bool :=
+  match compileInternalCallArgs [] .calldata [transferWithBalanceCheck]
+      "_transferWithBalanceCheck"
+      [ Expr.param "permit"
+      , Expr.param "depositor"
+      , Expr.param "signature"
+      , Expr.param "amount"
+      , Expr.param "noteCommitment"
+      ] with
+  | Except.ok
+      [ YulExpr.ident "permit_0"
+      , YulExpr.ident "permit_1"
+      , YulExpr.ident "depositor"
+      , YulExpr.ident "signature_data_offset"
+      , YulExpr.ident "signature_length"
+      , YulExpr.ident "amount"
+      , YulExpr.ident "noteCommitment"
+      ] => true
+  | Except.error _ => false
+  | _ => false
+
+end InternalHelperDynamicArgs
+
 def compactAmountsAllocatesMemoryArray : Bool :=
   let body := MacroDynamicArray.compactAmounts_modelBody
   body.any (fun stmt =>
@@ -5203,6 +5252,10 @@ set_option maxRecDepth 4096 in
     | .ok _ => true
     | .error _ => false
   expectTrue "local CompilationModel smoke spec compiles with deterministic selectors" compiled
+  expectTrue "internal helper params expand static composite and bytes slots"
+    MacroDynamicArraySmoke.InternalHelperDynamicArgs.helperParamNamesExpandStaticCompositeAndBytes
+  expectTrue "source internal helper call args expand static composite and bytes slots"
+    MacroDynamicArraySmoke.InternalHelperDynamicArgs.sourceInternalCallArgsExpandStaticCompositeAndBytes
 
   -- Regression: selector mismatch must fail closed.
   let mismatchRejected :=

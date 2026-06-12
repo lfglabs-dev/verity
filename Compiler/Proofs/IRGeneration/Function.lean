@@ -300,7 +300,7 @@ theorem compileConstructor_some_ok_of_body
     (ctor : ConstructorSpec) (bodyStmts : List YulStmt)
       (hbody :
         compileStmtList fields events errors .memory [] false
-          (ctor.params.map (·.name)) [] ctor.body = Except.ok bodyStmts) :
+          (ctor.params.map (·.name)) [] ctor.body [] = Except.ok bodyStmts) :
       compileConstructor fields events errors [] (some ctor) =
         Except.ok (genConstructorArgLoads ctor.params ++ bodyStmts) := by
   simp [CompilationModel.compileConstructor, hbody]
@@ -312,11 +312,11 @@ theorem compileConstructor_ok_components
         compileConstructor fields events errors [] (some ctor) = Except.ok deployStmts) :
     ∃ bodyStmts,
         compileStmtList fields events errors .memory [] false
-          (ctor.params.map (·.name)) [] ctor.body = Except.ok bodyStmts ∧
+          (ctor.params.map (·.name)) [] ctor.body [] = Except.ok bodyStmts ∧
         deployStmts = genConstructorArgLoads ctor.params ++ bodyStmts := by
     cases hbody :
         compileStmtList fields events errors .memory [] false
-          (ctor.params.map (·.name)) [] ctor.body with
+          (ctor.params.map (·.name)) [] ctor.body [] with
   | error err =>
       simp [CompilationModel.compileConstructor, hbody] at hcompile
   | ok bodyStmts =>
