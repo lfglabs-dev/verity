@@ -394,6 +394,17 @@ theorem supported_params_of_supportedSpec
     exact List.mem_of_mem_filter hfn
   exact (hSupported.functions fn hfnModel).paramsSupported param hparam
 
+theorem supported_params_of_supportedSpec_with_scalar_events
+    (model : CompilationModel)
+    (selectors : List Nat)
+    (hSupported : SupportedSpecWithScalarEvents model selectors) :
+    ∀ fn ∈ selectorDispatchedFunctions model,
+      ∀ param ∈ fn.params, SupportedExternalParamType param.ty := by
+  intro fn hfn param hparam
+  have hfnModel : fn ∈ model.functions := by
+    exact List.mem_of_mem_filter hfn
+  exact (hSupported.functions fn hfnModel).paramsSupported param hparam
+
 theorem supported_params_of_supportedSpec_except_mapping_writes
     (model : CompilationModel)
     (selectors : List Nat)
@@ -522,6 +533,24 @@ theorem compile_ok_yields_compiled_functions
       (hSupported := hSupported)
       (ir := ir)
       (hcore := hcompile)
+
+theorem compile_ok_yields_compiled_functions_with_scalar_events
+    (model : CompilationModel)
+    (selectors : List Nat)
+    (hSupported : SupportedSpecWithScalarEvents model selectors)
+    (ir : IRContract)
+    (hcompile : CompilationModel.compile model selectors = Except.ok ir) :
+    List.Forall₂
+      (fun entry irFn =>
+        compileFunctionSpec model.fields model.events model.errors [] entry.2 entry.1 = Except.ok irFn)
+      (SourceSemantics.selectorFunctionPairs model selectors)
+      ir.functions := by
+  exact ContractShape.compile_ok_yields_compiled_functions_with_scalar_events
+    (model := model)
+    (selectors := selectors)
+    (hSupported := hSupported)
+    (ir := ir)
+    (hcompile := hcompile)
 
 theorem compile_ok_yields_compiled_functions_except_mapping_writes
     (model : CompilationModel)
