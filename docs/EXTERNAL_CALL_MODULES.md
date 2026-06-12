@@ -71,8 +71,17 @@ function readBalance (token : IERC20, owner : Address) : Uint256 := do
 
 The interface-typed parameter is ABI-encoded as `Address`. The dot call emits
 `Compiler.Modules.Calls.withReturnModule`; `view` selects `staticcall`, while
-non-`view` selects `call`. Interface calls currently support one return value
-and type-only interface parameter lists.
+non-`view` selects `call`. Interface methods with no `returns` clause lower to
+`Compiler.Modules.Calls.noReturnModule` in statement position. Interface calls
+currently support one return value and type-only interface parameter lists.
+
+Typed-interface parameters are deliberately limited to static single-word ABI
+values (`Uint256`, `Int256`, `Uint8`, `Uint16`, `Address`, `Bytes32`, `Bool`,
+and newtypes over those values). Dynamic or composite parameter shapes such as
+`Bytes`, `String`, arrays, tuples, and structs are rejected at elaboration time.
+Those shapes need ABI-frame typed-interface lowering so calldata heads, dynamic
+tails, and total sizes are encoded honestly; until that path exists, both
+return-bearing and no-return typed-interface calls fail closed.
 
 When the compiler encounters `Stmt.ecm mod args`, it:
 
@@ -202,6 +211,46 @@ data and the token address has code. Malformed short or oversized returndata,
 `returndatasize() > 31` and the first returned word is `true`. Failed calls
 bubble returndata before the optional-return guard runs.
 
+`Compiler.Modules.ERC20.legacyStringSafeTransfer` and
+`legacyStringSafeTransferFrom` implement the "legacy string error" style used by
+Morpho Blue's `SafeTransferLib` (and some other older custom SafeTransferLib
+libraries). They always perform an `extcodesize` check (reverting with the classic
+`Error("no code")` string), and on failure or bad optional bool they revert with
+specific `Error("transfer reverted")` / `Error("transfer returned false")` etc.
+strings (using the classic `Error(string)` encoding). Inner returndata is not
+bubbled on call failure. This produces byte-compatible observable behavior with
+contracts that chose this particular SafeTransferLib flavor.
+
+These reusable helpers can be used with typed-interface token parameters; the
+interface parameter still lowers as an address, while the helper selects the
+appropriate Safe* ECM instead of the ordinary typed-interface `transfer` call:
+
+```lean
+interfaces
+  interface IERC20 where
+    function transfer(Address, Uint256) returns (Bool)
+  end
+
+function pushTokens (token : IERC20, to : Address, amount : Uint256) : Unit := do
+  safeTransfer token to amount
+```
+
+For the legacy string style used by Morpho, use the explicit legacy helpers:
+
+```lean
+function pushTokensLegacy (token : IERC20, to : Address, amount : Uint256) : Unit := do
+  legacyStringSafeTransfer token to amount
+```
+
+Use the direct helper form when a token boundary needs optional-return
+semantics. A dot call such as `let ok ← token.transfer to amount` remains the
+ordinary typed-interface call path and requires exactly one returned word.
+
+The choice of helper determines the exact revert data and guard semantics. This
+keeps the three common real-world SafeTransferLib styles (OZ, Solmate, legacy
+string) first-class and explicitly named, rather than hidden behind a generic
+"policy" parameter.
+
 ### Callback Helpers
 
 `Compiler.Modules.Callbacks.callback` builds callback calldata at the Solidity
@@ -223,6 +272,32 @@ boundaries.
 SSTORE2-style code-as-data reads. The helper only models the copy mechanic; the
 meaning of the pointer's bytecode layout remains the
 `sstore2_pointer_code_layout` assumption.
+
+### Typed CodeData Facade (#1967)
+
+`Compiler.Modules.CodeData` is the typed source-level facade over the
+CREATE2 / SSTORE2 helpers above. It pairs each write/read site with a
+`Compiler.ABI.Frame.FrameLayout` so the payload shape is statically
+typed, materialises the payload into memory via `Frame.materializePayloadToMemory`,
+and routes through the underlying ECMs:
+
+- `Compiler.Modules.CodeData.writeTyped resultVar base write` — typed
+  write. The `write : CodeDataWrite` carries a `FrameLayout` payload, an
+  optional ETH value, and a salt. Fails closed if the layout contains
+  any dynamic field (`Frame.layoutSourcesSupported` is the gate); this
+  is intentional because SSTORE2-style code-as-data is only sound for
+  static layouts.
+- `Compiler.Modules.CodeData.readTyped read` — typed read. Lowers to the
+  underlying `extcodecopy` ECM after a matching layout-sources check.
+- `Compiler.Modules.CodeData.roundtripShape resultVar base write read` —
+  combined write+read, useful for tests and Midnight-style
+  `toId`/`toMarket`/`touchMarket` round-trip patterns.
+
+Coverage in `Compiler.Modules.CodeDataTest` exercises the typed surface
+on (a) the full multi-field blob+meta payload, (b) an empty payload (no
+fields), (c) a one-word short payload, and (d) a dynamic payload — the
+last must be rejected with an explicit error so callers never silently
+store ABI-encoded dynamic tails into pointer code.
 
 ### Packed Hashing Helpers
 
@@ -366,9 +441,21 @@ ECM axiom report:
     [ecrecover] evm_ecrecover_precompile
 ```
 
-Each assumption is tagged `proved`, `assumed`, or `unchecked`, and localized to the constructor or function that introduced it.
+Each assumption is tagged `proved`, `assumed`, or `unchecked`, localized to the
+constructor or function that introduced it, and classified with a
+machine-readable `boundaryClass`. Current classes include `compilerIntrinsic`,
+`abiBoundary`, `externalCall`, `oracleSummary`, `tokenModel`, `callback`,
+`event`, `gate`, and `storageLayoutAssumption`.
 
-For a machine-readable version, run `verity-compiler --trust-report <path>`. The JSON covers ECM assumptions, linked externals, axiomatized primitives, low-level mechanics, proof-gap categories, and a `hasUncheckedDependencies` flag for CI gating. See [VERIFICATION_STATUS.md](./VERIFICATION_STATUS.md#solidity-interop-support-matrix-issue-586) for the full trust-report schema.
+For a machine-readable version, run `verity-compiler --trust-report <path>`. The JSON covers ECM assumptions, linked externals, axiomatized primitives, low-level mechanics, proof-gap categories, boundary classes, and a `hasUncheckedDependencies` flag for CI gating. Use `--assumption-report <path>` when audit tooling needs a flat inventory of every localized obligation. See [VERIFICATION_STATUS.md](./VERIFICATION_STATUS.md#solidity-interop-support-matrix-issue-586) for the full trust-report schema.
+
+To discharge an obligation, replace the relevant linked external / ECM / local
+obligation status with a proved surface and keep its axiom name stable so audit
+manifests can track the proof. To intentionally assume a boundary, keep the
+status as `assumed`, document the assumption beside the module or contract, and
+archive the trust or assumption report. For proof-strict runs, use the
+fail-closed flags below so any remaining assumed or unchecked boundary aborts
+compilation with the exact usage site.
 
 **Fail-closed flags**: a set of `--deny-*` flags lets you reject specific trust surfaces at compile time. Each flag fails the build and reports the exact usage site. See the [full flag table in VERIFICATION_STATUS.md](./VERIFICATION_STATUS.md#solidity-interop-support-matrix-issue-586) for the complete list. The most relevant for ECM users:
 

@@ -8297,6 +8297,33 @@ theorem simpleStorage_source_endToEnd_native_evmYulLean_of_sourceIR
       (simpleStorage_endToEnd_native_evmYulLean tx initialState observableSlots
         hselector hNoWrap hdispatchGuardSafe)
 
+/-- Denote-headed SimpleStorage native theorem: the compiler-free denotation of
+an event-free function matches the projected `EvmYul.Yul.callDispatcher` result
+whenever the trusted source interpretation matches the IR result. -/
+theorem simpleStorage_denote_endToEnd_native_evmYulLean_of_sourceIR
+    (tx : IRTransaction) (initialState : IRState) (observableSlots : List Nat)
+    (spec : CompilationModel.CompilationModel)
+    (fn : CompilationModel.FunctionSpec)
+    (initialWorld : Verity.ContractState)
+    (hnoEvents : spec.events = [])
+    (hselector : tx.functionSelector < selectorModulus)
+    (hNoWrap : 4 + tx.args.length * 32 < evmModulus)
+    (hdispatchGuardSafe : ∀ fn', fn' ∈ simpleStorageIRContract.functions →
+      DispatchGuardsSafe fn' tx)
+    (hSourceIR :
+      Compiler.Proofs.IRGeneration.FunctionBody.sourceResultMatchesIRResult
+        (SourceSemantics.interpretFunction spec fn tx initialWorld)
+        (interpretIR simpleStorageIRContract tx initialState)) :
+    denoteResultMatchesNativeOn observableSlots
+      (CompilationModel.Denote.denoteFunction DenoteAgreement.sourceOracle spec fn
+        (DenoteAgreement.ofIRTransaction tx) initialWorld)
+      (nativeGeneratedCallDispatcherResultOf simpleStorageIRContract tx
+        initialState observableSlots
+        Compiler.SimpleStorageNativeWitness.nativeContract) :=
+  denoteResultMatchesNativeOn_of_sourceResultMatchesNativeOn hnoEvents
+    (simpleStorage_source_endToEnd_native_evmYulLean_of_sourceIR tx initialState
+      observableSlots _ hselector hNoWrap hdispatchGuardSafe hSourceIR)
+
 /-! ## Universal Pure Arithmetic Bridge
 
 The pure arithmetic bridge proofs (`pure_add_bridge`, etc.) were removed

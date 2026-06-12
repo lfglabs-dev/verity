@@ -129,6 +129,13 @@ theorem step_address_any
       .ok (state, some (EvmYul.UInt256.ofNat state.executionEnv.source.val)) := by
   rfl
 
+theorem step_origin_any
+    (state : EvmYul.Yul.State)
+    (values : List EvmYul.UInt256) :
+    EvmYul.step (τ := .Yul) EvmYul.Operation.ORIGIN none state values =
+      .ok (state, some (EvmYul.UInt256.ofNat state.executionEnv.sender.val)) := by
+  rfl
+
 theorem step_caller_any
     (state : EvmYul.Yul.State)
     (values : List EvmYul.UInt256) :

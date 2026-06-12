@@ -1273,13 +1273,31 @@ def throwStructNonLeafProjectionError (stx : Term) : CommandElabM α :=
 def renderValueType (ty : ValueType) : String :=
   reprStr ty
 
-def requireNoReturnInterfaceStaticParams
+def requireTypedInterfaceStaticParams
     (stx : Syntax) (externalName : String) (params : Array ValueType) : CommandElabM Unit := do
   for h : i in [:params.size] do
     let ty := params[i]
-    unless isSingleWordStaticValueType ty do
+    -- #1982 progress: accept static composites (tuples / fixed-arrays of
+    -- word-likes) on typed interface params. Only true dynamic shapes are
+    -- still rejected here (the lowering helper already has the word-count
+    -- path and produces the #1982 error for dynamic cases).
+    if staticAbiWordCount? ty |>.isNone then
       throwErrorAt stx
-        s!"void typed interface call '{externalName}' currently supports only static single-word parameters; argument {i + 1} has {renderValueType ty}"
+        s!"typed interface call '{externalName}' currently supports only static (single-word or composite) parameters; argument {i + 1} has {renderValueType ty}. Dynamic and composite ABI parameters require ABI-frame typed-interface lowering, which is not implemented yet (#1982)."
+
+/-- Companion of `requireTypedInterfaceStaticParams` for the return-type
+    side. Progress on #1982: we now accept static composites (tuples,
+    fixed-arrays of word-likes) as typed-interface return shapes.
+    True dynamic returns (bytes/string, arrays with dynamic elements) are
+    still rejected here with the #1982 error until full ABI-frame
+    typed-interface lowering exists. -/
+def requireTypedInterfaceStaticReturns
+    (stx : Syntax) (externalName : String) (returnTys : Array ValueType) : CommandElabM Unit := do
+  for h : i in [:returnTys.size] do
+    let ty := returnTys[i]
+    if staticAbiWordCount? ty |>.isNone then
+      throwErrorAt stx
+        s!"typed interface call '{externalName}' currently supports only static (single-word or composite) returns; return {i + 1} has {renderValueType ty}. Dynamic and composite ABI returns require ABI-frame typed-interface lowering, which is not implemented yet (#1982)."
 
 /-- verity#1849, G3: allow `Array <wordLike>` and `bytes` / `string` as
     external-call / event / custom-error argument types when the argument
@@ -1914,6 +1932,10 @@ partial def inferPureExprType
       requireWordLikeType offset "keccak256" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals offset visitingConstants)
       requireWordLikeType size "keccak256" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals size visitingConstants)
       pure .uint256
+  -- Compile-time Keccak-256 of a string literal (#1973). The hash is
+  -- computed during contract translation, so the result is unconditionally
+  -- a `uint256` regardless of the literal content.
+  | `(term| keccakString $_s:str) => pure .uint256
   | `(term| call $gas $target $value $inOffset $inSize $outOffset $outSize) => do
       for arg in [gas, target, value, inOffset, inSize, outOffset, outSize] do
         requireWordLikeType arg "low-level call" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals arg visitingConstants)
@@ -2617,6 +2639,9 @@ partial def validateConstantBody
   | `(term| calldataload $offset) => throwNonCompileTimeConstantError offset "calldataload"
   | `(term| extcodesize $addr) => throwNonCompileTimeConstantError addr "extcodesize"
   | `(term| keccak256 $offset $_size) => throwNonCompileTimeConstantError offset "keccak256"
+  -- Compile-time Keccak-256 of a string literal (#1973). Allowed in
+  -- `constants`: the digest is evaluated at contract translation time.
+  | `(term| keccakString $_s:str) => pure ()
   | `(term| call $gas $_target $_value $_inOffset $_inSize $_outOffset $_outSize) =>
       throwNonCompileTimeConstantError gas "call"
   | `(term| staticcall $gas $_target $_inOffset $_inSize $_outOffset $_outSize) =>
@@ -3126,6 +3151,12 @@ partial def translatePureExprWithTypes
       `(Compiler.CompilationModel.Expr.keccak256
           $(← translatePureExprWithTypes fields constDecls immutableDecls params locals offset visitingConstants)
           $(← translatePureExprWithTypes fields constDecls immutableDecls params locals size visitingConstants))
+  -- Compile-time Keccak-256 of a string literal (#1973): hash the literal
+  -- now and emit a plain numeric literal. The parser already rejects
+  -- non-literal arguments, so the digest is unconditionally static.
+  | `(term| keccakString $s:str) =>
+      let digest := KeccakEngine.keccak256_str_nat s.getString
+      `(Compiler.CompilationModel.Expr.literal $(natTerm digest))
   | `(term| call $gas $target $value $inOffset $inSize $outOffset $outSize) =>
       `(Compiler.CompilationModel.Expr.call
           $(← translatePureExprWithTypes fields constDecls immutableDecls params locals gas visitingConstants)
@@ -4673,6 +4704,7 @@ partial def resolveTypedInterfaceCall?
     unless actualTy == expectedTy || (isNatLiteralTerm argTerm && numericLiteralCompatibleValueType expectedTy) do
       throwErrorAt argTerm
         s!"interface call '{interfaceName}.{methodName}' argument expects {renderValueType expectedTy}, got {renderValueType actualTy}"
+  requireTypedInterfaceStaticParams stx externalName ext.params
   -- the selector is computed from the params only, so a void method's canonical
   -- signature is identical to its non-void counterpart (e.g. aave
   -- `supply(address,uint256,address,uint16)`).

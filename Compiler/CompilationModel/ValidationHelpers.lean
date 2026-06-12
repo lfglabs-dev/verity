@@ -199,7 +199,9 @@ def collectStmtNames : Stmt → List String
       collectStmtListNames body
   | Stmt.matchAdt _ scrutinee branches =>
       collectExprNames scrutinee ++ collectMatchBranchNames branches
-  | Stmt.emit eventName args => eventName :: collectExprListNames args
+  -- The event name is resolved against the event table, never bound as a Yul
+  -- identifier, so it must not enter the scope threaded to later statements.
+  | Stmt.emit _ args => collectExprListNames args
   | Stmt.internalCall functionName args => functionName :: collectExprListNames args
   | Stmt.internalCallAssign names functionName args =>
       names ++ functionName :: collectExprListNames args

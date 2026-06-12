@@ -98,8 +98,12 @@ private theorem internal_call_measure_decreases (fuel measure : Nat) :
 def byteWordCount (size : Nat) : Nat :=
   (size + 31) / 32
 
+/-- Word reads wrap the byte offset mod `2^256`, matching EVM `UInt256`
+address arithmetic (compiled code computes scratch offsets with the wrapping
+`add` builtin, so reads must land on the same keys as the stores). -/
 def memorySliceWords (memory : Nat → Nat) (offset size : Nat) : List Nat :=
-  (List.range (byteWordCount size)).map (fun i => memory (offset + i * 32))
+  (List.range (byteWordCount size)).map
+    (fun i => memory ((offset + i * 32) % Compiler.Constants.evmModulus))
 
 /-- Proof-side model of `keccak256(offset, size)` over linear memory.
 
@@ -115,7 +119,8 @@ def abstractKeccakMemorySlice (memory : Nat → Nat) (offset size : Nat) : Nat :
 The proof IR models log data at word granularity, so byte sizes are truncated to
 complete 32-byte words. -/
 def yulLogDataWords (memory : Nat → Nat) (offset size : Nat) : List Nat :=
-  (List.range (size / 32)).map (fun i => memory (offset + i * 32))
+  (List.range (size / 32)).map
+    (fun i => memory ((offset + i * 32) % Compiler.Constants.evmModulus))
 
 /-- Canonical proof-side encoding of a Yul log entry: topics followed by the
 word-aligned data payload. -/
@@ -275,10 +280,10 @@ def evalIRCall (state : IRState) (func : String) : List YulExpr → Option Nat
     else
       Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
         state.storage state.sender state.msgValue state.thisAddress state.blockTimestamp
-        state.blockNumber state.chainId state.blobBaseFee state.selector state.calldata func argVals
-termination_by args => exprsSize args + 1
-decreasing_by
-  omega
+        state.blockNumber state.chainId state.blobBaseFee state.txOrigin state.selector state.calldata func argVals
+  termination_by args => exprsSize args + 1
+  decreasing_by
+    omega
 
 /-- Evaluate a Yul expression in the IR context.
 
@@ -496,16 +501,16 @@ def evalIRCallWithInternals
             match Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
                 state'.storage state'.sender state'.msgValue state'.thisAddress
                 state'.blockTimestamp state'.blockNumber state'.chainId state'.blobBaseFee
-                state'.selector state'.calldata func argVals with
+                state'.txOrigin state'.selector state'.calldata func argVals with
             | some value => .values [value] state'
             | none => .revert state'
   | .stop state' => .stop state'
   | .return value state' => .return value state'
   | .revert state' => .revert state'
-termination_by args => (fuel, exprsSize args + 1)
-decreasing_by
-  any_goals exact pairLex_same_fst_succ fuel (exprsSize args)
-  any_goals exact internal_call_measure_decreases fuel' _
+  termination_by args => (fuel, exprsSize args + 1)
+  decreasing_by
+    any_goals exact pairLex_same_fst_succ fuel (exprsSize args)
+    any_goals exact internal_call_measure_decreases fuel' _
 
  /-- Evaluate a single expression in the helper-aware IR context. -/
 def evalIRExprWithInternals
@@ -2296,7 +2301,7 @@ theorem evalIRExprWithInternals_eq_evalIRExpr_of_no_internal
                 cases hbuiltin :
                     Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
                       state.storage state.sender state.msgValue state.thisAddress state.blockTimestamp
-                      state.blockNumber state.chainId state.blobBaseFee state.selector state.calldata func argVals with
+                      state.blockNumber state.chainId state.blobBaseFee state.txOrigin state.selector state.calldata func argVals with
                 | none => simp [hbuiltin]
                 | some value => simp [hbuiltin]
 
@@ -2378,7 +2383,7 @@ private theorem yulExprCallsDisjointFromInternalTable_of_nil_aux_list
       exact yulExprCallsDisjointFromInternalTable_of_nil_aux contract hinternal e
   | _ :: tl, .tail _ hmem' =>
       exact yulExprCallsDisjointFromInternalTable_of_nil_aux_list contract hinternal tl e hmem'
-end
+end -- mutual
 
 theorem yulExprCallsDisjointFromInternalTable_of_internalFunctions_nil
     (contract : IRContract) (hinternal : contract.internalFunctions = [])
@@ -2459,7 +2464,7 @@ theorem evalIRExprWithInternals_eq_evalIRExpr_of_callsDisjoint
                 cases hbuiltin :
                     Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
                       state.storage state.sender state.msgValue state.thisAddress state.blockTimestamp
-                      state.blockNumber state.chainId state.blobBaseFee state.selector state.calldata func argVals with
+                      state.blockNumber state.chainId state.blobBaseFee state.txOrigin state.selector state.calldata func argVals with
                 | none => simp [hbuiltin]
                 | some value => simp [hbuiltin]
 
@@ -2627,7 +2632,7 @@ theorem evalIRCallWithInternals_stmt_eq_of_callsDisjoint
             cases hbuiltin :
                 Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
                   state.storage state.sender state.msgValue state.thisAddress state.blockTimestamp
-                  state.blockNumber state.chainId state.blobBaseFee state.selector state.calldata func argVals with
+                  state.blockNumber state.chainId state.blobBaseFee state.txOrigin state.selector state.calldata func argVals with
             | none => simp [hbuiltin]
             | some value => simp [hbuiltin]
 
@@ -2679,7 +2684,7 @@ theorem evalIRCallWithInternals_stmt_eq_of_no_internal
             cases hbuiltin :
                 Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
                   state.storage state.sender state.msgValue state.thisAddress state.blockTimestamp
-                  state.blockNumber state.chainId state.blobBaseFee state.selector state.calldata func argVals with
+                  state.blockNumber state.chainId state.blobBaseFee state.txOrigin state.selector state.calldata func argVals with
             | none => simp [hbuiltin]
             | some value => simp [hbuiltin]
 
@@ -4644,7 +4649,7 @@ theorem evalIRCallWithInternals_of_builtin
       match Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
           state'.storage state'.sender state'.msgValue state'.thisAddress
           state'.blockTimestamp state'.blockNumber state'.chainId state'.blobBaseFee
-          state'.selector state'.calldata func argVals with
+          state'.txOrigin state'.selector state'.calldata func argVals with
       | some value => .values [value] state'
       | none => .revert state' := by
   simp only [evalIRCallWithInternals, hargs, hfind, hnotTload, hnotMload, hnotKeccak,

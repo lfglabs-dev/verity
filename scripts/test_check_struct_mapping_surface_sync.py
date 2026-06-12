@@ -12,7 +12,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-import check_struct_mapping_surface_sync as check
+import docsync
 
 
 class StructMappingSurfaceSyncTests(unittest.TestCase):
@@ -37,7 +37,7 @@ class StructMappingSurfaceSyncTests(unittest.TestCase):
         compiler_path.parent.mkdir(parents=True, exist_ok=True)
         compiler_path.write_text(compiler_doc, encoding="utf-8")
 
-        add_contract_path = root / "docs-site" / "content" / "add-contract.mdx"
+        add_contract_path = root / "docs-site" / "content" / "guides" / "add-contract.mdx"
         add_contract_path.parent.mkdir(parents=True, exist_ok=True)
         add_contract_path.write_text(add_contract, encoding="utf-8")
 
@@ -59,26 +59,11 @@ class StructMappingSurfaceSyncTests(unittest.TestCase):
                 add_contract=add_contract,
             )
 
-            old_root = check.ROOT
-            old_types = check.TYPES_PATH
-            old_targets = check.TARGET_FILES
-            check.ROOT = root
-            check.TYPES_PATH = root / "Compiler" / "CompilationModel" / "Types.lean"
-            check.TARGET_FILES = {
-                "ROADMAP": root / "docs" / "ROADMAP.md",
-                "COMPILER_DOC": root / "docs-site" / "content" / "compiler.mdx",
-                "ADD_CONTRACT": root / "docs-site" / "content" / "add-contract.mdx",
-            }
-            try:
-                stdout = io.StringIO()
-                stderr = io.StringIO()
-                with redirect_stdout(stdout), redirect_stderr(stderr):
-                    rc = check.main()
-                return rc, stdout.getvalue() + stderr.getvalue()
-            finally:
-                check.ROOT = old_root
-                check.TYPES_PATH = old_types
-                check.TARGET_FILES = old_targets
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                rc = docsync.run_entry("struct_mapping_surface", root=root)
+            return rc, stdout.getvalue() + stderr.getvalue()
 
     def test_docs_note_required_when_struct_mapping_surface_exists(self) -> None:
         types_text = textwrap.dedent(
@@ -164,7 +149,7 @@ class StructMappingSurfaceSyncTests(unittest.TestCase):
         stdout = io.StringIO()
         stderr = io.StringIO()
         with redirect_stdout(stdout), redirect_stderr(stderr):
-            rc = check.main()
+            rc = docsync.run_entry("struct_mapping_surface")
         output = stdout.getvalue() + stderr.getvalue()
         self.assertEqual(rc, 0, output)
 

@@ -531,7 +531,7 @@ def compileSpecsWithOptions
   let mut patchRows : List (String × Yul.PatchPassReport) := []
   for spec in specs do
     let selectors ← computeSelectors spec
-    match compile spec selectors with
+    match compile spec selectors options.targetFork with
     | .ok contract =>
         let contractLibs := if spec.externals.isEmpty then [] else libraryPaths
         let patchReport ← writeContract backend spec outDir contract contractLibs verbose options

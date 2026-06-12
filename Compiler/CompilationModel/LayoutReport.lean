@@ -105,7 +105,165 @@ private def fieldJson (declaredField effectiveField : Field) (idx : Nat) : Strin
     ("packedBits", jsonOption packedBitsJson declaredField.packedBits)
   ]
 
-/-- Render a machine-readable storage layout report for upgrade/layout auditing. -/
+/-! ### Storage families and non-alias certificate (#1966)
+
+Each storage field becomes a "family" — the set of storage locations the
+field can occupy at runtime. Plain scalars occupy a single declared slot;
+mapping families occupy keccak-derived locations parameterised by their
+key shape; nested mapping families nest a second keccak; mapping-struct
+families add a bounded word offset to the keccak base. The certificate
+records the *derivation kind*, the *root slot*, the *keccak preimage
+shape* (when applicable), and any *struct-offset range*, so a downstream
+proof obligation can replace the global keccak-injectivity boundary with
+local per-family obligations and machine-checkable claims for the
+finite, declared subset. -/
+
+private def familyKindString : FieldType → String
+  | .uint256 | .address | .adt _ _ => "scalar"
+  | .dynamicArray _ => "dynamicArray"
+  | .mappingTyped mt =>
+      if (mappingTypeKeyTypes mt).length ≥ 2 then "nestedMapping" else "mapping"
+  | .mappingStruct _ _ => "mappingStruct"
+  | .mappingStruct2 _ _ _ => "nestedMappingStruct"
+
+/-- Symbolic keccak preimage description used as the per-family
+    non-collision justification. `null` for plain scalars, where
+    non-alias reduces to declared-slot distinctness. -/
+private def familyKeccakPreimage : FieldType → Nat → String
+  | .uint256, _ | .address, _ | .adt _ _, _ => "null"
+  | .dynamicArray _, slot =>
+      -- elements at keccak256(rootSlot) + i
+      jsonString s!"keccak256(slot={slot})"
+  | .mappingTyped mt, slot =>
+      let keys := mappingTypeKeyTypes mt
+      let keyStr := String.intercalate ", " (keys.map mappingKeyTypeString)
+      if keys.length ≥ 2 then
+        jsonString s!"keccak256(innerKey || keccak256(outerKey || slot={slot})) [keys: {keyStr}]"
+      else
+        jsonString s!"keccak256(key || slot={slot}) [keys: {keyStr}]"
+  | .mappingStruct keyType _, slot =>
+      jsonString s!"keccak256(key || slot={slot}) + wordOffset [keys: {mappingKeyTypeString keyType}]"
+  | .mappingStruct2 outerKey innerKey _, slot =>
+      jsonString s!"keccak256(innerKey || keccak256(outerKey || slot={slot})) + wordOffset [keys: {mappingKeyTypeString outerKey}, {mappingKeyTypeString innerKey}]"
+
+/-- Maximum struct word offset for mapping-struct families, or `null`. -/
+private def familyStructWordRange : FieldType → String
+  | .mappingStruct _ members | .mappingStruct2 _ _ members =>
+      let maxOffset := members.foldl (fun acc m => Nat.max acc m.wordOffset) 0
+      jsonObject [("min", jsonNat 0), ("maxInclusive", jsonNat maxOffset)]
+  | _ => "null"
+
+private def storageFamilyJson (declaredField : Field) (idx : Nat) : String :=
+  let canonicalSlot := declaredField.slot.getD idx
+  jsonObject [
+    ("name", jsonString declaredField.name),
+    ("kind", jsonString (familyKindString declaredField.ty)),
+    ("rootSlot", jsonNat canonicalSlot),
+    ("keccakPreimage", familyKeccakPreimage declaredField.ty canonicalSlot),
+    ("structWordRange", familyStructWordRange declaredField.ty)
+  ]
+
+/-- Pairwise non-alias claim: an unordered pair of family names paired
+    with a *justification* the obligation discharger should use:
+
+    - `distinctScalarSlots`  — both are scalar families whose *effective
+      write slot sets* (canonical slot ∪ `aliasSlots` ∪
+      `slotAliasRanges`-derived aliases) are disjoint; the claim is a
+      closed-form finite decision the proof side discharges with `decide`.
+    - `writeSetsOverlap`     — both are scalar families but their
+      effective write slot sets intersect; this is a real aliasing
+      conflict the certificate must surface rather than silently assert
+      `distinctScalarSlots` for (Bugbot #1967).
+    - `keccakDomainScalar`   — one is keccak-derived, the other a scalar
+      at a declared slot < 2^32 (say); the claim assumes keccak digest >
+      maxDeclaredSlot, which is a standard preimage assumption.
+    - `keccakPreimageDistinct` — both are keccak-derived families; the
+      claim assumes keccak256 is injective on the disjoint preimage
+      shapes (the per-family `keccakPreimage` strings differ).
+    - `sameFamilyDistinctKey` — same family, different keys: assumes
+      keccak256 injectivity on keys.
+
+    The compiler-side artifact emits the claims as data; the proof side
+    discharges them via either a `decide`/`native_decide` lemma (for the
+    finite scalar subset) or a named local keccak assumption. -/
+private def isKeccakDerivedFamily : FieldType → Bool
+  | .uint256 | .address | .adt _ _ => false
+  | _ => true
+
+/-- Effective scalar write slot set for a single field: the declared/derived
+    canonical slot union the field's own `aliasSlots` and any
+    `slotAliasRanges`-derived aliases. This is the set of storage words the
+    field *actually writes to* at runtime, so it is the set the pairwise
+    non-alias certificate must compare against. -/
+private def effectiveScalarWriteSlots
+    (f : Field) (idx : Nat) (aliasRanges : List SlotAliasRange) : List Nat :=
+  let canonical := f.slot.getD idx
+  let mergedAliases := dedupNatPreserve
+    (f.aliasSlots ++ derivedAliasSlotsForSource canonical aliasRanges)
+  dedupNatPreserve (canonical :: mergedAliases)
+
+/-- Predicate: do two scalar fields share any effective write slot?
+    Two scalars only truly non-alias when their effective write slot sets
+    are disjoint; the declared slots alone are insufficient because
+    `aliasSlots` and `slotAliasRanges` can still fold them onto the same
+    canonical word. -/
+private def scalarWriteSetsOverlap
+    (a b : Field) (idxA idxB : Nat) (aliasRanges : List SlotAliasRange) : Bool :=
+  let writeA := effectiveScalarWriteSlots a idxA aliasRanges
+  let writeB := effectiveScalarWriteSlots b idxB aliasRanges
+  writeA.any (fun s => writeB.contains s)
+
+/-- Justification for a pairwise non-alias claim. Both the family kinds and
+    the effective scalar write sets feed into the choice: when two scalar
+    families have overlapping write slot sets the certificate must report a
+    real aliasing conflict (`writeSetsOverlap`) rather than assert a
+    decidable `distinctScalarSlots` claim the proof side would happily
+    discharge. -/
+private def nonAliasJustification
+    (a b : Field) (idxA idxB : Nat) (aliasRanges : List SlotAliasRange) : String :=
+  let aKeccak := isKeccakDerivedFamily a.ty
+  let bKeccak := isKeccakDerivedFamily b.ty
+  if !aKeccak && !bKeccak then
+    if scalarWriteSetsOverlap a b idxA idxB aliasRanges then
+      "writeSetsOverlap"
+    else
+      "distinctScalarSlots"
+  else if aKeccak && bKeccak then "keccakPreimageDistinct"
+  else "keccakDomainScalar"
+
+private def nonAliasClaimJson (a b : Field) (idxA idxB : Nat)
+    (aliasRanges : List SlotAliasRange) : String :=
+  let slotA := a.slot.getD idxA
+  let slotB := b.slot.getD idxB
+  let writeA := effectiveScalarWriteSlots a idxA aliasRanges
+  let writeB := effectiveScalarWriteSlots b idxB aliasRanges
+  jsonObject [
+    ("a", jsonString a.name),
+    ("b", jsonString b.name),
+    ("aSlot", jsonNat slotA),
+    ("bSlot", jsonNat slotB),
+    ("aWriteSlots", jsonArray (writeA.map jsonNat)),
+    ("bWriteSlots", jsonArray (writeB.map jsonNat)),
+    ("justification", jsonString (nonAliasJustification a b idxA idxB aliasRanges))
+  ]
+
+/-- Build the list of unordered pairwise non-alias claims for a contract. -/
+private def nonAliasClaimsJson (fields : List Field)
+    (aliasRanges : List SlotAliasRange) : List String :=
+  let indexed := fields.zipIdx
+  let rec go : List (Field × Nat) → List (Field × Nat) → List String
+    | [], _ => []
+    | (a, ai) :: rest, _all =>
+        let here := rest.map (fun (b, bi) => nonAliasClaimJson a b ai bi aliasRanges)
+        here ++ go rest _all
+  go indexed indexed
+
+/-- Render a machine-readable storage layout report for upgrade/layout auditing.
+
+    Includes the per-contract `storageFamilies` and `nonAliasClaims` sections
+    (#1966) so reviewers can replace a global keccak-injectivity boundary
+    with per-family local obligations and decide the declared-scalar subset
+    by finite case analysis. -/
 def emitLayoutReportJson (specs : List CompilationModel) : String :=
   jsonObject [
     ("contracts", jsonArray (specs.map contractJson))
@@ -116,6 +274,10 @@ where
     let fieldsJson :=
       (spec.fields.zip effectiveFields).zipIdx.map fun ((declaredField, effectiveField), idx) =>
         fieldJson declaredField effectiveField idx
+    let familiesJson :=
+      spec.fields.zipIdx.map fun (declaredField, idx) =>
+        storageFamilyJson declaredField idx
+    let claimsJson := nonAliasClaimsJson spec.fields spec.slotAliasRanges
     let nsField := match spec.storageNamespace with
       | some ns => jsonString (toString ns)
       | none => "null"
@@ -123,6 +285,8 @@ where
       ("contract", jsonString spec.name),
       ("storageNamespace", nsField),
       ("fields", jsonArray fieldsJson),
+      ("storageFamilies", jsonArray familiesJson),
+      ("nonAliasClaims", jsonArray claimsJson),
       ("reservedSlotRanges", jsonArray (spec.reservedSlotRanges.map reservedSlotRangeJson)),
       ("slotAliasRanges", jsonArray (spec.slotAliasRanges.map slotAliasRangeJson))
     ]

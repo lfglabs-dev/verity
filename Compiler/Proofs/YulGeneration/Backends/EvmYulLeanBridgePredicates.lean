@@ -21,7 +21,7 @@ def bridgedBuiltins : List String :=
    "addmod", "mulmod", "byte",
    "slt", "sgt",
    "exp", "sdiv", "smod", "sar", "signextend",
-   "caller", "address", "callvalue", "timestamp",
+   "caller", "origin", "address", "callvalue", "timestamp",
    "number", "chainid", "blobbasefee",
    "calldataload", "calldatasize",
    "sload", "mappingSlot"]

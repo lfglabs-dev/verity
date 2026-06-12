@@ -145,6 +145,7 @@ inductive BridgedSourceExpr : Expr → Prop
       BridgedSourceExpr (.structMember2 fieldName key1 key2 memberName)
   -- zero-argument environment / calldata-size reads
   | caller : BridgedSourceExpr .caller
+  | txOrigin : BridgedSourceExpr .txOrigin
   | contractAddress : BridgedSourceExpr .contractAddress
   | msgValue : BridgedSourceExpr .msgValue
   | blockTimestamp : BridgedSourceExpr .blockTimestamp
@@ -1094,6 +1095,11 @@ theorem compileExpr_bridgedSource
       simp [compileExpr, Pure.pure, Except.pure] at hOk
       subst out
       exact bridgedExpr_nullaryBuiltin (by simp [bridgedBuiltins])
+  | txOrigin =>
+      intro out hOk
+      simp [compileExpr, Pure.pure, Except.pure] at hOk
+      subst out
+      exact bridgedExpr_nullaryBuiltin (by simp [bridgedBuiltins])
   | contractAddress =>
       intro out hOk
       simp [compileExpr, Pure.pure, Except.pure] at hOk
@@ -1489,6 +1495,9 @@ theorem compileRequireFailCond_bridgedSource
         (by simpa [compileRequireFailCond] using hOk)
   | caller =>
       exact compileRequireFailCond_default_bridgedSource .caller
+        (by simpa [compileRequireFailCond] using hOk)
+  | txOrigin =>
+      exact compileRequireFailCond_default_bridgedSource .txOrigin
         (by simpa [compileRequireFailCond] using hOk)
   | contractAddress =>
       exact compileRequireFailCond_default_bridgedSource .contractAddress

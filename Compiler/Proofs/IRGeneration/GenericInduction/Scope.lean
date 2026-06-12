@@ -160,6 +160,7 @@ theorem exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
   | .localVar _, _ => exact .localVar _
   | .caller, _ => exact .caller
   | .contractAddress, _ => exact .contractAddress
+  | .txOrigin, _ => exact .txOrigin
   | .msgValue, _ => exact .msgValue
   | .blockTimestamp, _ => exact .blockTimestamp
   | .blockNumber, _ => exact .blockNumber
@@ -746,7 +747,7 @@ private theorem exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
       simp [FunctionBody.exprBoundNames] at hmem
       subst name
       exact hlocalsInScope name0 hlocal
-  | caller | contractAddress | msgValue | blockTimestamp | blockNumber | chainid | blobbasefee
+  | caller | contractAddress | txOrigin | msgValue | blockTimestamp | blockNumber | chainid | blobbasefee
   | calldatasize =>
       intro name hmem
       simp [FunctionBody.exprBoundNames] at hmem
@@ -1779,7 +1780,7 @@ theorem collectExprNames_mem_exprBoundNames_of_core
     (hcore : FunctionBody.ExprCompileCore expr) :
     ∀ name, name ∈ collectExprNames expr → name ∈ FunctionBody.exprBoundNames expr := by
   induction hcore with
-  | literal _ | caller | contractAddress | msgValue | blockTimestamp | blockNumber | chainid
+  | literal _ | caller | contractAddress | txOrigin | msgValue | blockTimestamp | blockNumber | chainid
   | blobbasefee | calldatasize =>
       intro name hmem; simp [collectExprNames] at hmem
   | param _ | localVar _ =>

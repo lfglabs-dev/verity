@@ -91,6 +91,8 @@ def normalizeEventValue (ty : ParamType) (value : Nat) : Nat :=
   | .uint16 => word &&& (2^16 - 1)
   | .address => word &&& Compiler.Constants.addressMask
   | .bool => if word = 0 then 0 else 1
+  -- Mirrors the compiler's newtype erasure in `normalizeEventWord`.
+  | .newtypeOf _ baseType => normalizeEventValue baseType value
   | _ => word
 
 def splitEventArgsByParams :
@@ -159,17 +161,25 @@ theorem exists_eventFromResolvedArgs?_of_supported_length
               (eventSignatureTopic eventDef : Verity.Core.Uint256) :: indexedArgs }, ?_⟩
   simp [eventFromResolvedArgs?, hfind, hsplit]
 
+/-- Sequential scratch stores of the signature chunk words, starting at word
+index `wordIdx`. Write keys wrap mod `2^256`, mirroring the compiled code's
+wrapping `add` offset arithmetic. -/
+def writeEventSignatureScratchFrom :
+    List Nat → Nat → Nat → (Nat → Verity.Core.Uint256) → (Nat → Verity.Core.Uint256)
+  | [], _, _, memory => memory
+  | word :: words, ptr, wordIdx, memory =>
+      writeEventSignatureScratchFrom words ptr (wordIdx + 1)
+        (fun offset =>
+          if offset = (ptr + wordIdx * 32) % Compiler.Constants.evmModulus then
+            (word : Verity.Core.Uint256)
+          else
+            memory offset)
+
 def writeEventSignatureScratch (eventDef : EventDef)
     (ptr : Nat) (memory : Nat → Verity.Core.Uint256) : Nat → Verity.Core.Uint256 :=
-  let chunks := (chunkBytes32 (bytesFromString (eventSignature eventDef))).map wordFromBytes
-  fun offset =>
-    match chunks[(offset - ptr) / 32]? with
-    | some word =>
-        if ptr ≤ offset ∧ (offset - ptr) % 32 = 0 then
-          (word : Verity.Core.Uint256)
-        else
-          memory offset
-    | none => memory offset
+  writeEventSignatureScratchFrom
+    ((chunkBytes32 (bytesFromString (eventSignature eventDef))).map wordFromBytes)
+    ptr 0 memory
 
 def writeUnindexedEventScratchFrom :
     List EventParam → List Nat → Nat → Nat → (Nat → Verity.Core.Uint256) →
@@ -180,7 +190,7 @@ def writeUnindexedEventScratchFrom :
       let next :=
         if param.kind == EventParamKind.unindexed then
           fun offset =>
-            if offset = ptr + wordIdx * 32 then
+            if offset = (ptr + wordIdx * 32) % Compiler.Constants.evmModulus then
               (normalized : Verity.Core.Uint256)
             else
               memory offset
@@ -216,7 +226,7 @@ theorem exists_writeUnindexedEventScratch_of_length :
             (params := params) (values := values) (ptr := ptr)
             (wordIdx := wordIdx + 1)
             (memory := fun offset =>
-              if offset = ptr + wordIdx * 32 then
+              if offset = (ptr + wordIdx * 32) % Compiler.Constants.evmModulus then
                 (normalizeEventValue param.ty value : Verity.Core.Uint256)
               else
                 memory offset)
@@ -751,21 +761,21 @@ theorem execForEachLoop_empty_body_positive_bound
           (index + 1) remaining) := by
   simp [execForEachLoop_empty_body, execForEachEmptyLoopFinal]
 
-private def storageArraySetAt : List Verity.Core.Uint256 → Nat → Verity.Core.Uint256 → Option (List Verity.Core.Uint256)
+def storageArraySetAt : List Verity.Core.Uint256 → Nat → Verity.Core.Uint256 → Option (List Verity.Core.Uint256)
   | [], _, _ => none
   | _ :: rest, 0, value => some (value :: rest)
   | head :: rest, idx + 1, value => do
       let updatedRest ← storageArraySetAt rest idx value
       some (head :: updatedRest)
 
-private def storageArrayDropLast? : List Verity.Core.Uint256 → Option (List Verity.Core.Uint256)
+def storageArrayDropLast? : List Verity.Core.Uint256 → Option (List Verity.Core.Uint256)
   | [] => none
   | [_] => some []
   | head :: rest => do
       let updatedRest ← storageArrayDropLast? rest
       some (head :: updatedRest)
 
-private def writeStorageArray (world : Verity.ContractState) (slot : Nat)
+def writeStorageArray (world : Verity.ContractState) (slot : Nat)
     (values : List Verity.Core.Uint256) : Verity.ContractState :=
   { world with
     storageArray := fun s => if s == slot then values else world.storageArray s }
@@ -810,6 +820,7 @@ def evalExpr (fields : List Field) (state : RuntimeState) : Expr → Option Nat
       | _ => none
   | .caller => some state.world.sender.val
   | .contractAddress => some state.world.thisAddress.val
+  | .txOrigin => some state.world.txOrigin.val
   | .chainid => some state.world.chainId.val
   | .msgValue => some state.world.msgValue.val
   | .selfBalance => some state.world.selfBalance.val
@@ -1114,6 +1125,11 @@ private theorem evalExpr_chainid
     (fields : List Field)
     (state : RuntimeState) :
     evalExpr fields state .chainid = some state.world.chainId.val := rfl
+
+private theorem evalExpr_txOrigin
+    (fields : List Field)
+    (state : RuntimeState) :
+    evalExpr fields state .txOrigin = some state.world.txOrigin.val := rfl
 
 private theorem evalExpr_msgValue
     (fields : List Field)
@@ -2371,6 +2387,54 @@ mutual
           execStmtListWithEvents_nil_eq_execStmtList]
 end
 
+mutual
+  /-- Source execution of a contract-surface-closed statement is agnostic to
+  the event catalog: `execStmtWithEvents` and `execStmt` differ only in the
+  `.emit` arm, which the plain contract-surface gate excludes. -/
+  theorem execStmtWithEvents_eq_execStmt_of_contractSurfaceClosed
+      (fields : List Field) (events : List EventDef) (stmt : Stmt)
+      (hsurface : stmtTouchesUnsupportedContractSurface stmt = false)
+      (state : RuntimeState) :
+      execStmtWithEvents fields events state stmt = execStmt fields state stmt := by
+    cases stmt
+    case ite cond thenBranch elseBranch =>
+        simp only [stmtTouchesUnsupportedContractSurface,
+          Bool.or_eq_false_iff] at hsurface
+        simp [execStmtWithEvents, execStmt,
+          execStmtListWithEvents_eq_execStmtList_of_contractSurfaceClosed
+            fields events thenBranch hsurface.1.2,
+          execStmtListWithEvents_eq_execStmtList_of_contractSurfaceClosed
+            fields events elseBranch hsurface.2]
+    case forEach varName count body =>
+        simp [execStmtWithEvents, execStmt,
+          execStmtListWithEvents_eq_execStmtList_of_contractSurfaceClosed
+            fields events body
+            (stmtListTouchesUnsupportedContractSurface_of_forEach_surfaceClosed
+              hsurface)]
+    case emit eventName args =>
+        simp [stmtTouchesUnsupportedContractSurface] at hsurface
+    all_goals simp [execStmtWithEvents, execStmt]
+
+  /-- List version of
+  `execStmtWithEvents_eq_execStmt_of_contractSurfaceClosed`. -/
+  theorem execStmtListWithEvents_eq_execStmtList_of_contractSurfaceClosed
+      (fields : List Field) (events : List EventDef) (stmts : List Stmt)
+      (hsurface : stmtListTouchesUnsupportedContractSurface stmts = false)
+      (state : RuntimeState) :
+      execStmtListWithEvents fields events state stmts =
+        execStmtList fields state stmts := by
+    cases stmts with
+    | nil => simp [execStmtListWithEvents, execStmtList]
+    | cons stmt rest =>
+        simp only [stmtListTouchesUnsupportedContractSurface,
+          Bool.or_eq_false_iff] at hsurface
+        simp [execStmtListWithEvents, execStmtList,
+          execStmtWithEvents_eq_execStmt_of_contractSurfaceClosed
+            fields events stmt hsurface.1,
+          execStmtListWithEvents_eq_execStmtList_of_contractSurfaceClosed
+            fields events rest hsurface.2]
+end
+
 structure SourceContractResult where
   success : Bool
   returnValue : Option Nat
@@ -2453,6 +2517,7 @@ def withTransactionContext (world : Verity.ContractState) (tx : IRTransaction) :
     blockNumber := tx.blockNumber
     chainId := tx.chainId
     blobBaseFee := tx.blobBaseFee
+    txOrigin := Verity.wordToAddress tx.txOrigin
     calldataSize := Verity.Core.Uint256.ofNat (4 + tx.args.length * 32)
     calldata := tx.args }
 
@@ -2466,6 +2531,7 @@ def withConstructorTransactionContext (world : Verity.ContractState) (tx : IRTra
     blockNumber := tx.blockNumber
     chainId := tx.chainId
     blobBaseFee := tx.blobBaseFee
+    txOrigin := Verity.wordToAddress tx.txOrigin
     calldataSize := Verity.Core.Uint256.ofNat (tx.args.length * 32)
     calldata := tx.args }
 
@@ -2787,10 +2853,8 @@ mutual
     | .constructorArg idx =>
         lookupBinding? state.bindings s!"arg{idx}"
     | .caller => some state.world.sender.val
-    -- `evalExpr` has no `.txOrigin` support yet (falls through to `none`);
-    -- mirror that here so the helper-aware semantics stays in lockstep.
-    | .txOrigin => none
     | .contractAddress => some state.world.thisAddress.val
+    | .txOrigin => some state.world.txOrigin.val
     | .chainid => some state.world.chainId.val
     | .msgValue => some state.world.msgValue.val
     | .selfBalance => some state.world.selfBalance.val
@@ -4133,14 +4197,9 @@ mutual
         simpa [evalExprWithHelpers, evalExpr_param]
     | localVar _ =>
         simpa [evalExprWithHelpers, evalExpr_localVar]
-    | txOrigin =>
-        have h2 : evalExpr fields state .txOrigin = none := rfl
-        rw [h2]
-        set_option maxHeartbeats 1000000 in
-        simp only [evalExprWithHelpers]
-    | caller | contractAddress | chainid | msgValue | selfBalance | blockTimestamp | blockNumber | blobbasefee
+    | caller | contractAddress | txOrigin | chainid | msgValue | selfBalance | blockTimestamp | blockNumber | blobbasefee
     | calldatasize =>
-        simp [evalExprWithHelpers, evalExpr_caller, evalExpr_contractAddress, evalExpr_chainid,
+        simp [evalExprWithHelpers, evalExpr_caller, evalExpr_contractAddress, evalExpr_txOrigin, evalExpr_chainid,
           evalExpr_msgValue, evalExpr_selfBalance, evalExpr_blockTimestamp, evalExpr_blockNumber, evalExpr_blobbasefee,
           evalExpr_calldatasize]
     | storage _ =>
@@ -4978,6 +5037,31 @@ theorem interpretContractWithHelpers_eq_interpretContract_of_supportedSpecExcept
         (hSupported.supportedFunctionOfSelectorDispatched hfn).body.helperSurfaceClosed
   · rfl
 
+theorem interpretContractWithHelpers_eq_interpretContract_of_supportedSpecWithScalarEvents
+    {spec : CompilationModel}
+    {selectors : List Nat}
+    (hSupported : SupportedSpecWithScalarEvents spec selectors)
+    (fuel : Nat)
+    (tx : IRTransaction)
+    (initialWorld : Verity.ContractState) :
+    interpretContractWithHelpers spec selectors fuel tx initialWorld =
+      interpretContract spec selectors tx initialWorld := by
+  unfold interpretContractWithHelpers interpretContract
+  split
+  · rename_i fn hfind
+    have hfn : fn ∈ selectorDispatchedFunctions spec :=
+      findFunctionBySelector_mem_selectorDispatchedFunctions hfind
+    split
+    · rfl
+    · exact interpretFunctionWithHelpers_eq_interpretFunction_of_helperSurfaceClosed
+        (spec := spec)
+        (fuel := fuel)
+        (fn := fn)
+        (tx := tx)
+        (initialWorld := initialWorld)
+        (hSupported.supportedFunctionOfSelectorDispatched hfn).body.helperSurfaceClosed
+  · rfl
+
 end SourceSemantics
 
 /-- Whole-contract source-side semantics for the first generic Layer 2 fragment.
@@ -5017,10 +5101,30 @@ noncomputable def supportedSourceFunctionSemanticsExceptMappingWrites
   SourceSemantics.interpretFunctionWithHelpers
     spec hSupported.helperFuel fn tx initialWorld
 
+noncomputable def supportedSourceFunctionSemanticsWithScalarEvents
+    (spec : CompilationModel)
+    (selectors : List Nat)
+    (hSupported : SupportedSpecWithScalarEvents spec selectors)
+    (fn : FunctionSpec)
+    (tx : IRTransaction)
+    (initialWorld : Verity.ContractState) :
+    SourceSemantics.SourceContractResult :=
+  SourceSemantics.interpretFunctionWithHelpers
+    spec hSupported.helperFuel fn tx initialWorld
+
 noncomputable def supportedSourceContractSemantics
     (spec : CompilationModel)
     (selectors : List Nat)
     (hSupported : SupportedSpec spec selectors)
+    (tx : IRTransaction)
+    (initialWorld : Verity.ContractState) :
+  SourceSemantics.SourceContractResult :=
+  sourceContractSemanticsWithHelpers spec selectors hSupported.helperFuel tx initialWorld
+
+noncomputable def supportedSourceContractSemanticsWithScalarEvents
+    (spec : CompilationModel)
+    (selectors : List Nat)
+    (hSupported : SupportedSpecWithScalarEvents spec selectors)
     (tx : IRTransaction)
     (initialWorld : Verity.ContractState) :
     SourceSemantics.SourceContractResult :=
@@ -5061,6 +5165,19 @@ theorem sourceContractSemanticsWithHelpers_eq_sourceContractSemantics_of_support
     SourceSemantics.interpretContractWithHelpers_eq_interpretContract_of_supportedSpecExceptMappingWrites
       hSupported fuel tx initialWorld
 
+theorem sourceContractSemanticsWithHelpers_eq_sourceContractSemantics_of_supportedSpecWithScalarEvents
+    {spec : CompilationModel}
+    {selectors : List Nat}
+    (hSupported : SupportedSpecWithScalarEvents spec selectors)
+    (fuel : Nat)
+    (tx : IRTransaction)
+    (initialWorld : Verity.ContractState) :
+    sourceContractSemanticsWithHelpers spec selectors fuel tx initialWorld =
+      sourceContractSemantics spec selectors tx initialWorld := by
+  simpa [sourceContractSemanticsWithHelpers, sourceContractSemantics] using
+    SourceSemantics.interpretContractWithHelpers_eq_interpretContract_of_supportedSpecWithScalarEvents
+      hSupported fuel tx initialWorld
+
 theorem supportedSourceFunctionSemantics_eq_interpretFunction_of_selectorDispatched
     {spec : CompilationModel}
     {selectors : List Nat}
@@ -5072,6 +5189,25 @@ theorem supportedSourceFunctionSemantics_eq_interpretFunction_of_selectorDispatc
     supportedSourceFunctionSemantics spec selectors hSupported fn tx initialWorld =
       SourceSemantics.interpretFunction spec fn tx initialWorld := by
   simpa [supportedSourceFunctionSemantics] using
+    SourceSemantics.interpretFunctionWithHelpers_eq_interpretFunction_of_helperSurfaceClosed
+      (spec := spec)
+      (fuel := hSupported.helperFuel)
+      (fn := fn)
+      (tx := tx)
+      (initialWorld := initialWorld)
+      (hSupported.supportedFunctionOfSelectorDispatched hfn).body.helperSurfaceClosed
+
+theorem supportedSourceFunctionSemanticsWithScalarEvents_eq_interpretFunction_of_selectorDispatched
+    {spec : CompilationModel}
+    {selectors : List Nat}
+    (hSupported : SupportedSpecWithScalarEvents spec selectors)
+    {fn : FunctionSpec}
+    (hfn : fn ∈ selectorDispatchedFunctions spec)
+    (tx : IRTransaction)
+    (initialWorld : Verity.ContractState) :
+    supportedSourceFunctionSemanticsWithScalarEvents spec selectors hSupported fn tx initialWorld =
+      SourceSemantics.interpretFunction spec fn tx initialWorld := by
+  simpa [supportedSourceFunctionSemanticsWithScalarEvents] using
     SourceSemantics.interpretFunctionWithHelpers_eq_interpretFunction_of_helperSurfaceClosed
       (spec := spec)
       (fuel := hSupported.helperFuel)
@@ -5108,6 +5244,17 @@ theorem supportedSourceContractSemantics_eq_sourceContractSemantics
     supportedSourceContractSemantics spec selectors hSupported tx initialWorld =
       sourceContractSemantics spec selectors tx initialWorld := by
   exact sourceContractSemanticsWithHelpers_eq_sourceContractSemantics_of_supportedSpec
+    hSupported hSupported.helperFuel tx initialWorld
+
+theorem supportedSourceContractSemanticsWithScalarEvents_eq_sourceContractSemantics
+    {spec : CompilationModel}
+    {selectors : List Nat}
+    (hSupported : SupportedSpecWithScalarEvents spec selectors)
+    (tx : IRTransaction)
+    (initialWorld : Verity.ContractState) :
+    supportedSourceContractSemanticsWithScalarEvents spec selectors hSupported tx initialWorld =
+      sourceContractSemantics spec selectors tx initialWorld := by
+  exact sourceContractSemanticsWithHelpers_eq_sourceContractSemantics_of_supportedSpecWithScalarEvents
     hSupported hSupported.helperFuel tx initialWorld
 
 theorem supportedSourceContractSemanticsExceptMappingWrites_eq_sourceContractSemantics

@@ -1,1 +1,1 @@
-import Contracts.Smoke
+import Contracts.Smoke.ExternalCalls

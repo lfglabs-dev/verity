@@ -1,21 +1,29 @@
 /-
   Compiler.Modules.ERC20: ERC-20 Token Interaction Modules
 
-  Standard ECMs for safe ERC-20 token operations:
-  - `safeTransfer`:     transfer(address,uint256)       selector 0xa9059cbb
-  - `safeTransferFrom`: transferFrom(address,address,uint256) selector 0x23b872dd
-  - `safeApprove`:      approve(address,uint256)        selector 0x095ea7b3
-  - `solmateSafeTransfer` / `solmateSafeTransferFrom`: Solmate SafeTransferLib
-    optional-return semantics for projects that need exact Solmate parity
-  - `balanceOf`:        balanceOf(address)              selector 0x70a08231
-  - `allowance`:        allowance(address,address)      selector 0xdd62ed3e
-  - `totalSupply`:      totalSupply()                   selector 0x18160ddd
+  Standard ECMs for safe ERC-20 token operations. Three explicit, named styles
+  are provided because different projects in the ecosystem chose different
+  observable behaviors on failure:
 
-  The OpenZeppelin-style write modules accept exactly one ABI bool word equal to
-  true, or no returndata from a contract address. The Solmate write modules
-  accept no returndata, or the first returned word equal to true when at least
-  32 bytes were returned. Both variants bubble failed-call returndata before
-  checking the optional bool.
+  - `safeTransfer` / `safeTransferFrom` / `safeApprove`:
+      OpenZeppelin v5 style. Reverts with `SafeERC20FailedOperation(address)`
+      custom error on bad cases. Requires code at the token for empty-return paths.
+
+  - `solmateSafeTransfer` / `solmateSafeTransferFrom`:
+      Solmate SafeTransferLib style. Accepts empty returndata without extcodesize
+      check; accepts first word == true when returndatasize > 31. Bubbles inner
+      returndata on call failure.
+
+  - `legacyStringSafeTransfer` / `legacyStringSafeTransferFrom`:
+      Legacy string-error style (exact match for Morpho Blue's SafeTransferLib
+      and some other older custom SafeTransferLib implementations).
+      Always checks extcodesize, reverts with classic `Error("no code")`,
+      `Error("transfer reverted")`, `Error("transfer returned false")` etc.
+      Does not bubble inner returndata on call failure.
+
+  The typed-interface helpers (e.g. `safeTransfer token ...` when `token : IERC20`)
+  will route to the appropriate underlying module. For the legacy string style,
+  use the `legacyStringSafe*` helpers with a typed interface parameter.
 
   Trust assumption: the target address implements the ERC-20 interface
   (or is a non-standard token that doesn't return a bool).
@@ -341,6 +349,145 @@ def solmateSafeTransferFromModule : ExternalCallModule where
 def solmateSafeTransferFrom (token fromAddr to amount : Expr) : Stmt :=
   .ecm solmateSafeTransferFromModule [token, fromAddr, to, amount]
 
+/-- Legacy string-error SafeTransferLib style (used by Morpho Blue's SafeTransferLib
+    and some other older libraries).
+
+This is a third explicit, named variant alongside the OpenZeppelin-style
+(`safeTransfer` / `safeTransferFrom`) and the Solmate-style variants.
+
+Behavior:
+- Always performs an `extcodesize > 0` check on the token. Reverts with the classic
+  `Error("no code")` string if the token has no code.
+- Performs the ERC-20 call.
+- On call failure (`success == false`), reverts with a specific `Error("transfer reverted")`
+  (or `transferFrom reverted`) string. Inner returndata from the token is **not** bubbled
+  (unlike the OZ and Solmate variants).
+- After a successful call, accepts either no returndata or a single ABI bool word equal to `true`.
+  Any other case (short data, false, etc.) causes a specific `Error("transfer returned false")`
+  (or `transferFrom returned false`) revert using the classic `Error(string)` encoding.
+
+This produces exactly the same observable revert strings and behavior as Morpho Blue's
+`SafeTransferLib` (the strings defined in its `ErrorsLib`).
+
+These modules are intended to be used when you need source-faithful parity with a contract
+that chose this particular SafeTransferLib flavor. They are not the default.
+-/
+private def legacyStringRevert (len : Nat) (dataWord : Nat) : List YulStmt := [
+  YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0,
+    YulExpr.hex 0x08c379a000000000000000000000000000000000000000000000000000000000]),
+  YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 4, YulExpr.lit 32]),
+  YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 36, YulExpr.lit len]),
+  YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 68, YulExpr.hex dataWord]),
+  YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 100])
+]
+
+private def legacyRevertNoCode : List YulStmt :=
+  legacyStringRevert 7 0x6e6f20636f646500000000000000000000000000000000000000000000000000
+
+private def legacyRevertTransferReverted : List YulStmt :=
+  legacyStringRevert 17 0x7472616e73666572207265766572746564000000000000000000000000000000
+
+private def legacyRevertTransferReturnedFalse : List YulStmt :=
+  legacyStringRevert 23 0x7472616e736665722072657475726e65642066616c7365000000000000000000
+
+private def legacyRevertTransferFromReverted : List YulStmt :=
+  legacyStringRevert 21 0x7472616e7366657246726f6d2072657665727465640000000000000000000000
+
+private def legacyRevertTransferFromReturnedFalse : List YulStmt :=
+  legacyStringRevert 27 0x7472616e7366657246726f6d2072657475726e65642066616c73650000000000
+
+private def legacyCodeLengthGuard (tokenExpr : YulExpr) : List YulStmt := [
+  YulStmt.if_ (YulExpr.call "iszero" [
+    YulExpr.call "gt" [YulExpr.call "extcodesize" [tokenExpr], YulExpr.lit 0]
+  ]) legacyRevertNoCode
+]
+
+private def legacyRequireOptionalBool (returnPtr : YulExpr) (onFalse : List YulStmt) : List YulStmt := [
+  YulStmt.let_ "__lst_rds" (YulExpr.call "returndatasize" []),
+  YulStmt.if_ (YulExpr.ident "__lst_rds") [
+    YulStmt.if_ (YulExpr.call "iszero" [
+      YulExpr.call "and" [
+        YulExpr.call "gt" [YulExpr.ident "__lst_rds", YulExpr.lit 31],
+        YulExpr.call "eq" [YulExpr.call "mload" [returnPtr], YulExpr.lit 1]
+      ]
+    ]) onFalse
+  ]
+]
+
+/-- ERC-20 safeTransfer module using legacy string-error semantics (Morpho-style).
+    See the large comment above `legacyStringSafeTransferModule` for full behavior. -/
+def legacyStringSafeTransferModule : ExternalCallModule where
+  name := "legacyStringSafeTransfer"
+  numArgs := 3
+  writesState := true
+  readsState := false
+  axioms := ["erc20_legacy_string_safe_transfer_interface"]
+  compile := fun _ctx args => do
+    let (tokenExpr, toExpr, amountExpr) ← match args with
+      | [t, to, a] => pure (t, to, a)
+      | _ => throw "legacyStringSafeTransfer expects 3 arguments (token, to, amount)"
+    let selectorWord := 0xa9059cbb00000000000000000000000000000000000000000000000000000000
+    pure [YulStmt.block (
+      legacyCodeLengthGuard tokenExpr ++ [
+        YulStmt.let_ "__lst_ptr" (YulExpr.call "mload" [YulExpr.lit freeMemoryPointer]),
+        YulStmt.expr (YulExpr.call "mstore" [YulExpr.ident "__lst_ptr", YulExpr.hex selectorWord]),
+        YulStmt.expr (YulExpr.call "mstore" [YulExpr.call "add" [YulExpr.ident "__lst_ptr", YulExpr.lit 4], toExpr]),
+        YulStmt.expr (YulExpr.call "mstore" [YulExpr.call "add" [YulExpr.ident "__lst_ptr", YulExpr.lit 36], amountExpr]),
+        YulStmt.expr (YulExpr.call "mstore" [
+          YulExpr.lit freeMemoryPointer,
+          YulExpr.call "and" [
+            YulExpr.call "add" [YulExpr.call "add" [YulExpr.ident "__lst_ptr", YulExpr.lit 68], YulExpr.lit 31],
+            YulExpr.call "not" [YulExpr.lit 31]
+          ]
+        ]),
+        YulStmt.let_ "__lst_success" (YulExpr.call "call" [
+          YulExpr.call "gas" [], tokenExpr, YulExpr.lit 0,
+          YulExpr.ident "__lst_ptr", YulExpr.lit 68, YulExpr.ident "__lst_ptr", YulExpr.lit 32
+        ]),
+        YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident "__lst_success"]) legacyRevertTransferReverted
+      ] ++ legacyRequireOptionalBool (YulExpr.ident "__lst_ptr") legacyRevertTransferReturnedFalse)]
+
+/-- Convenience: create a `Stmt.ecm` for legacy string-error safeTransfer (Morpho-style). -/
+def legacyStringSafeTransfer (token to amount : Expr) : Stmt :=
+  .ecm legacyStringSafeTransferModule [token, to, amount]
+
+/-- ERC-20 safeTransferFrom module using legacy string-error semantics (Morpho-style). -/
+def legacyStringSafeTransferFromModule : ExternalCallModule where
+  name := "legacyStringSafeTransferFrom"
+  numArgs := 4
+  writesState := true
+  readsState := false
+  axioms := ["erc20_legacy_string_safe_transferFrom_interface"]
+  compile := fun _ctx args => do
+    let (tokenExpr, fromExpr, toExpr, amountExpr) ← match args with
+      | [t, f, to, a] => pure (t, f, to, a)
+      | _ => throw "legacyStringSafeTransferFrom expects 4 arguments (token, from, to, amount)"
+    let selectorWord := 0x23b872dd00000000000000000000000000000000000000000000000000000000
+    pure [YulStmt.block (
+      legacyCodeLengthGuard tokenExpr ++ [
+        YulStmt.let_ "__lstf_ptr" (YulExpr.call "mload" [YulExpr.lit freeMemoryPointer]),
+        YulStmt.expr (YulExpr.call "mstore" [YulExpr.ident "__lstf_ptr", YulExpr.hex selectorWord]),
+        YulStmt.expr (YulExpr.call "mstore" [YulExpr.call "add" [YulExpr.ident "__lstf_ptr", YulExpr.lit 4], fromExpr]),
+        YulStmt.expr (YulExpr.call "mstore" [YulExpr.call "add" [YulExpr.ident "__lstf_ptr", YulExpr.lit 36], toExpr]),
+        YulStmt.expr (YulExpr.call "mstore" [YulExpr.call "add" [YulExpr.ident "__lstf_ptr", YulExpr.lit 68], amountExpr]),
+        YulStmt.expr (YulExpr.call "mstore" [
+          YulExpr.lit freeMemoryPointer,
+          YulExpr.call "and" [
+            YulExpr.call "add" [YulExpr.call "add" [YulExpr.ident "__lstf_ptr", YulExpr.lit 100], YulExpr.lit 31],
+            YulExpr.call "not" [YulExpr.lit 31]
+          ]
+        ]),
+        YulStmt.let_ "__lstf_success" (YulExpr.call "call" [
+          YulExpr.call "gas" [], tokenExpr, YulExpr.lit 0,
+          YulExpr.ident "__lstf_ptr", YulExpr.lit 100, YulExpr.ident "__lstf_ptr", YulExpr.lit 32
+        ]),
+        YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident "__lstf_success"]) legacyRevertTransferFromReverted
+      ] ++ legacyRequireOptionalBool (YulExpr.ident "__lstf_ptr") legacyRevertTransferFromReturnedFalse)]
+
+/-- Convenience: create a `Stmt.ecm` for legacy string-error safeTransferFrom (Morpho-style). -/
+def legacyStringSafeTransferFrom (token fromAddr to amount : Expr) : Stmt :=
+  .ecm legacyStringSafeTransferFromModule [token, fromAddr, to, amount]
+
 /-- ERC-20 safeApprove module (new — demonstrates ECM extensibility).
     Calls `approve(address spender, uint256 amount)` with optional-bool-return handling.
     Arguments: [token, spender, amount] -/
@@ -381,6 +528,7 @@ def safeApproveModule : ExternalCallModule where
         YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.ident "__sa_rds"])
       ]
     ] ++ optionalBoolGuard)]
+
 
 /-- Convenience: create a `Stmt.ecm` for safeApprove. -/
 def safeApprove (token spender amount : Expr) : Stmt :=

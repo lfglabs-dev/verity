@@ -1,16 +1,25 @@
 #!/usr/bin/env python3
-"""Extract theorem names from Lean proof files to generate property manifest."""
+"""Deprecated shim: this writer now lives in scripts/property_pipeline.py (`extract`).
 
-import json
+Prefer `python3 scripts/property_pipeline.py extract`.
+This wrapper is kept so existing callers of this path keep working.
+"""
 
-from property_utils import ROOT, extract_manifest_from_proofs
-OUTPUT = ROOT / "test" / "property_manifest.json"
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from property_pipeline import main as pipeline_main
 
 
-def main() -> None:
-    manifest = extract_manifest_from_proofs()
-    OUTPUT.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+def main() -> int:
+    return pipeline_main(["extract"])
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

@@ -204,7 +204,6 @@ runs:
         compiler_bin="verity-compiler"
         compiler_args=()
         if [ "${{ inputs.yul-artifact-name }}" = "generated-yul-patched" ]; then
-          compiler_bin="verity-compiler-patched"
           compiler_args+=(--enable-patches)
         fi
 

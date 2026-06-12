@@ -95,20 +95,12 @@ theorem constructor_meets_spec (s : ContractState) (initialOwner : Address) :
     verity_unfold simpleTokenConstructor
     simp only [Contracts.SimpleToken.ownerSlot,
       Contracts.SimpleToken.totalSupplySlot]
-    split
-    · next h =>
-      have : slotIdx = 0 := beq_iff_eq.mp h
-      exact absurd this h_neq
-    · rfl
+    simp [h_neq]
   · intro slotIdx h_neq
     verity_unfold simpleTokenConstructor
     simp only [Contracts.SimpleToken.ownerSlot,
       Contracts.SimpleToken.totalSupplySlot]
-    split
-    · next h =>
-      have : slotIdx = 2 := beq_iff_eq.mp h
-      exact absurd this h_neq
-    · rfl
+    simp [h_neq]
   · rfl
   ·
     refine ⟨?_, ?_⟩
@@ -152,6 +144,7 @@ private theorem mint_unfold (s : ContractState) (toAddr : Address) (amount : Uin
         if (slotIdx == 2) = true then EVM.Uint256.add (s.storage 2) amount else s.storage slotIdx,
       transientStorage := s.transientStorage,
       storageAddr := s.storageAddr,
+        txOrigin := s.txOrigin,
       storageMap := fun slotIdx addr =>
         if (slotIdx == 1 && addr == toAddr) = true then EVM.Uint256.add (s.storageMap 1 toAddr) amount
         else s.storageMap slotIdx addr,
@@ -184,10 +177,10 @@ private theorem mint_unfold (s : ContractState) (toAddr : Address) (amount : Uin
   unfold requireSomeUint
   rw [h_safe_bal]
   simp only [Verity.pure, Pure.pure, Verity.bind, Bind.bind,
-    getStorage, Contract.run, ContractResult.snd, ContractResult.fst]
+    getStorage, ContractState.readSlot, Contract.run, ContractResult.snd, ContractResult.fst]
   rw [h_safe_sup]
   simp only [Verity.pure, Pure.pure, Verity.bind, Bind.bind,
-    setMapping, setStorage,
+    setMapping, setStorage, ContractState.writeMap, ContractState.writeSlot,
     Contract.run, ContractResult.snd, ContractResult.fst]
   simp only [HAdd.hAdd, Add.add, h_owner]
 
@@ -257,6 +250,8 @@ theorem mint_reverts_supply_overflow (s : ContractState) (toAddr : Address) (amo
   simp only [mint, Contracts.SimpleToken.onlyOwner, isOwner, requireSomeUint,
     Contracts.SimpleToken.ownerSlot, Contracts.SimpleToken.balancesSlot, Contracts.SimpleToken.totalSupplySlot,
     msgSender, getStorageAddr, setStorageAddr, getStorage, setStorage, getMapping, setMapping,
+    ContractState.readSlot, ContractState.writeSlot, ContractState.readAddrSlot,
+    ContractState.writeAddrSlot, ContractState.readMap, ContractState.writeMap,
     Verity.require, Verity.pure, Verity.bind, Bind.bind, Pure.pure,
     Contract.run, ContractResult.snd, ContractResult.fst,
     h_safe_bal, h_none, h_owner, beq_self_eq_true, ite_true]
@@ -291,6 +286,7 @@ private theorem transfer_unfold_other (s : ContractState) (toAddr : Address) (am
     { «storage» := s.storage,
       transientStorage := s.transientStorage,
       storageAddr := s.storageAddr,
+        txOrigin := s.txOrigin,
       storageMap := fun slotIdx addr =>
         if (slotIdx == 1 && addr == toAddr) = true then EVM.Uint256.add (s.storageMap 1 toAddr) amount
         else if (slotIdx == 1 && addr == s.sender) = true then EVM.Uint256.sub (s.storageMap 1 s.sender) amount
@@ -317,6 +313,7 @@ private theorem transfer_unfold_other (s : ContractState) (toAddr : Address) (am
   have h_safe := safeAdd_some (s.storageMap 1 toAddr) amount h_no_overflow
   simp only [transfer, Contracts.SimpleToken.balancesSlot,
     msgSender, getMapping, setMapping,
+    ContractState.readMap, ContractState.writeMap,
     requireSomeUint,
     Verity.require, Verity.pure, Verity.bind, Bind.bind, Pure.pure,
     Contract.run, ContractResult.snd, ContractResult.fst,

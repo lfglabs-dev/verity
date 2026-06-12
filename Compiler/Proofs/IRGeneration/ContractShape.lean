@@ -59,6 +59,76 @@ private theorem compiled_functions_forall₂_of_mapM_ok
           cases hmap
           exact List.Forall₂.cons hstep (ih _ htail)
 
+/-- `attachNonReentrantGuard` is the identity for lock-free functions, so the
+guarded per-function compile in `compileValidatedCore` collapses to the plain
+`compileFunctionSpec` mapM on the supported (lock-free) fragment. -/
+theorem attachNonReentrantGuard_eq_of_none
+    (fields : List Field) (spec : FunctionSpec) (irFn : IRFunction)
+    (hnone : spec.nonReentrantLock = none) :
+    attachNonReentrantGuard fields spec irFn = Except.ok irFn := by
+  simp [attachNonReentrantGuard, hnone, pure, Except.pure]
+
+theorem compileGuardedFunctionSpec_eq_of_none
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (adtTypes : List AdtTypeDef) (sel : Nat) (fnSpec : FunctionSpec)
+    (hnone : fnSpec.nonReentrantLock = none) :
+    compileGuardedFunctionSpec fields events errors adtTypes sel fnSpec =
+      compileFunctionSpec fields events errors adtTypes sel fnSpec := by
+  unfold compileGuardedFunctionSpec
+  cases hcomp : compileFunctionSpec fields events errors adtTypes sel fnSpec with
+  | error err => simp [hcomp, bind, Except.bind]
+  | ok irFn =>
+      simp [hcomp, bind, Except.bind,
+        attachNonReentrantGuard_eq_of_none fields fnSpec irFn hnone]
+
+theorem guardedFunctionsMapM_eq
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (adtTypes : List AdtTypeDef) :
+    ∀ (entries : List (FunctionSpec × Nat)),
+      (∀ e ∈ entries, e.1.nonReentrantLock = none) →
+      (entries.mapM fun entry =>
+        compileGuardedFunctionSpec fields events errors adtTypes entry.2 entry.1) =
+      entries.mapM fun entry =>
+        compileFunctionSpec fields events errors adtTypes entry.2 entry.1
+  | [], _ => rfl
+  | e :: rest, hnolock => by
+      have hhead : e.1.nonReentrantLock = none := hnolock e (by simp)
+      have htail := guardedFunctionsMapM_eq fields events errors adtTypes rest
+        (fun e' he' => hnolock e' (List.mem_cons_of_mem _ he'))
+      simp only [List.mapM_cons,
+        compileGuardedFunctionSpec_eq_of_none fields events errors adtTypes e.2 e.1 hhead,
+        htail]
+
+theorem supportedSpecExceptMappingWrites_entries_lock_free
+    {model : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecExceptMappingWrites model selectors) :
+    ∀ e ∈ (model.functions.filter
+        (fun fn => !fn.isInternal && !isInteropEntrypointName fn.name)).zip selectors,
+      (e : FunctionSpec × Nat).1.nonReentrantLock = none := by
+  intro e he
+  have hmem := (List.of_mem_zip he).1
+  exact (hSupported.functions e.1 (List.mem_filter.mp hmem).1).noNonReentrant
+
+theorem supportedSpec_entries_lock_free
+    {model : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpec model selectors) :
+    ∀ e ∈ (model.functions.filter
+        (fun fn => !fn.isInternal && !isInteropEntrypointName fn.name)).zip selectors,
+      (e : FunctionSpec × Nat).1.nonReentrantLock = none := by
+  intro e he
+  have hmem := (List.of_mem_zip he).1
+  exact (hSupported.functions e.1 (List.mem_filter.mp hmem).1).noNonReentrant
+
+theorem supportedSpecWithScalarEvents_entries_lock_free
+    {model : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecWithScalarEvents model selectors) :
+    ∀ e ∈ (model.functions.filter
+        (fun fn => !fn.isInternal && !isInteropEntrypointName fn.name)).zip selectors,
+      (e : FunctionSpec × Nat).1.nonReentrantLock = none := by
+  intro e he
+  have hmem := (List.of_mem_zip he).1
+  exact (hSupported.functions e.1 (List.mem_filter.mp hmem).1).noNonReentrant
+
 private theorem compileValidatedCore_ok_yields_compiled_functions
     (model : CompilationModel)
     (selectors : List Nat)
@@ -83,6 +153,8 @@ private theorem compileValidatedCore_ok_yields_compiled_functions
     hSupported.noAdtTypes, hSupported.noEvents, hSupported.noErrors,
     hfallback, hreceive] at hcore
   simp only [bind, Except.bind, pure, Except.pure] at hcore
+  simp only [guardedFunctionsMapM_eq model.fields [] [] [] _
+    (supportedSpec_entries_lock_free hSupported)] at hcore
   rcases hmap :
       ((model.functions.filter
           (fun fn => !fn.isInternal && !isInteropEntrypointName fn.name)).zip selectors).mapM
@@ -169,6 +241,8 @@ private theorem compileValidatedCore_ok_yields_internalFunctions_nil
     hstorageArray, hdynamicBytesEq, hmulDiv512, hparamDyn,
     hnoInternalFns, hSupported.noAdtTypes] at hcore
   simp only [bind, Except.bind, pure, Except.pure, List.mapM_nil] at hcore
+  simp only [guardedFunctionsMapM_eq model.fields model.events model.errors [] _
+    (supportedSpec_entries_lock_free hSupported)] at hcore
   rcases hmap :
       ((model.functions.filter
           (fun fn => !fn.isInternal && !isInteropEntrypointName fn.name)).zip selectors).mapM
@@ -203,6 +277,8 @@ private theorem compileValidatedCore_ok_yields_deploy_compileConstructor
     hSupported.noAdtTypes, hSupported.noEvents, hSupported.noErrors,
     hfallback, hreceive] at hcore
   simp only [bind, Except.bind, pure, Except.pure] at hcore
+  simp only [guardedFunctionsMapM_eq model.fields [] [] [] _
+    (supportedSpec_entries_lock_free hSupported)] at hcore
   rcases hmap :
       ((model.functions.filter
           (fun fn => !fn.isInternal && !isInteropEntrypointName fn.name)).zip selectors).mapM
@@ -239,6 +315,9 @@ private theorem compileValidatedCore_ok_yields_noFallbackEntrypoint
   unfold compileValidatedCore at hcore
   rw [hfallback, hreceive] at hcore
   simp only [bind, Except.bind, Option.mapM_none, pure, Except.pure] at hcore
+  simp only [guardedFunctionsMapM_eq (applySlotAliasRanges model.fields model.slotAliasRanges)
+    model.events model.errors model.adtTypes _
+    (supportedSpec_entries_lock_free hSupported)] at hcore
   rcases hmap :
       ((model.functions.filter
           (fun fn => !fn.isInternal && !isInteropEntrypointName fn.name)).zip selectors).mapM
@@ -276,6 +355,9 @@ private theorem compileValidatedCore_ok_yields_noReceiveEntrypoint
   unfold compileValidatedCore at hcore
   rw [hfallback, hreceive] at hcore
   simp only [bind, Except.bind, Option.mapM_none, pure, Except.pure] at hcore
+  simp only [guardedFunctionsMapM_eq (applySlotAliasRanges model.fields model.slotAliasRanges)
+    model.events model.errors model.adtTypes _
+    (supportedSpec_entries_lock_free hSupported)] at hcore
   rcases hmap :
       ((model.functions.filter
           (fun fn => !fn.isInternal && !isInteropEntrypointName fn.name)).zip selectors).mapM
@@ -312,6 +394,73 @@ theorem compile_ok_yields_compiled_functions
   · simp [hvalidate] at hcompile
   · simp [hvalidate] at hcompile
     exact compileValidatedCore_ok_yields_compiled_functions
+      (model := model)
+      (selectors := selectors)
+      (hSupported := hSupported)
+      (ir := ir)
+      (hcore := hcompile)
+
+private theorem compileValidatedCore_ok_yields_compiled_functions_with_scalar_events
+    (model : CompilationModel)
+    (selectors : List Nat)
+    (hSupported : SupportedSpecWithScalarEvents model selectors)
+    (ir : IRContract)
+    (hcore : compileValidatedCore model selectors = Except.ok ir) :
+    List.Forall₂
+      (fun entry irFn =>
+        compileFunctionSpec model.fields model.events model.errors [] entry.2 entry.1 = Except.ok irFn)
+      (SourceSemantics.selectorFunctionPairs model selectors)
+      ir.functions := by
+  have hfallback := pickUniqueFunctionByName_eq_ok_none_of_absent
+    "fallback" model.functions hSupported.surface.noFallback
+  have hreceive := pickUniqueFunctionByName_eq_ok_none_of_absent
+    "receive" model.functions hSupported.surface.noReceive
+  unfold compileValidatedCore at hcore
+  rw [hSupported.normalizedFields, hSupported.noAdtTypes, hSupported.noErrors,
+    hfallback, hreceive] at hcore
+  simp only [bind, Except.bind, pure, Except.pure] at hcore
+  simp only [guardedFunctionsMapM_eq model.fields model.events [] [] _
+    (supportedSpecWithScalarEvents_entries_lock_free hSupported)] at hcore
+  rcases hmap : ((model.functions.filter
+      (fun fn => !fn.isInternal && !isInteropEntrypointName fn.name)).zip selectors).mapM
+      (fun x => compileFunctionSpec model.fields model.events [] [] x.2 x.1) with _ | irFns
+  · simp [hmap] at hcore
+  · simp [hmap] at hcore
+    rcases hinternal :
+        (model.functions.filter (·.isInternal)).mapM
+          (compileInternalFunction model.fields model.events [] []) with _ | internalFuncDefs
+    · simp [hinternal] at hcore
+    · rcases hctor :
+          compileConstructor model.fields model.events [] [] model.constructor with _ | deployStmts
+      · simp [hinternal, hctor] at hcore
+        cases hcore
+      · simp [hinternal, hctor] at hcore
+        have hfunctions : ir.functions = irFns := by
+          injection hcore with hir
+          cases hir
+          rfl
+        have hcompiled := compiled_functions_forall₂_of_mapM_ok
+          model.fields model.events [] _ _ hmap
+        simpa [SourceSemantics.selectorFunctionPairs, selectorDispatchedFunctions,
+          hfunctions, hSupported.noErrors] using hcompiled
+
+theorem compile_ok_yields_compiled_functions_with_scalar_events
+    (model : CompilationModel)
+    (selectors : List Nat)
+    (hSupported : SupportedSpecWithScalarEvents model selectors)
+    (ir : IRContract)
+    (hcompile : CompilationModel.compile model selectors = Except.ok ir) :
+    List.Forall₂
+      (fun entry irFn =>
+        compileFunctionSpec model.fields model.events model.errors [] entry.2 entry.1 = Except.ok irFn)
+      (SourceSemantics.selectorFunctionPairs model selectors)
+      ir.functions := by
+  unfold CompilationModel.compile at hcompile
+  simp only [bind, Except.bind] at hcompile
+  rcases hvalidate : validateCompileInputs model selectors with _ | validated
+  · simp [hvalidate] at hcompile
+  · simp [hvalidate] at hcompile
+    exact compileValidatedCore_ok_yields_compiled_functions_with_scalar_events
       (model := model)
       (selectors := selectors)
       (hSupported := hSupported)

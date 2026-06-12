@@ -217,7 +217,7 @@ verity_contract VoidCallLetBindVoidRejected where
     pure ()
 
 /--
-error: void typed interface call 'IPool.submit' currently supports only static single-word parameters; argument 1 has Verity.Macro.ValueType.bytes
+error: typed interface call 'IPool.submit' currently supports only static (single-word or composite) parameters; argument 1 has Verity.Macro.ValueType.bytes. Dynamic and composite ABI parameters require ABI-frame typed-interface lowering, which is not implemented yet (#1982).
 -/
 #guard_msgs in
 verity_contract VoidCallDynamicParamRejected where
@@ -231,6 +231,104 @@ verity_contract VoidCallDynamicParamRejected where
   function bad (pool : IPool, payload : Bytes) : Unit := do
     pool.submit payload
 
+/--
+error: typed interface call 'IPool.submit' currently supports only static (single-word or composite) parameters; argument 1 has Verity.Macro.ValueType.bytes. Dynamic and composite ABI parameters require ABI-frame typed-interface lowering, which is not implemented yet (#1982).
+-/
+#guard_msgs in
+verity_contract ReturnCallBytesParamRejected where
+  storage
+
+  interfaces
+    interface IPool where
+      function submit(Bytes) returns (Uint256)
+    end
+
+  function bad (pool : IPool, payload : Bytes) : Uint256 := do
+    let result ← pool.submit payload
+    return result
+
+/--
+error: typed interface call 'IPool.submit' currently supports only static (single-word or composite) parameters; argument 1 has Verity.Macro.ValueType.string. Dynamic and composite ABI parameters require ABI-frame typed-interface lowering, which is not implemented yet (#1982).
+-/
+#guard_msgs in
+verity_contract ReturnCallStringParamRejected where
+  storage
+
+  interfaces
+    interface IPool where
+      function submit(String) returns (Uint256)
+    end
+
+  function bad (pool : IPool, message : String) : Uint256 := do
+    let result ← pool.submit message
+    return result
+
+/--
+error: typed interface call 'IPool.submit' currently supports only static (single-word or composite) parameters; argument 1 has Verity.Macro.ValueType.array (Verity.Macro.ValueType.uint256). Dynamic and composite ABI parameters require ABI-frame typed-interface lowering, which is not implemented yet (#1982).
+-/
+#guard_msgs in
+verity_contract ReturnCallArrayParamRejected where
+  storage
+
+  interfaces
+    interface IPool where
+      function submit(Array Uint256) returns (Uint256)
+    end
+
+  function bad (pool : IPool, amounts : Array Uint256) : Uint256 := do
+    let result ← pool.submit amounts
+    return result
+
+-- Static composite (tuple) typed-interface parameters are supported since the
+-- #1962 typed-interface ABI param guard widened the static fragment.
+verity_contract ReturnCallTupleParamSmoke where
+  storage
+
+  interfaces
+    interface IPool where
+      function submit(Tuple [Uint256, Address]) returns (Uint256)
+    end
+
+  function bad (pool : IPool, item : Tuple [Uint256, Address]) : Uint256 := do
+    let result ← pool.submit item
+    return result
+
+-- Static nested-struct typed-interface parameters are supported since the
+-- #1962 typed-interface ABI param guard widened the static fragment.
+verity_contract ReturnCallNestedStructParamSmoke where
+  storage
+
+  struct Inner where
+    amount : Uint256
+
+  struct Outer where
+    inner : Inner,
+    owner : Address
+
+  interfaces
+    interface IPool where
+      function submit(Outer) returns (Uint256)
+    end
+
+  function bad (pool : IPool, item : Outer) : Uint256 := do
+    let result ← pool.submit item
+    return result
+
+/--
+error: typed interface call 'IPool.submit' currently supports only static (single-word or composite) parameters; argument 1 has Verity.Macro.ValueType.string. Dynamic and composite ABI parameters require ABI-frame typed-interface lowering, which is not implemented yet (#1982).
+-/
+#guard_msgs in
+verity_contract VoidCallStringParamRejected where
+  storage
+
+  interfaces
+    interface IPool where
+      function submit(String)
+    end
+
+  function bad (pool : IPool, message : String) : Unit := do
+    pool.submit message
+
 example :
     (TypedInterfaceCallSmoke.spec.functions).any (fun fn =>
       fn.name == "transferTokenDiscard" &&
@@ -243,6 +341,113 @@ example :
                 mod.readsState &&
                 mod.writesState &&
                 args.length == 3
+          | _ => false)) = true := by
+  decide
+
+verity_contract TypedInterfaceSafeERC20Smoke where
+  storage
+
+  interfaces
+    interface IERC20 where
+      function transfer(Address, Uint256) returns (Bool)
+      function transferFrom(Address, Address, Uint256) returns (Bool)
+      function approve(Address, Uint256) returns (Bool)
+    end
+
+  function pushTokens (token : IERC20, toAddr : Address, amount : Uint256) : Unit := do
+    safeTransfer token toAddr amount
+
+  function pullTokens (token : IERC20, fromAddr : Address, toAddr : Address, amount : Uint256) : Unit := do
+    safeTransferFrom token fromAddr toAddr amount
+
+  function approveTokens (token : IERC20, spender : Address, amount : Uint256) : Unit := do
+    safeApprove token spender amount
+
+  function pushTokensLegacy (token : IERC20, toAddr : Address, amount : Uint256) : Unit := do
+    legacyStringSafeTransfer token toAddr amount
+
+  function pullTokensLegacy (token : IERC20, fromAddr : Address, toAddr : Address, amount : Uint256) : Unit := do
+    legacyStringSafeTransferFrom token fromAddr toAddr amount
+
+example :
+    (TypedInterfaceSafeERC20Smoke.spec.functions).any (fun fn =>
+      fn.name == "pushTokens" &&
+        fn.body.any (fun stmt =>
+          match stmt with
+          | Compiler.CompilationModel.Stmt.ecm mod
+              [Compiler.CompilationModel.Expr.param "token",
+               Compiler.CompilationModel.Expr.param "toAddr",
+               Compiler.CompilationModel.Expr.param "amount"] =>
+              mod.name == "safeTransfer" &&
+                mod.axioms == ["erc20_transfer_interface"] &&
+                mod.resultVars == [] &&
+                mod.writesState
+          | _ => false)) = true := by
+  decide
+
+example :
+    (TypedInterfaceSafeERC20Smoke.spec.functions).any (fun fn =>
+      fn.name == "pullTokens" &&
+        fn.body.any (fun stmt =>
+          match stmt with
+          | Compiler.CompilationModel.Stmt.ecm mod
+              [Compiler.CompilationModel.Expr.param "token",
+               Compiler.CompilationModel.Expr.param "fromAddr",
+               Compiler.CompilationModel.Expr.param "toAddr",
+               Compiler.CompilationModel.Expr.param "amount"] =>
+              mod.name == "safeTransferFrom" &&
+                mod.axioms == ["erc20_transferFrom_interface"] &&
+                mod.resultVars == [] &&
+                mod.writesState
+          | _ => false)) = true := by
+  decide
+
+example :
+    (TypedInterfaceSafeERC20Smoke.spec.functions).any (fun fn =>
+      fn.name == "approveTokens" &&
+        fn.body.any (fun stmt =>
+          match stmt with
+          | Compiler.CompilationModel.Stmt.ecm mod
+              [Compiler.CompilationModel.Expr.param "token",
+               Compiler.CompilationModel.Expr.param "spender",
+               Compiler.CompilationModel.Expr.param "amount"] =>
+              mod.name == "safeApprove" &&
+                mod.axioms == ["erc20_approve_interface"] &&
+                mod.resultVars == [] &&
+                mod.writesState
+          | _ => false)) = true := by
+  decide
+
+example :
+    (TypedInterfaceSafeERC20Smoke.spec.functions).any (fun fn =>
+      fn.name == "pushTokensLegacy" &&
+        fn.body.any (fun stmt =>
+          match stmt with
+          | Compiler.CompilationModel.Stmt.ecm mod
+              [Compiler.CompilationModel.Expr.param "token",
+               Compiler.CompilationModel.Expr.param "toAddr",
+               Compiler.CompilationModel.Expr.param "amount"] =>
+              mod.name == "legacyStringSafeTransfer" &&
+                mod.axioms == ["erc20_legacy_string_safe_transfer_interface"] &&
+                mod.resultVars == [] &&
+                mod.writesState
+          | _ => false)) = true := by
+  decide
+
+example :
+    (TypedInterfaceSafeERC20Smoke.spec.functions).any (fun fn =>
+      fn.name == "pullTokensLegacy" &&
+        fn.body.any (fun stmt =>
+          match stmt with
+          | Compiler.CompilationModel.Stmt.ecm mod
+              [Compiler.CompilationModel.Expr.param "token",
+               Compiler.CompilationModel.Expr.param "fromAddr",
+               Compiler.CompilationModel.Expr.param "toAddr",
+               Compiler.CompilationModel.Expr.param "amount"] =>
+              mod.name == "legacyStringSafeTransferFrom" &&
+                mod.axioms == ["erc20_legacy_string_safe_transferFrom_interface"] &&
+                mod.resultVars == [] &&
+                mod.writesState
           | _ => false)) = true := by
   decide
 
@@ -262,6 +467,44 @@ verity_contract InterfaceTypeNameClashRejected where
     end
 
   function noop (_item : Clash) : Unit := do
+    pure ()
+
+/- Regression for the Bugbot review on PR #1971 + #1982 progress:
+   typed-interface externals still reject true dynamic return shapes
+   (bytes, dynamic arrays) at declaration time. Static composites are
+   now accepted on the return side as a step toward full ABI-frame
+   typed-interface lowering. -/
+
+/--
+error: typed interface call 'IPool.fetch' currently supports only static (single-word or composite) returns; return 1 has Verity.Macro.ValueType.bytes. Dynamic and composite ABI returns require ABI-frame typed-interface lowering, which is not implemented yet (#1982).
+-/
+#guard_msgs in
+verity_contract TypedInterfaceBytesReturnRejected where
+  storage
+
+  interfaces
+    interface IPool where
+      function fetch() returns (Bytes)
+    end
+
+  function bad (pool : IPool) : Unit := do
+    let _payload ← pool.fetch
+    pure ()
+
+/--
+error: typed interface call 'IPool.fetch' currently supports only static (single-word or composite) returns; return 1 has Verity.Macro.ValueType.array (Verity.Macro.ValueType.uint256). Dynamic and composite ABI returns require ABI-frame typed-interface lowering, which is not implemented yet (#1982).
+-/
+#guard_msgs in
+verity_contract TypedInterfaceArrayReturnRejected where
+  storage
+
+  interfaces
+    interface IPool where
+      function fetch() returns (Array Uint256)
+    end
+
+  function bad (pool : IPool) : Unit := do
+    let _payload ← pool.fetch
     pure ()
 
 end Contracts.Smoke
