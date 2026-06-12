@@ -1915,6 +1915,161 @@ theorem supported_function_correct_with_helper_proofs_body_goal
     simpa [compiledFunctionIR, hfuelEq'', Nat.add_assoc, Nat.add_left_comm, Nat.add_comm]
       using hsourceMatch
   simpa [hadequacy] using hfuel'
+private theorem supported_function_correct_with_scalar_events_body_goal_source_match
+    (model : CompilationModel) (selectors : List Nat)
+    (hSupported : SupportedSpecWithScalarEvents model selectors)
+    (fn : FunctionSpec) (tx : IRTransaction)
+    (initialWorld : Verity.ContractState) (bindings : List (String × Nat))
+    (initialState : IRState) (irExec : IRExecResult) (sourceResult : SourceSemantics.StmtResult)
+    (hbind : SourceSemantics.bindSupportedParams fn.params tx.args = some bindings)
+    (hsource :
+      SourceSemantics.execStmtListWithHelpers model (SourceSemantics.effectiveFields model)
+        hSupported.helperFuel
+        { world := SourceSemantics.withTransactionContext initialWorld tx
+          bindings := bindings
+          selector := tx.functionSelector } fn.body = sourceResult)
+    (hmatch : FunctionBody.stmtResultMatchesIRExec (SourceSemantics.effectiveFields model)
+      sourceResult irExec)
+    (hinitialState : initialState = FunctionBody.initialIRStateForTx model tx initialWorld) :
+    FunctionBody.sourceResultMatchesIRResult
+      (supportedSourceFunctionSemanticsWithScalarEvents model selectors hSupported fn tx initialWorld)
+      (execResultToIRResult initialState irExec) := by
+  subst hinitialState
+  have hrollbackStorage :
+        (FunctionBody.initialIRStateForTx model tx initialWorld).storage = fun s =>
+          Compiler.Proofs.IRGeneration.IRStorageWord.ofNat
+            (SourceSemantics.encodeStorage model
+              (SourceSemantics.withTransactionContext initialWorld tx) s.toNat) := by
+    funext s
+    simp [FunctionBody.initialIRStateForTx,
+      FunctionBody.encodeStorage_withTransactionContext]
+  have hrollbackEvents :
+      (FunctionBody.initialIRStateForTx model tx initialWorld).events =
+        SourceSemantics.encodeEvents
+          (SourceSemantics.withTransactionContext initialWorld tx).events := by
+    simp [FunctionBody.initialIRStateForTx]
+  have hpack :=
+    FunctionBody.stmtResultToSourceResult_matches_irExecResult
+      (spec := model) (fields := SourceSemantics.effectiveFields model)
+      (initialWorld := SourceSemantics.withTransactionContext initialWorld tx)
+      (rollback := FunctionBody.initialIRStateForTx model tx initialWorld)
+      (sourceResult := sourceResult) (irResult := irExec)
+      hrollbackStorage hrollbackEvents rfl hmatch
+  simpa [supportedSourceFunctionSemanticsWithScalarEvents, SourceSemantics.interpretFunctionWithHelpers,
+    hbind, hsource, FunctionBody.stmtResultToSourceResult,
+    FunctionBody.sourceResultMatchesIRResult, FunctionBody.irResultOfExecResult,
+    execResultToIRResult] using hpack
+
+private theorem supported_function_correct_with_scalar_events_body_goal_compiled_exec
+    (model : CompilationModel) (selectors : List Nat) (hSupported : SupportedSpecWithScalarEvents model selectors)
+    (fn : FunctionSpec) (selector : Nat) (returns : List ParamType) (bodyStmts : List YulStmt)
+    (tx : IRTransaction) (initialWorld : Verity.ContractState) (bindings : List (String × Nat))
+    (hfn : fn ∈ selectorDispatchedFunctions model)
+    (hbind : SourceSemantics.bindSupportedParams fn.params tx.args = some bindings)
+    (hcalldataSizeFits : TxCalldataSizeFitsEvm tx) (extraFuel : Nat) (irExec : IRExecResult)
+    (hbodyExec : execIRStmts (bodyStmts.length + extraFuel + 1)
+      (ParamLoading.applyBindingsToIRState
+        (prebindRawArgs (FunctionBody.initialIRStateForTx model tx initialWorld) fn.params) bindings)
+      bodyStmts = irExec) :
+    Compiler.Proofs.YulGeneration.execIRFunctionFuel
+      ((genParamLoads fn.params ++ bodyStmts).length + extraFuel + 1)
+      (compiledFunctionIR selector fn returns bodyStmts) tx.args
+      (FunctionBody.initialIRStateForTx model tx initialWorld) =
+    execResultToIRResult (FunctionBody.initialIRStateForTx model tx initialWorld) irExec := by
+  exact exec_compiledFunctionIR_of_body_extraFuel
+    (state := FunctionBody.initialIRStateForTx model tx initialWorld)
+    (selector := selector) (spec := fn) (returns := returns) (bodyStmts := bodyStmts)
+    (bindings := bindings) (tailResult := irExec) (extraFuel := extraFuel)
+    (hSupported.selectorFunctionParamsSupported hfn) hcalldataSizeFits hbind hbodyExec
+
+private theorem supported_function_correct_with_scalar_events_body_goal_fuel
+    (model : CompilationModel) (selectors : List Nat) (hSupported : SupportedSpecWithScalarEvents model selectors)
+    (fn : FunctionSpec) (selector : Nat) (returns : List ParamType) (bodyStmts : List YulStmt)
+    (irFn : IRFunction) (tx : IRTransaction) (initialWorld : Verity.ContractState)
+    (hvalidate : validateFunctionSpec fn = Except.ok ()) (hreturns : functionReturns fn = Except.ok returns)
+    (hbodyCompile : compileStmtList model.fields model.events model.errors .calldata [] false (fn.params.map (·.name)) [] fn.body = Except.ok bodyStmts)
+    (hcompile : compileFunctionSpec model.fields model.events model.errors [] selector fn = Except.ok irFn)
+    (extraFuel : Nat)
+    (hcompiledBodyFuel : (genParamLoads fn.params ++ bodyStmts).length + extraFuel = sizeOf (compiledFunctionIR selector fn returns bodyStmts).body)
+    (irExec : IRExecResult)
+    (hcompiledExec : Compiler.Proofs.YulGeneration.execIRFunctionFuel
+      ((genParamLoads fn.params ++ bodyStmts).length + extraFuel + 1)
+      (compiledFunctionIR selector fn returns bodyStmts) tx.args
+      (FunctionBody.initialIRStateForTx model tx initialWorld) =
+      execResultToIRResult (FunctionBody.initialIRStateForTx model tx initialWorld) irExec)
+    (hsourceMatch :
+      FunctionBody.sourceResultMatchesIRResult (supportedSourceFunctionSemanticsWithScalarEvents model selectors hSupported fn tx initialWorld)
+        (execResultToIRResult (FunctionBody.initialIRStateForTx model tx initialWorld) irExec)) :
+    FunctionBody.sourceResultMatchesIRResult (supportedSourceFunctionSemanticsWithScalarEvents model selectors hSupported fn tx initialWorld)
+      (execIRFunction irFn tx.args (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
+  have hcompiled := compileFunctionSpec_ok_of_components model.fields model.events model.errors selector fn returns bodyStmts hvalidate hreturns hbodyCompile
+  have hirFn : irFn = compiledFunctionIR selector fn returns bodyStmts := by
+    rw [hcompile] at hcompiled
+    injection hcompiled
+  subst hirFn
+  have hfuelEq'' :
+      extraFuel + (bodyStmts.length + (1 + (genParamLoads fn.params).length)) =
+        1 + sizeOf (genParamLoads fn.params ++ bodyStmts) := by
+    have hbodyFuel'' :
+        (genParamLoads fn.params).length + bodyStmts.length + extraFuel =
+          sizeOf (genParamLoads fn.params ++ bodyStmts) := by
+      simpa [compiledFunctionIR, List.length_append, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm]
+        using hcompiledBodyFuel
+    omega
+  have hadequacy := Compiler.Proofs.YulGeneration.execIRFunctionFuel_adequate
+    (compiledFunctionIR selector fn returns bodyStmts) tx.args
+    (FunctionBody.initialIRStateForTx model tx initialWorld)
+  rw [← hcompiledExec] at hsourceMatch
+  have hfuel' :
+      FunctionBody.sourceResultMatchesIRResult
+        (supportedSourceFunctionSemanticsWithScalarEvents model selectors hSupported fn tx initialWorld)
+        (Compiler.Proofs.YulGeneration.execIRFunctionFuel
+          (sizeOf (compiledFunctionIR selector fn returns bodyStmts).body + 1)
+          (compiledFunctionIR selector fn returns bodyStmts) tx.args
+          (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
+    simpa [compiledFunctionIR, hfuelEq'', Nat.add_assoc, Nat.add_left_comm, Nat.add_comm]
+      using hsourceMatch
+  simpa [Compiler.Proofs.YulGeneration.execIRFunctionFuel_adequate_goal] using
+    (hadequacy ▸ hfuel')
+
+theorem supported_function_correct_with_scalar_events_body_goal
+    (model : CompilationModel) (selectors : List Nat) (hSupported : SupportedSpecWithScalarEvents model selectors)
+    (fn : FunctionSpec) (selector : Nat) (returns : List ParamType) (bodyStmts : List YulStmt)
+    (irFn : IRFunction) (tx : IRTransaction) (initialWorld : Verity.ContractState)
+    (bindings : List (String × Nat))
+    (hfn : fn ∈ selectorDispatchedFunctions model)
+    (hvalidate : validateFunctionSpec fn = Except.ok ())
+    (hreturns : functionReturns fn = Except.ok returns)
+    (hbodyCompile : compileStmtList model.fields model.events model.errors .calldata [] false (fn.params.map (·.name)) [] fn.body = Except.ok bodyStmts)
+    (hcompile : compileFunctionSpec model.fields model.events model.errors [] selector fn = Except.ok irFn)
+    (hbind : SourceSemantics.bindSupportedParams fn.params tx.args = some bindings)
+    (_htxNormalized : TxContextNormalized tx)
+    (extraFuel : Nat)
+    (hcompiledBodyFuel : (genParamLoads fn.params ++ bodyStmts).length + extraFuel = sizeOf (compiledFunctionIR selector fn returns bodyStmts).body)
+    (hbodyCorrect :
+      SupportedFunctionBodyWithHelpersIRPreservationGoal
+        model fn bodyStmts hSupported.helperFuel tx initialWorld
+        (ParamLoading.applyBindingsToIRState (prebindRawArgs (FunctionBody.initialIRStateForTx model tx initialWorld) fn.params) bindings)
+        bindings extraFuel)
+    (hcalldataSizeFits : TxCalldataSizeFitsEvm tx) :
+    FunctionBody.sourceResultMatchesIRResult
+      (supportedSourceFunctionSemanticsWithScalarEvents model selectors hSupported fn tx initialWorld)
+      (execIRFunction irFn tx.args (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
+  let initialState := FunctionBody.initialIRStateForTx model tx initialWorld
+  rcases hbodyCorrect with ⟨sourceResult, irExec, hsource, hbodyExec, hmatch⟩
+  have hsourceMatch :
+      FunctionBody.sourceResultMatchesIRResult
+        (supportedSourceFunctionSemanticsWithScalarEvents model selectors hSupported fn tx initialWorld)
+        (execResultToIRResult initialState irExec) :=
+    supported_function_correct_with_scalar_events_body_goal_source_match
+      model selectors hSupported fn tx initialWorld bindings initialState irExec sourceResult
+      hbind hsource hmatch rfl
+  have hcompiledExec := supported_function_correct_with_scalar_events_body_goal_compiled_exec
+    model selectors hSupported fn selector returns bodyStmts tx initialWorld bindings hfn hbind
+    hcalldataSizeFits extraFuel irExec hbodyExec
+  exact supported_function_correct_with_scalar_events_body_goal_fuel
+    model selectors hSupported fn selector returns bodyStmts irFn tx initialWorld hvalidate hreturns
+    hbodyCompile hcompile extraFuel hcompiledBodyFuel irExec hcompiledExec hsourceMatch
 theorem supported_function_correct_with_helper_proofs_body_goal_and_helper_ir
     (model : CompilationModel)
     (selectors : List Nat)
@@ -2066,6 +2221,176 @@ theorem supported_function_correct_with_helper_proofs_body_goal_and_helper_ir_of
         (FunctionBody.initialIRStateForTx model tx initialWorld)
         hfnBodyDisjoint)
       hcalldataSizeFits
+
+/-- Scalar-event sibling of the helper-aware body-goal wrapper. -/
+theorem supported_function_correct_with_scalar_events_body_goal_and_helper_ir
+    (model : CompilationModel) (selectors : List Nat)
+    (hSupported : SupportedSpecWithScalarEvents model selectors)
+    (runtimeContract : IRContract) (fn : FunctionSpec) (selector : Nat)
+    (returns : List ParamType) (bodyStmts : List YulStmt) (irFn : IRFunction)
+    (tx : IRTransaction) (initialWorld : Verity.ContractState)
+    (bindings : List (String × Nat)) (hfn : fn ∈ selectorDispatchedFunctions model)
+    (hvalidate : validateFunctionSpec fn = Except.ok ())
+    (hreturns : functionReturns fn = Except.ok returns)
+    (hbodyCompile : compileStmtList model.fields model.events model.errors .calldata [] false
+      (fn.params.map (·.name)) [] fn.body = Except.ok bodyStmts)
+    (hcompile : compileFunctionSpec model.fields model.events model.errors [] selector fn = Except.ok irFn)
+    (hbind : SourceSemantics.bindSupportedParams fn.params tx.args = some bindings)
+    (htxNormalized : TxContextNormalized tx) (extraFuel : Nat)
+    (hcompiledBodyFuel :
+      (genParamLoads fn.params ++ bodyStmts).length + extraFuel =
+        sizeOf (compiledFunctionIR selector fn returns bodyStmts).body)
+    (hbodyCorrect : SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal runtimeContract
+      model fn bodyStmts hSupported.helperFuel tx initialWorld
+      (ParamLoading.applyBindingsToIRState
+        (prebindRawArgs (FunctionBody.initialIRStateForTx model tx initialWorld) fn.params)
+        bindings) bindings extraFuel)
+    (hbodyDisjoint : YulStmtListCallsDisjointFromInternalTable runtimeContract bodyStmts)
+    (hhelperIR : execIRFunctionWithInternals runtimeContract 0 irFn tx.args
+      (FunctionBody.initialIRStateForTx model tx initialWorld) =
+      execIRFunction irFn tx.args (FunctionBody.initialIRStateForTx model tx initialWorld))
+    (hcalldataSizeFits : TxCalldataSizeFitsEvm tx) :
+    FunctionBody.sourceResultMatchesIRResult
+      (supportedSourceFunctionSemanticsWithScalarEvents model selectors hSupported fn tx initialWorld)
+      (execIRFunctionWithInternals runtimeContract 0 irFn tx.args
+        (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
+  have hlegacyBody := supported_function_body_with_helpers_ir_goal_of_helper_ir_goal_callsDisjoint
+    runtimeContract model fn bodyStmts hSupported.helperFuel tx initialWorld
+    (ParamLoading.applyBindingsToIRState
+      (prebindRawArgs (FunctionBody.initialIRStateForTx model tx initialWorld) fn.params) bindings)
+    bindings extraFuel hbodyCorrect hbodyDisjoint
+  have hlegacy := supported_function_correct_with_scalar_events_body_goal
+    model selectors hSupported fn selector returns bodyStmts irFn tx initialWorld bindings hfn
+    hvalidate hreturns hbodyCompile hcompile hbind htxNormalized extraFuel
+    hcompiledBodyFuel hlegacyBody hcalldataSizeFits
+  simpa [hhelperIR] using hlegacy
+
+private theorem supported_function_correct_with_scalar_events_state_runtime
+    (model : CompilationModel) (fn : FunctionSpec) (tx : IRTransaction)
+    (initialWorld : Verity.ContractState) (bindings : List (String × Nat))
+    (initialState state : IRState) (htxNormalized : TxContextNormalized tx)
+    (hcalldataSizeFits : TxCalldataSizeFitsEvm tx)
+    (hstate : state = ParamLoading.applyBindingsToIRState (prebindRawArgs initialState fn.params) bindings)
+    (hinitialState : initialState = FunctionBody.initialIRStateForTx model tx initialWorld) :
+    FunctionBody.runtimeStateMatchesIR (SourceSemantics.effectiveFields model)
+      { world := SourceSemantics.withTransactionContext initialWorld tx, bindings := [], selector := tx.functionSelector }
+      state := by
+  subst hstate
+  subst hinitialState
+  have hpreboundRuntime :
+      FunctionBody.runtimeStateMatchesIR (SourceSemantics.effectiveFields model)
+        { world := SourceSemantics.withTransactionContext initialWorld tx, bindings := [], selector := tx.functionSelector }
+        (prebindRawArgs (FunctionBody.initialIRStateForTx model tx initialWorld) fn.params) := by
+    exact runtimeStateMatchesIR_prebindRawArgs
+      (state := FunctionBody.initialIRStateForTx model tx initialWorld)
+      (runtime := { world := SourceSemantics.withTransactionContext initialWorld tx, bindings := [], selector := tx.functionSelector })
+      (fields := SourceSemantics.effectiveFields model) (params := fn.params)
+      (initialIRStateForTx_matches_runtime model tx initialWorld htxNormalized hcalldataSizeFits)
+  exact runtimeStateMatchesIR_applyBindingsToIRState
+    (state := prebindRawArgs (FunctionBody.initialIRStateForTx model tx initialWorld) fn.params)
+    (runtime := { world := SourceSemantics.withTransactionContext initialWorld tx, bindings := [], selector := tx.functionSelector })
+    (fields := SourceSemantics.effectiveFields model) (bindings := bindings) hpreboundRuntime
+
+private theorem supported_function_correct_with_scalar_events_body_extraFuelLower
+    (model : CompilationModel) (fn : FunctionSpec) (selector : Nat) (returns : List ParamType)
+    (bodyStmts : List YulStmt) (irFn : IRFunction)
+    (hvalidate : validateFunctionSpec fn = Except.ok ()) (hreturns : functionReturns fn = Except.ok returns)
+    (hbodyCompile : compileStmtList model.fields model.events model.errors .calldata [] false (fn.params.map (·.name)) [] fn.body = Except.ok bodyStmts)
+    (hcompile : compileFunctionSpec model.fields model.events model.errors [] selector fn = Except.ok irFn)
+    (extraFuel : Nat) (hextraFuel : extraFuel = sizeOf irFn.body - irFn.body.length) :
+    sizeOf bodyStmts - bodyStmts.length ≤ extraFuel := by
+  have hcompiled := compileFunctionSpec_ok_of_components model.fields model.events model.errors selector fn returns bodyStmts hvalidate hreturns hbodyCompile
+  have hirFn : irFn = compiledFunctionIR selector fn returns bodyStmts := by
+    rw [hcompile] at hcompiled
+    injection hcompiled
+  subst hirFn
+  subst hextraFuel
+  simpa [compiledFunctionIR] using yulStmtList_extraFuel_append_ge (genParamLoads fn.params) bodyStmts
+
+private theorem supported_function_correct_with_scalar_events_body_fuel
+    (selector : Nat) (fn : FunctionSpec) (returns : List ParamType) (bodyStmts : List YulStmt)
+    (irFn : IRFunction) (extraFuel : Nat)
+    (hcompileOk : irFn = compiledFunctionIR selector fn returns bodyStmts)
+    (hextraFuel : extraFuel = sizeOf irFn.body - irFn.body.length) :
+    (genParamLoads fn.params ++ bodyStmts).length + extraFuel =
+      sizeOf (compiledFunctionIR selector fn returns bodyStmts).body := by
+  subst hcompileOk
+  subst hextraFuel
+  have hlenle := Nat.le_of_add_le_add_right
+    (compiledFunctionIR_body_length_le_sizeOf selector fn returns bodyStmts)
+  simpa [compiledFunctionIR] using Nat.add_sub_of_le hlenle
+
+private theorem supported_function_correct_with_scalar_events_body_correct
+    (runtimeContract : IRContract) (model : CompilationModel) (selectors : List Nat)
+    (hSupported : SupportedSpecWithScalarEvents model selectors)
+    (fn : FunctionSpec) (bodyStmts : List YulStmt) (tx : IRTransaction) (initialWorld : Verity.ContractState)
+    (state : IRState) (bindings : List (String × Nat)) (extraFuel : Nat)
+    (hfn : fn ∈ selectorDispatchedFunctions model) (hbodyExtraFuelLower : sizeOf bodyStmts - bodyStmts.length ≤ extraFuel)
+    (hfuelPos : 0 < hSupported.helperFuel)
+    (hhelperFree : StmtListHelperFreeNonEventStepInterface (SourceSemantics.effectiveFields model) (fn.params.map (·.name)) fn.body)
+    (hstmtDisjoint : StmtListHelperFreeCompiledCallsDisjoint runtimeContract (SourceSemantics.effectiveFields model) (fn.params.map (·.name)) fn.body)
+    (hinternal : runtimeContract.internalFunctions = [])
+    (hbodyCompile : compileStmtList model.fields model.events model.errors .calldata [] false (fn.params.map (·.name)) [] fn.body = Except.ok bodyStmts)
+    (hscope : FunctionBody.scopeNamesPresent (fn.params.map (·.name)) bindings)
+    (hbounded : FunctionBody.bindingsBounded bindings)
+    (hstateRuntime : FunctionBody.runtimeStateMatchesIR (SourceSemantics.effectiveFields model)
+      { world := SourceSemantics.withTransactionContext initialWorld tx, bindings := [], selector := tx.functionSelector } state)
+    (hstateBindings : FunctionBody.bindingsExactlyMatchIRVars bindings state) :
+    SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal runtimeContract model fn bodyStmts hSupported.helperFuel tx initialWorld state bindings extraFuel := by
+  have hsupportedFn := hSupported.supportedFunctionOfSelectorDispatched hfn
+  exact supported_function_body_correct_from_exact_state_generic_with_helpers_and_helper_ir_callsDisjoint_with_scalar_events
+    runtimeContract model fn bodyStmts hSupported.helperFuel tx initialWorld state bindings extraFuel
+    hbodyExtraFuelLower hfuelPos (by simpa [SourceSemantics.effectiveFields] using hSupported.normalizedFields)
+    hSupported.noErrors hSupported.noAdtTypes hsupportedFn.body.contractSurfaceWithEvents
+    hsupportedFn.body.topLevelEventHeads hhelperFree hsupportedFn.body.eventScratchFreshInitial
+    hsupportedFn.body.eventScratchFreshStmts hsupportedFn.body.emitArgsInScope hinternal
+    (hSupported.noAdtTypes ▸ hbodyCompile) hscope hbounded hstateRuntime hstateBindings hstmtDisjoint
+
+theorem supported_function_correct_with_scalar_events
+    (runtimeContract : IRContract) (model : CompilationModel) (selectors : List Nat) (hSupported : SupportedSpecWithScalarEvents model selectors)
+    (fn : FunctionSpec) (selector : Nat) (returns : List ParamType) (bodyStmts : List YulStmt) (irFn : IRFunction) (tx : IRTransaction)
+    (initialWorld : Verity.ContractState) (bindings : List (String × Nat)) (hfn : fn ∈ selectorDispatchedFunctions model)
+    (hvalidate : validateFunctionSpec fn = Except.ok ()) (hreturns : functionReturns fn = Except.ok returns)
+    (hbodyCompile : compileStmtList model.fields model.events model.errors .calldata [] false (fn.params.map (·.name)) [] fn.body = Except.ok bodyStmts)
+    (hcompile : compileFunctionSpec model.fields model.events model.errors [] selector fn = Except.ok irFn)
+    (hbind : SourceSemantics.bindSupportedParams fn.params tx.args = some bindings)
+    (htxNormalized : TxContextNormalized tx) (hcalldataSizeFits : TxCalldataSizeFitsEvm tx)
+    (hfuelPos : 0 < hSupported.helperFuel)
+    (hhelperFree : StmtListHelperFreeNonEventStepInterface (SourceSemantics.effectiveFields model) (fn.params.map (·.name)) fn.body)
+    (hstmtDisjoint : StmtListHelperFreeCompiledCallsDisjoint runtimeContract (SourceSemantics.effectiveFields model) (fn.params.map (·.name)) fn.body)
+    (hbodyDisjoint : YulStmtListCallsDisjointFromInternalTable runtimeContract bodyStmts) (hinternal : runtimeContract.internalFunctions = [])
+    (hhelperIR : execIRFunctionWithInternals runtimeContract 0 irFn tx.args (FunctionBody.initialIRStateForTx model tx initialWorld) = execIRFunction irFn tx.args (FunctionBody.initialIRStateForTx model tx initialWorld)) :
+    FunctionBody.sourceResultMatchesIRResult (supportedSourceFunctionSemanticsWithScalarEvents model selectors hSupported fn tx initialWorld) (execIRFunctionWithInternals runtimeContract 0 irFn tx.args (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
+  let initialState := FunctionBody.initialIRStateForTx model tx initialWorld
+  let state := ParamLoading.applyBindingsToIRState (prebindRawArgs initialState fn.params) bindings
+  let extraFuel := sizeOf irFn.body - irFn.body.length
+  have hcompiled := compileFunctionSpec_ok_of_components model.fields model.events model.errors selector fn returns bodyStmts hvalidate hreturns hbodyCompile
+  have hirFn : irFn = compiledFunctionIR selector fn returns bodyStmts := by
+    rw [hcompile] at hcompiled; injection hcompiled
+  have hbodyExtraFuelLower : sizeOf bodyStmts - bodyStmts.length ≤ extraFuel :=
+    supported_function_correct_with_scalar_events_body_extraFuelLower
+      model fn selector returns bodyStmts irFn hvalidate hreturns hbodyCompile hcompile extraFuel rfl
+  have hinit : FunctionBody.bindingsExactlyMatchIRVars [] initialState := by
+    simpa [initialState] using FunctionBody.bindingsExactlyMatchIRVars_nil_initialIRStateForTx model tx initialWorld
+  have hstateRuntime : FunctionBody.runtimeStateMatchesIR (SourceSemantics.effectiveFields model) { world := SourceSemantics.withTransactionContext initialWorld tx, bindings := [], selector := tx.functionSelector } state :=
+    supported_function_correct_with_scalar_events_state_runtime
+      model fn tx initialWorld bindings initialState state htxNormalized hcalldataSizeFits rfl rfl
+  have hstateBindings : FunctionBody.bindingsExactlyMatchIRVars bindings state :=
+    supported_function_param_state_exact initialState fn.params bindings hinit
+      (hSupported.selectorFunctionParamNamesNodup hfn) hbind
+  have hscope : FunctionBody.scopeNamesPresent (fn.params.map (·.name)) bindings := by
+    intro name hmem; exact lookupBinding?_some_of_mem bindings name (by rw [ParamLoading.bindSupportedParams_names hbind]; simpa using hmem)
+  have hbounded : FunctionBody.bindingsBounded bindings := FunctionBody.bindingsBounded_of_bindSupportedParams hbind
+  have hbodyCorrect := supported_function_correct_with_scalar_events_body_correct
+    runtimeContract model selectors hSupported fn bodyStmts tx initialWorld state bindings extraFuel hfn
+    hbodyExtraFuelLower hfuelPos hhelperFree hstmtDisjoint hinternal hbodyCompile
+    hscope hbounded hstateRuntime hstateBindings
+  have hbodyFuel : (genParamLoads fn.params ++ bodyStmts).length + extraFuel = sizeOf (compiledFunctionIR selector fn returns bodyStmts).body :=
+    supported_function_correct_with_scalar_events_body_fuel selector fn returns bodyStmts irFn extraFuel hirFn rfl
+  exact supported_function_correct_with_scalar_events_body_goal_and_helper_ir
+    model selectors hSupported runtimeContract fn selector returns bodyStmts irFn tx initialWorld
+    bindings hfn hvalidate hreturns hbodyCompile hcompile hbind htxNormalized extraFuel hbodyFuel
+    hbodyCorrect hbodyDisjoint hhelperIR hcalldataSizeFits
 
 /-- On the constructor body surface, expression compilation does not depend on
 the dynamic-data source. The only expression forms whose generated Yul differs

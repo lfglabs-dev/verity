@@ -303,6 +303,21 @@ inductive StmtListHelperFreeStepInterface
       StmtListHelperFreeStepInterface fields (stmtNextScope scope stmt) rest →
       StmtListHelperFreeStepInterface fields scope (stmt :: rest)
 
+/-- Scalar-event variant of the helper-free source-step interface. Event heads
+are discharged by `StmtListEventSurfaceStepInterface`, so helper-free compiled
+steps are required only for non-event heads. -/
+inductive StmtListHelperFreeNonEventStepInterface
+    (fields : List Field) : List String → List Stmt → Prop where
+  | nil {scope : List String} :
+      StmtListHelperFreeNonEventStepInterface fields scope []
+  | cons {scope : List String} {stmt : Stmt} {rest : List Stmt} :
+      (stmtTouchesUnsupportedHelperSurface stmt = false →
+        stmtTouchesEventSurface stmt = false →
+        ∃ compiledIR,
+          CompiledStmtStep fields scope stmt compiledIR) →
+      StmtListHelperFreeNonEventStepInterface fields (stmtNextScope scope stmt) rest →
+      StmtListHelperFreeNonEventStepInterface fields scope (stmt :: rest)
+
 /-- Exact step interface for direct event-emission heads. Non-event heads are
 discharged elsewhere; `.emit` heads must provide a helper-aware compiled step
 because event compilation depends on `spec.events`. -/

@@ -1423,7 +1423,7 @@ theorem supported_function_body_correct_from_exact_state_generic_with_helpers_an
     (hnoErrors : model.errors = []) (hnoAdtTypes : model.adtTypes = [])
     (hcontractSurface : stmtListTouchesUnsupportedContractSurfaceWithEvents model.events fn.body = false)
     (hheads : ∀ s ∈ fn.body, stmtTouchesEventSurface s = true ∨ stmtTouchesUnsupportedContractSurface s = false)
-    (hhelperFree : StmtListHelperFreeStepInterface (SourceSemantics.effectiveFields model) (fn.params.map (·.name)) fn.body)
+    (hhelperFree : StmtListHelperFreeNonEventStepInterface (SourceSemantics.effectiveFields model) (fn.params.map (·.name)) fn.body)
     (hfresh : "__evt_ptr" ∉ fn.params.map (·.name) ∧ "__evt_topic0" ∉ fn.params.map (·.name))
     (hfreshStmts : ∀ s ∈ fn.body, "__evt_ptr" ∉ collectStmtNames s ∧ "__evt_topic0" ∉ collectStmtNames s)
     (hinScopeEmit : ∀ s ∈ fn.body, ∀ (eventName : String) (args : List Expr),
