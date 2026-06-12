@@ -710,6 +710,31 @@ private def oracleTrustSurfaceSpec : CompilationModel := {
   ]
 }
 
+private def typedOracleSummaryTrustSurfaceSpec : CompilationModel := {
+  name := "TypedOracleSummaryTrustSurface"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "price"
+      params := [
+        { name := "oracle", ty := ParamType.address }
+      ]
+      returnType := none
+      returns := [ParamType.uint256]
+      body := [
+        Stmt.ecm
+          (Compiler.Modules.Oracle.typedReadWordSummaryModule
+            "answer"
+            "IOracle.price"
+            0xa035b1fe
+            0)
+          [Expr.param "oracle"],
+        Stmt.returnValues [Expr.localVar "answer"]
+      ]
+    }
+  ]
+}
+
 private def callWithValueTrustSurfaceSpec : CompilationModel := {
   name := "CallWithValueTrustSurface"
   fields := []
@@ -1629,6 +1654,16 @@ unsafe def runTests : IO Unit := do
   if !contains oracleTrustReport "\"assumed\":{\"axiomatizedPrimitives\":[],\"linkedExternals\":[],\"ecmModules\":[\"oracleReadUint256\"],\"localObligations\":[]}" then
     throw (IO.userError "✗ oracle trust report emits assumed ECM proof-status bucket")
   IO.println "✓ oracle trust report emits standard oracle module assumption"
+
+  let typedOracleTrustReport := emitTrustReportJson [typedOracleSummaryTrustSurfaceSpec]
+  if !contains typedOracleTrustReport "\"module\":\"oracleSummary\"" ||
+      !contains typedOracleTrustReport "\"assumption\":\"oracle_summary:IOracle.price\"" then
+    throw (IO.userError "✗ typed oracle summary trust report emits source-shaped summary assumption")
+  if !contains typedOracleTrustReport "\"externalSummary\":{\"name\":\"IOracle.price\",\"selector\":2687873534,\"mutability\":\"staticcall\",\"assumptions\":[\"oracle_summary:IOracle.price\"]}" then
+    throw (IO.userError "✗ typed oracle summary trust report emits exact summary name, selector, and staticcall mutability")
+  if contains typedOracleTrustReport "oracle_read_uint256_interface" then
+    throw (IO.userError "✗ typed oracle summary trust report should not use legacy oracle_read_uint256_interface")
+  IO.println "✓ typed oracle summary trust report emits exact summary metadata"
 
   let callWithValueTrustReport := emitTrustReportJson [callWithValueTrustSurfaceSpec]
   if !contains callWithValueTrustReport "\"contract\":\"CallWithValueTrustSurface\"" then

@@ -60,9 +60,13 @@ example :
         fn.body.any (fun stmt =>
           match stmt with
           | Compiler.CompilationModel.Stmt.ecm mod args =>
-              mod.name == "externalCallWithReturn" &&
+              mod.name == "oracleSummary" &&
                 mod.numArgs == 2 &&
                 mod.resultVars == ["bal"] &&
+                mod.summaryName == "IERC20.balanceOf" &&
+                mod.summarySelector == some 0x70a08231 &&
+                mod.summaryMutability == Compiler.ECM.StatefulExternal.Mutability.staticcall &&
+                mod.axioms == ["oracle_summary:IERC20.balanceOf"] &&
                 mod.readsState &&
                 !mod.writesState &&
                 args.length == 2
@@ -75,9 +79,13 @@ example :
         fn.body.any (fun stmt =>
           match stmt with
           | Compiler.CompilationModel.Stmt.ecm mod args =>
-              mod.name == "externalCallWithReturn" &&
+              mod.name == "oracleSummary" &&
                 mod.numArgs == 2 &&
                 mod.resultVars == ["bal"] &&
+                mod.summaryName == "IERC20.balanceOf" &&
+                mod.summarySelector == some 0x70a08231 &&
+                mod.summaryMutability == Compiler.ECM.StatefulExternal.Mutability.staticcall &&
+                mod.axioms == ["oracle_summary:IERC20.balanceOf"] &&
                 mod.readsState &&
                 !mod.writesState &&
                 args.length == 2
@@ -99,6 +107,42 @@ example :
           | _ => false)) = true := by
   decide
 
+verity_contract MorphoStyleOracleSummarySmoke where
+  storage
+    lastPrice : Uint256 := slot 0
+
+  interfaces
+    interface IOracle where
+      function price() view returns (Uint256)
+    end
+
+  function allow_post_interaction_writes snapshotPrice (oracle : IOracle) : Uint256 := do
+    let price ← oracle.price
+    setStorage lastPrice price
+    return price
+
+def morphoOracleReadUsesSummary : Bool :=
+  (MorphoStyleOracleSummarySmoke.spec.functions).any (fun fn =>
+    fn.name == "snapshotPrice" &&
+      fn.body.any (fun stmt =>
+        match stmt with
+        | Compiler.CompilationModel.Stmt.ecm mod args =>
+            mod.name == "oracleSummary" &&
+              mod.numArgs == 1 &&
+              mod.resultVars == ["price"] &&
+              mod.summaryName == "IOracle.price" &&
+              mod.summarySelector == some 0xa035b1fe &&
+              mod.summaryMutability == Compiler.ECM.StatefulExternal.Mutability.staticcall &&
+              mod.axioms == ["oracle_summary:IOracle.price"] &&
+              !mod.axioms.contains "oracle_read_uint256_interface" &&
+              mod.readsState &&
+              !mod.writesState &&
+              args.length == 1
+        | _ => false))
+
+example : morphoOracleReadUsesSummary = true := by
+  decide
+
 -- Void (no-`returns`) interface methods lower to the no-output `externalCallNoReturn` ECM:
 -- a selector+args `call(...)` that bubbles failure returndata but performs no `returndatasize`
 -- check and binds no result. This is what real void callees (e.g. Aave V3 `supply`/`borrow`,
@@ -118,7 +162,7 @@ verity_contract VoidInterfaceCallSmoke where
   function doSupply (pool : IPool, asset : Address, amount : Uint256, onBehalfOf : Address) : Unit := do
     pool.supply asset amount onBehalfOf 0
 
-  -- a non-void method on the same interface still binds and return-checks as before
+  -- a non-void view method on the same interface still binds its single ABI-word result.
   function readBal (pool : IPool, owner : Address) : Uint256 := do
     let bal ← pool.balanceOf owner
     return bal
@@ -145,16 +189,18 @@ example :
           | _ => false)) = true := by
   decide
 
--- the non-void method on the same interface is unaffected: still `externalCallWithReturn`,
--- binds its result, performs the 32-byte returndata check.
+-- the non-void view method on the same interface lowers through an oracle
+-- summary and binds its single ABI-word result.
 example :
     (VoidInterfaceCallSmoke.spec.functions).any (fun fn =>
       fn.name == "readBal" &&
         fn.body.any (fun stmt =>
           match stmt with
           | Compiler.CompilationModel.Stmt.ecm mod args =>
-              mod.name == "externalCallWithReturn" &&
+                mod.name == "oracleSummary" &&
                 mod.resultVars == ["bal"] &&
+                mod.summaryName == "IPool.balanceOf" &&
+                mod.summaryMutability == Compiler.ECM.StatefulExternal.Mutability.staticcall &&
                 args.length == 2
           | _ => false)) = true := by
   decide
