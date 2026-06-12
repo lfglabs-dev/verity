@@ -1040,7 +1040,7 @@ private theorem eventScalarUnindexedStoresFrom_legacy
       simp [scalarEventUnindexedStoresFrom]
       exact .expr _ _ (ih (headOffset + eventHeadWordSize param.ty))
 
-private theorem eventCompiledScalarEmit_legacy
+theorem eventCompiledScalarEmit_legacy
     (eventDef : EventDef) (args : List Expr) (argExprs : List YulExpr) :
     LegacyCompatibleExternalStmtList
       (compileScalarEmitFromCompiledArgs eventDef args argExprs) := by
@@ -2256,7 +2256,7 @@ private theorem eventBindingsExactlyMatch_after_emit
   intro name hname
   simpa [IRState.getVar] using hexactTopic name hname
 
-private theorem eventCompileStmt_emit_scalar_shape
+theorem eventCompileStmt_emit_scalar_shape
     {fields : List Field} {spec : CompilationModel} {scope : List String}
     {eventName : String} {args : List Expr} {compiledIR : List YulStmt}
     (hsupport : eventEmissionProofSupported spec.events eventName args = true)
