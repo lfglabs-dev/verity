@@ -16,6 +16,7 @@ import Contracts.ProxyUpgradeabilityMacroSmoke
 import Contracts.Smoke
 import Contracts.StringArrayErrorSmoke
 import Contracts.StringArrayEventSmoke
+import Verity.Core.Model.Denote
 import Verity.Macro.Translate
 
 -- The `unnecessarySeqFocus` linter recurses through every tactic block in the
@@ -5195,6 +5196,49 @@ example : routerSpecUsesTypedEventsAndReturns = true := by native_decide
 example : routerStructMembersDestructuringKeepsMemberTypes = true := by native_decide
 
 end MacroSolidityTypeFidelitySmoke
+
+namespace PackedStructMemberDenoteSmoke
+
+private def oracle : Denote.DenoteOracle :=
+  { mappingSlot := fun base key => base * 1000 + key
+    keccakMemorySlice := fun _ _ _ => 0 }
+
+private def fields : List Field :=
+  [{ name := "deposits",
+     ty := FieldType.mappingStruct MappingKeyType.address
+       [{ name := "deposit", wordOffset := 0, packed := none },
+        { name := "staked", ty := .bool, wordOffset := 1,
+          packed := some { offset := 0, width := 1 } },
+        { name := "stake", wordOffset := 1,
+          packed := some { offset := 1, width := 112 } },
+        { name := "unstakeDelaySec", ty := .uint256, wordOffset := 1,
+          packed := some { offset := 113, width := 32 } },
+        { name := "withdrawTime", wordOffset := 1,
+          packed := some { offset := 145, width := 48 } }],
+     «slot» := some 1 }]
+
+private def key : Nat := 7
+private def packedSlot : Nat := oracle.mappingSlot 1 key + 1
+private def oldWord : Nat := 1 + 5 * 2 ^ 1 + 9 * 2 ^ 113
+private def expectedWord : Nat := 1 + 7 * 2 ^ 1 + 9 * 2 ^ 113
+
+private def preservesAdjacentPackedFields : Bool :=
+  let world : Verity.ContractState :=
+    { Verity.defaultState with
+      «storage» := fun s => if s == packedSlot then oldWord else 0 }
+  let state : Denote.DenoteState := { world := world, bindings := [] }
+  match Denote.execStmt oracle fields state
+      (Stmt.setStructMember "deposits" (.literal key) "stake" (.literal 7)) with
+  | .continue next =>
+      (next.world.storage packedSlot).val == expectedWord
+  | _ => false
+
+#eval! do
+  expectTrue
+    "packed mapping struct writes preserve adjacent fields in the same word"
+    preservesAdjacentPackedFields
+
+end PackedStructMemberDenoteSmoke
 
 set_option maxRecDepth 4096 in
 #eval! do

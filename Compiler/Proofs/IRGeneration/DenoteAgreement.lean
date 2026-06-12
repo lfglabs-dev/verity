@@ -291,6 +291,12 @@ theorem writeAddressKeyedMapping2Slots_eq
     Denote.writeAddressKeyedMapping2WordSlots sourceOracle w slots k1 k2 off v =
       SourceSemantics.writeAddressKeyedMapping2WordSlots w slots k1 k2 off v := rfl
 
+@[simp] theorem writeAddressKeyedMapping2PackedWordSlots_eq
+    (w : Verity.ContractState) (slots : List Nat) (k1 k2 off : Nat)
+    (p : PackedBits) (v : Nat) :
+    Denote.writeAddressKeyedMapping2PackedWordSlots sourceOracle w slots k1 k2 off p v =
+      SourceSemantics.writeAddressKeyedMapping2PackedWordSlots w slots k1 k2 off p v := rfl
+
 @[simp] theorem writeAddressKeyedMappingChainSlots_eq
     (w : Verity.ContractState) (slots keys : List Nat) (v : Nat) :
     Denote.writeAddressKeyedMappingChainSlots sourceOracle w slots keys v =

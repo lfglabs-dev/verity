@@ -410,6 +410,20 @@ def writeAddressKeyedMapping2WordSlots (oracle : DenoteOracle)
     storage := fun slot =>
       if targets.contains slot then word else world.storage slot }
 
+def writeAddressKeyedMapping2PackedWordSlots (oracle : DenoteOracle)
+    (world : Verity.ContractState) (slots : List Nat) (key1 key2 wordOffset : Nat)
+    (packed : PackedBits) (value : Nat) :
+    Verity.ContractState :=
+  let targets := slots.map (fun slot =>
+    wordNormalize
+      (oracle.mappingSlot (oracle.mappingSlot slot key1) key2 + wordOffset))
+  { world with
+    storage := fun slot =>
+      if targets.contains slot then
+        packedWordWrite (world.storage slot).val value packed
+      else
+        world.storage slot }
+
 def storageArraySetAt :
     List Verity.Core.Uint256 → Nat → Verity.Core.Uint256 → Option (List Verity.Core.Uint256)
   | [], _, _ => none
@@ -833,6 +847,14 @@ mutual
                   { state with
                       world := writeAddressKeyedMappingWordSlots oracle
                         state.world slots resolvedKey wordOffset resolved }
+            | some { wordOffset := wordOffset, packed := some packed, .. } =>
+                if packedBitsValid packed then
+                  .continue
+                    { state with
+                        world := writeAddressKeyedMappingPackedWordSlots oracle
+                          state.world slots resolvedKey wordOffset packed resolved }
+                else
+                  .revert
             | _ => .revert
         | _, _, _, _ => .revert
     | state, .setMapping2 fieldName key1 key2 value =>
@@ -881,6 +903,14 @@ mutual
                   { state with
                       world := writeAddressKeyedMapping2WordSlots oracle
                         state.world slots resolvedKey1 resolvedKey2 wordOffset resolved }
+            | some { wordOffset := wordOffset, packed := some packed, .. } =>
+                if packedBitsValid packed then
+                  .continue
+                    { state with
+                        world := writeAddressKeyedMapping2PackedWordSlots oracle
+                          state.world slots resolvedKey1 resolvedKey2 wordOffset packed resolved }
+                else
+                  .revert
             | _ => .revert
         | _, _, _, _, _ => .revert
     | state, .setMappingUint fieldName key value =>
