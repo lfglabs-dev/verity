@@ -82,7 +82,7 @@ Tracking:
 - No Lean axioms remain in Layer 2; 0 `sorry` placeholders remain. The `storageLookup_projectStorage` proof (previously a sorry) is now complete, using `Batteries.RBMap.find?_insert` lemmas with an injectivity argument over in-range storage slots.
 - Stateful environment-reading builtins route through native EVMYulLean context construction: `callvalue`, `timestamp`, `number`, `caller`, `address`, and `calldatasize`.
 - Additional explicit precondition: the generic theorem surface now requires the observed transaction-context fields (`sender`, `thisAddress`, `msgValue`, `blockTimestamp`, `blockNumber`, `chainId`) to already fit the bounded source-side `Address`/`Uint256` domains
-- Outside the current generic theorem or current proof model: events/logs, proxy/delegatecall upgradeability, linked externals, local unsafe obligations, and other trust-surfaced features not captured by the current supported whole-contract fragment
+- Outside the current generic theorem or current proof model: nested event emissions inside structural statements (`ite`/`forEach`), proxy/delegatecall upgradeability, linked externals, local unsafe obligations, and other trust-surfaced features not captured by the current supported whole-contract fragment. Scalar event emissions are supported only as top-level `emit` statements with scalar parameters and at most three indexed parameters.
 
 Key files:
 - [`TypedIRCompilerCorrectness.lean`](../Compiler/TypedIRCompilerCorrectness.lean)

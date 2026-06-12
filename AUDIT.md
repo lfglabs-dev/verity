@@ -36,6 +36,11 @@ scalar event emission semantics, discharging the `EventHeadStepSemanticBridgeCat
 obligation with per-statement step lemmas, memory wrapping facts, and normalized-word
 equivalence theorems. Proof-only scaffolding; no compiler output changes.
 
+The current generic scalar-event slice is intentionally top-level only: supported
+`emit` statements may appear as function-body heads with scalar parameters and at
+most three indexed parameters. Nested emits inside structural statements remain
+future work, and the Yul/EndToEnd proof layers still exclude event/log semantics.
+
 ### Compiler-Side Emit-Argument Scope Collection (2026-06)
 
 `collectStmtNames` (Compiler/CompilationModel/ValidationHelpers.lean) emit arm now returns
