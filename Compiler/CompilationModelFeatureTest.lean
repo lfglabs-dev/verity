@@ -5731,6 +5731,8 @@ set_option maxRecDepth 4096 in
     (contains arithmeticPanicYul s!"function {panicError0x11HelperName}()" &&
       contains arithmeticPanicYul s!"function {panicError0x12HelperName}()" &&
       contains arithmeticPanicYul "shl(224, 0x4e487b71)" &&
+      contains arithmeticPanicYul "mstore(4, 17)" &&
+      contains arithmeticPanicYul "mstore(4, 18)" &&
       contains arithmeticPanicYul "revert(0, 36)")
   let envYul ← expectCompileToYul "env runtime smoke spec" envRuntimeSmokeSpec
   expectTrue "address(this) lowers to the Yul address builtin"
