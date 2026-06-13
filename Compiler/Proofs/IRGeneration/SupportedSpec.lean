@@ -1358,7 +1358,8 @@ theorem: richer returns, logs, typed errors, and raw external effect hooks. -/
 def stmtTouchesUnsupportedEffectSurface : Stmt → Bool
   | .requireError _ _ _ | .revertError _ _ | .returnValues _ | .returnArray _
   | .returnBytes _ | .returnStorageWords _ | .returnCodeData _ | .emit _ _ | .rawLog _ _ _
-  | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _ | .ecm _ _ => true
+  | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _ => true
+  | .ecm mod _ => !(ecmPureHashing mod)
   | .letVar _ _ | .assignVar _ _ | .setStorage _ _ | .setStorageAddr _ _
   | .setStorageWord _ _ _
   | .require _ _ | .return _ | .mstore _ _ | .tstore _ _ | .stop
@@ -3435,6 +3436,9 @@ theorem SupportedStmtList.helperSurfaceClosed
       simpa [stmtListTouchesUnsupportedHelperSurface,
         stmtTouchesUnsupportedHelperSurface]
         using exprListCompileCore_helperSurfaceClosed hcoreAll
+  | pureHashingEcm _ _ _ =>
+      simp [stmtListTouchesUnsupportedHelperSurface,
+        stmtTouchesUnsupportedHelperSurface]
   | letMappingField hkey _ _ =>
       simp only [stmtListTouchesUnsupportedHelperSurface,
         stmtTouchesUnsupportedHelperSurface,
@@ -3580,6 +3584,9 @@ theorem SupportedStmtList.internalHelperCallNames_nil
         exprInternalHelperCallNames,
         List.nil_append, List.append_nil]
   | emitEvent hcoreAll _ =>
+      simpa [stmtListInternalHelperCallNames, stmtInternalHelperCallNames]
+        using exprListCompileCore_internalHelperCallNames_nil hcoreAll
+  | pureHashingEcm _ hcoreAll _ =>
       simpa [stmtListInternalHelperCallNames, stmtInternalHelperCallNames]
         using exprListCompileCore_internalHelperCallNames_nil hcoreAll
   | letMappingField hkey _ _ =>
@@ -5565,6 +5572,9 @@ private theorem supportedStmtList_usesArrayElement_false
   | emitEvent hcoreAll _ =>
       simpa [stmtListUsesArrayElement, stmtUsesArrayElement]
         using exprListCompileCore_usesArrayElement_false hcoreAll
+  | pureHashingEcm _ hcoreAll _ =>
+      simpa [stmtListUsesArrayElement, stmtUsesArrayElement]
+        using exprListCompileCore_usesArrayElement_false hcoreAll
   | letMappingField hkey _ _ =>
       simp only [stmtListUsesArrayElement, stmtUsesArrayElement, exprUsesArrayElement,
         exprCompileCore_usesArrayElement_false hkey, Bool.false_or]
@@ -5681,6 +5691,9 @@ private theorem supportedStmtList_usesStorageArrayElement_false
   | emitEvent hcoreAll _ =>
       simpa [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement]
         using exprListCompileCore_usesStorageArrayElement_false hcoreAll
+  | pureHashingEcm _ hcoreAll _ =>
+      simpa [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement]
+        using exprListCompileCore_usesStorageArrayElement_false hcoreAll
   | letMappingField hkey _ _ =>
       simp only [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
         exprUsesStorageArrayElement,
@@ -5795,6 +5808,9 @@ private theorem supportedStmtList_usesDynamicBytesEq_false
   | assignStorageAddrField _ _ =>
       simp only [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq, exprUsesDynamicBytesEq, Bool.false_or]
   | emitEvent hcoreAll _ =>
+      simpa [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq]
+        using exprListCompileCore_usesDynamicBytesEq_false hcoreAll
+  | pureHashingEcm _ hcoreAll _ =>
       simpa [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq]
         using exprListCompileCore_usesDynamicBytesEq_false hcoreAll
   | letMappingField hkey _ _ =>
@@ -6168,6 +6184,9 @@ private theorem supportedStmtList_usesMulDiv512_false
   | emitEvent hcoreAll _ =>
       simpa [stmtListUsesMulDiv512, stmtUsesMulDiv512]
         using exprListCompileCore_usesMulDiv512_false hcoreAll
+  | pureHashingEcm _ hcoreAll _ =>
+      simpa [stmtListUsesMulDiv512, stmtUsesMulDiv512]
+        using exprListCompileCore_usesMulDiv512_false hcoreAll
   | letMappingField hkey _ _ =>
       simp only [stmtListUsesMulDiv512, stmtUsesMulDiv512, exprUsesMulDiv512,
         exprCompileCore_usesMulDiv512_false hkey, Bool.false_or]
@@ -6278,6 +6297,9 @@ private theorem supportedStmtList_usesParamDynamicHeadWord_false
   | assignStorageAddrField _ _ =>
       simp only [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord, exprUsesParamDynamicHeadWord, Bool.false_or]
   | emitEvent hcoreAll _ =>
+      simpa [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord]
+        using exprListCompileCore_usesParamDynamicHeadWord_false hcoreAll
+  | pureHashingEcm _ hcoreAll _ =>
       simpa [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord]
         using exprListCompileCore_usesParamDynamicHeadWord_false hcoreAll
   | letMappingField hkey _ _ =>

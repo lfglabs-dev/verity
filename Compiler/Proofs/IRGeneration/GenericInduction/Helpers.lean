@@ -1587,6 +1587,9 @@ theorem stmtListGenericCore_of_supportedStmtList_of_surface
         hnoConflict hfind hfieldInScope
   | emitEvent _ _ =>
       exact False.elim (false_of_supportedStmtList_emitEvent_surface hsurface)
+  | pureHashingEcm _ _ _ =>
+      simp [stmtListTouchesUnsupportedContractSurface,
+        stmtTouchesUnsupportedContractSurface] at hsurface
   | letMappingField _ _ _ =>
       exact False.elim (false_of_supportedStmtList_letMappingField_surface hsurface)
   | letMappingWordField _ _ _ =>
@@ -1689,6 +1692,10 @@ theorem stmtListGenericCore_of_supportedStmtList_of_surface_exceptMappingWrites
   | emitEvent _ _ =>
       exact False.elim
         (false_of_supportedStmtList_emitEvent_surface_exceptMappingWrites hsurface)
+  | pureHashingEcm _ _ _ =>
+      simp [stmtListTouchesUnsupportedContractSurfaceExceptMappingWrites,
+        stmtTouchesUnsupportedContractSurfaceExceptMappingWrites,
+        stmtTouchesUnsupportedContractSurface] at hsurface
   | letMappingField _ _ _ =>
       exact False.elim
         (false_of_supportedStmtList_letMappingField_surface_exceptMappingWrites hsurface)
@@ -1948,6 +1955,10 @@ theorem stmtListGenericCore_of_supportedStmtList_of_surface_exceptMappingWrites_
   | emitEvent _ _ =>
       exact False.elim
         (false_of_supportedStmtList_emitEvent_surface_exceptMappingWrites hsurface)
+  | pureHashingEcm _ _ _ =>
+      simp [stmtListTouchesUnsupportedContractSurfaceExceptMappingWrites,
+        stmtTouchesUnsupportedContractSurfaceExceptMappingWrites,
+        stmtTouchesUnsupportedContractSurface] at hsurface
   | letMappingField _ _ _ =>
       exact False.elim
         (false_of_supportedStmtList_letMappingField_surface_exceptMappingWrites hsurface)

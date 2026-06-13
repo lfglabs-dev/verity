@@ -5223,6 +5223,17 @@ private theorem stmtListTouchesUnsupportedEffectSurface_append
   | cons stmt rest ih =>
       simp [stmtListTouchesUnsupportedEffectSurface, ih, Bool.or_assoc]
 
+private theorem stmtListTouchesUnsupportedCallSurface_append
+    (pfx sfx : List CompilationModel.Stmt) :
+    stmtListTouchesUnsupportedCallSurface (pfx ++ sfx) =
+      (stmtListTouchesUnsupportedCallSurface pfx ||
+        stmtListTouchesUnsupportedCallSurface sfx) := by
+  induction pfx with
+  | nil =>
+      simp [stmtListTouchesUnsupportedCallSurface]
+  | cons stmt rest ih =>
+      simp [stmtListTouchesUnsupportedCallSurface, ih, Bool.or_assoc]
+
 /-- Generic source-body closure from `SupportedStmtList` to
 `BridgedSafeStmts` on the helper-free external-call surface.
 
@@ -5236,6 +5247,7 @@ theorem supportedStmtList_safe_of_state_effect_closed
     {scope : List String} {stmts : List CompilationModel.Stmt}
     (hSupported : SupportedStmtList fields scope stmts)
     (hState : stmtListTouchesUnsupportedStateSurface stmts = false)
+    (hCall : stmtListTouchesUnsupportedCallSurface stmts = false)
     (hEffects : stmtListTouchesUnsupportedEffectSurface stmts = false) :
     Compiler.Proofs.YulGeneration.Backends.BridgedSafeStmts
       fields errors dynamicSource [] false stmts := by
@@ -5275,6 +5287,9 @@ theorem supportedStmtList_safe_of_state_effect_closed
   | emitEvent =>
       simp [stmtListTouchesUnsupportedEffectSurface,
         stmtTouchesUnsupportedEffectSurface] at hEffects
+  | pureHashingEcm =>
+      simp [stmtListTouchesUnsupportedCallSurface,
+        stmtTouchesUnsupportedCallSurface] at hCall
   | letMappingField =>
       simp [stmtListTouchesUnsupportedStateSurface,
         stmtTouchesUnsupportedStateSurface, exprTouchesUnsupportedStateSurface] at hState
@@ -5362,6 +5377,12 @@ theorem supportedStmtList_safe_of_state_effect_closed
                 exprTouchesUnsupportedStateSurface] using
                 (Bool.or_eq_false_iff.mp hState).2)
             (by
+              simpa [stmtListTouchesUnsupportedCallSurface,
+                stmtTouchesUnsupportedCallSurface,
+                Verity.Core.Free.RequireLiteralGuardFamilyClause.toStmt,
+                exprTouchesUnsupportedCallSurface] using
+                (Bool.or_eq_false_iff.mp hCall).2)
+            (by
               simpa [stmtListTouchesUnsupportedEffectSurface,
                 stmtTouchesUnsupportedEffectSurface,
                 Verity.Core.Free.RequireLiteralGuardFamilyClause.toStmt] using
@@ -5373,11 +5394,14 @@ theorem supportedStmtList_safe_of_state_effect_closed
           (FunctionBody.StmtListCompileCore.nil))
   | append hpfx hsfx ihPfx ihSfx =>
       rw [stmtListTouchesUnsupportedStateSurface_append] at hState
+      rw [stmtListTouchesUnsupportedCallSurface_append] at hCall
       rw [stmtListTouchesUnsupportedEffectSurface_append] at hEffects
       exact Compiler.Proofs.YulGeneration.Backends.BridgedSafeStmts.append
         (ihPfx (Bool.or_eq_false_iff.mp hState).1
+          (Bool.or_eq_false_iff.mp hCall).1
           (Bool.or_eq_false_iff.mp hEffects).1)
         (ihSfx (Bool.or_eq_false_iff.mp hState).2
+          (Bool.or_eq_false_iff.mp hCall).2
           (Bool.or_eq_false_iff.mp hEffects).2)
 
 /-- Generic source-body closure from `SupportedStmtList` to `BridgedSafeStmts`
@@ -5397,6 +5421,7 @@ theorem supportedStmtList_safe_of_state_except_mapping_writes_stmt_safety
     (hSafety : ∀ stmt ∈ stmts, StmtMappingWriteSlotSafe fields stmt)
     (hState :
       stmtListTouchesUnsupportedStateSurfaceExceptMappingWrites stmts = false)
+    (hCall : stmtListTouchesUnsupportedCallSurface stmts = false)
     (hEffects : stmtListTouchesUnsupportedEffectSurface stmts = false) :
     Compiler.Proofs.YulGeneration.Backends.BridgedSafeStmts
       fields errors dynamicSource [] false stmts := by
@@ -5440,6 +5465,9 @@ theorem supportedStmtList_safe_of_state_except_mapping_writes_stmt_safety
   | emitEvent =>
       simp [stmtListTouchesUnsupportedEffectSurface,
         stmtTouchesUnsupportedEffectSurface] at hEffects
+  | pureHashingEcm =>
+      simp [stmtListTouchesUnsupportedCallSurface,
+        stmtTouchesUnsupportedCallSurface] at hCall
   | letMappingField =>
       simp [stmtListTouchesUnsupportedStateSurfaceExceptMappingWrites,
         stmtTouchesUnsupportedStateSurfaceExceptMappingWrites,
@@ -5655,6 +5683,12 @@ theorem supportedStmtList_safe_of_state_except_mapping_writes_stmt_safety
                 exprTouchesUnsupportedStateSurface] using
                 (Bool.or_eq_false_iff.mp hState).2)
             (by
+              simpa [stmtListTouchesUnsupportedCallSurface,
+                stmtTouchesUnsupportedCallSurface,
+                Verity.Core.Free.RequireLiteralGuardFamilyClause.toStmt,
+                exprTouchesUnsupportedCallSurface] using
+                (Bool.or_eq_false_iff.mp hCall).2)
+            (by
               simpa [stmtListTouchesUnsupportedEffectSurface,
                 stmtTouchesUnsupportedEffectSurface,
                 Verity.Core.Free.RequireLiteralGuardFamilyClause.toStmt] using
@@ -5666,6 +5700,7 @@ theorem supportedStmtList_safe_of_state_except_mapping_writes_stmt_safety
           (FunctionBody.StmtListCompileCore.nil))
   | @append scope pfx sfx hpfx hsfx ihPfx ihSfx =>
       rw [stmtListTouchesUnsupportedStateSurfaceExceptMappingWrites_append] at hState
+      rw [stmtListTouchesUnsupportedCallSurface_append] at hCall
       rw [stmtListTouchesUnsupportedEffectSurface_append] at hEffects
       have hSafetyPfx : ∀ stmt ∈ pfx, StmtMappingWriteSlotSafe fields stmt := by
         intro stmt hMem
@@ -5675,8 +5710,10 @@ theorem supportedStmtList_safe_of_state_except_mapping_writes_stmt_safety
         exact hSafety stmt (by simp [hMem])
       exact Compiler.Proofs.YulGeneration.Backends.BridgedSafeStmts.append
         (ihPfx hSafetyPfx (Bool.or_eq_false_iff.mp hState).1
+          (Bool.or_eq_false_iff.mp hCall).1
           (Bool.or_eq_false_iff.mp hEffects).1)
         (ihSfx hSafetySfx (Bool.or_eq_false_iff.mp hState).2
+          (Bool.or_eq_false_iff.mp hCall).2
           (Bool.or_eq_false_iff.mp hEffects).2)
 
 /-- Every selector-dispatched source function in a `SupportedSpec` has a
@@ -5697,6 +5734,8 @@ theorem generatedRuntimeSafeBodies_of_supported
   exact supportedStmtList_safe_of_state_effect_closed
     (hSupported.supportedFunctionOfSelectorDispatched hfn).body.stmtList
     (hSupported.supportedFunctionOfSelectorDispatched hfn).body.state.surfaceClosed
+    (SupportedBodyCallInterface.surfaceClosed
+      (hSupported.supportedFunctionOfSelectorDispatched hfn).body)
     (hSupported.supportedFunctionOfSelectorDispatched hfn).body.effects.surfaceClosed
 
 /-- Direct source-function closure from `SupportedSpec.functions` to
@@ -5716,6 +5755,7 @@ theorem supportedFunctionBody_safe_of_supported
   exact supportedStmtList_safe_of_state_effect_closed
     (supportedFunctionSupportedStmtList_of_supported hSupported fn hmem)
     (hSupported.functions fn hmem).body.state.surfaceClosed
+    (SupportedBodyCallInterface.surfaceClosed (hSupported.functions fn hmem).body)
     (hSupported.functions fn hmem).body.effects.surfaceClosed
 
 /-- Direct source-function closure for the weaker mapping-write-supported
@@ -5733,6 +5773,8 @@ theorem supportedFunctionBody_safe_of_supported_except_mapping_writes_stmt_safet
     (hSupported.functions fn hmem).body.stmtList
     hSafety
     (hSupported.functions fn hmem).body.state.surfaceClosed
+    (SupportedBodyCallInterface.surfaceClosed_exceptMappingWrites
+      (hSupported.functions fn hmem).body)
     (hSupported.functions fn hmem).body.effects.surfaceClosed
 
 /-- Selector-dispatched source functions in the weaker mapping-write-supported
@@ -5756,6 +5798,8 @@ theorem generatedRuntimeSafeBodies_of_supported_except_mapping_writes_stmt_safet
     (hSupported.supportedFunctionOfSelectorDispatched hfn).body.stmtList
     (hSafety entry hentry)
     (hSupported.supportedFunctionOfSelectorDispatched hfn).body.state.surfaceClosed
+    (SupportedBodyCallInterface.surfaceClosed_exceptMappingWrites
+      (hSupported.supportedFunctionOfSelectorDispatched hfn).body)
     (hSupported.supportedFunctionOfSelectorDispatched hfn).body.effects.surfaceClosed
 
 /-- A supported constructor exposes the same source statement-list witness as
@@ -5786,7 +5830,10 @@ theorem generatedConstructorSafeBody_of_supported_state_closed
   exact supportedStmtList_safe_of_state_effect_closed
     (dynamicSource := .memory)
     (generatedConstructorSupportedStmtList_of_supported hSupported ctor hctor)
-    hState hEffects
+    hState
+    (SupportedBodyCallInterface.surfaceClosed_exceptMappingWrites
+      (hSupported.constructor ctor hctor).body)
+    hEffects
 
 /-- Supported constructors already carry the effect-surface closure witness in
 their `SupportedConstructor` body interface. The only remaining explicit
@@ -5821,6 +5868,8 @@ theorem generatedConstructorSafeBody_of_supported_stmt_safety
     (generatedConstructorSupportedStmtList_of_supported hSupported ctor hctor)
     hSafety
     (hSupported.constructor ctor hctor).body.state.surfaceClosed
+    (SupportedBodyCallInterface.surfaceClosed_exceptMappingWrites
+      (hSupported.constructor ctor hctor).body)
     (hSupported.constructor ctor hctor).body.effects.surfaceClosed
 
 /-- If a constructor body has a `BridgedSafeStmts` witness, the Yul statements
