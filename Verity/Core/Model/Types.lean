@@ -22,6 +22,7 @@
 -/
 
 import Verity.Core.Model.Constants
+import Verity.Core.Model.CodeData
 import Verity.Core.Model.ECM
 import Verity.Core.Model.ProofStatus
 import Verity.Core.Model.Yul.Ast
