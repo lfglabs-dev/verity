@@ -239,6 +239,7 @@ private theorem compileValidatedCore_ok_yields_internalFunctions_nil
   rw [hSupported.normalizedFields, hfallback, hreceive,
     contractUsesPlainArrayElement, contractUsesArrayElementWord, harray,
     hstorageArray, hdynamicBytesEq, hmulDiv512, hparamDyn,
+    hSupported.noCheckedArithmetic,
     hnoInternalFns, hSupported.noAdtTypes] at hcore
   simp only [bind, Except.bind, pure, Except.pure, List.mapM_nil] at hcore
   simp only [guardedFunctionsMapM_eq model.fields model.events model.errors [] [] _

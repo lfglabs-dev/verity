@@ -3492,8 +3492,11 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.SupportedSpecExceptMappingWrites.noExternals
   Compiler.Proofs.IRGeneration.SupportedSpecWithScalarEvents.noExternals
   Compiler.Proofs.IRGeneration.SupportedSpec.noAdtTypes
+  Compiler.Proofs.IRGeneration.SupportedSpec.noCheckedArithmetic
   Compiler.Proofs.IRGeneration.SupportedSpecExceptMappingWrites.noAdtTypes
+  Compiler.Proofs.IRGeneration.SupportedSpecExceptMappingWrites.noCheckedArithmetic
   Compiler.Proofs.IRGeneration.SupportedSpecWithScalarEvents.noAdtTypes
+  Compiler.Proofs.IRGeneration.SupportedSpecWithScalarEvents.noCheckedArithmetic
   Compiler.Proofs.IRGeneration.SupportedSpec.noFallback
   Compiler.Proofs.IRGeneration.SupportedSpecExceptMappingWrites.noFallback
   Compiler.Proofs.IRGeneration.SupportedSpec.noReceive
@@ -5548,4 +5551,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5193 theorems/lemmas (3590 public, 1603 private, 0 sorry'd)
+-- Total: 5196 theorems/lemmas (3593 public, 1603 private, 0 sorry'd)

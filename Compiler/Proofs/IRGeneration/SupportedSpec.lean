@@ -2749,6 +2749,7 @@ structure SupportedSpecSurface (spec : CompilationModel) : Prop where
   noErrors : spec.errors = []
   noExternals : spec.externals = []
   noAdtTypes : spec.adtTypes = []
+  noCheckedArithmetic : contractUsesCheckedArithmetic spec = false
   noFallback :
     ∀ fn ∈ spec.functions, fn.name != "fallback"
   noReceive :
@@ -2763,6 +2764,7 @@ structure SupportedSpecSurfaceWithScalarEvents (spec : CompilationModel) : Prop 
   noErrors : spec.errors = []
   noExternals : spec.externals = []
   noAdtTypes : spec.adtTypes = []
+  noCheckedArithmetic : contractUsesCheckedArithmetic spec = false
   noFallback :
     ∀ fn ∈ spec.functions, fn.name != "fallback"
   noReceive :
@@ -6771,17 +6773,35 @@ theorem SupportedSpec.noAdtTypes
     spec.adtTypes = [] :=
   hSupported.surface.noAdtTypes
 
+theorem SupportedSpec.noCheckedArithmetic
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpec spec selectors) :
+    contractUsesCheckedArithmetic spec = false :=
+  hSupported.surface.noCheckedArithmetic
+
 theorem SupportedSpecExceptMappingWrites.noAdtTypes
     {spec : CompilationModel} {selectors : List Nat}
     (hSupported : SupportedSpecExceptMappingWrites spec selectors) :
     spec.adtTypes = [] :=
   hSupported.surface.noAdtTypes
 
+theorem SupportedSpecExceptMappingWrites.noCheckedArithmetic
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecExceptMappingWrites spec selectors) :
+    contractUsesCheckedArithmetic spec = false :=
+  hSupported.surface.noCheckedArithmetic
+
 theorem SupportedSpecWithScalarEvents.noAdtTypes
     {spec : CompilationModel} {selectors : List Nat}
     (hSupported : SupportedSpecWithScalarEvents spec selectors) :
     spec.adtTypes = [] :=
   hSupported.surface.noAdtTypes
+
+theorem SupportedSpecWithScalarEvents.noCheckedArithmetic
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecWithScalarEvents spec selectors) :
+    contractUsesCheckedArithmetic spec = false :=
+  hSupported.surface.noCheckedArithmetic
 
 theorem SupportedSpec.noFallback
     {spec : CompilationModel} {selectors : List Nat}
@@ -7063,6 +7083,9 @@ def counter_supported_spec : SupportedSpec counterSupportedSpecModel
         noErrors := rfl
         noExternals := rfl
         noAdtTypes := rfl
+        noCheckedArithmetic := by
+          simp [contractUsesCheckedArithmetic, counterSupportedSpecModel,
+            stmtListMayUseCheckedArithmetic, stmtMayUseCheckedArithmetic]
         noFallback := counter_noFallback
         noReceive := counter_noReceive }
     constructor := by
@@ -7148,6 +7171,9 @@ def simpleStorage_supported_spec : SupportedSpec simpleStorageSupportedSpecModel
         noErrors := rfl
         noExternals := rfl
         noAdtTypes := rfl
+        noCheckedArithmetic := by
+          simp [contractUsesCheckedArithmetic, simpleStorageSupportedSpecModel,
+            stmtListMayUseCheckedArithmetic, stmtMayUseCheckedArithmetic]
         noFallback := simpleStorage_noFallback
         noReceive := simpleStorage_noReceive }
     constructor := by

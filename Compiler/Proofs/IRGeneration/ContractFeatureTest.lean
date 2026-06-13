@@ -116,6 +116,10 @@ private def literalMappingWrite_supported_spec :
         noErrors := rfl
         noExternals := rfl
         noAdtTypes := rfl
+        noCheckedArithmetic := by
+          simp [contractUsesCheckedArithmetic, literalMappingWriteSpec,
+            literalMappingWriteFunction, stmtListMayUseCheckedArithmetic,
+            stmtMayUseCheckedArithmetic]
         noFallback := literalMappingWrite_noFallback
         noReceive := literalMappingWrite_noReceive }
     constructor := by

@@ -5719,6 +5719,19 @@ set_option maxRecDepth 4096 in
       (contains storageArrayBoolYul "sstore(9, add(__array_len, 1))"))
   expectTrue "storage bool[] indexed writes still guard bounds"
     (contains storageArrayBoolYul "lt(__array_index, __array_len)")
+  let arithmeticPanicYul ←
+    expectCompileToYul "Solidity-0.8 checked arithmetic helper smoke spec"
+      Contracts.Smoke.ArithmeticPanicSmoke.spec
+  expectTrue "checked arithmetic emits solc-shaped helper calls"
+    (contains arithmeticPanicYul s!"{checkedAddUint256HelperName}(current, amount)" &&
+      contains arithmeticPanicYul s!"{checkedSubUint256HelperName}(current, amount)" &&
+      contains arithmeticPanicYul s!"{checkedMulUint256HelperName}(current, factor)" &&
+      contains arithmeticPanicYul s!"{checkedDivUint256HelperName}(current, divisor)")
+  expectTrue "checked arithmetic helpers emit Panic selector payloads"
+    (contains arithmeticPanicYul s!"function {panicError0x11HelperName}()" &&
+      contains arithmeticPanicYul s!"function {panicError0x12HelperName}()" &&
+      contains arithmeticPanicYul "shl(224, 0x4e487b71)" &&
+      contains arithmeticPanicYul "revert(0, 36)")
   let envYul ← expectCompileToYul "env runtime smoke spec" envRuntimeSmokeSpec
   expectTrue "address(this) lowers to the Yul address builtin"
     (contains envYul "address()")

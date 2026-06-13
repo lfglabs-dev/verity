@@ -501,11 +501,13 @@ def validateCompileInputs (spec : CompilationModel) (selectors : List Nat)
   let mulDiv512HelpersRequired := contractUsesMulDiv512 spec
   let storageArrayHelpersRequired := contractUsesStorageArrayElement spec
   let dynamicBytesEqHelpersRequired := contractUsesDynamicBytesEq spec
+  let checkedArithmeticHelpersRequired := contractUsesCheckedArithmetic spec
   match firstReservedExternalCollision
       spec mappingHelpersRequired arrayHelpersRequired arrayElementWordHelpersRequired
         paramDynamicHeadWordHelpersRequired
         mulDiv512HelpersRequired
-        storageArrayHelpersRequired dynamicBytesEqHelpersRequired with
+        storageArrayHelpersRequired dynamicBytesEqHelpersRequired
+        checkedArithmeticHelpersRequired with
   | some name =>
       if name.startsWith internalFunctionPrefix then
         throw s!"Compilation error: external declaration '{name}' uses reserved prefix '{internalFunctionPrefix}' ({issue756Ref})."
@@ -548,6 +550,7 @@ def compileValidatedCore (spec : CompilationModel) (selectors : List Nat) : Exce
   let mulDiv512HelpersRequired := contractUsesMulDiv512 spec
   let storageArrayHelpersRequired := contractUsesStorageArrayElement spec
   let dynamicBytesEqHelpersRequired := contractUsesDynamicBytesEq spec
+  let checkedArithmeticHelpersRequired := contractUsesCheckedArithmetic spec
   let fallbackSpec ← pickUniqueFunctionByName "fallback" spec.functions
   let receiveSpec ← pickUniqueFunctionByName "receive" spec.functions
   let functions ← (externalFns.zip selectors).mapM fun entry =>
@@ -613,6 +616,17 @@ def compileValidatedCore (spec : CompilationModel) (selectors : List Nat) : Exce
       [dynamicBytesEqCalldataHelper, dynamicBytesEqMemoryHelper]
     else
       []
+  let checkedArithmeticHelpers :=
+    if checkedArithmeticHelpersRequired then
+      [ panicError0x11Helper
+      , panicError0x12Helper
+      , checkedAddUint256Helper
+      , checkedSubUint256Helper
+      , checkedMulUint256Helper
+      , checkedDivUint256Helper
+      ]
+    else
+      []
   let fallbackEntrypoint ← fallbackSpec.mapM (compileSpecialEntrypoint fields spec.events spec.errors spec.adtTypes)
   let receiveEntrypoint ← receiveSpec.mapM (compileSpecialEntrypoint fields spec.events spec.errors spec.adtTypes)
   return {
@@ -623,7 +637,7 @@ def compileValidatedCore (spec : CompilationModel) (selectors : List Nat) : Exce
     fallbackEntrypoint := fallbackEntrypoint
     receiveEntrypoint := receiveEntrypoint
     usesMapping := mappingHelpersRequired
-    internalFunctions := arrayElementHelpers ++ storageArrayElementHelpers ++ dynamicBytesEqHelpers ++ internalFuncDefs
+    internalFunctions := arrayElementHelpers ++ storageArrayElementHelpers ++ dynamicBytesEqHelpers ++ checkedArithmeticHelpers ++ internalFuncDefs
   }
 
 /-- Compile a `CompilationModel` to an `IRContract`.
