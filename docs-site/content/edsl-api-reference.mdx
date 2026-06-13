@@ -442,9 +442,16 @@ Compiler.Modules.Calls.withReturn
 
 Compiler.Modules.Calls.bubblingValueCall
   (target value inputOffset inputSize outputOffset outputSize : Expr) : Stmt
+
+Compiler.Modules.Calls.selfDelegateMulticallBytes
+  (arrayParam : String) : Stmt
 ```
 
 `Oracle.oracleReadUint256` is the standard read-only oracle case; trust-report assumption `oracle_read_uint256_interface`.
+`selfDelegateMulticallBytes "calls"` is the scoped `multicall(bytes[])`
+helper for same-contract delegatecall loops. It walks the named `bytes[]`
+calldata parameter, copies each payload, emits `delegatecall(gas(), address(),
+ptr, size, 0, 0)`, and bubbles exact revert data on failure.
 
 ### `keccak256` primitive
 
