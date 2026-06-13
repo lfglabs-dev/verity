@@ -94,6 +94,7 @@ end SpecGenSmoke
 #check_contract UintKeyStructMappingSmoke
 #check_contract ExternalCallSmoke
 #check_contract TryExternalCallSmoke
+#check_contract CallResultSmoke
 #check_contract LinkedExternalDynamicArgSmoke
 #check_contract LinkedExternalProjectedArrayArgSmoke
 #check_contract NestedStructArrayProjectionSmoke

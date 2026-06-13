@@ -200,9 +200,13 @@ private partial def validateDoElemExprTypes
                       -- void interface method: cannot bind its (empty) result
                       throwErrorAt rhs s!"interface call '{toString name.getId}' binds a void method; call it as a statement, not `let ... ←`"
                   | none =>
-                      let ty ← inferBindSourceType fields constDecls immutableDecls externalDecls functions params locals rhs
-                      requireSupportedLocalBindingType name s!"local binding '{toString name.getId}'" ty
-                      pure <| locals.push (mkTypedLocal (toString name.getId) ty)
+                      match ← callResultBindStmt? fields constDecls immutableDecls externalDecls params locals rhs (toString name.getId) with
+                      | some (_, resultLocal) =>
+                          pure <| locals.push resultLocal
+                      | none =>
+                          let ty ← inferBindSourceType fields constDecls immutableDecls externalDecls functions params locals rhs
+                          requireSupportedLocalBindingType name s!"local binding '{toString name.getId}'" ty
+                          pure <| locals.push (mkTypedLocal (toString name.getId) ty)
       | `(doElem| $name:ident := $rhs:term) =>
           let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals rhs
           pure locals
@@ -1222,6 +1226,10 @@ private partial def translateDoElem
           if localNames.contains varName then
             throwErrorAt name s!"duplicate local variable '{varName}'"
           match stripParens rhs with
+          | `(term| callResult $_extName:term $_args:term) =>
+              match (← callResultBindStmt? fields constDecls immutableDecls externalDecls params locals rhs varName) with
+              | some (stmt, resultLocal) => pure (#[stmt], locals.push resultLocal, mutableLocals)
+              | none => throwErrorAt rhs "invalid callResult bind"
           | `(term| ecmCall $moduleFactory:term $args:term) =>
               let argExprs ← expectEcmExprList fields constDecls immutableDecls params locals args
               let moduleTerm ← `(term| (($moduleFactory) $(strTerm varName)))

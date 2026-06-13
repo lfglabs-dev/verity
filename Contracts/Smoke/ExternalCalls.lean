@@ -39,6 +39,41 @@ verity_contract TryExternalCallSmoke where
     else
       setStorage callSucceeded 0
 
+-- First-class Call.Result smoke: callers inspect the named result instead of
+-- destructuring ad hoc `(success, value)` tuples (#1891).
+verity_contract CallResultSmoke where
+  storage
+    lastResult : Uint256 := slot 0
+    callSucceeded : Uint256 := slot 1
+  linked_externals
+    external echo(Uint256) -> (Uint256)
+    external echo_try(Uint256) -> (Bool, Uint256)
+
+  function allow_post_interaction_writes storeCallResult (x : Uint256) : Unit := do
+    let result ← callResult "echo" [x]
+    if result.success then
+      setStorage lastResult result.returndata
+      setStorage callSucceeded 1
+    else
+      setStorage callSucceeded 0
+
+example :
+    CallResultSmoke.storeCallResult_modelBody.head? =
+      some (Compiler.CompilationModel.Stmt.tryExternalCallBind
+          "result_success"
+          ["result_returndata"]
+          "echo"
+          [ Compiler.CompilationModel.Expr.param "x" ]) := rfl
+
+example :
+    (Contracts.callResultWords "echo" [7] :
+      Contract (Contracts.Call.Result Uint256)).run
+        defaultState =
+      ContractResult.success
+        { success := true, returndata := (7 : Uint256) }
+        defaultState := by
+  rfl
+
 verity_contract LinkedExternalDynamicArgSmoke where
   storage
   linked_externals
