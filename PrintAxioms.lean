@@ -1664,6 +1664,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir
   Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_bodyCallsDisjoint
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics
+  -- Compiler.Proofs.IRGeneration.Contract.scalar_events_contract_function_callback  -- private
+  Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_with_scalar_events
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_except_mapping_writes
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_except_mapping_writes_stmtSafety
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_except_mapping_writes_and_helper_ir
@@ -1691,6 +1693,13 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.ContractFeatureTest.stopOnly_calldataFits  -- private
   -- Compiler.Proofs.IRGeneration.ContractFeatureTest.constructorOnly_noConflict  -- private
   -- Compiler.Proofs.IRGeneration.ContractFeatureTest.constructorOnly_compileConstructor  -- private
+  -- Compiler.Proofs.IRGeneration.ContractFeatureTest.scalarEventSmoke_compileEmit_empty_events_ne_ok  -- private
+  -- Compiler.Proofs.IRGeneration.ContractFeatureTest.scalarEventSmoke_noPackedFields  -- private
+  -- Compiler.Proofs.IRGeneration.ContractFeatureTest.scalarEventSmoke_noFallback  -- private
+  -- Compiler.Proofs.IRGeneration.ContractFeatureTest.scalarEventSmoke_noReceive  -- private
+  -- Compiler.Proofs.IRGeneration.ContractFeatureTest.scalarEventSmoke_helperFree  -- private
+  -- Compiler.Proofs.IRGeneration.ContractFeatureTest.scalarEventSmoke_disjoint  -- private
+  Compiler.Proofs.IRGeneration.ContractFeatureTest.scalarEventSmoke_compile_preserves_semantics_with_scalar_events
 
   -- Compiler/Proofs/IRGeneration/ContractShape.lean
   -- Compiler.Proofs.IRGeneration.ContractShape.pickUniqueFunctionByName_eq_ok_none_of_absent  -- private
@@ -5543,4 +5552,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5188 theorems/lemmas (3589 public, 1599 private, 0 sorry'd)
+-- Total: 5197 theorems/lemmas (3591 public, 1606 private, 0 sorry'd)
