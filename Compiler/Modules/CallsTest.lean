@@ -130,6 +130,7 @@ unsafe def runTests : IO Unit := do
       contains yul "lt(__mc_i, calls_length)" &&
       contains yul "let __mc_rel_offset := calldataload(add(calls_data_offset, mul(__mc_i, 32)))" &&
       contains yul "if lt(__mc_rel_offset, mul(calls_length, 32)) {" &&
+      contains yul "if gt(__mc_rel_offset, sub(not(0), calls_data_offset)) {" &&
       contains yul "let __mc_head_offset := add(calls_data_offset, __mc_rel_offset)" &&
       contains yul "let __mc_data_size := calldataload(__mc_head_offset)" &&
       contains yul "let __mc_data_offset := add(__mc_head_offset, 32)")

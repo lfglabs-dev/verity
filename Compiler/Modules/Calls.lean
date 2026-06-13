@@ -84,6 +84,15 @@ def selfDelegateMulticallBytesBody
         YulStmt.if_ (YulExpr.call "lt" [YulExpr.ident "__mc_rel_offset", offsetTableBytes]) [
           YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
         ],
+        YulStmt.if_ (YulExpr.call "gt" [
+          YulExpr.ident "__mc_rel_offset",
+          YulExpr.call "sub" [
+            YulExpr.call "not" [YulExpr.lit 0],
+            arrayDataOffset
+          ]
+        ]) [
+          YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+        ],
         YulStmt.let_ "__mc_head_offset" (YulExpr.call "add" [arrayDataOffset, YulExpr.ident "__mc_rel_offset"]),
         YulStmt.if_ (YulExpr.call "gt" [
           YulExpr.ident "__mc_head_offset",
