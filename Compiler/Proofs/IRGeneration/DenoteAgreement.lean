@@ -33,10 +33,13 @@ def sourceOracle : DenoteOracle :=
 
 /-- The state conversion is field-for-field (the two structures coincide). -/
 def toRuntimeState (s : DenoteState) : SourceSemantics.RuntimeState :=
-  { world := s.world, bindings := s.bindings, selector := s.selector }
+  { world := s.world, immutable := s.immutable, bindings := s.bindings, selector := s.selector }
 
 @[simp] theorem toRuntimeState_world (s : DenoteState) :
     (toRuntimeState s).world = s.world := rfl
+
+@[simp] theorem toRuntimeState_immutable (s : DenoteState) :
+    (toRuntimeState s).immutable = s.immutable := rfl
 
 @[simp] theorem toRuntimeState_bindings (s : DenoteState) :
     (toRuntimeState s).bindings = s.bindings := rfl
@@ -63,7 +66,7 @@ theorem denote_evalExpr_eq (fields : List Field) (s : DenoteState) :
     ∀ e : Expr,
       Denote.evalExpr sourceOracle fields s e =
         SourceSemantics.evalExpr fields (toRuntimeState s) e
-  | .literal _ | .param _ | .constructorArg _ | .storage _ | .storageAddr _
+  | .literal _ | .param _ | .immutable _ | .constructorArg _ | .storage _ | .storageAddr _
   | .mappingChain .. | .localVar _ | .storageArrayLength _ | .dynamicBytesEq ..
   | .memoryArrayLength _ | .memoryArrayElement .. | .arrayElementDynamicDataOffset ..
   | .arrayElementDynamicMemberLength .. | .arrayElementDynamicMemberDataOffset ..
@@ -315,6 +318,7 @@ theorem execForEachLoop_agree {varName : String}
   | _, _, 0 => rfl
   | st, index, remaining + 1 => by
       have hb := h ⟨st.world,
+        st.immutable,
         SourceSemantics.bindValue st.bindings varName (SourceSemantics.wordNormalize index),
         st.selector⟩
       rw [SourceSemantics.execForEachLoop_succ]
@@ -322,6 +326,7 @@ theorem execForEachLoop_agree {varName : String}
       rw [← hb]
       show toStmtResult
           (match runBody ⟨st.world,
+              st.immutable,
               SourceSemantics.bindValue st.bindings varName (SourceSemantics.wordNormalize index),
               st.selector⟩ with
             | .continue next => Denote.execForEachLoop varName runBody next (index + 1) remaining
@@ -329,6 +334,7 @@ theorem execForEachLoop_agree {varName : String}
             | .return value next => .return value next
             | .revert => .revert) = _
       cases runBody ⟨st.world,
+          st.immutable,
           SourceSemantics.bindValue st.bindings varName (SourceSemantics.wordNormalize index),
           st.selector⟩ <;>
         first
@@ -367,7 +373,7 @@ theorem execStmt_eq (fields : List Field) :
       toStmtResult (Denote.execStmt sourceOracle fields st stmt) =
         SourceSemantics.execStmt fields (toRuntimeState st) stmt
   | _, .letVar n v | _, .assignVar n v => by denote_stmt_arm
-  | _, .setStorage f v | _, .setStorageAddr f v => by denote_stmt_arm
+  | _, .setStorage f v | _, .setStorageAddr f v | _, .setImmutable f v => by denote_stmt_arm
   | _, .setStorageWord f w v => by denote_stmt_arm
   | _, .setMapping f k v | _, .setMappingUint f k v => by denote_stmt_arm
   | _, .setMappingWord f k w v => by denote_stmt_arm
@@ -402,7 +408,7 @@ theorem execStmt_eq (fields : List Field) :
           exact execForEachLoop_agree
             (runBody' := fun ls => SourceSemantics.execStmtList fields ls body)
             (fun ls => execStmtList_eq fields ls body)
-            ⟨st.world, Denote.bindValue st.bindings v (Denote.wordNormalize 0), st.selector⟩
+            ⟨st.world, st.immutable, Denote.bindValue st.bindings v (Denote.wordNormalize 0), st.selector⟩
             0 bound
   | _, .requireError .. | _, .revertError .. | _, .returnValues ..
   | _, .returnArray .. | _, .returnBytes .. | _, .returnStorageWords ..

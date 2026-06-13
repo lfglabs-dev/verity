@@ -3000,8 +3000,8 @@ partial def translatePureExprWithTypes
       else if let some imm := immutableDecls.find? (fun imm => declaredNameMatches name imm.name) then
         match imm.ty with
         | .uint256 | .int256 | .uint8 | .uint16 | .bytes32 | .bool =>
-            `(Compiler.CompilationModel.Expr.storage $(strTerm (immutableHiddenName imm)))
-        | .address => `(Compiler.CompilationModel.Expr.storageAddr $(strTerm (immutableHiddenName imm)))
+            `(Compiler.CompilationModel.Expr.immutable $(strTerm imm.name))
+        | .address => `(Compiler.CompilationModel.Expr.immutable $(strTerm imm.name))
         | _ => throwErrorAt stx s!"immutable '{name}' uses unsupported type"
       else if let some constant := constDecls.find? (fun constant => declaredNameMatches name constant.name) then
         translateConstantExpr fields constDecls immutableDecls visitingConstants constant.name

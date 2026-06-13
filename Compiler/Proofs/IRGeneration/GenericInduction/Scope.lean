@@ -50,6 +50,11 @@ inductive StmtListScopeDiscipline (fieldNames : List String) : List String → L
       FunctionBody.exprBoundNamesInScope value scope →
       StmtListScopeDiscipline fieldNames (stmtNextScope scope (.setStorageAddr fieldName value)) rest →
       StmtListScopeDiscipline fieldNames scope (.setStorageAddr fieldName value :: rest)
+  | setImmutable {scope : List String} {name : String} {value : Expr} {rest : List Stmt} :
+      FunctionBody.ExprCompileCore value →
+      FunctionBody.exprBoundNamesInScope value scope →
+      StmtListScopeDiscipline fieldNames (stmtNextScope scope (.setImmutable name value)) rest →
+      StmtListScopeDiscipline fieldNames scope (.setImmutable name value :: rest)
   | setStorageWord {scope : List String} {fieldName : String} {wordOffset : Nat} {value : Expr}
       {rest : List Stmt} :
       fieldName ∈ fieldNames →
@@ -121,6 +126,10 @@ inductive StmtListScopeCore (fieldNames : List String) : List Stmt → Prop wher
       FunctionBody.ExprCompileCore value →
       StmtListScopeCore fieldNames rest →
       StmtListScopeCore fieldNames (.setStorageAddr fieldName value :: rest)
+  | setImmutable {name : String} {value : Expr} {rest : List Stmt} :
+      FunctionBody.ExprCompileCore value →
+      StmtListScopeCore fieldNames rest →
+      StmtListScopeCore fieldNames (.setImmutable name value :: rest)
   | setStorageWord {fieldName : String} {wordOffset : Nat} {value : Expr} {rest : List Stmt} :
       fieldName ∈ fieldNames →
       FunctionBody.ExprCompileCore value →
@@ -158,6 +167,7 @@ theorem exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
   | .literal _, _ => exact .literal _
   | .param _, _ => exact .param _
   | .localVar _, _ => exact .localVar _
+  | .immutable _, hsurface => simp [exprTouchesUnsupportedContractSurface] at hsurface
   | .caller, _ => exact .caller
   | .contractAddress, _ => exact .contractAddress
   | .txOrigin, _ => exact .txOrigin
@@ -402,6 +412,10 @@ private theorem stmtListScopeCore_of_unsupportedContractSurface_eq_false
                 exact fieldName_mem_fields_of_compileSetStorage_ok hhead)
             (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
               (by simpa [stmtTouchesUnsupportedContractSurface] using hstmtSurface)) ihRest
+      | setImmutable name value =>
+          exact .setImmutable
+            (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
+              (by simpa [stmtTouchesUnsupportedContractSurface] using hstmtSurface)) ihRest
       | setStorageWord fieldName wordOffset value =>
           exact .setStorageWord
             (by
@@ -525,6 +539,11 @@ theorem stmtListScopeCore_prefix_of_compileStmtList_ok_of_stmtListTouchesUnsuppo
           exact StmtListScopeCore.setStorageAddr
             (by simp [CompilationModel.compileStmt] at hhead
                 exact fieldName_mem_fields_of_compileSetStorage_ok hhead)
+            (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
+              (by simpa [stmtTouchesUnsupportedContractSurface] using hstmtSurface))
+            (ih hrestSurface htail)
+      | setImmutable name value =>
+          exact StmtListScopeCore.setImmutable
             (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
               (by simpa [stmtTouchesUnsupportedContractSurface] using hstmtSurface))
             (ih hrestSurface htail)
@@ -1247,6 +1266,27 @@ private theorem stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers
             (by
               intro other hmem
               exact mem_stmtNextScope_of_mem_scope (hlocalsInScope other hmem)))
+  | setImmutable hvalueCore hrest ih =>
+      rcases validateScopedStmtListIdentifiers_cons_ok_inv hvalidate with
+        ⟨nextLocalScope, hstmt, hrestValidate⟩
+      have hstmt' := hstmt
+      unfold validateScopedStmtIdentifiers at hstmt'
+      revert hstmt'
+      rcases hExprVal : validateScopedExprIdentifiers context params paramScope dynamicParams localScope constructorArgCount _ with _ | _
+      · intro h; simp [bind, Except.bind] at h
+      · simp only [bind, Except.bind, pure, Except.pure]
+        intro h; cases h
+        exact StmtListScopeDiscipline.setImmutable
+          hvalueCore
+          (exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
+            hvalueCore hExprVal hparamsInScope hlocalsInScope)
+          (ih hrestValidate
+            (by
+              intro other hmem
+              exact mem_stmtNextScope_of_mem_scope (hparamsInScope other hmem))
+            (by
+              intro other hmem
+              exact mem_stmtNextScope_of_mem_scope (hlocalsInScope other hmem)))
   | setStorageWord hfield hvalueCore hrest ih =>
       rcases validateScopedStmtListIdentifiers_cons_ok_inv hvalidate with
         ⟨nextLocalScope, hstmt, hrestValidate⟩
@@ -1575,6 +1615,25 @@ private theorem scopeNamesPresent_foldl_stmtNextScope_of_validateScopedStmtListI
             exact mem_stmtNextScope_of_mem_scope (hlocalsInScope name hname))
           other hmem
   | setStorageAddr hfield hvalueCore hrest ih =>
+      rcases validateScopedStmtListIdentifiers_cons_ok_inv hvalidate with
+        ⟨nextLocalScope, hstmt, hrestValidate⟩
+      have hstmt' := hstmt
+      unfold validateScopedStmtIdentifiers at hstmt'
+      revert hstmt'
+      rcases hExprVal : validateScopedExprIdentifiers context params paramScope dynamicParams localScope constructorArgCount _ with _ | _
+      · intro h; simp [bind, Except.bind] at h
+      · simp only [bind, Except.bind, pure, Except.pure]
+        intro h; cases h
+        intro other hmem
+        exact ih hrestValidate
+          (by
+            intro name hname
+            exact mem_stmtNextScope_of_mem_scope (hparamsInScope name hname))
+          (by
+            intro name hname
+            exact mem_stmtNextScope_of_mem_scope (hlocalsInScope name hname))
+          other hmem
+  | setImmutable hvalueCore hrest ih =>
       rcases validateScopedStmtListIdentifiers_cons_ok_inv hvalidate with
         ⟨nextLocalScope, hstmt, hrestValidate⟩
       have hstmt' := hstmt
@@ -1930,6 +1989,18 @@ theorem stmtListScopeDiscipline_scope_names
       · right; right; left; exact hassign
       · right; right; right; exact hfld
   | setStorageAddr _hfield hcore hinScope _ ih =>
+      intro other hmem
+      simp only [List.foldl] at hmem
+      have htail := ih other hmem
+      simp [stmtNextScope, collectStmtNames, collectStmtListBindNames, collectStmtBindNames,
+        collectStmtListAssignedNames, collectStmtAssignedNames] at htail ⊢
+      rcases htail with hvalue | hscope | hbind | hassign | hfld
+      · left; exact hinScope _ (collectExprNames_mem_exprBoundNames_of_core hcore _ hvalue)
+      · left; exact hscope
+      · right; left; exact hbind
+      · right; right; left; exact hassign
+      · right; right; right; exact hfld
+  | setImmutable hcore hinScope _ ih =>
       intro other hmem
       simp only [List.foldl] at hmem
       have htail := ih other hmem

@@ -1727,6 +1727,7 @@ end Verity.AxiomAudit
 
   -- Compiler/Proofs/IRGeneration/DenoteAgreement.lean
   Compiler.Proofs.IRGeneration.DenoteAgreement.toRuntimeState_world
+  Compiler.Proofs.IRGeneration.DenoteAgreement.toRuntimeState_immutable
   Compiler.Proofs.IRGeneration.DenoteAgreement.toRuntimeState_bindings
   Compiler.Proofs.IRGeneration.DenoteAgreement.toRuntimeState_selector
   Compiler.Proofs.IRGeneration.DenoteAgreement.sourceOracle_mappingSlot
@@ -3108,6 +3109,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.SourceSemantics.execForEachLoop_empty_body_positive_bound
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_literal  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_param  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_immutable  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_localVar  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_caller  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_contractAddress  -- private
@@ -5551,4 +5553,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5196 theorems/lemmas (3590 public, 1606 private, 0 sorry'd)
+-- Total: 5198 theorems/lemmas (3591 public, 1607 private, 0 sorry'd)

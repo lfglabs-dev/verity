@@ -677,6 +677,7 @@ inductive Expr
   | literal (n : Nat)
   | param (name : String)
   | constructorArg (index : Nat)  -- Access constructor argument (loaded from bytecode)
+  | immutable (name : String)
   | storage (field : String)
   | storageAddr (field : String)
   | mapping (field : String) (key : Expr)
@@ -909,7 +910,7 @@ namespace Expr
     `Expr` constructor fails to compile here (and in `children_sizeOf_lt`)
     rather than silently falling through a dozen independent walkers. -/
 def children : Expr → List Expr
-  | .literal _ | .param _ | .constructorArg _ | .storage _ | .storageAddr _
+  | .literal _ | .param _ | .constructorArg _ | .immutable _ | .storage _ | .storageAddr _
   | .caller | .contractAddress | .txOrigin | .chainid | .msgValue
   | .selfBalance | .blockTimestamp | .blockNumber | .blobbasefee
   | .calldatasize | .returndataSize | .localVar _
@@ -1013,11 +1014,18 @@ termination_by sizeOf e
 
 end Expr
 
+structure ImmutableSpec where
+  name : String
+  ty : ParamType
+  init : Expr
+  deriving Repr
+
 inductive Stmt
   | letVar (name : String) (value : Expr)  -- Declare local variable
   | assignVar (name : String) (value : Expr)  -- Reassign existing variable
   | setStorage (field : String) (value : Expr)
   | setStorageAddr (field : String) (value : Expr)
+  | setImmutable (name : String) (value : Expr)
   /-- Write a full storage word at `field.slot + wordOffset`.  Intended for
       migration-faithful manual packed-word writes where the source constructs
       the packed word explicitly. -/
@@ -1132,6 +1140,8 @@ def directMetadata : Stmt → StmtMetadata
       { subexpressions := [value], scopeEffects := { assignNames := [name] } }
   | .setStorage field value | .setStorageAddr field value =>
       { subexpressions := [value], scopeEffects := { storageWrites := [field] } }
+  | .setImmutable _ value =>
+      { subexpressions := [value] }
   | .setStorageWord field _ value =>
       { subexpressions := [value], scopeEffects := { storageWrites := [field] } }
   | .storageArrayPush field value =>
@@ -1409,6 +1419,7 @@ structure ConstructorSpec where
 structure CompilationModel where
   name : String
   fields : List Field
+  immutables : List ImmutableSpec := []
   /-- Storage slots reserved for compatibility policy; compiler rejects field
       canonical/alias write slots that overlap these intervals. -/
   reservedSlotRanges : List ReservedSlotRange := []

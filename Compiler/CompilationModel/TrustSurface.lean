@@ -220,6 +220,7 @@ private partial def collectUnguardedLowLevelStmtMechanics : Stmt → List String
   | .assignVar _ value
   | .setStorage _ value
   | .setStorageAddr _ value
+  | .setImmutable _ value
   | .setStorageWord _ _ value
   | .storageArrayPush _ value
   | .return value

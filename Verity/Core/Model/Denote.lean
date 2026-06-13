@@ -175,6 +175,7 @@ def lookupBinding? (bindings : Env) (name : String) : Option Nat :=
 /-- Mirrors `SourceSemantics.RuntimeState`. -/
 structure DenoteState where
   world : Verity.ContractState
+  immutable : String → Verity.Core.Uint256 := fun _ => 0
   bindings : Env
   selector : Nat := 0
 
@@ -449,6 +450,7 @@ def evalExpr (oracle : DenoteOracle) (fields : List Field) (state : DenoteState)
   | .paramDynamicStaticComposite _ _ => none
   | .literal n => some (wordNormalize n)
   | .param name => some (lookupValue state.bindings name)
+  | .immutable name => some (state.immutable name).val
   | .storage fieldName =>
       match findFieldWithResolvedSlot fields fieldName with
       | some (_, slot) => some (state.world.readSlot (wordNormalize slot)).val
@@ -932,6 +934,14 @@ mutual
         | some slots, some resolved =>
             .continue { state with world := writeAddressSlots state.world slots resolved }
         | _, _ => .revert
+    | state, .setImmutable name value =>
+        match evalExpr oracle fields state value with
+        | some resolved =>
+            .continue
+              { state with
+                  immutable := fun immName =>
+                    if immName == name then resolved else state.immutable immName }
+        | none => .revert
     | state, .mstore offset value =>
         match evalExpr oracle fields state offset, evalExpr oracle fields state value with
         | some resolvedOffset, some resolvedValue =>

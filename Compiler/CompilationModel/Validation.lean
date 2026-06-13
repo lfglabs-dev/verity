@@ -586,7 +586,7 @@ def matchBranchesMayContainExternalCall (branches : List (String × List String 
     statement bodies are reached via the canonical `Stmt.anyDeep`. -/
 def stmtReadsStateOrEnvNode : Stmt → Bool
   | Stmt.letVar _ value | Stmt.assignVar _ value | Stmt.setStorage _ value | Stmt.setStorageAddr _ value
-  | Stmt.setStorageWord _ _ value |
+  | Stmt.setImmutable _ value | Stmt.setStorageWord _ _ value |
     Stmt.return value | Stmt.require value _ =>
       exprReadsStateOrEnv value
   | Stmt.storageArrayPush _ _ | Stmt.setStorageArrayElement _ _ _ | Stmt.storageArrayPop _ =>
@@ -756,7 +756,7 @@ def stmtReadsStateOrEnvWithFunctionEffectsNode
       (lookupFunctionEffect effects name).readsStateOrEnv ||
         exprListReadsStateOrEnvWithFunctionEffects effects args
   | Stmt.letVar _ value | Stmt.assignVar _ value | Stmt.setStorage _ value | Stmt.setStorageAddr _ value
-  | Stmt.setStorageWord _ _ value |
+  | Stmt.setImmutable _ value | Stmt.setStorageWord _ _ value |
     Stmt.return value | Stmt.require value _ =>
       exprReadsStateOrEnvWithFunctionEffects effects value
   | Stmt.storageArrayPush _ _ | Stmt.setStorageArrayElement _ _ _ | Stmt.storageArrayPop _ =>
@@ -1029,7 +1029,7 @@ def validateNoUnsupportedAdtConstructNode : Stmt → Except String Unit
       else
         pure ()
   | Stmt.letVar _ value | Stmt.assignVar _ value | Stmt.setStorage _ value
-  | Stmt.setStorageAddr _ value | Stmt.setStorageWord _ _ value | Stmt.storageArrayPush _ value
+  | Stmt.setStorageAddr _ value | Stmt.setImmutable _ value | Stmt.setStorageWord _ _ value | Stmt.storageArrayPush _ value
   | Stmt.setStorageArrayElement _ _ value | Stmt.setMapping _ _ value
   | Stmt.setMappingUint _ _ value | Stmt.setMappingWord _ _ _ value
   | Stmt.setMapping2 _ _ _ value | Stmt.setMapping2Word _ _ _ _ value

@@ -201,7 +201,7 @@ theorem evalIRExpr_ident_of_scope_bindings
     (hexact : bindingsExactlyMatchIRVarsOnScope scope bindings state)
     {name : String}
     (hname : name ∈ scope) :
-    evalIRExpr state (YulExpr.ident name) = lookupBinding? bindings name := by
+  evalIRExpr state (YulExpr.ident name) = lookupBinding? bindings name := by
   simpa [evalIRExpr] using hexact name hname
 
 theorem evalIRExpr_caller_of_runtimeStateMatchesIR

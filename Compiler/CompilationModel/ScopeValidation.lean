@@ -106,6 +106,8 @@ def validateScopedExprIdentifiers
             throw s!"Compilation error: constructor Expr.constructorArg {idx} is out of bounds for {count} constructor parameter(s)"
       | none =>
           throw s!"Compilation error: {context} uses Expr.constructorArg outside constructor scope"
+  | Expr.immutable _ =>
+      pure ()
   | Expr.localVar name =>
       if localScope.contains name then
         pure ()
@@ -455,7 +457,8 @@ def validateScopedStmtIdentifiers
         throw s!"Compilation error: {context} assigns to undeclared local variable '{name}'"
       validateScopedExprIdentifiers context params paramScope dynamicParams localScope constructorArgCount value
       pure localScope
-  | Stmt.setStorage _ value | Stmt.setStorageAddr _ value | Stmt.setStorageWord _ _ value
+  | Stmt.setStorage _ value | Stmt.setStorageAddr _ value | Stmt.setImmutable _ value
+  | Stmt.setStorageWord _ _ value
   | Stmt.return value | Stmt.require value _ => do
       validateScopedExprIdentifiers context params paramScope dynamicParams localScope constructorArgCount value
       pure localScope
