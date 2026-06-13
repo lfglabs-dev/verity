@@ -3536,11 +3536,17 @@ end Verity.AxiomAudit
   Compiler.Proofs.activeMappingSlotBackend_eq_keccak
   Compiler.Proofs.activeMappingSlotBackendIsEvmFaithful_eq_true
   Compiler.Proofs.abstractNestedMappingSlot_eq_solidityNested
+  Compiler.Proofs.StorageSlotNonAliasCertificate.nonAlias_get
+  Compiler.Proofs.StorageSlotNonAliasCertificate.of_distinct
+  Compiler.Proofs.StorageSlotNonAliasCertificate.nonAlias_pair
+  Compiler.Proofs.mappingSlotLocations_nonAlias_get
+  Compiler.Proofs.nestedMappingSlotLocations_nonAlias_get
   Compiler.Proofs.abstractLoadMappingEntry_eq
   Compiler.Proofs.abstractStoreMappingEntry_eq
   Compiler.Proofs.abstractLoadStorageOrMapping_eq
   Compiler.Proofs.abstractStoreStorageOrMapping_eq
   Compiler.Proofs.solidityMappingSlot_lt_evmModulus
+  Compiler.Proofs.mappingSlotLocation_zero
   Compiler.Proofs.abstractMappingSlot_lt_evmModulus
   Compiler.Proofs.solidityMappingSlot_add_lt_evmModulus
   Compiler.Proofs.solidityMappingSlot_add_wordOffset_lt_evmModulus
@@ -5551,4 +5557,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5196 theorems/lemmas (3590 public, 1606 private, 0 sorry'd)
+-- Total: 5202 theorems/lemmas (3596 public, 1606 private, 0 sorry'd)
