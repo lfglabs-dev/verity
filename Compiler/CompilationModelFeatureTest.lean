@@ -2101,6 +2101,62 @@ def sourceInternalCallArgsExpandStaticCompositeAndBytes : Bool :=
   | Except.error _ => false
   | _ => false
 
+def containsText (haystack needle : String) : Bool :=
+  let h := haystack.toList
+  let n := needle.toList
+  if n.isEmpty then true
+  else
+    let rec startsWithChars : List Char → List Char → Bool
+      | _, [] => true
+      | [], _ :: _ => false
+      | h :: hs, n :: ns => h == n && startsWithChars hs ns
+    let rec go : List Char → Bool
+      | [] => false
+      | chars@(_ :: rest) => startsWithChars chars n || go rest
+    go h
+
+def localExpandedForwardingRejected : Bool :=
+  match validateInternalCallSourceArgs
+      [{ name := "amounts", ty := ParamType.array ParamType.uint256 }]
+      "caller" "internal_echoAmounts"
+      [{ name := "amounts", ty := ParamType.array ParamType.uint256 }]
+      [Expr.localVar "amounts"] with
+  | Except.ok _ => false
+  | Except.error msg => containsText msg "direct parameter forwarding only"
+
+def mismatchedSourceParamTypeRejected : Bool :=
+  match validateInternalCallSourceArgs
+      [{ name := "flags", ty := ParamType.array ParamType.bool }]
+      "caller" "internal_echoAmounts"
+      [{ name := "amounts", ty := ParamType.array ParamType.uint256 }]
+      [Expr.param "flags"] with
+  | Except.ok _ => false
+  | Except.error msg => containsText msg "type/layout"
+
+def legacyExpandedArgsRequireExactNames : Bool :=
+  match validateInternalCallSourceArgs
+      [{ name := "amounts", ty := ParamType.array ParamType.uint256 }]
+      "caller" "internal_echoAmounts"
+      [{ name := "amounts", ty := ParamType.array ParamType.uint256 }]
+      [Expr.param "other_data_offset", Expr.param "amounts_length"] with
+  | Except.ok _ => false
+  | Except.error msg => containsText msg "no caller parameter has exact type/layout"
+
+def exprInternalCallArgsUseHelperSignature : Bool :=
+  let helper : FunctionSpec := {
+    name := "echoLength"
+    params := [{ name := "payload", ty := ParamType.bytes }]
+    returnType := some FieldType.uint256
+    body := [Stmt.return (Expr.arrayLength "payload")]
+    isInternal := true
+  }
+  match compileExprWithInternals [] .calldata [helper]
+      (Expr.internalCall "echoLength" [Expr.param "payload"]) with
+  | Except.ok
+      (YulExpr.call "internal_echoLength"
+        [YulExpr.ident "payload_data_offset", YulExpr.ident "payload_length"]) => true
+  | _ => false
+
 end InternalHelperDynamicArgs
 
 def compactAmountsAllocatesMemoryArray : Bool :=
@@ -5256,6 +5312,14 @@ set_option maxRecDepth 4096 in
     MacroDynamicArraySmoke.InternalHelperDynamicArgs.helperParamNamesExpandStaticCompositeAndBytes
   expectTrue "source internal helper call args expand static composite and bytes slots"
     MacroDynamicArraySmoke.InternalHelperDynamicArgs.sourceInternalCallArgsExpandStaticCompositeAndBytes
+  expectTrue "expanded internal helper args reject local-variable forwarding"
+    MacroDynamicArraySmoke.InternalHelperDynamicArgs.localExpandedForwardingRejected
+  expectTrue "expanded internal helper args reject mismatched source type/layout"
+    MacroDynamicArraySmoke.InternalHelperDynamicArgs.mismatchedSourceParamTypeRejected
+  expectTrue "legacy expanded internal helper args require exact generated names"
+    MacroDynamicArraySmoke.InternalHelperDynamicArgs.legacyExpandedArgsRequireExactNames
+  expectTrue "expression-position internal helper calls expand args from helper signature"
+    MacroDynamicArraySmoke.InternalHelperDynamicArgs.exprInternalCallArgsUseHelperSignature
 
   -- Regression: selector mismatch must fail closed.
   let mismatchRejected :=

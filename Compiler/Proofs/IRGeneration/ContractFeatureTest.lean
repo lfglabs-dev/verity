@@ -532,7 +532,7 @@ private theorem constructorOnly_compileBody :
      | .error _ => [], ?_⟩
   simp [constructorOnlySpec, constructorOnlyCtor, constructorOnlyOwnerField,
     CompilationModel.compileStmtList, CompilationModel.compileStmt,
-    CompilationModel.compileSetStorage, CompilationModel.compileExpr,
+    CompilationModel.compileSetStorage, CompilationModel.compileExprWithInternals,
     CompilationModel.isMapping, constructorOnly_owner_resolved_lit,
     Bind.bind, Except.bind, Pure.pure, Except.pure]
 
@@ -865,7 +865,7 @@ example :
          | .error _ => []) := by
     simp [constructorOnlySpec, constructorOnlyCtor, constructorOnlyOwnerField,
       CompilationModel.compileStmtList, CompilationModel.compileStmt,
-      CompilationModel.compileSetStorage, CompilationModel.compileExpr,
+      CompilationModel.compileSetStorage, CompilationModel.compileExprWithInternals,
       CompilationModel.isMapping, constructorOnly_owner_resolved_lit,
       Bind.bind, Except.bind, Pure.pure, Except.pure]
   have hbind :
@@ -935,7 +935,7 @@ example :
         Except.ok bodyStmts := by
       simp [bodyStmts, constructorOnlySpec, constructorOnlyCtor, constructorOnlyOwnerField,
         CompilationModel.compileStmtList, CompilationModel.compileStmt,
-        CompilationModel.compileSetStorage, CompilationModel.compileExpr,
+        CompilationModel.compileSetStorage, CompilationModel.compileExprWithInternals,
         CompilationModel.isMapping, constructorOnly_owner_resolved_lit,
         Bind.bind, Except.bind, Pure.pure, Except.pure]
     have hbind :

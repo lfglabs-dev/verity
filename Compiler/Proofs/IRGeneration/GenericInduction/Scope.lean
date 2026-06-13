@@ -337,7 +337,7 @@ private theorem compileStmt_ite_ok_inv
       CompilationModel.compileStmtList
         fields [] [] .calldata [] false scope [] elseBranch = Except.ok elseIR := by
   unfold CompilationModel.compileStmt at hcompile
-  rcases hcond : CompilationModel.compileExpr fields .calldata cond with _ | condIR
+  rcases hcond : CompilationModel.compileExprWithInternals fields .calldata [] cond with _ | condIR
   · simp [hcond] at hcompile
     cases hcompile
   · simp [hcond] at hcompile
@@ -351,7 +351,10 @@ private theorem compileStmt_ite_ok_inv
       · simp [helse] at hcompile
         cases hcompile
       ·
-        simpa [hcond, hthen, helse] using
+        have hcondPublic :
+            CompilationModel.compileExpr fields .calldata cond = Except.ok condIR := by
+          simpa [CompilationModel.compileExprWithInternals_nil_eq] using hcond
+        simpa [hcondPublic, hthen, helse] using
           (show ∃ condIR thenIR elseIR,
               Except.ok condIR = Except.ok condIR ∧
               Except.ok thenIR = Except.ok thenIR ∧
@@ -460,7 +463,7 @@ private theorem stmtListScopeCore_of_unsupportedContractSurface_eq_false
                   cases hbody :
                       CompilationModel.compileStmtList fields [] [] .calldata [] false
                         (CompilationModel.forEachBodyScope scope varName (Expr.literal 0) body) [] body with
-                  | error e => simp [CompilationModel.compileExpr, pure, Except.pure, hbody] at hhead
+                  | error e => simp [CompilationModel.compileExprWithInternals, pure, Except.pure, hbody] at hhead
                   | ok loopBodyIR =>
                       exact .forEachLiteralZero
                         (stmtListScopeCore_of_unsupportedContractSurface_eq_false
@@ -597,7 +600,7 @@ theorem stmtListScopeCore_prefix_of_compileStmtList_ok_of_stmtListTouchesUnsuppo
                   cases hbody :
                       CompilationModel.compileStmtList fields [] [] .calldata [] false
                         (CompilationModel.forEachBodyScope scope varName (Expr.literal 0) body) [] body with
-                  | error e => simp [CompilationModel.compileExpr, pure, Except.pure, hbody] at hhead
+                  | error e => simp [CompilationModel.compileExprWithInternals, pure, Except.pure, hbody] at hhead
                   | ok loopBodyIR =>
                       exact StmtListScopeCore.forEachLiteralZero
                         (stmtListScopeCore_of_unsupportedContractSurface_eq_false

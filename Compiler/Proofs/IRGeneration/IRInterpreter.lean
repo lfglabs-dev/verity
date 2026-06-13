@@ -5574,12 +5574,12 @@ theorem compileStmt_internalCallAssign_shape
       compiledIR = [YulStmt.letMany names
         (YulExpr.call (CompilationModel.internalFunctionYulName functionName) argExprs)] := by
   simp only [CompilationModel.compileStmt, bind, Except.bind] at hok
-  match hargs : CompilationModel.compileExprList fields .calldata args with
+  match hargs : CompilationModel.compileExprListWithInternals fields .calldata [] args with
   | .error e =>
     simp [CompilationModel.compileInternalCallArgs,
       CompilationModel.findInternalFunctionForCall?, hargs] at hok
   | .ok argExprs =>
-    refine ⟨argExprs, rfl, ?_⟩
+    refine ⟨argExprs, by simpa [CompilationModel.compileExprList] using hargs, ?_⟩
     simp [CompilationModel.compileInternalCallArgs,
       CompilationModel.findInternalFunctionForCall?, hargs, pure, Except.pure] at hok
     exact hok.symm
@@ -5598,12 +5598,12 @@ theorem compileStmt_internalCall_shape
       compiledIR = [YulStmt.expr
         (YulExpr.call (CompilationModel.internalFunctionYulName functionName) argExprs)] := by
   simp only [CompilationModel.compileStmt, bind, Except.bind] at hok
-  match hargs : CompilationModel.compileExprList fields .calldata args with
+  match hargs : CompilationModel.compileExprListWithInternals fields .calldata [] args with
   | .error e =>
     simp [CompilationModel.compileInternalCallArgs,
       CompilationModel.findInternalFunctionForCall?, hargs] at hok
   | .ok argExprs =>
-    refine ⟨argExprs, rfl, ?_⟩
+    refine ⟨argExprs, by simpa [CompilationModel.compileExprList] using hargs, ?_⟩
     simp [CompilationModel.compileInternalCallArgs,
       CompilationModel.findInternalFunctionForCall?, hargs, pure, Except.pure] at hok
     exact hok.symm
