@@ -746,6 +746,9 @@ end Verity.AxiomAudit
   -- Verity.Proofs.Stdlib.Math.modulus_eq_max_succ  -- private
   -- Verity.Proofs.Stdlib.Math.lt_modulus_of_le_max  -- private
   -- Verity.Proofs.Stdlib.Math.max_uint256_lt_modulus  -- private
+  Verity.Proofs.Stdlib.Math.wExpCubicKernel_mono
+  Verity.Proofs.Stdlib.Math.wExpCubicKernel_ge_linear
+  Verity.Proofs.Stdlib.Math.wExpRangeReduction_exact
   -- Verity.Proofs.Stdlib.Math.ceil_mul_div_ge  -- private
   -- Verity.Proofs.Stdlib.Math.ceil_mul_div_le_add_pred  -- private
   -- Verity.Proofs.Stdlib.Math.nat_ceil_div_antitone_divisor  -- private
@@ -5587,4 +5590,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5247 theorems/lemmas (3722 public, 1525 private, 0 sorry'd)
+-- Total: 5250 theorems/lemmas (3725 public, 1525 private, 0 sorry'd)

@@ -127,6 +127,38 @@ private theorem max_uint256_lt_modulus :
     MAX_UINT256 < Verity.Core.Uint256.modulus :=
   lt_modulus_of_le_max (Nat.le_refl MAX_UINT256)
 
+/-! ## TickLib fixed-point exponential reference -/
+
+/-- The nonnegative residual kernel used by `tickWExpReference` is monotone. -/
+theorem wExpCubicKernel_mono {a b : Nat} (h : a ≤ b) :
+    wExpCubicKernel a ≤ wExpCubicKernel b := by
+  have hsq : a * a ≤ b * b := Nat.mul_le_mul h h
+  have hsecond :
+      (a * a) / (2 * WAD_NAT) ≤ (b * b) / (2 * WAD_NAT) :=
+    Nat.div_le_div_right hsq
+  have hthirdNum :
+      ((a * a) / (2 * WAD_NAT)) * a ≤
+        ((b * b) / (2 * WAD_NAT)) * b :=
+    Nat.mul_le_mul hsecond h
+  have hthird :
+      (((a * a) / (2 * WAD_NAT)) * a) / (3 * WAD_NAT) ≤
+        (((b * b) / (2 * WAD_NAT)) * b) / (3 * WAD_NAT) :=
+    Nat.div_le_div_right hthirdNum
+  simpa [wExpCubicKernel] using
+    Nat.add_le_add (Nat.add_le_add (Nat.add_le_add (Nat.le_refl WAD_NAT) h) hsecond) hthird
+
+/-- The cubic residual kernel always contains the wad-scaled linear term. -/
+theorem wExpCubicKernel_ge_linear (r : Nat) :
+    WAD_NAT + r ≤ wExpCubicKernel r := by
+  simp [wExpCubicKernel, Nat.add_assoc]
+
+/-- `wExpRangeR` is exactly the signed residual left by `wExpRangeQ`. -/
+theorem wExpRangeReduction_exact (xAbs : Nat) :
+    Int.ofNat (wExpRangeQ xAbs * WEXP_LN2) + wExpRangeR xAbs =
+      Int.ofNat xAbs := by
+  simp [wExpRangeR]
+  omega
+
 /-! ## Full-precision mulDiv512 helpers -/
 
 private theorem ceil_mul_div_ge (n d : Nat) (hd : 0 < d) :

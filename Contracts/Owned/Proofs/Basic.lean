@@ -131,6 +131,7 @@ theorem transferOwnership_unfold (s : ContractState) (newOwner : Address)
       storageArray := s.storageArray,
       sender := s.sender,
       thisAddress := s.thisAddress,
+      txOrigin := s.txOrigin,
       msgValue := s.msgValue,
       selfBalance := s.selfBalance,
       blockTimestamp := s.blockTimestamp,
