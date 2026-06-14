@@ -2034,26 +2034,14 @@ partial def inferPureExprType
             -- verity#1849, G3: accept `Array <wordLike>` / `bytes` / `string`
             -- direct param refs alongside word-like args.
             if let some (_, _, fieldTy, _elemTy, _) := arrayElementDynamicMemberProjection? params x then
-              match fieldTy with
-              | .array elemTy =>
-                  unless externalCallDynamicArgSupported (.array elemTy) do
-                    throwErrorAt x s!"externalCall '{extName}' dynamic-member argument currently supports only Array<wordLike> members, got {renderValueType fieldTy}"
-              | _ =>
-                  throwErrorAt x s!"externalCall '{extName}' dynamic-member argument requires an Array-typed member, got {renderValueType fieldTy}"
+              unless externalCallDynamicArgSupported fieldTy do
+                throwErrorAt x s!"externalCall '{extName}' dynamic-member argument currently supports only Array<wordLike>/bytes/string members, got {renderValueType fieldTy}"
             else if let some (_, _, fieldTy, _elemTy, _) := localArrayElementDynamicMemberProjection? locals x then
-              match fieldTy with
-              | .array elemTy =>
-                  unless externalCallDynamicArgSupported (.array elemTy) do
-                    throwErrorAt x s!"externalCall '{extName}' dynamic-member alias argument currently supports only Array<wordLike> members, got {renderValueType fieldTy}"
-              | _ =>
-                  throwErrorAt x s!"externalCall '{extName}' dynamic-member alias argument requires an Array-typed member, got {renderValueType fieldTy}"
+              unless externalCallDynamicArgSupported fieldTy do
+                throwErrorAt x s!"externalCall '{extName}' dynamic-member alias argument currently supports only Array<wordLike>/bytes/string members, got {renderValueType fieldTy}"
             else if let some (_, fieldTy, _) := paramDynamicMemberProjection? params x then
-              match fieldTy with
-              | .array elemTy =>
-                  unless externalCallDynamicArgSupported (.array elemTy) do
-                    throwErrorAt x s!"externalCall '{extName}' dynamic-member argument currently supports only Array<wordLike> members, got {renderValueType fieldTy}"
-              | _ =>
-                  throwErrorAt x s!"externalCall '{extName}' dynamic-member argument requires an Array-typed member, got {renderValueType fieldTy}"
+              unless externalCallDynamicArgSupported fieldTy do
+                throwErrorAt x s!"externalCall '{extName}' dynamic-member argument currently supports only Array<wordLike>/bytes/string members, got {renderValueType fieldTy}"
             else
               requireWordOrDirectArrayType x s!"externalCall '{extName}' argument" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals x visitingConstants)
       | _ => throwErrorAt args "expected list literal [..]"
@@ -3323,7 +3311,47 @@ partial def translatePureExprWithTypes
                   else
                     out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals arg visitingConstants)
               | none =>
-                  out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals arg visitingConstants)
+                  if let some (paramName, index, fieldTy, _elemTy, wordOffset) :=
+                      arrayElementDynamicMemberProjection? params arg then
+                    if externalCallDynamicArgSupported fieldTy then
+                      let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants
+                      out := out.push (← `(Compiler.CompilationModel.Expr.arrayElementDynamicMemberDataOffset
+                        $(strTerm paramName)
+                        $indexExpr
+                        $(natTerm wordOffset)))
+                      out := out.push (← `(Compiler.CompilationModel.Expr.arrayElementDynamicMemberLength
+                        $(strTerm paramName)
+                        $indexExpr
+                        $(natTerm wordOffset)))
+                    else
+                      out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals arg visitingConstants)
+                  else if let some (paramName, index, fieldTy, _elemTy, wordOffset) :=
+                      localArrayElementDynamicMemberProjection? locals arg then
+                    if externalCallDynamicArgSupported fieldTy then
+                      let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants
+                      out := out.push (← `(Compiler.CompilationModel.Expr.arrayElementDynamicMemberDataOffset
+                        $(strTerm paramName)
+                        $indexExpr
+                        $(natTerm wordOffset)))
+                      out := out.push (← `(Compiler.CompilationModel.Expr.arrayElementDynamicMemberLength
+                        $(strTerm paramName)
+                        $indexExpr
+                        $(natTerm wordOffset)))
+                    else
+                      out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals arg visitingConstants)
+                  else if let some (paramName, fieldTy, wordOffset) :=
+                      paramDynamicMemberProjection? params arg then
+                    if externalCallDynamicArgSupported fieldTy then
+                      out := out.push (← `(Compiler.CompilationModel.Expr.paramDynamicMemberDataOffset
+                        $(strTerm paramName)
+                        $(natTerm wordOffset)))
+                      out := out.push (← `(Compiler.CompilationModel.Expr.paramDynamicMemberLength
+                        $(strTerm paramName)
+                        $(natTerm wordOffset)))
+                    else
+                      out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals arg visitingConstants)
+                  else
+                    out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals arg visitingConstants)
             pure out
         | _ => throwErrorAt args "expected list literal [..]"
       `(Compiler.CompilationModel.Expr.externalCall $(strTerm extName) [ $[$argsExprs],* ])
@@ -3472,26 +3500,14 @@ def validateEcmExprListLiteral
   | `(term| [ $[$xs],* ]) =>
       for x in xs do
         if let some (_, _, fieldTy, _elemTy, _) := arrayElementDynamicMemberProjection? params x then
-          match fieldTy with
-          | .array elemTy =>
-              unless externalCallDynamicArgSupported (.array elemTy) do
-                throwErrorAt x s!"{context} dynamic-member argument currently supports only Array<wordLike> members, got {renderValueType fieldTy}"
-          | _ =>
-              throwErrorAt x s!"{context} dynamic-member argument requires an Array-typed member, got {renderValueType fieldTy}"
+          unless externalCallDynamicArgSupported fieldTy do
+            throwErrorAt x s!"{context} dynamic-member argument currently supports only Array<wordLike>/bytes/string members, got {renderValueType fieldTy}"
         else if let some (_, _, fieldTy, _elemTy, _) := localArrayElementDynamicMemberProjection? locals x then
-          match fieldTy with
-          | .array elemTy =>
-              unless externalCallDynamicArgSupported (.array elemTy) do
-                throwErrorAt x s!"{context} dynamic-member alias argument currently supports only Array<wordLike> members, got {renderValueType fieldTy}"
-          | _ =>
-              throwErrorAt x s!"{context} dynamic-member alias argument requires an Array-typed member, got {renderValueType fieldTy}"
+          unless externalCallDynamicArgSupported fieldTy do
+            throwErrorAt x s!"{context} dynamic-member alias argument currently supports only Array<wordLike>/bytes/string members, got {renderValueType fieldTy}"
         else if let some (_, fieldTy, _) := paramDynamicMemberProjection? params x then
-          match fieldTy with
-          | .array elemTy =>
-              unless externalCallDynamicArgSupported (.array elemTy) do
-                throwErrorAt x s!"{context} dynamic-member argument currently supports only Array<wordLike> members, got {renderValueType fieldTy}"
-          | _ =>
-              throwErrorAt x s!"{context} dynamic-member argument requires an Array-typed member, got {renderValueType fieldTy}"
+          unless externalCallDynamicArgSupported fieldTy do
+            throwErrorAt x s!"{context} dynamic-member argument currently supports only Array<wordLike>/bytes/string members, got {renderValueType fieldTy}"
         else
           requireWordOrDirectArrayType x context
             (← inferPureExprType fields constDecls immutableDecls externalDecls params locals x)
@@ -3974,6 +3990,48 @@ def translateInternalHelperCallArgs
                 out := out.push (← `(Compiler.CompilationModel.Expr.arrayElementDynamicDataOffset
                   $(strTerm paramName)
                   $indexExpr))
+              else if let some (paramName, index, fieldTy, _elemTy, wordOffset) :=
+                  arrayElementDynamicMemberProjection? params arg then
+                match fnParam.ty, fieldTy with
+                | .bytes, .bytes | .string, .string =>
+                    let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index
+                    out := out.push (← `(Compiler.CompilationModel.Expr.arrayElementDynamicMemberDataOffset
+                      $(strTerm paramName)
+                      $indexExpr
+                      $(natTerm wordOffset)))
+                    out := out.push (← `(Compiler.CompilationModel.Expr.arrayElementDynamicMemberLength
+                      $(strTerm paramName)
+                      $indexExpr
+                      $(natTerm wordOffset)))
+                | _, _ =>
+                    out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals arg)
+              else if let some (paramName, index, fieldTy, _elemTy, wordOffset) :=
+                  localArrayElementDynamicMemberProjection? locals arg then
+                match fnParam.ty, fieldTy with
+                | .bytes, .bytes | .string, .string =>
+                    let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index
+                    out := out.push (← `(Compiler.CompilationModel.Expr.arrayElementDynamicMemberDataOffset
+                      $(strTerm paramName)
+                      $indexExpr
+                      $(natTerm wordOffset)))
+                    out := out.push (← `(Compiler.CompilationModel.Expr.arrayElementDynamicMemberLength
+                      $(strTerm paramName)
+                      $indexExpr
+                      $(natTerm wordOffset)))
+                | _, _ =>
+                    out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals arg)
+              else if let some (paramName, fieldTy, wordOffset) :=
+                  paramDynamicMemberProjection? params arg then
+                match fnParam.ty, fieldTy with
+                | .bytes, .bytes | .string, .string =>
+                    out := out.push (← `(Compiler.CompilationModel.Expr.paramDynamicMemberDataOffset
+                      $(strTerm paramName)
+                      $(natTerm wordOffset)))
+                    out := out.push (← `(Compiler.CompilationModel.Expr.paramDynamicMemberLength
+                      $(strTerm paramName)
+                      $(natTerm wordOffset)))
+                | _, _ =>
+                    out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals arg)
               else
                 out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals arg)
         else
@@ -4015,55 +4073,43 @@ def translateLinkedExternalCallArgs
         | none =>
             if let some (paramName, index, fieldTy, _elemTy, wordOffset) :=
                 arrayElementDynamicMemberProjection? params arg then
-              match fieldTy with
-              | .array elemTy =>
-                  if externalCallDynamicArgSupported (.array elemTy) then
-                    let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index
-                    out := out.push (← `(Compiler.CompilationModel.Expr.arrayElementDynamicMemberDataOffset
-                      $(strTerm paramName)
-                      $indexExpr
-                      $(natTerm wordOffset)))
-                    out := out.push (← `(Compiler.CompilationModel.Expr.arrayElementDynamicMemberLength
-                      $(strTerm paramName)
-                      $indexExpr
-                      $(natTerm wordOffset)))
-                  else
-                    throwErrorAt arg s!"linked external dynamic-member argument currently supports only Array<wordLike> members, got {renderValueType fieldTy}"
-              | _ =>
-                  throwErrorAt arg s!"linked external dynamic-member argument requires an Array-typed member, got {renderValueType fieldTy}"
+              if externalCallDynamicArgSupported fieldTy then
+                let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index
+                out := out.push (← `(Compiler.CompilationModel.Expr.arrayElementDynamicMemberDataOffset
+                  $(strTerm paramName)
+                  $indexExpr
+                  $(natTerm wordOffset)))
+                out := out.push (← `(Compiler.CompilationModel.Expr.arrayElementDynamicMemberLength
+                  $(strTerm paramName)
+                  $indexExpr
+                  $(natTerm wordOffset)))
+              else
+                throwErrorAt arg s!"linked external dynamic-member argument currently supports only Array<wordLike>/bytes/string members, got {renderValueType fieldTy}"
             else if let some (paramName, index, fieldTy, _elemTy, wordOffset) :=
                 localArrayElementDynamicMemberProjection? locals arg then
-              match fieldTy with
-              | .array elemTy =>
-                  if externalCallDynamicArgSupported (.array elemTy) then
-                    let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index
-                    out := out.push (← `(Compiler.CompilationModel.Expr.arrayElementDynamicMemberDataOffset
-                      $(strTerm paramName)
-                      $indexExpr
-                      $(natTerm wordOffset)))
-                    out := out.push (← `(Compiler.CompilationModel.Expr.arrayElementDynamicMemberLength
-                      $(strTerm paramName)
-                      $indexExpr
-                      $(natTerm wordOffset)))
-                  else
-                    throwErrorAt arg s!"linked external dynamic-member alias argument currently supports only Array<wordLike> members, got {renderValueType fieldTy}"
-              | _ =>
-                  throwErrorAt arg s!"linked external dynamic-member alias argument requires an Array-typed member, got {renderValueType fieldTy}"
+              if externalCallDynamicArgSupported fieldTy then
+                let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index
+                out := out.push (← `(Compiler.CompilationModel.Expr.arrayElementDynamicMemberDataOffset
+                  $(strTerm paramName)
+                  $indexExpr
+                  $(natTerm wordOffset)))
+                out := out.push (← `(Compiler.CompilationModel.Expr.arrayElementDynamicMemberLength
+                  $(strTerm paramName)
+                  $indexExpr
+                  $(natTerm wordOffset)))
+              else
+                throwErrorAt arg s!"linked external dynamic-member alias argument currently supports only Array<wordLike>/bytes/string members, got {renderValueType fieldTy}"
             else if let some (paramName, fieldTy, wordOffset) :=
                 paramDynamicMemberProjection? params arg then
-              match fieldTy with
-              | .array elemTy =>
-                  if externalCallDynamicArgSupported (.array elemTy) then
-                    out := out.push (← `(Compiler.CompilationModel.Expr.paramDynamicMemberDataOffset
-                      $(strTerm paramName)
-                      $(natTerm wordOffset)))
-                    out := out.push (← `(Compiler.CompilationModel.Expr.paramDynamicMemberLength
-                      $(strTerm paramName)
-                      $(natTerm wordOffset)))
-                  else
-                    throwErrorAt arg s!"linked external dynamic-member argument currently supports only Array<wordLike> members, got {renderValueType fieldTy}"
-              | _ =>
-                  throwErrorAt arg s!"linked external dynamic-member argument requires an Array-typed member, got {renderValueType fieldTy}"
+              if externalCallDynamicArgSupported fieldTy then
+                out := out.push (← `(Compiler.CompilationModel.Expr.paramDynamicMemberDataOffset
+                  $(strTerm paramName)
+                  $(natTerm wordOffset)))
+                out := out.push (← `(Compiler.CompilationModel.Expr.paramDynamicMemberLength
+                  $(strTerm paramName)
+                  $(natTerm wordOffset)))
+              else
+                throwErrorAt arg s!"linked external dynamic-member argument currently supports only Array<wordLike>/bytes/string members, got {renderValueType fieldTy}"
             else
               out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals arg)
   pure out
@@ -4282,8 +4328,7 @@ def expectEcmExprList
         | none =>
             if let some (paramName, index, fieldTy, _elemTy, wordOffset) :=
                 arrayElementDynamicMemberProjection? params x then
-              match fieldTy with
-              | .array _ =>
+              if externalCallDynamicArgSupported fieldTy then
                   let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index
                   out := out.push (← `(Compiler.CompilationModel.Expr.arrayElementDynamicMemberDataOffset
                     $(strTerm paramName)
@@ -4293,11 +4338,11 @@ def expectEcmExprList
                     $(strTerm paramName)
                     $indexExpr
                     $(natTerm wordOffset)))
-              | _ => out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals x)
+              else
+                out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals x)
             else if let some (paramName, index, fieldTy, _elemTy, wordOffset) :=
                 localArrayElementDynamicMemberProjection? locals x then
-              match fieldTy with
-              | .array _ =>
+              if externalCallDynamicArgSupported fieldTy then
                   let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index
                   out := out.push (← `(Compiler.CompilationModel.Expr.arrayElementDynamicMemberDataOffset
                     $(strTerm paramName)
@@ -4307,18 +4352,19 @@ def expectEcmExprList
                     $(strTerm paramName)
                     $indexExpr
                     $(natTerm wordOffset)))
-              | _ => out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals x)
+              else
+                out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals x)
             else if let some (paramName, fieldTy, wordOffset) :=
                 paramDynamicMemberProjection? params x then
-              match fieldTy with
-              | .array _ =>
+              if externalCallDynamicArgSupported fieldTy then
                   out := out.push (← `(Compiler.CompilationModel.Expr.paramDynamicMemberDataOffset
                     $(strTerm paramName)
                     $(natTerm wordOffset)))
                   out := out.push (← `(Compiler.CompilationModel.Expr.paramDynamicMemberLength
                     $(strTerm paramName)
                     $(natTerm wordOffset)))
-              | _ => out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals x)
+              else
+                out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals x)
             else
               match ← translateAbiEncodeProjection? fields constDecls immutableDecls params locals x with
               | some exprs => out := out ++ exprs

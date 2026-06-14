@@ -187,14 +187,24 @@ verity_contract LinkedExternalProjectedArrayArgSmoke where
   struct Transaction where
     merkleRoot : Uint256,
     nullifierHashes : Array Uint256,
-    newCommitments : Array Uint256
+    newCommitments : Array Uint256,
+    callData : Bytes
 
   linked_externals
     external hashArray(Array Uint256) -> (Uint256)
     external hashArray_try(Array Uint256) -> (Bool, Uint256)
+    external hashBytes(Bytes) -> (Uint256)
+    external hashBytes_try(Bytes) -> (Bool, Uint256)
 
   function tryHashNullifiers (txs : Array Transaction, idx : Uint256) : Uint256 := do
     let (_success, h) ← tryExternalCall "hashArray" [(arrayElement txs idx).nullifierHashes]
+    return h
+
+  function hashCallData (txs : Array Transaction, idx : Uint256) : Uint256 := do
+    return externalCall "hashBytes" [(arrayElement txs idx).callData]
+
+  function tryHashCallData (txs : Array Transaction, idx : Uint256) : Uint256 := do
+    let (_success, h) ← tryExternalCall "hashBytes" [(arrayElement txs idx).callData]
     return h
 
 example :
@@ -211,6 +221,41 @@ example :
               "txs"
               (Compiler.CompilationModel.Expr.param "idx")
               1
+          ]
+      , Compiler.CompilationModel.Stmt.return
+          (Compiler.CompilationModel.Expr.localVar "h")
+      ] := rfl
+
+example :
+    LinkedExternalProjectedArrayArgSmoke.hashCallData_modelBody =
+      [ Compiler.CompilationModel.Stmt.return
+          (Compiler.CompilationModel.Expr.externalCall
+            "hashBytes"
+            [ Compiler.CompilationModel.Expr.arrayElementDynamicMemberDataOffset
+                "txs"
+                (Compiler.CompilationModel.Expr.param "idx")
+                3
+            , Compiler.CompilationModel.Expr.arrayElementDynamicMemberLength
+                "txs"
+                (Compiler.CompilationModel.Expr.param "idx")
+                3
+            ])
+      ] := rfl
+
+example :
+    LinkedExternalProjectedArrayArgSmoke.tryHashCallData_modelBody =
+      [ Compiler.CompilationModel.Stmt.tryExternalCallBind
+          "_success"
+          ["h"]
+          "hashBytes"
+          [ Compiler.CompilationModel.Expr.arrayElementDynamicMemberDataOffset
+              "txs"
+              (Compiler.CompilationModel.Expr.param "idx")
+              3
+          , Compiler.CompilationModel.Expr.arrayElementDynamicMemberLength
+              "txs"
+              (Compiler.CompilationModel.Expr.param "idx")
+              3
           ]
       , Compiler.CompilationModel.Stmt.return
           (Compiler.CompilationModel.Expr.localVar "h")
