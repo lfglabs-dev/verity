@@ -360,6 +360,26 @@ verity_contract ReturnCallNestedStructParamSmoke where
     let result ← pool.submit item
     return result
 
+/- A view method with a static composite return is accepted by the interface
+   declaration checks, but must not lower through the single-word oracle
+   summary. -/
+
+/--
+error: typed interface view call 'IPool.fetch' can use the oracle summary only for one static ABI word; return has 2 static ABI words (Verity.Macro.ValueType.tuple [Verity.Macro.ValueType.uint256, Verity.Macro.ValueType.address]). ABI-frame typed-interface view returns are not implemented yet (#1982).
+-/
+#guard_msgs in
+verity_contract ViewStaticCompositeReturnRejected where
+  storage
+
+  interfaces
+    interface IPool where
+      function fetch() view returns (Tuple [Uint256, Address])
+    end
+
+  function bad (pool : IPool) : Tuple [Uint256, Address] := do
+    let result ← pool.fetch
+    return result
+
 /--
 error: typed interface call 'IPool.submit' currently supports only static (single-word or composite) parameters; argument 1 has Verity.Macro.ValueType.string. Dynamic and composite ABI parameters require ABI-frame typed-interface lowering, which is not implemented yet (#1982).
 -/

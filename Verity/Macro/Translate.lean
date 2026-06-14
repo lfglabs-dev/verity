@@ -1334,13 +1334,21 @@ private partial def translateDoElem
                                 (translatePureExprWithTypes fields constDecls immutableDecls params locals)
                               let stmt ←
                                 if ext.isView then
-                                  `(Compiler.CompilationModel.Stmt.ecm
-                                      (Compiler.Modules.Oracle.typedReadWordSummaryModule
-                                        $(strTerm varName)
-                                        $(strTerm ext.name)
-                                        $(natTerm selector)
-                                        $(natTerm argExprs.size))
-                                      [ $targetExpr, $[$argExprs],* ])
+                                  match staticAbiWordCount? retTy with
+                                  | some 1 =>
+                                      `(Compiler.CompilationModel.Stmt.ecm
+                                          (Compiler.Modules.Oracle.typedReadWordSummaryModule
+                                            $(strTerm varName)
+                                            $(strTerm ext.name)
+                                            $(natTerm selector)
+                                            $(natTerm argExprs.size))
+                                          [ $targetExpr, $[$argExprs],* ])
+                                  | some n =>
+                                      throwErrorAt rhs
+                                        s!"typed interface view call '{ext.name}' can use the oracle summary only for one static ABI word; return has {n} static ABI words ({renderValueType retTy}). ABI-frame typed-interface view returns are not implemented yet (#1982)."
+                                  | none =>
+                                      throwErrorAt rhs
+                                        s!"typed interface view call '{ext.name}' can use the oracle summary only for one static ABI word; return has no static ABI word layout ({renderValueType retTy}). ABI-frame typed-interface view returns are not implemented yet (#1982)."
                                 else
                                   `(Compiler.CompilationModel.Stmt.ecm
                                       (Compiler.Modules.Calls.withReturnModule
