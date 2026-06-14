@@ -145,6 +145,23 @@ structure Field where
   aliasSlots : List Nat := []
   deriving Repr
 
+/-- Contract-level access-control role declaration shape.
+    `scalarAddress` models owner/admin-style roles stored as a single address.
+    `mappingAddressToUint256` models minter/relayer-style role membership maps
+    whose nonzero value grants the role. -/
+inductive RoleKind where
+  | scalarAddress
+  | mappingAddressToUint256
+  deriving Repr, BEq
+
+/-- Explicit role declaration used by generated access-control theorems and
+    reports. The `field` is the storage field backing this semantic role. -/
+structure RoleDecl where
+  name : String
+  field : String
+  kind : RoleKind
+  deriving Repr, BEq
+
 structure ReservedSlotRange where
   /-- Inclusive start slot of a reserved storage interval. -/
   start : Nat
@@ -1444,6 +1461,11 @@ structure ConstructorSpec where
 structure CompilationModel where
   name : String
   fields : List Field
+  /-- Explicit owner/admin/minter/relayer-style access-control declarations.
+      Functions annotated with `requires(role)` resolve through this list when
+      present; legacy `requires(storageField)` remains accepted for existing
+      contracts. -/
+  roles : List RoleDecl := []
   /-- Storage slots reserved for compatibility policy; compiler rejects field
       canonical/alias write slots that overlap these intervals. -/
   reservedSlotRanges : List ReservedSlotRange := []

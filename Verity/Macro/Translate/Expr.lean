@@ -368,7 +368,7 @@ def mkInitGuardedBody
     `mappingAddress` is the role-as-mapping shape (e.g. `onlyRelayer`,
     `onlyMinter`) — a `mapping(address => uint256)` slot used as a 0/1 flag;
     the macro injects `require (storage[slot][caller] != 0)`. (verity#1837) -/
-inductive RoleKind where
+inductive ResolvedRoleKind where
   | scalarAddress
   | mappingAddress
 
@@ -376,19 +376,27 @@ inductive RoleKind where
     Accepts either an Address-typed scalar field (`onlyOwner`-style) or an
     `Address → Uint256` mapping field (`onlyRelayer`-style, verity#1837). -/
 def resolveRoleField
-    (fields : Array StorageFieldDecl) (roleIdent : Ident) (fnIdent : Ident)
-    : CommandElabM (StorageFieldDecl × RoleKind) := do
+    (fields : Array StorageFieldDecl) (roleDecls : Array RoleDecl) (roleIdent : Ident) (fnIdent : Ident)
+    : CommandElabM (StorageFieldDecl × ResolvedRoleKind × String) := do
   let roleName := toString roleIdent.getId
-  match fields.find? (fun f => f.name == roleName) with
+  let resolveField (fieldName : String) (diagName : String) := do
+    match fields.find? (fun f => f.name == fieldName) with
+    | none =>
+        throwErrorAt roleIdent s!"function '{toString fnIdent.getId}': requires({diagName}) references role backing field '{fieldName}', but no such storage field exists; known fields: {(fields.map (·.name)).toList}"
+    | some field =>
+        match field.ty with
+        | .scalar .address | .scalar (.newtype _ .address) =>
+            pure (field, .scalarAddress, diagName)
+        | .mappingAddressToUint256 =>
+            pure (field, .mappingAddress, diagName)
+        | _ => throwErrorAt roleIdent s!"function '{toString fnIdent.getId}': requires({diagName}) must reference an explicit role or an Address-typed scalar / Address→Uint256 role field, but backing field '{fieldName}' has an unsupported role shape"
+  match roleDecls.find? (fun r => r.name == roleName) with
+  | some role => resolveField role.fieldName role.name
   | none =>
-      throwErrorAt roleIdent s!"function '{toString fnIdent.getId}': requires references unknown storage field '{roleName}'; known fields: {(fields.map (·.name)).toList}"
-  | some field =>
-      match field.ty with
-      | .scalar .address | .scalar (.newtype _ .address) =>
-          pure (field, .scalarAddress)
-      | .mappingAddressToUint256 =>
-          pure (field, .mappingAddress)
-      | _ => throwErrorAt roleIdent s!"function '{toString fnIdent.getId}': requires({roleName}) must reference an Address-typed scalar storage field or an Address→Uint256 mapping (role-as-mapping), but '{roleName}' has a different type"
+      match fields.find? (fun f => f.name == roleName) with
+      | some _ => resolveField roleName roleName
+      | none =>
+          throwErrorAt roleIdent s!"function '{toString fnIdent.getId}': requires references unknown role '{roleName}'; known roles: {(roleDecls.map (·.name)).toList}; legacy storage fields: {(fields.map (·.name)).toList}"
 
 /-- Generate IR-level prelude statements for a `requires(role)` annotation.
     Scalar Address: injects `Stmt.require (Expr.eq Expr.caller (Expr.storageAddr roleField)) message`.
@@ -397,12 +405,13 @@ def resolveRoleField
     (#1728, Axis 2 Step 2c; mapping-keyed extension verity#1837) -/
 def roleGuardPreludeStmtTerms
     (fields : Array StorageFieldDecl)
+    (roleDecls : Array RoleDecl)
     (fn : FunctionDecl) : CommandElabM (Array Term) := do
   match fn.requiresRole with
   | none => pure #[]
   | some roleIdent =>
-      let (field, kind) ← resolveRoleField fields roleIdent fn.ident
-      let message := strTerm s!"Access denied: caller is not {field.name}"
+      let (field, kind, roleName) ← resolveRoleField fields roleDecls roleIdent fn.ident
+      let message := strTerm s!"Access denied: caller is not {roleName}"
       match kind with
       | .scalarAddress =>
           pure #[
@@ -428,13 +437,14 @@ def roleGuardPreludeStmtTerms
     (#1728, Axis 2 Step 2c; mapping-keyed extension verity#1837) -/
 def mkRoleGuardedBody
     (fields : Array StorageFieldDecl)
+    (roleDecls : Array RoleDecl)
     (fn : FunctionDecl) : CommandElabM Term := do
   match fn.requiresRole with
   | none => pure fn.body
   | some roleIdent =>
-      let (field, kind) ← resolveRoleField fields roleIdent fn.ident
+      let (field, kind, roleName) ← resolveRoleField fields roleDecls roleIdent fn.ident
       let senderVar := mkIdent (Name.mkSimple s!"__verity_role_sender_{field.name}")
-      let message := strTerm s!"Access denied: caller is not {field.name}"
+      let message := strTerm s!"Access denied: caller is not {roleName}"
       match fn.body with
       | `(term| do $[$elems:doElem]*) =>
           match kind with

@@ -169,12 +169,14 @@ verity_contract RolesSmoke where
   storage
     admin : Address := slot 0
     counter : Uint256 := slot 1
+  roles
+    adminRole := admin
 
   constructor (initialAdmin : Address) := do
     setStorageAddr admin initialAdmin
 
   -- requires(admin) auto-injects: require(caller == admin) "Access denied: caller is not admin"
-  function setCounter (value : Uint256) requires(admin) : Unit := do
+  function setCounter (value : Uint256) requires(adminRole) : Unit := do
     setStorage counter value
 
   -- Normal function without access control
@@ -192,6 +194,8 @@ verity_contract RolesMappingSmoke where
   storage
     relayers : Address → Uint256 := slot 0
     counter  : Uint256 := slot 1
+  roles
+    relayer := relayers
 
   constructor (initialRelayer : Address) := do
     setMapping relayers initialRelayer 1
@@ -200,7 +204,7 @@ verity_contract RolesMappingSmoke where
   --   let sender ← msgSender
   --   let value  ← getMapping relayers sender
   --   require (value != 0) "Access denied: caller is not relayers"
-  function setCounter (value : Uint256) requires(relayers) : Unit := do
+  function setCounter (value : Uint256) requires(relayer) : Unit := do
     setStorage counter value
 
   -- Normal function without access control
@@ -239,6 +243,70 @@ verity_contract NewtypeSmoke where
 
 #check_contract RolesSmoke
 #check_contract RolesMappingSmoke
+
+-- Explicit role declarations for owner/admin/minter/relayer-style policies
+-- (#1894). Scalar address roles and mapping-backed roles are reported through
+-- the same `spec.roles` surface and generate readable access-control facts.
+verity_contract RolesDeclaredSmoke where
+  storage
+    owner : Address := slot 0
+    admin : Address := slot 1
+    minters : Address → Uint256 := slot 2
+    relayers : Address → Uint256 := slot 3
+    counter : Uint256 := slot 4
+  roles
+    ownerRole := owner
+    adminRole := admin
+    minterRole := minters
+    relayerRole := relayers
+
+  constructor (initialOwner : Address) := do
+    setStorageAddr owner initialOwner
+    setStorageAddr admin initialOwner
+    setMapping minters initialOwner 1
+    setMapping relayers initialOwner 1
+
+  function setByOwner (value : Uint256) requires(ownerRole) : Unit := do
+    setStorage counter value
+
+  function setByAdmin (value : Uint256) requires(adminRole) : Unit := do
+    setStorage counter value
+
+  function mintLike (value : Uint256) requires(minterRole) : Unit := do
+    setStorage counter value
+
+  function relayLike (value : Uint256) requires(relayerRole) : Unit := do
+    setStorage counter value
+
+#check_contract RolesDeclaredSmoke
+
+example : RolesDeclaredSmoke.spec.«roles».length = 4 := rfl
+example :
+    RolesDeclaredSmoke.setByOwner_model.requiresRole = some "ownerRole" ∧
+      RolesDeclaredSmoke.spec.«roles».contains
+        { name := "ownerRole", field := "owner",
+          kind := Compiler.CompilationModel.RoleKind.scalarAddress } = true :=
+  RolesDeclaredSmoke.setByOwner_access_control
+example :
+    RolesDeclaredSmoke.mintLike_model.requiresRole = some "minterRole" ∧
+      RolesDeclaredSmoke.spec.«roles».contains
+        { name := "minterRole", field := "minters",
+          kind := Compiler.CompilationModel.RoleKind.mappingAddressToUint256 } = true :=
+  RolesDeclaredSmoke.mintLike_access_control
+
+/--
+error: role 'badRole' uses unsupported backing field 'flag'; roles require an Address scalar field or Address→Uint256 mapping
+-/
+#guard_msgs in
+verity_contract UnsupportedRoleShapeRejected where
+  storage
+    flag : Uint256 := slot 0
+  roles
+    badRole := flag
+
+  function guarded () requires(badRole) : Unit := do
+    pure ()
+
 #check_contract NewtypeSmoke
 
 -- Smoke test for newtype-TYPED storage fields (not just newtype params).
