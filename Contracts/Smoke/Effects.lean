@@ -164,6 +164,25 @@ verity_contract CEILadderSmoke where
 -- guard prevents reentrant state corruption at runtime.
 #check_contract CEILadderSmoke
 
+-- `cei_safe` is proof-backed metadata, not a CEI escape hatch: a post-call
+-- persistent write is still rejected unless the function uses an explicit
+-- trust exit such as `allow_post_interaction_writes` or `nonreentrant`.
+verity_contract CEISafePostInteractionWriteRejected where
+  storage
+    result : Uint256 := slot 0
+  linked_externals
+    external echo(Uint256) -> (Uint256)
+
+  function cei_safe callThenStoreClaimed (x : Uint256) : Unit := do
+    let echoed := externalCall "echo" [x]
+    setStorage result echoed
+
+/--
+error: #check_contract failed for 'Contracts.Smoke.CEISafePostInteractionWriteRejected': Compilation error: function 'callThenStoreClaimed' violates CEI (Checks-Effects-Interactions) ordering: state write after external call. Reorder state writes before external calls, or annotate with allow_post_interaction_writes / nonreentrant(<lock>) to opt out (Issue #1728 (CEI enforcement — Checks-Effects-Interactions ordering))
+-/
+#guard_msgs in
+#check_contract CEISafePostInteractionWriteRejected
+
 -- Roles / requires(field) smoke test (#1728, Axis 2 Step 2c)
 verity_contract RolesSmoke where
   storage

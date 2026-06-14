@@ -39,6 +39,7 @@ import Compiler.Proofs.EndToEnd.SimpleStorage
 import Compiler.Proofs.EventSemantics
 import Compiler.Proofs.Frames
 import Compiler.Proofs.HelperStepProofs
+import Compiler.Proofs.IRGeneration.CEISafety
 import Compiler.Proofs.IRGeneration.Contract
 import Compiler.Proofs.IRGeneration.ContractFeatureTest
 import Compiler.Proofs.IRGeneration.ContractShape
@@ -1628,6 +1629,14 @@ end Verity.AxiomAudit
   Compiler.Proofs.HelperStepProofs.fullHelperAwareListWitness_of_allInterfaces_disjoint
   Compiler.Proofs.HelperStepProofs.helperFreeContractWitness
   Compiler.Proofs.HelperStepProofs.helperFreeContractWitness_disjoint
+
+  -- Compiler/Proofs/IRGeneration/CEISafety.lean
+  Compiler.Proofs.IRGeneration.CEIProofBackedExecution.execution_safe
+  Compiler.Proofs.IRGeneration.CEIProofBackedExecution.no_post_interaction_write_opt_out
+  Compiler.Proofs.IRGeneration.CEIProofBackedExecution.no_nonreentrant_runtime_guard
+  Compiler.Proofs.IRGeneration.CEIProofBackedExecution.no_local_unsafe_obligations
+  Compiler.Proofs.IRGeneration.ceiProofBackedExecution_of_checker
+  Compiler.Proofs.IRGeneration.ceiProofBackedExecution_checked_empty_body
 
   -- Compiler/Proofs/IRGeneration/Contract.lean
   -- Compiler.Proofs.IRGeneration.Contract.pickUniqueFunctionByName_eq_ok_none_of_absent  -- private
