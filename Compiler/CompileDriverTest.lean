@@ -1366,8 +1366,10 @@ unsafe def runTests : IO Unit := do
     throw (IO.userError "✗ trust report emits linked external axioms")
   if !contains trustReport "\"module\":\"testCall\"" || !contains trustReport "\"assumption\":\"test_call_interface\"" then
     throw (IO.userError "✗ trust report emits ECM axioms")
-  if !contains trustReport "\"ecmModules\":[{\"module\":\"testCall\",\"status\":\"assumed\",\"axioms\":[\"test_call_interface\"],\"boundaryClass\":\"abiBoundary\"}]" then
+  if !contains trustReport "\"ecmModules\":[{\"module\":\"testCall\",\"status\":\"assumed\",\"axioms\":[\"test_call_interface\"],\"boundaryClass\":\"abiBoundary\",\"externalSummary\":{\"name\":\"testCall\",\"selector\":null,\"mutability\":\"staticcall\",\"assumptions\":[\"test_call_interface\"]}}]" then
     throw (IO.userError "✗ trust report emits ECM module status")
+  if !contains trustReport "\"externalSummaries\":[{\"name\":\"testCall\",\"selector\":null,\"mutability\":\"staticcall\",\"assumptions\":[\"test_call_interface\"]}]" then
+    throw (IO.userError "✗ trust report emits assumed external summaries")
   if !contains trustReport "\"linkedExternals\":[{\"name\":\"PoseidonT3_hash\",\"status\":\"assumed\",\"linkMode\":\"objectLinked\",\"axioms\":[\"poseidon_t3_deterministic\"],\"boundaryClass\":\"compilerIntrinsic\"}]" then
     throw (IO.userError "✗ trust report classifies linked external boundaries")
   if !contains trustReport "\"ecmAxioms\":[{\"module\":\"testCall\",\"assumption\":\"test_call_interface\",\"boundaryClass\":\"abiBoundary\"}]" then
@@ -1557,25 +1559,27 @@ unsafe def runTests : IO Unit := do
     throw (IO.userError "✗ assumption report emits contract name")
   if !contains assumptionReport "\"category\":\"axiomatizedPrimitive\",\"siteKind\":\"function\",\"siteName\":\"exercise\",\"name\":\"keccak256\",\"status\":\"assumed\",\"detail\":\"\",\"assumption\":\"keccak256_memory_slice_matches_evm\"" then
     throw (IO.userError "✗ assumption report emits primitive assumption entries")
-  if !contains assumptionReport "\"category\":\"axiomatizedPrimitive\",\"siteKind\":\"function\",\"siteName\":\"exercise\",\"name\":\"keccak256\",\"status\":\"assumed\",\"detail\":\"\",\"assumption\":\"keccak256_memory_slice_matches_evm\",\"linkMode\":\"\",\"module\":\"\",\"axioms\":[],\"boundaryClass\":\"compilerIntrinsic\"" then
+  if !contains assumptionReport "\"category\":\"axiomatizedPrimitive\",\"siteKind\":\"function\",\"siteName\":\"exercise\",\"name\":\"keccak256\",\"status\":\"assumed\",\"detail\":\"\",\"assumption\":\"keccak256_memory_slice_matches_evm\",\"linkMode\":\"\",\"module\":\"\",\"axioms\":[],\"mutability\":\"\",\"selector\":null,\"boundaryClass\":\"compilerIntrinsic\"" then
     throw (IO.userError "✗ assumption report classifies primitive boundaries")
   if !contains assumptionReport "\"category\":\"linkedExternal\",\"siteKind\":\"function\",\"siteName\":\"exercise\",\"name\":\"PoseidonT3_hash\",\"status\":\"assumed\"" ||
       !contains assumptionReport "\"linkMode\":\"objectLinked\"" then
     throw (IO.userError "✗ assumption report emits linked external entries")
-  if !contains assumptionReport "\"category\":\"linkedExternal\",\"siteKind\":\"function\",\"siteName\":\"exercise\",\"name\":\"PoseidonT3_hash\",\"status\":\"assumed\",\"detail\":\"\",\"assumption\":\"\",\"linkMode\":\"objectLinked\",\"module\":\"\",\"axioms\":[\"poseidon_t3_deterministic\"],\"boundaryClass\":\"compilerIntrinsic\"" then
+  if !contains assumptionReport "\"category\":\"linkedExternal\",\"siteKind\":\"function\",\"siteName\":\"exercise\",\"name\":\"PoseidonT3_hash\",\"status\":\"assumed\",\"detail\":\"\",\"assumption\":\"\",\"linkMode\":\"objectLinked\",\"module\":\"\",\"axioms\":[\"poseidon_t3_deterministic\"],\"mutability\":\"\",\"selector\":null,\"boundaryClass\":\"compilerIntrinsic\"" then
     throw (IO.userError "✗ assumption report classifies linked external boundaries")
   if !contains assumptionReport "\"category\":\"ecmModule\",\"siteKind\":\"function\",\"siteName\":\"exercise\",\"name\":\"testCall\",\"status\":\"assumed\"" then
     throw (IO.userError "✗ assumption report emits ECM module entries")
-  if !contains assumptionReport "\"category\":\"ecmModule\",\"siteKind\":\"function\",\"siteName\":\"exercise\",\"name\":\"testCall\",\"status\":\"assumed\",\"detail\":\"\",\"assumption\":\"\",\"linkMode\":\"\",\"module\":\"\",\"axioms\":[\"test_call_interface\"],\"boundaryClass\":\"abiBoundary\"" then
+  if !contains assumptionReport "\"category\":\"ecmModule\",\"siteKind\":\"function\",\"siteName\":\"exercise\",\"name\":\"testCall\",\"status\":\"assumed\",\"detail\":\"\",\"assumption\":\"\",\"linkMode\":\"\",\"module\":\"\",\"axioms\":[\"test_call_interface\"],\"mutability\":\"\",\"selector\":null,\"boundaryClass\":\"abiBoundary\"" then
     throw (IO.userError "✗ assumption report classifies ECM module boundaries")
+  if !contains assumptionReport "\"category\":\"externalSummary\",\"siteKind\":\"function\",\"siteName\":\"exercise\",\"name\":\"testCall\",\"status\":\"assumed\",\"detail\":\"\",\"assumption\":\"\",\"linkMode\":\"\",\"module\":\"testCall\",\"axioms\":[\"test_call_interface\"],\"mutability\":\"staticcall\",\"selector\":null,\"boundaryClass\":\"abiBoundary\"" then
+    throw (IO.userError "✗ assumption report emits external summary entries")
   if !contains assumptionReport "\"category\":\"ecmAxiom\",\"siteKind\":\"function\",\"siteName\":\"exercise\",\"name\":\"test_call_interface\",\"status\":\"assumed\"" ||
       !contains assumptionReport "\"module\":\"testCall\"" then
     throw (IO.userError "✗ assumption report emits ECM axiom entries")
-  if !contains assumptionReport "\"category\":\"ecmAxiom\",\"siteKind\":\"function\",\"siteName\":\"exercise\",\"name\":\"test_call_interface\",\"status\":\"assumed\",\"detail\":\"\",\"assumption\":\"\",\"linkMode\":\"\",\"module\":\"testCall\",\"axioms\":[],\"boundaryClass\":\"abiBoundary\"" then
+  if !contains assumptionReport "\"category\":\"ecmAxiom\",\"siteKind\":\"function\",\"siteName\":\"exercise\",\"name\":\"test_call_interface\",\"status\":\"assumed\",\"detail\":\"\",\"assumption\":\"\",\"linkMode\":\"\",\"module\":\"testCall\",\"axioms\":[],\"mutability\":\"\",\"selector\":null,\"boundaryClass\":\"abiBoundary\"" then
     throw (IO.userError "✗ assumption report classifies ECM axiom boundaries")
   if !contains assumptionReport "\"category\":\"localObligation\",\"siteKind\":\"function\",\"siteName\":\"unsafeEdge\",\"name\":\"manual_delegatecall_refinement\",\"status\":\"assumed\",\"detail\":\"Caller must separately prove the handwritten assembly path refines the intended state transition.\"" then
     throw (IO.userError "✗ assumption report emits localized local-obligation entries")
-  if !contains assumptionReport "\"category\":\"localObligation\",\"siteKind\":\"function\",\"siteName\":\"unsafeEdge\",\"name\":\"manual_delegatecall_refinement\",\"status\":\"assumed\",\"detail\":\"Caller must separately prove the handwritten assembly path refines the intended state transition.\",\"assumption\":\"\",\"linkMode\":\"\",\"module\":\"\",\"axioms\":[],\"boundaryClass\":\"gate\"" then
+  if !contains assumptionReport "\"category\":\"localObligation\",\"siteKind\":\"function\",\"siteName\":\"unsafeEdge\",\"name\":\"manual_delegatecall_refinement\",\"status\":\"assumed\",\"detail\":\"Caller must separately prove the handwritten assembly path refines the intended state transition.\",\"assumption\":\"\",\"linkMode\":\"\",\"module\":\"\",\"axioms\":[],\"mutability\":\"\",\"selector\":null,\"boundaryClass\":\"gate\"" then
     throw (IO.userError "✗ assumption report classifies gate boundaries")
   if !contains assumptionReport "\"undischarged\":[{\"category\":\"localObligation\",\"siteKind\":\"function\",\"siteName\":\"unsafeEdge\",\"name\":\"manual_delegatecall_refinement\",\"status\":\"assumed\"" then
     throw (IO.userError "✗ assumption report tracks undischarged entries separately")
@@ -1593,7 +1597,7 @@ unsafe def runTests : IO Unit := do
   let constructorOnlyEcmTrustReport := emitTrustReportJson [constructorOnlyEcmTrustSurfaceSpec]
   if !contains constructorOnlyEcmTrustReport "\"unchecked\":{\"axiomatizedPrimitives\":[],\"linkedExternals\":[],\"ecmModules\":[\"ctorHook\"],\"localObligations\":[]}" then
     throw (IO.userError "✗ trust report includes constructor-only ECM modules in proof-status buckets")
-  if !contains constructorOnlyEcmTrustReport "\"ecmModules\":[{\"module\":\"ctorHook\",\"status\":\"unchecked\",\"axioms\":[\"ctor_hook_interface\"],\"boundaryClass\":\"abiBoundary\"}]" then
+  if !contains constructorOnlyEcmTrustReport "\"ecmModules\":[{\"module\":\"ctorHook\",\"status\":\"unchecked\",\"axioms\":[\"ctor_hook_interface\"],\"boundaryClass\":\"abiBoundary\",\"externalSummary\":{\"name\":\"ctorHook\",\"selector\":null,\"mutability\":\"staticcall\",\"assumptions\":[\"ctor_hook_interface\"]}}]" then
     throw (IO.userError "✗ trust report includes constructor-only ECM modules in external assumptions")
   if !contains constructorOnlyEcmTrustReport "\"usageSites\":[{\"kind\":\"constructor\",\"name\":\"constructor\"" then
     throw (IO.userError "✗ trust report localizes constructor-only trust usage sites")
