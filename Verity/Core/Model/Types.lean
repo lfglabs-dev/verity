@@ -984,6 +984,12 @@ def anyDeep (p : Expr → Bool) (e : Expr) : Bool :=
     anyDeep p c)
 termination_by sizeOf e
 
+/-- Deep boolean fold over expressions. This is the public validator-facing
+    name for expression predicates that should be checked over the whole
+    expression tree. -/
+def foldBool (p : Expr → Bool) (e : Expr) : Bool :=
+  e.anyDeep p
+
 /-- Deep universal: `p` holds for this expression and all sub-expressions. -/
 def allDeep (p : Expr → Bool) (e : Expr) : Bool :=
   p e && (children e).attach.all (fun ⟨c, hc⟩ =>
@@ -1000,6 +1006,10 @@ def forDeepM (check : Expr → Except String Unit) (e : Expr) : Except String Un
     have := children_sizeOf_lt e c hc
     forDeepM check c)
 termination_by sizeOf e
+
+/-- Deep monadic expression validator fold, in pre-order. -/
+def checkRec (check : Expr → Except String Unit) (e : Expr) : Except String Unit :=
+  e.forDeepM check
 
 /-- Deep monadic check in post-order: run `check` on every (transitive)
     sub-expression before the expression itself, short-circuiting on the
@@ -1259,6 +1269,16 @@ decreasing_by exact Nat.lt_trans this.1 this.2
 def anyDeepList (p : Stmt → Bool) (stmts : List Stmt) : Bool :=
   stmts.any (anyDeep p)
 
+/-- Deep boolean fold over statements. Expression-level conditions should be
+    expressed by the node predicate using `Stmt.directMetadata.subexpressions`
+    or `Expr.foldBool`. -/
+def foldBool (p : Stmt → Bool) (s : Stmt) : Bool :=
+  s.anyDeep p
+
+/-- Deep boolean fold over a statement list. -/
+def foldBoolList (p : Stmt → Bool) (stmts : List Stmt) : Bool :=
+  Stmt.anyDeepList p stmts
+
 /-- Deep monadic check: run `check` on this statement and every statement
     nested inside it (pre-order; child lists in declaration order),
     short-circuiting on the first error. Statement-local expression conditions
@@ -1276,6 +1296,20 @@ decreasing_by exact Nat.lt_trans this.1 this.2
 def forDeepListM (check : Stmt → Except String Unit) (stmts : List Stmt) :
     Except String Unit :=
   stmts.forM (forDeepM check)
+
+/-- Deep monadic statement validator fold, in pre-order. -/
+def checkRec (check : Stmt → Except String Unit) (s : Stmt) : Except String Unit :=
+  s.forDeepM check
+
+/-- Deep monadic statement-list validator fold, in pre-order. -/
+def checkRecList (check : Stmt → Except String Unit) (stmts : List Stmt) :
+    Except String Unit :=
+  Stmt.forDeepListM check stmts
+
+/-- Deep monadic fold over branch bodies used by ADT statement matches. -/
+def checkRecBranches (check : Stmt → Except String Unit)
+    (branches : List (String × List String × List Stmt)) : Except String Unit :=
+  branches.forM fun (_, _, body) => Stmt.checkRecList check body
 
 mutual
 partial def controlFlow : Stmt → ControlFlowSummary
