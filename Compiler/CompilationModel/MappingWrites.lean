@@ -12,6 +12,13 @@ def compileMappingSlotWrite (fields : List Field) (field : String)
   if !isMapping fields field then
     throw s!"Compilation error: field '{field}' is not a mapping"
   else
+    let storeBuiltin :=
+      if allowTransient then
+        match findFieldWithResolvedSlot fields field with
+        | some (f, _) => if f.isTransient then "tstore" else "sstore"
+        | none => "sstore"
+      else
+        "sstore"
     match findFieldWriteSlots fields field with
     | some slots =>
         match slots with
@@ -22,8 +29,7 @@ def compileMappingSlotWrite (fields : List Field) (field : String)
               let writeSlot := if wordOffset == 0 then mappingBase else YulExpr.call "add" [mappingBase, YulExpr.lit wordOffset]
               if allowTransient then
                 match findFieldWithResolvedSlot fields field with
-                | some (f, _) =>
-                    let storeBuiltin := if f.isTransient then "tstore" else "sstore"
+                | some (_, _) =>
                     pure [
                       YulStmt.expr (YulExpr.call storeBuiltin [
                         writeSlot,
@@ -46,7 +52,7 @@ def compileMappingSlotWrite (fields : List Field) (field : String)
                 YulStmt.block (
                   [YulStmt.let_ "__compat_key" keyExpr, YulStmt.let_ "__compat_value" valueExpr] ++
                   slots.map (fun slot =>
-                    YulStmt.expr (YulExpr.call "sstore" [
+                    YulStmt.expr (YulExpr.call storeBuiltin [
                       compatSlotExpr slot,
                       YulExpr.ident "__compat_value"
                     ]))
@@ -56,12 +62,26 @@ def compileMappingSlotWrite (fields : List Field) (field : String)
 
 def compileMappingPackedSlotWrite (fields : List Field) (field : String)
     (keyExpr valueExpr : YulExpr) (wordOffset : Nat) (packed : PackedBits)
-    (label : String) : Except String (List YulStmt) :=
+    (label : String) (allowTransient : Bool := false) : Except String (List YulStmt) :=
   if !isMapping fields field then
     throw s!"Compilation error: field '{field}' is not a mapping"
   else if !packedBitsValid packed then
     throw s!"Compilation error: {label} for field '{field}' has invalid packed range offset={packed.offset} width={packed.width}. Require 0 < width <= 256, offset < 256, and offset + width <= 256."
   else
+    let loadBuiltin :=
+      if allowTransient then
+        match findFieldWithResolvedSlot fields field with
+        | some (f, _) => if f.isTransient then "tload" else "sload"
+        | none => "sload"
+      else
+        "sload"
+    let storeBuiltin :=
+      if allowTransient then
+        match findFieldWithResolvedSlot fields field with
+        | some (f, _) => if f.isTransient then "tstore" else "sstore"
+        | none => "sstore"
+      else
+        "sstore"
     match findFieldWriteSlots fields field with
     | some slots =>
         match slots with
@@ -76,12 +96,12 @@ def compileMappingPackedSlotWrite (fields : List Field) (field : String)
               YulStmt.block [
                 YulStmt.let_ "__compat_value" valueExpr,
                 YulStmt.let_ "__compat_packed" (YulExpr.call "and" [YulExpr.ident "__compat_value", YulExpr.lit maskNat]),
-                YulStmt.let_ "__compat_slot_word" (YulExpr.call "sload" [writeSlot]),
+                YulStmt.let_ "__compat_slot_word" (YulExpr.call loadBuiltin [writeSlot]),
                 YulStmt.let_ "__compat_slot_cleared" (YulExpr.call "and" [
                   YulExpr.ident "__compat_slot_word",
                   YulExpr.call "not" [YulExpr.lit shiftedMaskNat]
                 ]),
-                YulStmt.expr (YulExpr.call "sstore" [
+                YulStmt.expr (YulExpr.call storeBuiltin [
                   writeSlot,
                   YulExpr.call "or" [
                     YulExpr.ident "__compat_slot_cleared",
@@ -103,12 +123,12 @@ def compileMappingPackedSlotWrite (fields : List Field) (field : String)
                  YulStmt.let_ "__compat_packed" (YulExpr.call "and" [YulExpr.ident "__compat_value", YulExpr.lit maskNat])] ++
                 slots.map (fun slot =>
                   YulStmt.block [
-                    YulStmt.let_ "__compat_slot_word" (YulExpr.call "sload" [slotExpr slot]),
+                    YulStmt.let_ "__compat_slot_word" (YulExpr.call loadBuiltin [slotExpr slot]),
                     YulStmt.let_ "__compat_slot_cleared" (YulExpr.call "and" [
                       YulExpr.ident "__compat_slot_word",
                       YulExpr.call "not" [YulExpr.lit shiftedMaskNat]
                     ]),
-                    YulStmt.expr (YulExpr.call "sstore" [
+                    YulStmt.expr (YulExpr.call storeBuiltin [
                       slotExpr slot,
                       YulExpr.call "or" [
                         YulExpr.ident "__compat_slot_cleared",

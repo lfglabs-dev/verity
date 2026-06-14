@@ -527,6 +527,26 @@ def writeAddressKeyedMappingPackedWordSlots
       else
         world.storage slot }
 
+def writeAddressKeyedMappingPackedWordFieldSlots
+    (fields : List Field) (fieldName : String)
+    (world : Verity.ContractState) (slots : List Nat) (key wordOffset : Nat)
+    (packed : PackedBits) (value : Nat) :
+    Verity.ContractState :=
+  let targets :=
+    slots.map (fun slot =>
+      wordNormalize (Compiler.Proofs.abstractMappingSlot slot key + wordOffset))
+  if fieldIsTransient fields fieldName then
+    let wordAt := fun slot => (world.transientStorage slot).val
+    let updated := targets.map (fun slot =>
+      (slot, packedWordWrite (wordAt slot) value packed))
+    { world with
+      transientStorage := fun slot =>
+        match updated.find? (fun entry => entry.fst == slot) with
+        | some (_, word) => word
+        | none => world.transientStorage slot }
+  else
+    writeAddressKeyedMappingPackedWordSlots world slots key wordOffset packed value
+
 def writeUintKeyedMappingSlots
     (world : Verity.ContractState) (slots : List Nat) (key value : Nat) :
     Verity.ContractState :=
@@ -2046,7 +2066,8 @@ mutual
         | some slots@(_ :: _), some resolvedKey, some resolved =>
             .continue
               { state with
-                  world := writeAddressKeyedMappingSlots state.world slots resolvedKey resolved }
+                  world := writeAddressKeyedMappingFieldSlots
+                    fields fieldName state.world slots resolvedKey resolved }
         | _, _, _ => .revert
     | state, .setMappingWord fieldName key wordOffset value =>
         match findFieldWriteSlots fields fieldName,
@@ -2055,7 +2076,8 @@ mutual
         | some slots@(_ :: _), some resolvedKey, some resolved =>
             .continue
                { state with
-                   world := writeAddressKeyedMappingWordSlots state.world slots resolvedKey wordOffset resolved }
+                   world := writeAddressKeyedMappingWordFieldSlots
+                     fields fieldName state.world slots resolvedKey wordOffset resolved }
         | _, _, _ => .revert
     | state, .setMappingPackedWord fieldName key wordOffset packed value =>
         match findFieldWriteSlots fields fieldName,
@@ -2065,8 +2087,8 @@ mutual
             if packedBitsValid packed then
               .continue
                 { state with
-                    world := writeAddressKeyedMappingPackedWordSlots
-                      state.world slots resolvedKey wordOffset packed resolved }
+                    world := writeAddressKeyedMappingPackedWordFieldSlots
+                      fields fieldName state.world slots resolvedKey wordOffset packed resolved }
             else
               .revert
         | _, _, _ => .revert
@@ -2080,7 +2102,8 @@ mutual
             | some { wordOffset := wordOffset, packed := none, .. } =>
                 .continue
                   { state with
-                      world := writeAddressKeyedMappingWordSlots state.world slots resolvedKey wordOffset resolved }
+                      world := writeAddressKeyedMappingWordFieldSlots
+                        fields fieldName state.world slots resolvedKey wordOffset resolved }
             | _ => .revert
         | _, _, _, _ => .revert
     | state, .setMapping2 fieldName key1 key2 value =>
@@ -2092,7 +2115,8 @@ mutual
             .continue
               { state with
                   world :=
-                    writeAddressKeyedMapping2Slots state.world slots resolvedKey1 resolvedKey2 resolved }
+                    writeAddressKeyedMapping2FieldSlots
+                      fields fieldName state.world slots resolvedKey1 resolvedKey2 resolved }
         | _, _, _, _ => .revert
     | state, .setMapping2Word fieldName key1 key2 wordOffset value =>
         match findFieldWriteSlots fields fieldName,
@@ -2103,7 +2127,9 @@ mutual
             .continue
               { state with
                   world :=
-                    writeAddressKeyedMapping2WordSlots
+                    writeAddressKeyedMapping2WordFieldSlots
+                      fields
+                      fieldName
                       state.world
                       slots
                       resolvedKey1
@@ -2122,7 +2148,8 @@ mutual
             | some { wordOffset := wordOffset, packed := none, .. } =>
                 .continue
                   { state with
-                      world := writeAddressKeyedMapping2WordSlots state.world slots resolvedKey1 resolvedKey2 wordOffset resolved }
+                      world := writeAddressKeyedMapping2WordFieldSlots
+                        fields fieldName state.world slots resolvedKey1 resolvedKey2 wordOffset resolved }
             | _ => .revert
         | _, _, _, _, _ => .revert
     | state, .setMappingUint fieldName key value =>
@@ -2132,7 +2159,8 @@ mutual
         | some slots@(_ :: _), some resolvedKey, some resolved =>
             .continue
               { state with
-                  world := writeUintKeyedMappingSlots state.world slots resolvedKey resolved }
+                  world := writeUintKeyedMappingFieldSlots
+                    fields fieldName state.world slots resolvedKey resolved }
         | _, _, _ => .revert
     | state, .setMappingChain fieldName keys value =>
         match findFieldWriteSlots fields fieldName,
@@ -2141,7 +2169,8 @@ mutual
         | some slots@(_ :: _), some resolvedKeys, some resolved =>
             .continue
               { state with
-                  world := writeAddressKeyedMappingChainSlots state.world slots resolvedKeys resolved }
+                  world := writeAddressKeyedMappingChainFieldSlots
+                    fields fieldName state.world slots resolvedKeys resolved }
         | _, _, _ => .revert
     | state, .storageArrayPush fieldName value =>
         match findFieldWithResolvedSlot fields fieldName, evalExpr fields state value with
@@ -2281,7 +2310,8 @@ mutual
         | some slots@(_ :: _), some resolvedKey, some resolved =>
             .continue
               { state with
-                  world := writeAddressKeyedMappingSlots state.world slots resolvedKey resolved }
+                  world := writeAddressKeyedMappingFieldSlots
+                    fields fieldName state.world slots resolvedKey resolved }
         | _, _, _ => .revert
     | state, .setMappingWord fieldName key wordOffset value =>
         match findFieldWriteSlots fields fieldName,
@@ -2290,7 +2320,8 @@ mutual
         | some slots@(_ :: _), some resolvedKey, some resolved =>
             .continue
                { state with
-                   world := writeAddressKeyedMappingWordSlots state.world slots resolvedKey wordOffset resolved }
+                   world := writeAddressKeyedMappingWordFieldSlots
+                     fields fieldName state.world slots resolvedKey wordOffset resolved }
         | _, _, _ => .revert
     | state, .setMappingPackedWord fieldName key wordOffset packed value =>
         match findFieldWriteSlots fields fieldName,
@@ -2300,8 +2331,8 @@ mutual
             if packedBitsValid packed then
               .continue
                 { state with
-                    world := writeAddressKeyedMappingPackedWordSlots
-                      state.world slots resolvedKey wordOffset packed resolved }
+                    world := writeAddressKeyedMappingPackedWordFieldSlots
+                      fields fieldName state.world slots resolvedKey wordOffset packed resolved }
             else
               .revert
         | _, _, _ => .revert
@@ -2315,7 +2346,8 @@ mutual
             | some { wordOffset := wordOffset, packed := none, .. } =>
                 .continue
                   { state with
-                      world := writeAddressKeyedMappingWordSlots state.world slots resolvedKey wordOffset resolved }
+                      world := writeAddressKeyedMappingWordFieldSlots
+                        fields fieldName state.world slots resolvedKey wordOffset resolved }
             | _ => .revert
         | _, _, _, _ => .revert
     | state, .setMapping2 fieldName key1 key2 value =>
@@ -2327,7 +2359,8 @@ mutual
             .continue
               { state with
                   world :=
-                    writeAddressKeyedMapping2Slots state.world slots resolvedKey1 resolvedKey2 resolved }
+                    writeAddressKeyedMapping2FieldSlots
+                      fields fieldName state.world slots resolvedKey1 resolvedKey2 resolved }
         | _, _, _, _ => .revert
     | state, .setMapping2Word fieldName key1 key2 wordOffset value =>
         match findFieldWriteSlots fields fieldName,
@@ -2338,7 +2371,9 @@ mutual
             .continue
               { state with
                   world :=
-                    writeAddressKeyedMapping2WordSlots
+                    writeAddressKeyedMapping2WordFieldSlots
+                      fields
+                      fieldName
                       state.world
                       slots
                       resolvedKey1
@@ -2357,7 +2392,8 @@ mutual
             | some { wordOffset := wordOffset, packed := none, .. } =>
                 .continue
                   { state with
-                      world := writeAddressKeyedMapping2WordSlots state.world slots resolvedKey1 resolvedKey2 wordOffset resolved }
+                      world := writeAddressKeyedMapping2WordFieldSlots
+                        fields fieldName state.world slots resolvedKey1 resolvedKey2 wordOffset resolved }
             | _ => .revert
         | _, _, _, _, _ => .revert
     | state, .setMappingUint fieldName key value =>
@@ -2367,7 +2403,8 @@ mutual
         | some slots@(_ :: _), some resolvedKey, some resolved =>
             .continue
               { state with
-                  world := writeUintKeyedMappingSlots state.world slots resolvedKey resolved }
+                  world := writeUintKeyedMappingFieldSlots
+                    fields fieldName state.world slots resolvedKey resolved }
         | _, _, _ => .revert
     | state, .setMappingChain fieldName keys value =>
         match findFieldWriteSlots fields fieldName,
@@ -2376,7 +2413,8 @@ mutual
         | some slots@(_ :: _), some resolvedKeys, some resolved =>
             .continue
               { state with
-                  world := writeAddressKeyedMappingChainSlots state.world slots resolvedKeys resolved }
+                  world := writeAddressKeyedMappingChainFieldSlots
+                    fields fieldName state.world slots resolvedKeys resolved }
         | _, _, _ => .revert
     | state, .storageArrayPush fieldName value =>
         match findFieldWithResolvedSlot fields fieldName, evalExpr fields state value with
@@ -3313,7 +3351,8 @@ mutual
         | some slots@(_ :: _), some resolvedKey, some resolved =>
             .continue
               { state with
-                  world := writeAddressKeyedMappingSlots state.world slots resolvedKey resolved }
+                  world := writeAddressKeyedMappingFieldSlots
+                    fields fieldName state.world slots resolvedKey resolved }
         | _, _, _ => .revert
     | .setMappingWord fieldName key wordOffset value =>
         match findFieldWriteSlots fields fieldName,
@@ -3322,7 +3361,8 @@ mutual
         | some slots@(_ :: _), some resolvedKey, some resolved =>
             .continue
                { state with
-                   world := writeAddressKeyedMappingWordSlots state.world slots resolvedKey wordOffset resolved }
+                   world := writeAddressKeyedMappingWordFieldSlots
+                     fields fieldName state.world slots resolvedKey wordOffset resolved }
         | _, _, _ => .revert
     | .setMappingPackedWord fieldName key wordOffset packed value =>
         match findFieldWriteSlots fields fieldName,
@@ -3332,8 +3372,8 @@ mutual
             if packedBitsValid packed then
               .continue
                 { state with
-                    world := writeAddressKeyedMappingPackedWordSlots
-                      state.world slots resolvedKey wordOffset packed resolved }
+                    world := writeAddressKeyedMappingPackedWordFieldSlots
+                      fields fieldName state.world slots resolvedKey wordOffset packed resolved }
             else
               .revert
         | _, _, _ => .revert
@@ -3347,7 +3387,8 @@ mutual
             | some { wordOffset := wordOffset, packed := none, .. } =>
                 .continue
                   { state with
-                      world := writeAddressKeyedMappingWordSlots state.world slots resolvedKey wordOffset resolved }
+                      world := writeAddressKeyedMappingWordFieldSlots
+                        fields fieldName state.world slots resolvedKey wordOffset resolved }
             | _ => .revert
         | _, _, _, _ => .revert
     | .setMapping2 fieldName key1 key2 value =>
@@ -3359,7 +3400,8 @@ mutual
             .continue
               { state with
                   world :=
-                    writeAddressKeyedMapping2Slots state.world slots resolvedKey1 resolvedKey2 resolved }
+                    writeAddressKeyedMapping2FieldSlots
+                      fields fieldName state.world slots resolvedKey1 resolvedKey2 resolved }
         | _, _, _, _ => .revert
     | .setMapping2Word fieldName key1 key2 wordOffset value =>
         match findFieldWriteSlots fields fieldName,
@@ -3370,7 +3412,9 @@ mutual
             .continue
               { state with
                   world :=
-                    writeAddressKeyedMapping2WordSlots
+                    writeAddressKeyedMapping2WordFieldSlots
+                      fields
+                      fieldName
                       state.world
                       slots
                       resolvedKey1
@@ -3389,7 +3433,8 @@ mutual
             | some { wordOffset := wordOffset, packed := none, .. } =>
                 .continue
                   { state with
-                      world := writeAddressKeyedMapping2WordSlots state.world slots resolvedKey1 resolvedKey2 wordOffset resolved }
+                      world := writeAddressKeyedMapping2WordFieldSlots
+                        fields fieldName state.world slots resolvedKey1 resolvedKey2 wordOffset resolved }
             | _ => .revert
         | _, _, _, _, _ => .revert
     | .setMappingUint fieldName key value =>
@@ -3399,7 +3444,8 @@ mutual
         | some slots@(_ :: _), some resolvedKey, some resolved =>
             .continue
               { state with
-                  world := writeUintKeyedMappingSlots state.world slots resolvedKey resolved }
+                  world := writeUintKeyedMappingFieldSlots
+                    fields fieldName state.world slots resolvedKey resolved }
         | _, _, _ => .revert
     | .setMappingChain fieldName keys value =>
         match findFieldWriteSlots fields fieldName,
@@ -3408,7 +3454,8 @@ mutual
         | some slots@(_ :: _), some resolvedKeys, some resolved =>
             .continue
               { state with
-                  world := writeAddressKeyedMappingChainSlots state.world slots resolvedKeys resolved }
+                  world := writeAddressKeyedMappingChainFieldSlots
+                    fields fieldName state.world slots resolvedKeys resolved }
         | _, _, _ => .revert
     | .storageArrayPush fieldName value =>
         match findFieldWithResolvedSlot fields fieldName, evalExprWithHelpers spec fields fuel state value with

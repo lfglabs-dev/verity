@@ -185,12 +185,15 @@ def compileStmt (fields : List Field) (events : List EventDef := [])
         (← compileExpr fields dynamicSource key)
         (← compileExpr fields dynamicSource value)
         "setMapping"
+        0
+        true
   | Stmt.setMappingWord field key wordOffset value => do
       compileMappingSlotWrite fields field
         (← compileExpr fields dynamicSource key)
         (← compileExpr fields dynamicSource value)
         "setMappingWord"
         wordOffset
+        true
   | Stmt.setMappingPackedWord field key wordOffset packed value => do
       compileMappingPackedSlotWrite fields field
         (← compileExpr fields dynamicSource key)
@@ -198,6 +201,7 @@ def compileStmt (fields : List Field) (events : List EventDef := [])
         wordOffset
         packed
         "setMappingPackedWord"
+        true
   | Stmt.setMapping2 field key1 key2 value =>
       compileSetMapping2 fields dynamicSource field key1 key2 value
   | Stmt.setMapping2Word field key1 key2 wordOffset value =>
@@ -207,6 +211,8 @@ def compileStmt (fields : List Field) (events : List EventDef := [])
         (← compileExpr fields dynamicSource key)
         (← compileExpr fields dynamicSource value)
         "setMappingUint"
+        0
+        true
   | Stmt.setMappingChain field keys value =>
       compileSetMappingChain fields dynamicSource field keys value
   | Stmt.setStructMember field key memberName value =>

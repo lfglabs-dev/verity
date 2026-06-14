@@ -286,6 +286,15 @@ theorem writeAddressKeyedMapping2Slots_eq
     Denote.writeAddressKeyedMappingPackedWordSlots sourceOracle w slots k off p v =
       SourceSemantics.writeAddressKeyedMappingPackedWordSlots w slots k off p v := rfl
 
+@[simp] theorem writeAddressKeyedMappingPackedWordFieldSlots_eq
+    (fields : List Field) (fieldName : String)
+    (w : Verity.ContractState) (slots : List Nat) (k off : Nat)
+    (p : PackedBits) (v : Nat) :
+    Denote.writeAddressKeyedMappingPackedWordFieldSlots
+        sourceOracle fields fieldName w slots k off p v =
+      SourceSemantics.writeAddressKeyedMappingPackedWordFieldSlots
+        fields fieldName w slots k off p v := rfl
+
 @[simp] theorem writeAddressKeyedMapping2WordSlots_eq
     (w : Verity.ContractState) (slots : List Nat) (k1 k2 off v : Nat) :
     Denote.writeAddressKeyedMapping2WordSlots sourceOracle w slots k1 k2 off v =
