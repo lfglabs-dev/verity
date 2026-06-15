@@ -127,6 +127,44 @@ def mkRequiresRoleTheoremCommand (fnDecl : FunctionDecl) (roleFieldName : String
         (Compiler.CompilationModel.FunctionSpec.requiresRole
           ($modelName : Compiler.CompilationModel.FunctionSpec)) = some $(strTermPublic roleFieldName) := rfl)
 
+private def mkModelRoleKindTerm (kind : RoleKind) : CommandElabM Term := do
+  match kind with
+  | .scalarAddress => `(Compiler.CompilationModel.RoleKind.scalarAddress)
+  | .mappingAddressToUint256 => `(Compiler.CompilationModel.RoleKind.mappingAddressToUint256)
+
+private def mkModelRoleDeclTerm (role : RoleDecl) : CommandElabM Term := do
+  let kindTerm ← mkModelRoleKindTerm role.kind
+  `(({ name := $(strTermPublic role.name), field := $(strTermPublic role.fieldName), kind := $kindTerm } :
+      Compiler.CompilationModel.RoleDecl))
+
+/-- Auto-generated role declaration theorem for explicit `roles` entries.
+    The fact is intentionally over the public `CompilationModel.roles` surface,
+    so scalar owner/admin roles and mapping-backed minter/relayer roles are
+    reported on the same path. -/
+def mkRoleDeclTheoremCommand (role : RoleDecl) : CommandElabM Cmd := do
+  let roleDeclName := mkIdent (Name.mkSimple s!"{role.name}_role_decl")
+  let roleTerm ← mkModelRoleDeclTerm role
+  `(command|
+    @[simp] theorem $roleDeclName :
+        (Compiler.CompilationModel.CompilationModel.«roles»
+          (spec : Compiler.CompilationModel.CompilationModel)).contains $roleTerm = true := rfl)
+
+/-- Auto-generated readable access-control theorem for a function guarded by an
+    explicit role declaration. It connects the function's `requiresRole`
+    metadata to the contract-level role declaration. -/
+def mkAccessControlTheoremCommand (fnDecl : FunctionDecl) (role : RoleDecl) : CommandElabM Cmd := do
+  let accessName ← mkSuffixedIdent fnDecl.ident "_access_control"
+  let modelName ← mkSuffixedIdent fnDecl.ident "_model"
+  let roleDeclName := mkIdent (Name.mkSimple s!"{role.name}_role_decl")
+  let roleTerm ← mkModelRoleDeclTerm role
+  `(command|
+    theorem $accessName :
+        (Compiler.CompilationModel.FunctionSpec.requiresRole
+          ($modelName : Compiler.CompilationModel.FunctionSpec)) = some $(strTermPublic role.name) ∧
+        (Compiler.CompilationModel.CompilationModel.«roles»
+          (spec : Compiler.CompilationModel.CompilationModel)).contains $roleTerm = true := by
+      exact And.intro rfl $roleDeclName)
+
 /-- Auto-generated `_modifies` theorem for functions with a `modifies(...)` annotation
     (#1729, Axis 3 Step 1b).  Records the declared modifies set as a `@[simp]` fact. -/
 def mkModifiesTheoremCommand (fnDecl : FunctionDecl) : CommandElabM Cmd := do

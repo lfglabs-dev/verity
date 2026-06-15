@@ -2547,7 +2547,6 @@ structure SupportedBodyInterfaceWithScalarEvents
   core : SupportedBodyCoreInterface fn
   state : SupportedBodyStateInterface fn
   calls : SupportedBodyCallInterface spec fn
-  effects : SupportedBodyEffectInterface fn
   contractSurfaceWithEvents :
     stmtListTouchesUnsupportedContractSurfaceWithEvents spec.events fn.body = false
   topLevelEventHeads :

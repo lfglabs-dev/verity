@@ -39,6 +39,78 @@ verity_contract TryExternalCallSmoke where
     else
       setStorage callSucceeded 0
 
+-- First-class Call.Result smoke: callers inspect the named result instead of
+-- destructuring ad hoc `(success, value)` tuples (#1891).
+verity_contract CallResultSmoke where
+  storage
+    lastResult : Uint256 := slot 0
+    callSucceeded : Uint256 := slot 1
+  linked_externals
+    external echo(Uint256) -> (Uint256)
+    external echo_try(Uint256) -> (Bool, Uint256)
+
+  function allow_post_interaction_writes storeCallResult (x : Uint256) : Unit := do
+    let result ← callResult "echo" [x]
+    if result.success then
+      setStorage lastResult result.returndata
+      setStorage callSucceeded 1
+    else
+      setStorage callSucceeded 0
+
+example :
+    CallResultSmoke.storeCallResult_modelBody.head? =
+      some (Compiler.CompilationModel.Stmt.tryExternalCallBind
+          "result_success"
+          ["result_returndata"]
+          "echo"
+          [ Compiler.CompilationModel.Expr.param "x" ]) := rfl
+
+example :
+    (Contracts.callResultWords "echo" [7] :
+      Contract (Contracts.Call.Result Uint256)).run
+        defaultState =
+      ContractResult.success
+        { success := true, returndata := (7 : Uint256) }
+        defaultState := by
+  rfl
+
+namespace StatefulExternalSmoke
+
+open Compiler.ECM.StatefulExternal
+
+private def world : ExternalWorld :=
+  { accountState := fun address index => address + index }
+
+private def request : Request :=
+  { caller := 1
+    target := 2
+    selector := some 305419896
+    calldata := [7]
+    value := 0
+    world := world }
+
+private def balanceSummary : Summary :=
+  { name := "balanceOf"
+    selector := some 1889561905
+    mutability := .staticcall
+    assumptionNames := ["erc20_balanceOf_interface"] }
+
+example :
+    world = request.world := by
+  have h :
+      balanceSummary.interprets request (.success world [7]) := by
+    simp [Summary.interprets, balanceSummary, request]
+  have hsame :=
+    Summary.static_success_preserves_world (summary := balanceSummary)
+      (request := request) (world := world) (data := [7]) rfl h
+  exact hsame
+
+example :
+    (Outcome.revert [1, 2, 3]).committedWorld? = none := by
+  exact Summary.revert_has_no_committed_world [1, 2, 3]
+
+end StatefulExternalSmoke
+
 verity_contract LinkedExternalDynamicArgSmoke where
   storage
   linked_externals
