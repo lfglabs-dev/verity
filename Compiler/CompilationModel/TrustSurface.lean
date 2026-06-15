@@ -775,7 +775,7 @@ private def boundaryClassFromModule (mod : ECM.ExternalCallModule) : String :=
   match mod.name with
   | "ecrecover" | "sha256Memory" | "sha256" | "bn256Add" | "bn256ScalarMul" | "bn256Pairing" =>
       "compilerIntrinsic"
-  | "oracleReadUint256" =>
+  | "oracleReadUint256" | "oracleSummary" =>
       "oracleSummary"
   | "callback" =>
       "callback"

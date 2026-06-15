@@ -1,6 +1,7 @@
 import Lean
 import Compiler.Modules.ERC20
 import Compiler.Modules.Calls
+import Compiler.Modules.Oracle
 import Compiler.Modules.Precompiles
 import Compiler.Selectors
 import Compiler.CompilationModel.InternalNaming
@@ -1331,15 +1332,33 @@ private partial def translateDoElem
                               let targetExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals target
                               let argExprs ← argTerms.mapM
                                 (translatePureExprWithTypes fields constDecls immutableDecls params locals)
-                              let isStaticTerm ← if ext.isView then `(true) else `(false)
+                              let stmt ←
+                                if ext.isView then
+                                  match staticAbiWordCount? retTy with
+                                  | some 1 =>
+                                      `(Compiler.CompilationModel.Stmt.ecm
+                                          (Compiler.Modules.Oracle.typedReadWordSummaryModule
+                                            $(strTerm varName)
+                                            $(strTerm ext.name)
+                                            $(natTerm selector)
+                                            $(natTerm argExprs.size))
+                                          [ $targetExpr, $[$argExprs],* ])
+                                  | some n =>
+                                      throwErrorAt rhs
+                                        s!"typed interface view call '{ext.name}' can use the oracle summary only for one static ABI word; return has {n} static ABI words ({renderValueType retTy}). ABI-frame typed-interface view returns are not implemented yet (#1982)."
+                                  | none =>
+                                      throwErrorAt rhs
+                                        s!"typed interface view call '{ext.name}' can use the oracle summary only for one static ABI word; return has no static ABI word layout ({renderValueType retTy}). ABI-frame typed-interface view returns are not implemented yet (#1982)."
+                                else
+                                  `(Compiler.CompilationModel.Stmt.ecm
+                                      (Compiler.Modules.Calls.withReturnModule
+                                        $(strTerm varName)
+                                        $(natTerm selector)
+                                        $(natTerm argExprs.size)
+                                        false)
+                                      [ $targetExpr, $[$argExprs],* ])
                               pure
-                                (#[(← `(Compiler.CompilationModel.Stmt.ecm
-                                        (Compiler.Modules.Calls.withReturnModule
-                                          $(strTerm varName)
-                                          $(natTerm selector)
-                                          $(natTerm argExprs.size)
-                                          $isStaticTerm)
-                                        [ $targetExpr, $[$argExprs],* ]))],
+                                (#[stmt],
                                   locals.push (mkTypedLocal varName retTy),
                                   mutableLocals)
                           | some (_, _, _, none, _) =>
