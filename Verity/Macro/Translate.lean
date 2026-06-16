@@ -1562,16 +1562,37 @@ private def immutableInitStmtTerms
     (constDecls : Array ConstantDecl)
     (immutableDecls : Array ImmutableDecl)
     (ctorParams : Array ParamDecl) : CommandElabM (Array Term) := do
-  immutableDecls.zipIdx.mapM fun (imm, idx) => do
+  let mut out := #[]
+  for (imm, idx) in immutableDecls.zipIdx do
     let slotField := immutableStorageFieldDecl fields imm idx
-    let valueExpr ← translatePureExpr fields constDecls #[] ctorParams #[] imm.body
-    match imm.ty with
-    | .uint256 | .int256 | .uint8 | .uint16 | .bytes32 | .bool =>
-        `(Compiler.CompilationModel.Stmt.setStorage $(strTerm slotField.name) $valueExpr)
-    | .address =>
-        `(Compiler.CompilationModel.Stmt.setStorageAddr $(strTerm slotField.name) $valueExpr)
-    | _ =>
-        throwErrorAt imm.ident s!"immutable '{imm.name}' uses unsupported type"
+    let mkStore (valueExpr : Term) : CommandElabM Term := do
+      match imm.ty with
+      | .uint256 | .int256 | .uint8 | .uint16 | .bytes32 | .bool =>
+          `(Compiler.CompilationModel.Stmt.setStorage $(strTerm slotField.name) $valueExpr)
+      | .address =>
+          `(Compiler.CompilationModel.Stmt.setStorageAddr $(strTerm slotField.name) $valueExpr)
+      | _ =>
+          throwErrorAt imm.ident s!"immutable '{imm.name}' uses unsupported type"
+    let checkedInit? ←
+      translateSafeRequireBind fields constDecls #[] ctorParams #[]
+        "__immutable_init_value" imm.body
+    match checkedInit? with
+    | some stmts =>
+        match stmts.back? with
+        | some stmt =>
+            match stmt with
+            | `(Compiler.CompilationModel.Stmt.letVar $_ $valueExpr) =>
+                out := out ++ stmts.pop.push (← mkStore valueExpr)
+            | _ =>
+                throwErrorAt imm.ident
+                  s!"immutable '{imm.name}' checked initializer lowered to an unexpected statement shape"
+        | none =>
+            throwErrorAt imm.ident
+              s!"immutable '{imm.name}' checked initializer lowered to an unexpected statement shape"
+    | none =>
+        let valueExpr ← translatePureExpr fields constDecls #[] ctorParams #[] imm.body
+        out := out.push (← mkStore valueExpr)
+  pure out
 
 def mkSuffixedIdent (base : Ident) (suffix : String) : CommandElabM Ident :=
   let rec appendSuffix : Name → Name
@@ -2093,10 +2114,13 @@ private partial def collectCheckedArithmeticApps (stx : Syntax) : Array (String 
     (fun acc child => acc ++ collectCheckedArithmeticApps child)
     here
 
-private def generatedArithmeticObligations
+private def generatedArithmeticObligationsFromSyntax
     (owner : String)
-    (body : Term) : Array LocalObligationDecl :=
-  let apps := (collectCheckedArithmeticApps body.raw).foldl
+    (bodies : Array Syntax) : Array LocalObligationDecl :=
+  let apps := bodies.foldl
+    (fun acc body => acc ++ collectCheckedArithmeticApps body)
+    #[]
+  let apps := apps.foldl
     (fun acc app =>
       let (kind, pred, lhs, rhs) := app
       let duplicate := acc.any fun prev =>
@@ -2116,6 +2140,11 @@ private def generatedArithmeticObligations
       obligation := obligation
       proofStatus := .assumed }
 
+private def generatedArithmeticObligations
+    (owner : String)
+    (body : Term) : Array LocalObligationDecl :=
+  generatedArithmeticObligationsFromSyntax owner #[body.raw]
+
 private def mergeGeneratedLocalObligations
     (declared generated : Array LocalObligationDecl) : Array LocalObligationDecl :=
   generated.foldl
@@ -2126,8 +2155,20 @@ private def mergeGeneratedLocalObligations
 private def functionLocalObligationsWithArithmetic (fn : FunctionDecl) : Array LocalObligationDecl :=
   mergeGeneratedLocalObligations fn.localObligations (generatedArithmeticObligations fn.name fn.body)
 
-private def constructorLocalObligationsWithArithmetic (ctor : ConstructorDecl) : Array LocalObligationDecl :=
-  mergeGeneratedLocalObligations ctor.localObligations (generatedArithmeticObligations "constructor" ctor.body)
+private def immutableInitArithmeticBodies (immutableDecls : Array ImmutableDecl) : Array Syntax :=
+  immutableDecls.map (fun imm => imm.body.raw)
+
+private def constructorLocalObligationsWithArithmetic
+    (ctor : ConstructorDecl)
+    (immutableDecls : Array ImmutableDecl) : Array LocalObligationDecl :=
+  let bodies := immutableInitArithmeticBodies immutableDecls |>.push ctor.body.raw
+  mergeGeneratedLocalObligations ctor.localObligations
+    (generatedArithmeticObligationsFromSyntax "constructor" bodies)
+
+private def synthesizedConstructorLocalObligationsWithArithmetic
+    (immutableDecls : Array ImmutableDecl) : Array LocalObligationDecl :=
+  generatedArithmeticObligationsFromSyntax "constructor"
+    (immutableInitArithmeticBodies immutableDecls)
 
 private def mkAdtVariantTerm (variant : AdtVariantDecl) (tag : Nat) : CommandElabM Term := do
   let fieldTerms ← variant.fields.mapM fun p => do
@@ -2220,7 +2261,8 @@ private def mkSpecCommand
     | some ctor, _ =>
         let ctorParams ← mkModelParamsTerm ctor.params
         let ctorPayable ← if ctor.isPayable then `(true) else `(false)
-        let ctorLocalObligationTerms ← (constructorLocalObligationsWithArithmetic ctor).mapM mkModelLocalObligationTerm
+        let ctorLocalObligationTerms ←
+          (constructorLocalObligationsWithArithmetic ctor immutableDecls).mapM mkModelLocalObligationTerm
         let immutableInitTerms ← immutableInitStmtTerms fields constDecls immutableDecls ctor.params
         let ctorBodyTerms ← translateConstructorBodyToStmtTerms fields constDecls immutableDecls externalDecls functions ctor
         let ctorAllTerms := immutableInitTerms ++ ctorBodyTerms
@@ -2232,10 +2274,12 @@ private def mkSpecCommand
         })
     | none, false =>
         let immutableInitTerms ← immutableInitStmtTerms fields constDecls immutableDecls #[]
+        let ctorLocalObligationTerms ←
+          (synthesizedConstructorLocalObligationsWithArithmetic immutableDecls).mapM mkModelLocalObligationTerm
         `(some {
           params := []
           isPayable := false
-          localObligations := []
+          localObligations := [ $[$ctorLocalObligationTerms],* ]
           body := [ $[$immutableInitTerms],* ]
         })
   let publicFunctions := functions.filter (fun fn => !fn.isInternal)
