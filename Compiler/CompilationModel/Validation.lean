@@ -70,6 +70,53 @@ private def validateAdtPayloadParamNameCollisions
       throw s!"Compilation error: {context} reserves generated ADT payload local '{name}'. Rename the parameter or local binding that conflicts with generated '<param>_f<i>' locals."
   | none => pure ()
 
+private def immutableNames (immutables : List ImmutableSpec) : List String :=
+  immutables.map (·.name)
+
+private def validateModelImmutableExprNameNode (names : List String)
+    (context : String) : Expr → Except String Unit
+  | Expr.immutable name =>
+      if names.contains name then
+        pure ()
+      else
+        throw s!"Compilation error: {context} references unknown immutable '{name}'"
+  | _ => pure ()
+
+private def validateModelImmutableStmtNode (names : List String)
+    (context : String) : Stmt → Except String Unit
+  | stmt => do
+      match stmt with
+      | Stmt.setImmutable name _ =>
+          if names.contains name then
+            pure ()
+          else
+            throw s!"Compilation error: {context} sets unknown immutable '{name}'"
+      | _ => pure ()
+      for expr in stmt.directMetadata.subexpressions do
+        expr.checkRec (validateModelImmutableExprNameNode names context)
+
+private def validateSetImmutableRuntimeGuardNode (fnName : String) : Stmt → Except String Unit
+  | Stmt.setImmutable name _ =>
+      throw s!"Compilation error: function '{fnName}' uses Stmt.setImmutable for immutable '{name}' outside constructor scope"
+  | _ => pure ()
+
+def validateSetImmutableRuntimeGuard (fn : FunctionSpec) : Except String Unit :=
+  Stmt.checkRecList (validateSetImmutableRuntimeGuardNode fn.name) fn.body
+
+def validateImmutableNamesInFunction (immutables : List ImmutableSpec)
+    (fn : FunctionSpec) : Except String Unit :=
+  Stmt.checkRecList (validateModelImmutableStmtNode (immutableNames immutables) s!"function '{fn.name}'") fn.body
+
+def validateImmutableNamesInConstructor (immutables : List ImmutableSpec)
+    (ctor : Option ConstructorSpec) : Except String Unit := do
+  let names := immutableNames immutables
+  match ctor with
+  | none => pure ()
+  | some spec =>
+      for imm in immutables do
+        imm.init.checkRec (validateModelImmutableExprNameNode names s!"immutable '{imm.name}' initializer")
+      Stmt.checkRecList (validateModelImmutableStmtNode names "constructor") spec.body
+
 def isStorageWordArrayParam : ParamType → Bool
   | ty => isWordArrayParam ty
 

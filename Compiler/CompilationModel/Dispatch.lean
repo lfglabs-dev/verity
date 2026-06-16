@@ -398,6 +398,8 @@ private def validateCompileInputsBeforeFieldWriteConflict
       pure ()
   for fn in spec.functions do
     validateFunctionSpec fn
+    validateSetImmutableRuntimeGuard fn
+    validateImmutableNamesInFunction spec.immutables fn
     validateInteropFunctionSpec fn
     validateSpecialEntrypointSpec fn
     validateEventArgShapesInFunction fn spec.events
@@ -405,6 +407,7 @@ private def validateCompileInputsBeforeFieldWriteConflict
     validateInternalCallShapesInFunction spec.functions fn
     validateExternalCallTargetsInFunction spec.externals fn
   validateConstructorSpec spec.constructor
+  validateImmutableNamesInConstructor spec.immutables spec.constructor
   validateInteropConstructorSpec spec.constructor
   validateExternalCallTargetsInConstructor spec.externals spec.constructor
   match spec.constructor with
