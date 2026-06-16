@@ -39,6 +39,7 @@ import Compiler.Proofs.EndToEnd.SimpleStorage
 import Compiler.Proofs.EventSemantics
 import Compiler.Proofs.Frames
 import Compiler.Proofs.HelperStepProofs
+import Compiler.Proofs.IRGeneration.CEISafety
 import Compiler.Proofs.IRGeneration.Contract
 import Compiler.Proofs.IRGeneration.ContractFeatureTest
 import Compiler.Proofs.IRGeneration.ContractShape
@@ -1617,23 +1618,10 @@ end Verity.AxiomAudit
   Compiler.Proofs.EventSemantics.events_update_preserves_sender
 
   -- Compiler/Proofs/Frames.lean
-  Compiler.Proofs.Frames.ExecutionSummary.refl
-  Compiler.Proofs.Frames.ExecutionSummary.weaken
-  -- Compiler.Proofs.Frames.not_mem_append_left  -- private
-  -- Compiler.Proofs.Frames.not_mem_append_right  -- private
-  Compiler.Proofs.Frames.ExecutionSummary.trans
   Compiler.Proofs.Frames.execStmt_letVar_preserves_bindings_except
   Compiler.Proofs.Frames.execStmt_mstore_preserves_bindings_except
   Compiler.Proofs.Frames.execStmt_letVar_preserves_selector_calldata
   Compiler.Proofs.Frames.execStmt_mstore_preserves_selector_calldata
-  Compiler.Proofs.Frames.writeUintSlots_preserves_storage_except
-  Compiler.Proofs.Frames.writeStorageWordSlots_preserves_storage_except
-  Compiler.Proofs.Frames.writeStorageWordSlots_preserves_address_except
-  Compiler.Proofs.Frames.writeAddressSlots_preserves_address_except
-  Compiler.Proofs.Frames.writeStorageArray_preserves_arrays_except
-  Compiler.Proofs.Frames.execStmt_setStorage_execution_summary
-  Compiler.Proofs.Frames.execStmt_setStorageAddr_execution_summary
-  Compiler.Proofs.Frames.execStmtList_execution_summary_cons
 
   -- Compiler/Proofs/HelperStepProofs.lean
   Compiler.Proofs.HelperStepProofs.allHelperInterfacesSatisfied_of_helperSurfaceClosed
@@ -1641,6 +1629,14 @@ end Verity.AxiomAudit
   Compiler.Proofs.HelperStepProofs.fullHelperAwareListWitness_of_allInterfaces_disjoint
   Compiler.Proofs.HelperStepProofs.helperFreeContractWitness
   Compiler.Proofs.HelperStepProofs.helperFreeContractWitness_disjoint
+
+  -- Compiler/Proofs/IRGeneration/CEISafety.lean
+  Compiler.Proofs.IRGeneration.CEIProofBackedExecution.execution_safe
+  Compiler.Proofs.IRGeneration.CEIProofBackedExecution.no_post_interaction_write_opt_out
+  Compiler.Proofs.IRGeneration.CEIProofBackedExecution.no_nonreentrant_runtime_guard
+  Compiler.Proofs.IRGeneration.CEIProofBackedExecution.no_local_unsafe_obligations
+  Compiler.Proofs.IRGeneration.ceiProofBackedExecution_of_checker
+  Compiler.Proofs.IRGeneration.ceiProofBackedExecution_checked_empty_body
 
   -- Compiler/Proofs/IRGeneration/Contract.lean
   -- Compiler.Proofs.IRGeneration.Contract.pickUniqueFunctionByName_eq_ok_none_of_absent  -- private
@@ -1677,6 +1673,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir
   Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_bodyCallsDisjoint
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics
+  -- Compiler.Proofs.IRGeneration.Contract.scalar_events_contract_function_callback  -- private
+  Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_with_scalar_events
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_except_mapping_writes
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_except_mapping_writes_stmtSafety
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_except_mapping_writes_and_helper_ir
@@ -1704,6 +1702,13 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.ContractFeatureTest.stopOnly_calldataFits  -- private
   -- Compiler.Proofs.IRGeneration.ContractFeatureTest.constructorOnly_noConflict  -- private
   -- Compiler.Proofs.IRGeneration.ContractFeatureTest.constructorOnly_compileConstructor  -- private
+  -- Compiler.Proofs.IRGeneration.ContractFeatureTest.scalarEventSmoke_compileEmit_empty_events_ne_ok  -- private
+  -- Compiler.Proofs.IRGeneration.ContractFeatureTest.scalarEventSmoke_noPackedFields  -- private
+  -- Compiler.Proofs.IRGeneration.ContractFeatureTest.scalarEventSmoke_noFallback  -- private
+  -- Compiler.Proofs.IRGeneration.ContractFeatureTest.scalarEventSmoke_noReceive  -- private
+  -- Compiler.Proofs.IRGeneration.ContractFeatureTest.scalarEventSmoke_helperFree  -- private
+  -- Compiler.Proofs.IRGeneration.ContractFeatureTest.scalarEventSmoke_disjoint  -- private
+  Compiler.Proofs.IRGeneration.ContractFeatureTest.scalarEventSmoke_compile_preserves_semantics_with_scalar_events
 
   -- Compiler/Proofs/IRGeneration/ContractShape.lean
   -- Compiler.Proofs.IRGeneration.ContractShape.pickUniqueFunctionByName_eq_ok_none_of_absent  -- private
@@ -3540,11 +3545,17 @@ end Verity.AxiomAudit
   Compiler.Proofs.activeMappingSlotBackend_eq_keccak
   Compiler.Proofs.activeMappingSlotBackendIsEvmFaithful_eq_true
   Compiler.Proofs.abstractNestedMappingSlot_eq_solidityNested
+  Compiler.Proofs.StorageSlotNonAliasCertificate.nonAlias_get
+  Compiler.Proofs.StorageSlotNonAliasCertificate.of_distinct
+  Compiler.Proofs.StorageSlotNonAliasCertificate.nonAlias_pair
+  Compiler.Proofs.mappingSlotLocations_nonAlias_get
+  Compiler.Proofs.nestedMappingSlotLocations_nonAlias_get
   Compiler.Proofs.abstractLoadMappingEntry_eq
   Compiler.Proofs.abstractStoreMappingEntry_eq
   Compiler.Proofs.abstractLoadStorageOrMapping_eq
   Compiler.Proofs.abstractStoreStorageOrMapping_eq
   Compiler.Proofs.solidityMappingSlot_lt_evmModulus
+  Compiler.Proofs.mappingSlotLocation_zero
   Compiler.Proofs.abstractMappingSlot_lt_evmModulus
   Compiler.Proofs.solidityMappingSlot_add_lt_evmModulus
   Compiler.Proofs.solidityMappingSlot_add_wordOffset_lt_evmModulus
@@ -5555,4 +5566,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5200 theorems/lemmas (3599 public, 1601 private, 0 sorry'd)
+-- Total: 5202 theorems/lemmas (3596 public, 1606 private, 0 sorry'd)
