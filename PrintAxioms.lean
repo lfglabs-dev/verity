@@ -1618,10 +1618,23 @@ end Verity.AxiomAudit
   Compiler.Proofs.EventSemantics.events_update_preserves_sender
 
   -- Compiler/Proofs/Frames.lean
+  Compiler.Proofs.Frames.ExecutionSummary.refl
+  Compiler.Proofs.Frames.ExecutionSummary.weaken
+  -- Compiler.Proofs.Frames.not_mem_append_left  -- private
+  -- Compiler.Proofs.Frames.not_mem_append_right  -- private
+  Compiler.Proofs.Frames.ExecutionSummary.trans
   Compiler.Proofs.Frames.execStmt_letVar_preserves_bindings_except
   Compiler.Proofs.Frames.execStmt_mstore_preserves_bindings_except
   Compiler.Proofs.Frames.execStmt_letVar_preserves_selector_calldata
   Compiler.Proofs.Frames.execStmt_mstore_preserves_selector_calldata
+  Compiler.Proofs.Frames.writeUintSlots_preserves_storage_except
+  Compiler.Proofs.Frames.writeStorageWordSlots_preserves_storage_except
+  Compiler.Proofs.Frames.writeStorageWordSlots_preserves_address_except
+  Compiler.Proofs.Frames.writeAddressSlots_preserves_address_except
+  Compiler.Proofs.Frames.writeStorageArray_preserves_arrays_except
+  Compiler.Proofs.Frames.execStmt_setStorage_execution_summary
+  Compiler.Proofs.Frames.execStmt_setStorageAddr_execution_summary
+  Compiler.Proofs.Frames.execStmtList_execution_summary_cons
 
   -- Compiler/Proofs/HelperStepProofs.lean
   Compiler.Proofs.HelperStepProofs.allHelperInterfacesSatisfied_of_helperSurfaceClosed
@@ -5566,4 +5579,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5202 theorems/lemmas (3596 public, 1606 private, 0 sorry'd)
+-- Total: 5221 theorems/lemmas (3613 public, 1608 private, 0 sorry'd)
