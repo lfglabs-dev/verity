@@ -681,22 +681,22 @@ private theorem mem_stmtNextScopeList_of_mem_scope
 private theorem validateScopedExprIdentifiers_pair_ok_left
     {context : String}
     {params : List Param}
-    {paramScope dynamicParams localScope : List String}
+    {paramScope dynamicParams immutableNames localScope : List String}
     {constructorArgCount : Option Nat}
     {lhs rhs : Expr}
     (hvalidate :
       (do
         validateScopedExprIdentifiers
-          context params paramScope dynamicParams localScope constructorArgCount lhs
+          context params paramScope dynamicParams immutableNames localScope constructorArgCount lhs
         validateScopedExprIdentifiers
-          context params paramScope dynamicParams localScope constructorArgCount rhs) =
+          context params paramScope dynamicParams immutableNames localScope constructorArgCount rhs) =
         Except.ok ()) :
     validateScopedExprIdentifiers
-      context params paramScope dynamicParams localScope constructorArgCount lhs =
+      context params paramScope dynamicParams immutableNames localScope constructorArgCount lhs =
         Except.ok () := by
   cases hlhs :
       validateScopedExprIdentifiers
-        context params paramScope dynamicParams localScope constructorArgCount lhs with
+        context params paramScope dynamicParams immutableNames localScope constructorArgCount lhs with
   | error err =>
       simp [hlhs] at hvalidate
       cases hvalidate
@@ -707,22 +707,22 @@ private theorem validateScopedExprIdentifiers_pair_ok_left
 private theorem validateScopedExprIdentifiers_pair_ok_right
     {context : String}
     {params : List Param}
-    {paramScope dynamicParams localScope : List String}
+    {paramScope dynamicParams immutableNames localScope : List String}
     {constructorArgCount : Option Nat}
     {lhs rhs : Expr}
     (hvalidate :
       (do
         validateScopedExprIdentifiers
-          context params paramScope dynamicParams localScope constructorArgCount lhs
+          context params paramScope dynamicParams immutableNames localScope constructorArgCount lhs
         validateScopedExprIdentifiers
-          context params paramScope dynamicParams localScope constructorArgCount rhs) =
+          context params paramScope dynamicParams immutableNames localScope constructorArgCount rhs) =
         Except.ok ()) :
     validateScopedExprIdentifiers
-      context params paramScope dynamicParams localScope constructorArgCount rhs =
+      context params paramScope dynamicParams immutableNames localScope constructorArgCount rhs =
         Except.ok () := by
   cases hlhs :
       validateScopedExprIdentifiers
-        context params paramScope dynamicParams localScope constructorArgCount lhs with
+        context params paramScope dynamicParams immutableNames localScope constructorArgCount lhs with
   | error err =>
       simp [hlhs] at hvalidate
       cases hvalidate
@@ -733,13 +733,13 @@ private theorem validateScopedExprIdentifiers_pair_ok_right
 private theorem exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
     {context : String}
     {params : List Param}
-    {paramScope dynamicParams localScope scope : List String}
+    {paramScope dynamicParams immutableNames localScope scope : List String}
     {constructorArgCount : Option Nat}
     {expr : Expr}
     (hcore : FunctionBody.ExprCompileCore expr)
     (hvalidate :
       validateScopedExprIdentifiers
-        context params paramScope dynamicParams localScope constructorArgCount expr =
+        context params paramScope dynamicParams immutableNames localScope constructorArgCount expr =
           Except.ok ())
     (hparamsInScope : ∀ name, name ∈ paramScope → name ∈ scope)
     (hlocalsInScope : ∀ name, name ∈ localScope → name ∈ scope) :
@@ -789,9 +789,9 @@ private theorem exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
       have hpair :
           (do
             validateScopedExprIdentifiers
-              context params paramScope dynamicParams localScope constructorArgCount lhs
+              context params paramScope dynamicParams immutableNames localScope constructorArgCount lhs
             validateScopedExprIdentifiers
-              context params paramScope dynamicParams localScope constructorArgCount rhs) =
+              context params paramScope dynamicParams immutableNames localScope constructorArgCount rhs) =
             Except.ok () := by
         simpa [validateScopedExprIdentifiers] using hvalidate
       intro name hmem
@@ -816,9 +816,9 @@ private theorem exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
       have hpair :
           (do
             validateScopedExprIdentifiers
-              context params paramScope dynamicParams localScope constructorArgCount shift
+              context params paramScope dynamicParams immutableNames localScope constructorArgCount shift
             validateScopedExprIdentifiers
-              context params paramScope dynamicParams localScope constructorArgCount value) =
+              context params paramScope dynamicParams immutableNames localScope constructorArgCount value) =
             Except.ok () := by
         simpa [validateScopedExprIdentifiers] using hvalidate
       intro name hmem
@@ -832,9 +832,9 @@ private theorem exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
       have hpair :
           (do
             validateScopedExprIdentifiers
-              context params paramScope dynamicParams localScope constructorArgCount lhs
+              context params paramScope dynamicParams immutableNames localScope constructorArgCount lhs
             validateScopedExprIdentifiers
-              context params paramScope dynamicParams localScope constructorArgCount rhs) =
+              context params paramScope dynamicParams immutableNames localScope constructorArgCount rhs) =
             Except.ok () := by
         simp only [validateScopedExprIdentifiers] at hvalidate
         revert hvalidate
@@ -852,9 +852,9 @@ private theorem exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
       have hpair :
           (do
             validateScopedExprIdentifiers
-              context params paramScope dynamicParams localScope constructorArgCount lhs
+              context params paramScope dynamicParams immutableNames localScope constructorArgCount lhs
             validateScopedExprIdentifiers
-              context params paramScope dynamicParams localScope constructorArgCount rhs) =
+              context params paramScope dynamicParams immutableNames localScope constructorArgCount rhs) =
             Except.ok () := by
         simp only [validateScopedExprIdentifiers] at hvalidate
         revert hvalidate
@@ -871,9 +871,9 @@ private theorem exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
       have hpair :
           (do
             validateScopedExprIdentifiers
-              context params paramScope dynamicParams localScope constructorArgCount lhs
+              context params paramScope dynamicParams immutableNames localScope constructorArgCount lhs
             validateScopedExprIdentifiers
-              context params paramScope dynamicParams localScope constructorArgCount rhs) =
+              context params paramScope dynamicParams immutableNames localScope constructorArgCount rhs) =
             Except.ok () := by
         simpa [validateScopedExprIdentifiers] using hvalidate
       intro name hmem
@@ -886,51 +886,51 @@ private theorem exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
       have htriple :
           (do
             validateScopedExprIdentifiers
-              context params paramScope dynamicParams localScope constructorArgCount a
+              context params paramScope dynamicParams immutableNames localScope constructorArgCount a
             validateScopedExprIdentifiers
-              context params paramScope dynamicParams localScope constructorArgCount b
+              context params paramScope dynamicParams immutableNames localScope constructorArgCount b
             validateScopedExprIdentifiers
-              context params paramScope dynamicParams localScope constructorArgCount c) =
+              context params paramScope dynamicParams immutableNames localScope constructorArgCount c) =
             Except.ok () := by
         simpa [validateScopedExprIdentifiers] using hvalidate
       have hA_ok :
           validateScopedExprIdentifiers
-            context params paramScope dynamicParams localScope constructorArgCount a =
+            context params paramScope dynamicParams immutableNames localScope constructorArgCount a =
             Except.ok () := by
         revert htriple
         cases ha :
             validateScopedExprIdentifiers
-              context params paramScope dynamicParams localScope constructorArgCount a with
+              context params paramScope dynamicParams immutableNames localScope constructorArgCount a with
         | error e => simp [ha, Bind.bind, Except.bind]
         | ok v => intro; rfl
       have hB_ok :
           validateScopedExprIdentifiers
-            context params paramScope dynamicParams localScope constructorArgCount b =
+            context params paramScope dynamicParams immutableNames localScope constructorArgCount b =
             Except.ok () := by
         revert htriple
         cases ha :
             validateScopedExprIdentifiers
-              context params paramScope dynamicParams localScope constructorArgCount a with
+              context params paramScope dynamicParams immutableNames localScope constructorArgCount a with
         | error e => simp [ha, Bind.bind, Except.bind]
         | ok v =>
           cases hb :
               validateScopedExprIdentifiers
-                context params paramScope dynamicParams localScope constructorArgCount b with
+                context params paramScope dynamicParams immutableNames localScope constructorArgCount b with
           | error e => simp [ha, hb, Bind.bind, Except.bind]
           | ok v => intro; rfl
       have hC_ok :
           validateScopedExprIdentifiers
-            context params paramScope dynamicParams localScope constructorArgCount c =
+            context params paramScope dynamicParams immutableNames localScope constructorArgCount c =
             Except.ok () := by
         revert htriple
         cases ha :
             validateScopedExprIdentifiers
-              context params paramScope dynamicParams localScope constructorArgCount a with
+              context params paramScope dynamicParams immutableNames localScope constructorArgCount a with
         | error e => simp [ha, Bind.bind, Except.bind]
         | ok v =>
           cases hb :
               validateScopedExprIdentifiers
-                context params paramScope dynamicParams localScope constructorArgCount b with
+                context params paramScope dynamicParams immutableNames localScope constructorArgCount b with
           | error e => simp [ha, hb, Bind.bind, Except.bind]
           | ok v =>
             simp [ha, hb, Bind.bind, Except.bind]
@@ -946,11 +946,11 @@ private theorem exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
       have htriple :
           (do
             validateScopedExprIdentifiers
-              context params paramScope dynamicParams localScope constructorArgCount a
+              context params paramScope dynamicParams immutableNames localScope constructorArgCount a
             validateScopedExprIdentifiers
-              context params paramScope dynamicParams localScope constructorArgCount b
+              context params paramScope dynamicParams immutableNames localScope constructorArgCount b
             validateScopedExprIdentifiers
-              context params paramScope dynamicParams localScope constructorArgCount c) =
+              context params paramScope dynamicParams immutableNames localScope constructorArgCount c) =
             Except.ok () := by
         simp only [validateScopedExprIdentifiers] at hvalidate
         revert hvalidate
@@ -959,42 +959,42 @@ private theorem exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
         | error e => simp [Bind.bind, Except.bind]
       have hA_ok :
           validateScopedExprIdentifiers
-            context params paramScope dynamicParams localScope constructorArgCount a =
+            context params paramScope dynamicParams immutableNames localScope constructorArgCount a =
             Except.ok () := by
         revert htriple
         cases ha :
             validateScopedExprIdentifiers
-              context params paramScope dynamicParams localScope constructorArgCount a with
+              context params paramScope dynamicParams immutableNames localScope constructorArgCount a with
         | error e => simp [ha, Bind.bind, Except.bind]
         | ok v => intro; rfl
       have hB_ok :
           validateScopedExprIdentifiers
-            context params paramScope dynamicParams localScope constructorArgCount b =
+            context params paramScope dynamicParams immutableNames localScope constructorArgCount b =
             Except.ok () := by
         revert htriple
         cases ha :
             validateScopedExprIdentifiers
-              context params paramScope dynamicParams localScope constructorArgCount a with
+              context params paramScope dynamicParams immutableNames localScope constructorArgCount a with
         | error e => simp [ha, Bind.bind, Except.bind]
         | ok v =>
           cases hb :
               validateScopedExprIdentifiers
-                context params paramScope dynamicParams localScope constructorArgCount b with
+                context params paramScope dynamicParams immutableNames localScope constructorArgCount b with
           | error e => simp [ha, hb, Bind.bind, Except.bind]
           | ok v => intro; rfl
       have hC_ok :
           validateScopedExprIdentifiers
-            context params paramScope dynamicParams localScope constructorArgCount c =
+            context params paramScope dynamicParams immutableNames localScope constructorArgCount c =
             Except.ok () := by
         revert htriple
         cases ha :
             validateScopedExprIdentifiers
-              context params paramScope dynamicParams localScope constructorArgCount a with
+              context params paramScope dynamicParams immutableNames localScope constructorArgCount a with
         | error e => simp [ha, Bind.bind, Except.bind]
         | ok v =>
           cases hb :
               validateScopedExprIdentifiers
-                context params paramScope dynamicParams localScope constructorArgCount b with
+                context params paramScope dynamicParams immutableNames localScope constructorArgCount b with
           | error e => simp [ha, hb, Bind.bind, Except.bind]
           | ok v =>
             simp [ha, hb, Bind.bind, Except.bind]
@@ -1009,7 +1009,7 @@ private theorem exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
       rename_i cond thenVal elseVal
       have hC_ok :
           validateScopedExprIdentifiers
-            context params paramScope dynamicParams localScope constructorArgCount cond =
+            context params paramScope dynamicParams immutableNames localScope constructorArgCount cond =
             Except.ok () := by
         simp only [validateScopedExprIdentifiers] at hvalidate
         revert hvalidate
@@ -1022,12 +1022,12 @@ private theorem exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
           intro h
           cases hc :
               validateScopedExprIdentifiers
-                context params paramScope dynamicParams localScope constructorArgCount cond with
+                context params paramScope dynamicParams immutableNames localScope constructorArgCount cond with
           | error e => simp [hc] at h
           | ok v => rfl
       have hT_ok :
           validateScopedExprIdentifiers
-            context params paramScope dynamicParams localScope constructorArgCount thenVal =
+            context params paramScope dynamicParams immutableNames localScope constructorArgCount thenVal =
             Except.ok () := by
         simp only [validateScopedExprIdentifiers] at hvalidate
         revert hvalidate
@@ -1040,17 +1040,17 @@ private theorem exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
           intro h
           cases hc :
               validateScopedExprIdentifiers
-                context params paramScope dynamicParams localScope constructorArgCount cond with
+                context params paramScope dynamicParams immutableNames localScope constructorArgCount cond with
           | error e => simp [hc] at h
           | ok v =>
             cases ht :
                 validateScopedExprIdentifiers
-                  context params paramScope dynamicParams localScope constructorArgCount thenVal with
+                  context params paramScope dynamicParams immutableNames localScope constructorArgCount thenVal with
             | error e => simp [hc, ht] at h
             | ok v => rfl
       have hE_ok :
           validateScopedExprIdentifiers
-            context params paramScope dynamicParams localScope constructorArgCount elseVal =
+            context params paramScope dynamicParams immutableNames localScope constructorArgCount elseVal =
             Except.ok () := by
         simp only [validateScopedExprIdentifiers] at hvalidate
         revert hvalidate
@@ -1063,12 +1063,12 @@ private theorem exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
           intro h
           cases hc :
               validateScopedExprIdentifiers
-                context params paramScope dynamicParams localScope constructorArgCount cond with
+                context params paramScope dynamicParams immutableNames localScope constructorArgCount cond with
           | error e => simp [hc] at h
           | ok v =>
             cases ht :
                 validateScopedExprIdentifiers
-                  context params paramScope dynamicParams localScope constructorArgCount thenVal with
+                  context params paramScope dynamicParams immutableNames localScope constructorArgCount thenVal with
             | error e => simp [hc, ht] at h
             | ok v => simpa [hc, ht] using h
       intro name hmem
@@ -1084,9 +1084,9 @@ private theorem exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
       have hpair :
           (do
             validateScopedExprIdentifiers
-              context params paramScope dynamicParams localScope constructorArgCount lhs
+              context params paramScope dynamicParams immutableNames localScope constructorArgCount lhs
             validateScopedExprIdentifiers
-              context params paramScope dynamicParams localScope constructorArgCount rhs) =
+              context params paramScope dynamicParams immutableNames localScope constructorArgCount rhs) =
             Except.ok () := by
         by_cases hcall : exprContainsCallLike lhs = true ∨ exprContainsCallLike rhs = true
         · simp [validateScopedExprIdentifiers, validateLogicalOperandPurity, hcall] at hvalidate
@@ -1102,14 +1102,14 @@ private theorem stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers
     {fieldNames : List String}
     {context : String}
     {params : List Param}
-    {paramScope dynamicParams localScope scope : List String}
+    {paramScope dynamicParams immutableNames localScope scope : List String}
     {constructorArgCount : Option Nat}
     {stmts : List Stmt}
     {finalScope : List String}
     (hcore : StmtListScopeCore fieldNames stmts)
     (hvalidate :
       validateScopedStmtListIdentifiers
-        context params paramScope dynamicParams localScope constructorArgCount stmts =
+        context params paramScope dynamicParams immutableNames localScope constructorArgCount stmts =
           Except.ok finalScope)
     (hparamsInScope : ∀ name, name ∈ paramScope → name ∈ scope)
     (hlocalsInScope : ∀ name, name ∈ localScope → name ∈ scope) :
@@ -1125,7 +1125,7 @@ private theorem stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers
       have hstmt' := hstmt
       unfold validateScopedStmtIdentifiers at hstmt'
       revert hstmt'
-      rcases hExprVal : validateScopedExprIdentifiers context params paramScope dynamicParams localScope constructorArgCount _ with _ | _
+      rcases hExprVal : validateScopedExprIdentifiers context params paramScope dynamicParams immutableNames localScope constructorArgCount _ with _ | _
       · intro h; simp [hExprVal, bind, Except.bind] at h
       · simp only [hExprVal, bind, Except.bind, pure, Except.pure]
         intro h
@@ -1157,7 +1157,7 @@ private theorem stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers
       · intro h; simp [bind, Except.bind] at h
       · intro hstmt'
         simp only [bind, Except.bind, pure, Except.pure] at hstmt'
-        rcases hExprVal : validateScopedExprIdentifiers context params paramScope dynamicParams localScope constructorArgCount _ with _ | _
+        rcases hExprVal : validateScopedExprIdentifiers context params paramScope dynamicParams immutableNames localScope constructorArgCount _ with _ | _
         · rw [hExprVal] at hstmt'; exact absurd hstmt' (by simp)
         · rw [hExprVal] at hstmt'; simp at hstmt'; cases hstmt'
           exact StmtListScopeDiscipline.assignVar
@@ -1177,7 +1177,7 @@ private theorem stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers
       have hstmt' := hstmt
       unfold validateScopedStmtIdentifiers at hstmt'
       revert hstmt'
-      rcases hExprVal : validateScopedExprIdentifiers context params paramScope dynamicParams localScope constructorArgCount _ with _ | _
+      rcases hExprVal : validateScopedExprIdentifiers context params paramScope dynamicParams immutableNames localScope constructorArgCount _ with _ | _
       · intro h; simp [bind, Except.bind] at h
       · simp only [bind, Except.bind, pure, Except.pure]
         intro h; cases h
@@ -1198,7 +1198,7 @@ private theorem stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers
       have hstmt' := hstmt
       unfold validateScopedStmtIdentifiers at hstmt'
       revert hstmt'
-      rcases hExprVal : validateScopedExprIdentifiers context params paramScope dynamicParams localScope constructorArgCount _ with _ | _
+      rcases hExprVal : validateScopedExprIdentifiers context params paramScope dynamicParams immutableNames localScope constructorArgCount _ with _ | _
       · intro h; simp [bind, Except.bind] at h
       · simp only [bind, Except.bind, pure, Except.pure]
         intro h; cases h
@@ -1228,7 +1228,7 @@ private theorem stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers
       have hstmt' := hstmt
       unfold validateScopedStmtIdentifiers at hstmt'
       revert hstmt'
-      rcases hExprVal : validateScopedExprIdentifiers context params paramScope dynamicParams localScope constructorArgCount _ with _ | _
+      rcases hExprVal : validateScopedExprIdentifiers context params paramScope dynamicParams immutableNames localScope constructorArgCount _ with _ | _
       · intro h; simp [bind, Except.bind] at h
       · simp only [bind, Except.bind, pure, Except.pure]
         intro h; cases h
@@ -1250,7 +1250,7 @@ private theorem stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers
       have hstmt' := hstmt
       unfold validateScopedStmtIdentifiers at hstmt'
       revert hstmt'
-      rcases hExprVal : validateScopedExprIdentifiers context params paramScope dynamicParams localScope constructorArgCount _ with _ | _
+      rcases hExprVal : validateScopedExprIdentifiers context params paramScope dynamicParams immutableNames localScope constructorArgCount _ with _ | _
       · intro h; simp [bind, Except.bind] at h
       · simp only [bind, Except.bind, pure, Except.pure]
         intro h; cases h
@@ -1267,33 +1267,53 @@ private theorem stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers
               intro other hmem
               exact mem_stmtNextScope_of_mem_scope (hlocalsInScope other hmem)))
   | setImmutable hvalueCore hrest ih =>
+      rename_i immName immValue immRest
       rcases validateScopedStmtListIdentifiers_cons_ok_inv hvalidate with
         ⟨nextLocalScope, hstmt, hrestValidate⟩
       have hstmt' := hstmt
       unfold validateScopedStmtIdentifiers at hstmt'
       revert hstmt'
-      rcases hExprVal : validateScopedExprIdentifiers context params paramScope dynamicParams localScope constructorArgCount _ with _ | _
-      · intro h; simp [bind, Except.bind] at h
-      · simp only [bind, Except.bind, pure, Except.pure]
-        intro h; cases h
-        exact StmtListScopeDiscipline.setImmutable
-          hvalueCore
-          (exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
-            hvalueCore hExprVal hparamsInScope hlocalsInScope)
-          (ih hrestValidate
-            (by
-              intro other hmem
-              exact mem_stmtNextScope_of_mem_scope (hparamsInScope other hmem))
-            (by
-              intro other hmem
-              exact mem_stmtNextScope_of_mem_scope (hlocalsInScope other hmem)))
+      rcases hExprVal :
+          validateScopedExprIdentifiers context params paramScope dynamicParams immutableNames
+            localScope constructorArgCount _ with _ | _
+      · intro h
+        cases constructorArgCount with
+        | none =>
+            simp [hExprVal, bind, Except.bind] at h
+        | some _ =>
+            by_cases himm : immutableNames = [] ∨ immName ∈ immutableNames
+            · simp [hExprVal, himm, bind, Except.bind] at h
+              cases h
+            · simp [hExprVal, himm, bind, Except.bind] at h
+              cases h
+      · intro h
+        cases constructorArgCount with
+        | none =>
+            simp [hExprVal, bind, Except.bind] at h
+        | some _ =>
+            by_cases himm : immutableNames = [] ∨ immName ∈ immutableNames
+            · simp [hExprVal, himm, bind, Except.bind] at h
+              cases h
+              exact StmtListScopeDiscipline.setImmutable
+                hvalueCore
+                (exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
+                  hvalueCore hExprVal hparamsInScope hlocalsInScope)
+                (ih hrestValidate
+                  (by
+                    intro other hmem
+                    exact mem_stmtNextScope_of_mem_scope (hparamsInScope other hmem))
+                  (by
+                    intro other hmem
+                    exact mem_stmtNextScope_of_mem_scope (hlocalsInScope other hmem)))
+            · simp [hExprVal, himm, bind, Except.bind] at h
+              cases h
   | setStorageWord hfield hvalueCore hrest ih =>
       rcases validateScopedStmtListIdentifiers_cons_ok_inv hvalidate with
         ⟨nextLocalScope, hstmt, hrestValidate⟩
       have hstmt' := hstmt
       unfold validateScopedStmtIdentifiers at hstmt'
       revert hstmt'
-      rcases hExprVal : validateScopedExprIdentifiers context params paramScope dynamicParams localScope constructorArgCount _ with _ | _
+      rcases hExprVal : validateScopedExprIdentifiers context params paramScope dynamicParams immutableNames localScope constructorArgCount _ with _ | _
       · intro h; simp [bind, Except.bind] at h
       · simp only [bind, Except.bind, pure, Except.pure]
         intro h; cases h
@@ -1316,11 +1336,11 @@ private theorem stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers
       unfold validateScopedStmtIdentifiers at hstmt'
       revert hstmt'
       rcases hOffsetVal : validateScopedExprIdentifiers context params paramScope dynamicParams
-          localScope constructorArgCount _ with _ | _
+          immutableNames localScope constructorArgCount _ with _ | _
       · intro h; simp [bind, Except.bind] at h
       · simp only [hOffsetVal, bind, Except.bind]
         rcases hValueVal : validateScopedExprIdentifiers context params paramScope dynamicParams
-            localScope constructorArgCount _ with _ | _
+          immutableNames localScope constructorArgCount _ with _ | _
         · intro h; simp [hValueVal, bind, Except.bind] at h
         · simp only [hValueVal, bind, Except.bind, pure, Except.pure]
           intro h; cases h
@@ -1343,11 +1363,11 @@ private theorem stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers
       unfold validateScopedStmtIdentifiers at hstmt'
       revert hstmt'
       rcases hOffsetVal : validateScopedExprIdentifiers context params paramScope dynamicParams
-          localScope constructorArgCount _ with _ | _
+          immutableNames localScope constructorArgCount _ with _ | _
       · intro h; simp [bind, Except.bind] at h
       · simp only [hOffsetVal, bind, Except.bind]
         rcases hValueVal : validateScopedExprIdentifiers context params paramScope dynamicParams
-            localScope constructorArgCount _ with _ | _
+          immutableNames localScope constructorArgCount _ with _ | _
         · intro h; simp [hValueVal, bind, Except.bind] at h
         · simp only [hValueVal, bind, Except.bind, pure, Except.pure]
           intro h; cases h
@@ -1369,13 +1389,13 @@ private theorem stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers
       have hstmt' := hstmt
       unfold validateScopedStmtIdentifiers at hstmt'
       revert hstmt'
-      rcases hCondVal : validateScopedExprIdentifiers context params paramScope dynamicParams localScope constructorArgCount _ with _ | _
+      rcases hCondVal : validateScopedExprIdentifiers context params paramScope dynamicParams immutableNames localScope constructorArgCount _ with _ | _
       · intro h; simp [bind, Except.bind] at h
       · simp only [bind, Except.bind, pure, Except.pure]
-        rcases hThenVal : validateScopedStmtListIdentifiers context params paramScope dynamicParams localScope constructorArgCount _ with _ | _
+        rcases hThenVal : validateScopedStmtListIdentifiers context params paramScope dynamicParams immutableNames localScope constructorArgCount _ with _ | _
         · intro h; simp [hThenVal, bind, Except.bind] at h
         · simp only [hThenVal, bind, Except.bind]
-          rcases hElseVal : validateScopedStmtListIdentifiers context params paramScope dynamicParams localScope constructorArgCount _ with _ | _
+          rcases hElseVal : validateScopedStmtListIdentifiers context params paramScope dynamicParams immutableNames localScope constructorArgCount _ with _ | _
           · intro h; simp [hElseVal, bind, Except.bind] at h
           · simp only [hElseVal, bind, Except.bind, pure, Except.pure]
             intro h; cases h
@@ -1401,13 +1421,13 @@ private theorem stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers
       simp only [bind, Except.bind, pure, Except.pure]
       intro hstmt'
       rcases hCountVal :
-          validateScopedExprIdentifiers context params paramScope dynamicParams localScope
+          validateScopedExprIdentifiers context params paramScope dynamicParams immutableNames localScope
             constructorArgCount (Expr.literal 0) with _ | _
       · rw [hCountVal] at hstmt'; simp at hstmt'
       · rw [hCountVal] at hstmt'
         rcases hBodyVal :
             validateScopedStmtListIdentifiers context params paramScope dynamicParams
-              (_ :: localScope) constructorArgCount _ with _ | _
+              immutableNames (_ :: localScope) constructorArgCount _ with _ | _
         · rw [hBodyVal] at hstmt'; simp at hstmt'
         · rw [hBodyVal] at hstmt'; simp at hstmt'; cases hstmt'
           exact StmtListScopeDiscipline.forEachLiteralZero
@@ -1437,13 +1457,13 @@ private theorem stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers
       simp only [bind, Except.bind, pure, Except.pure]
       intro hstmt'
       rcases hCountVal :
-          validateScopedExprIdentifiers context params paramScope dynamicParams localScope
+          validateScopedExprIdentifiers context params paramScope dynamicParams immutableNames localScope
             constructorArgCount (Expr.literal _) with _ | _
       · rw [hCountVal] at hstmt'; simp at hstmt'
       · rw [hCountVal] at hstmt'
         rcases hBodyVal :
             validateScopedStmtListIdentifiers context params paramScope dynamicParams
-              (_ :: localScope) constructorArgCount [] with _ | _
+              immutableNames (_ :: localScope) constructorArgCount [] with _ | _
         · rw [hBodyVal] at hstmt'; simp at hstmt'
         · rw [hBodyVal] at hstmt'; simp at hstmt'; cases hstmt'
           exact StmtListScopeDiscipline.forEachLiteralEmpty
@@ -1482,14 +1502,14 @@ private theorem scopeNamesPresent_foldl_stmtNextScope_of_validateScopedStmtListI
     {fieldNames : List String}
     {context : String}
     {params : List Param}
-    {paramScope dynamicParams localScope scope : List String}
+    {paramScope dynamicParams immutableNames localScope scope : List String}
     {constructorArgCount : Option Nat}
     {stmts : List Stmt}
     {finalScope : List String}
     (hcore : StmtListScopeCore fieldNames stmts)
     (hvalidate :
       validateScopedStmtListIdentifiers
-        context params paramScope dynamicParams localScope constructorArgCount stmts =
+        context params paramScope dynamicParams immutableNames localScope constructorArgCount stmts =
           Except.ok finalScope)
     (hparamsInScope : ∀ name, name ∈ paramScope → name ∈ scope)
     (hlocalsInScope : ∀ name, name ∈ localScope → name ∈ scope) :
@@ -1506,7 +1526,7 @@ private theorem scopeNamesPresent_foldl_stmtNextScope_of_validateScopedStmtListI
       have hstmt' := hstmt
       unfold validateScopedStmtIdentifiers at hstmt'
       revert hstmt'
-      rcases hExprVal : validateScopedExprIdentifiers context params paramScope dynamicParams localScope constructorArgCount _ with _ | _
+      rcases hExprVal : validateScopedExprIdentifiers context params paramScope dynamicParams immutableNames localScope constructorArgCount _ with _ | _
       · intro h; simp [bind, Except.bind] at h
       · simp only [hExprVal, bind, Except.bind, pure, Except.pure]
         intro h
@@ -1535,7 +1555,7 @@ private theorem scopeNamesPresent_foldl_stmtNextScope_of_validateScopedStmtListI
       · intro h; simp [bind, Except.bind] at h
       · intro hstmt'
         simp only [bind, Except.bind, pure, Except.pure] at hstmt'
-        rcases hExprVal : validateScopedExprIdentifiers context params paramScope dynamicParams localScope constructorArgCount _ with _ | _
+        rcases hExprVal : validateScopedExprIdentifiers context params paramScope dynamicParams immutableNames localScope constructorArgCount _ with _ | _
         · rw [hExprVal] at hstmt'; exact absurd hstmt' (by simp)
         · rw [hExprVal] at hstmt'; simp at hstmt'; cases hstmt'
           intro other hmem
@@ -1553,7 +1573,7 @@ private theorem scopeNamesPresent_foldl_stmtNextScope_of_validateScopedStmtListI
       have hstmt' := hstmt
       unfold validateScopedStmtIdentifiers at hstmt'
       revert hstmt'
-      rcases hExprVal : validateScopedExprIdentifiers context params paramScope dynamicParams localScope constructorArgCount _ with _ | _
+      rcases hExprVal : validateScopedExprIdentifiers context params paramScope dynamicParams immutableNames localScope constructorArgCount _ with _ | _
       · intro h; simp [bind, Except.bind] at h
       · simp only [bind, Except.bind, pure, Except.pure]
         intro h; cases h
@@ -1572,7 +1592,7 @@ private theorem scopeNamesPresent_foldl_stmtNextScope_of_validateScopedStmtListI
       have hstmt' := hstmt
       unfold validateScopedStmtIdentifiers at hstmt'
       revert hstmt'
-      rcases hExprVal : validateScopedExprIdentifiers context params paramScope dynamicParams localScope constructorArgCount _ with _ | _
+      rcases hExprVal : validateScopedExprIdentifiers context params paramScope dynamicParams immutableNames localScope constructorArgCount _ with _ | _
       · intro h; simp [bind, Except.bind] at h
       · simp only [bind, Except.bind, pure, Except.pure]
         intro h; cases h
@@ -1601,7 +1621,7 @@ private theorem scopeNamesPresent_foldl_stmtNextScope_of_validateScopedStmtListI
       have hstmt' := hstmt
       unfold validateScopedStmtIdentifiers at hstmt'
       revert hstmt'
-      rcases hExprVal : validateScopedExprIdentifiers context params paramScope dynamicParams localScope constructorArgCount _ with _ | _
+      rcases hExprVal : validateScopedExprIdentifiers context params paramScope dynamicParams immutableNames localScope constructorArgCount _ with _ | _
       · intro h; simp [bind, Except.bind] at h
       · simp only [bind, Except.bind, pure, Except.pure]
         intro h; cases h
@@ -1620,7 +1640,7 @@ private theorem scopeNamesPresent_foldl_stmtNextScope_of_validateScopedStmtListI
       have hstmt' := hstmt
       unfold validateScopedStmtIdentifiers at hstmt'
       revert hstmt'
-      rcases hExprVal : validateScopedExprIdentifiers context params paramScope dynamicParams localScope constructorArgCount _ with _ | _
+      rcases hExprVal : validateScopedExprIdentifiers context params paramScope dynamicParams immutableNames localScope constructorArgCount _ with _ | _
       · intro h; simp [bind, Except.bind] at h
       · simp only [bind, Except.bind, pure, Except.pure]
         intro h; cases h
@@ -1634,31 +1654,51 @@ private theorem scopeNamesPresent_foldl_stmtNextScope_of_validateScopedStmtListI
             exact mem_stmtNextScope_of_mem_scope (hlocalsInScope name hname))
           other hmem
   | setImmutable hvalueCore hrest ih =>
+      rename_i immName immValue immRest
       rcases validateScopedStmtListIdentifiers_cons_ok_inv hvalidate with
         ⟨nextLocalScope, hstmt, hrestValidate⟩
       have hstmt' := hstmt
       unfold validateScopedStmtIdentifiers at hstmt'
       revert hstmt'
-      rcases hExprVal : validateScopedExprIdentifiers context params paramScope dynamicParams localScope constructorArgCount _ with _ | _
-      · intro h; simp [bind, Except.bind] at h
-      · simp only [bind, Except.bind, pure, Except.pure]
-        intro h; cases h
-        intro other hmem
-        exact ih hrestValidate
-          (by
-            intro name hname
-            exact mem_stmtNextScope_of_mem_scope (hparamsInScope name hname))
-          (by
-            intro name hname
-            exact mem_stmtNextScope_of_mem_scope (hlocalsInScope name hname))
-          other hmem
+      rcases hExprVal :
+          validateScopedExprIdentifiers context params paramScope dynamicParams immutableNames
+            localScope constructorArgCount _ with _ | _
+      · intro h
+        cases constructorArgCount with
+        | none =>
+            simp [hExprVal, bind, Except.bind] at h
+        | some _ =>
+            by_cases himm : immutableNames = [] ∨ immName ∈ immutableNames
+            · simp [hExprVal, himm, bind, Except.bind] at h
+              cases h
+            · simp [hExprVal, himm, bind, Except.bind] at h
+              cases h
+      · intro h
+        cases constructorArgCount with
+        | none =>
+            simp [hExprVal, bind, Except.bind] at h
+        | some _ =>
+            by_cases himm : immutableNames = [] ∨ immName ∈ immutableNames
+            · simp [hExprVal, himm, bind, Except.bind] at h
+              cases h
+              intro other hmem
+              exact ih hrestValidate
+                (by
+                  intro name hname
+                  exact mem_stmtNextScope_of_mem_scope (hparamsInScope name hname))
+                (by
+                  intro name hname
+                  exact mem_stmtNextScope_of_mem_scope (hlocalsInScope name hname))
+                other hmem
+            · simp [hExprVal, himm, bind, Except.bind] at h
+              cases h
   | setStorageWord hfield hvalueCore hrest ih =>
       rcases validateScopedStmtListIdentifiers_cons_ok_inv hvalidate with
         ⟨nextLocalScope, hstmt, hrestValidate⟩
       have hstmt' := hstmt
       unfold validateScopedStmtIdentifiers at hstmt'
       revert hstmt'
-      rcases hExprVal : validateScopedExprIdentifiers context params paramScope dynamicParams localScope constructorArgCount _ with _ | _
+      rcases hExprVal : validateScopedExprIdentifiers context params paramScope dynamicParams immutableNames localScope constructorArgCount _ with _ | _
       · intro h; simp [bind, Except.bind] at h
       · simp only [bind, Except.bind, pure, Except.pure]
         intro h; cases h
@@ -1678,11 +1718,11 @@ private theorem scopeNamesPresent_foldl_stmtNextScope_of_validateScopedStmtListI
       unfold validateScopedStmtIdentifiers at hstmt'
       revert hstmt'
       rcases hOffsetVal : validateScopedExprIdentifiers context params paramScope dynamicParams
-          localScope constructorArgCount _ with _ | _
+          immutableNames localScope constructorArgCount _ with _ | _
       · intro h; simp [bind, Except.bind] at h
       · simp only [hOffsetVal, bind, Except.bind]
         rcases hValueVal : validateScopedExprIdentifiers context params paramScope dynamicParams
-            localScope constructorArgCount _ with _ | _
+          immutableNames localScope constructorArgCount _ with _ | _
         · intro h; simp [hValueVal, bind, Except.bind] at h
         · simp only [hValueVal, bind, Except.bind, pure, Except.pure]
           intro h; cases h
@@ -1700,11 +1740,11 @@ private theorem scopeNamesPresent_foldl_stmtNextScope_of_validateScopedStmtListI
       unfold validateScopedStmtIdentifiers at hstmt'
       revert hstmt'
       rcases hOffsetVal : validateScopedExprIdentifiers context params paramScope dynamicParams
-          localScope constructorArgCount _ with _ | _
+          immutableNames localScope constructorArgCount _ with _ | _
       · intro h; simp [bind, Except.bind] at h
       · simp only [hOffsetVal, bind, Except.bind]
         rcases hValueVal : validateScopedExprIdentifiers context params paramScope dynamicParams
-            localScope constructorArgCount _ with _ | _
+          immutableNames localScope constructorArgCount _ with _ | _
         · intro h; simp [hValueVal, bind, Except.bind] at h
         · simp only [hValueVal, bind, Except.bind, pure, Except.pure]
           intro h; cases h
@@ -1721,13 +1761,13 @@ private theorem scopeNamesPresent_foldl_stmtNextScope_of_validateScopedStmtListI
       have hstmt' := hstmt
       unfold validateScopedStmtIdentifiers at hstmt'
       revert hstmt'
-      rcases hCondVal : validateScopedExprIdentifiers context params paramScope dynamicParams localScope constructorArgCount _ with _ | _
+      rcases hCondVal : validateScopedExprIdentifiers context params paramScope dynamicParams immutableNames localScope constructorArgCount _ with _ | _
       · intro h; simp [bind, Except.bind] at h
       · simp only [bind, Except.bind, pure, Except.pure]
-        rcases hThenVal : validateScopedStmtListIdentifiers context params paramScope dynamicParams localScope constructorArgCount _ with _ | _
+        rcases hThenVal : validateScopedStmtListIdentifiers context params paramScope dynamicParams immutableNames localScope constructorArgCount _ with _ | _
         · intro h; simp [hThenVal, bind, Except.bind] at h
         · simp only [hThenVal, bind, Except.bind]
-          rcases hElseVal : validateScopedStmtListIdentifiers context params paramScope dynamicParams localScope constructorArgCount _ with _ | _
+          rcases hElseVal : validateScopedStmtListIdentifiers context params paramScope dynamicParams immutableNames localScope constructorArgCount _ with _ | _
           · intro h; simp [hElseVal, bind, Except.bind] at h
           · simp only [hElseVal, bind, Except.bind, pure, Except.pure]
             intro h; cases h
@@ -1749,13 +1789,13 @@ private theorem scopeNamesPresent_foldl_stmtNextScope_of_validateScopedStmtListI
       simp only [bind, Except.bind, pure, Except.pure]
       intro hstmt'
       rcases hCountVal :
-          validateScopedExprIdentifiers context params paramScope dynamicParams localScope
+          validateScopedExprIdentifiers context params paramScope dynamicParams immutableNames localScope
             constructorArgCount (Expr.literal 0) with _ | _
       · rw [hCountVal] at hstmt'; simp at hstmt'
       · rw [hCountVal] at hstmt'
         rcases hBodyVal :
             validateScopedStmtListIdentifiers context params paramScope dynamicParams
-              (_ :: localScope) constructorArgCount _ with _ | _
+              immutableNames (_ :: localScope) constructorArgCount _ with _ | _
         · rw [hBodyVal] at hstmt'; simp at hstmt'
         · rw [hBodyVal] at hstmt'; simp at hstmt'; cases hstmt'
           intro other hmem
@@ -1776,13 +1816,13 @@ private theorem scopeNamesPresent_foldl_stmtNextScope_of_validateScopedStmtListI
       simp only [bind, Except.bind, pure, Except.pure]
       intro hstmt'
       rcases hCountVal :
-          validateScopedExprIdentifiers context params paramScope dynamicParams localScope
+          validateScopedExprIdentifiers context params paramScope dynamicParams immutableNames localScope
             constructorArgCount (Expr.literal _) with _ | _
       · rw [hCountVal] at hstmt'; simp at hstmt'
       · rw [hCountVal] at hstmt'
         rcases hBodyVal :
             validateScopedStmtListIdentifiers context params paramScope dynamicParams
-              (_ :: localScope) constructorArgCount [] with _ | _
+              immutableNames (_ :: localScope) constructorArgCount [] with _ | _
         · rw [hBodyVal] at hstmt'; simp at hstmt'
         · rw [hBodyVal] at hstmt'; simp at hstmt'; cases hstmt'
           intro other hmem
@@ -1814,7 +1854,7 @@ theorem exprBoundNamesInScope_setStorage_of_validateFunctionIdentifierReferences
   have hstmt' := hstmtValidate
   unfold validateScopedStmtIdentifiers at hstmt'
   revert hstmt'
-  rcases hExprVal : validateScopedExprIdentifiers _ _ _ _ localScope _ value with _ | _
+  rcases hExprVal : validateScopedExprIdentifiers _ _ _ _ [] localScope _ value with _ | _
   · intro h; simp [bind, Except.bind] at h
   · simp only [bind, Except.bind, pure, Except.pure]
     intro h; cases h
