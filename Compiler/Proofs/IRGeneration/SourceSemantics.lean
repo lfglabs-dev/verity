@@ -442,7 +442,7 @@ def writeAddressFieldSlots (fields : List Field) (fieldName : String)
     (world : Verity.ContractState) (slots : List Nat) (value : Nat) :
     Verity.ContractState :=
   if fieldIsTransient fields fieldName then
-    writeTransientTargets world slots value
+    writeTransientTargets world slots (Verity.wordToAddress (value : Verity.Core.Uint256)).val
   else
     writeAddressSlots world slots value
 
