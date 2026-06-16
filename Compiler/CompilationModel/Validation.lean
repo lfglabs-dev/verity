@@ -110,16 +110,46 @@ def validateStmtParamReferencesNode (fnName : String) (params : List Param) :
 
 def validateStmtParamReferences (fnName : String) (params : List Param)
     (stmt : Stmt) : Except String Unit :=
-  stmt.forDeepM (validateStmtParamReferencesNode fnName params)
+  stmt.checkRec (validateStmtParamReferencesNode fnName params)
 
 def validateStmtParamReferencesInList (fnName : String) (params : List Param)
     (stmts : List Stmt) : Except String Unit :=
-  Stmt.forDeepListM (validateStmtParamReferencesNode fnName params) stmts
+  Stmt.checkRecList (validateStmtParamReferencesNode fnName params) stmts
 
 def validateStmtParamReferencesInBranches (fnName : String) (params : List Param)
     (branches : List (String × List String × List Stmt)) : Except String Unit :=
-  branches.forM fun (_, _, body) =>
-    validateStmtParamReferencesInList fnName params body
+  Stmt.checkRecBranches (validateStmtParamReferencesNode fnName params) branches
+
+def validateStmtParamReferences_viaFold (fnName : String) (params : List Param)
+    (stmt : Stmt) : Except String Unit :=
+  Stmt.checkRec (validateStmtParamReferencesNode fnName params) stmt
+
+def validateStmtParamReferencesInList_viaFold (fnName : String) (params : List Param)
+    (stmts : List Stmt) : Except String Unit :=
+  Stmt.checkRecList (validateStmtParamReferencesNode fnName params) stmts
+
+def validateStmtParamReferencesInBranches_viaFold (fnName : String) (params : List Param)
+    (branches : List (String × List String × List Stmt)) : Except String Unit :=
+  Stmt.checkRecBranches (validateStmtParamReferencesNode fnName params) branches
+
+theorem validateStmtParamReferences_eq_viaFold
+    (fnName : String) (params : List Param) (stmt : Stmt) :
+    validateStmtParamReferences fnName params stmt =
+      validateStmtParamReferences_viaFold fnName params stmt := by
+  rfl
+
+theorem validateStmtParamReferencesInList_eq_viaFold
+    (fnName : String) (params : List Param) (stmts : List Stmt) :
+    validateStmtParamReferencesInList fnName params stmts =
+      validateStmtParamReferencesInList_viaFold fnName params stmts := by
+  rfl
+
+theorem validateStmtParamReferencesInBranches_eq_viaFold
+    (fnName : String) (params : List Param)
+    (branches : List (String × List String × List Stmt)) :
+    validateStmtParamReferencesInBranches fnName params branches =
+      validateStmtParamReferencesInBranches_viaFold fnName params branches := by
+  rfl
 
 /-- Node-local return-shape check; nested statement bodies are reached via
     the canonical `Stmt.forDeepM`. -/
@@ -198,18 +228,56 @@ def validateReturnShapesNode (fnName : String) (params : List Param)
 def validateReturnShapesInStmt (fnName : String) (params : List Param)
     (expectedReturns : List ParamType) (isInternal : Bool) (stmt : Stmt) :
     Except String Unit :=
-  stmt.forDeepM (validateReturnShapesNode fnName params expectedReturns isInternal)
+  stmt.checkRec (validateReturnShapesNode fnName params expectedReturns isInternal)
 
 def validateReturnShapesInStmtList (fnName : String)
     (params : List Param) (expectedReturns : List ParamType) (isInternal : Bool)
     (stmts : List Stmt) : Except String Unit :=
-  Stmt.forDeepListM (validateReturnShapesNode fnName params expectedReturns isInternal) stmts
+  Stmt.checkRecList (validateReturnShapesNode fnName params expectedReturns isInternal) stmts
 
 def validateReturnShapesInBranches (fnName : String)
     (params : List Param) (expectedReturns : List ParamType) (isInternal : Bool)
     (branches : List (String × List String × List Stmt)) : Except String Unit :=
-  branches.forM fun (_, _, body) =>
-    validateReturnShapesInStmtList fnName params expectedReturns isInternal body
+  Stmt.checkRecBranches
+    (validateReturnShapesNode fnName params expectedReturns isInternal) branches
+
+def validateReturnShapesInStmt_viaFold (fnName : String) (params : List Param)
+    (expectedReturns : List ParamType) (isInternal : Bool) (stmt : Stmt) :
+    Except String Unit :=
+  Stmt.checkRec (validateReturnShapesNode fnName params expectedReturns isInternal) stmt
+
+def validateReturnShapesInStmtList_viaFold (fnName : String)
+    (params : List Param) (expectedReturns : List ParamType) (isInternal : Bool)
+    (stmts : List Stmt) : Except String Unit :=
+  Stmt.checkRecList (validateReturnShapesNode fnName params expectedReturns isInternal) stmts
+
+def validateReturnShapesInBranches_viaFold (fnName : String)
+    (params : List Param) (expectedReturns : List ParamType) (isInternal : Bool)
+    (branches : List (String × List String × List Stmt)) : Except String Unit :=
+  Stmt.checkRecBranches
+    (validateReturnShapesNode fnName params expectedReturns isInternal) branches
+
+theorem validateReturnShapesInStmt_eq_viaFold
+    (fnName : String) (params : List Param) (expectedReturns : List ParamType)
+    (isInternal : Bool) (stmt : Stmt) :
+    validateReturnShapesInStmt fnName params expectedReturns isInternal stmt =
+      validateReturnShapesInStmt_viaFold fnName params expectedReturns isInternal stmt := by
+  rfl
+
+theorem validateReturnShapesInStmtList_eq_viaFold
+    (fnName : String) (params : List Param) (expectedReturns : List ParamType)
+    (isInternal : Bool) (stmts : List Stmt) :
+    validateReturnShapesInStmtList fnName params expectedReturns isInternal stmts =
+      validateReturnShapesInStmtList_viaFold fnName params expectedReturns isInternal stmts := by
+  rfl
+
+theorem validateReturnShapesInBranches_eq_viaFold
+    (fnName : String) (params : List Param) (expectedReturns : List ParamType)
+    (isInternal : Bool) (branches : List (String × List String × List Stmt)) :
+    validateReturnShapesInBranches fnName params expectedReturns isInternal branches =
+      validateReturnShapesInBranches_viaFold
+        fnName params expectedReturns isInternal branches := by
+  rfl
 
 private def stmtListAlwaysReturnsOrReverts (stmts : List Stmt) : Bool :=
   ControlFlowSummary.alwaysReturnsOrReverts (Stmt.controlFlowList stmts)
@@ -1015,7 +1083,14 @@ def exprContainsAdtConstructNode : Expr → Bool
   | _ => false
 
 def exprContainsAdtConstruct (e : Expr) : Bool :=
-  e.anyDeep exprContainsAdtConstructNode
+  e.foldBool exprContainsAdtConstructNode
+
+def exprContainsAdtConstruct_viaFold (e : Expr) : Bool :=
+  Expr.foldBool exprContainsAdtConstructNode e
+
+theorem exprContainsAdtConstruct_eq_viaFold (e : Expr) :
+    exprContainsAdtConstruct e = exprContainsAdtConstruct_viaFold e := by
+  rfl
 
 def exprListContainsAdtConstruct (es : List Expr) : Bool :=
   es.any exprContainsAdtConstruct
@@ -1093,15 +1168,42 @@ def validateNoUnsupportedAdtConstructNode : Stmt → Except String Unit
         validateUnsafeYulDeclaredScopeEffects fragment
 
 def validateNoUnsupportedAdtConstructInStmt (stmt : Stmt) : Except String Unit :=
-  stmt.forDeepM validateNoUnsupportedAdtConstructNode
+  stmt.checkRec validateNoUnsupportedAdtConstructNode
 
 def validateNoUnsupportedAdtConstructInStmtList (stmts : List Stmt) : Except String Unit :=
-  Stmt.forDeepListM validateNoUnsupportedAdtConstructNode stmts
+  Stmt.checkRecList validateNoUnsupportedAdtConstructNode stmts
 
 def validateNoUnsupportedAdtConstructInBranches
     (branches : List (String × List String × List Stmt)) : Except String Unit :=
-  branches.forM fun (_, _, body) =>
-    validateNoUnsupportedAdtConstructInStmtList body
+  Stmt.checkRecBranches validateNoUnsupportedAdtConstructNode branches
+
+def validateNoUnsupportedAdtConstructInStmt_viaFold
+    (stmt : Stmt) : Except String Unit :=
+  Stmt.checkRec validateNoUnsupportedAdtConstructNode stmt
+
+def validateNoUnsupportedAdtConstructInStmtList_viaFold
+    (stmts : List Stmt) : Except String Unit :=
+  Stmt.checkRecList validateNoUnsupportedAdtConstructNode stmts
+
+def validateNoUnsupportedAdtConstructInBranches_viaFold
+    (branches : List (String × List String × List Stmt)) : Except String Unit :=
+  Stmt.checkRecBranches validateNoUnsupportedAdtConstructNode branches
+
+theorem validateNoUnsupportedAdtConstructInStmt_eq_viaFold (stmt : Stmt) :
+    validateNoUnsupportedAdtConstructInStmt stmt =
+      validateNoUnsupportedAdtConstructInStmt_viaFold stmt := by
+  rfl
+
+theorem validateNoUnsupportedAdtConstructInStmtList_eq_viaFold (stmts : List Stmt) :
+    validateNoUnsupportedAdtConstructInStmtList stmts =
+      validateNoUnsupportedAdtConstructInStmtList_viaFold stmts := by
+  rfl
+
+theorem validateNoUnsupportedAdtConstructInBranches_eq_viaFold
+    (branches : List (String × List String × List Stmt)) :
+    validateNoUnsupportedAdtConstructInBranches branches =
+      validateNoUnsupportedAdtConstructInBranches_viaFold branches := by
+  rfl
 
 def validateFunctionSpec (spec : FunctionSpec) : Except String Unit := do
   let rawYulObligations :=
@@ -1187,15 +1289,43 @@ def validateNoRuntimeReturnsInConstructorNode : Stmt → Except String Unit
   | _ => pure ()
 
 def validateNoRuntimeReturnsInConstructorStmt (stmt : Stmt) : Except String Unit :=
-  stmt.forDeepM validateNoRuntimeReturnsInConstructorNode
+  stmt.checkRec validateNoRuntimeReturnsInConstructorNode
 
 def validateNoRuntimeReturnsInConstructorStmtList (stmts : List Stmt) : Except String Unit :=
-  Stmt.forDeepListM validateNoRuntimeReturnsInConstructorNode stmts
+  Stmt.checkRecList validateNoRuntimeReturnsInConstructorNode stmts
 
 def validateNoRuntimeReturnsInConstructorBranches
     (branches : List (String × List String × List Stmt)) : Except String Unit :=
-  branches.forM fun (_, _, body) =>
-    validateNoRuntimeReturnsInConstructorStmtList body
+  Stmt.checkRecBranches validateNoRuntimeReturnsInConstructorNode branches
+
+def validateNoRuntimeReturnsInConstructorStmt_viaFold
+    (stmt : Stmt) : Except String Unit :=
+  Stmt.checkRec validateNoRuntimeReturnsInConstructorNode stmt
+
+def validateNoRuntimeReturnsInConstructorStmtList_viaFold
+    (stmts : List Stmt) : Except String Unit :=
+  Stmt.checkRecList validateNoRuntimeReturnsInConstructorNode stmts
+
+def validateNoRuntimeReturnsInConstructorBranches_viaFold
+    (branches : List (String × List String × List Stmt)) : Except String Unit :=
+  Stmt.checkRecBranches validateNoRuntimeReturnsInConstructorNode branches
+
+theorem validateNoRuntimeReturnsInConstructorStmt_eq_viaFold (stmt : Stmt) :
+    validateNoRuntimeReturnsInConstructorStmt stmt =
+      validateNoRuntimeReturnsInConstructorStmt_viaFold stmt := by
+  rfl
+
+theorem validateNoRuntimeReturnsInConstructorStmtList_eq_viaFold
+    (stmts : List Stmt) :
+    validateNoRuntimeReturnsInConstructorStmtList stmts =
+      validateNoRuntimeReturnsInConstructorStmtList_viaFold stmts := by
+  rfl
+
+theorem validateNoRuntimeReturnsInConstructorBranches_eq_viaFold
+    (branches : List (String × List String × List Stmt)) :
+    validateNoRuntimeReturnsInConstructorBranches branches =
+      validateNoRuntimeReturnsInConstructorBranches_viaFold branches := by
+  rfl
 
 def validateConstructorSpec (ctor : Option ConstructorSpec) : Except String Unit := do
   match ctor with
