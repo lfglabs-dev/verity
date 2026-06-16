@@ -6503,6 +6503,85 @@ private def dottedObjectLinkedSpec : CompilationModel := {
 
 end ExternalNameValidationSmoke
 
+namespace BitmapIteratorForkSmoke
+
+/-! ## Bugbot #2019: Osaka CLZ must stay behind the target-fork gate
+
+`Stmt.forEachSetBit` uses the Osaka CLZ opcode for the compact lowering, but
+pre-Osaka targets must receive the portable scan loop instead. This smoke test
+checks the rendered Yul surface for both paths. -/
+
+private def bitmapIteratorForkSpec : CompilationModel := {
+  name := "BitmapIteratorForkSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "walk"
+      params := [{ name := "bitmap", ty := ParamType.uint256 }]
+      returnType := none
+      body := [Stmt.forEachSetBit "idx" (Expr.param "bitmap") [Stmt.stop]]
+    }
+  ]
+}
+
+private def bitmapIteratorMutatingBodySpec : CompilationModel := {
+  name := "BitmapIteratorMutatingBodySmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "walk"
+      params := [{ name := "bitmap", ty := ParamType.uint256 }]
+      returnType := none
+      body := [
+        Stmt.forEachSetBit "idx" (Expr.param "bitmap") [
+          Stmt.assignVar "idx" (Expr.literal 0),
+          Stmt.stop
+        ]
+      ]
+    }
+  ]
+}
+
+private def bitmapIteratorYulAt (fork : Verity.Core.Intrinsics.HardFork) : Option String :=
+  match Compiler.CompilationModel.compile
+      bitmapIteratorForkSpec (selectorsFor bitmapIteratorForkSpec) fork with
+  | .ok contract => some (Compiler.Yul.render (Compiler.emitYulWithOptions contract {}))
+  | .error _ => none
+
+private def mutatingBitmapIteratorYulAt (fork : Verity.Core.Intrinsics.HardFork) : Option String :=
+  match Compiler.CompilationModel.compile
+      bitmapIteratorMutatingBodySpec (selectorsFor bitmapIteratorMutatingBodySpec) fork with
+  | .ok contract => some (Compiler.Yul.render (Compiler.emitYulWithOptions contract {}))
+  | .error _ => none
+
+def cancunBitmapIteratorAvoidsClz : Bool :=
+  match bitmapIteratorYulAt Verity.Core.Intrinsics.HardFork.cancun with
+  | some yul => !contains yul "verbatim_1i_1o" && contains yul "__forEach_bit_idx"
+  | none => false
+
+def osakaBitmapIteratorUsesClz : Bool :=
+  match bitmapIteratorYulAt Verity.Core.Intrinsics.HardFork.osaka with
+  | some yul => contains yul "verbatim_1i_1o"
+  | none => false
+
+def osakaBitmapIteratorClearUsesCapturedBit : Bool :=
+  match mutatingBitmapIteratorYulAt Verity.Core.Intrinsics.HardFork.osaka with
+  | some yul =>
+      contains yul "__forEach_bit" &&
+      contains yul "idx := 0" &&
+      contains yul "not(__forEach_bit)"
+  | none => false
+
+#eval! do
+  expectTrue "forEachSetBit avoids Osaka CLZ when targetFork is Cancun"
+    cancunBitmapIteratorAvoidsClz
+  expectTrue "forEachSetBit emits Osaka CLZ when targetFork is Osaka"
+    osakaBitmapIteratorUsesClz
+  expectTrue "forEachSetBit clears the pre-body bit when the body mutates the iterator"
+    osakaBitmapIteratorClearUsesCapturedBit
+
+end BitmapIteratorForkSmoke
+
 namespace NonreentrantForkCompatibilitySmoke
 
 /-! ## Bugbot #1968: `nonreentrant(<lock>)` ↔ `targetFork` pre-check
