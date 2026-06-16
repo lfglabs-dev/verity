@@ -297,6 +297,7 @@ private def linkedLibrarySpec : CompilationModel := {
       ]
       returnType := none
       allowPostInteractionWrites := true
+      reentrancyTrusted := true
       body := [
         Stmt.letVar "h" (Expr.externalCall "PoseidonT3_hash" [Expr.param "a", Expr.param "b"]),
         Stmt.setStorage "lastHash" (Expr.localVar "h"),
@@ -320,6 +321,7 @@ private def trustSurfaceSpec : CompilationModel := {
     { name := "exercise"
       params := [{ name := "target", ty := ParamType.address }]
       returnType := none
+      reentrancyTrusted := true
       body := [
         Stmt.letVar "ok"
           (Expr.staticcall
@@ -548,6 +550,7 @@ private def uncheckedTrustSurfaceSpec : CompilationModel := {
     { name := "exercise"
       params := []
       returnType := none
+      reentrancyTrusted := true
       body := [
         Stmt.letVar "peek" (Expr.externalCall "DebugOracle_peek" []),
         Stmt.ecm
@@ -748,6 +751,7 @@ private def callWithValueTrustSurfaceSpec : CompilationModel := {
         , { name := "dataSize", ty := ParamType.uint256 }
       ]
       returnType := none
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.Calls.callWithValue
           (Expr.param "target")
@@ -772,6 +776,7 @@ private def callWithValueBytesTrustSurfaceSpec : CompilationModel := {
         , { name := "data", ty := ParamType.bytes }
       ]
       returnType := none
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.Calls.callWithValueBytes
           (Expr.param "target")
@@ -1131,6 +1136,7 @@ private def erc4626DepositTrustSurfaceSpec : CompilationModel := {
       ]
       returnType := none
       returns := [ParamType.uint256]
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.ERC4626.deposit
           "shares"
