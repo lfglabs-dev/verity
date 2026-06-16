@@ -374,12 +374,45 @@ instance : ExternalResult Address where
   fromWord value := wordToAddress value
 instance : ExternalResult Bool where
   fromWord value := value != 0
+
+namespace Call
+
+/-- First-class external-call result used by executable contract wrappers.
+    The compilation-model path lowers `callResult` binds to the same low-level
+    try-call wrapper as `tryExternalCall`, while executable tests can inspect
+    success and payload as one value. -/
+structure Result (α : Type) where
+  success : Bool
+  returndata : α
+  deriving Repr, BEq
+
+namespace Result
+
+def failed (result : Result α) : Bool :=
+  !result.success
+
+def payload (result : Result α) : α :=
+  result.returndata
+
+end Result
+
+end Call
+
 private def externalCallStubWord (name : String) (args : List Uint256) : Uint256 :=
   match name, args with
   | "echo", [value] => value
   | _, _ => args.foldl add name.length
 def externalCallWords {α : Type} [ExternalResult α] (name : String) (args : List Uint256) : α :=
   ExternalResult.fromWord (externalCallStubWord name args)
+def callResultWords {α : Type} [ExternalResult α] [Inhabited α] (name : String) (args : List Uint256) :
+    Contract (Call.Result α) :=
+  let success := name != "fail"
+  let payload :=
+    if success then
+      ExternalResult.fromWord (externalCallStubWord name args)
+    else
+      Inhabited.default
+  pure { success := success, returndata := payload }
 def tryExternalCallWords {α : Type} [Inhabited α] (_name : String) (_args : List Uint256) : Contract (Bool × α) :=
   pure (false, (Inhabited.default : α))
 def externalCallBind {α : Type} [ExternalArg α] (_names : List String) (_name : String) (_args : List α) : Contract Unit :=
@@ -391,6 +424,10 @@ macro_rules
       `(externalCallWords $(Lean.quote (toString name.getId)) [ $[ExternalArg.toWord $args],* ])
   | `(term| externalCall $name:str [ $[$args:term],* ]) =>
       `(externalCallWords $name [ $[ExternalArg.toWord $args],* ])
+  | `(term| callResult $name:str [ $[$args:term],* ]) =>
+      `(callResultWords $name [ $[ExternalArg.toWord $args],* ])
+  | `(term| callResult $name:ident [ $[$args:term],* ]) =>
+      `(callResultWords $(Lean.quote (toString name.getId)) [ $[ExternalArg.toWord $args],* ])
   | `(term| tryExternalCall $name:str [ $[$args:term],* ]) =>
       `(tryExternalCallWords $name [ $[ExternalArg.toWord $args],* ])
   | `(term| tryExternalCall $name:ident [ $[$args:term],* ]) =>

@@ -75,6 +75,19 @@ structure StorageStructAccessorDecl where
   name : String
   tree : StorageAccessorTree
 
+inductive RoleKind where
+  | scalarAddress
+  | mappingAddressToUint256
+  deriving Repr, BEq
+
+structure RoleDecl where
+  ident : Ident
+  name : String
+  fieldIdent : Ident
+  fieldName : String
+  kind : RoleKind
+  deriving Repr
+
 /-- The arrow signature of a function-pointer parameter (#1747).
     Recorded only so that good diagnostics are available; the monomorphization
     pre-pass removes every function-pointer parameter before any model/IR
