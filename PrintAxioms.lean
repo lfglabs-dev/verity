@@ -39,6 +39,7 @@ import Compiler.Proofs.EndToEnd.SimpleStorage
 import Compiler.Proofs.EventSemantics
 import Compiler.Proofs.Frames
 import Compiler.Proofs.HelperStepProofs
+import Compiler.Proofs.IRGeneration.CEISafety
 import Compiler.Proofs.IRGeneration.Contract
 import Compiler.Proofs.IRGeneration.ContractFeatureTest
 import Compiler.Proofs.IRGeneration.ContractShape
@@ -1629,6 +1630,14 @@ end Verity.AxiomAudit
   Compiler.Proofs.HelperStepProofs.helperFreeContractWitness
   Compiler.Proofs.HelperStepProofs.helperFreeContractWitness_disjoint
 
+  -- Compiler/Proofs/IRGeneration/CEISafety.lean
+  Compiler.Proofs.IRGeneration.CEIProofBackedExecution.execution_safe
+  Compiler.Proofs.IRGeneration.CEIProofBackedExecution.no_post_interaction_write_opt_out
+  Compiler.Proofs.IRGeneration.CEIProofBackedExecution.no_nonreentrant_runtime_guard
+  Compiler.Proofs.IRGeneration.CEIProofBackedExecution.no_local_unsafe_obligations
+  Compiler.Proofs.IRGeneration.ceiProofBackedExecution_of_checker
+  Compiler.Proofs.IRGeneration.ceiProofBackedExecution_checked_empty_body
+
   -- Compiler/Proofs/IRGeneration/Contract.lean
   -- Compiler.Proofs.IRGeneration.Contract.pickUniqueFunctionByName_eq_ok_none_of_absent  -- private
   -- Compiler.Proofs.IRGeneration.Contract.compiled_functions_forall₂_of_mapM_ok  -- private
@@ -1751,6 +1760,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressSlots_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMappingWordSlots_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMappingPackedWordSlots_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMappingPackedWordFieldSlots_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMapping2WordSlots_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMappingChainSlots_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMappingWordFieldSlots_eq
@@ -3538,11 +3548,17 @@ end Verity.AxiomAudit
   Compiler.Proofs.activeMappingSlotBackend_eq_keccak
   Compiler.Proofs.activeMappingSlotBackendIsEvmFaithful_eq_true
   Compiler.Proofs.abstractNestedMappingSlot_eq_solidityNested
+  Compiler.Proofs.StorageSlotNonAliasCertificate.nonAlias_get
+  Compiler.Proofs.StorageSlotNonAliasCertificate.of_distinct
+  Compiler.Proofs.StorageSlotNonAliasCertificate.nonAlias_pair
+  Compiler.Proofs.mappingSlotLocations_nonAlias_get
+  Compiler.Proofs.nestedMappingSlotLocations_nonAlias_get
   Compiler.Proofs.abstractLoadMappingEntry_eq
   Compiler.Proofs.abstractStoreMappingEntry_eq
   Compiler.Proofs.abstractLoadStorageOrMapping_eq
   Compiler.Proofs.abstractStoreStorageOrMapping_eq
   Compiler.Proofs.solidityMappingSlot_lt_evmModulus
+  Compiler.Proofs.mappingSlotLocation_zero
   Compiler.Proofs.abstractMappingSlot_lt_evmModulus
   Compiler.Proofs.solidityMappingSlot_add_lt_evmModulus
   Compiler.Proofs.solidityMappingSlot_add_wordOffset_lt_evmModulus
@@ -5570,4 +5586,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5215 theorems/lemmas (3592 public, 1623 private, 0 sorry'd)
+-- Total: 5228 theorems/lemmas (3605 public, 1623 private, 0 sorry'd)

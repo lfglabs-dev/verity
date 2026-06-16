@@ -775,7 +775,7 @@ private def boundaryClassFromModule (mod : ECM.ExternalCallModule) : String :=
   match mod.name with
   | "ecrecover" | "sha256Memory" | "sha256" | "bn256Add" | "bn256ScalarMul" | "bn256Pairing" =>
       "compilerIntrinsic"
-  | "oracleReadUint256" =>
+  | "oracleReadUint256" | "oracleSummary" =>
       "oracleSummary"
   | "callback" =>
       "callback"
@@ -836,12 +836,24 @@ private def ecmJson (entry : String × String) : String :=
     ("boundaryClass", jsonString (boundaryClassFromAxiom entry.2))
   ]
 
+private def externalSummaryJson (summary : ECM.StatefulExternal.Summary) : String :=
+  jsonObject [
+    ("name", jsonString summary.name),
+    ("selector",
+      match summary.selector with
+      | some selector => toString selector
+      | none => "null"),
+    ("mutability", jsonString summary.mutability.toJsonString),
+    ("assumptions", jsonArray (summary.assumptionNames.map jsonString))
+  ]
+
 private def ecmModuleJson (entry : ECM.ExternalCallModule) : String :=
   jsonObject [
     ("module", jsonString entry.name),
     ("status", proofStatusString entry.proofStatus),
     ("axioms", jsonArray (entry.axioms.map jsonString)),
-    ("boundaryClass", jsonString (boundaryClassFromModule entry))
+    ("boundaryClass", jsonString (boundaryClassFromModule entry)),
+    ("externalSummary", externalSummaryJson entry.externalSummary)
   ]
 
 private def frameSpecJson (frame : FrameSpec) : String :=
@@ -882,6 +894,8 @@ private structure AssumptionReportEntry where
   linkMode : String := ""
   moduleName : String := ""
   axioms : List String := []
+  mutability : String := ""
+  selector : Option Nat := none
 
 private def assumptionReportEntryJson (entry : AssumptionReportEntry) : String :=
   jsonObject [
@@ -895,6 +909,11 @@ private def assumptionReportEntryJson (entry : AssumptionReportEntry) : String :
     ("linkMode", jsonString entry.linkMode),
     ("module", jsonString entry.moduleName),
     ("axioms", jsonArray (entry.axioms.map jsonString)),
+    ("mutability", jsonString entry.mutability),
+    ("selector",
+      match entry.selector with
+      | some selector => toString selector
+      | none => "null"),
     ("boundaryClass", jsonString entry.boundaryClass)
   ]
 
@@ -1086,7 +1105,9 @@ private def usageSitesJson (spec : CompilationModel) : String :=
         ("axiomatizedPrimitives", jsonArray (site.primitives.map primitiveAssumptionJson)),
         ("linkedExternals", jsonArray (site.externals.map assumptionJson)),
         ("ecmAxioms", jsonArray ((ecmAxiomsFromModules site.modules).map ecmJson)),
-        ("ecmModules", jsonArray (site.modules.map ecmModuleJson))
+        ("ecmModules", jsonArray (site.modules.map ecmModuleJson)),
+        ("externalSummaries", jsonArray (site.modules.map (fun mod =>
+          externalSummaryJson mod.externalSummary)))
       ])
     ]
   jsonArray ((collectUsageSiteSummaries spec).map siteJson)
@@ -1130,6 +1151,19 @@ private def assumptionReportEntriesForSite (site : UsageSiteSummary) : List Assu
           name := assumptionName
           status := mod.proofStatus
           moduleName := mod.name }))
+  let summaryEntries :=
+    site.modules.map (fun mod =>
+      let summary := mod.externalSummary
+      { category := "externalSummary"
+        boundaryClass := boundaryClassFromModule mod
+        siteKind := site.kind
+        siteName := site.name
+        name := summary.name
+        status := mod.proofStatus
+        moduleName := mod.name
+        axioms := summary.assumptionNames
+        mutability := summary.mutability.toJsonString
+        selector := summary.selector })
   let localObligationEntries :=
     site.localObligations.map (fun obligation =>
       { category := "localObligation"
@@ -1139,7 +1173,8 @@ private def assumptionReportEntriesForSite (site : UsageSiteSummary) : List Assu
         name := obligation.name
         status := obligation.proofStatus
         detail := obligation.obligation })
-  primitiveEntries ++ externalEntries ++ moduleEntries ++ axiomEntries ++ localObligationEntries
+  primitiveEntries ++ externalEntries ++ moduleEntries ++ axiomEntries ++ summaryEntries ++
+    localObligationEntries
 
 private def assumptionReportEntries (spec : CompilationModel) : List AssumptionReportEntry :=
   (collectUsageSiteSummaries spec).flatMap assumptionReportEntriesForSite
@@ -1500,7 +1535,9 @@ where
           jsonArray ((collectAxiomatizedPrimitives spec).map primitiveAssumptionJson)),
         ("linkedExternals", jsonArray ((collectUsedExternalAssumptions spec).map assumptionJson)),
         ("ecmAxioms", jsonArray ((collectEcmAxioms spec).map ecmJson)),
-        ("ecmModules", jsonArray ((collectUsedEcmModules spec).map ecmModuleJson))
+        ("ecmModules", jsonArray ((collectUsedEcmModules spec).map ecmModuleJson)),
+        ("externalSummaries", jsonArray ((collectUsedEcmModules spec).map (fun mod =>
+          externalSummaryJson mod.externalSummary)))
       ])
     ]
 
