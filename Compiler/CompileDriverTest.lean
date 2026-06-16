@@ -1259,7 +1259,7 @@ unsafe def runTests : IO Unit := do
     (match validateCompileInputs runtimeSetImmutableSpec [0] with
      | Except.ok _ => pure ()
      | Except.error err => throw (IO.userError err))
-    "uses Stmt.setImmutable for immutable 'owner' outside constructor scope"
+    "uses Stmt.setImmutable 'owner' outside constructor scope"
 
   expectFailureContains
     "validateCompileInputs rejects unknown immutable reads"
