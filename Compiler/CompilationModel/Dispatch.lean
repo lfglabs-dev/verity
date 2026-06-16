@@ -255,9 +255,10 @@ def attachNonReentrantGuard (fields : List Field) (spec : FunctionSpec)
       pure { irFn with body := prefixLoads ++ guardStmts ++ suffix ++ [release] }
 
 private def compileSpecialEntrypoint (fields : List Field) (events : List EventDef)
-    (errors : List ErrorDef) (adtTypes : List AdtTypeDef := []) (spec : FunctionSpec) :
+    (errors : List ErrorDef) (adtTypes : List AdtTypeDef := [])
+    (internalFunctions : List FunctionSpec := []) (spec : FunctionSpec) :
     Except String IREntrypoint := do
-  let bodyChunks ← compileStmtList fields events errors .calldata [] false [] adtTypes spec.body
+  let bodyChunks ← compileStmtList fields events errors .calldata [] false [] adtTypes spec.body internalFunctions
   -- Apply nonreentrant guard for fallback/receive if annotated (high-severity
   -- Bugbot: previously these special entrypoints were compiled without the
   -- transient lock even when `nonreentrant(lock)` was declared).
@@ -613,8 +614,8 @@ def compileValidatedCore (spec : CompilationModel) (selectors : List Nat) : Exce
       [dynamicBytesEqCalldataHelper, dynamicBytesEqMemoryHelper]
     else
       []
-  let fallbackEntrypoint ← fallbackSpec.mapM (compileSpecialEntrypoint fields spec.events spec.errors spec.adtTypes)
-  let receiveEntrypoint ← receiveSpec.mapM (compileSpecialEntrypoint fields spec.events spec.errors spec.adtTypes)
+  let fallbackEntrypoint ← fallbackSpec.mapM (compileSpecialEntrypoint fields spec.events spec.errors spec.adtTypes internalFns)
+  let receiveEntrypoint ← receiveSpec.mapM (compileSpecialEntrypoint fields spec.events spec.errors spec.adtTypes internalFns)
   return {
     name := spec.name
     deploy := (← compileConstructor fields spec.events spec.errors spec.adtTypes spec.constructor internalFns)

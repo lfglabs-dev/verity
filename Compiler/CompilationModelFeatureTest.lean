@@ -3473,6 +3473,65 @@ private def adtAliasPayloadMemoizesExprSpec : CompilationModel := {
   ]
 }
 
+-- Regression tests for Bugbot MEDIUM issues in PR #2016 (task/1889-internal-helper-args):
+-- (a) internal helper call with dynamic/composite args inside fallback body must use callee-aware
+--     compileInternalCallArgs (not plain compileExprList) => correct expansion to offset/length.
+-- (b) internal helper call inside ADT ctor payload for setStorage must thread internals through
+--     compileAdtStorageWrite (not compileExprList) => correct expansion.
+private def fallbackInternalDynamicArgSpec : CompilationModel := {
+  name := "FallbackInternalDynamicArgRegression"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "internal_first"
+      params := [{ name := "xs", ty := ParamType.array ParamType.uint256 }]
+      returnType := some FieldType.uint256
+      isInternal := true
+      body := [Stmt.return (Expr.arrayElement "xs" (Expr.literal 0))]
+    },
+    { name := "fallback"
+      params := []
+      returnType := none
+      body := [
+        Stmt.return (Expr.internalCall "internal_first" [Expr.param "xs"])
+      ]
+    }
+  ]
+}
+
+private def adtStorageInternalDynamicArgSpec : CompilationModel := {
+  name := "AdtStorageInternalDynamicArgRegression"
+  fields := [
+    { name := "choice", ty := FieldType.adt "Choice" 1, «slot» := some 10, aliasSlots := [] }
+  ]
+  «constructor» := none
+  functions := [
+    { name := "internal_first"
+      params := [{ name := "xs", ty := ParamType.array ParamType.uint256 }]
+      returnType := some FieldType.uint256
+      isInternal := true
+      body := [Stmt.return (Expr.arrayElement "xs" (Expr.literal 0))]
+    },
+    { name := "storeDyn"
+      params := [{ name := "xs", ty := ParamType.array ParamType.uint256 }]
+      returnType := none
+      body := [
+        Stmt.setStorage "choice"
+          (Expr.adtConstruct "Choice" "Some" [Expr.internalCall "internal_first" [Expr.param "xs"]]),
+        Stmt.stop
+      ]
+    }
+  ]
+  adtTypes := [
+    { name := "Choice"
+      variants := [
+        { name := "None", tag := 0, fields := [] },
+        { name := "Some", tag := 1, fields := [{ name := "amount", ty := ParamType.uint256 }] }
+      ]
+    }
+  ]
+}
+
 private def ceiInitialInternalCallAllowedSpec : CompilationModel := {
   name := "CEIInitialInternalCallAllowed"
   fields := [{ name := "value", ty := FieldType.uint256 }]
@@ -5632,6 +5691,24 @@ set_option maxRecDepth 4096 in
   expectTrue "ADT alias writes reuse the generated payload local"
     ((contains adtAliasPayloadMemoYul "let __adt_payload_0 := echo(input)") &&
       (countOccurrences adtAliasPayloadMemoYul "__adt_payload_0" >= 3))
+  -- Bugbot regression (a): fallback/receive must receive real internalFunctions table so
+  -- dynamic/composite internal calls inside them expand args correctly (not fall to compileExprList).
+  let fallbackInternalDynYul ← expectCompileToYul
+    "fallback with internal dynamic/composite arg call (Bugbot regression a: fallback omits internal function table)"
+    fallbackInternalDynamicArgSpec
+  expectTrue "fallback internalCall (short-form array arg) expands via callee-aware path to data_offset + length (two args, not single 'xs')"
+    ((contains fallbackInternalDynYul "internal_first") &&
+      (contains fallbackInternalDynYul "xs_data_offset") &&
+      (contains fallbackInternalDynYul "xs_length"))
+  -- Bugbot regression (b): ADT storage write payload must use internals-aware expr compile
+  -- so internal calls with dynamic args inside adtConstruct args expand correctly.
+  let adtInternalDynYul ← expectCompileToYul
+    "ADT ctor payload with internal dynamic/composite arg (Bugbot regression b: adt storage write skips internals)"
+    adtStorageInternalDynamicArgSpec
+  expectTrue "adtConstruct payload internalCall (short-form array arg) expands via threaded internalFunctions in compileAdtStorageWrite"
+    ((contains adtInternalDynYul "internal_first") &&
+      (contains adtInternalDynYul "xs_data_offset") &&
+      (contains adtInternalDynYul "xs_length"))
   let ceiInitialInternalCallCompiled :=
     match Compiler.CompilationModel.compile ceiInitialInternalCallAllowedSpec
         (selectorsFor ceiInitialInternalCallAllowedSpec) with

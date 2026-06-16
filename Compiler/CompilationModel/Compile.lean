@@ -55,7 +55,8 @@ theorem unsafeYulToEVMYul_eq (fragment : UnsafeYulFragment) :
 
 private def compileAdtStorageWrite (fields : List Field)
     (dynamicSource : DynamicDataSource) (adtTypes : List AdtTypeDef)
-    (storageField adtName variantName : String) (args : List Expr) :
+    (storageField adtName variantName : String) (args : List Expr)
+    (internalFunctions : List FunctionSpec := []) :
     Except String (List YulStmt) := do
   let adt ← lookupAdtTypeDef adtTypes adtName
   let variant ← lookupAdtVariant adt variantName
@@ -76,7 +77,7 @@ private def compileAdtStorageWrite (fields : List Field)
             throw s!"Compilation error: storage field '{storageField}' is not ADT-typed"
     | none => throw s!"Compilation error: unknown storage field '{storageField}' for ADT construct '{adtName}.{variantName}'"
   let baseSlots := baseSlot :: aliasSlots
-  let argExprs ← compileExprList fields dynamicSource args
+  let argExprs ← compileExprListWithInternals fields dynamicSource internalFunctions args
   let payloadBindings :=
     argExprs.zipIdx.map fun (argExpr, idx) =>
       YulStmt.let_ s!"__adt_payload_{idx}" argExpr
@@ -150,7 +151,7 @@ def compileStmt (fields : List Field) (events : List EventDef := [])
       | _ =>
           match value with
           | Expr.adtConstruct adtName variantName args =>
-              compileAdtStorageWrite fields dynamicSource adtTypes field adtName variantName args
+              compileAdtStorageWrite fields dynamicSource adtTypes field adtName variantName args internalFunctions
           | _ =>
               compileSetStorage fields dynamicSource field value false internalFunctions
   | Stmt.setStorageAddr field value =>
