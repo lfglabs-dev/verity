@@ -17,48 +17,4 @@ contract PropertyLinkedExternalDynamicArgSmokeTest is YulTestBase {
         require(target != address(0), "Deploy failed");
     }
 
-    // Property 1: TODO decode and assert `hashLeaves` result
-    function testTODO_HashLeaves_DecodeAndAssert() public {
-        vm.prank(alice);
-        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("hashLeaves(uint256[])", _singletonUintArray(1)));
-        require(ok, "hashLeaves reverted unexpectedly");
-        assertEq(ret.length, 32, "hashLeaves ABI return length mismatch (expected 32 bytes)");
-        // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
-        ret;
-    }
-    // Property 2: sendLeaves has no unexpected revert
-    function testAuto_SendLeaves_NoUnexpectedRevert() public {
-        vm.prank(alice);
-        (bool ok,) = target.call(abi.encodeWithSignature("sendLeaves(uint256[])", _singletonUintArray(1)));
-        require(ok, "sendLeaves reverted unexpectedly");
-    }
-    // Property 3: discardHash has no unexpected revert
-    function testAuto_DiscardHash_NoUnexpectedRevert() public {
-        vm.prank(alice);
-        (bool ok,) = target.call(abi.encodeWithSignature("discardHash(uint256[])", _singletonUintArray(1)));
-        require(ok, "discardHash reverted unexpectedly");
-    }
-    // Property 4: TODO decode and assert `tryHash` result
-    function testTODO_TryHash_DecodeAndAssert() public {
-        vm.prank(alice);
-        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("tryHash(uint256[])", _singletonUintArray(1)));
-        require(ok, "tryHash reverted unexpectedly");
-        assertEq(ret.length, 32, "tryHash ABI return length mismatch (expected 32 bytes)");
-        // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
-        ret;
-    }
-    // Property 5: TODO decode and assert `hashPayload` result
-    function testTODO_HashPayload_DecodeAndAssert() public {
-        vm.prank(alice);
-        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("hashPayload(bytes)", hex"CAFE"));
-        require(ok, "hashPayload reverted unexpectedly");
-        assertEq(ret.length, 32, "hashPayload ABI return length mismatch (expected 32 bytes)");
-        // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
-        ret;
-    }
-
-    function _singletonUintArray(uint256 x) internal pure returns (uint256[] memory arr) {
-        arr = new uint256[](1);
-        arr[0] = x;
-    }
 }

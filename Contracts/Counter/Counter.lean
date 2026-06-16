@@ -60,7 +60,7 @@ verity_contract Counter where
     let digest := keccak256 memWord 64
     return (add (add digest flagAnd) (add flagOr flagNot))
 
-  function previewLowLevel (target : Uint256, count : Uint256)
+  function reentrancy_trusted previewLowLevel (target : Uint256, count : Uint256)
     local_obligations [manual_low_level_refinement := assumed "Caller must separately prove the direct low-level call and returndata choreography refines the intended external-call behavior."]
     : Uint256 := do
     let cds := calldatasize

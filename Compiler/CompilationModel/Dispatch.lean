@@ -404,6 +404,10 @@ private def validateCompileInputsBeforeFieldWriteConflict
     validateCustomErrorArgShapesInFunction fn spec.errors
     validateInternalCallShapesInFunction spec.functions fn
     validateExternalCallTargetsInFunction spec.externals fn
+    -- Fail-closed cross-function reentrancy gate. Runs last so structural
+    -- well-formedness errors (call shape/target above) win over the policy
+    -- check; the gate only judges otherwise well-formed external calls.
+    validateReentrancyDisposition fn
   validateConstructorSpec spec.constructor
   validateInteropConstructorSpec spec.constructor
   validateExternalCallTargetsInConstructor spec.externals spec.constructor

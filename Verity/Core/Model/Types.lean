@@ -1437,6 +1437,17 @@ structure FunctionSpec where
       safety via a machine-checked proof obligation.  CEI enforcement is bypassed
       and a proof obligation is generated.  (#1728, Axis 2 Step 2b) -/
   ceiSafe : Bool := false
+  /-- Whether this function is annotated `reentrancy_trusted` — an *unproven*
+      author assertion that the function's external interaction surface cannot be
+      exploited by a reentrant adversary (e.g. every external callee is a trusted
+      contract that does not re-enter this one). This is the audited opt-out for
+      the cross-function reentrancy gate: unlike `cei_safe`/`allow_post_interaction_writes`
+      (which only concern single-function CEI), a mutating external call still opens
+      a reentrancy window that another entrypoint could exploit, so the gate requires
+      either a runtime `nonreentrant(<lock>)` guard or this explicit trust assertion.
+      It generates no code and no proof obligation; it is a trust boundary recorded
+      for audit. -/
+  reentrancyTrusted : Bool := false
   /-- Storage field name used as access-control role when annotated `requires(field)`.
       A `require(caller == roleHolder)` check is auto-injected at the start of the
       function body.  (#1728, Axis 2 Step 2c) -/

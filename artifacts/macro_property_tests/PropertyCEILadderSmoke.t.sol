@@ -17,16 +17,7 @@ contract PropertyCEILadderSmokeTest is YulTestBase {
         require(target != address(0), "Deploy failed");
     }
 
-    // Property 1: TODO decode and assert `storeThenCall` result
-    function testTODO_StoreThenCall_DecodeAndAssert() public {
-        vm.prank(alice);
-        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("storeThenCall(uint256)", uint256(1)));
-        require(ok, "storeThenCall reverted unexpectedly");
-        assertEq(ret.length, 32, "storeThenCall ABI return length mismatch (expected 32 bytes)");
-        // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
-        ret;
-    }
-    // Property 2: increment has no unexpected revert
+    // Property 1: increment has no unexpected revert
     function testAuto_Increment_NoUnexpectedRevert() public {
         vm.prank(alice);
         (bool ok,) = target.call(abi.encodeWithSignature("increment()"));

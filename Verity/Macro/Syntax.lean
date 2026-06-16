@@ -92,6 +92,7 @@ syntax "no_external_calls" : verityMutability
 syntax "allow_post_interaction_writes" : verityMutability
 syntax "nonreentrant(" ident ")" : verityMutability
 syntax "cei_safe" : verityMutability
+syntax "reentrancy_trusted" : verityMutability
 syntax "modifies(" sepBy1(ident, ",") ")" : verityModifies
 syntax "requires(" ident ")" : verityRequiresRole
 syntax ident " : " term:max : verityNewtype

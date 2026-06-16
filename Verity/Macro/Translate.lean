@@ -2187,6 +2187,19 @@ private def mkSpecCommand
         else
           `(false)
       let ceiSafeTerm ← if fn.ceiSafe then `(true) else `(false)
+      -- The internal helper shadow drops `nonReentrantLock` (the transient guard
+      -- only runs at the external dispatch boundary), so the cross-function
+      -- reentrancy gate would reject any external call it makes. The public entry
+      -- is already protected — by its `nonreentrant` guard or its own
+      -- `reentrancy_trusted` assertion — so propagate a `reentrancyTrusted` flag
+      -- onto the shadow to record that its external calls run under that
+      -- protection. When the public function carried neither, the public spec
+      -- itself fails the gate first, so this never masks an unguarded entry.
+      let shadowReentrancyTrustedTerm ←
+        if fn.nonReentrantLock.isSome || fn.reentrancyTrusted then
+          `(true)
+        else
+          `(false)
       let requiresRoleTerm ← match fn.requiresRole with
         | some roleIdent => `(some $(strTerm (toString roleIdent.getId)))
         | none => `(none)
@@ -2213,6 +2226,7 @@ private def mkSpecCommand
         allowPostInteractionWrites := $shadowAllowPostInteractionWritesTerm
         nonReentrantLock := none
         ceiSafe := $ceiSafeTerm
+        reentrancyTrusted := $shadowReentrancyTrustedTerm
         requiresRole := $requiresRoleTerm
         modifies := [ $[$internalModifiesTerms],* ]
         localObligations := [ $[$localObligationTerms],* ]
@@ -2971,6 +2985,7 @@ def mkFunctionCommandsPublic
     | some lockIdent => `(some $(strTerm (toString lockIdent.getId)))
     | none => `(none)
   let ceiSafeTerm ← if fn.ceiSafe then `(true) else `(false)
+  let reentrancyTrustedTerm ← if fn.reentrancyTrusted then `(true) else `(false)
   let requiresRoleTerm ← match fn.requiresRole with
     | some roleIdent => `(some $(strTerm (toString roleIdent.getId)))
     | none => `(none)
@@ -2998,6 +3013,7 @@ def mkFunctionCommandsPublic
     allowPostInteractionWrites := $allowPostInteractionWritesTerm
     nonReentrantLock := $nonReentrantLockTerm
     ceiSafe := $ceiSafeTerm
+    reentrancyTrusted := $reentrancyTrustedTerm
     requiresRole := $requiresRoleTerm
     modifies := [ $[$modifiesTerms],* ]
     localObligations := [ $[$localObligationTerms],* ]

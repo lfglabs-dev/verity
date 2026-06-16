@@ -172,6 +172,54 @@ error: #check_contract failed for 'Contracts.Smoke.CEICallBothBranchesWrite': Co
 #guard_msgs in
 #check_contract CEICallBothBranchesWrite
 
+-- ════════════════════════════════════════════════════════════════════════════
+-- Cross-function reentrancy gate (#1728): the Midnight `take`/`liquidate` shape
+-- ════════════════════════════════════════════════════════════════════════════
+-- `takeWithoutDisposition` is textbook CEI-CLEAN: every state write precedes the
+-- external call, so the single-function CEI check is satisfied — yet the
+-- contract is still REJECTED. That is the entire point of the gate. A CEI-clean
+-- `take` is exactly the Midnight bug shape: while the external call is in
+-- flight, control is handed to an untrusted callee that can re-enter a
+-- *different* entrypoint (e.g. `liquidate`) and observe this contract's
+-- half-updated state. CEI reasons within one function and cannot see that
+-- cross-function window; only an explicit disposition can close it. This is the
+-- keystone regression test — it proves the Midnight callback reentrancy bug
+-- cannot pass `#check_contract` undeclared.
+verity_contract ReentrancyDispositionRequired where
+  storage
+    balance : Uint256 := slot 0
+  linked_externals
+    external echo(Uint256) -> (Uint256)
+
+  function takeWithoutDisposition (amount : Uint256) : Uint256 := do
+    setStorage balance amount
+    let echoed := externalCall "echo" [amount]
+    return echoed
+
+/--
+error: #check_contract failed for 'Contracts.Smoke.ReentrancyDispositionRequired': Compilation error: function 'takeWithoutDisposition' makes an external call but declares no reentrancy disposition. An external call hands control to an untrusted callee that may re-enter another entrypoint while this contract's state is mid-update (cross-function reentrancy). Add `nonreentrant(<lock>)` to synthesise a runtime guard, or `reentrancy_trusted` to assert — and own — that every external callee is trusted not to re-enter (Issue #1728 (CEI enforcement — Checks-Effects-Interactions ordering)). cei_safe / allow_post_interaction_writes cover only single-function CEI and do not satisfy this gate.
+-/
+#guard_msgs in
+#check_contract ReentrancyDispositionRequired
+
+-- Positive control: the SAME CEI-clean body is ACCEPTED once it declares a
+-- disposition. `reentrancy_trusted` is the audited author assertion that every
+-- external callee ('echo' here, an in-repo trusted fixture) will not re-enter.
+-- Pairing this with the rejection above isolates the gate as the deciding pass:
+-- identical bodies, opposite verdicts, the disposition the only difference.
+verity_contract ReentrancyDispositionDeclared where
+  storage
+    balance : Uint256 := slot 0
+  linked_externals
+    external echo(Uint256) -> (Uint256)
+
+  function reentrancy_trusted takeWithDisposition (amount : Uint256) : Uint256 := do
+    setStorage balance amount
+    let echoed := externalCall "echo" [amount]
+    return echoed
+
+#check_contract ReentrancyDispositionDeclared
+
 -- Modifies + roles: combined annotation
 verity_contract ModifiesRolesSmoke where
   storage
@@ -321,7 +369,7 @@ verity_contract UnsafeCEICompliant where
   linked_externals
     external echo(Uint256) -> (Uint256)
 
-  function writeBeforeUnsafeCall (x : Uint256) : Uint256 := do
+  function reentrancy_trusted writeBeforeUnsafeCall (x : Uint256) : Uint256 := do
     setStorage counter x
     unsafe "test: call inside unsafe after write" do
       let echoed := externalCall "echo" [x]
@@ -363,7 +411,7 @@ verity_contract RolesCEISmoke where
     setStorageAddr admin initialAdmin
 
   -- CEI compliant: write, then call
-  function setAndCall (value : Uint256) requires(admin) : Uint256 := do
+  function reentrancy_trusted setAndCall (value : Uint256) requires(admin) : Uint256 := do
     setStorage counter value
     let echoed := externalCall "echo" [value]
     return echoed

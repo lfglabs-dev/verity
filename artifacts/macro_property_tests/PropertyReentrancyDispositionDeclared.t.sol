@@ -4,16 +4,16 @@ pragma solidity ^0.8.33;
 import "./yul/YulTestBase.sol";
 
 /**
- * @title PropertyUnsafeCEICompliantTest
+ * @title PropertyReentrancyDispositionDeclaredTest
  * @notice Auto-generated baseline property stubs from `verity_contract` declarations.
  * @dev Source: Contracts/Smoke/SecurityCombos.lean
  */
-contract PropertyUnsafeCEICompliantTest is YulTestBase {
+contract PropertyReentrancyDispositionDeclaredTest is YulTestBase {
     address target;
     address alice = address(0x1111);
 
     function setUp() public {
-        target = deployYul("UnsafeCEICompliant");
+        target = deployYul("ReentrancyDispositionDeclared");
         require(target != address(0), "Deploy failed");
     }
 

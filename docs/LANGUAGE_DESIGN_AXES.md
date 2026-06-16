@@ -53,6 +53,15 @@ SAFE BY DEFAULT (compiler enforces)
 **Files touched**: `Macro/Syntax.lean` (roles section), `Macro/Translate.lean`, new `Macro/CEICheck.lean`
 **Estimated total**: 4 weeks
 
+> **Scope note (2026-06)**: the 2b ladder above governs *single-function*
+> Checks-Effects-Interactions ordering only. It does **not** prevent
+> cross-function reentrancy (the Midnight `take`/`liquidate` class), so
+> `cei_safe`/`allow_post_interaction_writes` are intentionally **not** accepted
+> by the cross-function reentrancy gate (`validateReentrancyDisposition`); that
+> gate's sound accept-set is `nonreentrant(<lock>)` or `reentrancy_trusted`.
+> See the "Cross-Function Reentrancy Gate" sections of `AUDIT.md` /
+> `TRUST_ASSUMPTIONS.md`.
+
 ### Phase 3: Semantic Newtypes (Axis 1 partial, #1727)
 
 **Why third**: Standalone grammar change, doesn't depend on Phase 1–2.

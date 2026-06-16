@@ -17,6 +17,11 @@ structure Env where
   blockNumber : Uint256 := 0
   chainId : Uint256 := 0
   callOracle : String → List Uint256 → Uint256 := Env.defaultCallOracle
+  -- Adversarial-reentry hook: the state transformation a callee may impose on
+  -- this contract's persistent channels during an external call. Defaults to
+  -- `id` (the no-reentry case). Reentrancy proofs constrain it via the rely
+  -- condition; see `Verity/Core/Reentrancy.lean`.
+  reenter : ContractState → ContractState := id
 
 instance : Repr Env where
   reprPrec env _ :=
