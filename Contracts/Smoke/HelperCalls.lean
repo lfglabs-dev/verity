@@ -191,6 +191,40 @@ verity_contract DirectHelperCallBytesTupleSmoke where
     let (left, right) ← fanoutPayload payload
     return (left, right)
 
+verity_contract DirectHelperCallProjectedBytesArgSmoke where
+  storage
+
+  struct Operation where
+    sender : Address,
+    callData : Bytes,
+    nonce : Uint256
+
+  function consumePayload (_payload : Bytes) : Uint256 := do
+    return 1
+
+  function run (ops : Array Operation, idx : Uint256) : Uint256 := do
+    let count ← consumePayload (arrayElement ops idx).callData
+    return count
+
+example :
+    DirectHelperCallProjectedBytesArgSmoke.run_modelBody =
+      [ Compiler.CompilationModel.Stmt.letVar
+          "count"
+          (Compiler.CompilationModel.Expr.internalCall
+            "internal_consumePayload"
+            [ Compiler.CompilationModel.Expr.arrayElementDynamicMemberDataOffset
+                "ops"
+                (Compiler.CompilationModel.Expr.param "idx")
+                1
+            , Compiler.CompilationModel.Expr.arrayElementDynamicMemberLength
+                "ops"
+                (Compiler.CompilationModel.Expr.param "idx")
+                1
+            ])
+      , Compiler.CompilationModel.Stmt.return
+          (Compiler.CompilationModel.Expr.localVar "count")
+      ] := rfl
+
 verity_contract DirectHelperCallStaticCompositeSmoke where
   storage
     sentinel : Uint256 := slot 0
