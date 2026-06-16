@@ -2127,9 +2127,7 @@ private def mkSpecCommand
     let initTerm ← translatePureExpr fields constDecls #[] (ctor.map (·.params) |>.getD #[]) #[] imm.body
     `(({ name := $(strTerm imm.name), ty := $tyTerm, init := $initTerm } :
         Compiler.CompilationModel.ImmutableSpec))
-  let immutableFields := immutableDecls.zipIdx.map (fun (imm, idx) => immutableStorageFieldDecl fields imm idx)
-  let allFields := fields ++ immutableFields
-  let fieldTerms ← allFields.mapM mkModelFieldTerm
+  let fieldTerms ← fields.mapM mkModelFieldTerm
   let roleTerms ← roleDecls.mapM fun role => do
     let kindTerm ← match role.kind with
       | .scalarAddress => `(Compiler.CompilationModel.RoleKind.scalarAddress)
