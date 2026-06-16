@@ -469,7 +469,7 @@ def validateScopedStmtIdentifiers
       | some _ => pure ()
       | none =>
           throw s!"Compilation error: {context} uses Stmt.setImmutable '{name}' outside constructor scope"
-      if immutableNames.contains name then
+      if immutableNames.isEmpty || immutableNames.contains name then
         pure ()
       else
         throw s!"Compilation error: {context} sets unknown immutable '{name}'"
