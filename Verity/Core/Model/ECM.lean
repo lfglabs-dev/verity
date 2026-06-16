@@ -20,6 +20,94 @@ namespace Compiler.ECM
 open Compiler.Yul
 open Compiler.Constants (errorStringSelectorWord addressMask)
 
+namespace StatefulExternal
+
+/-- Call mutability at the external-world boundary. `staticcall` summaries are
+    interpreted with an unchanged external world. -/
+inductive Mutability where
+  | call
+  | staticcall
+  deriving Repr, BEq
+
+def Mutability.toJsonString : Mutability → String
+  | .call => "call"
+  | .staticcall => "staticcall"
+
+/-- Abstract state for contracts outside the current caller. The first index is
+    the account address and the second index is that account's modeled slot. -/
+structure ExternalWorld where
+  accountState : Nat → Nat → Nat := fun _ _ => 0
+
+/-- Caller-visible request sent to an external contract summary. -/
+structure Request where
+  caller : Nat
+  target : Nat
+  selector : Option Nat
+  calldata : List Nat
+  value : Nat
+  world : ExternalWorld
+
+/-- Successful calls commit an external world and returndata. Reverting calls
+    expose revert data but do not commit a caller continuation. -/
+inductive Outcome where
+  | success (world : ExternalWorld) (returndata : List Nat)
+  | revert (revertData : List Nat)
+
+namespace Outcome
+
+def returndata : Outcome → List Nat
+  | .success _ data => data
+  | .revert data => data
+
+def committedWorld? : Outcome → Option ExternalWorld
+  | .success world _ => some world
+  | .revert _ => none
+
+@[simp] theorem committedWorld?_revert (data : List Nat) :
+    (Outcome.revert data).committedWorld? = none := rfl
+
+end Outcome
+
+/-- Interface summary for an external contract interaction. The executable
+    semantics quantifies over this relation instead of treating the callee as a
+    pure oracle. -/
+structure Summary where
+  name : String
+  selector : Option Nat := none
+  mutability : Mutability
+  assumptionNames : List String := []
+  pre : Request → Prop := fun _ => True
+  post : Request → ExternalWorld → List Nat → Prop := fun _ _ _ => True
+  revert : Request → List Nat → Prop := fun _ _ => True
+
+instance : Repr Summary where
+  reprPrec summary prec :=
+    reprPrec
+      (summary.name, summary.selector, summary.mutability, summary.assumptionNames)
+      prec
+
+def Summary.interprets (summary : Summary) (request : Request) (outcome : Outcome) : Prop :=
+  summary.pre request ∧
+    match outcome with
+    | .success world data =>
+        summary.post request world data ∧
+          (summary.mutability = .staticcall → world = request.world)
+    | .revert data =>
+        summary.revert request data
+
+theorem Summary.static_success_preserves_world
+    {summary : Summary} {request : Request} {world : ExternalWorld} {data : List Nat}
+    (hstatic : summary.mutability = .staticcall)
+    (hinterp : summary.interprets request (.success world data)) :
+    world = request.world := by
+  exact hinterp.2.2 hstatic
+
+theorem Summary.revert_has_no_committed_world
+    (data : List Nat) :
+    (Outcome.revert data).committedWorld? = none := rfl
+
+end StatefulExternal
+
 /-- Context provided to ECM compile functions beyond the argument expressions.
     This gives modules access to compiler services without coupling them to
     the full CompilationModel compilation pipeline. -/
@@ -62,17 +150,46 @@ structure ExternalCallModule where
   /-- Proof-accounting status for this module's behavior. -/
   proofStatus : Compiler.ProofStatus := .assumed
 
+  /-- Stable name for the stateful external-world summary associated with this
+      ECM. Defaults to the module name so every typed ECM has a reportable
+      summary without duplicating boilerplate in module definitions. -/
+  summaryName : String := name
+
+  /-- Optional ABI selector described by the external summary. Generic modules
+      that close over a selector can override this, while dynamic wrappers may
+      leave it unknown. -/
+  summarySelector : Option Nat := none
+
+  /-- Whether the summary is interpreted as a mutable call or staticcall. The
+      default mirrors the existing `writesState` gate. -/
+  summaryMutability : StatefulExternal.Mutability :=
+    if writesState then .call else .staticcall
+
 instance : BEq ExternalCallModule where
   beq a b := a.name == b.name && a.numArgs == b.numArgs &&
     a.resultVars == b.resultVars && a.writesState == b.writesState &&
     a.readsState == b.readsState && a.axioms == b.axioms &&
-    a.proofStatus == b.proofStatus
+    a.proofStatus == b.proofStatus && a.summaryName == b.summaryName &&
+    a.summarySelector == b.summarySelector && a.summaryMutability == b.summaryMutability
 
 instance : Repr ExternalCallModule where
   reprPrec m _ := s!"ECM[{m.name}]"
 
 instance : ToString ExternalCallModule where
   toString m := s!"ECM[{m.name}]"
+
+namespace ExternalCallModule
+
+/-- Derive the semantic external-world summary carried by an ECM. Standard ECMs
+    use permissive pre/post relations for now; downstream proofs can refine the
+    relation while trust reports still expose the assumed boundary uniformly. -/
+def externalSummary (mod : ExternalCallModule) : StatefulExternal.Summary :=
+  { name := mod.summaryName
+    selector := mod.summarySelector
+    mutability := mod.summaryMutability
+    assumptionNames := mod.axioms }
+
+end ExternalCallModule
 
 /-! ### Shared Compilation Utilities
 
