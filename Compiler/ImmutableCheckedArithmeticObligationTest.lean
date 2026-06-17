@@ -10,6 +10,7 @@ open Compiler.CompilationModel
 open Contracts
 open Verity hiding pure bind
 open Verity.EVM.Uint256
+open Verity.Stdlib.Math
 
 verity_contract ExplicitImmutableCheckedArithmetic where
   storage
@@ -18,7 +19,7 @@ verity_contract ExplicitImmutableCheckedArithmetic where
     offset : Uint256 := 2
 
   immutables
-    seededSupply : Uint256 := (addPanic seed offset)
+    seededSupply : Uint256 := requireSomeUint (safeAdd seed offset) "seed overflow"
 
   constructor (seed : Uint256) := do
     pure ()
@@ -27,10 +28,10 @@ verity_contract ImplicitImmutableCheckedArithmetic where
   storage
 
   immutables
-    feeScale : Uint256 := (addPanic 9999 1)
+    feeScale : Uint256 := requireSomeUint (safeAdd 9999 1) "fee overflow"
 
-private def explicitConstructorSurfacesImmutableCheckedArithmeticObligation : Bool :=
-  match ExplicitImmutableCheckedArithmetic.spec.constructor with
+def explicitConstructorSurfacesImmutableCheckedArithmeticObligation : Bool :=
+  match ExplicitImmutableCheckedArithmetic.spec.«constructor» with
   | some { localObligations :=
       [{ name := "checked_arithmetic_constructor_1_add_no_overflow"
          obligation :=
@@ -38,8 +39,10 @@ private def explicitConstructorSurfacesImmutableCheckedArithmeticObligation : Bo
          proofStatus := .assumed }], .. } => true
   | _ => false
 
-private def implicitConstructorSurfacesImmutableCheckedArithmeticObligation : Bool :=
-  match ImplicitImmutableCheckedArithmetic.spec.constructor with
+example : explicitConstructorSurfacesImmutableCheckedArithmeticObligation = true := by rfl
+
+def implicitConstructorSurfacesImmutableCheckedArithmeticObligation : Bool :=
+  match ImplicitImmutableCheckedArithmetic.spec.«constructor» with
   | some { localObligations :=
       [{ name := "checked_arithmetic_constructor_1_add_no_overflow"
          obligation :=
@@ -47,14 +50,6 @@ private def implicitConstructorSurfacesImmutableCheckedArithmeticObligation : Bo
          proofStatus := .assumed }], .. } => true
   | _ => false
 
-private def checkedArithmeticInitializerObligationSmoke : Bool :=
-  explicitConstructorSurfacesImmutableCheckedArithmeticObligation &&
-    implicitConstructorSurfacesImmutableCheckedArithmeticObligation
-
-#eval show IO Unit from do
-  if checkedArithmeticInitializerObligationSmoke then
-    IO.println "ok: immutable initializer checked arithmetic obligations surfaced"
-  else
-    throw <| IO.userError "immutable initializer checked arithmetic obligations were not surfaced"
+example : implicitConstructorSurfacesImmutableCheckedArithmeticObligation = true := by rfl
 
 end Compiler.ImmutableCheckedArithmeticObligationTest
