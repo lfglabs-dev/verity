@@ -1077,6 +1077,7 @@ mutual
     | state, .tstore offset value =>
         match evalExpr oracle fields state offset, evalExpr oracle fields state value with
         | some resolvedOffset, some resolvedValue =>
+            let resolvedOffset := wordNormalize resolvedOffset
             .continue {
               state with
               world := {
