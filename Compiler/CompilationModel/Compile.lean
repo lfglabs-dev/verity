@@ -151,7 +151,7 @@ def compileStmt (fields : List Field) (events : List EventDef := [])
           pure [YulStmt.expr (YulExpr.call "setimmutable" [
             YulExpr.call "dataoffset" [YulExpr.str "runtime"],
             YulExpr.str name,
-            ← compileExpr fields dynamicSource value
+            ← compileExprWithInternals fields dynamicSource internalFunctions value
           ])]
       | .calldata =>
           throw s!"Compilation error: setImmutable '{name}' is only valid in constructor/deploy code"

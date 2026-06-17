@@ -208,7 +208,8 @@ def validateInternalCallArgForParam
               pure ()
             else
               throw s!"Compilation error: function '{callerName}' calls internal function '{calleeName}' with parameter '{sourceName}' of type/layout {repr sourceTy}, expected {repr param.ty} for expanded callee parameter '{param.name}' (issue #1889)."
-        | none => pure ()
+        | none =>
+            throw s!"Compilation error: function '{callerName}' calls internal function '{calleeName}' forwarding unknown parameter '{sourceName}' for expanded callee parameter '{param.name}' (issue #1889)."
     | _ => pure ()
   else
     pure ()
