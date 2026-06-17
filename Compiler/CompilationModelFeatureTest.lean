@@ -2588,6 +2588,25 @@ private def duplicateImmutableNameSpec : CompilationModel := {
   functions := []
 }
 
+private def uninitializedImmutableSpec : CompilationModel := {
+  name := "UninitializedImmutable"
+  fields := []
+  «immutables» := [
+    { name := "cap", ty := ParamType.uint256, init := Expr.literal 1 }
+  ]
+  «constructor» := some {
+    params := []
+    body := [Stmt.stop]
+  }
+  functions := [
+    { name := "load"
+      params := []
+      returnType := some FieldType.uint256
+      body := [Stmt.return (Expr.immutable "cap")]
+    }
+  ]
+}
+
 private def internalExternalNameCollisionSpec : CompilationModel := {
   name := "InternalExternalNameCollision"
   fields := []
@@ -5217,6 +5236,10 @@ set_option maxRecDepth 4096 in
     "same-name immutables are rejected before Yul lowering"
     duplicateImmutableNameSpec
     "duplicate immutable name 'cap'"
+  expectCompileErrorContains
+    "declared immutables left unset by the constructor are rejected"
+    uninitializedImmutableSpec
+    "immutable 'cap' is declared but never initialized in the constructor"
   expectCompileErrorContains
     "internal helper source names cannot collide with external dispatch names"
     internalExternalNameCollisionSpec

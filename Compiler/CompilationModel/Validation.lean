@@ -117,6 +117,29 @@ def validateImmutableNamesInConstructor (immutables : List ImmutableSpec)
         imm.init.checkRec (validateModelImmutableExprNameNode names s!"immutable '{imm.name}' initializer")
       Stmt.checkRecList (validateModelImmutableStmtNode names "constructor") spec.body
 
+/-- Each declared immutable must be assigned via `Stmt.setImmutable` in the
+    constructor body; deploy code only emits `setimmutable` from those
+    statements (never from `ImmutableSpec.init`), so an unset immutable would
+    read uninitialized bytecode at runtime. -/
+def validateImmutableInitialization (immutables : List ImmutableSpec)
+    (ctor : Option ConstructorSpec) : Except String Unit := do
+  match immutables with
+  | [] => pure ()
+  | _ =>
+      match ctor with
+      | none =>
+          throw "Compilation error: contract declares immutables but has no constructor to initialize them"
+      | some spec =>
+          for imm in immutables do
+            let isSet := Stmt.foldBoolList
+              (fun s => match s with
+                | Stmt.setImmutable name _ => name == imm.name
+                | _ => false) spec.body
+            if isSet then
+              pure ()
+            else
+              throw s!"Compilation error: immutable '{imm.name}' is declared but never initialized in the constructor"
+
 def isStorageWordArrayParam : ParamType → Bool
   | ty => isWordArrayParam ty
 
