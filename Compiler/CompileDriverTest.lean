@@ -68,6 +68,43 @@ private def abiSmokeSpec : CompilationModel := {
   ]
 }
 
+private def runtimeSetImmutableSpec : CompilationModel := {
+  name := "RuntimeSetImmutable"
+  fields := []
+  «immutables» := [
+    { name := "owner", ty := ParamType.address, init := Expr.literal 0 }
+  ]
+  «constructor» := none
+  functions := [
+    { name := "setOwner"
+      params := [{ name := "next", ty := ParamType.address }]
+      returnType := none
+      body := [
+        Stmt.setImmutable "owner" (Expr.param "next"),
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def unknownImmutableReadSpec : CompilationModel := {
+  name := "UnknownImmutableRead"
+  fields := []
+  «immutables» := [
+    { name := "owner", ty := ParamType.address, init := Expr.literal 0 }
+  ]
+  «constructor» := none
+  functions := [
+    { name := "owner"
+      params := []
+      returnType := some FieldType.address
+      body := [
+        Stmt.return (Expr.immutable "owenr")
+      ]
+    }
+  ]
+}
+
 private def futureForkIntrinsicSpec : CompilationModel := {
   name := "FutureForkIntrinsicSmoke"
   fields := []
@@ -1222,6 +1259,20 @@ unsafe def runTests : IO Unit := do
   IO.FS.createDirAll abiHeadAbiDir
 
   try IO.FS.removeFile earlySuccessfulAbi catch _ => pure ()
+
+  expectFailureContains
+    "validateCompileInputs rejects setImmutable in runtime function body"
+    (match validateCompileInputs runtimeSetImmutableSpec [0] with
+     | Except.ok _ => pure ()
+     | Except.error err => throw (IO.userError err))
+    "uses Stmt.setImmutable 'owner' outside constructor scope"
+
+  expectFailureContains
+    "validateCompileInputs rejects unknown immutable reads"
+    (match validateCompileInputs unknownImmutableReadSpec [0] with
+     | Except.ok _ => pure ()
+     | Except.error err => throw (IO.userError err))
+    "references unknown immutable 'owenr'"
 
   expectFailureContains
     "compileSpecsWithOptions reports missing linked library"
