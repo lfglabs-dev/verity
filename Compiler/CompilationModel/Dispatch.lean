@@ -379,6 +379,8 @@ private def validateCompileInputsBeforeFieldWriteConflict
       pure ()
   for fn in spec.functions do
     validateFunctionSpec fn
+    validateSetImmutableRuntimeGuard fn
+    validateImmutableNamesInFunction spec.immutables fn
     validateInteropFunctionSpec fn
     validateSpecialEntrypointSpec fn
     validateEventArgShapesInFunction fn spec.events
@@ -386,6 +388,7 @@ private def validateCompileInputsBeforeFieldWriteConflict
     validateInternalCallShapesInFunction spec.functions fn
     validateExternalCallTargetsInFunction spec.externals fn
   validateConstructorSpec spec.constructor
+  validateImmutableNamesInConstructor spec.immutables spec.constructor
   validateInteropConstructorSpec spec.constructor
   validateExternalCallTargetsInConstructor spec.externals spec.constructor
   match spec.constructor with
@@ -426,6 +429,12 @@ private def validateCompileInputsBeforeFieldWriteConflict
       throw s!"Compilation error: duplicate field name '{dup}' in {spec.name}"
   | none =>
       pure ()
+  match firstDuplicateName (spec.immutables.map (·.name)) with
+  | some dup =>
+      throw s!"Compilation error: duplicate immutable name '{dup}' in {spec.name}"
+  | none =>
+      pure ()
+  validateImmutableInitialization spec.immutables spec.constructor
   match firstInvalidPackedBits spec.fields with
   | some (fieldName, packed) =>
       throw s!"Compilation error: field '{fieldName}' has invalid packedBits offset={packed.offset} width={packed.width} in {spec.name} ({issue623Ref}). Require 0 < width <= 256, offset < 256, and offset + width <= 256."
