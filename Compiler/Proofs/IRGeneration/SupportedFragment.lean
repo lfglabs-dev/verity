@@ -59,6 +59,13 @@ inductive SupportedStmtList (fields : List Field) : List String → List Stmt �
       findFieldWithResolvedSlot fields fieldName =
         some ({ name := fieldName, ty := FieldType.address }, slot) →
       SupportedStmtList fields scope [Stmt.setStorageAddr fieldName value]
+  | setImmutableSingle
+      {scope : List String}
+      {name : String}
+      {value : Expr} :
+      FunctionBody.ExprCompileCore value →
+      FunctionBody.exprBoundNamesInScope value scope →
+      SupportedStmtList fields scope [Stmt.setImmutable name value]
   | mstoreSingle
       {scope : List String}
       {offset value : Expr} :

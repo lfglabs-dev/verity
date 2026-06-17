@@ -55,6 +55,7 @@ def compileExpr (fields : List Field)
   | Expr.literal n => pure (YulExpr.lit (n % uint256Modulus))
   | Expr.param name => pure (YulExpr.ident name)
   | Expr.constructorArg idx => pure (YulExpr.ident s!"arg{idx}")
+  | Expr.immutable name => pure (YulExpr.call "loadimmutable" [YulExpr.str name])
   | Expr.storage field =>
     if isMapping fields field then
       throw s!"Compilation error: field '{field}' is a mapping; use Expr.mapping, Expr.mappingWord, or Expr.mappingPackedWord"
