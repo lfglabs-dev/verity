@@ -3121,18 +3121,21 @@ theorem exec_compileStmtList_core
             hevalOffset.symm
           have hValueSrc : SourceSemantics.evalExpr fields runtime value = some valueNat :=
             hevalValue.symm
+          let offsetKey := offsetNat % Compiler.Constants.evmModulus
           let runtime' :=
             { runtime with
               world := {
                 runtime.world with
-                transientStorage := fun o => if o = offsetNat then valueNat else runtime.world.transientStorage o
+                transientStorage := fun o =>
+                  if o = offsetKey then valueNat else runtime.world.transientStorage o
               } }
-          let state' := { state with transientStorage := fun o => if o = offsetNat then valueNat else state.transientStorage o }
+          let state' := { state with
+            transientStorage := fun o => if o = offsetKey then valueNat else state.transientStorage o }
           have hvalueLt := evalExpr_lt_evmModulus_core_onExpr hvalue
             (bindingsExactlyMatchIRVars_implies_onExpr hexact) hbounded hpresentValue hruntime
           rw [hValueSrc] at hvalueLt
           have hruntime' : runtimeStateMatchesIR fields runtime' state' :=
-            runtimeStateMatchesIR_setTransientStorage hruntime offsetNat valueNat hvalueLt
+            runtimeStateMatchesIR_setTransientStorage hruntime offsetKey valueNat hvalueLt
           have hexact' : bindingsExactlyMatchIRVars runtime'.bindings state' := by
             intro name; simpa [IRState.getVar, state'] using hexact name
           have hbounded' : bindingsBounded runtime'.bindings := by
@@ -3149,7 +3152,7 @@ theorem exec_compileStmtList_core
           · have hstmt :
                 execIRStmt (tailIR.length + 1) state
                   (YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR])) = .continue state' := by
-              simp [execIRStmt, evalIRExprs, hIROffset, hIRValue, state']
+              simp [execIRStmt, evalIRExprs, hIROffset, hIRValue, state', offsetKey]
             have hirExec :
                 execIRStmts (tailIR.length + 2) state
                   (YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR]) :: tailIR) =
@@ -3590,18 +3593,21 @@ theorem exec_compileStmtList_core_extraFuel
             hevalOffset.symm
           have hValueSrc : SourceSemantics.evalExpr fields runtime value = some valueNat :=
             hevalValue.symm
+          let offsetKey := offsetNat % Compiler.Constants.evmModulus
           let runtime' :=
             { runtime with
               world := {
                 runtime.world with
-                transientStorage := fun o => if o = offsetNat then valueNat else runtime.world.transientStorage o
+                transientStorage := fun o =>
+                  if o = offsetKey then valueNat else runtime.world.transientStorage o
               } }
-          let state' := { state with transientStorage := fun o => if o = offsetNat then valueNat else state.transientStorage o }
+          let state' := { state with
+            transientStorage := fun o => if o = offsetKey then valueNat else state.transientStorage o }
           have hvalueLt := evalExpr_lt_evmModulus_core_onExpr hvalue
             (bindingsExactlyMatchIRVars_implies_onExpr hexact) hbounded hpresentValue hruntime
           rw [hValueSrc] at hvalueLt
           have hruntime' : runtimeStateMatchesIR fields runtime' state' :=
-            runtimeStateMatchesIR_setTransientStorage hruntime offsetNat valueNat hvalueLt
+            runtimeStateMatchesIR_setTransientStorage hruntime offsetKey valueNat hvalueLt
           have hexact' : bindingsExactlyMatchIRVars runtime'.bindings state' := by
             intro name; simpa [IRState.getVar, state'] using hexact name
           have hbounded' : bindingsBounded runtime'.bindings := by
@@ -3618,7 +3624,7 @@ theorem exec_compileStmtList_core_extraFuel
           · have hstmt :
                 execIRStmt (tailIR.length + extraFuel + 1) state
                   (YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR])) = .continue state' := by
-              simp [execIRStmt, evalIRExprs, hIROffset, hIRValue, state']
+              simp [execIRStmt, evalIRExprs, hIROffset, hIRValue, state', offsetKey]
             have hirExec :
                 execIRStmts (tailIR.length + extraFuel + 2) state
                   (YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR]) :: tailIR) =
@@ -7388,7 +7394,8 @@ theorem exec_compileStmtList_terminal_core_sizeOf_extraFuel
                 sizeOf_singleton_append_extraFuel_ne_zero _ _ _
               cases hfuel : sizeOf ([YulStmt.expr (YulExpr.call "mstore" [offsetIR, valueIR])] ++ tailIR) + extraFuel with
               | zero => exact absurd hfuel hfuelNe
-              | succ n => simp [execIRStmt, evalIRExprs, hIROffset, hIRValue, state']
+              | succ n =>
+                  simp [execIRStmt, evalIRExprs, hIROffset, hIRValue, state']
             have hirExec :=
               execIRStmts_singleton_append_of_execIRStmt_continue_wholeFuel
                 extraFuel state state' (YulStmt.expr (YulExpr.call "mstore" [offsetIR, valueIR])) tailIR hstmt
@@ -7419,17 +7426,20 @@ theorem exec_compileStmtList_terminal_core_sizeOf_extraFuel
             hevalOffset.symm
           have hValueSrc : SourceSemantics.evalExpr fields runtime value = some valueNat :=
             hevalValue.symm
+          let offsetKey := offsetNat % Compiler.Constants.evmModulus
           let runtime' :=
             { runtime with
               world := {
                 runtime.world with
-                transientStorage := fun o => if o = offsetNat then valueNat else runtime.world.transientStorage o
+                transientStorage := fun o =>
+                  if o = offsetKey then valueNat else runtime.world.transientStorage o
               } }
-          let state' := { state with transientStorage := fun o => if o = offsetNat then valueNat else state.transientStorage o }
+          let state' := { state with
+            transientStorage := fun o => if o = offsetKey then valueNat else state.transientStorage o }
           have hvalueLt := evalExpr_lt_evmModulus_core_of_scope hvalue hexact hinScopeValue hbounded hpresentValue hruntime
           rw [hValueSrc] at hvalueLt; simp at hvalueLt
           have hruntime' : runtimeStateMatchesIR fields runtime' state' :=
-            runtimeStateMatchesIR_setTransientStorage hruntime offsetNat valueNat hvalueLt
+            runtimeStateMatchesIR_setTransientStorage hruntime offsetKey valueNat hvalueLt
           have hexact' : bindingsExactlyMatchIRVarsOnScope scope runtime'.bindings state' := by
             intro name hname; simpa [IRState.getVar, state'] using hexact name hname
           have hbounded' : bindingsBounded runtime'.bindings := by
@@ -7456,7 +7466,7 @@ theorem exec_compileStmtList_terminal_core_sizeOf_extraFuel
                 sizeOf_singleton_append_extraFuel_ne_zero _ _ _
               cases hfuel : sizeOf ([YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR])] ++ tailIR) + extraFuel with
               | zero => exact absurd hfuel hfuelNe
-              | succ n => simp [execIRStmt, evalIRExprs, hIROffset, hIRValue, state']
+              | succ n => simp [execIRStmt, evalIRExprs, hIROffset, hIRValue, state', offsetKey]
             have hirExec :=
               execIRStmts_singleton_append_of_execIRStmt_continue_wholeFuel
                 extraFuel state state' (YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR])) tailIR hstmt

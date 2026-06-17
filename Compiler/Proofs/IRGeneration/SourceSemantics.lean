@@ -2214,6 +2214,7 @@ mutual
     | state, .tstore offset value =>
         match evalExpr fields state offset, evalExpr fields state value with
         | some resolvedOffset, some resolvedValue =>
+            let resolvedOffset := wordNormalize resolvedOffset
             .continue {
               state with
               world := {
@@ -2458,6 +2459,7 @@ mutual
     | state, .tstore offset value =>
         match evalExpr fields state offset, evalExpr fields state value with
         | some resolvedOffset, some resolvedValue =>
+            let resolvedOffset := wordNormalize resolvedOffset
             .continue {
               state with
               world := {
@@ -3503,6 +3505,7 @@ mutual
         match evalExprWithHelpers spec fields fuel state offset,
             evalExprWithHelpers spec fields fuel state value with
         | some resolvedOffset, some resolvedValue =>
+            let resolvedOffset := wordNormalize resolvedOffset
             .continue {
               state with
               world := {

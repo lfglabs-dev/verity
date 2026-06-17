@@ -2729,6 +2729,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeAddressSlot  -- private
   -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeUintSlots  -- private
   -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeUintKeyedMappingSlot  -- private
+  -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeTransientTarget  -- private
   -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeAddressKeyedMappingChainSlot  -- private
   -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeAddressKeyedMappingSlot  -- private
   -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeAddressKeyedMappingWordSlot  -- private
@@ -2748,6 +2749,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.validateIdentifierShapes_fieldName_ne_reservedScratch  -- private
   -- Compiler.Proofs.IRGeneration.scopeAvoidsReservedCompilerPrefix_of_validateIdentifierShapes  -- private
   -- Compiler.Proofs.IRGeneration.findFieldWriteSlots_of_findFieldWithResolvedSlot  -- private
+  -- Compiler.Proofs.IRGeneration.findFieldWithResolvedSlot_of_findFieldWriteSlots_singleton  -- private
   Compiler.Proofs.IRGeneration.compiledStmtStep_setStorage_singleSlot
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_setStorageAddr_singleSlot_preserves  -- private
   Compiler.Proofs.IRGeneration.compiledStmtStep_setStorageAddr_singleSlot
@@ -2764,6 +2766,11 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.eval_compileExprList_core_of_scope
   -- Compiler.Proofs.IRGeneration.evalIRExpr_mappingSlotChain  -- private
   -- Compiler.Proofs.IRGeneration.execIRStmt_sstore_of_eval  -- private
+  -- Compiler.Proofs.IRGeneration.execIRStmt_tstore_of_eval  -- private
+  -- Compiler.Proofs.IRGeneration.evalIRExpr_mappingWordTarget_of_eval  -- private
+  -- Compiler.Proofs.IRGeneration.evalIRExpr_mappingSlot2_of_eval  -- private
+  -- Compiler.Proofs.IRGeneration.evalIRExpr_mappingSlot2_add_of_eval  -- private
+  -- Compiler.Proofs.IRGeneration.evalIRExpr_mapping2WordTarget_of_eval  -- private
   -- Compiler.Proofs.IRGeneration.execIRStmt_sstore_foldl_mappingSlot  -- private
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_setMappingChain_singleSlot_of_slotSafety_preserves  -- private
   Compiler.Proofs.IRGeneration.compiledStmtStep_setMappingChain_singleSlot_of_slotSafety
@@ -5586,4 +5593,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5228 theorems/lemmas (3605 public, 1623 private, 0 sorry'd)
+-- Total: 5235 theorems/lemmas (3605 public, 1630 private, 0 sorry'd)
