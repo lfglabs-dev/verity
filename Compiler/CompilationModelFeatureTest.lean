@@ -328,7 +328,7 @@ verity_contract MacroExternal where
   linked_externals
     external echo(Uint256) -> (Uint256)
 
-  function allow_post_interaction_writes storeEcho (next : Uint256) : Unit := do
+  function allow_post_interaction_writes reentrancy_trusted storeEcho (next : Uint256) : Unit := do
     let echoed := externalCall "echo" [next]
     setStorage echoedValue echoed
 
@@ -2909,6 +2909,7 @@ private def unsafeYulRawCallAllowedSpec : CompilationModel := {
     { name := "bad"
       params := []
       returnType := none
+      reentrancyTrusted := true
       body := [unsafeYulRawCallStmt, Stmt.stop]
     }
   ]

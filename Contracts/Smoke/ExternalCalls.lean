@@ -497,10 +497,10 @@ set_option linter.unusedVariables false in
 verity_contract CallWithValueSmoke where
   storage
 
-  function execute (target : Address, value : Uint256, dataOffset : Uint256, dataSize : Uint256) : Unit := do
+  function reentrancy_trusted execute (target : Address, value : Uint256, dataOffset : Uint256, dataSize : Uint256) : Unit := do
     ecmDo Compiler.Modules.Calls.callWithValueModule [addressToWord target, value, dataOffset, dataSize]
 
-  function executeBytes (target : Address, value : Uint256, data : Bytes) : Unit := do
+  function reentrancy_trusted executeBytes (target : Address, value : Uint256, data : Bytes) : Unit := do
     ecmDo (Compiler.Modules.Calls.callWithValueBytesModule "data") [addressToWord target, value]
 
 set_option linter.unusedVariables false in
