@@ -1567,6 +1567,9 @@ theorem stmtListGenericCore_of_supportedStmtList_of_surface
   | setStorageAddrSingleSlot hcore hinScope hfind =>
       exact stmtListGenericCore_of_supportedStmtList_setStorageAddrSingleSlot_of_surface
         (fields := fields) hnoConflict hfind hcore hinScope
+  | setImmutableSingle _ _ =>
+      simp [stmtListTouchesUnsupportedContractSurface,
+        stmtTouchesUnsupportedContractSurface] at hsurface
   | mstoreSingle hcoreOffset hinScopeOffset hcoreValue hinScopeValue =>
       exact stmtListGenericCore_of_supportedStmtList_mstoreSingle_of_surface
         (fields := fields) hcoreOffset hinScopeOffset hcoreValue hinScopeValue
@@ -1668,6 +1671,10 @@ theorem stmtListGenericCore_of_supportedStmtList_of_surface_exceptMappingWrites
   | setStorageAddrSingleSlot hcore hinScope hfind =>
       exact stmtListGenericCore_of_supportedStmtList_setStorageAddrSingleSlot_of_surface
         (fields := fields) hnoConflict hfind hcore hinScope
+  | setImmutableSingle _ _ =>
+      simp [stmtListTouchesUnsupportedContractSurfaceExceptMappingWrites,
+        stmtTouchesUnsupportedContractSurfaceExceptMappingWrites,
+        stmtTouchesUnsupportedContractSurface] at hsurface
   | mstoreSingle hcoreOffset hinScopeOffset hcoreValue hinScopeValue =>
       exact stmtListGenericCore_of_supportedStmtList_mstoreSingle_of_surface
         (fields := fields) hcoreOffset hinScopeOffset hcoreValue hinScopeValue
@@ -1927,6 +1934,10 @@ theorem stmtListGenericCore_of_supportedStmtList_of_surface_exceptMappingWrites_
   | setStorageAddrSingleSlot hcore hinScope hfind =>
       exact stmtListGenericCore_of_supportedStmtList_setStorageAddrSingleSlot_of_surface
         (fields := fields) hnoConflict hfind hcore hinScope
+  | setImmutableSingle _ _ =>
+      simp [stmtListTouchesUnsupportedContractSurfaceExceptMappingWrites,
+        stmtTouchesUnsupportedContractSurfaceExceptMappingWrites,
+        stmtTouchesUnsupportedContractSurface] at hsurface
   | mstoreSingle hcoreOffset hinScopeOffset hcoreValue hinScopeValue =>
       exact stmtListGenericCore_of_supportedStmtList_mstoreSingle_of_surface
         (fields := fields) hcoreOffset hinScopeOffset hcoreValue hinScopeValue

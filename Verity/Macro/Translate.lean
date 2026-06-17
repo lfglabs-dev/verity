@@ -1562,14 +1562,13 @@ private def immutableInitStmtTerms
     (constDecls : Array ConstantDecl)
     (immutableDecls : Array ImmutableDecl)
     (ctorParams : Array ParamDecl) : CommandElabM (Array Term) := do
-  immutableDecls.zipIdx.mapM fun (imm, idx) => do
-    let slotField := immutableStorageFieldDecl fields imm idx
+  immutableDecls.zipIdx.mapM fun (imm, _idx) => do
     let valueExpr ← translatePureExpr fields constDecls #[] ctorParams #[] imm.body
     match imm.ty with
     | .uint256 | .int256 | .uint8 | .uint16 | .bytes32 | .bool =>
-        `(Compiler.CompilationModel.Stmt.setStorage $(strTerm slotField.name) $valueExpr)
+        `(Compiler.CompilationModel.Stmt.setImmutable $(strTerm imm.name) $valueExpr)
     | .address =>
-        `(Compiler.CompilationModel.Stmt.setStorageAddr $(strTerm slotField.name) $valueExpr)
+        `(Compiler.CompilationModel.Stmt.setImmutable $(strTerm imm.name) $valueExpr)
     | _ =>
         throwErrorAt imm.ident s!"immutable '{imm.name}' uses unsupported type"
 
@@ -2123,9 +2122,12 @@ private def mkSpecCommand
     (functions : Array FunctionDecl)
     (adtDecls : Array AdtDecl)
     (storageNamespace : Option Nat) : CommandElabM Cmd := do
-  let immutableFields := immutableDecls.zipIdx.map (fun (imm, idx) => immutableStorageFieldDecl fields imm idx)
-  let allFields := fields ++ immutableFields
-  let fieldTerms ← allFields.mapM mkModelFieldTerm
+  let immutableTerms ← immutableDecls.mapM fun imm => do
+    let tyTerm ← modelParamTypeTerm imm.ty
+    let initTerm ← translatePureExpr fields constDecls #[] (ctor.map (·.params) |>.getD #[]) #[] imm.body
+    `(({ name := $(strTerm imm.name), ty := $tyTerm, init := $initTerm } :
+        Compiler.CompilationModel.ImmutableSpec))
+  let fieldTerms ← fields.mapM mkModelFieldTerm
   let roleTerms ← roleDecls.mapM fun role => do
     let kindTerm ← match role.kind with
       | .scalarAddress => `(Compiler.CompilationModel.RoleKind.scalarAddress)
@@ -2264,6 +2266,7 @@ private def mkSpecCommand
   `(command| def spec : Compiler.CompilationModel.CompilationModel := {
     name := $(strTerm contractName)
     fields := [ $[$fieldTerms],* ]
+    «immutables» := [ $[$immutableTerms],* ]
     «roles» := [ $[$roleTerms],* ]
     «errors» := [ $[$errorTerms],* ]
     «events» := [ $[$eventTerms],* ]

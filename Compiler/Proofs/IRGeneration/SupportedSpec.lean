@@ -211,6 +211,7 @@ def exprEventArgAtomic : Expr → Bool
   | .literal _ | .param _ | .localVar _ | .caller | .contractAddress
   | .txOrigin | .msgValue | .blockTimestamp | .blockNumber | .chainid
   | .blobbasefee | .calldatasize => true
+  | .immutable _ => false
   | _ => false
 
 def eventEmissionProofSupported
@@ -653,7 +654,7 @@ mutual
 decoding. Raw constructor calldata observations therefore remain outside the
 current body-level support interface until the deploy-wrapper proof exists. -/
 def exprTouchesUnsupportedConstructorRawCalldataSurface : Expr → Bool
-  | .literal _ | .param _ | .localVar _ | .caller | .contractAddress | .txOrigin
+  | .literal _ | .param _ | .immutable _ | .localVar _ | .caller | .contractAddress | .txOrigin
   | .chainid | .msgValue | .selfBalance | .blockTimestamp | .blockNumber
   | .blobbasefee | .constructorArg _ | .returndataSize | .extcodesize _ => false
   | .calldatasize => true
@@ -737,7 +738,7 @@ def exprListTouchesUnsupportedConstructorRawCalldataSurface : List Expr → Bool
 
 def stmtTouchesUnsupportedConstructorRawCalldataSurface : Stmt → Bool
   | .letVar _ value | .assignVar _ value | .setStorage _ value
-  | .setStorageAddr _ value | .setStorageWord _ _ value
+  | .setStorageAddr _ value | .setImmutable _ value | .setStorageWord _ _ value
   | .require value _ | .return value
   | .storageArrayPush _ value =>
       exprTouchesUnsupportedConstructorRawCalldataSurface value
@@ -806,6 +807,7 @@ def exprTouchesUnsupportedCoreSurface : Expr → Bool
   | .literal _ | .param _ | .caller | .contractAddress | .txOrigin
   | .chainid | .msgValue | .blockTimestamp | .blockNumber
   | .blobbasefee | .calldatasize | .localVar _ => false
+  | .immutable _ => true
   | .selfBalance => true
   | .storage _ | .storageAddr _ => false
   | .add a b | .sub a b | .mul a b | .div a b | .mod a b
@@ -859,7 +861,7 @@ def exprTouchesUnsupportedCoreSurface : Expr → Bool
 /-- Stateful expression surfaces not yet carried by the generic Layer 2 body
 interface. These are the next storage/layout-style widening targets. -/
 def exprTouchesUnsupportedStateSurface : Expr → Bool
-  | .literal _ | .param _ | .caller | .contractAddress | .txOrigin
+  | .literal _ | .param _ | .immutable _ | .caller | .contractAddress | .txOrigin
   | .chainid | .msgValue | .selfBalance | .blockTimestamp | .blockNumber
   | .localVar _ => false
   | .storage _ | .storageAddr _ => true
@@ -912,7 +914,7 @@ body theorem: internal helper reuse, low-level calls, and foreign call hooks. -/
 def exprTouchesUnsupportedCallSurface : Expr → Bool
   | .internalCall _ _ | .externalCall _ _ => true
   | .call _ _ _ _ _ _ _ | .staticcall _ _ _ _ _ _ | .delegatecall _ _ _ _ _ _ => true
-  | .literal _ | .param _ | .caller | .contractAddress | .txOrigin
+  | .literal _ | .param _ | .immutable _ | .caller | .contractAddress | .txOrigin
   | .chainid | .msgValue | .selfBalance | .blockTimestamp | .blockNumber
   | .localVar _ | .storage _ | .storageAddr _
   | .constructorArg _ | .blobbasefee
@@ -971,7 +973,7 @@ def exprTouchesUnsupportedCallSurface : Expr → Bool
 generic whole-contract theorem. -/
 def exprTouchesUnsupportedHelperSurface : Expr → Bool
   | .internalCall _ _ => true
-  | .literal _ | .param _ | .caller | .contractAddress | .txOrigin
+  | .literal _ | .param _ | .immutable _ | .caller | .contractAddress | .txOrigin
   | .chainid | .msgValue | .selfBalance | .blockTimestamp | .blockNumber
   | .localVar _ | .storage _ | .storageAddr _
   | .constructorArg _ | .blobbasefee
@@ -1039,7 +1041,7 @@ still-unsupported expression shapes that currently share the coarse
 `exprTouchesUnsupportedHelperSurface` approximation. -/
 def exprTouchesInternalHelperSurface : Expr → Bool
   | .internalCall _ _ => true
-  | .literal _ | .param _ | .caller | .contractAddress | .txOrigin
+  | .literal _ | .param _ | .immutable _ | .caller | .contractAddress | .txOrigin
   | .chainid | .msgValue | .selfBalance | .blockTimestamp | .blockNumber
   | .localVar _ | .storage _ | .storageAddr _
   | .constructorArg _ | .blobbasefee
@@ -1102,7 +1104,7 @@ def exprTouchesInternalHelperSurface : Expr → Bool
 whole-contract theorem. -/
 def exprTouchesUnsupportedForeignSurface : Expr → Bool
   | .externalCall _ _ => true
-  | .literal _ | .param _ | .caller | .contractAddress | .txOrigin
+  | .literal _ | .param _ | .immutable _ | .caller | .contractAddress | .txOrigin
   | .chainid | .msgValue | .selfBalance | .blockTimestamp | .blockNumber
   | .localVar _ | .storage _ | .storageAddr _
   | .constructorArg _ | .blobbasefee
@@ -1163,7 +1165,7 @@ def exprTouchesUnsupportedForeignSurface : Expr → Bool
 whole-contract theorem. -/
 def exprTouchesUnsupportedLowLevelSurface : Expr → Bool
   | .call _ _ _ _ _ _ _ | .staticcall _ _ _ _ _ _ | .delegatecall _ _ _ _ _ _ => true
-  | .literal _ | .param _ | .caller | .contractAddress | .txOrigin
+  | .literal _ | .param _ | .immutable _ | .caller | .contractAddress | .txOrigin
   | .chainid | .msgValue | .selfBalance | .blockTimestamp | .blockNumber
   | .localVar _ | .storage _ | .storageAddr _
   | .constructorArg _ | .blobbasefee
@@ -1228,6 +1230,7 @@ def exprTouchesUnsupportedContractSurface (expr : Expr) : Bool :=
   | .literal _ | .param _ | .caller | .contractAddress | .txOrigin
   | .chainid | .msgValue | .blockTimestamp | .blockNumber
   | .blobbasefee | .calldatasize | .localVar _ => false
+  | .immutable _ => true
   | .selfBalance => true
   | .storage _ | .storageAddr _ => true
   | .add a b | .sub a b | .mul a b | .div a b | .mod a b
@@ -1278,7 +1281,8 @@ theorem: richer returns, logs, typed errors, and raw external effect hooks. -/
 def stmtTouchesUnsupportedEffectSurface : Stmt → Bool
   | .requireError _ _ _ | .revertError _ _ | .returnValues _ | .returnArray _
   | .returnBytes _ | .returnStorageWords _ | .returnCodeData _ | .emit _ _ | .rawLog _ _ _
-  | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _ | .ecm _ _ => true
+  | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _ | .ecm _ _
+  | .setImmutable _ _ => true
   | .letVar _ _ | .assignVar _ _ | .setStorage _ _ | .setStorageAddr _ _
   | .setStorageWord _ _ _
   | .require _ _ | .return _ | .mstore _ _ | .tstore _ _ | .stop
@@ -1302,7 +1306,7 @@ interfaces of their own. -/
 def stmtTouchesUnsupportedCoreSurface : Stmt → Bool
   | .letVar _ value | .assignVar _ value | .setStorage _ value =>
       exprTouchesUnsupportedCoreSurface value
-  | .setStorageAddr _ value =>
+  | .setStorageAddr _ value | .setImmutable _ value =>
       exprTouchesUnsupportedCoreSurface value
   | .setStorageWord _ _ value =>
       exprTouchesUnsupportedCoreSurface value
@@ -1350,7 +1354,7 @@ def stmtTouchesUnsupportedStateSurface : Stmt → Bool
       exprTouchesUnsupportedStateSurface value
   | .require cond _ | .return cond =>
       exprTouchesUnsupportedStateSurface cond
-  | .setStorageAddr _ value =>
+  | .setStorageAddr _ value | .setImmutable _ value =>
       exprTouchesUnsupportedStateSurface value
   | .setStorageWord _ _ _ | .setMapping _ _ _ | .setMappingWord _ _ _ _ | .setMappingPackedWord _ _ _ _ _
   | .setMapping2 _ _ _ _ | .setMapping2Word _ _ _ _ _ | .setMappingUint _ _ _
@@ -1388,7 +1392,7 @@ def stmtTouchesUnsupportedStateSurfaceExceptMappingWrites : Stmt → Bool
 generic theorem. -/
 def stmtTouchesUnsupportedCallSurface : Stmt → Bool
   | .letVar _ value | .assignVar _ value | .setStorage _ value
-  | .setStorageAddr _ value | .setStorageWord _ _ value | .storageArrayPush _ value =>
+  | .setStorageAddr _ value | .setImmutable _ value | .setStorageWord _ _ value | .storageArrayPush _ value =>
       exprTouchesUnsupportedCallSurface value
   | .setMapping _ key value | .setMappingWord _ key _ value
   | .setMappingPackedWord _ key _ _ value | .setMappingUint _ key value
@@ -1430,7 +1434,7 @@ def stmtTouchesUnsupportedCallSurface : Stmt → Bool
 
 def stmtTouchesUnsupportedHelperSurface : Stmt → Bool
   | .letVar _ value | .assignVar _ value | .setStorage _ value
-  | .setStorageAddr _ value | .setStorageWord _ _ value | .storageArrayPush _ value =>
+  | .setStorageAddr _ value | .setImmutable _ value | .setStorageWord _ _ value | .storageArrayPush _ value =>
       exprTouchesUnsupportedHelperSurface value
   | .setMapping _ key value | .setMappingWord _ key _ value
   | .setMappingPackedWord _ key _ _ value | .setMappingUint _ key value
@@ -1474,7 +1478,7 @@ this isolates heads that genuinely execute internal helpers, leaving residual
 non-helper unsupported cases to be tracked separately. -/
 def stmtTouchesInternalHelperSurface : Stmt → Bool
   | .letVar _ value | .assignVar _ value | .setStorage _ value
-  | .setStorageAddr _ value | .setStorageWord _ _ value | .storageArrayPush _ value =>
+  | .setStorageAddr _ value | .setImmutable _ value | .setStorageWord _ _ value | .storageArrayPush _ value =>
       exprTouchesInternalHelperSurface value
   | .setMapping _ key value | .setMappingWord _ key _ value
   | .setMappingPackedWord _ key _ _ value | .setMappingUint _ key value
@@ -1541,7 +1545,7 @@ soundness and world-preservation lemmas directly, rather than bundling them
 with direct helper statements or recursive structural transport. -/
 def stmtTouchesExprInternalHelperSurface : Stmt → Bool
   | .letVar _ value | .assignVar _ value | .setStorage _ value
-  | .setStorageAddr _ value | .setStorageWord _ _ value | .storageArrayPush _ value =>
+  | .setStorageAddr _ value | .setImmutable _ value | .setStorageWord _ _ value | .storageArrayPush _ value =>
       exprTouchesInternalHelperSurface value
   | .setMapping _ key value | .setMappingWord _ key _ value
   | .setMappingPackedWord _ key _ _ value | .setMappingUint _ key value
@@ -1588,7 +1592,7 @@ def stmtTouchesStructuralInternalHelperSurface : Stmt → Bool
       stmtListTouchesInternalHelperSurface body
   | .letVar _ _ | .assignVar _ _ | .setStorage _ _ | .require _ _
   | .return _ | .returnCodeData _ | .internalCall _ _ | .internalCallAssign _ _ _
-  | .stop | .setStorageAddr _ _ | .setStorageWord _ _ _ | .mstore _ _ | .tstore _ _
+  | .stop | .setStorageAddr _ _ | .setImmutable _ _ | .setStorageWord _ _ _ | .mstore _ _ | .tstore _ _
  
   | .calldatacopy _ _ _ | .returndataCopy _ _ _
   | .revertReturndata | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _ | .ecm _ _
@@ -1606,7 +1610,7 @@ def stmtTouchesStructuralInternalHelperSurface : Stmt → Bool
 
 def stmtTouchesUnsupportedForeignSurface : Stmt → Bool
   | .letVar _ value | .assignVar _ value | .setStorage _ value
-  | .setStorageAddr _ value | .setStorageWord _ _ value | .storageArrayPush _ value =>
+  | .setStorageAddr _ value | .setImmutable _ value | .setStorageWord _ _ value | .storageArrayPush _ value =>
       exprTouchesUnsupportedForeignSurface value
   | .setMapping _ key value | .setMappingWord _ key _ value
   | .setMappingPackedWord _ key _ _ value | .setMappingUint _ key value
@@ -1648,7 +1652,7 @@ def stmtTouchesUnsupportedForeignSurface : Stmt → Bool
 
 def stmtTouchesUnsupportedLowLevelSurface : Stmt → Bool
   | .letVar _ value | .assignVar _ value | .setStorage _ value
-  | .setStorageAddr _ value | .setStorageWord _ _ value | .storageArrayPush _ value =>
+  | .setStorageAddr _ value | .setImmutable _ value | .setStorageWord _ _ value | .storageArrayPush _ value =>
       exprTouchesUnsupportedLowLevelSurface value
   | .setMapping _ key value | .setMappingWord _ key _ value
   | .setMappingPackedWord _ key _ _ value | .setMappingUint _ key value
@@ -1693,6 +1697,7 @@ def stmtTouchesUnsupportedContractSurface (stmt : Stmt) : Bool :=
       exprTouchesUnsupportedContractSurface value
   | .setStorageAddr _ value =>
       exprTouchesUnsupportedContractSurface value
+  | .setImmutable _ _ => true
   | .setStorageWord _ _ value =>
       exprTouchesUnsupportedContractSurface value
   | .require cond _ | .return cond =>
@@ -1921,7 +1926,7 @@ private theorem compileStmt_eventsErrorsAgnostic_aux
                 (by simp [Stmt.forEach.sizeOf_spec] at hlt; omega)
                 (stmtListTouchesUnsupportedContractSurface_of_forEach_surfaceClosed
                   hsurface)]
-        | letVar | assignVar | setStorage | setStorageAddr | setStorageWord
+        | letVar | assignVar | setStorage | setStorageAddr | setImmutable | setStorageWord
         | require | «return» | mstore | tstore | stop =>
             simp only [CompilationModel.compileStmt]
         | setMapping | setMappingWord | setMappingPackedWord | setMapping2
@@ -2063,7 +2068,7 @@ mutual
     -- `_mutual.eq_def` 200 000-heartbeat ceiling when new `Expr` constructors
     -- land (verity#1842 captured the same pitfall for the Expr→Except
     -- validators).
-    | .literal _ | .param _ | .constructorArg _
+    | .literal _ | .param _ | .immutable _ | .constructorArg _
     | .storage _ | .storageAddr _
     | .caller | .contractAddress | .txOrigin | .chainid | .msgValue | .selfBalance
     | .blockTimestamp | .blockNumber | .blobbasefee
@@ -2092,6 +2097,7 @@ mutual
   helper-aware expression semantics returns only a value. -/
   def stmtExprHelperCallNames : Stmt → List String
     | .letVar _ value | .assignVar _ value | .setStorage _ value | .setStorageAddr _ value
+    | .setImmutable _ value
     | .setStorageWord _ _ value
     | .storageArrayPush _ value | .return value | .require value _ =>
         exprInternalHelperCallNames value
@@ -2159,6 +2165,7 @@ mutual
   /-- Collect direct internal-helper callee names mentioned by a statement list. -/
   def stmtInternalHelperCallNames : Stmt → List String
     | .letVar _ value | .assignVar _ value | .setStorage _ value | .setStorageAddr _ value
+    | .setImmutable _ value
     | .setStorageWord _ _ value
     | .storageArrayPush _ value | .return value | .require value _ =>
         exprInternalHelperCallNames value
@@ -3336,6 +3343,12 @@ theorem SupportedStmtList.helperSurfaceClosed
         Bool.or_false, Bool.false_or]
   | setStorageAddrSingleSlot hvalue _ _ =>
       exact supportedStmtList_setStorageAddrSingleSlot_helperSurfaceClosed hvalue
+  | setImmutableSingle hvalue _ =>
+      simp only [stmtListTouchesUnsupportedHelperSurface,
+        stmtTouchesUnsupportedHelperSurface,
+        exprTouchesUnsupportedHelperSurface,
+        exprCompileCore_helperSurfaceClosed hvalue,
+        Bool.or_false, Bool.false_or]
   | mstoreSingle hoffset _ hvalue _ =>
       exact supportedStmtList_mstoreSingle_helperSurfaceClosed hoffset hvalue
   | tstoreSingle hoffset _ hvalue _ =>
@@ -3460,6 +3473,11 @@ theorem SupportedStmtList.internalHelperCallNames_nil
         exprCompileCore_internalHelperCallNames_nil hvalue,
         List.nil_append, List.append_nil]
   | setStorageAddrSingleSlot hvalue _ _ =>
+      simp only [stmtListInternalHelperCallNames,
+        stmtInternalHelperCallNames,
+        exprCompileCore_internalHelperCallNames_nil hvalue,
+        List.nil_append, List.append_nil]
+  | setImmutableSingle hvalue _ =>
       simp only [stmtListInternalHelperCallNames,
         stmtInternalHelperCallNames,
         exprCompileCore_internalHelperCallNames_nil hvalue,
@@ -3649,7 +3667,7 @@ mutual
     | internalCall _ _ => simp [exprTouchesUnsupportedHelperSurface] at hsurface
     | mappingChain _ _ => simp [exprTouchesUnsupportedHelperSurface] at hsurface
     | intrinsic _ _ _ _ => simp [exprTouchesUnsupportedHelperSurface] at hsurface
-    | literal _ | param _ | caller | contractAddress | txOrigin
+    | literal _ | param _ | immutable _ | caller | contractAddress | txOrigin
     | chainid | msgValue | selfBalance
     | blockTimestamp | blockNumber | localVar _ | storage _ | storageAddr _
     | constructorArg _ | blobbasefee | calldatasize | returndataSize
@@ -3771,7 +3789,7 @@ mutual
       stmtTouchesInternalHelperSurface stmt = false := by
     cases stmt with
     | letVar _ value | assignVar _ value | setStorage _ value
-    | setStorageAddr _ value | setStorageWord _ _ value | storageArrayPush _ value =>
+    | setStorageAddr _ value | setImmutable _ value | setStorageWord _ _ value | storageArrayPush _ value =>
         simp only [stmtTouchesUnsupportedHelperSurface] at hsurface
         simp [stmtTouchesInternalHelperSurface,
           exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface]
@@ -4071,7 +4089,7 @@ private theorem exprTouchesUnsupportedCallSurface_eq_featureOr
         exprTouchesUnsupportedForeignSurface expr ||
         exprTouchesUnsupportedLowLevelSurface expr) := by
   cases expr with
-  | literal _ | param _ | caller | contractAddress | txOrigin
+  | literal _ | param _ | immutable _ | caller | contractAddress | txOrigin
   | chainid | msgValue | selfBalance | blockTimestamp | blockNumber
   | localVar _ | storage _ | storageAddr _
   | paramDynamicHeadWord _ _ | paramDynamicStaticComposite _ _
@@ -4307,6 +4325,8 @@ private theorem exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed
   | chainid | msgValue | blockTimestamp | blockNumber | blobbasefee
   | calldatasize =>
       simp [exprTouchesUnsupportedContractSurface]
+  | immutable _ =>
+      simp [exprTouchesUnsupportedCoreSurface] at hcore
   | selfBalance =>
       simp [exprTouchesUnsupportedCoreSurface] at hcore
   | storage _ | storageAddr _ =>
@@ -4562,8 +4582,9 @@ private theorem stmtTouchesUnsupportedContractSurface_eq_false_of_featureClosed
       exact exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed value
         (by simpa [stmtTouchesUnsupportedCoreSurface] using hcore)
         (by simpa [stmtTouchesUnsupportedStateSurface] using hstate)
-        (by exact exprTouchesUnsupportedCallSurface_eq_false_of_coreClosed value
-              (by simpa [stmtTouchesUnsupportedCoreSurface] using hcore))
+        (by simpa [stmtTouchesUnsupportedCallSurface] using hcalls)
+  | setImmutable _ _ =>
+      simp [stmtTouchesUnsupportedEffectSurface] at heffects
   | require cond _ | «return» cond =>
       simp only [stmtTouchesUnsupportedContractSurface]
       exact exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed cond
@@ -4696,6 +4717,8 @@ theorem exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
   | chainid | msgValue | blockTimestamp | blockNumber | blobbasefee
   | calldatasize =>
       simp [exprTouchesUnsupportedHelperSurface]
+  | immutable _ =>
+      simp [exprTouchesUnsupportedContractSurface] at hsurface
   | selfBalance =>
       simp [exprTouchesUnsupportedContractSurface] at hsurface
   | adtConstruct _ _ _ | adtTag _ _ | adtField _ _ _ _ _ =>
@@ -4793,6 +4816,7 @@ theorem stmtTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
     stmtTouchesUnsupportedHelperSurface stmt = false := by
   cases stmt with
   | letVar _ value | assignVar _ value | setStorage _ value | setStorageAddr _ value
+  | setImmutable _ value
   | setStorageWord _ _ value
   | storageArrayPush _ value | require value _ | «return» value =>
       simp [stmtTouchesUnsupportedHelperSurface, stmtTouchesUnsupportedContractSurface] at hsurface ⊢
@@ -5463,6 +5487,9 @@ private theorem supportedStmtList_usesArrayElement_false
   | setStorageAddrSingleSlot hvalue _ _ =>
       simp only [stmtListUsesArrayElement, stmtUsesArrayElement,
         exprCompileCore_usesArrayElement_false hvalue, Bool.false_or]
+  | setImmutableSingle hvalue _ =>
+      simp only [stmtListUsesArrayElement, stmtUsesArrayElement,
+        exprCompileCore_usesArrayElement_false hvalue, Bool.false_or]
   | mstoreSingle hoffset _ hvalue _ =>
       simp only [stmtListUsesArrayElement, stmtUsesArrayElement,
         exprCompileCore_usesArrayElement_false hoffset,
@@ -5573,6 +5600,9 @@ private theorem supportedStmtList_usesStorageArrayElement_false
       simp only [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
         exprCompileCore_usesStorageArrayElement_false hvalue, Bool.false_or]
   | setStorageAddrSingleSlot hvalue _ _ =>
+      simp only [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
+        exprCompileCore_usesStorageArrayElement_false hvalue, Bool.false_or]
+  | setImmutableSingle hvalue _ =>
       simp only [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
         exprCompileCore_usesStorageArrayElement_false hvalue, Bool.false_or]
   | mstoreSingle hoffset _ hvalue _ =>
@@ -5693,6 +5723,9 @@ private theorem supportedStmtList_usesDynamicBytesEq_false
       simp only [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq,
         exprCompileCore_usesDynamicBytesEq_false hvalue, Bool.false_or]
   | setStorageAddrSingleSlot hvalue _ _ =>
+      simp only [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq,
+        exprCompileCore_usesDynamicBytesEq_false hvalue, Bool.false_or]
+  | setImmutableSingle hvalue _ =>
       simp only [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq,
         exprCompileCore_usesDynamicBytesEq_false hvalue, Bool.false_or]
   | mstoreSingle hoffset _ hvalue _ =>
@@ -6066,6 +6099,9 @@ private theorem supportedStmtList_usesMulDiv512_false
   | setStorageAddrSingleSlot hvalue _ _ =>
       simp only [stmtListUsesMulDiv512, stmtUsesMulDiv512,
         exprCompileCore_usesMulDiv512_false hvalue, Bool.false_or]
+  | setImmutableSingle hvalue _ =>
+      simp only [stmtListUsesMulDiv512, stmtUsesMulDiv512,
+        exprCompileCore_usesMulDiv512_false hvalue, Bool.false_or]
   | mstoreSingle hoffset _ hvalue _ =>
       simp only [stmtListUsesMulDiv512, stmtUsesMulDiv512,
         exprCompileCore_usesMulDiv512_false hoffset,
@@ -6176,6 +6212,9 @@ private theorem supportedStmtList_usesParamDynamicHeadWord_false
       simp only [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord,
         exprCompileCore_usesParamDynamicHeadWord_false hvalue, Bool.false_or]
   | setStorageAddrSingleSlot hvalue _ _ =>
+      simp only [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord,
+        exprCompileCore_usesParamDynamicHeadWord_false hvalue, Bool.false_or]
+  | setImmutableSingle hvalue _ =>
       simp only [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord,
         exprCompileCore_usesParamDynamicHeadWord_false hvalue, Bool.false_or]
   | mstoreSingle hoffset _ hvalue _ =>
