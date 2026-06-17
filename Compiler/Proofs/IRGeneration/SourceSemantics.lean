@@ -472,6 +472,22 @@ def writeAddressKeyedMappingPackedWordSlots
       else
         world.storage slot }
 
+def writeAddressKeyedMapping2PackedWordSlots
+    (world : Verity.ContractState) (slots : List Nat) (key1 key2 wordOffset : Nat)
+    (packed : PackedBits) (value : Nat) :
+    Verity.ContractState :=
+  let targets :=
+    slots.map (fun slot =>
+      wordNormalize
+        (Compiler.Proofs.abstractMappingSlot
+          (Compiler.Proofs.abstractMappingSlot slot key1) key2 + wordOffset))
+  { world with
+    storage := fun slot =>
+      if targets.contains slot then
+        packedWordWrite (world.storage slot).val value packed
+      else
+        world.storage slot }
+
 def writeUintKeyedMappingSlots
     (world : Verity.ContractState) (slots : List Nat) (key value : Nat) :
     Verity.ContractState :=
@@ -1958,6 +1974,14 @@ mutual
                   { state with
                       world := writeAddressKeyedMappingWordSlots
                         state.world slots resolvedKey wordOffset resolved }
+            | some { wordOffset := wordOffset, packed := some packed, .. } =>
+                if packedBitsValid packed then
+                  .continue
+                    { state with
+                        world := writeAddressKeyedMappingPackedWordSlots
+                          state.world slots resolvedKey wordOffset packed resolved }
+                else
+                  .revert
             | _ => .revert
         | _, _, _, _ => .revert
     | state, .setMapping2 fieldName key1 key2 value =>
@@ -2006,6 +2030,14 @@ mutual
                   { state with
                       world := writeAddressKeyedMapping2WordSlots
                         state.world slots resolvedKey1 resolvedKey2 wordOffset resolved }
+            | some { wordOffset := wordOffset, packed := some packed, .. } =>
+                if packedBitsValid packed then
+                  .continue
+                    { state with
+                        world := writeAddressKeyedMapping2PackedWordSlots
+                          state.world slots resolvedKey1 resolvedKey2 wordOffset packed resolved }
+                else
+                  .revert
             | _ => .revert
         | _, _, _, _, _ => .revert
     | state, .setMappingUint fieldName key value =>
@@ -2210,6 +2242,14 @@ mutual
                   { state with
                       world := writeAddressKeyedMappingWordSlots
                         state.world slots resolvedKey wordOffset resolved }
+            | some { wordOffset := wordOffset, packed := some packed, .. } =>
+                if packedBitsValid packed then
+                  .continue
+                    { state with
+                        world := writeAddressKeyedMappingPackedWordSlots
+                          state.world slots resolvedKey wordOffset packed resolved }
+                else
+                  .revert
             | _ => .revert
         | _, _, _, _ => .revert
     | state, .setMapping2 fieldName key1 key2 value =>
@@ -2258,6 +2298,14 @@ mutual
                   { state with
                       world := writeAddressKeyedMapping2WordSlots
                         state.world slots resolvedKey1 resolvedKey2 wordOffset resolved }
+            | some { wordOffset := wordOffset, packed := some packed, .. } =>
+                if packedBitsValid packed then
+                  .continue
+                    { state with
+                        world := writeAddressKeyedMapping2PackedWordSlots
+                          state.world slots resolvedKey1 resolvedKey2 wordOffset packed resolved }
+                else
+                  .revert
             | _ => .revert
         | _, _, _, _, _ => .revert
     | state, .setMappingUint fieldName key value =>
@@ -3256,6 +3304,14 @@ mutual
                   { state with
                       world := writeAddressKeyedMappingWordSlots
                         state.world slots resolvedKey wordOffset resolved }
+            | some { wordOffset := wordOffset, packed := some packed, .. } =>
+                if packedBitsValid packed then
+                  .continue
+                    { state with
+                        world := writeAddressKeyedMappingPackedWordSlots
+                          state.world slots resolvedKey wordOffset packed resolved }
+                else
+                  .revert
             | _ => .revert
         | _, _, _, _ => .revert
     | .setMapping2 fieldName key1 key2 value =>
@@ -3304,6 +3360,14 @@ mutual
                   { state with
                       world := writeAddressKeyedMapping2WordSlots
                         state.world slots resolvedKey1 resolvedKey2 wordOffset resolved }
+            | some { wordOffset := wordOffset, packed := some packed, .. } =>
+                if packedBitsValid packed then
+                  .continue
+                    { state with
+                        world := writeAddressKeyedMapping2PackedWordSlots
+                          state.world slots resolvedKey1 resolvedKey2 wordOffset packed resolved }
+                else
+                  .revert
             | _ => .revert
         | _, _, _, _, _ => .revert
     | .setMappingUint fieldName key value =>
