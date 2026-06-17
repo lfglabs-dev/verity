@@ -1777,6 +1777,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMappingWordSlots_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMappingPackedWordSlots_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMapping2WordSlots_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMapping2PackedWordSlots_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMappingChainSlots_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeStorageArray_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.packedBitsValid_eq
@@ -5582,4 +5583,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5224 theorems/lemmas (3618 public, 1606 private, 0 sorry'd)
+-- Total: 5225 theorems/lemmas (3619 public, 1606 private, 0 sorry'd)
