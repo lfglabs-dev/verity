@@ -17,4 +17,13 @@ contract PropertyReentrancyDispositionDeclaredTest is YulTestBase {
         require(target != address(0), "Deploy failed");
     }
 
+    // Property 1: TODO decode and assert `takeWithDisposition` result
+    function testTODO_TakeWithDisposition_DecodeAndAssert() public {
+        vm.prank(alice);
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("takeWithDisposition(uint256)", uint256(1)));
+        require(ok, "takeWithDisposition reverted unexpectedly");
+        assertEq(ret.length, 32, "takeWithDisposition ABI return length mismatch (expected 32 bytes)");
+        // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
+        ret;
+    }
 }

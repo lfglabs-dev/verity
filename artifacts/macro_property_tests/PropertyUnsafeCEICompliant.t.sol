@@ -17,4 +17,13 @@ contract PropertyUnsafeCEICompliantTest is YulTestBase {
         require(target != address(0), "Deploy failed");
     }
 
+    // Property 1: TODO decode and assert `writeBeforeUnsafeCall` result
+    function testTODO_WriteBeforeUnsafeCall_DecodeAndAssert() public {
+        vm.prank(alice);
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("writeBeforeUnsafeCall(uint256)", uint256(1)));
+        require(ok, "writeBeforeUnsafeCall reverted unexpectedly");
+        assertEq(ret.length, 32, "writeBeforeUnsafeCall ABI return length mismatch (expected 32 bytes)");
+        // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
+        ret;
+    }
 }
