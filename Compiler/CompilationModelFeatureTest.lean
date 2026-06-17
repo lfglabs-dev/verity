@@ -2577,6 +2577,17 @@ private def duplicateInternalNameSpec : CompilationModel := {
   ]
 }
 
+private def duplicateImmutableNameSpec : CompilationModel := {
+  name := "DuplicateImmutableName"
+  fields := []
+  «immutables» := [
+    { name := "cap", ty := ParamType.uint256, init := Expr.literal 1 },
+    { name := "cap", ty := ParamType.uint256, init := Expr.literal 2 }
+  ]
+  «constructor» := none
+  functions := []
+}
+
 private def internalExternalNameCollisionSpec : CompilationModel := {
   name := "InternalExternalNameCollision"
   fields := []
@@ -5202,6 +5213,10 @@ set_option maxRecDepth 4096 in
     "same-name internal helpers are rejected before Yul lowering"
     duplicateInternalNameSpec
     "duplicate internal function name 'helper'"
+  expectCompileErrorContains
+    "same-name immutables are rejected before Yul lowering"
+    duplicateImmutableNameSpec
+    "duplicate immutable name 'cap'"
   expectCompileErrorContains
     "internal helper source names cannot collide with external dispatch names"
     internalExternalNameCollisionSpec

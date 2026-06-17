@@ -448,6 +448,11 @@ private def validateCompileInputsBeforeFieldWriteConflict
       throw s!"Compilation error: duplicate field name '{dup}' in {spec.name}"
   | none =>
       pure ()
+  match firstDuplicateName (spec.immutables.map (·.name)) with
+  | some dup =>
+      throw s!"Compilation error: duplicate immutable name '{dup}' in {spec.name}"
+  | none =>
+      pure ()
   match firstInvalidPackedBits spec.fields with
   | some (fieldName, packed) =>
       throw s!"Compilation error: field '{fieldName}' has invalid packedBits offset={packed.offset} width={packed.width} in {spec.name} ({issue623Ref}). Require 0 < width <= 256, offset < 256, and offset + width <= 256."
