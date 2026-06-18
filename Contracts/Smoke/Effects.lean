@@ -134,13 +134,13 @@ verity_contract CEILadderSmoke where
     return echoed
 
   -- cei_safe is recorded as metadata; it does not bypass CEI by itself.
-  function cei_safe callThenStoreProved (x : Uint256) : Uint256 := do
+  function cei_safe reentrancy_trusted callThenStoreProved (x : Uint256) : Uint256 := do
     setStorage counter x
     let echoed := externalCall "echo" [x]
     return echoed
 
   -- Normal function: CEI-compliant (effects before interactions), gets _cei_compliant
-  function storeThenCall (x : Uint256) : Uint256 := do
+  function reentrancy_trusted storeThenCall (x : Uint256) : Uint256 := do
     setStorage counter x
     let echoed := externalCall "echo" [x]
     return echoed

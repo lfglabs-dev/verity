@@ -439,7 +439,7 @@ private partial def validateEffectStmtExprTypes
       | none =>
       match ← resolveLocalFunctionApp? fields constDecls immutableDecls externalDecls functions params locals stx with
       | some (fn, argTerms) =>
-          ensureSupportsInternalHelperSpec stx fn
+          ensureCallableAsInternalHelper stx fn
           if fn.returnTy != .unit then
             throwErrorAt stx
               s!"helper call '{fn.name}' returns {renderValueType fn.returnTy}; use `let ... ← {fn.name} ...` or tuple destructuring"
@@ -983,7 +983,7 @@ private def translateEffectStmt
       | none =>
       match ← resolveLocalFunctionApp? fields constDecls immutableDecls externalDecls functions params locals stx with
       | some (fn, argTerms) =>
-          ensureSupportsInternalHelperSpec stx fn
+          ensureCallableAsInternalHelper stx fn
           if fn.returnTy != .unit then
             throwErrorAt stx
               s!"helper call '{fn.name}' returns {renderValueType fn.returnTy}; use `let ... ← {fn.name} ...` or tuple destructuring"
@@ -2189,6 +2189,26 @@ private def mkSpecCommand
         else
           `(false)
       let ceiSafeTerm ← if fn.ceiSafe then `(true) else `(false)
+      -- The internal helper shadow drops `nonReentrantLock` (the transient guard
+      -- only runs at the external dispatch boundary), so the cross-function
+      -- reentrancy gate would reject any external call it makes. The public entry
+      -- is already protected — by its `nonreentrant` guard or its own
+      -- `reentrancy_trusted` assertion — so propagate a `reentrancyTrusted` flag
+      -- onto the shadow to record that its external calls run under that
+      -- protection. When the public function carried neither, the public spec
+      -- itself fails the gate first, so this never masks an unguarded entry.
+      -- For a *lock-only* function (`nonReentrantLock` set, no
+      -- `reentrancy_trusted`) the lock protection is local to the guarded entry
+      -- and does NOT survive on the lock-free shadow, so the shadow is rendered
+      -- unreachable: `ensureCallableAsInternalHelper` rejects any internal call
+      -- to such a function at lowering. The `reentrancyTrusted` flag below is
+      -- therefore only ever consumed for functions the author globally asserted
+      -- `reentrancy_trusted`, where the lock-free internal path is sound.
+      let shadowReentrancyTrustedTerm ←
+        if fn.nonReentrantLock.isSome || fn.reentrancyTrusted then
+          `(true)
+        else
+          `(false)
       let requiresRoleTerm ← match fn.requiresRole with
         | some roleIdent => `(some $(strTerm (toString roleIdent.getId)))
         | none => `(none)
@@ -2215,6 +2235,7 @@ private def mkSpecCommand
         allowPostInteractionWrites := $shadowAllowPostInteractionWritesTerm
         nonReentrantLock := none
         ceiSafe := $ceiSafeTerm
+        reentrancyTrusted := $shadowReentrancyTrustedTerm
         requiresRole := $requiresRoleTerm
         modifies := [ $[$internalModifiesTerms],* ]
         localObligations := [ $[$localObligationTerms],* ]
@@ -2974,6 +2995,7 @@ def mkFunctionCommandsPublic
     | some lockIdent => `(some $(strTerm (toString lockIdent.getId)))
     | none => `(none)
   let ceiSafeTerm ← if fn.ceiSafe then `(true) else `(false)
+  let reentrancyTrustedTerm ← if fn.reentrancyTrusted then `(true) else `(false)
   let requiresRoleTerm ← match fn.requiresRole with
     | some roleIdent => `(some $(strTerm (toString roleIdent.getId)))
     | none => `(none)
@@ -3001,6 +3023,7 @@ def mkFunctionCommandsPublic
     allowPostInteractionWrites := $allowPostInteractionWritesTerm
     nonReentrantLock := $nonReentrantLockTerm
     ceiSafe := $ceiSafeTerm
+    reentrancyTrusted := $reentrancyTrustedTerm
     requiresRole := $requiresRoleTerm
     modifies := [ $[$modifiesTerms],* ]
     localObligations := [ $[$localObligationTerms],* ]

@@ -329,7 +329,7 @@ verity_contract MacroExternal where
   linked_externals
     external echo(Uint256) -> (Uint256)
 
-  function allow_post_interaction_writes storeEcho (next : Uint256) : Unit := do
+  function allow_post_interaction_writes reentrancy_trusted storeEcho (next : Uint256) : Unit := do
     let echoed := externalCall "echo" [next]
     setStorage echoedValue echoed
 
@@ -420,6 +420,7 @@ def linkModeTrustSurfaceSpec : CompilationModel := {
     { name := "exercise"
       params := [{ name := "next", ty := ParamType.uint256 }]
       returnType := some FieldType.uint256
+      reentrancyTrusted := true
       body := [
         Stmt.letVar "a" (Expr.externalCall "oracleEcho" [Expr.param "next"]),
         Stmt.letVar "b" (Expr.externalCall "poseidonHash" [Expr.param "next", Expr.param "next"]),
@@ -2769,6 +2770,7 @@ private def effectOnlyExternalBindSpec : CompilationModel := {
     { name := "poke"
       params := [{ name := "next", ty := ParamType.uint256 }]
       returnType := none
+      reentrancyTrusted := true
       body := [
         Stmt.externalCallBind [] "notify" [Expr.param "next"],
         Stmt.stop
@@ -2922,6 +2924,7 @@ private def unsafeYulRawCallAllowedSpec : CompilationModel := {
     { name := "bad"
       params := []
       returnType := none
+      reentrancyTrusted := true
       body := [unsafeYulRawCallStmt, Stmt.stop]
     }
   ]
@@ -3358,6 +3361,7 @@ private def adtAliasPayloadMemoizesExprSpec : CompilationModel := {
       params := [{ name := "input", ty := ParamType.uint256 }]
       returnType := none
       allowPostInteractionWrites := true
+      reentrancyTrusted := true
       body := [
         Stmt.setStorage "choice"
           (Expr.adtConstruct "Choice" "Some" [Expr.externalCall "echo" [Expr.param "input"]]),
@@ -4366,6 +4370,7 @@ private def bubblingValueCallSmokeSpec : CompilationModel := {
         , { name := "outputSize", ty := ParamType.uint256 }
       ]
       returnType := none
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.Calls.bubblingValueCall
           (Expr.param "target")
@@ -4445,6 +4450,7 @@ private def bubblingValueCallNoOutputSmokeSpec : CompilationModel := {
         , { name := "inputSize", ty := ParamType.uint256 }
       ]
       returnType := none
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.Calls.bubblingValueCallNoOutput
           (Expr.param "target")
@@ -4517,6 +4523,7 @@ private def callbackSmokeSpec : CompilationModel := {
         , { name := "data", ty := ParamType.bytes }
       ]
       returnType := none
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.Callbacks.callback
           (Expr.param "target")
@@ -4565,6 +4572,7 @@ private def erc20SafeTransferSmokeSpec : CompilationModel := {
       ]
       returnType := none
       returns := []
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.ERC20.safeTransfer
           (Expr.param "token")
@@ -4590,6 +4598,7 @@ private def erc20SafeTransferFromSmokeSpec : CompilationModel := {
       ]
       returnType := none
       returns := []
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.ERC20.safeTransferFrom
           (Expr.param "token")
@@ -4615,6 +4624,7 @@ private def erc20SolmateSafeTransferSmokeSpec : CompilationModel := {
       ]
       returnType := none
       returns := []
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.ERC20.solmateSafeTransfer
           (Expr.param "token")
@@ -4640,6 +4650,7 @@ private def erc20SolmateSafeTransferFromSmokeSpec : CompilationModel := {
       ]
       returnType := none
       returns := []
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.ERC20.solmateSafeTransferFrom
           (Expr.param "token")
@@ -4665,6 +4676,7 @@ private def erc20SafeApproveSmokeSpec : CompilationModel := {
       ]
       returnType := none
       returns := []
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.ERC20.safeApprove
           (Expr.param "token")
@@ -4689,6 +4701,7 @@ private def callWithValueSmokeSpec : CompilationModel := {
         , { name := "dataSize", ty := ParamType.uint256 }
       ]
       returnType := none
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.Calls.callWithValue
           (Expr.param "target")
@@ -4739,6 +4752,7 @@ private def callWithValueBytesSmokeSpec : CompilationModel := {
         , { name := "data", ty := ParamType.bytes }
       ]
       returnType := none
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.Calls.callWithValueBytes
           (Expr.param "target")
@@ -5099,6 +5113,7 @@ private def erc4626DepositSmokeSpec : CompilationModel := {
       ]
       returnType := none
       returns := [ParamType.uint256]
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.ERC4626.deposit
           "shares"

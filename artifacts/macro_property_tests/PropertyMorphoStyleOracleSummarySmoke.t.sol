@@ -17,4 +17,13 @@ contract PropertyMorphoStyleOracleSummarySmokeTest is YulTestBase {
         require(target != address(0), "Deploy failed");
     }
 
+    // Property 1: TODO decode and assert `snapshotPrice` result
+    function testTODO_SnapshotPrice_DecodeAndAssert() public {
+        vm.prank(alice);
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("snapshotPrice(address)", alice));
+        require(ok, "snapshotPrice reverted unexpectedly");
+        assertEq(ret.length, 32, "snapshotPrice ABI return length mismatch (expected 32 bytes)");
+        // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
+        ret;
+    }
 }

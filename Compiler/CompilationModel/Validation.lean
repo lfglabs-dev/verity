@@ -654,6 +654,27 @@ def stmtListContainsExternalCall (stmts : List Stmt) : Bool :=
 def matchBranchesContainExternalCall (branches : List (String × List String × List Stmt)) : Bool :=
   branches.any fun (_, _, body) => stmtListContainsExternalCall body
 
+/-- Node-local classifier for the cross-function reentrancy gate: which
+    statements hand control to untrusted code in a way that can corrupt this
+    contract's state via a reentrant entrypoint. It mirrors
+    `stmtContainsExternalCallNode` but refines the `ecm` arm: an External Call
+    Module summarised as a `staticcall` (precompiles, `keccak`/`sha256`, ABI
+    encoding, view-only reads) runs in the EVM static context, where any
+    state-mutating opcode reverts — such a call provably cannot open a
+    state-corrupting reentrancy window, so it does not require a disposition.
+    Every other external-call form (a mutating `call` ECM, a `externalCall`
+    binding, a non-builtin `externalCall` expression, raw-Yul `call`/`staticcall`/
+    `delegatecall`) stays window-opening: it reaches an external contract that
+    may re-enter. -/
+def stmtReentrancyWindowNode : Stmt → Bool
+  | Stmt.ecm mod _ =>
+      mod.summaryMutability == Compiler.ECM.StatefulExternal.Mutability.call
+  | s => stmtContainsExternalCallNode s
+
+/-- Whether a statement (deeply) opens a cross-function reentrancy window. -/
+def stmtOpensReentrancyWindow (s : Stmt) : Bool :=
+  s.anyDeep stmtReentrancyWindowNode
+
 /-- Conservative variant of `stmtContainsExternalCallNode` for
     `no_external_calls` validation. Returns `true` for internal calls because
     callee bodies may contain external calls that are not visible at
@@ -1349,6 +1370,33 @@ def validateFunctionSpec (spec : FunctionSpec) : Except String Unit := do
         throw s!"Compilation error: function '{spec.name}' violates CEI (Checks-Effects-Interactions) ordering: {violation}. Reorder state writes before external calls, or annotate with allow_post_interaction_writes / nonreentrant(<lock>) to opt out ({issue1728Ref})"
     | none => pure ()
   validateFunctionIdentifierReferences spec
+
+/-- Cross-function reentrancy gate (fail-closed). A function that makes a direct
+    external call opens a reentrancy window: while control is handed to an
+    external callee, another entrypoint can re-enter and observe or exploit this
+    contract's mid-update state (the Midnight `take`/`liquidate` class of bug,
+    which single-function CEI does NOT prevent — even a CEI-clean function leaves
+    a transiently-exploitable state live during its callback). Such a function
+    must therefore carry a *sound* reentrancy disposition: either a runtime
+    `nonreentrant(<lock>)` guard (closes the window at the external dispatch
+    boundary, #1893) or an explicit audited `reentrancy_trusted` assertion.
+    `cei_safe` / `allow_post_interaction_writes` only concern single-function CEI
+    and are intentionally NOT accepted here. `view`/`pure` functions are exempt:
+    a read-only (staticcall) context cannot mutate state and so cannot open a
+    state-corrupting reentrancy window. For the same reason `stmtOpensReentrancyWindow`
+    (unlike `stmtContainsExternalCall`) does not count a `staticcall`-summarised
+    ECM — precompiles, `keccak`/`sha256`, ABI encoding, view-only reads — which
+    the EVM runs in a static context where any state mutation reverts.
+
+    This runs as a dedicated pass *after* call well-formedness validation
+    (`validateExternalCallTargetsInFunction`), so a malformed external call
+    surfaces its structural error first; the reentrancy policy only judges
+    otherwise well-formed external calls. -/
+def validateReentrancyDisposition (spec : FunctionSpec) : Except String Unit := do
+  if spec.body.any stmtOpensReentrancyWindow
+      && !spec.isView && !spec.isPure
+      && !(spec.nonReentrantLock.isSome || spec.reentrancyTrusted) then
+    throw s!"Compilation error: function '{spec.name}' makes an external call but declares no reentrancy disposition. An external call hands control to an untrusted callee that may re-enter another entrypoint while this contract's state is mid-update (cross-function reentrancy). Add `nonreentrant(<lock>)` to synthesise a runtime guard, or `reentrancy_trusted` to assert — and own — that every external callee is trusted not to re-enter ({issue1728Ref}). cei_safe / allow_post_interaction_writes cover only single-function CEI and do not satisfy this gate."
 
 /-- Node-local constructor return check; nested statement bodies are reached
     via the canonical `Stmt.forDeepM`. -/
