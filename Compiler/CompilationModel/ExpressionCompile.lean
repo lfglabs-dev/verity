@@ -44,10 +44,6 @@ def findInternalFunctionForCall? (functions : List FunctionSpec) (name : String)
   | [fn] => some fn
   | _ => none
 
-def directForwardedInternalCallArgName? : Expr → Option String
-  | Expr.param name => some name
-  | _ => none
-
 -- Compile expression to Yul (using mutual recursion for lists)
 set_option maxHeartbeats 800000 in
 mutual
@@ -65,7 +61,7 @@ def compileInternalCallArg (fields : List Field) (dynamicSource : DynamicDataSou
     (internalFunctions : List FunctionSpec) (calleeName : String) (param : Param) (arg : Expr) :
     Except String (List YulExpr) := do
   if isExpandedInternalParamType param.ty then
-    match directForwardedInternalCallArgName? arg with
+    match directForwardedInternalArgName? arg with
     | some name =>
         pure ((internalCallYulArgNamesForParam name param).map YulExpr.ident)
     | none =>

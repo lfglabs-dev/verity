@@ -93,6 +93,7 @@ def internalDynamicParamSupported : ParamType → Bool
   | ParamType.bytes | ParamType.string => true
   | ty@(ParamType.tuple _) => isDynamicParamType ty
   | ty@(ParamType.fixedArray _ _) => isDynamicParamType ty
+  | ParamType.newtypeOf _ baseTy => internalDynamicParamSupported baseTy
   | _ => false
 
 def firstUnsupportedInternalDynamicParam
@@ -156,10 +157,6 @@ def findInternalFunctionByName (functions : List FunctionSpec)
       throw s!"Compilation error: function '{callerName}' references unknown internal function '{calleeName}' ({issue625Ref})."
   | _ =>
       throw s!"Compilation error: function '{callerName}' references ambiguous internal function '{calleeName}' ({issue625Ref})."
-
-def directForwardedInternalArgName? : Expr → Option String
-  | Expr.param name => some name
-  | _ => none
 
 def internalParamTypeAndLayoutMatches (sourceTy expectedTy : ParamType) : Bool :=
   sourceTy == expectedTy &&

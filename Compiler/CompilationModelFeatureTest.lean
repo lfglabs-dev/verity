@@ -3489,12 +3489,34 @@ private def adtAliasPayloadMemoizesExprSpec : CompilationModel := {
 }
 
 -- Regression tests for Bugbot MEDIUM issues in PR #2016 (task/1889-internal-helper-args):
--- (a) internal helper call with dynamic/composite args inside fallback body must use callee-aware
---     compileInternalCallArgs (not plain compileExprList) => correct expansion to offset/length.
+-- (a) internal helper calls inside fallback body must receive the real internal-functions table.
+--     Fallback has no named typed params, so dynamic/composite arg forwarding is covered by the
+--     external-entry fixture below.
 -- (b) internal helper call inside ADT ctor payload for setStorage must thread internals through
 --     compileAdtStorageWrite (not compileExprList) => correct expansion.
-private def fallbackInternalDynamicArgSpec : CompilationModel := {
-  name := "FallbackInternalDynamicArgRegression"
+private def fallbackInternalCallSpec : CompilationModel := {
+  name := "FallbackInternalCallRegression"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "internal_value"
+      params := []
+      returnType := some FieldType.uint256
+      isInternal := true
+      body := [Stmt.return (Expr.literal 1)]
+    },
+    { name := "fallback"
+      params := []
+      returnType := none
+      body := [
+        Stmt.return (Expr.internalCall "internal_value" [])
+      ]
+    }
+  ]
+}
+
+private def entryInternalDynamicArgSpec : CompilationModel := {
+  name := "EntryInternalDynamicArgRegression"
   fields := []
   «constructor» := none
   functions := [
@@ -3504,11 +3526,32 @@ private def fallbackInternalDynamicArgSpec : CompilationModel := {
       isInternal := true
       body := [Stmt.return (Expr.arrayElement "xs" (Expr.literal 0))]
     },
-    { name := "fallback"
-      params := []
-      returnType := none
+    { name := "entry"
+      params := [{ name := "xs", ty := ParamType.array ParamType.uint256 }]
+      returnType := some FieldType.uint256
       body := [
         Stmt.return (Expr.internalCall "internal_first" [Expr.param "xs"])
+      ]
+    }
+  ]
+}
+
+private def newtypeInternalDynamicArgSpec : CompilationModel := {
+  name := "NewtypeInternalDynamicArgRegression"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "internal_length"
+      params := [{ name := "xs", ty := ParamType.newtypeOf "Amounts" (ParamType.array ParamType.uint256) }]
+      returnType := some FieldType.uint256
+      isInternal := true
+      body := [Stmt.return (Expr.param "xs_length")]
+    },
+    { name := "entry"
+      params := [{ name := "xs", ty := ParamType.newtypeOf "Amounts" (ParamType.array ParamType.uint256) }]
+      returnType := some FieldType.uint256
+      body := [
+        Stmt.return (Expr.internalCall "internal_length" [Expr.param "xs"])
       ]
     }
   ]
@@ -5757,15 +5800,27 @@ set_option maxRecDepth 4096 in
   expectTrue "ADT alias writes reuse the generated payload local"
     ((contains adtAliasPayloadMemoYul "let __adt_payload_0 := echo(input)") &&
       (countOccurrences adtAliasPayloadMemoYul "__adt_payload_0" >= 3))
-  -- Bugbot regression (a): fallback/receive must receive real internalFunctions table so
-  -- dynamic/composite internal calls inside them expand args correctly (not fall to compileExprList).
-  let fallbackInternalDynYul ← expectCompileToYul
-    "fallback with internal dynamic/composite arg call (Bugbot regression a: fallback omits internal function table)"
-    fallbackInternalDynamicArgSpec
-  expectTrue "fallback internalCall (short-form array arg) expands via callee-aware path to data_offset + length (two args, not single 'xs')"
-    ((contains fallbackInternalDynYul "internal_first") &&
-      (contains fallbackInternalDynYul "xs_data_offset") &&
-      (contains fallbackInternalDynYul "xs_length"))
+  -- Bugbot regression (a): fallback/receive must receive real internalFunctions table.
+  let fallbackInternalYul ← expectCompileToYul
+    "fallback with internal helper call (Bugbot regression a: fallback omits internal function table)"
+    fallbackInternalCallSpec
+  expectTrue "fallback internalCall resolves through the threaded internal-functions table"
+    ((contains fallbackInternalYul "internal_value") &&
+      (contains fallbackInternalYul "internal_internal_value()"))
+  let entryInternalDynYul ← expectCompileToYul
+    "external entry with internal dynamic/composite arg call expands short-form arg"
+    entryInternalDynamicArgSpec
+  expectTrue "entry internalCall (short-form array arg) expands via callee-aware path to data_offset + length (two args, not single 'xs')"
+    ((contains entryInternalDynYul "internal_first") &&
+      (contains entryInternalDynYul "xs_data_offset") &&
+      (contains entryInternalDynYul "xs_length"))
+  let newtypeInternalDynYul ← expectCompileToYul
+    "newtype-wrapped dynamic internal arg has matching callee/caller arity"
+    newtypeInternalDynamicArgSpec
+  expectTrue "newtype dynamic internal helper declaration and call both use data_offset + length"
+    ((contains newtypeInternalDynYul "internal_length") &&
+      (contains newtypeInternalDynYul "function internal_internal_length(xs_data_offset, xs_length)") &&
+      (contains newtypeInternalDynYul "internal_internal_length(xs_data_offset, xs_length)"))
   -- Bugbot regression (b): ADT storage write payload must use internals-aware expr compile
   -- so internal calls with dynamic args inside adtConstruct args expand correctly.
   let adtInternalDynYul ← expectCompileToYul
