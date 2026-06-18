@@ -594,17 +594,17 @@ example :
       functionReturns identityInternalHelper = Except.ok returns →
       retNames =
         freshInternalRetNames returns
-          (identityInternalHelper.params.map (·.name) ++
+          (internalFunctionYulParamNames identityInternalHelper.params ++
             collectStmtListBindNames identityInternalHelper.body) →
       compileStmtList [] [] [] .calldata retNames true
-        (identityInternalHelper.params.map (·.name) ++ retNames)
+        (internalFunctionYulParamNames identityInternalHelper.params ++ retNames)
         []
         identityInternalHelper.body = Except.ok bodyStmts →
       compileInternalFunction [] [] [] [] identityInternalHelper =
         Except.ok
           (YulStmt.funcDef
             (internalFunctionYulName identityInternalHelper.name)
-            (identityInternalHelper.params.map (·.name))
+            (internalFunctionYulParamNames identityInternalHelper.params)
             retNames
             bodyStmts) := by
   intro returns retNames bodyStmts hvalidate hreturns hretNames hbody
