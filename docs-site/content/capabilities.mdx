@@ -50,7 +50,7 @@ Compiler-supported and differential-tested, but only partially covered by the pr
 | Events / logs and typed errors | source-level event and custom-error forms compile; ABI log/error payload mechanics and raw logs remain partial or trust-boundary surfaces | — |
 | Richer storage layout features | many scalar, mapping, struct, packed-word, and ERC-7201 forms are covered; additional layout compatibility and richer dynamic layouts are compiler-supported or trust-reported rather than generically proof-modeled | — |
 | Single-word linear memory (`mload` / `mstore`) | single-word support in the IR interpreter; full coverage needs EVMYulLean integration | [#1411](https://github.com/lfglabs-dev/verity/issues/1411) |
-| Runtime introspection (`block.number`, `address(this)`, `chainid`) | compiler-supported and source-executable; outside the generic proof fragment | — |
+| Runtime introspection (`block.number`, `address(this)`, `tx.origin`, `chainid`, `blobbasefee`) | compiler-supported and source-executable; outside the generic proof fragment | — |
 | `selfbalance()` / `address(this).balance` | source-executable with differential coverage; not yet in the proof fragment | — |
 | Low-level `try/catch` | lowers to a raw call + success-word `ite`; first-class catch over higher-level helpers and payload decoding are unsupported | [#1161](https://github.com/lfglabs-dev/verity/issues/1161) |
 

@@ -2377,7 +2377,7 @@ partial def inferBindSourceType
   | _ =>
       match ← resolveLocalFunctionApp? fields constDecls immutableDecls externalDecls functions params locals rhs with
       | some (fn, _argTerms) =>
-          ensureSupportsInternalHelperSpec rhs fn
+          ensureCallableAsInternalHelper rhs fn
           match fn.returnTy with
           | .tuple _ =>
               throwErrorAt rhs
@@ -2493,7 +2493,7 @@ partial def inferTupleSourceTypes?
         | other =>
             match ← resolveLocalFunctionApp? fields constDecls immutableDecls externalDecls functions params locals other with
             | some (fn, _argTerms) =>
-                ensureSupportsInternalHelperSpec rhs fn
+                ensureCallableAsInternalHelper rhs fn
                 match fn.returnTy with
                 | .tuple elemTys => pure (some elemTys.toArray)
                 | _ => pure none
@@ -3012,8 +3012,8 @@ partial def translatePureExprWithTypes
       else if let some imm := immutableDecls.find? (fun imm => declaredNameMatches name imm.name) then
         match imm.ty with
         | .uint256 | .int256 | .uint8 | .uint16 | .bytes32 | .bool =>
-            `(Compiler.CompilationModel.Expr.storage $(strTerm (immutableHiddenName imm)))
-        | .address => `(Compiler.CompilationModel.Expr.storageAddr $(strTerm (immutableHiddenName imm)))
+            `(Compiler.CompilationModel.Expr.immutable $(strTerm imm.name))
+        | .address => `(Compiler.CompilationModel.Expr.immutable $(strTerm imm.name))
         | _ => throwErrorAt stx s!"immutable '{name}' uses unsupported type"
       else if let some constant := constDecls.find? (fun constant => declaredNameMatches name constant.name) then
         translateConstantExpr fields constDecls immutableDecls visitingConstants constant.name
@@ -4148,7 +4148,7 @@ def tupleInternalCallAssignStmt?
   let resultNameTerms := targetNames.toArray.map strTerm
   match ← resolveLocalFunctionApp? fields constDecls immutableDecls externalDecls functions params locals rhs with
   | some (fn, argTerms) =>
-      ensureSupportsInternalHelperSpec rhs fn
+      ensureCallableAsInternalHelper rhs fn
       let argExprs ← translateInternalHelperCallArgs
         fields constDecls immutableDecls params locals fn argTerms
       pure (some (← `(Compiler.CompilationModel.Stmt.internalCallAssign
@@ -4645,7 +4645,7 @@ def translateBindSource
   | _ =>
       match ← resolveLocalFunctionApp? fields constDecls immutableDecls externalDecls functions params locals rhs with
       | some (fn, argTerms) =>
-          ensureSupportsInternalHelperSpec rhs fn
+          ensureCallableAsInternalHelper rhs fn
           let argExprs ← translateInternalHelperCallArgs
             fields constDecls immutableDecls params locals fn argTerms
           `(Compiler.CompilationModel.Expr.internalCall

@@ -16,6 +16,7 @@ import Contracts.ProxyUpgradeabilityMacroSmoke
 import Contracts.Smoke
 import Contracts.StringArrayErrorSmoke
 import Contracts.StringArrayEventSmoke
+import Verity.Core.Model.Denote
 import Verity.Macro.Translate
 
 -- The `unnecessarySeqFocus` linter recurses through every tactic block in the
@@ -328,7 +329,7 @@ verity_contract MacroExternal where
   linked_externals
     external echo(Uint256) -> (Uint256)
 
-  function allow_post_interaction_writes storeEcho (next : Uint256) : Unit := do
+  function allow_post_interaction_writes reentrancy_trusted storeEcho (next : Uint256) : Unit := do
     let echoed := externalCall "echo" [next]
     setStorage echoedValue echoed
 
@@ -419,6 +420,7 @@ def linkModeTrustSurfaceSpec : CompilationModel := {
     { name := "exercise"
       params := [{ name := "next", ty := ParamType.uint256 }]
       returnType := some FieldType.uint256
+      reentrancyTrusted := true
       body := [
         Stmt.letVar "a" (Expr.externalCall "oracleEcho" [Expr.param "next"]),
         Stmt.letVar "b" (Expr.externalCall "poseidonHash" [Expr.param "next", Expr.param "next"]),
@@ -1787,32 +1789,27 @@ verity_contract MacroTypedImmutable where
   function domainSeparator () : Bytes32 := do
     return domainTag
 
-def specIncludesInternalImmutableFields : Bool :=
-  MacroImmutable.spec.fields.map (·.name) ==
-    ["owner", "__immutable_seededSupply", "__immutable_treasury"]
+def specKeepsImmutablesOutOfStorageFields : Bool :=
+  MacroImmutable.spec.fields.map (·.name) == ["owner"] &&
+  MacroImmutable.spec.immutables.map (·.name) == ["seededSupply", "treasury"]
 
-example : specIncludesInternalImmutableFields = true := by native_decide
-
-def constructorSeedsInternalImmutableSlots : Bool :=
+def constructorSeedsBytecodeImmutables : Bool :=
   match MacroImmutable.spec.constructor with
   | some ctor =>
       match ctor.body with
-      | [Stmt.setStorage "__immutable_seededSupply"
+      | [Stmt.setImmutable "seededSupply"
             (Expr.add (Expr.param "seed") (Expr.literal 2)),
-          Stmt.setStorageAddr "__immutable_treasury" (Expr.param "ownerSeed"),
+          Stmt.setImmutable "treasury" (Expr.param "ownerSeed"),
           Stmt.setStorageAddr "owner" (Expr.param "ownerSeed")] =>
           true
       | _ => false
   | none => false
 
-example : constructorSeedsInternalImmutableSlots = true := by native_decide
-
-def runtimeFunctionsLoadImmutableValuesFromState : Bool :=
-  match MacroImmutable.supplyCap Verity.defaultState, MacroImmutable.treasuryAddr Verity.defaultState with
-  | .success 0 _, .success treasury _ => treasury == zeroAddress
+def runtimeFunctionsUseImmutableExpressions : Bool :=
+  match MacroImmutable.supplyCap_modelBody, MacroImmutable.treasuryAddr_modelBody with
+  | [Stmt.return (Expr.immutable "seededSupply")],
+      [Stmt.return (Expr.immutable "treasury")] => true
   | _, _ => false
-
-example : runtimeFunctionsLoadImmutableValuesFromState = true := by native_decide
 
 def functionParamsStillShadowImmutableNames : Bool :=
   match MacroImmutable.shadowed 91 Verity.defaultState with
@@ -1826,50 +1823,39 @@ def implicitConstructorCreatedForImmutableInitializers : Bool :=
   | some ctor =>
       ctor.params.isEmpty &&
       match ctor.body with
-      | [Stmt.setStorage "__immutable_feeScale" (Expr.literal 10000)] => true
+      | [Stmt.setImmutable "feeScale" (Expr.literal 10000)] => true
       | _ => false
   | none => false
 
-example : implicitConstructorCreatedForImmutableInitializers = true := by native_decide
-
-def implicitImmutableExecutableReadsRuntimeSlot : Bool :=
-  match MacroImplicitImmutable.getFeeScale Verity.defaultState with
-  | .success value _ => value == 0
+def implicitImmutableFunctionUsesImmutableExpression : Bool :=
+  match MacroImplicitImmutable.getFeeScale_modelBody with
+  | [Stmt.return (Expr.immutable "feeScale")] => true
   | _ => false
 
-example : implicitImmutableExecutableReadsRuntimeSlot = true := by native_decide
+def typedImmutableSpecUsesImmutableSurface : Bool :=
+  MacroTypedImmutable.spec.fields.isEmpty &&
+  MacroTypedImmutable.spec.immutables.map (fun imm => (imm.name, imm.ty)) ==
+    [("paused", ParamType.bool), ("feeBps", ParamType.uint8), ("domainTag", ParamType.bytes32)]
 
-def typedImmutableSpecUsesWordBackedHiddenSlots : Bool :=
-  match MacroTypedImmutable.spec.fields.map (fun f => (f.name, f.ty)) with
-  | [("__immutable_paused", FieldType.uint256),
-      ("__immutable_feeBps", FieldType.uint256),
-      ("__immutable_domainTag", FieldType.uint256)] => true
-  | _ => false
-
-example : typedImmutableSpecUsesWordBackedHiddenSlots = true := by native_decide
-
-def typedImmutableConstructorSeedsWordSlots : Bool :=
+def typedImmutableConstructorSeedsBytecodeValues : Bool :=
   match MacroTypedImmutable.spec.constructor with
   | some ctor =>
       ctor.params.isEmpty &&
       match ctor.body with
-      | [Stmt.setStorage "__immutable_paused" (Expr.literal 1),
-          Stmt.setStorage "__immutable_feeBps" (Expr.literal 7),
-          Stmt.setStorage "__immutable_domainTag" (Expr.literal 42)] => true
+      | [Stmt.setImmutable "paused" (Expr.literal 1),
+          Stmt.setImmutable "feeBps" (Expr.literal 7),
+          Stmt.setImmutable "domainTag" (Expr.literal 42)] => true
       | _ => false
   | none => false
 
-example : typedImmutableConstructorSeedsWordSlots = true := by native_decide
-
-def typedImmutableExecutableReadsConvertedValues : Bool :=
-  match MacroTypedImmutable.isPaused Verity.defaultState,
-      MacroTypedImmutable.feeScale Verity.defaultState,
-      MacroTypedImmutable.domainSeparator Verity.defaultState with
-  | .success paused _, .success feeBps _, .success domainTag _ =>
-      paused = false && feeBps == 0 && domainTag == 0
+def typedImmutableFunctionsUseImmutableExpressions : Bool :=
+  match MacroTypedImmutable.isPaused_modelBody,
+      MacroTypedImmutable.feeScale_modelBody,
+      MacroTypedImmutable.domainSeparator_modelBody with
+  | [Stmt.return (Expr.immutable "paused")],
+      [Stmt.return (Expr.immutable "feeBps")],
+      [Stmt.return (Expr.immutable "domainTag")] => true
   | _, _, _ => false
-
-example : typedImmutableExecutableReadsConvertedValues = true := by native_decide
 
 end MacroImmutableSmoke
 
@@ -2593,6 +2579,36 @@ private def duplicateInternalNameSpec : CompilationModel := {
   ]
 }
 
+private def duplicateImmutableNameSpec : CompilationModel := {
+  name := "DuplicateImmutableName"
+  fields := []
+  «immutables» := [
+    { name := "cap", ty := ParamType.uint256, init := Expr.literal 1 },
+    { name := "cap", ty := ParamType.uint256, init := Expr.literal 2 }
+  ]
+  «constructor» := none
+  functions := []
+}
+
+private def uninitializedImmutableSpec : CompilationModel := {
+  name := "UninitializedImmutable"
+  fields := []
+  «immutables» := [
+    { name := "cap", ty := ParamType.uint256, init := Expr.literal 1 }
+  ]
+  «constructor» := some {
+    params := []
+    body := [Stmt.stop]
+  }
+  functions := [
+    { name := "load"
+      params := []
+      returnType := some FieldType.uint256
+      body := [Stmt.return (Expr.immutable "cap")]
+    }
+  ]
+}
+
 private def internalExternalNameCollisionSpec : CompilationModel := {
   name := "InternalExternalNameCollision"
   fields := []
@@ -2754,6 +2770,7 @@ private def effectOnlyExternalBindSpec : CompilationModel := {
     { name := "poke"
       params := [{ name := "next", ty := ParamType.uint256 }]
       returnType := none
+      reentrancyTrusted := true
       body := [
         Stmt.externalCallBind [] "notify" [Expr.param "next"],
         Stmt.stop
@@ -2907,6 +2924,7 @@ private def unsafeYulRawCallAllowedSpec : CompilationModel := {
     { name := "bad"
       params := []
       returnType := none
+      reentrancyTrusted := true
       body := [unsafeYulRawCallStmt, Stmt.stop]
     }
   ]
@@ -3343,6 +3361,7 @@ private def adtAliasPayloadMemoizesExprSpec : CompilationModel := {
       params := [{ name := "input", ty := ParamType.uint256 }]
       returnType := none
       allowPostInteractionWrites := true
+      reentrancyTrusted := true
       body := [
         Stmt.setStorage "choice"
           (Expr.adtConstruct "Choice" "Some" [Expr.externalCall "echo" [Expr.param "input"]]),
@@ -4351,6 +4370,7 @@ private def bubblingValueCallSmokeSpec : CompilationModel := {
         , { name := "outputSize", ty := ParamType.uint256 }
       ]
       returnType := none
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.Calls.bubblingValueCall
           (Expr.param "target")
@@ -4430,6 +4450,7 @@ private def bubblingValueCallNoOutputSmokeSpec : CompilationModel := {
         , { name := "inputSize", ty := ParamType.uint256 }
       ]
       returnType := none
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.Calls.bubblingValueCallNoOutput
           (Expr.param "target")
@@ -4502,6 +4523,7 @@ private def callbackSmokeSpec : CompilationModel := {
         , { name := "data", ty := ParamType.bytes }
       ]
       returnType := none
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.Callbacks.callback
           (Expr.param "target")
@@ -4550,6 +4572,7 @@ private def erc20SafeTransferSmokeSpec : CompilationModel := {
       ]
       returnType := none
       returns := []
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.ERC20.safeTransfer
           (Expr.param "token")
@@ -4575,6 +4598,7 @@ private def erc20SafeTransferFromSmokeSpec : CompilationModel := {
       ]
       returnType := none
       returns := []
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.ERC20.safeTransferFrom
           (Expr.param "token")
@@ -4600,6 +4624,7 @@ private def erc20SolmateSafeTransferSmokeSpec : CompilationModel := {
       ]
       returnType := none
       returns := []
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.ERC20.solmateSafeTransfer
           (Expr.param "token")
@@ -4625,6 +4650,7 @@ private def erc20SolmateSafeTransferFromSmokeSpec : CompilationModel := {
       ]
       returnType := none
       returns := []
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.ERC20.solmateSafeTransferFrom
           (Expr.param "token")
@@ -4650,6 +4676,7 @@ private def erc20SafeApproveSmokeSpec : CompilationModel := {
       ]
       returnType := none
       returns := []
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.ERC20.safeApprove
           (Expr.param "token")
@@ -4674,6 +4701,7 @@ private def callWithValueSmokeSpec : CompilationModel := {
         , { name := "dataSize", ty := ParamType.uint256 }
       ]
       returnType := none
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.Calls.callWithValue
           (Expr.param "target")
@@ -4724,6 +4752,7 @@ private def callWithValueBytesSmokeSpec : CompilationModel := {
         , { name := "data", ty := ParamType.bytes }
       ]
       returnType := none
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.Calls.callWithValueBytes
           (Expr.param "target")
@@ -5084,6 +5113,7 @@ private def erc4626DepositSmokeSpec : CompilationModel := {
       ]
       returnType := none
       returns := [ParamType.uint256]
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.ERC4626.deposit
           "shares"
@@ -5196,6 +5226,49 @@ example : routerStructMembersDestructuringKeepsMemberTypes = true := by native_d
 
 end MacroSolidityTypeFidelitySmoke
 
+namespace PackedStructMemberDenoteSmoke
+
+private def oracle : Denote.DenoteOracle :=
+  { mappingSlot := fun base key => base * 1000 + key
+    keccakMemorySlice := fun _ _ _ => 0 }
+
+private def fields : List Field :=
+  [{ name := "deposits",
+     ty := FieldType.mappingStruct MappingKeyType.address
+       [{ name := "deposit", wordOffset := 0, packed := none },
+        { name := "staked", ty := .bool, wordOffset := 1,
+          packed := some { offset := 0, width := 1 } },
+        { name := "stake", wordOffset := 1,
+          packed := some { offset := 1, width := 112 } },
+        { name := "unstakeDelaySec", ty := .uint256, wordOffset := 1,
+          packed := some { offset := 113, width := 32 } },
+        { name := "withdrawTime", wordOffset := 1,
+          packed := some { offset := 145, width := 48 } }],
+     «slot» := some 1 }]
+
+private def key : Nat := 7
+private def packedSlot : Nat := oracle.mappingSlot 1 key + 1
+private def oldWord : Nat := 1 + 5 * 2 ^ 1 + 9 * 2 ^ 113
+private def expectedWord : Nat := 1 + 7 * 2 ^ 1 + 9 * 2 ^ 113
+
+private def preservesAdjacentPackedFields : Bool :=
+  let world : Verity.ContractState :=
+    { Verity.defaultState with
+      «storage» := fun s => if s == packedSlot then oldWord else 0 }
+  let state : Denote.DenoteState := { world := world, bindings := [] }
+  match Denote.execStmt oracle fields state
+      (Stmt.setStructMember "deposits" (.literal key) "stake" (.literal 7)) with
+  | .continue next =>
+      (next.world.storage packedSlot).val == expectedWord
+  | _ => false
+
+#eval! do
+  expectTrue
+    "packed mapping struct writes preserve adjacent fields in the same word"
+    preservesAdjacentPackedFields
+
+end PackedStructMemberDenoteSmoke
+
 set_option maxRecDepth 4096 in
 #eval! do
   let compiled :=
@@ -5218,6 +5291,14 @@ set_option maxRecDepth 4096 in
     "same-name internal helpers are rejected before Yul lowering"
     duplicateInternalNameSpec
     "duplicate internal function name 'helper'"
+  expectCompileErrorContains
+    "same-name immutables are rejected before Yul lowering"
+    duplicateImmutableNameSpec
+    "duplicate immutable name 'cap'"
+  expectCompileErrorContains
+    "declared immutables left unset by the constructor are rejected"
+    uninitializedImmutableSpec
+    "immutable 'cap' is declared but never initialized in the constructor"
   expectCompileErrorContains
     "internal helper source names cannot collide with external dispatch names"
     internalExternalNameCollisionSpec
@@ -5323,14 +5404,14 @@ set_option maxRecDepth 4096 in
     "macro reinitializer executable path advances the tracked version"
     MacroInitializerSmoke.reinitializerExecutableAdvancesVersion
   expectTrue
-    "macro immutable spec includes internal hidden fields"
-    MacroImmutableSmoke.specIncludesInternalImmutableFields
+    "macro immutable spec keeps immutables out of storage fields"
+    MacroImmutableSmoke.specKeepsImmutablesOutOfStorageFields
   expectTrue
-    "macro immutable constructor seeds internal slots before user code"
-    MacroImmutableSmoke.constructorSeedsInternalImmutableSlots
+    "macro immutable constructor seeds bytecode immutables before user code"
+    MacroImmutableSmoke.constructorSeedsBytecodeImmutables
   expectTrue
-    "macro immutable executable path loads runtime slot values"
-    MacroImmutableSmoke.runtimeFunctionsLoadImmutableValuesFromState
+    "macro immutable model path reads immutable expressions"
+    MacroImmutableSmoke.runtimeFunctionsUseImmutableExpressions
   expectTrue
     "macro immutable function parameters still shadow immutable names"
     MacroImmutableSmoke.functionParamsStillShadowImmutableNames
@@ -5338,17 +5419,17 @@ set_option maxRecDepth 4096 in
     "macro immutables synthesize a constructor when needed"
     MacroImmutableSmoke.implicitConstructorCreatedForImmutableInitializers
   expectTrue
-    "macro synthesized immutable constructor reads runtime storage on the executable path"
-    MacroImmutableSmoke.implicitImmutableExecutableReadsRuntimeSlot
+    "macro synthesized immutable function reads immutable expressions"
+    MacroImmutableSmoke.implicitImmutableFunctionUsesImmutableExpression
   expectTrue
-    "macro typed immutables lower to word-backed hidden slots in the spec"
-    MacroImmutableSmoke.typedImmutableSpecUsesWordBackedHiddenSlots
+    "macro typed immutables lower to the immutable spec surface"
+    MacroImmutableSmoke.typedImmutableSpecUsesImmutableSurface
   expectTrue
-    "macro typed immutables seed word-backed hidden slots in the constructor"
-    MacroImmutableSmoke.typedImmutableConstructorSeedsWordSlots
+    "macro typed immutables seed bytecode immutable values in the constructor"
+    MacroImmutableSmoke.typedImmutableConstructorSeedsBytecodeValues
   expectTrue
-    "macro typed immutables convert executable runtime reads back to source types"
-    MacroImmutableSmoke.typedImmutableExecutableReadsConvertedValues
+    "macro typed immutables read immutable expressions"
+    MacroImmutableSmoke.typedImmutableFunctionsUseImmutableExpressions
   expectTrue "macro emit lowers to Stmt.emit"
     MacroEventTraceSmoke.emitNamedModelUsesStmtEmit
   expectTrue "macro event declarations populate CompilationModel event metadata"

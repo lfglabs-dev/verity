@@ -1643,10 +1643,23 @@ end Verity.AxiomAudit
   Compiler.Proofs.Frames.stmtListWritesOnly_writeFootprint
   Compiler.Proofs.Frames.execStmt_frame_rule_writeFootprint
   Compiler.Proofs.Frames.execStmts_frame_rule_writeFootprint
+  Compiler.Proofs.Frames.ExecutionSummary.refl
+  Compiler.Proofs.Frames.ExecutionSummary.weaken
+  -- Compiler.Proofs.Frames.not_mem_append_left  -- private
+  -- Compiler.Proofs.Frames.not_mem_append_right  -- private
+  Compiler.Proofs.Frames.ExecutionSummary.trans
   Compiler.Proofs.Frames.execStmt_letVar_preserves_bindings_except
   Compiler.Proofs.Frames.execStmt_mstore_preserves_bindings_except
   Compiler.Proofs.Frames.execStmt_letVar_preserves_selector_calldata
   Compiler.Proofs.Frames.execStmt_mstore_preserves_selector_calldata
+  Compiler.Proofs.Frames.writeUintSlots_preserves_storage_except
+  Compiler.Proofs.Frames.writeStorageWordSlots_preserves_storage_except
+  Compiler.Proofs.Frames.writeStorageWordSlots_preserves_address_except
+  Compiler.Proofs.Frames.writeAddressSlots_preserves_address_except
+  Compiler.Proofs.Frames.writeStorageArray_preserves_arrays_except
+  Compiler.Proofs.Frames.execStmt_setStorage_execution_summary
+  Compiler.Proofs.Frames.execStmt_setStorageAddr_execution_summary
+  Compiler.Proofs.Frames.execStmtList_execution_summary_cons
 
   -- Compiler/Proofs/HelperStepProofs.lean
   Compiler.Proofs.HelperStepProofs.allHelperInterfacesSatisfied_of_helperSurfaceClosed
@@ -1761,6 +1774,7 @@ end Verity.AxiomAudit
 
   -- Compiler/Proofs/IRGeneration/DenoteAgreement.lean
   Compiler.Proofs.IRGeneration.DenoteAgreement.toRuntimeState_world
+  Compiler.Proofs.IRGeneration.DenoteAgreement.toRuntimeState_immutable
   Compiler.Proofs.IRGeneration.DenoteAgreement.toRuntimeState_bindings
   Compiler.Proofs.IRGeneration.DenoteAgreement.toRuntimeState_selector
   Compiler.Proofs.IRGeneration.DenoteAgreement.sourceOracle_mappingSlot
@@ -1786,6 +1800,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMappingWordSlots_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMappingPackedWordSlots_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMapping2WordSlots_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMapping2PackedWordSlots_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMappingChainSlots_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeStorageArray_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.packedBitsValid_eq
@@ -3142,6 +3157,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.SourceSemantics.execForEachLoop_empty_body_positive_bound
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_literal  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_param  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_immutable  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_localVar  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_caller  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_contractAddress  -- private
@@ -5591,4 +5607,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5233 theorems/lemmas (3627 public, 1606 private, 0 sorry'd)
+-- Total: 5249 theorems/lemmas (3640 public, 1609 private, 0 sorry'd)

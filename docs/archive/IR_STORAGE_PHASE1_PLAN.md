@@ -1,6 +1,6 @@
 # IR Storage Refactor — Phase 1 Plan
 
-Phase 1 of [`IR_STORAGE_UINT256_REFACTOR.md`](IR_STORAGE_UINT256_REFACTOR.md): flip
+Phase 1 of [`IR_STORAGE_UINT256_REFACTOR.md`](../IR_STORAGE_UINT256_REFACTOR.md): flip
 `IRStorageWord` from its Phase-0 `abbrev := Nat` surface to a `UInt256`-backed
 representation, and audit every former `Nat → Nat` callsite that flowed through
 `IRState.storage`.

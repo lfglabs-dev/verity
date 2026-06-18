@@ -7,6 +7,15 @@ Proof-layer CEI safety surface.
 This module gives that checker a public proof-facing meaning: a function has
 proof-backed CEI execution safety exactly when the checker accepts its body and
 the recognized trust exits are absent at the function boundary.
+
+Scope: this certifies *single-function* Checks-Effects-Interactions ordering
+only. It is **not** a cross-function reentrancy defense — a CEI-clean function
+can still hand control to a callee that re-enters a sibling entrypoint while
+state is mid-update (the Midnight `take`/`liquidate` class). Cross-function
+reentrancy is owned by the separate fail-closed gate
+`Compiler.CompilationModel.validateReentrancyDisposition`, whose sound
+accept-set is `nonreentrant(<lock>)` or `reentrancy_trusted` — explicitly *not*
+`cei_safe`/`allow_post_interaction_writes`.
 -/
 
 namespace Compiler.Proofs.IRGeneration

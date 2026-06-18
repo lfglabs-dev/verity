@@ -55,8 +55,18 @@ COMPILER_FILTERED_ALIAS_RE = re.compile(
     re.DOTALL,
 )
 DIRECT_MACRO_SPEC_RE = re.compile(r"Contracts\.(\w+)\.spec")
+# Optional leading mutability modifiers (`function <modifier>* <name> (...)`,
+# Verity/Macro/Syntax.lean) must be consumed before the name; otherwise an
+# annotated function (e.g. `function reentrancy_trusted f (...)`) is silently
+# skipped from selector verification. `internal` is deliberately omitted:
+# internal helpers carry no external selector, so they stay unmatched.
+_MACRO_FUNCTION_MODIFIER = (
+    r"(?:payable|view|pure|no_external_calls"
+    r"|allow_post_interaction_writes|cei_safe|reentrancy_trusted"
+    r"|nonreentrant\([^)]*\))"
+)
 MACRO_FUNCTION_RE = re.compile(
-    r"^\s*function\s+(\w+)\s*\((.*?)\)\s*:\s*([A-Za-z0-9_→ ]+)\s*:=\s*do",
+    rf"^\s*function\s+(?:{_MACRO_FUNCTION_MODIFIER}\s+)*(\w+)\s*\((.*?)\)\s*:\s*([A-Za-z0-9_→ ]+)\s*:=\s*do",
     re.MULTILINE,
 )
 MACRO_TYPE_MAP = {

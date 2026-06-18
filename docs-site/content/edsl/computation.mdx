@@ -1,0 +1,120 @@
+---
+title: Computation & Context
+description: Wrapping and checked arithmetic, fixed-point helpers, bit operations (clz/msb), and EVM context accessors including txOrigin.
+---
+
+# Computation & Context
+
+Arithmetic, bit manipulation, and reads of the execution environment.
+
+## Wrapping arithmetic (`Uint256`)
+
+`add`, `sub`, `mul`, `pow`, `div`, `mod`, plus EVM modular arithmetic. `pow a b`
+/ `a ^ b` compiles to Yul `exp(a, b)`. Bare `add` / `sub` / `mul` / `div` stay
+wrapping (no overflow guard).
+
+```verity
+let z : Uint256 := add x y
+let scale : Uint256 := pow 10 decimals
+```
+
+## Checked arithmetic (`Stdlib.Math`)
+
+```verity
+def safeAdd (a b : Uint256) : Option Uint256
+def safeSub (a b : Uint256) : Option Uint256
+def safeMul (a b : Uint256) : Option Uint256
+def safeDiv (a b : Uint256) : Option Uint256
+
+def requireSomeUint (opt : Option Uint256) (message : String) : Contract Uint256
+def requireSomeUintError (opt : Option Uint256) ErrorName(args...) : Contract Uint256
+```
+
+The canonical checked form binds a `safe*` result through `requireSomeUint`:
+
+```verity
+let newCount ← requireSomeUint (safeAdd current 1) "Overflow in increment"
+let next     ← requireSomeUint (safeMul current factor) "Product overflow"
+let quot     ← requireSomeUint (safeDiv current divisor) "Division by zero"
+```
+
+`verity_contract` lowers `requireSomeUint` over `safeAdd` / `Sub` / `Mul` /
+`Div` to explicit compiled checked-arithmetic helpers that revert with the
+Solidity built-in `Panic(uint256)` payload — `0x11` on overflow / underflow,
+`0x12` on division by zero — matching `^0.8` semantics. Each checked operation
+also surfaces a `localObligation` (e.g. `..._add_no_overflow`, discharged via
+proved equivalences such as `safeAdd_isSome_iff_addNoOverflow`). Ergonomic
+Solidity-0.8 aliases `addPanic` / `subPanic` / `mulPanic` / `divPanic` desugar
+to the same IR.
+
+Use `requireSomeUintError` with an error declared in the contract's `errors`
+block when checked arithmetic should revert with a typed custom error instead
+of a string or `Panic`:
+
+```verity
+errors
+  error AddOverflow()
+  error MulOverflow(Uint256, Uint256)
+
+let sum     <- requireSomeUintError (safeAdd a b) AddOverflow()
+let product <- requireSomeUintError (safeMul sum b) MulOverflow(sum, b)
+```
+
+### Fixed-point helpers
+
+In `Stdlib.Math`: `mulDivDown`, `mulDivUp`, `wMulDown`, `wDivUp`,
+`SNARK_SCALAR_FIELD`, `modField`. Full-precision proof helpers `mulDiv512Down?`
+/ `mulDiv512Up?` return `Option Uint256` (`none` on zero divisor or quotient
+overflow). First-class compiler lowering for a 512-bit division primitive is
+tracked separately.
+
+## Bit operations
+
+`and`, `or`, `xor`, `shl`, `shr` are wrapping word operations. Two leading-bit
+helpers compile fork-aware:
+
+```verity
+let lead := clz x        -- count leading zeros
+let high := msb x        -- index of most significant set bit
+```
+
+`msb x` desugars to `if x == 0 then 0 else 255 - clz x`. On an Osaka target the
+lowering uses the native `CLZ` opcode; pre-Osaka targets get a portable
+descending-scan fallback. The executable counterparts are
+`Verity.Stdlib.Math.clz` / `msb`. See [bitmap iteration](/edsl/control-flow#bitmap-iteration)
+for `forEachSetBit`, and [Intrinsics](/intrinsics#fork-aware-fallback) for fork
+selection.
+
+## Context accessors
+
+```verity
+def msgSender       : Contract Address
+def contractAddress : Contract Address
+def txOrigin        : Contract Address
+def msgValue        : Contract Uint256
+def selfBalance     : Contract Uint256
+def blockTimestamp  : Contract Uint256
+def blockNumber     : Contract Uint256
+def chainid         : Contract Uint256
+def blobbasefee     : Contract Uint256
+```
+
+`txOrigin` lowers to the EVM `origin` opcode; like the other accessors it is
+rejected in `pure` and compile-time-constant contexts.
+
+```verity
+function originIsSender () : Bool := do
+  let o ← txOrigin
+  let s ← msgSender
+  return (o == s)
+```
+
+`blockNumber`, `contractAddress`, `chainid`, and `selfBalance` are
+compiler-supported and source-executable but sit outside the generic proof
+fragment (`--deny-runtime-introspection` rejects them for proof-strict builds).
+
+## See also
+
+- [Storage & Data](/edsl/storage) — values these operations read and write.
+- [Control Flow, Errors & Events](/edsl/control-flow) — guarding on computed conditions.
+- [Capabilities & Limits](/capabilities) — proof status of arithmetic and introspection.
