@@ -117,8 +117,12 @@ def panicError0x11HelperName : String :=
 def panicError0x12HelperName : String :=
   "panic_error_0x12"
 
-def panicErrorHelper (helperName : String) (code : Nat) : YulStmt :=
-  YulStmt.funcDef helperName [] [] [
+/-- ABI payload for Solidity's built-in `Panic(uint256)` error.
+
+    The payload is exactly 36 bytes:
+    4-byte selector `0x4e487b71` followed by one ABI word containing `code`. -/
+def solidityPanicPayload (code : Nat) : List YulStmt :=
+  [
     YulStmt.expr (YulExpr.call "mstore" [
       YulExpr.lit 0,
       YulExpr.call "shl" [YulExpr.lit 224, YulExpr.hex 0x4e487b71]
@@ -126,6 +130,9 @@ def panicErrorHelper (helperName : String) (code : Nat) : YulStmt :=
     YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 4, YulExpr.lit code]),
     YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 36])
   ]
+
+def panicErrorHelper (helperName : String) (code : Nat) : YulStmt :=
+  YulStmt.funcDef helperName [] [] (solidityPanicPayload code)
 
 def panicError0x11Helper : YulStmt :=
   panicErrorHelper panicError0x11HelperName 0x11
