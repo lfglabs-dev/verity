@@ -1551,20 +1551,33 @@ def validateDirectParamCustomErrorArg
       throwErrorAt arg
         s!"custom error '{errorName}' arg {argIdx + 1} in function '{fnName}' currently requires direct parameter reference of type {renderValueType expectedTy} on the compilation-model path"
 
+def validateCustomErrorArg
+    (arg : Term)
+    (actualTy : ValueType)
+    (fnName errorName : String)
+    (params : Array ParamDecl)
+    (expectedTy : ValueType)
+    (argIdx : Nat) : CommandElabM Unit := do
+  requireDeclaredValueType arg
+    s!"custom error '{errorName}' arg {argIdx + 1} in function '{fnName}'"
+    expectedTy actualTy
+  if customErrorRequiresDirectParamRef expectedTy then
+    validateDirectParamCustomErrorArg arg fnName errorName params expectedTy argIdx
+
 def validateCustomErrorCall
     (fnName errorName : String)
     (params : Array ParamDecl)
     (errorDecls : Array ErrorDecl)
-    (args : Array Term) : CommandElabM Unit := do
+    (args : Array Term)
+    (argTypes : Array ValueType) : CommandElabM Unit := do
   let errorDecl ←
     match errorDecls.find? (·.name == errorName) with
     | some decl => pure decl
     | none => throwError s!"unknown custom error '{errorName}'"
-  unless errorDecl.params.size == args.size do
+  unless errorDecl.params.size == args.size && args.size == argTypes.size do
     throwError s!"custom error '{errorName}' expects {errorDecl.params.size} args, got {args.size}"
-  for ((expectedTy, arg), argIdx) in errorDecl.params.zip args |>.zipIdx do
-    if customErrorRequiresDirectParamRef expectedTy then
-      validateDirectParamCustomErrorArg arg fnName errorName params expectedTy argIdx
+  for (((expectedTy, arg), actualTy), argIdx) in errorDecl.params.zip args |>.zip argTypes |>.zipIdx do
+    validateCustomErrorArg arg actualTy fnName errorName params expectedTy argIdx
 
 def throwPureContextAccessorError (stx : Syntax) (name : String) : CommandElabM α :=
   throwErrorAt stx
