@@ -281,6 +281,175 @@ theorem stmtWritesOnly_tstore
       cases h
       exact ⟨rfl, rfl⟩
 
+/-- Syntactic constants accepted by footprint computation.  This is deliberately
+state-independent: any returned value evaluates to the same word in every
+runtime state. -/
+def Expr.staticValue : Expr → Option Nat
+  | .literal n => some (wordNormalize n)
+  | _ => none
+
+theorem evalExpr_staticValue
+    {fields : List Field} {st : RuntimeState} {e : Expr} {n : Nat}
+    (h : Expr.staticValue e = some n) :
+    evalExpr fields st e = some n := by
+  cases e
+  case literal k =>
+    simp [Expr.staticValue] at h
+    change some (wordNormalize k) = some n
+    exact congrArg some h
+  all_goals simp [Expr.staticValue] at h
+
+namespace Stmt
+
+mutual
+  /-- Computable over-approximation of resources a statement may write.
+
+  `none` means the statement is not syntactically analyzable by this lightweight
+  footprint pass, for example a memory store at a non-static offset or statements
+  whose effects are outside the current `Resource` algebra. -/
+  def writeFootprint : Stmt → Option (List Resource)
+    | .letVar name _ => some [.binding name]
+    | .assignVar name _ => some [.binding name]
+    | .mstore offset _ => do
+        let resolvedOffset ← Expr.staticValue offset
+        some [.mem resolvedOffset (resolvedOffset + 1)]
+    | .tstore _ _ => some []
+    | .require _ _ => some []
+    | .return _ => some []
+    | .stop => some []
+    | .ite _ thenBranch elseBranch => do
+        let thenWrites ← writeFootprintList thenBranch
+        let elseWrites ← writeFootprintList elseBranch
+        some (thenWrites ++ elseWrites)
+    | _ => none
+
+  /-- List-level footprint, concatenating all successfully analyzed statements. -/
+  def writeFootprintList : List Stmt → Option (List Resource)
+    | [] => some []
+    | stmt :: rest => do
+        let headWrites ← writeFootprint stmt
+        let tailWrites ← writeFootprintList rest
+        some (headWrites ++ tailWrites)
+end
+end Stmt
+
+theorem stmtWritesOnly_tstore_any
+    (fields : List Field) (offset value : Expr) :
+    StmtWritesOnly fields (.tstore offset value) [] := by
+  intro st s h r _
+  cases r <;> simp [OwnedEq, execStmt] at h ⊢
+  · cases hoff : evalExpr fields st offset <;> simp [hoff] at h
+    cases hval : evalExpr fields st value <;> simp [hval] at h
+    cases h
+    intro i _ _; rfl
+  · cases hoff : evalExpr fields st offset <;> simp [hoff] at h
+    cases hval : evalExpr fields st value <;> simp [hval] at h
+    cases h
+    rfl
+  · cases hoff : evalExpr fields st offset <;> simp [hoff] at h
+    cases hval : evalExpr fields st value <;> simp [hval] at h
+    cases h
+    exact ⟨rfl, rfl⟩
+
+theorem stmtWritesOnly_require
+    (fields : List Field) (cond : Expr) (message : String) :
+    StmtWritesOnly fields (.require cond message) [] := by
+  intro st s h r _
+  simp [execStmt] at h
+  split at h <;> try cases h
+  split at h <;> cases h
+  exact preservesExcept_nil st r (by simp)
+
+theorem stmtWritesOnly_return
+    (fields : List Field) (value : Expr) :
+    StmtWritesOnly fields (.return value) [] := by
+  intro st s h
+  simp [execStmt] at h
+  split at h <;> cases h
+
+theorem stmtWritesOnly_stop
+    (fields : List Field) :
+    StmtWritesOnly fields .stop [] := by
+  intro st s h
+  simp [execStmt] at h
+
+mutual
+  theorem stmtWritesOnly_writeFootprint
+      {fields : List Field} {stmt : Stmt} {written : List Resource}
+      (hfp : Stmt.writeFootprint stmt = some written) :
+      StmtWritesOnly fields stmt written := by
+    revert written
+    cases stmt <;> intro written hfp <;> simp [Stmt.writeFootprint] at hfp
+    case letVar name value =>
+      cases hfp; exact stmtWritesOnly_letVar fields name value
+    case assignVar name value =>
+      cases hfp; exact stmtWritesOnly_assignVar fields name value
+    case mstore offset value =>
+      cases hoff : Expr.staticValue offset <;> simp [hoff] at hfp
+      cases hfp
+      apply stmtWritesOnly_mstore fields offset value _
+      intro st' _s' _h
+      exact evalExpr_staticValue (fields := fields) (st := st') (h := hoff)
+    case tstore offset value =>
+      cases hfp; exact stmtWritesOnly_tstore_any fields offset value
+    case require cond message =>
+      cases hfp; exact stmtWritesOnly_require fields cond message
+    case «return» value =>
+      cases hfp; exact stmtWritesOnly_return fields value
+    case stop =>
+      cases hfp; exact stmtWritesOnly_stop fields
+    case ite cond thenBranch elseBranch =>
+      cases hthen : Stmt.writeFootprintList thenBranch <;> simp [hthen] at hfp
+      cases helse : Stmt.writeFootprintList elseBranch <;> simp [helse] at hfp
+      cases hfp
+      intro st s hexec
+      simp [execStmt] at hexec
+      split at hexec <;> try cases hexec
+      split at hexec
+      · exact preservesExcept_mono
+          (stmtListWritesOnly_writeFootprint helse hexec)
+          (fun w hw => List.mem_append_right _ hw)
+      · exact preservesExcept_mono
+          (stmtListWritesOnly_writeFootprint hthen hexec)
+          (fun w hw => List.mem_append_left _ hw)
+
+  theorem stmtListWritesOnly_writeFootprint
+      {fields : List Field} {stmts : List Stmt} {written : List Resource}
+      (hfp : Stmt.writeFootprintList stmts = some written) :
+      StmtsWriteOnly fields stmts written := by
+    cases stmts with
+    | nil =>
+        simp [Stmt.writeFootprintList] at hfp
+        cases hfp
+        exact stmtsWriteOnly_nil fields
+    | cons stmt rest =>
+        simp [Stmt.writeFootprintList] at hfp
+        cases hhead : Stmt.writeFootprint stmt <;> simp [hhead] at hfp
+        cases htail : Stmt.writeFootprintList rest <;> simp [htail] at hfp
+        cases hfp
+        exact stmtsWriteOnly_cons
+          (stmtWritesOnly_writeFootprint hhead)
+          (stmtListWritesOnly_writeFootprint htail)
+end
+
+theorem execStmt_frame_rule_writeFootprint
+    {fields : List Field} {stmt : Stmt} {written : List Resource}
+    {st s : RuntimeState} {r : Resource}
+    (hfp : Stmt.writeFootprint stmt = some written)
+    (hdisj : ∀ w, w ∈ written → Disjoint r w)
+    (hexec : execStmt fields st stmt = .continue s) :
+    OwnedEq r st s :=
+  execStmt_frame_rule (stmtWritesOnly_writeFootprint hfp) hdisj hexec
+
+theorem execStmts_frame_rule_writeFootprint
+    {fields : List Field} {prog : List Stmt} {written : List Resource}
+    {st s : RuntimeState} {r : Resource}
+    (hfp : Stmt.writeFootprintList prog = some written)
+    (hdisj : ∀ w, w ∈ written → Disjoint r w)
+    (hexec : execStmtList fields st prog = .continue s) :
+    OwnedEq r st s :=
+  execStmts_frame_rule (stmtListWritesOnly_writeFootprint hfp) hdisj hexec
+
 abbrev PreservesBindingsExcept (st s : RuntimeState) (written : List String) : Prop :=
   forall key, key ∉ written -> lookupValue s.bindings key = lookupValue st.bindings key
 
