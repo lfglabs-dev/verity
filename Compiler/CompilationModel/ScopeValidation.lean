@@ -1,5 +1,6 @@
 import Compiler.CompilationModel.Types
 import Compiler.CompilationModel.AbiTypeLayout
+import Compiler.CompilationModel.InternalArgs
 import Compiler.CompilationModel.IssueRefs
 import Compiler.CompilationModel.LogicalPurity
 import Compiler.CompilationModel.EcmAxiomCollection
@@ -10,28 +11,6 @@ namespace Compiler.CompilationModel
 
 def findParamType (params : List Param) (name : String) : Option ParamType :=
   (params.find? (fun p => p.name == name)).map (·.ty)
-
-partial def staticParamBindingNames (name : String) (ty : ParamType) : List String :=
-  match ty with
-  | ParamType.uint256 | ParamType.int256 | ParamType.uint8 | ParamType.uint16 | ParamType.address | ParamType.bool | ParamType.bytes32 =>
-      [name]
-  | ParamType.fixedArray elemTy n =>
-      (List.range n).flatMap (fun i => staticParamBindingNames s!"{name}_{i}" elemTy)
-  | ParamType.tuple elemTys =>
-      let rec go (tys : List ParamType) (idx : Nat) : List String :=
-        match tys with
-        | [] => []
-        | elemTy :: rest =>
-            staticParamBindingNames s!"{name}_{idx}" elemTy ++ go rest (idx + 1)
-      go elemTys 0
-  | ParamType.adt _ maxFields =>
-      name :: (List.range maxFields).map (fun i => s!"{name}_f{i}")
-  | ParamType.newtypeOf _ baseType =>
-      staticParamBindingNames name baseType
-  | _ => []
-
-def dynamicParamBindingNames (name : String) : List String :=
-  [s!"{name}_offset", s!"{name}_length", s!"{name}_data_offset"]
 
 mutual
   def isDynamicParamTypeForScope : ParamType → Bool

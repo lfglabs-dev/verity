@@ -21,7 +21,9 @@ theorem compiledStmtStep_letVar
     (hvalueIR : CompilationModel.compileExpr fields .calldata value = Except.ok valueIR) :
     CompiledStmtStep fields scope (.letVar name value) [YulStmt.let_ name valueIR] where
   compileOk := by
-    simp [CompilationModel.compileStmt, hvalueIR]
+    have hvalueIRInternal := hvalueIR
+    rw [← CompilationModel.compileExprWithInternals_nil_eq] at hvalueIRInternal
+    simp [CompilationModel.compileStmt, hvalueIRInternal]
   preserves runtime state extraFuel hexact hscope hbounded hruntime hslack := by
     -- Establish that evalExpr succeeds (returns some) via the compile-eval theorem
     have heval := FunctionBody.eval_compileExpr_core_of_scope hcore hexact hinScope
@@ -114,7 +116,9 @@ theorem compiledStmtStep_assignVar
     (hvalueIR : CompilationModel.compileExpr fields .calldata value = Except.ok valueIR) :
     CompiledStmtStep fields scope (.assignVar name value) [YulStmt.assign name valueIR] where
   compileOk := by
-    simp [CompilationModel.compileStmt, hvalueIR]
+    have hvalueIRInternal := hvalueIR
+    rw [← CompilationModel.compileExprWithInternals_nil_eq] at hvalueIRInternal
+    simp [CompilationModel.compileStmt, hvalueIRInternal]
   preserves runtime state extraFuel hexact hscope hbounded hruntime hslack := by
     -- Establish that evalExpr succeeds (returns some) via the compile-eval theorem
     have heval := FunctionBody.eval_compileExpr_core_of_scope hcore hexact hinScope
@@ -200,7 +204,9 @@ theorem compiledStmtStep_require
     CompiledStmtStep fields scope (.require cond message)
       [YulStmt.if_ failCond (CompilationModel.revertWithMessage message)] where
   compileOk := by
-    simp [CompilationModel.compileStmt, hfailCompile]
+    have hfailCompileInternal := hfailCompile
+    rw [← CompilationModel.compileRequireFailCondWithInternals_nil_eq] at hfailCompileInternal
+    simp [CompilationModel.compileStmt, hfailCompileInternal]
   preserves runtime state extraFuel hexact hscope hbounded hruntime hslack := by
     have hpresent : FunctionBody.exprBoundNamesPresent cond runtime.bindings :=
       FunctionBody.exprBoundNamesPresent_of_scope hscope hinScope
@@ -305,7 +311,9 @@ theorem compiledStmtStep_return
       [ YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
       , YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] where
   compileOk := by
-    simp [CompilationModel.compileStmt, hvalueIR, pure, Except.pure, bind, Except.bind]
+    have hvalueIRInternal := hvalueIR
+    rw [← CompilationModel.compileExprWithInternals_nil_eq] at hvalueIRInternal
+    simp [CompilationModel.compileStmt, hvalueIRInternal, pure, Except.pure, bind, Except.bind]
   preserves runtime state extraFuel hexact hscope hbounded hruntime hslack := by
     set compiledIR :=
       [ YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])

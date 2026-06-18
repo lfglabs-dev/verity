@@ -222,33 +222,33 @@ private theorem compileExpr_atomic_shape
   cases expr <;> simp [exprEventArgAtomic] at hatomic
   case literal n =>
       refine Or.inl ⟨n % CompilationModel.uint256Modulus, ?_⟩
-      simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm
+      simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, pure, Except.pure] using hcompile.symm
   case param name =>
       refine Or.inr (Or.inl ⟨name, ?_, ?_⟩)
-      · simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm
+      · simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, pure, Except.pure] using hcompile.symm
       · exact hinScope name (by simp [FunctionBody.exprBoundNames])
   case localVar name =>
       refine Or.inr (Or.inl ⟨name, ?_, ?_⟩)
-      · simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm
+      · simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, pure, Except.pure] using hcompile.symm
       · exact hinScope name (by simp [FunctionBody.exprBoundNames])
   case caller =>
-      exact Or.inr (Or.inr ⟨"caller", by simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm⟩)
+      exact Or.inr (Or.inr ⟨"caller", by simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, pure, Except.pure] using hcompile.symm⟩)
   case contractAddress =>
-      exact Or.inr (Or.inr ⟨"address", by simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm⟩)
+      exact Or.inr (Or.inr ⟨"address", by simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, pure, Except.pure] using hcompile.symm⟩)
   case txOrigin =>
-      exact Or.inr (Or.inr ⟨"origin", by simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm⟩)
+      exact Or.inr (Or.inr ⟨"origin", by simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, pure, Except.pure] using hcompile.symm⟩)
   case msgValue =>
-      exact Or.inr (Or.inr ⟨"callvalue", by simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm⟩)
+      exact Or.inr (Or.inr ⟨"callvalue", by simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, pure, Except.pure] using hcompile.symm⟩)
   case blockTimestamp =>
-      exact Or.inr (Or.inr ⟨"timestamp", by simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm⟩)
+      exact Or.inr (Or.inr ⟨"timestamp", by simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, pure, Except.pure] using hcompile.symm⟩)
   case blockNumber =>
-      exact Or.inr (Or.inr ⟨"number", by simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm⟩)
+      exact Or.inr (Or.inr ⟨"number", by simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, pure, Except.pure] using hcompile.symm⟩)
   case chainid =>
-      exact Or.inr (Or.inr ⟨"chainid", by simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm⟩)
+      exact Or.inr (Or.inr ⟨"chainid", by simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, pure, Except.pure] using hcompile.symm⟩)
   case blobbasefee =>
-      exact Or.inr (Or.inr ⟨"blobbasefee", by simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm⟩)
+      exact Or.inr (Or.inr ⟨"blobbasefee", by simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, pure, Except.pure] using hcompile.symm⟩)
   case calldatasize =>
-      exact Or.inr (Or.inr ⟨"calldatasize", by simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm⟩)
+      exact Or.inr (Or.inr ⟨"calldatasize", by simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, pure, Except.pure] using hcompile.symm⟩)
 
 private theorem eventExprCompileCore_of_exprEventArgAtomic
     {expr : Expr}
@@ -266,9 +266,9 @@ private theorem eventCompileExprList_atomic_shapes
     List.Forall₂ (fun argExpr _ => AtomicArgIR scope argExpr) argExprs args := by
   induction args generalizing argExprs with
   | nil =>
-      simp [CompilationModel.compileExprList] at hcompile
-      injection hcompile with hargs
-      subst hargs
+      simp [CompilationModel.compileExprList, CompilationModel.compileExprListWithInternals,
+        pure, Except.pure] at hcompile
+      cases hcompile
       exact .nil
   | cons arg rest ih =>
       simp only [List.all_cons, Bool.and_eq_true] at hatomic
@@ -288,9 +288,16 @@ private theorem eventCompileExprList_atomic_shapes
           ((List.all_eq_true.mp hatomic.2) tailArg hmem)
       rcases compileExprList_core_ok (fields := fields) htailCore with
         ⟨restIRs, hrestIRs⟩
-      rw [CompilationModel.compileExprList, hargIR, hrestIRs] at hcompile
-      injection hcompile with hcompiledTail
-      subst hcompiledTail
+      have hargIRInternal :
+          CompilationModel.compileExprWithInternals fields .calldata [] arg = Except.ok argIR := by
+        simpa [CompilationModel.compileExprWithInternals_nil_eq] using hargIR
+      have hrestIRsInternal :
+          CompilationModel.compileExprListWithInternals fields .calldata [] rest =
+            Except.ok restIRs := by
+        simpa [CompilationModel.compileExprListWithInternals_nil_eq] using hrestIRs
+      simp [CompilationModel.compileExprList, CompilationModel.compileExprListWithInternals,
+        hargIRInternal, hrestIRsInternal, Bind.bind, Except.bind, pure, Except.pure] at hcompile
+      subst hcompile
       exact .cons
         (compileExpr_atomic_shape hatomic.1 hheadScope hargIR)
         (ih hatomic.2 htailScope hrestIRs)
@@ -2280,8 +2287,12 @@ theorem eventCompileStmt_emit_scalar_shape
   have hscalarCompile :
       eventDefScalarCompileSupported eventDef = true := by
     simpa [eventDefScalarProofSupported] using hscalar
+  have hargExprsInternal :
+      CompilationModel.compileExprListWithInternals fields .calldata [] args =
+        Except.ok argExprs := by
+    simpa [CompilationModel.compileExprListWithInternals_nil_eq] using hargExprs
   simp only [CompilationModel.compileStmt, CompilationModel.compileEmit] at hcompile
-  simp [hfind, hlen, hargExprs, hindexedGuard, hscalarCompile,
+  simp [hfind, hlen, hargExprsInternal, hindexedGuard, hscalarCompile,
     Bind.bind, Except.bind, pure, Except.pure] at hcompile
   exact ⟨eventDef, argExprs, hfind, hargExprs, hcompile.symm⟩
 
