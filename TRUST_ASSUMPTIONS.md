@@ -270,15 +270,38 @@ silently ships without a disposition; it does not, for `reentrancy_trusted`,
 prove the assertion. Functions carrying a proof-level guarantee should instead
 use the rely-guarantee framework above and/or the `nonreentrant` runtime guard.
 
+Internal-call interaction: the `nonreentrant(<lock>)` guard is synthesised
+**only** at the external dispatch boundary (`attachNonReentrantGuard`, #1893), so
+its protection does not survive on the internal-helper *shadow* the macro emits
+for direct intra-contract calls (the shadow drops the lock to avoid
+double-guarding the already-guarded public chain). Consequently a *lock-only*
+`nonreentrant(<lock>)` function (one that does **not** also carry
+`reentrancy_trusted`) **cannot be invoked as an internal helper**: such a call is
+rejected at macro lowering (`ensureCallableAsInternalHelper`,
+[Verity/Macro/Internal.lean](Verity/Macro/Internal.lean)), because routing it
+through the lock-free shadow would run the guarded body without the lock and
+silently bypass the only reentrancy protection it had. Calling a function that
+*also* carries `reentrancy_trusted` is accepted — that disposition is a global
+author assertion covering every entry path, including the lock-free internal one.
+This mirrors the parse-time rejection of an `internal nonreentrant(<lock>)`
+helper (`NonreentrantInternalHelperRejected`, #1971).
+
 - **Reference**: [Compiler/CompilationModel/Validation.lean](Compiler/CompilationModel/Validation.lean)
   (`validateReentrancyDisposition`, the cross-function reentrancy gate — a
   dedicated pass run after call well-formedness, distinct from the
-  single-function CEI check in `validateFunctionSpec`).
+  single-function CEI check in `validateFunctionSpec`);
+  [Verity/Macro/Internal.lean](Verity/Macro/Internal.lean)
+  (`ensureCallableAsInternalHelper`, the lowering-time rejection of internal
+  calls to lock-only `nonreentrant` entries).
 - **Regression evidence**: [Contracts/Smoke/SecurityCombos.lean](Contracts/Smoke/SecurityCombos.lean)
   pairs `ReentrancyDispositionRequired` (a CEI-clean `take` rejected by the gate,
   asserted via `#guard_msgs`) with `ReentrancyDispositionDeclared` (the identical
   body accepted once it carries `reentrancy_trusted`) — the Midnight
-  `take`/`liquidate` shape cannot pass `#check_contract` undeclared.
+  `take`/`liquidate` shape cannot pass `#check_contract` undeclared. The
+  internal-helper rule is pinned by `NonreentrantCalledAsInternalHelperRejected`
+  (a public `nonreentrant` entry called from another body, rejected at lowering)
+  and `NonreentrantTrustedInternalHelperAccepted` (the same call accepted once the
+  callee adds `reentrancy_trusted`).
 
 ## Security Audit Checklist
 

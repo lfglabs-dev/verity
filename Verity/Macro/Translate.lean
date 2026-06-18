@@ -439,7 +439,7 @@ private partial def validateEffectStmtExprTypes
       | none =>
       match ← resolveLocalFunctionApp? fields constDecls immutableDecls externalDecls functions params locals stx with
       | some (fn, argTerms) =>
-          ensureSupportsInternalHelperSpec stx fn
+          ensureCallableAsInternalHelper stx fn
           if fn.returnTy != .unit then
             throwErrorAt stx
               s!"helper call '{fn.name}' returns {renderValueType fn.returnTy}; use `let ... ← {fn.name} ...` or tuple destructuring"
@@ -983,7 +983,7 @@ private def translateEffectStmt
       | none =>
       match ← resolveLocalFunctionApp? fields constDecls immutableDecls externalDecls functions params locals stx with
       | some (fn, argTerms) =>
-          ensureSupportsInternalHelperSpec stx fn
+          ensureCallableAsInternalHelper stx fn
           if fn.returnTy != .unit then
             throwErrorAt stx
               s!"helper call '{fn.name}' returns {renderValueType fn.returnTy}; use `let ... ← {fn.name} ...` or tuple destructuring"
@@ -2197,6 +2197,13 @@ private def mkSpecCommand
       -- onto the shadow to record that its external calls run under that
       -- protection. When the public function carried neither, the public spec
       -- itself fails the gate first, so this never masks an unguarded entry.
+      -- For a *lock-only* function (`nonReentrantLock` set, no
+      -- `reentrancy_trusted`) the lock protection is local to the guarded entry
+      -- and does NOT survive on the lock-free shadow, so the shadow is rendered
+      -- unreachable: `ensureCallableAsInternalHelper` rejects any internal call
+      -- to such a function at lowering. The `reentrancyTrusted` flag below is
+      -- therefore only ever consumed for functions the author globally asserted
+      -- `reentrancy_trusted`, where the lock-free internal path is sound.
       let shadowReentrancyTrustedTerm ←
         if fn.nonReentrantLock.isSome || fn.reentrancyTrusted then
           `(true)

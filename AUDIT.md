@@ -142,6 +142,19 @@ sibling entrypoint.
   assertion — emits no code, no proof obligation, recorded as a trust boundary).
 - **Deliberately rejected**: `cei_safe` and `allow_post_interaction_writes`
   concern single-function CEI ordering only and do **not** satisfy the gate.
+- **Internal-helper closure** (Bugbot HIGH on #2032): the `nonreentrant(<lock>)`
+  transient guard is attached **only** at the external dispatch boundary
+  (`attachNonReentrantGuard`, #1893), so it is absent on the lock-free
+  internal-helper shadow the macro emits for direct intra-contract calls. A
+  *lock-only* `nonreentrant` function (no `reentrancy_trusted`) is therefore
+  **rejected when invoked as an internal helper** at macro lowering
+  (`ensureCallableAsInternalHelper`,
+  [Verity/Macro/Internal.lean](Verity/Macro/Internal.lean)); routing such a call
+  through the shadow would run the guarded body without the lock and silently
+  bypass its only protection. A callee that *also* carries `reentrancy_trusted`
+  is accepted (the assertion covers the lock-free internal path). This mirrors
+  the existing `internal nonreentrant(<lock>)` rejection
+  (`NonreentrantInternalHelperRejected`, #1971).
 - **CEISafety demoted**: `Compiler.Proofs.IRGeneration.CEISafety`
   (`CEIProofBackedExecution`) remains a valid proof surface, but it certifies
   *single-function* Checks-Effects-Interactions ordering — it is **not** a

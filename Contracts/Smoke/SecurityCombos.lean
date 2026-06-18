@@ -126,6 +126,55 @@ verity_contract NonreentrantInternalHelperRejected where
   function internal nonreentrant(lock) guardedHelper () : Unit := do
     pure ()
 
+-- Regression for the Bugbot HIGH on PR #2032 ("internal call routes through the
+-- lock-free shadow of a nonreentrant entry"): a *public* `nonreentrant(<lock>)`
+-- entry can be invoked from another function's body, which lowers to the
+-- internal-helper shadow. The shadow drops the lock (the transient guard only
+-- materialises at the external dispatch boundary), so the call would run the
+-- guarded body with no reentrancy protection. Fail closed at lowering unless the
+-- callee also carries `reentrancy_trusted` (a global author assertion that the
+-- body is safe under every entry path).
+/--
+error: helper call 'guardedEntry': nonreentrant(<lock>) functions cannot be invoked as internal helpers; the synthesised transient-storage guard runs only at the external dispatch boundary, so an internal call would execute the body without the reentrancy lock. Expose 'guardedEntry' only as an external entrypoint, or add `reentrancy_trusted` if its body is safe under every entry path.
+-/
+#guard_msgs in
+verity_contract NonreentrantCalledAsInternalHelperRejected where
+  storage
+    lock : Uint256 := slot 0
+    counter : Uint256 := slot 1
+  linked_externals
+    external echo(Uint256) -> (Uint256)
+
+  function nonreentrant(lock) guardedEntry (x : Uint256) : Uint256 := do
+    let echoed := externalCall "echo" [x]
+    setStorage counter echoed
+    return echoed
+
+  function caller (x : Uint256) : Uint256 := do
+    let y ← guardedEntry x
+    return y
+
+-- Companion positive case: a `nonreentrant(lock) reentrancy_trusted` entry MAY be
+-- invoked internally — the author's global `reentrancy_trusted` assertion covers
+-- the lock-free internal path, so the shadow is sound and the call is accepted.
+verity_contract NonreentrantTrustedInternalHelperAccepted where
+  storage
+    lock : Uint256 := slot 0
+    counter : Uint256 := slot 1
+  linked_externals
+    external echo(Uint256) -> (Uint256)
+
+  function nonreentrant(lock) reentrancy_trusted trustedEntry (x : Uint256) : Uint256 := do
+    let echoed := externalCall "echo" [x]
+    setStorage counter echoed
+    return echoed
+
+  function callerTrusted (x : Uint256) : Uint256 := do
+    let y ← trustedEntry x
+    return y
+
+#check_contract NonreentrantTrustedInternalHelperAccepted
+
 -- ════════════════════════════════════════════════════════════════════════════
 -- Stress-test contracts: edge-case coverage for Language Design Axes (#1731)
 -- ════════════════════════════════════════════════════════════════════════════
