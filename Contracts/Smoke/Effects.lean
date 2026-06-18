@@ -39,6 +39,19 @@ verity_contract ModifiesSmoke where
     let current ← getStorage counter
     return current
 
+example (s : ContractState) :
+    ModifiesSmoke.increment_frame s (ModifiesSmoke.increment.run s).snd :=
+  ModifiesSmoke.increment_frame_holds s
+
+example (s : ContractState) (newOwner : Address) :
+    ModifiesSmoke.transferOwnership_frame s
+      ((ModifiesSmoke.transferOwnership newOwner).run s).snd :=
+  ModifiesSmoke.transferOwnership_frame_holds newOwner s
+
+example (s : ContractState) :
+    Verity.Specs.viewPreservesState s (ModifiesSmoke.getCounter.run s).snd :=
+  ModifiesSmoke.getCounter_view_frame s
+
 -- #1729, Axis 3 Step 1c: smoke test for no_external_calls annotation
 verity_contract NoExternalCallsSmoke where
   storage
