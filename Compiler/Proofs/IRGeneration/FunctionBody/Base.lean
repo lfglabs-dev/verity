@@ -341,7 +341,7 @@ theorem eval_compileExpr_caller
     (hmatch : runtimeStateMatchesIR fields runtime state) :
     evalIRExpr state (CompilationModel.compileExpr fields .calldata .caller |>.toOption.getD (YulExpr.lit 0)) =
       some (SourceSemantics.evalExpr fields runtime (.caller)) := by
-  simp [CompilationModel.compileExpr]
+  simp [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals]
   exact evalIRExpr_caller_of_runtimeStateMatchesIR hmatch
 
 theorem eval_compileExpr_contractAddress
@@ -351,7 +351,7 @@ theorem eval_compileExpr_contractAddress
     (hmatch : runtimeStateMatchesIR fields runtime state) :
     evalIRExpr state (CompilationModel.compileExpr fields .calldata .contractAddress |>.toOption.getD (YulExpr.lit 0)) =
       some (SourceSemantics.evalExpr fields runtime (.contractAddress)) := by
-  simp [CompilationModel.compileExpr]
+  simp [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals]
   exact evalIRExpr_contractAddress_of_runtimeStateMatchesIR hmatch
 
 theorem eval_compileExpr_msgValue
@@ -361,7 +361,7 @@ theorem eval_compileExpr_msgValue
     (hmatch : runtimeStateMatchesIR fields runtime state) :
     evalIRExpr state (CompilationModel.compileExpr fields .calldata .msgValue |>.toOption.getD (YulExpr.lit 0)) =
       some (SourceSemantics.evalExpr fields runtime (.msgValue)) := by
-  simp [CompilationModel.compileExpr]
+  simp [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals]
   exact evalIRExpr_msgValue_of_runtimeStateMatchesIR hmatch
 
 theorem eval_compileExpr_blockTimestamp
@@ -371,7 +371,7 @@ theorem eval_compileExpr_blockTimestamp
     (hmatch : runtimeStateMatchesIR fields runtime state) :
     evalIRExpr state (CompilationModel.compileExpr fields .calldata .blockTimestamp |>.toOption.getD (YulExpr.lit 0)) =
       some (SourceSemantics.evalExpr fields runtime (.blockTimestamp)) := by
-  simp [CompilationModel.compileExpr]
+  simp [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals]
   exact evalIRExpr_blockTimestamp_of_runtimeStateMatchesIR hmatch
 
 theorem eval_compileExpr_blockNumber
@@ -381,7 +381,7 @@ theorem eval_compileExpr_blockNumber
     (hmatch : runtimeStateMatchesIR fields runtime state) :
     evalIRExpr state (CompilationModel.compileExpr fields .calldata .blockNumber |>.toOption.getD (YulExpr.lit 0)) =
       some (SourceSemantics.evalExpr fields runtime (.blockNumber)) := by
-  simp [CompilationModel.compileExpr]
+  simp [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals]
   exact evalIRExpr_blockNumber_of_runtimeStateMatchesIR hmatch
 
 theorem eval_compileExpr_chainid
@@ -391,7 +391,7 @@ theorem eval_compileExpr_chainid
     (hmatch : runtimeStateMatchesIR fields runtime state) :
     evalIRExpr state (CompilationModel.compileExpr fields .calldata .chainid |>.toOption.getD (YulExpr.lit 0)) =
       some (SourceSemantics.evalExpr fields runtime (.chainid)) := by
-  simp [CompilationModel.compileExpr]
+  simp [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals]
   exact evalIRExpr_chainid_of_runtimeStateMatchesIR hmatch
 
 theorem eval_compileExpr_blobbasefee
@@ -401,7 +401,7 @@ theorem eval_compileExpr_blobbasefee
     (hmatch : runtimeStateMatchesIR fields runtime state) :
     evalIRExpr state (CompilationModel.compileExpr fields .calldata .blobbasefee |>.toOption.getD (YulExpr.lit 0)) =
       some (SourceSemantics.evalExpr fields runtime (.blobbasefee)) := by
-  simp [CompilationModel.compileExpr]
+  simp [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals]
   exact evalIRExpr_blobbasefee_of_runtimeStateMatchesIR hmatch
 
 theorem eval_compileExpr_txOrigin
@@ -411,7 +411,7 @@ theorem eval_compileExpr_txOrigin
     (hmatch : runtimeStateMatchesIR fields runtime state) :
     evalIRExpr state (CompilationModel.compileExpr fields .calldata .txOrigin |>.toOption.getD (YulExpr.lit 0)) =
       some (SourceSemantics.evalExpr fields runtime (.txOrigin)) := by
-  simp [CompilationModel.compileExpr]
+  simp [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals]
   exact evalIRExpr_txOrigin_of_runtimeStateMatchesIR hmatch
 
 theorem evalIRExpr_calldatasize_of_runtimeStateMatchesIR
@@ -441,7 +441,7 @@ theorem eval_compileExpr_calldatasize
     (hmatch : runtimeStateMatchesIR fields runtime state) :
     evalIRExpr state (CompilationModel.compileExpr fields .calldata .calldatasize |>.toOption.getD (YulExpr.lit 0)) =
       some (SourceSemantics.evalExpr fields runtime (.calldatasize)) := by
-  simp [CompilationModel.compileExpr]
+  simp [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals]
   exact evalIRExpr_calldatasize_of_runtimeStateMatchesIR hmatch
 
 theorem eval_compileExpr_literal
@@ -1454,7 +1454,8 @@ private theorem eval_compileExpr_ge_raw
       have hcompile :
           (CompilationModel.compileExpr fields .calldata (.ge lhs rhs) |>.toOption.getD (YulExpr.lit 0)) =
             YulExpr.call "iszero" [YulExpr.call "lt" [lhsIR, rhsIR]] := by
-        rw [CompilationModel.compileExpr, hlhsCompile, hrhsCompile]
+        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hlhsCompile hrhsCompile
+        rw [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, hlhsCompile, hrhsCompile]
         rfl
       rw [hcompile]
       simpa [hlhsSrc, hrhsSrc] using
@@ -1499,7 +1500,8 @@ private theorem eval_compileExpr_le_raw
       have hcompile :
           (CompilationModel.compileExpr fields .calldata (.le lhs rhs) |>.toOption.getD (YulExpr.lit 0)) =
             YulExpr.call "iszero" [YulExpr.call "gt" [lhsIR, rhsIR]] := by
-        rw [CompilationModel.compileExpr, hlhsCompile, hrhsCompile]
+        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hlhsCompile hrhsCompile
+        rw [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, hlhsCompile, hrhsCompile]
         rfl
       rw [hcompile]
       simpa [hlhsSrc, hrhsSrc] using
@@ -1515,7 +1517,8 @@ theorem compileExpr_eq_ok
     (hrhs : CompilationModel.compileExpr fields .calldata rhs = Except.ok rhsIR) :
     CompilationModel.compileExpr fields .calldata (.eq lhs rhs) =
       Except.ok (YulExpr.call "eq" [lhsIR, rhsIR]) := by
-  rw [CompilationModel.compileExpr, hlhs, hrhs]
+  rw [← CompilationModel.compileExprWithInternals_nil_eq] at hlhs hrhs
+  rw [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, hlhs, hrhs]
   rfl
 
 theorem compileExpr_lt_ok
@@ -1526,7 +1529,8 @@ theorem compileExpr_lt_ok
     (hrhs : CompilationModel.compileExpr fields .calldata rhs = Except.ok rhsIR) :
     CompilationModel.compileExpr fields .calldata (.lt lhs rhs) =
       Except.ok (YulExpr.call "lt" [lhsIR, rhsIR]) := by
-  rw [CompilationModel.compileExpr, hlhs, hrhs]
+  rw [← CompilationModel.compileExprWithInternals_nil_eq] at hlhs hrhs
+  rw [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, hlhs, hrhs]
   rfl
 
 theorem compileExpr_slt_ok
@@ -1537,7 +1541,8 @@ theorem compileExpr_slt_ok
     (hrhs : CompilationModel.compileExpr fields .calldata rhs = Except.ok rhsIR) :
     CompilationModel.compileExpr fields .calldata (.slt lhs rhs) =
       Except.ok (YulExpr.call "slt" [lhsIR, rhsIR]) := by
-  rw [CompilationModel.compileExpr, hlhs, hrhs]
+  rw [← CompilationModel.compileExprWithInternals_nil_eq] at hlhs hrhs
+  rw [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, hlhs, hrhs]
   rfl
 
 theorem compileExpr_sgt_ok
@@ -1548,7 +1553,8 @@ theorem compileExpr_sgt_ok
     (hrhs : CompilationModel.compileExpr fields .calldata rhs = Except.ok rhsIR) :
     CompilationModel.compileExpr fields .calldata (.sgt lhs rhs) =
       Except.ok (YulExpr.call "sgt" [lhsIR, rhsIR]) := by
-  rw [CompilationModel.compileExpr, hlhs, hrhs]
+  rw [← CompilationModel.compileExprWithInternals_nil_eq] at hlhs hrhs
+  rw [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, hlhs, hrhs]
   rfl
 
 theorem compileExpr_sdiv_ok
@@ -1559,7 +1565,8 @@ theorem compileExpr_sdiv_ok
     (hrhs : CompilationModel.compileExpr fields .calldata rhs = Except.ok rhsIR) :
     CompilationModel.compileExpr fields .calldata (.sdiv lhs rhs) =
       Except.ok (YulExpr.call "sdiv" [lhsIR, rhsIR]) := by
-  rw [CompilationModel.compileExpr, hlhs, hrhs]
+  rw [← CompilationModel.compileExprWithInternals_nil_eq] at hlhs hrhs
+  rw [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, hlhs, hrhs]
   rfl
 
 theorem compileExpr_smod_ok
@@ -1570,7 +1577,8 @@ theorem compileExpr_smod_ok
     (hrhs : CompilationModel.compileExpr fields .calldata rhs = Except.ok rhsIR) :
     CompilationModel.compileExpr fields .calldata (.smod lhs rhs) =
       Except.ok (YulExpr.call "smod" [lhsIR, rhsIR]) := by
-  rw [CompilationModel.compileExpr, hlhs, hrhs]
+  rw [← CompilationModel.compileExprWithInternals_nil_eq] at hlhs hrhs
+  rw [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, hlhs, hrhs]
   rfl
 
 theorem compileExpr_sar_ok
@@ -1581,7 +1589,8 @@ theorem compileExpr_sar_ok
     (hrhs : CompilationModel.compileExpr fields .calldata rhs = Except.ok rhsIR) :
     CompilationModel.compileExpr fields .calldata (.sar lhs rhs) =
       Except.ok (YulExpr.call "sar" [lhsIR, rhsIR]) := by
-  rw [CompilationModel.compileExpr, hlhs, hrhs]
+  rw [← CompilationModel.compileExprWithInternals_nil_eq] at hlhs hrhs
+  rw [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, hlhs, hrhs]
   rfl
 
 theorem compileExpr_byte_ok
@@ -1592,7 +1601,8 @@ theorem compileExpr_byte_ok
     (hvalue : CompilationModel.compileExpr fields .calldata value = Except.ok valueIR) :
     CompilationModel.compileExpr fields .calldata (.byte index value) =
       Except.ok (YulExpr.call "byte" [indexIR, valueIR]) := by
-  rw [CompilationModel.compileExpr, hindex, hvalue]
+  rw [← CompilationModel.compileExprWithInternals_nil_eq] at hindex hvalue
+  rw [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, hindex, hvalue]
   rfl
 
 theorem compileExpr_signextend_ok
@@ -1603,7 +1613,8 @@ theorem compileExpr_signextend_ok
     (hrhs : CompilationModel.compileExpr fields .calldata rhs = Except.ok rhsIR) :
     CompilationModel.compileExpr fields .calldata (.signextend lhs rhs) =
       Except.ok (YulExpr.call "signextend" [lhsIR, rhsIR]) := by
-  rw [CompilationModel.compileExpr, hlhs, hrhs]
+  rw [← CompilationModel.compileExprWithInternals_nil_eq] at hlhs hrhs
+  rw [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, hlhs, hrhs]
   rfl
 
 theorem compileExpr_gt_ok
@@ -1614,7 +1625,8 @@ theorem compileExpr_gt_ok
     (hrhs : CompilationModel.compileExpr fields .calldata rhs = Except.ok rhsIR) :
     CompilationModel.compileExpr fields .calldata (.gt lhs rhs) =
       Except.ok (YulExpr.call "gt" [lhsIR, rhsIR]) := by
-  rw [CompilationModel.compileExpr, hlhs, hrhs]
+  rw [← CompilationModel.compileExprWithInternals_nil_eq] at hlhs hrhs
+  rw [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, hlhs, hrhs]
   rfl
 
 theorem compileExpr_ge_ok
@@ -1625,7 +1637,8 @@ theorem compileExpr_ge_ok
     (hrhs : CompilationModel.compileExpr fields .calldata rhs = Except.ok rhsIR) :
     CompilationModel.compileExpr fields .calldata (.ge lhs rhs) =
       Except.ok (YulExpr.call "iszero" [YulExpr.call "lt" [lhsIR, rhsIR]]) := by
-  rw [CompilationModel.compileExpr, hlhs, hrhs]
+  rw [← CompilationModel.compileExprWithInternals_nil_eq] at hlhs hrhs
+  rw [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, hlhs, hrhs]
   rfl
 
 theorem compileExpr_le_ok
@@ -1636,7 +1649,8 @@ theorem compileExpr_le_ok
     (hrhs : CompilationModel.compileExpr fields .calldata rhs = Except.ok rhsIR) :
     CompilationModel.compileExpr fields .calldata (.le lhs rhs) =
       Except.ok (YulExpr.call "iszero" [YulExpr.call "gt" [lhsIR, rhsIR]]) := by
-  rw [CompilationModel.compileExpr, hlhs, hrhs]
+  rw [← CompilationModel.compileExprWithInternals_nil_eq] at hlhs hrhs
+  rw [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, hlhs, hrhs]
   rfl
 
 theorem compileExpr_logicalNot_ok
@@ -1646,7 +1660,8 @@ theorem compileExpr_logicalNot_ok
     (hexpr : CompilationModel.compileExpr fields .calldata expr = Except.ok exprIR) :
     CompilationModel.compileExpr fields .calldata (.logicalNot expr) =
       Except.ok (YulExpr.call "iszero" [exprIR]) := by
-  rw [CompilationModel.compileExpr, hexpr]
+  rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+  rw [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, hexpr]
   rfl
 
 theorem compileExpr_logicalAnd_ok
@@ -1658,7 +1673,8 @@ theorem compileExpr_logicalAnd_ok
     CompilationModel.compileExpr fields .calldata (.logicalAnd lhs rhs) =
       Except.ok (YulExpr.call "and"
         [CompilationModel.yulToBool lhsIR, CompilationModel.yulToBool rhsIR]) := by
-  rw [CompilationModel.compileExpr, hlhs, hrhs]
+  rw [← CompilationModel.compileExprWithInternals_nil_eq] at hlhs hrhs
+  rw [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, hlhs, hrhs]
   rfl
 
 theorem compileExpr_logicalOr_ok
@@ -1670,7 +1686,8 @@ theorem compileExpr_logicalOr_ok
     CompilationModel.compileExpr fields .calldata (.logicalOr lhs rhs) =
       Except.ok (YulExpr.call "or"
         [CompilationModel.yulToBool lhsIR, CompilationModel.yulToBool rhsIR]) := by
-  rw [CompilationModel.compileExpr, hlhs, hrhs]
+  rw [← CompilationModel.compileExprWithInternals_nil_eq] at hlhs hrhs
+  rw [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, hlhs, hrhs]
   rfl
 
 theorem compileExpr_bitAnd_ok
@@ -1681,7 +1698,8 @@ theorem compileExpr_bitAnd_ok
     (hrhs : CompilationModel.compileExpr fields .calldata rhs = Except.ok rhsIR) :
     CompilationModel.compileExpr fields .calldata (.bitAnd lhs rhs) =
       Except.ok (YulExpr.call "and" [lhsIR, rhsIR]) := by
-  rw [CompilationModel.compileExpr, hlhs, hrhs]
+  rw [← CompilationModel.compileExprWithInternals_nil_eq] at hlhs hrhs
+  rw [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, hlhs, hrhs]
   rfl
 
 theorem compileExpr_bitOr_ok
@@ -1692,7 +1710,8 @@ theorem compileExpr_bitOr_ok
     (hrhs : CompilationModel.compileExpr fields .calldata rhs = Except.ok rhsIR) :
     CompilationModel.compileExpr fields .calldata (.bitOr lhs rhs) =
       Except.ok (YulExpr.call "or" [lhsIR, rhsIR]) := by
-  rw [CompilationModel.compileExpr, hlhs, hrhs]
+  rw [← CompilationModel.compileExprWithInternals_nil_eq] at hlhs hrhs
+  rw [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, hlhs, hrhs]
   rfl
 
 theorem compileExpr_bitXor_ok
@@ -1703,7 +1722,8 @@ theorem compileExpr_bitXor_ok
     (hrhs : CompilationModel.compileExpr fields .calldata rhs = Except.ok rhsIR) :
     CompilationModel.compileExpr fields .calldata (.bitXor lhs rhs) =
       Except.ok (YulExpr.call "xor" [lhsIR, rhsIR]) := by
-  rw [CompilationModel.compileExpr, hlhs, hrhs]
+  rw [← CompilationModel.compileExprWithInternals_nil_eq] at hlhs hrhs
+  rw [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, hlhs, hrhs]
   rfl
 
 theorem compileExpr_bitNot_ok
@@ -1713,7 +1733,8 @@ theorem compileExpr_bitNot_ok
     (hexpr : CompilationModel.compileExpr fields .calldata expr = Except.ok exprIR) :
     CompilationModel.compileExpr fields .calldata (.bitNot expr) =
       Except.ok (YulExpr.call "not" [exprIR]) := by
-  rw [CompilationModel.compileExpr, hexpr]
+  rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+  rw [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, hexpr]
   rfl
 
 theorem compileExpr_shl_ok
@@ -1724,7 +1745,8 @@ theorem compileExpr_shl_ok
     (hvalue : CompilationModel.compileExpr fields .calldata value = Except.ok valueIR) :
     CompilationModel.compileExpr fields .calldata (.shl shift value) =
       Except.ok (YulExpr.call "shl" [shiftIR, valueIR]) := by
-  rw [CompilationModel.compileExpr, hshift, hvalue]
+  rw [← CompilationModel.compileExprWithInternals_nil_eq] at hshift hvalue
+  rw [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, hshift, hvalue]
   rfl
 
 theorem compileExpr_shr_ok
@@ -1735,7 +1757,8 @@ theorem compileExpr_shr_ok
     (hvalue : CompilationModel.compileExpr fields .calldata value = Except.ok valueIR) :
     CompilationModel.compileExpr fields .calldata (.shr shift value) =
       Except.ok (YulExpr.call "shr" [shiftIR, valueIR]) := by
-  rw [CompilationModel.compileExpr, hshift, hvalue]
+  rw [← CompilationModel.compileExprWithInternals_nil_eq] at hshift hvalue
+  rw [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, hshift, hvalue]
   rfl
 
 theorem compileExpr_min_ok
@@ -1751,7 +1774,8 @@ theorem compileExpr_min_ok
           YulExpr.call "gt" [lhsIR, rhsIR]
         ]
       ]) := by
-  rw [CompilationModel.compileExpr, hlhs, hrhs]
+  rw [← CompilationModel.compileExprWithInternals_nil_eq] at hlhs hrhs
+  rw [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, hlhs, hrhs]
   rfl
 
 theorem compileExpr_max_ok
@@ -1767,7 +1791,8 @@ theorem compileExpr_max_ok
           YulExpr.call "gt" [rhsIR, lhsIR]
         ]
       ]) := by
-  rw [CompilationModel.compileExpr, hlhs, hrhs]
+  rw [← CompilationModel.compileExprWithInternals_nil_eq] at hlhs hrhs
+  rw [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, hlhs, hrhs]
   rfl
 
 theorem compileExpr_wMulDown_ok
@@ -1781,7 +1806,8 @@ theorem compileExpr_wMulDown_ok
         YulExpr.call "mul" [lhsIR, rhsIR],
         YulExpr.lit 1000000000000000000
       ]) := by
-  rw [CompilationModel.compileExpr, hlhs, hrhs]
+  rw [← CompilationModel.compileExprWithInternals_nil_eq] at hlhs hrhs
+  rw [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, hlhs, hrhs]
   rfl
 
 theorem compileExpr_wDivUp_ok
@@ -1798,7 +1824,8 @@ theorem compileExpr_wDivUp_ok
         ],
         rhsIR
       ]) := by
-  rw [CompilationModel.compileExpr, hlhs, hrhs]
+  rw [← CompilationModel.compileExprWithInternals_nil_eq] at hlhs hrhs
+  rw [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, hlhs, hrhs]
   rfl
 
 theorem compileExpr_mulDivDown_ok
@@ -1810,7 +1837,8 @@ theorem compileExpr_mulDivDown_ok
     (hc : CompilationModel.compileExpr fields .calldata c = Except.ok cIR) :
     CompilationModel.compileExpr fields .calldata (.mulDivDown a b c) =
       Except.ok (YulExpr.call "div" [YulExpr.call "mul" [aIR, bIR], cIR]) := by
-  rw [CompilationModel.compileExpr, ha, hb, hc]
+  rw [← CompilationModel.compileExprWithInternals_nil_eq] at ha hb hc
+  rw [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, ha, hb, hc]
   rfl
 
 theorem compileExpr_mulDivUp_ok
@@ -1825,7 +1853,8 @@ theorem compileExpr_mulDivUp_ok
         YulExpr.call "add" [YulExpr.call "mul" [aIR, bIR],
           YulExpr.call "sub" [cIR, YulExpr.lit 1]],
         cIR]) := by
-  rw [CompilationModel.compileExpr, ha, hb, hc]
+  rw [← CompilationModel.compileExprWithInternals_nil_eq] at ha hb hc
+  rw [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, ha, hb, hc]
   rfl
 
 theorem compileExpr_ceilDiv_ok
@@ -1842,7 +1871,8 @@ theorem compileExpr_ceilDiv_ok
           YulExpr.lit 1
         ]
       ]) := by
-  rw [CompilationModel.compileExpr, hlhs, hrhs]
+  rw [← CompilationModel.compileExprWithInternals_nil_eq] at hlhs hrhs
+  rw [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, hlhs, hrhs]
   rfl
 
 theorem compileExpr_ite_ok
@@ -1863,7 +1893,8 @@ theorem compileExpr_ite_ok
           elseIR
         ]
       ]) := by
-  rw [CompilationModel.compileExpr, hcond, hthen, helse]
+  rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcond hthen helse
+  rw [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, hcond, hthen, helse]
   rfl
 
 theorem compileExpr_add_ok
@@ -1874,7 +1905,8 @@ theorem compileExpr_add_ok
     (hrhs : CompilationModel.compileExpr fields .calldata rhs = Except.ok rhsIR) :
     CompilationModel.compileExpr fields .calldata (.add lhs rhs) =
       Except.ok (YulExpr.call "add" [lhsIR, rhsIR]) := by
-  rw [CompilationModel.compileExpr, hlhs, hrhs]
+  rw [← CompilationModel.compileExprWithInternals_nil_eq] at hlhs hrhs
+  rw [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, hlhs, hrhs]
   rfl
 
 theorem compileExpr_sub_ok
@@ -1885,7 +1917,8 @@ theorem compileExpr_sub_ok
     (hrhs : CompilationModel.compileExpr fields .calldata rhs = Except.ok rhsIR) :
     CompilationModel.compileExpr fields .calldata (.sub lhs rhs) =
       Except.ok (YulExpr.call "sub" [lhsIR, rhsIR]) := by
-  rw [CompilationModel.compileExpr, hlhs, hrhs]
+  rw [← CompilationModel.compileExprWithInternals_nil_eq] at hlhs hrhs
+  rw [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, hlhs, hrhs]
   rfl
 
 theorem compileExpr_mul_ok
@@ -1896,7 +1929,8 @@ theorem compileExpr_mul_ok
     (hrhs : CompilationModel.compileExpr fields .calldata rhs = Except.ok rhsIR) :
     CompilationModel.compileExpr fields .calldata (.mul lhs rhs) =
       Except.ok (YulExpr.call "mul" [lhsIR, rhsIR]) := by
-  rw [CompilationModel.compileExpr, hlhs, hrhs]
+  rw [← CompilationModel.compileExprWithInternals_nil_eq] at hlhs hrhs
+  rw [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, hlhs, hrhs]
   rfl
 
 theorem compileExpr_div_ok
@@ -1907,7 +1941,8 @@ theorem compileExpr_div_ok
     (hrhs : CompilationModel.compileExpr fields .calldata rhs = Except.ok rhsIR) :
     CompilationModel.compileExpr fields .calldata (.div lhs rhs) =
       Except.ok (YulExpr.call "div" [lhsIR, rhsIR]) := by
-  rw [CompilationModel.compileExpr, hlhs, hrhs]
+  rw [← CompilationModel.compileExprWithInternals_nil_eq] at hlhs hrhs
+  rw [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, hlhs, hrhs]
   rfl
 
 theorem compileExpr_mod_ok
@@ -1918,7 +1953,8 @@ theorem compileExpr_mod_ok
     (hrhs : CompilationModel.compileExpr fields .calldata rhs = Except.ok rhsIR) :
     CompilationModel.compileExpr fields .calldata (.mod lhs rhs) =
       Except.ok (YulExpr.call "mod" [lhsIR, rhsIR]) := by
-  rw [CompilationModel.compileExpr, hlhs, hrhs]
+  rw [← CompilationModel.compileExprWithInternals_nil_eq] at hlhs hrhs
+  rw [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, hlhs, hrhs]
   rfl
 
 theorem compileExpr_mload_ok
@@ -1928,7 +1964,8 @@ theorem compileExpr_mload_ok
     (hexpr : CompilationModel.compileExpr fields .calldata expr = Except.ok exprIR) :
     CompilationModel.compileExpr fields .calldata (.mload expr) =
       Except.ok (YulExpr.call "mload" [exprIR]) := by
-  rw [CompilationModel.compileExpr, hexpr]
+  rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+  rw [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, hexpr]
   rfl
 
 private theorem eval_compileExpr_mload_of_compiled
@@ -1968,7 +2005,8 @@ theorem compileExpr_tload_ok
     (hexpr : CompilationModel.compileExpr fields .calldata expr = Except.ok exprIR) :
     CompilationModel.compileExpr fields .calldata (.tload expr) =
       Except.ok (YulExpr.call "tload" [exprIR]) := by
-  rw [CompilationModel.compileExpr, hexpr]
+  rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+  rw [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, hexpr]
   rfl
 
 private theorem calldataloadWord_lt_evmModulus
@@ -2010,7 +2048,8 @@ theorem compileExpr_calldataload_ok
     (hexpr : CompilationModel.compileExpr fields .calldata expr = Except.ok exprIR) :
     CompilationModel.compileExpr fields .calldata (.calldataload expr) =
       Except.ok (YulExpr.call "calldataload" [exprIR]) := by
-  rw [CompilationModel.compileExpr, hexpr]
+  rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+  rw [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, hexpr]
   rfl
 
 private theorem eval_compileExpr_calldataload_of_compiled
@@ -4525,29 +4564,53 @@ theorem compileExpr_core_ok
     ∃ exprIR, CompilationModel.compileExpr fields .calldata expr = Except.ok exprIR := by
   induction hcore with
   | literal value =>
-      exact ⟨YulExpr.lit (value % CompilationModel.uint256Modulus), rfl⟩
+      exact ⟨YulExpr.lit (value % CompilationModel.uint256Modulus), by
+        unfold CompilationModel.compileExpr CompilationModel.compileExprWithInternals
+        rfl⟩
   | param name =>
-      exact ⟨YulExpr.ident name, rfl⟩
+      exact ⟨YulExpr.ident name, by
+        unfold CompilationModel.compileExpr CompilationModel.compileExprWithInternals
+        rfl⟩
   | localVar name =>
-      exact ⟨YulExpr.ident name, rfl⟩
+      exact ⟨YulExpr.ident name, by
+        unfold CompilationModel.compileExpr CompilationModel.compileExprWithInternals
+        rfl⟩
   | caller =>
-      exact ⟨YulExpr.call "caller" [], rfl⟩
+      exact ⟨YulExpr.call "caller" [], by
+        unfold CompilationModel.compileExpr CompilationModel.compileExprWithInternals
+        rfl⟩
   | contractAddress =>
-      exact ⟨YulExpr.call "address" [], rfl⟩
+      exact ⟨YulExpr.call "address" [], by
+        unfold CompilationModel.compileExpr CompilationModel.compileExprWithInternals
+        rfl⟩
   | txOrigin =>
-      exact ⟨YulExpr.call "origin" [], rfl⟩
+      exact ⟨YulExpr.call "origin" [], by
+        unfold CompilationModel.compileExpr CompilationModel.compileExprWithInternals
+        rfl⟩
   | msgValue =>
-      exact ⟨YulExpr.call "callvalue" [], rfl⟩
+      exact ⟨YulExpr.call "callvalue" [], by
+        unfold CompilationModel.compileExpr CompilationModel.compileExprWithInternals
+        rfl⟩
   | blockTimestamp =>
-      exact ⟨YulExpr.call "timestamp" [], rfl⟩
+      exact ⟨YulExpr.call "timestamp" [], by
+        unfold CompilationModel.compileExpr CompilationModel.compileExprWithInternals
+        rfl⟩
   | blockNumber =>
-      exact ⟨YulExpr.call "number" [], rfl⟩
+      exact ⟨YulExpr.call "number" [], by
+        unfold CompilationModel.compileExpr CompilationModel.compileExprWithInternals
+        rfl⟩
   | chainid =>
-      exact ⟨YulExpr.call "chainid" [], rfl⟩
+      exact ⟨YulExpr.call "chainid" [], by
+        unfold CompilationModel.compileExpr CompilationModel.compileExprWithInternals
+        rfl⟩
   | blobbasefee =>
-      exact ⟨YulExpr.call "blobbasefee" [], rfl⟩
+      exact ⟨YulExpr.call "blobbasefee" [], by
+        unfold CompilationModel.compileExpr CompilationModel.compileExprWithInternals
+        rfl⟩
   | calldatasize =>
-      exact ⟨YulExpr.call "calldatasize" [], rfl⟩
+      exact ⟨YulExpr.call "calldatasize" [], by
+        unfold CompilationModel.compileExpr CompilationModel.compileExprWithInternals
+        rfl⟩
   | add hL hR ihL ihR =>
       rename_i lhs rhs
       rcases ihL with ⟨lhsIR, hlhs⟩
@@ -4781,12 +4844,12 @@ theorem eval_compileExpr_core_onExpr
         some (SourceSemantics.evalExpr fields runtime expr) := by
   induction hcore generalizing runtime state with
   | literal value =>
-      simpa [CompilationModel.compileExpr] using eval_compileExpr_literal fields runtime state value
+      simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals] using eval_compileExpr_literal fields runtime state value
   | param name =>
-      simpa [CompilationModel.compileExpr] using
+      simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals] using
         eval_compileExpr_param_of_expr_bindings name hexact hpresent
   | localVar name =>
-      simpa [CompilationModel.compileExpr] using
+      simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals] using
         eval_compileExpr_localVar_of_expr_bindings name hexact hpresent
   | caller =>
       exact eval_compileExpr_caller hruntime
@@ -6343,307 +6406,299 @@ theorem compileRequireFailCond_core_ok
       CompilationModel.compileRequireFailCond fields .calldata cond = Except.ok failCond := by
   cases hcore with
   | literal value =>
-      exact ⟨YulExpr.call "iszero" [YulExpr.lit (value % CompilationModel.uint256Modulus)], rfl⟩
+      exact ⟨YulExpr.call "iszero" [YulExpr.lit (value % CompilationModel.uint256Modulus)], by
+        unfold CompilationModel.compileRequireFailCond CompilationModel.compileRequireFailCondWithInternals
+        unfold CompilationModel.compileExprWithInternals
+        rfl⟩
   | param name =>
-      exact ⟨YulExpr.call "iszero" [YulExpr.ident name], rfl⟩
+      exact ⟨YulExpr.call "iszero" [YulExpr.ident name], by
+        unfold CompilationModel.compileRequireFailCond CompilationModel.compileRequireFailCondWithInternals
+        unfold CompilationModel.compileExprWithInternals
+        rfl⟩
   | localVar name =>
-      exact ⟨YulExpr.call "iszero" [YulExpr.ident name], rfl⟩
+      exact ⟨YulExpr.call "iszero" [YulExpr.ident name], by
+        unfold CompilationModel.compileRequireFailCond CompilationModel.compileRequireFailCondWithInternals
+        unfold CompilationModel.compileExprWithInternals
+        rfl⟩
   | caller =>
-      exact ⟨YulExpr.call "iszero" [YulExpr.call "caller" []], rfl⟩
+      exact ⟨YulExpr.call "iszero" [YulExpr.call "caller" []], by
+        unfold CompilationModel.compileRequireFailCond CompilationModel.compileRequireFailCondWithInternals
+        unfold CompilationModel.compileExprWithInternals
+        rfl⟩
   | contractAddress =>
-      exact ⟨YulExpr.call "iszero" [YulExpr.call "address" []], rfl⟩
+      exact ⟨YulExpr.call "iszero" [YulExpr.call "address" []], by
+        unfold CompilationModel.compileRequireFailCond CompilationModel.compileRequireFailCondWithInternals
+        unfold CompilationModel.compileExprWithInternals
+        rfl⟩
   | txOrigin =>
-      exact ⟨YulExpr.call "iszero" [YulExpr.call "origin" []], rfl⟩
+      exact ⟨YulExpr.call "iszero" [YulExpr.call "origin" []], by
+        unfold CompilationModel.compileRequireFailCond CompilationModel.compileRequireFailCondWithInternals
+        unfold CompilationModel.compileExprWithInternals
+        rfl⟩
   | msgValue =>
-      exact ⟨YulExpr.call "iszero" [YulExpr.call "callvalue" []], rfl⟩
+      exact ⟨YulExpr.call "iszero" [YulExpr.call "callvalue" []], by
+        unfold CompilationModel.compileRequireFailCond CompilationModel.compileRequireFailCondWithInternals
+        unfold CompilationModel.compileExprWithInternals
+        rfl⟩
   | blockTimestamp =>
-      exact ⟨YulExpr.call "iszero" [YulExpr.call "timestamp" []], rfl⟩
+      exact ⟨YulExpr.call "iszero" [YulExpr.call "timestamp" []], by
+        unfold CompilationModel.compileRequireFailCond CompilationModel.compileRequireFailCondWithInternals
+        unfold CompilationModel.compileExprWithInternals
+        rfl⟩
   | blockNumber =>
-      exact ⟨YulExpr.call "iszero" [YulExpr.call "number" []], rfl⟩
+      exact ⟨YulExpr.call "iszero" [YulExpr.call "number" []], by
+        unfold CompilationModel.compileRequireFailCond CompilationModel.compileRequireFailCondWithInternals
+        unfold CompilationModel.compileExprWithInternals
+        rfl⟩
   | chainid =>
-      exact ⟨YulExpr.call "iszero" [YulExpr.call "chainid" []], rfl⟩
+      exact ⟨YulExpr.call "iszero" [YulExpr.call "chainid" []], by
+        unfold CompilationModel.compileRequireFailCond CompilationModel.compileRequireFailCondWithInternals
+        unfold CompilationModel.compileExprWithInternals
+        rfl⟩
   | blobbasefee =>
-      exact ⟨YulExpr.call "iszero" [YulExpr.call "blobbasefee" []], rfl⟩
+      exact ⟨YulExpr.call "iszero" [YulExpr.call "blobbasefee" []], by
+        unfold CompilationModel.compileRequireFailCond CompilationModel.compileRequireFailCondWithInternals
+        unfold CompilationModel.compileExprWithInternals
+        rfl⟩
   | calldatasize =>
-      exact ⟨YulExpr.call "iszero" [YulExpr.call "calldatasize" []], rfl⟩
+      exact ⟨YulExpr.call "iszero" [YulExpr.call "calldatasize" []], by
+        unfold CompilationModel.compileRequireFailCond CompilationModel.compileRequireFailCondWithInternals
+        unfold CompilationModel.compileExprWithInternals
+        rfl⟩
   | add hL hR =>
       rename_i lhs rhs
       rcases compileExpr_core_ok (fields := fields) hL with ⟨lhsIR, hlhs⟩
       rcases compileExpr_core_ok (fields := fields) hR with ⟨rhsIR, hrhs⟩
       exact ⟨YulExpr.call "iszero" [YulExpr.call "add" [lhsIR, rhsIR]], by
-        rw [CompilationModel.compileRequireFailCond, compileExpr_add_ok hlhs hrhs]
-        all_goals
-          try rfl
-          try
-            intro a b hEq
-            cases hEq⟩
+        have hcompile := compileExpr_add_ok hlhs hrhs
+        rw [CompilationModel.compileRequireFailCond]
+        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcompile
+        simp [CompilationModel.compileRequireFailCondWithInternals, hcompile]⟩
   | sub hL hR =>
       rename_i lhs rhs
       rcases compileExpr_core_ok (fields := fields) hL with ⟨lhsIR, hlhs⟩
       rcases compileExpr_core_ok (fields := fields) hR with ⟨rhsIR, hrhs⟩
       exact ⟨YulExpr.call "iszero" [YulExpr.call "sub" [lhsIR, rhsIR]], by
-        rw [CompilationModel.compileRequireFailCond, compileExpr_sub_ok hlhs hrhs]
-        all_goals
-          try rfl
-          try
-            intro a b hEq
-            cases hEq⟩
+        have hcompile := compileExpr_sub_ok hlhs hrhs
+        rw [CompilationModel.compileRequireFailCond]
+        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcompile
+        simp [CompilationModel.compileRequireFailCondWithInternals, hcompile]⟩
   | mul hL hR =>
       rename_i lhs rhs
       rcases compileExpr_core_ok (fields := fields) hL with ⟨lhsIR, hlhs⟩
       rcases compileExpr_core_ok (fields := fields) hR with ⟨rhsIR, hrhs⟩
       exact ⟨YulExpr.call "iszero" [YulExpr.call "mul" [lhsIR, rhsIR]], by
-        rw [CompilationModel.compileRequireFailCond, compileExpr_mul_ok hlhs hrhs]
-        all_goals
-          try rfl
-          try
-            intro a b hEq
-            cases hEq⟩
+        have hcompile := compileExpr_mul_ok hlhs hrhs
+        rw [CompilationModel.compileRequireFailCond]
+        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcompile
+        simp [CompilationModel.compileRequireFailCondWithInternals, hcompile]⟩
   | div hL hR =>
       rename_i lhs rhs
       rcases compileExpr_core_ok (fields := fields) hL with ⟨lhsIR, hlhs⟩
       rcases compileExpr_core_ok (fields := fields) hR with ⟨rhsIR, hrhs⟩
       exact ⟨YulExpr.call "iszero" [YulExpr.call "div" [lhsIR, rhsIR]], by
-        rw [CompilationModel.compileRequireFailCond, compileExpr_div_ok hlhs hrhs]
-        all_goals
-          try rfl
-          try
-            intro a b hEq
-            cases hEq⟩
+        have hcompile := compileExpr_div_ok hlhs hrhs
+        rw [CompilationModel.compileRequireFailCond]
+        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcompile
+        simp [CompilationModel.compileRequireFailCondWithInternals, hcompile]⟩
   | mod hL hR =>
       rename_i lhs rhs
       rcases compileExpr_core_ok (fields := fields) hL with ⟨lhsIR, hlhs⟩
       rcases compileExpr_core_ok (fields := fields) hR with ⟨rhsIR, hrhs⟩
       exact ⟨YulExpr.call "iszero" [YulExpr.call "mod" [lhsIR, rhsIR]], by
-        rw [CompilationModel.compileRequireFailCond, compileExpr_mod_ok hlhs hrhs]
-        all_goals
-          try rfl
-          try
-            intro a b hEq
-            cases hEq⟩
+        have hcompile := compileExpr_mod_ok hlhs hrhs
+        rw [CompilationModel.compileRequireFailCond]
+        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcompile
+        simp [CompilationModel.compileRequireFailCondWithInternals, hcompile]⟩
   | eq hL hR =>
       rename_i lhs rhs
       rcases compileExpr_core_ok (fields := fields) hL with ⟨lhsIR, hlhs⟩
       rcases compileExpr_core_ok (fields := fields) hR with ⟨rhsIR, hrhs⟩
       exact ⟨YulExpr.call "iszero" [YulExpr.call "eq" [lhsIR, rhsIR]], by
-        rw [CompilationModel.compileRequireFailCond, compileExpr_eq_ok hlhs hrhs]
-        all_goals
-          try rfl
-          try
-            intro a b hEq
-            cases hEq⟩
+        have hcompile := compileExpr_eq_ok hlhs hrhs
+        rw [CompilationModel.compileRequireFailCond]
+        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcompile
+        simp [CompilationModel.compileRequireFailCondWithInternals, hcompile]⟩
   | lt hL hR =>
       rename_i lhs rhs
       rcases compileExpr_core_ok (fields := fields) hL with ⟨lhsIR, hlhs⟩
       rcases compileExpr_core_ok (fields := fields) hR with ⟨rhsIR, hrhs⟩
       exact ⟨YulExpr.call "iszero" [YulExpr.call "lt" [lhsIR, rhsIR]], by
-        rw [CompilationModel.compileRequireFailCond, compileExpr_lt_ok hlhs hrhs]
-        all_goals
-          try rfl
-          try
-            intro a b hEq
-            cases hEq⟩
+        have hcompile := compileExpr_lt_ok hlhs hrhs
+        rw [CompilationModel.compileRequireFailCond]
+        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcompile
+        simp [CompilationModel.compileRequireFailCondWithInternals, hcompile]⟩
   | slt hL hR =>
       rename_i lhs rhs
       rcases compileExpr_core_ok (fields := fields) hL with ⟨lhsIR, hlhs⟩
       rcases compileExpr_core_ok (fields := fields) hR with ⟨rhsIR, hrhs⟩
       exact ⟨YulExpr.call "iszero" [YulExpr.call "slt" [lhsIR, rhsIR]], by
-        rw [CompilationModel.compileRequireFailCond, compileExpr_slt_ok hlhs hrhs]
-        all_goals
-          try rfl
-          try
-            intro a b hEq
-            cases hEq⟩
+        have hcompile := compileExpr_slt_ok hlhs hrhs
+        rw [CompilationModel.compileRequireFailCond]
+        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcompile
+        simp [CompilationModel.compileRequireFailCondWithInternals, hcompile]⟩
   | sgt hL hR =>
       rename_i lhs rhs
       rcases compileExpr_core_ok (fields := fields) hL with ⟨lhsIR, hlhs⟩
       rcases compileExpr_core_ok (fields := fields) hR with ⟨rhsIR, hrhs⟩
       exact ⟨YulExpr.call "iszero" [YulExpr.call "sgt" [lhsIR, rhsIR]], by
-        rw [CompilationModel.compileRequireFailCond, compileExpr_sgt_ok hlhs hrhs]
-        all_goals
-          try rfl
-          try
-            intro a b hEq
-            cases hEq⟩
+        have hcompile := compileExpr_sgt_ok hlhs hrhs
+        rw [CompilationModel.compileRequireFailCond]
+        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcompile
+        simp [CompilationModel.compileRequireFailCondWithInternals, hcompile]⟩
   | sdiv hL hR =>
       rename_i lhs rhs
       rcases compileExpr_core_ok (fields := fields) hL with ⟨lhsIR, hlhs⟩
       rcases compileExpr_core_ok (fields := fields) hR with ⟨rhsIR, hrhs⟩
       exact ⟨YulExpr.call "iszero" [YulExpr.call "sdiv" [lhsIR, rhsIR]], by
-        rw [CompilationModel.compileRequireFailCond, compileExpr_sdiv_ok hlhs hrhs]
-        all_goals
-          try rfl
-          try
-            intro a b hEq
-            cases hEq⟩
+        have hcompile := compileExpr_sdiv_ok hlhs hrhs
+        rw [CompilationModel.compileRequireFailCond]
+        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcompile
+        simp [CompilationModel.compileRequireFailCondWithInternals, hcompile]⟩
   | smod hL hR =>
       rename_i lhs rhs
       rcases compileExpr_core_ok (fields := fields) hL with ⟨lhsIR, hlhs⟩
       rcases compileExpr_core_ok (fields := fields) hR with ⟨rhsIR, hrhs⟩
       exact ⟨YulExpr.call "iszero" [YulExpr.call "smod" [lhsIR, rhsIR]], by
-        rw [CompilationModel.compileRequireFailCond, compileExpr_smod_ok hlhs hrhs]
-        all_goals
-          try rfl
-          try
-            intro a b hEq
-            cases hEq⟩
+        have hcompile := compileExpr_smod_ok hlhs hrhs
+        rw [CompilationModel.compileRequireFailCond]
+        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcompile
+        simp [CompilationModel.compileRequireFailCondWithInternals, hcompile]⟩
   | sar hL hR =>
       rename_i lhs rhs
       rcases compileExpr_core_ok (fields := fields) hL with ⟨lhsIR, hlhs⟩
       rcases compileExpr_core_ok (fields := fields) hR with ⟨rhsIR, hrhs⟩
       exact ⟨YulExpr.call "iszero" [YulExpr.call "sar" [lhsIR, rhsIR]], by
-        rw [CompilationModel.compileRequireFailCond, compileExpr_sar_ok hlhs hrhs]
-        all_goals
-          try rfl
-          try
-            intro a b hEq
-            cases hEq⟩
+        have hcompile := compileExpr_sar_ok hlhs hrhs
+        rw [CompilationModel.compileRequireFailCond]
+        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcompile
+        simp [CompilationModel.compileRequireFailCondWithInternals, hcompile]⟩
   | byte hL hR =>
       rename_i index value
       rcases compileExpr_core_ok (fields := fields) hL with ⟨indexIR, hindex⟩
       rcases compileExpr_core_ok (fields := fields) hR with ⟨valueIR, hvalue⟩
       exact ⟨YulExpr.call "iszero" [YulExpr.call "byte" [indexIR, valueIR]], by
-        rw [CompilationModel.compileRequireFailCond, compileExpr_byte_ok hindex hvalue]
-        all_goals
-          try rfl
-          try
-            intro a b hEq
-            cases hEq⟩
+        have hcompile := compileExpr_byte_ok hindex hvalue
+        rw [CompilationModel.compileRequireFailCond]
+        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcompile
+        simp [CompilationModel.compileRequireFailCondWithInternals, hcompile]⟩
   | signextend hL hR =>
       rename_i lhs rhs
       rcases compileExpr_core_ok (fields := fields) hL with ⟨lhsIR, hlhs⟩
       rcases compileExpr_core_ok (fields := fields) hR with ⟨rhsIR, hrhs⟩
       exact ⟨YulExpr.call "iszero" [YulExpr.call "signextend" [lhsIR, rhsIR]], by
-        rw [CompilationModel.compileRequireFailCond, compileExpr_signextend_ok hlhs hrhs]
-        all_goals
-          try rfl
-          try
-            intro a b hEq
-            cases hEq⟩
+        have hcompile := compileExpr_signextend_ok hlhs hrhs
+        rw [CompilationModel.compileRequireFailCond]
+        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcompile
+        simp [CompilationModel.compileRequireFailCondWithInternals, hcompile]⟩
   | gt hL hR =>
       rename_i lhs rhs
       rcases compileExpr_core_ok (fields := fields) hL with ⟨lhsIR, hlhs⟩
       rcases compileExpr_core_ok (fields := fields) hR with ⟨rhsIR, hrhs⟩
       exact ⟨YulExpr.call "iszero" [YulExpr.call "gt" [lhsIR, rhsIR]], by
-        rw [CompilationModel.compileRequireFailCond, compileExpr_gt_ok hlhs hrhs]
-        all_goals
-          try rfl
-          try
-            intro a b hEq
-            cases hEq⟩
+        have hcompile := compileExpr_gt_ok hlhs hrhs
+        rw [CompilationModel.compileRequireFailCond]
+        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcompile
+        simp [CompilationModel.compileRequireFailCondWithInternals, hcompile]⟩
   | ge hL hR =>
       rename_i lhs rhs
       rcases compileExpr_core_ok (fields := fields) hL with ⟨lhsIR, hlhs⟩
       rcases compileExpr_core_ok (fields := fields) hR with ⟨rhsIR, hrhs⟩
       exact ⟨YulExpr.call "lt" [lhsIR, rhsIR], by
-        rw [CompilationModel.compileRequireFailCond, hlhs, hrhs]
+        rw [CompilationModel.compileRequireFailCond]
+        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hlhs hrhs
+        simp [CompilationModel.compileRequireFailCondWithInternals, CompilationModel.yulBinOp, hlhs, hrhs]
         rfl⟩
   | le hL hR =>
       rename_i lhs rhs
       rcases compileExpr_core_ok (fields := fields) hL with ⟨lhsIR, hlhs⟩
       rcases compileExpr_core_ok (fields := fields) hR with ⟨rhsIR, hrhs⟩
       exact ⟨YulExpr.call "gt" [lhsIR, rhsIR], by
-        rw [CompilationModel.compileRequireFailCond, hlhs, hrhs]
+        rw [CompilationModel.compileRequireFailCond]
+        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hlhs hrhs
+        simp [CompilationModel.compileRequireFailCondWithInternals, CompilationModel.yulBinOp, hlhs, hrhs]
         rfl⟩
   | logicalNot h =>
       rename_i expr
       rcases compileExpr_core_ok (fields := fields) h with ⟨exprIR, hexpr⟩
       exact ⟨YulExpr.call "iszero" [YulExpr.call "iszero" [exprIR]], by
-        rw [CompilationModel.compileRequireFailCond, compileExpr_logicalNot_ok hexpr]
-        all_goals
-          try rfl
-          try
-            intro a b hEq
-            cases hEq⟩
+        have hcompile := compileExpr_logicalNot_ok hexpr
+        rw [CompilationModel.compileRequireFailCond]
+        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcompile
+        simp [CompilationModel.compileRequireFailCondWithInternals, hcompile]⟩
   | logicalAnd hL hR =>
       rename_i lhs rhs
       rcases compileExpr_core_ok (fields := fields) hL with ⟨lhsIR, hlhs⟩
       rcases compileExpr_core_ok (fields := fields) hR with ⟨rhsIR, hrhs⟩
       exact ⟨YulExpr.call "iszero"
           [YulExpr.call "and" [CompilationModel.yulToBool lhsIR, CompilationModel.yulToBool rhsIR]], by
-        rw [CompilationModel.compileRequireFailCond, compileExpr_logicalAnd_ok hlhs hrhs]
-        all_goals
-          try rfl
-          try
-            intro a b hEq
-            cases hEq⟩
+        have hcompile := compileExpr_logicalAnd_ok hlhs hrhs
+        rw [CompilationModel.compileRequireFailCond]
+        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcompile
+        simp [CompilationModel.compileRequireFailCondWithInternals, hcompile]⟩
   | logicalOr hL hR =>
       rename_i lhs rhs
       rcases compileExpr_core_ok (fields := fields) hL with ⟨lhsIR, hlhs⟩
       rcases compileExpr_core_ok (fields := fields) hR with ⟨rhsIR, hrhs⟩
       exact ⟨YulExpr.call "iszero"
           [YulExpr.call "or" [CompilationModel.yulToBool lhsIR, CompilationModel.yulToBool rhsIR]], by
-        rw [CompilationModel.compileRequireFailCond, compileExpr_logicalOr_ok hlhs hrhs]
-        all_goals
-          try rfl
-          try
-            intro a b hEq
-            cases hEq⟩
+        have hcompile := compileExpr_logicalOr_ok hlhs hrhs
+        rw [CompilationModel.compileRequireFailCond]
+        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcompile
+        simp [CompilationModel.compileRequireFailCondWithInternals, hcompile]⟩
   | bitAnd hL hR =>
       rename_i lhs rhs
       rcases compileExpr_core_ok (fields := fields) hL with ⟨lhsIR, hlhs⟩
       rcases compileExpr_core_ok (fields := fields) hR with ⟨rhsIR, hrhs⟩
       exact ⟨YulExpr.call "iszero" [YulExpr.call "and" [lhsIR, rhsIR]], by
-        rw [CompilationModel.compileRequireFailCond, compileExpr_bitAnd_ok hlhs hrhs]
-        all_goals
-          try rfl
-          try
-            intro a b hEq
-            cases hEq⟩
+        have hcompile := compileExpr_bitAnd_ok hlhs hrhs
+        rw [CompilationModel.compileRequireFailCond]
+        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcompile
+        simp [CompilationModel.compileRequireFailCondWithInternals, hcompile]⟩
   | bitOr hL hR =>
       rename_i lhs rhs
       rcases compileExpr_core_ok (fields := fields) hL with ⟨lhsIR, hlhs⟩
       rcases compileExpr_core_ok (fields := fields) hR with ⟨rhsIR, hrhs⟩
       exact ⟨YulExpr.call "iszero" [YulExpr.call "or" [lhsIR, rhsIR]], by
-        rw [CompilationModel.compileRequireFailCond, compileExpr_bitOr_ok hlhs hrhs]
-        all_goals
-          try rfl
-          try
-            intro a b hEq
-            cases hEq⟩
+        have hcompile := compileExpr_bitOr_ok hlhs hrhs
+        rw [CompilationModel.compileRequireFailCond]
+        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcompile
+        simp [CompilationModel.compileRequireFailCondWithInternals, hcompile]⟩
   | bitXor hL hR =>
       rename_i lhs rhs
       rcases compileExpr_core_ok (fields := fields) hL with ⟨lhsIR, hlhs⟩
       rcases compileExpr_core_ok (fields := fields) hR with ⟨rhsIR, hrhs⟩
       exact ⟨YulExpr.call "iszero" [YulExpr.call "xor" [lhsIR, rhsIR]], by
-        rw [CompilationModel.compileRequireFailCond, compileExpr_bitXor_ok hlhs hrhs]
-        all_goals
-          try rfl
-          try
-            intro a b hEq
-            cases hEq⟩
+        have hcompile := compileExpr_bitXor_ok hlhs hrhs
+        rw [CompilationModel.compileRequireFailCond]
+        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcompile
+        simp [CompilationModel.compileRequireFailCondWithInternals, hcompile]⟩
   | bitNot h =>
       rename_i expr
       rcases compileExpr_core_ok (fields := fields) h with ⟨exprIR, hexpr⟩
       exact ⟨YulExpr.call "iszero" [YulExpr.call "not" [exprIR]], by
-        rw [CompilationModel.compileRequireFailCond, compileExpr_bitNot_ok hexpr]
-        all_goals
-          try rfl
-          try
-            intro a b hEq
-            cases hEq⟩
+        have hcompile := compileExpr_bitNot_ok hexpr
+        rw [CompilationModel.compileRequireFailCond]
+        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcompile
+        simp [CompilationModel.compileRequireFailCondWithInternals, hcompile]⟩
   | shl hS hV =>
       rename_i shift value
       rcases compileExpr_core_ok (fields := fields) hS with ⟨shiftIR, hshift⟩
       rcases compileExpr_core_ok (fields := fields) hV with ⟨valueIR, hvalue⟩
       exact ⟨YulExpr.call "iszero" [YulExpr.call "shl" [shiftIR, valueIR]], by
-        rw [CompilationModel.compileRequireFailCond, compileExpr_shl_ok hshift hvalue]
-        all_goals
-          try rfl
-          try
-            intro a b hEq
-            cases hEq⟩
+        have hcompile := compileExpr_shl_ok hshift hvalue
+        rw [CompilationModel.compileRequireFailCond]
+        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcompile
+        simp [CompilationModel.compileRequireFailCondWithInternals, hcompile]⟩
   | shr hS hV =>
       rename_i shift value
       rcases compileExpr_core_ok (fields := fields) hS with ⟨shiftIR, hshift⟩
       rcases compileExpr_core_ok (fields := fields) hV with ⟨valueIR, hvalue⟩
       exact ⟨YulExpr.call "iszero" [YulExpr.call "shr" [shiftIR, valueIR]], by
-        rw [CompilationModel.compileRequireFailCond, compileExpr_shr_ok hshift hvalue]
-        all_goals
-          try rfl
-          try
-            intro a b hEq
-            cases hEq⟩
+        have hcompile := compileExpr_shr_ok hshift hvalue
+        rw [CompilationModel.compileRequireFailCond]
+        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcompile
+        simp [CompilationModel.compileRequireFailCondWithInternals, hcompile]⟩
   | min hL hR =>
       rename_i lhs rhs
       rcases compileExpr_core_ok (fields := fields) hL with ⟨lhsIR, hlhs⟩
@@ -6651,8 +6706,10 @@ theorem compileRequireFailCond_core_ok
       exact ⟨YulExpr.call "iszero" [YulExpr.call "sub" [lhsIR,
         YulExpr.call "mul" [YulExpr.call "sub" [lhsIR, rhsIR],
           YulExpr.call "gt" [lhsIR, rhsIR]]]], by
-        rw [CompilationModel.compileRequireFailCond, compileExpr_min_ok hlhs hrhs]
-        all_goals first | rfl | (intro a b; exact nofun)⟩
+        have hcompile := compileExpr_min_ok hlhs hrhs
+        rw [CompilationModel.compileRequireFailCond]
+        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcompile
+        simp [CompilationModel.compileRequireFailCondWithInternals, hcompile]⟩
   | max hL hR =>
       rename_i lhs rhs
       rcases compileExpr_core_ok (fields := fields) hL with ⟨lhsIR, hlhs⟩
@@ -6660,8 +6717,10 @@ theorem compileRequireFailCond_core_ok
       exact ⟨YulExpr.call "iszero" [YulExpr.call "add" [lhsIR,
         YulExpr.call "mul" [YulExpr.call "sub" [rhsIR, lhsIR],
           YulExpr.call "gt" [rhsIR, lhsIR]]]], by
-        rw [CompilationModel.compileRequireFailCond, compileExpr_max_ok hlhs hrhs]
-        all_goals first | rfl | (intro a b; exact nofun)⟩
+        have hcompile := compileExpr_max_ok hlhs hrhs
+        rw [CompilationModel.compileRequireFailCond]
+        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcompile
+        simp [CompilationModel.compileRequireFailCondWithInternals, hcompile]⟩
   | ite hC hT hE =>
       rename_i cond thenVal elseVal
       rcases compileExpr_core_ok (fields := fields) hC with ⟨condIR, hcond⟩
@@ -6672,8 +6731,10 @@ theorem compileRequireFailCond_core_ok
           YulExpr.call "iszero" [YulExpr.call "iszero" [condIR]], thenIR],
         YulExpr.call "mul" [
           YulExpr.call "iszero" [condIR], elseIR]]], by
-        rw [CompilationModel.compileRequireFailCond, compileExpr_ite_ok hcond hthen helse]
-        all_goals first | rfl | (intro a b; exact nofun)⟩
+        have hcompile := compileExpr_ite_ok hcond hthen helse
+        rw [CompilationModel.compileRequireFailCond]
+        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcompile
+        simp [CompilationModel.compileRequireFailCondWithInternals, hcompile]⟩
   | ceilDiv hL hR =>
       rename_i lhs rhs
       rcases compileExpr_core_ok (fields := fields) hL with ⟨lhsIR, hlhs⟩
@@ -6683,16 +6744,20 @@ theorem compileRequireFailCond_core_ok
         YulExpr.call "add" [
           YulExpr.call "div" [YulExpr.call "sub" [lhsIR, YulExpr.lit 1], rhsIR],
           YulExpr.lit 1]]], by
-        rw [CompilationModel.compileRequireFailCond, compileExpr_ceilDiv_ok hlhs hrhs]
-        all_goals first | rfl | (intro a b; exact nofun)⟩
+        have hcompile := compileExpr_ceilDiv_ok hlhs hrhs
+        rw [CompilationModel.compileRequireFailCond]
+        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcompile
+        simp [CompilationModel.compileRequireFailCondWithInternals, hcompile]⟩
   | wMulDown hL hR =>
       rename_i lhs rhs
       rcases compileExpr_core_ok (fields := fields) hL with ⟨lhsIR, hlhs⟩
       rcases compileExpr_core_ok (fields := fields) hR with ⟨rhsIR, hrhs⟩
       exact ⟨YulExpr.call "iszero" [YulExpr.call "div" [
         YulExpr.call "mul" [lhsIR, rhsIR], YulExpr.lit 1000000000000000000]], by
-        rw [CompilationModel.compileRequireFailCond, compileExpr_wMulDown_ok hlhs hrhs]
-        all_goals first | rfl | (intro a b; exact nofun)⟩
+        have hcompile := compileExpr_wMulDown_ok hlhs hrhs
+        rw [CompilationModel.compileRequireFailCond]
+        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcompile
+        simp [CompilationModel.compileRequireFailCondWithInternals, hcompile]⟩
   | wDivUp hL hR =>
       rename_i lhs rhs
       rcases compileExpr_core_ok (fields := fields) hL with ⟨lhsIR, hlhs⟩
@@ -6702,8 +6767,10 @@ theorem compileRequireFailCond_core_ok
           YulExpr.call "mul" [lhsIR, YulExpr.lit 1000000000000000000],
           YulExpr.call "sub" [rhsIR, YulExpr.lit 1]],
         rhsIR]], by
-        rw [CompilationModel.compileRequireFailCond, compileExpr_wDivUp_ok hlhs hrhs]
-        all_goals first | rfl | (intro a b; exact nofun)⟩
+        have hcompile := compileExpr_wDivUp_ok hlhs hrhs
+        rw [CompilationModel.compileRequireFailCond]
+        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcompile
+        simp [CompilationModel.compileRequireFailCondWithInternals, hcompile]⟩
   | mulDivDown hA hB hC =>
       rename_i a b c
       rcases compileExpr_core_ok (fields := fields) hA with ⟨aIR, ha⟩
@@ -6711,8 +6778,10 @@ theorem compileRequireFailCond_core_ok
       rcases compileExpr_core_ok (fields := fields) hC with ⟨cIR, hc⟩
       exact ⟨YulExpr.call "iszero" [YulExpr.call "div" [
         YulExpr.call "mul" [aIR, bIR], cIR]], by
-        rw [CompilationModel.compileRequireFailCond, compileExpr_mulDivDown_ok ha hb hc]
-        all_goals first | rfl | (intro a b; exact nofun)⟩
+        have hcompile := compileExpr_mulDivDown_ok ha hb hc
+        rw [CompilationModel.compileRequireFailCond]
+        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcompile
+        simp [CompilationModel.compileRequireFailCondWithInternals, hcompile]⟩
   | mulDivUp hA hB hC =>
       rename_i a b c
       rcases compileExpr_core_ok (fields := fields) hA with ⟨aIR, ha⟩
@@ -6722,39 +6791,34 @@ theorem compileRequireFailCond_core_ok
         YulExpr.call "add" [YulExpr.call "mul" [aIR, bIR],
           YulExpr.call "sub" [cIR, YulExpr.lit 1]],
         cIR]], by
-        rw [CompilationModel.compileRequireFailCond, compileExpr_mulDivUp_ok ha hb hc]
-        all_goals first | rfl | (intro a b; exact nofun)⟩
+        have hcompile := compileExpr_mulDivUp_ok ha hb hc
+        rw [CompilationModel.compileRequireFailCond]
+        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcompile
+        simp [CompilationModel.compileRequireFailCondWithInternals, hcompile]⟩
   | tload h =>
       rename_i expr
       rcases compileExpr_core_ok (fields := fields) h with ⟨exprIR, hexpr⟩
       exact ⟨YulExpr.call "iszero" [YulExpr.call "tload" [exprIR]], by
-        rw [CompilationModel.compileRequireFailCond, compileExpr_tload_ok hexpr]
-        all_goals
-          try rfl
-          try
-            intro a b hEq
-            cases hEq⟩
+        have hcompile := compileExpr_tload_ok hexpr
+        rw [CompilationModel.compileRequireFailCond]
+        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcompile
+        simp [CompilationModel.compileRequireFailCondWithInternals, hcompile]⟩
   | calldataload h =>
       rename_i expr
       rcases compileExpr_core_ok (fields := fields) h with ⟨exprIR, hexpr⟩
       exact ⟨YulExpr.call "iszero" [YulExpr.call "calldataload" [exprIR]], by
-        rw [CompilationModel.compileRequireFailCond,
-          compileExpr_calldataload_ok hexpr]
-        all_goals
-          try rfl
-          try
-            intro a b hEq
-            cases hEq⟩
+        have hcompile := compileExpr_calldataload_ok hexpr
+        rw [CompilationModel.compileRequireFailCond]
+        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcompile
+        simp [CompilationModel.compileRequireFailCondWithInternals, hcompile]⟩
   | mload h =>
       rename_i expr
       rcases compileExpr_core_ok (fields := fields) h with ⟨exprIR, hexpr⟩
       exact ⟨YulExpr.call "iszero" [YulExpr.call "mload" [exprIR]], by
-        rw [CompilationModel.compileRequireFailCond, compileExpr_mload_ok hexpr]
-        all_goals
-          try rfl
-          try
-            intro a b hEq
-            cases hEq⟩
+        have hcompile := compileExpr_mload_ok hexpr
+        rw [CompilationModel.compileRequireFailCond]
+        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcompile
+        simp [CompilationModel.compileRequireFailCondWithInternals, hcompile]⟩
 
 theorem eval_compileRequireFailCond_core_onExpr
     {fields : List Field}
@@ -6807,84 +6871,96 @@ theorem eval_compileRequireFailCond_core_onExpr
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.literal value) from ExprCompileCore.literal value) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .literal value)
           (show ExprCompileCore (.literal value) from ExprCompileCore.literal value) hexact hpresent hexpr
   | param name =>
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.param name) from ExprCompileCore.param name) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .param name)
           (show ExprCompileCore (.param name) from ExprCompileCore.param name) hexact hpresent hexpr
   | localVar name =>
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.localVar name) from ExprCompileCore.localVar name) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .localVar name)
           (show ExprCompileCore (.localVar name) from ExprCompileCore.localVar name) hexact hpresent hexpr
   | caller =>
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.caller) from ExprCompileCore.caller) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .caller)
           (show ExprCompileCore (.caller) from ExprCompileCore.caller) hexact hpresent hexpr
   | contractAddress =>
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.contractAddress) from ExprCompileCore.contractAddress) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .contractAddress)
           (show ExprCompileCore (.contractAddress) from ExprCompileCore.contractAddress) hexact hpresent hexpr
   | txOrigin =>
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.txOrigin) from ExprCompileCore.txOrigin) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .txOrigin)
           (show ExprCompileCore (.txOrigin) from ExprCompileCore.txOrigin) hexact hpresent hexpr
   | msgValue =>
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.msgValue) from ExprCompileCore.msgValue) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .msgValue)
           (show ExprCompileCore (.msgValue) from ExprCompileCore.msgValue) hexact hpresent hexpr
   | blockTimestamp =>
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.blockTimestamp) from ExprCompileCore.blockTimestamp) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .blockTimestamp)
           (show ExprCompileCore (.blockTimestamp) from ExprCompileCore.blockTimestamp) hexact hpresent hexpr
   | blockNumber =>
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.blockNumber) from ExprCompileCore.blockNumber) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .blockNumber)
           (show ExprCompileCore (.blockNumber) from ExprCompileCore.blockNumber) hexact hpresent hexpr
   | chainid =>
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.chainid) from ExprCompileCore.chainid) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .chainid)
           (show ExprCompileCore (.chainid) from ExprCompileCore.chainid) hexact hpresent hexpr
   | blobbasefee =>
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.blobbasefee) from ExprCompileCore.blobbasefee) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .blobbasefee)
           (show ExprCompileCore (.blobbasefee) from ExprCompileCore.blobbasefee) hexact hpresent hexpr
   | calldatasize =>
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.calldatasize) from ExprCompileCore.calldatasize) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .calldatasize)
           (show ExprCompileCore (.calldatasize) from ExprCompileCore.calldatasize) hexact hpresent hexpr
   | add hL hR =>
@@ -6892,7 +6968,8 @@ theorem eval_compileRequireFailCond_core_onExpr
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.add lhs rhs) from ExprCompileCore.add hL hR) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .add lhs rhs)
           (show ExprCompileCore (.add lhs rhs) from ExprCompileCore.add hL hR) hexact hpresent hexpr
   | sub hL hR =>
@@ -6900,7 +6977,8 @@ theorem eval_compileRequireFailCond_core_onExpr
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.sub lhs rhs) from ExprCompileCore.sub hL hR) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .sub lhs rhs)
           (show ExprCompileCore (.sub lhs rhs) from ExprCompileCore.sub hL hR) hexact hpresent hexpr
   | mul hL hR =>
@@ -6908,7 +6986,8 @@ theorem eval_compileRequireFailCond_core_onExpr
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.mul lhs rhs) from ExprCompileCore.mul hL hR) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .mul lhs rhs)
           (show ExprCompileCore (.mul lhs rhs) from ExprCompileCore.mul hL hR) hexact hpresent hexpr
   | div hL hR =>
@@ -6916,7 +6995,8 @@ theorem eval_compileRequireFailCond_core_onExpr
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.div lhs rhs) from ExprCompileCore.div hL hR) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .div lhs rhs)
           (show ExprCompileCore (.div lhs rhs) from ExprCompileCore.div hL hR) hexact hpresent hexpr
   | mod hL hR =>
@@ -6924,7 +7004,8 @@ theorem eval_compileRequireFailCond_core_onExpr
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.mod lhs rhs) from ExprCompileCore.mod hL hR) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .mod lhs rhs)
           (show ExprCompileCore (.mod lhs rhs) from ExprCompileCore.mod hL hR) hexact hpresent hexpr
   | eq hL hR =>
@@ -6932,7 +7013,8 @@ theorem eval_compileRequireFailCond_core_onExpr
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.eq lhs rhs) from ExprCompileCore.eq hL hR) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .eq lhs rhs)
           (show ExprCompileCore (.eq lhs rhs) from ExprCompileCore.eq hL hR) hexact hpresent hexpr
   | lt hL hR =>
@@ -6940,7 +7022,8 @@ theorem eval_compileRequireFailCond_core_onExpr
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.lt lhs rhs) from ExprCompileCore.lt hL hR) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .lt lhs rhs)
           (show ExprCompileCore (.lt lhs rhs) from ExprCompileCore.lt hL hR) hexact hpresent hexpr
   | slt hL hR =>
@@ -6948,7 +7031,8 @@ theorem eval_compileRequireFailCond_core_onExpr
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.slt lhs rhs) from ExprCompileCore.slt hL hR) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .slt lhs rhs)
           (show ExprCompileCore (.slt lhs rhs) from ExprCompileCore.slt hL hR) hexact hpresent hexpr
   | sgt hL hR =>
@@ -6956,7 +7040,8 @@ theorem eval_compileRequireFailCond_core_onExpr
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.sgt lhs rhs) from ExprCompileCore.sgt hL hR) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .sgt lhs rhs)
           (show ExprCompileCore (.sgt lhs rhs) from ExprCompileCore.sgt hL hR) hexact hpresent hexpr
   | sdiv hL hR =>
@@ -6964,7 +7049,8 @@ theorem eval_compileRequireFailCond_core_onExpr
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.sdiv lhs rhs) from ExprCompileCore.sdiv hL hR) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .sdiv lhs rhs)
           (show ExprCompileCore (.sdiv lhs rhs) from ExprCompileCore.sdiv hL hR) hexact hpresent hexpr
   | smod hL hR =>
@@ -6972,7 +7058,8 @@ theorem eval_compileRequireFailCond_core_onExpr
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.smod lhs rhs) from ExprCompileCore.smod hL hR) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .smod lhs rhs)
           (show ExprCompileCore (.smod lhs rhs) from ExprCompileCore.smod hL hR) hexact hpresent hexpr
   | sar hL hR =>
@@ -6980,7 +7067,8 @@ theorem eval_compileRequireFailCond_core_onExpr
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.sar lhs rhs) from ExprCompileCore.sar hL hR) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .sar lhs rhs)
           (show ExprCompileCore (.sar lhs rhs) from ExprCompileCore.sar hL hR) hexact hpresent hexpr
   | byte hL hR =>
@@ -6988,7 +7076,8 @@ theorem eval_compileRequireFailCond_core_onExpr
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.byte index value) from ExprCompileCore.byte hL hR) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .byte index value)
           (show ExprCompileCore (.byte index value) from ExprCompileCore.byte hL hR) hexact hpresent hexpr
   | signextend hL hR =>
@@ -6996,7 +7085,8 @@ theorem eval_compileRequireFailCond_core_onExpr
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.signextend lhs rhs) from ExprCompileCore.signextend hL hR) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .signextend lhs rhs)
           (show ExprCompileCore (.signextend lhs rhs) from ExprCompileCore.signextend hL hR) hexact hpresent hexpr
   | gt hL hR =>
@@ -7004,7 +7094,8 @@ theorem eval_compileRequireFailCond_core_onExpr
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.gt lhs rhs) from ExprCompileCore.gt hL hR) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .gt lhs rhs)
           (show ExprCompileCore (.gt lhs rhs) from ExprCompileCore.gt hL hR) hexact hpresent hexpr
   | ge hL hR =>
@@ -7049,7 +7140,10 @@ theorem eval_compileRequireFailCond_core_onExpr
           have hrhsLt := evalExpr_lt_evmModulus_core_onExpr hR hexactR hbounded hpresentR hruntime
           rw [hRhsSrc] at hrhsLt; simp at hrhsLt
           refine ⟨YulExpr.call "lt" [lhsIR, rhsIR], ?_, ?_⟩
-          · rw [CompilationModel.compileRequireFailCond, hlhs, hrhs]; rfl
+          · rw [CompilationModel.compileRequireFailCond]
+            rw [← CompilationModel.compileExprWithInternals_nil_eq] at hlhs hrhs
+            simp [CompilationModel.compileRequireFailCondWithInternals, CompilationModel.yulBinOp, hlhs, hrhs]
+            rfl
           · have hltEval := evalIRExpr_lt_of_eval hLhsIR hRhsIR
             -- evalExpr (.ge lhs rhs) = do lhsV ← ...; rhsV ← ...; pure (boolWord (decide (rhsV ≤ lhsV)))
             -- With lhs = some lhsVal, rhs = some rhsVal:
@@ -7118,7 +7212,10 @@ theorem eval_compileRequireFailCond_core_onExpr
           have hrhsLt := evalExpr_lt_evmModulus_core_onExpr hR hexactR hbounded hpresentR hruntime
           rw [hRhsSrc] at hrhsLt; simp at hrhsLt
           refine ⟨YulExpr.call "gt" [lhsIR, rhsIR], ?_, ?_⟩
-          · rw [CompilationModel.compileRequireFailCond, hlhs, hrhs]; rfl
+          · rw [CompilationModel.compileRequireFailCond]
+            rw [← CompilationModel.compileExprWithInternals_nil_eq] at hlhs hrhs
+            simp [CompilationModel.compileRequireFailCondWithInternals, CompilationModel.yulBinOp, hlhs, hrhs]
+            rfl
           · have hgtEval := evalIRExpr_gt_of_eval hLhsIR hRhsIR
             simp [Nat.mod_eq_of_lt hlhsLt, Nat.mod_eq_of_lt hrhsLt] at hgtEval
             -- hgtEval : evalIRExpr state (call "gt" [..]) = some (boolWord (rhsVal < lhsVal))
@@ -7138,7 +7235,8 @@ theorem eval_compileRequireFailCond_core_onExpr
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.logicalNot expr) from ExprCompileCore.logicalNot h) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .logicalNot expr)
           (show ExprCompileCore (.logicalNot expr) from ExprCompileCore.logicalNot h) hexact hpresent hexpr
   | logicalAnd hL hR =>
@@ -7146,7 +7244,8 @@ theorem eval_compileRequireFailCond_core_onExpr
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.logicalAnd lhs rhs) from ExprCompileCore.logicalAnd hL hR) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .logicalAnd lhs rhs)
           (show ExprCompileCore (.logicalAnd lhs rhs) from ExprCompileCore.logicalAnd hL hR) hexact hpresent hexpr
   | logicalOr hL hR =>
@@ -7154,7 +7253,8 @@ theorem eval_compileRequireFailCond_core_onExpr
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.logicalOr lhs rhs) from ExprCompileCore.logicalOr hL hR) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .logicalOr lhs rhs)
           (show ExprCompileCore (.logicalOr lhs rhs) from ExprCompileCore.logicalOr hL hR) hexact hpresent hexpr
   | bitAnd hL hR =>
@@ -7162,7 +7262,8 @@ theorem eval_compileRequireFailCond_core_onExpr
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.bitAnd lhs rhs) from ExprCompileCore.bitAnd hL hR) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .bitAnd lhs rhs)
           (show ExprCompileCore (.bitAnd lhs rhs) from ExprCompileCore.bitAnd hL hR) hexact hpresent hexpr
   | bitOr hL hR =>
@@ -7170,7 +7271,8 @@ theorem eval_compileRequireFailCond_core_onExpr
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.bitOr lhs rhs) from ExprCompileCore.bitOr hL hR) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .bitOr lhs rhs)
           (show ExprCompileCore (.bitOr lhs rhs) from ExprCompileCore.bitOr hL hR) hexact hpresent hexpr
   | bitXor hL hR =>
@@ -7178,7 +7280,8 @@ theorem eval_compileRequireFailCond_core_onExpr
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.bitXor lhs rhs) from ExprCompileCore.bitXor hL hR) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .bitXor lhs rhs)
           (show ExprCompileCore (.bitXor lhs rhs) from ExprCompileCore.bitXor hL hR) hexact hpresent hexpr
   | bitNot h =>
@@ -7186,7 +7289,8 @@ theorem eval_compileRequireFailCond_core_onExpr
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.bitNot expr) from ExprCompileCore.bitNot h) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .bitNot expr)
           (show ExprCompileCore (.bitNot expr) from ExprCompileCore.bitNot h) hexact hpresent hexpr
   | shl hS hV =>
@@ -7194,7 +7298,8 @@ theorem eval_compileRequireFailCond_core_onExpr
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.shl shift value) from ExprCompileCore.shl hS hV) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .shl shift value)
           (show ExprCompileCore (.shl shift value) from ExprCompileCore.shl hS hV) hexact hpresent hexpr
   | shr hS hV =>
@@ -7202,7 +7307,8 @@ theorem eval_compileRequireFailCond_core_onExpr
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.shr shift value) from ExprCompileCore.shr hS hV) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .shr shift value)
           (show ExprCompileCore (.shr shift value) from ExprCompileCore.shr hS hV) hexact hpresent hexpr
   | min hL hR =>
@@ -7210,7 +7316,8 @@ theorem eval_compileRequireFailCond_core_onExpr
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.min lhs rhs) from ExprCompileCore.min hL hR) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .min lhs rhs)
           (show ExprCompileCore (.min lhs rhs) from ExprCompileCore.min hL hR) hexact hpresent hexpr
   | max hL hR =>
@@ -7218,7 +7325,8 @@ theorem eval_compileRequireFailCond_core_onExpr
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.max lhs rhs) from ExprCompileCore.max hL hR) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .max lhs rhs)
           (show ExprCompileCore (.max lhs rhs) from ExprCompileCore.max hL hR) hexact hpresent hexpr
   | ite hC hT hE =>
@@ -7226,7 +7334,8 @@ theorem eval_compileRequireFailCond_core_onExpr
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.ite cond thenVal elseVal) from ExprCompileCore.ite hC hT hE) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .ite cond thenVal elseVal)
           (show ExprCompileCore (.ite cond thenVal elseVal) from ExprCompileCore.ite hC hT hE) hexact hpresent hexpr
   | ceilDiv hL hR =>
@@ -7234,7 +7343,8 @@ theorem eval_compileRequireFailCond_core_onExpr
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.ceilDiv lhs rhs) from ExprCompileCore.ceilDiv hL hR) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .ceilDiv lhs rhs)
           (show ExprCompileCore (.ceilDiv lhs rhs) from ExprCompileCore.ceilDiv hL hR) hexact hpresent hexpr
   | wMulDown hL hR =>
@@ -7242,7 +7352,8 @@ theorem eval_compileRequireFailCond_core_onExpr
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.wMulDown lhs rhs) from ExprCompileCore.wMulDown hL hR) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .wMulDown lhs rhs)
           (show ExprCompileCore (.wMulDown lhs rhs) from ExprCompileCore.wMulDown hL hR) hexact hpresent hexpr
   | wDivUp hL hR =>
@@ -7250,7 +7361,8 @@ theorem eval_compileRequireFailCond_core_onExpr
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.wDivUp lhs rhs) from ExprCompileCore.wDivUp hL hR) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .wDivUp lhs rhs)
           (show ExprCompileCore (.wDivUp lhs rhs) from ExprCompileCore.wDivUp hL hR) hexact hpresent hexpr
   | mulDivDown hA hB hC =>
@@ -7258,7 +7370,8 @@ theorem eval_compileRequireFailCond_core_onExpr
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.mulDivDown a b c) from ExprCompileCore.mulDivDown hA hB hC) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .mulDivDown a b c)
           (show ExprCompileCore (.mulDivDown a b c) from ExprCompileCore.mulDivDown hA hB hC) hexact hpresent hexpr
   | mulDivUp hA hB hC =>
@@ -7266,7 +7379,8 @@ theorem eval_compileRequireFailCond_core_onExpr
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.mulDivUp a b c) from ExprCompileCore.mulDivUp hA hB hC) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .mulDivUp a b c)
           (show ExprCompileCore (.mulDivUp a b c) from ExprCompileCore.mulDivUp hA hB hC) hexact hpresent hexpr
   | tload h =>
@@ -7274,7 +7388,8 @@ theorem eval_compileRequireFailCond_core_onExpr
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.tload expr) from ExprCompileCore.tload h) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .tload expr)
           (show ExprCompileCore (.tload expr) from ExprCompileCore.tload h) hexact hpresent hexpr
   | calldataload h =>
@@ -7283,7 +7398,8 @@ theorem eval_compileRequireFailCond_core_onExpr
           (show ExprCompileCore (.calldataload expr) from
             ExprCompileCore.calldataload h) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .calldataload expr)
           (show ExprCompileCore (.calldataload expr) from
             ExprCompileCore.calldataload h) hexact hpresent hexpr
@@ -7293,7 +7409,8 @@ theorem eval_compileRequireFailCond_core_onExpr
           (show ExprCompileCore (.mload expr) from
             ExprCompileCore.mload h) with ⟨exprIR, hexpr⟩
       refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
-      · simp [CompilationModel.compileRequireFailCond, hexpr]
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .mload expr)
           (show ExprCompileCore (.mload expr) from
             ExprCompileCore.mload h) hexact hpresent hexpr

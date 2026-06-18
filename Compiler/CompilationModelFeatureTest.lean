@@ -2040,6 +2040,111 @@ def forwardedEchoedAmountPassesMemoryArray : Bool :=
 
 example : forwardedEchoedAmountPassesMemoryArray = true := by native_decide
 
+namespace InternalHelperDynamicArgs
+
+open Compiler.Yul
+
+def permitTy : ParamType :=
+  ParamType.tuple [ParamType.address, ParamType.uint256]
+
+def transferWithBalanceCheck : FunctionSpec := {
+  name := "_transferWithBalanceCheck"
+  params :=
+    [ { name := "permit", ty := permitTy }
+    , { name := "depositor", ty := ParamType.address }
+    , { name := "signature", ty := ParamType.bytes }
+    , { name := "amount", ty := ParamType.uint256 }
+    , { name := "noteCommitment", ty := ParamType.bytes32 }
+    ]
+  returnType := none
+  body := []
+  isInternal := true
+}
+
+def helperParamNamesExpandStaticCompositeAndBytes : Bool :=
+  internalFunctionYulParamNames transferWithBalanceCheck.params ==
+    [ "permit_0", "permit_1", "depositor", "signature_data_offset"
+    , "signature_length", "amount", "noteCommitment" ]
+
+def sourceInternalCallArgsExpandStaticCompositeAndBytes : Bool :=
+  match compileInternalCallArgs [] .calldata [transferWithBalanceCheck]
+      "_transferWithBalanceCheck"
+      [ Expr.param "permit"
+      , Expr.param "depositor"
+      , Expr.param "signature"
+      , Expr.param "amount"
+      , Expr.param "noteCommitment"
+      ] with
+  | Except.ok
+      [ YulExpr.ident "permit_0"
+      , YulExpr.ident "permit_1"
+      , YulExpr.ident "depositor"
+      , YulExpr.ident "signature_data_offset"
+      , YulExpr.ident "signature_length"
+      , YulExpr.ident "amount"
+      , YulExpr.ident "noteCommitment"
+      ] => true
+  | Except.error _ => false
+  | _ => false
+
+def containsText (haystack needle : String) : Bool :=
+  let h := haystack.toList
+  let n := needle.toList
+  if n.isEmpty then true
+  else
+    let rec startsWithChars : List Char → List Char → Bool
+      | _, [] => true
+      | [], _ :: _ => false
+      | h :: hs, n :: ns => h == n && startsWithChars hs ns
+    let rec go : List Char → Bool
+      | [] => false
+      | chars@(_ :: rest) => startsWithChars chars n || go rest
+    go h
+
+def localExpandedForwardingRejected : Bool :=
+  match validateInternalCallSourceArgs
+      [{ name := "amounts", ty := ParamType.array ParamType.uint256 }]
+      "caller" "internal_echoAmounts"
+      [{ name := "amounts", ty := ParamType.array ParamType.uint256 }]
+      [Expr.localVar "amounts"] with
+  | Except.ok _ => false
+  | Except.error msg => containsText msg "direct parameter forwarding only"
+
+def mismatchedSourceParamTypeRejected : Bool :=
+  match validateInternalCallSourceArgs
+      [{ name := "flags", ty := ParamType.array ParamType.bool }]
+      "caller" "internal_echoAmounts"
+      [{ name := "amounts", ty := ParamType.array ParamType.uint256 }]
+      [Expr.param "flags"] with
+  | Except.ok _ => false
+  | Except.error msg => containsText msg "type/layout"
+
+def legacyExpandedArgsRequireExactNames : Bool :=
+  match validateInternalCallSourceArgs
+      [{ name := "amounts", ty := ParamType.array ParamType.uint256 }]
+      "caller" "internal_echoAmounts"
+      [{ name := "amounts", ty := ParamType.array ParamType.uint256 }]
+      [Expr.param "other_data_offset", Expr.param "amounts_length"] with
+  | Except.ok _ => false
+  | Except.error msg => containsText msg "no caller parameter has exact type/layout"
+
+def exprInternalCallArgsUseHelperSignature : Bool :=
+  let helper : FunctionSpec := {
+    name := "echoLength"
+    params := [{ name := "payload", ty := ParamType.bytes }]
+    returnType := some FieldType.uint256
+    body := [Stmt.return (Expr.arrayLength "payload")]
+    isInternal := true
+  }
+  match compileExprWithInternals [] .calldata [helper]
+      (Expr.internalCall "echoLength" [Expr.param "payload"]) with
+  | Except.ok
+      (YulExpr.call "internal_echoLength"
+        [YulExpr.ident "payload_data_offset", YulExpr.ident "payload_length"]) => true
+  | _ => false
+
+end InternalHelperDynamicArgs
+
 def compactAmountsAllocatesMemoryArray : Bool :=
   let body := MacroDynamicArray.compactAmounts_modelBody
   body.any (fun stmt =>
@@ -3375,6 +3480,108 @@ private def adtAliasPayloadMemoizesExprSpec : CompilationModel := {
       returnType := some ParamType.uint256
       returns := [ParamType.uint256]
       axiomNames := ["echo_matches_identity"]
+    }
+  ]
+  adtTypes := [
+    { name := "Choice"
+      variants := [
+        { name := "None", tag := 0, fields := [] },
+        { name := "Some", tag := 1, fields := [{ name := "amount", ty := ParamType.uint256 }] }
+      ]
+    }
+  ]
+}
+
+-- Regression tests for Bugbot MEDIUM issues in PR #2016 (task/1889-internal-helper-args):
+-- (a) internal helper calls inside fallback body must receive the real internal-functions table.
+--     Fallback has no named typed params, so dynamic/composite arg forwarding is covered by the
+--     external-entry fixture below.
+-- (b) internal helper call inside ADT ctor payload for setStorage must thread internals through
+--     compileAdtStorageWrite (not compileExprList) => correct expansion.
+private def fallbackInternalCallSpec : CompilationModel := {
+  name := "FallbackInternalCallRegression"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "internal_value"
+      params := []
+      returnType := some FieldType.uint256
+      isInternal := true
+      body := [Stmt.return (Expr.literal 1)]
+    },
+    { name := "fallback"
+      params := []
+      returnType := none
+      body := [
+        Stmt.return (Expr.internalCall "internal_value" [])
+      ]
+    }
+  ]
+}
+
+private def entryInternalDynamicArgSpec : CompilationModel := {
+  name := "EntryInternalDynamicArgRegression"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "internal_first"
+      params := [{ name := "xs", ty := ParamType.array ParamType.uint256 }]
+      returnType := some FieldType.uint256
+      isInternal := true
+      body := [Stmt.return (Expr.arrayElement "xs" (Expr.literal 0))]
+    },
+    { name := "entry"
+      params := [{ name := "xs", ty := ParamType.array ParamType.uint256 }]
+      returnType := some FieldType.uint256
+      body := [
+        Stmt.return (Expr.internalCall "internal_first" [Expr.param "xs"])
+      ]
+    }
+  ]
+}
+
+private def newtypeInternalDynamicArgSpec : CompilationModel := {
+  name := "NewtypeInternalDynamicArgRegression"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "internal_length"
+      params := [{ name := "xs", ty := ParamType.newtypeOf "Amounts" (ParamType.array ParamType.uint256) }]
+      returnType := some FieldType.uint256
+      isInternal := true
+      body := [Stmt.return (Expr.param "xs_length")]
+    },
+    { name := "entry"
+      params := [{ name := "xs", ty := ParamType.newtypeOf "Amounts" (ParamType.array ParamType.uint256) }]
+      returnType := some FieldType.uint256
+      body := [
+        Stmt.return (Expr.internalCall "internal_length" [Expr.param "xs"])
+      ]
+    }
+  ]
+}
+
+private def adtStorageInternalDynamicArgSpec : CompilationModel := {
+  name := "AdtStorageInternalDynamicArgRegression"
+  fields := [
+    { name := "choice", ty := FieldType.adt "Choice" 1, «slot» := some 10, aliasSlots := [] }
+  ]
+  «constructor» := none
+  functions := [
+    { name := "internal_first"
+      params := [{ name := "xs", ty := ParamType.array ParamType.uint256 }]
+      returnType := some FieldType.uint256
+      isInternal := true
+      body := [Stmt.return (Expr.arrayElement "xs" (Expr.literal 0))]
+    },
+    { name := "storeDyn"
+      params := [{ name := "xs", ty := ParamType.array ParamType.uint256 }]
+      returnType := none
+      body := [
+        Stmt.setStorage "choice"
+          (Expr.adtConstruct "Choice" "Some" [Expr.internalCall "internal_first" [Expr.param "xs"]]),
+        Stmt.stop
+      ]
     }
   ]
   adtTypes := [
@@ -5276,6 +5483,18 @@ set_option maxRecDepth 4096 in
     | .ok _ => true
     | .error _ => false
   expectTrue "local CompilationModel smoke spec compiles with deterministic selectors" compiled
+  expectTrue "internal helper params expand static composite and bytes slots"
+    MacroDynamicArraySmoke.InternalHelperDynamicArgs.helperParamNamesExpandStaticCompositeAndBytes
+  expectTrue "source internal helper call args expand static composite and bytes slots"
+    MacroDynamicArraySmoke.InternalHelperDynamicArgs.sourceInternalCallArgsExpandStaticCompositeAndBytes
+  expectTrue "expanded internal helper args reject local-variable forwarding"
+    MacroDynamicArraySmoke.InternalHelperDynamicArgs.localExpandedForwardingRejected
+  expectTrue "expanded internal helper args reject mismatched source type/layout"
+    MacroDynamicArraySmoke.InternalHelperDynamicArgs.mismatchedSourceParamTypeRejected
+  expectTrue "legacy expanded internal helper args require exact generated names"
+    MacroDynamicArraySmoke.InternalHelperDynamicArgs.legacyExpandedArgsRequireExactNames
+  expectTrue "expression-position internal helper calls expand args from helper signature"
+    MacroDynamicArraySmoke.InternalHelperDynamicArgs.exprInternalCallArgsUseHelperSignature
 
   -- Regression: selector mismatch must fail closed.
   let mismatchRejected :=
@@ -5596,6 +5815,36 @@ set_option maxRecDepth 4096 in
   expectTrue "ADT alias writes reuse the generated payload local"
     ((contains adtAliasPayloadMemoYul "let __adt_payload_0 := echo(input)") &&
       (countOccurrences adtAliasPayloadMemoYul "__adt_payload_0" >= 3))
+  -- Bugbot regression (a): fallback/receive must receive real internalFunctions table.
+  let fallbackInternalYul ← expectCompileToYul
+    "fallback with internal helper call (Bugbot regression a: fallback omits internal function table)"
+    fallbackInternalCallSpec
+  expectTrue "fallback internalCall resolves through the threaded internal-functions table"
+    ((contains fallbackInternalYul "internal_value") &&
+      (contains fallbackInternalYul "internal_internal_value()"))
+  let entryInternalDynYul ← expectCompileToYul
+    "external entry with internal dynamic/composite arg call expands short-form arg"
+    entryInternalDynamicArgSpec
+  expectTrue "entry internalCall (short-form array arg) expands via callee-aware path to data_offset + length (two args, not single 'xs')"
+    ((contains entryInternalDynYul "internal_first") &&
+      (contains entryInternalDynYul "xs_data_offset") &&
+      (contains entryInternalDynYul "xs_length"))
+  let newtypeInternalDynYul ← expectCompileToYul
+    "newtype-wrapped dynamic internal arg has matching callee/caller arity"
+    newtypeInternalDynamicArgSpec
+  expectTrue "newtype dynamic internal helper declaration and call both use data_offset + length"
+    ((contains newtypeInternalDynYul "internal_length") &&
+      (contains newtypeInternalDynYul "function internal_internal_length(xs_data_offset, xs_length)") &&
+      (contains newtypeInternalDynYul "internal_internal_length(xs_data_offset, xs_length)"))
+  -- Bugbot regression (b): ADT storage write payload must use internals-aware expr compile
+  -- so internal calls with dynamic args inside adtConstruct args expand correctly.
+  let adtInternalDynYul ← expectCompileToYul
+    "ADT ctor payload with internal dynamic/composite arg (Bugbot regression b: adt storage write skips internals)"
+    adtStorageInternalDynamicArgSpec
+  expectTrue "adtConstruct payload internalCall (short-form array arg) expands via threaded internalFunctions in compileAdtStorageWrite"
+    ((contains adtInternalDynYul "internal_first") &&
+      (contains adtInternalDynYul "xs_data_offset") &&
+      (contains adtInternalDynYul "xs_length"))
   let ceiInitialInternalCallCompiled :=
     match Compiler.CompilationModel.compile ceiInitialInternalCallAllowedSpec
         (selectorsFor ceiInitialInternalCallAllowedSpec) with

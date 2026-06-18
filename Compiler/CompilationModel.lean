@@ -13,6 +13,7 @@ import Compiler.CompilationModel.DynamicData
 import Compiler.CompilationModel.EcmAxiomCollection
 import Compiler.CompilationModel.EventEmission
 import Compiler.CompilationModel.EventAbiHelpers
+import Compiler.CompilationModel.InternalArgs
 import Compiler.CompilationModel.InternalNaming
 import Compiler.CompilationModel.IssueRefs
 import Compiler.CompilationModel.LayoutReport
