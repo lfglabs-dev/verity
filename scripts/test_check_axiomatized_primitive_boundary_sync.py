@@ -43,7 +43,7 @@ class AxiomatizedPrimitiveBoundarySyncTests(unittest.TestCase):
         feature_matrix.parent.mkdir(parents=True, exist_ok=True)
         feature_matrix.write_text(json.dumps(matrix), encoding="utf-8")
 
-        edsl_path = root / "docs-site" / "content" / "edsl-api-reference.mdx"
+        edsl_path = root / "docs-site" / "content" / "edsl" / "external-calls.mdx"
         edsl_path.parent.mkdir(parents=True, exist_ok=True)
         edsl_path.write_text(edsl_doc, encoding="utf-8")
 

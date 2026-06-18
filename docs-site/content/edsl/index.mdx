@@ -1,0 +1,39 @@
+---
+title: EDSL API Reference
+description: Canonical reference for the verity_contract authoring surface — storage, computation, control flow, functions, and external calls — split into focused pages.
+---
+
+# EDSL API Reference
+
+The complete surface for writing Verity contracts. Every primitive is a
+`Contract α = ContractState → ContractResult α`; read-only primitives never
+revert, write primitives return `success ()`, and only `require`,
+`requireSomeUint`, `requireSomeUintError`, and explicit error reverts such as
+`revertError` may emit `ContractResult.revert`. Proof lemmas for every
+primitive live in [`Verity/Core.lean`](https://github.com/lfglabs-dev/verity/blob/main/Verity/Core.lean)
+(one `_run` lemma per primitive) and `Verity/Proofs/Stdlib/`. See
+[Core Model](/core) for the type layer.
+
+```verity
+import Verity
+open Verity
+open Verity.EVM.Uint256
+open Verity.Stdlib.Math
+```
+
+## Find the page you need
+
+| You want to… | Page |
+|---|---|
+| Declare storage, mappings, arrays, transient fields, constants, immutables | [Storage & Data](/edsl/storage) |
+| Do arithmetic (wrapping / checked), read context (`msgSender`, `txOrigin`, block fields), count bits | [Computation & Context](/edsl/computation) |
+| Guard with `require`, revert custom errors, loop (`forEach` / `forEachSetBit`), emit events | [Control Flow, Errors & Events](/edsl/control-flow) |
+| Write functions, internal helpers, roles, reentrancy guards, modifiers, structs | [Functions & Authoring](/edsl/functions) |
+| Call other contracts, ECMs (ERC-20/4626), precompiles, low-level calls, CREATE2 | [External Calls](/edsl/external-calls) |
+
+## See also
+
+- [Core Model](/core) — `Contract`, `ContractState`, `ContractResult`, proof helpers.
+- [Capabilities & Limits](/capabilities) — what is verified vs. trust-boundary.
+- [Compiler & CLI](/compiler) — flags, reports, deny gates.
+- [Compiler Intrinsics](/intrinsics) — consumer-declared opcode bindings and fork targeting.
