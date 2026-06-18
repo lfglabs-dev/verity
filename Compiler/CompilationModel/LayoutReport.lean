@@ -105,6 +105,14 @@ private def fieldJson (declaredField effectiveField : Field) (idx : Nat) : Strin
     ("packedBits", jsonOption packedBitsJson declaredField.packedBits)
   ]
 
+private def immutableJson (imm : ImmutableSpec) : String :=
+  jsonObject [
+    ("name", jsonString imm.name),
+    ("type", jsonString (paramTypeToSolidityString imm.ty)),
+    ("storageFootprint", jsonNat 0),
+    ("kind", jsonString "bytecodeImmutable")
+  ]
+
 /-! ### Storage families and non-alias certificate (#1966)
 
 Each storage field becomes a "family" — the set of storage locations the
@@ -285,6 +293,7 @@ where
       ("contract", jsonString spec.name),
       ("storageNamespace", nsField),
       ("fields", jsonArray fieldsJson),
+      ("immutables", jsonArray (spec.immutables.map immutableJson)),
       ("storageFamilies", jsonArray familiesJson),
       ("nonAliasClaims", jsonArray claimsJson),
       ("reservedSlotRanges", jsonArray (spec.reservedSlotRanges.map reservedSlotRangeJson)),

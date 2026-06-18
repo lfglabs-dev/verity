@@ -85,7 +85,7 @@ create`, `cast`, raw RPC, etc.
 
 ## Is this production-ready?
 
-Verity verifies a precisely-scoped class of contracts today, not a drop-in replacement for general Solidity. Inside the supported fragment, you get strong machine-checked guarantees; outside it, the trust report tells you exactly which assumptions are doing the work. Several features compile but are not yet end-to-end modeled (low-level call mechanics, linear-memory primitives, `rawLog`, `keccak256`); each has a `--deny-*` flag for proof-strict builds. There is no multi-contract interaction model, no reentrancy semantics, and no gas modeling.
+Verity verifies a precisely-scoped class of contracts today, not a drop-in replacement for general Solidity. Inside the supported fragment, you get strong machine-checked guarantees; outside it, the trust report tells you exactly which assumptions are doing the work. Several features compile but are not yet end-to-end modeled (low-level call mechanics, linear-memory primitives, `rawLog`, `keccak256`); each has a `--deny-*` flag for proof-strict builds. Reentrancy is handled by a mandatory [disposition gate](/edsl/functions#reentrancy-disposition) — every reentrancy-window function must declare a `nonreentrant(lock)` runtime guard or an explicit `reentrancy_trusted` assertion — rather than by modeled cross-call semantics. There is still no general multi-contract interaction model and no gas modeling.
 
 ## Where can I see verified contracts?
 

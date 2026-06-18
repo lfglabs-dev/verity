@@ -23,4 +23,15 @@ contract PropertyNewtypeNamespaceSmokeTest is YulTestBase {
         (bool ok,) = target.call(abi.encodeWithSignature("setId(uint256)", uint256(1)));
         require(ok, "setId reverted unexpectedly");
     }
+    // Property 2: getId reads storage slot 0 and decodes the result
+    function testAuto_GetId_ReadsConfiguredStorage() public {
+        uint256 expected = uint256(1);
+        vm.store(target, bytes32(uint256(0)), bytes32(uint256(expected)));
+        vm.prank(alice);
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("getId()"));
+        require(ok, "getId reverted unexpectedly");
+        assertEq(ret.length, 32, "getId ABI return length mismatch (expected 32 bytes)");
+        uint256 actual = abi.decode(ret, (uint256));
+        assertEq(actual, expected, "getId should return storage slot 0");
+    }
 }

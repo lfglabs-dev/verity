@@ -1,6 +1,7 @@
 import Lean
 import Compiler.Modules.ERC20
 import Compiler.Modules.Calls
+import Compiler.Modules.Oracle
 import Compiler.Modules.Precompiles
 import Compiler.Selectors
 import Compiler.CompilationModel.InternalNaming
@@ -200,9 +201,13 @@ private partial def validateDoElemExprTypes
                       -- void interface method: cannot bind its (empty) result
                       throwErrorAt rhs s!"interface call '{toString name.getId}' binds a void method; call it as a statement, not `let ... ←`"
                   | none =>
-                      let ty ← inferBindSourceType fields constDecls immutableDecls externalDecls functions params locals rhs
-                      requireSupportedLocalBindingType name s!"local binding '{toString name.getId}'" ty
-                      pure <| locals.push (mkTypedLocal (toString name.getId) ty)
+                      match ← callResultBindStmt? fields constDecls immutableDecls externalDecls params locals rhs (toString name.getId) with
+                      | some (_, resultLocal) =>
+                          pure <| locals.push resultLocal
+                      | none =>
+                          let ty ← inferBindSourceType fields constDecls immutableDecls externalDecls functions params locals rhs
+                          requireSupportedLocalBindingType name s!"local binding '{toString name.getId}'" ty
+                          pure <| locals.push (mkTypedLocal (toString name.getId) ty)
       | `(doElem| $name:ident := $rhs:term) =>
           let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals rhs
           pure locals
@@ -434,7 +439,7 @@ private partial def validateEffectStmtExprTypes
       | none =>
       match ← resolveLocalFunctionApp? fields constDecls immutableDecls externalDecls functions params locals stx with
       | some (fn, argTerms) =>
-          ensureSupportsInternalHelperSpec stx fn
+          ensureCallableAsInternalHelper stx fn
           if fn.returnTy != .unit then
             throwErrorAt stx
               s!"helper call '{fn.name}' returns {renderValueType fn.returnTy}; use `let ... ← {fn.name} ...` or tuple destructuring"
@@ -978,7 +983,7 @@ private def translateEffectStmt
       | none =>
       match ← resolveLocalFunctionApp? fields constDecls immutableDecls externalDecls functions params locals stx with
       | some (fn, argTerms) =>
-          ensureSupportsInternalHelperSpec stx fn
+          ensureCallableAsInternalHelper stx fn
           if fn.returnTy != .unit then
             throwErrorAt stx
               s!"helper call '{fn.name}' returns {renderValueType fn.returnTy}; use `let ... ← {fn.name} ...` or tuple destructuring"
@@ -1222,6 +1227,10 @@ private partial def translateDoElem
           if localNames.contains varName then
             throwErrorAt name s!"duplicate local variable '{varName}'"
           match stripParens rhs with
+          | `(term| callResult $_extName:term $_args:term) =>
+              match (← callResultBindStmt? fields constDecls immutableDecls externalDecls params locals rhs varName) with
+              | some (stmt, resultLocal) => pure (#[stmt], locals.push resultLocal, mutableLocals)
+              | none => throwErrorAt rhs "invalid callResult bind"
           | `(term| ecmCall $moduleFactory:term $args:term) =>
               let argExprs ← expectEcmExprList fields constDecls immutableDecls params locals args
               let moduleTerm ← `(term| (($moduleFactory) $(strTerm varName)))
@@ -1323,15 +1332,33 @@ private partial def translateDoElem
                               let targetExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals target
                               let argExprs ← argTerms.mapM
                                 (translatePureExprWithTypes fields constDecls immutableDecls params locals)
-                              let isStaticTerm ← if ext.isView then `(true) else `(false)
+                              let stmt ←
+                                if ext.isView then
+                                  match staticAbiWordCount? retTy with
+                                  | some 1 =>
+                                      `(Compiler.CompilationModel.Stmt.ecm
+                                          (Compiler.Modules.Oracle.typedReadWordSummaryModule
+                                            $(strTerm varName)
+                                            $(strTerm ext.name)
+                                            $(natTerm selector)
+                                            $(natTerm argExprs.size))
+                                          [ $targetExpr, $[$argExprs],* ])
+                                  | some n =>
+                                      throwErrorAt rhs
+                                        s!"typed interface view call '{ext.name}' can use the oracle summary only for one static ABI word; return has {n} static ABI words ({renderValueType retTy}). ABI-frame typed-interface view returns are not implemented yet (#1982)."
+                                  | none =>
+                                      throwErrorAt rhs
+                                        s!"typed interface view call '{ext.name}' can use the oracle summary only for one static ABI word; return has no static ABI word layout ({renderValueType retTy}). ABI-frame typed-interface view returns are not implemented yet (#1982)."
+                                else
+                                  `(Compiler.CompilationModel.Stmt.ecm
+                                      (Compiler.Modules.Calls.withReturnModule
+                                        $(strTerm varName)
+                                        $(natTerm selector)
+                                        $(natTerm argExprs.size)
+                                        false)
+                                      [ $targetExpr, $[$argExprs],* ])
                               pure
-                                (#[(← `(Compiler.CompilationModel.Stmt.ecm
-                                        (Compiler.Modules.Calls.withReturnModule
-                                          $(strTerm varName)
-                                          $(natTerm selector)
-                                          $(natTerm argExprs.size)
-                                          $isStaticTerm)
-                                        [ $targetExpr, $[$argExprs],* ]))],
+                                (#[stmt],
                                   locals.push (mkTypedLocal varName retTy),
                                   mutableLocals)
                           | some (_, _, _, none, _) =>
@@ -1499,6 +1526,7 @@ end
 
 private def translateBodyToStmtTerms
     (fields : Array StorageFieldDecl)
+    (roleDecls : Array RoleDecl)
     (constDecls : Array ConstantDecl)
     (immutableDecls : Array ImmutableDecl)
     (externalDecls : Array ExternalDecl)
@@ -1507,7 +1535,7 @@ private def translateBodyToStmtTerms
   match fn.body with
   | `(term| do $[$elems:doElem]*) =>
       let guardPrelude ← initGuardPreludeStmtTerms fields fn
-      let rolePrelude ← roleGuardPreludeStmtTerms fields fn
+      let rolePrelude ← roleGuardPreludeStmtTerms fields roleDecls fn
       let modifierPrelude ← fn.modifiers.mapM fun modIdent =>
         `(Compiler.CompilationModel.Stmt.internalCall $(strTerm (modifierInternalName (toString modIdent.getId))) [])
       let stmts := guardPrelude ++ rolePrelude ++ modifierPrelude ++ (← translateDoElems fields constDecls immutableDecls externalDecls functions fn.params #[] #[] elems).1
@@ -1534,14 +1562,13 @@ private def immutableInitStmtTerms
     (constDecls : Array ConstantDecl)
     (immutableDecls : Array ImmutableDecl)
     (ctorParams : Array ParamDecl) : CommandElabM (Array Term) := do
-  immutableDecls.zipIdx.mapM fun (imm, idx) => do
-    let slotField := immutableStorageFieldDecl fields imm idx
+  immutableDecls.zipIdx.mapM fun (imm, _idx) => do
     let valueExpr ← translatePureExpr fields constDecls #[] ctorParams #[] imm.body
     match imm.ty with
     | .uint256 | .int256 | .uint8 | .uint16 | .bytes32 | .bool =>
-        `(Compiler.CompilationModel.Stmt.setStorage $(strTerm slotField.name) $valueExpr)
+        `(Compiler.CompilationModel.Stmt.setImmutable $(strTerm imm.name) $valueExpr)
     | .address =>
-        `(Compiler.CompilationModel.Stmt.setStorageAddr $(strTerm slotField.name) $valueExpr)
+        `(Compiler.CompilationModel.Stmt.setImmutable $(strTerm imm.name) $valueExpr)
     | _ =>
         throwErrorAt imm.ident s!"immutable '{imm.name}' uses unsupported type"
 
@@ -2084,6 +2111,7 @@ private def mkQualifiedInternalFunctionTerm
 private def mkSpecCommand
     (contractName : String)
     (fields : Array StorageFieldDecl)
+    (roleDecls : Array RoleDecl)
     (errorDecls : Array ErrorDecl)
     (eventDecls : Array EventDecl)
     (constDecls : Array ConstantDecl)
@@ -2094,9 +2122,18 @@ private def mkSpecCommand
     (functions : Array FunctionDecl)
     (adtDecls : Array AdtDecl)
     (storageNamespace : Option Nat) : CommandElabM Cmd := do
-  let immutableFields := immutableDecls.zipIdx.map (fun (imm, idx) => immutableStorageFieldDecl fields imm idx)
-  let allFields := fields ++ immutableFields
-  let fieldTerms ← allFields.mapM mkModelFieldTerm
+  let immutableTerms ← immutableDecls.mapM fun imm => do
+    let tyTerm ← modelParamTypeTerm imm.ty
+    let initTerm ← translatePureExpr fields constDecls #[] (ctor.map (·.params) |>.getD #[]) #[] imm.body
+    `(({ name := $(strTerm imm.name), ty := $tyTerm, init := $initTerm } :
+        Compiler.CompilationModel.ImmutableSpec))
+  let fieldTerms ← fields.mapM mkModelFieldTerm
+  let roleTerms ← roleDecls.mapM fun role => do
+    let kindTerm ← match role.kind with
+      | .scalarAddress => `(Compiler.CompilationModel.RoleKind.scalarAddress)
+      | .mappingAddressToUint256 => `(Compiler.CompilationModel.RoleKind.mappingAddressToUint256)
+    `(({ name := $(strTerm role.name), field := $(strTerm role.fieldName), kind := $kindTerm } :
+        Compiler.CompilationModel.RoleDecl))
   let errorTerms ← errorDecls.mapM mkModelErrorTerm
   let eventTerms ← eventDecls.mapM mkModelEventTerm
   let externalTerms ← externalDecls.mapM mkModelExternalTerm
@@ -2152,6 +2189,26 @@ private def mkSpecCommand
         else
           `(false)
       let ceiSafeTerm ← if fn.ceiSafe then `(true) else `(false)
+      -- The internal helper shadow drops `nonReentrantLock` (the transient guard
+      -- only runs at the external dispatch boundary), so the cross-function
+      -- reentrancy gate would reject any external call it makes. The public entry
+      -- is already protected — by its `nonreentrant` guard or its own
+      -- `reentrancy_trusted` assertion — so propagate a `reentrancyTrusted` flag
+      -- onto the shadow to record that its external calls run under that
+      -- protection. When the public function carried neither, the public spec
+      -- itself fails the gate first, so this never masks an unguarded entry.
+      -- For a *lock-only* function (`nonReentrantLock` set, no
+      -- `reentrancy_trusted`) the lock protection is local to the guarded entry
+      -- and does NOT survive on the lock-free shadow, so the shadow is rendered
+      -- unreachable: `ensureCallableAsInternalHelper` rejects any internal call
+      -- to such a function at lowering. The `reentrancyTrusted` flag below is
+      -- therefore only ever consumed for functions the author globally asserted
+      -- `reentrancy_trusted`, where the lock-free internal path is sound.
+      let shadowReentrancyTrustedTerm ←
+        if fn.nonReentrantLock.isSome || fn.reentrancyTrusted then
+          `(true)
+        else
+          `(false)
       let requiresRoleTerm ← match fn.requiresRole with
         | some roleIdent => `(some $(strTerm (toString roleIdent.getId)))
         | none => `(none)
@@ -2178,6 +2235,7 @@ private def mkSpecCommand
         allowPostInteractionWrites := $shadowAllowPostInteractionWritesTerm
         nonReentrantLock := none
         ceiSafe := $ceiSafeTerm
+        reentrancyTrusted := $shadowReentrancyTrustedTerm
         requiresRole := $requiresRoleTerm
         modifies := [ $[$internalModifiesTerms],* ]
         localObligations := [ $[$localObligationTerms],* ]
@@ -2229,6 +2287,8 @@ private def mkSpecCommand
   `(command| def spec : Compiler.CompilationModel.CompilationModel := {
     name := $(strTerm contractName)
     fields := [ $[$fieldTerms],* ]
+    «immutables» := [ $[$immutableTerms],* ]
+    «roles» := [ $[$roleTerms],* ]
     «errors» := [ $[$errorTerms],* ]
     «events» := [ $[$eventTerms],* ]
     «constructor» := $constructorTerm
@@ -2394,6 +2454,7 @@ structure ParsedContractSyntax where
   structDecls : Array StructDecl
   adtDecls : Array AdtDecl
   fields : Array StorageFieldDecl
+  roleDecls : Array RoleDecl
   storageStructAccessors : Array StorageStructAccessorDecl
   errorDecls : Array ErrorDecl
   eventDecls : Array EventDecl
@@ -2405,11 +2466,40 @@ structure ParsedContractSyntax where
   functions : Array FunctionDecl
   storageNamespace : Option Nat
 
+private def roleKindOfStorageField? (field : StorageFieldDecl) : Option RoleKind :=
+  match field.ty with
+  | .scalar .address | .scalar (.newtype _ .address) => some .scalarAddress
+  | .mappingAddressToUint256 => some .mappingAddressToUint256
+  | _ => none
+
+private def parseRoleDecl
+    (fields : Array StorageFieldDecl) (roleStx : TSyntax `verityRoleDecl)
+    : CommandElabM RoleDecl := do
+  match roleStx with
+  | `(verityRoleDecl| $roleName:ident := $fieldName:ident) =>
+      let backingName := toString fieldName.getId
+      match fields.find? (fun field => field.name == backingName) with
+      | none =>
+          throwErrorAt fieldName s!"role '{toString roleName.getId}' references unknown storage field '{backingName}'; known fields: {(fields.map (·.name)).toList}"
+      | some field =>
+          match roleKindOfStorageField? field with
+          | some kind =>
+              pure {
+                ident := roleName
+                name := toString roleName.getId
+                fieldIdent := fieldName
+                fieldName := backingName
+                kind := kind
+              }
+          | none =>
+              throwErrorAt fieldName s!"role '{toString roleName.getId}' uses unsupported backing field '{backingName}'; roles require an Address scalar field or Address→Uint256 mapping"
+  | _ => throwErrorAt roleStx "invalid role declaration"
+
 def parseContractSyntax
     (stx : Syntax)
     : CommandElabM ParsedContractSyntax := do
   match stx with
-  | `(command| verity_contract $contractName:ident where $[types $[$newtypeDecls:verityNewtype]*]? $[inductive $[$adtDecls:verityAdtDecl]*]? $[$nsSpec:verityNamespaceSpec]? storage $[$storageItems:verityStorageItem]* $[$structDecls:verityStructDecl]* $[errors $[$errorDecls:verityError]*]? $[event_defs $[$eventDecls:verityEvent]*]? $[constants $[$constantDecls:verityConstant]*]? $[immutables $[$immutableDecls:verityImmutable]*]? $[interfaces $[$interfaceDecls:verityInterface]*]? $[linked_externals $[$externalDecls:verityExternal]*]? $[$ctor:verityConstructor]? $[$entrypoints:veritySpecialEntrypoint]* $[$modifierDecls:verityModifier]* $[$functions:verityFunction]*) =>
+  | `(command| verity_contract $contractName:ident where $[types $[$newtypeDecls:verityNewtype]*]? $[inductive $[$adtDecls:verityAdtDecl]*]? $[$nsSpec:verityNamespaceSpec]? storage $[$storageItems:verityStorageItem]* $[roles $[$roleDecls:verityRoleDecl]*]? $[$structDecls:verityStructDecl]* $[errors $[$errorDecls:verityError]*]? $[event_defs $[$eventDecls:verityEvent]*]? $[constants $[$constantDecls:verityConstant]*]? $[immutables $[$immutableDecls:verityImmutable]*]? $[interfaces $[$interfaceDecls:verityInterface]*]? $[linked_externals $[$externalDecls:verityExternal]*]? $[$ctor:verityConstructor]? $[$entrypoints:veritySpecialEntrypoint]* $[$modifierDecls:verityModifier]* $[$functions:verityFunction]*) =>
       -- Parse newtypes first — they are needed by all downstream type resolution
       let parsedNewtypes ←
         match newtypeDecls with
@@ -2549,12 +2639,22 @@ def parseContractSyntax
                     firstNamespaceLocked := true
                 | none =>
                     throwErrorAt item "unsupported storage item"
+      let parsedRoles ←
+        match roleDecls with
+        | some decls => decls.mapM (parseRoleDecl parsedFields)
+        | none => pure #[]
+      let mut seenRoleNames : Array String := #[]
+      for role in parsedRoles do
+        if seenRoleNames.contains role.name then
+          throwErrorAt role.ident s!"duplicate role declaration '{role.name}'"
+        seenRoleNames := seenRoleNames.push role.name
       pure {
         contractName := contractName
         newtypeDecls := parsedNewtypes
         structDecls := parsedStructs
         adtDecls := parsedAdts
         fields := parsedFields
+        roleDecls := parsedRoles
         storageStructAccessors := parsedStorageStructAccessors
         errorDecls := parsedErrors
         eventDecls := parsedEvents
@@ -2711,6 +2811,7 @@ def validateGeneratedDefNamesPublic
        , s!"{generatedFnName}_nonreentrant"
        , s!"{generatedFnName}_cei_safe"
        , s!"{generatedFnName}_requires_role"
+       , s!"{generatedFnName}_access_control"
        ]
     for helperName in helperNames do
       if storageNames.contains helperName then
@@ -2867,13 +2968,14 @@ def validateFunctionDeclsPublic
 
 def mkFunctionCommandsPublic
     (fields : Array StorageFieldDecl)
+    (roleDecls : Array RoleDecl)
     (constDecls : Array ConstantDecl)
     (immutableDecls : Array ImmutableDecl)
     (externalDecls : Array ExternalDecl)
     (functions : Array FunctionDecl)
     (fn : FunctionDecl) : CommandElabM (Array Cmd) := do
   let fnType ← mkContractFnType fn.params fn.returnTy
-  let fnRoleGuardedBody ← mkRoleGuardedBody fields fn
+  let fnRoleGuardedBody ← mkRoleGuardedBody fields roleDecls fn
   let fnDecl := { fn with body := fnRoleGuardedBody }
   let fnGuardedBody ← mkInitGuardedBody fields fnDecl
   let fnBody ← mkImmutableBoundBody fields immutableDecls fn fnGuardedBody
@@ -2881,7 +2983,7 @@ def mkFunctionCommandsPublic
   let fnValue ← mkContractFnValue fn.params fnExecutableBody
   let modelBodyName ← mkSuffixedIdent fn.ident "_modelBody"
   let modelName ← mkSuffixedIdent fn.ident "_model"
-  let stmtTerms ← translateBodyToStmtTerms fields constDecls immutableDecls externalDecls functions fn
+  let stmtTerms ← translateBodyToStmtTerms fields roleDecls constDecls immutableDecls externalDecls functions fn
   let modelParams ← mkModelParamsTerm fn.params
   let localObligationTerms ← fn.localObligations.mapM mkModelLocalObligationTerm
   let payableTerm ← if fn.isPayable then `(true) else `(false)
@@ -2893,6 +2995,7 @@ def mkFunctionCommandsPublic
     | some lockIdent => `(some $(strTerm (toString lockIdent.getId)))
     | none => `(none)
   let ceiSafeTerm ← if fn.ceiSafe then `(true) else `(false)
+  let reentrancyTrustedTerm ← if fn.reentrancyTrusted then `(true) else `(false)
   let requiresRoleTerm ← match fn.requiresRole with
     | some roleIdent => `(some $(strTerm (toString roleIdent.getId)))
     | none => `(none)
@@ -2920,6 +3023,7 @@ def mkFunctionCommandsPublic
     allowPostInteractionWrites := $allowPostInteractionWritesTerm
     nonReentrantLock := $nonReentrantLockTerm
     ceiSafe := $ceiSafeTerm
+    reentrancyTrusted := $reentrancyTrustedTerm
     requiresRole := $requiresRoleTerm
     modifies := [ $[$modifiesTerms],* ]
     localObligations := [ $[$localObligationTerms],* ]
@@ -2931,6 +3035,7 @@ def mkFunctionCommandsPublic
 def mkSpecCommandPublic
     (contractName : String)
     (fields : Array StorageFieldDecl)
+    (roleDecls : Array RoleDecl)
     (errorDecls : Array ErrorDecl)
     (eventDecls : Array EventDecl)
     (constDecls : Array ConstantDecl)
@@ -2941,7 +3046,7 @@ def mkSpecCommandPublic
     (functions : Array FunctionDecl)
     (adtDecls : Array AdtDecl)
     (storageNamespace : Option Nat) : CommandElabM Cmd :=
-  mkSpecCommand contractName fields errorDecls eventDecls constDecls immutableDecls externalDecls ctor modifiers functions adtDecls storageNamespace
+  mkSpecCommand contractName fields roleDecls errorDecls eventDecls constDecls immutableDecls externalDecls ctor modifiers functions adtDecls storageNamespace
 
 def mkFindIdxFieldSimpCommandsPublic
     (contractIdent : Ident)

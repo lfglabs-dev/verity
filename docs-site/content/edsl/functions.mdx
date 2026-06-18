@@ -1,0 +1,182 @@
+---
+title: Functions & Authoring
+description: The verity_contract authoring surface — functions, mutability markers, internal helpers, roles, reentrancy guards, initializers, local obligations, modifiers, and structs.
+---
+
+# Functions & Authoring
+
+The `verity_contract` surface for structuring a contract: function signatures,
+helpers, access control, and declarations. The full grammar is in
+[`Verity/Macro/Syntax.lean`](https://github.com/lfglabs-dev/verity/blob/main/Verity/Macro/Syntax.lean).
+
+## Mutability markers
+
+```verity
+function pure double (value : Uint256) : Uint256 := do
+  return (add value value)
+
+constructor (seedOwner : Address) payable := do
+  setStorageAddr owner seedOwner
+```
+
+- `view` functions may read storage and the environment but cannot write state.
+- `pure` functions cannot read or write state or environment values.
+- `payable` removes the `callvalue` guard and emits `stateMutability: "payable"`.
+- A `storage` block may be empty (stateless contract).
+
+Mutability checks include internal helper calls, so a `view` / `pure` wrapper is
+rejected if a helper it calls violates the marker. Generated ABI JSON emits the
+matching `stateMutability`.
+
+## Access control with roles
+
+Declare named roles backing a storage field, then gate functions with
+`requires(roleName)`:
+
+```verity
+storage
+  admin   : Address := slot 0
+  counter : Uint256 := slot 1
+
+roles
+  adminRole := admin
+
+function setCounter (value : Uint256) requires(adminRole) : Unit := do
+  setStorage counter value
+```
+
+The backing field must be `scalarAddress` (an `Address` scalar or newtype over
+it) or `mappingAddressToUint256` (an `Address → Uint256` flag mapping); other
+kinds are rejected. A scalar role auto-injects
+`require(caller == admin) "Access denied: caller is not <role>"`; a mapping role
+auto-injects `let v ← getMapping <map> caller; require(v != 0) …`. The
+`requires(...)` clause sits after the parameter list.
+
+## Reentrancy disposition
+
+Any non-`view` / non-`pure` function that opens a reentrancy window (an external
+call or a raw low-level call reaching an untrusted callee) **must** declare a
+disposition, or the build fails closed:
+
+```verity
+function nonreentrant(lock) withdraw (amount : Uint256) : Unit := do
+  -- guarded by the `lock` transient/storage flag
+  ...
+
+function reentrancy_trusted forward (target : Address) : Unit := do
+  -- author asserts the interaction is safe; metadata-only, no codegen
+  ...
+```
+
+The accepted set is exactly `nonreentrant(<lock>)` (a runtime guard) or
+`reentrancy_trusted` (a metadata-only, unproven author assertion). The older CEI
+tags (`cei_safe` / `allow_post_interaction_writes`) **no longer satisfy** the
+gate: they only describe single-function ordering and cannot see cross-function
+reentrancy. A lock-only `nonreentrant` function cannot be called as an internal
+helper (the guard materializes only at the external dispatch boundary) unless it
+also carries `reentrancy_trusted`. This is an unconditional compilation gate —
+there is no `--deny-*` flag to toggle it. See [Trust Model](/trust-model) for the
+disposition's place in the trust boundary.
+
+## Internal helpers
+
+Call helpers with ordinary function-call syntax; do not write `internalCall`
+directly (those are post-lowering IR nodes). Mark helper-only functions with
+`internal` — they are emitted as `FunctionSpec.isInternal := true`, omitted from
+selector dispatch and ABI JSON, but still get an executable Lean wrapper for
+local testing.
+
+```verity
+function internal bump (x : Uint256) : Uint256 := do
+  return (add x 1)
+
+storeBump x
+let y ← bump x
+let (assets, shares) ← preview seed
+```
+
+Effect-only calls lower to `Stmt.internalCall`, result bindings to
+`Stmt.internalCallAssign`, expression-position calls to `Expr.internalCall`.
+Helpers accept scalar parameters, static tuples / structs, and direct
+forwarding of `Bytes` / dynamic-array / composite arguments from the caller's
+ABI; dynamic returns use explicit return surfaces only.
+
+### Higher-order helpers (function pointers)
+
+A helper parameter with a function type (`Uint256 → Uint256`) receives another
+helper and calls it. Pass the callee by its bare helper name:
+
+```verity
+function inc (x : Uint256) : Uint256 := do
+  return (add x 1)
+
+function apply (f : Uint256 → Uint256, x : Uint256) : Uint256 := do
+  let y ← f x
+  return y
+
+function runInc (n : Uint256) : Uint256 := do
+  let r ← apply inc n          -- pass the helper `inc` by name
+  return r
+```
+
+The function-pointer argument must be a statically-known internal helper named
+in the same contract. A compile-time monomorphization pass (#1747) clones the
+higher-order helper into a first-order specialization per concrete callee
+(`apply` applied to `inc` becomes `apply_mono_inc`), so nothing downstream of
+the macro sees a function pointer. Dynamic dispatch — a runtime value or
+expression in the function-pointer position — is rejected at elaboration.
+
+## Tuple sugar
+
+```verity
+let (first, second) := pair
+let (_, second) := pair
+let (assets, shares) ← preview seed
+let (supply, borrow, delegate_) := structMembers positions user [supplyShares, borrowShares, delegate]
+return (first, second)
+```
+
+Tuple-typed parameters stay shape-preserved as right-nested Lean products;
+ABI-flattened aliases (`pair_0`, `pair_1`, …) are injected so you can use them
+directly. `_` binders are accepted and discarded hygienically.
+
+## Initializers
+
+```verity
+function initOwner (seedOwner : Address) initializer(initializedVersion) : Unit := ...
+function upgradeToV2 ()                 reinitializer(initializedVersion, 2) : Unit := ...
+```
+
+`initializer(slot)` prepends `require(slot == 0, ...)` then stores `1`.
+`reinitializer(slot, n)` requires the tracked version `< n`, then stores `n`.
+Guard slots must be user-declared `Uint256` fields.
+
+## Local obligations
+
+```verity
+function unsafeEdge ()
+  local_obligations [manual_delegatecall_refinement := assumed "Caller proves the handwritten assembly path."]
+  : Unit := do
+  pure ()
+```
+
+Each entry lowers into `localObligations`, surfaces in `--trust-report`, and
+participates in `--deny-local-obligations`. Direct assembly-shaped primitives
+(raw low-level calls, returndata forwarding, manual memory / calldata) without a
+local obligation fail closed.
+
+## Modifiers, structs, ADTs, and namespaced storage
+
+`verity_contract` also supports Solidity-style **modifiers**
+(`modifier onlyRelayer := do ...` then `with onlyRelayer`), **struct
+declarations** (including packed storage structs via
+`@word N packed(byteOffset, byteWidth)`), **algebraic data types**, **newtype
+wrappers**, **storage namespaces** (`storage_namespace erc7201 "myapp.storage.X"`),
+and **mapping-of-struct** sugar (`MappingStruct`, `MappingStruct2`). Concrete
+usage shapes are in the [production patterns guide](/guides/production-solidity-patterns).
+
+## See also
+
+- [Storage & Data](/edsl/storage) — field declarations, immutables seeded in the constructor.
+- [Control Flow, Errors & Events](/edsl/control-flow) — guards and custom errors used inside functions.
+- [External Calls](/edsl/external-calls) — interactions that trigger the reentrancy gate.

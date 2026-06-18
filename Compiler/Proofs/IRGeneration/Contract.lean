@@ -1177,6 +1177,84 @@ theorem compile_preserves_semantics
   simpa [supportedSourceContractSemantics_eq_sourceContractSemantics
     (hSupported := hSupported) tx initialWorld] using hcontract
 
+private theorem scalar_events_contract_function_callback
+    (model : CompilationModel) (selectors : List Nat)
+    (hSupported : SupportedSpecWithScalarEvents model selectors)
+    (ir : IRContract) (tx : IRTransaction)
+    (initialWorld : Verity.ContractState)
+    (htxNormalized : Function.TxContextNormalized tx)
+    (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
+    (hfuelPos : 0 < hSupported.helperFuel)
+    (hhelperFree :
+      ∀ fn, fn ∈ selectorDispatchedFunctions model →
+        StmtListHelperFreeNonEventStepInterface
+          (SourceSemantics.effectiveFields model) (fn.params.map (·.name)) fn.body)
+    (hstmtDisjoint :
+      ∀ fn, fn ∈ selectorDispatchedFunctions model →
+        StmtListHelperFreeCompiledCallsDisjoint { ir with internalFunctions := [] }
+          (SourceSemantics.effectiveFields model) (fn.params.map (·.name)) fn.body) :
+    ∀ fn sel irFn bindings,
+      fn ∈ selectorDispatchedFunctions model →
+      compileFunctionSpec model.fields model.events model.errors [] sel fn = Except.ok irFn →
+      SourceSemantics.bindSupportedParams fn.params tx.args = some bindings →
+      FunctionBody.sourceResultMatchesIRResult
+        (SourceSemantics.interpretFunction model fn tx initialWorld)
+        (execIRFunction irFn tx.args (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
+  intro fn sel irFn bindings hfn hcompileFn hbind
+  simpa [supportedSourceFunctionSemanticsWithScalarEvents_eq_interpretFunction_of_selectorDispatched
+    (hSupported := hSupported) hfn tx initialWorld] using
+    (Function.compileFunctionSpec_correct_with_scalar_events
+      (runtimeContract := { ir with internalFunctions := [] })
+      (model := model) (selectors := selectors) (hSupported := hSupported)
+      (fn := fn) (sel := sel) (irFn := irFn) (tx := tx)
+      (initialWorld := initialWorld) (htxNormalized := htxNormalized)
+      (bindings := bindings) (hcalldataSizeFits := hcalldataSizeFits)
+      (hfn := hfn) (hcompileFn := hcompileFn) (hbind := hbind)
+      (hfuelPos := hfuelPos) (hhelperFree := hhelperFree fn hfn)
+      (hstmtDisjoint := hstmtDisjoint fn hfn) (hinternal := rfl))
+
+/-- Whole-contract scalar-event bridge. The scalar-event function theorem is
+instantiated with a proof-only runtime contract whose internal helper table is
+empty; its conclusion is the plain `execIRFunction` result consumed by the
+dispatcher theorem. -/
+theorem compile_preserves_semantics_with_scalar_events
+    (model : CompilationModel)
+    (selectors : List Nat)
+    (hSupported : SupportedSpecWithScalarEvents model selectors)
+    (ir : IRContract)
+    (tx : IRTransaction)
+    (initialWorld : Verity.ContractState)
+    (htxNormalized : Function.TxContextNormalized tx)
+    (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
+    (hcompile : CompilationModel.compile model selectors = Except.ok ir)
+    (hfuelPos : 0 < hSupported.helperFuel)
+    (hhelperFree :
+      ∀ fn, fn ∈ selectorDispatchedFunctions model →
+        StmtListHelperFreeNonEventStepInterface
+          (SourceSemantics.effectiveFields model) (fn.params.map (·.name)) fn.body)
+    (hstmtDisjoint :
+      ∀ fn, fn ∈ selectorDispatchedFunctions model →
+        StmtListHelperFreeCompiledCallsDisjoint { ir with internalFunctions := [] }
+          (SourceSemantics.effectiveFields model) (fn.params.map (·.name)) fn.body) :
+    FunctionBody.sourceResultMatchesIRResult
+      (supportedSourceContractSemanticsWithScalarEvents model selectors hSupported tx initialWorld)
+      (interpretIR ir tx (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
+  have hcompiled := compile_ok_yields_compiled_functions_with_scalar_events
+    (model := model) (selectors := selectors) (hSupported := hSupported)
+    (ir := ir) (hcompile := hcompile)
+  have hparamsSupported :=
+    supported_params_of_supportedSpec_with_scalar_events model selectors hSupported
+  have hfunction := scalar_events_contract_function_callback
+    model selectors hSupported ir tx initialWorld htxNormalized hcalldataSizeFits
+    hfuelPos hhelperFree hstmtDisjoint
+  have hcontract := compile_preserves_semantics_of_compiled_functions
+    (model := model) (selectors := selectors) (ir := ir) (tx := tx)
+    (initialWorld := initialWorld) (_hcompile := hcompile)
+    (hcompiled := hcompiled) (hparamsSupported := hparamsSupported)
+    (hfunction := hfunction)
+  simpa [supportedSourceContractSemanticsWithScalarEvents_eq_sourceContractSemantics
+    (hSupported := hSupported) tx initialWorld] using hcontract
+
 /-- Whole-contract Tier 2 bridge for specs whose selector-dispatched bodies use
 the alternate singleton-storage-write state interface. This keeps the contract
 proof on the same generic dispatch skeleton while widening only the function

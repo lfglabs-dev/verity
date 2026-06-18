@@ -5252,6 +5252,9 @@ theorem supportedStmtList_safe_of_state_effect_closed
   | setStorageAddrSingleSlot hValue _ hFind =>
       exact Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_setStorageAddrSingleSlot_of_exprCompileCore
         (errors := errors) (dynamicSource := dynamicSource) hValue hFind
+  | setImmutableSingle _ _ =>
+      simp [stmtListTouchesUnsupportedEffectSurface,
+        stmtTouchesUnsupportedEffectSurface] at hEffects
   | mstoreSingle hOffset _ hValue _ =>
       exact Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_mstoreSingle_of_exprCompileCore
         (fields := fields) (errors := errors) (dynamicSource := dynamicSource)
@@ -5413,6 +5416,9 @@ theorem supportedStmtList_safe_of_state_except_mapping_writes_stmt_safety
   | setStorageAddrSingleSlot hValue _ hFind =>
       exact Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_setStorageAddrSingleSlot_of_exprCompileCore
         (errors := errors) (dynamicSource := dynamicSource) hValue hFind
+  | setImmutableSingle _ _ =>
+      simp [stmtListTouchesUnsupportedEffectSurface,
+        stmtTouchesUnsupportedEffectSurface] at hEffects
   | mstoreSingle hOffset _ hValue _ =>
       exact Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_mstoreSingle_of_exprCompileCore
         (fields := fields) (errors := errors) (dynamicSource := dynamicSource)
