@@ -62,6 +62,51 @@ termination_by bs => sizeOf bs
 decreasing_by all_goals simp_wf; all_goals omega
 end
 
+private def isCheckedArithmeticPanicMessage (message : String) : Bool :=
+  message == "Panic(0x11): arithmetic overflow" ||
+    message == "Panic(0x11): arithmetic underflow" ||
+    message == "Panic(0x12): division by zero"
+
+mutual
+
+def stmtMayUseCheckedArithmetic : Stmt → Bool
+  | Stmt.require _ message =>
+      isCheckedArithmeticPanicMessage message
+  | Stmt.ite _ thenBranch elseBranch =>
+      stmtListMayUseCheckedArithmetic thenBranch ||
+        stmtListMayUseCheckedArithmetic elseBranch
+  | Stmt.forEach _ _ body =>
+      stmtListMayUseCheckedArithmetic body
+  | Stmt.unsafeBlock _ body =>
+      stmtListMayUseCheckedArithmetic body
+  | Stmt.matchAdt _ _ branches =>
+      matchBranchesMayUseCheckedArithmetic branches
+  | _ => false
+termination_by s => sizeOf s
+decreasing_by all_goals simp_wf; all_goals omega
+
+def stmtListMayUseCheckedArithmetic : List Stmt → Bool
+  | [] => false
+  | stmt :: rest =>
+      stmtMayUseCheckedArithmetic stmt ||
+        stmtListMayUseCheckedArithmetic rest
+termination_by stmts => sizeOf stmts
+decreasing_by all_goals simp_wf; all_goals omega
+
+def matchBranchesMayUseCheckedArithmetic : List (String × List String × List Stmt) → Bool
+  | [] => false
+  | (_, _, body) :: rest =>
+      stmtListMayUseCheckedArithmetic body ||
+        matchBranchesMayUseCheckedArithmetic rest
+termination_by branches => sizeOf branches
+decreasing_by all_goals simp_wf; all_goals omega
+
+end
+
+def contractUsesCheckedArithmetic (spec : CompilationModel) : Bool :=
+  (spec.constructor.map (fun ctor => stmtListMayUseCheckedArithmetic ctor.body) |>.getD false) ||
+    spec.functions.any (fun fn => stmtListMayUseCheckedArithmetic fn.body)
+
 mutual
 def exprUsesArrayElementKind (includePlain includeWord : Bool) : Expr → Bool
   | Expr.arrayElement _ index | Expr.memoryArrayElement _ index =>

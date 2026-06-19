@@ -17,7 +17,8 @@ def reservedExternalNames
     (mappingHelpersRequired arrayHelpersRequired arrayElementWordHelpersRequired
       paramDynamicHeadWordHelpersRequired
       mulDiv512HelpersRequired
-      storageArrayHelpersRequired dynamicBytesEqHelpersRequired : Bool) : List String :=
+      storageArrayHelpersRequired dynamicBytesEqHelpersRequired
+      checkedArithmeticHelpersRequired : Bool) : List String :=
   let mappingHelpers := if mappingHelpersRequired then ["mappingSlot"] else []
   let arrayHelpers :=
     if arrayHelpersRequired then
@@ -67,16 +68,28 @@ def reservedExternalNames
       [dynamicBytesEqCalldataHelperName, dynamicBytesEqMemoryHelperName]
     else
       []
+  let checkedArithmeticHelpers :=
+    if checkedArithmeticHelpersRequired then
+      [ checkedAddUint256HelperName
+      , checkedSubUint256HelperName
+      , checkedMulUint256HelperName
+      , checkedDivUint256HelperName
+      , panicError0x11HelperName
+      , panicError0x12HelperName
+      ]
+    else
+      []
   let builtins := [builtinExpName]
   let entrypoints := ["fallback", "receive"]
-  (mappingHelpers ++ arrayHelpers ++ arrayElementWordHelpers ++ paramDynamicHeadWordHelpers ++ mulDiv512Helpers ++ storageArrayHelpers ++ dynamicBytesEqHelpers ++ builtins ++ entrypoints).eraseDups
+  (mappingHelpers ++ arrayHelpers ++ arrayElementWordHelpers ++ paramDynamicHeadWordHelpers ++ mulDiv512Helpers ++ storageArrayHelpers ++ dynamicBytesEqHelpers ++ checkedArithmeticHelpers ++ builtins ++ entrypoints).eraseDups
 
 def firstReservedExternalCollision
     (spec : CompilationModel)
     (mappingHelpersRequired arrayHelpersRequired arrayElementWordHelpersRequired
       paramDynamicHeadWordHelpersRequired
       mulDiv512HelpersRequired
-      storageArrayHelpersRequired dynamicBytesEqHelpersRequired : Bool) : Option String :=
+      storageArrayHelpersRequired dynamicBytesEqHelpersRequired
+      checkedArithmeticHelpersRequired : Bool) : Option String :=
   (spec.externals.map (·.name)).find? (fun name =>
     name.startsWith internalFunctionPrefix ||
       (reservedExternalNames
@@ -86,7 +99,8 @@ def firstReservedExternalCollision
         paramDynamicHeadWordHelpersRequired
         mulDiv512HelpersRequired
         storageArrayHelpersRequired
-        dynamicBytesEqHelpersRequired).contains name)
+        dynamicBytesEqHelpersRequired
+        checkedArithmeticHelpersRequired).contains name)
 
 def internalDynamicParamSupported : ParamType → Bool
   | ParamType.array _ => true

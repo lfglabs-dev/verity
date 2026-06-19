@@ -3339,6 +3339,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.supportedSourceContractSemanticsExceptMappingWrites_eq_sourceContractSemantics
 
   -- Compiler/Proofs/IRGeneration/SupportedSpec.lean
+  Compiler.Proofs.IRGeneration.eventParamSourceShapeProofSupported_of_scalar
   Compiler.Proofs.IRGeneration.SupportedExternalParamType_iff_externalParamScalarProofSupported
   Compiler.Proofs.IRGeneration.SupportedExternalReturnProfile_iff_externalReturnProfileProofSupported
   Compiler.Proofs.IRGeneration.eventDefScalarProofSupported_params_all
@@ -3352,6 +3353,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.eventParamScalarProofSupported_ne_array
   Compiler.Proofs.IRGeneration.eventParamScalarProofSupported_ne_fixedArray
   Compiler.Proofs.IRGeneration.eventParamScalarProofSupported_ne_tuple
+  Compiler.Proofs.IRGeneration.eventDefSourceShapeProofSupported_of_scalar
   Compiler.Proofs.IRGeneration.exists_eventDef_of_eventEmissionProofSupported
   Compiler.Proofs.IRGeneration.eventDefScratchBounded_of_eventEmissionProofSupported
   Compiler.Proofs.IRGeneration.args_all_atomic_of_eventEmissionProofSupported
@@ -3557,8 +3559,11 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.SupportedSpecExceptMappingWrites.noExternals
   Compiler.Proofs.IRGeneration.SupportedSpecWithScalarEvents.noExternals
   Compiler.Proofs.IRGeneration.SupportedSpec.noAdtTypes
+  Compiler.Proofs.IRGeneration.SupportedSpec.noCheckedArithmetic
   Compiler.Proofs.IRGeneration.SupportedSpecExceptMappingWrites.noAdtTypes
+  Compiler.Proofs.IRGeneration.SupportedSpecExceptMappingWrites.noCheckedArithmetic
   Compiler.Proofs.IRGeneration.SupportedSpecWithScalarEvents.noAdtTypes
+  Compiler.Proofs.IRGeneration.SupportedSpecWithScalarEvents.noCheckedArithmetic
   Compiler.Proofs.IRGeneration.SupportedSpec.noFallback
   Compiler.Proofs.IRGeneration.SupportedSpecExceptMappingWrites.noFallback
   Compiler.Proofs.IRGeneration.SupportedSpec.noReceive
@@ -5619,4 +5624,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5261 theorems/lemmas (3640 public, 1621 private, 0 sorry'd)
+-- Total: 5266 theorems/lemmas (3645 public, 1621 private, 0 sorry'd)

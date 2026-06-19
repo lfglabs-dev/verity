@@ -284,6 +284,7 @@ private theorem compileValidatedCore_ok_yields_internalFunctions_nil
   rw [hSupported.normalizedFields, hfallback, hreceive,
     contractUsesPlainArrayElement, contractUsesArrayElementWord, harray,
     hstorageArray, hdynamicBytesEq, hmulDiv512, hparamDyn,
+    hSupported.noCheckedArithmetic,
     hnoInternalFns, hSupported.noAdtTypes] at hcore
   simp only [bind, Except.bind, pure, Except.pure, List.mapM_nil] at hcore
   rw [ContractShape.guardedFunctionsMapM_eq model.fields model.events model.errors [] [] _
@@ -654,6 +655,8 @@ theorem compile_ok_yields_internalFunctions_nil_except_mapping_writes
     hSupported.contractUsesMulDiv512_eq_false
   have hparamDyn : contractUsesParamDynamicHeadWord model = false :=
     hSupported.contractUsesParamDynamicHeadWord_eq_false
+  have hcheckedArithmetic : contractUsesCheckedArithmetic model = false :=
+    hSupported.noCheckedArithmetic
   unfold CompilationModel.compile at hcompile
   simp only [bind, Except.bind] at hcompile
   rcases hvalidate : validateCompileInputs model selectors with _ | validated
@@ -663,6 +666,7 @@ theorem compile_ok_yields_internalFunctions_nil_except_mapping_writes
     rw [hSupported.normalizedFields, hfallback, hreceive,
       contractUsesPlainArrayElement, contractUsesArrayElementWord, harray,
       hstorageArray, hdynamicBytesEq, hmulDiv512, hparamDyn,
+      hcheckedArithmetic,
       hnoInternalFns, hSupported.noAdtTypes] at hcompile
     simp only [bind, Except.bind, pure, Except.pure, List.mapM_nil] at hcompile
     rw [ContractShape.guardedFunctionsMapM_eq model.fields model.events model.errors [] [] _

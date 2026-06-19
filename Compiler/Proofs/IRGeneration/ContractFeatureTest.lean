@@ -116,6 +116,10 @@ private def literalMappingWrite_supported_spec :
         noErrors := rfl
         noExternals := rfl
         noAdtTypes := rfl
+        noCheckedArithmetic := by
+          simp [contractUsesCheckedArithmetic, literalMappingWriteSpec,
+            literalMappingWriteFunction, stmtListMayUseCheckedArithmetic,
+            stmtMayUseCheckedArithmetic]
         noFallback := literalMappingWrite_noFallback
         noReceive := literalMappingWrite_noReceive }
     constructor := by
@@ -1274,6 +1278,10 @@ private def scalarEventSmoke_supported_spec :
         noErrors := rfl
         noExternals := rfl
         noAdtTypes := rfl
+        noCheckedArithmetic := by
+          simp [contractUsesCheckedArithmetic, scalarEventSmokeSpec,
+            scalarEventSmokeFunction, stmtListMayUseCheckedArithmetic,
+            stmtMayUseCheckedArithmetic]
         noFallback := scalarEventSmoke_noFallback
         noReceive := scalarEventSmoke_noReceive }
     constructor := by

@@ -55,6 +55,21 @@ def eventParamScalarProofSupported (ty : ParamType) : Bool :=
 def eventDefScalarProofSupported (eventDef : EventDef) : Bool :=
   eventDefScalarCompileSupported eventDef
 
+/-- Proof-side catalog for source-shaped event declarations whose payloads are
+handled by the compiler's ABI event encoder. This deliberately lives beside,
+not inside, `eventEmissionProofSupported`: the existing semantic bridge still
+requires scalar params because it proves exact word-by-word log execution.
+All currently represented ABI `ParamType` constructors are source-shaped for
+event declarations; per-statement validation still checks the stricter
+argument-source requirements for dynamic payload copying/hashing. -/
+def eventParamSourceShapeProofSupported (_ty : ParamType) : Bool := true
+
+theorem eventParamSourceShapeProofSupported_of_scalar :
+    ∀ {ty : ParamType},
+      eventParamScalarProofSupported ty = true →
+        eventParamSourceShapeProofSupported ty = true
+  | _ty, _hsupport => rfl
+
 /-- Agreement oracle: the hand-restated `SupportedExternalParamType` Prop holds
 iff the compile-driven `externalParamScalarProofSupported` Bool is `true`.
 This is the meaning-preservation lemma for the conversion pattern: any future
@@ -200,6 +215,71 @@ def eventScratchSizeLimit : Nat := 2 ^ 32
 def eventDefScratchBounded (eventDef : EventDef) : Bool :=
   decide ((bytesFromString (eventSignature eventDef)).length ≤ eventScratchSizeLimit) &&
     decide (eventDef.params.length ≤ eventScratchSizeLimit)
+
+def eventDefSourceShapeProofSupported (eventDef : EventDef) : Bool :=
+  eventDef.params.all (fun param => eventParamSourceShapeProofSupported param.ty) &&
+    decide ((eventDef.params.filter (fun param => param.kind == EventParamKind.indexed)).length ≤ 3) &&
+    eventDefScratchBounded eventDef
+
+theorem eventDefSourceShapeProofSupported_of_scalar
+    {eventDef : EventDef}
+    (hscalar : eventDefScalarProofSupported eventDef = true)
+    (hscratch : eventDefScratchBounded eventDef = true) :
+    eventDefSourceShapeProofSupported eventDef = true := by
+  have hparams :
+      eventDef.params.all (fun param => eventParamSourceShapeProofSupported param.ty) = true := by
+    apply List.all_eq_true.mpr
+    intro param hmem
+    exact eventParamSourceShapeProofSupported_of_scalar
+      (eventParamScalarProofSupported_eq_true_of_eventDefScalarProofSupported hscalar hmem)
+  have hindexed := eventDefScalarProofSupported_indexed_length_le_three hscalar
+  simp [eventDefSourceShapeProofSupported, hparams, hscratch, hindexed]
+
+private def dynamicTupleEventSmoke : EventDef :=
+  { name := "CompositeEvent"
+    params := [
+      { name := "id", ty := .bytes32, kind := .indexed },
+      { name := "payload", ty := .tuple [.uint256, .bytes], kind := .unindexed },
+      { name := "values", ty := .array .uint256, kind := .unindexed },
+      { name := "note", ty := .bytes, kind := .unindexed }
+    ] }
+
+private def staticStructEventSmoke : EventDef :=
+  { name := "CreateMarket"
+    params := [
+      { name := "id", ty := .bytes32, kind := .indexed },
+      { name := "market"
+        ty := .tuple [.address, .address, .address, .address, .uint256]
+        kind := .unindexed }
+    ] }
+
+private def indexedDynamicStructArrayEventSmoke : EventDef :=
+  { name := "IndexedDynamicStructArray"
+    params := [
+      { name := "payload"
+        ty := .array (.tuple [.uint256, .bytes])
+        kind := .indexed }
+    ] }
+
+private def fixedArrayAndAdtEventSmoke : EventDef :=
+  { name := "FixedArrayAndAdt"
+    params := [
+      { name := "fixed", ty := .fixedArray .address 2, kind := .indexed },
+      { name := "choice", ty := .adt "Choice" 2, kind := .unindexed }
+    ] }
+
+example : eventDefSourceShapeProofSupported dynamicTupleEventSmoke = true := by
+  rfl
+
+example : eventDefSourceShapeProofSupported staticStructEventSmoke = true := by
+  rfl
+
+example :
+    eventDefSourceShapeProofSupported indexedDynamicStructArrayEventSmoke = true := by
+  rfl
+
+example : eventDefSourceShapeProofSupported fixedArrayAndAdtEventSmoke = true := by
+  rfl
 
 /-- Event arguments admitted by the semantic bridge: atomic word-pure
 expressions (literals, scope variables, transaction context). The compiled
@@ -2675,6 +2755,7 @@ structure SupportedSpecSurface (spec : CompilationModel) : Prop where
   noErrors : spec.errors = []
   noExternals : spec.externals = []
   noAdtTypes : spec.adtTypes = []
+  noCheckedArithmetic : contractUsesCheckedArithmetic spec = false
   noFallback :
     ∀ fn ∈ spec.functions, fn.name != "fallback"
   noReceive :
@@ -2689,6 +2770,7 @@ structure SupportedSpecSurfaceWithScalarEvents (spec : CompilationModel) : Prop 
   noErrors : spec.errors = []
   noExternals : spec.externals = []
   noAdtTypes : spec.adtTypes = []
+  noCheckedArithmetic : contractUsesCheckedArithmetic spec = false
   noFallback :
     ∀ fn ∈ spec.functions, fn.name != "fallback"
   noReceive :
@@ -6729,17 +6811,35 @@ theorem SupportedSpec.noAdtTypes
     spec.adtTypes = [] :=
   hSupported.surface.noAdtTypes
 
+theorem SupportedSpec.noCheckedArithmetic
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpec spec selectors) :
+    contractUsesCheckedArithmetic spec = false :=
+  hSupported.surface.noCheckedArithmetic
+
 theorem SupportedSpecExceptMappingWrites.noAdtTypes
     {spec : CompilationModel} {selectors : List Nat}
     (hSupported : SupportedSpecExceptMappingWrites spec selectors) :
     spec.adtTypes = [] :=
   hSupported.surface.noAdtTypes
 
+theorem SupportedSpecExceptMappingWrites.noCheckedArithmetic
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecExceptMappingWrites spec selectors) :
+    contractUsesCheckedArithmetic spec = false :=
+  hSupported.surface.noCheckedArithmetic
+
 theorem SupportedSpecWithScalarEvents.noAdtTypes
     {spec : CompilationModel} {selectors : List Nat}
     (hSupported : SupportedSpecWithScalarEvents spec selectors) :
     spec.adtTypes = [] :=
   hSupported.surface.noAdtTypes
+
+theorem SupportedSpecWithScalarEvents.noCheckedArithmetic
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecWithScalarEvents spec selectors) :
+    contractUsesCheckedArithmetic spec = false :=
+  hSupported.surface.noCheckedArithmetic
 
 theorem SupportedSpec.noFallback
     {spec : CompilationModel} {selectors : List Nat}
@@ -7021,6 +7121,9 @@ def counter_supported_spec : SupportedSpec counterSupportedSpecModel
         noErrors := rfl
         noExternals := rfl
         noAdtTypes := rfl
+        noCheckedArithmetic := by
+          simp [contractUsesCheckedArithmetic, counterSupportedSpecModel,
+            stmtListMayUseCheckedArithmetic, stmtMayUseCheckedArithmetic]
         noFallback := counter_noFallback
         noReceive := counter_noReceive }
     constructor := by
@@ -7106,6 +7209,9 @@ def simpleStorage_supported_spec : SupportedSpec simpleStorageSupportedSpecModel
         noErrors := rfl
         noExternals := rfl
         noAdtTypes := rfl
+        noCheckedArithmetic := by
+          simp [contractUsesCheckedArithmetic, simpleStorageSupportedSpecModel,
+            stmtListMayUseCheckedArithmetic, stmtMayUseCheckedArithmetic]
         noFallback := simpleStorage_noFallback
         noReceive := simpleStorage_noReceive }
     constructor := by
