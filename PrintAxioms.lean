@@ -1751,6 +1751,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.ContractFeatureTest.stopOnly_txNormalized  -- private
   -- Compiler.Proofs.IRGeneration.ContractFeatureTest.stopOnly_calldataFits  -- private
   -- Compiler.Proofs.IRGeneration.ContractFeatureTest.constructorOnly_noConflict  -- private
+  -- Compiler.Proofs.IRGeneration.ContractFeatureTest.constructorOnly_compileBody_empty_surfaces_withFork  -- private
   -- Compiler.Proofs.IRGeneration.ContractFeatureTest.constructorOnly_compileBody  -- private
   -- Compiler.Proofs.IRGeneration.ContractFeatureTest.constructorOnly_compileConstructor  -- private
   -- Compiler.Proofs.IRGeneration.ContractFeatureTest.scalarEventSmoke_compileEmit_empty_events_ne_ok  -- private
@@ -1827,6 +1828,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeStorageArray_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.packedBitsValid_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.execForEachLoop_agree
+  Compiler.Proofs.IRGeneration.DenoteAgreement.execForEachSetBitLoop_agree
+  Compiler.Proofs.IRGeneration.DenoteAgreement.execStmt_forEachSetBit_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.execStmt_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.execStmtList_eq
 
@@ -2179,6 +2182,13 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprWithInternals_nil_ok  -- private
   -- Compiler.Proofs.IRGeneration.FunctionBody.compileRequireFailCondWithInternals_nil_ok  -- private
   Compiler.Proofs.IRGeneration.FunctionBody.compileStmt_core_ok
+  Compiler.Proofs.IRGeneration.FunctionBody.compileStmtWithFork_cancun_eq_compileStmt
+  Compiler.Proofs.IRGeneration.FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList
+  Compiler.Proofs.IRGeneration.FunctionBody.compileStmtList_nil_eq_ok
+  Compiler.Proofs.IRGeneration.FunctionBody.compileStmtList_cons_eq_ok
+  Compiler.Proofs.IRGeneration.FunctionBody.compileStmtListWithFork_nil_eq_ok
+  Compiler.Proofs.IRGeneration.FunctionBody.compileStmtListWithFork_cons_eq_ok
+  Compiler.Proofs.IRGeneration.FunctionBody.compileStmtList_cons_ok_inv
   Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesIR_setBothMemory
   Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesIR_updateMemoryEvents
   Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesIR_setTransientStorage
@@ -2218,7 +2228,6 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.FunctionBody.compileStmtList_ok_any_scope
   Compiler.Proofs.IRGeneration.FunctionBody.compileStmtList_cons_ok_of_compileStmt_ok_with_surface
   Compiler.Proofs.IRGeneration.FunctionBody.compileStmtList_cons_ok_of_compileStmt_ok
-  Compiler.Proofs.IRGeneration.FunctionBody.compileStmtList_cons_ok_inv
   Compiler.Proofs.IRGeneration.FunctionBody.compileStmt_terminal_ite_ok_inv
   Compiler.Proofs.IRGeneration.FunctionBody.compileStmtList_terminal_ite_ok_inv
   Compiler.Proofs.IRGeneration.FunctionBody.compileStmtList_core_ok
@@ -3179,6 +3188,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.SourceSemantics.exists_writeUnindexedEventScratch_of_length_zero
   Compiler.Proofs.IRGeneration.SourceSemantics.exists_eventScratchMemoryAfterEmit?_of_supported_length
   Compiler.Proofs.IRGeneration.SourceSemantics.UInt256_size_eq_UINT256_MODULUS
+  Compiler.Proofs.IRGeneration.SourceSemantics.execForEachSetBitLoop_zero
+  Compiler.Proofs.IRGeneration.SourceSemantics.execForEachSetBitLoop_succ
   Compiler.Proofs.IRGeneration.SourceSemantics.execForEachLoop_zero
   Compiler.Proofs.IRGeneration.SourceSemantics.execForEachLoop_succ
   Compiler.Proofs.IRGeneration.SourceSemantics.lookupBinding?_bindValue_same
@@ -3189,6 +3200,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.SourceSemantics.execForEachLoop_succ_continue_iff
   Compiler.Proofs.IRGeneration.SourceSemantics.execForEachLoop_succ_continue
   Compiler.Proofs.IRGeneration.SourceSemantics.execForEachLoop_congr
+  Compiler.Proofs.IRGeneration.SourceSemantics.execForEachSetBitLoop_congr
   Compiler.Proofs.IRGeneration.SourceSemantics.execForEachLoop_empty_body
   Compiler.Proofs.IRGeneration.SourceSemantics.execForEachLoop_empty_body_zero_bound
   Compiler.Proofs.IRGeneration.SourceSemantics.execForEachLoop_empty_body_positive_bound
@@ -3342,6 +3354,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.SourceSemantics.stmt_sizeOf_lt_ite_then  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.stmt_sizeOf_lt_ite_else  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.stmt_sizeOf_lt_forEach_body  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemantics.stmt_sizeOf_lt_forEachSetBit_body  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.stmt_sizeOf_lt_cons  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.execStmtListWithHelpers_eq_execStmtList_of_helperSurfaceClosed_inner  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux  -- private
@@ -3406,6 +3419,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.eventEmissionProofSupported_eventIndexedArgs_length_le_three
   Compiler.Proofs.IRGeneration.eventLogFunction_mem_logBuiltins_of_le_three
   Compiler.Proofs.IRGeneration.eventLogArgs_length
+  -- Compiler.Proofs.IRGeneration.compileStmtWithFork_cancun_eq_compileStmt  -- private
+  -- Compiler.Proofs.IRGeneration.compileStmtListWithFork_cancun_eq_compileStmtList  -- private
   Compiler.Proofs.IRGeneration.stmtListTouchesUnsupportedContractSurface_of_forEach_surfaceClosed
   -- Compiler.Proofs.IRGeneration.compileStmt_eventsErrorsAgnostic_aux  -- private
   Compiler.Proofs.IRGeneration.compileStmt_eventsErrorsAgnostic_of_contractSurfaceClosed
@@ -3654,6 +3669,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.StorageBounds.writeStorageArray_events_unchanged
 
   -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanBodyClosure/Base.lean
+  -- Compiler.Proofs.YulGeneration.Backends.compileStmtWithFork_cancun_eq_compileStmt  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.compileStmtListWithFork_cancun_eq_compileStmtList  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_mappingSlot_local  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_add_local  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedStraightStmt_storageStore_lit  -- private
@@ -3941,6 +3958,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.compileStmt_mappingPackedWordMultiSlotNonzero_noFuncDefs
 
   -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanBodyClosure/Generic.lean
+  -- Compiler.Proofs.YulGeneration.Backends.compileStmtWithFork_cancun_eq_compileStmt  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.compileStmtListWithFork_cancun_eq_compileStmtList  -- private
   Compiler.Proofs.YulGeneration.Backends.compileStmt_bridgedSource_bridged
   Compiler.Proofs.YulGeneration.Backends.compileStmt_bridgedSource_noFuncDefs
   -- Compiler.Proofs.YulGeneration.Backends.compileStmtList_cons_ok_inv  -- private
@@ -5677,4 +5696,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5319 theorems/lemmas (3665 public, 1654 private, 0 sorry'd)
+-- Total: 5338 theorems/lemmas (3676 public, 1662 private, 0 sorry'd)

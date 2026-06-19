@@ -110,40 +110,170 @@ theorem compileStmt_core_ok
       rename_i name value
       rcases compileExpr_core_ok (fields := fields) hvalue with ⟨valueIR, hvalueIR⟩
       exact ⟨[YulStmt.let_ name valueIR],
-        by simp [CompilationModel.compileStmt, compileExprWithInternals_nil_ok hvalueIR]⟩
+        by simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, compileExprWithInternals_nil_ok hvalueIR]⟩
   | assignVar hvalue =>
       rename_i name value
       rcases compileExpr_core_ok (fields := fields) hvalue with ⟨valueIR, hvalueIR⟩
       exact ⟨[YulStmt.assign name valueIR],
-        by simp [CompilationModel.compileStmt, compileExprWithInternals_nil_ok hvalueIR]⟩
+        by simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, compileExprWithInternals_nil_ok hvalueIR]⟩
   | require_ hcond =>
       rename_i cond message
       rcases compileRequireFailCond_core_ok (fields := fields) hcond with ⟨failCond, hfailCond⟩
       exact ⟨[YulStmt.if_ failCond (CompilationModel.revertWithMessage message)],
-        by simp [CompilationModel.compileStmt, compileRequireFailCondWithInternals_nil_ok hfailCond]⟩
+        by simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, compileRequireFailCondWithInternals_nil_ok hfailCond]⟩
   | return_ hvalue =>
       rcases compileExpr_core_ok (fields := fields) hvalue with ⟨valueIR, hvalueIR⟩
       exact ⟨[ YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
             , YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ],
-        by simp [CompilationModel.compileStmt, compileExprWithInternals_nil_ok hvalueIR]⟩
+        by simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, compileExprWithInternals_nil_ok hvalueIR]⟩
   | stop =>
       exact ⟨[YulStmt.expr (YulExpr.call "stop" [])], by
-        rw [CompilationModel.compileStmt]
+        rw [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork]
         rfl⟩
   | mstore hoffset hvalue =>
       rename_i offset value
       rcases compileExpr_core_ok (fields := fields) hoffset with ⟨offsetIR, hoffsetIR⟩
       rcases compileExpr_core_ok (fields := fields) hvalue with ⟨valueIR, hvalueIR⟩
       exact ⟨[YulStmt.expr (YulExpr.call "mstore" [offsetIR, valueIR])],
-        by simp [CompilationModel.compileStmt, compileExprWithInternals_nil_ok hoffsetIR,
+        by simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, compileExprWithInternals_nil_ok hoffsetIR,
           compileExprWithInternals_nil_ok hvalueIR, Bind.bind, Except.bind, pure, Except.pure]⟩
   | tstore hoffset hvalue =>
       rename_i offset value
       rcases compileExpr_core_ok (fields := fields) hoffset with ⟨offsetIR, hoffsetIR⟩
       rcases compileExpr_core_ok (fields := fields) hvalue with ⟨valueIR, hvalueIR⟩
       exact ⟨[YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR])],
-        by simp [CompilationModel.compileStmt, compileExprWithInternals_nil_ok hoffsetIR,
+        by simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, compileExprWithInternals_nil_ok hoffsetIR,
           compileExprWithInternals_nil_ok hvalueIR, Bind.bind, Except.bind, pure, Except.pure]⟩
+
+theorem compileStmtWithFork_cancun_eq_compileStmt
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
+    (isInternal : Bool) (inScopeNames : List String)
+    (adtTypes : List AdtTypeDef) (stmt : Stmt)
+    (internalFunctions : List FunctionSpec := []) :
+    CompilationModel.compileStmtWithFork fields events errors dynamicSource
+      internalRetNames isInternal inScopeNames adtTypes Verity.Core.Intrinsics.HardFork.cancun
+      stmt internalFunctions =
+    CompilationModel.compileStmt fields events errors dynamicSource
+      internalRetNames isInternal inScopeNames adtTypes stmt internalFunctions := rfl
+
+theorem compileStmtListWithFork_cancun_eq_compileStmtList
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
+    (isInternal : Bool) (inScopeNames : List String)
+    (adtTypes : List AdtTypeDef) (stmts : List Stmt)
+    (internalFunctions : List FunctionSpec := []) :
+    CompilationModel.compileStmtListWithFork fields events errors dynamicSource
+      internalRetNames isInternal inScopeNames adtTypes Verity.Core.Intrinsics.HardFork.cancun
+      stmts internalFunctions =
+    CompilationModel.compileStmtList fields events errors dynamicSource
+      internalRetNames isInternal inScopeNames adtTypes stmts internalFunctions := rfl
+
+theorem compileStmtList_nil_eq_ok
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
+    (isInternal : Bool) (inScopeNames : List String)
+    (adtTypes : List AdtTypeDef) :
+    CompilationModel.compileStmtList fields events errors dynamicSource
+      internalRetNames isInternal inScopeNames adtTypes [] = Except.ok [] := by
+  unfold CompilationModel.compileStmtList
+  unfold CompilationModel.compileStmtListWithFork
+  rfl
+
+theorem compileStmtList_cons_eq_ok
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
+    (isInternal : Bool) (inScopeNames : List String)
+    (adtTypes : List AdtTypeDef) (stmt : Stmt) (rest : List Stmt)
+    (headIR tailIR : List YulStmt)
+    (hhead :
+      CompilationModel.compileStmt fields events errors dynamicSource
+        internalRetNames isInternal inScopeNames adtTypes stmt = Except.ok headIR)
+    (htail :
+      CompilationModel.compileStmtList fields events errors dynamicSource
+        internalRetNames isInternal (collectStmtNames stmt ++ inScopeNames) adtTypes rest =
+          Except.ok tailIR) :
+    CompilationModel.compileStmtList fields events errors dynamicSource
+      internalRetNames isInternal inScopeNames adtTypes (stmt :: rest) =
+        Except.ok (headIR ++ tailIR) := by
+  unfold CompilationModel.compileStmtList
+  unfold CompilationModel.compileStmtListWithFork
+  rw [compileStmtWithFork_cancun_eq_compileStmt, hhead]
+  simpa [bind, Except.bind, Pure.pure, Except.pure,
+    compileStmtListWithFork_cancun_eq_compileStmtList, htail]
+
+theorem compileStmtListWithFork_nil_eq_ok
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
+    (isInternal : Bool) (inScopeNames : List String)
+    (adtTypes : List AdtTypeDef) :
+    CompilationModel.compileStmtListWithFork fields events errors dynamicSource
+      internalRetNames isInternal inScopeNames adtTypes Verity.Core.Intrinsics.HardFork.cancun
+      [] = Except.ok [] := by
+  rw [compileStmtListWithFork_cancun_eq_compileStmtList]
+  exact compileStmtList_nil_eq_ok _ _ _ _ _ _ _ _
+
+theorem compileStmtListWithFork_cons_eq_ok
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
+    (isInternal : Bool) (inScopeNames : List String)
+    (adtTypes : List AdtTypeDef) (stmt : Stmt) (rest : List Stmt)
+    (headIR tailIR : List YulStmt)
+    (hhead :
+      CompilationModel.compileStmt fields events errors dynamicSource
+        internalRetNames isInternal inScopeNames adtTypes stmt = Except.ok headIR)
+    (htail :
+      CompilationModel.compileStmtList fields events errors dynamicSource
+        internalRetNames isInternal (collectStmtNames stmt ++ inScopeNames) adtTypes rest =
+          Except.ok tailIR) :
+    CompilationModel.compileStmtListWithFork fields events errors dynamicSource
+      internalRetNames isInternal inScopeNames adtTypes Verity.Core.Intrinsics.HardFork.cancun
+      (stmt :: rest) = Except.ok (headIR ++ tailIR) := by
+  rw [compileStmtListWithFork_cancun_eq_compileStmtList]
+  exact compileStmtList_cons_eq_ok _ _ _ _ _ _ _ _ _ _ _ _ hhead htail
+
+theorem compileStmtList_cons_ok_inv
+    {fields : List Field}
+    {events : List EventDef}
+    {errors : List ErrorDef}
+    {inScopeNames : List String}
+    {adtTypes : List AdtTypeDef}
+    {stmt : Stmt}
+    {rest : List Stmt}
+    {bodyIR : List YulStmt}
+    (hcompile :
+      CompilationModel.compileStmtList
+        fields events errors .calldata [] false inScopeNames adtTypes (stmt :: rest) =
+          Except.ok bodyIR) :
+    ∃ headIR tailIR,
+      CompilationModel.compileStmt
+        fields events errors .calldata [] false inScopeNames adtTypes stmt = Except.ok headIR ∧
+      CompilationModel.compileStmtList
+        fields events errors .calldata [] false
+          (collectStmtNames stmt ++ inScopeNames) adtTypes rest = Except.ok tailIR ∧
+      bodyIR = headIR ++ tailIR := by
+  rw [CompilationModel.compileStmtList] at hcompile
+  unfold CompilationModel.compileStmtListWithFork at hcompile
+  cases hhead : CompilationModel.compileStmt
+      fields events errors .calldata [] false inScopeNames adtTypes stmt with
+  | error err =>
+      rw [compileStmtWithFork_cancun_eq_compileStmt, hhead] at hcompile
+      cases hcompile
+  | ok headIR =>
+      rw [compileStmtWithFork_cancun_eq_compileStmt, hhead] at hcompile
+      cases htail : CompilationModel.compileStmtList
+          fields events errors .calldata [] false
+            (collectStmtNames stmt ++ inScopeNames) adtTypes rest with
+      | error err =>
+          simp [compileStmtListWithFork_cancun_eq_compileStmtList, htail] at hcompile
+          cases hcompile
+      | ok tailIR =>
+          simp [compileStmtListWithFork_cancun_eq_compileStmtList, htail] at hcompile
+          injection hcompile with hbody
+          subst hbody
+          refine ⟨headIR, tailIR, ?_, ?_, rfl⟩
+          · simpa [hhead]
+          · simpa [htail]
 
 theorem runtimeStateMatchesIR_setBothMemory
     {fields : List Field}
@@ -417,7 +547,7 @@ theorem exec_compileStmt_letVar_core
   refine ⟨[YulStmt.let_ name valueIR], ?_, ?_⟩
   · have hvalueIRInternal := hvalueIR
     rw [← CompilationModel.compileExprWithInternals_nil_eq] at hvalueIRInternal
-    rw [CompilationModel.compileStmt, hvalueIRInternal]
+    rw [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, hvalueIRInternal]
     rfl
   · -- Get the bridge: both evaluations succeed with same value
     have heval := eval_compileExpr_core hcore hexact hbounded hpresent hruntime
@@ -463,7 +593,7 @@ theorem exec_compileStmt_assignVar_core
   refine ⟨[YulStmt.assign name valueIR], ?_, ?_⟩
   · have hvalueIRInternal := hvalueIR
     rw [← CompilationModel.compileExprWithInternals_nil_eq] at hvalueIRInternal
-    rw [CompilationModel.compileStmt, hvalueIRInternal]
+    rw [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, hvalueIRInternal]
     rfl
   · have heval := eval_compileExpr_core hcore hexact hbounded hpresent hruntime
     rw [hvalueIR] at heval
@@ -500,7 +630,7 @@ theorem exec_compileStmt_return_core
           , YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ], ?_, ?_⟩
   · have hvalueIRInternal := hvalueIR
     rw [← CompilationModel.compileExprWithInternals_nil_eq] at hvalueIRInternal
-    rw [CompilationModel.compileStmt, hvalueIRInternal]
+    rw [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, hvalueIRInternal]
     rfl
   · have heval := eval_compileExpr_core hcore hexact hbounded hpresent hruntime
     rw [hvalueIR] at heval
@@ -539,7 +669,7 @@ theorem exec_compileStmt_return_core_extraFuel
           , YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ], ?_, ?_⟩
   · have hvalueIRInternal := hvalueIR
     rw [← CompilationModel.compileExprWithInternals_nil_eq] at hvalueIRInternal
-    rw [CompilationModel.compileStmt, hvalueIRInternal]
+    rw [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, hvalueIRInternal]
     rfl
   · have heval := eval_compileExpr_core hcore hexact hbounded hpresent hruntime
     rw [hvalueIR] at heval
@@ -586,7 +716,7 @@ theorem exec_compileStmt_stop_core
       stmtResultMatchesIRExec fields sourceResult irExec ∧
       stmtResultMatchesIRExecExact sourceResult irExec := by
   refine ⟨[YulStmt.expr (YulExpr.call "stop" [])], ?_, ?_⟩
-  · rw [CompilationModel.compileStmt]
+  · rw [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork]
     rfl
   · constructor
     · have hirExec :
@@ -617,7 +747,7 @@ theorem exec_compileStmt_stop_core_extraFuel
       stmtResultMatchesIRExec fields sourceResult irExec ∧
       stmtResultMatchesIRExecExact sourceResult irExec := by
   refine ⟨[YulStmt.expr (YulExpr.call "stop" [])], ?_, ?_⟩
-  · rw [CompilationModel.compileStmt]
+  · rw [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork]
     rfl
   · have hirExec :
         execIRStmts
@@ -817,7 +947,7 @@ theorem compileStmt_core_ok_any_scope
       exact ⟨[YulStmt.let_ name valueIR], by
         have hvalueIRInternal := hvalueIR
         rw [← CompilationModel.compileExprWithInternals_nil_eq] at hvalueIRInternal
-        rw [CompilationModel.compileStmt, hvalueIRInternal]
+        rw [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, hvalueIRInternal]
         rfl⟩
   | assignVar hvalue =>
       rename_i name value
@@ -825,7 +955,7 @@ theorem compileStmt_core_ok_any_scope
       exact ⟨[YulStmt.assign name valueIR], by
         have hvalueIRInternal := hvalueIR
         rw [← CompilationModel.compileExprWithInternals_nil_eq] at hvalueIRInternal
-        rw [CompilationModel.compileStmt, hvalueIRInternal]
+        rw [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, hvalueIRInternal]
         rfl⟩
   | require_ hcond =>
       rename_i cond message
@@ -833,7 +963,7 @@ theorem compileStmt_core_ok_any_scope
       exact ⟨[YulStmt.if_ failCond (CompilationModel.revertWithMessage message)], by
         have hfailCondInternal := hfailCond
         rw [← CompilationModel.compileRequireFailCondWithInternals_nil_eq] at hfailCondInternal
-        rw [CompilationModel.compileStmt, hfailCondInternal]
+        rw [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, hfailCondInternal]
         rfl⟩
   | return_ hvalue =>
       rcases compileExpr_core_ok hvalue with ⟨valueIR, hvalueIR⟩
@@ -841,11 +971,11 @@ theorem compileStmt_core_ok_any_scope
             , YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ], by
         have hvalueIRInternal := hvalueIR
         rw [← CompilationModel.compileExprWithInternals_nil_eq] at hvalueIRInternal
-        rw [CompilationModel.compileStmt, hvalueIRInternal]
+        rw [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, hvalueIRInternal]
         rfl⟩
   | stop =>
       exact ⟨[YulStmt.expr (YulExpr.call "stop" [])], by
-        rw [CompilationModel.compileStmt]
+        rw [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork]
         rfl⟩
   | mstore hoffset hvalue =>
       rename_i offset value
@@ -855,7 +985,7 @@ theorem compileStmt_core_ok_any_scope
         have hoffsetIRInternal := hoffsetIR
         have hvalueIRInternal := hvalueIR
         rw [← CompilationModel.compileExprWithInternals_nil_eq] at hoffsetIRInternal hvalueIRInternal
-        rw [CompilationModel.compileStmt, hoffsetIRInternal, hvalueIRInternal]
+        rw [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, hoffsetIRInternal, hvalueIRInternal]
         rfl⟩
   | tstore hoffset hvalue =>
       rename_i offset value
@@ -865,7 +995,7 @@ theorem compileStmt_core_ok_any_scope
         have hoffsetIRInternal := hoffsetIR
         have hvalueIRInternal := hvalueIR
         rw [← CompilationModel.compileExprWithInternals_nil_eq] at hoffsetIRInternal hvalueIRInternal
-        rw [CompilationModel.compileStmt, hoffsetIRInternal, hvalueIRInternal]
+        rw [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, hoffsetIRInternal, hvalueIRInternal]
         rfl⟩
 
 /-! ### Scope-independence of compileStmt / compileStmtList success
@@ -901,19 +1031,19 @@ private theorem compileStmt_ok_any_scope_aux
       cases stmt with
       | ite cond thenBranch elseBranch =>
           rcases hok with ⟨ir, hir⟩
-          simp only [CompilationModel.compileStmt, bind, Except.bind] at hir ⊢
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, bind, Except.bind] at hir ⊢
           cases hcond : CompilationModel.compileExprWithInternals fields .calldata [] cond with
           | error e => simp [hcond] at hir
           | ok condIR =>
             simp only [hcond] at hir ⊢
             cases hthen1 : CompilationModel.compileStmtList
                 fields [] [] .calldata [] false scope1 [] thenBranch with
-            | error e => simp [hthen1] at hir
+            | error e => simp [compileStmtListWithFork_cancun_eq_compileStmtList, hthen1] at hir
             | ok thenIR1 =>
-              simp only [hthen1] at hir
+              simp [compileStmtListWithFork_cancun_eq_compileStmtList, hthen1] at hir
               cases helse1 : CompilationModel.compileStmtList
                   fields [] [] .calldata [] false scope1 [] elseBranch with
-              | error e => simp [helse1] at hir
+              | error e => simp [compileStmtListWithFork_cancun_eq_compileStmtList, helse1] at hir
               | ok elseIR1 =>
                 rcases ih.2 thenBranch scope1 scope2
                     (by simp [Stmt.ite.sizeOf_spec] at hlt; omega) ⟨thenIR1, hthen1⟩
@@ -921,11 +1051,11 @@ private theorem compileStmt_ok_any_scope_aux
                 rcases ih.2 elseBranch scope1 scope2
                     (by simp [Stmt.ite.sizeOf_spec] at hlt; omega) ⟨elseIR1, helse1⟩
                   with ⟨elseIR2, helse2⟩
-                simp only [hthen2, helse2]
+                simp [compileStmtListWithFork_cancun_eq_compileStmtList, hthen2, helse2]
                 cases elseBranch.isEmpty <;> exact ⟨_, rfl⟩
       | forEach varName count body =>
           rcases hok with ⟨ir, hir⟩
-          simp only [CompilationModel.compileStmt, bind, Except.bind] at hir ⊢
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, bind, Except.bind] at hir ⊢
           cases hcount : CompilationModel.compileExprWithInternals fields .calldata [] count with
           | error e => simp [hcount] at hir
           | ok countIR =>
@@ -933,24 +1063,45 @@ private theorem compileStmt_ok_any_scope_aux
             cases hbody1 : CompilationModel.compileStmtList
                 fields [] [] .calldata [] false
                 (CompilationModel.forEachBodyScope scope1 varName count body) [] body with
-            | error e => simp [hbody1] at hir
+            | error e => simp [compileStmtListWithFork_cancun_eq_compileStmtList, hbody1] at hir
             | ok bodyIR1 =>
               rcases ih.2 body (CompilationModel.forEachBodyScope scope1 varName count body)
                   (CompilationModel.forEachBodyScope scope2 varName count body)
                   (by simp [Stmt.forEach.sizeOf_spec] at hlt; omega) ⟨bodyIR1, hbody1⟩
                 with ⟨bodyIR2, hbody2⟩
-              simp only [hbody2]
+              simp [compileStmtListWithFork_cancun_eq_compileStmtList, hbody2]
+              exact ⟨_, rfl⟩
+      | forEachSetBit varName bitmap body =>
+          rcases hok with ⟨ir, hir⟩
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+            bind, Except.bind] at hir ⊢
+          cases hbitmap : CompilationModel.compileExprWithInternals fields .calldata [] bitmap with
+          | error e => simp [hbitmap] at hir
+          | ok bitmapIR =>
+            simp only [hbitmap] at hir ⊢
+            cases hbody1 : CompilationModel.compileStmtList
+                fields [] [] .calldata [] false
+                (CompilationModel.forEachSetBitFallbackBodyScope scope1 varName bitmap body) [] body with
+            | error e => simp [compileStmtListWithFork_cancun_eq_compileStmtList, hbody1] at hir
+            | ok bodyIR1 =>
+              rcases ih.2 body
+                  (CompilationModel.forEachSetBitFallbackBodyScope scope1 varName bitmap body)
+                  (CompilationModel.forEachSetBitFallbackBodyScope scope2 varName bitmap body)
+                  (by simp [Stmt.forEachSetBit.sizeOf_spec] at hlt; omega) ⟨bodyIR1, hbody1⟩
+                with ⟨bodyIR2, hbody2⟩
+              simp [compileStmtListWithFork_cancun_eq_compileStmtList, hbody2]
               exact ⟨_, rfl⟩
       | unsafeBlock _ body =>
           rcases hok with ⟨ir, hir⟩
-          simp only [CompilationModel.compileStmt] at hir ⊢
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] at hir ⊢
           rcases ih.2 body scope1 scope2
               (by simp [Stmt.unsafeBlock.sizeOf_spec] at hlt; omega) ⟨ir, hir⟩
             with ⟨bodyIR2, hbody2⟩
-          exact ⟨bodyIR2, hbody2⟩
+          exact ⟨bodyIR2, by
+            simpa [compileStmtListWithFork_cancun_eq_compileStmtList] using hbody2⟩
       | matchAdt adtName scrutinee branches =>
           rcases hok with ⟨ir, hir⟩
-          simp [CompilationModel.compileStmt, lookupAdtTypeDef, Except.bind, bind] at hir
+          simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, lookupAdtTypeDef, Except.bind, bind] at hir
       -- All remaining cases: inScopeNames is unused, so the result is identical
       | letVar | assignVar | setStorage | setStorageAddr | setImmutable | setStorageWord | storageArrayPush
       | storageArrayPop | setStorageArrayElement | setMapping | setMappingWord
@@ -961,30 +1112,25 @@ private theorem compileStmt_ok_any_scope_aux
       | returndataCopy | revertReturndata | stop | emit | internalCall
       | internalCallAssign | externalCallBind | tryExternalCallBind | ecm | rawLog
       | unsafeYul =>
-          simp only [CompilationModel.compileStmt] at hok ⊢; exact hok
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] at hok ⊢; exact hok
     · -- compileStmtList part
       intro stmts scope1 scope2 hlt hok
       cases stmts with
-      | nil => exact ⟨[], by simp [CompilationModel.compileStmtList, Pure.pure, Except.pure]⟩
-      | cons s ss =>
-          rcases hok with ⟨ir, hir⟩
-          simp only [CompilationModel.compileStmtList, bind, Except.bind] at hir ⊢
-          cases hs1 : CompilationModel.compileStmt
-              fields [] [] .calldata [] false scope1 [] s with
-          | error e => simp [hs1] at hir
-          | ok headIR1 =>
-            simp only [hs1] at hir
-            cases hss1 : CompilationModel.compileStmtList
-                fields [] [] .calldata [] false (collectStmtNames s ++ scope1) [] ss with
-            | error e => simp [hss1] at hir
-            | ok tailIR1 =>
-              rcases ih.1 s scope1 scope2 (by simp [List.cons.sizeOf_spec] at hlt; omega)
-                  ⟨headIR1, hs1⟩ with ⟨headIR2, hs2⟩
-              rcases ih.2 ss (collectStmtNames s ++ scope1) (collectStmtNames s ++ scope2)
-                  (by simp [List.cons.sizeOf_spec] at hlt; omega) ⟨tailIR1, hss1⟩
-                with ⟨tailIR2, hss2⟩
-              simp only [hs2, hss2]
-              exact ⟨_, rfl⟩
+      | nil => exact ⟨[], by
+            simp [CompilationModel.compileStmtList, CompilationModel.compileStmtListWithFork,
+              Pure.pure, Except.pure]⟩
+        | cons s ss =>
+            rcases hok with ⟨ir, hir⟩
+            rcases compileStmtList_cons_ok_inv (fields := fields) (events := [])
+                (errors := []) (inScopeNames := scope1) (adtTypes := [])
+                (stmt := s) (rest := ss) hir with
+              ⟨headIR1, tailIR1, hs1, hss1, _⟩
+            rcases ih.1 s scope1 scope2 (by simp [List.cons.sizeOf_spec] at hlt; omega)
+                ⟨headIR1, hs1⟩ with ⟨headIR2, hs2⟩
+            rcases ih.2 ss (collectStmtNames s ++ scope1) (collectStmtNames s ++ scope2)
+                (by simp [List.cons.sizeOf_spec] at hlt; omega) ⟨tailIR1, hss1⟩
+              with ⟨tailIR2, hss2⟩
+            exact ⟨_, compileStmtList_cons_eq_ok _ _ _ _ _ _ _ _ _ _ _ _ hs2 hss2⟩
 
 theorem compileStmt_ok_any_scope
     {fields : List Field}
@@ -1023,19 +1169,19 @@ private theorem compileStmt_ok_any_scope_with_surface_aux
       cases stmt with
       | ite cond thenBranch elseBranch =>
           rcases hok with ⟨ir, hir⟩
-          simp only [CompilationModel.compileStmt, bind, Except.bind] at hir ⊢
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, bind, Except.bind] at hir ⊢
           cases hcond : CompilationModel.compileExprWithInternals fields .calldata [] cond with
           | error e => simp [hcond] at hir
           | ok condIR =>
             simp only [hcond] at hir ⊢
             cases hthen1 : CompilationModel.compileStmtList
                 fields events errors .calldata [] false scope1 [] thenBranch with
-            | error e => simp [hthen1] at hir
+            | error e => simp [compileStmtListWithFork_cancun_eq_compileStmtList, hthen1] at hir
             | ok thenIR1 =>
-              simp only [hthen1] at hir
+              simp [compileStmtListWithFork_cancun_eq_compileStmtList, hthen1] at hir
               cases helse1 : CompilationModel.compileStmtList
                   fields events errors .calldata [] false scope1 [] elseBranch with
-              | error e => simp [helse1] at hir
+              | error e => simp [compileStmtListWithFork_cancun_eq_compileStmtList, helse1] at hir
               | ok elseIR1 =>
                 rcases ih.2 thenBranch scope1 scope2
                     (by simp [Stmt.ite.sizeOf_spec] at hlt; omega) ⟨thenIR1, hthen1⟩
@@ -1043,11 +1189,11 @@ private theorem compileStmt_ok_any_scope_with_surface_aux
                 rcases ih.2 elseBranch scope1 scope2
                     (by simp [Stmt.ite.sizeOf_spec] at hlt; omega) ⟨elseIR1, helse1⟩
                   with ⟨elseIR2, helse2⟩
-                simp only [hthen2, helse2]
+                simp [compileStmtListWithFork_cancun_eq_compileStmtList, hthen2, helse2]
                 cases elseBranch.isEmpty <;> exact ⟨_, rfl⟩
       | forEach varName count body =>
           rcases hok with ⟨ir, hir⟩
-          simp only [CompilationModel.compileStmt, bind, Except.bind] at hir ⊢
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, bind, Except.bind] at hir ⊢
           cases hcount : CompilationModel.compileExprWithInternals fields .calldata [] count with
           | error e => simp [hcount] at hir
           | ok countIR =>
@@ -1055,23 +1201,45 @@ private theorem compileStmt_ok_any_scope_with_surface_aux
             cases hbody1 : CompilationModel.compileStmtList
                 fields events errors .calldata [] false
                 (CompilationModel.forEachBodyScope scope1 varName count body) [] body with
-            | error e => simp [hbody1] at hir
+            | error e => simp [compileStmtListWithFork_cancun_eq_compileStmtList, hbody1] at hir
             | ok bodyIR1 =>
               rcases ih.2 body (CompilationModel.forEachBodyScope scope1 varName count body)
                   (CompilationModel.forEachBodyScope scope2 varName count body)
                   (by simp [Stmt.forEach.sizeOf_spec] at hlt; omega) ⟨bodyIR1, hbody1⟩
                 with ⟨bodyIR2, hbody2⟩
-              simp only [hbody2]
+              simp [compileStmtListWithFork_cancun_eq_compileStmtList, hbody2]
+              exact ⟨_, rfl⟩
+      | forEachSetBit varName bitmap body =>
+          rcases hok with ⟨ir, hir⟩
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+            bind, Except.bind] at hir ⊢
+          cases hbitmap : CompilationModel.compileExprWithInternals fields .calldata [] bitmap with
+          | error e => simp [hbitmap] at hir
+          | ok bitmapIR =>
+            simp only [hbitmap] at hir ⊢
+            cases hbody1 : CompilationModel.compileStmtList
+                fields events errors .calldata [] false
+                (CompilationModel.forEachSetBitFallbackBodyScope scope1 varName bitmap body) [] body with
+            | error e => simp [compileStmtListWithFork_cancun_eq_compileStmtList, hbody1] at hir
+            | ok bodyIR1 =>
+              rcases ih.2 body
+                  (CompilationModel.forEachSetBitFallbackBodyScope scope1 varName bitmap body)
+                  (CompilationModel.forEachSetBitFallbackBodyScope scope2 varName bitmap body)
+                  (by simp [Stmt.forEachSetBit.sizeOf_spec] at hlt; omega) ⟨bodyIR1, hbody1⟩
+                with ⟨bodyIR2, hbody2⟩
+              simp [compileStmtListWithFork_cancun_eq_compileStmtList, hbody2]
               exact ⟨_, rfl⟩
       | unsafeBlock reason body =>
           rcases hok with ⟨ir, hir⟩
-          simp only [CompilationModel.compileStmt] at hir ⊢
-          exact ih.2 body scope1 scope2
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] at hir ⊢
+          rcases ih.2 body scope1 scope2
             (by simp [Stmt.unsafeBlock.sizeOf_spec] at hlt; omega)
-            ⟨ir, hir⟩
+            ⟨ir, hir⟩ with ⟨bodyIR2, hbody2⟩
+          exact ⟨bodyIR2, by
+            simpa [compileStmtListWithFork_cancun_eq_compileStmtList] using hbody2⟩
       | matchAdt adtName scrutinee branches =>
           rcases hok with ⟨ir, hir⟩
-          simp [CompilationModel.compileStmt, lookupAdtTypeDef, Except.bind, bind] at hir
+          simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, lookupAdtTypeDef, Except.bind, bind] at hir
       | letVar | assignVar | setStorage | setStorageAddr | setImmutable | setStorageWord | storageArrayPush
       | storageArrayPop | setStorageArrayElement | setMapping | setMappingWord
       | setMappingPackedWord | setMapping2 | setMapping2Word | setMappingUint
@@ -1081,29 +1249,24 @@ private theorem compileStmt_ok_any_scope_with_surface_aux
       | returndataCopy | revertReturndata | stop | emit | internalCall
       | internalCallAssign | externalCallBind | tryExternalCallBind
       | ecm | rawLog | unsafeYul =>
-          simp only [CompilationModel.compileStmt] at hok ⊢; exact hok
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] at hok ⊢; exact hok
     · intro stmts scope1 scope2 hlt hok
       cases stmts with
-      | nil => exact ⟨[], by simp [CompilationModel.compileStmtList, Pure.pure, Except.pure]⟩
-      | cons s ss =>
-          rcases hok with ⟨ir, hir⟩
-          simp only [CompilationModel.compileStmtList, bind, Except.bind] at hir ⊢
-          cases hs1 : CompilationModel.compileStmt
-              fields events errors .calldata [] false scope1 [] s with
-          | error e => simp [hs1] at hir
-          | ok headIR1 =>
-            simp only [hs1] at hir
-            cases hss1 : CompilationModel.compileStmtList
-                fields events errors .calldata [] false (collectStmtNames s ++ scope1) [] ss with
-            | error e => simp [hss1] at hir
-            | ok tailIR1 =>
-              rcases ih.1 s scope1 scope2 (by simp [List.cons.sizeOf_spec] at hlt; omega)
-                  ⟨headIR1, hs1⟩ with ⟨headIR2, hs2⟩
-              rcases ih.2 ss (collectStmtNames s ++ scope1) (collectStmtNames s ++ scope2)
-                  (by simp [List.cons.sizeOf_spec] at hlt; omega) ⟨tailIR1, hss1⟩
-                with ⟨tailIR2, hss2⟩
-              simp only [hs2, hss2]
-              exact ⟨_, rfl⟩
+      | nil => exact ⟨[], by
+            simp [CompilationModel.compileStmtList, CompilationModel.compileStmtListWithFork,
+              Pure.pure, Except.pure]⟩
+        | cons s ss =>
+            rcases hok with ⟨ir, hir⟩
+            rcases compileStmtList_cons_ok_inv (fields := fields) (events := events)
+                (errors := errors) (inScopeNames := scope1) (adtTypes := [])
+                (stmt := s) (rest := ss) hir with
+              ⟨headIR1, tailIR1, hs1, hss1, _⟩
+            rcases ih.1 s scope1 scope2 (by simp [List.cons.sizeOf_spec] at hlt; omega)
+                ⟨headIR1, hs1⟩ with ⟨headIR2, hs2⟩
+            rcases ih.2 ss (collectStmtNames s ++ scope1) (collectStmtNames s ++ scope2)
+                (by simp [List.cons.sizeOf_spec] at hlt; omega) ⟨tailIR1, hss1⟩
+              with ⟨tailIR2, hss2⟩
+            exact ⟨_, compileStmtList_cons_eq_ok _ _ _ _ _ _ _ _ _ _ _ _ hs2 hss2⟩
 
 theorem compileStmt_ok_any_scope_with_surface
     {fields : List Field}
@@ -1160,10 +1323,7 @@ theorem compileStmtList_cons_ok_of_compileStmt_ok_with_surface
     CompilationModel.compileStmtList
       fields events errors .calldata [] false inScopeNames [] (stmt :: rest) =
         Except.ok (headIR ++ tailIR) := by
-  rw [CompilationModel.compileStmtList, hhead]
-  dsimp
-  rw [htail]
-  rfl
+  exact compileStmtList_cons_eq_ok _ _ _ _ _ _ _ _ _ _ _ _ hhead htail
 
 theorem compileStmtList_cons_ok_of_compileStmt_ok
     {fields : List Field}
@@ -1181,51 +1341,7 @@ theorem compileStmtList_cons_ok_of_compileStmt_ok
     CompilationModel.compileStmtList
       fields [] [] .calldata [] false inScopeNames [] (stmt :: rest) =
         Except.ok (headIR ++ tailIR) := by
-  rw [CompilationModel.compileStmtList, hhead]
-  dsimp
-  rw [htail]
-  rfl
-
-theorem compileStmtList_cons_ok_inv
-    {fields : List Field}
-    {events : List EventDef}
-    {errors : List ErrorDef}
-    {inScopeNames : List String}
-    {adtTypes : List AdtTypeDef}
-    {stmt : Stmt}
-    {rest : List Stmt}
-    {bodyIR : List YulStmt}
-    (hcompile :
-      CompilationModel.compileStmtList
-        fields events errors .calldata [] false inScopeNames adtTypes (stmt :: rest) =
-          Except.ok bodyIR) :
-    ∃ headIR tailIR,
-      CompilationModel.compileStmt
-        fields events errors .calldata [] false inScopeNames adtTypes stmt = Except.ok headIR ∧
-      CompilationModel.compileStmtList
-        fields events errors .calldata [] false
-          (collectStmtNames stmt ++ inScopeNames) adtTypes rest = Except.ok tailIR ∧
-      bodyIR = headIR ++ tailIR := by
-  rw [CompilationModel.compileStmtList] at hcompile
-  cases hhead : CompilationModel.compileStmt
-      fields events errors .calldata [] false inScopeNames adtTypes stmt with
-  | error err =>
-      simp [hhead] at hcompile
-      cases hcompile
-  | ok headIR =>
-      cases htail : CompilationModel.compileStmtList
-          fields events errors .calldata [] false
-            (collectStmtNames stmt ++ inScopeNames) adtTypes rest with
-      | error err =>
-          simp [hhead, htail] at hcompile
-          cases hcompile
-      | ok tailIR =>
-          simp [hhead, htail] at hcompile
-          injection hcompile with hbody
-          subst hbody
-          refine ⟨headIR, tailIR, ?_, ?_, rfl⟩
-          · simpa [hhead]
-          · simpa [htail]
+  exact compileStmtList_cons_eq_ok _ _ _ _ _ _ _ _ _ _ _ _ hhead htail
 
 theorem compileStmt_terminal_ite_ok_inv
     {fields : List Field}
@@ -1253,7 +1369,7 @@ theorem compileStmt_terminal_ite_ok_inv
           [ YulStmt.let_ tempName condIR
           , YulStmt.if_ (YulExpr.ident tempName) thenIR
           , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR ]] := by
-  unfold CompilationModel.compileStmt at hcompile
+  unfold CompilationModel.compileStmt CompilationModel.compileStmtWithFork at hcompile
   cases hcond : CompilationModel.compileExprWithInternals fields .calldata [] cond with
   | error err =>
       simp [hcond] at hcompile
@@ -1262,16 +1378,17 @@ theorem compileStmt_terminal_ite_ok_inv
       cases hthen : CompilationModel.compileStmtList
           fields [] [] .calldata [] false inScopeNames [] thenBranch with
       | error err =>
-          simp [hcond, hthen] at hcompile
+          simp [hcond, compileStmtListWithFork_cancun_eq_compileStmtList, hthen] at hcompile
           cases hcompile
       | ok thenIR =>
           cases helse : CompilationModel.compileStmtList
               fields [] [] .calldata [] false inScopeNames [] elseBranch with
           | error err =>
-              simp [hcond, hthen, helse] at hcompile
+              simp [hcond, compileStmtListWithFork_cancun_eq_compileStmtList, hthen, helse] at hcompile
               cases hcompile
           | ok elseIR =>
-              simp [hcond, hthen, helse, helseNonempty] at hcompile
+              simp [hcond, compileStmtListWithFork_cancun_eq_compileStmtList, hthen, helse,
+                helseNonempty] at hcompile
               refine ⟨condIR, thenIR, elseIR,
                 CompilationModel.pickFreshName "__ite_cond"
                   (inScopeNames ++ collectExprNames cond ++
@@ -1344,77 +1461,56 @@ theorem compileStmtList_core_ok
         fields [] [] .calldata [] false inScopeNames [] stmts = Except.ok bodyIR := by
   induction hcore generalizing inScopeNames
   case nil =>
-      exact ⟨[], by simp [CompilationModel.compileStmtList, Pure.pure, Except.pure]⟩
+      exact ⟨[], by exact compileStmtList_nil_eq_ok _ _ _ _ _ _ _ _⟩
   case letVar scope name value rest hvalue _ hrest ih =>
       rcases compileStmt_core_ok_any_scope (fields := fields) (inScopeNames := inScopeNames)
         (stmt := .letVar name value) (.letVar hvalue) with ⟨headIR, hheadIR⟩
       rcases ih (inScopeNames := collectStmtNames (.letVar name value) ++ inScopeNames) with
         ⟨tailIR, htailIR⟩
       refine ⟨headIR ++ tailIR, ?_⟩
-      rw [CompilationModel.compileStmtList, hheadIR]
-      dsimp
-      rw [htailIR]
-      rfl
+      exact compileStmtList_cons_eq_ok _ _ _ _ _ _ _ _ _ _ _ _ hheadIR htailIR
   case assignVar scope name value rest hvalue _ hrest ih =>
       rcases compileStmt_core_ok_any_scope (fields := fields) (inScopeNames := inScopeNames)
         (stmt := .assignVar name value) (.assignVar hvalue) with ⟨headIR, hheadIR⟩
       rcases ih (inScopeNames := collectStmtNames (.assignVar name value) ++ inScopeNames) with
         ⟨tailIR, htailIR⟩
       refine ⟨headIR ++ tailIR, ?_⟩
-      rw [CompilationModel.compileStmtList, hheadIR]
-      dsimp
-      rw [htailIR]
-      rfl
+      exact compileStmtList_cons_eq_ok _ _ _ _ _ _ _ _ _ _ _ _ hheadIR htailIR
   case require_ scope cond message rest hcond _ hrest ih =>
       rcases compileStmt_core_ok_any_scope (fields := fields) (inScopeNames := inScopeNames)
         (stmt := .require cond message) (.require_ hcond) with ⟨headIR, hheadIR⟩
       rcases ih (inScopeNames := collectStmtNames (.require cond message) ++ inScopeNames) with
         ⟨tailIR, htailIR⟩
       refine ⟨headIR ++ tailIR, ?_⟩
-      rw [CompilationModel.compileStmtList, hheadIR]
-      dsimp
-      rw [htailIR]
-      rfl
+      exact compileStmtList_cons_eq_ok _ _ _ _ _ _ _ _ _ _ _ _ hheadIR htailIR
   case return_ scope value rest hvalue _ hrest ih =>
       rcases compileStmt_core_ok_any_scope (fields := fields) (inScopeNames := inScopeNames)
         (stmt := .return value) (.return_ hvalue) with ⟨headIR, hheadIR⟩
       rcases ih (inScopeNames := collectStmtNames (.return value) ++ inScopeNames) with
         ⟨tailIR, htailIR⟩
       refine ⟨headIR ++ tailIR, ?_⟩
-      rw [CompilationModel.compileStmtList, hheadIR]
-      dsimp
-      rw [htailIR]
-      rfl
+      exact compileStmtList_cons_eq_ok _ _ _ _ _ _ _ _ _ _ _ _ hheadIR htailIR
   case stop scope rest hrest ih =>
       rcases compileStmt_core_ok_any_scope (fields := fields) (inScopeNames := inScopeNames)
         (stmt := .stop) StmtCompileCore.stop with ⟨headIR, hheadIR⟩
       rcases ih (inScopeNames := collectStmtNames (.stop) ++ inScopeNames) with
         ⟨tailIR, htailIR⟩
       refine ⟨headIR ++ tailIR, ?_⟩
-      rw [CompilationModel.compileStmtList, hheadIR]
-      dsimp
-      rw [htailIR]
-      rfl
+      exact compileStmtList_cons_eq_ok _ _ _ _ _ _ _ _ _ _ _ _ hheadIR htailIR
   case mstore scope offset value rest hoffset _ hvalue _ hrest ih =>
       rcases compileStmt_core_ok_any_scope (fields := fields) (inScopeNames := inScopeNames)
         (stmt := .mstore offset value) (.mstore hoffset hvalue) with ⟨headIR, hheadIR⟩
       rcases ih (inScopeNames := collectStmtNames (.mstore offset value) ++ inScopeNames) with
         ⟨tailIR, htailIR⟩
       refine ⟨headIR ++ tailIR, ?_⟩
-      rw [CompilationModel.compileStmtList, hheadIR]
-      dsimp
-      rw [htailIR]
-      rfl
+      exact compileStmtList_cons_eq_ok _ _ _ _ _ _ _ _ _ _ _ _ hheadIR htailIR
   case tstore scope offset value rest hoffset _ hvalue _ hrest ih =>
       rcases compileStmt_core_ok_any_scope (fields := fields) (inScopeNames := inScopeNames)
         (stmt := .tstore offset value) (.tstore hoffset hvalue) with ⟨headIR, hheadIR⟩
       rcases ih (inScopeNames := collectStmtNames (.tstore offset value) ++ inScopeNames) with
         ⟨tailIR, htailIR⟩
       refine ⟨headIR ++ tailIR, ?_⟩
-      rw [CompilationModel.compileStmtList, hheadIR]
-      dsimp
-      rw [htailIR]
-      rfl
+      exact compileStmtList_cons_eq_ok _ _ _ _ _ _ _ _ _ _ _ _ hheadIR htailIR
 
 theorem compileStmtList_terminal_core_ok
     {fields : List Field}
@@ -1431,30 +1527,21 @@ theorem compileStmtList_terminal_core_ok
       rcases ih (inScopeNames := collectStmtNames (.letVar name value) ++ inScopeNames) with
         ⟨tailIR, htailIR⟩
       refine ⟨headIR ++ tailIR, ?_⟩
-      rw [CompilationModel.compileStmtList, hheadIR]
-      dsimp
-      rw [htailIR]
-      rfl
+      exact compileStmtList_cons_eq_ok _ _ _ _ _ _ _ _ _ _ _ _ hheadIR htailIR
   case assignVar scope name value rest hvalue _ hrest ih =>
       rcases compileStmt_core_ok_any_scope (fields := fields) (inScopeNames := inScopeNames)
         (stmt := .assignVar name value) (.assignVar hvalue) with ⟨headIR, hheadIR⟩
       rcases ih (inScopeNames := collectStmtNames (.assignVar name value) ++ inScopeNames) with
         ⟨tailIR, htailIR⟩
       refine ⟨headIR ++ tailIR, ?_⟩
-      rw [CompilationModel.compileStmtList, hheadIR]
-      dsimp
-      rw [htailIR]
-      rfl
+      exact compileStmtList_cons_eq_ok _ _ _ _ _ _ _ _ _ _ _ _ hheadIR htailIR
   case require_ scope cond message rest hcond _ hrest ih =>
       rcases compileStmt_core_ok_any_scope (fields := fields) (inScopeNames := inScopeNames)
         (stmt := .require cond message) (.require_ hcond) with ⟨headIR, hheadIR⟩
       rcases ih (inScopeNames := collectStmtNames (.require cond message) ++ inScopeNames) with
         ⟨tailIR, htailIR⟩
       refine ⟨headIR ++ tailIR, ?_⟩
-      rw [CompilationModel.compileStmtList, hheadIR]
-      dsimp
-      rw [htailIR]
-      rfl
+      exact compileStmtList_cons_eq_ok _ _ _ _ _ _ _ _ _ _ _ _ hheadIR htailIR
   case return_ scope value rest hvalue _ hrest =>
       rcases compileStmt_core_ok_any_scope (fields := fields) (inScopeNames := inScopeNames)
         (stmt := .return value) (.return_ hvalue) with ⟨headIR, hheadIR⟩
@@ -1464,10 +1551,7 @@ theorem compileStmtList_terminal_core_ok
           (stmts := rest) hrest with
         ⟨tailIR, htailIR⟩
       refine ⟨headIR ++ tailIR, ?_⟩
-      rw [CompilationModel.compileStmtList, hheadIR]
-      dsimp
-      rw [htailIR]
-      rfl
+      exact compileStmtList_cons_eq_ok _ _ _ _ _ _ _ _ _ _ _ _ hheadIR htailIR
   case stop scope rest hrest =>
       rcases compileStmt_core_ok_any_scope (fields := fields) (inScopeNames := inScopeNames)
         (stmt := .stop) StmtCompileCore.stop with ⟨headIR, hheadIR⟩
@@ -1477,30 +1561,21 @@ theorem compileStmtList_terminal_core_ok
           (stmts := rest) hrest with
         ⟨tailIR, htailIR⟩
       refine ⟨headIR ++ tailIR, ?_⟩
-      rw [CompilationModel.compileStmtList, hheadIR]
-      dsimp
-      rw [htailIR]
-      rfl
+      exact compileStmtList_cons_eq_ok _ _ _ _ _ _ _ _ _ _ _ _ hheadIR htailIR
   case mstore scope offset value rest hoffset _ hvalue _ hrest ih =>
       rcases compileStmt_core_ok_any_scope (fields := fields) (inScopeNames := inScopeNames)
         (stmt := .mstore offset value) (.mstore hoffset hvalue) with ⟨headIR, hheadIR⟩
       rcases ih (inScopeNames := collectStmtNames (.mstore offset value) ++ inScopeNames) with
         ⟨tailIR, htailIR⟩
       refine ⟨headIR ++ tailIR, ?_⟩
-      rw [CompilationModel.compileStmtList, hheadIR]
-      dsimp
-      rw [htailIR]
-      rfl
+      exact compileStmtList_cons_eq_ok _ _ _ _ _ _ _ _ _ _ _ _ hheadIR htailIR
   case tstore scope offset value rest hoffset _ hvalue _ hrest ih =>
       rcases compileStmt_core_ok_any_scope (fields := fields) (inScopeNames := inScopeNames)
         (stmt := .tstore offset value) (.tstore hoffset hvalue) with ⟨headIR, hheadIR⟩
       rcases ih (inScopeNames := collectStmtNames (.tstore offset value) ++ inScopeNames) with
         ⟨tailIR, htailIR⟩
       refine ⟨headIR ++ tailIR, ?_⟩
-      rw [CompilationModel.compileStmtList, hheadIR]
-      dsimp
-      rw [htailIR]
-      rfl
+      exact compileStmtList_cons_eq_ok _ _ _ _ _ _ _ _ _ _ _ _ hheadIR htailIR
   case ite scope cond thenBranch elseBranch rest hcond _ hthen helse hrest ihThen ihElse =>
       rcases compileExpr_core_ok (fields := fields) hcond with ⟨condIR, hcondIR⟩
       rcases ihThen (inScopeNames := inScopeNames) with ⟨thenIR, hthenIR⟩
@@ -1538,15 +1613,14 @@ theorem compileStmtList_terminal_core_ok
                       collectStmtListNames thenBranch ++ collectStmtListNames elseBranch))])
               elseIR
           ]] ++ tailIR, ?_⟩
-      rw [CompilationModel.compileStmtList]
-      unfold CompilationModel.compileStmt
-      have hcondIRInternal := hcondIR
-      rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcondIRInternal
-      rw [hcondIRInternal, hthenIR, helseIR]
-      dsimp
-      rw [htailIR]
-      simp [helseNonempty]
-      rfl
+      apply compileStmtList_cons_eq_ok
+      · unfold CompilationModel.compileStmt CompilationModel.compileStmtWithFork
+        have hcondIRInternal := hcondIR
+        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcondIRInternal
+        rw [hcondIRInternal]
+        simp [compileStmtListWithFork_cancun_eq_compileStmtList, hthenIR, helseIR,
+          helseNonempty, bind, Except.bind, Pure.pure, Except.pure]
+      · exact htailIR
 
 theorem compileStmtList_terminal_core_ok_nonempty
     {fields : List Field}
@@ -1567,7 +1641,7 @@ theorem compileStmtList_terminal_core_ok_nonempty
         ⟨headIR, tailIR, hhead, _, hbody⟩
       have hvalueIRInternal := hvalueIR
       rw [← CompilationModel.compileExprWithInternals_nil_eq] at hvalueIRInternal
-      rw [CompilationModel.compileStmt, hvalueIRInternal] at hhead
+      rw [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, hvalueIRInternal] at hhead
       injection hhead with hheadEq
       subst hheadEq
       simp [hbody]
@@ -1579,7 +1653,7 @@ theorem compileStmtList_terminal_core_ok_nonempty
         ⟨headIR, tailIR, hhead, _, hbody⟩
       have hvalueIRInternal := hvalueIR
       rw [← CompilationModel.compileExprWithInternals_nil_eq] at hvalueIRInternal
-      rw [CompilationModel.compileStmt, hvalueIRInternal] at hhead
+      rw [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, hvalueIRInternal] at hhead
       injection hhead with hheadEq
       subst hheadEq
       simp [hbody]
@@ -1591,7 +1665,7 @@ theorem compileStmtList_terminal_core_ok_nonempty
         ⟨headIR, tailIR, hhead, _, hbody⟩
       have hfailCondInternal := hfailCond
       rw [← CompilationModel.compileRequireFailCondWithInternals_nil_eq] at hfailCondInternal
-      rw [CompilationModel.compileStmt, hfailCondInternal] at hhead
+      rw [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, hfailCondInternal] at hhead
       injection hhead with hheadEq
       subst hheadEq
       simp [hbody]
@@ -1603,7 +1677,7 @@ theorem compileStmtList_terminal_core_ok_nonempty
         ⟨headIR, tailIR, hhead, _, hbody⟩
       have hvalueIRInternal := hvalueIR
       rw [← CompilationModel.compileExprWithInternals_nil_eq] at hvalueIRInternal
-      rw [CompilationModel.compileStmt, hvalueIRInternal] at hhead
+      rw [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, hvalueIRInternal] at hhead
       injection hhead with hheadEq
       subst hheadEq
       simp [hbody]
@@ -1612,7 +1686,7 @@ theorem compileStmtList_terminal_core_ok_nonempty
       rcases compileStmtList_cons_ok_inv (fields := fields) (inScopeNames := inScopeNames)
           (stmt := .stop) (rest := rest) hcompile with
         ⟨headIR, tailIR, hhead, _, hbody⟩
-      rw [CompilationModel.compileStmt] at hhead
+      rw [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] at hhead
       injection hhead with hheadEq
       subst hheadEq
       simp [hbody]
@@ -1626,7 +1700,7 @@ theorem compileStmtList_terminal_core_ok_nonempty
       have hoffsetIRInternal := hoffsetIR
       have hvalueIRInternal := hvalueIR
       rw [← CompilationModel.compileExprWithInternals_nil_eq] at hoffsetIRInternal hvalueIRInternal
-      rw [CompilationModel.compileStmt, hoffsetIRInternal, hvalueIRInternal] at hhead
+      rw [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, hoffsetIRInternal, hvalueIRInternal] at hhead
       injection hhead with hheadEq
       subst hheadEq
       simp [hbody]
@@ -1640,7 +1714,7 @@ theorem compileStmtList_terminal_core_ok_nonempty
       have hoffsetIRInternal := hoffsetIR
       have hvalueIRInternal := hvalueIR
       rw [← CompilationModel.compileExprWithInternals_nil_eq] at hoffsetIRInternal hvalueIRInternal
-      rw [CompilationModel.compileStmt, hoffsetIRInternal, hvalueIRInternal] at hhead
+      rw [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, hoffsetIRInternal, hvalueIRInternal] at hhead
       injection hhead with hheadEq
       subst hheadEq
       simp [hbody]
@@ -1684,7 +1758,9 @@ theorem compileStmtList_terminal_core_ok_nonempty
                   rw [helseOk] at helseIR
                   cases helseIR
               | ok elseIR =>
-                  simp [CompilationModel.compileStmt, helseNonempty, hcondIR, hthenIR, helseIR] at hhead
+                  simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+                    compileStmtListWithFork_cancun_eq_compileStmtList, helseNonempty,
+                    hcondIR, hthenIR, helseIR] at hhead
                   injection hhead with hheadEq
                   subst hheadEq
                   simp [hbody]
@@ -2818,7 +2894,7 @@ theorem exec_compileStmtList_core
       stmtResultMatchesIRExecExact sourceResult irExec := by
   induction hcore generalizing runtime state inScopeNames with
   | nil =>
-      refine ⟨[], by simp [CompilationModel.compileStmtList, Pure.pure, Except.pure], ?_⟩
+      refine ⟨[], by exact compileStmtList_nil_eq_ok _ _ _ _ _ _ _ _, ?_⟩
       constructor
       · simpa [SourceSemantics.execStmtList, execIRStmts, stmtResultMatchesIRExec] using hruntime
       · simpa [SourceSemantics.execStmtList, execIRStmts, stmtResultMatchesIRExecExact] using
@@ -2858,12 +2934,13 @@ theorem exec_compileStmtList_core
             hscope' hexact' hbounded' hruntime' with
           ⟨tailIR, htailCompile, htailSem, htailExact⟩
         refine ⟨[YulStmt.let_ name valueIR] ++ tailIR, ?_, ?_⟩
-        · unfold CompilationModel.compileStmtList CompilationModel.compileStmt
-          have hvalueIRInternal := hvalueIR
-          rw [← CompilationModel.compileExprWithInternals_nil_eq] at hvalueIRInternal
-          rw [hvalueIRInternal]
-          simp [htailCompile]
-          exact rfl
+        · apply compileStmtList_cons_eq_ok
+          · unfold CompilationModel.compileStmt CompilationModel.compileStmtWithFork
+            have hvalueIRInternal := hvalueIR
+            rw [← CompilationModel.compileExprWithInternals_nil_eq] at hvalueIRInternal
+            rw [hvalueIRInternal]
+            rfl
+          · exact htailCompile
         · have hstmt :
               execIRStmt (tailIR.length + 1) state (YulStmt.let_ name valueIR) =
                 .continue state' := by
@@ -2910,12 +2987,13 @@ theorem exec_compileStmtList_core
             hscope' hexact' hbounded' hruntime' with
           ⟨tailIR, htailCompile, htailSem, htailExact⟩
         refine ⟨[YulStmt.assign name valueIR] ++ tailIR, ?_, ?_⟩
-        · unfold CompilationModel.compileStmtList CompilationModel.compileStmt
-          have hvalueIRInternal := hvalueIR
-          rw [← CompilationModel.compileExprWithInternals_nil_eq] at hvalueIRInternal
-          rw [hvalueIRInternal]
-          simp [htailCompile]
-          exact rfl
+        · apply compileStmtList_cons_eq_ok
+          · unfold CompilationModel.compileStmt CompilationModel.compileStmtWithFork
+            have hvalueIRInternal := hvalueIR
+            rw [← CompilationModel.compileExprWithInternals_nil_eq] at hvalueIRInternal
+            rw [hvalueIRInternal]
+            rfl
+          · exact htailCompile
         · have hstmt :
               execIRStmt (tailIR.length + 1) state (YulStmt.assign name valueIR) =
                 .continue state' := by
@@ -2955,12 +3033,13 @@ theorem exec_compileStmtList_core
             hscope hexact hbounded hruntime with
           ⟨tailIR, htailCompile, htailSem, htailExact⟩
         refine ⟨[YulStmt.if_ failCond (CompilationModel.revertWithMessage message)] ++ tailIR, ?_, ?_⟩
-        · unfold CompilationModel.compileStmtList CompilationModel.compileStmt
-          have hfailCompileInternal := hfailCompile
-          rw [← CompilationModel.compileRequireFailCondWithInternals_nil_eq] at hfailCompileInternal
-          rw [hfailCompileInternal]
-          simp [htailCompile]
-          exact rfl
+        · apply compileStmtList_cons_eq_ok
+          · unfold CompilationModel.compileStmt CompilationModel.compileStmtWithFork
+            have hfailCompileInternal := hfailCompile
+            rw [← CompilationModel.compileRequireFailCondWithInternals_nil_eq] at hfailCompileInternal
+            rw [hfailCompileInternal]
+            rfl
+          · exact htailCompile
         · rw [SourceSemantics.execStmtList, SourceSemantics.execStmt, hCondSrc]
           by_cases hzero : condVal = 0
           · -- condVal = 0 → require fails → revert
@@ -3034,12 +3113,13 @@ theorem exec_compileStmtList_core
         refine ⟨[ YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
                 , YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++ tailIR,
           ?_, ?_⟩
-        · unfold CompilationModel.compileStmtList CompilationModel.compileStmt
-          have hvalueIRInternal := hvalueIR
-          rw [← CompilationModel.compileExprWithInternals_nil_eq] at hvalueIRInternal
-          rw [hvalueIRInternal]
-          simp [htailCompile]
-          exact rfl
+        · apply compileStmtListWithFork_cons_eq_ok
+          · unfold CompilationModel.compileStmt CompilationModel.compileStmtWithFork
+            have hvalueIRInternal := hvalueIR
+            rw [← CompilationModel.compileExprWithInternals_nil_eq] at hvalueIRInternal
+            rw [hvalueIRInternal]
+            rfl
+          · exact htailCompile
         · have hruntime' : runtimeStateMatchesIR fields runtime' state' :=
             runtimeStateMatchesIR_setBothMemory hruntime 0 retVal hlt
           have hexact' : bindingsExactlyMatchIRVars runtime'.bindings state' :=
@@ -3084,7 +3164,10 @@ theorem exec_compileStmtList_core
           hscope hexact hbounded hruntime with
         ⟨tailIR, htailCompile, htailSem, htailExact⟩
       refine ⟨[YulStmt.expr (YulExpr.call "stop" [])] ++ tailIR, ?_, ?_⟩
-      · simpa [CompilationModel.compileStmtList, CompilationModel.compileStmt, htailCompile]
+      · apply compileStmtListWithFork_cons_eq_ok
+        · rw [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork]
+          rfl
+        · exact htailCompile
       · have hstmt :
             execIRStmt (tailIR.length + 1) state (YulStmt.expr (YulExpr.call "stop" [])) =
               .stop state := by
@@ -3142,13 +3225,14 @@ theorem exec_compileStmtList_core
               hscope hexact' hbounded' hruntime' with
             ⟨tailIR, htailCompile, htailSem, htailExact⟩
           refine ⟨[YulStmt.expr (YulExpr.call "mstore" [offsetIR, valueIR])] ++ tailIR, ?_, ?_⟩
-          · unfold CompilationModel.compileStmtList CompilationModel.compileStmt
-            have hoffsetIRInternal := hoffsetIR
-            have hvalueIRInternal := hvalueIR
-            rw [← CompilationModel.compileExprWithInternals_nil_eq] at hoffsetIRInternal hvalueIRInternal
-            rw [hoffsetIRInternal, hvalueIRInternal]
-            simp [htailCompile]
-            exact rfl
+          · apply compileStmtListWithFork_cons_eq_ok
+            · unfold CompilationModel.compileStmt CompilationModel.compileStmtWithFork
+              have hoffsetIRInternal := hoffsetIR
+              have hvalueIRInternal := hvalueIR
+              rw [← CompilationModel.compileExprWithInternals_nil_eq] at hoffsetIRInternal hvalueIRInternal
+              rw [hoffsetIRInternal, hvalueIRInternal]
+              rfl
+            · exact htailCompile
           · have hstmt :
                 execIRStmt (tailIR.length + 1) state
                   (YulStmt.expr (YulExpr.call "mstore" [offsetIR, valueIR])) = .continue state' := by
@@ -3209,13 +3293,14 @@ theorem exec_compileStmtList_core
               hscope hexact' hbounded' hruntime' with
             ⟨tailIR, htailCompile, htailSem, htailExact⟩
           refine ⟨[YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR])] ++ tailIR, ?_, ?_⟩
-          · unfold CompilationModel.compileStmtList CompilationModel.compileStmt
-            have hoffsetIRInternal := hoffsetIR
-            have hvalueIRInternal := hvalueIR
-            rw [← CompilationModel.compileExprWithInternals_nil_eq] at hoffsetIRInternal hvalueIRInternal
-            rw [hoffsetIRInternal, hvalueIRInternal]
-            simp [htailCompile]
-            exact rfl
+          · apply compileStmtListWithFork_cons_eq_ok
+            · unfold CompilationModel.compileStmt CompilationModel.compileStmtWithFork
+              have hoffsetIRInternal := hoffsetIR
+              have hvalueIRInternal := hvalueIR
+              rw [← CompilationModel.compileExprWithInternals_nil_eq] at hoffsetIRInternal hvalueIRInternal
+              rw [hoffsetIRInternal, hvalueIRInternal]
+              rfl
+            · exact htailCompile
           · have hstmt :
                 execIRStmt (tailIR.length + 1) state
                   (YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR])) = .continue state' := by
@@ -3252,7 +3337,7 @@ theorem exec_compileStmtList_core_extraFuel
       stmtResultMatchesIRExecExact sourceResult irExec := by
   induction hcore generalizing runtime state inScopeNames with
   | nil =>
-      refine ⟨[], by simp [CompilationModel.compileStmtList, Pure.pure, Except.pure], ?_⟩
+      refine ⟨[], by exact compileStmtList_nil_eq_ok _ _ _ _ _ _ _ _, ?_⟩
       constructor
       · simpa [SourceSemantics.execStmtList, execIRStmts, stmtResultMatchesIRExec] using hruntime
       · simpa [SourceSemantics.execStmtList, execIRStmts, stmtResultMatchesIRExecExact] using
@@ -3287,12 +3372,13 @@ theorem exec_compileStmtList_core_extraFuel
             hscope' hexact' hbounded' hruntime' with
           ⟨tailIR, htailCompile, htailSem, htailExact⟩
         refine ⟨[YulStmt.let_ name valueIR] ++ tailIR, ?_, ?_⟩
-        · unfold CompilationModel.compileStmtList CompilationModel.compileStmt
-          have hvalueIRInternal := hvalueIR
-          rw [← CompilationModel.compileExprWithInternals_nil_eq] at hvalueIRInternal
-          rw [hvalueIRInternal]
-          simp [htailCompile]
-          exact rfl
+        · apply compileStmtListWithFork_cons_eq_ok
+          · unfold CompilationModel.compileStmt CompilationModel.compileStmtWithFork
+            have hvalueIRInternal := hvalueIR
+            rw [← CompilationModel.compileExprWithInternals_nil_eq] at hvalueIRInternal
+            rw [hvalueIRInternal]
+            rfl
+          · exact htailCompile
         · have hstmt :
               execIRStmt (tailIR.length + extraFuel + 1) state (YulStmt.let_ name valueIR) =
                 .continue state' := by
@@ -3351,12 +3437,13 @@ theorem exec_compileStmtList_core_extraFuel
             hscope' hexact' hbounded' hruntime' with
           ⟨tailIR, htailCompile, htailSem, htailExact⟩
         refine ⟨[YulStmt.assign name valueIR] ++ tailIR, ?_, ?_⟩
-        · unfold CompilationModel.compileStmtList CompilationModel.compileStmt
-          have hvalueIRInternal := hvalueIR
-          rw [← CompilationModel.compileExprWithInternals_nil_eq] at hvalueIRInternal
-          rw [hvalueIRInternal]
-          simp [htailCompile]
-          exact rfl
+        · apply compileStmtListWithFork_cons_eq_ok
+          · unfold CompilationModel.compileStmt CompilationModel.compileStmtWithFork
+            have hvalueIRInternal := hvalueIR
+            rw [← CompilationModel.compileExprWithInternals_nil_eq] at hvalueIRInternal
+            rw [hvalueIRInternal]
+            rfl
+          · exact htailCompile
         · have hstmt :
               execIRStmt (tailIR.length + extraFuel + 1) state (YulStmt.assign name valueIR) =
                 .continue state' := by
@@ -3409,12 +3496,13 @@ theorem exec_compileStmtList_core_extraFuel
           ⟨tailIR, htailCompile, htailSem, htailExact⟩
         refine ⟨[YulStmt.if_ failCond (CompilationModel.revertWithMessage message)] ++ tailIR,
           ?_, ?_⟩
-        · unfold CompilationModel.compileStmtList CompilationModel.compileStmt
-          have hfailCompileInternal := hfailCompile
-          rw [← CompilationModel.compileRequireFailCondWithInternals_nil_eq] at hfailCompileInternal
-          rw [hfailCompileInternal]
-          simp [htailCompile]
-          exact rfl
+        · apply compileStmtListWithFork_cons_eq_ok
+          · unfold CompilationModel.compileStmt CompilationModel.compileStmtWithFork
+            have hfailCompileInternal := hfailCompile
+            rw [← CompilationModel.compileRequireFailCondWithInternals_nil_eq] at hfailCompileInternal
+            rw [hfailCompileInternal]
+            rfl
+          · exact htailCompile
         · rw [SourceSemantics.execStmtList, SourceSemantics.execStmt, hCondSrc]
           by_cases hzero : condVal = 0
           · -- condVal = 0 → require fails → revert
@@ -3501,12 +3589,13 @@ theorem exec_compileStmtList_core_extraFuel
         refine ⟨[ YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
                 , YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++ tailIR,
           ?_, ?_⟩
-        · unfold CompilationModel.compileStmtList CompilationModel.compileStmt
-          have hvalueIRInternal := hvalueIR
-          rw [← CompilationModel.compileExprWithInternals_nil_eq] at hvalueIRInternal
-          rw [hvalueIRInternal]
-          simp [htailCompile]
-          exact rfl
+        · apply compileStmtListWithFork_cons_eq_ok
+          · unfold CompilationModel.compileStmt CompilationModel.compileStmtWithFork
+            have hvalueIRInternal := hvalueIR
+            rw [← CompilationModel.compileExprWithInternals_nil_eq] at hvalueIRInternal
+            rw [hvalueIRInternal]
+            rfl
+          · exact htailCompile
         · have hruntime' : runtimeStateMatchesIR fields runtime' state' :=
             runtimeStateMatchesIR_setBothMemory hruntime 0 retVal hlt
           have hexact' : bindingsExactlyMatchIRVars runtime'.bindings state' :=
@@ -3559,7 +3648,10 @@ theorem exec_compileStmtList_core_extraFuel
           hscope hexact hbounded hruntime with
         ⟨tailIR, htailCompile, htailSem, htailExact⟩
       refine ⟨[YulStmt.expr (YulExpr.call "stop" [])] ++ tailIR, ?_, ?_⟩
-      · simpa [CompilationModel.compileStmtList, CompilationModel.compileStmt, htailCompile]
+      · apply compileStmtListWithFork_cons_eq_ok
+        · rw [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork]
+          rfl
+        · exact htailCompile
       · have hstmt :
             execIRStmt (tailIR.length + extraFuel + 1) state
               (YulStmt.expr (YulExpr.call "stop" [])) =
@@ -3623,13 +3715,14 @@ theorem exec_compileStmtList_core_extraFuel
               hscope hexact' hbounded' hruntime' with
             ⟨tailIR, htailCompile, htailSem, htailExact⟩
           refine ⟨[YulStmt.expr (YulExpr.call "mstore" [offsetIR, valueIR])] ++ tailIR, ?_, ?_⟩
-          · unfold CompilationModel.compileStmtList CompilationModel.compileStmt
-            have hoffsetIRInternal := hoffsetIR
-            have hvalueIRInternal := hvalueIR
-            rw [← CompilationModel.compileExprWithInternals_nil_eq] at hoffsetIRInternal hvalueIRInternal
-            rw [hoffsetIRInternal, hvalueIRInternal]
-            simp [htailCompile]
-            exact rfl
+          · apply compileStmtListWithFork_cons_eq_ok
+            · unfold CompilationModel.compileStmt CompilationModel.compileStmtWithFork
+              have hoffsetIRInternal := hoffsetIR
+              have hvalueIRInternal := hvalueIR
+              rw [← CompilationModel.compileExprWithInternals_nil_eq] at hoffsetIRInternal hvalueIRInternal
+              rw [hoffsetIRInternal, hvalueIRInternal]
+              rfl
+            · exact htailCompile
           · have hstmt :
                 execIRStmt (tailIR.length + extraFuel + 1) state
                   (YulStmt.expr (YulExpr.call "mstore" [offsetIR, valueIR])) = .continue state' := by
@@ -3695,13 +3788,14 @@ theorem exec_compileStmtList_core_extraFuel
               hscope hexact' hbounded' hruntime' with
             ⟨tailIR, htailCompile, htailSem, htailExact⟩
           refine ⟨[YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR])] ++ tailIR, ?_, ?_⟩
-          · unfold CompilationModel.compileStmtList CompilationModel.compileStmt
-            have hoffsetIRInternal := hoffsetIR
-            have hvalueIRInternal := hvalueIR
-            rw [← CompilationModel.compileExprWithInternals_nil_eq] at hoffsetIRInternal hvalueIRInternal
-            rw [hoffsetIRInternal, hvalueIRInternal]
-            simp [htailCompile]
-            exact rfl
+          · apply compileStmtListWithFork_cons_eq_ok
+            · unfold CompilationModel.compileStmt CompilationModel.compileStmtWithFork
+              have hoffsetIRInternal := hoffsetIR
+              have hvalueIRInternal := hvalueIR
+              rw [← CompilationModel.compileExprWithInternals_nil_eq] at hoffsetIRInternal hvalueIRInternal
+              rw [hoffsetIRInternal, hvalueIRInternal]
+              rfl
+            · exact htailCompile
           · have hstmt :
                 execIRStmt (tailIR.length + extraFuel + 1) state
                   (YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR])) = .continue state' := by
@@ -7227,12 +7321,13 @@ theorem exec_compileStmtList_terminal_core_sizeOf_extraFuel
             hincluded' hscope' hexact' hbounded' hruntime' with
           ⟨tailIR, htailCompile, htailSem⟩
         refine ⟨[YulStmt.let_ name valueIR] ++ tailIR, ?_, ?_⟩
-        · unfold CompilationModel.compileStmtList CompilationModel.compileStmt
-          have hvalueIRInternal := hvalueIR
-          rw [← CompilationModel.compileExprWithInternals_nil_eq] at hvalueIRInternal
-          rw [hvalueIRInternal]
-          simp [htailCompile]
-          exact rfl
+        · apply compileStmtListWithFork_cons_eq_ok
+          · unfold CompilationModel.compileStmt CompilationModel.compileStmtWithFork
+            have hvalueIRInternal := hvalueIR
+            rw [← CompilationModel.compileExprWithInternals_nil_eq] at hvalueIRInternal
+            rw [hvalueIRInternal]
+            rfl
+          · exact htailCompile
         · have hstmt :
               execIRStmt (sizeOf ([YulStmt.let_ name valueIR] ++ tailIR) + extraFuel) state
                 (YulStmt.let_ name valueIR) = .continue state' :=
@@ -7286,12 +7381,13 @@ theorem exec_compileStmtList_terminal_core_sizeOf_extraFuel
             hincluded' hscope' hexact' hbounded' hruntime' with
           ⟨tailIR, htailCompile, htailSem⟩
         refine ⟨[YulStmt.assign name valueIR] ++ tailIR, ?_, ?_⟩
-        · unfold CompilationModel.compileStmtList CompilationModel.compileStmt
-          have hvalueIRInternal := hvalueIR
-          rw [← CompilationModel.compileExprWithInternals_nil_eq] at hvalueIRInternal
-          rw [hvalueIRInternal]
-          simp [htailCompile]
-          exact rfl
+        · apply compileStmtListWithFork_cons_eq_ok
+          · unfold CompilationModel.compileStmt CompilationModel.compileStmtWithFork
+            have hvalueIRInternal := hvalueIR
+            rw [← CompilationModel.compileExprWithInternals_nil_eq] at hvalueIRInternal
+            rw [hvalueIRInternal]
+            rfl
+          · exact htailCompile
         · have hstmt :
               execIRStmt (sizeOf ([YulStmt.assign name valueIR] ++ tailIR) + extraFuel) state
                 (YulStmt.assign name valueIR) = .continue state' :=
@@ -7332,12 +7428,13 @@ theorem exec_compileStmtList_terminal_core_sizeOf_extraFuel
           ⟨tailIR, htailCompile, htailSem⟩
         refine ⟨[YulStmt.if_ failCond (CompilationModel.revertWithMessage message)] ++ tailIR,
           ?_, ?_⟩
-        · unfold CompilationModel.compileStmtList CompilationModel.compileStmt
-          have hfailCompileInternal := hfailCompile
-          rw [← CompilationModel.compileRequireFailCondWithInternals_nil_eq] at hfailCompileInternal
-          rw [hfailCompileInternal]
-          simp [htailCompile]
-          exact rfl
+        · apply compileStmtListWithFork_cons_eq_ok
+          · unfold CompilationModel.compileStmt CompilationModel.compileStmtWithFork
+            have hfailCompileInternal := hfailCompile
+            rw [← CompilationModel.compileRequireFailCondWithInternals_nil_eq] at hfailCompileInternal
+            rw [hfailCompileInternal]
+            rfl
+          · exact htailCompile
         · by_cases hzero : condVal = 0
           · -- condVal = 0 → require fails → revert
             have hfailEval' : evalIRExpr state failCond = some 1 := by
@@ -7409,12 +7506,13 @@ theorem exec_compileStmtList_terminal_core_sizeOf_extraFuel
       refine ⟨[ YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
               , YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++ tailIR,
         ?_, ?_⟩
-      · unfold CompilationModel.compileStmtList CompilationModel.compileStmt
-        have hvalueIRInternal := hvalueIR
-        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hvalueIRInternal
-        rw [hvalueIRInternal]
-        simp [htailCompile]
-        exact rfl
+      · apply compileStmtList_cons_eq_ok
+        · unfold CompilationModel.compileStmt CompilationModel.compileStmtWithFork
+          have hvalueIRInternal := hvalueIR
+          rw [← CompilationModel.compileExprWithInternals_nil_eq] at hvalueIRInternal
+          rw [hvalueIRInternal]
+          rfl
+        · exact htailCompile
       · exact stmtResultMatchesIRExec_compiled_return_core_append_wholeFuel_of_scope
           hvalue hvalueIR hexact hinScope hscope hbounded hruntime
   | stop hrest =>
@@ -7422,7 +7520,10 @@ theorem exec_compileStmtList_terminal_core_sizeOf_extraFuel
       rcases compileStmtList_core_ok (fields := fields) (inScopeNames := collectStmtNames (.stop) ++ inScopeNames) hrest with
         ⟨tailIR, htailCompile⟩
       refine ⟨[YulStmt.expr (YulExpr.call "stop" [])] ++ tailIR, ?_, ?_⟩
-      · simpa [CompilationModel.compileStmtList, CompilationModel.compileStmt, htailCompile]
+      · apply compileStmtList_cons_eq_ok
+        · rw [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork]
+          rfl
+        · exact htailCompile
       · exact stmtResultMatchesIRExec_compiled_stop_core_append_wholeFuel hruntime
   | mstore hoffset hinScopeOffset hvalue hinScopeValue hrest ih =>
       rename_i scope offset value rest
@@ -7472,13 +7573,14 @@ theorem exec_compileStmtList_terminal_core_sizeOf_extraFuel
               hincluded' hscope' hexact' hbounded' hruntime' with
             ⟨tailIR, htailCompile, htailSem⟩
           refine ⟨[YulStmt.expr (YulExpr.call "mstore" [offsetIR, valueIR])] ++ tailIR, ?_, ?_⟩
-          · unfold CompilationModel.compileStmtList CompilationModel.compileStmt
-            have hoffsetIRInternal := hoffsetIR
-            have hvalueIRInternal := hvalueIR
-            rw [← CompilationModel.compileExprWithInternals_nil_eq] at hoffsetIRInternal hvalueIRInternal
-            rw [hoffsetIRInternal, hvalueIRInternal]
-            simp [htailCompile]
-            exact rfl
+          · apply compileStmtList_cons_eq_ok
+            · unfold CompilationModel.compileStmt CompilationModel.compileStmtWithFork
+              have hoffsetIRInternal := hoffsetIR
+              have hvalueIRInternal := hvalueIR
+              rw [← CompilationModel.compileExprWithInternals_nil_eq] at hoffsetIRInternal hvalueIRInternal
+              rw [hoffsetIRInternal, hvalueIRInternal]
+              rfl
+            · exact htailCompile
           · have hstmt :
                 execIRStmt (sizeOf ([YulStmt.expr (YulExpr.call "mstore" [offsetIR, valueIR])] ++ tailIR) + extraFuel) state
                   (YulStmt.expr (YulExpr.call "mstore" [offsetIR, valueIR])) = .continue state' := by
@@ -7547,13 +7649,14 @@ theorem exec_compileStmtList_terminal_core_sizeOf_extraFuel
               hincluded' hscope' hexact' hbounded' hruntime' with
             ⟨tailIR, htailCompile, htailSem⟩
           refine ⟨[YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR])] ++ tailIR, ?_, ?_⟩
-          · unfold CompilationModel.compileStmtList CompilationModel.compileStmt
-            have hoffsetIRInternal := hoffsetIR
-            have hvalueIRInternal := hvalueIR
-            rw [← CompilationModel.compileExprWithInternals_nil_eq] at hoffsetIRInternal hvalueIRInternal
-            rw [hoffsetIRInternal, hvalueIRInternal]
-            simp [htailCompile]
-            exact rfl
+          · apply compileStmtList_cons_eq_ok
+            · unfold CompilationModel.compileStmt CompilationModel.compileStmtWithFork
+              have hoffsetIRInternal := hoffsetIR
+              have hvalueIRInternal := hvalueIR
+              rw [← CompilationModel.compileExprWithInternals_nil_eq] at hoffsetIRInternal hvalueIRInternal
+              rw [hoffsetIRInternal, hvalueIRInternal]
+              rfl
+            · exact htailCompile
           · have hstmt :
                 execIRStmt (sizeOf ([YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR])] ++ tailIR) + extraFuel) state
                   (YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR])) = .continue state' := by
@@ -7597,12 +7700,14 @@ theorem exec_compileStmtList_terminal_core_sizeOf_extraFuel
         , YulStmt.if_ (YulExpr.ident tempName) thenIR
         , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR ]] ++ tailIR,
         ?_, ?_⟩
-      · unfold CompilationModel.compileStmtList CompilationModel.compileStmt
-        have hcondIRInternal := hcondIR
-        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcondIRInternal
-        rw [hcondIRInternal, hthenIR, helseIR]
-        simp [helseNonempty, htailIR, tempName]
-        exact rfl
+      · apply compileStmtList_cons_eq_ok
+        · unfold CompilationModel.compileStmt CompilationModel.compileStmtWithFork
+          have hcondIRInternal := hcondIR
+          rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcondIRInternal
+          rw [hcondIRInternal]
+          simp [compileStmtListWithFork_cancun_eq_compileStmtList, hthenIR, helseIR,
+            helseNonempty, tempName, bind, Except.bind, Pure.pure, Except.pure]
+        · exact htailIR
       · -- Evaluate the condition
         have hCondEval := eval_compileExpr_core_of_scope hcond hexact hinScope hbounded hpresent hruntime
         rw [hcondIR] at hCondEval; simp [Except.toOption] at hCondEval

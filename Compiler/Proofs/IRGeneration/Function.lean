@@ -189,7 +189,7 @@ theorem compileFunctionSpec_ok_of_components
     compileFunctionSpec fields events errors [] selector spec =
       Except.ok (compiledFunctionIR selector spec returns bodyStmts) := by
   unfold CompilationModel.compileFunctionSpec
-  rw [hvalidate, hreturns, hbody]
+  rw [hvalidate, hreturns, FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList, hbody]
   rfl
 
 theorem compileFunctionSpec_ok_params
@@ -209,10 +209,10 @@ theorem compileFunctionSpec_ok_params
       cases hbody :
           compileStmtList fields events errors .calldata [] false
             (spec.params.map (·.name)) [] spec.body
-      · rw [hvalidate, hreturns, hbody] at hcompile
+      · rw [hvalidate, hreturns, FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList, hbody] at hcompile
         cases hcompile
       case ok bodyStmts =>
-        rw [hvalidate, hreturns, hbody] at hcompile
+        rw [hvalidate, hreturns, FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList, hbody] at hcompile
         injection hcompile with hEq
         simpa using congrArg IRFunction.params hEq.symm
 
@@ -233,10 +233,10 @@ theorem compileFunctionSpec_ok_selector
       cases hbody :
           compileStmtList fields events errors .calldata [] false
             (spec.params.map (·.name)) [] spec.body
-      · rw [hvalidate, hreturns, hbody] at hcompile
+      · rw [hvalidate, hreturns, FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList, hbody] at hcompile
         cases hcompile
       case ok bodyStmts =>
-        rw [hvalidate, hreturns, hbody] at hcompile
+        rw [hvalidate, hreturns, FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList, hbody] at hcompile
         injection hcompile with hEq
         simpa using congrArg IRFunction.selector hEq.symm
 
@@ -257,10 +257,10 @@ theorem compileFunctionSpec_ok_payable
       cases hbody :
           compileStmtList fields events errors .calldata [] false
             (spec.params.map (·.name)) [] spec.body
-      · rw [hvalidate, hreturns, hbody] at hcompile
+      · rw [hvalidate, hreturns, FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList, hbody] at hcompile
         cases hcompile
       case ok bodyStmts =>
-        rw [hvalidate, hreturns, hbody] at hcompile
+        rw [hvalidate, hreturns, FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList, hbody] at hcompile
         injection hcompile with hEq
         simpa using congrArg IRFunction.payable hEq.symm
 
@@ -286,10 +286,10 @@ theorem compileFunctionSpec_ok_components
       cases hbody :
           compileStmtList fields events errors .calldata [] false
             (spec.params.map (·.name)) [] spec.body
-      · rw [hvalidate, hreturns, hbody] at hcompile
+      · rw [hvalidate, hreturns, FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList, hbody] at hcompile
         cases hcompile
       case ok bodyStmts =>
-        rw [hvalidate, hreturns, hbody] at hcompile
+        rw [hvalidate, hreturns, FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList, hbody] at hcompile
         injection hcompile with hEq
         refine ⟨returns, bodyStmts, ?_⟩
         exact ⟨by simpa using hvalidate, by simpa using hreturns,
@@ -303,7 +303,8 @@ theorem compileConstructor_some_ok_of_body
           (ctor.params.map (·.name)) [] ctor.body [] = Except.ok bodyStmts) :
       compileConstructor fields events errors [] (some ctor) =
         Except.ok (genConstructorArgLoads ctor.params ++ bodyStmts) := by
-  simp [CompilationModel.compileConstructor, hbody]
+  simp [CompilationModel.compileConstructor,
+    FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList, hbody]
 
 theorem compileConstructor_ok_components
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
@@ -318,11 +319,13 @@ theorem compileConstructor_ok_components
         compileStmtList fields events errors .memory [] false
           (ctor.params.map (·.name)) [] ctor.body [] with
   | error err =>
-      simp [CompilationModel.compileConstructor, hbody] at hcompile
+      simp [CompilationModel.compileConstructor,
+        FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList, hbody] at hcompile
   | ok bodyStmts =>
       have hEq :
           deployStmts = genConstructorArgLoads ctor.params ++ bodyStmts := by
-        simpa [CompilationModel.compileConstructor, hbody] using hcompile.symm
+        simpa [CompilationModel.compileConstructor,
+          FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList, hbody] using hcompile.symm
       exact ⟨bodyStmts, by simpa using hbody, hEq⟩
 
 theorem exec_compiledFunctionIR_of_body
@@ -2432,7 +2435,8 @@ private theorem compileStmtList_scalar_events_callsDisjoint
         scope [] stmts = Except.ok compiledIR →
       YulStmtListCallsDisjointFromInternalTable runtimeContract compiledIR
   | _, [], _, _, _, _, hcompile => by
-      simp [CompilationModel.compileStmtList] at hcompile
+      try unfold CompilationModel.compileStmtList at hcompile
+      unfold CompilationModel.compileStmtListWithFork at hcompile
       cases hcompile
       exact .nil
   | scope, stmt :: rest, compiledIR, hsurface, hheads, hdisjoint, hcompile => by
@@ -2844,14 +2848,20 @@ private theorem compileStmt_constructor_mode_eq
     (hcoreClosed : stmtTouchesUnsupportedCoreSurface stmt = false)
     (hcallClosed : stmtTouchesUnsupportedCallSurface stmt = false)
     (hrawClosed : stmtTouchesUnsupportedConstructorRawCalldataSurface stmt = false) :
-      compileStmt fields events errors .memory [] false scope [] stmt =
-        compileStmt fields [] [] .calldata [] false scope [] stmt := by
-  cases stmt <;>
-    try simp [stmtTouchesUnsupportedEffectSurface] at heffectsClosed <;>
-    try simp [stmtTouchesUnsupportedCoreSurface] at hcoreClosed <;>
-    try simp [stmtTouchesUnsupportedCallSurface] at hcallClosed <;>
-    try simp [stmtTouchesUnsupportedConstructorRawCalldataSurface] at hrawClosed <;>
-    simp_all [compileStmt, compileSetStorage, compileStorageArrayPush,
+        compileStmt fields events errors .memory [] false scope [] stmt =
+          compileStmt fields [] [] .calldata [] false scope [] stmt := by
+    rw [← FunctionBody.compileStmtWithFork_cancun_eq_compileStmt
+      fields events errors .memory [] false scope [] stmt]
+    rw [← FunctionBody.compileStmtWithFork_cancun_eq_compileStmt
+      fields [] [] .calldata [] false scope [] stmt]
+    cases stmt <;>
+      try simp [stmtTouchesUnsupportedEffectSurface] at heffectsClosed <;>
+      try simp [stmtTouchesUnsupportedCoreSurface] at hcoreClosed <;>
+      try simp [stmtTouchesUnsupportedCallSurface] at hcallClosed <;>
+      try simp [stmtTouchesUnsupportedConstructorRawCalldataSurface] at hrawClosed <;>
+      simp_all [compileStmtWithFork,
+        FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList,
+        compileSetStorage, compileStorageArrayPush,
       compileSetStorageArrayElement, compileSetMapping2, compileSetMapping2Word,
       compileSetMappingChain, compileSetStructMember, compileSetStructMember2,
       compileRequireFailCond_constructor_mode_eq, compileExpr_constructor_mode_eq,
@@ -2870,8 +2880,11 @@ private theorem compileStmtList_constructor_mode_eq'
       stmtListTouchesUnsupportedConstructorRawCalldataSurface body = false →
         compileStmtList fields events errors .memory [] false scope [] body =
           compileStmtList fields [] [] .calldata [] false scope [] body
-  | [], _, _, _, _ => by simp [compileStmtList]
-  | stmt :: rest, heffectsClosed, hcoreClosed, hcallClosed, hrawClosed => by
+    | [], _, _, _, _ => by
+        unfold compileStmtList
+        unfold compileStmtListWithFork
+        rfl
+    | stmt :: rest, heffectsClosed, hcoreClosed, hcallClosed, hrawClosed => by
       simp only [stmtListTouchesUnsupportedEffectSurface,
         stmtListTouchesUnsupportedCoreSurface,
         stmtListTouchesUnsupportedCallSurface,
@@ -2881,7 +2894,11 @@ private theorem compileStmtList_constructor_mode_eq'
       rcases hcoreClosed with ⟨hcoreStmt, hcoreRest⟩
       rcases hcallClosed with ⟨hcallStmt, hcallRest⟩
       rcases hrawClosed with ⟨hrawStmt, hrawRest⟩
-      simp [compileStmtList,
+      unfold compileStmtList
+      unfold compileStmtListWithFork
+      simp only [FunctionBody.compileStmtWithFork_cancun_eq_compileStmt,
+        FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList]
+      rw [
         compileStmt_constructor_mode_eq (events := events) (errors := errors)
           (scope := scope) heffectsStmt hcoreStmt hcallStmt hrawStmt,
         compileStmtList_constructor_mode_eq' (events := events) (errors := errors)

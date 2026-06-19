@@ -261,6 +261,8 @@ private partial def collectUnguardedLowLevelStmtMechanics : Stmt → List String
       collectLowLevelExprMechanics cond ++ thenBr.flatMap collectUnguardedLowLevelStmtMechanics ++ elseBr.flatMap collectUnguardedLowLevelStmtMechanics
   | .forEach _ count body =>
       collectLowLevelExprMechanics count ++ body.flatMap collectUnguardedLowLevelStmtMechanics
+  | .forEachSetBit _ bitmap body =>
+      collectLowLevelExprMechanics bitmap ++ body.flatMap collectUnguardedLowLevelStmtMechanics
   | .unsafeBlock _ _ =>
       []
   | .matchAdt _ scrutinee branches =>

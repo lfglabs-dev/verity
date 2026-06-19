@@ -234,6 +234,16 @@ private partial def validateDoElemExprTypes
                 inner
               pure locals
           | _ => throwErrorAt body "forEach body must be a do block"
+      | `(doElem| forEachSetBit $name:term $bitmap:term $body:term) =>
+          requireWordLikeType bitmap "forEachSetBit bitmap" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals bitmap)
+          match stripParens body with
+          | `(term| do $[$inner:doElem]*) =>
+              let _ ← validateDoElemsExprTypes
+                ownerName fields constDecls immutableDecls externalDecls errorDecls functions params
+                (locals.push (mkTypedLocal (← expectStringOrIdent name) .uint256))
+                inner
+              pure locals
+          | _ => throwErrorAt body "forEachSetBit body must be a do block"
       | `(doElem| requireError $cond:term $errorName:ident($args,*)) =>
           requireBoolType cond "requireError condition" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals cond)
           let argTypes ← args.getElems.mapM
@@ -1441,6 +1451,21 @@ private partial def translateDoElem
                 [ $[$bodyStmts],* ]))],
               locals,
               mutableLocals)
+      | `(doElem| forEachSetBit $name:term $bitmap:term $body:term) =>
+          let loopVar := ← expectStringOrIdent name
+          let bitmapExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals bitmap
+          let bodyStmts ←
+            match stripParens body with
+            | `(term| do $[$inner:doElem]*) =>
+                pure (← (translateDoElems fields constDecls immutableDecls externalDecls functions params (locals.push (mkTypedLocal loopVar .uint256)) mutableLocals inner)).1
+            | _ => throwErrorAt body "forEachSetBit body must be a do block"
+          pure
+            (#[(← `(Compiler.CompilationModel.Stmt.forEachSetBit
+                $(strTerm loopVar)
+                $bitmapExpr
+                [ $[$bodyStmts],* ]))],
+              locals,
+              mutableLocals)
       | `(doElem| requireError $cond:term $errorName:ident($args,*)) =>
           let argExprs ← args.getElems.mapM (translatePureExprWithTypes fields constDecls immutableDecls params locals)
           pure
@@ -1755,6 +1780,13 @@ private partial def rewriteForEachExecutableDoElem
           let (inner, _) ← rewriteForEachExecutableDoElems externalDecls params locals inner
           pure (#[← `(doElem| let $loopIdent : Uint256 := 0)] ++ inner, locals)
       | _ => throwErrorAt body "forEach body must be a do block"
+  | `(doElem| forEachSetBit $name:term $_bitmap:term $body:term) =>
+      let loopIdent := mkIdent (Name.mkSimple (← expectStringOrIdent name))
+      match stripParens body with
+      | `(term| do $[$inner:doElem]*) =>
+          let (inner, _) ← rewriteForEachExecutableDoElems externalDecls params locals inner
+          pure (#[← `(doElem| let $loopIdent : Uint256 := 0)] ++ inner, locals)
+      | _ => throwErrorAt body "forEachSetBit body must be a do block"
   | `(doElem| if $cond:term then $thenBranch:doSeq else $elseBranch:doSeq) =>
       let thenBranch ← rewriteForEachExecutableDoSeq externalDecls params locals thenBranch
       let elseBranch ← rewriteForEachExecutableDoSeq externalDecls params locals elseBranch

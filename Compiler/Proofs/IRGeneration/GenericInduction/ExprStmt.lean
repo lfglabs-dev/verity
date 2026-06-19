@@ -23,7 +23,7 @@ theorem compiledStmtStep_letVar
   compileOk := by
     have hvalueIRInternal := hvalueIR
     rw [← CompilationModel.compileExprWithInternals_nil_eq] at hvalueIRInternal
-    simp [CompilationModel.compileStmt, hvalueIRInternal]
+    simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, hvalueIRInternal]
   preserves runtime state extraFuel hexact hscope hbounded hruntime hslack := by
     -- Establish that evalExpr succeeds (returns some) via the compile-eval theorem
     have heval := FunctionBody.eval_compileExpr_core_of_scope hcore hexact hinScope
@@ -118,7 +118,7 @@ theorem compiledStmtStep_assignVar
   compileOk := by
     have hvalueIRInternal := hvalueIR
     rw [← CompilationModel.compileExprWithInternals_nil_eq] at hvalueIRInternal
-    simp [CompilationModel.compileStmt, hvalueIRInternal]
+    simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, hvalueIRInternal]
   preserves runtime state extraFuel hexact hscope hbounded hruntime hslack := by
     -- Establish that evalExpr succeeds (returns some) via the compile-eval theorem
     have heval := FunctionBody.eval_compileExpr_core_of_scope hcore hexact hinScope
@@ -206,7 +206,7 @@ theorem compiledStmtStep_require
   compileOk := by
     have hfailCompileInternal := hfailCompile
     rw [← CompilationModel.compileRequireFailCondWithInternals_nil_eq] at hfailCompileInternal
-    simp [CompilationModel.compileStmt, hfailCompileInternal]
+    simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, hfailCompileInternal]
   preserves runtime state extraFuel hexact hscope hbounded hruntime hslack := by
     have hpresent : FunctionBody.exprBoundNamesPresent cond runtime.bindings :=
       FunctionBody.exprBoundNamesPresent_of_scope hscope hinScope
@@ -313,7 +313,8 @@ theorem compiledStmtStep_return
   compileOk := by
     have hvalueIRInternal := hvalueIR
     rw [← CompilationModel.compileExprWithInternals_nil_eq] at hvalueIRInternal
-    simp [CompilationModel.compileStmt, hvalueIRInternal, pure, Except.pure, bind, Except.bind]
+    simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, hvalueIRInternal,
+      pure, Except.pure, bind, Except.bind]
   preserves runtime state extraFuel hexact hscope hbounded hruntime hslack := by
     set compiledIR :=
       [ YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
@@ -382,7 +383,7 @@ theorem compiledStmtStep_stop
     {scope : List String} :
     CompiledStmtStep fields scope .stop [YulStmt.expr (YulExpr.call "stop" [])] where
   compileOk := by
-    simp [CompilationModel.compileStmt, pure, Except.pure]
+    simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, pure, Except.pure]
   preserves runtime state extraFuel hexact hscope hbounded hruntime hslack := by
     -- Use the helper with wholeFuel aligned to the fuel budget
     set compiledIR := [YulStmt.expr (YulExpr.call "stop" [])]

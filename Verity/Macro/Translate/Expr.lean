@@ -2089,6 +2089,10 @@ partial def inferPureExprType
               (← inferPureExprType fields constDecls immutableDecls externalDecls params locals x visitingConstants)
           pure .uint256
       | _ => throwErrorAt args "expected list literal [..]"
+  | `(term| clz $x:term) | `(term| msb $x:term) =>
+      requireWordLikeType x "bitmap primitive argument"
+        (← inferPureExprType fields constDecls immutableDecls externalDecls params locals x visitingConstants)
+      pure .uint256
   | `(term| fork_if_at_least $fork:ident then $thenExpr:term else $elseExpr:term) =>
       let thenTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals thenExpr visitingConstants
       let elseTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals elseExpr visitingConstants
@@ -3398,6 +3402,22 @@ partial def translatePureExprWithTypes
               s!"unknown intrinsic '{intrinsicName}'; declare it first with `verity_intrinsic` so the compiler can enforce min_fork"
       let minForkTerm ← hardForkTermFromParsed minFork
       translateIntrinsic name lowering args minForkTerm
+  | `(term| clz $x:term) =>
+      let xExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals x visitingConstants
+      `(Compiler.CompilationModel.Expr.intrinsic "clz"
+          (Verity.Core.Intrinsics.YulLowering.verbatim 1 1 "1e")
+          Verity.Core.Intrinsics.HardFork.osaka
+          [$xExpr])
+  | `(term| msb $x:term) =>
+      let xExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals x visitingConstants
+      let clzExpr ← `(Compiler.CompilationModel.Expr.intrinsic "clz"
+          (Verity.Core.Intrinsics.YulLowering.verbatim 1 1 "1e")
+          Verity.Core.Intrinsics.HardFork.osaka
+          [$xExpr])
+      `(Compiler.CompilationModel.Expr.ite
+          (Compiler.CompilationModel.Expr.eq $xExpr (Compiler.CompilationModel.Expr.literal 0))
+          (Compiler.CompilationModel.Expr.literal 0)
+          (Compiler.CompilationModel.Expr.sub (Compiler.CompilationModel.Expr.literal 255) $clzExpr))
   | `(term| fork_if_at_least $fork:ident then $thenExpr:term else $elseExpr:term) =>
       `(Compiler.CompilationModel.Expr.forkIfAtLeast
           $(← hardForkTermFromIdent fork)

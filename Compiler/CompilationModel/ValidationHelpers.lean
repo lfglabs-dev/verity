@@ -197,6 +197,8 @@ def collectStmtNames : Stmt → List String
       collectExprNames cond ++ collectStmtListNames thenBranch ++ collectStmtListNames elseBranch
   | Stmt.forEach varName count body =>
       varName :: collectExprNames count ++ collectStmtListNames body
+  | Stmt.forEachSetBit varName bitmap body =>
+      varName :: collectExprNames bitmap ++ collectStmtListNames body
   | Stmt.unsafeBlock _ body =>
       collectStmtListNames body
   | Stmt.matchAdt _ scrutinee branches =>

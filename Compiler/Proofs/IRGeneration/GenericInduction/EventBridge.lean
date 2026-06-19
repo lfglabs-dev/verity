@@ -2291,7 +2291,8 @@ theorem eventCompileStmt_emit_scalar_shape
       CompilationModel.compileExprListWithInternals fields .calldata [] args =
         Except.ok argExprs := by
     simpa [CompilationModel.compileExprListWithInternals_nil_eq] using hargExprs
-  simp only [CompilationModel.compileStmt, CompilationModel.compileEmit] at hcompile
+  simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+    CompilationModel.compileEmit] at hcompile
   simp [hfind, hlen, hargExprsInternal, hindexedGuard, hscalarCompile,
     Bind.bind, Except.bind, pure, Except.pure] at hcompile
   exact ⟨eventDef, argExprs, hfind, hargExprs, hcompile.symm⟩

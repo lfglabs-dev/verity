@@ -37,6 +37,7 @@ import Compiler.CompilationModel.ExpressionCompile
 import Compiler.CompilationModel.StorageWrites
 import Compiler.CompilationModel.Validation
 import Compiler.CompilationModel.AdtStorageLayout
+import Verity.Core.Intrinsics
 
 namespace Compiler.CompilationModel
 
@@ -110,34 +111,50 @@ def forEachBodyScope (inScopeNames : List String) (varName : String)
   let countName := pickFreshName "__forEach_count" (idxName :: forUsedNames)
   idxName :: countName :: varName :: inScopeNames
 
+def forEachSetBitBodyScope (inScopeNames : List String) (varName : String)
+    (bitmap : Expr) (body : List Stmt) : List String :=
+  let usedNames := varName :: (inScopeNames ++ collectExprNames bitmap ++ collectStmtListNames body)
+  let bitmapName := pickFreshName "__forEach_bitmap" usedNames
+  let bitName := pickFreshName "__forEach_bit" (bitmapName :: usedNames)
+  bitName :: bitmapName :: varName :: inScopeNames
+
+def forEachSetBitFallbackBodyScope (inScopeNames : List String) (varName : String)
+    (bitmap : Expr) (body : List Stmt) : List String :=
+  let usedNames := varName :: (inScopeNames ++ collectExprNames bitmap ++ collectStmtListNames body)
+  let bitmapName := pickFreshName "__forEach_bitmap" usedNames
+  let idxName := pickFreshName "__forEach_bit_idx" (bitmapName :: usedNames)
+  idxName :: bitmapName :: varName :: inScopeNames
+
 -- Compile statement to Yul (using mutual recursion for lists).
 -- When isInternal=true, Stmt.return compiles to `__ret := value; leave` so internal
 -- function execution terminates immediately without exiting the outer EVM call.
 mutual
-def compileStmtList (fields : List Field) (events : List EventDef := [])
+def compileStmtListWithFork (fields : List Field) (events : List EventDef := [])
     (errors : List ErrorDef := [])
     (dynamicSource : DynamicDataSource := .calldata)
     (internalRetNames : List String := [])
     (isInternal : Bool := false)
     (inScopeNames : List String := [])
     (adtTypes : List AdtTypeDef := [])
+    (targetFork : Verity.Core.Intrinsics.HardFork)
     (stmts : List Stmt) (internalFunctions : List FunctionSpec := []) :
     Except String (List YulStmt) :=
   match stmts with
   | [] => pure []
   | s :: ss => do
-      let head ← compileStmt fields events errors dynamicSource internalRetNames isInternal inScopeNames adtTypes s internalFunctions
+      let head ← compileStmtWithFork fields events errors dynamicSource internalRetNames isInternal inScopeNames adtTypes targetFork s internalFunctions
       let nextScopeNames := collectStmtNames s ++ inScopeNames
-      let tail ← compileStmtList fields events errors dynamicSource internalRetNames isInternal nextScopeNames adtTypes ss internalFunctions
+      let tail ← compileStmtListWithFork fields events errors dynamicSource internalRetNames isInternal nextScopeNames adtTypes targetFork ss internalFunctions
       pure (head ++ tail)
 
-def compileStmt (fields : List Field) (events : List EventDef := [])
+def compileStmtWithFork (fields : List Field) (events : List EventDef := [])
     (errors : List ErrorDef := [])
     (dynamicSource : DynamicDataSource := .calldata)
     (internalRetNames : List String := [])
     (isInternal : Bool := false)
     (inScopeNames : List String := [])
     (adtTypes : List AdtTypeDef := [])
+    (targetFork : Verity.Core.Intrinsics.HardFork)
     (stmt : Stmt) (internalFunctions : List FunctionSpec := []) :
     Except String (List YulStmt)
   := match stmt with
@@ -274,8 +291,8 @@ def compileStmt (fields : List Field) (events : List EventDef := [])
   | Stmt.ite cond thenBranch elseBranch => do
       -- If/else: compile to Yul if + negated if (#179)
       let condExpr ← compileExprWithInternals fields dynamicSource internalFunctions cond
-      let thenStmts ← compileStmtList fields events errors dynamicSource internalRetNames isInternal inScopeNames adtTypes thenBranch internalFunctions
-      let elseStmts ← compileStmtList fields events errors dynamicSource internalRetNames isInternal inScopeNames adtTypes elseBranch internalFunctions
+      let thenStmts ← compileStmtListWithFork fields events errors dynamicSource internalRetNames isInternal inScopeNames adtTypes targetFork thenBranch internalFunctions
+      let elseStmts ← compileStmtListWithFork fields events errors dynamicSource internalRetNames isInternal inScopeNames adtTypes targetFork elseBranch internalFunctions
       if elseBranch.isEmpty then
         -- Simple if (no else)
         pure [YulStmt.if_ condExpr thenStmts]
@@ -304,7 +321,7 @@ def compileStmt (fields : List Field) (events : List EventDef := [])
       let countName := pickFreshName "__forEach_count" (idxName :: forUsedNames)
       -- Compile the body with the synthetic counters in scope (see `forEachBodyScope`),
       -- so a nested `forEach` cannot re-derive colliding `__forEach_idx`/`__forEach_count`.
-      let bodyStmts ← compileStmtList fields events errors dynamicSource internalRetNames isInternal (forEachBodyScope inScopeNames varName count body) adtTypes body internalFunctions
+      let bodyStmts ← compileStmtListWithFork fields events errors dynamicSource internalRetNames isInternal (forEachBodyScope inScopeNames varName count body) adtTypes targetFork body internalFunctions
       let initStmts := [
         YulStmt.let_ idxName (YulExpr.lit 0),
         YulStmt.let_ countName countExpr,
@@ -315,9 +332,46 @@ def compileStmt (fields : List Field) (events : List EventDef := [])
       let bodyWithBind := YulStmt.assign varName (YulExpr.ident idxName) :: bodyStmts
       pure [YulStmt.for_ initStmts condExpr postStmts bodyWithBind]
 
+  | Stmt.forEachSetBit varName bitmap body => do
+      let bitmapExpr ← compileExprWithInternals fields dynamicSource internalFunctions bitmap
+      let usedNames := varName :: (inScopeNames ++ collectExprNames bitmap ++ collectStmtListNames body)
+      let bitmapName := pickFreshName "__forEach_bitmap" usedNames
+      if Verity.Core.Intrinsics.HardFork.allows targetFork .osaka then
+        let bitName := pickFreshName "__forEach_bit" (bitmapName :: usedNames)
+        let bodyStmts ← compileStmtListWithFork fields events errors dynamicSource internalRetNames isInternal
+          (forEachSetBitBodyScope inScopeNames varName bitmap body) adtTypes targetFork body internalFunctions
+        let bitExpr := YulExpr.call "shl" [YulExpr.ident varName, YulExpr.lit 1]
+        let clzExpr := YulExpr.call "verbatim_1i_1o"
+          [YulExpr.verbatimHex "1e", YulExpr.ident bitmapName]
+        let bindIndex := YulStmt.assign varName
+          (YulExpr.call "sub" [YulExpr.lit 255, clzExpr])
+        let bindBit := YulStmt.let_ bitName bitExpr
+        let clearBit := YulStmt.assign bitmapName
+          (YulExpr.call "and" [YulExpr.ident bitmapName, YulExpr.call "not" [YulExpr.ident bitName]])
+        pure [YulStmt.block [
+          YulStmt.let_ bitmapName bitmapExpr,
+          YulStmt.let_ varName (YulExpr.lit 0),
+          YulStmt.for_ [] (YulExpr.ident bitmapName) [] (bindIndex :: bindBit :: bodyStmts ++ [clearBit])
+        ]]
+      else
+        let idxName := pickFreshName "__forEach_bit_idx" (bitmapName :: usedNames)
+        let bodyStmts ← compileStmtListWithFork fields events errors dynamicSource internalRetNames isInternal
+          (forEachSetBitFallbackBodyScope inScopeNames varName bitmap body) adtTypes targetFork body internalFunctions
+        let bitExpr := YulExpr.call "shl" [YulExpr.ident idxName, YulExpr.lit 1]
+        let hasBit := YulExpr.call "and" [YulExpr.ident bitmapName, bitExpr]
+        pure [YulStmt.block [
+          YulStmt.let_ bitmapName bitmapExpr,
+          YulStmt.let_ varName (YulExpr.lit 0),
+          YulStmt.for_
+            [YulStmt.let_ idxName (YulExpr.lit 255)]
+            (YulExpr.call "lt" [YulExpr.ident idxName, YulExpr.lit 256])
+            [YulStmt.assign idxName (YulExpr.call "sub" [YulExpr.ident idxName, YulExpr.lit 1])]
+            [YulStmt.if_ hasBit (YulStmt.assign varName (YulExpr.ident idxName) :: bodyStmts)]
+        ]]
+
   | Stmt.unsafeBlock _ body => do
       -- Unsafe block: transparent wrapper, compile inner body directly (#1728, Axis 6 Step 6a)
-      compileStmtList fields events errors dynamicSource internalRetNames isInternal inScopeNames adtTypes body internalFunctions
+      compileStmtListWithFork fields events errors dynamicSource internalRetNames isInternal inScopeNames adtTypes targetFork body internalFunctions
 
   | Stmt.unsafeYul fragment =>
       pure (unsafeYulToEVMYul fragment)
@@ -531,7 +585,7 @@ def compileStmt (fields : List Field) (events : List EventDef := [])
         | none => throw s!"Compilation error: unknown storage field '{storageFieldName}' for matchAdt on '{adtName}'"
       -- Build switch cases: each branch matches on the variant's tag
       let cases ← compileMatchAdtBranches fields events errors dynamicSource internalRetNames isInternal
-        inScopeNames adtTypes internalFunctions def_ baseSlot branches
+        inScopeNames adtTypes targetFork internalFunctions def_ baseSlot branches
       -- Default case: revert (should be unreachable for exhaustive matches)
       let defaultCase := [YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]
       pure [YulStmt.switch scrutineeExpr cases (some defaultCase)]
@@ -540,6 +594,7 @@ def compileMatchAdtBranches (fields : List Field) (events : List EventDef)
     (errors : List ErrorDef) (dynamicSource : DynamicDataSource)
     (internalRetNames : List String) (isInternal : Bool)
     (inScopeNames : List String) (adtTypes : List AdtTypeDef)
+    (targetFork : Verity.Core.Intrinsics.HardFork := .cancun)
     (internalFunctions : List FunctionSpec)
     (def_ : AdtTypeDef) (baseSlot : Nat) :
     List (String × List String × List Stmt) → Except String (List (Nat × List YulStmt))
@@ -551,12 +606,36 @@ def compileMatchAdtBranches (fields : List Field) (events : List EventDef)
       -- Bind each variable to sload(baseSlot + 1 + idx)
       let fieldBindings := boundVarNames.zipIdx.map fun (varName, idx) =>
         YulStmt.let_ varName (compileAdtFieldRead (YulExpr.lit baseSlot) idx)
-      let bodyStmts ← compileStmtList fields events errors dynamicSource internalRetNames isInternal
-        (boundVarNames.reverse ++ inScopeNames) adtTypes body internalFunctions
+      let bodyStmts ← compileStmtListWithFork fields events errors dynamicSource internalRetNames isInternal
+        (boundVarNames.reverse ++ inScopeNames) adtTypes targetFork body internalFunctions
       let restCases ← compileMatchAdtBranches fields events errors dynamicSource internalRetNames isInternal
-        inScopeNames adtTypes internalFunctions def_ baseSlot rest
+        inScopeNames adtTypes targetFork internalFunctions def_ baseSlot rest
       pure ((variant.tag, fieldBindings ++ bodyStmts) :: restCases)
 end
+
+def compileStmtList (fields : List Field) (events : List EventDef := [])
+    (errors : List ErrorDef := [])
+    (dynamicSource : DynamicDataSource := .calldata)
+    (internalRetNames : List String := [])
+    (isInternal : Bool := false)
+    (inScopeNames : List String := [])
+    (adtTypes : List AdtTypeDef := [])
+    (stmts : List Stmt) (internalFunctions : List FunctionSpec := []) :
+    Except String (List YulStmt) :=
+  compileStmtListWithFork fields events errors dynamicSource internalRetNames isInternal
+    inScopeNames adtTypes Verity.Core.Intrinsics.HardFork.cancun stmts internalFunctions
+
+def compileStmt (fields : List Field) (events : List EventDef := [])
+    (errors : List ErrorDef := [])
+    (dynamicSource : DynamicDataSource := .calldata)
+    (internalRetNames : List String := [])
+    (isInternal : Bool := false)
+    (inScopeNames : List String := [])
+    (adtTypes : List AdtTypeDef := [])
+    (stmt : Stmt) (internalFunctions : List FunctionSpec := []) :
+    Except String (List YulStmt) :=
+  compileStmtWithFork fields events errors dynamicSource internalRetNames isInternal
+    inScopeNames adtTypes Verity.Core.Intrinsics.HardFork.cancun stmt internalFunctions
 
 theorem compileStmt_unsafeYul
     (fields : List Field) (events : List EventDef := [])
@@ -569,6 +648,6 @@ theorem compileStmt_unsafeYul
     (fragment : UnsafeYulFragment) :
     compileStmt fields events errors dynamicSource internalRetNames isInternal inScopeNames adtTypes
       (Stmt.unsafeYul fragment) = pure fragment.stmts := by
-  simp [compileStmt, unsafeYulToEVMYul]
+  simp [compileStmt, compileStmtWithFork, unsafeYulToEVMYul]
 
 end Compiler.CompilationModel
