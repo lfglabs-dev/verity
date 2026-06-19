@@ -134,6 +134,10 @@ inductive FieldType
 structure Field where
   name : String
   ty : FieldType
+  /-- Use EIP-1153 transient storage (`TLOAD`/`TSTORE`) for this field.
+      Transient fields share the storage field typing and slot discipline, but
+      their values are transaction-scoped in `ContractState.transientStorage`. -/
+  isTransient : Bool := false
   /-- Optional explicit storage slot override.
       When omitted, the slot defaults to declaration order (legacy behavior). -/
   slot : Option Nat := none

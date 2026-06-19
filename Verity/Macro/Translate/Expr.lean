@@ -208,6 +208,7 @@ def immutableStorageFieldDecl
       | .address => .scalar .address
       | _ => .scalar imm.ty
     slotNum := immutableSlotIndex fields idx
+    isTransient := false
     adtInfo? := none
   }
 

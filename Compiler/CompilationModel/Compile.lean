@@ -169,19 +169,20 @@ def compileStmt (fields : List Field) (events : List EventDef := [])
   | Stmt.setStorageWord field wordOffset value =>
       match findFieldWithResolvedSlot fields field with
       | some (f, slot) => do
+          let storeBuiltin := if f.isTransient then "tstore" else "sstore"
           let valueExpr ← compileExprWithInternals fields dynamicSource internalFunctions value
           let slotExpr (baseSlot : Nat) :=
             if wordOffset == 0 then YulExpr.lit baseSlot
             else YulExpr.call "add" [YulExpr.lit baseSlot, YulExpr.lit wordOffset]
           match f.aliasSlots with
           | [] =>
-              pure [YulStmt.expr (YulExpr.call "sstore" [slotExpr slot, valueExpr])]
+              pure [YulStmt.expr (YulExpr.call storeBuiltin [slotExpr slot, valueExpr])]
           | _ =>
               pure [
                 YulStmt.block (
                   [YulStmt.let_ "__compat_value" valueExpr] ++
                   (slot :: f.aliasSlots).map (fun writeSlot =>
-                    YulStmt.expr (YulExpr.call "sstore" [
+                    YulStmt.expr (YulExpr.call storeBuiltin [
                       slotExpr writeSlot,
                       YulExpr.ident "__compat_value"
                     ]))
@@ -200,12 +201,15 @@ def compileStmt (fields : List Field) (events : List EventDef := [])
         (← compileExprWithInternals fields dynamicSource internalFunctions key)
         (← compileExprWithInternals fields dynamicSource internalFunctions value)
         "setMapping"
+        0
+        true
   | Stmt.setMappingWord field key wordOffset value => do
       compileMappingSlotWrite fields field
         (← compileExprWithInternals fields dynamicSource internalFunctions key)
         (← compileExprWithInternals fields dynamicSource internalFunctions value)
         "setMappingWord"
         wordOffset
+        true
   | Stmt.setMappingPackedWord field key wordOffset packed value => do
       compileMappingPackedSlotWrite fields field
         (← compileExprWithInternals fields dynamicSource internalFunctions key)
@@ -213,6 +217,7 @@ def compileStmt (fields : List Field) (events : List EventDef := [])
         wordOffset
         packed
         "setMappingPackedWord"
+        true
   | Stmt.setMapping2 field key1 key2 value =>
       compileSetMapping2 fields dynamicSource field key1 key2 value internalFunctions
   | Stmt.setMapping2Word field key1 key2 wordOffset value =>
@@ -222,6 +227,8 @@ def compileStmt (fields : List Field) (events : List EventDef := [])
         (← compileExprWithInternals fields dynamicSource internalFunctions key)
         (← compileExprWithInternals fields dynamicSource internalFunctions value)
         "setMappingUint"
+        0
+        true
   | Stmt.setMappingChain field keys value =>
       compileSetMappingChain fields dynamicSource field keys value internalFunctions
   | Stmt.setStructMember field key memberName value =>

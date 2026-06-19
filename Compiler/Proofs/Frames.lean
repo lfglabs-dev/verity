@@ -646,6 +646,72 @@ theorem writeAddressSlots_preserves_address_except
   rw [hcontains]
   simp
 
+theorem writeUintFieldSlots_preserves_storage_except
+    (fields : List Compiler.CompilationModel.Field) (fieldName : String)
+    (world : Verity.ContractState) (slots : List Nat) (value slot : Nat)
+    (hslot : slot ∉ slots.map wordNormalize) :
+    (writeUintFieldSlots fields fieldName world slots value).storage slot = world.storage slot := by
+  simp only [writeUintFieldSlots]
+  split
+  · simp [writeTransientTargets]
+  · exact writeUintSlots_preserves_storage_except world slots value slot hslot
+
+theorem writeUintFieldSlots_preserves_address
+    (fields : List Compiler.CompilationModel.Field) (fieldName : String)
+    (world : Verity.ContractState) (slots : List Nat) (value slot : Nat) :
+    (writeUintFieldSlots fields fieldName world slots value).storageAddr slot =
+      world.storageAddr slot := by
+  simp only [writeUintFieldSlots]
+  split <;> simp [writeTransientTargets, writeUintSlots]
+
+theorem writeUintFieldSlots_preserves_arrays
+    (fields : List Compiler.CompilationModel.Field) (fieldName : String)
+    (world : Verity.ContractState) (slots : List Nat) (value slot : Nat) :
+    (writeUintFieldSlots fields fieldName world slots value).storageArray slot =
+      world.storageArray slot := by
+  simp only [writeUintFieldSlots]
+  split <;> simp [writeTransientTargets, writeUintSlots]
+
+theorem writeUintFieldSlots_preserves_calldata
+    (fields : List Compiler.CompilationModel.Field) (fieldName : String)
+    (world : Verity.ContractState) (slots : List Nat) (value : Nat) :
+    (writeUintFieldSlots fields fieldName world slots value).calldata = world.calldata := by
+  simp only [writeUintFieldSlots]
+  split <;> simp [writeTransientTargets, writeUintSlots]
+
+theorem writeAddressFieldSlots_preserves_address_except
+    (fields : List Compiler.CompilationModel.Field) (fieldName : String)
+    (world : Verity.ContractState) (slots : List Nat) (value slot : Nat)
+    (hslot : slot ∉ slots.map wordNormalize) :
+    (writeAddressFieldSlots fields fieldName world slots value).storageAddr slot =
+      world.storageAddr slot := by
+  simp only [writeAddressFieldSlots]
+  split
+  · simp [writeTransientTargets]
+  · exact writeAddressSlots_preserves_address_except world slots value slot hslot
+
+theorem writeAddressFieldSlots_preserves_storage
+    (fields : List Compiler.CompilationModel.Field) (fieldName : String)
+    (world : Verity.ContractState) (slots : List Nat) (value slot : Nat) :
+    (writeAddressFieldSlots fields fieldName world slots value).storage slot = world.storage slot := by
+  simp only [writeAddressFieldSlots]
+  split <;> simp [writeTransientTargets, writeAddressSlots]
+
+theorem writeAddressFieldSlots_preserves_arrays
+    (fields : List Compiler.CompilationModel.Field) (fieldName : String)
+    (world : Verity.ContractState) (slots : List Nat) (value slot : Nat) :
+    (writeAddressFieldSlots fields fieldName world slots value).storageArray slot =
+      world.storageArray slot := by
+  simp only [writeAddressFieldSlots]
+  split <;> simp [writeTransientTargets, writeAddressSlots]
+
+theorem writeAddressFieldSlots_preserves_calldata
+    (fields : List Compiler.CompilationModel.Field) (fieldName : String)
+    (world : Verity.ContractState) (slots : List Nat) (value : Nat) :
+    (writeAddressFieldSlots fields fieldName world slots value).calldata = world.calldata := by
+  simp only [writeAddressFieldSlots]
+  split <;> simp [writeTransientTargets, writeAddressSlots]
+
 theorem writeStorageArray_preserves_arrays_except
     (world : Verity.ContractState) (arraySlot slot : Nat) (values : List Verity.Core.Uint256)
     (hslot : slot ∉ [arraySlot]) :
@@ -662,7 +728,7 @@ theorem execStmt_setStorage_execution_summary
   rw [show execStmt fields st (.setStorage fieldName value) =
     (match Compiler.CompilationModel.findFieldWriteSlots fields fieldName, evalExpr fields st value with
     | some slots, some resolved =>
-        .continue { st with world := writeUintSlots st.world slots resolved }
+        .continue { st with world := writeUintFieldSlots fields fieldName st.world slots resolved }
     | _, _ => .revert) from rfl] at h
   rw [hslots] at h
   cases hval : evalExpr fields st value with
@@ -673,10 +739,13 @@ theorem execStmt_setStorage_execution_summary
       constructor
       · intro _ _; rfl
       · intro slot hslot
-        exact writeUintSlots_preserves_storage_except st.world slots resolved slot hslot
-      · intro _ _; rfl
-      · intro _ _; rfl
-      · exact And.intro rfl rfl
+        exact writeUintFieldSlots_preserves_storage_except fields fieldName st.world slots resolved slot hslot
+      · intro slot _
+        exact writeUintFieldSlots_preserves_address fields fieldName st.world slots resolved slot
+      · intro slot _
+        exact writeUintFieldSlots_preserves_arrays fields fieldName st.world slots resolved slot
+      · exact And.intro rfl
+          (writeUintFieldSlots_preserves_calldata fields fieldName st.world slots resolved)
 
 theorem execStmt_setStorageAddr_execution_summary
     (fields : List Compiler.CompilationModel.Field)
@@ -687,7 +756,7 @@ theorem execStmt_setStorageAddr_execution_summary
   rw [show execStmt fields st (.setStorageAddr fieldName value) =
     (match Compiler.CompilationModel.findFieldWriteSlots fields fieldName, evalExpr fields st value with
     | some slots, some resolved =>
-        .continue { st with world := writeAddressSlots st.world slots resolved }
+        .continue { st with world := writeAddressFieldSlots fields fieldName st.world slots resolved }
     | _, _ => .revert) from rfl] at h
   rw [hslots] at h
   cases hval : evalExpr fields st value with
@@ -697,11 +766,14 @@ theorem execStmt_setStorageAddr_execution_summary
       injection h with hh; subst hh
       constructor
       · intro _ _; rfl
-      · intro _ _; rfl
+      · intro slot _
+        exact writeAddressFieldSlots_preserves_storage fields fieldName st.world slots resolved slot
       · intro slot hslot
-        exact writeAddressSlots_preserves_address_except st.world slots resolved slot hslot
-      · intro _ _; rfl
-      · exact And.intro rfl rfl
+        exact writeAddressFieldSlots_preserves_address_except fields fieldName st.world slots resolved slot hslot
+      · intro slot _
+        exact writeAddressFieldSlots_preserves_arrays fields fieldName st.world slots resolved slot
+      · exact And.intro rfl
+          (writeAddressFieldSlots_preserves_calldata fields fieldName st.world slots resolved)
 
 theorem execStmtList_execution_summary_cons
     (fields : List Compiler.CompilationModel.Field)

@@ -28,11 +28,12 @@ def compileMappingSlotRead (fields : List Field) (field : String) (keyExpr : Yul
   if !isMapping fields field then
     throw s!"Compilation error: field '{field}' is not a mapping"
   else
-    match findFieldSlot fields field with
-    | some slot =>
+    match findFieldWithResolvedSlot fields field with
+    | some (f, slot) =>
       let mappingBase := YulExpr.call "mappingSlot" [YulExpr.lit slot, keyExpr]
       let finalSlot := if wordOffset == 0 then mappingBase else YulExpr.call "add" [mappingBase, YulExpr.lit wordOffset]
-      pure (YulExpr.call "sload" [finalSlot])
+      let loadBuiltin := if f.isTransient then "tload" else "sload"
+      pure (YulExpr.call loadBuiltin [finalSlot])
     | none => throw s!"Compilation error: unknown mapping field '{field}' in {label}"
 
 -- Exposed so proof modules can name the exact nested mapping-chain lowering shape.
@@ -191,12 +192,13 @@ def compileExprWithInternals (fields : List Field)
     else
       match findFieldWithResolvedSlot fields field with
       | some (f, slot) =>
+          let loadBuiltin := if f.isTransient then "tload" else "sload"
           match f.packedBits with
           | none =>
-              pure (YulExpr.call "sload" [YulExpr.lit slot])
+              pure (YulExpr.call loadBuiltin [YulExpr.lit slot])
           | some packed =>
               pure (YulExpr.call "and" [
-                YulExpr.call "shr" [YulExpr.lit packed.offset, YulExpr.call "sload" [YulExpr.lit slot]],
+                YulExpr.call "shr" [YulExpr.lit packed.offset, YulExpr.call loadBuiltin [YulExpr.lit slot]],
                 YulExpr.lit (packedMaskNat packed)
               ])
       | none => throw s!"Compilation error: unknown storage field '{field}'"
@@ -206,14 +208,15 @@ def compileExprWithInternals (fields : List Field)
     else
       match findFieldWithResolvedSlot fields field with
       | some (f, slot) =>
+          let loadBuiltin := if f.isTransient then "tload" else "sload"
           match f.ty with
           | .address =>
               match f.packedBits with
               | none =>
-                  pure (YulExpr.call "sload" [YulExpr.lit slot])
+                  pure (YulExpr.call loadBuiltin [YulExpr.lit slot])
               | some packed =>
                   pure (YulExpr.call "and" [
-                    YulExpr.call "shr" [YulExpr.lit packed.offset, YulExpr.call "sload" [YulExpr.lit slot]],
+                    YulExpr.call "shr" [YulExpr.lit packed.offset, YulExpr.call loadBuiltin [YulExpr.lit slot]],
                     YulExpr.lit (packedMaskNat packed)
                   ])
           | _ =>
@@ -236,25 +239,27 @@ def compileExprWithInternals (fields : List Field)
     if !isMapping2 fields field then
       throw s!"Compilation error: field '{field}' is not a double mapping"
     else
-      match findFieldSlot fields field with
-      | some slot => do
+      match findFieldWithResolvedSlot fields field with
+      | some (f, slot) => do
+        let loadBuiltin := if f.isTransient then "tload" else "sload"
         let key1Expr ← compileExprWithInternals fields dynamicSource internalFunctions key1
         let key2Expr ← compileExprWithInternals fields dynamicSource internalFunctions key2
         let innerSlot := YulExpr.call "mappingSlot" [YulExpr.lit slot, key1Expr]
-        pure (YulExpr.call "sload" [YulExpr.call "mappingSlot" [innerSlot, key2Expr]])
+        pure (YulExpr.call loadBuiltin [YulExpr.call "mappingSlot" [innerSlot, key2Expr]])
       | none => throw s!"Compilation error: unknown mapping field '{field}'"
   | Expr.mapping2Word field key1 key2 wordOffset =>
     if !isMapping2 fields field then
       throw s!"Compilation error: field '{field}' is not a double mapping"
     else
-      match findFieldSlot fields field with
-      | some slot => do
+      match findFieldWithResolvedSlot fields field with
+      | some (f, slot) => do
+        let loadBuiltin := if f.isTransient then "tload" else "sload"
         let key1Expr ← compileExprWithInternals fields dynamicSource internalFunctions key1
         let key2Expr ← compileExprWithInternals fields dynamicSource internalFunctions key2
         let innerSlot := YulExpr.call "mappingSlot" [YulExpr.lit slot, key1Expr]
         let outerSlot := YulExpr.call "mappingSlot" [innerSlot, key2Expr]
         let finalSlot := if wordOffset == 0 then outerSlot else YulExpr.call "add" [outerSlot, YulExpr.lit wordOffset]
-        pure (YulExpr.call "sload" [finalSlot])
+        pure (YulExpr.call loadBuiltin [finalSlot])
       | none => throw s!"Compilation error: unknown mapping field '{field}'"
   | Expr.mappingUint field key => do
       compileMappingSlotRead fields field (← compileExprWithInternals fields dynamicSource internalFunctions key) "mappingUint"
@@ -262,10 +267,11 @@ def compileExprWithInternals (fields : List Field)
       if !isMapping fields field then
         throw s!"Compilation error: field '{field}' is not a mapping"
       else
-        match findFieldSlot fields field with
-        | some slot => do
+        match findFieldWithResolvedSlot fields field with
+        | some (f, slot) => do
             let keyExprs ← compileExprListWithInternals fields dynamicSource internalFunctions keys
-            pure (YulExpr.call "sload" [compileMappingSlotChain (YulExpr.lit slot) keyExprs])
+            let loadBuiltin := if f.isTransient then "tload" else "sload"
+            pure (YulExpr.call loadBuiltin [compileMappingSlotChain (YulExpr.lit slot) keyExprs])
         | none => throw s!"Compilation error: unknown mapping field '{field}'"
   | Expr.structMember field key memberName => do
       if isMapping2 fields field then
@@ -295,8 +301,9 @@ def compileExprWithInternals (fields : List Field)
           match findStructMember members memberName with
           | none => throw s!"Compilation error: struct field '{field}' has no member '{memberName}'"
           | some member =>
-            match findFieldSlot fields field with
-            | some slot => do
+            match findFieldWithResolvedSlot fields field with
+            | some (f, slot) => do
+              let loadBuiltin := if f.isTransient then "tload" else "sload"
               let key1Expr ← compileExprWithInternals fields dynamicSource internalFunctions key1
               let key2Expr ← compileExprWithInternals fields dynamicSource internalFunctions key2
               let innerSlot := YulExpr.call "mappingSlot" [YulExpr.lit slot, key1Expr]
@@ -304,10 +311,10 @@ def compileExprWithInternals (fields : List Field)
               let finalSlot := if member.wordOffset == 0 then outerSlot else YulExpr.call "add" [outerSlot, YulExpr.lit member.wordOffset]
               match member.packed with
               | none =>
-                pure (YulExpr.call "sload" [finalSlot])
+                pure (YulExpr.call loadBuiltin [finalSlot])
               | some packed =>
                 pure (YulExpr.call "and" [
-                  YulExpr.call "shr" [YulExpr.lit packed.offset, YulExpr.call "sload" [finalSlot]],
+                  YulExpr.call "shr" [YulExpr.lit packed.offset, YulExpr.call loadBuiltin [finalSlot]],
                   YulExpr.lit (packedMaskNat packed)
                 ])
             | none => throw s!"Compilation error: unknown mapping field '{field}'"

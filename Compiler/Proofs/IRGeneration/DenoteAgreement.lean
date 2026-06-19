@@ -253,6 +253,51 @@ theorem writeAddressKeyedMapping2Slots_eq
       congr 1
       exact storage_field_eq_of_rel h
 
+@[simp] theorem fieldIsTransient_eq (fields : List Field) (fieldName : String) :
+    Denote.fieldIsTransient fields fieldName =
+      SourceSemantics.fieldIsTransient fields fieldName := rfl
+
+@[simp] theorem writeTransientTargets_eq
+    (w : Verity.ContractState) (targets : List Nat) (v : Nat) :
+    Denote.writeTransientTargets w targets v =
+      SourceSemantics.writeTransientTargets w targets v := rfl
+
+theorem writeAddressKeyedMappingFieldSlots_eq
+    (fields : List Field) (fieldName : String)
+    (w : Verity.ContractState) (slots : List Nat) (k v : Nat) :
+    Denote.writeAddressKeyedMappingFieldSlots sourceOracle fields fieldName w slots k v =
+      SourceSemantics.writeAddressKeyedMappingFieldSlots fields fieldName w slots k v := by
+  simp only [Denote.writeAddressKeyedMappingFieldSlots,
+    SourceSemantics.writeAddressKeyedMappingFieldSlots]
+  by_cases h : SourceSemantics.fieldIsTransient fields fieldName = true
+  · simp [fieldIsTransient_eq, h, sourceOracle, writeTransientTargets_eq,
+      Denote.wordNormalize, SourceSemantics.wordNormalize]
+  · simp [fieldIsTransient_eq, h, writeAddressKeyedMappingSlots_eq]
+
+theorem writeUintKeyedMappingFieldSlots_eq
+    (fields : List Field) (fieldName : String)
+    (w : Verity.ContractState) (slots : List Nat) (k v : Nat) :
+    Denote.writeUintKeyedMappingFieldSlots sourceOracle fields fieldName w slots k v =
+      SourceSemantics.writeUintKeyedMappingFieldSlots fields fieldName w slots k v := by
+  simp only [Denote.writeUintKeyedMappingFieldSlots,
+    SourceSemantics.writeUintKeyedMappingFieldSlots]
+  by_cases h : SourceSemantics.fieldIsTransient fields fieldName = true
+  · simp [fieldIsTransient_eq, h, sourceOracle, writeTransientTargets_eq,
+      Denote.wordNormalize, SourceSemantics.wordNormalize]
+  · simp [fieldIsTransient_eq, h, writeUintKeyedMappingSlots_eq]
+
+theorem writeAddressKeyedMapping2FieldSlots_eq
+    (fields : List Field) (fieldName : String)
+    (w : Verity.ContractState) (slots : List Nat) (k1 k2 v : Nat) :
+    Denote.writeAddressKeyedMapping2FieldSlots sourceOracle fields fieldName w slots k1 k2 v =
+      SourceSemantics.writeAddressKeyedMapping2FieldSlots fields fieldName w slots k1 k2 v := by
+  simp only [Denote.writeAddressKeyedMapping2FieldSlots,
+    SourceSemantics.writeAddressKeyedMapping2FieldSlots]
+  by_cases h : SourceSemantics.fieldIsTransient fields fieldName = true
+  · simp [fieldIsTransient_eq, h, sourceOracle, writeTransientTargets_eq,
+      Denote.wordNormalize, SourceSemantics.wordNormalize]
+  · simp [fieldIsTransient_eq, h, writeAddressKeyedMapping2Slots_eq]
+
 /-! ## Definitional write/helper bridges (the mirrors are byte-for-byte) -/
 
 @[simp] theorem wordNormalize_eq (n : Nat) :
@@ -289,6 +334,15 @@ theorem writeAddressKeyedMapping2Slots_eq
     Denote.writeAddressKeyedMappingPackedWordSlots sourceOracle w slots k off p v =
       SourceSemantics.writeAddressKeyedMappingPackedWordSlots w slots k off p v := rfl
 
+@[simp] theorem writeAddressKeyedMappingPackedWordFieldSlots_eq
+    (fields : List Field) (fieldName : String)
+    (w : Verity.ContractState) (slots : List Nat) (k off : Nat)
+    (p : PackedBits) (v : Nat) :
+    Denote.writeAddressKeyedMappingPackedWordFieldSlots
+        sourceOracle fields fieldName w slots k off p v =
+      SourceSemantics.writeAddressKeyedMappingPackedWordFieldSlots
+        fields fieldName w slots k off p v := rfl
+
 @[simp] theorem writeAddressKeyedMapping2WordSlots_eq
     (w : Verity.ContractState) (slots : List Nat) (k1 k2 off v : Nat) :
     Denote.writeAddressKeyedMapping2WordSlots sourceOracle w slots k1 k2 off v =
@@ -300,10 +354,31 @@ theorem writeAddressKeyedMapping2Slots_eq
     Denote.writeAddressKeyedMapping2PackedWordSlots sourceOracle w slots k1 k2 off p v =
       SourceSemantics.writeAddressKeyedMapping2PackedWordSlots w slots k1 k2 off p v := rfl
 
+@[simp] theorem writeAddressKeyedMapping2PackedWordFieldSlots_eq
+    (fields : List Field) (fieldName : String)
+    (w : Verity.ContractState) (slots : List Nat) (k1 k2 off : Nat)
+    (p : PackedBits) (v : Nat) :
+    Denote.writeAddressKeyedMapping2PackedWordFieldSlots
+        sourceOracle fields fieldName w slots k1 k2 off p v =
+      SourceSemantics.writeAddressKeyedMapping2PackedWordFieldSlots
+        fields fieldName w slots k1 k2 off p v := rfl
+
 @[simp] theorem writeAddressKeyedMappingChainSlots_eq
     (w : Verity.ContractState) (slots keys : List Nat) (v : Nat) :
     Denote.writeAddressKeyedMappingChainSlots sourceOracle w slots keys v =
       SourceSemantics.writeAddressKeyedMappingChainSlots w slots keys v := rfl
+
+@[simp] theorem writeAddressKeyedMappingWordFieldSlots_eq
+    (fields : List Field) (fieldName : String)
+    (w : Verity.ContractState) (slots : List Nat) (k off v : Nat) :
+    Denote.writeAddressKeyedMappingWordFieldSlots sourceOracle fields fieldName w slots k off v =
+      SourceSemantics.writeAddressKeyedMappingWordFieldSlots fields fieldName w slots k off v := rfl
+
+@[simp] theorem writeAddressKeyedMapping2WordFieldSlots_eq
+    (fields : List Field) (fieldName : String)
+    (w : Verity.ContractState) (slots : List Nat) (k1 k2 off v : Nat) :
+    Denote.writeAddressKeyedMapping2WordFieldSlots sourceOracle fields fieldName w slots k1 k2 off v =
+      SourceSemantics.writeAddressKeyedMapping2WordFieldSlots fields fieldName w slots k1 k2 off v := rfl
 
 @[simp] theorem writeStorageArray_eq
     (w : Verity.ContractState) (slot : Nat) (vs : List Verity.Core.Uint256) :
@@ -355,9 +430,11 @@ macro "denote_stmt_arm" : tactic =>
     (simp only [Denote.execStmt, SourceSemantics.execStmt,
        ← denote_evalExpr_eq, ← denote_evalExprList_eq]
      repeat' (split <;>
-       try simp_all [toStmtResult, toRuntimeState,
+         try simp_all [toStmtResult, toRuntimeState,
          writeAddressKeyedMappingSlots_eq, writeUintKeyedMappingSlots_eq,
-         writeAddressKeyedMapping2Slots_eq, storageArraySetAt_eq,
+         writeAddressKeyedMapping2Slots_eq, writeAddressKeyedMappingFieldSlots_eq,
+         writeUintKeyedMappingFieldSlots_eq, writeAddressKeyedMapping2FieldSlots_eq,
+         storageArraySetAt_eq,
          storageArrayDropLast?_eq,
          SourceSemantics.eventFromResolvedArgs?,
          SourceSemantics.eventScratchMemoryAfterEmit?])
@@ -367,7 +444,9 @@ macro "denote_stmt_arm" : tactic =>
          | rfl
          | simp_all [toStmtResult, toRuntimeState,
              writeAddressKeyedMappingSlots_eq, writeUintKeyedMappingSlots_eq,
-             writeAddressKeyedMapping2Slots_eq, storageArraySetAt_eq,
+             writeAddressKeyedMapping2Slots_eq, writeAddressKeyedMappingFieldSlots_eq,
+             writeUintKeyedMappingFieldSlots_eq, writeAddressKeyedMapping2FieldSlots_eq,
+             storageArraySetAt_eq,
              storageArrayDropLast?_eq,
              SourceSemantics.eventFromResolvedArgs?,
              SourceSemantics.eventScratchMemoryAfterEmit?]))
