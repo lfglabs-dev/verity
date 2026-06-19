@@ -16,6 +16,26 @@ namespace Compiler.Proofs.IRGeneration
 open Compiler
 open Compiler.CompilationModel
 
+private theorem compileStmtWithFork_cancun_eq_compileStmt
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
+    (isInternal : Bool) (inScopeNames : List String)
+    (adtTypes : List AdtTypeDef) (stmt : Stmt) :
+    compileStmtWithFork fields events errors dynamicSource internalRetNames isInternal
+      inScopeNames adtTypes Verity.Core.Intrinsics.HardFork.cancun stmt =
+    compileStmt fields events errors dynamicSource internalRetNames isInternal
+      inScopeNames adtTypes stmt := rfl
+
+private theorem compileStmtListWithFork_cancun_eq_compileStmtList
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
+    (isInternal : Bool) (inScopeNames : List String)
+    (adtTypes : List AdtTypeDef) (stmts : List Stmt) :
+    compileStmtListWithFork fields events errors dynamicSource internalRetNames
+      isInternal inScopeNames adtTypes Verity.Core.Intrinsics.HardFork.cancun stmts =
+    compileStmtList fields events errors dynamicSource internalRetNames isInternal
+      inScopeNames adtTypes stmts := rfl
+
 /-- ABI parameter types admitted by the first whole-contract Layer 2 fragment.
 Only single-head-word scalars are included for the initial generic theorem. -/
 def SupportedExternalParamType : ParamType → Prop
@@ -1912,13 +1932,15 @@ private theorem compileStmt_eventsErrorsAgnostic_aux
         | ite cond thenBranch elseBranch =>
             simp only [stmtTouchesUnsupportedContractSurface,
               Bool.or_eq_false_iff] at hsurface
-            simp only [CompilationModel.compileStmt,
+            simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+              compileStmtListWithFork_cancun_eq_compileStmtList,
               ih.2 thenBranch scope
                 (by simp [Stmt.ite.sizeOf_spec] at hlt; omega) hsurface.1.2,
               ih.2 elseBranch scope
                 (by simp [Stmt.ite.sizeOf_spec] at hlt; omega) hsurface.2]
         | forEach varName count body =>
-            simp only [CompilationModel.compileStmt,
+            simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+              compileStmtListWithFork_cancun_eq_compileStmtList,
               ih.2 body (CompilationModel.forEachBodyScope scope varName count body)
                 (by simp [Stmt.forEach.sizeOf_spec] at hlt; omega)
                 (stmtListTouchesUnsupportedContractSurface_of_forEach_surfaceClosed
@@ -1927,7 +1949,7 @@ private theorem compileStmt_eventsErrorsAgnostic_aux
             simp [stmtTouchesUnsupportedContractSurface] at hsurface
         | letVar | assignVar | setStorage | setStorageAddr | setStorageWord
         | require | «return» | mstore | tstore | stop =>
-            simp only [CompilationModel.compileStmt]
+            simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork]
         | setMapping | setMappingWord | setMappingPackedWord | setMapping2
         | setMapping2Word | setMappingUint | setMappingChain | setStructMember
         | setStructMember2 | storageArrayPush | storageArrayPop
@@ -1939,15 +1961,23 @@ private theorem compileStmt_eventsErrorsAgnostic_aux
             simp [stmtTouchesUnsupportedContractSurface] at hsurface
       · intro stmts scope hlt hsurface
         cases stmts with
-        | nil => rfl
+        | nil =>
+            simp only [CompilationModel.compileStmtList,
+              CompilationModel.compileStmtListWithFork, pure, Except.pure]
         | cons s ss =>
             simp only [stmtListTouchesUnsupportedContractSurface,
               Bool.or_eq_false_iff] at hsurface
-            simp only [CompilationModel.compileStmtList,
+            simp only [CompilationModel.compileStmtList]
+            unfold CompilationModel.compileStmtListWithFork
+            simp only [bind, Except.bind]
+            rw [compileStmtWithFork_cancun_eq_compileStmt,
+              compileStmtListWithFork_cancun_eq_compileStmtList,
               ih.1 s scope
                 (by simp [List.cons.sizeOf_spec] at hlt; omega) hsurface.1,
               ih.2 ss (collectStmtNames s ++ scope)
                 (by simp [List.cons.sizeOf_spec] at hlt; omega) hsurface.2]
+            rw [compileStmtWithFork_cancun_eq_compileStmt,
+              compileStmtListWithFork_cancun_eq_compileStmtList]
 
 /-- Surface-closed statements compile identically under any event/error
 catalog. -/

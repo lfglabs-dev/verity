@@ -29,6 +29,26 @@ open Compiler.CompilationModel
 open Compiler.Proofs.YulGeneration
 open Verity.Core.Free
 
+private theorem compileStmtWithFork_cancun_eq_compileStmt
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
+    (isInternal : Bool) (inScopeNames : List String)
+    (adtTypes : List AdtTypeDef) (stmt : Stmt) :
+    compileStmtWithFork fields events errors dynamicSource internalRetNames isInternal
+      inScopeNames adtTypes Verity.Core.Intrinsics.HardFork.cancun stmt =
+    compileStmt fields events errors dynamicSource internalRetNames isInternal
+      inScopeNames adtTypes stmt := rfl
+
+private theorem compileStmtListWithFork_cancun_eq_compileStmtList
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
+    (isInternal : Bool) (inScopeNames : List String)
+    (adtTypes : List AdtTypeDef) (stmts : List Stmt) :
+    compileStmtListWithFork fields events errors dynamicSource internalRetNames
+      isInternal inScopeNames adtTypes Verity.Core.Intrinsics.HardFork.cancun stmts =
+    compileStmtList fields events errors dynamicSource internalRetNames isInternal
+      inScopeNames adtTypes stmts := rfl
+
 /-- Per-statement union of the proved EVMYulLean safe-body fragments.
 
 A statement admitted here compiles (via `compileStmt`) into a Yul statement
@@ -451,7 +471,10 @@ private theorem compileStmtList_cons_ok_inv
           isInternal (collectStmtNames stmt ++ inScopeNames) adtTypes rest =
         .ok tailIR ∧
       bodyIR = headIR ++ tailIR := by
-  simp only [compileStmtList, bind, Except.bind] at hOk
+  simp only [compileStmtList] at hOk
+  unfold compileStmtListWithFork at hOk
+  simp only [bind, Except.bind] at hOk
+  rw [compileStmtWithFork_cancun_eq_compileStmt] at hOk
   cases hHead : compileStmt fields events errors dynamicSource internalRetNames
     isInternal inScopeNames adtTypes stmt with
   | error _ => simp [hHead] at hOk
@@ -483,9 +506,11 @@ theorem compileStmtList_bridgedSource_bridged
   intro stmts
   induction stmts with
   | nil =>
-      intro _ _ _ hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst hOk
+      intro _ _ out hOk
+      simp only [compileStmtList] at hOk
+      unfold compileStmtListWithFork at hOk
+      simp only [Pure.pure, Except.pure, Except.ok.injEq] at hOk
+      subst out
       intro _ hMem
       cases hMem
   | cons s ss ih =>
@@ -516,9 +541,11 @@ theorem compileStmtList_bridgedSource_noFuncDefs
   intro stmts
   induction stmts with
   | nil =>
-      intro _ _ _ hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst hOk
+      intro _ _ out hOk
+      simp only [compileStmtList] at hOk
+      unfold compileStmtListWithFork at hOk
+      simp only [Pure.pure, Except.pure, Except.ok.injEq] at hOk
+      subst out
       rfl
   | cons s ss ih =>
       intro hAll inScopeNames out hOk

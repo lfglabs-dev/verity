@@ -39,6 +39,30 @@ open Compiler.CompilationModel
 open Compiler.Proofs.YulGeneration
 open Verity.Core.Free
 
+/-- Local bridge from the fork-aware statement compiler back to the legacy
+`compileStmt` wrapper used by the surrounding proof statements. -/
+@[simp] private theorem compileStmtWithFork_cancun_eq_compileStmt
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
+    (isInternal : Bool) (inScopeNames : List String)
+    (adtTypes : List AdtTypeDef) (stmt : Stmt) :
+    compileStmtWithFork fields events errors dynamicSource internalRetNames isInternal
+      inScopeNames adtTypes Verity.Core.Intrinsics.HardFork.cancun stmt =
+    compileStmt fields events errors dynamicSource internalRetNames isInternal
+      inScopeNames adtTypes stmt := rfl
+
+/-- Local bridge from the fork-aware statement-list compiler back to the
+legacy `compileStmtList` wrapper used by the surrounding proof statements. -/
+@[simp] private theorem compileStmtListWithFork_cancun_eq_compileStmtList
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
+    (isInternal : Bool) (inScopeNames : List String)
+    (adtTypes : List AdtTypeDef) (stmts : List Stmt) :
+    compileStmtListWithFork fields events errors dynamicSource internalRetNames
+      isInternal inScopeNames adtTypes Verity.Core.Intrinsics.HardFork.cancun stmts =
+    compileStmtList fields events errors dynamicSource internalRetNames isInternal
+      inScopeNames adtTypes stmts := rfl
+
 /-- Scalar ABI parameter types handled inline by `genScalarLoad`. These are
 the `ParamType` constructors whose head word is consumed directly from
 calldata without offset/length bookkeeping. -/
@@ -701,7 +725,7 @@ theorem compileStmt_pure_binding_bridged
   intro stmt hStmt out hOk
   cases hStmt with
   | letVar name value hValue =>
-      simp only [compileStmt, bind, Except.bind] at hOk
+      simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
       cases hExpr : compileExpr fields dynamicSource value with
       | error err =>
           simp [hExpr] at hOk
@@ -716,7 +740,7 @@ theorem compileStmt_pure_binding_bridged
           exact BridgedStmt.straight _
             (BridgedStraightStmt.let_ name valueExpr hBridged)
   | assignVar name value hValue =>
-      simp only [compileStmt, bind, Except.bind] at hOk
+      simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
       cases hExpr : compileExpr fields dynamicSource value with
       | error err =>
           simp [hExpr] at hOk
@@ -745,7 +769,7 @@ theorem compileStmt_pure_binding_noFuncDefs
   intro stmt hStmt out hOk
   cases hStmt with
   | letVar name value _hValue =>
-      simp only [compileStmt, bind, Except.bind] at hOk
+      simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
       cases hExpr : compileExpr fields dynamicSource value with
       | error err =>
           simp [hExpr] at hOk
@@ -754,7 +778,7 @@ theorem compileStmt_pure_binding_noFuncDefs
           subst out
           simp [Native.yulStmtContainsFuncDef]
   | assignVar name value _hValue =>
-      simp only [compileStmt, bind, Except.bind] at hOk
+      simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
       cases hExpr : compileExpr fields dynamicSource value with
       | error err =>
           simp [hExpr] at hOk
@@ -823,7 +847,7 @@ theorem compileStmt_setStorage_singleSlot_pure_bridged
         inScopeNames [] (.setStorage field value) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def] at hOk
   unfold compileSetStorage at hOk
   simp [hNotMapping, hFind] at hOk
   cases hty : f.ty with
@@ -862,7 +886,7 @@ theorem compileStmt_setStorage_singleSlot_pure_noFuncDefs
         inScopeNames [] (.setStorage field value) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def] at hOk
   unfold compileSetStorage at hOk
   simp [hNotMapping, hFind] at hOk
   cases hty : f.ty with
@@ -953,7 +977,7 @@ private theorem compileStmt_stop_bridged
         inScopeNames [] .stop = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt, Pure.pure, Except.pure] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def, Pure.pure, Except.pure] at hOk
   cases hOk
   intro yulStmt hMem
   simp only [List.mem_singleton] at hMem
@@ -969,7 +993,7 @@ private theorem compileStmt_stop_noFuncDefs
         inScopeNames [] .stop = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt, Pure.pure, Except.pure] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def, Pure.pure, Except.pure] at hOk
   cases hOk
   simp [Native.yulStmtContainsFuncDef]
 
@@ -986,7 +1010,7 @@ private theorem compileStmt_return_external_bridged
         (isInternal := false) inScopeNames [] (.return value) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
   cases hExpr : compileExpr fields dynamicSource value with
   | error err => simp [hExpr] at hOk
   | ok valueExpr =>
@@ -1012,7 +1036,7 @@ private theorem compileStmt_return_external_noFuncDefs
         (isInternal := false) inScopeNames [] (.return value) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
   cases hExpr : compileExpr fields dynamicSource value with
   | error err => simp [hExpr] at hOk
   | ok valueExpr =>
@@ -1087,7 +1111,7 @@ theorem compileStmt_return_internal_bridged
         (isInternal := true) inScopeNames [] (.return value) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
   cases hExpr : compileExpr fields dynamicSource value with
   | error err => simp [hExpr] at hOk
   | ok valueExpr =>
@@ -1116,7 +1140,7 @@ theorem compileStmt_return_internal_noFuncDefs
         (isInternal := true) inScopeNames [] (.return value) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
   cases hExpr : compileExpr fields dynamicSource value with
   | error err => simp [hExpr] at hOk
   | ok valueExpr =>
@@ -1282,7 +1306,7 @@ theorem compileStmt_require_bridged
         inScopeNames [] (.require cond message) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
   cases hFail : compileRequireFailCond fields dynamicSource cond with
   | error err =>
       simp [hFail] at hOk
@@ -1309,7 +1333,7 @@ theorem compileStmt_require_noFuncDefs
         inScopeNames [] (.require cond message) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
   cases hFail : compileRequireFailCond fields dynamicSource cond with
   | error err =>
       simp [hFail] at hOk
@@ -1396,7 +1420,7 @@ theorem compileStmt_setMapping_singleSlot_bridged
         inScopeNames [] (.setMapping field key value) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
   cases hKeyExpr : compileExpr fields dynamicSource key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
@@ -1426,7 +1450,7 @@ theorem compileStmt_setMappingUint_singleSlot_bridged
         inScopeNames [] (.setMappingUint field key value) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
   cases hKeyExpr : compileExpr fields dynamicSource key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
@@ -1453,7 +1477,7 @@ theorem compileStmt_setMapping_singleSlot_noFuncDefs
         inScopeNames [] (.setMapping field key value) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
   cases hKeyExpr : compileExpr fields dynamicSource key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
@@ -1477,7 +1501,7 @@ theorem compileStmt_setMappingUint_singleSlot_noFuncDefs
         inScopeNames [] (.setMappingUint field key value) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
   cases hKeyExpr : compileExpr fields dynamicSource key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
@@ -1829,7 +1853,7 @@ mutual
         exact compileStmt_external_body_fragment_bridged fields events errors
           dynamicSource internalRetNames inScopeNames hBase hOk
     | ite cond thenBranch elseBranch hCond hThen hElse =>
-        simp only [compileStmt, bind, Except.bind] at hOk
+        simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
         cases hCondExpr : compileExpr fields dynamicSource cond with
         | error err =>
             simp [hCondExpr] at hOk
@@ -1891,12 +1915,14 @@ mutual
     intro stmts hSource inScopeNames out hOk
     cases hSource with
     | nil =>
-        simp [compileStmtList, Pure.pure, Except.pure] at hOk
+        simp [compileStmtList, compileStmtListWithFork.eq_def, Pure.pure, Except.pure] at hOk
         subst out
         intro stmt hMem
         cases hMem
     | @cons head tail hHead hTail =>
-        simp only [compileStmtList, bind, Except.bind] at hOk
+        simp only [compileStmtList] at hOk
+        unfold compileStmtListWithFork at hOk
+        simp only [bind, Except.bind] at hOk
         cases hHeadCompile : compileStmt fields events errors dynamicSource
             internalRetNames false inScopeNames [] head with
         | error err =>
@@ -1936,7 +1962,7 @@ mutual
         exact compileStmt_external_body_fragment_noFuncDefs fields events errors
           dynamicSource internalRetNames inScopeNames hBase hOk
     | ite cond thenBranch elseBranch _ hThen hElse =>
-        simp only [compileStmt, bind, Except.bind] at hOk
+        simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
         cases hCondExpr : compileExpr fields dynamicSource cond with
         | error err => simp [hCondExpr] at hOk
         | ok condExpr =>
@@ -1978,11 +2004,13 @@ mutual
     intro stmts hSource inScopeNames out hOk
     cases hSource with
     | nil =>
-        simp [compileStmtList, Pure.pure, Except.pure] at hOk
+        simp [compileStmtList, compileStmtListWithFork.eq_def, Pure.pure, Except.pure] at hOk
         subst out
         rfl
     | @cons head tail hHead hTail =>
-        simp only [compileStmtList, bind, Except.bind] at hOk
+        simp only [compileStmtList] at hOk
+        unfold compileStmtListWithFork at hOk
+        simp only [bind, Except.bind] at hOk
         cases hHeadCompile : compileStmt fields events errors dynamicSource
             internalRetNames false inScopeNames [] head with
         | error err => simp [hHeadCompile] at hOk
@@ -2019,7 +2047,7 @@ mutual
         exact compileStmt_internal_body_fragment_bridged fields events errors
           dynamicSource internalRetNames inScopeNames hBase hOk
     | ite cond thenBranch elseBranch hCond hThen hElse =>
-        simp only [compileStmt, bind, Except.bind] at hOk
+        simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
         cases hCondExpr : compileExpr fields dynamicSource cond with
         | error err =>
             simp [hCondExpr] at hOk
@@ -2081,12 +2109,14 @@ mutual
     intro stmts hSource inScopeNames out hOk
     cases hSource with
     | nil =>
-        simp [compileStmtList, Pure.pure, Except.pure] at hOk
+        simp [compileStmtList, compileStmtListWithFork.eq_def, Pure.pure, Except.pure] at hOk
         subst out
         intro stmt hMem
         cases hMem
     | @cons head tail hHead hTail =>
-        simp only [compileStmtList, bind, Except.bind] at hOk
+        simp only [compileStmtList] at hOk
+        unfold compileStmtListWithFork at hOk
+        simp only [bind, Except.bind] at hOk
         cases hHeadCompile : compileStmt fields events errors dynamicSource
             internalRetNames true inScopeNames [] head with
         | error err =>
@@ -2126,7 +2156,7 @@ mutual
         exact compileStmt_internal_body_fragment_noFuncDefs fields events errors
           dynamicSource internalRetNames inScopeNames hBase hOk
     | ite cond thenBranch elseBranch _ hThen hElse =>
-        simp only [compileStmt, bind, Except.bind] at hOk
+        simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
         cases hCondExpr : compileExpr fields dynamicSource cond with
         | error err => simp [hCondExpr] at hOk
         | ok condExpr =>
@@ -2168,11 +2198,13 @@ mutual
     intro stmts hSource inScopeNames out hOk
     cases hSource with
     | nil =>
-        simp [compileStmtList, Pure.pure, Except.pure] at hOk
+        simp [compileStmtList, compileStmtListWithFork.eq_def, Pure.pure, Except.pure] at hOk
         subst out
         rfl
     | @cons head tail hHead hTail =>
-        simp only [compileStmtList, bind, Except.bind] at hOk
+        simp only [compileStmtList] at hOk
+        unfold compileStmtListWithFork at hOk
+        simp only [bind, Except.bind] at hOk
         cases hHeadCompile : compileStmt fields events errors dynamicSource
             internalRetNames true inScopeNames [] head with
         | error err => simp [hHeadCompile] at hOk
@@ -2225,7 +2257,7 @@ theorem compileStmt_memoryWrite_bridged
   intro stmt hStmt out hOk
   cases hStmt with
   | mstore offset value hOffset hValue =>
-      simp only [compileStmt, bind, Except.bind] at hOk
+      simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
       cases hOExpr : compileExpr fields dynamicSource offset with
       | error err => simp [hOExpr] at hOk
       | ok offsetExpr =>
@@ -2245,7 +2277,7 @@ theorem compileStmt_memoryWrite_bridged
               exact BridgedStmt.straight _
                 (BridgedStraightStmt.expr_mstore offsetExpr valueExpr hBO hBV)
   | tstore offset value hOffset hValue =>
-      simp only [compileStmt, bind, Except.bind] at hOk
+      simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
       cases hOExpr : compileExpr fields dynamicSource offset with
       | error err => simp [hOExpr] at hOk
       | ok offsetExpr =>
@@ -2277,7 +2309,7 @@ theorem compileStmt_memoryWrite_noFuncDefs
   intro stmt hStmt out hOk
   cases hStmt with
   | mstore offset value _ _ =>
-      simp only [compileStmt, bind, Except.bind, Pure.pure, Except.pure] at hOk
+      simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind, Pure.pure, Except.pure] at hOk
       cases hO : compileExpr fields dynamicSource offset with
       | error err => simp [hO] at hOk
       | ok compiledOffset =>
@@ -2289,7 +2321,7 @@ theorem compileStmt_memoryWrite_noFuncDefs
               subst out
               simp [Native.yulStmtContainsFuncDef]
   | tstore offset value _ _ =>
-      simp only [compileStmt, bind, Except.bind, Pure.pure, Except.pure] at hOk
+      simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind, Pure.pure, Except.pure] at hOk
       cases hO : compileExpr fields dynamicSource offset with
       | error err => simp [hO] at hOk
       | ok compiledOffset =>
@@ -2329,7 +2361,7 @@ theorem compileStmt_forEach_with_bridged_body
         inScopeNames [] (.forEach varName count body) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
   cases hCExpr : compileExpr fields dynamicSource count with
   | error err => simp [hCExpr] at hOk
   | ok countExpr =>
@@ -2417,7 +2449,7 @@ theorem compileStmt_ite_with_noFuncDefs_body
         inScopeNames [] (.ite cond thenBranch elseBranch) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
   cases hCondExpr : compileExpr fields dynamicSource cond with
   | error err => simp [hCondExpr] at hOk
   | ok condExpr =>
@@ -2455,7 +2487,7 @@ theorem compileStmt_forEach_with_noFuncDefs_body
         inScopeNames [] (.forEach varName count body) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
   cases hCExpr : compileExpr fields dynamicSource count with
   | error err => simp [hCExpr] at hOk
   | ok countExpr =>
@@ -2684,7 +2716,7 @@ theorem compileStmt_revertError_zero_bridged
         inScopeNames [] (.revertError errorName []) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind, hLookup, compileExprList,
+  simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind, hLookup, compileExprList,
     Pure.pure, Except.pure] at hOk
   exact revertWithCustomError_zero_bridged dynamicSource errorDef hZeroParams hOk
 
@@ -2705,7 +2737,7 @@ theorem compileStmt_requireError_zero_bridged
         inScopeNames [] (.requireError cond errorName []) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
   cases hFail : compileRequireFailCond fields dynamicSource cond with
   | error err => simp [hFail] at hOk
   | ok failCond =>
@@ -2754,7 +2786,7 @@ theorem compileStmt_revertError_zero_noFuncDefs
         inScopeNames [] (.revertError errorName []) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind, hLookup, compileExprList,
+  simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind, hLookup, compileExprList,
     Pure.pure, Except.pure] at hOk
   exact revertWithCustomError_zero_noFuncDefs dynamicSource errorDef hZeroParams hOk
 
@@ -2773,7 +2805,7 @@ theorem compileStmt_requireError_zero_noFuncDefs
         inScopeNames [] (.requireError cond errorName []) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
   cases hFail : compileRequireFailCond fields dynamicSource cond with
   | error err => simp [hFail] at hOk
   | ok failCond =>
@@ -3209,7 +3241,7 @@ mutual
         exact compileStmt_external_body_with_errors_bridged fields events errors
           dynamicSource internalRetNames inScopeNames hBase hOk
     | ite cond thenBranch elseBranch hCond hThen hElse =>
-        simp only [compileStmt, bind, Except.bind] at hOk
+        simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
         cases hCondExpr : compileExpr fields dynamicSource cond with
         | error err =>
             simp [hCondExpr] at hOk
@@ -3280,12 +3312,14 @@ mutual
     intro stmts hSource inScopeNames out hOk
     cases hSource with
     | nil =>
-        simp [compileStmtList, Pure.pure, Except.pure] at hOk
+        simp [compileStmtList, compileStmtListWithFork.eq_def, Pure.pure, Except.pure] at hOk
         subst out
         intro stmt hMem
         cases hMem
     | @cons head tail hHead hTail =>
-        simp only [compileStmtList, bind, Except.bind] at hOk
+        simp only [compileStmtList] at hOk
+        unfold compileStmtListWithFork at hOk
+        simp only [bind, Except.bind] at hOk
         cases hHeadCompile : compileStmt fields events errors dynamicSource
             internalRetNames false inScopeNames [] head with
         | error err =>
@@ -3326,7 +3360,7 @@ mutual
         exact compileStmt_internal_body_with_errors_bridged fields events errors
           dynamicSource internalRetNames inScopeNames hBase hOk
     | ite cond thenBranch elseBranch hCond hThen hElse =>
-        simp only [compileStmt, bind, Except.bind] at hOk
+        simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
         cases hCondExpr : compileExpr fields dynamicSource cond with
         | error err =>
             simp [hCondExpr] at hOk
@@ -3397,12 +3431,14 @@ mutual
     intro stmts hSource inScopeNames out hOk
     cases hSource with
     | nil =>
-        simp [compileStmtList, Pure.pure, Except.pure] at hOk
+        simp [compileStmtList, compileStmtListWithFork.eq_def, Pure.pure, Except.pure] at hOk
         subst out
         intro stmt hMem
         cases hMem
     | @cons head tail hHead hTail =>
-        simp only [compileStmtList, bind, Except.bind] at hOk
+        simp only [compileStmtList] at hOk
+        unfold compileStmtListWithFork at hOk
+        simp only [bind, Except.bind] at hOk
         cases hHeadCompile : compileStmt fields events errors dynamicSource
             internalRetNames true inScopeNames [] head with
         | error err =>
@@ -3569,7 +3605,7 @@ theorem compileStmt_rawLog_bridged
   intro stmt hStmt out hOk
   cases hStmt with
   | rawLog topics dataOffset dataSize hTopics hOffset hSize =>
-      simp only [compileStmt] at hOk
+      simp only [compileStmt, compileStmtWithFork.eq_def] at hOk
       by_cases hLen : topics.length > 4
       · exfalso
         simp only [if_pos hLen, bind, Except.bind] at hOk
@@ -3632,7 +3668,7 @@ theorem compileStmt_rawLog_noFuncDefs
   intro stmt hStmt out hOk
   cases hStmt with
   | rawLog topics dataOffset dataSize hTopics hOffset hSize =>
-      simp only [compileStmt] at hOk
+      simp only [compileStmt, compileStmtWithFork.eq_def] at hOk
       by_cases hLen : topics.length > 4
       · simp only [if_pos hLen, bind, Except.bind] at hOk
         exact Except.noConfusion hOk
@@ -3881,7 +3917,7 @@ mutual
         exact compileStmt_external_body_with_raw_log_bridged fields events errors
           dynamicSource internalRetNames inScopeNames hBase hOk
     | ite cond thenBranch elseBranch hCond hThen hElse =>
-        simp only [compileStmt, bind, Except.bind] at hOk
+        simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
         cases hCondExpr : compileExpr fields dynamicSource cond with
         | error err =>
             simp [hCondExpr] at hOk
@@ -3952,12 +3988,14 @@ mutual
     intro stmts hSource inScopeNames out hOk
     cases hSource with
     | nil =>
-        simp [compileStmtList, Pure.pure, Except.pure] at hOk
+        simp [compileStmtList, compileStmtListWithFork.eq_def, Pure.pure, Except.pure] at hOk
         subst out
         intro stmt hMem
         cases hMem
     | @cons head tail hHead hTail =>
-        simp only [compileStmtList, bind, Except.bind] at hOk
+        simp only [compileStmtList] at hOk
+        unfold compileStmtListWithFork at hOk
+        simp only [bind, Except.bind] at hOk
         cases hHeadCompile : compileStmt fields events errors dynamicSource
             internalRetNames false inScopeNames [] head with
         | error err =>
@@ -3998,7 +4036,7 @@ mutual
         exact compileStmt_internal_body_with_raw_log_bridged fields events errors
           dynamicSource internalRetNames inScopeNames hBase hOk
     | ite cond thenBranch elseBranch hCond hThen hElse =>
-        simp only [compileStmt, bind, Except.bind] at hOk
+        simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
         cases hCondExpr : compileExpr fields dynamicSource cond with
         | error err =>
             simp [hCondExpr] at hOk
@@ -4069,12 +4107,14 @@ mutual
     intro stmts hSource inScopeNames out hOk
     cases hSource with
     | nil =>
-        simp [compileStmtList, Pure.pure, Except.pure] at hOk
+        simp [compileStmtList, compileStmtListWithFork.eq_def, Pure.pure, Except.pure] at hOk
         subst out
         intro stmt hMem
         cases hMem
     | @cons head tail hHead hTail =>
-        simp only [compileStmtList, bind, Except.bind] at hOk
+        simp only [compileStmtList] at hOk
+        unfold compileStmtListWithFork at hOk
+        simp only [bind, Except.bind] at hOk
         cases hHeadCompile : compileStmt fields events errors dynamicSource
             internalRetNames true inScopeNames [] head with
         | error err =>
@@ -4142,11 +4182,13 @@ mutual
     intro stmts hSource inScopeNames out hOk
     cases hSource with
     | nil =>
-        simp [compileStmtList, Pure.pure, Except.pure] at hOk
+        simp [compileStmtList, compileStmtListWithFork.eq_def, Pure.pure, Except.pure] at hOk
         subst out
         rfl
     | @cons head tail hHead hTail =>
-        simp only [compileStmtList, bind, Except.bind] at hOk
+        simp only [compileStmtList] at hOk
+        unfold compileStmtListWithFork at hOk
+        simp only [bind, Except.bind] at hOk
         cases hHeadCompile : compileStmt fields events errors dynamicSource
             internalRetNames false inScopeNames [] head with
         | error err => simp [hHeadCompile] at hOk
@@ -4212,11 +4254,13 @@ mutual
     intro stmts hSource inScopeNames out hOk
     cases hSource with
     | nil =>
-        simp [compileStmtList, Pure.pure, Except.pure] at hOk
+        simp [compileStmtList, compileStmtListWithFork.eq_def, Pure.pure, Except.pure] at hOk
         subst out
         rfl
     | @cons head tail hHead hTail =>
-        simp only [compileStmtList, bind, Except.bind] at hOk
+        simp only [compileStmtList] at hOk
+        unfold compileStmtListWithFork at hOk
+        simp only [bind, Except.bind] at hOk
         cases hHeadCompile : compileStmt fields events errors dynamicSource
             internalRetNames true inScopeNames [] head with
         | error err => simp [hHeadCompile] at hOk
@@ -4277,7 +4321,7 @@ theorem compileStmt_setMapping2_singleSlot_bridged
         inScopeNames [] (.setMapping2 field key1 key2 value) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def] at hOk
   unfold compileSetMapping2 at hOk
   simp [hMapping2, hSlots] at hOk
   cases hKey1Expr : compileExpr fields dynamicSource key1 with
@@ -4344,7 +4388,7 @@ theorem compileStmt_setMapping2_singleSlot_noFuncDefs
         inScopeNames [] (.setMapping2 field key1 key2 value) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def] at hOk
   unfold compileSetMapping2 at hOk
   simp [hMapping2, hSlots] at hOk
   cases hKey1Expr : compileExpr fields dynamicSource key1 with
@@ -4439,7 +4483,7 @@ theorem compileStmt_setStorageAddr_singleSlot_bridged
         inScopeNames [] (.setStorageAddr field value) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def] at hOk
   unfold compileSetStorage at hOk
   simp [hNotMapping, hFind, hAddrTy] at hOk
   cases hExpr : compileExpr fields dynamicSource value with
@@ -4495,7 +4539,7 @@ theorem compileStmt_storageAddr_noFuncDefs
   intro stmt hStmt out hOk
   cases hStmt with
   | setStorageAddr field value f slot hValue hNotMapping hAddrTy hFind =>
-      simp only [compileStmt] at hOk
+      simp only [compileStmt, compileStmtWithFork.eq_def] at hOk
       unfold compileSetStorage at hOk
       simp [hNotMapping, hFind, hAddrTy] at hOk
       cases hExpr : compileExpr fields dynamicSource value with
@@ -4554,7 +4598,7 @@ theorem compileStmt_setStructMember_singleSlot_bridged
         inScopeNames [] (.setStructMember field key memberName value) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt, compileSetStructMember, hNotMapping2, hMembers,
+  simp only [compileStmt, compileStmtWithFork.eq_def, compileSetStructMember, hNotMapping2, hMembers,
     hFindMember, hUnpacked, hWordOffset, bind, Except.bind,
     Bool.false_eq_true, if_false] at hOk
   cases hKeyExpr : compileExpr fields dynamicSource key with
@@ -4609,7 +4653,7 @@ theorem compileStmt_setStructMember_singleSlot_noFuncDefs
         inScopeNames [] (.setStructMember field key memberName value) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt, compileSetStructMember, hNotMapping2, hMembers,
+  simp only [compileStmt, compileStmtWithFork.eq_def, compileSetStructMember, hNotMapping2, hMembers,
     hFindMember, hUnpacked, hWordOffset, bind, Except.bind,
     Bool.false_eq_true, if_false] at hOk
   cases hKeyExpr : compileExpr fields dynamicSource key with
@@ -4734,7 +4778,7 @@ theorem compileStmt_setStructMember_singleSlot_nonzero_bridged
         inScopeNames [] (.setStructMember field key memberName value) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt, compileSetStructMember, hNotMapping2, hMembers,
+  simp only [compileStmt, compileStmtWithFork.eq_def, compileSetStructMember, hNotMapping2, hMembers,
     hFindMember, hUnpacked, bind, Except.bind, Bool.false_eq_true,
     if_false] at hOk
   cases hKeyExpr : compileExpr fields dynamicSource key with
@@ -4787,7 +4831,7 @@ theorem compileStmt_setStructMember_singleSlot_nonzero_noFuncDefs
         inScopeNames [] (.setStructMember field key memberName value) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt, compileSetStructMember, hNotMapping2, hMembers,
+  simp only [compileStmt, compileStmtWithFork.eq_def, compileSetStructMember, hNotMapping2, hMembers,
     hFindMember, hUnpacked, bind, Except.bind, Bool.false_eq_true,
     if_false] at hOk
   cases hKeyExpr : compileExpr fields dynamicSource key with
@@ -4870,7 +4914,7 @@ theorem compileStmt_setStructMember2_singleSlot_bridged
         inScopeNames [] (.setStructMember2 field key1 key2 memberName value) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def] at hOk
   unfold compileSetStructMember2 at hOk
   simp [hMapping2, hMembers, hFindMember, hUnpacked, hWordOffset, hSlots] at hOk
   cases hKey1Expr : compileExpr fields dynamicSource key1 with
@@ -4946,7 +4990,7 @@ theorem compileStmt_setStructMember2_singleSlot_noFuncDefs
         inScopeNames [] (.setStructMember2 field key1 key2 memberName value) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def] at hOk
   unfold compileSetStructMember2 at hOk
   simp [hMapping2, hMembers, hFindMember, hUnpacked, hWordOffset, hSlots] at hOk
   cases hKey1Expr : compileExpr fields dynamicSource key1 with
@@ -5026,7 +5070,7 @@ theorem compileStmt_setStructMember2_singleSlot_nonzero_bridged
   have hBeq : (member.wordOffset == 0) = false := by
     rw [beq_eq_false_iff_ne]
     exact hNonzero
-  simp only [compileStmt] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def] at hOk
   unfold compileSetStructMember2 at hOk
   simp [hMapping2, hMembers, hFindMember, hUnpacked, hBeq, hSlots] at hOk
   cases hKey1Expr : compileExpr fields dynamicSource key1 with
@@ -5116,7 +5160,7 @@ theorem compileStmt_setStructMember2_singleSlot_nonzero_noFuncDefs
   have hBeq : (member.wordOffset == 0) = false := by
     rw [beq_eq_false_iff_ne]
     exact hNonzero
-  simp only [compileStmt] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def] at hOk
   unfold compileSetStructMember2 at hOk
   simp [hMapping2, hMembers, hFindMember, hUnpacked, hBeq, hSlots] at hOk
   cases hKey1Expr : compileExpr fields dynamicSource key1 with
@@ -5192,7 +5236,7 @@ theorem compileStmt_setMappingWord_singleSlot_bridged
       BridgedStmts out := by
   intro out hOk
   subst hWordOffset
-  simp only [compileStmt, bind, Except.bind] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
   cases hKeyExpr : compileExpr fields dynamicSource key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
@@ -5239,7 +5283,7 @@ theorem compileStmt_setMappingWord_singleSlot_noFuncDefs
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
   subst hWordOffset
-  simp only [compileStmt, bind, Except.bind] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
   cases hKeyExpr : compileExpr fields dynamicSource key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
@@ -5310,7 +5354,7 @@ theorem compileStmt_setMapping2Word_singleSlot_bridged
       BridgedStmts out := by
   intro out hOk
   subst hWordOffset
-  simp only [compileStmt] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def] at hOk
   unfold compileSetMapping2Word at hOk
   simp [hMapping2, hSlots] at hOk
   cases hKey1Expr : compileExpr fields dynamicSource key1 with
@@ -5381,7 +5425,7 @@ theorem compileStmt_setMapping2Word_singleSlot_noFuncDefs
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
   subst hWordOffset
-  simp only [compileStmt] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def] at hOk
   unfold compileSetMapping2Word at hOk
   simp [hMapping2, hSlots] at hOk
   cases hKey1Expr : compileExpr fields dynamicSource key1 with
@@ -5528,7 +5572,7 @@ private theorem compileStmt_returnValuesInternal_bridged
   intro out hOk
   have hLenFalse : (values.length != internalRetNames.length) = false := by
     simp [hLen]
-  simp only [compileStmt, hLenFalse, bind, Except.bind,
+  simp only [compileStmt, compileStmtWithFork.eq_def, hLenFalse, bind, Except.bind,
     Pure.pure, Except.pure] at hOk
   cases hCompiled : compileExprList fields dynamicSource values with
   | error err => simp [hCompiled] at hOk
@@ -5553,7 +5597,7 @@ private theorem compileStmt_returnValuesInternal_noFuncDefs
   intro out hOk
   have hLenFalse : (values.length != internalRetNames.length) = false := by
     simp [hLen]
-  simp only [compileStmt, hLenFalse, bind, Except.bind,
+  simp only [compileStmt, compileStmtWithFork.eq_def, hLenFalse, bind, Except.bind,
     Pure.pure, Except.pure] at hOk
   cases hCompiled : compileExprList fields dynamicSource values with
   | error err => simp [hCompiled] at hOk
@@ -5686,7 +5730,7 @@ private theorem compileStmt_returnValuesExternal_bridged
   intro out hOk
   by_cases hValuesNil : values = []
   · subst hValuesNil
-    simp [compileStmt, Pure.pure, Except.pure] at hOk
+    simp [compileStmt, compileStmtWithFork.eq_def, Pure.pure, Except.pure] at hOk
     subst hOk
     intro yulStmt hMem
     simp only [List.mem_singleton] at hMem
@@ -5696,7 +5740,7 @@ private theorem compileStmt_returnValuesExternal_bridged
         (BridgedExpr.lit 0) (BridgedExpr.lit 0))
   · have hEmptyFalse : values.isEmpty = false := by
       simp [hValuesNil]
-    simp only [compileStmt, hEmptyFalse, bind, Except.bind,
+    simp only [compileStmt, compileStmtWithFork.eq_def, hEmptyFalse, bind, Except.bind,
       Pure.pure, Except.pure] at hOk
     cases hCompiled : compileExprList fields dynamicSource values with
     | error err => simp [hCompiled] at hOk
@@ -5722,13 +5766,13 @@ private theorem compileStmt_returnValuesExternal_noFuncDefs
   intro out hOk
   by_cases hValuesNil : values = []
   · subst hValuesNil
-    simp [compileStmt, Pure.pure, Except.pure, Native.yulStmtContainsFuncDef]
+    simp [compileStmt, compileStmtWithFork.eq_def, Pure.pure, Except.pure, Native.yulStmtContainsFuncDef]
       at hOk
     subst out
     simp [Native.yulStmtContainsFuncDef]
   · have hEmptyFalse : values.isEmpty = false := by
       simp [hValuesNil]
-    simp only [compileStmt, hEmptyFalse, bind, Except.bind,
+    simp only [compileStmt, compileStmtWithFork.eq_def, hEmptyFalse, bind, Except.bind,
       Pure.pure, Except.pure] at hOk
     cases hCompiled : compileExprList fields dynamicSource values with
     | error err => simp [hCompiled] at hOk
@@ -5810,7 +5854,7 @@ private theorem compileStmt_mstore_bridged
         isInternal inScopeNames [] (.mstore offset value) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind, Pure.pure, Except.pure] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind, Pure.pure, Except.pure] at hOk
   cases hO : compileExpr fields dynamicSource offset with
   | error err => simp [hO] at hOk
   | ok compiledOffset =>
@@ -5840,7 +5884,7 @@ private theorem compileStmt_mstore_noFuncDefs
         isInternal inScopeNames [] (.mstore offset value) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind, Pure.pure, Except.pure] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind, Pure.pure, Except.pure] at hOk
   cases hO : compileExpr fields dynamicSource offset with
   | error err => simp [hO] at hOk
   | ok compiledOffset =>
@@ -5913,7 +5957,7 @@ private theorem compileStmt_tstore_bridged
         isInternal inScopeNames [] (.tstore offset value) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind, Pure.pure, Except.pure] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind, Pure.pure, Except.pure] at hOk
   cases hO : compileExpr fields dynamicSource offset with
   | error err => simp [hO] at hOk
   | ok compiledOffset =>
@@ -5943,7 +5987,7 @@ private theorem compileStmt_tstore_noFuncDefs
         isInternal inScopeNames [] (.tstore offset value) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind, Pure.pure, Except.pure] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind, Pure.pure, Except.pure] at hOk
   cases hO : compileExpr fields dynamicSource offset with
   | error err => simp [hO] at hOk
   | ok compiledOffset =>
@@ -6030,7 +6074,7 @@ theorem compileStmt_storageArrayPush_singleSlot_bridged
         inScopeNames [] (.storageArrayPush field value) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def] at hOk
   unfold compileStorageArrayPush at hOk
   unfold validateDynamicArrayField at hOk
   simp [hFind, hDynArr, bind, Except.bind] at hOk
@@ -6094,7 +6138,7 @@ private theorem compileStmt_storageArrayPush_singleSlot_noFuncDefs
         inScopeNames [] (.storageArrayPush field value) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def] at hOk
   unfold compileStorageArrayPush at hOk
   unfold validateDynamicArrayField at hOk
   simp [hFind, hDynArr, bind, Except.bind] at hOk
@@ -6186,7 +6230,7 @@ theorem compileStmt_storageArrayPop_singleSlot_bridged
         inScopeNames [] (.storageArrayPop field) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def] at hOk
   unfold compileStorageArrayPop at hOk
   unfold validateDynamicArrayField at hOk
   simp [hFind, hDynArr, bind, Except.bind, Pure.pure, Except.pure] at hOk
@@ -6264,7 +6308,7 @@ private theorem compileStmt_storageArrayPop_singleSlot_noFuncDefs
         inScopeNames [] (.storageArrayPop field) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def] at hOk
   unfold compileStorageArrayPop at hOk
   unfold validateDynamicArrayField at hOk
   simp [hFind, hDynArr, bind, Except.bind, Pure.pure, Except.pure] at hOk
@@ -6356,7 +6400,7 @@ theorem compileStmt_setStorageArrayElement_singleSlot_bridged
         inScopeNames [] (.setStorageArrayElement field index value) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def] at hOk
   unfold compileSetStorageArrayElement at hOk
   unfold validateDynamicArrayField at hOk
   simp [hFind, hDynArr, bind, Except.bind] at hOk
@@ -6442,7 +6486,7 @@ private theorem compileStmt_setStorageArrayElement_singleSlot_noFuncDefs
         inScopeNames [] (.setStorageArrayElement field index value) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def] at hOk
   unfold compileSetStorageArrayElement at hOk
   unfold validateDynamicArrayField at hOk
   simp [hFind, hDynArr, bind, Except.bind] at hOk
@@ -6534,7 +6578,7 @@ theorem compileStmt_setMappingWord_singleSlot_nonzero_bridged
         inScopeNames [] (.setMappingWord field key wordOffset value) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
   cases hKeyExpr : compileExpr fields dynamicSource key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
@@ -6580,7 +6624,7 @@ theorem compileStmt_setMappingWord_singleSlot_nonzero_noFuncDefs
         inScopeNames [] (.setMappingWord field key wordOffset value) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
   cases hKeyExpr : compileExpr fields dynamicSource key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
@@ -6655,7 +6699,7 @@ theorem compileStmt_setMapping2Word_singleSlot_nonzero_bridged
     cases wordOffset with
     | zero => exact absurd rfl hNonzero
     | succ n => rfl
-  simp only [compileStmt] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def] at hOk
   unfold compileSetMapping2Word at hOk
   simp [hMapping2, hSlots, hBeq] at hOk
   cases hKey1Expr : compileExpr fields dynamicSource key1 with
@@ -6741,7 +6785,7 @@ theorem compileStmt_setMapping2Word_singleSlot_nonzero_noFuncDefs
     cases wordOffset with
     | zero => exact absurd rfl hNonzero
     | succ n => rfl
-  simp only [compileStmt] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def] at hOk
   unfold compileSetMapping2Word at hOk
   simp [hMapping2, hSlots, hBeq] at hOk
   cases hKey1Expr : compileExpr fields dynamicSource key1 with
@@ -6850,7 +6894,7 @@ theorem compileStmt_setMappingChain_singleSlot_bridged
         inScopeNames [] (.setMappingChain field keys value) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def] at hOk
   unfold compileSetMappingChain at hOk
   simp [hMapping, hSlots] at hOk
   cases hKeyExprs : compileExprList fields dynamicSource keys with
@@ -6903,7 +6947,7 @@ private theorem compileStmt_setMappingChain_singleSlot_noFuncDefs
         inScopeNames [] (.setMappingChain field keys value) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def] at hOk
   unfold compileSetMappingChain at hOk
   simp [hMapping, hSlots] at hOk
   cases hKeyExprs : compileExprList fields dynamicSource keys with
@@ -7126,7 +7170,7 @@ theorem compileStmt_setMapping_multiSlot_bridged
         inScopeNames [] (.setMapping field key value) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
   cases hKeyExpr : compileExpr fields dynamicSource key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
@@ -7154,7 +7198,7 @@ theorem compileStmt_setMapping_multiSlot_noFuncDefs
         inScopeNames [] (.setMapping field key value) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
   cases hKeyExpr : compileExpr fields dynamicSource key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
@@ -7183,7 +7227,7 @@ theorem compileStmt_setMappingUint_multiSlot_bridged
         inScopeNames [] (.setMappingUint field key value) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
   cases hKeyExpr : compileExpr fields dynamicSource key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
@@ -7211,7 +7255,7 @@ theorem compileStmt_setMappingUint_multiSlot_noFuncDefs
         inScopeNames [] (.setMappingUint field key value) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
   cases hKeyExpr : compileExpr fields dynamicSource key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
@@ -7381,7 +7425,7 @@ theorem compileStmt_setMapping2_multiSlot_bridged
         inScopeNames [] (.setMapping2 field key1 key2 value) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def] at hOk
   unfold compileSetMapping2 at hOk
   simp [hMapping2, hSlots] at hOk
   cases hKey1Expr : compileExpr fields dynamicSource key1 with
@@ -7475,7 +7519,7 @@ theorem compileStmt_setMapping2_multiSlot_noFuncDefs
         inScopeNames [] (.setMapping2 field key1 key2 value) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def] at hOk
   unfold compileSetMapping2 at hOk
   simp [hMapping2, hSlots] at hOk
   cases hKey1Expr : compileExpr fields dynamicSource key1 with
@@ -7582,7 +7626,7 @@ theorem compileStmt_setStructMember_multiSlot_bridged
         inScopeNames [] (.setStructMember field key memberName value) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt, compileSetStructMember, hNotMapping2, hMembers,
+  simp only [compileStmt, compileStmtWithFork.eq_def, compileSetStructMember, hNotMapping2, hMembers,
     hFindMember, hUnpacked, hWordOffset, bind, Except.bind,
     Bool.false_eq_true, if_false] at hOk
   cases hKeyExpr : compileExpr fields dynamicSource key with
@@ -7618,7 +7662,7 @@ theorem compileStmt_setStructMember_multiSlot_noFuncDefs
         inScopeNames [] (.setStructMember field key memberName value) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt, compileSetStructMember, hNotMapping2, hMembers,
+  simp only [compileStmt, compileStmtWithFork.eq_def, compileSetStructMember, hNotMapping2, hMembers,
     hFindMember, hUnpacked, hWordOffset, bind, Except.bind,
     Bool.false_eq_true, if_false] at hOk
   cases hKeyExpr : compileExpr fields dynamicSource key with
@@ -7727,7 +7771,7 @@ theorem compileStmt_setStructMember2_multiSlot_bridged
           .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def] at hOk
   unfold compileSetStructMember2 at hOk
   simp [hMapping2, hMembers, hFindMember, hUnpacked, hWordOffset, hSlots] at hOk
   cases hKey1Expr : compileExpr fields dynamicSource key1 with
@@ -7827,7 +7871,7 @@ theorem compileStmt_setStructMember2_multiSlot_noFuncDefs
           .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def] at hOk
   unfold compileSetStructMember2 at hOk
   simp [hMapping2, hMembers, hFindMember, hUnpacked, hWordOffset, hSlots] at hOk
   cases hKey1Expr : compileExpr fields dynamicSource key1 with
@@ -7934,7 +7978,7 @@ theorem compileStmt_setMappingWord_multiSlot_bridged
       BridgedStmts out := by
   intro out hOk
   subst hWordOffset
-  simp only [compileStmt, bind, Except.bind] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
   cases hKeyExpr : compileExpr fields dynamicSource key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
@@ -7964,7 +8008,7 @@ theorem compileStmt_setMappingWord_multiSlot_noFuncDefs
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
   subst hWordOffset
-  simp only [compileStmt, bind, Except.bind] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
   cases hKeyExpr : compileExpr fields dynamicSource key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
@@ -8060,7 +8104,7 @@ theorem compileStmt_setMapping2Word_multiSlot_bridged
       BridgedStmts out := by
   intro out hOk
   subst hWordOffset
-  simp only [compileStmt] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def] at hOk
   unfold compileSetMapping2Word at hOk
   simp [hMapping2, hSlots] at hOk
   cases hKey1Expr : compileExpr fields dynamicSource key1 with
@@ -8153,7 +8197,7 @@ theorem compileStmt_setMapping2Word_multiSlot_noFuncDefs
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
   subst hWordOffset
-  simp only [compileStmt] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def] at hOk
   unfold compileSetMapping2Word at hOk
   simp [hMapping2, hSlots] at hOk
   cases hKey1Expr : compileExpr fields dynamicSource key1 with
@@ -8382,7 +8426,7 @@ theorem compileStmt_setMappingWord_multiSlot_nonzero_bridged
         inScopeNames [] (.setMappingWord field key wordOffset value) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
   cases hKeyExpr : compileExpr fields dynamicSource key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
@@ -8411,7 +8455,7 @@ theorem compileStmt_setMappingWord_multiSlot_nonzero_noFuncDefs
         inScopeNames [] (.setMappingWord field key wordOffset value) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
   cases hKeyExpr : compileExpr fields dynamicSource key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
@@ -8600,7 +8644,7 @@ theorem compileStmt_setMapping2Word_multiSlot_nonzero_bridged
     cases wordOffset with
     | zero => exact absurd rfl hNonzero
     | succ n => rfl
-  simp only [compileStmt] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def] at hOk
   unfold compileSetMapping2Word at hOk
   simp [hMapping2, hSlots, hBeq] at hOk
   cases hKey1Expr : compileExpr fields dynamicSource key1 with
@@ -8722,7 +8766,7 @@ theorem compileStmt_setMapping2Word_multiSlot_nonzero_noFuncDefs
     cases wordOffset with
     | zero => exact absurd rfl hNonzero
     | succ n => rfl
-  simp only [compileStmt] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def] at hOk
   unfold compileSetMapping2Word at hOk
   simp [hMapping2, hSlots, hBeq] at hOk
   cases hKey1Expr : compileExpr fields dynamicSource key1 with
@@ -8833,7 +8877,7 @@ theorem compileStmt_setStructMember_multiSlot_nonzero_bridged
         inScopeNames [] (.setStructMember field key memberName value) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt, compileSetStructMember, hNotMapping2, hMembers,
+  simp only [compileStmt, compileStmtWithFork.eq_def, compileSetStructMember, hNotMapping2, hMembers,
     hFindMember, hUnpacked, bind, Except.bind,
     Bool.false_eq_true, if_false] at hOk
   cases hKeyExpr : compileExpr fields dynamicSource key with
@@ -8870,7 +8914,7 @@ theorem compileStmt_setStructMember_multiSlot_nonzero_noFuncDefs
         inScopeNames [] (.setStructMember field key memberName value) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt, compileSetStructMember, hNotMapping2, hMembers,
+  simp only [compileStmt, compileStmtWithFork.eq_def, compileSetStructMember, hNotMapping2, hMembers,
     hFindMember, hUnpacked, bind, Except.bind,
     Bool.false_eq_true, if_false] at hOk
   cases hKeyExpr : compileExpr fields dynamicSource key with
@@ -8989,7 +9033,7 @@ theorem compileStmt_setStructMember2_multiSlot_nonzero_bridged
     cases h : member.wordOffset with
     | zero => exact absurd h hNonzero
     | succ n => rfl
-  simp only [compileStmt] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def] at hOk
   unfold compileSetStructMember2 at hOk
   simp [hMapping2, hMembers, hFindMember, hUnpacked, hBeq, hSlots] at hOk
   cases hKey1Expr : compileExpr fields dynamicSource key1 with
@@ -9116,7 +9160,7 @@ theorem compileStmt_setStructMember2_multiSlot_nonzero_noFuncDefs
     cases h : member.wordOffset with
     | zero => exact absurd h hNonzero
     | succ n => rfl
-  simp only [compileStmt] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def] at hOk
   unfold compileSetStructMember2 at hOk
   simp [hMapping2, hMembers, hFindMember, hUnpacked, hBeq, hSlots] at hOk
   cases hKey1Expr : compileExpr fields dynamicSource key1 with
@@ -9228,7 +9272,7 @@ theorem compileStmt_setMappingPackedWord_singleSlot_bridged
       BridgedStmts out := by
   intro out hOk
   subst hWordOffset
-  simp only [compileStmt, bind, Except.bind] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
   cases hKeyExpr : compileExpr fields dynamicSource key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
@@ -9340,7 +9384,7 @@ theorem compileStmt_setMappingPackedWord_singleSlot_noFuncDefs
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
   subst hWordOffset
-  simp only [compileStmt, bind, Except.bind] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
   cases hKeyExpr : compileExpr fields dynamicSource key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
@@ -9442,7 +9486,7 @@ theorem compileStmt_setMappingPackedWord_singleSlot_nonzero_bridged
     cases wordOffset with
     | zero => exact absurd rfl hNonzero
     | succ n => rfl
-  simp only [compileStmt, bind, Except.bind] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
   cases hKeyExpr : compileExpr fields dynamicSource key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
@@ -9571,7 +9615,7 @@ theorem compileStmt_setMappingPackedWord_singleSlot_nonzero_noFuncDefs
     cases wordOffset with
     | zero => exact absurd rfl hNonzero
     | succ n => rfl
-  simp only [compileStmt, bind, Except.bind] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
   cases hKeyExpr : compileExpr fields dynamicSource key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
@@ -9833,7 +9877,7 @@ theorem compileStmt_setMappingPackedWord_multiSlot_bridged
       BridgedStmts out := by
   intro out hOk
   subst hWordOffset
-  simp only [compileStmt, bind, Except.bind] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
   cases hKeyExpr : compileExpr fields dynamicSource key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
@@ -9897,7 +9941,7 @@ theorem compileStmt_setMappingPackedWord_multiSlot_noFuncDefs
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
   subst hWordOffset
-  simp only [compileStmt, bind, Except.bind] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
   cases hKeyExpr : compileExpr fields dynamicSource key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
@@ -10189,7 +10233,7 @@ theorem compileStmt_setMappingPackedWord_multiSlot_nonzero_bridged
     cases wordOffset with
     | zero => exact absurd rfl hNonzero
     | succ n => rfl
-  simp only [compileStmt, bind, Except.bind] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
   cases hKeyExpr : compileExpr fields dynamicSource key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
@@ -10256,7 +10300,7 @@ theorem compileStmt_setMappingPackedWord_multiSlot_nonzero_noFuncDefs
     cases wordOffset with
     | zero => exact absurd rfl hNonzero
     | succ n => rfl
-  simp only [compileStmt, bind, Except.bind] at hOk
+  simp only [compileStmt, compileStmtWithFork.eq_def, bind, Except.bind] at hOk
   cases hKeyExpr : compileExpr fields dynamicSource key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>

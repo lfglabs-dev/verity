@@ -5488,17 +5488,23 @@ theorem compileInternalFunction_output_shape
     | .error e => simp [hret] at hok
     | .ok returns =>
       simp only [hret] at hok
-      -- At this point `hok` should be about compileStmtList >>= pure funcDef = ok stmt
-      -- The private `freshInternalRetNames` is opaque; we just split on the
-      -- remaining compileStmtList result.
-      revert hok
-      generalize CompilationModel.compileStmtList _ _ _ _ _ _ _ _ _ = compileResult
-      intro hok
-      match compileResult with
-      | .error e => simp at hok
+      match hbody : CompilationModel.compileStmtListWithFork fields events errors
+          .calldata
+          (CompilationModel.freshInternalRetNames returns
+            (CompilationModel.internalFunctionYulParamNames spec.params ++
+              CompilationModel.collectStmtListBindNames spec.body))
+          true
+          (CompilationModel.internalFunctionYulParamNames spec.params ++
+            CompilationModel.freshInternalRetNames returns
+              (CompilationModel.internalFunctionYulParamNames spec.params ++
+                CompilationModel.collectStmtListBindNames spec.body))
+          adtTypes
+          Intrinsics.HardFork.cancun
+          spec.body with
+      | .error e => simp [hbody] at hok
       | .ok bodyStmts =>
-        simp only [pure, Except.pure, Except.ok.injEq] at hok
-        exact ⟨_, _, hok.symm⟩
+        simp [hbody, pure, Except.pure] at hok
+        exact ⟨_, bodyStmts, hok.symm⟩
 
 /-- If `compileInternalFunction` succeeds and the result is in the runtime
 contract's internal function table, then `findInternalFunction?` finds the
@@ -5573,7 +5579,7 @@ theorem compileStmt_internalCallAssign_shape
       CompilationModel.compileExprList fields .calldata args = Except.ok argExprs ∧
       compiledIR = [YulStmt.letMany names
         (YulExpr.call (CompilationModel.internalFunctionYulName functionName) argExprs)] := by
-  simp only [CompilationModel.compileStmt, bind, Except.bind] at hok
+  simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, bind, Except.bind] at hok
   match hargs : CompilationModel.compileExprList fields .calldata args with
   | .error e => simp [hargs] at hok
   | .ok argExprs =>
@@ -5594,7 +5600,7 @@ theorem compileStmt_internalCall_shape
       CompilationModel.compileExprList fields .calldata args = Except.ok argExprs ∧
       compiledIR = [YulStmt.expr
         (YulExpr.call (CompilationModel.internalFunctionYulName functionName) argExprs)] := by
-  simp only [CompilationModel.compileStmt, bind, Except.bind] at hok
+  simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, bind, Except.bind] at hok
   match hargs : CompilationModel.compileExprList fields .calldata args with
   | .error e => simp [hargs] at hok
   | .ok argExprs =>
