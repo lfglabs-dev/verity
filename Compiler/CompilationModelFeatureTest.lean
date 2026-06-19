@@ -2087,6 +2087,3406 @@ def sourceInternalCallArgsExpandStaticCompositeAndBytes : Bool :=
   | Except.error _ => false
   | _ => false
 
+def containsText (haystack needle : String) : Bool :=
+  let h := haystack.toList
+  let n := needle.toList
+  if n.isEmpty then true
+  else
+    let rec startsWithChars : List Char → List Char → Bool
+      | _, [] => true
+      | [], _ :: _ => false
+      | h :: hs, n :: ns => h == n && startsWithChars hs ns
+    let rec go : List Char → Bool
+      | [] => false
+      | chars@(_ :: rest) => startsWithChars chars n || go rest
+    go h
+
+def localExpandedForwardingRejected : Bool :=
+  match validateInternalCallSourceArgs
+      [{ name := "amounts", ty := ParamType.array ParamType.uint256 }]
+      "caller" "internal_echoAmounts"
+      [{ name := "amounts", ty := ParamType.array ParamType.uint256 }]
+      [Expr.localVar "amounts"] with
+  | Except.ok _ => false
+  | Except.error msg => containsText msg "direct parameter forwarding only"
+
+def mismatchedSourceParamTypeRejected : Bool :=
+  match validateInternalCallSourceArgs
+      [{ name := "flags", ty := ParamType.array ParamType.bool }]
+      "caller" "internal_echoAmounts"
+      [{ name := "amounts", ty := ParamType.array ParamType.uint256 }]
+      [Expr.param "flags"] with
+  | Except.ok _ => false
+  | Except.error msg => containsText msg "type/layout"
+
+def legacyExpandedArgsRequireExactNames : Bool :=
+  match validateInternalCallSourceArgs
+      [{ name := "amounts", ty := ParamType.array ParamType.uint256 }]
+      "caller" "internal_echoAmounts"
+      [{ name := "amounts", ty := ParamType.array ParamType.uint256 }]
+      [Expr.param "other_data_offset", Expr.param "amounts_length"] with
+  | Except.ok _ => false
+  | Except.error msg => containsText msg "no caller parameter has exact type/layout"
+
+def exprInternalCallArgsUseHelperSignature : Bool :=
+  let helper : FunctionSpec := {
+    name := "echoLength"
+    params := [{ name := "payload", ty := ParamType.bytes }]
+    returnType := some FieldType.uint256
+    body := [Stmt.return (Expr.arrayLength "payload")]
+    isInternal := true
+  }
+  match compileExprWithInternals [] .calldata [helper]
+      (Expr.internalCall "echoLength" [Expr.param "payload"]) with
+  | Except.ok
+      (YulExpr.call "internal_echoLength"
+        [YulExpr.ident "payload_data_offset", YulExpr.ident "payload_length"]) => true
+  | _ => false
+
+end InternalHelperDynamicArgs
+
+def compactAmountsAllocatesMemoryArray : Bool :=
+  let body := MacroDynamicArray.compactAmounts_modelBody
+  body.any (fun stmt =>
+    match stmt with
+    | Stmt.letVar "compacted_length" (Expr.localVar "count") => true
+    | _ => false) &&
+  body.any (fun stmt =>
+    match stmt with
+    | Stmt.letVar "compacted_data_offset"
+        (Expr.add (Expr.mload (Expr.literal 64)) (Expr.literal 32)) => true
+    | _ => false) &&
+  body.any (fun stmt =>
+    match stmt with
+    | Stmt.returnArray "compacted" => true
+    | _ => false)
+
+example : compactAmountsAllocatesMemoryArray = true := by native_decide
+
+def compactAmountsWritesMemoryArray : Bool :=
+  let body := MacroDynamicArray.compactAmounts_modelBody
+  body.any (fun stmt =>
+    match stmt with
+    | Stmt.forEach "i" (Expr.arrayLength "amounts") loopBody =>
+        loopBody.any (fun inner =>
+          match inner with
+          | Stmt.ite _ thenBranch _ =>
+              thenBranch.any (fun branchStmt =>
+                match branchStmt with
+                | Stmt.unsafeBlock "write memory-backed uint256 array element"
+                    [Stmt.mstore
+                      (Expr.add (Expr.localVar "compacted_data_offset")
+                        (Expr.mul (Expr.localVar "j") (Expr.literal 32)))
+                      (Expr.localVar "value")] =>
+                    true
+                | _ => false)
+          | _ => false)
+    | _ => false)
+
+example : compactAmountsWritesMemoryArray = true := by native_decide
+
+def echoRecipientsModelUsesReturnArray : Bool :=
+  match MacroDynamicArray.echoRecipients_modelBody with
+  | [Stmt.returnArray "recipients"] =>
+      true
+  | _ => false
+
+example : echoRecipientsModelUsesReturnArray = true := by native_decide
+
+def echoFlagsModelUsesReturnArray : Bool :=
+  match MacroDynamicArray.echoFlags_modelBody with
+  | [Stmt.returnArray "flags"] =>
+      true
+  | _ => false
+
+example : echoFlagsModelUsesReturnArray = true := by native_decide
+
+def countRecipientsExecutableUsesRuntimeHelper : Bool :=
+  match MacroDynamicArray.countRecipients #[(11 : Address), (17 : Address)] Verity.defaultState with
+  | .success count state =>
+      count == 2 && state.sender == Verity.defaultState.sender
+  | .revert _ _ => false
+
+example : countRecipientsExecutableUsesRuntimeHelper = true := by native_decide
+
+def firstRecipientExecutableUsesRuntimeHelper : Bool :=
+  match MacroDynamicArray.firstRecipient #[(11 : Address), (17 : Address)] Verity.defaultState with
+  | .success first state =>
+      first == (11 : Address) && state.sender == Verity.defaultState.sender
+  | .revert _ _ => false
+
+example : firstRecipientExecutableUsesRuntimeHelper = true := by native_decide
+
+def firstRecipientExecutableRevertsOutOfRange : Bool :=
+  match MacroDynamicArray.firstRecipient #[] Verity.defaultState with
+  | .success _ _ => false
+  | .revert msg state =>
+      msg == "Array index out of bounds" && state.sender == Verity.defaultState.sender
+
+example : firstRecipientExecutableRevertsOutOfRange = true := by native_decide
+
+def echoAmountsExecutableRoundTrips : Bool :=
+  match MacroDynamicArray.echoAmounts #[3, 5, 8] Verity.defaultState with
+  | .success amounts state =>
+      amounts == #[3, 5, 8] && state.sender == Verity.defaultState.sender
+  | .revert _ _ => false
+
+example : echoAmountsExecutableRoundTrips = true := by native_decide
+
+def echoRecipientsExecutableRoundTrips : Bool :=
+  match MacroDynamicArray.echoRecipients #[(11 : Address), (17 : Address)] Verity.defaultState with
+  | .success recipients state =>
+      recipients == #[(11 : Address), (17 : Address)] &&
+        state.sender == Verity.defaultState.sender
+  | .revert _ _ => false
+
+example : echoRecipientsExecutableRoundTrips = true := by native_decide
+
+verity_contract MacroStorageDynamicArray where
+  storage
+    queue : Array Uint256 := slot 7
+
+  function size () : Uint256 := do
+    let size ← getStorageArrayLength queue
+    return size
+
+  function firstValue () : Uint256 := do
+    let first ← getStorageArrayElement queue 0
+    return first
+
+  function pushValue (value : Uint256) : Unit := do
+    pushStorageArray queue value
+
+  function setValue0 (value : Uint256) : Unit := do
+    setStorageArrayElement queue 0 value
+
+  function popValue () : Unit := do
+    popStorageArray queue
+
+def storageDynamicArrayLengthUsesStorageExpr : Bool :=
+  match MacroStorageDynamicArray.size_modelBody with
+  | [Stmt.letVar "size" (Expr.storageArrayLength "queue"),
+      Stmt.return (Expr.localVar "size")] =>
+      true
+  | _ => false
+
+example : storageDynamicArrayLengthUsesStorageExpr = true := by native_decide
+
+def storageDynamicArrayElementUsesStorageExpr : Bool :=
+  match MacroStorageDynamicArray.firstValue_modelBody with
+  | [Stmt.letVar "first" (Expr.storageArrayElement "queue" (Expr.literal 0)),
+      Stmt.return (Expr.localVar "first")] =>
+      true
+  | _ => false
+
+example : storageDynamicArrayElementUsesStorageExpr = true := by native_decide
+
+def storageDynamicArrayPushUsesStorageStmt : Bool :=
+  match MacroStorageDynamicArray.pushValue_modelBody with
+  | [Stmt.storageArrayPush "queue" (Expr.param "value"), Stmt.stop] =>
+      true
+  | _ => false
+
+example : storageDynamicArrayPushUsesStorageStmt = true := by native_decide
+
+def storageDynamicArraySetUsesStorageStmt : Bool :=
+  match MacroStorageDynamicArray.setValue0_modelBody with
+  | [Stmt.setStorageArrayElement "queue" (Expr.literal 0) (Expr.param "value"), Stmt.stop] =>
+      true
+  | _ => false
+
+example : storageDynamicArraySetUsesStorageStmt = true := by native_decide
+
+def storageDynamicArrayPopUsesStorageStmt : Bool :=
+  match MacroStorageDynamicArray.popValue_modelBody with
+  | [Stmt.storageArrayPop "queue", Stmt.stop] =>
+      true
+  | _ => false
+
+example : storageDynamicArrayPopUsesStorageStmt = true := by native_decide
+
+def storageDynamicArrayExecutableReadsHead : Bool :=
+  let seededState : Verity.ContractState :=
+    { Verity.defaultState with
+      storageArray := fun idx =>
+        if idx == (MacroStorageDynamicArray.queue).slot then [11, 17] else [] }
+  match MacroStorageDynamicArray.firstValue seededState with
+  | .success value state =>
+      value == 11 && state.storageArray (MacroStorageDynamicArray.queue).slot == [11, 17]
+  | .revert _ _ => false
+
+example : storageDynamicArrayExecutableReadsHead = true := by native_decide
+
+def storageDynamicArrayExecutableReadRevertsOutOfBounds : Bool :=
+  match MacroStorageDynamicArray.firstValue Verity.defaultState with
+  | .success _ _ => false
+  | .revert msg state =>
+      msg == "Storage array index out of bounds" &&
+        state.storageArray (MacroStorageDynamicArray.queue).slot == []
+
+example : storageDynamicArrayExecutableReadRevertsOutOfBounds = true := by native_decide
+
+def storageDynamicArrayExecutableSetUpdatesHead : Bool :=
+  let seededState : Verity.ContractState :=
+    { Verity.defaultState with
+      storageArray := fun idx =>
+        if idx == (MacroStorageDynamicArray.queue).slot then [11, 17] else [] }
+  match MacroStorageDynamicArray.setValue0 29 seededState with
+  | .success () state =>
+      state.storageArray (MacroStorageDynamicArray.queue).slot == [29, 17]
+  | .revert _ _ => false
+
+example : storageDynamicArrayExecutableSetUpdatesHead = true := by native_decide
+
+def storageDynamicArrayExecutableSetRevertsOutOfBounds : Bool :=
+  match MacroStorageDynamicArray.setValue0 29 Verity.defaultState with
+  | .success _ _ => false
+  | .revert msg state =>
+      msg == "Storage array index out of bounds" &&
+        state.storageArray (MacroStorageDynamicArray.queue).slot == []
+
+example : storageDynamicArrayExecutableSetRevertsOutOfBounds = true := by native_decide
+
+def storageDynamicArrayExecutablePopShrinksLength : Bool :=
+  let seededState : Verity.ContractState :=
+    { Verity.defaultState with
+      storageArray := fun idx =>
+        if idx == (MacroStorageDynamicArray.queue).slot then [11, 17] else [] }
+  match MacroStorageDynamicArray.popValue seededState with
+  | .success () state =>
+      state.storageArray (MacroStorageDynamicArray.queue).slot == [11]
+  | .revert _ _ => false
+
+example : storageDynamicArrayExecutablePopShrinksLength = true := by native_decide
+
+def storageDynamicArrayExecutablePopRevertsWhenEmpty : Bool :=
+  match MacroStorageDynamicArray.popValue Verity.defaultState with
+  | .success _ _ => false
+  | .revert msg state =>
+      msg == "Storage array pop on empty array" &&
+        state.storageArray (MacroStorageDynamicArray.queue).slot == []
+
+example : storageDynamicArrayExecutablePopRevertsWhenEmpty = true := by native_decide
+
+end MacroDynamicArraySmoke
+
+namespace MacroEventTraceSmoke
+
+open Contracts
+open Verity hiding pure bind
+open Verity.EVM.Uint256
+
+verity_contract MacroEventTrace where
+  storage
+
+  struct Note where
+    npk : Uint256,
+    token : Address,
+    amount : Uint256
+
+  struct Transaction where
+    withdrawal : Note,
+    ciphertexts : Array Uint256
+
+  event_defs
+    event Transfer(@indexed amount : Uint256, total : Uint256)
+    event Amounts(total : Uint256, values : Array Uint256)
+    event MemoryAmounts(values : Array Uint256)
+    event NoteLogged(note : Note)
+
+  function emitNamed (amount : Uint256, bonus : Uint256) : Unit := do
+    emit "Transfer" [amount, add amount bonus]
+
+  function emitArray (total : Uint256, values : Array Uint256) : Unit := do
+    emit "Amounts" [total, values]
+
+  function emitMemoryArray (len : Uint256) : Unit := do
+    let values ← allocArray len
+    emit "MemoryAmounts" [values]
+
+  function emitNote (txn : Transaction) : Unit := do
+    emit "NoteLogged" [txn.withdrawal]
+
+  function emitDynamicLog
+      (topic0 : Uint256, topic1 : Uint256, dataOffset : Uint256, dataSize : Uint256) : Unit := do
+    rawLog [topic0, add topic1 1] dataOffset dataSize
+
+def emitNamedModelUsesStmtEmit : Bool :=
+  match MacroEventTrace.emitNamed_modelBody with
+  | [Stmt.emit "Transfer" [Expr.param "amount", Expr.add (Expr.param "amount") (Expr.param "bonus")],
+      Stmt.stop] =>
+      true
+  | _ => false
+
+example : emitNamedModelUsesStmtEmit = true := by native_decide
+
+def emitArrayModelUsesDynamicArrayParam : Bool :=
+  match MacroEventTrace.emitArray_modelBody with
+  | [Stmt.emit "Amounts" [Expr.param "total", Expr.param "values"],
+      Stmt.stop] =>
+      true
+  | _ => false
+
+example : emitArrayModelUsesDynamicArrayParam = true := by native_decide
+
+def emitMemoryArrayModelUsesMemoryArrayLength : Bool :=
+  let body := MacroEventTrace.emitMemoryArray_modelBody
+  body.any (fun stmt =>
+    match stmt with
+    | Stmt.letVar "values_length" (Expr.param "len") => true
+    | _ => false) &&
+  body.any (fun stmt =>
+    match stmt with
+    | Stmt.letVar "values_data_offset"
+        (Expr.add (Expr.mload (Expr.literal 64)) (Expr.literal 32)) => true
+    | _ => false) &&
+  body.any (fun stmt =>
+    match stmt with
+    | Stmt.emit "MemoryAmounts" [Expr.memoryArrayLength "values"] => true
+    | _ => false)
+
+example : emitMemoryArrayModelUsesMemoryArrayLength = true := by native_decide
+
+def emitNoteModelUsesProjectedStaticComposite : Bool :=
+  match MacroEventTrace.emitNote_modelBody with
+  | [Stmt.emit "NoteLogged" [Expr.paramDynamicStaticComposite "txn" 0],
+      Stmt.stop] =>
+      true
+  | _ => false
+
+example : emitNoteModelUsesProjectedStaticComposite = true := by native_decide
+
+def emitDynamicLogModelUsesStmtRawLog : Bool :=
+  match MacroEventTrace.emitDynamicLog_modelBody with
+  | [Stmt.rawLog
+        [Expr.param "topic0", Expr.add (Expr.param "topic1") (Expr.literal 1)]
+        (Expr.param "dataOffset")
+        (Expr.param "dataSize"),
+      Stmt.stop] =>
+      true
+  | _ => false
+
+example : emitDynamicLogModelUsesStmtRawLog = true := by native_decide
+
+def eventTraceSpecCarriesEventMetadata : Bool :=
+  MacroEventTrace.spec.events.any (fun ev =>
+    match ev with
+    | { name := "Transfer",
+        params := [
+          { name := "amount", ty := ParamType.uint256, kind := EventParamKind.indexed },
+          { name := "total", ty := ParamType.uint256, kind := EventParamKind.unindexed }
+        ] } => true
+    | _ => false) &&
+  MacroEventTrace.spec.events.any (fun ev =>
+    match ev with
+    | { name := "Amounts",
+        params := [
+          { name := "total", ty := ParamType.uint256, kind := EventParamKind.unindexed },
+          { name := "values", ty := ParamType.array ParamType.uint256, kind := EventParamKind.unindexed }
+        ] } => true
+    | _ => false) &&
+  MacroEventTrace.spec.events.any (fun ev =>
+    match ev with
+    | { name := "MemoryAmounts",
+        params := [
+          { name := "values", ty := ParamType.array ParamType.uint256, kind := EventParamKind.unindexed }
+        ] } => true
+    | _ => false)
+
+example : eventTraceSpecCarriesEventMetadata = true := by native_decide
+
+def emitNamedExecutableAppendsNamedEvent : Bool :=
+  match MacroEventTrace.emitNamed 7 5 Verity.defaultState with
+  | .success () state =>
+      match state.events with
+      | [{ name := "Transfer", args := [7, 12], indexedArgs := [] }] =>
+          state.sender == Verity.defaultState.sender
+      | _ => false
+  | .revert _ _ => false
+
+example : emitNamedExecutableAppendsNamedEvent = true := by native_decide
+
+def emitArrayExecutableAppendsArrayLengthPlaceholder : Bool :=
+  match MacroEventTrace.emitArray 7 #[11, 13] Verity.defaultState with
+  | .success () state =>
+      match state.events with
+      | [{ name := "Amounts", args := [7, 2], indexedArgs := [] }] =>
+          state.sender == Verity.defaultState.sender
+      | _ => false
+  | .revert _ _ => false
+
+example : emitArrayExecutableAppendsArrayLengthPlaceholder = true := by native_decide
+
+def emitMemoryArrayExecutableAppendsArrayLengthPlaceholder : Bool :=
+  match MacroEventTrace.emitMemoryArray 3 Verity.defaultState with
+  | .success () state =>
+      match state.events with
+      | [{ name := "MemoryAmounts", args := [3], indexedArgs := [] }] =>
+          state.sender == Verity.defaultState.sender
+      | _ => false
+  | .revert _ _ => false
+
+example : emitMemoryArrayExecutableAppendsArrayLengthPlaceholder = true := by native_decide
+
+def emitDynamicLogExecutableAppendsLowLevelTrace : Bool :=
+  match MacroEventTrace.emitDynamicLog 3 4 64 96 Verity.defaultState with
+  | .success () state =>
+      match state.events with
+      | [{ name := "log2", args := [64, 96], indexedArgs := [3, 5] }] =>
+          state.sender == Verity.defaultState.sender
+      | _ => false
+  | .revert _ _ => false
+
+example : emitDynamicLogExecutableAppendsLowLevelTrace = true := by native_decide
+
+def rawLogExecutableRejectsTooManyTopics : Bool :=
+  match rawLog [1, 2, 3, 4, 5] 0 32 Verity.defaultState with
+  | .revert msg state =>
+      msg == "rawLog supports at most 4 topics, got 5" &&
+        match state.events with
+        | [] => true
+        | _ => false
+  | .success _ _ => false
+
+example : rawLogExecutableRejectsTooManyTopics = true := by native_decide
+
+end MacroEventTraceSmoke
+
+private def expectTrue (label : String) (ok : Bool) : IO Unit := do
+  if !ok then
+    throw (IO.userError s!"✗ {label}")
+  IO.println s!"✓ {label}"
+
+private def contains (haystack needle : String) : Bool :=
+  let h := haystack.toList
+  let n := needle.toList
+  if n.isEmpty then true
+  else
+    let rec go : List Char → Bool
+      | [] => false
+      | c :: cs =>
+        if (c :: cs).take n.length == n then true
+        else go cs
+    go h
+
+private def countOccurrences (haystack needle : String) : Nat :=
+  let h := haystack.toList
+  let n := needle.toList
+  if n.isEmpty then 0
+  else
+    let rec go : List Char → Nat
+      | [] => 0
+      | c :: cs =>
+        if (c :: cs).take n.length == n then
+          1 + go cs
+        else
+          go cs
+    go h
+
+private def selectorCount (spec : CompilationModel) : Nat :=
+  (spec.functions.filter (fun fn => !fn.isInternal && fn.name != "fallback" && fn.name != "receive")).length
+
+private def selectorsFor (spec : CompilationModel) : List Nat :=
+  List.range (selectorCount spec)
+
+private def expectCompileErrorContains (label : String)
+    (spec : CompilationModel) (needle : String) : IO Unit := do
+  match Compiler.CompilationModel.compile spec (selectorsFor spec) with
+  | .ok _ =>
+      throw (IO.userError s!"✗ {label}: expected compile failure")
+  | .error msg =>
+      expectTrue label (contains msg needle)
+
+private def compileToYul (spec : CompilationModel) : Except String String := do
+  let contract ← Compiler.CompilationModel.compile spec (selectorsFor spec)
+  pure <| Compiler.Yul.render (Compiler.emitYulWithOptions contract {})
+
+private def expectCompile (label : String) (spec : CompilationModel) : IO Compiler.IRContract := do
+  match Compiler.CompilationModel.compile spec (selectorsFor spec) with
+  | .ok contract => pure contract
+  | .error err => throw (IO.userError s!"✗ {label} compile failed:\n{err}")
+
+private def expectCompileToYul (label : String) (spec : CompilationModel) : IO String := do
+  match compileToYul spec with
+  | .ok yul => pure yul
+  | .error err => throw (IO.userError s!"✗ {label} compile failed:\n{err}")
+
+private def selectorSmokeSpec : CompilationModel := {
+  name := "SelectorSmoke"
+  fields := [{ name := "value", ty := FieldType.uint256 }]
+  «constructor» := none
+  functions := [
+    { name := "store"
+      params := [{ name := "next", ty := ParamType.uint256 }]
+      returnType := none
+      body := [
+        Stmt.setStorage "value" (Expr.param "next"),
+        Stmt.stop
+      ]
+    },
+    { name := "load"
+      params := []
+      returnType := some FieldType.uint256
+      body := [Stmt.return (Expr.storage "value")]
+    }
+  ]
+}
+
+private def envRuntimeSmokeSpec : CompilationModel := {
+  name := "EnvRuntimeSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "selfValueTimestampNumberAndChainId"
+      params := []
+      returnType := none
+      returns := [ParamType.address, ParamType.uint256, ParamType.uint256, ParamType.uint256, ParamType.uint256, ParamType.uint256, ParamType.uint256]
+      body := [
+        Stmt.returnValues [Expr.contractAddress, Expr.msgValue, Expr.selfBalance, Expr.blockTimestamp, Expr.blockNumber, Expr.chainid, Expr.blobbasefee]
+      ]
+    }
+  ]
+}
+
+private def reservedParamSpec : CompilationModel := {
+  name := "ReservedParam"
+  fields := [{ name := "value", ty := FieldType.uint256 }]
+  «constructor» := none
+  functions := [
+    { name := "store"
+      params := [{ name := "__has_selector", ty := ParamType.uint256 }]
+      returnType := none
+      body := [
+        Stmt.setStorage "value" (Expr.param "__has_selector"),
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def duplicateInternalNameSpec : CompilationModel := {
+  name := "DuplicateInternalName"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "helper"
+      params := [{ name := "amount", ty := ParamType.uint256 }]
+      returnType := some FieldType.uint256
+      body := [Stmt.return (Expr.param "amount")]
+      isInternal := true
+    },
+    { name := "helper"
+      params := [{ name := "target", ty := ParamType.uint256 }]
+      returnType := some FieldType.uint256
+      body := [Stmt.return (Expr.literal 1)]
+      isInternal := true
+    }
+  ]
+}
+
+private def duplicateImmutableNameSpec : CompilationModel := {
+  name := "DuplicateImmutableName"
+  fields := []
+  «immutables» := [
+    { name := "cap", ty := ParamType.uint256, init := Expr.literal 1 },
+    { name := "cap", ty := ParamType.uint256, init := Expr.literal 2 }
+  ]
+  «constructor» := none
+  functions := []
+}
+
+private def uninitializedImmutableSpec : CompilationModel := {
+  name := "UninitializedImmutable"
+  fields := []
+  «immutables» := [
+    { name := "cap", ty := ParamType.uint256, init := Expr.literal 1 }
+  ]
+  «constructor» := some {
+    params := []
+    body := [Stmt.stop]
+  }
+  functions := [
+    { name := "load"
+      params := []
+      returnType := some FieldType.uint256
+      body := [Stmt.return (Expr.immutable "cap")]
+    }
+  ]
+}
+
+private def internalExternalNameCollisionSpec : CompilationModel := {
+  name := "InternalExternalNameCollision"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "helper"
+      params := [{ name := "amount", ty := ParamType.uint256 }]
+      returnType := some FieldType.uint256
+      body := [Stmt.return (Expr.param "amount")]
+    },
+    { name := "helper"
+      params := [{ name := "target", ty := ParamType.uint256 }]
+      returnType := some FieldType.uint256
+      body := [Stmt.return (Expr.literal 1)]
+      isInternal := true
+    }
+  ]
+}
+
+private def reservedFieldSpec : CompilationModel := {
+  name := "ReservedField"
+  fields := [{ name := "__compat_value", ty := FieldType.uint256 }]
+  «constructor» := none
+  functions := [
+    { name := "store"
+      params := [{ name := "next", ty := ParamType.uint256 }]
+      returnType := none
+      body := [
+        Stmt.setStorage "__compat_value" (Expr.param "next"),
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def reservedLocalBinderSpec : CompilationModel := {
+  name := "ReservedLocalBinder"
+  fields := [{ name := "value", ty := FieldType.uint256 }]
+  «constructor» := none
+  functions := [
+    { name := "store"
+      params := [{ name := "next", ty := ParamType.uint256 }]
+      returnType := none
+      body := [
+        Stmt.letVar "__has_selector" (Expr.param "next"),
+        Stmt.setStorage "value" (Expr.localVar "__has_selector"),
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def reservedAssignTargetSpec : CompilationModel := {
+  name := "ReservedAssignTarget"
+  fields := [{ name := "value", ty := FieldType.uint256 }]
+  «constructor» := none
+  functions := [
+    { name := "store"
+      params := [{ name := "next", ty := ParamType.uint256 }]
+      returnType := none
+      body := [
+        Stmt.assignVar "__compat_value" (Expr.param "next"),
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def reservedConstructorParamSpec : CompilationModel := {
+  name := "ReservedConstructorParam"
+  fields := [{ name := "value", ty := FieldType.uint256 }]
+  «constructor» := some {
+    params := [{ name := "__init", ty := ParamType.uint256 }]
+    body := [
+      Stmt.setStorage "value" (Expr.constructorArg 0),
+      Stmt.stop
+    ]
+  }
+  functions := [
+    { name := "load"
+      params := []
+      returnType := some FieldType.uint256
+      body := [Stmt.return (Expr.storage "value")]
+    }
+  ]
+}
+
+private def reservedForEachBinderSpec : CompilationModel := {
+  name := "ReservedForEachBinder"
+  fields := [{ name := "value", ty := FieldType.uint256 }]
+  «constructor» := none
+  functions := [
+    { name := "store"
+      params := []
+      returnType := none
+      body := [
+        Stmt.forEach "__loop_idx" (Expr.literal 1) [
+          Stmt.setStorage "value" (Expr.literal 1)
+        ],
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def reservedInternalAssignBinderSpec : CompilationModel := {
+  name := "ReservedInternalAssignBinder"
+  fields := [{ name := "value", ty := FieldType.uint256 }]
+  «constructor» := none
+  functions := [
+    { name := "helper"
+      params := [{ name := "next", ty := ParamType.uint256 }]
+      returnType := some FieldType.uint256
+      body := [Stmt.return (Expr.param "next")]
+      isInternal := true
+    },
+    { name := "store"
+      params := [{ name := "next", ty := ParamType.uint256 }]
+      returnType := none
+      body := [
+        Stmt.internalCallAssign ["__ret"] "helper" [Expr.param "next"],
+        Stmt.setStorage "value" (Expr.localVar "__ret"),
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def reservedExternalBindSpec : CompilationModel := {
+  name := "ReservedExternalBind"
+  fields := [{ name := "value", ty := FieldType.uint256 }]
+  «constructor» := none
+  functions := [
+    { name := "store"
+      params := [{ name := "next", ty := ParamType.uint256 }]
+      returnType := none
+      body := [
+        Stmt.externalCallBind ["__external_ret"] "echo" [Expr.param "next"],
+        Stmt.setStorage "value" (Expr.localVar "__external_ret"),
+        Stmt.stop
+      ]
+    }
+  ]
+  externals := [
+    { name := "echo"
+      params := [ParamType.uint256]
+      returnType := some ParamType.uint256
+      returns := [ParamType.uint256]
+      axiomNames := ["echo_matches_identity"]
+    }
+  ]
+}
+
+private def effectOnlyExternalBindSpec : CompilationModel := {
+  name := "EffectOnlyExternalBind"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "poke"
+      params := [{ name := "next", ty := ParamType.uint256 }]
+      returnType := none
+      reentrancyTrusted := true
+      body := [
+        Stmt.externalCallBind [] "notify" [Expr.param "next"],
+        Stmt.stop
+      ]
+    }
+  ]
+  externals := [
+    { name := "notify"
+      params := [ParamType.uint256]
+      returnType := none
+      returns := []
+      axiomNames := ["notify_effect_only"]
+    }
+  ]
+}
+
+private def effectOnlyExternalBindMismatchSpec : CompilationModel := {
+  name := "EffectOnlyExternalBindMismatch"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "store"
+      params := [{ name := "next", ty := ParamType.uint256 }]
+      returnType := none
+      body := [
+        Stmt.externalCallBind [] "echo" [Expr.param "next"],
+        Stmt.stop
+      ]
+    }
+  ]
+  externals := [
+    { name := "echo"
+      params := [ParamType.uint256]
+      returnType := some ParamType.uint256
+      returns := [ParamType.uint256]
+      axiomNames := ["echo_matches_identity"]
+    }
+  ]
+}
+
+private def reservedBuiltinExpExternalSpec : CompilationModel := {
+  name := "ReservedBuiltinExpExternal"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "scale"
+      params := [{ name := "exponent", ty := ParamType.uint256 }]
+      returnType := some FieldType.uint256
+      body := [Stmt.return (Expr.externalCall builtinExpName [Expr.literal 10, Expr.param "exponent"])]
+    }
+  ]
+  externals := [
+    { name := builtinExpName
+      params := [ParamType.uint256, ParamType.uint256]
+      returnType := some ParamType.uint256
+      returns := [ParamType.uint256]
+      axiomNames := ["malicious_shadow_exp"]
+    }
+  ]
+}
+
+private def rawLogTraceSmokeSpec : CompilationModel := {
+  name := "RawLogTraceSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "emitDynamicLog"
+      params := [
+        { name := "topic0", ty := ParamType.uint256 },
+        { name := "topic1", ty := ParamType.uint256 },
+        { name := "dataOffset", ty := ParamType.uint256 },
+        { name := "dataSize", ty := ParamType.uint256 }
+      ]
+      returnType := none
+      body := MacroEventTraceSmoke.MacroEventTrace.emitDynamicLog_modelBody
+    }
+  ]
+}
+
+private def rawLogTooManyTopicsSpec : CompilationModel := {
+  name := "RawLogTooManyTopics"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "bad"
+      params := []
+      returnType := none
+      body := [
+        Stmt.rawLog
+          [Expr.literal 1, Expr.literal 2, Expr.literal 3, Expr.literal 4, Expr.literal 5]
+          (Expr.literal 0)
+          (Expr.literal 32),
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def rawRevertSmokeSpec : CompilationModel := {
+  name := "RawRevertSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "fail"
+      params := [
+        { name := "offset", ty := ParamType.uint256 },
+        { name := "size", ty := ParamType.uint256 }
+      ]
+      returnType := none
+      body := [
+        Stmt.unsafeYul
+          (UnsafeYulFragment.rawRevert
+            (Compiler.Yul.YulExpr.ident "offset")
+            (Compiler.Yul.YulExpr.ident "size")
+            { name := "raw_revert_memory_slice_refinement"
+              obligation := "Caller-provided raw revert memory slice must refine the intended failure payload."
+              proofStatus := .assumed })
+      ]
+    }
+  ]
+}
+
+private def unsafeYulScopeObligation (name : String) : LocalObligation :=
+  { name := name
+    obligation := "Raw Yul scope effects must conservatively describe the Yul payload."
+    proofStatus := .assumed }
+
+private def unsafeYulRawCallExpr : Compiler.Yul.YulExpr :=
+  Compiler.Yul.YulExpr.call "call" [
+    Compiler.Yul.YulExpr.lit 5000,
+    Compiler.Yul.YulExpr.lit 0,
+    Compiler.Yul.YulExpr.lit 0,
+    Compiler.Yul.YulExpr.lit 0,
+    Compiler.Yul.YulExpr.lit 0,
+    Compiler.Yul.YulExpr.lit 0,
+    Compiler.Yul.YulExpr.lit 0
+  ]
+
+private def unsafeYulRawCallStmt : Stmt :=
+  Stmt.unsafeYul {
+    label := "raw_yul_call"
+    stmts := [Compiler.Yul.YulStmt.expr unsafeYulRawCallExpr]
+    obligations := [unsafeYulScopeObligation "raw_yul_call_obligation"]
+  }
+
+private def unsafeYulRawCallAllowedSpec : CompilationModel := {
+  name := "UnsafeYulRawCallAllowed"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "bad"
+      params := []
+      returnType := none
+      reentrancyTrusted := true
+      body := [unsafeYulRawCallStmt, Stmt.stop]
+    }
+  ]
+}
+
+def unsafeYulRawCallPropagatesCEI : Bool :=
+  match stmtListCEIViolation [
+      unsafeYulRawCallStmt,
+      Stmt.setStorage "value" (Expr.literal 1)
+    ] false with
+  | some msg => contains msg "state write after external call"
+  | none => false
+
+example : unsafeYulRawCallPropagatesCEI = true := by native_decide
+
+private def unsafeYulUnderDeclaredBindSpec : CompilationModel := {
+  name := "UnsafeYulUnderDeclaredBind"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "bad"
+      params := []
+      returnType := none
+      body := [
+        Stmt.unsafeYul {
+          label := "under_declared_bind"
+          stmts := [Compiler.Yul.YulStmt.let_ "tmp" (Compiler.Yul.YulExpr.lit 1)]
+          obligations := [unsafeYulScopeObligation "under_declared_bind_obligation"]
+        }
+      ]
+    }
+  ]
+}
+
+private def unsafeYulUnderDeclaredAssignSpec : CompilationModel := {
+  name := "UnsafeYulUnderDeclaredAssign"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "bad"
+      params := []
+      returnType := none
+      body := [
+        Stmt.letVar "tmp" (Expr.literal 0),
+        Stmt.unsafeYul {
+          label := "under_declared_assign"
+          stmts := [Compiler.Yul.YulStmt.assign "tmp" (Compiler.Yul.YulExpr.lit 1)]
+          obligations := [unsafeYulScopeObligation "under_declared_assign_obligation"]
+        }
+      ]
+    }
+  ]
+}
+
+private def unsafeYulUnderDeclaredStorageSpec : CompilationModel := {
+  name := "UnsafeYulUnderDeclaredStorage"
+  fields := [{ name := "value", ty := FieldType.uint256 }]
+  «constructor» := none
+  functions := [
+    { name := "bad"
+      params := []
+      returnType := none
+      body := [
+        Stmt.unsafeYul {
+          label := "under_declared_storage"
+          stmts := [
+            Compiler.Yul.YulStmt.expr
+              (Compiler.Yul.YulExpr.call "sstore" [Compiler.Yul.YulExpr.lit 0, Compiler.Yul.YulExpr.lit 1])
+          ]
+          obligations := [unsafeYulScopeObligation "under_declared_storage_obligation"]
+        }
+      ]
+    }
+  ]
+}
+
+private def unsafeYulTstoreMechanicViewRejectedSpec : CompilationModel := {
+  name := "UnsafeYulTstoreMechanicViewRejected"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "bad"
+      params := []
+      returnType := none
+      isView := true
+      body := [
+        Stmt.unsafeYul {
+          label := "declared_tstore_mechanic"
+          stmts := [Compiler.Yul.YulStmt.comment "mechanic-only tstore boundary"]
+          obligations := [unsafeYulScopeObligation "declared_tstore_mechanic_obligation"]
+          mechanics := [.tstore]
+        }
+      ]
+    }
+  ]
+}
+
+private def matchAdtAllBranchesTerminateSpec : CompilationModel := {
+  name := "MatchAdtAllBranchesTerminate"
+  fields := [{ name := "choice", ty := FieldType.adt "Choice" 1 }]
+  «constructor» := none
+  functions := [
+    { name := "pick"
+      params := []
+      returnType := some FieldType.uint256
+      body := [
+        Stmt.matchAdt "Choice" (Expr.adtTag "Choice" "choice") [
+          ("None", [], [Stmt.return (Expr.literal 0)]),
+          ("Some", ["amount"], [Stmt.return (Expr.localVar "amount")])
+        ]
+      ]
+    }
+  ]
+  adtTypes := [
+    { name := "Choice"
+      variants := [
+        { name := "None", tag := 0, fields := [] },
+        { name := "Some", tag := 1, fields := [{ name := "amount", ty := ParamType.uint256 }] }
+      ]
+    }
+  ]
+}
+
+private def returnValueStopRejectedSpec : CompilationModel := {
+  name := "ReturnValueStopRejected"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "bad"
+      params := []
+      returnType := some FieldType.uint256
+      body := [Stmt.stop]
+    }
+  ]
+}
+
+private def reservedEcmResultVarSpec : CompilationModel := {
+  name := "ReservedEcmResultVar"
+  fields := [{ name := "value", ty := FieldType.uint256 }]
+  «constructor» := none
+  functions := [
+    { name := "store"
+      params := []
+      returnType := none
+      body := [
+        Stmt.ecm
+          { name := "reservedResult"
+            numArgs := 0
+            resultVars := ["__ecm_result"]
+            writesState := false
+            readsState := false
+            compile := fun _ _ => pure []
+          }
+          [],
+        Stmt.setStorage "value" (Expr.localVar "__ecm_result"),
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def stringAbiSpec : CompilationModel := {
+  name := "StringABI"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "echo"
+      params := [{ name := "message", ty := ParamType.string }]
+      returnType := none
+      returns := [ParamType.string]
+      body := [Stmt.returnBytes "message"]
+    }
+    , { name := "echoAfterUint"
+        params := [{ name := "tag", ty := ParamType.uint256 }, { name := "message", ty := ParamType.string }]
+        returnType := none
+        returns := [ParamType.string]
+        body := [Stmt.returnBytes "message"]
+      }
+    , { name := "echoBeforeUint"
+        params := [{ name := "message", ty := ParamType.string }, { name := "tag", ty := ParamType.uint256 }]
+        returnType := none
+        returns := [ParamType.string]
+        body := [Stmt.returnBytes "message"]
+      }
+    , { name := "echoSecondString"
+        params := [{ name := "prefix", ty := ParamType.string }, { name := "message", ty := ParamType.string }]
+        returnType := none
+        returns := [ParamType.string]
+        body := [Stmt.returnBytes "message"]
+      }
+  ]
+  events := [
+    { name := "MessageLogged"
+      params := [{ name := "message", ty := ParamType.string, kind := EventParamKind.unindexed }]
+    }
+    , { name := "TaggedMessageLogged"
+        params := [
+          { name := "tag", ty := ParamType.uint256, kind := EventParamKind.indexed }
+        , { name := "message", ty := ParamType.string, kind := EventParamKind.unindexed }
+        ]
+      }
+    , { name := "IndexedMessageLogged"
+        params := [{ name := "message", ty := ParamType.string, kind := EventParamKind.indexed }]
+      }
+    , { name := "SecondMessageLogged"
+        params := [
+          { name := "prefix", ty := ParamType.string, kind := EventParamKind.unindexed }
+        , { name := "message", ty := ParamType.string, kind := EventParamKind.unindexed }
+        ]
+      }
+  ]
+  «errors» := [
+    { name := "BadMessage"
+      params := [ParamType.string]
+    }
+    , { name := "TaggedMessage"
+        params := [ParamType.uint256, ParamType.string]
+      }
+    , { name := "SecondMessage"
+        params := [ParamType.string, ParamType.string]
+      }
+  ]
+}
+
+private def stringReturnMismatchSpec : CompilationModel := {
+  name := "StringReturnMismatch"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "echo"
+      params := [{ name := "message", ty := ParamType.bytes }]
+      returnType := none
+      returns := [ParamType.string]
+      body := [Stmt.returnBytes "message"]
+    }
+  ]
+}
+
+private def stringEventMismatchSpec : CompilationModel := {
+  name := "StringEventMismatch"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "log"
+      params := [{ name := "message", ty := ParamType.bytes }]
+      returnType := none
+      body := [Stmt.emit "MessageLogged" [Expr.param "message"], Stmt.stop]
+    }
+  ]
+  events := [
+    { name := "MessageLogged"
+      params := [{ name := "message", ty := ParamType.string, kind := EventParamKind.unindexed }]
+    }
+  ]
+}
+
+private def memoryArrayEventSourceSpec : CompilationModel := {
+  name := "MemoryArrayEventSource"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "log"
+      params := []
+      returnType := none
+      body := [
+        Stmt.letVar "values_length" (Expr.literal 2),
+        Stmt.letVar "values_data_offset" (Expr.literal 128),
+        Stmt.emit "Amounts" [Expr.memoryArrayLength "values"],
+        Stmt.stop
+      ]
+    }
+  ]
+  events := [
+    { name := "Amounts"
+      params := [{ name := "values", ty := ParamType.array ParamType.uint256, kind := EventParamKind.unindexed }]
+    }
+  ]
+}
+
+private def projectedArrayEventSourceSpec : CompilationModel := {
+  name := "ProjectedArrayEventSource"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "log"
+      params := [{ name := "payload", ty := ParamType.tuple [ParamType.array ParamType.uint256] }]
+      returnType := none
+      body := [
+        Stmt.emit "Amounts" [Expr.paramDynamicMemberLength "payload" 0],
+        Stmt.stop
+      ]
+    }
+  ]
+  events := [
+    { name := "Amounts"
+      params := [{ name := "values", ty := ParamType.array ParamType.uint256, kind := EventParamKind.unindexed }]
+    }
+  ]
+}
+
+private def projectedStaticCompositeEventSourceSpec : CompilationModel := {
+  name := "ProjectedStaticCompositeEventSource"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "log"
+      params := [
+        { name := "payload",
+          ty := ParamType.tuple [
+            ParamType.tuple [ParamType.uint256, ParamType.address, ParamType.uint256],
+            ParamType.array ParamType.uint256
+          ] }
+      ]
+      returnType := none
+      body := [
+        Stmt.emit "NoteLogged" [Expr.paramDynamicStaticComposite "payload" 0],
+        Stmt.stop
+      ]
+    }
+  ]
+  events := [
+    { name := "NoteLogged"
+      params := [
+        { name := "note",
+          ty := ParamType.tuple [ParamType.uint256, ParamType.address, ParamType.uint256],
+          kind := EventParamKind.unindexed }
+      ]
+    }
+  ]
+}
+
+private def eventEncodingRegressionSpec : CompilationModel := {
+  name := "EventEncodingRegression"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "log"
+      params := [
+        { name := "choice", ty := ParamType.adt "Choice" 2 },
+        { name := "who", ty := ParamType.newtypeOf "SafeAddress" ParamType.address }
+      ]
+      returnType := none
+      body := [
+        Stmt.emit "ChoiceStored" [Expr.param "choice"],
+        Stmt.emit "ChoiceIndexed" [Expr.param "choice"],
+        Stmt.emit "WhoIndexed" [Expr.param "who"],
+        Stmt.stop
+      ]
+    }
+  ]
+  events := [
+    { name := "ChoiceStored"
+      params := [{ name := "choice", ty := ParamType.adt "Choice" 2, kind := EventParamKind.unindexed }]
+    },
+    { name := "ChoiceIndexed"
+      params := [{ name := "choice", ty := ParamType.adt "Choice" 2, kind := EventParamKind.indexed }]
+    },
+    { name := "WhoIndexed"
+      params := [{ name := "who", ty := ParamType.newtypeOf "SafeAddress" ParamType.address, kind := EventParamKind.indexed }]
+    }
+  ]
+  adtTypes := [
+    { name := "Choice"
+      variants := [
+        { name := "None", tag := 0, fields := [] },
+        { name := "Some", tag := 1, fields := [
+          { name := "amount", ty := ParamType.uint256 },
+          { name := "recipient", ty := ParamType.address }
+        ] }
+      ]
+    }
+  ]
+}
+
+private def adtParamPayloadNameCollisionSpec : CompilationModel := {
+  name := "AdtParamPayloadNameCollision"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "store"
+      params := [
+        { name := "choice", ty := ParamType.adt "Choice" 1 },
+        { name := "choice_f0", ty := ParamType.uint256 }
+      ]
+      returnType := none
+      body := [Stmt.stop]
+    }
+  ]
+  adtTypes := [
+    { name := "Choice"
+      variants := [
+        { name := "None", tag := 0, fields := [] },
+        { name := "Some", tag := 1, fields := [{ name := "amount", ty := ParamType.uint256 }] }
+      ]
+    }
+  ]
+}
+
+private def adtAliasPayloadReservedSlotSpec : CompilationModel := {
+  name := "AdtAliasPayloadReservedSlot"
+  fields := [
+    { name := "choice", ty := FieldType.adt "Choice" 2, «slot» := some 10, aliasSlots := [100] }
+  ]
+  reservedSlotRanges := [{ start := 101, end_ := 101 }]
+  «constructor» := none
+  functions := [
+    { name := "noop"
+      params := []
+      returnType := none
+      body := [Stmt.stop]
+    }
+  ]
+  adtTypes := [
+    { name := "Choice"
+      variants := [
+        { name := "None", tag := 0, fields := [] },
+        { name := "Some", tag := 1, fields := [
+          { name := "amount", ty := ParamType.uint256 },
+          { name := "recipient", ty := ParamType.address }
+        ] }
+      ]
+    }
+  ]
+}
+
+private def adtAliasPayloadMemoizesExprSpec : CompilationModel := {
+  name := "AdtAliasPayloadMemoizesExpr"
+  fields := [
+    { name := "choice", ty := FieldType.adt "Choice" 1, «slot» := some 10, aliasSlots := [100] }
+  ]
+  «constructor» := none
+  functions := [
+    { name := "store"
+      params := [{ name := "input", ty := ParamType.uint256 }]
+      returnType := none
+      allowPostInteractionWrites := true
+      reentrancyTrusted := true
+      body := [
+        Stmt.setStorage "choice"
+          (Expr.adtConstruct "Choice" "Some" [Expr.externalCall "echo" [Expr.param "input"]]),
+        Stmt.stop
+      ]
+    }
+  ]
+  externals := [
+    { name := "echo"
+      params := [ParamType.uint256]
+      returnType := some ParamType.uint256
+      returns := [ParamType.uint256]
+      axiomNames := ["echo_matches_identity"]
+    }
+  ]
+  adtTypes := [
+    { name := "Choice"
+      variants := [
+        { name := "None", tag := 0, fields := [] },
+        { name := "Some", tag := 1, fields := [{ name := "amount", ty := ParamType.uint256 }] }
+      ]
+    }
+  ]
+}
+
+-- Regression tests for Bugbot MEDIUM issues in PR #2016 (task/1889-internal-helper-args):
+-- (a) internal helper calls inside fallback body must receive the real internal-functions table.
+--     Fallback has no named typed params, so dynamic/composite arg forwarding is covered by the
+--     external-entry fixture below.
+-- (b) internal helper call inside ADT ctor payload for setStorage must thread internals through
+--     compileAdtStorageWrite (not compileExprList) => correct expansion.
+private def fallbackInternalCallSpec : CompilationModel := {
+  name := "FallbackInternalCallRegression"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "internal_value"
+      params := []
+      returnType := some FieldType.uint256
+      isInternal := true
+      body := [Stmt.return (Expr.literal 1)]
+    },
+    { name := "fallback"
+      params := []
+      returnType := none
+      body := [
+        Stmt.return (Expr.internalCall "internal_value" [])
+      ]
+    }
+  ]
+}
+
+private def entryInternalDynamicArgSpec : CompilationModel := {
+  name := "EntryInternalDynamicArgRegression"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "internal_first"
+      params := [{ name := "xs", ty := ParamType.array ParamType.uint256 }]
+      returnType := some FieldType.uint256
+      isInternal := true
+      body := [Stmt.return (Expr.arrayElement "xs" (Expr.literal 0))]
+    },
+    { name := "entry"
+      params := [{ name := "xs", ty := ParamType.array ParamType.uint256 }]
+      returnType := some FieldType.uint256
+      body := [
+        Stmt.return (Expr.internalCall "internal_first" [Expr.param "xs"])
+      ]
+    }
+  ]
+}
+
+private def newtypeInternalDynamicArgSpec : CompilationModel := {
+  name := "NewtypeInternalDynamicArgRegression"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "internal_length"
+      params := [{ name := "xs", ty := ParamType.newtypeOf "Amounts" (ParamType.array ParamType.uint256) }]
+      returnType := some FieldType.uint256
+      isInternal := true
+      body := [Stmt.return (Expr.param "xs_length")]
+    },
+    { name := "entry"
+      params := [{ name := "xs", ty := ParamType.newtypeOf "Amounts" (ParamType.array ParamType.uint256) }]
+      returnType := some FieldType.uint256
+      body := [
+        Stmt.return (Expr.internalCall "internal_length" [Expr.param "xs"])
+      ]
+    }
+  ]
+}
+
+private def adtStorageInternalDynamicArgSpec : CompilationModel := {
+  name := "AdtStorageInternalDynamicArgRegression"
+  fields := [
+    { name := "choice", ty := FieldType.adt "Choice" 1, «slot» := some 10, aliasSlots := [] }
+  ]
+  «constructor» := none
+  functions := [
+    { name := "internal_first"
+      params := [{ name := "xs", ty := ParamType.array ParamType.uint256 }]
+      returnType := some FieldType.uint256
+      isInternal := true
+      body := [Stmt.return (Expr.arrayElement "xs" (Expr.literal 0))]
+    },
+    { name := "storeDyn"
+      params := [{ name := "xs", ty := ParamType.array ParamType.uint256 }]
+      returnType := none
+      body := [
+        Stmt.setStorage "choice"
+          (Expr.adtConstruct "Choice" "Some" [Expr.internalCall "internal_first" [Expr.param "xs"]]),
+        Stmt.stop
+      ]
+    }
+  ]
+  adtTypes := [
+    { name := "Choice"
+      variants := [
+        { name := "None", tag := 0, fields := [] },
+        { name := "Some", tag := 1, fields := [{ name := "amount", ty := ParamType.uint256 }] }
+      ]
+    }
+  ]
+}
+
+private def ceiInitialInternalCallAllowedSpec : CompilationModel := {
+  name := "CEIInitialInternalCallAllowed"
+  fields := [{ name := "value", ty := FieldType.uint256 }]
+  «constructor» := none
+  functions := [
+    { name := "helper"
+      params := []
+      returnType := none
+      isInternal := true
+      body := [Stmt.setStorage "value" (Expr.literal 1), Stmt.stop]
+    },
+    { name := "run"
+      params := []
+      returnType := none
+      body := [Stmt.internalCall "helper" [], Stmt.stop]
+    }
+  ]
+}
+
+private def viewInternalReadInferenceSpec : CompilationModel := {
+  name := "ViewInternalReadInference"
+  fields := [{ name := "value", ty := FieldType.uint256 }]
+  «constructor» := none
+  functions := [
+    { name := "helper"
+      params := []
+      returnType := some FieldType.uint256
+      isInternal := true
+      body := [Stmt.return (Expr.storage "value")]
+    },
+    { name := "peek"
+      params := []
+      returnType := some FieldType.uint256
+      isView := true
+      body := [Stmt.return (Expr.internalCall "helper" [])]
+    }
+  ]
+}
+
+private def viewInternalWriteRejectedSpec : CompilationModel := {
+  name := "ViewInternalWriteRejected"
+  fields := [{ name := "value", ty := FieldType.uint256 }]
+  «constructor» := none
+  functions := [
+    { name := "helper"
+      params := []
+      returnType := none
+      isInternal := true
+      body := [Stmt.setStorage "value" (Expr.literal 1), Stmt.stop]
+    },
+    { name := "peek"
+      params := []
+      returnType := none
+      isView := true
+      body := [Stmt.internalCall "helper" [], Stmt.stop]
+    }
+  ]
+}
+
+private def pureInternalCallInferenceSpec : CompilationModel := {
+  name := "PureInternalCallInference"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "helper"
+      params := [{ name := "value", ty := ParamType.uint256 }]
+      returnType := some FieldType.uint256
+      isInternal := true
+      body := [Stmt.return (Expr.add (Expr.param "value") (Expr.literal 1))]
+    },
+    { name := "next"
+      params := [{ name := "value", ty := ParamType.uint256 }]
+      returnType := some FieldType.uint256
+      isPure := true
+      body := [Stmt.return (Expr.internalCall "helper" [Expr.param "value"])]
+    }
+  ]
+}
+
+private def pureInternalReadRejectedSpec : CompilationModel := {
+  name := "PureInternalReadRejected"
+  fields := [{ name := "value", ty := FieldType.uint256 }]
+  «constructor» := none
+  functions := [
+    { name := "helper"
+      params := []
+      returnType := some FieldType.uint256
+      isInternal := true
+      body := [Stmt.return (Expr.storage "value")]
+    },
+    { name := "peek"
+      params := []
+      returnType := some FieldType.uint256
+      isPure := true
+      body := [Stmt.return (Expr.internalCall "helper" [])]
+    }
+  ]
+}
+
+private def ceiEcmWriteAfterCallRejectedSpec : CompilationModel := {
+  name := "CEIEcmWriteAfterCallRejected"
+  fields := [{ name := "value", ty := FieldType.uint256 }]
+  «constructor» := none
+  functions := [
+    { name := "run"
+      params := []
+      returnType := none
+      body := [
+        Stmt.externalCallBind [] "notify" [],
+        Stmt.ecm
+          { name := "writeEffect"
+            numArgs := 0
+            resultVars := []
+            writesState := true
+            readsState := false
+            compile := fun _ _ => pure []
+          }
+          [],
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def addressArrayReturnSpec : CompilationModel := {
+  name := "AddressArrayReturn"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "echo"
+      params := [{ name := "recipients", ty := ParamType.array ParamType.address }]
+      returnType := none
+      returns := [ParamType.array ParamType.address]
+      body := [Stmt.returnArray "recipients"]
+    }
+  ]
+}
+
+private def internalAddressArrayReturnSpec : CompilationModel := {
+  name := "InternalAddressArrayReturn"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "echoArray"
+      params := [{ name := "recipients", ty := ParamType.array ParamType.address }]
+      returnType := none
+      returns := [ParamType.array ParamType.address]
+      body := [Stmt.returnArray "recipients"]
+      isInternal := true
+    },
+    { name := "countEchoed"
+      params := [{ name := "recipients", ty := ParamType.array ParamType.address }]
+      returnType := some FieldType.address
+      body := [
+        Stmt.internalCallAssign
+          ["echoed_data_offset", "echoed_length"]
+          "echoArray"
+          [Expr.param "recipients_data_offset", Expr.param "recipients_length"],
+        Stmt.return (Expr.memoryArrayElement "echoed" (Expr.literal 0))
+      ]
+    }
+  ]
+}
+
+private def addressStorageWordReturnSpec : CompilationModel := {
+  name := "AddressStorageWordReturn"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "extSloadsLike"
+      params := [{ name := "slots", ty := ParamType.array ParamType.address }]
+      returnType := none
+      returns := [ParamType.array ParamType.uint256]
+      body := [Stmt.returnStorageWords "slots"]
+    }
+  ]
+}
+
+private def boolStorageWordReturnSpec : CompilationModel := {
+  name := "BoolStorageWordReturn"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "extSloadsLike"
+      params := [{ name := "slots", ty := ParamType.array ParamType.bool }]
+      returnType := none
+      returns := [ParamType.array ParamType.uint256]
+      body := [Stmt.returnStorageWords "slots"]
+    }
+  ]
+}
+
+private def bytesStorageWordReturnSpec : CompilationModel := {
+  name := "BytesStorageWordReturn"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "extSloadsLike"
+      params := [{ name := "slots", ty := ParamType.array ParamType.bytes }]
+      returnType := none
+      returns := [ParamType.array ParamType.uint256]
+      body := [Stmt.returnStorageWords "slots"]
+    }
+  ]
+}
+
+private def bytesArrayReturnSpec : CompilationModel := {
+  name := "BytesArrayReturn"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "echo"
+      params := [{ name := "calls", ty := ParamType.array ParamType.bytes }]
+      returnType := none
+      returns := [ParamType.array ParamType.bytes]
+      body := [Stmt.returnArray "calls"]
+    }
+  ]
+}
+
+private def bytesArrayElementSpec : CompilationModel := {
+  name := "BytesArrayElement"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "headWord"
+      params := [{ name := "calls", ty := ParamType.array ParamType.bytes }]
+      returnType := some FieldType.uint256
+      body := [Stmt.return (Expr.arrayElement "calls" (Expr.literal 0))]
+    }
+  ]
+}
+
+private def bytesArrayElementWordSpec : CompilationModel := {
+  name := "BytesArrayElementWord"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "headWord"
+      params := [{ name := "calls", ty := ParamType.array ParamType.bytes }]
+      returnType := some FieldType.uint256
+      body := [Stmt.return (Expr.arrayElementWord "calls" (Expr.literal 0) 1 0)]
+    }
+  ]
+}
+
+private def uintArrayElementOnlySpec : CompilationModel := {
+  name := "UintArrayElementOnly"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "head"
+      params := [{ name := "values", ty := ParamType.array ParamType.uint256 }]
+      returnType := some FieldType.uint256
+      body := [Stmt.return (Expr.arrayElement "values" (Expr.literal 0))]
+    }
+  ]
+}
+
+private def uintArrayForEachAccumulatorSpec : CompilationModel := {
+  name := "UintArrayForEachAccumulator"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "sum"
+      params := [{ name := "values", ty := ParamType.array ParamType.uint256 }]
+      returnType := some FieldType.uint256
+      body := [
+        Stmt.letVar "total" (Expr.literal 0),
+        Stmt.forEach "i" (Expr.arrayLength "values") [
+          Stmt.letVar "value" (Expr.arrayElement "values" (Expr.localVar "i")),
+          Stmt.assignVar "total" (Expr.add (Expr.localVar "total") (Expr.localVar "value"))
+        ],
+        Stmt.return (Expr.localVar "total")
+      ]
+    }
+  ]
+}
+
+private def tupleArrayElementWordOnlySpec : CompilationModel := {
+  name := "TupleArrayElementWordOnly"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "second"
+      params := [{ name := "values", ty := ParamType.array (ParamType.tuple [ParamType.uint256, ParamType.uint256]) }]
+      returnType := some FieldType.uint256
+      body := [Stmt.return (Expr.arrayElementWord "values" (Expr.literal 0) 2 1)]
+    }
+  ]
+}
+
+private def arrayElementWordStorageIndexSpec : CompilationModel := {
+  name := "ArrayElementWordStorageIndex"
+  fields := [{ name := "queue", ty := FieldType.dynamicArray .uint256, «slot» := some 7 }]
+  «constructor» := none
+  functions := [
+    { name := "selected"
+      params := [{ name := "values", ty := ParamType.array (ParamType.tuple [ParamType.uint256, ParamType.uint256]) }]
+      returnType := some FieldType.uint256
+      body := [
+        Stmt.return
+          (Expr.arrayElementWord "values"
+            (Expr.storageArrayElement "queue" (Expr.literal 0)) 2 1)
+      ]
+    }
+  ]
+}
+
+private def storageArrayUint256SmokeSpec : CompilationModel := {
+  name := "StorageArrayUint256Smoke"
+  fields := [{ name := "queue", ty := FieldType.dynamicArray .uint256, «slot» := some 7 }]
+  «constructor» := none
+  functions := [
+    { name := "size"
+      params := []
+      returnType := some FieldType.uint256
+      body := [Stmt.return (Expr.storageArrayLength "queue")]
+    },
+    { name := "head"
+      params := []
+      returnType := some FieldType.uint256
+      body := [Stmt.return (Expr.storageArrayElement "queue" (Expr.literal 0))]
+    },
+    { name := "enqueue"
+      params := [{ name := "value", ty := ParamType.uint256 }]
+      returnType := none
+      body := [Stmt.storageArrayPush "queue" (Expr.param "value"), Stmt.stop]
+    },
+    { name := "setHead"
+      params := [{ name := "value", ty := ParamType.uint256 }]
+      returnType := none
+      body := [Stmt.setStorageArrayElement "queue" (Expr.literal 0) (Expr.param "value"), Stmt.stop]
+    },
+    { name := "dequeue"
+      params := []
+      returnType := none
+      body := [Stmt.storageArrayPop "queue", Stmt.stop]
+    }
+  ]
+}
+
+private def storageArrayBoolSmokeSpec : CompilationModel := {
+  name := "StorageArrayBoolSmoke"
+  fields := [{ name := "flags", ty := FieldType.dynamicArray .bool, «slot» := some 9 }]
+  «constructor» := none
+  functions := [
+    { name := "firstFlag"
+      params := []
+      returnType := none
+      returns := [ParamType.bool]
+      body := [Stmt.return (Expr.storageArrayElement "flags" (Expr.literal 0))]
+    },
+    { name := "pushFlag"
+      params := [{ name := "flag", ty := ParamType.bool }]
+      returnType := none
+      body := [Stmt.storageArrayPush "flags" (Expr.param "flag"), Stmt.stop]
+    },
+    { name := "setFirstFlag"
+      params := [{ name := "flag", ty := ParamType.bool }]
+      returnType := none
+      body := [Stmt.setStorageArrayElement "flags" (Expr.literal 0) (Expr.param "flag"), Stmt.stop]
+    }
+  ]
+}
+
+private def ecrecoverSmokeSpec : CompilationModel := {
+  name := "EcrecoverSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "recover"
+      params := [
+        { name := "hash", ty := ParamType.bytes32 }
+        , { name := "v", ty := ParamType.uint256 }
+        , { name := "r", ty := ParamType.bytes32 }
+        , { name := "s", ty := ParamType.bytes32 }
+      ]
+      returnType := none
+      returns := [ParamType.address]
+      body := [
+        Compiler.Modules.Precompiles.ecrecover
+          "signer"
+          (Expr.param "hash")
+          (Expr.param "v")
+          (Expr.param "r")
+          (Expr.param "s"),
+        Stmt.returnValues [Expr.localVar "signer"]
+      ]
+    }
+  ]
+}
+
+private def sha256MemorySmokeSpec : CompilationModel := {
+  name := "Sha256MemorySmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "hash"
+      params := [
+        { name := "inputOffset", ty := ParamType.uint256 }
+        , { name := "inputSize", ty := ParamType.uint256 }
+        , { name := "outputOffset", ty := ParamType.uint256 }
+      ]
+      returnType := none
+      returns := [ParamType.bytes32]
+      body := [
+        Compiler.Modules.Precompiles.sha256
+          "digest"
+          (Expr.param "inputOffset")
+          (Expr.param "inputSize")
+          (Expr.param "outputOffset"),
+        Stmt.returnValues [Expr.localVar "digest"]
+      ]
+    }
+  ]
+}
+
+private def sha256MemoryTwiceSmokeSpec : CompilationModel := {
+  name := "Sha256MemoryTwiceSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "hashBoth"
+      params := [
+        { name := "inputOffset", ty := ParamType.uint256 }
+        , { name := "inputSize", ty := ParamType.uint256 }
+        , { name := "firstOutputOffset", ty := ParamType.uint256 }
+        , { name := "secondOutputOffset", ty := ParamType.uint256 }
+      ]
+      returnType := none
+      returns := [ParamType.bytes32, ParamType.bytes32]
+      body := [
+        Compiler.Modules.Precompiles.sha256
+          "firstDigest"
+          (Expr.param "inputOffset")
+          (Expr.param "inputSize")
+          (Expr.param "firstOutputOffset"),
+        Compiler.Modules.Precompiles.sha256
+          "secondDigest"
+          (Expr.param "inputOffset")
+          (Expr.param "inputSize")
+          (Expr.param "secondOutputOffset"),
+        Stmt.returnValues [Expr.localVar "firstDigest", Expr.localVar "secondDigest"]
+      ]
+    }
+  ]
+}
+
+private def bn256AddSmokeSpec : CompilationModel := {
+  name := "Bn256AddSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "add"
+      params := [
+        { name := "x1", ty := ParamType.uint256 }
+        , { name := "y1", ty := ParamType.uint256 }
+        , { name := "x2", ty := ParamType.uint256 }
+        , { name := "y2", ty := ParamType.uint256 }
+      ]
+      returnType := none
+      returns := [ParamType.uint256, ParamType.uint256]
+      body := [
+        Compiler.Modules.Precompiles.bn256Add
+          "x3" "y3"
+          (Expr.param "x1") (Expr.param "y1")
+          (Expr.param "x2") (Expr.param "y2"),
+        Stmt.returnValues [Expr.localVar "x3", Expr.localVar "y3"]
+      ]
+    }
+  ]
+}
+
+private def bn256AddBadAritySpec : CompilationModel := {
+  name := "Bn256AddBadArity"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "bad"
+      params := [{ name := "x1", ty := ParamType.uint256 }]
+      returnType := none
+      body := [
+        Stmt.ecm (Compiler.Modules.Precompiles.bn256AddModule "x3" "y3")
+          [Expr.param "x1"],
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def bn256ScalarMulSmokeSpec : CompilationModel := {
+  name := "Bn256ScalarMulSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "mul"
+      params := [
+        { name := "x", ty := ParamType.uint256 }
+        , { name := "y", ty := ParamType.uint256 }
+        , { name := "k", ty := ParamType.uint256 }
+      ]
+      returnType := none
+      returns := [ParamType.uint256, ParamType.uint256]
+      body := [
+        Compiler.Modules.Precompiles.bn256ScalarMul
+          "x2" "y2"
+          (Expr.param "x") (Expr.param "y") (Expr.param "k"),
+        Stmt.returnValues [Expr.localVar "x2", Expr.localVar "y2"]
+      ]
+    }
+  ]
+}
+
+private def bn256ScalarMulBadAritySpec : CompilationModel := {
+  name := "Bn256ScalarMulBadArity"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "bad"
+      params := [{ name := "x", ty := ParamType.uint256 }]
+      returnType := none
+      body := [
+        Stmt.ecm (Compiler.Modules.Precompiles.bn256ScalarMulModule "x2" "y2")
+          [Expr.param "x"],
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def bn256PairingSmokeSpec : CompilationModel := {
+  name := "Bn256PairingSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "pair"
+      params := [
+        { name := "inputOffset", ty := ParamType.uint256 }
+        , { name := "inputSize", ty := ParamType.uint256 }
+        , { name := "outputOffset", ty := ParamType.uint256 }
+      ]
+      returnType := none
+      returns := [ParamType.uint256]
+      body := [
+        Compiler.Modules.Precompiles.bn256Pairing
+          "ok"
+          (Expr.param "inputOffset")
+          (Expr.param "inputSize")
+          (Expr.param "outputOffset"),
+        Stmt.returnValues [Expr.localVar "ok"]
+      ]
+    }
+  ]
+}
+
+private def bn256PairingBadAritySpec : CompilationModel := {
+  name := "Bn256PairingBadArity"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "bad"
+      params := [{ name := "inputOffset", ty := ParamType.uint256 }]
+      returnType := none
+      body := [
+        Stmt.ecm (Compiler.Modules.Precompiles.bn256PairingModule "ok")
+          [Expr.param "inputOffset"],
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def abiEncodePackedWordsSmokeSpec : CompilationModel := {
+  name := "AbiEncodePackedWordsSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "hash"
+      params := [
+        { name := "a", ty := ParamType.bytes32 }
+        , { name := "b", ty := ParamType.bytes32 }
+        , { name := "c", ty := ParamType.bytes32 }
+      ]
+      returnType := none
+      returns := [ParamType.bytes32]
+      body := [
+        Compiler.Modules.Hashing.abiEncodePacked
+          "digest"
+          [Expr.param "a", Expr.param "b", Expr.param "c"],
+        Stmt.returnValues [Expr.localVar "digest"]
+      ]
+    }
+  ]
+}
+
+private def sha256PackedWordsSmokeSpec : CompilationModel := {
+  name := "Sha256PackedWordsSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "hash"
+      params := [
+        { name := "root", ty := ParamType.bytes32 }
+        , { name := "context", ty := ParamType.bytes32 }
+      ]
+      returnType := none
+      returns := [ParamType.bytes32]
+      body := [
+        Compiler.Modules.Hashing.sha256Packed
+          "digest"
+          [Expr.param "root", Expr.param "context"],
+        Stmt.returnValues [Expr.localVar "digest"]
+      ]
+    }
+  ]
+}
+
+private def abiEncodeStaticWordsSmokeSpec : CompilationModel := {
+  name := "AbiEncodeStaticWordsSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "hash"
+      params := [
+        { name := "marketId", ty := ParamType.bytes32 }
+        , { name := "assets", ty := ParamType.uint256 }
+        , { name := "shares", ty := ParamType.uint256 }
+      ]
+      returnType := none
+      returns := [ParamType.bytes32]
+      body := [
+        Compiler.Modules.Hashing.abiEncodeStaticWords
+          "digest"
+          [Expr.param "marketId", Expr.param "assets", Expr.param "shares"],
+        Stmt.returnValues [Expr.localVar "digest"]
+      ]
+    }
+  ]
+}
+
+private def abiEncodeStaticArraySmokeSpec : CompilationModel := {
+  name := "AbiEncodeStaticArraySmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "hash"
+      params := [
+        { name := "items", ty := ParamType.array (ParamType.tuple [
+          ParamType.uint256, ParamType.fixedArray ParamType.uint256 3
+        ]) }
+      ]
+      returnType := none
+      returns := [ParamType.bytes32]
+      body := [
+        Compiler.Modules.Hashing.abiEncodeStaticArray
+          "digest" "items" 4 (Expr.arrayLength "items"),
+        Stmt.returnValues [Expr.localVar "digest"]
+      ]
+    }
+  ]
+}
+
+private def abiEncodePackedStaticSegmentsSmokeSpec : CompilationModel := {
+  name := "AbiEncodePackedStaticSegmentsSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "hash"
+      params := [
+        { name := "who", ty := ParamType.address }
+        , { name := "amount", ty := ParamType.bytes32 }
+      ]
+      returnType := none
+      returns := [ParamType.bytes32]
+      body := [
+        Compiler.Modules.Hashing.abiEncodePackedStaticSegments
+          "digest"
+          [(Expr.param "who", 20), (Expr.param "amount", 32)],
+        Stmt.returnValues [Expr.localVar "digest"]
+      ]
+    }
+  ]
+}
+
+private def eip712DigestSmokeSpec : CompilationModel := {
+  name := "Eip712DigestSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "hashTypedData"
+      params := [
+        { name := "domainSeparator", ty := ParamType.bytes32 }
+        , { name := "structHash", ty := ParamType.bytes32 }
+      ]
+      returnType := none
+      returns := [ParamType.bytes32]
+      body := [
+        Compiler.Modules.Hashing.eip712Digest
+          "digest"
+          (Expr.param "domainSeparator")
+          (Expr.param "structHash"),
+        Stmt.returnValues [Expr.localVar "digest"]
+      ]
+    }
+  ]
+}
+
+private def sha256PackedStaticSegmentsSmokeSpec : CompilationModel := {
+  name := "Sha256PackedStaticSegmentsSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "hash"
+      params := [
+        { name := "who", ty := ParamType.address }
+        , { name := "context", ty := ParamType.bytes32 }
+      ]
+      returnType := none
+      returns := [ParamType.bytes32]
+      body := [
+        Compiler.Modules.Hashing.sha256PackedStaticSegments
+          "digest"
+          [(Expr.param "who", 20), (Expr.param "context", 32)],
+        Stmt.returnValues [Expr.localVar "digest"]
+      ]
+    }
+  ]
+}
+
+private def sha256MemoryBadAritySpec : CompilationModel := {
+  name := "Sha256MemoryBadArity"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "bad"
+      params := [{ name := "inputOffset", ty := ParamType.uint256 }]
+      returnType := none
+      body := [
+        Stmt.ecm (Compiler.Modules.Precompiles.sha256MemoryModule "digest")
+          [Expr.param "inputOffset"],
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def abiEncodePackedWordsBadAritySpec : CompilationModel := {
+  name := "AbiEncodePackedWordsBadArity"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "bad"
+      params := [{ name := "a", ty := ParamType.bytes32 }]
+      returnType := none
+      body := [
+        Stmt.ecm (Compiler.Modules.Hashing.abiEncodePackedWordsModule "digest" 2)
+          [Expr.param "a"],
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def abiEncodeStaticWordsBadAritySpec : CompilationModel := {
+  name := "AbiEncodeStaticWordsBadArity"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "bad"
+      params := [{ name := "marketId", ty := ParamType.bytes32 }]
+      returnType := none
+      body := [
+        Stmt.ecm (Compiler.Modules.Hashing.abiEncodeStaticWordsModule "digest" 2)
+          [Expr.param "marketId"],
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def abiEncodeStaticArrayBadAritySpec : CompilationModel := {
+  name := "AbiEncodeStaticArrayBadArity"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "bad"
+      params := [{ name := "items", ty := ParamType.array ParamType.uint256 }]
+      returnType := none
+      body := [
+        Stmt.ecm (Compiler.Modules.Hashing.abiEncodeStaticArrayModule "digest" "items" 1)
+          [Expr.arrayLength "items", Expr.literal 0],
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def abiEncodeStaticArrayBadWidthSpec : CompilationModel := {
+  name := "AbiEncodeStaticArrayBadWidth"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "bad"
+      params := [{ name := "items", ty := ParamType.array ParamType.uint256 }]
+      returnType := none
+      body := [
+        Compiler.Modules.Hashing.abiEncodeStaticArray
+          "digest" "items" 0 (Expr.arrayLength "items"),
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def sha256PackedWordsBadAritySpec : CompilationModel := {
+  name := "Sha256PackedWordsBadArity"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "bad"
+      params := [{ name := "root", ty := ParamType.bytes32 }]
+      returnType := none
+      body := [
+        Stmt.ecm (Compiler.Modules.Hashing.sha256PackedWordsModule "digest" 2)
+          [Expr.param "root"],
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def abiEncodePackedStaticSegmentsBadWidthSpec : CompilationModel := {
+  name := "AbiEncodePackedStaticSegmentsBadWidth"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "bad"
+      params := [{ name := "who", ty := ParamType.address }]
+      returnType := none
+      body := [
+        Compiler.Modules.Hashing.abiEncodePackedStaticSegments
+          "digest"
+          [(Expr.param "who", 33)],
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def sha256PackedStaticSegmentsBadWidthSpec : CompilationModel := {
+  name := "Sha256PackedStaticSegmentsBadWidth"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "bad"
+      params := [{ name := "who", ty := ParamType.address }]
+      returnType := none
+      body := [
+        Compiler.Modules.Hashing.sha256PackedStaticSegments
+          "digest"
+          [(Expr.param "who", 0)],
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def abiEncodePackedStaticSegmentsBadAritySpec : CompilationModel := {
+  name := "AbiEncodePackedStaticSegmentsBadArity"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "bad"
+      params := [{ name := "who", ty := ParamType.address }]
+      returnType := none
+      body := [
+        Stmt.ecm (Compiler.Modules.Hashing.abiEncodePackedStaticSegmentsModule "digest" [20, 32])
+          [Expr.param "who"],
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def sha256PackedStaticSegmentsBadAritySpec : CompilationModel := {
+  name := "Sha256PackedStaticSegmentsBadArity"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "bad"
+      params := [{ name := "who", ty := ParamType.address }]
+      returnType := none
+      body := [
+        Stmt.ecm (Compiler.Modules.Hashing.sha256PackedStaticSegmentsModule "digest" [20, 32])
+          [Expr.param "who"],
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def eip712DigestBadAritySpec : CompilationModel := {
+  name := "Eip712DigestBadArity"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "bad"
+      params := [{ name := "domainSeparator", ty := ParamType.bytes32 }]
+      returnType := none
+      body := [
+        Stmt.ecm (Compiler.Modules.Hashing.eip712DigestModule "digest")
+          [Expr.param "domainSeparator"],
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def oracleReadSmokeSpec : CompilationModel := {
+  name := "OracleReadSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "peek"
+      params := [
+        { name := "oracle", ty := ParamType.address }
+        , { name := "asset", ty := ParamType.address }
+      ]
+      returnType := none
+      returns := [ParamType.uint256]
+      body := [
+        Compiler.Modules.Oracle.oracleReadUint256
+          "answer"
+          (Expr.param "oracle")
+          0xfeaf968c
+          [Expr.param "asset"],
+        Stmt.returnValues [Expr.localVar "answer"]
+      ]
+    }
+  ]
+}
+
+private def externalCallWithReturnSmokeSpec : CompilationModel := {
+  name := "ExternalCallWithReturnSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "peek"
+      params := [
+        { name := "target", ty := ParamType.address }
+        , { name := "asset", ty := ParamType.address }
+      ]
+      returnType := none
+      returns := [ParamType.uint256]
+      body := [
+        Compiler.Modules.Calls.withReturn
+          "answer"
+          (Expr.param "target")
+          0x70a08231
+          [Expr.param "asset"]
+          true,
+        Stmt.returnValues [Expr.localVar "answer"]
+      ]
+    }
+  ]
+}
+
+private def bubblingValueCallSmokeSpec : CompilationModel := {
+  name := "BubblingValueCallSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "forward"
+      params := [
+        { name := "target", ty := ParamType.address }
+        , { name := "ethValue", ty := ParamType.uint256 }
+        , { name := "inputOffset", ty := ParamType.uint256 }
+        , { name := "inputSize", ty := ParamType.uint256 }
+        , { name := "outputOffset", ty := ParamType.uint256 }
+        , { name := "outputSize", ty := ParamType.uint256 }
+      ]
+      returnType := none
+      reentrancyTrusted := true
+      body := [
+        Compiler.Modules.Calls.bubblingValueCall
+          (Expr.param "target")
+          (Expr.param "ethValue")
+          (Expr.param "inputOffset")
+          (Expr.param "inputSize")
+          (Expr.param "outputOffset")
+          (Expr.param "outputSize"),
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def bubblingValueCallBadAritySpec : CompilationModel := {
+  name := "BubblingValueCallBadArity"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "bad"
+      params := [
+        { name := "target", ty := ParamType.address }
+        , { name := "ethValue", ty := ParamType.uint256 }
+      ]
+      returnType := none
+      body := [
+        Stmt.ecm Compiler.Modules.Calls.bubblingValueCallModule [
+          Expr.param "target",
+          Expr.param "ethValue"
+        ],
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def bubblingValueCallViewRejectedSpec : CompilationModel := {
+  name := "BubblingValueCallViewRejected"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "forward"
+      params := [
+        { name := "target", ty := ParamType.address }
+        , { name := "ethValue", ty := ParamType.uint256 }
+        , { name := "inputOffset", ty := ParamType.uint256 }
+        , { name := "inputSize", ty := ParamType.uint256 }
+        , { name := "outputOffset", ty := ParamType.uint256 }
+        , { name := "outputSize", ty := ParamType.uint256 }
+      ]
+      returnType := none
+      isView := true
+      body := [
+        Compiler.Modules.Calls.bubblingValueCall
+          (Expr.param "target")
+          (Expr.param "ethValue")
+          (Expr.param "inputOffset")
+          (Expr.param "inputSize")
+          (Expr.param "outputOffset")
+          (Expr.param "outputSize"),
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def bubblingValueCallNoOutputSmokeSpec : CompilationModel := {
+  name := "BubblingValueCallNoOutputSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "forward"
+      params := [
+        { name := "target", ty := ParamType.address }
+        , { name := "ethValue", ty := ParamType.uint256 }
+        , { name := "inputOffset", ty := ParamType.uint256 }
+        , { name := "inputSize", ty := ParamType.uint256 }
+      ]
+      returnType := none
+      reentrancyTrusted := true
+      body := [
+        Compiler.Modules.Calls.bubblingValueCallNoOutput
+          (Expr.param "target")
+          (Expr.param "ethValue")
+          (Expr.param "inputOffset")
+          (Expr.param "inputSize"),
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def bubblingValueCallNoOutputViewRejectedSpec : CompilationModel := {
+  name := "BubblingValueCallNoOutputViewRejected"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "forward"
+      params := [
+        { name := "target", ty := ParamType.address }
+        , { name := "ethValue", ty := ParamType.uint256 }
+        , { name := "inputOffset", ty := ParamType.uint256 }
+        , { name := "inputSize", ty := ParamType.uint256 }
+      ]
+      returnType := none
+      isView := true
+      body := [
+        Compiler.Modules.Calls.bubblingValueCallNoOutput
+          (Expr.param "target")
+          (Expr.param "ethValue")
+          (Expr.param "inputOffset")
+          (Expr.param "inputSize"),
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def bubblingValueCallNoOutputBadAritySpec : CompilationModel := {
+  name := "BubblingValueCallNoOutputBadArity"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "bad"
+      params := [
+        { name := "target", ty := ParamType.address }
+        , { name := "ethValue", ty := ParamType.uint256 }
+      ]
+      returnType := none
+      body := [
+        Stmt.ecm Compiler.Modules.Calls.bubblingValueCallNoOutputModule [
+          Expr.param "target",
+          Expr.param "ethValue"
+        ],
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def callbackSmokeSpec : CompilationModel := {
+  name := "CallbackSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "notify"
+      params := [
+        { name := "target", ty := ParamType.address }
+        , { name := "assets", ty := ParamType.uint256 }
+        , { name := "data", ty := ParamType.bytes }
+      ]
+      returnType := none
+      reentrancyTrusted := true
+      body := [
+        Compiler.Modules.Callbacks.callback
+          (Expr.param "target")
+          0x12345678
+          [Expr.param "assets"]
+          "data",
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def erc20BalanceOfSmokeSpec : CompilationModel := {
+  name := "ERC20BalanceOfSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "balance"
+      params := [
+        { name := "token", ty := ParamType.address }
+        , { name := "owner", ty := ParamType.address }
+      ]
+      returnType := none
+      returns := [ParamType.uint256]
+      body := [
+        Compiler.Modules.ERC20.balanceOf
+          "balance"
+          (Expr.param "token")
+          (Expr.param "owner"),
+        Stmt.returnValues [Expr.localVar "balance"]
+      ]
+    }
+  ]
+}
+
+private def erc20SafeTransferSmokeSpec : CompilationModel := {
+  name := "ERC20SafeTransferSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "send"
+      params := [
+        { name := "token", ty := ParamType.address }
+        , { name := "recipient", ty := ParamType.address }
+        , { name := "amount", ty := ParamType.uint256 }
+      ]
+      returnType := none
+      returns := []
+      reentrancyTrusted := true
+      body := [
+        Compiler.Modules.ERC20.safeTransfer
+          (Expr.param "token")
+          (Expr.param "recipient")
+          (Expr.param "amount"),
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def erc20SafeTransferFromSmokeSpec : CompilationModel := {
+  name := "ERC20SafeTransferFromSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "pull"
+      params := [
+        { name := "token", ty := ParamType.address }
+        , { name := "owner", ty := ParamType.address }
+        , { name := "recipient", ty := ParamType.address }
+        , { name := "amount", ty := ParamType.uint256 }
+      ]
+      returnType := none
+      returns := []
+      reentrancyTrusted := true
+      body := [
+        Compiler.Modules.ERC20.safeTransferFrom
+          (Expr.param "token")
+          (Expr.param "owner")
+          (Expr.param "recipient")
+          (Expr.param "amount"),
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def erc20SolmateSafeTransferSmokeSpec : CompilationModel := {
+  name := "ERC20SolmateSafeTransferSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "send"
+      params := [
+        { name := "token", ty := ParamType.address }
+        , { name := "recipient", ty := ParamType.address }
+        , { name := "amount", ty := ParamType.uint256 }
+      ]
+      returnType := none
+      returns := []
+      reentrancyTrusted := true
+      body := [
+        Compiler.Modules.ERC20.solmateSafeTransfer
+          (Expr.param "token")
+          (Expr.param "recipient")
+          (Expr.param "amount"),
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def erc20SolmateSafeTransferFromSmokeSpec : CompilationModel := {
+  name := "ERC20SolmateSafeTransferFromSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "pull"
+      params := [
+        { name := "token", ty := ParamType.address }
+        , { name := "owner", ty := ParamType.address }
+        , { name := "recipient", ty := ParamType.address }
+        , { name := "amount", ty := ParamType.uint256 }
+      ]
+      returnType := none
+      returns := []
+      reentrancyTrusted := true
+      body := [
+        Compiler.Modules.ERC20.solmateSafeTransferFrom
+          (Expr.param "token")
+          (Expr.param "owner")
+          (Expr.param "recipient")
+          (Expr.param "amount"),
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def erc20SafeApproveSmokeSpec : CompilationModel := {
+  name := "ERC20SafeApproveSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "approve"
+      params := [
+        { name := "token", ty := ParamType.address }
+        , { name := "spender", ty := ParamType.address }
+        , { name := "amount", ty := ParamType.uint256 }
+      ]
+      returnType := none
+      returns := []
+      reentrancyTrusted := true
+      body := [
+        Compiler.Modules.ERC20.safeApprove
+          (Expr.param "token")
+          (Expr.param "spender")
+          (Expr.param "amount"),
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def callWithValueSmokeSpec : CompilationModel := {
+  name := "CallWithValueSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "execute"
+      params := [
+        { name := "target", ty := ParamType.address }
+        , { name := "amount", ty := ParamType.uint256 }
+        , { name := "dataOffset", ty := ParamType.uint256 }
+        , { name := "dataSize", ty := ParamType.uint256 }
+      ]
+      returnType := none
+      reentrancyTrusted := true
+      body := [
+        Compiler.Modules.Calls.callWithValue
+          (Expr.param "target")
+          (Expr.param "amount")
+          (Expr.param "dataOffset")
+          (Expr.param "dataSize"),
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def callWithValueViewRejectedSpec : CompilationModel := {
+  name := "CallWithValueViewRejected"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "execute"
+      params := [
+        { name := "target", ty := ParamType.address }
+        , { name := "amount", ty := ParamType.uint256 }
+        , { name := "dataOffset", ty := ParamType.uint256 }
+        , { name := "dataSize", ty := ParamType.uint256 }
+      ]
+      returnType := none
+      isView := true
+      body := [
+        Compiler.Modules.Calls.callWithValue
+          (Expr.param "target")
+          (Expr.param "amount")
+          (Expr.param "dataOffset")
+          (Expr.param "dataSize"),
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def callWithValueBytesSmokeSpec : CompilationModel := {
+  name := "CallWithValueBytesSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "execute"
+      params := [
+        { name := "target", ty := ParamType.address }
+        , { name := "amount", ty := ParamType.uint256 }
+        , { name := "data", ty := ParamType.bytes }
+      ]
+      returnType := none
+      reentrancyTrusted := true
+      body := [
+        Compiler.Modules.Calls.callWithValueBytes
+          (Expr.param "target")
+          (Expr.param "amount")
+          "data",
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def callWithValueBytesViewRejectedSpec : CompilationModel := {
+  name := "CallWithValueBytesViewRejected"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "execute"
+      params := [
+        { name := "target", ty := ParamType.address }
+        , { name := "amount", ty := ParamType.uint256 }
+        , { name := "data", ty := ParamType.bytes }
+      ]
+      returnType := none
+      isView := true
+      body := [
+        Compiler.Modules.Calls.callWithValueBytes
+          (Expr.param "target")
+          (Expr.param "amount")
+          "data",
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def erc20AllowanceSmokeSpec : CompilationModel := {
+  name := "ERC20AllowanceSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "allowance"
+      params := [
+        { name := "token", ty := ParamType.address }
+        , { name := "owner", ty := ParamType.address }
+        , { name := "spender", ty := ParamType.address }
+      ]
+      returnType := none
+      returns := [ParamType.uint256]
+      body := [
+        Compiler.Modules.ERC20.allowance
+          "remaining"
+          (Expr.param "token")
+          (Expr.param "owner")
+          (Expr.param "spender"),
+        Stmt.returnValues [Expr.localVar "remaining"]
+      ]
+    }
+  ]
+}
+
+private def erc20TotalSupplySmokeSpec : CompilationModel := {
+  name := "ERC20TotalSupplySmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "totalSupply"
+      params := [{ name := "token", ty := ParamType.address }]
+      returnType := none
+      returns := [ParamType.uint256]
+      body := [
+        Compiler.Modules.ERC20.totalSupply
+          "supply"
+          (Expr.param "token"),
+        Stmt.returnValues [Expr.localVar "supply"]
+      ]
+    }
+  ]
+}
+
+private def erc4626PreviewDepositSmokeSpec : CompilationModel := {
+  name := "ERC4626PreviewDepositSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "preview"
+      params := [
+        { name := "vault", ty := ParamType.address }
+        , { name := "assets", ty := ParamType.uint256 }
+      ]
+      returnType := none
+      returns := [ParamType.uint256]
+      body := [
+        Compiler.Modules.ERC4626.previewDeposit
+          "shares"
+          (Expr.param "vault")
+          (Expr.param "assets"),
+        Stmt.returnValues [Expr.localVar "shares"]
+      ]
+    }
+  ]
+}
+
+private def erc4626PreviewMintSmokeSpec : CompilationModel := {
+  name := "ERC4626PreviewMintSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "preview"
+      params := [
+        { name := "vault", ty := ParamType.address }
+        , { name := "shares", ty := ParamType.uint256 }
+      ]
+      returnType := none
+      returns := [ParamType.uint256]
+      body := [
+        Compiler.Modules.ERC4626.previewMint
+          "assets"
+          (Expr.param "vault")
+          (Expr.param "shares"),
+        Stmt.returnValues [Expr.localVar "assets"]
+      ]
+    }
+  ]
+}
+
+private def erc4626PreviewWithdrawSmokeSpec : CompilationModel := {
+  name := "ERC4626PreviewWithdrawSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "preview"
+      params := [
+        { name := "vault", ty := ParamType.address }
+        , { name := "assets", ty := ParamType.uint256 }
+      ]
+      returnType := none
+      returns := [ParamType.uint256]
+      body := [
+        Compiler.Modules.ERC4626.previewWithdraw
+          "shares"
+          (Expr.param "vault")
+          (Expr.param "assets"),
+        Stmt.returnValues [Expr.localVar "shares"]
+      ]
+    }
+  ]
+}
+
+private def erc4626PreviewRedeemSmokeSpec : CompilationModel := {
+  name := "ERC4626PreviewRedeemSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "preview"
+      params := [
+        { name := "vault", ty := ParamType.address }
+        , { name := "shares", ty := ParamType.uint256 }
+      ]
+      returnType := none
+      returns := [ParamType.uint256]
+      body := [
+        Compiler.Modules.ERC4626.previewRedeem
+          "assets"
+          (Expr.param "vault")
+          (Expr.param "shares"),
+        Stmt.returnValues [Expr.localVar "assets"]
+      ]
+    }
+  ]
+}
+
+private def erc4626ConvertToAssetsSmokeSpec : CompilationModel := {
+  name := "ERC4626ConvertToAssetsSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "convert"
+      params := [
+        { name := "vault", ty := ParamType.address }
+        , { name := "shares", ty := ParamType.uint256 }
+      ]
+      returnType := none
+      returns := [ParamType.uint256]
+      body := [
+        Compiler.Modules.ERC4626.convertToAssets
+          "assets"
+          (Expr.param "vault")
+          (Expr.param "shares"),
+        Stmt.returnValues [Expr.localVar "assets"]
+      ]
+    }
+  ]
+}
+
+private def erc4626ConvertToSharesSmokeSpec : CompilationModel := {
+  name := "ERC4626ConvertToSharesSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "convert"
+      params := [
+        { name := "vault", ty := ParamType.address }
+        , { name := "assets", ty := ParamType.uint256 }
+      ]
+      returnType := none
+      returns := [ParamType.uint256]
+      body := [
+        Compiler.Modules.ERC4626.convertToShares
+          "shares"
+          (Expr.param "vault")
+          (Expr.param "assets"),
+        Stmt.returnValues [Expr.localVar "shares"]
+      ]
+    }
+  ]
+}
+
+private def erc4626TotalAssetsSmokeSpec : CompilationModel := {
+  name := "ERC4626TotalAssetsSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "totalAssets"
+      params := [{ name := "vault", ty := ParamType.address }]
+      returnType := none
+      returns := [ParamType.uint256]
+      body := [
+        Compiler.Modules.ERC4626.totalAssets
+          "assets"
+          (Expr.param "vault"),
+        Stmt.returnValues [Expr.localVar "assets"]
+      ]
+    }
+  ]
+}
+
+private def erc4626AssetSmokeSpec : CompilationModel := {
+  name := "ERC4626AssetSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "asset"
+      params := [{ name := "vault", ty := ParamType.address }]
+      returnType := none
+      returns := [ParamType.address]
+      body := [
+        Compiler.Modules.ERC4626.asset
+          "assetAddr"
+          (Expr.param "vault"),
+        Stmt.returnValues [Expr.localVar "assetAddr"]
+      ]
+    }
+  ]
+}
+
+private def erc4626MaxDepositSmokeSpec : CompilationModel := {
+  name := "ERC4626MaxDepositSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "maxDeposit"
+      params := [
+        { name := "vault", ty := ParamType.address }
+        , { name := "receiver", ty := ParamType.address }
+      ]
+      returnType := none
+      returns := [ParamType.uint256]
+      body := [
+        Compiler.Modules.ERC4626.maxDeposit
+          "assets"
+          (Expr.param "vault")
+          (Expr.param "receiver"),
+        Stmt.returnValues [Expr.localVar "assets"]
+      ]
+    }
+  ]
+}
+
+private def erc4626MaxMintSmokeSpec : CompilationModel := {
+  name := "ERC4626MaxMintSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "maxMint"
+      params := [
+        { name := "vault", ty := ParamType.address }
+        , { name := "receiver", ty := ParamType.address }
+      ]
+      returnType := none
+      returns := [ParamType.uint256]
+      body := [
+        Compiler.Modules.ERC4626.maxMint
+          "shares"
+          (Expr.param "vault")
+          (Expr.param "receiver"),
+        Stmt.returnValues [Expr.localVar "shares"]
+      ]
+    }
+  ]
+}
+
+private def erc4626MaxWithdrawSmokeSpec : CompilationModel := {
+  name := "ERC4626MaxWithdrawSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "maxWithdraw"
+      params := [
+        { name := "vault", ty := ParamType.address }
+        , { name := "owner", ty := ParamType.address }
+      ]
+      returnType := none
+      returns := [ParamType.uint256]
+      body := [
+        Compiler.Modules.ERC4626.maxWithdraw
+          "assets"
+          (Expr.param "vault")
+          (Expr.param "owner"),
+        Stmt.returnValues [Expr.localVar "assets"]
+      ]
+    }
+  ]
+}
+
+private def erc4626MaxRedeemSmokeSpec : CompilationModel := {
+  name := "ERC4626MaxRedeemSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "maxRedeem"
+      params := [
+        { name := "vault", ty := ParamType.address }
+        , { name := "owner", ty := ParamType.address }
+      ]
+      returnType := none
+      returns := [ParamType.uint256]
+      body := [
+        Compiler.Modules.ERC4626.maxRedeem
+          "shares"
+          (Expr.param "vault")
+          (Expr.param "owner"),
+        Stmt.returnValues [Expr.localVar "shares"]
+      ]
+    }
+  ]
+}
+
+private def erc4626DepositSmokeSpec : CompilationModel := {
+  name := "ERC4626DepositSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "deposit"
+      params := [
+        { name := "vault", ty := ParamType.address }
+        , { name := "assets", ty := ParamType.uint256 }
+        , { name := "receiver", ty := ParamType.address }
+      ]
+      returnType := none
+      returns := [ParamType.uint256]
+      reentrancyTrusted := true
+      body := [
+        Compiler.Modules.ERC4626.deposit
+          "shares"
+          (Expr.param "vault")
+          (Expr.param "assets")
+          (Expr.param "receiver"),
+        Stmt.returnValues [Expr.localVar "shares"]
+      ]
+    }
+  ]
+}
+
+namespace MacroSolidityTypeFidelitySmoke
+
+open Contracts
+open Verity hiding pure bind
+open Verity.EVM.Uint256
+
+verity_contract TypedVerifierRouter where
+  storage
+    circuits : MappingStruct(Bytes32,[
+      verifier : Address @word 0 packed(0,160),
+      inputCount : Uint16 @word 0 packed(160,16),
+      outputCount : Uint16 @word 0 packed(176,16),
+      active : Bool @word 0 packed(192,8)
+    ]) := slot 2
+    routeFlags : MappingStruct2(Bytes32,Bytes32,[
+      enabled : Bool @word 0 packed(0,8),
+      limit : Uint16 @word 0 packed(8,16)
+    ]) := slot 3
+
+  struct Circuit where
+    verifier : Address,
+    inputCount : Uint16,
+    outputCount : Uint16,
+    active : Bool
+
+  event_defs
+    event CircuitRegistered(@indexed circuitId : Bytes32, verifier : Address,
+      inputCount : Uint16, outputCount : Uint16)
+    event CircuitActiveSet(@indexed circuitId : Bytes32, active : Bool)
+
+  function setCircuit
+      (circuitId : Bytes32, verifierAddr : Address, inputCount : Uint16,
+       outputCount : Uint16) : Unit := do
+    setStructMember "circuits" circuitId "verifier" verifierAddr
+    setStructMember "circuits" circuitId "inputCount" inputCount
+    setStructMember "circuits" circuitId "outputCount" outputCount
+    setStructMember "circuits" circuitId "active" true
+    emit "CircuitRegistered" [circuitId, addressToWord verifierAddr, inputCount, outputCount]
+
+  function pauseCircuit (circuitId : Bytes32) : Unit := do
+    setStructMember "circuits" circuitId "active" false
+    emit "CircuitActiveSet" [circuitId, false]
+
+  function view getCircuit (circuitId : Bytes32) : Circuit := do
+    let verifierAddr ← structMember "circuits" circuitId "verifier"
+    let inputCount ← structMember "circuits" circuitId "inputCount"
+    let outputCount ← structMember "circuits" circuitId "outputCount"
+    let active ← structMember "circuits" circuitId "active"
+    return Circuit.mk verifierAddr inputCount outputCount active
+
+  function view getCircuitViaMembers (circuitId : Bytes32) : Circuit := do
+    let (verifierAddr, inputCount, outputCount, active) :=
+      structMembers "circuits" circuitId ["verifier", "inputCount", "outputCount", "active"]
+    return Circuit.mk verifierAddr inputCount outputCount active
+
+  function view getRouteFlag (sourceId : Bytes32, targetId : Bytes32) : Tuple [Bool, Uint16] := do
+    return structMembers2 "routeFlags" sourceId targetId ["enabled", "limit"]
+
+def routerSpecUsesBytes32MappingKey : Bool :=
+  TypedVerifierRouter.spec.fields.any (fun field =>
+    field.name == "circuits" &&
+      match field.ty with
+      | FieldType.mappingStruct MappingKeyType.bytes32 members =>
+          members.any (fun member =>
+            member.name == "inputCount" &&
+              member.ty == StructMemberType.uint16 &&
+              member.packed == some { offset := 160, width := 16 }) &&
+          members.any (fun member =>
+            member.name == "active" &&
+              member.ty == StructMemberType.bool &&
+              member.packed == some { offset := 192, width := 8 })
+      | _ => false)
+
+def routerSpecUsesTypedEventsAndReturns : Bool :=
+  TypedVerifierRouter.spec.events.any (fun eventDef =>
+    eventDef.name == "CircuitRegistered" &&
+      eventDef.params.map (fun param => param.ty) ==
+        [ParamType.bytes32, ParamType.address, ParamType.uint16, ParamType.uint16]) &&
+  TypedVerifierRouter.spec.events.any (fun eventDef =>
+    eventDef.name == "CircuitActiveSet" &&
+      eventDef.params.map (fun param => param.ty) == [ParamType.bytes32, ParamType.bool]) &&
+  TypedVerifierRouter.spec.functions.any (fun fn =>
+    fn.name == "getCircuit" &&
+      fn.params.map (fun param => param.ty) == [ParamType.bytes32] &&
+      fn.returns == [ParamType.tuple [ParamType.address, ParamType.uint16, ParamType.uint16, ParamType.bool]])
+
+def routerStructMembersDestructuringKeepsMemberTypes : Bool :=
+  TypedVerifierRouter.spec.functions.any (fun fn =>
+    fn.name == "getCircuitViaMembers" &&
+      fn.returns == [ParamType.tuple [ParamType.address, ParamType.uint16, ParamType.uint16, ParamType.bool]]) &&
+  TypedVerifierRouter.spec.functions.any (fun fn =>
+    fn.name == "getRouteFlag" &&
+      fn.returns == [ParamType.bool, ParamType.uint16])
+
+example : routerSpecUsesBytes32MappingKey = true := by native_decide
+example : routerSpecUsesTypedEventsAndReturns = true := by native_decide
+example : routerStructMembersDestructuringKeepsMemberTypes = true := by native_decide
+
+end MacroSolidityTypeFidelitySmoke
+
+namespace PackedStructMemberDenoteSmoke
+
+private def oracle : Denote.DenoteOracle :=
+  { mappingSlot := fun base key => base * 1000 + key
+    keccakMemorySlice := fun _ _ _ => 0 }
+
+private def fields : List Field :=
+  [{ name := "deposits",
+     ty := FieldType.mappingStruct MappingKeyType.address
+       [{ name := "deposit", wordOffset := 0, packed := none },
+        { name := "staked", ty := .bool, wordOffset := 1,
+          packed := some { offset := 0, width := 1 } },
+        { name := "stake", wordOffset := 1,
+          packed := some { offset := 1, width := 112 } },
+        { name := "unstakeDelaySec", ty := .uint256, wordOffset := 1,
+          packed := some { offset := 113, width := 32 } },
+        { name := "withdrawTime", wordOffset := 1,
+          packed := some { offset := 145, width := 48 } }],
+     «slot» := some 1 }]
+
+private def key : Nat := 7
+private def packedSlot : Nat := oracle.mappingSlot 1 key + 1
+private def oldWord : Nat := 1 + 5 * 2 ^ 1 + 9 * 2 ^ 113
+private def expectedWord : Nat := 1 + 7 * 2 ^ 1 + 9 * 2 ^ 113
+
+private def preservesAdjacentPackedFields : Bool :=
+  let world : Verity.ContractState :=
+    { Verity.defaultState with
+      «storage» := fun s => if s == packedSlot then oldWord else 0 }
+  let state : Denote.DenoteState := { world := world, bindings := [] }
+  match Denote.execStmt oracle fields state
+      (Stmt.setStructMember "deposits" (.literal key) "stake" (.literal 7)) with
+  | .continue next =>
+      (next.world.storage packedSlot).val == expectedWord
+  | _ => false
+
+#eval! do
+  expectTrue
+    "packed mapping struct writes preserve adjacent fields in the same word"
+    preservesAdjacentPackedFields
+
+end PackedStructMemberDenoteSmoke
+
+set_option maxRecDepth 4096 in
+#eval! do
+  let compiled :=
+    match Compiler.CompilationModel.compile selectorSmokeSpec (selectorsFor selectorSmokeSpec) with
+    | .ok _ => true
+    | .error _ => false
+  expectTrue "local CompilationModel smoke spec compiles with deterministic selectors" compiled
+  expectTrue "internal helper params expand static composite and bytes slots"
+    MacroDynamicArraySmoke.InternalHelperDynamicArgs.helperParamNamesExpandStaticCompositeAndBytes
+  expectTrue "source internal helper call args expand static composite and bytes slots"
+    MacroDynamicArraySmoke.InternalHelperDynamicArgs.sourceInternalCallArgsExpandStaticCompositeAndBytes
   expectTrue "expanded internal helper args reject local-variable forwarding"
     MacroDynamicArraySmoke.InternalHelperDynamicArgs.localExpandedForwardingRejected
   expectTrue "expanded internal helper args reject mismatched source type/layout"
