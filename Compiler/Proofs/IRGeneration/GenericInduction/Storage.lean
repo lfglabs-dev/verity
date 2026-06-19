@@ -10,6 +10,22 @@ open Compiler
 open Compiler.CompilationModel
 open Compiler.Yul
 
+attribute [local simp] CompilationModel.compileExprWithInternals_nil_eq
+
+private theorem compileExprWithInternals_nil_ok
+    {fields : List Field} {dynamicSource : DynamicDataSource} {expr : Expr} {exprIR : YulExpr}
+    (h : CompilationModel.compileExpr fields dynamicSource expr = Except.ok exprIR) :
+    CompilationModel.compileExprWithInternals fields dynamicSource [] expr = Except.ok exprIR := by
+  simpa [CompilationModel.compileExprWithInternals_nil_eq] using h
+
+private theorem compileExprListWithInternals_nil_ok
+    {fields : List Field} {dynamicSource : DynamicDataSource} {exprs : List Expr}
+    {exprIRs : List YulExpr}
+    (h : CompilationModel.compileExprList fields dynamicSource exprs = Except.ok exprIRs) :
+    CompilationModel.compileExprListWithInternals fields dynamicSource [] exprs =
+      Except.ok exprIRs := by
+  simpa [CompilationModel.compileExprListWithInternals_nil_eq] using h
+
 private theorem encodeStorageAt_writeUintSlots_singleton_other
     {fields : List Field}
     {world : Verity.ContractState}
@@ -2804,7 +2820,9 @@ theorem compiledStmtStep_mstore_single
     CompiledStmtStep fields scope (.mstore offset value)
       [YulStmt.expr (YulExpr.call "mstore" [offsetIR, valueIR])] where
   compileOk := by
-    simp only [CompilationModel.compileStmt, hoffsetIR, hvalueIR]
+    have hoffsetIRInternal := compileExprWithInternals_nil_ok hoffsetIR
+    have hvalueIRInternal := compileExprWithInternals_nil_ok hvalueIR
+    simp only [CompilationModel.compileStmt, hoffsetIRInternal, hvalueIRInternal]
     rfl
   preserves := compiledStmtStep_mstore_single_preserves
     hcoreOffset hinScopeOffset hcoreValue hinScopeValue hoffsetIR hvalueIR
@@ -2939,7 +2957,9 @@ theorem compiledStmtStep_tstore_single
     CompiledStmtStep fields scope (.tstore offset value)
       [YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR])] where
   compileOk := by
-    simp only [CompilationModel.compileStmt, hoffsetIR, hvalueIR]
+    have hoffsetIRInternal := compileExprWithInternals_nil_ok hoffsetIR
+    have hvalueIRInternal := compileExprWithInternals_nil_ok hvalueIR
+    simp only [CompilationModel.compileStmt, hoffsetIRInternal, hvalueIRInternal]
     rfl
   preserves := compiledStmtStep_tstore_single_preserves
     hcoreOffset hinScopeOffset hcoreValue hinScopeValue hoffsetIR hvalueIR
@@ -3164,8 +3184,10 @@ theorem compiledStmtStep_setMappingUint_singleSlot_of_slotSafety
   compileOk := by
     rcases findFieldWithResolvedSlot_of_findFieldWriteSlots_singleton hwriteSlots with
       ⟨f, hfind, _⟩
+    have hkeyIRInternal := compileExprWithInternals_nil_ok hkeyIR
+    have hvalueIRInternal := compileExprWithInternals_nil_ok hvalueIR
     simp only [CompilationModel.compileStmt, CompilationModel.compileMappingSlotWrite,
-      hmapping, hwriteSlots, hkeyIR, hvalueIR]
+      hmapping, hwriteSlots, hkeyIRInternal, hvalueIRInternal]
     simp [hfind, fieldStoreBuiltin, SourceSemantics.fieldIsTransient,
       Bind.bind, Except.bind, pure, Except.pure]
   preserves := compiledStmtStep_setMappingUint_singleSlot_of_slotSafety_preserves
@@ -3178,7 +3200,9 @@ theorem compileExprList_core_ok
     ∃ exprIRs, CompilationModel.compileExprList fields .calldata exprs = Except.ok exprIRs := by
   induction exprs with
   | nil =>
-      exact ⟨[], rfl⟩
+      exact ⟨[], by
+        simp [CompilationModel.compileExprList, CompilationModel.compileExprListWithInternals,
+          pure, Except.pure]⟩
   | cons expr rest ih =>
       have hhead : FunctionBody.ExprCompileCore expr := hcore expr (by simp)
       have htail : ∀ e ∈ rest, FunctionBody.ExprCompileCore e := by
@@ -3186,9 +3210,11 @@ theorem compileExprList_core_ok
         exact hcore e (by simp [he])
       rcases FunctionBody.compileExpr_core_ok (fields := fields) hhead with ⟨exprIR, hexprIR⟩
       rcases ih htail with ⟨restIR, hrestIR⟩
+      have hexprIRInternal := compileExprWithInternals_nil_ok hexprIR
+      have hrestIRInternal := compileExprListWithInternals_nil_ok hrestIR
       exact ⟨exprIR :: restIR, by
-        rw [CompilationModel.compileExprList, hexprIR, hrestIR]
-        rfl
+        simp [CompilationModel.compileExprList, CompilationModel.compileExprListWithInternals,
+          hexprIRInternal, hrestIRInternal, bind, Except.bind, pure, Except.pure]
       ⟩
 
 theorem compileStmt_emit_scalar_supported_ok
@@ -3226,9 +3252,10 @@ theorem compileStmt_emit_scalar_supported_ok
   have hscalarCompile :
       eventDefScalarCompileSupported eventDef = true := by
     simpa [eventDefScalarProofSupported] using hscalar
+  have hargExprsInternal := compileExprListWithInternals_nil_ok hargExprs
   refine ⟨compileScalarEmitFromCompiledArgs eventDef args argExprs, ?_⟩
   simp only [CompilationModel.compileStmt, CompilationModel.compileEmit]
-  simp [hfind, hlen, hargExprs, hindexedGuard, hscalarCompile,
+  simp [hfind, hlen, hargExprsInternal, hindexedGuard, hscalarCompile,
     Bind.bind, Except.bind, pure, Except.pure]
 
 /-- Fill the event-head compile obligation from the scalar `.emit` compile
@@ -3331,7 +3358,7 @@ theorem eval_compileExprList_core_of_scope
       List.Forall₂ (fun exprIR value => evalIRExpr state exprIR = some value) exprIRs values := by
   induction exprs generalizing exprIRs with
   | nil =>
-      simp [CompilationModel.compileExprList] at hcompiled
+      simp [CompilationModel.compileExprList, CompilationModel.compileExprListWithInternals] at hcompiled
       cases hcompiled
       exact ⟨[], rfl, .nil⟩
   | cons expr rest ih =>
@@ -3346,7 +3373,10 @@ theorem eval_compileExprList_core_of_scope
         exact hinScope expr' (by simp [hexpr'])
       rcases compileExprList_core_ok (fields := fields) htail with ⟨restIRs, hrestIRs⟩
       rcases FunctionBody.compileExpr_core_ok (fields := fields) hhead with ⟨exprIR, hexprIR⟩
-      rw [CompilationModel.compileExprList, hexprIR, hrestIRs] at hcompiled
+      have hexprIRInternal := compileExprWithInternals_nil_ok hexprIR
+      have hrestIRsInternal := compileExprListWithInternals_nil_ok hrestIRs
+      simp [CompilationModel.compileExprList, CompilationModel.compileExprListWithInternals,
+        hexprIRInternal, hrestIRsInternal] at hcompiled
       injection hcompiled with hcompiledTail
       subst hcompiledTail
       rcases eval_compileExpr_core_some_of_scope
@@ -3896,8 +3926,10 @@ theorem compiledStmtStep_setMappingChain_singleSlot_of_slotSafety
   compileOk := by
     rcases findFieldWithResolvedSlot_of_findFieldWriteSlots_singleton hwriteSlots with
       ⟨f, hfind, _⟩
+    have hkeyIRsInternal := compileExprListWithInternals_nil_ok hkeyIRs
+    have hvalueIRInternal := compileExprWithInternals_nil_ok hvalueIR
     simp only [CompilationModel.compileStmt, CompilationModel.compileSetMappingChain,
-      hmapping, hwriteSlots, hkeyIRs, hvalueIR]
+      hmapping, hwriteSlots, hkeyIRsInternal, hvalueIRInternal]
     simp [hfind, fieldStoreBuiltin, SourceSemantics.fieldIsTransient,
       Bind.bind, Except.bind, pure, Except.pure]
   preserves := compiledStmtStep_setMappingChain_singleSlot_of_slotSafety_preserves
@@ -4123,8 +4155,10 @@ theorem compiledStmtStep_setMapping_singleSlot_of_slotSafety
   compileOk := by
     rcases findFieldWithResolvedSlot_of_findFieldWriteSlots_singleton hwriteSlots with
       ⟨f, hfind, _⟩
+    have hkeyIRInternal := compileExprWithInternals_nil_ok hkeyIR
+    have hvalueIRInternal := compileExprWithInternals_nil_ok hvalueIR
     simp only [CompilationModel.compileStmt, CompilationModel.compileMappingSlotWrite,
-      hmapping, hwriteSlots, hkeyIR, hvalueIR]
+      hmapping, hwriteSlots, hkeyIRInternal, hvalueIRInternal]
     simp [hfind, fieldStoreBuiltin, SourceSemantics.fieldIsTransient,
       Bind.bind, Except.bind, pure, Except.pure]
   preserves := compiledStmtStep_setMapping_singleSlot_of_slotSafety_preserves
@@ -4385,8 +4419,10 @@ theorem compiledStmtStep_setMappingWord_singleSlot_of_slotSafety
   compileOk := by
     rcases findFieldWithResolvedSlot_of_findFieldWriteSlots_singleton hwriteSlots with
       ⟨f, hfind, _⟩
+    have hkeyIRInternal := compileExprWithInternals_nil_ok hkeyIR
+    have hvalueIRInternal := compileExprWithInternals_nil_ok hvalueIR
     simp only [CompilationModel.compileStmt, CompilationModel.compileMappingSlotWrite,
-      hmapping, hwriteSlots, hkeyIR, hvalueIR]
+      hmapping, hwriteSlots, hkeyIRInternal, hvalueIRInternal]
     simp [hfind, fieldStoreBuiltin, SourceSemantics.fieldIsTransient,
       Bind.bind, Except.bind, pure, Except.pure]
   preserves := compiledStmtStep_setMappingWord_singleSlot_of_slotSafety_preserves
@@ -5386,8 +5422,10 @@ theorem compiledStmtStep_setMappingPackedWord_singleSlot_of_slotSafety
   compileOk := by
     rcases findFieldWithResolvedSlot_of_findFieldWriteSlots_singleton hwriteSlots with
       ⟨f, hfind, _⟩
+    have hkeyIRInternal := compileExprWithInternals_nil_ok hkeyIR
+    have hvalueIRInternal := compileExprWithInternals_nil_ok hvalueIR
     simp only [CompilationModel.compileStmt, CompilationModel.compileMappingPackedSlotWrite,
-      hmapping, hpacked, hwriteSlots, hkeyIR, hvalueIR, Bool.not_true, bne_self_eq_false,
+      hmapping, hpacked, hwriteSlots, hkeyIRInternal, hvalueIRInternal, Bool.not_true, bne_self_eq_false,
       ite_false, ite_true, pure, Except.pure, bind, Except.bind]
     simp [hfind, fieldLoadBuiltin, fieldStoreBuiltin, SourceSemantics.fieldIsTransient,
       Bind.bind, Except.bind, pure, Except.pure]
@@ -5410,9 +5448,8 @@ private theorem compiledStmtStep_setStructMember_singleSlot_of_slotSafety_preser
     (hcoreValue : FunctionBody.ExprCompileCore value)
     (hinScopeValue : FunctionBody.exprBoundNamesInScope value scope)
     (hmembers : findStructMembers fields fieldName = some members)
-    (hmember :
-      findStructMember members memberName =
-        some { name := memberName, wordOffset := wordOffset, packed := none })
+    (hmember : findStructMember members memberName =
+      some { name := memberName, wordOffset := wordOffset, packed := none })
     (hwriteSlots : findFieldWriteSlots fields fieldName = some [slot])
     (hslotSafety :
       ∀ runtime keyNat,
@@ -5512,9 +5549,11 @@ theorem compiledStmtStep_setStructMember_singleSlot_of_slotSafety
   compileOk := by
     rcases findFieldWithResolvedSlot_of_findFieldWriteSlots_singleton hwriteSlots with
       ⟨f, hfind, _⟩
+    have hkeyIRInternal := compileExprWithInternals_nil_ok hkeyIR
+    have hvalueIRInternal := compileExprWithInternals_nil_ok hvalueIR
     simp only [CompilationModel.compileStmt, CompilationModel.compileSetStructMember,
       CompilationModel.compileMappingSlotWrite, hmapping, hnotMapping2, hmembers, hmember,
-      hwriteSlots, hkeyIR, hvalueIR]
+      hwriteSlots, hkeyIRInternal, hvalueIRInternal]
     simp [hfind, fieldStoreBuiltin, SourceSemantics.fieldIsTransient,
       Bind.bind, Except.bind, pure, Except.pure]
   preserves := compiledStmtStep_setStructMember_singleSlot_of_slotSafety_preserves
@@ -5528,10 +5567,8 @@ private theorem compiledStmtStep_setMapping2_singleSlot_of_slotSafety_preserves
     {key1 key2 value : Expr}
     {key1IR key2IR valueIR : YulExpr}
     {slot : Nat}
-    (hcoreKey1 : FunctionBody.ExprCompileCore key1)
-    (hinScopeKey1 : FunctionBody.exprBoundNamesInScope key1 scope)
-    (hcoreKey2 : FunctionBody.ExprCompileCore key2)
-    (hinScopeKey2 : FunctionBody.exprBoundNamesInScope key2 scope)
+    (hcoreKey1 : FunctionBody.ExprCompileCore key1) (hinScopeKey1 : FunctionBody.exprBoundNamesInScope key1 scope)
+    (hcoreKey2 : FunctionBody.ExprCompileCore key2) (hinScopeKey2 : FunctionBody.exprBoundNamesInScope key2 scope)
     (hcoreValue : FunctionBody.ExprCompileCore value)
     (hinScopeValue : FunctionBody.exprBoundNamesInScope value scope)
     (hwriteSlots : findFieldWriteSlots fields fieldName = some [slot])
@@ -5762,10 +5799,8 @@ theorem compiledStmtStep_setMapping2_singleSlot_of_slotSafety
     {key1IR key2IR valueIR : YulExpr}
     {slot : Nat}
     (hmapping2 : isMapping2 fields fieldName = true)
-    (hcoreKey1 : FunctionBody.ExprCompileCore key1)
-    (hinScopeKey1 : FunctionBody.exprBoundNamesInScope key1 scope)
-    (hcoreKey2 : FunctionBody.ExprCompileCore key2)
-    (hinScopeKey2 : FunctionBody.exprBoundNamesInScope key2 scope)
+    (hcoreKey1 : FunctionBody.ExprCompileCore key1) (hinScopeKey1 : FunctionBody.exprBoundNamesInScope key1 scope)
+    (hcoreKey2 : FunctionBody.ExprCompileCore key2) (hinScopeKey2 : FunctionBody.exprBoundNamesInScope key2 scope)
     (hcoreValue : FunctionBody.ExprCompileCore value)
     (hinScopeValue : FunctionBody.exprBoundNamesInScope value scope)
     (hwriteSlots : findFieldWriteSlots fields fieldName = some [slot])
@@ -5792,10 +5827,13 @@ theorem compiledStmtStep_setMapping2_singleSlot_of_slotSafety
   compileOk := by
       rcases findFieldWithResolvedSlot_of_findFieldWriteSlots_singleton hwriteSlots with
         ⟨f, hfind, _⟩
-      simp only [CompilationModel.compileStmt, CompilationModel.compileSetMapping2,
-        hmapping2, hwriteSlots, hkey1IR, hkey2IR, hvalueIR]
-      simp [hfind, fieldStoreBuiltin, SourceSemantics.fieldIsTransient,
-        Bind.bind, Except.bind, pure, Except.pure]
+    have hkey1IRInternal := compileExprWithInternals_nil_ok hkey1IR
+    have hkey2IRInternal := compileExprWithInternals_nil_ok hkey2IR
+    have hvalueIRInternal := compileExprWithInternals_nil_ok hvalueIR
+    simp only [CompilationModel.compileStmt, CompilationModel.compileSetMapping2,
+      hmapping2, hwriteSlots, hkey1IRInternal, hkey2IRInternal, hvalueIRInternal]
+    simp [hfind, fieldStoreBuiltin, SourceSemantics.fieldIsTransient,
+      Bind.bind, Except.bind, pure, Except.pure]
   preserves := compiledStmtStep_setMapping2_singleSlot_of_slotSafety_preserves
     hcoreKey1 hinScopeKey1 hcoreKey2 hinScopeKey2 hcoreValue hinScopeValue
     hwriteSlots hslotSafety hkey1IR hkey2IR hvalueIR
@@ -6115,8 +6153,11 @@ theorem compiledStmtStep_setMapping2Word_singleSlot_of_slotSafety
   compileOk := by
     rcases findFieldWithResolvedSlot_of_findFieldWriteSlots_singleton hwriteSlots with
       ⟨f, hfind, _⟩
+    have hkey1IRInternal := compileExprWithInternals_nil_ok hkey1IR
+    have hkey2IRInternal := compileExprWithInternals_nil_ok hkey2IR
+    have hvalueIRInternal := compileExprWithInternals_nil_ok hvalueIR
     simp only [CompilationModel.compileStmt, CompilationModel.compileSetMapping2Word,
-      hmapping2, hwriteSlots, hkey1IR, hkey2IR, hvalueIR]
+      hmapping2, hwriteSlots, hkey1IRInternal, hkey2IRInternal, hvalueIRInternal]
     simp [hfind, fieldStoreBuiltin, SourceSemantics.fieldIsTransient,
       Bind.bind, Except.bind, pure, Except.pure]
   preserves := compiledStmtStep_setMapping2Word_singleSlot_of_slotSafety_preserves
@@ -6124,14 +6165,10 @@ theorem compiledStmtStep_setMapping2Word_singleSlot_of_slotSafety
     hwriteSlots hslotSafety hkey1IR hkey2IR hvalueIR
 
 private theorem compiledStmtStep_setStructMember2_singleSlot_of_slotSafety_preserves
-    {fields : List Field}
-    {scope : List String}
-    {fieldName memberName : String}
-    {key1 key2 value : Expr}
-    {wordOffset : Nat}
-    {members : List StructMember}
-    {key1IR key2IR valueIR : YulExpr}
-    {slot : Nat}
+    {fields : List Field} {scope : List String}
+    {fieldName memberName : String} {key1 key2 value : Expr}
+    {wordOffset : Nat} {members : List StructMember}
+    {key1IR key2IR valueIR : YulExpr} {slot : Nat}
     (hcoreKey1 : FunctionBody.ExprCompileCore key1)
     (hinScopeKey1 : FunctionBody.exprBoundNamesInScope key1 scope)
     (hcoreKey2 : FunctionBody.ExprCompileCore key2)
@@ -6139,9 +6176,8 @@ private theorem compiledStmtStep_setStructMember2_singleSlot_of_slotSafety_prese
     (hcoreValue : FunctionBody.ExprCompileCore value)
     (hinScopeValue : FunctionBody.exprBoundNamesInScope value scope)
     (hmembers : findStructMembers fields fieldName = some members)
-    (hmember :
-      findStructMember members memberName =
-        some { name := memberName, wordOffset := wordOffset, packed := none })
+    (hmember : findStructMember members memberName =
+      some { name := memberName, wordOffset := wordOffset, packed := none })
     (hwriteSlots : findFieldWriteSlots fields fieldName = some [slot])
     (hslotSafety :
       ∀ runtime keyNat1 keyNat2,
@@ -6213,25 +6249,18 @@ private theorem compiledStmtStep_setStructMember2_singleSlot_of_slotSafety_prese
       using hmatch
 
 theorem compiledStmtStep_setStructMember2_singleSlot_of_slotSafety
-    {fields : List Field}
-    {scope : List String}
-    {fieldName memberName : String}
-    {key1 key2 value : Expr}
-    {wordOffset : Nat}
-    {members : List StructMember}
-    {key1IR key2IR valueIR : YulExpr}
-    {slot : Nat}
+    {fields : List Field} {scope : List String}
+    {fieldName memberName : String} {key1 key2 value : Expr}
+    {wordOffset : Nat} {members : List StructMember}
+    {key1IR key2IR valueIR : YulExpr} {slot : Nat}
     (hmapping2 : isMapping2 fields fieldName = true)
-    (hcoreKey1 : FunctionBody.ExprCompileCore key1)
-    (hinScopeKey1 : FunctionBody.exprBoundNamesInScope key1 scope)
-    (hcoreKey2 : FunctionBody.ExprCompileCore key2)
-    (hinScopeKey2 : FunctionBody.exprBoundNamesInScope key2 scope)
+    (hcoreKey1 : FunctionBody.ExprCompileCore key1) (hinScopeKey1 : FunctionBody.exprBoundNamesInScope key1 scope)
+    (hcoreKey2 : FunctionBody.ExprCompileCore key2) (hinScopeKey2 : FunctionBody.exprBoundNamesInScope key2 scope)
     (hcoreValue : FunctionBody.ExprCompileCore value)
     (hinScopeValue : FunctionBody.exprBoundNamesInScope value scope)
     (hmembers : findStructMembers fields fieldName = some members)
-    (hmember :
-      findStructMember members memberName =
-        some { name := memberName, wordOffset := wordOffset, packed := none })
+    (hmember : findStructMember members memberName =
+      some { name := memberName, wordOffset := wordOffset, packed := none })
     (hwriteSlots : findFieldWriteSlots fields fieldName = some [slot])
     (hslotSafety :
       ∀ runtime keyNat1 keyNat2,
@@ -6254,8 +6283,12 @@ theorem compiledStmtStep_setStructMember2_singleSlot_of_slotSafety
   compileOk := by
     rcases findFieldWithResolvedSlot_of_findFieldWriteSlots_singleton hwriteSlots with
       ⟨f, hfind, _⟩
+    have hkey1IRInternal := compileExprWithInternals_nil_ok hkey1IR
+    have hkey2IRInternal := compileExprWithInternals_nil_ok hkey2IR
+    have hvalueIRInternal := compileExprWithInternals_nil_ok hvalueIR
     simp only [CompilationModel.compileStmt, CompilationModel.compileSetStructMember2,
-      hmapping2, hmembers, hmember, hwriteSlots, hkey1IR, hkey2IR, hvalueIR]
+      hmapping2, hmembers, hmember, hwriteSlots, hkey1IRInternal, hkey2IRInternal,
+      hvalueIRInternal]
     simp [hfind, fieldStoreBuiltin, SourceSemantics.fieldIsTransient,
       Bind.bind, Except.bind, pure, Except.pure]
   preserves := compiledStmtStep_setStructMember2_singleSlot_of_slotSafety_preserves
@@ -6767,8 +6800,9 @@ theorem compiledStmtStep_ite
       preserves := ?_ }
   · show CompilationModel.compileStmt fields [] [] .calldata [] false scope []
         (.ite cond thenBranch elseBranch) = Except.ok compiledIR
+    have hcondIRInternal := compileExprWithInternals_nil_ok hcondIR
     unfold CompilationModel.compileStmt
-    simp only [hcondIR, hthenIR, helseIR, Except.bind, helseNonempty, ↓reduceIte]
+    simp only [hcondIRInternal, hthenIR, helseIR, Except.bind, helseNonempty, ↓reduceIte]
     rfl
   · intro runtime state extraFuel hexact hscope hbounded hruntime hslack
     set wholeExtraFuel := extraFuel - (sizeOf compiledIR - compiledIR.length) with hWF
@@ -7031,7 +7065,8 @@ private theorem compiledStmtStep_letStorageField
       [YulStmt.let_ tmp (YulExpr.call "sload" [YulExpr.lit slot])] where
   compileOk := by
     have hNotMapping := isMapping_false_of_findFieldWithResolvedSlot_uint256 hfind rfl
-    simp only [CompilationModel.compileStmt, CompilationModel.compileExpr, hNotMapping, hfind]
+    simp only [CompilationModel.compileStmt, CompilationModel.compileExprWithInternals,
+      hNotMapping, hfind]
     rfl
   preserves runtime state extraFuel hexact hscope hbounded hruntime hslack := by
     have hEvalSrc : SourceSemantics.evalExpr fields runtime (.storage fieldName) =
@@ -7110,7 +7145,8 @@ private theorem compiledStmtStep_letStorageAddrField
       [YulStmt.let_ tmp (YulExpr.call "sload" [YulExpr.lit slot])] where
   compileOk := by
     have hNotMapping := isMapping_false_of_findFieldWithResolvedSlot_address hfind rfl
-    simp only [CompilationModel.compileStmt, CompilationModel.compileExpr, hNotMapping, hfind]
+    simp only [CompilationModel.compileStmt, CompilationModel.compileExprWithInternals,
+      hNotMapping, hfind]
     rfl
   preserves runtime state extraFuel hexact hscope hbounded hruntime hslack := by
     have hEvalSrc : SourceSemantics.evalExpr fields runtime (.storageAddr fieldName) =
@@ -7194,7 +7230,8 @@ private theorem compiledStmtStep_assignStorageField
       [YulStmt.assign name (YulExpr.call "sload" [YulExpr.lit slot])] where
   compileOk := by
     have hNotMapping := isMapping_false_of_findFieldWithResolvedSlot_uint256 hfind rfl
-    simp only [CompilationModel.compileStmt, CompilationModel.compileExpr, hNotMapping, hfind]
+    simp only [CompilationModel.compileStmt, CompilationModel.compileExprWithInternals,
+      hNotMapping, hfind]
     rfl
   preserves runtime state extraFuel hexact hscope hbounded hruntime hslack := by
     have hEvalSrc : SourceSemantics.evalExpr fields runtime (.storage fieldName) =
@@ -7273,7 +7310,8 @@ private theorem compiledStmtStep_assignStorageAddrField
       [YulStmt.assign name (YulExpr.call "sload" [YulExpr.lit slot])] where
   compileOk := by
     have hNotMapping := isMapping_false_of_findFieldWithResolvedSlot_address hfind rfl
-    simp only [CompilationModel.compileStmt, CompilationModel.compileExpr, hNotMapping, hfind]
+    simp only [CompilationModel.compileStmt, CompilationModel.compileExprWithInternals,
+      hNotMapping, hfind]
     rfl
   preserves runtime state extraFuel hexact hscope hbounded hruntime hslack := by
     have hEvalSrc : SourceSemantics.evalExpr fields runtime (.storageAddr fieldName) =

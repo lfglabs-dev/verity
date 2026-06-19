@@ -55,7 +55,8 @@ structure EventDynamicArraySource where
   source : DynamicDataSource
 
 def eventDynamicArraySource?
-    (fields : List Field) (dynamicSource : DynamicDataSource) :
+    (fields : List Field) (dynamicSource : DynamicDataSource)
+    (internalFunctions : List FunctionSpec := []) :
     Expr → Except String (Option EventDynamicArraySource)
   | Expr.param name =>
       pure (some
@@ -68,14 +69,14 @@ def eventDynamicArraySource?
           dataOffsetExpr := YulExpr.ident s!"{name}_data_offset"
           source := .memory })
   | e@(Expr.paramDynamicMemberLength name wordOffset) => do
-      let dataOffsetExpr ← compileExpr fields dynamicSource
+      let dataOffsetExpr ← compileExprWithInternals fields dynamicSource internalFunctions
         (Expr.paramDynamicMemberDataOffset name wordOffset)
-      let lengthExpr ← compileExpr fields dynamicSource e
+      let lengthExpr ← compileExprWithInternals fields dynamicSource internalFunctions e
       pure (some { lengthExpr, dataOffsetExpr, source := dynamicSource })
   | e@(Expr.arrayElementDynamicMemberLength name index wordOffset) => do
-      let dataOffsetExpr ← compileExpr fields dynamicSource
+      let dataOffsetExpr ← compileExprWithInternals fields dynamicSource internalFunctions
         (Expr.arrayElementDynamicMemberDataOffset name index wordOffset)
-      let lengthExpr ← compileExpr fields dynamicSource e
+      let lengthExpr ← compileExprWithInternals fields dynamicSource internalFunctions e
       pure (some { lengthExpr, dataOffsetExpr, source := dynamicSource })
   | _ => pure none
 
@@ -187,7 +188,8 @@ def compileScalarEmitFromCompiledArgs
 
 def compileEmit (fields : List Field) (events : List EventDef)
     (dynamicSource : DynamicDataSource := .calldata)
-    (eventName : String) (args : List Expr) : Except String (List YulStmt) := do
+    (eventName : String) (args : List Expr) (internalFunctions : List FunctionSpec := []) :
+    Except String (List YulStmt) := do
   let eventDef? := events.find? (·.name == eventName)
   let eventDef ←
     match eventDef? with
@@ -195,7 +197,7 @@ def compileEmit (fields : List Field) (events : List EventDef)
     | none => throw s!"Compilation error: unknown event '{eventName}'"
   if args.length != eventDef.params.length then
     throw s!"Compilation error: event '{eventName}' expects {eventDef.params.length} args, got {args.length}"
-  let compiledArgs ← compileExprList fields dynamicSource args
+  let compiledArgs ← compileExprListWithInternals fields dynamicSource internalFunctions args
   let zippedWithSource := eventZippedWithSource eventDef args compiledArgs
   let indexed := eventIndexedArgs zippedWithSource
   let unindexed := eventUnindexedArgs zippedWithSource
@@ -344,7 +346,7 @@ def compileEmit (fields : List Field) (events : List EventDef)
                   | _ =>
                       throw s!"Compilation error: unindexed dynamic array event param '{p.name}' in event '{eventName}' currently requires direct parameter reference ({issue586Ref})."
               else if indexedDynamicArrayElemSupported elemTy then
-                match ← eventDynamicArraySource? fields dynamicSource srcExpr with
+                match ← eventDynamicArraySource? fields dynamicSource internalFunctions srcExpr with
                 | some source =>
                     let lenName := s!"__evt_arg{argIdx}_len"
                     let dstName := s!"__evt_arg{argIdx}_dst"
@@ -527,7 +529,7 @@ def compileEmit (fields : List Field) (events : List EventDef)
                 throw s!"Compilation error: indexed dynamic array event param '{p.name}' in event '{eventName}' currently requires direct parameter reference ({issue586Ref})."
         | _ =>
             if indexedDynamicArrayElemSupported elemTy then
-              match ← eventDynamicArraySource? fields dynamicSource srcExpr with
+              match ← eventDynamicArraySource? fields dynamicSource internalFunctions srcExpr with
               | some source =>
                   let topicName := s!"__evt_topic{idx + 1}"
                   let byteLenName := s!"__evt_arg{idx}_byte_len"

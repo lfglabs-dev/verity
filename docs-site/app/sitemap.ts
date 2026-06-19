@@ -17,9 +17,16 @@ const ROUTES = [
   // Reference
   '/examples',
   '/core',
-  '/edsl-api-reference',
+  '/edsl',
+  '/edsl/storage',
+  '/edsl/computation',
+  '/edsl/control-flow',
+  '/edsl/functions',
+  '/edsl/external-calls',
   '/compiler',
   '/intrinsics',
+  '/capabilities',
+  '/diagnostics',
   '/verification',
   '/glossary',
   // Explanation

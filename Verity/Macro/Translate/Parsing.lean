@@ -364,6 +364,7 @@ structure ParsedMutability where
   allowPostInteractionWrites : Bool := false
   nonReentrantLock : Option Ident := none
   ceiSafe : Bool := false
+  reentrancyTrusted : Bool := false
 
 def parseMutabilityModifiers
     (mods : Array (TSyntax `verityMutability))
@@ -399,6 +400,10 @@ def parseMutabilityModifiers
         if result.ceiSafe then
           throwErrorAt mod "duplicate 'cei_safe' modifier"
         result := { result with ceiSafe := true }
+    | `(verityMutability| reentrancy_trusted) =>
+        if result.reentrancyTrusted then
+          throwErrorAt mod "duplicate 'reentrancy_trusted' modifier"
+        result := { result with reentrancyTrusted := true }
     | _ => throwErrorAt stx "invalid function mutability modifier"
   pure result
 
@@ -525,6 +530,7 @@ def parseFunction (newtypes : Array NewtypeDecl) (structDecls : Array StructDecl
         allowPostInteractionWrites := mut_.allowPostInteractionWrites
         nonReentrantLock := mut_.nonReentrantLock
         ceiSafe := mut_.ceiSafe
+        reentrancyTrusted := mut_.reentrancyTrusted
         requiresRole := parsedRequiresRole
         initGuard? := parsedGuard?
         modifies := parsedModifies

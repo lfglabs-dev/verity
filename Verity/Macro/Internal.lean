@@ -277,4 +277,22 @@ def ensureSupportsInternalHelperSpec
     throwErrorAt stx
       s!"helper call '{fn.name}' uses a parameter or return type that direct macro helper lowering does not support yet; only static non-fallback/non-receive helpers can be lowered to internal specs"
 
+def ensureCallableAsInternalHelper
+    (stx : Syntax)
+    (fn : FunctionDecl) : CommandElabM Unit := do
+  -- Fail closed on internal calls to a function whose only reentrancy
+  -- protection is its `nonreentrant(<lock>)` guard. The transient-storage
+  -- guard is synthesised solely at the external dispatch boundary
+  -- (`attachNonReentrantGuard`, #1893); the internal-helper shadow drops the
+  -- lock, so routing a call through the shadow would execute the body without
+  -- the lock and bypass reentrancy protection. `reentrancy_trusted` is the only
+  -- sound exemption: it is an author assertion that the body is safe under every
+  -- entry path, so it covers the lock-free internal path too. (Bugbot HIGH on
+  -- PR #2032.) This is the call-site gate; the declaration-site rejection of
+  -- `internal nonreentrant(<lock>)` lives in `validateFunctionDeclsPublic` (#1971).
+  if fn.nonReentrantLock.isSome && !fn.reentrancyTrusted then
+    throwErrorAt stx
+      s!"helper call '{fn.name}': nonreentrant(<lock>) functions cannot be invoked as internal helpers; the synthesised transient-storage guard runs only at the external dispatch boundary, so an internal call would execute the body without the reentrancy lock. Expose '{fn.name}' only as an external entrypoint, or add `reentrancy_trusted` if its body is safe under every entry path."
+  ensureSupportsInternalHelperSpec stx fn
+
 end Verity.Macro

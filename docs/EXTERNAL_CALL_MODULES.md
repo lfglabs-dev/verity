@@ -149,6 +149,7 @@ Standard modules ship in `Compiler/Modules/`:
 | `Calls.callWithValue` | Parameterized | Generic `call{value:v}` over an already prepared calldata slice, with revert bubbling | `generic_call_with_value_interface` |
 | `Calls.callWithValueBytes` | Parameterized | Generic `call{value:v}` over a `bytes` parameter, with revert bubbling | `generic_call_with_value_interface` |
 | `Calls.bubblingValueCall` / `Calls.bubblingValueCallNoOutput` | `call{value: v}(data)` shape | Generic low-level value call over caller-provided memory slices; bubbles exact revert returndata on failure | `generic_low_level_value_call_interface` |
+| `Calls.selfDelegateMulticallBytes` | Parameterized | Self-delegatecall `multicall(bytes[])`; checks each bytes-array element offset, copies payload calldata, delegatecalls `address()`, and bubbles exact revert returndata | `self_delegate_multicall_bytes_revert_bubbling` |
 | `Create2SSTORE2.create2Deploy` | Parameterized | `create2(value, offset, size, salt)` over caller-prepared initcode | `create2_initcode_layout`, `create2_address_derivation` |
 | `Create2SSTORE2.sstore2ReadCode` | Parameterized | `extcodecopy(pointer, dest, codeOffset, size)` for code-as-data reads | `sstore2_pointer_code_layout` |
 
@@ -201,6 +202,21 @@ inputSize`. It is backed by the four-argument
 `ecmDo` call sites. Trust reports surface the distinct
 `bubblingValueCallNoOutput` module name with the same
 `generic_low_level_value_call_interface` assumption.
+
+### Self-Delegate Multicall
+
+`Compiler.Modules.Calls.selfDelegateMulticallBytes "calls"` is the standard
+source-level helper for Solidity-style `multicall(bytes[] calldata calls)` when
+each payload is executed against the current contract with the current storage
+context. It expects a named `bytes[]` ABI parameter, walks the checked dynamic
+array offset table, copies each element payload to the free-memory region, and
+emits `delegatecall(gas(), address(), ptr, size, 0, 0)`.
+
+On failure, the helper copies `returndatasize()` bytes from returndata offset
+zero to memory offset zero and reverts with that exact payload. The helper does
+not expose an implementation address, so trust reports surface it as the
+`selfDelegateMulticallBytes` ECM assumption rather than as a general
+proxy/upgradeability `delegatecall` mechanic.
 
 ### ERC-20 Optional Return Policies
 

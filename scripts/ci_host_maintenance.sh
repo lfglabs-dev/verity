@@ -4,6 +4,7 @@ set -euo pipefail
 CACHE_ROOT="${CACHE_ROOT:-/srv/verity-ci-cache}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LAKE_BUILD_MAX_AGE_DAYS="${LAKE_BUILD_MAX_AGE_DAYS:-21}"
+LAKE_PACKAGES_MAX_AGE_DAYS="${LAKE_PACKAGES_MAX_AGE_DAYS:-14}"
 COMPILER_CCACHE_MAX_AGE_DAYS="${COMPILER_CCACHE_MAX_AGE_DAYS:-21}"
 ARTIFACT_MAX_AGE_HOURS="${ARTIFACT_MAX_AGE_HOURS:-24}"
 JOURNAL_VACUUM_TIME="${JOURNAL_VACUUM_TIME:-14d}"
@@ -23,6 +24,7 @@ Subcommands:
 Environment:
   CACHE_ROOT                    Default: /srv/verity-ci-cache
   LAKE_BUILD_MAX_AGE_DAYS       Default: 21
+  LAKE_PACKAGES_MAX_AGE_DAYS    Default: 14
   COMPILER_CCACHE_MAX_AGE_DAYS  Default: 21
   ARTIFACT_MAX_AGE_HOURS        Default: 24
   JOURNAL_VACUUM_TIME           Default: 14d
@@ -61,6 +63,7 @@ run_maintenance() {
 
   mkdir -p "$CACHE_ROOT"
   prune_tree "$CACHE_ROOT/lake-build" "$LAKE_BUILD_MAX_AGE_DAYS" "lake-build cache"
+  prune_tree "$CACHE_ROOT/lake-packages" "$LAKE_PACKAGES_MAX_AGE_DAYS" "lake-packages cache"
   prune_tree "$CACHE_ROOT/compiler-ccache" "$COMPILER_CCACHE_MAX_AGE_DAYS" "compiler ccache"
 
   if [ -x "$SCRIPT_DIR/ci_local_persistence.sh" ]; then

@@ -68,6 +68,43 @@ private def abiSmokeSpec : CompilationModel := {
   ]
 }
 
+private def runtimeSetImmutableSpec : CompilationModel := {
+  name := "RuntimeSetImmutable"
+  fields := []
+  «immutables» := [
+    { name := "owner", ty := ParamType.address, init := Expr.literal 0 }
+  ]
+  «constructor» := none
+  functions := [
+    { name := "setOwner"
+      params := [{ name := "next", ty := ParamType.address }]
+      returnType := none
+      body := [
+        Stmt.setImmutable "owner" (Expr.param "next"),
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def unknownImmutableReadSpec : CompilationModel := {
+  name := "UnknownImmutableRead"
+  fields := []
+  «immutables» := [
+    { name := "owner", ty := ParamType.address, init := Expr.literal 0 }
+  ]
+  «constructor» := none
+  functions := [
+    { name := "owner"
+      params := []
+      returnType := some FieldType.address
+      body := [
+        Stmt.return (Expr.immutable "owenr")
+      ]
+    }
+  ]
+}
+
 private def futureForkIntrinsicSpec : CompilationModel := {
   name := "FutureForkIntrinsicSmoke"
   fields := []
@@ -297,6 +334,7 @@ private def linkedLibrarySpec : CompilationModel := {
       ]
       returnType := none
       allowPostInteractionWrites := true
+      reentrancyTrusted := true
       body := [
         Stmt.letVar "h" (Expr.externalCall "PoseidonT3_hash" [Expr.param "a", Expr.param "b"]),
         Stmt.setStorage "lastHash" (Expr.localVar "h"),
@@ -320,6 +358,7 @@ private def trustSurfaceSpec : CompilationModel := {
     { name := "exercise"
       params := [{ name := "target", ty := ParamType.address }]
       returnType := none
+      reentrancyTrusted := true
       body := [
         Stmt.letVar "ok"
           (Expr.staticcall
@@ -548,6 +587,7 @@ private def uncheckedTrustSurfaceSpec : CompilationModel := {
     { name := "exercise"
       params := []
       returnType := none
+      reentrancyTrusted := true
       body := [
         Stmt.letVar "peek" (Expr.externalCall "DebugOracle_peek" []),
         Stmt.ecm
@@ -748,6 +788,7 @@ private def callWithValueTrustSurfaceSpec : CompilationModel := {
         , { name := "dataSize", ty := ParamType.uint256 }
       ]
       returnType := none
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.Calls.callWithValue
           (Expr.param "target")
@@ -772,6 +813,7 @@ private def callWithValueBytesTrustSurfaceSpec : CompilationModel := {
         , { name := "data", ty := ParamType.bytes }
       ]
       returnType := none
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.Calls.callWithValueBytes
           (Expr.param "target")
@@ -1131,6 +1173,7 @@ private def erc4626DepositTrustSurfaceSpec : CompilationModel := {
       ]
       returnType := none
       returns := [ParamType.uint256]
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.ERC4626.deposit
           "shares"
@@ -1216,6 +1259,20 @@ unsafe def runTests : IO Unit := do
   IO.FS.createDirAll abiHeadAbiDir
 
   try IO.FS.removeFile earlySuccessfulAbi catch _ => pure ()
+
+  expectFailureContains
+    "validateCompileInputs rejects setImmutable in runtime function body"
+    (match validateCompileInputs runtimeSetImmutableSpec [0] with
+     | Except.ok _ => pure ()
+     | Except.error err => throw (IO.userError err))
+    "uses Stmt.setImmutable 'owner' outside constructor scope"
+
+  expectFailureContains
+    "validateCompileInputs rejects unknown immutable reads"
+    (match validateCompileInputs unknownImmutableReadSpec [0] with
+     | Except.ok _ => pure ()
+     | Except.error err => throw (IO.userError err))
+    "references unknown immutable 'owenr'"
 
   expectFailureContains
     "compileSpecsWithOptions reports missing linked library"

@@ -99,6 +99,87 @@ def dynamicBytesEqCalldataHelperName : String :=
 def dynamicBytesEqMemoryHelperName : String :=
   "__verity_dynamic_bytes_eq_memory"
 
+def checkedAddUint256HelperName : String :=
+  "checked_add_t_uint256"
+
+def checkedSubUint256HelperName : String :=
+  "checked_sub_t_uint256"
+
+def checkedMulUint256HelperName : String :=
+  "checked_mul_t_uint256"
+
+def checkedDivUint256HelperName : String :=
+  "checked_div_t_uint256"
+
+def panicError0x11HelperName : String :=
+  "panic_error_0x11"
+
+def panicError0x12HelperName : String :=
+  "panic_error_0x12"
+
+/-- ABI payload for Solidity's built-in `Panic(uint256)` error.
+
+    The payload is exactly 36 bytes:
+    4-byte selector `0x4e487b71` followed by one ABI word containing `code`. -/
+def solidityPanicPayload (code : Nat) : List YulStmt :=
+  [
+    YulStmt.expr (YulExpr.call "mstore" [
+      YulExpr.lit 0,
+      YulExpr.call "shl" [YulExpr.lit 224, YulExpr.hex 0x4e487b71]
+    ]),
+    YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 4, YulExpr.lit code]),
+    YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 36])
+  ]
+
+def panicErrorHelper (helperName : String) (code : Nat) : YulStmt :=
+  YulStmt.funcDef helperName [] [] (solidityPanicPayload code)
+
+def panicError0x11Helper : YulStmt :=
+  panicErrorHelper panicError0x11HelperName 0x11
+
+def panicError0x12Helper : YulStmt :=
+  panicErrorHelper panicError0x12HelperName 0x12
+
+def checkedAddUint256Helper : YulStmt :=
+  YulStmt.funcDef checkedAddUint256HelperName ["x", "y"] ["sum"] [
+    YulStmt.assign "sum" (YulExpr.call "add" [YulExpr.ident "x", YulExpr.ident "y"]),
+    YulStmt.if_ (YulExpr.call "gt" [YulExpr.ident "x", YulExpr.ident "sum"]) [
+      YulStmt.expr (YulExpr.call panicError0x11HelperName [])
+    ]
+  ]
+
+def checkedSubUint256Helper : YulStmt :=
+  YulStmt.funcDef checkedSubUint256HelperName ["x", "y"] ["diff"] [
+    YulStmt.if_ (YulExpr.call "gt" [YulExpr.ident "y", YulExpr.ident "x"]) [
+      YulStmt.expr (YulExpr.call panicError0x11HelperName [])
+    ],
+    YulStmt.assign "diff" (YulExpr.call "sub" [YulExpr.ident "x", YulExpr.ident "y"])
+  ]
+
+def checkedMulUint256Helper : YulStmt :=
+  YulStmt.funcDef checkedMulUint256HelperName ["x", "y"] ["product"] [
+    YulStmt.assign "product" (YulExpr.call "mul" [YulExpr.ident "x", YulExpr.ident "y"]),
+    YulStmt.if_ (YulExpr.call "iszero" [
+      YulExpr.call "or" [
+        YulExpr.call "iszero" [YulExpr.ident "x"],
+        YulExpr.call "eq" [
+          YulExpr.call "div" [YulExpr.ident "product", YulExpr.ident "x"],
+          YulExpr.ident "y"
+        ]
+      ]
+    ]) [
+      YulStmt.expr (YulExpr.call panicError0x11HelperName [])
+    ]
+  ]
+
+def checkedDivUint256Helper : YulStmt :=
+  YulStmt.funcDef checkedDivUint256HelperName ["x", "y"] ["quotient"] [
+    YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident "y"]) [
+      YulStmt.expr (YulExpr.call panicError0x12HelperName [])
+    ],
+    YulStmt.assign "quotient" (YulExpr.call "div" [YulExpr.ident "x", YulExpr.ident "y"])
+  ]
+
 private def checkedArrayElementHelper (helperName loadOp : String) : YulStmt :=
   YulStmt.funcDef helperName ["data_offset", "length", "index"] ["word"] [
     YulStmt.if_ (YulExpr.call "iszero" [

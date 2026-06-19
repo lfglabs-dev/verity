@@ -76,6 +76,8 @@ mutual
 private partial def stmtSummary : Stmt → TransitionSummary
   | .setStorage field value | .setStorageAddr field value =>
       { reads := dedup (exprReads value), writes := [field] }
+  | .setImmutable name value =>
+      { reads := dedup (exprReads value), writes := ["immutable:" ++ name] }
   | .setStorageWord field offset value =>
       { reads := dedup (exprReads value), writes := [field ++ "+" ++ toString offset] }
   | .storageArrayPush field value =>
