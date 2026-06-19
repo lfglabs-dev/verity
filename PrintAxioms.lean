@@ -1656,6 +1656,14 @@ end Verity.AxiomAudit
   Compiler.Proofs.Frames.writeStorageWordSlots_preserves_storage_except
   Compiler.Proofs.Frames.writeStorageWordSlots_preserves_address_except
   Compiler.Proofs.Frames.writeAddressSlots_preserves_address_except
+  Compiler.Proofs.Frames.writeUintFieldSlots_preserves_storage_except
+  Compiler.Proofs.Frames.writeUintFieldSlots_preserves_address
+  Compiler.Proofs.Frames.writeUintFieldSlots_preserves_arrays
+  Compiler.Proofs.Frames.writeUintFieldSlots_preserves_calldata
+  Compiler.Proofs.Frames.writeAddressFieldSlots_preserves_address_except
+  Compiler.Proofs.Frames.writeAddressFieldSlots_preserves_storage
+  Compiler.Proofs.Frames.writeAddressFieldSlots_preserves_arrays
+  Compiler.Proofs.Frames.writeAddressFieldSlots_preserves_calldata
   Compiler.Proofs.Frames.writeStorageArray_preserves_arrays_except
   Compiler.Proofs.Frames.execStmt_setStorage_execution_summary
   Compiler.Proofs.Frames.execStmt_setStorageAddr_execution_summary
@@ -1809,6 +1817,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMappingPackedWordFieldSlots_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMapping2WordSlots_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMapping2PackedWordSlots_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMapping2PackedWordFieldSlots_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMappingChainSlots_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMappingWordFieldSlots_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMapping2WordFieldSlots_eq
@@ -5665,4 +5674,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5307 theorems/lemmas (3653 public, 1654 private, 0 sorry'd)
+-- Total: 5316 theorems/lemmas (3662 public, 1654 private, 0 sorry'd)

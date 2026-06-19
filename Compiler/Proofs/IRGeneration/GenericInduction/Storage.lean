@@ -5825,8 +5825,8 @@ theorem compiledStmtStep_setMapping2_singleSlot_of_slotSafety
             [YulExpr.call "mappingSlot"
               [YulExpr.call "mappingSlot" [YulExpr.lit slot, key1IR], key2IR], valueIR])] where
   compileOk := by
-      rcases findFieldWithResolvedSlot_of_findFieldWriteSlots_singleton hwriteSlots with
-        ⟨f, hfind, _⟩
+    rcases findFieldWithResolvedSlot_of_findFieldWriteSlots_singleton hwriteSlots with
+      ⟨f, hfind, _⟩
     have hkey1IRInternal := compileExprWithInternals_nil_ok hkey1IR
     have hkey2IRInternal := compileExprWithInternals_nil_ok hkey2IR
     have hvalueIRInternal := compileExprWithInternals_nil_ok hvalueIR

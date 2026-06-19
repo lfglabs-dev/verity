@@ -241,9 +241,7 @@ def compileExprWithInternals (fields : List Field)
     else
       match findFieldWithResolvedSlot fields field with
       | some (f, slot) => do
-        let loadBuiltin := match findFieldWithResolvedSlot fields field with
-          | some (f, _) => if f.isTransient then "tload" else "sload"
-          | none => "sload"
+        let loadBuiltin := if f.isTransient then "tload" else "sload"
         let key1Expr ← compileExprWithInternals fields dynamicSource internalFunctions key1
         let key2Expr ← compileExprWithInternals fields dynamicSource internalFunctions key2
         let innerSlot := YulExpr.call "mappingSlot" [YulExpr.lit slot, key1Expr]
@@ -255,9 +253,7 @@ def compileExprWithInternals (fields : List Field)
     else
       match findFieldWithResolvedSlot fields field with
       | some (f, slot) => do
-        let loadBuiltin := match findFieldWithResolvedSlot fields field with
-          | some (f, _) => if f.isTransient then "tload" else "sload"
-          | none => "sload"
+        let loadBuiltin := if f.isTransient then "tload" else "sload"
         let key1Expr ← compileExprWithInternals fields dynamicSource internalFunctions key1
         let key2Expr ← compileExprWithInternals fields dynamicSource internalFunctions key2
         let innerSlot := YulExpr.call "mappingSlot" [YulExpr.lit slot, key1Expr]
@@ -307,9 +303,7 @@ def compileExprWithInternals (fields : List Field)
           | some member =>
             match findFieldWithResolvedSlot fields field with
             | some (f, slot) => do
-              let loadBuiltin := match findFieldWithResolvedSlot fields field with
-                | some (f, _) => if f.isTransient then "tload" else "sload"
-                | none => "sload"
+              let loadBuiltin := if f.isTransient then "tload" else "sload"
               let key1Expr ← compileExprWithInternals fields dynamicSource internalFunctions key1
               let key2Expr ← compileExprWithInternals fields dynamicSource internalFunctions key2
               let innerSlot := YulExpr.call "mappingSlot" [YulExpr.lit slot, key1Expr]

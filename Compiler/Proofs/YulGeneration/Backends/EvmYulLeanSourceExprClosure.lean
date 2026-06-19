@@ -1122,7 +1122,7 @@ theorem compileExpr_bridgedSource
       split at hOk
       · simp at hOk
       · split at hOk
-        · rename_i slot hFind
+        · rename_i f slot hFind
           simp only [bind, Except.bind] at hOk
           cases hCompiledKey1 : compileExprWithInternals fields src [] _ with
           | error err =>
@@ -1138,9 +1138,10 @@ theorem compileExpr_bridgedSource
                   rw [hCompiledKey2] at hOk
                   simp [Pure.pure, Except.pure] at hOk
                   subst out
-                  exact bridgedExpr_resolvedStorageLoad_mappingSlot2_lit
-                    fields fieldName slot
-                    (ihKey1 hCompiledKey1) (ihKey2 hCompiledKey2)
+                  simpa [hFind] using
+                    (bridgedExpr_resolvedStorageLoad_mappingSlot2_lit
+                      fields fieldName slot
+                      (ihKey1 hCompiledKey1) (ihKey2 hCompiledKey2))
         · simp at hOk
   | mapping2Word fieldName hKey1 hKey2 wordOffset ihKey1 ihKey2 =>
       intro out hOk
@@ -1148,7 +1149,7 @@ theorem compileExpr_bridgedSource
       split at hOk
       · simp at hOk
       · split at hOk
-        · rename_i slot hFind
+        · rename_i f slot hFind
           simp only [bind, Except.bind] at hOk
           cases hCompiledKey1 : compileExprWithInternals fields src [] _ with
           | error err =>
@@ -1165,9 +1166,10 @@ theorem compileExpr_bridgedSource
                   dsimp at hOk
                   simp [Pure.pure, Except.pure] at hOk
                   subst out
-                  exact bridgedExpr_resolvedStorageLoad_mappingSlot2_lit_offset
-                    fields fieldName slot wordOffset
-                    (ihKey1 hCompiledKey1) (ihKey2 hCompiledKey2)
+                  simpa [hFind] using
+                    (bridgedExpr_resolvedStorageLoad_mappingSlot2_lit_offset
+                      fields fieldName slot wordOffset
+                      (ihKey1 hCompiledKey1) (ihKey2 hCompiledKey2))
         · simp at hOk
   | structMember fieldName hKey memberName ihKey =>
       intro out hOk
@@ -1225,7 +1227,7 @@ theorem compileExpr_bridgedSource
           · simp at hOk
           · rename_i member hMember
             split at hOk
-            · rename_i slot hFindSlot
+            · rename_i f slot hFindSlot
               cases hCompiledKey1 : compileExprWithInternals fields src [] _ with
               | error err =>
                   rw [hCompiledKey1] at hOk
@@ -1244,19 +1246,21 @@ theorem compileExpr_bridgedSource
                           simp at hOk
                           simp [Pure.pure, Except.pure] at hOk
                           subst out
-                          exact bridgedExpr_resolvedStorageLoad_mappingSlot2_lit_offset
-                            fields fieldName slot member.wordOffset
-                            (ihKey1 hCompiledKey1) (ihKey2 hCompiledKey2)
+                          simpa [hFindSlot] using
+                            (bridgedExpr_resolvedStorageLoad_mappingSlot2_lit_offset
+                              fields fieldName slot member.wordOffset
+                              (ihKey1 hCompiledKey1) (ihKey2 hCompiledKey2))
                       | some packed =>
                           rw [hPacked] at hOk
                           simp at hOk
                           simp [Pure.pure, Except.pure] at hOk
                           subst out
-                          exact bridgedExpr_packed_read
-                            (bridgedExpr_resolvedStorageLoad_mappingSlot2_lit_offset
-                              fields fieldName slot member.wordOffset
-                              (ihKey1 hCompiledKey1) (ihKey2 hCompiledKey2))
-                            packed.offset (packedMaskNat packed)
+                          simpa [hFindSlot] using
+                            (bridgedExpr_packed_read
+                              (bridgedExpr_resolvedStorageLoad_mappingSlot2_lit_offset
+                                fields fieldName slot member.wordOffset
+                                (ihKey1 hCompiledKey1) (ihKey2 hCompiledKey2))
+                              packed.offset (packedMaskNat packed))
             · simp at hOk
   | caller =>
       intro out hOk
