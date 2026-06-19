@@ -29,6 +29,25 @@ def parseStorageField (newtypes : Array NewtypeDecl) (structDecls : Array Struct
       }
   | _ => throwErrorAt stx "invalid storage field declaration"
 
+def parseTransientStorageItem (newtypes : Array NewtypeDecl) (structDecls : Array StructDecl := #[]) (adtDecls : Array AdtDecl := #[])
+    (stx : TSyntax `verityStorageItem) : CommandElabM (Option StorageFieldDecl) := do
+  match stx with
+  | `(verityStorageItem| transient $name:ident : $ty:term := slot $slotNum:num) =>
+      let parsedTy ← storageTypeFromSyntax newtypes structDecls adtDecls ty
+      let adtInfo? :=
+        match parsedTy with
+        | .scalar (.adt adtName maxFields) => some (adtName, maxFields)
+        | _ => none
+      pure <| some {
+        ident := name
+        name := toString name.getId
+        ty := parsedTy
+        slotNum := ← natFromSyntax slotNum
+        isTransient := true
+        adtInfo? := adtInfo?
+      }
+  | _ => pure none
+
 def pathFieldName (parts : List String) : String :=
   String.intercalate "." parts
 
@@ -345,6 +364,7 @@ structure ParsedMutability where
   allowPostInteractionWrites : Bool := false
   nonReentrantLock : Option Ident := none
   ceiSafe : Bool := false
+  reentrancyTrusted : Bool := false
 
 def parseMutabilityModifiers
     (mods : Array (TSyntax `verityMutability))
@@ -380,6 +400,10 @@ def parseMutabilityModifiers
         if result.ceiSafe then
           throwErrorAt mod "duplicate 'cei_safe' modifier"
         result := { result with ceiSafe := true }
+    | `(verityMutability| reentrancy_trusted) =>
+        if result.reentrancyTrusted then
+          throwErrorAt mod "duplicate 'reentrancy_trusted' modifier"
+        result := { result with reentrancyTrusted := true }
     | _ => throwErrorAt stx "invalid function mutability modifier"
   pure result
 
@@ -506,6 +530,7 @@ def parseFunction (newtypes : Array NewtypeDecl) (structDecls : Array StructDecl
         allowPostInteractionWrites := mut_.allowPostInteractionWrites
         nonReentrantLock := mut_.nonReentrantLock
         ceiSafe := mut_.ceiSafe
+        reentrancyTrusted := mut_.reentrancyTrusted
         requiresRole := parsedRequiresRole
         initGuard? := parsedGuard?
         modifies := parsedModifies

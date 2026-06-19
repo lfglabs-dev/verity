@@ -69,6 +69,44 @@ example : rejectLargeExecutableUsesRuntimeFallback = true := by native_decide
 
 end MacroCustomErrorUsageSmoke
 
+namespace MacroCustomErrorRuntimeArgSmoke
+
+verity_contract MacroCustomErrorRuntimeArgs where
+  storage
+    sentinel : Uint256 := slot 0
+
+  errors
+    error ExecutionResult(Uint256, Uint256, Address, Bool)
+
+  function failRuntime (preOpGas : Uint256, paid : Uint256, target : Address, success : Bool) : Unit := do
+    let total := add preOpGas paid
+    revertError ExecutionResult(total, add paid 1, target, success)
+
+def failRuntimeModelUsesRuntimeCustomErrorArgs : Bool :=
+  match MacroCustomErrorRuntimeArgs.failRuntime_modelBody with
+  | [Stmt.letVar "total" (Expr.add (Expr.param "preOpGas") (Expr.param "paid")),
+      Stmt.revertError "ExecutionResult"
+        [Expr.localVar "total",
+          Expr.add (Expr.param "paid") (Expr.literal 1),
+          Expr.param "target",
+          Expr.param "success"],
+      Stmt.stop] =>
+      true
+  | _ => false
+
+example : failRuntimeModelUsesRuntimeCustomErrorArgs = true := by decide
+
+def failRuntimeExecutableUsesRuntimeFallback : Bool :=
+  match MacroCustomErrorRuntimeArgs.failRuntime 3 4 9 true Verity.defaultState with
+  | .revert msg state =>
+      msg == "ExecutionResult(7, 5, 9, true)" &&
+        state.sender == Verity.defaultState.sender
+  | .success _ _ => false
+
+example : failRuntimeExecutableUsesRuntimeFallback = true := by decide
+
+end MacroCustomErrorRuntimeArgSmoke
+
 namespace RequireSomeUintErrorSmoke
 
 verity_contract RequireSomeUintErrorUsage where
@@ -195,6 +233,18 @@ verity_contract RequireSomeUintErrorWrongArityRejected where
   function bad (a : Uint256, b : Uint256) : Uint256 := do
     let result ← requireSomeUintError (safeMul a b) MulOverflow(a)
     return result
+
+/--
+error: custom error 'NeedsAmount' arg 1 in function 'bad' expects Verity.Macro.ValueType.uint256, got Verity.Macro.ValueType.bool
+-/
+#guard_msgs in
+verity_contract CustomErrorWrongArgTypeRejected where
+  storage
+  errors
+    error NeedsAmount (Uint256)
+
+  function bad (ok : Bool) : Unit := do
+    revertError NeedsAmount(ok)
 
 /--
 error: unsupported requireSomeUintError source; expected safeAdd, safeSub, safeMul, or safeDiv

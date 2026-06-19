@@ -60,6 +60,15 @@ def SNARK_SCALAR_FIELD : Uint256 :=
 def modField (x : Uint256) : Uint256 :=
   Verity.Core.Uint256.mod x SNARK_SCALAR_FIELD
 
+/-- Count leading zero bits in a 256-bit word. This is the executable
+    counterpart of the compiler's `clz` contract-expression sugar. -/
+def clz (x : Uint256) : Uint256 :=
+  Verity.Core.Uint256.ofNat (if x.val = 0 then 256 else 255 - Nat.log2 x.val)
+
+/-- Most-significant set-bit index, returning `0` for `0`. -/
+def msb (x : Uint256) : Uint256 :=
+  if x.val = 0 then 0 else Verity.Core.Uint256.ofNat (255 - (clz x).val)
+
 /-- `mulDivDown(a, b, c)` = `floor(a * b / c)` under the EVM's `div` semantics. -/
 def mulDivDown (a b c : Uint256) : Uint256 :=
   (a * b) / c

@@ -74,19 +74,19 @@ theorem compileExpr_bridgedSource_leaf
   intro e hE out hOk
   cases hE with
   | literal n =>
-      simp [compileExpr, Pure.pure, Except.pure] at hOk
+      simp [compileExpr, compileExprWithInternals, Pure.pure, Except.pure] at hOk
       subst out
       exact BridgedExpr.lit _
   | param name =>
-      simp [compileExpr, Pure.pure, Except.pure] at hOk
+      simp [compileExpr, compileExprWithInternals, Pure.pure, Except.pure] at hOk
       subst out
       exact BridgedExpr.ident name
   | constructorArg idx =>
-      simp [compileExpr, Pure.pure, Except.pure] at hOk
+      simp [compileExpr, compileExprWithInternals, Pure.pure, Except.pure] at hOk
       subst out
       exact BridgedExpr.ident _
   | localVar name =>
-      simp [compileExpr, Pure.pure, Except.pure] at hOk
+      simp [compileExpr, compileExprWithInternals, Pure.pure, Except.pure] at hOk
       subst out
       exact BridgedExpr.ident name
 
@@ -479,7 +479,7 @@ private theorem bridgedExpr_ite {cond thenVal elseVal : YulExpr}
   exact bridgedExpr_binopBuiltin (by simp [bridgedBuiltins]) hThenTerm hElseTerm
 
 /-- Destructure a `do`-block emission of `yulBinOp` into its sub-results.
-    This shape matches what `simp only [compileExpr]` produces for every
+    This shape matches what `simp only [compileExpr, compileExprWithInternals]` produces for every
     binop constructor case. -/
 private theorem compileExpr_yulBinOp_ok
     {fields : List CompilationModel.Field} {src : DynamicDataSource}
@@ -574,6 +574,20 @@ private theorem bridgedExpr_sload {slot : YulExpr} (hSlot : BridgedExpr slot) :
   subst arg
   exact hSlot
 
+private theorem bridgedExpr_storageLoad (isTransient : Bool)
+    {slot : YulExpr} (hSlot : BridgedExpr slot) :
+    BridgedExpr
+      (YulExpr.call (if isTransient then "tload" else "sload") [slot]) := by
+  cases isTransient
+  · exact bridgedExpr_sload hSlot
+  · exact bridgedExpr_tload slot hSlot
+
+private theorem bridgedExpr_storageLoad_lit (isTransient : Bool) (slot : Nat) :
+    BridgedExpr
+      (YulExpr.call (if isTransient then "tload" else "sload")
+        [YulExpr.lit slot]) :=
+  bridgedExpr_storageLoad isTransient (BridgedExpr.lit slot)
+
 /-- `mappingSlot(base, key)` is in the native bridged expression fragment
     whenever both slot arguments are bridged. -/
 private theorem bridgedExpr_mappingSlot {base key : YulExpr}
@@ -590,6 +604,15 @@ private theorem bridgedExpr_sload_mappingSlot_lit
   bridgedExpr_sload
     (bridgedExpr_mappingSlot (BridgedExpr.lit slot) hKey)
 
+private theorem bridgedExpr_storageLoad_mappingSlot_lit
+    (isTransient : Bool) (slot : Nat) {key : YulExpr}
+    (hKey : BridgedExpr key) :
+    BridgedExpr
+      (YulExpr.call (if isTransient then "tload" else "sload")
+        [YulExpr.call "mappingSlot" [YulExpr.lit slot, key]]) :=
+  bridgedExpr_storageLoad isTransient
+    (bridgedExpr_mappingSlot (BridgedExpr.lit slot) hKey)
+
 /-- `sload(add(mappingSlot(lit slot, key), lit wordOffset))` is bridged for
     bridged keys. -/
 private theorem bridgedExpr_sload_mappingSlot_lit_add
@@ -604,6 +627,37 @@ private theorem bridgedExpr_sload_mappingSlot_lit_add
       (bridgedExpr_mappingSlot (BridgedExpr.lit slot) hKey)
       (BridgedExpr.lit wordOffset))
 
+private theorem bridgedExpr_storageLoad_mappingSlot_lit_add
+    (isTransient : Bool) (slot wordOffset : Nat) {key : YulExpr}
+    (hKey : BridgedExpr key) :
+    BridgedExpr
+      (YulExpr.call (if isTransient then "tload" else "sload")
+        [YulExpr.call "add"
+          [YulExpr.call "mappingSlot" [YulExpr.lit slot, key],
+            YulExpr.lit wordOffset]]) :=
+  bridgedExpr_storageLoad isTransient
+    (bridgedExpr_binopBuiltin (by simp [bridgedBuiltins])
+      (bridgedExpr_mappingSlot (BridgedExpr.lit slot) hKey)
+      (BridgedExpr.lit wordOffset))
+
+private theorem bridgedExpr_storageLoad_mappingSlot_lit_offset
+    (isTransient : Bool) (slot wordOffset : Nat) {key : YulExpr}
+    (hKey : BridgedExpr key) :
+    BridgedExpr
+      (YulExpr.call (if isTransient then "tload" else "sload")
+        [if wordOffset = 0 then
+          YulExpr.call "mappingSlot" [YulExpr.lit slot, key]
+        else
+          YulExpr.call "add"
+            [YulExpr.call "mappingSlot" [YulExpr.lit slot, key],
+              YulExpr.lit wordOffset]]) := by
+  by_cases hOffset : wordOffset = 0
+  · simp [hOffset]
+    exact bridgedExpr_storageLoad_mappingSlot_lit isTransient slot hKey
+  · simp [hOffset]
+    exact bridgedExpr_storageLoad_mappingSlot_lit_add
+      isTransient slot wordOffset hKey
+
 /-- `sload(mappingSlot(mappingSlot(lit slot, key1), key2))` is bridged for
     bridged nested mapping keys. -/
 private theorem bridgedExpr_sload_mappingSlot2_lit
@@ -614,6 +668,18 @@ private theorem bridgedExpr_sload_mappingSlot2_lit
         [YulExpr.call "mappingSlot"
           [YulExpr.call "mappingSlot" [YulExpr.lit slot, key1], key2]]) :=
   bridgedExpr_sload
+    (bridgedExpr_mappingSlot
+      (bridgedExpr_mappingSlot (BridgedExpr.lit slot) hKey1)
+      hKey2)
+
+private theorem bridgedExpr_storageLoad_mappingSlot2_lit
+    (isTransient : Bool) (slot : Nat) {key1 key2 : YulExpr}
+    (hKey1 : BridgedExpr key1) (hKey2 : BridgedExpr key2) :
+    BridgedExpr
+      (YulExpr.call (if isTransient then "tload" else "sload")
+        [YulExpr.call "mappingSlot"
+          [YulExpr.call "mappingSlot" [YulExpr.lit slot, key1], key2]]) :=
+  bridgedExpr_storageLoad isTransient
     (bridgedExpr_mappingSlot
       (bridgedExpr_mappingSlot (BridgedExpr.lit slot) hKey1)
       hKey2)
@@ -635,6 +701,93 @@ private theorem bridgedExpr_sload_mappingSlot2_lit_add
         (bridgedExpr_mappingSlot (BridgedExpr.lit slot) hKey1)
         hKey2)
       (BridgedExpr.lit wordOffset))
+
+private theorem bridgedExpr_storageLoad_mappingSlot2_lit_add
+    (isTransient : Bool) (slot wordOffset : Nat) {key1 key2 : YulExpr}
+    (hKey1 : BridgedExpr key1) (hKey2 : BridgedExpr key2) :
+    BridgedExpr
+      (YulExpr.call (if isTransient then "tload" else "sload")
+        [YulExpr.call "add"
+          [YulExpr.call "mappingSlot"
+            [YulExpr.call "mappingSlot" [YulExpr.lit slot, key1], key2],
+            YulExpr.lit wordOffset]]) :=
+  bridgedExpr_storageLoad isTransient
+    (bridgedExpr_binopBuiltin (by simp [bridgedBuiltins])
+      (bridgedExpr_mappingSlot
+        (bridgedExpr_mappingSlot (BridgedExpr.lit slot) hKey1)
+        hKey2)
+      (BridgedExpr.lit wordOffset))
+
+private theorem bridgedExpr_storageLoad_mappingSlot2_lit_offset
+    (isTransient : Bool) (slot wordOffset : Nat) {key1 key2 : YulExpr}
+    (hKey1 : BridgedExpr key1) (hKey2 : BridgedExpr key2) :
+    BridgedExpr
+      (YulExpr.call (if isTransient then "tload" else "sload")
+        [if wordOffset = 0 then
+          YulExpr.call "mappingSlot"
+            [YulExpr.call "mappingSlot" [YulExpr.lit slot, key1], key2]
+        else
+          YulExpr.call "add"
+            [YulExpr.call "mappingSlot"
+              [YulExpr.call "mappingSlot" [YulExpr.lit slot, key1], key2],
+              YulExpr.lit wordOffset]]) := by
+  by_cases hOffset : wordOffset = 0
+  · simp [hOffset]
+    exact bridgedExpr_storageLoad_mappingSlot2_lit
+      isTransient slot hKey1 hKey2
+  · simp [hOffset]
+    exact bridgedExpr_storageLoad_mappingSlot2_lit_add
+      isTransient slot wordOffset hKey1 hKey2
+
+private theorem bridgedExpr_resolvedStorageLoad_mappingSlot2_lit
+    (fields : List CompilationModel.Field) (fieldName : String)
+    (slot : Nat) {key1 key2 : YulExpr}
+    (hKey1 : BridgedExpr key1) (hKey2 : BridgedExpr key2) :
+    BridgedExpr
+      (YulExpr.call
+        (match findFieldWithResolvedSlot fields fieldName with
+        | some (f, _) => if f.isTransient then "tload" else "sload"
+        | none => "sload")
+        [YulExpr.call "mappingSlot"
+          [YulExpr.call "mappingSlot" [YulExpr.lit slot, key1], key2]]) := by
+  cases hResolved : findFieldWithResolvedSlot fields fieldName with
+  | none =>
+      simpa [hResolved] using
+        bridgedExpr_storageLoad_mappingSlot2_lit false slot hKey1 hKey2
+  | some resolved =>
+      cases resolved with
+      | mk f resolvedSlot =>
+          simpa [hResolved] using
+            bridgedExpr_storageLoad_mappingSlot2_lit f.isTransient slot hKey1 hKey2
+
+private theorem bridgedExpr_resolvedStorageLoad_mappingSlot2_lit_offset
+    (fields : List CompilationModel.Field) (fieldName : String)
+    (slot wordOffset : Nat) {key1 key2 : YulExpr}
+    (hKey1 : BridgedExpr key1) (hKey2 : BridgedExpr key2) :
+    BridgedExpr
+      (YulExpr.call
+        (match findFieldWithResolvedSlot fields fieldName with
+        | some (f, _) => if f.isTransient then "tload" else "sload"
+        | none => "sload")
+        [if wordOffset = 0 then
+          YulExpr.call "mappingSlot"
+            [YulExpr.call "mappingSlot" [YulExpr.lit slot, key1], key2]
+        else
+          YulExpr.call "add"
+            [YulExpr.call "mappingSlot"
+              [YulExpr.call "mappingSlot" [YulExpr.lit slot, key1], key2],
+              YulExpr.lit wordOffset]]) := by
+  cases hResolved : findFieldWithResolvedSlot fields fieldName with
+  | none =>
+      simpa [hResolved] using
+        bridgedExpr_storageLoad_mappingSlot2_lit_offset
+          false slot wordOffset hKey1 hKey2
+  | some resolved =>
+      cases resolved with
+      | mk f resolvedSlot =>
+          simpa [hResolved] using
+            bridgedExpr_storageLoad_mappingSlot2_lit_offset
+              f.isTransient slot wordOffset hKey1 hKey2
 
 /-- A `foldl mappingSlot` chain over bridged key expressions stays in the
     native bridged expression fragment. -/
@@ -670,6 +823,37 @@ private theorem bridgedExpr_sload_mappingSlotChain_lit
   exact bridgedExpr_sload
     (bridgedExpr_foldl_mappingSlot keys (BridgedExpr.lit slot) hKeys)
 
+private theorem bridgedExpr_storageLoad_mappingSlotChain_lit
+    (isTransient : Bool) (slot : Nat) (keys : List YulExpr)
+    (hKeys : ∀ key ∈ keys, BridgedExpr key) :
+    BridgedExpr
+      (YulExpr.call (if isTransient then "tload" else "sload")
+        [compileMappingSlotChain (YulExpr.lit slot) keys]) := by
+  unfold compileMappingSlotChain
+  exact bridgedExpr_storageLoad isTransient
+    (bridgedExpr_foldl_mappingSlot keys (BridgedExpr.lit slot) hKeys)
+
+private theorem bridgedExpr_resolvedStorageLoad_mappingSlotChain_lit
+    (fields : List CompilationModel.Field) (fieldName : String)
+    (slot : Nat) (keys : List YulExpr)
+    (hKeys : ∀ key ∈ keys, BridgedExpr key) :
+    BridgedExpr
+      (YulExpr.call
+        (match findFieldWithResolvedSlot fields fieldName with
+        | some (f, _) => if f.isTransient then "tload" else "sload"
+        | none => "sload")
+        [compileMappingSlotChain (YulExpr.lit slot) keys]) := by
+  cases hResolved : findFieldWithResolvedSlot fields fieldName with
+  | none =>
+      simpa [hResolved] using
+        bridgedExpr_storageLoad_mappingSlotChain_lit false slot keys hKeys
+  | some resolved =>
+      cases resolved with
+      | mk f resolvedSlot =>
+          simpa [hResolved] using
+            bridgedExpr_storageLoad_mappingSlotChain_lit
+              f.isTransient slot keys hKeys
+
 /-- The compiler's singleton mapping-read helper emits only native-bridged
     Yul when field lookup succeeds and the key expression is bridged.
 
@@ -686,15 +870,12 @@ private theorem compileMappingSlotRead_bridged
   split at hOk
   · simp at hOk
   · split at hOk
-    · rename_i slot hFind
+    · rename_i f slot hFind
       dsimp at hOk
-      split at hOk
-      · simp [Pure.pure, Except.pure] at hOk
-        subst out
-        exact bridgedExpr_sload_mappingSlot_lit slot hKey
-      · simp [Pure.pure, Except.pure] at hOk
-        subst out
-        exact bridgedExpr_sload_mappingSlot_lit_add slot wordOffset hKey
+      simp [Pure.pure, Except.pure] at hOk
+      subst out
+      exact bridgedExpr_storageLoad_mappingSlot_lit_offset
+        f.isTransient slot wordOffset hKey
     · simp at hOk
 
 /-- ADT tag reads compile to `and(sload(baseSlot), 0xff)`. -/
@@ -813,27 +994,27 @@ theorem compileExpr_bridgedSource
   induction hE with
   | literal n =>
       intro out hOk
-      simp [compileExpr, Pure.pure, Except.pure] at hOk
+      simp [compileExpr, compileExprWithInternals, Pure.pure, Except.pure] at hOk
       subst out; exact BridgedExpr.lit _
   | param name =>
       intro out hOk
-      simp [compileExpr, Pure.pure, Except.pure] at hOk
+      simp [compileExpr, compileExprWithInternals, Pure.pure, Except.pure] at hOk
       subst out; exact BridgedExpr.ident name
   | constructorArg idx =>
       intro out hOk
-      simp [compileExpr, Pure.pure, Except.pure] at hOk
+      simp [compileExpr, compileExprWithInternals, Pure.pure, Except.pure] at hOk
       subst out; exact BridgedExpr.ident _
   | localVar name =>
       intro out hOk
-      simp [compileExpr, Pure.pure, Except.pure] at hOk
+      simp [compileExpr, compileExprWithInternals, Pure.pure, Except.pure] at hOk
       subst out; exact BridgedExpr.ident name
   | arrayLength name =>
       intro out hOk
-      simp [compileExpr, Pure.pure, Except.pure] at hOk
+      simp [compileExpr, compileExprWithInternals, Pure.pure, Except.pure] at hOk
       subst out; exact BridgedExpr.ident s!"{name}_length"
   | storage fieldName =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       split at hOk
       · simp at hOk
       · split at hOk
@@ -842,16 +1023,17 @@ theorem compileExpr_bridgedSource
           | none =>
               simp [hPacked, Pure.pure, Except.pure] at hOk
               subst out
-              exact bridgedExpr_sload_lit slot
+              exact bridgedExpr_storageLoad_lit f.isTransient slot
           | some packed =>
               simp [hPacked, Pure.pure, Except.pure] at hOk
               subst out
-              exact bridgedExpr_packed_sload_lit slot packed.offset
+              exact bridgedExpr_packed_read
+                (bridgedExpr_storageLoad_lit f.isTransient slot) packed.offset
                 (packedMaskNat packed)
         · simp at hOk
   | storageAddr fieldName =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       split at hOk
       · simp at hOk
       · split at hOk
@@ -862,11 +1044,12 @@ theorem compileExpr_bridgedSource
               | none =>
                   simp [hTy, hPacked, Pure.pure, Except.pure] at hOk
                   subst out
-                  exact bridgedExpr_sload_lit slot
+                  exact bridgedExpr_storageLoad_lit f.isTransient slot
               | some packed =>
                   simp [hTy, hPacked, Pure.pure, Except.pure] at hOk
                   subst out
-                  exact bridgedExpr_packed_sload_lit slot packed.offset
+                  exact bridgedExpr_packed_read
+                    (bridgedExpr_storageLoad_lit f.isTransient slot) packed.offset
                     (packedMaskNat packed)
           | uint256 | dynamicArray | mappingTyped | mappingStruct
             | mappingStruct2 | adt =>
@@ -874,7 +1057,7 @@ theorem compileExpr_bridgedSource
         · simp at hOk
   | storageArrayLength fieldName =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       split at hOk
       · rename_i f slot hFind
         cases hTy : f.ty with
@@ -887,7 +1070,7 @@ theorem compileExpr_bridgedSource
       · simp at hOk
   | adtTag adtName storageField =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       split at hOk
       · rename_i baseSlot hFind
         simp [Pure.pure, Except.pure] at hOk
@@ -896,7 +1079,7 @@ theorem compileExpr_bridgedSource
       · simp at hOk
   | adtField adtName variantName fieldName fieldIndex storageField =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       split at hOk
       · rename_i baseSlot hFind
         simp [Pure.pure, Except.pure] at hOk
@@ -905,8 +1088,8 @@ theorem compileExpr_bridgedSource
       · simp at hOk
   | mapping fieldName hKey ihKey =>
       intro out hOk
-      simp only [compileExpr, bind, Except.bind] at hOk
-      cases hCompiledKey : compileExpr fields src _ with
+      simp only [compileExpr, compileExprWithInternals, bind, Except.bind] at hOk
+      cases hCompiledKey : compileExprWithInternals fields src [] _ with
       | error err =>
           rw [hCompiledKey] at hOk
           cases hOk
@@ -915,8 +1098,8 @@ theorem compileExpr_bridgedSource
           exact compileMappingSlotRead_bridged (ihKey hCompiledKey) hOk
   | mappingWord fieldName hKey wordOffset ihKey =>
       intro out hOk
-      simp only [compileExpr, bind, Except.bind] at hOk
-      cases hCompiledKey : compileExpr fields src _ with
+      simp only [compileExpr, compileExprWithInternals, bind, Except.bind] at hOk
+      cases hCompiledKey : compileExprWithInternals fields src [] _ with
       | error err =>
           rw [hCompiledKey] at hOk
           cases hOk
@@ -925,8 +1108,8 @@ theorem compileExpr_bridgedSource
           exact compileMappingSlotRead_bridged (ihKey hCompiledKey) hOk
   | mappingUint fieldName hKey ihKey =>
       intro out hOk
-      simp only [compileExpr, bind, Except.bind] at hOk
-      cases hCompiledKey : compileExpr fields src _ with
+      simp only [compileExpr, compileExprWithInternals, bind, Except.bind] at hOk
+      cases hCompiledKey : compileExprWithInternals fields src [] _ with
       | error err =>
           rw [hCompiledKey] at hOk
           cases hOk
@@ -935,19 +1118,19 @@ theorem compileExpr_bridgedSource
           exact compileMappingSlotRead_bridged (ihKey hCompiledKey) hOk
   | mapping2 fieldName hKey1 hKey2 ihKey1 ihKey2 =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       split at hOk
       · simp at hOk
       · split at hOk
-        · rename_i slot hFind
+        · rename_i f slot hFind
           simp only [bind, Except.bind] at hOk
-          cases hCompiledKey1 : compileExpr fields src _ with
+          cases hCompiledKey1 : compileExprWithInternals fields src [] _ with
           | error err =>
               rw [hCompiledKey1] at hOk
               cases hOk
           | ok keyExpr1 =>
               rw [hCompiledKey1] at hOk
-              cases hCompiledKey2 : compileExpr fields src _ with
+              cases hCompiledKey2 : compileExprWithInternals fields src [] _ with
               | error err =>
                   rw [hCompiledKey2] at hOk
                   cases hOk
@@ -955,43 +1138,42 @@ theorem compileExpr_bridgedSource
                   rw [hCompiledKey2] at hOk
                   simp [Pure.pure, Except.pure] at hOk
                   subst out
-                  exact bridgedExpr_sload_mappingSlot2_lit slot
-                    (ihKey1 hCompiledKey1) (ihKey2 hCompiledKey2)
+                  simpa [hFind] using
+                    (bridgedExpr_resolvedStorageLoad_mappingSlot2_lit
+                      fields fieldName slot
+                      (ihKey1 hCompiledKey1) (ihKey2 hCompiledKey2))
         · simp at hOk
   | mapping2Word fieldName hKey1 hKey2 wordOffset ihKey1 ihKey2 =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       split at hOk
       · simp at hOk
       · split at hOk
-        · rename_i slot hFind
+        · rename_i f slot hFind
           simp only [bind, Except.bind] at hOk
-          cases hCompiledKey1 : compileExpr fields src _ with
+          cases hCompiledKey1 : compileExprWithInternals fields src [] _ with
           | error err =>
               rw [hCompiledKey1] at hOk
               cases hOk
           | ok keyExpr1 =>
               rw [hCompiledKey1] at hOk
-              cases hCompiledKey2 : compileExpr fields src _ with
+              cases hCompiledKey2 : compileExprWithInternals fields src [] _ with
               | error err =>
                   rw [hCompiledKey2] at hOk
                   cases hOk
               | ok keyExpr2 =>
                   rw [hCompiledKey2] at hOk
                   dsimp at hOk
-                  split at hOk
-                  · simp [Pure.pure, Except.pure] at hOk
-                    subst out
-                    exact bridgedExpr_sload_mappingSlot2_lit slot
-                      (ihKey1 hCompiledKey1) (ihKey2 hCompiledKey2)
-                  · simp [Pure.pure, Except.pure] at hOk
-                    subst out
-                    exact bridgedExpr_sload_mappingSlot2_lit_add slot wordOffset
-                      (ihKey1 hCompiledKey1) (ihKey2 hCompiledKey2)
+                  simp [Pure.pure, Except.pure] at hOk
+                  subst out
+                  simpa [hFind] using
+                    (bridgedExpr_resolvedStorageLoad_mappingSlot2_lit_offset
+                      fields fieldName slot wordOffset
+                      (ihKey1 hCompiledKey1) (ihKey2 hCompiledKey2))
         · simp at hOk
   | structMember fieldName hKey memberName ihKey =>
       intro out hOk
-      simp [compileExpr, bind, Except.bind] at hOk
+      simp [compileExpr, compileExprWithInternals, bind, Except.bind] at hOk
       split at hOk
       · cases hOk
       · simp [Pure.pure, Except.pure] at hOk
@@ -1003,7 +1185,7 @@ theorem compileExpr_bridgedSource
             cases hPacked : member.packed with
             | none =>
                 rw [hPacked] at hOk
-                cases hCompiledKey : compileExpr fields src _ with
+                cases hCompiledKey : compileExprWithInternals fields src [] _ with
                 | error err =>
                     rw [hCompiledKey] at hOk
                     cases hOk
@@ -1013,7 +1195,7 @@ theorem compileExpr_bridgedSource
                     exact compileMappingSlotRead_bridged (ihKey hCompiledKey) hOk
             | some packed =>
                 rw [hPacked] at hOk
-                cases hCompiledKey : compileExpr fields src _ with
+                cases hCompiledKey : compileExprWithInternals fields src [] _ with
                 | error err =>
                     rw [hCompiledKey] at hOk
                     cases hOk
@@ -1036,7 +1218,7 @@ theorem compileExpr_bridgedSource
                           packed.offset (packedMaskNat packed)
   | structMember2 fieldName hKey1 hKey2 memberName ihKey1 ihKey2 =>
       intro out hOk
-      simp [compileExpr, bind, Except.bind] at hOk
+      simp [compileExpr, compileExprWithInternals, bind, Except.bind] at hOk
       split at hOk
       · cases hOk
       · split at hOk
@@ -1045,14 +1227,14 @@ theorem compileExpr_bridgedSource
           · simp at hOk
           · rename_i member hMember
             split at hOk
-            · rename_i slot hFindSlot
-              cases hCompiledKey1 : compileExpr fields src _ with
+            · rename_i f slot hFindSlot
+              cases hCompiledKey1 : compileExprWithInternals fields src [] _ with
               | error err =>
                   rw [hCompiledKey1] at hOk
                   cases hOk
               | ok keyExpr1 =>
                   rw [hCompiledKey1] at hOk
-                  cases hCompiledKey2 : compileExpr fields src _ with
+                  cases hCompiledKey2 : compileExprWithInternals fields src [] _ with
                   | error err =>
                       rw [hCompiledKey2] at hOk
                       cases hOk
@@ -1062,323 +1244,313 @@ theorem compileExpr_bridgedSource
                       | none =>
                           rw [hPacked] at hOk
                           simp at hOk
-                          split at hOk
-                          · simp [Pure.pure, Except.pure] at hOk
-                            subst out
-                            exact bridgedExpr_sload_mappingSlot2_lit slot
-                              (ihKey1 hCompiledKey1) (ihKey2 hCompiledKey2)
-                          · simp [Pure.pure, Except.pure] at hOk
-                            subst out
-                            exact bridgedExpr_sload_mappingSlot2_lit_add slot
-                              member.wordOffset
-                              (ihKey1 hCompiledKey1) (ihKey2 hCompiledKey2)
+                          simp [Pure.pure, Except.pure] at hOk
+                          subst out
+                          simpa [hFindSlot] using
+                            (bridgedExpr_resolvedStorageLoad_mappingSlot2_lit_offset
+                              fields fieldName slot member.wordOffset
+                              (ihKey1 hCompiledKey1) (ihKey2 hCompiledKey2))
                       | some packed =>
                           rw [hPacked] at hOk
                           simp at hOk
-                          split at hOk
-                          · simp [Pure.pure, Except.pure] at hOk
-                            subst out
-                            exact bridgedExpr_packed_read
-                              (bridgedExpr_sload_mappingSlot2_lit slot
+                          simp [Pure.pure, Except.pure] at hOk
+                          subst out
+                          simpa [hFindSlot] using
+                            (bridgedExpr_packed_read
+                              (bridgedExpr_resolvedStorageLoad_mappingSlot2_lit_offset
+                                fields fieldName slot member.wordOffset
                                 (ihKey1 hCompiledKey1) (ihKey2 hCompiledKey2))
-                              packed.offset (packedMaskNat packed)
-                          · simp [Pure.pure, Except.pure] at hOk
-                            subst out
-                            exact bridgedExpr_packed_read
-                              (bridgedExpr_sload_mappingSlot2_lit_add slot
-                                member.wordOffset
-                                (ihKey1 hCompiledKey1) (ihKey2 hCompiledKey2))
-                              packed.offset (packedMaskNat packed)
+                              packed.offset (packedMaskNat packed))
             · simp at hOk
   | caller =>
       intro out hOk
-      simp [compileExpr, Pure.pure, Except.pure] at hOk
+      simp [compileExpr, compileExprWithInternals, Pure.pure, Except.pure] at hOk
       subst out
       exact bridgedExpr_nullaryBuiltin (by simp [bridgedBuiltins])
   | txOrigin =>
       intro out hOk
-      simp [compileExpr, Pure.pure, Except.pure] at hOk
+      simp [compileExpr, compileExprWithInternals, Pure.pure, Except.pure] at hOk
       subst out
       exact bridgedExpr_nullaryBuiltin (by simp [bridgedBuiltins])
   | contractAddress =>
       intro out hOk
-      simp [compileExpr, Pure.pure, Except.pure] at hOk
+      simp [compileExpr, compileExprWithInternals, Pure.pure, Except.pure] at hOk
       subst out
       exact bridgedExpr_nullaryBuiltin (by simp [bridgedBuiltins])
   | msgValue =>
       intro out hOk
-      simp [compileExpr, Pure.pure, Except.pure] at hOk
+      simp [compileExpr, compileExprWithInternals, Pure.pure, Except.pure] at hOk
       subst out
       exact bridgedExpr_nullaryBuiltin (by simp [bridgedBuiltins])
   | blockTimestamp =>
       intro out hOk
-      simp [compileExpr, Pure.pure, Except.pure] at hOk
+      simp [compileExpr, compileExprWithInternals, Pure.pure, Except.pure] at hOk
       subst out
       exact bridgedExpr_nullaryBuiltin (by simp [bridgedBuiltins])
   | blockNumber =>
       intro out hOk
-      simp [compileExpr, Pure.pure, Except.pure] at hOk
+      simp [compileExpr, compileExprWithInternals, Pure.pure, Except.pure] at hOk
       subst out
       exact bridgedExpr_nullaryBuiltin (by simp [bridgedBuiltins])
   | chainid =>
       intro out hOk
-      simp [compileExpr, Pure.pure, Except.pure] at hOk
+      simp [compileExpr, compileExprWithInternals, Pure.pure, Except.pure] at hOk
       subst out
       exact bridgedExpr_nullaryBuiltin (by simp [bridgedBuiltins])
   | blobbasefee =>
       intro out hOk
-      simp [compileExpr, Pure.pure, Except.pure] at hOk
+      simp [compileExpr, compileExprWithInternals, Pure.pure, Except.pure] at hOk
       subst out
       exact bridgedExpr_nullaryBuiltin (by simp [bridgedBuiltins])
   | calldatasize =>
       intro out hOk
-      simp [compileExpr, Pure.pure, Except.pure] at hOk
+      simp [compileExpr, compileExprWithInternals, Pure.pure, Except.pure] at hOk
       subst out
       exact bridgedExpr_nullaryBuiltin (by simp [bridgedBuiltins])
   | calldataload _ iho =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       obtain ⟨co, hO, hEq⟩ := compileExpr_unopBuiltin_ok hOk
       subst hEq
       exact bridgedExpr_unopBuiltin (by simp [bridgedBuiltins]) (iho hO)
   | mload _ iho =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       obtain ⟨co, hO, hEq⟩ := compileExpr_unopBuiltin_ok hOk
       subst hEq
       exact bridgedExpr_mload co (iho hO)
   | tload _ iho =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       obtain ⟨co, hO, hEq⟩ := compileExpr_unopBuiltin_ok hOk
       subst hEq
       exact bridgedExpr_tload co (iho hO)
   | keccak256 _ _ ihOffset ihSize =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       obtain ⟨co, cs, hO, hS, hEq⟩ := compileExpr_binaryShape_ok hOk
       subst hEq
       exact bridgedExpr_keccak256 co cs (ihOffset hO) (ihSize hS)
   | add _ _ iha ihb =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       obtain ⟨ca, cb, hA, hB, hEq⟩ := compileExpr_yulBinOp_ok hOk
       subst hEq
       exact bridgedExpr_yulBinOp (by simp [bridgedBuiltins]) (iha hA) (ihb hB)
   | sub _ _ iha ihb =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       obtain ⟨ca, cb, hA, hB, hEq⟩ := compileExpr_yulBinOp_ok hOk
       subst hEq
       exact bridgedExpr_yulBinOp (by simp [bridgedBuiltins]) (iha hA) (ihb hB)
   | mul _ _ iha ihb =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       obtain ⟨ca, cb, hA, hB, hEq⟩ := compileExpr_yulBinOp_ok hOk
       subst hEq
       exact bridgedExpr_yulBinOp (by simp [bridgedBuiltins]) (iha hA) (ihb hB)
   | div _ _ iha ihb =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       obtain ⟨ca, cb, hA, hB, hEq⟩ := compileExpr_yulBinOp_ok hOk
       subst hEq
       exact bridgedExpr_yulBinOp (by simp [bridgedBuiltins]) (iha hA) (ihb hB)
   | sdiv _ _ iha ihb =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       obtain ⟨ca, cb, hA, hB, hEq⟩ := compileExpr_yulBinOp_ok hOk
       subst hEq
       exact bridgedExpr_yulBinOp (by simp [bridgedBuiltins]) (iha hA) (ihb hB)
   | mod _ _ iha ihb =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       obtain ⟨ca, cb, hA, hB, hEq⟩ := compileExpr_yulBinOp_ok hOk
       subst hEq
       exact bridgedExpr_yulBinOp (by simp [bridgedBuiltins]) (iha hA) (ihb hB)
   | smod _ _ iha ihb =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       obtain ⟨ca, cb, hA, hB, hEq⟩ := compileExpr_yulBinOp_ok hOk
       subst hEq
       exact bridgedExpr_yulBinOp (by simp [bridgedBuiltins]) (iha hA) (ihb hB)
   | bitAnd _ _ iha ihb =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       obtain ⟨ca, cb, hA, hB, hEq⟩ := compileExpr_yulBinOp_ok hOk
       subst hEq
       exact bridgedExpr_yulBinOp (by simp [bridgedBuiltins]) (iha hA) (ihb hB)
   | bitOr _ _ iha ihb =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       obtain ⟨ca, cb, hA, hB, hEq⟩ := compileExpr_yulBinOp_ok hOk
       subst hEq
       exact bridgedExpr_yulBinOp (by simp [bridgedBuiltins]) (iha hA) (ihb hB)
   | bitXor _ _ iha ihb =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       obtain ⟨ca, cb, hA, hB, hEq⟩ := compileExpr_yulBinOp_ok hOk
       subst hEq
       exact bridgedExpr_yulBinOp (by simp [bridgedBuiltins]) (iha hA) (ihb hB)
   | bitNot _ iha =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       obtain ⟨ca, hA, hEq⟩ := compileExpr_unopBuiltin_ok hOk
       subst hEq
       exact bridgedExpr_unopBuiltin (by simp [bridgedBuiltins]) (iha hA)
   | shl _ _ ihs ihv =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       obtain ⟨ca, cb, hA, hB, hEq⟩ := compileExpr_yulBinOp_ok hOk
       subst hEq
       exact bridgedExpr_yulBinOp (by simp [bridgedBuiltins]) (ihs hA) (ihv hB)
   | shr _ _ ihs ihv =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       obtain ⟨ca, cb, hA, hB, hEq⟩ := compileExpr_yulBinOp_ok hOk
       subst hEq
       exact bridgedExpr_yulBinOp (by simp [bridgedBuiltins]) (ihs hA) (ihv hB)
   | sar _ _ ihs ihv =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       obtain ⟨ca, cb, hA, hB, hEq⟩ := compileExpr_yulBinOp_ok hOk
       subst hEq
       exact bridgedExpr_yulBinOp (by simp [bridgedBuiltins]) (ihs hA) (ihv hB)
   | byte _ _ ihi ihv =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       obtain ⟨ca, cb, hA, hB, hEq⟩ := compileExpr_yulBinOp_ok hOk
       subst hEq
       exact bridgedExpr_yulBinOp (by simp [bridgedBuiltins]) (ihi hA) (ihv hB)
   | signextend _ _ ihb ihv =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       obtain ⟨ca, cb, hA, hB, hEq⟩ := compileExpr_yulBinOp_ok hOk
       subst hEq
       exact bridgedExpr_yulBinOp (by simp [bridgedBuiltins]) (ihb hA) (ihv hB)
   | eq _ _ iha ihb =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       obtain ⟨ca, cb, hA, hB, hEq⟩ := compileExpr_yulBinOp_ok hOk
       subst hEq
       exact bridgedExpr_yulBinOp (by simp [bridgedBuiltins]) (iha hA) (ihb hB)
   | gt _ _ iha ihb =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       obtain ⟨ca, cb, hA, hB, hEq⟩ := compileExpr_yulBinOp_ok hOk
       subst hEq
       exact bridgedExpr_yulBinOp (by simp [bridgedBuiltins]) (iha hA) (ihb hB)
   | sgt _ _ iha ihb =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       obtain ⟨ca, cb, hA, hB, hEq⟩ := compileExpr_yulBinOp_ok hOk
       subst hEq
       exact bridgedExpr_yulBinOp (by simp [bridgedBuiltins]) (iha hA) (ihb hB)
   | lt _ _ iha ihb =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       obtain ⟨ca, cb, hA, hB, hEq⟩ := compileExpr_yulBinOp_ok hOk
       subst hEq
       exact bridgedExpr_yulBinOp (by simp [bridgedBuiltins]) (iha hA) (ihb hB)
   | slt _ _ iha ihb =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       obtain ⟨ca, cb, hA, hB, hEq⟩ := compileExpr_yulBinOp_ok hOk
       subst hEq
       exact bridgedExpr_yulBinOp (by simp [bridgedBuiltins]) (iha hA) (ihb hB)
   | logicalAnd _ _ iha ihb =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       obtain ⟨ca, cb, hA, hB, hEq⟩ := compileExpr_yulBoolBinOp_ok hOk
       subst hEq
       exact bridgedExpr_yulBinOp (by simp [bridgedBuiltins])
         (bridgedExpr_yulToBool (iha hA)) (bridgedExpr_yulToBool (ihb hB))
   | logicalOr _ _ iha ihb =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       obtain ⟨ca, cb, hA, hB, hEq⟩ := compileExpr_yulBoolBinOp_ok hOk
       subst hEq
       exact bridgedExpr_yulBinOp (by simp [bridgedBuiltins])
         (bridgedExpr_yulToBool (iha hA)) (bridgedExpr_yulToBool (ihb hB))
   | logicalNot _ iha =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       obtain ⟨ca, hA, hEq⟩ := compileExpr_unopBuiltin_ok hOk
       subst hEq
       exact bridgedExpr_unopBuiltin (by simp [bridgedBuiltins]) (iha hA)
   | ceilDiv _ _ iha ihb =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       obtain ⟨ca, cb, hA, hB, hEq⟩ := compileExpr_binaryShape_ok hOk
       subst hEq
       exact bridgedExpr_ceilDiv (iha hA) (ihb hB)
   | mulDivDown _ _ _ iha ihb ihc =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       obtain ⟨ca, cb, cc, hA, hB, hC, hEq⟩ := compileExpr_ternaryShape_ok hOk
       subst hEq
       exact bridgedExpr_mulDivDown (iha hA) (ihb hB) (ihc hC)
   | mulDivUp _ _ _ iha ihb ihc =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       obtain ⟨ca, cb, cc, hA, hB, hC, hEq⟩ := compileExpr_ternaryShape_ok hOk
       subst hEq
       exact bridgedExpr_mulDivUp (iha hA) (ihb hB) (ihc hC)
   | wMulDown _ _ iha ihb =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       obtain ⟨ca, cb, hA, hB, hEq⟩ := compileExpr_binaryShape_ok hOk
       subst hEq
       exact bridgedExpr_wMulDown (iha hA) (ihb hB)
   | wDivUp _ _ iha ihb =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       obtain ⟨ca, cb, hA, hB, hEq⟩ := compileExpr_binaryShape_ok hOk
       subst hEq
       exact bridgedExpr_wDivUp (iha hA) (ihb hB)
   | builtinExp hBase hExponent iha ihb =>
       rename_i base exponent
       intro out hOk
-      simp only [compileExpr] at hOk
-      cases hA : compileExpr fields src base with
+      simp only [compileExpr, compileExprWithInternals] at hOk
+      cases hA : compileExprWithInternals fields src [] base with
       | error err =>
-          simp [compileExprList, hA, bind, Except.bind] at hOk
+          simp [compileExprListWithInternals, hA, bind, Except.bind] at hOk
       | ok ca =>
-          cases hB : compileExpr fields src exponent with
+          cases hB : compileExprWithInternals fields src [] exponent with
           | error err =>
-              simp [compileExprList, hA, hB, bind, Except.bind] at hOk
+              simp [compileExprListWithInternals, hA, hB, bind, Except.bind] at hOk
           | ok cb =>
-              simp [compileExprList, hA, hB, builtinExpName, Pure.pure,
+              simp [compileExprListWithInternals, hA, hB, builtinExpName, Pure.pure,
                 Except.pure, bind, Except.bind] at hOk
               cases hOk
               exact bridgedExpr_yulBinOp (by simp [bridgedBuiltins])
                 (iha hA) (ihb hB)
   | min _ _ iha ihb =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       obtain ⟨ca, cb, hA, hB, hEq⟩ := compileExpr_binaryShape_ok hOk
       subst hEq
       exact bridgedExpr_min (iha hA) (ihb hB)
   | max _ _ iha ihb =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       obtain ⟨ca, cb, hA, hB, hEq⟩ := compileExpr_binaryShape_ok hOk
       subst hEq
       exact bridgedExpr_max (iha hA) (ihb hB)
   | ite _ _ _ ihc iht ihe =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       obtain ⟨cc, ct, ce, hC, hT, hE, hEq⟩ := compileExpr_ternaryShape_ok hOk
       subst hEq
       exact bridgedExpr_ite (ihc hC) (iht hT) (ihe hE)
   | ge _ _ iha ihb =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       obtain ⟨ca, cb, hA, hB, hEq⟩ := compileExpr_yulNegatedBinOp_ok hOk
       subst hEq
       exact bridgedExpr_yulNegatedBinOp (by simp [bridgedBuiltins]) (iha hA) (ihb hB)
   | le _ _ iha ihb =>
       intro out hOk
-      simp only [compileExpr] at hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
       obtain ⟨ca, cb, hA, hB, hEq⟩ := compileExpr_yulNegatedBinOp_ok hOk
       subst hEq
       exact bridgedExpr_yulNegatedBinOp (by simp [bridgedBuiltins]) (iha hA) (ihb hB)
@@ -1650,19 +1822,19 @@ theorem compileExprList_bridgedSource
   induction exprs with
   | nil =>
       intro _ out hOk
-      simp [compileExprList, Pure.pure, Except.pure] at hOk
+      simp [compileExprList, compileExprListWithInternals, Pure.pure, Except.pure] at hOk
       subst out
       intro yulExpr hMem
       cases hMem
   | cons e es ih =>
       intro hAll out hOk
-      simp only [compileExprList, bind, Except.bind] at hOk
-      cases hHead : compileExpr fields src e with
+      simp only [compileExprList, compileExprListWithInternals, bind, Except.bind] at hOk
+      cases hHead : compileExprWithInternals fields src [] e with
       | error err =>
           simp [hHead] at hOk
       | ok headExpr =>
           simp [hHead] at hOk
-          cases hTail : compileExprList fields src es with
+          cases hTail : compileExprListWithInternals fields src [] es with
           | error err =>
               simp [hTail] at hOk
           | ok tailExprs =>
@@ -1695,18 +1867,19 @@ theorem compileExpr_mappingChain_bridgedSource
     (hKeys : ∀ key ∈ keys, BridgedSourceExpr key)
     (hOk : compileExpr fields src (.mappingChain fieldName keys) = .ok out) :
     BridgedExpr out := by
-  simp only [compileExpr] at hOk
+  simp only [compileExpr, compileExprWithInternals] at hOk
   split at hOk
   · simp at hOk
   · split at hOk
-    · rename_i slot hFind
-      cases hCompiledKeys : compileExprList fields src keys with
+    · rename_i f slot hFind
+      cases hCompiledKeys : compileExprListWithInternals fields src [] keys with
       | error err =>
           simp [bind, Except.bind, hCompiledKeys] at hOk
       | ok keyExprs =>
           simp [bind, Except.bind, hCompiledKeys, Pure.pure, Except.pure] at hOk
           subst out
-          exact bridgedExpr_sload_mappingSlotChain_lit slot keyExprs
+          exact bridgedExpr_storageLoad_mappingSlotChain_lit
+            f.isTransient slot keyExprs
             (compileExprList_bridgedSource fields src hKeys hCompiledKeys)
     · simp at hOk
 

@@ -76,6 +76,8 @@ mutual
 private partial def stmtSummary : Stmt → TransitionSummary
   | .setStorage field value | .setStorageAddr field value =>
       { reads := dedup (exprReads value), writes := [field] }
+  | .setImmutable name value =>
+      { reads := dedup (exprReads value), writes := ["immutable:" ++ name] }
   | .setStorageWord field offset value =>
       { reads := dedup (exprReads value), writes := [field ++ "+" ++ toString offset] }
   | .storageArrayPush field value =>
@@ -120,6 +122,8 @@ private partial def stmtSummary : Stmt → TransitionSummary
       merge { reads := dedup (exprReads cond), guards := ["branch"] } (merge (stmtsSummary t) (stmtsSummary e))
   | .forEach name count body =>
       merge { reads := dedup (exprReads count), guards := ["loop:" ++ name] } (stmtsSummary body)
+  | .forEachSetBit name bitmap body =>
+      merge { reads := dedup (exprReads bitmap), guards := ["setBitLoop:" ++ name] } (stmtsSummary body)
   | .letVar _ value | .assignVar _ value | .return value | .mstore _ value | .tstore _ value =>
       { reads := dedup (exprReads value) }
   | .returnValues values => { reads := dedup (values.flatMap exprReads) }

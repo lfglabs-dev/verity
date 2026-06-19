@@ -26,6 +26,12 @@ contract PropertyArrayHelperCallSmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
+    // Property 2: useFirst has no unexpected revert
+    function testAuto_UseFirst_NoUnexpectedRevert() public {
+        vm.prank(alice);
+        (bool ok,) = target.call(abi.encodeWithSignature("useFirst(uint256[])", _singletonUintArray(1)));
+        require(ok, "useFirst reverted unexpectedly");
+    }
 
     function _singletonUintArray(uint256 x) internal pure returns (uint256[] memory arr) {
         arr = new uint256[](1);

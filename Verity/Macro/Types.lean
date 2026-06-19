@@ -61,6 +61,7 @@ structure StorageFieldDecl where
   name : String
   ty : StorageType
   slotNum : Nat
+  isTransient : Bool := false
   adtInfo? : Option (String × Nat) := none
   packedBits : Option (Nat × Nat) := none
   emitDef : Bool := true
@@ -74,6 +75,19 @@ structure StorageStructAccessorDecl where
   ident : Ident
   name : String
   tree : StorageAccessorTree
+
+inductive RoleKind where
+  | scalarAddress
+  | mappingAddressToUint256
+  deriving Repr, BEq
+
+structure RoleDecl where
+  ident : Ident
+  name : String
+  fieldIdent : Ident
+  fieldName : String
+  kind : RoleKind
+  deriving Repr
 
 /-- The arrow signature of a function-pointer parameter (#1747).
     Recorded only so that good diagnostics are available; the monomorphization
@@ -201,6 +215,14 @@ structure FunctionDecl where
       and a proof obligation is generated.
       (#1728, Axis 2 Step 2b — Lean proof rung) -/
   ceiSafe : Bool := false
+  /-- When true, the function is annotated `reentrancy_trusted` — an *unproven*
+      author assertion that the function's external interaction surface is safe
+      against cross-function reentrancy (every external callee is trusted not to
+      re-enter). This is the audited opt-out for the fail-closed reentrancy gate:
+      a mutating external call opens a reentrancy window that another entrypoint
+      could exploit, so the gate requires either `nonreentrant(<lock>)` or this
+      assertion. Generates no code and no proof obligation; recorded for audit. -/
+  reentrancyTrusted : Bool := false
   /-- When `some fieldIdent`, the function is annotated `requires(field)`.
       The named Address-typed storage field is an access-control role.
       A `require(caller == roleHolder)` check is auto-injected at the start

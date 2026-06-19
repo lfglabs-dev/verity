@@ -1,4 +1,5 @@
 import EvmYul
+import Mathlib.Data.List.Nodup
 import Compiler.Constants
 import Compiler.Proofs.KeccakBound
 import Compiler.Proofs.IRGeneration.IRStorageWord
@@ -69,6 +70,42 @@ def abstractDecodeMappingSlot (_slot : Nat) : Option (Nat × Nat) := none
 def abstractNestedMappingSlot (baseSlot key1 key2 : Nat) : Nat :=
   abstractMappingSlot (abstractMappingSlot baseSlot key1) key2
 
+/-- Concrete storage location for a mapping value word.  Offsets are normalized
+    to the EVM storage-key width, matching generated mapping-struct member
+    accesses. -/
+def mappingSlotLocation (baseSlot key wordOffset : Nat) : Nat :=
+  (solidityMappingSlot baseSlot key + wordOffset) % Compiler.Constants.evmModulus
+
+/-- Concrete storage location for a nested-mapping value word. -/
+def nestedMappingSlotLocation (baseSlot key1 key2 wordOffset : Nat) : Nat :=
+  (solidityMappingSlot (solidityMappingSlot baseSlot key1) key2 + wordOffset) %
+    Compiler.Constants.evmModulus
+
+/-- Finite list of mapping-derived locations touched by one generated proof port. -/
+def mappingSlotLocations (baseSlot : Nat) (keysAndOffsets : List (Nat × Nat)) : List Nat :=
+  keysAndOffsets.map fun keyAndOffset =>
+    mappingSlotLocation baseSlot keyAndOffset.1 keyAndOffset.2
+
+/-- Finite list of nested-mapping-derived locations touched by one generated proof port. -/
+def nestedMappingSlotLocations
+    (baseSlot : Nat) (keysAndOffsets : List (Nat × Nat × Nat)) : List Nat :=
+  keysAndOffsets.map fun keyAndOffset =>
+    nestedMappingSlotLocation baseSlot keyAndOffset.1 keyAndOffset.2.1 keyAndOffset.2.2
+
+/-- Local non-alias proposition for two concrete storage slots. -/
+abbrev StorageSlotNonAlias (a b : Nat) : Prop := a ≠ b
+
+/-- Finite distinctness certificate for the concrete storage slots a proof port
+    actually touches.  This is the restricted replacement surface for downstream
+    global mapping-slot injectivity assumptions: generators may prove or emit one
+    certificate per finite location set, and consumers derive only the pairwise
+    facts they use. -/
+abbrev StorageSlotsDistinct (slots : List Nat) : Prop := slots.Nodup
+
+/-- Layout-certificate-backed non-alias evidence for one finite location set. -/
+structure StorageSlotNonAliasCertificate (slots : List Nat) : Prop where
+  distinct : StorageSlotsDistinct slots
+
 /-- Derived mapping-table view from flat storage. -/
 def storageAsMappings (storage : IRStorageSlot → IRStorageWord) : Nat → Nat → IRStorageWord :=
   fun baseSlot key => storage (IRStorageSlot.ofNat (solidityMappingSlot baseSlot key))
@@ -120,6 +157,52 @@ def abstractStoreStorageOrMapping
       solidityMappingSlot (solidityMappingSlot baseSlot key1) key2 := by
   simp [abstractNestedMappingSlot]
 
+theorem StorageSlotNonAliasCertificate.nonAlias_get
+    {slots : List Nat} (cert : StorageSlotNonAliasCertificate slots)
+    {i j : Nat} (hi : i < slots.length) (hj : j < slots.length)
+    (hne : i ≠ j) :
+    StorageSlotNonAlias slots[i] slots[j] := by
+  intro hEq
+  exact hne ((cert.distinct.getElem_inj_iff (i := i) (j := j) (hi := hi) (hj := hj)).mp hEq)
+
+theorem StorageSlotNonAliasCertificate.of_distinct
+    {slots : List Nat} (h : StorageSlotsDistinct slots) :
+    StorageSlotNonAliasCertificate slots :=
+  ⟨h⟩
+
+theorem StorageSlotNonAliasCertificate.nonAlias_pair
+    {a b : Nat} (cert : StorageSlotNonAliasCertificate [a, b]) :
+    StorageSlotNonAlias a b := by
+  simpa using
+    (cert.nonAlias_get (i := 0) (j := 1) (hi := by simp) (hj := by simp)
+      (hne := by decide))
+
+theorem mappingSlotLocations_nonAlias_get
+    {baseSlot : Nat} {keysAndOffsets : List (Nat × Nat)}
+    (cert : StorageSlotNonAliasCertificate
+      (mappingSlotLocations baseSlot keysAndOffsets))
+    {i j : Nat}
+    (hi : i < (mappingSlotLocations baseSlot keysAndOffsets).length)
+    (hj : j < (mappingSlotLocations baseSlot keysAndOffsets).length)
+    (hne : i ≠ j) :
+    StorageSlotNonAlias
+      (mappingSlotLocations baseSlot keysAndOffsets)[i]
+      (mappingSlotLocations baseSlot keysAndOffsets)[j] :=
+  cert.nonAlias_get hi hj hne
+
+theorem nestedMappingSlotLocations_nonAlias_get
+    {baseSlot : Nat} {keysAndOffsets : List (Nat × Nat × Nat)}
+    (cert : StorageSlotNonAliasCertificate
+      (nestedMappingSlotLocations baseSlot keysAndOffsets))
+    {i j : Nat}
+    (hi : i < (nestedMappingSlotLocations baseSlot keysAndOffsets).length)
+    (hj : j < (nestedMappingSlotLocations baseSlot keysAndOffsets).length)
+    (hne : i ≠ j) :
+    StorageSlotNonAlias
+      (nestedMappingSlotLocations baseSlot keysAndOffsets)[i]
+      (nestedMappingSlotLocations baseSlot keysAndOffsets)[j] :=
+  cert.nonAlias_get hi hj hne
+
 @[simp] theorem abstractLoadMappingEntry_eq
     (storage : IRStorageSlot → IRStorageWord)
     (baseSlot key : Nat) :
@@ -157,6 +240,11 @@ theorem solidityMappingSlot_lt_evmModulus (baseSlot key : Nat) :
   unfold solidityMappingSlot
   exact fromByteArrayBigEndian_lt_of_size _ (by
     rw [KeccakEngine.keccak256_size])
+
+@[simp] theorem mappingSlotLocation_zero (baseSlot key : Nat) :
+    mappingSlotLocation baseSlot key 0 = solidityMappingSlot baseSlot key := by
+  unfold mappingSlotLocation
+  exact Nat.mod_eq_of_lt (solidityMappingSlot_lt_evmModulus baseSlot key)
 
 theorem abstractMappingSlot_lt_evmModulus (baseSlot key : Nat) :
     abstractMappingSlot baseSlot key < Compiler.Constants.evmModulus :=

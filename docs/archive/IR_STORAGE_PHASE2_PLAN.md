@@ -1,6 +1,6 @@
 # IR Storage Refactor — Phase 2 Plan
 
-Phase 2 of [`IR_STORAGE_UINT256_REFACTOR.md`](IR_STORAGE_UINT256_REFACTOR.md)
+Phase 2 of [`IR_STORAGE_UINT256_REFACTOR.md`](../IR_STORAGE_UINT256_REFACTOR.md)
 originally tracked discharging the retrieve-hit fuel-wrapper bridge after the
 `UInt256`-bounded IR storage carrier landed.
 

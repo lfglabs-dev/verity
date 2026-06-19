@@ -5,6 +5,7 @@
   the lower-level statement/expression compilation helpers.
 -/
 import Compiler.CompilationModel.Compile
+import Compiler.CompilationModel.InternalArgs
 import Compiler.CompilationModel.ParamLoading
 import Compiler.CompilationModel.ScopeValidation
 import Compiler.CompilationModel.TrustSurface
@@ -35,41 +36,19 @@ def freshInternalRetNames (returns : List ParamType) (usedNames : List String) :
     (usedNames, [])
   namesRev.reverse
 
-def internalFunctionYulParamNames (params : List Param) : List String :=
-  params.flatMap fun param =>
-    match param.ty with
-    | ParamType.array _ =>
-        [s!"{param.name}_data_offset", s!"{param.name}_length"]
-    | ParamType.bytes | ParamType.string =>
-        [s!"{param.name}_data_offset", s!"{param.name}_length"]
-    | ParamType.fixedArray _ _ =>
-        if isDynamicParamType param.ty then
-          [s!"{param.name}_data_offset"]
-        else
-          staticParamBindingNames param.name param.ty
-    | ParamType.tuple _ =>
-        if isDynamicParamType param.ty then
-          [s!"{param.name}_data_offset"]
-        else
-          staticParamBindingNames param.name param.ty
-    | ParamType.newtypeOf _ baseTy =>
-        if isDynamicParamType param.ty then
-          [s!"{param.name}_data_offset"]
-        else
-          staticParamBindingNames param.name baseTy
-    | _ => [param.name]
-
 -- Compile internal function to a Yul function definition (#181)
 def compileInternalFunction (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (adtTypes : List AdtTypeDef := []) (spec : FunctionSpec) :
+    (adtTypes : List AdtTypeDef := []) (spec : FunctionSpec)
+    (targetFork : HardFork := .cancun)
+    (internalFunctions : List FunctionSpec := []) :
     Except String YulStmt := do
   validateFunctionSpec spec
   let returns ← functionReturns spec
   let paramNames := internalFunctionYulParamNames spec.params
   let usedNames := paramNames ++ collectStmtListBindNames spec.body
   let retNames := freshInternalRetNames returns usedNames
-  let bodyStmts ← compileStmtList fields events errors .calldata retNames true
-    (paramNames ++ retNames) adtTypes spec.body
+  let bodyStmts ← compileStmtListWithFork fields events errors .calldata retNames true
+    (paramNames ++ retNames) adtTypes targetFork spec.body internalFunctions
   pure (YulStmt.funcDef (internalFunctionYulName spec.name) paramNames retNames bodyStmts)
 
 theorem compileInternalFunction_ok_components
@@ -98,7 +77,7 @@ theorem compileInternalFunction_ok_components
       rw [hvalidate, hreturns] at hcompile
       simp only [bind, Except.bind] at hcompile
       cases hbody :
-          compileStmtList fields events errors .calldata
+          compileStmtListWithFork fields events errors .calldata
             (freshInternalRetNames returns
               (internalFunctionYulParamNames spec.params ++ collectStmtListBindNames spec.body))
             true
@@ -106,6 +85,7 @@ theorem compileInternalFunction_ok_components
               freshInternalRetNames returns
                 (internalFunctionYulParamNames spec.params ++ collectStmtListBindNames spec.body))
             []
+            HardFork.cancun
             spec.body
       · rw [hbody] at hcompile
         cases hcompile
@@ -119,7 +99,7 @@ theorem compileInternalFunction_ok_components
             bodyStmts,
             ?_⟩
         exact ⟨by simp, by simp,
-          by simpa using hbody, by simpa using hcompile.symm⟩
+          by simpa [compileStmtList] using hbody, by simpa using hcompile.symm⟩
 
 theorem compileInternalFunction_some_ok_of_components
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
@@ -142,7 +122,7 @@ theorem compileInternalFunction_some_ok_of_components
           retNames
           bodyStmts) := by
   have hbody' :
-      compileStmtList fields events errors .calldata
+      compileStmtListWithFork fields events errors .calldata
         (freshInternalRetNames returns
           (internalFunctionYulParamNames spec.params ++ collectStmtListBindNames spec.body))
         true
@@ -150,8 +130,9 @@ theorem compileInternalFunction_some_ok_of_components
           freshInternalRetNames returns
             (internalFunctionYulParamNames spec.params ++ collectStmtListBindNames spec.body))
         []
+        HardFork.cancun
         spec.body = Except.ok bodyStmts := by
-    simpa [hretNames] using hbody
+    simpa [compileStmtList, hretNames] using hbody
   let paramNames := internalFunctionYulParamNames spec.params
   let compiledName := internalFunctionYulName spec.name
   have hmap :
@@ -159,11 +140,12 @@ theorem compileInternalFunction_some_ok_of_components
           compiledName
           paramNames
           (freshInternalRetNames returns (paramNames ++ collectStmtListBindNames spec.body))) <$>
-        compileStmtList fields events errors .calldata
+        compileStmtListWithFork fields events errors .calldata
           (freshInternalRetNames returns (paramNames ++ collectStmtListBindNames spec.body))
           true
           (paramNames ++ freshInternalRetNames returns (paramNames ++ collectStmtListBindNames spec.body))
           []
+          HardFork.cancun
           spec.body =
       Except.ok
         (YulStmt.funcDef
@@ -189,13 +171,15 @@ theorem compileInternalFunction_some_ok_of_components
 
 -- Compile function spec to IR function
 def compileFunctionSpec (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (adtTypes : List AdtTypeDef := []) (selector : Nat) (spec : FunctionSpec) :
+    (adtTypes : List AdtTypeDef := []) (selector : Nat) (spec : FunctionSpec)
+    (targetFork : HardFork := .cancun)
+    (internalFunctions : List FunctionSpec := []) :
     Except String IRFunction := do
   validateFunctionSpec spec
   let returns ← functionReturns spec
   let paramLoads := genParamLoads spec.params
-  let bodyStmts ← compileStmtList fields events errors .calldata [] false
-    (spec.params.map (·.name)) adtTypes spec.body
+  let bodyStmts ← compileStmtListWithFork fields events errors .calldata [] false
+    (spec.params.map (·.name)) adtTypes targetFork spec.body internalFunctions
   let allStmts := paramLoads ++ bodyStmts
   let retType := match returns with
     | [single] => single.toIRType
@@ -276,9 +260,11 @@ def attachNonReentrantGuard (fields : List Field) (spec : FunctionSpec)
       pure { irFn with body := prefixLoads ++ guardStmts ++ suffix ++ [release] }
 
 private def compileSpecialEntrypoint (fields : List Field) (events : List EventDef)
-    (errors : List ErrorDef) (adtTypes : List AdtTypeDef := []) (spec : FunctionSpec) :
+    (errors : List ErrorDef) (adtTypes : List AdtTypeDef := [])
+    (targetFork : HardFork := .cancun)
+    (internalFunctions : List FunctionSpec := []) (spec : FunctionSpec) :
     Except String IREntrypoint := do
-  let bodyChunks ← compileStmtList fields events errors .calldata [] false [] adtTypes spec.body
+  let bodyChunks ← compileStmtListWithFork fields events errors .calldata [] false [] adtTypes targetFork spec.body internalFunctions
   -- Apply nonreentrant guard for fallback/receive if annotated (high-severity
   -- Bugbot: previously these special entrypoints were compiled without the
   -- transient lock even when `nonreentrant(lock)` was declared).
@@ -310,14 +296,16 @@ def usesMapping (fields : List Field) : Bool :=
 -- Compile deploy code (constructor)
 -- Note: Don't append datacopy/return here - Codegen.deployCode does that
 def compileConstructor (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (adtTypes : List AdtTypeDef := []) (ctor : Option ConstructorSpec) :
+    (adtTypes : List AdtTypeDef := []) (ctor : Option ConstructorSpec)
+    (targetFork : HardFork := .cancun)
+    (internalFunctions : List FunctionSpec := []) :
     Except String (List YulStmt) := do
   match ctor with
   | none => return []
   | some spec =>
     let argLoads := genConstructorArgLoads spec.params
-    let bodyChunks ← compileStmtList fields events errors .memory [] false
-      (spec.params.map (·.name)) adtTypes spec.body
+    let bodyChunks ← compileStmtListWithFork fields events errors .memory [] false
+      (spec.params.map (·.name)) adtTypes targetFork spec.body internalFunctions
     return argLoads ++ bodyChunks
 
 -- Main compilation function
@@ -398,13 +386,20 @@ private def validateCompileInputsBeforeFieldWriteConflict
       pure ()
   for fn in spec.functions do
     validateFunctionSpec fn
+    validateSetImmutableRuntimeGuard fn
+    validateImmutableNamesInFunction spec.immutables fn
     validateInteropFunctionSpec fn
     validateSpecialEntrypointSpec fn
     validateEventArgShapesInFunction fn spec.events
     validateCustomErrorArgShapesInFunction fn spec.errors
     validateInternalCallShapesInFunction spec.functions fn
     validateExternalCallTargetsInFunction spec.externals fn
+    -- Fail-closed cross-function reentrancy gate. Runs last so structural
+    -- well-formedness errors (call shape/target above) win over the policy
+    -- check; the gate only judges otherwise well-formed external calls.
+    validateReentrancyDisposition fn
   validateConstructorSpec spec.constructor
+  validateImmutableNamesInConstructor spec.immutables spec.constructor
   validateInteropConstructorSpec spec.constructor
   validateExternalCallTargetsInConstructor spec.externals spec.constructor
   match spec.constructor with
@@ -412,7 +407,7 @@ private def validateCompileInputsBeforeFieldWriteConflict
   | some ctor => do
       ctor.body.forM (validateEventArgShapesInStmt "constructor" ctor.params spec.events)
       ctor.body.forM (validateCustomErrorArgShapesInStmt "constructor" ctor.params spec.errors)
-      ctor.body.forM (validateInternalCallShapesInStmt spec.functions "constructor")
+      ctor.body.forM (validateInternalCallShapesInStmt spec.functions "constructor" ctor.params)
   for ext in spec.externals do
     let _ ← externalFunctionReturns ext
     validateInteropExternalSpec ext
@@ -445,6 +440,12 @@ private def validateCompileInputsBeforeFieldWriteConflict
       throw s!"Compilation error: duplicate field name '{dup}' in {spec.name}"
   | none =>
       pure ()
+  match firstDuplicateName (spec.immutables.map (·.name)) with
+  | some dup =>
+      throw s!"Compilation error: duplicate immutable name '{dup}' in {spec.name}"
+  | none =>
+      pure ()
+  validateImmutableInitialization spec.immutables spec.constructor
   match firstInvalidPackedBits spec.fields with
   | some (fieldName, packed) =>
       throw s!"Compilation error: field '{fieldName}' has invalid packedBits offset={packed.offset} width={packed.width} in {spec.name} ({issue623Ref}). Require 0 < width <= 256, offset < 256, and offset + width <= 256."
@@ -521,11 +522,13 @@ def validateCompileInputs (spec : CompilationModel) (selectors : List Nat)
   let mulDiv512HelpersRequired := contractUsesMulDiv512 spec
   let storageArrayHelpersRequired := contractUsesStorageArrayElement spec
   let dynamicBytesEqHelpersRequired := contractUsesDynamicBytesEq spec
+  let checkedArithmeticHelpersRequired := contractUsesCheckedArithmetic spec
   match firstReservedExternalCollision
       spec mappingHelpersRequired arrayHelpersRequired arrayElementWordHelpersRequired
         paramDynamicHeadWordHelpersRequired
         mulDiv512HelpersRequired
-        storageArrayHelpersRequired dynamicBytesEqHelpersRequired with
+        storageArrayHelpersRequired dynamicBytesEqHelpersRequired
+        checkedArithmeticHelpersRequired with
   | some name =>
       if name.startsWith internalFunctionPrefix then
         throw s!"Compilation error: external declaration '{name}' uses reserved prefix '{internalFunctionPrefix}' ({issue756Ref})."
@@ -552,11 +555,14 @@ def validateCompileInputs (spec : CompilationModel) (selectors : List Nat)
     `compileFunctionSpec` (see `attachNonReentrantGuard`). -/
 def compileGuardedFunctionSpec (fields : List Field) (events : List EventDef)
     (errors : List ErrorDef) (adtTypes : List AdtTypeDef)
-    (sel : Nat) (fnSpec : FunctionSpec) : Except String IRFunction := do
-  let irFn ← compileFunctionSpec fields events errors adtTypes sel fnSpec
+    (internalFunctions : List FunctionSpec)
+    (sel : Nat) (fnSpec : FunctionSpec) (targetFork : HardFork := .cancun) :
+    Except String IRFunction := do
+  let irFn ← compileFunctionSpec fields events errors adtTypes sel fnSpec (targetFork := targetFork) internalFunctions
   attachNonReentrantGuard fields fnSpec irFn
 
-def compileValidatedCore (spec : CompilationModel) (selectors : List Nat) : Except String IRContract := do
+def compileValidatedCore (spec : CompilationModel) (selectors : List Nat)
+    (targetFork : HardFork := .cancun) : Except String IRContract := do
   let fields := applySlotAliasRanges spec.fields spec.slotAliasRanges
   let externalFns := spec.functions.filter (fun fn => !fn.isInternal && !isInteropEntrypointName fn.name)
   let internalFns := spec.functions.filter (·.isInternal)
@@ -567,11 +573,13 @@ def compileValidatedCore (spec : CompilationModel) (selectors : List Nat) : Exce
   let mulDiv512HelpersRequired := contractUsesMulDiv512 spec
   let storageArrayHelpersRequired := contractUsesStorageArrayElement spec
   let dynamicBytesEqHelpersRequired := contractUsesDynamicBytesEq spec
+  let checkedArithmeticHelpersRequired := contractUsesCheckedArithmetic spec
   let fallbackSpec ← pickUniqueFunctionByName "fallback" spec.functions
   let receiveSpec ← pickUniqueFunctionByName "receive" spec.functions
   let functions ← (externalFns.zip selectors).mapM fun entry =>
-    compileGuardedFunctionSpec fields spec.events spec.errors spec.adtTypes entry.2 entry.1
-  let internalFuncDefs ← internalFns.mapM (compileInternalFunction fields spec.events spec.errors spec.adtTypes)
+    compileGuardedFunctionSpec fields spec.events spec.errors spec.adtTypes internalFns entry.2 entry.1 (targetFork := targetFork)
+  let internalFuncDefs ← internalFns.mapM fun fn =>
+    compileInternalFunction fields spec.events spec.errors spec.adtTypes fn (targetFork := targetFork) internalFns
   let arrayElementHelpers :=
     (if arrayHelpersRequired then
       [ checkedArrayElementCalldataHelper
@@ -631,17 +639,30 @@ def compileValidatedCore (spec : CompilationModel) (selectors : List Nat) : Exce
       [dynamicBytesEqCalldataHelper, dynamicBytesEqMemoryHelper]
     else
       []
-  let fallbackEntrypoint ← fallbackSpec.mapM (compileSpecialEntrypoint fields spec.events spec.errors spec.adtTypes)
-  let receiveEntrypoint ← receiveSpec.mapM (compileSpecialEntrypoint fields spec.events spec.errors spec.adtTypes)
+  let checkedArithmeticHelpers :=
+    if checkedArithmeticHelpersRequired then
+      [ panicError0x11Helper
+      , panicError0x12Helper
+      , checkedAddUint256Helper
+      , checkedSubUint256Helper
+      , checkedMulUint256Helper
+      , checkedDivUint256Helper
+      ]
+    else
+      []
+  let fallbackEntrypoint ← fallbackSpec.mapM
+    (compileSpecialEntrypoint fields spec.events spec.errors spec.adtTypes (targetFork := targetFork) internalFns)
+  let receiveEntrypoint ← receiveSpec.mapM
+    (compileSpecialEntrypoint fields spec.events spec.errors spec.adtTypes (targetFork := targetFork) internalFns)
   return {
     name := spec.name
-    deploy := (← compileConstructor fields spec.events spec.errors spec.adtTypes spec.constructor)
+    deploy := (← compileConstructor fields spec.events spec.errors spec.adtTypes spec.constructor (targetFork := targetFork) internalFns)
     constructorPayable := spec.constructor.map (·.isPayable) |>.getD false
     functions := functions
     fallbackEntrypoint := fallbackEntrypoint
     receiveEntrypoint := receiveEntrypoint
     usesMapping := mappingHelpersRequired
-    internalFunctions := arrayElementHelpers ++ storageArrayElementHelpers ++ dynamicBytesEqHelpers ++ internalFuncDefs
+    internalFunctions := arrayElementHelpers ++ storageArrayElementHelpers ++ dynamicBytesEqHelpers ++ checkedArithmeticHelpers ++ internalFuncDefs
   }
 
 /-- Compile a `CompilationModel` to an `IRContract`.
@@ -656,7 +677,7 @@ def compileValidatedCore (spec : CompilationModel) (selectors : List Nat) : Exce
 def compile (spec : CompilationModel) (selectors : List Nat)
     (targetFork : HardFork := .cancun) : Except String IRContract := do
   validateCompileInputs spec selectors targetFork
-  compileValidatedCore spec selectors
+  compileValidatedCore spec selectors targetFork
 
 theorem validateCompileInputs_identifierShapes_ok
     {spec : CompilationModel}

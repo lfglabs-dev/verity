@@ -126,7 +126,7 @@ verity_contract ForEachMutableLocalSmoke where
       total := add total value)
     return total
 
-  function allow_post_interaction_writes sumOnCatch (values : Array Uint256)
+  function allow_post_interaction_writes reentrancy_trusted sumOnCatch (values : Array Uint256)
     local_obligations [manual_low_level_refinement := assumed "Low-level call success/failure boundary still requires a manual refinement argument."]
     : Uint256 := do
     tryCatch (call 0 0 1 0 0 0 0) (do
@@ -190,6 +190,40 @@ verity_contract DirectHelperCallBytesTupleSmoke where
   function run (payload : Bytes) : Tuple [Uint256, Uint256] := do
     let (left, right) ← fanoutPayload payload
     return (left, right)
+
+verity_contract DirectHelperCallProjectedBytesArgSmoke where
+  storage
+
+  struct Operation where
+    sender : Address,
+    callData : Bytes,
+    nonce : Uint256
+
+  function consumePayload (_payload : Bytes) : Uint256 := do
+    return 1
+
+  function run (ops : Array Operation, idx : Uint256) : Uint256 := do
+    let count ← consumePayload (arrayElement ops idx).callData
+    return count
+
+example :
+    DirectHelperCallProjectedBytesArgSmoke.run_modelBody =
+      [ Compiler.CompilationModel.Stmt.letVar
+          "count"
+          (Compiler.CompilationModel.Expr.internalCall
+            "internal_consumePayload"
+            [ Compiler.CompilationModel.Expr.arrayElementDynamicMemberDataOffset
+                "ops"
+                (Compiler.CompilationModel.Expr.param "idx")
+                1
+            , Compiler.CompilationModel.Expr.arrayElementDynamicMemberLength
+                "ops"
+                (Compiler.CompilationModel.Expr.param "idx")
+                1
+            ])
+      , Compiler.CompilationModel.Stmt.return
+          (Compiler.CompilationModel.Expr.localVar "count")
+      ] := rfl
 
 verity_contract DirectHelperCallStaticCompositeSmoke where
   storage
