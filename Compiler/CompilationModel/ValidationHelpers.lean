@@ -38,6 +38,7 @@ def collectExprNames : Expr → List String
   | Expr.literal _ => []
   | Expr.param name => [name]
   | Expr.constructorArg _ => []
+  | Expr.immutable name => [name]
   | Expr.storage field | Expr.storageAddr field => [field]
   | Expr.mapping field key => field :: collectExprNames key
   | Expr.mappingWord field key _ => field :: collectExprNames key
@@ -155,7 +156,8 @@ mutual
 def collectStmtNames : Stmt → List String
   | Stmt.letVar name value => name :: collectExprNames value
   | Stmt.assignVar name value => name :: collectExprNames value
-  | Stmt.setStorage _ value | Stmt.setStorageAddr _ value | Stmt.setStorageWord _ _ value =>
+  | Stmt.setStorage _ value | Stmt.setStorageAddr _ value | Stmt.setImmutable _ value
+  | Stmt.setStorageWord _ _ value =>
       collectExprNames value
   | Stmt.storageArrayPush _ value => collectExprNames value
   | Stmt.storageArrayPop _ => []

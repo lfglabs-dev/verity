@@ -55,21 +55,56 @@ theorem verbatim_lowering_hexLiteral
       some s!"hex\"{opcodeHex}\"" := by
   rfl
 
+private theorem compileExprWithInternals_param
+    (fields : List Field) (dynamicSource : DynamicDataSource) (x : String) :
+    compileExprWithInternals fields dynamicSource [] (.param x) =
+      .ok (YulExpr.ident x) := by
+  unfold compileExprWithInternals
+  rfl
+
+private theorem compileExprListWithInternals_nil
+    (fields : List Field) (dynamicSource : DynamicDataSource) :
+    compileExprListWithInternals fields dynamicSource [] [] =
+      .ok [] := by
+  unfold compileExprListWithInternals
+  rfl
+
+private theorem compileExprListWithInternals_param_one
+    (fields : List Field) (dynamicSource : DynamicDataSource) (x : String) :
+    compileExprListWithInternals fields dynamicSource [] [.param x] =
+      .ok [YulExpr.ident x] := by
+  unfold compileExprListWithInternals
+  rw [compileExprWithInternals_param, compileExprListWithInternals_nil]
+  rfl
+
+private theorem compileExprListWithInternals_param_two
+    (fields : List Field) (dynamicSource : DynamicDataSource) (x y : String) :
+    compileExprListWithInternals fields dynamicSource [] [.param x, .param y] =
+      .ok [YulExpr.ident x, YulExpr.ident y] := by
+  unfold compileExprListWithInternals
+  rw [compileExprWithInternals_param, compileExprListWithInternals_param_one]
+  rfl
+
 theorem compileExpr_intrinsic_verbatim_one_param
     (fields : List Field) (dynamicSource : DynamicDataSource)
     (name opcodeHex x : String) :
-    compileExpr fields dynamicSource (.intrinsic name (.verbatim 1 1 opcodeHex) .cancun [.param x]) =
+  compileExpr fields dynamicSource (.intrinsic name (.verbatim 1 1 opcodeHex) .cancun [.param x]) =
       .ok (YulExpr.call s!"verbatim_{1}i_{1}o"
         [YulExpr.verbatimHex opcodeHex, YulExpr.ident x]) := by
-  simp [compileExpr, compileExprList, YulLowering.callName, Pure.pure, Except.pure,
-    bind, Except.bind]
+  unfold compileExpr
+  unfold compileExprWithInternals
+  rw [compileExprListWithInternals_param_one]
+  rfl
 
 theorem compileExpr_intrinsic_builtin_one_param
     (fields : List Field) (dynamicSource : DynamicDataSource)
     (name x : String) :
-    compileExpr fields dynamicSource (.intrinsic name (.builtin "not") .cancun [.param x]) =
+  compileExpr fields dynamicSource (.intrinsic name (.builtin "not") .cancun [.param x]) =
       .ok (YulExpr.call "not" [YulExpr.ident x]) := by
-  simp [compileExpr, compileExprList, yulBuiltinArity?, Pure.pure, Except.pure, bind, Except.bind]
+  unfold compileExpr
+  unfold compileExprWithInternals
+  rw [compileExprListWithInternals_param_one]
+  rfl
 
 theorem compileExpr_intrinsic_verbatim_zero_output_error
     (fields : List Field) (dynamicSource : DynamicDataSource)
@@ -79,7 +114,10 @@ theorem compileExpr_intrinsic_verbatim_zero_output_error
         .error msg := by
   refine ⟨toString "Compilation error: intrinsic " ++ toString name ++
     toString " must produce exactly 1 output, got " ++ toString 0 ++ toString "", ?_⟩
-  simp [compileExpr, compileExprList, Pure.pure, Except.pure, bind, Except.bind]
+  unfold compileExpr
+  unfold compileExprWithInternals
+  rw [compileExprListWithInternals_param_one]
+  rfl
 
 theorem compileExpr_intrinsic_verbatim_wrong_arity_error
     (fields : List Field) (dynamicSource : DynamicDataSource)
@@ -90,7 +128,10 @@ theorem compileExpr_intrinsic_verbatim_wrong_arity_error
   refine ⟨toString "Compilation error: intrinsic " ++ toString name ++
     toString " expects " ++ toString 1 ++ toString " arg(s), got " ++
     toString 2 ++ toString "", ?_⟩
-  simp [compileExpr, compileExprList, Pure.pure, Except.pure, bind, Except.bind]
+  unfold compileExpr
+  unfold compileExprWithInternals
+  rw [compileExprListWithInternals_param_two]
+  rfl
 
 end IntrinsicProofs
 

@@ -33,10 +33,13 @@ def sourceOracle : DenoteOracle :=
 
 /-- The state conversion is field-for-field (the two structures coincide). -/
 def toRuntimeState (s : DenoteState) : SourceSemantics.RuntimeState :=
-  { world := s.world, bindings := s.bindings, selector := s.selector }
+  { world := s.world, immutable := s.immutable, bindings := s.bindings, selector := s.selector }
 
 @[simp] theorem toRuntimeState_world (s : DenoteState) :
     (toRuntimeState s).world = s.world := rfl
+
+@[simp] theorem toRuntimeState_immutable (s : DenoteState) :
+    (toRuntimeState s).immutable = s.immutable := rfl
 
 @[simp] theorem toRuntimeState_bindings (s : DenoteState) :
     (toRuntimeState s).bindings = s.bindings := rfl
@@ -63,7 +66,7 @@ theorem denote_evalExpr_eq (fields : List Field) (s : DenoteState) :
     ∀ e : Expr,
       Denote.evalExpr sourceOracle fields s e =
         SourceSemantics.evalExpr fields (toRuntimeState s) e
-  | .literal _ | .param _ | .constructorArg _ | .storage _ | .storageAddr _
+  | .literal _ | .param _ | .immutable _ | .constructorArg _ | .storage _ | .storageAddr _
   | .mappingChain .. | .localVar _ | .storageArrayLength _ | .dynamicBytesEq ..
   | .memoryArrayLength _ | .memoryArrayElement .. | .arrayElementDynamicDataOffset ..
   | .arrayElementDynamicMemberLength .. | .arrayElementDynamicMemberDataOffset ..
@@ -250,6 +253,51 @@ theorem writeAddressKeyedMapping2Slots_eq
       congr 1
       exact storage_field_eq_of_rel h
 
+@[simp] theorem fieldIsTransient_eq (fields : List Field) (fieldName : String) :
+    Denote.fieldIsTransient fields fieldName =
+      SourceSemantics.fieldIsTransient fields fieldName := rfl
+
+@[simp] theorem writeTransientTargets_eq
+    (w : Verity.ContractState) (targets : List Nat) (v : Nat) :
+    Denote.writeTransientTargets w targets v =
+      SourceSemantics.writeTransientTargets w targets v := rfl
+
+theorem writeAddressKeyedMappingFieldSlots_eq
+    (fields : List Field) (fieldName : String)
+    (w : Verity.ContractState) (slots : List Nat) (k v : Nat) :
+    Denote.writeAddressKeyedMappingFieldSlots sourceOracle fields fieldName w slots k v =
+      SourceSemantics.writeAddressKeyedMappingFieldSlots fields fieldName w slots k v := by
+  simp only [Denote.writeAddressKeyedMappingFieldSlots,
+    SourceSemantics.writeAddressKeyedMappingFieldSlots]
+  by_cases h : SourceSemantics.fieldIsTransient fields fieldName = true
+  · simp [fieldIsTransient_eq, h, sourceOracle, writeTransientTargets_eq,
+      Denote.wordNormalize, SourceSemantics.wordNormalize]
+  · simp [fieldIsTransient_eq, h, writeAddressKeyedMappingSlots_eq]
+
+theorem writeUintKeyedMappingFieldSlots_eq
+    (fields : List Field) (fieldName : String)
+    (w : Verity.ContractState) (slots : List Nat) (k v : Nat) :
+    Denote.writeUintKeyedMappingFieldSlots sourceOracle fields fieldName w slots k v =
+      SourceSemantics.writeUintKeyedMappingFieldSlots fields fieldName w slots k v := by
+  simp only [Denote.writeUintKeyedMappingFieldSlots,
+    SourceSemantics.writeUintKeyedMappingFieldSlots]
+  by_cases h : SourceSemantics.fieldIsTransient fields fieldName = true
+  · simp [fieldIsTransient_eq, h, sourceOracle, writeTransientTargets_eq,
+      Denote.wordNormalize, SourceSemantics.wordNormalize]
+  · simp [fieldIsTransient_eq, h, writeUintKeyedMappingSlots_eq]
+
+theorem writeAddressKeyedMapping2FieldSlots_eq
+    (fields : List Field) (fieldName : String)
+    (w : Verity.ContractState) (slots : List Nat) (k1 k2 v : Nat) :
+    Denote.writeAddressKeyedMapping2FieldSlots sourceOracle fields fieldName w slots k1 k2 v =
+      SourceSemantics.writeAddressKeyedMapping2FieldSlots fields fieldName w slots k1 k2 v := by
+  simp only [Denote.writeAddressKeyedMapping2FieldSlots,
+    SourceSemantics.writeAddressKeyedMapping2FieldSlots]
+  by_cases h : SourceSemantics.fieldIsTransient fields fieldName = true
+  · simp [fieldIsTransient_eq, h, sourceOracle, writeTransientTargets_eq,
+      Denote.wordNormalize, SourceSemantics.wordNormalize]
+  · simp [fieldIsTransient_eq, h, writeAddressKeyedMapping2Slots_eq]
+
 /-! ## Definitional write/helper bridges (the mirrors are byte-for-byte) -/
 
 @[simp] theorem wordNormalize_eq (n : Nat) :
@@ -286,15 +334,51 @@ theorem writeAddressKeyedMapping2Slots_eq
     Denote.writeAddressKeyedMappingPackedWordSlots sourceOracle w slots k off p v =
       SourceSemantics.writeAddressKeyedMappingPackedWordSlots w slots k off p v := rfl
 
+@[simp] theorem writeAddressKeyedMappingPackedWordFieldSlots_eq
+    (fields : List Field) (fieldName : String)
+    (w : Verity.ContractState) (slots : List Nat) (k off : Nat)
+    (p : PackedBits) (v : Nat) :
+    Denote.writeAddressKeyedMappingPackedWordFieldSlots
+        sourceOracle fields fieldName w slots k off p v =
+      SourceSemantics.writeAddressKeyedMappingPackedWordFieldSlots
+        fields fieldName w slots k off p v := rfl
+
 @[simp] theorem writeAddressKeyedMapping2WordSlots_eq
     (w : Verity.ContractState) (slots : List Nat) (k1 k2 off v : Nat) :
     Denote.writeAddressKeyedMapping2WordSlots sourceOracle w slots k1 k2 off v =
       SourceSemantics.writeAddressKeyedMapping2WordSlots w slots k1 k2 off v := rfl
 
+@[simp] theorem writeAddressKeyedMapping2PackedWordSlots_eq
+    (w : Verity.ContractState) (slots : List Nat) (k1 k2 off : Nat)
+    (p : PackedBits) (v : Nat) :
+    Denote.writeAddressKeyedMapping2PackedWordSlots sourceOracle w slots k1 k2 off p v =
+      SourceSemantics.writeAddressKeyedMapping2PackedWordSlots w slots k1 k2 off p v := rfl
+
+@[simp] theorem writeAddressKeyedMapping2PackedWordFieldSlots_eq
+    (fields : List Field) (fieldName : String)
+    (w : Verity.ContractState) (slots : List Nat) (k1 k2 off : Nat)
+    (p : PackedBits) (v : Nat) :
+    Denote.writeAddressKeyedMapping2PackedWordFieldSlots
+        sourceOracle fields fieldName w slots k1 k2 off p v =
+      SourceSemantics.writeAddressKeyedMapping2PackedWordFieldSlots
+        fields fieldName w slots k1 k2 off p v := rfl
+
 @[simp] theorem writeAddressKeyedMappingChainSlots_eq
     (w : Verity.ContractState) (slots keys : List Nat) (v : Nat) :
     Denote.writeAddressKeyedMappingChainSlots sourceOracle w slots keys v =
       SourceSemantics.writeAddressKeyedMappingChainSlots w slots keys v := rfl
+
+@[simp] theorem writeAddressKeyedMappingWordFieldSlots_eq
+    (fields : List Field) (fieldName : String)
+    (w : Verity.ContractState) (slots : List Nat) (k off v : Nat) :
+    Denote.writeAddressKeyedMappingWordFieldSlots sourceOracle fields fieldName w slots k off v =
+      SourceSemantics.writeAddressKeyedMappingWordFieldSlots fields fieldName w slots k off v := rfl
+
+@[simp] theorem writeAddressKeyedMapping2WordFieldSlots_eq
+    (fields : List Field) (fieldName : String)
+    (w : Verity.ContractState) (slots : List Nat) (k1 k2 off v : Nat) :
+    Denote.writeAddressKeyedMapping2WordFieldSlots sourceOracle fields fieldName w slots k1 k2 off v =
+      SourceSemantics.writeAddressKeyedMapping2WordFieldSlots fields fieldName w slots k1 k2 off v := rfl
 
 @[simp] theorem writeStorageArray_eq
     (w : Verity.ContractState) (slot : Nat) (vs : List Verity.Core.Uint256) :
@@ -315,6 +399,7 @@ theorem execForEachLoop_agree {varName : String}
   | _, _, 0 => rfl
   | st, index, remaining + 1 => by
       have hb := h ⟨st.world,
+        st.immutable,
         SourceSemantics.bindValue st.bindings varName (SourceSemantics.wordNormalize index),
         st.selector⟩
       rw [SourceSemantics.execForEachLoop_succ]
@@ -322,6 +407,7 @@ theorem execForEachLoop_agree {varName : String}
       rw [← hb]
       show toStmtResult
           (match runBody ⟨st.world,
+              st.immutable,
               SourceSemantics.bindValue st.bindings varName (SourceSemantics.wordNormalize index),
               st.selector⟩ with
             | .continue next => Denote.execForEachLoop varName runBody next (index + 1) remaining
@@ -329,6 +415,7 @@ theorem execForEachLoop_agree {varName : String}
             | .return value next => .return value next
             | .revert => .revert) = _
       cases runBody ⟨st.world,
+          st.immutable,
           SourceSemantics.bindValue st.bindings varName (SourceSemantics.wordNormalize index),
           st.selector⟩ <;>
         first
@@ -348,6 +435,7 @@ theorem execForEachSetBitLoop_agree {varName : String}
       by_cases hbitmap : bitmap = 0
       · simp [Denote.execForEachSetBitLoop, hbitmap, toStmtResult]
       · have hb := h ⟨st.world,
+          st.immutable,
           SourceSemantics.bindValue st.bindings varName
             (SourceSemantics.wordNormalize (SourceSemantics.msbIndex bitmap)),
           st.selector⟩
@@ -355,16 +443,18 @@ theorem execForEachSetBitLoop_agree {varName : String}
         rw [← hb]
         show toStmtResult
             (match runBody ⟨st.world,
+                st.immutable,
                 SourceSemantics.bindValue st.bindings varName
                   (SourceSemantics.wordNormalize (SourceSemantics.msbIndex bitmap)),
                 st.selector⟩ with
-              | .continue next =>
-                  Denote.execForEachSetBitLoop varName runBody fuel next
-                    (SourceSemantics.clearMsb bitmap)
-              | .stop next => .stop next
-              | .return value next => .return value next
-              | .revert => .revert) = _
+            | .continue next =>
+                Denote.execForEachSetBitLoop varName runBody fuel next
+                  (SourceSemantics.clearMsb bitmap)
+            | .stop next => .stop next
+            | .return value next => .return value next
+            | .revert => .revert) = _
         cases runBody ⟨st.world,
+            st.immutable,
             SourceSemantics.bindValue st.bindings varName
               (SourceSemantics.wordNormalize (SourceSemantics.msbIndex bitmap)),
             st.selector⟩ <;>
@@ -396,9 +486,11 @@ macro "denote_stmt_arm" : tactic =>
     (simp only [Denote.execStmt, SourceSemantics.execStmt,
        ← denote_evalExpr_eq, ← denote_evalExprList_eq]
      repeat' (split <;>
-       try simp_all [toStmtResult, toRuntimeState,
+         try simp_all [toStmtResult, toRuntimeState,
          writeAddressKeyedMappingSlots_eq, writeUintKeyedMappingSlots_eq,
-         writeAddressKeyedMapping2Slots_eq, storageArraySetAt_eq,
+         writeAddressKeyedMapping2Slots_eq, writeAddressKeyedMappingFieldSlots_eq,
+         writeUintKeyedMappingFieldSlots_eq, writeAddressKeyedMapping2FieldSlots_eq,
+         storageArraySetAt_eq,
          storageArrayDropLast?_eq,
          SourceSemantics.eventFromResolvedArgs?,
          SourceSemantics.eventScratchMemoryAfterEmit?])
@@ -408,7 +500,9 @@ macro "denote_stmt_arm" : tactic =>
          | rfl
          | simp_all [toStmtResult, toRuntimeState,
              writeAddressKeyedMappingSlots_eq, writeUintKeyedMappingSlots_eq,
-             writeAddressKeyedMapping2Slots_eq, storageArraySetAt_eq,
+             writeAddressKeyedMapping2Slots_eq, writeAddressKeyedMappingFieldSlots_eq,
+             writeUintKeyedMappingFieldSlots_eq, writeAddressKeyedMapping2FieldSlots_eq,
+             storageArraySetAt_eq,
              storageArrayDropLast?_eq,
              SourceSemantics.eventFromResolvedArgs?,
              SourceSemantics.eventScratchMemoryAfterEmit?]))
@@ -420,7 +514,7 @@ theorem execStmt_eq (fields : List Field) :
       toStmtResult (Denote.execStmt sourceOracle fields st stmt) =
         SourceSemantics.execStmt fields (toRuntimeState st) stmt
   | _, .letVar n v | _, .assignVar n v => by denote_stmt_arm
-  | _, .setStorage f v | _, .setStorageAddr f v => by denote_stmt_arm
+  | _, .setStorage f v | _, .setStorageAddr f v | _, .setImmutable f v => by denote_stmt_arm
   | _, .setStorageWord f w v => by denote_stmt_arm
   | _, .setMapping f k v | _, .setMappingUint f k v => by denote_stmt_arm
   | _, .setMappingWord f k w v => by denote_stmt_arm
@@ -455,7 +549,7 @@ theorem execStmt_eq (fields : List Field) :
           exact execForEachLoop_agree
             (runBody' := fun ls => SourceSemantics.execStmtList fields ls body)
             (fun ls => execStmtList_eq fields ls body)
-            ⟨st.world, Denote.bindValue st.bindings v (Denote.wordNormalize 0), st.selector⟩
+            ⟨st.world, st.immutable, Denote.bindValue st.bindings v (Denote.wordNormalize 0), st.selector⟩
             0 bound
   | st, .forEachSetBit v bitmap body =>
       execStmt_forEachSetBit_eq fields st v bitmap body (fun ls => execStmtList_eq fields ls body)

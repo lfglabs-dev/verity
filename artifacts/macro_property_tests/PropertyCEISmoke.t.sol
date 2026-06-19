@@ -43,4 +43,10 @@ contract PropertyCEISmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
+    // Property 4: callThenUpdate has no unexpected revert
+    function testAuto_CallThenUpdate_NoUnexpectedRevert() public {
+        vm.prank(alice);
+        (bool ok,) = target.call(abi.encodeWithSignature("callThenUpdate(uint256)", uint256(1)));
+        require(ok, "callThenUpdate reverted unexpectedly");
+    }
 }

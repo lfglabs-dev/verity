@@ -15,7 +15,7 @@ export default {
   '-- reference': { type: 'separator', title: 'Reference' },
   examples: 'Examples Gallery',
   core: 'Core',
-  'edsl-api-reference': 'EDSL API',
+  edsl: 'EDSL Reference',
   compiler: 'Compiler & CLI',
   intrinsics: 'Compiler Intrinsics',
   capabilities: 'Capabilities & Limits',

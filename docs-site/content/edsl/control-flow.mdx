@@ -1,0 +1,119 @@
+---
+title: Control Flow, Errors & Events
+description: Guards, reverts, typed custom errors with runtime args, tryCatch, bounded loops, bitmap iteration, and event emission.
+---
+
+# Control Flow, Errors & Events
+
+Branching, guards, reverts, iteration, and logs.
+
+## Guards and `bind`
+
+```verity
+def require (condition : Bool) (message : String) : Contract Unit
+def bind {α β : Type} (ma : Contract α) (f : α → Contract β) : Contract β
+```
+
+`require false msg` emits a string-message revert. `bind` short-circuits on
+revert and powers do-notation.
+
+```verity
+require (amount > 0) "amount must be nonzero"
+let x <- getStorage counterSlot
+setStorage counterSlot (x + 1)
+```
+
+### `Contract.tryCatch`
+
+```verity
+def Contract.tryCatch {α : Type} (attempt : Contract α) (handler : String → Contract Unit) : Contract α
+```
+
+If `attempt` reverts with message `msg`, `tryCatch` runs `handler msg` on the
+state *before* the revert and returns whatever `handler` returns (or the
+original revert if `handler` itself reverts). Useful for fallback paths. See
+[`Verity/Core.lean`](https://github.com/lfglabs-dev/verity/blob/main/Verity/Core.lean)
+for the exact semantics. (This is distinct from the low-level
+[`tryCatch` over raw calls](/edsl/external-calls#low-level-call--staticcall--delegatecall).)
+
+## Custom errors
+
+Declare typed errors in an `errors` block and revert with them, conditionally
+(`requireError`) or unconditionally (`revert` / `revertError`):
+
+```verity
+errors
+  error NonPositive(Uint256)
+  error ExecutionResult(Uint256, Uint256, Address, Bool)
+
+function requirePositive (amount : Uint256) : Unit := do
+  requireError (amount != 0) NonPositive(amount)
+
+function report (preOpGas : Uint256, paid : Uint256, target : Address, ok : Bool) : Unit := do
+  let total := add preOpGas paid
+  revertError ExecutionResult(total, add paid 1, target, ok)
+```
+
+Scalar ABI arguments (`Uint256`, `Address`, `Bool`, fixed-width word aliases,
+and newtypes over them) may be **arbitrary runtime expressions** of the declared
+parameter type — across `requireError` / `revert` / `revertError` /
+`requireSomeUintError`. Wrong-typed arguments are rejected at elaboration.
+Composite and dynamic payloads (tuples, fixed-arrays, arrays, bytes — including
+nested dynamic composites) must still be passed as direct parameter references;
+they are not yet runtime-computable. Errors populate `CompilationModel.errors`
+and lower to `Stmt.requireError` / `Stmt.revertError`.
+
+## Bounded loops
+
+```verity
+forEach "i" count (do
+  -- body
+)
+```
+
+`Stmt.forEach` is bounded iteration. The current compiler proof covers
+zero-bound loops with supported bodies and arbitrary literal-bound empty-body
+loops; positive loops with non-empty bodies compile at the surface but are not
+yet in the generic IR-generation preservation theorem. Accumulator-style loops
+use `Stmt.assignVar` inside `Stmt.forEach`; the macro path rejects mutating
+`let mut` locals from nested `forEach` bodies, so macro-authored contracts use
+explicit memory scratch space for accumulators.
+
+### Bitmap iteration
+
+`forEachSetBit` iterates over the set bits of a word, binding each bit index:
+
+```verity
+function rememberSetBits (bitmap : Uint256) : Unit := do
+  forEachSetBit "bit" bitmap (do
+    setStorage lastBit bit)
+```
+
+The loop variable accepts a string literal or bare identifier; the third
+argument must be a `do` block. The lowering is fork-aware (native `CLZ` on
+Osaka, portable scan fallback otherwise) — see
+[`clz` / `msb`](/edsl/computation#bit-operations).
+
+## Events
+
+```verity
+def emitEvent (name : String) (args : List Uint256) (indexedArgs : List Uint256 := []) : Contract Unit
+
+emitEvent "Transfer" [amount] [fromAddr, toAddr]
+```
+
+For raw, multi-topic logs, `rawLog` lowers to `Stmt.rawLog` and supports 0–4
+topics (`log0`–`log4`):
+
+```verity
+rawLog [topic0, add topic1 1] dataOffset dataSize
+```
+
+`rawLog` is classified as not-modeled event emission in the trust report; use
+`--deny-event-emission` for proof-strict runs.
+
+## See also
+
+- [Computation & Context](/edsl/computation) — conditions and bit helpers.
+- [Functions & Authoring](/edsl/functions) — `local_obligations`, reentrancy guards.
+- [External Calls](/edsl/external-calls) — `callResult` for inspecting call success.

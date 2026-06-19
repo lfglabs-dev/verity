@@ -70,6 +70,76 @@ private def validateAdtPayloadParamNameCollisions
       throw s!"Compilation error: {context} reserves generated ADT payload local '{name}'. Rename the parameter or local binding that conflicts with generated '<param>_f<i>' locals."
   | none => pure ()
 
+private def immutableNames (immutables : List ImmutableSpec) : List String :=
+  immutables.map (·.name)
+
+private def validateModelImmutableExprNameNode (names : List String)
+    (context : String) : Expr → Except String Unit
+  | Expr.immutable name =>
+      if names.contains name then
+        pure ()
+      else
+        throw s!"Compilation error: {context} references unknown immutable '{name}'"
+  | _ => pure ()
+
+private def validateModelImmutableStmtNode (names : List String)
+    (context : String) : Stmt → Except String Unit
+  | stmt => do
+      match stmt with
+      | Stmt.setImmutable name _ =>
+          if names.contains name then
+            pure ()
+          else
+            throw s!"Compilation error: {context} sets unknown immutable '{name}'"
+      | _ => pure ()
+      for expr in stmt.directMetadata.subexpressions do
+        expr.checkRec (validateModelImmutableExprNameNode names context)
+
+private def validateSetImmutableRuntimeGuardNode (fnName : String) : Stmt → Except String Unit
+  | Stmt.setImmutable name _ =>
+      throw s!"Compilation error: function '{fnName}' uses Stmt.setImmutable for immutable '{name}' outside constructor scope"
+  | _ => pure ()
+
+def validateSetImmutableRuntimeGuard (fn : FunctionSpec) : Except String Unit :=
+  Stmt.checkRecList (validateSetImmutableRuntimeGuardNode fn.name) fn.body
+
+def validateImmutableNamesInFunction (immutables : List ImmutableSpec)
+    (fn : FunctionSpec) : Except String Unit :=
+  Stmt.checkRecList (validateModelImmutableStmtNode (immutableNames immutables) s!"function '{fn.name}'") fn.body
+
+def validateImmutableNamesInConstructor (immutables : List ImmutableSpec)
+    (ctor : Option ConstructorSpec) : Except String Unit := do
+  let names := immutableNames immutables
+  match ctor with
+  | none => pure ()
+  | some spec =>
+      for imm in immutables do
+        imm.init.checkRec (validateModelImmutableExprNameNode names s!"immutable '{imm.name}' initializer")
+      Stmt.checkRecList (validateModelImmutableStmtNode names "constructor") spec.body
+
+/-- Each declared immutable must be assigned via `Stmt.setImmutable` in the
+    constructor body; deploy code only emits `setimmutable` from those
+    statements (never from `ImmutableSpec.init`), so an unset immutable would
+    read uninitialized bytecode at runtime. -/
+def validateImmutableInitialization (immutables : List ImmutableSpec)
+    (ctor : Option ConstructorSpec) : Except String Unit := do
+  match immutables with
+  | [] => pure ()
+  | _ =>
+      match ctor with
+      | none =>
+          throw "Compilation error: contract declares immutables but has no constructor to initialize them"
+      | some spec =>
+          for imm in immutables do
+            let isSet := Stmt.foldBoolList
+              (fun s => match s with
+                | Stmt.setImmutable name _ => name == imm.name
+                | _ => false) spec.body
+            if isSet then
+              pure ()
+            else
+              throw s!"Compilation error: immutable '{imm.name}' is declared but never initialized in the constructor"
+
 def isStorageWordArrayParam : ParamType → Bool
   | ty => isWordArrayParam ty
 
@@ -584,6 +654,27 @@ def stmtListContainsExternalCall (stmts : List Stmt) : Bool :=
 def matchBranchesContainExternalCall (branches : List (String × List String × List Stmt)) : Bool :=
   branches.any fun (_, _, body) => stmtListContainsExternalCall body
 
+/-- Node-local classifier for the cross-function reentrancy gate: which
+    statements hand control to untrusted code in a way that can corrupt this
+    contract's state via a reentrant entrypoint. It mirrors
+    `stmtContainsExternalCallNode` but refines the `ecm` arm: an External Call
+    Module summarised as a `staticcall` (precompiles, `keccak`/`sha256`, ABI
+    encoding, view-only reads) runs in the EVM static context, where any
+    state-mutating opcode reverts — such a call provably cannot open a
+    state-corrupting reentrancy window, so it does not require a disposition.
+    Every other external-call form (a mutating `call` ECM, a `externalCall`
+    binding, a non-builtin `externalCall` expression, raw-Yul `call`/`staticcall`/
+    `delegatecall`) stays window-opening: it reaches an external contract that
+    may re-enter. -/
+def stmtReentrancyWindowNode : Stmt → Bool
+  | Stmt.ecm mod _ =>
+      mod.summaryMutability == Compiler.ECM.StatefulExternal.Mutability.call
+  | s => stmtContainsExternalCallNode s
+
+/-- Whether a statement (deeply) opens a cross-function reentrancy window. -/
+def stmtOpensReentrancyWindow (s : Stmt) : Bool :=
+  s.anyDeep stmtReentrancyWindowNode
+
 /-- Conservative variant of `stmtContainsExternalCallNode` for
     `no_external_calls` validation. Returns `true` for internal calls because
     callee bodies may contain external calls that are not visible at
@@ -654,7 +745,7 @@ def matchBranchesMayContainExternalCall (branches : List (String × List String 
     statement bodies are reached via the canonical `Stmt.anyDeep`. -/
 def stmtReadsStateOrEnvNode : Stmt → Bool
   | Stmt.letVar _ value | Stmt.assignVar _ value | Stmt.setStorage _ value | Stmt.setStorageAddr _ value
-  | Stmt.setStorageWord _ _ value |
+  | Stmt.setImmutable _ value | Stmt.setStorageWord _ _ value |
     Stmt.return value | Stmt.require value _ =>
       exprReadsStateOrEnv value
   | Stmt.storageArrayPush _ _ | Stmt.setStorageArrayElement _ _ _ | Stmt.storageArrayPop _ =>
@@ -824,7 +915,7 @@ def stmtReadsStateOrEnvWithFunctionEffectsNode
       (lookupFunctionEffect effects name).readsStateOrEnv ||
         exprListReadsStateOrEnvWithFunctionEffects effects args
   | Stmt.letVar _ value | Stmt.assignVar _ value | Stmt.setStorage _ value | Stmt.setStorageAddr _ value
-  | Stmt.setStorageWord _ _ value |
+  | Stmt.setImmutable _ value | Stmt.setStorageWord _ _ value |
     Stmt.return value | Stmt.require value _ =>
       exprReadsStateOrEnvWithFunctionEffects effects value
   | Stmt.storageArrayPush _ _ | Stmt.setStorageArrayElement _ _ _ | Stmt.storageArrayPop _ =>
@@ -1104,7 +1195,7 @@ def validateNoUnsupportedAdtConstructNode : Stmt → Except String Unit
       else
         pure ()
   | Stmt.letVar _ value | Stmt.assignVar _ value | Stmt.setStorage _ value
-  | Stmt.setStorageAddr _ value | Stmt.setStorageWord _ _ value | Stmt.storageArrayPush _ value
+  | Stmt.setStorageAddr _ value | Stmt.setImmutable _ value | Stmt.setStorageWord _ _ value | Stmt.storageArrayPush _ value
   | Stmt.setStorageArrayElement _ _ value | Stmt.setMapping _ _ value
   | Stmt.setMappingUint _ _ value | Stmt.setMappingWord _ _ _ value
   | Stmt.setMapping2 _ _ _ value | Stmt.setMapping2Word _ _ _ _ value
@@ -1279,6 +1370,33 @@ def validateFunctionSpec (spec : FunctionSpec) : Except String Unit := do
         throw s!"Compilation error: function '{spec.name}' violates CEI (Checks-Effects-Interactions) ordering: {violation}. Reorder state writes before external calls, or annotate with allow_post_interaction_writes / nonreentrant(<lock>) to opt out ({issue1728Ref})"
     | none => pure ()
   validateFunctionIdentifierReferences spec
+
+/-- Cross-function reentrancy gate (fail-closed). A function that makes a direct
+    external call opens a reentrancy window: while control is handed to an
+    external callee, another entrypoint can re-enter and observe or exploit this
+    contract's mid-update state (the Midnight `take`/`liquidate` class of bug,
+    which single-function CEI does NOT prevent — even a CEI-clean function leaves
+    a transiently-exploitable state live during its callback). Such a function
+    must therefore carry a *sound* reentrancy disposition: either a runtime
+    `nonreentrant(<lock>)` guard (closes the window at the external dispatch
+    boundary, #1893) or an explicit audited `reentrancy_trusted` assertion.
+    `cei_safe` / `allow_post_interaction_writes` only concern single-function CEI
+    and are intentionally NOT accepted here. `view`/`pure` functions are exempt:
+    a read-only (staticcall) context cannot mutate state and so cannot open a
+    state-corrupting reentrancy window. For the same reason `stmtOpensReentrancyWindow`
+    (unlike `stmtContainsExternalCall`) does not count a `staticcall`-summarised
+    ECM — precompiles, `keccak`/`sha256`, ABI encoding, view-only reads — which
+    the EVM runs in a static context where any state mutation reverts.
+
+    This runs as a dedicated pass *after* call well-formedness validation
+    (`validateExternalCallTargetsInFunction`), so a malformed external call
+    surfaces its structural error first; the reentrancy policy only judges
+    otherwise well-formed external calls. -/
+def validateReentrancyDisposition (spec : FunctionSpec) : Except String Unit := do
+  if spec.body.any stmtOpensReentrancyWindow
+      && !spec.isView && !spec.isPure
+      && !(spec.nonReentrantLock.isSome || spec.reentrancyTrusted) then
+    throw s!"Compilation error: function '{spec.name}' makes an external call but declares no reentrancy disposition. An external call hands control to an untrusted callee that may re-enter another entrypoint while this contract's state is mid-update (cross-function reentrancy). Add `nonreentrant(<lock>)` to synthesise a runtime guard, or `reentrancy_trusted` to assert — and own — that every external callee is trusted not to re-enter ({issue1728Ref}). cei_safe / allow_post_interaction_writes cover only single-function CEI and do not satisfy this gate."
 
 /-- Node-local constructor return check; nested statement bodies are reached
     via the canonical `Stmt.forDeepM`. -/

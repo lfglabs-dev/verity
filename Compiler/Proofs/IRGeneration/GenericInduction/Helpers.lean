@@ -1567,6 +1567,9 @@ theorem stmtListGenericCore_of_supportedStmtList_of_surface
   | setStorageAddrSingleSlot hcore hinScope hfind =>
       exact stmtListGenericCore_of_supportedStmtList_setStorageAddrSingleSlot_of_surface
         (fields := fields) hnoConflict hfind hcore hinScope
+  | setImmutableSingle _ _ =>
+      simp [stmtListTouchesUnsupportedContractSurface,
+        stmtTouchesUnsupportedContractSurface] at hsurface
   | mstoreSingle hcoreOffset hinScopeOffset hcoreValue hinScopeValue =>
       exact stmtListGenericCore_of_supportedStmtList_mstoreSingle_of_surface
         (fields := fields) hcoreOffset hinScopeOffset hcoreValue hinScopeValue
@@ -1668,6 +1671,10 @@ theorem stmtListGenericCore_of_supportedStmtList_of_surface_exceptMappingWrites
   | setStorageAddrSingleSlot hcore hinScope hfind =>
       exact stmtListGenericCore_of_supportedStmtList_setStorageAddrSingleSlot_of_surface
         (fields := fields) hnoConflict hfind hcore hinScope
+  | setImmutableSingle _ _ =>
+      simp [stmtListTouchesUnsupportedContractSurfaceExceptMappingWrites,
+        stmtTouchesUnsupportedContractSurfaceExceptMappingWrites,
+        stmtTouchesUnsupportedContractSurface] at hsurface
   | mstoreSingle hcoreOffset hinScopeOffset hcoreValue hinScopeValue =>
       exact stmtListGenericCore_of_supportedStmtList_mstoreSingle_of_surface
         (fields := fields) hcoreOffset hinScopeOffset hcoreValue hinScopeValue
@@ -1927,6 +1934,10 @@ theorem stmtListGenericCore_of_supportedStmtList_of_surface_exceptMappingWrites_
   | setStorageAddrSingleSlot hcore hinScope hfind =>
       exact stmtListGenericCore_of_supportedStmtList_setStorageAddrSingleSlot_of_surface
         (fields := fields) hnoConflict hfind hcore hinScope
+  | setImmutableSingle _ _ =>
+      simp [stmtListTouchesUnsupportedContractSurfaceExceptMappingWrites,
+        stmtTouchesUnsupportedContractSurfaceExceptMappingWrites,
+        stmtTouchesUnsupportedContractSurface] at hsurface
   | mstoreSingle hcoreOffset hinScopeOffset hcoreValue hinScopeValue =>
       exact stmtListGenericCore_of_supportedStmtList_mstoreSingle_of_surface
         (fields := fields) hcoreOffset hinScopeOffset hcoreValue hinScopeValue
@@ -2313,8 +2324,7 @@ theorem compileStmtList_ok_of_stmtListGenericCore
         fields [] [] .calldata [] false inScopeNames [] stmts = Except.ok bodyIR := by
   induction hgeneric generalizing inScopeNames with
   | nil =>
-      exact ⟨[], FunctionBody.compileStmtList_nil_eq_ok
-        fields [] [] .calldata [] false inScopeNames []⟩
+      exact ⟨[], by simp [CompilationModel.compileStmtList, Pure.pure, Except.pure]⟩
   | cons hstep _hrest ih =>
       rcases FunctionBody.compileStmt_ok_any_scope
         (scope2 := inScopeNames) ⟨_, hstep.compileOk⟩ with ⟨headIR, hhead⟩
@@ -2340,8 +2350,7 @@ theorem compileStmtList_ok_of_stmtListGenericWithHelpers
         fields spec.events spec.errors .calldata [] false inScopeNames [] stmts = Except.ok bodyIR := by
   induction hgeneric generalizing inScopeNames with
   | nil =>
-      exact ⟨[], FunctionBody.compileStmtList_nil_eq_ok
-        fields spec.events spec.errors .calldata [] false inScopeNames []⟩
+      exact ⟨[], by simp [CompilationModel.compileStmtList, Pure.pure, Except.pure]⟩
   | cons hstep _hrest ih =>
       rcases FunctionBody.compileStmt_ok_any_scope_with_surface
         (scope2 := inScopeNames) ⟨_, hstep.compileOk⟩ with ⟨headIR, hhead⟩
@@ -2369,8 +2378,7 @@ theorem compileStmtList_ok_of_stmtListGenericWithHelpersAndHelperIR
         fields spec.events spec.errors .calldata [] false inScopeNames [] stmts = Except.ok bodyIR := by
   induction hgeneric generalizing inScopeNames with
   | nil =>
-      exact ⟨[], FunctionBody.compileStmtList_nil_eq_ok
-        fields spec.events spec.errors .calldata [] false inScopeNames []⟩
+      exact ⟨[], by simp [CompilationModel.compileStmtList, Pure.pure, Except.pure]⟩
   | cons hstep _hrest ih =>
       rcases FunctionBody.compileStmt_ok_any_scope_with_surface
         (scope2 := inScopeNames) ⟨_, hstep.compileOk⟩ with ⟨headIR, hhead⟩
@@ -2621,9 +2629,7 @@ theorem exec_compileStmtList_generic_sizeOf_extraFuel_step
   induction hgeneric generalizing runtime state extraFuel with
   | nil =>
       refine ⟨[], ?_, ?_⟩
-      · try unfold CompilationModel.compileStmtList
-        unfold CompilationModel.compileStmtListWithFork
-        rfl
+      · simp [CompilationModel.compileStmtList, pure, Except.pure]
       · exact And.intro hruntime <| And.intro hexact <| And.intro hbounded hscope
   | @cons scope stmt compiledIR rest hstep hrest ih =>
       rcases compileStmtList_ok_of_stmtListGenericCore hrest
@@ -2782,9 +2788,7 @@ theorem exec_compileStmtList_generic_with_helpers_sizeOf_extraFuel_step
   induction hgeneric generalizing runtime state extraFuel with
   | nil =>
       refine ⟨[], ?_, ?_⟩
-      · try unfold CompilationModel.compileStmtList
-        unfold CompilationModel.compileStmtListWithFork
-        rfl
+      · simp [CompilationModel.compileStmtList, pure, Except.pure]
       · simp [SourceSemantics.execStmtListWithHelpers, execIRStmts, stmtStepMatchesIRExec]
         exact And.intro hruntime <| And.intro hexact <| And.intro hbounded hscope
   | @cons scope stmt compiledIR rest hstep hrest ih =>
@@ -2950,9 +2954,7 @@ theorem exec_compileStmtList_generic_with_helpers_and_helper_ir_sizeOf_extraFuel
   induction hgeneric generalizing runtime state extraFuel with
   | nil =>
       refine ⟨[], ?_, ?_⟩
-      · try unfold CompilationModel.compileStmtList
-        unfold CompilationModel.compileStmtListWithFork
-        rfl
+      · simp [CompilationModel.compileStmtList, pure, Except.pure]
       · simp [SourceSemantics.execStmtListWithHelpers, execIRStmtsWithInternals,
               stmtStepMatchesIRExecWithInternals]
         exact And.intro hruntime <| And.intro hexact <| And.intro hbounded hscope

@@ -17,7 +17,25 @@ contract PropertyCEILadderSmokeTest is YulTestBase {
         require(target != address(0), "Deploy failed");
     }
 
-    // Property 1: TODO decode and assert `storeThenCall` result
+    // Property 1: TODO decode and assert `callThenStoreGuarded` result
+    function testTODO_CallThenStoreGuarded_DecodeAndAssert() public {
+        vm.prank(alice);
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("callThenStoreGuarded(uint256)", uint256(1)));
+        require(ok, "callThenStoreGuarded reverted unexpectedly");
+        assertEq(ret.length, 32, "callThenStoreGuarded ABI return length mismatch (expected 32 bytes)");
+        // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
+        ret;
+    }
+    // Property 2: TODO decode and assert `callThenStoreProved` result
+    function testTODO_CallThenStoreProved_DecodeAndAssert() public {
+        vm.prank(alice);
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("callThenStoreProved(uint256)", uint256(1)));
+        require(ok, "callThenStoreProved reverted unexpectedly");
+        assertEq(ret.length, 32, "callThenStoreProved ABI return length mismatch (expected 32 bytes)");
+        // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
+        ret;
+    }
+    // Property 3: TODO decode and assert `storeThenCall` result
     function testTODO_StoreThenCall_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("storeThenCall(uint256)", uint256(1)));
@@ -26,7 +44,7 @@ contract PropertyCEILadderSmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 2: increment has no unexpected revert
+    // Property 4: increment has no unexpected revert
     function testAuto_Increment_NoUnexpectedRevert() public {
         vm.prank(alice);
         (bool ok,) = target.call(abi.encodeWithSignature("increment()"));

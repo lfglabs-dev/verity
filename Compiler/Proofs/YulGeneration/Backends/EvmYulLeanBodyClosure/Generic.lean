@@ -33,21 +33,23 @@ private theorem compileStmtWithFork_cancun_eq_compileStmt
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
     (dynamicSource : DynamicDataSource) (internalRetNames : List String)
     (isInternal : Bool) (inScopeNames : List String)
-    (adtTypes : List AdtTypeDef) (stmt : Stmt) :
+    (adtTypes : List AdtTypeDef) (stmt : Stmt)
+    (internalFunctions : List FunctionSpec := []) :
     compileStmtWithFork fields events errors dynamicSource internalRetNames isInternal
-      inScopeNames adtTypes Verity.Core.Intrinsics.HardFork.cancun stmt =
+      inScopeNames adtTypes Verity.Core.Intrinsics.HardFork.cancun stmt internalFunctions =
     compileStmt fields events errors dynamicSource internalRetNames isInternal
-      inScopeNames adtTypes stmt := rfl
+      inScopeNames adtTypes stmt internalFunctions := rfl
 
 private theorem compileStmtListWithFork_cancun_eq_compileStmtList
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
     (dynamicSource : DynamicDataSource) (internalRetNames : List String)
     (isInternal : Bool) (inScopeNames : List String)
-    (adtTypes : List AdtTypeDef) (stmts : List Stmt) :
+    (adtTypes : List AdtTypeDef) (stmts : List Stmt)
+    (internalFunctions : List FunctionSpec := []) :
     compileStmtListWithFork fields events errors dynamicSource internalRetNames
-      isInternal inScopeNames adtTypes Verity.Core.Intrinsics.HardFork.cancun stmts =
+      isInternal inScopeNames adtTypes Verity.Core.Intrinsics.HardFork.cancun stmts internalFunctions =
     compileStmtList fields events errors dynamicSource internalRetNames isInternal
-      inScopeNames adtTypes stmts := rfl
+      inScopeNames adtTypes stmts internalFunctions := rfl
 
 /-- Per-statement union of the proved EVMYulLean safe-body fragments.
 
@@ -483,9 +485,9 @@ private theorem compileStmtList_cons_ok_inv
     cases hTail : compileStmtList fields events errors dynamicSource
       internalRetNames isInternal (collectStmtNames stmt ++ inScopeNames)
       adtTypes rest with
-    | error _ => simp [hTail] at hOk
+    | error _ => simp [compileStmtListWithFork_cancun_eq_compileStmtList, hTail] at hOk
     | ok tailIR =>
-      simp [hTail, Pure.pure, Except.pure] at hOk
+      simp [compileStmtListWithFork_cancun_eq_compileStmtList, hTail, Pure.pure, Except.pure] at hOk
       exact ⟨headIR, tailIR, rfl, rfl, hOk.symm⟩
 
 /-- List-level lift of the master per-statement closure: a statement list

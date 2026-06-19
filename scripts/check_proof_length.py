@@ -638,6 +638,18 @@ ALLOWLIST: set[str] = {
     # rcases branches would produce trivial single-use helpers whose
     # boilerplate exceeds the save.
     "compileMappingSlotWrite_multiSlot_bridged",
+    # `add`-wrapped (wordOffset != 0) twin of the multi-slot closure above:
+    # same outer `YulStmt.block` of two let-bindings plus N per-slot writes,
+    # but each store is `sstore/tstore(add(mappingSlot(..), lit wordOffset), ..)`.
+    # The proof enumerates the same four concrete membership cases (let
+    # __compat_key, let __compat_value, slot0, slot1) then the generic
+    # slotsRest map case, each delegating to the shared `hStoreFor` witness
+    # built from `bridgedStraightStmt_maybeFieldStorageStore_add` (which the
+    # field-aware transient/sstore selection requires). The inline AST-shape
+    # witness pads the span without substantive logic; decomposing the rcases
+    # branches would yield trivial single-use helpers whose boilerplate
+    # exceeds the save.
+    "compileMappingSlotWrite_multiSlot_nonzero_bridged",
     # Multi-slot setMapping2 compatibility branch emits an outer
     # `YulStmt.block` wrapping three let-bindings (__compat_key1,
     # __compat_key2, __compat_value) plus N nested-mappingSlot sstore

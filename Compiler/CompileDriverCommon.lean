@@ -322,7 +322,7 @@ private def specializeForkSpec
 
 private partial def collectIntrinsicUsesStmt : Stmt → List IntrinsicUse
   | .letVar _ value | .assignVar _ value | .setStorage _ value
-  | .setStorageAddr _ value | .setStorageWord _ _ value
+  | .setStorageAddr _ value | .setImmutable _ value | .setStorageWord _ _ value
   | .storageArrayPush _ value | .return value | .require value _ =>
       collectIntrinsicUsesExpr value
   | .setStorageArrayElement _ index value

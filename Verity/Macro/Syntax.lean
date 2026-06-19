@@ -42,6 +42,7 @@ declare_syntax_cat verityIntrinsicObligation
 
 syntax ident " : " term " := " "slot" num : verityStorageField
 syntax ident " : " term " := " "slot" num : verityStorageItem
+syntax "transient " ident " : " term " := " "slot" num : verityStorageItem
 syntax ident " : " term " @word " num : verityStorageStructMember
 syntax ident " : " term " @word " num " packed(" num "," num ")" : verityStorageStructMember
 syntax ident " : " "StorageStruct" "[" sepBy(verityStorageStructMember, ",") "]" " @word " num : verityStorageStructMember
@@ -92,6 +93,7 @@ syntax "no_external_calls" : verityMutability
 syntax "allow_post_interaction_writes" : verityMutability
 syntax "nonreentrant(" ident ")" : verityMutability
 syntax "cei_safe" : verityMutability
+syntax "reentrancy_trusted" : verityMutability
 syntax "modifies(" sepBy1(ident, ",") ")" : verityModifies
 syntax "requires(" ident ")" : verityRequiresRole
 syntax ident " : " term:max : verityNewtype

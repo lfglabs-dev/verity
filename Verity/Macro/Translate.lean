@@ -188,10 +188,10 @@ private partial def validateDoElemExprTypes
                   -- generic bind-source typer.
                   match stripParens rhs with
                   | `(term| requireSomeUintError $_optExpr:term $errorName:ident($args,*)) =>
-                      for arg in args.getElems do
-                        let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals arg
+                      let argTypes ← args.getElems.mapM
+                        (inferPureExprType fields constDecls immutableDecls externalDecls params locals)
                       validateCustomErrorCall ownerName (toString errorName.getId)
-                        params errorDecls args.getElems
+                        params errorDecls args.getElems argTypes
                   | _ => pure ()
                   match ← resolveTypedInterfaceCall? fields constDecls immutableDecls externalDecls params locals rhs with
                   | some (_, _, _, some retTy, _) =>
@@ -246,22 +246,22 @@ private partial def validateDoElemExprTypes
           | _ => throwErrorAt body "forEachSetBit body must be a do block"
       | `(doElem| requireError $cond:term $errorName:ident($args,*)) =>
           requireBoolType cond "requireError condition" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals cond)
-          for arg in args.getElems do
-            let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals arg
+          let argTypes ← args.getElems.mapM
+            (inferPureExprType fields constDecls immutableDecls externalDecls params locals)
           validateCustomErrorCall ownerName (toString errorName.getId)
-            params errorDecls args.getElems
+            params errorDecls args.getElems argTypes
           pure locals
       | `(doElem| revert $errorName:ident($args,*)) =>
-          for arg in args.getElems do
-            let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals arg
+          let argTypes ← args.getElems.mapM
+            (inferPureExprType fields constDecls immutableDecls externalDecls params locals)
           validateCustomErrorCall ownerName (toString errorName.getId)
-            params errorDecls args.getElems
+            params errorDecls args.getElems argTypes
           pure locals
       | `(doElem| revertError $errorName:ident($args,*)) =>
-          for arg in args.getElems do
-            let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals arg
+          let argTypes ← args.getElems.mapM
+            (inferPureExprType fields constDecls immutableDecls externalDecls params locals)
           validateCustomErrorCall ownerName (toString errorName.getId)
-            params errorDecls args.getElems
+            params errorDecls args.getElems argTypes
           pure locals
       | `(doElem| tryCatch $attempt:term $handler:term) => do
           requireWordLikeType attempt "tryCatch attempt"
@@ -449,7 +449,7 @@ private partial def validateEffectStmtExprTypes
       | none =>
       match ← resolveLocalFunctionApp? fields constDecls immutableDecls externalDecls functions params locals stx with
       | some (fn, argTerms) =>
-          ensureSupportsInternalHelperSpec stx fn
+          ensureCallableAsInternalHelper stx fn
           if fn.returnTy != .unit then
             throwErrorAt stx
               s!"helper call '{fn.name}' returns {renderValueType fn.returnTy}; use `let ... ← {fn.name} ...` or tuple destructuring"
@@ -993,7 +993,7 @@ private def translateEffectStmt
       | none =>
       match ← resolveLocalFunctionApp? fields constDecls immutableDecls externalDecls functions params locals stx with
       | some (fn, argTerms) =>
-          ensureSupportsInternalHelperSpec stx fn
+          ensureCallableAsInternalHelper stx fn
           if fn.returnTy != .unit then
             throwErrorAt stx
               s!"helper call '{fn.name}' returns {renderValueType fn.returnTy}; use `let ... ← {fn.name} ...` or tuple destructuring"
@@ -1587,16 +1587,36 @@ private def immutableInitStmtTerms
     (constDecls : Array ConstantDecl)
     (immutableDecls : Array ImmutableDecl)
     (ctorParams : Array ParamDecl) : CommandElabM (Array Term) := do
-  immutableDecls.zipIdx.mapM fun (imm, idx) => do
-    let slotField := immutableStorageFieldDecl fields imm idx
-    let valueExpr ← translatePureExpr fields constDecls #[] ctorParams #[] imm.body
-    match imm.ty with
-    | .uint256 | .int256 | .uint8 | .uint16 | .bytes32 | .bool =>
-        `(Compiler.CompilationModel.Stmt.setStorage $(strTerm slotField.name) $valueExpr)
-    | .address =>
-        `(Compiler.CompilationModel.Stmt.setStorageAddr $(strTerm slotField.name) $valueExpr)
-    | _ =>
-        throwErrorAt imm.ident s!"immutable '{imm.name}' uses unsupported type"
+  let mut out := #[]
+  for imm in immutableDecls do
+    let mkStore (valueExpr : Term) : CommandElabM Term := do
+      match imm.ty with
+      | .uint256 | .int256 | .uint8 | .uint16 | .bytes32 | .bool =>
+          `(Compiler.CompilationModel.Stmt.setImmutable $(strTerm imm.name) $valueExpr)
+      | .address =>
+          `(Compiler.CompilationModel.Stmt.setImmutable $(strTerm imm.name) $valueExpr)
+      | _ =>
+          throwErrorAt imm.ident s!"immutable '{imm.name}' uses unsupported type"
+    let checkedInit? ←
+      translateSafeRequireBind fields constDecls #[] ctorParams #[]
+        "__immutable_init_value" imm.body
+    match checkedInit? with
+    | some stmts =>
+        match stmts.back? with
+        | some stmt =>
+            match stmt with
+            | `(Compiler.CompilationModel.Stmt.letVar $_ $valueExpr) =>
+                out := out ++ stmts.pop.push (← mkStore valueExpr)
+            | _ =>
+                throwErrorAt imm.ident
+                  s!"immutable '{imm.name}' checked initializer lowered to an unexpected statement shape"
+        | none =>
+            throwErrorAt imm.ident
+              s!"immutable '{imm.name}' checked initializer lowered to an unexpected statement shape"
+    | none =>
+        let valueExpr ← translatePureExpr fields constDecls #[] ctorParams #[] imm.body
+        out := out.push (← mkStore valueExpr)
+  pure out
 
 def mkSuffixedIdent (base : Ident) (suffix : String) : CommandElabM Ident :=
   let rec appendSuffix : Name → Name
@@ -2016,9 +2036,11 @@ private def mkModelFieldTerm (field : StorageFieldDecl) : CommandElabM Term := d
     | none => `(none)
     | some (offset, width) =>
         `(some { offset := $(natTerm offset), width := $(natTerm width) })
+  let transientTerm ← if field.isTransient then `(true) else `(false)
   `(Compiler.CompilationModel.Field.mk
       $(strTerm field.name)
       $(← modelFieldTypeTerm field.ty)
+      $transientTerm
       (some $(natTerm field.slotNum))
       $packedTerm
       [])
@@ -2081,6 +2103,105 @@ private def mkModelLocalObligationTerm (obligation : LocalObligationDecl) : Comm
       $(strTerm obligation.name)
       $(strTerm obligation.obligation)
       $proofStatusTerm)
+
+private def termSource (term : Term) : String :=
+  (term.raw.reprint.getD (toString term.raw)).trim
+
+private def isIdentChar (c : Char) : Bool :=
+  ('a' ≤ c && c ≤ 'z') || ('A' ≤ c && c ≤ 'Z') || ('0' ≤ c && c ≤ '9')
+
+private def sanitizeObligationPart (s : String) : String :=
+  let chars := s.toList.map fun c => if isIdentChar c then c else '_'
+  let collapsed := chars.foldl
+    (fun acc c =>
+      match acc.getLast? with
+      | some '_' => if c == '_' then acc else acc ++ [c]
+      | _ => acc ++ [c])
+    []
+  let trimmed := (collapsed.dropWhile (· == '_')).reverse.dropWhile (· == '_') |>.reverse
+  let rendered := String.mk trimmed
+  if rendered.isEmpty then "expr" else rendered
+
+private def checkedArithmeticApp? (term : Term) : Option (String × String × Term × Term) :=
+  match stripParens term with
+  | `(term| safeAdd $a:term $b:term) =>
+      some ("add_no_overflow", "Verity.Proofs.Stdlib.Math.CheckedArithmetic.AddNoOverflow", a, b)
+  | `(term| safeSub $a:term $b:term) =>
+      some ("sub_no_underflow", "Verity.Proofs.Stdlib.Math.CheckedArithmetic.SubNoUnderflow", a, b)
+  | `(term| safeMul $a:term $b:term) =>
+      some ("mul_no_overflow", "Verity.Proofs.Stdlib.Math.CheckedArithmetic.MulNoOverflow", a, b)
+  | `(term| addPanic $a:term $b:term) =>
+      some ("add_no_overflow", "Verity.Proofs.Stdlib.Math.CheckedArithmetic.AddNoOverflow", a, b)
+  | `(term| subPanic $a:term $b:term) =>
+      some ("sub_no_underflow", "Verity.Proofs.Stdlib.Math.CheckedArithmetic.SubNoUnderflow", a, b)
+  | `(term| mulPanic $a:term $b:term) =>
+      some ("mul_no_overflow", "Verity.Proofs.Stdlib.Math.CheckedArithmetic.MulNoOverflow", a, b)
+  | _ => none
+
+private partial def collectCheckedArithmeticApps (stx : Syntax) : Array (String × String × Term × Term) :=
+  let here :=
+    match checkedArithmeticApp? ⟨stx⟩ with
+    | some app => #[app]
+    | none => #[]
+  stx.getArgs.foldl
+    (fun acc child => acc ++ collectCheckedArithmeticApps child)
+    here
+
+private def generatedArithmeticObligationsFromSyntax
+    (owner : String)
+    (bodies : Array Syntax) : Array LocalObligationDecl :=
+  let apps := bodies.foldl
+    (fun acc body => acc ++ collectCheckedArithmeticApps body)
+    #[]
+  let apps := apps.foldl
+    (fun acc app =>
+      let (kind, pred, lhs, rhs) := app
+      let duplicate := acc.any fun prev =>
+        let (prevKind, prevPred, prevLhs, prevRhs) := prev
+        prevKind == kind && prevPred == pred &&
+          termSource prevLhs == termSource lhs &&
+          termSource prevRhs == termSource rhs
+      if duplicate then acc else acc.push app)
+    #[]
+  apps.mapIdx fun idx (kind, pred, lhs, rhs) =>
+    let name :=
+      s!"checked_arithmetic_{sanitizeObligationPart owner}_{idx + 1}_{kind}"
+    let obligation :=
+      s!"Prove `{pred} ({termSource lhs}) ({termSource rhs})` for the checked arithmetic operation emitted at this entrypoint."
+    { ident := mkIdent (Name.mkSimple name)
+      name := name
+      obligation := obligation
+      proofStatus := .assumed }
+
+private def generatedArithmeticObligations
+    (owner : String)
+    (body : Term) : Array LocalObligationDecl :=
+  generatedArithmeticObligationsFromSyntax owner #[body.raw]
+
+private def mergeGeneratedLocalObligations
+    (declared generated : Array LocalObligationDecl) : Array LocalObligationDecl :=
+  generated.foldl
+    (fun acc obligation =>
+      if acc.any (fun prev => prev.name == obligation.name) then acc else acc.push obligation)
+    declared
+
+private def functionLocalObligationsWithArithmetic (fn : FunctionDecl) : Array LocalObligationDecl :=
+  mergeGeneratedLocalObligations fn.localObligations (generatedArithmeticObligations fn.name fn.body)
+
+private def immutableInitArithmeticBodies (immutableDecls : Array ImmutableDecl) : Array Syntax :=
+  immutableDecls.map (fun imm => imm.body.raw)
+
+private def constructorLocalObligationsWithArithmetic
+    (ctor : ConstructorDecl)
+    (immutableDecls : Array ImmutableDecl) : Array LocalObligationDecl :=
+  let bodies := immutableInitArithmeticBodies immutableDecls |>.push ctor.body.raw
+  mergeGeneratedLocalObligations ctor.localObligations
+    (generatedArithmeticObligationsFromSyntax "constructor" bodies)
+
+private def synthesizedConstructorLocalObligationsWithArithmetic
+    (immutableDecls : Array ImmutableDecl) : Array LocalObligationDecl :=
+  generatedArithmeticObligationsFromSyntax "constructor"
+    (immutableInitArithmeticBodies immutableDecls)
 
 private def mkAdtVariantTerm (variant : AdtVariantDecl) (tag : Nat) : CommandElabM Term := do
   let fieldTerms ← variant.fields.mapM fun p => do
@@ -2155,9 +2276,12 @@ private def mkSpecCommand
     (functions : Array FunctionDecl)
     (adtDecls : Array AdtDecl)
     (storageNamespace : Option Nat) : CommandElabM Cmd := do
-  let immutableFields := immutableDecls.zipIdx.map (fun (imm, idx) => immutableStorageFieldDecl fields imm idx)
-  let allFields := fields ++ immutableFields
-  let fieldTerms ← allFields.mapM mkModelFieldTerm
+  let immutableTerms ← immutableDecls.mapM fun imm => do
+    let tyTerm ← modelParamTypeTerm imm.ty
+    let initTerm ← translatePureExpr fields constDecls #[] (ctor.map (·.params) |>.getD #[]) #[] imm.body
+    `(({ name := $(strTerm imm.name), ty := $tyTerm, init := $initTerm } :
+        Compiler.CompilationModel.ImmutableSpec))
+  let fieldTerms ← fields.mapM mkModelFieldTerm
   let roleTerms ← roleDecls.mapM fun role => do
     let kindTerm ← match role.kind with
       | .scalarAddress => `(Compiler.CompilationModel.RoleKind.scalarAddress)
@@ -2173,7 +2297,8 @@ private def mkSpecCommand
     | some ctor, _ =>
         let ctorParams ← mkModelParamsTerm ctor.params
         let ctorPayable ← if ctor.isPayable then `(true) else `(false)
-        let ctorLocalObligationTerms ← ctor.localObligations.mapM mkModelLocalObligationTerm
+        let ctorLocalObligationTerms ←
+          (constructorLocalObligationsWithArithmetic ctor immutableDecls).mapM mkModelLocalObligationTerm
         let immutableInitTerms ← immutableInitStmtTerms fields constDecls immutableDecls ctor.params
         let ctorBodyTerms ← translateConstructorBodyToStmtTerms fields constDecls immutableDecls externalDecls functions ctor
         let ctorAllTerms := immutableInitTerms ++ ctorBodyTerms
@@ -2185,10 +2310,12 @@ private def mkSpecCommand
         })
     | none, false =>
         let immutableInitTerms ← immutableInitStmtTerms fields constDecls immutableDecls #[]
+        let ctorLocalObligationTerms ←
+          (synthesizedConstructorLocalObligationsWithArithmetic immutableDecls).mapM mkModelLocalObligationTerm
         `(some {
           params := []
           isPayable := false
-          localObligations := []
+          localObligations := [ $[$ctorLocalObligationTerms],* ]
           body := [ $[$immutableInitTerms],* ]
         })
   let publicFunctions := functions.filter (fun fn => !fn.isInternal)
@@ -2197,7 +2324,7 @@ private def mkSpecCommand
     if supportsInternalHelperSpec fn then
       let modelBodyName ← mkSuffixedIdent fn.ident "_modelBody"
       let modelParams ← mkModelParamsTerm fn.params
-      let localObligationTerms ← fn.localObligations.mapM mkModelLocalObligationTerm
+      let localObligationTerms ← (functionLocalObligationsWithArithmetic fn).mapM mkModelLocalObligationTerm
       let payableTerm ← if fn.isPayable then `(true) else `(false)
       let viewTerm ← if fn.isView then `(true) else `(false)
       let pureTerm ← if fn.isPure then `(true) else `(false)
@@ -2219,6 +2346,26 @@ private def mkSpecCommand
         else
           `(false)
       let ceiSafeTerm ← if fn.ceiSafe then `(true) else `(false)
+      -- The internal helper shadow drops `nonReentrantLock` (the transient guard
+      -- only runs at the external dispatch boundary), so the cross-function
+      -- reentrancy gate would reject any external call it makes. The public entry
+      -- is already protected — by its `nonreentrant` guard or its own
+      -- `reentrancy_trusted` assertion — so propagate a `reentrancyTrusted` flag
+      -- onto the shadow to record that its external calls run under that
+      -- protection. When the public function carried neither, the public spec
+      -- itself fails the gate first, so this never masks an unguarded entry.
+      -- For a *lock-only* function (`nonReentrantLock` set, no
+      -- `reentrancy_trusted`) the lock protection is local to the guarded entry
+      -- and does NOT survive on the lock-free shadow, so the shadow is rendered
+      -- unreachable: `ensureCallableAsInternalHelper` rejects any internal call
+      -- to such a function at lowering. The `reentrancyTrusted` flag below is
+      -- therefore only ever consumed for functions the author globally asserted
+      -- `reentrancy_trusted`, where the lock-free internal path is sound.
+      let shadowReentrancyTrustedTerm ←
+        if fn.nonReentrantLock.isSome || fn.reentrancyTrusted then
+          `(true)
+        else
+          `(false)
       let requiresRoleTerm ← match fn.requiresRole with
         | some roleIdent => `(some $(strTerm (toString roleIdent.getId)))
         | none => `(none)
@@ -2245,6 +2392,7 @@ private def mkSpecCommand
         allowPostInteractionWrites := $shadowAllowPostInteractionWritesTerm
         nonReentrantLock := none
         ceiSafe := $ceiSafeTerm
+        reentrancyTrusted := $shadowReentrancyTrustedTerm
         requiresRole := $requiresRoleTerm
         modifies := [ $[$internalModifiesTerms],* ]
         localObligations := [ $[$localObligationTerms],* ]
@@ -2296,6 +2444,7 @@ private def mkSpecCommand
   `(command| def spec : Compiler.CompilationModel.CompilationModel := {
     name := $(strTerm contractName)
     fields := [ $[$fieldTerms],* ]
+    «immutables» := [ $[$immutableTerms],* ]
     «roles» := [ $[$roleTerms],* ]
     «errors» := [ $[$errorTerms],* ]
     «events» := [ $[$eventTerms],* ]
@@ -2629,24 +2778,29 @@ def parseContractSyntax
               firstNamespaceOpt := some offset
               firstNamespaceLocked := true
         | none =>
-            match (← parseStorageStructItem parsedNewtypes parsedStructs parsedAdts item) with
-            | some (structFields, accessor) =>
-                parsedFields := parsedFields ++
-                  (structFields.map fun field => { field with slotNum := field.slotNum + currentNamespaceOffset })
-                parsedStorageStructAccessors := parsedStorageStructAccessors.push
-                  { accessor with tree := offsetStorageAccessorTree currentNamespaceOffset accessor.tree }
-                -- A field has now been recorded under the active namespace; later
-                -- in-storage `storage_namespace` items must not retroactively
-                -- relabel where the first field lives.
+            match (← parseTransientStorageItem parsedNewtypes parsedStructs parsedAdts item) with
+            | some field =>
+                parsedFields := parsedFields.push { field with slotNum := field.slotNum + currentNamespaceOffset }
                 firstNamespaceLocked := true
             | none =>
-                match (← storageFieldFromItem? item) with
-                | some fieldStx =>
-                    let field ← parseStorageField parsedNewtypes parsedStructs parsedAdts fieldStx
-                    parsedFields := parsedFields.push { field with slotNum := field.slotNum + currentNamespaceOffset }
+                match (← parseStorageStructItem parsedNewtypes parsedStructs parsedAdts item) with
+                | some (structFields, accessor) =>
+                    parsedFields := parsedFields ++
+                      (structFields.map fun field => { field with slotNum := field.slotNum + currentNamespaceOffset })
+                    parsedStorageStructAccessors := parsedStorageStructAccessors.push
+                      { accessor with tree := offsetStorageAccessorTree currentNamespaceOffset accessor.tree }
+                    -- A field has now been recorded under the active namespace; later
+                    -- in-storage `storage_namespace` items must not retroactively
+                    -- relabel where the first field lives.
                     firstNamespaceLocked := true
                 | none =>
-                    throwErrorAt item "unsupported storage item"
+                    match (← storageFieldFromItem? item) with
+                    | some fieldStx =>
+                        let field ← parseStorageField parsedNewtypes parsedStructs parsedAdts fieldStx
+                        parsedFields := parsedFields.push { field with slotNum := field.slotNum + currentNamespaceOffset }
+                        firstNamespaceLocked := true
+                    | none =>
+                        throwErrorAt item "unsupported storage item"
       let parsedRoles ←
         match roleDecls with
         | some decls => decls.mapM (parseRoleDecl parsedFields)
@@ -2993,7 +3147,7 @@ def mkFunctionCommandsPublic
   let modelName ← mkSuffixedIdent fn.ident "_model"
   let stmtTerms ← translateBodyToStmtTerms fields roleDecls constDecls immutableDecls externalDecls functions fn
   let modelParams ← mkModelParamsTerm fn.params
-  let localObligationTerms ← fn.localObligations.mapM mkModelLocalObligationTerm
+  let localObligationTerms ← (functionLocalObligationsWithArithmetic fn).mapM mkModelLocalObligationTerm
   let payableTerm ← if fn.isPayable then `(true) else `(false)
   let viewTerm ← if fn.isView then `(true) else `(false)
   let pureTerm ← if fn.isPure then `(true) else `(false)
@@ -3003,6 +3157,7 @@ def mkFunctionCommandsPublic
     | some lockIdent => `(some $(strTerm (toString lockIdent.getId)))
     | none => `(none)
   let ceiSafeTerm ← if fn.ceiSafe then `(true) else `(false)
+  let reentrancyTrustedTerm ← if fn.reentrancyTrusted then `(true) else `(false)
   let requiresRoleTerm ← match fn.requiresRole with
     | some roleIdent => `(some $(strTerm (toString roleIdent.getId)))
     | none => `(none)
@@ -3030,6 +3185,7 @@ def mkFunctionCommandsPublic
     allowPostInteractionWrites := $allowPostInteractionWritesTerm
     nonReentrantLock := $nonReentrantLockTerm
     ceiSafe := $ceiSafeTerm
+    reentrancyTrusted := $reentrancyTrustedTerm
     requiresRole := $requiresRoleTerm
     modifies := [ $[$modifiesTerms],* ]
     localObligations := [ $[$localObligationTerms],* ]

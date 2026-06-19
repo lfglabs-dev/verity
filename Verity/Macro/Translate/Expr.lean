@@ -208,6 +208,7 @@ def immutableStorageFieldDecl
       | .address => .scalar .address
       | _ => .scalar imm.ty
     slotNum := immutableSlotIndex fields idx
+    isTransient := false
     adtInfo? := none
   }
 
@@ -1551,20 +1552,33 @@ def validateDirectParamCustomErrorArg
       throwErrorAt arg
         s!"custom error '{errorName}' arg {argIdx + 1} in function '{fnName}' currently requires direct parameter reference of type {renderValueType expectedTy} on the compilation-model path"
 
+def validateCustomErrorArg
+    (arg : Term)
+    (actualTy : ValueType)
+    (fnName errorName : String)
+    (params : Array ParamDecl)
+    (expectedTy : ValueType)
+    (argIdx : Nat) : CommandElabM Unit := do
+  requireDeclaredValueType arg
+    s!"custom error '{errorName}' arg {argIdx + 1} in function '{fnName}'"
+    expectedTy actualTy
+  if customErrorRequiresDirectParamRef expectedTy then
+    validateDirectParamCustomErrorArg arg fnName errorName params expectedTy argIdx
+
 def validateCustomErrorCall
     (fnName errorName : String)
     (params : Array ParamDecl)
     (errorDecls : Array ErrorDecl)
-    (args : Array Term) : CommandElabM Unit := do
+    (args : Array Term)
+    (argTypes : Array ValueType) : CommandElabM Unit := do
   let errorDecl ←
     match errorDecls.find? (·.name == errorName) with
     | some decl => pure decl
     | none => throwError s!"unknown custom error '{errorName}'"
-  unless errorDecl.params.size == args.size do
+  unless errorDecl.params.size == args.size && args.size == argTypes.size do
     throwError s!"custom error '{errorName}' expects {errorDecl.params.size} args, got {args.size}"
-  for ((expectedTy, arg), argIdx) in errorDecl.params.zip args |>.zipIdx do
-    if customErrorRequiresDirectParamRef expectedTy then
-      validateDirectParamCustomErrorArg arg fnName errorName params expectedTy argIdx
+  for (((expectedTy, arg), actualTy), argIdx) in errorDecl.params.zip args |>.zip argTypes |>.zipIdx do
+    validateCustomErrorArg arg actualTy fnName errorName params expectedTy argIdx
 
 def throwPureContextAccessorError (stx : Syntax) (name : String) : CommandElabM α :=
   throwErrorAt stx
@@ -2381,7 +2395,7 @@ partial def inferBindSourceType
   | _ =>
       match ← resolveLocalFunctionApp? fields constDecls immutableDecls externalDecls functions params locals rhs with
       | some (fn, _argTerms) =>
-          ensureSupportsInternalHelperSpec rhs fn
+          ensureCallableAsInternalHelper rhs fn
           match fn.returnTy with
           | .tuple _ =>
               throwErrorAt rhs
@@ -2497,7 +2511,7 @@ partial def inferTupleSourceTypes?
         | other =>
             match ← resolveLocalFunctionApp? fields constDecls immutableDecls externalDecls functions params locals other with
             | some (fn, _argTerms) =>
-                ensureSupportsInternalHelperSpec rhs fn
+                ensureCallableAsInternalHelper rhs fn
                 match fn.returnTy with
                 | .tuple elemTys => pure (some elemTys.toArray)
                 | _ => pure none
@@ -3016,8 +3030,8 @@ partial def translatePureExprWithTypes
       else if let some imm := immutableDecls.find? (fun imm => declaredNameMatches name imm.name) then
         match imm.ty with
         | .uint256 | .int256 | .uint8 | .uint16 | .bytes32 | .bool =>
-            `(Compiler.CompilationModel.Expr.storage $(strTerm (immutableHiddenName imm)))
-        | .address => `(Compiler.CompilationModel.Expr.storageAddr $(strTerm (immutableHiddenName imm)))
+            `(Compiler.CompilationModel.Expr.immutable $(strTerm imm.name))
+        | .address => `(Compiler.CompilationModel.Expr.immutable $(strTerm imm.name))
         | _ => throwErrorAt stx s!"immutable '{name}' uses unsupported type"
       else if let some constant := constDecls.find? (fun constant => declaredNameMatches name constant.name) then
         translateConstantExpr fields constDecls immutableDecls visitingConstants constant.name
@@ -4168,7 +4182,7 @@ def tupleInternalCallAssignStmt?
   let resultNameTerms := targetNames.toArray.map strTerm
   match ← resolveLocalFunctionApp? fields constDecls immutableDecls externalDecls functions params locals rhs with
   | some (fn, argTerms) =>
-      ensureSupportsInternalHelperSpec rhs fn
+      ensureCallableAsInternalHelper rhs fn
       let argExprs ← translateInternalHelperCallArgs
         fields constDecls immutableDecls params locals fn argTerms
       pure (some (← `(Compiler.CompilationModel.Stmt.internalCallAssign
@@ -4665,7 +4679,7 @@ def translateBindSource
   | _ =>
       match ← resolveLocalFunctionApp? fields constDecls immutableDecls externalDecls functions params locals rhs with
       | some (fn, argTerms) =>
-          ensureSupportsInternalHelperSpec rhs fn
+          ensureCallableAsInternalHelper rhs fn
           let argExprs ← translateInternalHelperCallArgs
             fields constDecls immutableDecls params locals fn argTerms
           `(Compiler.CompilationModel.Expr.internalCall

@@ -50,11 +50,13 @@ private def patchBackend : Compiler.CodegenCommon.PatchBackend :=
         patchReport := mergedPatchReport } }
 
 def emitYulWithOptions (contract : IRContract) (options : YulEmitOptions) : YulObject :=
-  Compiler.CodegenCommon.emitYulWithOptions patchBackend contract options
+  Compiler.CodegenCommon.optimizeCheckedArithmeticObjectIfAvailable contract
+    (Compiler.CodegenCommon.emitYulWithOptions patchBackend contract options)
 
 def emitYulWithOptionsReport (contract : IRContract) (options : YulEmitOptions) :
     YulObject × Yul.PatchPassReport :=
-  Compiler.CodegenCommon.emitYulWithOptionsReport patchBackend contract options
+  let report := Compiler.CodegenCommon.emitYulWithOptionsReport patchBackend contract options
+  (Compiler.CodegenCommon.optimizeCheckedArithmeticObjectIfAvailable contract report.1, report.2)
 
 /-- Regression guard:
     expression/statement/block patching remains runtime-scoped (deploy is unchanged),
