@@ -56,7 +56,7 @@ theorem compiledStmtStepWithHelpersAndHelperIR_internalCallAssign
       compiledIR := by
   refine {
     compileOk := by
-      simpa [CompilationModel.compileStmt] using hcompile
+      simpa [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] using hcompile
     preserves := ?_ }
   intro runtime state helperFuel extraFuel hfuelPos hexact hscope hbounded hruntime hslack
   obtain ⟨argExprs', hargOk, hshape⟩ := compileStmt_internalCallAssign_shape hcompile
@@ -117,7 +117,7 @@ theorem compiledStmtStepWithHelpersAndHelperIR_internalCall
       compiledIR := by
   refine {
     compileOk := by
-      simpa [CompilationModel.compileStmt] using hcompile
+      simpa [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] using hcompile
     preserves := ?_ }
   intro runtime state helperFuel extraFuel hfuelPos hexact hscope hbounded hruntime hslack
   obtain ⟨argExprs', hargOk, hshape⟩ := compileStmt_internalCall_shape hcompile

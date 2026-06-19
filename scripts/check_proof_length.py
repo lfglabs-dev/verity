@@ -69,6 +69,11 @@ ALLOWLIST: set[str] = {
     "compileStmtList_core_ok",
     "compileStmtList_terminal_core_ok",
     "compileStmtList_terminal_core_ok_nonempty",
+    # Fork-aware list append inversion and constructor smoke witnesses are
+    # mechanical normalization proofs; splitting them duplicates the same
+    # head/tail compile-success plumbing.
+    "compileStmtList_append_ok_inv",
+    "constructorOnly_compileBody_empty_surfaces_withFork",
     "execStmtList_terminal_core_not_continue",  # mstore/tstore widening — 9 per-constructor cases
     "compileStmtList_terminal_ite_ok_inv",
     "compileStmt_terminal_ite_ok_inv",

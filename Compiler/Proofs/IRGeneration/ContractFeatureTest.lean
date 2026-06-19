@@ -508,6 +508,65 @@ private theorem constructorOnly_noConflict :
     firstFieldWriteSlotConflict constructorOnlySpec.fields = none := by
   native_decide
 
+private theorem constructorOnly_compileBody_empty_surfaces_withFork :
+    ∃ bodyStmts,
+      compileStmtListWithFork
+          constructorOnlySpec.fields
+          []
+          []
+          .memory
+          []
+          false
+          (constructorOnlyCtor.params.map (·.name))
+          []
+          Verity.Core.Intrinsics.HardFork.cancun
+          constructorOnlyCtor.body =
+        Except.ok bodyStmts := by
+  have hhead :
+      ∃ headIR,
+        CompilationModel.compileStmt constructorOnlySpec.fields [] [] .memory [] false
+          (constructorOnlyCtor.params.map (·.name)) [] (Stmt.setStorageAddr "owner" (.param "initialOwner")) =
+            Except.ok headIR := by
+    refine ⟨
+      match CompilationModel.compileStmt constructorOnlySpec.fields [] [] .memory [] false
+          (constructorOnlyCtor.params.map (·.name)) [] (Stmt.setStorageAddr "owner" (.param "initialOwner")) with
+      | .ok headIR => headIR
+      | .error _ => [], ?_⟩
+    simp [constructorOnlySpec, constructorOnlyCtor, constructorOnlyOwnerField,
+      CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+      CompilationModel.compileSetStorage,
+      CompilationModel.compileExprWithInternals, CompilationModel.isMapping,
+      constructorOnly_owner_resolved_lit, Bind.bind, Except.bind, Pure.pure,
+      Except.pure]
+  have htail :
+      ∃ tailIR,
+        CompilationModel.compileStmtList constructorOnlySpec.fields [] [] .memory [] false
+          (collectStmtNames (Stmt.setStorageAddr "owner" (.param "initialOwner")) ++
+            (constructorOnlyCtor.params.map (·.name))) []
+          [Stmt.stop] = Except.ok tailIR := by
+    have hstop :
+        ∃ stopIR,
+          CompilationModel.compileStmt constructorOnlySpec.fields [] [] .memory [] false
+            (collectStmtNames (Stmt.setStorageAddr "owner" (.param "initialOwner")) ++
+              (constructorOnlyCtor.params.map (·.name))) [] Stmt.stop =
+              Except.ok stopIR := by
+      refine ⟨
+        match CompilationModel.compileStmt constructorOnlySpec.fields [] [] .memory [] false
+            (collectStmtNames (Stmt.setStorageAddr "owner" (.param "initialOwner")) ++
+              (constructorOnlyCtor.params.map (·.name))) [] Stmt.stop with
+        | .ok stopIR => stopIR
+        | .error _ => [], ?_⟩
+      simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+        Pure.pure, Except.pure]
+    rcases hstop with ⟨stopIR, hstop⟩
+    exact ⟨stopIR ++ [],
+      FunctionBody.compileStmtList_cons_eq_ok _ _ _ _ _ _ _ _ _ _ _ _
+        hstop (FunctionBody.compileStmtList_nil_eq_ok _ _ _ _ _ _ _ _)⟩
+  rcases hhead with ⟨headIR, hhead⟩
+  rcases htail with ⟨tailIR, htail⟩
+  exact ⟨headIR ++ tailIR,
+    FunctionBody.compileStmtListWithFork_cons_eq_ok _ _ _ _ _ _ _ _ _ _ _ _ hhead htail⟩
+
 private theorem constructorOnly_compileBody :
     ∃ bodyStmts,
       compileStmtList
@@ -534,11 +593,11 @@ private theorem constructorOnly_compileBody :
         constructorOnlyCtor.body [] with
      | .ok body => body
      | .error _ => [], ?_⟩
-  simp [constructorOnlySpec, constructorOnlyCtor, constructorOnlyOwnerField,
-    CompilationModel.compileStmtList, CompilationModel.compileStmt,
-    CompilationModel.compileSetStorage, CompilationModel.compileExprWithInternals,
-    CompilationModel.isMapping, constructorOnly_owner_resolved_lit,
-    Bind.bind, Except.bind, Pure.pure, Except.pure]
+  rcases constructorOnly_compileBody_empty_surfaces_withFork with ⟨body, hbody⟩
+  rw [FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList] at hbody
+  simp [constructorOnlySpec, constructorOnlyCtor] at hbody
+  simp [constructorOnlySpec, constructorOnlyCtor]
+  rw [hbody]
 
 private theorem constructorOnly_compileConstructor :
     ∃ bodyStmts,
@@ -547,8 +606,8 @@ private theorem constructorOnly_compileConstructor :
           constructorOnlySpec.events
           constructorOnlySpec.errors
           []
-          constructorOnlySpec.constructor =
-        Except.ok (genConstructorArgLoads constructorOnlyCtor.params ++ bodyStmts) ∧
+      constructorOnlySpec.constructor =
+    Except.ok (genConstructorArgLoads constructorOnlyCtor.params ++ bodyStmts) ∧
       compileStmtList
           constructorOnlySpec.fields
           constructorOnlySpec.events
@@ -568,8 +627,9 @@ private theorem constructorOnly_compileConstructor :
       constructorOnlyCtor
       (genConstructorArgLoads constructorOnlyCtor.params ++ bodyStmts)
       (by
-        simp [CompilationModel.compileConstructor, hbodyCompile, Bind.bind,
-          Except.bind, Pure.pure, Except.pure]) with
+        simp [CompilationModel.compileConstructor,
+          FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList,
+          hbodyCompile, Bind.bind, Except.bind, Pure.pure, Except.pure]) with
       ⟨_, _, hdeploy⟩
   refine ⟨bodyStmts, ?_, hbodyCompile⟩
   exact Function.compileConstructor_some_ok_of_body
@@ -867,11 +927,11 @@ example :
             (constructorOnlyCtor.params.map (·.name)) [] constructorOnlyCtor.body [] with
          | .ok body => body
          | .error _ => []) := by
-    simp [constructorOnlySpec, constructorOnlyCtor, constructorOnlyOwnerField,
-      CompilationModel.compileStmtList, CompilationModel.compileStmt,
-      CompilationModel.compileSetStorage, CompilationModel.compileExprWithInternals,
-      CompilationModel.isMapping, constructorOnly_owner_resolved_lit,
-      Bind.bind, Except.bind, Pure.pure, Except.pure]
+    rcases constructorOnly_compileBody_empty_surfaces_withFork with ⟨body, hbody⟩
+    rw [FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList] at hbody
+    simp [constructorOnlySpec, constructorOnlyCtor] at hbody
+    simp [constructorOnlySpec, constructorOnlyCtor]
+    rw [hbody]
   have hbind :
       SourceSemantics.bindSupportedParams
         [{ name := "initialOwner", ty := .address }]
@@ -937,11 +997,11 @@ example :
         compileStmtList constructorOnlySpec.fields constructorOnlySpec.events constructorOnlySpec.errors
           .memory [] false (constructorOnlyCtor.params.map (·.name)) [] constructorOnlyCtor.body [] =
         Except.ok bodyStmts := by
-      simp [bodyStmts, constructorOnlySpec, constructorOnlyCtor, constructorOnlyOwnerField,
-        CompilationModel.compileStmtList, CompilationModel.compileStmt,
-        CompilationModel.compileSetStorage, CompilationModel.compileExprWithInternals,
-        CompilationModel.isMapping, constructorOnly_owner_resolved_lit,
-        Bind.bind, Except.bind, Pure.pure, Except.pure]
+      rcases constructorOnly_compileBody_empty_surfaces_withFork with ⟨body, hbody⟩
+      rw [FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList] at hbody
+      simp [bodyStmts, constructorOnlySpec, constructorOnlyCtor] at hbody
+      simp [bodyStmts, constructorOnlySpec, constructorOnlyCtor]
+      rw [hbody]
     have hbind :
         SourceSemantics.bindSupportedParams constructorOnlyCtor.params
             (constructorOnlyTrailingTx.args.take constructorOnlyCtor.params.length) =
@@ -1314,7 +1374,7 @@ private theorem scalarEventSmoke_disjoint
     (fun _hhelper compiledIR hcompile => by
       have hbad := scalarEventSmoke_compileEmit_empty_events_ne_ok compiledIR
       simp [SourceSemantics.effectiveFields, scalarEventSmokeSpec,
-        CompilationModel.compileStmt] at hcompile
+        CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] at hcompile
       exact False.elim (hbad hcompile))
     .nil
 

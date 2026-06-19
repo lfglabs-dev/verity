@@ -327,7 +327,7 @@ theorem isMapping_false_of_compileStmt_setStorage_ok
         fields [] [] .calldata [] false scope [] (.setStorage fieldName value) =
           Except.ok compiledIR) :
     isMapping fields fieldName = false := by
-  simp only [CompilationModel.compileStmt] at hcompile
+  simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] at hcompile
   exact isMapping_false_of_compileSetStorage_ok hcompile
 
 private theorem compileStmt_ite_ok_inv
@@ -346,19 +346,19 @@ private theorem compileStmt_ite_ok_inv
         fields [] [] .calldata [] false scope [] thenBranch = Except.ok thenIR ∧
       CompilationModel.compileStmtList
         fields [] [] .calldata [] false scope [] elseBranch = Except.ok elseIR := by
-  unfold CompilationModel.compileStmt at hcompile
+  unfold CompilationModel.compileStmt CompilationModel.compileStmtWithFork at hcompile
   rcases hcond : CompilationModel.compileExprWithInternals fields .calldata [] cond with _ | condIR
   · simp [hcond] at hcompile
     cases hcompile
   · simp [hcond] at hcompile
     rcases hthen : CompilationModel.compileStmtList
         fields [] [] .calldata [] false scope [] thenBranch with _ | thenIR
-    · simp [hthen] at hcompile
+    · simp [FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList, hthen] at hcompile
       cases hcompile
-    · simp [hthen] at hcompile
+    · simp [FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList, hthen] at hcompile
       rcases helse : CompilationModel.compileStmtList
           fields [] [] .calldata [] false scope [] elseBranch with _ | elseIR
-      · simp [helse] at hcompile
+      · simp [FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList, helse] at hcompile
         cases hcompile
       ·
         have hcondPublic :
@@ -405,13 +405,13 @@ private theorem stmtListScopeCore_of_unsupportedContractSurface_eq_false
             (by simpa [stmtTouchesUnsupportedContractSurface] using hstmtSurface)) ihRest
       | setStorage fieldName value =>
           exact .setStorage
-            (by simp [CompilationModel.compileStmt] at hhead
+            (by simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] at hhead
                 exact fieldName_mem_fields_of_compileSetStorage_ok hhead)
             (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
               (by simpa [stmtTouchesUnsupportedContractSurface] using hstmtSurface)) ihRest
       | setStorageAddr fieldName value =>
           exact .setStorageAddr
-            (by simp [CompilationModel.compileStmt] at hhead
+            (by simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] at hhead
                 exact fieldName_mem_fields_of_compileSetStorage_ok hhead)
             (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
               (by simpa [stmtTouchesUnsupportedContractSurface] using hstmtSurface)) ihRest
@@ -422,7 +422,8 @@ private theorem stmtListScopeCore_of_unsupportedContractSurface_eq_false
       | setStorageWord fieldName wordOffset value =>
           exact .setStorageWord
             (by
-              simp only [CompilationModel.compileStmt, bind, Except.bind] at hhead
+              simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+                bind, Except.bind] at hhead
               rcases hfind : findFieldWithResolvedSlot fields fieldName with _ | ⟨f, slot⟩
               · simp [hfind] at hhead
               · exact fieldName_mem_fields_of_findFieldWithResolvedSlot_some hfind)
@@ -473,11 +474,14 @@ private theorem stmtListScopeCore_of_unsupportedContractSurface_eq_false
                           stmtListTouchesUnsupportedContractSurface,
                           Bool.or_eq_false_iff] at hstmtSurface
                         exact Bool.or_eq_false_iff.mpr hstmtSurface
-                  simp only [CompilationModel.compileStmt, bind, Except.bind] at hhead
+                  simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+                    bind, Except.bind] at hhead
                   cases hbody :
                       CompilationModel.compileStmtList fields [] [] .calldata [] false
                         (CompilationModel.forEachBodyScope scope varName (Expr.literal 0) body) [] body with
-                  | error e => simp [CompilationModel.compileExprWithInternals, pure, Except.pure, hbody] at hhead
+                  | error e =>
+                      simp [FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList,
+                        CompilationModel.compileExprWithInternals, pure, Except.pure, hbody] at hhead
                   | ok loopBodyIR =>
                       exact .forEachLiteralZero
                         (stmtListScopeCore_of_unsupportedContractSurface_eq_false
@@ -533,14 +537,14 @@ theorem stmtListScopeCore_prefix_of_compileStmtList_ok_of_stmtListTouchesUnsuppo
             (ih hrestSurface htail)
       | setStorage fieldName value =>
           exact StmtListScopeCore.setStorage
-            (by simp [CompilationModel.compileStmt] at hhead
+            (by simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] at hhead
                 exact fieldName_mem_fields_of_compileSetStorage_ok hhead)
             (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
               (by simpa [stmtTouchesUnsupportedContractSurface] using hstmtSurface))
             (ih hrestSurface htail)
       | setStorageAddr fieldName value =>
           exact StmtListScopeCore.setStorageAddr
-            (by simp [CompilationModel.compileStmt] at hhead
+            (by simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] at hhead
                 exact fieldName_mem_fields_of_compileSetStorage_ok hhead)
             (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
               (by simpa [stmtTouchesUnsupportedContractSurface] using hstmtSurface))
@@ -553,7 +557,8 @@ theorem stmtListScopeCore_prefix_of_compileStmtList_ok_of_stmtListTouchesUnsuppo
       | setStorageWord fieldName wordOffset value =>
           exact StmtListScopeCore.setStorageWord
             (by
-              simp only [CompilationModel.compileStmt, bind, Except.bind] at hhead
+              simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+                bind, Except.bind] at hhead
               rcases hfind : findFieldWithResolvedSlot fields fieldName with _ | ⟨f, slot⟩
               · simp [hfind] at hhead
               · exact fieldName_mem_fields_of_findFieldWithResolvedSlot_some hfind)
@@ -615,11 +620,14 @@ theorem stmtListScopeCore_prefix_of_compileStmtList_ok_of_stmtListTouchesUnsuppo
                           stmtListTouchesUnsupportedContractSurface,
                           Bool.or_eq_false_iff] at hstmtSurface
                         exact Bool.or_eq_false_iff.mpr hstmtSurface
-                  simp only [CompilationModel.compileStmt, bind, Except.bind] at hhead
+                  simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+                    bind, Except.bind] at hhead
                   cases hbody :
                       CompilationModel.compileStmtList fields [] [] .calldata [] false
                         (CompilationModel.forEachBodyScope scope varName (Expr.literal 0) body) [] body with
-                  | error e => simp [CompilationModel.compileExprWithInternals, pure, Except.pure, hbody] at hhead
+                  | error e =>
+                      simp [FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList,
+                        CompilationModel.compileExprWithInternals, pure, Except.pure, hbody] at hhead
                   | ok loopBodyIR =>
                       exact StmtListScopeCore.forEachLiteralZero
                         (stmtListScopeCore_of_unsupportedContractSurface_eq_false
@@ -636,7 +644,7 @@ theorem stmtListScopeCore_prefix_of_compileStmtList_ok_of_stmtListTouchesUnsuppo
               simp [stmtTouchesUnsupportedContractSurface] at hstmtSurface
       | setMapping _ _ _ | setMappingWord _ _ _ _ | setMappingPackedWord _ _ _ _ _
       | setMapping2 _ _ _ _ | setMapping2Word _ _ _ _ _ | setMappingUint _ _ _
-      | setMappingChain _ _ _
+      | setMappingChain _ _ _ | forEachSetBit _ _ _
       | setStructMember _ _ _ _ | setStructMember2 _ _ _ _ _
       | storageArrayPush _ _ | storageArrayPop _ | setStorageArrayElement _ _ _
       | requireError _ _ _ | revertError _ _ | returnValues _ | returnArray _
