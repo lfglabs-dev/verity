@@ -21,6 +21,7 @@ def elabVerityContract : CommandElab := fun stx => do
   let structDecls := parsed.structDecls
   let adtDecls := parsed.adtDecls
   let fields := parsed.fields
+  let roleDecls := parsed.roleDecls
   let storageStructAccessors := parsed.storageStructAccessors
   let errorDecls := parsed.errorDecls
   let eventDecls := parsed.eventDecls
@@ -66,12 +67,12 @@ def elabVerityContract : CommandElab := fun stx => do
     elabCommand (← mkStorageNamespaceCommand (toString contractName.getId) storageNamespace)
 
     for fn in functions do
-      let fnCmds ← mkFunctionCommandsPublic fields constDecls immutableDecls externalDecls functions fn
+      let fnCmds ← mkFunctionCommandsPublic fields roleDecls constDecls immutableDecls externalDecls functions fn
       for cmd in fnCmds do
         elabCommand cmd
       elabCommand (← mkBridgeCommand fn.ident)
 
-    elabCommand (← mkSpecCommandPublic (toString contractName.getId) fields errorDecls eventDecls constDecls immutableDecls externalDecls ctor modifiers functions adtDecls storageNamespace)
+    elabCommand (← mkSpecCommandPublic (toString contractName.getId) fields roleDecls errorDecls eventDecls constDecls immutableDecls externalDecls ctor modifiers functions adtDecls storageNamespace)
 
     let findIdxSimpCmds ← mkFindIdxFieldSimpCommandsPublic contractName fields
     for cmd in findIdxSimpCmds do
@@ -89,6 +90,8 @@ def elabVerityContract : CommandElab := fun stx => do
     for fn in functions do
       if fn.isView then
         elabCommand (← mkViewTheoremCommand fn)
+        if fn.params.isEmpty && fn.requiresRole.isNone && fn.nonReentrantLock.isNone then
+          elabCommand (← mkViewFrameTheoremCommand fn)
 
     -- Emit per-function _is_pure theorems for pure functions.
     for fn in functions do
@@ -138,10 +141,16 @@ def elabVerityContract : CommandElab := fun stx => do
 
     -- Emit per-function _requires_role theorem for functions with requires(field).
     -- (#1728, Axis 2 Step 2c — access control)
+    for role in roleDecls do
+      elabCommand (← mkRoleDeclTheoremCommand role)
+
     for fn in functions do
       match fn.requiresRole with
       | some roleIdent =>
           elabCommand (← mkRequiresRoleTheoremCommand fn (toString roleIdent.getId))
+          match roleDecls.find? (fun role => role.name == toString roleIdent.getId) with
+          | some role => elabCommand (← mkAccessControlTheoremCommand fn role)
+          | none => pure ()
       | none => pure ()
 
     elabCommand (← `(end $contractName))

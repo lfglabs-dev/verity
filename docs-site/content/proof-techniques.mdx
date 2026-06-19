@@ -92,7 +92,7 @@ Two approaches coexist for overflow safety:
 
 ## Known limitations
 
-No multi-contract interaction, no reentrancy modeling, no gas modeling. The CompilationModel supports events and double mappings, but EDSL-level proofs for those are still limited. Conservation is proven as exact `countOcc`-based sum equations, not as a global invariant over all addresses; transfer theorems treat self-transfer as a no-op. `ContractResult.fst` returns `default` on revert (requires `[Inhabited α]`), so proofs using `.fst` show `success` first. Mathlib tactics (`set`, `ring`, `linarith`) are unavailable.
+No multi-contract interaction and no gas modeling. Reentrancy is not modeled via cross-call semantics either, but it is enforced by a mandatory fail-closed [disposition gate](/edsl/functions#reentrancy-disposition): every non-`view` function that opens a reentrancy window must declare a `nonreentrant(lock)` runtime guard or an explicit `reentrancy_trusted` assertion, and the build fails closed if neither is present. The CompilationModel supports events and double mappings, but EDSL-level proofs for those are still limited. Conservation is proven as exact `countOcc`-based sum equations, not as a global invariant over all addresses; transfer theorems treat self-transfer as a no-op. `ContractResult.fst` returns `default` on revert (requires `[Inhabited α]`), so proofs using `.fst` show `success` first. Mathlib tactics (`set`, `ring`, `linarith`) are unavailable.
 
 ## See also
 

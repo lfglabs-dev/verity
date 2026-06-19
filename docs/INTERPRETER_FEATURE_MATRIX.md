@@ -127,9 +127,12 @@ including `Compiler.Modules.Calls.bubblingValueCall`, which lowers
 Solidity-style `call{value: v}(data)` wrappers to Yul `call` and forwards exact
 revert returndata on failure. `bubblingValueCallNoOutputModule` exposes the
 same no-output adapter/router shape directly to `verity_contract` `ecmDo` call
-sites. These mechanics remain explicit trust-report surfaces: Verity models the
-generic call choreography, while package-specific callee behavior and protocol
-assumptions belong in dependent packages.
+sites. `Compiler.Modules.Calls.selfDelegateMulticallBytes` adds the scoped
+`multicall(bytes[])` shape for same-contract `delegatecall(address(), data)`
+iteration with exact revert bubbling. These mechanics remain explicit
+trust-report surfaces: Verity models the generic call choreography, while
+package-specific callee behavior and protocol assumptions belong in dependent
+packages.
 
 The standard ECM library also includes static-word packed hashing helpers:
 `Compiler.Modules.Hashing.abiEncodePackedWords` and

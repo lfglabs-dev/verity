@@ -14,7 +14,7 @@ verity_contract ExternalCallSmoke where
     external echo(Uint256) -> (Uint256)
     external echo_try(Uint256) -> (Bool, Uint256)
 
-  function allow_post_interaction_writes storeEcho (next : Uint256) : Unit := do
+  function allow_post_interaction_writes reentrancy_trusted storeEcho (next : Uint256) : Unit := do
     let echoed := externalCall "echo" [next]
     setStorage echoedValue echoed
 
@@ -31,13 +31,85 @@ verity_contract TryExternalCallSmoke where
     external echo(Uint256) -> (Uint256)
     external echo_try(Uint256) -> (Bool, Uint256)
 
-  function allow_post_interaction_writes tryEcho (x : Uint256) : Unit := do
+  function allow_post_interaction_writes reentrancy_trusted tryEcho (x : Uint256) : Unit := do
     let (success, result) ← tryExternalCall "echo" [x]
     if success then
       setStorage lastResult result
       setStorage callSucceeded 1
     else
       setStorage callSucceeded 0
+
+-- First-class Call.Result smoke: callers inspect the named result instead of
+-- destructuring ad hoc `(success, value)` tuples (#1891).
+verity_contract CallResultSmoke where
+  storage
+    lastResult : Uint256 := slot 0
+    callSucceeded : Uint256 := slot 1
+  linked_externals
+    external echo(Uint256) -> (Uint256)
+    external echo_try(Uint256) -> (Bool, Uint256)
+
+  function allow_post_interaction_writes reentrancy_trusted storeCallResult (x : Uint256) : Unit := do
+    let result ← callResult "echo" [x]
+    if result.success then
+      setStorage lastResult result.returndata
+      setStorage callSucceeded 1
+    else
+      setStorage callSucceeded 0
+
+example :
+    CallResultSmoke.storeCallResult_modelBody.head? =
+      some (Compiler.CompilationModel.Stmt.tryExternalCallBind
+          "result_success"
+          ["result_returndata"]
+          "echo"
+          [ Compiler.CompilationModel.Expr.param "x" ]) := rfl
+
+example :
+    (Contracts.callResultWords "echo" [7] :
+      Contract (Contracts.Call.Result Uint256)).run
+        defaultState =
+      ContractResult.success
+        { success := true, returndata := (7 : Uint256) }
+        defaultState := by
+  rfl
+
+namespace StatefulExternalSmoke
+
+open Compiler.ECM.StatefulExternal
+
+private def world : ExternalWorld :=
+  { accountState := fun address index => address + index }
+
+private def request : Request :=
+  { caller := 1
+    target := 2
+    selector := some 305419896
+    calldata := [7]
+    value := 0
+    world := world }
+
+private def balanceSummary : Summary :=
+  { name := "balanceOf"
+    selector := some 1889561905
+    mutability := .staticcall
+    assumptionNames := ["erc20_balanceOf_interface"] }
+
+example :
+    world = request.world := by
+  have h :
+      balanceSummary.interprets request (.success world [7]) := by
+    simp [Summary.interprets, balanceSummary, request]
+  have hsame :=
+    Summary.static_success_preserves_world (summary := balanceSummary)
+      (request := request) (world := world) (data := [7]) rfl h
+  exact hsame
+
+example :
+    (Outcome.revert [1, 2, 3]).committedWorld? = none := by
+  exact Summary.revert_has_no_committed_world [1, 2, 3]
+
+end StatefulExternalSmoke
 
 verity_contract LinkedExternalDynamicArgSmoke where
   storage
@@ -47,20 +119,20 @@ verity_contract LinkedExternalDynamicArgSmoke where
     external notifyArray(Array Uint256)
     external hashBytes(Bytes) -> (Uint256)
 
-  function hashLeaves (leaves : Array Uint256) : Uint256 := do
+  function reentrancy_trusted hashLeaves (leaves : Array Uint256) : Uint256 := do
     return externalCall "hashArray" [leaves]
 
-  function sendLeaves (leaves : Array Uint256) : Unit := do
+  function reentrancy_trusted sendLeaves (leaves : Array Uint256) : Unit := do
     externalCallBind [] "notifyArray" [leaves]
 
-  function discardHash (leaves : Array Uint256) : Unit := do
+  function reentrancy_trusted discardHash (leaves : Array Uint256) : Unit := do
     let _ := (externalCall "hashArray" [leaves] : Uint256)
 
-  function tryHash (leaves : Array Uint256) : Uint256 := do
+  function reentrancy_trusted tryHash (leaves : Array Uint256) : Uint256 := do
     let (_success, h) ← tryExternalCall "hashArray" [leaves]
     return h
 
-  function hashPayload (payload : Bytes) : Uint256 := do
+  function reentrancy_trusted hashPayload (payload : Bytes) : Uint256 := do
     return externalCall "hashBytes" [payload]
 
 example :
@@ -124,14 +196,14 @@ verity_contract LinkedExternalProjectedArrayArgSmoke where
     external hashBytes(Bytes) -> (Uint256)
     external hashBytes_try(Bytes) -> (Bool, Uint256)
 
-  function tryHashNullifiers (txs : Array Transaction, idx : Uint256) : Uint256 := do
+  function reentrancy_trusted tryHashNullifiers (txs : Array Transaction, idx : Uint256) : Uint256 := do
     let (_success, h) ← tryExternalCall "hashArray" [(arrayElement txs idx).nullifierHashes]
     return h
 
-  function hashCallData (txs : Array Transaction, idx : Uint256) : Uint256 := do
+  function reentrancy_trusted hashCallData (txs : Array Transaction, idx : Uint256) : Uint256 := do
     return externalCall "hashBytes" [(arrayElement txs idx).callData]
 
-  function tryHashCallData (txs : Array Transaction, idx : Uint256) : Uint256 := do
+  function reentrancy_trusted tryHashCallData (txs : Array Transaction, idx : Uint256) : Uint256 := do
     let (_success, h) ← tryExternalCall "hashBytes" [(arrayElement txs idx).callData]
     return h
 
@@ -403,7 +475,7 @@ verity_contract Create2SSTORE2Smoke where
   storage
     lastPointer : Address := slot 0
 
-  function allow_post_interaction_writes deploy (value : Uint256, initOffset : Uint256, initSize : Uint256, salt : Uint256) : Address := do
+  function allow_post_interaction_writes reentrancy_trusted deploy (value : Uint256, initOffset : Uint256, initSize : Uint256, salt : Uint256) : Address := do
     let pointer ← ecmCall Compiler.Modules.Create2SSTORE2.deployModule
       [value, initOffset, initSize, salt]
     setStorageAddr lastPointer (wordToAddress pointer)
@@ -417,7 +489,7 @@ set_option linter.unusedVariables false in
 verity_contract CallbackABISmoke where
   storage
 
-  function onAction (target : Address, amount : Uint256, data : Bytes) : Unit := do
+  function reentrancy_trusted onAction (target : Address, amount : Uint256, data : Bytes) : Unit := do
     ecmDo (Compiler.Modules.Callbacks.callbackModule 0x12345678 1 "data")
       [addressToWord target, amount]
 
@@ -425,10 +497,10 @@ set_option linter.unusedVariables false in
 verity_contract CallWithValueSmoke where
   storage
 
-  function execute (target : Address, value : Uint256, dataOffset : Uint256, dataSize : Uint256) : Unit := do
+  function reentrancy_trusted execute (target : Address, value : Uint256, dataOffset : Uint256, dataSize : Uint256) : Unit := do
     ecmDo Compiler.Modules.Calls.callWithValueModule [addressToWord target, value, dataOffset, dataSize]
 
-  function executeBytes (target : Address, value : Uint256, data : Bytes) : Unit := do
+  function reentrancy_trusted executeBytes (target : Address, value : Uint256, data : Bytes) : Unit := do
     ecmDo (Compiler.Modules.Calls.callWithValueBytesModule "data") [addressToWord target, value]
 
 set_option linter.unusedVariables false in
@@ -436,7 +508,7 @@ verity_contract LowLevelTryCatchSmoke where
   storage
     lastOutcome : Uint256 := slot 0
 
-  function allow_post_interaction_writes catchFailure ()
+  function allow_post_interaction_writes reentrancy_trusted catchFailure ()
     local_obligations [manual_low_level_refinement := assumed "Low-level call success/failure boundary still requires a manual refinement argument."]
     : Uint256
     := do
@@ -445,7 +517,7 @@ verity_contract LowLevelTryCatchSmoke where
     let current ← getStorage lastOutcome
     return current
 
-  function allow_post_interaction_writes skipCatchOnSuccess ()
+  function allow_post_interaction_writes reentrancy_trusted skipCatchOnSuccess ()
     local_obligations [manual_low_level_refinement := assumed "Low-level call success/failure boundary still requires a manual refinement argument."]
     : Uint256
     := do
@@ -454,7 +526,7 @@ verity_contract LowLevelTryCatchSmoke where
     let current ← getStorage lastOutcome
     return current
 
-  function allow_post_interaction_writes catchFailureWithShadowedParam (verity_try_success : Uint256)
+  function allow_post_interaction_writes reentrancy_trusted catchFailureWithShadowedParam (verity_try_success : Uint256)
     local_obligations [manual_low_level_refinement := assumed "Low-level call success/failure boundary still requires a manual refinement argument."]
     : Uint256
     := do
@@ -526,7 +598,7 @@ verity_contract ExternalCallMultiReturn where
     external fanout(Uint256) -> (Uint256, Address)
     external fanout_try(Uint256) -> (Bool, Uint256, Address)
 
-  function allow_post_interaction_writes callFanout (x : Uint256) : Unit := do
+  function allow_post_interaction_writes reentrancy_trusted callFanout (x : Uint256) : Unit := do
     let (success, value, addr) ← tryExternalCall "fanout" [x]
     if success then
       setStorage lastValue value

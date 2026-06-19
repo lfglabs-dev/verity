@@ -11,7 +11,8 @@ def collectStmtBindNames : Stmt → List String
   | .ecm mod _ => mod.resultVars
   | .ite _ thenBranch elseBranch =>
       collectStmtListBindNames thenBranch ++ collectStmtListBindNames elseBranch
-  | .forEach varName _ body => varName :: collectStmtListBindNames body
+  | .forEach varName _ body | .forEachSetBit varName _ body =>
+      varName :: collectStmtListBindNames body
   | .unsafeBlock _ body => collectStmtListBindNames body
   | .matchAdt _ _ branches => collectMatchBranchBindNames branches
   | .unsafeYul fragment => fragment.scopeEffects.bindNames
@@ -40,7 +41,7 @@ def collectStmtAssignedNames : Stmt → List String
   | .unsafeBlock _ body => collectStmtListAssignedNames body
   | .ite _ thenBranch elseBranch =>
       collectStmtListAssignedNames thenBranch ++ collectStmtListAssignedNames elseBranch
-  | .forEach _ _ body => collectStmtListAssignedNames body
+  | .forEach _ _ body | .forEachSetBit _ _ body => collectStmtListAssignedNames body
   | .matchAdt _ _ branches => collectMatchBranchAssignedNames branches
   | .unsafeYul fragment => fragment.scopeEffects.assignNames
   | _ => []
@@ -205,7 +206,7 @@ def exprUsesArrayElementKind (includePlain includeWord : Bool) : Expr → Bool
         exprUsesArrayElementKind includePlain includeWord elseVal
   | Expr.adtConstruct _ _ args => exprListUsesArrayElementKind includePlain includeWord args
   | Expr.adtField _ _ _ _ _ => false
-  | Expr.literal _ | Expr.param _ | Expr.constructorArg _ | Expr.storage _ | Expr.storageAddr _
+  | Expr.literal _ | Expr.param _ | Expr.constructorArg _ | Expr.immutable _ | Expr.storage _ | Expr.storageAddr _
   | Expr.caller | Expr.contractAddress | Expr.txOrigin | Expr.chainid | Expr.msgValue | Expr.selfBalance | Expr.blockTimestamp
   | Expr.blockNumber | Expr.blobbasefee
   | Expr.calldatasize | Expr.returndataSize | Expr.localVar _ | Expr.arrayLength _
@@ -231,7 +232,7 @@ termination_by es => sizeOf es
 decreasing_by all_goals simp_wf; all_goals omega
 
 def stmtUsesArrayElementKind (includePlain includeWord : Bool) : Stmt → Bool
-  | Stmt.letVar _ value | Stmt.assignVar _ value | Stmt.setStorage _ value | Stmt.setStorageAddr _ value
+  | Stmt.letVar _ value | Stmt.assignVar _ value | Stmt.setStorage _ value | Stmt.setStorageAddr _ value | Stmt.setImmutable _ value
   | Stmt.setStorageWord _ _ value |
     Stmt.storageArrayPush _ value |
     Stmt.return value | Stmt.require value _ =>
@@ -276,7 +277,7 @@ def stmtUsesArrayElementKind (includePlain includeWord : Bool) : Stmt → Bool
       exprUsesArrayElementKind includePlain includeWord cond ||
         stmtListUsesArrayElementKind includePlain includeWord thenBranch ||
         stmtListUsesArrayElementKind includePlain includeWord elseBranch
-  | Stmt.forEach _ count body =>
+  | Stmt.forEach _ count body | Stmt.forEachSetBit _ count body =>
       exprUsesArrayElementKind includePlain includeWord count ||
         stmtListUsesArrayElementKind includePlain includeWord body
   | Stmt.unsafeBlock _ body =>
@@ -387,7 +388,7 @@ def exprUsesArrayElement : Expr → Bool
       exprUsesArrayElement a
   | Expr.ite cond thenVal elseVal =>
       exprUsesArrayElement cond || exprUsesArrayElement thenVal || exprUsesArrayElement elseVal
-  | Expr.literal _ | Expr.param _ | Expr.constructorArg _ | Expr.storage _ | Expr.storageAddr _
+  | Expr.literal _ | Expr.param _ | Expr.constructorArg _ | Expr.immutable _ | Expr.storage _ | Expr.storageAddr _
   | Expr.caller | Expr.contractAddress | Expr.txOrigin | Expr.chainid | Expr.msgValue | Expr.selfBalance | Expr.blockTimestamp
   | Expr.blockNumber | Expr.blobbasefee
   | Expr.calldatasize | Expr.returndataSize | Expr.localVar _ | Expr.arrayLength _
@@ -411,7 +412,7 @@ termination_by es => sizeOf es
 decreasing_by all_goals simp_wf; all_goals omega
 
 def stmtUsesArrayElement : Stmt → Bool
-  | Stmt.letVar _ value | Stmt.assignVar _ value | Stmt.setStorage _ value | Stmt.setStorageAddr _ value
+  | Stmt.letVar _ value | Stmt.assignVar _ value | Stmt.setStorage _ value | Stmt.setStorageAddr _ value | Stmt.setImmutable _ value
   | Stmt.setStorageWord _ _ value | Stmt.storageArrayPush _ value
   | Stmt.return value | Stmt.require value _ =>
       exprUsesArrayElement value
@@ -440,7 +441,7 @@ def stmtUsesArrayElement : Stmt → Bool
   | Stmt.ite cond thenBranch elseBranch =>
       exprUsesArrayElement cond || stmtListUsesArrayElement thenBranch ||
         stmtListUsesArrayElement elseBranch
-  | Stmt.forEach _ count body =>
+  | Stmt.forEach _ count body | Stmt.forEachSetBit _ count body =>
       exprUsesArrayElement count || stmtListUsesArrayElement body
   | Stmt.unsafeBlock _ body =>
       stmtListUsesArrayElement body
@@ -594,7 +595,7 @@ def exprUsesParamDynamicHeadWord : Expr → Bool
   | Expr.ite a b c =>
       exprUsesParamDynamicHeadWord a || exprUsesParamDynamicHeadWord b ||
       exprUsesParamDynamicHeadWord c
-  | Expr.literal _ | Expr.param _ | Expr.constructorArg _
+  | Expr.literal _ | Expr.param _ | Expr.constructorArg _ | Expr.immutable _
   | Expr.storage _ | Expr.storageAddr _
   | Expr.caller | Expr.contractAddress | Expr.txOrigin | Expr.chainid | Expr.msgValue | Expr.selfBalance
   | Expr.blockTimestamp | Expr.blockNumber | Expr.blobbasefee
@@ -617,7 +618,7 @@ end
 mutual
 def stmtUsesParamDynamicHeadWord : Stmt → Bool
   | Stmt.letVar _ value | Stmt.assignVar _ value | Stmt.setStorage _ value
-  | Stmt.setStorageAddr _ value | Stmt.setStorageWord _ _ value
+  | Stmt.setStorageAddr _ value | Stmt.setImmutable _ value | Stmt.setStorageWord _ _ value
   | Stmt.storageArrayPush _ value | Stmt.return value | Stmt.require value _ =>
       exprUsesParamDynamicHeadWord value
   | Stmt.setStorageArrayElement _ index value =>
@@ -646,7 +647,7 @@ def stmtUsesParamDynamicHeadWord : Stmt → Bool
       exprUsesParamDynamicHeadWord cond ||
         stmtListUsesParamDynamicHeadWord thenBranch ||
         stmtListUsesParamDynamicHeadWord elseBranch
-  | Stmt.forEach _ count body =>
+  | Stmt.forEach _ count body | Stmt.forEachSetBit _ count body =>
       exprUsesParamDynamicHeadWord count || stmtListUsesParamDynamicHeadWord body
   | Stmt.unsafeBlock _ body =>
       stmtListUsesParamDynamicHeadWord body
@@ -738,7 +739,7 @@ def exprUsesMulDiv512 : Expr → Bool
       exprUsesMulDiv512 thenExpr || exprUsesMulDiv512 elseExpr
   | Expr.mulDivDown a b c | Expr.mulDivUp a b c | Expr.ite a b c =>
       exprUsesMulDiv512 a || exprUsesMulDiv512 b || exprUsesMulDiv512 c
-  | Expr.literal _ | Expr.param _ | Expr.constructorArg _
+  | Expr.literal _ | Expr.param _ | Expr.constructorArg _ | Expr.immutable _
   | Expr.storage _ | Expr.storageAddr _
   | Expr.caller | Expr.contractAddress | Expr.txOrigin | Expr.chainid | Expr.msgValue | Expr.selfBalance
   | Expr.blockTimestamp | Expr.blockNumber | Expr.blobbasefee
@@ -767,7 +768,7 @@ end
 mutual
 def stmtUsesMulDiv512 : Stmt → Bool
   | Stmt.letVar _ value | Stmt.assignVar _ value | Stmt.setStorage _ value
-  | Stmt.setStorageAddr _ value | Stmt.setStorageWord _ _ value
+  | Stmt.setStorageAddr _ value | Stmt.setImmutable _ value | Stmt.setStorageWord _ _ value
   | Stmt.storageArrayPush _ value | Stmt.return value | Stmt.require value _ =>
       exprUsesMulDiv512 value
   | Stmt.setStorageArrayElement _ index value =>
@@ -794,7 +795,7 @@ def stmtUsesMulDiv512 : Stmt → Bool
       exprUsesMulDiv512 cond ||
         stmtListUsesMulDiv512 thenBranch ||
         stmtListUsesMulDiv512 elseBranch
-  | Stmt.forEach _ count body =>
+  | Stmt.forEach _ count body | Stmt.forEachSetBit _ count body =>
       exprUsesMulDiv512 count || stmtListUsesMulDiv512 body
   | Stmt.unsafeBlock _ body =>
       stmtListUsesMulDiv512 body
@@ -907,7 +908,7 @@ def exprUsesStorageArrayElement : Expr → Bool
       exprUsesStorageArrayElement cond || exprUsesStorageArrayElement thenVal || exprUsesStorageArrayElement elseVal
   | Expr.adtConstruct _ _ args => exprListUsesStorageArrayElement args
   | Expr.adtField _ _ _ _ _ => false
-  | Expr.literal _ | Expr.param _ | Expr.constructorArg _ | Expr.storage _ | Expr.storageAddr _
+  | Expr.literal _ | Expr.param _ | Expr.constructorArg _ | Expr.immutable _ | Expr.storage _ | Expr.storageAddr _
   | Expr.caller | Expr.contractAddress | Expr.txOrigin | Expr.chainid | Expr.msgValue | Expr.selfBalance | Expr.blockTimestamp
   | Expr.blockNumber | Expr.blobbasefee
   | Expr.calldatasize | Expr.returndataSize | Expr.localVar _ | Expr.arrayLength _
@@ -938,7 +939,7 @@ termination_by es => sizeOf es
 decreasing_by all_goals simp_wf; all_goals omega
 
 def stmtUsesStorageArrayElement : Stmt → Bool
-  | Stmt.letVar _ value | Stmt.assignVar _ value | Stmt.setStorage _ value | Stmt.setStorageAddr _ value
+  | Stmt.letVar _ value | Stmt.assignVar _ value | Stmt.setStorage _ value | Stmt.setStorageAddr _ value | Stmt.setImmutable _ value
   | Stmt.setStorageWord _ _ value |
     Stmt.storageArrayPush _ value |
     Stmt.return value | Stmt.require value _ =>
@@ -969,7 +970,7 @@ def stmtUsesStorageArrayElement : Stmt → Bool
       exprUsesStorageArrayElement key1 || exprUsesStorageArrayElement key2 || exprUsesStorageArrayElement value
   | Stmt.ite cond thenBranch elseBranch =>
       exprUsesStorageArrayElement cond || stmtListUsesStorageArrayElement thenBranch || stmtListUsesStorageArrayElement elseBranch
-  | Stmt.forEach _ count body =>
+  | Stmt.forEach _ count body | Stmt.forEachSetBit _ count body =>
       exprUsesStorageArrayElement count || stmtListUsesStorageArrayElement body
   | Stmt.unsafeBlock _ body =>
       stmtListUsesStorageArrayElement body
@@ -1074,7 +1075,7 @@ def exprUsesDynamicBytesEq : Expr → Bool
       exprUsesDynamicBytesEq cond || exprUsesDynamicBytesEq thenVal || exprUsesDynamicBytesEq elseVal
   | Expr.adtConstruct _ _ args => exprListUsesDynamicBytesEq args
   | Expr.adtField _ _ _ _ _ => false
-  | Expr.literal _ | Expr.param _ | Expr.constructorArg _ | Expr.storage _ | Expr.storageAddr _
+  | Expr.literal _ | Expr.param _ | Expr.constructorArg _ | Expr.immutable _ | Expr.storage _ | Expr.storageAddr _
   | Expr.caller | Expr.contractAddress | Expr.txOrigin | Expr.chainid | Expr.msgValue | Expr.selfBalance | Expr.blockTimestamp
   | Expr.blockNumber | Expr.blobbasefee
   | Expr.calldatasize | Expr.returndataSize | Expr.localVar _ | Expr.arrayLength _
@@ -1097,7 +1098,7 @@ termination_by es => sizeOf es
 decreasing_by all_goals simp_wf; all_goals omega
 
 def stmtUsesDynamicBytesEq : Stmt → Bool
-  | Stmt.letVar _ value | Stmt.assignVar _ value | Stmt.setStorage _ value | Stmt.setStorageAddr _ value
+  | Stmt.letVar _ value | Stmt.assignVar _ value | Stmt.setStorage _ value | Stmt.setStorageAddr _ value | Stmt.setImmutable _ value
   | Stmt.setStorageWord _ _ value
   | Stmt.storageArrayPush _ value
   | Stmt.return value | Stmt.require value _ =>
@@ -1126,7 +1127,7 @@ def stmtUsesDynamicBytesEq : Stmt → Bool
       exprUsesDynamicBytesEq key1 || exprUsesDynamicBytesEq key2 || exprUsesDynamicBytesEq value
   | Stmt.ite cond thenBranch elseBranch =>
       exprUsesDynamicBytesEq cond || stmtListUsesDynamicBytesEq thenBranch || stmtListUsesDynamicBytesEq elseBranch
-  | Stmt.forEach _ count body =>
+  | Stmt.forEach _ count body | Stmt.forEachSetBit _ count body =>
       exprUsesDynamicBytesEq count || stmtListUsesDynamicBytesEq body
   | Stmt.unsafeBlock _ body =>
       stmtListUsesDynamicBytesEq body

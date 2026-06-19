@@ -175,19 +175,20 @@ private theorem compileStmtList_cons_ok_inv_generic
           isInternal (collectStmtNames stmt ++ inScopeNames) adtTypes rest =
         .ok tailIR ∧
       bodyIR = headIR ++ tailIR := by
-  simp only [compileStmtList, bind, Except.bind] at hOk
-  cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-    isInternal inScopeNames adtTypes stmt with
+  simp only [compileStmtList, compileStmtListWithFork, bind, Except.bind] at hOk
+  cases hHead : compileStmtWithFork fields events errors dynamicSource internalRetNames
+    isInternal inScopeNames adtTypes .cancun stmt with
   | error _ => simp [hHead] at hOk
   | ok headIR =>
     simp [hHead] at hOk
-    cases hTail : compileStmtList fields events errors dynamicSource
+    cases hTail : compileStmtListWithFork fields events errors dynamicSource
       internalRetNames isInternal (collectStmtNames stmt ++ inScopeNames)
-      adtTypes rest with
+      adtTypes .cancun rest with
     | error _ => simp [hTail] at hOk
     | ok tailIR =>
       simp [hTail, Pure.pure, Except.pure] at hOk
-      exact ⟨headIR, tailIR, rfl, rfl, hOk.symm⟩
+      exact ⟨headIR, tailIR, by simpa [compileStmt] using hHead,
+        by simpa [compileStmtList] using hTail, hOk.symm⟩
 
 /-- Generic list-level lift: given a per-statement compilation-closure
 property `perStmt`, a list of statements all satisfying `perStmt` compiles
@@ -212,8 +213,9 @@ private theorem compileStmtList_bridged_of_perStmtBridge
   induction stmts with
   | nil =>
     intro _ _ _ hOk
-    simp [compileStmtList, Pure.pure, Except.pure] at hOk
-    subst hOk; intro _ hMem; cases hMem
+    simp [compileStmtList, compileStmtListWithFork] at hOk
+    cases hOk
+    intro _ hMem; cases hMem
   | cons s ss ih =>
     intro hAll inScopeNames out hOk
     obtain ⟨headOut, tailOut, hHead, hTail, hEq⟩ :=
@@ -261,8 +263,8 @@ private theorem compileStmt_internalCall_call_bridged
     (hOk : compileStmt fields events errors dynamicSource internalRetNames
       isInternal inScopeNames adtTypes (.internalCall funcName args) = .ok out) :
     BridgedStmts out := by
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hExprs : compileExprList fields dynamicSource args with
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+  cases hExprs : compileExprListWithInternals fields dynamicSource [] args with
   | error _ =>
     simp [compileInternalCallArgs, findInternalFunctionForCall?, hExprs] at hOk
   | ok argExprs =>
@@ -294,8 +296,8 @@ private theorem compileStmt_internalCallAssign_bridged
       isInternal inScopeNames adtTypes (.internalCallAssign names funcName args) =
         .ok out) :
     BridgedStmts out := by
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hExprs : compileExprList fields dynamicSource args with
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+  cases hExprs : compileExprListWithInternals fields dynamicSource [] args with
   | error _ =>
     simp [compileInternalCallArgs, findInternalFunctionForCall?, hExprs] at hOk
   | ok argExprs =>
@@ -393,8 +395,8 @@ theorem compileStmt_externalCallBind_bridged
     BridgedStmts out := by
   cases hStmt with
   | mk resultVars externalName args hArgs hFn =>
-    simp only [compileStmt, bind, Except.bind] at hOk
-    cases hExprs : compileExprList fields dynamicSource args with
+    simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+    cases hExprs : compileExprListWithInternals fields dynamicSource [] args with
     | error _ =>
       simp [hExprs] at hOk
     | ok argExprs =>
@@ -468,8 +470,8 @@ private theorem compileStmtList_noFuncDefs_of_perStmtBridge
   induction stmts with
   | nil =>
     intro _ _ _ hOk
-    simp [compileStmtList, Pure.pure, Except.pure] at hOk
-    subst hOk
+    simp [compileStmtList, compileStmtListWithFork] at hOk
+    cases hOk
     simp [Native.yulStmtsContainFuncDef]
   | cons s ss ih =>
     intro hAll inScopeNames out hOk
@@ -493,8 +495,8 @@ theorem compileStmt_internalCall_noFuncDefs
     Native.yulStmtsContainFuncDef out = false := by
   cases hStmt with
   | call funcName args hArgs hFn =>
-    simp only [compileStmt, bind, Except.bind] at hOk
-    cases hExprs : compileExprList fields dynamicSource args with
+    simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+    cases hExprs : compileExprListWithInternals fields dynamicSource [] args with
     | error _ =>
       simp [compileInternalCallArgs, findInternalFunctionForCall?, hExprs] at hOk
     | ok argExprs =>
@@ -503,8 +505,8 @@ theorem compileStmt_internalCall_noFuncDefs
       subst out
       simp [Native.yulStmtContainsFuncDef]
   | callAssign names funcName args hArgs hFn =>
-    simp only [compileStmt, bind, Except.bind] at hOk
-    cases hExprs : compileExprList fields dynamicSource args with
+    simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+    cases hExprs : compileExprListWithInternals fields dynamicSource [] args with
     | error _ =>
       simp [compileInternalCallArgs, findInternalFunctionForCall?, hExprs] at hOk
     | ok argExprs =>
@@ -542,8 +544,8 @@ theorem compileStmt_externalCallBind_noFuncDefs
     Native.yulStmtsContainFuncDef out = false := by
   cases hStmt with
   | mk resultVars externalName args hArgs hFn =>
-    simp only [compileStmt, bind, Except.bind] at hOk
-    cases hExprs : compileExprList fields dynamicSource args with
+    simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+    cases hExprs : compileExprListWithInternals fields dynamicSource [] args with
     | error _ => simp [hExprs] at hOk
     | ok argExprs =>
       simp [hExprs] at hOk
@@ -617,12 +619,12 @@ theorem compileStmt_ecm_bridged
     BridgedStmts out := by
   cases hStmt with
   | mk mod args hArgs hBridgeable =>
-    simp only [compileStmt] at hOk
+    simp only [compileStmt, compileStmtWithFork] at hOk
     split at hOk
     · simp only [bind, Except.bind] at hOk
       cases hOk
     · simp only [Pure.pure, Except.pure, bind, Except.bind] at hOk
-      cases hExprs : compileExprList fields dynamicSource args with
+      cases hExprs : compileExprListWithInternals fields dynamicSource [] args with
       | error _ => simp [hExprs] at hOk
       | ok argExprs =>
         simp [hExprs] at hOk
@@ -682,20 +684,20 @@ theorem compileStmtList_append_ok_inv
   | nil =>
     intro sfx inScopeNames out hOk
     refine ⟨[], out, ?_, ?_, ?_⟩
-    · simp [compileStmtList, Pure.pure, Except.pure]
+    · simp only [compileStmtList, compileStmtListWithFork, Pure.pure, Except.pure]
     · simpa using hOk
     · simp
   | cons s rest ih =>
     intro sfx inScopeNames out hOk
-    simp only [List.cons_append, compileStmtList, bind, Except.bind] at hOk
-    cases hHead : compileStmt fields events errors dynamicSource
-      internalRetNames isInternal inScopeNames adtTypes s with
+    simp only [List.cons_append, compileStmtList, compileStmtListWithFork, bind, Except.bind] at hOk
+    cases hHead : compileStmtWithFork fields events errors dynamicSource
+      internalRetNames isInternal inScopeNames adtTypes .cancun s with
     | error _ => simp [hHead] at hOk
     | ok headOut =>
       simp [hHead] at hOk
-      cases hRest : compileStmtList fields events errors dynamicSource
+      cases hRest : compileStmtListWithFork fields events errors dynamicSource
         internalRetNames isInternal (collectStmtNames s ++ inScopeNames)
-        adtTypes (rest ++ sfx) with
+        adtTypes .cancun (rest ++ sfx) with
       | error _ => simp [hRest] at hOk
       | ok restOut =>
         simp [hRest, Pure.pure, Except.pure] at hOk
@@ -703,8 +705,12 @@ theorem compileStmtList_append_ok_inv
         obtain ⟨pfxOut, sfxOut, hPfx, hSfx, hEq⟩ :=
           ih sfx (collectStmtNames s ++ inScopeNames) hRest
         refine ⟨headOut ++ pfxOut, sfxOut, ?_, ?_, ?_⟩
-        · simp only [compileStmtList, bind, Except.bind, hHead, hPfx,
-            Pure.pure, Except.pure]
+        · have hPfxFork := (show
+            compileStmtListWithFork fields events errors dynamicSource internalRetNames isInternal
+                (collectStmtNames s ++ inScopeNames) adtTypes .cancun rest = .ok pfxOut by
+            simpa [compileStmtList] using hPfx)
+          simp [compileStmtList, compileStmtListWithFork, hHead, hPfxFork]
+          rfl
         · simpa using hSfx
         · subst hEq; simp [List.append_assoc]
 

@@ -70,6 +70,76 @@ private def validateAdtPayloadParamNameCollisions
       throw s!"Compilation error: {context} reserves generated ADT payload local '{name}'. Rename the parameter or local binding that conflicts with generated '<param>_f<i>' locals."
   | none => pure ()
 
+private def immutableNames (immutables : List ImmutableSpec) : List String :=
+  immutables.map (·.name)
+
+private def validateModelImmutableExprNameNode (names : List String)
+    (context : String) : Expr → Except String Unit
+  | Expr.immutable name =>
+      if names.contains name then
+        pure ()
+      else
+        throw s!"Compilation error: {context} references unknown immutable '{name}'"
+  | _ => pure ()
+
+private def validateModelImmutableStmtNode (names : List String)
+    (context : String) : Stmt → Except String Unit
+  | stmt => do
+      match stmt with
+      | Stmt.setImmutable name _ =>
+          if names.contains name then
+            pure ()
+          else
+            throw s!"Compilation error: {context} sets unknown immutable '{name}'"
+      | _ => pure ()
+      for expr in stmt.directMetadata.subexpressions do
+        expr.checkRec (validateModelImmutableExprNameNode names context)
+
+private def validateSetImmutableRuntimeGuardNode (fnName : String) : Stmt → Except String Unit
+  | Stmt.setImmutable name _ =>
+      throw s!"Compilation error: function '{fnName}' uses Stmt.setImmutable for immutable '{name}' outside constructor scope"
+  | _ => pure ()
+
+def validateSetImmutableRuntimeGuard (fn : FunctionSpec) : Except String Unit :=
+  Stmt.checkRecList (validateSetImmutableRuntimeGuardNode fn.name) fn.body
+
+def validateImmutableNamesInFunction (immutables : List ImmutableSpec)
+    (fn : FunctionSpec) : Except String Unit :=
+  Stmt.checkRecList (validateModelImmutableStmtNode (immutableNames immutables) s!"function '{fn.name}'") fn.body
+
+def validateImmutableNamesInConstructor (immutables : List ImmutableSpec)
+    (ctor : Option ConstructorSpec) : Except String Unit := do
+  let names := immutableNames immutables
+  match ctor with
+  | none => pure ()
+  | some spec =>
+      for imm in immutables do
+        imm.init.checkRec (validateModelImmutableExprNameNode names s!"immutable '{imm.name}' initializer")
+      Stmt.checkRecList (validateModelImmutableStmtNode names "constructor") spec.body
+
+/-- Each declared immutable must be assigned via `Stmt.setImmutable` in the
+    constructor body; deploy code only emits `setimmutable` from those
+    statements (never from `ImmutableSpec.init`), so an unset immutable would
+    read uninitialized bytecode at runtime. -/
+def validateImmutableInitialization (immutables : List ImmutableSpec)
+    (ctor : Option ConstructorSpec) : Except String Unit := do
+  match immutables with
+  | [] => pure ()
+  | _ =>
+      match ctor with
+      | none =>
+          throw "Compilation error: contract declares immutables but has no constructor to initialize them"
+      | some spec =>
+          for imm in immutables do
+            let isSet := Stmt.foldBoolList
+              (fun s => match s with
+                | Stmt.setImmutable name _ => name == imm.name
+                | _ => false) spec.body
+            if isSet then
+              pure ()
+            else
+              throw s!"Compilation error: immutable '{imm.name}' is declared but never initialized in the constructor"
+
 def isStorageWordArrayParam : ParamType → Bool
   | ty => isWordArrayParam ty
 
@@ -110,16 +180,46 @@ def validateStmtParamReferencesNode (fnName : String) (params : List Param) :
 
 def validateStmtParamReferences (fnName : String) (params : List Param)
     (stmt : Stmt) : Except String Unit :=
-  stmt.forDeepM (validateStmtParamReferencesNode fnName params)
+  stmt.checkRec (validateStmtParamReferencesNode fnName params)
 
 def validateStmtParamReferencesInList (fnName : String) (params : List Param)
     (stmts : List Stmt) : Except String Unit :=
-  Stmt.forDeepListM (validateStmtParamReferencesNode fnName params) stmts
+  Stmt.checkRecList (validateStmtParamReferencesNode fnName params) stmts
 
 def validateStmtParamReferencesInBranches (fnName : String) (params : List Param)
     (branches : List (String × List String × List Stmt)) : Except String Unit :=
-  branches.forM fun (_, _, body) =>
-    validateStmtParamReferencesInList fnName params body
+  Stmt.checkRecBranches (validateStmtParamReferencesNode fnName params) branches
+
+def validateStmtParamReferences_viaFold (fnName : String) (params : List Param)
+    (stmt : Stmt) : Except String Unit :=
+  Stmt.checkRec (validateStmtParamReferencesNode fnName params) stmt
+
+def validateStmtParamReferencesInList_viaFold (fnName : String) (params : List Param)
+    (stmts : List Stmt) : Except String Unit :=
+  Stmt.checkRecList (validateStmtParamReferencesNode fnName params) stmts
+
+def validateStmtParamReferencesInBranches_viaFold (fnName : String) (params : List Param)
+    (branches : List (String × List String × List Stmt)) : Except String Unit :=
+  Stmt.checkRecBranches (validateStmtParamReferencesNode fnName params) branches
+
+theorem validateStmtParamReferences_eq_viaFold
+    (fnName : String) (params : List Param) (stmt : Stmt) :
+    validateStmtParamReferences fnName params stmt =
+      validateStmtParamReferences_viaFold fnName params stmt := by
+  rfl
+
+theorem validateStmtParamReferencesInList_eq_viaFold
+    (fnName : String) (params : List Param) (stmts : List Stmt) :
+    validateStmtParamReferencesInList fnName params stmts =
+      validateStmtParamReferencesInList_viaFold fnName params stmts := by
+  rfl
+
+theorem validateStmtParamReferencesInBranches_eq_viaFold
+    (fnName : String) (params : List Param)
+    (branches : List (String × List String × List Stmt)) :
+    validateStmtParamReferencesInBranches fnName params branches =
+      validateStmtParamReferencesInBranches_viaFold fnName params branches := by
+  rfl
 
 /-- Node-local return-shape check; nested statement bodies are reached via
     the canonical `Stmt.forDeepM`. -/
@@ -198,18 +298,56 @@ def validateReturnShapesNode (fnName : String) (params : List Param)
 def validateReturnShapesInStmt (fnName : String) (params : List Param)
     (expectedReturns : List ParamType) (isInternal : Bool) (stmt : Stmt) :
     Except String Unit :=
-  stmt.forDeepM (validateReturnShapesNode fnName params expectedReturns isInternal)
+  stmt.checkRec (validateReturnShapesNode fnName params expectedReturns isInternal)
 
 def validateReturnShapesInStmtList (fnName : String)
     (params : List Param) (expectedReturns : List ParamType) (isInternal : Bool)
     (stmts : List Stmt) : Except String Unit :=
-  Stmt.forDeepListM (validateReturnShapesNode fnName params expectedReturns isInternal) stmts
+  Stmt.checkRecList (validateReturnShapesNode fnName params expectedReturns isInternal) stmts
 
 def validateReturnShapesInBranches (fnName : String)
     (params : List Param) (expectedReturns : List ParamType) (isInternal : Bool)
     (branches : List (String × List String × List Stmt)) : Except String Unit :=
-  branches.forM fun (_, _, body) =>
-    validateReturnShapesInStmtList fnName params expectedReturns isInternal body
+  Stmt.checkRecBranches
+    (validateReturnShapesNode fnName params expectedReturns isInternal) branches
+
+def validateReturnShapesInStmt_viaFold (fnName : String) (params : List Param)
+    (expectedReturns : List ParamType) (isInternal : Bool) (stmt : Stmt) :
+    Except String Unit :=
+  Stmt.checkRec (validateReturnShapesNode fnName params expectedReturns isInternal) stmt
+
+def validateReturnShapesInStmtList_viaFold (fnName : String)
+    (params : List Param) (expectedReturns : List ParamType) (isInternal : Bool)
+    (stmts : List Stmt) : Except String Unit :=
+  Stmt.checkRecList (validateReturnShapesNode fnName params expectedReturns isInternal) stmts
+
+def validateReturnShapesInBranches_viaFold (fnName : String)
+    (params : List Param) (expectedReturns : List ParamType) (isInternal : Bool)
+    (branches : List (String × List String × List Stmt)) : Except String Unit :=
+  Stmt.checkRecBranches
+    (validateReturnShapesNode fnName params expectedReturns isInternal) branches
+
+theorem validateReturnShapesInStmt_eq_viaFold
+    (fnName : String) (params : List Param) (expectedReturns : List ParamType)
+    (isInternal : Bool) (stmt : Stmt) :
+    validateReturnShapesInStmt fnName params expectedReturns isInternal stmt =
+      validateReturnShapesInStmt_viaFold fnName params expectedReturns isInternal stmt := by
+  rfl
+
+theorem validateReturnShapesInStmtList_eq_viaFold
+    (fnName : String) (params : List Param) (expectedReturns : List ParamType)
+    (isInternal : Bool) (stmts : List Stmt) :
+    validateReturnShapesInStmtList fnName params expectedReturns isInternal stmts =
+      validateReturnShapesInStmtList_viaFold fnName params expectedReturns isInternal stmts := by
+  rfl
+
+theorem validateReturnShapesInBranches_eq_viaFold
+    (fnName : String) (params : List Param) (expectedReturns : List ParamType)
+    (isInternal : Bool) (branches : List (String × List String × List Stmt)) :
+    validateReturnShapesInBranches fnName params expectedReturns isInternal branches =
+      validateReturnShapesInBranches_viaFold
+        fnName params expectedReturns isInternal branches := by
+  rfl
 
 private def stmtListAlwaysReturnsOrReverts (stmts : List Stmt) : Bool :=
   ControlFlowSummary.alwaysReturnsOrReverts (Stmt.controlFlowList stmts)
@@ -288,7 +426,7 @@ def stmtWritesStateNode : Stmt → Bool
       exprWritesState destOffset || exprWritesState sourceOffset || exprWritesState size
   | Stmt.ite cond _ _ =>
       exprWritesState cond
-  | Stmt.forEach _ count _ =>
+  | Stmt.forEach _ count _ | Stmt.forEachSetBit _ count _ =>
       exprWritesState count
   | Stmt.emit _ _ | Stmt.rawLog _ _ _
   | Stmt.internalCall _ _ | Stmt.internalCallAssign _ _ _
@@ -390,7 +528,7 @@ def stmtHasUntrackableWritesNode : Stmt → Bool
       exprHasUntrackableWrites destOffset || exprHasUntrackableWrites sourceOffset || exprHasUntrackableWrites size
   | Stmt.ite cond _ _ =>
       exprHasUntrackableWrites cond
-  | Stmt.forEach _ count _ =>
+  | Stmt.forEach _ count _ | Stmt.forEachSetBit _ count _ =>
       exprHasUntrackableWrites count
   | Stmt.unsafeYul fragment =>
       -- Raw Yul storage writes target computed slots that cannot be tied back to
@@ -494,7 +632,7 @@ def stmtContainsExternalCallNode : Stmt → Bool
       exprContainsExternalCall destOffset || exprContainsExternalCall sourceOffset || exprContainsExternalCall size
   | Stmt.ite cond _ _ =>
       exprContainsExternalCall cond
-  | Stmt.forEach _ count _ =>
+  | Stmt.forEach _ count _ | Stmt.forEachSetBit _ count _ =>
       exprContainsExternalCall count
   | Stmt.matchAdt _ scrutinee _ =>
       exprContainsExternalCall scrutinee
@@ -516,6 +654,27 @@ def stmtListContainsExternalCall (stmts : List Stmt) : Bool :=
 def matchBranchesContainExternalCall (branches : List (String × List String × List Stmt)) : Bool :=
   branches.any fun (_, _, body) => stmtListContainsExternalCall body
 
+/-- Node-local classifier for the cross-function reentrancy gate: which
+    statements hand control to untrusted code in a way that can corrupt this
+    contract's state via a reentrant entrypoint. It mirrors
+    `stmtContainsExternalCallNode` but refines the `ecm` arm: an External Call
+    Module summarised as a `staticcall` (precompiles, `keccak`/`sha256`, ABI
+    encoding, view-only reads) runs in the EVM static context, where any
+    state-mutating opcode reverts — such a call provably cannot open a
+    state-corrupting reentrancy window, so it does not require a disposition.
+    Every other external-call form (a mutating `call` ECM, a `externalCall`
+    binding, a non-builtin `externalCall` expression, raw-Yul `call`/`staticcall`/
+    `delegatecall`) stays window-opening: it reaches an external contract that
+    may re-enter. -/
+def stmtReentrancyWindowNode : Stmt → Bool
+  | Stmt.ecm mod _ =>
+      mod.summaryMutability == Compiler.ECM.StatefulExternal.Mutability.call
+  | s => stmtContainsExternalCallNode s
+
+/-- Whether a statement (deeply) opens a cross-function reentrancy window. -/
+def stmtOpensReentrancyWindow (s : Stmt) : Bool :=
+  s.anyDeep stmtReentrancyWindowNode
+
 /-- Conservative variant of `stmtContainsExternalCallNode` for
     `no_external_calls` validation. Returns `true` for internal calls because
     callee bodies may contain external calls that are not visible at
@@ -524,7 +683,7 @@ def stmtMayContainExternalCallNode : Stmt → Bool
   | Stmt.internalCall _ _ | Stmt.internalCallAssign _ _ _ => true
   | Stmt.ite cond _ _ =>
       exprMayContainExternalCall cond
-  | Stmt.forEach _ count _ =>
+  | Stmt.forEach _ count _ | Stmt.forEachSetBit _ count _ =>
       exprMayContainExternalCall count
   | Stmt.matchAdt _ scrutinee _ =>
       exprMayContainExternalCall scrutinee
@@ -586,7 +745,7 @@ def matchBranchesMayContainExternalCall (branches : List (String × List String 
     statement bodies are reached via the canonical `Stmt.anyDeep`. -/
 def stmtReadsStateOrEnvNode : Stmt → Bool
   | Stmt.letVar _ value | Stmt.assignVar _ value | Stmt.setStorage _ value | Stmt.setStorageAddr _ value
-  | Stmt.setStorageWord _ _ value |
+  | Stmt.setImmutable _ value | Stmt.setStorageWord _ _ value |
     Stmt.return value | Stmt.require value _ =>
       exprReadsStateOrEnv value
   | Stmt.storageArrayPush _ _ | Stmt.setStorageArrayElement _ _ _ | Stmt.storageArrayPop _ =>
@@ -614,7 +773,7 @@ def stmtReadsStateOrEnvNode : Stmt → Bool
   | Stmt.setStructMember _ _ _ _ | Stmt.setStructMember2 _ _ _ _ _ => true
   | Stmt.ite cond _ _ =>
       exprReadsStateOrEnv cond
-  | Stmt.forEach _ count _ =>
+  | Stmt.forEach _ count _ | Stmt.forEachSetBit _ count _ =>
       exprReadsStateOrEnv count
   | Stmt.unsafeBlock _ _ =>
       false
@@ -705,7 +864,7 @@ def stmtWritesStateWithFunctionEffectsNode
         exprWritesStateWithFunctionEffects effects size
   | Stmt.ite cond _ _ =>
       exprWritesStateWithFunctionEffects effects cond
-  | Stmt.forEach _ count _ =>
+  | Stmt.forEach _ count _ | Stmt.forEachSetBit _ count _ =>
       exprWritesStateWithFunctionEffects effects count
   | Stmt.emit _ _ | Stmt.rawLog _ _ _
   | Stmt.externalCallBind _ _ _ | Stmt.tryExternalCallBind _ _ _ _ => true
@@ -756,7 +915,7 @@ def stmtReadsStateOrEnvWithFunctionEffectsNode
       (lookupFunctionEffect effects name).readsStateOrEnv ||
         exprListReadsStateOrEnvWithFunctionEffects effects args
   | Stmt.letVar _ value | Stmt.assignVar _ value | Stmt.setStorage _ value | Stmt.setStorageAddr _ value
-  | Stmt.setStorageWord _ _ value |
+  | Stmt.setImmutable _ value | Stmt.setStorageWord _ _ value |
     Stmt.return value | Stmt.require value _ =>
       exprReadsStateOrEnvWithFunctionEffects effects value
   | Stmt.storageArrayPush _ _ | Stmt.setStorageArrayElement _ _ _ | Stmt.storageArrayPop _ =>
@@ -786,7 +945,7 @@ def stmtReadsStateOrEnvWithFunctionEffectsNode
   | Stmt.setStructMember _ _ _ _ | Stmt.setStructMember2 _ _ _ _ _ => true
   | Stmt.ite cond _ _ =>
       exprReadsStateOrEnvWithFunctionEffects effects cond
-  | Stmt.forEach _ count _ =>
+  | Stmt.forEach _ count _ | Stmt.forEachSetBit _ count _ =>
       exprReadsStateOrEnvWithFunctionEffects effects count
   | Stmt.unsafeBlock _ _ =>
       false
@@ -917,7 +1076,7 @@ def stmtListCEIViolation : List Stmt → Bool → Option String
           -- For compound statements (ite, forEach, unsafeBlock, matchAdt), the internal
           -- CEI check above already verified ordering within the statement's branches.
           let isCompound := match s with
-            | Stmt.ite _ _ _ | Stmt.forEach _ _ _ | Stmt.unsafeBlock _ _
+            | Stmt.ite _ _ _ | Stmt.forEach _ _ _ | Stmt.forEachSetBit _ _ _ | Stmt.unsafeBlock _ _
             | Stmt.matchAdt _ _ _ => true
             | _ => false
           -- Update seenCall conservatively: statement-form internal calls may
@@ -954,7 +1113,7 @@ def stmtInternalCEIViolation : Stmt → Bool → Option String
           match stmtListCEIViolation elseBranch condSeenCall with
           | some msg => some s!"in if-else branch: {msg}"
           | none => none
-  | Stmt.forEach _ count body, seenCall =>
+  | Stmt.forEach _ count body, seenCall | Stmt.forEachSetBit _ count body, seenCall =>
       -- In a loop, if the body has both an external call and a state write,
       -- a second iteration would violate CEI even if the first doesn't
       let bodyHasCall := body.any stmtMayContainExternalCall
@@ -1015,7 +1174,14 @@ def exprContainsAdtConstructNode : Expr → Bool
   | _ => false
 
 def exprContainsAdtConstruct (e : Expr) : Bool :=
-  e.anyDeep exprContainsAdtConstructNode
+  e.foldBool exprContainsAdtConstructNode
+
+def exprContainsAdtConstruct_viaFold (e : Expr) : Bool :=
+  Expr.foldBool exprContainsAdtConstructNode e
+
+theorem exprContainsAdtConstruct_eq_viaFold (e : Expr) :
+    exprContainsAdtConstruct e = exprContainsAdtConstruct_viaFold e := by
+  rfl
 
 def exprListContainsAdtConstruct (es : List Expr) : Bool :=
   es.any exprContainsAdtConstruct
@@ -1029,7 +1195,7 @@ def validateNoUnsupportedAdtConstructNode : Stmt → Except String Unit
       else
         pure ()
   | Stmt.letVar _ value | Stmt.assignVar _ value | Stmt.setStorage _ value
-  | Stmt.setStorageAddr _ value | Stmt.setStorageWord _ _ value | Stmt.storageArrayPush _ value
+  | Stmt.setStorageAddr _ value | Stmt.setImmutable _ value | Stmt.setStorageWord _ _ value | Stmt.storageArrayPush _ value
   | Stmt.setStorageArrayElement _ _ value | Stmt.setMapping _ _ value
   | Stmt.setMappingUint _ _ value | Stmt.setMappingWord _ _ _ value
   | Stmt.setMapping2 _ _ _ value | Stmt.setMapping2Word _ _ _ _ value
@@ -1060,7 +1226,7 @@ def validateNoUnsupportedAdtConstructNode : Stmt → Except String Unit
   | Stmt.ite cond _ _ => do
       if exprContainsAdtConstruct cond then
         throw "Compilation error: ADT construction cannot be used as an if condition."
-  | Stmt.forEach _ count _ => do
+  | Stmt.forEach _ count _ | Stmt.forEachSetBit _ count _ => do
       if exprContainsAdtConstruct count then
         throw "Compilation error: ADT construction cannot be used as a loop bound."
   | Stmt.unsafeBlock _ _ =>
@@ -1093,15 +1259,42 @@ def validateNoUnsupportedAdtConstructNode : Stmt → Except String Unit
         validateUnsafeYulDeclaredScopeEffects fragment
 
 def validateNoUnsupportedAdtConstructInStmt (stmt : Stmt) : Except String Unit :=
-  stmt.forDeepM validateNoUnsupportedAdtConstructNode
+  stmt.checkRec validateNoUnsupportedAdtConstructNode
 
 def validateNoUnsupportedAdtConstructInStmtList (stmts : List Stmt) : Except String Unit :=
-  Stmt.forDeepListM validateNoUnsupportedAdtConstructNode stmts
+  Stmt.checkRecList validateNoUnsupportedAdtConstructNode stmts
 
 def validateNoUnsupportedAdtConstructInBranches
     (branches : List (String × List String × List Stmt)) : Except String Unit :=
-  branches.forM fun (_, _, body) =>
-    validateNoUnsupportedAdtConstructInStmtList body
+  Stmt.checkRecBranches validateNoUnsupportedAdtConstructNode branches
+
+def validateNoUnsupportedAdtConstructInStmt_viaFold
+    (stmt : Stmt) : Except String Unit :=
+  Stmt.checkRec validateNoUnsupportedAdtConstructNode stmt
+
+def validateNoUnsupportedAdtConstructInStmtList_viaFold
+    (stmts : List Stmt) : Except String Unit :=
+  Stmt.checkRecList validateNoUnsupportedAdtConstructNode stmts
+
+def validateNoUnsupportedAdtConstructInBranches_viaFold
+    (branches : List (String × List String × List Stmt)) : Except String Unit :=
+  Stmt.checkRecBranches validateNoUnsupportedAdtConstructNode branches
+
+theorem validateNoUnsupportedAdtConstructInStmt_eq_viaFold (stmt : Stmt) :
+    validateNoUnsupportedAdtConstructInStmt stmt =
+      validateNoUnsupportedAdtConstructInStmt_viaFold stmt := by
+  rfl
+
+theorem validateNoUnsupportedAdtConstructInStmtList_eq_viaFold (stmts : List Stmt) :
+    validateNoUnsupportedAdtConstructInStmtList stmts =
+      validateNoUnsupportedAdtConstructInStmtList_viaFold stmts := by
+  rfl
+
+theorem validateNoUnsupportedAdtConstructInBranches_eq_viaFold
+    (branches : List (String × List String × List Stmt)) :
+    validateNoUnsupportedAdtConstructInBranches branches =
+      validateNoUnsupportedAdtConstructInBranches_viaFold branches := by
+  rfl
 
 def validateFunctionSpec (spec : FunctionSpec) : Except String Unit := do
   let rawYulObligations :=
@@ -1178,6 +1371,33 @@ def validateFunctionSpec (spec : FunctionSpec) : Except String Unit := do
     | none => pure ()
   validateFunctionIdentifierReferences spec
 
+/-- Cross-function reentrancy gate (fail-closed). A function that makes a direct
+    external call opens a reentrancy window: while control is handed to an
+    external callee, another entrypoint can re-enter and observe or exploit this
+    contract's mid-update state (the Midnight `take`/`liquidate` class of bug,
+    which single-function CEI does NOT prevent — even a CEI-clean function leaves
+    a transiently-exploitable state live during its callback). Such a function
+    must therefore carry a *sound* reentrancy disposition: either a runtime
+    `nonreentrant(<lock>)` guard (closes the window at the external dispatch
+    boundary, #1893) or an explicit audited `reentrancy_trusted` assertion.
+    `cei_safe` / `allow_post_interaction_writes` only concern single-function CEI
+    and are intentionally NOT accepted here. `view`/`pure` functions are exempt:
+    a read-only (staticcall) context cannot mutate state and so cannot open a
+    state-corrupting reentrancy window. For the same reason `stmtOpensReentrancyWindow`
+    (unlike `stmtContainsExternalCall`) does not count a `staticcall`-summarised
+    ECM — precompiles, `keccak`/`sha256`, ABI encoding, view-only reads — which
+    the EVM runs in a static context where any state mutation reverts.
+
+    This runs as a dedicated pass *after* call well-formedness validation
+    (`validateExternalCallTargetsInFunction`), so a malformed external call
+    surfaces its structural error first; the reentrancy policy only judges
+    otherwise well-formed external calls. -/
+def validateReentrancyDisposition (spec : FunctionSpec) : Except String Unit := do
+  if spec.body.any stmtOpensReentrancyWindow
+      && !spec.isView && !spec.isPure
+      && !(spec.nonReentrantLock.isSome || spec.reentrancyTrusted) then
+    throw s!"Compilation error: function '{spec.name}' makes an external call but declares no reentrancy disposition. An external call hands control to an untrusted callee that may re-enter another entrypoint while this contract's state is mid-update (cross-function reentrancy). Add `nonreentrant(<lock>)` to synthesise a runtime guard, or `reentrancy_trusted` to assert — and own — that every external callee is trusted not to re-enter ({issue1728Ref}). cei_safe / allow_post_interaction_writes cover only single-function CEI and do not satisfy this gate."
+
 /-- Node-local constructor return check; nested statement bodies are reached
     via the canonical `Stmt.forDeepM`. -/
 def validateNoRuntimeReturnsInConstructorNode : Stmt → Except String Unit
@@ -1187,15 +1407,43 @@ def validateNoRuntimeReturnsInConstructorNode : Stmt → Except String Unit
   | _ => pure ()
 
 def validateNoRuntimeReturnsInConstructorStmt (stmt : Stmt) : Except String Unit :=
-  stmt.forDeepM validateNoRuntimeReturnsInConstructorNode
+  stmt.checkRec validateNoRuntimeReturnsInConstructorNode
 
 def validateNoRuntimeReturnsInConstructorStmtList (stmts : List Stmt) : Except String Unit :=
-  Stmt.forDeepListM validateNoRuntimeReturnsInConstructorNode stmts
+  Stmt.checkRecList validateNoRuntimeReturnsInConstructorNode stmts
 
 def validateNoRuntimeReturnsInConstructorBranches
     (branches : List (String × List String × List Stmt)) : Except String Unit :=
-  branches.forM fun (_, _, body) =>
-    validateNoRuntimeReturnsInConstructorStmtList body
+  Stmt.checkRecBranches validateNoRuntimeReturnsInConstructorNode branches
+
+def validateNoRuntimeReturnsInConstructorStmt_viaFold
+    (stmt : Stmt) : Except String Unit :=
+  Stmt.checkRec validateNoRuntimeReturnsInConstructorNode stmt
+
+def validateNoRuntimeReturnsInConstructorStmtList_viaFold
+    (stmts : List Stmt) : Except String Unit :=
+  Stmt.checkRecList validateNoRuntimeReturnsInConstructorNode stmts
+
+def validateNoRuntimeReturnsInConstructorBranches_viaFold
+    (branches : List (String × List String × List Stmt)) : Except String Unit :=
+  Stmt.checkRecBranches validateNoRuntimeReturnsInConstructorNode branches
+
+theorem validateNoRuntimeReturnsInConstructorStmt_eq_viaFold (stmt : Stmt) :
+    validateNoRuntimeReturnsInConstructorStmt stmt =
+      validateNoRuntimeReturnsInConstructorStmt_viaFold stmt := by
+  rfl
+
+theorem validateNoRuntimeReturnsInConstructorStmtList_eq_viaFold
+    (stmts : List Stmt) :
+    validateNoRuntimeReturnsInConstructorStmtList stmts =
+      validateNoRuntimeReturnsInConstructorStmtList_viaFold stmts := by
+  rfl
+
+theorem validateNoRuntimeReturnsInConstructorBranches_eq_viaFold
+    (branches : List (String × List String × List Stmt)) :
+    validateNoRuntimeReturnsInConstructorBranches branches =
+      validateNoRuntimeReturnsInConstructorBranches_viaFold branches := by
+  rfl
 
 def validateConstructorSpec (ctor : Option ConstructorSpec) : Except String Unit := do
   match ctor with

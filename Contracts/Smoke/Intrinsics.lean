@@ -1,5 +1,7 @@
 import Contracts.Smoke.Helpers
 
+set_option linter.unusedVariables false
+
 namespace Contracts.Smoke
 
 open Contracts
@@ -17,6 +19,20 @@ verity_contract IntrinsicClzSmoke where
 
   function countLeadingZeros (x : Uint256) : Uint256 := do
     return (intrinsic "clz" (Verity.Core.Intrinsics.YulLowering.verbatim 1 1 "1e") [x])
+
+verity_contract BitmapIteratorSmoke where
+  storage
+    lastBit : Uint256 := slot 0
+
+  function leadingZeros (x : Uint256) : Uint256 := do
+    return (clz x)
+
+  function mostSignificantBit (x : Uint256) : Uint256 := do
+    return (msb x)
+
+  function rememberSetBits (bitmap : Uint256) : Unit := do
+    forEachSetBit "bit" bitmap (do
+      setStorage lastBit bit)
 
 def genericECMEffectDemoModule : Compiler.ECM.ExternalCallModule where
   name := "genericEffectDemo"

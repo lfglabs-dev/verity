@@ -31,9 +31,9 @@ Every transition inside the proof envelope is either fully verified or recorded 
 
 <!-- BEGIN GENERATED QUICK FACTS -->
 - **Language**: Lean 4.22.0
-- **Core Size**: 649 lines
-- **Verified Contracts**: 12 (Counter, ERC20, ERC721, Ledger, LocalObligationMacroSmoke, Owned, OwnedCounter, ReentrancyExample, SafeCounter, SimpleStorage, SimpleToken, Vault)
-- **Theorems**: 283 across 12 categories, 283 fully proven
+- **Core Size**: 830 lines
+- **Verified Contracts**: 13 (Counter, ERC20, ERC721, Ledger, LocalObligationMacroSmoke, Owned, OwnedCounter, ReentrancyExample, ReentrancyRelyGuarantee, SafeCounter, SimpleStorage, SimpleToken, Vault)
+- **Theorems**: 291 across 13 categories, 291 fully proven
 - **Axioms**: 0 documented Lean axioms (see AXIOMS.md)
 - **Tests**: 522 Foundry tests, 239 property tests
 - **Build**: `lake build` verifies all proofs
@@ -96,7 +96,7 @@ How-to:
 Reference:
 - https://veritylang.com/examples, SimpleStorage / Counter / SafeCounter / Owned / OwnedCounter / Ledger / SimpleToken / Vault / ERC721 / ReentrancyExample / CryptoHash / ERC20
 - https://veritylang.com/core, ContractState, Contract monad, spec helpers (`sameAddrMapContext` etc.)
-- https://veritylang.com/edsl-api-reference, every primitive, plus `verity_contract` macro features
+- https://veritylang.com/edsl, EDSL reference hub; subpages: /edsl/storage, /edsl/computation, /edsl/control-flow, /edsl/functions, /edsl/external-calls — every primitive plus `verity_contract` macro features
 - https://veritylang.com/compiler, pipeline, CLI flags, audit artifacts
 - https://veritylang.com/intrinsics, consumer-declared opcode/builtin bindings, fork gating, and proof boundary
 - https://veritylang.com/capabilities, what the verified fragment expresses vs partial / trust-boundary features

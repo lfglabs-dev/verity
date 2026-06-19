@@ -38,10 +38,11 @@ EVM Bytecode
 | ERC721 | 11 | Baseline | `Contracts/ERC721/Proofs/` |
 | Vault | 3 | Baseline | `Contracts/Vault/Proofs/` |
 | ReentrancyExample | 5 | Complete | `Contracts/ReentrancyExample/Contract.lean` |
+| ReentrancyRelyGuarantee | 8 | Semantic | `Contracts/ReentrancyRelyGuarantee/Contract.lean` |
 | CryptoHash | 0 | No specs | `Contracts/CryptoHash/Contract.lean` |
-| **Total** | **283** | **✅ 100%** | — |
+| **Total** | **291** | **✅ 100%** | — |
 
-> **Note**: Stdlib (0 internal proof-automation properties) is excluded from the contract-spec theorem table above but included in overall coverage statistics (283 total properties).
+> **Note**: Stdlib (0 internal proof-automation properties) is excluded from the contract-spec theorem table above but included in overall coverage statistics (291 total properties).
 
 Layer 1 uses macro-generated EDSL-to-`CompilationModel` bridge theorems backed by a generic typed-IR compilation-correctness theorem ([`TypedIRCompilerCorrectness.lean`](../Compiler/TypedIRCompilerCorrectness.lean)). Tuple/bytes/fixed-array/dynamic-array/string parameters now stay inside that proof path when they are carried as ABI head words/offsets. Advanced constructs beyond that typed-IR head-word surface (linked libraries, ECMs, fully custom ABI behavior) are still expressed directly in `CompilationModel` and trusted at that boundary. Higher-order internal helpers (function-pointer parameters, [#1747](https://github.com/lfglabs-dev/verity/issues/1747)) are eliminated by a compile-time monomorphization pre-pass that runs before any lowering, so the `CompilationModel` only ever contains first-order helpers: these calls are covered by the existing first-order proof path and introduce no new boundary trust.
 
@@ -58,6 +59,8 @@ Tracking:
 **What is generic today**:
 - a structural theorem for raw statement lists inside the explicit `SupportedStmtList` fragment witness in [`TypedIRCompilerCorrectness.lean`](../Compiler/TypedIRCompilerCorrectness.lean), re-exported for the compiler-proof layer in [`SupportedFragment.lean`](../Compiler/Proofs/IRGeneration/SupportedFragment.lean)
 - a whole-contract theorem surface, [`compile_preserves_semantics`](../Compiler/Proofs/IRGeneration/Contract.lean), quantified over arbitrary supported `CompilationModel`s, selectors, a `SupportedSpec` witness, and successful `CompilationModel.compile` output; the source side is already expressed in the helper-aware semantics family using the canonical `SupportedSpec.helperFuel` bound
+- a syntactic frame-reasoning library for the IR interpreter in [`Frames.lean`](../Compiler/Proofs/Frames.lean): `execStmts_frame_rule` proves any supported statement list preserves every resource disjoint from its declared write set ([#1990](https://github.com/lfglabs-dev/verity/issues/1990) part 1); `writeFootprint` / `execStmts_frame_rule_writeFootprint` compute a syntactic write footprint and prove the frame rule against it ([#1990](https://github.com/lfglabs-dev/verity/issues/1990) part 2); and the `ExecutionSummary` family (`execStmt_setStorage_execution_summary`, `execStmtList_execution_summary_cons`) gives composable per-statement storage-write summaries ([#1994](https://github.com/lfglabs-dev/verity/issues/1994))
+- non-alias certificates for finite mapping slots in [`MappingSlot.lean`](../Compiler/Proofs/MappingSlot.lean): distinct keys / word offsets resolve to distinct storage slots (`mappingSlotLocations_nonAlias_get`, `nestedMappingSlotLocations_nonAlias_get`), supporting the write-set disjointness the frame rule consumes ([#2001](https://github.com/lfglabs-dev/verity/issues/2001))
 
 **What is not yet covered**:
 - the supported whole-contract fragment is still intentionally narrower than the full `CompilationModel` surface; unsupported features remain documented at the boundary instead of being claimed as proved
@@ -82,7 +85,7 @@ Tracking:
 - No Lean axioms remain in Layer 2; 0 `sorry` placeholders remain. The `storageLookup_projectStorage` proof (previously a sorry) is now complete, using `Batteries.RBMap.find?_insert` lemmas with an injectivity argument over in-range storage slots.
 - Stateful environment-reading builtins route through native EVMYulLean context construction: `callvalue`, `timestamp`, `number`, `caller`, `address`, and `calldatasize`.
 - Additional explicit precondition: the generic theorem surface now requires the observed transaction-context fields (`sender`, `thisAddress`, `msgValue`, `blockTimestamp`, `blockNumber`, `chainId`) to already fit the bounded source-side `Address`/`Uint256` domains
-- Outside the current generic theorem or current proof model: nested event emissions inside structural statements (`ite`/`forEach`), proxy/delegatecall upgradeability, linked externals, local unsafe obligations, and other trust-surfaced features not captured by the current supported whole-contract fragment. Scalar event emissions are proved at the body/function level only, for top-level `emit` statements with scalar parameters and at most three indexed parameters; the contract-level scalar-events theorem (and its witness contract) has not yet landed, so the whole-contract theorem still requires `events = []`.
+- Outside the current generic theorem or current proof model: nested event emissions inside structural statements (`ite`/`forEach`), proxy/delegatecall upgradeability, linked externals, local unsafe obligations, and other trust-surfaced features not captured by the current supported whole-contract fragment. Scalar event emissions are proved through a contract-level wrapper for top-level `emit` statements with scalar parameters and at most three indexed parameters; callers supply the scalar-event list-interface witnesses required by the function-level bridge.
 
 Key files:
 - [`TypedIRCompilerCorrectness.lean`](../Compiler/TypedIRCompilerCorrectness.lean)
@@ -189,6 +192,7 @@ Also note that the macro-generated `*_semantic_preservation` theorems are not co
 | ERC721 | 100% (11/11) | 0 |
 | SafeCounter | 100% (25/25) | 0 |
 | ReentrancyExample | 100% (5/5) | 0 |
+| ReentrancyRelyGuarantee | 0% (0/8) | 8 proof-only |
 | Ledger | 100% (33/33) | 0 |
 | LocalObligationMacroSmoke | 100% (4/4) | 0 |
 | SimpleStorage | 95% (19/20) | 1 proof-only |
@@ -198,16 +202,16 @@ Also note that the macro-generated `*_semantic_preservation` theorems are not co
 | Counter | 82% (23/28) | 5 proof-only |
 | Stdlib | 0% (0/0) | 0 proof-only |
 
-**Status**: 90% coverage (255/283), 28 remaining exclusions all proof-only
+**Status**: 88% coverage (255/291), 36 remaining exclusions all proof-only
 
-- **Total Properties**: 283
+- **Total Properties**: 291
 - **Covered**: 255
-- **Excluded**: 28 (all proof-only)
+- **Excluded**: 36 (all proof-only)
 
-**Proof-Only Properties (28 exclusions)**: Internal proof machinery that cannot be tested in Foundry.
+**Proof-Only Properties (36 exclusions)**: Internal proof machinery that cannot be tested in Foundry.
 
 0 `sorry` remaining across `Compiler/**/*.lean` and `Verity/**/*.lean` proof modules.
-2302 theorems/lemmas (1513 public, 789 private) verified by `lake build PrintAxioms`.
+5266 theorems/lemmas (3645 public, 1621 private) verified by `lake build PrintAxioms`.
 
 0 documented Lean axioms remain. The former mapping-slot range axiom has been eliminated via the kernel-computable Keccak engine. Selector computation is kernel-computable, the Layer 2 body-simulation axiom has been eliminated, and the Layer 3 dispatch bridge is tracked as an explicit theorem hypothesis rather than a Lean axiom.
 
@@ -245,4 +249,4 @@ See [`TRUST_ASSUMPTIONS.md`](../TRUST_ASSUMPTIONS.md) for the full trust model a
 
 ---
 
-**Last Updated**: 2026-04-11
+**Last Updated**: 2026-06-19

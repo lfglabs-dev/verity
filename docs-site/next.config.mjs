@@ -74,6 +74,8 @@ export default withNextra({
       { source: "/add-contract", destination: "/guides/add-contract", permanent: true },
       // Compiler architecture merged into /compiler.
       { source: "/compiler-architecture", destination: "/compiler", permanent: true },
+      // EDSL API reference split into the /edsl reference section.
+      { source: "/edsl-api-reference", destination: "/edsl", permanent: true },
       // Syntax highlighting moved to the docs-site README (contributor reference, not user docs).
       { source: "/guides/verity-syntax-highlighting", destination: "/", permanent: true },
       { source: "/syntax-highlighting", destination: "/", permanent: true },
