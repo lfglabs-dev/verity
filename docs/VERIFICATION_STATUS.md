@@ -59,6 +59,8 @@ Tracking:
 **What is generic today**:
 - a structural theorem for raw statement lists inside the explicit `SupportedStmtList` fragment witness in [`TypedIRCompilerCorrectness.lean`](../Compiler/TypedIRCompilerCorrectness.lean), re-exported for the compiler-proof layer in [`SupportedFragment.lean`](../Compiler/Proofs/IRGeneration/SupportedFragment.lean)
 - a whole-contract theorem surface, [`compile_preserves_semantics`](../Compiler/Proofs/IRGeneration/Contract.lean), quantified over arbitrary supported `CompilationModel`s, selectors, a `SupportedSpec` witness, and successful `CompilationModel.compile` output; the source side is already expressed in the helper-aware semantics family using the canonical `SupportedSpec.helperFuel` bound
+- a syntactic frame-reasoning library for the IR interpreter in [`Frames.lean`](../Compiler/Proofs/Frames.lean): `execStmts_frame_rule` proves any supported statement list preserves every resource disjoint from its declared write set ([#1990](https://github.com/lfglabs-dev/verity/issues/1990) part 1); `writeFootprint` / `execStmts_frame_rule_writeFootprint` compute a syntactic write footprint and prove the frame rule against it ([#1990](https://github.com/lfglabs-dev/verity/issues/1990) part 2); and the `ExecutionSummary` family (`execStmt_setStorage_execution_summary`, `execStmtList_execution_summary_cons`) gives composable per-statement storage-write summaries ([#1994](https://github.com/lfglabs-dev/verity/issues/1994))
+- non-alias certificates for finite mapping slots in [`MappingSlot.lean`](../Compiler/Proofs/MappingSlot.lean): distinct keys / word offsets resolve to distinct storage slots (`mappingSlotLocations_nonAlias_get`, `nestedMappingSlotLocations_nonAlias_get`), supporting the write-set disjointness the frame rule consumes ([#2001](https://github.com/lfglabs-dev/verity/issues/2001))
 
 **What is not yet covered**:
 - the supported whole-contract fragment is still intentionally narrower than the full `CompilationModel` surface; unsupported features remain documented at the boundary instead of being claimed as proved
@@ -209,7 +211,7 @@ Also note that the macro-generated `*_semantic_preservation` theorems are not co
 **Proof-Only Properties (36 exclusions)**: Internal proof machinery that cannot be tested in Foundry.
 
 0 `sorry` remaining across `Compiler/**/*.lean` and `Verity/**/*.lean` proof modules.
-2302 theorems/lemmas (1513 public, 789 private) verified by `lake build PrintAxioms`.
+5266 theorems/lemmas (3645 public, 1621 private) verified by `lake build PrintAxioms`.
 
 0 documented Lean axioms remain. The former mapping-slot range axiom has been eliminated via the kernel-computable Keccak engine. Selector computation is kernel-computable, the Layer 2 body-simulation axiom has been eliminated, and the Layer 3 dispatch bridge is tracked as an explicit theorem hypothesis rather than a Lean axiom.
 
@@ -247,4 +249,4 @@ See [`TRUST_ASSUMPTIONS.md`](../TRUST_ASSUMPTIONS.md) for the full trust model a
 
 ---
 
-**Last Updated**: 2026-04-11
+**Last Updated**: 2026-06-19

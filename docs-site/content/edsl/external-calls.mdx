@@ -45,8 +45,11 @@ function notify (leaves : Array Uint256) : Unit := do
 
 Argument types may be word-like (`Uint256`, `Uint8`, `Address`, `Bytes32`,
 `Bool`) or directly-forwarded `Array<wordLike>` / `Bytes` from the caller's ABI.
-Return types must be word-like or static ABI composites of word-like values;
-dynamic return types (e.g. `String`) are rejected.
+A `Bytes` (or dynamic-array) member projected from a struct-array element may
+also be forwarded directly, e.g.
+`externalCall "hashBytes" [(arrayElement txs idx).callData]` (likewise through
+`tryExternalCall`). Return types must be word-like or static ABI composites of
+word-like values; dynamic return types (e.g. `String`) are rejected.
 
 ### Inspecting call results (`callResult`)
 
