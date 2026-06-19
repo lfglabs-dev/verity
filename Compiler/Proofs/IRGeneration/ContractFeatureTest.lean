@@ -1278,6 +1278,10 @@ private def scalarEventSmoke_supported_spec :
         noErrors := rfl
         noExternals := rfl
         noAdtTypes := rfl
+        noCheckedArithmetic := by
+          simp [contractUsesCheckedArithmetic, scalarEventSmokeSpec,
+            scalarEventSmokeFunction, stmtListMayUseCheckedArithmetic,
+            stmtMayUseCheckedArithmetic]
         noFallback := scalarEventSmoke_noFallback
         noReceive := scalarEventSmoke_noReceive }
     constructor := by
