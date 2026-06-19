@@ -413,15 +413,15 @@ verity_contract HelperExternalArgumentSmoke where
   function put (a : Uint256) : Unit := do
     setStorage saved a
 
-  function bindExternalArg (x : Uint256) : Uint256 := do
+  function reentrancy_trusted bindExternalArg (x : Uint256) : Uint256 := do
     let y ← idWord (externalCall "echo" [x])
     return y
 
-  function tupleExternalArg (x : Uint256) : Uint256 := do
+  function reentrancy_trusted tupleExternalArg (x : Uint256) : Uint256 := do
     let (a, b) ← pair (externalCall "echo" [x])
     return (add a b)
 
-  function statementExternalArg (x : Uint256) : Unit := do
+  function reentrancy_trusted statementExternalArg (x : Uint256) : Unit := do
     put (externalCall "echo" [x])
 
 verity_contract BlockTimestampSmoke where

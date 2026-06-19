@@ -290,7 +290,7 @@ class CategoryNoteEntry:
 # ---------------------------------------------------------------------------
 
 PROOF_BOUNDARY_TARGETS = {
-    "EDSL_API": "docs-site/content/edsl-api-reference.mdx",
+    "EDSL_API": "docs-site/content/edsl/external-calls.mdx",
     "COMPILER_DOC": "docs-site/content/compiler.mdx",
     "SOLIDITY_GUIDE": "docs-site/content/guides/solidity-to-verity.mdx",
 }

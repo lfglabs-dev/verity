@@ -37,7 +37,8 @@ lean_lib «Contracts» where
     .andSubmodules `Contracts.ERC721,
     .andSubmodules `Contracts.SimpleToken,
     .andSubmodules `Contracts.CryptoHash,
-    .andSubmodules `Contracts.ReentrancyExample
+    .andSubmodules `Contracts.ReentrancyExample,
+    .andSubmodules `Contracts.ReentrancyRelyGuarantee
   ]
 
 lean_lib «Compiler» where

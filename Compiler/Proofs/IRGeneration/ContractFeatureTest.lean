@@ -536,7 +536,7 @@ private theorem constructorOnly_compileBody :
      | .error _ => [], ?_⟩
   simp [constructorOnlySpec, constructorOnlyCtor, constructorOnlyOwnerField,
     CompilationModel.compileStmtList, CompilationModel.compileStmt,
-    CompilationModel.compileSetStorage, CompilationModel.compileExpr,
+    CompilationModel.compileSetStorage, CompilationModel.compileExprWithInternals,
     CompilationModel.isMapping, constructorOnly_owner_resolved_lit,
     Bind.bind, Except.bind, Pure.pure, Except.pure]
 
@@ -598,17 +598,17 @@ example :
       functionReturns identityInternalHelper = Except.ok returns →
       retNames =
         freshInternalRetNames returns
-          (identityInternalHelper.params.map (·.name) ++
+          (internalFunctionYulParamNames identityInternalHelper.params ++
             collectStmtListBindNames identityInternalHelper.body) →
       compileStmtList [] [] [] .calldata retNames true
-        (identityInternalHelper.params.map (·.name) ++ retNames)
+        (internalFunctionYulParamNames identityInternalHelper.params ++ retNames)
         []
         identityInternalHelper.body = Except.ok bodyStmts →
       compileInternalFunction [] [] [] [] identityInternalHelper =
         Except.ok
           (YulStmt.funcDef
             (internalFunctionYulName identityInternalHelper.name)
-            (identityInternalHelper.params.map (·.name))
+            (internalFunctionYulParamNames identityInternalHelper.params)
             retNames
             bodyStmts) := by
   intro returns retNames bodyStmts hvalidate hreturns hretNames hbody
@@ -869,7 +869,7 @@ example :
          | .error _ => []) := by
     simp [constructorOnlySpec, constructorOnlyCtor, constructorOnlyOwnerField,
       CompilationModel.compileStmtList, CompilationModel.compileStmt,
-      CompilationModel.compileSetStorage, CompilationModel.compileExpr,
+      CompilationModel.compileSetStorage, CompilationModel.compileExprWithInternals,
       CompilationModel.isMapping, constructorOnly_owner_resolved_lit,
       Bind.bind, Except.bind, Pure.pure, Except.pure]
   have hbind :
@@ -939,7 +939,7 @@ example :
         Except.ok bodyStmts := by
       simp [bodyStmts, constructorOnlySpec, constructorOnlyCtor, constructorOnlyOwnerField,
         CompilationModel.compileStmtList, CompilationModel.compileStmt,
-        CompilationModel.compileSetStorage, CompilationModel.compileExpr,
+        CompilationModel.compileSetStorage, CompilationModel.compileExprWithInternals,
         CompilationModel.isMapping, constructorOnly_owner_resolved_lit,
         Bind.bind, Except.bind, Pure.pure, Except.pure]
     have hbind :
@@ -1149,5 +1149,204 @@ example :
     SourceSemantics.wordNormalize, SourceSemantics.uint8Modulus,
     Compiler.Constants.addressMask, Compiler.Constants.evmModulus,
     Verity.Core.Uint256.ofNat, hunindexed, hindexed]
+
+private def scalarEventSmokeFunction : FunctionSpec :=
+  { name := "ping"
+    params := []
+    returnType := none
+    body := [Stmt.emit "Ping" [.literal 7, .literal 9]] }
+
+private def scalarEventSmokeSpec : CompilationModel :=
+  { name := "ScalarEventSmoke"
+    fields := []
+    constructor := none
+    events :=
+      [{ name := "Ping"
+         params :=
+          [{ name := "topic", ty := .uint256, kind := .indexed },
+           { name := "value", ty := .uint256, kind := .unindexed }] }]
+    functions := [scalarEventSmokeFunction] }
+
+private def scalarEventSmokeSelector : Nat := 0x22222222
+
+private theorem scalarEventSmoke_compileEmit_empty_events_ne_ok
+    (compiledIR : List YulStmt) :
+    compileEmit [] [] .calldata "Ping" [Expr.literal 7, Expr.literal 9] ≠
+      Except.ok compiledIR := by
+  simp [compileEmit, bind, Except.bind]
+
+private theorem scalarEventSmoke_noPackedFields :
+    ∀ field ∈ scalarEventSmokeSpec.fields, field.packedBits = none := by
+  intro field hfield
+  simp [scalarEventSmokeSpec] at hfield
+
+private theorem scalarEventSmoke_noFallback :
+    ∀ fn ∈ scalarEventSmokeSpec.functions, fn.name != "fallback" := by
+  intro fn hfn
+  simp [scalarEventSmokeSpec, scalarEventSmokeFunction] at hfn
+  rcases hfn with rfl
+  decide
+
+private theorem scalarEventSmoke_noReceive :
+    ∀ fn ∈ scalarEventSmokeSpec.functions, fn.name != "receive" := by
+  intro fn hfn
+  simp [scalarEventSmokeSpec, scalarEventSmokeFunction] at hfn
+  rcases hfn with rfl
+  decide
+
+private def scalarEventSmoke_supported_function :
+    ∀ fn, fn ∈ scalarEventSmokeSpec.functions →
+      SupportedFunctionWithScalarEvents scalarEventSmokeSpec fn := by
+  intro fn hfn
+  simp [scalarEventSmokeSpec, scalarEventSmokeFunction] at hfn
+  rcases hfn with rfl
+  exact
+    { nonInternal := rfl
+      nonSpecialEntrypoint := rfl
+      noNonReentrant := rfl
+      params :=
+        { namesNodup := by decide
+          supported := by intro param hparam; cases hparam
+          calldataThreshold := by decide }
+      returns := { resolved := ⟨[], rfl, trivial⟩ }
+      body :=
+        { stmtList :=
+            .emitEvent
+              (by intro arg harg; simp at harg; rcases harg with rfl | rfl <;> exact .literal _)
+              (by
+                intro arg harg
+                simp at harg
+                rcases harg with rfl | rfl
+                · intro name hname; simp [FunctionBody.exprBoundNames] at hname
+                · intro name hname; simp [FunctionBody.exprBoundNames] at hname)
+          core := { surfaceClosed := by decide }
+          state := { surfaceClosed := by decide }
+          calls :=
+            { helpers :=
+                { helperRank := 1
+                  callNamesNodup := helperCallNames_nodup _
+                  summaryOf := by
+                    intro calleeName hmem
+                    simp [helperCallNames, stmtListInternalHelperCallNames,
+                      stmtInternalHelperCallNames, exprListInternalHelperCallNames,
+                      exprInternalHelperCallNames] at hmem
+                  calleeRanksDecrease := by
+                    intro calleeName hmem
+                    simp [helperCallNames, stmtListInternalHelperCallNames,
+                      stmtInternalHelperCallNames, exprListInternalHelperCallNames,
+                      exprInternalHelperCallNames] at hmem
+                  exprCallsPreserveWorld := by
+                    intro calleeName hmem
+                    simp [exprHelperCallNames, stmtListExprHelperCallNames,
+                      stmtExprHelperCallNames, exprListInternalHelperCallNames,
+                      exprInternalHelperCallNames] at hmem }
+              foreign := by decide
+              lowLevel := by decide }
+          contractSurfaceWithEvents := by decide
+          topLevelEventHeads := by
+            intro s hs
+            simp at hs
+            rcases hs with rfl
+            exact Or.inl rfl
+          eventScratchFreshInitial := by decide
+          eventScratchFreshStmts := by
+            intro s hs
+            simp at hs
+            rcases hs with rfl
+            simp [collectStmtNames, collectExprListNames, collectExprNames]
+          emitArgsInScope := by
+            intro s hs eventName args heq arg harg
+            simp at hs
+            rcases hs with rfl
+            cases heq
+            simp at harg
+            rcases harg with rfl | rfl
+            · intro name hname; simp [FunctionBody.exprBoundNames] at hname
+            · intro name hname; simp [FunctionBody.exprBoundNames] at hname
+          noLocalObligations := rfl } }
+
+private def scalarEventSmoke_supported_spec :
+    SupportedSpecWithScalarEvents scalarEventSmokeSpec [scalarEventSmokeSelector] :=
+  { invariants :=
+      { normalizedFields := rfl
+        noPackedFields := scalarEventSmoke_noPackedFields
+        selectorCount := by decide
+        selectorsDistinct := by decide
+        functionNamesNodup := by decide }
+    surface :=
+      { eventsSupported := by intro eventDef hmem; simp [scalarEventSmokeSpec] at hmem; rcases hmem with rfl; decide
+        noErrors := rfl
+        noExternals := rfl
+        noAdtTypes := rfl
+        noFallback := scalarEventSmoke_noFallback
+        noReceive := scalarEventSmoke_noReceive }
+    constructor := by
+      intro ctor hctor
+      simp [scalarEventSmokeSpec] at hctor
+    functions := scalarEventSmoke_supported_function }
+
+private theorem scalarEventSmoke_helperFree :
+    ∀ fn, fn ∈ selectorDispatchedFunctions scalarEventSmokeSpec →
+      StmtListHelperFreeNonEventStepInterface
+        (SourceSemantics.effectiveFields scalarEventSmokeSpec)
+        (fn.params.map (·.name)) fn.body := by
+  intro fn hfn
+  simp [scalarEventSmokeSpec, selectorDispatchedFunctions, scalarEventSmokeFunction] at hfn
+  rcases hfn with ⟨rfl, _hinternal, _hspecial⟩
+  exact .cons
+    (fun _hhelper hevent => by simp [stmtTouchesEventSurface] at hevent)
+    .nil
+
+private theorem scalarEventSmoke_disjoint
+    (ir : IRContract) :
+    ∀ fn, fn ∈ selectorDispatchedFunctions scalarEventSmokeSpec →
+      StmtListHelperFreeCompiledCallsDisjoint { ir with internalFunctions := [] }
+        (SourceSemantics.effectiveFields scalarEventSmokeSpec)
+        (fn.params.map (·.name)) fn.body := by
+  intro fn hfn
+  simp [scalarEventSmokeSpec, selectorDispatchedFunctions, scalarEventSmokeFunction] at hfn
+  rcases hfn with ⟨rfl, _hinternal, _hspecial⟩
+  exact .cons
+    (fun _hhelper compiledIR hcompile => by
+      have hbad := scalarEventSmoke_compileEmit_empty_events_ne_ok compiledIR
+      simp [SourceSemantics.effectiveFields, scalarEventSmokeSpec,
+        CompilationModel.compileStmt] at hcompile
+      exact False.elim (hbad hcompile))
+    .nil
+
+theorem scalarEventSmoke_compile_preserves_semantics_with_scalar_events
+    (ir : IRContract)
+    (tx : IRTransaction)
+    (initialWorld : Verity.ContractState)
+    (htxNormalized : Function.TxContextNormalized tx)
+    (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
+    (hcompile :
+      CompilationModel.compile scalarEventSmokeSpec [scalarEventSmokeSelector] =
+        Except.ok ir) :
+    FunctionBody.sourceResultMatchesIRResult
+      (supportedSourceContractSemanticsWithScalarEvents scalarEventSmokeSpec
+        [scalarEventSmokeSelector] scalarEventSmoke_supported_spec tx initialWorld)
+      (interpretIR ir tx
+        (FunctionBody.initialIRStateForTx scalarEventSmokeSpec tx initialWorld)) := by
+  exact Contract.compile_preserves_semantics_with_scalar_events
+    (model := scalarEventSmokeSpec)
+    (selectors := [scalarEventSmokeSelector])
+    (hSupported := scalarEventSmoke_supported_spec)
+    (ir := ir)
+    (tx := tx)
+    (initialWorld := initialWorld)
+    (htxNormalized := htxNormalized)
+    (hcalldataSizeFits := hcalldataSizeFits)
+    (hcompile := hcompile)
+    (hfuelPos := by
+      dsimp [SupportedSpecWithScalarEvents.helperFuel,
+        SupportedSpecWithScalarEvents.helperFuelOfFunction,
+        scalarEventSmoke_supported_spec, scalarEventSmokeSpec,
+        selectorDispatchedFunctions, SupportedFunctionWithScalarEvents.helperFuel,
+        SupportedSpecWithScalarEvents.supportedFunctionOfSelectorDispatched,
+        scalarEventSmoke_supported_function]
+      simp [scalarEventSmokeFunction, isInteropEntrypointName])
+    (hhelperFree := scalarEventSmoke_helperFree)
+    (hstmtDisjoint := scalarEventSmoke_disjoint ir)
 
 end Compiler.Proofs.IRGeneration.ContractFeatureTest

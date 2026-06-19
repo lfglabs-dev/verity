@@ -368,7 +368,7 @@ def mkInitGuardedBody
     `mappingAddress` is the role-as-mapping shape (e.g. `onlyRelayer`,
     `onlyMinter`) — a `mapping(address => uint256)` slot used as a 0/1 flag;
     the macro injects `require (storage[slot][caller] != 0)`. (verity#1837) -/
-inductive RoleKind where
+inductive ResolvedRoleKind where
   | scalarAddress
   | mappingAddress
 
@@ -376,19 +376,27 @@ inductive RoleKind where
     Accepts either an Address-typed scalar field (`onlyOwner`-style) or an
     `Address → Uint256` mapping field (`onlyRelayer`-style, verity#1837). -/
 def resolveRoleField
-    (fields : Array StorageFieldDecl) (roleIdent : Ident) (fnIdent : Ident)
-    : CommandElabM (StorageFieldDecl × RoleKind) := do
+    (fields : Array StorageFieldDecl) (roleDecls : Array RoleDecl) (roleIdent : Ident) (fnIdent : Ident)
+    : CommandElabM (StorageFieldDecl × ResolvedRoleKind × String) := do
   let roleName := toString roleIdent.getId
-  match fields.find? (fun f => f.name == roleName) with
+  let resolveField (fieldName : String) (diagName : String) := do
+    match fields.find? (fun f => f.name == fieldName) with
+    | none =>
+        throwErrorAt roleIdent s!"function '{toString fnIdent.getId}': requires({diagName}) references role backing field '{fieldName}', but no such storage field exists; known fields: {(fields.map (·.name)).toList}"
+    | some field =>
+        match field.ty with
+        | .scalar .address | .scalar (.newtype _ .address) =>
+            pure (field, .scalarAddress, diagName)
+        | .mappingAddressToUint256 =>
+            pure (field, .mappingAddress, diagName)
+        | _ => throwErrorAt roleIdent s!"function '{toString fnIdent.getId}': requires({diagName}) must reference an explicit role or an Address-typed scalar / Address→Uint256 role field, but backing field '{fieldName}' has an unsupported role shape"
+  match roleDecls.find? (fun r => r.name == roleName) with
+  | some role => resolveField role.fieldName role.name
   | none =>
-      throwErrorAt roleIdent s!"function '{toString fnIdent.getId}': requires references unknown storage field '{roleName}'; known fields: {(fields.map (·.name)).toList}"
-  | some field =>
-      match field.ty with
-      | .scalar .address | .scalar (.newtype _ .address) =>
-          pure (field, .scalarAddress)
-      | .mappingAddressToUint256 =>
-          pure (field, .mappingAddress)
-      | _ => throwErrorAt roleIdent s!"function '{toString fnIdent.getId}': requires({roleName}) must reference an Address-typed scalar storage field or an Address→Uint256 mapping (role-as-mapping), but '{roleName}' has a different type"
+      match fields.find? (fun f => f.name == roleName) with
+      | some _ => resolveField roleName roleName
+      | none =>
+          throwErrorAt roleIdent s!"function '{toString fnIdent.getId}': requires references unknown role '{roleName}'; known roles: {(roleDecls.map (·.name)).toList}; legacy storage fields: {(fields.map (·.name)).toList}"
 
 /-- Generate IR-level prelude statements for a `requires(role)` annotation.
     Scalar Address: injects `Stmt.require (Expr.eq Expr.caller (Expr.storageAddr roleField)) message`.
@@ -397,12 +405,13 @@ def resolveRoleField
     (#1728, Axis 2 Step 2c; mapping-keyed extension verity#1837) -/
 def roleGuardPreludeStmtTerms
     (fields : Array StorageFieldDecl)
+    (roleDecls : Array RoleDecl)
     (fn : FunctionDecl) : CommandElabM (Array Term) := do
   match fn.requiresRole with
   | none => pure #[]
   | some roleIdent =>
-      let (field, kind) ← resolveRoleField fields roleIdent fn.ident
-      let message := strTerm s!"Access denied: caller is not {field.name}"
+      let (field, kind, roleName) ← resolveRoleField fields roleDecls roleIdent fn.ident
+      let message := strTerm s!"Access denied: caller is not {roleName}"
       match kind with
       | .scalarAddress =>
           pure #[
@@ -428,13 +437,14 @@ def roleGuardPreludeStmtTerms
     (#1728, Axis 2 Step 2c; mapping-keyed extension verity#1837) -/
 def mkRoleGuardedBody
     (fields : Array StorageFieldDecl)
+    (roleDecls : Array RoleDecl)
     (fn : FunctionDecl) : CommandElabM Term := do
   match fn.requiresRole with
   | none => pure fn.body
   | some roleIdent =>
-      let (field, kind) ← resolveRoleField fields roleIdent fn.ident
+      let (field, kind, roleName) ← resolveRoleField fields roleDecls roleIdent fn.ident
       let senderVar := mkIdent (Name.mkSimple s!"__verity_role_sender_{field.name}")
-      let message := strTerm s!"Access denied: caller is not {field.name}"
+      let message := strTerm s!"Access denied: caller is not {roleName}"
       match fn.body with
       | `(term| do $[$elems:doElem]*) =>
           match kind with
@@ -2140,6 +2150,20 @@ partial def inferBindSourceType
     (rhs : Term) : CommandElabM ValueType := do
   let rhs := stripParens rhs
   match rhs with
+  | `(term| callResult $name:term $_args:term) =>
+      let extName := ← expectStringOrIdent name
+      let ext ←
+        match externalDecls.find? (fun ext => ext.name == extName) with
+        | some ext => pure ext
+        | none => throwErrorAt rhs s!"unknown external function '{extName}'"
+      let fields :=
+        match ext.returnTys.toList with
+        | [] => [("success", .bool)]
+        | [retTy] => [("success", .bool), ("returndata", retTy)]
+        | retTys =>
+            ("success", .bool) ::
+              retTys.zipIdx.map (fun (retTy, idx) => (s!"returndata{idx}", retTy))
+      pure (.struct "Call.Result" fields)
   | `(term| getStorage $field:ident) =>
       let f ← lookupStorageField fields (toString field.getId)
       match f.ty with
@@ -2366,7 +2390,7 @@ partial def inferBindSourceType
   | _ =>
       match ← resolveLocalFunctionApp? fields constDecls immutableDecls externalDecls functions params locals rhs with
       | some (fn, _argTerms) =>
-          ensureSupportsInternalHelperSpec rhs fn
+          ensureCallableAsInternalHelper rhs fn
           match fn.returnTy with
           | .tuple _ =>
               throwErrorAt rhs
@@ -2482,7 +2506,7 @@ partial def inferTupleSourceTypes?
         | other =>
             match ← resolveLocalFunctionApp? fields constDecls immutableDecls externalDecls functions params locals other with
             | some (fn, _argTerms) =>
-                ensureSupportsInternalHelperSpec rhs fn
+                ensureCallableAsInternalHelper rhs fn
                 match fn.returnTy with
                 | .tuple elemTys => pure (some elemTys.toArray)
                 | _ => pure none
@@ -3001,8 +3025,8 @@ partial def translatePureExprWithTypes
       else if let some imm := immutableDecls.find? (fun imm => declaredNameMatches name imm.name) then
         match imm.ty with
         | .uint256 | .int256 | .uint8 | .uint16 | .bytes32 | .bool =>
-            `(Compiler.CompilationModel.Expr.storage $(strTerm (immutableHiddenName imm)))
-        | .address => `(Compiler.CompilationModel.Expr.storageAddr $(strTerm (immutableHiddenName imm)))
+            `(Compiler.CompilationModel.Expr.immutable $(strTerm imm.name))
+        | .address => `(Compiler.CompilationModel.Expr.immutable $(strTerm imm.name))
         | _ => throwErrorAt stx s!"immutable '{name}' uses unsupported type"
       else if let some constant := constDecls.find? (fun constant => declaredNameMatches name constant.name) then
         translateConstantExpr fields constDecls immutableDecls visitingConstants constant.name
@@ -4137,7 +4161,7 @@ def tupleInternalCallAssignStmt?
   let resultNameTerms := targetNames.toArray.map strTerm
   match ← resolveLocalFunctionApp? fields constDecls immutableDecls externalDecls functions params locals rhs with
   | some (fn, argTerms) =>
-      ensureSupportsInternalHelperSpec rhs fn
+      ensureCallableAsInternalHelper rhs fn
       let argExprs ← translateInternalHelperCallArgs
         fields constDecls immutableDecls params locals fn argTerms
       pure (some (← `(Compiler.CompilationModel.Stmt.internalCallAssign
@@ -4223,6 +4247,68 @@ def tryExternalCallBindStmt?
           $(strTerm extName)
           [ $[$argExprs],* ])
       pure (some (stmt, visibleLocals))
+  | _ => pure none
+
+/-- Translate `let r ← callResult "name" [args]` into the existing try-call
+    lowering while exposing `r.success` and `r.returndata` (or
+    `r.returndata0`, `r.returndata1`, ...) as one source-level result value. -/
+def callResultBindStmt?
+    (fields : Array StorageFieldDecl)
+    (constDecls : Array ConstantDecl)
+    (immutableDecls : Array ImmutableDecl)
+    (externalDecls : Array ExternalDecl)
+    (params : Array ParamDecl)
+    (locals : Array TypedLocal)
+    (rhs : Term)
+    (resultName : String) : CommandElabM (Option (Term × TypedLocal)) := do
+  let rhs := stripParens rhs
+  match rhs with
+  | `(term| callResult $name:term $args:term) =>
+      let extName := ← expectStringOrIdent name
+      let argExprs ← match stripParens args with
+        | `(term| [ $[$xs],* ]) =>
+            translateLinkedExternalCallArgs fields constDecls immutableDecls params locals xs
+        | _ => throwErrorAt args "expected list literal [..]"
+      let ext ←
+        match externalDecls.find? (fun ext => ext.name == extName) with
+        | some ext => pure ext
+        | none => throwErrorAt rhs s!"unknown external function '{extName}'"
+      for retTy in ext.returnTys do
+        unless isSingleWordStaticValueType retTy do
+          throwErrorAt rhs
+            s!"callResult '{extName}' currently supports only zero or more single-word static return values; got {renderValueType retTy}"
+      let successVar := freshSyntheticLocalName s!"{resultName}_success" params locals #[]
+      let usedAfterSuccess : Array TypedLocal := locals.push (mkTypedLocal successVar .bool)
+      let mut fieldLocals : List (String × String) := [("success", successVar)]
+      let mut resultVars : Array String := #[]
+      let mut resultFields : List (String × ValueType) := [("success", .bool)]
+      match ext.returnTys.toList with
+      | [] => pure ()
+      | [retTy] =>
+          let payloadVar := freshSyntheticLocalName s!"{resultName}_returndata" params usedAfterSuccess #[]
+          resultVars := resultVars.push payloadVar
+          fieldLocals := fieldLocals ++ [("returndata", payloadVar)]
+          resultFields := resultFields ++ [("returndata", retTy)]
+      | retTys =>
+          let mut indexedLocals := usedAfterSuccess
+          for (retTy, idx) in retTys.zipIdx do
+            let fieldName := s!"returndata{idx}"
+            let payloadVar := freshSyntheticLocalName s!"{resultName}_{fieldName}" params indexedLocals #[]
+            indexedLocals := indexedLocals.push (mkTypedLocal payloadVar retTy)
+            resultVars := resultVars.push payloadVar
+            fieldLocals := fieldLocals ++ [(fieldName, payloadVar)]
+            resultFields := resultFields ++ [(fieldName, retTy)]
+      let resultVarTerms := resultVars.map strTerm
+      let stmt ← `(Compiler.CompilationModel.Stmt.tryExternalCallBind
+          $(strTerm successVar)
+          [ $[$resultVarTerms],* ]
+          $(strTerm extName)
+          [ $[$argExprs],* ])
+      let resultLocal : TypedLocal :=
+        { name := resultName
+          ty := .struct "Call.Result" resultFields
+          source := .externalStaticStruct fieldLocals }
+      pure (some (stmt, resultLocal))
   | _ => pure none
 
 def expectExprList
@@ -4572,7 +4658,7 @@ def translateBindSource
   | _ =>
       match ← resolveLocalFunctionApp? fields constDecls immutableDecls externalDecls functions params locals rhs with
       | some (fn, argTerms) =>
-          ensureSupportsInternalHelperSpec rhs fn
+          ensureCallableAsInternalHelper rhs fn
           let argExprs ← translateInternalHelperCallArgs
             fields constDecls immutableDecls params locals fn argTerms
           `(Compiler.CompilationModel.Expr.internalCall

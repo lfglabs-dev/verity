@@ -65,6 +65,7 @@ What remains outside the proof envelope is **assumptions**, not axioms:
 
 - **Externally Callable Modules (ECMs)** in `Compiler/Modules/*.lean` carry named assumptions like `erc20_balanceOf_interface`, `evm_ecrecover_precompile`, `keccak256_memory_slice_matches_evm`. These are trust-report metadata, not Lean axioms, they document that the call mechanics depend on the EVM behaving as specified.
 - **`local_obligations`** declared on a constructor or function carry a named refinement obligation at that exact usage site.
+- **Reentrancy dispositions** are required on every non-`view` function that opens a reentrancy window (see [Functions](/edsl/functions#reentrancy-disposition)). A `nonreentrant(<lock>)` disposition is a runtime guard; a `reentrancy_trusted` disposition is metadata-only and **unproven** — it records an explicit author assertion that the interaction is safe, and the build fails closed if no disposition is declared.
 - **Raw Yul fragments** use `Stmt.unsafeYul` with `UnsafeYulFragment`
   metadata. One-off instruction escapes, such as raw memory reverts, belong here
   rather than as new first-class statement constructors. Common typed primitives

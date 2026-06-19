@@ -107,6 +107,7 @@ def internalDynamicParamSupported : ParamType → Bool
   | ParamType.bytes | ParamType.string => true
   | ty@(ParamType.tuple _) => isDynamicParamType ty
   | ty@(ParamType.fixedArray _ _) => isDynamicParamType ty
+  | ParamType.newtypeOf _ baseTy => internalDynamicParamSupported baseTy
   | _ => false
 
 def firstUnsupportedInternalDynamicParam
@@ -171,10 +172,33 @@ def findInternalFunctionByName (functions : List FunctionSpec)
   | _ =>
       throw s!"Compilation error: function '{callerName}' references ambiguous internal function '{calleeName}' ({issue625Ref})."
 
-def directForwardedInternalArgName? : Expr → Option String
-  | Expr.param name => some name
-  | Expr.localVar name => some name
-  | _ => none
+def internalParamTypeAndLayoutMatches (sourceTy expectedTy : ParamType) : Bool :=
+  sourceTy == expectedTy &&
+    internalCallYulArgNamesForParam "__arg" { name := "__arg", ty := sourceTy } ==
+      internalCallYulArgNamesForParam "__arg" { name := "__arg", ty := expectedTy }
+
+partial def dynamicMemberTypeAtWordOffset : ParamType → Nat → Option ParamType
+  | ParamType.tuple elemTys, wordOffset =>
+      let rec goTuple : List ParamType → Nat → Option ParamType
+        | [], _ => none
+        | elemTy :: rest, cursor =>
+            if cursor == wordOffset then
+              some elemTy
+            else
+              goTuple rest (cursor + paramParentHeadWords elemTy)
+      goTuple elemTys 0
+  | ParamType.fixedArray elemTy n, wordOffset =>
+      let rec goArray : Nat → Nat → Option ParamType
+        | 0, _ => none
+        | count + 1, cursor =>
+            if cursor == wordOffset then
+              some elemTy
+            else
+              goArray count (cursor + paramParentHeadWords elemTy)
+      goArray n 0
+  | ParamType.newtypeOf _ baseTy, wordOffset =>
+      dynamicMemberTypeAtWordOffset baseTy wordOffset
+  | _, _ => none
 
 def validateInternalCallArgForParam
     (callerParams : List Param) (callerName calleeName : String)
@@ -182,7 +206,7 @@ def validateInternalCallArgForParam
   if isExpandedInternalParamType param.ty then
     match directForwardedInternalArgName? arg with
     | none =>
-        throw s!"Compilation error: function '{callerName}' calls internal function '{calleeName}' with a computed argument for expanded parameter '{param.name}' ({repr param.ty}); issue #1889 currently supports direct parameter/local forwarding only."
+        throw s!"Compilation error: function '{callerName}' calls internal function '{calleeName}' with a computed argument for expanded parameter '{param.name}' ({repr param.ty}); issue #1889 currently supports direct parameter forwarding only."
     | some _ => pure ()
   else
     pure ()
@@ -191,24 +215,101 @@ def validateInternalCallArgForParam
     | Expr.param sourceName =>
         match findParamType callerParams sourceName with
         | some sourceTy =>
-            if sourceTy == param.ty then
+            if internalParamTypeAndLayoutMatches sourceTy param.ty then
               pure ()
             else
-              throw s!"Compilation error: function '{callerName}' calls internal function '{calleeName}' with parameter '{sourceName}' of type {repr sourceTy}, expected {repr param.ty} for expanded callee parameter '{param.name}' (issue #1889)."
-        | none => pure ()
+              throw s!"Compilation error: function '{callerName}' calls internal function '{calleeName}' with parameter '{sourceName}' of type/layout {repr sourceTy}, expected {repr param.ty} for expanded callee parameter '{param.name}' (issue #1889)."
+        | none =>
+            throw s!"Compilation error: function '{callerName}' calls internal function '{calleeName}' forwarding unknown parameter '{sourceName}' for expanded callee parameter '{param.name}' (issue #1889)."
     | _ => pure ()
   else
     pure ()
 
+def expandedExprParamNames? : List Expr → Option (List String)
+  | [] => some []
+  | Expr.param name :: rest =>
+      match expandedExprParamNames? rest with
+      | some names => some (name :: names)
+      | none => none
+  | _ => none
+
+def expandedProjectionType?
+    (callerParams : List Param) : List Expr → Option ParamType
+  | [ Expr.paramDynamicMemberDataOffset name wordOffset
+    , Expr.paramDynamicMemberLength lengthName lengthWordOffset ] =>
+      if name == lengthName && wordOffset == lengthWordOffset then
+        match findParamType callerParams name with
+        | some sourceTy => dynamicMemberTypeAtWordOffset sourceTy wordOffset
+        | none => none
+      else
+        none
+  | [ Expr.arrayElementDynamicMemberDataOffset name index wordOffset
+    , Expr.arrayElementDynamicMemberLength lengthName lengthIndex lengthWordOffset ] =>
+      let sameIndex :=
+        match index, lengthIndex with
+        | Expr.param lhs, Expr.param rhs => lhs == rhs
+        | Expr.localVar lhs, Expr.localVar rhs => lhs == rhs
+        | Expr.literal lhs, Expr.literal rhs => lhs == rhs
+        | _, _ => false
+      if name == lengthName && sameIndex && wordOffset == lengthWordOffset then
+        match findParamType callerParams name with
+        | some (ParamType.array elemTy) => dynamicMemberTypeAtWordOffset elemTy wordOffset
+        | some (ParamType.newtypeOf _ (ParamType.array elemTy)) =>
+            dynamicMemberTypeAtWordOffset elemTy wordOffset
+        | _ => none
+      else
+        none
+  | _ => none
+
+def expandedArgsMatchCallerParam
+    (param : Param) (argNames : List String) (source : Param) : Bool :=
+  internalParamTypeAndLayoutMatches source.ty param.ty &&
+    argNames == internalCallYulArgNamesForParam source.name param
+
+def validateExpandedInternalCallArgNames
+    (callerParams : List Param) (callerName calleeName : String) (param : Param) (args : List Expr) :
+    Except String Unit := do
+  let expectedNames := internalFunctionYulParamNames [param]
+  if args.length != expectedNames.length then
+    throw s!"Compilation error: function '{callerName}' calls internal function '{calleeName}' with {args.length} expanded arg(s) for parameter '{param.name}', expected {expectedNames.length} ({issue625Ref}, issue #1889)."
+  else
+    match expandedExprParamNames? args with
+    | some argNames =>
+        if callerParams.any (expandedArgsMatchCallerParam param argNames) then
+          pure ()
+        else
+          throw s!"Compilation error: function '{callerName}' calls internal function '{calleeName}' with expanded args {repr argNames} for parameter '{param.name}', but no caller parameter has exact type/layout {repr param.ty} and matching generated names (issue #1889)."
+    | none =>
+        match expandedProjectionType? callerParams args with
+        | some sourceTy =>
+            if internalParamTypeAndLayoutMatches sourceTy param.ty then
+              pure ()
+            else
+              throw s!"Compilation error: function '{callerName}' calls internal function '{calleeName}' with projected expanded args of type/layout {repr sourceTy}, expected {repr param.ty} for parameter '{param.name}' (issue #1889)."
+        | none =>
+            throw s!"Compilation error: function '{callerName}' calls internal function '{calleeName}' with non-parameter expanded args for parameter '{param.name}' without a checked projection proving exact type/layout forwarding (issue #1889)."
+
+def validateExpandedInternalCallArgs
+    (callerParams : List Param) (callerName calleeName : String) : List Param → List Expr → Except String Unit
+  | [], [] => pure ()
+  | param :: params, args => do
+      let expectedCount := (internalFunctionYulParamNames [param]).length
+      let head := args.take expectedCount
+      let tail := args.drop expectedCount
+      validateExpandedInternalCallArgNames callerParams callerName calleeName param head
+      validateExpandedInternalCallArgs callerParams callerName calleeName params tail
+  | [], _ :: _ =>
+      throw s!"Compilation error: function '{callerName}' calls internal function '{calleeName}' with extra expanded arg(s) after exact type/layout validation ({issue625Ref}, issue #1889)."
+
 def validateInternalCallSourceArgs
     (callerParams : List Param) (callerName calleeName : String)
     (params : List Param) (args : List Expr) : Except String Unit := do
-  let legacyArgCount :=
+  let expandedArgCount :=
     params.foldl (fun acc param => acc + (internalFunctionYulParamNames [param]).length) 0
-  if args.length == legacyArgCount && args.length != params.length then
-    pure ()
+  if args.length == expandedArgCount && args.length != params.length then
+    validateExpandedInternalCallArgs callerParams callerName calleeName params args
   else if args.length != params.length then
-    throw s!"Compilation error: function '{callerName}' calls internal function '{calleeName}' with {args.length} source arg(s), expected {params.length} (or {legacyArgCount} expanded Yul arg(s) for legacy call sites) ({issue625Ref}, issue #1889)."
+    throw s!"Compilation error: function '{callerName}' calls internal function '{calleeName}' with {args.length} source arg(s), expected {params.length} (or {expandedArgCount} exact expanded Yul arg(s) for legacy call sites) ({issue625Ref}, issue #1889)."
   else
     let rec go : List Param → List Expr → Except String Unit
       | [], [] => pure ()

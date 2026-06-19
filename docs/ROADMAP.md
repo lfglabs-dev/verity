@@ -136,6 +136,11 @@ Recent progress for dynamic ABI-shaped parameters:
   (bytes/string, dynamic-element arrays, etc.) are still rejected at
   declaration/call time with an explicit #1982 error until full ABI-frame
   typed-interface lowering exists.
+- Typed `view` interface reads with one static ABI-word return now lower
+  through an oracle-summary ECM (#1964): reports show the source-shaped
+  summary name (for example `IOracle.price`), exact selector, and staticcall
+  mutability, so Morpho-style oracle reads no longer need the broad
+  `oracle_read_uint256_interface` helper.
 
 Recent progress for arithmetic modeling:
 - `Stdlib.Math` now exposes `mulDiv512Down?` and `mulDiv512Up?` as proof-facing full-precision multiply-divide helpers. They compute `a * b` in unbounded natural-number precision and return `none` only when the divisor is zero or the final floor/ceil quotient does not fit in `uint256`, removing the artificial intermediate-product overflow hypothesis when modeling Solidity `Math.mulDiv` behavior. A compiled Yul primitive using the usual 512-bit division algorithm is still tracked by #1761.

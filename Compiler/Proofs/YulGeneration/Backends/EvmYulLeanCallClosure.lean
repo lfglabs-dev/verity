@@ -262,7 +262,7 @@ private theorem compileStmt_internalCall_call_bridged
       isInternal inScopeNames adtTypes (.internalCall funcName args) = .ok out) :
     BridgedStmts out := by
   simp only [compileStmt, bind, Except.bind] at hOk
-  cases hExprs : compileExprList fields dynamicSource args with
+  cases hExprs : compileExprListWithInternals fields dynamicSource [] args with
   | error _ =>
     simp [compileInternalCallArgs, findInternalFunctionForCall?, hExprs] at hOk
   | ok argExprs =>
@@ -295,7 +295,7 @@ private theorem compileStmt_internalCallAssign_bridged
         .ok out) :
     BridgedStmts out := by
   simp only [compileStmt, bind, Except.bind] at hOk
-  cases hExprs : compileExprList fields dynamicSource args with
+  cases hExprs : compileExprListWithInternals fields dynamicSource [] args with
   | error _ =>
     simp [compileInternalCallArgs, findInternalFunctionForCall?, hExprs] at hOk
   | ok argExprs =>
@@ -394,7 +394,7 @@ theorem compileStmt_externalCallBind_bridged
   cases hStmt with
   | mk resultVars externalName args hArgs hFn =>
     simp only [compileStmt, bind, Except.bind] at hOk
-    cases hExprs : compileExprList fields dynamicSource args with
+    cases hExprs : compileExprListWithInternals fields dynamicSource [] args with
     | error _ =>
       simp [hExprs] at hOk
     | ok argExprs =>
@@ -494,7 +494,7 @@ theorem compileStmt_internalCall_noFuncDefs
   cases hStmt with
   | call funcName args hArgs hFn =>
     simp only [compileStmt, bind, Except.bind] at hOk
-    cases hExprs : compileExprList fields dynamicSource args with
+    cases hExprs : compileExprListWithInternals fields dynamicSource [] args with
     | error _ =>
       simp [compileInternalCallArgs, findInternalFunctionForCall?, hExprs] at hOk
     | ok argExprs =>
@@ -504,7 +504,7 @@ theorem compileStmt_internalCall_noFuncDefs
       simp [Native.yulStmtContainsFuncDef]
   | callAssign names funcName args hArgs hFn =>
     simp only [compileStmt, bind, Except.bind] at hOk
-    cases hExprs : compileExprList fields dynamicSource args with
+    cases hExprs : compileExprListWithInternals fields dynamicSource [] args with
     | error _ =>
       simp [compileInternalCallArgs, findInternalFunctionForCall?, hExprs] at hOk
     | ok argExprs =>
@@ -543,7 +543,7 @@ theorem compileStmt_externalCallBind_noFuncDefs
   cases hStmt with
   | mk resultVars externalName args hArgs hFn =>
     simp only [compileStmt, bind, Except.bind] at hOk
-    cases hExprs : compileExprList fields dynamicSource args with
+    cases hExprs : compileExprListWithInternals fields dynamicSource [] args with
     | error _ => simp [hExprs] at hOk
     | ok argExprs =>
       simp [hExprs] at hOk
@@ -622,7 +622,7 @@ theorem compileStmt_ecm_bridged
     · simp only [bind, Except.bind] at hOk
       cases hOk
     · simp only [Pure.pure, Except.pure, bind, Except.bind] at hOk
-      cases hExprs : compileExprList fields dynamicSource args with
+      cases hExprs : compileExprListWithInternals fields dynamicSource [] args with
       | error _ => simp [hExprs] at hOk
       | ok argExprs =>
         simp [hExprs] at hOk

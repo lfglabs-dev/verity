@@ -34,6 +34,7 @@ declare_syntax_cat verityNamespaceSpec
 declare_syntax_cat veritySpecialEntrypoint
 declare_syntax_cat verityModifier
 declare_syntax_cat verityModifierUse
+declare_syntax_cat verityRoleDecl
 declare_syntax_cat verityFunction
 declare_syntax_cat verityIntrinsicClause
 declare_syntax_cat verityIntrinsicYul
@@ -91,6 +92,7 @@ syntax "no_external_calls" : verityMutability
 syntax "allow_post_interaction_writes" : verityMutability
 syntax "nonreentrant(" ident ")" : verityMutability
 syntax "cei_safe" : verityMutability
+syntax "reentrancy_trusted" : verityMutability
 syntax "modifies(" sepBy1(ident, ",") ")" : verityModifies
 syntax "requires(" ident ")" : verityRequiresRole
 syntax ident " : " term:max : verityNewtype
@@ -151,6 +153,7 @@ syntax "receive" (ppSpace verityLocalObligations)? " := " term : veritySpecialEn
 syntax "fallback" (ppSpace verityLocalObligations)? " := " term : veritySpecialEntrypoint
 syntax "modifier " ident " := " term : verityModifier
 syntax "with " sepBy1(ident, ",") : verityModifierUse
+syntax ident " := " ident : verityRoleDecl
 syntax "function " verityMutability* (pureMutabilityMarker)? verityMutability* ident " (" sepBy(verityParam, ",") ")" (ppSpace verityInitGuard)? (ppSpace verityModifierUse)? (ppSpace verityRequiresRole)? (ppSpace verityModifies)? (ppSpace verityLocalObligations)? " : " term " := " term : verityFunction
 
 -- verity_intrinsic syntax (minimal one-argument shape for consumer-owned intrinsics)
@@ -177,6 +180,7 @@ syntax (name := verityContractCmd)
   ("inductive " verityAdtDecl+)?
   (verityNamespaceSpec)?
   "storage " verityStorageItem*
+  ("roles " verityRoleDecl+)?
   (verityStructDecl)*
   ("errors " verityError+)?
   ("event_defs " verityEvent+)?
