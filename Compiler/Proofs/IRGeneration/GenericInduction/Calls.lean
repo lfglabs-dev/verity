@@ -54,8 +54,14 @@ theorem compiledStmtStepWithHelpersAndHelperIR_internalCallAssign
       runtimeContract spec fields scope
       (Stmt.internalCallAssign names calleeName args)
       compiledIR := by
+  have hcompileSpec :
+      CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
+        (Stmt.internalCallAssign names calleeName args) = Except.ok compiledIR := by
+    unfold CompilationModel.compileStmt at hcompile ⊢
+    unfold CompilationModel.compileStmtWithFork at hcompile ⊢
+    simpa using hcompile
   refine {
-    compileOk := hcompile
+    compileOk := hcompileSpec
     preserves := ?_ }
   intro runtime state helperFuel extraFuel hfuelPos hexact hscope hbounded hruntime hslack
   obtain ⟨argExprs', hargOk, hshape⟩ := compileStmt_internalCallAssign_shape hcompile
@@ -114,8 +120,14 @@ theorem compiledStmtStepWithHelpersAndHelperIR_internalCall
       runtimeContract spec fields scope
       (Stmt.internalCall calleeName args)
       compiledIR := by
+  have hcompileSpec :
+      CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
+        (Stmt.internalCall calleeName args) = Except.ok compiledIR := by
+    unfold CompilationModel.compileStmt at hcompile ⊢
+    unfold CompilationModel.compileStmtWithFork at hcompile ⊢
+    simpa using hcompile
   refine {
-    compileOk := hcompile
+    compileOk := hcompileSpec
     preserves := ?_ }
   intro runtime state helperFuel extraFuel hfuelPos hexact hscope hbounded hruntime hslack
   obtain ⟨argExprs', hargOk, hshape⟩ := compileStmt_internalCall_shape hcompile

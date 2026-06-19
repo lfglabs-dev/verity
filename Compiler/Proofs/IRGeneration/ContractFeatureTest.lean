@@ -537,7 +537,13 @@ private theorem constructorOnly_compileConstructor :
             constructorOnlyCtor.body with
          | .ok body => body
          | .error _ => [])
-      (by rfl) with ⟨bodyStmts, hbodyCompile, hdeploy⟩
+      (by
+        simp [constructorOnlySpec, constructorOnlyCtor, constructorOnlyOwnerField,
+          CompilationModel.compileConstructor, CompilationModel.compileStmtList,
+          CompilationModel.compileStmtListWithFork, CompilationModel.compileStmtWithFork,
+          compileSetStorage, compileExpr, isMapping, findFieldWithResolvedSlot_cons, Bind.bind, Except.bind,
+          Pure.pure, Except.pure]) with
+      ⟨bodyStmts, hbodyCompile, hdeploy⟩
   refine ⟨bodyStmts, ?_, hbodyCompile⟩
   exact Function.compileConstructor_some_ok_of_body
     constructorOnlySpec.fields
@@ -834,7 +840,11 @@ example :
             (constructorOnlyCtor.params.map (·.name)) [] constructorOnlyCtor.body with
          | .ok body => body
          | .error _ => []) := by
-    rfl
+    simp [constructorOnlySpec, constructorOnlyCtor, constructorOnlyOwnerField,
+      CompilationModel.compileStmtList,
+      CompilationModel.compileStmtListWithFork, CompilationModel.compileStmtWithFork,
+      compileSetStorage, compileExpr, isMapping, findFieldWithResolvedSlot_cons,
+      Bind.bind, Except.bind, Pure.pure, Except.pure]
   have hbind :
       SourceSemantics.bindSupportedParams
         [{ name := "initialOwner", ty := .address }]
@@ -900,7 +910,11 @@ example :
         compileStmtList constructorOnlySpec.fields constructorOnlySpec.events constructorOnlySpec.errors
           .memory [] false (constructorOnlyCtor.params.map (·.name)) [] constructorOnlyCtor.body =
         Except.ok bodyStmts := by
-      rfl
+      simp [bodyStmts, constructorOnlySpec, constructorOnlyCtor, constructorOnlyOwnerField,
+        CompilationModel.compileStmtList,
+        CompilationModel.compileStmtListWithFork, CompilationModel.compileStmtWithFork,
+        compileSetStorage, compileExpr, isMapping, findFieldWithResolvedSlot_cons,
+        Bind.bind, Except.bind, Pure.pure, Except.pure]
     have hbind :
         SourceSemantics.bindSupportedParams constructorOnlyCtor.params
             (constructorOnlyTrailingTx.args.take constructorOnlyCtor.params.length) =
@@ -1269,7 +1283,7 @@ private theorem scalarEventSmoke_disjoint
     (fun _hhelper compiledIR hcompile => by
       have hbad := scalarEventSmoke_compileEmit_empty_events_ne_ok compiledIR
       simp [SourceSemantics.effectiveFields, scalarEventSmokeSpec,
-        CompilationModel.compileStmt] at hcompile
+        CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] at hcompile
       exact False.elim (hbad hcompile))
     .nil
 

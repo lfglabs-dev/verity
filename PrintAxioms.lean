@@ -2148,6 +2148,10 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.FunctionBody.stmtListTerminalCore_ite_tail_compileCore
   Compiler.Proofs.IRGeneration.FunctionBody.stmtListTerminalCore_ne_nil
   Compiler.Proofs.IRGeneration.FunctionBody.compileStmt_core_ok_any_scope
+  Compiler.Proofs.IRGeneration.FunctionBody.compileStmtWithFork_cancun_eq_compileStmt
+  Compiler.Proofs.IRGeneration.FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList
+  Compiler.Proofs.IRGeneration.FunctionBody.compileStmtList_nil_eq_ok
+  Compiler.Proofs.IRGeneration.FunctionBody.compileStmtList_cons_eq_ok
   -- Compiler.Proofs.IRGeneration.FunctionBody.compileStmt_ok_any_scope_aux  -- private
   Compiler.Proofs.IRGeneration.FunctionBody.compileStmt_ok_any_scope
   -- Compiler.Proofs.IRGeneration.FunctionBody.compileStmt_ok_any_scope_with_surface_aux  -- private
@@ -3294,6 +3298,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.supportedSourceContractSemanticsExceptMappingWrites_eq_sourceContractSemantics
 
   -- Compiler/Proofs/IRGeneration/SupportedSpec.lean
+  -- Compiler.Proofs.IRGeneration.compileStmtWithFork_cancun_eq_compileStmt  -- private
+  -- Compiler.Proofs.IRGeneration.compileStmtListWithFork_cancun_eq_compileStmtList  -- private
   Compiler.Proofs.IRGeneration.SupportedExternalParamType_iff_externalParamScalarProofSupported
   Compiler.Proofs.IRGeneration.SupportedExternalReturnProfile_iff_externalReturnProfileProofSupported
   Compiler.Proofs.IRGeneration.eventDefScalarProofSupported_params_all
@@ -3577,6 +3583,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.StorageBounds.writeStorageArray_events_unchanged
 
   -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanBodyClosure/Base.lean
+  -- Compiler.Proofs.YulGeneration.Backends.compileStmtWithFork_cancun_eq_compileStmt  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.compileStmtListWithFork_cancun_eq_compileStmtList  -- private
   Compiler.Proofs.YulGeneration.Backends.isDynamicParamType_false_of_static_scalar
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_calldataload_lit  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_and_lit_mask  -- private
@@ -3850,6 +3858,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.compileStmt_mappingPackedWordMultiSlotNonzero_noFuncDefs
 
   -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanBodyClosure/Generic.lean
+  -- Compiler.Proofs.YulGeneration.Backends.compileStmtWithFork_cancun_eq_compileStmt  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.compileStmtListWithFork_cancun_eq_compileStmtList  -- private
   Compiler.Proofs.YulGeneration.Backends.compileStmt_bridgedSource_bridged
   Compiler.Proofs.YulGeneration.Backends.compileStmt_bridgedSource_noFuncDefs
   -- Compiler.Proofs.YulGeneration.Backends.compileStmtList_cons_ok_inv  -- private
@@ -5572,4 +5582,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5214 theorems/lemmas (3607 public, 1607 private, 0 sorry'd)
+-- Total: 5224 theorems/lemmas (3611 public, 1613 private, 0 sorry'd)

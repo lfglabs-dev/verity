@@ -817,6 +817,59 @@ theorem compileStmt_core_ok_any_scope
       exact ⟨[YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR])], by
         simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork.eq_def, bind, Except.bind, Pure.pure, Except.pure, Functor.map, Except.map, CompilationModel.compileStmtWithFork.eq_def, bind, Except.bind, Pure.pure, Except.pure, Functor.map, Except.map, hoffsetIR, hvalueIR]⟩
 
+theorem compileStmtWithFork_cancun_eq_compileStmt
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
+    (isInternal : Bool) (inScopeNames : List String)
+    (adtTypes : List AdtTypeDef) (stmt : Stmt) :
+    CompilationModel.compileStmtWithFork fields events errors dynamicSource
+      internalRetNames isInternal inScopeNames adtTypes Verity.Core.Intrinsics.HardFork.cancun stmt =
+    CompilationModel.compileStmt fields events errors dynamicSource
+      internalRetNames isInternal inScopeNames adtTypes stmt := rfl
+
+theorem compileStmtListWithFork_cancun_eq_compileStmtList
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
+    (isInternal : Bool) (inScopeNames : List String)
+    (adtTypes : List AdtTypeDef) (stmts : List Stmt) :
+    CompilationModel.compileStmtListWithFork fields events errors dynamicSource
+      internalRetNames isInternal inScopeNames adtTypes Verity.Core.Intrinsics.HardFork.cancun stmts =
+    CompilationModel.compileStmtList fields events errors dynamicSource
+      internalRetNames isInternal inScopeNames adtTypes stmts := rfl
+
+theorem compileStmtList_nil_eq_ok
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
+    (isInternal : Bool) (inScopeNames : List String)
+    (adtTypes : List AdtTypeDef) :
+    CompilationModel.compileStmtList fields events errors dynamicSource
+      internalRetNames isInternal inScopeNames adtTypes [] = Except.ok [] := by
+  unfold CompilationModel.compileStmtList
+  unfold CompilationModel.compileStmtListWithFork
+  rfl
+
+theorem compileStmtList_cons_eq_ok
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
+    (isInternal : Bool) (inScopeNames : List String)
+    (adtTypes : List AdtTypeDef) (stmt : Stmt) (rest : List Stmt)
+    (headIR tailIR : List YulStmt)
+    (hhead :
+      CompilationModel.compileStmt fields events errors dynamicSource
+        internalRetNames isInternal inScopeNames adtTypes stmt = Except.ok headIR)
+    (htail :
+      CompilationModel.compileStmtList fields events errors dynamicSource
+        internalRetNames isInternal (collectStmtNames stmt ++ inScopeNames) adtTypes rest =
+          Except.ok tailIR) :
+    CompilationModel.compileStmtList fields events errors dynamicSource
+      internalRetNames isInternal inScopeNames adtTypes (stmt :: rest) =
+        Except.ok (headIR ++ tailIR) := by
+  unfold CompilationModel.compileStmtList
+  unfold CompilationModel.compileStmtListWithFork
+  rw [compileStmtWithFork_cancun_eq_compileStmt, hhead]
+  simpa [bind, Except.bind, Pure.pure, Except.pure,
+    compileStmtListWithFork_cancun_eq_compileStmtList, htail]
+
 /-! ### Scope-independence of compileStmt / compileStmtList success
 
 `compileStmt` uses `inScopeNames` only in `ite` (for `pickFreshName` + recursive
@@ -850,7 +903,7 @@ private theorem compileStmt_ok_any_scope_aux
       cases stmt with
       | ite cond thenBranch elseBranch =>
           rcases hok with ⟨ir, hir⟩
-          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork.eq_def, bind, Except.bind, Pure.pure, Except.pure, Functor.map, Except.map, bind, Except.bind] at hir ⊢
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork.eq_def, compileStmtListWithFork_cancun_eq_compileStmtList, bind, Except.bind, Pure.pure, Except.pure, Functor.map, Except.map, bind, Except.bind] at hir ⊢
           cases hcond : CompilationModel.compileExpr fields .calldata cond with
           | error e => simp [hcond] at hir
           | ok condIR =>
@@ -874,7 +927,7 @@ private theorem compileStmt_ok_any_scope_aux
                 cases elseBranch.isEmpty <;> exact ⟨_, rfl⟩
       | forEach varName count body =>
           rcases hok with ⟨ir, hir⟩
-          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork.eq_def, bind, Except.bind, Pure.pure, Except.pure, Functor.map, Except.map, bind, Except.bind] at hir ⊢
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork.eq_def, compileStmtListWithFork_cancun_eq_compileStmtList, bind, Except.bind, Pure.pure, Except.pure, Functor.map, Except.map, bind, Except.bind] at hir ⊢
           cases hcount : CompilationModel.compileExpr fields .calldata count with
           | error e => simp [hcount] at hir
           | ok countIR =>
@@ -892,19 +945,19 @@ private theorem compileStmt_ok_any_scope_aux
               exact ⟨_, rfl⟩
       | forEachSetBit varName bitmap body =>
           rcases hok with ⟨ir, hir⟩
-          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork.eq_def, bind, Except.bind, Pure.pure, Except.pure, Functor.map, Except.map, bind, Except.bind] at hir ⊢
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork.eq_def, compileStmtListWithFork_cancun_eq_compileStmtList, bind, Except.bind, Pure.pure, Except.pure, Functor.map, Except.map, bind, Except.bind] at hir ⊢
           cases hbitmap : CompilationModel.compileExpr fields .calldata bitmap with
           | error e => simp [hbitmap] at hir
           | ok bitmapIR =>
             simp only [hbitmap] at hir ⊢
             cases hbody1 : CompilationModel.compileStmtList
                 fields [] [] .calldata [] false
-                (CompilationModel.forEachSetBitBodyScope scope1 varName bitmap body) [] body with
+                (CompilationModel.forEachSetBitFallbackBodyScope scope1 varName bitmap body) [] body with
             | error e => simp [hbody1] at hir
             | ok bodyIR1 =>
               rcases ih.2 body
-                  (CompilationModel.forEachSetBitBodyScope scope1 varName bitmap body)
-                  (CompilationModel.forEachSetBitBodyScope scope2 varName bitmap body)
+                  (CompilationModel.forEachSetBitFallbackBodyScope scope1 varName bitmap body)
+                  (CompilationModel.forEachSetBitFallbackBodyScope scope2 varName bitmap body)
                   (by simp [Stmt.forEachSetBit.sizeOf_spec] at hlt; omega)
                   ⟨bodyIR1, hbody1⟩ with ⟨bodyIR2, hbody2⟩
               simp only [hbody2]
@@ -933,15 +986,19 @@ private theorem compileStmt_ok_any_scope_aux
     · -- compileStmtList part
       intro stmts scope1 scope2 hlt hok
       cases stmts with
-      | nil => exact ⟨[], rfl⟩
+      | nil => exact ⟨[], compileStmtList_nil_eq_ok fields [] [] .calldata [] false scope2 []⟩
       | cons s ss =>
           rcases hok with ⟨ir, hir⟩
-          simp only [CompilationModel.compileStmtList, CompilationModel.compileStmtListWithFork.eq_def, bind, Except.bind, Pure.pure, Except.pure, Functor.map, Except.map, bind, Except.bind] at hir ⊢
+          rw [CompilationModel.compileStmtList] at hir
+          unfold CompilationModel.compileStmtListWithFork at hir
+          rw [compileStmtWithFork_cancun_eq_compileStmt] at hir
           cases hs1 : CompilationModel.compileStmt
               fields [] [] .calldata [] false scope1 [] s with
-          | error e => simp [hs1] at hir
+          | error e =>
+              simp [hs1, bind, Except.bind] at hir
           | ok headIR1 =>
-            simp only [hs1] at hir
+            simp only [hs1, bind, Except.bind] at hir
+            rw [compileStmtListWithFork_cancun_eq_compileStmtList] at hir
             cases hss1 : CompilationModel.compileStmtList
                 fields [] [] .calldata [] false (collectStmtNames s ++ scope1) [] ss with
             | error e => simp [hss1] at hir
@@ -951,8 +1008,9 @@ private theorem compileStmt_ok_any_scope_aux
               rcases ih.2 ss (collectStmtNames s ++ scope1) (collectStmtNames s ++ scope2)
                   (by simp [List.cons.sizeOf_spec] at hlt; omega) ⟨tailIR1, hss1⟩
                 with ⟨tailIR2, hss2⟩
-              simp only [hs2, hss2]
-              exact ⟨_, rfl⟩
+              exact ⟨headIR2 ++ tailIR2,
+                compileStmtList_cons_eq_ok fields [] [] .calldata [] false scope2 []
+                  s ss headIR2 tailIR2 hs2 hss2⟩
 
 theorem compileStmt_ok_any_scope
     {fields : List Field}
@@ -991,7 +1049,7 @@ private theorem compileStmt_ok_any_scope_with_surface_aux
       cases stmt with
       | ite cond thenBranch elseBranch =>
           rcases hok with ⟨ir, hir⟩
-          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork.eq_def, bind, Except.bind, Pure.pure, Except.pure, Functor.map, Except.map, bind, Except.bind] at hir ⊢
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork.eq_def, compileStmtListWithFork_cancun_eq_compileStmtList, bind, Except.bind, Pure.pure, Except.pure, Functor.map, Except.map, bind, Except.bind] at hir ⊢
           cases hcond : CompilationModel.compileExpr fields .calldata cond with
           | error e => simp [hcond] at hir
           | ok condIR =>
@@ -1015,7 +1073,7 @@ private theorem compileStmt_ok_any_scope_with_surface_aux
                 cases elseBranch.isEmpty <;> exact ⟨_, rfl⟩
       | forEach varName count body =>
           rcases hok with ⟨ir, hir⟩
-          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork.eq_def, bind, Except.bind, Pure.pure, Except.pure, Functor.map, Except.map, bind, Except.bind] at hir ⊢
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork.eq_def, compileStmtListWithFork_cancun_eq_compileStmtList, bind, Except.bind, Pure.pure, Except.pure, Functor.map, Except.map, bind, Except.bind] at hir ⊢
           cases hcount : CompilationModel.compileExpr fields .calldata count with
           | error e => simp [hcount] at hir
           | ok countIR =>
@@ -1033,19 +1091,19 @@ private theorem compileStmt_ok_any_scope_with_surface_aux
               exact ⟨_, rfl⟩
       | forEachSetBit varName bitmap body =>
           rcases hok with ⟨ir, hir⟩
-          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork.eq_def, bind, Except.bind, Pure.pure, Except.pure, Functor.map, Except.map, bind, Except.bind] at hir ⊢
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork.eq_def, compileStmtListWithFork_cancun_eq_compileStmtList, bind, Except.bind, Pure.pure, Except.pure, Functor.map, Except.map, bind, Except.bind] at hir ⊢
           cases hbitmap : CompilationModel.compileExpr fields .calldata bitmap with
           | error e => simp [hbitmap] at hir
           | ok bitmapIR =>
             simp only [hbitmap] at hir ⊢
             cases hbody1 : CompilationModel.compileStmtList
                 fields events errors .calldata [] false
-                (CompilationModel.forEachSetBitBodyScope scope1 varName bitmap body) [] body with
+                (CompilationModel.forEachSetBitFallbackBodyScope scope1 varName bitmap body) [] body with
             | error e => simp [hbody1] at hir
             | ok bodyIR1 =>
               rcases ih.2 body
-                  (CompilationModel.forEachSetBitBodyScope scope1 varName bitmap body)
-                  (CompilationModel.forEachSetBitBodyScope scope2 varName bitmap body)
+                  (CompilationModel.forEachSetBitFallbackBodyScope scope1 varName bitmap body)
+                  (CompilationModel.forEachSetBitFallbackBodyScope scope2 varName bitmap body)
                   (by simp [Stmt.forEachSetBit.sizeOf_spec] at hlt; omega)
                   ⟨bodyIR1, hbody1⟩ with ⟨bodyIR2, hbody2⟩
               simp only [hbody2]
@@ -1071,15 +1129,19 @@ private theorem compileStmt_ok_any_scope_with_surface_aux
           simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork.eq_def, bind, Except.bind, Pure.pure, Except.pure, Functor.map, Except.map] at hok ⊢; exact hok
     · intro stmts scope1 scope2 hlt hok
       cases stmts with
-      | nil => exact ⟨[], rfl⟩
+      | nil => exact ⟨[], compileStmtList_nil_eq_ok fields events errors .calldata [] false scope2 []⟩
       | cons s ss =>
           rcases hok with ⟨ir, hir⟩
-          simp only [CompilationModel.compileStmtList, CompilationModel.compileStmtListWithFork.eq_def, bind, Except.bind, Pure.pure, Except.pure, Functor.map, Except.map, bind, Except.bind] at hir ⊢
+          rw [CompilationModel.compileStmtList] at hir
+          unfold CompilationModel.compileStmtListWithFork at hir
+          rw [compileStmtWithFork_cancun_eq_compileStmt] at hir
           cases hs1 : CompilationModel.compileStmt
               fields events errors .calldata [] false scope1 [] s with
-          | error e => simp [hs1] at hir
+          | error e =>
+              simp [hs1, bind, Except.bind] at hir
           | ok headIR1 =>
-            simp only [hs1] at hir
+            simp only [hs1, bind, Except.bind] at hir
+            rw [compileStmtListWithFork_cancun_eq_compileStmtList] at hir
             cases hss1 : CompilationModel.compileStmtList
                 fields events errors .calldata [] false (collectStmtNames s ++ scope1) [] ss with
             | error e => simp [hss1] at hir
@@ -1089,8 +1151,9 @@ private theorem compileStmt_ok_any_scope_with_surface_aux
               rcases ih.2 ss (collectStmtNames s ++ scope1) (collectStmtNames s ++ scope2)
                   (by simp [List.cons.sizeOf_spec] at hlt; omega) ⟨tailIR1, hss1⟩
                 with ⟨tailIR2, hss2⟩
-              simp only [hs2, hss2]
-              exact ⟨_, rfl⟩
+              exact ⟨headIR2 ++ tailIR2,
+                compileStmtList_cons_eq_ok fields events errors .calldata [] false scope2 []
+                  s ss headIR2 tailIR2 hs2 hss2⟩
 
 theorem compileStmt_ok_any_scope_with_surface
     {fields : List Field}
@@ -1147,10 +1210,8 @@ theorem compileStmtList_cons_ok_of_compileStmt_ok_with_surface
     CompilationModel.compileStmtList
       fields events errors .calldata [] false inScopeNames [] (stmt :: rest) =
         Except.ok (headIR ++ tailIR) := by
-  rw [CompilationModel.compileStmtList, hhead]
-  dsimp
-  rw [htail]
-  rfl
+  exact compileStmtList_cons_eq_ok fields events errors .calldata [] false inScopeNames []
+    stmt rest headIR tailIR hhead htail
 
 theorem compileStmtList_cons_ok_of_compileStmt_ok
     {fields : List Field}
@@ -1168,10 +1229,8 @@ theorem compileStmtList_cons_ok_of_compileStmt_ok
     CompilationModel.compileStmtList
       fields [] [] .calldata [] false inScopeNames [] (stmt :: rest) =
         Except.ok (headIR ++ tailIR) := by
-  rw [CompilationModel.compileStmtList, hhead]
-  dsimp
-  rw [htail]
-  rfl
+  exact compileStmtList_cons_eq_ok fields [] [] .calldata [] false inScopeNames []
+    stmt rest headIR tailIR hhead htail
 
 theorem compileStmtList_cons_ok_inv
     {fields : List Field}
@@ -1194,18 +1253,21 @@ theorem compileStmtList_cons_ok_inv
           (collectStmtNames stmt ++ inScopeNames) adtTypes rest = Except.ok tailIR ∧
       bodyIR = headIR ++ tailIR := by
   rw [CompilationModel.compileStmtList] at hcompile
+  unfold CompilationModel.compileStmtListWithFork at hcompile
+  rw [compileStmtWithFork_cancun_eq_compileStmt] at hcompile
   cases hhead : CompilationModel.compileStmt
       fields events errors .calldata [] false inScopeNames adtTypes stmt with
   | error err =>
       simp [hhead] at hcompile
       cases hcompile
   | ok headIR =>
+      simp only [hhead, bind, Except.bind] at hcompile
+      rw [compileStmtListWithFork_cancun_eq_compileStmtList] at hcompile
       cases htail : CompilationModel.compileStmtList
           fields events errors .calldata [] false
             (collectStmtNames stmt ++ inScopeNames) adtTypes rest with
       | error err =>
           simp [hhead, htail] at hcompile
-          cases hcompile
       | ok tailIR =>
           simp [hhead, htail] at hcompile
           injection hcompile with hbody
@@ -1240,18 +1302,21 @@ theorem compileStmt_terminal_ite_ok_inv
           [ YulStmt.let_ tempName condIR
           , YulStmt.if_ (YulExpr.ident tempName) thenIR
           , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR ]] := by
+  rw [CompilationModel.compileStmt] at hcompile
   unfold CompilationModel.compileStmtWithFork at hcompile
   cases hcond : CompilationModel.compileExpr fields .calldata cond with
   | error err =>
       simp [hcond] at hcompile
       cases hcompile
   | ok condIR =>
+      rw [compileStmtListWithFork_cancun_eq_compileStmtList] at hcompile
       cases hthen : CompilationModel.compileStmtList
           fields [] [] .calldata [] false inScopeNames [] thenBranch with
       | error err =>
           simp [hcond, hthen] at hcompile
           cases hcompile
       | ok thenIR =>
+          rw [compileStmtListWithFork_cancun_eq_compileStmtList] at hcompile
           cases helse : CompilationModel.compileStmtList
               fields [] [] .calldata [] false inScopeNames [] elseBranch with
           | error err =>
@@ -1331,77 +1396,56 @@ theorem compileStmtList_core_ok
         fields [] [] .calldata [] false inScopeNames [] stmts = Except.ok bodyIR := by
   induction hcore generalizing inScopeNames
   case nil =>
-      exact ⟨[], rfl⟩
+      exact ⟨[], compileStmtList_nil_eq_ok fields [] [] .calldata [] false inScopeNames []⟩
   case letVar scope name value rest hvalue _ hrest ih =>
       rcases compileStmt_core_ok_any_scope (fields := fields) (inScopeNames := inScopeNames)
         (stmt := .letVar name value) (.letVar hvalue) with ⟨headIR, hheadIR⟩
       rcases ih (inScopeNames := collectStmtNames (.letVar name value) ++ inScopeNames) with
         ⟨tailIR, htailIR⟩
       refine ⟨headIR ++ tailIR, ?_⟩
-      rw [CompilationModel.compileStmtList, hheadIR]
-      dsimp
-      rw [htailIR]
-      rfl
+      exact compileStmtList_cons_ok_of_compileStmt_ok hheadIR htailIR
   case assignVar scope name value rest hvalue _ hrest ih =>
       rcases compileStmt_core_ok_any_scope (fields := fields) (inScopeNames := inScopeNames)
         (stmt := .assignVar name value) (.assignVar hvalue) with ⟨headIR, hheadIR⟩
       rcases ih (inScopeNames := collectStmtNames (.assignVar name value) ++ inScopeNames) with
         ⟨tailIR, htailIR⟩
       refine ⟨headIR ++ tailIR, ?_⟩
-      rw [CompilationModel.compileStmtList, hheadIR]
-      dsimp
-      rw [htailIR]
-      rfl
+      exact compileStmtList_cons_ok_of_compileStmt_ok hheadIR htailIR
   case require_ scope cond message rest hcond _ hrest ih =>
       rcases compileStmt_core_ok_any_scope (fields := fields) (inScopeNames := inScopeNames)
         (stmt := .require cond message) (.require_ hcond) with ⟨headIR, hheadIR⟩
       rcases ih (inScopeNames := collectStmtNames (.require cond message) ++ inScopeNames) with
         ⟨tailIR, htailIR⟩
       refine ⟨headIR ++ tailIR, ?_⟩
-      rw [CompilationModel.compileStmtList, hheadIR]
-      dsimp
-      rw [htailIR]
-      rfl
+      exact compileStmtList_cons_ok_of_compileStmt_ok hheadIR htailIR
   case return_ scope value rest hvalue _ hrest ih =>
       rcases compileStmt_core_ok_any_scope (fields := fields) (inScopeNames := inScopeNames)
         (stmt := .return value) (.return_ hvalue) with ⟨headIR, hheadIR⟩
       rcases ih (inScopeNames := collectStmtNames (.return value) ++ inScopeNames) with
         ⟨tailIR, htailIR⟩
       refine ⟨headIR ++ tailIR, ?_⟩
-      rw [CompilationModel.compileStmtList, hheadIR]
-      dsimp
-      rw [htailIR]
-      rfl
+      exact compileStmtList_cons_ok_of_compileStmt_ok hheadIR htailIR
   case stop scope rest hrest ih =>
       rcases compileStmt_core_ok_any_scope (fields := fields) (inScopeNames := inScopeNames)
         (stmt := .stop) StmtCompileCore.stop with ⟨headIR, hheadIR⟩
       rcases ih (inScopeNames := collectStmtNames (.stop) ++ inScopeNames) with
         ⟨tailIR, htailIR⟩
       refine ⟨headIR ++ tailIR, ?_⟩
-      rw [CompilationModel.compileStmtList, hheadIR]
-      dsimp
-      rw [htailIR]
-      rfl
+      exact compileStmtList_cons_ok_of_compileStmt_ok hheadIR htailIR
   case mstore scope offset value rest hoffset _ hvalue _ hrest ih =>
       rcases compileStmt_core_ok_any_scope (fields := fields) (inScopeNames := inScopeNames)
         (stmt := .mstore offset value) (.mstore hoffset hvalue) with ⟨headIR, hheadIR⟩
       rcases ih (inScopeNames := collectStmtNames (.mstore offset value) ++ inScopeNames) with
         ⟨tailIR, htailIR⟩
       refine ⟨headIR ++ tailIR, ?_⟩
-      rw [CompilationModel.compileStmtList, hheadIR]
-      dsimp
-      rw [htailIR]
-      rfl
+      exact compileStmtList_cons_ok_of_compileStmt_ok hheadIR htailIR
   case tstore scope offset value rest hoffset _ hvalue _ hrest ih =>
       rcases compileStmt_core_ok_any_scope (fields := fields) (inScopeNames := inScopeNames)
         (stmt := .tstore offset value) (.tstore hoffset hvalue) with ⟨headIR, hheadIR⟩
       rcases ih (inScopeNames := collectStmtNames (.tstore offset value) ++ inScopeNames) with
         ⟨tailIR, htailIR⟩
       refine ⟨headIR ++ tailIR, ?_⟩
-      rw [CompilationModel.compileStmtList, hheadIR]
-      dsimp
-      rw [htailIR]
-      rfl
+      exact compileStmtList_cons_ok_of_compileStmt_ok hheadIR htailIR
 
 theorem compileStmtList_terminal_core_ok
     {fields : List Field}
@@ -1418,30 +1462,21 @@ theorem compileStmtList_terminal_core_ok
       rcases ih (inScopeNames := collectStmtNames (.letVar name value) ++ inScopeNames) with
         ⟨tailIR, htailIR⟩
       refine ⟨headIR ++ tailIR, ?_⟩
-      rw [CompilationModel.compileStmtList, hheadIR]
-      dsimp
-      rw [htailIR]
-      rfl
+      exact compileStmtList_cons_ok_of_compileStmt_ok hheadIR htailIR
   case assignVar scope name value rest hvalue _ hrest ih =>
       rcases compileStmt_core_ok_any_scope (fields := fields) (inScopeNames := inScopeNames)
         (stmt := .assignVar name value) (.assignVar hvalue) with ⟨headIR, hheadIR⟩
       rcases ih (inScopeNames := collectStmtNames (.assignVar name value) ++ inScopeNames) with
         ⟨tailIR, htailIR⟩
       refine ⟨headIR ++ tailIR, ?_⟩
-      rw [CompilationModel.compileStmtList, hheadIR]
-      dsimp
-      rw [htailIR]
-      rfl
+      exact compileStmtList_cons_ok_of_compileStmt_ok hheadIR htailIR
   case require_ scope cond message rest hcond _ hrest ih =>
       rcases compileStmt_core_ok_any_scope (fields := fields) (inScopeNames := inScopeNames)
         (stmt := .require cond message) (.require_ hcond) with ⟨headIR, hheadIR⟩
       rcases ih (inScopeNames := collectStmtNames (.require cond message) ++ inScopeNames) with
         ⟨tailIR, htailIR⟩
       refine ⟨headIR ++ tailIR, ?_⟩
-      rw [CompilationModel.compileStmtList, hheadIR]
-      dsimp
-      rw [htailIR]
-      rfl
+      exact compileStmtList_cons_ok_of_compileStmt_ok hheadIR htailIR
   case return_ scope value rest hvalue _ hrest =>
       rcases compileStmt_core_ok_any_scope (fields := fields) (inScopeNames := inScopeNames)
         (stmt := .return value) (.return_ hvalue) with ⟨headIR, hheadIR⟩
@@ -1451,10 +1486,7 @@ theorem compileStmtList_terminal_core_ok
           (stmts := rest) hrest with
         ⟨tailIR, htailIR⟩
       refine ⟨headIR ++ tailIR, ?_⟩
-      rw [CompilationModel.compileStmtList, hheadIR]
-      dsimp
-      rw [htailIR]
-      rfl
+      exact compileStmtList_cons_ok_of_compileStmt_ok hheadIR htailIR
   case stop scope rest hrest =>
       rcases compileStmt_core_ok_any_scope (fields := fields) (inScopeNames := inScopeNames)
         (stmt := .stop) StmtCompileCore.stop with ⟨headIR, hheadIR⟩
@@ -1464,30 +1496,21 @@ theorem compileStmtList_terminal_core_ok
           (stmts := rest) hrest with
         ⟨tailIR, htailIR⟩
       refine ⟨headIR ++ tailIR, ?_⟩
-      rw [CompilationModel.compileStmtList, hheadIR]
-      dsimp
-      rw [htailIR]
-      rfl
+      exact compileStmtList_cons_ok_of_compileStmt_ok hheadIR htailIR
   case mstore scope offset value rest hoffset _ hvalue _ hrest ih =>
       rcases compileStmt_core_ok_any_scope (fields := fields) (inScopeNames := inScopeNames)
         (stmt := .mstore offset value) (.mstore hoffset hvalue) with ⟨headIR, hheadIR⟩
       rcases ih (inScopeNames := collectStmtNames (.mstore offset value) ++ inScopeNames) with
         ⟨tailIR, htailIR⟩
       refine ⟨headIR ++ tailIR, ?_⟩
-      rw [CompilationModel.compileStmtList, hheadIR]
-      dsimp
-      rw [htailIR]
-      rfl
+      exact compileStmtList_cons_ok_of_compileStmt_ok hheadIR htailIR
   case tstore scope offset value rest hoffset _ hvalue _ hrest ih =>
       rcases compileStmt_core_ok_any_scope (fields := fields) (inScopeNames := inScopeNames)
         (stmt := .tstore offset value) (.tstore hoffset hvalue) with ⟨headIR, hheadIR⟩
       rcases ih (inScopeNames := collectStmtNames (.tstore offset value) ++ inScopeNames) with
         ⟨tailIR, htailIR⟩
       refine ⟨headIR ++ tailIR, ?_⟩
-      rw [CompilationModel.compileStmtList, hheadIR]
-      dsimp
-      rw [htailIR]
-      rfl
+      exact compileStmtList_cons_ok_of_compileStmt_ok hheadIR htailIR
   case ite scope cond thenBranch elseBranch rest hcond _ hthen helse hrest ihThen ihElse =>
       rcases compileExpr_core_ok (fields := fields) hcond with ⟨condIR, hcondIR⟩
       rcases ihThen (inScopeNames := inScopeNames) with ⟨thenIR, hthenIR⟩
@@ -1526,10 +1549,12 @@ theorem compileStmtList_terminal_core_ok
               elseIR
           ]] ++ tailIR, ?_⟩
       rw [CompilationModel.compileStmtList]
+      unfold CompilationModel.compileStmtListWithFork
       unfold CompilationModel.compileStmtWithFork
-      rw [hcondIR, hthenIR, helseIR]
+      rw [hcondIR, compileStmtListWithFork_cancun_eq_compileStmtList, hthenIR,
+        compileStmtListWithFork_cancun_eq_compileStmtList, helseIR]
       dsimp
-      rw [htailIR]
+      rw [compileStmtListWithFork_cancun_eq_compileStmtList, htailIR]
       simp [helseNonempty]
       rfl
 
@@ -1551,8 +1576,7 @@ theorem compileStmtList_terminal_core_ok_nonempty
           (stmt := .letVar name value) (rest := rest) hcompile with
         ⟨headIR, tailIR, hhead, _, hbody⟩
       simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork.eq_def, bind, Except.bind, Pure.pure, Except.pure, Functor.map, Except.map, CompilationModel.compileStmtWithFork.eq_def, bind, Except.bind, Pure.pure, Except.pure, Functor.map, Except.map, hvalueIR] at hhead
-      injection hhead with hheadEq
-      subst hheadEq
+      subst headIR
       simp [hbody]
   | assignVar hvalue hinScope hrest ih =>
       rename_i scope name value rest
@@ -1561,8 +1585,7 @@ theorem compileStmtList_terminal_core_ok_nonempty
           (stmt := .assignVar name value) (rest := rest) hcompile with
         ⟨headIR, tailIR, hhead, _, hbody⟩
       simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork.eq_def, bind, Except.bind, Pure.pure, Except.pure, Functor.map, Except.map, CompilationModel.compileStmtWithFork.eq_def, bind, Except.bind, Pure.pure, Except.pure, Functor.map, Except.map, hvalueIR] at hhead
-      injection hhead with hheadEq
-      subst hheadEq
+      subst headIR
       simp [hbody]
   | require_ hcond hinScope hrest ih =>
       rename_i scope cond message rest
@@ -1571,8 +1594,7 @@ theorem compileStmtList_terminal_core_ok_nonempty
           (stmt := .require cond message) (rest := rest) hcompile with
         ⟨headIR, tailIR, hhead, _, hbody⟩
       simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork.eq_def, bind, Except.bind, Pure.pure, Except.pure, Functor.map, Except.map, CompilationModel.compileStmtWithFork.eq_def, bind, Except.bind, Pure.pure, Except.pure, Functor.map, Except.map, hfailCond] at hhead
-      injection hhead with hheadEq
-      subst hheadEq
+      subst headIR
       simp [hbody]
   | return_ hvalue hinScope hrest =>
       rename_i scope value rest
@@ -1581,8 +1603,7 @@ theorem compileStmtList_terminal_core_ok_nonempty
           (stmt := .return value) (rest := rest) hcompile with
         ⟨headIR, tailIR, hhead, _, hbody⟩
       simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork.eq_def, bind, Except.bind, Pure.pure, Except.pure, Functor.map, Except.map, CompilationModel.compileStmtWithFork.eq_def, bind, Except.bind, Pure.pure, Except.pure, Functor.map, Except.map, hvalueIR] at hhead
-      injection hhead with hheadEq
-      subst hheadEq
+      subst headIR
       simp [hbody]
   | stop hrest =>
       rename_i scope rest
@@ -1590,8 +1611,7 @@ theorem compileStmtList_terminal_core_ok_nonempty
           (stmt := .stop) (rest := rest) hcompile with
         ⟨headIR, tailIR, hhead, _, hbody⟩
       simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork.eq_def, bind, Except.bind, Pure.pure, Except.pure, Functor.map, Except.map, CompilationModel.compileStmtWithFork.eq_def, bind, Except.bind, Pure.pure, Except.pure, Functor.map, Except.map] at hhead
-      injection hhead with hheadEq
-      subst hheadEq
+      subst headIR
       simp [hbody]
   | mstore hoffset hinScopeOffset hvalue hinScopeValue hrest ih =>
       rename_i scope offset value rest
@@ -1601,8 +1621,7 @@ theorem compileStmtList_terminal_core_ok_nonempty
           (stmt := .mstore offset value) (rest := rest) hcompile with
         ⟨headIR, tailIR, hhead, _, hbody⟩
       simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork.eq_def, bind, Except.bind, Pure.pure, Except.pure, Functor.map, Except.map, CompilationModel.compileStmtWithFork.eq_def, bind, Except.bind, Pure.pure, Except.pure, Functor.map, Except.map, hoffsetIR, hvalueIR] at hhead
-      injection hhead with hheadEq
-      subst hheadEq
+      subst headIR
       simp [hbody]
   | tstore hoffset hinScopeOffset hvalue hinScopeValue hrest ih =>
       rename_i scope offset value rest
@@ -1612,8 +1631,7 @@ theorem compileStmtList_terminal_core_ok_nonempty
           (stmt := .tstore offset value) (rest := rest) hcompile with
         ⟨headIR, tailIR, hhead, _, hbody⟩
       simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork.eq_def, bind, Except.bind, Pure.pure, Except.pure, Functor.map, Except.map, CompilationModel.compileStmtWithFork.eq_def, bind, Except.bind, Pure.pure, Except.pure, Functor.map, Except.map, hoffsetIR, hvalueIR] at hhead
-      injection hhead with hheadEq
-      subst hheadEq
+      subst headIR
       simp [hbody]
   | ite hcond hinScope hthen helse hrest ihThen ihElse =>
       rename_i scope cond thenBranch elseBranch rest
@@ -1653,9 +1671,11 @@ theorem compileStmtList_terminal_core_ok_nonempty
                   rw [helseOk] at helseIR
                   cases helseIR
               | ok elseIR =>
-                  simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork.eq_def, bind, Except.bind, Pure.pure, Except.pure, Functor.map, Except.map, helseNonempty, hcondIR, hthenIR, helseIR] at hhead
-                  injection hhead with hheadEq
-                  subst hheadEq
+                  simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork.eq_def,
+                    compileStmtListWithFork_cancun_eq_compileStmtList, bind, Except.bind,
+                    Pure.pure, Except.pure, Functor.map, Except.map, helseNonempty,
+                    hcondIR, hthenIR, helseIR] at hhead
+                  subst headIR
                   simp [hbody]
 
 private theorem yulStmtList_length_le_sizeOf : (stmts : List YulStmt) → stmts.length ≤ sizeOf stmts
@@ -2787,7 +2807,7 @@ theorem exec_compileStmtList_core
       stmtResultMatchesIRExecExact sourceResult irExec := by
   induction hcore generalizing runtime state inScopeNames with
   | nil =>
-      refine ⟨[], rfl, ?_⟩
+      refine ⟨[], compileStmtList_nil_eq_ok fields [] [] .calldata [] false inScopeNames [], ?_⟩
       constructor
       · simpa [SourceSemantics.execStmtList, execIRStmts, stmtResultMatchesIRExec] using hruntime
       · simpa [SourceSemantics.execStmtList, execIRStmts, stmtResultMatchesIRExecExact] using
@@ -2827,9 +2847,9 @@ theorem exec_compileStmtList_core
             hscope' hexact' hbounded' hruntime' with
           ⟨tailIR, htailCompile, htailSem, htailExact⟩
         refine ⟨[YulStmt.let_ name valueIR] ++ tailIR, ?_, ?_⟩
-        · unfold CompilationModel.compileStmtListWithFork CompilationModel.compileStmt
+        · unfold CompilationModel.compileStmtList; unfold CompilationModel.compileStmtListWithFork; unfold CompilationModel.compileStmtWithFork
           rw [hvalueIR]
-          simp [htailCompile]
+          simp [compileStmtListWithFork_cancun_eq_compileStmtList, htailCompile]
           exact rfl
         · have hstmt :
               execIRStmt (tailIR.length + 1) state (YulStmt.let_ name valueIR) =
@@ -2877,9 +2897,9 @@ theorem exec_compileStmtList_core
             hscope' hexact' hbounded' hruntime' with
           ⟨tailIR, htailCompile, htailSem, htailExact⟩
         refine ⟨[YulStmt.assign name valueIR] ++ tailIR, ?_, ?_⟩
-        · unfold CompilationModel.compileStmtListWithFork CompilationModel.compileStmt
+        · unfold CompilationModel.compileStmtList; unfold CompilationModel.compileStmtListWithFork; unfold CompilationModel.compileStmtWithFork
           rw [hvalueIR]
-          simp [htailCompile]
+          simp [compileStmtListWithFork_cancun_eq_compileStmtList, htailCompile]
           exact rfl
         · have hstmt :
               execIRStmt (tailIR.length + 1) state (YulStmt.assign name valueIR) =
@@ -2920,9 +2940,9 @@ theorem exec_compileStmtList_core
             hscope hexact hbounded hruntime with
           ⟨tailIR, htailCompile, htailSem, htailExact⟩
         refine ⟨[YulStmt.if_ failCond (CompilationModel.revertWithMessage message)] ++ tailIR, ?_, ?_⟩
-        · unfold CompilationModel.compileStmtListWithFork CompilationModel.compileStmt
+        · unfold CompilationModel.compileStmtList; unfold CompilationModel.compileStmtListWithFork; unfold CompilationModel.compileStmtWithFork
           rw [hfailCompile]
-          simp [htailCompile]
+          simp [compileStmtListWithFork_cancun_eq_compileStmtList, htailCompile]
           exact rfl
         · rw [SourceSemantics.execStmtList, SourceSemantics.execStmt, hCondSrc]
           by_cases hzero : condVal = 0
@@ -2997,9 +3017,9 @@ theorem exec_compileStmtList_core
         refine ⟨[ YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
                 , YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++ tailIR,
           ?_, ?_⟩
-        · unfold CompilationModel.compileStmtListWithFork CompilationModel.compileStmt
+        · unfold CompilationModel.compileStmtList; unfold CompilationModel.compileStmtListWithFork; unfold CompilationModel.compileStmtWithFork
           rw [hvalueIR]
-          simp [htailCompile]
+          simp [compileStmtListWithFork_cancun_eq_compileStmtList, htailCompile]
           exact rfl
         · have hruntime' : runtimeStateMatchesIR fields runtime' state' :=
             runtimeStateMatchesIR_setBothMemory hruntime 0 retVal hlt
@@ -3045,7 +3065,12 @@ theorem exec_compileStmtList_core
           hscope hexact hbounded hruntime with
         ⟨tailIR, htailCompile, htailSem, htailExact⟩
       refine ⟨[YulStmt.expr (YulExpr.call "stop" [])] ++ tailIR, ?_, ?_⟩
-      · simpa [CompilationModel.compileStmtList, CompilationModel.compileStmt, htailCompile]
+      · have hhead :
+            CompilationModel.compileStmt fields [] [] .calldata [] false inScopeNames [] .stop =
+              Except.ok [YulStmt.expr (YulExpr.call "stop" [])] := by
+            simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork.eq_def, Pure.pure, Except.pure]
+        exact compileStmtList_cons_eq_ok fields [] [] .calldata [] false inScopeNames []
+          .stop rest [YulStmt.expr (YulExpr.call "stop" [])] tailIR hhead htailCompile
       · have hstmt :
             execIRStmt (tailIR.length + 1) state (YulStmt.expr (YulExpr.call "stop" [])) =
               .stop state := by
@@ -3103,9 +3128,9 @@ theorem exec_compileStmtList_core
               hscope hexact' hbounded' hruntime' with
             ⟨tailIR, htailCompile, htailSem, htailExact⟩
           refine ⟨[YulStmt.expr (YulExpr.call "mstore" [offsetIR, valueIR])] ++ tailIR, ?_, ?_⟩
-          · unfold CompilationModel.compileStmtListWithFork CompilationModel.compileStmt
+          · unfold CompilationModel.compileStmtList; unfold CompilationModel.compileStmtListWithFork; unfold CompilationModel.compileStmtWithFork
             rw [hoffsetIR, hvalueIR]
-            simp [htailCompile]
+            simp [compileStmtListWithFork_cancun_eq_compileStmtList, htailCompile]
             exact rfl
           · have hstmt :
                 execIRStmt (tailIR.length + 1) state
@@ -3164,9 +3189,9 @@ theorem exec_compileStmtList_core
               hscope hexact' hbounded' hruntime' with
             ⟨tailIR, htailCompile, htailSem, htailExact⟩
           refine ⟨[YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR])] ++ tailIR, ?_, ?_⟩
-          · unfold CompilationModel.compileStmtListWithFork CompilationModel.compileStmt
+          · unfold CompilationModel.compileStmtList; unfold CompilationModel.compileStmtListWithFork; unfold CompilationModel.compileStmtWithFork
             rw [hoffsetIR, hvalueIR]
-            simp [htailCompile]
+            simp [compileStmtListWithFork_cancun_eq_compileStmtList, htailCompile]
             exact rfl
           · have hstmt :
                 execIRStmt (tailIR.length + 1) state
@@ -3204,7 +3229,7 @@ theorem exec_compileStmtList_core_extraFuel
       stmtResultMatchesIRExecExact sourceResult irExec := by
   induction hcore generalizing runtime state inScopeNames with
   | nil =>
-      refine ⟨[], rfl, ?_⟩
+      refine ⟨[], compileStmtList_nil_eq_ok fields [] [] .calldata [] false inScopeNames [], ?_⟩
       constructor
       · simpa [SourceSemantics.execStmtList, execIRStmts, stmtResultMatchesIRExec] using hruntime
       · simpa [SourceSemantics.execStmtList, execIRStmts, stmtResultMatchesIRExecExact] using
@@ -3239,9 +3264,9 @@ theorem exec_compileStmtList_core_extraFuel
             hscope' hexact' hbounded' hruntime' with
           ⟨tailIR, htailCompile, htailSem, htailExact⟩
         refine ⟨[YulStmt.let_ name valueIR] ++ tailIR, ?_, ?_⟩
-        · unfold CompilationModel.compileStmtListWithFork CompilationModel.compileStmt
+        · unfold CompilationModel.compileStmtList; unfold CompilationModel.compileStmtListWithFork; unfold CompilationModel.compileStmtWithFork
           rw [hvalueIR]
-          simp [htailCompile]
+          simp [compileStmtListWithFork_cancun_eq_compileStmtList, htailCompile]
           exact rfl
         · have hstmt :
               execIRStmt (tailIR.length + extraFuel + 1) state (YulStmt.let_ name valueIR) =
@@ -3301,9 +3326,9 @@ theorem exec_compileStmtList_core_extraFuel
             hscope' hexact' hbounded' hruntime' with
           ⟨tailIR, htailCompile, htailSem, htailExact⟩
         refine ⟨[YulStmt.assign name valueIR] ++ tailIR, ?_, ?_⟩
-        · unfold CompilationModel.compileStmtListWithFork CompilationModel.compileStmt
+        · unfold CompilationModel.compileStmtList; unfold CompilationModel.compileStmtListWithFork; unfold CompilationModel.compileStmtWithFork
           rw [hvalueIR]
-          simp [htailCompile]
+          simp [compileStmtListWithFork_cancun_eq_compileStmtList, htailCompile]
           exact rfl
         · have hstmt :
               execIRStmt (tailIR.length + extraFuel + 1) state (YulStmt.assign name valueIR) =
@@ -3357,9 +3382,9 @@ theorem exec_compileStmtList_core_extraFuel
           ⟨tailIR, htailCompile, htailSem, htailExact⟩
         refine ⟨[YulStmt.if_ failCond (CompilationModel.revertWithMessage message)] ++ tailIR,
           ?_, ?_⟩
-        · unfold CompilationModel.compileStmtListWithFork CompilationModel.compileStmt
+        · unfold CompilationModel.compileStmtList; unfold CompilationModel.compileStmtListWithFork; unfold CompilationModel.compileStmtWithFork
           rw [hfailCompile]
-          simp [htailCompile]
+          simp [compileStmtListWithFork_cancun_eq_compileStmtList, htailCompile]
           exact rfl
         · rw [SourceSemantics.execStmtList, SourceSemantics.execStmt, hCondSrc]
           by_cases hzero : condVal = 0
@@ -3447,9 +3472,9 @@ theorem exec_compileStmtList_core_extraFuel
         refine ⟨[ YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
                 , YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++ tailIR,
           ?_, ?_⟩
-        · unfold CompilationModel.compileStmtListWithFork CompilationModel.compileStmt
+        · unfold CompilationModel.compileStmtList; unfold CompilationModel.compileStmtListWithFork; unfold CompilationModel.compileStmtWithFork
           rw [hvalueIR]
-          simp [htailCompile]
+          simp [compileStmtListWithFork_cancun_eq_compileStmtList, htailCompile]
           exact rfl
         · have hruntime' : runtimeStateMatchesIR fields runtime' state' :=
             runtimeStateMatchesIR_setBothMemory hruntime 0 retVal hlt
@@ -3503,7 +3528,12 @@ theorem exec_compileStmtList_core_extraFuel
           hscope hexact hbounded hruntime with
         ⟨tailIR, htailCompile, htailSem, htailExact⟩
       refine ⟨[YulStmt.expr (YulExpr.call "stop" [])] ++ tailIR, ?_, ?_⟩
-      · simpa [CompilationModel.compileStmtList, CompilationModel.compileStmt, htailCompile]
+      · have hhead :
+            CompilationModel.compileStmt fields [] [] .calldata [] false inScopeNames [] .stop =
+              Except.ok [YulStmt.expr (YulExpr.call "stop" [])] := by
+            simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork.eq_def, Pure.pure, Except.pure]
+        exact compileStmtList_cons_eq_ok fields [] [] .calldata [] false inScopeNames []
+          .stop rest [YulStmt.expr (YulExpr.call "stop" [])] tailIR hhead htailCompile
       · have hstmt :
             execIRStmt (tailIR.length + extraFuel + 1) state
               (YulStmt.expr (YulExpr.call "stop" [])) =
@@ -3567,9 +3597,9 @@ theorem exec_compileStmtList_core_extraFuel
               hscope hexact' hbounded' hruntime' with
             ⟨tailIR, htailCompile, htailSem, htailExact⟩
           refine ⟨[YulStmt.expr (YulExpr.call "mstore" [offsetIR, valueIR])] ++ tailIR, ?_, ?_⟩
-          · unfold CompilationModel.compileStmtListWithFork CompilationModel.compileStmt
+          · unfold CompilationModel.compileStmtList; unfold CompilationModel.compileStmtListWithFork; unfold CompilationModel.compileStmtWithFork
             rw [hoffsetIR, hvalueIR]
-            simp [htailCompile]
+            simp [compileStmtListWithFork_cancun_eq_compileStmtList, htailCompile]
             exact rfl
           · have hstmt :
                 execIRStmt (tailIR.length + extraFuel + 1) state
@@ -3633,9 +3663,9 @@ theorem exec_compileStmtList_core_extraFuel
               hscope hexact' hbounded' hruntime' with
             ⟨tailIR, htailCompile, htailSem, htailExact⟩
           refine ⟨[YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR])] ++ tailIR, ?_, ?_⟩
-          · unfold CompilationModel.compileStmtListWithFork CompilationModel.compileStmt
+          · unfold CompilationModel.compileStmtList; unfold CompilationModel.compileStmtListWithFork; unfold CompilationModel.compileStmtWithFork
             rw [hoffsetIR, hvalueIR]
-            simp [htailCompile]
+            simp [compileStmtListWithFork_cancun_eq_compileStmtList, htailCompile]
             exact rfl
           · have hstmt :
                 execIRStmt (tailIR.length + extraFuel + 1) state
@@ -7162,9 +7192,9 @@ theorem exec_compileStmtList_terminal_core_sizeOf_extraFuel
             hincluded' hscope' hexact' hbounded' hruntime' with
           ⟨tailIR, htailCompile, htailSem⟩
         refine ⟨[YulStmt.let_ name valueIR] ++ tailIR, ?_, ?_⟩
-        · unfold CompilationModel.compileStmtListWithFork CompilationModel.compileStmt
+        · unfold CompilationModel.compileStmtList; unfold CompilationModel.compileStmtListWithFork; unfold CompilationModel.compileStmtWithFork
           rw [hvalueIR]
-          simp [htailCompile]
+          simp [compileStmtListWithFork_cancun_eq_compileStmtList, htailCompile]
           exact rfl
         · have hstmt :
               execIRStmt (sizeOf ([YulStmt.let_ name valueIR] ++ tailIR) + extraFuel) state
@@ -7219,9 +7249,9 @@ theorem exec_compileStmtList_terminal_core_sizeOf_extraFuel
             hincluded' hscope' hexact' hbounded' hruntime' with
           ⟨tailIR, htailCompile, htailSem⟩
         refine ⟨[YulStmt.assign name valueIR] ++ tailIR, ?_, ?_⟩
-        · unfold CompilationModel.compileStmtListWithFork CompilationModel.compileStmt
+        · unfold CompilationModel.compileStmtList; unfold CompilationModel.compileStmtListWithFork; unfold CompilationModel.compileStmtWithFork
           rw [hvalueIR]
-          simp [htailCompile]
+          simp [compileStmtListWithFork_cancun_eq_compileStmtList, htailCompile]
           exact rfl
         · have hstmt :
               execIRStmt (sizeOf ([YulStmt.assign name valueIR] ++ tailIR) + extraFuel) state
@@ -7263,9 +7293,9 @@ theorem exec_compileStmtList_terminal_core_sizeOf_extraFuel
           ⟨tailIR, htailCompile, htailSem⟩
         refine ⟨[YulStmt.if_ failCond (CompilationModel.revertWithMessage message)] ++ tailIR,
           ?_, ?_⟩
-        · unfold CompilationModel.compileStmtListWithFork CompilationModel.compileStmt
+        · unfold CompilationModel.compileStmtList; unfold CompilationModel.compileStmtListWithFork; unfold CompilationModel.compileStmtWithFork
           rw [hfailCompile]
-          simp [htailCompile]
+          simp [compileStmtListWithFork_cancun_eq_compileStmtList, htailCompile]
           exact rfl
         · by_cases hzero : condVal = 0
           · -- condVal = 0 → require fails → revert
@@ -7338,9 +7368,9 @@ theorem exec_compileStmtList_terminal_core_sizeOf_extraFuel
       refine ⟨[ YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
               , YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++ tailIR,
         ?_, ?_⟩
-      · unfold CompilationModel.compileStmtListWithFork CompilationModel.compileStmt
+      · unfold CompilationModel.compileStmtList; unfold CompilationModel.compileStmtListWithFork; unfold CompilationModel.compileStmtWithFork
         rw [hvalueIR]
-        simp [htailCompile]
+        simp [compileStmtListWithFork_cancun_eq_compileStmtList, htailCompile]
         exact rfl
       · exact stmtResultMatchesIRExec_compiled_return_core_append_wholeFuel_of_scope
           hvalue hvalueIR hexact hinScope hscope hbounded hruntime
@@ -7349,7 +7379,12 @@ theorem exec_compileStmtList_terminal_core_sizeOf_extraFuel
       rcases compileStmtList_core_ok (fields := fields) (inScopeNames := collectStmtNames (.stop) ++ inScopeNames) hrest with
         ⟨tailIR, htailCompile⟩
       refine ⟨[YulStmt.expr (YulExpr.call "stop" [])] ++ tailIR, ?_, ?_⟩
-      · simpa [CompilationModel.compileStmtList, CompilationModel.compileStmt, htailCompile]
+      · have hhead :
+            CompilationModel.compileStmt fields [] [] .calldata [] false inScopeNames [] .stop =
+              Except.ok [YulStmt.expr (YulExpr.call "stop" [])] := by
+            simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork.eq_def, Pure.pure, Except.pure]
+        exact compileStmtList_cons_eq_ok fields [] [] .calldata [] false inScopeNames []
+          .stop rest [YulStmt.expr (YulExpr.call "stop" [])] tailIR hhead htailCompile
       · exact stmtResultMatchesIRExec_compiled_stop_core_append_wholeFuel hruntime
   | mstore hoffset hinScopeOffset hvalue hinScopeValue hrest ih =>
       rename_i scope offset value rest
@@ -7399,9 +7434,9 @@ theorem exec_compileStmtList_terminal_core_sizeOf_extraFuel
               hincluded' hscope' hexact' hbounded' hruntime' with
             ⟨tailIR, htailCompile, htailSem⟩
           refine ⟨[YulStmt.expr (YulExpr.call "mstore" [offsetIR, valueIR])] ++ tailIR, ?_, ?_⟩
-          · unfold CompilationModel.compileStmtListWithFork CompilationModel.compileStmt
+          · unfold CompilationModel.compileStmtList; unfold CompilationModel.compileStmtListWithFork; unfold CompilationModel.compileStmtWithFork
             rw [hoffsetIR, hvalueIR]
-            simp [htailCompile]
+            simp [compileStmtListWithFork_cancun_eq_compileStmtList, htailCompile]
             exact rfl
           · have hstmt :
                 execIRStmt (sizeOf ([YulStmt.expr (YulExpr.call "mstore" [offsetIR, valueIR])] ++ tailIR) + extraFuel) state
@@ -7467,9 +7502,9 @@ theorem exec_compileStmtList_terminal_core_sizeOf_extraFuel
               hincluded' hscope' hexact' hbounded' hruntime' with
             ⟨tailIR, htailCompile, htailSem⟩
           refine ⟨[YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR])] ++ tailIR, ?_, ?_⟩
-          · unfold CompilationModel.compileStmtListWithFork CompilationModel.compileStmt
+          · unfold CompilationModel.compileStmtList; unfold CompilationModel.compileStmtListWithFork; unfold CompilationModel.compileStmtWithFork
             rw [hoffsetIR, hvalueIR]
-            simp [htailCompile]
+            simp [compileStmtListWithFork_cancun_eq_compileStmtList, htailCompile]
             exact rfl
           · have hstmt :
                 execIRStmt (sizeOf ([YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR])] ++ tailIR) + extraFuel) state
@@ -7514,9 +7549,10 @@ theorem exec_compileStmtList_terminal_core_sizeOf_extraFuel
         , YulStmt.if_ (YulExpr.ident tempName) thenIR
         , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR ]] ++ tailIR,
         ?_, ?_⟩
-      · unfold CompilationModel.compileStmtListWithFork CompilationModel.compileStmt
-        rw [hcondIR, hthenIR, helseIR]
-        simp [helseNonempty, htailIR, tempName]
+      · unfold CompilationModel.compileStmtList; unfold CompilationModel.compileStmtListWithFork; unfold CompilationModel.compileStmtWithFork
+        rw [hcondIR, compileStmtListWithFork_cancun_eq_compileStmtList, hthenIR,
+          compileStmtListWithFork_cancun_eq_compileStmtList, helseIR]
+        simp [compileStmtListWithFork_cancun_eq_compileStmtList, helseNonempty, htailIR, tempName]
         exact rfl
       · -- Evaluate the condition
         have hCondEval := eval_compileExpr_core_of_scope hcond hexact hinScope hbounded hpresent hruntime

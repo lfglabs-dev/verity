@@ -886,7 +886,10 @@ theorem compiledStmtStep_forEach_literal_zero
   · dsimp [forEachZeroCompiledIR, forEachZeroInitStmts, forEachZeroCondExpr,
       forEachZeroPostStmts, forEachZeroBodyWithBind, forEachZeroIdxName,
       forEachZeroCountName, forEachZeroUsedNames]
-    simp [CompilationModel.compileStmt, CompilationModel.compileExpr, hbodyCompile]
+    try unfold CompilationModel.compileStmt
+    unfold CompilationModel.compileStmtWithFork
+    simp [FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList,
+      CompilationModel.compileExpr, hbodyCompile]
   · intro runtime state extraFuel hexact hscope hbounded hruntime hslack
     rcases forEachZero_fresh_facts (scope := scope) (varName := varName) (body := body) with
       ⟨hidx_ne_var, hcount_ne_var, hcount_ne_idx, hidx_not_scope, hcount_not_scope⟩
@@ -916,10 +919,11 @@ theorem compiledStmtStep_forEach_literal_empty
       preserves := ?_ }
   · dsimp [forEachLiteralCompiledIR, forEachLiteralInitStmts, forEachLiteralIdxName,
       forEachLiteralCountName, forEachLiteralUsedNames, forEachLiteralBound]
-    simp [CompilationModel.compileStmt, CompilationModel.compileStmtList,
-      CompilationModel.compileExpr,
-      CompilationModel.uint256Modulus]
-    rfl
+    try unfold CompilationModel.compileStmt
+    unfold CompilationModel.compileStmtWithFork
+    simp [FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList,
+      FunctionBody.compileStmtList_nil_eq_ok,
+      CompilationModel.compileExpr, CompilationModel.uint256Modulus]
   · intro runtime state extraFuel hexact hscope hbounded hruntime hslack
     rcases forEachLiteral_fresh_facts (scope := scope) (varName := varName) (n := n) with
       ⟨hidx_ne_var, hcount_ne_var, hcount_ne_idx, hidx_not_scope, hcount_not_scope⟩

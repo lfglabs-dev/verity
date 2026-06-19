@@ -2381,6 +2381,8 @@ theorem compiledStmtStep_setStorage_singleSlot
     CompiledStmtStep fields scope (.setStorage fieldName value)
       [YulStmt.expr (YulExpr.call "sstore" [YulExpr.lit slot, valueIR])] where
   compileOk := by
+    try unfold CompilationModel.compileStmt
+    unfold CompilationModel.compileStmtWithFork
     simp [CompilationModel.compileStmt, CompilationModel.compileSetStorage,
       hNotMapping, hfind, halias, hunpacked, hvalueIR]
   preserves runtime state extraFuel hexact hscope hbounded hruntime hslack := by
@@ -2596,6 +2598,8 @@ theorem compiledStmtStep_setStorageAddr_singleSlot
           [YulExpr.lit slot,
             YulExpr.call "and" [valueIR, YulExpr.hex Compiler.Constants.addressMask]])] where
   compileOk := by
+    try unfold CompilationModel.compileStmt
+    unfold CompilationModel.compileStmtWithFork
     have hNotMapping : isMapping fields fieldName = false :=
       isMapping_false_of_findFieldWithResolvedSlot_address hfind rfl
     simp [CompilationModel.compileStmt, CompilationModel.compileSetStorage,
@@ -2730,6 +2734,8 @@ theorem compiledStmtStep_mstore_single
     CompiledStmtStep fields scope (.mstore offset value)
       [YulStmt.expr (YulExpr.call "mstore" [offsetIR, valueIR])] where
   compileOk := by
+    try unfold CompilationModel.compileStmt
+    unfold CompilationModel.compileStmtWithFork
     simp only [CompilationModel.compileStmt, hoffsetIR, hvalueIR]
     rfl
   preserves := compiledStmtStep_mstore_single_preserves
@@ -2864,6 +2870,8 @@ theorem compiledStmtStep_tstore_single
     CompiledStmtStep fields scope (.tstore offset value)
       [YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR])] where
   compileOk := by
+    try unfold CompilationModel.compileStmt
+    unfold CompilationModel.compileStmtWithFork
     simp only [CompilationModel.compileStmt, hoffsetIR, hvalueIR]
     rfl
   preserves := compiledStmtStep_tstore_single_preserves
@@ -3032,6 +3040,8 @@ theorem compiledStmtStep_setMappingUint_singleSlot_of_slotSafety
         (YulExpr.call "sstore"
           [YulExpr.call "mappingSlot" [YulExpr.lit slot, keyIR], valueIR])] where
   compileOk := by
+    try unfold CompilationModel.compileStmt
+    unfold CompilationModel.compileStmtWithFork
     simp only [CompilationModel.compileStmt, CompilationModel.compileMappingSlotWrite,
       hmapping, hwriteSlots, hkeyIR, hvalueIR]
     rfl
@@ -3094,6 +3104,8 @@ theorem compileStmt_emit_scalar_supported_ok
       eventDefScalarCompileSupported eventDef = true := by
     simpa [eventDefScalarProofSupported] using hscalar
   refine ⟨compileScalarEmitFromCompiledArgs eventDef args argExprs, ?_⟩
+  try unfold CompilationModel.compileStmt
+  unfold CompilationModel.compileStmtWithFork
   simp only [CompilationModel.compileStmt, CompilationModel.compileEmit]
   simp [hfind, hlen, hargExprs, hindexedGuard, hscalarCompile,
     Bind.bind, Except.bind, pure, Except.pure]
@@ -3551,6 +3563,8 @@ theorem compiledStmtStep_setMappingChain_singleSlot_of_slotSafety
             (fun slotExpr keyExpr => YulExpr.call "mappingSlot" [slotExpr, keyExpr])
             (YulExpr.lit slot), valueIR])] where
   compileOk := by
+    try unfold CompilationModel.compileStmt
+    unfold CompilationModel.compileStmtWithFork
     simp only [CompilationModel.compileStmt, CompilationModel.compileSetMappingChain,
       hmapping, hwriteSlots, hkeyIRs, hvalueIR]
     rfl
@@ -3720,6 +3734,8 @@ theorem compiledStmtStep_setMapping_singleSlot_of_slotSafety
         (YulExpr.call "sstore"
           [YulExpr.call "mappingSlot" [YulExpr.lit slot, keyIR], valueIR])] where
   compileOk := by
+    try unfold CompilationModel.compileStmt
+    unfold CompilationModel.compileStmtWithFork
     simp only [CompilationModel.compileStmt, CompilationModel.compileMappingSlotWrite,
       hmapping, hwriteSlots, hkeyIR, hvalueIR]
     rfl
@@ -3982,6 +3998,8 @@ theorem compiledStmtStep_setMappingWord_singleSlot_of_slotSafety
            if wordOffset == 0 then mappingBase
            else YulExpr.call "add" [mappingBase, YulExpr.lit wordOffset], valueIR])] where
   compileOk := by
+    try unfold CompilationModel.compileStmt
+    unfold CompilationModel.compileStmtWithFork
     simp only [CompilationModel.compileStmt, CompilationModel.compileMappingSlotWrite,
       hmapping, hwriteSlots, hkeyIR, hvalueIR]
     rfl
@@ -4819,6 +4837,8 @@ theorem compiledStmtStep_setMappingPackedWord_singleSlot_of_slotSafety
                    YulExpr.call "shl"
                      [YulExpr.lit packed.offset, YulExpr.ident "__compat_packed"]]])]] where
   compileOk := by
+    try unfold CompilationModel.compileStmt
+    unfold CompilationModel.compileStmtWithFork
     simp only [CompilationModel.compileStmt, CompilationModel.compileMappingPackedSlotWrite,
       hmapping, hpacked, hwriteSlots, hkeyIR, hvalueIR, Bool.not_true, bne_self_eq_false,
       ite_false, ite_true, pure, Except.pure, bind, Except.bind]
@@ -5082,6 +5102,8 @@ theorem compiledStmtStep_setStructMember_singleSlot_of_slotSafety
            if wordOffset == 0 then mappingBase
            else YulExpr.call "add" [mappingBase, YulExpr.lit wordOffset], valueIR])] where
   compileOk := by
+    try unfold CompilationModel.compileStmt
+    unfold CompilationModel.compileStmtWithFork
     simp only [CompilationModel.compileStmt, CompilationModel.compileSetStructMember,
       CompilationModel.compileMappingSlotWrite, hmapping, hnotMapping2, hmembers, hmember,
       hwriteSlots, hkeyIR, hvalueIR]
@@ -5297,6 +5319,8 @@ theorem compiledStmtStep_setMapping2_singleSlot_of_slotSafety
           [YulExpr.call "mappingSlot"
             [YulExpr.call "mappingSlot" [YulExpr.lit slot, key1IR], key2IR], valueIR])] where
   compileOk := by
+    try unfold CompilationModel.compileStmt
+    unfold CompilationModel.compileStmtWithFork
     simp only [CompilationModel.compileStmt, CompilationModel.compileSetMapping2,
       hmapping2, hwriteSlots, hkey1IR, hkey2IR, hvalueIR]
     rfl
@@ -5622,6 +5646,8 @@ theorem compiledStmtStep_setMapping2Word_singleSlot_of_slotSafety
            if wordOffset == 0 then mappingSlot2
            else YulExpr.call "add" [mappingSlot2, YulExpr.lit wordOffset], valueIR])] where
   compileOk := by
+    try unfold CompilationModel.compileStmt
+    unfold CompilationModel.compileStmtWithFork
     simp only [CompilationModel.compileStmt, CompilationModel.compileSetMapping2Word,
       hmapping2, hwriteSlots, hkey1IR, hkey2IR, hvalueIR]
     rfl
@@ -5958,6 +5984,8 @@ theorem compiledStmtStep_setStructMember2_singleSlot_of_slotSafety
            if wordOffset == 0 then mappingSlot2
            else YulExpr.call "add" [mappingSlot2, YulExpr.lit wordOffset], valueIR])] where
   compileOk := by
+    try unfold CompilationModel.compileStmt
+    unfold CompilationModel.compileStmtWithFork
     simp only [CompilationModel.compileStmt, CompilationModel.compileSetStructMember2,
       hmapping2, hmembers, hmember, hwriteSlots, hkey1IR, hkey2IR, hvalueIR]
     rfl
@@ -5993,6 +6021,8 @@ theorem compiledStmtStep_setStorage_aliasSlots
             YulStmt.expr
               (YulExpr.call "sstore" [YulExpr.lit writeSlot, YulExpr.ident "__compat_value"])))] where
   compileOk := by
+    try unfold CompilationModel.compileStmt
+    unfold CompilationModel.compileStmtWithFork
     cases hty : f.ty with
     | adt name maxFields =>
         exact False.elim (hNotAdt name maxFields hty)
@@ -6399,6 +6429,8 @@ theorem compiledStmtStep_setStorage_of_validateIdentifierShapes_of_validateFunct
     intro name maxFields hty
     rcases compileStmt_ok_of_compileStmtList_append_cons
       (by simpa [hbody] using hbodyCompile) with ⟨stmtIR, hstmt⟩
+    try unfold CompilationModel.compileStmt at hstmt
+    unfold CompilationModel.compileStmtWithFork at hstmt
     simp [CompilationModel.compileStmt, CompilationModel.compileSetStorage,
       hNotMapping, hfind, hty, hvalueIR, pure, Pure.pure, Except.pure,
       Bind.bind, Except.bind] at hstmt
@@ -6457,7 +6489,9 @@ theorem compiledStmtStep_ite
   · show CompilationModel.compileStmt fields [] [] .calldata [] false scope []
         (.ite cond thenBranch elseBranch) = Except.ok compiledIR
     unfold CompilationModel.compileStmt
-    simp only [hcondIR, hthenIR, helseIR, Except.bind, helseNonempty, ↓reduceIte]
+    unfold CompilationModel.compileStmtWithFork
+    simp only [hcondIR, FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList,
+      hthenIR, helseIR, Except.bind, helseNonempty, ↓reduceIte]
     rfl
   · intro runtime state extraFuel hexact hscope hbounded hruntime hslack
     set wholeExtraFuel := extraFuel - (sizeOf compiledIR - compiledIR.length) with hWF
@@ -6719,6 +6753,8 @@ private theorem compiledStmtStep_letStorageField
     CompiledStmtStep fields scope (.letVar tmp (Expr.storage fieldName))
       [YulStmt.let_ tmp (YulExpr.call "sload" [YulExpr.lit slot])] where
   compileOk := by
+    try unfold CompilationModel.compileStmt
+    unfold CompilationModel.compileStmtWithFork
     have hNotMapping := isMapping_false_of_findFieldWithResolvedSlot_uint256 hfind rfl
     simp only [CompilationModel.compileStmt, CompilationModel.compileExpr, hNotMapping, hfind]
     rfl
@@ -6797,6 +6833,8 @@ private theorem compiledStmtStep_letStorageAddrField
     CompiledStmtStep fields scope (.letVar tmp (Expr.storageAddr fieldName))
       [YulStmt.let_ tmp (YulExpr.call "sload" [YulExpr.lit slot])] where
   compileOk := by
+    try unfold CompilationModel.compileStmt
+    unfold CompilationModel.compileStmtWithFork
     have hNotMapping := isMapping_false_of_findFieldWithResolvedSlot_address hfind rfl
     simp only [CompilationModel.compileStmt, CompilationModel.compileExpr, hNotMapping, hfind]
     rfl
@@ -6876,6 +6914,8 @@ private theorem compiledStmtStep_assignStorageField
     CompiledStmtStep fields scope (.assignVar name (Expr.storage fieldName))
       [YulStmt.assign name (YulExpr.call "sload" [YulExpr.lit slot])] where
   compileOk := by
+    try unfold CompilationModel.compileStmt
+    unfold CompilationModel.compileStmtWithFork
     have hNotMapping := isMapping_false_of_findFieldWithResolvedSlot_uint256 hfind rfl
     simp only [CompilationModel.compileStmt, CompilationModel.compileExpr, hNotMapping, hfind]
     rfl
@@ -6954,6 +6994,8 @@ private theorem compiledStmtStep_assignStorageAddrField
     CompiledStmtStep fields scope (.assignVar name (Expr.storageAddr fieldName))
       [YulStmt.assign name (YulExpr.call "sload" [YulExpr.lit slot])] where
   compileOk := by
+    try unfold CompilationModel.compileStmt
+    unfold CompilationModel.compileStmtWithFork
     have hNotMapping := isMapping_false_of_findFieldWithResolvedSlot_address hfind rfl
     simp only [CompilationModel.compileStmt, CompilationModel.compileExpr, hNotMapping, hfind]
     rfl

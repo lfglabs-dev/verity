@@ -2280,7 +2280,9 @@ theorem eventCompileStmt_emit_scalar_shape
   have hscalarCompile :
       eventDefScalarCompileSupported eventDef = true := by
     simpa [eventDefScalarProofSupported] using hscalar
-  simp only [CompilationModel.compileStmt, CompilationModel.compileEmit] at hcompile
+  try unfold CompilationModel.compileStmt at hcompile
+  unfold CompilationModel.compileStmtWithFork at hcompile
+  simp only [CompilationModel.compileEmit] at hcompile
   simp [hfind, hlen, hargExprs, hindexedGuard, hscalarCompile,
     Bind.bind, Except.bind, pure, Except.pure] at hcompile
   exact ⟨eventDef, argExprs, hfind, hargExprs, hcompile.symm⟩

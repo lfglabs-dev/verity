@@ -2312,7 +2312,9 @@ theorem compileStmtList_ok_of_stmtListGenericCore
       CompilationModel.compileStmtList
         fields [] [] .calldata [] false inScopeNames [] stmts = Except.ok bodyIR := by
   induction hgeneric generalizing inScopeNames with
-  | nil => exact ⟨[], rfl⟩
+  | nil =>
+      exact ⟨[], FunctionBody.compileStmtList_nil_eq_ok
+        fields [] [] .calldata [] false inScopeNames []⟩
   | cons hstep _hrest ih =>
       rcases FunctionBody.compileStmt_ok_any_scope
         (scope2 := inScopeNames) ⟨_, hstep.compileOk⟩ with ⟨headIR, hhead⟩
@@ -2337,7 +2339,9 @@ theorem compileStmtList_ok_of_stmtListGenericWithHelpers
       CompilationModel.compileStmtList
         fields spec.events spec.errors .calldata [] false inScopeNames [] stmts = Except.ok bodyIR := by
   induction hgeneric generalizing inScopeNames with
-  | nil => exact ⟨[], rfl⟩
+  | nil =>
+      exact ⟨[], FunctionBody.compileStmtList_nil_eq_ok
+        fields spec.events spec.errors .calldata [] false inScopeNames []⟩
   | cons hstep _hrest ih =>
       rcases FunctionBody.compileStmt_ok_any_scope_with_surface
         (scope2 := inScopeNames) ⟨_, hstep.compileOk⟩ with ⟨headIR, hhead⟩
@@ -2364,7 +2368,9 @@ theorem compileStmtList_ok_of_stmtListGenericWithHelpersAndHelperIR
       CompilationModel.compileStmtList
         fields spec.events spec.errors .calldata [] false inScopeNames [] stmts = Except.ok bodyIR := by
   induction hgeneric generalizing inScopeNames with
-  | nil => exact ⟨[], rfl⟩
+  | nil =>
+      exact ⟨[], FunctionBody.compileStmtList_nil_eq_ok
+        fields spec.events spec.errors .calldata [] false inScopeNames []⟩
   | cons hstep _hrest ih =>
       rcases FunctionBody.compileStmt_ok_any_scope_with_surface
         (scope2 := inScopeNames) ⟨_, hstep.compileOk⟩ with ⟨headIR, hhead⟩
@@ -2615,7 +2621,9 @@ theorem exec_compileStmtList_generic_sizeOf_extraFuel_step
   induction hgeneric generalizing runtime state extraFuel with
   | nil =>
       refine ⟨[], ?_, ?_⟩
-      · simp [CompilationModel.compileStmtList, pure, Except.pure]
+      · try unfold CompilationModel.compileStmtList
+        unfold CompilationModel.compileStmtListWithFork
+        rfl
       · exact And.intro hruntime <| And.intro hexact <| And.intro hbounded hscope
   | @cons scope stmt compiledIR rest hstep hrest ih =>
       rcases compileStmtList_ok_of_stmtListGenericCore hrest
@@ -2774,7 +2782,9 @@ theorem exec_compileStmtList_generic_with_helpers_sizeOf_extraFuel_step
   induction hgeneric generalizing runtime state extraFuel with
   | nil =>
       refine ⟨[], ?_, ?_⟩
-      · simp [CompilationModel.compileStmtList, pure, Except.pure]
+      · try unfold CompilationModel.compileStmtList
+        unfold CompilationModel.compileStmtListWithFork
+        rfl
       · simp [SourceSemantics.execStmtListWithHelpers, execIRStmts, stmtStepMatchesIRExec]
         exact And.intro hruntime <| And.intro hexact <| And.intro hbounded hscope
   | @cons scope stmt compiledIR rest hstep hrest ih =>
@@ -2940,7 +2950,9 @@ theorem exec_compileStmtList_generic_with_helpers_and_helper_ir_sizeOf_extraFuel
   induction hgeneric generalizing runtime state extraFuel with
   | nil =>
       refine ⟨[], ?_, ?_⟩
-      · simp [CompilationModel.compileStmtList, pure, Except.pure]
+      · try unfold CompilationModel.compileStmtList
+        unfold CompilationModel.compileStmtListWithFork
+        rfl
       · simp [SourceSemantics.execStmtListWithHelpers, execIRStmtsWithInternals,
               stmtStepMatchesIRExecWithInternals]
         exact And.intro hruntime <| And.intro hexact <| And.intro hbounded hscope
