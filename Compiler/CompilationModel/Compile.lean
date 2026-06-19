@@ -53,52 +53,6 @@ def unsafeYulToEVMYul (fragment : UnsafeYulFragment) : List YulStmt :=
 theorem unsafeYulToEVMYul_eq (fragment : UnsafeYulFragment) :
     unsafeYulToEVMYul fragment = fragment.stmts := rfl
 
-def findInternalFunctionForCall? (functions : List FunctionSpec) (name : String) : Option FunctionSpec :=
-  match functions.filter (fun fn => fn.isInternal && fn.name == name) with
-  | [fn] => some fn
-  | _ => none
-
-def directForwardedInternalCallArgName? : Expr → Option String
-  | Expr.param name => some name
-  | Expr.localVar name => some name
-  | _ => none
-
-def compileInternalCallArg (fields : List Field) (dynamicSource : DynamicDataSource)
-    (calleeName : String) (param : Param) (arg : Expr) : Except String (List YulExpr) := do
-  if isExpandedInternalParamType param.ty then
-    match directForwardedInternalCallArgName? arg with
-    | some name =>
-        pure ((internalCallYulArgNamesForParam name param).map YulExpr.ident)
-    | none =>
-        throw s!"Compilation error: internal call '{calleeName}' argument for parameter '{param.name}' with type {repr param.ty} must be a direct parameter/local forwarding expression (issue #1889)."
-  else
-    pure [← compileExpr fields dynamicSource arg]
-
-def compileInternalCallArgsWithParams (fields : List Field) (dynamicSource : DynamicDataSource)
-    (calleeName : String) : List Param → List Expr → Except String (List YulExpr)
-  | [], [] => pure []
-  | param :: params, arg :: args => do
-      let head ← compileInternalCallArg fields dynamicSource calleeName param arg
-      let tail ← compileInternalCallArgsWithParams fields dynamicSource calleeName params args
-      pure (head ++ tail)
-  | params, args =>
-      throw s!"Compilation error: internal call '{calleeName}' received {args.length} source arg(s), expected {params.length} (issue #1889)."
-
-def compileInternalCallArgs (fields : List Field) (dynamicSource : DynamicDataSource)
-    (internalFunctions : List FunctionSpec) (calleeName : String) (args : List Expr) :
-    Except String (List YulExpr) :=
-  match findInternalFunctionForCall? internalFunctions calleeName with
-  | some callee =>
-      let legacyArgCount :=
-        callee.params.foldl (fun acc param => acc + (internalFunctionYulParamNames [param]).length) 0
-      if args.length == callee.params.length then
-        compileInternalCallArgsWithParams fields dynamicSource calleeName callee.params args
-      else if args.length == legacyArgCount then
-        compileExprList fields dynamicSource args
-      else
-        compileInternalCallArgsWithParams fields dynamicSource calleeName callee.params args
-  | none => compileExprList fields dynamicSource args
-
 private def compileAdtStorageWrite (fields : List Field)
     (dynamicSource : DynamicDataSource) (adtTypes : List AdtTypeDef)
     (storageField adtName variantName : String) (args : List Expr)
