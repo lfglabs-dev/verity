@@ -1793,6 +1793,11 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMappingSlots_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeUintKeyedMappingSlots_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMapping2Slots_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.fieldIsTransient_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.writeTransientTargets_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMappingFieldSlots_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.writeUintKeyedMappingFieldSlots_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMapping2FieldSlots_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.wordNormalize_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.bindValue_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.valuesAsEventArgs_eq
@@ -3642,6 +3647,13 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.YulGeneration.Backends.bridgedStraightStmt_storageStore_lit  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedStraightStmt_storageStore_mapping  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedStraightStmt_storageStore_add  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_storageLoad_local  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_fieldStorageLoad  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.bridgedStraightStmt_fieldStorageStore_mapping  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.bridgedStraightStmt_fieldStorageStore_lit  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.bridgedStraightStmt_fieldStorageStore_add  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.bridgedStraightStmt_maybeFieldStorageStore_add  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.bridgedStraightStmt_maybeFieldStorageStore_mapping  -- private
   Compiler.Proofs.YulGeneration.Backends.isDynamicParamType_false_of_static_scalar
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_calldataload_lit  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_and_lit_mask  -- private
@@ -3900,6 +3912,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.compileStmt_mappingPackedWordNonzero_bridged
   Compiler.Proofs.YulGeneration.Backends.compileStmt_mappingPackedWordNonzero_noFuncDefs
   -- Compiler.Proofs.YulGeneration.Backends.bridgedStmt_packedInnerBlock_wordOffsetZero  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.bridgedStmt_packedInnerBlock_wordOffsetZero_field  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedStmts_slotsMap_packedInnerBlock_wordOffsetZero  -- private
   -- Compiler.Proofs.YulGeneration.Backends.yulStmtsContainFuncDef_slotsMap_packedInnerBlock_wordOffsetZero  -- private
   Compiler.Proofs.YulGeneration.Backends.compileStmt_setMappingPackedWord_multiSlot_bridged
@@ -3907,6 +3920,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.compileStmt_mappingPackedWordMultiSlot_bridged
   Compiler.Proofs.YulGeneration.Backends.compileStmt_mappingPackedWordMultiSlot_noFuncDefs
   -- Compiler.Proofs.YulGeneration.Backends.bridgedStmt_packedInnerBlock_wordOffsetNonzero  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.bridgedStmt_packedInnerBlock_wordOffsetNonzero_field  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedStmts_slotsMap_packedInnerBlock_wordOffsetNonzero  -- private
   -- Compiler.Proofs.YulGeneration.Backends.yulStmtsContainFuncDef_slotsMap_packedInnerBlock_wordOffsetNonzero  -- private
   Compiler.Proofs.YulGeneration.Backends.compileStmt_setMappingPackedWord_multiSlot_nonzero_bridged
@@ -5651,4 +5665,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5266 theorems/lemmas (3645 public, 1621 private, 0 sorry'd)
+-- Total: 5307 theorems/lemmas (3653 public, 1654 private, 0 sorry'd)
