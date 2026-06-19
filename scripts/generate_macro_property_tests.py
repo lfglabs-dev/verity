@@ -21,8 +21,20 @@ from property_utils import ROOT
 
 CONTRACT_RE = re.compile(r"^\s*verity_contract\s+([A-Za-z_][A-Za-z0-9_]*)\s+where\s*$")
 CHECK_CONTRACT_RE = re.compile(r"^\s*#check_contract\s+([A-Za-z_][A-Za-z0-9_]*)\s*$")
+# Optional leading mutability modifiers (`function <modifier>* <name> (...)`,
+# Verity/Macro/Syntax.lean). They sit between `function` and the name, so the
+# parser must consume them before capturing the identifier — otherwise an
+# annotated function (e.g. `function reentrancy_trusted f (...)`) is silently
+# dropped from generation. `internal` is deliberately omitted: internal helpers
+# are not externally dispatchable, so leaving them unmatched keeps them excluded
+# (a generated selector-call stub would always revert).
+_FUNCTION_MODIFIER = (
+    r"(?:payable|view|pure|no_external_calls"
+    r"|allow_post_interaction_writes|cei_safe|reentrancy_trusted"
+    r"|nonreentrant\([^)]*\))"
+)
 FUNCTION_RE = re.compile(
-    r"^\s*function\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*:\s*(.+?)\s*:=\s*",
+    rf"^\s*function\s+(?:{_FUNCTION_MODIFIER}\s+)*([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*:\s*(.+?)\s*:=\s*",
 )
 CONSTRUCTOR_RE = re.compile(r"^\s*constructor\s*\(([^)]*)\)\s*:=\s*")
 # `_IDENT` captures a user-facing identifier with optional `«…»` raw-identifier

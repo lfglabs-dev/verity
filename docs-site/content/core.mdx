@@ -37,7 +37,7 @@ structure ContractState where
   -- EIP-1153 transient storage
   transientStorage : Nat → Uint256
   -- EVM context
-  sender, thisAddress : Address
+  sender, thisAddress, txOrigin : Address
   msgValue, selfBalance : Uint256
   blockTimestamp, blockNumber, chainId, blobBaseFee : Uint256
   -- Calldata and memory
@@ -51,7 +51,7 @@ structure ContractState where
 
 Six persistent storage spaces plus transient storage. `storage` for Uint256 values, `storageAddr` for addresses, `storageMap` / `storageMapUint` / `storageMap2` for the three mapping shapes, `storageArray` for dynamic arrays. Each is indexed by a natural number (the slot).
 
-`knownAddresses` tracks which addresses have been seen per slot and is used by conservation proofs. EVM context fields (`msgValue`, `blockTimestamp`, `blockNumber`, `chainId`, `blobBaseFee`, `selfBalance`) and calldata/memory are modeled so EDSL proofs can reason about them; the `verity_contract` macro routes context accessors and `tstore`/`tload` through these fields.
+`knownAddresses` tracks which addresses have been seen per slot and is used by conservation proofs. EVM context fields (`msgValue`, `txOrigin`, `blockTimestamp`, `blockNumber`, `chainId`, `blobBaseFee`, `selfBalance`) and calldata/memory are modeled so EDSL proofs can reason about them; the `verity_contract` macro routes context accessors and `tstore`/`tload` through these fields.
 
 ## ContractResult
 
@@ -84,7 +84,7 @@ This gives do-notation with automatic failure propagation. A failed `require` st
 
 ## Primitives
 
-The core types above are operated on by a small surface of EDSL primitives, storage get/set, mapping get/set, context accessors (`msgSender`, `msgValue`, `blockTimestamp`, `contractAddress`), event emission, and the `require` guard. Those are documented in the [EDSL API Reference](/edsl-api-reference); the prose here only covers the *type layer* and the monad, not the operation catalogue.
+The core types above are operated on by a small surface of EDSL primitives, storage get/set, mapping get/set, context accessors (`msgSender`, `txOrigin`, `msgValue`, `selfBalance`, `blockTimestamp`, `blockNumber`, `chainid`, `contractAddress`), event emission, and the `require` guard. Those are documented in the [EDSL Reference](/edsl); the prose here only covers the *type layer* and the monad, not the operation catalogue.
 
 The shape of every primitive is the same: it's a `Contract α` value, which is `ContractState → ContractResult α`. Read-only primitives like `msgSender` and `getStorage` always emit `ContractResult.success`; write primitives like `setStorage` return `success ()` with a modified `ContractState`. `require` is the one operation that may emit `ContractResult.revert`, preserving the original state.
 

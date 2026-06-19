@@ -220,6 +220,7 @@ private partial def collectUnguardedLowLevelStmtMechanics : Stmt → List String
   | .assignVar _ value
   | .setStorage _ value
   | .setStorageAddr _ value
+  | .setImmutable _ value
   | .setStorageWord _ _ value
   | .storageArrayPush _ value
   | .return value
@@ -788,7 +789,7 @@ private def boundaryClassFromModule (mod : ECM.ExternalCallModule) : String :=
   | "maxDeposit" | "maxMint" | "maxWithdraw" | "maxRedeem" | "deposit" =>
       "tokenModel"
   | "externalCallWithReturn" | "externalCallNoReturn" | "callWithValue" | "callWithValueBytes"
-  | "bubblingValueCall" | "bubblingValueCallNoOutput" =>
+  | "bubblingValueCall" | "bubblingValueCallNoOutput" | "selfDelegateMulticallBytes" =>
       "abiBoundary"
   | "create2Deploy" | "sstore2ReadCode" =>
       "storageLayoutAssumption"

@@ -17,4 +17,10 @@ contract PropertyTryExternalCallSmokeTest is YulTestBase {
         require(target != address(0), "Deploy failed");
     }
 
+    // Property 1: tryEcho has no unexpected revert
+    function testAuto_TryEcho_NoUnexpectedRevert() public {
+        vm.prank(alice);
+        (bool ok,) = target.call(abi.encodeWithSignature("tryEcho(uint256)", uint256(1)));
+        require(ok, "tryEcho reverted unexpectedly");
+    }
 }

@@ -175,6 +175,7 @@ def lookupBinding? (bindings : Env) (name : String) : Option Nat :=
 /-- Mirrors `SourceSemantics.RuntimeState`. -/
 structure DenoteState where
   world : Verity.ContractState
+  immutable : String → Verity.Core.Uint256 := fun _ => 0
   bindings : Env
   selector : Nat := 0
 
@@ -280,6 +281,61 @@ def writeAddressSlots (world : Verity.ContractState) (slots : List Nat) (value :
     storageAddr := fun slot =>
       if targets.contains slot then addr else world.storageAddr slot }
 
+def fieldIsTransient (fields : List Field) (name : String) : Bool :=
+  match findFieldWithResolvedSlot fields name with
+  | some (field, _) => field.isTransient
+  | none => false
+
+def readFieldWord (world : Verity.ContractState) (field : Field) (slot : Nat) :
+    Verity.Core.Uint256 :=
+  if field.isTransient then
+    world.readTransient (wordNormalize slot)
+  else
+    world.readSlot (wordNormalize slot)
+
+def writeTransientTargets (world : Verity.ContractState) (targets : List Nat) (value : Nat) :
+    Verity.ContractState :=
+  let word : Verity.Core.Uint256 := value
+  let targets := targets.map wordNormalize
+  { world with
+    transientStorage := fun slot =>
+      if targets.contains slot then word else world.transientStorage slot }
+
+def writeUintFieldSlots (fields : List Field) (fieldName : String)
+    (world : Verity.ContractState) (slots : List Nat) (value : Nat) :
+    Verity.ContractState :=
+  if fieldIsTransient fields fieldName then
+    writeTransientTargets world slots value
+  else
+    writeUintSlots world slots value
+
+def writeStorageWordFieldSlots (fields : List Field) (fieldName : String)
+    (world : Verity.ContractState) (slots : List Nat) (wordOffset value : Nat) :
+    Verity.ContractState :=
+  if fieldIsTransient fields fieldName then
+    writeTransientTargets world (slots.map (fun slot => slot + wordOffset)) value
+  else
+    writeStorageWordSlots world slots wordOffset value
+
+def writeAddressFieldSlots (fields : List Field) (fieldName : String)
+    (world : Verity.ContractState) (slots : List Nat) (value : Nat) :
+    Verity.ContractState :=
+  if fieldIsTransient fields fieldName then
+    writeTransientTargets world slots (Verity.wordToAddress (value : Verity.Core.Uint256)).val
+  else
+    writeAddressSlots world slots value
+
+def writeMappingTargets (fields : List Field) (fieldName : String)
+    (world : Verity.ContractState) (targets : List Nat) (value : Nat) :
+    Verity.ContractState :=
+  if fieldIsTransient fields fieldName then
+    writeTransientTargets world targets value
+  else
+    let word : Verity.Core.Uint256 := value
+    { world with
+      storage := fun slot =>
+        if targets.map wordNormalize |>.contains slot then word else world.storage slot }
+
 /-- Nat-level rendering of `Compiler.Proofs.abstractStoreMappingEntry` over a
 word-normalized storage view (see header note 3). -/
 def storeMappingEntryNat (oracle : DenoteOracle)
@@ -357,6 +413,23 @@ def writeAddressKeyedMappingPackedWordSlots (oracle : DenoteOracle)
       else
         world.storage slot }
 
+def writeAddressKeyedMappingPackedWordFieldSlots (oracle : DenoteOracle)
+    (fields : List Field) (fieldName : String)
+    (world : Verity.ContractState) (slots : List Nat) (key wordOffset : Nat)
+    (packed : PackedBits) (value : Nat) :
+    Verity.ContractState :=
+  let targets := slots.map (fun slot => wordNormalize (oracle.mappingSlot slot key + wordOffset))
+  if fieldIsTransient fields fieldName then
+    let wordAt := fun slot => (world.transientStorage slot).val
+    let updated := targets.map (fun slot => (slot, packedWordWrite (wordAt slot) value packed))
+    { world with
+      transientStorage := fun slot =>
+        match updated.find? (fun entry => entry.fst == slot) with
+        | some (_, word) => word
+        | none => world.transientStorage slot }
+  else
+    writeAddressKeyedMappingPackedWordSlots oracle world slots key wordOffset packed value
+
 def writeUintKeyedMappingSlots (oracle : DenoteOracle)
     (world : Verity.ContractState) (slots : List Nat) (key value : Nat) :
     Verity.ContractState :=
@@ -410,6 +483,94 @@ def writeAddressKeyedMapping2WordSlots (oracle : DenoteOracle)
     storage := fun slot =>
       if targets.contains slot then word else world.storage slot }
 
+def writeAddressKeyedMappingWordFieldSlots (oracle : DenoteOracle)
+    (fields : List Field) (fieldName : String)
+    (world : Verity.ContractState) (slots : List Nat) (key wordOffset value : Nat) :
+    Verity.ContractState :=
+  let targets := slots.map (fun slot => wordNormalize (oracle.mappingSlot slot key + wordOffset))
+  writeMappingTargets fields fieldName world targets value
+
+def writeAddressKeyedMappingFieldSlots (oracle : DenoteOracle)
+    (fields : List Field) (fieldName : String)
+    (world : Verity.ContractState) (slots : List Nat) (key value : Nat) :
+    Verity.ContractState :=
+  if fieldIsTransient fields fieldName then
+    let targets := slots.map (fun slot => wordNormalize (oracle.mappingSlot slot key))
+    writeTransientTargets world targets value
+  else
+    writeAddressKeyedMappingSlots oracle world slots key value
+
+def writeAddressKeyedMappingChainFieldSlots (oracle : DenoteOracle)
+    (fields : List Field) (fieldName : String)
+    (world : Verity.ContractState) (slots keys : List Nat) (value : Nat) :
+    Verity.ContractState :=
+  if fieldIsTransient fields fieldName then
+    let targets := slots.map (fun slot => wordNormalize (keys.foldl oracle.mappingSlot slot))
+    writeTransientTargets world targets value
+  else
+    writeAddressKeyedMappingChainSlots oracle world slots keys value
+
+def writeAddressKeyedMapping2WordFieldSlots (oracle : DenoteOracle)
+    (fields : List Field) (fieldName : String)
+    (world : Verity.ContractState) (slots : List Nat) (key1 key2 wordOffset value : Nat) :
+    Verity.ContractState :=
+  let targets := slots.map (fun slot =>
+    wordNormalize (oracle.mappingSlot (oracle.mappingSlot slot key1) key2 + wordOffset))
+  writeMappingTargets fields fieldName world targets value
+
+def writeUintKeyedMappingFieldSlots (oracle : DenoteOracle)
+    (fields : List Field) (fieldName : String)
+    (world : Verity.ContractState) (slots : List Nat) (key value : Nat) :
+    Verity.ContractState :=
+  if fieldIsTransient fields fieldName then
+    let targets := slots.map (fun slot => wordNormalize (oracle.mappingSlot slot key))
+    writeTransientTargets world targets value
+  else
+    writeUintKeyedMappingSlots oracle world slots key value
+
+def writeAddressKeyedMapping2FieldSlots (oracle : DenoteOracle)
+    (fields : List Field) (fieldName : String)
+    (world : Verity.ContractState) (slots : List Nat) (key1 key2 value : Nat) :
+    Verity.ContractState :=
+  if fieldIsTransient fields fieldName then
+    let targets := slots.map (fun slot =>
+      wordNormalize (oracle.mappingSlot (oracle.mappingSlot slot key1) key2))
+    writeTransientTargets world targets value
+  else
+    writeAddressKeyedMapping2Slots oracle world slots key1 key2 value
+
+def writeAddressKeyedMapping2PackedWordSlots (oracle : DenoteOracle)
+    (world : Verity.ContractState) (slots : List Nat) (key1 key2 wordOffset : Nat)
+    (packed : PackedBits) (value : Nat) :
+    Verity.ContractState :=
+  let targets := slots.map (fun slot =>
+    wordNormalize
+      (oracle.mappingSlot (oracle.mappingSlot slot key1) key2 + wordOffset))
+  { world with
+    storage := fun slot =>
+      if targets.contains slot then
+        packedWordWrite (world.storage slot).val value packed
+      else
+        world.storage slot }
+
+def writeAddressKeyedMapping2PackedWordFieldSlots (oracle : DenoteOracle)
+    (fields : List Field) (fieldName : String)
+    (world : Verity.ContractState) (slots : List Nat) (key1 key2 wordOffset : Nat)
+    (packed : PackedBits) (value : Nat) :
+    Verity.ContractState :=
+  let targets := slots.map (fun slot =>
+    wordNormalize (oracle.mappingSlot (oracle.mappingSlot slot key1) key2 + wordOffset))
+  if fieldIsTransient fields fieldName then
+    let wordAt := fun slot => (world.transientStorage slot).val
+    let updated := targets.map (fun slot => (slot, packedWordWrite (wordAt slot) value packed))
+    { world with
+      transientStorage := fun slot =>
+        match updated.find? (fun entry => entry.fst == slot) with
+        | some (_, word) => word
+        | none => world.transientStorage slot }
+  else
+    writeAddressKeyedMapping2PackedWordSlots oracle world slots key1 key2 wordOffset packed value
+
 def storageArraySetAt :
     List Verity.Core.Uint256 → Nat → Verity.Core.Uint256 → Option (List Verity.Core.Uint256)
   | [], _, _ => none
@@ -449,13 +610,18 @@ def evalExpr (oracle : DenoteOracle) (fields : List Field) (state : DenoteState)
   | .paramDynamicStaticComposite _ _ => none
   | .literal n => some (wordNormalize n)
   | .param name => some (lookupValue state.bindings name)
+  | .immutable name => some (state.immutable name).val
   | .storage fieldName =>
       match findFieldWithResolvedSlot fields fieldName with
-      | some (_, slot) => some (state.world.readSlot (wordNormalize slot)).val
+      | some (field, slot) => some (readFieldWord state.world field slot).val
       | none => none
   | .storageAddr fieldName =>
       match findFieldWithResolvedSlot fields fieldName with
-      | some (_, slot) => some (state.world.readAddrSlot (wordNormalize slot)).val
+      | some (field, slot) =>
+          if field.isTransient then
+            some (state.world.readTransient (wordNormalize slot)).val
+          else
+            some (state.world.readAddrSlot (wordNormalize slot)).val
       | none => none
   | .storageArrayLength fieldName =>
       match findFieldWithResolvedSlot fields fieldName with
@@ -637,50 +803,50 @@ def evalExpr (oracle : DenoteOracle) (fields : List Field) (state : DenoteState)
         (Verity.Core.Uint256.ofNat value)).val
   | .mapping field key => do
       let keyVal ← evalExpr oracle fields state key
-      match findFieldSlot fields field with
-      | some slot =>
-          some (state.world.readSlot (oracle.mappingSlot slot keyVal)).val
+      match findFieldWithResolvedSlot fields field with
+      | some (field, slot) =>
+          some (readFieldWord state.world field (oracle.mappingSlot slot keyVal)).val
       | none => none
   | .mappingWord field key wordOffset => do
       let keyVal ← evalExpr oracle fields state key
-      match findFieldSlot fields field with
-      | some slot =>
-          some (state.world.readSlot
+      match findFieldWithResolvedSlot fields field with
+      | some (field, slot) =>
+          some (readFieldWord state.world field
             (wordNormalize (oracle.mappingSlot slot keyVal + wordOffset))).val
       | none => none
   | .mappingUint field key => do
       let keyVal ← evalExpr oracle fields state key
-      match findFieldSlot fields field with
-      | some slot =>
-          some (state.world.readSlot (oracle.mappingSlot slot keyVal)).val
+      match findFieldWithResolvedSlot fields field with
+      | some (field, slot) =>
+          some (readFieldWord state.world field (oracle.mappingSlot slot keyVal)).val
       | none => none
   | .mapping2 field key1 key2 => do
       let key1Val ← evalExpr oracle fields state key1
       let key2Val ← evalExpr oracle fields state key2
-      match findFieldSlot fields field with
-      | some slot =>
+      match findFieldWithResolvedSlot fields field with
+      | some (field, slot) =>
           let innerSlot := oracle.mappingSlot slot key1Val
-          some (state.world.readSlot (oracle.mappingSlot innerSlot key2Val)).val
+          some (readFieldWord state.world field (oracle.mappingSlot innerSlot key2Val)).val
       | none => none
   | .mapping2Word field key1 key2 wordOffset => do
       let key1Val ← evalExpr oracle fields state key1
       let key2Val ← evalExpr oracle fields state key2
-      match findFieldSlot fields field with
-      | some slot =>
+      match findFieldWithResolvedSlot fields field with
+      | some (field, slot) =>
           let innerSlot := oracle.mappingSlot slot key1Val
           let outerSlot := oracle.mappingSlot innerSlot key2Val
-          some (state.world.readSlot (wordNormalize (outerSlot + wordOffset))).val
+          some (readFieldWord state.world field (wordNormalize (outerSlot + wordOffset))).val
       | none => none
   -- mappingChain reads: deferred, exactly as in SourceSemantics.
   | .structMember field key memberName => do
       let keyVal ← evalExpr oracle fields state key
-      match findFieldSlot fields field, findStructMembers fields field with
-      | some slot, some members =>
+      match findFieldWithResolvedSlot fields field, findStructMembers fields field with
+      | some (fieldInfo, slot), some members =>
           match findStructMember members memberName with
           | some member =>
               let targetSlot := wordNormalize
                 (oracle.mappingSlot slot keyVal + member.wordOffset)
-              let rawWord := (state.world.readSlot targetSlot).val
+              let rawWord := (readFieldWord state.world fieldInfo targetSlot).val
               match member.packed with
               | none => some rawWord
               | some packed =>
@@ -692,14 +858,14 @@ def evalExpr (oracle : DenoteOracle) (fields : List Field) (state : DenoteState)
   | .structMember2 field key1 key2 memberName => do
       let key1Val ← evalExpr oracle fields state key1
       let key2Val ← evalExpr oracle fields state key2
-      match findFieldSlot fields field, findStructMembers fields field with
-      | some slot, some members =>
+      match findFieldWithResolvedSlot fields field, findStructMembers fields field with
+      | some (fieldInfo, slot), some members =>
           match findStructMember members memberName with
           | some member =>
               let innerSlot := oracle.mappingSlot slot key1Val
               let outerSlot := oracle.mappingSlot innerSlot key2Val
               let targetSlot := wordNormalize (outerSlot + member.wordOffset)
-              let rawWord := (state.world.readSlot targetSlot).val
+              let rawWord := (readFieldWord state.world fieldInfo targetSlot).val
               match member.packed with
               | none => some rawWord
               | some packed =>
@@ -710,11 +876,11 @@ def evalExpr (oracle : DenoteOracle) (fields : List Field) (state : DenoteState)
       | _, _ => none
   | .mappingPackedWord field key wordOffset packed => do
       let keyVal ← evalExpr oracle fields state key
-      match findFieldSlot fields field with
-      | some slot =>
+      match findFieldWithResolvedSlot fields field with
+      | some (fieldInfo, slot) =>
           let targetSlot := wordNormalize
             (oracle.mappingSlot slot keyVal + wordOffset)
-          let rawWord := (state.world.readSlot targetSlot).val
+          let rawWord := (readFieldWord state.world fieldInfo targetSlot).val
           some (Verity.Core.Uint256.and
             (Verity.Core.Uint256.shr packed.offset rawWord)
             (packedMaskNat packed)).val
@@ -779,14 +945,14 @@ mutual
     | state, .setStorage fieldName value =>
         match findFieldWriteSlots fields fieldName, evalExpr oracle fields state value with
         | some slots, some resolved =>
-            .continue { state with world := writeUintSlots state.world slots resolved }
+            .continue { state with world := writeUintFieldSlots fields fieldName state.world slots resolved }
         | _, _ => .revert
     | state, .setStorageWord fieldName wordOffset value =>
         match findFieldWriteSlots fields fieldName, evalExpr oracle fields state value with
         | some slots, some resolved =>
             .continue
               { state with
-                  world := writeStorageWordSlots state.world slots wordOffset resolved }
+                  world := writeStorageWordFieldSlots fields fieldName state.world slots wordOffset resolved }
         | _, _ => .revert
     | state, .setMapping fieldName key value =>
         match findFieldWriteSlots fields fieldName,
@@ -795,8 +961,8 @@ mutual
         | some slots@(_ :: _), some resolvedKey, some resolved =>
             .continue
               { state with
-                  world := writeAddressKeyedMappingSlots oracle
-                    state.world slots resolvedKey resolved }
+                  world := writeAddressKeyedMappingFieldSlots
+                    oracle fields fieldName state.world slots resolvedKey resolved }
         | _, _, _ => .revert
     | state, .setMappingWord fieldName key wordOffset value =>
         match findFieldWriteSlots fields fieldName,
@@ -805,8 +971,8 @@ mutual
         | some slots@(_ :: _), some resolvedKey, some resolved =>
             .continue
                { state with
-                   world := writeAddressKeyedMappingWordSlots oracle
-                     state.world slots resolvedKey wordOffset resolved }
+                   world := writeAddressKeyedMappingWordFieldSlots
+                     oracle fields fieldName state.world slots resolvedKey wordOffset resolved }
         | _, _, _ => .revert
     | state, .setMappingPackedWord fieldName key wordOffset packed value =>
         match findFieldWriteSlots fields fieldName,
@@ -816,8 +982,8 @@ mutual
             if packedBitsValid packed then
               .continue
                 { state with
-                    world := writeAddressKeyedMappingPackedWordSlots oracle
-                      state.world slots resolvedKey wordOffset packed resolved }
+                    world := writeAddressKeyedMappingPackedWordFieldSlots oracle
+                      fields fieldName state.world slots resolvedKey wordOffset packed resolved }
             else
               .revert
         | _, _, _ => .revert
@@ -831,8 +997,16 @@ mutual
             | some { wordOffset := wordOffset, packed := none, .. } =>
                 .continue
                   { state with
-                      world := writeAddressKeyedMappingWordSlots oracle
-                        state.world slots resolvedKey wordOffset resolved }
+                      world := writeAddressKeyedMappingWordFieldSlots
+                        oracle fields fieldName state.world slots resolvedKey wordOffset resolved }
+            | some { wordOffset := wordOffset, packed := some packed, .. } =>
+                if packedBitsValid packed then
+                  .continue
+                    { state with
+                        world := writeAddressKeyedMappingPackedWordFieldSlots oracle
+                          fields fieldName state.world slots resolvedKey wordOffset packed resolved }
+                else
+                  .revert
             | _ => .revert
         | _, _, _, _ => .revert
     | state, .setMapping2 fieldName key1 key2 value =>
@@ -844,12 +1018,8 @@ mutual
             .continue
               { state with
                   world :=
-                    writeAddressKeyedMapping2Slots oracle
-                      state.world
-                      slots
-                      resolvedKey1
-                      resolvedKey2
-                      resolved }
+                    writeAddressKeyedMapping2FieldSlots
+                      oracle fields fieldName state.world slots resolvedKey1 resolvedKey2 resolved }
         | _, _, _, _ => .revert
     | state, .setMapping2Word fieldName key1 key2 wordOffset value =>
         match findFieldWriteSlots fields fieldName,
@@ -860,7 +1030,9 @@ mutual
             .continue
               { state with
                   world :=
-                    writeAddressKeyedMapping2WordSlots oracle
+                    writeAddressKeyedMapping2WordFieldSlots oracle
+                      fields
+                      fieldName
                       state.world
                       slots
                       resolvedKey1
@@ -879,8 +1051,16 @@ mutual
             | some { wordOffset := wordOffset, packed := none, .. } =>
                 .continue
                   { state with
-                      world := writeAddressKeyedMapping2WordSlots oracle
-                        state.world slots resolvedKey1 resolvedKey2 wordOffset resolved }
+                      world := writeAddressKeyedMapping2WordFieldSlots
+                        oracle fields fieldName state.world slots resolvedKey1 resolvedKey2 wordOffset resolved }
+            | some { wordOffset := wordOffset, packed := some packed, .. } =>
+                if packedBitsValid packed then
+                  .continue
+                    { state with
+                        world := writeAddressKeyedMapping2PackedWordFieldSlots oracle
+                          fields fieldName state.world slots resolvedKey1 resolvedKey2 wordOffset packed resolved }
+                else
+                  .revert
             | _ => .revert
         | _, _, _, _, _ => .revert
     | state, .setMappingUint fieldName key value =>
@@ -890,8 +1070,8 @@ mutual
         | some slots@(_ :: _), some resolvedKey, some resolved =>
             .continue
               { state with
-                  world := writeUintKeyedMappingSlots oracle
-                    state.world slots resolvedKey resolved }
+                  world := writeUintKeyedMappingFieldSlots
+                    oracle fields fieldName state.world slots resolvedKey resolved }
         | _, _, _ => .revert
     | state, .setMappingChain fieldName keys value =>
         match findFieldWriteSlots fields fieldName,
@@ -900,8 +1080,8 @@ mutual
         | some slots@(_ :: _), some resolvedKeys, some resolved =>
             .continue
               { state with
-                  world := writeAddressKeyedMappingChainSlots oracle
-                    state.world slots resolvedKeys resolved }
+                  world := writeAddressKeyedMappingChainFieldSlots
+                    oracle fields fieldName state.world slots resolvedKeys resolved }
         | _, _, _ => .revert
     | state, .storageArrayPush fieldName value =>
         match findFieldWithResolvedSlot fields fieldName, evalExpr oracle fields state value with
@@ -930,8 +1110,16 @@ mutual
     | state, .setStorageAddr fieldName value =>
         match findFieldWriteSlots fields fieldName, evalExpr oracle fields state value with
         | some slots, some resolved =>
-            .continue { state with world := writeAddressSlots state.world slots resolved }
+            .continue { state with world := writeAddressFieldSlots fields fieldName state.world slots resolved }
         | _, _ => .revert
+    | state, .setImmutable name value =>
+        match evalExpr oracle fields state value with
+        | some resolved =>
+            .continue
+              { state with
+                  immutable := fun immName =>
+                    if immName == name then resolved else state.immutable immName }
+        | none => .revert
     | state, .mstore offset value =>
         match evalExpr oracle fields state offset, evalExpr oracle fields state value with
         | some resolvedOffset, some resolvedValue =>
@@ -947,6 +1135,7 @@ mutual
     | state, .tstore offset value =>
         match evalExpr oracle fields state offset, evalExpr oracle fields state value with
         | some resolvedOffset, some resolvedValue =>
+            let resolvedOffset := wordNormalize resolvedOffset
             .continue {
               state with
               world := {
