@@ -206,8 +206,11 @@ def validateInternalCallArgForParam
   if isExpandedInternalParamType param.ty then
     match directForwardedInternalArgName? arg with
     | none =>
-        throw s!"Compilation error: function '{callerName}' calls internal function '{calleeName}' with a computed argument for expanded parameter '{param.name}' ({repr param.ty}); issue #1889 currently supports direct parameter/local forwarding only."
+        throw s!"Compilation error: function '{callerName}' calls internal function '{calleeName}' with a computed argument for expanded parameter '{param.name}' ({repr param.ty}); issue #1889 currently supports direct parameter forwarding only."
     | some _ => pure ()
+  else
+    pure ()
+  if isExpandedInternalParamType param.ty then
     match arg with
     | Expr.param sourceName =>
         match findParamType callerParams sourceName with
@@ -221,6 +224,7 @@ def validateInternalCallArgForParam
     | _ => pure ()
   else
     pure ()
+
 def expandedExprParamNames? : List Expr → Option (List String)
   | [] => some []
   | Expr.param name :: rest =>

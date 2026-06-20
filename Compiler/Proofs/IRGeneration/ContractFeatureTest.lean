@@ -620,6 +620,17 @@ private theorem constructorOnly_compileConstructor :
           constructorOnlyCtor.body [] =
         Except.ok bodyStmts := by
   rcases constructorOnly_compileBody with ⟨bodyStmts, hbodyCompile⟩
+  rcases Function.compileConstructor_ok_components
+      constructorOnlySpec.fields
+      constructorOnlySpec.events
+      constructorOnlySpec.errors
+      constructorOnlyCtor
+      (genConstructorArgLoads constructorOnlyCtor.params ++ bodyStmts)
+      (by
+        simp [CompilationModel.compileConstructor,
+          FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList,
+          hbodyCompile, Bind.bind, Except.bind, Pure.pure, Except.pure]) with
+      ⟨_, _, hdeploy⟩
   refine ⟨bodyStmts, ?_, hbodyCompile⟩
   exact Function.compileConstructor_some_ok_of_body
     constructorOnlySpec.fields
