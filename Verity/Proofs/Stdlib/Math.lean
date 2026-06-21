@@ -199,6 +199,66 @@ theorem wExpRangeReduction_exact (xAbs : Nat) :
   simp [wExpRangeR]
   omega
 
+private theorem WEXP_LN2_pos : 0 < WEXP_LN2 := by
+  decide
+
+private theorem WEXP_RANGE_OFFSET_lt_LN2 : WEXP_RANGE_OFFSET < WEXP_LN2 := by
+  decide
+
+/-- `wExpRangeR` is the Euclidean remainder of the offset input, shifted back
+by the range-reduction offset. -/
+theorem wExpRangeR_eq_mod_sub_offset (xAbs : Nat) :
+    wExpRangeR xAbs =
+      Int.ofNat ((xAbs + WEXP_RANGE_OFFSET) % WEXP_LN2) -
+        Int.ofNat WEXP_RANGE_OFFSET := by
+  have hdivmodNat :
+      ((xAbs + WEXP_RANGE_OFFSET) / WEXP_LN2) * WEXP_LN2 +
+          (xAbs + WEXP_RANGE_OFFSET) % WEXP_LN2 =
+        xAbs + WEXP_RANGE_OFFSET := by
+    exact Nat.div_add_mod' (xAbs + WEXP_RANGE_OFFSET) WEXP_LN2
+  have hdivmodInt :
+      ((((xAbs + WEXP_RANGE_OFFSET) / WEXP_LN2) * WEXP_LN2 : Nat) : Int) +
+          (((xAbs + WEXP_RANGE_OFFSET) % WEXP_LN2 : Nat) : Int) =
+        (xAbs : Int) + (WEXP_RANGE_OFFSET : Int) := by
+    rw [← Int.natCast_add, hdivmodNat, Int.natCast_add]
+  unfold wExpRangeR wExpRangeQ
+  change (xAbs : Int) -
+      ((((xAbs + WEXP_RANGE_OFFSET) / WEXP_LN2) * WEXP_LN2 : Nat) : Int) =
+    (((xAbs + WEXP_RANGE_OFFSET) % WEXP_LN2 : Nat) : Int) -
+      ((WEXP_RANGE_OFFSET : Nat) : Int)
+  omega
+
+/-- Lower bound for the TickLib range-reduction residual. -/
+theorem wExpRangeR_lower_bound (xAbs : Nat) :
+    -Int.ofNat WEXP_RANGE_OFFSET ≤ wExpRangeR xAbs := by
+  rw [wExpRangeR_eq_mod_sub_offset]
+  have hnonneg : (0 : Int) ≤ Int.ofNat ((xAbs + WEXP_RANGE_OFFSET) % WEXP_LN2) := by
+    exact Int.natCast_nonneg _
+  omega
+
+/-- Upper bound for the TickLib range-reduction residual. -/
+theorem wExpRangeR_upper_bound (xAbs : Nat) :
+    wExpRangeR xAbs < Int.ofNat (WEXP_LN2 - WEXP_RANGE_OFFSET) := by
+  rw [wExpRangeR_eq_mod_sub_offset]
+  change (((xAbs + WEXP_RANGE_OFFSET) % WEXP_LN2 : Nat) : Int) -
+      ((WEXP_RANGE_OFFSET : Nat) : Int) <
+    ((WEXP_LN2 - WEXP_RANGE_OFFSET : Nat) : Int)
+  have hmod_lt_nat : (xAbs + WEXP_RANGE_OFFSET) % WEXP_LN2 < WEXP_LN2 :=
+    Nat.mod_lt _ WEXP_LN2_pos
+  have hmod_lt_int :
+      (((xAbs + WEXP_RANGE_OFFSET) % WEXP_LN2 : Nat) : Int) <
+        ((WEXP_LN2 : Nat) : Int) := by
+    exact Int.ofNat_lt.mpr hmod_lt_nat
+  have hoff_le : WEXP_RANGE_OFFSET ≤ WEXP_LN2 := Nat.le_of_lt WEXP_RANGE_OFFSET_lt_LN2
+  rw [Int.natCast_sub hoff_le]
+  omega
+
+/-- Tight interval for the TickLib range-reduction residual. -/
+theorem wExpRangeR_bounds (xAbs : Nat) :
+    -Int.ofNat WEXP_RANGE_OFFSET ≤ wExpRangeR xAbs ∧
+      wExpRangeR xAbs < Int.ofNat (WEXP_LN2 - WEXP_RANGE_OFFSET) :=
+  ⟨wExpRangeR_lower_bound xAbs, wExpRangeR_upper_bound xAbs⟩
+
 /-! ## Full-precision mulDiv512 helpers -/
 
 private theorem ceil_mul_div_ge (n d : Nat) (hd : 0 < d) :
