@@ -452,6 +452,80 @@ theorem wExpSignedCubicKernel_real_error_nonneg {r : Int}
   rw [hkernel]
   simpa [hcastR] using hnat
 
+private theorem sdivTrunc_neg_ofNat_mul_WAD (a k : Nat) (hk : 0 < k) :
+    sdivTrunc (-(Int.ofNat a)) (Int.ofNat (k * WAD_NAT)) =
+      -Int.ofNat (a / (k * WAD_NAT)) := by
+  unfold sdivTrunc
+  have hb_ne : (Int.ofNat (k * WAD_NAT) : Int) ≠ 0 := by
+    exact Int.natCast_ne_zero.mpr (Nat.ne_of_gt (Nat.mul_pos hk WAD_NAT_pos))
+  have hk_ne : k ≠ 0 := Nat.ne_of_gt hk
+  by_cases ha : a = 0
+  · subst a
+    simp [WAD_NAT, hk_ne]
+  · have hneg : (-(Int.ofNat a) : Int) < 0 := by
+      exact neg_neg_of_pos (Int.natCast_pos.mpr (Nat.pos_of_ne_zero ha))
+    have ha_pos : 0 < a := Nat.pos_of_ne_zero ha
+    have hdenAbs : Int.natAbs ((k : Int) * (WAD_NAT : Int)) = k * WAD_NAT := by
+      simpa [Int.natCast_mul] using Int.natAbs_natCast (k * WAD_NAT)
+    have hdenAbsInt : ((Int.natAbs ((k : Int) * (WAD_NAT : Int)) : Nat) : Int) =
+        (k : Int) * (WAD_NAT : Int) := by
+      rw [hdenAbs]
+      norm_num [Int.natCast_mul]
+    have hdenAbsInt' :
+        |(k : Int) * (1000000000000000000 : Int)| =
+          (k : Int) * (1000000000000000000 : Int) := by
+      rw [abs_of_nonneg]
+      positivity
+    simp [WAD_NAT, hk_ne, ha_pos]
+    exact congrArg (fun d : Int => (a : Int) / d) hdenAbsInt'
+
+private theorem sdivTrunc_sq_of_neg_nat (s : Nat) :
+    sdivTrunc (-(s : Int) * -(s : Int)) (2 * Int.ofNat WAD_NAT) =
+      Int.ofNat ((s * s) / (2 * WAD_NAT)) := by
+  have hsquare : (-(s : Int) * -(s : Int)) = Int.ofNat (s * s) := by
+    norm_num [Int.natCast_mul]
+  rw [hsquare]
+  simpa [Int.natCast_mul] using
+    sdivTrunc_ofNat_mul_WAD (s * s) 2 (by norm_num)
+
+private theorem sdivTrunc_neg_third_of_nat (secondNat s : Nat) :
+    sdivTrunc (Int.ofNat secondNat * -(s : Int)) (3 * Int.ofNat WAD_NAT) =
+      -Int.ofNat ((secondNat * s) / (3 * WAD_NAT)) := by
+  have hmul : Int.ofNat secondNat * -(s : Int) = -Int.ofNat (secondNat * s) := by
+    norm_num [Int.natCast_mul]
+  rw [hmul]
+  simpa [Int.natCast_mul] using
+    sdivTrunc_neg_ofNat_mul_WAD (secondNat * s) 3 (by norm_num)
+
+/-- On a negative residual, signed truncating division evaluates the TickLib
+cubic kernel as the expected alternating floor expression. -/
+theorem wExpSignedCubicKernel_neg_eq (s : Nat) :
+    wExpSignedCubicKernel (-(s:Int))
+      = (WAD_NAT:Int) - s + ((s*s)/(2*WAD_NAT) : Nat)
+          - ((((s*s)/(2*WAD_NAT)) * s)/(3*WAD_NAT) : Nat) := by
+  unfold wExpSignedCubicKernel
+  rw [sdivTrunc_sq_of_neg_nat s]
+  let secondNat := (s * s) / (2 * WAD_NAT)
+  change
+    Int.ofNat WAD_NAT + -(s : Int) + Int.ofNat secondNat +
+        sdivTrunc (Int.ofNat secondNat * -(s : Int)) (3 * Int.ofNat WAD_NAT) =
+      (WAD_NAT : Int) - s + (secondNat : Int) -
+        (((secondNat * s) / (3 * WAD_NAT) : Nat) : Int)
+  rw [sdivTrunc_neg_third_of_nat secondNat s]
+  simp [sub_eq_add_neg, add_assoc, add_comm]
+
+/-- The cubic Taylor polynomial has the same fourth-order analytic error bound
+for any real argument with absolute value at most one. -/
+theorem cubic_real_error_abs {x : ℝ} (hx : |x| ≤ 1) :
+    |Real.exp x - (1 + x + x^2 / 2 + x^3 / 6)| ≤ |x|^4 * (5 / 96) := by
+  have h := Real.exp_bound (x := x) hx (n := 4) (by norm_num)
+  have hsum : (∑ m ∈ Finset.range 4, x ^ m / (m.factorial : ℝ)) =
+      1 + x + x^2 / 2 + x^3 / 6 := by
+    norm_num [Finset.sum_range_succ, Nat.factorial]
+  rw [hsum] at h
+  norm_num [Nat.factorial] at h
+  exact h
+
 /-- `wExpRangeR` is exactly the signed residual left by `wExpRangeQ`. -/
 theorem wExpRangeReduction_exact (xAbs : Nat) :
     Int.ofNat (wExpRangeQ xAbs * WEXP_LN2) + wExpRangeR xAbs =
