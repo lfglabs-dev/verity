@@ -7,6 +7,7 @@
 
 import Verity.Core
 import Verity.Stdlib.Math
+import Mathlib.Data.Complex.Exponential
 import Mathlib.Tactic.Linarith
 import Mathlib.Tactic.Ring
 
@@ -303,6 +304,78 @@ theorem exact_cubic_lt_wExpCubicKernel_scaled_add_three {r : Nat}
           exact_cubic_lt_wExpCubicKernel_scaled_add_error r
     _ = 6 * WAD_NAT^2 * (wExpCubicKernel r + 3) := by
         rw [hq_zero]
+
+/-- The exact cubic Taylor polynomial used by the residual kernel has a
+fourth-order analytic error against `Real.exp` on the TickLib residual range. -/
+theorem exact_cubic_real_error {r : Nat} (hr : r ≤ WEXP_LN2) :
+    |Real.exp ((r : ℝ) / WAD_NAT)
+        - (1 + (r:ℝ)/WAD_NAT + ((r:ℝ)/WAD_NAT)^2 / 2 + ((r:ℝ)/WAD_NAT)^3 / 6)|
+      ≤ ((r:ℝ)/WAD_NAT)^4 * (5 / 96) := by
+  let x : ℝ := (r : ℝ) / WAD_NAT
+  have hWpos : (0 : ℝ) < WAD_NAT := by norm_num [WAD_NAT]
+  have hx_nonneg : 0 ≤ x := by
+    dsimp [x]
+    positivity
+  have hr_real : (r : ℝ) ≤ WEXP_LN2 := by exact_mod_cast hr
+  have hln2_lt_wad : (WEXP_LN2 : ℝ) < WAD_NAT := by norm_num [WEXP_LN2, WAD_NAT]
+  have hr_le_wad : (r : ℝ) ≤ WAD_NAT := le_trans hr_real (le_of_lt hln2_lt_wad)
+  have hx_le_one : x ≤ 1 := by
+    dsimp [x]
+    rw [div_le_one hWpos]
+    exact hr_le_wad
+  have hx_abs : |x| ≤ 1 := by
+    rwa [abs_of_nonneg hx_nonneg]
+  have h := Real.exp_bound (x := x) hx_abs (n := 4) (by norm_num)
+  have hsum : (∑ m ∈ Finset.range 4, x ^ m / (m.factorial : ℝ)) =
+      1 + x + x^2 / 2 + x^3 / 6 := by
+    norm_num [Finset.sum_range_succ, Nat.factorial]
+  rw [hsum] at h
+  have hx_abs_pow : |x| ^ 4 = x ^ 4 := by rw [abs_of_nonneg hx_nonneg]
+  rw [hx_abs_pow] at h
+  norm_num [Nat.factorial] at h
+  simpa [x] using h
+
+/-- The integer residual kernel differs from the real exponential by the sum of
+its floor-truncation slack and the cubic Taylor remainder on the TickLib
+residual range. -/
+theorem wExpCubicKernel_real_error {r : Nat} (hr : r ≤ WEXP_LN2) :
+    |((wExpCubicKernel r : ℝ) / WAD_NAT) - Real.exp ((r:ℝ)/WAD_NAT)|
+      ≤ 3 / (WAD_NAT : ℝ) + ((r:ℝ)/WAD_NAT)^4 * (5 / 96) := by
+  let x : ℝ := (r : ℝ) / WAD_NAT
+  let P : ℝ := 1 + x + x^2 / 2 + x^3 / 6
+  let k : ℝ := (wExpCubicKernel r : ℝ) / WAD_NAT
+  have hb2 : |Real.exp x - P| ≤ x^4 * (5 / 96) := by
+    simpa [x, P] using exact_cubic_real_error (r := r) hr
+  have hle : k ≤ P := by
+    have h1nat := wExpCubicKernel_scaled_le_exact_cubic r
+    have h1real : (6 : ℝ) * (WAD_NAT : ℝ)^2 * (wExpCubicKernel r : ℝ) ≤
+        6 * (WAD_NAT : ℝ)^3 + 6 * (WAD_NAT : ℝ)^2 * r +
+          3 * (WAD_NAT : ℝ) * r^2 + r^3 := by
+      exact_mod_cast h1nat
+    dsimp [k, P, x]
+    norm_num [WAD_NAT] at h1real ⊢
+    nlinarith [h1real]
+  have hge : P ≤ k + 3 / (WAD_NAT : ℝ) := by
+    have h2nat := exact_cubic_lt_wExpCubicKernel_scaled_add_three (r := r) hr
+    have h2real : 6 * (WAD_NAT : ℝ)^3 + 6 * (WAD_NAT : ℝ)^2 * r +
+        3 * (WAD_NAT : ℝ) * r^2 + r^3 <
+          (6 : ℝ) * (WAD_NAT : ℝ)^2 * (wExpCubicKernel r + 3 : Nat) := by
+      exact_mod_cast h2nat
+    dsimp [k, P, x]
+    norm_num [WAD_NAT] at h2real ⊢
+    nlinarith [h2real]
+  have hkP : |k - P| ≤ 3 / (WAD_NAT : ℝ) := by
+    rw [abs_le]
+    constructor
+    · nlinarith [hge]
+    · have hslack : (0 : ℝ) ≤ 3 / (WAD_NAT : ℝ) := by positivity
+      nlinarith [hle, hslack]
+  have hPexp : |P - Real.exp x| ≤ x^4 * (5 / 96) := by
+    rw [abs_sub_comm]
+    exact hb2
+  calc
+    |k - Real.exp x| ≤ |k - P| + |P - Real.exp x| := abs_sub_le k P (Real.exp x)
+    _ ≤ 3 / (WAD_NAT : ℝ) + x^4 * (5 / 96) := add_le_add hkP hPexp
 
 /-- `wExpRangeR` is exactly the signed residual left by `wExpRangeQ`. -/
 theorem wExpRangeReduction_exact (xAbs : Nat) :
