@@ -391,6 +391,33 @@ theorem wExpLn2_approx_error :
     norm_num [WEXP_LN2, WAD_NAT] at hlog_gt ⊢
     linarith
 
+/-- `Real.exp` of the TickLib range-reduction `ln 2` constant equals `2` to
+within two parts per billion: the base of the `2^q` scaling in
+`tickWExpReference`. -/
+theorem wExpLn2_exp_approx_two :
+    |Real.exp ((WEXP_LN2 : ℝ) / WAD_NAT) - 2| ≤ 2 / 10 ^ 9 := by
+  have hbound : |((WEXP_LN2 : ℝ) / WAD_NAT) - Real.log 2| ≤ 3 / 10 ^ 10 :=
+    wExpLn2_approx_error
+  have hle1 : |((WEXP_LN2 : ℝ) / WAD_NAT) - Real.log 2| ≤ 1 :=
+    le_trans hbound (by norm_num)
+  have hstep :
+      |Real.exp ((WEXP_LN2 : ℝ) / WAD_NAT - Real.log 2) - 1|
+        ≤ 2 * |((WEXP_LN2 : ℝ) / WAD_NAT) - Real.log 2| :=
+    Real.abs_exp_sub_one_le hle1
+  have hexp :
+      Real.exp ((WEXP_LN2 : ℝ) / WAD_NAT) - 2
+        = 2 * (Real.exp ((WEXP_LN2 : ℝ) / WAD_NAT - Real.log 2) - 1) := by
+    rw [Real.exp_sub, Real.exp_log (by norm_num : (0 : ℝ) < 2)]
+    ring
+  rw [hexp, abs_mul, show |(2 : ℝ)| = 2 from by norm_num]
+  calc 2 * |Real.exp ((WEXP_LN2 : ℝ) / WAD_NAT - Real.log 2) - 1|
+        ≤ 2 * (2 * |((WEXP_LN2 : ℝ) / WAD_NAT) - Real.log 2|) :=
+        mul_le_mul_of_nonneg_left hstep (by norm_num)
+    _ ≤ 2 * (2 * (3 / 10 ^ 10)) :=
+        mul_le_mul_of_nonneg_left
+          (mul_le_mul_of_nonneg_left hbound (by norm_num)) (by norm_num)
+    _ ≤ 2 / 10 ^ 9 := by norm_num
+
 private theorem sdivTrunc_of_nonneg {a b : Int} (ha : 0 ≤ a) (hb : 0 < b) :
     sdivTrunc a b = Int.ofNat (a.toNat / b.natAbs) := by
   unfold sdivTrunc
