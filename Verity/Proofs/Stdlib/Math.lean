@@ -8,6 +8,7 @@
 import Verity.Core
 import Verity.Stdlib.Math
 import Mathlib.Data.Complex.Exponential
+import Mathlib.Data.Complex.ExponentialBounds
 import Mathlib.Tactic.Linarith
 import Mathlib.Tactic.Ring
 
@@ -376,6 +377,19 @@ theorem wExpCubicKernel_real_error {r : Nat} (hr : r ≤ WEXP_LN2) :
   calc
     |k - Real.exp x| ≤ |k - P| + |P - Real.exp x| := abs_sub_le k P (Real.exp x)
     _ ≤ 3 / (WAD_NAT : ℝ) + x^4 * (5 / 96) := add_le_add hkP hPexp
+
+/-- The TickLib range-reduction `ln 2` constant approximates `Real.log 2`
+within three tenths of a nanounit at WAD scale. -/
+theorem wExpLn2_approx_error :
+    |((WEXP_LN2 : ℝ) / WAD_NAT) - Real.log 2| ≤ 3 / 10 ^ 10 := by
+  rw [abs_le]
+  constructor
+  · have hlog_lt : Real.log 2 < (0.6931471808 : ℝ) := Real.log_two_lt_d9
+    norm_num [WEXP_LN2, WAD_NAT] at hlog_lt ⊢
+    linarith
+  · have hlog_gt : (0.6931471803 : ℝ) < Real.log 2 := Real.log_two_gt_d9
+    norm_num [WEXP_LN2, WAD_NAT] at hlog_gt ⊢
+    linarith
 
 private theorem sdivTrunc_of_nonneg {a b : Int} (ha : 0 ≤ a) (hb : 0 < b) :
     sdivTrunc a b = Int.ofNat (a.toNat / b.natAbs) := by

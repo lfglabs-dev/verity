@@ -764,6 +764,7 @@ end Verity.AxiomAudit
   Verity.Proofs.Stdlib.Math.exact_cubic_lt_wExpCubicKernel_scaled_add_three
   Verity.Proofs.Stdlib.Math.exact_cubic_real_error
   Verity.Proofs.Stdlib.Math.wExpCubicKernel_real_error
+  Verity.Proofs.Stdlib.Math.wExpLn2_approx_error
   -- Verity.Proofs.Stdlib.Math.sdivTrunc_of_nonneg  -- private
   -- Verity.Proofs.Stdlib.Math.sdivTrunc_ofNat_mul_WAD  -- private
   -- Verity.Proofs.Stdlib.Math.sdivTrunc_sq_of_nonneg  -- private
@@ -5752,4 +5753,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5394 theorems/lemmas (3715 public, 1679 private, 0 sorry'd)
+-- Total: 5395 theorems/lemmas (3716 public, 1679 private, 0 sorry'd)
