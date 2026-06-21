@@ -418,6 +418,29 @@ theorem wExpLn2_exp_approx_two :
           (mul_le_mul_of_nonneg_left hbound (by norm_num)) (by norm_num)
     _ ≤ 2 / 10 ^ 9 := by norm_num
 
+/-- Exact range-reduction identity at WAD scale: the full WAD-scaled input
+decomposes as the reduced residual plus `q` copies of the `ln 2` constant.
+No approximation — this is the real-cast counterpart of `wExpRangeReduction_exact`. -/
+theorem wExpRangeReduction_real (xAbs : Nat) :
+    (xAbs : ℝ) / (WAD_NAT : ℝ)
+      = (wExpRangeR xAbs : ℝ) / (WAD_NAT : ℝ)
+        + (wExpRangeQ xAbs : ℝ) * ((WEXP_LN2 : ℝ) / (WAD_NAT : ℝ)) := by
+  have hcast : (xAbs : ℝ)
+      = (wExpRangeR xAbs : ℝ) + (wExpRangeQ xAbs : ℝ) * (WEXP_LN2 : ℝ) := by
+    simp only [wExpRangeR, Int.ofNat_eq_natCast]
+    push_cast
+    ring
+  rw [hcast]; ring
+
+/-- `Real.exp` of the full WAD-scaled input factors through the reduced residual
+and the `2^q` scaling base `exp (ln2 / WAD)`, by `exp` of the exact range-reduction
+decomposition. Bridges the residual-kernel error bound to full `exp`. -/
+theorem tickWExp_exp_decomp (xAbs : Nat) :
+    Real.exp ((xAbs : ℝ) / (WAD_NAT : ℝ))
+      = Real.exp ((wExpRangeR xAbs : ℝ) / (WAD_NAT : ℝ))
+        * Real.exp ((WEXP_LN2 : ℝ) / (WAD_NAT : ℝ)) ^ (wExpRangeQ xAbs) := by
+  rw [wExpRangeReduction_real, Real.exp_add, Real.exp_nat_mul]
+
 private theorem sdivTrunc_of_nonneg {a b : Int} (ha : 0 ≤ a) (hb : 0 < b) :
     sdivTrunc a b = Int.ofNat (a.toNat / b.natAbs) := by
   unfold sdivTrunc
