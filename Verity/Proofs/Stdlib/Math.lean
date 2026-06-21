@@ -7,6 +7,9 @@
 
 import Verity.Core
 import Verity.Stdlib.Math
+import Mathlib.Data.Complex.Exponential
+import Mathlib.Tactic.Linarith
+import Mathlib.Tactic.Ring
 
 namespace Verity.Proofs.Stdlib.Math
 
@@ -192,12 +195,193 @@ theorem wExpCubicKernel_ge_linear (r : Nat) :
     WAD_NAT + r ≤ wExpCubicKernel r := by
   simp [wExpCubicKernel, Nat.add_assoc]
 
+/-- The wad scale used by the TickLib exponential kernel is positive. -/
+private theorem WAD_NAT_pos : 0 < WAD_NAT := by
+  decide
+
+/-- The cubic residual kernel never exceeds the exact rational cubic obtained by
+clearing denominators by `6 * WAD_NAT^2`.
+
+This is the upper half of the floor sandwich: both divisions in
+`wExpCubicKernel` round down, so the scaled integer kernel is bounded by
+`6*WAD^3 + 6*WAD^2*r + 3*WAD*r^2 + r^3`, the exact cubic numerator for
+`WAD * (1 + x + x^2/2 + x^3/6)` with `x = r / WAD`. -/
+theorem wExpCubicKernel_scaled_le_exact_cubic (r : Nat) :
+    6 * WAD_NAT^2 * wExpCubicKernel r ≤
+      6 * WAD_NAT^3 + 6 * WAD_NAT^2 * r + 3 * WAD_NAT * r^2 + r^3 := by
+  let second := (r * r) / (2 * WAD_NAT)
+  let third := (second * r) / (3 * WAD_NAT)
+  have hsecond : second * (2 * WAD_NAT) ≤ r * r := by
+    simpa [second] using Nat.div_mul_le_self (r * r) (2 * WAD_NAT)
+  have hsecondScaled : 6 * WAD_NAT^2 * second ≤ 3 * WAD_NAT * r^2 := by
+    nlinarith [hsecond]
+  have hthird : third * (3 * WAD_NAT) ≤ second * r := by
+    simpa [third] using Nat.div_mul_le_self (second * r) (3 * WAD_NAT)
+  have hthirdScaled : 6 * WAD_NAT^2 * third ≤ r^3 := by
+    nlinarith [hsecond, hthird]
+  calc
+    6 * WAD_NAT^2 * wExpCubicKernel r
+        = 6 * WAD_NAT^3 + 6 * WAD_NAT^2 * r +
+            6 * WAD_NAT^2 * second + 6 * WAD_NAT^2 * third := by
+          simp [wExpCubicKernel, second, third]
+          ring
+    _ ≤ 6 * WAD_NAT^3 + 6 * WAD_NAT^2 * r +
+          3 * WAD_NAT * r^2 + r^3 := by
+        have htail :
+            6 * WAD_NAT^2 * second + 6 * WAD_NAT^2 * third ≤
+              3 * WAD_NAT * r^2 + r^3 :=
+          Nat.add_le_add hsecondScaled hthirdScaled
+        simpa [Nat.add_assoc] using
+          Nat.add_le_add_left htail (6 * WAD_NAT^3 + 6 * WAD_NAT^2 * r)
+
+/-- The exact rational cubic is less than the scaled kernel plus the explicit
+integer slack `r / (3 * WAD_NAT) + 3`.
+
+This is the lower half of the floor sandwich after clearing denominators by
+`6 * WAD_NAT^2`. The first division can lose less than one `second` unit; that
+loss is multiplied by `r` before the second division, yielding the
+`r / (3 * WAD_NAT)` term. The two floor operations contribute the constant
+part of the slack. -/
+theorem exact_cubic_lt_wExpCubicKernel_scaled_add_error (r : Nat) :
+    6 * WAD_NAT^3 + 6 * WAD_NAT^2 * r + 3 * WAD_NAT * r^2 + r^3 <
+      6 * WAD_NAT^2 * (wExpCubicKernel r + (r / (3 * WAD_NAT) + 3)) := by
+  let second := (r * r) / (2 * WAD_NAT)
+  let third := (second * r) / (3 * WAD_NAT)
+  let q := r / (3 * WAD_NAT)
+  have h2W_pos : 0 < 2 * WAD_NAT := by nlinarith [WAD_NAT_pos]
+  have h3W_pos : 0 < 3 * WAD_NAT := by nlinarith [WAD_NAT_pos]
+  have hsecond_lt : r * r < (second + 1) * (2 * WAD_NAT) := by
+    simpa [second, Nat.mul_comm] using Nat.lt_mul_div_succ (r * r) h2W_pos
+  have hsecondScaled_lt : 3 * WAD_NAT * r^2 < 6 * WAD_NAT^2 * (second + 1) := by
+    nlinarith [hsecond_lt]
+  have hthird_lt : second * r < (third + 1) * (3 * WAD_NAT) := by
+    simpa [third, Nat.mul_comm] using Nat.lt_mul_div_succ (second * r) h3W_pos
+  have hr_lt : r < (q + 1) * (3 * WAD_NAT) := by
+    simpa [q, Nat.mul_comm] using Nat.lt_mul_div_succ r h3W_pos
+  have hthirdScaled_lt : r^3 < 6 * WAD_NAT^2 * (third + q + 2) := by
+    have hsecond_mul_le :
+        r * r * r ≤ ((second + 1) * (2 * WAD_NAT)) * r := by
+      exact Nat.mul_le_mul_right r (Nat.le_of_lt hsecond_lt)
+    have hr3_decomp : r^3 ≤ 2 * WAD_NAT * second * r + 2 * WAD_NAT * r := by
+      nlinarith [hsecond_mul_le]
+    have hthird_part : 2 * WAD_NAT * second * r <
+        6 * WAD_NAT^2 * (third + 1) := by
+      have hthird_mul_lt :
+          (2 * WAD_NAT) * (second * r) <
+            (2 * WAD_NAT) * ((third + 1) * (3 * WAD_NAT)) := by
+        exact Nat.mul_lt_mul_of_pos_left hthird_lt h2W_pos
+      nlinarith [hthird_mul_lt]
+    have hr_part : 2 * WAD_NAT * r < 6 * WAD_NAT^2 * (q + 1) := by
+      have hr_mul_lt :
+          (2 * WAD_NAT) * r < (2 * WAD_NAT) * ((q + 1) * (3 * WAD_NAT)) := by
+        exact Nat.mul_lt_mul_of_pos_left hr_lt h2W_pos
+      nlinarith [hr_mul_lt]
+    nlinarith
+  calc
+    6 * WAD_NAT^3 + 6 * WAD_NAT^2 * r + 3 * WAD_NAT * r^2 + r^3
+        < 6 * WAD_NAT^3 + 6 * WAD_NAT^2 * r +
+            6 * WAD_NAT^2 * (second + 1) +
+            6 * WAD_NAT^2 * (third + q + 2) := by
+          nlinarith
+    _ = 6 * WAD_NAT^2 * (wExpCubicKernel r + (r / (3 * WAD_NAT) + 3)) := by
+        simp [wExpCubicKernel, second, third, q]
+        ring
+
+/-- On the nonnegative TickLib residual interval (`r ≤ WEXP_LN2`), the
+unbounded floor-propagation term vanishes, giving a constant-`3` lower sandwich
+for the exact cubic numerator. -/
+theorem exact_cubic_lt_wExpCubicKernel_scaled_add_three {r : Nat}
+    (hr : r ≤ WEXP_LN2) :
+    6 * WAD_NAT^3 + 6 * WAD_NAT^2 * r + 3 * WAD_NAT * r^2 + r^3 <
+      6 * WAD_NAT^2 * (wExpCubicKernel r + 3) := by
+  have hq_zero : r / (3 * WAD_NAT) = 0 := by
+    apply Nat.div_eq_of_lt
+    have hln2_lt : WEXP_LN2 < 3 * WAD_NAT := by decide
+    exact Nat.lt_of_le_of_lt hr hln2_lt
+  calc
+    6 * WAD_NAT^3 + 6 * WAD_NAT^2 * r + 3 * WAD_NAT * r^2 + r^3
+        < 6 * WAD_NAT^2 * (wExpCubicKernel r + (r / (3 * WAD_NAT) + 3)) :=
+          exact_cubic_lt_wExpCubicKernel_scaled_add_error r
+    _ = 6 * WAD_NAT^2 * (wExpCubicKernel r + 3) := by
+        rw [hq_zero]
+
+/-- The exact cubic Taylor polynomial used by the residual kernel has a
+fourth-order analytic error against `Real.exp` on the TickLib residual range. -/
+theorem exact_cubic_real_error {r : Nat} (hr : r ≤ WEXP_LN2) :
+    |Real.exp ((r : ℝ) / WAD_NAT)
+        - (1 + (r:ℝ)/WAD_NAT + ((r:ℝ)/WAD_NAT)^2 / 2 + ((r:ℝ)/WAD_NAT)^3 / 6)|
+      ≤ ((r:ℝ)/WAD_NAT)^4 * (5 / 96) := by
+  let x : ℝ := (r : ℝ) / WAD_NAT
+  have hWpos : (0 : ℝ) < WAD_NAT := by norm_num [WAD_NAT]
+  have hx_nonneg : 0 ≤ x := by
+    dsimp [x]
+    positivity
+  have hr_real : (r : ℝ) ≤ WEXP_LN2 := by exact_mod_cast hr
+  have hln2_lt_wad : (WEXP_LN2 : ℝ) < WAD_NAT := by norm_num [WEXP_LN2, WAD_NAT]
+  have hr_le_wad : (r : ℝ) ≤ WAD_NAT := le_trans hr_real (le_of_lt hln2_lt_wad)
+  have hx_le_one : x ≤ 1 := by
+    dsimp [x]
+    rw [div_le_one hWpos]
+    exact hr_le_wad
+  have hx_abs : |x| ≤ 1 := by
+    rwa [abs_of_nonneg hx_nonneg]
+  have h := Real.exp_bound (x := x) hx_abs (n := 4) (by norm_num)
+  have hsum : (∑ m ∈ Finset.range 4, x ^ m / (m.factorial : ℝ)) =
+      1 + x + x^2 / 2 + x^3 / 6 := by
+    norm_num [Finset.sum_range_succ, Nat.factorial]
+  rw [hsum] at h
+  have hx_abs_pow : |x| ^ 4 = x ^ 4 := by rw [abs_of_nonneg hx_nonneg]
+  rw [hx_abs_pow] at h
+  norm_num [Nat.factorial] at h
+  simpa [x] using h
+
+/-- The integer residual kernel differs from the real exponential by the sum of
+its floor-truncation slack and the cubic Taylor remainder on the TickLib
+residual range. -/
+theorem wExpCubicKernel_real_error {r : Nat} (hr : r ≤ WEXP_LN2) :
+    |((wExpCubicKernel r : ℝ) / WAD_NAT) - Real.exp ((r:ℝ)/WAD_NAT)|
+      ≤ 3 / (WAD_NAT : ℝ) + ((r:ℝ)/WAD_NAT)^4 * (5 / 96) := by
+  let x : ℝ := (r : ℝ) / WAD_NAT
+  let P : ℝ := 1 + x + x^2 / 2 + x^3 / 6
+  let k : ℝ := (wExpCubicKernel r : ℝ) / WAD_NAT
+  have hb2 : |Real.exp x - P| ≤ x^4 * (5 / 96) := by
+    simpa [x, P] using exact_cubic_real_error (r := r) hr
+  have hle : k ≤ P := by
+    have h1nat := wExpCubicKernel_scaled_le_exact_cubic r
+    have h1real : (6 : ℝ) * (WAD_NAT : ℝ)^2 * (wExpCubicKernel r : ℝ) ≤
+        6 * (WAD_NAT : ℝ)^3 + 6 * (WAD_NAT : ℝ)^2 * r +
+          3 * (WAD_NAT : ℝ) * r^2 + r^3 := by
+      exact_mod_cast h1nat
+    dsimp [k, P, x]
+    norm_num [WAD_NAT] at h1real ⊢
+    nlinarith [h1real]
+  have hge : P ≤ k + 3 / (WAD_NAT : ℝ) := by
+    have h2nat := exact_cubic_lt_wExpCubicKernel_scaled_add_three (r := r) hr
+    have h2real : 6 * (WAD_NAT : ℝ)^3 + 6 * (WAD_NAT : ℝ)^2 * r +
+        3 * (WAD_NAT : ℝ) * r^2 + r^3 <
+          (6 : ℝ) * (WAD_NAT : ℝ)^2 * (wExpCubicKernel r + 3 : Nat) := by
+      exact_mod_cast h2nat
+    dsimp [k, P, x]
+    norm_num [WAD_NAT] at h2real ⊢
+    nlinarith [h2real]
+  have hkP : |k - P| ≤ 3 / (WAD_NAT : ℝ) := by
+    rw [abs_le]
+    constructor
+    · nlinarith [hge]
+    · have hslack : (0 : ℝ) ≤ 3 / (WAD_NAT : ℝ) := by positivity
+      nlinarith [hle, hslack]
+  have hPexp : |P - Real.exp x| ≤ x^4 * (5 / 96) := by
+    rw [abs_sub_comm]
+    exact hb2
+  calc
+    |k - Real.exp x| ≤ |k - P| + |P - Real.exp x| := abs_sub_le k P (Real.exp x)
+    _ ≤ 3 / (WAD_NAT : ℝ) + x^4 * (5 / 96) := add_le_add hkP hPexp
+
 /-- `wExpRangeR` is exactly the signed residual left by `wExpRangeQ`. -/
 theorem wExpRangeReduction_exact (xAbs : Nat) :
     Int.ofNat (wExpRangeQ xAbs * WEXP_LN2) + wExpRangeR xAbs =
       Int.ofNat xAbs := by
   simp [wExpRangeR]
-  omega
 
 private theorem WEXP_LN2_pos : 0 < WEXP_LN2 := by
   decide
@@ -932,7 +1116,6 @@ theorem mulDivDown_cancel_right (a c : Uint256)
   have hCPos : 0 < (c : Nat) := Nat.pos_of_ne_zero hCVal
   rw [mulDivDown_nat_eq a c c hMul]
   simp [hCVal]
-  simpa [Nat.mul_comm] using (Nat.mul_div_right (a : Nat) hCPos)
 
 /-- Dividing an exact numerator product by its left factor recovers the right factor. -/
 theorem mulDivDown_cancel_left (a c : Uint256)
@@ -946,7 +1129,6 @@ theorem mulDivDown_cancel_left (a c : Uint256)
   have hCPos : 0 < (c : Nat) := Nat.pos_of_ne_zero hCVal
   rw [mulDivDown_nat_eq c a c hMul]
   simp [hCVal, Nat.mul_comm]
-  simpa [Nat.mul_comm] using (Nat.mul_div_right (a : Nat) hCPos)
 
 /-- Floor rounding undershoots the exact numerator by less than one divisor-width. -/
 theorem mulDivDown_mul_lt_add (a b c : Uint256)
