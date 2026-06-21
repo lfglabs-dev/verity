@@ -526,6 +526,174 @@ theorem cubic_real_error_abs {x : ℝ} (hx : |x| ≤ 1) :
   norm_num [Nat.factorial] at h
   exact h
 
+private theorem nat_div_floor_real_bounds (n d : Nat) (hd : 0 < d) :
+    0 ≤ (n:ℝ)/(d:ℝ) - ((n/d:Nat):ℝ) ∧
+      (n:ℝ)/(d:ℝ) - ((n/d:Nat):ℝ) < 1 := by
+  have hdR : (0 : ℝ) < d := by exact_mod_cast hd
+  have hloNat : (n / d) * d ≤ n := Nat.div_mul_le_self n d
+  have hhiNat : n < (n / d + 1) * d := by
+    simpa [Nat.mul_comm] using Nat.lt_mul_div_succ n hd
+  have hlo : ((n / d : Nat) : ℝ) * (d : ℝ) ≤ (n : ℝ) := by exact_mod_cast hloNat
+  have hhi : (n : ℝ) < ((n / d + 1 : Nat) : ℝ) * (d : ℝ) := by exact_mod_cast hhiNat
+  have hlo' : ((n / d : Nat) : ℝ) ≤ (n : ℝ) / (d : ℝ) := by
+    rw [le_div_iff₀ hdR]
+    exact hlo
+  have hhi' : (n : ℝ) / (d : ℝ) < ((n / d : Nat) : ℝ) + 1 := by
+    have htmp : (n : ℝ) / (d : ℝ) < ((n / d + 1 : Nat) : ℝ) := by
+      rw [div_lt_iff₀ hdR]
+      exact hhi
+    simpa using htmp
+  constructor <;> linarith
+
+private theorem neg_second_floor_slack_bounds (s : Nat) :
+    let secondNat := (s * s) / (2 * WAD_NAT)
+    0 ≤ (s : ℝ)^2 / (2 * (WAD_NAT : ℝ)) - (secondNat : ℝ) ∧
+      (s : ℝ)^2 / (2 * (WAD_NAT : ℝ)) - (secondNat : ℝ) < 1 := by
+  intro secondNat
+  have h2W : 0 < 2 * WAD_NAT := by decide
+  have h := nat_div_floor_real_bounds (s * s) (2 * WAD_NAT) h2W
+  constructor
+  · have h0 := h.1
+    norm_num [WAD_NAT, secondNat, pow_two, mul_assoc, mul_comm, mul_left_comm] at h0 ⊢
+    exact h0
+  · have h1 := h.2
+    norm_num [WAD_NAT, secondNat, pow_two, mul_assoc, mul_comm, mul_left_comm] at h1 ⊢
+    exact h1
+
+private theorem neg_third_floor_slack_bounds (s : Nat) :
+    let secondNat := (s * s) / (2 * WAD_NAT)
+    let thirdNat := (secondNat * s) / (3 * WAD_NAT)
+    0 ≤ (secondNat : ℝ) * (s : ℝ) / (3 * (WAD_NAT : ℝ)) - (thirdNat : ℝ) ∧
+      (secondNat : ℝ) * (s : ℝ) / (3 * (WAD_NAT : ℝ)) - (thirdNat : ℝ) < 1 := by
+  intro secondNat thirdNat
+  have h3W : 0 < 3 * WAD_NAT := by decide
+  have h := nat_div_floor_real_bounds (secondNat * s) (3 * WAD_NAT) h3W
+  constructor
+  · have h0 := h.1
+    norm_num [WAD_NAT, thirdNat, mul_assoc, mul_comm, mul_left_comm] at h0 ⊢
+    exact h0
+  · have h1 := h.2
+    norm_num [WAD_NAT, thirdNat, mul_assoc, mul_comm, mul_left_comm] at h1 ⊢
+    exact h1
+
+private theorem neg_third_exact_bridge_bounds {s : Nat} (hs : s ≤ WEXP_RANGE_OFFSET) :
+    let secondNat := (s * s) / (2 * WAD_NAT)
+    0 ≤ (s : ℝ)^3 / (6 * (WAD_NAT : ℝ)^2) -
+        (secondNat : ℝ) * (s : ℝ) / (3 * (WAD_NAT : ℝ)) ∧
+      (s : ℝ)^3 / (6 * (WAD_NAT : ℝ)^2) -
+        (secondNat : ℝ) * (s : ℝ) / (3 * (WAD_NAT : ℝ)) < 1 := by
+  intro secondNat
+  have hWpos : (0 : ℝ) < (WAD_NAT : ℝ) := by norm_num [WAD_NAT]
+  have hWne : (WAD_NAT : ℝ) ≠ 0 := ne_of_gt hWpos
+  have hsR : (s : ℝ) ≤ WEXP_RANGE_OFFSET := by exact_mod_cast hs
+  have hoff : (WEXP_RANGE_OFFSET : ℝ) < WAD_NAT := by norm_num [WEXP_RANGE_OFFSET, WAD_NAT]
+  have hs_lt_W : (s : ℝ) < WAD_NAT := lt_of_le_of_lt hsR hoff
+  have hs_over_lt_one : (s : ℝ) / (3 * (WAD_NAT : ℝ)) < 1 := by
+    have h3Wreal : (0 : ℝ) < 3 * (WAD_NAT : ℝ) := by positivity
+    rw [div_lt_iff₀ h3Wreal]
+    nlinarith [hs_lt_W, hWpos]
+  have hA := neg_second_floor_slack_bounds s
+  have hCeq : (s : ℝ)^3 / (6 * (WAD_NAT : ℝ)^2) -
+        (secondNat : ℝ) * (s : ℝ) / (3 * (WAD_NAT : ℝ)) =
+      ((s : ℝ)^2 / (2 * (WAD_NAT : ℝ)) - (secondNat : ℝ)) *
+        ((s : ℝ) / (3 * (WAD_NAT : ℝ))) := by
+    field_simp [hWne]
+    ring
+  constructor
+  · rw [hCeq]
+    have hs_nonneg : (0 : ℝ) ≤ s := by positivity
+    exact mul_nonneg hA.1 (div_nonneg hs_nonneg (by positivity))
+  · rw [hCeq]
+    have hs_nonneg : (0 : ℝ) ≤ s := by positivity
+    nlinarith [hA.1, hA.2, hs_over_lt_one, hs_nonneg, hWpos]
+
+private theorem neg_kernel_inner_floor_slack {s : Nat} (hs : s ≤ WEXP_RANGE_OFFSET) :
+    let secondNat := (s * s) / (2 * WAD_NAT)
+    let thirdNat := (secondNat * s) / (3 * WAD_NAT)
+    |((secondNat : ℝ) - (s : ℝ)^2 / (2 * (WAD_NAT : ℝ)) -
+        ((thirdNat : ℝ) - (s : ℝ)^3 / (6 * (WAD_NAT : ℝ)^2)))| ≤ 4 := by
+  intro secondNat thirdNat
+  have hA := neg_second_floor_slack_bounds s
+  have hB := neg_third_floor_slack_bounds s
+  have hC := neg_third_exact_bridge_bounds hs
+  rw [abs_le]
+  constructor <;> nlinarith [hA.1, hA.2, hB.1, hB.2, hC.1, hC.2]
+
+private theorem neg_kernel_floor_slack {s : Nat} (hs : s ≤ WEXP_RANGE_OFFSET) :
+    let secondNat := (s * s) / (2 * WAD_NAT)
+    let thirdNat := (secondNat * s) / (3 * WAD_NAT)
+    let x : ℝ := -(s : ℝ) / WAD_NAT
+    let P : ℝ := 1 + x + x^2 / 2 + x^3 / 6
+    let k : ℝ := (((WAD_NAT : Int) - s + (secondNat : Int) - (thirdNat : Int) : Int) : ℝ) / WAD_NAT
+    |k - P| ≤ 4 / (WAD_NAT : ℝ) := by
+  intro secondNat thirdNat x P k
+  have hWpos : (0 : ℝ) < (WAD_NAT : ℝ) := by norm_num [WAD_NAT]
+  have hWne : (WAD_NAT : ℝ) ≠ 0 := ne_of_gt hWpos
+  have hinner := neg_kernel_inner_floor_slack (s := s) hs
+  have hdiff : k - P = (((secondNat : ℝ) - (s : ℝ)^2 / (2 * (WAD_NAT : ℝ)) -
+        ((thirdNat : ℝ) - (s : ℝ)^3 / (6 * (WAD_NAT : ℝ)^2))) / (WAD_NAT : ℝ)) := by
+    dsimp [k, P, x]
+    norm_num [Int.cast_sub, Int.cast_add, Int.cast_natCast]
+    field_simp [hWne]
+    ring
+  rw [hdiff, abs_div, abs_of_pos hWpos]
+  exact div_le_div_of_nonneg_right hinner (le_of_lt hWpos)
+
+private theorem wExpSignedCubicKernel_real_error_neg_nat {s : Nat}
+    (hs : s ≤ WEXP_RANGE_OFFSET) :
+    |((wExpSignedCubicKernel (-(s : Int)) : ℝ) / WAD_NAT) -
+        Real.exp (((-(s : Int) : Int) : ℝ) / WAD_NAT)|
+      ≤ 4 / (WAD_NAT : ℝ) + (((-(s : Int) : Int) : ℝ) / WAD_NAT)^4 * (5 / 96) := by
+  let secondNat := (s * s) / (2 * WAD_NAT)
+  let thirdNat := (secondNat * s) / (3 * WAD_NAT)
+  let x : ℝ := -(s : ℝ) / WAD_NAT
+  let P : ℝ := 1 + x + x^2 / 2 + x^3 / 6
+  let k : ℝ := (((WAD_NAT : Int) - s + (secondNat : Int) - (thirdNat : Int) : Int) : ℝ) / WAD_NAT
+  have hkernel : wExpSignedCubicKernel (-(s : Int)) =
+      (WAD_NAT : Int) - s + (secondNat : Int) - (thirdNat : Int) := by
+    simpa [secondNat, thirdNat] using wExpSignedCubicKernel_neg_eq s
+  have hfloor : |k - P| ≤ 4 / (WAD_NAT : ℝ) := by
+    simpa [secondNat, thirdNat, x, P, k] using neg_kernel_floor_slack (s := s) hs
+  have hWpos : (0 : ℝ) < (WAD_NAT : ℝ) := by norm_num [WAD_NAT]
+  have hsR : (s : ℝ) ≤ WEXP_RANGE_OFFSET := by exact_mod_cast hs
+  have hoff : (WEXP_RANGE_OFFSET : ℝ) < WAD_NAT := by norm_num [WEXP_RANGE_OFFSET, WAD_NAT]
+  have hx_abs_le : |x| ≤ 1 := by
+    have hs_nonneg : (0 : ℝ) ≤ s := by positivity
+    have hs_le_W : (s : ℝ) ≤ WAD_NAT := le_trans hsR (le_of_lt hoff)
+    dsimp [x]
+    rw [abs_div, abs_neg, abs_of_nonneg hs_nonneg, abs_of_pos hWpos]
+    rw [div_le_one hWpos]
+    exact hs_le_W
+  have hx_nonpos : x ≤ 0 := by
+    dsimp [x]
+    exact div_nonpos_of_nonpos_of_nonneg (neg_nonpos.mpr (by positivity)) (le_of_lt hWpos)
+  have hx_abs_pow : |x|^4 = x^4 := by
+    rw [abs_of_nonpos hx_nonpos]
+    ring
+  have han : |P - Real.exp x| ≤ x^4 * (5 / 96) := by
+    have h := cubic_real_error_abs (x := x) hx_abs_le
+    rw [hx_abs_pow] at h
+    rw [abs_sub_comm]
+    simpa [P] using h
+  have htri : |k - Real.exp x| ≤ 4 / (WAD_NAT : ℝ) + x^4 * (5 / 96) := by
+    calc
+      |k - Real.exp x| ≤ |k - P| + |P - Real.exp x| := abs_sub_le k P (Real.exp x)
+      _ ≤ 4 / (WAD_NAT : ℝ) + x^4 * (5 / 96) := add_le_add hfloor han
+  rw [hkernel]
+  simpa [k, x, secondNat, thirdNat] using htri
+
+theorem wExpSignedCubicKernel_real_error_neg {r : Int}
+    (hr0 : -(WEXP_RANGE_OFFSET : Int) ≤ r) (hr1 : r ≤ 0) :
+    |((wExpSignedCubicKernel r : ℝ) / WAD_NAT) - Real.exp ((r:ℝ)/WAD_NAT)|
+      ≤ 4 / (WAD_NAT : ℝ) + ((r:ℝ)/WAD_NAT)^4 * (5 / 96) := by
+  let s := (-r).toNat
+  have hs_cast : (s : Int) = -r := by
+    exact Int.toNat_of_nonneg (neg_nonneg.mpr hr1)
+  have hr_eq : r = -(s : Int) := by omega
+  have hs_le : s ≤ WEXP_RANGE_OFFSET := by omega
+  rw [hr_eq]
+  exact wExpSignedCubicKernel_real_error_neg_nat (s := s) hs_le
+
 /-- `wExpRangeR` is exactly the signed residual left by `wExpRangeQ`. -/
 theorem wExpRangeReduction_exact (xAbs : Nat) :
     Int.ofNat (wExpRangeQ xAbs * WEXP_LN2) + wExpRangeR xAbs =
