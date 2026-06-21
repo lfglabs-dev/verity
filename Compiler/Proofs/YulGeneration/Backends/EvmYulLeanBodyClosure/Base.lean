@@ -39,6 +39,234 @@ open Compiler.CompilationModel
 open Compiler.Proofs.YulGeneration
 open Verity.Core.Free
 
+private theorem compileStmtWithFork_cancun_eq_compileStmt
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
+    (isInternal : Bool) (inScopeNames : List String)
+    (adtTypes : List AdtTypeDef) (stmt : Stmt)
+    (internalFunctions : List FunctionSpec := []) :
+    compileStmtWithFork fields events errors dynamicSource internalRetNames isInternal
+      inScopeNames adtTypes Verity.Core.Intrinsics.HardFork.cancun stmt internalFunctions =
+    compileStmt fields events errors dynamicSource internalRetNames isInternal
+      inScopeNames adtTypes stmt internalFunctions := rfl
+
+private theorem compileStmtListWithFork_cancun_eq_compileStmtList
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
+    (isInternal : Bool) (inScopeNames : List String)
+    (adtTypes : List AdtTypeDef) (stmts : List Stmt)
+    (internalFunctions : List FunctionSpec := []) :
+    compileStmtListWithFork fields events errors dynamicSource internalRetNames
+      isInternal inScopeNames adtTypes Verity.Core.Intrinsics.HardFork.cancun stmts internalFunctions =
+    compileStmtList fields events errors dynamicSource internalRetNames isInternal
+      inScopeNames adtTypes stmts internalFunctions := rfl
+
+private theorem bridgedExpr_mappingSlot_local {base key : YulExpr}
+    (hBase : BridgedExpr base) (hKey : BridgedExpr key) :
+    BridgedExpr (YulExpr.call "mappingSlot" [base, key]) := by
+  refine BridgedExpr.call "mappingSlot" _ (Or.inl (by simp [bridgedBuiltins])) ?_
+  intro arg hMem
+  simp only [List.mem_cons, List.mem_nil_iff, or_false] at hMem
+  rcases hMem with rfl | rfl
+  · exact hBase
+  · exact hKey
+
+private theorem bridgedExpr_add_local {left right : YulExpr}
+    (hLeft : BridgedExpr left) (hRight : BridgedExpr right) :
+    BridgedExpr (YulExpr.call "add" [left, right]) := by
+  refine BridgedExpr.call "add" _ (Or.inl (by simp [bridgedBuiltins])) ?_
+  intro arg hMem
+  simp only [List.mem_cons, List.mem_nil_iff, or_false] at hMem
+  rcases hMem with rfl | rfl
+  · exact hLeft
+  · exact hRight
+
+private theorem bridgedStraightStmt_storageStore_lit
+    (isTransient : Bool) (slot : Nat) (valueExpr : YulExpr)
+    (hValue : BridgedExpr valueExpr) :
+    BridgedStraightStmt
+      (YulStmt.expr
+        (YulExpr.call (if isTransient then "tstore" else "sstore")
+          [YulExpr.lit slot, valueExpr])) := by
+  cases isTransient
+  · exact BridgedStraightStmt.expr_sstore_lit slot valueExpr hValue
+  · exact BridgedStraightStmt.expr_tstore (YulExpr.lit slot) valueExpr
+      (BridgedExpr.lit slot) hValue
+
+private theorem bridgedStraightStmt_storageStore_mapping
+    (isTransient : Bool) (baseExpr keyExpr valueExpr : YulExpr)
+    (hBase : BridgedExpr baseExpr) (hKey : BridgedExpr keyExpr)
+    (hValue : BridgedExpr valueExpr) :
+    BridgedStraightStmt
+      (YulStmt.expr
+        (YulExpr.call (if isTransient then "tstore" else "sstore")
+          [YulExpr.call "mappingSlot" [baseExpr, keyExpr], valueExpr])) := by
+  cases isTransient
+  · exact BridgedStraightStmt.expr_sstore_mapping
+      baseExpr keyExpr valueExpr hBase hKey hValue
+  · exact BridgedStraightStmt.expr_tstore
+      (YulExpr.call "mappingSlot" [baseExpr, keyExpr]) valueExpr
+      (bridgedExpr_mappingSlot_local hBase hKey) hValue
+
+private theorem bridgedStraightStmt_storageStore_add
+    (isTransient : Bool) (leftExpr rightExpr valueExpr : YulExpr)
+    (hLeft : BridgedExpr leftExpr) (hRight : BridgedExpr rightExpr)
+    (hValue : BridgedExpr valueExpr) :
+    BridgedStraightStmt
+      (YulStmt.expr
+        (YulExpr.call (if isTransient then "tstore" else "sstore")
+          [YulExpr.call "add" [leftExpr, rightExpr], valueExpr])) := by
+  cases isTransient
+  · exact BridgedStraightStmt.expr_sstore_add
+      leftExpr rightExpr valueExpr hLeft hRight hValue
+  · exact BridgedStraightStmt.expr_tstore
+      (YulExpr.call "add" [leftExpr, rightExpr]) valueExpr
+      (bridgedExpr_add_local hLeft hRight) hValue
+
+private theorem bridgedExpr_storageLoad_local (isTransient : Bool)
+    (slotExpr : YulExpr) (hSlot : BridgedExpr slotExpr) :
+    BridgedExpr
+      (YulExpr.call (if isTransient then "tload" else "sload") [slotExpr]) := by
+  cases isTransient
+  · refine BridgedExpr.call "sload" _ (Or.inl (by simp [bridgedBuiltins])) ?_
+    intro arg hMem
+    simp only [List.mem_cons, List.mem_nil_iff, or_false] at hMem
+    subst hMem
+    exact hSlot
+  · exact bridgedExpr_tload slotExpr hSlot
+
+private theorem bridgedExpr_fieldStorageLoad
+    (fields : List Field) (field : String)
+    (slotExpr : YulExpr) (hSlot : BridgedExpr slotExpr) :
+    BridgedExpr
+      (YulExpr.call
+        (match findFieldWithResolvedSlot fields field with
+         | some (f, _) => if f.isTransient = true then "tload" else "sload"
+         | none => "sload") [slotExpr]) := by
+  cases hField : findFieldWithResolvedSlot fields field with
+  | none =>
+      simpa [hField] using bridgedExpr_storageLoad_local false slotExpr hSlot
+  | some found =>
+      cases found with
+      | mk f resolvedSlot =>
+          cases hTransient : f.isTransient <;>
+            simpa [hField, hTransient] using
+              bridgedExpr_storageLoad_local f.isTransient slotExpr hSlot
+
+private theorem bridgedStraightStmt_fieldStorageStore_mapping
+    (fields : List Field) (field : String)
+    (baseExpr keyExpr valueExpr : YulExpr)
+    (hBase : BridgedExpr baseExpr) (hKey : BridgedExpr keyExpr)
+    (hValue : BridgedExpr valueExpr) :
+    BridgedStraightStmt
+      (YulStmt.expr
+        (YulExpr.call
+          (match findFieldWithResolvedSlot fields field with
+           | some (f, _) => if f.isTransient = true then "tstore" else "sstore"
+           | none => "sstore")
+          [YulExpr.call "mappingSlot" [baseExpr, keyExpr], valueExpr])) := by
+  cases hField : findFieldWithResolvedSlot fields field with
+  | none =>
+      simpa [hField] using
+        bridgedStraightStmt_storageStore_mapping false baseExpr keyExpr valueExpr hBase hKey hValue
+  | some found =>
+      cases found with
+      | mk f resolvedSlot =>
+          cases hTransient : f.isTransient <;>
+            simpa [hField, hTransient] using
+              bridgedStraightStmt_storageStore_mapping f.isTransient baseExpr keyExpr valueExpr
+                hBase hKey hValue
+
+private theorem bridgedStraightStmt_fieldStorageStore_lit
+    (fields : List Field) (field : String)
+    (slot : Nat) (valueExpr : YulExpr)
+    (hValue : BridgedExpr valueExpr) :
+    BridgedStraightStmt
+      (YulStmt.expr
+        (YulExpr.call
+          (match findFieldWithResolvedSlot fields field with
+           | some (f, _) => if f.isTransient = true then "tstore" else "sstore"
+           | none => "sstore")
+          [YulExpr.lit slot, valueExpr])) := by
+  cases hField : findFieldWithResolvedSlot fields field with
+  | none =>
+      simpa [hField] using
+        bridgedStraightStmt_storageStore_lit false slot valueExpr hValue
+  | some found =>
+      cases found with
+      | mk f resolvedSlot =>
+          cases hTransient : f.isTransient <;>
+            simpa [hField, hTransient] using
+              bridgedStraightStmt_storageStore_lit f.isTransient slot valueExpr hValue
+
+private theorem bridgedStraightStmt_fieldStorageStore_add
+    (fields : List Field) (field : String)
+    (leftExpr rightExpr valueExpr : YulExpr)
+    (hLeft : BridgedExpr leftExpr) (hRight : BridgedExpr rightExpr)
+    (hValue : BridgedExpr valueExpr) :
+    BridgedStraightStmt
+      (YulStmt.expr
+        (YulExpr.call
+          (match findFieldWithResolvedSlot fields field with
+           | some (f, _) => if f.isTransient = true then "tstore" else "sstore"
+           | none => "sstore")
+          [YulExpr.call "add" [leftExpr, rightExpr], valueExpr])) := by
+  cases hField : findFieldWithResolvedSlot fields field with
+  | none =>
+      simpa [hField] using
+        bridgedStraightStmt_storageStore_add false leftExpr rightExpr valueExpr hLeft hRight hValue
+  | some found =>
+      cases found with
+      | mk f resolvedSlot =>
+          cases hTransient : f.isTransient <;>
+            simpa [hField, hTransient] using
+              bridgedStraightStmt_storageStore_add f.isTransient leftExpr rightExpr valueExpr
+                hLeft hRight hValue
+
+private theorem bridgedStraightStmt_maybeFieldStorageStore_add
+    (allowTransient : Bool) (fields : List Field) (field : String)
+    (leftExpr rightExpr valueExpr : YulExpr)
+    (hLeft : BridgedExpr leftExpr) (hRight : BridgedExpr rightExpr)
+    (hValue : BridgedExpr valueExpr) :
+    BridgedStraightStmt
+      (YulStmt.expr
+        (YulExpr.call
+          (if allowTransient then
+            match findFieldWithResolvedSlot fields field with
+            | some (f, _) => if f.isTransient = true then "tstore" else "sstore"
+            | none => "sstore"
+          else
+            "sstore")
+          [YulExpr.call "add" [leftExpr, rightExpr], valueExpr])) := by
+  cases allowTransient
+  · exact bridgedStraightStmt_storageStore_add false leftExpr rightExpr valueExpr
+      hLeft hRight hValue
+  · simpa using
+      bridgedStraightStmt_fieldStorageStore_add fields field leftExpr rightExpr valueExpr
+        hLeft hRight hValue
+
+private theorem bridgedStraightStmt_maybeFieldStorageStore_mapping
+    (allowTransient : Bool) (fields : List Field) (field : String)
+    (baseExpr keyExpr valueExpr : YulExpr)
+    (hBase : BridgedExpr baseExpr) (hKey : BridgedExpr keyExpr)
+    (hValue : BridgedExpr valueExpr) :
+    BridgedStraightStmt
+      (YulStmt.expr
+        (YulExpr.call
+          (if allowTransient then
+            match findFieldWithResolvedSlot fields field with
+            | some (f, _) => if f.isTransient = true then "tstore" else "sstore"
+            | none => "sstore"
+          else
+            "sstore")
+          [YulExpr.call "mappingSlot" [baseExpr, keyExpr], valueExpr])) := by
+  cases allowTransient
+  · exact bridgedStraightStmt_storageStore_mapping false baseExpr keyExpr valueExpr
+      hBase hKey hValue
+  · simpa using
+      bridgedStraightStmt_fieldStorageStore_mapping fields field baseExpr keyExpr valueExpr
+        hBase hKey hValue
+
 /-- Scalar ABI parameter types handled inline by `genScalarLoad`. These are
 the `ParamType` constructors whose head word is consumed directly from
 calldata without offset/length bookkeeping. -/
@@ -677,9 +905,6 @@ inductive BridgedSourceBindingStmt : Stmt → Prop
       (hValue : BridgedSourceExprLeaf value) :
       BridgedSourceBindingStmt (.assignVar name value)
 
-def BridgedSourceBindingStmts (stmts : List Stmt) : Prop :=
-  ∀ stmt ∈ stmts, BridgedSourceBindingStmt stmt
-
 /-- Source statements whose emitted Yul is a single value-binding statement
 with a pure bridged source expression on the right-hand side. -/
 inductive BridgedSourcePureBindingStmt : Stmt → Prop
@@ -689,178 +914,6 @@ inductive BridgedSourcePureBindingStmt : Stmt → Prop
   | assignVar (name : String) (value : Expr)
       (hValue : BridgedSourceExpr value) :
       BridgedSourcePureBindingStmt (.assignVar name value)
-
-def BridgedSourcePureBindingStmts (stmts : List Stmt) : Prop :=
-  ∀ stmt ∈ stmts, BridgedSourcePureBindingStmt stmt
-
-/-- A scalar-leaf `letVar`/`assignVar` source statement compiles to Yul that
-satisfies `BridgedStmts`. -/
-theorem compileStmt_binding_leaf_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) (inScopeNames : List String) :
-    ∀ {stmt : Stmt}, BridgedSourceBindingStmt stmt →
-      ∀ {out : List YulStmt},
-        compileStmt fields events errors dynamicSource internalRetNames isInternal
-          inScopeNames [] stmt = .ok out →
-        BridgedStmts out := by
-  intro stmt hStmt out hOk
-  cases hStmt with
-  | letVar name value hValue =>
-      simp only [compileStmt, bind, Except.bind] at hOk
-      cases hExpr : compileExpr fields dynamicSource value with
-      | error err =>
-          simp [hExpr] at hOk
-      | ok valueExpr =>
-          simp [hExpr, Pure.pure, Except.pure] at hOk
-          subst out
-          have hBridged : BridgedExpr valueExpr :=
-            compileExpr_bridgedSource_leaf fields dynamicSource hValue hExpr
-          intro yulStmt hMem
-          simp only [List.mem_singleton] at hMem
-          subst yulStmt
-          exact BridgedStmt.straight _
-            (BridgedStraightStmt.let_ name valueExpr hBridged)
-  | assignVar name value hValue =>
-      simp only [compileStmt, bind, Except.bind] at hOk
-      cases hExpr : compileExpr fields dynamicSource value with
-      | error err =>
-          simp [hExpr] at hOk
-      | ok valueExpr =>
-          simp [hExpr, Pure.pure, Except.pure] at hOk
-          subst out
-          have hBridged : BridgedExpr valueExpr :=
-            compileExpr_bridgedSource_leaf fields dynamicSource hValue hExpr
-          intro yulStmt hMem
-          simp only [List.mem_singleton] at hMem
-          subst yulStmt
-          exact BridgedStmt.straight _
-            (BridgedStraightStmt.assign name valueExpr hBridged)
-
-/-- Scalar-leaf binding statements compile to Yul lists with no nested
-function declarations. -/
-theorem compileStmt_binding_leaf_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) (inScopeNames : List String) :
-    ∀ {stmt : Stmt}, BridgedSourceBindingStmt stmt →
-      ∀ {out : List YulStmt},
-        compileStmt fields events errors dynamicSource internalRetNames isInternal
-          inScopeNames [] stmt = .ok out →
-        Native.yulStmtsContainFuncDef out = false := by
-  intro stmt hStmt out hOk
-  cases hStmt with
-  | letVar name value _hValue =>
-      simp only [compileStmt, bind, Except.bind] at hOk
-      cases hExpr : compileExpr fields dynamicSource value with
-      | error err =>
-          simp [hExpr] at hOk
-      | ok valueExpr =>
-          simp [hExpr, Pure.pure, Except.pure] at hOk
-          subst out
-          simp [Native.yulStmtContainsFuncDef]
-  | assignVar name value _hValue =>
-      simp only [compileStmt, bind, Except.bind] at hOk
-      cases hExpr : compileExpr fields dynamicSource value with
-      | error err =>
-          simp [hExpr] at hOk
-      | ok valueExpr =>
-          simp [hExpr, Pure.pure, Except.pure] at hOk
-          subst out
-          simp [Native.yulStmtContainsFuncDef]
-
-/-- Lists made only of scalar-leaf `letVar`/`assignVar` statements compile to
-Yul lists satisfying `BridgedStmts`. This is the first direct body-closure
-theorem over `compileStmtList`. -/
-theorem compileStmtList_binding_leaf_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceBindingStmts stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames isInternal
-          inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] head with
-      | error err =>
-          simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource internalRetNames
-              isInternal (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err =>
-              simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource : BridgedSourceBindingStmt head :=
-                hSource head (by simp)
-              have hTailSource : BridgedSourceBindingStmts tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_binding_leaf_bridged fields events errors dynamicSource
-                  internalRetNames isInternal inScopeNames hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-/-- Lists made only of scalar-leaf `letVar`/`assignVar` statements compile to
-Yul lists with no nested function declarations. -/
-theorem compileStmtList_binding_leaf_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceBindingStmts stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames isInternal
-          inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      rfl
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] head with
-      | error err =>
-          simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource internalRetNames
-              isInternal (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err =>
-              simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource : BridgedSourceBindingStmt head :=
-                hSource head (by simp)
-              have hTailSource : BridgedSourceBindingStmts tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              simp [
-                compileStmt_binding_leaf_noFuncDefs fields events errors
-                  dynamicSource internalRetNames isInternal inScopeNames
-                  hHeadSource hHead,
-                ih (collectStmtNames head ++ inScopeNames) hTailSource hTail]
 
 /-- A pure-expression `letVar`/`assignVar` source statement compiles to Yul
 that satisfies `BridgedStmts`. -/
@@ -876,8 +929,8 @@ theorem compileStmt_pure_binding_bridged
   intro stmt hStmt out hOk
   cases hStmt with
   | letVar name value hValue =>
-      simp only [compileStmt, bind, Except.bind] at hOk
-      cases hExpr : compileExpr fields dynamicSource value with
+      simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+      cases hExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err =>
           simp [hExpr] at hOk
       | ok valueExpr =>
@@ -891,8 +944,8 @@ theorem compileStmt_pure_binding_bridged
           exact BridgedStmt.straight _
             (BridgedStraightStmt.let_ name valueExpr hBridged)
   | assignVar name value hValue =>
-      simp only [compileStmt, bind, Except.bind] at hOk
-      cases hExpr : compileExpr fields dynamicSource value with
+      simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+      cases hExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err =>
           simp [hExpr] at hOk
       | ok valueExpr =>
@@ -920,8 +973,8 @@ theorem compileStmt_pure_binding_noFuncDefs
   intro stmt hStmt out hOk
   cases hStmt with
   | letVar name value _hValue =>
-      simp only [compileStmt, bind, Except.bind] at hOk
-      cases hExpr : compileExpr fields dynamicSource value with
+      simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+      cases hExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err =>
           simp [hExpr] at hOk
       | ok valueExpr =>
@@ -929,101 +982,14 @@ theorem compileStmt_pure_binding_noFuncDefs
           subst out
           simp [Native.yulStmtContainsFuncDef]
   | assignVar name value _hValue =>
-      simp only [compileStmt, bind, Except.bind] at hOk
-      cases hExpr : compileExpr fields dynamicSource value with
+      simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+      cases hExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err =>
           simp [hExpr] at hOk
       | ok valueExpr =>
           simp [hExpr, Pure.pure, Except.pure] at hOk
           subst out
           simp [Native.yulStmtContainsFuncDef]
-
-/-- Lists made only of pure-expression `letVar`/`assignVar` statements compile
-to Yul lists satisfying `BridgedStmts`. -/
-theorem compileStmtList_pure_binding_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourcePureBindingStmts stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames isInternal
-          inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] head with
-      | error err =>
-          simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource internalRetNames
-              isInternal (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err =>
-              simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource : BridgedSourcePureBindingStmt head :=
-                hSource head (by simp)
-              have hTailSource : BridgedSourcePureBindingStmts tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_pure_binding_bridged fields events errors dynamicSource
-                  internalRetNames isInternal inScopeNames hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-/-- Lists made only of pure-expression `letVar`/`assignVar` statements compile
-to Yul lists with no nested function declarations. -/
-theorem compileStmtList_pure_binding_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String) (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String), BridgedSourcePureBindingStmts stmts →
-      ∀ {out : List YulStmt}, compileStmtList fields events errors dynamicSource
-        internalRetNames isInternal inScopeNames [] stmts = .ok out →
-      Native.yulStmtsContainFuncDef out = false := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      rfl
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] head with
-      | error err =>
-          simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource internalRetNames
-              isInternal (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err =>
-              simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource : BridgedSourcePureBindingStmt head := hSource head (by simp)
-              have hTailSource : BridgedSourcePureBindingStmts tail := by
-                intro stmt hMem; exact hSource stmt (by simp [hMem])
-              simp [
-                compileStmt_pure_binding_noFuncDefs fields events errors
-                  dynamicSource internalRetNames isInternal inScopeNames
-                  hHeadSource hHead,
-                ih (collectStmtNames head ++ inScopeNames) hTailSource hTail]
 
 /-! ## Source statement body closure: pure bindings plus single-slot storage writes -/
 
@@ -1086,13 +1052,14 @@ theorem compileStmt_setStorage_singleSlot_pure_bridged
       BridgedStmts out := by
   intro out hOk
   simp only [compileStmt] at hOk
+  unfold compileStmtWithFork at hOk
   unfold compileSetStorage at hOk
   simp [hNotMapping, hFind] at hOk
   cases hty : f.ty with
   | adt name maxFields =>
       exact False.elim (hNotAdt name maxFields hty)
   | uint256 | address | dynamicArray | mappingTyped | mappingStruct | mappingStruct2 =>
-      cases hExpr : compileExpr fields dynamicSource value with
+      cases hExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err =>
           simp [hExpr, hty] at hOk
       | ok valueExpr =>
@@ -1104,7 +1071,8 @@ theorem compileStmt_setStorage_singleSlot_pure_bridged
           simp only [List.mem_singleton] at hMem
           subst yulStmt
           exact BridgedStmt.straight _
-            (BridgedStraightStmt.expr_sstore_lit slot valueExpr hBridged)
+            (bridgedStraightStmt_storageStore_lit
+              f.isTransient slot valueExpr hBridged)
 
 /-- An unpacked single-slot `setStorage` source statement with a pure bridged
 right-hand side compiles to a Yul list with no nested function declarations. -/
@@ -1125,13 +1093,14 @@ theorem compileStmt_setStorage_singleSlot_pure_noFuncDefs
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
   simp only [compileStmt] at hOk
+  unfold compileStmtWithFork at hOk
   unfold compileSetStorage at hOk
   simp [hNotMapping, hFind] at hOk
   cases hty : f.ty with
   | adt name maxFields =>
       exact False.elim (hNotAdt name maxFields hty)
   | uint256 | address | dynamicArray | mappingTyped | mappingStruct | mappingStruct2 =>
-      cases hExpr : compileExpr fields dynamicSource value with
+      cases hExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err =>
           simp [hExpr, hty] at hOk
       | ok valueExpr =>
@@ -1181,117 +1150,6 @@ theorem compileStmt_storage_fragment_noFuncDefs
         dynamicSource internalRetNames isInternal inScopeNames field value f slot
         hValue hNotMapping hFind hNotAdt hOk
 
-/-- Lists made of pure `letVar`/`assignVar` statements and unpacked single-slot
-`setStorage` statements compile to Yul lists satisfying `BridgedStmts`. -/
-theorem compileStmtList_storage_fragment_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceStorageStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames isInternal
-          inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] head with
-      | error err =>
-          simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource internalRetNames
-              isInternal (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err =>
-              simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource : BridgedSourceStorageStmt fields head :=
-                hSource head (by simp)
-              have hTailSource : BridgedSourceStorageStmts fields tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_storage_fragment_bridged fields events errors
-                  dynamicSource internalRetNames isInternal inScopeNames
-                  hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-private theorem compileStmtList_noFuncDefs_of_forall
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource)
-    (internalRetNames : List String) (isInternal : Bool) (P : Stmt → Prop)
-    (hCompile :
-      ∀ (inScopeNames : List String) {stmt : Stmt} {out : List YulStmt},
-        P stmt →
-        compileStmt fields events errors dynamicSource internalRetNames isInternal
-          inScopeNames [] stmt = .ok out →
-        Native.yulStmtsContainFuncDef out = false) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      (∀ stmt ∈ stmts, P stmt) →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames isInternal
-          inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      rfl
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] head with
-      | error err =>
-          simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource internalRetNames
-              isInternal (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err =>
-              simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource : P head := hSource head (by simp)
-              have hTailSource : ∀ stmt ∈ tail, P stmt := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              simp [
-                hCompile inScopeNames hHeadSource hHead,
-                ih (collectStmtNames head ++ inScopeNames) hTailSource hTail]
-
-/-- Storage-fragment statement lists compile with no nested function declarations. -/
-theorem compileStmtList_storage_fragment_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource)
-    (internalRetNames : List String) (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceStorageStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames isInternal
-          inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames isInternal (BridgedSourceStorageStmt fields)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_storage_fragment_noFuncDefs fields events errors dynamicSource
-        internalRetNames isInternal inScopeNames hStmt hOk)
-
 /-! ## Source statement body closure: `stop` and external/internal `return`
 
 Two more simple compiler-emitted source statement shapes whose Yul output is
@@ -1315,9 +1173,6 @@ inductive BridgedSourceTerminatorStmt : Stmt → Prop
   | returnExternal (value : Expr) (hValue : BridgedSourceExpr value) :
       BridgedSourceTerminatorStmt (.return value)
 
-def BridgedSourceTerminatorStmts (stmts : List Stmt) : Prop :=
-  ∀ stmt ∈ stmts, BridgedSourceTerminatorStmt stmt
-
 /-- A `Stmt.stop` source statement compiles to a single-statement Yul list
 satisfying `BridgedStmts`. -/
 private theorem compileStmt_stop_bridged
@@ -1329,7 +1184,7 @@ private theorem compileStmt_stop_bridged
         inScopeNames [] .stop = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt, Pure.pure, Except.pure] at hOk
+  simp only [compileStmt, compileStmtWithFork, Pure.pure, Except.pure] at hOk
   cases hOk
   intro yulStmt hMem
   simp only [List.mem_singleton] at hMem
@@ -1345,7 +1200,7 @@ private theorem compileStmt_stop_noFuncDefs
         inScopeNames [] .stop = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt, Pure.pure, Except.pure] at hOk
+  simp only [compileStmt, compileStmtWithFork, Pure.pure, Except.pure] at hOk
   cases hOk
   simp [Native.yulStmtContainsFuncDef]
 
@@ -1362,8 +1217,8 @@ private theorem compileStmt_return_external_bridged
         (isInternal := false) inScopeNames [] (.return value) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hExpr : compileExpr fields dynamicSource value with
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+  cases hExpr : compileExprWithInternals fields dynamicSource [] value with
   | error err => simp [hExpr] at hOk
   | ok valueExpr =>
       simp [hExpr, Pure.pure, Except.pure] at hOk
@@ -1388,8 +1243,8 @@ private theorem compileStmt_return_external_noFuncDefs
         (isInternal := false) inScopeNames [] (.return value) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hExpr : compileExpr fields dynamicSource value with
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+  cases hExpr : compileExprWithInternals fields dynamicSource [] value with
   | error err => simp [hExpr] at hOk
   | ok valueExpr =>
       simp [hExpr, Pure.pure, Except.pure] at hOk
@@ -1436,88 +1291,6 @@ theorem compileStmt_terminator_external_noFuncDefs
       exact compileStmt_return_external_noFuncDefs fields events errors dynamicSource
         internalRetNames inScopeNames hValue hOk
 
-/-- Lists made only of external `stop`/`return` source statements compile to
-Yul lists satisfying `BridgedStmts`. -/
-theorem compileStmtList_terminator_external_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceTerminatorStmts stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          (isInternal := false) inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          false inScopeNames [] head with
-      | error err =>
-          simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource internalRetNames
-              false (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err =>
-              simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource : BridgedSourceTerminatorStmt head :=
-                hSource head (by simp)
-              have hTailSource : BridgedSourceTerminatorStmts tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_terminator_external_bridged fields events errors dynamicSource
-                  internalRetNames inScopeNames hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-/-- External `stop`/`return` statement lists compile with no nested function
-declarations. -/
-theorem compileStmtList_terminator_external_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceTerminatorStmts stmts → ∀ {out : List YulStmt},
-      compileStmtList fields events errors dynamicSource internalRetNames
-        (isInternal := false) inScopeNames [] stmts = .ok out →
-      Native.yulStmtsContainFuncDef out = false := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk; subst out; rfl
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          false inScopeNames [] head with
-      | error err => simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource internalRetNames
-              false (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err => simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource : BridgedSourceTerminatorStmt head := hSource head (by simp)
-              have hTailSource : BridgedSourceTerminatorStmts tail := by
-                intro stmt hMem; exact hSource stmt (by simp [hMem])
-              simp [
-                compileStmt_terminator_external_noFuncDefs fields events errors
-                  dynamicSource internalRetNames inScopeNames hHeadSource hHead,
-                ih (collectStmtNames head ++ inScopeNames) hTailSource hTail]
-
 /-! ### Internal return closure
 
 Internal functions return by assigning the compiled value to the first generated
@@ -1530,9 +1303,6 @@ inside EVMYulLean runtime wrappers for internal-only functions.
 inductive BridgedSourceInternalReturnStmt : Stmt → Prop
   | returnInternal (value : Expr) (hValue : BridgedSourceExpr value) :
       BridgedSourceInternalReturnStmt (.return value)
-
-def BridgedSourceInternalReturnStmts (stmts : List Stmt) : Prop :=
-  ∀ stmt ∈ stmts, BridgedSourceInternalReturnStmt stmt
 
 /-- An internal `Stmt.return value` source statement with a `BridgedSourceExpr`
 RHS compiles to `[assign retName valueExpr, leave]`, a bridged straight-line
@@ -1548,8 +1318,8 @@ theorem compileStmt_return_internal_bridged
         (isInternal := true) inScopeNames [] (.return value) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hExpr : compileExpr fields dynamicSource value with
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+  cases hExpr : compileExprWithInternals fields dynamicSource [] value with
   | error err => simp [hExpr] at hOk
   | ok valueExpr =>
       cases internalRetNames with
@@ -1577,8 +1347,8 @@ theorem compileStmt_return_internal_noFuncDefs
         (isInternal := true) inScopeNames [] (.return value) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hExpr : compileExpr fields dynamicSource value with
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+  cases hExpr : compileExprWithInternals fields dynamicSource [] value with
   | error err => simp [hExpr] at hOk
   | ok valueExpr =>
       cases internalRetNames with
@@ -1622,68 +1392,6 @@ theorem compileStmt_internal_return_noFuncDefs
   | returnInternal value hValue =>
       exact compileStmt_return_internal_noFuncDefs fields events errors dynamicSource
         internalRetNames inScopeNames hValue hOk
-
-/-- Lists made only of internal `return` source statements compile to Yul lists
-satisfying `BridgedStmts`. -/
-theorem compileStmtList_internal_return_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceInternalReturnStmts stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          (isInternal := true) inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          true inScopeNames [] head with
-      | error err =>
-          simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource internalRetNames
-              true (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err =>
-              simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource : BridgedSourceInternalReturnStmt head :=
-                hSource head (by simp)
-              have hTailSource : BridgedSourceInternalReturnStmts tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_internal_return_bridged fields events errors dynamicSource
-                  internalRetNames inScopeNames hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-/-- Lists made only of internal `return` source statements compile with no
-nested function declarations. -/
-theorem compileStmtList_internal_return_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceInternalReturnStmts stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          (isInternal := true) inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames true BridgedSourceInternalReturnStmt
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_internal_return_noFuncDefs fields events errors dynamicSource
-        internalRetNames inScopeNames hStmt hOk)
 
 /-! ## Source statement body closure: `require`
 
@@ -1805,8 +1513,8 @@ theorem compileStmt_require_bridged
         inScopeNames [] (.require cond message) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hFail : compileRequireFailCond fields dynamicSource cond with
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+  cases hFail : compileRequireFailCondWithInternals fields dynamicSource [] cond with
   | error err =>
       simp [hFail] at hOk
   | ok failCond =>
@@ -1832,83 +1540,14 @@ theorem compileStmt_require_noFuncDefs
         inScopeNames [] (.require cond message) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hFail : compileRequireFailCond fields dynamicSource cond with
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+  cases hFail : compileRequireFailCondWithInternals fields dynamicSource [] cond with
   | error err =>
       simp [hFail] at hOk
   | ok failCond =>
       simp [hFail, Pure.pure, Except.pure] at hOk
       subst out
       simp [Native.yulStmtContainsFuncDef, revertWithMessage_noFuncDefs]
-
-/-- Lists made only of plain `require` statements whose compiled failure
-conditions are bridged compile to Yul lists satisfying `BridgedStmts`. -/
-theorem compileStmtList_require_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceRequireStmts fields dynamicSource stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames isInternal
-          inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] head with
-      | error err =>
-          simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource internalRetNames
-              isInternal (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err =>
-              simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource : BridgedSourceRequireStmt fields dynamicSource head :=
-                hSource head (by simp)
-              have hTailSource : BridgedSourceRequireStmts fields dynamicSource tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              cases hHeadSource with
-              | require cond message hFailCond =>
-                  exact BridgedStmts_append
-                    (compileStmt_require_bridged fields events errors dynamicSource
-                      internalRetNames isInternal inScopeNames hFailCond hHead)
-                    (ih (collectStmtNames (.require cond message) ++ inScopeNames)
-                      hTailSource hTail)
-
-/-- Lists made only of plain `require` statements whose compiled failure
-conditions are bridged compile with no nested function declarations. -/
-theorem compileStmtList_require_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceRequireStmts fields dynamicSource stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames isInternal
-          inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames isInternal (BridgedSourceRequireStmt fields dynamicSource)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      match hStmt with
-      | BridgedSourceRequireStmt.require cond message hFailCond =>
-          compileStmt_require_noFuncDefs fields events errors dynamicSource
-            internalRetNames isInternal inScopeNames hFailCond hOk)
 
 /-! ## Source statement body closure: single-slot mapping writes
 
@@ -1944,34 +1583,63 @@ def BridgedSourceMappingWriteStmts (fields : List Field) (stmts : List Stmt) : P
 private theorem compileMappingSlotWrite_singleSlot_bridged
     (fields : List Field) (field : String) {slot : Nat}
     (keyExpr valueExpr : YulExpr) (label : String)
+    (allowTransient : Bool)
     (hKey : BridgedExpr keyExpr) (hValue : BridgedExpr valueExpr)
     (hMapping : isMapping fields field = true)
     (hSlots : findFieldWriteSlots fields field = some [slot]) :
     ∀ {out : List YulStmt},
-      compileMappingSlotWrite fields field keyExpr valueExpr label 0 = .ok out →
+      compileMappingSlotWrite fields field keyExpr valueExpr label 0 allowTransient = .ok out →
       BridgedStmts out := by
-  intro out hOk
-  simp [compileMappingSlotWrite, hMapping, hSlots, Pure.pure, Except.pure] at hOk
-  subst hOk
-  intro yulStmt hMem
-  simp only [List.mem_singleton] at hMem
-  subst yulStmt
-  exact BridgedStmt.straight _
-    (BridgedStraightStmt.expr_sstore_mapping (.lit slot) keyExpr valueExpr
-      (BridgedExpr.lit slot) hKey hValue)
+    intro out hOk
+    cases allowTransient
+    · simp [compileMappingSlotWrite, hMapping, hSlots, Pure.pure, Except.pure] at hOk
+      subst out
+      intro yulStmt hMem
+      simp only [List.mem_singleton] at hMem
+      subst yulStmt
+      exact BridgedStmt.straight _
+        (bridgedStraightStmt_maybeFieldStorageStore_mapping false fields field
+          (.lit slot) keyExpr valueExpr (BridgedExpr.lit slot) hKey hValue)
+    · cases hField : findFieldWithResolvedSlot fields field with
+      | none =>
+          simp [compileMappingSlotWrite, hMapping, hSlots, hField, Pure.pure,
+            Except.pure] at hOk
+      | some found =>
+          simp [compileMappingSlotWrite, hMapping, hSlots, hField, Pure.pure,
+            Except.pure] at hOk
+          subst out
+          intro yulStmt hMem
+          simp only [List.mem_singleton] at hMem
+          subst yulStmt
+          exact BridgedStmt.straight _
+            (by
+              simpa [hField] using
+                bridgedStraightStmt_fieldStorageStore_mapping fields field
+                  (.lit slot) keyExpr valueExpr (BridgedExpr.lit slot) hKey hValue)
 
 private theorem compileMappingSlotWrite_singleSlot_noFuncDefs
     (fields : List Field) (field : String) {slot : Nat}
     (keyExpr valueExpr : YulExpr) (label : String)
+    (allowTransient : Bool)
     (hMapping : isMapping fields field = true)
     (hSlots : findFieldWriteSlots fields field = some [slot]) :
     ∀ {out : List YulStmt},
-      compileMappingSlotWrite fields field keyExpr valueExpr label 0 = .ok out →
+      compileMappingSlotWrite fields field keyExpr valueExpr label 0 allowTransient = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
-  intro out hOk
-  simp [compileMappingSlotWrite, hMapping, hSlots, Pure.pure, Except.pure] at hOk
-  subst hOk
-  simp [Native.yulStmtContainsFuncDef]
+    intro out hOk
+    cases allowTransient
+    · simp [compileMappingSlotWrite, hMapping, hSlots, Pure.pure, Except.pure] at hOk
+      subst out
+      simp [Native.yulStmtContainsFuncDef]
+    · cases hField : findFieldWithResolvedSlot fields field with
+      | none =>
+          simp [compileMappingSlotWrite, hMapping, hSlots, hField, Pure.pure,
+            Except.pure] at hOk
+      | some found =>
+          simp [compileMappingSlotWrite, hMapping, hSlots, hField, Pure.pure,
+            Except.pure] at hOk
+          subst out
+          simp [Native.yulStmtContainsFuncDef]
 
 /-- A single-slot `Stmt.setMapping` source write with a pure bridged key and
 value compiles to `BridgedStmts`. -/
@@ -1988,19 +1656,19 @@ theorem compileStmt_setMapping_singleSlot_bridged
         inScopeNames [] (.setMapping field key value) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hKeyExpr : compileExpr fields dynamicSource key with
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+  cases hKeyExpr : compileExprWithInternals fields dynamicSource [] key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
-      cases hValueExpr : compileExpr fields dynamicSource value with
+      cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err => simp [hKeyExpr, hValueExpr] at hOk
       | ok valueExpr =>
-          simp [hKeyExpr, hValueExpr] at hOk
-          exact compileMappingSlotWrite_singleSlot_bridged fields field keyExpr
-            valueExpr "setMapping"
-            (compileExpr_bridgedSource fields dynamicSource hKey hKeyExpr)
-            (compileExpr_bridgedSource fields dynamicSource hValue hValueExpr)
-            hMapping hSlots hOk
+            simp [hKeyExpr, hValueExpr] at hOk
+            exact compileMappingSlotWrite_singleSlot_bridged fields field keyExpr
+              valueExpr "setMapping" true
+              (compileExpr_bridgedSource fields dynamicSource hKey hKeyExpr)
+              (compileExpr_bridgedSource fields dynamicSource hValue hValueExpr)
+              hMapping hSlots hOk
 
 /-- A single-slot `Stmt.setMappingUint` source write with a pure bridged key
 and value compiles to `BridgedStmts`. Emission path is identical to
@@ -2018,19 +1686,19 @@ theorem compileStmt_setMappingUint_singleSlot_bridged
         inScopeNames [] (.setMappingUint field key value) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hKeyExpr : compileExpr fields dynamicSource key with
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+  cases hKeyExpr : compileExprWithInternals fields dynamicSource [] key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
-      cases hValueExpr : compileExpr fields dynamicSource value with
+      cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err => simp [hKeyExpr, hValueExpr] at hOk
       | ok valueExpr =>
-          simp [hKeyExpr, hValueExpr] at hOk
-          exact compileMappingSlotWrite_singleSlot_bridged fields field keyExpr
-            valueExpr "setMappingUint"
-            (compileExpr_bridgedSource fields dynamicSource hKey hKeyExpr)
-            (compileExpr_bridgedSource fields dynamicSource hValue hValueExpr)
-            hMapping hSlots hOk
+            simp [hKeyExpr, hValueExpr] at hOk
+            exact compileMappingSlotWrite_singleSlot_bridged fields field keyExpr
+              valueExpr "setMappingUint" true
+              (compileExpr_bridgedSource fields dynamicSource hKey hKeyExpr)
+              (compileExpr_bridgedSource fields dynamicSource hValue hValueExpr)
+              hMapping hSlots hOk
 
 theorem compileStmt_setMapping_singleSlot_noFuncDefs
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
@@ -2045,16 +1713,16 @@ theorem compileStmt_setMapping_singleSlot_noFuncDefs
         inScopeNames [] (.setMapping field key value) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hKeyExpr : compileExpr fields dynamicSource key with
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+  cases hKeyExpr : compileExprWithInternals fields dynamicSource [] key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
-      cases hValueExpr : compileExpr fields dynamicSource value with
+      cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err => simp [hKeyExpr, hValueExpr] at hOk
       | ok valueExpr =>
-          simp [hKeyExpr, hValueExpr] at hOk
-          exact compileMappingSlotWrite_singleSlot_noFuncDefs fields field
-            keyExpr valueExpr "setMapping" hMapping hSlots hOk
+            simp [hKeyExpr, hValueExpr] at hOk
+            exact compileMappingSlotWrite_singleSlot_noFuncDefs fields field
+              keyExpr valueExpr "setMapping" true hMapping hSlots hOk
 
 theorem compileStmt_setMappingUint_singleSlot_noFuncDefs
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
@@ -2069,16 +1737,16 @@ theorem compileStmt_setMappingUint_singleSlot_noFuncDefs
         inScopeNames [] (.setMappingUint field key value) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hKeyExpr : compileExpr fields dynamicSource key with
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+  cases hKeyExpr : compileExprWithInternals fields dynamicSource [] key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
-      cases hValueExpr : compileExpr fields dynamicSource value with
+      cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err => simp [hKeyExpr, hValueExpr] at hOk
       | ok valueExpr =>
-          simp [hKeyExpr, hValueExpr] at hOk
-          exact compileMappingSlotWrite_singleSlot_noFuncDefs fields field
-            keyExpr valueExpr "setMappingUint" hMapping hSlots hOk
+            simp [hKeyExpr, hValueExpr] at hOk
+            exact compileMappingSlotWrite_singleSlot_noFuncDefs fields field
+              keyExpr valueExpr "setMappingUint" true hMapping hSlots hOk
 
 /-- Each statement in the mapping-write fragment compiles to Yul satisfying
 `BridgedStmts`. -/
@@ -2121,68 +1789,6 @@ theorem compileStmt_mappingWrite_noFuncDefs
       exact compileStmt_setMappingUint_singleSlot_noFuncDefs fields events errors
         dynamicSource internalRetNames isInternal inScopeNames field
         hKey hValue hMapping hSlots hOk
-
-/-- Lists of single-slot mapping-write source statements compile to Yul lists
-satisfying `BridgedStmts`. -/
-theorem compileStmtList_mappingWrite_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceMappingWriteStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] head with
-      | error err =>
-          simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource internalRetNames
-              isInternal (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err =>
-              simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource : BridgedSourceMappingWriteStmt fields head :=
-                hSource head (by simp)
-              have hTailSource : BridgedSourceMappingWriteStmts fields tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_mappingWrite_bridged fields events errors dynamicSource
-                  internalRetNames isInternal inScopeNames hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-theorem compileStmtList_mappingWrite_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceMappingWriteStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames isInternal (BridgedSourceMappingWriteStmt fields)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_mappingWrite_noFuncDefs fields events errors dynamicSource
-        internalRetNames isInternal inScopeNames hStmt hOk)
 
 /-! ## Source statement body closure: mixed function-body fragments
 
@@ -2273,68 +1879,6 @@ theorem compileStmt_external_body_fragment_noFuncDefs
       exact compileStmt_terminator_external_noFuncDefs fields events errors
         dynamicSource internalRetNames inScopeNames hTerminator hOk
 
-/-- Mixed external source bodies made from the currently supported fragments
-compile to Yul lists satisfying `BridgedStmts`. -/
-theorem compileStmtList_external_body_fragment_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceExternalBodyStmts fields dynamicSource stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          (isInternal := false) inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          false inScopeNames [] head with
-      | error err =>
-          simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource internalRetNames
-              false (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err =>
-              simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource :
-                  BridgedSourceExternalBodyStmt fields dynamicSource head :=
-                hSource head (by simp)
-              have hTailSource :
-                  BridgedSourceExternalBodyStmts fields dynamicSource tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_external_body_fragment_bridged fields events errors
-                  dynamicSource internalRetNames inScopeNames hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-theorem compileStmtList_external_body_fragment_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceExternalBodyStmts fields dynamicSource stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          (isInternal := false) inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames false (BridgedSourceExternalBodyStmt fields dynamicSource)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_external_body_fragment_noFuncDefs fields events errors
-        dynamicSource internalRetNames inScopeNames hStmt hOk)
-
 /-- Each mixed internal-body statement in the currently supported fragment
 compiles to Yul satisfying `BridgedStmts`. -/
 theorem compileStmt_internal_body_fragment_bridged
@@ -2389,68 +1933,6 @@ theorem compileStmt_internal_body_fragment_noFuncDefs
       exact compileStmt_stop_noFuncDefs fields events errors dynamicSource
         internalRetNames true inScopeNames hOk
 
-/-- Mixed internal source bodies made from the currently supported fragments
-compile to Yul lists satisfying `BridgedStmts`. -/
-theorem compileStmtList_internal_body_fragment_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceInternalBodyStmts fields dynamicSource stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          (isInternal := true) inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          true inScopeNames [] head with
-      | error err =>
-          simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource internalRetNames
-              true (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err =>
-              simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource :
-                  BridgedSourceInternalBodyStmt fields dynamicSource head :=
-                hSource head (by simp)
-              have hTailSource :
-                  BridgedSourceInternalBodyStmts fields dynamicSource tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_internal_body_fragment_bridged fields events errors
-                  dynamicSource internalRetNames inScopeNames hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-theorem compileStmtList_internal_body_fragment_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceInternalBodyStmts fields dynamicSource stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          (isInternal := true) inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames true (BridgedSourceInternalBodyStmt fields dynamicSource)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_internal_body_fragment_noFuncDefs fields events errors
-        dynamicSource internalRetNames inScopeNames hStmt hOk)
-
 /-! ## Source statement body closure: one-layer `ite` composition
 
 The mixed body-fragment predicates above cover straight-line source bodies. Real
@@ -2495,425 +1977,6 @@ def BridgedSourceInternalStructuredBodyStmts
     (fields : List Field) (dynamicSource : DynamicDataSource) (stmts : List Stmt) : Prop :=
   ∀ stmt ∈ stmts, BridgedSourceInternalStructuredBodyStmt fields dynamicSource stmt
 
-/-- A one-layer external `Stmt.ite` whose branches are mixed external body
-fragments compiles to bridged Yul. Empty-else `ite` emits one Yul `if`; nonempty
-else emits the compiler's cached-condition `block` with two Yul `if`s. -/
-theorem compileStmt_ite_external_body_fragment_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (inScopeNames : List String)
-    {cond : Expr} {thenBranch elseBranch : List Stmt}
-    (hCond : BridgedSourceExpr cond)
-    (hThen : BridgedSourceExternalBodyStmts fields dynamicSource thenBranch)
-    (hElse : BridgedSourceExternalBodyStmts fields dynamicSource elseBranch) :
-    ∀ {out : List YulStmt},
-      compileStmt fields events errors dynamicSource internalRetNames
-        (isInternal := false) inScopeNames [] (.ite cond thenBranch elseBranch) = .ok out →
-      BridgedStmts out := by
-  intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hCondExpr : compileExpr fields dynamicSource cond with
-  | error err =>
-      simp [hCondExpr] at hOk
-  | ok condExpr =>
-      cases hThenCompile : compileStmtList fields events errors dynamicSource
-          internalRetNames false inScopeNames [] thenBranch with
-      | error err =>
-          simp [hCondExpr, hThenCompile] at hOk
-      | ok thenOut =>
-          cases hElseCompile : compileStmtList fields events errors dynamicSource
-              internalRetNames false inScopeNames [] elseBranch with
-          | error err =>
-              simp [hCondExpr, hThenCompile, hElseCompile] at hOk
-          | ok elseOut =>
-              have hCondBridged : BridgedExpr condExpr :=
-                compileExpr_bridgedSource fields dynamicSource hCond hCondExpr
-              have hThenBridged : BridgedStmts thenOut :=
-                compileStmtList_external_body_fragment_bridged fields events errors
-                  dynamicSource internalRetNames thenBranch inScopeNames hThen
-                  hThenCompile
-              have hElseBridged : BridgedStmts elseOut :=
-                compileStmtList_external_body_fragment_bridged fields events errors
-                  dynamicSource internalRetNames elseBranch inScopeNames hElse
-                  hElseCompile
-              by_cases hEmpty : elseBranch.isEmpty
-              · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty,
-                  Pure.pure, Except.pure] at hOk
-                subst out
-                intro yulStmt hMem
-                simp only [List.mem_singleton] at hMem
-                subst yulStmt
-                exact BridgedStmt.if_ condExpr thenOut hCondBridged hThenBridged
-              · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty,
-                  Pure.pure, Except.pure] at hOk
-                subst out
-                intro yulStmt hMem
-                simp only [List.mem_singleton] at hMem
-                subst yulStmt
-                refine BridgedStmt.block _ ?_
-                intro blockStmt hBlockMem
-                simp only [List.mem_cons, List.mem_nil_iff] at hBlockMem
-                rcases hBlockMem with rfl | rfl | rfl | hNil
-                · exact BridgedStmt.straight _
-                    (BridgedStraightStmt.let_ _ condExpr hCondBridged)
-                · exact BridgedStmt.if_ _ thenOut (BridgedExpr.ident _) hThenBridged
-                · exact BridgedStmt.if_ _ elseOut
-                    (bridgedExpr_iszero_ident _) hElseBridged
-                · cases hNil
-
-/-- A one-layer internal `Stmt.ite` whose branches are mixed internal body
-fragments compiles to bridged Yul. -/
-theorem compileStmt_ite_internal_body_fragment_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (inScopeNames : List String)
-    {cond : Expr} {thenBranch elseBranch : List Stmt}
-    (hCond : BridgedSourceExpr cond)
-    (hThen : BridgedSourceInternalBodyStmts fields dynamicSource thenBranch)
-    (hElse : BridgedSourceInternalBodyStmts fields dynamicSource elseBranch) :
-    ∀ {out : List YulStmt},
-      compileStmt fields events errors dynamicSource internalRetNames
-        (isInternal := true) inScopeNames [] (.ite cond thenBranch elseBranch) = .ok out →
-      BridgedStmts out := by
-  intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hCondExpr : compileExpr fields dynamicSource cond with
-  | error err =>
-      simp [hCondExpr] at hOk
-  | ok condExpr =>
-      cases hThenCompile : compileStmtList fields events errors dynamicSource
-          internalRetNames true inScopeNames [] thenBranch with
-      | error err =>
-          simp [hCondExpr, hThenCompile] at hOk
-      | ok thenOut =>
-          cases hElseCompile : compileStmtList fields events errors dynamicSource
-              internalRetNames true inScopeNames [] elseBranch with
-          | error err =>
-              simp [hCondExpr, hThenCompile, hElseCompile] at hOk
-          | ok elseOut =>
-              have hCondBridged : BridgedExpr condExpr :=
-                compileExpr_bridgedSource fields dynamicSource hCond hCondExpr
-              have hThenBridged : BridgedStmts thenOut :=
-                compileStmtList_internal_body_fragment_bridged fields events errors
-                  dynamicSource internalRetNames thenBranch inScopeNames hThen
-                  hThenCompile
-              have hElseBridged : BridgedStmts elseOut :=
-                compileStmtList_internal_body_fragment_bridged fields events errors
-                  dynamicSource internalRetNames elseBranch inScopeNames hElse
-                  hElseCompile
-              by_cases hEmpty : elseBranch.isEmpty
-              · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty,
-                  Pure.pure, Except.pure] at hOk
-                subst out
-                intro yulStmt hMem
-                simp only [List.mem_singleton] at hMem
-                subst yulStmt
-                exact BridgedStmt.if_ condExpr thenOut hCondBridged hThenBridged
-              · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty,
-                  Pure.pure, Except.pure] at hOk
-                subst out
-                intro yulStmt hMem
-                simp only [List.mem_singleton] at hMem
-                subst yulStmt
-                refine BridgedStmt.block _ ?_
-                intro blockStmt hBlockMem
-                simp only [List.mem_cons, List.mem_nil_iff] at hBlockMem
-                rcases hBlockMem with rfl | rfl | rfl | hNil
-                · exact BridgedStmt.straight _
-                    (BridgedStraightStmt.let_ _ condExpr hCondBridged)
-                · exact BridgedStmt.if_ _ thenOut (BridgedExpr.ident _) hThenBridged
-                · exact BridgedStmt.if_ _ elseOut
-                    (bridgedExpr_iszero_ident _) hElseBridged
-                · cases hNil
-
-theorem compileStmt_ite_external_body_fragment_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (inScopeNames : List String)
-    {cond : Expr} {thenBranch elseBranch : List Stmt}
-    (_hCond : BridgedSourceExpr cond)
-    (hThen : BridgedSourceExternalBodyStmts fields dynamicSource thenBranch)
-    (hElse : BridgedSourceExternalBodyStmts fields dynamicSource elseBranch) :
-    ∀ {out : List YulStmt},
-      compileStmt fields events errors dynamicSource internalRetNames
-        (isInternal := false) inScopeNames [] (.ite cond thenBranch elseBranch) = .ok out →
-      Native.yulStmtsContainFuncDef out = false := by
-  intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hCondExpr : compileExpr fields dynamicSource cond with
-  | error err => simp [hCondExpr] at hOk
-  | ok condExpr =>
-      cases hThenCompile : compileStmtList fields events errors dynamicSource
-          internalRetNames false inScopeNames [] thenBranch with
-      | error err => simp [hCondExpr, hThenCompile] at hOk
-      | ok thenOut =>
-          cases hElseCompile : compileStmtList fields events errors dynamicSource
-              internalRetNames false inScopeNames [] elseBranch with
-          | error err => simp [hCondExpr, hThenCompile, hElseCompile] at hOk
-          | ok elseOut =>
-              have hThenNoFunc :=
-                compileStmtList_external_body_fragment_noFuncDefs fields events
-                  errors dynamicSource internalRetNames thenBranch inScopeNames hThen
-                  hThenCompile
-              have hElseNoFunc :=
-                compileStmtList_external_body_fragment_noFuncDefs fields events
-                  errors dynamicSource internalRetNames elseBranch inScopeNames hElse
-                  hElseCompile
-              by_cases hEmpty : elseBranch.isEmpty
-              · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty, Pure.pure,
-                  Except.pure] at hOk
-                subst out
-                simp [Native.yulStmtContainsFuncDef, hThenNoFunc]
-              · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty, Pure.pure,
-                  Except.pure] at hOk
-                subst out
-                simp [Native.yulStmtContainsFuncDef, hThenNoFunc, hElseNoFunc]
-
-theorem compileStmt_ite_internal_body_fragment_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (inScopeNames : List String)
-    {cond : Expr} {thenBranch elseBranch : List Stmt}
-    (_hCond : BridgedSourceExpr cond)
-    (hThen : BridgedSourceInternalBodyStmts fields dynamicSource thenBranch)
-    (hElse : BridgedSourceInternalBodyStmts fields dynamicSource elseBranch) :
-    ∀ {out : List YulStmt},
-      compileStmt fields events errors dynamicSource internalRetNames
-        (isInternal := true) inScopeNames [] (.ite cond thenBranch elseBranch) = .ok out →
-      Native.yulStmtsContainFuncDef out = false := by
-  intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hCondExpr : compileExpr fields dynamicSource cond with
-  | error err => simp [hCondExpr] at hOk
-  | ok condExpr =>
-      cases hThenCompile : compileStmtList fields events errors dynamicSource
-          internalRetNames true inScopeNames [] thenBranch with
-      | error err => simp [hCondExpr, hThenCompile] at hOk
-      | ok thenOut =>
-          cases hElseCompile : compileStmtList fields events errors dynamicSource
-              internalRetNames true inScopeNames [] elseBranch with
-          | error err => simp [hCondExpr, hThenCompile, hElseCompile] at hOk
-          | ok elseOut =>
-              have hThenNoFunc :=
-                compileStmtList_internal_body_fragment_noFuncDefs fields events
-                  errors dynamicSource internalRetNames thenBranch inScopeNames hThen
-                  hThenCompile
-              have hElseNoFunc :=
-                compileStmtList_internal_body_fragment_noFuncDefs fields events
-                  errors dynamicSource internalRetNames elseBranch inScopeNames hElse
-                  hElseCompile
-              by_cases hEmpty : elseBranch.isEmpty
-              · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty, Pure.pure,
-                  Except.pure] at hOk
-                subst out
-                simp [Native.yulStmtContainsFuncDef, hThenNoFunc]
-              · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty, Pure.pure,
-                  Except.pure] at hOk
-                subst out
-                simp [Native.yulStmtContainsFuncDef, hThenNoFunc, hElseNoFunc]
-
-/-- Each external structured-body statement in the currently supported
-fragment compiles to Yul satisfying `BridgedStmts`. -/
-theorem compileStmt_external_structured_body_fragment_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (inScopeNames : List String) :
-    ∀ {stmt : Stmt}, BridgedSourceExternalStructuredBodyStmt fields dynamicSource stmt →
-      ∀ {out : List YulStmt},
-        compileStmt fields events errors dynamicSource internalRetNames
-          (isInternal := false) inScopeNames [] stmt = .ok out →
-        BridgedStmts out := by
-  intro stmt hStmt out hOk
-  cases hStmt with
-  | base hBase =>
-      exact compileStmt_external_body_fragment_bridged fields events errors
-        dynamicSource internalRetNames inScopeNames hBase hOk
-  | ite cond thenBranch elseBranch hCond hThen hElse =>
-      exact compileStmt_ite_external_body_fragment_bridged fields events errors
-        dynamicSource internalRetNames inScopeNames hCond hThen hElse hOk
-
-theorem compileStmt_external_structured_body_fragment_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (inScopeNames : List String) :
-    ∀ {stmt : Stmt}, BridgedSourceExternalStructuredBodyStmt fields dynamicSource stmt →
-      ∀ {out : List YulStmt},
-        compileStmt fields events errors dynamicSource internalRetNames
-          (isInternal := false) inScopeNames [] stmt = .ok out →
-        Native.yulStmtsContainFuncDef out = false := by
-  intro stmt hStmt out hOk
-  cases hStmt with
-  | base hBase =>
-      exact compileStmt_external_body_fragment_noFuncDefs fields events errors
-        dynamicSource internalRetNames inScopeNames hBase hOk
-  | ite cond thenBranch elseBranch hCond hThen hElse =>
-      exact compileStmt_ite_external_body_fragment_noFuncDefs fields events errors
-        dynamicSource internalRetNames inScopeNames hCond hThen hElse hOk
-
-/-- External structured source bodies made from mixed body fragments plus one
-`Stmt.ite` layer compile to Yul lists satisfying `BridgedStmts`. -/
-theorem compileStmtList_external_structured_body_fragment_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceExternalStructuredBodyStmts fields dynamicSource stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          (isInternal := false) inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          false inScopeNames [] head with
-      | error err =>
-          simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource internalRetNames
-              false (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err =>
-              simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource :
-                  BridgedSourceExternalStructuredBodyStmt fields dynamicSource head :=
-                hSource head (by simp)
-              have hTailSource :
-                  BridgedSourceExternalStructuredBodyStmts fields dynamicSource tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_external_structured_body_fragment_bridged fields events
-                  errors dynamicSource internalRetNames inScopeNames hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-theorem compileStmtList_external_structured_body_fragment_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceExternalStructuredBodyStmts fields dynamicSource stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          (isInternal := false) inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames false
-    (BridgedSourceExternalStructuredBodyStmt fields dynamicSource)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_external_structured_body_fragment_noFuncDefs fields events
-        errors dynamicSource internalRetNames inScopeNames hStmt hOk)
-
-/-- Each internal structured-body statement in the currently supported
-fragment compiles to Yul satisfying `BridgedStmts`. -/
-theorem compileStmt_internal_structured_body_fragment_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (inScopeNames : List String) :
-    ∀ {stmt : Stmt}, BridgedSourceInternalStructuredBodyStmt fields dynamicSource stmt →
-      ∀ {out : List YulStmt},
-        compileStmt fields events errors dynamicSource internalRetNames
-          (isInternal := true) inScopeNames [] stmt = .ok out →
-        BridgedStmts out := by
-  intro stmt hStmt out hOk
-  cases hStmt with
-  | base hBase =>
-      exact compileStmt_internal_body_fragment_bridged fields events errors
-        dynamicSource internalRetNames inScopeNames hBase hOk
-  | ite cond thenBranch elseBranch hCond hThen hElse =>
-      exact compileStmt_ite_internal_body_fragment_bridged fields events errors
-        dynamicSource internalRetNames inScopeNames hCond hThen hElse hOk
-
-theorem compileStmt_internal_structured_body_fragment_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (inScopeNames : List String) :
-    ∀ {stmt : Stmt}, BridgedSourceInternalStructuredBodyStmt fields dynamicSource stmt →
-      ∀ {out : List YulStmt},
-        compileStmt fields events errors dynamicSource internalRetNames
-          (isInternal := true) inScopeNames [] stmt = .ok out →
-        Native.yulStmtsContainFuncDef out = false := by
-  intro stmt hStmt out hOk
-  cases hStmt with
-  | base hBase =>
-      exact compileStmt_internal_body_fragment_noFuncDefs fields events errors
-        dynamicSource internalRetNames inScopeNames hBase hOk
-  | ite cond thenBranch elseBranch hCond hThen hElse =>
-      exact compileStmt_ite_internal_body_fragment_noFuncDefs fields events errors
-        dynamicSource internalRetNames inScopeNames hCond hThen hElse hOk
-
-/-- Internal structured source bodies made from mixed body fragments plus one
-`Stmt.ite` layer compile to Yul lists satisfying `BridgedStmts`. -/
-theorem compileStmtList_internal_structured_body_fragment_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceInternalStructuredBodyStmts fields dynamicSource stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          (isInternal := true) inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          true inScopeNames [] head with
-      | error err =>
-          simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource internalRetNames
-              true (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err =>
-              simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource :
-                  BridgedSourceInternalStructuredBodyStmt fields dynamicSource head :=
-                hSource head (by simp)
-              have hTailSource :
-                  BridgedSourceInternalStructuredBodyStmts fields dynamicSource tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_internal_structured_body_fragment_bridged fields events
-                  errors dynamicSource internalRetNames inScopeNames hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-theorem compileStmtList_internal_structured_body_fragment_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceInternalStructuredBodyStmts fields dynamicSource stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          (isInternal := true) inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames true
-    (BridgedSourceInternalStructuredBodyStmt fields dynamicSource)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_internal_structured_body_fragment_noFuncDefs fields events
-        errors dynamicSource internalRetNames inScopeNames hStmt hOk)
-
 /-! ## Source statement body closure: nested `ite` composition
 
 The one-layer predicates above are useful for shallow source bodies. This
@@ -2935,10 +1998,6 @@ inductive BridgedSourceExternalNestedBodyStmt
       BridgedSourceExternalNestedBodyStmt fields dynamicSource
         (.ite cond thenBranch elseBranch)
 
-def BridgedSourceExternalNestedBodyStmts
-    (fields : List Field) (dynamicSource : DynamicDataSource) (stmts : List Stmt) : Prop :=
-  ∀ stmt ∈ stmts, BridgedSourceExternalNestedBodyStmt fields dynamicSource stmt
-
 /-- Internal source-body statements extended with an outer `Stmt.ite` whose
 branches are already one-layer structured internal body fragments. -/
 inductive BridgedSourceInternalNestedBodyStmt
@@ -2952,422 +2011,6 @@ inductive BridgedSourceInternalNestedBodyStmt
       (hElse : BridgedSourceInternalStructuredBodyStmts fields dynamicSource elseBranch) :
       BridgedSourceInternalNestedBodyStmt fields dynamicSource
         (.ite cond thenBranch elseBranch)
-
-def BridgedSourceInternalNestedBodyStmts
-    (fields : List Field) (dynamicSource : DynamicDataSource) (stmts : List Stmt) : Prop :=
-  ∀ stmt ∈ stmts, BridgedSourceInternalNestedBodyStmt fields dynamicSource stmt
-
-/-- An outer external `Stmt.ite` whose branches are one-layer structured
-external body fragments compiles to bridged Yul. -/
-theorem compileStmt_ite_external_nested_body_fragment_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (inScopeNames : List String)
-    {cond : Expr} {thenBranch elseBranch : List Stmt}
-    (hCond : BridgedSourceExpr cond)
-    (hThen : BridgedSourceExternalStructuredBodyStmts fields dynamicSource thenBranch)
-    (hElse : BridgedSourceExternalStructuredBodyStmts fields dynamicSource elseBranch) :
-    ∀ {out : List YulStmt},
-      compileStmt fields events errors dynamicSource internalRetNames
-        (isInternal := false) inScopeNames [] (.ite cond thenBranch elseBranch) = .ok out →
-      BridgedStmts out := by
-  intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hCondExpr : compileExpr fields dynamicSource cond with
-  | error err =>
-      simp [hCondExpr] at hOk
-  | ok condExpr =>
-      cases hThenCompile : compileStmtList fields events errors dynamicSource
-          internalRetNames false inScopeNames [] thenBranch with
-      | error err =>
-          simp [hCondExpr, hThenCompile] at hOk
-      | ok thenOut =>
-          cases hElseCompile : compileStmtList fields events errors dynamicSource
-              internalRetNames false inScopeNames [] elseBranch with
-          | error err =>
-              simp [hCondExpr, hThenCompile, hElseCompile] at hOk
-          | ok elseOut =>
-              have hCondBridged : BridgedExpr condExpr :=
-                compileExpr_bridgedSource fields dynamicSource hCond hCondExpr
-              have hThenBridged : BridgedStmts thenOut :=
-                compileStmtList_external_structured_body_fragment_bridged fields
-                  events errors dynamicSource internalRetNames thenBranch
-                  inScopeNames hThen hThenCompile
-              have hElseBridged : BridgedStmts elseOut :=
-                compileStmtList_external_structured_body_fragment_bridged fields
-                  events errors dynamicSource internalRetNames elseBranch
-                  inScopeNames hElse hElseCompile
-              by_cases hEmpty : elseBranch.isEmpty
-              · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty,
-                  Pure.pure, Except.pure] at hOk
-                subst out
-                intro yulStmt hMem
-                simp only [List.mem_singleton] at hMem
-                subst yulStmt
-                exact BridgedStmt.if_ condExpr thenOut hCondBridged hThenBridged
-              · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty,
-                  Pure.pure, Except.pure] at hOk
-                subst out
-                intro yulStmt hMem
-                simp only [List.mem_singleton] at hMem
-                subst yulStmt
-                refine BridgedStmt.block _ ?_
-                intro blockStmt hBlockMem
-                simp only [List.mem_cons, List.mem_nil_iff] at hBlockMem
-                rcases hBlockMem with rfl | rfl | rfl | hNil
-                · exact BridgedStmt.straight _
-                    (BridgedStraightStmt.let_ _ condExpr hCondBridged)
-                · exact BridgedStmt.if_ _ thenOut (BridgedExpr.ident _) hThenBridged
-                · exact BridgedStmt.if_ _ elseOut
-                    (bridgedExpr_iszero_ident _) hElseBridged
-                · cases hNil
-
-/-- An outer internal `Stmt.ite` whose branches are one-layer structured
-internal body fragments compiles to bridged Yul. -/
-theorem compileStmt_ite_internal_nested_body_fragment_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (inScopeNames : List String)
-    {cond : Expr} {thenBranch elseBranch : List Stmt}
-    (hCond : BridgedSourceExpr cond)
-    (hThen : BridgedSourceInternalStructuredBodyStmts fields dynamicSource thenBranch)
-    (hElse : BridgedSourceInternalStructuredBodyStmts fields dynamicSource elseBranch) :
-    ∀ {out : List YulStmt},
-      compileStmt fields events errors dynamicSource internalRetNames
-        (isInternal := true) inScopeNames [] (.ite cond thenBranch elseBranch) = .ok out →
-      BridgedStmts out := by
-  intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hCondExpr : compileExpr fields dynamicSource cond with
-  | error err =>
-      simp [hCondExpr] at hOk
-  | ok condExpr =>
-      cases hThenCompile : compileStmtList fields events errors dynamicSource
-          internalRetNames true inScopeNames [] thenBranch with
-      | error err =>
-          simp [hCondExpr, hThenCompile] at hOk
-      | ok thenOut =>
-          cases hElseCompile : compileStmtList fields events errors dynamicSource
-              internalRetNames true inScopeNames [] elseBranch with
-          | error err =>
-              simp [hCondExpr, hThenCompile, hElseCompile] at hOk
-          | ok elseOut =>
-              have hCondBridged : BridgedExpr condExpr :=
-                compileExpr_bridgedSource fields dynamicSource hCond hCondExpr
-              have hThenBridged : BridgedStmts thenOut :=
-                compileStmtList_internal_structured_body_fragment_bridged fields
-                  events errors dynamicSource internalRetNames thenBranch
-                  inScopeNames hThen hThenCompile
-              have hElseBridged : BridgedStmts elseOut :=
-                compileStmtList_internal_structured_body_fragment_bridged fields
-                  events errors dynamicSource internalRetNames elseBranch
-                  inScopeNames hElse hElseCompile
-              by_cases hEmpty : elseBranch.isEmpty
-              · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty,
-                  Pure.pure, Except.pure] at hOk
-                subst out
-                intro yulStmt hMem
-                simp only [List.mem_singleton] at hMem
-                subst yulStmt
-                exact BridgedStmt.if_ condExpr thenOut hCondBridged hThenBridged
-              · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty,
-                  Pure.pure, Except.pure] at hOk
-                subst out
-                intro yulStmt hMem
-                simp only [List.mem_singleton] at hMem
-                subst yulStmt
-                refine BridgedStmt.block _ ?_
-                intro blockStmt hBlockMem
-                simp only [List.mem_cons, List.mem_nil_iff] at hBlockMem
-                rcases hBlockMem with rfl | rfl | rfl | hNil
-                · exact BridgedStmt.straight _
-                    (BridgedStraightStmt.let_ _ condExpr hCondBridged)
-                · exact BridgedStmt.if_ _ thenOut (BridgedExpr.ident _) hThenBridged
-                · exact BridgedStmt.if_ _ elseOut
-                    (bridgedExpr_iszero_ident _) hElseBridged
-                · cases hNil
-
-theorem compileStmt_ite_external_nested_body_fragment_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (inScopeNames : List String)
-    {cond : Expr} {thenBranch elseBranch : List Stmt}
-    (_hCond : BridgedSourceExpr cond)
-    (hThen : BridgedSourceExternalStructuredBodyStmts fields dynamicSource thenBranch)
-    (hElse : BridgedSourceExternalStructuredBodyStmts fields dynamicSource elseBranch) :
-    ∀ {out : List YulStmt},
-      compileStmt fields events errors dynamicSource internalRetNames
-        (isInternal := false) inScopeNames [] (.ite cond thenBranch elseBranch) = .ok out →
-      Native.yulStmtsContainFuncDef out = false := by
-  intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hCondExpr : compileExpr fields dynamicSource cond with
-  | error err => simp [hCondExpr] at hOk
-  | ok condExpr =>
-      cases hThenCompile : compileStmtList fields events errors dynamicSource
-          internalRetNames false inScopeNames [] thenBranch with
-      | error err => simp [hCondExpr, hThenCompile] at hOk
-      | ok thenOut =>
-          cases hElseCompile : compileStmtList fields events errors dynamicSource
-              internalRetNames false inScopeNames [] elseBranch with
-          | error err => simp [hCondExpr, hThenCompile, hElseCompile] at hOk
-          | ok elseOut =>
-              have hThenNoFunc :=
-                compileStmtList_external_structured_body_fragment_noFuncDefs fields
-                  events errors dynamicSource internalRetNames thenBranch
-                  inScopeNames hThen hThenCompile
-              have hElseNoFunc :=
-                compileStmtList_external_structured_body_fragment_noFuncDefs fields
-                  events errors dynamicSource internalRetNames elseBranch
-                  inScopeNames hElse hElseCompile
-              by_cases hEmpty : elseBranch.isEmpty
-              · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty, Pure.pure,
-                  Except.pure] at hOk
-                subst out
-                simp [Native.yulStmtContainsFuncDef, hThenNoFunc]
-              · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty, Pure.pure,
-                  Except.pure] at hOk
-                subst out
-                simp [Native.yulStmtContainsFuncDef, hThenNoFunc, hElseNoFunc]
-
-theorem compileStmt_ite_internal_nested_body_fragment_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (inScopeNames : List String)
-    {cond : Expr} {thenBranch elseBranch : List Stmt}
-    (_hCond : BridgedSourceExpr cond)
-    (hThen : BridgedSourceInternalStructuredBodyStmts fields dynamicSource thenBranch)
-    (hElse : BridgedSourceInternalStructuredBodyStmts fields dynamicSource elseBranch) :
-    ∀ {out : List YulStmt},
-      compileStmt fields events errors dynamicSource internalRetNames
-        (isInternal := true) inScopeNames [] (.ite cond thenBranch elseBranch) = .ok out →
-      Native.yulStmtsContainFuncDef out = false := by
-  intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hCondExpr : compileExpr fields dynamicSource cond with
-  | error err => simp [hCondExpr] at hOk
-  | ok condExpr =>
-      cases hThenCompile : compileStmtList fields events errors dynamicSource
-          internalRetNames true inScopeNames [] thenBranch with
-      | error err => simp [hCondExpr, hThenCompile] at hOk
-      | ok thenOut =>
-          cases hElseCompile : compileStmtList fields events errors dynamicSource
-              internalRetNames true inScopeNames [] elseBranch with
-          | error err => simp [hCondExpr, hThenCompile, hElseCompile] at hOk
-          | ok elseOut =>
-              have hThenNoFunc :=
-                compileStmtList_internal_structured_body_fragment_noFuncDefs fields
-                  events errors dynamicSource internalRetNames thenBranch
-                  inScopeNames hThen hThenCompile
-              have hElseNoFunc :=
-                compileStmtList_internal_structured_body_fragment_noFuncDefs fields
-                  events errors dynamicSource internalRetNames elseBranch
-                  inScopeNames hElse hElseCompile
-              by_cases hEmpty : elseBranch.isEmpty
-              · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty, Pure.pure,
-                  Except.pure] at hOk
-                subst out
-                simp [Native.yulStmtContainsFuncDef, hThenNoFunc]
-              · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty, Pure.pure,
-                  Except.pure] at hOk
-                subst out
-                simp [Native.yulStmtContainsFuncDef, hThenNoFunc, hElseNoFunc]
-
-theorem compileStmt_external_nested_body_fragment_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (inScopeNames : List String) :
-    ∀ {stmt : Stmt}, BridgedSourceExternalNestedBodyStmt fields dynamicSource stmt →
-      ∀ {out : List YulStmt},
-        compileStmt fields events errors dynamicSource internalRetNames
-          (isInternal := false) inScopeNames [] stmt = .ok out →
-        BridgedStmts out := by
-  intro stmt hStmt out hOk
-  cases hStmt with
-  | structured hStructured =>
-      exact compileStmt_external_structured_body_fragment_bridged fields events
-        errors dynamicSource internalRetNames inScopeNames hStructured hOk
-  | ite cond thenBranch elseBranch hCond hThen hElse =>
-      exact compileStmt_ite_external_nested_body_fragment_bridged fields events
-        errors dynamicSource internalRetNames inScopeNames hCond hThen hElse hOk
-
-theorem compileStmt_external_nested_body_fragment_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (inScopeNames : List String) :
-    ∀ {stmt : Stmt}, BridgedSourceExternalNestedBodyStmt fields dynamicSource stmt →
-      ∀ {out : List YulStmt},
-        compileStmt fields events errors dynamicSource internalRetNames
-          (isInternal := false) inScopeNames [] stmt = .ok out →
-        Native.yulStmtsContainFuncDef out = false := by
-  intro stmt hStmt out hOk
-  cases hStmt with
-  | structured hStructured =>
-      exact compileStmt_external_structured_body_fragment_noFuncDefs fields events
-        errors dynamicSource internalRetNames inScopeNames hStructured hOk
-  | ite cond thenBranch elseBranch hCond hThen hElse =>
-      exact compileStmt_ite_external_nested_body_fragment_noFuncDefs fields events
-        errors dynamicSource internalRetNames inScopeNames hCond hThen hElse hOk
-
-theorem compileStmtList_external_nested_body_fragment_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceExternalNestedBodyStmts fields dynamicSource stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          (isInternal := false) inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          false inScopeNames [] head with
-      | error err =>
-          simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource internalRetNames
-              false (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err =>
-              simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource :
-                  BridgedSourceExternalNestedBodyStmt fields dynamicSource head :=
-                hSource head (by simp)
-              have hTailSource :
-                  BridgedSourceExternalNestedBodyStmts fields dynamicSource tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_external_nested_body_fragment_bridged fields events
-                  errors dynamicSource internalRetNames inScopeNames
-                  hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-theorem compileStmtList_external_nested_body_fragment_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceExternalNestedBodyStmts fields dynamicSource stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          (isInternal := false) inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames false
-    (BridgedSourceExternalNestedBodyStmt fields dynamicSource)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_external_nested_body_fragment_noFuncDefs fields events errors
-        dynamicSource internalRetNames inScopeNames hStmt hOk)
-
-theorem compileStmt_internal_nested_body_fragment_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (inScopeNames : List String) :
-    ∀ {stmt : Stmt}, BridgedSourceInternalNestedBodyStmt fields dynamicSource stmt →
-      ∀ {out : List YulStmt},
-        compileStmt fields events errors dynamicSource internalRetNames
-          (isInternal := true) inScopeNames [] stmt = .ok out →
-        BridgedStmts out := by
-  intro stmt hStmt out hOk
-  cases hStmt with
-  | structured hStructured =>
-      exact compileStmt_internal_structured_body_fragment_bridged fields events
-        errors dynamicSource internalRetNames inScopeNames hStructured hOk
-  | ite cond thenBranch elseBranch hCond hThen hElse =>
-      exact compileStmt_ite_internal_nested_body_fragment_bridged fields events
-        errors dynamicSource internalRetNames inScopeNames hCond hThen hElse hOk
-
-theorem compileStmt_internal_nested_body_fragment_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (inScopeNames : List String) :
-    ∀ {stmt : Stmt}, BridgedSourceInternalNestedBodyStmt fields dynamicSource stmt →
-      ∀ {out : List YulStmt},
-        compileStmt fields events errors dynamicSource internalRetNames
-          (isInternal := true) inScopeNames [] stmt = .ok out →
-        Native.yulStmtsContainFuncDef out = false := by
-  intro stmt hStmt out hOk
-  cases hStmt with
-  | structured hStructured =>
-      exact compileStmt_internal_structured_body_fragment_noFuncDefs fields events
-        errors dynamicSource internalRetNames inScopeNames hStructured hOk
-  | ite cond thenBranch elseBranch hCond hThen hElse =>
-      exact compileStmt_ite_internal_nested_body_fragment_noFuncDefs fields events
-        errors dynamicSource internalRetNames inScopeNames hCond hThen hElse hOk
-
-theorem compileStmtList_internal_nested_body_fragment_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceInternalNestedBodyStmts fields dynamicSource stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          (isInternal := true) inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          true inScopeNames [] head with
-      | error err =>
-          simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource internalRetNames
-              true (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err =>
-              simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource :
-                  BridgedSourceInternalNestedBodyStmt fields dynamicSource head :=
-                hSource head (by simp)
-              have hTailSource :
-                  BridgedSourceInternalNestedBodyStmts fields dynamicSource tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_internal_nested_body_fragment_bridged fields events
-                  errors dynamicSource internalRetNames inScopeNames
-                  hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-theorem compileStmtList_internal_nested_body_fragment_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceInternalNestedBodyStmts fields dynamicSource stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          (isInternal := true) inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames true
-    (BridgedSourceInternalNestedBodyStmt fields dynamicSource)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_internal_nested_body_fragment_noFuncDefs fields events errors
-        dynamicSource internalRetNames inScopeNames hStmt hOk)
 
 /-! ## Source statement body closure: recursive `ite` composition
 
@@ -3446,20 +2089,20 @@ mutual
         exact compileStmt_external_body_fragment_bridged fields events errors
           dynamicSource internalRetNames inScopeNames hBase hOk
     | ite cond thenBranch elseBranch hCond hThen hElse =>
-        simp only [compileStmt, bind, Except.bind] at hOk
-        cases hCondExpr : compileExpr fields dynamicSource cond with
+        simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+        cases hCondExpr : compileExprWithInternals fields dynamicSource [] cond with
         | error err =>
             simp [hCondExpr] at hOk
         | ok condExpr =>
             cases hThenCompile : compileStmtList fields events errors dynamicSource
                 internalRetNames false inScopeNames [] thenBranch with
             | error err =>
-                simp [hCondExpr, hThenCompile] at hOk
+                simp [compileStmtListWithFork_cancun_eq_compileStmtList, hCondExpr, hThenCompile] at hOk
             | ok thenOut =>
                 cases hElseCompile : compileStmtList fields events errors dynamicSource
                     internalRetNames false inScopeNames [] elseBranch with
                 | error err =>
-                    simp [hCondExpr, hThenCompile, hElseCompile] at hOk
+                    simp [compileStmtListWithFork_cancun_eq_compileStmtList, hCondExpr, hThenCompile, hElseCompile] at hOk
                 | ok elseOut =>
                     have hCondBridged : BridgedExpr condExpr :=
                       compileExpr_bridgedSource fields dynamicSource hCond hCondExpr
@@ -3472,14 +2115,14 @@ mutual
                         events errors dynamicSource internalRetNames hElse
                         inScopeNames hElseCompile
                     by_cases hEmpty : elseBranch.isEmpty
-                    · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty,
+                    · simp [compileStmtListWithFork_cancun_eq_compileStmtList, hCondExpr, hThenCompile, hElseCompile, hEmpty,
                         Pure.pure, Except.pure] at hOk
                       subst out
                       intro yulStmt hMem
                       simp only [List.mem_singleton] at hMem
                       subst yulStmt
                       exact BridgedStmt.if_ condExpr thenOut hCondBridged hThenBridged
-                    · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty,
+                    · simp [compileStmtListWithFork_cancun_eq_compileStmtList, hCondExpr, hThenCompile, hElseCompile, hEmpty,
                         Pure.pure, Except.pure] at hOk
                       subst out
                       intro yulStmt hMem
@@ -3508,24 +2151,24 @@ mutual
     intro stmts hSource inScopeNames out hOk
     cases hSource with
     | nil =>
-        simp [compileStmtList, Pure.pure, Except.pure] at hOk
+        simp [compileStmtList, compileStmtListWithFork, Pure.pure, Except.pure] at hOk
         subst out
         intro stmt hMem
         cases hMem
     | @cons head tail hHead hTail =>
-        simp only [compileStmtList, bind, Except.bind] at hOk
+        simp only [compileStmtList, compileStmtListWithFork, bind, Except.bind] at hOk
         cases hHeadCompile : compileStmt fields events errors dynamicSource
             internalRetNames false inScopeNames [] head with
         | error err =>
-            simp [hHeadCompile] at hOk
+            simp [compileStmtWithFork_cancun_eq_compileStmt, compileStmtListWithFork_cancun_eq_compileStmtList, hHeadCompile] at hOk
         | ok headOut =>
-            simp [hHeadCompile] at hOk
+            simp [compileStmtWithFork_cancun_eq_compileStmt, compileStmtListWithFork_cancun_eq_compileStmtList, hHeadCompile] at hOk
             cases hTailCompile : compileStmtList fields events errors dynamicSource
                 internalRetNames false (collectStmtNames head ++ inScopeNames) [] tail with
             | error err =>
-                simp [hTailCompile] at hOk
+                simp [compileStmtListWithFork_cancun_eq_compileStmtList, hTailCompile] at hOk
             | ok tailOut =>
-                simp [hTailCompile, Pure.pure, Except.pure] at hOk
+                simp [compileStmtListWithFork_cancun_eq_compileStmtList, hTailCompile, Pure.pure, Except.pure] at hOk
                 subst out
                 exact BridgedStmts_append
                   (compileStmt_external_recursive_body_fragment_bridged fields events
@@ -3553,17 +2196,17 @@ mutual
         exact compileStmt_external_body_fragment_noFuncDefs fields events errors
           dynamicSource internalRetNames inScopeNames hBase hOk
     | ite cond thenBranch elseBranch _ hThen hElse =>
-        simp only [compileStmt, bind, Except.bind] at hOk
-        cases hCondExpr : compileExpr fields dynamicSource cond with
+        simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+        cases hCondExpr : compileExprWithInternals fields dynamicSource [] cond with
         | error err => simp [hCondExpr] at hOk
         | ok condExpr =>
             cases hThenCompile : compileStmtList fields events errors dynamicSource
                 internalRetNames false inScopeNames [] thenBranch with
-            | error err => simp [hCondExpr, hThenCompile] at hOk
+            | error err => simp [compileStmtListWithFork_cancun_eq_compileStmtList, hCondExpr, hThenCompile] at hOk
             | ok thenOut =>
                 cases hElseCompile : compileStmtList fields events errors dynamicSource
                     internalRetNames false inScopeNames [] elseBranch with
-                | error err => simp [hCondExpr, hThenCompile, hElseCompile] at hOk
+                | error err => simp [compileStmtListWithFork_cancun_eq_compileStmtList, hCondExpr, hThenCompile, hElseCompile] at hOk
                 | ok elseOut =>
                     have hThenNoFunc :=
                       compileStmtList_external_recursive_body_fragment_noFuncDefs fields
@@ -3574,11 +2217,11 @@ mutual
                         events errors dynamicSource internalRetNames hElse inScopeNames
                         hElseCompile
                     by_cases hEmpty : elseBranch.isEmpty
-                    · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty,
+                    · simp [compileStmtListWithFork_cancun_eq_compileStmtList, hCondExpr, hThenCompile, hElseCompile, hEmpty,
                         Pure.pure, Except.pure] at hOk
                       subst out
                       simp [Native.yulStmtContainsFuncDef, hThenNoFunc]
-                    · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty,
+                    · simp [compileStmtListWithFork_cancun_eq_compileStmtList, hCondExpr, hThenCompile, hElseCompile, hEmpty,
                         Pure.pure, Except.pure] at hOk
                       subst out
                       simp [Native.yulStmtContainsFuncDef, hThenNoFunc, hElseNoFunc]
@@ -3595,21 +2238,21 @@ mutual
     intro stmts hSource inScopeNames out hOk
     cases hSource with
     | nil =>
-        simp [compileStmtList, Pure.pure, Except.pure] at hOk
+        simp [compileStmtList, compileStmtListWithFork, Pure.pure, Except.pure] at hOk
         subst out
         rfl
     | @cons head tail hHead hTail =>
-        simp only [compileStmtList, bind, Except.bind] at hOk
+        simp only [compileStmtList, compileStmtListWithFork, bind, Except.bind] at hOk
         cases hHeadCompile : compileStmt fields events errors dynamicSource
             internalRetNames false inScopeNames [] head with
-        | error err => simp [hHeadCompile] at hOk
+        | error err => simp [compileStmtWithFork_cancun_eq_compileStmt, compileStmtListWithFork_cancun_eq_compileStmtList, hHeadCompile] at hOk
         | ok headOut =>
-            simp [hHeadCompile] at hOk
+            simp [compileStmtWithFork_cancun_eq_compileStmt, compileStmtListWithFork_cancun_eq_compileStmtList, hHeadCompile] at hOk
             cases hTailCompile : compileStmtList fields events errors dynamicSource
                 internalRetNames false (collectStmtNames head ++ inScopeNames) [] tail with
-            | error err => simp [hTailCompile] at hOk
+            | error err => simp [compileStmtListWithFork_cancun_eq_compileStmtList, hTailCompile] at hOk
             | ok tailOut =>
-                simp [hTailCompile, Pure.pure, Except.pure] at hOk
+                simp [compileStmtListWithFork_cancun_eq_compileStmtList, hTailCompile, Pure.pure, Except.pure] at hOk
                 subst out
                 simp [
                   compileStmt_external_recursive_body_fragment_noFuncDefs fields events
@@ -3636,20 +2279,20 @@ mutual
         exact compileStmt_internal_body_fragment_bridged fields events errors
           dynamicSource internalRetNames inScopeNames hBase hOk
     | ite cond thenBranch elseBranch hCond hThen hElse =>
-        simp only [compileStmt, bind, Except.bind] at hOk
-        cases hCondExpr : compileExpr fields dynamicSource cond with
+        simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+        cases hCondExpr : compileExprWithInternals fields dynamicSource [] cond with
         | error err =>
             simp [hCondExpr] at hOk
         | ok condExpr =>
             cases hThenCompile : compileStmtList fields events errors dynamicSource
                 internalRetNames true inScopeNames [] thenBranch with
             | error err =>
-                simp [hCondExpr, hThenCompile] at hOk
+                simp [compileStmtListWithFork_cancun_eq_compileStmtList, hCondExpr, hThenCompile] at hOk
             | ok thenOut =>
                 cases hElseCompile : compileStmtList fields events errors dynamicSource
                     internalRetNames true inScopeNames [] elseBranch with
                 | error err =>
-                    simp [hCondExpr, hThenCompile, hElseCompile] at hOk
+                    simp [compileStmtListWithFork_cancun_eq_compileStmtList, hCondExpr, hThenCompile, hElseCompile] at hOk
                 | ok elseOut =>
                     have hCondBridged : BridgedExpr condExpr :=
                       compileExpr_bridgedSource fields dynamicSource hCond hCondExpr
@@ -3662,14 +2305,14 @@ mutual
                         events errors dynamicSource internalRetNames hElse
                         inScopeNames hElseCompile
                     by_cases hEmpty : elseBranch.isEmpty
-                    · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty,
+                    · simp [compileStmtListWithFork_cancun_eq_compileStmtList, hCondExpr, hThenCompile, hElseCompile, hEmpty,
                         Pure.pure, Except.pure] at hOk
                       subst out
                       intro yulStmt hMem
                       simp only [List.mem_singleton] at hMem
                       subst yulStmt
                       exact BridgedStmt.if_ condExpr thenOut hCondBridged hThenBridged
-                    · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty,
+                    · simp [compileStmtListWithFork_cancun_eq_compileStmtList, hCondExpr, hThenCompile, hElseCompile, hEmpty,
                         Pure.pure, Except.pure] at hOk
                       subst out
                       intro yulStmt hMem
@@ -3698,24 +2341,24 @@ mutual
     intro stmts hSource inScopeNames out hOk
     cases hSource with
     | nil =>
-        simp [compileStmtList, Pure.pure, Except.pure] at hOk
+        simp [compileStmtList, compileStmtListWithFork, Pure.pure, Except.pure] at hOk
         subst out
         intro stmt hMem
         cases hMem
     | @cons head tail hHead hTail =>
-        simp only [compileStmtList, bind, Except.bind] at hOk
+        simp only [compileStmtList, compileStmtListWithFork, bind, Except.bind] at hOk
         cases hHeadCompile : compileStmt fields events errors dynamicSource
             internalRetNames true inScopeNames [] head with
         | error err =>
-            simp [hHeadCompile] at hOk
+            simp [compileStmtWithFork_cancun_eq_compileStmt, compileStmtListWithFork_cancun_eq_compileStmtList, hHeadCompile] at hOk
         | ok headOut =>
-            simp [hHeadCompile] at hOk
+            simp [compileStmtWithFork_cancun_eq_compileStmt, compileStmtListWithFork_cancun_eq_compileStmtList, hHeadCompile] at hOk
             cases hTailCompile : compileStmtList fields events errors dynamicSource
                 internalRetNames true (collectStmtNames head ++ inScopeNames) [] tail with
             | error err =>
-                simp [hTailCompile] at hOk
+                simp [compileStmtListWithFork_cancun_eq_compileStmtList, hTailCompile] at hOk
             | ok tailOut =>
-                simp [hTailCompile, Pure.pure, Except.pure] at hOk
+                simp [compileStmtListWithFork_cancun_eq_compileStmtList, hTailCompile, Pure.pure, Except.pure] at hOk
                 subst out
                 exact BridgedStmts_append
                   (compileStmt_internal_recursive_body_fragment_bridged fields events
@@ -3743,17 +2386,17 @@ mutual
         exact compileStmt_internal_body_fragment_noFuncDefs fields events errors
           dynamicSource internalRetNames inScopeNames hBase hOk
     | ite cond thenBranch elseBranch _ hThen hElse =>
-        simp only [compileStmt, bind, Except.bind] at hOk
-        cases hCondExpr : compileExpr fields dynamicSource cond with
+        simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+        cases hCondExpr : compileExprWithInternals fields dynamicSource [] cond with
         | error err => simp [hCondExpr] at hOk
         | ok condExpr =>
             cases hThenCompile : compileStmtList fields events errors dynamicSource
                 internalRetNames true inScopeNames [] thenBranch with
-            | error err => simp [hCondExpr, hThenCompile] at hOk
+            | error err => simp [compileStmtListWithFork_cancun_eq_compileStmtList, hCondExpr, hThenCompile] at hOk
             | ok thenOut =>
                 cases hElseCompile : compileStmtList fields events errors dynamicSource
                     internalRetNames true inScopeNames [] elseBranch with
-                | error err => simp [hCondExpr, hThenCompile, hElseCompile] at hOk
+                | error err => simp [compileStmtListWithFork_cancun_eq_compileStmtList, hCondExpr, hThenCompile, hElseCompile] at hOk
                 | ok elseOut =>
                     have hThenNoFunc :=
                       compileStmtList_internal_recursive_body_fragment_noFuncDefs fields
@@ -3764,11 +2407,11 @@ mutual
                         events errors dynamicSource internalRetNames hElse inScopeNames
                         hElseCompile
                     by_cases hEmpty : elseBranch.isEmpty
-                    · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty,
+                    · simp [compileStmtListWithFork_cancun_eq_compileStmtList, hCondExpr, hThenCompile, hElseCompile, hEmpty,
                         Pure.pure, Except.pure] at hOk
                       subst out
                       simp [Native.yulStmtContainsFuncDef, hThenNoFunc]
-                    · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty,
+                    · simp [compileStmtListWithFork_cancun_eq_compileStmtList, hCondExpr, hThenCompile, hElseCompile, hEmpty,
                         Pure.pure, Except.pure] at hOk
                       subst out
                       simp [Native.yulStmtContainsFuncDef, hThenNoFunc, hElseNoFunc]
@@ -3785,21 +2428,21 @@ mutual
     intro stmts hSource inScopeNames out hOk
     cases hSource with
     | nil =>
-        simp [compileStmtList, Pure.pure, Except.pure] at hOk
+        simp [compileStmtList, compileStmtListWithFork, Pure.pure, Except.pure] at hOk
         subst out
         rfl
     | @cons head tail hHead hTail =>
-        simp only [compileStmtList, bind, Except.bind] at hOk
+        simp only [compileStmtList, compileStmtListWithFork, bind, Except.bind] at hOk
         cases hHeadCompile : compileStmt fields events errors dynamicSource
             internalRetNames true inScopeNames [] head with
-        | error err => simp [hHeadCompile] at hOk
+        | error err => simp [compileStmtWithFork_cancun_eq_compileStmt, compileStmtListWithFork_cancun_eq_compileStmtList, hHeadCompile] at hOk
         | ok headOut =>
-            simp [hHeadCompile] at hOk
+            simp [compileStmtWithFork_cancun_eq_compileStmt, compileStmtListWithFork_cancun_eq_compileStmtList, hHeadCompile] at hOk
             cases hTailCompile : compileStmtList fields events errors dynamicSource
                 internalRetNames true (collectStmtNames head ++ inScopeNames) [] tail with
-            | error err => simp [hTailCompile] at hOk
+            | error err => simp [compileStmtListWithFork_cancun_eq_compileStmtList, hTailCompile] at hOk
             | ok tailOut =>
-                simp [hTailCompile, Pure.pure, Except.pure] at hOk
+                simp [compileStmtListWithFork_cancun_eq_compileStmtList, hTailCompile, Pure.pure, Except.pure] at hOk
                 subst out
                 simp [
                   compileStmt_internal_recursive_body_fragment_noFuncDefs fields events
@@ -3827,9 +2470,6 @@ inductive BridgedSourceMemoryWriteStmt : Stmt → Prop
       (hOffset : BridgedSourceExpr offset) (hValue : BridgedSourceExpr value) :
       BridgedSourceMemoryWriteStmt (.tstore offset value)
 
-def BridgedSourceMemoryWriteStmts (stmts : List Stmt) : Prop :=
-  ∀ stmt ∈ stmts, BridgedSourceMemoryWriteStmt stmt
-
 /-- A direct `mstore`/`tstore` source statement whose offset and value are
 bridged source expressions compiles to a single-statement Yul list satisfying
 `BridgedStmts`. -/
@@ -3845,12 +2485,12 @@ theorem compileStmt_memoryWrite_bridged
   intro stmt hStmt out hOk
   cases hStmt with
   | mstore offset value hOffset hValue =>
-      simp only [compileStmt, bind, Except.bind] at hOk
-      cases hOExpr : compileExpr fields dynamicSource offset with
+      simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+      cases hOExpr : compileExprWithInternals fields dynamicSource [] offset with
       | error err => simp [hOExpr] at hOk
       | ok offsetExpr =>
           simp [hOExpr] at hOk
-          cases hVExpr : compileExpr fields dynamicSource value with
+          cases hVExpr : compileExprWithInternals fields dynamicSource [] value with
           | error err => simp [hVExpr] at hOk
           | ok valueExpr =>
               simp [hVExpr, Pure.pure, Except.pure] at hOk
@@ -3865,12 +2505,12 @@ theorem compileStmt_memoryWrite_bridged
               exact BridgedStmt.straight _
                 (BridgedStraightStmt.expr_mstore offsetExpr valueExpr hBO hBV)
   | tstore offset value hOffset hValue =>
-      simp only [compileStmt, bind, Except.bind] at hOk
-      cases hOExpr : compileExpr fields dynamicSource offset with
+      simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+      cases hOExpr : compileExprWithInternals fields dynamicSource [] offset with
       | error err => simp [hOExpr] at hOk
       | ok offsetExpr =>
           simp [hOExpr] at hOk
-          cases hVExpr : compileExpr fields dynamicSource value with
+          cases hVExpr : compileExprWithInternals fields dynamicSource [] value with
           | error err => simp [hVExpr] at hOk
           | ok valueExpr =>
               simp [hVExpr, Pure.pure, Except.pure] at hOk
@@ -3885,50 +2525,6 @@ theorem compileStmt_memoryWrite_bridged
               exact BridgedStmt.straight _
                 (BridgedStraightStmt.expr_tstore offsetExpr valueExpr hBO hBV)
 
-/-- Lists made only of direct `mstore`/`tstore` source statements with bridged
-source arguments compile to Yul lists satisfying `BridgedStmts`. -/
-theorem compileStmtList_memoryWrite_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceMemoryWriteStmts stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] head with
-      | error err => simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames isInternal (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err => simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource : BridgedSourceMemoryWriteStmt head :=
-                hSource head (by simp)
-              have hTailSource : BridgedSourceMemoryWriteStmts tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_memoryWrite_bridged fields events errors dynamicSource
-                  internalRetNames isInternal inScopeNames hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
 theorem compileStmt_memoryWrite_noFuncDefs
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
     (dynamicSource : DynamicDataSource) (internalRetNames : List String)
@@ -3941,45 +2537,29 @@ theorem compileStmt_memoryWrite_noFuncDefs
   intro stmt hStmt out hOk
   cases hStmt with
   | mstore offset value _ _ =>
-      simp only [compileStmt, bind, Except.bind, Pure.pure, Except.pure] at hOk
-      cases hO : compileExpr fields dynamicSource offset with
+      simp only [compileStmt, compileStmtWithFork, bind, Except.bind, Pure.pure, Except.pure] at hOk
+      cases hO : compileExprWithInternals fields dynamicSource [] offset with
       | error err => simp [hO] at hOk
       | ok compiledOffset =>
           simp [hO] at hOk
-          cases hV : compileExpr fields dynamicSource value with
+          cases hV : compileExprWithInternals fields dynamicSource [] value with
           | error err => simp [hV] at hOk
           | ok compiledValue =>
               simp [hV, Native.yulStmtContainsFuncDef] at hOk
               subst out
               simp [Native.yulStmtContainsFuncDef]
   | tstore offset value _ _ =>
-      simp only [compileStmt, bind, Except.bind, Pure.pure, Except.pure] at hOk
-      cases hO : compileExpr fields dynamicSource offset with
+      simp only [compileStmt, compileStmtWithFork, bind, Except.bind, Pure.pure, Except.pure] at hOk
+      cases hO : compileExprWithInternals fields dynamicSource [] offset with
       | error err => simp [hO] at hOk
       | ok compiledOffset =>
           simp [hO] at hOk
-          cases hV : compileExpr fields dynamicSource value with
+          cases hV : compileExprWithInternals fields dynamicSource [] value with
           | error err => simp [hV] at hOk
           | ok compiledValue =>
               simp [hV, Native.yulStmtContainsFuncDef] at hOk
               subst out
               simp [Native.yulStmtContainsFuncDef]
-
-theorem compileStmtList_memoryWrite_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceMemoryWriteStmts stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames isInternal BridgedSourceMemoryWriteStmt
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_memoryWrite_noFuncDefs fields events errors dynamicSource
-        internalRetNames isInternal inScopeNames hStmt hOk)
 
 /-! ## Source statement body closure: bounded `forEach` loops
 
@@ -4009,16 +2589,16 @@ theorem compileStmt_forEach_with_bridged_body
         inScopeNames [] (.forEach varName count body) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hCExpr : compileExpr fields dynamicSource count with
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+  cases hCExpr : compileExprWithInternals fields dynamicSource [] count with
   | error err => simp [hCExpr] at hOk
   | ok countExpr =>
       simp [hCExpr] at hOk
       cases hBodyOk : compileStmtList fields events errors dynamicSource
           internalRetNames isInternal (forEachBodyScope inScopeNames varName count body) [] body with
-      | error err => simp [hBodyOk] at hOk
+      | error err => simp [compileStmtListWithFork_cancun_eq_compileStmtList, hBodyOk] at hOk
       | ok bodyOut =>
-          simp [hBodyOk, Pure.pure, Except.pure] at hOk
+          simp [compileStmtListWithFork_cancun_eq_compileStmtList, hBodyOk, Pure.pure, Except.pure] at hOk
           subst out
           have hBC : BridgedExpr countExpr :=
             compileExpr_bridgedSource fields dynamicSource hCount hCExpr
@@ -4097,26 +2677,26 @@ theorem compileStmt_ite_with_noFuncDefs_body
         inScopeNames [] (.ite cond thenBranch elseBranch) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hCondExpr : compileExpr fields dynamicSource cond with
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+  cases hCondExpr : compileExprWithInternals fields dynamicSource [] cond with
   | error err => simp [hCondExpr] at hOk
   | ok condExpr =>
       cases hThenCompile : compileStmtList fields events errors dynamicSource
           internalRetNames isInternal inScopeNames [] thenBranch with
-      | error err => simp [hCondExpr, hThenCompile] at hOk
+      | error err => simp [compileStmtListWithFork_cancun_eq_compileStmtList, hCondExpr, hThenCompile] at hOk
       | ok thenOut =>
           cases hElseCompile : compileStmtList fields events errors dynamicSource
               internalRetNames isInternal inScopeNames [] elseBranch with
-          | error err => simp [hCondExpr, hThenCompile, hElseCompile] at hOk
+          | error err => simp [compileStmtListWithFork_cancun_eq_compileStmtList, hCondExpr, hThenCompile, hElseCompile] at hOk
           | ok elseOut =>
               have hThenNoFunc := hThen hThenCompile
               have hElseNoFunc := hElse hElseCompile
               by_cases hEmpty : elseBranch.isEmpty
-              · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty,
+              · simp [compileStmtListWithFork_cancun_eq_compileStmtList, hCondExpr, hThenCompile, hElseCompile, hEmpty,
                   Pure.pure, Except.pure] at hOk
                 subst out
                 simp [Native.yulStmtContainsFuncDef, hThenNoFunc]
-              · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty,
+              · simp [compileStmtListWithFork_cancun_eq_compileStmtList, hCondExpr, hThenCompile, hElseCompile, hEmpty,
                   Pure.pure, Except.pure] at hOk
                 subst out
                 simp [Native.yulStmtContainsFuncDef, hThenNoFunc, hElseNoFunc]
@@ -4135,17 +2715,17 @@ theorem compileStmt_forEach_with_noFuncDefs_body
         inScopeNames [] (.forEach varName count body) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hCExpr : compileExpr fields dynamicSource count with
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+  cases hCExpr : compileExprWithInternals fields dynamicSource [] count with
   | error err => simp [hCExpr] at hOk
   | ok countExpr =>
       simp [hCExpr] at hOk
       cases hBodyOk : compileStmtList fields events errors dynamicSource
           internalRetNames isInternal (forEachBodyScope inScopeNames varName count body) [] body with
-      | error err => simp [hBodyOk] at hOk
+      | error err => simp [compileStmtListWithFork_cancun_eq_compileStmtList, hBodyOk] at hOk
       | ok bodyOut =>
           have hBodyNoFunc := hBody hBodyOk
-          simp [hBodyOk, Pure.pure, Except.pure] at hOk
+          simp [compileStmtListWithFork_cancun_eq_compileStmtList, hBodyOk, Pure.pure, Except.pure] at hOk
           subst out
           simp [Native.yulStmtContainsFuncDef, hBodyNoFunc]
 
@@ -4351,11 +2931,6 @@ inductive BridgedSourceCustomErrorStmt
       BridgedSourceCustomErrorStmt fields errors dynamicSource
         (.requireError cond errorName [])
 
-def BridgedSourceCustomErrorStmts
-    (fields : List Field) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (stmts : List Stmt) : Prop :=
-  ∀ stmt ∈ stmts, BridgedSourceCustomErrorStmt fields errors dynamicSource stmt
-
 /-- A zero-arg `Stmt.revertError` compiles to a bridged Yul statement list. -/
 theorem compileStmt_revertError_zero_bridged
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
@@ -4369,7 +2944,7 @@ theorem compileStmt_revertError_zero_bridged
         inScopeNames [] (.revertError errorName []) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind, hLookup, compileExprList,
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind, hLookup, compileExprListWithInternals,
     Pure.pure, Except.pure] at hOk
   exact revertWithCustomError_zero_bridged dynamicSource errorDef hZeroParams hOk
 
@@ -4390,11 +2965,11 @@ theorem compileStmt_requireError_zero_bridged
         inScopeNames [] (.requireError cond errorName []) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hFail : compileRequireFailCond fields dynamicSource cond with
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+  cases hFail : compileRequireFailCondWithInternals fields dynamicSource [] cond with
   | error err => simp [hFail] at hOk
   | ok failCond =>
-      simp [hFail, hLookup, compileExprList, Pure.pure, Except.pure] at hOk
+      simp [hFail, hLookup, compileExprListWithInternals, Pure.pure, Except.pure] at hOk
       cases hRevert : revertWithCustomError dynamicSource errorDef [] [] with
       | error err => simp [hRevert] at hOk
       | ok revertStmts =>
@@ -4439,7 +3014,7 @@ theorem compileStmt_revertError_zero_noFuncDefs
         inScopeNames [] (.revertError errorName []) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind, hLookup, compileExprList,
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind, hLookup, compileExprListWithInternals,
     Pure.pure, Except.pure] at hOk
   exact revertWithCustomError_zero_noFuncDefs dynamicSource errorDef hZeroParams hOk
 
@@ -4458,11 +3033,11 @@ theorem compileStmt_requireError_zero_noFuncDefs
         inScopeNames [] (.requireError cond errorName []) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hFail : compileRequireFailCond fields dynamicSource cond with
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+  cases hFail : compileRequireFailCondWithInternals fields dynamicSource [] cond with
   | error err => simp [hFail] at hOk
   | ok failCond =>
-      simp [hFail, hLookup, compileExprList, Pure.pure, Except.pure] at hOk
+      simp [hFail, hLookup, compileExprListWithInternals, Pure.pure, Except.pure] at hOk
       cases hRevert : revertWithCustomError dynamicSource errorDef [] [] with
       | error err => simp [hRevert] at hOk
       | ok revertStmts =>
@@ -4489,73 +3064,6 @@ theorem compileStmt_customError_zero_noFuncDefs
   | requireError cond errorName errorDef hLookup hZeroParams hFailCond =>
       exact compileStmt_requireError_zero_noFuncDefs fields events errors
         dynamicSource internalRetNames isInternal inScopeNames hLookup hZeroParams hFailCond
-
-/-- A list made entirely of zero-arg custom-error source statements compiles
-to a Yul list satisfying `BridgedStmts`. -/
-theorem compileStmtList_customError_zero_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceCustomErrorStmts fields errors dynamicSource stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames isInternal
-          inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] head with
-      | error err => simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames isInternal (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err => simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource : BridgedSourceCustomErrorStmt fields errors dynamicSource head :=
-                hSource head (by simp)
-              have hBHead : BridgedStmts headOut :=
-                compileStmt_customError_zero_bridged fields events errors dynamicSource
-                  internalRetNames isInternal inScopeNames hHeadSource hHead
-              have hTailSource : BridgedSourceCustomErrorStmts fields errors dynamicSource tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              have hBTail : BridgedStmts tailOut :=
-                ih (collectStmtNames head ++ inScopeNames) hTailSource hTail
-              intro stmt hMem
-              simp only [List.mem_append] at hMem
-              rcases hMem with h | h
-              · exact hBHead stmt h
-              · exact hBTail stmt h
-
-theorem compileStmtList_customError_zero_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceCustomErrorStmts fields errors dynamicSource stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames isInternal
-          inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames isInternal
-    (BridgedSourceCustomErrorStmt fields errors dynamicSource)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_customError_zero_noFuncDefs fields events errors dynamicSource
-        internalRetNames isInternal inScopeNames hStmt hOk)
 
 /-!
 ## Mixed body with zero-arg custom errors
@@ -4716,278 +3224,6 @@ theorem compileStmt_internal_body_with_errors_noFuncDefs
       exact compileStmt_mappingWrite_noFuncDefs fields events errors dynamicSource
         internalRetNames true inScopeNames hMap hOk
 
-/-- Mixed external source bodies (storage/require/terminator + zero-arg
-custom errors) compile to Yul lists satisfying `BridgedStmts`. -/
-theorem compileStmtList_external_body_with_errors_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceExternalBodyWithErrorsStmts fields errors dynamicSource stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          (isInternal := false) inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro _ hMem
-      exact (List.not_mem_nil hMem).elim
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          false inScopeNames [] head with
-      | error err => simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames false (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err => simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource :
-                  BridgedSourceExternalBodyWithErrorsStmt fields errors
-                    dynamicSource head :=
-                hSource head (by simp)
-              have hBHead : BridgedStmts headOut :=
-                compileStmt_external_body_with_errors_bridged fields events errors
-                  dynamicSource internalRetNames inScopeNames hHeadSource hHead
-              have hTailSource :
-                  BridgedSourceExternalBodyWithErrorsStmts fields errors
-                    dynamicSource tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              have hBTail : BridgedStmts tailOut :=
-                ih (collectStmtNames head ++ inScopeNames) hTailSource hTail
-              intro stmt hMem
-              simp only [List.mem_append] at hMem
-              rcases hMem with h | h
-              · exact hBHead stmt h
-              · exact hBTail stmt h
-
-theorem compileStmtList_external_body_with_errors_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceExternalBodyWithErrorsStmts fields errors dynamicSource stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          (isInternal := false) inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames false
-    (BridgedSourceExternalBodyWithErrorsStmt fields errors dynamicSource)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_external_body_with_errors_noFuncDefs fields events errors
-        dynamicSource internalRetNames inScopeNames hStmt hOk)
-
-/-- Mixed internal source bodies (storage/require/returnInternal/stop +
-zero-arg custom errors) compile to Yul lists satisfying `BridgedStmts`. -/
-theorem compileStmtList_internal_body_with_errors_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceInternalBodyWithErrorsStmts fields errors dynamicSource stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          (isInternal := true) inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro _ hMem
-      exact (List.not_mem_nil hMem).elim
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          true inScopeNames [] head with
-      | error err => simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames true (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err => simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource :
-                  BridgedSourceInternalBodyWithErrorsStmt fields errors
-                    dynamicSource head :=
-                hSource head (by simp)
-              have hBHead : BridgedStmts headOut :=
-                compileStmt_internal_body_with_errors_bridged fields events errors
-                  dynamicSource internalRetNames inScopeNames hHeadSource hHead
-              have hTailSource :
-                  BridgedSourceInternalBodyWithErrorsStmts fields errors
-                    dynamicSource tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              have hBTail : BridgedStmts tailOut :=
-                ih (collectStmtNames head ++ inScopeNames) hTailSource hTail
-              intro stmt hMem
-              simp only [List.mem_append] at hMem
-              rcases hMem with h | h
-              · exact hBHead stmt h
-              · exact hBTail stmt h
-
-theorem compileStmtList_internal_body_with_errors_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceInternalBodyWithErrorsStmts fields errors dynamicSource stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          (isInternal := true) inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames true
-    (BridgedSourceInternalBodyWithErrorsStmt fields errors dynamicSource)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_internal_body_with_errors_noFuncDefs fields events errors
-        dynamicSource internalRetNames inScopeNames hStmt hOk)
-
-/-- A one-layer external `Stmt.ite` whose branches are mixed external
-with-errors body fragments compiles to bridged Yul. -/
-theorem compileStmt_ite_external_body_with_errors_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (inScopeNames : List String)
-    {cond : Expr} {thenBranch elseBranch : List Stmt}
-    (hCond : BridgedSourceExpr cond)
-    (hThen : BridgedSourceExternalBodyWithErrorsStmts fields errors
-      dynamicSource thenBranch)
-    (hElse : BridgedSourceExternalBodyWithErrorsStmts fields errors
-      dynamicSource elseBranch) :
-    ∀ {out : List YulStmt},
-      compileStmt fields events errors dynamicSource internalRetNames
-        (isInternal := false) inScopeNames [] (.ite cond thenBranch elseBranch) = .ok out →
-      BridgedStmts out := by
-  intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hCondExpr : compileExpr fields dynamicSource cond with
-  | error err =>
-      simp [hCondExpr] at hOk
-  | ok condExpr =>
-      cases hThenCompile : compileStmtList fields events errors dynamicSource
-          internalRetNames false inScopeNames [] thenBranch with
-      | error err =>
-          simp [hCondExpr, hThenCompile] at hOk
-      | ok thenOut =>
-          cases hElseCompile : compileStmtList fields events errors dynamicSource
-              internalRetNames false inScopeNames [] elseBranch with
-          | error err =>
-              simp [hCondExpr, hThenCompile, hElseCompile] at hOk
-          | ok elseOut =>
-              have hCondBridged : BridgedExpr condExpr :=
-                compileExpr_bridgedSource fields dynamicSource hCond hCondExpr
-              have hThenBridged : BridgedStmts thenOut :=
-                compileStmtList_external_body_with_errors_bridged fields events errors
-                  dynamicSource internalRetNames thenBranch inScopeNames hThen
-                  hThenCompile
-              have hElseBridged : BridgedStmts elseOut :=
-                compileStmtList_external_body_with_errors_bridged fields events errors
-                  dynamicSource internalRetNames elseBranch inScopeNames hElse
-                  hElseCompile
-              by_cases hEmpty : elseBranch.isEmpty
-              · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty,
-                  Pure.pure, Except.pure] at hOk
-                subst out
-                intro yulStmt hMem
-                simp only [List.mem_singleton] at hMem
-                subst yulStmt
-                exact BridgedStmt.if_ condExpr thenOut hCondBridged hThenBridged
-              · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty,
-                  Pure.pure, Except.pure] at hOk
-                subst out
-                intro yulStmt hMem
-                simp only [List.mem_singleton] at hMem
-                subst yulStmt
-                refine BridgedStmt.block _ ?_
-                intro blockStmt hBlockMem
-                simp only [List.mem_cons, List.mem_nil_iff] at hBlockMem
-                rcases hBlockMem with rfl | rfl | rfl | hNil
-                · exact BridgedStmt.straight _
-                    (BridgedStraightStmt.let_ _ condExpr hCondBridged)
-                · exact BridgedStmt.if_ _ thenOut (BridgedExpr.ident _) hThenBridged
-                · exact BridgedStmt.if_ _ elseOut
-                    (bridgedExpr_iszero_ident _) hElseBridged
-                · cases hNil
-
-/-- A one-layer internal `Stmt.ite` whose branches are mixed internal
-with-errors body fragments compiles to bridged Yul. -/
-theorem compileStmt_ite_internal_body_with_errors_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (inScopeNames : List String)
-    {cond : Expr} {thenBranch elseBranch : List Stmt}
-    (hCond : BridgedSourceExpr cond)
-    (hThen : BridgedSourceInternalBodyWithErrorsStmts fields errors
-      dynamicSource thenBranch)
-    (hElse : BridgedSourceInternalBodyWithErrorsStmts fields errors
-      dynamicSource elseBranch) :
-    ∀ {out : List YulStmt},
-      compileStmt fields events errors dynamicSource internalRetNames
-        (isInternal := true) inScopeNames [] (.ite cond thenBranch elseBranch) = .ok out →
-      BridgedStmts out := by
-  intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hCondExpr : compileExpr fields dynamicSource cond with
-  | error err =>
-      simp [hCondExpr] at hOk
-  | ok condExpr =>
-      cases hThenCompile : compileStmtList fields events errors dynamicSource
-          internalRetNames true inScopeNames [] thenBranch with
-      | error err =>
-          simp [hCondExpr, hThenCompile] at hOk
-      | ok thenOut =>
-          cases hElseCompile : compileStmtList fields events errors dynamicSource
-              internalRetNames true inScopeNames [] elseBranch with
-          | error err =>
-              simp [hCondExpr, hThenCompile, hElseCompile] at hOk
-          | ok elseOut =>
-              have hCondBridged : BridgedExpr condExpr :=
-                compileExpr_bridgedSource fields dynamicSource hCond hCondExpr
-              have hThenBridged : BridgedStmts thenOut :=
-                compileStmtList_internal_body_with_errors_bridged fields events errors
-                  dynamicSource internalRetNames thenBranch inScopeNames hThen
-                  hThenCompile
-              have hElseBridged : BridgedStmts elseOut :=
-                compileStmtList_internal_body_with_errors_bridged fields events errors
-                  dynamicSource internalRetNames elseBranch inScopeNames hElse
-                  hElseCompile
-              by_cases hEmpty : elseBranch.isEmpty
-              · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty,
-                  Pure.pure, Except.pure] at hOk
-                subst out
-                intro yulStmt hMem
-                simp only [List.mem_singleton] at hMem
-                subst yulStmt
-                exact BridgedStmt.if_ condExpr thenOut hCondBridged hThenBridged
-              · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty,
-                  Pure.pure, Except.pure] at hOk
-                subst out
-                intro yulStmt hMem
-                simp only [List.mem_singleton] at hMem
-                subst yulStmt
-                refine BridgedStmt.block _ ?_
-                intro blockStmt hBlockMem
-                simp only [List.mem_cons, List.mem_nil_iff] at hBlockMem
-                rcases hBlockMem with rfl | rfl | rfl | hNil
-                · exact BridgedStmt.straight _
-                    (BridgedStraightStmt.let_ _ condExpr hCondBridged)
-                · exact BridgedStmt.if_ _ thenOut (BridgedExpr.ident _) hThenBridged
-                · exact BridgedStmt.if_ _ elseOut
-                    (bridgedExpr_iszero_ident _) hElseBridged
-                · cases hNil
-
 /-- External with-errors body statements extended with one `Stmt.ite` layer
 whose condition is a bridged source expression and whose branches are mixed
 external with-errors body fragments. -/
@@ -5036,152 +3272,6 @@ def BridgedSourceInternalStructuredBodyWithErrorsStmts
   ∀ stmt ∈ stmts,
     BridgedSourceInternalStructuredBodyWithErrorsStmt fields errors dynamicSource stmt
 
-/-- Each external with-errors structured-body statement compiles to Yul
-satisfying `BridgedStmts`. -/
-theorem compileStmt_external_structured_body_with_errors_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (inScopeNames : List String) :
-    ∀ {stmt : Stmt},
-      BridgedSourceExternalStructuredBodyWithErrorsStmt fields errors
-        dynamicSource stmt →
-      ∀ {out : List YulStmt},
-        compileStmt fields events errors dynamicSource internalRetNames
-          (isInternal := false) inScopeNames [] stmt = .ok out →
-        BridgedStmts out := by
-  intro stmt hStmt out hOk
-  cases hStmt with
-  | base hBase =>
-      exact compileStmt_external_body_with_errors_bridged fields events errors
-        dynamicSource internalRetNames inScopeNames hBase hOk
-  | ite cond thenBranch elseBranch hCond hThen hElse =>
-      exact compileStmt_ite_external_body_with_errors_bridged fields events errors
-        dynamicSource internalRetNames inScopeNames hCond hThen hElse hOk
-
-/-- External structured with-errors source bodies compile to Yul lists
-satisfying `BridgedStmts`. -/
-theorem compileStmtList_external_structured_body_with_errors_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceExternalStructuredBodyWithErrorsStmts fields errors
-        dynamicSource stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          (isInternal := false) inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          false inScopeNames [] head with
-      | error err =>
-          simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames false (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err =>
-              simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource :
-                  BridgedSourceExternalStructuredBodyWithErrorsStmt fields errors
-                    dynamicSource head :=
-                hSource head (by simp)
-              have hTailSource :
-                  BridgedSourceExternalStructuredBodyWithErrorsStmts fields errors
-                    dynamicSource tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_external_structured_body_with_errors_bridged fields
-                  events errors dynamicSource internalRetNames inScopeNames
-                  hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-/-- Each internal with-errors structured-body statement compiles to Yul
-satisfying `BridgedStmts`. -/
-theorem compileStmt_internal_structured_body_with_errors_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (inScopeNames : List String) :
-    ∀ {stmt : Stmt},
-      BridgedSourceInternalStructuredBodyWithErrorsStmt fields errors
-        dynamicSource stmt →
-      ∀ {out : List YulStmt},
-        compileStmt fields events errors dynamicSource internalRetNames
-          (isInternal := true) inScopeNames [] stmt = .ok out →
-        BridgedStmts out := by
-  intro stmt hStmt out hOk
-  cases hStmt with
-  | base hBase =>
-      exact compileStmt_internal_body_with_errors_bridged fields events errors
-        dynamicSource internalRetNames inScopeNames hBase hOk
-  | ite cond thenBranch elseBranch hCond hThen hElse =>
-      exact compileStmt_ite_internal_body_with_errors_bridged fields events errors
-        dynamicSource internalRetNames inScopeNames hCond hThen hElse hOk
-
-/-- Internal structured with-errors source bodies compile to Yul lists
-satisfying `BridgedStmts`. -/
-theorem compileStmtList_internal_structured_body_with_errors_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceInternalStructuredBodyWithErrorsStmts fields errors
-        dynamicSource stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          (isInternal := true) inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          true inScopeNames [] head with
-      | error err =>
-          simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames true (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err =>
-              simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource :
-                  BridgedSourceInternalStructuredBodyWithErrorsStmt fields errors
-                    dynamicSource head :=
-                hSource head (by simp)
-              have hTailSource :
-                  BridgedSourceInternalStructuredBodyWithErrorsStmts fields errors
-                    dynamicSource tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_internal_structured_body_with_errors_bridged fields
-                  events errors dynamicSource internalRetNames inScopeNames
-                  hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
 /-! ### Nested with-errors body closure (two `Stmt.ite` layers)
 
 The structured with-errors predicate above covers one `Stmt.ite` layer around
@@ -5208,12 +3298,6 @@ inductive BridgedSourceExternalNestedBodyWithErrorsStmt
       BridgedSourceExternalNestedBodyWithErrorsStmt fields errors dynamicSource
         (.ite cond thenBranch elseBranch)
 
-def BridgedSourceExternalNestedBodyWithErrorsStmts
-    (fields : List Field) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (stmts : List Stmt) : Prop :=
-  ∀ stmt ∈ stmts,
-    BridgedSourceExternalNestedBodyWithErrorsStmt fields errors dynamicSource stmt
-
 /-- Internal with-errors body statements extended with an outer `Stmt.ite`
 whose branches are already one-layer structured with-errors body fragments. -/
 inductive BridgedSourceInternalNestedBodyWithErrorsStmt
@@ -5231,292 +3315,6 @@ inductive BridgedSourceInternalNestedBodyWithErrorsStmt
         dynamicSource elseBranch) :
       BridgedSourceInternalNestedBodyWithErrorsStmt fields errors dynamicSource
         (.ite cond thenBranch elseBranch)
-
-def BridgedSourceInternalNestedBodyWithErrorsStmts
-    (fields : List Field) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (stmts : List Stmt) : Prop :=
-  ∀ stmt ∈ stmts,
-    BridgedSourceInternalNestedBodyWithErrorsStmt fields errors dynamicSource stmt
-
-/-- An outer external `Stmt.ite` whose branches are one-layer structured
-with-errors body fragments compiles to bridged Yul. -/
-theorem compileStmt_ite_external_nested_body_with_errors_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (inScopeNames : List String)
-    {cond : Expr} {thenBranch elseBranch : List Stmt}
-    (hCond : BridgedSourceExpr cond)
-    (hThen : BridgedSourceExternalStructuredBodyWithErrorsStmts fields errors
-      dynamicSource thenBranch)
-    (hElse : BridgedSourceExternalStructuredBodyWithErrorsStmts fields errors
-      dynamicSource elseBranch) :
-    ∀ {out : List YulStmt},
-      compileStmt fields events errors dynamicSource internalRetNames
-        (isInternal := false) inScopeNames [] (.ite cond thenBranch elseBranch) = .ok out →
-      BridgedStmts out := by
-  intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hCondExpr : compileExpr fields dynamicSource cond with
-  | error err =>
-      simp [hCondExpr] at hOk
-  | ok condExpr =>
-      cases hThenCompile : compileStmtList fields events errors dynamicSource
-          internalRetNames false inScopeNames [] thenBranch with
-      | error err =>
-          simp [hCondExpr, hThenCompile] at hOk
-      | ok thenOut =>
-          cases hElseCompile : compileStmtList fields events errors dynamicSource
-              internalRetNames false inScopeNames [] elseBranch with
-          | error err =>
-              simp [hCondExpr, hThenCompile, hElseCompile] at hOk
-          | ok elseOut =>
-              have hCondBridged : BridgedExpr condExpr :=
-                compileExpr_bridgedSource fields dynamicSource hCond hCondExpr
-              have hThenBridged : BridgedStmts thenOut :=
-                compileStmtList_external_structured_body_with_errors_bridged fields
-                  events errors dynamicSource internalRetNames thenBranch
-                  inScopeNames hThen hThenCompile
-              have hElseBridged : BridgedStmts elseOut :=
-                compileStmtList_external_structured_body_with_errors_bridged fields
-                  events errors dynamicSource internalRetNames elseBranch
-                  inScopeNames hElse hElseCompile
-              by_cases hEmpty : elseBranch.isEmpty
-              · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty,
-                  Pure.pure, Except.pure] at hOk
-                subst out
-                intro yulStmt hMem
-                simp only [List.mem_singleton] at hMem
-                subst yulStmt
-                exact BridgedStmt.if_ condExpr thenOut hCondBridged hThenBridged
-              · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty,
-                  Pure.pure, Except.pure] at hOk
-                subst out
-                intro yulStmt hMem
-                simp only [List.mem_singleton] at hMem
-                subst yulStmt
-                refine BridgedStmt.block _ ?_
-                intro blockStmt hBlockMem
-                simp only [List.mem_cons, List.mem_nil_iff] at hBlockMem
-                rcases hBlockMem with rfl | rfl | rfl | hNil
-                · exact BridgedStmt.straight _
-                    (BridgedStraightStmt.let_ _ condExpr hCondBridged)
-                · exact BridgedStmt.if_ _ thenOut (BridgedExpr.ident _) hThenBridged
-                · exact BridgedStmt.if_ _ elseOut
-                    (bridgedExpr_iszero_ident _) hElseBridged
-                · cases hNil
-
-/-- An outer internal `Stmt.ite` whose branches are one-layer structured
-with-errors body fragments compiles to bridged Yul. -/
-theorem compileStmt_ite_internal_nested_body_with_errors_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (inScopeNames : List String)
-    {cond : Expr} {thenBranch elseBranch : List Stmt}
-    (hCond : BridgedSourceExpr cond)
-    (hThen : BridgedSourceInternalStructuredBodyWithErrorsStmts fields errors
-      dynamicSource thenBranch)
-    (hElse : BridgedSourceInternalStructuredBodyWithErrorsStmts fields errors
-      dynamicSource elseBranch) :
-    ∀ {out : List YulStmt},
-      compileStmt fields events errors dynamicSource internalRetNames
-        (isInternal := true) inScopeNames [] (.ite cond thenBranch elseBranch) = .ok out →
-      BridgedStmts out := by
-  intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hCondExpr : compileExpr fields dynamicSource cond with
-  | error err =>
-      simp [hCondExpr] at hOk
-  | ok condExpr =>
-      cases hThenCompile : compileStmtList fields events errors dynamicSource
-          internalRetNames true inScopeNames [] thenBranch with
-      | error err =>
-          simp [hCondExpr, hThenCompile] at hOk
-      | ok thenOut =>
-          cases hElseCompile : compileStmtList fields events errors dynamicSource
-              internalRetNames true inScopeNames [] elseBranch with
-          | error err =>
-              simp [hCondExpr, hThenCompile, hElseCompile] at hOk
-          | ok elseOut =>
-              have hCondBridged : BridgedExpr condExpr :=
-                compileExpr_bridgedSource fields dynamicSource hCond hCondExpr
-              have hThenBridged : BridgedStmts thenOut :=
-                compileStmtList_internal_structured_body_with_errors_bridged fields
-                  events errors dynamicSource internalRetNames thenBranch
-                  inScopeNames hThen hThenCompile
-              have hElseBridged : BridgedStmts elseOut :=
-                compileStmtList_internal_structured_body_with_errors_bridged fields
-                  events errors dynamicSource internalRetNames elseBranch
-                  inScopeNames hElse hElseCompile
-              by_cases hEmpty : elseBranch.isEmpty
-              · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty,
-                  Pure.pure, Except.pure] at hOk
-                subst out
-                intro yulStmt hMem
-                simp only [List.mem_singleton] at hMem
-                subst yulStmt
-                exact BridgedStmt.if_ condExpr thenOut hCondBridged hThenBridged
-              · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty,
-                  Pure.pure, Except.pure] at hOk
-                subst out
-                intro yulStmt hMem
-                simp only [List.mem_singleton] at hMem
-                subst yulStmt
-                refine BridgedStmt.block _ ?_
-                intro blockStmt hBlockMem
-                simp only [List.mem_cons, List.mem_nil_iff] at hBlockMem
-                rcases hBlockMem with rfl | rfl | rfl | hNil
-                · exact BridgedStmt.straight _
-                    (BridgedStraightStmt.let_ _ condExpr hCondBridged)
-                · exact BridgedStmt.if_ _ thenOut (BridgedExpr.ident _) hThenBridged
-                · exact BridgedStmt.if_ _ elseOut
-                    (bridgedExpr_iszero_ident _) hElseBridged
-                · cases hNil
-
-/-- Each external with-errors nested-body statement compiles to Yul
-satisfying `BridgedStmts`. -/
-theorem compileStmt_external_nested_body_with_errors_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (inScopeNames : List String) :
-    ∀ {stmt : Stmt},
-      BridgedSourceExternalNestedBodyWithErrorsStmt fields errors
-        dynamicSource stmt →
-      ∀ {out : List YulStmt},
-        compileStmt fields events errors dynamicSource internalRetNames
-          (isInternal := false) inScopeNames [] stmt = .ok out →
-        BridgedStmts out := by
-  intro stmt hStmt out hOk
-  cases hStmt with
-  | structured hStructured =>
-      exact compileStmt_external_structured_body_with_errors_bridged fields events
-        errors dynamicSource internalRetNames inScopeNames hStructured hOk
-  | ite cond thenBranch elseBranch hCond hThen hElse =>
-      exact compileStmt_ite_external_nested_body_with_errors_bridged fields events
-        errors dynamicSource internalRetNames inScopeNames hCond hThen hElse hOk
-
-/-- External nested with-errors source bodies compile to Yul lists
-satisfying `BridgedStmts`. -/
-theorem compileStmtList_external_nested_body_with_errors_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceExternalNestedBodyWithErrorsStmts fields errors
-        dynamicSource stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          (isInternal := false) inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          false inScopeNames [] head with
-      | error err =>
-          simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames false (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err =>
-              simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource :
-                  BridgedSourceExternalNestedBodyWithErrorsStmt fields errors
-                    dynamicSource head :=
-                hSource head (by simp)
-              have hTailSource :
-                  BridgedSourceExternalNestedBodyWithErrorsStmts fields errors
-                    dynamicSource tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_external_nested_body_with_errors_bridged fields
-                  events errors dynamicSource internalRetNames inScopeNames
-                  hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-/-- Each internal with-errors nested-body statement compiles to Yul
-satisfying `BridgedStmts`. -/
-theorem compileStmt_internal_nested_body_with_errors_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (inScopeNames : List String) :
-    ∀ {stmt : Stmt},
-      BridgedSourceInternalNestedBodyWithErrorsStmt fields errors
-        dynamicSource stmt →
-      ∀ {out : List YulStmt},
-        compileStmt fields events errors dynamicSource internalRetNames
-          (isInternal := true) inScopeNames [] stmt = .ok out →
-        BridgedStmts out := by
-  intro stmt hStmt out hOk
-  cases hStmt with
-  | structured hStructured =>
-      exact compileStmt_internal_structured_body_with_errors_bridged fields events
-        errors dynamicSource internalRetNames inScopeNames hStructured hOk
-  | ite cond thenBranch elseBranch hCond hThen hElse =>
-      exact compileStmt_ite_internal_nested_body_with_errors_bridged fields events
-        errors dynamicSource internalRetNames inScopeNames hCond hThen hElse hOk
-
-/-- Internal nested with-errors source bodies compile to Yul lists
-satisfying `BridgedStmts`. -/
-theorem compileStmtList_internal_nested_body_with_errors_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceInternalNestedBodyWithErrorsStmts fields errors
-        dynamicSource stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          (isInternal := true) inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          true inScopeNames [] head with
-      | error err =>
-          simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames true (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err =>
-              simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource :
-                  BridgedSourceInternalNestedBodyWithErrorsStmt fields errors
-                    dynamicSource head :=
-                hSource head (by simp)
-              have hTailSource :
-                  BridgedSourceInternalNestedBodyWithErrorsStmts fields errors
-                    dynamicSource tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_internal_nested_body_with_errors_bridged fields
-                  events errors dynamicSource internalRetNames inScopeNames
-                  hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
 
 /-! ### `forEach`-wrapped with-errors body closure
 
@@ -5543,12 +3341,6 @@ inductive BridgedSourceExternalForEachBodyWithErrorsStmt
       BridgedSourceExternalForEachBodyWithErrorsStmt fields errors dynamicSource
         (.forEach varName count body)
 
-def BridgedSourceExternalForEachBodyWithErrorsStmts
-    (fields : List Field) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (stmts : List Stmt) : Prop :=
-  ∀ stmt ∈ stmts,
-    BridgedSourceExternalForEachBodyWithErrorsStmt fields errors dynamicSource stmt
-
 /-- Internal with-errors body statements extended with one outer
 `Stmt.forEach varName count body` whose body is itself a with-errors body
 list. -/
@@ -5564,168 +3356,6 @@ inductive BridgedSourceInternalForEachBodyWithErrorsStmt
         dynamicSource body) :
       BridgedSourceInternalForEachBodyWithErrorsStmt fields errors dynamicSource
         (.forEach varName count body)
-
-def BridgedSourceInternalForEachBodyWithErrorsStmts
-    (fields : List Field) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (stmts : List Stmt) : Prop :=
-  ∀ stmt ∈ stmts,
-    BridgedSourceInternalForEachBodyWithErrorsStmt fields errors dynamicSource stmt
-
-/-- Each external with-errors forEach-body statement compiles to Yul
-satisfying `BridgedStmts`. -/
-theorem compileStmt_external_forEach_body_with_errors_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (inScopeNames : List String) :
-    ∀ {stmt : Stmt},
-      BridgedSourceExternalForEachBodyWithErrorsStmt fields errors
-        dynamicSource stmt →
-      ∀ {out : List YulStmt},
-        compileStmt fields events errors dynamicSource internalRetNames
-          (isInternal := false) inScopeNames [] stmt = .ok out →
-        BridgedStmts out := by
-  intro stmt hStmt out hOk
-  cases hStmt with
-  | base hBase =>
-      exact compileStmt_external_body_with_errors_bridged fields events errors
-        dynamicSource internalRetNames inScopeNames hBase hOk
-  | forEach varName count body hCount hBody =>
-      refine compileStmt_forEach_with_bridged_body fields events errors
-        dynamicSource internalRetNames false inScopeNames varName count body
-        hCount ?_ hOk
-      intro bodyOut hBodyOk
-      exact compileStmtList_external_body_with_errors_bridged fields events
-        errors dynamicSource internalRetNames body _
-        hBody hBodyOk
-
-/-- External forEach-wrapped with-errors source bodies compile to Yul lists
-satisfying `BridgedStmts`. -/
-theorem compileStmtList_external_forEach_body_with_errors_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceExternalForEachBodyWithErrorsStmts fields errors
-        dynamicSource stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          (isInternal := false) inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          false inScopeNames [] head with
-      | error err =>
-          simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames false (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err =>
-              simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource :
-                  BridgedSourceExternalForEachBodyWithErrorsStmt fields errors
-                    dynamicSource head :=
-                hSource head (by simp)
-              have hTailSource :
-                  BridgedSourceExternalForEachBodyWithErrorsStmts fields errors
-                    dynamicSource tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_external_forEach_body_with_errors_bridged fields
-                  events errors dynamicSource internalRetNames inScopeNames
-                  hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-/-- Each internal with-errors forEach-body statement compiles to Yul
-satisfying `BridgedStmts`. -/
-theorem compileStmt_internal_forEach_body_with_errors_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (inScopeNames : List String) :
-    ∀ {stmt : Stmt},
-      BridgedSourceInternalForEachBodyWithErrorsStmt fields errors
-        dynamicSource stmt →
-      ∀ {out : List YulStmt},
-        compileStmt fields events errors dynamicSource internalRetNames
-          (isInternal := true) inScopeNames [] stmt = .ok out →
-        BridgedStmts out := by
-  intro stmt hStmt out hOk
-  cases hStmt with
-  | base hBase =>
-      exact compileStmt_internal_body_with_errors_bridged fields events errors
-        dynamicSource internalRetNames inScopeNames hBase hOk
-  | forEach varName count body hCount hBody =>
-      refine compileStmt_forEach_with_bridged_body fields events errors
-        dynamicSource internalRetNames true inScopeNames varName count body
-        hCount ?_ hOk
-      intro bodyOut hBodyOk
-      exact compileStmtList_internal_body_with_errors_bridged fields events
-        errors dynamicSource internalRetNames body _
-        hBody hBodyOk
-
-/-- Internal forEach-wrapped with-errors source bodies compile to Yul lists
-satisfying `BridgedStmts`. -/
-theorem compileStmtList_internal_forEach_body_with_errors_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceInternalForEachBodyWithErrorsStmts fields errors
-        dynamicSource stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          (isInternal := true) inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          true inScopeNames [] head with
-      | error err =>
-          simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames true (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err =>
-              simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource :
-                  BridgedSourceInternalForEachBodyWithErrorsStmt fields errors
-                    dynamicSource head :=
-                hSource head (by simp)
-              have hTailSource :
-                  BridgedSourceInternalForEachBodyWithErrorsStmts fields errors
-                    dynamicSource tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_internal_forEach_body_with_errors_bridged fields
-                  events errors dynamicSource internalRetNames inScopeNames
-                  hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
 
 /-! ### Recursive with-errors body closure
 
@@ -5839,20 +3469,20 @@ mutual
         exact compileStmt_external_body_with_errors_bridged fields events errors
           dynamicSource internalRetNames inScopeNames hBase hOk
     | ite cond thenBranch elseBranch hCond hThen hElse =>
-        simp only [compileStmt, bind, Except.bind] at hOk
-        cases hCondExpr : compileExpr fields dynamicSource cond with
+        simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+        cases hCondExpr : compileExprWithInternals fields dynamicSource [] cond with
         | error err =>
             simp [hCondExpr] at hOk
         | ok condExpr =>
             cases hThenCompile : compileStmtList fields events errors dynamicSource
                 internalRetNames false inScopeNames [] thenBranch with
             | error err =>
-                simp [hCondExpr, hThenCompile] at hOk
+                simp [compileStmtListWithFork_cancun_eq_compileStmtList, hCondExpr, hThenCompile] at hOk
             | ok thenOut =>
                 cases hElseCompile : compileStmtList fields events errors dynamicSource
                     internalRetNames false inScopeNames [] elseBranch with
                 | error err =>
-                    simp [hCondExpr, hThenCompile, hElseCompile] at hOk
+                    simp [compileStmtListWithFork_cancun_eq_compileStmtList, hCondExpr, hThenCompile, hElseCompile] at hOk
                 | ok elseOut =>
                     have hCondBridged : BridgedExpr condExpr :=
                       compileExpr_bridgedSource fields dynamicSource hCond hCondExpr
@@ -5865,14 +3495,14 @@ mutual
                         events errors dynamicSource internalRetNames hElse
                         inScopeNames hElseCompile
                     by_cases hEmpty : elseBranch.isEmpty
-                    · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty,
+                    · simp [compileStmtListWithFork_cancun_eq_compileStmtList, hCondExpr, hThenCompile, hElseCompile, hEmpty,
                         Pure.pure, Except.pure] at hOk
                       subst out
                       intro yulStmt hMem
                       simp only [List.mem_singleton] at hMem
                       subst yulStmt
                       exact BridgedStmt.if_ condExpr thenOut hCondBridged hThenBridged
-                    · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty,
+                    · simp [compileStmtListWithFork_cancun_eq_compileStmtList, hCondExpr, hThenCompile, hElseCompile, hEmpty,
                         Pure.pure, Except.pure] at hOk
                       subst out
                       intro yulStmt hMem
@@ -5910,24 +3540,24 @@ mutual
     intro stmts hSource inScopeNames out hOk
     cases hSource with
     | nil =>
-        simp [compileStmtList, Pure.pure, Except.pure] at hOk
+        simp [compileStmtList, compileStmtListWithFork, Pure.pure, Except.pure] at hOk
         subst out
         intro stmt hMem
         cases hMem
     | @cons head tail hHead hTail =>
-        simp only [compileStmtList, bind, Except.bind] at hOk
+        simp only [compileStmtList, compileStmtListWithFork, bind, Except.bind] at hOk
         cases hHeadCompile : compileStmt fields events errors dynamicSource
             internalRetNames false inScopeNames [] head with
         | error err =>
-            simp [hHeadCompile] at hOk
+            simp [compileStmtWithFork_cancun_eq_compileStmt, compileStmtListWithFork_cancun_eq_compileStmtList, hHeadCompile] at hOk
         | ok headOut =>
-            simp [hHeadCompile] at hOk
+            simp [compileStmtWithFork_cancun_eq_compileStmt, compileStmtListWithFork_cancun_eq_compileStmtList, hHeadCompile] at hOk
             cases hTailCompile : compileStmtList fields events errors dynamicSource
                 internalRetNames false (collectStmtNames head ++ inScopeNames) [] tail with
             | error err =>
-                simp [hTailCompile] at hOk
+                simp [compileStmtListWithFork_cancun_eq_compileStmtList, hTailCompile] at hOk
             | ok tailOut =>
-                simp [hTailCompile, Pure.pure, Except.pure] at hOk
+                simp [compileStmtListWithFork_cancun_eq_compileStmtList, hTailCompile, Pure.pure, Except.pure] at hOk
                 subst out
                 exact BridgedStmts_append
                   (compileStmt_external_recursive_body_with_errors_bridged fields events
@@ -5956,20 +3586,20 @@ mutual
         exact compileStmt_internal_body_with_errors_bridged fields events errors
           dynamicSource internalRetNames inScopeNames hBase hOk
     | ite cond thenBranch elseBranch hCond hThen hElse =>
-        simp only [compileStmt, bind, Except.bind] at hOk
-        cases hCondExpr : compileExpr fields dynamicSource cond with
+        simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+        cases hCondExpr : compileExprWithInternals fields dynamicSource [] cond with
         | error err =>
             simp [hCondExpr] at hOk
         | ok condExpr =>
             cases hThenCompile : compileStmtList fields events errors dynamicSource
                 internalRetNames true inScopeNames [] thenBranch with
             | error err =>
-                simp [hCondExpr, hThenCompile] at hOk
+                simp [compileStmtListWithFork_cancun_eq_compileStmtList, hCondExpr, hThenCompile] at hOk
             | ok thenOut =>
                 cases hElseCompile : compileStmtList fields events errors dynamicSource
                     internalRetNames true inScopeNames [] elseBranch with
                 | error err =>
-                    simp [hCondExpr, hThenCompile, hElseCompile] at hOk
+                    simp [compileStmtListWithFork_cancun_eq_compileStmtList, hCondExpr, hThenCompile, hElseCompile] at hOk
                 | ok elseOut =>
                     have hCondBridged : BridgedExpr condExpr :=
                       compileExpr_bridgedSource fields dynamicSource hCond hCondExpr
@@ -5982,14 +3612,14 @@ mutual
                         events errors dynamicSource internalRetNames hElse
                         inScopeNames hElseCompile
                     by_cases hEmpty : elseBranch.isEmpty
-                    · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty,
+                    · simp [compileStmtListWithFork_cancun_eq_compileStmtList, hCondExpr, hThenCompile, hElseCompile, hEmpty,
                         Pure.pure, Except.pure] at hOk
                       subst out
                       intro yulStmt hMem
                       simp only [List.mem_singleton] at hMem
                       subst yulStmt
                       exact BridgedStmt.if_ condExpr thenOut hCondBridged hThenBridged
-                    · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty,
+                    · simp [compileStmtListWithFork_cancun_eq_compileStmtList, hCondExpr, hThenCompile, hElseCompile, hEmpty,
                         Pure.pure, Except.pure] at hOk
                       subst out
                       intro yulStmt hMem
@@ -6027,24 +3657,24 @@ mutual
     intro stmts hSource inScopeNames out hOk
     cases hSource with
     | nil =>
-        simp [compileStmtList, Pure.pure, Except.pure] at hOk
+        simp [compileStmtList, compileStmtListWithFork, Pure.pure, Except.pure] at hOk
         subst out
         intro stmt hMem
         cases hMem
     | @cons head tail hHead hTail =>
-        simp only [compileStmtList, bind, Except.bind] at hOk
+        simp only [compileStmtList, compileStmtListWithFork, bind, Except.bind] at hOk
         cases hHeadCompile : compileStmt fields events errors dynamicSource
             internalRetNames true inScopeNames [] head with
         | error err =>
-            simp [hHeadCompile] at hOk
+            simp [compileStmtWithFork_cancun_eq_compileStmt, compileStmtListWithFork_cancun_eq_compileStmtList, hHeadCompile] at hOk
         | ok headOut =>
-            simp [hHeadCompile] at hOk
+            simp [compileStmtWithFork_cancun_eq_compileStmt, compileStmtListWithFork_cancun_eq_compileStmtList, hHeadCompile] at hOk
             cases hTailCompile : compileStmtList fields events errors dynamicSource
                 internalRetNames true (collectStmtNames head ++ inScopeNames) [] tail with
             | error err =>
-                simp [hTailCompile] at hOk
+                simp [compileStmtListWithFork_cancun_eq_compileStmtList, hTailCompile] at hOk
             | ok tailOut =>
-                simp [hTailCompile, Pure.pure, Except.pure] at hOk
+                simp [compileStmtListWithFork_cancun_eq_compileStmtList, hTailCompile, Pure.pure, Except.pure] at hOk
                 subst out
                 exact BridgedStmts_append
                   (compileStmt_internal_recursive_body_with_errors_bridged fields events
@@ -6054,160 +3684,6 @@ mutual
                     events errors dynamicSource internalRetNames hTail
                     (collectStmtNames head ++ inScopeNames) hTailCompile)
 end
-
-/-! ### Lifting flat with-errors aliases into the recursive inductive
-
-Clients that produce a flat `∀ stmt ∈ stmts, BridgedSource*BodyWithErrorsStmt …`
-witness (the alias form) can lift it into the inductive recursive predicate
-via the `base` constructor applied pointwise, without manually threading
-`nil`/`cons`. -/
-
-theorem BridgedSourceExternalRecursiveBodyWithErrorsStmts_of_alias
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceExternalBodyWithErrorsStmts fields errors dynamicSource stmts) :
-    BridgedSourceExternalRecursiveBodyWithErrorsStmts fields errors
-      dynamicSource stmts := by
-  induction stmts with
-  | nil => exact .nil
-  | cons head tail ih =>
-      refine .cons (.base (h head (by simp))) (ih ?_)
-      intro stmt hMem
-      exact h stmt (by simp [hMem])
-
-theorem BridgedSourceInternalRecursiveBodyWithErrorsStmts_of_alias
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceInternalBodyWithErrorsStmts fields errors dynamicSource stmts) :
-    BridgedSourceInternalRecursiveBodyWithErrorsStmts fields errors
-      dynamicSource stmts := by
-  induction stmts with
-  | nil => exact .nil
-  | cons head tail ih =>
-      refine .cons (.base (h head (by simp))) (ih ?_)
-      intro stmt hMem
-      exact h stmt (by simp [hMem])
-
-/-! ### Lifting flat plain-body aliases into the recursive inductive
-
-Symmetric counterparts of the with-errors lift lemmas for the non-with-errors
-recursive predicate. Callers with a flat
-`∀ stmt ∈ stmts, BridgedSource*BodyStmt …` witness reach the inductive
-`BridgedSource*RecursiveBodyStmts …` via pointwise `base`/`cons`/`nil`. -/
-
-theorem BridgedSourceExternalRecursiveBodyStmts_of_alias
-    {fields : List Field} {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceExternalBodyStmts fields dynamicSource stmts) :
-    BridgedSourceExternalRecursiveBodyStmts fields dynamicSource stmts := by
-  induction stmts with
-  | nil => exact .nil
-  | cons head tail ih =>
-      refine .cons (.base (h head (by simp))) (ih ?_)
-      intro stmt hMem
-      exact h stmt (by simp [hMem])
-
-theorem BridgedSourceInternalRecursiveBodyStmts_of_alias
-    {fields : List Field} {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceInternalBodyStmts fields dynamicSource stmts) :
-    BridgedSourceInternalRecursiveBodyStmts fields dynamicSource stmts := by
-  induction stmts with
-  | nil => exact .nil
-  | cons head tail ih =>
-      refine .cons (.base (h head (by simp))) (ih ?_)
-      intro stmt hMem
-      exact h stmt (by simp [hMem])
-
-/-! ### Lifting flat body aliases into the structured (one-`ite`-layer) inductive
-
-Callers with a flat `∀ stmt ∈ stmts, BridgedSource*BodyStmt …` witness reach the
-structured-body alias (`BridgedSource*StructuredBodyStmts`) via pointwise `.base`
-wrapping — no `ite` layer needs to be introduced. Symmetric counterparts cover
-the with-errors variants. -/
-
-theorem BridgedSourceExternalStructuredBodyStmts_of_alias
-    {fields : List Field} {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceExternalBodyStmts fields dynamicSource stmts) :
-    BridgedSourceExternalStructuredBodyStmts fields dynamicSource stmts :=
-  fun stmt hMem => .base (h stmt hMem)
-
-theorem BridgedSourceInternalStructuredBodyStmts_of_alias
-    {fields : List Field} {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceInternalBodyStmts fields dynamicSource stmts) :
-    BridgedSourceInternalStructuredBodyStmts fields dynamicSource stmts :=
-  fun stmt hMem => .base (h stmt hMem)
-
-theorem BridgedSourceExternalStructuredBodyWithErrorsStmts_of_alias
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceExternalBodyWithErrorsStmts fields errors dynamicSource stmts) :
-    BridgedSourceExternalStructuredBodyWithErrorsStmts fields errors
-      dynamicSource stmts :=
-  fun stmt hMem => .base (h stmt hMem)
-
-theorem BridgedSourceInternalStructuredBodyWithErrorsStmts_of_alias
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceInternalBodyWithErrorsStmts fields errors dynamicSource stmts) :
-    BridgedSourceInternalStructuredBodyWithErrorsStmts fields errors
-      dynamicSource stmts :=
-  fun stmt hMem => .base (h stmt hMem)
-
-/-! ### Lifting flat body aliases into the nested (two-`ite`-layer) inductive
-
-Each nested inductive exposes a `.structured` constructor that accepts the
-one-layer structured predicate; composing it with `.base` yields a pointwise
-lift from the flat body alias without introducing any `ite` wrapping. Covers
-plain and with-errors variants. -/
-
-theorem BridgedSourceExternalNestedBodyStmts_of_alias
-    {fields : List Field} {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceExternalBodyStmts fields dynamicSource stmts) :
-    BridgedSourceExternalNestedBodyStmts fields dynamicSource stmts :=
-  fun stmt hMem => .structured (.base (h stmt hMem))
-
-theorem BridgedSourceInternalNestedBodyStmts_of_alias
-    {fields : List Field} {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceInternalBodyStmts fields dynamicSource stmts) :
-    BridgedSourceInternalNestedBodyStmts fields dynamicSource stmts :=
-  fun stmt hMem => .structured (.base (h stmt hMem))
-
-theorem BridgedSourceExternalNestedBodyWithErrorsStmts_of_alias
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceExternalBodyWithErrorsStmts fields errors dynamicSource stmts) :
-    BridgedSourceExternalNestedBodyWithErrorsStmts fields errors
-      dynamicSource stmts :=
-  fun stmt hMem => .structured (.base (h stmt hMem))
-
-theorem BridgedSourceInternalNestedBodyWithErrorsStmts_of_alias
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceInternalBodyWithErrorsStmts fields errors dynamicSource stmts) :
-    BridgedSourceInternalNestedBodyWithErrorsStmts fields errors
-      dynamicSource stmts :=
-  fun stmt hMem => .structured (.base (h stmt hMem))
-
-/-! ### Lifting flat with-errors aliases into the forEach-wrapped inductive
-
-The forEach-wrapped with-errors inductives expose a `.base` constructor taking
-the underlying with-errors body predicate directly, so the lift is a pointwise
-`.base` wrap — no `forEach` layer need be introduced. -/
-
-theorem BridgedSourceExternalForEachBodyWithErrorsStmts_of_alias
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceExternalBodyWithErrorsStmts fields errors dynamicSource stmts) :
-    BridgedSourceExternalForEachBodyWithErrorsStmts fields errors
-      dynamicSource stmts :=
-  fun stmt hMem => .base (h stmt hMem)
-
-theorem BridgedSourceInternalForEachBodyWithErrorsStmts_of_alias
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceInternalBodyWithErrorsStmts fields errors dynamicSource stmts) :
-    BridgedSourceInternalForEachBodyWithErrorsStmts fields errors
-      dynamicSource stmts :=
-  fun stmt hMem => .base (h stmt hMem)
 
 /-! ### Lifting plain body aliases into the with-errors body predicate
 
@@ -6224,384 +3700,6 @@ theorem BridgedSourceExternalBodyWithErrorsStmts_of_plain
     (h : BridgedSourceExternalBodyStmts fields dynamicSource stmts) :
     BridgedSourceExternalBodyWithErrorsStmts fields errors dynamicSource stmts :=
   fun stmt hMem => .base (h stmt hMem)
-
-theorem BridgedSourceInternalBodyWithErrorsStmts_of_plain
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceInternalBodyStmts fields dynamicSource stmts) :
-    BridgedSourceInternalBodyWithErrorsStmts fields errors dynamicSource stmts :=
-  fun stmt hMem => .base (h stmt hMem)
-
-/-! ### Direct plain→with-errors wrapper lifts
-
-Compositions of `*BodyWithErrorsStmts_of_plain` with the existing with-errors
-wrapper lifts. Callers holding a plain-body witness reach structured, nested,
-or forEach-wrapped with-errors aliases in one pointwise step. -/
-
-theorem BridgedSourceExternalStructuredBodyWithErrorsStmts_of_plain
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceExternalBodyStmts fields dynamicSource stmts) :
-    BridgedSourceExternalStructuredBodyWithErrorsStmts fields errors
-      dynamicSource stmts :=
-  fun stmt hMem => .base (.base (h stmt hMem))
-
-theorem BridgedSourceInternalStructuredBodyWithErrorsStmts_of_plain
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceInternalBodyStmts fields dynamicSource stmts) :
-    BridgedSourceInternalStructuredBodyWithErrorsStmts fields errors
-      dynamicSource stmts :=
-  fun stmt hMem => .base (.base (h stmt hMem))
-
-theorem BridgedSourceExternalNestedBodyWithErrorsStmts_of_plain
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceExternalBodyStmts fields dynamicSource stmts) :
-    BridgedSourceExternalNestedBodyWithErrorsStmts fields errors
-      dynamicSource stmts :=
-  fun stmt hMem => .structured (.base (.base (h stmt hMem)))
-
-theorem BridgedSourceInternalNestedBodyWithErrorsStmts_of_plain
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceInternalBodyStmts fields dynamicSource stmts) :
-    BridgedSourceInternalNestedBodyWithErrorsStmts fields errors
-      dynamicSource stmts :=
-  fun stmt hMem => .structured (.base (.base (h stmt hMem)))
-
-theorem BridgedSourceExternalForEachBodyWithErrorsStmts_of_plain
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceExternalBodyStmts fields dynamicSource stmts) :
-    BridgedSourceExternalForEachBodyWithErrorsStmts fields errors
-      dynamicSource stmts :=
-  fun stmt hMem => .base (.base (h stmt hMem))
-
-theorem BridgedSourceInternalForEachBodyWithErrorsStmts_of_plain
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceInternalBodyStmts fields dynamicSource stmts) :
-    BridgedSourceInternalForEachBodyWithErrorsStmts fields errors
-      dynamicSource stmts :=
-  fun stmt hMem => .base (.base (h stmt hMem))
-
-/-! ### Direct plain→recursive with-errors lifts
-
-Callers holding a plain-body witness reach the recursive with-errors
-inductive (closed under arbitrary `Stmt.ite` / `Stmt.forEach` nesting) by
-chaining `*BodyWithErrorsStmts_of_plain` with
-`*RecursiveBodyWithErrorsStmts_of_alias`. -/
-
-theorem BridgedSourceExternalRecursiveBodyWithErrorsStmts_of_plain
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceExternalBodyStmts fields dynamicSource stmts) :
-    BridgedSourceExternalRecursiveBodyWithErrorsStmts fields errors
-      dynamicSource stmts :=
-  BridgedSourceExternalRecursiveBodyWithErrorsStmts_of_alias
-    (BridgedSourceExternalBodyWithErrorsStmts_of_plain h)
-
-theorem BridgedSourceInternalRecursiveBodyWithErrorsStmts_of_plain
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceInternalBodyStmts fields dynamicSource stmts) :
-    BridgedSourceInternalRecursiveBodyWithErrorsStmts fields errors
-      dynamicSource stmts :=
-  BridgedSourceInternalRecursiveBodyWithErrorsStmts_of_alias
-    (BridgedSourceInternalBodyWithErrorsStmts_of_plain h)
-
-/-! ### Lifting structured aliases into the nested (two-`ite`-layer) inductive
-
-Each nested inductive exposes a `.structured` constructor accepting the
-structured stmt unchanged, so a caller holding a structured witness reaches
-the nested alias via pointwise `.structured` wrapping — no outer `ite` layer
-needs to be introduced. Covers plain and with-errors variants. -/
-
-theorem BridgedSourceExternalNestedBodyStmts_of_structured
-    {fields : List Field} {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceExternalStructuredBodyStmts fields dynamicSource stmts) :
-    BridgedSourceExternalNestedBodyStmts fields dynamicSource stmts :=
-  fun stmt hMem => .structured (h stmt hMem)
-
-theorem BridgedSourceInternalNestedBodyStmts_of_structured
-    {fields : List Field} {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceInternalStructuredBodyStmts fields dynamicSource stmts) :
-    BridgedSourceInternalNestedBodyStmts fields dynamicSource stmts :=
-  fun stmt hMem => .structured (h stmt hMem)
-
-theorem BridgedSourceExternalNestedBodyWithErrorsStmts_of_structured
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceExternalStructuredBodyWithErrorsStmts fields errors
-      dynamicSource stmts) :
-    BridgedSourceExternalNestedBodyWithErrorsStmts fields errors
-      dynamicSource stmts :=
-  fun stmt hMem => .structured (h stmt hMem)
-
-theorem BridgedSourceInternalNestedBodyWithErrorsStmts_of_structured
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceInternalStructuredBodyWithErrorsStmts fields errors
-      dynamicSource stmts) :
-    BridgedSourceInternalNestedBodyWithErrorsStmts fields errors
-      dynamicSource stmts :=
-  fun stmt hMem => .structured (h stmt hMem)
-
-/-! ### Lifting structured aliases into the recursive inductive
-
-Each structured stmt is either a plain body stmt (admitted via `.base`) or a
-one-layer `Stmt.ite` whose branches are plain body-stmt lists. The recursive
-inductive accepts both shapes: `.base` reuses the plain body stmt unchanged,
-and `.ite` takes recursive-stmt lists for the branches — reachable from the
-plain body-stmt-list branches via `*RecursiveBodyStmts_of_alias`. Covers plain
-and with-errors variants. -/
-
-theorem BridgedSourceExternalRecursiveBodyStmts_of_structured
-    {fields : List Field} {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceExternalStructuredBodyStmts fields dynamicSource stmts) :
-    BridgedSourceExternalRecursiveBodyStmts fields dynamicSource stmts := by
-  induction stmts with
-  | nil => exact .nil
-  | cons head tail ih =>
-      have hHead : BridgedSourceExternalRecursiveBodyStmt fields dynamicSource head := by
-        match h head (by simp) with
-        | .base hStmt => exact .base hStmt
-        | .ite cond thenBranch elseBranch hCond hThen hElse =>
-            exact .ite cond thenBranch elseBranch hCond
-              (BridgedSourceExternalRecursiveBodyStmts_of_alias hThen)
-              (BridgedSourceExternalRecursiveBodyStmts_of_alias hElse)
-      refine .cons hHead (ih ?_)
-      intro stmt hMem
-      exact h stmt (by simp [hMem])
-
-theorem BridgedSourceInternalRecursiveBodyStmts_of_structured
-    {fields : List Field} {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceInternalStructuredBodyStmts fields dynamicSource stmts) :
-    BridgedSourceInternalRecursiveBodyStmts fields dynamicSource stmts := by
-  induction stmts with
-  | nil => exact .nil
-  | cons head tail ih =>
-      have hHead : BridgedSourceInternalRecursiveBodyStmt fields dynamicSource head := by
-        match h head (by simp) with
-        | .base hStmt => exact .base hStmt
-        | .ite cond thenBranch elseBranch hCond hThen hElse =>
-            exact .ite cond thenBranch elseBranch hCond
-              (BridgedSourceInternalRecursiveBodyStmts_of_alias hThen)
-              (BridgedSourceInternalRecursiveBodyStmts_of_alias hElse)
-      refine .cons hHead (ih ?_)
-      intro stmt hMem
-      exact h stmt (by simp [hMem])
-
-theorem BridgedSourceExternalRecursiveBodyWithErrorsStmts_of_structured
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceExternalStructuredBodyWithErrorsStmts fields errors
-      dynamicSource stmts) :
-    BridgedSourceExternalRecursiveBodyWithErrorsStmts fields errors
-      dynamicSource stmts := by
-  induction stmts with
-  | nil => exact .nil
-  | cons head tail ih =>
-      have hHead : BridgedSourceExternalRecursiveBodyWithErrorsStmt fields errors
-          dynamicSource head := by
-        match h head (by simp) with
-        | .base hStmt => exact .base hStmt
-        | .ite cond thenBranch elseBranch hCond hThen hElse =>
-            exact .ite cond thenBranch elseBranch hCond
-              (BridgedSourceExternalRecursiveBodyWithErrorsStmts_of_alias hThen)
-              (BridgedSourceExternalRecursiveBodyWithErrorsStmts_of_alias hElse)
-      refine .cons hHead (ih ?_)
-      intro stmt hMem
-      exact h stmt (by simp [hMem])
-
-theorem BridgedSourceInternalRecursiveBodyWithErrorsStmts_of_structured
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceInternalStructuredBodyWithErrorsStmts fields errors
-      dynamicSource stmts) :
-    BridgedSourceInternalRecursiveBodyWithErrorsStmts fields errors
-      dynamicSource stmts := by
-  induction stmts with
-  | nil => exact .nil
-  | cons head tail ih =>
-      have hHead : BridgedSourceInternalRecursiveBodyWithErrorsStmt fields errors
-          dynamicSource head := by
-        match h head (by simp) with
-        | .base hStmt => exact .base hStmt
-        | .ite cond thenBranch elseBranch hCond hThen hElse =>
-            exact .ite cond thenBranch elseBranch hCond
-              (BridgedSourceInternalRecursiveBodyWithErrorsStmts_of_alias hThen)
-              (BridgedSourceInternalRecursiveBodyWithErrorsStmts_of_alias hElse)
-      refine .cons hHead (ih ?_)
-      intro stmt hMem
-      exact h stmt (by simp [hMem])
-
-/-! ### Lifting nested aliases into the recursive inductive
-
-Each nested stmt is either a structured stmt (admitted via `.structured`) or
-an outer `Stmt.ite` layer whose branches are structured body-stmt lists. The
-recursive inductive admits both shapes: the inner structured stmt is unfolded
-via the same `match` used in the structured→recursive lift, and the outer
-`.ite` reaches recursive-stmt lists via the just-landed
-`*RecursiveBodyStmts_of_structured`. Covers plain and with-errors variants. -/
-
-theorem BridgedSourceExternalRecursiveBodyStmts_of_nested
-    {fields : List Field} {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceExternalNestedBodyStmts fields dynamicSource stmts) :
-    BridgedSourceExternalRecursiveBodyStmts fields dynamicSource stmts := by
-  induction stmts with
-  | nil => exact .nil
-  | cons head tail ih =>
-      have hHead : BridgedSourceExternalRecursiveBodyStmt fields dynamicSource head := by
-        match h head (by simp) with
-        | .structured hStructured =>
-            match hStructured with
-            | .base hStmt => exact .base hStmt
-            | .ite cond thenBranch elseBranch hCond hThen hElse =>
-                exact .ite cond thenBranch elseBranch hCond
-                  (BridgedSourceExternalRecursiveBodyStmts_of_alias hThen)
-                  (BridgedSourceExternalRecursiveBodyStmts_of_alias hElse)
-        | .ite cond thenBranch elseBranch hCond hThen hElse =>
-            exact .ite cond thenBranch elseBranch hCond
-              (BridgedSourceExternalRecursiveBodyStmts_of_structured hThen)
-              (BridgedSourceExternalRecursiveBodyStmts_of_structured hElse)
-      refine .cons hHead (ih ?_)
-      intro stmt hMem
-      exact h stmt (by simp [hMem])
-
-theorem BridgedSourceInternalRecursiveBodyStmts_of_nested
-    {fields : List Field} {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceInternalNestedBodyStmts fields dynamicSource stmts) :
-    BridgedSourceInternalRecursiveBodyStmts fields dynamicSource stmts := by
-  induction stmts with
-  | nil => exact .nil
-  | cons head tail ih =>
-      have hHead : BridgedSourceInternalRecursiveBodyStmt fields dynamicSource head := by
-        match h head (by simp) with
-        | .structured hStructured =>
-            match hStructured with
-            | .base hStmt => exact .base hStmt
-            | .ite cond thenBranch elseBranch hCond hThen hElse =>
-                exact .ite cond thenBranch elseBranch hCond
-                  (BridgedSourceInternalRecursiveBodyStmts_of_alias hThen)
-                  (BridgedSourceInternalRecursiveBodyStmts_of_alias hElse)
-        | .ite cond thenBranch elseBranch hCond hThen hElse =>
-            exact .ite cond thenBranch elseBranch hCond
-              (BridgedSourceInternalRecursiveBodyStmts_of_structured hThen)
-              (BridgedSourceInternalRecursiveBodyStmts_of_structured hElse)
-      refine .cons hHead (ih ?_)
-      intro stmt hMem
-      exact h stmt (by simp [hMem])
-
-theorem BridgedSourceExternalRecursiveBodyWithErrorsStmts_of_nested
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceExternalNestedBodyWithErrorsStmts fields errors
-      dynamicSource stmts) :
-    BridgedSourceExternalRecursiveBodyWithErrorsStmts fields errors
-      dynamicSource stmts := by
-  induction stmts with
-  | nil => exact .nil
-  | cons head tail ih =>
-      have hHead : BridgedSourceExternalRecursiveBodyWithErrorsStmt fields errors
-          dynamicSource head := by
-        match h head (by simp) with
-        | .structured hStructured =>
-            match hStructured with
-            | .base hStmt => exact .base hStmt
-            | .ite cond thenBranch elseBranch hCond hThen hElse =>
-                exact .ite cond thenBranch elseBranch hCond
-                  (BridgedSourceExternalRecursiveBodyWithErrorsStmts_of_alias hThen)
-                  (BridgedSourceExternalRecursiveBodyWithErrorsStmts_of_alias hElse)
-        | .ite cond thenBranch elseBranch hCond hThen hElse =>
-            exact .ite cond thenBranch elseBranch hCond
-              (BridgedSourceExternalRecursiveBodyWithErrorsStmts_of_structured hThen)
-              (BridgedSourceExternalRecursiveBodyWithErrorsStmts_of_structured hElse)
-      refine .cons hHead (ih ?_)
-      intro stmt hMem
-      exact h stmt (by simp [hMem])
-
-theorem BridgedSourceInternalRecursiveBodyWithErrorsStmts_of_nested
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceInternalNestedBodyWithErrorsStmts fields errors
-      dynamicSource stmts) :
-    BridgedSourceInternalRecursiveBodyWithErrorsStmts fields errors
-      dynamicSource stmts := by
-  induction stmts with
-  | nil => exact .nil
-  | cons head tail ih =>
-      have hHead : BridgedSourceInternalRecursiveBodyWithErrorsStmt fields errors
-          dynamicSource head := by
-        match h head (by simp) with
-        | .structured hStructured =>
-            match hStructured with
-            | .base hStmt => exact .base hStmt
-            | .ite cond thenBranch elseBranch hCond hThen hElse =>
-                exact .ite cond thenBranch elseBranch hCond
-                  (BridgedSourceInternalRecursiveBodyWithErrorsStmts_of_alias hThen)
-                  (BridgedSourceInternalRecursiveBodyWithErrorsStmts_of_alias hElse)
-        | .ite cond thenBranch elseBranch hCond hThen hElse =>
-            exact .ite cond thenBranch elseBranch hCond
-              (BridgedSourceInternalRecursiveBodyWithErrorsStmts_of_structured hThen)
-              (BridgedSourceInternalRecursiveBodyWithErrorsStmts_of_structured hElse)
-      refine .cons hHead (ih ?_)
-      intro stmt hMem
-      exact h stmt (by simp [hMem])
-
-/-! ### Lifting forEach-wrapped with-errors aliases into the recursive inductive
-
-Each forEach-with-errors stmt is either a plain with-errors body stmt (admitted
-via `.base`) or an outer `Stmt.forEach varName count body` whose body is a
-with-errors body-stmt list. The recursive with-errors inductive accepts both
-shapes: `.base` reuses the plain with-errors body stmt unchanged, and
-`.forEach` takes a recursive with-errors body-stmt list — reachable from the
-plain with-errors body-stmt-list body via
-`*RecursiveBodyWithErrorsStmts_of_alias`. Covers external and internal
-variants. -/
-
-theorem BridgedSourceExternalRecursiveBodyWithErrorsStmts_of_forEach
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceExternalForEachBodyWithErrorsStmts fields errors
-      dynamicSource stmts) :
-    BridgedSourceExternalRecursiveBodyWithErrorsStmts fields errors
-      dynamicSource stmts := by
-  induction stmts with
-  | nil => exact .nil
-  | cons head tail ih =>
-      have hHead : BridgedSourceExternalRecursiveBodyWithErrorsStmt fields errors
-          dynamicSource head := by
-        match h head (by simp) with
-        | .base hStmt => exact .base hStmt
-        | .forEach varName count body hCount hBody =>
-            exact .forEach varName count body hCount
-              (BridgedSourceExternalRecursiveBodyWithErrorsStmts_of_alias hBody)
-      refine .cons hHead (ih ?_)
-      intro stmt hMem
-      exact h stmt (by simp [hMem])
-
-theorem BridgedSourceInternalRecursiveBodyWithErrorsStmts_of_forEach
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceInternalForEachBodyWithErrorsStmts fields errors
-      dynamicSource stmts) :
-    BridgedSourceInternalRecursiveBodyWithErrorsStmts fields errors
-      dynamicSource stmts := by
-  induction stmts with
-  | nil => exact .nil
-  | cons head tail ih =>
-      have hHead : BridgedSourceInternalRecursiveBodyWithErrorsStmt fields errors
-          dynamicSource head := by
-        match h head (by simp) with
-        | .base hStmt => exact .base hStmt
-        | .forEach varName count body hCount hBody =>
-            exact .forEach varName count body hCount
-              (BridgedSourceInternalRecursiveBodyWithErrorsStmts_of_alias hBody)
-      refine .cons hHead (ih ?_)
-      intro stmt hMem
-      exact h stmt (by simp [hMem])
 
 /-! ### Lifting plain recursive witnesses into the with-errors recursive inductive
 
@@ -6698,613 +3796,6 @@ theorem BridgedSourceExternalStructuredBodyWithErrorsStmts_of_structured
   fun stmt hMem =>
     BridgedSourceExternalStructuredBodyWithErrorsStmt_of_structured (h stmt hMem)
 
-theorem BridgedSourceInternalStructuredBodyWithErrorsStmt_of_structured
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceInternalStructuredBodyStmt fields dynamicSource stmt) :
-    BridgedSourceInternalStructuredBodyWithErrorsStmt fields errors
-      dynamicSource stmt := by
-  match h with
-  | .base hStmt => exact .base (.base hStmt)
-  | .ite cond thenBranch elseBranch hCond hThen hElse =>
-      exact .ite cond thenBranch elseBranch hCond
-        (BridgedSourceInternalBodyWithErrorsStmts_of_plain hThen)
-        (BridgedSourceInternalBodyWithErrorsStmts_of_plain hElse)
-
-theorem BridgedSourceInternalStructuredBodyWithErrorsStmts_of_structured
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceInternalStructuredBodyStmts fields dynamicSource stmts) :
-    BridgedSourceInternalStructuredBodyWithErrorsStmts fields errors
-      dynamicSource stmts :=
-  fun stmt hMem =>
-    BridgedSourceInternalStructuredBodyWithErrorsStmt_of_structured (h stmt hMem)
-
-/-! ### Lifting nested plain witnesses into nested with-errors
-
-Two-layer analog of the structured plain→with-errors lift. `.structured`
-delegates to the just-landed structured plain→with-errors stmt lift; `.ite`
-rewraps each branch list via the structured plain→with-errors list lift. -/
-
-theorem BridgedSourceExternalNestedBodyWithErrorsStmt_of_nested
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceExternalNestedBodyStmt fields dynamicSource stmt) :
-    BridgedSourceExternalNestedBodyWithErrorsStmt fields errors
-      dynamicSource stmt := by
-  match h with
-  | .structured hStruct =>
-      exact .structured
-        (BridgedSourceExternalStructuredBodyWithErrorsStmt_of_structured hStruct)
-  | .ite cond thenBranch elseBranch hCond hThen hElse =>
-      exact .ite cond thenBranch elseBranch hCond
-        (BridgedSourceExternalStructuredBodyWithErrorsStmts_of_structured hThen)
-        (BridgedSourceExternalStructuredBodyWithErrorsStmts_of_structured hElse)
-
-theorem BridgedSourceExternalNestedBodyWithErrorsStmts_of_nested
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceExternalNestedBodyStmts fields dynamicSource stmts) :
-    BridgedSourceExternalNestedBodyWithErrorsStmts fields errors
-      dynamicSource stmts :=
-  fun stmt hMem =>
-    BridgedSourceExternalNestedBodyWithErrorsStmt_of_nested (h stmt hMem)
-
-theorem BridgedSourceInternalNestedBodyWithErrorsStmt_of_nested
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceInternalNestedBodyStmt fields dynamicSource stmt) :
-    BridgedSourceInternalNestedBodyWithErrorsStmt fields errors
-      dynamicSource stmt := by
-  match h with
-  | .structured hStruct =>
-      exact .structured
-        (BridgedSourceInternalStructuredBodyWithErrorsStmt_of_structured hStruct)
-  | .ite cond thenBranch elseBranch hCond hThen hElse =>
-      exact .ite cond thenBranch elseBranch hCond
-        (BridgedSourceInternalStructuredBodyWithErrorsStmts_of_structured hThen)
-        (BridgedSourceInternalStructuredBodyWithErrorsStmts_of_structured hElse)
-
-theorem BridgedSourceInternalNestedBodyWithErrorsStmts_of_nested
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceInternalNestedBodyStmts fields dynamicSource stmts) :
-    BridgedSourceInternalNestedBodyWithErrorsStmts fields errors
-      dynamicSource stmts :=
-  fun stmt hMem =>
-    BridgedSourceInternalNestedBodyWithErrorsStmt_of_nested (h stmt hMem)
-
-/-! ### Lifting plain structured/nested witnesses into the with-errors recursive predicate
-
-Convenience compositions so callers holding a plain structured or nested
-witness reach the recursive with-errors inductive in one step. Each lift
-chains the matching plain→with-errors structural bridge with the existing
-structured→recursive-with-errors or nested→recursive-with-errors lift. -/
-
-theorem BridgedSourceExternalRecursiveBodyWithErrorsStmts_of_plain_structured
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceExternalStructuredBodyStmts fields dynamicSource stmts) :
-    BridgedSourceExternalRecursiveBodyWithErrorsStmts fields errors
-      dynamicSource stmts :=
-  BridgedSourceExternalRecursiveBodyWithErrorsStmts_of_structured
-    (BridgedSourceExternalStructuredBodyWithErrorsStmts_of_structured h)
-
-theorem BridgedSourceInternalRecursiveBodyWithErrorsStmts_of_plain_structured
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceInternalStructuredBodyStmts fields dynamicSource stmts) :
-    BridgedSourceInternalRecursiveBodyWithErrorsStmts fields errors
-      dynamicSource stmts :=
-  BridgedSourceInternalRecursiveBodyWithErrorsStmts_of_structured
-    (BridgedSourceInternalStructuredBodyWithErrorsStmts_of_structured h)
-
-theorem BridgedSourceExternalRecursiveBodyWithErrorsStmts_of_plain_nested
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceExternalNestedBodyStmts fields dynamicSource stmts) :
-    BridgedSourceExternalRecursiveBodyWithErrorsStmts fields errors
-      dynamicSource stmts :=
-  BridgedSourceExternalRecursiveBodyWithErrorsStmts_of_nested
-    (BridgedSourceExternalNestedBodyWithErrorsStmts_of_nested h)
-
-theorem BridgedSourceInternalRecursiveBodyWithErrorsStmts_of_plain_nested
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceInternalNestedBodyStmts fields dynamicSource stmts) :
-    BridgedSourceInternalRecursiveBodyWithErrorsStmts fields errors
-      dynamicSource stmts :=
-  BridgedSourceInternalRecursiveBodyWithErrorsStmts_of_nested
-    (BridgedSourceInternalNestedBodyWithErrorsStmts_of_nested h)
-
-/-! ### Lifting plain structured witnesses into the nested with-errors predicate
-
-Convenience compositions so callers holding a plain structured witness reach
-the nested with-errors alias in one step. Chains the plain→with-errors
-structural bridge with the existing structured→nested with-errors lift. -/
-
-theorem BridgedSourceExternalNestedBodyWithErrorsStmts_of_plain_structured
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceExternalStructuredBodyStmts fields dynamicSource stmts) :
-    BridgedSourceExternalNestedBodyWithErrorsStmts fields errors
-      dynamicSource stmts :=
-  BridgedSourceExternalNestedBodyWithErrorsStmts_of_structured
-    (BridgedSourceExternalStructuredBodyWithErrorsStmts_of_structured h)
-
-theorem BridgedSourceInternalNestedBodyWithErrorsStmts_of_plain_structured
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmts : List Stmt}
-    (h : BridgedSourceInternalStructuredBodyStmts fields dynamicSource stmts) :
-    BridgedSourceInternalNestedBodyWithErrorsStmts fields errors
-      dynamicSource stmts :=
-  BridgedSourceInternalNestedBodyWithErrorsStmts_of_structured
-    (BridgedSourceInternalStructuredBodyWithErrorsStmts_of_structured h)
-
-/-! ### Stmt-level structured → recursive lifts
-
-Single-stmt counterparts of the list-level `*RecursiveBody{,WithErrors}Stmts_of_structured`
-lifts. A structured stmt is either a plain body stmt (admitted via `.base`) or
-a one-layer `Stmt.ite` whose branches are plain/with-errors body-stmt lists,
-and the recursive inductive admits both shapes: `.base` reuses the body stmt
-unchanged while `.ite` lifts each branch list through
-`*RecursiveBody{,WithErrors}Stmts_of_alias`. Covers plain and with-errors
-variants. -/
-
-theorem BridgedSourceExternalRecursiveBodyStmt_of_structured
-    {fields : List Field} {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceExternalStructuredBodyStmt fields dynamicSource stmt) :
-    BridgedSourceExternalRecursiveBodyStmt fields dynamicSource stmt := by
-  match h with
-  | .base hStmt => exact .base hStmt
-  | .ite cond thenBranch elseBranch hCond hThen hElse =>
-      exact .ite cond thenBranch elseBranch hCond
-        (BridgedSourceExternalRecursiveBodyStmts_of_alias hThen)
-        (BridgedSourceExternalRecursiveBodyStmts_of_alias hElse)
-
-theorem BridgedSourceInternalRecursiveBodyStmt_of_structured
-    {fields : List Field} {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceInternalStructuredBodyStmt fields dynamicSource stmt) :
-    BridgedSourceInternalRecursiveBodyStmt fields dynamicSource stmt := by
-  match h with
-  | .base hStmt => exact .base hStmt
-  | .ite cond thenBranch elseBranch hCond hThen hElse =>
-      exact .ite cond thenBranch elseBranch hCond
-        (BridgedSourceInternalRecursiveBodyStmts_of_alias hThen)
-        (BridgedSourceInternalRecursiveBodyStmts_of_alias hElse)
-
-theorem BridgedSourceExternalRecursiveBodyWithErrorsStmt_of_structured
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceExternalStructuredBodyWithErrorsStmt fields errors
-      dynamicSource stmt) :
-    BridgedSourceExternalRecursiveBodyWithErrorsStmt fields errors
-      dynamicSource stmt := by
-  match h with
-  | .base hStmt => exact .base hStmt
-  | .ite cond thenBranch elseBranch hCond hThen hElse =>
-      exact .ite cond thenBranch elseBranch hCond
-        (BridgedSourceExternalRecursiveBodyWithErrorsStmts_of_alias hThen)
-        (BridgedSourceExternalRecursiveBodyWithErrorsStmts_of_alias hElse)
-
-theorem BridgedSourceInternalRecursiveBodyWithErrorsStmt_of_structured
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceInternalStructuredBodyWithErrorsStmt fields errors
-      dynamicSource stmt) :
-    BridgedSourceInternalRecursiveBodyWithErrorsStmt fields errors
-      dynamicSource stmt := by
-  match h with
-  | .base hStmt => exact .base hStmt
-  | .ite cond thenBranch elseBranch hCond hThen hElse =>
-      exact .ite cond thenBranch elseBranch hCond
-        (BridgedSourceInternalRecursiveBodyWithErrorsStmts_of_alias hThen)
-        (BridgedSourceInternalRecursiveBodyWithErrorsStmts_of_alias hElse)
-
-/-! ### Stmt-level nested → recursive lifts
-
-Single-stmt counterparts of the list-level `*RecursiveBody{,WithErrors}Stmts_of_nested`
-lifts. A nested stmt is either a structured stmt (admitted via the just-landed
-`*RecursiveBodyStmt_of_structured`) or a two-layer `Stmt.ite` whose branches
-are structured-stmt lists, which we lift through
-`*RecursiveBody{,WithErrors}Stmts_of_structured`. Covers plain and
-with-errors variants. -/
-
-theorem BridgedSourceExternalRecursiveBodyStmt_of_nested
-    {fields : List Field} {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceExternalNestedBodyStmt fields dynamicSource stmt) :
-    BridgedSourceExternalRecursiveBodyStmt fields dynamicSource stmt := by
-  match h with
-  | .structured hStructured =>
-      exact BridgedSourceExternalRecursiveBodyStmt_of_structured hStructured
-  | .ite cond thenBranch elseBranch hCond hThen hElse =>
-      exact .ite cond thenBranch elseBranch hCond
-        (BridgedSourceExternalRecursiveBodyStmts_of_structured hThen)
-        (BridgedSourceExternalRecursiveBodyStmts_of_structured hElse)
-
-theorem BridgedSourceInternalRecursiveBodyStmt_of_nested
-    {fields : List Field} {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceInternalNestedBodyStmt fields dynamicSource stmt) :
-    BridgedSourceInternalRecursiveBodyStmt fields dynamicSource stmt := by
-  match h with
-  | .structured hStructured =>
-      exact BridgedSourceInternalRecursiveBodyStmt_of_structured hStructured
-  | .ite cond thenBranch elseBranch hCond hThen hElse =>
-      exact .ite cond thenBranch elseBranch hCond
-        (BridgedSourceInternalRecursiveBodyStmts_of_structured hThen)
-        (BridgedSourceInternalRecursiveBodyStmts_of_structured hElse)
-
-theorem BridgedSourceExternalRecursiveBodyWithErrorsStmt_of_nested
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceExternalNestedBodyWithErrorsStmt fields errors
-      dynamicSource stmt) :
-    BridgedSourceExternalRecursiveBodyWithErrorsStmt fields errors
-      dynamicSource stmt := by
-  match h with
-  | .structured hStructured =>
-      exact BridgedSourceExternalRecursiveBodyWithErrorsStmt_of_structured hStructured
-  | .ite cond thenBranch elseBranch hCond hThen hElse =>
-      exact .ite cond thenBranch elseBranch hCond
-        (BridgedSourceExternalRecursiveBodyWithErrorsStmts_of_structured hThen)
-        (BridgedSourceExternalRecursiveBodyWithErrorsStmts_of_structured hElse)
-
-theorem BridgedSourceInternalRecursiveBodyWithErrorsStmt_of_nested
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceInternalNestedBodyWithErrorsStmt fields errors
-      dynamicSource stmt) :
-    BridgedSourceInternalRecursiveBodyWithErrorsStmt fields errors
-      dynamicSource stmt := by
-  match h with
-  | .structured hStructured =>
-      exact BridgedSourceInternalRecursiveBodyWithErrorsStmt_of_structured hStructured
-  | .ite cond thenBranch elseBranch hCond hThen hElse =>
-      exact .ite cond thenBranch elseBranch hCond
-        (BridgedSourceInternalRecursiveBodyWithErrorsStmts_of_structured hThen)
-        (BridgedSourceInternalRecursiveBodyWithErrorsStmts_of_structured hElse)
-
-/-! ### Stmt-level forEach-with-errors → recursive-with-errors lifts
-
-Single-stmt counterparts of the list-level
-`*RecursiveBodyWithErrorsStmts_of_forEach` lifts. A forEach-with-errors stmt
-is either a plain with-errors body stmt (admitted via `.base`) or an outer
-`Stmt.forEach varName count body` whose body is a plain with-errors body-stmt
-list, lifted through `*RecursiveBodyWithErrorsStmts_of_alias`. Covers
-external and internal variants. -/
-
-theorem BridgedSourceExternalRecursiveBodyWithErrorsStmt_of_forEach
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceExternalForEachBodyWithErrorsStmt fields errors
-      dynamicSource stmt) :
-    BridgedSourceExternalRecursiveBodyWithErrorsStmt fields errors
-      dynamicSource stmt := by
-  match h with
-  | .base hStmt => exact .base hStmt
-  | .forEach varName count body hCount hBody =>
-      exact .forEach varName count body hCount
-        (BridgedSourceExternalRecursiveBodyWithErrorsStmts_of_alias hBody)
-
-theorem BridgedSourceInternalRecursiveBodyWithErrorsStmt_of_forEach
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceInternalForEachBodyWithErrorsStmt fields errors
-      dynamicSource stmt) :
-    BridgedSourceInternalRecursiveBodyWithErrorsStmt fields errors
-      dynamicSource stmt := by
-  match h with
-  | .base hStmt => exact .base hStmt
-  | .forEach varName count body hCount hBody =>
-      exact .forEach varName count body hCount
-        (BridgedSourceInternalRecursiveBodyWithErrorsStmts_of_alias hBody)
-
-/-! ### Stmt-level plain structured/nested → recursive-with-errors lifts
-
-Single-stmt counterparts of the list-level
-`*RecursiveBodyWithErrorsStmts_of_plain_{structured,nested}` lifts (landed in
-`9a3c6266`). Composed from two existing stmt-level lifts: first reinterpret
-the plain structured/nested witness as a plain recursive one via
-`*RecursiveBodyStmt_of_structured` / `_of_nested`, then bridge into the
-with-errors recursive inductive via `*RecursiveBodyWithErrorsStmt_of_plain_recursive`.
-Covers external/internal variants. -/
-
-theorem BridgedSourceExternalRecursiveBodyWithErrorsStmt_of_plain_structured
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceExternalStructuredBodyStmt fields dynamicSource stmt) :
-    BridgedSourceExternalRecursiveBodyWithErrorsStmt fields errors
-      dynamicSource stmt :=
-  BridgedSourceExternalRecursiveBodyWithErrorsStmt_of_plain_recursive
-    (BridgedSourceExternalRecursiveBodyStmt_of_structured h)
-
-theorem BridgedSourceInternalRecursiveBodyWithErrorsStmt_of_plain_structured
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceInternalStructuredBodyStmt fields dynamicSource stmt) :
-    BridgedSourceInternalRecursiveBodyWithErrorsStmt fields errors
-      dynamicSource stmt :=
-  BridgedSourceInternalRecursiveBodyWithErrorsStmt_of_plain_recursive
-    (BridgedSourceInternalRecursiveBodyStmt_of_structured h)
-
-theorem BridgedSourceExternalRecursiveBodyWithErrorsStmt_of_plain_nested
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceExternalNestedBodyStmt fields dynamicSource stmt) :
-    BridgedSourceExternalRecursiveBodyWithErrorsStmt fields errors
-      dynamicSource stmt :=
-  BridgedSourceExternalRecursiveBodyWithErrorsStmt_of_plain_recursive
-    (BridgedSourceExternalRecursiveBodyStmt_of_nested h)
-
-theorem BridgedSourceInternalRecursiveBodyWithErrorsStmt_of_plain_nested
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceInternalNestedBodyStmt fields dynamicSource stmt) :
-    BridgedSourceInternalRecursiveBodyWithErrorsStmt fields errors
-      dynamicSource stmt :=
-  BridgedSourceInternalRecursiveBodyWithErrorsStmt_of_plain_recursive
-    (BridgedSourceInternalRecursiveBodyStmt_of_nested h)
-
-/-! ### Stmt-level plain structured → nested with-errors lifts
-
-Single-stmt counterparts of the list-level
-`*NestedBodyWithErrorsStmts_of_plain_structured` lifts. Chains the
-plain→with-errors structured stmt bridge with the `.structured` constructor
-of the nested with-errors inductive. -/
-
-theorem BridgedSourceExternalNestedBodyWithErrorsStmt_of_plain_structured
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceExternalStructuredBodyStmt fields dynamicSource stmt) :
-    BridgedSourceExternalNestedBodyWithErrorsStmt fields errors
-      dynamicSource stmt :=
-  .structured (BridgedSourceExternalStructuredBodyWithErrorsStmt_of_structured h)
-
-theorem BridgedSourceInternalNestedBodyWithErrorsStmt_of_plain_structured
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceInternalStructuredBodyStmt fields dynamicSource stmt) :
-    BridgedSourceInternalNestedBodyWithErrorsStmt fields errors
-      dynamicSource stmt :=
-  .structured (BridgedSourceInternalStructuredBodyWithErrorsStmt_of_structured h)
-
-/-! ### Stmt-level plain nested → nested with-errors lifts
-
-Single-stmt counterparts mapping a plain nested witness directly into the
-nested with-errors inductive. The `.structured` branch delegates to the
-stmt-level `_of_plain_structured` lift; the `.ite` branch reuses the nested
-with-errors `.ite` constructor after lifting the structured body-stmt lists
-via `BridgedSourceExternalStructuredBodyWithErrorsStmts_of_structured`. -/
-
-theorem BridgedSourceExternalNestedBodyWithErrorsStmt_of_plain_nested
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceExternalNestedBodyStmt fields dynamicSource stmt) :
-    BridgedSourceExternalNestedBodyWithErrorsStmt fields errors
-      dynamicSource stmt := by
-  match h with
-  | .structured hS =>
-      exact BridgedSourceExternalNestedBodyWithErrorsStmt_of_plain_structured hS
-  | .ite cond thenBranch elseBranch hCond hThen hElse =>
-      exact .ite cond thenBranch elseBranch hCond
-        (BridgedSourceExternalStructuredBodyWithErrorsStmts_of_structured hThen)
-        (BridgedSourceExternalStructuredBodyWithErrorsStmts_of_structured hElse)
-
-theorem BridgedSourceInternalNestedBodyWithErrorsStmt_of_plain_nested
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceInternalNestedBodyStmt fields dynamicSource stmt) :
-    BridgedSourceInternalNestedBodyWithErrorsStmt fields errors
-      dynamicSource stmt := by
-  match h with
-  | .structured hS =>
-      exact BridgedSourceInternalNestedBodyWithErrorsStmt_of_plain_structured hS
-  | .ite cond thenBranch elseBranch hCond hThen hElse =>
-      exact .ite cond thenBranch elseBranch hCond
-        (BridgedSourceInternalStructuredBodyWithErrorsStmts_of_structured hThen)
-        (BridgedSourceInternalStructuredBodyWithErrorsStmts_of_structured hElse)
-
-/-! ### Stmt-level direct plain→with-errors wrapper lifts
-
-Stmt-level counterparts of the list-level `*_of_plain` lifts (landed in
-commit `4e1fd204` for the wrappers and `d29b8248` for the base with-errors
-alias). A plain body stmt is admitted into the with-errors inductive via
-`.base`; structured/nested/forEach with-errors wrappers then stack on top
-as further one-step constructor applications, mirroring the list-level
-shapes `fun stmt hMem => .base (.base (h stmt hMem))` etc. -/
-
-theorem BridgedSourceExternalBodyWithErrorsStmt_of_plain
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceExternalBodyStmt fields dynamicSource stmt) :
-    BridgedSourceExternalBodyWithErrorsStmt fields errors dynamicSource stmt :=
-  .base h
-
-theorem BridgedSourceInternalBodyWithErrorsStmt_of_plain
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceInternalBodyStmt fields dynamicSource stmt) :
-    BridgedSourceInternalBodyWithErrorsStmt fields errors dynamicSource stmt :=
-  .base h
-
-theorem BridgedSourceExternalStructuredBodyWithErrorsStmt_of_plain
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceExternalBodyStmt fields dynamicSource stmt) :
-    BridgedSourceExternalStructuredBodyWithErrorsStmt fields errors
-      dynamicSource stmt :=
-  .base (.base h)
-
-theorem BridgedSourceInternalStructuredBodyWithErrorsStmt_of_plain
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceInternalBodyStmt fields dynamicSource stmt) :
-    BridgedSourceInternalStructuredBodyWithErrorsStmt fields errors
-      dynamicSource stmt :=
-  .base (.base h)
-
-theorem BridgedSourceExternalNestedBodyWithErrorsStmt_of_plain
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceExternalBodyStmt fields dynamicSource stmt) :
-    BridgedSourceExternalNestedBodyWithErrorsStmt fields errors
-      dynamicSource stmt :=
-  .structured (.base (.base h))
-
-theorem BridgedSourceInternalNestedBodyWithErrorsStmt_of_plain
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceInternalBodyStmt fields dynamicSource stmt) :
-    BridgedSourceInternalNestedBodyWithErrorsStmt fields errors
-      dynamicSource stmt :=
-  .structured (.base (.base h))
-
-theorem BridgedSourceExternalForEachBodyWithErrorsStmt_of_plain
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceExternalBodyStmt fields dynamicSource stmt) :
-    BridgedSourceExternalForEachBodyWithErrorsStmt fields errors
-      dynamicSource stmt :=
-  .base (.base h)
-
-theorem BridgedSourceInternalForEachBodyWithErrorsStmt_of_plain
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceInternalBodyStmt fields dynamicSource stmt) :
-    BridgedSourceInternalForEachBodyWithErrorsStmt fields errors
-      dynamicSource stmt :=
-  .base (.base h)
-
-/-! ### Stmt-level plain→structured/nested/recursive lifts (plain space)
-
-Stmt-level counterparts of the list-level `*_of_alias` lifts in the plain
-(non-with-errors) space. A plain body stmt admits into the structured,
-nested, and recursive inductives via direct `.base` / `.structured (.base _)`
-applications — mirroring the list-level shapes
-`fun stmt hMem => .base (h stmt hMem)` etc. The `of_structured` nested lift
-reuses the structured witness unchanged under the nested `.structured`
-constructor. -/
-
-theorem BridgedSourceExternalStructuredBodyStmt_of_base
-    {fields : List Field} {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceExternalBodyStmt fields dynamicSource stmt) :
-    BridgedSourceExternalStructuredBodyStmt fields dynamicSource stmt :=
-  .base h
-
-theorem BridgedSourceInternalStructuredBodyStmt_of_base
-    {fields : List Field} {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceInternalBodyStmt fields dynamicSource stmt) :
-    BridgedSourceInternalStructuredBodyStmt fields dynamicSource stmt :=
-  .base h
-
-theorem BridgedSourceExternalNestedBodyStmt_of_base
-    {fields : List Field} {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceExternalBodyStmt fields dynamicSource stmt) :
-    BridgedSourceExternalNestedBodyStmt fields dynamicSource stmt :=
-  .structured (.base h)
-
-theorem BridgedSourceInternalNestedBodyStmt_of_base
-    {fields : List Field} {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceInternalBodyStmt fields dynamicSource stmt) :
-    BridgedSourceInternalNestedBodyStmt fields dynamicSource stmt :=
-  .structured (.base h)
-
-theorem BridgedSourceExternalNestedBodyStmt_of_structured
-    {fields : List Field} {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceExternalStructuredBodyStmt fields dynamicSource stmt) :
-    BridgedSourceExternalNestedBodyStmt fields dynamicSource stmt :=
-  .structured h
-
-theorem BridgedSourceInternalNestedBodyStmt_of_structured
-    {fields : List Field} {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceInternalStructuredBodyStmt fields dynamicSource stmt) :
-    BridgedSourceInternalNestedBodyStmt fields dynamicSource stmt :=
-  .structured h
-
-theorem BridgedSourceExternalRecursiveBodyStmt_of_base
-    {fields : List Field} {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceExternalBodyStmt fields dynamicSource stmt) :
-    BridgedSourceExternalRecursiveBodyStmt fields dynamicSource stmt :=
-  .base h
-
-theorem BridgedSourceInternalRecursiveBodyStmt_of_base
-    {fields : List Field} {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceInternalBodyStmt fields dynamicSource stmt) :
-    BridgedSourceInternalRecursiveBodyStmt fields dynamicSource stmt :=
-  .base h
-
-/-! ### Stmt-level `_of_base` lifts for with-errors wrappers
-
-Symmetric counterparts of the plain `*BodyStmt_of_base` lifts for the
-with-errors family. Each wrapper inductive exposes a `.base`/`.structured`
-constructor accepting an unchanged `BodyWithErrorsStmt`, reached via either
-direct `.base` or `.structured (.base …)` composition. Covers structured,
-nested, forEach, and recursive external/internal variants. -/
-
-theorem BridgedSourceExternalStructuredBodyWithErrorsStmt_of_base
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceExternalBodyWithErrorsStmt fields errors dynamicSource stmt) :
-    BridgedSourceExternalStructuredBodyWithErrorsStmt fields errors
-      dynamicSource stmt :=
-  .base h
-
-theorem BridgedSourceInternalStructuredBodyWithErrorsStmt_of_base
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceInternalBodyWithErrorsStmt fields errors dynamicSource stmt) :
-    BridgedSourceInternalStructuredBodyWithErrorsStmt fields errors
-      dynamicSource stmt :=
-  .base h
-
-theorem BridgedSourceExternalNestedBodyWithErrorsStmt_of_base
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceExternalBodyWithErrorsStmt fields errors dynamicSource stmt) :
-    BridgedSourceExternalNestedBodyWithErrorsStmt fields errors
-      dynamicSource stmt :=
-  .structured (.base h)
-
-theorem BridgedSourceInternalNestedBodyWithErrorsStmt_of_base
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceInternalBodyWithErrorsStmt fields errors dynamicSource stmt) :
-    BridgedSourceInternalNestedBodyWithErrorsStmt fields errors
-      dynamicSource stmt :=
-  .structured (.base h)
-
-theorem BridgedSourceExternalForEachBodyWithErrorsStmt_of_base
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceExternalBodyWithErrorsStmt fields errors dynamicSource stmt) :
-    BridgedSourceExternalForEachBodyWithErrorsStmt fields errors
-      dynamicSource stmt :=
-  .base h
-
-theorem BridgedSourceInternalForEachBodyWithErrorsStmt_of_base
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceInternalBodyWithErrorsStmt fields errors dynamicSource stmt) :
-    BridgedSourceInternalForEachBodyWithErrorsStmt fields errors
-      dynamicSource stmt :=
-  .base h
-
-theorem BridgedSourceExternalRecursiveBodyWithErrorsStmt_of_base
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceExternalBodyWithErrorsStmt fields errors dynamicSource stmt) :
-    BridgedSourceExternalRecursiveBodyWithErrorsStmt fields errors
-      dynamicSource stmt :=
-  .base h
-
-theorem BridgedSourceInternalRecursiveBodyWithErrorsStmt_of_base
-    {fields : List Field} {errors : List ErrorDef}
-    {dynamicSource : DynamicDataSource} {stmt : Stmt}
-    (h : BridgedSourceInternalBodyWithErrorsStmt fields errors dynamicSource stmt) :
-    BridgedSourceInternalRecursiveBodyWithErrorsStmt fields errors
-      dynamicSource stmt :=
-  .base h
-
 /-! ## Source statement body closure: direct `rawLog` emissions
 
 `Stmt.rawLog topics dataOffset dataSize` compiles (when `topics.length ≤ 4`)
@@ -7324,9 +3815,6 @@ inductive BridgedSourceRawLogStmt : Stmt → Prop
       (hSize : BridgedSourceExpr dataSize) :
       BridgedSourceRawLogStmt (.rawLog topics dataOffset dataSize)
 
-def BridgedSourceRawLogStmts (stmts : List Stmt) : Prop :=
-  ∀ stmt ∈ stmts, BridgedSourceRawLogStmt stmt
-
 /-- A direct `rawLog` source statement with bridged topics/offset/size
 compiles to a single-statement Yul list satisfying `BridgedStmts`. -/
 theorem compileStmt_rawLog_bridged
@@ -7341,22 +3829,22 @@ theorem compileStmt_rawLog_bridged
   intro stmt hStmt out hOk
   cases hStmt with
   | rawLog topics dataOffset dataSize hTopics hOffset hSize =>
-      simp only [compileStmt] at hOk
+      simp only [compileStmt, compileStmtWithFork] at hOk
       by_cases hLen : topics.length > 4
       · exfalso
         simp only [if_pos hLen, bind, Except.bind] at hOk
         exact Except.noConfusion hOk
       · simp only [if_neg hLen, bind, Except.bind,
                    Pure.pure, Except.pure] at hOk
-        cases hTopicsExpr : compileExprList fields dynamicSource topics with
+        cases hTopicsExpr : compileExprListWithInternals fields dynamicSource [] topics with
         | error err => simp [hTopicsExpr] at hOk
         | ok topicExprs =>
             simp only [hTopicsExpr] at hOk
-            cases hOffsetExpr : compileExpr fields dynamicSource dataOffset with
+            cases hOffsetExpr : compileExprWithInternals fields dynamicSource [] dataOffset with
             | error err => simp [hOffsetExpr] at hOk
             | ok offsetExpr =>
                 simp only [hOffsetExpr] at hOk
-                cases hSizeExpr : compileExpr fields dynamicSource dataSize with
+                cases hSizeExpr : compileExprWithInternals fields dynamicSource [] dataSize with
                 | error err => simp [hSizeExpr] at hOk
                 | ok sizeExpr =>
                     simp only [hSizeExpr, Except.ok.injEq] at hOk
@@ -7404,88 +3892,26 @@ theorem compileStmt_rawLog_noFuncDefs
   intro stmt hStmt out hOk
   cases hStmt with
   | rawLog topics dataOffset dataSize hTopics hOffset hSize =>
-      simp only [compileStmt] at hOk
+      simp only [compileStmt, compileStmtWithFork] at hOk
       by_cases hLen : topics.length > 4
       · simp only [if_pos hLen, bind, Except.bind] at hOk
         exact Except.noConfusion hOk
       · simp only [if_neg hLen, bind, Except.bind,
           Pure.pure, Except.pure] at hOk
-        cases hTopicsExpr : compileExprList fields dynamicSource topics with
+        cases hTopicsExpr : compileExprListWithInternals fields dynamicSource [] topics with
         | error err => simp [hTopicsExpr] at hOk
         | ok topicExprs =>
             simp only [hTopicsExpr] at hOk
-            cases hOffsetExpr : compileExpr fields dynamicSource dataOffset with
+            cases hOffsetExpr : compileExprWithInternals fields dynamicSource [] dataOffset with
             | error err => simp [hOffsetExpr] at hOk
             | ok offsetExpr =>
                 simp only [hOffsetExpr] at hOk
-                cases hSizeExpr : compileExpr fields dynamicSource dataSize with
+                cases hSizeExpr : compileExprWithInternals fields dynamicSource [] dataSize with
                 | error err => simp [hSizeExpr] at hOk
                 | ok sizeExpr =>
                     simp [hSizeExpr, Native.yulStmtContainsFuncDef] at hOk
                     subst out
                     simp [Native.yulStmtContainsFuncDef]
-
-/-- Lists made only of direct `rawLog` source statements with bridged
-arguments compile to Yul lists satisfying `BridgedStmts`. -/
-theorem compileStmtList_rawLog_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceRawLogStmts stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] head with
-      | error err => simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames isInternal (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err => simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource : BridgedSourceRawLogStmt head :=
-                hSource head (by simp)
-              have hTailSource : BridgedSourceRawLogStmts tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_rawLog_bridged fields events errors dynamicSource
-                  internalRetNames isInternal inScopeNames hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-/-- Lists made only of direct `rawLog` source statements with bridged
-arguments compile without nested function declarations. -/
-theorem compileStmtList_rawLog_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceRawLogStmts stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames isInternal BridgedSourceRawLogStmt
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_rawLog_noFuncDefs fields events errors dynamicSource
-        internalRetNames isInternal inScopeNames hStmt hOk)
 
 /-!
 ## Mixed body with raw log
@@ -7509,12 +3935,6 @@ inductive BridgedSourceExternalBodyWithRawLogStmt
   | rawLog {stmt : Stmt} (hStmt : BridgedSourceRawLogStmt stmt) :
       BridgedSourceExternalBodyWithRawLogStmt fields errors dynamicSource stmt
 
-def BridgedSourceExternalBodyWithRawLogStmts
-    (fields : List Field) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (stmts : List Stmt) : Prop :=
-  ∀ stmt ∈ stmts,
-    BridgedSourceExternalBodyWithRawLogStmt fields errors dynamicSource stmt
-
 /-- Internal body statement predicate extended to admit direct `rawLog`
 source statements with bridged topics/offset/size alongside every case
 already admitted by `BridgedSourceInternalBodyWithErrorsStmt`. -/
@@ -7527,12 +3947,6 @@ inductive BridgedSourceInternalBodyWithRawLogStmt
       BridgedSourceInternalBodyWithRawLogStmt fields errors dynamicSource stmt
   | rawLog {stmt : Stmt} (hStmt : BridgedSourceRawLogStmt stmt) :
       BridgedSourceInternalBodyWithRawLogStmt fields errors dynamicSource stmt
-
-def BridgedSourceInternalBodyWithRawLogStmts
-    (fields : List Field) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (stmts : List Stmt) : Prop :=
-  ∀ stmt ∈ stmts,
-    BridgedSourceInternalBodyWithRawLogStmt fields errors dynamicSource stmt
 
 /-- Each statement in the raw-log-extended external body fragment compiles
 to `BridgedStmts`. -/
@@ -7613,144 +4027,6 @@ theorem compileStmt_internal_body_with_raw_log_noFuncDefs
   | rawLog hRaw =>
       exact compileStmt_rawLog_noFuncDefs fields events errors dynamicSource
         internalRetNames true inScopeNames hRaw hOk
-
-/-- Mixed external source bodies (with-errors fragments + direct `rawLog`)
-compile to Yul lists satisfying `BridgedStmts`. -/
-theorem compileStmtList_external_body_with_raw_log_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceExternalBodyWithRawLogStmts fields errors dynamicSource stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          (isInternal := false) inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro _ hMem
-      exact (List.not_mem_nil hMem).elim
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          false inScopeNames [] head with
-      | error err => simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames false (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err => simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource :
-                  BridgedSourceExternalBodyWithRawLogStmt fields errors
-                    dynamicSource head :=
-                hSource head (by simp)
-              have hBHead : BridgedStmts headOut :=
-                compileStmt_external_body_with_raw_log_bridged fields events errors
-                  dynamicSource internalRetNames inScopeNames hHeadSource hHead
-              have hTailSource :
-                  BridgedSourceExternalBodyWithRawLogStmts fields errors
-                    dynamicSource tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              have hBTail : BridgedStmts tailOut :=
-                ih (collectStmtNames head ++ inScopeNames) hTailSource hTail
-              intro stmt hMem
-              simp only [List.mem_append] at hMem
-              rcases hMem with h | h
-              · exact hBHead stmt h
-              · exact hBTail stmt h
-
-theorem compileStmtList_external_body_with_raw_log_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceExternalBodyWithRawLogStmts fields errors dynamicSource stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          (isInternal := false) inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames false
-    (BridgedSourceExternalBodyWithRawLogStmt fields errors dynamicSource)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_external_body_with_raw_log_noFuncDefs fields events errors
-        dynamicSource internalRetNames inScopeNames hStmt hOk)
-
-/-- Mixed internal source bodies (with-errors fragments + direct `rawLog`)
-compile to Yul lists satisfying `BridgedStmts`. -/
-theorem compileStmtList_internal_body_with_raw_log_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceInternalBodyWithRawLogStmts fields errors dynamicSource stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          (isInternal := true) inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro _ hMem
-      exact (List.not_mem_nil hMem).elim
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          true inScopeNames [] head with
-      | error err => simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames true (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err => simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource :
-                  BridgedSourceInternalBodyWithRawLogStmt fields errors
-                    dynamicSource head :=
-                hSource head (by simp)
-              have hBHead : BridgedStmts headOut :=
-                compileStmt_internal_body_with_raw_log_bridged fields events errors
-                  dynamicSource internalRetNames inScopeNames hHeadSource hHead
-              have hTailSource :
-                  BridgedSourceInternalBodyWithRawLogStmts fields errors
-                    dynamicSource tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              have hBTail : BridgedStmts tailOut :=
-                ih (collectStmtNames head ++ inScopeNames) hTailSource hTail
-              intro stmt hMem
-              simp only [List.mem_append] at hMem
-              rcases hMem with h | h
-              · exact hBHead stmt h
-              · exact hBTail stmt h
-
-theorem compileStmtList_internal_body_with_raw_log_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceInternalBodyWithRawLogStmts fields errors dynamicSource stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          (isInternal := true) inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames true
-    (BridgedSourceInternalBodyWithRawLogStmt fields errors dynamicSource)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_internal_body_with_raw_log_noFuncDefs fields events errors
-        dynamicSource internalRetNames inScopeNames hStmt hOk)
 
 /-!
 ## Recursive mixed body with raw log
@@ -7865,20 +4141,20 @@ mutual
         exact compileStmt_external_body_with_raw_log_bridged fields events errors
           dynamicSource internalRetNames inScopeNames hBase hOk
     | ite cond thenBranch elseBranch hCond hThen hElse =>
-        simp only [compileStmt, bind, Except.bind] at hOk
-        cases hCondExpr : compileExpr fields dynamicSource cond with
+        simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+        cases hCondExpr : compileExprWithInternals fields dynamicSource [] cond with
         | error err =>
             simp [hCondExpr] at hOk
         | ok condExpr =>
             cases hThenCompile : compileStmtList fields events errors dynamicSource
                 internalRetNames false inScopeNames [] thenBranch with
             | error err =>
-                simp [hCondExpr, hThenCompile] at hOk
+                simp [compileStmtListWithFork_cancun_eq_compileStmtList, hCondExpr, hThenCompile] at hOk
             | ok thenOut =>
                 cases hElseCompile : compileStmtList fields events errors dynamicSource
                     internalRetNames false inScopeNames [] elseBranch with
                 | error err =>
-                    simp [hCondExpr, hThenCompile, hElseCompile] at hOk
+                    simp [compileStmtListWithFork_cancun_eq_compileStmtList, hCondExpr, hThenCompile, hElseCompile] at hOk
                 | ok elseOut =>
                     have hCondBridged : BridgedExpr condExpr :=
                       compileExpr_bridgedSource fields dynamicSource hCond hCondExpr
@@ -7891,14 +4167,14 @@ mutual
                         events errors dynamicSource internalRetNames hElse
                         inScopeNames hElseCompile
                     by_cases hEmpty : elseBranch.isEmpty
-                    · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty,
+                    · simp [compileStmtListWithFork_cancun_eq_compileStmtList, hCondExpr, hThenCompile, hElseCompile, hEmpty,
                         Pure.pure, Except.pure] at hOk
                       subst out
                       intro yulStmt hMem
                       simp only [List.mem_singleton] at hMem
                       subst yulStmt
                       exact BridgedStmt.if_ condExpr thenOut hCondBridged hThenBridged
-                    · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty,
+                    · simp [compileStmtListWithFork_cancun_eq_compileStmtList, hCondExpr, hThenCompile, hElseCompile, hEmpty,
                         Pure.pure, Except.pure] at hOk
                       subst out
                       intro yulStmt hMem
@@ -7936,24 +4212,24 @@ mutual
     intro stmts hSource inScopeNames out hOk
     cases hSource with
     | nil =>
-        simp [compileStmtList, Pure.pure, Except.pure] at hOk
+        simp [compileStmtList, compileStmtListWithFork, Pure.pure, Except.pure] at hOk
         subst out
         intro stmt hMem
         cases hMem
     | @cons head tail hHead hTail =>
-        simp only [compileStmtList, bind, Except.bind] at hOk
+        simp only [compileStmtList, compileStmtListWithFork, bind, Except.bind] at hOk
         cases hHeadCompile : compileStmt fields events errors dynamicSource
             internalRetNames false inScopeNames [] head with
         | error err =>
-            simp [hHeadCompile] at hOk
+            simp [compileStmtWithFork_cancun_eq_compileStmt, compileStmtListWithFork_cancun_eq_compileStmtList, hHeadCompile] at hOk
         | ok headOut =>
-            simp [hHeadCompile] at hOk
+            simp [compileStmtWithFork_cancun_eq_compileStmt, compileStmtListWithFork_cancun_eq_compileStmtList, hHeadCompile] at hOk
             cases hTailCompile : compileStmtList fields events errors dynamicSource
                 internalRetNames false (collectStmtNames head ++ inScopeNames) [] tail with
             | error err =>
-                simp [hTailCompile] at hOk
+                simp [compileStmtListWithFork_cancun_eq_compileStmtList, hTailCompile] at hOk
             | ok tailOut =>
-                simp [hTailCompile, Pure.pure, Except.pure] at hOk
+                simp [compileStmtListWithFork_cancun_eq_compileStmtList, hTailCompile, Pure.pure, Except.pure] at hOk
                 subst out
                 exact BridgedStmts_append
                   (compileStmt_external_recursive_body_with_raw_log_bridged fields events
@@ -7982,20 +4258,20 @@ mutual
         exact compileStmt_internal_body_with_raw_log_bridged fields events errors
           dynamicSource internalRetNames inScopeNames hBase hOk
     | ite cond thenBranch elseBranch hCond hThen hElse =>
-        simp only [compileStmt, bind, Except.bind] at hOk
-        cases hCondExpr : compileExpr fields dynamicSource cond with
+        simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+        cases hCondExpr : compileExprWithInternals fields dynamicSource [] cond with
         | error err =>
             simp [hCondExpr] at hOk
         | ok condExpr =>
             cases hThenCompile : compileStmtList fields events errors dynamicSource
                 internalRetNames true inScopeNames [] thenBranch with
             | error err =>
-                simp [hCondExpr, hThenCompile] at hOk
+                simp [compileStmtListWithFork_cancun_eq_compileStmtList, hCondExpr, hThenCompile] at hOk
             | ok thenOut =>
                 cases hElseCompile : compileStmtList fields events errors dynamicSource
                     internalRetNames true inScopeNames [] elseBranch with
                 | error err =>
-                    simp [hCondExpr, hThenCompile, hElseCompile] at hOk
+                    simp [compileStmtListWithFork_cancun_eq_compileStmtList, hCondExpr, hThenCompile, hElseCompile] at hOk
                 | ok elseOut =>
                     have hCondBridged : BridgedExpr condExpr :=
                       compileExpr_bridgedSource fields dynamicSource hCond hCondExpr
@@ -8008,14 +4284,14 @@ mutual
                         events errors dynamicSource internalRetNames hElse
                         inScopeNames hElseCompile
                     by_cases hEmpty : elseBranch.isEmpty
-                    · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty,
+                    · simp [compileStmtListWithFork_cancun_eq_compileStmtList, hCondExpr, hThenCompile, hElseCompile, hEmpty,
                         Pure.pure, Except.pure] at hOk
                       subst out
                       intro yulStmt hMem
                       simp only [List.mem_singleton] at hMem
                       subst yulStmt
                       exact BridgedStmt.if_ condExpr thenOut hCondBridged hThenBridged
-                    · simp [hCondExpr, hThenCompile, hElseCompile, hEmpty,
+                    · simp [compileStmtListWithFork_cancun_eq_compileStmtList, hCondExpr, hThenCompile, hElseCompile, hEmpty,
                         Pure.pure, Except.pure] at hOk
                       subst out
                       intro yulStmt hMem
@@ -8053,24 +4329,24 @@ mutual
     intro stmts hSource inScopeNames out hOk
     cases hSource with
     | nil =>
-        simp [compileStmtList, Pure.pure, Except.pure] at hOk
+        simp [compileStmtList, compileStmtListWithFork, Pure.pure, Except.pure] at hOk
         subst out
         intro stmt hMem
         cases hMem
     | @cons head tail hHead hTail =>
-        simp only [compileStmtList, bind, Except.bind] at hOk
+        simp only [compileStmtList, compileStmtListWithFork, bind, Except.bind] at hOk
         cases hHeadCompile : compileStmt fields events errors dynamicSource
             internalRetNames true inScopeNames [] head with
         | error err =>
-            simp [hHeadCompile] at hOk
+            simp [compileStmtWithFork_cancun_eq_compileStmt, compileStmtListWithFork_cancun_eq_compileStmtList, hHeadCompile] at hOk
         | ok headOut =>
-            simp [hHeadCompile] at hOk
+            simp [compileStmtWithFork_cancun_eq_compileStmt, compileStmtListWithFork_cancun_eq_compileStmtList, hHeadCompile] at hOk
             cases hTailCompile : compileStmtList fields events errors dynamicSource
                 internalRetNames true (collectStmtNames head ++ inScopeNames) [] tail with
             | error err =>
-                simp [hTailCompile] at hOk
+                simp [compileStmtListWithFork_cancun_eq_compileStmtList, hTailCompile] at hOk
             | ok tailOut =>
-                simp [hTailCompile, Pure.pure, Except.pure] at hOk
+                simp [compileStmtListWithFork_cancun_eq_compileStmtList, hTailCompile, Pure.pure, Except.pure] at hOk
                 subst out
                 exact BridgedStmts_append
                   (compileStmt_internal_recursive_body_with_raw_log_bridged fields events
@@ -8126,21 +4402,21 @@ mutual
     intro stmts hSource inScopeNames out hOk
     cases hSource with
     | nil =>
-        simp [compileStmtList, Pure.pure, Except.pure] at hOk
+        simp [compileStmtList, compileStmtListWithFork, Pure.pure, Except.pure] at hOk
         subst out
         rfl
     | @cons head tail hHead hTail =>
-        simp only [compileStmtList, bind, Except.bind] at hOk
+        simp only [compileStmtList, compileStmtListWithFork, bind, Except.bind] at hOk
         cases hHeadCompile : compileStmt fields events errors dynamicSource
             internalRetNames false inScopeNames [] head with
-        | error err => simp [hHeadCompile] at hOk
+        | error err => simp [compileStmtWithFork_cancun_eq_compileStmt, compileStmtListWithFork_cancun_eq_compileStmtList, hHeadCompile] at hOk
         | ok headOut =>
-            simp [hHeadCompile] at hOk
+            simp [compileStmtWithFork_cancun_eq_compileStmt, compileStmtListWithFork_cancun_eq_compileStmtList, hHeadCompile] at hOk
             cases hTailCompile : compileStmtList fields events errors dynamicSource
                 internalRetNames false (collectStmtNames head ++ inScopeNames) [] tail with
-            | error err => simp [hTailCompile] at hOk
+            | error err => simp [compileStmtListWithFork_cancun_eq_compileStmtList, hTailCompile] at hOk
             | ok tailOut =>
-                simp [hTailCompile, Pure.pure, Except.pure] at hOk
+                simp [compileStmtListWithFork_cancun_eq_compileStmtList, hTailCompile, Pure.pure, Except.pure] at hOk
                 subst out
                 simp [
                   compileStmt_external_recursive_body_with_raw_log_noFuncDefs
@@ -8196,21 +4472,21 @@ mutual
     intro stmts hSource inScopeNames out hOk
     cases hSource with
     | nil =>
-        simp [compileStmtList, Pure.pure, Except.pure] at hOk
+        simp [compileStmtList, compileStmtListWithFork, Pure.pure, Except.pure] at hOk
         subst out
         rfl
     | @cons head tail hHead hTail =>
-        simp only [compileStmtList, bind, Except.bind] at hOk
+        simp only [compileStmtList, compileStmtListWithFork, bind, Except.bind] at hOk
         cases hHeadCompile : compileStmt fields events errors dynamicSource
             internalRetNames true inScopeNames [] head with
-        | error err => simp [hHeadCompile] at hOk
+        | error err => simp [compileStmtWithFork_cancun_eq_compileStmt, compileStmtListWithFork_cancun_eq_compileStmtList, hHeadCompile] at hOk
         | ok headOut =>
-            simp [hHeadCompile] at hOk
+            simp [compileStmtWithFork_cancun_eq_compileStmt, compileStmtListWithFork_cancun_eq_compileStmtList, hHeadCompile] at hOk
             cases hTailCompile : compileStmtList fields events errors dynamicSource
                 internalRetNames true (collectStmtNames head ++ inScopeNames) [] tail with
-            | error err => simp [hTailCompile] at hOk
+            | error err => simp [compileStmtListWithFork_cancun_eq_compileStmtList, hTailCompile] at hOk
             | ok tailOut =>
-                simp [hTailCompile, Pure.pure, Except.pure] at hOk
+                simp [compileStmtListWithFork_cancun_eq_compileStmtList, hTailCompile, Pure.pure, Except.pure] at hOk
                 subst out
                 simp [
                   compileStmt_internal_recursive_body_with_raw_log_noFuncDefs
@@ -8262,15 +4538,16 @@ theorem compileStmt_setMapping2_singleSlot_bridged
       BridgedStmts out := by
   intro out hOk
   simp only [compileStmt] at hOk
+  unfold compileStmtWithFork at hOk
   unfold compileSetMapping2 at hOk
   simp [hMapping2, hSlots] at hOk
-  cases hKey1Expr : compileExpr fields dynamicSource key1 with
+  cases hKey1Expr : compileExprWithInternals fields dynamicSource [] key1 with
   | error err => simp [hKey1Expr, bind, Except.bind] at hOk
   | ok key1Expr =>
-      cases hKey2Expr : compileExpr fields dynamicSource key2 with
+      cases hKey2Expr : compileExprWithInternals fields dynamicSource [] key2 with
       | error err => simp [hKey1Expr, hKey2Expr, bind, Except.bind] at hOk
       | ok key2Expr =>
-          cases hValueExpr : compileExpr fields dynamicSource value with
+          cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
           | error err => simp [hKey1Expr, hKey2Expr, hValueExpr, bind, Except.bind] at hOk
           | ok valueExpr =>
               simp [hKey1Expr, hKey2Expr, hValueExpr, bind, Except.bind] at hOk
@@ -8295,7 +4572,7 @@ theorem compileStmt_setMapping2_singleSlot_bridged
                   · subst hArg; exact BridgedExpr.lit slot
                   · subst hArg; exact hBridgedKey1
               exact BridgedStmt.straight _
-                (BridgedStraightStmt.expr_sstore_mapping _ key2Expr valueExpr
+                (bridgedStraightStmt_fieldStorageStore_mapping fields field _ key2Expr valueExpr
                   hInnerBridged hBridgedKey2 hBridgedValue)
 
 /-- Each statement in the double-mapping-write fragment compiles to Yul
@@ -8329,17 +4606,18 @@ theorem compileStmt_setMapping2_singleSlot_noFuncDefs
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
   simp only [compileStmt] at hOk
+  unfold compileStmtWithFork at hOk
   unfold compileSetMapping2 at hOk
   simp [hMapping2, hSlots] at hOk
-  cases hKey1Expr : compileExpr fields dynamicSource key1 with
+  cases hKey1Expr : compileExprWithInternals fields dynamicSource [] key1 with
   | error err =>
       simp [hKey1Expr, bind, Except.bind] at hOk
   | ok key1Expr =>
-      cases hKey2Expr : compileExpr fields dynamicSource key2 with
+      cases hKey2Expr : compileExprWithInternals fields dynamicSource [] key2 with
       | error err =>
           simp [hKey1Expr, hKey2Expr, bind, Except.bind] at hOk
       | ok key2Expr =>
-          cases hValueExpr : compileExpr fields dynamicSource value with
+          cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
           | error err =>
               simp [hKey1Expr, hKey2Expr, hValueExpr, bind, Except.bind] at hOk
           | ok valueExpr =>
@@ -8362,68 +4640,6 @@ theorem compileStmt_mappingWrite2_noFuncDefs
       exact compileStmt_setMapping2_singleSlot_noFuncDefs fields events errors
         dynamicSource internalRetNames isInternal inScopeNames field
         hMapping2 hSlots hOk
-
-theorem compileStmtList_mappingWrite2_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceMappingWrite2Stmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames isInternal (BridgedSourceMappingWrite2Stmt fields)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_mappingWrite2_noFuncDefs fields events errors dynamicSource
-        internalRetNames isInternal inScopeNames hStmt hOk)
-
-/-- Lists of single-slot double-mapping-write source statements compile to
-Yul lists satisfying `BridgedStmts`. -/
-theorem compileStmtList_mappingWrite2_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceMappingWrite2Stmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] head with
-      | error err =>
-          simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource internalRetNames
-              isInternal (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err =>
-              simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource : BridgedSourceMappingWrite2Stmt fields head :=
-                hSource head (by simp)
-              have hTailSource : BridgedSourceMappingWrite2Stmts fields tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_mappingWrite2_bridged fields events errors dynamicSource
-                  internalRetNames isInternal inScopeNames hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
 
 /-! ## Source statement body closure: single-slot `setStorageAddr`
 
@@ -8486,9 +4702,10 @@ theorem compileStmt_setStorageAddr_singleSlot_bridged
       BridgedStmts out := by
   intro out hOk
   simp only [compileStmt] at hOk
+  unfold compileStmtWithFork at hOk
   unfold compileSetStorage at hOk
   simp [hNotMapping, hFind, hAddrTy] at hOk
-  cases hExpr : compileExpr fields dynamicSource value with
+  cases hExpr : compileExprWithInternals fields dynamicSource [] value with
   | error err => simp [hExpr] at hOk
   | ok valueExpr =>
       simp [hExpr] at hOk
@@ -8509,7 +4726,8 @@ theorem compileStmt_setStorageAddr_singleSlot_bridged
       simp only [List.mem_singleton] at hMem
       subst yulStmt
       exact BridgedStmt.straight _
-        (BridgedStraightStmt.expr_sstore_lit slot _ hMasked)
+        (bridgedStraightStmt_storageStore_lit
+          f.isTransient slot _ hMasked)
 
 /-- Each statement in the setStorageAddr fragment compiles to Yul satisfying
 `BridgedStmts`. -/
@@ -8529,50 +4747,6 @@ theorem compileStmt_storageAddr_bridged
         dynamicSource internalRetNames isInternal inScopeNames field value f slot
         hValue hNotMapping hAddrTy hFind hOk
 
-/-- Lists of single-slot `setStorageAddr` source statements compile to Yul
-lists satisfying `BridgedStmts`. -/
-theorem compileStmtList_storageAddr_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceStorageAddrStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] head with
-      | error err => simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames isInternal (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err => simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource : BridgedSourceStorageAddrStmt fields head :=
-                hSource head (by simp)
-              have hTailSource : BridgedSourceStorageAddrStmts fields tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_storageAddr_bridged fields events errors dynamicSource
-                  internalRetNames isInternal inScopeNames hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
 theorem compileStmt_storageAddr_noFuncDefs
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
     (dynamicSource : DynamicDataSource) (internalRetNames : List String)
@@ -8586,30 +4760,15 @@ theorem compileStmt_storageAddr_noFuncDefs
   cases hStmt with
   | setStorageAddr field value f slot hValue hNotMapping hAddrTy hFind =>
       simp only [compileStmt] at hOk
+      unfold compileStmtWithFork at hOk
       unfold compileSetStorage at hOk
       simp [hNotMapping, hFind, hAddrTy] at hOk
-      cases hExpr : compileExpr fields dynamicSource value with
+      cases hExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err => simp [hExpr] at hOk
       | ok valueExpr =>
           simp [hExpr] at hOk
           subst out
           simp [Native.yulStmtContainsFuncDef]
-
-theorem compileStmtList_storageAddr_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceStorageAddrStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames isInternal (BridgedSourceStorageAddrStmt fields)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_storageAddr_noFuncDefs fields events errors dynamicSource
-        internalRetNames isInternal inScopeNames hStmt hOk)
 
 /-! ## Source statement body closure: single-slot `setStructMember`
 
@@ -8660,21 +4819,21 @@ theorem compileStmt_setStructMember_singleSlot_bridged
         inScopeNames [] (.setStructMember field key memberName value) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt, compileSetStructMember, hNotMapping2, hMembers,
+  simp only [compileStmt, compileStmtWithFork, compileSetStructMember, hNotMapping2, hMembers,
     hFindMember, hUnpacked, hWordOffset, bind, Except.bind,
     Bool.false_eq_true, if_false] at hOk
-  cases hKeyExpr : compileExpr fields dynamicSource key with
+  cases hKeyExpr : compileExprWithInternals fields dynamicSource [] key with
   | error err => simp [hKeyExpr, pure, Pure.pure, Except.pure] at hOk
   | ok keyExpr =>
-      cases hValueExpr : compileExpr fields dynamicSource value with
+      cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err => simp [hKeyExpr, hValueExpr, pure, Pure.pure, Except.pure] at hOk
       | ok valueExpr =>
-          simp [hKeyExpr, hValueExpr, pure, Pure.pure, Except.pure] at hOk
-          exact compileMappingSlotWrite_singleSlot_bridged fields field keyExpr
-            valueExpr s!"setStructMember.{memberName}"
-            (compileExpr_bridgedSource fields dynamicSource hKey hKeyExpr)
-            (compileExpr_bridgedSource fields dynamicSource hValue hValueExpr)
-            hMapping hSlots hOk
+            simp [hKeyExpr, hValueExpr, pure, Pure.pure, Except.pure] at hOk
+            exact compileMappingSlotWrite_singleSlot_bridged fields field keyExpr
+              valueExpr s!"setStructMember.{memberName}" true
+              (compileExpr_bridgedSource fields dynamicSource hKey hKeyExpr)
+              (compileExpr_bridgedSource fields dynamicSource hValue hValueExpr)
+              hMapping hSlots hOk
 
 /-- Each statement in the struct-member-write fragment compiles to Yul
 satisfying `BridgedStmts`. -/
@@ -8696,50 +4855,6 @@ theorem compileStmt_structMember_bridged
         members member hKey hValue hNotMapping2 hMembers hFindMember hUnpacked
         hWordOffset hMapping hSlots hOk
 
-/-- Lists of single-slot struct-member-write source statements compile to
-Yul lists satisfying `BridgedStmts`. -/
-theorem compileStmtList_structMember_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceStructMemberStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] head with
-      | error err => simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames isInternal (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err => simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource : BridgedSourceStructMemberStmt fields head :=
-                hSource head (by simp)
-              have hTailSource : BridgedSourceStructMemberStmts fields tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_structMember_bridged fields events errors dynamicSource
-                  internalRetNames isInternal inScopeNames hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
 theorem compileStmt_setStructMember_singleSlot_noFuncDefs
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
     (dynamicSource : DynamicDataSource) (internalRetNames : List String)
@@ -8759,19 +4874,19 @@ theorem compileStmt_setStructMember_singleSlot_noFuncDefs
         inScopeNames [] (.setStructMember field key memberName value) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt, compileSetStructMember, hNotMapping2, hMembers,
+  simp only [compileStmt, compileStmtWithFork, compileSetStructMember, hNotMapping2, hMembers,
     hFindMember, hUnpacked, hWordOffset, bind, Except.bind,
     Bool.false_eq_true, if_false] at hOk
-  cases hKeyExpr : compileExpr fields dynamicSource key with
+  cases hKeyExpr : compileExprWithInternals fields dynamicSource [] key with
   | error err => simp [hKeyExpr, pure, Pure.pure, Except.pure] at hOk
   | ok keyExpr =>
-      cases hValueExpr : compileExpr fields dynamicSource value with
+      cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err => simp [hKeyExpr, hValueExpr, pure, Pure.pure, Except.pure] at hOk
       | ok valueExpr =>
-          simp [hKeyExpr, hValueExpr, pure, Pure.pure, Except.pure] at hOk
-          exact compileMappingSlotWrite_singleSlot_noFuncDefs fields field
-            keyExpr valueExpr s!"setStructMember.{memberName}"
-            hMapping hSlots hOk
+            simp [hKeyExpr, hValueExpr, pure, Pure.pure, Except.pure] at hOk
+            exact compileMappingSlotWrite_singleSlot_noFuncDefs fields field
+              keyExpr valueExpr s!"setStructMember.{memberName}" true
+              hMapping hSlots hOk
 
 theorem compileStmt_structMember_noFuncDefs
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
@@ -8791,71 +4906,83 @@ theorem compileStmt_structMember_noFuncDefs
         members member hKey hValue hNotMapping2 hMembers hFindMember hUnpacked
         hWordOffset hMapping hSlots hOk
 
-theorem compileStmtList_structMember_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceStructMemberStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames isInternal (BridgedSourceStructMemberStmt fields)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_structMember_noFuncDefs fields events errors dynamicSource
-        internalRetNames isInternal inScopeNames hStmt hOk)
-
 private theorem compileMappingSlotWrite_singleSlot_nonzero_bridged
     (fields : List Field) (field : String) {slot wordOffset : Nat}
     (keyExpr valueExpr : YulExpr) (label : String)
+    (allowTransient : Bool)
     (hKey : BridgedExpr keyExpr) (hValue : BridgedExpr valueExpr)
     (hMapping : isMapping fields field = true)
     (hSlots : findFieldWriteSlots fields field = some [slot])
     (hNonzero : wordOffset ≠ 0) :
     ∀ {out : List YulStmt},
-      compileMappingSlotWrite fields field keyExpr valueExpr label wordOffset = .ok out →
+      compileMappingSlotWrite fields field keyExpr valueExpr label wordOffset allowTransient = .ok out →
       BridgedStmts out := by
-  intro out hOk
-  have hBeq : (wordOffset == 0) = false := by
-    cases wordOffset with
-    | zero => exact absurd rfl hNonzero
-    | succ n => rfl
-  simp [compileMappingSlotWrite, hMapping, hSlots, hBeq, Pure.pure, Except.pure] at hOk
-  subst hOk
-  intro yulStmt hMem
-  simp only [List.mem_singleton] at hMem
-  subst yulStmt
-  have hMappingExpr : BridgedExpr (.call "mappingSlot" [.lit slot, keyExpr]) := by
-    refine BridgedExpr.call "mappingSlot" _ (Or.inl (by simp [bridgedBuiltins])) ?_
-    intro arg hArg
-    simp only [List.mem_cons, List.not_mem_nil, or_false] at hArg
-    rcases hArg with rfl | rfl
-    · exact BridgedExpr.lit slot
-    · exact hKey
-  exact BridgedStmt.straight _
-    (BridgedStraightStmt.expr_sstore_add
-      (.call "mappingSlot" [.lit slot, keyExpr]) (.lit wordOffset) valueExpr
-      hMappingExpr (BridgedExpr.lit wordOffset) hValue)
+    intro out hOk
+    have hBeq : (wordOffset == 0) = false := by
+      cases wordOffset with
+      | zero => exact absurd rfl hNonzero
+      | succ n => rfl
+    cases allowTransient
+    · simp [compileMappingSlotWrite, hMapping, hSlots, hBeq, Pure.pure, Except.pure] at hOk
+      subst out
+      intro yulStmt hMem
+      simp only [List.mem_singleton] at hMem
+      subst yulStmt
+      exact BridgedStmt.straight _
+        (bridgedStraightStmt_maybeFieldStorageStore_add false fields field
+          (.call "mappingSlot" [.lit slot, keyExpr]) (.lit wordOffset)
+          valueExpr
+          (bridgedExpr_mappingSlot_local (BridgedExpr.lit slot) hKey)
+          (BridgedExpr.lit wordOffset) hValue)
+    · cases hField : findFieldWithResolvedSlot fields field with
+      | none =>
+          simp [compileMappingSlotWrite, hMapping, hSlots, hBeq, hField,
+            Pure.pure, Except.pure] at hOk
+      | some found =>
+          simp [compileMappingSlotWrite, hMapping, hSlots, hBeq, hField,
+            Pure.pure, Except.pure] at hOk
+          subst out
+          intro yulStmt hMem
+          simp only [List.mem_singleton] at hMem
+          subst yulStmt
+          exact BridgedStmt.straight _
+            (by
+              simpa [hField] using
+                bridgedStraightStmt_fieldStorageStore_add fields field
+                  (.call "mappingSlot" [.lit slot, keyExpr]) (.lit wordOffset)
+                  valueExpr
+                  (bridgedExpr_mappingSlot_local (BridgedExpr.lit slot) hKey)
+                  (BridgedExpr.lit wordOffset) hValue)
 
 private theorem compileMappingSlotWrite_singleSlot_nonzero_noFuncDefs
     (fields : List Field) (field : String) {slot wordOffset : Nat}
     (keyExpr valueExpr : YulExpr) (label : String)
+    (allowTransient : Bool)
     (hMapping : isMapping fields field = true)
     (hSlots : findFieldWriteSlots fields field = some [slot])
     (hNonzero : wordOffset ≠ 0) :
     ∀ {out : List YulStmt},
-      compileMappingSlotWrite fields field keyExpr valueExpr label wordOffset = .ok out →
+      compileMappingSlotWrite fields field keyExpr valueExpr label wordOffset allowTransient = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
-  intro out hOk
-  have hBeq : (wordOffset == 0) = false := by
-    cases wordOffset with
-    | zero => exact absurd rfl hNonzero
-    | succ n => rfl
-  simp [compileMappingSlotWrite, hMapping, hSlots, hBeq, Pure.pure, Except.pure] at hOk
-  subst hOk
-  simp [Native.yulStmtContainsFuncDef]
+    intro out hOk
+    have hBeq : (wordOffset == 0) = false := by
+      cases wordOffset with
+      | zero => exact absurd rfl hNonzero
+      | succ n => rfl
+    cases allowTransient
+    · simp [compileMappingSlotWrite, hMapping, hSlots, hBeq, Pure.pure,
+        Except.pure] at hOk
+      subst out
+      simp [Native.yulStmtContainsFuncDef]
+    · cases hField : findFieldWithResolvedSlot fields field with
+      | none =>
+          simp [compileMappingSlotWrite, hMapping, hSlots, hBeq, hField,
+            Pure.pure, Except.pure] at hOk
+      | some found =>
+          simp [compileMappingSlotWrite, hMapping, hSlots, hBeq, hField,
+            Pure.pure, Except.pure] at hOk
+          subst out
+          simp [Native.yulStmtContainsFuncDef]
 
 /-! ## Source statement body closure: single-slot `setStructMember`
 (wordOffset ≠ 0) -/
@@ -8900,18 +5027,18 @@ theorem compileStmt_setStructMember_singleSlot_nonzero_bridged
         inScopeNames [] (.setStructMember field key memberName value) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt, compileSetStructMember, hNotMapping2, hMembers,
+  simp only [compileStmt, compileStmtWithFork, compileSetStructMember, hNotMapping2, hMembers,
     hFindMember, hUnpacked, bind, Except.bind, Bool.false_eq_true,
     if_false] at hOk
-  cases hKeyExpr : compileExpr fields dynamicSource key with
+  cases hKeyExpr : compileExprWithInternals fields dynamicSource [] key with
   | error err => simp [hKeyExpr, pure, Pure.pure, Except.pure] at hOk
   | ok keyExpr =>
-      cases hValueExpr : compileExpr fields dynamicSource value with
+      cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err => simp [hKeyExpr, hValueExpr, pure, Pure.pure, Except.pure] at hOk
       | ok valueExpr =>
           simp [hKeyExpr, hValueExpr, pure, Pure.pure, Except.pure] at hOk
           exact compileMappingSlotWrite_singleSlot_nonzero_bridged fields field
-            keyExpr valueExpr s!"setStructMember.{memberName}"
+            keyExpr valueExpr s!"setStructMember.{memberName}" true
             (compileExpr_bridgedSource fields dynamicSource hKey hKeyExpr)
             (compileExpr_bridgedSource fields dynamicSource hValue hValueExpr)
             hMapping hSlots hNonzero hOk
@@ -8953,18 +5080,18 @@ theorem compileStmt_setStructMember_singleSlot_nonzero_noFuncDefs
         inScopeNames [] (.setStructMember field key memberName value) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt, compileSetStructMember, hNotMapping2, hMembers,
+  simp only [compileStmt, compileStmtWithFork, compileSetStructMember, hNotMapping2, hMembers,
     hFindMember, hUnpacked, bind, Except.bind, Bool.false_eq_true,
     if_false] at hOk
-  cases hKeyExpr : compileExpr fields dynamicSource key with
+  cases hKeyExpr : compileExprWithInternals fields dynamicSource [] key with
   | error err => simp [hKeyExpr, pure, Pure.pure, Except.pure] at hOk
   | ok keyExpr =>
-      cases hValueExpr : compileExpr fields dynamicSource value with
+      cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err => simp [hKeyExpr, hValueExpr, pure, Pure.pure, Except.pure] at hOk
       | ok valueExpr =>
           simp [hKeyExpr, hValueExpr, pure, Pure.pure, Except.pure] at hOk
           exact compileMappingSlotWrite_singleSlot_nonzero_noFuncDefs fields field
-            keyExpr valueExpr s!"setStructMember.{memberName}"
+            keyExpr valueExpr s!"setStructMember.{memberName}" true
             hMapping hSlots hNonzero hOk
 
 theorem compileStmt_structMemberNonzero_noFuncDefs
@@ -8984,65 +5111,6 @@ theorem compileStmt_structMemberNonzero_noFuncDefs
         errors dynamicSource internalRetNames isInternal inScopeNames field
         memberName members member hKey hValue hNotMapping2 hMembers hFindMember
         hUnpacked hNonzero hMapping hSlots hOk
-
-theorem compileStmtList_structMemberNonzero_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceStructMemberNonzeroStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] head with
-      | error err => simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames isInternal (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err => simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource : BridgedSourceStructMemberNonzeroStmt fields head :=
-                hSource head (by simp)
-              have hTailSource : BridgedSourceStructMemberNonzeroStmts fields tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_structMemberNonzero_bridged fields events errors
-                  dynamicSource internalRetNames isInternal inScopeNames
-                  hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-theorem compileStmtList_structMemberNonzero_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceStructMemberNonzeroStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames isInternal (BridgedSourceStructMemberNonzeroStmt fields)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_structMemberNonzero_noFuncDefs fields events errors
-        dynamicSource internalRetNames isInternal inScopeNames hStmt hOk)
 
 /-! ## Source statement body closure: single-slot `setStructMember2`
 
@@ -9096,15 +5164,16 @@ theorem compileStmt_setStructMember2_singleSlot_bridged
       BridgedStmts out := by
   intro out hOk
   simp only [compileStmt] at hOk
+  unfold compileStmtWithFork at hOk
   unfold compileSetStructMember2 at hOk
   simp [hMapping2, hMembers, hFindMember, hUnpacked, hWordOffset, hSlots] at hOk
-  cases hKey1Expr : compileExpr fields dynamicSource key1 with
+  cases hKey1Expr : compileExprWithInternals fields dynamicSource [] key1 with
   | error err => simp [hKey1Expr, bind, Except.bind] at hOk
   | ok key1Expr =>
-      cases hKey2Expr : compileExpr fields dynamicSource key2 with
+      cases hKey2Expr : compileExprWithInternals fields dynamicSource [] key2 with
       | error err => simp [hKey1Expr, hKey2Expr, bind, Except.bind] at hOk
       | ok key2Expr =>
-          cases hValueExpr : compileExpr fields dynamicSource value with
+          cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
           | error err => simp [hKey1Expr, hKey2Expr, hValueExpr, bind, Except.bind] at hOk
           | ok valueExpr =>
               simp [hKey1Expr, hKey2Expr, hValueExpr, bind, Except.bind] at hOk
@@ -9120,16 +5189,10 @@ theorem compileStmt_setStructMember2_singleSlot_bridged
                 compileExpr_bridgedSource fields dynamicSource hValue hValueExpr
               have hInnerBridged : BridgedExpr
                   (Compiler.Yul.YulExpr.call "mappingSlot"
-                    [Compiler.Yul.YulExpr.lit slot, key1Expr]) := by
-                apply BridgedExpr.call
-                · exact Or.inl (by decide)
-                · intro arg hArg
-                  simp only [List.mem_cons, List.not_mem_nil, or_false] at hArg
-                  rcases hArg with hArg | hArg
-                  · subst hArg; exact BridgedExpr.lit slot
-                  · subst hArg; exact hBridgedKey1
+                    [Compiler.Yul.YulExpr.lit slot, key1Expr]) :=
+                bridgedExpr_mappingSlot_local (BridgedExpr.lit slot) hBridgedKey1
               exact BridgedStmt.straight _
-                (BridgedStraightStmt.expr_sstore_mapping _ key2Expr valueExpr
+                (bridgedStraightStmt_fieldStorageStore_mapping fields field _ key2Expr valueExpr
                   hInnerBridged hBridgedKey2 hBridgedValue)
 
 /-- Each statement in the struct-member2-write fragment compiles to Yul
@@ -9152,50 +5215,6 @@ theorem compileStmt_structMember2_bridged
         members member hKey1 hKey2 hValue hMapping2 hMembers hFindMember hUnpacked
         hWordOffset hSlots hOk
 
-/-- Lists of single-slot struct-member2-write source statements compile
-to Yul lists satisfying `BridgedStmts`. -/
-theorem compileStmtList_structMember2_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceStructMember2Stmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] head with
-      | error err => simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames isInternal (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err => simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource : BridgedSourceStructMember2Stmt fields head :=
-                hSource head (by simp)
-              have hTailSource : BridgedSourceStructMember2Stmts fields tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_structMember2_bridged fields events errors dynamicSource
-                  internalRetNames isInternal inScopeNames hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
 theorem compileStmt_setStructMember2_singleSlot_noFuncDefs
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
     (dynamicSource : DynamicDataSource) (internalRetNames : List String)
@@ -9216,15 +5235,16 @@ theorem compileStmt_setStructMember2_singleSlot_noFuncDefs
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
   simp only [compileStmt] at hOk
+  unfold compileStmtWithFork at hOk
   unfold compileSetStructMember2 at hOk
   simp [hMapping2, hMembers, hFindMember, hUnpacked, hWordOffset, hSlots] at hOk
-  cases hKey1Expr : compileExpr fields dynamicSource key1 with
+  cases hKey1Expr : compileExprWithInternals fields dynamicSource [] key1 with
   | error err => simp [hKey1Expr, bind, Except.bind] at hOk
   | ok key1Expr =>
-      cases hKey2Expr : compileExpr fields dynamicSource key2 with
+      cases hKey2Expr : compileExprWithInternals fields dynamicSource [] key2 with
       | error err => simp [hKey1Expr, hKey2Expr, bind, Except.bind] at hOk
       | ok key2Expr =>
-          cases hValueExpr : compileExpr fields dynamicSource value with
+          cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
           | error err => simp [hKey1Expr, hKey2Expr, hValueExpr, bind, Except.bind] at hOk
           | ok valueExpr =>
               simp [hKey1Expr, hKey2Expr, hValueExpr, bind, Except.bind] at hOk
@@ -9248,22 +5268,6 @@ theorem compileStmt_structMember2_noFuncDefs
         dynamicSource internalRetNames isInternal inScopeNames field memberName
         members member hKey1 hKey2 hValue hMapping2 hMembers hFindMember hUnpacked
         hWordOffset hSlots hOk
-
-theorem compileStmtList_structMember2_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceStructMember2Stmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames isInternal (BridgedSourceStructMember2Stmt fields)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_structMember2_noFuncDefs fields events errors dynamicSource
-        internalRetNames isInternal inScopeNames hStmt hOk)
 
 /-! ## Source statement body closure: single-slot `setStructMember2`
 (wordOffset ≠ 0) -/
@@ -9312,15 +5316,16 @@ theorem compileStmt_setStructMember2_singleSlot_nonzero_bridged
     rw [beq_eq_false_iff_ne]
     exact hNonzero
   simp only [compileStmt] at hOk
+  unfold compileStmtWithFork at hOk
   unfold compileSetStructMember2 at hOk
   simp [hMapping2, hMembers, hFindMember, hUnpacked, hBeq, hSlots] at hOk
-  cases hKey1Expr : compileExpr fields dynamicSource key1 with
+  cases hKey1Expr : compileExprWithInternals fields dynamicSource [] key1 with
   | error err => simp [hKey1Expr, bind, Except.bind] at hOk
   | ok key1Expr =>
-      cases hKey2Expr : compileExpr fields dynamicSource key2 with
+      cases hKey2Expr : compileExprWithInternals fields dynamicSource [] key2 with
       | error err => simp [hKey1Expr, hKey2Expr, bind, Except.bind] at hOk
       | ok key2Expr =>
-          cases hValueExpr : compileExpr fields dynamicSource value with
+          cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
           | error err => simp [hKey1Expr, hKey2Expr, hValueExpr, bind, Except.bind] at hOk
           | ok valueExpr =>
               simp [hKey1Expr, hKey2Expr, hValueExpr, bind, Except.bind] at hOk
@@ -9357,7 +5362,8 @@ theorem compileStmt_setStructMember2_singleSlot_nonzero_bridged
                 · exact hInnerBridged
                 · exact hBridgedKey2
               exact BridgedStmt.straight _
-                (BridgedStraightStmt.expr_sstore_add _ (.lit member.wordOffset)
+                (bridgedStraightStmt_fieldStorageStore_add fields field _
+                  (.lit member.wordOffset)
                   valueExpr hOuterBridged (BridgedExpr.lit member.wordOffset)
                   hBridgedValue)
 
@@ -9402,15 +5408,16 @@ theorem compileStmt_setStructMember2_singleSlot_nonzero_noFuncDefs
     rw [beq_eq_false_iff_ne]
     exact hNonzero
   simp only [compileStmt] at hOk
+  unfold compileStmtWithFork at hOk
   unfold compileSetStructMember2 at hOk
   simp [hMapping2, hMembers, hFindMember, hUnpacked, hBeq, hSlots] at hOk
-  cases hKey1Expr : compileExpr fields dynamicSource key1 with
+  cases hKey1Expr : compileExprWithInternals fields dynamicSource [] key1 with
   | error err => simp [hKey1Expr, bind, Except.bind] at hOk
   | ok key1Expr =>
-      cases hKey2Expr : compileExpr fields dynamicSource key2 with
+      cases hKey2Expr : compileExprWithInternals fields dynamicSource [] key2 with
       | error err => simp [hKey1Expr, hKey2Expr, bind, Except.bind] at hOk
       | ok key2Expr =>
-          cases hValueExpr : compileExpr fields dynamicSource value with
+          cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
           | error err => simp [hKey1Expr, hKey2Expr, hValueExpr, bind, Except.bind] at hOk
           | ok valueExpr =>
               simp [hKey1Expr, hKey2Expr, hValueExpr, bind, Except.bind] at hOk
@@ -9434,67 +5441,6 @@ theorem compileStmt_structMember2Nonzero_noFuncDefs
         events errors dynamicSource internalRetNames isInternal inScopeNames
         field memberName members member hKey1 hKey2 hValue hMapping2 hMembers
         hFindMember hUnpacked hNonzero hSlots hOk
-
-theorem compileStmtList_structMember2Nonzero_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceStructMember2NonzeroStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] head with
-      | error err => simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames isInternal (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err => simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource :
-                  BridgedSourceStructMember2NonzeroStmt fields head :=
-                hSource head (by simp)
-              have hTailSource :
-                  BridgedSourceStructMember2NonzeroStmts fields tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_structMember2Nonzero_bridged fields events errors
-                  dynamicSource internalRetNames isInternal inScopeNames
-                  hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-theorem compileStmtList_structMember2Nonzero_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceStructMember2NonzeroStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames isInternal (BridgedSourceStructMember2NonzeroStmt fields)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_structMember2Nonzero_noFuncDefs fields events errors
-        dynamicSource internalRetNames isInternal inScopeNames hStmt hOk)
 
 /-! ## Source statement body closure: single-slot `setMappingWord`
 (wordOffset=0)
@@ -9538,19 +5484,19 @@ theorem compileStmt_setMappingWord_singleSlot_bridged
       BridgedStmts out := by
   intro out hOk
   subst hWordOffset
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hKeyExpr : compileExpr fields dynamicSource key with
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+  cases hKeyExpr : compileExprWithInternals fields dynamicSource [] key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
-      cases hValueExpr : compileExpr fields dynamicSource value with
+      cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err => simp [hKeyExpr, hValueExpr] at hOk
       | ok valueExpr =>
-          simp [hKeyExpr, hValueExpr] at hOk
-          exact compileMappingSlotWrite_singleSlot_bridged fields field keyExpr
-            valueExpr "setMappingWord"
-            (compileExpr_bridgedSource fields dynamicSource hKey hKeyExpr)
-            (compileExpr_bridgedSource fields dynamicSource hValue hValueExpr)
-            hMapping hSlots hOk
+            simp [hKeyExpr, hValueExpr] at hOk
+            exact compileMappingSlotWrite_singleSlot_bridged fields field keyExpr
+              valueExpr "setMappingWord" true
+              (compileExpr_bridgedSource fields dynamicSource hKey hKeyExpr)
+              (compileExpr_bridgedSource fields dynamicSource hValue hValueExpr)
+              hMapping hSlots hOk
 
 /-- Each statement in the mappingWord-write fragment compiles to Yul
 satisfying `BridgedStmts`. -/
@@ -9570,50 +5516,6 @@ theorem compileStmt_mappingWord_bridged
         dynamicSource internalRetNames isInternal inScopeNames field wordOffset
         hKey hValue hMapping hSlots hWordOffset hOk
 
-/-- Lists of single-slot mappingWord-write source statements compile
-to Yul lists satisfying `BridgedStmts`. -/
-theorem compileStmtList_mappingWord_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceMappingWordStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] head with
-      | error err => simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames isInternal (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err => simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource : BridgedSourceMappingWordStmt fields head :=
-                hSource head (by simp)
-              have hTailSource : BridgedSourceMappingWordStmts fields tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_mappingWord_bridged fields events errors dynamicSource
-                  internalRetNames isInternal inScopeNames hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
 theorem compileStmt_setMappingWord_singleSlot_noFuncDefs
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
     (dynamicSource : DynamicDataSource) (internalRetNames : List String)
@@ -9629,16 +5531,16 @@ theorem compileStmt_setMappingWord_singleSlot_noFuncDefs
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
   subst hWordOffset
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hKeyExpr : compileExpr fields dynamicSource key with
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+  cases hKeyExpr : compileExprWithInternals fields dynamicSource [] key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
-      cases hValueExpr : compileExpr fields dynamicSource value with
+      cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err => simp [hKeyExpr, hValueExpr] at hOk
       | ok valueExpr =>
-          simp [hKeyExpr, hValueExpr] at hOk
-          exact compileMappingSlotWrite_singleSlot_noFuncDefs fields field
-            keyExpr valueExpr "setMappingWord" hMapping hSlots hOk
+            simp [hKeyExpr, hValueExpr] at hOk
+            exact compileMappingSlotWrite_singleSlot_noFuncDefs fields field
+              keyExpr valueExpr "setMappingWord" true hMapping hSlots hOk
 
 theorem compileStmt_mappingWord_noFuncDefs
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
@@ -9655,22 +5557,6 @@ theorem compileStmt_mappingWord_noFuncDefs
       exact compileStmt_setMappingWord_singleSlot_noFuncDefs fields events errors
         dynamicSource internalRetNames isInternal inScopeNames field wordOffset
         hKey hValue hMapping hSlots hWordOffset hOk
-
-theorem compileStmtList_mappingWord_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceMappingWordStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames isInternal (BridgedSourceMappingWordStmt fields)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_mappingWord_noFuncDefs fields events errors dynamicSource
-        internalRetNames isInternal inScopeNames hStmt hOk)
 
 /-! ## Source statement body closure: single-slot `setMapping2Word`
 (wordOffset=0)
@@ -9717,15 +5603,16 @@ theorem compileStmt_setMapping2Word_singleSlot_bridged
   intro out hOk
   subst hWordOffset
   simp only [compileStmt] at hOk
+  unfold compileStmtWithFork at hOk
   unfold compileSetMapping2Word at hOk
   simp [hMapping2, hSlots] at hOk
-  cases hKey1Expr : compileExpr fields dynamicSource key1 with
+  cases hKey1Expr : compileExprWithInternals fields dynamicSource [] key1 with
   | error err => simp [hKey1Expr, bind, Except.bind] at hOk
   | ok key1Expr =>
-      cases hKey2Expr : compileExpr fields dynamicSource key2 with
+      cases hKey2Expr : compileExprWithInternals fields dynamicSource [] key2 with
       | error err => simp [hKey1Expr, hKey2Expr, bind, Except.bind] at hOk
       | ok key2Expr =>
-          cases hValueExpr : compileExpr fields dynamicSource value with
+          cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
           | error err => simp [hKey1Expr, hKey2Expr, hValueExpr, bind, Except.bind] at hOk
           | ok valueExpr =>
               simp [hKey1Expr, hKey2Expr, hValueExpr, bind, Except.bind] at hOk
@@ -9750,7 +5637,7 @@ theorem compileStmt_setMapping2Word_singleSlot_bridged
                   · subst hArg; exact BridgedExpr.lit slot
                   · subst hArg; exact hBridgedKey1
               exact BridgedStmt.straight _
-                (BridgedStraightStmt.expr_sstore_mapping _ key2Expr valueExpr
+                (bridgedStraightStmt_fieldStorageStore_mapping fields field _ key2Expr valueExpr
                   hInnerBridged hBridgedKey2 hBridgedValue)
 
 /-- Each statement in the mapping2Word-write fragment compiles to Yul
@@ -9771,50 +5658,6 @@ theorem compileStmt_mapping2Word_bridged
         dynamicSource internalRetNames isInternal inScopeNames field wordOffset
         hKey1 hKey2 hValue hMapping2 hSlots hWordOffset hOk
 
-/-- Lists of single-slot mapping2Word-write source statements compile
-to Yul lists satisfying `BridgedStmts`. -/
-theorem compileStmtList_mapping2Word_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceMapping2WordStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] head with
-      | error err => simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames isInternal (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err => simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource : BridgedSourceMapping2WordStmt fields head :=
-                hSource head (by simp)
-              have hTailSource : BridgedSourceMapping2WordStmts fields tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_mapping2Word_bridged fields events errors dynamicSource
-                  internalRetNames isInternal inScopeNames hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
 theorem compileStmt_setMapping2Word_singleSlot_noFuncDefs
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
     (dynamicSource : DynamicDataSource) (internalRetNames : List String)
@@ -9832,15 +5675,16 @@ theorem compileStmt_setMapping2Word_singleSlot_noFuncDefs
   intro out hOk
   subst hWordOffset
   simp only [compileStmt] at hOk
+  unfold compileStmtWithFork at hOk
   unfold compileSetMapping2Word at hOk
   simp [hMapping2, hSlots] at hOk
-  cases hKey1Expr : compileExpr fields dynamicSource key1 with
+  cases hKey1Expr : compileExprWithInternals fields dynamicSource [] key1 with
   | error err => simp [hKey1Expr, bind, Except.bind] at hOk
   | ok key1Expr =>
-      cases hKey2Expr : compileExpr fields dynamicSource key2 with
+      cases hKey2Expr : compileExprWithInternals fields dynamicSource [] key2 with
       | error err => simp [hKey1Expr, hKey2Expr, bind, Except.bind] at hOk
       | ok key2Expr =>
-          cases hValueExpr : compileExpr fields dynamicSource value with
+          cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
           | error err => simp [hKey1Expr, hKey2Expr, hValueExpr, bind, Except.bind] at hOk
           | ok valueExpr =>
               simp [hKey1Expr, hKey2Expr, hValueExpr, bind, Except.bind] at hOk
@@ -9864,22 +5708,6 @@ theorem compileStmt_mapping2Word_noFuncDefs
         dynamicSource internalRetNames isInternal inScopeNames field wordOffset
         hKey1 hKey2 hValue hMapping2 hSlots hWordOffset hOk
 
-theorem compileStmtList_mapping2Word_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceMapping2WordStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames isInternal (BridgedSourceMapping2WordStmt fields)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_mapping2Word_noFuncDefs fields events errors dynamicSource
-        internalRetNames isInternal inScopeNames hStmt hOk)
-
 /-! ## Source statement body closure: external `returnValues []`
 
 `Stmt.returnValues []` with `isInternal = false` compiles to
@@ -9892,133 +5720,6 @@ is empty, so this is a fixed-shape single-statement emission. -/
 inductive BridgedSourceReturnValuesEmptyStmt : Stmt → Prop
   | returnValuesEmpty : BridgedSourceReturnValuesEmptyStmt (.returnValues [])
 
-def BridgedSourceReturnValuesEmptyStmts (stmts : List Stmt) : Prop :=
-  ∀ stmt ∈ stmts, BridgedSourceReturnValuesEmptyStmt stmt
-
-/-- An external `Stmt.returnValues []` compiles to a single-statement Yul
-list satisfying `BridgedStmts`. -/
-private theorem compileStmt_returnValuesEmpty_external_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (inScopeNames : List String) :
-    ∀ {out : List YulStmt},
-      compileStmt fields events errors dynamicSource internalRetNames
-        (isInternal := false) inScopeNames [] (.returnValues []) = .ok out →
-      BridgedStmts out := by
-  intro out hOk
-  simp [compileStmt, Pure.pure, Except.pure] at hOk
-  subst hOk
-  intro yulStmt hMem
-  simp only [List.mem_singleton] at hMem
-  subst yulStmt
-  exact BridgedStmt.straight _
-    (BridgedStraightStmt.expr_return (.lit 0) (.lit 0)
-      (BridgedExpr.lit 0) (BridgedExpr.lit 0))
-
-private theorem compileStmt_returnValuesEmpty_external_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (inScopeNames : List String) :
-    ∀ {out : List YulStmt},
-      compileStmt fields events errors dynamicSource internalRetNames
-        (isInternal := false) inScopeNames [] (.returnValues []) = .ok out →
-      Native.yulStmtsContainFuncDef out = false := by
-  intro out hOk
-  simp [compileStmt, Pure.pure, Except.pure, Native.yulStmtContainsFuncDef]
-    at hOk
-  subst out
-  simp [Native.yulStmtContainsFuncDef]
-
-/-- Each statement in the empty-returnValues external fragment compiles to
-Yul satisfying `BridgedStmts`. -/
-theorem compileStmt_returnValuesEmpty_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (inScopeNames : List String) :
-    ∀ {stmt : Stmt}, BridgedSourceReturnValuesEmptyStmt stmt →
-      ∀ {out : List YulStmt},
-        compileStmt fields events errors dynamicSource internalRetNames
-          (isInternal := false) inScopeNames [] stmt = .ok out →
-        BridgedStmts out := by
-  intro stmt hStmt out hOk
-  cases hStmt with
-  | returnValuesEmpty =>
-      exact compileStmt_returnValuesEmpty_external_bridged fields events errors
-        dynamicSource internalRetNames inScopeNames hOk
-
-theorem compileStmt_returnValuesEmpty_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (inScopeNames : List String) :
-    ∀ {stmt : Stmt}, BridgedSourceReturnValuesEmptyStmt stmt →
-      ∀ {out : List YulStmt},
-        compileStmt fields events errors dynamicSource internalRetNames
-          (isInternal := false) inScopeNames [] stmt = .ok out →
-        Native.yulStmtsContainFuncDef out = false := by
-  intro stmt hStmt out hOk
-  cases hStmt with
-  | returnValuesEmpty =>
-      exact compileStmt_returnValuesEmpty_external_noFuncDefs fields events errors
-        dynamicSource internalRetNames inScopeNames hOk
-
-/-- Lists of external empty-returnValues source statements compile to Yul
-lists satisfying `BridgedStmts`. -/
-theorem compileStmtList_returnValuesEmpty_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceReturnValuesEmptyStmts stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          (isInternal := false) inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          false inScopeNames [] head with
-      | error err => simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames false (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err => simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource : BridgedSourceReturnValuesEmptyStmt head :=
-                hSource head (by simp)
-              have hTailSource : BridgedSourceReturnValuesEmptyStmts tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_returnValuesEmpty_bridged fields events errors
-                  dynamicSource internalRetNames inScopeNames hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-theorem compileStmtList_returnValuesEmpty_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceReturnValuesEmptyStmts stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          (isInternal := false) inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames false BridgedSourceReturnValuesEmptyStmt
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_returnValuesEmpty_noFuncDefs fields events errors dynamicSource
-        internalRetNames inScopeNames hStmt hOk)
-
 /-! ## Source statement body closure: internal `returnValues []`
 
 `Stmt.returnValues []` with `isInternal = true` and `internalRetNames = []`
@@ -10030,128 +5731,6 @@ compiles to `[leave]`, matching `BridgedStraightStmt.leave`. The
 inductive BridgedSourceReturnValuesEmptyInternalStmt : Stmt → Prop
   | returnValuesEmptyInternal :
       BridgedSourceReturnValuesEmptyInternalStmt (.returnValues [])
-
-def BridgedSourceReturnValuesEmptyInternalStmts (stmts : List Stmt) : Prop :=
-  ∀ stmt ∈ stmts, BridgedSourceReturnValuesEmptyInternalStmt stmt
-
-/-- An internal zero-arity `Stmt.returnValues []` (with empty
-`internalRetNames`) compiles to a single-statement Yul list satisfying
-`BridgedStmts`. -/
-private theorem compileStmt_returnValuesEmpty_internal_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (inScopeNames : List String) :
-    ∀ {out : List YulStmt},
-      compileStmt fields events errors dynamicSource (internalRetNames := [])
-        (isInternal := true) inScopeNames [] (.returnValues []) = .ok out →
-      BridgedStmts out := by
-  intro out hOk
-  simp [compileStmt, compileExprList, bind, Except.bind, Pure.pure, Except.pure] at hOk
-  subst hOk
-  intro yulStmt hMem
-  simp only [List.mem_singleton] at hMem
-  subst yulStmt
-  exact BridgedStmt.straight _ BridgedStraightStmt.leave
-
-private theorem compileStmt_returnValuesEmpty_internal_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (inScopeNames : List String) :
-    ∀ {out : List YulStmt},
-      compileStmt fields events errors dynamicSource (internalRetNames := [])
-        (isInternal := true) inScopeNames [] (.returnValues []) = .ok out →
-      Native.yulStmtsContainFuncDef out = false := by
-  intro out hOk
-  simp [compileStmt, compileExprList, bind, Except.bind, Pure.pure,
-    Except.pure, Native.yulStmtContainsFuncDef] at hOk
-  subst out
-  simp [Native.yulStmtContainsFuncDef]
-
-/-- Each statement in the empty-returnValues internal fragment compiles to
-Yul satisfying `BridgedStmts`. -/
-theorem compileStmt_returnValuesEmpty_internal_fragment_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (inScopeNames : List String) :
-    ∀ {stmt : Stmt}, BridgedSourceReturnValuesEmptyInternalStmt stmt →
-      ∀ {out : List YulStmt},
-        compileStmt fields events errors dynamicSource (internalRetNames := [])
-          (isInternal := true) inScopeNames [] stmt = .ok out →
-        BridgedStmts out := by
-  intro stmt hStmt out hOk
-  cases hStmt with
-  | returnValuesEmptyInternal =>
-      exact compileStmt_returnValuesEmpty_internal_bridged fields events errors
-        dynamicSource inScopeNames hOk
-
-theorem compileStmt_returnValuesEmpty_internal_fragment_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (inScopeNames : List String) :
-    ∀ {stmt : Stmt}, BridgedSourceReturnValuesEmptyInternalStmt stmt →
-      ∀ {out : List YulStmt},
-        compileStmt fields events errors dynamicSource (internalRetNames := [])
-          (isInternal := true) inScopeNames [] stmt = .ok out →
-        Native.yulStmtsContainFuncDef out = false := by
-  intro stmt hStmt out hOk
-  cases hStmt with
-  | returnValuesEmptyInternal =>
-      exact compileStmt_returnValuesEmpty_internal_noFuncDefs fields events errors
-        dynamicSource inScopeNames hOk
-
-/-- Lists of internal empty-returnValues source statements compile to Yul
-lists satisfying `BridgedStmts`. -/
-theorem compileStmtList_returnValuesEmpty_internal_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceReturnValuesEmptyInternalStmts stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource (internalRetNames := [])
-          (isInternal := true) inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource []
-          true inScopeNames [] head with
-      | error err => simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              [] true (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err => simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource : BridgedSourceReturnValuesEmptyInternalStmt head :=
-                hSource head (by simp)
-              have hTailSource : BridgedSourceReturnValuesEmptyInternalStmts tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_returnValuesEmpty_internal_fragment_bridged fields events
-                  errors dynamicSource inScopeNames hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-theorem compileStmtList_returnValuesEmpty_internal_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceReturnValuesEmptyInternalStmts stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource (internalRetNames := [])
-          (isInternal := true) inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    [] true BridgedSourceReturnValuesEmptyInternalStmt
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_returnValuesEmpty_internal_fragment_noFuncDefs fields events
-        errors dynamicSource inScopeNames hStmt hOk)
 
 /-! ## Source statement body closure: internal non-empty `returnValues`
 
@@ -10243,9 +5822,9 @@ private theorem compileStmt_returnValuesInternal_bridged
   intro out hOk
   have hLenFalse : (values.length != internalRetNames.length) = false := by
     simp [hLen]
-  simp only [compileStmt, hLenFalse, bind, Except.bind,
+  simp only [compileStmt, compileStmtWithFork, hLenFalse, bind, Except.bind,
     Pure.pure, Except.pure] at hOk
-  cases hCompiled : compileExprList fields dynamicSource values with
+  cases hCompiled : compileExprListWithInternals fields dynamicSource [] values with
   | error err => simp [hCompiled] at hOk
   | ok compiled =>
       simp [hCompiled] at hOk
@@ -10268,9 +5847,9 @@ private theorem compileStmt_returnValuesInternal_noFuncDefs
   intro out hOk
   have hLenFalse : (values.length != internalRetNames.length) = false := by
     simp [hLen]
-  simp only [compileStmt, hLenFalse, bind, Except.bind,
+  simp only [compileStmt, compileStmtWithFork, hLenFalse, bind, Except.bind,
     Pure.pure, Except.pure] at hOk
-  cases hCompiled : compileExprList fields dynamicSource values with
+  cases hCompiled : compileExprListWithInternals fields dynamicSource [] values with
   | error err => simp [hCompiled] at hOk
   | ok compiled =>
       simp [hCompiled, Native.yulStmtContainsFuncDef] at hOk
@@ -10311,67 +5890,6 @@ theorem compileStmt_returnValuesInternal_fragment_noFuncDefs
   | returnValuesInternal values hValues hLen =>
       exact compileStmt_returnValuesInternal_noFuncDefs fields events errors
         dynamicSource internalRetNames inScopeNames values hLen hOk
-
-/-- Lists of internal non-empty `returnValues` source statements (all sharing
-the same `internalRetNames` arity) compile to Yul lists satisfying
-`BridgedStmts`. -/
-theorem compileStmtList_returnValuesInternal_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceReturnValuesInternalStmts internalRetNames stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          (isInternal := true) inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          true inScopeNames [] head with
-      | error err => simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames true (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err => simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource :
-                  BridgedSourceReturnValuesInternalStmt internalRetNames head :=
-                hSource head (by simp)
-              have hTailSource :
-                  BridgedSourceReturnValuesInternalStmts internalRetNames tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_returnValuesInternal_fragment_bridged fields events errors
-                  dynamicSource internalRetNames inScopeNames hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-theorem compileStmtList_returnValuesInternal_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceReturnValuesInternalStmts internalRetNames stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          (isInternal := true) inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames true (BridgedSourceReturnValuesInternalStmt internalRetNames)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_returnValuesInternal_fragment_noFuncDefs fields events errors
-        dynamicSource internalRetNames inScopeNames hStmt hOk)
 
 /-! ## Source statement body closure: external general `returnValues`
 
@@ -10462,7 +5980,7 @@ private theorem compileStmt_returnValuesExternal_bridged
   intro out hOk
   by_cases hValuesNil : values = []
   · subst hValuesNil
-    simp [compileStmt, Pure.pure, Except.pure] at hOk
+    simp [compileStmt, compileStmtWithFork, Pure.pure, Except.pure] at hOk
     subst hOk
     intro yulStmt hMem
     simp only [List.mem_singleton] at hMem
@@ -10472,9 +5990,9 @@ private theorem compileStmt_returnValuesExternal_bridged
         (BridgedExpr.lit 0) (BridgedExpr.lit 0))
   · have hEmptyFalse : values.isEmpty = false := by
       simp [hValuesNil]
-    simp only [compileStmt, hEmptyFalse, bind, Except.bind,
+    simp only [compileStmt, compileStmtWithFork, hEmptyFalse, bind, Except.bind,
       Pure.pure, Except.pure] at hOk
-    cases hCompiled : compileExprList fields dynamicSource values with
+    cases hCompiled : compileExprListWithInternals fields dynamicSource [] values with
     | error err => simp [hCompiled] at hOk
     | ok compiled =>
         simp [hCompiled] at hOk
@@ -10498,15 +6016,15 @@ private theorem compileStmt_returnValuesExternal_noFuncDefs
   intro out hOk
   by_cases hValuesNil : values = []
   · subst hValuesNil
-    simp [compileStmt, Pure.pure, Except.pure, Native.yulStmtContainsFuncDef]
+    simp [compileStmt, compileStmtWithFork, Pure.pure, Except.pure, Native.yulStmtContainsFuncDef]
       at hOk
     subst out
     simp [Native.yulStmtContainsFuncDef]
   · have hEmptyFalse : values.isEmpty = false := by
       simp [hValuesNil]
-    simp only [compileStmt, hEmptyFalse, bind, Except.bind,
+    simp only [compileStmt, compileStmtWithFork, hEmptyFalse, bind, Except.bind,
       Pure.pure, Except.pure] at hOk
-    cases hCompiled : compileExprList fields dynamicSource values with
+    cases hCompiled : compileExprListWithInternals fields dynamicSource [] values with
     | error err => simp [hCompiled] at hOk
     | ok compiled =>
         simp [hCompiled, Native.yulStmtContainsFuncDef] at hOk
@@ -10544,65 +6062,6 @@ theorem compileStmt_returnValuesExternal_fragment_noFuncDefs
   | returnValuesExternal values hValues =>
       exact compileStmt_returnValuesExternal_noFuncDefs fields events errors
         dynamicSource internalRetNames inScopeNames values hOk
-
-/-- Lists of external `returnValues` source statements compile to Yul lists
-satisfying `BridgedStmts`. -/
-theorem compileStmtList_returnValuesExternal_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceReturnValuesExternalStmts stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          (isInternal := false) inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          false inScopeNames [] head with
-      | error err => simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames false (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err => simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource : BridgedSourceReturnValuesExternalStmt head :=
-                hSource head (by simp)
-              have hTailSource : BridgedSourceReturnValuesExternalStmts tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_returnValuesExternal_fragment_bridged fields events
-                  errors dynamicSource internalRetNames inScopeNames hHeadSource
-                  hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-theorem compileStmtList_returnValuesExternal_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceReturnValuesExternalStmts stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          (isInternal := false) inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames false BridgedSourceReturnValuesExternalStmt
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_returnValuesExternal_fragment_noFuncDefs fields events errors
-        dynamicSource internalRetNames inScopeNames hStmt hOk)
 
 /-! ## Source statement body closure: mstore / tstore
 
@@ -10645,12 +6104,12 @@ private theorem compileStmt_mstore_bridged
         isInternal inScopeNames [] (.mstore offset value) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind, Pure.pure, Except.pure] at hOk
-  cases hO : compileExpr fields dynamicSource offset with
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind, Pure.pure, Except.pure] at hOk
+  cases hO : compileExprWithInternals fields dynamicSource [] offset with
   | error err => simp [hO] at hOk
   | ok compiledOffset =>
       simp [hO] at hOk
-      cases hV : compileExpr fields dynamicSource value with
+      cases hV : compileExprWithInternals fields dynamicSource [] value with
       | error err => simp [hV] at hOk
       | ok compiledValue =>
           simp [hV] at hOk
@@ -10675,12 +6134,12 @@ private theorem compileStmt_mstore_noFuncDefs
         isInternal inScopeNames [] (.mstore offset value) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind, Pure.pure, Except.pure] at hOk
-  cases hO : compileExpr fields dynamicSource offset with
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind, Pure.pure, Except.pure] at hOk
+  cases hO : compileExprWithInternals fields dynamicSource [] offset with
   | error err => simp [hO] at hOk
   | ok compiledOffset =>
       simp [hO] at hOk
-      cases hV : compileExpr fields dynamicSource value with
+      cases hV : compileExprWithInternals fields dynamicSource [] value with
       | error err => simp [hV] at hOk
       | ok compiledValue =>
           simp [hV, Native.yulStmtContainsFuncDef] at hOk
@@ -10717,65 +6176,6 @@ theorem compileStmt_mstore_fragment_noFuncDefs
       exact compileStmt_mstore_noFuncDefs fields events errors dynamicSource
         internalRetNames isInternal inScopeNames offset value hOk
 
-theorem compileStmtList_mstore_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceMstoreStmts stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] head with
-      | error err => simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames isInternal (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err => simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource : BridgedSourceMstoreStmt head :=
-                hSource head (by simp)
-              have hTailSource : BridgedSourceMstoreStmts tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_mstore_fragment_bridged fields events errors
-                  dynamicSource internalRetNames isInternal inScopeNames
-                  hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-theorem compileStmtList_mstore_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceMstoreStmts stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames isInternal BridgedSourceMstoreStmt
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_mstore_fragment_noFuncDefs fields events errors dynamicSource
-        internalRetNames isInternal inScopeNames hStmt hOk)
-
 inductive BridgedSourceTstoreStmt : Stmt → Prop
   | tstore (offset value : Expr)
       (hOffset : BridgedSourceExpr offset)
@@ -10807,12 +6207,12 @@ private theorem compileStmt_tstore_bridged
         isInternal inScopeNames [] (.tstore offset value) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind, Pure.pure, Except.pure] at hOk
-  cases hO : compileExpr fields dynamicSource offset with
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind, Pure.pure, Except.pure] at hOk
+  cases hO : compileExprWithInternals fields dynamicSource [] offset with
   | error err => simp [hO] at hOk
   | ok compiledOffset =>
       simp [hO] at hOk
-      cases hV : compileExpr fields dynamicSource value with
+      cases hV : compileExprWithInternals fields dynamicSource [] value with
       | error err => simp [hV] at hOk
       | ok compiledValue =>
           simp [hV] at hOk
@@ -10837,12 +6237,12 @@ private theorem compileStmt_tstore_noFuncDefs
         isInternal inScopeNames [] (.tstore offset value) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind, Pure.pure, Except.pure] at hOk
-  cases hO : compileExpr fields dynamicSource offset with
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind, Pure.pure, Except.pure] at hOk
+  cases hO : compileExprWithInternals fields dynamicSource [] offset with
   | error err => simp [hO] at hOk
   | ok compiledOffset =>
       simp [hO] at hOk
-      cases hV : compileExpr fields dynamicSource value with
+      cases hV : compileExprWithInternals fields dynamicSource [] value with
       | error err => simp [hV] at hOk
       | ok compiledValue =>
           simp [hV, Native.yulStmtContainsFuncDef] at hOk
@@ -10878,65 +6278,6 @@ theorem compileStmt_tstore_fragment_noFuncDefs
   | tstore offset value hOffset hValue =>
       exact compileStmt_tstore_noFuncDefs fields events errors dynamicSource
         internalRetNames isInternal inScopeNames offset value hOk
-
-theorem compileStmtList_tstore_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceTstoreStmts stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] head with
-      | error err => simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames isInternal (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err => simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource : BridgedSourceTstoreStmt head :=
-                hSource head (by simp)
-              have hTailSource : BridgedSourceTstoreStmts tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_tstore_fragment_bridged fields events errors
-                  dynamicSource internalRetNames isInternal inScopeNames
-                  hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-theorem compileStmtList_tstore_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceTstoreStmts stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames isInternal BridgedSourceTstoreStmt
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_tstore_fragment_noFuncDefs fields events errors dynamicSource
-        internalRetNames isInternal inScopeNames hStmt hOk)
 
 /-! ## Source statement body closure: `storageArrayPush`
 
@@ -10984,10 +6325,11 @@ theorem compileStmt_storageArrayPush_singleSlot_bridged
       BridgedStmts out := by
   intro out hOk
   simp only [compileStmt] at hOk
+  unfold compileStmtWithFork at hOk
   unfold compileStorageArrayPush at hOk
   unfold validateDynamicArrayField at hOk
   simp [hFind, hDynArr, bind, Except.bind] at hOk
-  cases hExpr : compileExpr fields dynamicSource value with
+  cases hExpr : compileExprWithInternals fields dynamicSource [] value with
   | error err => simp [hExpr, Pure.pure, Except.pure] at hOk
   | ok valueExpr =>
       simp [hExpr, Pure.pure, Except.pure] at hOk
@@ -11048,10 +6390,11 @@ private theorem compileStmt_storageArrayPush_singleSlot_noFuncDefs
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
   simp only [compileStmt] at hOk
+  unfold compileStmtWithFork at hOk
   unfold compileStorageArrayPush at hOk
   unfold validateDynamicArrayField at hOk
   simp [hFind, hDynArr, bind, Except.bind] at hOk
-  cases hExpr : compileExpr fields dynamicSource value with
+  cases hExpr : compileExprWithInternals fields dynamicSource [] value with
   | error err => simp [hExpr, Pure.pure, Except.pure] at hOk
   | ok valueExpr =>
       simp [hExpr, Pure.pure, Except.pure] at hOk
@@ -11091,67 +6434,6 @@ theorem compileStmt_storageArrayPush_noFuncDefs
       exact compileStmt_storageArrayPush_singleSlot_noFuncDefs fields events
         errors dynamicSource internalRetNames isInternal inScopeNames field
         value f slot elemType hFind hDynArr hOk
-
-/-- Lists of `storageArrayPush` source statements compile to Yul lists
-satisfying `BridgedStmts`. -/
-theorem compileStmtList_storageArrayPush_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceStorageArrayPushStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] head with
-      | error err => simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames isInternal (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err => simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource : BridgedSourceStorageArrayPushStmt fields head :=
-                hSource head (by simp)
-              have hTailSource : BridgedSourceStorageArrayPushStmts fields tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_storageArrayPush_bridged fields events errors
-                  dynamicSource internalRetNames isInternal inScopeNames
-                  hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-theorem compileStmtList_storageArrayPush_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceStorageArrayPushStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames isInternal (BridgedSourceStorageArrayPushStmt fields)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_storageArrayPush_noFuncDefs fields events errors dynamicSource
-        internalRetNames isInternal inScopeNames hStmt hOk)
 
 /-! ## Source statement body closure: `storageArrayPop`
 
@@ -11201,6 +6483,7 @@ theorem compileStmt_storageArrayPop_singleSlot_bridged
       BridgedStmts out := by
   intro out hOk
   simp only [compileStmt] at hOk
+  unfold compileStmtWithFork at hOk
   unfold compileStorageArrayPop at hOk
   unfold validateDynamicArrayField at hOk
   simp [hFind, hDynArr, bind, Except.bind, Pure.pure, Except.pure] at hOk
@@ -11279,6 +6562,7 @@ private theorem compileStmt_storageArrayPop_singleSlot_noFuncDefs
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
   simp only [compileStmt] at hOk
+  unfold compileStmtWithFork at hOk
   unfold compileStorageArrayPop at hOk
   unfold validateDynamicArrayField at hOk
   simp [hFind, hDynArr, bind, Except.bind, Pure.pure, Except.pure] at hOk
@@ -11318,67 +6602,6 @@ theorem compileStmt_storageArrayPop_noFuncDefs
       exact compileStmt_storageArrayPop_singleSlot_noFuncDefs fields events
         errors dynamicSource internalRetNames isInternal inScopeNames field f
         slot elemType hFind hDynArr hOk
-
-/-- Lists of `storageArrayPop` source statements compile to Yul lists
-satisfying `BridgedStmts`. -/
-theorem compileStmtList_storageArrayPop_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceStorageArrayPopStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] head with
-      | error err => simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames isInternal (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err => simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource : BridgedSourceStorageArrayPopStmt fields head :=
-                hSource head (by simp)
-              have hTailSource : BridgedSourceStorageArrayPopStmts fields tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_storageArrayPop_bridged fields events errors
-                  dynamicSource internalRetNames isInternal inScopeNames
-                  hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-theorem compileStmtList_storageArrayPop_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceStorageArrayPopStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames isInternal (BridgedSourceStorageArrayPopStmt fields)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_storageArrayPop_noFuncDefs fields events errors dynamicSource
-        internalRetNames isInternal inScopeNames hStmt hOk)
 
 /-! ## Source statement body closure: `setStorageArrayElement`
 
@@ -11432,14 +6655,15 @@ theorem compileStmt_setStorageArrayElement_singleSlot_bridged
       BridgedStmts out := by
   intro out hOk
   simp only [compileStmt] at hOk
+  unfold compileStmtWithFork at hOk
   unfold compileSetStorageArrayElement at hOk
   unfold validateDynamicArrayField at hOk
   simp [hFind, hDynArr, bind, Except.bind] at hOk
-  cases hIdxExpr : compileExpr fields dynamicSource index with
+  cases hIdxExpr : compileExprWithInternals fields dynamicSource [] index with
   | error err => simp [hIdxExpr, Pure.pure, Except.pure] at hOk
   | ok indexExpr =>
       simp [hIdxExpr, Pure.pure, Except.pure] at hOk
-      cases hValExpr : compileExpr fields dynamicSource value with
+      cases hValExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err => simp [hValExpr] at hOk
       | ok valueExpr =>
           simp [hValExpr] at hOk
@@ -11518,14 +6742,15 @@ private theorem compileStmt_setStorageArrayElement_singleSlot_noFuncDefs
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
   simp only [compileStmt] at hOk
+  unfold compileStmtWithFork at hOk
   unfold compileSetStorageArrayElement at hOk
   unfold validateDynamicArrayField at hOk
   simp [hFind, hDynArr, bind, Except.bind] at hOk
-  cases hIdxExpr : compileExpr fields dynamicSource index with
+  cases hIdxExpr : compileExprWithInternals fields dynamicSource [] index with
   | error err => simp [hIdxExpr, Pure.pure, Except.pure] at hOk
   | ok indexExpr =>
       simp [hIdxExpr, Pure.pure, Except.pure] at hOk
-      cases hValExpr : compileExpr fields dynamicSource value with
+      cases hValExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err => simp [hValExpr] at hOk
       | ok valueExpr =>
           simp [hValExpr] at hOk
@@ -11568,69 +6793,6 @@ theorem compileStmt_setStorageArrayElement_noFuncDefs
         events errors dynamicSource internalRetNames isInternal inScopeNames
         field index value f slot elemType hFind hDynArr hOk
 
-/-- Lists of `setStorageArrayElement` source statements compile to Yul lists
-satisfying `BridgedStmts`. -/
-theorem compileStmtList_setStorageArrayElement_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceSetStorageArrayElementStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] head with
-      | error err => simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames isInternal (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err => simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource : BridgedSourceSetStorageArrayElementStmt fields
-                  head := hSource head (by simp)
-              have hTailSource : BridgedSourceSetStorageArrayElementStmts fields
-                  tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_setStorageArrayElement_bridged fields events errors
-                  dynamicSource internalRetNames isInternal inScopeNames
-                  hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-theorem compileStmtList_setStorageArrayElement_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceSetStorageArrayElementStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames isInternal
-    (BridgedSourceSetStorageArrayElementStmt fields)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_setStorageArrayElement_noFuncDefs fields events errors
-        dynamicSource internalRetNames isInternal inScopeNames hStmt hOk)
-
 /-! ## Source statement body closure: single-slot `setMappingWord`
 (wordOffset ≠ 0)
 
@@ -11672,16 +6834,16 @@ theorem compileStmt_setMappingWord_singleSlot_nonzero_bridged
         inScopeNames [] (.setMappingWord field key wordOffset value) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hKeyExpr : compileExpr fields dynamicSource key with
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+  cases hKeyExpr : compileExprWithInternals fields dynamicSource [] key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
-      cases hValueExpr : compileExpr fields dynamicSource value with
+      cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err => simp [hKeyExpr, hValueExpr] at hOk
       | ok valueExpr =>
           simp [hKeyExpr, hValueExpr] at hOk
           exact compileMappingSlotWrite_singleSlot_nonzero_bridged fields field
-            keyExpr valueExpr "setMappingWord"
+            keyExpr valueExpr "setMappingWord" true
             (compileExpr_bridgedSource fields dynamicSource hKey hKeyExpr)
             (compileExpr_bridgedSource fields dynamicSource hValue hValueExpr)
             hMapping hSlots hNonzero hOk
@@ -11704,50 +6866,6 @@ theorem compileStmt_mappingWordNonzero_bridged
         dynamicSource internalRetNames isInternal inScopeNames field
         hKey hValue hMapping hSlots hNonzero hOk
 
-/-- Lists of single-slot nonzero-offset mappingWord-write source statements
-compile to Yul lists satisfying `BridgedStmts`. -/
-theorem compileStmtList_mappingWordNonzero_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceMappingWordNonzeroStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] head with
-      | error err => simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames isInternal (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err => simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource : BridgedSourceMappingWordNonzeroStmt fields head :=
-                hSource head (by simp)
-              have hTailSource : BridgedSourceMappingWordNonzeroStmts fields tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_mappingWordNonzero_bridged fields events errors dynamicSource
-                  internalRetNames isInternal inScopeNames hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
 theorem compileStmt_setMappingWord_singleSlot_nonzero_noFuncDefs
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
     (dynamicSource : DynamicDataSource) (internalRetNames : List String)
@@ -11762,16 +6880,16 @@ theorem compileStmt_setMappingWord_singleSlot_nonzero_noFuncDefs
         inScopeNames [] (.setMappingWord field key wordOffset value) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hKeyExpr : compileExpr fields dynamicSource key with
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+  cases hKeyExpr : compileExprWithInternals fields dynamicSource [] key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
-      cases hValueExpr : compileExpr fields dynamicSource value with
+      cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err => simp [hKeyExpr, hValueExpr] at hOk
       | ok valueExpr =>
           simp [hKeyExpr, hValueExpr] at hOk
           exact compileMappingSlotWrite_singleSlot_nonzero_noFuncDefs fields field
-            keyExpr valueExpr "setMappingWord" hMapping hSlots hNonzero hOk
+            keyExpr valueExpr "setMappingWord" true hMapping hSlots hNonzero hOk
 
 theorem compileStmt_mappingWordNonzero_noFuncDefs
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
@@ -11788,22 +6906,6 @@ theorem compileStmt_mappingWordNonzero_noFuncDefs
       exact compileStmt_setMappingWord_singleSlot_nonzero_noFuncDefs fields events
         errors dynamicSource internalRetNames isInternal inScopeNames field
         hKey hValue hMapping hSlots hNonzero hOk
-
-theorem compileStmtList_mappingWordNonzero_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceMappingWordNonzeroStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames isInternal (BridgedSourceMappingWordNonzeroStmt fields)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_mappingWordNonzero_noFuncDefs fields events errors dynamicSource
-        internalRetNames isInternal inScopeNames hStmt hOk)
 
 /-! ## Source statement body closure: single-slot `setMapping2Word`
 (wordOffset ≠ 0)
@@ -11854,15 +6956,16 @@ theorem compileStmt_setMapping2Word_singleSlot_nonzero_bridged
     | zero => exact absurd rfl hNonzero
     | succ n => rfl
   simp only [compileStmt] at hOk
+  unfold compileStmtWithFork at hOk
   unfold compileSetMapping2Word at hOk
   simp [hMapping2, hSlots, hBeq] at hOk
-  cases hKey1Expr : compileExpr fields dynamicSource key1 with
+  cases hKey1Expr : compileExprWithInternals fields dynamicSource [] key1 with
   | error err => simp [hKey1Expr, bind, Except.bind] at hOk
   | ok key1Expr =>
-      cases hKey2Expr : compileExpr fields dynamicSource key2 with
+      cases hKey2Expr : compileExprWithInternals fields dynamicSource [] key2 with
       | error err => simp [hKey1Expr, hKey2Expr, bind, Except.bind] at hOk
       | ok key2Expr =>
-          cases hValueExpr : compileExpr fields dynamicSource value with
+          cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
           | error err => simp [hKey1Expr, hKey2Expr, hValueExpr, bind, Except.bind] at hOk
           | ok valueExpr =>
               simp [hKey1Expr, hKey2Expr, hValueExpr, bind, Except.bind] at hOk
@@ -11899,7 +7002,8 @@ theorem compileStmt_setMapping2Word_singleSlot_nonzero_bridged
                 · exact hInnerBridged
                 · exact hBridgedKey2
               exact BridgedStmt.straight _
-                (BridgedStraightStmt.expr_sstore_add _ (.lit wordOffset) valueExpr
+                (bridgedStraightStmt_fieldStorageStore_add fields field _
+                  (.lit wordOffset) valueExpr
                   hOuterBridged (BridgedExpr.lit wordOffset) hBridgedValue)
 
 /-- Each statement in the nonzero-offset mapping2Word-write fragment
@@ -11919,50 +7023,6 @@ theorem compileStmt_mapping2WordNonzero_bridged
       exact compileStmt_setMapping2Word_singleSlot_nonzero_bridged fields events errors
         dynamicSource internalRetNames isInternal inScopeNames field
         hKey1 hKey2 hValue hMapping2 hSlots hNonzero hOk
-
-/-- Lists of single-slot nonzero-offset mapping2Word-write source
-statements compile to Yul lists satisfying `BridgedStmts`. -/
-theorem compileStmtList_mapping2WordNonzero_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceMapping2WordNonzeroStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] head with
-      | error err => simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames isInternal (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err => simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource : BridgedSourceMapping2WordNonzeroStmt fields head :=
-                hSource head (by simp)
-              have hTailSource : BridgedSourceMapping2WordNonzeroStmts fields tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_mapping2WordNonzero_bridged fields events errors dynamicSource
-                  internalRetNames isInternal inScopeNames hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
 
 theorem compileStmt_setMapping2Word_singleSlot_nonzero_noFuncDefs
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
@@ -11984,15 +7044,16 @@ theorem compileStmt_setMapping2Word_singleSlot_nonzero_noFuncDefs
     | zero => exact absurd rfl hNonzero
     | succ n => rfl
   simp only [compileStmt] at hOk
+  unfold compileStmtWithFork at hOk
   unfold compileSetMapping2Word at hOk
   simp [hMapping2, hSlots, hBeq] at hOk
-  cases hKey1Expr : compileExpr fields dynamicSource key1 with
+  cases hKey1Expr : compileExprWithInternals fields dynamicSource [] key1 with
   | error err => simp [hKey1Expr, bind, Except.bind] at hOk
   | ok key1Expr =>
-      cases hKey2Expr : compileExpr fields dynamicSource key2 with
+      cases hKey2Expr : compileExprWithInternals fields dynamicSource [] key2 with
       | error err => simp [hKey1Expr, hKey2Expr, bind, Except.bind] at hOk
       | ok key2Expr =>
-          cases hValueExpr : compileExpr fields dynamicSource value with
+          cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
           | error err => simp [hKey1Expr, hKey2Expr, hValueExpr, bind, Except.bind] at hOk
           | ok valueExpr =>
               simp [hKey1Expr, hKey2Expr, hValueExpr, bind, Except.bind] at hOk
@@ -12014,22 +7075,6 @@ theorem compileStmt_mapping2WordNonzero_noFuncDefs
       exact compileStmt_setMapping2Word_singleSlot_nonzero_noFuncDefs fields events
         errors dynamicSource internalRetNames isInternal inScopeNames field
         hKey1 hKey2 hValue hMapping2 hSlots hNonzero hOk
-
-theorem compileStmtList_mapping2WordNonzero_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceMapping2WordNonzeroStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames isInternal (BridgedSourceMapping2WordNonzeroStmt fields)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_mapping2WordNonzero_noFuncDefs fields events errors dynamicSource
-        internalRetNames isInternal inScopeNames hStmt hOk)
 
 /-! ## Source statement body closure: single-slot `setMappingChain`
 
@@ -12109,12 +7154,13 @@ theorem compileStmt_setMappingChain_singleSlot_bridged
       BridgedStmts out := by
   intro out hOk
   simp only [compileStmt] at hOk
+  unfold compileStmtWithFork at hOk
   unfold compileSetMappingChain at hOk
   simp [hMapping, hSlots] at hOk
-  cases hKeyExprs : compileExprList fields dynamicSource keys with
+  cases hKeyExprs : compileExprListWithInternals fields dynamicSource [] keys with
   | error err => simp [hKeyExprs, bind, Except.bind] at hOk
   | ok keyExprs =>
-      cases hValueExpr : compileExpr fields dynamicSource value with
+      cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err => simp [hKeyExprs, hValueExpr, bind, Except.bind] at hOk
       | ok valueExpr =>
           simp [hKeyExprs, hValueExpr, bind, Except.bind] at hOk
@@ -12131,7 +7177,8 @@ theorem compileStmt_setMappingChain_singleSlot_bridged
             subst hNil
             simp only [List.foldl_nil]
             exact BridgedStmt.straight _
-              (BridgedStraightStmt.expr_sstore_lit slot valueExpr hBridgedValue)
+              (bridgedStraightStmt_fieldStorageStore_lit fields field slot valueExpr
+                hBridgedValue)
           · -- keyExprs = pre ++ [last] → outermost call is mappingSlot(...)
             rw [List.concat_eq_append] at hConcat
             subst hConcat
@@ -12146,7 +7193,7 @@ theorem compileStmt_setMappingChain_singleSlot_bridged
               bridgedExpr_foldl_mappingSlot pre _ (BridgedExpr.lit slot) hAllPre
             simp only [List.foldl_append, List.foldl_cons, List.foldl_nil]
             exact BridgedStmt.straight _
-              (BridgedStraightStmt.expr_sstore_mapping _ last valueExpr
+              (bridgedStraightStmt_fieldStorageStore_mapping fields field _ last valueExpr
                 hPreFold hLast hBridgedValue)
 
 private theorem compileStmt_setMappingChain_singleSlot_noFuncDefs
@@ -12162,12 +7209,13 @@ private theorem compileStmt_setMappingChain_singleSlot_noFuncDefs
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
   simp only [compileStmt] at hOk
+  unfold compileStmtWithFork at hOk
   unfold compileSetMappingChain at hOk
   simp [hMapping, hSlots] at hOk
-  cases hKeyExprs : compileExprList fields dynamicSource keys with
+  cases hKeyExprs : compileExprListWithInternals fields dynamicSource [] keys with
   | error err => simp [hKeyExprs, bind, Except.bind] at hOk
   | ok keyExprs =>
-      cases hValueExpr : compileExpr fields dynamicSource value with
+      cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err => simp [hKeyExprs, hValueExpr, bind, Except.bind] at hOk
       | ok valueExpr =>
           simp [hKeyExprs, hValueExpr, bind, Except.bind] at hOk
@@ -12207,66 +7255,6 @@ theorem compileStmt_mappingChain_noFuncDefs
       exact compileStmt_setMappingChain_singleSlot_noFuncDefs fields events
         errors dynamicSource internalRetNames isInternal inScopeNames field
         hMapping hSlots hOk
-
-/-- Lists of single-slot mapping-chain-write source statements compile to
-Yul lists satisfying `BridgedStmts`. -/
-theorem compileStmtList_mappingChain_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceMappingChainStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] head with
-      | error err => simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames isInternal (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err => simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource : BridgedSourceMappingChainStmt fields head :=
-                hSource head (by simp)
-              have hTailSource : BridgedSourceMappingChainStmts fields tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_mappingChain_bridged fields events errors dynamicSource
-                  internalRetNames isInternal inScopeNames hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-theorem compileStmtList_mappingChain_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceMappingChainStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames isInternal (BridgedSourceMappingChainStmt fields)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_mappingChain_noFuncDefs fields events errors dynamicSource
-        internalRetNames isInternal inScopeNames hStmt hOk)
 
 /-! ## Multi-slot mapping-write source body closure (wordOffset = 0)
 
@@ -12334,15 +7322,16 @@ produces a `BridgedStmts` list (one outer block wrapping two let-bindings
 and N sstore writes). -/
 private theorem compileMappingSlotWrite_multiSlot_bridged
     (fields : List Field) (field : String)
-    {slot0 slot1 : Nat} {slotsRest : List Nat}
-    (keyExpr valueExpr : YulExpr) (label : String)
-    (hKey : BridgedExpr keyExpr) (hValue : BridgedExpr valueExpr)
+      {slot0 slot1 : Nat} {slotsRest : List Nat}
+      (keyExpr valueExpr : YulExpr) (label : String)
+      (allowTransient : Bool)
+      (hKey : BridgedExpr keyExpr) (hValue : BridgedExpr valueExpr)
     (hMapping : isMapping fields field = true)
     (hSlots : findFieldWriteSlots fields field =
       some (slot0 :: slot1 :: slotsRest)) :
-    ∀ {out : List YulStmt},
-      compileMappingSlotWrite fields field keyExpr valueExpr label 0 = .ok out →
-      BridgedStmts out := by
+      ∀ {out : List YulStmt},
+        compileMappingSlotWrite fields field keyExpr valueExpr label 0 allowTransient = .ok out →
+        BridgedStmts out := by
   intro out hOk
   simp [compileMappingSlotWrite, hMapping, hSlots, Pure.pure, Except.pure] at hOk
   subst hOk
@@ -12360,46 +7349,60 @@ private theorem compileMappingSlotWrite_multiSlot_bridged
   rcases hMem with hEq | hMem
   · subst hEq
     exact BridgedStmt.straight _ (BridgedStraightStmt.let_ _ _ hValue)
-  rcases hMem with hEq | hMem
-  · subst hEq
+  have hStoreFor : ∀ slot : Nat,
+      BridgedStmt
+        (Compiler.Yul.YulStmt.expr
+          (Compiler.Yul.YulExpr.call
+            (if allowTransient then
+              match findFieldWithResolvedSlot fields field with
+              | some (f, _) => if f.isTransient = true then "tstore" else "sstore"
+              | none => "sstore"
+            else
+              "sstore")
+            [Compiler.Yul.YulExpr.call "mappingSlot"
+              [Compiler.Yul.YulExpr.lit slot,
+               Compiler.Yul.YulExpr.ident "__compat_key"],
+             Compiler.Yul.YulExpr.ident "__compat_value"])) := by
+    intro slot
     exact BridgedStmt.straight _
-      (BridgedStraightStmt.expr_sstore_mapping
-        (Compiler.Yul.YulExpr.lit slot0)
+      (bridgedStraightStmt_maybeFieldStorageStore_mapping allowTransient fields field
+        (Compiler.Yul.YulExpr.lit slot)
         (Compiler.Yul.YulExpr.ident "__compat_key")
         (Compiler.Yul.YulExpr.ident "__compat_value")
-        (BridgedExpr.lit slot0)
+        (BridgedExpr.lit slot)
         (BridgedExpr.ident "__compat_key")
         (BridgedExpr.ident "__compat_value"))
   rcases hMem with hEq | hMem
   · subst hEq
-    exact BridgedStmt.straight _
-      (BridgedStraightStmt.expr_sstore_mapping
-        (Compiler.Yul.YulExpr.lit slot1)
-        (Compiler.Yul.YulExpr.ident "__compat_key")
-        (Compiler.Yul.YulExpr.ident "__compat_value")
-        (BridgedExpr.lit slot1)
-        (BridgedExpr.ident "__compat_key")
-        (BridgedExpr.ident "__compat_value"))
-  · have hSstore : BridgedStraightStmt stmt :=
-      bridgedStraightStmts_multiSlot_sstore_mapping slotsRest stmt
-        (by simpa using hMem)
-    exact BridgedStmt.straight _ hSstore
+    exact hStoreFor slot0
+  rcases hMem with hEq | hMem
+  · subst hEq
+    exact hStoreFor slot1
+  · rw [List.mem_map] at hMem
+    obtain ⟨slot, _, hEq⟩ := hMem
+    subst stmt
+    exact hStoreFor slot
 
 private theorem compileMappingSlotWrite_multiSlot_noFuncDefs
     (fields : List Field) (field : String)
-    {slot0 slot1 : Nat} {slotsRest : List Nat}
-    (keyExpr valueExpr : YulExpr) (label : String)
+      {slot0 slot1 : Nat} {slotsRest : List Nat}
+      (keyExpr valueExpr : YulExpr) (label : String)
+      (allowTransient : Bool)
     (hMapping : isMapping fields field = true)
     (hSlots : findFieldWriteSlots fields field =
       some (slot0 :: slot1 :: slotsRest)) :
-    ∀ {out : List YulStmt},
-      compileMappingSlotWrite fields field keyExpr valueExpr label 0 = .ok out →
-      Native.yulStmtsContainFuncDef out = false := by
+      ∀ {out : List YulStmt},
+        compileMappingSlotWrite fields field keyExpr valueExpr label 0 allowTransient = .ok out →
+        Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
   simp [compileMappingSlotWrite, hMapping, hSlots, Pure.pure, Except.pure] at hOk
   subst hOk
-  simp [Native.yulStmtContainsFuncDef, Native.yulStmtsContainFuncDef,
-    yulStmtsContainFuncDef_multiSlot_sstore_mapping]
+  simp [Native.yulStmtContainsFuncDef, Native.yulStmtsContainFuncDef]
+  clear hSlots
+  induction slotsRest with
+  | nil => simp [Native.yulStmtContainsFuncDef, Native.yulStmtsContainFuncDef]
+  | cons slot rest ih =>
+      simp [Native.yulStmtContainsFuncDef, Native.yulStmtsContainFuncDef, ih]
 
 /-- Multi-slot mapping-write source statements: `setMapping` /
 `setMappingUint` to a declared mapping field whose write slots list has ≥ 2
@@ -12444,16 +7447,17 @@ theorem compileStmt_setMapping_multiSlot_bridged
         inScopeNames [] (.setMapping field key value) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hKeyExpr : compileExpr fields dynamicSource key with
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+  cases hKeyExpr : compileExprWithInternals fields dynamicSource [] key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
-      cases hValueExpr : compileExpr fields dynamicSource value with
+      cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err => simp [hKeyExpr, hValueExpr] at hOk
       | ok valueExpr =>
           simp [hKeyExpr, hValueExpr] at hOk
           exact compileMappingSlotWrite_multiSlot_bridged fields field keyExpr
             valueExpr "setMapping"
+            true
             (compileExpr_bridgedSource fields dynamicSource hKey hKeyExpr)
             (compileExpr_bridgedSource fields dynamicSource hValue hValueExpr)
             hMapping hSlots hOk
@@ -12472,16 +7476,16 @@ theorem compileStmt_setMapping_multiSlot_noFuncDefs
         inScopeNames [] (.setMapping field key value) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hKeyExpr : compileExpr fields dynamicSource key with
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+  cases hKeyExpr : compileExprWithInternals fields dynamicSource [] key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
-      cases hValueExpr : compileExpr fields dynamicSource value with
+      cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err => simp [hKeyExpr, hValueExpr] at hOk
       | ok valueExpr =>
           simp [hKeyExpr, hValueExpr] at hOk
           exact compileMappingSlotWrite_multiSlot_noFuncDefs fields field
-            keyExpr valueExpr "setMapping" hMapping hSlots hOk
+            keyExpr valueExpr "setMapping" true hMapping hSlots hOk
 
 /-- A multi-slot `Stmt.setMappingUint` source write with pure bridged key
 and value compiles to `BridgedStmts`. Emission path is identical to
@@ -12501,16 +7505,17 @@ theorem compileStmt_setMappingUint_multiSlot_bridged
         inScopeNames [] (.setMappingUint field key value) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hKeyExpr : compileExpr fields dynamicSource key with
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+  cases hKeyExpr : compileExprWithInternals fields dynamicSource [] key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
-      cases hValueExpr : compileExpr fields dynamicSource value with
+      cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err => simp [hKeyExpr, hValueExpr] at hOk
       | ok valueExpr =>
           simp [hKeyExpr, hValueExpr] at hOk
           exact compileMappingSlotWrite_multiSlot_bridged fields field keyExpr
             valueExpr "setMappingUint"
+            true
             (compileExpr_bridgedSource fields dynamicSource hKey hKeyExpr)
             (compileExpr_bridgedSource fields dynamicSource hValue hValueExpr)
             hMapping hSlots hOk
@@ -12529,16 +7534,16 @@ theorem compileStmt_setMappingUint_multiSlot_noFuncDefs
         inScopeNames [] (.setMappingUint field key value) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hKeyExpr : compileExpr fields dynamicSource key with
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+  cases hKeyExpr : compileExprWithInternals fields dynamicSource [] key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
-      cases hValueExpr : compileExpr fields dynamicSource value with
+      cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err => simp [hKeyExpr, hValueExpr] at hOk
       | ok valueExpr =>
           simp [hKeyExpr, hValueExpr] at hOk
           exact compileMappingSlotWrite_multiSlot_noFuncDefs fields field
-            keyExpr valueExpr "setMappingUint" hMapping hSlots hOk
+            keyExpr valueExpr "setMappingUint" true hMapping hSlots hOk
 
 /-- Each statement in the multi-slot mapping-write fragment compiles to Yul
 satisfying `BridgedStmts`. -/
@@ -12581,66 +7586,6 @@ theorem compileStmt_mappingWriteMultiSlot_noFuncDefs
       exact compileStmt_setMappingUint_multiSlot_noFuncDefs fields events errors
         dynamicSource internalRetNames isInternal inScopeNames field
         hMapping hSlots hOk
-
-/-- Lists of multi-slot mapping-write source statements compile to Yul lists
-satisfying `BridgedStmts`. -/
-theorem compileStmtList_mappingWriteMultiSlot_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceMappingWriteMultiSlotStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] head with
-      | error err => simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames isInternal (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err => simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource : BridgedSourceMappingWriteMultiSlotStmt fields head :=
-                hSource head (by simp)
-              have hTailSource : BridgedSourceMappingWriteMultiSlotStmts fields tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_mappingWriteMultiSlot_bridged fields events errors
-                  dynamicSource internalRetNames isInternal inScopeNames hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-theorem compileStmtList_mappingWriteMultiSlot_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceMappingWriteMultiSlotStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames isInternal (BridgedSourceMappingWriteMultiSlotStmt fields)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_mappingWriteMultiSlot_noFuncDefs fields events errors
-        dynamicSource internalRetNames isInternal inScopeNames hStmt hOk)
 
 /-! ## Source statement body closure: multi-slot `setMapping2` (wordOffset = 0)
 
@@ -12760,15 +7705,16 @@ theorem compileStmt_setMapping2_multiSlot_bridged
       BridgedStmts out := by
   intro out hOk
   simp only [compileStmt] at hOk
+  unfold compileStmtWithFork at hOk
   unfold compileSetMapping2 at hOk
   simp [hMapping2, hSlots] at hOk
-  cases hKey1Expr : compileExpr fields dynamicSource key1 with
+  cases hKey1Expr : compileExprWithInternals fields dynamicSource [] key1 with
   | error err => simp [hKey1Expr, bind, Except.bind] at hOk
   | ok key1Expr =>
-      cases hKey2Expr : compileExpr fields dynamicSource key2 with
+      cases hKey2Expr : compileExprWithInternals fields dynamicSource [] key2 with
       | error err => simp [hKey1Expr, hKey2Expr, bind, Except.bind] at hOk
       | ok key2Expr =>
-          cases hValueExpr : compileExpr fields dynamicSource value with
+          cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
           | error err =>
               simp [hKey1Expr, hKey2Expr, hValueExpr, bind, Except.bind] at hOk
           | ok valueExpr =>
@@ -12812,7 +7758,7 @@ theorem compileStmt_setMapping2_multiSlot_bridged
                     · subst hArg; exact BridgedExpr.lit slot0
                     · subst hArg; exact BridgedExpr.ident "__compat_key1"
                 exact BridgedStmt.straight _
-                  (BridgedStraightStmt.expr_sstore_mapping _ _ _
+                  (bridgedStraightStmt_fieldStorageStore_mapping fields field _ _ _
                     hInner0
                     (BridgedExpr.ident "__compat_key2")
                     (BridgedExpr.ident "__compat_value"))
@@ -12830,14 +7776,29 @@ theorem compileStmt_setMapping2_multiSlot_bridged
                     · subst hArg; exact BridgedExpr.lit slot1
                     · subst hArg; exact BridgedExpr.ident "__compat_key1"
                 exact BridgedStmt.straight _
-                  (BridgedStraightStmt.expr_sstore_mapping _ _ _
+                  (bridgedStraightStmt_fieldStorageStore_mapping fields field _ _ _
                     hInner1
                     (BridgedExpr.ident "__compat_key2")
                     (BridgedExpr.ident "__compat_value"))
-              · have hSstore : BridgedStraightStmt stmt :=
-                  bridgedStraightStmts_multiSlot_sstore_mapping2 slotsRest stmt
-                    (by simpa using hMem)
-                exact BridgedStmt.straight _ hSstore
+              · rw [List.mem_map] at hMem
+                obtain ⟨slot, _, hEq⟩ := hMem
+                subst stmt
+                have hInner : BridgedExpr
+                    (Compiler.Yul.YulExpr.call "mappingSlot"
+                      [Compiler.Yul.YulExpr.lit slot,
+                       Compiler.Yul.YulExpr.ident "__compat_key1"]) := by
+                  apply BridgedExpr.call
+                  · exact Or.inl (by decide)
+                  · intro arg hArg
+                    simp only [List.mem_cons, List.not_mem_nil, or_false] at hArg
+                    rcases hArg with hArg | hArg
+                    · subst hArg; exact BridgedExpr.lit slot
+                    · subst hArg; exact BridgedExpr.ident "__compat_key1"
+                exact BridgedStmt.straight _
+                  (bridgedStraightStmt_fieldStorageStore_mapping fields field _ _ _
+                    hInner
+                    (BridgedExpr.ident "__compat_key2")
+                    (BridgedExpr.ident "__compat_value"))
 
 theorem compileStmt_setMapping2_multiSlot_noFuncDefs
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
@@ -12854,22 +7815,28 @@ theorem compileStmt_setMapping2_multiSlot_noFuncDefs
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
   simp only [compileStmt] at hOk
+  unfold compileStmtWithFork at hOk
   unfold compileSetMapping2 at hOk
   simp [hMapping2, hSlots] at hOk
-  cases hKey1Expr : compileExpr fields dynamicSource key1 with
+  cases hKey1Expr : compileExprWithInternals fields dynamicSource [] key1 with
   | error err => simp [hKey1Expr, bind, Except.bind] at hOk
   | ok key1Expr =>
-      cases hKey2Expr : compileExpr fields dynamicSource key2 with
+      cases hKey2Expr : compileExprWithInternals fields dynamicSource [] key2 with
       | error err => simp [hKey1Expr, hKey2Expr, bind, Except.bind] at hOk
       | ok key2Expr =>
-          cases hValueExpr : compileExpr fields dynamicSource value with
+          cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
           | error err =>
               simp [hKey1Expr, hKey2Expr, hValueExpr, bind, Except.bind] at hOk
           | ok valueExpr =>
               simp [hKey1Expr, hKey2Expr, hValueExpr, bind, Except.bind] at hOk
               subst out
-              simp [Native.yulStmtContainsFuncDef, Native.yulStmtsContainFuncDef,
-                yulStmtsContainFuncDef_multiSlot_sstore_mapping2]
+              simp [Native.yulStmtContainsFuncDef, Native.yulStmtsContainFuncDef]
+              clear hSlots
+              induction slotsRest with
+              | nil =>
+                  simp [Native.yulStmtContainsFuncDef, Native.yulStmtsContainFuncDef]
+              | cons slot rest ih =>
+                  simp [Native.yulStmtContainsFuncDef, Native.yulStmtsContainFuncDef, ih]
 
 /-- Each statement in the multi-slot double-mapping-write fragment compiles
 to Yul satisfying `BridgedStmts`. -/
@@ -12904,69 +7871,6 @@ theorem compileStmt_mappingWrite2MultiSlot_noFuncDefs
       exact compileStmt_setMapping2_multiSlot_noFuncDefs fields events errors
         dynamicSource internalRetNames isInternal inScopeNames field
         hMapping2 hSlots hOk
-
-/-- Lists of multi-slot double-mapping-write source statements compile to
-Yul lists satisfying `BridgedStmts`. -/
-theorem compileStmtList_mappingWrite2MultiSlot_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceMappingWrite2MultiSlotStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] head with
-      | error err => simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames isInternal (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err => simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource :
-                  BridgedSourceMappingWrite2MultiSlotStmt fields head :=
-                hSource head (by simp)
-              have hTailSource :
-                  BridgedSourceMappingWrite2MultiSlotStmts fields tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_mappingWrite2MultiSlot_bridged fields events errors
-                  dynamicSource internalRetNames isInternal inScopeNames
-                  hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-theorem compileStmtList_mappingWrite2MultiSlot_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceMappingWrite2MultiSlotStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames isInternal (BridgedSourceMappingWrite2MultiSlotStmt fields)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_mappingWrite2MultiSlot_noFuncDefs fields events errors
-        dynamicSource internalRetNames isInternal inScopeNames hStmt hOk)
 
 /-! ## Source statement body closure: multi-slot `setStructMember` (wordOffset = 0)
 
@@ -13023,18 +7927,19 @@ theorem compileStmt_setStructMember_multiSlot_bridged
         inScopeNames [] (.setStructMember field key memberName value) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt, compileSetStructMember, hNotMapping2, hMembers,
+  simp only [compileStmt, compileStmtWithFork, compileSetStructMember, hNotMapping2, hMembers,
     hFindMember, hUnpacked, hWordOffset, bind, Except.bind,
     Bool.false_eq_true, if_false] at hOk
-  cases hKeyExpr : compileExpr fields dynamicSource key with
+  cases hKeyExpr : compileExprWithInternals fields dynamicSource [] key with
   | error err => simp [hKeyExpr, pure, Pure.pure, Except.pure] at hOk
   | ok keyExpr =>
-      cases hValueExpr : compileExpr fields dynamicSource value with
+      cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err => simp [hKeyExpr, hValueExpr, pure, Pure.pure, Except.pure] at hOk
       | ok valueExpr =>
           simp [hKeyExpr, hValueExpr, pure, Pure.pure, Except.pure] at hOk
           exact compileMappingSlotWrite_multiSlot_bridged fields field keyExpr
             valueExpr s!"setStructMember.{memberName}"
+            true
             (compileExpr_bridgedSource fields dynamicSource hKey hKeyExpr)
             (compileExpr_bridgedSource fields dynamicSource hValue hValueExpr)
             hMapping hSlots hOk
@@ -13059,19 +7964,19 @@ theorem compileStmt_setStructMember_multiSlot_noFuncDefs
         inScopeNames [] (.setStructMember field key memberName value) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt, compileSetStructMember, hNotMapping2, hMembers,
+  simp only [compileStmt, compileStmtWithFork, compileSetStructMember, hNotMapping2, hMembers,
     hFindMember, hUnpacked, hWordOffset, bind, Except.bind,
     Bool.false_eq_true, if_false] at hOk
-  cases hKeyExpr : compileExpr fields dynamicSource key with
+  cases hKeyExpr : compileExprWithInternals fields dynamicSource [] key with
   | error err => simp [hKeyExpr, pure, Pure.pure, Except.pure] at hOk
   | ok keyExpr =>
-      cases hValueExpr : compileExpr fields dynamicSource value with
+      cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err => simp [hKeyExpr, hValueExpr, pure, Pure.pure, Except.pure] at hOk
       | ok valueExpr =>
           simp [hKeyExpr, hValueExpr, pure, Pure.pure, Except.pure] at hOk
           exact compileMappingSlotWrite_multiSlot_noFuncDefs fields field
             keyExpr valueExpr s!"setStructMember.{memberName}"
-            hMapping hSlots hOk
+            true hMapping hSlots hOk
 
 /-- Each statement in the multi-slot struct-member-write fragment compiles
 to Yul satisfying `BridgedStmts`. -/
@@ -13110,69 +8015,6 @@ theorem compileStmt_structMemberMultiSlot_noFuncDefs
         dynamicSource internalRetNames isInternal inScopeNames field memberName
         members member hNotMapping2 hMembers hFindMember hUnpacked hWordOffset
         hMapping hSlots hOk
-
-/-- Lists of multi-slot struct-member-write source statements compile to
-Yul lists satisfying `BridgedStmts`. -/
-theorem compileStmtList_structMemberMultiSlot_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceStructMemberMultiSlotStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] head with
-      | error err => simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames isInternal (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err => simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource :
-                  BridgedSourceStructMemberMultiSlotStmt fields head :=
-                hSource head (by simp)
-              have hTailSource :
-                  BridgedSourceStructMemberMultiSlotStmts fields tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_structMemberMultiSlot_bridged fields events errors
-                  dynamicSource internalRetNames isInternal inScopeNames
-                  hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-theorem compileStmtList_structMemberMultiSlot_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceStructMemberMultiSlotStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames isInternal (BridgedSourceStructMemberMultiSlotStmt fields)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_structMemberMultiSlot_noFuncDefs fields events errors
-        dynamicSource internalRetNames isInternal inScopeNames hStmt hOk)
 
 /-! ## Source statement body closure: multi-slot `setStructMember2`
 (wordOffset = 0)
@@ -13232,15 +8074,16 @@ theorem compileStmt_setStructMember2_multiSlot_bridged
       BridgedStmts out := by
   intro out hOk
   simp only [compileStmt] at hOk
+  unfold compileStmtWithFork at hOk
   unfold compileSetStructMember2 at hOk
   simp [hMapping2, hMembers, hFindMember, hUnpacked, hWordOffset, hSlots] at hOk
-  cases hKey1Expr : compileExpr fields dynamicSource key1 with
+  cases hKey1Expr : compileExprWithInternals fields dynamicSource [] key1 with
   | error err => simp [hKey1Expr, bind, Except.bind] at hOk
   | ok key1Expr =>
-      cases hKey2Expr : compileExpr fields dynamicSource key2 with
+      cases hKey2Expr : compileExprWithInternals fields dynamicSource [] key2 with
       | error err => simp [hKey1Expr, hKey2Expr, bind, Except.bind] at hOk
       | ok key2Expr =>
-          cases hValueExpr : compileExpr fields dynamicSource value with
+          cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
           | error err =>
               simp [hKey1Expr, hKey2Expr, hValueExpr, bind, Except.bind] at hOk
           | ok valueExpr =>
@@ -13284,7 +8127,7 @@ theorem compileStmt_setStructMember2_multiSlot_bridged
                     · subst hArg; exact BridgedExpr.lit slot0
                     · subst hArg; exact BridgedExpr.ident "__compat_key1"
                 exact BridgedStmt.straight _
-                  (BridgedStraightStmt.expr_sstore_mapping _ _ _
+                  (bridgedStraightStmt_fieldStorageStore_mapping fields field _ _ _
                     hInner0
                     (BridgedExpr.ident "__compat_key2")
                     (BridgedExpr.ident "__compat_value"))
@@ -13302,14 +8145,29 @@ theorem compileStmt_setStructMember2_multiSlot_bridged
                     · subst hArg; exact BridgedExpr.lit slot1
                     · subst hArg; exact BridgedExpr.ident "__compat_key1"
                 exact BridgedStmt.straight _
-                  (BridgedStraightStmt.expr_sstore_mapping _ _ _
+                  (bridgedStraightStmt_fieldStorageStore_mapping fields field _ _ _
                     hInner1
                     (BridgedExpr.ident "__compat_key2")
                     (BridgedExpr.ident "__compat_value"))
-              · have hSstore : BridgedStraightStmt stmt :=
-                  bridgedStraightStmts_multiSlot_sstore_mapping2 slotsRest stmt
-                    (by simpa using hMem)
-                exact BridgedStmt.straight _ hSstore
+              · rw [List.mem_map] at hMem
+                obtain ⟨slot, _, hEq⟩ := hMem
+                subst stmt
+                have hInner : BridgedExpr
+                    (Compiler.Yul.YulExpr.call "mappingSlot"
+                      [Compiler.Yul.YulExpr.lit slot,
+                       Compiler.Yul.YulExpr.ident "__compat_key1"]) := by
+                  apply BridgedExpr.call
+                  · exact Or.inl (by decide)
+                  · intro arg hArg
+                    simp only [List.mem_cons, List.not_mem_nil, or_false] at hArg
+                    rcases hArg with hArg | hArg
+                    · subst hArg; exact BridgedExpr.lit slot
+                    · subst hArg; exact BridgedExpr.ident "__compat_key1"
+                exact BridgedStmt.straight _
+                  (bridgedStraightStmt_fieldStorageStore_mapping fields field _ _ _
+                    hInner
+                    (BridgedExpr.ident "__compat_key2")
+                    (BridgedExpr.ident "__compat_value"))
 
 theorem compileStmt_setStructMember2_multiSlot_noFuncDefs
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
@@ -13332,23 +8190,27 @@ theorem compileStmt_setStructMember2_multiSlot_noFuncDefs
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
   simp only [compileStmt] at hOk
+  unfold compileStmtWithFork at hOk
   unfold compileSetStructMember2 at hOk
   simp [hMapping2, hMembers, hFindMember, hUnpacked, hWordOffset, hSlots] at hOk
-  cases hKey1Expr : compileExpr fields dynamicSource key1 with
+  cases hKey1Expr : compileExprWithInternals fields dynamicSource [] key1 with
   | error err => simp [hKey1Expr, bind, Except.bind] at hOk
   | ok key1Expr =>
-      cases hKey2Expr : compileExpr fields dynamicSource key2 with
+      cases hKey2Expr : compileExprWithInternals fields dynamicSource [] key2 with
       | error err => simp [hKey1Expr, hKey2Expr, bind, Except.bind] at hOk
       | ok key2Expr =>
-          cases hValueExpr : compileExpr fields dynamicSource value with
+          cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
           | error err =>
               simp [hKey1Expr, hKey2Expr, hValueExpr, bind, Except.bind] at hOk
           | ok valueExpr =>
               simp [hKey1Expr, hKey2Expr, hValueExpr, bind, Except.bind] at hOk
               subst out
               simp [Native.yulStmtContainsFuncDef, Native.yulStmtsContainFuncDef]
-              simpa [Function.comp_def] using
-                yulStmtsContainFuncDef_multiSlot_sstore_mapping2 slotsRest
+              clear hSlots
+              induction slotsRest with
+              | nil => simp [Native.yulStmtContainsFuncDef, Native.yulStmtsContainFuncDef]
+              | cons slot rest ih =>
+                  simp [Native.yulStmtContainsFuncDef, Native.yulStmtsContainFuncDef, ih]
 
 /-- Each statement in the multi-slot struct-member2-write fragment
 compiles to Yul satisfying `BridgedStmts`. -/
@@ -13387,69 +8249,6 @@ theorem compileStmt_structMember2MultiSlot_noFuncDefs
         errors dynamicSource internalRetNames isInternal inScopeNames field
         memberName members member hMapping2 hMembers hFindMember hUnpacked
         hWordOffset hSlots hOk
-
-/-- Lists of multi-slot struct-member2-write source statements compile
-to Yul lists satisfying `BridgedStmts`. -/
-theorem compileStmtList_structMember2MultiSlot_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceStructMember2MultiSlotStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] head with
-      | error err => simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames isInternal (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err => simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource :
-                  BridgedSourceStructMember2MultiSlotStmt fields head :=
-                hSource head (by simp)
-              have hTailSource :
-                  BridgedSourceStructMember2MultiSlotStmts fields tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_structMember2MultiSlot_bridged fields events errors
-                  dynamicSource internalRetNames isInternal inScopeNames
-                  hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-theorem compileStmtList_structMember2MultiSlot_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceStructMember2MultiSlotStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames isInternal (BridgedSourceStructMember2MultiSlotStmt fields)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_structMember2MultiSlot_noFuncDefs fields events errors
-        dynamicSource internalRetNames isInternal inScopeNames hStmt hOk)
 
 /-! ## Source statement body closure: multi-slot `setMappingWord`
 (wordOffset=0)
@@ -13501,16 +8300,17 @@ theorem compileStmt_setMappingWord_multiSlot_bridged
       BridgedStmts out := by
   intro out hOk
   subst hWordOffset
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hKeyExpr : compileExpr fields dynamicSource key with
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+  cases hKeyExpr : compileExprWithInternals fields dynamicSource [] key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
-      cases hValueExpr : compileExpr fields dynamicSource value with
+      cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err => simp [hKeyExpr, hValueExpr] at hOk
       | ok valueExpr =>
           simp [hKeyExpr, hValueExpr] at hOk
           exact compileMappingSlotWrite_multiSlot_bridged fields field keyExpr
             valueExpr "setMappingWord"
+            true
             (compileExpr_bridgedSource fields dynamicSource hKey hKeyExpr)
             (compileExpr_bridgedSource fields dynamicSource hValue hValueExpr)
             hMapping hSlots hOk
@@ -13531,16 +8331,16 @@ theorem compileStmt_setMappingWord_multiSlot_noFuncDefs
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
   subst hWordOffset
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hKeyExpr : compileExpr fields dynamicSource key with
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+  cases hKeyExpr : compileExprWithInternals fields dynamicSource [] key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
-      cases hValueExpr : compileExpr fields dynamicSource value with
+      cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err => simp [hKeyExpr, hValueExpr] at hOk
       | ok valueExpr =>
           simp [hKeyExpr, hValueExpr] at hOk
           exact compileMappingSlotWrite_multiSlot_noFuncDefs fields field
-            keyExpr valueExpr "setMappingWord" hMapping hSlots hOk
+            keyExpr valueExpr "setMappingWord" true hMapping hSlots hOk
 
 /-- Each statement in the multi-slot mappingWord-write fragment compiles
 to Yul satisfying `BridgedStmts`. -/
@@ -13575,69 +8375,6 @@ theorem compileStmt_mappingWordMultiSlot_noFuncDefs
       exact compileStmt_setMappingWord_multiSlot_noFuncDefs fields events
         errors dynamicSource internalRetNames isInternal inScopeNames field
         wordOffset hMapping hSlots hWordOffset hOk
-
-/-- Lists of multi-slot mappingWord-write source statements compile to
-Yul lists satisfying `BridgedStmts`. -/
-theorem compileStmtList_mappingWordMultiSlot_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceMappingWordMultiSlotStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] head with
-      | error err => simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames isInternal (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err => simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource :
-                  BridgedSourceMappingWordMultiSlotStmt fields head :=
-                hSource head (by simp)
-              have hTailSource :
-                  BridgedSourceMappingWordMultiSlotStmts fields tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_mappingWordMultiSlot_bridged fields events errors
-                  dynamicSource internalRetNames isInternal inScopeNames
-                  hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-theorem compileStmtList_mappingWordMultiSlot_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceMappingWordMultiSlotStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames isInternal (BridgedSourceMappingWordMultiSlotStmt fields)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_mappingWordMultiSlot_noFuncDefs fields events errors
-        dynamicSource internalRetNames isInternal inScopeNames hStmt hOk)
 
 /-! ## Source statement body closure: multi-slot `setMapping2Word`
 (wordOffset=0)
@@ -13691,15 +8428,16 @@ theorem compileStmt_setMapping2Word_multiSlot_bridged
   intro out hOk
   subst hWordOffset
   simp only [compileStmt] at hOk
+  unfold compileStmtWithFork at hOk
   unfold compileSetMapping2Word at hOk
   simp [hMapping2, hSlots] at hOk
-  cases hKey1Expr : compileExpr fields dynamicSource key1 with
+  cases hKey1Expr : compileExprWithInternals fields dynamicSource [] key1 with
   | error err => simp [hKey1Expr, bind, Except.bind] at hOk
   | ok key1Expr =>
-      cases hKey2Expr : compileExpr fields dynamicSource key2 with
+      cases hKey2Expr : compileExprWithInternals fields dynamicSource [] key2 with
       | error err => simp [hKey1Expr, hKey2Expr, bind, Except.bind] at hOk
       | ok key2Expr =>
-          cases hValueExpr : compileExpr fields dynamicSource value with
+          cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
           | error err =>
               simp [hKey1Expr, hKey2Expr, hValueExpr, bind, Except.bind] at hOk
           | ok valueExpr =>
@@ -13740,7 +8478,7 @@ theorem compileStmt_setMapping2Word_multiSlot_bridged
                     · subst hArg; exact BridgedExpr.lit slot0
                     · subst hArg; exact BridgedExpr.ident "__compat_key1"
                 exact BridgedStmt.straight _
-                  (BridgedStraightStmt.expr_sstore_mapping _ _ _
+                  (bridgedStraightStmt_fieldStorageStore_mapping fields field _ _ _
                     hInner0
                     (BridgedExpr.ident "__compat_key2")
                     (BridgedExpr.ident "__compat_value"))
@@ -13758,14 +8496,29 @@ theorem compileStmt_setMapping2Word_multiSlot_bridged
                     · subst hArg; exact BridgedExpr.lit slot1
                     · subst hArg; exact BridgedExpr.ident "__compat_key1"
                 exact BridgedStmt.straight _
-                  (BridgedStraightStmt.expr_sstore_mapping _ _ _
+                  (bridgedStraightStmt_fieldStorageStore_mapping fields field _ _ _
                     hInner1
                     (BridgedExpr.ident "__compat_key2")
                     (BridgedExpr.ident "__compat_value"))
-              · have hSstore : BridgedStraightStmt stmt :=
-                  bridgedStraightStmts_multiSlot_sstore_mapping2 slotsRest stmt
-                    (by simpa using hMem)
-                exact BridgedStmt.straight _ hSstore
+              · rw [List.mem_map] at hMem
+                obtain ⟨slot, _, hEq⟩ := hMem
+                subst stmt
+                have hInner : BridgedExpr
+                    (Compiler.Yul.YulExpr.call "mappingSlot"
+                      [Compiler.Yul.YulExpr.lit slot,
+                       Compiler.Yul.YulExpr.ident "__compat_key1"]) := by
+                  apply BridgedExpr.call
+                  · exact Or.inl (by decide)
+                  · intro arg hArg
+                    simp only [List.mem_cons, List.not_mem_nil, or_false] at hArg
+                    rcases hArg with hArg | hArg
+                    · subst hArg; exact BridgedExpr.lit slot
+                    · subst hArg; exact BridgedExpr.ident "__compat_key1"
+                exact BridgedStmt.straight _
+                  (bridgedStraightStmt_fieldStorageStore_mapping fields field _ _ _
+                    hInner
+                    (BridgedExpr.ident "__compat_key2")
+                    (BridgedExpr.ident "__compat_value"))
 
 theorem compileStmt_setMapping2Word_multiSlot_noFuncDefs
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
@@ -13784,23 +8537,27 @@ theorem compileStmt_setMapping2Word_multiSlot_noFuncDefs
   intro out hOk
   subst hWordOffset
   simp only [compileStmt] at hOk
+  unfold compileStmtWithFork at hOk
   unfold compileSetMapping2Word at hOk
   simp [hMapping2, hSlots] at hOk
-  cases hKey1Expr : compileExpr fields dynamicSource key1 with
+  cases hKey1Expr : compileExprWithInternals fields dynamicSource [] key1 with
   | error err => simp [hKey1Expr, bind, Except.bind] at hOk
   | ok key1Expr =>
-      cases hKey2Expr : compileExpr fields dynamicSource key2 with
+      cases hKey2Expr : compileExprWithInternals fields dynamicSource [] key2 with
       | error err => simp [hKey1Expr, hKey2Expr, bind, Except.bind] at hOk
       | ok key2Expr =>
-          cases hValueExpr : compileExpr fields dynamicSource value with
+          cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
           | error err =>
               simp [hKey1Expr, hKey2Expr, hValueExpr, bind, Except.bind] at hOk
           | ok valueExpr =>
               simp [hKey1Expr, hKey2Expr, hValueExpr, bind, Except.bind] at hOk
               subst out
               simp [Native.yulStmtContainsFuncDef, Native.yulStmtsContainFuncDef]
-              simpa [Function.comp_def] using
-                yulStmtsContainFuncDef_multiSlot_sstore_mapping2 slotsRest
+              clear hSlots
+              induction slotsRest with
+              | nil => simp [Native.yulStmtContainsFuncDef, Native.yulStmtsContainFuncDef]
+              | cons slot rest ih =>
+                  simp [Native.yulStmtContainsFuncDef, Native.yulStmtsContainFuncDef, ih]
 
 /-- Each statement in the multi-slot mapping2Word-write fragment compiles
 to Yul satisfying `BridgedStmts`. -/
@@ -13835,69 +8592,6 @@ theorem compileStmt_mapping2WordMultiSlot_noFuncDefs
       exact compileStmt_setMapping2Word_multiSlot_noFuncDefs fields events
         errors dynamicSource internalRetNames isInternal inScopeNames field
         wordOffset hMapping2 hSlots hWordOffset hOk
-
-/-- Lists of multi-slot mapping2Word-write source statements compile
-to Yul lists satisfying `BridgedStmts`. -/
-theorem compileStmtList_mapping2WordMultiSlot_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceMapping2WordMultiSlotStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] head with
-      | error err => simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames isInternal (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err => simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource :
-                  BridgedSourceMapping2WordMultiSlotStmt fields head :=
-                hSource head (by simp)
-              have hTailSource :
-                  BridgedSourceMapping2WordMultiSlotStmts fields tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_mapping2WordMultiSlot_bridged fields events errors
-                  dynamicSource internalRetNames isInternal inScopeNames
-                  hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-theorem compileStmtList_mapping2WordMultiSlot_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceMapping2WordMultiSlotStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames isInternal (BridgedSourceMapping2WordMultiSlotStmt fields)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_mapping2WordMultiSlot_noFuncDefs fields events errors
-        dynamicSource internalRetNames isInternal inScopeNames hStmt hOk)
 
 /-! ## Source statement body closure: multi-slot `setMappingWord`
 (wordOffset ≠ 0)
@@ -13983,17 +8677,18 @@ expressions produces a `BridgedStmts` list. Mirrors
 `compileMappingSlotWrite_multiSlot_bridged` (cd135ff7, line 8827) but
 with the `add`-wrapped sstore shape. -/
 private theorem compileMappingSlotWrite_multiSlot_nonzero_bridged
-    (fields : List Field) (field : String)
-    {slot0 slot1 : Nat} {slotsRest : List Nat} {wordOffset : Nat}
-    (keyExpr valueExpr : YulExpr) (label : String)
-    (hKey : BridgedExpr keyExpr) (hValue : BridgedExpr valueExpr)
+      (fields : List Field) (field : String)
+      {slot0 slot1 : Nat} {slotsRest : List Nat} {wordOffset : Nat}
+      (keyExpr valueExpr : YulExpr) (label : String)
+      (allowTransient : Bool)
+      (hKey : BridgedExpr keyExpr) (hValue : BridgedExpr valueExpr)
     (hMapping : isMapping fields field = true)
     (hSlots : findFieldWriteSlots fields field =
       some (slot0 :: slot1 :: slotsRest))
-    (hNonzero : wordOffset ≠ 0) :
-    ∀ {out : List YulStmt},
-      compileMappingSlotWrite fields field keyExpr valueExpr label wordOffset = .ok out →
-      BridgedStmts out := by
+      (hNonzero : wordOffset ≠ 0) :
+      ∀ {out : List YulStmt},
+        compileMappingSlotWrite fields field keyExpr valueExpr label wordOffset allowTransient = .ok out →
+        BridgedStmts out := by
   intro out hOk
   have hBeq : (wordOffset == 0) = false := by
     cases wordOffset with
@@ -14010,22 +8705,66 @@ private theorem compileMappingSlotWrite_multiSlot_nonzero_bridged
   rcases hMem with hEq | hMem
   · subst hEq
     exact BridgedStmt.straight _ (BridgedStraightStmt.let_ _ _ hValue)
-  · have hSstore : BridgedStraightStmt stmt :=
-      bridgedStraightStmts_multiSlot_sstore_mapping_add
-        (slot0 :: slot1 :: slotsRest) wordOffset stmt (by simpa using hMem)
-    exact BridgedStmt.straight _ hSstore
+  have hStoreFor : ∀ slot : Nat,
+      BridgedStmt
+        (Compiler.Yul.YulStmt.expr
+          (Compiler.Yul.YulExpr.call
+            (if allowTransient then
+              match findFieldWithResolvedSlot fields field with
+              | some (f, _) => if f.isTransient = true then "tstore" else "sstore"
+              | none => "sstore"
+            else
+              "sstore")
+            [Compiler.Yul.YulExpr.call "add" [
+              Compiler.Yul.YulExpr.call "mappingSlot"
+                [Compiler.Yul.YulExpr.lit slot,
+                 Compiler.Yul.YulExpr.ident "__compat_key"],
+              Compiler.Yul.YulExpr.lit wordOffset],
+             Compiler.Yul.YulExpr.ident "__compat_value"])) := by
+    intro slot
+    have hMappingExpr : BridgedExpr
+        (Compiler.Yul.YulExpr.call "mappingSlot"
+          [Compiler.Yul.YulExpr.lit slot,
+           Compiler.Yul.YulExpr.ident "__compat_key"]) := by
+      apply BridgedExpr.call
+      · exact Or.inl (by decide)
+      · intro arg hArg
+        simp only [List.mem_cons, List.not_mem_nil, or_false] at hArg
+        rcases hArg with hArg | hArg
+        · subst hArg; exact BridgedExpr.lit slot
+        · subst hArg; exact BridgedExpr.ident "__compat_key"
+    exact BridgedStmt.straight _
+      (bridgedStraightStmt_maybeFieldStorageStore_add allowTransient fields field
+        (Compiler.Yul.YulExpr.call "mappingSlot"
+          [Compiler.Yul.YulExpr.lit slot,
+           Compiler.Yul.YulExpr.ident "__compat_key"])
+        (Compiler.Yul.YulExpr.lit wordOffset)
+        (Compiler.Yul.YulExpr.ident "__compat_value")
+        hMappingExpr (BridgedExpr.lit wordOffset)
+        (BridgedExpr.ident "__compat_value"))
+  rcases hMem with hEq | hMem
+  · subst hEq
+    exact hStoreFor slot0
+  rcases hMem with hEq | hMem
+  · subst hEq
+    exact hStoreFor slot1
+  · rw [List.mem_map] at hMem
+    obtain ⟨slot, _, hEq⟩ := hMem
+    subst stmt
+    exact hStoreFor slot
 
 private theorem compileMappingSlotWrite_multiSlot_nonzero_noFuncDefs
-    (fields : List Field) (field : String)
-    {slot0 slot1 : Nat} {slotsRest : List Nat} {wordOffset : Nat}
-    (keyExpr valueExpr : YulExpr) (label : String)
+      (fields : List Field) (field : String)
+      {slot0 slot1 : Nat} {slotsRest : List Nat} {wordOffset : Nat}
+      (keyExpr valueExpr : YulExpr) (label : String)
+      (allowTransient : Bool)
     (hMapping : isMapping fields field = true)
     (hSlots : findFieldWriteSlots fields field =
       some (slot0 :: slot1 :: slotsRest))
-    (hNonzero : wordOffset ≠ 0) :
-    ∀ {out : List YulStmt},
-      compileMappingSlotWrite fields field keyExpr valueExpr label wordOffset = .ok out →
-      Native.yulStmtsContainFuncDef out = false := by
+      (hNonzero : wordOffset ≠ 0) :
+      ∀ {out : List YulStmt},
+        compileMappingSlotWrite fields field keyExpr valueExpr label wordOffset allowTransient = .ok out →
+        Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
   have hBeq : (wordOffset == 0) = false := by
     cases wordOffset with
@@ -14035,8 +8774,11 @@ private theorem compileMappingSlotWrite_multiSlot_nonzero_noFuncDefs
     Except.pure] at hOk
   subst hOk
   simp [Native.yulStmtContainsFuncDef, Native.yulStmtsContainFuncDef]
-  simpa using
-    yulStmtsContainFuncDef_multiSlot_sstore_mapping_add slotsRest wordOffset
+  clear hSlots
+  induction slotsRest with
+  | nil => simp [Native.yulStmtContainsFuncDef, Native.yulStmtsContainFuncDef]
+  | cons slot rest ih =>
+      simp [Native.yulStmtContainsFuncDef, Native.yulStmtsContainFuncDef, ih]
 
 /-- A multi-slot `Stmt.setMappingWord field key wordOffset value` source
 write with pure bridged key and value at `wordOffset ≠ 0` on a mapping
@@ -14075,16 +8817,17 @@ theorem compileStmt_setMappingWord_multiSlot_nonzero_bridged
         inScopeNames [] (.setMappingWord field key wordOffset value) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hKeyExpr : compileExpr fields dynamicSource key with
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+  cases hKeyExpr : compileExprWithInternals fields dynamicSource [] key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
-      cases hValueExpr : compileExpr fields dynamicSource value with
+      cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err => simp [hKeyExpr, hValueExpr] at hOk
       | ok valueExpr =>
           simp [hKeyExpr, hValueExpr] at hOk
           exact compileMappingSlotWrite_multiSlot_nonzero_bridged fields field
             keyExpr valueExpr "setMappingWord"
+            true
             (compileExpr_bridgedSource fields dynamicSource hKey hKeyExpr)
             (compileExpr_bridgedSource fields dynamicSource hValue hValueExpr)
             hMapping hSlots hNonzero hOk
@@ -14104,16 +8847,16 @@ theorem compileStmt_setMappingWord_multiSlot_nonzero_noFuncDefs
         inScopeNames [] (.setMappingWord field key wordOffset value) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hKeyExpr : compileExpr fields dynamicSource key with
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+  cases hKeyExpr : compileExprWithInternals fields dynamicSource [] key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
-      cases hValueExpr : compileExpr fields dynamicSource value with
+      cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err => simp [hKeyExpr, hValueExpr] at hOk
       | ok valueExpr =>
           simp [hKeyExpr, hValueExpr] at hOk
           exact compileMappingSlotWrite_multiSlot_nonzero_noFuncDefs fields field
-            keyExpr valueExpr "setMappingWord" hMapping hSlots hNonzero hOk
+            keyExpr valueExpr "setMappingWord" true hMapping hSlots hNonzero hOk
 
 /-- Each statement in the multi-slot nonzero-offset mappingWord-write
 fragment compiles to Yul satisfying `BridgedStmts`. -/
@@ -14148,70 +8891,6 @@ theorem compileStmt_mappingWordMultiSlotNonzero_noFuncDefs
       exact compileStmt_setMappingWord_multiSlot_nonzero_noFuncDefs fields
         events errors dynamicSource internalRetNames isInternal inScopeNames
         field wordOffset hMapping hSlots hNonzero hOk
-
-/-- Lists of multi-slot nonzero-offset mappingWord-write source
-statements compile to Yul lists satisfying `BridgedStmts`. -/
-theorem compileStmtList_mappingWordMultiSlotNonzero_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceMappingWordMultiSlotNonzeroStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] head with
-      | error err => simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames isInternal (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err => simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource :
-                  BridgedSourceMappingWordMultiSlotNonzeroStmt fields head :=
-                hSource head (by simp)
-              have hTailSource :
-                  BridgedSourceMappingWordMultiSlotNonzeroStmts fields tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_mappingWordMultiSlotNonzero_bridged fields events errors
-                  dynamicSource internalRetNames isInternal inScopeNames
-                  hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-theorem compileStmtList_mappingWordMultiSlotNonzero_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceMappingWordMultiSlotNonzeroStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames isInternal
-    (BridgedSourceMappingWordMultiSlotNonzeroStmt fields)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_mappingWordMultiSlotNonzero_noFuncDefs fields events errors
-        dynamicSource internalRetNames isInternal inScopeNames hStmt hOk)
 
 /-! ## Source statement body closure: multi-slot `setMapping2Word`
 (wordOffset ≠ 0)
@@ -14358,15 +9037,16 @@ theorem compileStmt_setMapping2Word_multiSlot_nonzero_bridged
     | zero => exact absurd rfl hNonzero
     | succ n => rfl
   simp only [compileStmt] at hOk
+  unfold compileStmtWithFork at hOk
   unfold compileSetMapping2Word at hOk
   simp [hMapping2, hSlots, hBeq] at hOk
-  cases hKey1Expr : compileExpr fields dynamicSource key1 with
+  cases hKey1Expr : compileExprWithInternals fields dynamicSource [] key1 with
   | error err => simp [hKey1Expr, bind, Except.bind] at hOk
   | ok key1Expr =>
-      cases hKey2Expr : compileExpr fields dynamicSource key2 with
+      cases hKey2Expr : compileExprWithInternals fields dynamicSource [] key2 with
       | error err => simp [hKey1Expr, hKey2Expr, bind, Except.bind] at hOk
       | ok key2Expr =>
-          cases hValueExpr : compileExpr fields dynamicSource value with
+          cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
           | error err =>
               simp [hKey1Expr, hKey2Expr, hValueExpr, bind, Except.bind] at hOk
           | ok valueExpr =>
@@ -14420,7 +9100,7 @@ theorem compileStmt_setMapping2Word_multiSlot_nonzero_bridged
                     · subst hArg; exact hInner0
                     · subst hArg; exact BridgedExpr.ident "__compat_key2"
                 exact BridgedStmt.straight _
-                  (BridgedStraightStmt.expr_sstore_add _ _ _
+                  (bridgedStraightStmt_fieldStorageStore_add fields field _ _ _
                     hOuter0
                     (BridgedExpr.lit wordOffset)
                     (BridgedExpr.ident "__compat_value"))
@@ -14451,14 +9131,42 @@ theorem compileStmt_setMapping2Word_multiSlot_nonzero_bridged
                     · subst hArg; exact hInner1
                     · subst hArg; exact BridgedExpr.ident "__compat_key2"
                 exact BridgedStmt.straight _
-                  (BridgedStraightStmt.expr_sstore_add _ _ _
+                  (bridgedStraightStmt_fieldStorageStore_add fields field _ _ _
                     hOuter1
                     (BridgedExpr.lit wordOffset)
                     (BridgedExpr.ident "__compat_value"))
-              · have hSstore : BridgedStraightStmt stmt :=
-                  bridgedStraightStmts_multiSlot_sstore_mapping2_add slotsRest
-                    wordOffset stmt (by simpa using hMem)
-                exact BridgedStmt.straight _ hSstore
+              · rw [List.mem_map] at hMem
+                obtain ⟨slot, _, hEq⟩ := hMem
+                subst hEq
+                have hInner : BridgedExpr
+                    (Compiler.Yul.YulExpr.call "mappingSlot"
+                      [Compiler.Yul.YulExpr.lit slot,
+                       Compiler.Yul.YulExpr.ident "__compat_key1"]) := by
+                  apply BridgedExpr.call
+                  · exact Or.inl (by decide)
+                  · intro arg hArg
+                    simp only [List.mem_cons, List.not_mem_nil, or_false] at hArg
+                    rcases hArg with hArg | hArg
+                    · subst hArg; exact BridgedExpr.lit slot
+                    · subst hArg; exact BridgedExpr.ident "__compat_key1"
+                have hOuter : BridgedExpr
+                    (Compiler.Yul.YulExpr.call "mappingSlot" [
+                      Compiler.Yul.YulExpr.call "mappingSlot"
+                        [Compiler.Yul.YulExpr.lit slot,
+                         Compiler.Yul.YulExpr.ident "__compat_key1"],
+                      Compiler.Yul.YulExpr.ident "__compat_key2"]) := by
+                  apply BridgedExpr.call
+                  · exact Or.inl (by decide)
+                  · intro arg hArg
+                    simp only [List.mem_cons, List.not_mem_nil, or_false] at hArg
+                    rcases hArg with hArg | hArg
+                    · subst hArg; exact hInner
+                    · subst hArg; exact BridgedExpr.ident "__compat_key2"
+                exact BridgedStmt.straight _
+                  (bridgedStraightStmt_fieldStorageStore_add fields field _ _ _
+                    hOuter
+                    (BridgedExpr.lit wordOffset)
+                    (BridgedExpr.ident "__compat_value"))
 
 theorem compileStmt_setMapping2Word_multiSlot_nonzero_noFuncDefs
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
@@ -14480,24 +9188,27 @@ theorem compileStmt_setMapping2Word_multiSlot_nonzero_noFuncDefs
     | zero => exact absurd rfl hNonzero
     | succ n => rfl
   simp only [compileStmt] at hOk
+  unfold compileStmtWithFork at hOk
   unfold compileSetMapping2Word at hOk
   simp [hMapping2, hSlots, hBeq] at hOk
-  cases hKey1Expr : compileExpr fields dynamicSource key1 with
+  cases hKey1Expr : compileExprWithInternals fields dynamicSource [] key1 with
   | error err => simp [hKey1Expr, bind, Except.bind] at hOk
   | ok key1Expr =>
-      cases hKey2Expr : compileExpr fields dynamicSource key2 with
+      cases hKey2Expr : compileExprWithInternals fields dynamicSource [] key2 with
       | error err => simp [hKey1Expr, hKey2Expr, bind, Except.bind] at hOk
       | ok key2Expr =>
-          cases hValueExpr : compileExpr fields dynamicSource value with
+          cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
           | error err =>
               simp [hKey1Expr, hKey2Expr, hValueExpr, bind, Except.bind] at hOk
           | ok valueExpr =>
               simp [hKey1Expr, hKey2Expr, hValueExpr, bind, Except.bind] at hOk
               subst out
               simp [Native.yulStmtContainsFuncDef, Native.yulStmtsContainFuncDef]
-              simpa [Function.comp_def] using
-                yulStmtsContainFuncDef_multiSlot_sstore_mapping2_add slotsRest
-                  wordOffset
+              clear hSlots
+              induction slotsRest with
+              | nil => simp [Native.yulStmtContainsFuncDef, Native.yulStmtsContainFuncDef]
+              | cons slot rest ih =>
+                  simp [Native.yulStmtContainsFuncDef, Native.yulStmtsContainFuncDef, ih]
 
 /-- Each statement in the multi-slot mapping2Word-write wordOffset≠0
 fragment compiles to Yul satisfying `BridgedStmts`. -/
@@ -14532,70 +9243,6 @@ theorem compileStmt_mapping2WordMultiSlotNonzero_noFuncDefs
       exact compileStmt_setMapping2Word_multiSlot_nonzero_noFuncDefs fields
         events errors dynamicSource internalRetNames isInternal inScopeNames
         field hMapping2 hSlots hNonzero hOk
-
-/-- Lists of multi-slot mapping2Word-write wordOffset≠0 source statements
-compile to Yul lists satisfying `BridgedStmts`. -/
-theorem compileStmtList_mapping2WordMultiSlotNonzero_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceMapping2WordMultiSlotNonzeroStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] head with
-      | error err => simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames isInternal (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err => simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource :
-                  BridgedSourceMapping2WordMultiSlotNonzeroStmt fields head :=
-                hSource head (by simp)
-              have hTailSource :
-                  BridgedSourceMapping2WordMultiSlotNonzeroStmts fields tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_mapping2WordMultiSlotNonzero_bridged fields events errors
-                  dynamicSource internalRetNames isInternal inScopeNames
-                  hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-theorem compileStmtList_mapping2WordMultiSlotNonzero_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceMapping2WordMultiSlotNonzeroStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames isInternal
-    (BridgedSourceMapping2WordMultiSlotNonzeroStmt fields)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_mapping2WordMultiSlotNonzero_noFuncDefs fields events errors
-        dynamicSource internalRetNames isInternal inScopeNames hStmt hOk)
 
 /-! ## Source statement body closure: multi-slot `setStructMember`
 (wordOffset ≠ 0)
@@ -14654,22 +9301,23 @@ theorem compileStmt_setStructMember_multiSlot_nonzero_bridged
         inScopeNames [] (.setStructMember field key memberName value) = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt, compileSetStructMember, hNotMapping2, hMembers,
+  simp only [compileStmt, compileStmtWithFork, compileSetStructMember, hNotMapping2, hMembers,
     hFindMember, hUnpacked, bind, Except.bind,
     Bool.false_eq_true, if_false] at hOk
-  cases hKeyExpr : compileExpr fields dynamicSource key with
+  cases hKeyExpr : compileExprWithInternals fields dynamicSource [] key with
   | error err => simp [hKeyExpr, pure, Pure.pure, Except.pure] at hOk
   | ok keyExpr =>
-      cases hValueExpr : compileExpr fields dynamicSource value with
+      cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err =>
           simp [hKeyExpr, hValueExpr, pure, Pure.pure, Except.pure] at hOk
-      | ok valueExpr =>
-          simp [hKeyExpr, hValueExpr, pure, Pure.pure, Except.pure] at hOk
-          exact compileMappingSlotWrite_multiSlot_nonzero_bridged fields field
-            keyExpr valueExpr s!"setStructMember.{memberName}"
-            (compileExpr_bridgedSource fields dynamicSource hKey hKeyExpr)
-            (compileExpr_bridgedSource fields dynamicSource hValue hValueExpr)
-            hMapping hSlots hNonzero hOk
+        | ok valueExpr =>
+            simp [hKeyExpr, hValueExpr, pure, Pure.pure, Except.pure] at hOk
+            exact compileMappingSlotWrite_multiSlot_nonzero_bridged fields field
+              keyExpr valueExpr s!"setStructMember.{memberName}"
+              true
+              (compileExpr_bridgedSource fields dynamicSource hKey hKeyExpr)
+              (compileExpr_bridgedSource fields dynamicSource hValue hValueExpr)
+              hMapping hSlots hNonzero hOk
 
 theorem compileStmt_setStructMember_multiSlot_nonzero_noFuncDefs
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
@@ -14691,20 +9339,20 @@ theorem compileStmt_setStructMember_multiSlot_nonzero_noFuncDefs
         inScopeNames [] (.setStructMember field key memberName value) = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt, compileSetStructMember, hNotMapping2, hMembers,
+  simp only [compileStmt, compileStmtWithFork, compileSetStructMember, hNotMapping2, hMembers,
     hFindMember, hUnpacked, bind, Except.bind,
     Bool.false_eq_true, if_false] at hOk
-  cases hKeyExpr : compileExpr fields dynamicSource key with
+  cases hKeyExpr : compileExprWithInternals fields dynamicSource [] key with
   | error err => simp [hKeyExpr, pure, Pure.pure, Except.pure] at hOk
   | ok keyExpr =>
-      cases hValueExpr : compileExpr fields dynamicSource value with
+      cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err =>
           simp [hKeyExpr, hValueExpr, pure, Pure.pure, Except.pure] at hOk
-      | ok valueExpr =>
-          simp [hKeyExpr, hValueExpr, pure, Pure.pure, Except.pure] at hOk
-          exact compileMappingSlotWrite_multiSlot_nonzero_noFuncDefs fields
-            field keyExpr valueExpr s!"setStructMember.{memberName}"
-            hMapping hSlots hNonzero hOk
+        | ok valueExpr =>
+            simp [hKeyExpr, hValueExpr, pure, Pure.pure, Except.pure] at hOk
+            exact compileMappingSlotWrite_multiSlot_nonzero_noFuncDefs fields
+              field keyExpr valueExpr s!"setStructMember.{memberName}"
+              true hMapping hSlots hNonzero hOk
 
 /-- Each statement in the multi-slot nonzero-offset struct-member-write
 fragment compiles to Yul satisfying `BridgedStmts`. -/
@@ -14743,70 +9391,6 @@ theorem compileStmt_structMemberMultiSlotNonzero_noFuncDefs
         events errors dynamicSource internalRetNames isInternal inScopeNames field
         memberName members member hNotMapping2 hMembers hFindMember hUnpacked
         hNonzero hMapping hSlots hOk
-
-/-- Lists of multi-slot nonzero-offset struct-member-write source
-statements compile to Yul lists satisfying `BridgedStmts`. -/
-theorem compileStmtList_structMemberMultiSlotNonzero_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceStructMemberMultiSlotNonzeroStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] head with
-      | error err => simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames isInternal (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err => simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource :
-                  BridgedSourceStructMemberMultiSlotNonzeroStmt fields head :=
-                hSource head (by simp)
-              have hTailSource :
-                  BridgedSourceStructMemberMultiSlotNonzeroStmts fields tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_structMemberMultiSlotNonzero_bridged fields events
-                  errors dynamicSource internalRetNames isInternal inScopeNames
-                  hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-theorem compileStmtList_structMemberMultiSlotNonzero_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceStructMemberMultiSlotNonzeroStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames isInternal
-    (BridgedSourceStructMemberMultiSlotNonzeroStmt fields)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_structMemberMultiSlotNonzero_noFuncDefs fields events errors
-        dynamicSource internalRetNames isInternal inScopeNames hStmt hOk)
 
 /-! ## Source statement body closure: multi-slot `setStructMember2`
 (wordOffset ≠ 0)
@@ -14875,15 +9459,16 @@ theorem compileStmt_setStructMember2_multiSlot_nonzero_bridged
     | zero => exact absurd h hNonzero
     | succ n => rfl
   simp only [compileStmt] at hOk
+  unfold compileStmtWithFork at hOk
   unfold compileSetStructMember2 at hOk
   simp [hMapping2, hMembers, hFindMember, hUnpacked, hBeq, hSlots] at hOk
-  cases hKey1Expr : compileExpr fields dynamicSource key1 with
+  cases hKey1Expr : compileExprWithInternals fields dynamicSource [] key1 with
   | error err => simp [hKey1Expr, bind, Except.bind] at hOk
   | ok key1Expr =>
-      cases hKey2Expr : compileExpr fields dynamicSource key2 with
+      cases hKey2Expr : compileExprWithInternals fields dynamicSource [] key2 with
       | error err => simp [hKey1Expr, hKey2Expr, bind, Except.bind] at hOk
       | ok key2Expr =>
-          cases hValueExpr : compileExpr fields dynamicSource value with
+          cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
           | error err =>
               simp [hKey1Expr, hKey2Expr, hValueExpr, bind, Except.bind] at hOk
           | ok valueExpr =>
@@ -14937,7 +9522,7 @@ theorem compileStmt_setStructMember2_multiSlot_nonzero_bridged
                     · subst hArg; exact hInner0
                     · subst hArg; exact BridgedExpr.ident "__compat_key2"
                 exact BridgedStmt.straight _
-                  (BridgedStraightStmt.expr_sstore_add _ _ _
+                  (bridgedStraightStmt_fieldStorageStore_add fields field _ _ _
                     hOuter0
                     (BridgedExpr.lit member.wordOffset)
                     (BridgedExpr.ident "__compat_value"))
@@ -14968,14 +9553,42 @@ theorem compileStmt_setStructMember2_multiSlot_nonzero_bridged
                     · subst hArg; exact hInner1
                     · subst hArg; exact BridgedExpr.ident "__compat_key2"
                 exact BridgedStmt.straight _
-                  (BridgedStraightStmt.expr_sstore_add _ _ _
+                  (bridgedStraightStmt_fieldStorageStore_add fields field _ _ _
                     hOuter1
                     (BridgedExpr.lit member.wordOffset)
                     (BridgedExpr.ident "__compat_value"))
-              · have hSstore : BridgedStraightStmt stmt :=
-                  bridgedStraightStmts_multiSlot_sstore_mapping2_add slotsRest
-                    member.wordOffset stmt (by simpa using hMem)
-                exact BridgedStmt.straight _ hSstore
+              · rw [List.mem_map] at hMem
+                obtain ⟨slot, _, hEq⟩ := hMem
+                subst hEq
+                have hInner : BridgedExpr
+                    (Compiler.Yul.YulExpr.call "mappingSlot"
+                      [Compiler.Yul.YulExpr.lit slot,
+                       Compiler.Yul.YulExpr.ident "__compat_key1"]) := by
+                  apply BridgedExpr.call
+                  · exact Or.inl (by decide)
+                  · intro arg hArg
+                    simp only [List.mem_cons, List.not_mem_nil, or_false] at hArg
+                    rcases hArg with hArg | hArg
+                    · subst hArg; exact BridgedExpr.lit slot
+                    · subst hArg; exact BridgedExpr.ident "__compat_key1"
+                have hOuter : BridgedExpr
+                    (Compiler.Yul.YulExpr.call "mappingSlot" [
+                      Compiler.Yul.YulExpr.call "mappingSlot"
+                        [Compiler.Yul.YulExpr.lit slot,
+                         Compiler.Yul.YulExpr.ident "__compat_key1"],
+                      Compiler.Yul.YulExpr.ident "__compat_key2"]) := by
+                  apply BridgedExpr.call
+                  · exact Or.inl (by decide)
+                  · intro arg hArg
+                    simp only [List.mem_cons, List.not_mem_nil, or_false] at hArg
+                    rcases hArg with hArg | hArg
+                    · subst hArg; exact hInner
+                    · subst hArg; exact BridgedExpr.ident "__compat_key2"
+                exact BridgedStmt.straight _
+                  (bridgedStraightStmt_fieldStorageStore_add fields field _ _ _
+                    hOuter
+                    (BridgedExpr.lit member.wordOffset)
+                    (BridgedExpr.ident "__compat_value"))
 
 theorem compileStmt_setStructMember2_multiSlot_nonzero_noFuncDefs
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
@@ -15002,24 +9615,27 @@ theorem compileStmt_setStructMember2_multiSlot_nonzero_noFuncDefs
     | zero => exact absurd h hNonzero
     | succ n => rfl
   simp only [compileStmt] at hOk
+  unfold compileStmtWithFork at hOk
   unfold compileSetStructMember2 at hOk
   simp [hMapping2, hMembers, hFindMember, hUnpacked, hBeq, hSlots] at hOk
-  cases hKey1Expr : compileExpr fields dynamicSource key1 with
+  cases hKey1Expr : compileExprWithInternals fields dynamicSource [] key1 with
   | error err => simp [hKey1Expr, bind, Except.bind] at hOk
   | ok key1Expr =>
-      cases hKey2Expr : compileExpr fields dynamicSource key2 with
+      cases hKey2Expr : compileExprWithInternals fields dynamicSource [] key2 with
       | error err => simp [hKey1Expr, hKey2Expr, bind, Except.bind] at hOk
       | ok key2Expr =>
-          cases hValueExpr : compileExpr fields dynamicSource value with
+          cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
           | error err =>
               simp [hKey1Expr, hKey2Expr, hValueExpr, bind, Except.bind] at hOk
           | ok valueExpr =>
               simp [hKey1Expr, hKey2Expr, hValueExpr, bind, Except.bind] at hOk
               subst out
               simp [Native.yulStmtContainsFuncDef, Native.yulStmtsContainFuncDef]
-              simpa [Function.comp_def] using
-                yulStmtsContainFuncDef_multiSlot_sstore_mapping2_add slotsRest
-                  member.wordOffset
+              clear hSlots
+              induction slotsRest with
+              | nil => simp [Native.yulStmtContainsFuncDef, Native.yulStmtsContainFuncDef]
+              | cons slot rest ih =>
+                  simp [Native.yulStmtContainsFuncDef, Native.yulStmtsContainFuncDef, ih]
 
 /-- Each statement in the multi-slot nonzero-offset struct-member2-write
 fragment compiles to Yul satisfying `BridgedStmts`. -/
@@ -15058,70 +9674,6 @@ theorem compileStmt_structMember2MultiSlotNonzero_noFuncDefs
         events errors dynamicSource internalRetNames isInternal inScopeNames field
         memberName members member hMapping2 hMembers hFindMember hUnpacked
         hNonzero hSlots hOk
-
-/-- Lists of multi-slot nonzero-offset struct-member2-write source
-statements compile to Yul lists satisfying `BridgedStmts`. -/
-theorem compileStmtList_structMember2MultiSlotNonzero_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceStructMember2MultiSlotNonzeroStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] head with
-      | error err => simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames isInternal (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err => simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource :
-                  BridgedSourceStructMember2MultiSlotNonzeroStmt fields head :=
-                hSource head (by simp)
-              have hTailSource :
-                  BridgedSourceStructMember2MultiSlotNonzeroStmts fields tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_structMember2MultiSlotNonzero_bridged fields events
-                  errors dynamicSource internalRetNames isInternal inScopeNames
-                  hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-theorem compileStmtList_structMember2MultiSlotNonzero_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceStructMember2MultiSlotNonzeroStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames isInternal
-    (BridgedSourceStructMember2MultiSlotNonzeroStmt fields)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_structMember2MultiSlotNonzero_noFuncDefs fields events errors
-        dynamicSource internalRetNames isInternal inScopeNames hStmt hOk)
 
 /-! ## Source statement body closure: single-slot `setMappingPackedWord`
 (wordOffset=0)
@@ -15177,11 +9729,11 @@ theorem compileStmt_setMappingPackedWord_singleSlot_bridged
       BridgedStmts out := by
   intro out hOk
   subst hWordOffset
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hKeyExpr : compileExpr fields dynamicSource key with
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+  cases hKeyExpr : compileExprWithInternals fields dynamicSource [] key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
-      cases hValueExpr : compileExpr fields dynamicSource value with
+      cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err => simp [hKeyExpr, hValueExpr] at hOk
       | ok valueExpr =>
           simp [hKeyExpr, hValueExpr, compileMappingPackedSlotWrite,
@@ -15220,12 +9772,8 @@ theorem compileStmt_setMappingPackedWord_singleSlot_bridged
               · subst hArg; exact BridgedExpr.lit _
           · -- let_ "__compat_slot_word" (sload(mappingSlot(lit slot, keyExpr)))
             refine BridgedStmt.straight _
-              (BridgedStraightStmt.let_ _ _ ?_)
-            apply BridgedExpr.call
-            · exact Or.inl (by decide)
-            · intro arg hArg
-              simp only [List.mem_cons, List.not_mem_nil, or_false] at hArg
-              subst hArg; exact hMappingBase
+              (BridgedStraightStmt.let_ _ _
+                (bridgedExpr_fieldStorageLoad fields field _ hMappingBase))
           · -- let_ "__compat_slot_cleared"
             --   (and(ident "__compat_slot_word", not(lit shiftedMaskNat)))
             refine BridgedStmt.straight _
@@ -15268,7 +9816,7 @@ theorem compileStmt_setMappingPackedWord_singleSlot_bridged
                     · subst hArg'; exact BridgedExpr.lit _
                     · subst hArg'; exact BridgedExpr.ident "__compat_packed"
             exact BridgedStmt.straight _
-              (BridgedStraightStmt.expr_sstore_mapping
+              (bridgedStraightStmt_fieldStorageStore_mapping fields field
                 (Compiler.Yul.YulExpr.lit slot) keyExpr _
                 (BridgedExpr.lit slot) hKeyBridged hVal)
 
@@ -15289,11 +9837,11 @@ theorem compileStmt_setMappingPackedWord_singleSlot_noFuncDefs
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
   subst hWordOffset
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hKeyExpr : compileExpr fields dynamicSource key with
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+  cases hKeyExpr : compileExprWithInternals fields dynamicSource [] key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
-      cases hValueExpr : compileExpr fields dynamicSource value with
+      cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err => simp [hKeyExpr, hValueExpr] at hOk
       | ok valueExpr =>
           simp [hKeyExpr, hValueExpr, compileMappingPackedSlotWrite,
@@ -15336,68 +9884,6 @@ theorem compileStmt_mappingPackedWord_noFuncDefs
       exact compileStmt_setMappingPackedWord_singleSlot_noFuncDefs fields events
         errors dynamicSource internalRetNames isInternal inScopeNames field
         wordOffset packed hMapping hSlots hWordOffset hPacked hOk
-
-/-- Lists of single-slot mappingPackedWord-write source statements compile
-to Yul lists satisfying `BridgedStmts`. -/
-theorem compileStmtList_mappingPackedWord_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceMappingPackedWordStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource
-          internalRetNames isInternal inScopeNames [] head with
-      | error err => simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames isInternal (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err => simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource : BridgedSourceMappingPackedWordStmt fields head :=
-                hSource head (by simp)
-              have hTailSource :
-                  BridgedSourceMappingPackedWordStmts fields tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_mappingPackedWord_bridged fields events errors
-                  dynamicSource internalRetNames isInternal inScopeNames
-                  hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-theorem compileStmtList_mappingPackedWord_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceMappingPackedWordStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames isInternal (BridgedSourceMappingPackedWordStmt fields)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_mappingPackedWord_noFuncDefs fields events errors
-        dynamicSource internalRetNames isInternal inScopeNames hStmt hOk)
 
 /-! ## Source statement body closure: single-slot `setMappingPackedWord`
 (wordOffset ≠ 0)
@@ -15453,11 +9939,11 @@ theorem compileStmt_setMappingPackedWord_singleSlot_nonzero_bridged
     cases wordOffset with
     | zero => exact absurd rfl hNonzero
     | succ n => rfl
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hKeyExpr : compileExpr fields dynamicSource key with
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+  cases hKeyExpr : compileExprWithInternals fields dynamicSource [] key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
-      cases hValueExpr : compileExpr fields dynamicSource value with
+      cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err => simp [hKeyExpr, hValueExpr] at hOk
       | ok valueExpr =>
           simp [hKeyExpr, hValueExpr, compileMappingPackedSlotWrite,
@@ -15508,12 +9994,8 @@ theorem compileStmt_setMappingPackedWord_singleSlot_nonzero_bridged
               · subst hArg; exact BridgedExpr.lit _
           · -- let_ "__compat_slot_word" (sload(add(mappingBase, lit wordOffset)))
             refine BridgedStmt.straight _
-              (BridgedStraightStmt.let_ _ _ ?_)
-            apply BridgedExpr.call
-            · exact Or.inl (by decide)
-            · intro arg hArg
-              simp only [List.mem_cons, List.not_mem_nil, or_false] at hArg
-              subst hArg; exact hWriteSlot
+              (BridgedStraightStmt.let_ _ _
+                (bridgedExpr_fieldStorageLoad fields field _ hWriteSlot))
           · -- let_ "__compat_slot_cleared"
             --   (and(ident "__compat_slot_word", not(lit shiftedMaskNat)))
             refine BridgedStmt.straight _
@@ -15556,11 +10038,11 @@ theorem compileStmt_setMappingPackedWord_singleSlot_nonzero_bridged
                     · subst hArg'; exact BridgedExpr.lit _
                     · subst hArg'; exact BridgedExpr.ident "__compat_packed"
             exact BridgedStmt.straight _
-              (BridgedStraightStmt.expr_sstore_add
+              (bridgedStraightStmt_fieldStorageStore_add fields field
                 (Compiler.Yul.YulExpr.call "mappingSlot"
                   [Compiler.Yul.YulExpr.lit slot, keyExpr])
                 (Compiler.Yul.YulExpr.lit wordOffset) _
-                hMappingBase (BridgedExpr.lit wordOffset) hVal)
+              hMappingBase (BridgedExpr.lit wordOffset) hVal)
 
 theorem compileStmt_setMappingPackedWord_singleSlot_nonzero_noFuncDefs
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
@@ -15582,11 +10064,11 @@ theorem compileStmt_setMappingPackedWord_singleSlot_nonzero_noFuncDefs
     cases wordOffset with
     | zero => exact absurd rfl hNonzero
     | succ n => rfl
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hKeyExpr : compileExpr fields dynamicSource key with
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+  cases hKeyExpr : compileExprWithInternals fields dynamicSource [] key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
-      cases hValueExpr : compileExpr fields dynamicSource value with
+      cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err => simp [hKeyExpr, hValueExpr] at hOk
       | ok valueExpr =>
           simp [hKeyExpr, hValueExpr, compileMappingPackedSlotWrite,
@@ -15630,70 +10112,6 @@ theorem compileStmt_mappingPackedWordNonzero_noFuncDefs
         fields events errors dynamicSource internalRetNames isInternal
         inScopeNames field packed hMapping hSlots hNonzero hPacked hOk
 
-/-- Lists of single-slot wordOffset≠0 mappingPackedWord-write source
-statements compile to Yul lists satisfying `BridgedStmts`. -/
-theorem compileStmtList_mappingPackedWordNonzero_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceMappingPackedWordNonzeroStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource
-          internalRetNames isInternal inScopeNames [] head with
-      | error err => simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames isInternal (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err => simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource :
-                  BridgedSourceMappingPackedWordNonzeroStmt fields head :=
-                hSource head (by simp)
-              have hTailSource :
-                  BridgedSourceMappingPackedWordNonzeroStmts fields tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_mappingPackedWordNonzero_bridged fields events
-                  errors dynamicSource internalRetNames isInternal inScopeNames
-                  hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-theorem compileStmtList_mappingPackedWordNonzero_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceMappingPackedWordNonzeroStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames isInternal
-    (BridgedSourceMappingPackedWordNonzeroStmt fields)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_mappingPackedWordNonzero_noFuncDefs fields events errors
-        dynamicSource internalRetNames isInternal inScopeNames hStmt hOk)
-
 /-! ## Source statement body closure: multi-slot `setMappingPackedWord`
 (wordOffset = 0)
 
@@ -15716,10 +10134,10 @@ wrapped in an inner `BridgedStmts_singleton_block`. -/
 multi-slot `compileMappingPackedSlotWrite` wordOffset=0 branch is a
 `BridgedStmt`. -/
 private theorem bridgedStmt_packedInnerBlock_wordOffsetZero
-    (slot : Nat) (packed : PackedBits) :
+    (isTransient : Bool) (slot : Nat) (packed : PackedBits) :
     BridgedStmt (Compiler.Yul.YulStmt.block [
       Compiler.Yul.YulStmt.let_ "__compat_slot_word"
-        (Compiler.Yul.YulExpr.call "sload" [
+        (Compiler.Yul.YulExpr.call (if isTransient then "tload" else "sload") [
           Compiler.Yul.YulExpr.call "mappingSlot" [
             Compiler.Yul.YulExpr.lit slot,
             Compiler.Yul.YulExpr.ident "__compat_key"]]),
@@ -15729,7 +10147,7 @@ private theorem bridgedStmt_packedInnerBlock_wordOffsetZero
           Compiler.Yul.YulExpr.call "not" [
             Compiler.Yul.YulExpr.lit (packedShiftedMaskNat packed)]]),
       Compiler.Yul.YulStmt.expr (
-        Compiler.Yul.YulExpr.call "sstore" [
+        Compiler.Yul.YulExpr.call (if isTransient then "tstore" else "sstore") [
           Compiler.Yul.YulExpr.call "mappingSlot" [
             Compiler.Yul.YulExpr.lit slot,
             Compiler.Yul.YulExpr.ident "__compat_key"],
@@ -15755,11 +10173,13 @@ private theorem bridgedStmt_packedInnerBlock_wordOffsetZero
   rcases hMem with rfl | rfl | rfl
   · -- let_ __compat_slot_word (sload(mappingSlot(lit slot, ident "__compat_key")))
     refine BridgedStmt.straight _ (BridgedStraightStmt.let_ _ _ ?_)
-    apply BridgedExpr.call
-    · exact Or.inl (by decide)
-    · intro arg hArg
-      simp only [List.mem_cons, List.not_mem_nil, or_false] at hArg
-      subst hArg; exact hMappingBase
+    cases isTransient
+    · apply BridgedExpr.call
+      · exact Or.inl (by decide)
+      · intro arg hArg
+        simp only [List.mem_cons, List.not_mem_nil, or_false] at hArg
+        subst hArg; exact hMappingBase
+    · exact bridgedExpr_tload _ hMappingBase
   · -- let_ __compat_slot_cleared (and(ident, not(lit shiftedMaskNat)))
     refine BridgedStmt.straight _ (BridgedStraightStmt.let_ _ _ ?_)
     apply BridgedExpr.call
@@ -15797,11 +10217,51 @@ private theorem bridgedStmt_packedInnerBlock_wordOffsetZero
             · subst hArg'; exact BridgedExpr.lit _
             · subst hArg'; exact BridgedExpr.ident "__compat_packed"
     exact BridgedStmt.straight _
-      (BridgedStraightStmt.expr_sstore_mapping
+      (bridgedStraightStmt_storageStore_mapping isTransient
         (Compiler.Yul.YulExpr.lit slot)
         (Compiler.Yul.YulExpr.ident "__compat_key") _
         (BridgedExpr.lit slot)
         (BridgedExpr.ident "__compat_key") hVal)
+
+private theorem bridgedStmt_packedInnerBlock_wordOffsetZero_field
+    (fields : List Field) (field : String) (slot : Nat) (packed : PackedBits) :
+    BridgedStmt (Compiler.Yul.YulStmt.block [
+      Compiler.Yul.YulStmt.let_ "__compat_slot_word"
+        (Compiler.Yul.YulExpr.call
+          (match findFieldWithResolvedSlot fields field with
+           | some (f, _) => if f.isTransient = true then "tload" else "sload"
+           | none => "sload") [
+          Compiler.Yul.YulExpr.call "mappingSlot" [
+            Compiler.Yul.YulExpr.lit slot,
+            Compiler.Yul.YulExpr.ident "__compat_key"]]),
+      Compiler.Yul.YulStmt.let_ "__compat_slot_cleared"
+        (Compiler.Yul.YulExpr.call "and" [
+          Compiler.Yul.YulExpr.ident "__compat_slot_word",
+          Compiler.Yul.YulExpr.call "not" [
+            Compiler.Yul.YulExpr.lit (packedShiftedMaskNat packed)]]),
+      Compiler.Yul.YulStmt.expr (
+        Compiler.Yul.YulExpr.call
+          (match findFieldWithResolvedSlot fields field with
+           | some (f, _) => if f.isTransient = true then "tstore" else "sstore"
+           | none => "sstore") [
+          Compiler.Yul.YulExpr.call "mappingSlot" [
+            Compiler.Yul.YulExpr.lit slot,
+            Compiler.Yul.YulExpr.ident "__compat_key"],
+          Compiler.Yul.YulExpr.call "or" [
+            Compiler.Yul.YulExpr.ident "__compat_slot_cleared",
+            Compiler.Yul.YulExpr.call "shl" [
+              Compiler.Yul.YulExpr.lit packed.offset,
+              Compiler.Yul.YulExpr.ident "__compat_packed"]]])]) := by
+  cases hField : findFieldWithResolvedSlot fields field with
+  | none =>
+      simpa [hField] using
+        bridgedStmt_packedInnerBlock_wordOffsetZero false slot packed
+  | some found =>
+      cases found with
+      | mk f resolvedSlot =>
+          cases hTransient : f.isTransient <;>
+            simpa [hField, hTransient] using
+              bridgedStmt_packedInnerBlock_wordOffsetZero f.isTransient slot packed
 
 /-- Helper: every element of `slots.map innerBlockFn` satisfies
 `BridgedStmt` via the single-slot inner-block helper. -/
@@ -15834,7 +10294,7 @@ private theorem bridgedStmts_slotsMap_packedInnerBlock_wordOffsetZero
   rw [List.mem_map] at hMem
   obtain ⟨slot, _, hEq⟩ := hMem
   subst hEq
-  exact bridgedStmt_packedInnerBlock_wordOffsetZero slot packed
+  exact bridgedStmt_packedInnerBlock_wordOffsetZero false slot packed
 
 private theorem yulStmtsContainFuncDef_slotsMap_packedInnerBlock_wordOffsetZero
     (slots : List Nat) (packed : PackedBits) :
@@ -15908,11 +10368,11 @@ theorem compileStmt_setMappingPackedWord_multiSlot_bridged
       BridgedStmts out := by
   intro out hOk
   subst hWordOffset
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hKeyExpr : compileExpr fields dynamicSource key with
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+  cases hKeyExpr : compileExprWithInternals fields dynamicSource [] key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
-      cases hValueExpr : compileExpr fields dynamicSource value with
+      cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err => simp [hKeyExpr, hValueExpr] at hOk
       | ok valueExpr =>
           simp [hKeyExpr, hValueExpr, compileMappingPackedSlotWrite,
@@ -15948,11 +10408,16 @@ theorem compileStmt_setMappingPackedWord_multiSlot_bridged
           -- After simp unfolds the head of List.map, hMem ranges over
           -- inner_block(slot0) :: inner_block(slot1) :: slotsRest.map inner_block_fn
           rcases hMem with rfl | hMem
-          · exact bridgedStmt_packedInnerBlock_wordOffsetZero slot0 packed
+          · exact bridgedStmt_packedInnerBlock_wordOffsetZero_field
+              fields field slot0 packed
           rcases hMem with rfl | hMem
-          · exact bridgedStmt_packedInnerBlock_wordOffsetZero slot1 packed
-          · exact bridgedStmts_slotsMap_packedInnerBlock_wordOffsetZero
-              slotsRest packed stmt hMem
+          · exact bridgedStmt_packedInnerBlock_wordOffsetZero_field
+              fields field slot1 packed
+          · rw [List.mem_map] at hMem
+            obtain ⟨slot, _, hEq⟩ := hMem
+            subst hEq
+            exact bridgedStmt_packedInnerBlock_wordOffsetZero_field
+              fields field slot packed
 
 theorem compileStmt_setMappingPackedWord_multiSlot_noFuncDefs
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
@@ -15972,20 +10437,22 @@ theorem compileStmt_setMappingPackedWord_multiSlot_noFuncDefs
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
   subst hWordOffset
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hKeyExpr : compileExpr fields dynamicSource key with
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+  cases hKeyExpr : compileExprWithInternals fields dynamicSource [] key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
-      cases hValueExpr : compileExpr fields dynamicSource value with
+      cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err => simp [hKeyExpr, hValueExpr] at hOk
       | ok valueExpr =>
           simp [hKeyExpr, hValueExpr, compileMappingPackedSlotWrite,
             hMapping, hPacked, hSlots, Pure.pure, Except.pure] at hOk
           subst out
           simp [Native.yulStmtContainsFuncDef, Native.yulStmtsContainFuncDef]
-          simpa using
-            yulStmtsContainFuncDef_slotsMap_packedInnerBlock_wordOffsetZero
-              slotsRest packed
+          clear hSlots
+          induction slotsRest with
+          | nil => simp [Native.yulStmtContainsFuncDef, Native.yulStmtsContainFuncDef]
+          | cons slot rest ih =>
+              simp [Native.yulStmtContainsFuncDef, Native.yulStmtsContainFuncDef, ih]
 
 /-- Each statement in the multi-slot mappingPackedWord-write fragment
 (wordOffset=0) compiles to Yul satisfying `BridgedStmts`. -/
@@ -16025,70 +10492,6 @@ theorem compileStmt_mappingPackedWordMultiSlot_noFuncDefs
         errors dynamicSource internalRetNames isInternal inScopeNames field
         wordOffset packed hMapping hSlots hWordOffset hPacked hOk
 
-/-- Lists of multi-slot mappingPackedWord-write source statements
-(wordOffset=0) compile to Yul lists satisfying `BridgedStmts`. -/
-theorem compileStmtList_mappingPackedWordMultiSlot_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceMappingPackedWordMultiSlotStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource
-          internalRetNames isInternal inScopeNames [] head with
-      | error err => simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames isInternal (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err => simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource :
-                  BridgedSourceMappingPackedWordMultiSlotStmt fields head :=
-                hSource head (by simp)
-              have hTailSource :
-                  BridgedSourceMappingPackedWordMultiSlotStmts fields tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_mappingPackedWordMultiSlot_bridged fields events
-                  errors dynamicSource internalRetNames isInternal inScopeNames
-                  hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-theorem compileStmtList_mappingPackedWordMultiSlot_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceMappingPackedWordMultiSlotStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames isInternal
-    (BridgedSourceMappingPackedWordMultiSlotStmt fields)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_mappingPackedWordMultiSlot_noFuncDefs fields events errors
-        dynamicSource internalRetNames isInternal inScopeNames hStmt hOk)
-
 /-! ## Source statement body closure: multi-slot `setMappingPackedWord`
 (wordOffset ≠ 0)
 
@@ -16107,10 +10510,10 @@ three-stmt inner block `YulStmt.block [sload-let, cleared-let, sstore-expr]`
 produced by the multi-slot wordOffset≠0 packed-write shape satisfies
 `BridgedStmt`. -/
 private theorem bridgedStmt_packedInnerBlock_wordOffsetNonzero
-    (slot wordOffset : Nat) (packed : PackedBits) :
+    (isTransient : Bool) (slot wordOffset : Nat) (packed : PackedBits) :
     BridgedStmt (Compiler.Yul.YulStmt.block [
       Compiler.Yul.YulStmt.let_ "__compat_slot_word"
-        (Compiler.Yul.YulExpr.call "sload" [
+        (Compiler.Yul.YulExpr.call (if isTransient then "tload" else "sload") [
           Compiler.Yul.YulExpr.call "add" [
             Compiler.Yul.YulExpr.call "mappingSlot" [
               Compiler.Yul.YulExpr.lit slot,
@@ -16122,7 +10525,7 @@ private theorem bridgedStmt_packedInnerBlock_wordOffsetNonzero
           Compiler.Yul.YulExpr.call "not" [
             Compiler.Yul.YulExpr.lit (packedShiftedMaskNat packed)]]),
       Compiler.Yul.YulStmt.expr (
-        Compiler.Yul.YulExpr.call "sstore" [
+        Compiler.Yul.YulExpr.call (if isTransient then "tstore" else "sstore") [
           Compiler.Yul.YulExpr.call "add" [
             Compiler.Yul.YulExpr.call "mappingSlot" [
               Compiler.Yul.YulExpr.lit slot,
@@ -16163,11 +10566,13 @@ private theorem bridgedStmt_packedInnerBlock_wordOffsetNonzero
   rcases hMem with rfl | rfl | rfl
   · -- let_ __compat_slot_word (sload(add(mappingSlot, lit wordOffset)))
     refine BridgedStmt.straight _ (BridgedStraightStmt.let_ _ _ ?_)
-    apply BridgedExpr.call
-    · exact Or.inl (by decide)
-    · intro arg hArg
-      simp only [List.mem_cons, List.not_mem_nil, or_false] at hArg
-      subst hArg; exact hWriteSlot
+    cases isTransient
+    · apply BridgedExpr.call
+      · exact Or.inl (by simp [bridgedBuiltins])
+      · intro arg hArg
+        simp only [List.mem_cons, List.not_mem_nil, or_false] at hArg
+        subst hArg; exact hWriteSlot
+    · exact bridgedExpr_tload _ hWriteSlot
   · -- let_ __compat_slot_cleared (and(ident, not(lit shiftedMaskNat)))
     refine BridgedStmt.straight _ (BridgedStraightStmt.let_ _ _ ?_)
     apply BridgedExpr.call
@@ -16205,21 +10610,66 @@ private theorem bridgedStmt_packedInnerBlock_wordOffsetNonzero
             · subst hArg'; exact BridgedExpr.lit _
             · subst hArg'; exact BridgedExpr.ident "__compat_packed"
     exact BridgedStmt.straight _
-      (BridgedStraightStmt.expr_sstore_add
+      (bridgedStraightStmt_storageStore_add isTransient
         (Compiler.Yul.YulExpr.call "mappingSlot"
           [Compiler.Yul.YulExpr.lit slot,
            Compiler.Yul.YulExpr.ident "__compat_key"])
         (Compiler.Yul.YulExpr.lit wordOffset) _
         hMappingBase (BridgedExpr.lit wordOffset) hVal)
 
+private theorem bridgedStmt_packedInnerBlock_wordOffsetNonzero_field
+    (fields : List Field) (field : String)
+    (slot wordOffset : Nat) (packed : PackedBits) :
+    BridgedStmt (Compiler.Yul.YulStmt.block [
+      Compiler.Yul.YulStmt.let_ "__compat_slot_word"
+        (Compiler.Yul.YulExpr.call
+          (match findFieldWithResolvedSlot fields field with
+           | some (f, _) => if f.isTransient = true then "tload" else "sload"
+           | none => "sload") [
+          Compiler.Yul.YulExpr.call "add" [
+            Compiler.Yul.YulExpr.call "mappingSlot" [
+              Compiler.Yul.YulExpr.lit slot,
+              Compiler.Yul.YulExpr.ident "__compat_key"],
+            Compiler.Yul.YulExpr.lit wordOffset]]),
+      Compiler.Yul.YulStmt.let_ "__compat_slot_cleared"
+        (Compiler.Yul.YulExpr.call "and" [
+          Compiler.Yul.YulExpr.ident "__compat_slot_word",
+          Compiler.Yul.YulExpr.call "not" [
+            Compiler.Yul.YulExpr.lit (packedShiftedMaskNat packed)]]),
+      Compiler.Yul.YulStmt.expr (
+        Compiler.Yul.YulExpr.call
+          (match findFieldWithResolvedSlot fields field with
+           | some (f, _) => if f.isTransient = true then "tstore" else "sstore"
+           | none => "sstore") [
+          Compiler.Yul.YulExpr.call "add" [
+            Compiler.Yul.YulExpr.call "mappingSlot" [
+              Compiler.Yul.YulExpr.lit slot,
+              Compiler.Yul.YulExpr.ident "__compat_key"],
+            Compiler.Yul.YulExpr.lit wordOffset],
+          Compiler.Yul.YulExpr.call "or" [
+            Compiler.Yul.YulExpr.ident "__compat_slot_cleared",
+            Compiler.Yul.YulExpr.call "shl" [
+              Compiler.Yul.YulExpr.lit packed.offset,
+              Compiler.Yul.YulExpr.ident "__compat_packed"]]])]) := by
+  cases hField : findFieldWithResolvedSlot fields field with
+  | none =>
+      simpa [hField] using
+        bridgedStmt_packedInnerBlock_wordOffsetNonzero false slot wordOffset packed
+  | some found =>
+      cases found with
+      | mk f resolvedSlot =>
+          cases hTransient : f.isTransient <;>
+            simpa [hField, hTransient] using
+              bridgedStmt_packedInnerBlock_wordOffsetNonzero f.isTransient slot wordOffset packed
+
 /-- Helper: every element of `slots.map innerBlockFn` (wordOffset ≠ 0)
 satisfies `BridgedStmt` via the single-slot inner-block helper. -/
 private theorem bridgedStmts_slotsMap_packedInnerBlock_wordOffsetNonzero
-    (slots : List Nat) (wordOffset : Nat) (packed : PackedBits) :
+    (isTransient : Bool) (slots : List Nat) (wordOffset : Nat) (packed : PackedBits) :
     ∀ stmt ∈ slots.map (fun slot =>
       Compiler.Yul.YulStmt.block [
         Compiler.Yul.YulStmt.let_ "__compat_slot_word"
-          (Compiler.Yul.YulExpr.call "sload" [
+          (Compiler.Yul.YulExpr.call (if isTransient then "tload" else "sload") [
             Compiler.Yul.YulExpr.call "add" [
               Compiler.Yul.YulExpr.call "mappingSlot" [
                 Compiler.Yul.YulExpr.lit slot,
@@ -16231,7 +10681,7 @@ private theorem bridgedStmts_slotsMap_packedInnerBlock_wordOffsetNonzero
             Compiler.Yul.YulExpr.call "not" [
               Compiler.Yul.YulExpr.lit (packedShiftedMaskNat packed)]]),
         Compiler.Yul.YulStmt.expr (
-          Compiler.Yul.YulExpr.call "sstore" [
+          Compiler.Yul.YulExpr.call (if isTransient then "tstore" else "sstore") [
             Compiler.Yul.YulExpr.call "add" [
               Compiler.Yul.YulExpr.call "mappingSlot" [
                 Compiler.Yul.YulExpr.lit slot,
@@ -16247,7 +10697,7 @@ private theorem bridgedStmts_slotsMap_packedInnerBlock_wordOffsetNonzero
   rw [List.mem_map] at hMem
   obtain ⟨slot, _, hEq⟩ := hMem
   subst hEq
-  exact bridgedStmt_packedInnerBlock_wordOffsetNonzero slot wordOffset packed
+  exact bridgedStmt_packedInnerBlock_wordOffsetNonzero isTransient slot wordOffset packed
 
 private theorem yulStmtsContainFuncDef_slotsMap_packedInnerBlock_wordOffsetNonzero
     (slots : List Nat) (wordOffset : Nat) (packed : PackedBits) :
@@ -16328,11 +10778,11 @@ theorem compileStmt_setMappingPackedWord_multiSlot_nonzero_bridged
     cases wordOffset with
     | zero => exact absurd rfl hNonzero
     | succ n => rfl
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hKeyExpr : compileExpr fields dynamicSource key with
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+  cases hKeyExpr : compileExprWithInternals fields dynamicSource [] key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
-      cases hValueExpr : compileExpr fields dynamicSource value with
+      cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err => simp [hKeyExpr, hValueExpr] at hOk
       | ok valueExpr =>
           simp [hKeyExpr, hValueExpr, compileMappingPackedSlotWrite,
@@ -16366,13 +10816,16 @@ theorem compileStmt_setMappingPackedWord_multiSlot_nonzero_bridged
               · subst hArg; exact BridgedExpr.lit _
           -- Remaining: slots.map (inner_block_fn) for slot0 :: slot1 :: slotsRest.
           rcases hMem with rfl | hMem
-          · exact bridgedStmt_packedInnerBlock_wordOffsetNonzero slot0
-              wordOffset packed
+          · exact bridgedStmt_packedInnerBlock_wordOffsetNonzero_field
+              fields field slot0 wordOffset packed
           rcases hMem with rfl | hMem
-          · exact bridgedStmt_packedInnerBlock_wordOffsetNonzero slot1
-              wordOffset packed
-          · exact bridgedStmts_slotsMap_packedInnerBlock_wordOffsetNonzero
-              slotsRest wordOffset packed stmt hMem
+          · exact bridgedStmt_packedInnerBlock_wordOffsetNonzero_field
+              fields field slot1 wordOffset packed
+          · rw [List.mem_map] at hMem
+            obtain ⟨slot, _, hEq⟩ := hMem
+            subst hEq
+            exact bridgedStmt_packedInnerBlock_wordOffsetNonzero_field
+              fields field slot wordOffset packed
 
 theorem compileStmt_setMappingPackedWord_multiSlot_nonzero_noFuncDefs
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
@@ -16395,20 +10848,22 @@ theorem compileStmt_setMappingPackedWord_multiSlot_nonzero_noFuncDefs
     cases wordOffset with
     | zero => exact absurd rfl hNonzero
     | succ n => rfl
-  simp only [compileStmt, bind, Except.bind] at hOk
-  cases hKeyExpr : compileExpr fields dynamicSource key with
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind] at hOk
+  cases hKeyExpr : compileExprWithInternals fields dynamicSource [] key with
   | error err => simp [hKeyExpr] at hOk
   | ok keyExpr =>
-      cases hValueExpr : compileExpr fields dynamicSource value with
+      cases hValueExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err => simp [hKeyExpr, hValueExpr] at hOk
       | ok valueExpr =>
           simp [hKeyExpr, hValueExpr, compileMappingPackedSlotWrite,
             hMapping, hPacked, hSlots, hBeq, Pure.pure, Except.pure] at hOk
           subst out
           simp [Native.yulStmtContainsFuncDef, Native.yulStmtsContainFuncDef]
-          simpa using
-            yulStmtsContainFuncDef_slotsMap_packedInnerBlock_wordOffsetNonzero
-              slotsRest wordOffset packed
+          clear hSlots
+          induction slotsRest with
+          | nil => simp [Native.yulStmtContainsFuncDef, Native.yulStmtsContainFuncDef]
+          | cons slot rest ih =>
+              simp [Native.yulStmtContainsFuncDef, Native.yulStmtsContainFuncDef, ih]
 
 /-- Each statement in the multi-slot wordOffset≠0 mappingPackedWord-write
 fragment compiles to Yul satisfying `BridgedStmts`. -/
@@ -16447,71 +10902,5 @@ theorem compileStmt_mappingPackedWordMultiSlotNonzero_noFuncDefs
       exact compileStmt_setMappingPackedWord_multiSlot_nonzero_noFuncDefs fields
         events errors dynamicSource internalRetNames isInternal inScopeNames
         field packed hMapping hSlots hNonzero hPacked hOk
-
-/-- Lists of multi-slot wordOffset≠0 mappingPackedWord-write source
-statements compile to Yul lists satisfying `BridgedStmts`. -/
-theorem compileStmtList_mappingPackedWordMultiSlotNonzero_bridged
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceMappingPackedWordMultiSlotNonzeroStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        BridgedStmts out := by
-  intro stmts
-  induction stmts with
-  | nil =>
-      intro inScopeNames _ out hOk
-      simp [compileStmtList, Pure.pure, Except.pure] at hOk
-      subst out
-      intro stmt hMem
-      cases hMem
-  | cons head tail ih =>
-      intro inScopeNames hSource out hOk
-      simp only [compileStmtList, bind, Except.bind] at hOk
-      cases hHead : compileStmt fields events errors dynamicSource
-          internalRetNames isInternal inScopeNames [] head with
-      | error err => simp [hHead] at hOk
-      | ok headOut =>
-          simp [hHead] at hOk
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames isInternal (collectStmtNames head ++ inScopeNames) [] tail with
-          | error err => simp [hTail] at hOk
-          | ok tailOut =>
-              simp [hTail, Pure.pure, Except.pure] at hOk
-              subst out
-              have hHeadSource :
-                  BridgedSourceMappingPackedWordMultiSlotNonzeroStmt
-                    fields head :=
-                hSource head (by simp)
-              have hTailSource :
-                  BridgedSourceMappingPackedWordMultiSlotNonzeroStmts
-                    fields tail := by
-                intro stmt hMem
-                exact hSource stmt (by simp [hMem])
-              exact BridgedStmts_append
-                (compileStmt_mappingPackedWordMultiSlotNonzero_bridged fields
-                  events errors dynamicSource internalRetNames isInternal
-                  inScopeNames hHeadSource hHead)
-                (ih (collectStmtNames head ++ inScopeNames) hTailSource hTail)
-
-theorem compileStmtList_mappingPackedWordMultiSlotNonzero_noFuncDefs
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) :
-    ∀ (stmts : List Stmt) (inScopeNames : List String),
-      BridgedSourceMappingPackedWordMultiSlotNonzeroStmts fields stmts →
-      ∀ {out : List YulStmt},
-        compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames [] stmts = .ok out →
-        Native.yulStmtsContainFuncDef out = false :=
-  compileStmtList_noFuncDefs_of_forall fields events errors dynamicSource
-    internalRetNames isInternal
-    (BridgedSourceMappingPackedWordMultiSlotNonzeroStmt fields)
-    (fun inScopeNames {_} {_} hStmt hOk =>
-      compileStmt_mappingPackedWordMultiSlotNonzero_noFuncDefs fields events
-        errors dynamicSource internalRetNames isInternal inScopeNames hStmt hOk)
 
 end Compiler.Proofs.YulGeneration.Backends

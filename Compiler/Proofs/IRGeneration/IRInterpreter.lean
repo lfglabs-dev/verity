@@ -98,8 +98,12 @@ private theorem internal_call_measure_decreases (fuel measure : Nat) :
 def byteWordCount (size : Nat) : Nat :=
   (size + 31) / 32
 
+/-- Word reads wrap the byte offset mod `2^256`, matching EVM `UInt256`
+address arithmetic (compiled code computes scratch offsets with the wrapping
+`add` builtin, so reads must land on the same keys as the stores). -/
 def memorySliceWords (memory : Nat → Nat) (offset size : Nat) : List Nat :=
-  (List.range (byteWordCount size)).map (fun i => memory (offset + i * 32))
+  (List.range (byteWordCount size)).map
+    (fun i => memory ((offset + i * 32) % Compiler.Constants.evmModulus))
 
 /-- Proof-side model of `keccak256(offset, size)` over linear memory.
 
@@ -115,7 +119,8 @@ def abstractKeccakMemorySlice (memory : Nat → Nat) (offset size : Nat) : Nat :
 The proof IR models log data at word granularity, so byte sizes are truncated to
 complete 32-byte words. -/
 def yulLogDataWords (memory : Nat → Nat) (offset size : Nat) : List Nat :=
-  (List.range (size / 32)).map (fun i => memory (offset + i * 32))
+  (List.range (size / 32)).map
+    (fun i => memory ((offset + i * 32) % Compiler.Constants.evmModulus))
 
 /-- Canonical proof-side encoding of a Yul log entry: topics followed by the
 word-aligned data payload. -/
@@ -275,10 +280,10 @@ def evalIRCall (state : IRState) (func : String) : List YulExpr → Option Nat
     else
       Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
         state.storage state.sender state.msgValue state.thisAddress state.blockTimestamp
-        state.blockNumber state.chainId state.blobBaseFee state.selector state.calldata func argVals
-termination_by args => exprsSize args + 1
-decreasing_by
-  omega
+        state.blockNumber state.chainId state.blobBaseFee state.txOrigin state.selector state.calldata func argVals
+  termination_by args => exprsSize args + 1
+  decreasing_by
+    omega
 
 /-- Evaluate a Yul expression in the IR context.
 
@@ -496,16 +501,16 @@ def evalIRCallWithInternals
             match Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
                 state'.storage state'.sender state'.msgValue state'.thisAddress
                 state'.blockTimestamp state'.blockNumber state'.chainId state'.blobBaseFee
-                state'.selector state'.calldata func argVals with
+                state'.txOrigin state'.selector state'.calldata func argVals with
             | some value => .values [value] state'
             | none => .revert state'
   | .stop state' => .stop state'
   | .return value state' => .return value state'
   | .revert state' => .revert state'
-termination_by args => (fuel, exprsSize args + 1)
-decreasing_by
-  any_goals exact pairLex_same_fst_succ fuel (exprsSize args)
-  any_goals exact internal_call_measure_decreases fuel' _
+  termination_by args => (fuel, exprsSize args + 1)
+  decreasing_by
+    any_goals exact pairLex_same_fst_succ fuel (exprsSize args)
+    any_goals exact internal_call_measure_decreases fuel' _
 
  /-- Evaluate a single expression in the helper-aware IR context. -/
 def evalIRExprWithInternals
@@ -610,6 +615,7 @@ def execIRStmtWithInternals
           | .call "tstore" [offsetExpr, valExpr] =>
               match evalIRExprsWithInternals contract fuel state [offsetExpr, valExpr] with
               | .values [offset, val] state' =>
+                  let offset := offset % Compiler.Constants.evmModulus
                   .continue {
                     state' with
                     transientStorage := fun o =>
@@ -904,6 +910,7 @@ def execIRStmt : Nat → IRState → YulStmt → IRExecResult
           | .call "tstore" [offsetExpr, valExpr] =>
               match evalIRExpr state offsetExpr, evalIRExpr state valExpr with
               | some offset, some val =>
+                let offset := offset % Compiler.Constants.evmModulus
                 .continue {
                   state with
                   transientStorage := fun o =>
@@ -1529,7 +1536,7 @@ theorem IRStmtPreservesObsAt_of_tstore
   obtain ⟨o, ho⟩ := hOffsetEval
   obtain ⟨v, hv⟩ := hValEval
   refine ⟨{ state with transientStorage := fun x =>
-      if x = o then v else state.transientStorage x }, fun _ => ?_⟩
+      if x = o % Compiler.Constants.evmModulus then v else state.transientStorage x }, fun _ => ?_⟩
   simp only [execIRStmt, ho, hv]
 
 /-- Cross-cast for `.expr (.call "mstore" [offset, val])`: at any state where
@@ -2296,7 +2303,7 @@ theorem evalIRExprWithInternals_eq_evalIRExpr_of_no_internal
                 cases hbuiltin :
                     Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
                       state.storage state.sender state.msgValue state.thisAddress state.blockTimestamp
-                      state.blockNumber state.chainId state.blobBaseFee state.selector state.calldata func argVals with
+                      state.blockNumber state.chainId state.blobBaseFee state.txOrigin state.selector state.calldata func argVals with
                 | none => simp [hbuiltin]
                 | some value => simp [hbuiltin]
 
@@ -2378,7 +2385,7 @@ private theorem yulExprCallsDisjointFromInternalTable_of_nil_aux_list
       exact yulExprCallsDisjointFromInternalTable_of_nil_aux contract hinternal e
   | _ :: tl, .tail _ hmem' =>
       exact yulExprCallsDisjointFromInternalTable_of_nil_aux_list contract hinternal tl e hmem'
-end
+end -- mutual
 
 theorem yulExprCallsDisjointFromInternalTable_of_internalFunctions_nil
     (contract : IRContract) (hinternal : contract.internalFunctions = [])
@@ -2459,7 +2466,7 @@ theorem evalIRExprWithInternals_eq_evalIRExpr_of_callsDisjoint
                 cases hbuiltin :
                     Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
                       state.storage state.sender state.msgValue state.thisAddress state.blockTimestamp
-                      state.blockNumber state.chainId state.blobBaseFee state.selector state.calldata func argVals with
+                      state.blockNumber state.chainId state.blobBaseFee state.txOrigin state.selector state.calldata func argVals with
                 | none => simp [hbuiltin]
                 | some value => simp [hbuiltin]
 
@@ -2627,7 +2634,7 @@ theorem evalIRCallWithInternals_stmt_eq_of_callsDisjoint
             cases hbuiltin :
                 Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
                   state.storage state.sender state.msgValue state.thisAddress state.blockTimestamp
-                  state.blockNumber state.chainId state.blobBaseFee state.selector state.calldata func argVals with
+                  state.blockNumber state.chainId state.blobBaseFee state.txOrigin state.selector state.calldata func argVals with
             | none => simp [hbuiltin]
             | some value => simp [hbuiltin]
 
@@ -2679,7 +2686,7 @@ theorem evalIRCallWithInternals_stmt_eq_of_no_internal
             cases hbuiltin :
                 Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
                   state.storage state.sender state.msgValue state.thisAddress state.blockTimestamp
-                  state.blockNumber state.chainId state.blobBaseFee state.selector state.calldata func argVals with
+                  state.blockNumber state.chainId state.blobBaseFee state.txOrigin state.selector state.calldata func argVals with
             | none => simp [hbuiltin]
             | some value => simp [hbuiltin]
 
@@ -4644,7 +4651,7 @@ theorem evalIRCallWithInternals_of_builtin
       match Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
           state'.storage state'.sender state'.msgValue state'.thisAddress
           state'.blockTimestamp state'.blockNumber state'.chainId state'.blobBaseFee
-          state'.selector state'.calldata func argVals with
+          state'.txOrigin state'.selector state'.calldata func argVals with
       | some value => .values [value] state'
       | none => .revert state' := by
   simp only [evalIRCallWithInternals, hargs, hfind, hnotTload, hnotMload, hnotKeccak,
@@ -5474,7 +5481,6 @@ theorem compileInternalFunction_output_shape
         (CompilationModel.internalFunctionYulParamNames spec.params)
         retNames bodyStmts := by
   simp only [CompilationModel.compileInternalFunction, bind, Except.bind] at hok
-  -- Split on each fallible sub-computation; error cases are contradictory.
   match hval : CompilationModel.validateFunctionSpec spec with
   | .error e => simp [hval] at hok
   | .ok () =>
@@ -5483,17 +5489,23 @@ theorem compileInternalFunction_output_shape
     | .error e => simp [hret] at hok
     | .ok returns =>
       simp only [hret] at hok
-      -- At this point `hok` should be about compileStmtList >>= pure funcDef = ok stmt
-      -- The private `freshInternalRetNames` is opaque; we just split on the
-      -- remaining compileStmtList result.
-      revert hok
-      generalize CompilationModel.compileStmtList _ _ _ _ _ _ _ _ _ = compileResult
-      intro hok
-      match compileResult with
-      | .error e => simp at hok
+      match hbody : CompilationModel.compileStmtListWithFork fields events errors
+          .calldata
+          (CompilationModel.freshInternalRetNames returns
+            (CompilationModel.internalFunctionYulParamNames spec.params ++
+              CompilationModel.collectStmtListBindNames spec.body))
+          true
+          (CompilationModel.internalFunctionYulParamNames spec.params ++
+            CompilationModel.freshInternalRetNames returns
+              (CompilationModel.internalFunctionYulParamNames spec.params ++
+                CompilationModel.collectStmtListBindNames spec.body))
+          adtTypes
+          Intrinsics.HardFork.cancun
+          spec.body with
+      | .error e => simp [hbody] at hok
       | .ok bodyStmts =>
-        simp only [pure, Except.pure, Except.ok.injEq] at hok
-        exact ⟨_, _, hok.symm⟩
+        simp [hbody, pure, Except.pure] at hok
+        exact ⟨_, bodyStmts, hok.symm⟩
 
 /-- If `compileInternalFunction` succeeds and the result is in the runtime
 contract's internal function table, then `findInternalFunction?` finds the
@@ -5568,12 +5580,15 @@ theorem compileStmt_internalCallAssign_shape
       CompilationModel.compileExprList fields .calldata args = Except.ok argExprs ∧
       compiledIR = [YulStmt.letMany names
         (YulExpr.call (CompilationModel.internalFunctionYulName functionName) argExprs)] := by
-  simp only [CompilationModel.compileStmt, bind, Except.bind] at hok
-  match hargs : CompilationModel.compileExprList fields .calldata args with
-  | .error e => simp [hargs] at hok
+  simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, bind, Except.bind] at hok
+  match hargs : CompilationModel.compileExprListWithInternals fields .calldata [] args with
+  | .error e =>
+    simp [CompilationModel.compileInternalCallArgs,
+      CompilationModel.findInternalFunctionForCall?, hargs] at hok
   | .ok argExprs =>
-    refine ⟨argExprs, rfl, ?_⟩
-    simp [hargs, pure, Except.pure] at hok
+    refine ⟨argExprs, by simpa [CompilationModel.compileExprList] using hargs, ?_⟩
+    simp [CompilationModel.compileInternalCallArgs,
+      CompilationModel.findInternalFunctionForCall?, hargs, pure, Except.pure] at hok
     exact hok.symm
 
 /-- Compilation of `Stmt.internalCall` produces exactly
@@ -5589,12 +5604,15 @@ theorem compileStmt_internalCall_shape
       CompilationModel.compileExprList fields .calldata args = Except.ok argExprs ∧
       compiledIR = [YulStmt.expr
         (YulExpr.call (CompilationModel.internalFunctionYulName functionName) argExprs)] := by
-  simp only [CompilationModel.compileStmt, bind, Except.bind] at hok
-  match hargs : CompilationModel.compileExprList fields .calldata args with
-  | .error e => simp [hargs] at hok
+  simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, bind, Except.bind] at hok
+  match hargs : CompilationModel.compileExprListWithInternals fields .calldata [] args with
+  | .error e =>
+    simp [CompilationModel.compileInternalCallArgs,
+      CompilationModel.findInternalFunctionForCall?, hargs] at hok
   | .ok argExprs =>
-    refine ⟨argExprs, rfl, ?_⟩
-    simp [hargs, pure, Except.pure] at hok
+    refine ⟨argExprs, by simpa [CompilationModel.compileExprList] using hargs, ?_⟩
+    simp [CompilationModel.compileInternalCallArgs,
+      CompilationModel.findInternalFunctionForCall?, hargs, pure, Except.pure] at hok
     exact hok.symm
 
 private theorem internalFunctionYulName_head (name : String) :

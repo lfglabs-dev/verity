@@ -1,6 +1,6 @@
 # IR Storage Refactor — Phase 3 Plan
 
-Phase 3 of [`IR_STORAGE_UINT256_REFACTOR.md`](IR_STORAGE_UINT256_REFACTOR.md)
+Phase 3 of [`IR_STORAGE_UINT256_REFACTOR.md`](../IR_STORAGE_UINT256_REFACTOR.md)
 originally tracked discharging the store-hit fuel-wrapper bridge and dropping the
 `hStoreHit` premise from `simpleStorage_endToEnd_native_evmYulLean`.
 

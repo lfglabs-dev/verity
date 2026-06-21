@@ -21,6 +21,7 @@ def elabVerityContract : CommandElab := fun stx => do
   let structDecls := parsed.structDecls
   let adtDecls := parsed.adtDecls
   let fields := parsed.fields
+  let roleDecls := parsed.roleDecls
   let storageStructAccessors := parsed.storageStructAccessors
   let errorDecls := parsed.errorDecls
   let eventDecls := parsed.eventDecls
@@ -66,12 +67,12 @@ def elabVerityContract : CommandElab := fun stx => do
     elabCommand (← mkStorageNamespaceCommand (toString contractName.getId) storageNamespace)
 
     for fn in functions do
-      let fnCmds ← mkFunctionCommandsPublic fields constDecls immutableDecls externalDecls functions fn
+      let fnCmds ← mkFunctionCommandsPublic fields roleDecls constDecls immutableDecls externalDecls functions fn
       for cmd in fnCmds do
         elabCommand cmd
       elabCommand (← mkBridgeCommand fn.ident)
 
-    elabCommand (← mkSpecCommandPublic (toString contractName.getId) fields errorDecls eventDecls constDecls immutableDecls externalDecls ctor modifiers functions adtDecls storageNamespace)
+    elabCommand (← mkSpecCommandPublic (toString contractName.getId) fields roleDecls errorDecls eventDecls constDecls immutableDecls externalDecls ctor modifiers functions adtDecls storageNamespace)
 
     let findIdxSimpCmds ← mkFindIdxFieldSimpCommandsPublic contractName fields
     for cmd in findIdxSimpCmds do
@@ -89,6 +90,8 @@ def elabVerityContract : CommandElab := fun stx => do
     for fn in functions do
       if fn.isView then
         elabCommand (← mkViewTheoremCommand fn)
+        if fn.params.isEmpty && fn.requiresRole.isNone && fn.nonReentrantLock.isNone then
+          elabCommand (← mkViewFrameTheoremCommand fn)
 
     -- Emit per-function _is_pure theorems for pure functions.
     for fn in functions do
@@ -138,10 +141,16 @@ def elabVerityContract : CommandElab := fun stx => do
 
     -- Emit per-function _requires_role theorem for functions with requires(field).
     -- (#1728, Axis 2 Step 2c — access control)
+    for role in roleDecls do
+      elabCommand (← mkRoleDeclTheoremCommand role)
+
     for fn in functions do
       match fn.requiresRole with
       | some roleIdent =>
           elabCommand (← mkRequiresRoleTheoremCommand fn (toString roleIdent.getId))
+          match roleDecls.find? (fun role => role.name == toString roleIdent.getId) with
+          | some role => elabCommand (← mkAccessControlTheoremCommand fn role)
+          | none => pure ()
       | none => pure ()
 
     elabCommand (← `(end $contractName))
@@ -152,18 +161,35 @@ def elabVerityContract : CommandElab := fun stx => do
 @[command_elab verityIntrinsicCmd]
 def elabVerityIntrinsic : CommandElab := fun stx => do
   match stx with
-  | `(verity_intrinsic $name:ident ($paramName:ident : $paramTy:term) : $retTy:term
+  -- Accept one or more comma-separated typed parameters (#1977). The Yul
+  -- `verbatim` lowering's input arity must match the parameter count.
+  | `(verity_intrinsic $name:ident ( $[ $paramNames:ident : $paramTypes:term ],* ) : $retTy:term
         where $pureKw:ident; yul := $yul:verityIntrinsicYul; min_fork := $fork:ident;
         semantics := $semantics:term; obligation [ $[$obligations:verityIntrinsicObligation],* ]) => do
       unless toString pureKw.getId == "pure" do
         throwErrorAt pureKw "verity_intrinsic currently supports only pure intrinsics"
+      if paramNames.size == 0 then
+        throwErrorAt stx "verity_intrinsic requires at least one parameter"
       let yulLowering ←
         match yul with
         | `(verityIntrinsicYul| verbatim $inArity:num $outArity:num (hex $opcode:str)) =>
+            if inArity.getNat != paramNames.size then
+              throwErrorAt yul s!"verity_intrinsic `verbatim` input arity {inArity.getNat} does not match the {paramNames.size} declared parameter(s)"
             pure <| Verity.Core.Intrinsics.YulLowering.verbatim
               inArity.getNat outArity.getNat opcode.getString
         | `(verityIntrinsicYul| builtin $builtin:str) =>
-            pure <| Verity.Core.Intrinsics.YulLowering.builtin builtin.getString
+            -- Cross-check builtin input arity against the declared parameter
+            -- count when the builtin has a known fixed arity. Builtins not
+            -- listed in `yulBuiltinArity?` (e.g. custom precompile wrappers)
+            -- still go through without enforcement so consumers can register
+            -- novel names.
+            let builtinName := builtin.getString
+            match Verity.Core.Intrinsics.yulBuiltinArity? builtinName with
+            | some (inArity, _outArity) =>
+                if inArity != paramNames.size then
+                  throwErrorAt yul s!"verity_intrinsic `builtin \"{builtinName}\"` expects {inArity} input(s) but {paramNames.size} parameter(s) were declared"
+            | none => pure ()
+            pure <| Verity.Core.Intrinsics.YulLowering.builtin builtinName
         | _ =>
             throwErrorAt yul "expected `verbatim <inputs> <outputs> (hex \"...\")` or `builtin \"...\"`"
       let minFork ←
@@ -178,10 +204,12 @@ def elabVerityIntrinsic : CommandElab := fun stx => do
         | _ =>
             throwErrorAt obligation "expected obligation entry `<name> := assumed \"reason\"`"
       let nameStr := toString name.getId
+      let paramNameStrs : List String := paramNames.toList.map (fun id => toString id.getId)
+      let paramTypeStrs : List String := paramTypes.toList.map toString
       let decl : Verity.Core.Intrinsics.IntrinsicDecl := {
         name := nameStr,
-        paramNames := [toString paramName.getId],
-        paramTypes := [toString paramTy],
+        paramNames := paramNameStrs,
+        paramTypes := paramTypeStrs,
         returnType := toString retTy,
         isPure := true,
         yul := yulLowering,
@@ -190,7 +218,14 @@ def elabVerityIntrinsic : CommandElab := fun stx => do
         sourceHint := some "elabVerityIntrinsic"
       }
       liftIO <| Verity.Macro.registerIntrinsic decl
-      let wrapperCmd ← `(command| def $name:ident : $paramTy -> $retTy := $semantics)
+      -- Emit `def name : T1 -> T2 -> ... -> Tn -> retTy := semantics`.
+      -- Curried right-associative arrow chain matches Lean's standard
+      -- function shape; the `semantics` term must therefore be a
+      -- curried function value (e.g. `fun x y z => ...` for three params).
+      let arrowType ← paramTypes.foldrM
+        (fun ty acc => `($ty -> $acc))
+        retTy
+      let wrapperCmd ← `(command| def $name:ident : $arrowType := $semantics)
       elabCommand wrapperCmd
       let obligationSummaryName : Ident :=
         ⟨mkIdent (name.getId.appendAfter "_intrinsic_obligations")⟩
@@ -200,6 +235,6 @@ def elabVerityIntrinsic : CommandElab := fun stx => do
       elabCommand obligationCmd
   | _ =>
       throwErrorAt stx
-        "unsupported verity_intrinsic declaration; expected one parameter, yul, min_fork, semantics, and obligation clauses"
+        "unsupported verity_intrinsic declaration; expected one or more parameters, yul, min_fork, semantics, and obligation clauses"
 
 end Verity.Macro

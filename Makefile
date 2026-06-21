@@ -88,7 +88,11 @@ axiom-report: ## Generate axiom dependency report for all 550 theorems
 
 compile: ## Build compiler + interpreter
 	set -- $$(grep -vE '^[[:space:]]*($$|#)' packages/verity-examples/contracts.manifest); \
-	lake build "$$@" verity-compiler verity-compiler-patched difftest-interpreter
+	lake build "$$@" verity-compiler difftest-interpreter
+
+verify-storage-layout: ## Check committed storage layout artifacts against current Lean source (#1897)
+	lake build verity-storage-layout-report
+	python3 scripts/generate_storage_layout_report.py --check
 
 generate-yul: compile ## Compile all contracts to Yul
 	./.lake/build/bin/verity-compiler
@@ -120,46 +124,45 @@ test-evmyullean-fork: ## Probe EVMYulLean fork conformance (audit + native lower
 
 check: ## Run local CI-equivalent checks job (no Lean build, no solc)
 	@echo "Running CI-equivalent checks job..."
-	python3 scripts/check_property_manifest.py
-	python3 scripts/check_property_coverage.py
-	python3 scripts/check_contract_structure.py
-	python3 scripts/check_paths.py
-	python3 scripts/check_compilationmodel_split.py
-	python3 scripts/check_axioms.py
-	python3 scripts/check_trust_surface_registry.py
+	python3 scripts/property_pipeline.py check
+	python3 scripts/lean_lint.py --only contract_structure
+	python3 scripts/lean_lint.py --only paths
+	python3 scripts/lean_lint.py --only compilationmodel_split
+	python3 scripts/lean_lint.py --only axioms
+	python3 scripts/lean_lint.py --only trust_surface_registry
 	python3 scripts/check_benchmark_cases.py
 	python3 scripts/generate_verification_status.py --check
 	python3 scripts/generate_layer2_boundary_catalog.py --check
 	python3 scripts/check_verification_status_doc.py
-	python3 scripts/check_layer2_boundary_sync.py
+	python3 scripts/docsync.py --check --only layer2_boundary
 	python3 scripts/check_layer2_boundary_catalog_sync.py
 	python3 scripts/generate_verify_sync_spec.py --check
 	python3 scripts/check_verify_sync.py
 	python3 scripts/check_bridge_coverage_sync.py
 	python3 scripts/check_builtin_bridge_matrix_sync.py
-	python3 scripts/check_interpreter_feature_boundary_catalog_sync.py
+	python3 scripts/docsync.py --check --only interpreter_feature_boundary_catalog
 	python3 scripts/check_interpreter_feature_summary_sync.py
-	python3 scripts/check_low_level_call_boundary_sync.py
-	python3 scripts/check_linear_memory_boundary_sync.py
-	python3 scripts/check_axiomatized_primitive_boundary_sync.py
-	python3 scripts/check_struct_mapping_surface_sync.py
+	python3 scripts/docsync.py --check --only low_level_call_boundary
+	python3 scripts/docsync.py --check --only linear_memory_boundary
+	python3 scripts/docsync.py --check --only axiomatized_primitive_boundary
+	python3 scripts/docsync.py --check --only struct_mapping_surface
 	python3 scripts/check_solc_pin.py
-	python3 scripts/check_property_manifest_sync.py
 	python3 scripts/check_issue_templates.py
 	python3 scripts/check_docs_workflow_sync.py
 	python3 scripts/check_macro_health.py
-	python3 scripts/check_storage_layout.py
-	python3 scripts/check_lean_hygiene.py
+	python3 scripts/lean_lint.py --only storage_layout
+	python3 scripts/generate_storage_layout_report.py --check --no-lean
+	python3 scripts/lean_lint.py --only lean_hygiene
 	python3 scripts/check_gas.py coverage
 	python3 scripts/check_compiler_boundaries.py
-	python3 scripts/check_split_compiler_test_artifacts.py
+	python3 scripts/lean_lint.py --only split_compiler_test_artifacts
 	python3 scripts/check_yul.py --builtin-boundary-only
-	python3 scripts/check_rewrite_proof_metadata.py
+	python3 scripts/lean_lint.py --only rewrite_proof_metadata
 	python3 scripts/generate_evmyullean_capability_report.py --check
 	python3 scripts/generate_evmyullean_native_lowering_report.py --check
 	python3 scripts/generate_evmyullean_fork_audit.py --check
 	python3 scripts/generate_print_axioms.py --check
-	python3 scripts/check_proof_length.py
+	python3 scripts/lean_lint.py --only proof_length
 	python3 scripts/check_issue_1060_integrity.py
 	python3 scripts/update_doc_numbers.py --check
 	python3 -m unittest discover -s scripts -p 'test_*.py' -v
@@ -167,6 +170,9 @@ check: ## Run local CI-equivalent checks job (no Lean build, no solc)
 
 refresh-status: ## Regenerate verification artifact
 	scripts/refresh_verification_artifacts.sh
+
+regen-storage-layout-report: ## Regenerate the storage layout audit artifacts (needs Lean)
+	python3 scripts/generate_storage_layout_report.py
 
 # ---------------------------------------------------------------------------
 # Full pipeline

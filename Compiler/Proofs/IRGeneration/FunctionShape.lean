@@ -40,15 +40,15 @@ theorem compileFunctionSpec_ok_components
       cases hcompile
     case ok returns =>
       cases hbody :
-          compileStmtList fields events errors .calldata [] false
-            (spec.params.map (·.name)) [] spec.body
+          compileStmtListWithFork fields events errors .calldata [] false
+            (spec.params.map (·.name)) [] .cancun spec.body
       · rw [hvalidate, hreturns, hbody] at hcompile
         cases hcompile
       case ok bodyStmts =>
         rw [hvalidate, hreturns, hbody] at hcompile
         injection hcompile with hEq
         refine ⟨returns, bodyStmts, ?_⟩
-        exact ⟨by simp, by simp, by simp, hEq.symm⟩
+        exact ⟨by simp, by simp, by simpa [compileStmtList] using hbody, hEq.symm⟩
 
 end FunctionShape
 

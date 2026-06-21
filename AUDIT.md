@@ -22,6 +22,49 @@ boundary checks change.
 
 Status: full semantic integration for safe compiler-produced bodies.
 
+### Event Emission Proof-Model Alignment (2026-06)
+
+Source-semantics `normalizeEventValue` (Compiler/Proofs/IRGeneration/SourceSemantics.lean)
+now includes a `.newtypeOf _ baseType => normalizeEventValue baseType value` arm, mirroring
+the compiler's newtype erasure in `normalizeEventWord` (Compiler/CompilationModel/EventAbiHelpers.lean).
+This proof-model alignment ensures that source event values normalize consistently with
+compiled event word normalization for scalar newtype parameters. Affects the event proof
+path only (non-events statements are unchanged).
+
+New proof module `Compiler/Proofs/IRGeneration/GenericInduction/EventBridge.lean` bridges
+scalar event emission semantics, discharging the `EventHeadStepSemanticBridgeCatalog.bridge`
+obligation with per-statement step lemmas, memory wrapping facts, and normalized-word
+equivalence theorems. Proof-only scaffolding; no compiler output changes.
+
+The current generic scalar-event slice is intentionally top-level only: supported
+`emit` statements may appear as function-body heads with scalar parameters and at
+most three indexed parameters. The contract-level scalar-events wrapper now lifts
+the function-level proof over dispatch when callers supply the scalar-event
+list-interface witnesses, and `ContractFeatureTest.lean` includes a top-level
+emit smoke contract. Nested emits inside structural statements remain future
+work, and the Yul/EndToEnd proof layers still exclude event/log semantics.
+
+### Compiler-Side Emit-Argument Scope Collection (2026-06)
+
+`collectStmtNames` (Compiler/CompilationModel/ValidationHelpers.lean) emit arm now returns
+`collectExprListNames args` rather than `eventName :: collectExprListNames args`. Event
+argument expressions now participate in scope-name collection for statement sequence
+validation; the event name itself is resolved against the event table and does not enter
+the identifier scope. Enables scope-aware event argument validation without shadowing
+event name resolution.
+
+### Proof-Side Scratch Memory Wrapping (2026-06)
+
+Memory-access functions in the proof IR model now wrap byte/word offsets modulo `2^256`
+to match compiled code's wrapping `add` builtin semantics. Affected functions:
+- `memorySliceWords` (IRInterpreter.lean): word-reading offset wrapping
+- `yulLogDataWords` (IRInterpreter.lean): log data extraction offset wrapping
+- `writeEventSignatureScratchFrom`, `writeUnindexedEventScratchFrom` (SourceSemantics.lean):
+  scratch memory write offset wrapping
+
+Ensures proof-side scratch addressing matches compiled emit block's offset arithmetic
+under EVM `Uint256` wrapping, preventing false misalignment in the semantic bridge.
+
 The EVMYulLean transition moved the safe-body EndToEnd runtime target from
 Verity-owned Yul builtin scaffolding to native EVMYulLean runtime execution.
 The current proof surface has:
@@ -48,13 +91,98 @@ arbitrary `pfx ++ sfx` split. End-to-end smoke proof in the same file.
 Wiring of `SupportedFragment` / `SupportedSpec` for contracts that
 actually use this family is the next milestone.
 
+## Reentrancy Rely-Guarantee Framework (2026-06)
+
+A new proof-level reentrancy framework, complementary to the runtime
+`nonreentrant` transient-storage guard (#1893). Additive and axiom-free; it
+keeps the "Project-level Lean axioms: 0" invariant above.
+
+- **New modules** (no `sorry`, no `axiom`, no `native_decide`):
+  - `Verity/Core/Invariant.lean` — state-polymorphic rely-guarantee library
+    (`Preserves` / `runSeq` / `runSeq_preserves`).
+  - `Verity/Core/Reentrancy.lean` — grounds it against the `Contract` monad:
+    `reentrantCall`, `ContractPreserves`, `ReentrancySpec` and the
+    whole-interleaving meta-theorem `ReentrancySpec.schedule_preserves`, plus a
+    forward-compatible multi-contract layer (`System` / `lift` / `Isys` /
+    `cross_contract_schedule_preserves`).
+- **New semantic surface**: `Env.reenter : ContractState → ContractState`
+  (default `id`, the no-reentry case) on `Verity/Core/Semantics.lean`.
+- **Worked example**: `Contracts/ReentrancyRelyGuarantee` machine-checks the
+  Midnight `take`/`liquidate` callback bug — the no-lock `take` admits a
+  permanent bad-debt liquidation; the locked `take` admits none for any
+  lock-respecting adversary.
+- **Trust boundary**: author obligations (entrypoint-registry completeness,
+  adversary-model fidelity, invariant adequacy). See the
+  "Reentrancy Rely-Guarantee Framework" section in `TRUST_ASSUMPTIONS.md`.
+- **CI state**: the example is registered in `test/property_manifest.json` and
+  classified proof-only in `test/property_exclusions.json` (abstract
+  state-transformer proofs, no compiled bytecode to property- or
+  differential-test); structure/Foundry-test exemptions are recorded in
+  `scripts/check_contract_structure.py`. `artifacts/verification_status.json`
+  and `docs/VERIFICATION_STATUS.md` now record 15 example contracts and +8
+  proven theorems (all proof-only, so runtime coverage moves 90% → 88% by
+  construction while proven count rises 283 → 291).
+
+### Cross-Function Reentrancy Gate (fail-closed)
+
+A compilation-level gate that complements the proof framework above:
+`validateReentrancyDisposition`
+([Compiler/CompilationModel/Validation.lean](Compiler/CompilationModel/Validation.lean)),
+a dedicated pass run after call well-formedness validation (and independent of
+the single-function CEI check in `validateFunctionSpec`),
+now **rejects** any non-`view`/`pure` function whose body makes a direct
+external call unless it carries a sound reentrancy disposition. This closes the
+cross-function reentrancy class (Midnight `take`/`liquidate`) at the toolchain
+boundary: a CEI-clean function is no longer enough, because its external
+callback still leaves a transiently-exploitable state live for a reentrant
+sibling entrypoint.
+
+- **Accept-set** (sound only): `nonreentrant(<lock>)` (runtime transient-storage
+  guard, #1893) or `reentrancy_trusted` (new metadata-only, unproven author
+  assertion — emits no code, no proof obligation, recorded as a trust boundary).
+- **Deliberately rejected**: `cei_safe` and `allow_post_interaction_writes`
+  concern single-function CEI ordering only and do **not** satisfy the gate.
+- **Internal-helper closure** (Bugbot HIGH on #2032): the `nonreentrant(<lock>)`
+  transient guard is attached **only** at the external dispatch boundary
+  (`attachNonReentrantGuard`, #1893), so it is absent on the lock-free
+  internal-helper shadow the macro emits for direct intra-contract calls. A
+  *lock-only* `nonreentrant` function (no `reentrancy_trusted`) is therefore
+  **rejected when invoked as an internal helper** at macro lowering
+  (`ensureCallableAsInternalHelper`,
+  [Verity/Macro/Internal.lean](Verity/Macro/Internal.lean)); routing such a call
+  through the shadow would run the guarded body without the lock and silently
+  bypass its only protection. A callee that *also* carries `reentrancy_trusted`
+  is accepted (the assertion covers the lock-free internal path). This mirrors
+  the existing `internal nonreentrant(<lock>)` rejection
+  (`NonreentrantInternalHelperRejected`, #1971).
+- **CEISafety demoted**: `Compiler.Proofs.IRGeneration.CEISafety`
+  (`CEIProofBackedExecution`) remains a valid proof surface, but it certifies
+  *single-function* Checks-Effects-Interactions ordering — it is **not** a
+  reentrancy defense and is no longer presented as one. Cross-function
+  reentrancy safety is owned solely by this gate's accept-set
+  (`nonreentrant`/`reentrancy_trusted`); CEI is subordinate ordering hygiene.
+- **New annotation surface**: `reentrancy_trusted` threads through the macro
+  (`Verity/Macro/Syntax.lean` → `Translate/Parsing.lean` → `Types.lean` →
+  `Translate.lean`) onto `FunctionDecl.reentrancyTrusted` /
+  `FunctionSpec.reentrancyTrusted` (defaulted `false`, backward compatible).
+- **Regression evidence**: `Contracts/Smoke/SecurityCombos.lean` pairs
+  `ReentrancyDispositionRequired` (a CEI-clean `take` rejected by the gate,
+  pinned with `#guard_msgs`) against `ReentrancyDispositionDeclared` (the
+  identical body accepted once it declares `reentrancy_trusted`) — identical
+  bodies, opposite verdicts, the Midnight shape proven unable to pass
+  `#check_contract` undeclared.
+- **Axiom-free**: the gate is a pure validation predicate; `AXIOMS.md` is
+  unchanged. Trust-boundary prose is in the "Cross-Function Reentrancy Gate"
+  section of `TRUST_ASSUMPTIONS.md`.
+
 ## Audit Artifacts
 
 | Artifact | Purpose | Check |
 |----------|---------|-------|
-| `artifacts/evmyullean_adapter_report.json` | Adapter coverage, admitted bridge lemmas, safe-body integration status | `python3 scripts/generate_evmyullean_adapter_report.py --check` |
+| `artifacts/evmyullean_native_lowering_report.json` | Native lowering coverage, admitted bridge lemmas, safe-body integration status | `python3 scripts/generate_evmyullean_native_lowering_report.py --check` |
 | `artifacts/evmyullean_fork_audit.json` | Pinned fork divergence and non-semantic fork delta | `python3 scripts/generate_evmyullean_fork_audit.py --check` |
 | `artifacts/evmyullean_capability_report.json` | EVMYulLean capability surface and reference-oracle paths | `python3 scripts/generate_evmyullean_capability_report.py --check` |
+| `artifacts/storage_layout_report.json` + `artifacts/STORAGE_LAYOUT_SUMMARY.md` | Per-contract storage layout for migration/audit review: explicit slots, alias ranges, reserved ranges, packed subfields, mappings, dynamic arrays, opt-in namespaces (#1897) | `python3 scripts/generate_storage_layout_report.py --check --no-lean` (drift gate in `make check`); regenerate with `make regen-storage-layout-report` |
 | `PrintAxioms.lean` / generated axiom report | Axiom dependency visibility | `python3 scripts/generate_print_axioms.py --check` and `lake build PrintAxioms` |
 | `Compiler.Proofs.IRGeneration.IntrinsicProofs` | Proven Verity-owned intrinsic plumbing: scope accounting, generic lowering shape, fork-order facts, and arity rejection | `lake build Compiler.Proofs.IRGeneration.IntrinsicProofs` |
 | Intrinsic fork gate | Fail-closed `min_fork` enforcement against `--target-fork` / `YulEmitOptions.targetFork` | `lake build Compiler.CompileDriverTest` |
@@ -66,8 +194,8 @@ actually use this family is the next milestone.
   builtin bridge matrix synchronization, Lean hygiene, proof length, and
   documentation counters.
 - `make test-evmyullean-fork` validates the pinned fork audit, checks the
-  adapter report, rebuilds the public EndToEnd EVMYulLean target, and runs
-  the concrete bridge-equivalence tests.
+  native lowering report, rebuilds the public EndToEnd EVMYulLean target, and
+  runs the concrete bridge-equivalence tests.
 - `.github/workflows/evmyullean-fork-conformance.yml` runs the EVMYulLean fork
   conformance probe weekly. Scheduled or manual failures fail the workflow and
   open or update a GitHub issue for drift triage.
@@ -85,4 +213,4 @@ actually use this family is the next milestone.
    command.
 5. Run `make check`; run targeted Lean builds for changed proof modules.
 
-**Last Updated**: 2026-05 (intrinsics addition)
+**Last Updated**: 2026-06 (cross-function reentrancy gate: fail-closed `validateReentrancyDisposition` rejection of external-call functions lacking a sound disposition, new `reentrancy_trusted` metadata annotation, CEISafety demoted to single-function ordering hygiene, `#guard_msgs` regression pair in `SecurityCombos.lean` — axiom-free; reentrancy rely-guarantee framework: `Verity.Core.Invariant` / `Verity.Core.Reentrancy`, `Env.reenter` hook, Midnight `take`/`liquidate` worked example — additive, 0 axioms; event emission proof-model alignment, emit-argument scope collection, scratch memory wrapping; storage layout audit artifacts, #1897; nonreentrant transient-storage guard, #1893; non-alias certificate write-set overlap, #1967; nonreentrant fork requirement, #1968)

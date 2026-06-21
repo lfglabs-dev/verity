@@ -36,6 +36,12 @@ HARD_LIMIT = 50
 # before the check was introduced. New proofs must not be added here without a
 # justification comment in the PR explaining why decomposition is not feasible.
 ALLOWLIST: set[str] = {
+    # --- Denote/SourceSemantics agreement (P4 seed) ---
+    # Structural recursion over the fuelless forEach loop; the succ case must
+    # spell out the loop-state literal inside a `show`-match to align the two
+    # interpreters' unfoldings, which cannot be factored without changing the
+    # mutual recursion shape.
+    "execForEachLoop_agree",
     # --- Expression compilation correctness proofs ---
     "eval_compileExpr_ceilDiv_of_compiled",
     "eval_compileExpr_wDivUp_of_compiled",
@@ -63,10 +69,19 @@ ALLOWLIST: set[str] = {
     "compileStmtList_core_ok",
     "compileStmtList_terminal_core_ok",
     "compileStmtList_terminal_core_ok_nonempty",
+    # Fork-aware list append inversion and constructor smoke witnesses are
+    # mechanical normalization proofs; splitting them duplicates the same
+    # head/tail compile-success plumbing.
+    "compileStmtList_append_ok_inv",
+    "constructorOnly_compileBody_empty_surfaces_withFork",
     "execStmtList_terminal_core_not_continue",  # mstore/tstore widening — 9 per-constructor cases
     "compileStmtList_terminal_ite_ok_inv",
     "compileStmt_terminal_ite_ok_inv",
     "compileStmt_ok_any_scope_aux",
+    # Fuel-indexed mutual stmt/list induction proving compileStmt ignores the
+    # event/error catalogs off the contract surface; one mechanical arm per
+    # statement constructor (~35 cases), so splitting would only duplicate it.
+    "compileStmt_eventsErrorsAgnostic_aux",
     "eval_compileExpr_core_onExpr",
     "evalExpr_lt_evmModulus_core_onExpr",
     "eval_compileRequireFailCond_core_onExpr",
@@ -224,16 +239,17 @@ ALLOWLIST: set[str] = {
     "supported_function_body_correct_from_exact_state_core_extraFuel",
     "supported_function_body_correct_from_exact_state_terminal_core_extraFuel",
     "supported_function_body_correct_from_exact_state_generic",
+    # denote_sound{,_with_helpers}: thin Denote-headed restatements of the
+    # generic keystones above; the line count is the inherited hypothesis
+    # block, not proof complexity (proof bodies are <10 lines each).
+    "denote_sound",
+    "denote_sound_with_helpers",
     "supported_function_correct",
     "supported_function_correct_except_mapping_writes",
     "supported_function_correct_except_mapping_writes_stmtSafety",
     "supported_function_correct_with_body_interface_except_mapping_writes",
     "supported_function_correct_with_body_interface_except_mapping_writes_stmtSafety",
     # --- Legacy compatibility and dispatch ---
-    "legacyCompatibleExternalStmtList_of_compileStmt_ok_on_supportedContractSurface",
-    "legacyCompatibleExternalStmtList_of_compileSetStorage_ok_of_noPackedFields_resolved",
-    "legacyCompatibleExternalStmtList_of_compileStmt_ok_on_supportedContractSurface_exceptMappingWrites",
-    "legacyCompatibleExternalStmtList_of_compileSetStructMember2_ok",
     "interpretContract_correct_of_compiled_functions",
     "interpretContract_correct_of_compiled_functions_except_mapping_writes_and_helper_ir_closed",
     # Constructor-bearing compile output adds one extra compileConstructor split
@@ -273,9 +289,7 @@ ALLOWLIST: set[str] = {
     # --- Helper-aware theorem stack (Issue #1630 / PR #1633 / PR #1639) ---
     "supported_function_body_correct_from_exact_state_generic_with_helpers",
     "supported_function_body_correct_from_exact_state_generic_with_helpers_goal",
-    "supported_function_body_correct_from_exact_state_generic_with_helpers_and_helper_ir",
     "supported_function_body_correct_from_exact_state_generic_with_helpers_and_helper_ir_callsDisjoint",
-    "supported_function_body_correct_from_exact_state_generic_with_helpers_and_helper_ir_except_mapping_writes",
     "supported_function_body_correct_from_exact_state_generic_helper_steps_raw",
     "supported_function_body_correct_from_exact_state_generic_helper_surface_steps_and_helper_ir",
     "supported_function_body_correct_from_exact_state_generic_internal_helper_surface_steps_and_helper_ir",
@@ -485,149 +499,22 @@ ALLOWLIST: set[str] = {
     # emitted `compileExpr` shape and cannot be merged without losing
     # readability.
     "compileExpr_bridgedSource",
-    # Pure binding list closure mirrors `compileStmtList`'s head/tail recursion;
-    # most proof lines are boilerplate decomposition of the two Except binds.
-    "compileStmtList_pure_binding_bridged",
-    # Storage-fragment list closure has the same compileStmtList head/tail
-    # recursion plus per-head dispatch between pure bindings and single-slot
-    # setStorage; decomposition would only duplicate the existing list skeleton.
-    "compileStmtList_storage_fragment_bridged",
-    # External-terminator list closure mirrors compileStmtList's head/tail
-    # recursion; its reported span grew past 50 lines when the require-closure
-    # section was appended after it. The theorem body itself remains short
-    # boilerplate over Except binds.
-    "compileStmtList_terminator_external_bridged",
-    # Require list closure follows the same compileStmtList head/tail skeleton
-    # with a `cases hHeadSource` step to extract the bridged failure-condition
-    # hypothesis before delegating to the per-statement require closure.
-    "compileStmtList_require_bridged",
-    # Mapping-write list closure mirrors the same compileStmtList head/tail
-    # recursion skeleton; delegates per-head to the mapping-write dispatch
-    # theorem. The excess lines are boilerplate decomposition of the two
-    # Except binds over head and tail.
-    "compileStmtList_mappingWrite_bridged",
     # Double-mapping single-slot setMapping2 closure nests one compileExpr
     # cases layer deeper than the single-mapping variant (three exprs
     # compileExpr calls + inner mappingSlot BridgedExpr.call construction),
     # pushing the proof three lines over the limit.
     "compileStmt_setMapping2_singleSlot_bridged",
-    # Double-mapping list closure is the same compileStmtList head/tail
-    # skeleton as the single-mapping variant; the excess lines are
-    # boilerplate decomposition of the two Except binds.
-    "compileStmtList_mappingWrite2_bridged",
-    # setStorageAddr list closure is the same compileStmtList head/tail
-    # skeleton as the other single-slot closures; the excess lines are
-    # boilerplate decomposition of the two Except binds plus the doc
-    # comment for the next section (which the proof-length measurer
-    # attributes to this proof's span).
-    "compileStmtList_storageAddr_bridged",
-    # setStructMember list closure same as other single-slot closures;
-    # the extra lines come from the doc-comment preamble for the next
-    # section being attributed to this proof's span by the measurer.
-    "compileStmtList_structMember_bridged",
     # Double-mapping struct-member single-slot closure mirrors the
     # setMapping2 single-slot proof (three compileExpr cases + inner
     # BridgedExpr.call construction) but adds four additional struct
     # hypotheses (members/findMember/unpacked/wordOffset) that are
     # unfolded up front, pushing the proof over the limit.
     "compileStmt_setStructMember2_singleSlot_bridged",
-    # setStructMember2 list closure same as other single-slot list
-    # closures; the extra lines come from the doc-comment preamble for
-    # the next section (setMappingWord) being attributed to this proof's
-    # span by the measurer.
-    "compileStmtList_structMember2_bridged",
-    # setMappingWord list closure same as other single-slot list
-    # closures; the extra lines come from the doc-comment preamble for
-    # the next section (setMapping2Word) being attributed to this
-    # proof's span by the measurer.
-    "compileStmtList_mappingWord_bridged",
     # Double-mapping-word single-slot closure mirrors the setMapping2
     # single-slot proof (three compileExpr cases + inner BridgedExpr.call
     # construction) but adds a leading `subst hWordOffset` plus an
     # `unfold compileSetMapping2Word`, pushing the proof over the limit.
     "compileStmt_setMapping2Word_singleSlot_bridged",
-    # setMapping2Word list closure same as other single-slot list
-    # closures; the extra lines come from the doc-comment preamble for
-    # the next section (returnValuesEmpty external) being attributed to
-    # this proof's span by the measurer.
-    "compileStmtList_mapping2Word_bridged",
-    # Internal empty-returnValues list closure is the same compileStmtList
-    # head/tail skeleton as other body-closure list proofs; the excess lines
-    # come from the doc-comment preamble for the next section (internal
-    # non-empty returnValues) being attributed to this proof's span.
-    "compileStmtList_returnValuesEmpty_internal_bridged",
-    # Internal non-empty returnValues list closure is the same compileStmtList
-    # head/tail skeleton; the excess lines come from the doc-comment preamble
-    # for the next section (external general returnValues) being attributed to
-    # this proof's span by the measurer.
-    "compileStmtList_returnValuesInternal_bridged",
-    # External returnValues list closure is the same compileStmtList head/tail
-    # skeleton; the excess lines come from the doc-comment preamble for the
-    # next section (mstore/tstore body closure) being attributed to this
-    # proof's span by the measurer.
-    "compileStmtList_returnValuesExternal_bridged",
-    # Internal-return list closure is the same compileStmtList head/tail
-    # skeleton as the external terminator and require closure proofs; the
-    # excess lines are boilerplate decomposition of the two Except binds.
-    "compileStmtList_internal_return_bridged",
-    # Internal mixed-body list closure is the same compileStmtList head/tail
-    # skeleton as the external mixed-body list proof; its span crosses the
-    # limit because the following one-layer ite section now follows it.
-    "compileStmtList_internal_body_fragment_bridged",
-    # One-layer source ite closure mirrors the compiler's two emitted shapes:
-    # empty else emits one Yul if, nonempty else emits a three-statement block
-    # with a cached condition and two Yul ifs. The proof is mostly mechanical
-    # Except-bind decomposition plus those two generated-shape branches.
-    "compileStmt_ite_external_body_fragment_bridged",
-    # Same generated-shape proof as the external ite closure, but with internal
-    # branch body closure so internal returns compile to assignment plus leave.
-    "compileStmt_ite_internal_body_fragment_bridged",
-    # One-layer source ite closure for with-errors body fragments: same two
-    # compiler-emitted shapes as the plain-body variant (empty else -> one Yul
-    # if, nonempty else -> cached-condition block with two Yul ifs), but the
-    # branches are closed via the with-errors list closure so they may include
-    # zero-arg custom errors, direct mstore/tstore, and single-slot mapping
-    # writes alongside storage/require/terminator. Mechanical Except-bind
-    # decomposition.
-    "compileStmt_ite_external_body_with_errors_bridged",
-    # Same generated-shape proof as the external with-errors ite closure, but
-    # with internal branch body closure for internal returns alongside
-    # with-errors extensions.
-    "compileStmt_ite_internal_body_with_errors_bridged",
-    # External structured with-errors list closure: same compileStmtList
-    # head/tail skeleton as the plain-body structured list closure, delegating
-    # per-statement closure to the structured with-errors dispatcher.
-    "compileStmtList_external_structured_body_with_errors_bridged",
-    # Internal structured with-errors list closure: span now includes the
-    # trailing nested-with-errors section header because the measured range
-    # reaches the next non-indented section. Proof body unchanged.
-    "compileStmtList_internal_structured_body_with_errors_bridged",
-    # Two-level with-errors ite closure mirrors the same two compiler-emitted
-    # shapes (single Yul `if` vs cached-condition `block` with two inner
-    # `if`s) as the one-layer with-errors proof, but delegates branch bodies
-    # to structured with-errors list closure. The proof is mechanical
-    # Except-bind decomposition.
-    "compileStmt_ite_external_nested_body_with_errors_bridged",
-    # Same generated-shape proof as the external two-level with-errors ite
-    # closure, but with internal branch body closure for internal returns
-    # alongside with-errors extensions.
-    "compileStmt_ite_internal_nested_body_with_errors_bridged",
-    # External nested with-errors list closure: same compileStmtList
-    # head/tail skeleton as earlier list closures; the measured span includes
-    # the following internal-section boundary.
-    "compileStmtList_external_nested_body_with_errors_bridged",
-    # Internal nested with-errors list closure: span now reaches into the
-    # following forEach-with-errors section header because the measured
-    # range extends to the next non-indented section. Proof body unchanged.
-    "compileStmtList_internal_nested_body_with_errors_bridged",
-    # External forEach-wrapped with-errors list closure: same compileStmtList
-    # head/tail skeleton as earlier list closures; the measured span reaches
-    # into the internal forEach-with-errors section header.
-    "compileStmtList_external_forEach_body_with_errors_bridged",
-    # Internal forEach-wrapped with-errors list closure: span now reaches into
-    # the following recursive-with-errors section header because the measured
-    # range extends to the next non-indented section. Proof body unchanged.
-    "compileStmtList_internal_forEach_body_with_errors_bridged",
     # Recursive with-errors body closure mirrors the same two compiler-emitted
     # ite shapes as the one-layer proof, but uses mutual recursion (matching
     # the plain-body recursive closure) to delegate arbitrarily nested branch
@@ -644,21 +531,6 @@ ALLOWLIST: set[str] = {
     "compileStmt_external_recursive_body_with_raw_log_bridged",
     # Symmetric raw-log-lifted recursive internal variant.
     "compileStmt_internal_recursive_body_with_raw_log_bridged",
-    # Internal structured-body list closure is the same compileStmtList
-    # head/tail skeleton as the external structured-body proof; the measured
-    # span now includes the following nested-ite section header.
-    "compileStmtList_internal_structured_body_fragment_bridged",
-    # Two-level source ite closure mirrors the same two compiler-emitted shapes
-    # as the one-layer proof, but delegates branch bodies to structured-body
-    # list closure. The proof is mechanical Except-bind decomposition.
-    "compileStmt_ite_external_nested_body_fragment_bridged",
-    # Same generated-shape proof as the external two-level ite closure, but
-    # with internal branch body closure for internal returns.
-    "compileStmt_ite_internal_nested_body_fragment_bridged",
-    # Internal nested-body list closure is the same compileStmtList head/tail
-    # skeleton as earlier list closure proofs; the following recursive-ite
-    # section increases the measured declaration span.
-    "compileStmtList_internal_nested_body_fragment_bridged",
     # Recursive source ite closure mirrors the same two emitted shapes as the
     # fixed-depth ite proofs, but recursive calls replace bounded branch
     # delegation. The proof remains mechanical Except-bind decomposition.
@@ -682,10 +554,6 @@ ALLOWLIST: set[str] = {
     # two cases would require a shared helper that abstracts over the Yul
     # primitive name.
     "compileStmt_memoryWrite_bridged",
-    # Memory-write list closure mirrors the same compileStmtList head/tail
-    # skeleton as the other list closure proofs; the excess lines are
-    # boilerplate decomposition of the two Except binds.
-    "compileStmtList_memoryWrite_bridged",
     # `Stmt.forEach` closure has a fixed-shape wrapper: init `[let v := 0]`,
     # cond `lt(v, count)`, post `[v := add(v, 1)]`, plus the caller's body
     # closure hypothesis. The excess lines are boilerplate decomposition of
@@ -705,21 +573,6 @@ ALLOWLIST: set[str] = {
     # seven trivial single-use lemmas whose combined boilerplate exceeds the
     # main proof's line count.
     "revertWithCustomError_zero_bridged",
-    # Zero-arg custom-error list closure is standard compileStmtList
-    # cons/nil induction (nil: empty-list lemma; cons: destructure head
-    # Except.ok, destructure tail Except.ok, apply per-statement lemma,
-    # recurse via IH, split membership by `List.mem_append`). The excess
-    # lines are the four Except-bind cases mechanically matching
-    # `compileStmtList`'s bind structure.
-    "compileStmtList_customError_zero_bridged",
-    # External body + zero-arg custom error list closure mirrors the
-    # existing `compileStmtList_external_body_fragment_bridged` skeleton
-    # verbatim; the head case just dispatches through the extended
-    # per-statement theorem instead of the mixed-body one.
-    "compileStmtList_external_body_with_errors_bridged",
-    # Internal body + zero-arg custom error list closure: same cons/nil
-    # boilerplate as the external variant with `isInternal := true`.
-    "compileStmtList_internal_body_with_errors_bridged",
     # Direct `rawLog` source-closure proof unfolds `compileStmt`'s rawLog
     # branch: the `topics.length > 4` guard case (impossible via
     # `Except.noConfusion`), three sequential `Except.ok` destructurings
@@ -732,24 +585,6 @@ ALLOWLIST: set[str] = {
     # `BridgedStraightStmt.expr_log`. Decomposing would yield
     # single-use Except-bind helpers whose boilerplate exceeds the proof.
     "compileStmt_rawLog_bridged",
-    # Direct `rawLog` list closure mirrors the shared cons/nil boilerplate
-    # used by every `compileStmtList_*_bridged` sibling: the `error`/`ok`
-    # destructurings of `compileStmt` and the recursive `compileStmtList`
-    # call, plus `BridgedStmts_append` on the head/tail witnesses.
-    "compileStmtList_rawLog_bridged",
-    # Raw-log-lifted external body list closure dispatches head statements
-    # through `compileStmt_external_body_with_raw_log_bridged` (base/rawLog)
-    # and reuses the same cons/nil boilerplate as sibling with-errors list
-    # closures; decomposing would duplicate that Except-bind skeleton.
-    "compileStmtList_external_body_with_raw_log_bridged",
-    # Raw-log-lifted internal body list closure: identical boilerplate to
-    # the external variant with `isInternal := true`.
-    "compileStmtList_internal_body_with_raw_log_bridged",
-    # tstore list closure mirrors the same compileStmtList head/tail
-    # skeleton as sibling list closures; the excess lines come from the
-    # doc-comment preamble for the next section (storageArrayPush body
-    # closure) being attributed to this proof's span by the measurer.
-    "compileStmtList_tstore_bridged",
     # storageArrayPush single-slot closure enumerates the five emitted
     # straight-line statements in the `.block` body: let __array_len =
     # sload(lit slot), mstore(lit 0, lit slot), let __array_base =
@@ -760,11 +595,6 @@ ALLOWLIST: set[str] = {
     # single-use helpers whose combined boilerplate exceeds the main
     # proof's line count.
     "compileStmt_storageArrayPush_singleSlot_bridged",
-    # storageArrayPush list closure: same compileStmtList head/tail
-    # skeleton as sibling list closures; the excess lines come from the
-    # doc-comment preamble for the next section (storageArrayPop body
-    # closure) being attributed to this proof's span by the measurer.
-    "compileStmtList_storageArrayPush_bridged",
     # storageArrayPop single-slot closure enumerates seven emitted
     # statements in the `.block` body including an `if iszero(__array_len)
     # { revert(0, 0) }` guard: let __array_len = sload(lit slot), if_
@@ -774,11 +604,6 @@ ALLOWLIST: set[str] = {
     # witness; decomposing would yield seven trivial single-use helpers
     # whose combined boilerplate exceeds the main proof's line count.
     "compileStmt_storageArrayPop_singleSlot_bridged",
-    # storageArrayPop list closure: same compileStmtList head/tail
-    # skeleton as sibling list closures; the excess lines come from the
-    # doc-comment preamble for the next section (setStorageArrayElement
-    # body closure) being attributed to this proof's span by the measurer.
-    "compileStmtList_storageArrayPop_bridged",
     # setStorageArrayElement single-slot closure enumerates six emitted
     # statements in the `.block` body including an `if
     # iszero(lt(__array_index, __array_len)) { revert(0, 0) }` bounds-check
@@ -789,12 +614,6 @@ ALLOWLIST: set[str] = {
     # would yield six trivial single-use helpers whose combined
     # boilerplate exceeds the main proof's line count.
     "compileStmt_setStorageArrayElement_singleSlot_bridged",
-    # setStorageArrayElement list closure: same compileStmtList head/tail
-    # skeleton as sibling list closures; the excess lines come from the
-    # doc-comment preamble for the next section (setMappingWord
-    # wordOffset ≠ 0 body closure) being attributed to this proof's span
-    # by the measurer.
-    "compileStmtList_setStorageArrayElement_bridged",
     # setMapping2Word single-slot nonzero-offset closure builds three
     # BridgedExpr witnesses (key1, key2, value), then a nested
     # mappingSlot(mappingSlot(lit slot, key1), key2) outer-slot witness via
@@ -804,12 +623,6 @@ ALLOWLIST: set[str] = {
     # would yield a trivial single-use helper whose boilerplate exceeds
     # the size saved.
     "compileStmt_setMapping2Word_singleSlot_nonzero_bridged",
-    # setMappingWord wordOffset ≠ 0 list closure: same compileStmtList
-    # head/tail skeleton as sibling list closures; the excess lines come
-    # from the doc-comment preamble for the next section (setMapping2Word
-    # wordOffset ≠ 0 body closure) being attributed to this proof's span
-    # by the measurer.
-    "compileStmtList_mappingWordNonzero_bridged",
     # setMappingChain single-slot closure requires a two-way case split on
     # keyExprs (empty → expr_sstore_lit; non-empty prefix ++ [last] →
     # expr_sstore_mapping) plus the bridgedExpr_foldl_mappingSlot helper
@@ -818,13 +631,6 @@ ALLOWLIST: set[str] = {
     # inflates the total. Decomposing the two `rcases` branches would each
     # yield a trivial single-use helper whose boilerplate exceeds the save.
     "compileStmt_setMappingChain_singleSlot_bridged",
-    # setMapping2Word wordOffset ≠ 0 list closure: prior section's
-    # compileStmtList head/tail skeleton pushed over by this section's
-    # (setMappingChain) doc-comment preamble being attributed to this
-    # proof's span, same pattern as
-    # `compileStmtList_setStorageArrayElement_bridged` (`eccc1df9`) and
-    # `compileStmtList_mappingWordNonzero_bridged` (`5ef7f4b7`).
-    "compileStmtList_mapping2WordNonzero_bridged",
     # Multi-slot setMapping compatibility branch emits an outer
     # `YulStmt.block` wrapping two let-bindings plus N sstore writes
     # (one per slot). The proof must enumerate four concrete membership
@@ -837,12 +643,18 @@ ALLOWLIST: set[str] = {
     # rcases branches would produce trivial single-use helpers whose
     # boilerplate exceeds the save.
     "compileMappingSlotWrite_multiSlot_bridged",
-    # setMappingChain list closure: prior section's compileStmtList
-    # head/tail skeleton pushed over by this section's (multi-slot
-    # setMapping) doc-comment preamble being attributed to this
-    # proof's span, same pattern as
-    # `compileStmtList_mapping2WordNonzero_bridged` (`69d3abde`).
-    "compileStmtList_mappingChain_bridged",
+    # `add`-wrapped (wordOffset != 0) twin of the multi-slot closure above:
+    # same outer `YulStmt.block` of two let-bindings plus N per-slot writes,
+    # but each store is `sstore/tstore(add(mappingSlot(..), lit wordOffset), ..)`.
+    # The proof enumerates the same four concrete membership cases (let
+    # __compat_key, let __compat_value, slot0, slot1) then the generic
+    # slotsRest map case, each delegating to the shared `hStoreFor` witness
+    # built from `bridgedStraightStmt_maybeFieldStorageStore_add` (which the
+    # field-aware transient/sstore selection requires). The inline AST-shape
+    # witness pads the span without substantive logic; decomposing the rcases
+    # branches would yield trivial single-use helpers whose boilerplate
+    # exceeds the save.
+    "compileMappingSlotWrite_multiSlot_nonzero_bridged",
     # Multi-slot setMapping2 compatibility branch emits an outer
     # `YulStmt.block` wrapping three let-bindings (__compat_key1,
     # __compat_key2, __compat_value) plus N nested-mappingSlot sstore
@@ -855,19 +667,6 @@ ALLOWLIST: set[str] = {
     # mappingSlot subexpression. Decomposing would yield trivial
     # single-use helpers whose boilerplate exceeds the save.
     "compileStmt_setMapping2_multiSlot_bridged",
-    # Multi-slot setMapping list closure: prior section's
-    # compileStmtList head/tail skeleton pushed over by this
-    # section's (multi-slot setMapping2) doc-comment preamble being
-    # attributed to this proof's span, same pattern as
-    # `compileStmtList_mappingChain_bridged` (`cd135ff7`).
-    "compileStmtList_mappingWriteMultiSlot_bridged",
-    # Multi-slot setMapping2 list closure: prior section's list
-    # skeleton pushed over to 57 lines by the newly appended
-    # multi-slot setStructMember section's doc-comment preamble
-    # being attributed to this proof's span, same pattern as
-    # `compileStmtList_mappingChain_bridged` (`cd135ff7`) and
-    # `compileStmtList_mappingWriteMultiSlot_bridged`.
-    "compileStmtList_mappingWrite2MultiSlot_bridged",
     # Multi-slot setStructMember2 wordOffset=0 closure: inherent
     # 5-way concrete membership enumeration (3 let-bindings + 2
     # concrete sstore cases with inline nested BridgedExpr.call
@@ -875,21 +674,6 @@ ALLOWLIST: set[str] = {
     # same pattern as `compileStmt_setMapping2_multiSlot_bridged`
     # (`defa6150`).
     "compileStmt_setStructMember2_multiSlot_bridged",
-    # Multi-slot setStructMember list closure: prior section's list
-    # skeleton pushed over to 58 lines by the newly appended
-    # multi-slot setStructMember2 section's doc-comment preamble,
-    # same displacement pattern as
-    # `compileStmtList_mappingWriteMultiSlot_bridged` (`cd135ff7`)
-    # and `compileStmtList_mappingWrite2MultiSlot_bridged` (`29634900`).
-    "compileStmtList_structMemberMultiSlot_bridged",
-    # Multi-slot setStructMember2 list closure: prior section's list
-    # skeleton pushed over to 61 lines by the newly appended
-    # multi-slot setMappingWord wordOffset=0 section's doc-comment
-    # preamble, same displacement pattern as
-    # `compileStmtList_mappingWriteMultiSlot_bridged` (`cd135ff7`),
-    # `compileStmtList_mappingWrite2MultiSlot_bridged` (`29634900`),
-    # and `compileStmtList_structMemberMultiSlot_bridged` (`3b331fc7`).
-    "compileStmtList_structMember2MultiSlot_bridged",
     # Multi-slot setMapping2Word wordOffset=0 closure: inherent
     # 5-way concrete membership enumeration (3 let-bindings + 2
     # concrete sstore cases with inline nested BridgedExpr.call
@@ -898,21 +682,6 @@ ALLOWLIST: set[str] = {
     # (`defa6150`) and `compileStmt_setStructMember2_multiSlot_bridged`
     # (`3b331fc7`).
     "compileStmt_setMapping2Word_multiSlot_bridged",
-    # Multi-slot setMappingWord wordOffset=0 list closure: prior
-    # section's list skeleton pushed over to 60 lines by the newly
-    # appended multi-slot setMapping2Word wordOffset=0 section's
-    # doc-comment preamble, same displacement pattern as
-    # `compileStmtList_mappingWriteMultiSlot_bridged` (`cd135ff7`),
-    # `compileStmtList_mappingWrite2MultiSlot_bridged` (`29634900`),
-    # `compileStmtList_structMemberMultiSlot_bridged` (`3b331fc7`),
-    # and `compileStmtList_structMember2MultiSlot_bridged` (`112e2995`).
-    "compileStmtList_mappingWordMultiSlot_bridged",
-    # Multi-slot setMapping2Word wordOffset=0 list closure: prior
-    # section's list skeleton pushed over to 66 lines by the newly
-    # appended multi-slot setMappingWord wordOffset≠0 section's
-    # doc-comment preamble, same displacement pattern as prior
-    # multi-slot list closures.
-    "compileStmtList_mapping2WordMultiSlot_bridged",
     # Multi-slot setMapping2Word wordOffset≠0 closure: 126 lines
     # inherent — 5-way concrete membership enumeration over outer
     # block (let __compat_key1, let __compat_key2, let __compat_value,
@@ -922,24 +691,12 @@ ALLOWLIST: set[str] = {
     # (wordOffset=0, 97 lines allowlisted above) plus the extra `add`
     # layer boilerplate.
     "compileStmt_setMapping2Word_multiSlot_nonzero_bridged",
-    # Multi-slot setMappingWord wordOffset≠0 list closure: prior
-    # section's list skeleton pushed over to 70 lines by the newly
-    # appended multi-slot setMapping2Word wordOffset≠0 section's
-    # doc-comment preamble + helper + predicate, same displacement
-    # pattern as prior multi-slot list closures.
-    "compileStmtList_mappingWordMultiSlotNonzero_bridged",
     # Multi-slot setMapping2Word wordOffset≠0 `slots.map` helper:
     # 61 lines inherent — per-slot element is `expr_sstore_add` whose
     # inner mappingSlot arg is itself a nested mappingSlot, requiring
     # both an inner and outer BridgedExpr.call derivation before
     # invoking the `expr_sstore_add` ctor. No clean decomposition.
     "bridgedStraightStmts_multiSlot_sstore_mapping2_add",
-    # Multi-slot setMapping2Word wordOffset≠0 list closure: prior
-    # section's list skeleton pushed over to 59 lines by the newly
-    # appended multi-slot setStructMember wordOffset≠0 section's
-    # doc-comment preamble + predicate, same displacement pattern as
-    # prior multi-slot list closures.
-    "compileStmtList_mapping2WordMultiSlotNonzero_bridged",
     # Multi-slot setStructMember2 wordOffset≠0 closure: mirrors
     # setMapping2Word wordOffset≠0 multi-slot (97+ lines) via the
     # struct-member2 ctor. Five-way List.mem_cons enumeration over
@@ -948,12 +705,6 @@ ALLOWLIST: set[str] = {
     # slotsRest tail), with member.wordOffset threaded into each
     # sstore_add and the multi-slot sstore_mapping2_add helper.
     "compileStmt_setStructMember2_multiSlot_nonzero_bridged",
-    # Multi-slot setStructMember wordOffset≠0 list closure: displaced
-    # from 59 to 63 lines by the newly appended multi-slot
-    # setStructMember2 wordOffset≠0 section's doc-comment preamble +
-    # predicate, same displacement pattern as prior multi-slot list
-    # closures.
-    "compileStmtList_structMemberMultiSlotNonzero_bridged",
     # Single-slot setMappingPackedWord wordOffset=0 closure: 115-line
     # span enumerates the one-element list wrapping a block of four
     # `let_` bindings (value / packed / slot_word / slot_cleared, each
@@ -972,12 +723,6 @@ ALLOWLIST: set[str] = {
     # and the terminating `expr_sstore_add`. Same decomposition rationale
     # as the wordOffset=0 sibling.
     "compileStmt_setMappingPackedWord_singleSlot_nonzero_bridged",
-    # Single-slot setMappingPackedWord wordOffset=0 list closure:
-    # displaced from 45 to 59 lines by the newly appended wordOffset≠0
-    # inductive declaration which terminates the proof span (same
-    # displacement pattern as prior adjacent closures; proof body
-    # unchanged).
-    "compileStmtList_mappingPackedWord_bridged",
     # Multi-slot setMappingPackedWord wordOffset=0 inner-block helper:
     # 90-line span builds the `mappingSlot` BridgedExpr once and then
     # enumerates the three inner-block stmts (sload-let, and-not
@@ -992,11 +737,6 @@ ALLOWLIST: set[str] = {
     # the inner-block helper; further decomposition yields no clear
     # gain.
     "compileStmt_setMappingPackedWord_multiSlot_bridged",
-    # Single-slot setMappingPackedWord wordOffset≠0 list closure:
-    # displaced by the newly appended multi-slot helpers and main
-    # theorem which terminate the proof span (same displacement
-    # pattern as prior adjacent closures; proof body unchanged).
-    "compileStmtList_mappingPackedWordNonzero_bridged",
     # Multi-slot setMappingPackedWord wordOffset≠0 inner-block helper:
     # 108-line span builds `mappingSlot` and `add(mappingSlot, lit
     # wordOffset)` BridgedExpr witnesses once and then enumerates the
@@ -1011,33 +751,19 @@ ALLOWLIST: set[str] = {
     # slotsRest via the map helper). Each branch reuses the inner-
     # block helper; further decomposition yields no clear gain.
     "compileStmt_setMappingPackedWord_multiSlot_nonzero_bridged",
-    # Multi-slot setMappingPackedWord wordOffset=0 list closure:
-    # displaced from 45 to 63 lines by the newly appended multi-slot
-    # wordOffset≠0 helpers + predicate + main theorem (proof body
-    # unchanged; same displacement pattern as prior adjacent
-    # closures).
-    "compileStmtList_mappingPackedWordMultiSlot_bridged",
-    # Multi-slot setMappingPackedWord wordOffset≠0 list closure: same
-    # compileStmtList head/tail skeleton as its wordOffset=0 sibling; the
-    # extra span is the adjacent safe-body aggregation preamble, not unique
-    # proof logic.
-    "compileStmtList_mappingPackedWordMultiSlotNonzero_bridged",
-    # Multi-slot setStructMember2 wordOffset≠0 list closure: displaced
-    # from 45 to 63 lines by the newly appended single-slot
-    # setMappingPackedWord section's doc-comment preamble + predicate,
-    # same displacement pattern as prior multi-slot list closures
-    # (proof body unchanged).
-    "compileStmtList_structMember2MultiSlotNonzero_bridged",
-    # Universal safe-body aggregation is one constructor dispatch over
-    # BridgedSafeStmts. Each branch delegates to an existing fragment-specific
-    # closure theorem; splitting would create a parallel dispatch helper with
-    # the same 24-case shape.
-    "compileStmtList_always_bridged",
-    # Universal no-function-definition aggregation mirrors
-    # compileStmtList_always_bridged: one constructor dispatch over
-    # BridgedSafeStmts, with each branch delegating to a fragment-specific
-    # noFuncDefs theorem.
-    "compileStmtList_always_noFuncDefs",
+    # Master per-statement safe-body closure is one constructor dispatch over
+    # BridgedSourceStmt (39 fragment arms). Each branch delegates to an
+    # existing fragment-specific closure lemma; splitting would create a
+    # parallel dispatch helper with the same arm shape.
+    "compileStmt_bridgedSource_bridged",
+    # Mirrors compileStmt_bridgedSource_bridged: one constructor dispatch over
+    # BridgedSourceStmt, with each branch delegating to a fragment-specific
+    # noFuncDefs lemma.
+    "compileStmt_bridgedSource_noFuncDefs",
+    # Flattening BridgedSafeStmts into the per-statement union is one
+    # constructor dispatch over its 40 arms; each pointwise arm is a one-line
+    # forward, so splitting would just duplicate the dispatch skeleton.
+    "BridgedSafeStmts.toBridgedSource",
     # --- Misc ---
     "findUniqueInternalFunction",
     # Native generated-switch block append/error lemmas mirror the existing
@@ -1088,13 +814,6 @@ ALLOWLIST: set[str] = {
     # `Function.supported_function_correct_except_mapping_writes_stmtSafety`,
     # so there is no proof logic to decompose.
     "compileFunctionSpec_correct_generic_except_mapping_writes_stmtSafety",
-    # Minimal single-delegation body (`exact
-    # compile_preserves_semantics_except_mapping_writes_and_helper_ir …`); the
-    # 41-line signature+proof is pushed to a reported 52-line span by the
-    # trailing blank line plus the 10-line `#1630` doc-comment preamble of the
-    # *next* theorem (`compile_preserves_semantics_with_helper_proofs`) being
-    # attributed to this proof's span, same displacement pattern as above.
-    "compile_preserves_semantics_except_mapping_writes_and_helper_ir_supported",
 }
 
 # PR #1822 native EVMYulLean generic-dispatcher closure. These regexes cover
@@ -1157,6 +876,9 @@ ALLOWLIST_REGEXES: tuple[re.Pattern[str], ...] = tuple(
         r"^supportedStmtList_safe_of_state_"
         r"(?:effect_closed|except_mapping_writes_stmt_safety)$",
         r"^simpleStorage_source_endToEnd_native_evmYulLean_of_sourceIR$",
+        # Thin denote-headed wrapper; the count is inflated by the trailing
+        # module comment block (proof body is a single composition term).
+        r"^simpleStorage_denote_endToEnd_native_evmYulLean_of_sourceIR$",
         r"^compileStmt_setStructMember2_singleSlot_nonzero_bridged$",
         r"^compileStmtList_append_eq$",
         r"^compile_ok_yields_noReceiveEntrypoint_except_mapping_writes$",

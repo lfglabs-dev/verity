@@ -1,0 +1,235 @@
+---
+title: External Calls
+description: Linked externals, typed interface calls, callResult, ECM modules (ERC-20/4626, precompiles, oracle), keccak256, low-level calls, CREATE2, and unsafe Yul.
+---
+
+# External Calls
+
+Calling other contracts and EVM primitives. Most of these forms carry explicit
+trust-report metadata rather than full proof-system lemmas — see
+[Trust Model](/trust-model) and [Capabilities & Limits](/capabilities#compiles-but-on-a-trust-boundary).
+
+## Linked externals
+
+Declare each foreign function in a `linked_externals` block, then call it. Three
+call surfaces cover the return shapes:
+
+```verity
+linked_externals
+  external echo(Uint256) -> (Uint256)         -- single word back
+  external hashArray(Array Uint256) -> (Uint256)
+  external notifyArray(Array Uint256)         -- no return
+
+-- value position: external returns exactly one word
+function storeQuote (value : Uint256) : Unit := do
+  let quoted := externalCall "echo" [value]
+  setStorage lastQuote quoted
+
+-- try form: prepends a success Bool, so the call cannot revert the caller
+function tryQuote (value : Uint256) : Unit := do
+  let (success, quoted) ← tryExternalCall "echo" [value]
+  if success then setStorage lastQuote quoted
+
+-- statement position, no return: bind the empty result list
+function notify (leaves : Array Uint256) : Unit := do
+  externalCallBind [] "notifyArray" [leaves]
+```
+
+- **`externalCall "name" [args]`** is value-position and requires the external to
+  return *exactly one* word; a zero- or multi-return external is a compile error.
+- **`tryExternalCall "name" [args]`** prepends a `success : Bool` flag so a
+  reverting callee is observed as `success = false`. Destructure as
+  `let (success, r₁, …) ← …`; a zero-return external uses `let success ← …`.
+- **`externalCallBind [v₁, …] "name" [args]`** is statement-position; bind `[]`
+  for a no-return ("fire and forget") external.
+
+Argument types may be word-like (`Uint256`, `Uint8`, `Address`, `Bytes32`,
+`Bool`) or directly-forwarded `Array<wordLike>` / `Bytes` from the caller's ABI.
+A `Bytes` (or dynamic-array) member projected from a struct-array element may
+also be forwarded directly, e.g.
+`externalCall "hashBytes" [(arrayElement txs idx).callData]` (likewise through
+`tryExternalCall`). Return types must be word-like or static ABI composites of
+word-like values; dynamic return types (e.g. `String`) are rejected.
+
+### Inspecting call results (`callResult`)
+
+`callResult` returns a first-class `Call.Result` with `.success` and
+`.returndata` projections, reusing a `linked_externals` declaration:
+
+```verity
+linked_externals
+  external echo(Uint256) -> (Uint256)
+  external echo_try(Uint256) -> (Bool, Uint256)
+
+function storeCallResult (x : Uint256) : Unit := do
+  let result ← callResult "echo" [x]
+  if result.success then
+    setStorage lastResult result.returndata
+```
+
+A single return word is `result.returndata`; multiple returns are
+`result.returndata0`, `result.returndata1`, …; `result.success` is always
+present. Only zero or more single-word **static** return values are supported;
+dynamic / composite returndata is rejected. Lowers to
+`Stmt.tryExternalCallBind`.
+
+## Typed interface calls
+
+Declare contract interfaces in an `interfaces` block, then use an interface name
+as a parameter type. Interface-typed parameters erase to `Address` in the ABI;
+dot calls lower to `Compiler.Modules.Calls.withReturnModule`.
+
+```verity
+interfaces
+  interface IERC20 where
+    function balanceOf(Address) view returns (Uint256)
+  end
+
+function readBalance (token : IERC20, owner : Address) : Uint256 := do
+  let bal ← token.balanceOf owner
+  return bal
+```
+
+Limits: interface function parameters are declared as ABI types (not named);
+declarations use an explicit `end` terminator; exactly one return value is
+supported; `view` calls lower to `staticcall`, non-`view` to `call`.
+
+## External Callable Modules (ECMs)
+
+ECMs ABI-encode arguments, perform a `call` / `staticcall`, validate the return
+shape, and bind the result. They carry trust-report metadata and module-level
+assumptions rather than pure `simp`-style lemmas.
+
+### ERC-20 helpers
+
+```verity
+safeTransfer token to amount
+safeTransferFrom token fromAddr to amount
+safeApprove token spender amount
+
+let balance <- balanceOf token owner
+let current <- allowance token owner spender
+let supply  <- totalSupply token
+```
+
+These compile to `Compiler.Modules.ERC20.*Module` ECMs. For tokens that revert
+with legacy string `Error("...")` payloads (Morpho-style, with an `extcodesize`
+check), use `legacyStringSafeTransfer token to amount` /
+`legacyStringSafeTransferFrom token fromAddr to amount`. If the contract defines
+a same-named function with matching arity, the helper form is rejected.
+
+### ERC-4626 vault helpers
+
+Twelve ECMs share one template (ABI-encode selector + static args, `staticcall`
+or `call`, expect one 32-byte word): `previewDeposit`, `previewMint`,
+`previewWithdraw`, `previewRedeem`, `convertToAssets`, `convertToShares`,
+`totalAssets`, `asset`, `maxDeposit`, `maxMint`, `maxWithdraw`, `maxRedeem`, and
+`deposit`. `asset` masks the returned word to 160 bits; `deposit` uses `call`.
+Each records an `erc4626_<name>_interface` trust-report assumption.
+
+### Precompiles and hashing
+
+```verity
+Compiler.Modules.Precompiles.ecrecover        -- `let signer <- ecrecover digest v r s`
+Compiler.Modules.Precompiles.sha256Memory     -- aliased as `sha256`
+Compiler.Modules.Hashing.abiEncodePackedWords -- contiguous-word keccak256
+Compiler.Modules.Hashing.sha256PackedWords    -- contiguous-word SHA-256 via 0x02
+Compiler.Modules.Hashing.abiEncodePackedStaticSegments  -- mixed widths, 1–32 bytes each
+Compiler.Modules.Hashing.sha256PackedStaticSegments
+```
+
+Segment widths are 1–32 bytes; sub-word values are left-aligned. The trust
+report records `evm_ecrecover_precompile`, `evm_sha256_precompile`, etc.
+
+### Oracle and generic calls
+
+```verity
+Compiler.Modules.Calls.withReturn
+  (resultVar : String) (target : Expr) (selector : Nat) (args : List Expr) (isStatic : Bool := false) : Stmt
+```
+
+A typed read-word **oracle summary** (`oracleReadUint256` and the typed
+`view`-call summary) emits a single-static-word `oracleSummary` trust entry
+(`oracle_summary:<IFace.method>`, via `staticcall`) and is restricted to one
+static word.
+
+### `keccak256` primitive
+
+```verity
+let digest := keccak256 offset size
+```
+
+Elaborates to `Expr.keccak256`; lowers to Yul `keccak256(offset, size)`. The
+trust report records `keccak256_memory_slice_matches_evm`. `Expr.keccak256` also
+remains an explicit proof boundary today: the compiler supports it directly, but
+the current proof stack still treats dynamic memory hashing as an explicit
+primitive assumption instead of a fully modeled operation. To keep such hashing
+inside the proved subset, archive `--trust-report` and use
+`--deny-axiomatized-primitives` for proof-strict runs (see issue `#1411`).
+For hashing string literals at compile time, see
+[`keccakString`](/edsl/storage#constants-and-immutables).
+
+## Low-level `call` / `staticcall` / `delegatecall`
+
+First-class forms exist in the compilation model (`Expr.call`,
+`Expr.staticcall`, `Expr.delegatecall`). They are not yet modeled by the current
+proof interpreters. In other words, low-level call plumbing and returndata
+behavior remain a compiler-and-testing trust boundary rather than a proved
+semantic feature today. A reverting low-level call can be caught:
+
+```verity
+tryCatch (call gas target value inOffset inSize outOffset outSize) (do
+  setStorage lastFailure 1)
+```
+
+This lowers to a synthetic `letVar` + `ite` entering the catch block when the
+result word is `0`; catch-payload decoding is not modeled. When the low-level
+form is `delegatecall`, the trust report now also isolates it as a dedicated
+proxy / upgradeability boundary; archive `--trust-report` and use
+`--deny-proxy-upgradeability` for proof-strict runs (see issue `#1420`).
+
+First-class linear-memory forms (`Expr.mload`, `Stmt.mstore`,
+`Stmt.calldatacopy`, `Stmt.returndataCopy`, `Expr.returndataOptionalBoolAt`)
+also compile today, but they are still only partially modeled by the current
+proof interpreters. To stay inside the proved subset, treat them as an explicit
+memory/ABI trust boundary, archive `--trust-report`, and use
+`--deny-linear-memory-mechanics` for proof-strict runs (see issue `#1411`).
+
+Any non-`view` function making such a call must declare a
+[reentrancy disposition](/edsl/functions#reentrancy-disposition).
+
+## CREATE2, code data, and multicall
+
+`returnCodeData pointer` returns SSTORE2-style stored code data. CREATE2 address
+derivation and the `CodeData.Layout` (STOP-prefixed payload at offset 1) are
+modeled in `Verity/Core/Model/CodeData.lean`. A trusted self-delegate multicall
+ECM (`Calls.selfDelegateMulticallBytes`) implements Solidity-style
+`multicall(bytes[])` by self-`delegatecall`ing each payload; it reverts on
+empty / malformed offsets, is rejected from `view` functions, and its full
+non-empty semantics remain an assumed boundary.
+
+## Unsafe Yul escapes
+
+One-off raw Yul instructions use `Stmt.unsafeYul` with an `UnsafeYulFragment`
+helper rather than new first-class statements. Raw memory revert is the
+canonical small helper:
+
+```lean
+Stmt.unsafeYul
+  (UnsafeYulFragment.rawRevert
+    (Compiler.Yul.YulExpr.ident "offset")
+    (Compiler.Yul.YulExpr.ident "size")
+    { name := "raw_revert_memory_slice_refinement"
+      obligation := "Caller-provided raw revert memory slice must refine the intended failure payload."
+      proofStatus := .assumed })
+```
+
+Prefer ECM wrappers when they fit. For unavoidable cases, attach a
+`local_obligations` entry at the usage site and discharge it before shipping
+(`--deny-unsafe` rejects all unsafe blocks).
+
+## See also
+
+- [Functions & Authoring](/edsl/functions#reentrancy-disposition) — required reentrancy markers.
+- [Trust Model](/trust-model) — what these assumptions cover.
+- [External Call Modules](https://github.com/lfglabs-dev/verity/blob/main/docs/EXTERNAL_CALL_MODULES.md) — full ECM catalogue.

@@ -22,7 +22,8 @@ def validateDynamicArrayField (fields : List Field) (field : String) :
   | none =>
       throw s!"Compilation error: unknown storage field '{field}'"
 
-def compilePackedStorageWrite (writeSlot valueExpr : YulExpr) (packed : PackedBits) :
+def compilePackedStorageWrite (writeSlot valueExpr : YulExpr) (packed : PackedBits)
+    (loadBuiltin : String := "sload") (storeBuiltin : String := "sstore") :
     List YulStmt :=
   let maskNat := packedMaskNat packed
   let shiftedMaskNat := packedShiftedMaskNat packed
@@ -30,12 +31,12 @@ def compilePackedStorageWrite (writeSlot valueExpr : YulExpr) (packed : PackedBi
     YulStmt.block [
       YulStmt.let_ "__compat_value" valueExpr,
       YulStmt.let_ "__compat_packed" (YulExpr.call "and" [YulExpr.ident "__compat_value", YulExpr.lit maskNat]),
-      YulStmt.let_ "__compat_slot_word" (YulExpr.call "sload" [writeSlot]),
+      YulStmt.let_ "__compat_slot_word" (YulExpr.call loadBuiltin [writeSlot]),
       YulStmt.let_ "__compat_slot_cleared" (YulExpr.call "and" [
         YulExpr.ident "__compat_slot_word",
         YulExpr.call "not" [YulExpr.lit shiftedMaskNat]
       ]),
-      YulStmt.expr (YulExpr.call "sstore" [
+      YulStmt.expr (YulExpr.call storeBuiltin [
         writeSlot,
         YulExpr.call "or" [
           YulExpr.ident "__compat_slot_cleared",
@@ -46,7 +47,8 @@ def compilePackedStorageWrite (writeSlot valueExpr : YulExpr) (packed : PackedBi
   ]
 
 def compileCompatPackedStorageWrites (writeSlots : List YulExpr) (valueExpr : YulExpr)
-    (packed : PackedBits) : List YulStmt :=
+    (packed : PackedBits) (loadBuiltin : String := "sload")
+    (storeBuiltin : String := "sstore") : List YulStmt :=
   let maskNat := packedMaskNat packed
   let shiftedMaskNat := packedShiftedMaskNat packed
   [
@@ -55,12 +57,12 @@ def compileCompatPackedStorageWrites (writeSlots : List YulExpr) (valueExpr : Yu
        YulStmt.let_ "__compat_packed" (YulExpr.call "and" [YulExpr.ident "__compat_value", YulExpr.lit maskNat])] ++
       writeSlots.map (fun writeSlot =>
         YulStmt.block [
-          YulStmt.let_ "__compat_slot_word" (YulExpr.call "sload" [writeSlot]),
+          YulStmt.let_ "__compat_slot_word" (YulExpr.call loadBuiltin [writeSlot]),
           YulStmt.let_ "__compat_slot_cleared" (YulExpr.call "and" [
             YulExpr.ident "__compat_slot_word",
             YulExpr.call "not" [YulExpr.lit shiftedMaskNat]
           ]),
-          YulStmt.expr (YulExpr.call "sstore" [
+          YulStmt.expr (YulExpr.call storeBuiltin [
             writeSlot,
             YulExpr.call "or" [
               YulExpr.ident "__compat_slot_cleared",
@@ -72,7 +74,8 @@ def compileCompatPackedStorageWrites (writeSlots : List YulExpr) (valueExpr : Yu
   ]
 
 def compileSetStorage (fields : List Field) (dynamicSource : DynamicDataSource)
-    (field : String) (value : Expr) (requireAddressField : Bool := false) :
+    (field : String) (value : Expr) (requireAddressField : Bool := false)
+    (internalFunctions : List FunctionSpec := []) :
     Except String (List YulStmt) := do
   if isMapping fields field then
     throw s!"Compilation error: field '{field}' is a mapping; use setMapping, setMappingWord, or setMappingPackedWord"
@@ -85,7 +88,9 @@ def compileSetStorage (fields : List Field) (dynamicSource : DynamicDataSource)
           | _ =>
               throw s!"Compilation error: field '{field}' is not address-typed; use Stmt.setStorage instead"
         let slots := slot :: f.aliasSlots
-        let valueExpr ← compileExpr fields dynamicSource value
+        let loadBuiltin := if f.isTransient then "tload" else "sload"
+        let storeBuiltin := if f.isTransient then "tstore" else "sstore"
+        let valueExpr ← compileExprWithInternals fields dynamicSource internalFunctions value
         let storedValueExpr :=
           if requireAddressField then
             YulExpr.call "and" [valueExpr, YulExpr.hex Compiler.Constants.addressMask]
@@ -101,9 +106,9 @@ def compileSetStorage (fields : List Field) (dynamicSource : DynamicDataSource)
             | [singleSlot] =>
                 match f.packedBits with
                 | none =>
-                    pure [YulStmt.expr (YulExpr.call "sstore" [YulExpr.lit singleSlot, storedValueExpr])]
+                    pure [YulStmt.expr (YulExpr.call storeBuiltin [YulExpr.lit singleSlot, storedValueExpr])]
                 | some packed =>
-                    pure (compilePackedStorageWrite (YulExpr.lit singleSlot) storedValueExpr packed)
+                    pure (compilePackedStorageWrite (YulExpr.lit singleSlot) storedValueExpr packed loadBuiltin storeBuiltin)
             | _ =>
                 let writeSlots := slots.map YulExpr.lit
                 match f.packedBits with
@@ -112,17 +117,18 @@ def compileSetStorage (fields : List Field) (dynamicSource : DynamicDataSource)
                       YulStmt.block (
                         [YulStmt.let_ "__compat_value" storedValueExpr] ++
                         writeSlots.map (fun writeSlot =>
-                          YulStmt.expr (YulExpr.call "sstore" [writeSlot, YulExpr.ident "__compat_value"]))
+                          YulStmt.expr (YulExpr.call storeBuiltin [writeSlot, YulExpr.ident "__compat_value"]))
                       )
                     ]
                 | some packed =>
-                    pure (compileCompatPackedStorageWrites writeSlots storedValueExpr packed)
+                    pure (compileCompatPackedStorageWrites writeSlots storedValueExpr packed loadBuiltin storeBuiltin)
     | none => throw s!"Compilation error: unknown storage field '{field}' in setStorage"
 
 def compileStorageArrayPush (fields : List Field) (dynamicSource : DynamicDataSource)
-    (field : String) (value : Expr) : Except String (List YulStmt) := do
+    (field : String) (value : Expr) (internalFunctions : List FunctionSpec := []) :
+    Except String (List YulStmt) := do
   let (slot, _) ← validateDynamicArrayField fields field
-  let valueExpr ← compileExpr fields dynamicSource value
+  let valueExpr ← compileExprWithInternals fields dynamicSource internalFunctions value
   pure [
     YulStmt.block [
       YulStmt.let_ "__array_len" (YulExpr.call "sload" [YulExpr.lit slot]),
@@ -159,10 +165,11 @@ def compileStorageArrayPop (fields : List Field) (field : String) : Except Strin
   ]
 
 def compileSetStorageArrayElement (fields : List Field) (dynamicSource : DynamicDataSource)
-    (field : String) (index value : Expr) : Except String (List YulStmt) := do
+    (field : String) (index value : Expr) (internalFunctions : List FunctionSpec := []) :
+    Except String (List YulStmt) := do
   let (slot, _) ← validateDynamicArrayField fields field
-  let indexExpr ← compileExpr fields dynamicSource index
-  let valueExpr ← compileExpr fields dynamicSource value
+  let indexExpr ← compileExprWithInternals fields dynamicSource internalFunctions index
+  let valueExpr ← compileExprWithInternals fields dynamicSource internalFunctions value
   pure [
     YulStmt.block [
       YulStmt.let_ "__array_len" (YulExpr.call "sload" [YulExpr.lit slot]),
@@ -182,22 +189,27 @@ def compileSetStorageArrayElement (fields : List Field) (dynamicSource : Dynamic
   ]
 
 def compileSetMapping2 (fields : List Field) (dynamicSource : DynamicDataSource)
-    (field : String) (key1 key2 value : Expr) : Except String (List YulStmt) := do
+    (field : String) (key1 key2 value : Expr) (internalFunctions : List FunctionSpec := []) :
+    Except String (List YulStmt) := do
   if !isMapping2 fields field then
     throw s!"Compilation error: field '{field}' is not a double mapping"
   else
     match findFieldWriteSlots fields field with
     | some slots => do
-        let key1Expr ← compileExpr fields dynamicSource key1
-        let key2Expr ← compileExpr fields dynamicSource key2
-        let valueExpr ← compileExpr fields dynamicSource value
+        let storeBuiltin :=
+          match findFieldWithResolvedSlot fields field with
+          | some (f, _) => if f.isTransient then "tstore" else "sstore"
+          | none => "sstore"
+        let key1Expr ← compileExprWithInternals fields dynamicSource internalFunctions key1
+        let key2Expr ← compileExprWithInternals fields dynamicSource internalFunctions key2
+        let valueExpr ← compileExprWithInternals fields dynamicSource internalFunctions value
         match slots with
         | [] =>
             throw s!"Compilation error: internal invariant failure: no write slots for mapping field '{field}' in setMapping2"
         | [slot] =>
             let innerSlot := YulExpr.call "mappingSlot" [YulExpr.lit slot, key1Expr]
             pure [
-              YulStmt.expr (YulExpr.call "sstore" [
+              YulStmt.expr (YulExpr.call storeBuiltin [
                 YulExpr.call "mappingSlot" [innerSlot, key2Expr],
                 valueExpr
               ])
@@ -209,7 +221,7 @@ def compileSetMapping2 (fields : List Field) (dynamicSource : DynamicDataSource)
                   YulStmt.let_ "__compat_value" valueExpr] ++
                 slots.map (fun slot =>
                   let innerSlot := YulExpr.call "mappingSlot" [YulExpr.lit slot, YulExpr.ident "__compat_key1"]
-                  YulStmt.expr (YulExpr.call "sstore" [
+                  YulStmt.expr (YulExpr.call storeBuiltin [
                     YulExpr.call "mappingSlot" [innerSlot, YulExpr.ident "__compat_key2"],
                     YulExpr.ident "__compat_value"
                   ]))
@@ -218,16 +230,21 @@ def compileSetMapping2 (fields : List Field) (dynamicSource : DynamicDataSource)
     | none => throw s!"Compilation error: unknown mapping field '{field}' in setMapping2"
 
 def compileSetMapping2Word (fields : List Field) (dynamicSource : DynamicDataSource)
-    (field : String) (key1 key2 : Expr) (wordOffset : Nat) (value : Expr) :
+    (field : String) (key1 key2 : Expr) (wordOffset : Nat) (value : Expr)
+    (internalFunctions : List FunctionSpec := []) :
     Except String (List YulStmt) := do
   if !isMapping2 fields field then
     throw s!"Compilation error: field '{field}' is not a double mapping"
   else
     match findFieldWriteSlots fields field with
     | some slots => do
-        let key1Expr ← compileExpr fields dynamicSource key1
-        let key2Expr ← compileExpr fields dynamicSource key2
-        let valueExpr ← compileExpr fields dynamicSource value
+        let storeBuiltin :=
+          match findFieldWithResolvedSlot fields field with
+          | some (f, _) => if f.isTransient then "tstore" else "sstore"
+          | none => "sstore"
+        let key1Expr ← compileExprWithInternals fields dynamicSource internalFunctions key1
+        let key2Expr ← compileExprWithInternals fields dynamicSource internalFunctions key2
+        let valueExpr ← compileExprWithInternals fields dynamicSource internalFunctions value
         match slots with
         | [] =>
             throw s!"Compilation error: internal invariant failure: no write slots for mapping field '{field}' in setMapping2Word"
@@ -235,7 +252,7 @@ def compileSetMapping2Word (fields : List Field) (dynamicSource : DynamicDataSou
             let innerSlot := YulExpr.call "mappingSlot" [YulExpr.lit slot, key1Expr]
             let outerSlot := YulExpr.call "mappingSlot" [innerSlot, key2Expr]
             let finalSlot := if wordOffset == 0 then outerSlot else YulExpr.call "add" [outerSlot, YulExpr.lit wordOffset]
-            pure [YulStmt.expr (YulExpr.call "sstore" [finalSlot, valueExpr])]
+            pure [YulStmt.expr (YulExpr.call storeBuiltin [finalSlot, valueExpr])]
         | _ =>
             pure [
               YulStmt.block (
@@ -245,21 +262,26 @@ def compileSetMapping2Word (fields : List Field) (dynamicSource : DynamicDataSou
                   let innerSlot := YulExpr.call "mappingSlot" [YulExpr.lit slot, YulExpr.ident "__compat_key1"]
                   let outerSlot := YulExpr.call "mappingSlot" [innerSlot, YulExpr.ident "__compat_key2"]
                   let finalSlot := if wordOffset == 0 then outerSlot else YulExpr.call "add" [outerSlot, YulExpr.lit wordOffset]
-                  YulStmt.expr (YulExpr.call "sstore" [finalSlot, YulExpr.ident "__compat_value"])))
+                  YulStmt.expr (YulExpr.call storeBuiltin [finalSlot, YulExpr.ident "__compat_value"])))
             ]
     | none => throw s!"Compilation error: unknown mapping field '{field}' in setMapping2Word"
 
 def compileSetMappingChain (fields : List Field) (dynamicSource : DynamicDataSource)
-    (field : String) (keys : List Expr) (value : Expr) : Except String (List YulStmt) := do
+    (field : String) (keys : List Expr) (value : Expr)
+    (internalFunctions : List FunctionSpec := []) : Except String (List YulStmt) := do
   if !isMapping fields field then
     throw s!"Compilation error: field '{field}' is not a mapping"
   else
     match findFieldWriteSlots fields field with
     | some slots => do
-        let keyExprs ← compileExprList fields dynamicSource keys
-        let valueExpr ← compileExpr fields dynamicSource value
+        let storeBuiltin :=
+          match findFieldWithResolvedSlot fields field with
+          | some (f, _) => if f.isTransient then "tstore" else "sstore"
+          | none => "sstore"
+        let keyExprs ← compileExprListWithInternals fields dynamicSource internalFunctions keys
+        let valueExpr ← compileExprWithInternals fields dynamicSource internalFunctions value
         let writeAt (slot : Nat) (keysRef : List YulExpr) (valueRef : YulExpr) : YulStmt :=
-          YulStmt.expr (YulExpr.call "sstore" [
+          YulStmt.expr (YulExpr.call storeBuiltin [
             keysRef.foldl (fun slotExpr keyExpr => YulExpr.call "mappingSlot" [slotExpr, keyExpr]) (YulExpr.lit slot),
             valueRef
           ])
@@ -281,7 +303,8 @@ def compileSetMappingChain (fields : List Field) (dynamicSource : DynamicDataSou
     | none => throw s!"Compilation error: unknown mapping field '{field}' in setMappingChain"
 
 def compileSetStructMember (fields : List Field) (dynamicSource : DynamicDataSource)
-    (field : String) (key : Expr) (memberName : String) (value : Expr) :
+    (field : String) (key : Expr) (memberName : String) (value : Expr)
+    (internalFunctions : List FunctionSpec := []) :
     Except String (List YulStmt) := do
   if isMapping2 fields field then
     throw s!"Compilation error: field '{field}' is a double mapping; use Stmt.setStructMember2 instead of Stmt.setStructMember"
@@ -294,20 +317,23 @@ def compileSetStructMember (fields : List Field) (dynamicSource : DynamicDataSou
           match member.packed with
           | none =>
               compileMappingSlotWrite fields field
-                (← compileExpr fields dynamicSource key)
-                (← compileExpr fields dynamicSource value)
+                (← compileExprWithInternals fields dynamicSource internalFunctions key)
+                (← compileExprWithInternals fields dynamicSource internalFunctions value)
                 s!"setStructMember.{memberName}"
                 member.wordOffset
+                true
           | some packed =>
               compileMappingPackedSlotWrite fields field
-                (← compileExpr fields dynamicSource key)
-                (← compileExpr fields dynamicSource value)
+                (← compileExprWithInternals fields dynamicSource internalFunctions key)
+                (← compileExprWithInternals fields dynamicSource internalFunctions value)
                 member.wordOffset
                 packed
                 s!"setStructMember.{memberName}"
+                true
 
 def compileSetStructMember2 (fields : List Field) (dynamicSource : DynamicDataSource)
-    (field : String) (key1 key2 : Expr) (memberName : String) (value : Expr) :
+    (field : String) (key1 key2 : Expr) (memberName : String) (value : Expr)
+    (internalFunctions : List FunctionSpec := []) :
     Except String (List YulStmt) := do
   if !isMapping2 fields field then
     throw s!"Compilation error: field '{field}' is not a double mapping; use Stmt.setStructMember instead of Stmt.setStructMember2"
@@ -320,9 +346,17 @@ def compileSetStructMember2 (fields : List Field) (dynamicSource : DynamicDataSo
         | some member =>
             match findFieldWriteSlots fields field with
             | some slots => do
-                let key1Expr ← compileExpr fields dynamicSource key1
-                let key2Expr ← compileExpr fields dynamicSource key2
-                let valueExpr ← compileExpr fields dynamicSource value
+                let loadBuiltin :=
+                  match findFieldWithResolvedSlot fields field with
+                  | some (f, _) => if f.isTransient then "tload" else "sload"
+                  | none => "sload"
+                let storeBuiltin :=
+                  match findFieldWithResolvedSlot fields field with
+                  | some (f, _) => if f.isTransient then "tstore" else "sstore"
+                  | none => "sstore"
+                let key1Expr ← compileExprWithInternals fields dynamicSource internalFunctions key1
+                let key2Expr ← compileExprWithInternals fields dynamicSource internalFunctions key2
+                let valueExpr ← compileExprWithInternals fields dynamicSource internalFunctions value
                 match slots with
                 | [] =>
                     throw s!"Compilation error: internal invariant failure: no write slots for mapping field '{field}' in setStructMember2.{memberName}"
@@ -332,9 +366,9 @@ def compileSetStructMember2 (fields : List Field) (dynamicSource : DynamicDataSo
                     let finalSlot := if member.wordOffset == 0 then outerSlot else YulExpr.call "add" [outerSlot, YulExpr.lit member.wordOffset]
                     match member.packed with
                     | none =>
-                        pure [YulStmt.expr (YulExpr.call "sstore" [finalSlot, valueExpr])]
+                        pure [YulStmt.expr (YulExpr.call storeBuiltin [finalSlot, valueExpr])]
                     | some packed =>
-                        pure (compilePackedStorageWrite finalSlot valueExpr packed)
+                        pure (compilePackedStorageWrite finalSlot valueExpr packed loadBuiltin storeBuiltin)
                 | _ =>
                     let finalSlots := slots.map fun slot =>
                       let innerSlot := YulExpr.call "mappingSlot" [YulExpr.lit slot, YulExpr.ident "__compat_key1"]
@@ -347,14 +381,14 @@ def compileSetStructMember2 (fields : List Field) (dynamicSource : DynamicDataSo
                             [YulStmt.let_ "__compat_key1" key1Expr, YulStmt.let_ "__compat_key2" key2Expr,
                               YulStmt.let_ "__compat_value" valueExpr] ++
                             finalSlots.map (fun finalSlot =>
-                              YulStmt.expr (YulExpr.call "sstore" [finalSlot, YulExpr.ident "__compat_value"]))
+                              YulStmt.expr (YulExpr.call storeBuiltin [finalSlot, YulExpr.ident "__compat_value"]))
                           )
                         ]
                     | some packed =>
                         pure [
                           YulStmt.block (
                             [YulStmt.let_ "__compat_key1" key1Expr, YulStmt.let_ "__compat_key2" key2Expr] ++
-                            compileCompatPackedStorageWrites finalSlots valueExpr packed
+                            compileCompatPackedStorageWrites finalSlots valueExpr packed loadBuiltin storeBuiltin
                           )
                         ]
             | none => throw s!"Compilation error: unknown mapping field '{field}' in setStructMember2.{memberName}"

@@ -408,6 +408,13 @@ class NativeDecideTests(HygieneFixtureTestBase):
         rc, output = self._run_main()
         self.assertEqual(rc, 0, output)
 
+    def test_native_decide_in_smoke_file_ignored(self) -> None:
+        smoke = self.root / "Contracts" / "Smoke" / "BarSmoke.lean"
+        smoke.parent.mkdir(parents=True, exist_ok=True)
+        smoke.write_text("theorem foo := by native_decide\n", encoding="utf-8")
+        rc, output = self._run_main()
+        self.assertEqual(rc, 0, output)
+
     def test_native_decide_outside_proof_dirs_ignored(self) -> None:
         lib = self.root / "Compiler" / "Lib.lean"
         lib.write_text("theorem foo := by native_decide\n", encoding="utf-8")

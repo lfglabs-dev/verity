@@ -51,13 +51,28 @@ class CheckSelectorsExtractCompileSelectorsTests(unittest.TestCase):
 
 class CheckSelectorsExtractSpecsTests(unittest.TestCase):
     def test_extract_specs_supports_filtered_macro_alias_defs(self) -> None:
-        rows = extract_specs(load_specs_text())
+        text = (
+            "def counterSpec : CompilationModel :=\n"
+            "  let canonical := Contracts.Counter.spec\n"
+            "  { canonical with\n"
+            "    functions := canonical.functions.filter fun fn =>\n"
+            '      fn.name = "increment" || fn.name = "decrement" || fn.name = "getCount" }\n'
+        )
+        rows = extract_specs(text)
         counter = next(row for row in rows if row.def_name == "counterSpec")
         self.assertEqual(counter.contract_name, "Counter")
         self.assertEqual(
             counter.signatures,
             ["increment()", "decrement()", "getCount()"],
         )
+
+    def test_extract_specs_supports_direct_macro_spec_references(self) -> None:
+        rows = extract_specs(load_specs_text())
+        counter = next(
+            row for row in rows if row.def_name == "Contracts.Counter.spec"
+        )
+        self.assertEqual(counter.contract_name, "Counter")
+        self.assertIn("increment()", counter.signatures)
 
 
 class CheckSelectorsDuplicateSignatureTests(unittest.TestCase):

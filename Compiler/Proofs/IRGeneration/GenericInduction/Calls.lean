@@ -29,7 +29,7 @@ theorem compiledStmtStepWithHelpersAndHelperIR_internalCallAssign
     {names : List String} {calleeName : String} {args : List Expr}
     {compiledIR : List YulStmt}
     {argExprs : List YulExpr}
-    (hcompile : CompilationModel.compileStmt fields [] [] .calldata [] false scope []
+    (hcompile : CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
       (Stmt.internalCallAssign names calleeName args) = Except.ok compiledIR)
     (hargCompile : CompilationModel.compileExprList fields .calldata args = Except.ok argExprs)
     -- End-to-end source↔IR alignment bridge.
@@ -55,10 +55,14 @@ theorem compiledStmtStepWithHelpersAndHelperIR_internalCallAssign
       (Stmt.internalCallAssign names calleeName args)
       compiledIR := by
   refine {
-    compileOk := hcompile
+    compileOk := by
+      simpa [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] using hcompile
     preserves := ?_ }
   intro runtime state helperFuel extraFuel hfuelPos hexact hscope hbounded hruntime hslack
-  obtain ⟨argExprs', hargOk, hshape⟩ := compileStmt_internalCallAssign_shape hcompile
+  have hcompileEmpty : CompilationModel.compileStmt fields [] [] .calldata [] false scope []
+      (Stmt.internalCallAssign names calleeName args) = Except.ok compiledIR := by
+    simpa [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] using hcompile
+  obtain ⟨argExprs', hargOk, hshape⟩ := compileStmt_internalCallAssign_shape hcompileEmpty
   have hArgEq : argExprs' = argExprs := by
     simp [hargCompile] at hargOk
     exact hargOk.symm
@@ -89,7 +93,7 @@ theorem compiledStmtStepWithHelpersAndHelperIR_internalCall
     {calleeName : String} {args : List Expr}
     {compiledIR : List YulStmt}
     {argExprs : List YulExpr}
-    (hcompile : CompilationModel.compileStmt fields [] [] .calldata [] false scope []
+    (hcompile : CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
       (Stmt.internalCall calleeName args) = Except.ok compiledIR)
     (hargCompile : CompilationModel.compileExprList fields .calldata args = Except.ok argExprs)
     -- End-to-end source↔IR alignment bridge.
@@ -115,10 +119,14 @@ theorem compiledStmtStepWithHelpersAndHelperIR_internalCall
       (Stmt.internalCall calleeName args)
       compiledIR := by
   refine {
-    compileOk := hcompile
+    compileOk := by
+      simpa [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] using hcompile
     preserves := ?_ }
   intro runtime state helperFuel extraFuel hfuelPos hexact hscope hbounded hruntime hslack
-  obtain ⟨argExprs', hargOk, hshape⟩ := compileStmt_internalCall_shape hcompile
+  have hcompileEmpty : CompilationModel.compileStmt fields [] [] .calldata [] false scope []
+      (Stmt.internalCall calleeName args) = Except.ok compiledIR := by
+    simpa [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] using hcompile
+  obtain ⟨argExprs', hargOk, hshape⟩ := compileStmt_internalCall_shape hcompileEmpty
   have hArgEq : argExprs' = argExprs := by
     simp [hargCompile] at hargOk
     exact hargOk.symm
@@ -516,6 +524,10 @@ private theorem directInternalHelperHeadStepCatalog_call_of_bridgeCatalog
   rcases hbridge.callCompile (scope := scope) (calleeName := calleeName)
       (args := args) hmem with ⟨compiledIR, hcompile⟩
   obtain ⟨argExprs, hargCompile, _⟩ := compileStmt_internalCall_shape hcompile
+  have hcompileSpec : CompilationModel.compileStmt fields spec.events spec.errors
+      .calldata [] false scope [] (Stmt.internalCall calleeName args) =
+        Except.ok compiledIR := by
+    simpa [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] using hcompile
   refine ⟨compiledIR, ?_⟩
   exact
     compiledStmtStepWithHelpersAndHelperIR_internalCall
@@ -527,7 +539,7 @@ private theorem directInternalHelperHeadStepCatalog_call_of_bridgeCatalog
       (args := args)
       (compiledIR := compiledIR)
       (argExprs := argExprs)
-      hcompile
+      hcompileSpec
       hargCompile
       (hbridge.callBridge
         (scope := scope)
@@ -556,22 +568,17 @@ private theorem directInternalHelperHeadStepCatalog_assign_of_bridgeCatalog
           (Stmt.internalCallAssign names calleeName args)
           compiledIR := by
   intro scope names calleeName args hmem
-  rcases hbridge.assignCompile (scope := scope) (names := names)
-      (calleeName := calleeName) (args := args) hmem with ⟨compiledIR, hcompile⟩
+  rcases hbridge.assignCompile (scope := scope) (names := names) (calleeName := calleeName) (args := args) hmem with
+    ⟨compiledIR, hcompile⟩
   obtain ⟨argExprs, hargCompile, _⟩ := compileStmt_internalCallAssign_shape hcompile
+  have hcompileSpec :
+      CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
+        (Stmt.internalCallAssign names calleeName args) = Except.ok compiledIR := by
+    simpa [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] using hcompile
   refine ⟨compiledIR, ?_⟩
   exact
     compiledStmtStepWithHelpersAndHelperIR_internalCallAssign
-      (runtimeContract := runtimeContract)
-      (spec := spec)
-      (fields := fields)
-      (scope := scope)
-      (names := names)
-      (calleeName := calleeName)
-      (args := args)
-      (compiledIR := compiledIR)
-      (argExprs := argExprs)
-      hcompile
+      hcompileSpec
       hargCompile
       (hbridge.assignBridge
         (scope := scope)

@@ -38,6 +38,24 @@ private def returnCodeDataHasExtentGuard : List YulStmt → Bool
         | _ => false
   | _ => false
 
+-- Empty-code edge case (#1967): a CodeData payload with no fields. The
+-- typed surface must still produce a well-formed `create2` deploy and
+-- `extcodecopy` read so callers can use SSTORE2-style pointers as opaque
+-- markers without storing any data.
+private def emptyPayload := layout []
+
+-- Short-code edge case (#1967): a one-word payload exercises the minimal
+-- non-empty layout. Padding, alignment, and pointer derivation must agree
+-- with the larger blob+meta payload used by the original test.
+private def shortPayload := layout
+  [ { name := "word", ty := .uint256, source := .memory } ]
+
+-- Dynamic payload (#1967): `layoutSourcesSupported` must reject dynamic
+-- types so callers get a clear failure mode rather than corrupt code-as-
+-- data shapes.
+private def dynamicPayload := layout
+  [ { name := "blob", ty := .bytes, source := .memory } ]
+
 #eval! do
   let write : CodeDataWrite :=
     { salt := YulExpr.ident "salt"
@@ -61,5 +79,53 @@ private def returnCodeDataHasExtentGuard : List YulStmt → Bool
     | .error err => throw (IO.userError err)
   assert "returnCodeData guards extcodesize before subtracting code offset"
     (returnCodeDataHasExtentGuard returnCodeData)
+  -- Empty-code edge case: layout with no fields still lowers to a real
+  -- create2/extcodecopy pair (#1967).
+  let emptyWrite : CodeDataWrite :=
+    { salt := YulExpr.ident "salt", payload := emptyPayload }
+  let emptyRead : CodeDataRead :=
+    { pointer := YulExpr.ident "ptr"
+      destOffset := YulExpr.ident "dest"
+      codeOffset := YulExpr.lit 0
+      size := YulExpr.lit 0
+      payload := emptyPayload }
+  let emptyRoundtrip ←
+    match roundtripShape "emptyPtr" "empty" emptyWrite emptyRead with
+    | .ok stmts => pure stmts
+    | .error err => throw (IO.userError s!"empty payload roundtrip failed: {err}")
+  assert "empty-payload roundtrip emits create2 + extcodecopy"
+    (hasCreate2AndExtcodecopy emptyRoundtrip)
+  assert "empty-payload layout has zero head words"
+    (emptyPayload.headWords == 0)
+  -- Short-code edge case: single-word payload (#1967).
+  let shortWrite : CodeDataWrite :=
+    { salt := YulExpr.ident "salt", payload := shortPayload }
+  let shortRead : CodeDataRead :=
+    { pointer := YulExpr.ident "ptr"
+      destOffset := YulExpr.ident "dest"
+      codeOffset := YulExpr.lit 0
+      size := YulExpr.lit 32
+      payload := shortPayload }
+  let shortRoundtrip ←
+    match roundtripShape "shortPtr" "short" shortWrite shortRead with
+    | .ok stmts => pure stmts
+    | .error err => throw (IO.userError s!"short payload roundtrip failed: {err}")
+  assert "short-payload roundtrip emits create2 + extcodecopy"
+    (hasCreate2AndExtcodecopy shortRoundtrip)
+  assert "short-payload layout has exactly one head word"
+    (shortPayload.headWords == 1)
+  -- Dynamic-payload rejection (#1967): the typed surface must fail closed
+  -- when a field carries a dynamic ABI type. SSTORE2-style code-as-data is
+  -- only sound for static layouts; the diagnostic must surface that.
+  let dynamicWrite : CodeDataWrite :=
+    { salt := YulExpr.ident "salt", payload := dynamicPayload }
+  let dynamicResult :=
+    Compiler.Modules.CodeData.writeTyped "dynamicPtr" "dynamic" dynamicWrite
+  assert "dynamic payload write is rejected (typed surface stays static-only)"
+    (match dynamicResult with
+     | .ok _ => false
+     | .error _ => true)
+  assert "dynamic payload layout flags hasDynamic"
+    dynamicPayload.hasDynamic
 
 end Compiler.Modules.CodeDataTest

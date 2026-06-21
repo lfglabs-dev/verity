@@ -1616,7 +1616,7 @@ class VerifySyncTests(unittest.TestCase):
           compiler-audits:
             runs-on: ubuntu-latest
             steps:
-              - run: ./.lake/build/bin/verity-compiler-patched --parity-pack solc-0.8.33-o200-viair-false-evm-shanghai --backend-profile solidity-parity
+              - run: ./.lake/build/bin/verity-compiler --parity-pack solc-0.8.33-o200-viair-false-evm-shanghai --backend-profile solidity-parity
               - run: python3 scripts/check_gas.py report
         """
         rc, _, err = self._run_python_commands_check(

@@ -58,6 +58,15 @@ instance : Inhabited Uint256 := ⟨ofNat 0⟩
 instance : Repr Uint256 := ⟨fun u _ => repr u.val⟩
 instance : Coe Uint256 Nat := ⟨Uint256.val⟩
 instance : Coe Nat Uint256 := ⟨ofNat⟩
+instance : BEq Uint256 := ⟨fun a b => decide (a = b)⟩
+
+instance : LawfulBEq Uint256 where
+  eq_of_beq {a b} h := by
+    simp only [BEq.beq] at h
+    exact of_decide_eq_true h
+  rfl {a} := by
+    show decide (a = a) = true
+    exact decide_eq_true rfl
 
 @[simp] theorem val_ofNat (n : Nat) : (ofNat n).val = n % modulus := rfl
 @[simp] theorem coe_ofNat (n : Nat) : ((ofNat n : Uint256) : Nat) = n % modulus := rfl

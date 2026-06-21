@@ -38,6 +38,7 @@ def collectExprNames : Expr → List String
   | Expr.literal _ => []
   | Expr.param name => [name]
   | Expr.constructorArg _ => []
+  | Expr.immutable name => [name]
   | Expr.storage field | Expr.storageAddr field => [field]
   | Expr.mapping field key => field :: collectExprNames key
   | Expr.mappingWord field key _ => field :: collectExprNames key
@@ -155,7 +156,8 @@ mutual
 def collectStmtNames : Stmt → List String
   | Stmt.letVar name value => name :: collectExprNames value
   | Stmt.assignVar name value => name :: collectExprNames value
-  | Stmt.setStorage _ value | Stmt.setStorageAddr _ value | Stmt.setStorageWord _ _ value =>
+  | Stmt.setStorage _ value | Stmt.setStorageAddr _ value | Stmt.setImmutable _ value
+  | Stmt.setStorageWord _ _ value =>
       collectExprNames value
   | Stmt.storageArrayPush _ value => collectExprNames value
   | Stmt.storageArrayPop _ => []
@@ -195,11 +197,15 @@ def collectStmtNames : Stmt → List String
       collectExprNames cond ++ collectStmtListNames thenBranch ++ collectStmtListNames elseBranch
   | Stmt.forEach varName count body =>
       varName :: collectExprNames count ++ collectStmtListNames body
+  | Stmt.forEachSetBit varName bitmap body =>
+      varName :: collectExprNames bitmap ++ collectStmtListNames body
   | Stmt.unsafeBlock _ body =>
       collectStmtListNames body
   | Stmt.matchAdt _ scrutinee branches =>
       collectExprNames scrutinee ++ collectMatchBranchNames branches
-  | Stmt.emit eventName args => eventName :: collectExprListNames args
+  -- The event name is resolved against the event table, never bound as a Yul
+  -- identifier, so it must not enter the scope threaded to later statements.
+  | Stmt.emit _ args => collectExprListNames args
   | Stmt.internalCall functionName args => functionName :: collectExprListNames args
   | Stmt.internalCallAssign names functionName args =>
       names ++ functionName :: collectExprListNames args

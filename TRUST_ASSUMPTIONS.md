@@ -75,8 +75,8 @@ Current theorem totals, property-test coverage, and proof status live in [docs/V
 - **Proxy note**: `delegatecall`-based proxy / upgradeability flows still sit outside the current native verified runtime model. Archive `--trust-report` and use `--deny-proxy-upgradeability` when proxy semantics must remain outside the selected verified subset (issue `#1420`).
 
 ### 7. External Call Modules (ECMs)
-- **Role**: Reusable typed external call patterns (ERC-20 writes/reads including `totalSupply`, ERC-4626 preview/conversion helpers plus `totalAssets`, `asset`, `max*` limit reads, and `deposit`, oracle reads, precompiles 0x01 / 0x02 / 0x06 / 0x07 / 0x08 — `ecrecover`, `sha256`, BN254 `bn256Add`, `bn256ScalarMul`, `bn256Pairing` — callbacks).
-- **Trust**: Each module's `compile` produces correct Yul. Bug in one module doesn't affect others.
+- **Role**: Reusable typed external call patterns (ERC-20 writes/reads including `totalSupply`, ERC-4626 preview/conversion helpers plus `totalAssets`, `asset`, `max*` limit reads, and `deposit`, oracle reads, precompiles 0x01 / 0x02 / 0x06 / 0x07 / 0x08 — `ecrecover`, `sha256`, BN254 `bn256Add`, `bn256ScalarMul`, `bn256Pairing` — callbacks, and same-contract `selfDelegateMulticallBytes`).
+- **Trust**: Each module's `compile` produces correct Yul. Bug in one module doesn't affect others. `selfDelegateMulticallBytes` is an explicitly trusted ECM boundary under `self_delegate_multicall_bytes_revert_bubbling`: the compiler emits concrete bounds checks for ABI element offsets, including a pre-add overflow guard before forming the calldata head offset, but full non-empty multicall revert-bubbling semantics are not yet machine-proven.
 - **Mitigation**: Axiom aggregation at compile time (`--verbose`), machine-readable trust-surface emission via `--trust-report <path>`, and a fail-closed verification gate via `--deny-unchecked-dependencies` when unchecked foreign surfaces must be excluded. See [docs/EXTERNAL_CALL_MODULES.md](docs/EXTERNAL_CALL_MODULES.md).
 - **Caller-frame preservation**: The EVM frame condition (external `CALL` cannot mutate caller storage / transient storage / memory outside the declared output buffer) is now a *theorem* of `Verity.EVM.Frame` rather than an assumption. Downstream proofs consume `external_call_preserves_caller_storage` etc. directly. The abstract memory model used by these theorems is `Verity.EVM.MemoryModel`; the solc memory-layout schema and call-buffer-disjoint-from-heap result are in `Verity.EVM.Layout`. EvmYul ↔ abstract-model correspondence remains the open follow-up.
 
@@ -142,6 +142,166 @@ Current theorem totals, property-test coverage, and proof status live in [docs/V
 
 ### Revert-State Modeling
 High-level semantics can expose intermediate state in reverted computations. EVM reverts discard state. Contracts should use checks-before-effects. See [docs/REVERT_STATE_MODEL.md](docs/REVERT_STATE_MODEL.md).
+
+### Reentrancy Guard (`nonreentrant(lockField)`)
+Functions annotated `nonreentrant(lockField)` are compiled with a
+**transient-storage** reentrancy guard prologue (#1893): an
+`if eq(tload(lockSlot), 1) { revert(0, 0) }; tstore(lockSlot, 1)` pair runs
+before any user-authored Yul. Transient storage (EIP-1153, Cancun+) auto-clears
+at end-of-transaction, so the guard does not need an explicit release path —
+early `return`, `revert`, or panic cannot leak the lock across transactions.
+The guard exempts the function from CEI ordering enforcement, so state writes
+after external calls are permitted within reentrancy-protected entry points.
+**Fork requirement**: the compile driver rejects any contract carrying a
+`nonreentrant(<lock>)` annotation when the targeted EVM fork predates
+Cancun (the `validateNonReentrantForkCompatibility` pre-check in
+`Compiler.CompilationModel.Dispatch`); on pre-Cancun chains the synthesised
+TLOAD/TSTORE opcodes would not be available, so silently emitting them
+would leave the post-external-call reentry window open while validation
+still treated the function as CEI-exempt (#1968). Either raise the target
+fork to Cancun+ or drop the annotation; manual reentrancy guards (e.g.
+SSTORE-based) on pre-Cancun chains remain the caller's responsibility.
+Trust boundary: the guard's correctness reduces to EVM TLOAD/TSTORE
+semantics (already in the trusted EVM target) plus the macro-level invariant
+that the lock field is a scalar `uint256` storage field used solely by the
+guard. Guarded functions sit outside `SupportedSpec` in this version, and
+this boundary is now machine-checked rather than prose-only: the
+`SupportedFunction.noNonReentrant` field (`fn.nonReentrantLock = none`)
+makes any attempt to include a guarded function in the proven fragment a
+type error, and `ContractShape.guardedFunctionsMapM_eq` discharges the
+guard attachment as the identity on the lock-free fragment. Proof-side
+guard preservation lemmas (modelling the TLOAD/TSTORE prologue itself)
+remain deferred follow-up work.
+
+### Reentrancy Rely-Guarantee Framework (`Verity.Core.Reentrancy`)
+A proof-level companion to the runtime `nonreentrant` guard above. Where the
+guard *prevents* reentry at runtime (transient storage), this framework lets an
+author *prove* that reentry — even when permitted — cannot break a declared
+global invariant `I : ContractState → Prop`.
+
+- **What it adds (all additive, all proven in-kernel)**:
+  - `Verity.Core.Invariant` — a state-polymorphic rely-guarantee library
+    (`Preserves`, `runSeq`, `runSeq_preserves`); no imports, no axioms.
+  - `Verity.Core.Reentrancy` — grounds the library against the real
+    `ContractState`/`Contract` monad: `reentrantCall` (adversarial reentry as a
+    `Contract Unit` effect), `ContractPreserves`, and `ReentrancySpec` (a global
+    invariant + entrypoint registry + one preservation obligation per
+    entrypoint). The meta-theorem `ReentrancySpec.schedule_preserves` discharges
+    the *entire* adversarial interleaving space from those per-entrypoint
+    obligations — no interleaving enumeration.
+  - `Env.reenter` — a hook on `Env` (default `id`, the no-reentry case) so the
+    adversary transformer threads through semantics like any other effect.
+  - A forward-compatible multi-contract layer (`System` / `lift` / `Isys` /
+    `cross_contract_schedule_preserves`) that reuses the same library at
+    `σ := System` with no single-contract proof redone.
+- **Proven, not assumed**: every theorem closes in the Lean kernel
+  (`decide` / structural induction); the framework adds **zero project-level
+  axioms** and uses no `native_decide`. The Midnight `take`/`liquidate` worked
+  example (`Contracts/ReentrancyRelyGuarantee`) machine-checks both that the
+  no-lock `take` admits a permanent bad-debt liquidation and that the locked
+  `take` admits none for any lock-respecting adversary.
+- **Trust boundary (author obligations)**:
+  1. **Registry completeness** — `ReentrancySpec.entrypoints` must list *every*
+     externally reachable state transformer an adversary can invoke during a
+     reentry window. Omitting a reachable entrypoint voids the guarantee
+     (analogous to declaring the lock field for `nonreentrant`). The
+     macro-emitted entrypoint registry is the intended source of this list; until
+     that emission lands, the list is author-supplied.
+  2. **Adversary-model fidelity** — reentry is modeled as an arbitrary
+     `ContractState → ContractState` over *this* contract's persistent channels
+     (`adv` in `reentrantCall`). This captures self- and cross-contract reentry
+     that affects only this contract's storage. It does **not** model, in this
+     version: unbounded mutual A↔B recursion, or read-only / oracle-return-value
+     precision. Those are explicit `System`-layer follow-ups.
+  3. **Invariant adequacy** — the safety claim is only as strong as the chosen
+     invariant `I`. The lock-as-disjunct idiom (`I s := healthy s ∨ locked s`)
+     is the recommended pattern for trade-window safety, but `I` itself is
+     author-chosen and not verified against any external specification.
+- **Reference**: [Verity/Core/Reentrancy.lean](Verity/Core/Reentrancy.lean),
+  [Contracts/ReentrancyRelyGuarantee/Contract.lean](Contracts/ReentrancyRelyGuarantee/Contract.lean).
+
+### Cross-Function Reentrancy Gate (fail-closed)
+Every function whose body opens a reentrancy window (`externalCallBind`,
+`tryExternalCallBind`, a state-changing `call`-summarised `ecm`, a non-builtin
+`externalCall` expression, or an `unsafeYul` fragment carrying an external-call
+mechanic) and that is **not** `view`/`pure` must declare a reentrancy
+disposition or compilation fails (`validateReentrancyDisposition`, keyed on
+`stmtOpensReentrancyWindow`, in
+[Compiler/CompilationModel/Validation.lean](Compiler/CompilationModel/Validation.lean)).
+This is a dedicated pass that runs *after* call well-formedness validation, so a
+malformed external call surfaces its structural error first and the reentrancy
+policy only judges otherwise well-formed calls. It is also independent of the
+single-function CEI check (in `validateFunctionSpec`), which runs earlier in the
+per-function pipeline; a CEI-violating function is therefore rejected by the CEI
+check before this gate is consulted.
+An external call hands control to an untrusted callee that may re-enter a
+*different* entrypoint while this contract's state is mid-update — the Midnight
+`take`/`liquidate` class of bug. Single-function CEI ordering does **not**
+prevent this, so `cei_safe` and `allow_post_interaction_writes` are
+intentionally **not** accepted by this gate; only the two dispositions below
+are:
+
+- `nonreentrant(<lock>)` — synthesises the runtime transient-storage guard
+  documented above (#1893), closing the window at the external-dispatch
+  boundary. Sound by construction (reduces to TLOAD/TSTORE semantics).
+- `reentrancy_trusted` — a **metadata-only, unproven author assertion** that
+  every external callee reachable from this function is trusted not to re-enter.
+  It emits no code and carries no proof obligation: it is a recorded trust
+  boundary, the audited opt-out for functions whose external targets are
+  known-safe (e.g. a hard-coded protocol-owned contract) or which run in a
+  context where no exploitable reentry exists. The author owns this assertion;
+  the compiler does not verify it. `view`/`pure` functions need no disposition
+  because a read-only (`staticcall`) context cannot mutate state and so cannot
+  open a state-corrupting reentry window.
+
+For the same EVM-static-context reason, a `staticcall`-summarised External Call
+Module (`ecm` whose `summaryMutability = .staticcall`: precompiles such as
+`sha256`/`bn256`, `keccak`, ABI-encoding helpers, and view-only cross-contract
+reads) is **not** treated as window-opening and needs no disposition — any
+state-mutating opcode in the callee reverts under STATICCALL. Only a
+state-changing `call`-summarised ECM (e.g. an ERC-20 transfer) is gated. This
+keeps the gate precise rather than flooding hash/precompile-using contracts with
+vacuous `reentrancy_trusted` tags.
+
+Trust boundary: a `reentrancy_trusted` annotation is exactly as strong as the
+author's audit of the called targets — it is the reentrancy analogue of trusting
+a linked Yul library. The gate guarantees only that *no* external-call function
+silently ships without a disposition; it does not, for `reentrancy_trusted`,
+prove the assertion. Functions carrying a proof-level guarantee should instead
+use the rely-guarantee framework above and/or the `nonreentrant` runtime guard.
+
+Internal-call interaction: the `nonreentrant(<lock>)` guard is synthesised
+**only** at the external dispatch boundary (`attachNonReentrantGuard`, #1893), so
+its protection does not survive on the internal-helper *shadow* the macro emits
+for direct intra-contract calls (the shadow drops the lock to avoid
+double-guarding the already-guarded public chain). Consequently a *lock-only*
+`nonreentrant(<lock>)` function (one that does **not** also carry
+`reentrancy_trusted`) **cannot be invoked as an internal helper**: such a call is
+rejected at macro lowering (`ensureCallableAsInternalHelper`,
+[Verity/Macro/Internal.lean](Verity/Macro/Internal.lean)), because routing it
+through the lock-free shadow would run the guarded body without the lock and
+silently bypass the only reentrancy protection it had. Calling a function that
+*also* carries `reentrancy_trusted` is accepted — that disposition is a global
+author assertion covering every entry path, including the lock-free internal one.
+This mirrors the parse-time rejection of an `internal nonreentrant(<lock>)`
+helper (`NonreentrantInternalHelperRejected`, #1971).
+
+- **Reference**: [Compiler/CompilationModel/Validation.lean](Compiler/CompilationModel/Validation.lean)
+  (`validateReentrancyDisposition`, the cross-function reentrancy gate — a
+  dedicated pass run after call well-formedness, distinct from the
+  single-function CEI check in `validateFunctionSpec`);
+  [Verity/Macro/Internal.lean](Verity/Macro/Internal.lean)
+  (`ensureCallableAsInternalHelper`, the lowering-time rejection of internal
+  calls to lock-only `nonreentrant` entries).
+- **Regression evidence**: [Contracts/Smoke/SecurityCombos.lean](Contracts/Smoke/SecurityCombos.lean)
+  pairs `ReentrancyDispositionRequired` (a CEI-clean `take` rejected by the gate,
+  asserted via `#guard_msgs`) with `ReentrancyDispositionDeclared` (the identical
+  body accepted once it carries `reentrancy_trusted`) — the Midnight
+  `take`/`liquidate` shape cannot pass `#check_contract` undeclared. The
+  internal-helper rule is pinned by `NonreentrantCalledAsInternalHelperRejected`
+  (a public `nonreentrant` entry called from another body, rejected at lowering)
+  and `NonreentrantTrustedInternalHelperAccepted` (the same call accepted once the
+  callee adds `reentrancy_trusted`).
 
 ## Security Audit Checklist
 

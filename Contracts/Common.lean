@@ -256,7 +256,20 @@ def ecrecover (hash v r sigS : Uint256) : Contract Address := fun state =>
 def calldatacopy (_destOffset _sourceOffset _size : Uint256) : Contract Unit := pure ()
 def returndataCopy (_destOffset _sourceOffset _size : Uint256) : Contract Unit := pure ()
 def revertReturndata : Contract Unit := pure ()
-def arrayLength {α : Type} (values : Array α) : Uint256 := values.size
+/-- Executable length surface for `arrayLength`: dynamic ABI values that
+carry a length word (`bytes`, `string`, `T[]`). Deliberately not
+instantiated for word types: `Bytes32` is a reducible abbrev of `Uint256`,
+so an instance there would make `arrayLength` typecheck (and return 32)
+for arbitrary words. -/
+class ArrayLength (α : Type) where
+  size : α → Nat
+instance : ArrayLength ByteArray where
+  size := ByteArray.size
+instance : ArrayLength String where
+  size := String.utf8ByteSize
+instance {α : Type} : ArrayLength (Array α) where
+  size := Array.size
+def arrayLength {α : Type} [ArrayLength α] (values : α) : Uint256 := ArrayLength.size values
 def arrayElement {α : Type} [Inhabited α] (values : Array α) (index : Uint256) : α :=
   values.getD (index : Nat) (Inhabited.default : α)
 def abiHeadWord {α : Type} [Inhabited α] (_value : α) (_wordOffset : Uint256) : Uint256 := 0
@@ -361,12 +374,45 @@ instance : ExternalResult Address where
   fromWord value := wordToAddress value
 instance : ExternalResult Bool where
   fromWord value := value != 0
+
+namespace Call
+
+/-- First-class external-call result used by executable contract wrappers.
+    The compilation-model path lowers `callResult` binds to the same low-level
+    try-call wrapper as `tryExternalCall`, while executable tests can inspect
+    success and payload as one value. -/
+structure Result (α : Type) where
+  success : Bool
+  returndata : α
+  deriving Repr, BEq
+
+namespace Result
+
+def failed (result : Result α) : Bool :=
+  !result.success
+
+def payload (result : Result α) : α :=
+  result.returndata
+
+end Result
+
+end Call
+
 private def externalCallStubWord (name : String) (args : List Uint256) : Uint256 :=
   match name, args with
   | "echo", [value] => value
   | _, _ => args.foldl add name.length
 def externalCallWords {α : Type} [ExternalResult α] (name : String) (args : List Uint256) : α :=
   ExternalResult.fromWord (externalCallStubWord name args)
+def callResultWords {α : Type} [ExternalResult α] [Inhabited α] (name : String) (args : List Uint256) :
+    Contract (Call.Result α) :=
+  let success := name != "fail"
+  let payload :=
+    if success then
+      ExternalResult.fromWord (externalCallStubWord name args)
+    else
+      Inhabited.default
+  pure { success := success, returndata := payload }
 def tryExternalCallWords {α : Type} [Inhabited α] (_name : String) (_args : List Uint256) : Contract (Bool × α) :=
   pure (false, (Inhabited.default : α))
 def externalCallBind {α : Type} [ExternalArg α] (_names : List String) (_name : String) (_args : List α) : Contract Unit :=
@@ -378,6 +424,10 @@ macro_rules
       `(externalCallWords $(Lean.quote (toString name.getId)) [ $[ExternalArg.toWord $args],* ])
   | `(term| externalCall $name:str [ $[$args:term],* ]) =>
       `(externalCallWords $name [ $[ExternalArg.toWord $args],* ])
+  | `(term| callResult $name:str [ $[$args:term],* ]) =>
+      `(callResultWords $name [ $[ExternalArg.toWord $args],* ])
+  | `(term| callResult $name:ident [ $[$args:term],* ]) =>
+      `(callResultWords $(Lean.quote (toString name.getId)) [ $[ExternalArg.toWord $args],* ])
   | `(term| tryExternalCall $name:str [ $[$args:term],* ]) =>
       `(tryExternalCallWords $name [ $[ExternalArg.toWord $args],* ])
   | `(term| tryExternalCall $name:ident [ $[$args:term],* ]) =>
@@ -408,6 +458,8 @@ def setStructMember2 {κ₁ κ₂ α : Type}
 def safeTransfer (_token _to : Address) (_amount : Uint256) : Contract Unit := pure ()
 def safeTransferFrom (_token _fromAddr _to : Address) (_amount : Uint256) : Contract Unit := pure ()
 def safeApprove (_token _spender : Address) (_amount : Uint256) : Contract Unit := pure ()
+def legacyStringSafeTransfer (_token _to : Address) (_amount : Uint256) : Contract Unit := pure ()
+def legacyStringSafeTransferFrom (_token _fromAddr _to : Address) (_amount : Uint256) : Contract Unit := pure ()
 def balanceOf (token owner : Address) : Contract Uint256 := pure <| erc20ReadStubWord "balanceOf" [token.toNat, owner.toNat]
 def allowance (token owner spender : Address) : Contract Uint256 := pure <| erc20ReadStubWord "allowance" [token.toNat, owner.toNat, spender.toNat]
 def totalSupply (token : Address) : Contract Uint256 := pure <| erc20ReadStubWord "totalSupply" [token.toNat]

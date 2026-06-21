@@ -223,6 +223,36 @@ theorem CompiledStmtStep.withHelpers_of_helperSurfaceClosed
       (stmt := stmt)
       hsurface] using hsource
 
+/-- Events-agnostic sibling of
+`CompiledStmtStep.withHelpers_of_helperSurfaceClosed`: instead of requiring the
+whole spec to declare no events/errors, only the statement itself must stay off
+the plain contract surface. This lets event-carrying specs reuse the helper-free
+generic step library for every non-emit head. -/
+theorem CompiledStmtStep.withHelpers_of_contractSurfaceClosed
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {stmt : Stmt}
+    {compiledIR : List YulStmt}
+    (hstep : CompiledStmtStep fields scope stmt compiledIR)
+    (hcontractSurface : stmtTouchesUnsupportedContractSurface stmt = false)
+    (hhelperSurface : stmtTouchesUnsupportedHelperSurface stmt = false) :
+    CompiledStmtStepWithHelpers spec fields scope stmt compiledIR where
+  compileOk := by
+    rw [compileStmt_eventsErrorsAgnostic_of_contractSurfaceClosed hcontractSurface]
+    exact hstep.compileOk
+  preserves := by
+    intro runtime state helperFuel extraFuel hexact hscope hbounded hruntime hslack
+    rcases hstep.preserves runtime state extraFuel
+        hexact hscope hbounded hruntime hslack with
+      ⟨sourceResult, irExec, hsource, hir, hmatch⟩
+    refine ⟨sourceResult, irExec, ?_, hir, hmatch⟩
+    rw [SourceSemantics.execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed
+        spec fields helperFuel runtime stmt hhelperSurface,
+      SourceSemantics.execStmtWithEvents_eq_execStmt_of_contractSurfaceClosed
+        fields spec.events stmt hcontractSurface runtime]
+    exact hsource
+
 /-- Statement lists whose heads all admit a generic compiled-step proof. -/
 inductive StmtListGenericCore (fields : List Field) : List String → List Stmt → Prop where
   | nil {scope : List String} :
@@ -242,7 +272,10 @@ theorem compileStmtList_ok_of_stmtListGenericCore_early
       CompilationModel.compileStmtList
         fields [] [] .calldata [] false inScopeNames [] stmts = Except.ok bodyIR := by
   induction hgeneric generalizing inScopeNames with
-  | nil => exact ⟨[], rfl⟩
+  | nil =>
+      exact ⟨[], by
+        simp [CompilationModel.compileStmtList, CompilationModel.compileStmtListWithFork,
+          Pure.pure, Except.pure]⟩
   | cons hstep _hrest ih =>
       rcases FunctionBody.compileStmt_ok_any_scope
         (scope2 := inScopeNames) ⟨_, hstep.compileOk⟩ with ⟨headIR, hhead⟩
@@ -273,13 +306,20 @@ inductive StmtListHelperFreeStepInterface
       StmtListHelperFreeStepInterface fields (stmtNextScope scope stmt) rest →
       StmtListHelperFreeStepInterface fields scope (stmt :: rest)
 
-/-- Direct event-emission heads are the non-helper effect still being threaded
-into the exact generic induction seam. The predicate is deliberately head-only:
-recursive event occurrences are handled by the statement-list recursion and by
-dedicated structural statement proofs. -/
-def stmtTouchesEventSurface : Stmt → Bool
-  | .emit _ _ => true
-  | _ => false
+/-- Scalar-event variant of the helper-free source-step interface. Event heads
+are discharged by `StmtListEventSurfaceStepInterface`, so helper-free compiled
+steps are required only for non-event heads. -/
+inductive StmtListHelperFreeNonEventStepInterface
+    (fields : List Field) : List String → List Stmt → Prop where
+  | nil {scope : List String} :
+      StmtListHelperFreeNonEventStepInterface fields scope []
+  | cons {scope : List String} {stmt : Stmt} {rest : List Stmt} :
+      (stmtTouchesUnsupportedHelperSurface stmt = false →
+        stmtTouchesEventSurface stmt = false →
+        ∃ compiledIR,
+          CompiledStmtStep fields scope stmt compiledIR) →
+      StmtListHelperFreeNonEventStepInterface fields (stmtNextScope scope stmt) rest →
+      StmtListHelperFreeNonEventStepInterface fields scope (stmt :: rest)
 
 /-- Exact step interface for direct event-emission heads. Non-event heads are
 discharged elsewhere; `.emit` heads must provide a helper-aware compiled step

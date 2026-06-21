@@ -13,6 +13,46 @@ namespace Verity.Proofs.Stdlib.Math
 open Verity
 open Verity.Stdlib.Math
 
+namespace CheckedArithmetic
+
+/-- Proof obligation for a checked `uint256` addition to avoid overflow. -/
+def AddNoOverflow (a b : Uint256) : Prop :=
+  (a : Nat) + (b : Nat) ≤ MAX_UINT256
+
+/-- Proof obligation for a checked `uint256` subtraction to avoid underflow. -/
+def SubNoUnderflow (a b : Uint256) : Prop :=
+  (b : Nat) ≤ (a : Nat)
+
+/-- Proof obligation for a checked `uint256` multiplication to avoid overflow. -/
+def MulNoOverflow (a b : Uint256) : Prop :=
+  (a : Nat) * (b : Nat) ≤ MAX_UINT256
+
+theorem safeAdd_isSome_iff_addNoOverflow (a b : Uint256) :
+    (safeAdd a b).isSome ↔ AddNoOverflow a b := by
+  unfold AddNoOverflow safeAdd
+  by_cases h : (a : Nat) + (b : Nat) > MAX_UINT256
+  · simp [h]
+  · simp [h]
+    omega
+
+theorem safeSub_isSome_iff_subNoUnderflow (a b : Uint256) :
+    (safeSub a b).isSome ↔ SubNoUnderflow a b := by
+  unfold SubNoUnderflow safeSub
+  by_cases h : (b : Nat) > (a : Nat)
+  · simp [h]
+  · simp [h]
+    omega
+
+theorem safeMul_isSome_iff_mulNoOverflow (a b : Uint256) :
+    (safeMul a b).isSome ↔ MulNoOverflow a b := by
+  unfold MulNoOverflow safeMul
+  by_cases h : (a : Nat) * (b : Nat) > MAX_UINT256
+  · simp [h]
+  · simp [h]
+    omega
+
+end CheckedArithmetic
+
 /-! ## BN254 Field Helpers -/
 
 theorem SNARK_SCALAR_FIELD_ne_zero : SNARK_SCALAR_FIELD ≠ 0 := by

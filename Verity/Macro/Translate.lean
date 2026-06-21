@@ -1,6 +1,7 @@
 import Lean
 import Compiler.Modules.ERC20
 import Compiler.Modules.Calls
+import Compiler.Modules.Oracle
 import Compiler.Modules.Precompiles
 import Compiler.Selectors
 import Compiler.CompilationModel.InternalNaming
@@ -23,6 +24,11 @@ open Lean.Elab
 open Lean.Elab.Command
 
 set_option hygiene false
+
+register_option verity.storageNamespace.default : Bool := {
+  defValue := false
+  descr := "Apply the default contract-name storage namespace to verity_contract declarations that omit storage_namespace"
+}
 
 mutual
 private partial def validateDoSeqExprTypes
@@ -182,10 +188,10 @@ private partial def validateDoElemExprTypes
                   -- generic bind-source typer.
                   match stripParens rhs with
                   | `(term| requireSomeUintError $_optExpr:term $errorName:ident($args,*)) =>
-                      for arg in args.getElems do
-                        let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals arg
+                      let argTypes ← args.getElems.mapM
+                        (inferPureExprType fields constDecls immutableDecls externalDecls params locals)
                       validateCustomErrorCall ownerName (toString errorName.getId)
-                        params errorDecls args.getElems
+                        params errorDecls args.getElems argTypes
                   | _ => pure ()
                   match ← resolveTypedInterfaceCall? fields constDecls immutableDecls externalDecls params locals rhs with
                   | some (_, _, _, some retTy, _) =>
@@ -195,9 +201,13 @@ private partial def validateDoElemExprTypes
                       -- void interface method: cannot bind its (empty) result
                       throwErrorAt rhs s!"interface call '{toString name.getId}' binds a void method; call it as a statement, not `let ... ←`"
                   | none =>
-                      let ty ← inferBindSourceType fields constDecls immutableDecls externalDecls functions params locals rhs
-                      requireSupportedLocalBindingType name s!"local binding '{toString name.getId}'" ty
-                      pure <| locals.push (mkTypedLocal (toString name.getId) ty)
+                      match ← callResultBindStmt? fields constDecls immutableDecls externalDecls params locals rhs (toString name.getId) with
+                      | some (_, resultLocal) =>
+                          pure <| locals.push resultLocal
+                      | none =>
+                          let ty ← inferBindSourceType fields constDecls immutableDecls externalDecls functions params locals rhs
+                          requireSupportedLocalBindingType name s!"local binding '{toString name.getId}'" ty
+                          pure <| locals.push (mkTypedLocal (toString name.getId) ty)
       | `(doElem| $name:ident := $rhs:term) =>
           let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals rhs
           pure locals
@@ -224,24 +234,34 @@ private partial def validateDoElemExprTypes
                 inner
               pure locals
           | _ => throwErrorAt body "forEach body must be a do block"
+      | `(doElem| forEachSetBit $name:term $bitmap:term $body:term) =>
+          requireWordLikeType bitmap "forEachSetBit bitmap" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals bitmap)
+          match stripParens body with
+          | `(term| do $[$inner:doElem]*) =>
+              let _ ← validateDoElemsExprTypes
+                ownerName fields constDecls immutableDecls externalDecls errorDecls functions params
+                (locals.push (mkTypedLocal (← expectStringOrIdent name) .uint256))
+                inner
+              pure locals
+          | _ => throwErrorAt body "forEachSetBit body must be a do block"
       | `(doElem| requireError $cond:term $errorName:ident($args,*)) =>
           requireBoolType cond "requireError condition" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals cond)
-          for arg in args.getElems do
-            let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals arg
+          let argTypes ← args.getElems.mapM
+            (inferPureExprType fields constDecls immutableDecls externalDecls params locals)
           validateCustomErrorCall ownerName (toString errorName.getId)
-            params errorDecls args.getElems
+            params errorDecls args.getElems argTypes
           pure locals
       | `(doElem| revert $errorName:ident($args,*)) =>
-          for arg in args.getElems do
-            let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals arg
+          let argTypes ← args.getElems.mapM
+            (inferPureExprType fields constDecls immutableDecls externalDecls params locals)
           validateCustomErrorCall ownerName (toString errorName.getId)
-            params errorDecls args.getElems
+            params errorDecls args.getElems argTypes
           pure locals
       | `(doElem| revertError $errorName:ident($args,*)) =>
-          for arg in args.getElems do
-            let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals arg
+          let argTypes ← args.getElems.mapM
+            (inferPureExprType fields constDecls immutableDecls externalDecls params locals)
           validateCustomErrorCall ownerName (toString errorName.getId)
-            params errorDecls args.getElems
+            params errorDecls args.getElems argTypes
           pure locals
       | `(doElem| tryCatch $attempt:term $handler:term) => do
           requireWordLikeType attempt "tryCatch attempt"
@@ -301,6 +321,12 @@ private partial def validateEffectStmtExprTypes
         requireWordLikeType arg "ERC-20 helper" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals arg)
   | `(term| safeApprove $token:term $spender:term $amount:term) =>
       for arg in [token, spender, amount] do
+        requireWordLikeType arg "ERC-20 helper" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals arg)
+  | `(term| legacyStringSafeTransfer $token:term $to:term $amount:term) =>
+      for arg in [token, to, amount] do
+        requireWordLikeType arg "ERC-20 helper" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals arg)
+  | `(term| legacyStringSafeTransferFrom $token:term $fromAddr:term $to:term $amount:term) =>
+      for arg in [token, fromAddr, to, amount] do
         requireWordLikeType arg "ERC-20 helper" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals arg)
   | `(term| setStorage $field:ident $value:term) =>
       let f ← lookupStorageField fields (toString field.getId)
@@ -413,10 +439,9 @@ private partial def validateEffectStmtExprTypes
   | _ =>
       -- a typed interface call in statement position is only valid when the
       -- method is void; `resolveTypedInterfaceCall?` already validates arg
-      -- count and arg types.
+      -- count, arg types, and the supported typed-interface ABI fragment.
       match ← resolveTypedInterfaceCall? fields constDecls immutableDecls externalDecls params locals stx with
-      | some (ext, _, _, none, _) => do
-          requireNoReturnInterfaceStaticParams stx ext.name ext.params
+      | some (_, _, _, none, _) => do
           pure ()
       | some (_, _, _, some retTy, _) =>
           throwErrorAt stx
@@ -424,7 +449,7 @@ private partial def validateEffectStmtExprTypes
       | none =>
       match ← resolveLocalFunctionApp? fields constDecls immutableDecls externalDecls functions params locals stx with
       | some (fn, argTerms) =>
-          ensureSupportsInternalHelperSpec stx fn
+          ensureCallableAsInternalHelper stx fn
           if fn.returnTy != .unit then
             throwErrorAt stx
               s!"helper call '{fn.name}' returns {renderValueType fn.returnTy}; use `let ... ← {fn.name} ...` or tuple destructuring"
@@ -612,19 +637,44 @@ private def translateEffectStmt
           `(Compiler.CompilationModel.Stmt.ecm
               Compiler.Modules.ERC20.safeTransferFromModule
               [$tokenExpr, $fromExpr, $toExpr, $amountExpr])
-  | `(term| safeApprove $token:term $spender:term $amount:term) =>
-      match lookupFunctionByNameAndArity functions "safeApprove" 3 with
-      | some localFn =>
-          throwErrorAt stx
-            s!"ERC-20 helper form '{localFn.name}' conflicts with contract function '{localFn.name}'; rename the function or avoid the direct helper syntax here"
-      | _ =>
-          let tokenExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals token
-          let spenderExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals spender
-          let amountExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals amount
-          `(Compiler.CompilationModel.Stmt.ecm
-              Compiler.Modules.ERC20.safeApproveModule
-              [$tokenExpr, $spenderExpr, $amountExpr])
-  | `(term| ecmDo $module:term $args:term) =>
+   | `(term| safeApprove $token:term $spender:term $amount:term) =>
+       match lookupFunctionByNameAndArity functions "safeApprove" 3 with
+       | some localFn =>
+           throwErrorAt stx
+             s!"ERC-20 helper form '{localFn.name}' conflicts with contract function '{localFn.name}'; rename the function or avoid the direct helper syntax here"
+       | _ =>
+           let tokenExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals token
+           let spenderExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals spender
+           let amountExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals amount
+           `(Compiler.CompilationModel.Stmt.ecm
+               Compiler.Modules.ERC20.safeApproveModule
+               [$tokenExpr, $spenderExpr, $amountExpr])
+   | `(term| legacyStringSafeTransfer $token:term $to:term $amount:term) =>
+       match lookupFunctionByNameAndArity functions "legacyStringSafeTransfer" 3 with
+       | some localFn =>
+           throwErrorAt stx
+             s!"ERC-20 helper form '{localFn.name}' conflicts with contract function '{localFn.name}'; rename the function or avoid the direct helper syntax here"
+       | _ =>
+           let tokenExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals token
+           let toExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals to
+           let amountExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals amount
+           `(Compiler.CompilationModel.Stmt.ecm
+               Compiler.Modules.ERC20.legacyStringSafeTransferModule
+               [$tokenExpr, $toExpr, $amountExpr])
+   | `(term| legacyStringSafeTransferFrom $token:term $fromAddr:term $to:term $amount:term) =>
+       match lookupFunctionByNameAndArity functions "legacyStringSafeTransferFrom" 4 with
+       | some localFn =>
+           throwErrorAt stx
+             s!"ERC-20 helper form '{localFn.name}' conflicts with contract function '{localFn.name}'; rename the function or avoid the direct helper syntax here"
+       | _ =>
+           let tokenExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals token
+           let fromExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals fromAddr
+           let toExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals to
+           let amountExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals amount
+           `(Compiler.CompilationModel.Stmt.ecm
+               Compiler.Modules.ERC20.legacyStringSafeTransferFromModule
+               [$tokenExpr, $fromExpr, $toExpr, $amountExpr])
+   | `(term| ecmDo $module:term $args:term) =>
       validateEffectOnlyEcmModuleTerm module
       let argExprs ← expectExprList fields constDecls immutableDecls params locals args
       `(Compiler.CompilationModel.Stmt.ecm
@@ -927,7 +977,6 @@ private def translateEffectStmt
       -- no returndatasize check and no return decode).
       match ← resolveTypedInterfaceCall? fields constDecls immutableDecls externalDecls params locals stx with
       | some (ext, target, argTerms, none, selector) =>
-          requireNoReturnInterfaceStaticParams stx ext.name ext.params
           let targetExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals target
           let argExprs ← argTerms.mapM
             (translatePureExprWithTypes fields constDecls immutableDecls params locals)
@@ -944,7 +993,7 @@ private def translateEffectStmt
       | none =>
       match ← resolveLocalFunctionApp? fields constDecls immutableDecls externalDecls functions params locals stx with
       | some (fn, argTerms) =>
-          ensureSupportsInternalHelperSpec stx fn
+          ensureCallableAsInternalHelper stx fn
           if fn.returnTy != .unit then
             throwErrorAt stx
               s!"helper call '{fn.name}' returns {renderValueType fn.returnTy}; use `let ... ← {fn.name} ...` or tuple destructuring"
@@ -1188,6 +1237,10 @@ private partial def translateDoElem
           if localNames.contains varName then
             throwErrorAt name s!"duplicate local variable '{varName}'"
           match stripParens rhs with
+          | `(term| callResult $_extName:term $_args:term) =>
+              match (← callResultBindStmt? fields constDecls immutableDecls externalDecls params locals rhs varName) with
+              | some (stmt, resultLocal) => pure (#[stmt], locals.push resultLocal, mutableLocals)
+              | none => throwErrorAt rhs "invalid callResult bind"
           | `(term| ecmCall $moduleFactory:term $args:term) =>
               let argExprs ← expectEcmExprList fields constDecls immutableDecls params locals args
               let moduleTerm ← `(term| (($moduleFactory) $(strTerm varName)))
@@ -1289,15 +1342,33 @@ private partial def translateDoElem
                               let targetExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals target
                               let argExprs ← argTerms.mapM
                                 (translatePureExprWithTypes fields constDecls immutableDecls params locals)
-                              let isStaticTerm ← if ext.isView then `(true) else `(false)
+                              let stmt ←
+                                if ext.isView then
+                                  match staticAbiWordCount? retTy with
+                                  | some 1 =>
+                                      `(Compiler.CompilationModel.Stmt.ecm
+                                          (Compiler.Modules.Oracle.typedReadWordSummaryModule
+                                            $(strTerm varName)
+                                            $(strTerm ext.name)
+                                            $(natTerm selector)
+                                            $(natTerm argExprs.size))
+                                          [ $targetExpr, $[$argExprs],* ])
+                                  | some n =>
+                                      throwErrorAt rhs
+                                        s!"typed interface view call '{ext.name}' can use the oracle summary only for one static ABI word; return has {n} static ABI words ({renderValueType retTy}). ABI-frame typed-interface view returns are not implemented yet (#1982)."
+                                  | none =>
+                                      throwErrorAt rhs
+                                        s!"typed interface view call '{ext.name}' can use the oracle summary only for one static ABI word; return has no static ABI word layout ({renderValueType retTy}). ABI-frame typed-interface view returns are not implemented yet (#1982)."
+                                else
+                                  `(Compiler.CompilationModel.Stmt.ecm
+                                      (Compiler.Modules.Calls.withReturnModule
+                                        $(strTerm varName)
+                                        $(natTerm selector)
+                                        $(natTerm argExprs.size)
+                                        false)
+                                      [ $targetExpr, $[$argExprs],* ])
                               pure
-                                (#[(← `(Compiler.CompilationModel.Stmt.ecm
-                                        (Compiler.Modules.Calls.withReturnModule
-                                          $(strTerm varName)
-                                          $(natTerm selector)
-                                          $(natTerm argExprs.size)
-                                          $isStaticTerm)
-                                        [ $targetExpr, $[$argExprs],* ]))],
+                                (#[stmt],
                                   locals.push (mkTypedLocal varName retTy),
                                   mutableLocals)
                           | some (_, _, _, none, _) =>
@@ -1377,6 +1448,21 @@ private partial def translateDoElem
             (#[(← `(Compiler.CompilationModel.Stmt.forEach
                 $(strTerm loopVar)
                 $countExpr
+                [ $[$bodyStmts],* ]))],
+              locals,
+              mutableLocals)
+      | `(doElem| forEachSetBit $name:term $bitmap:term $body:term) =>
+          let loopVar := ← expectStringOrIdent name
+          let bitmapExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals bitmap
+          let bodyStmts ←
+            match stripParens body with
+            | `(term| do $[$inner:doElem]*) =>
+                pure (← (translateDoElems fields constDecls immutableDecls externalDecls functions params (locals.push (mkTypedLocal loopVar .uint256)) mutableLocals inner)).1
+            | _ => throwErrorAt body "forEachSetBit body must be a do block"
+          pure
+            (#[(← `(Compiler.CompilationModel.Stmt.forEachSetBit
+                $(strTerm loopVar)
+                $bitmapExpr
                 [ $[$bodyStmts],* ]))],
               locals,
               mutableLocals)
@@ -1465,6 +1551,7 @@ end
 
 private def translateBodyToStmtTerms
     (fields : Array StorageFieldDecl)
+    (roleDecls : Array RoleDecl)
     (constDecls : Array ConstantDecl)
     (immutableDecls : Array ImmutableDecl)
     (externalDecls : Array ExternalDecl)
@@ -1473,7 +1560,7 @@ private def translateBodyToStmtTerms
   match fn.body with
   | `(term| do $[$elems:doElem]*) =>
       let guardPrelude ← initGuardPreludeStmtTerms fields fn
-      let rolePrelude ← roleGuardPreludeStmtTerms fields fn
+      let rolePrelude ← roleGuardPreludeStmtTerms fields roleDecls fn
       let modifierPrelude ← fn.modifiers.mapM fun modIdent =>
         `(Compiler.CompilationModel.Stmt.internalCall $(strTerm (modifierInternalName (toString modIdent.getId))) [])
       let stmts := guardPrelude ++ rolePrelude ++ modifierPrelude ++ (← translateDoElems fields constDecls immutableDecls externalDecls functions fn.params #[] #[] elems).1
@@ -1500,16 +1587,36 @@ private def immutableInitStmtTerms
     (constDecls : Array ConstantDecl)
     (immutableDecls : Array ImmutableDecl)
     (ctorParams : Array ParamDecl) : CommandElabM (Array Term) := do
-  immutableDecls.zipIdx.mapM fun (imm, idx) => do
-    let slotField := immutableStorageFieldDecl fields imm idx
-    let valueExpr ← translatePureExpr fields constDecls #[] ctorParams #[] imm.body
-    match imm.ty with
-    | .uint256 | .int256 | .uint8 | .uint16 | .bytes32 | .bool =>
-        `(Compiler.CompilationModel.Stmt.setStorage $(strTerm slotField.name) $valueExpr)
-    | .address =>
-        `(Compiler.CompilationModel.Stmt.setStorageAddr $(strTerm slotField.name) $valueExpr)
-    | _ =>
-        throwErrorAt imm.ident s!"immutable '{imm.name}' uses unsupported type"
+  let mut out := #[]
+  for imm in immutableDecls do
+    let mkStore (valueExpr : Term) : CommandElabM Term := do
+      match imm.ty with
+      | .uint256 | .int256 | .uint8 | .uint16 | .bytes32 | .bool =>
+          `(Compiler.CompilationModel.Stmt.setImmutable $(strTerm imm.name) $valueExpr)
+      | .address =>
+          `(Compiler.CompilationModel.Stmt.setImmutable $(strTerm imm.name) $valueExpr)
+      | _ =>
+          throwErrorAt imm.ident s!"immutable '{imm.name}' uses unsupported type"
+    let checkedInit? ←
+      translateSafeRequireBind fields constDecls #[] ctorParams #[]
+        "__immutable_init_value" imm.body
+    match checkedInit? with
+    | some stmts =>
+        match stmts.back? with
+        | some stmt =>
+            match stmt with
+            | `(Compiler.CompilationModel.Stmt.letVar $_ $valueExpr) =>
+                out := out ++ stmts.pop.push (← mkStore valueExpr)
+            | _ =>
+                throwErrorAt imm.ident
+                  s!"immutable '{imm.name}' checked initializer lowered to an unexpected statement shape"
+        | none =>
+            throwErrorAt imm.ident
+              s!"immutable '{imm.name}' checked initializer lowered to an unexpected statement shape"
+    | none =>
+        let valueExpr ← translatePureExpr fields constDecls #[] ctorParams #[] imm.body
+        out := out.push (← mkStore valueExpr)
+  pure out
 
 def mkSuffixedIdent (base : Ident) (suffix : String) : CommandElabM Ident :=
   let rec appendSuffix : Name → Name
@@ -1673,6 +1780,13 @@ private partial def rewriteForEachExecutableDoElem
           let (inner, _) ← rewriteForEachExecutableDoElems externalDecls params locals inner
           pure (#[← `(doElem| let $loopIdent : Uint256 := 0)] ++ inner, locals)
       | _ => throwErrorAt body "forEach body must be a do block"
+  | `(doElem| forEachSetBit $name:term $_bitmap:term $body:term) =>
+      let loopIdent := mkIdent (Name.mkSimple (← expectStringOrIdent name))
+      match stripParens body with
+      | `(term| do $[$inner:doElem]*) =>
+          let (inner, _) ← rewriteForEachExecutableDoElems externalDecls params locals inner
+          pure (#[← `(doElem| let $loopIdent : Uint256 := 0)] ++ inner, locals)
+      | _ => throwErrorAt body "forEachSetBit body must be a do block"
   | `(doElem| if $cond:term then $thenBranch:doSeq else $elseBranch:doSeq) =>
       let thenBranch ← rewriteForEachExecutableDoSeq externalDecls params locals thenBranch
       let elseBranch ← rewriteForEachExecutableDoSeq externalDecls params locals elseBranch
@@ -1922,9 +2036,11 @@ private def mkModelFieldTerm (field : StorageFieldDecl) : CommandElabM Term := d
     | none => `(none)
     | some (offset, width) =>
         `(some { offset := $(natTerm offset), width := $(natTerm width) })
+  let transientTerm ← if field.isTransient then `(true) else `(false)
   `(Compiler.CompilationModel.Field.mk
       $(strTerm field.name)
       $(← modelFieldTypeTerm field.ty)
+      $transientTerm
       (some $(natTerm field.slotNum))
       $packedTerm
       [])
@@ -1988,6 +2104,105 @@ private def mkModelLocalObligationTerm (obligation : LocalObligationDecl) : Comm
       $(strTerm obligation.obligation)
       $proofStatusTerm)
 
+private def termSource (term : Term) : String :=
+  (term.raw.reprint.getD (toString term.raw)).trim
+
+private def isIdentChar (c : Char) : Bool :=
+  ('a' ≤ c && c ≤ 'z') || ('A' ≤ c && c ≤ 'Z') || ('0' ≤ c && c ≤ '9')
+
+private def sanitizeObligationPart (s : String) : String :=
+  let chars := s.toList.map fun c => if isIdentChar c then c else '_'
+  let collapsed := chars.foldl
+    (fun acc c =>
+      match acc.getLast? with
+      | some '_' => if c == '_' then acc else acc ++ [c]
+      | _ => acc ++ [c])
+    []
+  let trimmed := (collapsed.dropWhile (· == '_')).reverse.dropWhile (· == '_') |>.reverse
+  let rendered := String.mk trimmed
+  if rendered.isEmpty then "expr" else rendered
+
+private def checkedArithmeticApp? (term : Term) : Option (String × String × Term × Term) :=
+  match stripParens term with
+  | `(term| safeAdd $a:term $b:term) =>
+      some ("add_no_overflow", "Verity.Proofs.Stdlib.Math.CheckedArithmetic.AddNoOverflow", a, b)
+  | `(term| safeSub $a:term $b:term) =>
+      some ("sub_no_underflow", "Verity.Proofs.Stdlib.Math.CheckedArithmetic.SubNoUnderflow", a, b)
+  | `(term| safeMul $a:term $b:term) =>
+      some ("mul_no_overflow", "Verity.Proofs.Stdlib.Math.CheckedArithmetic.MulNoOverflow", a, b)
+  | `(term| addPanic $a:term $b:term) =>
+      some ("add_no_overflow", "Verity.Proofs.Stdlib.Math.CheckedArithmetic.AddNoOverflow", a, b)
+  | `(term| subPanic $a:term $b:term) =>
+      some ("sub_no_underflow", "Verity.Proofs.Stdlib.Math.CheckedArithmetic.SubNoUnderflow", a, b)
+  | `(term| mulPanic $a:term $b:term) =>
+      some ("mul_no_overflow", "Verity.Proofs.Stdlib.Math.CheckedArithmetic.MulNoOverflow", a, b)
+  | _ => none
+
+private partial def collectCheckedArithmeticApps (stx : Syntax) : Array (String × String × Term × Term) :=
+  let here :=
+    match checkedArithmeticApp? ⟨stx⟩ with
+    | some app => #[app]
+    | none => #[]
+  stx.getArgs.foldl
+    (fun acc child => acc ++ collectCheckedArithmeticApps child)
+    here
+
+private def generatedArithmeticObligationsFromSyntax
+    (owner : String)
+    (bodies : Array Syntax) : Array LocalObligationDecl :=
+  let apps := bodies.foldl
+    (fun acc body => acc ++ collectCheckedArithmeticApps body)
+    #[]
+  let apps := apps.foldl
+    (fun acc app =>
+      let (kind, pred, lhs, rhs) := app
+      let duplicate := acc.any fun prev =>
+        let (prevKind, prevPred, prevLhs, prevRhs) := prev
+        prevKind == kind && prevPred == pred &&
+          termSource prevLhs == termSource lhs &&
+          termSource prevRhs == termSource rhs
+      if duplicate then acc else acc.push app)
+    #[]
+  apps.mapIdx fun idx (kind, pred, lhs, rhs) =>
+    let name :=
+      s!"checked_arithmetic_{sanitizeObligationPart owner}_{idx + 1}_{kind}"
+    let obligation :=
+      s!"Prove `{pred} ({termSource lhs}) ({termSource rhs})` for the checked arithmetic operation emitted at this entrypoint."
+    { ident := mkIdent (Name.mkSimple name)
+      name := name
+      obligation := obligation
+      proofStatus := .assumed }
+
+private def generatedArithmeticObligations
+    (owner : String)
+    (body : Term) : Array LocalObligationDecl :=
+  generatedArithmeticObligationsFromSyntax owner #[body.raw]
+
+private def mergeGeneratedLocalObligations
+    (declared generated : Array LocalObligationDecl) : Array LocalObligationDecl :=
+  generated.foldl
+    (fun acc obligation =>
+      if acc.any (fun prev => prev.name == obligation.name) then acc else acc.push obligation)
+    declared
+
+private def functionLocalObligationsWithArithmetic (fn : FunctionDecl) : Array LocalObligationDecl :=
+  mergeGeneratedLocalObligations fn.localObligations (generatedArithmeticObligations fn.name fn.body)
+
+private def immutableInitArithmeticBodies (immutableDecls : Array ImmutableDecl) : Array Syntax :=
+  immutableDecls.map (fun imm => imm.body.raw)
+
+private def constructorLocalObligationsWithArithmetic
+    (ctor : ConstructorDecl)
+    (immutableDecls : Array ImmutableDecl) : Array LocalObligationDecl :=
+  let bodies := immutableInitArithmeticBodies immutableDecls |>.push ctor.body.raw
+  mergeGeneratedLocalObligations ctor.localObligations
+    (generatedArithmeticObligationsFromSyntax "constructor" bodies)
+
+private def synthesizedConstructorLocalObligationsWithArithmetic
+    (immutableDecls : Array ImmutableDecl) : Array LocalObligationDecl :=
+  generatedArithmeticObligationsFromSyntax "constructor"
+    (immutableInitArithmeticBodies immutableDecls)
+
 private def mkAdtVariantTerm (variant : AdtVariantDecl) (tag : Nat) : CommandElabM Term := do
   let fieldTerms ← variant.fields.mapM fun p => do
     let tyTerm ← modelParamTypeTerm p.ty
@@ -2050,6 +2265,7 @@ private def mkQualifiedInternalFunctionTerm
 private def mkSpecCommand
     (contractName : String)
     (fields : Array StorageFieldDecl)
+    (roleDecls : Array RoleDecl)
     (errorDecls : Array ErrorDecl)
     (eventDecls : Array EventDecl)
     (constDecls : Array ConstantDecl)
@@ -2060,9 +2276,18 @@ private def mkSpecCommand
     (functions : Array FunctionDecl)
     (adtDecls : Array AdtDecl)
     (storageNamespace : Option Nat) : CommandElabM Cmd := do
-  let immutableFields := immutableDecls.zipIdx.map (fun (imm, idx) => immutableStorageFieldDecl fields imm idx)
-  let allFields := fields ++ immutableFields
-  let fieldTerms ← allFields.mapM mkModelFieldTerm
+  let immutableTerms ← immutableDecls.mapM fun imm => do
+    let tyTerm ← modelParamTypeTerm imm.ty
+    let initTerm ← translatePureExpr fields constDecls #[] (ctor.map (·.params) |>.getD #[]) #[] imm.body
+    `(({ name := $(strTerm imm.name), ty := $tyTerm, init := $initTerm } :
+        Compiler.CompilationModel.ImmutableSpec))
+  let fieldTerms ← fields.mapM mkModelFieldTerm
+  let roleTerms ← roleDecls.mapM fun role => do
+    let kindTerm ← match role.kind with
+      | .scalarAddress => `(Compiler.CompilationModel.RoleKind.scalarAddress)
+      | .mappingAddressToUint256 => `(Compiler.CompilationModel.RoleKind.mappingAddressToUint256)
+    `(({ name := $(strTerm role.name), field := $(strTerm role.fieldName), kind := $kindTerm } :
+        Compiler.CompilationModel.RoleDecl))
   let errorTerms ← errorDecls.mapM mkModelErrorTerm
   let eventTerms ← eventDecls.mapM mkModelEventTerm
   let externalTerms ← externalDecls.mapM mkModelExternalTerm
@@ -2072,7 +2297,8 @@ private def mkSpecCommand
     | some ctor, _ =>
         let ctorParams ← mkModelParamsTerm ctor.params
         let ctorPayable ← if ctor.isPayable then `(true) else `(false)
-        let ctorLocalObligationTerms ← ctor.localObligations.mapM mkModelLocalObligationTerm
+        let ctorLocalObligationTerms ←
+          (constructorLocalObligationsWithArithmetic ctor immutableDecls).mapM mkModelLocalObligationTerm
         let immutableInitTerms ← immutableInitStmtTerms fields constDecls immutableDecls ctor.params
         let ctorBodyTerms ← translateConstructorBodyToStmtTerms fields constDecls immutableDecls externalDecls functions ctor
         let ctorAllTerms := immutableInitTerms ++ ctorBodyTerms
@@ -2084,10 +2310,12 @@ private def mkSpecCommand
         })
     | none, false =>
         let immutableInitTerms ← immutableInitStmtTerms fields constDecls immutableDecls #[]
+        let ctorLocalObligationTerms ←
+          (synthesizedConstructorLocalObligationsWithArithmetic immutableDecls).mapM mkModelLocalObligationTerm
         `(some {
           params := []
           isPayable := false
-          localObligations := []
+          localObligations := [ $[$ctorLocalObligationTerms],* ]
           body := [ $[$immutableInitTerms],* ]
         })
   let publicFunctions := functions.filter (fun fn => !fn.isInternal)
@@ -2096,22 +2324,62 @@ private def mkSpecCommand
     if supportsInternalHelperSpec fn then
       let modelBodyName ← mkSuffixedIdent fn.ident "_modelBody"
       let modelParams ← mkModelParamsTerm fn.params
-      let localObligationTerms ← fn.localObligations.mapM mkModelLocalObligationTerm
+      let localObligationTerms ← (functionLocalObligationsWithArithmetic fn).mapM mkModelLocalObligationTerm
       let payableTerm ← if fn.isPayable then `(true) else `(false)
       let viewTerm ← if fn.isView then `(true) else `(false)
       let pureTerm ← if fn.isPure then `(true) else `(false)
       let noExternalCallsTerm ← if fn.noExternalCalls then `(true) else `(false)
-      let allowPostInteractionWritesTerm ← if fn.allowPostInteractionWrites then `(true) else `(false)
-      let nonReentrantLockTerm ← match fn.nonReentrantLock with
-        | some lockIdent => `(some $(strTerm (toString lockIdent.getId)))
-        | none => `(none)
+      -- The internal helper shadow runs *inside* an already-guarded call
+      -- chain (the transient-storage reentrancy guard is attached at the
+      -- external dispatch boundary via `attachNonReentrantGuard`, #1893),
+      -- so it must drop `nonReentrantLock` to avoid double-guarding /
+      -- false "internal nonreentrant" rejection at the
+      -- compilation-model boundary. We propagate the CEI exemption that
+      -- the public spec would have got from `nonReentrantLock` onto the
+      -- shadow as `allowPostInteractionWrites := true` instead, so the
+      -- shared body — which may legitimately contain post-external-call
+      -- state writes once the public path has a guard — still validates
+      -- through the shadow.
+      let shadowAllowPostInteractionWritesTerm ←
+        if fn.nonReentrantLock.isSome || fn.allowPostInteractionWrites then
+          `(true)
+        else
+          `(false)
       let ceiSafeTerm ← if fn.ceiSafe then `(true) else `(false)
+      -- The internal helper shadow drops `nonReentrantLock` (the transient guard
+      -- only runs at the external dispatch boundary), so the cross-function
+      -- reentrancy gate would reject any external call it makes. The public entry
+      -- is already protected — by its `nonreentrant` guard or its own
+      -- `reentrancy_trusted` assertion — so propagate a `reentrancyTrusted` flag
+      -- onto the shadow to record that its external calls run under that
+      -- protection. When the public function carried neither, the public spec
+      -- itself fails the gate first, so this never masks an unguarded entry.
+      -- For a *lock-only* function (`nonReentrantLock` set, no
+      -- `reentrancy_trusted`) the lock protection is local to the guarded entry
+      -- and does NOT survive on the lock-free shadow, so the shadow is rendered
+      -- unreachable: `ensureCallableAsInternalHelper` rejects any internal call
+      -- to such a function at lowering. The `reentrancyTrusted` flag below is
+      -- therefore only ever consumed for functions the author globally asserted
+      -- `reentrancy_trusted`, where the lock-free internal path is sound.
+      let shadowReentrancyTrustedTerm ←
+        if fn.nonReentrantLock.isSome || fn.reentrancyTrusted then
+          `(true)
+        else
+          `(false)
       let requiresRoleTerm ← match fn.requiresRole with
         | some roleIdent => `(some $(strTerm (toString roleIdent.getId)))
         | none => `(none)
       let internalModifiesTerms : Array Term := fn.modifies.map fun ident => strTerm (toString ident.getId)
       let returnTypeTerm ← modelReturnTypeTerm fn.returnTy
       let returnsTerm ← modelReturnsTerm fn.returnTy
+      -- Internal helper shadow specs (for calls via `internalCall`) inherit most
+      -- metadata from the public function. For `nonreentrant` functions the lock
+      -- annotation is cleared on the shadow (the transient guard is only injected
+      -- at the external dispatch boundary via `attachNonReentrantGuard` in
+      -- Dispatch); CEI exemption is instead carried via `allowPostInteractionWrites`.
+      -- This allows legitimate intra-contract / same-function calls through the
+      -- shadow while the public entry remains protected against external reentrancy.
+      -- (Addresses "Shadow guard blocks same-function calls" follow-up to #1893.)
       pure <| some (← `( ({
         name := $(strTerm (internalHelperSpecNameFor fn))
         params := $modelParams
@@ -2121,9 +2389,10 @@ private def mkSpecCommand
         isView := $viewTerm
         isPure := $pureTerm
         noExternalCalls := $noExternalCallsTerm
-        allowPostInteractionWrites := $allowPostInteractionWritesTerm
-        nonReentrantLock := $nonReentrantLockTerm
+        allowPostInteractionWrites := $shadowAllowPostInteractionWritesTerm
+        nonReentrantLock := none
         ceiSafe := $ceiSafeTerm
+        reentrancyTrusted := $shadowReentrancyTrustedTerm
         requiresRole := $requiresRoleTerm
         modifies := [ $[$internalModifiesTerms],* ]
         localObligations := [ $[$localObligationTerms],* ]
@@ -2175,6 +2444,8 @@ private def mkSpecCommand
   `(command| def spec : Compiler.CompilationModel.CompilationModel := {
     name := $(strTerm contractName)
     fields := [ $[$fieldTerms],* ]
+    «immutables» := [ $[$immutableTerms],* ]
+    «roles» := [ $[$roleTerms],* ]
     «errors» := [ $[$errorTerms],* ]
     «events» := [ $[$eventTerms],* ]
     «constructor» := $constructorTerm
@@ -2287,19 +2558,24 @@ def computeERC7201StorageNamespaceKey (key : String) : Nat :=
   let slotHash := KeccakEngine.byteArrayToNatBE (KeccakEngine.keccak256 encoded)
   (slotHash / 256) * 256
 
+private def defaultStorageNamespaceEnabled : CommandElabM Bool := do
+  pure (verity.storageNamespace.default.get (← getOptions))
+
 private def namespaceOffsetFromSpec
-    (contractName : Ident) (spec : TSyntax `verityNamespaceSpec) : CommandElabM Nat := do
+    (contractName : Ident) (spec : TSyntax `verityNamespaceSpec) : CommandElabM (Option Nat) := do
   match spec with
   | `(verityNamespaceSpec| storage_namespace erc7201 $customKey:str) =>
       match customKey.raw.isStrLit? with
-      | some key => pure (computeERC7201StorageNamespaceKey key)
+      | some key => pure (some (computeERC7201StorageNamespaceKey key))
       | none => throwErrorAt customKey "expected storage namespace string literal"
   | `(verityNamespaceSpec| storage_namespace $customKey:str) =>
       match customKey.raw.isStrLit? with
-      | some key => pure (computeStorageNamespaceKey key)
+      | some key => pure (some (computeStorageNamespaceKey key))
       | none => throwErrorAt customKey "expected storage namespace string literal"
+  | `(verityNamespaceSpec| storage_namespace legacy) =>
+      pure none
   | `(verityNamespaceSpec| storage_namespace) =>
-      pure (computeStorageNamespace (toString contractName.getId))
+      pure (some (computeStorageNamespace (toString contractName.getId)))
   | _ =>
       throwErrorAt spec "unsupported storage namespace syntax"
 
@@ -2335,6 +2611,7 @@ structure ParsedContractSyntax where
   structDecls : Array StructDecl
   adtDecls : Array AdtDecl
   fields : Array StorageFieldDecl
+  roleDecls : Array RoleDecl
   storageStructAccessors : Array StorageStructAccessorDecl
   errorDecls : Array ErrorDecl
   eventDecls : Array EventDecl
@@ -2346,11 +2623,40 @@ structure ParsedContractSyntax where
   functions : Array FunctionDecl
   storageNamespace : Option Nat
 
+private def roleKindOfStorageField? (field : StorageFieldDecl) : Option RoleKind :=
+  match field.ty with
+  | .scalar .address | .scalar (.newtype _ .address) => some .scalarAddress
+  | .mappingAddressToUint256 => some .mappingAddressToUint256
+  | _ => none
+
+private def parseRoleDecl
+    (fields : Array StorageFieldDecl) (roleStx : TSyntax `verityRoleDecl)
+    : CommandElabM RoleDecl := do
+  match roleStx with
+  | `(verityRoleDecl| $roleName:ident := $fieldName:ident) =>
+      let backingName := toString fieldName.getId
+      match fields.find? (fun field => field.name == backingName) with
+      | none =>
+          throwErrorAt fieldName s!"role '{toString roleName.getId}' references unknown storage field '{backingName}'; known fields: {(fields.map (·.name)).toList}"
+      | some field =>
+          match roleKindOfStorageField? field with
+          | some kind =>
+              pure {
+                ident := roleName
+                name := toString roleName.getId
+                fieldIdent := fieldName
+                fieldName := backingName
+                kind := kind
+              }
+          | none =>
+              throwErrorAt fieldName s!"role '{toString roleName.getId}' uses unsupported backing field '{backingName}'; roles require an Address scalar field or Address→Uint256 mapping"
+  | _ => throwErrorAt roleStx "invalid role declaration"
+
 def parseContractSyntax
     (stx : Syntax)
     : CommandElabM ParsedContractSyntax := do
   match stx with
-  | `(command| verity_contract $contractName:ident where $[types $[$newtypeDecls:verityNewtype]*]? $[inductive $[$adtDecls:verityAdtDecl]*]? $[$nsSpec:verityNamespaceSpec]? storage $[$storageItems:verityStorageItem]* $[$structDecls:verityStructDecl]* $[errors $[$errorDecls:verityError]*]? $[event_defs $[$eventDecls:verityEvent]*]? $[constants $[$constantDecls:verityConstant]*]? $[immutables $[$immutableDecls:verityImmutable]*]? $[interfaces $[$interfaceDecls:verityInterface]*]? $[linked_externals $[$externalDecls:verityExternal]*]? $[$ctor:verityConstructor]? $[$entrypoints:veritySpecialEntrypoint]* $[$modifierDecls:verityModifier]* $[$functions:verityFunction]*) =>
+  | `(command| verity_contract $contractName:ident where $[types $[$newtypeDecls:verityNewtype]*]? $[inductive $[$adtDecls:verityAdtDecl]*]? $[$nsSpec:verityNamespaceSpec]? storage $[$storageItems:verityStorageItem]* $[roles $[$roleDecls:verityRoleDecl]*]? $[$structDecls:verityStructDecl]* $[errors $[$errorDecls:verityError]*]? $[event_defs $[$eventDecls:verityEvent]*]? $[constants $[$constantDecls:verityConstant]*]? $[immutables $[$immutableDecls:verityImmutable]*]? $[interfaces $[$interfaceDecls:verityInterface]*]? $[linked_externals $[$externalDecls:verityExternal]*]? $[$ctor:verityConstructor]? $[$entrypoints:veritySpecialEntrypoint]* $[$modifierDecls:verityModifier]* $[$functions:verityFunction]*) =>
       -- Parse newtypes first — they are needed by all downstream type resolution
       let parsedNewtypes ←
         match newtypeDecls with
@@ -2390,13 +2696,29 @@ def parseContractSyntax
       for adtDecl in parsedAdts do
         if builtinTypeNames.contains adtDecl.name then
           throwErrorAt adtDecl.ident s!"ADT name '{adtDecl.name}' shadows a built-in type"
-      -- Compute the initial namespace offset (#1730, Axis 4 Steps 4b/4c).
-      -- A legacy `storage_namespace` before `storage` applies to all following
-      -- fields until overridden by an in-storage `storage_namespace` item.
-      let namespaceOffset : Nat ←
+      -- Compute the initial namespace offset (#1730, #1896).
+      -- Explicit `storage_namespace` syntax wins. Otherwise
+      -- `set_option verity.storageNamespace.default true` applies the stable
+      -- contract-name namespace to all following fields until overridden by an
+      -- in-storage `storage_namespace` item. Contract-level
+      -- `storage_namespace legacy` opts out of the automatic policy.
+      --
+      -- `namespaceFromContractSpec` records whether the seed namespace came
+      -- from a contract-level `storage_namespace` directive (authoritative)
+      -- or from the opt-in auto-default policy (overridable by the first
+      -- in-storage `storage_namespace` item encountered). The distinction
+      -- matters for `spec.storageNamespace` / layout & trust reports: an
+      -- in-storage ERC-7201 root that comes before any field should be the
+      -- reported root, not the auto-default contract-name root.
+      let namespaceOpt : Option Nat ←
         match nsSpec with
         | some spec => namespaceOffsetFromSpec contractName spec
-        | none => pure 0
+        | none =>
+            if (← defaultStorageNamespaceEnabled) then
+              pure (some (computeStorageNamespace (toString contractName.getId)))
+            else
+              pure none
+      let namespaceFromContractSpec : Bool := nsSpec.isSome
       let parsedErrors ←
         match errorDecls with
         | some decls => decls.mapM (parseError parsedNewtypes parsedStructs parsedAdts)
@@ -2439,35 +2761,62 @@ def parseContractSyntax
       -- fields, allowing multiple ERC-7201 roots in one contract model.
       let mut parsedFields : Array StorageFieldDecl := #[]
       let mut parsedStorageStructAccessors : Array StorageStructAccessorDecl := #[]
-      let mut currentNamespaceOffset := namespaceOffset
-      let mut namespaceOpt : Option Nat :=
-        if nsSpec.isSome then some namespaceOffset else none
+      let mut currentNamespaceOffset := namespaceOpt.getD 0
+      let mut firstNamespaceOpt := namespaceOpt
+      -- An auto-default seed is provisional: if the storage block opens with
+      -- an explicit `storage_namespace` directive (before any field has been
+      -- recorded), that directive describes where the first declared field
+      -- actually lives, so we replace the auto-default seed for reporting.
+      -- A contract-level `storage_namespace` is authoritative and never
+      -- overwritten here.
+      let mut firstNamespaceLocked : Bool := namespaceFromContractSpec
       for item in storageItems do
         match (← namespaceOffsetFromStorageItem? contractName item) with
         | some offset =>
             currentNamespaceOffset := offset
-            if namespaceOpt.isNone then
-              namespaceOpt := some offset
+            if !firstNamespaceLocked then
+              firstNamespaceOpt := some offset
+              firstNamespaceLocked := true
         | none =>
-            match (← parseStorageStructItem parsedNewtypes parsedStructs parsedAdts item) with
-            | some (structFields, accessor) =>
-                parsedFields := parsedFields ++
-                  (structFields.map fun field => { field with slotNum := field.slotNum + currentNamespaceOffset })
-                parsedStorageStructAccessors := parsedStorageStructAccessors.push
-                  { accessor with tree := offsetStorageAccessorTree currentNamespaceOffset accessor.tree }
+            match (← parseTransientStorageItem parsedNewtypes parsedStructs parsedAdts item) with
+            | some field =>
+                parsedFields := parsedFields.push { field with slotNum := field.slotNum + currentNamespaceOffset }
+                firstNamespaceLocked := true
             | none =>
-                match (← storageFieldFromItem? item) with
-                | some fieldStx =>
-                    let field ← parseStorageField parsedNewtypes parsedStructs parsedAdts fieldStx
-                    parsedFields := parsedFields.push { field with slotNum := field.slotNum + currentNamespaceOffset }
+                match (← parseStorageStructItem parsedNewtypes parsedStructs parsedAdts item) with
+                | some (structFields, accessor) =>
+                    parsedFields := parsedFields ++
+                      (structFields.map fun field => { field with slotNum := field.slotNum + currentNamespaceOffset })
+                    parsedStorageStructAccessors := parsedStorageStructAccessors.push
+                      { accessor with tree := offsetStorageAccessorTree currentNamespaceOffset accessor.tree }
+                    -- A field has now been recorded under the active namespace; later
+                    -- in-storage `storage_namespace` items must not retroactively
+                    -- relabel where the first field lives.
+                    firstNamespaceLocked := true
                 | none =>
-                    throwErrorAt item "unsupported storage item"
+                    match (← storageFieldFromItem? item) with
+                    | some fieldStx =>
+                        let field ← parseStorageField parsedNewtypes parsedStructs parsedAdts fieldStx
+                        parsedFields := parsedFields.push { field with slotNum := field.slotNum + currentNamespaceOffset }
+                        firstNamespaceLocked := true
+                    | none =>
+                        throwErrorAt item "unsupported storage item"
+      let parsedRoles ←
+        match roleDecls with
+        | some decls => decls.mapM (parseRoleDecl parsedFields)
+        | none => pure #[]
+      let mut seenRoleNames : Array String := #[]
+      for role in parsedRoles do
+        if seenRoleNames.contains role.name then
+          throwErrorAt role.ident s!"duplicate role declaration '{role.name}'"
+        seenRoleNames := seenRoleNames.push role.name
       pure {
         contractName := contractName
         newtypeDecls := parsedNewtypes
         structDecls := parsedStructs
         adtDecls := parsedAdts
         fields := parsedFields
+        roleDecls := parsedRoles
         storageStructAccessors := parsedStorageStructAccessors
         errorDecls := parsedErrors
         eventDecls := parsedEvents
@@ -2481,7 +2830,7 @@ def parseContractSyntax
             (← monomorphizeHigherOrderHelpers
               ((← entrypoints.mapM parseSpecialEntrypoint) ++
                 (← functions.mapM (parseFunction parsedNewtypes parsedStructs parsedAdts interfaceNames))))
-        storageNamespace := namespaceOpt
+        storageNamespace := firstNamespaceOpt
       }
   | _ => throwErrorAt stx "invalid verity_contract declaration"
 
@@ -2624,6 +2973,7 @@ def validateGeneratedDefNamesPublic
        , s!"{generatedFnName}_nonreentrant"
        , s!"{generatedFnName}_cei_safe"
        , s!"{generatedFnName}_requires_role"
+       , s!"{generatedFnName}_access_control"
        ]
     for helperName in helperNames do
       if storageNames.contains helperName then
@@ -2672,13 +3022,21 @@ def validateExternalDeclsPublic
     if seenNames.contains ext.name then
       throwErrorAt ext.ident
         s!"duplicate external declaration '{ext.name}'"
-    -- Multi-return externals are allowed; the auto-revert expression form (externalCall)
-    -- only supports single-return, but tryExternalCall supports any return count.
-    -- (#1727, Axis 1 Step 5f)
-    for paramTy in ext.params do
-      validateExternalExecutableParamType ext.ident ext.name paramTy
-    for returnTy in ext.returnTys do
-      validateExternalExecutableType ext.ident ext.name returnTy "return"
+    if ext.interfaceName?.isSome then
+      -- Typed-interface externals: #1982 progress — static composites
+      -- (tuples/fixed-arrays of word-likes) now accepted on params and
+      -- returns. True dynamic shapes still rejected at declaration time
+      -- (error points at #1982).
+      requireTypedInterfaceStaticParams ext.ident ext.name ext.params
+      requireTypedInterfaceStaticReturns ext.ident ext.name ext.returnTys
+    else
+      -- Multi-return externals are allowed; the auto-revert expression form (externalCall)
+      -- only supports single-return, but tryExternalCall supports any return count.
+      -- (#1727, Axis 1 Step 5f)
+      for paramTy in ext.params do
+        validateExternalExecutableParamType ext.ident ext.name paramTy
+      for returnTy in ext.returnTys do
+        validateExternalExecutableType ext.ident ext.name returnTy "return"
     seenNames := seenNames.push ext.name
 
 private def validateLocalObligationDecls
@@ -2739,9 +3097,17 @@ def validateFunctionDeclsPublic
       throwErrorAt fn.ident s!"function '{fn.name}' is marked view and modifies(...); view already guarantees no state writes"
     if fn.isPure && !fn.modifies.isEmpty then
       throwErrorAt fn.ident s!"function '{fn.name}' is marked pure and modifies(...); pure already guarantees no state writes"
-    -- Validate nonreentrant lock field references a valid storage field of scalar uint256 type
+    -- Validate nonreentrant lock field references a valid storage field of scalar uint256 type.
+    -- The transient-storage guard prologue is only injected for *external*
+    -- entrypoints (see `Compiler.CompilationModel.Dispatch.attachNonReentrantGuard`,
+    -- #1893), so an `internal` function carrying `nonreentrant(lock)` would
+    -- be CEI-exempted at the compilation-model boundary without ever
+    -- materialising a runtime guard. Reject that combination at parse time
+    -- to fail closed.
     match fn.nonReentrantLock with
     | some lockField =>
+        if fn.isInternal then
+          throwErrorAt lockField s!"function '{fn.name}': nonreentrant(<lock>) is only supported on external entrypoints; the synthesised transient-storage guard runs at the dispatch boundary, so internal helpers cannot rely on it. Move the guard to the public caller or drop the annotation."
         let lockName := toString lockField.getId
         let allFieldNames := fields.map (·.name)
         match fields.find? (fun field => field.name == lockName) with
@@ -2764,13 +3130,14 @@ def validateFunctionDeclsPublic
 
 def mkFunctionCommandsPublic
     (fields : Array StorageFieldDecl)
+    (roleDecls : Array RoleDecl)
     (constDecls : Array ConstantDecl)
     (immutableDecls : Array ImmutableDecl)
     (externalDecls : Array ExternalDecl)
     (functions : Array FunctionDecl)
     (fn : FunctionDecl) : CommandElabM (Array Cmd) := do
   let fnType ← mkContractFnType fn.params fn.returnTy
-  let fnRoleGuardedBody ← mkRoleGuardedBody fields fn
+  let fnRoleGuardedBody ← mkRoleGuardedBody fields roleDecls fn
   let fnDecl := { fn with body := fnRoleGuardedBody }
   let fnGuardedBody ← mkInitGuardedBody fields fnDecl
   let fnBody ← mkImmutableBoundBody fields immutableDecls fn fnGuardedBody
@@ -2778,9 +3145,9 @@ def mkFunctionCommandsPublic
   let fnValue ← mkContractFnValue fn.params fnExecutableBody
   let modelBodyName ← mkSuffixedIdent fn.ident "_modelBody"
   let modelName ← mkSuffixedIdent fn.ident "_model"
-  let stmtTerms ← translateBodyToStmtTerms fields constDecls immutableDecls externalDecls functions fn
+  let stmtTerms ← translateBodyToStmtTerms fields roleDecls constDecls immutableDecls externalDecls functions fn
   let modelParams ← mkModelParamsTerm fn.params
-  let localObligationTerms ← fn.localObligations.mapM mkModelLocalObligationTerm
+  let localObligationTerms ← (functionLocalObligationsWithArithmetic fn).mapM mkModelLocalObligationTerm
   let payableTerm ← if fn.isPayable then `(true) else `(false)
   let viewTerm ← if fn.isView then `(true) else `(false)
   let pureTerm ← if fn.isPure then `(true) else `(false)
@@ -2790,6 +3157,7 @@ def mkFunctionCommandsPublic
     | some lockIdent => `(some $(strTerm (toString lockIdent.getId)))
     | none => `(none)
   let ceiSafeTerm ← if fn.ceiSafe then `(true) else `(false)
+  let reentrancyTrustedTerm ← if fn.reentrancyTrusted then `(true) else `(false)
   let requiresRoleTerm ← match fn.requiresRole with
     | some roleIdent => `(some $(strTerm (toString roleIdent.getId)))
     | none => `(none)
@@ -2817,6 +3185,7 @@ def mkFunctionCommandsPublic
     allowPostInteractionWrites := $allowPostInteractionWritesTerm
     nonReentrantLock := $nonReentrantLockTerm
     ceiSafe := $ceiSafeTerm
+    reentrancyTrusted := $reentrancyTrustedTerm
     requiresRole := $requiresRoleTerm
     modifies := [ $[$modifiesTerms],* ]
     localObligations := [ $[$localObligationTerms],* ]
@@ -2828,6 +3197,7 @@ def mkFunctionCommandsPublic
 def mkSpecCommandPublic
     (contractName : String)
     (fields : Array StorageFieldDecl)
+    (roleDecls : Array RoleDecl)
     (errorDecls : Array ErrorDecl)
     (eventDecls : Array EventDecl)
     (constDecls : Array ConstantDecl)
@@ -2838,7 +3208,7 @@ def mkSpecCommandPublic
     (functions : Array FunctionDecl)
     (adtDecls : Array AdtDecl)
     (storageNamespace : Option Nat) : CommandElabM Cmd :=
-  mkSpecCommand contractName fields errorDecls eventDecls constDecls immutableDecls externalDecls ctor modifiers functions adtDecls storageNamespace
+  mkSpecCommand contractName fields roleDecls errorDecls eventDecls constDecls immutableDecls externalDecls ctor modifiers functions adtDecls storageNamespace
 
 def mkFindIdxFieldSimpCommandsPublic
     (contractIdent : Ident)

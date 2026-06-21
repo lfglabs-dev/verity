@@ -145,7 +145,12 @@ private def slotAliasForSource (sourceSlot : Nat) (range : SlotAliasRange) : Opt
   else
     none
 
-private def derivedAliasSlotsForSource (sourceSlot : Nat) (ranges : List SlotAliasRange) : List Nat :=
+/-- Alias slots implied for a canonical source slot by the contract's
+    declared `slotAliasRanges` (Bugbot #1967). Public so the layout report
+    can reconstruct the same effective write set the validation pipeline
+    uses (`applySlotAliasRanges` folds it back into the field's
+    `aliasSlots`). -/
+def derivedAliasSlotsForSource (sourceSlot : Nat) (ranges : List SlotAliasRange) : List Nat :=
   dedupNatPreserve (ranges.filterMap (slotAliasForSource sourceSlot))
 
 def applySlotAliasRanges (fields : List Field) (ranges : List SlotAliasRange) : List Field :=

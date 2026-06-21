@@ -29,11 +29,74 @@ def SupportedExternalReturnProfile : List ParamType → Prop
   | [ty] => SupportedExternalParamType ty
   | _ => False
 
+/-- Proof-side scalar-parameter predicate tied to the compiler's actual gating
+function `isScalarParamType`. Mirrors the `eventParamScalarProofSupported` /
+`eventParamScalarCompileSupported` pattern: instead of duplicating the case
+list in the proof layer, the proof-side name delegates to the compile-side
+Bool so the two cannot drift apart. The hand-restated `SupportedExternalParamType`
+Prop is retained for existing call sites; the agreement theorem
+`SupportedExternalParamType_iff_externalParamScalarProofSupported` proves they
+denote the same set of types. -/
+def externalParamScalarProofSupported (ty : ParamType) : Bool :=
+  isScalarParamType ty
+
+/-- Proof-side scalar-return-profile predicate tied to the compiler's scalar
+gating function. Encodes the "zero or one single-word return" envelope of
+`SupportedExternalReturnProfile` while delegating the per-type decision to
+the compiler's `isScalarParamType`. -/
+def externalReturnProfileProofSupported : List ParamType → Bool
+  | [] => true
+  | [ty] => isScalarParamType ty
+  | _ => false
+
 def eventParamScalarProofSupported (ty : ParamType) : Bool :=
   eventParamScalarCompileSupported ty
 
 def eventDefScalarProofSupported (eventDef : EventDef) : Bool :=
   eventDefScalarCompileSupported eventDef
+
+/-- Proof-side catalog for source-shaped event declarations whose payloads are
+handled by the compiler's ABI event encoder. This deliberately lives beside,
+not inside, `eventEmissionProofSupported`: the existing semantic bridge still
+requires scalar params because it proves exact word-by-word log execution.
+All currently represented ABI `ParamType` constructors are source-shaped for
+event declarations; per-statement validation still checks the stricter
+argument-source requirements for dynamic payload copying/hashing. -/
+def eventParamSourceShapeProofSupported (_ty : ParamType) : Bool := true
+
+theorem eventParamSourceShapeProofSupported_of_scalar :
+    ∀ {ty : ParamType},
+      eventParamScalarProofSupported ty = true →
+        eventParamSourceShapeProofSupported ty = true
+  | _ty, _hsupport => rfl
+
+/-- Agreement oracle: the hand-restated `SupportedExternalParamType` Prop holds
+iff the compile-driven `externalParamScalarProofSupported` Bool is `true`.
+This is the meaning-preservation lemma for the conversion pattern: any future
+relaxation/tightening of `isScalarParamType` becomes visible at the proof
+boundary, instead of silently drifting from a hand-written enumeration. -/
+theorem SupportedExternalParamType_iff_externalParamScalarProofSupported
+    (ty : ParamType) :
+    SupportedExternalParamType ty ↔ externalParamScalarProofSupported ty = true := by
+  cases ty <;>
+    simp [SupportedExternalParamType, externalParamScalarProofSupported,
+      isScalarParamType]
+
+/-- Agreement oracle for the return-profile shape. -/
+theorem SupportedExternalReturnProfile_iff_externalReturnProfileProofSupported
+    (returns : List ParamType) :
+    SupportedExternalReturnProfile returns ↔
+      externalReturnProfileProofSupported returns = true := by
+  rcases returns with _ | ⟨ty, tail⟩
+  · -- []
+    simp [SupportedExternalReturnProfile, externalReturnProfileProofSupported]
+  · rcases tail with _ | ⟨ty2, rest⟩
+    · -- [ty]
+      simp [SupportedExternalReturnProfile, externalReturnProfileProofSupported,
+        SupportedExternalParamType_iff_externalParamScalarProofSupported,
+        externalParamScalarProofSupported]
+    · -- ty :: ty2 :: rest
+      simp [SupportedExternalReturnProfile, externalReturnProfileProofSupported]
 
 theorem eventDefScalarProofSupported_params_all
     {eventDef : EventDef}
@@ -142,13 +205,104 @@ theorem eventParamScalarProofSupported_ne_tuple
   intro h; subst h; simp [eventParamScalarProofSupported,
     eventParamScalarCompileSupported] at hsupport
 
+/-- Generous size ceiling on event scratch geometry. The compiled emit block
+addresses scratch words with the wrapping `add` builtin, so the semantic
+bridge needs every scratch word offset `k * 32` to stay strictly below
+`2^256`; bounding the signature byte length and parameter count by `2^32`
+keeps all offsets distinct mod `2^256` while admitting every realistic event. -/
+def eventScratchSizeLimit : Nat := 2 ^ 32
+
+def eventDefScratchBounded (eventDef : EventDef) : Bool :=
+  decide ((bytesFromString (eventSignature eventDef)).length ≤ eventScratchSizeLimit) &&
+    decide (eventDef.params.length ≤ eventScratchSizeLimit)
+
+def eventDefSourceShapeProofSupported (eventDef : EventDef) : Bool :=
+  eventDef.params.all (fun param => eventParamSourceShapeProofSupported param.ty) &&
+    decide ((eventDef.params.filter (fun param => param.kind == EventParamKind.indexed)).length ≤ 3) &&
+    eventDefScratchBounded eventDef
+
+theorem eventDefSourceShapeProofSupported_of_scalar
+    {eventDef : EventDef}
+    (hscalar : eventDefScalarProofSupported eventDef = true)
+    (hscratch : eventDefScratchBounded eventDef = true) :
+    eventDefSourceShapeProofSupported eventDef = true := by
+  have hparams :
+      eventDef.params.all (fun param => eventParamSourceShapeProofSupported param.ty) = true := by
+    apply List.all_eq_true.mpr
+    intro param hmem
+    exact eventParamSourceShapeProofSupported_of_scalar
+      (eventParamScalarProofSupported_eq_true_of_eventDefScalarProofSupported hscalar hmem)
+  have hindexed := eventDefScalarProofSupported_indexed_length_le_three hscalar
+  simp [eventDefSourceShapeProofSupported, hparams, hscratch, hindexed]
+
+private def dynamicTupleEventSmoke : EventDef :=
+  { name := "CompositeEvent"
+    params := [
+      { name := "id", ty := .bytes32, kind := .indexed },
+      { name := "payload", ty := .tuple [.uint256, .bytes], kind := .unindexed },
+      { name := "values", ty := .array .uint256, kind := .unindexed },
+      { name := "note", ty := .bytes, kind := .unindexed }
+    ] }
+
+private def staticStructEventSmoke : EventDef :=
+  { name := "CreateMarket"
+    params := [
+      { name := "id", ty := .bytes32, kind := .indexed },
+      { name := "market"
+        ty := .tuple [.address, .address, .address, .address, .uint256]
+        kind := .unindexed }
+    ] }
+
+private def indexedDynamicStructArrayEventSmoke : EventDef :=
+  { name := "IndexedDynamicStructArray"
+    params := [
+      { name := "payload"
+        ty := .array (.tuple [.uint256, .bytes])
+        kind := .indexed }
+    ] }
+
+private def fixedArrayAndAdtEventSmoke : EventDef :=
+  { name := "FixedArrayAndAdt"
+    params := [
+      { name := "fixed", ty := .fixedArray .address 2, kind := .indexed },
+      { name := "choice", ty := .adt "Choice" 2, kind := .unindexed }
+    ] }
+
+example : eventDefSourceShapeProofSupported dynamicTupleEventSmoke = true := by
+  rfl
+
+example : eventDefSourceShapeProofSupported staticStructEventSmoke = true := by
+  rfl
+
+example :
+    eventDefSourceShapeProofSupported indexedDynamicStructArrayEventSmoke = true := by
+  rfl
+
+example : eventDefSourceShapeProofSupported fixedArrayAndAdtEventSmoke = true := by
+  rfl
+
+/-- Event arguments admitted by the semantic bridge: atomic word-pure
+expressions (literals, scope variables, transaction context). The compiled
+emit block evaluates argument expressions *after* the signature words have
+been stored into scratch memory, while source semantics resolves arguments
+*before* the emit takes effect; atomic arguments cannot observe memory (or
+the block-local scratch bindings), so the two evaluation points agree. -/
+def exprEventArgAtomic : Expr → Bool
+  | .literal _ | .param _ | .localVar _ | .caller | .contractAddress
+  | .txOrigin | .msgValue | .blockTimestamp | .blockNumber | .chainid
+  | .blobbasefee | .calldatasize => true
+  | .immutable _ => false
+  | _ => false
+
 def eventEmissionProofSupported
     (events : List EventDef) (eventName : String) (args : List Expr) : Bool :=
   match events.find? (·.name == eventName) with
   | none => false
   | some eventDef =>
       eventDefScalarProofSupported eventDef &&
-        decide (args.length = eventDef.params.length)
+        decide (args.length = eventDef.params.length) &&
+        eventDefScratchBounded eventDef &&
+        args.all exprEventArgAtomic
 
 theorem exists_eventDef_of_eventEmissionProofSupported
     {events : List EventDef}
@@ -165,7 +319,34 @@ theorem exists_eventDef_of_eventEmissionProofSupported
       simp [hfind] at hsupport
   | some eventDef =>
       simp [hfind, Bool.and_eq_true] at hsupport
-      exact ⟨eventDef, rfl, hsupport.1, hsupport.2⟩
+      exact ⟨eventDef, rfl, hsupport.1.1.1, hsupport.1.1.2⟩
+
+theorem eventDefScratchBounded_of_eventEmissionProofSupported
+    {events : List EventDef}
+    {eventName : String}
+    {args : List Expr}
+    {eventDef : EventDef}
+    (hsupport : eventEmissionProofSupported events eventName args = true)
+    (hfind : events.find? (·.name == eventName) = some eventDef) :
+    eventDefScratchBounded eventDef = true := by
+  unfold eventEmissionProofSupported at hsupport
+  rw [hfind] at hsupport
+  simp [Bool.and_eq_true] at hsupport
+  exact hsupport.1.2
+
+theorem args_all_atomic_of_eventEmissionProofSupported
+    {events : List EventDef}
+    {eventName : String}
+    {args : List Expr}
+    (hsupport : eventEmissionProofSupported events eventName args = true) :
+    args.all exprEventArgAtomic = true := by
+  unfold eventEmissionProofSupported at hsupport
+  cases hfind : events.find? (fun x => x.name == eventName) with
+  | none => simp [hfind] at hsupport
+  | some eventDef =>
+      rw [hfind] at hsupport
+      simp [Bool.and_eq_true] at hsupport
+      simpa using hsupport.2
 
 theorem eventEmissionProofSupported_find?_isSome
     {events : List EventDef}
@@ -553,8 +734,8 @@ mutual
 decoding. Raw constructor calldata observations therefore remain outside the
 current body-level support interface until the deploy-wrapper proof exists. -/
 def exprTouchesUnsupportedConstructorRawCalldataSurface : Expr → Bool
-  | .literal _ | .param _ | .localVar _ | .caller | .contractAddress
-  | .chainid | .msgValue | .selfBalance | .txOrigin | .blockTimestamp | .blockNumber
+  | .literal _ | .param _ | .immutable _ | .localVar _ | .caller | .contractAddress | .txOrigin
+  | .chainid | .msgValue | .selfBalance | .blockTimestamp | .blockNumber
   | .blobbasefee | .constructorArg _ | .returndataSize | .extcodesize _ => false
   | .calldatasize => true
   | .storage _ | .storageAddr _ | .arrayLength _ | .memoryArrayLength _
@@ -637,7 +818,7 @@ def exprListTouchesUnsupportedConstructorRawCalldataSurface : List Expr → Bool
 
 def stmtTouchesUnsupportedConstructorRawCalldataSurface : Stmt → Bool
   | .letVar _ value | .assignVar _ value | .setStorage _ value
-  | .setStorageAddr _ value | .setStorageWord _ _ value
+  | .setStorageAddr _ value | .setImmutable _ value | .setStorageWord _ _ value
   | .require value _ | .return value
   | .storageArrayPush _ value =>
       exprTouchesUnsupportedConstructorRawCalldataSurface value
@@ -664,7 +845,7 @@ def stmtTouchesUnsupportedConstructorRawCalldataSurface : Stmt → Bool
       exprTouchesUnsupportedConstructorRawCalldataSurface cond ||
         stmtListTouchesUnsupportedConstructorRawCalldataSurface thenBranch ||
         stmtListTouchesUnsupportedConstructorRawCalldataSurface elseBranch
-  | .forEach _ count body =>
+  | .forEach _ count body | .forEachSetBit _ count body =>
       exprTouchesUnsupportedConstructorRawCalldataSurface count ||
         stmtListTouchesUnsupportedConstructorRawCalldataSurface body
   | .stop | .storageArrayPop _ | .requireError _ _ _ | .revertError _ _
@@ -703,10 +884,11 @@ structure SupportedReturnProfile (fn : FunctionSpec) : Prop where
 before any richer contract surface is considered. This tracks proof-core gaps
 rather than a semantic trust boundary. -/
 def exprTouchesUnsupportedCoreSurface : Expr → Bool
-  | .literal _ | .param _ | .caller | .contractAddress
+  | .literal _ | .param _ | .caller | .contractAddress | .txOrigin
   | .chainid | .msgValue | .blockTimestamp | .blockNumber
   | .blobbasefee | .calldatasize | .localVar _ => false
-  | .selfBalance | .txOrigin => true
+  | .immutable _ => true
+  | .selfBalance => true
   | .storage _ | .storageAddr _ => false
   | .add a b | .sub a b | .mul a b | .div a b | .mod a b
   | .eq a b | .ge a b | .gt a b | .lt a b | .le a b
@@ -759,8 +941,8 @@ def exprTouchesUnsupportedCoreSurface : Expr → Bool
 /-- Stateful expression surfaces not yet carried by the generic Layer 2 body
 interface. These are the next storage/layout-style widening targets. -/
 def exprTouchesUnsupportedStateSurface : Expr → Bool
-  | .literal _ | .param _ | .caller | .contractAddress
-  | .chainid | .msgValue | .selfBalance | .txOrigin | .blockTimestamp | .blockNumber
+  | .literal _ | .param _ | .immutable _ | .caller | .contractAddress | .txOrigin
+  | .chainid | .msgValue | .selfBalance | .blockTimestamp | .blockNumber
   | .localVar _ => false
   | .storage _ | .storageAddr _ => true
   | .mapping _ _ | .mappingWord _ _ _ | .mappingPackedWord _ _ _ _
@@ -812,8 +994,8 @@ body theorem: internal helper reuse, low-level calls, and foreign call hooks. -/
 def exprTouchesUnsupportedCallSurface : Expr → Bool
   | .internalCall _ _ | .externalCall _ _ => true
   | .call _ _ _ _ _ _ _ | .staticcall _ _ _ _ _ _ | .delegatecall _ _ _ _ _ _ => true
-  | .literal _ | .param _ | .caller | .contractAddress
-  | .chainid | .msgValue | .selfBalance | .txOrigin | .blockTimestamp | .blockNumber
+  | .literal _ | .param _ | .immutable _ | .caller | .contractAddress | .txOrigin
+  | .chainid | .msgValue | .selfBalance | .blockTimestamp | .blockNumber
   | .localVar _ | .storage _ | .storageAddr _
   | .constructorArg _ | .blobbasefee
   | .calldatasize | .returndataSize | .extcodesize _
@@ -871,8 +1053,8 @@ def exprTouchesUnsupportedCallSurface : Expr → Bool
 generic whole-contract theorem. -/
 def exprTouchesUnsupportedHelperSurface : Expr → Bool
   | .internalCall _ _ => true
-  | .literal _ | .param _ | .caller | .contractAddress
-  | .chainid | .msgValue | .selfBalance | .txOrigin | .blockTimestamp | .blockNumber
+  | .literal _ | .param _ | .immutable _ | .caller | .contractAddress | .txOrigin
+  | .chainid | .msgValue | .selfBalance | .blockTimestamp | .blockNumber
   | .localVar _ | .storage _ | .storageAddr _
   | .constructorArg _ | .blobbasefee
   | .calldatasize | .returndataSize | .extcodesize _
@@ -939,8 +1121,8 @@ still-unsupported expression shapes that currently share the coarse
 `exprTouchesUnsupportedHelperSurface` approximation. -/
 def exprTouchesInternalHelperSurface : Expr → Bool
   | .internalCall _ _ => true
-  | .literal _ | .param _ | .caller | .contractAddress
-  | .chainid | .msgValue | .selfBalance | .txOrigin | .blockTimestamp | .blockNumber
+  | .literal _ | .param _ | .immutable _ | .caller | .contractAddress | .txOrigin
+  | .chainid | .msgValue | .selfBalance | .blockTimestamp | .blockNumber
   | .localVar _ | .storage _ | .storageAddr _
   | .constructorArg _ | .blobbasefee
   | .calldatasize | .returndataSize | .extcodesize _
@@ -1002,8 +1184,8 @@ def exprTouchesInternalHelperSurface : Expr → Bool
 whole-contract theorem. -/
 def exprTouchesUnsupportedForeignSurface : Expr → Bool
   | .externalCall _ _ => true
-  | .literal _ | .param _ | .caller | .contractAddress
-  | .chainid | .msgValue | .selfBalance | .txOrigin | .blockTimestamp | .blockNumber
+  | .literal _ | .param _ | .immutable _ | .caller | .contractAddress | .txOrigin
+  | .chainid | .msgValue | .selfBalance | .blockTimestamp | .blockNumber
   | .localVar _ | .storage _ | .storageAddr _
   | .constructorArg _ | .blobbasefee
   | .calldatasize | .returndataSize | .extcodesize _
@@ -1063,8 +1245,8 @@ def exprTouchesUnsupportedForeignSurface : Expr → Bool
 whole-contract theorem. -/
 def exprTouchesUnsupportedLowLevelSurface : Expr → Bool
   | .call _ _ _ _ _ _ _ | .staticcall _ _ _ _ _ _ | .delegatecall _ _ _ _ _ _ => true
-  | .literal _ | .param _ | .caller | .contractAddress
-  | .chainid | .msgValue | .selfBalance | .txOrigin | .blockTimestamp | .blockNumber
+  | .literal _ | .param _ | .immutable _ | .caller | .contractAddress | .txOrigin
+  | .chainid | .msgValue | .selfBalance | .blockTimestamp | .blockNumber
   | .localVar _ | .storage _ | .storageAddr _
   | .constructorArg _ | .blobbasefee
   | .calldatasize | .returndataSize | .extcodesize _
@@ -1125,10 +1307,11 @@ generic-induction boundary does not silently widen or tighten while the new
 feature-local interfaces are introduced alongside it. -/
 def exprTouchesUnsupportedContractSurface (expr : Expr) : Bool :=
   match expr with
-  | .literal _ | .param _ | .caller | .contractAddress
+  | .literal _ | .param _ | .caller | .contractAddress | .txOrigin
   | .chainid | .msgValue | .blockTimestamp | .blockNumber
   | .blobbasefee | .calldatasize | .localVar _ => false
-  | .selfBalance | .txOrigin => true
+  | .immutable _ => true
+  | .selfBalance => true
   | .storage _ | .storageAddr _ => true
   | .add a b | .sub a b | .mul a b | .div a b | .mod a b
   | .bitAnd a b | .bitOr a b | .bitXor a b | .eq a b
@@ -1178,7 +1361,9 @@ theorem: richer returns, logs, typed errors, and raw external effect hooks. -/
 def stmtTouchesUnsupportedEffectSurface : Stmt → Bool
   | .requireError _ _ _ | .revertError _ _ | .returnValues _ | .returnArray _
   | .returnBytes _ | .returnStorageWords _ | .returnCodeData _ | .emit _ _ | .rawLog _ _ _
-  | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _ | .ecm _ _ => true
+  | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _ => true
+  | .ecm mod _ => !(ecmPureHashing mod)
+  | .setImmutable _ _ => true
   | .letVar _ _ | .assignVar _ _ | .setStorage _ _ | .setStorageAddr _ _
   | .setStorageWord _ _ _
   | .require _ _ | .return _ | .mstore _ _ | .tstore _ _ | .stop
@@ -1193,7 +1378,7 @@ def stmtTouchesUnsupportedEffectSurface : Stmt → Bool
   | .ite _ thenBranch elseBranch =>
       stmtListTouchesUnsupportedEffectSurface thenBranch ||
         stmtListTouchesUnsupportedEffectSurface elseBranch
-  | .forEach _ _ body =>
+  | .forEach _ _ body | .forEachSetBit _ _ body =>
       stmtListTouchesUnsupportedEffectSurface body
 
 /-- Statement forms intentionally still outside the current generic-induction
@@ -1202,7 +1387,7 @@ interfaces of their own. -/
 def stmtTouchesUnsupportedCoreSurface : Stmt → Bool
   | .letVar _ value | .assignVar _ value | .setStorage _ value =>
       exprTouchesUnsupportedCoreSurface value
-  | .setStorageAddr _ value =>
+  | .setStorageAddr _ value | .setImmutable _ value =>
       exprTouchesUnsupportedCoreSurface value
   | .setStorageWord _ _ value =>
       exprTouchesUnsupportedCoreSurface value
@@ -1234,7 +1419,7 @@ def stmtTouchesUnsupportedCoreSurface : Stmt → Bool
       exprTouchesUnsupportedCoreSurface cond ||
         stmtListTouchesUnsupportedCoreSurface thenBranch ||
         stmtListTouchesUnsupportedCoreSurface elseBranch
-  | .forEach _ _ _ => true
+  | .forEach _ _ _ | .forEachSetBit _ _ _ => true
   | .storageArrayPop _
   | .requireError _ _ _ | .revertError _ _ | .returnValues _ | .returnArray _
   | .returnBytes _ | .returnStorageWords _ | .returnCodeData _ | .calldatacopy _ _ _
@@ -1250,7 +1435,7 @@ def stmtTouchesUnsupportedStateSurface : Stmt → Bool
       exprTouchesUnsupportedStateSurface value
   | .require cond _ | .return cond =>
       exprTouchesUnsupportedStateSurface cond
-  | .setStorageAddr _ value =>
+  | .setStorageAddr _ value | .setImmutable _ value =>
       exprTouchesUnsupportedStateSurface value
   | .setStorageWord _ _ _ | .setMapping _ _ _ | .setMappingWord _ _ _ _ | .setMappingPackedWord _ _ _ _ _
   | .setMapping2 _ _ _ _ | .setMapping2Word _ _ _ _ _ | .setMappingUint _ _ _
@@ -1272,7 +1457,7 @@ def stmtTouchesUnsupportedStateSurface : Stmt → Bool
         stmtListTouchesUnsupportedStateSurface thenBranch ||
         stmtListTouchesUnsupportedStateSurface elseBranch
   | .forEach _ (.literal _) [] => false
-  | .forEach _ _ _ => true
+  | .forEach _ _ _ | .forEachSetBit _ _ _ => true
 
 /-- Weaker Tier 2 state-surface gate used by the singleton storage-write bridge:
 all existing unsupported stateful forms remain excluded except for the proved
@@ -1288,7 +1473,7 @@ def stmtTouchesUnsupportedStateSurfaceExceptMappingWrites : Stmt → Bool
 generic theorem. -/
 def stmtTouchesUnsupportedCallSurface : Stmt → Bool
   | .letVar _ value | .assignVar _ value | .setStorage _ value
-  | .setStorageAddr _ value | .setStorageWord _ _ value | .storageArrayPush _ value =>
+  | .setStorageAddr _ value | .setImmutable _ value | .setStorageWord _ _ value | .storageArrayPush _ value =>
       exprTouchesUnsupportedCallSurface value
   | .setMapping _ key value | .setMappingWord _ key _ value
   | .setMappingPackedWord _ key _ _ value | .setMappingUint _ key value
@@ -1324,13 +1509,13 @@ def stmtTouchesUnsupportedCallSurface : Stmt → Bool
       exprTouchesUnsupportedCallSurface cond ||
         stmtListTouchesUnsupportedCallSurface thenBranch ||
         stmtListTouchesUnsupportedCallSurface elseBranch
-  | .forEach _ count body =>
+  | .forEach _ count body | .forEachSetBit _ count body =>
       exprTouchesUnsupportedCallSurface count ||
         stmtListTouchesUnsupportedCallSurface body
 
 def stmtTouchesUnsupportedHelperSurface : Stmt → Bool
   | .letVar _ value | .assignVar _ value | .setStorage _ value
-  | .setStorageAddr _ value | .setStorageWord _ _ value | .storageArrayPush _ value =>
+  | .setStorageAddr _ value | .setImmutable _ value | .setStorageWord _ _ value | .storageArrayPush _ value =>
       exprTouchesUnsupportedHelperSurface value
   | .setMapping _ key value | .setMappingWord _ key _ value
   | .setMappingPackedWord _ key _ _ value | .setMappingUint _ key value
@@ -1365,7 +1550,7 @@ def stmtTouchesUnsupportedHelperSurface : Stmt → Bool
       exprTouchesUnsupportedHelperSurface cond ||
         stmtListTouchesUnsupportedHelperSurface thenBranch ||
         stmtListTouchesUnsupportedHelperSurface elseBranch
-  | .forEach _ count body =>
+  | .forEach _ count body | .forEachSetBit _ count body =>
       exprTouchesUnsupportedHelperSurface count ||
         stmtListTouchesUnsupportedHelperSurface body
 
@@ -1374,7 +1559,7 @@ this isolates heads that genuinely execute internal helpers, leaving residual
 non-helper unsupported cases to be tracked separately. -/
 def stmtTouchesInternalHelperSurface : Stmt → Bool
   | .letVar _ value | .assignVar _ value | .setStorage _ value
-  | .setStorageAddr _ value | .setStorageWord _ _ value | .storageArrayPush _ value =>
+  | .setStorageAddr _ value | .setImmutable _ value | .setStorageWord _ _ value | .storageArrayPush _ value =>
       exprTouchesInternalHelperSurface value
   | .setMapping _ key value | .setMappingWord _ key _ value
   | .setMappingPackedWord _ key _ _ value | .setMappingUint _ key value
@@ -1409,7 +1594,7 @@ def stmtTouchesInternalHelperSurface : Stmt → Bool
       exprTouchesInternalHelperSurface cond ||
         stmtListTouchesInternalHelperSurface thenBranch ||
         stmtListTouchesInternalHelperSurface elseBranch
-  | .forEach _ count body =>
+  | .forEach _ count body | .forEachSetBit _ count body =>
       exprTouchesInternalHelperSurface count ||
         stmtListTouchesInternalHelperSurface body
 
@@ -1441,7 +1626,7 @@ soundness and world-preservation lemmas directly, rather than bundling them
 with direct helper statements or recursive structural transport. -/
 def stmtTouchesExprInternalHelperSurface : Stmt → Bool
   | .letVar _ value | .assignVar _ value | .setStorage _ value
-  | .setStorageAddr _ value | .setStorageWord _ _ value | .storageArrayPush _ value =>
+  | .setStorageAddr _ value | .setImmutable _ value | .setStorageWord _ _ value | .storageArrayPush _ value =>
       exprTouchesInternalHelperSurface value
   | .setMapping _ key value | .setMappingWord _ key _ value
   | .setMappingPackedWord _ key _ _ value | .setMappingUint _ key value
@@ -1466,7 +1651,7 @@ def stmtTouchesExprInternalHelperSurface : Stmt → Bool
       exprTouchesInternalHelperSurface pointer
   | .ite cond _ _ =>
       exprTouchesInternalHelperSurface cond
-  | .forEach _ count _ =>
+  | .forEach _ count _ | .forEachSetBit _ count _ =>
       exprTouchesInternalHelperSurface count
   | .internalCall _ _ | .internalCallAssign _ _ _ | .stop
   | .calldatacopy _ _ _ | .returndataCopy _ _ _
@@ -1484,11 +1669,11 @@ def stmtTouchesStructuralInternalHelperSurface : Stmt → Bool
   | .ite _ thenBranch elseBranch =>
       stmtListTouchesInternalHelperSurface thenBranch ||
         stmtListTouchesInternalHelperSurface elseBranch
-  | .forEach _ _ body =>
+  | .forEach _ _ body | .forEachSetBit _ _ body =>
       stmtListTouchesInternalHelperSurface body
   | .letVar _ _ | .assignVar _ _ | .setStorage _ _ | .require _ _
   | .return _ | .returnCodeData _ | .internalCall _ _ | .internalCallAssign _ _ _
-  | .stop | .setStorageAddr _ _ | .setStorageWord _ _ _ | .mstore _ _ | .tstore _ _
+  | .stop | .setStorageAddr _ _ | .setImmutable _ _ | .setStorageWord _ _ _ | .mstore _ _ | .tstore _ _
  
   | .calldatacopy _ _ _ | .returndataCopy _ _ _
   | .revertReturndata | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _ | .ecm _ _
@@ -1506,7 +1691,7 @@ def stmtTouchesStructuralInternalHelperSurface : Stmt → Bool
 
 def stmtTouchesUnsupportedForeignSurface : Stmt → Bool
   | .letVar _ value | .assignVar _ value | .setStorage _ value
-  | .setStorageAddr _ value | .setStorageWord _ _ value | .storageArrayPush _ value =>
+  | .setStorageAddr _ value | .setImmutable _ value | .setStorageWord _ _ value | .storageArrayPush _ value =>
       exprTouchesUnsupportedForeignSurface value
   | .setMapping _ key value | .setMappingWord _ key _ value
   | .setMappingPackedWord _ key _ _ value | .setMappingUint _ key value
@@ -1542,13 +1727,13 @@ def stmtTouchesUnsupportedForeignSurface : Stmt → Bool
       exprTouchesUnsupportedForeignSurface cond ||
         stmtListTouchesUnsupportedForeignSurface thenBranch ||
         stmtListTouchesUnsupportedForeignSurface elseBranch
-  | .forEach _ count body =>
+  | .forEach _ count body | .forEachSetBit _ count body =>
       exprTouchesUnsupportedForeignSurface count ||
         stmtListTouchesUnsupportedForeignSurface body
 
 def stmtTouchesUnsupportedLowLevelSurface : Stmt → Bool
   | .letVar _ value | .assignVar _ value | .setStorage _ value
-  | .setStorageAddr _ value | .setStorageWord _ _ value | .storageArrayPush _ value =>
+  | .setStorageAddr _ value | .setImmutable _ value | .setStorageWord _ _ value | .storageArrayPush _ value =>
       exprTouchesUnsupportedLowLevelSurface value
   | .setMapping _ key value | .setMappingWord _ key _ value
   | .setMappingPackedWord _ key _ _ value | .setMappingUint _ key value
@@ -1583,7 +1768,7 @@ def stmtTouchesUnsupportedLowLevelSurface : Stmt → Bool
       exprTouchesUnsupportedLowLevelSurface cond ||
         stmtListTouchesUnsupportedLowLevelSurface thenBranch ||
         stmtListTouchesUnsupportedLowLevelSurface elseBranch
-  | .forEach _ count body =>
+  | .forEach _ count body | .forEachSetBit _ count body =>
       exprTouchesUnsupportedLowLevelSurface count ||
         stmtListTouchesUnsupportedLowLevelSurface body
 
@@ -1593,6 +1778,7 @@ def stmtTouchesUnsupportedContractSurface (stmt : Stmt) : Bool :=
       exprTouchesUnsupportedContractSurface value
   | .setStorageAddr _ value =>
       exprTouchesUnsupportedContractSurface value
+  | .setImmutable _ _ => true
   | .setStorageWord _ _ value =>
       exprTouchesUnsupportedContractSurface value
   | .require cond _ | .return cond =>
@@ -1620,7 +1806,7 @@ def stmtTouchesUnsupportedContractSurface (stmt : Stmt) : Bool :=
   | .forEach _ (.literal 0) body =>
       stmtListTouchesUnsupportedContractSurface body
   | .forEach _ (.literal _) [] => false
-  | .forEach _ _ _ => true
+  | .forEach _ _ _ | .forEachSetBit _ _ _ => true
 
 def stmtTouchesUnsupportedContractSurfaceWithEvents
     (events : List EventDef) (stmt : Stmt) : Bool :=
@@ -1646,6 +1832,12 @@ def stmtListTouchesUnsupportedContractSurfaceWithEvents
   | stmt :: rest =>
       stmtTouchesUnsupportedContractSurfaceWithEvents events stmt ||
         stmtListTouchesUnsupportedContractSurfaceWithEvents events rest
+
+/-- Direct event-emission heads admitted by the top-level scalar-event slice.
+Recursive event occurrences remain outside this predicate. -/
+def stmtTouchesEventSurface : Stmt → Bool
+  | .emit _ _ => true
+  | _ => false
 
 /-- Weaker contract-surface gate used by the Tier 2 singleton storage-write
 bridge: ordinary unsupported contract effects remain excluded, but the proved
@@ -1753,6 +1945,153 @@ def stmtListTouchesUnsupportedContractSurfaceExceptMappingWrites : List Stmt →
         stmtListTouchesUnsupportedContractSurfaceExceptMappingWrites rest
 end
 
+private theorem compileStmtWithFork_cancun_eq_compileStmt
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
+    (isInternal : Bool) (inScopeNames : List String)
+    (adtTypes : List AdtTypeDef) (stmt : Stmt)
+    (internalFunctions : List FunctionSpec := []) :
+    CompilationModel.compileStmtWithFork fields events errors dynamicSource
+      internalRetNames isInternal inScopeNames adtTypes Verity.Core.Intrinsics.HardFork.cancun
+      stmt internalFunctions =
+    CompilationModel.compileStmt fields events errors dynamicSource
+      internalRetNames isInternal inScopeNames adtTypes stmt internalFunctions := rfl
+
+private theorem compileStmtListWithFork_cancun_eq_compileStmtList
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
+    (isInternal : Bool) (inScopeNames : List String)
+    (adtTypes : List AdtTypeDef) (stmts : List Stmt)
+    (internalFunctions : List FunctionSpec := []) :
+    CompilationModel.compileStmtListWithFork fields events errors dynamicSource
+      internalRetNames isInternal inScopeNames adtTypes Verity.Core.Intrinsics.HardFork.cancun
+      stmts internalFunctions =
+    CompilationModel.compileStmtList fields events errors dynamicSource
+      internalRetNames isInternal inScopeNames adtTypes stmts internalFunctions := rfl
+
+/-- The body of a contract-surface-closed `forEach` head is itself
+contract-surface closed: the gate only admits literal-zero bounds (with a
+closed body) or nonzero literal bounds with an empty body. -/
+theorem stmtListTouchesUnsupportedContractSurface_of_forEach_surfaceClosed
+    {varName : String}
+    {count : Expr}
+    {body : List Stmt}
+    (hsurface :
+      stmtTouchesUnsupportedContractSurface (.forEach varName count body) = false) :
+    stmtListTouchesUnsupportedContractSurface body = false := by
+  cases body with
+  | nil => rfl
+  | cons s rest =>
+      cases count
+      case literal k =>
+        cases k with
+        | zero => exact hsurface
+        | succ k => exact Bool.noConfusion hsurface
+      all_goals exact Bool.noConfusion hsurface
+
+/-- `compileStmt` consults `events` only in the `.emit` arm and `errors` only in
+the `.requireError`/`.revertError` arms, all of which the plain contract-surface
+gate excludes. Surface-closed statements therefore compile identically under any
+event/error catalog, which lets event-aware specs reuse the helper-free generic
+step library for their non-emit heads. -/
+private theorem compileStmt_eventsErrorsAgnostic_aux
+    (n : Nat)
+    (fields : List Field)
+    (events : List EventDef)
+    (errors : List ErrorDef) :
+    (∀ (stmt : Stmt) (scope : List String),
+      sizeOf stmt < n →
+      stmtTouchesUnsupportedContractSurface stmt = false →
+      CompilationModel.compileStmt fields events errors .calldata [] false scope [] stmt [] =
+        CompilationModel.compileStmt fields [] [] .calldata [] false scope [] stmt []) ∧
+    (∀ (stmts : List Stmt) (scope : List String),
+      sizeOf stmts < n →
+      stmtListTouchesUnsupportedContractSurface stmts = false →
+      CompilationModel.compileStmtList fields events errors .calldata [] false scope [] stmts [] =
+        CompilationModel.compileStmtList fields [] [] .calldata [] false scope [] stmts []) := by
+  induction n with
+  | zero =>
+      exact ⟨fun _ _ hlt => absurd hlt (Nat.not_lt_zero _),
+        fun _ _ hlt => absurd hlt (Nat.not_lt_zero _)⟩
+  | succ n ih =>
+      constructor
+      · intro stmt scope hlt hsurface
+        cases stmt with
+        | ite cond thenBranch elseBranch =>
+            simp only [stmtTouchesUnsupportedContractSurface,
+              Bool.or_eq_false_iff] at hsurface
+            simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+              compileStmtListWithFork_cancun_eq_compileStmtList,
+              ih.2 thenBranch scope
+                (by simp [Stmt.ite.sizeOf_spec] at hlt; omega) hsurface.1.2,
+              ih.2 elseBranch scope
+                (by simp [Stmt.ite.sizeOf_spec] at hlt; omega) hsurface.2]
+        | forEach varName count body =>
+            simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+              compileStmtListWithFork_cancun_eq_compileStmtList,
+              ih.2 body (CompilationModel.forEachBodyScope scope varName count body)
+                (by simp [Stmt.forEach.sizeOf_spec] at hlt; omega)
+                (stmtListTouchesUnsupportedContractSurface_of_forEach_surfaceClosed
+                  hsurface)]
+        | forEachSetBit _ _ _ =>
+            simp [stmtTouchesUnsupportedContractSurface] at hsurface
+        | letVar | assignVar | setStorage | setStorageAddr | setImmutable | setStorageWord
+        | require | «return» | mstore | tstore | stop =>
+            simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork]
+        | setMapping | setMappingWord | setMappingPackedWord | setMapping2
+        | setMapping2Word | setMappingUint | setMappingChain | setStructMember
+        | setStructMember2 | storageArrayPush | storageArrayPop
+        | setStorageArrayElement | requireError | revertError | returnValues
+        | returnArray | returnBytes | returnStorageWords | returnCodeData
+        | calldatacopy | returndataCopy | revertReturndata | emit | internalCall
+        | internalCallAssign | rawLog | externalCallBind | ecm
+        | tryExternalCallBind | unsafeBlock | unsafeYul | matchAdt =>
+            simp [stmtTouchesUnsupportedContractSurface] at hsurface
+      · intro stmts scope hlt hsurface
+        cases stmts with
+        | nil => simp only [CompilationModel.compileStmtList, CompilationModel.compileStmtListWithFork]
+        | cons s ss =>
+            simp only [stmtListTouchesUnsupportedContractSurface,
+              Bool.or_eq_false_iff] at hsurface
+            simp only [CompilationModel.compileStmtList,
+              CompilationModel.compileStmtListWithFork, bind, Except.bind]
+            rw [compileStmtWithFork_cancun_eq_compileStmt,
+              ih.1 s scope
+                (by simp [List.cons.sizeOf_spec] at hlt; omega) hsurface.1,
+              compileStmtListWithFork_cancun_eq_compileStmtList,
+              ih.2 ss (collectStmtNames s ++ scope)
+                (by simp [List.cons.sizeOf_spec] at hlt; omega) hsurface.2]
+            simp only [compileStmtWithFork_cancun_eq_compileStmt,
+              compileStmtListWithFork_cancun_eq_compileStmtList]
+
+/-- Surface-closed statements compile identically under any event/error
+catalog. -/
+theorem compileStmt_eventsErrorsAgnostic_of_contractSurfaceClosed
+    {fields : List Field}
+    {events : List EventDef}
+    {errors : List ErrorDef}
+    {scope : List String}
+    {stmt : Stmt}
+    (hsurface : stmtTouchesUnsupportedContractSurface stmt = false) :
+    CompilationModel.compileStmt fields events errors .calldata [] false scope [] stmt [] =
+      CompilationModel.compileStmt fields [] [] .calldata [] false scope [] stmt [] :=
+  (compileStmt_eventsErrorsAgnostic_aux (sizeOf stmt + 1) fields events errors).1
+    stmt scope (Nat.lt_succ_of_le (Nat.le_refl _)) hsurface
+
+/-- Surface-closed statement lists compile identically under any event/error
+catalog. -/
+theorem compileStmtList_eventsErrorsAgnostic_of_contractSurfaceClosed
+    {fields : List Field}
+    {events : List EventDef}
+    {errors : List ErrorDef}
+    {scope : List String}
+    {stmts : List Stmt}
+    (hsurface : stmtListTouchesUnsupportedContractSurface stmts = false) :
+    CompilationModel.compileStmtList fields events errors .calldata [] false scope [] stmts [] =
+      CompilationModel.compileStmtList fields [] [] .calldata [] false scope [] stmts [] :=
+  (compileStmt_eventsErrorsAgnostic_aux (sizeOf stmts + 1) fields events errors).2
+    stmts scope (Nat.lt_succ_of_le (Nat.le_refl _)) hsurface
+
 theorem exprListTouchesUnsupportedContractSurface_eq_false_of_emit_contractSurfaceWithEventsClosed
     {events : List EventDef}
     {eventName : String}
@@ -1843,9 +2182,9 @@ mutual
     -- `_mutual.eq_def` 200 000-heartbeat ceiling when new `Expr` constructors
     -- land (verity#1842 captured the same pitfall for the Expr→Except
     -- validators).
-    | .literal _ | .param _ | .constructorArg _
+    | .literal _ | .param _ | .immutable _ | .constructorArg _
     | .storage _ | .storageAddr _
-    | .caller | .contractAddress | .chainid | .msgValue | .selfBalance | .txOrigin
+    | .caller | .contractAddress | .txOrigin | .chainid | .msgValue | .selfBalance
     | .blockTimestamp | .blockNumber | .blobbasefee
     | .calldatasize | .returndataSize
     | .localVar _ | .arrayLength _ | .memoryArrayLength _ | .storageArrayLength _
@@ -1872,6 +2211,7 @@ mutual
   helper-aware expression semantics returns only a value. -/
   def stmtExprHelperCallNames : Stmt → List String
     | .letVar _ value | .assignVar _ value | .setStorage _ value | .setStorageAddr _ value
+    | .setImmutable _ value
     | .setStorageWord _ _ value
     | .storageArrayPush _ value | .return value | .require value _ =>
         exprInternalHelperCallNames value
@@ -1903,7 +2243,7 @@ mutual
     | .ite cond thenBranch elseBranch =>
         exprInternalHelperCallNames cond ++ stmtListExprHelperCallNames thenBranch ++
           stmtListExprHelperCallNames elseBranch
-    | .forEach _ count body =>
+    | .forEach _ count body | .forEachSetBit _ count body =>
         exprInternalHelperCallNames count ++ stmtListExprHelperCallNames body
     | .internalCall _ args | .internalCallAssign _ _ args =>
         exprListInternalHelperCallNames args
@@ -1939,6 +2279,7 @@ mutual
   /-- Collect direct internal-helper callee names mentioned by a statement list. -/
   def stmtInternalHelperCallNames : Stmt → List String
     | .letVar _ value | .assignVar _ value | .setStorage _ value | .setStorageAddr _ value
+    | .setImmutable _ value
     | .setStorageWord _ _ value
     | .storageArrayPush _ value | .return value | .require value _ =>
         exprInternalHelperCallNames value
@@ -1970,7 +2311,7 @@ mutual
     | .ite cond thenBranch elseBranch =>
         exprInternalHelperCallNames cond ++ stmtListInternalHelperCallNames thenBranch ++
           stmtListInternalHelperCallNames elseBranch
-    | .forEach _ count body =>
+    | .forEach _ count body | .forEachSetBit _ count body =>
         exprInternalHelperCallNames count ++ stmtListInternalHelperCallNames body
     | .internalCall calleeName args =>
         calleeName :: exprListInternalHelperCallNames args
@@ -2114,7 +2455,7 @@ private theorem stmtListExprHelperCallNames_subset_stmtListInternalHelperCallNam
                 stmtListExprHelperCallNames_subset_stmtListInternalHelperCallNames thenBranch hthen
             · exact Or.inr <|
                 stmtListExprHelperCallNames_subset_stmtListInternalHelperCallNames elseBranch helse
-        | forEach var count body =>
+        | forEach var count body | forEachSetBit var count body =>
             simp only [stmtExprHelperCallNames, stmtInternalHelperCallNames, List.mem_append] at hstmt ⊢
             rcases hstmt with hcount | hbody
             · exact Or.inl hcount
@@ -2318,6 +2659,34 @@ structure SupportedBodyInterface (spec : CompilationModel) (fn : FunctionSpec) w
   effects : SupportedBodyEffectInterface fn
   noLocalObligations : fn.localObligations = []
 
+/-- Body-level support for the scalar-event slice. Event emissions are admitted
+only as top-level statement heads; structural statements such as `ite` and
+`forEach` must remain fully plain contract-surface closed. -/
+structure SupportedBodyInterfaceWithScalarEvents
+    (spec : CompilationModel) (fn : FunctionSpec) where
+  stmtList : SupportedStmtList spec.fields (fn.params.map (·.name)) fn.body
+  core : SupportedBodyCoreInterface fn
+  state : SupportedBodyStateInterface fn
+  calls : SupportedBodyCallInterface spec fn
+  contractSurfaceWithEvents :
+    stmtListTouchesUnsupportedContractSurfaceWithEvents spec.events fn.body = false
+  topLevelEventHeads :
+    ∀ s ∈ fn.body,
+      stmtTouchesEventSurface s = true ∨
+        stmtTouchesUnsupportedContractSurface s = false
+  eventScratchFreshInitial :
+    "__evt_ptr" ∉ fn.params.map (·.name) ∧
+      "__evt_topic0" ∉ fn.params.map (·.name)
+  eventScratchFreshStmts :
+    ∀ s ∈ fn.body,
+      "__evt_ptr" ∉ collectStmtNames s ∧ "__evt_topic0" ∉ collectStmtNames s
+  emitArgsInScope :
+    ∀ s ∈ fn.body, ∀ (eventName : String) (args : List Expr),
+      s = Stmt.emit eventName args →
+      ∀ arg ∈ args,
+        FunctionBody.exprBoundNamesInScope arg (fn.params.map (·.name))
+  noLocalObligations : fn.localObligations = []
+
 /-- Tier 2 body-level interface that weakens only the state-surface closure to
 admit the currently proved singleton storage-write shapes; all other fail-closed
 boundaries remain unchanged. -/
@@ -2336,9 +2705,24 @@ makes the whole-contract scope auditable without proof-internal inspection. -/
 structure SupportedFunction (spec : CompilationModel) (fn : FunctionSpec) where
   nonInternal : fn.isInternal = false
   nonSpecialEntrypoint : isInteropEntrypointName fn.name = false
+  /-- `nonreentrant(lockField)` guards sit outside the proven fragment: the
+      TLOAD/TSTORE prologue injected by `attachNonReentrantGuard` is not yet
+      modelled by the source semantics. This makes the documented boundary
+      (TRUST_ASSUMPTIONS.md) machine-checked instead of prose-only. -/
+  noNonReentrant : fn.nonReentrantLock = none
   params : SupportedParamProfile fn.params
   returns : SupportedReturnProfile fn
   body : SupportedBodyInterface spec fn
+
+/-- Supported external function for the scalar-event Layer 2 slice. -/
+structure SupportedFunctionWithScalarEvents
+    (spec : CompilationModel) (fn : FunctionSpec) where
+  nonInternal : fn.isInternal = false
+  nonSpecialEntrypoint : isInteropEntrypointName fn.name = false
+  noNonReentrant : fn.nonReentrantLock = none
+  params : SupportedParamProfile fn.params
+  returns : SupportedReturnProfile fn
+  body : SupportedBodyInterfaceWithScalarEvents spec fn
 
 /-- Tier 2 function-level support witness that weakens only the body state
 surface closure to admit the currently proved singleton storage-write shapes. -/
@@ -2346,6 +2730,7 @@ structure SupportedFunctionExceptMappingWrites
     (spec : CompilationModel) (fn : FunctionSpec) where
   nonInternal : fn.isInternal = false
   nonSpecialEntrypoint : isInteropEntrypointName fn.name = false
+  noNonReentrant : fn.nonReentrantLock = none
   params : SupportedParamProfile fn.params
   returns : SupportedReturnProfile fn
   body : SupportedBodyInterfaceExceptMappingWrites spec fn
@@ -2404,6 +2789,22 @@ structure SupportedSpecSurface (spec : CompilationModel) : Prop where
   noErrors : spec.errors = []
   noExternals : spec.externals = []
   noAdtTypes : spec.adtTypes = []
+  noCheckedArithmetic : contractUsesCheckedArithmetic spec = false
+  noFallback :
+    ∀ fn ∈ spec.functions, fn.name != "fallback"
+  noReceive :
+    ∀ fn ∈ spec.functions, fn.name != "receive"
+
+/-- Whole-contract scalar-event surface. Events may be declared, but every
+declared event must live in the scalar proof-supported fragment: scalar params
+and at most three indexed parameters. -/
+structure SupportedSpecSurfaceWithScalarEvents (spec : CompilationModel) : Prop where
+  eventsSupported :
+    ∀ eventDef ∈ spec.events, eventDefScalarProofSupported eventDef = true
+  noErrors : spec.errors = []
+  noExternals : spec.externals = []
+  noAdtTypes : spec.adtTypes = []
+  noCheckedArithmetic : contractUsesCheckedArithmetic spec = false
   noFallback :
     ∀ fn ∈ spec.functions, fn.name != "fallback"
   noReceive :
@@ -2420,6 +2821,16 @@ structure SupportedSpec (spec : CompilationModel) (selectors : List Nat) where
     ∀ ctor, spec.constructor = some ctor → SupportedConstructor spec ctor
   functions :
     ∀ fn, fn ∈ spec.functions → SupportedFunction spec fn
+
+/-- Whole-contract support witness for the top-level scalar-event theorem. -/
+structure SupportedSpecWithScalarEvents
+    (spec : CompilationModel) (selectors : List Nat) where
+  invariants : SupportedSpecInvariants spec selectors
+  surface : SupportedSpecSurfaceWithScalarEvents spec
+  constructor :
+    ∀ ctor, spec.constructor = some ctor → SupportedConstructor spec ctor
+  functions :
+    ∀ fn, fn ∈ spec.functions → SupportedFunctionWithScalarEvents spec fn
 
 /-- Tier 2 whole-contract support witness that weakens only the function-body
 state closure to admit the currently proved singleton storage-write shapes. -/
@@ -2458,6 +2869,32 @@ theorem SupportedFunction.returnsSupported
         SupportedExternalReturnProfile resolvedReturns :=
   hSupported.returns.resolved
 
+theorem SupportedFunctionWithScalarEvents.paramNamesNodup
+    {spec : CompilationModel} {fn : FunctionSpec}
+    (hSupported : SupportedFunctionWithScalarEvents spec fn) :
+    (fn.params.map (·.name)).Nodup :=
+  hSupported.params.namesNodup
+
+theorem SupportedFunctionWithScalarEvents.paramsSupported
+    {spec : CompilationModel} {fn : FunctionSpec}
+    (hSupported : SupportedFunctionWithScalarEvents spec fn) :
+    ∀ param ∈ fn.params, SupportedExternalParamType param.ty :=
+  hSupported.params.supported
+
+theorem SupportedFunctionWithScalarEvents.paramCalldataThreshold
+    {spec : CompilationModel} {fn : FunctionSpec}
+    (hSupported : SupportedFunctionWithScalarEvents spec fn) :
+    4 + fn.params.length * 32 < Compiler.Constants.evmModulus :=
+  hSupported.params.calldataThreshold
+
+theorem SupportedFunctionWithScalarEvents.returnsSupported
+    {spec : CompilationModel} {fn : FunctionSpec}
+    (hSupported : SupportedFunctionWithScalarEvents spec fn) :
+    ∃ resolvedReturns,
+      functionReturns fn = Except.ok resolvedReturns ∧
+        SupportedExternalReturnProfile resolvedReturns :=
+  hSupported.returns.resolved
+
 theorem SupportedFunctionExceptMappingWrites.paramNamesNodup
     {spec : CompilationModel} {fn : FunctionSpec}
     (hSupported : SupportedFunctionExceptMappingWrites spec fn) :
@@ -2489,6 +2926,11 @@ def SupportedFunction.helperFuel
     (hSupported : SupportedFunction spec fn) : Nat :=
   hSupported.body.calls.helpers.helperRank
 
+def SupportedFunctionWithScalarEvents.helperFuel
+    {spec : CompilationModel} {fn : FunctionSpec}
+    (hSupported : SupportedFunctionWithScalarEvents spec fn) : Nat :=
+  hSupported.body.calls.helpers.helperRank
+
 def SupportedFunctionExceptMappingWrites.helperFuel
     {spec : CompilationModel} {fn : FunctionSpec}
     (hSupported : SupportedFunctionExceptMappingWrites spec fn) : Nat :=
@@ -2499,7 +2941,7 @@ private theorem exprCompileCore_helperSurfaceClosed
     (hcore : FunctionBody.ExprCompileCore expr) :
     exprTouchesUnsupportedHelperSurface expr = false := by
   induction hcore with
-  | literal | param | localVar | caller | contractAddress | msgValue
+  | literal | param | localVar | caller | contractAddress | txOrigin | msgValue
     | blockTimestamp | blockNumber | chainid | blobbasefee | calldatasize =>
       simp only [exprTouchesUnsupportedHelperSurface]
   | add _ _ ihL ihR
@@ -2539,7 +2981,7 @@ private theorem exprCompileCore_internalHelperCallNames_nil
     (hcore : FunctionBody.ExprCompileCore expr) :
     exprInternalHelperCallNames expr = [] := by
   induction hcore with
-  | literal | param | localVar | caller | contractAddress | msgValue
+  | literal | param | localVar | caller | contractAddress | txOrigin | msgValue
     | blockTimestamp | blockNumber | chainid | blobbasefee | calldatasize =>
       simp only [exprInternalHelperCallNames]
   | add _ _ ihL ihR
@@ -3017,6 +3459,12 @@ theorem SupportedStmtList.helperSurfaceClosed
         Bool.or_false, Bool.false_or]
   | setStorageAddrSingleSlot hvalue _ _ =>
       exact supportedStmtList_setStorageAddrSingleSlot_helperSurfaceClosed hvalue
+  | setImmutableSingle hvalue _ =>
+      simp only [stmtListTouchesUnsupportedHelperSurface,
+        stmtTouchesUnsupportedHelperSurface,
+        exprTouchesUnsupportedHelperSurface,
+        exprCompileCore_helperSurfaceClosed hvalue,
+        Bool.or_false, Bool.false_or]
   | mstoreSingle hoffset _ hvalue _ =>
       exact supportedStmtList_mstoreSingle_helperSurfaceClosed hoffset hvalue
   | tstoreSingle hoffset _ hvalue _ =>
@@ -3033,6 +3481,9 @@ theorem SupportedStmtList.helperSurfaceClosed
       simpa [stmtListTouchesUnsupportedHelperSurface,
         stmtTouchesUnsupportedHelperSurface]
         using exprListCompileCore_helperSurfaceClosed hcoreAll
+  | pureHashingEcm _ _ _ =>
+      simp [stmtListTouchesUnsupportedHelperSurface,
+        stmtTouchesUnsupportedHelperSurface]
   | letMappingField hkey _ _ =>
       simp only [stmtListTouchesUnsupportedHelperSurface,
         stmtTouchesUnsupportedHelperSurface,
@@ -3145,6 +3596,11 @@ theorem SupportedStmtList.internalHelperCallNames_nil
         stmtInternalHelperCallNames,
         exprCompileCore_internalHelperCallNames_nil hvalue,
         List.nil_append, List.append_nil]
+  | setImmutableSingle hvalue _ =>
+      simp only [stmtListInternalHelperCallNames,
+        stmtInternalHelperCallNames,
+        exprCompileCore_internalHelperCallNames_nil hvalue,
+        List.nil_append, List.append_nil]
   | mstoreSingle hoffset _ hvalue _ =>
       simp only [stmtListInternalHelperCallNames,
         stmtInternalHelperCallNames,
@@ -3178,6 +3634,9 @@ theorem SupportedStmtList.internalHelperCallNames_nil
         exprInternalHelperCallNames,
         List.nil_append, List.append_nil]
   | emitEvent hcoreAll _ =>
+      simpa [stmtListInternalHelperCallNames, stmtInternalHelperCallNames]
+        using exprListCompileCore_internalHelperCallNames_nil hcoreAll
+  | pureHashingEcm _ hcoreAll _ =>
       simpa [stmtListInternalHelperCallNames, stmtInternalHelperCallNames]
         using exprListCompileCore_internalHelperCallNames_nil hcoreAll
   | letMappingField hkey _ _ =>
@@ -3317,6 +3776,10 @@ theorem SupportedBodyInterfaceExceptMappingWrites.helperCallNames_nil
     helperCallNames fn = [] := by
   simp [helperCallNames, hBody.stmtList.internalHelperCallNames_nil]
 
+-- The default heartbeat budget is borderline for the helper-surface closure
+-- proofs' isDefEq search on a cache-cold elaboration; it passes incrementally
+-- but times out on fresh builds. Bump it for the whole mutual block.
+set_option maxHeartbeats 800000 in
 mutual
   theorem exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed
       {expr : Expr}
@@ -3326,8 +3789,8 @@ mutual
     | internalCall _ _ => simp [exprTouchesUnsupportedHelperSurface] at hsurface
     | mappingChain _ _ => simp [exprTouchesUnsupportedHelperSurface] at hsurface
     | intrinsic _ _ _ _ => simp [exprTouchesUnsupportedHelperSurface] at hsurface
-    | literal _ | param _ | caller | contractAddress | chainid | msgValue | selfBalance
-    | txOrigin
+    | literal _ | param _ | immutable _ | caller | contractAddress | txOrigin
+    | chainid | msgValue | selfBalance
     | blockTimestamp | blockNumber | localVar _ | storage _ | storageAddr _
     | constructorArg _ | blobbasefee | calldatasize | returndataSize
     | arrayLength _ | memoryArrayLength _ | storageArrayLength _ | dynamicBytesEq _ _
@@ -3448,7 +3911,7 @@ mutual
       stmtTouchesInternalHelperSurface stmt = false := by
     cases stmt with
     | letVar _ value | assignVar _ value | setStorage _ value
-    | setStorageAddr _ value | setStorageWord _ _ value | storageArrayPush _ value =>
+    | setStorageAddr _ value | setImmutable _ value | setStorageWord _ _ value | storageArrayPush _ value =>
         simp only [stmtTouchesUnsupportedHelperSurface] at hsurface
         simp [stmtTouchesInternalHelperSurface,
           exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface]
@@ -3488,7 +3951,7 @@ mutual
           exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.1.1,
           stmtListTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.1.2,
           stmtListTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.2]
-    | forEach _ count body =>
+    | forEach _ count body | forEachSetBit _ count body =>
         simp only [stmtTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
         simp [stmtTouchesInternalHelperSurface,
           exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.1,
@@ -3666,6 +4129,12 @@ theorem SupportedBodyInterface.helperSurfaceClosed
     stmtListTouchesUnsupportedHelperSurface fn.body = false := by
   exact hBody.stmtList.helperSurfaceClosed
 
+theorem SupportedBodyInterfaceWithScalarEvents.helperSurfaceClosed
+    {spec : CompilationModel} {fn : FunctionSpec}
+    (hBody : SupportedBodyInterfaceWithScalarEvents spec fn) :
+    stmtListTouchesUnsupportedHelperSurface fn.body = false := by
+  exact hBody.stmtList.helperSurfaceClosed
+
 theorem SupportedBodyInterfaceExceptMappingWrites.helperSurfaceClosed
     {spec : CompilationModel} {fn : FunctionSpec}
     (hBody : SupportedBodyInterfaceExceptMappingWrites spec fn) :
@@ -3742,8 +4211,8 @@ private theorem exprTouchesUnsupportedCallSurface_eq_featureOr
         exprTouchesUnsupportedForeignSurface expr ||
         exprTouchesUnsupportedLowLevelSurface expr) := by
   cases expr with
-  | literal _ | param _ | caller | contractAddress
-  | chainid | msgValue | selfBalance | txOrigin | blockTimestamp | blockNumber
+  | literal _ | param _ | immutable _ | caller | contractAddress | txOrigin
+  | chainid | msgValue | selfBalance | blockTimestamp | blockNumber
   | localVar _ | storage _ | storageAddr _
   | paramDynamicHeadWord _ _ | paramDynamicStaticComposite _ _
   | paramDynamicMemberLength _ _
@@ -3907,7 +4376,7 @@ private theorem stmtOrListTouchesUnsupportedCallSurface_eq_featureOr :
               stmtOrListTouchesUnsupportedCallSurface_eq_featureOr (.inr thenBranch),
               stmtOrListTouchesUnsupportedCallSurface_eq_featureOr (.inr elseBranch)]
           simp [Bool.or_assoc, Bool.or_left_comm, Bool.or_comm]
-      | forEach _ count body =>
+      | forEach _ count body | forEachSetBit _ count body =>
           simp only [stmtTouchesUnsupportedCallSurface,
             stmtTouchesUnsupportedHelperSurface, stmtTouchesUnsupportedForeignSurface,
             stmtTouchesUnsupportedLowLevelSurface]
@@ -3974,11 +4443,13 @@ private theorem exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed
     (hcalls : exprTouchesUnsupportedCallSurface expr = false) :
     exprTouchesUnsupportedContractSurface expr = false := by
   cases expr with
-  | literal _ | param _ | localVar _ | caller | contractAddress
+  | literal _ | param _ | localVar _ | caller | contractAddress | txOrigin
   | chainid | msgValue | blockTimestamp | blockNumber | blobbasefee
   | calldatasize =>
       simp [exprTouchesUnsupportedContractSurface]
-  | selfBalance | txOrigin =>
+  | immutable _ =>
+      simp [exprTouchesUnsupportedCoreSurface] at hcore
+  | selfBalance =>
       simp [exprTouchesUnsupportedCoreSurface] at hcore
   | storage _ | storageAddr _ =>
       cases hstate
@@ -4137,6 +4608,8 @@ private theorem exprTouchesUnsupportedCallSurface_eq_false_of_coreClosed
         exprTouchesUnsupportedCallSurface_eq_false_of_coreClosed elseVal hcore.2]
   | forkIfAtLeast _ thenExpr elseExpr =>
       simp [exprTouchesUnsupportedCoreSurface] at hcore
+  | txOrigin =>
+      simp [exprTouchesUnsupportedCallSurface]
   | mulDivDown a b c | mulDivUp a b c =>
       simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
       simp [exprTouchesUnsupportedCallSurface,
@@ -4231,8 +4704,9 @@ private theorem stmtTouchesUnsupportedContractSurface_eq_false_of_featureClosed
       exact exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed value
         (by simpa [stmtTouchesUnsupportedCoreSurface] using hcore)
         (by simpa [stmtTouchesUnsupportedStateSurface] using hstate)
-        (by exact exprTouchesUnsupportedCallSurface_eq_false_of_coreClosed value
-              (by simpa [stmtTouchesUnsupportedCoreSurface] using hcore))
+        (by simpa [stmtTouchesUnsupportedCallSurface] using hcalls)
+  | setImmutable _ _ =>
+      simp [stmtTouchesUnsupportedEffectSurface] at heffects
   | require cond _ | «return» cond =>
       simp only [stmtTouchesUnsupportedContractSurface]
       exact exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed cond
@@ -4274,7 +4748,7 @@ private theorem stmtTouchesUnsupportedContractSurface_eq_false_of_featureClosed
           thenBranch hcore.1.2 hstate.1.2 hcalls.1.2 heffects.1⟩,
         stmtListTouchesUnsupportedContractSurface_eq_false_of_featureClosed
           elseBranch hcore.2 hstate.2 hcalls.2 heffects.2⟩
-  | forEach _ _ _ => cases hcore
+  | forEach _ _ _ | forEachSetBit _ _ _ => cases hcore
   | setStorageWord _ _ _ => cases hstate
   | _ =>
       all_goals (simp only [stmtTouchesUnsupportedContractSurface]; first | assumption | cases hcore | cases heffects | cases hcalls)
@@ -4328,7 +4802,7 @@ private theorem stmtTouchesUnsupportedContractSurfaceExceptMappingWrites_eq_fals
         hcore
         (by simpa [stmtTouchesUnsupportedStateSurfaceExceptMappingWrites] using hstate)
         hcalls heffects
-  | forEach _ _ _ => cases hcore
+  | forEach _ _ _ | forEachSetBit _ _ _ => cases hcore
   | _ =>
       simp only [stmtTouchesUnsupportedContractSurfaceExceptMappingWrites]
       exact stmtTouchesUnsupportedContractSurface_eq_false_of_featureClosed _
@@ -4361,11 +4835,13 @@ theorem exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
     (hsurface : exprTouchesUnsupportedContractSurface expr = false) :
     exprTouchesUnsupportedHelperSurface expr = false := by
   cases expr with
-  | literal _ | param _ | localVar _ | caller | contractAddress
+  | literal _ | param _ | localVar _ | caller | contractAddress | txOrigin
   | chainid | msgValue | blockTimestamp | blockNumber | blobbasefee
   | calldatasize =>
       simp [exprTouchesUnsupportedHelperSurface]
-  | selfBalance | txOrigin =>
+  | immutable _ =>
+      simp [exprTouchesUnsupportedContractSurface] at hsurface
+  | selfBalance =>
       simp [exprTouchesUnsupportedContractSurface] at hsurface
   | adtConstruct _ _ _ | adtTag _ _ | adtField _ _ _ _ _ =>
       simp [exprTouchesUnsupportedContractSurface] at hsurface
@@ -4462,6 +4938,7 @@ theorem stmtTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
     stmtTouchesUnsupportedHelperSurface stmt = false := by
   cases stmt with
   | letVar _ value | assignVar _ value | setStorage _ value | setStorageAddr _ value
+  | setImmutable _ value
   | setStorageWord _ _ value
   | storageArrayPush _ value | require value _ | «return» value =>
       simp [stmtTouchesUnsupportedHelperSurface, stmtTouchesUnsupportedContractSurface] at hsurface ⊢
@@ -4491,7 +4968,8 @@ theorem stmtTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
   | revertError _ _ | returnValues _ | returnArray _ | returnBytes _
   | returnStorageWords _ | returnCodeData _ | calldatacopy _ _ _ | returndataCopy _ _ _
   | revertReturndata | emit _ _ | internalCall _ _
-  | internalCallAssign _ _ _ | rawLog _ _ _ | externalCallBind _ _ _ | ecm _ _ =>
+  | internalCallAssign _ _ _ | rawLog _ _ _ | externalCallBind _ _ _ | ecm _ _
+  | forEachSetBit _ _ _ =>
       cases hsurface
   | forEach varName count body =>
       cases count with
@@ -4627,7 +5105,7 @@ private theorem exprUsesArrayElement_eq_false_of_coreClosed
     (hcore : exprTouchesUnsupportedCoreSurface expr = false) :
     exprUsesArrayElement expr = false := by
   cases expr with
-  | literal _ | param _ | localVar _ | caller | contractAddress
+  | literal _ | param _ | localVar _ | caller | contractAddress | txOrigin
   | chainid | msgValue | blockTimestamp | blockNumber
   | blobbasefee | calldatasize =>
       simp [exprUsesArrayElement]
@@ -4677,7 +5155,7 @@ private theorem exprUsesStorageArrayElement_eq_false_of_coreClosed
     (hcore : exprTouchesUnsupportedCoreSurface expr = false) :
     exprUsesStorageArrayElement expr = false := by
   cases expr with
-  | literal _ | param _ | localVar _ | caller | contractAddress
+  | literal _ | param _ | localVar _ | caller | contractAddress | txOrigin
   | chainid | msgValue | blockTimestamp | blockNumber
   | blobbasefee | calldatasize =>
       simp [exprUsesStorageArrayElement]
@@ -4729,7 +5207,7 @@ private theorem exprUsesDynamicBytesEq_eq_false_of_coreClosed
     (hcore : exprTouchesUnsupportedCoreSurface expr = false) :
     exprUsesDynamicBytesEq expr = false := by
   cases expr with
-  | literal _ | param _ | localVar _ | caller | contractAddress
+  | literal _ | param _ | localVar _ | caller | contractAddress | txOrigin
   | chainid | msgValue | blockTimestamp | blockNumber
   | blobbasefee | calldatasize =>
       simp [exprUsesDynamicBytesEq]
@@ -4780,7 +5258,7 @@ private theorem exprCompileCore_usesArrayElement_false
     (hcore : FunctionBody.ExprCompileCore expr) :
     exprUsesArrayElement expr = false := by
   induction hcore with
-  | literal | param | localVar | caller | contractAddress | msgValue
+  | literal | param | localVar | caller | contractAddress | txOrigin | msgValue
     | blockTimestamp | blockNumber | chainid
     | blobbasefee | calldatasize =>
       simp only [exprUsesArrayElement, Bool.false_or]
@@ -4808,7 +5286,7 @@ private theorem exprCompileCore_usesStorageArrayElement_false
     (hcore : FunctionBody.ExprCompileCore expr) :
     exprUsesStorageArrayElement expr = false := by
   induction hcore with
-  | literal | param | localVar | caller | contractAddress | msgValue
+  | literal | param | localVar | caller | contractAddress | txOrigin | msgValue
     | blockTimestamp | blockNumber | chainid
     | blobbasefee | calldatasize =>
       simp only [exprUsesStorageArrayElement, Bool.false_or]
@@ -4836,7 +5314,7 @@ private theorem exprCompileCore_usesDynamicBytesEq_false
     (hcore : FunctionBody.ExprCompileCore expr) :
     exprUsesDynamicBytesEq expr = false := by
   induction hcore with
-  | literal | param | localVar | caller | contractAddress | msgValue
+  | literal | param | localVar | caller | contractAddress | txOrigin | msgValue
     | blockTimestamp | blockNumber | chainid
     | blobbasefee | calldatasize =>
       simp only [exprUsesDynamicBytesEq, Bool.false_or]
@@ -5132,6 +5610,9 @@ private theorem supportedStmtList_usesArrayElement_false
   | setStorageAddrSingleSlot hvalue _ _ =>
       simp only [stmtListUsesArrayElement, stmtUsesArrayElement,
         exprCompileCore_usesArrayElement_false hvalue, Bool.false_or]
+  | setImmutableSingle hvalue _ =>
+      simp only [stmtListUsesArrayElement, stmtUsesArrayElement,
+        exprCompileCore_usesArrayElement_false hvalue, Bool.false_or]
   | mstoreSingle hoffset _ hvalue _ =>
       simp only [stmtListUsesArrayElement, stmtUsesArrayElement,
         exprCompileCore_usesArrayElement_false hoffset,
@@ -5149,6 +5630,9 @@ private theorem supportedStmtList_usesArrayElement_false
   | assignStorageAddrField _ _ =>
       simp only [stmtListUsesArrayElement, stmtUsesArrayElement, exprUsesArrayElement, Bool.false_or]
   | emitEvent hcoreAll _ =>
+      simpa [stmtListUsesArrayElement, stmtUsesArrayElement]
+        using exprListCompileCore_usesArrayElement_false hcoreAll
+  | pureHashingEcm _ hcoreAll _ =>
       simpa [stmtListUsesArrayElement, stmtUsesArrayElement]
         using exprListCompileCore_usesArrayElement_false hcoreAll
   | letMappingField hkey _ _ =>
@@ -5244,6 +5728,9 @@ private theorem supportedStmtList_usesStorageArrayElement_false
   | setStorageAddrSingleSlot hvalue _ _ =>
       simp only [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
         exprCompileCore_usesStorageArrayElement_false hvalue, Bool.false_or]
+  | setImmutableSingle hvalue _ =>
+      simp only [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
+        exprCompileCore_usesStorageArrayElement_false hvalue, Bool.false_or]
   | mstoreSingle hoffset _ hvalue _ =>
       simp only [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
         exprCompileCore_usesStorageArrayElement_false hoffset,
@@ -5265,6 +5752,9 @@ private theorem supportedStmtList_usesStorageArrayElement_false
       simp only [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
         exprUsesStorageArrayElement, Bool.false_or]
   | emitEvent hcoreAll _ =>
+      simpa [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement]
+        using exprListCompileCore_usesStorageArrayElement_false hcoreAll
+  | pureHashingEcm _ hcoreAll _ =>
       simpa [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement]
         using exprListCompileCore_usesStorageArrayElement_false hcoreAll
   | letMappingField hkey _ _ =>
@@ -5364,6 +5854,9 @@ private theorem supportedStmtList_usesDynamicBytesEq_false
   | setStorageAddrSingleSlot hvalue _ _ =>
       simp only [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq,
         exprCompileCore_usesDynamicBytesEq_false hvalue, Bool.false_or]
+  | setImmutableSingle hvalue _ =>
+      simp only [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq,
+        exprCompileCore_usesDynamicBytesEq_false hvalue, Bool.false_or]
   | mstoreSingle hoffset _ hvalue _ =>
       simp only [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq,
         exprCompileCore_usesDynamicBytesEq_false hoffset,
@@ -5381,6 +5874,9 @@ private theorem supportedStmtList_usesDynamicBytesEq_false
   | assignStorageAddrField _ _ =>
       simp only [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq, exprUsesDynamicBytesEq, Bool.false_or]
   | emitEvent hcoreAll _ =>
+      simpa [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq]
+        using exprListCompileCore_usesDynamicBytesEq_false hcoreAll
+  | pureHashingEcm _ hcoreAll _ =>
       simpa [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq]
         using exprListCompileCore_usesDynamicBytesEq_false hcoreAll
   | letMappingField hkey _ _ =>
@@ -5498,7 +5994,7 @@ private theorem exprCompileCore_usesMulDiv512_false
     (hcore : FunctionBody.ExprCompileCore expr) :
     exprUsesMulDiv512 expr = false := by
   induction hcore with
-  | literal | param | localVar | caller | contractAddress | msgValue
+  | literal | param | localVar | caller | contractAddress | txOrigin | msgValue
     | blockTimestamp | blockNumber | chainid
     | blobbasefee | calldatasize =>
       simp only [exprUsesMulDiv512, Bool.false_or]
@@ -5526,7 +6022,7 @@ private theorem exprCompileCore_usesParamDynamicHeadWord_false
     (hcore : FunctionBody.ExprCompileCore expr) :
     exprUsesParamDynamicHeadWord expr = false := by
   induction hcore with
-  | literal | param | localVar | caller | contractAddress | msgValue
+  | literal | param | localVar | caller | contractAddress | txOrigin | msgValue
     | blockTimestamp | blockNumber | chainid
     | blobbasefee | calldatasize =>
       simp only [exprUsesParamDynamicHeadWord, Bool.false_or]
@@ -5735,6 +6231,9 @@ private theorem supportedStmtList_usesMulDiv512_false
   | setStorageAddrSingleSlot hvalue _ _ =>
       simp only [stmtListUsesMulDiv512, stmtUsesMulDiv512,
         exprCompileCore_usesMulDiv512_false hvalue, Bool.false_or]
+  | setImmutableSingle hvalue _ =>
+      simp only [stmtListUsesMulDiv512, stmtUsesMulDiv512,
+        exprCompileCore_usesMulDiv512_false hvalue, Bool.false_or]
   | mstoreSingle hoffset _ hvalue _ =>
       simp only [stmtListUsesMulDiv512, stmtUsesMulDiv512,
         exprCompileCore_usesMulDiv512_false hoffset,
@@ -5752,6 +6251,9 @@ private theorem supportedStmtList_usesMulDiv512_false
   | assignStorageAddrField _ _ =>
       simp only [stmtListUsesMulDiv512, stmtUsesMulDiv512, exprUsesMulDiv512, Bool.false_or]
   | emitEvent hcoreAll _ =>
+      simpa [stmtListUsesMulDiv512, stmtUsesMulDiv512]
+        using exprListCompileCore_usesMulDiv512_false hcoreAll
+  | pureHashingEcm _ hcoreAll _ =>
       simpa [stmtListUsesMulDiv512, stmtUsesMulDiv512]
         using exprListCompileCore_usesMulDiv512_false hcoreAll
   | letMappingField hkey _ _ =>
@@ -5847,6 +6349,9 @@ private theorem supportedStmtList_usesParamDynamicHeadWord_false
   | setStorageAddrSingleSlot hvalue _ _ =>
       simp only [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord,
         exprCompileCore_usesParamDynamicHeadWord_false hvalue, Bool.false_or]
+  | setImmutableSingle hvalue _ =>
+      simp only [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord,
+        exprCompileCore_usesParamDynamicHeadWord_false hvalue, Bool.false_or]
   | mstoreSingle hoffset _ hvalue _ =>
       simp only [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord,
         exprCompileCore_usesParamDynamicHeadWord_false hoffset,
@@ -5864,6 +6369,9 @@ private theorem supportedStmtList_usesParamDynamicHeadWord_false
   | assignStorageAddrField _ _ =>
       simp only [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord, exprUsesParamDynamicHeadWord, Bool.false_or]
   | emitEvent hcoreAll _ =>
+      simpa [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord]
+        using exprListCompileCore_usesParamDynamicHeadWord_false hcoreAll
+  | pureHashingEcm _ hcoreAll _ =>
       simpa [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord]
         using exprListCompileCore_usesParamDynamicHeadWord_false hcoreAll
   | letMappingField hkey _ _ =>
@@ -6077,6 +6585,13 @@ theorem SupportedSpecExceptMappingWrites.noInternalFunctions
   intro fn hmem
   exact (hSupported.functions fn hmem).nonInternal
 
+theorem SupportedSpecWithScalarEvents.noInternalFunctions
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecWithScalarEvents spec selectors) :
+    ∀ fn ∈ spec.functions, fn.isInternal = false := by
+  intro fn hmem
+  exact (hSupported.functions fn hmem).nonInternal
+
 theorem SupportedSpec.contractUsesArrayElement_eq_false
     {spec : CompilationModel} {selectors : List Nat}
     (hSupported : SupportedSpec spec selectors) :
@@ -6238,6 +6753,12 @@ theorem SupportedSpecExceptMappingWrites.normalizedFields
     applySlotAliasRanges spec.fields spec.slotAliasRanges = spec.fields :=
   hSupported.invariants.normalizedFields
 
+theorem SupportedSpecWithScalarEvents.normalizedFields
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecWithScalarEvents spec selectors) :
+    applySlotAliasRanges spec.fields spec.slotAliasRanges = spec.fields :=
+  hSupported.invariants.normalizedFields
+
 theorem SupportedSpec.noPackedFields
     {spec : CompilationModel} {selectors : List Nat}
     (hSupported : SupportedSpec spec selectors) :
@@ -6247,6 +6768,12 @@ theorem SupportedSpec.noPackedFields
 theorem SupportedSpecExceptMappingWrites.noPackedFields
     {spec : CompilationModel} {selectors : List Nat}
     (hSupported : SupportedSpecExceptMappingWrites spec selectors) :
+    ∀ field ∈ spec.fields, field.packedBits = none :=
+  hSupported.invariants.noPackedFields
+
+theorem SupportedSpecWithScalarEvents.noPackedFields
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecWithScalarEvents spec selectors) :
     ∀ field ∈ spec.fields, field.packedBits = none :=
   hSupported.invariants.noPackedFields
 
@@ -6310,6 +6837,12 @@ theorem SupportedSpecExceptMappingWrites.noErrors
     spec.errors = [] :=
   hSupported.surface.noErrors
 
+theorem SupportedSpecWithScalarEvents.noErrors
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecWithScalarEvents spec selectors) :
+    spec.errors = [] :=
+  hSupported.surface.noErrors
+
 theorem SupportedSpec.noExternals
     {spec : CompilationModel} {selectors : List Nat}
     (hSupported : SupportedSpec spec selectors) :
@@ -6322,17 +6855,47 @@ theorem SupportedSpecExceptMappingWrites.noExternals
     spec.externals = [] :=
   hSupported.surface.noExternals
 
+theorem SupportedSpecWithScalarEvents.noExternals
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecWithScalarEvents spec selectors) :
+    spec.externals = [] :=
+  hSupported.surface.noExternals
+
 theorem SupportedSpec.noAdtTypes
     {spec : CompilationModel} {selectors : List Nat}
     (hSupported : SupportedSpec spec selectors) :
     spec.adtTypes = [] :=
   hSupported.surface.noAdtTypes
 
+theorem SupportedSpec.noCheckedArithmetic
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpec spec selectors) :
+    contractUsesCheckedArithmetic spec = false :=
+  hSupported.surface.noCheckedArithmetic
+
 theorem SupportedSpecExceptMappingWrites.noAdtTypes
     {spec : CompilationModel} {selectors : List Nat}
     (hSupported : SupportedSpecExceptMappingWrites spec selectors) :
     spec.adtTypes = [] :=
   hSupported.surface.noAdtTypes
+
+theorem SupportedSpecExceptMappingWrites.noCheckedArithmetic
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecExceptMappingWrites spec selectors) :
+    contractUsesCheckedArithmetic spec = false :=
+  hSupported.surface.noCheckedArithmetic
+
+theorem SupportedSpecWithScalarEvents.noAdtTypes
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecWithScalarEvents spec selectors) :
+    spec.adtTypes = [] :=
+  hSupported.surface.noAdtTypes
+
+theorem SupportedSpecWithScalarEvents.noCheckedArithmetic
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecWithScalarEvents spec selectors) :
+    contractUsesCheckedArithmetic spec = false :=
+  hSupported.surface.noCheckedArithmetic
 
 theorem SupportedSpec.noFallback
     {spec : CompilationModel} {selectors : List Nat}
@@ -6374,6 +6937,14 @@ def SupportedSpecExceptMappingWrites.supportedFunctionOfSelectorDispatched
     SupportedFunctionExceptMappingWrites spec fn :=
   hSupported.functions fn ((List.mem_filter.mp hfn).1)
 
+def SupportedSpecWithScalarEvents.supportedFunctionOfSelectorDispatched
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecWithScalarEvents spec selectors)
+    {fn : FunctionSpec}
+    (hfn : fn ∈ selectorDispatchedFunctions spec) :
+    SupportedFunctionWithScalarEvents spec fn :=
+  hSupported.functions fn ((List.mem_filter.mp hfn).1)
+
 noncomputable def SupportedSpec.helperFuelOfFunction
     {spec : CompilationModel} {selectors : List Nat}
     (hSupported : SupportedSpec spec selectors)
@@ -6394,6 +6965,16 @@ noncomputable def SupportedSpecExceptMappingWrites.helperFuelOfFunction
   else
     0
 
+noncomputable def SupportedSpecWithScalarEvents.helperFuelOfFunction
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecWithScalarEvents spec selectors)
+    (fn : FunctionSpec) : Nat :=
+  open Classical in
+  if hfn : fn ∈ selectorDispatchedFunctions spec then
+    (hSupported.supportedFunctionOfSelectorDispatched hfn).helperFuel
+  else
+    0
+
 
 noncomputable def SupportedSpec.helperFuel
     {spec : CompilationModel} {selectors : List Nat}
@@ -6405,6 +6986,13 @@ noncomputable def SupportedSpec.helperFuel
 noncomputable def SupportedSpecExceptMappingWrites.helperFuel
     {spec : CompilationModel} {selectors : List Nat}
     (hSupported : SupportedSpecExceptMappingWrites spec selectors) : Nat :=
+  (selectorDispatchedFunctions spec).foldl
+    (fun fuel fn => max fuel (hSupported.helperFuelOfFunction fn))
+    0
+
+noncomputable def SupportedSpecWithScalarEvents.helperFuel
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecWithScalarEvents spec selectors) : Nat :=
   (selectorDispatchedFunctions spec).foldl
     (fun fuel fn => max fuel (hSupported.helperFuelOfFunction fn))
     0
@@ -6441,6 +7029,22 @@ theorem SupportedSpecExceptMappingWrites.selectorFunctionParamCalldataThreshold
     4 + fn.params.length * 32 < Compiler.Constants.evmModulus :=
   (hSupported.supportedFunctionOfSelectorDispatched hfn).params.calldataThreshold
 
+theorem SupportedSpecWithScalarEvents.selectorFunctionParamsSupported
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecWithScalarEvents spec selectors)
+    {fn : FunctionSpec}
+    (hfn : fn ∈ selectorDispatchedFunctions spec) :
+    ∀ param ∈ fn.params, SupportedExternalParamType param.ty :=
+  (hSupported.supportedFunctionOfSelectorDispatched hfn).params.supported
+
+theorem SupportedSpecWithScalarEvents.selectorFunctionParamCalldataThreshold
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecWithScalarEvents spec selectors)
+    {fn : FunctionSpec}
+    (hfn : fn ∈ selectorDispatchedFunctions spec) :
+    4 + fn.params.length * 32 < Compiler.Constants.evmModulus :=
+  (hSupported.supportedFunctionOfSelectorDispatched hfn).params.calldataThreshold
+
 theorem SupportedSpec.selectorFunctionParamNamesNodup
     {spec : CompilationModel} {selectors : List Nat}
     (hSupported : SupportedSpec spec selectors)
@@ -6452,6 +7056,14 @@ theorem SupportedSpec.selectorFunctionParamNamesNodup
 theorem SupportedSpecExceptMappingWrites.selectorFunctionParamNamesNodup
     {spec : CompilationModel} {selectors : List Nat}
     (hSupported : SupportedSpecExceptMappingWrites spec selectors)
+    {fn : FunctionSpec}
+    (hfn : fn ∈ selectorDispatchedFunctions spec) :
+    (fn.params.map (·.name)).Nodup :=
+  (hSupported.supportedFunctionOfSelectorDispatched hfn).params.namesNodup
+
+theorem SupportedSpecWithScalarEvents.selectorFunctionParamNamesNodup
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecWithScalarEvents spec selectors)
     {fn : FunctionSpec}
     (hfn : fn ∈ selectorDispatchedFunctions spec) :
     (fn.params.map (·.name)).Nodup :=
@@ -6470,6 +7082,16 @@ theorem SupportedSpec.selectorFunctionReturnsSupported
 theorem SupportedSpecExceptMappingWrites.selectorFunctionReturnsSupported
     {spec : CompilationModel} {selectors : List Nat}
     (hSupported : SupportedSpecExceptMappingWrites spec selectors)
+    {fn : FunctionSpec}
+    (hfn : fn ∈ selectorDispatchedFunctions spec) :
+    ∃ resolvedReturns,
+      functionReturns fn = Except.ok resolvedReturns ∧
+        SupportedExternalReturnProfile resolvedReturns :=
+  (hSupported.supportedFunctionOfSelectorDispatched hfn).returns.resolved
+
+theorem SupportedSpecWithScalarEvents.selectorFunctionReturnsSupported
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecWithScalarEvents spec selectors)
     {fn : FunctionSpec}
     (hfn : fn ∈ selectorDispatchedFunctions spec) :
     ∃ resolvedReturns,
@@ -6514,6 +7136,7 @@ private def counter_supported_function :
   exact
     { nonInternal := rfl
       nonSpecialEntrypoint := rfl
+      noNonReentrant := rfl
       params :=
         { namesNodup := by decide
           supported := by intro param hparam; cases hparam
@@ -6554,6 +7177,9 @@ def counter_supported_spec : SupportedSpec counterSupportedSpecModel
         noErrors := rfl
         noExternals := rfl
         noAdtTypes := rfl
+        noCheckedArithmetic := by
+          simp [contractUsesCheckedArithmetic, counterSupportedSpecModel,
+            stmtListMayUseCheckedArithmetic, stmtMayUseCheckedArithmetic]
         noFallback := counter_noFallback
         noReceive := counter_noReceive }
     constructor := by
@@ -6598,6 +7224,7 @@ private def simpleStorage_supported_function :
   exact
     { nonInternal := rfl
       nonSpecialEntrypoint := rfl
+      noNonReentrant := rfl
       params :=
         { namesNodup := by decide
           supported := by intro param hparam; cases hparam
@@ -6638,6 +7265,9 @@ def simpleStorage_supported_spec : SupportedSpec simpleStorageSupportedSpecModel
         noErrors := rfl
         noExternals := rfl
         noAdtTypes := rfl
+        noCheckedArithmetic := by
+          simp [contractUsesCheckedArithmetic, simpleStorageSupportedSpecModel,
+            stmtListMayUseCheckedArithmetic, stmtMayUseCheckedArithmetic]
         noFallback := simpleStorage_noFallback
         noReceive := simpleStorage_noReceive }
     constructor := by

@@ -6,7 +6,7 @@ import "./yul/YulTestBase.sol";
 /**
  * @title PropertyFunctionPointerParamSmokeTest
  * @notice Auto-generated baseline property stubs from `verity_contract` declarations.
- * @dev Source: Contracts/Smoke.lean
+ * @dev Source: Contracts/Smoke/Declarations.lean
  */
 contract PropertyFunctionPointerParamSmokeTest is YulTestBase {
     address target;

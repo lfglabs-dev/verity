@@ -5,6 +5,7 @@ import Compiler.CompilationModel.Types
 import Compiler.CompilationModel.AbiHelpers
 import Compiler.CompilationModel.AbiTypeLayout
 import Compiler.CompilationModel.DynamicData
+import Compiler.CompilationModel.InternalArgs
 import Compiler.CompilationModel.InternalNaming
 import Compiler.CompilationModel.IssueRefs
 import Compiler.CompilationModel.ScopeValidation
@@ -16,7 +17,8 @@ def reservedExternalNames
     (mappingHelpersRequired arrayHelpersRequired arrayElementWordHelpersRequired
       paramDynamicHeadWordHelpersRequired
       mulDiv512HelpersRequired
-      storageArrayHelpersRequired dynamicBytesEqHelpersRequired : Bool) : List String :=
+      storageArrayHelpersRequired dynamicBytesEqHelpersRequired
+      checkedArithmeticHelpersRequired : Bool) : List String :=
   let mappingHelpers := if mappingHelpersRequired then ["mappingSlot"] else []
   let arrayHelpers :=
     if arrayHelpersRequired then
@@ -66,16 +68,28 @@ def reservedExternalNames
       [dynamicBytesEqCalldataHelperName, dynamicBytesEqMemoryHelperName]
     else
       []
+  let checkedArithmeticHelpers :=
+    if checkedArithmeticHelpersRequired then
+      [ checkedAddUint256HelperName
+      , checkedSubUint256HelperName
+      , checkedMulUint256HelperName
+      , checkedDivUint256HelperName
+      , panicError0x11HelperName
+      , panicError0x12HelperName
+      ]
+    else
+      []
   let builtins := [builtinExpName]
   let entrypoints := ["fallback", "receive"]
-  (mappingHelpers ++ arrayHelpers ++ arrayElementWordHelpers ++ paramDynamicHeadWordHelpers ++ mulDiv512Helpers ++ storageArrayHelpers ++ dynamicBytesEqHelpers ++ builtins ++ entrypoints).eraseDups
+  (mappingHelpers ++ arrayHelpers ++ arrayElementWordHelpers ++ paramDynamicHeadWordHelpers ++ mulDiv512Helpers ++ storageArrayHelpers ++ dynamicBytesEqHelpers ++ checkedArithmeticHelpers ++ builtins ++ entrypoints).eraseDups
 
 def firstReservedExternalCollision
     (spec : CompilationModel)
     (mappingHelpersRequired arrayHelpersRequired arrayElementWordHelpersRequired
       paramDynamicHeadWordHelpersRequired
       mulDiv512HelpersRequired
-      storageArrayHelpersRequired dynamicBytesEqHelpersRequired : Bool) : Option String :=
+      storageArrayHelpersRequired dynamicBytesEqHelpersRequired
+      checkedArithmeticHelpersRequired : Bool) : Option String :=
   (spec.externals.map (·.name)).find? (fun name =>
     name.startsWith internalFunctionPrefix ||
       (reservedExternalNames
@@ -85,13 +99,15 @@ def firstReservedExternalCollision
         paramDynamicHeadWordHelpersRequired
         mulDiv512HelpersRequired
         storageArrayHelpersRequired
-        dynamicBytesEqHelpersRequired).contains name)
+        dynamicBytesEqHelpersRequired
+        checkedArithmeticHelpersRequired).contains name)
 
 def internalDynamicParamSupported : ParamType → Bool
   | ParamType.array _ => true
   | ParamType.bytes | ParamType.string => true
   | ty@(ParamType.tuple _) => isDynamicParamType ty
   | ty@(ParamType.fixedArray _ _) => isDynamicParamType ty
+  | ParamType.newtypeOf _ baseTy => internalDynamicParamSupported baseTy
   | _ => false
 
 def firstUnsupportedInternalDynamicParam
@@ -156,209 +172,233 @@ def findInternalFunctionByName (functions : List FunctionSpec)
   | _ =>
       throw s!"Compilation error: function '{callerName}' references ambiguous internal function '{calleeName}' ({issue625Ref})."
 
-mutual
-def validateInternalCallShapesInExpr
-    (functions : List FunctionSpec) (callerName : String) : Expr → Except String Unit
+def internalParamTypeAndLayoutMatches (sourceTy expectedTy : ParamType) : Bool :=
+  sourceTy == expectedTy &&
+    internalCallYulArgNamesForParam "__arg" { name := "__arg", ty := sourceTy } ==
+      internalCallYulArgNamesForParam "__arg" { name := "__arg", ty := expectedTy }
+
+partial def dynamicMemberTypeAtWordOffset : ParamType → Nat → Option ParamType
+  | ParamType.tuple elemTys, wordOffset =>
+      let rec goTuple : List ParamType → Nat → Option ParamType
+        | [], _ => none
+        | elemTy :: rest, cursor =>
+            if cursor == wordOffset then
+              some elemTy
+            else
+              goTuple rest (cursor + paramParentHeadWords elemTy)
+      goTuple elemTys 0
+  | ParamType.fixedArray elemTy n, wordOffset =>
+      let rec goArray : Nat → Nat → Option ParamType
+        | 0, _ => none
+        | count + 1, cursor =>
+            if cursor == wordOffset then
+              some elemTy
+            else
+              goArray count (cursor + paramParentHeadWords elemTy)
+      goArray n 0
+  | ParamType.newtypeOf _ baseTy, wordOffset =>
+      dynamicMemberTypeAtWordOffset baseTy wordOffset
+  | _, _ => none
+
+def validateInternalCallArgForParam
+    (callerParams : List Param) (callerName calleeName : String)
+    (param : Param) (arg : Expr) : Except String Unit := do
+  if isExpandedInternalParamType param.ty then
+    match directForwardedInternalArgName? arg with
+    | none =>
+        throw s!"Compilation error: function '{callerName}' calls internal function '{calleeName}' with a computed argument for expanded parameter '{param.name}' ({repr param.ty}); issue #1889 currently supports direct parameter forwarding only."
+    | some _ => pure ()
+  else
+    pure ()
+  if isExpandedInternalParamType param.ty then
+    match arg with
+    | Expr.param sourceName =>
+        match findParamType callerParams sourceName with
+        | some sourceTy =>
+            if internalParamTypeAndLayoutMatches sourceTy param.ty then
+              pure ()
+            else
+              throw s!"Compilation error: function '{callerName}' calls internal function '{calleeName}' with parameter '{sourceName}' of type/layout {repr sourceTy}, expected {repr param.ty} for expanded callee parameter '{param.name}' (issue #1889)."
+        | none =>
+            throw s!"Compilation error: function '{callerName}' calls internal function '{calleeName}' forwarding unknown parameter '{sourceName}' for expanded callee parameter '{param.name}' (issue #1889)."
+    | _ => pure ()
+  else
+    pure ()
+
+def expandedExprParamNames? : List Expr → Option (List String)
+  | [] => some []
+  | Expr.param name :: rest =>
+      match expandedExprParamNames? rest with
+      | some names => some (name :: names)
+      | none => none
+  | _ => none
+
+def expandedProjectionType?
+    (callerParams : List Param) : List Expr → Option ParamType
+  | [ Expr.paramDynamicMemberDataOffset name wordOffset
+    , Expr.paramDynamicMemberLength lengthName lengthWordOffset ] =>
+      if name == lengthName && wordOffset == lengthWordOffset then
+        match findParamType callerParams name with
+        | some sourceTy => dynamicMemberTypeAtWordOffset sourceTy wordOffset
+        | none => none
+      else
+        none
+  | [ Expr.arrayElementDynamicMemberDataOffset name index wordOffset
+    , Expr.arrayElementDynamicMemberLength lengthName lengthIndex lengthWordOffset ] =>
+      let sameIndex :=
+        match index, lengthIndex with
+        | Expr.param lhs, Expr.param rhs => lhs == rhs
+        | Expr.localVar lhs, Expr.localVar rhs => lhs == rhs
+        | Expr.literal lhs, Expr.literal rhs => lhs == rhs
+        | _, _ => false
+      if name == lengthName && sameIndex && wordOffset == lengthWordOffset then
+        match findParamType callerParams name with
+        | some (ParamType.array elemTy) => dynamicMemberTypeAtWordOffset elemTy wordOffset
+        | some (ParamType.newtypeOf _ (ParamType.array elemTy)) =>
+            dynamicMemberTypeAtWordOffset elemTy wordOffset
+        | _ => none
+      else
+        none
+  | _ => none
+
+def expandedArgsMatchCallerParam
+    (param : Param) (argNames : List String) (source : Param) : Bool :=
+  internalParamTypeAndLayoutMatches source.ty param.ty &&
+    argNames == internalCallYulArgNamesForParam source.name param
+
+def validateExpandedInternalCallArgNames
+    (callerParams : List Param) (callerName calleeName : String) (param : Param) (args : List Expr) :
+    Except String Unit := do
+  let expectedNames := internalFunctionYulParamNames [param]
+  if args.length != expectedNames.length then
+    throw s!"Compilation error: function '{callerName}' calls internal function '{calleeName}' with {args.length} expanded arg(s) for parameter '{param.name}', expected {expectedNames.length} ({issue625Ref}, issue #1889)."
+  else
+    match expandedExprParamNames? args with
+    | some argNames =>
+        if callerParams.any (expandedArgsMatchCallerParam param argNames) then
+          pure ()
+        else
+          throw s!"Compilation error: function '{callerName}' calls internal function '{calleeName}' with expanded args {repr argNames} for parameter '{param.name}', but no caller parameter has exact type/layout {repr param.ty} and matching generated names (issue #1889)."
+    | none =>
+        match expandedProjectionType? callerParams args with
+        | some sourceTy =>
+            if internalParamTypeAndLayoutMatches sourceTy param.ty then
+              pure ()
+            else
+              throw s!"Compilation error: function '{callerName}' calls internal function '{calleeName}' with projected expanded args of type/layout {repr sourceTy}, expected {repr param.ty} for parameter '{param.name}' (issue #1889)."
+        | none =>
+            throw s!"Compilation error: function '{callerName}' calls internal function '{calleeName}' with non-parameter expanded args for parameter '{param.name}' without a checked projection proving exact type/layout forwarding (issue #1889)."
+
+def validateExpandedInternalCallArgs
+    (callerParams : List Param) (callerName calleeName : String) : List Param → List Expr → Except String Unit
+  | [], [] => pure ()
+  | param :: params, args => do
+      let expectedCount := (internalFunctionYulParamNames [param]).length
+      let head := args.take expectedCount
+      let tail := args.drop expectedCount
+      validateExpandedInternalCallArgNames callerParams callerName calleeName param head
+      validateExpandedInternalCallArgs callerParams callerName calleeName params tail
+  | [], _ :: _ =>
+      throw s!"Compilation error: function '{callerName}' calls internal function '{calleeName}' with extra expanded arg(s) after exact type/layout validation ({issue625Ref}, issue #1889)."
+
+def validateInternalCallSourceArgs
+    (callerParams : List Param) (callerName calleeName : String)
+    (params : List Param) (args : List Expr) : Except String Unit := do
+  let expandedArgCount :=
+    params.foldl (fun acc param => acc + (internalFunctionYulParamNames [param]).length) 0
+  if args.length == expandedArgCount && args.length != params.length then
+    validateExpandedInternalCallArgs callerParams callerName calleeName params args
+  else if args.length != params.length then
+    throw s!"Compilation error: function '{callerName}' calls internal function '{calleeName}' with {args.length} source arg(s), expected {params.length} (or {expandedArgCount} exact expanded Yul arg(s) for legacy call sites) ({issue625Ref}, issue #1889)."
+  else
+    let rec go : List Param → List Expr → Except String Unit
+      | [], [] => pure ()
+      | param :: params, arg :: args => do
+          validateInternalCallArgForParam callerParams callerName calleeName param arg
+          go params args
+      | _, _ => pure ()
+    go params args
+
+/-- Node-local check: shape of an `Expr.internalCall` node. Operands are
+    reached via the canonical post-order `Expr.forDeepPostM`, matching the old
+    walk which validated arguments before the call's own arity/return shape. -/
+def validateInternalCallShapesNodeExpr
+    (functions : List FunctionSpec) (callerName : String) (callerParams : List Param) : Expr → Except String Unit
   | Expr.internalCall calleeName args => do
-      validateInternalCallShapesInExprList functions callerName args
       let callee ← findInternalFunctionByName functions callerName calleeName
-      let expectedArgs := internalCallYulArgCount callee.params
-      if args.length != expectedArgs then
-        throw s!"Compilation error: function '{callerName}' calls internal function '{calleeName}' with {args.length} Yul arg(s), expected {expectedArgs} ({issue625Ref})."
+      validateInternalCallSourceArgs callerParams callerName calleeName callee.params args
       let returns ← functionReturns callee
       if returns.length != 1 || internalReturnYulCount returns != 1 then
         throw s!"Compilation error: function '{callerName}' uses Expr.internalCall '{calleeName}' but callee returns {returns.length} logical value(s) / {internalReturnYulCount returns} Yul value(s); use Stmt.internalCallAssign for multi-return calls ({issue625Ref})."
-  | Expr.call gas target value inOffset inSize outOffset outSize => do
-      validateInternalCallShapesInExpr functions callerName gas
-      validateInternalCallShapesInExpr functions callerName target
-      validateInternalCallShapesInExpr functions callerName value
-      validateInternalCallShapesInExpr functions callerName inOffset
-      validateInternalCallShapesInExpr functions callerName inSize
-      validateInternalCallShapesInExpr functions callerName outOffset
-      validateInternalCallShapesInExpr functions callerName outSize
-  | Expr.staticcall gas target inOffset inSize outOffset outSize => do
-      validateInternalCallShapesInExpr functions callerName gas
-      validateInternalCallShapesInExpr functions callerName target
-      validateInternalCallShapesInExpr functions callerName inOffset
-      validateInternalCallShapesInExpr functions callerName inSize
-      validateInternalCallShapesInExpr functions callerName outOffset
-      validateInternalCallShapesInExpr functions callerName outSize
-  | Expr.delegatecall gas target inOffset inSize outOffset outSize => do
-      validateInternalCallShapesInExpr functions callerName gas
-      validateInternalCallShapesInExpr functions callerName target
-      validateInternalCallShapesInExpr functions callerName inOffset
-      validateInternalCallShapesInExpr functions callerName inSize
-      validateInternalCallShapesInExpr functions callerName outOffset
-      validateInternalCallShapesInExpr functions callerName outSize
-  | Expr.extcodesize addr =>
-      validateInternalCallShapesInExpr functions callerName addr
-  | Expr.mload offset | Expr.tload offset =>
-      validateInternalCallShapesInExpr functions callerName offset
-  | Expr.calldataload offset =>
-      validateInternalCallShapesInExpr functions callerName offset
-  | Expr.keccak256 offset size => do
-      validateInternalCallShapesInExpr functions callerName offset
-      validateInternalCallShapesInExpr functions callerName size
-  | Expr.returndataOptionalBoolAt outOffset =>
-      validateInternalCallShapesInExpr functions callerName outOffset
-  | Expr.mapping _ key =>
-      validateInternalCallShapesInExpr functions callerName key
-  | Expr.mappingWord _ key _ =>
-      validateInternalCallShapesInExpr functions callerName key
-  | Expr.mappingPackedWord _ key _ _ =>
-      validateInternalCallShapesInExpr functions callerName key
-  | Expr.mappingChain _ keys =>
-      validateInternalCallShapesInExprList functions callerName keys
-  | Expr.structMember _ key _ =>
-      validateInternalCallShapesInExpr functions callerName key
-  | Expr.mapping2 _ key1 key2 | Expr.mapping2Word _ key1 key2 _
-  | Expr.structMember2 _ key1 key2 _ => do
-      validateInternalCallShapesInExpr functions callerName key1
-      validateInternalCallShapesInExpr functions callerName key2
-  | Expr.mappingUint _ key =>
-      validateInternalCallShapesInExpr functions callerName key
-  | Expr.storageArrayElement _ index
-  | Expr.arrayElement _ index
-  | Expr.memoryArrayElement _ index
-  | Expr.arrayElementWord _ index _ _
-  | Expr.arrayElementDynamicWord _ index _
-  | Expr.arrayElementDynamicDataOffset _ index
-  | Expr.arrayElementDynamicMemberDataOffset _ index _
-  | Expr.arrayElementDynamicMemberLength _ index _ =>
-      validateInternalCallShapesInExpr functions callerName index
-  | Expr.arrayElementDynamicMemberElement _ index _ innerIndex => do
-      validateInternalCallShapesInExpr functions callerName index
-      validateInternalCallShapesInExpr functions callerName innerIndex
-  | Expr.paramDynamicMemberElement _ _ innerIndex =>
-      validateInternalCallShapesInExpr functions callerName innerIndex
-  | Expr.add a b | Expr.sub a b | Expr.mul a b | Expr.div a b | Expr.sdiv a b | Expr.mod a b | Expr.smod a b |
-    Expr.bitAnd a b | Expr.bitOr a b | Expr.bitXor a b | Expr.shl a b | Expr.shr a b |
-    Expr.sar a b | Expr.signextend a b | Expr.byte a b |
-    Expr.eq a b | Expr.ge a b | Expr.gt a b | Expr.sgt a b | Expr.lt a b | Expr.slt a b | Expr.le a b |
-    Expr.logicalAnd a b | Expr.logicalOr a b |
-    Expr.wMulDown a b | Expr.wDivUp a b | Expr.min a b | Expr.max a b |
-    Expr.ceilDiv a b => do
-      validateInternalCallShapesInExpr functions callerName a
-      validateInternalCallShapesInExpr functions callerName b
-  | Expr.intrinsic _ _ _ args =>
-      validateInternalCallShapesInExprList functions callerName args
-  | Expr.forkIfAtLeast _ thenExpr elseExpr => do
-      validateInternalCallShapesInExpr functions callerName thenExpr
-      validateInternalCallShapesInExpr functions callerName elseExpr
-  | Expr.mulDivDown a b c | Expr.mulDivUp a b c
-  | Expr.mulDiv512Down a b c | Expr.mulDiv512Up a b c => do
-      validateInternalCallShapesInExpr functions callerName a
-      validateInternalCallShapesInExpr functions callerName b
-      validateInternalCallShapesInExpr functions callerName c
-  | Expr.bitNot a | Expr.logicalNot a =>
-      validateInternalCallShapesInExpr functions callerName a
-  | Expr.ite cond thenVal elseVal => do
-      validateInternalCallShapesInExpr functions callerName cond
-      validateInternalCallShapesInExpr functions callerName thenVal
-      validateInternalCallShapesInExpr functions callerName elseVal
-  | Expr.externalCall _ args =>
-      validateInternalCallShapesInExprList functions callerName args
-  | Expr.adtConstruct _ _ args =>
-      validateInternalCallShapesInExprList functions callerName args
-  -- Pure leaves: nothing to validate. Listed explicitly (rather than via
-  -- `| _ => pure ()`) so the equation-lemma deriver does not have to
-  -- enumerate the complement of every pattern above. Avoids the
-  -- `_mutual.eq_def` 200 000-heartbeat ceiling when new `Expr` constructors
-  -- land (e.g. verity#1832's `paramDynamicHeadWord`).
-  | Expr.literal _ | Expr.param _ | Expr.constructorArg _
-  | Expr.storage _ | Expr.storageAddr _
-  | Expr.caller | Expr.contractAddress | Expr.txOrigin | Expr.chainid
-  | Expr.msgValue | Expr.selfBalance
-  | Expr.blockTimestamp | Expr.blockNumber | Expr.blobbasefee
-  | Expr.calldatasize | Expr.returndataSize
-  | Expr.localVar _
-  | Expr.arrayLength _ | Expr.memoryArrayLength _ | Expr.storageArrayLength _
-  | Expr.paramDynamicHeadWord _ _
-  | Expr.paramDynamicStaticComposite _ _
-  | Expr.paramDynamicMemberLength _ _
-  | Expr.paramDynamicMemberDataOffset _ _
-  | Expr.dynamicBytesEq _ _
-  | Expr.adtTag _ _ | Expr.adtField _ _ _ _ _ =>
-      pure ()
-termination_by e => sizeOf e
-decreasing_by all_goals simp_wf; all_goals omega
+  | _ => pure ()
+
+def validateInternalCallShapesInExpr
+    (functions : List FunctionSpec) (callerName : String) (callerParams : List Param) (e : Expr) : Except String Unit :=
+  e.forDeepPostM (validateInternalCallShapesNodeExpr functions callerName callerParams)
 
 def validateInternalCallShapesInExprList
-    (functions : List FunctionSpec) (callerName : String) : List Expr → Except String Unit
-  | [] => pure ()
-  | e :: es => do
-      validateInternalCallShapesInExpr functions callerName e
-      validateInternalCallShapesInExprList functions callerName es
-termination_by es => sizeOf es
-decreasing_by all_goals simp_wf; all_goals omega
+    (functions : List FunctionSpec) (callerName : String) (callerParams : List Param) (es : List Expr) : Except String Unit :=
+  es.forM (validateInternalCallShapesInExpr functions callerName callerParams)
 
-def validateInternalCallShapesInStmt
-    (functions : List FunctionSpec) (callerName : String) : Stmt → Except String Unit
+/-- Node-local statement check: validates the statement's own expressions and
+    internal-call shape; nested statement bodies are reached via the canonical
+    `Stmt.forDeepM`. `returnArray`/`returnBytes`/`returnStorageWords`/
+    `returnCodeData` deliberately contribute nothing here (as in the old walk). -/
+def validateInternalCallShapesNodeStmt
+    (functions : List FunctionSpec) (callerName : String) (callerParams : List Param) : Stmt → Except String Unit
   | Stmt.letVar _ value | Stmt.assignVar _ value | Stmt.setStorage _ value | Stmt.setStorageAddr _ value
   | Stmt.setStorageWord _ _ value |
     Stmt.storageArrayPush _ value |
     Stmt.return value | Stmt.require value _ =>
-      validateInternalCallShapesInExpr functions callerName value
+      validateInternalCallShapesInExpr functions callerName callerParams value
   | Stmt.setStorageArrayElement _ index value => do
-      validateInternalCallShapesInExpr functions callerName index
-      validateInternalCallShapesInExpr functions callerName value
+      validateInternalCallShapesInExpr functions callerName callerParams index
+      validateInternalCallShapesInExpr functions callerName callerParams value
   | Stmt.storageArrayPop _ =>
       pure ()
   | Stmt.requireError cond _ args => do
-      validateInternalCallShapesInExpr functions callerName cond
-      validateInternalCallShapesInExprList functions callerName args
+      validateInternalCallShapesInExpr functions callerName callerParams cond
+      validateInternalCallShapesInExprList functions callerName callerParams args
   | Stmt.revertError _ args =>
-      validateInternalCallShapesInExprList functions callerName args
-  | Stmt.mstore offset value => do
-      validateInternalCallShapesInExpr functions callerName offset
-      validateInternalCallShapesInExpr functions callerName value
-  | Stmt.tstore offset value => do
-      validateInternalCallShapesInExpr functions callerName offset
-      validateInternalCallShapesInExpr functions callerName value
-  | Stmt.calldatacopy destOffset sourceOffset size => do
-      validateInternalCallShapesInExpr functions callerName destOffset
-      validateInternalCallShapesInExpr functions callerName sourceOffset
-      validateInternalCallShapesInExpr functions callerName size
+      validateInternalCallShapesInExprList functions callerName callerParams args
+  | Stmt.mstore offset value | Stmt.tstore offset value => do
+      validateInternalCallShapesInExpr functions callerName callerParams offset
+      validateInternalCallShapesInExpr functions callerName callerParams value
+  | Stmt.calldatacopy destOffset sourceOffset size
   | Stmt.returndataCopy destOffset sourceOffset size => do
-      validateInternalCallShapesInExpr functions callerName destOffset
-      validateInternalCallShapesInExpr functions callerName sourceOffset
-      validateInternalCallShapesInExpr functions callerName size
+      validateInternalCallShapesInExpr functions callerName callerParams destOffset
+      validateInternalCallShapesInExpr functions callerName callerParams sourceOffset
+      validateInternalCallShapesInExpr functions callerName callerParams size
   | Stmt.revertReturndata =>
       pure ()
   | Stmt.setMapping _ key value | Stmt.setMappingWord _ key _ value | Stmt.setMappingPackedWord _ key _ _ value | Stmt.setMappingUint _ key value
   | Stmt.setStructMember _ key _ value => do
-      validateInternalCallShapesInExpr functions callerName key
-      validateInternalCallShapesInExpr functions callerName value
+      validateInternalCallShapesInExpr functions callerName callerParams key
+      validateInternalCallShapesInExpr functions callerName callerParams value
   | Stmt.setMappingChain _ keys value => do
-      validateInternalCallShapesInExprList functions callerName keys
-      validateInternalCallShapesInExpr functions callerName value
+      validateInternalCallShapesInExprList functions callerName callerParams keys
+      validateInternalCallShapesInExpr functions callerName callerParams value
   | Stmt.setMapping2 _ key1 key2 value | Stmt.setMapping2Word _ key1 key2 _ value
   | Stmt.setStructMember2 _ key1 key2 _ value => do
-      validateInternalCallShapesInExpr functions callerName key1
-      validateInternalCallShapesInExpr functions callerName key2
-      validateInternalCallShapesInExpr functions callerName value
-  | Stmt.ite cond thenBranch elseBranch => do
-      validateInternalCallShapesInExpr functions callerName cond
-      validateInternalCallShapesInStmtList functions callerName thenBranch
-      validateInternalCallShapesInStmtList functions callerName elseBranch
-  | Stmt.forEach _ count body => do
-      validateInternalCallShapesInExpr functions callerName count
-      validateInternalCallShapesInStmtList functions callerName body
-  | Stmt.unsafeBlock _ body =>
-      validateInternalCallShapesInStmtList functions callerName body
-  | Stmt.matchAdt _ scrutinee branches => do
-      validateInternalCallShapesInExpr functions callerName scrutinee
-      validateInternalCallShapesInMatchBranches functions callerName branches
+      validateInternalCallShapesInExpr functions callerName callerParams key1
+      validateInternalCallShapesInExpr functions callerName callerParams key2
+      validateInternalCallShapesInExpr functions callerName callerParams value
+  | Stmt.ite cond _ _ =>
+      validateInternalCallShapesInExpr functions callerName callerParams cond
+  | Stmt.forEach _ count _ =>
+      validateInternalCallShapesInExpr functions callerName callerParams count
+  | Stmt.unsafeBlock _ _ =>
+      pure ()
+  | Stmt.matchAdt _ scrutinee _ =>
+      validateInternalCallShapesInExpr functions callerName callerParams scrutinee
   | Stmt.emit _ args =>
-      validateInternalCallShapesInExprList functions callerName args
+      validateInternalCallShapesInExprList functions callerName callerParams args
   | Stmt.returnValues values =>
-      validateInternalCallShapesInExprList functions callerName values
+      validateInternalCallShapesInExprList functions callerName callerParams values
   | Stmt.internalCall calleeName args => do
-      validateInternalCallShapesInExprList functions callerName args
+      validateInternalCallShapesInExprList functions callerName callerParams args
       let callee ← findInternalFunctionByName functions callerName calleeName
-      let expectedArgs := internalCallYulArgCount callee.params
-      if args.length != expectedArgs then
-        throw s!"Compilation error: function '{callerName}' calls internal function '{calleeName}' with {args.length} Yul arg(s), expected {expectedArgs} ({issue625Ref})."
+      validateInternalCallSourceArgs callerParams callerName calleeName callee.params args
       let returns ← functionReturns callee
       if !returns.isEmpty then
         throw s!"Compilation error: function '{callerName}' uses Stmt.internalCall '{calleeName}' but callee returns {returns.length} values; use Expr.internalCall for single-return or Stmt.internalCallAssign for multi-return calls ({issue625Ref})."
@@ -377,56 +417,50 @@ def validateInternalCallShapesInStmt
           throw s!"Compilation error: function '{callerName}' uses Stmt.internalCallAssign with duplicate target '{dup}' ({issue625Ref})."
       | none =>
           pure ()
-      validateInternalCallShapesInExprList functions callerName args
+      validateInternalCallShapesInExprList functions callerName callerParams args
       let callee ← findInternalFunctionByName functions callerName calleeName
-      let expectedArgs := internalCallYulArgCount callee.params
-      if args.length != expectedArgs then
-        throw s!"Compilation error: function '{callerName}' calls internal function '{calleeName}' with {args.length} Yul arg(s), expected {expectedArgs} ({issue625Ref})."
+      validateInternalCallSourceArgs callerParams callerName calleeName callee.params args
       let returns ← functionReturns callee
       let expectedReturns := internalReturnYulCount returns
       if expectedReturns != names.length then
         throw s!"Compilation error: function '{callerName}' binds {names.length} Yul value(s) from internal function '{calleeName}', but callee returns {returns.length} logical value(s) / {expectedReturns} Yul value(s) ({issue625Ref})."
   | Stmt.rawLog topics dataOffset dataSize => do
-      validateInternalCallShapesInExprList functions callerName topics
-      validateInternalCallShapesInExpr functions callerName dataOffset
-      validateInternalCallShapesInExpr functions callerName dataSize
+      validateInternalCallShapesInExprList functions callerName callerParams topics
+      validateInternalCallShapesInExpr functions callerName callerParams dataOffset
+      validateInternalCallShapesInExpr functions callerName callerParams dataSize
   | Stmt.externalCallBind _resultVars _ args =>
-      validateInternalCallShapesInExprList functions callerName args
+      validateInternalCallShapesInExprList functions callerName callerParams args
   | Stmt.tryExternalCallBind _ _resultVars _ args =>
-      validateInternalCallShapesInExprList functions callerName args
+      validateInternalCallShapesInExprList functions callerName callerParams args
   | Stmt.ecm _ args =>
-      validateInternalCallShapesInExprList functions callerName args
+      validateInternalCallShapesInExprList functions callerName callerParams args
   | _ =>
       pure ()
-termination_by s => sizeOf s
-decreasing_by all_goals simp_wf; all_goals omega
+
+def validateInternalCallShapesInStmt
+    (functions : List FunctionSpec) (callerName : String) (callerParams : List Param)
+    (stmt : Stmt) : Except String Unit :=
+  stmt.forDeepM (validateInternalCallShapesNodeStmt functions callerName callerParams)
 
 def validateInternalCallShapesInStmtList
-    (functions : List FunctionSpec) (callerName : String) : List Stmt → Except String Unit
-  | [] => pure ()
-  | s :: ss => do
-      validateInternalCallShapesInStmt functions callerName s
-      validateInternalCallShapesInStmtList functions callerName ss
-termination_by ss => sizeOf ss
-decreasing_by all_goals simp_wf; all_goals omega
+    (functions : List FunctionSpec) (callerName : String) (callerParams : List Param)
+    (stmts : List Stmt) : Except String Unit :=
+  Stmt.forDeepListM (validateInternalCallShapesNodeStmt functions callerName callerParams) stmts
 
 def validateInternalCallShapesInMatchBranches
-    (functions : List FunctionSpec) (callerName : String) :
-    List (String × List String × List Stmt) → Except String Unit
-  | [] => pure ()
-  | (_, _, body) :: rest => do
-      validateInternalCallShapesInStmtList functions callerName body
-      validateInternalCallShapesInMatchBranches functions callerName rest
-termination_by bs => sizeOf bs
-decreasing_by all_goals simp_wf; all_goals omega
-end
+    (functions : List FunctionSpec) (callerName : String) (callerParams : List Param)
+    (branches : List (String × List String × List Stmt)) : Except String Unit :=
+  branches.forM fun (_, _, body) =>
+    validateInternalCallShapesInStmtList functions callerName callerParams body
 
 def validateInternalCallShapesInFunction (functions : List FunctionSpec)
     (spec : FunctionSpec) : Except String Unit := do
-  spec.body.forM (validateInternalCallShapesInStmt functions spec.name)
+  spec.body.forM (validateInternalCallShapesInStmt functions spec.name spec.params)
 
-mutual
-def validateExternalCallTargetsInExpr
+/-- Node-local check: shape of an `Expr.externalCall` node. Operands are
+    reached via the canonical pre-order `Expr.forDeepM`, matching the old walk
+    which checked the call's own shape before its arguments. -/
+def validateExternalCallTargetsNodeExpr
     (externals : List ExternalFunction) (context : String) : Expr → Except String Unit
   | Expr.externalCall name args => do
       if name == builtinExpName then
@@ -443,132 +477,21 @@ def validateExternalCallTargetsInExpr
             let returns ← externalFunctionReturns ext
             if returns.length != 1 then
               throw s!"Compilation error: {context} uses Expr.externalCall '{name}' but spec.externals declares {returns.length} return values; Expr.externalCall requires exactly 1 ({issue184Ref})."
-      validateExternalCallTargetsInExprList externals context args
-  | Expr.call gas target value inOffset inSize outOffset outSize => do
-      validateExternalCallTargetsInExpr externals context gas
-      validateExternalCallTargetsInExpr externals context target
-      validateExternalCallTargetsInExpr externals context value
-      validateExternalCallTargetsInExpr externals context inOffset
-      validateExternalCallTargetsInExpr externals context inSize
-      validateExternalCallTargetsInExpr externals context outOffset
-      validateExternalCallTargetsInExpr externals context outSize
-  | Expr.staticcall gas target inOffset inSize outOffset outSize => do
-      validateExternalCallTargetsInExpr externals context gas
-      validateExternalCallTargetsInExpr externals context target
-      validateExternalCallTargetsInExpr externals context inOffset
-      validateExternalCallTargetsInExpr externals context inSize
-      validateExternalCallTargetsInExpr externals context outOffset
-      validateExternalCallTargetsInExpr externals context outSize
-  | Expr.delegatecall gas target inOffset inSize outOffset outSize => do
-      validateExternalCallTargetsInExpr externals context gas
-      validateExternalCallTargetsInExpr externals context target
-      validateExternalCallTargetsInExpr externals context inOffset
-      validateExternalCallTargetsInExpr externals context inSize
-      validateExternalCallTargetsInExpr externals context outOffset
-      validateExternalCallTargetsInExpr externals context outSize
-  | Expr.extcodesize addr =>
-      validateExternalCallTargetsInExpr externals context addr
-  | Expr.mload offset | Expr.tload offset =>
-      validateExternalCallTargetsInExpr externals context offset
-  | Expr.calldataload offset =>
-      validateExternalCallTargetsInExpr externals context offset
-  | Expr.keccak256 offset size => do
-      validateExternalCallTargetsInExpr externals context offset
-      validateExternalCallTargetsInExpr externals context size
-  | Expr.returndataOptionalBoolAt outOffset =>
-      validateExternalCallTargetsInExpr externals context outOffset
-  | Expr.mapping _ key =>
-      validateExternalCallTargetsInExpr externals context key
-  | Expr.mappingWord _ key _ =>
-      validateExternalCallTargetsInExpr externals context key
-  | Expr.mappingPackedWord _ key _ _ =>
-      validateExternalCallTargetsInExpr externals context key
-  | Expr.mappingChain _ keys =>
-      validateExternalCallTargetsInExprList externals context keys
-  | Expr.structMember _ key _ =>
-      validateExternalCallTargetsInExpr externals context key
-  | Expr.mapping2 _ key1 key2 | Expr.mapping2Word _ key1 key2 _
-  | Expr.structMember2 _ key1 key2 _ => do
-      validateExternalCallTargetsInExpr externals context key1
-      validateExternalCallTargetsInExpr externals context key2
-  | Expr.mappingUint _ key =>
-      validateExternalCallTargetsInExpr externals context key
-  | Expr.internalCall _ args =>
-      validateExternalCallTargetsInExprList externals context args
-  | Expr.storageArrayElement _ index
-  | Expr.arrayElement _ index
-  | Expr.memoryArrayElement _ index
-  | Expr.arrayElementWord _ index _ _
-  | Expr.arrayElementDynamicWord _ index _
-  | Expr.arrayElementDynamicDataOffset _ index
-  | Expr.arrayElementDynamicMemberDataOffset _ index _
-  | Expr.arrayElementDynamicMemberLength _ index _ =>
-      validateExternalCallTargetsInExpr externals context index
-  | Expr.arrayElementDynamicMemberElement _ index _ innerIndex => do
-      validateExternalCallTargetsInExpr externals context index
-      validateExternalCallTargetsInExpr externals context innerIndex
-  | Expr.paramDynamicMemberElement _ _ innerIndex =>
-      validateExternalCallTargetsInExpr externals context innerIndex
-  | Expr.add a b | Expr.sub a b | Expr.mul a b | Expr.div a b | Expr.sdiv a b | Expr.mod a b | Expr.smod a b |
-    Expr.bitAnd a b | Expr.bitOr a b | Expr.bitXor a b | Expr.shl a b | Expr.shr a b |
-    Expr.sar a b | Expr.signextend a b | Expr.byte a b |
-    Expr.eq a b | Expr.ge a b | Expr.gt a b | Expr.sgt a b | Expr.lt a b | Expr.slt a b | Expr.le a b |
-    Expr.logicalAnd a b | Expr.logicalOr a b |
-    Expr.wMulDown a b | Expr.wDivUp a b | Expr.min a b | Expr.max a b |
-    Expr.ceilDiv a b => do
-      validateExternalCallTargetsInExpr externals context a
-      validateExternalCallTargetsInExpr externals context b
-  | Expr.intrinsic _ _ _ args =>
-      validateExternalCallTargetsInExprList externals context args
-  | Expr.forkIfAtLeast _ thenExpr elseExpr => do
-      validateExternalCallTargetsInExpr externals context thenExpr
-      validateExternalCallTargetsInExpr externals context elseExpr
-  | Expr.mulDivDown a b c | Expr.mulDivUp a b c
-  | Expr.mulDiv512Down a b c | Expr.mulDiv512Up a b c => do
-      validateExternalCallTargetsInExpr externals context a
-      validateExternalCallTargetsInExpr externals context b
-      validateExternalCallTargetsInExpr externals context c
-  | Expr.bitNot a | Expr.logicalNot a =>
-      validateExternalCallTargetsInExpr externals context a
-  | Expr.ite cond thenVal elseVal => do
-      validateExternalCallTargetsInExpr externals context cond
-      validateExternalCallTargetsInExpr externals context thenVal
-      validateExternalCallTargetsInExpr externals context elseVal
-  | Expr.adtConstruct _ _ args =>
-      validateExternalCallTargetsInExprList externals context args
-  -- Pure leaves: nothing to validate. Listed explicitly (rather than via
-  -- `| _ => pure ()`) so the equation-lemma deriver does not have to
-  -- enumerate the complement of every pattern above. Avoids the
-  -- `_mutual.eq_def` 200 000-heartbeat ceiling when new `Expr` constructors
-  -- land (e.g. verity#1832's `paramDynamicHeadWord`).
-  | Expr.literal _ | Expr.param _ | Expr.constructorArg _
-  | Expr.storage _ | Expr.storageAddr _
-  | Expr.caller | Expr.contractAddress | Expr.txOrigin | Expr.chainid
-  | Expr.msgValue | Expr.selfBalance
-  | Expr.blockTimestamp | Expr.blockNumber | Expr.blobbasefee
-  | Expr.calldatasize | Expr.returndataSize
-  | Expr.localVar _
-  | Expr.arrayLength _ | Expr.memoryArrayLength _ | Expr.storageArrayLength _
-  | Expr.paramDynamicHeadWord _ _
-  | Expr.paramDynamicStaticComposite _ _
-  | Expr.paramDynamicMemberLength _ _
-  | Expr.paramDynamicMemberDataOffset _ _
-  | Expr.dynamicBytesEq _ _
-  | Expr.adtTag _ _ | Expr.adtField _ _ _ _ _ =>
-      pure ()
-termination_by e => sizeOf e
-decreasing_by all_goals simp_wf; all_goals omega
+  | _ => pure ()
+
+def validateExternalCallTargetsInExpr
+    (externals : List ExternalFunction) (context : String) (e : Expr) : Except String Unit :=
+  e.forDeepM (validateExternalCallTargetsNodeExpr externals context)
 
 def validateExternalCallTargetsInExprList
-    (externals : List ExternalFunction) (context : String) : List Expr → Except String Unit
-  | [] => pure ()
-  | e :: es => do
-      validateExternalCallTargetsInExpr externals context e
-      validateExternalCallTargetsInExprList externals context es
-termination_by es => sizeOf es
-decreasing_by all_goals simp_wf; all_goals omega
+    (externals : List ExternalFunction) (context : String) (es : List Expr) : Except String Unit :=
+  es.forM (validateExternalCallTargetsInExpr externals context)
 
-def validateExternalCallTargetsInStmt
+/-- Node-local statement check: validates the statement's own expressions and
+    external-call binding shape; nested statement bodies are reached via the
+    canonical `Stmt.forDeepM`. `returnArray`/`returnBytes`/`returnStorageWords`/
+    `returnCodeData` deliberately contribute nothing here (as in the old walk). -/
+def validateExternalCallTargetsNodeStmt
     (externals : List ExternalFunction) (context : String) : Stmt → Except String Unit
   | Stmt.letVar _ value | Stmt.assignVar _ value | Stmt.setStorage _ value | Stmt.setStorageAddr _ value
   | Stmt.setStorageWord _ _ value |
@@ -585,16 +508,10 @@ def validateExternalCallTargetsInStmt
       validateExternalCallTargetsInExprList externals context args
   | Stmt.revertError _ args =>
       validateExternalCallTargetsInExprList externals context args
-  | Stmt.mstore offset value => do
+  | Stmt.mstore offset value | Stmt.tstore offset value => do
       validateExternalCallTargetsInExpr externals context offset
       validateExternalCallTargetsInExpr externals context value
-  | Stmt.tstore offset value => do
-      validateExternalCallTargetsInExpr externals context offset
-      validateExternalCallTargetsInExpr externals context value
-  | Stmt.calldatacopy destOffset sourceOffset size => do
-      validateExternalCallTargetsInExpr externals context destOffset
-      validateExternalCallTargetsInExpr externals context sourceOffset
-      validateExternalCallTargetsInExpr externals context size
+  | Stmt.calldatacopy destOffset sourceOffset size
   | Stmt.returndataCopy destOffset sourceOffset size => do
       validateExternalCallTargetsInExpr externals context destOffset
       validateExternalCallTargetsInExpr externals context sourceOffset
@@ -613,18 +530,14 @@ def validateExternalCallTargetsInStmt
       validateExternalCallTargetsInExpr externals context key1
       validateExternalCallTargetsInExpr externals context key2
       validateExternalCallTargetsInExpr externals context value
-  | Stmt.ite cond thenBranch elseBranch => do
+  | Stmt.ite cond _ _ =>
       validateExternalCallTargetsInExpr externals context cond
-      validateExternalCallTargetsInStmtList externals context thenBranch
-      validateExternalCallTargetsInStmtList externals context elseBranch
-  | Stmt.forEach _ count body => do
+  | Stmt.forEach _ count _ =>
       validateExternalCallTargetsInExpr externals context count
-      validateExternalCallTargetsInStmtList externals context body
-  | Stmt.unsafeBlock _ body =>
-      validateExternalCallTargetsInStmtList externals context body
-  | Stmt.matchAdt _ scrutinee branches => do
+  | Stmt.unsafeBlock _ _ =>
+      pure ()
+  | Stmt.matchAdt _ scrutinee _ =>
       validateExternalCallTargetsInExpr externals context scrutinee
-      validateExternalCallTargetsInMatchBranches externals context branches
   | Stmt.emit _ args =>
       validateExternalCallTargetsInExprList externals context args
   | Stmt.internalCall _ args =>
@@ -699,28 +612,20 @@ def validateExternalCallTargetsInStmt
       validateExternalCallTargetsInExprList externals context args
   | _ =>
       pure ()
-termination_by s => sizeOf s
-decreasing_by all_goals simp_wf; all_goals omega
+
+def validateExternalCallTargetsInStmt
+    (externals : List ExternalFunction) (context : String) (stmt : Stmt) : Except String Unit :=
+  stmt.forDeepM (validateExternalCallTargetsNodeStmt externals context)
 
 def validateExternalCallTargetsInStmtList
-    (externals : List ExternalFunction) (context : String) : List Stmt → Except String Unit
-  | [] => pure ()
-  | s :: ss => do
-      validateExternalCallTargetsInStmt externals context s
-      validateExternalCallTargetsInStmtList externals context ss
-termination_by ss => sizeOf ss
-decreasing_by all_goals simp_wf; all_goals omega
+    (externals : List ExternalFunction) (context : String) (stmts : List Stmt) : Except String Unit :=
+  Stmt.forDeepListM (validateExternalCallTargetsNodeStmt externals context) stmts
 
 def validateExternalCallTargetsInMatchBranches
-    (externals : List ExternalFunction) (context : String) :
-    List (String × List String × List Stmt) → Except String Unit
-  | [] => pure ()
-  | (_, _, body) :: rest => do
-      validateExternalCallTargetsInStmtList externals context body
-      validateExternalCallTargetsInMatchBranches externals context rest
-termination_by bs => sizeOf bs
-decreasing_by all_goals simp_wf; all_goals omega
-end
+    (externals : List ExternalFunction) (context : String)
+    (branches : List (String × List String × List Stmt)) : Except String Unit :=
+  branches.forM fun (_, _, body) =>
+    validateExternalCallTargetsInStmtList externals context body
 
 def validateExternalCallTargetsInFunction
     (externals : List ExternalFunction) (spec : FunctionSpec) : Except String Unit := do

@@ -1,18 +1,21 @@
-/- 
+/-
   Compiler.CompilationModel.Dispatch: Contract assembly and entrypoint wiring
 
   This module builds IR functions, constructor code, and whole contracts from
   the lower-level statement/expression compilation helpers.
 -/
 import Compiler.CompilationModel.Compile
+import Compiler.CompilationModel.InternalArgs
 import Compiler.CompilationModel.ParamLoading
 import Compiler.CompilationModel.ScopeValidation
 import Compiler.CompilationModel.TrustSurface
+import Verity.Core.Intrinsics
 
 namespace Compiler.CompilationModel
 
 open Compiler
 open Compiler.Yul
+open Verity.Core.Intrinsics (HardFork)
 
 /-- Pick a fresh internal return variable name for the given index. -/
 def pickFreshInternalRetName (usedNames : List String) (idx : Nat) : String :=
@@ -33,41 +36,19 @@ def freshInternalRetNames (returns : List ParamType) (usedNames : List String) :
     (usedNames, [])
   namesRev.reverse
 
-def internalFunctionYulParamNames (params : List Param) : List String :=
-  params.flatMap fun param =>
-    match param.ty with
-    | ParamType.array _ =>
-        [s!"{param.name}_data_offset", s!"{param.name}_length"]
-    | ParamType.bytes | ParamType.string =>
-        [s!"{param.name}_data_offset", s!"{param.name}_length"]
-    | ParamType.fixedArray _ _ =>
-        if isDynamicParamType param.ty then
-          [s!"{param.name}_data_offset"]
-        else
-          staticParamBindingNames param.name param.ty
-    | ParamType.tuple _ =>
-        if isDynamicParamType param.ty then
-          [s!"{param.name}_data_offset"]
-        else
-          staticParamBindingNames param.name param.ty
-    | ParamType.newtypeOf _ baseTy =>
-        if isDynamicParamType param.ty then
-          [s!"{param.name}_data_offset"]
-        else
-          staticParamBindingNames param.name baseTy
-    | _ => [param.name]
-
 -- Compile internal function to a Yul function definition (#181)
 def compileInternalFunction (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (adtTypes : List AdtTypeDef := []) (spec : FunctionSpec) :
+    (adtTypes : List AdtTypeDef := []) (spec : FunctionSpec)
+    (targetFork : HardFork := .cancun)
+    (internalFunctions : List FunctionSpec := []) :
     Except String YulStmt := do
   validateFunctionSpec spec
   let returns ← functionReturns spec
   let paramNames := internalFunctionYulParamNames spec.params
   let usedNames := paramNames ++ collectStmtListBindNames spec.body
   let retNames := freshInternalRetNames returns usedNames
-  let bodyStmts ← compileStmtList fields events errors .calldata retNames true
-    (paramNames ++ retNames) adtTypes spec.body
+  let bodyStmts ← compileStmtListWithFork fields events errors .calldata retNames true
+    (paramNames ++ retNames) adtTypes targetFork spec.body internalFunctions
   pure (YulStmt.funcDef (internalFunctionYulName spec.name) paramNames retNames bodyStmts)
 
 theorem compileInternalFunction_ok_components
@@ -96,7 +77,7 @@ theorem compileInternalFunction_ok_components
       rw [hvalidate, hreturns] at hcompile
       simp only [bind, Except.bind] at hcompile
       cases hbody :
-          compileStmtList fields events errors .calldata
+          compileStmtListWithFork fields events errors .calldata
             (freshInternalRetNames returns
               (internalFunctionYulParamNames spec.params ++ collectStmtListBindNames spec.body))
             true
@@ -104,6 +85,7 @@ theorem compileInternalFunction_ok_components
               freshInternalRetNames returns
                 (internalFunctionYulParamNames spec.params ++ collectStmtListBindNames spec.body))
             []
+            HardFork.cancun
             spec.body
       · rw [hbody] at hcompile
         cases hcompile
@@ -117,7 +99,7 @@ theorem compileInternalFunction_ok_components
             bodyStmts,
             ?_⟩
         exact ⟨by simp, by simp,
-          by simpa using hbody, by simpa using hcompile.symm⟩
+          by simpa [compileStmtList] using hbody, by simpa using hcompile.symm⟩
 
 theorem compileInternalFunction_some_ok_of_components
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
@@ -140,7 +122,7 @@ theorem compileInternalFunction_some_ok_of_components
           retNames
           bodyStmts) := by
   have hbody' :
-      compileStmtList fields events errors .calldata
+      compileStmtListWithFork fields events errors .calldata
         (freshInternalRetNames returns
           (internalFunctionYulParamNames spec.params ++ collectStmtListBindNames spec.body))
         true
@@ -148,8 +130,9 @@ theorem compileInternalFunction_some_ok_of_components
           freshInternalRetNames returns
             (internalFunctionYulParamNames spec.params ++ collectStmtListBindNames spec.body))
         []
+        HardFork.cancun
         spec.body = Except.ok bodyStmts := by
-    simpa [hretNames] using hbody
+    simpa [compileStmtList, hretNames] using hbody
   let paramNames := internalFunctionYulParamNames spec.params
   let compiledName := internalFunctionYulName spec.name
   have hmap :
@@ -157,11 +140,12 @@ theorem compileInternalFunction_some_ok_of_components
           compiledName
           paramNames
           (freshInternalRetNames returns (paramNames ++ collectStmtListBindNames spec.body))) <$>
-        compileStmtList fields events errors .calldata
+        compileStmtListWithFork fields events errors .calldata
           (freshInternalRetNames returns (paramNames ++ collectStmtListBindNames spec.body))
           true
           (paramNames ++ freshInternalRetNames returns (paramNames ++ collectStmtListBindNames spec.body))
           []
+          HardFork.cancun
           spec.body =
       Except.ok
         (YulStmt.funcDef
@@ -187,13 +171,15 @@ theorem compileInternalFunction_some_ok_of_components
 
 -- Compile function spec to IR function
 def compileFunctionSpec (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (adtTypes : List AdtTypeDef := []) (selector : Nat) (spec : FunctionSpec) :
+    (adtTypes : List AdtTypeDef := []) (selector : Nat) (spec : FunctionSpec)
+    (targetFork : HardFork := .cancun)
+    (internalFunctions : List FunctionSpec := []) :
     Except String IRFunction := do
   validateFunctionSpec spec
   let returns ← functionReturns spec
   let paramLoads := genParamLoads spec.params
-  let bodyStmts ← compileStmtList fields events errors .calldata [] false
-    (spec.params.map (·.name)) adtTypes spec.body
+  let bodyStmts ← compileStmtListWithFork fields events errors .calldata [] false
+    (spec.params.map (·.name)) adtTypes targetFork spec.body internalFunctions
   let allStmts := paramLoads ++ bodyStmts
   let retType := match returns with
     | [single] => single.toIRType
@@ -207,13 +193,93 @@ def compileFunctionSpec (fields : List Field) (events : List EventDef) (errors :
     body := allStmts
   }
 
+/-- Build the Yul prologue for a `nonreentrant(lockField)` function (#1893).
+
+    Uses **transient storage** (TLOAD / TSTORE introduced in Cancun) so the
+    guard auto-clears at end-of-transaction and no exit-side cleanup is
+    needed — even on early `return`, `revert`, or panic the lock cannot
+    leak across transactions.
+
+    The emitted Yul is:
+    ```yul
+    if eq(tload(<lockSlot>), 1) { revert(0, 0) }
+    tstore(<lockSlot>, 1)
+    ```
+
+    `lockSlot` is the canonical slot resolved from the lock field name. The
+    field is required to be a scalar `uint256` storage field by the macro
+    validator (`Verity/Macro/Translate.lean` enforces this). Persistent
+    storage at that slot is left untouched — only the transient mirror at
+    the same numeric slot is used as the active lock, so legacy callers
+    that initialise the field to zero need no migration. -/
+def nonReentrantGuardPrologue (fields : List Field) (lockField : String) :
+    Except String (List YulStmt) := do
+  match findFieldWithResolvedSlot fields lockField with
+  | none =>
+      throw s!"Compilation error: nonreentrant lock '{lockField}' is not a declared storage field; declare it as a scalar uint256 field before annotating any function"
+  | some (_field, slot) =>
+      let lockSlot := YulExpr.lit slot
+      let revertOnReentry :=
+        YulStmt.if_
+          (YulExpr.call "eq" [YulExpr.call "tload" [lockSlot], YulExpr.lit 1])
+          [YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]
+      let acquire :=
+        YulStmt.expr (YulExpr.call "tstore" [lockSlot, YulExpr.lit 1])
+      pure [revertOnReentry, acquire]
+
+/-- Wrap an already-compiled `IRFunction` with the `nonreentrant(lockField)`
+    guard prologue (#1893) when the source `FunctionSpec` carries the
+    annotation. The prologue is inserted **after** parameter loading and
+    **before** the user-authored body so the lock check runs on every
+    entry path before any user Yul can execute. Returns the input
+    function unchanged when there is no `nonReentrantLock`.
+
+    Kept separate from `compileFunctionSpec` so the IR-generation proof
+    modules (which prove `compileFunctionSpec` produces a specific
+    parameter-loads + body shape) are unaffected: the guard is a
+    post-compilation transformation only applied to externals at the
+    contract-assembly layer. -/
+def attachNonReentrantGuard (fields : List Field) (spec : FunctionSpec)
+    (irFn : IRFunction) : Except String IRFunction :=
+  match spec.nonReentrantLock with
+  | none => pure irFn
+  | some lockField => do
+      let guardStmts ← nonReentrantGuardPrologue fields lockField
+      let paramLoadCount := (genParamLoads spec.params).length
+      let (prefixLoads, suffix) := irFn.body.splitAt paramLoadCount
+      -- Release the transient lock on normal exit so that a second top-level
+      -- call to the same nonreentrant function in the same tx is allowed
+      -- (the guard only protects against reentrancy *during* execution).
+      -- Early returns/reverts inside the body may leave the lock set until
+      -- tx end (transient), but this fixes the "never clears" case for the
+      -- common fall-through path.
+      let releaseSlot := match findFieldWithResolvedSlot fields lockField with
+        | some (_, s) => s
+        | none => 0   -- unreachable after prologue validation
+      let release := YulStmt.expr (YulExpr.call "tstore" [YulExpr.lit releaseSlot, YulExpr.lit 0])
+      pure { irFn with body := prefixLoads ++ guardStmts ++ suffix ++ [release] }
+
 private def compileSpecialEntrypoint (fields : List Field) (events : List EventDef)
-    (errors : List ErrorDef) (adtTypes : List AdtTypeDef := []) (spec : FunctionSpec) :
+    (errors : List ErrorDef) (adtTypes : List AdtTypeDef := [])
+    (targetFork : HardFork := .cancun)
+    (internalFunctions : List FunctionSpec := []) (spec : FunctionSpec) :
     Except String IREntrypoint := do
-  let bodyChunks ← compileStmtList fields events errors .calldata [] false [] adtTypes spec.body
+  let bodyChunks ← compileStmtListWithFork fields events errors .calldata [] false [] adtTypes targetFork spec.body internalFunctions
+  -- Apply nonreentrant guard for fallback/receive if annotated (high-severity
+  -- Bugbot: previously these special entrypoints were compiled without the
+  -- transient lock even when `nonreentrant(lock)` was declared).
+  let guardedBody ← match spec.nonReentrantLock with
+    | none => pure bodyChunks
+    | some lockField =>
+        let guardStmts ← nonReentrantGuardPrologue fields lockField
+        let releaseSlot := match findFieldWithResolvedSlot fields lockField with
+          | some (_, s) => s
+          | none => 0
+        let release := YulStmt.expr (YulExpr.call "tstore" [YulExpr.lit releaseSlot, YulExpr.lit 0])
+        pure (guardStmts ++ bodyChunks ++ [release])
   pure {
     payable := spec.isPayable
-    body := bodyChunks
+    body := guardedBody
   }
 
 def pickUniqueFunctionByName (name : String) (funcs : List FunctionSpec) :
@@ -230,14 +296,16 @@ def usesMapping (fields : List Field) : Bool :=
 -- Compile deploy code (constructor)
 -- Note: Don't append datacopy/return here - Codegen.deployCode does that
 def compileConstructor (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (adtTypes : List AdtTypeDef := []) (ctor : Option ConstructorSpec) :
+    (adtTypes : List AdtTypeDef := []) (ctor : Option ConstructorSpec)
+    (targetFork : HardFork := .cancun)
+    (internalFunctions : List FunctionSpec := []) :
     Except String (List YulStmt) := do
   match ctor with
   | none => return []
   | some spec =>
     let argLoads := genConstructorArgLoads spec.params
-    let bodyChunks ← compileStmtList fields events errors .memory [] false
-      (spec.params.map (·.name)) adtTypes spec.body
+    let bodyChunks ← compileStmtListWithFork fields events errors .memory [] false
+      (spec.params.map (·.name)) adtTypes targetFork spec.body internalFunctions
     return argLoads ++ bodyChunks
 
 -- Main compilation function
@@ -246,6 +314,28 @@ def compileConstructor (fields : List Field) (events : List EventDef) (errors : 
 -- Use `Compiler.Selector.compileChecked` on caller-provided selector lists.
 -- WARNING: Order matters! If selector list is reordered but function list isn't,
 -- functions will be mapped to wrong selectors with no runtime error.
+
+/-- Reject specs that use the `nonreentrant(lockField)` annotation on a target
+    fork that does not expose transient storage (EIP-1153, Cancun+).
+
+    `attachNonReentrantGuard` synthesises a `TLOAD`/`TSTORE` guard and the CEI
+    exemption for `nonreentrant` externals assumes that guard runs; emitting
+    transient-storage opcodes on a pre-Cancun target (or evaluating the CEI
+    exemption as if the guard existed) leaves the post-external-call write
+    window open (Bugbot high-severity reentrancy thread). Fail closed at the
+    compiler-model boundary so the bug cannot be expressed in a successful
+    build (#1893 follow-up, also tracked under #1968). -/
+def validateNonReentrantForkCompatibility
+    (targetFork : HardFork) (spec : CompilationModel) : Except String Unit := do
+  if HardFork.allows targetFork .cancun then
+    pure ()
+  else
+    match spec.functions.find? (fun fn => fn.nonReentrantLock.isSome) with
+    | some fn =>
+        throw s!"Compilation error: function '{fn.name}' is annotated nonreentrant({fn.nonReentrantLock.getD ""}) but the targeted EVM fork {targetFork} does not expose transient storage (EIP-1153, Cancun+). The synthesised tload/tstore guard cannot run on pre-Cancun chains, so the post-external-call reentry window would be left unguarded. Either raise targetFork to at least Cancun, drop the annotation, or add an explicit pre-Cancun reentrancy guard ({issue1728Ref})."
+    | none =>
+        pure ()
+
 private def validateCompileInputsBeforeFieldWriteConflict
     (spec : CompilationModel) : Except String Unit := do
   validateIdentifierShapes spec
@@ -296,13 +386,20 @@ private def validateCompileInputsBeforeFieldWriteConflict
       pure ()
   for fn in spec.functions do
     validateFunctionSpec fn
+    validateSetImmutableRuntimeGuard fn
+    validateImmutableNamesInFunction spec.immutables fn
     validateInteropFunctionSpec fn
     validateSpecialEntrypointSpec fn
     validateEventArgShapesInFunction fn spec.events
     validateCustomErrorArgShapesInFunction fn spec.errors
     validateInternalCallShapesInFunction spec.functions fn
     validateExternalCallTargetsInFunction spec.externals fn
+    -- Fail-closed cross-function reentrancy gate. Runs last so structural
+    -- well-formedness errors (call shape/target above) win over the policy
+    -- check; the gate only judges otherwise well-formed external calls.
+    validateReentrancyDisposition fn
   validateConstructorSpec spec.constructor
+  validateImmutableNamesInConstructor spec.immutables spec.constructor
   validateInteropConstructorSpec spec.constructor
   validateExternalCallTargetsInConstructor spec.externals spec.constructor
   match spec.constructor with
@@ -310,7 +407,7 @@ private def validateCompileInputsBeforeFieldWriteConflict
   | some ctor => do
       ctor.body.forM (validateEventArgShapesInStmt "constructor" ctor.params spec.events)
       ctor.body.forM (validateCustomErrorArgShapesInStmt "constructor" ctor.params spec.errors)
-      ctor.body.forM (validateInternalCallShapesInStmt spec.functions "constructor")
+      ctor.body.forM (validateInternalCallShapesInStmt spec.functions "constructor" ctor.params)
   for ext in spec.externals do
     let _ ← externalFunctionReturns ext
     validateInteropExternalSpec ext
@@ -343,6 +440,12 @@ private def validateCompileInputsBeforeFieldWriteConflict
       throw s!"Compilation error: duplicate field name '{dup}' in {spec.name}"
   | none =>
       pure ()
+  match firstDuplicateName (spec.immutables.map (·.name)) with
+  | some dup =>
+      throw s!"Compilation error: duplicate immutable name '{dup}' in {spec.name}"
+  | none =>
+      pure ()
+  validateImmutableInitialization spec.immutables spec.constructor
   match firstInvalidPackedBits spec.fields with
   | some (fieldName, packed) =>
       throw s!"Compilation error: field '{fieldName}' has invalid packedBits offset={packed.offset} width={packed.width} in {spec.name} ({issue623Ref}). Require 0 < width <= 256, offset < 256, and offset + width <= 256."
@@ -360,7 +463,18 @@ private def validateCompileInputsBeforeFieldWriteConflict
       pure ()
   firstInvalidStructField spec.fields
 
-def validateCompileInputs (spec : CompilationModel) (selectors : List Nat) : Except String Unit := do
+/-- Validate a `CompilationModel` end-to-end, including the
+    `nonreentrant(<lock>)` ↔ `targetFork` pre-check (#1968).
+
+    The default `targetFork := .cancun` preserves the historical single-arg
+    call shape for tests, proofs, and `lake exe`-style executables that
+    don't have a fork in scope. The compile driver in
+    `Compiler.CompileDriverCommon.compileSpecsWithOptions` always passes
+    the actual `options.targetFork` so transient-storage guards cannot
+    be silently emitted against a pre-Cancun chain. -/
+def validateCompileInputs (spec : CompilationModel) (selectors : List Nat)
+    (targetFork : HardFork := .cancun) : Except String Unit := do
+  validateNonReentrantForkCompatibility targetFork spec
   validateCompileInputsBeforeFieldWriteConflict spec
   let fields := applySlotAliasRanges spec.fields spec.slotAliasRanges
   let externalFns := spec.functions.filter (fun fn => !fn.isInternal && !isInteropEntrypointName fn.name)
@@ -408,11 +522,13 @@ def validateCompileInputs (spec : CompilationModel) (selectors : List Nat) : Exc
   let mulDiv512HelpersRequired := contractUsesMulDiv512 spec
   let storageArrayHelpersRequired := contractUsesStorageArrayElement spec
   let dynamicBytesEqHelpersRequired := contractUsesDynamicBytesEq spec
+  let checkedArithmeticHelpersRequired := contractUsesCheckedArithmetic spec
   match firstReservedExternalCollision
       spec mappingHelpersRequired arrayHelpersRequired arrayElementWordHelpersRequired
         paramDynamicHeadWordHelpersRequired
         mulDiv512HelpersRequired
-        storageArrayHelpersRequired dynamicBytesEqHelpersRequired with
+        storageArrayHelpersRequired dynamicBytesEqHelpersRequired
+        checkedArithmeticHelpersRequired with
   | some name =>
       if name.startsWith internalFunctionPrefix then
         throw s!"Compilation error: external declaration '{name}' uses reserved prefix '{internalFunctionPrefix}' ({issue756Ref})."
@@ -431,7 +547,22 @@ def validateCompileInputs (spec : CompilationModel) (selectors : List Nat) : Exc
       throw s!"Selector collision in {spec.name}: {dup} assigned to {nameStr}"
   | none => pure ()
 
-def compileValidatedCore (spec : CompilationModel) (selectors : List Nat) : Except String IRContract := do
+/-- Compile one selector-dispatched external and inject the transient-storage
+    reentrancy guard prologue for `nonreentrant(lockField)` externals (#1893).
+    Kept outside `compileFunctionSpec` so the IR-generation proof modules
+    continue to characterise the underlying body shape without a
+    nonReentrantLock case split; for lock-free functions this is exactly
+    `compileFunctionSpec` (see `attachNonReentrantGuard`). -/
+def compileGuardedFunctionSpec (fields : List Field) (events : List EventDef)
+    (errors : List ErrorDef) (adtTypes : List AdtTypeDef)
+    (internalFunctions : List FunctionSpec)
+    (sel : Nat) (fnSpec : FunctionSpec) (targetFork : HardFork := .cancun) :
+    Except String IRFunction := do
+  let irFn ← compileFunctionSpec fields events errors adtTypes sel fnSpec (targetFork := targetFork) internalFunctions
+  attachNonReentrantGuard fields fnSpec irFn
+
+def compileValidatedCore (spec : CompilationModel) (selectors : List Nat)
+    (targetFork : HardFork := .cancun) : Except String IRContract := do
   let fields := applySlotAliasRanges spec.fields spec.slotAliasRanges
   let externalFns := spec.functions.filter (fun fn => !fn.isInternal && !isInteropEntrypointName fn.name)
   let internalFns := spec.functions.filter (·.isInternal)
@@ -442,11 +573,13 @@ def compileValidatedCore (spec : CompilationModel) (selectors : List Nat) : Exce
   let mulDiv512HelpersRequired := contractUsesMulDiv512 spec
   let storageArrayHelpersRequired := contractUsesStorageArrayElement spec
   let dynamicBytesEqHelpersRequired := contractUsesDynamicBytesEq spec
+  let checkedArithmeticHelpersRequired := contractUsesCheckedArithmetic spec
   let fallbackSpec ← pickUniqueFunctionByName "fallback" spec.functions
   let receiveSpec ← pickUniqueFunctionByName "receive" spec.functions
-  let functions ← (externalFns.zip selectors).mapM fun (fnSpec, sel) =>
-    compileFunctionSpec fields spec.events spec.errors spec.adtTypes sel fnSpec
-  let internalFuncDefs ← internalFns.mapM (compileInternalFunction fields spec.events spec.errors spec.adtTypes)
+  let functions ← (externalFns.zip selectors).mapM fun entry =>
+    compileGuardedFunctionSpec fields spec.events spec.errors spec.adtTypes internalFns entry.2 entry.1 (targetFork := targetFork)
+  let internalFuncDefs ← internalFns.mapM fun fn =>
+    compileInternalFunction fields spec.events spec.errors spec.adtTypes fn (targetFork := targetFork) internalFns
   let arrayElementHelpers :=
     (if arrayHelpersRequired then
       [ checkedArrayElementCalldataHelper
@@ -506,22 +639,45 @@ def compileValidatedCore (spec : CompilationModel) (selectors : List Nat) : Exce
       [dynamicBytesEqCalldataHelper, dynamicBytesEqMemoryHelper]
     else
       []
-  let fallbackEntrypoint ← fallbackSpec.mapM (compileSpecialEntrypoint fields spec.events spec.errors spec.adtTypes)
-  let receiveEntrypoint ← receiveSpec.mapM (compileSpecialEntrypoint fields spec.events spec.errors spec.adtTypes)
+  let checkedArithmeticHelpers :=
+    if checkedArithmeticHelpersRequired then
+      [ panicError0x11Helper
+      , panicError0x12Helper
+      , checkedAddUint256Helper
+      , checkedSubUint256Helper
+      , checkedMulUint256Helper
+      , checkedDivUint256Helper
+      ]
+    else
+      []
+  let fallbackEntrypoint ← fallbackSpec.mapM
+    (compileSpecialEntrypoint fields spec.events spec.errors spec.adtTypes (targetFork := targetFork) internalFns)
+  let receiveEntrypoint ← receiveSpec.mapM
+    (compileSpecialEntrypoint fields spec.events spec.errors spec.adtTypes (targetFork := targetFork) internalFns)
   return {
     name := spec.name
-    deploy := (← compileConstructor fields spec.events spec.errors spec.adtTypes spec.constructor)
+    deploy := (← compileConstructor fields spec.events spec.errors spec.adtTypes spec.constructor (targetFork := targetFork) internalFns)
     constructorPayable := spec.constructor.map (·.isPayable) |>.getD false
     functions := functions
     fallbackEntrypoint := fallbackEntrypoint
     receiveEntrypoint := receiveEntrypoint
     usesMapping := mappingHelpersRequired
-    internalFunctions := arrayElementHelpers ++ storageArrayElementHelpers ++ dynamicBytesEqHelpers ++ internalFuncDefs
+    internalFunctions := arrayElementHelpers ++ storageArrayElementHelpers ++ dynamicBytesEqHelpers ++ checkedArithmeticHelpers ++ internalFuncDefs
   }
 
-def compile (spec : CompilationModel) (selectors : List Nat) : Except String IRContract := do
-  validateCompileInputs spec selectors
-  compileValidatedCore spec selectors
+/-- Compile a `CompilationModel` to an `IRContract`.
+
+    The optional `targetFork` parameter is threaded through to
+    `validateCompileInputs` so the `nonreentrant(<lock>)` ↔
+    `HardFork.allows targetFork .cancun` pre-check (#1968) runs against
+    the actual target chain. The default `.cancun` preserves the
+    historical two-arg call shape for tests, proofs, and executables
+    that don't model the fork; the compile driver always passes
+    `options.targetFork`. -/
+def compile (spec : CompilationModel) (selectors : List Nat)
+    (targetFork : HardFork := .cancun) : Except String IRContract := do
+  validateCompileInputs spec selectors targetFork
+  compileValidatedCore spec selectors targetFork
 
 theorem validateCompileInputs_identifierShapes_ok
     {spec : CompilationModel}

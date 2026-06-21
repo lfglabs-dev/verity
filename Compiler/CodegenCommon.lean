@@ -1,4 +1,6 @@
 import Compiler.Constants
+import Compiler.CompilationModel.AbiHelpers
+import Compiler.CompilationModel.DynamicData
 import Compiler.IR
 import Compiler.Yul.PrettyPrint
 import Compiler.Yul.PatchFramework
@@ -7,6 +9,7 @@ import Verity.Core.Intrinsics
 namespace Compiler.CodegenCommon
 
 open Compiler.Constants (selectorShift)
+open Compiler.CompilationModel
 open Compiler.Yul
 
 inductive BackendProfile where
@@ -143,6 +146,133 @@ def buildSwitch
     YulStmt.if_ (YulExpr.ident "__has_selector")
       [YulStmt.switch selectorExpr cases (some defaultCase)]
   ]
+
+private def yulExprSame (a b : YulExpr) : Bool :=
+  toString (repr a) == toString (repr b)
+
+private def yulStmtListSame (a b : List YulStmt) : Bool :=
+  toString (repr a) == toString (repr b)
+
+private def isRevertMessageBody (message : String) (body : List YulStmt) : Bool :=
+  yulStmtListSame body (revertWithMessage message)
+
+private def checkedAddFailCond (a b : YulExpr) : YulExpr :=
+  YulExpr.call "lt" [YulExpr.call "add" [a, b], a]
+
+private def checkedSubFailCond (a b : YulExpr) : YulExpr :=
+  YulExpr.call "lt" [a, b]
+
+private def checkedMulFailCond (a b : YulExpr) : YulExpr :=
+  YulExpr.call "iszero" [
+    YulExpr.call "or" [
+      YulExpr.call "iszero" [YulExpr.call "iszero" [
+        YulExpr.call "eq" [b, YulExpr.lit 0]
+      ]],
+      YulExpr.call "iszero" [YulExpr.call "iszero" [
+        YulExpr.call "eq" [
+          YulExpr.call "div" [YulExpr.call "mul" [a, b], b],
+          a
+        ]
+      ]]
+    ]
+  ]
+
+private def checkedDivFailCond (b : YulExpr) : YulExpr :=
+  YulExpr.call "iszero" [YulExpr.call "iszero" [
+    YulExpr.call "eq" [b, YulExpr.lit 0]
+  ]]
+
+private def checkedArithmeticReplacement? (prev cur : YulStmt) : Option YulStmt :=
+  match prev, cur with
+  | YulStmt.if_ cond body, YulStmt.let_ name (YulExpr.call "add" [a, b]) =>
+      if yulExprSame cond (checkedAddFailCond a b) &&
+          isRevertMessageBody "Panic(0x11): arithmetic overflow" body then
+        some (YulStmt.let_ name (YulExpr.call checkedAddUint256HelperName [a, b]))
+      else
+        none
+  | YulStmt.if_ cond body, YulStmt.let_ name (YulExpr.call "sub" [a, b]) =>
+      if yulExprSame cond (checkedSubFailCond a b) &&
+          isRevertMessageBody "Panic(0x11): arithmetic underflow" body then
+        some (YulStmt.let_ name (YulExpr.call checkedSubUint256HelperName [a, b]))
+      else
+        none
+  | YulStmt.if_ cond body, YulStmt.let_ name (YulExpr.call "mul" [a, b]) =>
+      if yulExprSame cond (checkedMulFailCond a b) &&
+          isRevertMessageBody "Panic(0x11): arithmetic overflow" body then
+        some (YulStmt.let_ name (YulExpr.call checkedMulUint256HelperName [a, b]))
+      else
+        none
+  | YulStmt.if_ cond body, YulStmt.let_ name (YulExpr.call "div" [a, b]) =>
+      if yulExprSame cond (checkedDivFailCond b) &&
+          isRevertMessageBody "Panic(0x12): division by zero" body then
+        some (YulStmt.let_ name (YulExpr.call checkedDivUint256HelperName [a, b]))
+      else
+        none
+  | _, _ => none
+
+mutual
+
+private def optimizeCheckedArithmeticStmtFuel : Nat → YulStmt → YulStmt
+  | 0, stmt => stmt
+  | fuel + 1, YulStmt.if_ cond body =>
+      YulStmt.if_ cond (optimizeCheckedArithmeticStmtsFuel fuel body)
+  | fuel + 1, YulStmt.for_ init cond post body =>
+      YulStmt.for_
+        (optimizeCheckedArithmeticStmtsFuel fuel init)
+        cond
+        (optimizeCheckedArithmeticStmtsFuel fuel post)
+        (optimizeCheckedArithmeticStmtsFuel fuel body)
+  | fuel + 1, YulStmt.switch expr cases default =>
+      YulStmt.switch expr
+        (cases.map fun (tag, body) => (tag, optimizeCheckedArithmeticStmtsFuel fuel body))
+        (default.map (optimizeCheckedArithmeticStmtsFuel fuel))
+  | fuel + 1, YulStmt.block stmts =>
+      YulStmt.block (optimizeCheckedArithmeticStmtsFuel fuel stmts)
+  | fuel + 1, YulStmt.funcDef name params rets body =>
+      YulStmt.funcDef name params rets (optimizeCheckedArithmeticStmtsFuel fuel body)
+  | _fuel + 1, stmt => stmt
+
+private def optimizeCheckedArithmeticStmtsFuel : Nat → List YulStmt → List YulStmt
+  | 0, stmts => stmts
+  | _fuel + 1, [] => []
+  | fuel + 1, [stmt] => [optimizeCheckedArithmeticStmtFuel fuel stmt]
+  | fuel + 1, prev :: cur :: rest =>
+      let prev' := optimizeCheckedArithmeticStmtFuel fuel prev
+      let cur' := optimizeCheckedArithmeticStmtFuel fuel cur
+      match checkedArithmeticReplacement? prev' cur' with
+      | some replacement => replacement :: optimizeCheckedArithmeticStmtsFuel fuel rest
+      | none => prev' :: optimizeCheckedArithmeticStmtsFuel fuel (cur :: rest)
+
+end
+
+private def yulStmtListFuel (stmts : List YulStmt) : Nat :=
+  (toString (repr stmts)).length + 1
+
+private def optimizeCheckedArithmeticStmts (stmts : List YulStmt) : List YulStmt :=
+  optimizeCheckedArithmeticStmtsFuel (yulStmtListFuel stmts) stmts
+
+private def internalHelperNamed (name : String) : YulStmt → Bool
+  | YulStmt.funcDef fnName _ _ _ => fnName == name
+  | _ => false
+
+private def hasCheckedArithmeticHelpers (contract : IRContract) : Bool :=
+  contract.internalFunctions.any (internalHelperNamed checkedAddUint256HelperName) &&
+    contract.internalFunctions.any (internalHelperNamed checkedSubUint256HelperName) &&
+    contract.internalFunctions.any (internalHelperNamed checkedMulUint256HelperName) &&
+    contract.internalFunctions.any (internalHelperNamed checkedDivUint256HelperName)
+
+private def optimizeCheckedArithmeticIfAvailable (contract : IRContract) (stmts : List YulStmt) :
+    List YulStmt :=
+  if hasCheckedArithmeticHelpers contract then
+    optimizeCheckedArithmeticStmts stmts
+  else
+    stmts
+
+def optimizeCheckedArithmeticObjectIfAvailable (contract : IRContract) (object : YulObject) :
+    YulObject :=
+  { object with
+    deployCode := optimizeCheckedArithmeticIfAvailable contract object.deployCode
+    runtimeCode := optimizeCheckedArithmeticIfAvailable contract object.runtimeCode }
 
 def runtimeCode (contract : IRContract) : List YulStmt :=
   let mapping := if contract.usesMapping then [mappingSlotFuncAt 0] else []

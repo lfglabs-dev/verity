@@ -6,7 +6,7 @@ import "./yul/YulTestBase.sol";
 /**
  * @title PropertyStorageBytes32ArraySmokeTest
  * @notice Auto-generated baseline property stubs from `verity_contract` declarations.
- * @dev Source: Contracts/Smoke.lean
+ * @dev Source: Contracts/Smoke/Storage.lean
  */
 contract PropertyStorageBytes32ArraySmokeTest is YulTestBase {
     address target;

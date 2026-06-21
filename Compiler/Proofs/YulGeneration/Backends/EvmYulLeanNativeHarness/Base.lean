@@ -3294,6 +3294,23 @@ theorem NativePrimCallPreservesWord_origin
       cases hExec
       exact hLookup
 
+theorem NativePrimCallPreservesWord_origin_values
+    (name : EvmYul.Identifier)
+    (expected : EvmYul.Literal) :
+    ∀ fuel state values final rets,
+      state[name]! = expected →
+        EvmYul.Yul.primCall fuel state EvmYul.Operation.ORIGIN values =
+          .ok (final, rets) →
+        final[name]! = expected := by
+  intro fuel state values final rets hLookup hExec
+  cases fuel with
+  | zero =>
+      simp [EvmYul.Yul.primCall] at hExec
+  | succ fuel' =>
+      rw [primCall_origin_any_ok] at hExec
+      cases hExec
+      exact hLookup
+
 theorem NativePrimCallPreservesWord_caller
     (name : EvmYul.Identifier)
     (expected : EvmYul.Literal) :
@@ -5978,6 +5995,7 @@ theorem NativePrimCallPreservesWord_of_allowed_lookupRuntimePrimOp
     | exact NativePrimCallPreservesWord_keccak256_values name expected
     | exact NativePrimCallPreservesWord_address_values name expected
     | exact NativePrimCallPreservesWord_caller_values name expected
+    | exact NativePrimCallPreservesWord_origin_values name expected
     | exact NativePrimCallPreservesWord_callvalue_values name expected
     | exact NativePrimCallPreservesWord_calldataload_values name expected
     | exact NativePrimCallPreservesWord_calldatasize_values name expected

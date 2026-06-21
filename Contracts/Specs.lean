@@ -2,14 +2,21 @@
   Contracts.Specs: Declarative Contract Specifications
 
   Shipped compiler inputs are the macro-generated `CompilationModel` values
-  emitted by `verity_contract`. Legacy aliases live under
-  `Contracts.Legacy.SpecAliases`; this module keeps the manual `cryptoHashSpec`
-  special case plus the current compatibility `allSpecs` list while callers
-  migrate to generated canonical names.
+  emitted by `verity_contract`. This module keeps the manual `cryptoHashSpec`
+  special case (external-library linking demo) plus the canonical `allSpecs`
+  list of macro-generated specs.
 -/
 
 import Compiler.CompilationModel
-import Contracts.Legacy.SpecAliases
+import Contracts.Counter
+import Contracts.SimpleStorage
+import Contracts.Owned
+import Contracts.OwnedCounter
+import Contracts.SafeCounter
+import Contracts.Ledger
+import Contracts.Vault
+import Contracts.SimpleToken
+import Contracts.ERC20
 
 namespace Compiler.Specs
 
@@ -89,21 +96,19 @@ compile it separately.
 in `Contracts/<Name>/<Name>.lean`, then add the generated `<Name>.spec`
 to `allSpecs` below.
 
-`Compiler.Specs.*Spec` values are compatibility aliases only, except for
-linked-library workflows like `cryptoHashSpec`.
 Selectors are still auto-computed by `computeSelectors`.
 -/
 
 def allSpecs : List CompilationModel := [
-  simpleStorageSpec,
-  counterSpec,
-  ownedSpec,
-  ledgerSpec,
-  vaultSpec,
-  ownedCounterSpec,
-  simpleTokenSpec,
-  safeCounterSpec,
-  erc20Spec
+  Contracts.SimpleStorage.spec,
+  Contracts.Counter.spec,
+  Contracts.Owned.spec,
+  Contracts.Ledger.spec,
+  Contracts.Vault.spec,
+  Contracts.OwnedCounter.spec,
+  Contracts.SimpleToken.spec,
+  Contracts.SafeCounter.spec,
+  Contracts.ERC20.spec
 ]
 
 end Compiler.Specs

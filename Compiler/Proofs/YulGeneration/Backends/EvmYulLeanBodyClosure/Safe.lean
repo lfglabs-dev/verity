@@ -1,4 +1,5 @@
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBodyClosure.Base
+import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBodyClosure.Generic
 
 set_option linter.unusedSimpArgs false
 
@@ -154,59 +155,6 @@ inductive BridgedSafeStmts
         isInternal sfx) :
       BridgedSafeStmts fields errors dynamicSource internalRetNames isInternal
         (pfx ++ sfx)
-
-private theorem compileStmtList_append_eq
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
-    (isInternal : Bool) (inScopeNames : List String) (adtTypes : List AdtTypeDef)
-    (pfx sfx : List Stmt) :
-    compileStmtList fields events errors dynamicSource internalRetNames isInternal
-        inScopeNames adtTypes (pfx ++ sfx) =
-      match
-        compileStmtList fields events errors dynamicSource internalRetNames isInternal
-          inScopeNames adtTypes pfx
-      with
-      | .error err => .error err
-      | .ok pfxOut =>
-          match
-            compileStmtList fields events errors dynamicSource internalRetNames
-              isInternal
-              (List.foldl (fun scope stmt => collectStmtNames stmt ++ scope)
-                inScopeNames pfx)
-              adtTypes sfx
-          with
-          | .error err => .error err
-          | .ok sfxOut => .ok (pfxOut ++ sfxOut) := by
-  induction pfx generalizing inScopeNames with
-  | nil =>
-      simp [compileStmtList, Pure.pure, Except.pure]
-      cases compileStmtList fields events errors dynamicSource internalRetNames
-        isInternal inScopeNames adtTypes sfx <;> rfl
-  | cons head tail ih =>
-      simp only [List.cons_append, compileStmtList, bind, Except.bind]
-      cases hHead : compileStmt fields events errors dynamicSource internalRetNames
-          isInternal inScopeNames adtTypes head with
-      | error err =>
-          simp [hHead]
-      | ok headOut =>
-          simp [hHead]
-          rw [ih (collectStmtNames head ++ inScopeNames)]
-          cases hTail : compileStmtList fields events errors dynamicSource
-              internalRetNames isInternal (collectStmtNames head ++ inScopeNames)
-              adtTypes tail with
-          | error err =>
-              simp [hTail]
-          | ok tailOut =>
-              simp [hTail]
-              cases hSfx : compileStmtList fields events errors dynamicSource
-                  internalRetNames isInternal
-                  ((List.map collectStmtNames tail).reverse.flatten ++
-                    (collectStmtNames head ++ inScopeNames))
-                  adtTypes sfx with
-              | error err =>
-                  simp [hSfx, Pure.pure, Except.pure]
-              | ok sfxOut =>
-                  simp [hSfx, List.append_assoc, Pure.pure, Except.pure]
 
 /-- The singleton `mstore` shape exposed by `SupportedFragment.mstoreSingle`
     is a native safe body whenever its offset and value are compile-core
@@ -887,6 +835,148 @@ theorem bridgedSafeStmts_setStructMember2SingleSlotNonzero
       memberName members member hKey1 hKey2 hValue hMapping2 hMembers
       hFindMember hUnpacked hNonzero hSlots)
 
+private theorem mem_of_externalRecursiveRawLogStmts
+    {fields : List Field} {errors : List ErrorDef}
+    {dynamicSource : DynamicDataSource} :
+    ∀ (stmts : List Stmt),
+      BridgedSourceExternalRecursiveBodyWithRawLogStmts fields errors
+        dynamicSource stmts →
+      ∀ stmt ∈ stmts,
+        BridgedSourceExternalRecursiveBodyWithRawLogStmt fields errors
+          dynamicSource stmt := by
+  intro stmts
+  induction stmts with
+  | nil => intro _ stmt hMem; cases hMem
+  | cons head tail ih =>
+      intro hStmts stmt hMem
+      cases hStmts with
+      | cons hHead hTail =>
+          cases hMem with
+          | head => exact hHead
+          | tail _ hMem => exact ih hTail stmt hMem
+
+private theorem mem_of_internalRecursiveRawLogStmts
+    {fields : List Field} {errors : List ErrorDef}
+    {dynamicSource : DynamicDataSource} :
+    ∀ (stmts : List Stmt),
+      BridgedSourceInternalRecursiveBodyWithRawLogStmts fields errors
+        dynamicSource stmts →
+      ∀ stmt ∈ stmts,
+        BridgedSourceInternalRecursiveBodyWithRawLogStmt fields errors
+          dynamicSource stmt := by
+  intro stmts
+  induction stmts with
+  | nil => intro _ stmt hMem; cases hMem
+  | cons head tail ih =>
+      intro hStmts stmt hMem
+      cases hStmts with
+      | cons hHead hTail =>
+          cases hMem with
+          | head => exact hHead
+          | tail _ hMem => exact ih hTail stmt hMem
+
+/-- Every list-level whitelist witness flattens to the per-statement union:
+a `BridgedSafeStmts` list is pointwise `BridgedSourceStmt`. Pointwise
+fragment arms forward their member hypothesis; the two recursive raw-log
+arms extract members from their list inductives; `append` splits on
+`List.mem_append`. -/
+theorem BridgedSafeStmts.toBridgedSource
+    {fields : List Field} {errors : List ErrorDef}
+    {dynamicSource : DynamicDataSource} {internalRetNames : List String}
+    {isInternal : Bool} {stmts : List Stmt}
+    (hSafe : BridgedSafeStmts fields errors dynamicSource internalRetNames
+      isInternal stmts) :
+    ∀ stmt ∈ stmts,
+      BridgedSourceStmt fields errors dynamicSource internalRetNames
+        isInternal stmt := by
+  induction hSafe with
+  | externalRecursiveRawLog hStmts =>
+      exact fun stmt hMem => .externalRecursiveRawLog
+        (mem_of_externalRecursiveRawLogStmts _ hStmts stmt hMem)
+  | internalRecursiveRawLog hStmts =>
+      exact fun stmt hMem => .internalRecursiveRawLog
+        (mem_of_internalRecursiveRawLogStmts _ hStmts stmt hMem)
+  | storage hStmts =>
+      exact fun stmt hMem => .storage (hStmts stmt hMem)
+  | storageAddr hStmts =>
+      exact fun stmt hMem => .storageAddr (hStmts stmt hMem)
+  | require hStmts =>
+      exact fun stmt hMem => .require (hStmts stmt hMem)
+  | setStorageArrayElement hStmts =>
+      exact fun stmt hMem => .setStorageArrayElement (hStmts stmt hMem)
+  | mappingChain hStmts =>
+      exact fun stmt hMem => .mappingChain (hStmts stmt hMem)
+  | mappingWrite hStmts =>
+      exact fun stmt hMem => .mappingWrite (hStmts stmt hMem)
+  | mappingWriteMultiSlot hStmts =>
+      exact fun stmt hMem => .mappingWriteMultiSlot (hStmts stmt hMem)
+  | mappingWrite2 hStmts =>
+      exact fun stmt hMem => .mappingWrite2 (hStmts stmt hMem)
+  | mappingWrite2MultiSlot hStmts =>
+      exact fun stmt hMem => .mappingWrite2MultiSlot (hStmts stmt hMem)
+  | structMember hStmts =>
+      exact fun stmt hMem => .structMember (hStmts stmt hMem)
+  | structMember2 hStmts =>
+      exact fun stmt hMem => .structMember2 (hStmts stmt hMem)
+  | structMemberNonzero hStmts =>
+      exact fun stmt hMem => .structMemberNonzero (hStmts stmt hMem)
+  | structMember2Nonzero hStmts =>
+      exact fun stmt hMem => .structMember2Nonzero (hStmts stmt hMem)
+  | structMemberMultiSlot hStmts =>
+      exact fun stmt hMem => .structMemberMultiSlot (hStmts stmt hMem)
+  | structMember2MultiSlot hStmts =>
+      exact fun stmt hMem => .structMember2MultiSlot (hStmts stmt hMem)
+  | mappingWord hStmts =>
+      exact fun stmt hMem => .mappingWord (hStmts stmt hMem)
+  | mapping2Word hStmts =>
+      exact fun stmt hMem => .mapping2Word (hStmts stmt hMem)
+  | mappingWordNonzero hStmts =>
+      exact fun stmt hMem => .mappingWordNonzero (hStmts stmt hMem)
+  | mapping2WordNonzero hStmts =>
+      exact fun stmt hMem => .mapping2WordNonzero (hStmts stmt hMem)
+  | mappingWordMultiSlot hStmts =>
+      exact fun stmt hMem => .mappingWordMultiSlot (hStmts stmt hMem)
+  | mapping2WordMultiSlot hStmts =>
+      exact fun stmt hMem => .mapping2WordMultiSlot (hStmts stmt hMem)
+  | mappingWordMultiSlotNonzero hStmts =>
+      exact fun stmt hMem => .mappingWordMultiSlotNonzero (hStmts stmt hMem)
+  | mapping2WordMultiSlotNonzero hStmts =>
+      exact fun stmt hMem => .mapping2WordMultiSlotNonzero (hStmts stmt hMem)
+  | structMemberMultiSlotNonzero hStmts =>
+      exact fun stmt hMem => .structMemberMultiSlotNonzero (hStmts stmt hMem)
+  | structMember2MultiSlotNonzero hStmts =>
+      exact fun stmt hMem => .structMember2MultiSlotNonzero (hStmts stmt hMem)
+  | mappingPackedWord hStmts =>
+      exact fun stmt hMem => .mappingPackedWord (hStmts stmt hMem)
+  | mappingPackedWordNonzero hStmts =>
+      exact fun stmt hMem => .mappingPackedWordNonzero (hStmts stmt hMem)
+  | mappingPackedWordMultiSlot hStmts =>
+      exact fun stmt hMem => .mappingPackedWordMultiSlot (hStmts stmt hMem)
+  | mappingPackedWordMultiSlotNonzero hStmts =>
+      exact fun stmt hMem =>
+        .mappingPackedWordMultiSlotNonzero (hStmts stmt hMem)
+  | returnValuesExternal hStmts =>
+      exact fun stmt hMem => .returnValuesExternal (hStmts stmt hMem)
+  | returnValuesInternal hStmts =>
+      exact fun stmt hMem => .returnValuesInternal (hStmts stmt hMem)
+  | mstore hStmts =>
+      exact fun stmt hMem => .mstore (hStmts stmt hMem)
+  | tstore hStmts =>
+      exact fun stmt hMem => .tstore (hStmts stmt hMem)
+  | storageArrayPush hStmts =>
+      exact fun stmt hMem => .storageArrayPush (hStmts stmt hMem)
+  | storageArrayPop hStmts =>
+      exact fun stmt hMem => .storageArrayPop (hStmts stmt hMem)
+  | internalCall hStmts =>
+      exact fun stmt hMem => .internalCall (hStmts stmt hMem)
+  | externalCallBind hStmts =>
+      exact fun stmt hMem => .externalCallBind (hStmts stmt hMem)
+  | append _ _ ihPfx ihSfx =>
+      intro stmt hMem
+      rcases List.mem_append.mp hMem with h | h
+      · exact ihPfx stmt h
+      · exact ihSfx stmt h
+
 /-- Every source statement list accepted by `BridgedSafeStmts` compiles to a
 Yul statement list accepted by `BridgedStmts`. This is the B7 aggregation
 theorem: callers use one whitelist witness instead of choosing a fragment-
@@ -903,154 +993,8 @@ theorem compileStmtList_always_bridged
           isInternal inScopeNames [] stmts = .ok out →
         BridgedStmts out := by
   intro stmts inScopeNames hSafe out hOk
-  induction hSafe generalizing inScopeNames out with
-  | externalRecursiveRawLog hStmts =>
-      exact compileStmtList_external_recursive_body_with_raw_log_bridged fields
-        events errors dynamicSource internalRetNames hStmts inScopeNames hOk
-  | internalRecursiveRawLog hStmts =>
-      exact compileStmtList_internal_recursive_body_with_raw_log_bridged fields
-        events errors dynamicSource internalRetNames hStmts inScopeNames hOk
-  | storage hStmts =>
-      exact compileStmtList_storage_fragment_bridged fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | storageAddr hStmts =>
-      exact compileStmtList_storageAddr_bridged fields events errors dynamicSource
-        internalRetNames _ _ inScopeNames hStmts hOk
-  | require hStmts =>
-      exact compileStmtList_require_bridged fields events errors dynamicSource
-        internalRetNames _ _ inScopeNames hStmts hOk
-  | setStorageArrayElement hStmts =>
-      exact compileStmtList_setStorageArrayElement_bridged fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | mappingChain hStmts =>
-      exact compileStmtList_mappingChain_bridged fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | mappingWrite hStmts =>
-      exact compileStmtList_mappingWrite_bridged fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | mappingWriteMultiSlot hStmts =>
-      exact compileStmtList_mappingWriteMultiSlot_bridged fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | mappingWrite2 hStmts =>
-      exact compileStmtList_mappingWrite2_bridged fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | mappingWrite2MultiSlot hStmts =>
-      exact compileStmtList_mappingWrite2MultiSlot_bridged fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | structMember hStmts =>
-      exact compileStmtList_structMember_bridged fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | structMember2 hStmts =>
-      exact compileStmtList_structMember2_bridged fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | structMemberNonzero hStmts =>
-      exact compileStmtList_structMemberNonzero_bridged fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | structMember2Nonzero hStmts =>
-      exact compileStmtList_structMember2Nonzero_bridged fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | structMemberMultiSlot hStmts =>
-      exact compileStmtList_structMemberMultiSlot_bridged fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | structMember2MultiSlot hStmts =>
-      exact compileStmtList_structMember2MultiSlot_bridged fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | mappingWord hStmts =>
-      exact compileStmtList_mappingWord_bridged fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | mapping2Word hStmts =>
-      exact compileStmtList_mapping2Word_bridged fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | mappingWordNonzero hStmts =>
-      exact compileStmtList_mappingWordNonzero_bridged fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | mapping2WordNonzero hStmts =>
-      exact compileStmtList_mapping2WordNonzero_bridged fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | mappingWordMultiSlot hStmts =>
-      exact compileStmtList_mappingWordMultiSlot_bridged fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | mapping2WordMultiSlot hStmts =>
-      exact compileStmtList_mapping2WordMultiSlot_bridged fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | mappingWordMultiSlotNonzero hStmts =>
-      exact compileStmtList_mappingWordMultiSlotNonzero_bridged fields events
-        errors dynamicSource internalRetNames _ _ inScopeNames
-        hStmts hOk
-  | mapping2WordMultiSlotNonzero hStmts =>
-      exact compileStmtList_mapping2WordMultiSlotNonzero_bridged fields events
-        errors dynamicSource internalRetNames _ _ inScopeNames
-        hStmts hOk
-  | structMemberMultiSlotNonzero hStmts =>
-      exact compileStmtList_structMemberMultiSlotNonzero_bridged fields events
-        errors dynamicSource internalRetNames _ _ inScopeNames
-        hStmts hOk
-  | structMember2MultiSlotNonzero hStmts =>
-      exact compileStmtList_structMember2MultiSlotNonzero_bridged fields events
-        errors dynamicSource internalRetNames _ _ inScopeNames
-        hStmts hOk
-  | mappingPackedWord hStmts =>
-      exact compileStmtList_mappingPackedWord_bridged fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | mappingPackedWordNonzero hStmts =>
-      exact compileStmtList_mappingPackedWordNonzero_bridged fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | mappingPackedWordMultiSlot hStmts =>
-      exact compileStmtList_mappingPackedWordMultiSlot_bridged fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | mappingPackedWordMultiSlotNonzero hStmts =>
-      exact compileStmtList_mappingPackedWordMultiSlotNonzero_bridged fields
-        events errors dynamicSource internalRetNames _ _ inScopeNames
-        hStmts hOk
-  | returnValuesExternal hStmts =>
-      exact compileStmtList_returnValuesExternal_bridged fields events errors
-        dynamicSource internalRetNames _ inScopeNames hStmts hOk
-  | returnValuesInternal hStmts =>
-      exact compileStmtList_returnValuesInternal_bridged fields events errors
-        dynamicSource internalRetNames _ inScopeNames hStmts hOk
-  | mstore hStmts =>
-      exact compileStmtList_mstore_bridged fields events errors dynamicSource
-        internalRetNames _ _ inScopeNames hStmts hOk
-  | tstore hStmts =>
-      exact compileStmtList_tstore_bridged fields events errors dynamicSource
-        internalRetNames _ _ inScopeNames hStmts hOk
-  | storageArrayPush hStmts =>
-      exact compileStmtList_storageArrayPush_bridged fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | storageArrayPop hStmts =>
-      exact compileStmtList_storageArrayPop_bridged fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | internalCall hStmts =>
-      exact compileStmtList_internalCall_bridged fields events errors
-        dynamicSource internalRetNames _ [] _ hStmts inScopeNames hOk
-  | externalCallBind hStmts =>
-      exact compileStmtList_externalCallBind_bridged fields events errors
-        dynamicSource internalRetNames _ [] _ hStmts inScopeNames hOk
-  | append hPfx hSfx ihPfx ihSfx =>
-      rename_i localIsInternal pfx sfx
-      rw [compileStmtList_append_eq fields events errors dynamicSource
-        internalRetNames localIsInternal inScopeNames [] pfx sfx] at hOk
-      cases hPfxCompile : compileStmtList fields events errors dynamicSource
-          internalRetNames localIsInternal inScopeNames [] pfx with
-      | error err =>
-          simp [hPfxCompile] at hOk
-      | ok pfxOut =>
-          simp [hPfxCompile] at hOk
-          cases hSfxCompile : compileStmtList fields events errors dynamicSource
-              internalRetNames localIsInternal
-              ((List.map collectStmtNames pfx).reverse.flatten ++ inScopeNames)
-              [] sfx with
-          | error err =>
-              simp [hSfxCompile] at hOk
-          | ok sfxOut =>
-              simp [hSfxCompile, Pure.pure, Except.pure] at hOk
-              subst out
-              exact BridgedStmts_append
-                (ihPfx inScopeNames hPfxCompile)
-                (ihSfx
-                  ((List.map collectStmtNames pfx).reverse.flatten ++
-                    inScopeNames)
-                  hSfxCompile)
+  exact compileStmtList_bridgedSource_bridged fields events errors dynamicSource
+    internalRetNames isInternal stmts hSafe.toBridgedSource inScopeNames hOk
 
 theorem compileStmtList_always_noFuncDefs
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
@@ -1064,148 +1008,5 @@ theorem compileStmtList_always_noFuncDefs
           isInternal inScopeNames [] stmts = .ok out →
         Native.yulStmtsContainFuncDef out = false := by
   intro stmts inScopeNames hSafe out hOk
-  induction hSafe generalizing inScopeNames out with
-  | externalRecursiveRawLog hStmts =>
-      exact compileStmtList_external_recursive_body_with_raw_log_noFuncDefs
-        fields events errors dynamicSource internalRetNames hStmts inScopeNames hOk
-  | internalRecursiveRawLog hStmts =>
-      exact compileStmtList_internal_recursive_body_with_raw_log_noFuncDefs
-        fields events errors dynamicSource internalRetNames hStmts inScopeNames hOk
-  | storage hStmts =>
-      exact compileStmtList_storage_fragment_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | storageAddr hStmts =>
-      exact compileStmtList_storageAddr_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | require hStmts =>
-      exact compileStmtList_require_noFuncDefs fields events errors dynamicSource
-        internalRetNames _ _ inScopeNames hStmts hOk
-  | setStorageArrayElement hStmts =>
-      exact compileStmtList_setStorageArrayElement_noFuncDefs fields events
-        errors dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | mappingChain hStmts =>
-      exact compileStmtList_mappingChain_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | mappingWrite hStmts =>
-      exact compileStmtList_mappingWrite_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | mappingWriteMultiSlot hStmts =>
-      exact compileStmtList_mappingWriteMultiSlot_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | mappingWrite2 hStmts =>
-      exact compileStmtList_mappingWrite2_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | mappingWrite2MultiSlot hStmts =>
-      exact compileStmtList_mappingWrite2MultiSlot_noFuncDefs fields events
-        errors dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | structMember hStmts =>
-      exact compileStmtList_structMember_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | structMember2 hStmts =>
-      exact compileStmtList_structMember2_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | structMemberNonzero hStmts =>
-      exact compileStmtList_structMemberNonzero_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | structMember2Nonzero hStmts =>
-      exact compileStmtList_structMember2Nonzero_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | structMemberMultiSlot hStmts =>
-      exact compileStmtList_structMemberMultiSlot_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | structMember2MultiSlot hStmts =>
-      exact compileStmtList_structMember2MultiSlot_noFuncDefs fields events
-        errors dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | mappingWord hStmts =>
-      exact compileStmtList_mappingWord_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | mapping2Word hStmts =>
-      exact compileStmtList_mapping2Word_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | mappingWordNonzero hStmts =>
-      exact compileStmtList_mappingWordNonzero_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | mapping2WordNonzero hStmts =>
-      exact compileStmtList_mapping2WordNonzero_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | mappingWordMultiSlot hStmts =>
-      exact compileStmtList_mappingWordMultiSlot_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | mapping2WordMultiSlot hStmts =>
-      exact compileStmtList_mapping2WordMultiSlot_noFuncDefs fields events
-        errors dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | mappingWordMultiSlotNonzero hStmts =>
-      exact compileStmtList_mappingWordMultiSlotNonzero_noFuncDefs fields events
-        errors dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | mapping2WordMultiSlotNonzero hStmts =>
-      exact compileStmtList_mapping2WordMultiSlotNonzero_noFuncDefs fields
-        events errors dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | structMemberMultiSlotNonzero hStmts =>
-      exact compileStmtList_structMemberMultiSlotNonzero_noFuncDefs fields
-        events errors dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | structMember2MultiSlotNonzero hStmts =>
-      exact compileStmtList_structMember2MultiSlotNonzero_noFuncDefs fields
-        events errors dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | mappingPackedWord hStmts =>
-      exact compileStmtList_mappingPackedWord_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | mappingPackedWordNonzero hStmts =>
-      exact compileStmtList_mappingPackedWordNonzero_noFuncDefs fields events
-        errors dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | mappingPackedWordMultiSlot hStmts =>
-      exact compileStmtList_mappingPackedWordMultiSlot_noFuncDefs fields events
-        errors dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | mappingPackedWordMultiSlotNonzero hStmts =>
-      exact compileStmtList_mappingPackedWordMultiSlotNonzero_noFuncDefs fields
-        events errors dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | returnValuesExternal hStmts =>
-      exact compileStmtList_returnValuesExternal_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ inScopeNames hStmts hOk
-  | returnValuesInternal hStmts =>
-      exact compileStmtList_returnValuesInternal_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ inScopeNames hStmts hOk
-  | mstore hStmts =>
-      exact compileStmtList_mstore_noFuncDefs fields events errors dynamicSource
-        internalRetNames _ _ inScopeNames hStmts hOk
-  | tstore hStmts =>
-      exact compileStmtList_tstore_noFuncDefs fields events errors dynamicSource
-        internalRetNames _ _ inScopeNames hStmts hOk
-  | storageArrayPush hStmts =>
-      exact compileStmtList_storageArrayPush_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | storageArrayPop hStmts =>
-      exact compileStmtList_storageArrayPop_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ _ inScopeNames hStmts hOk
-  | internalCall hStmts =>
-      exact compileStmtList_internalCall_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ [] _ hStmts inScopeNames hOk
-  | externalCallBind hStmts =>
-      exact compileStmtList_externalCallBind_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ [] _ hStmts inScopeNames hOk
-  | append hPfx hSfx ihPfx ihSfx =>
-      rename_i localIsInternal pfx sfx
-      rw [compileStmtList_append_eq fields events errors dynamicSource
-        internalRetNames localIsInternal inScopeNames [] pfx sfx] at hOk
-      cases hPfxCompile : compileStmtList fields events errors dynamicSource
-          internalRetNames localIsInternal inScopeNames [] pfx with
-      | error err =>
-          simp [hPfxCompile] at hOk
-      | ok pfxOut =>
-          simp [hPfxCompile] at hOk
-          cases hSfxCompile : compileStmtList fields events errors dynamicSource
-              internalRetNames localIsInternal
-              ((List.map collectStmtNames pfx).reverse.flatten ++ inScopeNames)
-              [] sfx with
-          | error err =>
-              simp [hSfxCompile] at hOk
-          | ok sfxOut =>
-              simp [hSfxCompile, Pure.pure, Except.pure] at hOk
-              subst out
-              rw [Native.yulStmtsContainFuncDef_append]
-              simp [ihPfx inScopeNames hPfxCompile,
-                ihSfx
-                  ((List.map collectStmtNames pfx).reverse.flatten ++
-                    inScopeNames)
-                  hSfxCompile]
-
-end Compiler.Proofs.YulGeneration.Backends
+  exact compileStmtList_bridgedSource_noFuncDefs fields events errors dynamicSource
+    internalRetNames isInternal stmts hSafe.toBridgedSource inScopeNames hOk

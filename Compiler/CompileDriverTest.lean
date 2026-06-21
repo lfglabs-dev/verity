@@ -68,6 +68,43 @@ private def abiSmokeSpec : CompilationModel := {
   ]
 }
 
+private def runtimeSetImmutableSpec : CompilationModel := {
+  name := "RuntimeSetImmutable"
+  fields := []
+  «immutables» := [
+    { name := "owner", ty := ParamType.address, init := Expr.literal 0 }
+  ]
+  «constructor» := none
+  functions := [
+    { name := "setOwner"
+      params := [{ name := "next", ty := ParamType.address }]
+      returnType := none
+      body := [
+        Stmt.setImmutable "owner" (Expr.param "next"),
+        Stmt.stop
+      ]
+    }
+  ]
+}
+
+private def unknownImmutableReadSpec : CompilationModel := {
+  name := "UnknownImmutableRead"
+  fields := []
+  «immutables» := [
+    { name := "owner", ty := ParamType.address, init := Expr.literal 0 }
+  ]
+  «constructor» := none
+  functions := [
+    { name := "owner"
+      params := []
+      returnType := some FieldType.address
+      body := [
+        Stmt.return (Expr.immutable "owenr")
+      ]
+    }
+  ]
+}
+
 private def futureForkIntrinsicSpec : CompilationModel := {
   name := "FutureForkIntrinsicSmoke"
   fields := []
@@ -297,6 +334,7 @@ private def linkedLibrarySpec : CompilationModel := {
       ]
       returnType := none
       allowPostInteractionWrites := true
+      reentrancyTrusted := true
       body := [
         Stmt.letVar "h" (Expr.externalCall "PoseidonT3_hash" [Expr.param "a", Expr.param "b"]),
         Stmt.setStorage "lastHash" (Expr.localVar "h"),
@@ -320,6 +358,7 @@ private def trustSurfaceSpec : CompilationModel := {
     { name := "exercise"
       params := [{ name := "target", ty := ParamType.address }]
       returnType := none
+      reentrancyTrusted := true
       body := [
         Stmt.letVar "ok"
           (Expr.staticcall
@@ -548,6 +587,7 @@ private def uncheckedTrustSurfaceSpec : CompilationModel := {
     { name := "exercise"
       params := []
       returnType := none
+      reentrancyTrusted := true
       body := [
         Stmt.letVar "peek" (Expr.externalCall "DebugOracle_peek" []),
         Stmt.ecm
@@ -710,6 +750,31 @@ private def oracleTrustSurfaceSpec : CompilationModel := {
   ]
 }
 
+private def typedOracleSummaryTrustSurfaceSpec : CompilationModel := {
+  name := "TypedOracleSummaryTrustSurface"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "price"
+      params := [
+        { name := "oracle", ty := ParamType.address }
+      ]
+      returnType := none
+      returns := [ParamType.uint256]
+      body := [
+        Stmt.ecm
+          (Compiler.Modules.Oracle.typedReadWordSummaryModule
+            "answer"
+            "IOracle.price"
+            0xa035b1fe
+            0)
+          [Expr.param "oracle"],
+        Stmt.returnValues [Expr.localVar "answer"]
+      ]
+    }
+  ]
+}
+
 private def callWithValueTrustSurfaceSpec : CompilationModel := {
   name := "CallWithValueTrustSurface"
   fields := []
@@ -723,6 +788,7 @@ private def callWithValueTrustSurfaceSpec : CompilationModel := {
         , { name := "dataSize", ty := ParamType.uint256 }
       ]
       returnType := none
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.Calls.callWithValue
           (Expr.param "target")
@@ -747,6 +813,7 @@ private def callWithValueBytesTrustSurfaceSpec : CompilationModel := {
         , { name := "data", ty := ParamType.bytes }
       ]
       returnType := none
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.Calls.callWithValueBytes
           (Expr.param "target")
@@ -1106,6 +1173,7 @@ private def erc4626DepositTrustSurfaceSpec : CompilationModel := {
       ]
       returnType := none
       returns := [ParamType.uint256]
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.ERC4626.deposit
           "shares"
@@ -1191,6 +1259,20 @@ unsafe def runTests : IO Unit := do
   IO.FS.createDirAll abiHeadAbiDir
 
   try IO.FS.removeFile earlySuccessfulAbi catch _ => pure ()
+
+  expectFailureContains
+    "validateCompileInputs rejects setImmutable in runtime function body"
+    (match validateCompileInputs runtimeSetImmutableSpec [0] with
+     | Except.ok _ => pure ()
+     | Except.error err => throw (IO.userError err))
+    "uses Stmt.setImmutable 'owner' outside constructor scope"
+
+  expectFailureContains
+    "validateCompileInputs rejects unknown immutable reads"
+    (match validateCompileInputs unknownImmutableReadSpec [0] with
+     | Except.ok _ => pure ()
+     | Except.error err => throw (IO.userError err))
+    "references unknown immutable 'owenr'"
 
   expectFailureContains
     "compileSpecsWithOptions reports missing linked library"
@@ -1348,7 +1430,7 @@ unsafe def runTests : IO Unit := do
     throw (IO.userError "✗ trust report emits low-level mechanics")
   if !contains trustReport "\"axiomatizedPrimitives\":[\"keccak256\"]" then
     throw (IO.userError "✗ trust report emits axiomatized primitives")
-  if !contains trustReport "\"axiomatizedPrimitives\":[{\"primitive\":\"keccak256\",\"status\":\"assumed\",\"assumption\":\"keccak256_memory_slice_matches_evm\"}]" then
+  if !contains trustReport "\"axiomatizedPrimitives\":[{\"primitive\":\"keccak256\",\"status\":\"assumed\",\"assumption\":\"keccak256_memory_slice_matches_evm\",\"boundaryClass\":\"compilerIntrinsic\"}]" then
     throw (IO.userError "✗ trust report emits structured primitive assumptions")
   if !contains trustReport "\"proofStatus\":{\"proved\":{\"axiomatizedPrimitives\":[],\"linkedExternals\":[],\"ecmModules\":[],\"localObligations\":[]}" then
     throw (IO.userError "✗ trust report emits proved proof-status bucket")
@@ -1366,11 +1448,19 @@ unsafe def runTests : IO Unit := do
     throw (IO.userError "✗ trust report emits linked external axioms")
   if !contains trustReport "\"module\":\"testCall\"" || !contains trustReport "\"assumption\":\"test_call_interface\"" then
     throw (IO.userError "✗ trust report emits ECM axioms")
-  if !contains trustReport "\"ecmModules\":[{\"module\":\"testCall\",\"status\":\"assumed\",\"axioms\":[\"test_call_interface\"]}]" then
+  if !contains trustReport "\"ecmModules\":[{\"module\":\"testCall\",\"status\":\"assumed\",\"axioms\":[\"test_call_interface\"],\"boundaryClass\":\"abiBoundary\",\"externalSummary\":{\"name\":\"testCall\",\"selector\":null,\"mutability\":\"staticcall\",\"assumptions\":[\"test_call_interface\"]}}]" then
     throw (IO.userError "✗ trust report emits ECM module status")
+  if !contains trustReport "\"externalSummaries\":[{\"name\":\"testCall\",\"selector\":null,\"mutability\":\"staticcall\",\"assumptions\":[\"test_call_interface\"]}]" then
+    throw (IO.userError "✗ trust report emits assumed external summaries")
+  if !contains trustReport "\"linkedExternals\":[{\"name\":\"PoseidonT3_hash\",\"status\":\"assumed\",\"linkMode\":\"objectLinked\",\"axioms\":[\"poseidon_t3_deterministic\"],\"boundaryClass\":\"compilerIntrinsic\"}]" then
+    throw (IO.userError "✗ trust report classifies linked external boundaries")
+  if !contains trustReport "\"ecmAxioms\":[{\"module\":\"testCall\",\"assumption\":\"test_call_interface\",\"boundaryClass\":\"abiBoundary\"}]" then
+    throw (IO.userError "✗ trust report classifies ECM axiom boundaries")
+  if !contains trustReport "\"boundaryClasses\":[\"compilerIntrinsic\",\"abiBoundary\"]" then
+    throw (IO.userError "✗ trust report aggregates boundary classes")
   if !contains trustReport "\"usageSites\":[{\"kind\":\"function\",\"name\":\"exercise\"" then
     throw (IO.userError "✗ trust report localizes function-level trust usage sites")
-  if !contains trustReport "\"usageSites\":[{\"kind\":\"function\",\"name\":\"exercise\",\"modeledLowLevelMechanics\":[\"staticcall\",\"returndataSize\",\"returndataCopy\"],\"notModeledEventEmission\":[],\"notModeledProxyUpgradeability\":[]" then
+  if !contains trustReport "\"usageSites\":[{\"kind\":\"function\",\"name\":\"exercise\",\"boundaryClasses\":[\"compilerIntrinsic\",\"abiBoundary\"],\"modeledLowLevelMechanics\":[\"staticcall\",\"returndataSize\",\"returndataCopy\"],\"notModeledEventEmission\":[],\"notModeledProxyUpgradeability\":[]" then
     throw (IO.userError "✗ trust report preserves per-function low-level mechanics")
   IO.println "✓ trust report emits low-level mechanics, proof-status buckets, structured primitive assumptions, and external assumptions"
 
@@ -1435,7 +1525,7 @@ unsafe def runTests : IO Unit := do
     throw (IO.userError "✗ proxy-upgradeability trust report emits contract name")
   if !contains proxyUpgradeabilityTrustReport "\"notModeledProxyUpgradeability\":[\"delegatecall\"]" then
     throw (IO.userError "✗ proxy-upgradeability trust report isolates delegatecall")
-  if !contains proxyUpgradeabilityTrustReport "\"usageSites\":[{\"kind\":\"function\",\"name\":\"exerciseLowLevel\",\"modeledLowLevelMechanics\":[\"call\",\"staticcall\",\"delegatecall\",\"returndataCopy\",\"returndataSize\"],\"notModeledEventEmission\":[],\"notModeledProxyUpgradeability\":[\"delegatecall\"]" then
+  if !contains proxyUpgradeabilityTrustReport "\"usageSites\":[{\"kind\":\"function\",\"name\":\"exerciseLowLevel\",\"boundaryClasses\":[\"gate\",\"externalCall\",\"abiBoundary\"],\"modeledLowLevelMechanics\":[\"call\",\"staticcall\",\"delegatecall\",\"returndataCopy\",\"returndataSize\"],\"notModeledEventEmission\":[],\"notModeledProxyUpgradeability\":[\"delegatecall\"]" then
     throw (IO.userError "✗ proxy-upgradeability trust report localizes delegatecall usage sites")
   let proxyUpgradeabilityVerboseUsageSiteReport := String.intercalate "\n" (emitVerboseUsageSiteLines [lowLevelOnlyTrustSurfaceSpec])
   if !contains proxyUpgradeabilityVerboseUsageSiteReport "not modeled proxy / upgradeability: delegatecall" then
@@ -1453,7 +1543,7 @@ unsafe def runTests : IO Unit := do
     throw (IO.userError "✗ memory trust report emits linear-memory mechanics")
   if !contains memoryTrustReport "\"partiallyModeledLinearMemoryMechanics\":[\"mstore\",\"calldatacopy\",\"returndataCopy\",\"mload\"]" then
     throw (IO.userError "✗ memory trust report emits partially modeled linear-memory mechanics")
-  if !contains memoryTrustReport "\"usageSites\":[{\"kind\":\"function\",\"name\":\"exerciseMemory\",\"modeledLowLevelMechanics\":[\"mstore\",\"calldatacopy\",\"returndataCopy\",\"mload\"],\"notModeledEventEmission\":[],\"notModeledProxyUpgradeability\":[],\"partiallyModeledLinearMemoryMechanics\":[\"mstore\",\"calldatacopy\",\"returndataCopy\",\"mload\"]" then
+  if !contains memoryTrustReport "\"usageSites\":[{\"kind\":\"function\",\"name\":\"exerciseMemory\",\"boundaryClasses\":[\"gate\",\"abiBoundary\"],\"modeledLowLevelMechanics\":[\"mstore\",\"calldatacopy\",\"returndataCopy\",\"mload\"],\"notModeledEventEmission\":[],\"notModeledProxyUpgradeability\":[],\"partiallyModeledLinearMemoryMechanics\":[\"mstore\",\"calldatacopy\",\"returndataCopy\",\"mload\"]" then
     throw (IO.userError "✗ memory trust report localizes partially modeled linear-memory mechanics")
   let memoryVerboseUsageSiteReport := String.intercalate "\n" (emitVerboseUsageSiteLines [memoryTrustSurfaceSpec])
   if !contains memoryVerboseUsageSiteReport "partially modeled linear memory: mstore, calldatacopy, returndataCopy, mload" then
@@ -1465,7 +1555,7 @@ unsafe def runTests : IO Unit := do
     throw (IO.userError "✗ rawLog trust report emits contract name")
   if !contains rawLogTrustReport "\"notModeledEventEmission\":[\"rawLog\"]" then
     throw (IO.userError "✗ rawLog trust report emits not-modeled event emission")
-  if !contains rawLogTrustReport "\"usageSites\":[{\"kind\":\"function\",\"name\":\"emitTrace\",\"modeledLowLevelMechanics\":[],\"notModeledEventEmission\":[\"rawLog\"],\"notModeledProxyUpgradeability\":[]" then
+  if !contains rawLogTrustReport "\"usageSites\":[{\"kind\":\"function\",\"name\":\"emitTrace\",\"boundaryClasses\":[\"event\"],\"modeledLowLevelMechanics\":[],\"notModeledEventEmission\":[\"rawLog\"],\"notModeledProxyUpgradeability\":[]" then
     throw (IO.userError "✗ rawLog trust report localizes not-modeled event emission")
   let rawLogVerboseUsageSiteReport := String.intercalate "\n" (emitVerboseUsageSiteLines [rawLogTrustSurfaceSpec])
   if !contains rawLogVerboseUsageSiteReport "not modeled event emission: rawLog" then
@@ -1481,7 +1571,7 @@ unsafe def runTests : IO Unit := do
     throw (IO.userError "✗ runtime-introspection trust report emits contract name")
   if !contains runtimeIntrospectionTrustReport "\"partiallyModeledRuntimeIntrospection\":[\"blockNumber\",\"contractAddress\",\"chainid\"]" then
     throw (IO.userError "✗ runtime-introspection trust report emits partially modeled runtime-introspection primitives")
-  if !contains runtimeIntrospectionTrustReport "\"usageSites\":[{\"kind\":\"function\",\"name\":\"exerciseRuntime\",\"modeledLowLevelMechanics\":[],\"notModeledEventEmission\":[],\"notModeledProxyUpgradeability\":[],\"partiallyModeledLinearMemoryMechanics\":[],\"partiallyModeledRuntimeIntrospection\":[\"blockNumber\",\"contractAddress\",\"chainid\"]" then
+  if !contains runtimeIntrospectionTrustReport "\"usageSites\":[{\"kind\":\"function\",\"name\":\"exerciseRuntime\",\"boundaryClasses\":[\"compilerIntrinsic\"],\"modeledLowLevelMechanics\":[],\"notModeledEventEmission\":[],\"notModeledProxyUpgradeability\":[],\"partiallyModeledLinearMemoryMechanics\":[],\"partiallyModeledRuntimeIntrospection\":[\"blockNumber\",\"contractAddress\",\"chainid\"]" then
     throw (IO.userError "✗ runtime-introspection trust report localizes partially modeled runtime-introspection primitives")
   let runtimeIntrospectionVerboseUsageSiteReport := String.intercalate "\n" (emitVerboseUsageSiteLines [runtimeIntrospectionTrustSurfaceSpec])
   if !contains runtimeIntrospectionVerboseUsageSiteReport "partially modeled runtime introspection: blockNumber, contractAddress, chainid" then
@@ -1493,7 +1583,7 @@ unsafe def runTests : IO Unit := do
     throw (IO.userError "✗ selfBalance trust report emits contract name")
   if !contains selfBalanceTrustReport "\"partiallyModeledRuntimeIntrospection\":[\"selfBalance\"]" then
     throw (IO.userError "✗ selfBalance trust report emits partially modeled runtime-introspection primitive")
-  if !contains selfBalanceTrustReport "\"usageSites\":[{\"kind\":\"function\",\"name\":\"currentBalance\",\"modeledLowLevelMechanics\":[],\"notModeledEventEmission\":[],\"notModeledProxyUpgradeability\":[],\"partiallyModeledLinearMemoryMechanics\":[],\"partiallyModeledRuntimeIntrospection\":[\"selfBalance\"]" then
+  if !contains selfBalanceTrustReport "\"usageSites\":[{\"kind\":\"function\",\"name\":\"currentBalance\",\"boundaryClasses\":[\"compilerIntrinsic\"],\"modeledLowLevelMechanics\":[],\"notModeledEventEmission\":[],\"notModeledProxyUpgradeability\":[],\"partiallyModeledLinearMemoryMechanics\":[],\"partiallyModeledRuntimeIntrospection\":[\"selfBalance\"]" then
     throw (IO.userError "✗ selfBalance trust report localizes partially modeled runtime-introspection primitive")
   let selfBalanceVerboseUsageSiteReport := String.intercalate "\n" (emitVerboseUsageSiteLines [selfBalanceTrustSurfaceSpec])
   if !contains selfBalanceVerboseUsageSiteReport "partially modeled runtime introspection: selfBalance" then
@@ -1516,6 +1606,8 @@ unsafe def runTests : IO Unit := do
   if !contains localObligationTrustReport "\"usageSites\":[{\"kind\":\"function\",\"name\":\"unsafeEdge\"" ||
       !contains localObligationTrustReport "\"localObligations\":[{\"name\":\"manual_delegatecall_refinement\",\"status\":\"assumed\",\"obligation\":\"Caller must separately prove the handwritten assembly path refines the intended state transition.\"}]" then
     throw (IO.userError "✗ local-obligation trust report localizes usage sites")
+  if !contains localObligationTrustReport "\"boundaryClasses\":[\"gate\"]" then
+    throw (IO.userError "✗ local-obligation trust report classifies gate boundaries")
   let localObligationVerboseUsageSiteReport := String.intercalate "\n" (emitVerboseUsageSiteLines [localObligationTrustSurfaceSpec])
   if !contains localObligationVerboseUsageSiteReport "assumed local obligations: manual_delegatecall_refinement" then
     throw (IO.userError "✗ verbose trust report localizes local obligations")
@@ -1549,16 +1641,28 @@ unsafe def runTests : IO Unit := do
     throw (IO.userError "✗ assumption report emits contract name")
   if !contains assumptionReport "\"category\":\"axiomatizedPrimitive\",\"siteKind\":\"function\",\"siteName\":\"exercise\",\"name\":\"keccak256\",\"status\":\"assumed\",\"detail\":\"\",\"assumption\":\"keccak256_memory_slice_matches_evm\"" then
     throw (IO.userError "✗ assumption report emits primitive assumption entries")
+  if !contains assumptionReport "\"category\":\"axiomatizedPrimitive\",\"siteKind\":\"function\",\"siteName\":\"exercise\",\"name\":\"keccak256\",\"status\":\"assumed\",\"detail\":\"\",\"assumption\":\"keccak256_memory_slice_matches_evm\",\"linkMode\":\"\",\"module\":\"\",\"axioms\":[],\"mutability\":\"\",\"selector\":null,\"boundaryClass\":\"compilerIntrinsic\"" then
+    throw (IO.userError "✗ assumption report classifies primitive boundaries")
   if !contains assumptionReport "\"category\":\"linkedExternal\",\"siteKind\":\"function\",\"siteName\":\"exercise\",\"name\":\"PoseidonT3_hash\",\"status\":\"assumed\"" ||
       !contains assumptionReport "\"linkMode\":\"objectLinked\"" then
     throw (IO.userError "✗ assumption report emits linked external entries")
+  if !contains assumptionReport "\"category\":\"linkedExternal\",\"siteKind\":\"function\",\"siteName\":\"exercise\",\"name\":\"PoseidonT3_hash\",\"status\":\"assumed\",\"detail\":\"\",\"assumption\":\"\",\"linkMode\":\"objectLinked\",\"module\":\"\",\"axioms\":[\"poseidon_t3_deterministic\"],\"mutability\":\"\",\"selector\":null,\"boundaryClass\":\"compilerIntrinsic\"" then
+    throw (IO.userError "✗ assumption report classifies linked external boundaries")
   if !contains assumptionReport "\"category\":\"ecmModule\",\"siteKind\":\"function\",\"siteName\":\"exercise\",\"name\":\"testCall\",\"status\":\"assumed\"" then
     throw (IO.userError "✗ assumption report emits ECM module entries")
+  if !contains assumptionReport "\"category\":\"ecmModule\",\"siteKind\":\"function\",\"siteName\":\"exercise\",\"name\":\"testCall\",\"status\":\"assumed\",\"detail\":\"\",\"assumption\":\"\",\"linkMode\":\"\",\"module\":\"\",\"axioms\":[\"test_call_interface\"],\"mutability\":\"\",\"selector\":null,\"boundaryClass\":\"abiBoundary\"" then
+    throw (IO.userError "✗ assumption report classifies ECM module boundaries")
+  if !contains assumptionReport "\"category\":\"externalSummary\",\"siteKind\":\"function\",\"siteName\":\"exercise\",\"name\":\"testCall\",\"status\":\"assumed\",\"detail\":\"\",\"assumption\":\"\",\"linkMode\":\"\",\"module\":\"testCall\",\"axioms\":[\"test_call_interface\"],\"mutability\":\"staticcall\",\"selector\":null,\"boundaryClass\":\"abiBoundary\"" then
+    throw (IO.userError "✗ assumption report emits external summary entries")
   if !contains assumptionReport "\"category\":\"ecmAxiom\",\"siteKind\":\"function\",\"siteName\":\"exercise\",\"name\":\"test_call_interface\",\"status\":\"assumed\"" ||
       !contains assumptionReport "\"module\":\"testCall\"" then
     throw (IO.userError "✗ assumption report emits ECM axiom entries")
+  if !contains assumptionReport "\"category\":\"ecmAxiom\",\"siteKind\":\"function\",\"siteName\":\"exercise\",\"name\":\"test_call_interface\",\"status\":\"assumed\",\"detail\":\"\",\"assumption\":\"\",\"linkMode\":\"\",\"module\":\"testCall\",\"axioms\":[],\"mutability\":\"\",\"selector\":null,\"boundaryClass\":\"abiBoundary\"" then
+    throw (IO.userError "✗ assumption report classifies ECM axiom boundaries")
   if !contains assumptionReport "\"category\":\"localObligation\",\"siteKind\":\"function\",\"siteName\":\"unsafeEdge\",\"name\":\"manual_delegatecall_refinement\",\"status\":\"assumed\",\"detail\":\"Caller must separately prove the handwritten assembly path refines the intended state transition.\"" then
     throw (IO.userError "✗ assumption report emits localized local-obligation entries")
+  if !contains assumptionReport "\"category\":\"localObligation\",\"siteKind\":\"function\",\"siteName\":\"unsafeEdge\",\"name\":\"manual_delegatecall_refinement\",\"status\":\"assumed\",\"detail\":\"Caller must separately prove the handwritten assembly path refines the intended state transition.\",\"assumption\":\"\",\"linkMode\":\"\",\"module\":\"\",\"axioms\":[],\"mutability\":\"\",\"selector\":null,\"boundaryClass\":\"gate\"" then
+    throw (IO.userError "✗ assumption report classifies gate boundaries")
   if !contains assumptionReport "\"undischarged\":[{\"category\":\"localObligation\",\"siteKind\":\"function\",\"siteName\":\"unsafeEdge\",\"name\":\"manual_delegatecall_refinement\",\"status\":\"assumed\"" then
     throw (IO.userError "✗ assumption report tracks undischarged entries separately")
   IO.println "✓ assumption report flattens assumption-backed boundaries by usage site"
@@ -1575,7 +1679,7 @@ unsafe def runTests : IO Unit := do
   let constructorOnlyEcmTrustReport := emitTrustReportJson [constructorOnlyEcmTrustSurfaceSpec]
   if !contains constructorOnlyEcmTrustReport "\"unchecked\":{\"axiomatizedPrimitives\":[],\"linkedExternals\":[],\"ecmModules\":[\"ctorHook\"],\"localObligations\":[]}" then
     throw (IO.userError "✗ trust report includes constructor-only ECM modules in proof-status buckets")
-  if !contains constructorOnlyEcmTrustReport "\"ecmModules\":[{\"module\":\"ctorHook\",\"status\":\"unchecked\",\"axioms\":[\"ctor_hook_interface\"]}]" then
+  if !contains constructorOnlyEcmTrustReport "\"ecmModules\":[{\"module\":\"ctorHook\",\"status\":\"unchecked\",\"axioms\":[\"ctor_hook_interface\"],\"boundaryClass\":\"abiBoundary\",\"externalSummary\":{\"name\":\"ctorHook\",\"selector\":null,\"mutability\":\"staticcall\",\"assumptions\":[\"ctor_hook_interface\"]}}]" then
     throw (IO.userError "✗ trust report includes constructor-only ECM modules in external assumptions")
   if !contains constructorOnlyEcmTrustReport "\"usageSites\":[{\"kind\":\"constructor\",\"name\":\"constructor\"" then
     throw (IO.userError "✗ trust report localizes constructor-only trust usage sites")
@@ -1592,6 +1696,8 @@ unsafe def runTests : IO Unit := do
   if !contains ecrecoverTrustReport "\"module\":\"ecrecover\"" ||
       !contains ecrecoverTrustReport "\"assumption\":\"evm_ecrecover_precompile\"" then
     throw (IO.userError "✗ ecrecover trust report emits precompile assumption")
+  if !contains ecrecoverTrustReport "\"boundaryClass\":\"compilerIntrinsic\"" then
+    throw (IO.userError "✗ ecrecover trust report classifies precompile boundary")
   IO.println "✓ ecrecover trust report emits precompile assumption"
 
   let oracleTrustReport := emitTrustReportJson [oracleTrustSurfaceSpec]
@@ -1600,9 +1706,21 @@ unsafe def runTests : IO Unit := do
   if !contains oracleTrustReport "\"module\":\"oracleReadUint256\"" ||
       !contains oracleTrustReport "\"assumption\":\"oracle_read_uint256_interface\"" then
     throw (IO.userError "✗ oracle trust report emits oracle module assumption")
+  if !contains oracleTrustReport "\"boundaryClass\":\"oracleSummary\"" then
+    throw (IO.userError "✗ oracle trust report classifies oracle summary boundary")
   if !contains oracleTrustReport "\"assumed\":{\"axiomatizedPrimitives\":[],\"linkedExternals\":[],\"ecmModules\":[\"oracleReadUint256\"],\"localObligations\":[]}" then
     throw (IO.userError "✗ oracle trust report emits assumed ECM proof-status bucket")
   IO.println "✓ oracle trust report emits standard oracle module assumption"
+
+  let typedOracleTrustReport := emitTrustReportJson [typedOracleSummaryTrustSurfaceSpec]
+  if !contains typedOracleTrustReport "\"module\":\"oracleSummary\"" ||
+      !contains typedOracleTrustReport "\"assumption\":\"oracle_summary:IOracle.price\"" then
+    throw (IO.userError "✗ typed oracle summary trust report emits source-shaped summary assumption")
+  if !contains typedOracleTrustReport "\"externalSummary\":{\"name\":\"IOracle.price\",\"selector\":2687873534,\"mutability\":\"staticcall\",\"assumptions\":[\"oracle_summary:IOracle.price\"]}" then
+    throw (IO.userError "✗ typed oracle summary trust report emits exact summary name, selector, and staticcall mutability")
+  if contains typedOracleTrustReport "oracle_read_uint256_interface" then
+    throw (IO.userError "✗ typed oracle summary trust report should not use legacy oracle_read_uint256_interface")
+  IO.println "✓ typed oracle summary trust report emits exact summary metadata"
 
   let callWithValueTrustReport := emitTrustReportJson [callWithValueTrustSurfaceSpec]
   if !contains callWithValueTrustReport "\"contract\":\"CallWithValueTrustSurface\"" then
@@ -1610,6 +1728,8 @@ unsafe def runTests : IO Unit := do
   if !contains callWithValueTrustReport "\"module\":\"callWithValue\"" ||
       !contains callWithValueTrustReport "\"assumption\":\"generic_call_with_value_interface\"" then
     throw (IO.userError "✗ callWithValue trust report emits generic call module assumption")
+  if !contains callWithValueTrustReport "\"boundaryClass\":\"abiBoundary\"" then
+    throw (IO.userError "✗ callWithValue trust report classifies ABI boundary")
   if !contains callWithValueTrustReport "\"assumed\":{\"axiomatizedPrimitives\":[],\"linkedExternals\":[],\"ecmModules\":[\"callWithValue\"],\"localObligations\":[]}" then
     throw (IO.userError "✗ callWithValue trust report emits assumed ECM proof-status bucket")
   IO.println "✓ callWithValue trust report emits generic call module assumption"
@@ -1630,6 +1750,8 @@ unsafe def runTests : IO Unit := do
   if !contains erc20BalanceOfTrustReport "\"module\":\"balanceOf\"" ||
       !contains erc20BalanceOfTrustReport "\"assumption\":\"erc20_balanceOf_interface\"" then
     throw (IO.userError "✗ erc20 balanceOf trust report emits module assumption")
+  if !contains erc20BalanceOfTrustReport "\"boundaryClass\":\"tokenModel\"" then
+    throw (IO.userError "✗ erc20 balanceOf trust report classifies token-model boundary")
   if !contains erc20BalanceOfTrustReport "\"assumed\":{\"axiomatizedPrimitives\":[],\"linkedExternals\":[],\"ecmModules\":[\"balanceOf\"],\"localObligations\":[]}" then
     throw (IO.userError "✗ erc20 balanceOf trust report emits assumed ECM proof-status bucket")
   IO.println "✓ erc20 balanceOf trust report emits standard token read module assumption"

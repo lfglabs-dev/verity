@@ -1,0 +1,133 @@
+---
+title: Storage & Data
+description: Persistent and transient storage, mappings, arrays, constants, immutables, and ABI dynamic-value handling in verity_contract.
+---
+
+# Storage & Data
+
+How a Verity contract declares and accesses on-chain data: persistent slots,
+mappings, arrays, transient (EIP-1153) fields, compile-time constants, and
+bytecode immutables.
+
+## Persistent storage
+
+| Function | Type |
+|----------|------|
+| `getStorage` / `setStorage` | `StorageSlot Uint256 → …` |
+| `getStorageAddr` / `setStorageAddr` | `StorageSlot Address → …` |
+| `getMapping` / `setMapping` | `StorageSlot (Address → Uint256) → Address → …` |
+| `getMappingAddr` / `setMappingAddr` | Address-keyed mapping with address values (`wordToAddress` under the hood) |
+| `getMappingUint` / `setMappingUint` | `StorageSlot (Uint256 → Uint256) → Uint256 → …` |
+| `getMappingUintAddr` / `setMappingUintAddr` | Uint-keyed mapping with address values |
+| `getMapping2` / `setMapping2` | `StorageSlot (Address → Address → Uint256) → Address → Address → …` |
+| `getStorageArrayLength` / `getStorageArrayElement` / `setStorageArrayElement` | Dynamic in-storage arrays with `[StorageArrayElem α]` typeclass |
+| `pushStorageArray` / `popStorageArray` | Append / remove tail element of an in-storage array |
+
+```verity
+let bal   <- getMapping balances msgSenderAddr
+let owner <- getMappingUintAddr tokenOwners tokenId
+setMapping balances msgSenderAddr (bal - amount)
+
+let allow <- getMapping2 allowances owner spender
+setMapping2 allowances owner spender (allow - amount)
+```
+
+The `addressToWord` / `wordToAddress` helpers convert between the two
+representations; the `*Addr` mapping variants apply them automatically.
+
+Declare storage fields, including struct, packed-word, and ERC-7201 namespaced
+forms, in the contract's `storage` block. The full grammar lives in
+[`Verity/Macro/Syntax.lean`](https://github.com/lfglabs-dev/verity/blob/main/Verity/Macro/Syntax.lean);
+layout shapes are in the [production patterns guide](/guides/production-solidity-patterns).
+
+## Transient storage (EIP-1153)
+
+Declare a transient field with the `transient` keyword. The field is read and
+written with the **ordinary** `getStorage` / `setStorage` surface; the compiler
+emits `tload` / `tstore` instead of `sload` / `sstore` based on the field's
+declared kind.
+
+```verity
+verity_contract TransientExample where
+  storage
+    transient lock : Uint256 := slot 0
+
+  function setLock (value : Uint256) : Unit := do
+    setStorage lock value
+```
+
+Transient mappings are supported: mapping and packed-word writes route to
+`tstore` / `tload` when the backing field is transient. This is the preferred
+surface over the low-level `tstore` / `tload` intrinsics (which take explicit
+slot offsets and are classified under `lowLevelMechanics` in the trust report).
+The raw low-level form remains available:
+
+```verity
+tstore slot value
+let warmed := tload slot
+```
+
+## Constants and immutables
+
+```verity
+constants
+  basisPoints : Uint256 := 10000
+  mintFeeBps  : Uint256 := 30
+  treasury    : Address := (wordToAddress 42)
+  domainHash  : Uint256 := keccakString "ERC4337"
+
+immutables
+  seededSupply : Uint256 := add seed offset
+  treasury     : Address := ownerSeed
+  paused       : Bool    := true
+  feeBps       : Uint8   := 7
+  domainTag    : Bytes32 := 42
+```
+
+Constants inline into `Expr` trees at compile time. Constant bodies cannot
+reference runtime builtins (`blockTimestamp`, calldata reads, low-level
+opcodes); those are rejected at elaboration. A native `if cond then a else b`
+term and `keccakString "literal"` / `keccak256_lit "literal"` (Keccak-256 of a
+UTF-8 string literal, materialized at macro-expansion time) are permitted in
+pure constant expressions.
+
+Immutables lower to bytecode immutables via Yul `loadimmutable` /
+`setimmutable` — they are **not** stored in `__immutable_*` storage slots.
+`setImmutable` is valid only in constructor / deploy code; runtime writes are
+rejected. Supported immutable types: `Uint256`, `Int256`, `Uint8`, `Address`,
+`Bytes32`, `Bool`. Other types are rejected with an explicit diagnostic.
+
+Storage, constants, immutables, and functions share one namespace; duplicate or
+cross-kind reuse is rejected. Generated names (`spec`, `<name>_modelBody`,
+`<name>_model`, `<name>_bridge`, `<name>_semantic_preservation`) are reserved.
+
+## Dynamic ABI values (arrays, bytes, strings)
+
+```verity
+let count := arrayLength recipients
+let first := arrayElement recipients 0
+returnArray amounts
+```
+
+`arrayElement` is bounds-checked (the compiled path reverts on out-of-range; the
+executable fallback mirrors). It supports scalar arrays and ABI-decodable
+static / nested struct arrays. Dynamic-element arrays (`Array Bytes`,
+`Array String`) support `arrayLength` only; indexed reads and `returnArray` are
+rejected for those until offset-aware lowering lands.
+
+`String` / `Bytes` support ABI transport (`returnBytes`, custom-error / event
+payloads, parameter flow) and direct `==` / `!=` checks. Other word-level
+operators (`<`, `add`, `logicalAnd`) on `String` / `Bytes` are rejected. This
+applies to function bodies, constructor bodies, constants, and immutable
+initializers.
+
+`arrayLength` also works on `Bytes` / `String` dynamic struct members (e.g.
+`arrayLength ops.callData`, `arrayLength (arrayElement ops i).callData`),
+reading the ABI length word in bytes. Fixed-width word types such as `Bytes32`
+intentionally have no length surface.
+
+## See also
+
+- [Functions & Authoring](/edsl/functions) — constructors that seed immutables, structs, namespaces.
+- [Computation & Context](/edsl/computation) — arithmetic over stored values.
+- [Capabilities & Limits](/capabilities#fully-expressible-and-verified) — which storage forms are proof-modeled.

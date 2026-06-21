@@ -16,6 +16,7 @@ import Contracts.ProxyUpgradeabilityMacroSmoke
 import Contracts.Smoke
 import Contracts.StringArrayErrorSmoke
 import Contracts.StringArrayEventSmoke
+import Verity.Core.Model.Denote
 import Verity.Macro.Translate
 
 -- The `unnecessarySeqFocus` linter recurses through every tactic block in the
@@ -25,6 +26,10 @@ import Verity.Macro.Translate
 -- `Compiler/Proofs/IRGeneration/GenericInduction.lean`.
 set_option linter.unnecessarySeqFocus false
 set_option linter.unusedTactic false
+-- The Batteries unreachable-tactic linter stack-overflows on this file's
+-- size after the canonical-traversal validator port; it adds no value on a
+-- pure smoke/regression module.
+set_option linter.unreachableTactic false
 
 namespace Compiler.CompilationModelFeatureTest
 
@@ -324,7 +329,7 @@ verity_contract MacroExternal where
   linked_externals
     external echo(Uint256) -> (Uint256)
 
-  function allow_post_interaction_writes storeEcho (next : Uint256) : Unit := do
+  function allow_post_interaction_writes reentrancy_trusted storeEcho (next : Uint256) : Unit := do
     let echoed := externalCall "echo" [next]
     setStorage echoedValue echoed
 
@@ -415,6 +420,7 @@ def linkModeTrustSurfaceSpec : CompilationModel := {
     { name := "exercise"
       params := [{ name := "next", ty := ParamType.uint256 }]
       returnType := some FieldType.uint256
+      reentrancyTrusted := true
       body := [
         Stmt.letVar "a" (Expr.externalCall "oracleEcho" [Expr.param "next"]),
         Stmt.letVar "b" (Expr.externalCall "poseidonHash" [Expr.param "next", Expr.param "next"]),
@@ -1783,32 +1789,27 @@ verity_contract MacroTypedImmutable where
   function domainSeparator () : Bytes32 := do
     return domainTag
 
-def specIncludesInternalImmutableFields : Bool :=
-  MacroImmutable.spec.fields.map (·.name) ==
-    ["owner", "__immutable_seededSupply", "__immutable_treasury"]
+def specKeepsImmutablesOutOfStorageFields : Bool :=
+  MacroImmutable.spec.fields.map (·.name) == ["owner"] &&
+  MacroImmutable.spec.immutables.map (·.name) == ["seededSupply", "treasury"]
 
-example : specIncludesInternalImmutableFields = true := by native_decide
-
-def constructorSeedsInternalImmutableSlots : Bool :=
+def constructorSeedsBytecodeImmutables : Bool :=
   match MacroImmutable.spec.constructor with
   | some ctor =>
       match ctor.body with
-      | [Stmt.setStorage "__immutable_seededSupply"
+      | [Stmt.setImmutable "seededSupply"
             (Expr.add (Expr.param "seed") (Expr.literal 2)),
-          Stmt.setStorageAddr "__immutable_treasury" (Expr.param "ownerSeed"),
+          Stmt.setImmutable "treasury" (Expr.param "ownerSeed"),
           Stmt.setStorageAddr "owner" (Expr.param "ownerSeed")] =>
           true
       | _ => false
   | none => false
 
-example : constructorSeedsInternalImmutableSlots = true := by native_decide
-
-def runtimeFunctionsLoadImmutableValuesFromState : Bool :=
-  match MacroImmutable.supplyCap Verity.defaultState, MacroImmutable.treasuryAddr Verity.defaultState with
-  | .success 0 _, .success treasury _ => treasury == zeroAddress
+def runtimeFunctionsUseImmutableExpressions : Bool :=
+  match MacroImmutable.supplyCap_modelBody, MacroImmutable.treasuryAddr_modelBody with
+  | [Stmt.return (Expr.immutable "seededSupply")],
+      [Stmt.return (Expr.immutable "treasury")] => true
   | _, _ => false
-
-example : runtimeFunctionsLoadImmutableValuesFromState = true := by native_decide
 
 def functionParamsStillShadowImmutableNames : Bool :=
   match MacroImmutable.shadowed 91 Verity.defaultState with
@@ -1822,50 +1823,39 @@ def implicitConstructorCreatedForImmutableInitializers : Bool :=
   | some ctor =>
       ctor.params.isEmpty &&
       match ctor.body with
-      | [Stmt.setStorage "__immutable_feeScale" (Expr.literal 10000)] => true
+      | [Stmt.setImmutable "feeScale" (Expr.literal 10000)] => true
       | _ => false
   | none => false
 
-example : implicitConstructorCreatedForImmutableInitializers = true := by native_decide
-
-def implicitImmutableExecutableReadsRuntimeSlot : Bool :=
-  match MacroImplicitImmutable.getFeeScale Verity.defaultState with
-  | .success value _ => value == 0
+def implicitImmutableFunctionUsesImmutableExpression : Bool :=
+  match MacroImplicitImmutable.getFeeScale_modelBody with
+  | [Stmt.return (Expr.immutable "feeScale")] => true
   | _ => false
 
-example : implicitImmutableExecutableReadsRuntimeSlot = true := by native_decide
+def typedImmutableSpecUsesImmutableSurface : Bool :=
+  MacroTypedImmutable.spec.fields.isEmpty &&
+  MacroTypedImmutable.spec.immutables.map (fun imm => (imm.name, imm.ty)) ==
+    [("paused", ParamType.bool), ("feeBps", ParamType.uint8), ("domainTag", ParamType.bytes32)]
 
-def typedImmutableSpecUsesWordBackedHiddenSlots : Bool :=
-  match MacroTypedImmutable.spec.fields.map (fun f => (f.name, f.ty)) with
-  | [("__immutable_paused", FieldType.uint256),
-      ("__immutable_feeBps", FieldType.uint256),
-      ("__immutable_domainTag", FieldType.uint256)] => true
-  | _ => false
-
-example : typedImmutableSpecUsesWordBackedHiddenSlots = true := by native_decide
-
-def typedImmutableConstructorSeedsWordSlots : Bool :=
+def typedImmutableConstructorSeedsBytecodeValues : Bool :=
   match MacroTypedImmutable.spec.constructor with
   | some ctor =>
       ctor.params.isEmpty &&
       match ctor.body with
-      | [Stmt.setStorage "__immutable_paused" (Expr.literal 1),
-          Stmt.setStorage "__immutable_feeBps" (Expr.literal 7),
-          Stmt.setStorage "__immutable_domainTag" (Expr.literal 42)] => true
+      | [Stmt.setImmutable "paused" (Expr.literal 1),
+          Stmt.setImmutable "feeBps" (Expr.literal 7),
+          Stmt.setImmutable "domainTag" (Expr.literal 42)] => true
       | _ => false
   | none => false
 
-example : typedImmutableConstructorSeedsWordSlots = true := by native_decide
-
-def typedImmutableExecutableReadsConvertedValues : Bool :=
-  match MacroTypedImmutable.isPaused Verity.defaultState,
-      MacroTypedImmutable.feeScale Verity.defaultState,
-      MacroTypedImmutable.domainSeparator Verity.defaultState with
-  | .success paused _, .success feeBps _, .success domainTag _ =>
-      paused = false && feeBps == 0 && domainTag == 0
+def typedImmutableFunctionsUseImmutableExpressions : Bool :=
+  match MacroTypedImmutable.isPaused_modelBody,
+      MacroTypedImmutable.feeScale_modelBody,
+      MacroTypedImmutable.domainSeparator_modelBody with
+  | [Stmt.return (Expr.immutable "paused")],
+      [Stmt.return (Expr.immutable "feeBps")],
+      [Stmt.return (Expr.immutable "domainTag")] => true
   | _, _, _ => false
-
-example : typedImmutableExecutableReadsConvertedValues = true := by native_decide
 
 end MacroImmutableSmoke
 
@@ -2049,6 +2039,111 @@ def forwardedEchoedAmountPassesMemoryArray : Bool :=
   | _ => false
 
 example : forwardedEchoedAmountPassesMemoryArray = true := by native_decide
+
+namespace InternalHelperDynamicArgs
+
+open Compiler.Yul
+
+def permitTy : ParamType :=
+  ParamType.tuple [ParamType.address, ParamType.uint256]
+
+def transferWithBalanceCheck : FunctionSpec := {
+  name := "_transferWithBalanceCheck"
+  params :=
+    [ { name := "permit", ty := permitTy }
+    , { name := "depositor", ty := ParamType.address }
+    , { name := "signature", ty := ParamType.bytes }
+    , { name := "amount", ty := ParamType.uint256 }
+    , { name := "noteCommitment", ty := ParamType.bytes32 }
+    ]
+  returnType := none
+  body := []
+  isInternal := true
+}
+
+def helperParamNamesExpandStaticCompositeAndBytes : Bool :=
+  internalFunctionYulParamNames transferWithBalanceCheck.params ==
+    [ "permit_0", "permit_1", "depositor", "signature_data_offset"
+    , "signature_length", "amount", "noteCommitment" ]
+
+def sourceInternalCallArgsExpandStaticCompositeAndBytes : Bool :=
+  match compileInternalCallArgs [] .calldata [transferWithBalanceCheck]
+      "_transferWithBalanceCheck"
+      [ Expr.param "permit"
+      , Expr.param "depositor"
+      , Expr.param "signature"
+      , Expr.param "amount"
+      , Expr.param "noteCommitment"
+      ] with
+  | Except.ok
+      [ YulExpr.ident "permit_0"
+      , YulExpr.ident "permit_1"
+      , YulExpr.ident "depositor"
+      , YulExpr.ident "signature_data_offset"
+      , YulExpr.ident "signature_length"
+      , YulExpr.ident "amount"
+      , YulExpr.ident "noteCommitment"
+      ] => true
+  | Except.error _ => false
+  | _ => false
+
+def containsText (haystack needle : String) : Bool :=
+  let h := haystack.toList
+  let n := needle.toList
+  if n.isEmpty then true
+  else
+    let rec startsWithChars : List Char → List Char → Bool
+      | _, [] => true
+      | [], _ :: _ => false
+      | h :: hs, n :: ns => h == n && startsWithChars hs ns
+    let rec go : List Char → Bool
+      | [] => false
+      | chars@(_ :: rest) => startsWithChars chars n || go rest
+    go h
+
+def localExpandedForwardingRejected : Bool :=
+  match validateInternalCallSourceArgs
+      [{ name := "amounts", ty := ParamType.array ParamType.uint256 }]
+      "caller" "internal_echoAmounts"
+      [{ name := "amounts", ty := ParamType.array ParamType.uint256 }]
+      [Expr.localVar "amounts"] with
+  | Except.ok _ => false
+  | Except.error msg => containsText msg "direct parameter forwarding only"
+
+def mismatchedSourceParamTypeRejected : Bool :=
+  match validateInternalCallSourceArgs
+      [{ name := "flags", ty := ParamType.array ParamType.bool }]
+      "caller" "internal_echoAmounts"
+      [{ name := "amounts", ty := ParamType.array ParamType.uint256 }]
+      [Expr.param "flags"] with
+  | Except.ok _ => false
+  | Except.error msg => containsText msg "type/layout"
+
+def legacyExpandedArgsRequireExactNames : Bool :=
+  match validateInternalCallSourceArgs
+      [{ name := "amounts", ty := ParamType.array ParamType.uint256 }]
+      "caller" "internal_echoAmounts"
+      [{ name := "amounts", ty := ParamType.array ParamType.uint256 }]
+      [Expr.param "other_data_offset", Expr.param "amounts_length"] with
+  | Except.ok _ => false
+  | Except.error msg => containsText msg "no caller parameter has exact type/layout"
+
+def exprInternalCallArgsUseHelperSignature : Bool :=
+  let helper : FunctionSpec := {
+    name := "echoLength"
+    params := [{ name := "payload", ty := ParamType.bytes }]
+    returnType := some FieldType.uint256
+    body := [Stmt.return (Expr.arrayLength "payload")]
+    isInternal := true
+  }
+  match compileExprWithInternals [] .calldata [helper]
+      (Expr.internalCall "echoLength" [Expr.param "payload"]) with
+  | Except.ok
+      (YulExpr.call "internal_echoLength"
+        [YulExpr.ident "payload_data_offset", YulExpr.ident "payload_length"]) => true
+  | _ => false
+
+end InternalHelperDynamicArgs
 
 def compactAmountsAllocatesMemoryArray : Bool :=
   let body := MacroDynamicArray.compactAmounts_modelBody
@@ -2589,6 +2684,36 @@ private def duplicateInternalNameSpec : CompilationModel := {
   ]
 }
 
+private def duplicateImmutableNameSpec : CompilationModel := {
+  name := "DuplicateImmutableName"
+  fields := []
+  «immutables» := [
+    { name := "cap", ty := ParamType.uint256, init := Expr.literal 1 },
+    { name := "cap", ty := ParamType.uint256, init := Expr.literal 2 }
+  ]
+  «constructor» := none
+  functions := []
+}
+
+private def uninitializedImmutableSpec : CompilationModel := {
+  name := "UninitializedImmutable"
+  fields := []
+  «immutables» := [
+    { name := "cap", ty := ParamType.uint256, init := Expr.literal 1 }
+  ]
+  «constructor» := some {
+    params := []
+    body := [Stmt.stop]
+  }
+  functions := [
+    { name := "load"
+      params := []
+      returnType := some FieldType.uint256
+      body := [Stmt.return (Expr.immutable "cap")]
+    }
+  ]
+}
+
 private def internalExternalNameCollisionSpec : CompilationModel := {
   name := "InternalExternalNameCollision"
   fields := []
@@ -2750,6 +2875,7 @@ private def effectOnlyExternalBindSpec : CompilationModel := {
     { name := "poke"
       params := [{ name := "next", ty := ParamType.uint256 }]
       returnType := none
+      reentrancyTrusted := true
       body := [
         Stmt.externalCallBind [] "notify" [Expr.param "next"],
         Stmt.stop
@@ -2903,6 +3029,7 @@ private def unsafeYulRawCallAllowedSpec : CompilationModel := {
     { name := "bad"
       params := []
       returnType := none
+      reentrancyTrusted := true
       body := [unsafeYulRawCallStmt, Stmt.stop]
     }
   ]
@@ -3339,6 +3466,7 @@ private def adtAliasPayloadMemoizesExprSpec : CompilationModel := {
       params := [{ name := "input", ty := ParamType.uint256 }]
       returnType := none
       allowPostInteractionWrites := true
+      reentrancyTrusted := true
       body := [
         Stmt.setStorage "choice"
           (Expr.adtConstruct "Choice" "Some" [Expr.externalCall "echo" [Expr.param "input"]]),
@@ -3352,6 +3480,108 @@ private def adtAliasPayloadMemoizesExprSpec : CompilationModel := {
       returnType := some ParamType.uint256
       returns := [ParamType.uint256]
       axiomNames := ["echo_matches_identity"]
+    }
+  ]
+  adtTypes := [
+    { name := "Choice"
+      variants := [
+        { name := "None", tag := 0, fields := [] },
+        { name := "Some", tag := 1, fields := [{ name := "amount", ty := ParamType.uint256 }] }
+      ]
+    }
+  ]
+}
+
+-- Regression tests for Bugbot MEDIUM issues in PR #2016 (task/1889-internal-helper-args):
+-- (a) internal helper calls inside fallback body must receive the real internal-functions table.
+--     Fallback has no named typed params, so dynamic/composite arg forwarding is covered by the
+--     external-entry fixture below.
+-- (b) internal helper call inside ADT ctor payload for setStorage must thread internals through
+--     compileAdtStorageWrite (not compileExprList) => correct expansion.
+private def fallbackInternalCallSpec : CompilationModel := {
+  name := "FallbackInternalCallRegression"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "internal_value"
+      params := []
+      returnType := some FieldType.uint256
+      isInternal := true
+      body := [Stmt.return (Expr.literal 1)]
+    },
+    { name := "fallback"
+      params := []
+      returnType := none
+      body := [
+        Stmt.return (Expr.internalCall "internal_value" [])
+      ]
+    }
+  ]
+}
+
+private def entryInternalDynamicArgSpec : CompilationModel := {
+  name := "EntryInternalDynamicArgRegression"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "internal_first"
+      params := [{ name := "xs", ty := ParamType.array ParamType.uint256 }]
+      returnType := some FieldType.uint256
+      isInternal := true
+      body := [Stmt.return (Expr.arrayElement "xs" (Expr.literal 0))]
+    },
+    { name := "entry"
+      params := [{ name := "xs", ty := ParamType.array ParamType.uint256 }]
+      returnType := some FieldType.uint256
+      body := [
+        Stmt.return (Expr.internalCall "internal_first" [Expr.param "xs"])
+      ]
+    }
+  ]
+}
+
+private def newtypeInternalDynamicArgSpec : CompilationModel := {
+  name := "NewtypeInternalDynamicArgRegression"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "internal_length"
+      params := [{ name := "xs", ty := ParamType.newtypeOf "Amounts" (ParamType.array ParamType.uint256) }]
+      returnType := some FieldType.uint256
+      isInternal := true
+      body := [Stmt.return (Expr.param "xs_length")]
+    },
+    { name := "entry"
+      params := [{ name := "xs", ty := ParamType.newtypeOf "Amounts" (ParamType.array ParamType.uint256) }]
+      returnType := some FieldType.uint256
+      body := [
+        Stmt.return (Expr.internalCall "internal_length" [Expr.param "xs"])
+      ]
+    }
+  ]
+}
+
+private def adtStorageInternalDynamicArgSpec : CompilationModel := {
+  name := "AdtStorageInternalDynamicArgRegression"
+  fields := [
+    { name := "choice", ty := FieldType.adt "Choice" 1, «slot» := some 10, aliasSlots := [] }
+  ]
+  «constructor» := none
+  functions := [
+    { name := "internal_first"
+      params := [{ name := "xs", ty := ParamType.array ParamType.uint256 }]
+      returnType := some FieldType.uint256
+      isInternal := true
+      body := [Stmt.return (Expr.arrayElement "xs" (Expr.literal 0))]
+    },
+    { name := "storeDyn"
+      params := [{ name := "xs", ty := ParamType.array ParamType.uint256 }]
+      returnType := none
+      body := [
+        Stmt.setStorage "choice"
+          (Expr.adtConstruct "Choice" "Some" [Expr.internalCall "internal_first" [Expr.param "xs"]]),
+        Stmt.stop
+      ]
     }
   ]
   adtTypes := [
@@ -4347,6 +4577,7 @@ private def bubblingValueCallSmokeSpec : CompilationModel := {
         , { name := "outputSize", ty := ParamType.uint256 }
       ]
       returnType := none
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.Calls.bubblingValueCall
           (Expr.param "target")
@@ -4426,6 +4657,7 @@ private def bubblingValueCallNoOutputSmokeSpec : CompilationModel := {
         , { name := "inputSize", ty := ParamType.uint256 }
       ]
       returnType := none
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.Calls.bubblingValueCallNoOutput
           (Expr.param "target")
@@ -4498,6 +4730,7 @@ private def callbackSmokeSpec : CompilationModel := {
         , { name := "data", ty := ParamType.bytes }
       ]
       returnType := none
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.Callbacks.callback
           (Expr.param "target")
@@ -4546,6 +4779,7 @@ private def erc20SafeTransferSmokeSpec : CompilationModel := {
       ]
       returnType := none
       returns := []
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.ERC20.safeTransfer
           (Expr.param "token")
@@ -4571,6 +4805,7 @@ private def erc20SafeTransferFromSmokeSpec : CompilationModel := {
       ]
       returnType := none
       returns := []
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.ERC20.safeTransferFrom
           (Expr.param "token")
@@ -4596,6 +4831,7 @@ private def erc20SolmateSafeTransferSmokeSpec : CompilationModel := {
       ]
       returnType := none
       returns := []
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.ERC20.solmateSafeTransfer
           (Expr.param "token")
@@ -4621,6 +4857,7 @@ private def erc20SolmateSafeTransferFromSmokeSpec : CompilationModel := {
       ]
       returnType := none
       returns := []
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.ERC20.solmateSafeTransferFrom
           (Expr.param "token")
@@ -4646,6 +4883,7 @@ private def erc20SafeApproveSmokeSpec : CompilationModel := {
       ]
       returnType := none
       returns := []
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.ERC20.safeApprove
           (Expr.param "token")
@@ -4670,6 +4908,7 @@ private def callWithValueSmokeSpec : CompilationModel := {
         , { name := "dataSize", ty := ParamType.uint256 }
       ]
       returnType := none
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.Calls.callWithValue
           (Expr.param "target")
@@ -4720,6 +4959,7 @@ private def callWithValueBytesSmokeSpec : CompilationModel := {
         , { name := "data", ty := ParamType.bytes }
       ]
       returnType := none
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.Calls.callWithValueBytes
           (Expr.param "target")
@@ -5080,6 +5320,7 @@ private def erc4626DepositSmokeSpec : CompilationModel := {
       ]
       returnType := none
       returns := [ParamType.uint256]
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.ERC4626.deposit
           "shares"
@@ -5192,6 +5433,49 @@ example : routerStructMembersDestructuringKeepsMemberTypes = true := by native_d
 
 end MacroSolidityTypeFidelitySmoke
 
+namespace PackedStructMemberDenoteSmoke
+
+private def oracle : Denote.DenoteOracle :=
+  { mappingSlot := fun base key => base * 1000 + key
+    keccakMemorySlice := fun _ _ _ => 0 }
+
+private def fields : List Field :=
+  [{ name := "deposits",
+     ty := FieldType.mappingStruct MappingKeyType.address
+       [{ name := "deposit", wordOffset := 0, packed := none },
+        { name := "staked", ty := .bool, wordOffset := 1,
+          packed := some { offset := 0, width := 1 } },
+        { name := "stake", wordOffset := 1,
+          packed := some { offset := 1, width := 112 } },
+        { name := "unstakeDelaySec", ty := .uint256, wordOffset := 1,
+          packed := some { offset := 113, width := 32 } },
+        { name := "withdrawTime", wordOffset := 1,
+          packed := some { offset := 145, width := 48 } }],
+     «slot» := some 1 }]
+
+private def key : Nat := 7
+private def packedSlot : Nat := oracle.mappingSlot 1 key + 1
+private def oldWord : Nat := 1 + 5 * 2 ^ 1 + 9 * 2 ^ 113
+private def expectedWord : Nat := 1 + 7 * 2 ^ 1 + 9 * 2 ^ 113
+
+private def preservesAdjacentPackedFields : Bool :=
+  let world : Verity.ContractState :=
+    { Verity.defaultState with
+      «storage» := fun s => if s == packedSlot then oldWord else 0 }
+  let state : Denote.DenoteState := { world := world, bindings := [] }
+  match Denote.execStmt oracle fields state
+      (Stmt.setStructMember "deposits" (.literal key) "stake" (.literal 7)) with
+  | .continue next =>
+      (next.world.storage packedSlot).val == expectedWord
+  | _ => false
+
+#eval! do
+  expectTrue
+    "packed mapping struct writes preserve adjacent fields in the same word"
+    preservesAdjacentPackedFields
+
+end PackedStructMemberDenoteSmoke
+
 set_option maxRecDepth 4096 in
 #eval! do
   let compiled :=
@@ -5199,6 +5483,18 @@ set_option maxRecDepth 4096 in
     | .ok _ => true
     | .error _ => false
   expectTrue "local CompilationModel smoke spec compiles with deterministic selectors" compiled
+  expectTrue "internal helper params expand static composite and bytes slots"
+    MacroDynamicArraySmoke.InternalHelperDynamicArgs.helperParamNamesExpandStaticCompositeAndBytes
+  expectTrue "source internal helper call args expand static composite and bytes slots"
+    MacroDynamicArraySmoke.InternalHelperDynamicArgs.sourceInternalCallArgsExpandStaticCompositeAndBytes
+  expectTrue "expanded internal helper args reject local-variable forwarding"
+    MacroDynamicArraySmoke.InternalHelperDynamicArgs.localExpandedForwardingRejected
+  expectTrue "expanded internal helper args reject mismatched source type/layout"
+    MacroDynamicArraySmoke.InternalHelperDynamicArgs.mismatchedSourceParamTypeRejected
+  expectTrue "legacy expanded internal helper args require exact generated names"
+    MacroDynamicArraySmoke.InternalHelperDynamicArgs.legacyExpandedArgsRequireExactNames
+  expectTrue "expression-position internal helper calls expand args from helper signature"
+    MacroDynamicArraySmoke.InternalHelperDynamicArgs.exprInternalCallArgsUseHelperSignature
 
   -- Regression: selector mismatch must fail closed.
   let mismatchRejected :=
@@ -5214,6 +5510,14 @@ set_option maxRecDepth 4096 in
     "same-name internal helpers are rejected before Yul lowering"
     duplicateInternalNameSpec
     "duplicate internal function name 'helper'"
+  expectCompileErrorContains
+    "same-name immutables are rejected before Yul lowering"
+    duplicateImmutableNameSpec
+    "duplicate immutable name 'cap'"
+  expectCompileErrorContains
+    "declared immutables left unset by the constructor are rejected"
+    uninitializedImmutableSpec
+    "immutable 'cap' is declared but never initialized in the constructor"
   expectCompileErrorContains
     "internal helper source names cannot collide with external dispatch names"
     internalExternalNameCollisionSpec
@@ -5319,14 +5623,14 @@ set_option maxRecDepth 4096 in
     "macro reinitializer executable path advances the tracked version"
     MacroInitializerSmoke.reinitializerExecutableAdvancesVersion
   expectTrue
-    "macro immutable spec includes internal hidden fields"
-    MacroImmutableSmoke.specIncludesInternalImmutableFields
+    "macro immutable spec keeps immutables out of storage fields"
+    MacroImmutableSmoke.specKeepsImmutablesOutOfStorageFields
   expectTrue
-    "macro immutable constructor seeds internal slots before user code"
-    MacroImmutableSmoke.constructorSeedsInternalImmutableSlots
+    "macro immutable constructor seeds bytecode immutables before user code"
+    MacroImmutableSmoke.constructorSeedsBytecodeImmutables
   expectTrue
-    "macro immutable executable path loads runtime slot values"
-    MacroImmutableSmoke.runtimeFunctionsLoadImmutableValuesFromState
+    "macro immutable model path reads immutable expressions"
+    MacroImmutableSmoke.runtimeFunctionsUseImmutableExpressions
   expectTrue
     "macro immutable function parameters still shadow immutable names"
     MacroImmutableSmoke.functionParamsStillShadowImmutableNames
@@ -5334,17 +5638,17 @@ set_option maxRecDepth 4096 in
     "macro immutables synthesize a constructor when needed"
     MacroImmutableSmoke.implicitConstructorCreatedForImmutableInitializers
   expectTrue
-    "macro synthesized immutable constructor reads runtime storage on the executable path"
-    MacroImmutableSmoke.implicitImmutableExecutableReadsRuntimeSlot
+    "macro synthesized immutable function reads immutable expressions"
+    MacroImmutableSmoke.implicitImmutableFunctionUsesImmutableExpression
   expectTrue
-    "macro typed immutables lower to word-backed hidden slots in the spec"
-    MacroImmutableSmoke.typedImmutableSpecUsesWordBackedHiddenSlots
+    "macro typed immutables lower to the immutable spec surface"
+    MacroImmutableSmoke.typedImmutableSpecUsesImmutableSurface
   expectTrue
-    "macro typed immutables seed word-backed hidden slots in the constructor"
-    MacroImmutableSmoke.typedImmutableConstructorSeedsWordSlots
+    "macro typed immutables seed bytecode immutable values in the constructor"
+    MacroImmutableSmoke.typedImmutableConstructorSeedsBytecodeValues
   expectTrue
-    "macro typed immutables convert executable runtime reads back to source types"
-    MacroImmutableSmoke.typedImmutableExecutableReadsConvertedValues
+    "macro typed immutables read immutable expressions"
+    MacroImmutableSmoke.typedImmutableFunctionsUseImmutableExpressions
   expectTrue "macro emit lowers to Stmt.emit"
     MacroEventTraceSmoke.emitNamedModelUsesStmtEmit
   expectTrue "macro event declarations populate CompilationModel event metadata"
@@ -5511,6 +5815,36 @@ set_option maxRecDepth 4096 in
   expectTrue "ADT alias writes reuse the generated payload local"
     ((contains adtAliasPayloadMemoYul "let __adt_payload_0 := echo(input)") &&
       (countOccurrences adtAliasPayloadMemoYul "__adt_payload_0" >= 3))
+  -- Bugbot regression (a): fallback/receive must receive real internalFunctions table.
+  let fallbackInternalYul ← expectCompileToYul
+    "fallback with internal helper call (Bugbot regression a: fallback omits internal function table)"
+    fallbackInternalCallSpec
+  expectTrue "fallback internalCall resolves through the threaded internal-functions table"
+    ((contains fallbackInternalYul "internal_value") &&
+      (contains fallbackInternalYul "internal_internal_value()"))
+  let entryInternalDynYul ← expectCompileToYul
+    "external entry with internal dynamic/composite arg call expands short-form arg"
+    entryInternalDynamicArgSpec
+  expectTrue "entry internalCall (short-form array arg) expands via callee-aware path to data_offset + length (two args, not single 'xs')"
+    ((contains entryInternalDynYul "internal_first") &&
+      (contains entryInternalDynYul "xs_data_offset") &&
+      (contains entryInternalDynYul "xs_length"))
+  let newtypeInternalDynYul ← expectCompileToYul
+    "newtype-wrapped dynamic internal arg has matching callee/caller arity"
+    newtypeInternalDynamicArgSpec
+  expectTrue "newtype dynamic internal helper declaration and call both use data_offset + length"
+    ((contains newtypeInternalDynYul "internal_length") &&
+      (contains newtypeInternalDynYul "function internal_internal_length(xs_data_offset, xs_length)") &&
+      (contains newtypeInternalDynYul "internal_internal_length(xs_data_offset, xs_length)"))
+  -- Bugbot regression (b): ADT storage write payload must use internals-aware expr compile
+  -- so internal calls with dynamic args inside adtConstruct args expand correctly.
+  let adtInternalDynYul ← expectCompileToYul
+    "ADT ctor payload with internal dynamic/composite arg (Bugbot regression b: adt storage write skips internals)"
+    adtStorageInternalDynamicArgSpec
+  expectTrue "adtConstruct payload internalCall (short-form array arg) expands via threaded internalFunctions in compileAdtStorageWrite"
+    ((contains adtInternalDynYul "internal_first") &&
+      (contains adtInternalDynYul "xs_data_offset") &&
+      (contains adtInternalDynYul "xs_length"))
   let ceiInitialInternalCallCompiled :=
     match Compiler.CompilationModel.compile ceiInitialInternalCallAllowedSpec
         (selectorsFor ceiInitialInternalCallAllowedSpec) with
@@ -5662,6 +5996,21 @@ set_option maxRecDepth 4096 in
       (contains storageArrayBoolYul "sstore(9, add(__array_len, 1))"))
   expectTrue "storage bool[] indexed writes still guard bounds"
     (contains storageArrayBoolYul "lt(__array_index, __array_len)")
+  let arithmeticPanicYul ←
+    expectCompileToYul "Solidity-0.8 checked arithmetic helper smoke spec"
+      Contracts.Smoke.ArithmeticPanicSmoke.spec
+  expectTrue "checked arithmetic emits solc-shaped helper calls"
+    (contains arithmeticPanicYul s!"{checkedAddUint256HelperName}(current, amount)" &&
+      contains arithmeticPanicYul s!"{checkedSubUint256HelperName}(current, amount)" &&
+      contains arithmeticPanicYul s!"{checkedMulUint256HelperName}(current, factor)" &&
+      contains arithmeticPanicYul s!"{checkedDivUint256HelperName}(current, divisor)")
+  expectTrue "checked arithmetic helpers emit Panic selector payloads"
+    (contains arithmeticPanicYul s!"function {panicError0x11HelperName}()" &&
+      contains arithmeticPanicYul s!"function {panicError0x12HelperName}()" &&
+      contains arithmeticPanicYul "shl(224, 0x4e487b71)" &&
+      contains arithmeticPanicYul "mstore(4, 17)" &&
+      contains arithmeticPanicYul "mstore(4, 18)" &&
+      contains arithmeticPanicYul "revert(0, 36)")
   let envYul ← expectCompileToYul "env runtime smoke spec" envRuntimeSmokeSpec
   expectTrue "address(this) lowers to the Yul address builtin"
     (contains envYul "address()")
@@ -6498,5 +6847,175 @@ private def dottedObjectLinkedSpec : CompilationModel := {
       | .error _ => true)
 
 end ExternalNameValidationSmoke
+
+namespace BitmapIteratorForkSmoke
+
+/-! ## Bugbot #2019: Osaka CLZ must stay behind the target-fork gate
+
+`Stmt.forEachSetBit` uses the Osaka CLZ opcode for the compact lowering, but
+pre-Osaka targets must receive the portable scan loop instead. This smoke test
+checks the rendered Yul surface for both paths. -/
+
+private def bitmapIteratorForkSpec : CompilationModel := {
+  name := "BitmapIteratorForkSmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "walk"
+      params := [{ name := "bitmap", ty := ParamType.uint256 }]
+      returnType := none
+      body := [Stmt.forEachSetBit "idx" (Expr.param "bitmap") [Stmt.stop]]
+    }
+  ]
+}
+
+private def bitmapIteratorMutatingBodySpec : CompilationModel := {
+  name := "BitmapIteratorMutatingBodySmoke"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "walk"
+      params := [{ name := "bitmap", ty := ParamType.uint256 }]
+      returnType := none
+      body := [
+        Stmt.forEachSetBit "idx" (Expr.param "bitmap") [
+          Stmt.assignVar "idx" (Expr.literal 0),
+          Stmt.stop
+        ]
+      ]
+    }
+  ]
+}
+
+private def bitmapIteratorYulAt (fork : Verity.Core.Intrinsics.HardFork) : Option String :=
+  match Compiler.CompilationModel.compile
+      bitmapIteratorForkSpec (selectorsFor bitmapIteratorForkSpec) fork with
+  | .ok contract => some (Compiler.Yul.render (Compiler.emitYulWithOptions contract {}))
+  | .error _ => none
+
+private def mutatingBitmapIteratorYulAt (fork : Verity.Core.Intrinsics.HardFork) : Option String :=
+  match Compiler.CompilationModel.compile
+      bitmapIteratorMutatingBodySpec (selectorsFor bitmapIteratorMutatingBodySpec) fork with
+  | .ok contract => some (Compiler.Yul.render (Compiler.emitYulWithOptions contract {}))
+  | .error _ => none
+
+def cancunBitmapIteratorAvoidsClz : Bool :=
+  match bitmapIteratorYulAt Verity.Core.Intrinsics.HardFork.cancun with
+  | some yul => !contains yul "verbatim_1i_1o" && contains yul "__forEach_bit_idx"
+  | none => false
+
+def osakaBitmapIteratorUsesClz : Bool :=
+  match bitmapIteratorYulAt Verity.Core.Intrinsics.HardFork.osaka with
+  | some yul => contains yul "verbatim_1i_1o"
+  | none => false
+
+def osakaBitmapIteratorClearUsesCapturedBit : Bool :=
+  match mutatingBitmapIteratorYulAt Verity.Core.Intrinsics.HardFork.osaka with
+  | some yul =>
+      contains yul "__forEach_bit" &&
+      contains yul "idx := 0" &&
+      contains yul "not(__forEach_bit)"
+  | none => false
+
+#eval! do
+  expectTrue "forEachSetBit avoids Osaka CLZ when targetFork is Cancun"
+    cancunBitmapIteratorAvoidsClz
+  expectTrue "forEachSetBit emits Osaka CLZ when targetFork is Osaka"
+    osakaBitmapIteratorUsesClz
+  expectTrue "forEachSetBit clears the pre-body bit when the body mutates the iterator"
+    osakaBitmapIteratorClearUsesCapturedBit
+
+end BitmapIteratorForkSmoke
+
+namespace NonreentrantForkCompatibilitySmoke
+
+/-! ## Bugbot #1968: `nonreentrant(<lock>)` ↔ `targetFork` pre-check
+
+The synthesised transient-storage reentrancy guard (#1893) emits
+`tload`/`tstore` opcodes that only exist on EIP-1153 (Cancun+). Emitting
+them on a pre-Cancun chain would either fail at deploy time or
+silently no-op depending on the toolchain, while validation still
+granted the function a CEI exemption, leaving the post-external-call
+reentry window open. The pre-check rejects the spec at compile time
+so the bug cannot be expressed in a successful build. -/
+
+private def preCancelForkSpec : CompilationModel := {
+  name := "PreCancelNonreentrant"
+  fields := [{ name := "lock", ty := FieldType.uint256, «slot» := some 0 }]
+  «constructor» := none
+  functions := [
+    { name := "guarded"
+      params := []
+      returnType := none
+      nonReentrantLock := some "lock"
+      body := [Stmt.stop]
+    }
+  ]
+}
+
+/-- Cancun allows the annotation: validation succeeds. -/
+def nonreentrantAcceptedOnCancun : Bool :=
+  match Compiler.CompilationModel.validateCompileInputs
+          preCancelForkSpec (selectorsFor preCancelForkSpec)
+          Verity.Core.Intrinsics.HardFork.cancun with
+  | .ok _ => true
+  | .error _ => false
+
+example : nonreentrantAcceptedOnCancun = true := by native_decide
+
+/-- Cancun (or any fork that ranks ≥ Cancun) is the in-tree minimum;
+the pre-check accepts the spec because the synthesised tload/tstore
+guard is sound on those chains. The driver passes the actual
+`options.targetFork` through `compile` so a future pre-Cancun fork
+constructor hits the rejection branch automatically. -/
+def nonreentrantValidateForkCompatCancun : Bool :=
+  match Compiler.CompilationModel.validateNonReentrantForkCompatibility
+          Verity.Core.Intrinsics.HardFork.cancun preCancelForkSpec with
+  | .ok _ => true
+  | .error _ => false
+
+example : nonreentrantValidateForkCompatCancun = true := by native_decide
+
+/-- Specs without `nonreentrant(<lock>)` are unaffected by the
+pre-check: the gate is independent of fork rank. -/
+def nonreentrantValidateForkCompatPrague : Bool :=
+  match Compiler.CompilationModel.validateNonReentrantForkCompatibility
+          Verity.Core.Intrinsics.HardFork.prague preCancelForkSpec with
+  | .ok _ => true
+  | .error _ => false
+
+example : nonreentrantValidateForkCompatPrague = true := by native_decide
+
+/-- Driver path: `compile` is invoked with the actual `targetFork`,
+and the spec still succeeds under Cancun (the synthesised tload/tstore
+guard is emitted). -/
+def nonreentrantCompileAcceptedAtCancun : Bool :=
+  match Compiler.CompilationModel.compile
+          preCancelForkSpec (selectorsFor preCancelForkSpec)
+          Verity.Core.Intrinsics.HardFork.cancun with
+  | .ok _ => true
+  | .error _ => false
+
+/-- The default `compile` (no explicit fork) keeps the historical
+Cancun assumption so single-arg callers, tests, and proof modules
+continue to work. -/
+def nonreentrantCompileAcceptedAtDefaultFork : Bool :=
+  match Compiler.CompilationModel.compile preCancelForkSpec (selectorsFor preCancelForkSpec) with
+  | .ok _ => true
+  | .error _ => false
+
+#eval! do
+  expectTrue "nonreentrant(<lock>) passes validateCompileInputs on Cancun"
+    nonreentrantAcceptedOnCancun
+  expectTrue "nonreentrant(<lock>) still compiles under the default Cancun assumption"
+    nonreentrantCompileAcceptedAtDefaultFork
+  expectTrue "nonreentrant(<lock>) compiles under explicit Cancun fork"
+    nonreentrantCompileAcceptedAtCancun
+  expectTrue "validateNonReentrantForkCompatibility accepts the spec on Cancun"
+    nonreentrantValidateForkCompatCancun
+  expectTrue "validateNonReentrantForkCompatibility accepts the spec on Prague"
+    nonreentrantValidateForkCompatPrague
+
+end NonreentrantForkCompatibilitySmoke
 
 end Compiler.CompilationModelFeatureTest

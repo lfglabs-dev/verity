@@ -6,7 +6,7 @@ import "./yul/YulTestBase.sol";
 /**
  * @title PropertyCEISmokeTest
  * @notice Auto-generated baseline property stubs from `verity_contract` declarations.
- * @dev Source: Contracts/Smoke.lean
+ * @dev Source: Contracts/Smoke/Effects.lean
  */
 contract PropertyCEISmokeTest is YulTestBase {
     address target;
@@ -42,5 +42,11 @@ contract PropertyCEISmokeTest is YulTestBase {
         assertEq(ret.length, 32, "updateThenCall ABI return length mismatch (expected 32 bytes)");
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
+    }
+    // Property 4: callThenUpdate has no unexpected revert
+    function testAuto_CallThenUpdate_NoUnexpectedRevert() public {
+        vm.prank(alice);
+        (bool ok,) = target.call(abi.encodeWithSignature("callThenUpdate(uint256)", uint256(1)));
+        require(ok, "callThenUpdate reverted unexpectedly");
     }
 }
