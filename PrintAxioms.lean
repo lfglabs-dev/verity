@@ -782,6 +782,7 @@ end Verity.AxiomAudit
   -- Verity.Proofs.Stdlib.Math.neg_kernel_floor_slack  -- private
   -- Verity.Proofs.Stdlib.Math.wExpSignedCubicKernel_real_error_neg_nat  -- private
   Verity.Proofs.Stdlib.Math.wExpSignedCubicKernel_real_error_neg
+  Verity.Proofs.Stdlib.Math.wExpSignedCubicKernel_real_error
   Verity.Proofs.Stdlib.Math.wExpRangeReduction_exact
   -- Verity.Proofs.Stdlib.Math.WEXP_LN2_pos  -- private
   -- Verity.Proofs.Stdlib.Math.WEXP_RANGE_OFFSET_lt_LN2  -- private
@@ -5751,4 +5752,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5393 theorems/lemmas (3714 public, 1679 private, 0 sorry'd)
+-- Total: 5394 theorems/lemmas (3715 public, 1679 private, 0 sorry'd)

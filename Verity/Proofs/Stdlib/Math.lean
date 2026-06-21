@@ -694,6 +694,24 @@ theorem wExpSignedCubicKernel_real_error_neg {r : Int}
   rw [hr_eq]
   exact wExpSignedCubicKernel_real_error_neg_nat (s := s) hs_le
 
+/-- Combined `Real.exp` error bound for the signed cubic kernel across the full
+range-reduction residual interval `-WEXP_RANGE_OFFSET ≤ r ≤ WEXP_LN2`. -/
+theorem wExpSignedCubicKernel_real_error {r : Int}
+    (hr0 : -(WEXP_RANGE_OFFSET : Int) ≤ r) (hr1 : r ≤ (WEXP_LN2 : Int)) :
+    |((wExpSignedCubicKernel r : ℝ) / WAD_NAT) - Real.exp ((r:ℝ)/WAD_NAT)|
+      ≤ 4 / (WAD_NAT : ℝ) + ((r:ℝ)/WAD_NAT)^4 * (5 / 96) := by
+  rcases le_or_gt 0 r with h | h
+  · have hnonneg := wExpSignedCubicKernel_real_error_nonneg (r := r) h hr1
+    calc
+      |((wExpSignedCubicKernel r : ℝ) / WAD_NAT) - Real.exp ((r:ℝ)/WAD_NAT)|
+          ≤ 3 / (WAD_NAT : ℝ) + ((r:ℝ)/WAD_NAT)^4 * (5 / 96) := hnonneg
+      _ ≤ 4 / (WAD_NAT : ℝ) + ((r:ℝ)/WAD_NAT)^4 * (5 / 96) := by
+        have hWpos : (0 : ℝ) < (WAD_NAT : ℝ) := by norm_num [WAD_NAT]
+        have hconst : (3 : ℝ) / WAD_NAT ≤ 4 / WAD_NAT := by
+          exact div_le_div_of_nonneg_right (by norm_num) (le_of_lt hWpos)
+        exact add_le_add_right hconst (((r:ℝ)/WAD_NAT)^4 * (5 / 96))
+  · exact wExpSignedCubicKernel_real_error_neg hr0 (le_of_lt h)
+
 /-- `wExpRangeR` is exactly the signed residual left by `wExpRangeQ`. -/
 theorem wExpRangeReduction_exact (xAbs : Nat) :
     Int.ofNat (wExpRangeQ xAbs * WEXP_LN2) + wExpRangeR xAbs =
