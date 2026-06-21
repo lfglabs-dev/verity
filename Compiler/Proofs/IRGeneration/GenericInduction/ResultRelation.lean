@@ -273,7 +273,9 @@ theorem compileStmtList_ok_of_stmtListGenericCore_early
         fields [] [] .calldata [] false inScopeNames [] stmts = Except.ok bodyIR := by
   induction hgeneric generalizing inScopeNames with
   | nil =>
-      exact ⟨[], by exact FunctionBody.compileStmtList_nil_eq_ok _ _ _ _ _ _ _ _⟩
+      exact ⟨[], by
+        simp [CompilationModel.compileStmtList, CompilationModel.compileStmtListWithFork,
+          Pure.pure, Except.pure]⟩
   | cons hstep _hrest ih =>
       rcases FunctionBody.compileStmt_ok_any_scope
         (scope2 := inScopeNames) ⟨_, hstep.compileOk⟩ with ⟨headIR, hhead⟩

@@ -152,6 +152,59 @@ def abiEncodeStaticWordsModule (resultVar : String) (wordCount : Nat) : External
 def abiEncodeStaticWords (resultVar : String) (words : List Expr) : Stmt :=
   .ecm (abiEncodeStaticWordsModule resultVar words.length) words
 
+/-- EIP-712 `hashStruct(s) = keccak256(abi.encode(typeHash, ...members))`
+    for static word members. This is deliberately a thin wrapper around the
+    audited static ABI-word helper, so it introduces no new ECM or trust
+    boundary. -/
+def eip712HashStruct (resultVar : String) (typeHash : Expr) (members : List Expr) : Stmt :=
+  abiEncodeStaticWords resultVar (typeHash :: members)
+
+private def yulAdd (base : YulExpr) (offset : Nat) : YulExpr :=
+  YulExpr.call "add" [base, YulExpr.lit offset]
+
+/-- Concrete six-word Permit struct-hash Yul layout:
+    `keccak256(abi.encode(typeHash, owner, spender, value, nonce, deadline))`. -/
+def permitStructHashExpectedYul (typeHash : Nat) : List YulStmt :=
+  let resultVar := "structHash"
+  let ptrName := s!"__{resultVar}_abi_static_words_ptr"
+  let ptr := YulExpr.ident ptrName
+  let args :=
+    [ YulExpr.lit typeHash
+    , YulExpr.ident "owner"
+    , YulExpr.ident "spender"
+    , YulExpr.ident "value"
+    , YulExpr.ident "nonce"
+    , YulExpr.ident "deadline"
+    ]
+  [ YulStmt.let_ resultVar (YulExpr.lit 0)
+  , YulStmt.block (
+      packedWordBindings args ++
+      [YulStmt.let_ ptrName (YulExpr.call "mload" [YulExpr.lit freeMemoryPointer])] ++
+      packedWordTempStoresAt ptr 6 ++
+      [ YulStmt.expr (YulExpr.call "mstore"
+          [ YulExpr.lit freeMemoryPointer
+          , yulAdd ptr 192
+          ])
+      , YulStmt.assign resultVar
+          (YulExpr.call "keccak256"
+            [ptr, YulExpr.lit 192])
+      ])
+  ]
+
+theorem abiEncodeStaticWordsModule_compile_permitStructHash_layout (typeHash : Nat) :
+    (abiEncodeStaticWordsModule "structHash" 6).compile {}
+      [ YulExpr.lit typeHash
+      , YulExpr.ident "owner"
+      , YulExpr.ident "spender"
+      , YulExpr.ident "value"
+      , YulExpr.ident "nonce"
+      , YulExpr.ident "deadline"
+      ] =
+    Except.ok (permitStructHashExpectedYul typeHash) := by
+  simp [abiEncodeStaticWordsModule, permitStructHashExpectedYul,
+    packedWordBindings, packedWordTempStoresAt, packedWordTempName,
+    alignUp32, yulAdd, Bind.bind, Except.bind, Pure.pure, Except.pure]
+
 /-- Keccak-256 over Solidity `abi.encode(array)` for a direct dynamic-array
     parameter whose elements have a fixed static word width.
 
@@ -311,6 +364,41 @@ def eip712DigestModule (resultVar : String) : ExternalCallModule where
 /-- Convenience constructor for EIP-712 typed-data digest hashing. -/
 def eip712Digest (resultVar : String) (domainSeparator structHash : Expr) : Stmt :=
   .ecm (eip712DigestModule resultVar) [domainSeparator, structHash]
+
+/-- Concrete EIP-712 digest Yul layout:
+    `keccak256(0x1901 ++ domainSeparator ++ structHash)`. -/
+def eip712DigestExpectedYul : List YulStmt :=
+  let resultVar := "digest"
+  let ptrName := s!"__{resultVar}_eip712_ptr"
+  let ptr := YulExpr.ident ptrName
+  [ YulStmt.let_ resultVar (YulExpr.lit 0)
+  , YulStmt.block
+      [ YulStmt.let_ ptrName
+          (YulExpr.call "mload" [YulExpr.lit freeMemoryPointer])
+      , YulStmt.expr (YulExpr.call "mstore"
+          [ ptr
+          , YulExpr.call "shl" [YulExpr.lit 240, YulExpr.hex 0x1901]
+          ])
+      , YulStmt.expr (YulExpr.call "mstore"
+          [yulAdd ptr 2, YulExpr.ident "domainSeparator"])
+      , YulStmt.expr (YulExpr.call "mstore"
+          [yulAdd ptr 34, YulExpr.ident "structHash"])
+      , YulStmt.expr (YulExpr.call "mstore"
+          [ YulExpr.lit freeMemoryPointer
+          , yulAdd ptr 96
+          ])
+      , YulStmt.assign resultVar
+          (YulExpr.call "keccak256"
+            [ptr, YulExpr.lit 66])
+      ]
+  ]
+
+theorem eip712DigestModule_compile_digest_layout :
+    (eip712DigestModule "digest").compile {}
+      [YulExpr.ident "domainSeparator", YulExpr.ident "structHash"] =
+    Except.ok eip712DigestExpectedYul := by
+  simp [eip712DigestModule, eip712DigestExpectedYul, yulAdd,
+    Bind.bind, Except.bind, Pure.pure, Except.pure]
 
 /-- SHA-256 over packed static 32-byte words stored at free memory.
     The digest is written after the packed input words and then bound from
