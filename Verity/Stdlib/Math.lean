@@ -52,6 +52,9 @@ def safeDiv (a b : Uint256) : Option Uint256 :=
 /-- Fixed-point scaling factor used by `wMulDown` and `wDivUp`. -/
 def WAD : Uint256 := 1000000000000000000
 
+/-- Natural-number form of the wad scale for fixed-point reference code. -/
+def WAD_NAT : Nat := 1000000000000000000
+
 /-- BN254 scalar field modulus used by Groth16/BN254 circuit public inputs. -/
 def SNARK_SCALAR_FIELD : Uint256 :=
   21888242871839275222246405745257275088548364400416034343698204186575808495617
@@ -141,6 +144,94 @@ def wMulDown (a b : Uint256) : Uint256 :=
 def wDivUp (a b : Uint256) : Uint256 :=
   mulDivUp a WAD b
 
+/-! ### TickLib fixed-point exponential reference (verity#1998)
+
+`tickToPrice` in the downstream Morpho Midnight port currently lowers through a
+trusted Yul ECM.  The definitions below expose the `wExp` approximation used by
+that ECM as ordinary Lean/Verity source: range reduction by `ln 2`, a cubic
+wad-scaled Taylor kernel for the residual, binary scaling by `2^q`, and
+reciprocal inversion for negative inputs.
+
+The reference intentionally keeps unbounded `Nat`/`Int` arithmetic at this layer
+so proofs can state the mathematical shape independently of EVM wrapping. -/
+
+/-- Wad-scaled `ln 2` constant used by the TickLib `wExp` reference. -/
+def WEXP_LN2 : Nat := 693147180559945309
+
+/-- Rounding offset used before dividing by `ln 2` in TickLib `wExp`. -/
+def WEXP_RANGE_OFFSET : Nat := 322611214989459870
+
+/-- Wad-scaled `1e36`, used for reciprocal inversion of negative exponents. -/
+def WEXP_ONE_E36 : Nat := 1000000000000000000000000000000000000
+
+/-- Wad-scaled `ln(1 + delta)` constant used by Morpho Midnight TickLib. -/
+def WEXP_TICK_LN_ONE_PLUS_DELTA : Nat := 4987541511039073
+
+/-- Half of the maximum supported Midnight tick. -/
+def WEXP_MAX_TICK_HALF : Nat := 2910
+
+/-- Final TickLib price rounding quantum. -/
+def WEXP_PRICE_ROUNDING_STEP : Nat := 1000000000000
+
+/-- TickLib's cubic residual approximation for `exp(r / 1e18)`, wad-scaled.
+
+For a nonnegative residual `r`, this is
+`1e18 + r + floor(r^2 / (2 * 1e18)) +
+ floor(floor(r^2 / (2 * 1e18)) * r / (3 * 1e18))`. -/
+def wExpCubicKernel (r : Nat) : Nat :=
+  let second := (r * r) / (2 * WAD_NAT)
+  let third := (second * r) / (3 * WAD_NAT)
+  WAD_NAT + r + second + third
+
+/-- Signed division matching EVM `sdiv`: quotient truncates toward zero. -/
+def sdivTrunc (a b : Int) : Int :=
+  if b = 0 then
+    0
+  else if a < 0 then
+    -Int.ofNat (Int.natAbs a / Int.natAbs b)
+  else
+    Int.ofNat (Int.toNat a / Int.natAbs b)
+
+/-- Signed cubic residual approximation used after TickLib range reduction. -/
+def wExpSignedCubicKernel (r : Int) : Int :=
+  let second := sdivTrunc (r * r) (2 * Int.ofNat WAD_NAT)
+  let third := sdivTrunc (second * r) (3 * Int.ofNat WAD_NAT)
+  Int.ofNat WAD_NAT + r + second + third
+
+/-- Absolute value as a natural number for TickLib `wExp` inputs. -/
+def wExpAbsInput (x : Int) : Nat :=
+  if x < 0 then Int.natAbs x else Int.toNat x
+
+/-- TickLib range-reduction quotient, rounded with `WEXP_RANGE_OFFSET`. -/
+def wExpRangeQ (xAbs : Nat) : Nat :=
+  (xAbs + WEXP_RANGE_OFFSET) / WEXP_LN2
+
+/-- TickLib signed residual after range reduction by `ln 2`. -/
+def wExpRangeR (xAbs : Nat) : Int :=
+  Int.ofNat xAbs - Int.ofNat (wExpRangeQ xAbs * WEXP_LN2)
+
+/-- Lean reference for the TickLib wad exponential approximation.
+
+This mirrors the downstream ECM's `wExp` block: approximate the range-reduced
+residual with `wExpSignedCubicKernel`, scale by `2^q`, and invert around `1e36`
+for negative inputs. -/
+def tickWExpReference (x : Int) : Nat :=
+  let xAbs := wExpAbsInput x
+  let q := wExpRangeQ xAbs
+  let r := wExpRangeR xAbs
+  let scaled := Int.toNat (wExpSignedCubicKernel r) * (2 ^ q)
+  if x < 0 then WEXP_ONE_E36 / scaled else scaled
+
+/-- Lean reference for the Morpho Midnight `TickLib.tickToPrice` ECM. -/
+def tickToPriceReference (tick : Nat) : Nat :=
+  let x := Int.ofNat WEXP_TICK_LN_ONE_PLUS_DELTA *
+    (Int.ofNat WEXP_MAX_TICK_HALF - Int.ofNat tick)
+  let wexp := tickWExpReference x
+  let den := WAD_NAT + wexp
+  let raw := (WEXP_ONE_E36 + (den - 1) / 2) / den
+  ((raw + (WEXP_PRICE_ROUNDING_STEP - 1) / 2) / WEXP_PRICE_ROUNDING_STEP) *
+    WEXP_PRICE_ROUNDING_STEP
+
 -- Helper: Require with Option - fails if None
 -- For Uint256 specifically (can be generalized later if needed)
 def requireSomeUint (opt : Option Uint256) (message : String) : Contract Uint256 := do
@@ -199,6 +290,9 @@ def divPanic (a b : Uint256) : Contract Uint256 :=
   (requireSomeUint none msg).run s = ContractResult.revert msg s := rfl
 
 @[simp] theorem WAD_val : (WAD : Nat) = 1000000000000000000 := by
+  rfl
+
+@[simp] theorem WAD_NAT_val : WAD_NAT = 1000000000000000000 := by
   rfl
 
 @[simp] theorem SNARK_SCALAR_FIELD_val :
