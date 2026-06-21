@@ -441,6 +441,117 @@ theorem tickWExp_exp_decomp (xAbs : Nat) :
         * Real.exp ((WEXP_LN2 : ℝ) / (WAD_NAT : ℝ)) ^ (wExpRangeQ xAbs) := by
   rw [wExpRangeReduction_real, Real.exp_add, Real.exp_nat_mul]
 
+/-- Telescoping Lipschitz bound for powers over the reals.
+
+This is the standard factorization of `c^n - b^n`, bounded termwise by the
+larger absolute base. It is stated with `n * M^(n-1)` so downstream estimates
+can multiply a one-step base error into an `n`-step power error. -/
+theorem abs_pow_sub_pow_le (b c : ℝ) (n : Nat) :
+    |c ^ n - b ^ n| ≤
+      (n : ℝ) * (max |b| |c|) ^ (n - 1) * |c - b| := by
+  induction n with
+  | zero =>
+      simp
+  | succ n ih =>
+      let M : ℝ := max |b| |c|
+      let d : ℝ := |c - b|
+      have hM_nonneg : 0 ≤ M := by
+        dsimp [M]
+        exact le_max_of_le_left (abs_nonneg b)
+      have hbM : |b| ≤ M := by
+        dsimp [M]
+        exact le_max_left |b| |c|
+      have hcM : |c| ≤ M := by
+        dsimp [M]
+        exact le_max_right |b| |c|
+      have hd_nonneg : 0 ≤ d := by
+        dsimp [d]
+        exact abs_nonneg (c - b)
+      have hdecomp :
+          c ^ (n + 1) - b ^ (n + 1) =
+            c * (c ^ n - b ^ n) + (c - b) * b ^ n := by
+        ring
+      calc
+        |c ^ (n + 1) - b ^ (n + 1)|
+            = |c * (c ^ n - b ^ n) + (c - b) * b ^ n| := by rw [hdecomp]
+        _ ≤ |c * (c ^ n - b ^ n)| + |(c - b) * b ^ n| :=
+            abs_add _ _
+        _ = |c| * |c ^ n - b ^ n| + d * |b| ^ n := by
+            simp [abs_mul, abs_pow, d, mul_comm]
+        _ ≤ M * ((n : ℝ) * M ^ (n - 1) * d) + d * M ^ n := by
+            have hleft :
+                |c| * |c ^ n - b ^ n| ≤
+                  M * ((n : ℝ) * M ^ (n - 1) * d) :=
+              mul_le_mul hcM ih (abs_nonneg _) hM_nonneg
+            have hright : d * |b| ^ n ≤ d * M ^ n :=
+              mul_le_mul_of_nonneg_left (pow_le_pow_left₀ (abs_nonneg b) hbM n) hd_nonneg
+            exact add_le_add hleft hright
+        _ ≤ ((n + 1 : Nat) : ℝ) * M ^ n * d := by
+            cases n with
+            | zero =>
+                simp [d]
+            | succ n =>
+                have hpow :
+                    M * (((n + 1 : Nat) : ℝ) * M ^ ((n + 1) - 1) * d) =
+                      ((n + 1 : Nat) : ℝ) * M ^ (n + 1) * d := by
+                  simp [pow_succ, mul_comm, mul_left_comm, mul_assoc]
+                rw [hpow]
+                have hcast :
+                    (((n + 1 : Nat) : ℝ) * M ^ (n + 1) * d + d * M ^ (n + 1)) =
+                      ((n + 2 : Nat) : ℝ) * M ^ (n + 1) * d := by
+                  norm_num
+                  ring
+                rw [hcast]
+
+/-- Power error for the TickLib `ln 2` range-reduction base.
+
+We use the closed form
+`q * (2001/1000)^q * (2/10^9)`: the existing `2e-9` estimate shows
+`Real.exp (WEXP_LN2/WAD)` is at most `2.000000002`, hence below `2.001`.
+This slightly looser base keeps the proof direct while giving a genuine
+usable scaling-side bound for the downstream capstone. -/
+theorem wExpLn2_pow_approx_two_pow (q : Nat) :
+    |Real.exp ((WEXP_LN2 : ℝ) / WAD_NAT) ^ q - 2 ^ q| ≤
+      (q : ℝ) * (2001 / 1000) ^ q * (2 / 10 ^ 9) := by
+  let e : ℝ := Real.exp ((WEXP_LN2 : ℝ) / WAD_NAT)
+  have herr : |e - 2| ≤ 2 / 10 ^ 9 := by
+    simpa [e] using wExpLn2_exp_approx_two
+  have he_nonneg : 0 ≤ e := by
+    dsimp [e]
+    positivity
+  have he_abs_le : |e| ≤ 2001 / 1000 := by
+    rw [abs_of_nonneg he_nonneg]
+    have he_upper : e - 2 ≤ 2 / 10 ^ 9 := (abs_le.mp herr).2
+    nlinarith
+  have hmax_le : max |(2 : ℝ)| |e| ≤ 2001 / 1000 := by
+    apply max_le
+    · norm_num
+    · exact he_abs_le
+  have hbase_nonneg : 0 ≤ max |(2 : ℝ)| |e| := le_max_of_le_left (abs_nonneg (2 : ℝ))
+  have htarget_nonneg : 0 ≤ (2001 / 1000 : ℝ) := by norm_num
+  have hpow_le :
+      (max |(2 : ℝ)| |e|) ^ (q - 1) ≤ (2001 / 1000 : ℝ) ^ q := by
+    calc
+      (max |(2 : ℝ)| |e|) ^ (q - 1)
+          ≤ (2001 / 1000 : ℝ) ^ (q - 1) :=
+            pow_le_pow_left₀ hbase_nonneg hmax_le (q - 1)
+      _ ≤ (2001 / 1000 : ℝ) ^ q := by
+          have hge_one : (1 : ℝ) ≤ 2001 / 1000 := by norm_num
+          exact pow_le_pow_right₀ hge_one (Nat.sub_le q 1)
+  have htel :
+      |e ^ q - 2 ^ q| ≤
+        (q : ℝ) * (max |(2 : ℝ)| |e|) ^ (q - 1) * |e - 2| :=
+    abs_pow_sub_pow_le 2 e q
+  calc
+    |e ^ q - 2 ^ q|
+        ≤ (q : ℝ) * (max |(2 : ℝ)| |e|) ^ (q - 1) * |e - 2| := htel
+    _ ≤ (q : ℝ) * (2001 / 1000) ^ q * (2 / 10 ^ 9) := by
+        exact mul_le_mul
+          (mul_le_mul_of_nonneg_left hpow_le (Nat.cast_nonneg q))
+          herr
+          (abs_nonneg (e - 2))
+          (mul_nonneg (Nat.cast_nonneg q) (pow_nonneg htarget_nonneg q))
+
 private theorem sdivTrunc_of_nonneg {a b : Int} (ha : 0 ≤ a) (hb : 0 < b) :
     sdivTrunc a b = Int.ofNat (a.toNat / b.natAbs) := by
   unfold sdivTrunc
