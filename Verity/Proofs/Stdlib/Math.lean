@@ -7,6 +7,8 @@
 
 import Verity.Core
 import Verity.Stdlib.Math
+import Mathlib.Tactic.Linarith
+import Mathlib.Tactic.Ring
 
 namespace Verity.Proofs.Stdlib.Math
 
@@ -192,12 +194,121 @@ theorem wExpCubicKernel_ge_linear (r : Nat) :
     WAD_NAT + r ≤ wExpCubicKernel r := by
   simp [wExpCubicKernel, Nat.add_assoc]
 
+/-- The wad scale used by the TickLib exponential kernel is positive. -/
+private theorem WAD_NAT_pos : 0 < WAD_NAT := by
+  decide
+
+/-- The cubic residual kernel never exceeds the exact rational cubic obtained by
+clearing denominators by `6 * WAD_NAT^2`.
+
+This is the upper half of the floor sandwich: both divisions in
+`wExpCubicKernel` round down, so the scaled integer kernel is bounded by
+`6*WAD^3 + 6*WAD^2*r + 3*WAD*r^2 + r^3`, the exact cubic numerator for
+`WAD * (1 + x + x^2/2 + x^3/6)` with `x = r / WAD`. -/
+theorem wExpCubicKernel_scaled_le_exact_cubic (r : Nat) :
+    6 * WAD_NAT^2 * wExpCubicKernel r ≤
+      6 * WAD_NAT^3 + 6 * WAD_NAT^2 * r + 3 * WAD_NAT * r^2 + r^3 := by
+  let second := (r * r) / (2 * WAD_NAT)
+  let third := (second * r) / (3 * WAD_NAT)
+  have hsecond : second * (2 * WAD_NAT) ≤ r * r := by
+    simpa [second] using Nat.div_mul_le_self (r * r) (2 * WAD_NAT)
+  have hsecondScaled : 6 * WAD_NAT^2 * second ≤ 3 * WAD_NAT * r^2 := by
+    nlinarith [hsecond]
+  have hthird : third * (3 * WAD_NAT) ≤ second * r := by
+    simpa [third] using Nat.div_mul_le_self (second * r) (3 * WAD_NAT)
+  have hthirdScaled : 6 * WAD_NAT^2 * third ≤ r^3 := by
+    nlinarith [hsecond, hthird]
+  calc
+    6 * WAD_NAT^2 * wExpCubicKernel r
+        = 6 * WAD_NAT^3 + 6 * WAD_NAT^2 * r +
+            6 * WAD_NAT^2 * second + 6 * WAD_NAT^2 * third := by
+          simp [wExpCubicKernel, second, third]
+          ring
+    _ ≤ 6 * WAD_NAT^3 + 6 * WAD_NAT^2 * r +
+          3 * WAD_NAT * r^2 + r^3 := by
+        have htail :
+            6 * WAD_NAT^2 * second + 6 * WAD_NAT^2 * third ≤
+              3 * WAD_NAT * r^2 + r^3 :=
+          Nat.add_le_add hsecondScaled hthirdScaled
+        simpa [Nat.add_assoc] using
+          Nat.add_le_add_left htail (6 * WAD_NAT^3 + 6 * WAD_NAT^2 * r)
+
+/-- The exact rational cubic is less than the scaled kernel plus the explicit
+integer slack `r / (3 * WAD_NAT) + 3`.
+
+This is the lower half of the floor sandwich after clearing denominators by
+`6 * WAD_NAT^2`. The first division can lose less than one `second` unit; that
+loss is multiplied by `r` before the second division, yielding the
+`r / (3 * WAD_NAT)` term. The two floor operations contribute the constant
+part of the slack. -/
+theorem exact_cubic_lt_wExpCubicKernel_scaled_add_error (r : Nat) :
+    6 * WAD_NAT^3 + 6 * WAD_NAT^2 * r + 3 * WAD_NAT * r^2 + r^3 <
+      6 * WAD_NAT^2 * (wExpCubicKernel r + (r / (3 * WAD_NAT) + 3)) := by
+  let second := (r * r) / (2 * WAD_NAT)
+  let third := (second * r) / (3 * WAD_NAT)
+  let q := r / (3 * WAD_NAT)
+  have h2W_pos : 0 < 2 * WAD_NAT := by nlinarith [WAD_NAT_pos]
+  have h3W_pos : 0 < 3 * WAD_NAT := by nlinarith [WAD_NAT_pos]
+  have hsecond_lt : r * r < (second + 1) * (2 * WAD_NAT) := by
+    simpa [second, Nat.mul_comm] using Nat.lt_mul_div_succ (r * r) h2W_pos
+  have hsecondScaled_lt : 3 * WAD_NAT * r^2 < 6 * WAD_NAT^2 * (second + 1) := by
+    nlinarith [hsecond_lt]
+  have hthird_lt : second * r < (third + 1) * (3 * WAD_NAT) := by
+    simpa [third, Nat.mul_comm] using Nat.lt_mul_div_succ (second * r) h3W_pos
+  have hr_lt : r < (q + 1) * (3 * WAD_NAT) := by
+    simpa [q, Nat.mul_comm] using Nat.lt_mul_div_succ r h3W_pos
+  have hthirdScaled_lt : r^3 < 6 * WAD_NAT^2 * (third + q + 2) := by
+    have hsecond_mul_le :
+        r * r * r ≤ ((second + 1) * (2 * WAD_NAT)) * r := by
+      exact Nat.mul_le_mul_right r (Nat.le_of_lt hsecond_lt)
+    have hr3_decomp : r^3 ≤ 2 * WAD_NAT * second * r + 2 * WAD_NAT * r := by
+      nlinarith [hsecond_mul_le]
+    have hthird_part : 2 * WAD_NAT * second * r <
+        6 * WAD_NAT^2 * (third + 1) := by
+      have hthird_mul_lt :
+          (2 * WAD_NAT) * (second * r) <
+            (2 * WAD_NAT) * ((third + 1) * (3 * WAD_NAT)) := by
+        exact Nat.mul_lt_mul_of_pos_left hthird_lt h2W_pos
+      nlinarith [hthird_mul_lt]
+    have hr_part : 2 * WAD_NAT * r < 6 * WAD_NAT^2 * (q + 1) := by
+      have hr_mul_lt :
+          (2 * WAD_NAT) * r < (2 * WAD_NAT) * ((q + 1) * (3 * WAD_NAT)) := by
+        exact Nat.mul_lt_mul_of_pos_left hr_lt h2W_pos
+      nlinarith [hr_mul_lt]
+    nlinarith
+  calc
+    6 * WAD_NAT^3 + 6 * WAD_NAT^2 * r + 3 * WAD_NAT * r^2 + r^3
+        < 6 * WAD_NAT^3 + 6 * WAD_NAT^2 * r +
+            6 * WAD_NAT^2 * (second + 1) +
+            6 * WAD_NAT^2 * (third + q + 2) := by
+          nlinarith
+    _ = 6 * WAD_NAT^2 * (wExpCubicKernel r + (r / (3 * WAD_NAT) + 3)) := by
+        simp [wExpCubicKernel, second, third, q]
+        ring
+
+/-- On the nonnegative TickLib residual interval (`r ≤ WEXP_LN2`), the
+unbounded floor-propagation term vanishes, giving a constant-`3` lower sandwich
+for the exact cubic numerator. -/
+theorem exact_cubic_lt_wExpCubicKernel_scaled_add_three {r : Nat}
+    (hr : r ≤ WEXP_LN2) :
+    6 * WAD_NAT^3 + 6 * WAD_NAT^2 * r + 3 * WAD_NAT * r^2 + r^3 <
+      6 * WAD_NAT^2 * (wExpCubicKernel r + 3) := by
+  have hq_zero : r / (3 * WAD_NAT) = 0 := by
+    apply Nat.div_eq_of_lt
+    have hln2_lt : WEXP_LN2 < 3 * WAD_NAT := by decide
+    exact Nat.lt_of_le_of_lt hr hln2_lt
+  calc
+    6 * WAD_NAT^3 + 6 * WAD_NAT^2 * r + 3 * WAD_NAT * r^2 + r^3
+        < 6 * WAD_NAT^2 * (wExpCubicKernel r + (r / (3 * WAD_NAT) + 3)) :=
+          exact_cubic_lt_wExpCubicKernel_scaled_add_error r
+    _ = 6 * WAD_NAT^2 * (wExpCubicKernel r + 3) := by
+        rw [hq_zero]
+
 /-- `wExpRangeR` is exactly the signed residual left by `wExpRangeQ`. -/
 theorem wExpRangeReduction_exact (xAbs : Nat) :
     Int.ofNat (wExpRangeQ xAbs * WEXP_LN2) + wExpRangeR xAbs =
       Int.ofNat xAbs := by
   simp [wExpRangeR]
-  omega
 
 private theorem WEXP_LN2_pos : 0 < WEXP_LN2 := by
   decide
@@ -932,7 +1043,6 @@ theorem mulDivDown_cancel_right (a c : Uint256)
   have hCPos : 0 < (c : Nat) := Nat.pos_of_ne_zero hCVal
   rw [mulDivDown_nat_eq a c c hMul]
   simp [hCVal]
-  simpa [Nat.mul_comm] using (Nat.mul_div_right (a : Nat) hCPos)
 
 /-- Dividing an exact numerator product by its left factor recovers the right factor. -/
 theorem mulDivDown_cancel_left (a c : Uint256)
@@ -946,7 +1056,6 @@ theorem mulDivDown_cancel_left (a c : Uint256)
   have hCPos : 0 < (c : Nat) := Nat.pos_of_ne_zero hCVal
   rw [mulDivDown_nat_eq c a c hMul]
   simp [hCVal, Nat.mul_comm]
-  simpa [Nat.mul_comm] using (Nat.mul_div_right (a : Nat) hCPos)
 
 /-- Floor rounding undershoots the exact numerator by less than one divisor-width. -/
 theorem mulDivDown_mul_lt_add (a b c : Uint256)

@@ -758,6 +758,10 @@ end Verity.AxiomAudit
   -- Verity.Proofs.Stdlib.Math.max_uint256_lt_modulus  -- private
   Verity.Proofs.Stdlib.Math.wExpCubicKernel_mono
   Verity.Proofs.Stdlib.Math.wExpCubicKernel_ge_linear
+  -- Verity.Proofs.Stdlib.Math.WAD_NAT_pos  -- private
+  Verity.Proofs.Stdlib.Math.wExpCubicKernel_scaled_le_exact_cubic
+  Verity.Proofs.Stdlib.Math.exact_cubic_lt_wExpCubicKernel_scaled_add_error
+  Verity.Proofs.Stdlib.Math.exact_cubic_lt_wExpCubicKernel_scaled_add_three
   Verity.Proofs.Stdlib.Math.wExpRangeReduction_exact
   -- Verity.Proofs.Stdlib.Math.WEXP_LN2_pos  -- private
   -- Verity.Proofs.Stdlib.Math.WEXP_RANGE_OFFSET_lt_LN2  -- private
@@ -5727,4 +5731,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5369 theorems/lemmas (3704 public, 1665 private, 0 sorry'd)
+-- Total: 5373 theorems/lemmas (3707 public, 1666 private, 0 sorry'd)
