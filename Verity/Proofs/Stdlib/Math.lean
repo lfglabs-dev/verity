@@ -377,6 +377,81 @@ theorem wExpCubicKernel_real_error {r : Nat} (hr : r ≤ WEXP_LN2) :
     |k - Real.exp x| ≤ |k - P| + |P - Real.exp x| := abs_sub_le k P (Real.exp x)
     _ ≤ 3 / (WAD_NAT : ℝ) + x^4 * (5 / 96) := add_le_add hkP hPexp
 
+private theorem sdivTrunc_of_nonneg {a b : Int} (ha : 0 ≤ a) (hb : 0 < b) :
+    sdivTrunc a b = Int.ofNat (a.toNat / b.natAbs) := by
+  unfold sdivTrunc
+  have hb_ne : b ≠ 0 := by omega
+  have hnot : ¬a < 0 := by omega
+  simp [hb_ne, hnot]
+
+private theorem sdivTrunc_ofNat_mul_WAD (a k : Nat) (hk : 0 < k) :
+    sdivTrunc (Int.ofNat a) (Int.ofNat (k * WAD_NAT)) =
+      Int.ofNat (a / (k * WAD_NAT)) := by
+  have hden : (0 : Int) < Int.ofNat (k * WAD_NAT) := by
+    exact Int.natCast_pos.mpr (Nat.mul_pos hk WAD_NAT_pos)
+  have h :=
+    sdivTrunc_of_nonneg (a := Int.ofNat a) (b := Int.ofNat (k * WAD_NAT))
+      (Int.natCast_nonneg a) hden
+  have hnum : (Int.ofNat a).toNat = a := Int.toNat_natCast a
+  have hdenAbs : (Int.ofNat (k * WAD_NAT)).natAbs = k * WAD_NAT :=
+    Int.natAbs_natCast (k * WAD_NAT)
+  rw [hnum, hdenAbs] at h
+  exact h
+
+private theorem sdivTrunc_sq_of_nonneg {r : Int} (hr : 0 ≤ r) :
+    sdivTrunc (r * r) (2 * Int.ofNat WAD_NAT) =
+      Int.ofNat ((r.toNat * r.toNat) / (2 * WAD_NAT)) := by
+  have hsquare : r * r = Int.ofNat (r.toNat * r.toNat) := by
+    rw [← Int.toNat_of_nonneg hr]
+    change ((r.toNat : Nat) : Int) * ((r.toNat : Nat) : Int) =
+      ((r.toNat * r.toNat : Nat) : Int)
+    exact_mod_cast rfl
+  rw [hsquare]
+  simpa [Int.natCast_mul] using
+    sdivTrunc_ofNat_mul_WAD (r.toNat * r.toNat) 2 (by norm_num)
+
+/-- On the non-negative residual branch, signed truncating division agrees with
+the natural-number cubic kernel used by the Tier-B real-error proof. -/
+theorem wExpSignedCubicKernel_eq_natKernel_of_nonneg {r : Int} (hr : 0 ≤ r) :
+    wExpSignedCubicKernel r = (wExpCubicKernel r.toNat : Int) := by
+  unfold wExpSignedCubicKernel wExpCubicKernel
+  rw [sdivTrunc_sq_of_nonneg hr]
+  have hr_cast : (Int.ofNat r.toNat : Int) = r := by
+    exact Int.toNat_of_nonneg hr
+  let secondNat := r.toNat * r.toNat / (2 * WAD_NAT)
+  have hthird :
+      sdivTrunc (Int.ofNat secondNat * r) (3 * Int.ofNat WAD_NAT) =
+        Int.ofNat ((secondNat * r.toNat) / (3 * WAD_NAT)) := by
+    have hleft : Int.ofNat secondNat * r = Int.ofNat (secondNat * r.toNat) := by
+      rw [← hr_cast]
+      change ((secondNat : Nat) : Int) * ((r.toNat : Nat) : Int) =
+        ((secondNat * r.toNat : Nat) : Int)
+      exact_mod_cast rfl
+    rw [hleft]
+    simpa [Int.natCast_mul] using
+      sdivTrunc_ofNat_mul_WAD (secondNat * r.toNat) 3 (by norm_num)
+  change
+    Int.ofNat WAD_NAT + r + Int.ofNat secondNat +
+        sdivTrunc (Int.ofNat secondNat * r) (3 * Int.ofNat WAD_NAT) =
+      ↑(WAD_NAT + r.toNat + secondNat + secondNat * r.toNat / (3 * WAD_NAT))
+  rw [hthird, ← hr_cast]
+  simp [secondNat]
+
+/-- Tier-B's natural cubic-kernel error bound applies directly to the signed
+kernel on the non-negative residual branch. -/
+theorem wExpSignedCubicKernel_real_error_nonneg {r : Int}
+    (hr0 : 0 ≤ r) (hr1 : r ≤ (WEXP_LN2 : Int)) :
+    |((wExpSignedCubicKernel r : ℝ) / WAD_NAT) - Real.exp ((r:ℝ)/WAD_NAT)|
+      ≤ 3 / (WAD_NAT : ℝ) + ((r:ℝ)/WAD_NAT)^4 * (5 / 96) := by
+  have hrNat : r.toNat ≤ WEXP_LN2 := by
+    omega
+  have hcastR : ((r.toNat : Nat) : ℝ) = (r : ℝ) := by
+    exact_mod_cast Int.toNat_of_nonneg hr0
+  have hkernel := wExpSignedCubicKernel_eq_natKernel_of_nonneg (r := r) hr0
+  have hnat := wExpCubicKernel_real_error (r := r.toNat) hrNat
+  rw [hkernel]
+  simpa [hcastR] using hnat
+
 /-- `wExpRangeR` is exactly the signed residual left by `wExpRangeQ`. -/
 theorem wExpRangeReduction_exact (xAbs : Nat) :
     Int.ofNat (wExpRangeQ xAbs * WEXP_LN2) + wExpRangeR xAbs =
