@@ -1590,6 +1590,9 @@ theorem stmtListGenericCore_of_supportedStmtList_of_surface
         hnoConflict hfind hfieldInScope
   | emitEvent _ _ =>
       exact False.elim (false_of_supportedStmtList_emitEvent_surface hsurface)
+  | pureHashingEcm _ _ _ =>
+      simp [stmtListTouchesUnsupportedContractSurface,
+        stmtTouchesUnsupportedContractSurface] at hsurface
   | letMappingField _ _ _ =>
       exact False.elim (false_of_supportedStmtList_letMappingField_surface hsurface)
   | letMappingWordField _ _ _ =>
@@ -1696,6 +1699,10 @@ theorem stmtListGenericCore_of_supportedStmtList_of_surface_exceptMappingWrites
   | emitEvent _ _ =>
       exact False.elim
         (false_of_supportedStmtList_emitEvent_surface_exceptMappingWrites hsurface)
+  | pureHashingEcm _ _ _ =>
+      simp [stmtListTouchesUnsupportedContractSurfaceExceptMappingWrites,
+        stmtTouchesUnsupportedContractSurfaceExceptMappingWrites,
+        stmtTouchesUnsupportedContractSurface] at hsurface
   | letMappingField _ _ _ =>
       exact False.elim
         (false_of_supportedStmtList_letMappingField_surface_exceptMappingWrites hsurface)
@@ -1959,6 +1966,10 @@ theorem stmtListGenericCore_of_supportedStmtList_of_surface_exceptMappingWrites_
   | emitEvent _ _ =>
       exact False.elim
         (false_of_supportedStmtList_emitEvent_surface_exceptMappingWrites hsurface)
+  | pureHashingEcm _ _ _ =>
+      simp [stmtListTouchesUnsupportedContractSurfaceExceptMappingWrites,
+        stmtTouchesUnsupportedContractSurfaceExceptMappingWrites,
+        stmtTouchesUnsupportedContractSurface] at hsurface
   | letMappingField _ _ _ =>
       exact False.elim
         (false_of_supportedStmtList_letMappingField_surface_exceptMappingWrites hsurface)
@@ -2324,7 +2335,9 @@ theorem compileStmtList_ok_of_stmtListGenericCore
         fields [] [] .calldata [] false inScopeNames [] stmts = Except.ok bodyIR := by
   induction hgeneric generalizing inScopeNames with
   | nil =>
-      exact ⟨[], by exact FunctionBody.compileStmtList_nil_eq_ok _ _ _ _ _ _ _ _⟩
+      exact ⟨[], by
+        simp [CompilationModel.compileStmtList, CompilationModel.compileStmtListWithFork,
+          Pure.pure, Except.pure]⟩
   | cons hstep _hrest ih =>
       rcases FunctionBody.compileStmt_ok_any_scope
         (scope2 := inScopeNames) ⟨_, hstep.compileOk⟩ with ⟨headIR, hhead⟩
@@ -2350,7 +2363,9 @@ theorem compileStmtList_ok_of_stmtListGenericWithHelpers
         fields spec.events spec.errors .calldata [] false inScopeNames [] stmts = Except.ok bodyIR := by
   induction hgeneric generalizing inScopeNames with
   | nil =>
-      exact ⟨[], by exact FunctionBody.compileStmtList_nil_eq_ok _ _ _ _ _ _ _ _⟩
+      exact ⟨[], by
+        simp [CompilationModel.compileStmtList, CompilationModel.compileStmtListWithFork,
+          Pure.pure, Except.pure]⟩
   | cons hstep _hrest ih =>
       rcases FunctionBody.compileStmt_ok_any_scope_with_surface
         (scope2 := inScopeNames) ⟨_, hstep.compileOk⟩ with ⟨headIR, hhead⟩
@@ -2378,7 +2393,9 @@ theorem compileStmtList_ok_of_stmtListGenericWithHelpersAndHelperIR
         fields spec.events spec.errors .calldata [] false inScopeNames [] stmts = Except.ok bodyIR := by
   induction hgeneric generalizing inScopeNames with
   | nil =>
-      exact ⟨[], by exact FunctionBody.compileStmtList_nil_eq_ok _ _ _ _ _ _ _ _⟩
+      exact ⟨[], by
+        simp [CompilationModel.compileStmtList, CompilationModel.compileStmtListWithFork,
+          Pure.pure, Except.pure]⟩
   | cons hstep _hrest ih =>
       rcases FunctionBody.compileStmt_ok_any_scope_with_surface
         (scope2 := inScopeNames) ⟨_, hstep.compileOk⟩ with ⟨headIR, hhead⟩

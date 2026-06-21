@@ -14,3 +14,4 @@ import Contracts.Smoke.SecurityCombos
 import Contracts.Smoke.InternalInterfaceSmoke
 import Contracts.Smoke.KeccakStringSmoke
 import Contracts.Smoke.MultiArgIntrinsicSmoke
+import Contracts.Smoke.EIP712StaticSmoke

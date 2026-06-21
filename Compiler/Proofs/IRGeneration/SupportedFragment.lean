@@ -17,6 +17,12 @@ open Compiler
 open Compiler.CompilationModel
 open Verity.Core.Free
 
+/-- Structural purity gate for ECMs whose compilation is treated as effect-clean
+by the supported-fragment surface. This intentionally does not inspect module
+names: precompiles such as ecrecover have `readsState = true` and are excluded. -/
+def ecmPureHashing (mod : Compiler.ECM.ExternalCallModule) : Bool :=
+  !mod.writesState && !mod.readsState
+
 /-- Scope seen by the tail after compiling a single statement. This matches the
 statement-list compiler's `collectStmtNames` update. -/
 def stmtNextScope (scope : List String) (stmt : Stmt) : List String :=
@@ -128,6 +134,14 @@ inductive SupportedStmtList (fields : List Field) : List String → List Stmt �
       (∀ arg ∈ args, FunctionBody.ExprCompileCore arg) →
       (∀ arg ∈ args, FunctionBody.exprBoundNamesInScope arg scope) →
       SupportedStmtList fields scope [Stmt.emit eventName args]
+  | pureHashingEcm
+      {scope : List String}
+      {mod : Compiler.ECM.ExternalCallModule}
+      {args : List Expr} :
+      ecmPureHashing mod = true →
+      (∀ arg ∈ args, FunctionBody.ExprCompileCore arg) →
+      (∀ arg ∈ args, FunctionBody.exprBoundNamesInScope arg scope) →
+      SupportedStmtList fields scope [Stmt.ecm mod args]
   | letMappingField
       {scope : List String}
       {tmp : String}

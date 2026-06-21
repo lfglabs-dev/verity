@@ -1461,7 +1461,9 @@ theorem compileStmtList_core_ok
         fields [] [] .calldata [] false inScopeNames [] stmts = Except.ok bodyIR := by
   induction hcore generalizing inScopeNames
   case nil =>
-      exact ⟨[], by exact compileStmtList_nil_eq_ok _ _ _ _ _ _ _ _⟩
+      exact ⟨[], by
+        simp [CompilationModel.compileStmtList, CompilationModel.compileStmtListWithFork,
+          Pure.pure, Except.pure]⟩
   case letVar scope name value rest hvalue _ hrest ih =>
       rcases compileStmt_core_ok_any_scope (fields := fields) (inScopeNames := inScopeNames)
         (stmt := .letVar name value) (.letVar hvalue) with ⟨headIR, hheadIR⟩
@@ -2894,7 +2896,9 @@ theorem exec_compileStmtList_core
       stmtResultMatchesIRExecExact sourceResult irExec := by
   induction hcore generalizing runtime state inScopeNames with
   | nil =>
-      refine ⟨[], by exact compileStmtList_nil_eq_ok _ _ _ _ _ _ _ _, ?_⟩
+      refine ⟨[], by
+        simp [CompilationModel.compileStmtList, CompilationModel.compileStmtListWithFork,
+          Pure.pure, Except.pure], ?_⟩
       constructor
       · simpa [SourceSemantics.execStmtList, execIRStmts, stmtResultMatchesIRExec] using hruntime
       · simpa [SourceSemantics.execStmtList, execIRStmts, stmtResultMatchesIRExecExact] using
@@ -3337,7 +3341,9 @@ theorem exec_compileStmtList_core_extraFuel
       stmtResultMatchesIRExecExact sourceResult irExec := by
   induction hcore generalizing runtime state inScopeNames with
   | nil =>
-      refine ⟨[], by exact compileStmtList_nil_eq_ok _ _ _ _ _ _ _ _, ?_⟩
+      refine ⟨[], by
+        simp [CompilationModel.compileStmtList, CompilationModel.compileStmtListWithFork,
+          Pure.pure, Except.pure], ?_⟩
       constructor
       · simpa [SourceSemantics.execStmtList, execIRStmts, stmtResultMatchesIRExec] using hruntime
       · simpa [SourceSemantics.execStmtList, execIRStmts, stmtResultMatchesIRExecExact] using
