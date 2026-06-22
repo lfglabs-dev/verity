@@ -286,7 +286,7 @@ theorem lowerStmtGroupNativeWithSwitchIds_ok_of_yulStmtContainsFuncDef_false
   | let_ name value => simp
   | letMany names value => simp
   | assign name value => simp
-  | expr e => simp
+  | exprStmt e => simp
   | «leave» => simp
   | if_ cond body =>
       have hBody : yulStmtsContainFuncDef body = false := by

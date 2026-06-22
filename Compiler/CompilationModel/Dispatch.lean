@@ -561,27 +561,45 @@ def compileGuardedFunctionSpec (fields : List Field) (events : List EventDef)
   let irFn ← compileFunctionSpec fields events errors adtTypes sel fnSpec (targetFork := targetFork) internalFunctions
   attachNonReentrantGuard fields fnSpec irFn
 
-private partial def collectTemplateIntrinsicsFromExpr (expr : Expr) :
+def collectTemplateIntrinsicsFromExpr (expr : Expr) :
     List (String × Verity.Core.Intrinsics.YulLowering) :=
   let here :=
     match expr with
     | .intrinsic name lowering@(.template ..) _ _ => [(name, lowering)]
     | _ => []
-  here ++ expr.children.flatMap collectTemplateIntrinsicsFromExpr
+  here ++ expr.children.attach.flatMap (fun ⟨child, hchild⟩ =>
+    have := Expr.children_sizeOf_lt expr child hchild
+    collectTemplateIntrinsicsFromExpr child)
+termination_by sizeOf expr
 
-private partial def collectTemplateIntrinsicsFromStmt (stmt : Stmt) :
+def collectTemplateIntrinsicsFromStmt (stmt : Stmt) :
     List (String × Verity.Core.Intrinsics.YulLowering) :=
   let fromExprs :=
     stmt.directMetadata.subexpressions.flatMap collectTemplateIntrinsicsFromExpr
   let fromChildren :=
-    stmt.childLists.flatMap (fun body => body.flatMap collectTemplateIntrinsicsFromStmt)
+    stmt.childLists.attach.flatMap (fun ⟨body, hbody⟩ =>
+      body.attach.flatMap (fun ⟨child, hchild⟩ =>
+        have := Stmt.childLists_sizeOf_lt stmt body hbody child hchild
+        collectTemplateIntrinsicsFromStmt child))
   fromExprs ++ fromChildren
+termination_by sizeOf stmt
+decreasing_by exact Nat.lt_trans this.1 this.2
 
-private def collectTemplateIntrinsicsFromStmts (stmts : List Stmt) :
+def collectTemplateIntrinsicsFromStmts (stmts : List Stmt) :
     List (String × Verity.Core.Intrinsics.YulLowering) :=
   stmts.flatMap collectTemplateIntrinsicsFromStmt
 
-private def addTemplateIntrinsic
+def templateIntrinsicItems (spec : CompilationModel) :
+    List (String × Verity.Core.Intrinsics.YulLowering) :=
+  let functionItems :=
+    spec.functions.flatMap (fun fn => collectTemplateIntrinsicsFromStmts fn.body)
+  let constructorItems :=
+    match spec.constructor with
+    | none => []
+    | some ctor => collectTemplateIntrinsicsFromStmts ctor.body
+  functionItems ++ constructorItems
+
+def addTemplateIntrinsic
     (acc : List (String × Verity.Core.Intrinsics.YulLowering))
     (item : String × Verity.Core.Intrinsics.YulLowering) :
     Except String (List (String × Verity.Core.Intrinsics.YulLowering)) :=
@@ -593,20 +611,14 @@ private def addTemplateIntrinsic
       else
         throw s!"Compilation error: intrinsic template '{item.1}' is used with conflicting Yul template bodies"
 
-private def dedupTemplateIntrinsics
+def dedupTemplateIntrinsics
     (items : List (String × Verity.Core.Intrinsics.YulLowering)) :
     Except String (List (String × Verity.Core.Intrinsics.YulLowering)) :=
   items.foldlM addTemplateIntrinsic []
 
-private def compileTemplateIntrinsicHelpers (spec : CompilationModel) :
+def compileTemplateIntrinsicHelpers (spec : CompilationModel) :
     Except String (List YulStmt) := do
-  let functionItems :=
-    spec.functions.flatMap (fun fn => collectTemplateIntrinsicsFromStmts fn.body)
-  let constructorItems :=
-    match spec.constructor with
-    | none => []
-    | some ctor => collectTemplateIntrinsicsFromStmts ctor.body
-  let items ← dedupTemplateIntrinsics (functionItems ++ constructorItems)
+  let items ← dedupTemplateIntrinsics (templateIntrinsicItems spec)
   items.mapM fun (name, lowering) =>
     match Verity.Core.Intrinsics.YulLowering.templateFuncDef? name lowering with
     | some funcDef => pure funcDef
@@ -690,7 +702,11 @@ def compileValidatedCore (spec : CompilationModel) (selectors : List Nat)
       [dynamicBytesEqCalldataHelper, dynamicBytesEqMemoryHelper]
     else
       []
-  let templateIntrinsicHelpers ← compileTemplateIntrinsicHelpers spec
+  let templateIntrinsicHelpers ←
+    if (templateIntrinsicItems spec).isEmpty then
+      pure []
+    else
+      compileTemplateIntrinsicHelpers spec
   let checkedArithmeticHelpers :=
     if checkedArithmeticHelpersRequired then
       [ panicError0x11Helper

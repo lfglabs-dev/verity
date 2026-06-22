@@ -526,7 +526,7 @@ private theorem eventLegacy_append
           exact .let_ name value (rest ++ back) (ih hrest hback)
       | assign name value _ hrest =>
           exact .assign name value (rest ++ back) (ih hrest hback)
-      | expr value _ hrest =>
+      | exprStmt value _ hrest =>
           exact .exprStmt value (rest ++ back) (ih hrest hback)
       | if_ cond body _ hbody hrest =>
           exact .if_ cond body (rest ++ back) hbody (ih hrest hback)
