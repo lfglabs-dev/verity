@@ -146,7 +146,9 @@
     "xor"
   ],
   "missing_expr_cases": [],
-  "missing_stmt_cases": [],
+  "missing_stmt_cases": [
+    "expr"
+  ],
   "native_context_bridge_lemmas": [
     "add",
     "addmod",
@@ -198,7 +200,7 @@
     "assign",
     "block",
     "comment",
-    "expr",
+    "exprStmt",
     "for_",
     "if_",
     "leave",
