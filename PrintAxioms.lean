@@ -798,12 +798,26 @@ end Verity.AxiomAudit
   Verity.Proofs.Stdlib.Math.wExpRangeR_upper_bound
   Verity.Proofs.Stdlib.Math.wExpRangeR_bounds
   -- Verity.Proofs.Stdlib.Math.WEXP_RANGE_OFFSET_le_WAD  -- private
+  -- Verity.Proofs.Stdlib.Math.WEXP_RANGE_OFFSET_lt_WAD  -- private
   -- Verity.Proofs.Stdlib.Math.WEXP_RANGE_OFFSET_le_three_WAD  -- private
   -- Verity.Proofs.Stdlib.Math.wExpSignedCubicKernel_neg_nonneg_of_le_offset  -- private
   Verity.Proofs.Stdlib.Math.wExpSignedCubicKernel_nonneg_of_range
+  -- Verity.Proofs.Stdlib.Math.wExpSignedCubicKernel_neg_pos_of_le_offset  -- private
+  Verity.Proofs.Stdlib.Math.wExpSignedCubicKernel_pos_of_range
+  Verity.Proofs.Stdlib.Math.tickWExpReference_neg_scaled_pos
   -- Verity.Proofs.Stdlib.Math.tickWExpReference_real_nonneg_eq_kernel_mul_two_pow  -- private
   -- Verity.Proofs.Stdlib.Math.real_abs_mul_sub_mul_le  -- private
   Verity.Proofs.Stdlib.Math.tickWExpReference_real_error_nonneg
+  -- Verity.Proofs.Stdlib.Math.WEXP_ONE_E36_eq_WAD_mul_WAD  -- private
+  -- Verity.Proofs.Stdlib.Math.real_abs_inv_sub_inv_le  -- private
+  -- Verity.Proofs.Stdlib.Math.real_nat_div_floor_abs_error_div_wad  -- private
+  -- Verity.Proofs.Stdlib.Math.wExpAbsInput_ofNat  -- private
+  -- Verity.Proofs.Stdlib.Math.tickWExpReference_ofNat_eq_scaled  -- private
+  -- Verity.Proofs.Stdlib.Math.WEXP_ONE_E36_real_div_scaled_div_WAD_eq_inv  -- private
+  -- Verity.Proofs.Stdlib.Math.tickWExpReference_neg_nonneg_error  -- private
+  -- Verity.Proofs.Stdlib.Math.tickWExpReference_neg_floor_error  -- private
+  -- Verity.Proofs.Stdlib.Math.tickWExpReference_neg_recip_error  -- private
+  Verity.Proofs.Stdlib.Math.tickWExpReference_real_error_neg
   -- Verity.Proofs.Stdlib.Math.ceil_mul_div_ge  -- private
   -- Verity.Proofs.Stdlib.Math.ceil_mul_div_le_add_pred  -- private
   -- Verity.Proofs.Stdlib.Math.nat_ceil_div_antitone_divisor  -- private
@@ -5766,4 +5780,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5408 theorems/lemmas (3723 public, 1685 private, 0 sorry'd)
+-- Total: 5422 theorems/lemmas (3726 public, 1696 private, 0 sorry'd)
