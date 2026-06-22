@@ -441,6 +441,28 @@ theorem tickWExp_exp_decomp (xAbs : Nat) :
         * Real.exp ((WEXP_LN2 : ℝ) / (WAD_NAT : ℝ)) ^ (wExpRangeQ xAbs) := by
   rw [wExpRangeReduction_real, Real.exp_add, Real.exp_nat_mul]
 
+/-- One-step exponent reconciliation for the power telescoping bound:
+folds the `n * M^(n-1)` inductive estimate plus the trailing `M^n` term into the
+`(n+1) * M^n` shape. The `cases n` split reconciles the `M^(n-1)` Nat-subtraction
+exponent against `M^n` at `n = 0`. -/
+private theorem pow_step_bound (M d : ℝ) (n : Nat) :
+    M * ((n : ℝ) * M ^ (n - 1) * d) + d * M ^ n ≤
+      ((n + 1 : Nat) : ℝ) * M ^ n * d := by
+  cases n with
+  | zero => simp
+  | succ n =>
+      have hpow :
+          M * (((n + 1 : Nat) : ℝ) * M ^ ((n + 1) - 1) * d) =
+            ((n + 1 : Nat) : ℝ) * M ^ (n + 1) * d := by
+        simp [pow_succ, mul_comm, mul_left_comm, mul_assoc]
+      rw [hpow]
+      have hcast :
+          (((n + 1 : Nat) : ℝ) * M ^ (n + 1) * d + d * M ^ (n + 1)) =
+            ((n + 2 : Nat) : ℝ) * M ^ (n + 1) * d := by
+        norm_num
+        ring
+      rw [hcast]
+
 /-- Telescoping Lipschitz bound for powers over the reals.
 
 This is the standard factorization of `c^n - b^n`, bounded termwise by the
@@ -486,22 +508,7 @@ theorem abs_pow_sub_pow_le (b c : ℝ) (n : Nat) :
             have hright : d * |b| ^ n ≤ d * M ^ n :=
               mul_le_mul_of_nonneg_left (pow_le_pow_left₀ (abs_nonneg b) hbM n) hd_nonneg
             exact add_le_add hleft hright
-        _ ≤ ((n + 1 : Nat) : ℝ) * M ^ n * d := by
-            cases n with
-            | zero =>
-                simp [d]
-            | succ n =>
-                have hpow :
-                    M * (((n + 1 : Nat) : ℝ) * M ^ ((n + 1) - 1) * d) =
-                      ((n + 1 : Nat) : ℝ) * M ^ (n + 1) * d := by
-                  simp [pow_succ, mul_comm, mul_left_comm, mul_assoc]
-                rw [hpow]
-                have hcast :
-                    (((n + 1 : Nat) : ℝ) * M ^ (n + 1) * d + d * M ^ (n + 1)) =
-                      ((n + 2 : Nat) : ℝ) * M ^ (n + 1) * d := by
-                  norm_num
-                  ring
-                rw [hcast]
+        _ ≤ ((n + 1 : Nat) : ℝ) * M ^ n * d := pow_step_bound M d n
 
 /-- Power error for the TickLib `ln 2` range-reduction base.
 
