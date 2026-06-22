@@ -960,6 +960,158 @@ theorem wExpRangeR_bounds (xAbs : Nat) :
       wExpRangeR xAbs < Int.ofNat (WEXP_LN2 - WEXP_RANGE_OFFSET) :=
   ⟨wExpRangeR_lower_bound xAbs, wExpRangeR_upper_bound xAbs⟩
 
+private theorem WEXP_RANGE_OFFSET_le_WAD : WEXP_RANGE_OFFSET ≤ WAD_NAT := by
+  norm_num [WEXP_RANGE_OFFSET, WAD_NAT]
+
+private theorem WEXP_RANGE_OFFSET_le_three_WAD : WEXP_RANGE_OFFSET ≤ 3 * WAD_NAT := by
+  exact Nat.le_trans WEXP_RANGE_OFFSET_le_WAD (Nat.le_mul_of_pos_left WAD_NAT (by decide))
+
+set_option maxRecDepth 100000
+
+private theorem wExpSignedCubicKernel_neg_nonneg_of_le_offset {s : Nat}
+    (hs_le : s ≤ WEXP_RANGE_OFFSET) :
+    0 ≤ wExpSignedCubicKernel (-(s : Int)) := by
+  have hs_le_WAD : s ≤ WAD_NAT :=
+    Nat.le_trans hs_le WEXP_RANGE_OFFSET_le_WAD
+  have hs_le_3WAD : s ≤ 3 * WAD_NAT :=
+    Nat.le_trans hs_le WEXP_RANGE_OFFSET_le_three_WAD
+  let secondNat := (s * s) / (2 * WAD_NAT)
+  let thirdNat := (secondNat * s) / (3 * WAD_NAT)
+  have hthird_le_second : thirdNat ≤ secondNat := by
+    dsimp [thirdNat]
+    have hmul : secondNat * s ≤ (3 * WAD_NAT) * secondNat := by
+      calc
+        secondNat * s ≤ secondNat * (3 * WAD_NAT) :=
+          Nat.mul_le_mul_left secondNat hs_le_3WAD
+        _ = (3 * WAD_NAT) * secondNat := Nat.mul_comm secondNat (3 * WAD_NAT)
+    exact Nat.div_le_of_le_mul hmul
+  have hkernel := wExpSignedCubicKernel_neg_eq s
+  rw [hkernel]
+  change 0 ≤ (WAD_NAT : Int) - (s : Int) + (secondNat : Int) - (thirdNat : Int)
+  have hbase : 0 ≤ (WAD_NAT : Int) - (s : Int) := by
+    exact sub_nonneg.mpr (by exact_mod_cast hs_le_WAD)
+  have htail : 0 ≤ (secondNat : Int) - (thirdNat : Int) := by
+    exact sub_nonneg.mpr (by exact_mod_cast hthird_le_second)
+  have hsum : 0 ≤ ((WAD_NAT : Int) - (s : Int)) +
+      ((secondNat : Int) - (thirdNat : Int)) :=
+    add_nonneg hbase htail
+  simpa [sub_eq_add_neg, add_assoc] using hsum
+
+/-- The signed cubic kernel is non-negative throughout the TickLib
+range-reduction residual interval. -/
+theorem wExpSignedCubicKernel_nonneg_of_range {r : Int}
+    (hr0 : -(WEXP_RANGE_OFFSET : Int) ≤ r) (_hr1 : r ≤ (WEXP_LN2 : Int)) :
+    0 ≤ wExpSignedCubicKernel r := by
+  rcases le_or_gt 0 r with hnonneg | hneg
+  · rw [wExpSignedCubicKernel_eq_natKernel_of_nonneg (r := r) hnonneg]
+    exact Int.natCast_nonneg _
+  · let s := (-r).toNat
+    have hs_cast : (s : Int) = -r := by
+      exact Int.toNat_of_nonneg (le_of_lt (neg_pos.mpr hneg))
+    have hr_eq : r = -(s : Int) := by omega
+    have hs_le : s ≤ WEXP_RANGE_OFFSET := by omega
+    rw [hr_eq]
+    exact wExpSignedCubicKernel_neg_nonneg_of_le_offset (s := s) hs_le
+
+private theorem tickWExpReference_real_nonneg_eq_kernel_mul_two_pow {x : Int} (hx : 0 ≤ x) :
+    ((tickWExpReference x : ℝ) / (WAD_NAT : ℝ)) =
+      ((wExpSignedCubicKernel (wExpRangeR (wExpAbsInput x)) : ℝ) / (WAD_NAT : ℝ)) *
+        (2 : ℝ) ^ wExpRangeQ (wExpAbsInput x) := by
+  let xAbs := wExpAbsInput x
+  let q := wExpRangeQ xAbs
+  let r := wExpRangeR xAbs
+  have hx_not_neg : ¬ x < 0 := by omega
+  have hrange := wExpRangeR_bounds xAbs
+  have hr0 : -(WEXP_RANGE_OFFSET : Int) ≤ r := by
+    simpa [r] using hrange.1
+  have hr_upper_le : Int.ofNat (WEXP_LN2 - WEXP_RANGE_OFFSET) ≤ (WEXP_LN2 : Int) := by
+    exact Int.ofNat_le.mpr (Nat.sub_le WEXP_LN2 WEXP_RANGE_OFFSET)
+  have hr1 : r ≤ (WEXP_LN2 : Int) :=
+    le_trans (le_of_lt (by simpa [r] using hrange.2)) hr_upper_le
+  have hkernel_nonneg : 0 ≤ wExpSignedCubicKernel r :=
+    wExpSignedCubicKernel_nonneg_of_range (r := r) hr0 hr1
+  have hkernel_cast :
+      ((Int.toNat (wExpSignedCubicKernel r) : Nat) : ℝ) =
+        (wExpSignedCubicKernel r : ℝ) := by
+    exact_mod_cast Int.toNat_of_nonneg hkernel_nonneg
+  dsimp [tickWExpReference]
+  rw [if_neg hx_not_neg]
+  change (((Int.toNat (wExpSignedCubicKernel r) * 2 ^ q : Nat) : ℝ) /
+      (WAD_NAT : ℝ)) =
+    ((wExpSignedCubicKernel r : ℝ) / (WAD_NAT : ℝ)) * (2 : ℝ) ^ q
+  rw [Nat.cast_mul, Nat.cast_pow, hkernel_cast]
+  ring
+
+private theorem real_abs_mul_sub_mul_le
+    {A Ahat B Bhat epsA epsB : ℝ}
+    (hB : 0 ≤ B) (hAhat : 0 ≤ Ahat)
+    (hEA : |A - Ahat| ≤ epsA) (hEB : |Bhat - B| ≤ epsB) :
+    |A * B - Ahat * Bhat| ≤ B * epsA + Ahat * epsB := by
+  have hEB' : |B - Bhat| ≤ epsB := by
+    simpa [abs_sub_comm] using hEB
+  calc
+    |A * B - Ahat * Bhat|
+        = |(A - Ahat) * B + Ahat * (B - Bhat)| := by ring_nf
+    _ ≤ |(A - Ahat) * B| + |Ahat * (B - Bhat)| := abs_add _ _
+    _ = |A - Ahat| * B + Ahat * |B - Bhat| := by
+      rw [abs_mul, abs_mul, abs_of_nonneg hB, abs_of_nonneg hAhat]
+    _ ≤ epsA * B + Ahat * epsB :=
+      add_le_add
+        (mul_le_mul_of_nonneg_right hEA hB)
+        (mul_le_mul_of_nonneg_left hEB' hAhat)
+    _ = B * epsA + Ahat * epsB := by ring
+
+/-- Capstone real-error bound for `tickWExpReference` on the non-negative input
+branch. This composes the residual cubic-kernel error with the `ln 2`
+power approximation after TickLib's exact range decomposition. -/
+theorem tickWExpReference_real_error_nonneg {x : Int} (hx : 0 ≤ x) :
+    |((tickWExpReference x : ℝ) / (WAD_NAT : ℝ))
+        - Real.exp ((wExpAbsInput x : ℝ) / (WAD_NAT : ℝ))|
+      ≤ (2 : ℝ) ^ wExpRangeQ (wExpAbsInput x)
+          * (4 / (WAD_NAT : ℝ)
+              + ((wExpRangeR (wExpAbsInput x) : ℝ) / (WAD_NAT : ℝ)) ^ 4 * (5 / 96))
+        + Real.exp ((wExpRangeR (wExpAbsInput x) : ℝ) / (WAD_NAT : ℝ))
+          * ((wExpRangeQ (wExpAbsInput x) : ℝ)
+              * (2001 / 1000) ^ wExpRangeQ (wExpAbsInput x) * (2 / 10 ^ 9)) := by
+  let xAbs := wExpAbsInput x
+  let q := wExpRangeQ xAbs
+  let r := wExpRangeR xAbs
+  let A : ℝ := (wExpSignedCubicKernel r : ℝ) / (WAD_NAT : ℝ)
+  let Ahat : ℝ := Real.exp ((r : ℝ) / (WAD_NAT : ℝ))
+  let B : ℝ := (2 : ℝ) ^ q
+  let Bhat : ℝ := Real.exp ((WEXP_LN2 : ℝ) / (WAD_NAT : ℝ)) ^ q
+  let epsK : ℝ := 4 / (WAD_NAT : ℝ) + ((r : ℝ) / (WAD_NAT : ℝ)) ^ 4 * (5 / 96)
+  let epsPow : ℝ := (q : ℝ) * (2001 / 1000) ^ q * (2 / 10 ^ 9)
+  have hrange := wExpRangeR_bounds xAbs
+  have hr0 : -(WEXP_RANGE_OFFSET : Int) ≤ r := by
+    simpa [r] using hrange.1
+  have hr_upper_le : Int.ofNat (WEXP_LN2 - WEXP_RANGE_OFFSET) ≤ (WEXP_LN2 : Int) := by
+    exact Int.ofNat_le.mpr (Nat.sub_le WEXP_LN2 WEXP_RANGE_OFFSET)
+  have hr1 : r ≤ (WEXP_LN2 : Int) :=
+    le_trans (le_of_lt (by simpa [r] using hrange.2)) hr_upper_le
+  have hRef :
+      ((tickWExpReference x : ℝ) / (WAD_NAT : ℝ)) = A * B := by
+    simpa [A, B, r, q, xAbs] using tickWExpReference_real_nonneg_eq_kernel_mul_two_pow hx
+  have hExp :
+      Real.exp ((xAbs : ℝ) / (WAD_NAT : ℝ)) = Ahat * Bhat := by
+    simpa [Ahat, Bhat, r, q, xAbs] using tickWExp_exp_decomp xAbs
+  have hKernelErr : |A - Ahat| ≤ epsK := by
+    simpa [A, Ahat, epsK, r] using
+      wExpSignedCubicKernel_real_error (r := r) hr0 hr1
+  have hPowErr : |Bhat - B| ≤ epsPow := by
+    simpa [Bhat, B, epsPow, q] using wExpLn2_pow_approx_two_pow q
+  have hB_nonneg : 0 ≤ B := by
+    dsimp [B]
+    exact pow_nonneg (by norm_num) q
+  have hAhat_nonneg : 0 ≤ Ahat := by
+    dsimp [Ahat]
+    exact Real.exp_nonneg _
+  have hprod :
+      |A * B - Ahat * Bhat| ≤ B * epsK + Ahat * epsPow :=
+    real_abs_mul_sub_mul_le hB_nonneg hAhat_nonneg hKernelErr hPowErr
+  rw [hRef, hExp]
+  simpa [A, Ahat, B, Bhat, epsK, epsPow, q, r, xAbs] using hprod
+
 /-! ## Full-precision mulDiv512 helpers -/
 
 private theorem ceil_mul_div_ge (n d : Nat) (hd : 0 < d) :

@@ -797,6 +797,13 @@ end Verity.AxiomAudit
   Verity.Proofs.Stdlib.Math.wExpRangeR_lower_bound
   Verity.Proofs.Stdlib.Math.wExpRangeR_upper_bound
   Verity.Proofs.Stdlib.Math.wExpRangeR_bounds
+  -- Verity.Proofs.Stdlib.Math.WEXP_RANGE_OFFSET_le_WAD  -- private
+  -- Verity.Proofs.Stdlib.Math.WEXP_RANGE_OFFSET_le_three_WAD  -- private
+  -- Verity.Proofs.Stdlib.Math.wExpSignedCubicKernel_neg_nonneg_of_le_offset  -- private
+  Verity.Proofs.Stdlib.Math.wExpSignedCubicKernel_nonneg_of_range
+  -- Verity.Proofs.Stdlib.Math.tickWExpReference_real_nonneg_eq_kernel_mul_two_pow  -- private
+  -- Verity.Proofs.Stdlib.Math.real_abs_mul_sub_mul_le  -- private
+  Verity.Proofs.Stdlib.Math.tickWExpReference_real_error_nonneg
   -- Verity.Proofs.Stdlib.Math.ceil_mul_div_ge  -- private
   -- Verity.Proofs.Stdlib.Math.ceil_mul_div_le_add_pred  -- private
   -- Verity.Proofs.Stdlib.Math.nat_ceil_div_antitone_divisor  -- private
@@ -5759,4 +5766,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5401 theorems/lemmas (3721 public, 1680 private, 0 sorry'd)
+-- Total: 5408 theorems/lemmas (3723 public, 1685 private, 0 sorry'd)
