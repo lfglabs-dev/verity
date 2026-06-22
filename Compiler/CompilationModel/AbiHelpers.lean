@@ -30,17 +30,17 @@ def revertWithMessage (message : String) : List YulStmt :=
   let len := bytes.length
   let paddedLen := ((len + 31) / 32) * 32
   let header := [
-    YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.hex errorStringSelectorWord]),
-    YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 4, YulExpr.lit 32]),
-    YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 36, YulExpr.lit len])
+    YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.hex errorStringSelectorWord]),
+    YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 4, YulExpr.lit 32]),
+    YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 36, YulExpr.lit len])
   ]
   let dataStmts :=
     (chunkBytes32 bytes).zipIdx.map fun (chunk, idx) =>
       let offset := 68 + idx * 32
       let word := wordFromBytes chunk
-      YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit offset, YulExpr.hex word])
+      YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit offset, YulExpr.hex word])
   let totalSize := 68 + paddedLen
-  header ++ dataStmts ++ [YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit totalSize])]
+  header ++ dataStmts ++ [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit totalSize])]
 
 mutual
   def paramTypeToSolidityString : ParamType → String

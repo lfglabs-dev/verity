@@ -159,7 +159,7 @@ mutual
     | .let_ name value => name :: yulExprIdentifierNames value
     | .letMany names value => names ++ yulExprIdentifierNames value
     | .assign name value => name :: yulExprIdentifierNames value
-    | .expr e => yulExprIdentifierNames e
+    | .exprStmt e => yulExprIdentifierNames e
     | .if_ cond body => yulExprIdentifierNames cond ++ yulStmtsIdentifierNames body
     | .for_ init cond post body =>
         yulStmtsIdentifierNames init ++
@@ -184,7 +184,7 @@ def collectYulStmtWriteNames
 
 mutual
 def yulStmtWriteNames : YulStmt → List String
-  | .comment _ | .expr _ | .leave => []
+  | .comment _ | .exprStmt _ | .leave => []
   | .let_ name _ => [name]
   | .letMany names _ => names
   | .assign name _ => [name]
@@ -388,7 +388,7 @@ def lowerStmtGroupNativeWithSwitchIds
   | .let_ name value => pure ([.Let [name] (some (lowerExprNative value))], nextSwitchId)
   | .letMany names value => pure ([.Let names (some (lowerExprNative value))], nextSwitchId)
   | .assign name value => pure ([lowerAssignNative name value], nextSwitchId)
-  | .expr e => pure ([.ExprStmtCall (lowerExprNative e)], nextSwitchId)
+  | .exprStmt e => pure ([.ExprStmtCall (lowerExprNative e)], nextSwitchId)
   | .leave => pure ([.Leave], nextSwitchId)
   | .if_ cond body => do
       let (body', nextSwitchId) ← lowerStmtsNativeWithSwitchIds reservedNames nextSwitchId body
@@ -688,7 +688,7 @@ theorem lowerSwitchCasesNativeWithSwitchIds_length_eq
     (reservedNames : List String)
     (nextSwitchId : Nat)
     (e : YulExpr) :
-    lowerStmtGroupNativeWithSwitchIds reservedNames nextSwitchId (.expr e) =
+    lowerStmtGroupNativeWithSwitchIds reservedNames nextSwitchId (.exprStmt e) =
       .ok ([.ExprStmtCall (lowerExprNative e)], nextSwitchId) :=
   lowerStmtGroupNativeWithSwitchIds.eq_5 reservedNames nextSwitchId e
 

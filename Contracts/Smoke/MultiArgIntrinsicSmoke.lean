@@ -15,11 +15,15 @@
   arities, real Yul opcodes / builtins, and proper refinement obligations.
 -/
 import Contracts.Common
+import Compiler.CompilationModel
+import Compiler.CompilationModel.ExpressionCompile
 
 namespace Contracts.Smoke
 
 open Verity hiding pure bind
 open Verity.EVM.Uint256
+open Compiler.Yul
+open Compiler.CompilationModel
 
 -- Two-argument intrinsic: returns the sum (toy semantics).
 verity_intrinsic addPair (a : Uint256, b : Uint256) : Uint256
@@ -81,5 +85,142 @@ verity_intrinsic addViaBuiltinArityMismatch (a : Uint256, b : Uint256, c : Uint2
         min_fork := osaka;
         semantics := (fun a b c => Verity.Core.Uint256.ofNat ((a.val + b.val + c.val) % (2 ^ 256)));
         obligation [add_via_builtin_mismatch := assumed "negative coverage; never elaborated"]
+
+-- Four-argument template intrinsic: the body is typed Yul AST and intentionally
+-- unchecked by Verity beyond arity/shape. The explicit assumed obligation marks
+-- the refinement proof that consumers must discharge or continue to trust.
+verity_intrinsic entryPointPackInnerCalldata (sender : Uint256, gasLimit : Uint256, callDataOffset : Uint256, callDataLength : Uint256) : Uint256
+  where pure;
+        yul := [template (sender, gasLimit, callDataOffset, callDataLength) -> packed := [
+          yulcall mstore(0, sender),
+          let head := add(sender, gasLimit),
+          packed := add(head, add(callDataOffset, callDataLength))
+        ]];
+        min_fork := osaka;
+        semantics := (fun sender gasLimit callDataOffset callDataLength =>
+          Verity.Core.Uint256.ofNat ((sender.val + gasLimit.val + callDataOffset.val + callDataLength.val) % (2 ^ 256)));
+        obligation [entry_point_pack_template_refines_yul := assumed "template Yul body is unchecked; ERC-4337 consumer must prove or trust this lowering"]
+
+example :
+    (entryPointPackInnerCalldata
+      (Verity.Core.Uint256.ofNat 1)
+      (Verity.Core.Uint256.ofNat 2)
+      (Verity.Core.Uint256.ofNat 3)
+      (Verity.Core.Uint256.ofNat 4)).val = 10 := by
+  native_decide
+
+private def templateLowering : Verity.Core.Intrinsics.YulLowering :=
+  Verity.Core.Intrinsics.YulLowering.template
+    ["sender", "gasLimit", "callDataOffset", "callDataLength"]
+    "packed"
+    [
+      YulStmt.exprStmt
+        (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.ident "sender"]),
+      YulStmt.let_ "head"
+        (YulExpr.call "add" [YulExpr.ident "sender", YulExpr.ident "gasLimit"]),
+      YulStmt.assign "packed"
+        (YulExpr.call "add" [
+          YulExpr.ident "head",
+          YulExpr.call "add" [YulExpr.ident "callDataOffset", YulExpr.ident "callDataLength"]
+        ])
+    ]
+
+def templateIntrinsicCompilesToHelperCall : Bool :=
+  match Compiler.CompilationModel.compileExpr [] .calldata
+      (Compiler.CompilationModel.Expr.intrinsic
+        "entryPointPackInnerCalldata"
+        templateLowering
+        Verity.Core.Intrinsics.HardFork.osaka
+        [ Compiler.CompilationModel.Expr.param "sender"
+        , Compiler.CompilationModel.Expr.param "gasLimit"
+        , Compiler.CompilationModel.Expr.param "callDataOffset"
+        , Compiler.CompilationModel.Expr.param "callDataLength"
+        ]) with
+  | .ok (YulExpr.call "__verity_intrinsic_template_entryPointPackInnerCalldata"
+      [YulExpr.ident "sender", YulExpr.ident "gasLimit", YulExpr.ident "callDataOffset", YulExpr.ident "callDataLength"]) => true
+  | _ => false
+
+example : templateIntrinsicCompilesToHelperCall = true := by
+  native_decide
+
+private def templateIntrinsicModel : CompilationModel := {
+  name := "TemplateIntrinsicModel"
+  fields := []
+  «constructor» := none
+  functions := [
+    { name := "pack"
+      params := [
+        { name := "sender", ty := ParamType.uint256 },
+        { name := "gasLimit", ty := ParamType.uint256 },
+        { name := "callDataOffset", ty := ParamType.uint256 },
+        { name := "callDataLength", ty := ParamType.uint256 }
+      ]
+      returnType := some FieldType.uint256
+      body := [
+        Stmt.return
+          (Expr.intrinsic
+            "entryPointPackInnerCalldata"
+            templateLowering
+            Verity.Core.Intrinsics.HardFork.osaka
+            [ Expr.param "sender"
+            , Expr.param "gasLimit"
+            , Expr.param "callDataOffset"
+            , Expr.param "callDataLength"
+            ])
+      ]
+    }
+  ]
+}
+
+def templateIntrinsicCompilationEmitsHelper : Bool :=
+  match Compiler.CompilationModel.compile templateIntrinsicModel [0] with
+  | .ok contract =>
+      contract.internalFunctions.any fun
+        | YulStmt.funcDef "__verity_intrinsic_template_entryPointPackInnerCalldata"
+            ["sender", "gasLimit", "callDataOffset", "callDataLength"]
+            ["packed"]
+            [
+              YulStmt.exprStmt
+                (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.ident "sender"]),
+              YulStmt.let_ "head"
+                (YulExpr.call "add" [YulExpr.ident "sender", YulExpr.ident "gasLimit"]),
+              YulStmt.assign "packed"
+                (YulExpr.call "add" [
+                  YulExpr.ident "head",
+                  YulExpr.call "add" [YulExpr.ident "callDataOffset", YulExpr.ident "callDataLength"]
+                ])
+            ] => true
+        | _ => false
+  | .error _ => false
+
+example : templateIntrinsicCompilationEmitsHelper = true := by
+  native_decide
+
+/--
+error: verity_intrinsic `template` parameter 'wrongName' does not match declared parameter 'gasLimit'
+-/
+#guard_msgs in
+verity_intrinsic entryPointPackTemplateParamMismatch (sender : Uint256, gasLimit : Uint256) : Uint256
+  where pure;
+        yul := [template (sender, wrongName) -> packed := []];
+        min_fork := osaka;
+        semantics := (fun sender gasLimit => Verity.Core.Uint256.ofNat ((sender.val + gasLimit.val) % (2 ^ 256)));
+        obligation [entry_point_pack_template_mismatch := assumed "negative coverage; never elaborated"]
+
+def templateIntrinsicRejectsWrongArity : Bool :=
+  match Compiler.CompilationModel.compileExpr [] .calldata
+      (Compiler.CompilationModel.Expr.intrinsic
+        "entryPointPackInnerCalldata"
+        templateLowering
+        Verity.Core.Intrinsics.HardFork.osaka
+        [ Compiler.CompilationModel.Expr.param "sender"
+        , Compiler.CompilationModel.Expr.param "gasLimit"
+        , Compiler.CompilationModel.Expr.param "callDataOffset"
+        ]) with
+  | .error "Compilation error: intrinsic entryPointPackInnerCalldata template expects 4 arg(s), got 3" => true
+  | _ => false
+
+example : templateIntrinsicRejectsWrongArity = true := by
+  native_decide
 
 end Contracts.Smoke

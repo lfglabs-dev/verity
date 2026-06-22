@@ -41,7 +41,7 @@ def readCodeModule : ExternalCallModule where
   compile := fun _ctx args => do
     match args with
     | [pointer, destOffset, codeOffset, size] =>
-        pure [YulStmt.expr (YulExpr.call "extcodecopy" [pointer, destOffset, codeOffset, size])]
+        pure [YulStmt.exprStmt (YulExpr.call "extcodecopy" [pointer, destOffset, codeOffset, size])]
     | _ =>
         throw s!"sstore2ReadCode expects 4 arguments, got {args.length}"
 

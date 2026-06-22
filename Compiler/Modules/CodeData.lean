@@ -60,7 +60,7 @@ def hasCreate2AndExtcodecopy (stmts : List YulStmt) : Bool :=
     | .let_ _ (.call "create2" _) => true
     | _ => false
   let hasExtcodecopy := stmts.any fun
-    | .expr (.call "extcodecopy" _) => true
+    | .exprStmt (.call "extcodecopy" _) => true
     | _ => false
   hasCreate2 && hasExtcodecopy
 

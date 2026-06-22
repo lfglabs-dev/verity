@@ -664,7 +664,7 @@ private def rawYulTrustSurfaceSpec : CompilationModel := {
         Stmt.unsafeYul {
           label := "manual_memory_refinement"
           stmts := [
-            Compiler.Yul.YulStmt.expr
+            Compiler.Yul.YulStmt.exprStmt
               (Compiler.Yul.YulExpr.call "mstore" [Compiler.Yul.YulExpr.lit 0, Compiler.Yul.YulExpr.lit 1])
           ]
           obligations := [

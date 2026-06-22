@@ -42,7 +42,7 @@ private def calldataLoadName? : YulExpr → Option String
 
 private def hasExtcodecopy : List YulStmt → Bool :=
   fun stmts => stmts.any fun
-    | .expr (.call "extcodecopy" _) => true
+    | .exprStmt (.call "extcodecopy" _) => true
     | _ => false
 
 #eval! do

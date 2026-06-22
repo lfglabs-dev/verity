@@ -65,7 +65,7 @@ inductive TStmt where
   | stop
   | returnUint (value : TExpr .uint256)
   | returnAddr (value : TExpr .address)
-  | expr (value : TExpr .unit)
+  | exprStmt (value : TExpr .unit)
   | emit (eventName : String) (topics : List (TExpr .uint256))
   | rawLog (topics : List (TExpr .uint256)) (dataOffset dataSize : TExpr .uint256)
   | revert (reason : String)
@@ -248,7 +248,7 @@ def evalTStmtFuel : Nat → TExecState → TStmt → TExecResult
   | Nat.succ _, s, .stop => .ok s
   | Nat.succ _, s, .returnUint _ => .ok s
   | Nat.succ _, s, .returnAddr _ => .ok s
-  | Nat.succ _, s, .expr value =>
+  | Nat.succ _, s, .exprStmt value =>
       let _ := evalTExpr s value
       .ok s
   | Nat.succ _, s, .emit eventName topics =>

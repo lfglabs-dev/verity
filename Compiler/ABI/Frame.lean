@@ -89,7 +89,7 @@ def fieldWordName (base : String) (field : FrameField) (idx : Nat) : String :=
 
 def allocateFrame (base : String) (l : FrameLayout) : List YulStmt :=
   [ YulStmt.let_ (ptrName base) (YulExpr.call "mload" [YulExpr.lit 64])
-  , YulStmt.expr (YulExpr.call "mstore"
+  , YulStmt.exprStmt (YulExpr.call "mstore"
       [ YulExpr.lit 64
       , YulExpr.call "add" [YulExpr.ident (ptrName base), YulExpr.lit (frameAllocBytes l)] ])]
 
@@ -134,7 +134,7 @@ private def materializeSourceWord (field : FrameField) (idx : Nat) : YulExpr :=
   | .storage => YulExpr.call "sload" [sourceStorageSlot field idx]
 
 private def spillCodeWord (field : FrameField) (dest offset : YulExpr) : YulStmt :=
-  YulStmt.expr (YulExpr.call "extcodecopy"
+  YulStmt.exprStmt (YulExpr.call "extcodecopy"
     [ YulExpr.ident (sourceBaseName field), dest, offset, YulExpr.lit 32 ])
 
 private def spillStaticField (base : String) (headOffsetWords : Nat) (field : FrameField) : List YulStmt :=
@@ -143,26 +143,26 @@ private def spillStaticField (base : String) (headOffsetWords : Nat) (field : Fr
     match field.source with
     | .code => spillCodeWord field dest (sourceCodeOffset field idx)
     | _ =>
-        YulStmt.expr (YulExpr.call "mstore"
+        YulStmt.exprStmt (YulExpr.call "mstore"
           [dest, materializeSourceWord field idx])
 
 private def spillDynamicField (base : String) (headOffsetWords tailOffsetWords : Nat) (field : FrameField) : List YulStmt :=
   let tailOffsetBytes := tailOffsetWords * 32
   let headDest := YulExpr.call "add" [YulExpr.ident (ptrName base), YulExpr.lit (headOffsetWords * 32)]
-  let head := [YulStmt.expr (YulExpr.call "mstore" [headDest, YulExpr.lit tailOffsetBytes])]
+  let head := [YulStmt.exprStmt (YulExpr.call "mstore" [headDest, YulExpr.lit tailOffsetBytes])]
   let tailWords := dynamicTailWords field
   head ++ (List.range tailWords).map fun idx =>
     let dest := YulExpr.call "add" [YulExpr.ident (ptrName base), YulExpr.lit ((tailOffsetWords + idx) * 32)]
     match field.source with
     | .code => spillCodeWord field dest (dynamicTailByteOffset field idx)
     | .storage =>
-        YulStmt.expr (YulExpr.call "mstore"
+        YulStmt.exprStmt (YulExpr.call "mstore"
           [dest, YulExpr.call "sload" [dynamicTailByteOffset field idx]])
     | .calldata =>
-        YulStmt.expr (YulExpr.call "mstore"
+        YulStmt.exprStmt (YulExpr.call "mstore"
           [dest, YulExpr.call "calldataload" [dynamicTailByteOffset field idx]])
     | .memory =>
-        YulStmt.expr (YulExpr.call "mstore"
+        YulStmt.exprStmt (YulExpr.call "mstore"
           [dest, YulExpr.call "mload" [dynamicTailByteOffset field idx]])
 
 partial def spillFieldsAbi (base : String) (headOffsetWords tailOffsetWords : Nat) : List FrameField → List YulStmt
@@ -187,7 +187,7 @@ def pointerArgs (base : String) (l : FrameLayout) : List YulExpr :=
 
 def inlinePayloadToScratch (words : List YulExpr) : List YulStmt :=
   words.zipIdx.map fun (word, idx) =>
-    YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit (idx * 32), word])
+    YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit (idx * 32), word])
 
 private partial def inlineArgsFrom : List FrameField → List YulExpr
   | [] => []

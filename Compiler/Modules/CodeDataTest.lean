@@ -34,7 +34,7 @@ private def returnCodeDataHasExtentGuard : List YulStmt → Bool
                 .ident "__return_code_offset"
               ]
             ])
-            [YulStmt.expr (.call "revert" [.lit 0, .lit 0])] => true
+            [YulStmt.exprStmt (.call "revert" [.lit 0, .lit 0])] => true
         | _ => false
   | _ => false
 

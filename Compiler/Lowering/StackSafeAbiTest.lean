@@ -24,13 +24,13 @@ private def smallStaticPayload : List FrameField :=
 private def countMstores : List YulStmt → Nat :=
   List.length ∘ List.filter (fun stmt =>
     match stmt with
-    | .expr (.call "mstore" _) => true
+    | .exprStmt (.call "mstore" _) => true
     | _ => false)
 
 private def returnsBytes (bytes : Nat) : List YulStmt → Bool :=
   fun stmts => stmts.any fun stmt =>
     match stmt with
-    | .expr (.call "return" [.lit 0, .lit n]) => n == bytes
+    | .exprStmt (.call "return" [.lit 0, .lit n]) => n == bytes
     | _ => false
 
 private def callsWithInputBytes (bytes : Nat) : List YulStmt → Bool :=
@@ -42,7 +42,7 @@ private def callsWithInputBytes (bytes : Nat) : List YulStmt → Bool :=
 private def logsWithDataBytes (bytes : Nat) : List YulStmt → Bool :=
   fun stmts => stmts.any fun stmt =>
     match stmt with
-    | .expr (.call "log1" [.lit 0, .lit n, .lit topic]) => n == bytes && topic != 0
+    | .exprStmt (.call "log1" [.lit 0, .lit n, .lit topic]) => n == bytes && topic != 0
     | _ => false
 
 #eval! do

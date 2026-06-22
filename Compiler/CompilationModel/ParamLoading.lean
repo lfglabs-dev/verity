@@ -46,13 +46,13 @@ private def genDynamicParamLoads
   let absoluteOffsetLoad := YulStmt.let_ absoluteOffsetName absoluteOffsetExpr
   let absoluteOffset := YulExpr.ident absoluteOffsetName
   let offsetBoundsCheck := YulStmt.if_ (YulExpr.call "lt" [relativeOffset, YulExpr.lit headSize]) [
-    YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+    YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
   ]
   let absoluteBoundsCheck := YulStmt.if_ (YulExpr.call "gt" [
     absoluteOffset,
     YulExpr.call "sub" [sizeExpr, YulExpr.lit 32]
   ]) [
-    YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+    YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
   ]
   let preamble := [offsetLoad, offsetBoundsCheck, absoluteOffsetLoad, absoluteBoundsCheck]
   if isLengthPrefixedDynamicShape ty then
@@ -73,7 +73,7 @@ private def genDynamicParamLoads
               YulExpr.ident s!"{name}_length",
               YulExpr.ident tailRemainingName
             ]) [
-              YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+              YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
             ]]
       | ParamType.array elemTy =>
           let elemWords := dynamicArrayElementStrideWords elemTy
@@ -81,7 +81,7 @@ private def genDynamicParamLoads
               YulExpr.ident s!"{name}_length",
               YulExpr.call "div" [YulExpr.ident tailRemainingName, YulExpr.lit (32 * elemWords)]
             ]) [
-              YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+              YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
             ]]
       | _ => []
     let dataOffsetLoad := YulStmt.let_ s!"{name}_data_offset"
@@ -209,7 +209,7 @@ def genParamLoadsFrom
   let headSize := (params.map (fun p => paramHeadSize p.ty)).foldl (· + ·) 0
   let minInputSizeCheck :=
     YulStmt.if_ (YulExpr.call "lt" [sizeExpr, YulExpr.lit (baseOffset + headSize)]) [
-      YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+      YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
     ]
   minInputSizeCheck :: genParamLoadBodyFrom loadWord sizeExpr headSize baseOffset params headStart
 
@@ -244,7 +244,7 @@ def genConstructorArgLoads (params : List Param) : List YulStmt :=
       YulStmt.let_ "argsOffset" argsOffset,
       YulStmt.let_ "argsSize"
         (YulExpr.call "sub" [YulExpr.call "codesize" [], YulExpr.ident "argsOffset"]),
-      YulStmt.expr (YulExpr.call "codecopy" [YulExpr.lit 0, YulExpr.ident "argsOffset", YulExpr.ident "argsSize"])
+      YulStmt.exprStmt (YulExpr.call "codecopy" [YulExpr.lit 0, YulExpr.ident "argsOffset", YulExpr.ident "argsSize"])
     ]
     let paramLoads := genParamLoadsFrom (fun pos => YulExpr.call "mload" [pos]) (YulExpr.ident "argsSize") 0 0 params
     initcodeArgCopy ++ paramLoads ++ constructorArgAliases params

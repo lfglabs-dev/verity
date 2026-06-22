@@ -123,25 +123,25 @@ theorem compileStmt_core_ok
         by simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, compileRequireFailCondWithInternals_nil_ok hfailCond]⟩
   | return_ hvalue =>
       rcases compileExpr_core_ok (fields := fields) hvalue with ⟨valueIR, hvalueIR⟩
-      exact ⟨[ YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
-            , YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ],
+      exact ⟨[ YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
+            , YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ],
         by simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, compileExprWithInternals_nil_ok hvalueIR]⟩
   | stop =>
-      exact ⟨[YulStmt.expr (YulExpr.call "stop" [])], by
+      exact ⟨[YulStmt.exprStmt (YulExpr.call "stop" [])], by
         rw [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork]
         rfl⟩
   | mstore hoffset hvalue =>
       rename_i offset value
       rcases compileExpr_core_ok (fields := fields) hoffset with ⟨offsetIR, hoffsetIR⟩
       rcases compileExpr_core_ok (fields := fields) hvalue with ⟨valueIR, hvalueIR⟩
-      exact ⟨[YulStmt.expr (YulExpr.call "mstore" [offsetIR, valueIR])],
+      exact ⟨[YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR])],
         by simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, compileExprWithInternals_nil_ok hoffsetIR,
           compileExprWithInternals_nil_ok hvalueIR, Bind.bind, Except.bind, pure, Except.pure]⟩
   | tstore hoffset hvalue =>
       rename_i offset value
       rcases compileExpr_core_ok (fields := fields) hoffset with ⟨offsetIR, hoffsetIR⟩
       rcases compileExpr_core_ok (fields := fields) hvalue with ⟨valueIR, hvalueIR⟩
-      exact ⟨[YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR])],
+      exact ⟨[YulStmt.exprStmt (YulExpr.call "tstore" [offsetIR, valueIR])],
         by simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, compileExprWithInternals_nil_ok hoffsetIR,
           compileExprWithInternals_nil_ok hvalueIR, Bind.bind, Except.bind, pure, Except.pure]⟩
 
@@ -626,8 +626,8 @@ theorem exec_compileStmt_return_core
       stmtResultMatchesIRExec fields sourceResult irExec ∧
       stmtResultMatchesIRExecExact sourceResult irExec := by
   rcases compileExpr_core_ok hcore with ⟨valueIR, hvalueIR⟩
-  refine ⟨[ YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
-          , YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ], ?_, ?_⟩
+  refine ⟨[ YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
+          , YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ], ?_, ?_⟩
   · have hvalueIRInternal := hvalueIR
     rw [← CompilationModel.compileExprWithInternals_nil_eq] at hvalueIRInternal
     rw [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, hvalueIRInternal]
@@ -665,8 +665,8 @@ theorem exec_compileStmt_return_core_extraFuel
       stmtResultMatchesIRExec fields sourceResult irExec ∧
       stmtResultMatchesIRExecExact sourceResult irExec := by
   rcases compileExpr_core_ok hcore with ⟨valueIR, hvalueIR⟩
-  refine ⟨[ YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
-          , YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ], ?_, ?_⟩
+  refine ⟨[ YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
+          , YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ], ?_, ?_⟩
   · have hvalueIRInternal := hvalueIR
     rw [← CompilationModel.compileExprWithInternals_nil_eq] at hvalueIRInternal
     rw [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, hvalueIRInternal]
@@ -686,8 +686,8 @@ theorem exec_compileStmt_return_core_extraFuel
       simp only [SourceSemantics.execStmt, List.length]
       -- Compute the IR execution result
       have hexec : execIRStmts (2 + extraFuel + 1) state
-          [ YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
-          , YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] =
+          [ YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
+          , YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] =
           .return v { state with memory := fun o => if o = 0 then v else state.memory o } := by
         have : 2 + extraFuel + 1 = Nat.succ (Nat.succ (Nat.succ extraFuel)) := by omega
         rw [this]
@@ -715,19 +715,19 @@ theorem exec_compileStmt_stop_core
       let irExec := execIRStmts (bodyIR.length + 1) state bodyIR
       stmtResultMatchesIRExec fields sourceResult irExec ∧
       stmtResultMatchesIRExecExact sourceResult irExec := by
-  refine ⟨[YulStmt.expr (YulExpr.call "stop" [])], ?_, ?_⟩
+  refine ⟨[YulStmt.exprStmt (YulExpr.call "stop" [])], ?_, ?_⟩
   · rw [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork]
     rfl
   · constructor
     · have hirExec :
-          execIRStmts ([YulStmt.expr (YulExpr.call "stop" [])].length + 1) state
-            [YulStmt.expr (YulExpr.call "stop" [])] = .stop state := by
+          execIRStmts ([YulStmt.exprStmt (YulExpr.call "stop" [])].length + 1) state
+            [YulStmt.exprStmt (YulExpr.call "stop" [])] = .stop state := by
         simp [execIRStmts]
       rw [SourceSemantics.execStmt, hirExec]
       exact hruntime
     · have hirExec :
-          execIRStmts ([YulStmt.expr (YulExpr.call "stop" [])].length + 1) state
-            [YulStmt.expr (YulExpr.call "stop" [])] = .stop state := by
+          execIRStmts ([YulStmt.exprStmt (YulExpr.call "stop" [])].length + 1) state
+            [YulStmt.exprStmt (YulExpr.call "stop" [])] = .stop state := by
         simp [execIRStmts]
       rw [SourceSemantics.execStmt, hirExec]
       exact ⟨hexact, hbounded⟩
@@ -746,14 +746,14 @@ theorem exec_compileStmt_stop_core_extraFuel
       let irExec := execIRStmts (bodyIR.length + extraFuel + 1) state bodyIR
       stmtResultMatchesIRExec fields sourceResult irExec ∧
       stmtResultMatchesIRExecExact sourceResult irExec := by
-  refine ⟨[YulStmt.expr (YulExpr.call "stop" [])], ?_, ?_⟩
+  refine ⟨[YulStmt.exprStmt (YulExpr.call "stop" [])], ?_, ?_⟩
   · rw [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork]
     rfl
   · have hirExec :
         execIRStmts
-          ([YulStmt.expr (YulExpr.call "stop" [])].length + extraFuel + 1)
+          ([YulStmt.exprStmt (YulExpr.call "stop" [])].length + extraFuel + 1)
           state
-          [YulStmt.expr (YulExpr.call "stop" [])] = .stop state := by
+          [YulStmt.exprStmt (YulExpr.call "stop" [])] = .stop state := by
       simp [execIRStmts]
     constructor
     · rw [SourceSemantics.execStmt, hirExec]
@@ -967,21 +967,21 @@ theorem compileStmt_core_ok_any_scope
         rfl⟩
   | return_ hvalue =>
       rcases compileExpr_core_ok hvalue with ⟨valueIR, hvalueIR⟩
-      exact ⟨[ YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
-            , YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ], by
+      exact ⟨[ YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
+            , YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ], by
         have hvalueIRInternal := hvalueIR
         rw [← CompilationModel.compileExprWithInternals_nil_eq] at hvalueIRInternal
         rw [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, hvalueIRInternal]
         rfl⟩
   | stop =>
-      exact ⟨[YulStmt.expr (YulExpr.call "stop" [])], by
+      exact ⟨[YulStmt.exprStmt (YulExpr.call "stop" [])], by
         rw [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork]
         rfl⟩
   | mstore hoffset hvalue =>
       rename_i offset value
       rcases compileExpr_core_ok hoffset with ⟨offsetIR, hoffsetIR⟩
       rcases compileExpr_core_ok hvalue with ⟨valueIR, hvalueIR⟩
-      exact ⟨[YulStmt.expr (YulExpr.call "mstore" [offsetIR, valueIR])], by
+      exact ⟨[YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR])], by
         have hoffsetIRInternal := hoffsetIR
         have hvalueIRInternal := hvalueIR
         rw [← CompilationModel.compileExprWithInternals_nil_eq] at hoffsetIRInternal hvalueIRInternal
@@ -991,7 +991,7 @@ theorem compileStmt_core_ok_any_scope
       rename_i offset value
       rcases compileExpr_core_ok hoffset with ⟨offsetIR, hoffsetIR⟩
       rcases compileExpr_core_ok hvalue with ⟨valueIR, hvalueIR⟩
-      exact ⟨[YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR])], by
+      exact ⟨[YulStmt.exprStmt (YulExpr.call "tstore" [offsetIR, valueIR])], by
         have hoffsetIRInternal := hoffsetIR
         have hvalueIRInternal := hvalueIR
         rw [← CompilationModel.compileExprWithInternals_nil_eq] at hoffsetIRInternal hvalueIRInternal
@@ -2720,7 +2720,7 @@ private theorem execIRStmt_mstore_of_eval_anyFuel
     (value : Nat)
     (heval : evalIRExpr state valueExpr = some value) :
     execIRStmt (Nat.succ fuel) state
-      (YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit offset, valueExpr])) =
+      (YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit offset, valueExpr])) =
       .continue { state with memory := fun o => if o = offset then value else state.memory o } := by
   simp [execIRStmt, evalIRExpr, heval]
 
@@ -2733,7 +2733,7 @@ private theorem execIRStmt_mstore_of_eval_nonzeroFuel
     (hfuel : fuel ≠ 0)
     (heval : evalIRExpr state valueExpr = some value) :
     execIRStmt fuel state
-      (YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit offset, valueExpr])) =
+      (YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit offset, valueExpr])) =
       .continue { state with memory := fun o => if o = offset then value else state.memory o } := by
   cases fuel with
   | zero =>
@@ -2746,7 +2746,7 @@ private theorem execIRStmt_return32_of_memory_anyFuel
     (state : IRState)
     (offset : Nat) :
     execIRStmt (Nat.succ fuel) state
-      (YulStmt.expr (YulExpr.call "return" [YulExpr.lit offset, YulExpr.lit 32])) =
+      (YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit offset, YulExpr.lit 32])) =
       .return (state.memory offset) state := by
   simp [execIRStmt, evalIRExpr]
 
@@ -2756,7 +2756,7 @@ private theorem execIRStmt_return32_of_memory_nonzeroFuel
     (offset : Nat)
     (hfuel : fuel ≠ 0) :
     execIRStmt fuel state
-      (YulStmt.expr (YulExpr.call "return" [YulExpr.lit offset, YulExpr.lit 32])) =
+      (YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit offset, YulExpr.lit 32])) =
       .return (state.memory offset) state := by
   cases fuel with
   | zero =>
@@ -2768,7 +2768,7 @@ private theorem execIRStmt_stop_nonzeroFuel
     (fuel : Nat)
     (state : IRState)
     (hfuel : fuel ≠ 0) :
-    execIRStmt fuel state (YulStmt.expr (YulExpr.call "stop" [])) = .stop state := by
+    execIRStmt fuel state (YulStmt.exprStmt (YulExpr.call "stop" [])) = .stop state := by
   cases fuel with
   | zero =>
       exact False.elim (hfuel rfl)
@@ -2787,9 +2787,9 @@ private theorem evalIRExpr_iszero_of_eval
 
 private inductive RevertPrefixStmt : YulStmt → Prop where
   | mstore_lit {offset value : Nat} :
-      RevertPrefixStmt (YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit offset, YulExpr.lit value]))
+      RevertPrefixStmt (YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit offset, YulExpr.lit value]))
   | mstore_hex {offset value : Nat} :
-      RevertPrefixStmt (YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit offset, YulExpr.hex value]))
+      RevertPrefixStmt (YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit offset, YulExpr.hex value]))
 
 private theorem execIRStmt_revertPrefix_continue
     (fuel : Nat) (state : IRState) {stmt : YulStmt}
@@ -2818,7 +2818,7 @@ private theorem execIRStmts_revertPrefix_then_revert
     (hprefix : ∀ stmt ∈ prefixStmts, RevertPrefixStmt stmt) :
     ∃ next,
       execIRStmts fuel state
-        (prefixStmts ++ [YulStmt.expr (YulExpr.call "revert" [YulExpr.lit offset, YulExpr.lit size])]) =
+        (prefixStmts ++ [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit offset, YulExpr.lit size])]) =
           .revert next := by
   induction fuel generalizing state prefixStmts with
   | zero =>
@@ -2850,15 +2850,15 @@ theorem execIRStmts_revertWithMessage_revert
   let len := bytes.length
   let paddedLen := ((len + 31) / 32) * 32
   let header := [
-    YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.hex errorStringSelectorWord]),
-    YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 4, YulExpr.lit 32]),
-    YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 36, YulExpr.lit len])
+    YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.hex errorStringSelectorWord]),
+    YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 4, YulExpr.lit 32]),
+    YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 36, YulExpr.lit len])
   ]
   let dataStmts :=
     (CompilationModel.chunkBytes32 bytes).zipIdx.map fun (chunk, idx) =>
       let offset := 68 + idx * 32
       let word := CompilationModel.wordFromBytes chunk
-      YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit offset, YulExpr.hex word])
+      YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit offset, YulExpr.hex word])
   have hprefix : ∀ stmt ∈ header ++ dataStmts, RevertPrefixStmt stmt := by
     intro stmt hmem
     rcases List.mem_append.mp hmem with hhead | hdata
@@ -3114,8 +3114,8 @@ theorem exec_compileStmtList_core
             hbounded
             (runtimeStateMatchesIR_setBothMemory hruntime 0 retVal hlt) with
           ⟨tailIR, htailCompile, htailSem, htailExact⟩
-        refine ⟨[ YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
-                , YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++ tailIR,
+        refine ⟨[ YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
+                , YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++ tailIR,
           ?_, ?_⟩
         · apply compileStmtListWithFork_cons_eq_ok
           · unfold CompilationModel.compileStmt CompilationModel.compileStmtWithFork
@@ -3130,25 +3130,25 @@ theorem exec_compileStmtList_core
             bindingsExactlyMatchIRVars_setMemory hexact 0 retVal
           have hmstore :
               execIRStmt (tailIR.length + 2) state
-                (YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])) =
+                (YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])) =
                 .continue state' := by
             simp [execIRStmt, evalIRExpr, hIR, state']
           have hreturn :
               execIRStmt (tailIR.length + 1) state'
-                (YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])) =
+                (YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])) =
                 .return retVal state' := by
             simp [execIRStmt, evalIRExpr, state']
           have hirExec :
               execIRStmts (tailIR.length + 3)
                 state
-                (YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR]) ::
-                  YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ::
+                (YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR]) ::
+                  YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ::
                   tailIR) =
                 .return retVal state' := by
             simpa using
               (execIRStmts_two_of_continue_then_return state state' state'
-                (YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR]))
-                (YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]))
+                (YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR]))
+                (YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]))
                 tailIR retVal hmstore hreturn)
           rw [SourceSemantics.execStmtList, SourceSemantics.execStmt, hEvalSrc]
           dsimp [state', runtime']
@@ -3167,22 +3167,22 @@ theorem exec_compileStmtList_core
           (inScopeNames := collectStmtNames (.stop) ++ inScopeNames)
           hscope hexact hbounded hruntime with
         ⟨tailIR, htailCompile, htailSem, htailExact⟩
-      refine ⟨[YulStmt.expr (YulExpr.call "stop" [])] ++ tailIR, ?_, ?_⟩
+      refine ⟨[YulStmt.exprStmt (YulExpr.call "stop" [])] ++ tailIR, ?_, ?_⟩
       · apply compileStmtListWithFork_cons_eq_ok
         · rw [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork]
           rfl
         · exact htailCompile
       · have hstmt :
-            execIRStmt (tailIR.length + 1) state (YulStmt.expr (YulExpr.call "stop" [])) =
+            execIRStmt (tailIR.length + 1) state (YulStmt.exprStmt (YulExpr.call "stop" [])) =
               .stop state := by
           simp [execIRStmt]
         have hirExec :
             execIRStmts (tailIR.length + 2) state
-              (YulStmt.expr (YulExpr.call "stop" []) :: tailIR) =
+              (YulStmt.exprStmt (YulExpr.call "stop" []) :: tailIR) =
               .stop state := by
           simpa using
             (execIRStmts_cons_of_execIRStmt_stop state state
-              (YulStmt.expr (YulExpr.call "stop" [])) tailIR hstmt)
+              (YulStmt.exprStmt (YulExpr.call "stop" [])) tailIR hstmt)
         rw [SourceSemantics.execStmtList, SourceSemantics.execStmt]
         simp [hirExec]
         exact ⟨hruntime, ⟨hexact, hbounded⟩⟩
@@ -3228,7 +3228,7 @@ theorem exec_compileStmtList_core
               (inScopeNames := collectStmtNames (.mstore offset value) ++ inScopeNames)
               hscope hexact' hbounded' hruntime' with
             ⟨tailIR, htailCompile, htailSem, htailExact⟩
-          refine ⟨[YulStmt.expr (YulExpr.call "mstore" [offsetIR, valueIR])] ++ tailIR, ?_, ?_⟩
+          refine ⟨[YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR])] ++ tailIR, ?_, ?_⟩
           · apply compileStmtListWithFork_cons_eq_ok
             · unfold CompilationModel.compileStmt CompilationModel.compileStmtWithFork
               have hoffsetIRInternal := hoffsetIR
@@ -3239,15 +3239,15 @@ theorem exec_compileStmtList_core
             · exact htailCompile
           · have hstmt :
                 execIRStmt (tailIR.length + 1) state
-                  (YulStmt.expr (YulExpr.call "mstore" [offsetIR, valueIR])) = .continue state' := by
+                  (YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR])) = .continue state' := by
               simp [execIRStmt, evalIRExprs, hIROffset, hIRValue, state']
             have hirExec :
                 execIRStmts (tailIR.length + 2) state
-                  (YulStmt.expr (YulExpr.call "mstore" [offsetIR, valueIR]) :: tailIR) =
+                  (YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR]) :: tailIR) =
                     execIRStmts (tailIR.length + 1) state' tailIR := by
               simpa using
                 (execIRStmts_cons_of_execIRStmt_continue state state'
-                  (YulStmt.expr (YulExpr.call "mstore" [offsetIR, valueIR])) tailIR hstmt)
+                  (YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR])) tailIR hstmt)
             rw [SourceSemantics.execStmtList, SourceSemantics.execStmt, hOffsetSrc, hValueSrc]
             simp [hirExec]
             exact ⟨htailSem, htailExact⟩
@@ -3296,7 +3296,7 @@ theorem exec_compileStmtList_core
               (inScopeNames := collectStmtNames (.tstore offset value) ++ inScopeNames)
               hscope hexact' hbounded' hruntime' with
             ⟨tailIR, htailCompile, htailSem, htailExact⟩
-          refine ⟨[YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR])] ++ tailIR, ?_, ?_⟩
+          refine ⟨[YulStmt.exprStmt (YulExpr.call "tstore" [offsetIR, valueIR])] ++ tailIR, ?_, ?_⟩
           · apply compileStmtListWithFork_cons_eq_ok
             · unfold CompilationModel.compileStmt CompilationModel.compileStmtWithFork
               have hoffsetIRInternal := hoffsetIR
@@ -3307,15 +3307,15 @@ theorem exec_compileStmtList_core
             · exact htailCompile
           · have hstmt :
                 execIRStmt (tailIR.length + 1) state
-                  (YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR])) = .continue state' := by
+                  (YulStmt.exprStmt (YulExpr.call "tstore" [offsetIR, valueIR])) = .continue state' := by
               simp [execIRStmt, evalIRExprs, hIROffset, hIRValue, state', offsetKey]
             have hirExec :
                 execIRStmts (tailIR.length + 2) state
-                  (YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR]) :: tailIR) =
+                  (YulStmt.exprStmt (YulExpr.call "tstore" [offsetIR, valueIR]) :: tailIR) =
                     execIRStmts (tailIR.length + 1) state' tailIR := by
               simpa using
                 (execIRStmts_cons_of_execIRStmt_continue state state'
-                  (YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR])) tailIR hstmt)
+                  (YulStmt.exprStmt (YulExpr.call "tstore" [offsetIR, valueIR])) tailIR hstmt)
             rw [SourceSemantics.execStmtList, SourceSemantics.execStmt, hOffsetSrc, hValueSrc]
             simp [hirExec]
             exact ⟨htailSem, htailExact⟩
@@ -3592,8 +3592,8 @@ theorem exec_compileStmtList_core_extraFuel
             hbounded
             (runtimeStateMatchesIR_setBothMemory hruntime 0 retVal hlt) with
           ⟨tailIR, htailCompile, htailSem, htailExact⟩
-        refine ⟨[ YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
-                , YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++ tailIR,
+        refine ⟨[ YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
+                , YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++ tailIR,
           ?_, ?_⟩
         · apply compileStmtListWithFork_cons_eq_ok
           · unfold CompilationModel.compileStmt CompilationModel.compileStmtWithFork
@@ -3608,31 +3608,31 @@ theorem exec_compileStmtList_core_extraFuel
             bindingsExactlyMatchIRVars_setMemory hexact 0 retVal
           have hmstore :
               execIRStmt (tailIR.length + extraFuel + 2) state
-                (YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])) =
+                (YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])) =
                 .continue state' := by
             simp [execIRStmt, evalIRExpr, hIR, state']
           have hreturn :
               execIRStmt (tailIR.length + extraFuel + 1) state'
-                (YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])) =
+                (YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])) =
                 .return retVal state' := by
             simp [execIRStmt, evalIRExpr, state']
           have hirExec :
               execIRStmts (tailIR.length + extraFuel + 3)
                 state
-                (YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR]) ::
-                  YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ::
+                (YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR]) ::
+                  YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ::
                   tailIR) =
                 .return retVal state' := by
             simpa using
               (execIRStmts_two_of_continue_then_return_extraFuel extraFuel state state' state'
-                (YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR]))
-                (YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]))
+                (YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR]))
+                (YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]))
                 tailIR retVal hmstore hreturn)
           have hirExec' :
               execIRStmts (tailIR.length + 1 + 1 + extraFuel + 1)
                 state
-                (YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR]) ::
-                  YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ::
+                (YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR]) ::
+                  YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ::
                   tailIR) =
                 .return retVal state' := by
             simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using hirExec
@@ -3653,26 +3653,26 @@ theorem exec_compileStmtList_core_extraFuel
           (inScopeNames := collectStmtNames (.stop) ++ inScopeNames)
           hscope hexact hbounded hruntime with
         ⟨tailIR, htailCompile, htailSem, htailExact⟩
-      refine ⟨[YulStmt.expr (YulExpr.call "stop" [])] ++ tailIR, ?_, ?_⟩
+      refine ⟨[YulStmt.exprStmt (YulExpr.call "stop" [])] ++ tailIR, ?_, ?_⟩
       · apply compileStmtListWithFork_cons_eq_ok
         · rw [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork]
           rfl
         · exact htailCompile
       · have hstmt :
             execIRStmt (tailIR.length + extraFuel + 1) state
-              (YulStmt.expr (YulExpr.call "stop" [])) =
+              (YulStmt.exprStmt (YulExpr.call "stop" [])) =
               .stop state := by
           simp [execIRStmt]
         have hirExec :
             execIRStmts (tailIR.length + extraFuel + 2) state
-              (YulStmt.expr (YulExpr.call "stop" []) :: tailIR) =
+              (YulStmt.exprStmt (YulExpr.call "stop" []) :: tailIR) =
               .stop state := by
           simpa using
             (execIRStmts_cons_of_execIRStmt_stop_extraFuel extraFuel state state
-              (YulStmt.expr (YulExpr.call "stop" [])) tailIR hstmt)
+              (YulStmt.exprStmt (YulExpr.call "stop" [])) tailIR hstmt)
         have hirExec' :
             execIRStmts (tailIR.length + 1 + extraFuel + 1) state
-              (YulStmt.expr (YulExpr.call "stop" []) :: tailIR) =
+              (YulStmt.exprStmt (YulExpr.call "stop" []) :: tailIR) =
               .stop state := by
           simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using hirExec
         rw [SourceSemantics.execStmtList, SourceSemantics.execStmt]
@@ -3720,7 +3720,7 @@ theorem exec_compileStmtList_core_extraFuel
               (inScopeNames := collectStmtNames (.mstore offset value) ++ inScopeNames)
               hscope hexact' hbounded' hruntime' with
             ⟨tailIR, htailCompile, htailSem, htailExact⟩
-          refine ⟨[YulStmt.expr (YulExpr.call "mstore" [offsetIR, valueIR])] ++ tailIR, ?_, ?_⟩
+          refine ⟨[YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR])] ++ tailIR, ?_, ?_⟩
           · apply compileStmtListWithFork_cons_eq_ok
             · unfold CompilationModel.compileStmt CompilationModel.compileStmtWithFork
               have hoffsetIRInternal := hoffsetIR
@@ -3731,18 +3731,18 @@ theorem exec_compileStmtList_core_extraFuel
             · exact htailCompile
           · have hstmt :
                 execIRStmt (tailIR.length + extraFuel + 1) state
-                  (YulStmt.expr (YulExpr.call "mstore" [offsetIR, valueIR])) = .continue state' := by
+                  (YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR])) = .continue state' := by
               simp [execIRStmt, evalIRExprs, hIROffset, hIRValue, state']
             have hirExec :
                 execIRStmts (tailIR.length + extraFuel + 2) state
-                  (YulStmt.expr (YulExpr.call "mstore" [offsetIR, valueIR]) :: tailIR) =
+                  (YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR]) :: tailIR) =
                     execIRStmts (tailIR.length + extraFuel + 1) state' tailIR := by
               simpa using
                 (execIRStmts_cons_of_execIRStmt_continue_extraFuel extraFuel state state'
-                  (YulStmt.expr (YulExpr.call "mstore" [offsetIR, valueIR])) tailIR hstmt)
+                  (YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR])) tailIR hstmt)
             have hirExec' :
                 execIRStmts (tailIR.length + 1 + extraFuel + 1) state
-                  (YulStmt.expr (YulExpr.call "mstore" [offsetIR, valueIR]) :: tailIR) =
+                  (YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR]) :: tailIR) =
                     execIRStmts (tailIR.length + extraFuel + 1) state' tailIR := by
               simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using hirExec
             rw [SourceSemantics.execStmtList, SourceSemantics.execStmt, hOffsetSrc, hValueSrc]
@@ -3793,7 +3793,7 @@ theorem exec_compileStmtList_core_extraFuel
               (inScopeNames := collectStmtNames (.tstore offset value) ++ inScopeNames)
               hscope hexact' hbounded' hruntime' with
             ⟨tailIR, htailCompile, htailSem, htailExact⟩
-          refine ⟨[YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR])] ++ tailIR, ?_, ?_⟩
+          refine ⟨[YulStmt.exprStmt (YulExpr.call "tstore" [offsetIR, valueIR])] ++ tailIR, ?_, ?_⟩
           · apply compileStmtListWithFork_cons_eq_ok
             · unfold CompilationModel.compileStmt CompilationModel.compileStmtWithFork
               have hoffsetIRInternal := hoffsetIR
@@ -3804,18 +3804,18 @@ theorem exec_compileStmtList_core_extraFuel
             · exact htailCompile
           · have hstmt :
                 execIRStmt (tailIR.length + extraFuel + 1) state
-                  (YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR])) = .continue state' := by
+                  (YulStmt.exprStmt (YulExpr.call "tstore" [offsetIR, valueIR])) = .continue state' := by
               simp [execIRStmt, evalIRExprs, hIROffset, hIRValue, state', offsetKey]
             have hirExec :
                 execIRStmts (tailIR.length + extraFuel + 2) state
-                  (YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR]) :: tailIR) =
+                  (YulStmt.exprStmt (YulExpr.call "tstore" [offsetIR, valueIR]) :: tailIR) =
                     execIRStmts (tailIR.length + extraFuel + 1) state' tailIR := by
               simpa using
                 (execIRStmts_cons_of_execIRStmt_continue_extraFuel extraFuel state state'
-                  (YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR])) tailIR hstmt)
+                  (YulStmt.exprStmt (YulExpr.call "tstore" [offsetIR, valueIR])) tailIR hstmt)
             have hirExec' :
                 execIRStmts (tailIR.length + 1 + extraFuel + 1) state
-                  (YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR]) :: tailIR) =
+                  (YulStmt.exprStmt (YulExpr.call "tstore" [offsetIR, valueIR]) :: tailIR) =
                     execIRStmts (tailIR.length + extraFuel + 1) state' tailIR := by
               simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using hirExec
             rw [SourceSemantics.execStmtList, SourceSemantics.execStmt, hOffsetSrc, hValueSrc]
@@ -6142,12 +6142,12 @@ theorem execIRStmts_compiled_return_core_append_wholeFuel_of_scope
       CompilationModel.compileExpr fields .calldata value = Except.ok valueIR ∧
       execIRStmts
         (sizeOf
-            ([ YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
-             , YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++
+            ([ YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
+             , YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++
               tailIR) + extraFuel + 1)
         state
-        ([ YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
-         , YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++
+        ([ YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
+         , YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++
           tailIR) =
         .return retVal state' := by
   rcases compileExpr_core_ok (fields := fields) hcore with ⟨valueIR, hvalueIR⟩
@@ -6165,61 +6165,61 @@ theorem execIRStmts_compiled_return_core_append_wholeFuel_of_scope
     set state' := { state with memory := fun o => if o = 0 then retVal else state.memory o }
     have hmstoreFuelNeZero :
         sizeOf
-            ([ YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
-             , YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++
+            ([ YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
+             , YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++
               tailIR) + extraFuel ≠ 0 := by
       have hprefixLen :
           2 ≤
-            ([ YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
-             , YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++
+            ([ YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
+             , YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++
               tailIR).length := by
         simp
       have hlen :
-          ([ YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
-           , YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++
+          ([ YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
+           , YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++
             tailIR).length ≤
             sizeOf
-              ([ YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
-               , YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++
+              ([ YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
+               , YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++
                 tailIR) := by
         exact yulStmtList_length_le_sizeOf _
       omega
     have hreturnFuelNeZero :
         sizeOf
-            ([ YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
-             , YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++
+            ([ YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
+             , YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++
               tailIR) + extraFuel - 1 ≠ 0 := by
       have hprefixLen :
           2 ≤
-            ([ YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
-             , YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++
+            ([ YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
+             , YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++
               tailIR).length := by
         simp
       have hlen :
-          ([ YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
-           , YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++
+          ([ YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
+           , YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++
             tailIR).length ≤
             sizeOf
-              ([ YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
-               , YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++
+              ([ YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
+               , YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++
                 tailIR) := by
         exact yulStmtList_length_le_sizeOf _
       omega
     have hmstore :
         execIRStmt
             (sizeOf
-                ([ YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
-                 , YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++
+                ([ YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
+                 , YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++
                   tailIR) + extraFuel)
             state
-            (YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])) =
+            (YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])) =
           .continue state' := by
       simpa [state'] using
         execIRStmt_mstore_of_eval_nonzeroFuel
           (fuel :=
             sizeOf
-              ([ YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
-               , YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++
+              ([ YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
+               , YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++
                 tailIR) + extraFuel)
           (state := state)
           (offset := 0)
@@ -6230,18 +6230,18 @@ theorem execIRStmts_compiled_return_core_append_wholeFuel_of_scope
     have hreturn :
         execIRStmt
             (sizeOf
-                ([ YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
-                 , YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++
+                ([ YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
+                 , YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++
                   tailIR) + extraFuel - 1)
             state'
-            (YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])) =
+            (YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])) =
           .return retVal state' := by
       simpa [state', retVal] using
         execIRStmt_return32_of_memory_nonzeroFuel
           (fuel :=
             sizeOf
-              ([ YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
-               , YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++
+              ([ YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
+               , YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++
                 tailIR) + extraFuel - 1)
           (state := state')
           (offset := 0)
@@ -6252,8 +6252,8 @@ theorem execIRStmts_compiled_return_core_append_wholeFuel_of_scope
       (state := state)
       (mid := state')
       (next := state')
-      (stmt1 := YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR]))
-      (stmt2 := YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]))
+      (stmt1 := YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR]))
+      (stmt2 := YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]))
       (rest := tailIR)
       (value := retVal)
       hmstore
@@ -6264,35 +6264,35 @@ theorem execIRStmts_compiled_stop_core_append_wholeFuel
     {tailIR : List YulStmt}
     {extraFuel : Nat} :
     execIRStmts
-      (sizeOf ([YulStmt.expr (YulExpr.call "stop" [])] ++ tailIR) + extraFuel + 1)
+      (sizeOf ([YulStmt.exprStmt (YulExpr.call "stop" [])] ++ tailIR) + extraFuel + 1)
       state
-      ([YulStmt.expr (YulExpr.call "stop" [])] ++ tailIR) =
+      ([YulStmt.exprStmt (YulExpr.call "stop" [])] ++ tailIR) =
       .stop state := by
   have hstopFuelNeZero :
-      sizeOf ([YulStmt.expr (YulExpr.call "stop" [])] ++ tailIR) + extraFuel ≠ 0 := by
+      sizeOf ([YulStmt.exprStmt (YulExpr.call "stop" [])] ++ tailIR) + extraFuel ≠ 0 := by
     have hprefixLen :
-        1 ≤ ([YulStmt.expr (YulExpr.call "stop" [])] ++ tailIR).length := by
+        1 ≤ ([YulStmt.exprStmt (YulExpr.call "stop" [])] ++ tailIR).length := by
       simp
     have hlen :
-        ([YulStmt.expr (YulExpr.call "stop" [])] ++ tailIR).length ≤
-          sizeOf ([YulStmt.expr (YulExpr.call "stop" [])] ++ tailIR) := by
+        ([YulStmt.exprStmt (YulExpr.call "stop" [])] ++ tailIR).length ≤
+          sizeOf ([YulStmt.exprStmt (YulExpr.call "stop" [])] ++ tailIR) := by
       exact yulStmtList_length_le_sizeOf _
     omega
   have hstop :
       execIRStmt
-          (sizeOf ([YulStmt.expr (YulExpr.call "stop" [])] ++ tailIR) + extraFuel)
+          (sizeOf ([YulStmt.exprStmt (YulExpr.call "stop" [])] ++ tailIR) + extraFuel)
           state
-          (YulStmt.expr (YulExpr.call "stop" [])) =
+          (YulStmt.exprStmt (YulExpr.call "stop" [])) =
         .stop state := by
     exact execIRStmt_stop_nonzeroFuel
-      (fuel := sizeOf ([YulStmt.expr (YulExpr.call "stop" [])] ++ tailIR) + extraFuel)
+      (fuel := sizeOf ([YulStmt.exprStmt (YulExpr.call "stop" [])] ++ tailIR) + extraFuel)
       (state := state)
       hstopFuelNeZero
   exact execIRStmts_singleton_append_of_execIRStmt_stop_wholeFuel
     (extraFuel := extraFuel)
     (state := state)
     (next := state)
-    (stmt := YulStmt.expr (YulExpr.call "stop" []))
+    (stmt := YulStmt.exprStmt (YulExpr.call "stop" []))
     (rest := tailIR)
     hstop
 
@@ -7104,12 +7104,12 @@ theorem stmtResultMatchesIRExec_compiled_return_core_append_wholeFuel_of_scope
       (SourceSemantics.execStmtList fields runtime (.return value :: rest))
       (execIRStmts
         (sizeOf
-            ([ YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
-             , YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++
+            ([ YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
+             , YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++
               tailIR) + extraFuel + 1)
         state
-        ([ YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
-         , YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++
+        ([ YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
+         , YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++
           tailIR)) := by
   -- Use the execution theorem to rewrite the IR side
   rcases execIRStmts_compiled_return_core_append_wholeFuel_of_scope
@@ -7153,9 +7153,9 @@ theorem stmtResultMatchesIRExec_compiled_stop_core_append_wholeFuel
       fields
       (SourceSemantics.execStmtList fields runtime (.stop :: rest))
       (execIRStmts
-        (sizeOf ([YulStmt.expr (YulExpr.call "stop" [])] ++ tailIR) + extraFuel + 1)
+        (sizeOf ([YulStmt.exprStmt (YulExpr.call "stop" [])] ++ tailIR) + extraFuel + 1)
         state
-        ([YulStmt.expr (YulExpr.call "stop" [])] ++ tailIR)) := by
+        ([YulStmt.exprStmt (YulExpr.call "stop" [])] ++ tailIR)) := by
   rw [SourceSemantics.execStmtList, SourceSemantics.execStmt]
   rw [execIRStmts_compiled_stop_core_append_wholeFuel
     (state := state)
@@ -7509,8 +7509,8 @@ theorem exec_compileStmtList_terminal_core_sizeOf_extraFuel
       rcases compileExpr_core_ok hvalue with ⟨valueIR, hvalueIR⟩
       rcases compileStmtList_core_ok (fields := fields) (inScopeNames := collectStmtNames (.return value) ++ inScopeNames) hrest with
         ⟨tailIR, htailCompile⟩
-      refine ⟨[ YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
-              , YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++ tailIR,
+      refine ⟨[ YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
+              , YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++ tailIR,
         ?_, ?_⟩
       · apply compileStmtList_cons_eq_ok
         · unfold CompilationModel.compileStmt CompilationModel.compileStmtWithFork
@@ -7525,7 +7525,7 @@ theorem exec_compileStmtList_terminal_core_sizeOf_extraFuel
       rename_i scope rest
       rcases compileStmtList_core_ok (fields := fields) (inScopeNames := collectStmtNames (.stop) ++ inScopeNames) hrest with
         ⟨tailIR, htailCompile⟩
-      refine ⟨[YulStmt.expr (YulExpr.call "stop" [])] ++ tailIR, ?_, ?_⟩
+      refine ⟨[YulStmt.exprStmt (YulExpr.call "stop" [])] ++ tailIR, ?_, ?_⟩
       · apply compileStmtList_cons_eq_ok
         · rw [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork]
           rfl
@@ -7573,12 +7573,12 @@ theorem exec_compileStmtList_terminal_core_sizeOf_extraFuel
           have hincluded' : scopeNamesIncluded scope
               (collectStmtNames (.mstore offset value) ++ inScopeNames) :=
             scopeNamesIncluded_collectStmtNames_tail hincluded
-          rcases ih (extraFuel + sizeOf (YulStmt.expr (YulExpr.call "mstore" [offsetIR, valueIR])))
+          rcases ih (extraFuel + sizeOf (YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR])))
               (runtime := runtime') (state := state')
               (inScopeNames := collectStmtNames (.mstore offset value) ++ inScopeNames)
               hincluded' hscope' hexact' hbounded' hruntime' with
             ⟨tailIR, htailCompile, htailSem⟩
-          refine ⟨[YulStmt.expr (YulExpr.call "mstore" [offsetIR, valueIR])] ++ tailIR, ?_, ?_⟩
+          refine ⟨[YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR])] ++ tailIR, ?_, ?_⟩
           · apply compileStmtList_cons_eq_ok
             · unfold CompilationModel.compileStmt CompilationModel.compileStmtWithFork
               have hoffsetIRInternal := hoffsetIR
@@ -7588,17 +7588,17 @@ theorem exec_compileStmtList_terminal_core_sizeOf_extraFuel
               rfl
             · exact htailCompile
           · have hstmt :
-                execIRStmt (sizeOf ([YulStmt.expr (YulExpr.call "mstore" [offsetIR, valueIR])] ++ tailIR) + extraFuel) state
-                  (YulStmt.expr (YulExpr.call "mstore" [offsetIR, valueIR])) = .continue state' := by
-              have hfuelNe : sizeOf ([YulStmt.expr (YulExpr.call "mstore" [offsetIR, valueIR])] ++ tailIR) + extraFuel ≠ 0 :=
+                execIRStmt (sizeOf ([YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR])] ++ tailIR) + extraFuel) state
+                  (YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR])) = .continue state' := by
+              have hfuelNe : sizeOf ([YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR])] ++ tailIR) + extraFuel ≠ 0 :=
                 sizeOf_singleton_append_extraFuel_ne_zero _ _ _
-              cases hfuel : sizeOf ([YulStmt.expr (YulExpr.call "mstore" [offsetIR, valueIR])] ++ tailIR) + extraFuel with
+              cases hfuel : sizeOf ([YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR])] ++ tailIR) + extraFuel with
               | zero => exact absurd hfuel hfuelNe
               | succ n =>
                   simp [execIRStmt, evalIRExprs, hIROffset, hIRValue, state']
             have hirExec :=
               execIRStmts_singleton_append_of_execIRStmt_continue_wholeFuel
-                extraFuel state state' (YulStmt.expr (YulExpr.call "mstore" [offsetIR, valueIR])) tailIR hstmt
+                extraFuel state state' (YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR])) tailIR hstmt
             simp only [SourceSemantics.execStmtList, SourceSemantics.execStmt, hOffsetSrc, hValueSrc, hirExec]
             dsimp [runtime', state']
             convert htailSem using 2
@@ -7649,12 +7649,12 @@ theorem exec_compileStmtList_terminal_core_sizeOf_extraFuel
           have hincluded' : scopeNamesIncluded scope
               (collectStmtNames (.tstore offset value) ++ inScopeNames) :=
             scopeNamesIncluded_collectStmtNames_tail hincluded
-          rcases ih (extraFuel + sizeOf (YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR])))
+          rcases ih (extraFuel + sizeOf (YulStmt.exprStmt (YulExpr.call "tstore" [offsetIR, valueIR])))
               (runtime := runtime') (state := state')
               (inScopeNames := collectStmtNames (.tstore offset value) ++ inScopeNames)
               hincluded' hscope' hexact' hbounded' hruntime' with
             ⟨tailIR, htailCompile, htailSem⟩
-          refine ⟨[YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR])] ++ tailIR, ?_, ?_⟩
+          refine ⟨[YulStmt.exprStmt (YulExpr.call "tstore" [offsetIR, valueIR])] ++ tailIR, ?_, ?_⟩
           · apply compileStmtList_cons_eq_ok
             · unfold CompilationModel.compileStmt CompilationModel.compileStmtWithFork
               have hoffsetIRInternal := hoffsetIR
@@ -7664,16 +7664,16 @@ theorem exec_compileStmtList_terminal_core_sizeOf_extraFuel
               rfl
             · exact htailCompile
           · have hstmt :
-                execIRStmt (sizeOf ([YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR])] ++ tailIR) + extraFuel) state
-                  (YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR])) = .continue state' := by
-              have hfuelNe : sizeOf ([YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR])] ++ tailIR) + extraFuel ≠ 0 :=
+                execIRStmt (sizeOf ([YulStmt.exprStmt (YulExpr.call "tstore" [offsetIR, valueIR])] ++ tailIR) + extraFuel) state
+                  (YulStmt.exprStmt (YulExpr.call "tstore" [offsetIR, valueIR])) = .continue state' := by
+              have hfuelNe : sizeOf ([YulStmt.exprStmt (YulExpr.call "tstore" [offsetIR, valueIR])] ++ tailIR) + extraFuel ≠ 0 :=
                 sizeOf_singleton_append_extraFuel_ne_zero _ _ _
-              cases hfuel : sizeOf ([YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR])] ++ tailIR) + extraFuel with
+              cases hfuel : sizeOf ([YulStmt.exprStmt (YulExpr.call "tstore" [offsetIR, valueIR])] ++ tailIR) + extraFuel with
               | zero => exact absurd hfuel hfuelNe
               | succ n => simp [execIRStmt, evalIRExprs, hIROffset, hIRValue, state', offsetKey]
             have hirExec :=
               execIRStmts_singleton_append_of_execIRStmt_continue_wholeFuel
-                extraFuel state state' (YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR])) tailIR hstmt
+                extraFuel state state' (YulStmt.exprStmt (YulExpr.call "tstore" [offsetIR, valueIR])) tailIR hstmt
             simp only [SourceSemantics.execStmtList, SourceSemantics.execStmt, hOffsetSrc, hValueSrc, hirExec]
             dsimp [runtime', state']
             convert htailSem using 2

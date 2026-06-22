@@ -112,7 +112,7 @@ theorem compiledStmtStepWithHelpersAndHelperIR_internalCall
         (SourceSemantics.execStmtWithHelpers spec fields helperFuel runtime
             (Stmt.internalCall calleeName args))
           (execIRStmtsWithInternals runtimeContract (irFuel + 3) state
-            [YulStmt.expr (YulExpr.call
+            [YulStmt.exprStmt (YulExpr.call
               (CompilationModel.internalFunctionYulName calleeName) argExprs)])) :
     CompiledStmtStepWithHelpersAndHelperIR
       runtimeContract spec fields scope
@@ -132,7 +132,7 @@ theorem compiledStmtStepWithHelpersAndHelperIR_internalCall
     exact hargOk.symm
   subst hArgEq
   set singletonIR :=
-    [YulStmt.expr
+    [YulStmt.exprStmt
       (YulExpr.call (CompilationModel.internalFunctionYulName calleeName) argExprs')]
   have hshape' : compiledIR = singletonIR := by
     simpa [singletonIR] using hshape
@@ -253,7 +253,7 @@ structure DirectInternalHelperCallHeadStepBridge
         (SourceSemantics.execStmtWithHelpers spec fields helperFuel runtime
             (Stmt.internalCall calleeName args))
           (execIRStmtsWithInternals runtimeContract (irFuel + 3) state
-            [YulStmt.expr (YulExpr.call
+            [YulStmt.exprStmt (YulExpr.call
               (CompilationModel.internalFunctionYulName calleeName) argExprs)])
 
 structure DirectInternalHelperAssignHeadStepBridge
@@ -321,7 +321,7 @@ structure DirectInternalHelperHeadStepBridgeCatalog
         (SourceSemantics.execStmtWithHelpers spec fields helperFuel runtime
             (Stmt.internalCall calleeName args))
           (execIRStmtsWithInternals runtimeContract (irFuel + 3) state
-            [YulStmt.expr (YulExpr.call
+            [YulStmt.exprStmt (YulExpr.call
               (CompilationModel.internalFunctionYulName calleeName) argExprs)])
   assignCompile :
     ∀ {scope : List String} {names : List String} {calleeName : String} {args : List Expr},
@@ -1141,7 +1141,7 @@ theorem execIRStmtsWithInternals_of_internalCall_compiledHelperWitness
       evalIRExprsWithInternals runtimeContract (irFuel + 1) state argExprs =
         .values argVals state') :
     ∃ helper,
-      compiledIR = [YulStmt.expr
+      compiledIR = [YulStmt.exprStmt
         (YulExpr.call (CompilationModel.internalFunctionYulName calleeName) argExprs)] ∧
       findInternalFunction? runtimeContract
         (CompilationModel.internalFunctionYulName calleeName) = some helper ∧

@@ -49,10 +49,10 @@ private def bubblingValueCallYul
     YulStmt.let_ "__bvc_success" callExpr,
     YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident "__bvc_success"]) [
       YulStmt.let_ "__bvc_rds" (YulExpr.call "returndatasize" []),
-      YulStmt.expr (YulExpr.call "returndatacopy" [
+      YulStmt.exprStmt (YulExpr.call "returndatacopy" [
         YulExpr.lit 0, YulExpr.lit 0, YulExpr.ident "__bvc_rds"
       ]),
-      YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.ident "__bvc_rds"])
+      YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.ident "__bvc_rds"])
     ]
   ]]
 
@@ -82,7 +82,7 @@ def selfDelegateMulticallBytesBody
       [
         YulStmt.let_ "__mc_rel_offset" (YulExpr.call "calldataload" [elementOffsetSlot]),
         YulStmt.if_ (YulExpr.call "lt" [YulExpr.ident "__mc_rel_offset", offsetTableBytes]) [
-          YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+          YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
         ],
         YulStmt.if_ (YulExpr.call "gt" [
           YulExpr.ident "__mc_rel_offset",
@@ -91,14 +91,14 @@ def selfDelegateMulticallBytesBody
             arrayDataOffset
           ]
         ]) [
-          YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+          YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
         ],
         YulStmt.let_ "__mc_head_offset" (YulExpr.call "add" [arrayDataOffset, YulExpr.ident "__mc_rel_offset"]),
         YulStmt.if_ (YulExpr.call "gt" [
           YulExpr.ident "__mc_head_offset",
           YulExpr.call "sub" [YulExpr.call "calldatasize" [], YulExpr.lit 32]
         ]) [
-          YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+          YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
         ],
         YulStmt.let_ "__mc_data_size" (YulExpr.call "calldataload" [YulExpr.ident "__mc_head_offset"]),
         YulStmt.let_ "__mc_data_offset" (YulExpr.call "add" [YulExpr.ident "__mc_head_offset", YulExpr.lit 32]),
@@ -106,14 +106,14 @@ def selfDelegateMulticallBytesBody
           YulExpr.ident "__mc_data_size",
           YulExpr.call "sub" [YulExpr.call "calldatasize" [], YulExpr.ident "__mc_data_offset"]
         ]) [
-          YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+          YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
         ],
-        YulStmt.expr (YulExpr.call "calldatacopy" [
+        YulStmt.exprStmt (YulExpr.call "calldatacopy" [
           ptrExpr,
           YulExpr.ident "__mc_data_offset",
           YulExpr.ident "__mc_data_size"
         ]),
-        YulStmt.expr (YulExpr.call "mstore" [
+        YulStmt.exprStmt (YulExpr.call "mstore" [
           YulExpr.lit freeMemoryPointer,
           YulExpr.call "add" [ptrExpr, paddedSizeExpr]
         ]),
@@ -127,10 +127,10 @@ def selfDelegateMulticallBytesBody
         ]),
         YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident successName]) [
           YulStmt.let_ rdsName (YulExpr.call "returndatasize" []),
-          YulStmt.expr (YulExpr.call "returndatacopy" [
+          YulStmt.exprStmt (YulExpr.call "returndatacopy" [
             YulExpr.lit 0, YulExpr.lit 0, YulExpr.ident rdsName
           ]),
-          YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.ident rdsName])
+          YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.ident rdsName])
         ]
       ]
   ]
@@ -167,16 +167,16 @@ def withReturnModule (resultVar : String) (selector : Nat) (numArgs : Nat) (isSt
     let selectorExpr := YulExpr.call "shl" [YulExpr.lit 224, YulExpr.hex selector]
     let ptrName := "__ecwr_ptr"
     let ptrExpr := YulExpr.ident ptrName
-    let storeSelector := YulStmt.expr (YulExpr.call "mstore" [ptrExpr, selectorExpr])
+    let storeSelector := YulStmt.exprStmt (YulExpr.call "mstore" [ptrExpr, selectorExpr])
     let storeArgs := argExprs.zipIdx.map fun (argExpr, i) =>
-      YulStmt.expr (YulExpr.call "mstore" [
+      YulStmt.exprStmt (YulExpr.call "mstore" [
         YulExpr.call "add" [ptrExpr, YulExpr.lit (4 + i * 32)],
         argExpr
       ])
     let calldataSize := 4 + numArgs * 32
     let frameSize := ((Nat.max calldataSize 32 + 31) / 32) * 32
     let loadPtr := YulStmt.let_ ptrName (YulExpr.call "mload" [YulExpr.lit freeMemoryPointer])
-    let advancePtr := YulStmt.expr (YulExpr.call "mstore" [
+    let advancePtr := YulStmt.exprStmt (YulExpr.call "mstore" [
       YulExpr.lit freeMemoryPointer,
       YulExpr.call "add" [ptrExpr, YulExpr.lit frameSize]
     ])
@@ -199,11 +199,11 @@ def withReturnModule (resultVar : String) (selector : Nat) (numArgs : Nat) (isSt
     let letSuccess := YulStmt.let_ "__ecwr_success" callExpr
     let revertBlock := YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident "__ecwr_success"]) [
       YulStmt.let_ "__ecwr_rds" (YulExpr.call "returndatasize" []),
-      YulStmt.expr (YulExpr.call "returndatacopy" [YulExpr.lit 0, YulExpr.lit 0, YulExpr.ident "__ecwr_rds"]),
-      YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.ident "__ecwr_rds"])
+      YulStmt.exprStmt (YulExpr.call "returndatacopy" [YulExpr.lit 0, YulExpr.lit 0, YulExpr.ident "__ecwr_rds"]),
+      YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.ident "__ecwr_rds"])
     ]
     let sizeCheck := YulStmt.if_ (YulExpr.call "lt" [YulExpr.call "returndatasize" [], YulExpr.lit 32]) [
-      YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+      YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
     ]
     let bindResult := YulStmt.let_ resultVar (YulExpr.lit 0)
     let assignResult := YulStmt.assign resultVar (YulExpr.call "mload" [ptrExpr])
@@ -247,16 +247,16 @@ def noReturnModule (selector : Nat) (numArgs : Nat) (isStatic : Bool := false)
     let selectorExpr := YulExpr.call "shl" [YulExpr.lit 224, YulExpr.hex selector]
     let ptrName := "__ecnr_ptr"
     let ptrExpr := YulExpr.ident ptrName
-    let storeSelector := YulStmt.expr (YulExpr.call "mstore" [ptrExpr, selectorExpr])
+    let storeSelector := YulStmt.exprStmt (YulExpr.call "mstore" [ptrExpr, selectorExpr])
     let storeArgs := argExprs.zipIdx.map fun (argExpr, i) =>
-      YulStmt.expr (YulExpr.call "mstore" [
+      YulStmt.exprStmt (YulExpr.call "mstore" [
         YulExpr.call "add" [ptrExpr, YulExpr.lit (4 + i * 32)],
         argExpr
       ])
     let calldataSize := 4 + numArgs * 32
     let frameSize := ((Nat.max calldataSize 32 + 31) / 32) * 32
     let loadPtr := YulStmt.let_ ptrName (YulExpr.call "mload" [YulExpr.lit freeMemoryPointer])
-    let advancePtr := YulStmt.expr (YulExpr.call "mstore" [
+    let advancePtr := YulStmt.exprStmt (YulExpr.call "mstore" [
       YulExpr.lit freeMemoryPointer,
       YulExpr.call "add" [ptrExpr, YulExpr.lit frameSize]
     ])
@@ -281,8 +281,8 @@ def noReturnModule (selector : Nat) (numArgs : Nat) (isStatic : Bool := false)
     -- do NOT check returndatasize or decode a return value
     let revertBlock := YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident "__ecnr_success"]) [
       YulStmt.let_ "__ecnr_rds" (YulExpr.call "returndatasize" []),
-      YulStmt.expr (YulExpr.call "returndatacopy" [YulExpr.lit 0, YulExpr.lit 0, YulExpr.ident "__ecnr_rds"]),
-      YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.ident "__ecnr_rds"])
+      YulStmt.exprStmt (YulExpr.call "returndatacopy" [YulExpr.lit 0, YulExpr.lit 0, YulExpr.ident "__ecnr_rds"]),
+      YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.ident "__ecnr_rds"])
     ]
     pure [YulStmt.block ([loadPtr, storeSelector] ++ storeArgs ++ [advancePtr, letSuccess, revertBlock])]
 
@@ -388,10 +388,10 @@ def callWithValueModule : ExternalCallModule where
         let letSuccess := YulStmt.let_ "__cwv_success" callExpr
         let revertBlock := YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident "__cwv_success"]) [
           YulStmt.let_ "__cwv_rds" (YulExpr.call "returndatasize" []),
-          YulStmt.expr (YulExpr.call "returndatacopy" [
+          YulStmt.exprStmt (YulExpr.call "returndatacopy" [
             YulExpr.lit 0, YulExpr.lit 0, YulExpr.ident "__cwv_rds"
           ]),
-          YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.ident "__cwv_rds"])
+          YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.ident "__cwv_rds"])
         ]
         pure [YulStmt.block [letSuccess, revertBlock]]
     | _ =>
@@ -435,7 +435,7 @@ def callWithValueBytesModule (bytesParam : String) : ExternalCallModule where
           YulExpr.call "add" [dataSizeExpr, YulExpr.lit 31],
           YulExpr.call "not" [YulExpr.lit 31]
         ])
-        let advancePtr := YulStmt.expr (YulExpr.call "mstore" [
+        let advancePtr := YulStmt.exprStmt (YulExpr.call "mstore" [
           YulExpr.lit freeMemoryPointer,
           YulExpr.call "add" [ptrExpr, YulExpr.ident paddedName]
         ])
@@ -449,10 +449,10 @@ def callWithValueBytesModule (bytesParam : String) : ExternalCallModule where
         let letSuccess := YulStmt.let_ "__cwv_success" callExpr
         let revertBlock := YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident "__cwv_success"]) [
           YulStmt.let_ "__cwv_rds" (YulExpr.call "returndatasize" []),
-          YulStmt.expr (YulExpr.call "returndatacopy" [
+          YulStmt.exprStmt (YulExpr.call "returndatacopy" [
             YulExpr.lit 0, YulExpr.lit 0, YulExpr.ident "__cwv_rds"
           ]),
-          YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.ident "__cwv_rds"])
+          YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.ident "__cwv_rds"])
         ]
         pure [YulStmt.block ([loadPtr] ++ copyData ++ [computePadded, advancePtr, letSuccess, revertBlock])]
     | _ =>

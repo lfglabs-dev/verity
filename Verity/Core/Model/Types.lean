@@ -463,7 +463,7 @@ partial def yulStmtScopeEffects : YulStmt → StmtScopeEffects
   | .assign name value =>
       { assignNames := [name]
         storageWrites := if yulExprWritesStorage value then ["<raw-yul-storage-write>"] else [] }
-  | .expr expr =>
+  | .exprStmt expr =>
       { storageWrites := if yulExprWritesStorage expr then ["<raw-yul-storage-write>"] else [] }
   | .if_ cond body =>
       let bodyEffects := yulStmtListScopeEffects body
@@ -530,7 +530,7 @@ partial def yulExprListContainsExternalCall : List YulExpr → Bool
 partial def yulStmtContainsExternalCall : YulStmt → Bool
   | .comment _ | .leave =>
       false
-  | .let_ _ value | .letMany _ value | .assign _ value | .expr value =>
+  | .let_ _ value | .letMany _ value | .assign _ value | .exprStmt value =>
       yulExprContainsExternalCall value
   | .if_ cond body =>
       yulExprContainsExternalCall cond || yulStmtListContainsExternalCall body
@@ -656,7 +656,7 @@ namespace UnsafeYulFragment
 def rawRevert (offset size : YulExpr) (obligation : LocalObligation)
     (label : String := obligation.name) : UnsafeYulFragment := {
   label := label
-  stmts := [YulStmt.expr (YulExpr.call "revert" [offset, size])]
+  stmts := [YulStmt.exprStmt (YulExpr.call "revert" [offset, size])]
   obligations := [obligation]
   contracts := [UnsafeYulContract.rawRevert obligation.name obligation.obligation]
   mechanics := [.rawRevert]

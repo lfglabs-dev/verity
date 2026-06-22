@@ -30,7 +30,7 @@ private def tVarIdNamed? (vars : List TVar) (name : String) : Option Nat :=
 
 private def returnedWordName? : List Compiler.Yul.YulStmt → Option String
   | [] => none
-  | .expr (.call "mstore" [.lit 0, .ident name]) :: .expr (.call "return" [.lit 0, .lit 32]) :: _ =>
+  | .exprStmt (.call "mstore" [.lit 0, .ident name]) :: .exprStmt (.call "return" [.lit 0, .lit 32]) :: _ =>
       some name
   | _ :: rest => returnedWordName? rest
 
@@ -150,8 +150,8 @@ def compileChainidLoweringShapeOk : Bool :=
       contains rendered "returnUint" &&
       contains rendered "chainid" &&
       match lowerTStmts st.2.body.toList with
-      | [ .expr (.call "mstore" [.lit 0, .call "chainid" []])
-        , .expr (.call "return" [.lit 0, .lit 32]) ] => true
+      | [ .exprStmt (.call "mstore" [.lit 0, .call "chainid" []])
+        , .exprStmt (.call "return" [.lit 0, .lit 32]) ] => true
       | _ => false
   | .error _ => false
 
@@ -298,7 +298,7 @@ def compileRawLogLoweringShapeOk : Bool :=
         (Compiler.CompilationModel.Expr.literal 64)]).run {} with
   | .ok st =>
       match lowerTStmts st.2.body.toList with
-      | [.expr (.call "log2" [.lit 0, .lit 64, .lit 1, .lit 2])] => true
+      | [.exprStmt (.call "log2" [.lit 0, .lit 64, .lit 1, .lit 2])] => true
       | _ => false
   | .error _ => false
 
@@ -345,7 +345,7 @@ def compileEmitLoweringShapeOk : Bool :=
         [Compiler.CompilationModel.Expr.literal 1, Compiler.CompilationModel.Expr.literal 2]]).run {} with
   | .ok st =>
       match lowerTStmts st.2.body.toList with
-      | [.expr (.call "log3" [.lit 0, .lit 0, .lit _, .lit 1, .lit 2])] => true
+      | [.exprStmt (.call "log3" [.lit 0, .lit 0, .lit _, .lit 1, .lit 2])] => true
       | _ => false
   | .error _ => false
 
@@ -362,8 +362,8 @@ def compileEmitEncodesDistinctTopic0 : Bool :=
         ]]).run {} with
   | .ok st1, .ok st2 =>
       match lowerTStmts st1.2.body.toList, lowerTStmts st2.2.body.toList with
-      | [.expr (.call "log3" [.lit 0, .lit 0, .lit t1, .lit 1, .lit 2])],
-        [.expr (.call "log3" [.lit 0, .lit 0, .lit t2, .lit 1, .lit 2])] => t1 != t2
+      | [.exprStmt (.call "log3" [.lit 0, .lit 0, .lit t1, .lit 1, .lit 2])],
+        [.exprStmt (.call "log3" [.lit 0, .lit 0, .lit t2, .lit 1, .lit 2])] => t1 != t2
       | _, _ => false
   | _, _ => false
 
@@ -547,19 +547,19 @@ example :
 /-- Lowering emits `log2` for typed raw logs with two topics. -/
 example :
     lowerTStmts [TStmt.rawLog [TExpr.uintLit 1, TExpr.uintLit 2] (TExpr.uintLit 0) (TExpr.uintLit 64)] =
-      [.expr (.call "log2" [.lit 0, .lit 64, .lit 1, .lit 2])] := by
+      [.exprStmt (.call "log2" [.lit 0, .lit 64, .lit 1, .lit 2])] := by
   rfl
 
 /-- Lowering emits `log0` when the topic list is empty. -/
 example :
     lowerTStmts [TStmt.rawLog [] (TExpr.uintLit 0) (TExpr.uintLit 32)] =
-      [.expr (.call "log0" [.lit 0, .lit 32])] := by
+      [.exprStmt (.call "log0" [.lit 0, .lit 32])] := by
   rfl
 
 /-- Lowering emits `log3` for typed `emit` with two indexed args. -/
 example :
     lowerTStmts [TStmt.emit "Transfer" [TExpr.uintLit 1, TExpr.uintLit 2]] =
-      [.expr (.call "log3" [.lit 0, .lit 0, .lit (typedEventNameTopicWord "Transfer"), .lit 1, .lit 2])] := by
+      [.exprStmt (.call "log3" [.lit 0, .lit 0, .lit (typedEventNameTopicWord "Transfer"), .lit 1, .lit 2])] := by
   rfl
 
 def counterTmp : TVar := { id := 10, ty := .uint256 }
@@ -578,7 +578,7 @@ def counterIncrementTBlock : TBlock where
 def counterIncrementIR : List YulStmt :=
   [ .let_ "tmp" (.call "sload" [.lit 0])
   , .assign "tmp" (.call "add" [.ident "tmp", .lit 1])
-  , .expr (.call "sstore" [.lit 0, .ident "tmp"])
+  , .exprStmt (.call "sstore" [.lit 0, .ident "tmp"])
   ]
 
 def counterTypedInitWorld : Verity.ContractState :=
@@ -638,7 +638,7 @@ def simpleStorageStoreTBlock : TBlock where
 
 /-- Existing untyped IR program equivalent to `simpleStorageStoreTBlock`. -/
 def simpleStorageStoreIR : List YulStmt :=
-  [ .expr (.call "sstore" [.lit 0, .ident "value"]) ]
+  [ .exprStmt (.call "sstore" [.lit 0, .ident "value"]) ]
 
 def simpleStorageTypedInitWorld : Verity.ContractState :=
   { «storage» := fun i => if i = 0 then 5 else 0
@@ -1571,8 +1571,8 @@ def compiledAddressHelpersSmokeGetDelegateBody : Bool :=
       match block.params, lowerTStmts block.body with
       | [ownerParam],
         [ .let_ delegateName delegateRead
-        , .expr (.call "mstore" [.lit 0, .ident delegateName'])
-        , .expr (.call "return" [.lit 0, .lit 32])
+        , .exprStmt (.call "mstore" [.lit 0, .ident delegateName'])
+        , .exprStmt (.call "return" [.lit 0, .lit 32])
         ] =>
             isMappingLoadExpr 0 (tVarName ownerParam) delegateRead &&
             delegateName' == delegateName
@@ -1632,8 +1632,8 @@ def compiledAddressHelpersSmokeGetOwnerForIdBody : Bool :=
       match block.params, lowerTStmts block.body with
       | [tokenParam],
         [ .let_ ownerName ownerRead
-        , .expr (.call "mstore" [.lit 0, .ident ownerName'])
-        , .expr (.call "return" [.lit 0, .lit 32])
+        , .exprStmt (.call "mstore" [.lit 0, .ident ownerName'])
+        , .exprStmt (.call "return" [.lit 0, .lit 32])
         ] =>
             isMappingLoadExpr 1 (tVarName tokenParam) ownerRead &&
             ownerName' == ownerName
@@ -3081,14 +3081,14 @@ example : erc20MintNonOwnerAgreement = true := by
 /-- Recognize the lowered owner-existence guard emitted from `not (owner == 0)`. -/
 def isOwnerExistsSwitch (ownerName : String) : Compiler.Yul.YulStmt → Bool
   | .switch (.call "iszero" [.call "eq" [.ident ownerName', .lit 0]])
-      [(1, [])] (some [.expr (.call "revert" [.lit 0, .lit 0])]) =>
+      [(1, [])] (some [.exprStmt (.call "revert" [.lit 0, .lit 0])]) =>
       ownerName' == ownerName
   | _ => false
 
 /-- Recognize the lowered owner-match guard emitted from `addrToUint(ownerAddr) == ownerWord`. -/
 def isOwnerMatchSwitch (ownerAddrName ownerWordName : String) : Compiler.Yul.YulStmt → Bool
   | .switch (.call "eq" [.ident ownerAddrName', .ident ownerWordName'])
-      [(1, [])] (some [.expr (.call "revert" [.lit 0, .lit 0])]) =>
+      [(1, [])] (some [.exprStmt (.call "revert" [.lit 0, .lit 0])]) =>
       ownerAddrName' == ownerAddrName && ownerWordName' == ownerWordName
   | _ => false
 
@@ -3103,8 +3103,8 @@ def compiledERC721GetApprovedHasExpectedBody : Bool :=
         [ .let_ ownerWordName ownerRead
         , ownerExistsGuard
         , .let_ approvedWordName approvalRead
-        , .expr (.call "mstore" [.lit 0, .ident approvedWordName'])
-        , .expr (.call "return" [.lit 0, .lit 32])
+        , .exprStmt (.call "mstore" [.lit 0, .ident approvedWordName'])
+        , .exprStmt (.call "return" [.lit 0, .lit 32])
         ] =>
             let tokenName := tVarName tokenIdParam
             isMappingLoadExpr 4 tokenName ownerRead &&
@@ -3178,9 +3178,9 @@ def compiledERC721ApproveHasExpectedBody : Bool :=
         , ownerExistsGuard
         , .let_ ownerAddrName (.ident senderWordName')
         , ownerMatchGuard
-        , .expr (.call "sstore"
+        , .exprStmt (.call "sstore"
             [.call "mappingSlot" [.lit 5, .ident tokenName'], .ident approvedName'])
-        , .expr (.call "stop" [])
+        , .exprStmt (.call "stop" [])
         ] =>
             let tokenName := tVarName tokenIdParam
             let approvedName := tVarName approvedParam

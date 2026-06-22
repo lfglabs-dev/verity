@@ -23,8 +23,8 @@ def simpleStorageIRContract : IRContract :=
         ret := IRType.unit
         body := [
           YulStmt.let_ "value" (YulExpr.call "calldataload" [YulExpr.lit 4]),
-          YulStmt.expr (YulExpr.call "sstore" [YulExpr.lit 0, YulExpr.ident "value"]),
-          YulStmt.expr (YulExpr.call "stop" [])
+          YulStmt.exprStmt (YulExpr.call "sstore" [YulExpr.lit 0, YulExpr.ident "value"]),
+          YulStmt.exprStmt (YulExpr.call "stop" [])
         ]
       },
       { name := "retrieve"
@@ -32,8 +32,8 @@ def simpleStorageIRContract : IRContract :=
         params := []
         ret := IRType.uint256
         body := [
-          YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.call "sload" [YulExpr.lit 0]]),
-          YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])
+          YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.call "sload" [YulExpr.lit 0]]),
+          YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])
         ]
       }
     ]
@@ -49,11 +49,11 @@ def counterIRContract : IRContract :=
         params := []
         ret := IRType.unit
         body := [
-          YulStmt.expr (YulExpr.call "sstore" [
+          YulStmt.exprStmt (YulExpr.call "sstore" [
             YulExpr.lit 0,
             YulExpr.call "add" [YulExpr.call "sload" [YulExpr.lit 0], YulExpr.lit (1 % (2 ^ 256))]
           ]),
-          YulStmt.expr (YulExpr.call "stop" [])
+          YulStmt.exprStmt (YulExpr.call "stop" [])
         ]
       },
       { name := "decrement"
@@ -61,11 +61,11 @@ def counterIRContract : IRContract :=
         params := []
         ret := IRType.unit
         body := [
-          YulStmt.expr (YulExpr.call "sstore" [
+          YulStmt.exprStmt (YulExpr.call "sstore" [
             YulExpr.lit 0,
             YulExpr.call "sub" [YulExpr.call "sload" [YulExpr.lit 0], YulExpr.lit (1 % (2 ^ 256))]
           ]),
-          YulStmt.expr (YulExpr.call "stop" [])
+          YulStmt.exprStmt (YulExpr.call "stop" [])
         ]
       },
       { name := "getCount"
@@ -73,8 +73,8 @@ def counterIRContract : IRContract :=
         params := []
         ret := IRType.uint256
         body := [
-          YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.call "sload" [YulExpr.lit 0]]),
-          YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])
+          YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.call "sload" [YulExpr.lit 0]]),
+          YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])
         ]
       }
     ]
@@ -93,9 +93,9 @@ def vaultMinimalIRContract : IRContract :=
         params := []
         ret := IRType.uint256
         body := [
-          YulStmt.expr (YulExpr.call "mstore"
+          YulStmt.exprStmt (YulExpr.call "mstore"
             [YulExpr.lit 0, YulExpr.call "sload" [YulExpr.lit 0]]),
-          YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])
+          YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])
         ]
       }
     ]
@@ -115,9 +115,9 @@ def erc20MinimalIRContract : IRContract :=
         params := []
         ret := IRType.uint256
         body := [
-          YulStmt.expr (YulExpr.call "mstore"
+          YulStmt.exprStmt (YulExpr.call "mstore"
             [YulExpr.lit 0, YulExpr.call "sload" [YulExpr.lit 1]]),
-          YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])
+          YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])
         ]
       }
     ]
@@ -125,38 +125,38 @@ def erc20MinimalIRContract : IRContract :=
 
 def safeCounterOverflowRevert : List YulStmt :=
   [
-    YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.hex errorStringSelectorWord]),
-    YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 4, YulExpr.lit 32]),
-    YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 36, YulExpr.lit 21]),
-    YulStmt.expr (YulExpr.call "mstore" [
+    YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.hex errorStringSelectorWord]),
+    YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 4, YulExpr.lit 32]),
+    YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 36, YulExpr.lit 21]),
+    YulStmt.exprStmt (YulExpr.call "mstore" [
       YulExpr.lit 68,
       YulExpr.hex 0x4f766572666c6f7720696e20696e6372656d656e740000000000000000000000
     ]),
-    YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 100])
+    YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 100])
   ]
 
 def safeCounterUnderflowRevert : List YulStmt :=
   [
-    YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.hex errorStringSelectorWord]),
-    YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 4, YulExpr.lit 32]),
-    YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 36, YulExpr.lit 22]),
-    YulStmt.expr (YulExpr.call "mstore" [
+    YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.hex errorStringSelectorWord]),
+    YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 4, YulExpr.lit 32]),
+    YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 36, YulExpr.lit 22]),
+    YulStmt.exprStmt (YulExpr.call "mstore" [
       YulExpr.lit 68,
       YulExpr.hex 0x556e646572666c6f7720696e2064656372656d656e7400000000000000000000
     ]),
-    YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 100])
+    YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 100])
   ]
 
 def insufficientBalanceRevert : List YulStmt :=
   [
-    YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.hex errorStringSelectorWord]),
-    YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 4, YulExpr.lit 32]),
-    YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 36, YulExpr.lit 20]),
-    YulStmt.expr (YulExpr.call "mstore" [
+    YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.hex errorStringSelectorWord]),
+    YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 4, YulExpr.lit 32]),
+    YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 36, YulExpr.lit 20]),
+    YulStmt.exprStmt (YulExpr.call "mstore" [
       YulExpr.lit 68,
       YulExpr.hex 0x496e73756666696369656e742062616c616e6365000000000000000000000000
     ]),
-    YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 100])
+    YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 100])
   ]
 
 /-- Concrete IR contract for SafeCounter. -/
@@ -174,8 +174,8 @@ def safeCounterIRContract : IRContract :=
           YulStmt.if_
             (YulExpr.call "iszero" [YulExpr.call "gt" [YulExpr.ident "newCount", YulExpr.ident "count"]])
             safeCounterOverflowRevert,
-          YulStmt.expr (YulExpr.call "sstore" [YulExpr.lit 0, YulExpr.ident "newCount"]),
-          YulStmt.expr (YulExpr.call "stop" [])
+          YulStmt.exprStmt (YulExpr.call "sstore" [YulExpr.lit 0, YulExpr.ident "newCount"]),
+          YulStmt.exprStmt (YulExpr.call "stop" [])
         ]
       },
       { name := "decrement"
@@ -186,11 +186,11 @@ def safeCounterIRContract : IRContract :=
           YulStmt.let_ "count" (YulExpr.call "sload" [YulExpr.lit 0]),
           YulStmt.if_ (YulExpr.call "lt" [YulExpr.ident "count", YulExpr.lit (1 % (2 ^ 256))])
             safeCounterUnderflowRevert,
-          YulStmt.expr (YulExpr.call "sstore" [
+          YulStmt.exprStmt (YulExpr.call "sstore" [
             YulExpr.lit 0,
             YulExpr.call "sub" [YulExpr.ident "count", YulExpr.lit (1 % (2 ^ 256))]
           ]),
-          YulStmt.expr (YulExpr.call "stop" [])
+          YulStmt.exprStmt (YulExpr.call "stop" [])
         ]
       },
       { name := "getCount"
@@ -198,8 +198,8 @@ def safeCounterIRContract : IRContract :=
         params := []
         ret := IRType.uint256
         body := [
-          YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.call "sload" [YulExpr.lit 0]]),
-          YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])
+          YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.call "sload" [YulExpr.lit 0]]),
+          YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])
         ]
       }
     ]
@@ -207,14 +207,14 @@ def safeCounterIRContract : IRContract :=
 
 def ownedNotOwnerRevert : List YulStmt :=
   [
-    YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.hex errorStringSelectorWord]),
-    YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 4, YulExpr.lit 32]),
-    YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 36, YulExpr.lit 9]),
-    YulStmt.expr (YulExpr.call "mstore" [
+    YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.hex errorStringSelectorWord]),
+    YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 4, YulExpr.lit 32]),
+    YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 36, YulExpr.lit 9]),
+    YulStmt.exprStmt (YulExpr.call "mstore" [
       YulExpr.lit 68,
       YulExpr.hex 0x4e6f74206f776e65720000000000000000000000000000000000000000000000
     ]),
-    YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 100])
+    YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 100])
   ]
 
 /-- Concrete IR contract for Owned. -/
@@ -222,9 +222,9 @@ def ownedIRContract : IRContract :=
   { name := "Owned"
     deploy := [
       YulStmt.let_ "argsOffset" (YulExpr.call "sub" [YulExpr.call "codesize" [], YulExpr.lit 32]),
-      YulStmt.expr (YulExpr.call "codecopy" [YulExpr.lit 0, YulExpr.ident "argsOffset", YulExpr.lit 32]),
+      YulStmt.exprStmt (YulExpr.call "codecopy" [YulExpr.lit 0, YulExpr.ident "argsOffset", YulExpr.lit 32]),
       YulStmt.let_ "arg0" (YulExpr.call "and" [YulExpr.call "mload" [YulExpr.lit 0], YulExpr.hex addressMask]),
-      YulStmt.expr (YulExpr.call "sstore" [YulExpr.lit 0, YulExpr.ident "arg0"])
+      YulStmt.exprStmt (YulExpr.call "sstore" [YulExpr.lit 0, YulExpr.ident "arg0"])
     ]
     functions := [
       { name := "transferOwnership"
@@ -239,8 +239,8 @@ def ownedIRContract : IRContract :=
           YulStmt.if_
             (YulExpr.call "iszero" [YulExpr.call "eq" [YulExpr.call "caller" [], YulExpr.call "sload" [YulExpr.lit 0]]])
             ownedNotOwnerRevert,
-          YulStmt.expr (YulExpr.call "sstore" [YulExpr.lit 0, YulExpr.ident "newOwner"]),
-          YulStmt.expr (YulExpr.call "stop" [])
+          YulStmt.exprStmt (YulExpr.call "sstore" [YulExpr.lit 0, YulExpr.ident "newOwner"]),
+          YulStmt.exprStmt (YulExpr.call "stop" [])
         ]
       },
       { name := "getOwner"
@@ -248,8 +248,8 @@ def ownedIRContract : IRContract :=
         params := []
         ret := IRType.address
         body := [
-          YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.call "sload" [YulExpr.lit 0]]),
-          YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])
+          YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.call "sload" [YulExpr.lit 0]]),
+          YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])
         ]
       }
     ]
@@ -260,9 +260,9 @@ def ownedCounterIRContract : IRContract :=
   { name := "OwnedCounter"
     deploy := [
       YulStmt.let_ "argsOffset" (YulExpr.call "sub" [YulExpr.call "codesize" [], YulExpr.lit 32]),
-      YulStmt.expr (YulExpr.call "codecopy" [YulExpr.lit 0, YulExpr.ident "argsOffset", YulExpr.lit 32]),
+      YulStmt.exprStmt (YulExpr.call "codecopy" [YulExpr.lit 0, YulExpr.ident "argsOffset", YulExpr.lit 32]),
       YulStmt.let_ "arg0" (YulExpr.call "and" [YulExpr.call "mload" [YulExpr.lit 0], YulExpr.hex addressMask]),
-      YulStmt.expr (YulExpr.call "sstore" [YulExpr.lit 0, YulExpr.ident "arg0"])
+      YulStmt.exprStmt (YulExpr.call "sstore" [YulExpr.lit 0, YulExpr.ident "arg0"])
     ]
     functions := [
       { name := "increment"
@@ -273,11 +273,11 @@ def ownedCounterIRContract : IRContract :=
           YulStmt.if_
             (YulExpr.call "iszero" [YulExpr.call "eq" [YulExpr.call "caller" [], YulExpr.call "sload" [YulExpr.lit 0]]])
             ownedNotOwnerRevert,
-          YulStmt.expr (YulExpr.call "sstore" [
+          YulStmt.exprStmt (YulExpr.call "sstore" [
             YulExpr.lit 1,
             YulExpr.call "add" [YulExpr.call "sload" [YulExpr.lit 1], YulExpr.lit 1]
           ]),
-          YulStmt.expr (YulExpr.call "stop" [])
+          YulStmt.exprStmt (YulExpr.call "stop" [])
         ]
       },
       { name := "decrement"
@@ -288,11 +288,11 @@ def ownedCounterIRContract : IRContract :=
           YulStmt.if_
             (YulExpr.call "iszero" [YulExpr.call "eq" [YulExpr.call "caller" [], YulExpr.call "sload" [YulExpr.lit 0]]])
             ownedNotOwnerRevert,
-          YulStmt.expr (YulExpr.call "sstore" [
+          YulStmt.exprStmt (YulExpr.call "sstore" [
             YulExpr.lit 1,
             YulExpr.call "sub" [YulExpr.call "sload" [YulExpr.lit 1], YulExpr.lit 1]
           ]),
-          YulStmt.expr (YulExpr.call "stop" [])
+          YulStmt.exprStmt (YulExpr.call "stop" [])
         ]
       },
       { name := "getCount"
@@ -300,8 +300,8 @@ def ownedCounterIRContract : IRContract :=
         params := []
         ret := IRType.uint256
         body := [
-          YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.call "sload" [YulExpr.lit 1]]),
-          YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])
+          YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.call "sload" [YulExpr.lit 1]]),
+          YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])
         ]
       },
       { name := "getOwner"
@@ -309,8 +309,8 @@ def ownedCounterIRContract : IRContract :=
         params := []
         ret := IRType.address
         body := [
-          YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.call "sload" [YulExpr.lit 0]]),
-          YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])
+          YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.call "sload" [YulExpr.lit 0]]),
+          YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])
         ]
       },
       { name := "transferOwnership"
@@ -325,8 +325,8 @@ def ownedCounterIRContract : IRContract :=
           YulStmt.if_
             (YulExpr.call "iszero" [YulExpr.call "eq" [YulExpr.call "caller" [], YulExpr.call "sload" [YulExpr.lit 0]]])
             ownedNotOwnerRevert,
-          YulStmt.expr (YulExpr.call "sstore" [YulExpr.lit 0, YulExpr.ident "newOwner"]),
-          YulStmt.expr (YulExpr.call "stop" [])
+          YulStmt.exprStmt (YulExpr.call "sstore" [YulExpr.lit 0, YulExpr.ident "newOwner"]),
+          YulStmt.exprStmt (YulExpr.call "stop" [])
         ]
       }
     ]

@@ -165,7 +165,7 @@ def compileStmtWithFork (fields : List Field) (events : List EventDef := [])
   | Stmt.setImmutable name value => do
       match dynamicSource with
       | .memory =>
-          pure [YulStmt.expr (YulExpr.call "setimmutable" [
+          pure [YulStmt.exprStmt (YulExpr.call "setimmutable" [
             YulExpr.call "dataoffset" [YulExpr.str "runtime"],
             YulExpr.str name,
             ← compileExprWithInternals fields dynamicSource internalFunctions value
@@ -193,13 +193,13 @@ def compileStmtWithFork (fields : List Field) (events : List EventDef := [])
             else YulExpr.call "add" [YulExpr.lit baseSlot, YulExpr.lit wordOffset]
           match f.aliasSlots with
           | [] =>
-              pure [YulStmt.expr (YulExpr.call storeBuiltin [slotExpr slot, valueExpr])]
+              pure [YulStmt.exprStmt (YulExpr.call storeBuiltin [slotExpr slot, valueExpr])]
           | _ =>
               pure [
                 YulStmt.block (
                   [YulStmt.let_ "__compat_value" valueExpr] ++
                   (slot :: f.aliasSlots).map (fun writeSlot =>
-                    YulStmt.expr (YulExpr.call storeBuiltin [
+                    YulStmt.exprStmt (YulExpr.call storeBuiltin [
                       slotExpr writeSlot,
                       YulExpr.ident "__compat_value"
                     ]))
@@ -283,10 +283,10 @@ def compileStmtWithFork (fields : List Field) (events : List EventDef := [])
         | [] => throw s!"Compilation error: internal return target is missing"
       else
         pure [
-          YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueExpr]),
-          YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])
+          YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueExpr]),
+          YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])
         ]
-  | Stmt.stop => return [YulStmt.expr (YulExpr.call "stop" [])]
+  | Stmt.stop => return [YulStmt.exprStmt (YulExpr.call "stop" [])]
 
   | Stmt.ite cond thenBranch elseBranch => do
       -- If/else: compile to Yul if + negated if (#179)
@@ -382,14 +382,14 @@ def compileStmtWithFork (fields : List Field) (events : List EventDef := [])
   | Stmt.internalCall functionName args => do
       -- Internal function call as statement (#181)
       let argExprs ← compileInternalCallArgs fields dynamicSource internalFunctions functionName args
-      pure [YulStmt.expr (YulExpr.call (internalFunctionYulName functionName) argExprs)]
+      pure [YulStmt.exprStmt (YulExpr.call (internalFunctionYulName functionName) argExprs)]
   | Stmt.internalCallAssign names functionName args => do
       let argExprs ← compileInternalCallArgs fields dynamicSource internalFunctions functionName args
       pure [YulStmt.letMany names (YulExpr.call (internalFunctionYulName functionName) argExprs)]
   | Stmt.externalCallBind resultVars externalName args => do
       let argExprs ← compileExprListWithInternals fields dynamicSource internalFunctions args
       if resultVars.isEmpty then
-        pure [YulStmt.expr (YulExpr.call externalName argExprs)]
+        pure [YulStmt.exprStmt (YulExpr.call externalName argExprs)]
       else
         pure [YulStmt.letMany resultVars (YulExpr.call externalName argExprs)]
   -- Try-call variant: calls {externalName}_try which returns (success, result...)
@@ -418,12 +418,12 @@ def compileStmtWithFork (fields : List Field) (events : List EventDef := [])
             YulStmt.assign name valueExpr
           pure (assigns ++ [YulStmt.leave])
       else if values.isEmpty then
-        pure [YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 0])]
+        pure [YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 0])]
       else
         let compiled ← compileExprListWithInternals fields dynamicSource internalFunctions values
         let stores := (compiled.zipIdx.map fun (valueExpr, idx) =>
-          YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit (idx * 32), valueExpr]))
-        pure (stores ++ [YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit (values.length * 32)])])
+          YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit (idx * 32), valueExpr]))
+        pure (stores ++ [YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit (values.length * 32)])])
   | Stmt.returnArray name => do
       let lenIdent := YulExpr.ident s!"{name}_length"
       let dataOffset := YulExpr.ident s!"{name}_data_offset"
@@ -440,10 +440,10 @@ def compileStmtWithFork (fields : List Field) (events : List EventDef := [])
             throw s!"Compilation error: internal array return target is missing offset/length registers"
       else
         pure ([
-          YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.lit 32]),
-          YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 32, lenIdent]),
+          YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.lit 32]),
+          YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 32, lenIdent]),
         ] ++ dynamicCopyData dynamicSource (YulExpr.lit 64) dataOffset byteLen ++ [
-          YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.call "add" [YulExpr.lit 64, byteLen]])
+          YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.call "add" [YulExpr.lit 64, byteLen]])
         ])
   | Stmt.returnBytes name => do
       let lenIdent := YulExpr.ident s!"{name}_length"
@@ -455,18 +455,18 @@ def compileStmtWithFork (fields : List Field) (events : List EventDef := [])
           YulExpr.call "not" [YulExpr.lit 31]
         ]
       pure ([
-        YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.lit 32]),
-        YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 32, lenIdent]),
+        YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.lit 32]),
+        YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 32, lenIdent]),
       ] ++ dynamicCopyData dynamicSource (YulExpr.lit 64) dataOffset lenIdent ++ [
-        YulStmt.expr (YulExpr.call "mstore" [tailOffset, YulExpr.lit 0]),
-        YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.call "add" [YulExpr.lit 64, paddedLen]])
+        YulStmt.exprStmt (YulExpr.call "mstore" [tailOffset, YulExpr.lit 0]),
+        YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.call "add" [YulExpr.lit 64, paddedLen]])
       ])
   | Stmt.returnStorageWords name => do
       let lenIdent := YulExpr.ident s!"{name}_length"
       let dataOffset := YulExpr.ident s!"{name}_data_offset"
       pure [
-        YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.lit 32]),
-        YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 32, lenIdent]),
+        YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.lit 32]),
+        YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 32, lenIdent]),
         YulStmt.for_
           [YulStmt.let_ "__i" (YulExpr.lit 0)]
           (YulExpr.call "lt" [YulExpr.ident "__i", lenIdent])
@@ -476,12 +476,12 @@ def compileStmtWithFork (fields : List Field) (events : List EventDef := [])
               dataOffset,
               YulExpr.call "mul" [YulExpr.ident "__i", YulExpr.lit 32]
             ])),
-            YulStmt.expr (YulExpr.call "mstore" [
+            YulStmt.exprStmt (YulExpr.call "mstore" [
               YulExpr.call "add" [YulExpr.lit 64, YulExpr.call "mul" [YulExpr.ident "__i", YulExpr.lit 32]],
               YulExpr.call "sload" [YulExpr.ident "__slot"]
             ])
           ],
-        YulStmt.expr (YulExpr.call "return" [
+        YulStmt.exprStmt (YulExpr.call "return" [
           YulExpr.lit 0,
           YulExpr.call "add" [YulExpr.lit 64, YulExpr.call "mul" [lenIdent, YulExpr.lit 32]]
         ])
@@ -504,7 +504,7 @@ def compileStmtWithFork (fields : List Field) (events : List EventDef := [])
                 YulExpr.ident "__return_code_offset"
               ]
             ])
-            [YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])],
+            [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])],
           YulStmt.let_ "__return_code_size"
             (YulExpr.call "sub" [
               YulExpr.ident "__return_code_extent",
@@ -512,36 +512,36 @@ def compileStmtWithFork (fields : List Field) (events : List EventDef := [])
             ]),
           YulStmt.let_ "__return_code_ptr"
             (YulExpr.call "mload" [YulExpr.lit freeMemoryPointer]),
-          YulStmt.expr (YulExpr.call "extcodecopy" [
+          YulStmt.exprStmt (YulExpr.call "extcodecopy" [
             YulExpr.ident "__return_code_pointer",
             YulExpr.ident "__return_code_ptr",
             YulExpr.ident "__return_code_offset",
             YulExpr.ident "__return_code_size"
           ]),
-          YulStmt.expr (YulExpr.call "return" [
+          YulStmt.exprStmt (YulExpr.call "return" [
             YulExpr.ident "__return_code_ptr",
             YulExpr.ident "__return_code_size"
           ])
         ]
       ]
   | Stmt.mstore offset value => do
-      pure [YulStmt.expr (YulExpr.call "mstore" [
+      pure [YulStmt.exprStmt (YulExpr.call "mstore" [
         ← compileExprWithInternals fields dynamicSource internalFunctions offset,
         ← compileExprWithInternals fields dynamicSource internalFunctions value
       ])]
   | Stmt.tstore offset value => do
-      pure [YulStmt.expr (YulExpr.call "tstore" [
+      pure [YulStmt.exprStmt (YulExpr.call "tstore" [
         ← compileExprWithInternals fields dynamicSource internalFunctions offset,
         ← compileExprWithInternals fields dynamicSource internalFunctions value
       ])]
   | Stmt.calldatacopy destOffset sourceOffset size => do
-      pure [YulStmt.expr (YulExpr.call "calldatacopy" [
+      pure [YulStmt.exprStmt (YulExpr.call "calldatacopy" [
         ← compileExprWithInternals fields dynamicSource internalFunctions destOffset,
         ← compileExprWithInternals fields dynamicSource internalFunctions sourceOffset,
         ← compileExprWithInternals fields dynamicSource internalFunctions size
       ])]
   | Stmt.returndataCopy destOffset sourceOffset size => do
-      pure [YulStmt.expr (YulExpr.call "returndatacopy" [
+      pure [YulStmt.exprStmt (YulExpr.call "returndatacopy" [
         ← compileExprWithInternals fields dynamicSource internalFunctions destOffset,
         ← compileExprWithInternals fields dynamicSource internalFunctions sourceOffset,
         ← compileExprWithInternals fields dynamicSource internalFunctions size
@@ -549,12 +549,12 @@ def compileStmtWithFork (fields : List Field) (events : List EventDef := [])
   | Stmt.revertReturndata =>
       pure [YulStmt.block [
         YulStmt.let_ "__returndata_size" (YulExpr.call "returndatasize" []),
-        YulStmt.expr (YulExpr.call "returndatacopy" [
+        YulStmt.exprStmt (YulExpr.call "returndatacopy" [
           YulExpr.lit 0,
           YulExpr.lit 0,
           YulExpr.ident "__returndata_size"
         ]),
-        YulStmt.expr (YulExpr.call "revert" [
+        YulStmt.exprStmt (YulExpr.call "revert" [
           YulExpr.lit 0,
           YulExpr.ident "__returndata_size"
         ])
@@ -566,7 +566,7 @@ def compileStmtWithFork (fields : List Field) (events : List EventDef := [])
       let offsetExpr ← compileExprWithInternals fields dynamicSource internalFunctions dataOffset
       let sizeExpr ← compileExprWithInternals fields dynamicSource internalFunctions dataSize
       let logFn := s!"log{topics.length}"
-      pure [YulStmt.expr (YulExpr.call logFn ([offsetExpr, sizeExpr] ++ topicExprs))]
+      pure [YulStmt.exprStmt (YulExpr.call logFn ([offsetExpr, sizeExpr] ++ topicExprs))]
   -- ADT pattern match: compile to YulStmt.switch on tag value (#1727 Steps 5c/5d)
   | Stmt.matchAdt adtName scrutinee branches => do
       let def_ ← lookupAdtTypeDef adtTypes adtName
@@ -587,7 +587,7 @@ def compileStmtWithFork (fields : List Field) (events : List EventDef := [])
       let cases ← compileMatchAdtBranches fields events errors dynamicSource internalRetNames isInternal
         inScopeNames adtTypes targetFork internalFunctions def_ baseSlot branches
       -- Default case: revert (should be unreachable for exhaustive matches)
-      let defaultCase := [YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]
+      let defaultCase := [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]
       pure [YulStmt.switch scrutineeExpr cases (some defaultCase)]
 
 def compileMatchAdtBranches (fields : List Field) (events : List EventDef)

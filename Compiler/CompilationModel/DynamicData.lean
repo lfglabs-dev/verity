@@ -123,12 +123,12 @@ def panicError0x12HelperName : String :=
     4-byte selector `0x4e487b71` followed by one ABI word containing `code`. -/
 def solidityPanicPayload (code : Nat) : List YulStmt :=
   [
-    YulStmt.expr (YulExpr.call "mstore" [
+    YulStmt.exprStmt (YulExpr.call "mstore" [
       YulExpr.lit 0,
       YulExpr.call "shl" [YulExpr.lit 224, YulExpr.hex 0x4e487b71]
     ]),
-    YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 4, YulExpr.lit code]),
-    YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 36])
+    YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 4, YulExpr.lit code]),
+    YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 36])
   ]
 
 def panicErrorHelper (helperName : String) (code : Nat) : YulStmt :=
@@ -144,14 +144,14 @@ def checkedAddUint256Helper : YulStmt :=
   YulStmt.funcDef checkedAddUint256HelperName ["x", "y"] ["sum"] [
     YulStmt.assign "sum" (YulExpr.call "add" [YulExpr.ident "x", YulExpr.ident "y"]),
     YulStmt.if_ (YulExpr.call "gt" [YulExpr.ident "x", YulExpr.ident "sum"]) [
-      YulStmt.expr (YulExpr.call panicError0x11HelperName [])
+      YulStmt.exprStmt (YulExpr.call panicError0x11HelperName [])
     ]
   ]
 
 def checkedSubUint256Helper : YulStmt :=
   YulStmt.funcDef checkedSubUint256HelperName ["x", "y"] ["diff"] [
     YulStmt.if_ (YulExpr.call "gt" [YulExpr.ident "y", YulExpr.ident "x"]) [
-      YulStmt.expr (YulExpr.call panicError0x11HelperName [])
+      YulStmt.exprStmt (YulExpr.call panicError0x11HelperName [])
     ],
     YulStmt.assign "diff" (YulExpr.call "sub" [YulExpr.ident "x", YulExpr.ident "y"])
   ]
@@ -168,14 +168,14 @@ def checkedMulUint256Helper : YulStmt :=
         ]
       ]
     ]) [
-      YulStmt.expr (YulExpr.call panicError0x11HelperName [])
+      YulStmt.exprStmt (YulExpr.call panicError0x11HelperName [])
     ]
   ]
 
 def checkedDivUint256Helper : YulStmt :=
   YulStmt.funcDef checkedDivUint256HelperName ["x", "y"] ["quotient"] [
     YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident "y"]) [
-      YulStmt.expr (YulExpr.call panicError0x12HelperName [])
+      YulStmt.exprStmt (YulExpr.call panicError0x12HelperName [])
     ],
     YulStmt.assign "quotient" (YulExpr.call "div" [YulExpr.ident "x", YulExpr.ident "y"])
   ]
@@ -185,7 +185,7 @@ private def checkedArrayElementHelper (helperName loadOp : String) : YulStmt :=
     YulStmt.if_ (YulExpr.call "iszero" [
       YulExpr.call "lt" [YulExpr.ident "index", YulExpr.ident "length"]
     ]) [
-      YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+      YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
     ],
     YulStmt.assign "word" (YulExpr.call loadOp [
       YulExpr.call "add" [
@@ -212,7 +212,7 @@ private def checkedArrayElementWordHelper (helperName loadOp : String) : YulStmt
     YulStmt.if_ (YulExpr.call "iszero" [
       YulExpr.call "lt" [YulExpr.ident "index", YulExpr.ident "length"]
     ]) [
-      YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+      YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
     ],
     YulStmt.assign "word" (YulExpr.call loadOp [
       YulExpr.call "add" [
@@ -245,7 +245,7 @@ private def checkedArrayElementDynamicWordHelper (helperName loadOp : String) (s
           YulExpr.ident "__element_word_pos",
           YulExpr.call "sub" [sizeExpr, YulExpr.lit 32]
         ]) [
-          YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+          YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
         ]]
     | none => []
   YulStmt.funcDef helperName ["data_offset", "length", "index", "word_offset"] ["word"] (
@@ -253,11 +253,11 @@ private def checkedArrayElementDynamicWordHelper (helperName loadOp : String) (s
       YulStmt.if_ (YulExpr.call "iszero" [
         YulExpr.call "lt" [YulExpr.ident "index", YulExpr.ident "length"]
       ]) [
-        YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+        YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
       ],
       YulStmt.let_ "__element_rel_offset" (YulExpr.call loadOp [elementOffsetSlot]),
       YulStmt.if_ (YulExpr.call "lt" [YulExpr.ident "__element_rel_offset", offsetTableBytes]) [
-        YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+        YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
       ],
       YulStmt.let_ "__element_word_pos" wordPos
     ] ++ sizeCheck ++ [
@@ -292,7 +292,7 @@ private def checkedArrayElementDynamicDataOffsetHelper
           YulExpr.ident "__element_head_pos",
           YulExpr.call "sub" [sizeExpr, YulExpr.lit 32]
         ]) [
-          YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+          YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
         ]]
     | none => []
   YulStmt.funcDef helperName ["data_offset", "length", "index"] ["word"] (
@@ -300,11 +300,11 @@ private def checkedArrayElementDynamicDataOffsetHelper
       YulStmt.if_ (YulExpr.call "iszero" [
         YulExpr.call "lt" [YulExpr.ident "index", YulExpr.ident "length"]
       ]) [
-        YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+        YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
       ],
       YulStmt.let_ "__element_rel_offset" (YulExpr.call loadOp [elementOffsetSlot]),
       YulStmt.if_ (YulExpr.call "lt" [YulExpr.ident "__element_rel_offset", offsetTableBytes]) [
-        YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+        YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
       ],
       YulStmt.let_ "__element_head_pos" elementHeadPos
     ] ++ sizeCheck ++ [
@@ -342,7 +342,7 @@ private def checkedParamDynamicHeadWordHelper (helperName loadOp : String) (size
           YulExpr.ident "__head_word_pos",
           YulExpr.call "sub" [sizeExpr, YulExpr.lit 32]
         ]) [
-          YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+          YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
         ]]
     | none => []
   YulStmt.funcDef helperName ["data_offset", "word_offset"] ["word"] (
@@ -376,7 +376,7 @@ private def checkedParamDynamicMemberLengthHelper
           YulExpr.ident "__member_data_pos",
           YulExpr.call "sub" [sizeExpr, YulExpr.lit 32]
         ]) [
-          YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+          YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
         ]]
     | none => []
   YulStmt.funcDef helperName ["data_offset", "word_offset"] ["word"] (
@@ -416,7 +416,7 @@ private def checkedParamDynamicMemberDataOffsetHelper
           YulExpr.ident "__member_data_pos",
           YulExpr.call "sub" [sizeExpr, YulExpr.lit 32]
         ]) [
-          YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+          YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
         ]]
     | none => []
   YulStmt.funcDef helperName ["data_offset", "word_offset"] ["word"] (
@@ -463,7 +463,7 @@ private def checkedParamDynamicMemberElementHelper
           YulExpr.ident "__word_pos",
           YulExpr.call "sub" [sizeExpr, YulExpr.lit 32]
         ]) [
-          YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+          YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
         ]]
     | none => []
   YulStmt.funcDef helperName ["data_offset", "word_offset", "inner_index"] ["word"] (
@@ -474,7 +474,7 @@ private def checkedParamDynamicMemberElementHelper
       YulStmt.if_ (YulExpr.call "iszero" [
         YulExpr.call "lt" [YulExpr.ident "inner_index", YulExpr.ident "__member_length"]
       ]) [
-        YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+        YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
       ],
       YulStmt.let_ "__word_pos" wordPos
     ] ++ sizeCheck ++ [
@@ -537,7 +537,7 @@ private def checkedArrayElementDynamicMemberLengthHelper
           YulExpr.ident "__member_data_pos",
           YulExpr.call "sub" [sizeExpr, YulExpr.lit 32]
         ]) [
-          YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+          YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
         ]]
     | none => []
   YulStmt.funcDef helperName ["data_offset", "length", "index", "word_offset"] ["word"] (
@@ -545,11 +545,11 @@ private def checkedArrayElementDynamicMemberLengthHelper
       YulStmt.if_ (YulExpr.call "iszero" [
         YulExpr.call "lt" [YulExpr.ident "index", YulExpr.ident "length"]
       ]) [
-        YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+        YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
       ],
       YulStmt.let_ "__element_rel_offset" (YulExpr.call loadOp [elementOffsetSlot]),
       YulStmt.if_ (YulExpr.call "lt" [YulExpr.ident "__element_rel_offset", offsetTableBytes]) [
-        YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+        YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
       ],
       YulStmt.let_ "__element_head_pos" elementHeadPos,
       YulStmt.let_ "__member_rel_offset" (YulExpr.call loadOp [memberHeadSlot]),
@@ -601,7 +601,7 @@ private def checkedArrayElementDynamicMemberDataOffsetHelper
           YulExpr.ident "__member_data_pos",
           YulExpr.call "sub" [sizeExpr, YulExpr.lit 32]
         ]) [
-          YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+          YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
         ]]
     | none => []
   YulStmt.funcDef helperName ["data_offset", "length", "index", "word_offset"] ["word"] (
@@ -609,11 +609,11 @@ private def checkedArrayElementDynamicMemberDataOffsetHelper
       YulStmt.if_ (YulExpr.call "iszero" [
         YulExpr.call "lt" [YulExpr.ident "index", YulExpr.ident "length"]
       ]) [
-        YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+        YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
       ],
       YulStmt.let_ "__element_rel_offset" (YulExpr.call loadOp [elementOffsetSlot]),
       YulStmt.if_ (YulExpr.call "lt" [YulExpr.ident "__element_rel_offset", offsetTableBytes]) [
-        YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+        YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
       ],
       YulStmt.let_ "__element_head_pos" elementHeadPos,
       YulStmt.let_ "__member_rel_offset" (YulExpr.call loadOp [memberHeadSlot]),
@@ -683,7 +683,7 @@ private def checkedArrayElementDynamicMemberElementHelper
           YulExpr.ident "__word_pos",
           YulExpr.call "sub" [sizeExpr, YulExpr.lit 32]
         ]) [
-          YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+          YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
         ]]
     | none => []
   YulStmt.funcDef helperName ["data_offset", "length", "index", "word_offset", "inner_index"] ["word"] (
@@ -691,11 +691,11 @@ private def checkedArrayElementDynamicMemberElementHelper
       YulStmt.if_ (YulExpr.call "iszero" [
         YulExpr.call "lt" [YulExpr.ident "index", YulExpr.ident "length"]
       ]) [
-        YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+        YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
       ],
       YulStmt.let_ "__element_rel_offset" (YulExpr.call loadOp [elementOffsetSlot]),
       YulStmt.if_ (YulExpr.call "lt" [YulExpr.ident "__element_rel_offset", offsetTableBytes]) [
-        YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+        YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
       ],
       YulStmt.let_ "__element_head_pos" elementHeadPos,
       YulStmt.let_ "__member_rel_offset" (YulExpr.call loadOp [memberHeadSlot]),
@@ -704,7 +704,7 @@ private def checkedArrayElementDynamicMemberElementHelper
       YulStmt.if_ (YulExpr.call "iszero" [
         YulExpr.call "lt" [YulExpr.ident "inner_index", YulExpr.ident "__member_length"]
       ]) [
-        YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+        YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
       ],
       YulStmt.let_ "__word_pos" wordPos
     ] ++ sizeCheck ++ [
@@ -752,7 +752,7 @@ def fullMulDivHelper : YulStmt :=
     -- Short-circuit when the product fits in 256 bits.
     YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident "prod1"]) [
       YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident "denominator"]) [
-        YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+        YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
       ],
       YulStmt.assign "result" (YulExpr.call "div" [
         YulExpr.ident "prod0", YulExpr.ident "denominator"
@@ -763,7 +763,7 @@ def fullMulDivHelper : YulStmt :=
     YulStmt.if_ (YulExpr.call "iszero" [
       YulExpr.call "gt" [YulExpr.ident "denominator", YulExpr.ident "prod1"]
     ]) [
-      YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+      YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
     ],
     -- 512-by-256 division (Knuth Algorithm D / OpenZeppelin Math.mulDiv).
     -- Step 1: subtract the remainder from [prod1 prod0].
@@ -887,9 +887,9 @@ def checkedStorageArrayElementHelper : YulStmt :=
     YulStmt.if_ (YulExpr.call "iszero" [
       YulExpr.call "lt" [YulExpr.ident "index", YulExpr.ident "__array_len"]
     ]) [
-      YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+      YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
     ],
-    YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.ident "slot"]),
+    YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.ident "slot"]),
     YulStmt.let_ "__array_base" (YulExpr.call "keccak256" [YulExpr.lit 0, YulExpr.lit 32]),
     YulStmt.assign "word" (YulExpr.call "sload" [
       YulExpr.call "add" [YulExpr.ident "__array_base", YulExpr.ident "index"]
@@ -938,13 +938,13 @@ def dynamicCopyData (source : DynamicDataSource)
     (destOffset sourceOffset len : YulExpr) : List YulStmt :=
   match source with
   | .calldata =>
-      [YulStmt.expr (YulExpr.call "calldatacopy" [destOffset, sourceOffset, len])]
+      [YulStmt.exprStmt (YulExpr.call "calldatacopy" [destOffset, sourceOffset, len])]
   | .memory =>
       [YulStmt.for_
         [YulStmt.let_ "__copy_i" (YulExpr.lit 0)]
         (YulExpr.call "lt" [YulExpr.ident "__copy_i", len])
         [YulStmt.assign "__copy_i" (YulExpr.call "add" [YulExpr.ident "__copy_i", YulExpr.lit 32])]
-        [YulStmt.expr (YulExpr.call "mstore" [
+        [YulStmt.exprStmt (YulExpr.call "mstore" [
           YulExpr.call "add" [destOffset, YulExpr.ident "__copy_i"],
           YulExpr.call "mload" [YulExpr.call "add" [sourceOffset, YulExpr.ident "__copy_i"]]
         ])]]

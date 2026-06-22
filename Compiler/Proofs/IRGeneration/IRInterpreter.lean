@@ -387,9 +387,9 @@ inductive LegacyCompatibleExternalStmtList : List YulStmt → Prop
   | assign (name : String) (value : YulExpr) (rest : List YulStmt) :
       LegacyCompatibleExternalStmtList rest →
       LegacyCompatibleExternalStmtList (.assign name value :: rest)
-  | expr (value : YulExpr) (rest : List YulStmt) :
+  | exprStmt (value : YulExpr) (rest : List YulStmt) :
       LegacyCompatibleExternalStmtList rest →
-      LegacyCompatibleExternalStmtList (.expr value :: rest)
+      LegacyCompatibleExternalStmtList (.exprStmt value :: rest)
   | if_ (cond : YulExpr) (body rest : List YulStmt) :
       LegacyCompatibleExternalStmtList body →
       LegacyCompatibleExternalStmtList rest →
@@ -569,7 +569,7 @@ def execIRStmtWithInternals
           | .return value' state' => .return value' state'
           | .revert state' => .revert state'
       | .leave => .leave state
-      | .expr e =>
+      | .exprStmt e =>
           match e with
           | .call "sstore" [slotExpr, valExpr] =>
               match slotExpr with
@@ -755,7 +755,7 @@ theorem execIRStmtWithInternals_log0_of_eval_args
       evalIRExprsWithInternals contract fuel state args =
         .values [offset, size] state') :
     execIRStmtWithInternals contract (Nat.succ fuel) state
-        (YulStmt.expr (YulExpr.call "log0" args)) =
+        (YulStmt.exprStmt (YulExpr.call "log0" args)) =
       .continue (state'.appendYulLog offset size []) := by
   simp [execIRStmtWithInternals, isYulLogName, heval]
 
@@ -769,7 +769,7 @@ theorem execIRStmtWithInternals_log1_of_eval_args
       evalIRExprsWithInternals contract fuel state args =
         .values [offset, size, topic0] state') :
     execIRStmtWithInternals contract (Nat.succ fuel) state
-        (YulStmt.expr (YulExpr.call "log1" args)) =
+        (YulStmt.exprStmt (YulExpr.call "log1" args)) =
       .continue (state'.appendYulLog offset size [topic0]) := by
   simp [execIRStmtWithInternals, isYulLogName, heval]
 
@@ -783,7 +783,7 @@ theorem execIRStmtWithInternals_log2_of_eval_args
       evalIRExprsWithInternals contract fuel state args =
         .values [offset, size, topic0, topic1] state') :
     execIRStmtWithInternals contract (Nat.succ fuel) state
-        (YulStmt.expr (YulExpr.call "log2" args)) =
+        (YulStmt.exprStmt (YulExpr.call "log2" args)) =
       .continue (state'.appendYulLog offset size [topic0, topic1]) := by
   simp [execIRStmtWithInternals, isYulLogName, heval]
 
@@ -797,7 +797,7 @@ theorem execIRStmtWithInternals_log3_of_eval_args
       evalIRExprsWithInternals contract fuel state args =
         .values [offset, size, topic0, topic1, topic2] state') :
     execIRStmtWithInternals contract (Nat.succ fuel) state
-        (YulStmt.expr (YulExpr.call "log3" args)) =
+        (YulStmt.exprStmt (YulExpr.call "log3" args)) =
       .continue (state'.appendYulLog offset size [topic0, topic1, topic2]) := by
   simp [execIRStmtWithInternals, isYulLogName, heval]
 
@@ -811,7 +811,7 @@ theorem execIRStmtWithInternals_log4_of_eval_args
       evalIRExprsWithInternals contract fuel state args =
         .values [offset, size, topic0, topic1, topic2, topic3] state') :
     execIRStmtWithInternals contract (Nat.succ fuel) state
-        (YulStmt.expr (YulExpr.call "log4" args)) =
+        (YulStmt.exprStmt (YulExpr.call "log4" args)) =
       .continue (state'.appendYulLog offset size
         [topic0, topic1, topic2, topic3]) := by
   simp [execIRStmtWithInternals, isYulLogName, heval]
@@ -878,7 +878,7 @@ def execIRStmt : Nat → IRState → YulStmt → IRExecResult
           | some v => .continue (state.setVar name v)
           | none => .revert state
       | .leave => .continue state
-      | .expr e =>
+      | .exprStmt e =>
           match e with
           | .call "sstore" [slotExpr, valExpr] =>
               match slotExpr with
@@ -1321,24 +1321,24 @@ theorem execIRStmts_forEach_init_literal
   simp [execIRStmts, execIRStmt, evalIRExpr]
 
 @[simp] theorem execIRStmt_stop_succ (fuel : Nat) (state : IRState) :
-    execIRStmt (Nat.succ fuel) state (YulStmt.expr (YulExpr.call "stop" [])) =
+    execIRStmt (Nat.succ fuel) state (YulStmt.exprStmt (YulExpr.call "stop" [])) =
       .stop state := by
   simp only [execIRStmt]
 
 @[simp] theorem execIRStmt_stop_one_add (fuel : Nat) (state : IRState) :
-    execIRStmt (1 + fuel) state (YulStmt.expr (YulExpr.call "stop" [])) =
+    execIRStmt (1 + fuel) state (YulStmt.exprStmt (YulExpr.call "stop" [])) =
       .stop state := by
   simp only [execIRStmt_stop_succ, Nat.add_comm]
 
 @[simp] theorem execIRStmt_stop_one_add_add (a b : Nat) (state : IRState) :
-    execIRStmt (1 + a + b) state (YulStmt.expr (YulExpr.call "stop" [])) =
+    execIRStmt (1 + a + b) state (YulStmt.exprStmt (YulExpr.call "stop" [])) =
       .stop state := by
   simp only [execIRStmt_stop_one_add, Nat.add_assoc]
 
 @[simp] theorem execIRStmt_sstore_lit_lit_succ
     (fuel : Nat) (state : IRState) (slot val : Nat) :
     execIRStmt (Nat.succ fuel) state
-      (YulStmt.expr (YulExpr.call "sstore" [YulExpr.lit slot, YulExpr.lit val])) =
+      (YulStmt.exprStmt (YulExpr.call "sstore" [YulExpr.lit slot, YulExpr.lit val])) =
       .continue { state with
         storage := Compiler.Proofs.abstractStoreStorageOrMapping state.storage slot val } := by
   simp only [execIRStmt, evalIRExpr]
@@ -1347,7 +1347,7 @@ theorem execIRStmt_sstore_lit_expr_succ_of_eval
     (fuel : Nat) (state : IRState) (slot : Nat) (valExpr : YulExpr) (val : Nat)
     (hval : evalIRExpr state valExpr = some val) :
     execIRStmt (Nat.succ fuel) state
-      (YulStmt.expr (YulExpr.call "sstore" [YulExpr.lit slot, valExpr])) =
+      (YulStmt.exprStmt (YulExpr.call "sstore" [YulExpr.lit slot, valExpr])) =
       .continue { state with
         storage := Compiler.Proofs.abstractStoreStorageOrMapping state.storage slot val } := by
   simp only [execIRStmt, evalIRExpr, hval]
@@ -1356,13 +1356,13 @@ theorem execIRStmts_sstore_lit_expr_then_stop_succ_succ_succ_of_eval
     (fuel : Nat) (state : IRState) (slot : Nat) (valExpr : YulExpr) (val : Nat)
     (hval : evalIRExpr state valExpr = some val) :
     execIRStmts (Nat.succ (Nat.succ (Nat.succ fuel))) state
-      [YulStmt.expr (YulExpr.call "sstore" [YulExpr.lit slot, valExpr]), YulStmt.expr (YulExpr.call "stop" [])] =
+      [YulStmt.exprStmt (YulExpr.call "sstore" [YulExpr.lit slot, valExpr]), YulStmt.exprStmt (YulExpr.call "stop" [])] =
       .stop { state with
         storage := Compiler.Proofs.abstractStoreStorageOrMapping state.storage slot val } := by
   simp only [execIRStmts, execIRStmt, evalIRExpr, hval]
 
 @[simp] theorem execIRStmts_single_stop_succ_succ (fuel : Nat) (state : IRState) :
-    execIRStmts (Nat.succ (Nat.succ fuel)) state [YulStmt.expr (YulExpr.call "stop" [])] =
+    execIRStmts (Nat.succ (Nat.succ fuel)) state [YulStmt.exprStmt (YulExpr.call "stop" [])] =
       .stop state := by
   simp only [execIRStmts, execIRStmt]
 
@@ -1380,9 +1380,9 @@ as the sole fuel metric. -/
 theorem execIRStmts_single_block_stop_length_insufficient
     (state : IRState) :
     execIRStmts
-      ([YulStmt.block [YulStmt.expr (YulExpr.call "stop" [])]].length + 1)
+      ([YulStmt.block [YulStmt.exprStmt (YulExpr.call "stop" [])]].length + 1)
       state
-      [YulStmt.block [YulStmt.expr (YulExpr.call "stop" [])]] =
+      [YulStmt.block [YulStmt.exprStmt (YulExpr.call "stop" [])]] =
         .revert state := by
   simp [execIRStmts, execIRStmt]
 
@@ -1418,10 +1418,10 @@ must not appear in a prefix that ends with `.leave` (would terminate
 before the leave runs). -/
 def NotTerminator (stmt : YulStmt) : Prop :=
   (∀ offset size,
-    stmt ≠ YulStmt.expr (YulExpr.call "return" [offset, size])) ∧
+    stmt ≠ YulStmt.exprStmt (YulExpr.call "return" [offset, size])) ∧
   (∀ offset size,
-    stmt ≠ YulStmt.expr (YulExpr.call "revert" [offset, size])) ∧
-  stmt ≠ YulStmt.expr (YulExpr.call "stop" [])
+    stmt ≠ YulStmt.exprStmt (YulExpr.call "revert" [offset, size])) ∧
+  stmt ≠ YulStmt.exprStmt (YulExpr.call "stop" [])
 
 @[simp] theorem LetManyFree_comment (text : String) : LetManyFree (.comment text) := by
   intro _ _ h; cases h
@@ -1435,7 +1435,7 @@ def NotTerminator (stmt : YulStmt) : Prop :=
   intro _ _ h; cases h
 
 @[simp] theorem LetManyFree_expr (e : YulExpr) :
-    LetManyFree (.expr e) := by
+    LetManyFree (.exprStmt e) := by
   intro _ _ h; cases h
 
 @[simp] theorem LetManyFree_leave : LetManyFree .leave := by
@@ -1511,20 +1511,20 @@ theorem IRStmtPreservesObsAt_of_assign
   refine ⟨state.setVar name v, fun _ => ?_⟩
   simp only [execIRStmt, hv]
 
-/-- Cross-cast for `.expr (.call "sstore" [slot, val])` with literal slot:
+/-- Cross-cast for `.exprStmt (.call "sstore" [slot, val])` with literal slot:
 at any state where `val` evaluates, the stmt continues, updating storage. -/
 theorem IRStmtPreservesObsAt_of_sstore_lit_expr
     (state : IRState) (slot : Nat) (valExpr : YulExpr)
     (hEval : ∃ v, evalIRExpr state valExpr = some v) :
     IRStmtPreservesObsAt state
-      (.expr (.call "sstore" [.lit slot, valExpr])) := by
+      (.exprStmt (.call "sstore" [.lit slot, valExpr])) := by
   obtain ⟨v, hv⟩ := hEval
   refine ⟨{ state with storage :=
       Compiler.Proofs.abstractStoreStorageOrMapping state.storage slot v },
     fun _ => ?_⟩
   simp only [execIRStmt, evalIRExpr, hv]
 
-/-- Cross-cast for `.expr (.call "tstore" [offset, val])`: at any state where
+/-- Cross-cast for `.exprStmt (.call "tstore" [offset, val])`: at any state where
 both `offset` and `val` evaluate, the stmt continues, updating transient
 storage. -/
 theorem IRStmtPreservesObsAt_of_tstore
@@ -1532,28 +1532,28 @@ theorem IRStmtPreservesObsAt_of_tstore
     (hOffsetEval : ∃ o, evalIRExpr state offsetExpr = some o)
     (hValEval : ∃ v, evalIRExpr state valExpr = some v) :
     IRStmtPreservesObsAt state
-      (.expr (.call "tstore" [offsetExpr, valExpr])) := by
+      (.exprStmt (.call "tstore" [offsetExpr, valExpr])) := by
   obtain ⟨o, ho⟩ := hOffsetEval
   obtain ⟨v, hv⟩ := hValEval
   refine ⟨{ state with transientStorage := fun x =>
       if x = o % Compiler.Constants.evmModulus then v else state.transientStorage x }, fun _ => ?_⟩
   simp only [execIRStmt, ho, hv]
 
-/-- Cross-cast for `.expr (.call "mstore" [offset, val])`: at any state where
+/-- Cross-cast for `.exprStmt (.call "mstore" [offset, val])`: at any state where
 both `offset` and `val` evaluate, the stmt continues, updating memory. -/
 theorem IRStmtPreservesObsAt_of_mstore
     (state : IRState) (offsetExpr valExpr : YulExpr)
     (hOffsetEval : ∃ o, evalIRExpr state offsetExpr = some o)
     (hValEval : ∃ v, evalIRExpr state valExpr = some v) :
     IRStmtPreservesObsAt state
-      (.expr (.call "mstore" [offsetExpr, valExpr])) := by
+      (.exprStmt (.call "mstore" [offsetExpr, valExpr])) := by
   obtain ⟨o, ho⟩ := hOffsetEval
   obtain ⟨v, hv⟩ := hValEval
   refine ⟨{ state with memory := fun x => if x = o then v else state.memory x },
     fun _ => ?_⟩
   simp only [execIRStmt, ho, hv]
 
-/-- Cross-cast for `.expr (.call "mstore8" [offset, val])`: the IR evaluator
+/-- Cross-cast for `.exprStmt (.call "mstore8" [offset, val])`: the IR evaluator
 treats `mstore8` opaquely (the fallthrough `.continue state` branch), so the
 stmt continues with state unchanged provided the call's args evaluate.
 Note: the IR model does NOT capture mstore8's byte-write effect on memory;
@@ -1564,57 +1564,57 @@ theorem IRStmtPreservesObsAt_of_mstore8
     (hEval : ∃ v, evalIRExpr state
       (.call "mstore8" [offsetExpr, valExpr]) = some v) :
     IRStmtPreservesObsAt state
-      (.expr (.call "mstore8" [offsetExpr, valExpr])) := by
+      (.exprStmt (.call "mstore8" [offsetExpr, valExpr])) := by
   obtain ⟨v, hv⟩ := hEval
   refine ⟨state, fun _ => ?_⟩
   simp [execIRStmt, isYulLogName, hv]
 
-/-- Cross-cast for `.expr (.call "calldatacopy" [dst, src, sz])`: opaque
+/-- Cross-cast for `.exprStmt (.call "calldatacopy" [dst, src, sz])`: opaque
 fallthrough, continues with state unchanged given the call evaluates. -/
 theorem IRStmtPreservesObsAt_of_calldatacopy
     (state : IRState) (dstExpr srcExpr sizeExpr : YulExpr)
     (hEval : ∃ v, evalIRExpr state
       (.call "calldatacopy" [dstExpr, srcExpr, sizeExpr]) = some v) :
     IRStmtPreservesObsAt state
-      (.expr (.call "calldatacopy" [dstExpr, srcExpr, sizeExpr])) := by
+      (.exprStmt (.call "calldatacopy" [dstExpr, srcExpr, sizeExpr])) := by
   obtain ⟨v, hv⟩ := hEval
   refine ⟨state, fun _ => ?_⟩
   simp [execIRStmt, isYulLogName, hv]
 
-/-- Cross-cast for `.expr (.call "returndatacopy" [dst, src, sz])`: opaque
+/-- Cross-cast for `.exprStmt (.call "returndatacopy" [dst, src, sz])`: opaque
 fallthrough. -/
 theorem IRStmtPreservesObsAt_of_returndatacopy
     (state : IRState) (dstExpr srcExpr sizeExpr : YulExpr)
     (hEval : ∃ v, evalIRExpr state
       (.call "returndatacopy" [dstExpr, srcExpr, sizeExpr]) = some v) :
     IRStmtPreservesObsAt state
-      (.expr (.call "returndatacopy" [dstExpr, srcExpr, sizeExpr])) := by
+      (.exprStmt (.call "returndatacopy" [dstExpr, srcExpr, sizeExpr])) := by
   obtain ⟨v, hv⟩ := hEval
   refine ⟨state, fun _ => ?_⟩
   simp [execIRStmt, isYulLogName, hv]
 
-/-- Cross-cast for `.expr (.call "log0" [offset, size])`. Updates events by
+/-- Cross-cast for `.exprStmt (.call "log0" [offset, size])`. Updates events by
 appending a Yul log entry. -/
 theorem IRStmtPreservesObsAt_of_log0
     (state : IRState) (offsetExpr sizeExpr : YulExpr)
     (hOffsetEval : ∃ o, evalIRExpr state offsetExpr = some o)
     (hSizeEval : ∃ s, evalIRExpr state sizeExpr = some s) :
     IRStmtPreservesObsAt state
-      (.expr (.call "log0" [offsetExpr, sizeExpr])) := by
+      (.exprStmt (.call "log0" [offsetExpr, sizeExpr])) := by
   obtain ⟨o, ho⟩ := hOffsetEval
   obtain ⟨s, hs⟩ := hSizeEval
   refine ⟨state.appendYulLog o s [], fun _ => ?_⟩
   simp [execIRStmt, isYulLogName, evalIRExprs, ho, hs,
     Option.bind, applyYulLogCall?]
 
-/-- Cross-cast for `.expr (.call "log1" [offset, size, topic0])`. -/
+/-- Cross-cast for `.exprStmt (.call "log1" [offset, size, topic0])`. -/
 theorem IRStmtPreservesObsAt_of_log1
     (state : IRState) (offsetExpr sizeExpr topic0Expr : YulExpr)
     (hOffsetEval : ∃ o, evalIRExpr state offsetExpr = some o)
     (hSizeEval : ∃ s, evalIRExpr state sizeExpr = some s)
     (hTopic0Eval : ∃ t, evalIRExpr state topic0Expr = some t) :
     IRStmtPreservesObsAt state
-      (.expr (.call "log1" [offsetExpr, sizeExpr, topic0Expr])) := by
+      (.exprStmt (.call "log1" [offsetExpr, sizeExpr, topic0Expr])) := by
   obtain ⟨o, ho⟩ := hOffsetEval
   obtain ⟨s, hs⟩ := hSizeEval
   obtain ⟨t, ht⟩ := hTopic0Eval
@@ -1622,7 +1622,7 @@ theorem IRStmtPreservesObsAt_of_log1
   simp [execIRStmt, isYulLogName, evalIRExprs, ho, hs, ht,
     Option.bind, applyYulLogCall?]
 
-/-- Cross-cast for `.expr (.call "log2" [...])`. -/
+/-- Cross-cast for `.exprStmt (.call "log2" [...])`. -/
 theorem IRStmtPreservesObsAt_of_log2
     (state : IRState) (offsetExpr sizeExpr t0Expr t1Expr : YulExpr)
     (hOffsetEval : ∃ o, evalIRExpr state offsetExpr = some o)
@@ -1630,7 +1630,7 @@ theorem IRStmtPreservesObsAt_of_log2
     (hT0Eval : ∃ t, evalIRExpr state t0Expr = some t)
     (hT1Eval : ∃ t, evalIRExpr state t1Expr = some t) :
     IRStmtPreservesObsAt state
-      (.expr (.call "log2" [offsetExpr, sizeExpr, t0Expr, t1Expr])) := by
+      (.exprStmt (.call "log2" [offsetExpr, sizeExpr, t0Expr, t1Expr])) := by
   obtain ⟨o, ho⟩ := hOffsetEval
   obtain ⟨s, hs⟩ := hSizeEval
   obtain ⟨t0, ht0⟩ := hT0Eval
@@ -1639,7 +1639,7 @@ theorem IRStmtPreservesObsAt_of_log2
   simp [execIRStmt, isYulLogName, evalIRExprs, ho, hs, ht0, ht1,
     Option.bind, applyYulLogCall?]
 
-/-- Cross-cast for `.expr (.call "log3" [...])`. -/
+/-- Cross-cast for `.exprStmt (.call "log3" [...])`. -/
 theorem IRStmtPreservesObsAt_of_log3
     (state : IRState) (offsetExpr sizeExpr t0Expr t1Expr t2Expr : YulExpr)
     (hOffsetEval : ∃ o, evalIRExpr state offsetExpr = some o)
@@ -1648,7 +1648,7 @@ theorem IRStmtPreservesObsAt_of_log3
     (hT1Eval : ∃ t, evalIRExpr state t1Expr = some t)
     (hT2Eval : ∃ t, evalIRExpr state t2Expr = some t) :
     IRStmtPreservesObsAt state
-      (.expr (.call "log3" [offsetExpr, sizeExpr, t0Expr, t1Expr, t2Expr])) := by
+      (.exprStmt (.call "log3" [offsetExpr, sizeExpr, t0Expr, t1Expr, t2Expr])) := by
   obtain ⟨o, ho⟩ := hOffsetEval
   obtain ⟨s, hs⟩ := hSizeEval
   obtain ⟨t0, ht0⟩ := hT0Eval
@@ -1658,7 +1658,7 @@ theorem IRStmtPreservesObsAt_of_log3
   simp [execIRStmt, isYulLogName, evalIRExprs, ho, hs, ht0, ht1, ht2,
     Option.bind, applyYulLogCall?]
 
-/-- Cross-cast for `.expr (.call "log4" [...])`. -/
+/-- Cross-cast for `.exprStmt (.call "log4" [...])`. -/
 theorem IRStmtPreservesObsAt_of_log4
     (state : IRState) (offsetExpr sizeExpr t0Expr t1Expr t2Expr t3Expr : YulExpr)
     (hOffsetEval : ∃ o, evalIRExpr state offsetExpr = some o)
@@ -1668,7 +1668,7 @@ theorem IRStmtPreservesObsAt_of_log4
     (hT2Eval : ∃ t, evalIRExpr state t2Expr = some t)
     (hT3Eval : ∃ t, evalIRExpr state t3Expr = some t) :
     IRStmtPreservesObsAt state
-      (.expr (.call "log4"
+      (.exprStmt (.call "log4"
         [offsetExpr, sizeExpr, t0Expr, t1Expr, t2Expr, t3Expr])) := by
   obtain ⟨o, ho⟩ := hOffsetEval
   obtain ⟨s, hs⟩ := hSizeEval
@@ -1680,7 +1680,7 @@ theorem IRStmtPreservesObsAt_of_log4
   simp [execIRStmt, isYulLogName, evalIRExprs, ho, hs, ht0, ht1, ht2, ht3,
     Option.bind, applyYulLogCall?]
 
-/-- Cross-cast for `.expr (.call "sstore" [.call "mappingSlot" [base, key], val])`:
+/-- Cross-cast for `.exprStmt (.call "sstore" [.call "mappingSlot" [base, key], val])`:
 sstore-of-mappingSlot stores `val` at the abstract mapping entry computed
 from `(base, key)`. Requires all three sub-expressions to evaluate. -/
 theorem IRStmtPreservesObsAt_of_sstore_mappingSlot
@@ -1689,7 +1689,7 @@ theorem IRStmtPreservesObsAt_of_sstore_mappingSlot
     (hKeyEval : ∃ k, evalIRExpr state keyExpr = some k)
     (hValEval : ∃ v, evalIRExpr state valExpr = some v) :
     IRStmtPreservesObsAt state
-      (.expr (.call "sstore"
+      (.exprStmt (.call "sstore"
         [.call "mappingSlot" [baseExpr, keyExpr], valExpr])) := by
   obtain ⟨b, hb⟩ := hBaseEval
   obtain ⟨k, hk⟩ := hKeyEval
@@ -1699,14 +1699,14 @@ theorem IRStmtPreservesObsAt_of_sstore_mappingSlot
     fun _ => ?_⟩
   simp only [execIRStmt, hb, hk, hv]
 
-/-- Cross-cast for `.expr (.call "sstore" [.ident name, val])` — slot is read
+/-- Cross-cast for `.exprStmt (.call "sstore" [.ident name, val])` — slot is read
 from a local variable binding. Requires the ident and val to evaluate. -/
 theorem IRStmtPreservesObsAt_of_sstore_ident
     (state : IRState) (slotName : String) (valExpr : YulExpr)
     (hSlotEval : ∃ s, state.getVar slotName = some s)
     (hValEval : ∃ v, evalIRExpr state valExpr = some v) :
     IRStmtPreservesObsAt state
-      (.expr (.call "sstore" [.ident slotName, valExpr])) := by
+      (.exprStmt (.call "sstore" [.ident slotName, valExpr])) := by
   obtain ⟨s, hs⟩ := hSlotEval
   obtain ⟨v, hv⟩ := hValEval
   refine ⟨{ state with storage :=
@@ -1714,7 +1714,7 @@ theorem IRStmtPreservesObsAt_of_sstore_ident
     fun _ => ?_⟩
   simp only [execIRStmt, evalIRExpr, hs, hv]
 
-/-- Cross-cast for `.expr (.call "sstore" [.call "add" [l, r], val])`: slot
+/-- Cross-cast for `.exprStmt (.call "sstore" [.call "add" [l, r], val])`: slot
 is the result of an `add` call. Falls through `execIRStmt`'s general
 non-mappingSlot sstore arm. -/
 theorem IRStmtPreservesObsAt_of_sstore_add
@@ -1723,7 +1723,7 @@ theorem IRStmtPreservesObsAt_of_sstore_add
       evalIRExpr state (.call "add" [leftExpr, rightExpr]) = some s)
     (hValEval : ∃ v, evalIRExpr state valExpr = some v) :
     IRStmtPreservesObsAt state
-      (.expr (.call "sstore" [.call "add" [leftExpr, rightExpr], valExpr])) := by
+      (.exprStmt (.call "sstore" [.call "add" [leftExpr, rightExpr], valExpr])) := by
   obtain ⟨s, hs⟩ := hSlotEval
   obtain ⟨v, hv⟩ := hValEval
   refine ⟨{ state with storage :=
@@ -1734,7 +1734,7 @@ theorem IRStmtPreservesObsAt_of_sstore_add
   -- branch of the inner match via `simp only`. Use `simp` to fully reduce.
   simp [execIRStmt, hs, hv]
 
-/-- General cross-cast for `.expr (.call func args)` where `func` is NOT one
+/-- General cross-cast for `.exprStmt (.call func args)` where `func` is NOT one
 of the special builtins (sstore/mstore/tstore/stop/return/revert/log*). The
 call falls through `execIRStmt`'s opaque-eval branch: requires the call to
 evaluate; yields `.continue state` with state unchanged. -/
@@ -1748,7 +1748,7 @@ theorem IRStmtPreservesObsAt_of_expr_call_opaque
     (hNotReturn : func ≠ "return")
     (hNotLog : Compiler.Proofs.YulGeneration.isYulLogName func = false)
     (hEval : ∃ v, evalIRExpr state (.call func args) = some v) :
-    IRStmtPreservesObsAt state (.expr (.call func args)) := by
+    IRStmtPreservesObsAt state (.exprStmt (.call func args)) := by
   obtain ⟨v, hv⟩ := hEval
   refine ⟨state, fun _ => ?_⟩
   cases args with
@@ -2518,10 +2518,10 @@ inductive YulStmtListCallsDisjointFromInternalTable
       yulExprCallsDisjointFromInternalTable contract value →
       YulStmtListCallsDisjointFromInternalTable contract rest →
       YulStmtListCallsDisjointFromInternalTable contract (.assign name value :: rest)
-  | expr (value : YulExpr) (rest : List YulStmt) :
+  | exprStmt (value : YulExpr) (rest : List YulStmt) :
       yulExprCallsDisjointFromInternalTable contract value →
       YulStmtListCallsDisjointFromInternalTable contract rest →
-      YulStmtListCallsDisjointFromInternalTable contract (.expr value :: rest)
+      YulStmtListCallsDisjointFromInternalTable contract (.exprStmt value :: rest)
   | if_ (cond : YulExpr) (body rest : List YulStmt) :
       yulExprCallsDisjointFromInternalTable contract cond →
       YulStmtListCallsDisjointFromInternalTable contract body →
@@ -2736,8 +2736,8 @@ theorem execIRStmtWithInternals_eq_execIRStmt_expr_of_callsDisjoint
     (contract : IRContract) :
     ∀ fuel state expr,
       yulExprCallsDisjointFromInternalTable contract expr →
-      execIRStmtWithInternals contract fuel state (.expr expr) =
-        match execIRStmt fuel state (.expr expr) with
+      execIRStmtWithInternals contract fuel state (.exprStmt expr) =
+        match execIRStmt fuel state (.exprStmt expr) with
         | .continue next => .continue next
         | .return value next => .return value next
         | .stop next => .stop next
@@ -3073,7 +3073,7 @@ theorem execIRStmtsWithInternals_eq_execIRStmts_of_callsDisjoint
             rw [execIRStmtsWithInternals, execIRStmts, hhead]
             cases hstep : execIRStmt fuel state (.assign name value) <;>
               simp only [ih]
-    | expr value rest hval_d hrest ih =>
+    | exprStmt value rest hval_d hrest ih =>
         cases fuel with
         | zero =>
             simp only [execIRStmtsWithInternals, execIRStmts]
@@ -3081,7 +3081,7 @@ theorem execIRStmtsWithInternals_eq_execIRStmts_of_callsDisjoint
             have hhead := execIRStmtWithInternals_eq_execIRStmt_expr_of_callsDisjoint
               contract fuel state value hval_d
             rw [execIRStmtsWithInternals, execIRStmts, hhead]
-            cases hstep : execIRStmt fuel state (.expr value) <;>
+            cases hstep : execIRStmt fuel state (.exprStmt value) <;>
               simp only [ih]
     | if_ cond body rest hcond_d hbody hrest ihBody ihRest =>
         cases fuel with
@@ -3297,8 +3297,8 @@ theorem YulStmtListCallsDisjointFromInternalTable_of_internalFunctions_nil
   | assign name value rest _ ih =>
       exact .assign name value rest
         (yulExprCallsDisjointFromInternalTable_of_internalFunctions_nil contract hinternal value) ih
-  | expr value rest _ ih =>
-      exact .expr value rest
+  | exprStmt value rest _ ih =>
+      exact .exprStmt value rest
         (yulExprCallsDisjointFromInternalTable_of_internalFunctions_nil contract hinternal value) ih
   | if_ cond body rest hbody _ ihBody ihRest =>
       exact .if_ cond body rest
@@ -3326,7 +3326,7 @@ theorem execIRStmtWithInternals_sstore_mappingSlot_succ_of_no_internal
     (hkey : evalIRExpr state keyExpr = some key)
     (hval : evalIRExpr state valExpr = some val) :
     execIRStmtWithInternals contract (Nat.succ fuel) state
-      (YulStmt.expr
+      (YulStmt.exprStmt
         (YulExpr.call "sstore"
           [YulExpr.call "mappingSlot" [baseExpr, keyExpr], valExpr])) =
       .continue { state with
@@ -3356,9 +3356,9 @@ theorem execIRStmtWithInternals_eq_execIRStmt_mstore_of_no_internal
     (fuel : Nat) (state : IRState)
     (offsetExpr valExpr : YulExpr) :
     execIRStmtWithInternals contract fuel state
-      (YulStmt.expr (YulExpr.call "mstore" [offsetExpr, valExpr])) =
+      (YulStmt.exprStmt (YulExpr.call "mstore" [offsetExpr, valExpr])) =
         match execIRStmt fuel state
-          (YulStmt.expr (YulExpr.call "mstore" [offsetExpr, valExpr])) with
+          (YulStmt.exprStmt (YulExpr.call "mstore" [offsetExpr, valExpr])) with
         | .continue next => .continue next
         | .return value next => .return value next
         | .stop next => .stop next
@@ -3379,9 +3379,9 @@ theorem execIRStmtWithInternals_eq_execIRStmt_tstore_of_no_internal
     (fuel : Nat) (state : IRState)
     (offsetExpr valExpr : YulExpr) :
     execIRStmtWithInternals contract fuel state
-      (YulStmt.expr (YulExpr.call "tstore" [offsetExpr, valExpr])) =
+      (YulStmt.exprStmt (YulExpr.call "tstore" [offsetExpr, valExpr])) =
         match execIRStmt fuel state
-          (YulStmt.expr (YulExpr.call "tstore" [offsetExpr, valExpr])) with
+          (YulStmt.exprStmt (YulExpr.call "tstore" [offsetExpr, valExpr])) with
         | .continue next => .continue next
         | .return value next => .return value next
         | .stop next => .stop next
@@ -3404,9 +3404,9 @@ theorem execIRStmtWithInternals_eq_execIRStmt_revert_of_no_internal
     (fuel : Nat) (state : IRState)
     (offsetExpr sizeExpr : YulExpr) :
     execIRStmtWithInternals contract fuel state
-      (YulStmt.expr (YulExpr.call "revert" [offsetExpr, sizeExpr])) =
+      (YulStmt.exprStmt (YulExpr.call "revert" [offsetExpr, sizeExpr])) =
         match execIRStmt fuel state
-          (YulStmt.expr (YulExpr.call "revert" [offsetExpr, sizeExpr])) with
+          (YulStmt.exprStmt (YulExpr.call "revert" [offsetExpr, sizeExpr])) with
         | .continue next => .continue next
         | .return value next => .return value next
         | .stop next => .stop next
@@ -3429,9 +3429,9 @@ theorem execIRStmtWithInternals_eq_execIRStmt_return_of_no_internal
     (fuel : Nat) (state : IRState)
     (offsetExpr sizeExpr : YulExpr) :
     execIRStmtWithInternals contract fuel state
-      (YulStmt.expr (YulExpr.call "return" [offsetExpr, sizeExpr])) =
+      (YulStmt.exprStmt (YulExpr.call "return" [offsetExpr, sizeExpr])) =
         match execIRStmt fuel state
-          (YulStmt.expr (YulExpr.call "return" [offsetExpr, sizeExpr])) with
+          (YulStmt.exprStmt (YulExpr.call "return" [offsetExpr, sizeExpr])) with
         | .continue next => .continue next
         | .return value next => .return value next
         | .stop next => .stop next
@@ -3465,9 +3465,9 @@ theorem execIRStmtWithInternals_eq_execIRStmt_stop_of_no_internal
     (_hinternal : contract.internalFunctions = [])
     (fuel : Nat) (state : IRState) :
     execIRStmtWithInternals contract fuel state
-      (YulStmt.expr (YulExpr.call "stop" [])) =
+      (YulStmt.exprStmt (YulExpr.call "stop" [])) =
         match execIRStmt fuel state
-          (YulStmt.expr (YulExpr.call "stop" [])) with
+          (YulStmt.exprStmt (YulExpr.call "stop" [])) with
         | .continue next => .continue next
         | .return value next => .return value next
         | .stop next => .stop next
@@ -3501,9 +3501,9 @@ theorem execIRStmtWithInternals_eq_execIRStmt_sstore_of_no_internal
     (fuel : Nat) (state : IRState)
     (slotExpr valExpr : YulExpr) :
     execIRStmtWithInternals contract fuel state
-      (YulStmt.expr (YulExpr.call "sstore" [slotExpr, valExpr])) =
+      (YulStmt.exprStmt (YulExpr.call "sstore" [slotExpr, valExpr])) =
         match execIRStmt fuel state
-          (YulStmt.expr (YulExpr.call "sstore" [slotExpr, valExpr])) with
+          (YulStmt.exprStmt (YulExpr.call "sstore" [slotExpr, valExpr])) with
         | .continue next => .continue next
         | .return value next => .return value next
         | .stop next => .stop next
@@ -3584,8 +3584,8 @@ theorem execIRStmtWithInternals_eq_execIRStmt_expr_of_no_internal
     (contract : IRContract) :
     contract.internalFunctions = [] →
       ∀ fuel state expr,
-        execIRStmtWithInternals contract fuel state (.expr expr) =
-          match execIRStmt fuel state (.expr expr) with
+        execIRStmtWithInternals contract fuel state (.exprStmt expr) =
+          match execIRStmt fuel state (.exprStmt expr) with
           | .continue next => .continue next
           | .return value next => .return value next
           | .stop next => .stop next
@@ -3705,8 +3705,8 @@ theorem execIRStmtsWithInternals_eq_execIRStmts_of_exprCompatibility
     (hexpr :
       contract.internalFunctions = [] →
         ∀ fuel state expr,
-          execIRStmtWithInternals contract fuel state (.expr expr) =
-            match execIRStmt fuel state (.expr expr) with
+          execIRStmtWithInternals contract fuel state (.exprStmt expr) =
+            match execIRStmt fuel state (.exprStmt expr) with
             | .continue next => .continue next
             | .return value next => .return value next
             | .stop next => .stop next
@@ -3784,14 +3784,14 @@ theorem execIRStmtsWithInternals_eq_execIRStmts_of_exprCompatibility
               rw [execIRStmtsWithInternals, execIRStmts, hhead]
               cases hstep : execIRStmt fuel state (.assign name value) <;>
                 simp only [ih]
-      | expr value rest hrest ih =>
+      | exprStmt value rest hrest ih =>
           cases fuel with
           | zero =>
               simp only [execIRStmtsWithInternals, execIRStmts]
           | succ fuel =>
               have hhead := hexpr hinternal fuel state value
               rw [execIRStmtsWithInternals, execIRStmts, hhead]
-              cases hstep : execIRStmt fuel state (.expr value) <;>
+              cases hstep : execIRStmt fuel state (.exprStmt value) <;>
                 simp only [ih]
       | if_ cond body rest hbody hrest ihBody ihRest =>
           cases fuel with
@@ -3942,8 +3942,8 @@ theorem execIRStmtWithInternals_eq_execIRStmt_of_exprCompatibility
     (hexpr :
       contract.internalFunctions = [] →
         ∀ fuel state expr,
-          execIRStmtWithInternals contract fuel state (.expr expr) =
-            match execIRStmt fuel state (.expr expr) with
+          execIRStmtWithInternals contract fuel state (.exprStmt expr) =
+            match execIRStmt fuel state (.exprStmt expr) with
             | .continue next => .continue next
             | .return value next => .return value next
             | .stop next => .stop next
@@ -3969,7 +3969,7 @@ end
 
 /-- The remaining single-statement helper-free conservative-extension seam is now
 packaged as an explicit one-field interface: the real semantic work sits in
-`YulStmt.expr`, while `if`, `block`, stmt-list, function, dispatch, and
+`YulStmt.exprStmt`, while `if`, `block`, stmt-list, function, dispatch, and
 contract transport are already derivable compositionally on the same
 legacy-compatible subset. -/
 structure InterpretIRWithInternalsZeroConservativeExtensionStmtSubgoals
@@ -3977,8 +3977,8 @@ structure InterpretIRWithInternalsZeroConservativeExtensionStmtSubgoals
   exprCompatibility :
     contract.internalFunctions = [] →
       ∀ fuel state expr,
-        execIRStmtWithInternals contract fuel state (.expr expr) =
-          match execIRStmt fuel state (.expr expr) with
+        execIRStmtWithInternals contract fuel state (.exprStmt expr) =
+          match execIRStmt fuel state (.exprStmt expr) with
           | .continue next => .continue next
           | .return value next => .return value next
           | .stop next => .stop next
@@ -4066,16 +4066,16 @@ theorem execIRStmtsWithInternals_eq_execIRStmts_of_stmtCompatibility
           rw [execIRStmtsWithInternals, execIRStmts, hhead]
           cases hstep : execIRStmt fuel state (.assign name value) <;>
             simp only [ih]
-  | expr value rest hrest ih =>
+  | exprStmt value rest hrest ih =>
       cases fuel with
       | zero =>
           simp only [execIRStmtsWithInternals, execIRStmts]
       | succ fuel =>
           have hhead :=
-            hstmt hinternal fuel state (.expr value)
-              (LegacyCompatibleExternalStmtList.expr value [] LegacyCompatibleExternalStmtList.nil)
+            hstmt hinternal fuel state (.exprStmt value)
+              (LegacyCompatibleExternalStmtList.exprStmt value [] LegacyCompatibleExternalStmtList.nil)
           rw [execIRStmtsWithInternals, execIRStmts, hhead]
-          cases hstep : execIRStmt fuel state (.expr value) <;>
+          cases hstep : execIRStmt fuel state (.exprStmt value) <;>
             simp only [ih]
   | if_ cond body rest hbody hrest ihBody ihRest =>
       cases fuel with
@@ -4971,7 +4971,7 @@ private theorem foldl_setParamVars_field_preservation {f : IRState → α}
 
 @[simp] theorem execIRFunction_single_stop
     (fn : IRFunction) (args : List Nat) (initialState : IRState)
-    (hBody : fn.body = [YulStmt.expr (YulExpr.call "stop" [])]) :
+    (hBody : fn.body = [YulStmt.exprStmt (YulExpr.call "stop" [])]) :
     execIRFunction fn args initialState =
       { success := true
         returnValue := none
@@ -4986,8 +4986,8 @@ theorem execIRFunction_store0_calldataload4_stop_of_args_cons
     (arg : Nat) (rest : List Nat)
     (hBody : fn.body = [
       YulStmt.let_ "value" (YulExpr.call "calldataload" [YulExpr.lit 4]),
-      YulStmt.expr (YulExpr.call "sstore" [YulExpr.lit 0, YulExpr.ident "value"]),
-      YulStmt.expr (YulExpr.call "stop" [])])
+      YulStmt.exprStmt (YulExpr.call "sstore" [YulExpr.lit 0, YulExpr.ident "value"]),
+      YulStmt.exprStmt (YulExpr.call "stop" [])])
     (hArgs : tx.args = arg :: rest) :
     execIRFunction fn tx.args (applyIRTransactionContext tx initialState) =
       { success := true
@@ -5003,9 +5003,9 @@ theorem execIRFunction_store0_calldataload4_stop_of_args_cons
   have hbody : ∀ (n : Nat) (s : IRState), 3 ≤ n →
       execIRStmts (n + 1) s
         [YulStmt.let_ "value" (YulExpr.call "calldataload" [YulExpr.lit 4]),
-         YulStmt.expr (YulExpr.call "sstore"
+         YulStmt.exprStmt (YulExpr.call "sstore"
             [YulExpr.lit 0, YulExpr.ident "value"]),
-         YulStmt.expr (YulExpr.call "stop" [])] =
+         YulStmt.exprStmt (YulExpr.call "stop" [])] =
           .stop
             { s.setVar "value" (Compiler.Proofs.YulGeneration.calldataloadWord
                 s.selector s.calldata 4) with
@@ -5018,9 +5018,9 @@ theorem execIRFunction_store0_calldataload4_stop_of_args_cons
       IRState.setVar]
   have hsize : 3 ≤ sizeOf
       ([YulStmt.let_ "value" (YulExpr.call "calldataload" [YulExpr.lit 4]),
-        YulStmt.expr (YulExpr.call "sstore"
+        YulStmt.exprStmt (YulExpr.call "sstore"
           [YulExpr.lit 0, YulExpr.ident "value"]),
-        YulStmt.expr (YulExpr.call "stop" [])] : List YulStmt) := by
+        YulStmt.exprStmt (YulExpr.call "stop" [])] : List YulStmt) := by
     decide
   unfold execIRFunction
   simp only [hBody, hArgs]
@@ -5035,9 +5035,9 @@ theorem execIRFunction_mstore0_calldataload4_return32_of_args_cons
     (fn : IRFunction) (tx : IRTransaction) (initialState : IRState)
     (arg : Nat) (rest : List Nat)
     (hBody : fn.body = [
-      YulStmt.expr (YulExpr.call "mstore"
+      YulStmt.exprStmt (YulExpr.call "mstore"
         [YulExpr.lit 0, YulExpr.call "calldataload" [YulExpr.lit 4]]),
-      YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])])
+      YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])])
     (hArgs : tx.args = arg :: rest) :
     execIRFunction fn tx.args (applyIRTransactionContext tx initialState) =
       { success := true
@@ -5047,9 +5047,9 @@ theorem execIRFunction_mstore0_calldataload4_return32_of_args_cons
         events := initialState.events } := by
   have hbody : ∀ (n : Nat) (s : IRState), 2 ≤ n →
       execIRStmts (n + 1) s
-        [YulStmt.expr (YulExpr.call "mstore"
+        [YulStmt.exprStmt (YulExpr.call "mstore"
             [YulExpr.lit 0, YulExpr.call "calldataload" [YulExpr.lit 4]]),
-         YulStmt.expr (YulExpr.call "return"
+         YulStmt.exprStmt (YulExpr.call "return"
             [YulExpr.lit 0, YulExpr.lit 32])] =
           .return (Compiler.Proofs.YulGeneration.calldataloadWord
               s.selector s.calldata 4)
@@ -5062,9 +5062,9 @@ theorem execIRFunction_mstore0_calldataload4_return32_of_args_cons
     simp +decide only [execIRStmts, execIRStmt, evalIRExpr,
       evalIRCall_calldataload_singleton, Option.bind_some, ↓reduceIte]
   have hsize : 2 ≤ sizeOf
-      ([YulStmt.expr (YulExpr.call "mstore"
+      ([YulStmt.exprStmt (YulExpr.call "mstore"
           [YulExpr.lit 0, YulExpr.call "calldataload" [YulExpr.lit 4]]),
-        YulStmt.expr (YulExpr.call "return"
+        YulStmt.exprStmt (YulExpr.call "return"
           [YulExpr.lit 0, YulExpr.lit 32])] : List YulStmt) := by
     decide
   unfold execIRFunction
@@ -5086,10 +5086,10 @@ theorem execIRFunction_mstore0_calldataload_aligned_return32
     (fn : IRFunction) (tx : IRTransaction) (initialState : IRState)
     (idx : Nat)
     (hBody : fn.body = [
-      YulStmt.expr (YulExpr.call "mstore"
+      YulStmt.exprStmt (YulExpr.call "mstore"
         [YulExpr.lit 0,
          YulExpr.call "calldataload" [YulExpr.lit (4 + 32 * idx)]]),
-      YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])]) :
+      YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])]) :
     execIRFunction fn tx.args (applyIRTransactionContext tx initialState) =
       { success := true
         returnValue := some (tx.args.getD idx 0 % Compiler.Constants.evmModulus)
@@ -5098,10 +5098,10 @@ theorem execIRFunction_mstore0_calldataload_aligned_return32
         events := initialState.events } := by
   have hbody : ∀ (n : Nat) (s : IRState), 2 ≤ n →
       execIRStmts (n + 1) s
-        [YulStmt.expr (YulExpr.call "mstore"
+        [YulStmt.exprStmt (YulExpr.call "mstore"
             [YulExpr.lit 0,
              YulExpr.call "calldataload" [YulExpr.lit (4 + 32 * idx)]]),
-         YulStmt.expr (YulExpr.call "return"
+         YulStmt.exprStmt (YulExpr.call "return"
             [YulExpr.lit 0, YulExpr.lit 32])] =
           .return (Compiler.Proofs.YulGeneration.calldataloadWord
               s.selector s.calldata (4 + 32 * idx))
@@ -5114,16 +5114,16 @@ theorem execIRFunction_mstore0_calldataload_aligned_return32
     simp +decide only [execIRStmts, execIRStmt, evalIRExpr,
       evalIRCall_calldataload_singleton, Option.bind_some, ↓reduceIte]
   have hsize : 2 ≤ sizeOf
-      ([YulStmt.expr (YulExpr.call "mstore"
+      ([YulStmt.exprStmt (YulExpr.call "mstore"
           [YulExpr.lit 0,
            YulExpr.call "calldataload" [YulExpr.lit (4 + 32 * idx)]]),
-        YulStmt.expr (YulExpr.call "return"
+        YulStmt.exprStmt (YulExpr.call "return"
           [YulExpr.lit 0, YulExpr.lit 32])] : List YulStmt) := by
     have hlen := yulStmtList_length_le_sizeOf
-      ([YulStmt.expr (YulExpr.call "mstore"
+      ([YulStmt.exprStmt (YulExpr.call "mstore"
           [YulExpr.lit 0,
            YulExpr.call "calldataload" [YulExpr.lit (4 + 32 * idx)]]),
-        YulStmt.expr (YulExpr.call "return"
+        YulStmt.exprStmt (YulExpr.call "return"
           [YulExpr.lit 0, YulExpr.lit 32])] : List YulStmt)
     simpa using hlen
   unfold execIRFunction
@@ -5137,9 +5137,9 @@ theorem execIRFunction_mstore0_calldataload_aligned_return32
 theorem execIRFunction_mstore0_sload0_return32
     (fn : IRFunction) (tx : IRTransaction) (initialState : IRState)
     (hBody : fn.body = [
-      YulStmt.expr (YulExpr.call "mstore"
+      YulStmt.exprStmt (YulExpr.call "mstore"
         [YulExpr.lit 0, YulExpr.call "sload" [YulExpr.lit 0]]),
-      YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])]) :
+      YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])]) :
     execIRFunction fn tx.args (applyIRTransactionContext tx initialState) =
       { success := true
         returnValue := some ((initialState.storage (IRStorageSlot.ofNat 0)).toNat)
@@ -5148,9 +5148,9 @@ theorem execIRFunction_mstore0_sload0_return32
         events := initialState.events } := by
   have hbody : ∀ (n : Nat) (s : IRState), 2 ≤ n →
       execIRStmts (n + 1) s
-        [YulStmt.expr (YulExpr.call "mstore"
+        [YulStmt.exprStmt (YulExpr.call "mstore"
             [YulExpr.lit 0, YulExpr.call "sload" [YulExpr.lit 0]]),
-         YulStmt.expr (YulExpr.call "return"
+         YulStmt.exprStmt (YulExpr.call "return"
             [YulExpr.lit 0, YulExpr.lit 32])] =
           .return ((s.storage (IRStorageSlot.ofNat 0)).toNat)
             { s with memory := fun o =>
@@ -5161,9 +5161,9 @@ theorem execIRFunction_mstore0_sload0_return32
       Compiler.Proofs.abstractLoadStorageOrMapping,
       Option.bind_some, ↓reduceIte]
   have hsize : 2 ≤ sizeOf
-      ([YulStmt.expr (YulExpr.call "mstore"
+      ([YulStmt.exprStmt (YulExpr.call "mstore"
           [YulExpr.lit 0, YulExpr.call "sload" [YulExpr.lit 0]]),
-        YulStmt.expr (YulExpr.call "return"
+        YulStmt.exprStmt (YulExpr.call "return"
           [YulExpr.lit 0, YulExpr.lit 32])] : List YulStmt) := by
     decide
   unfold execIRFunction
@@ -5177,8 +5177,8 @@ theorem execIRFunction_mstore0_lit_return32
     (fn : IRFunction) (tx : IRTransaction) (initialState : IRState)
     (value : Nat)
     (hBody : fn.body = [
-      YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.lit value]),
-      YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])]) :
+      YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.lit value]),
+      YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])]) :
     execIRFunction fn tx.args (applyIRTransactionContext tx initialState) =
       { success := true
         returnValue := some value
@@ -5187,20 +5187,20 @@ theorem execIRFunction_mstore0_lit_return32
         events := initialState.events } := by
   have hbody : ∀ (n : Nat) (s : IRState), 2 ≤ n →
       execIRStmts (n + 1) s
-        [YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.lit value]),
-         YulStmt.expr (YulExpr.call "return"
+        [YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.lit value]),
+         YulStmt.exprStmt (YulExpr.call "return"
             [YulExpr.lit 0, YulExpr.lit 32])] =
           .return value { s with memory := fun o => if o = 0 then value else s.memory o } := by
     intro n s hn
     obtain ⟨k, rfl⟩ : ∃ k, n = k + 2 := ⟨n - 2, by omega⟩
     simp +decide only [execIRStmts, execIRStmt, evalIRExpr, ↓reduceIte]
   have hsize : 2 ≤ sizeOf
-      ([YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.lit value]),
-        YulStmt.expr (YulExpr.call "return"
+      ([YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.lit value]),
+        YulStmt.exprStmt (YulExpr.call "return"
           [YulExpr.lit 0, YulExpr.lit 32])] : List YulStmt) := by
     have hlen := yulStmtList_length_le_sizeOf
-      ([YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.lit value]),
-        YulStmt.expr (YulExpr.call "return"
+      ([YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.lit value]),
+        YulStmt.exprStmt (YulExpr.call "return"
           [YulExpr.lit 0, YulExpr.lit 32])] : List YulStmt)
     simpa using hlen
   unfold execIRFunction
@@ -5390,10 +5390,10 @@ theorem execIRStmtsWithInternals_singleton_letMany_call_internal
     contract fuel state names func args helper argVals state' hargs hfind
 
 /-- Combined characterization for `Stmt.internalCall` (void calls) at the IR level:
-when `.expr (.call func args)` executes with args evaluating to `argVals` and
+when `.exprStmt (.call func args)` executes with args evaluating to `argVals` and
 `func` resolving to an internal helper, the result is determined by
 `execIRInternalFunctionWithInternals`.  The `.values` case always yields
-`.continue` because `.expr` discards the return values. -/
+`.continue` because `.exprStmt` discards the return values. -/
 theorem execIRStmtWithInternals_expr_call_internal
     (contract : IRContract) (fuel : Nat) (state : IRState)
     (func : String) (args : List YulExpr)
@@ -5405,13 +5405,13 @@ theorem execIRStmtWithInternals_expr_call_internal
     (hrevert : func ≠ "revert")
     (hreturn : func ≠ "return")
     (hlog : isYulLogName func = false) :
-    execIRStmtWithInternals contract (fuel + 2) state (.expr (.call func args)) =
+    execIRStmtWithInternals contract (fuel + 2) state (.exprStmt (.call func args)) =
       match execIRInternalFunctionWithInternals contract fuel state' helper argVals with
       | .values _ state'' => .continue state''
       | .stop state'' => .stop state''
       | .return value' state'' => .return value' state''
       | .revert state'' => .revert state'' := by
-  -- The `.expr (.call func args)` case in execIRStmtWithInternals dispatches
+  -- The `.exprStmt (.call func args)` case in execIRStmtWithInternals dispatches
   -- through the builtin string matching before reaching the generic `.call`
   -- catch-all. We case-split on arg count to guide simp through the pattern tree.
   rw [show fuel + 2 = (fuel + 1) + 1 from by omega]
@@ -5432,7 +5432,7 @@ theorem execIRStmtWithInternals_expr_call_internal
         simp [execIRStmtWithInternals, evalIRCallWithInternals, hargs, hlog, hfind]
 
 /-- End-to-end singleton list characterization for `Stmt.internalCall` (void calls):
-when `compiledIR = [.expr (.call func args)]` with args evaluating to `argVals`
+when `compiledIR = [.exprStmt (.call func args)]` with args evaluating to `argVals`
 and `func` resolving to an internal helper, the list execution result is determined
 by `execIRInternalFunctionWithInternals`.  This is the IR-side half of the
 `CompiledStmtStepWithHelpersAndHelperIR.preserves` goal for `Stmt.internalCall`. -/
@@ -5448,7 +5448,7 @@ theorem execIRStmtsWithInternals_singleton_expr_call_internal
     (hreturn : func ≠ "return")
     (hlog : isYulLogName func = false) :
     execIRStmtsWithInternals contract (fuel + 3) state
-      [YulStmt.expr (YulExpr.call func args)] =
+      [YulStmt.exprStmt (YulExpr.call func args)] =
       match execIRInternalFunctionWithInternals contract fuel state' helper argVals with
       | .values _ state'' => .continue state''
       | .stop state'' => .stop state''
@@ -5592,7 +5592,7 @@ theorem compileStmt_internalCallAssign_shape
     exact hok.symm
 
 /-- Compilation of `Stmt.internalCall` produces exactly
-`[.expr (.call (internalFunctionYulName functionName) argExprs)]`
+`[.exprStmt (.call (internalFunctionYulName functionName) argExprs)]`
 when argument compilation succeeds. -/
 theorem compileStmt_internalCall_shape
     {fields : List CompilationModel.Field} {scope : List String}
@@ -5602,7 +5602,7 @@ theorem compileStmt_internalCall_shape
       (CompilationModel.Stmt.internalCall functionName args) = Except.ok compiledIR) :
     ∃ argExprs,
       CompilationModel.compileExprList fields .calldata args = Except.ok argExprs ∧
-      compiledIR = [YulStmt.expr
+      compiledIR = [YulStmt.exprStmt
         (YulExpr.call (CompilationModel.internalFunctionYulName functionName) argExprs)] := by
   simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, bind, Except.bind] at hok
   match hargs : CompilationModel.compileExprListWithInternals fields .calldata [] args with
@@ -5690,7 +5690,7 @@ theorem execIRStmtsWithInternals_of_internalCallAssign_compile
 helper function is found in the runtime contract, the compiled IR's list-level
 execution reduces to `execIRInternalFunctionWithInternals` applied to the
 evaluated arguments.  The `.values` case always yields `.continue` because
-the `.expr` handler discards return values. -/
+the `.exprStmt` handler discards return values. -/
 theorem execIRStmtsWithInternals_of_internalCall_compile
     {fields : List CompilationModel.Field} {scope : List String}
     {functionName : String}
@@ -5711,7 +5711,7 @@ theorem execIRStmtsWithInternals_of_internalCall_compile
     (hmstore : CompilationModel.internalFunctionYulName functionName ≠ "mstore")
     (hrevert : CompilationModel.internalFunctionYulName functionName ≠ "revert")
     (hreturn : CompilationModel.internalFunctionYulName functionName ≠ "return") :
-    compiledIR = [YulStmt.expr
+    compiledIR = [YulStmt.exprStmt
       (YulExpr.call (CompilationModel.internalFunctionYulName functionName) argExprs)] ∧
     execIRStmtsWithInternals contract (fuel + 3) state compiledIR =
       match execIRInternalFunctionWithInternals contract fuel state' helper argVals with
@@ -5780,8 +5780,8 @@ private def shortCalldataRegressionContract : IRContract :=
         ret := .unit
         payable := false
         body := [
-          YulStmt.expr (YulExpr.call "sstore" [YulExpr.lit 0, YulExpr.ident "value"]),
-          YulStmt.expr (YulExpr.call "stop" [])
+          YulStmt.exprStmt (YulExpr.call "sstore" [YulExpr.lit 0, YulExpr.ident "value"]),
+          YulStmt.exprStmt (YulExpr.call "stop" [])
         ] }
     ]
     usesMapping := false }

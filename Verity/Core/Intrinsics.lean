@@ -1,3 +1,5 @@
+import Verity.Core.Model.Yul.Ast
+
 /-!
 Verity.Core.Intrinsics
 
@@ -8,6 +10,8 @@ See docs/INTRINSICS.md and plan.md for usage and trust model.
 -/
 
 namespace Verity.Core.Intrinsics
+
+open Compiler.Yul
 
 /-- Hard fork levels used for `min_fork` guards on intrinsics.
 
@@ -83,23 +87,35 @@ inductive YulLowering where
   | verbatim (inArity outArity : Nat) (opcodeHex : String)
   /-- Named Yul builtin (for opcodes Yul names but Verity does not surface as first-class). -/
   | builtin (name : String)
+  /-- Multi-statement expression-position Yul template.
+
+      This first implementation intentionally supports one expression output:
+      it lowers to a generated Yul helper function with `params` as inputs and
+      `output` as its single return variable. The `body` is already-typed Yul
+      AST supplied by the intrinsic declaration, so Verity does not parse or
+      verify the template body beyond arity/shape checks. -/
+  | template (params : List String) (output : String) (body : List YulStmt)
   deriving Repr, BEq
 
 def YulLowering.inputArity : YulLowering → Option Nat
   | .verbatim inArity _ _ => some inArity
   | .builtin _ => none
+  | .template params _ _ => some params.length
 
 def YulLowering.outputArity : YulLowering → Option Nat
   | .verbatim _ outArity _ => some outArity
   | .builtin _ => none
+  | .template _ _ _ => some 1
 
 def YulLowering.callName : YulLowering → String
   | .verbatim inArity outArity _ => s!"verbatim_{inArity}i_{outArity}o"
   | .builtin name => name
+  | .template .. => "__verity_intrinsic_template"
 
 def YulLowering.hexLiteral? : YulLowering → Option String
   | .verbatim _ _ opcodeHex => some s!"hex\"{opcodeHex}\""
   | .builtin _ => none
+  | .template .. => none
 
 def yulBuiltinArity? (name : String) : Option (Nat × Nat) :=
   match name with
@@ -135,10 +151,20 @@ def yulBuiltinArity? (name : String) : Option (Nat × Nat) :=
 def YulLowering.inputArity? : YulLowering → Option Nat
   | .verbatim inArity _ _ => some inArity
   | .builtin name => (yulBuiltinArity? name).map Prod.fst
+  | .template params _ _ => some params.length
 
 def YulLowering.outputArity? : YulLowering → Option Nat
   | .verbatim _ outArity _ => some outArity
   | .builtin name => (yulBuiltinArity? name).map Prod.snd
+  | .template _ _ _ => some 1
+
+def YulLowering.templateHelperName (intrinsicName : String) : String :=
+  s!"__verity_intrinsic_template_{intrinsicName}"
+
+def YulLowering.templateFuncDef? (intrinsicName : String) : YulLowering → Option YulStmt
+  | .template params output body =>
+      some (YulStmt.funcDef (templateHelperName intrinsicName) params [output] body)
+  | _ => none
 
 @[simp] theorem YulLowering.callName_verbatim
     (inArity outArity : Nat) (opcodeHex : String) :

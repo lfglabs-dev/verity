@@ -308,8 +308,8 @@ theorem compiledStmtStep_return
     (hinScope : FunctionBody.exprBoundNamesInScope value scope)
     (hvalueIR : CompilationModel.compileExpr fields .calldata value = Except.ok valueIR) :
     CompiledStmtStep fields scope (.return value)
-      [ YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
-      , YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] where
+      [ YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
+      , YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] where
   compileOk := by
     have hvalueIRInternal := hvalueIR
     rw [← CompilationModel.compileExprWithInternals_nil_eq] at hvalueIRInternal
@@ -317,8 +317,8 @@ theorem compiledStmtStep_return
       pure, Except.pure, bind, Except.bind]
   preserves runtime state extraFuel hexact hscope hbounded hruntime hslack := by
     set compiledIR :=
-      [ YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
-      , YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ]
+      [ YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
+      , YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ]
     set wholeExtraFuel := extraFuel - (sizeOf compiledIR - compiledIR.length) with hWF
     have hwhole := FunctionBody.execIRStmts_compiled_return_core_append_wholeFuel_of_scope
         (fields := fields) (runtime := runtime) (state := state) (scope := scope)
@@ -348,12 +348,12 @@ theorem compiledStmtStep_return
         rw [hWF]
         have : compiledIR.length ≤ sizeOf compiledIR := by
           show 2 ≤ sizeOf compiledIR
-          have : 0 ≤ sizeOf (YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])) :=
+          have : 0 ≤ sizeOf (YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])) :=
             Nat.zero_le _
-          have : 0 ≤ sizeOf (YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])) :=
+          have : 0 ≤ sizeOf (YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])) :=
             Nat.zero_le _
-          show 2 ≤ 1 + sizeOf (YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])) +
-                       (1 + sizeOf (YulStmt.expr (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])) + 1)
+          show 2 ≤ 1 + sizeOf (YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])) +
+                       (1 + sizeOf (YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])) + 1)
           omega
         omega
       -- Provide explicit witnesses
@@ -381,12 +381,12 @@ theorem compiledStmtStep_return
 theorem compiledStmtStep_stop
     {fields : List Field}
     {scope : List String} :
-    CompiledStmtStep fields scope .stop [YulStmt.expr (YulExpr.call "stop" [])] where
+    CompiledStmtStep fields scope .stop [YulStmt.exprStmt (YulExpr.call "stop" [])] where
   compileOk := by
     simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, pure, Except.pure]
   preserves runtime state extraFuel hexact hscope hbounded hruntime hslack := by
     -- Use the helper with wholeFuel aligned to the fuel budget
-    set compiledIR := [YulStmt.expr (YulExpr.call "stop" [])]
+    set compiledIR := [YulStmt.exprStmt (YulExpr.call "stop" [])]
     set wholeExtraFuel := extraFuel - (sizeOf compiledIR - compiledIR.length) with hWF
     have hwhole := FunctionBody.execIRStmts_compiled_stop_core_append_wholeFuel
       (state := state) (tailIR := []) (extraFuel := wholeExtraFuel)
@@ -397,7 +397,7 @@ theorem compiledStmtStep_stop
       rw [hWF]
       have : compiledIR.length ≤ sizeOf compiledIR := by
         show 1 ≤ sizeOf compiledIR
-        change 1 ≤ sizeOf ([YulStmt.expr (YulExpr.call "stop" [])] : List YulStmt)
+        change 1 ≤ sizeOf ([YulStmt.exprStmt (YulExpr.call "stop" [])] : List YulStmt)
         decide
       omega
     refine ⟨.stop runtime, .stop state, ?_, ?_, ?_⟩

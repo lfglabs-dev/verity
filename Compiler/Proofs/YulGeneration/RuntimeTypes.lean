@@ -75,7 +75,7 @@ These are `Bool`-valued so compiler-generated fragments can discharge them
 automatically via `rfl`. -/
 mutual
 def yulStmtLoopFree : YulStmt → Bool
-  | .comment _ | .let_ _ _ | .letMany _ _ | .assign _ _ | .expr _ | .leave => true
+  | .comment _ | .let_ _ _ | .letMany _ _ | .assign _ _ | .exprStmt _ | .leave => true
   | .if_ _ body => yulStmtsLoopFree body
   | .for_ _ _ _ _ => false
   | .switch _ cases defaultCase =>

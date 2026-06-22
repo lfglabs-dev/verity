@@ -1935,7 +1935,7 @@ private theorem execIRStmts_sstore_lit_ident_slots_continue
     (hvalue : IRState.getVar state name = value) :
     execIRStmts (slots.length + fuel + 1) state
       (slots.map (fun slot =>
-        YulStmt.expr (YulExpr.call "sstore" [YulExpr.lit slot, YulExpr.ident name]))) =
+        YulStmt.exprStmt (YulExpr.call "sstore" [YulExpr.lit slot, YulExpr.ident name]))) =
       .continue
         { state with
             storage := abstractStoreStorageOrMappingMany state.storage slots value } := by
@@ -1948,7 +1948,7 @@ private theorem execIRStmts_sstore_lit_ident_slots_continue
             storage := Compiler.Proofs.abstractStoreStorageOrMapping state.storage slot value }
       have hstmt :
           execIRStmt (rest.length + fuel + 1) state
-            (YulStmt.expr (YulExpr.call "sstore" [YulExpr.lit slot, YulExpr.ident name])) =
+            (YulStmt.exprStmt (YulExpr.call "sstore" [YulExpr.lit slot, YulExpr.ident name])) =
               .continue nextState := by
         apply execIRStmt_sstore_lit_expr_succ_of_eval
         simp only [evalIRExpr]; exact hvalue
@@ -1973,7 +1973,7 @@ private theorem execIRStmts_let_then_sstore_lit_ident_slots_continue
     execIRStmts (slots.length + fuel + 2) state
       (YulStmt.let_ tempName valueIR ::
         slots.map (fun slot =>
-          YulStmt.expr (YulExpr.call "sstore" [YulExpr.lit slot, YulExpr.ident tempName]))) =
+          YulStmt.exprStmt (YulExpr.call "sstore" [YulExpr.lit slot, YulExpr.ident tempName]))) =
       .continue
         { state.setVar tempName value with
             storage :=
@@ -2461,12 +2461,12 @@ theorem compiledStmtStep_setStorage_singleSlot
     (hNotAdt : ∀ name maxFields, f.ty ≠ FieldType.adt name maxFields)
     (hvalueIR : CompilationModel.compileExpr fields .calldata value = Except.ok valueIR) :
     CompiledStmtStep fields scope (.setStorage fieldName value)
-      [YulStmt.expr (YulExpr.call "sstore" [YulExpr.lit slot, valueIR])] where
+      [YulStmt.exprStmt (YulExpr.call "sstore" [YulExpr.lit slot, valueIR])] where
   compileOk := by
     simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, CompilationModel.compileSetStorage,
       hNotMapping, hfind, halias, hunpacked, hnotTransient, hvalueIR]
   preserves runtime state extraFuel hexact hscope hbounded hruntime hslack := by
-    let compiledIR := [YulStmt.expr (YulExpr.call "sstore" [YulExpr.lit slot, valueIR])]
+    let compiledIR := [YulStmt.exprStmt (YulExpr.call "sstore" [YulExpr.lit slot, valueIR])]
     have hresolvedSlot :
         findResolvedFieldAtSlotCopy fields slot = some f :=
       findResolvedFieldAtSlotCopy_of_findFieldWithResolvedSlot_singleton
@@ -2503,7 +2503,7 @@ theorem compiledStmtStep_setStorage_singleSlot
           SourceSemantics.writeMappingTargets, hwriteSlots, hValueSrc, hfieldTransient, runtime']
       have hExecStmt :
           execIRStmt (extraFuel + 1) state
-            (YulStmt.expr (YulExpr.call "sstore" [YulExpr.lit slot, valueIR])) =
+            (YulStmt.exprStmt (YulExpr.call "sstore" [YulExpr.lit slot, valueIR])) =
               .continue state' :=
         execIRStmt_sstore_lit_expr_succ_of_eval
           extraFuel state slot valueIR valueNat hIRValue
@@ -2547,11 +2547,11 @@ private theorem compiledStmtStep_setStorageAddr_singleSlot_preserves
       FunctionBody.bindingsBounded runtime.bindings →
       FunctionBody.runtimeStateMatchesIR fields runtime state →
       sizeOf
-          [YulStmt.expr
+          [YulStmt.exprStmt
             (YulExpr.call "sstore"
               [YulExpr.lit slot,
                 YulExpr.call "and" [valueIR, YulExpr.hex Compiler.Constants.addressMask]])] -
-        [YulStmt.expr
+        [YulStmt.exprStmt
           (YulExpr.call "sstore"
             [YulExpr.lit slot,
               YulExpr.call "and" [valueIR, YulExpr.hex Compiler.Constants.addressMask]])].length ≤
@@ -2559,13 +2559,13 @@ private theorem compiledStmtStep_setStorageAddr_singleSlot_preserves
       ∃ sourceResult irExec,
         SourceSemantics.execStmt fields runtime (.setStorageAddr fieldName value) = sourceResult ∧
         execIRStmts
-            ([YulStmt.expr
+            ([YulStmt.exprStmt
               (YulExpr.call "sstore"
                 [YulExpr.lit slot,
                   YulExpr.call "and" [valueIR, YulExpr.hex Compiler.Constants.addressMask]])].length +
               extraFuel + 1)
             state
-            [YulStmt.expr
+            [YulStmt.exprStmt
               (YulExpr.call "sstore"
                 [YulExpr.lit slot,
                   YulExpr.call "and" [valueIR, YulExpr.hex Compiler.Constants.addressMask]])] =
@@ -2576,7 +2576,7 @@ private theorem compiledStmtStep_setStorageAddr_singleSlot_preserves
           irExec := by
   intro runtime state extraFuel hexact hscope hbounded hruntime hslack
   let compiledIR :=
-    [YulStmt.expr
+    [YulStmt.exprStmt
       (YulExpr.call "sstore"
         [YulExpr.lit slot,
           YulExpr.call "and" [valueIR, YulExpr.hex Compiler.Constants.addressMask]])]
@@ -2634,7 +2634,7 @@ private theorem compiledStmtStep_setStorageAddr_singleSlot_preserves
         hwriteSlots, hValueSrc, hfieldTransient, runtime']
     have hExecStmt :
         execIRStmt (extraFuel + 1) state
-          (YulStmt.expr
+          (YulStmt.exprStmt
             (YulExpr.call "sstore"
               [YulExpr.lit slot,
                 YulExpr.call "and" [valueIR, YulExpr.hex Compiler.Constants.addressMask]])) =
@@ -2681,7 +2681,7 @@ theorem compiledStmtStep_setStorageAddr_singleSlot
     (hnoConflict : firstFieldWriteSlotConflict fields = none)
     (hvalueIR : CompilationModel.compileExpr fields .calldata value = Except.ok valueIR) :
     CompiledStmtStep fields scope (.setStorageAddr fieldName value)
-      [YulStmt.expr
+      [YulStmt.exprStmt
         (YulExpr.call "sstore"
           [YulExpr.lit slot,
             YulExpr.call "and" [valueIR, YulExpr.hex Compiler.Constants.addressMask]])] where
@@ -2711,21 +2711,21 @@ private theorem compiledStmtStep_mstore_single_preserves
       FunctionBody.scopeNamesPresent scope runtime.bindings →
       FunctionBody.bindingsBounded runtime.bindings →
       FunctionBody.runtimeStateMatchesIR fields runtime state →
-      sizeOf [YulStmt.expr (YulExpr.call "mstore" [offsetIR, valueIR])] -
-        [YulStmt.expr (YulExpr.call "mstore" [offsetIR, valueIR])].length ≤ extraFuel →
+      sizeOf [YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR])] -
+        [YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR])].length ≤ extraFuel →
       ∃ sourceResult irExec,
         SourceSemantics.execStmt fields runtime (.mstore offset value) = sourceResult ∧
         execIRStmts
-            ([YulStmt.expr (YulExpr.call "mstore" [offsetIR, valueIR])].length +
+            ([YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR])].length +
               extraFuel + 1)
             state
-            [YulStmt.expr (YulExpr.call "mstore" [offsetIR, valueIR])] = irExec ∧
+            [YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR])] = irExec ∧
         stmtStepMatchesIRExec fields
           (stmtNextScope scope (.mstore offset value))
           sourceResult
           irExec := by
   intro runtime state extraFuel hexact hscope hbounded hruntime hslack
-  let compiledIR := [YulStmt.expr (YulExpr.call "mstore" [offsetIR, valueIR])]
+  let compiledIR := [YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR])]
   have hOffsetEval :=
     FunctionBody.eval_compileExpr_core_of_scope
       hcoreOffset hexact hinScopeOffset hbounded
@@ -2766,7 +2766,7 @@ private theorem compiledStmtStep_mstore_single_preserves
           memory := fun o => if o = offsetNat then valueNat else state.memory o }
       have hExecStmt :
           execIRStmt (extraFuel + 1) state
-            (YulStmt.expr (YulExpr.call "mstore" [offsetIR, valueIR])) =
+            (YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR])) =
               .continue state' := by
         simp [execIRStmt, evalIRExprs, hIROffset, hIRValue, state']
       have hfuelEq : 1 + extraFuel = extraFuel + 1 := by omega
@@ -2818,7 +2818,7 @@ theorem compiledStmtStep_mstore_single
     (hoffsetIR : CompilationModel.compileExpr fields .calldata offset = Except.ok offsetIR)
     (hvalueIR : CompilationModel.compileExpr fields .calldata value = Except.ok valueIR) :
     CompiledStmtStep fields scope (.mstore offset value)
-      [YulStmt.expr (YulExpr.call "mstore" [offsetIR, valueIR])] where
+      [YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR])] where
   compileOk := by
     have hoffsetIRInternal := compileExprWithInternals_nil_ok hoffsetIR
     have hvalueIRInternal := compileExprWithInternals_nil_ok hvalueIR
@@ -2845,21 +2845,21 @@ private theorem compiledStmtStep_tstore_single_preserves
       FunctionBody.scopeNamesPresent scope runtime.bindings →
       FunctionBody.bindingsBounded runtime.bindings →
       FunctionBody.runtimeStateMatchesIR fields runtime state →
-      sizeOf [YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR])] -
-        [YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR])].length ≤ extraFuel →
+      sizeOf [YulStmt.exprStmt (YulExpr.call "tstore" [offsetIR, valueIR])] -
+        [YulStmt.exprStmt (YulExpr.call "tstore" [offsetIR, valueIR])].length ≤ extraFuel →
       ∃ sourceResult irExec,
         SourceSemantics.execStmt fields runtime (.tstore offset value) = sourceResult ∧
         execIRStmts
-            ([YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR])].length +
+            ([YulStmt.exprStmt (YulExpr.call "tstore" [offsetIR, valueIR])].length +
               extraFuel + 1)
             state
-            [YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR])] = irExec ∧
+            [YulStmt.exprStmt (YulExpr.call "tstore" [offsetIR, valueIR])] = irExec ∧
         stmtStepMatchesIRExec fields
           (stmtNextScope scope (.tstore offset value))
           sourceResult
           irExec := by
   intro runtime state extraFuel hexact hscope hbounded hruntime hslack
-  let compiledIR := [YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR])]
+  let compiledIR := [YulStmt.exprStmt (YulExpr.call "tstore" [offsetIR, valueIR])]
   have hOffsetEval :=
     FunctionBody.eval_compileExpr_core_of_scope
       hcoreOffset hexact hinScopeOffset hbounded
@@ -2909,7 +2909,7 @@ private theorem compiledStmtStep_tstore_single_preserves
           transientStorage := fun o => if o = offsetKey then valueNat else state.transientStorage o }
       have hExecStmt :
           execIRStmt (extraFuel + 1) state
-            (YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR])) =
+            (YulStmt.exprStmt (YulExpr.call "tstore" [offsetIR, valueIR])) =
               .continue state' := by
         simp [execIRStmt, evalIRExprs, hIROffset, hIRValue, state', offsetKey]
       have hfuelEq : 1 + extraFuel = extraFuel + 1 := by omega
@@ -2955,7 +2955,7 @@ theorem compiledStmtStep_tstore_single
     (hoffsetIR : CompilationModel.compileExpr fields .calldata offset = Except.ok offsetIR)
     (hvalueIR : CompilationModel.compileExpr fields .calldata value = Except.ok valueIR) :
     CompiledStmtStep fields scope (.tstore offset value)
-      [YulStmt.expr (YulExpr.call "tstore" [offsetIR, valueIR])] where
+      [YulStmt.exprStmt (YulExpr.call "tstore" [offsetIR, valueIR])] where
   compileOk := by
     have hoffsetIRInternal := compileExprWithInternals_nil_ok hoffsetIR
     have hvalueIRInternal := compileExprWithInternals_nil_ok hvalueIR
@@ -2992,21 +2992,21 @@ private theorem compiledStmtStep_setMappingUint_singleSlot_of_slotSafety_preserv
       FunctionBody.scopeNamesPresent scope runtime.bindings →
       FunctionBody.bindingsBounded runtime.bindings →
       FunctionBody.runtimeStateMatchesIR fields runtime state →
-      sizeOf [YulStmt.expr
+      sizeOf [YulStmt.exprStmt
         (YulExpr.call (fieldStoreBuiltin fields fieldName)
           [YulExpr.call "mappingSlot" [YulExpr.lit slot, keyIR], valueIR])] -
-        [YulStmt.expr
+        [YulStmt.exprStmt
           (YulExpr.call (fieldStoreBuiltin fields fieldName)
             [YulExpr.call "mappingSlot" [YulExpr.lit slot, keyIR], valueIR])].length ≤ extraFuel →
       ∃ sourceResult irExec,
         SourceSemantics.execStmt fields runtime (.setMappingUint fieldName key value) = sourceResult ∧
         execIRStmts
-            ([YulStmt.expr
+            ([YulStmt.exprStmt
               (YulExpr.call (fieldStoreBuiltin fields fieldName)
                 [YulExpr.call "mappingSlot" [YulExpr.lit slot, keyIR], valueIR])].length +
               extraFuel + 1)
             state
-            [YulStmt.expr
+            [YulStmt.exprStmt
               (YulExpr.call (fieldStoreBuiltin fields fieldName)
                 [YulExpr.call "mappingSlot" [YulExpr.lit slot, keyIR], valueIR])] = irExec ∧
         stmtStepMatchesIRExec fields
@@ -3014,7 +3014,7 @@ private theorem compiledStmtStep_setMappingUint_singleSlot_of_slotSafety_preserv
           sourceResult
           irExec := by
   intro runtime state extraFuel hexact hscope hbounded hruntime hslack
-  let compiledIR := [YulStmt.expr
+  let compiledIR := [YulStmt.exprStmt
     (YulExpr.call (fieldStoreBuiltin fields fieldName)
       [YulExpr.call "mappingSlot" [YulExpr.lit slot, keyIR], valueIR])]
   have hkeySourceEval :=
@@ -3076,7 +3076,7 @@ private theorem compiledStmtStep_setMappingUint_singleSlot_of_slotSafety_preserv
             SourceSemantics.writeUintKeyedMappingFieldSlots, htrans, target]
         have hExecStmt :
             execIRStmt (extraFuel + 1) state
-              (YulStmt.expr
+              (YulStmt.exprStmt
                 (YulExpr.call (fieldStoreBuiltin fields fieldName)
                   [YulExpr.call "mappingSlot" [YulExpr.lit slot, keyIR], valueIR])) =
                 .continue state' := by
@@ -3129,7 +3129,7 @@ private theorem compiledStmtStep_setMappingUint_singleSlot_of_slotSafety_preserv
             SourceSemantics.writeUintKeyedMappingFieldSlots, htransFalse]
         have hExecStmt :
             execIRStmt (extraFuel + 1) state
-              (YulStmt.expr
+              (YulStmt.exprStmt
                 (YulExpr.call (fieldStoreBuiltin fields fieldName)
                   [YulExpr.call "mappingSlot" [YulExpr.lit slot, keyIR], valueIR])) =
                 .continue state' := by
@@ -3178,7 +3178,7 @@ theorem compiledStmtStep_setMappingUint_singleSlot_of_slotSafety
     (hkeyIR : CompilationModel.compileExpr fields .calldata key = Except.ok keyIR)
     (hvalueIR : CompilationModel.compileExpr fields .calldata value = Except.ok valueIR) :
     CompiledStmtStep fields scope (.setMappingUint fieldName key value)
-      [YulStmt.expr
+      [YulStmt.exprStmt
         (YulExpr.call (fieldStoreBuiltin fields fieldName)
           [YulExpr.call "mappingSlot" [YulExpr.lit slot, keyIR], valueIR])] where
   compileOk := by
@@ -3435,7 +3435,7 @@ private theorem execIRStmt_sstore_of_eval
     (hslot : evalIRExpr state slotExpr = some slotVal)
     (hvalue : evalIRExpr state valueExpr = some valueVal) :
     execIRStmt (Nat.succ fuel) state
-      (Compiler.Yul.YulStmt.expr (Compiler.Yul.YulExpr.call "sstore"
+      (Compiler.Yul.YulStmt.exprStmt (Compiler.Yul.YulExpr.call "sstore"
         [slotExpr, valueExpr])) =
       .continue { state with
         storage := Compiler.Proofs.abstractStoreStorageOrMapping state.storage
@@ -3481,7 +3481,7 @@ private theorem execIRStmt_tstore_of_eval
     (hslot : evalIRExpr state slotExpr = some slotVal)
     (hvalue : evalIRExpr state valueExpr = some valueVal) :
     execIRStmt (Nat.succ fuel) state
-      (Compiler.Yul.YulStmt.expr (Compiler.Yul.YulExpr.call "tstore"
+      (Compiler.Yul.YulStmt.exprStmt (Compiler.Yul.YulExpr.call "tstore"
         [slotExpr, valueExpr])) =
       .continue { state with
         transientStorage := fun slot =>
@@ -3638,7 +3638,7 @@ private theorem execIRStmt_sstore_foldl_mappingSlot
     (hkeys : List.Forall₂ (fun exprIR value => evalIRExpr state exprIR = some value) keyIRs keyVals)
     (hvalue : evalIRExpr state valueExpr = some valueVal) :
     execIRStmt (Nat.succ fuel) state
-      (Compiler.Yul.YulStmt.expr (Compiler.Yul.YulExpr.call "sstore"
+      (Compiler.Yul.YulStmt.exprStmt (Compiler.Yul.YulExpr.call "sstore"
         [keyIRs.foldl
           (fun slotExpr keyExpr => Compiler.Yul.YulExpr.call "mappingSlot" [slotExpr, keyExpr])
           (Compiler.Yul.YulExpr.lit baseSlot), valueExpr])) =
@@ -3650,7 +3650,7 @@ private theorem execIRStmt_sstore_foldl_mappingSlot
       List.Forall₂ (fun exprIR value => evalIRExpr state exprIR = some value) kIRs kVals →
       evalIRExpr state startExpr = some startSlot →
       execIRStmt (Nat.succ fuel) state
-        (Compiler.Yul.YulStmt.expr (Compiler.Yul.YulExpr.call "sstore"
+        (Compiler.Yul.YulStmt.exprStmt (Compiler.Yul.YulExpr.call "sstore"
           [kIRs.foldl
             (fun slotExpr keyExpr => Compiler.Yul.YulExpr.call "mappingSlot" [slotExpr, keyExpr])
             startExpr, valueExpr])) =
@@ -3705,12 +3705,12 @@ private theorem compiledStmtStep_setMappingChain_singleSlot_of_slotSafety_preser
       FunctionBody.scopeNamesPresent scope runtime.bindings →
       FunctionBody.bindingsBounded runtime.bindings →
       FunctionBody.runtimeStateMatchesIR fields runtime state →
-      sizeOf [YulStmt.expr
+      sizeOf [YulStmt.exprStmt
         (YulExpr.call (fieldStoreBuiltin fields fieldName)
           [keyIRs.foldl
             (fun slotExpr keyExpr => YulExpr.call "mappingSlot" [slotExpr, keyExpr])
             (YulExpr.lit slot), valueIR])] -
-        [YulStmt.expr
+        [YulStmt.exprStmt
           (YulExpr.call (fieldStoreBuiltin fields fieldName)
             [keyIRs.foldl
               (fun slotExpr keyExpr => YulExpr.call "mappingSlot" [slotExpr, keyExpr])
@@ -3718,13 +3718,13 @@ private theorem compiledStmtStep_setMappingChain_singleSlot_of_slotSafety_preser
       ∃ sourceResult irExec,
         SourceSemantics.execStmt fields runtime (.setMappingChain fieldName keys value) = sourceResult ∧
         execIRStmts
-            ([YulStmt.expr
+            ([YulStmt.exprStmt
               (YulExpr.call (fieldStoreBuiltin fields fieldName)
                 [keyIRs.foldl
                   (fun slotExpr keyExpr => YulExpr.call "mappingSlot" [slotExpr, keyExpr])
                   (YulExpr.lit slot), valueIR])].length + extraFuel + 1)
             state
-            [YulStmt.expr
+            [YulStmt.exprStmt
               (YulExpr.call (fieldStoreBuiltin fields fieldName)
                 [keyIRs.foldl
                   (fun slotExpr keyExpr => YulExpr.call "mappingSlot" [slotExpr, keyExpr])
@@ -3738,7 +3738,7 @@ private theorem compiledStmtStep_setMappingChain_singleSlot_of_slotSafety_preser
     keyIRs.foldl
       (fun slotExpr keyExpr => YulExpr.call "mappingSlot" [slotExpr, keyExpr])
       (YulExpr.lit slot)
-  let compiledIR := [YulStmt.expr
+  let compiledIR := [YulStmt.exprStmt
     (YulExpr.call (fieldStoreBuiltin fields fieldName) [writeSlotExpr, valueIR])]
   -- Evaluate value expression
   have hvalueSourceEval :=
@@ -3816,7 +3816,7 @@ private theorem compiledStmtStep_setMappingChain_singleSlot_of_slotSafety_preser
           SourceSemantics.mappingSlotChain]
       have hExecStmt :
           execIRStmt (extraFuel + 1) state
-            (YulStmt.expr
+            (YulStmt.exprStmt
               (YulExpr.call (fieldStoreBuiltin fields fieldName) [writeSlotExpr, valueIR])) =
               .continue state' := by
         have h := execIRStmt_tstore_of_eval
@@ -3864,7 +3864,7 @@ private theorem compiledStmtStep_setMappingChain_singleSlot_of_slotSafety_preser
           SourceSemantics.writeAddressKeyedMappingChainFieldSlots, htransFalse]
       have hExecStmt :
           execIRStmt (extraFuel + 1) state
-            (YulStmt.expr
+            (YulStmt.exprStmt
               (YulExpr.call (fieldStoreBuiltin fields fieldName) [writeSlotExpr, valueIR])) =
               .continue state' := by
         simpa [fieldStoreBuiltin, htransFalse, state'] using
@@ -3919,7 +3919,7 @@ theorem compiledStmtStep_setMappingChain_singleSlot_of_slotSafety
     (hkeyIRs : CompilationModel.compileExprList fields .calldata keys = Except.ok keyIRs)
     (hvalueIR : CompilationModel.compileExpr fields .calldata value = Except.ok valueIR) :
     CompiledStmtStep fields scope (.setMappingChain fieldName keys value)
-      [YulStmt.expr
+      [YulStmt.exprStmt
         (YulExpr.call (fieldStoreBuiltin fields fieldName)
           [keyIRs.foldl
             (fun slotExpr keyExpr => YulExpr.call "mappingSlot" [slotExpr, keyExpr])
@@ -3964,21 +3964,21 @@ private theorem compiledStmtStep_setMapping_singleSlot_of_slotSafety_preserves
       FunctionBody.scopeNamesPresent scope runtime.bindings →
       FunctionBody.bindingsBounded runtime.bindings →
       FunctionBody.runtimeStateMatchesIR fields runtime state →
-      sizeOf [YulStmt.expr
+      sizeOf [YulStmt.exprStmt
         (YulExpr.call (fieldStoreBuiltin fields fieldName)
           [YulExpr.call "mappingSlot" [YulExpr.lit slot, keyIR], valueIR])] -
-        [YulStmt.expr
+        [YulStmt.exprStmt
           (YulExpr.call (fieldStoreBuiltin fields fieldName)
             [YulExpr.call "mappingSlot" [YulExpr.lit slot, keyIR], valueIR])].length ≤ extraFuel →
       ∃ sourceResult irExec,
         SourceSemantics.execStmt fields runtime (.setMapping fieldName key value) = sourceResult ∧
         execIRStmts
-            ([YulStmt.expr
+            ([YulStmt.exprStmt
               (YulExpr.call (fieldStoreBuiltin fields fieldName)
                 [YulExpr.call "mappingSlot" [YulExpr.lit slot, keyIR], valueIR])].length +
               extraFuel + 1)
             state
-            [YulStmt.expr
+            [YulStmt.exprStmt
               (YulExpr.call (fieldStoreBuiltin fields fieldName)
                 [YulExpr.call "mappingSlot" [YulExpr.lit slot, keyIR], valueIR])] = irExec ∧
         stmtStepMatchesIRExec fields
@@ -3986,7 +3986,7 @@ private theorem compiledStmtStep_setMapping_singleSlot_of_slotSafety_preserves
           sourceResult
           irExec := by
   intro runtime state extraFuel hexact hscope hbounded hruntime hslack
-  let compiledIR := [YulStmt.expr
+  let compiledIR := [YulStmt.exprStmt
     (YulExpr.call (fieldStoreBuiltin fields fieldName)
       [YulExpr.call "mappingSlot" [YulExpr.lit slot, keyIR], valueIR])]
   have hkeySourceEval :=
@@ -4048,7 +4048,7 @@ private theorem compiledStmtStep_setMapping_singleSlot_of_slotSafety_preserves
             SourceSemantics.writeAddressKeyedMappingFieldSlots, htrans, target]
         have hExecStmt :
             execIRStmt (extraFuel + 1) state
-              (YulStmt.expr
+              (YulStmt.exprStmt
                 (YulExpr.call (fieldStoreBuiltin fields fieldName)
                   [YulExpr.call "mappingSlot" [YulExpr.lit slot, keyIR], valueIR])) =
                 .continue state' := by
@@ -4101,7 +4101,7 @@ private theorem compiledStmtStep_setMapping_singleSlot_of_slotSafety_preserves
             SourceSemantics.writeAddressKeyedMappingFieldSlots, htransFalse]
         have hExecStmt :
             execIRStmt (extraFuel + 1) state
-              (YulStmt.expr
+              (YulStmt.exprStmt
                 (YulExpr.call (fieldStoreBuiltin fields fieldName)
                   [YulExpr.call "mappingSlot" [YulExpr.lit slot, keyIR], valueIR])) =
                 .continue state' := by
@@ -4150,7 +4150,7 @@ theorem compiledStmtStep_setMapping_singleSlot_of_slotSafety
     (hkeyIR : CompilationModel.compileExpr fields .calldata key = Except.ok keyIR)
     (hvalueIR : CompilationModel.compileExpr fields .calldata value = Except.ok valueIR) :
     CompiledStmtStep fields scope (.setMapping fieldName key value)
-      [YulStmt.expr
+      [YulStmt.exprStmt
         (YulExpr.call (fieldStoreBuiltin fields fieldName)
           [YulExpr.call "mappingSlot" [YulExpr.lit slot, keyIR], valueIR])] where
   compileOk := by
@@ -4194,12 +4194,12 @@ private theorem compiledStmtStep_setMappingWord_singleSlot_of_slotSafety_preserv
       FunctionBody.scopeNamesPresent scope runtime.bindings →
       FunctionBody.bindingsBounded runtime.bindings →
       FunctionBody.runtimeStateMatchesIR fields runtime state →
-        sizeOf [YulStmt.expr
+        sizeOf [YulStmt.exprStmt
           (YulExpr.call (fieldStoreBuiltin fields fieldName)
             [let mappingBase := YulExpr.call "mappingSlot" [YulExpr.lit slot, keyIR]
              if wordOffset == 0 then mappingBase
              else YulExpr.call "add" [mappingBase, YulExpr.lit wordOffset], valueIR])] -
-          [YulStmt.expr
+          [YulStmt.exprStmt
             (YulExpr.call (fieldStoreBuiltin fields fieldName)
               [let mappingBase := YulExpr.call "mappingSlot" [YulExpr.lit slot, keyIR]
                if wordOffset == 0 then mappingBase
@@ -4207,14 +4207,14 @@ private theorem compiledStmtStep_setMappingWord_singleSlot_of_slotSafety_preserv
       ∃ sourceResult irExec,
         SourceSemantics.execStmt fields runtime (.setMappingWord fieldName key wordOffset value) = sourceResult ∧
         execIRStmts
-              ([YulStmt.expr
+              ([YulStmt.exprStmt
                 (YulExpr.call (fieldStoreBuiltin fields fieldName)
                   [let mappingBase := YulExpr.call "mappingSlot" [YulExpr.lit slot, keyIR]
                    if wordOffset == 0 then mappingBase
                    else YulExpr.call "add" [mappingBase, YulExpr.lit wordOffset], valueIR])].length +
               extraFuel + 1)
             state
-              [YulStmt.expr
+              [YulStmt.exprStmt
                 (YulExpr.call (fieldStoreBuiltin fields fieldName)
                   [let mappingBase := YulExpr.call "mappingSlot" [YulExpr.lit slot, keyIR]
                    if wordOffset == 0 then mappingBase
@@ -4306,7 +4306,7 @@ private theorem compiledStmtStep_setMappingWord_singleSlot_of_slotSafety_preserv
             SourceSemantics.writeMappingTargets, htrans, target, targetSlot, hTargetMod]
         have hExecStmt :
             execIRStmt (extraFuel + 1) state
-              (YulStmt.expr
+              (YulStmt.exprStmt
                 (YulExpr.call (fieldStoreBuiltin fields fieldName)
                   [writeSlotExpr, valueIR])) = .continue state' := by
             simpa [fieldStoreBuiltin, htrans, state', target, hTargetMod] using
@@ -4315,7 +4315,7 @@ private theorem compiledStmtStep_setMappingWord_singleSlot_of_slotSafety_preserv
               (slotVal := targetSlot) (valueVal := valueNat) (fuel := extraFuel)
               hWriteSlotEval hIRValue)
         have hIRExec : execIRStmts (1 + extraFuel + 1) state
-            [YulStmt.expr
+            [YulStmt.exprStmt
               (YulExpr.call (fieldStoreBuiltin fields fieldName) [writeSlotExpr, valueIR])] =
             .continue state' := by
           simp [execIRStmts, hfuelEq, hExecStmt]
@@ -4358,7 +4358,7 @@ private theorem compiledStmtStep_setMappingWord_singleSlot_of_slotSafety_preserv
             htransFalse, hTargetMod, htargetSlotNorm]
         have hExecStmt :
             execIRStmt (extraFuel + 1) state
-              (YulStmt.expr
+              (YulStmt.exprStmt
                 (YulExpr.call (fieldStoreBuiltin fields fieldName)
                   [writeSlotExpr, valueIR])) = .continue state' := by
           simpa [fieldStoreBuiltin, htransFalse, state'] using
@@ -4367,7 +4367,7 @@ private theorem compiledStmtStep_setMappingWord_singleSlot_of_slotSafety_preserv
               (slotVal := targetSlot) (valueVal := valueNat) (fuel := extraFuel)
               hWriteSlotEval hIRValue)
         have hIRExec : execIRStmts (1 + extraFuel + 1) state
-            [YulStmt.expr
+            [YulStmt.exprStmt
               (YulExpr.call (fieldStoreBuiltin fields fieldName) [writeSlotExpr, valueIR])] =
             .continue state' := by
           simp [execIRStmts, hfuelEq, hExecStmt]
@@ -4412,7 +4412,7 @@ theorem compiledStmtStep_setMappingWord_singleSlot_of_slotSafety
     (hkeyIR : CompilationModel.compileExpr fields .calldata key = Except.ok keyIR)
     (hvalueIR : CompilationModel.compileExpr fields .calldata value = Except.ok valueIR) :
     CompiledStmtStep fields scope (.setMappingWord fieldName key wordOffset value)
-      [YulStmt.expr
+      [YulStmt.exprStmt
         (YulExpr.call (fieldStoreBuiltin fields fieldName)
           [let mappingBase := YulExpr.call "mappingSlot" [YulExpr.lit slot, keyIR]
            if wordOffset == 0 then mappingBase
@@ -4551,7 +4551,7 @@ private theorem compiledStmtStep_setMappingPackedWord_singleSlot_of_slotSafety_p
             (YulExpr.call "and"
               [YulExpr.ident "__compat_slot_word",
                 YulExpr.call "not" [YulExpr.lit (packedShiftedMaskNat packed)]])
-        , YulStmt.expr
+        , YulStmt.exprStmt
             (YulExpr.call (fieldStoreBuiltin fields fieldName)
               [let mappingBase := YulExpr.call "mappingSlot" [YulExpr.lit slot, keyIR]
                if wordOffset == 0 then mappingBase
@@ -4574,7 +4574,7 @@ private theorem compiledStmtStep_setMappingPackedWord_singleSlot_of_slotSafety_p
               (YulExpr.call "and"
                 [YulExpr.ident "__compat_slot_word",
                   YulExpr.call "not" [YulExpr.lit (packedShiftedMaskNat packed)]])
-          , YulStmt.expr
+          , YulStmt.exprStmt
               (YulExpr.call (fieldStoreBuiltin fields fieldName)
                 [let mappingBase := YulExpr.call "mappingSlot" [YulExpr.lit slot, keyIR]
                  if wordOffset == 0 then mappingBase
@@ -4602,7 +4602,7 @@ private theorem compiledStmtStep_setMappingPackedWord_singleSlot_of_slotSafety_p
                   (YulExpr.call "and"
                     [YulExpr.ident "__compat_slot_word",
                       YulExpr.call "not" [YulExpr.lit (packedShiftedMaskNat packed)]])
-              , YulStmt.expr
+              , YulStmt.exprStmt
                   (YulExpr.call (fieldStoreBuiltin fields fieldName)
                     [let mappingBase := YulExpr.call "mappingSlot" [YulExpr.lit slot, keyIR]
                      if wordOffset == 0 then mappingBase
@@ -4627,7 +4627,7 @@ private theorem compiledStmtStep_setMappingPackedWord_singleSlot_of_slotSafety_p
                   (YulExpr.call "and"
                     [YulExpr.ident "__compat_slot_word",
                       YulExpr.call "not" [YulExpr.lit (packedShiftedMaskNat packed)]])
-              , YulStmt.expr
+              , YulStmt.exprStmt
                   (YulExpr.call (fieldStoreBuiltin fields fieldName)
                     [let mappingBase := YulExpr.call "mappingSlot" [YulExpr.lit slot, keyIR]
                      if wordOffset == 0 then mappingBase
@@ -4653,7 +4653,7 @@ private theorem compiledStmtStep_setMappingPackedWord_singleSlot_of_slotSafety_p
         (YulExpr.call "and"
           [YulExpr.ident "__compat_slot_word",
             YulExpr.call "not" [YulExpr.lit (packedShiftedMaskNat packed)]])
-    , YulStmt.expr
+    , YulStmt.exprStmt
         (YulExpr.call (fieldStoreBuiltin fields fieldName)
           [writeSlotExpr,
             YulExpr.call "or"
@@ -5111,7 +5111,7 @@ private theorem compiledStmtStep_setMappingPackedWord_singleSlot_of_slotSafety_p
           simpa [hzero, targetSlot, mappingWordTargetSlot_eq_uint256_add] using hAddEval'
       have hSstore :
           ∀ fuel, execIRStmt (fuel + 1) state4
-            (YulStmt.expr
+            (YulStmt.exprStmt
               (YulExpr.call (fieldStoreBuiltin fields fieldName)
               [writeSlotExpr,
                 YulExpr.call "or"
@@ -5411,7 +5411,7 @@ theorem compiledStmtStep_setMappingPackedWord_singleSlot_of_slotSafety
             (YulExpr.call "and"
               [YulExpr.ident "__compat_slot_word",
                 YulExpr.call "not" [YulExpr.lit (packedShiftedMaskNat packed)]])
-        , YulStmt.expr
+        , YulStmt.exprStmt
             (YulExpr.call (fieldStoreBuiltin fields fieldName)
               [let mappingBase := YulExpr.call "mappingSlot" [YulExpr.lit slot, keyIR]
                if wordOffset == 0 then mappingBase
@@ -5468,12 +5468,12 @@ private theorem compiledStmtStep_setStructMember_singleSlot_of_slotSafety_preser
       FunctionBody.scopeNamesPresent scope runtime.bindings →
       FunctionBody.bindingsBounded runtime.bindings →
       FunctionBody.runtimeStateMatchesIR fields runtime state →
-      sizeOf [YulStmt.expr
+      sizeOf [YulStmt.exprStmt
         (YulExpr.call (fieldStoreBuiltin fields fieldName)
           [let mappingBase := YulExpr.call "mappingSlot" [YulExpr.lit slot, keyIR]
            if wordOffset == 0 then mappingBase
            else YulExpr.call "add" [mappingBase, YulExpr.lit wordOffset], valueIR])] -
-        [YulStmt.expr
+        [YulStmt.exprStmt
           (YulExpr.call (fieldStoreBuiltin fields fieldName)
             [let mappingBase := YulExpr.call "mappingSlot" [YulExpr.lit slot, keyIR]
              if wordOffset == 0 then mappingBase
@@ -5482,14 +5482,14 @@ private theorem compiledStmtStep_setStructMember_singleSlot_of_slotSafety_preser
         SourceSemantics.execStmt fields runtime (.setStructMember fieldName key memberName value) =
           sourceResult ∧
         execIRStmts
-            ([YulStmt.expr
+            ([YulStmt.exprStmt
               (YulExpr.call (fieldStoreBuiltin fields fieldName)
                 [let mappingBase := YulExpr.call "mappingSlot" [YulExpr.lit slot, keyIR]
                  if wordOffset == 0 then mappingBase
                  else YulExpr.call "add" [mappingBase, YulExpr.lit wordOffset], valueIR])].length +
               extraFuel + 1)
             state
-            [YulStmt.expr
+            [YulStmt.exprStmt
               (YulExpr.call (fieldStoreBuiltin fields fieldName)
                 [let mappingBase := YulExpr.call "mappingSlot" [YulExpr.lit slot, keyIR]
                  if wordOffset == 0 then mappingBase
@@ -5542,7 +5542,7 @@ theorem compiledStmtStep_setStructMember_singleSlot_of_slotSafety
     (hkeyIR : CompilationModel.compileExpr fields .calldata key = Except.ok keyIR)
     (hvalueIR : CompilationModel.compileExpr fields .calldata value = Except.ok valueIR) :
     CompiledStmtStep fields scope (.setStructMember fieldName key memberName value)
-      [YulStmt.expr
+      [YulStmt.exprStmt
         (YulExpr.call (fieldStoreBuiltin fields fieldName)
           [let mappingBase := YulExpr.call "mappingSlot" [YulExpr.lit slot, keyIR]
            if wordOffset == 0 then mappingBase
@@ -5595,24 +5595,24 @@ private theorem compiledStmtStep_setMapping2_singleSlot_of_slotSafety_preserves
       FunctionBody.scopeNamesPresent scope runtime.bindings →
       FunctionBody.bindingsBounded runtime.bindings →
       FunctionBody.runtimeStateMatchesIR fields runtime state →
-        sizeOf [YulStmt.expr
+        sizeOf [YulStmt.exprStmt
           (YulExpr.call (fieldStoreBuiltin fields fieldName)
             [YulExpr.call "mappingSlot"
               [YulExpr.call "mappingSlot" [YulExpr.lit slot, key1IR], key2IR], valueIR])] -
-          [YulStmt.expr
+          [YulStmt.exprStmt
             (YulExpr.call (fieldStoreBuiltin fields fieldName)
               [YulExpr.call "mappingSlot"
                 [YulExpr.call "mappingSlot" [YulExpr.lit slot, key1IR], key2IR], valueIR])].length ≤ extraFuel →
       ∃ sourceResult irExec,
         SourceSemantics.execStmt fields runtime (.setMapping2 fieldName key1 key2 value) = sourceResult ∧
         execIRStmts
-              ([YulStmt.expr
+              ([YulStmt.exprStmt
                 (YulExpr.call (fieldStoreBuiltin fields fieldName)
                   [YulExpr.call "mappingSlot"
                     [YulExpr.call "mappingSlot" [YulExpr.lit slot, key1IR], key2IR], valueIR])].length +
               extraFuel + 1)
             state
-              [YulStmt.expr
+              [YulStmt.exprStmt
                 (YulExpr.call (fieldStoreBuiltin fields fieldName)
                   [YulExpr.call "mappingSlot"
                     [YulExpr.call "mappingSlot" [YulExpr.lit slot, key1IR], key2IR], valueIR])] = irExec ∧
@@ -5621,7 +5621,7 @@ private theorem compiledStmtStep_setMapping2_singleSlot_of_slotSafety_preserves
           sourceResult
           irExec := by
   intro runtime state extraFuel hexact hscope hbounded hruntime hslack
-  let compiledIR := [YulStmt.expr
+  let compiledIR := [YulStmt.exprStmt
     (YulExpr.call (fieldStoreBuiltin fields fieldName)
       [YulExpr.call "mappingSlot"
         [YulExpr.call "mappingSlot" [YulExpr.lit slot, key1IR], key2IR], valueIR])]
@@ -5702,7 +5702,7 @@ private theorem compiledStmtStep_setMapping2_singleSlot_of_slotSafety_preserves
               SourceSemantics.writeAddressKeyedMapping2FieldSlots, htrans, target]
           have hExecStmt :
               execIRStmt (extraFuel + 1) state
-                (YulStmt.expr
+                (YulStmt.exprStmt
                   (YulExpr.call (fieldStoreBuiltin fields fieldName)
                     [YulExpr.call "mappingSlot"
                       [YulExpr.call "mappingSlot" [YulExpr.lit slot, key1IR], key2IR], valueIR])) =
@@ -5762,7 +5762,7 @@ private theorem compiledStmtStep_setMapping2_singleSlot_of_slotSafety_preserves
               SourceSemantics.writeAddressKeyedMapping2FieldSlots, htransFalse]
           have hExecStmt :
               execIRStmt (extraFuel + 1) state
-                (YulStmt.expr
+                (YulStmt.exprStmt
                   (YulExpr.call (fieldStoreBuiltin fields fieldName)
                     [YulExpr.call "mappingSlot"
                       [YulExpr.call "mappingSlot" [YulExpr.lit slot, key1IR], key2IR], valueIR])) =
@@ -5821,7 +5821,7 @@ theorem compiledStmtStep_setMapping2_singleSlot_of_slotSafety
     (hkey2IR : CompilationModel.compileExpr fields .calldata key2 = Except.ok key2IR)
     (hvalueIR : CompilationModel.compileExpr fields .calldata value = Except.ok valueIR) :
     CompiledStmtStep fields scope (.setMapping2 fieldName key1 key2 value)
-        [YulStmt.expr
+        [YulStmt.exprStmt
           (YulExpr.call (fieldStoreBuiltin fields fieldName)
             [YulExpr.call "mappingSlot"
               [YulExpr.call "mappingSlot" [YulExpr.lit slot, key1IR], key2IR], valueIR])] where
@@ -5872,13 +5872,13 @@ private theorem compiledStmtStep_setMapping2Word_singleSlot_of_slotSafety_preser
       FunctionBody.scopeNamesPresent scope runtime.bindings →
       FunctionBody.bindingsBounded runtime.bindings →
       FunctionBody.runtimeStateMatchesIR fields runtime state →
-      sizeOf [YulStmt.expr
+      sizeOf [YulStmt.exprStmt
         (YulExpr.call (fieldStoreBuiltin fields fieldName)
           [let mappingBase := YulExpr.call "mappingSlot" [YulExpr.lit slot, key1IR]
            let mappingSlot2 := YulExpr.call "mappingSlot" [mappingBase, key2IR]
            if wordOffset == 0 then mappingSlot2
            else YulExpr.call "add" [mappingSlot2, YulExpr.lit wordOffset], valueIR])] -
-        [YulStmt.expr
+        [YulStmt.exprStmt
           (YulExpr.call (fieldStoreBuiltin fields fieldName)
             [let mappingBase := YulExpr.call "mappingSlot" [YulExpr.lit slot, key1IR]
              let mappingSlot2 := YulExpr.call "mappingSlot" [mappingBase, key2IR]
@@ -5889,7 +5889,7 @@ private theorem compiledStmtStep_setMapping2Word_singleSlot_of_slotSafety_preser
         SourceSemantics.execStmt fields runtime (.setMapping2Word fieldName key1 key2 wordOffset value) =
           sourceResult ∧
         execIRStmts
-            ([YulStmt.expr
+            ([YulStmt.exprStmt
               (YulExpr.call (fieldStoreBuiltin fields fieldName)
                 [let mappingBase := YulExpr.call "mappingSlot" [YulExpr.lit slot, key1IR]
                  let mappingSlot2 := YulExpr.call "mappingSlot" [mappingBase, key2IR]
@@ -5897,7 +5897,7 @@ private theorem compiledStmtStep_setMapping2Word_singleSlot_of_slotSafety_preser
                  else YulExpr.call "add" [mappingSlot2, YulExpr.lit wordOffset], valueIR])].length +
               extraFuel + 1)
             state
-            [YulStmt.expr
+            [YulStmt.exprStmt
               (YulExpr.call (fieldStoreBuiltin fields fieldName)
                 [let mappingBase := YulExpr.call "mappingSlot" [YulExpr.lit slot, key1IR]
                  let mappingSlot2 := YulExpr.call "mappingSlot" [mappingBase, key2IR]
@@ -5908,7 +5908,7 @@ private theorem compiledStmtStep_setMapping2Word_singleSlot_of_slotSafety_preser
           sourceResult
           irExec := by
   intro runtime state extraFuel hexact hscope hbounded hruntime hslack
-  let compiledIR := [YulStmt.expr
+  let compiledIR := [YulStmt.exprStmt
     (YulExpr.call (fieldStoreBuiltin fields fieldName)
       [let mappingBase := YulExpr.call "mappingSlot" [YulExpr.lit slot, key1IR]
        let mappingSlot2 := YulExpr.call "mappingSlot" [mappingBase, key2IR]
@@ -6021,7 +6021,7 @@ private theorem compiledStmtStep_setMapping2Word_singleSlot_of_slotSafety_preser
               SourceSemantics.writeMappingTargets, htrans, target, targetSlot, hTargetMod]
           have hExecStmt :
               execIRStmt (extraFuel + 1) state
-                (YulStmt.expr
+                (YulStmt.exprStmt
                   (YulExpr.call (fieldStoreBuiltin fields fieldName)
                     [writeSlotExpr, valueIR])) = .continue state' := by
             simpa [fieldStoreBuiltin, htrans, state', target, hTargetMod] using
@@ -6032,7 +6032,7 @@ private theorem compiledStmtStep_setMapping2Word_singleSlot_of_slotSafety_preser
           have hIRExec : execIRStmts (compiledIR.length + extraFuel + 1) state compiledIR =
               .continue state' := by
             change execIRStmts (1 + extraFuel + 1) state
-              [YulStmt.expr (YulExpr.call (fieldStoreBuiltin fields fieldName)
+              [YulStmt.exprStmt (YulExpr.call (fieldStoreBuiltin fields fieldName)
                 [writeSlotExpr, valueIR])] = .continue state'
             simp [execIRStmts, hfuelEq, hExecStmt]
           have hexact' : FunctionBody.bindingsExactlyMatchIRVarsOnScope
@@ -6087,7 +6087,7 @@ private theorem compiledStmtStep_setMapping2Word_singleSlot_of_slotSafety_preser
             rw [Compiler.Proofs.abstractStoreStorageOrMapping_eq, hTargetAdd]
           have hExecStmt :
               execIRStmt (extraFuel + 1) state
-                (YulStmt.expr
+                (YulStmt.exprStmt
                   (YulExpr.call (fieldStoreBuiltin fields fieldName)
                     [writeSlotExpr, valueIR])) = .continue state' := by
             simpa [fieldStoreBuiltin, htransFalse, state'] using
@@ -6098,7 +6098,7 @@ private theorem compiledStmtStep_setMapping2Word_singleSlot_of_slotSafety_preser
           have hIRExec : execIRStmts (compiledIR.length + extraFuel + 1) state compiledIR =
               .continue state' := by
             change execIRStmts (1 + extraFuel + 1) state
-              [YulStmt.expr (YulExpr.call (fieldStoreBuiltin fields fieldName)
+              [YulStmt.exprStmt (YulExpr.call (fieldStoreBuiltin fields fieldName)
                 [writeSlotExpr, valueIR])] = .continue state'
             simp [execIRStmts, hfuelEq, hExecStmt]
           have hexact' : FunctionBody.bindingsExactlyMatchIRVarsOnScope
@@ -6145,7 +6145,7 @@ theorem compiledStmtStep_setMapping2Word_singleSlot_of_slotSafety
     (hkey2IR : CompilationModel.compileExpr fields .calldata key2 = Except.ok key2IR)
     (hvalueIR : CompilationModel.compileExpr fields .calldata value = Except.ok valueIR) :
     CompiledStmtStep fields scope (.setMapping2Word fieldName key1 key2 wordOffset value)
-      [YulStmt.expr
+      [YulStmt.exprStmt
         (YulExpr.call (fieldStoreBuiltin fields fieldName)
           [let mappingBase := YulExpr.call "mappingSlot" [YulExpr.lit slot, key1IR]
            let mappingSlot2 := YulExpr.call "mappingSlot" [mappingBase, key2IR]
@@ -6198,13 +6198,13 @@ private theorem compiledStmtStep_setStructMember2_singleSlot_of_slotSafety_prese
       FunctionBody.scopeNamesPresent scope runtime.bindings →
       FunctionBody.bindingsBounded runtime.bindings →
       FunctionBody.runtimeStateMatchesIR fields runtime state →
-      sizeOf [YulStmt.expr
+      sizeOf [YulStmt.exprStmt
         (YulExpr.call (fieldStoreBuiltin fields fieldName)
           [let mappingBase := YulExpr.call "mappingSlot" [YulExpr.lit slot, key1IR]
            let mappingSlot2 := YulExpr.call "mappingSlot" [mappingBase, key2IR]
            if wordOffset == 0 then mappingSlot2
            else YulExpr.call "add" [mappingSlot2, YulExpr.lit wordOffset], valueIR])] -
-        [YulStmt.expr
+        [YulStmt.exprStmt
           (YulExpr.call (fieldStoreBuiltin fields fieldName)
             [let mappingBase := YulExpr.call "mappingSlot" [YulExpr.lit slot, key1IR]
              let mappingSlot2 := YulExpr.call "mappingSlot" [mappingBase, key2IR]
@@ -6215,7 +6215,7 @@ private theorem compiledStmtStep_setStructMember2_singleSlot_of_slotSafety_prese
         SourceSemantics.execStmt fields runtime
           (.setStructMember2 fieldName key1 key2 memberName value) = sourceResult ∧
         execIRStmts
-            ([YulStmt.expr
+            ([YulStmt.exprStmt
               (YulExpr.call (fieldStoreBuiltin fields fieldName)
                 [let mappingBase := YulExpr.call "mappingSlot" [YulExpr.lit slot, key1IR]
                  let mappingSlot2 := YulExpr.call "mappingSlot" [mappingBase, key2IR]
@@ -6223,7 +6223,7 @@ private theorem compiledStmtStep_setStructMember2_singleSlot_of_slotSafety_prese
                  else YulExpr.call "add" [mappingSlot2, YulExpr.lit wordOffset], valueIR])].length +
               extraFuel + 1)
             state
-            [YulStmt.expr
+            [YulStmt.exprStmt
               (YulExpr.call (fieldStoreBuiltin fields fieldName)
                 [let mappingBase := YulExpr.call "mappingSlot" [YulExpr.lit slot, key1IR]
                  let mappingSlot2 := YulExpr.call "mappingSlot" [mappingBase, key2IR]
@@ -6275,7 +6275,7 @@ theorem compiledStmtStep_setStructMember2_singleSlot_of_slotSafety
     (hkey2IR : CompilationModel.compileExpr fields .calldata key2 = Except.ok key2IR)
     (hvalueIR : CompilationModel.compileExpr fields .calldata value = Except.ok valueIR) :
     CompiledStmtStep fields scope (.setStructMember2 fieldName key1 key2 memberName value)
-      [YulStmt.expr
+      [YulStmt.exprStmt
         (YulExpr.call (fieldStoreBuiltin fields fieldName)
           [let mappingBase := YulExpr.call "mappingSlot" [YulExpr.lit slot, key1IR]
            let mappingSlot2 := YulExpr.call "mappingSlot" [mappingBase, key2IR]
@@ -6322,7 +6322,7 @@ theorem compiledStmtStep_setStorage_aliasSlots
       [YulStmt.block
         ([YulStmt.let_ "__compat_value" valueIR] ++
           (slot :: f.aliasSlots).map (fun writeSlot =>
-            YulStmt.expr
+            YulStmt.exprStmt
               (YulExpr.call "sstore" [YulExpr.lit writeSlot, YulExpr.ident "__compat_value"])))] where
   compileOk := by
     cases hty : f.ty with
@@ -6337,7 +6337,7 @@ theorem compiledStmtStep_setStorage_aliasSlots
     let blockBody :=
       [YulStmt.let_ "__compat_value" valueIR] ++
         slots.map (fun writeSlot =>
-          YulStmt.expr
+          YulStmt.exprStmt
             (YulExpr.call "sstore" [YulExpr.lit writeSlot, YulExpr.ident "__compat_value"]))
     let compiledIR := [YulStmt.block blockBody]
     have heval :=
@@ -6505,7 +6505,7 @@ theorem compiledStmtStep_setStorage_of_validateIdentifierShapes
     (hvalueIR : CompilationModel.compileExpr spec.fields .calldata value = Except.ok valueIR) :
     ∃ compiledIR, CompiledStmtStep spec.fields scope (.setStorage fieldName value) compiledIR := by
   by_cases halias : f.aliasSlots = []
-  · refine ⟨[YulStmt.expr (YulExpr.call "sstore" [YulExpr.lit slot, valueIR])], ?_⟩
+  · refine ⟨[YulStmt.exprStmt (YulExpr.call "sstore" [YulExpr.lit slot, valueIR])], ?_⟩
     apply compiledStmtStep_setStorage_singleSlot
       (hcore := hcore)
       (hinScope := hinScope)
@@ -6525,7 +6525,7 @@ theorem compiledStmtStep_setStorage_of_validateIdentifierShapes
       ⟨[YulStmt.block
           ([YulStmt.let_ "__compat_value" valueIR] ++
             (slot :: f.aliasSlots).map (fun writeSlot =>
-              YulStmt.expr
+              YulStmt.exprStmt
                 (YulExpr.call "sstore" [YulExpr.lit writeSlot, YulExpr.ident "__compat_value"])))],
         ?_⟩
     apply compiledStmtStep_setStorage_aliasSlots

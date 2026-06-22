@@ -36,7 +36,7 @@ def compilePackedStorageWrite (writeSlot valueExpr : YulExpr) (packed : PackedBi
         YulExpr.ident "__compat_slot_word",
         YulExpr.call "not" [YulExpr.lit shiftedMaskNat]
       ]),
-      YulStmt.expr (YulExpr.call storeBuiltin [
+      YulStmt.exprStmt (YulExpr.call storeBuiltin [
         writeSlot,
         YulExpr.call "or" [
           YulExpr.ident "__compat_slot_cleared",
@@ -62,7 +62,7 @@ def compileCompatPackedStorageWrites (writeSlots : List YulExpr) (valueExpr : Yu
             YulExpr.ident "__compat_slot_word",
             YulExpr.call "not" [YulExpr.lit shiftedMaskNat]
           ]),
-          YulStmt.expr (YulExpr.call storeBuiltin [
+          YulStmt.exprStmt (YulExpr.call storeBuiltin [
             writeSlot,
             YulExpr.call "or" [
               YulExpr.ident "__compat_slot_cleared",
@@ -106,7 +106,7 @@ def compileSetStorage (fields : List Field) (dynamicSource : DynamicDataSource)
             | [singleSlot] =>
                 match f.packedBits with
                 | none =>
-                    pure [YulStmt.expr (YulExpr.call storeBuiltin [YulExpr.lit singleSlot, storedValueExpr])]
+                    pure [YulStmt.exprStmt (YulExpr.call storeBuiltin [YulExpr.lit singleSlot, storedValueExpr])]
                 | some packed =>
                     pure (compilePackedStorageWrite (YulExpr.lit singleSlot) storedValueExpr packed loadBuiltin storeBuiltin)
             | _ =>
@@ -117,7 +117,7 @@ def compileSetStorage (fields : List Field) (dynamicSource : DynamicDataSource)
                       YulStmt.block (
                         [YulStmt.let_ "__compat_value" storedValueExpr] ++
                         writeSlots.map (fun writeSlot =>
-                          YulStmt.expr (YulExpr.call storeBuiltin [writeSlot, YulExpr.ident "__compat_value"]))
+                          YulStmt.exprStmt (YulExpr.call storeBuiltin [writeSlot, YulExpr.ident "__compat_value"]))
                       )
                     ]
                 | some packed =>
@@ -132,13 +132,13 @@ def compileStorageArrayPush (fields : List Field) (dynamicSource : DynamicDataSo
   pure [
     YulStmt.block [
       YulStmt.let_ "__array_len" (YulExpr.call "sload" [YulExpr.lit slot]),
-      YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.lit slot]),
+      YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.lit slot]),
       YulStmt.let_ "__array_base" (YulExpr.call "keccak256" [YulExpr.lit 0, YulExpr.lit 32]),
-      YulStmt.expr (YulExpr.call "sstore" [
+      YulStmt.exprStmt (YulExpr.call "sstore" [
         YulExpr.call "add" [YulExpr.ident "__array_base", YulExpr.ident "__array_len"],
         valueExpr
       ]),
-      YulStmt.expr (YulExpr.call "sstore" [
+      YulStmt.exprStmt (YulExpr.call "sstore" [
         YulExpr.lit slot,
         YulExpr.call "add" [YulExpr.ident "__array_len", YulExpr.lit 1]
       ])
@@ -151,16 +151,16 @@ def compileStorageArrayPop (fields : List Field) (field : String) : Except Strin
     YulStmt.block [
       YulStmt.let_ "__array_len" (YulExpr.call "sload" [YulExpr.lit slot]),
       YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident "__array_len"]) [
-        YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+        YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
       ],
       YulStmt.let_ "__array_new_len" (YulExpr.call "sub" [YulExpr.ident "__array_len", YulExpr.lit 1]),
-      YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.lit slot]),
+      YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.lit slot]),
       YulStmt.let_ "__array_base" (YulExpr.call "keccak256" [YulExpr.lit 0, YulExpr.lit 32]),
-      YulStmt.expr (YulExpr.call "sstore" [
+      YulStmt.exprStmt (YulExpr.call "sstore" [
         YulExpr.call "add" [YulExpr.ident "__array_base", YulExpr.ident "__array_new_len"],
         YulExpr.lit 0
       ]),
-      YulStmt.expr (YulExpr.call "sstore" [YulExpr.lit slot, YulExpr.ident "__array_new_len"])
+      YulStmt.exprStmt (YulExpr.call "sstore" [YulExpr.lit slot, YulExpr.ident "__array_new_len"])
     ]
   ]
 
@@ -177,11 +177,11 @@ def compileSetStorageArrayElement (fields : List Field) (dynamicSource : Dynamic
       YulStmt.if_ (YulExpr.call "iszero" [
         YulExpr.call "lt" [YulExpr.ident "__array_index", YulExpr.ident "__array_len"]
       ]) [
-        YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+        YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
       ],
-      YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.lit slot]),
+      YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.lit slot]),
       YulStmt.let_ "__array_base" (YulExpr.call "keccak256" [YulExpr.lit 0, YulExpr.lit 32]),
-      YulStmt.expr (YulExpr.call "sstore" [
+      YulStmt.exprStmt (YulExpr.call "sstore" [
         YulExpr.call "add" [YulExpr.ident "__array_base", YulExpr.ident "__array_index"],
         valueExpr
       ])
@@ -209,7 +209,7 @@ def compileSetMapping2 (fields : List Field) (dynamicSource : DynamicDataSource)
         | [slot] =>
             let innerSlot := YulExpr.call "mappingSlot" [YulExpr.lit slot, key1Expr]
             pure [
-              YulStmt.expr (YulExpr.call storeBuiltin [
+              YulStmt.exprStmt (YulExpr.call storeBuiltin [
                 YulExpr.call "mappingSlot" [innerSlot, key2Expr],
                 valueExpr
               ])
@@ -221,7 +221,7 @@ def compileSetMapping2 (fields : List Field) (dynamicSource : DynamicDataSource)
                   YulStmt.let_ "__compat_value" valueExpr] ++
                 slots.map (fun slot =>
                   let innerSlot := YulExpr.call "mappingSlot" [YulExpr.lit slot, YulExpr.ident "__compat_key1"]
-                  YulStmt.expr (YulExpr.call storeBuiltin [
+                  YulStmt.exprStmt (YulExpr.call storeBuiltin [
                     YulExpr.call "mappingSlot" [innerSlot, YulExpr.ident "__compat_key2"],
                     YulExpr.ident "__compat_value"
                   ]))
@@ -252,7 +252,7 @@ def compileSetMapping2Word (fields : List Field) (dynamicSource : DynamicDataSou
             let innerSlot := YulExpr.call "mappingSlot" [YulExpr.lit slot, key1Expr]
             let outerSlot := YulExpr.call "mappingSlot" [innerSlot, key2Expr]
             let finalSlot := if wordOffset == 0 then outerSlot else YulExpr.call "add" [outerSlot, YulExpr.lit wordOffset]
-            pure [YulStmt.expr (YulExpr.call storeBuiltin [finalSlot, valueExpr])]
+            pure [YulStmt.exprStmt (YulExpr.call storeBuiltin [finalSlot, valueExpr])]
         | _ =>
             pure [
               YulStmt.block (
@@ -262,7 +262,7 @@ def compileSetMapping2Word (fields : List Field) (dynamicSource : DynamicDataSou
                   let innerSlot := YulExpr.call "mappingSlot" [YulExpr.lit slot, YulExpr.ident "__compat_key1"]
                   let outerSlot := YulExpr.call "mappingSlot" [innerSlot, YulExpr.ident "__compat_key2"]
                   let finalSlot := if wordOffset == 0 then outerSlot else YulExpr.call "add" [outerSlot, YulExpr.lit wordOffset]
-                  YulStmt.expr (YulExpr.call storeBuiltin [finalSlot, YulExpr.ident "__compat_value"])))
+                  YulStmt.exprStmt (YulExpr.call storeBuiltin [finalSlot, YulExpr.ident "__compat_value"])))
             ]
     | none => throw s!"Compilation error: unknown mapping field '{field}' in setMapping2Word"
 
@@ -281,7 +281,7 @@ def compileSetMappingChain (fields : List Field) (dynamicSource : DynamicDataSou
         let keyExprs ← compileExprListWithInternals fields dynamicSource internalFunctions keys
         let valueExpr ← compileExprWithInternals fields dynamicSource internalFunctions value
         let writeAt (slot : Nat) (keysRef : List YulExpr) (valueRef : YulExpr) : YulStmt :=
-          YulStmt.expr (YulExpr.call storeBuiltin [
+          YulStmt.exprStmt (YulExpr.call storeBuiltin [
             keysRef.foldl (fun slotExpr keyExpr => YulExpr.call "mappingSlot" [slotExpr, keyExpr]) (YulExpr.lit slot),
             valueRef
           ])
@@ -366,7 +366,7 @@ def compileSetStructMember2 (fields : List Field) (dynamicSource : DynamicDataSo
                     let finalSlot := if member.wordOffset == 0 then outerSlot else YulExpr.call "add" [outerSlot, YulExpr.lit member.wordOffset]
                     match member.packed with
                     | none =>
-                        pure [YulStmt.expr (YulExpr.call storeBuiltin [finalSlot, valueExpr])]
+                        pure [YulStmt.exprStmt (YulExpr.call storeBuiltin [finalSlot, valueExpr])]
                     | some packed =>
                         pure (compilePackedStorageWrite finalSlot valueExpr packed loadBuiltin storeBuiltin)
                 | _ =>
@@ -381,7 +381,7 @@ def compileSetStructMember2 (fields : List Field) (dynamicSource : DynamicDataSo
                             [YulStmt.let_ "__compat_key1" key1Expr, YulStmt.let_ "__compat_key2" key2Expr,
                               YulStmt.let_ "__compat_value" valueExpr] ++
                             finalSlots.map (fun finalSlot =>
-                              YulStmt.expr (YulExpr.call storeBuiltin [finalSlot, YulExpr.ident "__compat_value"]))
+                              YulStmt.exprStmt (YulExpr.call storeBuiltin [finalSlot, YulExpr.ident "__compat_value"]))
                           )
                         ]
                     | some packed =>
