@@ -120,6 +120,19 @@ private def literalMappingWrite_supported_spec :
           simp [contractUsesCheckedArithmetic, literalMappingWriteSpec,
             literalMappingWriteFunction, stmtListMayUseCheckedArithmetic,
             stmtMayUseCheckedArithmetic]
+        noTemplateIntrinsics := by
+          rw [templateIntrinsicItems, literalMappingWriteSpec, literalMappingWriteFunction]
+          unfold collectTemplateIntrinsicsFromStmts
+          simp only [List.flatMap_cons, List.flatMap_nil, List.append_nil]
+          rw [collectTemplateIntrinsicsFromStmt.eq_def]
+          simp only [Stmt.directMetadata, Stmt.childLists, List.attach_nil,
+            List.flatMap_nil, List.append_nil]
+          simp only [List.flatMap_cons, List.flatMap_nil]
+          rw [collectTemplateIntrinsicsFromExpr.eq_def]
+          rw [collectTemplateIntrinsicsFromExpr.eq_def]
+          simp [Expr.children]
+          rw [collectTemplateIntrinsicsFromStmt.eq_def]
+          simp [Stmt.directMetadata, Stmt.childLists]
         noFallback := literalMappingWrite_noFallback
         noReceive := literalMappingWrite_noReceive }
     constructor := by
@@ -1342,6 +1355,17 @@ private def scalarEventSmoke_supported_spec :
           simp [contractUsesCheckedArithmetic, scalarEventSmokeSpec,
             scalarEventSmokeFunction, stmtListMayUseCheckedArithmetic,
             stmtMayUseCheckedArithmetic]
+        noTemplateIntrinsics := by
+          rw [templateIntrinsicItems, scalarEventSmokeSpec, scalarEventSmokeFunction]
+          unfold collectTemplateIntrinsicsFromStmts
+          simp only [List.flatMap_cons, List.flatMap_nil, List.append_nil]
+          rw [collectTemplateIntrinsicsFromStmt.eq_def]
+          simp only [Stmt.directMetadata, Stmt.childLists, List.attach_nil,
+            List.flatMap_nil, List.append_nil]
+          simp only [List.flatMap_cons, List.flatMap_nil]
+          rw [collectTemplateIntrinsicsFromExpr.eq_def]
+          rw [collectTemplateIntrinsicsFromExpr.eq_def]
+          simp [Expr.children]
         noFallback := scalarEventSmoke_noFallback
         noReceive := scalarEventSmoke_noReceive }
     constructor := by
