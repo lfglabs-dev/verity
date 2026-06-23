@@ -2,6 +2,7 @@ import Verity.Core
 import Verity.Core.Uint256
 import Verity.Core.Int256
 import Verity.Core.Model.Constants
+import Verity.Core.Model.DynamicAbi
 import Verity.Core.Model.Types
 
 
@@ -594,16 +595,57 @@ def writeStorageArray (world : Verity.ContractState) (slot : Nat)
 def ceilDivVal (lhs rhs : Verity.Core.Uint256) : Nat :=
   if lhs == 0 then 0 else ((lhs - 1) / rhs + 1).val
 
+def dynamicArrayBinding? (bindings : Env) (name : String) :
+    Option (Nat × Nat) :=
+  DynamicAbi.dynamicArrayBinding? bindings name
+
+abbrev externalCalldataSize :=
+  DynamicAbi.externalCalldataSize
+
+abbrev externalWordAt? :=
+  DynamicAbi.externalWordAt?
+
+abbrev arrayElementDynamicHeadOffset? :=
+  DynamicAbi.arrayElementDynamicHeadOffset?
+
+abbrev arrayElementDynamicWord? :=
+  DynamicAbi.arrayElementDynamicWord?
+
+abbrev arrayElementDynamicMemberLength? :=
+  DynamicAbi.arrayElementDynamicMemberLength?
+
+abbrev arrayElementDynamicMemberDataOffset? :=
+  DynamicAbi.arrayElementDynamicMemberDataOffset?
+
+abbrev arrayElementDynamicMemberElement? :=
+  DynamicAbi.arrayElementDynamicMemberElement?
+
 /-! ## Expression denotation (mirrors `SourceSemantics.evalExpr` arm-for-arm) -/
 
 def evalExpr (oracle : DenoteOracle) (fields : List Field) (state : DenoteState) :
     Expr → Option Nat
   | .memoryArrayLength _ => none
   | .memoryArrayElement _ _ => none
-  | .arrayElementDynamicDataOffset _ _ => none
-  | .arrayElementDynamicMemberLength _ _ _ => none
-  | .arrayElementDynamicMemberDataOffset _ _ _ => none
-  | .arrayElementDynamicMemberElement _ _ _ _ => none
+  | .arrayElementDynamicDataOffset name index => do
+      let idx ← evalExpr oracle fields state index
+      let (dataOffset, length) ← dynamicArrayBinding? state.bindings name
+      arrayElementDynamicHeadOffset? state.selector state.world.calldata dataOffset length idx
+  | .arrayElementDynamicMemberLength name index wordOffset => do
+      let idx ← evalExpr oracle fields state index
+      let (dataOffset, length) ← dynamicArrayBinding? state.bindings name
+      arrayElementDynamicMemberLength?
+        state.selector state.world.calldata dataOffset length idx wordOffset
+  | .arrayElementDynamicMemberDataOffset name index wordOffset => do
+      let idx ← evalExpr oracle fields state index
+      let (dataOffset, length) ← dynamicArrayBinding? state.bindings name
+      arrayElementDynamicMemberDataOffset?
+        state.selector state.world.calldata dataOffset length idx wordOffset
+  | .arrayElementDynamicMemberElement name index wordOffset innerIndex => do
+      let idx ← evalExpr oracle fields state index
+      let innerIdx ← evalExpr oracle fields state innerIndex
+      let (dataOffset, length) ← dynamicArrayBinding? state.bindings name
+      arrayElementDynamicMemberElement?
+        state.selector state.world.calldata dataOffset length idx wordOffset innerIdx
   | .paramDynamicMemberLength _ _ => none
   | .paramDynamicMemberDataOffset _ _ => none
   | .paramDynamicMemberElement _ _ _ => none
@@ -900,6 +942,11 @@ def evalExpr (oracle : DenoteOracle) (fields : List Field) (state : DenoteState)
       some (oracle.keccakMemorySlice state.world.memory off size)
   | .constructorArg idx =>
       lookupBinding? state.bindings s!"arg{idx}"
+  | .arrayElementDynamicWord name index wordOffset => do
+      let idx ← evalExpr oracle fields state index
+      let (dataOffset, length) ← dynamicArrayBinding? state.bindings name
+      arrayElementDynamicWord?
+        state.selector state.world.calldata dataOffset length idx wordOffset
   | _ => none
 
 def evalExprList (oracle : DenoteOracle) (fields : List Field) (state : DenoteState) :
@@ -1295,6 +1342,19 @@ def bindSupportedParams (params : List Param) (args : List Nat) : Option Env :=
       let bindings ← bindSupportedParams rest restArgs
       pure ((param.name, value) :: bindings)
 
+def bindExternalParam (selector : Nat) (calldata : List Nat)
+    (headSize baseOffset headOffset : Nat) (param : Param) :
+    Option Env :=
+  DynamicAbi.bindExternalParam selector calldata headSize baseOffset headOffset param
+
+def bindExternalParamsFrom (selector : Nat) (calldata : List Nat)
+    (headSize baseOffset : Nat) (params : List Param) (headOffset : Nat) : Option Env :=
+  DynamicAbi.bindExternalParamsFrom selector calldata headSize baseOffset params headOffset
+
+def bindExternalParams (selector : Nat) (params : List Param) (calldata : List Nat) :
+    Option Env :=
+  DynamicAbi.bindExternalParams selector params calldata
+
 def withTransactionContext (world : Verity.ContractState) (tx : DenoteTransaction) :
     Verity.ContractState :=
   { world with
@@ -1316,7 +1376,7 @@ def denoteFunction (oracle : DenoteOracle) (spec : CompilationModel) (fn : Funct
     (tx : DenoteTransaction) (initialWorld : Verity.ContractState) : DenoteResult :=
   let worldWithTx := withTransactionContext initialWorld tx
   let fields := effectiveFields spec
-  match bindSupportedParams fn.params tx.args with
+  match bindExternalParams tx.functionSelector fn.params tx.args with
   | none => revertedResult oracle spec worldWithTx
   | some bindings =>
       match execStmtList oracle fields
