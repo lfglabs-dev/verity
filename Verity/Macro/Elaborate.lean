@@ -47,6 +47,24 @@ def parseIntrinsicTemplateStmt (stx : TSyntax `verityIntrinsicTemplateStmt) :
   | _ =>
       throwErrorAt stx "unsupported intrinsic template statement"
 
+private def cleanTypeSyntaxString (ty : Term) : String :=
+  String.mk <| (toString ty).toList.filter (fun c => c != '`')
+
+private def isUint256TypeSyntax (ty : Term) : Bool :=
+  let rendered := cleanTypeSyntaxString ty
+  rendered == "Uint256" ||
+    rendered == "Verity.Uint256" ||
+    rendered == "Verity.Core.Uint256" ||
+    rendered.endsWith ".Uint256"
+
+private def parseIntrinsicProofStatus (status : Ident) : CommandElabM String := do
+  let rendered := toString status.getId
+  match rendered with
+  | "proved" | "assumed" | "unchecked" => pure rendered
+  | _ =>
+      throwErrorAt status
+        "unsupported proof status for verity_intrinsic obligation; expected proved, assumed, or unchecked"
+
 @[command_elab verityContractCmd]
 def elabVerityContract : CommandElab := fun stx => do
   let parsed ← parseContractSyntax stx
@@ -203,6 +221,19 @@ def elabVerityIntrinsic : CommandElab := fun stx => do
         throwErrorAt pureKw "verity_intrinsic currently supports only pure intrinsics"
       if paramNames.size == 0 then
         throwErrorAt stx "verity_intrinsic requires at least one parameter"
+      for pair in paramNames.zip paramTypes do
+        unless isUint256TypeSyntax pair.2 do
+          throwErrorAt pair.2
+            s!"verity_intrinsic parameter '{toString pair.1.getId}' must have type Uint256; got {cleanTypeSyntaxString pair.2}"
+      unless isUint256TypeSyntax retTy do
+        throwErrorAt retTy s!"verity_intrinsic return type must be Uint256; got {cleanTypeSyntaxString retTy}"
+      let parsedObligations ← obligations.mapM fun obligation => do
+        match obligation with
+        | `(verityIntrinsicObligation| $obligationName:ident := $status:ident $message:str) => do
+            let statusString ← parseIntrinsicProofStatus status
+            pure (toString obligationName.getId, statusString, message.getString)
+        | _ =>
+            throwErrorAt obligation "expected obligation entry `<name> := assumed \"reason\"`"
       let yulLowering ←
         match yul with
         | `(verityIntrinsicYul| verbatim $inArity:num $outArity:num (hex $opcode:str)) =>
@@ -236,19 +267,19 @@ def elabVerityIntrinsic : CommandElab := fun stx => do
               (templateParams.toList.map (fun p => toString p.getId))
               (toString output.getId)
               bodyStmts
+              parsedObligations.toList
         | _ =>
             throwErrorAt yul "expected `verbatim <inputs> <outputs> (hex \"...\")`, `builtin \"...\"`, or `[template (<params>) -> <output> := [<statements>]]`"
+      match yulLowering.outputArity? with
+      | some 1 => pure ()
+      | some outArity =>
+          throwErrorAt yul s!"verity_intrinsic lowering must produce exactly 1 output word, got {outArity}"
+      | none => pure ()
       let minFork ←
         match Verity.Core.Intrinsics.HardFork.parse? (toString fork.getId) with
         | some parsed => pure parsed
         | none => throwErrorAt fork
             s!"unknown intrinsic min_fork '{toString fork.getId}' (expected cancun, prague, osaka, or fusaka alias)"
-      let parsedObligations ← obligations.mapM fun obligation => do
-        match obligation with
-        | `(verityIntrinsicObligation| $obligationName:ident := $status:ident $message:str) =>
-            pure (toString obligationName.getId, toString status.getId, message.getString)
-        | _ =>
-            throwErrorAt obligation "expected obligation entry `<name> := assumed \"reason\"`"
       let nameStr := toString name.getId
       let paramNameStrs : List String := paramNames.toList.map (fun id => toString id.getId)
       let paramTypeStrs : List String := paramTypes.toList.map toString
