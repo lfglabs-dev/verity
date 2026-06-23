@@ -315,6 +315,12 @@
     "transfer_then_balanceOf_sender_correct"
   ],
   "Vault": [
+    "balanceOf_meets_spec",
+    "balanceOf_preserves_state",
+    "totalAssets_meets_spec",
+    "totalAssets_preserves_state",
+    "totalSupply_meets_spec",
+    "totalSupply_preserves_state",
     "vaultMinimal_functions_bridged",
     "vaultMinimal_runtime_lowers_native",
     "vaultMinimal_totalAssets_nativeResultsMatchOn_revert_of_nonzero_value"

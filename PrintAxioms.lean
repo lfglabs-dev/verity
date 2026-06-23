@@ -29,6 +29,7 @@ import Contracts.SimpleToken.Proofs.Basic
 import Contracts.SimpleToken.Proofs.Correctness
 import Contracts.SimpleToken.Proofs.Isolation
 import Contracts.SimpleToken.Proofs.Supply
+import Contracts.Vault.Proofs.Correctness
 import Contracts.Vault.Proofs.Native
 import Verity.Proofs.Stdlib.Automation
 import Verity.Proofs.Stdlib.ListSum
@@ -567,6 +568,14 @@ end Verity.AxiomAudit
   Contracts.SimpleToken.Proofs.Supply.mint_sum_singleton_to
   Contracts.SimpleToken.Proofs.Supply.transfer_sum_equation
   Contracts.SimpleToken.Proofs.Supply.transfer_sum_preserved_unique
+
+  -- Contracts/Vault/Proofs/Correctness.lean
+  Contracts.Vault.Proofs.totalAssets_meets_spec
+  Contracts.Vault.Proofs.totalAssets_preserves_state
+  Contracts.Vault.Proofs.totalSupply_meets_spec
+  Contracts.Vault.Proofs.totalSupply_preserves_state
+  Contracts.Vault.Proofs.balanceOf_meets_spec
+  Contracts.Vault.Proofs.balanceOf_preserves_state
 
   -- Contracts/Vault/Proofs/Native.lean
   Contracts.Vault.Proofs.Native.vaultMinimal_functions_bridged
@@ -5786,4 +5795,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5425 theorems/lemmas (3729 public, 1696 private, 0 sorry'd)
+-- Total: 5431 theorems/lemmas (3735 public, 1696 private, 0 sorry'd)
