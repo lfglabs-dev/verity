@@ -97,9 +97,9 @@ private def importedAssemblyStmt : Stmt :=
     stmts := [
       YulStmt.let_ "ptr" (YulExpr.call "mload" [YulExpr.lit 64]),
       YulStmt.assign "ptr" (YulExpr.call "add" [YulExpr.ident "ptr", YulExpr.lit 32]),
-      YulStmt.expr (YulExpr.call "mstore" [YulExpr.ident "ptr", YulExpr.lit 1]),
-      YulStmt.expr (YulExpr.call "sstore" [YulExpr.lit 0, YulExpr.lit 1]),
-      YulStmt.expr (YulExpr.call "revert" [YulExpr.ident "ptr", YulExpr.lit 32])
+      YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.ident "ptr", YulExpr.lit 1]),
+      YulStmt.exprStmt (YulExpr.call "sstore" [YulExpr.lit 0, YulExpr.lit 1]),
+      YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.ident "ptr", YulExpr.lit 32])
     ]
   }
 
@@ -1662,7 +1662,7 @@ def compileSetStorageAddrMasksAddressWrites : Bool :=
   let fields : List Compiler.CompilationModel.Field :=
     [{ name := "owner", ty := Compiler.CompilationModel.FieldType.address }]
   match Compiler.CompilationModel.compileSetStorage fields .calldata "owner" (Expr.literal 42) true with
-  | .ok [Compiler.Yul.YulStmt.expr
+  | .ok [Compiler.Yul.YulStmt.exprStmt
       (Compiler.Yul.YulExpr.call "sstore"
         [Compiler.Yul.YulExpr.lit 0,
          Compiler.Yul.YulExpr.call "and"
@@ -1682,11 +1682,11 @@ def compileSetStorageWordMirrorsAliasSlots : Bool :=
   | .ok [
       Compiler.Yul.YulStmt.block [
         Compiler.Yul.YulStmt.let_ "__compat_value" (Compiler.Yul.YulExpr.lit 42),
-        Compiler.Yul.YulStmt.expr
+        Compiler.Yul.YulStmt.exprStmt
           (Compiler.Yul.YulExpr.call "sstore"
             [Compiler.Yul.YulExpr.call "add" [Compiler.Yul.YulExpr.lit 10, Compiler.Yul.YulExpr.lit 1],
              Compiler.Yul.YulExpr.ident "__compat_value"]),
-        Compiler.Yul.YulStmt.expr
+        Compiler.Yul.YulStmt.exprStmt
           (Compiler.Yul.YulExpr.call "sstore"
             [Compiler.Yul.YulExpr.call "add" [Compiler.Yul.YulExpr.lit 100, Compiler.Yul.YulExpr.lit 1],
              Compiler.Yul.YulExpr.ident "__compat_value"])
@@ -3017,7 +3017,7 @@ private def unsafeYulRawCallExpr : Compiler.Yul.YulExpr :=
 private def unsafeYulRawCallStmt : Stmt :=
   Stmt.unsafeYul {
     label := "raw_yul_call"
-    stmts := [Compiler.Yul.YulStmt.expr unsafeYulRawCallExpr]
+    stmts := [Compiler.Yul.YulStmt.exprStmt unsafeYulRawCallExpr]
     obligations := [unsafeYulScopeObligation "raw_yul_call_obligation"]
   }
 
@@ -3096,7 +3096,7 @@ private def unsafeYulUnderDeclaredStorageSpec : CompilationModel := {
         Stmt.unsafeYul {
           label := "under_declared_storage"
           stmts := [
-            Compiler.Yul.YulStmt.expr
+            Compiler.Yul.YulStmt.exprStmt
               (Compiler.Yul.YulExpr.call "sstore" [Compiler.Yul.YulExpr.lit 0, Compiler.Yul.YulExpr.lit 1])
           ]
           obligations := [unsafeYulScopeObligation "under_declared_storage_obligation"]

@@ -336,7 +336,7 @@ private theorem exec_minInputSizeCheck_supported_noop
     execIRStmt (Nat.succ fuel) state
       (YulStmt.if_ (YulExpr.call "lt"
         [YulExpr.call "calldatasize" [], YulExpr.lit (4 + 32 * params.length)])
-        [YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]) =
+        [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]) =
       .continue state := by
   have hrhs_lt_modulus : 4 + 32 * params.length < Compiler.Constants.evmModulus := by
     omega
@@ -568,7 +568,7 @@ theorem exec_genParamLoads_supported
       execIRStmt (body.length + 1) state
         (YulStmt.if_ (YulExpr.call "lt"
           [YulExpr.call "calldatasize" [], YulExpr.lit (4 + 32 * params.length)])
-          [YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]) =
+          [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]) =
         .continue state :=
     exec_minInputSizeCheck_supported_noop (fuel := body.length) state params hsupported
       hcalldataSizeFits hlen
@@ -580,7 +580,7 @@ theorem exec_genParamLoads_supported
     execIRStmts_cons_of_execIRStmt_continue state state
       (YulStmt.if_ (YulExpr.call "lt"
         [YulExpr.call "calldatasize" [], YulExpr.lit (4 + 32 * params.length)])
-        [YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])])
+        [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])])
       body hguard
   have hbody' :
       execIRStmts (body.length + 1) state body =
@@ -606,7 +606,7 @@ theorem exec_genParamLoads_supported_then_extraFuel
       execIRStmt (body.length + rest.length + extraFuel + 1) state
         (YulStmt.if_ (YulExpr.call "lt"
           [YulExpr.call "calldatasize" [], YulExpr.lit (4 + 32 * params.length)])
-          [YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]) =
+          [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]) =
         .continue state :=
     exec_minInputSizeCheck_supported_noop (fuel := body.length + rest.length + extraFuel) state params hsupported
       hcalldataSizeFits hlen
@@ -619,7 +619,7 @@ theorem exec_genParamLoads_supported_then_extraFuel
     execIRStmts_cons_of_execIRStmt_continue_extraFuel extraFuel state state
       (YulStmt.if_ (YulExpr.call "lt"
         [YulExpr.call "calldatasize" [], YulExpr.lit (4 + 32 * params.length)])
-        [YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])])
+        [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])])
       (body ++ rest) (by simpa [body] using hguard)
   have hbody' :
       execIRStmts ((body ++ rest).length + extraFuel + 1) state (body ++ rest) =

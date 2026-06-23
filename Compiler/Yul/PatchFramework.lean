@@ -330,9 +330,9 @@ private def rewriteStmtOnce
   | .assign name value =>
       let (value', hits) := rewriteExprOnce orderedExprRules ctx value
       applyStmtRulesToCandidate orderedStmtRules ctx (.assign name value') hits
-  | .expr expr =>
+  | .exprStmt expr =>
       let (expr', hits) := rewriteExprOnce orderedExprRules ctx expr
-      applyStmtRulesToCandidate orderedStmtRules ctx (.expr expr') hits
+      applyStmtRulesToCandidate orderedStmtRules ctx (.exprStmt expr') hits
   | .leave =>
       applyStmtRulesToCandidate orderedStmtRules ctx .leave []
   | .if_ cond body =>

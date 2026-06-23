@@ -38,6 +38,8 @@ declare_syntax_cat verityRoleDecl
 declare_syntax_cat verityFunction
 declare_syntax_cat verityIntrinsicClause
 declare_syntax_cat verityIntrinsicYul
+declare_syntax_cat verityIntrinsicTemplateExpr
+declare_syntax_cat verityIntrinsicTemplateStmt
 declare_syntax_cat verityIntrinsicObligation
 
 syntax ident " : " term " := " "slot" num : verityStorageField
@@ -166,8 +168,19 @@ syntax &"min_fork" " := " ident : verityIntrinsicClause
 syntax &"semantics" " := " term : verityIntrinsicClause
 syntax &"obligation" "[" sepBy(verityIntrinsicObligation, ",") "]" : verityIntrinsicClause
 
+syntax (priority := high) ident "(" sepBy(verityIntrinsicTemplateExpr, ",") ")" : verityIntrinsicTemplateExpr
+syntax ident : verityIntrinsicTemplateExpr
+syntax num : verityIntrinsicTemplateExpr
+syntax str : verityIntrinsicTemplateExpr
+syntax "let " ident " := " verityIntrinsicTemplateExpr : verityIntrinsicTemplateStmt
+syntax ident " := " verityIntrinsicTemplateExpr : verityIntrinsicTemplateStmt
+syntax "yulcall " ident "(" sepBy(verityIntrinsicTemplateExpr, ",") ")" : verityIntrinsicTemplateStmt
+syntax "comment " str : verityIntrinsicTemplateStmt
+syntax "leave" : verityIntrinsicTemplateStmt
+
 syntax ident num num "(" ident str ")" : verityIntrinsicYul
 syntax ident str : verityIntrinsicYul
+syntax "[" &"template" "(" sepBy(ident, ",") ")" " -> " ident " := " "[" sepBy(verityIntrinsicTemplateStmt, ",") "]" "]" : verityIntrinsicYul
 syntax ident " := " ident str : verityIntrinsicObligation
 
 syntax (name := verityIntrinsicCmd)

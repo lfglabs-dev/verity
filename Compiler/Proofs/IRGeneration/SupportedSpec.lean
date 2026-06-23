@@ -2790,6 +2790,7 @@ structure SupportedSpecSurface (spec : CompilationModel) : Prop where
   noExternals : spec.externals = []
   noAdtTypes : spec.adtTypes = []
   noCheckedArithmetic : contractUsesCheckedArithmetic spec = false
+  noTemplateIntrinsics : templateIntrinsicItems spec = []
   noFallback :
     ∀ fn ∈ spec.functions, fn.name != "fallback"
   noReceive :
@@ -2805,6 +2806,7 @@ structure SupportedSpecSurfaceWithScalarEvents (spec : CompilationModel) : Prop 
   noExternals : spec.externals = []
   noAdtTypes : spec.adtTypes = []
   noCheckedArithmetic : contractUsesCheckedArithmetic spec = false
+  noTemplateIntrinsics : templateIntrinsicItems spec = []
   noFallback :
     ∀ fn ∈ spec.functions, fn.name != "fallback"
   noReceive :
@@ -7180,6 +7182,17 @@ def counter_supported_spec : SupportedSpec counterSupportedSpecModel
         noCheckedArithmetic := by
           simp [contractUsesCheckedArithmetic, counterSupportedSpecModel,
             stmtListMayUseCheckedArithmetic, stmtMayUseCheckedArithmetic]
+        noTemplateIntrinsics := by
+          rw [templateIntrinsicItems, counterSupportedSpecModel]
+          simp only [List.flatMap_cons, List.flatMap_nil, List.append_nil]
+          unfold collectTemplateIntrinsicsFromStmts
+          simp only [List.flatMap_cons, List.flatMap_nil]
+          rw [collectTemplateIntrinsicsFromStmt.eq_def]
+          simp only [Stmt.directMetadata, Stmt.childLists, List.attach_nil,
+            List.flatMap_nil, List.append_nil]
+          simp only [List.flatMap_cons, List.flatMap_nil]
+          rw [collectTemplateIntrinsicsFromExpr.eq_def]
+          rfl
         noFallback := counter_noFallback
         noReceive := counter_noReceive }
     constructor := by
@@ -7268,6 +7281,17 @@ def simpleStorage_supported_spec : SupportedSpec simpleStorageSupportedSpecModel
         noCheckedArithmetic := by
           simp [contractUsesCheckedArithmetic, simpleStorageSupportedSpecModel,
             stmtListMayUseCheckedArithmetic, stmtMayUseCheckedArithmetic]
+        noTemplateIntrinsics := by
+          rw [templateIntrinsicItems, simpleStorageSupportedSpecModel]
+          simp only [List.flatMap_cons, List.flatMap_nil, List.append_nil]
+          unfold collectTemplateIntrinsicsFromStmts
+          simp only [List.flatMap_cons, List.flatMap_nil]
+          rw [collectTemplateIntrinsicsFromStmt.eq_def]
+          simp only [Stmt.directMetadata, Stmt.childLists, List.attach_nil,
+            List.flatMap_nil, List.append_nil]
+          simp only [List.flatMap_cons, List.flatMap_nil]
+          rw [collectTemplateIntrinsicsFromExpr.eq_def]
+          rfl
         noFallback := simpleStorage_noFallback
         noReceive := simpleStorage_noReceive }
     constructor := by

@@ -5,7 +5,7 @@
   families that are currently carved out of `compileStmtList_always_bridged`:
 
   - `internalCall` — Verity helper invoked as a statement, compiles to
-    `YulStmt.expr (YulExpr.call <internal_name> args)`.
+    `YulStmt.exprStmt (YulExpr.call <internal_name> args)`.
   - `internalCallAssign` — same with multi-value binding, compiles to
     `YulStmt.letMany names (YulExpr.call <internal_name> args)`.
   - `externalCallBind` — typed external contract call, compiles to either
@@ -61,7 +61,7 @@ inductive BridgedUserFunctionCall
       (hFn : (BridgedFunctionTable.lookup table funcName).isSome) :
       BridgedUserFunctionCall table (.call funcName args)
 
-/-- Statement-level closure: a `YulStmt.expr (.call <user_fn> args)` invocation
+/-- Statement-level closure: a `YulStmt.exprStmt (.call <user_fn> args)` invocation
 where args satisfy `BridgedExpr` and the callee resolves in `table`. Captures
 the compiled shape of `Stmt.internalCall` and the no-result variant of
 `Stmt.externalCallBind`. -/
@@ -69,7 +69,7 @@ inductive BridgedUserFunctionCallExpr
     (table : BridgedFunctionTable) : YulStmt → Prop
   | mk (funcName : String) (args : List YulExpr)
       (hCall : BridgedUserFunctionCall table (.call funcName args)) :
-      BridgedUserFunctionCallExpr table (.expr (.call funcName args))
+      BridgedUserFunctionCallExpr table (.exprStmt (.call funcName args))
 
 /-- Statement-level closure: a `YulStmt.letMany names (.call <user_fn> args)`
 binding where args satisfy `BridgedExpr` and the callee resolves in `table`.
@@ -363,7 +363,7 @@ theorem compileStmtList_internalCall_bridged
 /-! ## Phase 2.3: source-level closure for `Stmt.externalCallBind`
 
 `Stmt.externalCallBind resultVars externalName args` compiles to either
-`YulStmt.expr (YulExpr.call externalName argExprs)` (when `resultVars = []`)
+`YulStmt.exprStmt (YulExpr.call externalName argExprs)` (when `resultVars = []`)
 or `YulStmt.letMany resultVars (YulExpr.call externalName argExprs)`.  In
 both shapes the callee is the literal `externalName` (no `internal_` prefix)
 and resolves directly in the function table. -/
@@ -381,7 +381,7 @@ inductive BridgedSourceExternalCallBindStmt
 
 /-- Phase 2.3: compiling a source `Stmt.externalCallBind` with bridged
 arguments and a callee that resolves in `table` yields a `BridgedStmts`
-output. Branches on whether `resultVars` is empty (the `.expr` shape) or
+output. Branches on whether `resultVars` is empty (the `.exprStmt` shape) or
 not (the `.letMany` shape). -/
 theorem compileStmt_externalCallBind_bridged
     {table : BridgedFunctionTable}

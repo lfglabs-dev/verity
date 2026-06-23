@@ -149,7 +149,7 @@ def stmtUpperBoundFuel (cfg : GasConfig) (env : FunctionEnv) : Nat â†’ YulStmt â
   | fuel + 1, .let_ _ value => exprUpperBoundFuel cfg env fuel value
   | fuel + 1, .letMany _ value => exprUpperBoundFuel cfg env fuel value
   | fuel + 1, .assign _ value => exprUpperBoundFuel cfg env fuel value
-  | fuel + 1, .expr e => exprUpperBoundFuel cfg env fuel e
+  | fuel + 1, .exprStmt e => exprUpperBoundFuel cfg env fuel e
   | _ + 1, .leave => 0
   | fuel + 1, .if_ cond body => exprUpperBoundFuel cfg env fuel cond + stmtsUpperBoundFuel cfg env fuel body
   | fuel + 1, .for_ init cond post body =>
@@ -197,8 +197,8 @@ def gasUpperBound (stmts : List YulStmt) : Nat :=
 
 def simpleStoreProgram : List YulStmt :=
   [
-    .expr (.call "sstore" [.lit 0, .lit 777]),
-    .expr (.call "stop" [])
+    .exprStmt (.call "sstore" [.lit 0, .lit 777]),
+    .exprStmt (.call "stop" [])
   ]
 
 def boundedLoopProgram : List YulStmt :=
@@ -208,24 +208,24 @@ def boundedLoopProgram : List YulStmt :=
       (.call "lt" [.ident "i", .lit 3])
       [.assign "i" (.call "add" [.ident "i", .lit 1])]
       [
-        .expr (.call "sload" [.lit 0]),
-        .expr (.call "mstore" [.lit 0, .lit 1])
+        .exprStmt (.call "sload" [.lit 0]),
+        .exprStmt (.call "mstore" [.lit 0, .lit 1])
       ]
   ]
 
 def externalCallProgram : List YulStmt :=
   [
-    .expr (.call "call" [.lit 50000, .lit 1, .lit 1, .lit 0, .lit 0, .lit 0, .lit 0]),
-    .expr (.call "stop" [])
+    .exprStmt (.call "call" [.lit 50000, .lit 1, .lit 1, .lit 0, .lit 0, .lit 0, .lit 0]),
+    .exprStmt (.call "stop" [])
   ]
 
 def functionDeclAndCallProgram : List YulStmt :=
   [
     .funcDef "store" ["x"] [] [
-      .expr (.call "sstore" [.lit 0, .ident "x"])
+      .exprStmt (.call "sstore" [.lit 0, .ident "x"])
     ],
-    .expr (.call "store" [.lit 777]),
-    .expr (.call "stop" [])
+    .exprStmt (.call "store" [.lit 777]),
+    .exprStmt (.call "stop" [])
   ]
 
 example : gasUpperBound simpleStoreProgram = 22100 := rfl

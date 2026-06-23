@@ -46,20 +46,20 @@ structure PatchBackend where
   apply : YulObject → YulEmitOptions → EmitObjectWithOptionsReport
 
 private def yulDatacopy : YulStmt :=
-  YulStmt.expr (YulExpr.call "datacopy" [
+  YulStmt.exprStmt (YulExpr.call "datacopy" [
     YulExpr.lit 0,
     YulExpr.call "dataoffset" [YulExpr.str "runtime"],
     YulExpr.call "datasize" [YulExpr.str "runtime"]
   ])
 
 private def yulReturnRuntime : YulStmt :=
-  YulStmt.expr (YulExpr.call "return" [
+  YulStmt.exprStmt (YulExpr.call "return" [
     YulExpr.lit 0,
     YulExpr.call "datasize" [YulExpr.str "runtime"]
   ])
 
 def initFreeMemoryPointer : YulStmt :=
-  YulStmt.expr (YulExpr.call "mstore" [
+  YulStmt.exprStmt (YulExpr.call "mstore" [
     YulExpr.lit Compiler.Constants.freeMemoryPointer,
     YulExpr.lit 128
   ])
@@ -68,22 +68,22 @@ def mappingSlotFuncAt (scratchBase : Nat) : YulStmt :=
   let keyPtr := scratchBase
   let slotPtr := scratchBase + 32
   YulStmt.funcDef "mappingSlot" ["baseSlot", "key"] ["slot"] [
-    YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit keyPtr, YulExpr.ident "key"]),
-    YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit slotPtr, YulExpr.ident "baseSlot"]),
+    YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit keyPtr, YulExpr.ident "key"]),
+    YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit slotPtr, YulExpr.ident "baseSlot"]),
     YulStmt.assign "slot" (YulExpr.call "keccak256" [YulExpr.lit keyPtr, YulExpr.lit 64])
   ]
 
 /-- Revert if ETH is sent to a non-payable function. -/
 def callvalueGuard : YulStmt :=
   YulStmt.if_ (YulExpr.call "callvalue" [])
-    [YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]
+    [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]
 
 /-- Revert if calldata is shorter than expected (4-byte selector + 32 bytes per param). -/
 def calldatasizeGuard (numParams : Nat) : YulStmt :=
   YulStmt.if_ (YulExpr.call "lt" [
     YulExpr.call "calldatasize" [],
     YulExpr.lit (4 + numParams * 32)])
-    [YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]
+    [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]
 
 def dispatchBody (payable : Bool) (label : String) (body : List YulStmt) : List YulStmt :=
   let valueGuard := if payable then [] else [callvalueGuard]
@@ -94,7 +94,7 @@ def defaultDispatchCase
     (receive : Option IREntrypoint) : List YulStmt :=
   match receive, fallback with
   | none, none =>
-      [YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]
+      [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]
   | none, some fb =>
       dispatchBody fb.payable "fallback()" fb.body
   | some rc, none =>
@@ -103,7 +103,7 @@ def defaultDispatchCase
         YulStmt.if_ (YulExpr.ident "__is_empty_calldata")
           (dispatchBody rc.payable "receive()" rc.body),
         YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident "__is_empty_calldata"])
-          [YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]
+          [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]
       ]]
   | some rc, some fb =>
       [YulStmt.block [
@@ -396,7 +396,7 @@ mutual
     | .let_ _ _ => false
     | .letMany _ _ => false
     | .assign _ _ => false
-    | .expr _ => false
+    | .exprStmt _ => false
     | .leave => false
     | .if_ _ body => stmtListContainsSwitchCaseCall target body
     | .for_ init _ post body =>
@@ -407,7 +407,7 @@ mutual
         let caseHit :=
           cases.any (fun (_, body) =>
             match body with
-            | [.expr (.call fn [])] => decide (fn = target)
+            | [.exprStmt (.call fn [])] => decide (fn = target)
             | _ => false)
         let defaultHit :=
           match default with

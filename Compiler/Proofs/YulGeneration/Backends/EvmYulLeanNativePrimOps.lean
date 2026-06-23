@@ -2309,7 +2309,7 @@ theorem nativeMappingSlotFunctionDefinition_exec_revivable
     native statement used by the selector-miss execution lemma. -/
 theorem lowerStmtsNative_revert_zero_zero :
     Backends.lowerStmtsNative
-      [YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])] =
+      [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])] =
       .ok [nativeRevertZeroZeroStmt] := by
   simp [Backends.lowerStmtsNative, Backends.lowerStmtsNativeWithSwitchIds,
     nativeRevertZeroZeroStmt, Backends.lowerExprNative,

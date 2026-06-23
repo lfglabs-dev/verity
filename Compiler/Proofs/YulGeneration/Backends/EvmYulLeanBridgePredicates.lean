@@ -58,34 +58,34 @@ inductive BridgedStraightStmt : Compiler.Yul.YulStmt → Prop
       (hBase : BridgedExpr baseExpr) (hKey : BridgedExpr keyExpr)
       (hVal : BridgedExpr valExpr) :
       BridgedStraightStmt
-        (.expr (.call "sstore" [.call "mappingSlot" [baseExpr, keyExpr], valExpr]))
+        (.exprStmt (.call "sstore" [.call "mappingSlot" [baseExpr, keyExpr], valExpr]))
   | expr_sstore_lit (slot : Nat) (valExpr : Compiler.Yul.YulExpr)
       (hVal : BridgedExpr valExpr) :
-      BridgedStraightStmt (.expr (.call "sstore" [.lit slot, valExpr]))
+      BridgedStraightStmt (.exprStmt (.call "sstore" [.lit slot, valExpr]))
   | expr_sstore_ident (slotName : String) (valExpr : Compiler.Yul.YulExpr)
       (hVal : BridgedExpr valExpr) :
-      BridgedStraightStmt (.expr (.call "sstore" [.ident slotName, valExpr]))
+      BridgedStraightStmt (.exprStmt (.call "sstore" [.ident slotName, valExpr]))
   | expr_sstore_add (leftExpr rightExpr valExpr : Compiler.Yul.YulExpr)
       (hLeft : BridgedExpr leftExpr) (hRight : BridgedExpr rightExpr)
       (hVal : BridgedExpr valExpr) :
       BridgedStraightStmt
-        (.expr (.call "sstore" [.call "add" [leftExpr, rightExpr], valExpr]))
+        (.exprStmt (.call "sstore" [.call "add" [leftExpr, rightExpr], valExpr]))
   | expr_mstore (offsetExpr valExpr : Compiler.Yul.YulExpr)
       (hOffset : BridgedExpr offsetExpr) (hVal : BridgedExpr valExpr) :
-      BridgedStraightStmt (.expr (.call "mstore" [offsetExpr, valExpr]))
+      BridgedStraightStmt (.exprStmt (.call "mstore" [offsetExpr, valExpr]))
   | expr_tstore (offsetExpr valExpr : Compiler.Yul.YulExpr)
       (hOffset : BridgedExpr offsetExpr) (hVal : BridgedExpr valExpr) :
-      BridgedStraightStmt (.expr (.call "tstore" [offsetExpr, valExpr]))
-  | expr_stop : BridgedStraightStmt (.expr (.call "stop" []))
+      BridgedStraightStmt (.exprStmt (.call "tstore" [offsetExpr, valExpr]))
+  | expr_stop : BridgedStraightStmt (.exprStmt (.call "stop" []))
   | expr_return (offsetExpr sizeExpr : Compiler.Yul.YulExpr)
       (hOffset : BridgedExpr offsetExpr) (hSize : BridgedExpr sizeExpr) :
-      BridgedStraightStmt (.expr (.call "return" [offsetExpr, sizeExpr]))
+      BridgedStraightStmt (.exprStmt (.call "return" [offsetExpr, sizeExpr]))
   | expr_revert (offsetExpr sizeExpr : Compiler.Yul.YulExpr) :
-      BridgedStraightStmt (.expr (.call "revert" [offsetExpr, sizeExpr]))
+      BridgedStraightStmt (.exprStmt (.call "revert" [offsetExpr, sizeExpr]))
   | expr_log (func : String) (args : List Compiler.Yul.YulExpr)
       (hLog : isYulLogName func = true)
       (hArgs : ∀ arg ∈ args, BridgedExpr arg) :
-      BridgedStraightStmt (.expr (.call func args))
+      BridgedStraightStmt (.exprStmt (.call func args))
   | funcDef (name : String) (params rets : List String)
       (body : List Compiler.Yul.YulStmt) :
       BridgedStraightStmt (.funcDef name params rets body)
@@ -130,7 +130,7 @@ theorem BridgedStraightStmts_map_mstore
     (hPairs : ∀ p ∈ pairs, BridgedExpr p.1 ∧ BridgedExpr p.2) :
     BridgedStraightStmts
       (pairs.map fun p =>
-        Compiler.Yul.YulStmt.expr
+        Compiler.Yul.YulStmt.exprStmt
           (Compiler.Yul.YulExpr.call "mstore" [p.1, p.2])) := by
   induction pairs with
   | nil => exact BridgedStraightStmts_nil
@@ -148,7 +148,7 @@ theorem BridgedStraightStmts_map_tstore
     (hPairs : ∀ p ∈ pairs, BridgedExpr p.1 ∧ BridgedExpr p.2) :
     BridgedStraightStmts
       (pairs.map fun p =>
-        Compiler.Yul.YulStmt.expr
+        Compiler.Yul.YulStmt.exprStmt
           (Compiler.Yul.YulExpr.call "tstore" [p.1, p.2])) := by
   induction pairs with
   | nil => exact BridgedStraightStmts_nil
@@ -201,7 +201,7 @@ inductive BridgedStmt : Compiler.Yul.YulStmt → Prop
       (calleeBody : List Compiler.Yul.YulStmt)
       (hArgs : ∀ arg ∈ args, BridgedExpr arg)
       (hCallee : ∀ stmt ∈ calleeBody, BridgedStmt stmt) :
-      BridgedStmt (.expr (.call funcName args))
+      BridgedStmt (.exprStmt (.call funcName args))
   /-- User-function call with `letMany` binding of return values. Mirrors
   `userCallExpr` for the multi-value-bind shape. -/
   | userCallBind (resultVars : List String) (funcName : String)
@@ -322,7 +322,7 @@ theorem bridgedStraightStmt_log_of_bridged_args
     (func : String) (args : List Compiler.Yul.YulExpr)
     (hLog : isYulLogName func = true)
     (hArgs : ∀ arg ∈ args, BridgedExpr arg) :
-    BridgedStraightStmt (.expr (.call func args)) :=
+    BridgedStraightStmt (.exprStmt (.call func args)) :=
   BridgedStraightStmt.expr_log func args hLog hArgs
 
 theorem bridgedStmt_of_bridgedStraightStmt {stmt : Compiler.Yul.YulStmt}
@@ -333,7 +333,7 @@ theorem bridgedStmt_log_of_bridged_args
     (func : String) (args : List Compiler.Yul.YulExpr)
     (hLog : isYulLogName func = true)
     (hArgs : ∀ arg ∈ args, BridgedExpr arg) :
-    BridgedStmt (.expr (.call func args)) :=
+    BridgedStmt (.exprStmt (.call func args)) :=
   bridgedStmt_of_bridgedStraightStmt
     (bridgedStraightStmt_log_of_bridged_args func args hLog hArgs)
 
@@ -385,7 +385,7 @@ theorem bridgedStmt_mstore_of_bridged_args
     (offsetExpr valExpr : Compiler.Yul.YulExpr)
     (hOffset : BridgedExpr offsetExpr) (hVal : BridgedExpr valExpr) :
     BridgedStmt
-      (.expr (Compiler.Yul.YulExpr.call "mstore" [offsetExpr, valExpr])) :=
+      (.exprStmt (Compiler.Yul.YulExpr.call "mstore" [offsetExpr, valExpr])) :=
   bridgedStmt_of_bridgedStraightStmt
     (BridgedStraightStmt.expr_mstore offsetExpr valExpr hOffset hVal)
 
@@ -393,7 +393,7 @@ theorem bridgedStmt_tstore_of_bridged_args
     (offsetExpr valExpr : Compiler.Yul.YulExpr)
     (hOffset : BridgedExpr offsetExpr) (hVal : BridgedExpr valExpr) :
     BridgedStmt
-      (.expr (Compiler.Yul.YulExpr.call "tstore" [offsetExpr, valExpr])) :=
+      (.exprStmt (Compiler.Yul.YulExpr.call "tstore" [offsetExpr, valExpr])) :=
   bridgedStmt_of_bridgedStraightStmt
     (BridgedStraightStmt.expr_tstore offsetExpr valExpr hOffset hVal)
 
@@ -402,7 +402,7 @@ theorem bridgedStmt_sstore_mapping_of_bridged_args
     (hBase : BridgedExpr baseExpr) (hKey : BridgedExpr keyExpr)
     (hVal : BridgedExpr valExpr) :
     BridgedStmt
-      (.expr (Compiler.Yul.YulExpr.call "sstore"
+      (.exprStmt (Compiler.Yul.YulExpr.call "sstore"
         [Compiler.Yul.YulExpr.call "mappingSlot" [baseExpr, keyExpr], valExpr])) :=
   bridgedStmt_of_bridgedStraightStmt
     (BridgedStraightStmt.expr_sstore_mapping baseExpr keyExpr valExpr hBase hKey hVal)
@@ -410,14 +410,14 @@ theorem bridgedStmt_sstore_mapping_of_bridged_args
 theorem bridgedStmt_sstore_lit_of_bridged_val
     (slot : Nat) (valExpr : Compiler.Yul.YulExpr) (hVal : BridgedExpr valExpr) :
     BridgedStmt
-      (.expr (Compiler.Yul.YulExpr.call "sstore" [.lit slot, valExpr])) :=
+      (.exprStmt (Compiler.Yul.YulExpr.call "sstore" [.lit slot, valExpr])) :=
   bridgedStmt_of_bridgedStraightStmt
     (BridgedStraightStmt.expr_sstore_lit slot valExpr hVal)
 
 theorem bridgedStmt_sstore_ident_of_bridged_val
     (slotName : String) (valExpr : Compiler.Yul.YulExpr) (hVal : BridgedExpr valExpr) :
     BridgedStmt
-      (.expr (Compiler.Yul.YulExpr.call "sstore" [.ident slotName, valExpr])) :=
+      (.exprStmt (Compiler.Yul.YulExpr.call "sstore" [.ident slotName, valExpr])) :=
   bridgedStmt_of_bridgedStraightStmt
     (BridgedStraightStmt.expr_sstore_ident slotName valExpr hVal)
 
@@ -426,26 +426,26 @@ theorem bridgedStmt_sstore_add_of_bridged_args
     (hLeft : BridgedExpr leftExpr) (hRight : BridgedExpr rightExpr)
     (hVal : BridgedExpr valExpr) :
     BridgedStmt
-      (.expr (Compiler.Yul.YulExpr.call "sstore"
+      (.exprStmt (Compiler.Yul.YulExpr.call "sstore"
         [Compiler.Yul.YulExpr.call "add" [leftExpr, rightExpr], valExpr])) :=
   bridgedStmt_of_bridgedStraightStmt
     (BridgedStraightStmt.expr_sstore_add leftExpr rightExpr valExpr hLeft hRight hVal)
 
 theorem bridgedStmt_stop :
-    BridgedStmt (Compiler.Yul.YulStmt.expr (Compiler.Yul.YulExpr.call "stop" [])) :=
+    BridgedStmt (Compiler.Yul.YulStmt.exprStmt (Compiler.Yul.YulExpr.call "stop" [])) :=
   bridgedStmt_of_bridgedStraightStmt BridgedStraightStmt.expr_stop
 
 theorem bridgedStmt_return_of_bridged_args
     (offsetExpr sizeExpr : Compiler.Yul.YulExpr)
     (hOffset : BridgedExpr offsetExpr) (hSize : BridgedExpr sizeExpr) :
     BridgedStmt
-      (.expr (Compiler.Yul.YulExpr.call "return" [offsetExpr, sizeExpr])) :=
+      (.exprStmt (Compiler.Yul.YulExpr.call "return" [offsetExpr, sizeExpr])) :=
   bridgedStmt_of_bridgedStraightStmt
     (BridgedStraightStmt.expr_return offsetExpr sizeExpr hOffset hSize)
 
 theorem bridgedStmt_revert (offsetExpr sizeExpr : Compiler.Yul.YulExpr) :
     BridgedStmt
-      (.expr (Compiler.Yul.YulExpr.call "revert" [offsetExpr, sizeExpr])) :=
+      (.exprStmt (Compiler.Yul.YulExpr.call "revert" [offsetExpr, sizeExpr])) :=
   bridgedStmt_of_bridgedStraightStmt
     (BridgedStraightStmt.expr_revert offsetExpr sizeExpr)
 
@@ -508,7 +508,7 @@ theorem BridgedStmts_map_mstore
     (hPairs : ∀ p ∈ pairs, BridgedExpr p.1 ∧ BridgedExpr p.2) :
     BridgedStmts
       (pairs.map fun p =>
-        Compiler.Yul.YulStmt.expr
+        Compiler.Yul.YulStmt.exprStmt
           (Compiler.Yul.YulExpr.call "mstore" [p.1, p.2])) :=
   BridgedStmts_of_BridgedStraightStmts
     (BridgedStraightStmts_map_mstore pairs hPairs)
@@ -644,21 +644,21 @@ theorem BridgedStmts_map_tstore
     (hPairs : ∀ p ∈ pairs, BridgedExpr p.1 ∧ BridgedExpr p.2) :
     BridgedStmts
       (pairs.map fun p =>
-        Compiler.Yul.YulStmt.expr
+        Compiler.Yul.YulStmt.exprStmt
           (Compiler.Yul.YulExpr.call "tstore" [p.1, p.2])) :=
   BridgedStmts_of_BridgedStraightStmts
     (BridgedStraightStmts_map_tstore pairs hPairs)
 
 theorem bridgedStmt_revert_zero :
     BridgedStmt
-      (Compiler.Yul.YulStmt.expr
+      (Compiler.Yul.YulStmt.exprStmt
         (Compiler.Yul.YulExpr.call "revert"
           [Compiler.Yul.YulExpr.lit 0, Compiler.Yul.YulExpr.lit 0])) :=
   bridgedStmt_revert (Compiler.Yul.YulExpr.lit 0) (Compiler.Yul.YulExpr.lit 0)
 
 theorem BridgedStmts_singleton_revert_zero :
     BridgedStmts
-      [Compiler.Yul.YulStmt.expr
+      [Compiler.Yul.YulStmt.exprStmt
         (Compiler.Yul.YulExpr.call "revert"
           [Compiler.Yul.YulExpr.lit 0, Compiler.Yul.YulExpr.lit 0])] :=
   BridgedStmts_singleton bridgedStmt_revert_zero
@@ -708,13 +708,13 @@ theorem BridgedStmts_cons_letMany
 
 theorem BridgedStmts_singleton_stop :
     BridgedStmts
-      [Compiler.Yul.YulStmt.expr (Compiler.Yul.YulExpr.call "stop" [])] :=
+      [Compiler.Yul.YulStmt.exprStmt (Compiler.Yul.YulExpr.call "stop" [])] :=
   BridgedStmts_singleton bridgedStmt_stop
 
 theorem BridgedStmts_cons_stop {stmts : List Compiler.Yul.YulStmt}
     (hStmts : BridgedStmts stmts) :
     BridgedStmts
-      (Compiler.Yul.YulStmt.expr (Compiler.Yul.YulExpr.call "stop" []) :: stmts) :=
+      (Compiler.Yul.YulStmt.exprStmt (Compiler.Yul.YulExpr.call "stop" []) :: stmts) :=
   BridgedStmts_cons bridgedStmt_stop hStmts
 
 theorem BridgedStmts_singleton_leave :
@@ -729,7 +729,7 @@ theorem BridgedStmts_cons_leave {stmts : List Compiler.Yul.YulStmt}
 theorem BridgedStmts_singleton_return
     (offsetExpr sizeExpr : Compiler.Yul.YulExpr)
     (hOffset : BridgedExpr offsetExpr) (hSize : BridgedExpr sizeExpr) :
-    BridgedStmts [.expr (.call "return" [offsetExpr, sizeExpr])] :=
+    BridgedStmts [.exprStmt (.call "return" [offsetExpr, sizeExpr])] :=
   BridgedStmts_singleton
     (bridgedStmt_return_of_bridged_args offsetExpr sizeExpr hOffset hSize)
 
@@ -737,25 +737,25 @@ theorem BridgedStmts_cons_return
     (offsetExpr sizeExpr : Compiler.Yul.YulExpr)
     (hOffset : BridgedExpr offsetExpr) (hSize : BridgedExpr sizeExpr)
     {stmts : List Compiler.Yul.YulStmt} (hStmts : BridgedStmts stmts) :
-    BridgedStmts (.expr (.call "return" [offsetExpr, sizeExpr]) :: stmts) :=
+    BridgedStmts (.exprStmt (.call "return" [offsetExpr, sizeExpr]) :: stmts) :=
   BridgedStmts_cons
     (bridgedStmt_return_of_bridged_args offsetExpr sizeExpr hOffset hSize) hStmts
 
 theorem BridgedStmts_singleton_revert
     (offsetExpr sizeExpr : Compiler.Yul.YulExpr) :
-    BridgedStmts [.expr (.call "revert" [offsetExpr, sizeExpr])] :=
+    BridgedStmts [.exprStmt (.call "revert" [offsetExpr, sizeExpr])] :=
   BridgedStmts_singleton (bridgedStmt_revert offsetExpr sizeExpr)
 
 theorem BridgedStmts_cons_revert
     (offsetExpr sizeExpr : Compiler.Yul.YulExpr)
     {stmts : List Compiler.Yul.YulStmt} (hStmts : BridgedStmts stmts) :
-    BridgedStmts (.expr (.call "revert" [offsetExpr, sizeExpr]) :: stmts) :=
+    BridgedStmts (.exprStmt (.call "revert" [offsetExpr, sizeExpr]) :: stmts) :=
   BridgedStmts_cons (bridgedStmt_revert offsetExpr sizeExpr) hStmts
 
 theorem BridgedStmts_singleton_mstore
     (offsetExpr valExpr : Compiler.Yul.YulExpr)
     (hOffset : BridgedExpr offsetExpr) (hVal : BridgedExpr valExpr) :
-    BridgedStmts [.expr (.call "mstore" [offsetExpr, valExpr])] :=
+    BridgedStmts [.exprStmt (.call "mstore" [offsetExpr, valExpr])] :=
   BridgedStmts_singleton
     (bridgedStmt_mstore_of_bridged_args offsetExpr valExpr hOffset hVal)
 
@@ -763,14 +763,14 @@ theorem BridgedStmts_cons_mstore
     (offsetExpr valExpr : Compiler.Yul.YulExpr)
     (hOffset : BridgedExpr offsetExpr) (hVal : BridgedExpr valExpr)
     {stmts : List Compiler.Yul.YulStmt} (hStmts : BridgedStmts stmts) :
-    BridgedStmts (.expr (.call "mstore" [offsetExpr, valExpr]) :: stmts) :=
+    BridgedStmts (.exprStmt (.call "mstore" [offsetExpr, valExpr]) :: stmts) :=
   BridgedStmts_cons
     (bridgedStmt_mstore_of_bridged_args offsetExpr valExpr hOffset hVal) hStmts
 
 theorem BridgedStmts_singleton_tstore
     (offsetExpr valExpr : Compiler.Yul.YulExpr)
     (hOffset : BridgedExpr offsetExpr) (hVal : BridgedExpr valExpr) :
-    BridgedStmts [.expr (.call "tstore" [offsetExpr, valExpr])] :=
+    BridgedStmts [.exprStmt (.call "tstore" [offsetExpr, valExpr])] :=
   BridgedStmts_singleton
     (bridgedStmt_tstore_of_bridged_args offsetExpr valExpr hOffset hVal)
 
@@ -778,33 +778,33 @@ theorem BridgedStmts_cons_tstore
     (offsetExpr valExpr : Compiler.Yul.YulExpr)
     (hOffset : BridgedExpr offsetExpr) (hVal : BridgedExpr valExpr)
     {stmts : List Compiler.Yul.YulStmt} (hStmts : BridgedStmts stmts) :
-    BridgedStmts (.expr (.call "tstore" [offsetExpr, valExpr]) :: stmts) :=
+    BridgedStmts (.exprStmt (.call "tstore" [offsetExpr, valExpr]) :: stmts) :=
   BridgedStmts_cons
     (bridgedStmt_tstore_of_bridged_args offsetExpr valExpr hOffset hVal) hStmts
 
 theorem BridgedStmts_singleton_sstore_lit
     (slot : Nat) (valExpr : Compiler.Yul.YulExpr) (hVal : BridgedExpr valExpr) :
-    BridgedStmts [.expr (.call "sstore" [.lit slot, valExpr])] :=
+    BridgedStmts [.exprStmt (.call "sstore" [.lit slot, valExpr])] :=
   BridgedStmts_singleton
     (bridgedStmt_sstore_lit_of_bridged_val slot valExpr hVal)
 
 theorem BridgedStmts_cons_sstore_lit
     (slot : Nat) (valExpr : Compiler.Yul.YulExpr) (hVal : BridgedExpr valExpr)
     {stmts : List Compiler.Yul.YulStmt} (hStmts : BridgedStmts stmts) :
-    BridgedStmts (.expr (.call "sstore" [.lit slot, valExpr]) :: stmts) :=
+    BridgedStmts (.exprStmt (.call "sstore" [.lit slot, valExpr]) :: stmts) :=
   BridgedStmts_cons
     (bridgedStmt_sstore_lit_of_bridged_val slot valExpr hVal) hStmts
 
 theorem BridgedStmts_singleton_sstore_ident
     (slotName : String) (valExpr : Compiler.Yul.YulExpr) (hVal : BridgedExpr valExpr) :
-    BridgedStmts [.expr (.call "sstore" [.ident slotName, valExpr])] :=
+    BridgedStmts [.exprStmt (.call "sstore" [.ident slotName, valExpr])] :=
   BridgedStmts_singleton
     (bridgedStmt_sstore_ident_of_bridged_val slotName valExpr hVal)
 
 theorem BridgedStmts_cons_sstore_ident
     (slotName : String) (valExpr : Compiler.Yul.YulExpr) (hVal : BridgedExpr valExpr)
     {stmts : List Compiler.Yul.YulStmt} (hStmts : BridgedStmts stmts) :
-    BridgedStmts (.expr (.call "sstore" [.ident slotName, valExpr]) :: stmts) :=
+    BridgedStmts (.exprStmt (.call "sstore" [.ident slotName, valExpr]) :: stmts) :=
   BridgedStmts_cons
     (bridgedStmt_sstore_ident_of_bridged_val slotName valExpr hVal) hStmts
 
@@ -813,7 +813,7 @@ theorem BridgedStmts_singleton_sstore_mapping
     (hBase : BridgedExpr baseExpr) (hKey : BridgedExpr keyExpr)
     (hVal : BridgedExpr valExpr) :
     BridgedStmts
-      [.expr (.call "sstore" [.call "mappingSlot" [baseExpr, keyExpr], valExpr])] :=
+      [.exprStmt (.call "sstore" [.call "mappingSlot" [baseExpr, keyExpr], valExpr])] :=
   BridgedStmts_singleton
     (bridgedStmt_sstore_mapping_of_bridged_args
       baseExpr keyExpr valExpr hBase hKey hVal)
@@ -824,7 +824,7 @@ theorem BridgedStmts_cons_sstore_mapping
     (hVal : BridgedExpr valExpr)
     {stmts : List Compiler.Yul.YulStmt} (hStmts : BridgedStmts stmts) :
     BridgedStmts
-      (.expr (.call "sstore" [.call "mappingSlot" [baseExpr, keyExpr], valExpr])
+      (.exprStmt (.call "sstore" [.call "mappingSlot" [baseExpr, keyExpr], valExpr])
         :: stmts) :=
   BridgedStmts_cons
     (bridgedStmt_sstore_mapping_of_bridged_args
@@ -834,7 +834,7 @@ theorem BridgedStmts_singleton_log
     (func : String) (args : List Compiler.Yul.YulExpr)
     (hLog : isYulLogName func = true)
     (hArgs : ∀ arg ∈ args, BridgedExpr arg) :
-    BridgedStmts [.expr (.call func args)] :=
+    BridgedStmts [.exprStmt (.call func args)] :=
   BridgedStmts_singleton
     (bridgedStmt_log_of_bridged_args func args hLog hArgs)
 
@@ -843,7 +843,7 @@ theorem BridgedStmts_cons_log
     (hLog : isYulLogName func = true)
     (hArgs : ∀ arg ∈ args, BridgedExpr arg)
     {stmts : List Compiler.Yul.YulStmt} (hStmts : BridgedStmts stmts) :
-    BridgedStmts (.expr (.call func args) :: stmts) :=
+    BridgedStmts (.exprStmt (.call func args) :: stmts) :=
   BridgedStmts_cons
     (bridgedStmt_log_of_bridged_args func args hLog hArgs) hStmts
 

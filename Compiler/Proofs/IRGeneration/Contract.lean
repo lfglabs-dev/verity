@@ -163,7 +163,7 @@ private theorem compileValidatedCore_ok_yields_compiled_functions
   unfold compileValidatedCore at hcore
   rw [hSupported.normalizedFields,
     hSupported.noAdtTypes, hSupported.noEvents, hSupported.noErrors,
-    hnoInternalFns, hfallback, hreceive] at hcore
+    hnoInternalFns, hfallback, hreceive, hSupported.surface.noTemplateIntrinsics] at hcore
   simp only [bind, Except.bind, pure, Except.pure] at hcore
   rw [ContractShape.guardedFunctionsMapM_eq model.fields [] [] [] [] _
     (ContractShape.supportedSpec_entries_lock_free hSupported)] at hcore
@@ -220,7 +220,7 @@ private theorem compileValidatedCore_ok_yields_compiled_functions_except_mapping
   unfold compileValidatedCore at hcore
   rw [hSupported.normalizedFields,
     hSupported.noAdtTypes, hSupported.noEvents, hSupported.noErrors,
-    hnoInternalFns, hfallback, hreceive] at hcore
+    hnoInternalFns, hfallback, hreceive, hSupported.surface.noTemplateIntrinsics] at hcore
   simp only [bind, Except.bind, pure, Except.pure] at hcore
   rw [ContractShape.guardedFunctionsMapM_eq model.fields [] [] [] [] _
     (ContractShape.supportedSpecExceptMappingWrites_entries_lock_free hSupported)] at hcore
@@ -285,7 +285,7 @@ private theorem compileValidatedCore_ok_yields_internalFunctions_nil
     contractUsesPlainArrayElement, contractUsesArrayElementWord, harray,
     hstorageArray, hdynamicBytesEq, hmulDiv512, hparamDyn,
     hSupported.noCheckedArithmetic,
-    hnoInternalFns, hSupported.noAdtTypes] at hcore
+    hnoInternalFns, hSupported.noAdtTypes, hSupported.surface.noTemplateIntrinsics] at hcore
   simp only [bind, Except.bind, pure, Except.pure, List.mapM_nil] at hcore
   rw [ContractShape.guardedFunctionsMapM_eq model.fields model.events model.errors [] [] _
     (ContractShape.supportedSpec_entries_lock_free hSupported)] at hcore
@@ -321,7 +321,7 @@ private theorem compileValidatedCore_ok_yields_noFallbackEntrypoint
       model.functions.filter (·.isInternal) = [] :=
     filterInternalFunctions_eq_nil_of_supported model selectors hSupported
   unfold compileValidatedCore at hcore
-  rw [hnoInternalFns, hfallback, hreceive] at hcore
+  rw [hnoInternalFns, hfallback, hreceive, hSupported.surface.noTemplateIntrinsics] at hcore
   simp only [bind, Except.bind, Option.mapM_none, pure, Except.pure] at hcore
   rw [ContractShape.guardedFunctionsMapM_eq (applySlotAliasRanges model.fields model.slotAliasRanges)
     model.events model.errors model.adtTypes [] _
@@ -359,7 +359,7 @@ private theorem compileValidatedCore_ok_yields_noReceiveEntrypoint
       model.functions.filter (·.isInternal) = [] :=
     filterInternalFunctions_eq_nil_of_supported model selectors hSupported
   unfold compileValidatedCore at hcore
-  rw [hnoInternalFns, hfallback, hreceive] at hcore
+  rw [hnoInternalFns, hfallback, hreceive, hSupported.surface.noTemplateIntrinsics] at hcore
   simp only [bind, Except.bind, Option.mapM_none, pure, Except.pure] at hcore
   rw [ContractShape.guardedFunctionsMapM_eq (applySlotAliasRanges model.fields model.slotAliasRanges)
     model.events model.errors model.adtTypes [] _
@@ -667,7 +667,7 @@ theorem compile_ok_yields_internalFunctions_nil_except_mapping_writes
       contractUsesPlainArrayElement, contractUsesArrayElementWord, harray,
       hstorageArray, hdynamicBytesEq, hmulDiv512, hparamDyn,
       hcheckedArithmetic,
-      hnoInternalFns, hSupported.noAdtTypes] at hcompile
+      hnoInternalFns, hSupported.noAdtTypes, hSupported.surface.noTemplateIntrinsics] at hcompile
     simp only [bind, Except.bind, pure, Except.pure, List.mapM_nil] at hcompile
     rw [ContractShape.guardedFunctionsMapM_eq model.fields model.events model.errors [] [] _
       (ContractShape.supportedSpecExceptMappingWrites_entries_lock_free hSupported)] at hcompile
@@ -717,7 +717,7 @@ theorem compile_ok_yields_noFallbackEntrypoint_except_mapping_writes
     unfold compileValidatedCore at hcompile
     rw [hSupported.normalizedFields, hfallback, hreceive,
       contractUsesPlainArrayElement, contractUsesArrayElementWord, harray,
-      hstorageArray, hdynamicBytesEq, hnoInternalFns, hSupported.noAdtTypes] at hcompile
+      hstorageArray, hdynamicBytesEq, hnoInternalFns, hSupported.noAdtTypes, hSupported.surface.noTemplateIntrinsics] at hcompile
     simp only [bind, Except.bind, pure, Except.pure, List.mapM_nil] at hcompile
     rw [ContractShape.guardedFunctionsMapM_eq model.fields model.events model.errors [] [] _
       (ContractShape.supportedSpecExceptMappingWrites_entries_lock_free hSupported)] at hcompile
@@ -767,7 +767,7 @@ theorem compile_ok_yields_noReceiveEntrypoint_except_mapping_writes
     unfold compileValidatedCore at hcompile
     rw [hSupported.normalizedFields, hfallback, hreceive,
       contractUsesPlainArrayElement, contractUsesArrayElementWord, harray,
-      hstorageArray, hdynamicBytesEq, hnoInternalFns, hSupported.noAdtTypes] at hcompile
+      hstorageArray, hdynamicBytesEq, hnoInternalFns, hSupported.noAdtTypes, hSupported.surface.noTemplateIntrinsics] at hcompile
     simp only [bind, Except.bind, pure, Except.pure, List.mapM_nil] at hcompile
     rw [ContractShape.guardedFunctionsMapM_eq model.fields model.events model.errors [] [] _
       (ContractShape.supportedSpecExceptMappingWrites_entries_lock_free hSupported)] at hcompile

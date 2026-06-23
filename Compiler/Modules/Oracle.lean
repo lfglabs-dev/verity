@@ -35,16 +35,16 @@ private def compileStaticSingleWordRead
     let ptrName := "__oracle_ptr"
     let ptrExpr := YulExpr.ident ptrName
     let loadPtr := YulStmt.let_ ptrName (YulExpr.call "mload" [YulExpr.lit freeMemoryPointer])
-    let storeSelector := YulStmt.expr (YulExpr.call "mstore" [
+    let storeSelector := YulStmt.exprStmt (YulExpr.call "mstore" [
       ptrExpr,
       YulExpr.call "shl" [YulExpr.lit 224, YulExpr.hex selector]
     ])
     let storeArgs := staticArgExprs.zipIdx.map fun (argExpr, idx) =>
-      YulStmt.expr (YulExpr.call "mstore" [
+      YulStmt.exprStmt (YulExpr.call "mstore" [
         YulExpr.call "add" [ptrExpr, YulExpr.lit (4 + idx * 32)],
         argExpr
       ])
-    let advancePtr := YulStmt.expr (YulExpr.call "mstore" [
+    let advancePtr := YulStmt.exprStmt (YulExpr.call "mstore" [
       YulExpr.lit freeMemoryPointer,
       YulExpr.call "add" [ptrExpr, YulExpr.lit frameSize]
     ])
@@ -56,15 +56,15 @@ private def compileStaticSingleWordRead
     ]
     let revertOnFailure := YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident "__oracle_success"]) [
       YulStmt.let_ "__oracle_rds" (YulExpr.call "returndatasize" []),
-      YulStmt.expr (YulExpr.call "returndatacopy" [
+      YulStmt.exprStmt (YulExpr.call "returndatacopy" [
         YulExpr.lit 0, YulExpr.lit 0, YulExpr.ident "__oracle_rds"
       ]),
-      YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.ident "__oracle_rds"])
+      YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.ident "__oracle_rds"])
     ]
     let requireSingleWord := YulStmt.if_ (YulExpr.call "iszero" [
       YulExpr.call "eq" [YulExpr.call "returndatasize" [], YulExpr.lit 32]
     ]) [
-      YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+      YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
     ]
     let bindResult := YulStmt.let_ resultVar (YulExpr.lit 0)
     let assignResult := YulStmt.assign resultVar (YulExpr.call "mload" [ptrExpr])

@@ -53,7 +53,7 @@ def compileAdtTagRead (baseSlot : YulExpr) : YulExpr :=
 
 /-- Write the tag byte to an ADT's storage base slot. -/
 def compileAdtTagWrite (baseSlot : YulExpr) (tagValue : Nat) : YulStmt :=
-  YulStmt.expr (YulExpr.call "sstore" [baseSlot, YulExpr.lit tagValue])
+  YulStmt.exprStmt (YulExpr.call "sstore" [baseSlot, YulExpr.lit tagValue])
 
 /-- Read a field from an ADT variant in storage.
     `baseSlot` is the ADT's first slot, `fieldIndex` is 0-based within the variant.
@@ -67,7 +67,7 @@ def compileAdtFieldRead (baseSlot : YulExpr) (fieldIndex : Nat) : YulExpr :=
     `baseSlot` is the ADT's first slot, `fieldIndex` is 0-based. -/
 def compileAdtFieldWrite (baseSlot : YulExpr) (fieldIndex : Nat)
     (valueExpr : YulExpr) : YulStmt :=
-  YulStmt.expr (YulExpr.call "sstore" [
+  YulStmt.exprStmt (YulExpr.call "sstore" [
     YulExpr.call "add" [baseSlot, YulExpr.lit (fieldIndex + 1)],
     valueExpr
   ])

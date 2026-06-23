@@ -591,6 +591,10 @@ def compileExprWithInternals (fields : List Field)
           if args.length != inArity then
             throw s!"Compilation error: intrinsic {name} builtin {builtinName} expects {inArity} arg(s), got {args.length}"
           pure (YulExpr.call builtinName argExprs)
+      | .template params _output _body =>
+          if args.length != params.length then
+            throw s!"Compilation error: intrinsic {name} template expects {params.length} arg(s), got {args.length}"
+          pure (YulExpr.call (Verity.Core.Intrinsics.YulLowering.templateHelperName name) argExprs)
   | Expr.forkIfAtLeast required _thenExpr _elseExpr =>
       throw s!"Compilation error: unresolved fork_if_at_least {required}; compile through compileSpecsWithOptions so the branch can be selected from --target-fork before Yul emission"
   | Expr.eq a b      => return yulBinOp "eq"  (← compileExprWithInternals fields dynamicSource internalFunctions a) (← compileExprWithInternals fields dynamicSource internalFunctions b)

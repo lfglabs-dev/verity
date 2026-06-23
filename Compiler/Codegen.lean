@@ -66,7 +66,7 @@ example :
     let runtimeMarker := "__runtime_marker"
     let contract : IRContract :=
       { name := "ScopeRegression"
-        deploy := [.expr (.call "add" [.ident deployMarker, .lit 0])]
+        deploy := [.exprStmt (.call "add" [.ident deployMarker, .lit 0])]
         constructorPayable := true
         functions :=
           [{ name := "f"
@@ -74,7 +74,7 @@ example :
              params := []
              ret := .unit
              payable := false
-             body := [.expr (.call "add" [.ident runtimeMarker, .lit 0])] }]
+             body := [.exprStmt (.call "add" [.ident runtimeMarker, .lit 0])] }]
         usesMapping := false }
     let options : YulEmitOptions := { patchConfig := { enabled := true, maxIterations := 2 } }
     let report := emitYulWithOptionsReport contract options

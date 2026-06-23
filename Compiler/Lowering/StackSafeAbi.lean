@@ -35,7 +35,7 @@ def lowerFrameAsMemoryPayload (base : String) (fields : List FrameField) : Excep
 def lowerEventWithTopic (base : String) (topic0 : YulExpr) (fields : List FrameField) : Except String (List YulStmt) := do
   let (prologue, payloadArgs, _) ← lowerFrameAsMemoryPayload base fields
   pure (prologue ++
-    [YulStmt.expr (YulExpr.call "log1" (payloadArgs ++ [topic0]))])
+    [YulStmt.exprStmt (YulExpr.call "log1" (payloadArgs ++ [topic0]))])
 
 def lowerEvent (eventName : String) (fields : List FrameField) : Except String (List YulStmt) := do
   lowerEventWithTopic eventName (YulExpr.lit (eventNameTopicWord eventName)) fields
@@ -47,13 +47,13 @@ def lowerExternalCall (callName : String) (target value : YulExpr) (fields : Lis
 
 def lowerDynamicReturn (returnName : String) (fields : List FrameField) : Except String (List YulStmt) := do
   let (prologue, payloadArgs, _) ← lowerFrameAsMemoryPayload returnName fields
-  pure (prologue ++ [YulStmt.expr (YulExpr.call "return" payloadArgs)])
+  pure (prologue ++ [YulStmt.exprStmt (YulExpr.call "return" payloadArgs)])
 
 def usesPointerAbi (stmts : List YulStmt) : Bool :=
   stmts.any fun stmt =>
     match stmt with
-    | .expr (.call "return" [_ptr, _size]) => true
-    | .expr (.call "log1" [_ptr, _size, _topic]) => true
+    | .exprStmt (.call "return" [_ptr, _size]) => true
+    | .exprStmt (.call "log1" [_ptr, _size, _topic]) => true
     | .let_ _ (.call "call" [_gas, _target, _value, _ptr, _size, _out, _outSize]) => true
     | _ => false
 

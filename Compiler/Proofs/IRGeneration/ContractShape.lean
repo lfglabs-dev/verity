@@ -188,6 +188,7 @@ private theorem compileValidatedCore_ok_yields_compiled_functions
         (fun x => compileFunctionSpec model.fields [] [] [] x.2 x.1) with _ | irFns
   · simp [hmap] at hcore
   · simp [hmap] at hcore
+    simp [hSupported.surface.noTemplateIntrinsics] at hcore
     rcases hctor :
         compileConstructor model.fields [] [] [] model.constructor with _ | deployStmts
     · simp [hctor] at hcore
@@ -254,8 +255,8 @@ private theorem compileValidatedCore_ok_yields_internalFunctions_nil
   · simp [hmap] at hcore
   · rcases hctor :
         compileConstructor model.fields model.events model.errors [] model.constructor with _ | deployStmts
-    · simp [hmap, hctor, pure, Except.pure] at hcore
-    · simp [hmap, hctor, pure, Except.pure] at hcore
+    · simp [hmap, hctor, hSupported.surface.noTemplateIntrinsics, pure, Except.pure] at hcore
+    · simp [hmap, hctor, hSupported.surface.noTemplateIntrinsics, pure, Except.pure] at hcore
       cases hcore
       rfl
 
@@ -291,6 +292,7 @@ private theorem compileValidatedCore_ok_yields_deploy_compileConstructor
         (fun x => compileFunctionSpec model.fields [] [] [] x.2 x.1) with _ | irFns
   · simp [hmap] at hcore
   · simp [hmap] at hcore
+    simp [hSupported.surface.noTemplateIntrinsics] at hcore
     rcases hctor :
         compileConstructor model.fields [] [] [] model.constructor with _ | deployStmts
     · simp [hctor] at hcore
@@ -332,8 +334,8 @@ private theorem compileValidatedCore_ok_yields_noFallbackEntrypoint
   · rcases hctor :
         compileConstructor (applySlotAliasRanges model.fields model.slotAliasRanges)
           model.events model.errors model.adtTypes model.constructor with _ | deployStmts
-    · simp [hmap, hctor, Pure.pure, Except.pure] at hcore
-    · simp [hmap, hctor, Pure.pure, Except.pure] at hcore
+    · simp [hmap, hctor, hSupported.surface.noTemplateIntrinsics, Pure.pure, Except.pure] at hcore
+    · simp [hmap, hctor, hSupported.surface.noTemplateIntrinsics, Pure.pure, Except.pure] at hcore
       cases hcore
       rfl
 
@@ -370,8 +372,8 @@ private theorem compileValidatedCore_ok_yields_noReceiveEntrypoint
   · rcases hctor :
         compileConstructor (applySlotAliasRanges model.fields model.slotAliasRanges)
           model.events model.errors model.adtTypes model.constructor with _ | deployStmts
-    · simp [hmap, hctor, Pure.pure, Except.pure] at hcore
-    · simp [hmap, hctor, Pure.pure, Except.pure] at hcore
+    · simp [hmap, hctor, hSupported.surface.noTemplateIntrinsics, Pure.pure, Except.pure] at hcore
+    · simp [hmap, hctor, hSupported.surface.noTemplateIntrinsics, Pure.pure, Except.pure] at hcore
       cases hcore
       rfl
 
@@ -428,6 +430,7 @@ private theorem compileValidatedCore_ok_yields_compiled_functions_with_scalar_ev
       (fun x => compileFunctionSpec model.fields model.events [] [] x.2 x.1) with _ | irFns
   · simp [hmap] at hcore
   · simp [hmap] at hcore
+    simp [hSupported.surface.noTemplateIntrinsics] at hcore
     rcases hctor :
         compileConstructor model.fields model.events [] [] model.constructor with _ | deployStmts
     · simp [hctor] at hcore

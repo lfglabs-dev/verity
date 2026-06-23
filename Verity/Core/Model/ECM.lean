@@ -224,30 +224,30 @@ def revertWithMessage (message : String) : List YulStmt :=
   let len := bytes.length
   let paddedLen := ((len + 31) / 32) * 32
   let header := [
-    YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.hex errorStringSelectorWord]),
-    YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 4, YulExpr.lit 32]),
-    YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 36, YulExpr.lit len])
+    YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.hex errorStringSelectorWord]),
+    YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 4, YulExpr.lit 32]),
+    YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 36, YulExpr.lit len])
   ]
   let dataStmts :=
     (chunkBytes32 bytes).zipIdx.map fun (chunk, idx) =>
       let offset := 68 + idx * 32
       let word := wordFromBytes chunk
-      YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit offset, YulExpr.hex word])
+      YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit offset, YulExpr.hex word])
   let totalSize := 68 + paddedLen
-  header ++ dataStmts ++ [YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit totalSize])]
+  header ++ dataStmts ++ [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit totalSize])]
 
 /-- Copy dynamic data (calldata or memory) to a destination offset.
     Uses calldatacopy or a memory loop depending on `isDynamicFromCalldata`. -/
 def dynamicCopyData (ctx : CompilationContext)
     (destOffset sourceOffset len : YulExpr) : List YulStmt :=
   if ctx.isDynamicFromCalldata then
-    [YulStmt.expr (YulExpr.call "calldatacopy" [destOffset, sourceOffset, len])]
+    [YulStmt.exprStmt (YulExpr.call "calldatacopy" [destOffset, sourceOffset, len])]
   else
     [YulStmt.for_
       [YulStmt.let_ "__copy_i" (YulExpr.lit 0)]
       (YulExpr.call "lt" [YulExpr.ident "__copy_i", len])
       [YulStmt.assign "__copy_i" (YulExpr.call "add" [YulExpr.ident "__copy_i", YulExpr.lit 32])]
-      [YulStmt.expr (YulExpr.call "mstore" [
+      [YulStmt.exprStmt (YulExpr.call "mstore" [
         YulExpr.call "add" [destOffset, YulExpr.ident "__copy_i"],
         YulExpr.call "mload" [YulExpr.call "add" [sourceOffset, YulExpr.ident "__copy_i"]]
       ])]]

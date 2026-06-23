@@ -85,7 +85,7 @@ private theorem bridgedStraightStmt_storageStore_lit
     (isTransient : Bool) (slot : Nat) (valueExpr : YulExpr)
     (hValue : BridgedExpr valueExpr) :
     BridgedStraightStmt
-      (YulStmt.expr
+      (YulStmt.exprStmt
         (YulExpr.call (if isTransient then "tstore" else "sstore")
           [YulExpr.lit slot, valueExpr])) := by
   cases isTransient
@@ -98,7 +98,7 @@ private theorem bridgedStraightStmt_storageStore_mapping
     (hBase : BridgedExpr baseExpr) (hKey : BridgedExpr keyExpr)
     (hValue : BridgedExpr valueExpr) :
     BridgedStraightStmt
-      (YulStmt.expr
+      (YulStmt.exprStmt
         (YulExpr.call (if isTransient then "tstore" else "sstore")
           [YulExpr.call "mappingSlot" [baseExpr, keyExpr], valueExpr])) := by
   cases isTransient
@@ -113,7 +113,7 @@ private theorem bridgedStraightStmt_storageStore_add
     (hLeft : BridgedExpr leftExpr) (hRight : BridgedExpr rightExpr)
     (hValue : BridgedExpr valueExpr) :
     BridgedStraightStmt
-      (YulStmt.expr
+      (YulStmt.exprStmt
         (YulExpr.call (if isTransient then "tstore" else "sstore")
           [YulExpr.call "add" [leftExpr, rightExpr], valueExpr])) := by
   cases isTransient
@@ -159,7 +159,7 @@ private theorem bridgedStraightStmt_fieldStorageStore_mapping
     (hBase : BridgedExpr baseExpr) (hKey : BridgedExpr keyExpr)
     (hValue : BridgedExpr valueExpr) :
     BridgedStraightStmt
-      (YulStmt.expr
+      (YulStmt.exprStmt
         (YulExpr.call
           (match findFieldWithResolvedSlot fields field with
            | some (f, _) => if f.isTransient = true then "tstore" else "sstore"
@@ -182,7 +182,7 @@ private theorem bridgedStraightStmt_fieldStorageStore_lit
     (slot : Nat) (valueExpr : YulExpr)
     (hValue : BridgedExpr valueExpr) :
     BridgedStraightStmt
-      (YulStmt.expr
+      (YulStmt.exprStmt
         (YulExpr.call
           (match findFieldWithResolvedSlot fields field with
            | some (f, _) => if f.isTransient = true then "tstore" else "sstore"
@@ -205,7 +205,7 @@ private theorem bridgedStraightStmt_fieldStorageStore_add
     (hLeft : BridgedExpr leftExpr) (hRight : BridgedExpr rightExpr)
     (hValue : BridgedExpr valueExpr) :
     BridgedStraightStmt
-      (YulStmt.expr
+      (YulStmt.exprStmt
         (YulExpr.call
           (match findFieldWithResolvedSlot fields field with
            | some (f, _) => if f.isTransient = true then "tstore" else "sstore"
@@ -229,7 +229,7 @@ private theorem bridgedStraightStmt_maybeFieldStorageStore_add
     (hLeft : BridgedExpr leftExpr) (hRight : BridgedExpr rightExpr)
     (hValue : BridgedExpr valueExpr) :
     BridgedStraightStmt
-      (YulStmt.expr
+      (YulStmt.exprStmt
         (YulExpr.call
           (if allowTransient then
             match findFieldWithResolvedSlot fields field with
@@ -251,7 +251,7 @@ private theorem bridgedStraightStmt_maybeFieldStorageStore_mapping
     (hBase : BridgedExpr baseExpr) (hKey : BridgedExpr keyExpr)
     (hValue : BridgedExpr valueExpr) :
     BridgedStraightStmt
-      (YulStmt.expr
+      (YulStmt.exprStmt
         (YulExpr.call
           (if allowTransient then
             match findFieldWithResolvedSlot fields field with
@@ -379,7 +379,7 @@ private theorem bridgedExpr_iszero_ident (name : String) :
 /-- `revert(0, 0)` as a straight-line (non-recursive) predicate witness. -/
 private theorem bridgedStraightStmt_revert_zero :
     BridgedStraightStmt
-      (YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])) :=
+      (YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])) :=
   BridgedStraightStmt.expr_revert (YulExpr.lit 0) (YulExpr.lit 0)
 
 /-- `lt(calldatasize(), lit n)` as a `BridgedExpr`. Exposed here at the public
@@ -1443,7 +1443,7 @@ private theorem revertWithMessage_chunks_noFuncDefs
     Native.yulStmtsContainFuncDef
       (chunks.map
         (fun chunkAndIdx =>
-          YulStmt.expr (YulExpr.call "mstore"
+          YulStmt.exprStmt (YulExpr.call "mstore"
             [YulExpr.lit (68 + chunkAndIdx.2 * 32),
               YulExpr.hex (wordFromBytes chunkAndIdx.1)]))) = false := by
   induction chunks with
@@ -2752,7 +2752,7 @@ encoding, which is out of scope for this increment.
 private theorem sigStores_bridged (sigBytes : List UInt8) :
     ∀ s ∈ (chunkBytes32 sigBytes).zipIdx.map
         (fun (chunk, idx) =>
-          YulStmt.expr (YulExpr.call "mstore" [
+          YulStmt.exprStmt (YulExpr.call "mstore" [
             YulExpr.call "add" [YulExpr.ident "__err_ptr", YulExpr.lit (idx * 32)],
             YulExpr.hex (wordFromBytes chunk)])),
       BridgedStmt s := by
@@ -2773,7 +2773,7 @@ private theorem sigStores_noFuncDefs (sigBytes : List UInt8) :
     Native.yulStmtsContainFuncDef
       ((chunkBytes32 sigBytes).zipIdx.map
         (fun (chunk, idx) =>
-          YulStmt.expr (YulExpr.call "mstore" [
+          YulStmt.exprStmt (YulExpr.call "mstore" [
             YulExpr.call "add" [YulExpr.ident "__err_ptr", YulExpr.lit (idx * 32)],
             YulExpr.hex (wordFromBytes chunk)]))) = false := by
   induction (chunkBytes32 sigBytes).zipIdx with
@@ -2797,7 +2797,7 @@ private theorem revertWithCustomError_zero_bridged
         ([YulStmt.let_ "__err_ptr" (YulExpr.call "mload" [YulExpr.lit freeMemoryPointer])] ++
           ((chunkBytes32 (bytesFromString (errorSignature errorDef))).zipIdx.map
             (fun (chunk, idx) =>
-              YulStmt.expr (YulExpr.call "mstore" [
+              YulStmt.exprStmt (YulExpr.call "mstore" [
                 YulExpr.call "add" [YulExpr.ident "__err_ptr", YulExpr.lit (idx * 32)],
                 YulExpr.hex (wordFromBytes chunk)]))) ++
           [YulStmt.let_ "__err_hash"
@@ -2806,10 +2806,10 @@ private theorem revertWithCustomError_zero_bridged
             YulStmt.let_ "__err_selector"
               (YulExpr.call "shl" [YulExpr.lit selectorShift,
                 YulExpr.call "shr" [YulExpr.lit selectorShift, YulExpr.ident "__err_hash"]]),
-            YulStmt.expr (YulExpr.call "mstore"
+            YulStmt.exprStmt (YulExpr.call "mstore"
               [YulExpr.lit 0, YulExpr.ident "__err_selector"]),
             YulStmt.let_ "__err_tail" (YulExpr.lit 0)] ++
-          [YulStmt.expr (YulExpr.call "revert"
+          [YulStmt.exprStmt (YulExpr.call "revert"
             [YulExpr.lit 0,
               YulExpr.call "add" [YulExpr.lit 4, YulExpr.ident "__err_tail"]])])] := by
     unfold revertWithCustomError
@@ -2887,7 +2887,7 @@ private theorem revertWithCustomError_zero_noFuncDefs
         ([YulStmt.let_ "__err_ptr" (YulExpr.call "mload" [YulExpr.lit freeMemoryPointer])] ++
           ((chunkBytes32 (bytesFromString (errorSignature errorDef))).zipIdx.map
             (fun (chunk, idx) =>
-              YulStmt.expr (YulExpr.call "mstore" [
+              YulStmt.exprStmt (YulExpr.call "mstore" [
                 YulExpr.call "add" [YulExpr.ident "__err_ptr", YulExpr.lit (idx * 32)],
                 YulExpr.hex (wordFromBytes chunk)]))) ++
           [YulStmt.let_ "__err_hash"
@@ -2896,10 +2896,10 @@ private theorem revertWithCustomError_zero_noFuncDefs
             YulStmt.let_ "__err_selector"
               (YulExpr.call "shl" [YulExpr.lit selectorShift,
                 YulExpr.call "shr" [YulExpr.lit selectorShift, YulExpr.ident "__err_hash"]]),
-            YulStmt.expr (YulExpr.call "mstore"
+            YulStmt.exprStmt (YulExpr.call "mstore"
               [YulExpr.lit 0, YulExpr.ident "__err_selector"]),
             YulStmt.let_ "__err_tail" (YulExpr.lit 0)] ++
-          [YulStmt.expr (YulExpr.call "revert"
+          [YulStmt.exprStmt (YulExpr.call "revert"
             [YulExpr.lit 0,
               YulExpr.call "add" [YulExpr.lit 4, YulExpr.ident "__err_tail"]])])] := by
     unfold revertWithCustomError
@@ -3799,7 +3799,7 @@ theorem BridgedSourceExternalStructuredBodyWithErrorsStmts_of_structured
 /-! ## Source statement body closure: direct `rawLog` emissions
 
 `Stmt.rawLog topics dataOffset dataSize` compiles (when `topics.length ≤ 4`)
-to a single `YulStmt.expr (YulExpr.call s!"log{topics.length}" args)` where
+to a single `YulStmt.exprStmt (YulExpr.call s!"log{topics.length}" args)` where
 `args = [offsetExpr, sizeExpr] ++ topicExprs`. Given bridged source
 hypotheses on all three components, every argument is `BridgedExpr`
 (topics via `compileExprList_bridgedSource`; offset/size via
@@ -5918,7 +5918,7 @@ def BridgedSourceReturnValuesExternalStmts (stmts : List Stmt) : Prop :=
   ∀ stmt ∈ stmts, BridgedSourceReturnValuesExternalStmt stmt
 
 /-- Every element of `compiled.zipIdx.map (fun (v, idx) =>
-YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit (idx * 32), v]))` is a
+YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit (idx * 32), v]))` is a
 `BridgedStmt` when each `compiled` element is `BridgedExpr`. Proved by
 induction on `compiled` with the `zipIdx` starting offset generalized. -/
 private theorem zipIdx_mstores_bridgedStmts :
@@ -5926,7 +5926,7 @@ private theorem zipIdx_mstores_bridgedStmts :
       (∀ e ∈ compiled, BridgedExpr e) →
       BridgedStmts
         ((compiled.zipIdx startIdx).map (fun p =>
-          YulStmt.expr (YulExpr.call "mstore"
+          YulStmt.exprStmt (YulExpr.call "mstore"
             [YulExpr.lit (p.2 * 32), p.1]))) := by
   intro compiled
   induction compiled with
@@ -5955,7 +5955,7 @@ private theorem zipIdx_mstores_noFuncDefs :
     ∀ (compiled : List YulExpr) (startIdx : Nat),
       Native.yulStmtsContainFuncDef
         ((compiled.zipIdx startIdx).map (fun p =>
-          YulStmt.expr (YulExpr.call "mstore"
+          YulStmt.exprStmt (YulExpr.call "mstore"
             [YulExpr.lit (p.2 * 32), p.1]))) = false := by
   intro compiled
   induction compiled with
@@ -7279,7 +7279,7 @@ private theorem bridgedStraightStmts_multiSlot_sstore_mapping
     (slots : List Nat) :
     BridgedStraightStmts
       (slots.map fun slot =>
-        Compiler.Yul.YulStmt.expr
+        Compiler.Yul.YulStmt.exprStmt
           (Compiler.Yul.YulExpr.call "sstore" [
             Compiler.Yul.YulExpr.call "mappingSlot"
               [Compiler.Yul.YulExpr.lit slot,
@@ -7305,7 +7305,7 @@ private theorem yulStmtsContainFuncDef_multiSlot_sstore_mapping
     (slots : List Nat) :
     Native.yulStmtsContainFuncDef
       (slots.map fun slot =>
-        Compiler.Yul.YulStmt.expr
+        Compiler.Yul.YulStmt.exprStmt
           (Compiler.Yul.YulExpr.call "sstore" [
             Compiler.Yul.YulExpr.call "mappingSlot"
               [Compiler.Yul.YulExpr.lit slot,
@@ -7351,7 +7351,7 @@ private theorem compileMappingSlotWrite_multiSlot_bridged
     exact BridgedStmt.straight _ (BridgedStraightStmt.let_ _ _ hValue)
   have hStoreFor : ∀ slot : Nat,
       BridgedStmt
-        (Compiler.Yul.YulStmt.expr
+        (Compiler.Yul.YulStmt.exprStmt
           (Compiler.Yul.YulExpr.call
             (if allowTransient then
               match findFieldWithResolvedSlot fields field with
@@ -7613,7 +7613,7 @@ private theorem bridgedStraightStmts_multiSlot_sstore_mapping2
     (slots : List Nat) :
     BridgedStraightStmts
       (slots.map fun slot =>
-        Compiler.Yul.YulStmt.expr
+        Compiler.Yul.YulStmt.exprStmt
           (Compiler.Yul.YulExpr.call "sstore" [
             Compiler.Yul.YulExpr.call "mappingSlot"
               [Compiler.Yul.YulExpr.call "mappingSlot"
@@ -7654,7 +7654,7 @@ private theorem yulStmtsContainFuncDef_multiSlot_sstore_mapping2
     (slots : List Nat) :
     Native.yulStmtsContainFuncDef
       (slots.map fun slot =>
-        Compiler.Yul.YulStmt.expr
+        Compiler.Yul.YulStmt.exprStmt
           (Compiler.Yul.YulExpr.call "sstore" [
             Compiler.Yul.YulExpr.call "mappingSlot"
               [Compiler.Yul.YulExpr.call "mappingSlot"
@@ -8617,7 +8617,7 @@ private theorem bridgedStraightStmts_multiSlot_sstore_mapping_add
     (slots : List Nat) (wordOffset : Nat) :
     BridgedStraightStmts
       (slots.map fun slot =>
-        Compiler.Yul.YulStmt.expr
+        Compiler.Yul.YulStmt.exprStmt
           (Compiler.Yul.YulExpr.call "sstore" [
             Compiler.Yul.YulExpr.call "add" [
               Compiler.Yul.YulExpr.call "mappingSlot"
@@ -8658,7 +8658,7 @@ private theorem yulStmtsContainFuncDef_multiSlot_sstore_mapping_add
     (slots : List Nat) (wordOffset : Nat) :
     Native.yulStmtsContainFuncDef
       (slots.map fun slot =>
-        Compiler.Yul.YulStmt.expr
+        Compiler.Yul.YulStmt.exprStmt
           (Compiler.Yul.YulExpr.call "sstore" [
             Compiler.Yul.YulExpr.call "add" [
               Compiler.Yul.YulExpr.call "mappingSlot"
@@ -8707,7 +8707,7 @@ private theorem compileMappingSlotWrite_multiSlot_nonzero_bridged
     exact BridgedStmt.straight _ (BridgedStraightStmt.let_ _ _ hValue)
   have hStoreFor : ∀ slot : Nat,
       BridgedStmt
-        (Compiler.Yul.YulStmt.expr
+        (Compiler.Yul.YulStmt.exprStmt
           (Compiler.Yul.YulExpr.call
             (if allowTransient then
               match findFieldWithResolvedSlot fields field with
@@ -8920,7 +8920,7 @@ private theorem bridgedStraightStmts_multiSlot_sstore_mapping2_add
     (slots : List Nat) (wordOffset : Nat) :
     BridgedStraightStmts
       (slots.map fun slot =>
-        Compiler.Yul.YulStmt.expr
+        Compiler.Yul.YulStmt.exprStmt
           (Compiler.Yul.YulExpr.call "sstore" [
             Compiler.Yul.YulExpr.call "add" [
               Compiler.Yul.YulExpr.call "mappingSlot" [
@@ -8978,7 +8978,7 @@ private theorem yulStmtsContainFuncDef_multiSlot_sstore_mapping2_add
     (slots : List Nat) (wordOffset : Nat) :
     Native.yulStmtsContainFuncDef
       (slots.map fun slot =>
-        Compiler.Yul.YulStmt.expr
+        Compiler.Yul.YulStmt.exprStmt
           (Compiler.Yul.YulExpr.call "sstore" [
             Compiler.Yul.YulExpr.call "add" [
               Compiler.Yul.YulExpr.call "mappingSlot" [
@@ -10146,7 +10146,7 @@ private theorem bridgedStmt_packedInnerBlock_wordOffsetZero
           Compiler.Yul.YulExpr.ident "__compat_slot_word",
           Compiler.Yul.YulExpr.call "not" [
             Compiler.Yul.YulExpr.lit (packedShiftedMaskNat packed)]]),
-      Compiler.Yul.YulStmt.expr (
+      Compiler.Yul.YulStmt.exprStmt (
         Compiler.Yul.YulExpr.call (if isTransient then "tstore" else "sstore") [
           Compiler.Yul.YulExpr.call "mappingSlot" [
             Compiler.Yul.YulExpr.lit slot,
@@ -10239,7 +10239,7 @@ private theorem bridgedStmt_packedInnerBlock_wordOffsetZero_field
           Compiler.Yul.YulExpr.ident "__compat_slot_word",
           Compiler.Yul.YulExpr.call "not" [
             Compiler.Yul.YulExpr.lit (packedShiftedMaskNat packed)]]),
-      Compiler.Yul.YulStmt.expr (
+      Compiler.Yul.YulStmt.exprStmt (
         Compiler.Yul.YulExpr.call
           (match findFieldWithResolvedSlot fields field with
            | some (f, _) => if f.isTransient = true then "tstore" else "sstore"
@@ -10279,7 +10279,7 @@ private theorem bridgedStmts_slotsMap_packedInnerBlock_wordOffsetZero
             Compiler.Yul.YulExpr.ident "__compat_slot_word",
             Compiler.Yul.YulExpr.call "not" [
               Compiler.Yul.YulExpr.lit (packedShiftedMaskNat packed)]]),
-        Compiler.Yul.YulStmt.expr (
+        Compiler.Yul.YulStmt.exprStmt (
           Compiler.Yul.YulExpr.call "sstore" [
             Compiler.Yul.YulExpr.call "mappingSlot" [
               Compiler.Yul.YulExpr.lit slot,
@@ -10310,7 +10310,7 @@ private theorem yulStmtsContainFuncDef_slotsMap_packedInnerBlock_wordOffsetZero
             Compiler.Yul.YulExpr.ident "__compat_slot_word",
             Compiler.Yul.YulExpr.call "not" [
               Compiler.Yul.YulExpr.lit (packedShiftedMaskNat packed)]]),
-        Compiler.Yul.YulStmt.expr (
+        Compiler.Yul.YulStmt.exprStmt (
           Compiler.Yul.YulExpr.call "sstore" [
             Compiler.Yul.YulExpr.call "mappingSlot" [
               Compiler.Yul.YulExpr.lit slot,
@@ -10524,7 +10524,7 @@ private theorem bridgedStmt_packedInnerBlock_wordOffsetNonzero
           Compiler.Yul.YulExpr.ident "__compat_slot_word",
           Compiler.Yul.YulExpr.call "not" [
             Compiler.Yul.YulExpr.lit (packedShiftedMaskNat packed)]]),
-      Compiler.Yul.YulStmt.expr (
+      Compiler.Yul.YulStmt.exprStmt (
         Compiler.Yul.YulExpr.call (if isTransient then "tstore" else "sstore") [
           Compiler.Yul.YulExpr.call "add" [
             Compiler.Yul.YulExpr.call "mappingSlot" [
@@ -10636,7 +10636,7 @@ private theorem bridgedStmt_packedInnerBlock_wordOffsetNonzero_field
           Compiler.Yul.YulExpr.ident "__compat_slot_word",
           Compiler.Yul.YulExpr.call "not" [
             Compiler.Yul.YulExpr.lit (packedShiftedMaskNat packed)]]),
-      Compiler.Yul.YulStmt.expr (
+      Compiler.Yul.YulStmt.exprStmt (
         Compiler.Yul.YulExpr.call
           (match findFieldWithResolvedSlot fields field with
            | some (f, _) => if f.isTransient = true then "tstore" else "sstore"
@@ -10680,7 +10680,7 @@ private theorem bridgedStmts_slotsMap_packedInnerBlock_wordOffsetNonzero
             Compiler.Yul.YulExpr.ident "__compat_slot_word",
             Compiler.Yul.YulExpr.call "not" [
               Compiler.Yul.YulExpr.lit (packedShiftedMaskNat packed)]]),
-        Compiler.Yul.YulStmt.expr (
+        Compiler.Yul.YulStmt.exprStmt (
           Compiler.Yul.YulExpr.call (if isTransient then "tstore" else "sstore") [
             Compiler.Yul.YulExpr.call "add" [
               Compiler.Yul.YulExpr.call "mappingSlot" [
@@ -10715,7 +10715,7 @@ private theorem yulStmtsContainFuncDef_slotsMap_packedInnerBlock_wordOffsetNonze
             Compiler.Yul.YulExpr.ident "__compat_slot_word",
             Compiler.Yul.YulExpr.call "not" [
               Compiler.Yul.YulExpr.lit (packedShiftedMaskNat packed)]]),
-        Compiler.Yul.YulStmt.expr (
+        Compiler.Yul.YulStmt.exprStmt (
           Compiler.Yul.YulExpr.call "sstore" [
             Compiler.Yul.YulExpr.call "add" [
               Compiler.Yul.YulExpr.call "mappingSlot" [

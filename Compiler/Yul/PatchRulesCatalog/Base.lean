@@ -237,7 +237,7 @@ partial def callNamesInStmt : YulStmt → List String
   | .let_ _ value => callNamesInExpr value
   | .letMany _ value => callNamesInExpr value
   | .assign _ value => callNamesInExpr value
-  | .expr value => callNamesInExpr value
+  | .exprStmt value => callNamesInExpr value
   | .leave => []
   | .if_ cond body =>
       unionUniqueStrings (callNamesInExpr cond) (callNamesInStmts body)
@@ -263,7 +263,7 @@ partial def callNamesInStmts : List YulStmt → List String
 
 private partial def callNamesInStmtNoFuncDefs : YulStmt → List String
   | .comment _ => []
-  | .expr expr => callNamesInExpr expr
+  | .exprStmt expr => callNamesInExpr expr
   | .let_ _ expr => callNamesInExpr expr
   | .letMany _ expr => callNamesInExpr expr
   | .assign _ expr => callNamesInExpr expr
@@ -416,7 +416,7 @@ partial def renameCallsInStmt (renames : List (String × String)) : YulStmt → 
   | .let_ name value => .let_ name (renameCallsInExpr renames value)
   | .letMany names value => .letMany names (renameCallsInExpr renames value)
   | .assign name value => .assign name (renameCallsInExpr renames value)
-  | .expr value => .expr (renameCallsInExpr renames value)
+  | .exprStmt value => .exprStmt (renameCallsInExpr renames value)
   | .leave => .leave
   | .if_ cond body =>
       .if_ (renameCallsInExpr renames cond) (renameCallsInStmts renames body)
@@ -496,7 +496,7 @@ private partial def outlineDispatchCasesInStmt
     | .let_ name value => (.let_ name value, [], knownDefs)
     | .letMany names value => (.letMany names value, [], knownDefs)
     | .assign name value => (.assign name value, [], knownDefs)
-    | .expr value => (.expr value, [], knownDefs)
+    | .exprStmt value => (.exprStmt value, [], knownDefs)
     | .leave => (.leave, [], knownDefs)
     | .if_ cond body =>
         let (body', defs, knownDefs') := outlineDispatchCasesInStmts knownDefs body
@@ -533,7 +533,7 @@ private partial def outlineDispatchCasesInStmt
                       else
                         let defs' := appendUniqueHelperDef nestedMerged helperName restBody
                         let known' := appendUniqueString knownWithNested helperName
-                        rewriteCases rest known' ((tag, [.expr (.call helperName [])]) :: accCases) defs'
+                        rewriteCases rest known' ((tag, [.exprStmt (.call helperName [])]) :: accCases) defs'
                   | none =>
                       rewriteCases rest knownWithNested ((tag, body') :: accCases) nestedMerged
               | _ =>
@@ -600,7 +600,7 @@ private partial def inlineDispatchWrapperCallsInStmt
     | .let_ name value => (.let_ name value, 0)
     | .letMany names value => (.letMany names value, 0)
     | .assign name value => (.assign name value, 0)
-    | .expr value => (.expr value, 0)
+    | .exprStmt value => (.exprStmt value, 0)
     | .leave => (.leave, 0)
     | .if_ cond body =>
         let (body', rewritten) := inlineDispatchWrapperCallsInStmts helpers body
@@ -614,7 +614,7 @@ private partial def inlineDispatchWrapperCallsInStmt
         let rewriteCase := fun (entry : Nat × List YulStmt) =>
           let (tag, body) := entry
           match body with
-          | [.expr (.call helperName [])] =>
+          | [.exprStmt (.call helperName [])] =>
               if helperName.startsWith "fun_" then
                 match helperBodyForName? helpers helperName with
                 | some helperBody => ((tag, helperBody), 1)

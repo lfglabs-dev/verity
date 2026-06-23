@@ -222,9 +222,9 @@ def nonReentrantGuardPrologue (fields : List Field) (lockField : String) :
       let revertOnReentry :=
         YulStmt.if_
           (YulExpr.call "eq" [YulExpr.call "tload" [lockSlot], YulExpr.lit 1])
-          [YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]
+          [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]
       let acquire :=
-        YulStmt.expr (YulExpr.call "tstore" [lockSlot, YulExpr.lit 1])
+        YulStmt.exprStmt (YulExpr.call "tstore" [lockSlot, YulExpr.lit 1])
       pure [revertOnReentry, acquire]
 
 /-- Wrap an already-compiled `IRFunction` with the `nonreentrant(lockField)`
@@ -256,7 +256,7 @@ def attachNonReentrantGuard (fields : List Field) (spec : FunctionSpec)
       let releaseSlot := match findFieldWithResolvedSlot fields lockField with
         | some (_, s) => s
         | none => 0   -- unreachable after prologue validation
-      let release := YulStmt.expr (YulExpr.call "tstore" [YulExpr.lit releaseSlot, YulExpr.lit 0])
+      let release := YulStmt.exprStmt (YulExpr.call "tstore" [YulExpr.lit releaseSlot, YulExpr.lit 0])
       pure { irFn with body := prefixLoads ++ guardStmts ++ suffix ++ [release] }
 
 private def compileSpecialEntrypoint (fields : List Field) (events : List EventDef)
@@ -275,7 +275,7 @@ private def compileSpecialEntrypoint (fields : List Field) (events : List EventD
         let releaseSlot := match findFieldWithResolvedSlot fields lockField with
           | some (_, s) => s
           | none => 0
-        let release := YulStmt.expr (YulExpr.call "tstore" [YulExpr.lit releaseSlot, YulExpr.lit 0])
+        let release := YulStmt.exprStmt (YulExpr.call "tstore" [YulExpr.lit releaseSlot, YulExpr.lit 0])
         pure (guardStmts ++ bodyChunks ++ [release])
   pure {
     payable := spec.isPayable
@@ -561,6 +561,69 @@ def compileGuardedFunctionSpec (fields : List Field) (events : List EventDef)
   let irFn ← compileFunctionSpec fields events errors adtTypes sel fnSpec (targetFork := targetFork) internalFunctions
   attachNonReentrantGuard fields fnSpec irFn
 
+def collectTemplateIntrinsicsFromExpr (expr : Expr) :
+    List (String × Verity.Core.Intrinsics.YulLowering) :=
+  let here :=
+    match expr with
+    | .intrinsic name lowering@(.template ..) _ _ => [(name, lowering)]
+    | _ => []
+  here ++ expr.children.attach.flatMap (fun ⟨child, hchild⟩ =>
+    have := Expr.children_sizeOf_lt expr child hchild
+    collectTemplateIntrinsicsFromExpr child)
+termination_by sizeOf expr
+
+def collectTemplateIntrinsicsFromStmt (stmt : Stmt) :
+    List (String × Verity.Core.Intrinsics.YulLowering) :=
+  let fromExprs :=
+    stmt.directMetadata.subexpressions.flatMap collectTemplateIntrinsicsFromExpr
+  let fromChildren :=
+    stmt.childLists.attach.flatMap (fun ⟨body, hbody⟩ =>
+      body.attach.flatMap (fun ⟨child, hchild⟩ =>
+        have := Stmt.childLists_sizeOf_lt stmt body hbody child hchild
+        collectTemplateIntrinsicsFromStmt child))
+  fromExprs ++ fromChildren
+termination_by sizeOf stmt
+decreasing_by exact Nat.lt_trans this.1 this.2
+
+def collectTemplateIntrinsicsFromStmts (stmts : List Stmt) :
+    List (String × Verity.Core.Intrinsics.YulLowering) :=
+  stmts.flatMap collectTemplateIntrinsicsFromStmt
+
+def templateIntrinsicItems (spec : CompilationModel) :
+    List (String × Verity.Core.Intrinsics.YulLowering) :=
+  let functionItems :=
+    spec.functions.flatMap (fun fn => collectTemplateIntrinsicsFromStmts fn.body)
+  let constructorItems :=
+    match spec.constructor with
+    | none => []
+    | some ctor => collectTemplateIntrinsicsFromStmts ctor.body
+  functionItems ++ constructorItems
+
+def addTemplateIntrinsic
+    (acc : List (String × Verity.Core.Intrinsics.YulLowering))
+    (item : String × Verity.Core.Intrinsics.YulLowering) :
+    Except String (List (String × Verity.Core.Intrinsics.YulLowering)) :=
+  match acc.find? (fun prev => prev.1 == item.1) with
+  | none => pure (acc ++ [item])
+  | some prev =>
+      if prev.2 == item.2 then
+        pure acc
+      else
+        throw s!"Compilation error: intrinsic template '{item.1}' is used with conflicting Yul template bodies"
+
+def dedupTemplateIntrinsics
+    (items : List (String × Verity.Core.Intrinsics.YulLowering)) :
+    Except String (List (String × Verity.Core.Intrinsics.YulLowering)) :=
+  items.foldlM addTemplateIntrinsic []
+
+def compileTemplateIntrinsicHelpers (spec : CompilationModel) :
+    Except String (List YulStmt) := do
+  let items ← dedupTemplateIntrinsics (templateIntrinsicItems spec)
+  items.mapM fun (name, lowering) =>
+    match Verity.Core.Intrinsics.YulLowering.templateFuncDef? name lowering with
+    | some funcDef => pure funcDef
+    | none => throw s!"Compilation error: intrinsic {name} is not a template lowering"
+
 def compileValidatedCore (spec : CompilationModel) (selectors : List Nat)
     (targetFork : HardFork := .cancun) : Except String IRContract := do
   let fields := applySlotAliasRanges spec.fields spec.slotAliasRanges
@@ -639,6 +702,11 @@ def compileValidatedCore (spec : CompilationModel) (selectors : List Nat)
       [dynamicBytesEqCalldataHelper, dynamicBytesEqMemoryHelper]
     else
       []
+  let templateIntrinsicHelpers ←
+    if (templateIntrinsicItems spec).isEmpty then
+      pure []
+    else
+      compileTemplateIntrinsicHelpers spec
   let checkedArithmeticHelpers :=
     if checkedArithmeticHelpersRequired then
       [ panicError0x11Helper
@@ -662,7 +730,9 @@ def compileValidatedCore (spec : CompilationModel) (selectors : List Nat)
     fallbackEntrypoint := fallbackEntrypoint
     receiveEntrypoint := receiveEntrypoint
     usesMapping := mappingHelpersRequired
-    internalFunctions := arrayElementHelpers ++ storageArrayElementHelpers ++ dynamicBytesEqHelpers ++ checkedArithmeticHelpers ++ internalFuncDefs
+    internalFunctions :=
+      arrayElementHelpers ++ storageArrayElementHelpers ++ dynamicBytesEqHelpers ++
+        checkedArithmeticHelpers ++ templateIntrinsicHelpers ++ internalFuncDefs
   }
 
 /-- Compile a `CompilationModel` to an `IRContract`.

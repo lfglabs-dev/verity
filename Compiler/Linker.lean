@@ -329,7 +329,7 @@ private def callsWithArityFromStmt : YulStmt → List (String × Nat)
   | YulStmt.let_ _ value => callsWithArityFromExpr value
   | YulStmt.letMany _ value => callsWithArityFromExpr value
   | YulStmt.assign _ value => callsWithArityFromExpr value
-  | YulStmt.expr e => callsWithArityFromExpr e
+  | YulStmt.exprStmt e => callsWithArityFromExpr e
   | YulStmt.leave => []
   | YulStmt.if_ cond body => callsWithArityFromExpr cond ++ callsWithArityFromStmts body
   | YulStmt.for_ init cond post body =>
@@ -412,7 +412,7 @@ example :
     let obj : YulObject :=
       { name := "Main"
         deployCode := []
-        runtimeCode := [.expr (.call "A" [])] }
+        runtimeCode := [.exprStmt (.call "A" [])] }
     let libs : List LibraryFunction :=
       [ { name := "A", arity := 0, body := ["function A() {", "B()", "}"] }
       , { name := "B", arity := 0, body := ["function B() {", "let x := 1", "}"] }

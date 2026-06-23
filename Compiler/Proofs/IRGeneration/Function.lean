@@ -2304,7 +2304,7 @@ private theorem legacyCompatibleExternalStmtList_append
   | comment msg rest _ ih => exact .comment msg (rest ++ back) (ih hback)
   | let_ name value rest _ ih => exact .let_ name value (rest ++ back) (ih hback)
   | assign name value rest _ ih => exact .assign name value (rest ++ back) (ih hback)
-  | expr value rest _ ih => exact .expr value (rest ++ back) (ih hback)
+  | exprStmt value rest _ ih => exact .exprStmt value (rest ++ back) (ih hback)
   | if_ cond body rest hbody _ _ ihRest =>
       exact .if_ cond body (rest ++ back) hbody (ihRest hback)
   | block body rest hbody _ _ ihRest =>
@@ -2324,7 +2324,7 @@ private theorem yulStmtListCallsDisjoint_append
   | comment msg rest _ ih => exact .comment msg (rest ++ back) (ih hback)
   | let_ name value rest hval _ ih => exact .let_ name value (rest ++ back) hval (ih hback)
   | assign name value rest hval _ ih => exact .assign name value (rest ++ back) hval (ih hback)
-  | expr value rest hval _ ih => exact .expr value (rest ++ back) hval (ih hback)
+  | exprStmt value rest hval _ ih => exact .exprStmt value (rest ++ back) hval (ih hback)
   | if_ cond body rest hcond hbody _ _ ihRest =>
       exact .if_ cond body (rest ++ back) hcond hbody (ihRest hback)
   | block body rest hbody _ _ ihRest =>
@@ -2378,7 +2378,7 @@ private theorem genParamLoads_scalar_legacy
     (fun pos => YulExpr.call "calldataload" [pos]) (YulExpr.call "calldatasize" [])
     ((params.map (fun p => paramHeadSize p.ty)).foldl (· + ·) 0) 4 params 4 hsupported
   simp [genParamLoads, genParamLoadsFrom]
-  exact .if_ _ _ _ (.expr _ _ .nil) hbody
+  exact .if_ _ _ _ (.exprStmt _ _ .nil) hbody
 
 private theorem compiledStmt_scalar_events_callsDisjoint
     (runtimeContract : IRContract) (hinternal : runtimeContract.internalFunctions = [])

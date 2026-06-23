@@ -254,7 +254,7 @@ private theorem simpleStorageNativeRuntimeDispatcherStmts_exists_init_block :
           have hInner' :
               Compiler.Proofs.YulGeneration.Backends.lowerStmtsNativeWithSwitchIds
                 (Compiler.Proofs.YulGeneration.Backends.yulStmtsIdentifierNames
-                  [Yul.YulStmt.expr
+                  [Yul.YulStmt.exprStmt
                     (Yul.YulExpr.call "mstore"
                       [Yul.YulExpr.lit Compiler.Constants.freeMemoryPointer,
                        Yul.YulExpr.lit 128]),
@@ -303,7 +303,7 @@ private theorem simpleStorageNativeRuntimeDispatcherStmts_exists_init_block :
             have hInnerMap :
                 Compiler.Proofs.YulGeneration.Backends.lowerStmtsNativeWithSwitchIds
                   (Compiler.Proofs.YulGeneration.Backends.yulStmtsIdentifierNames
-                    [Yul.YulStmt.expr
+                    [Yul.YulStmt.exprStmt
                       (Yul.YulExpr.call "mstore"
                         [Yul.YulExpr.lit Compiler.Constants.freeMemoryPointer,
                          Yul.YulExpr.lit 128]),
@@ -366,7 +366,7 @@ private theorem simpleStorageNativeRuntimeDispatcherStmts_exists_init_block :
           have hInner' :
               Compiler.Proofs.YulGeneration.Backends.lowerStmtsNativeWithSwitchIds
                 (Compiler.Proofs.YulGeneration.Backends.yulStmtsIdentifierNames
-                  [Yul.YulStmt.expr
+                  [Yul.YulStmt.exprStmt
                     (Yul.YulExpr.call "mstore"
                       [Yul.YulExpr.lit Compiler.Constants.freeMemoryPointer,
                        Yul.YulExpr.lit 128]),
@@ -425,7 +425,7 @@ private theorem simpleStorageNativeRuntimeDispatcherStmts_exists_init_block :
             have hInnerMap :
                 Compiler.Proofs.YulGeneration.Backends.lowerStmtsNativeWithSwitchIds
                   (Compiler.Proofs.YulGeneration.Backends.yulStmtsIdentifierNames
-                    [Yul.YulStmt.expr
+                    [Yul.YulStmt.exprStmt
                       (Yul.YulExpr.call "mstore"
                         [Yul.YulExpr.lit Compiler.Constants.freeMemoryPointer,
                          Yul.YulExpr.lit 128]),
@@ -989,7 +989,7 @@ private theorem lowerStmtsNativeWithSwitchIds_revert_zero_zero
     (reservedNames : List String) (n : Nat) :
     Compiler.Proofs.YulGeneration.Backends.lowerStmtsNativeWithSwitchIds
         reservedNames n
-        [Yul.YulStmt.expr (Yul.YulExpr.call "revert"
+        [Yul.YulStmt.exprStmt (Yul.YulExpr.call "revert"
           [Yul.YulExpr.lit 0, Yul.YulExpr.lit 0])] =
       .ok ([Backends.Native.nativeRevertZeroZeroStmt], n) := by
   exact Backends.Native.lowerStmtsNativeWithSwitchIds_revert_zero_zero
@@ -1011,7 +1011,7 @@ private theorem lowerStmtsNativeWithSwitchIds_singleton_switch_revert_default_eq
     (inner : List EvmYul.Yul.Ast.Stmt) (next : Nat)
     (h : Backends.lowerStmtsNativeWithSwitchIds reservedNames n0
             [Yul.YulStmt.switch expr cases
-              (some [Yul.YulStmt.expr (Yul.YulExpr.call "revert"
+              (some [Yul.YulStmt.exprStmt (Yul.YulExpr.call "revert"
                 [Yul.YulExpr.lit 0, Yul.YulExpr.lit 0])])] = .ok (inner, next)) :
     ∃ (cases' : List (Nat × List EvmYul.Yul.Ast.Stmt)),
       inner = [Backends.lowerNativeSwitchBlock expr
@@ -1033,7 +1033,7 @@ private theorem lowerStmtsNativeWithSwitchIds_singleton_switch_revert_default_eq
     (inner : List EvmYul.Yul.Ast.Stmt) (next : Nat)
     (h : Backends.lowerStmtsNativeWithSwitchIds reservedNames n0
             [Yul.YulStmt.switch expr cases
-              (some [Yul.YulStmt.expr (Yul.YulExpr.call "revert"
+              (some [Yul.YulStmt.exprStmt (Yul.YulExpr.call "revert"
                 [Yul.YulExpr.lit 0, Yul.YulExpr.lit 0])])] = .ok (inner, next)) :
     ∃ (cases' : List (Nat × List EvmYul.Yul.Ast.Stmt)) (midN : Nat),
       inner = [Backends.lowerNativeSwitchBlock expr
@@ -1278,7 +1278,7 @@ private theorem simpleStorageNativeDispatcher_if1Body_eq :
       Compiler.CodegenCommon.defaultDispatchCase
           (none : Option Compiler.IREntrypoint)
           (none : Option Compiler.IREntrypoint) =
-        [Yul.YulStmt.expr
+        [Yul.YulStmt.exprStmt
           (Yul.YulExpr.call "revert" [Yul.YulExpr.lit 0, Yul.YulExpr.lit 0])] :=
     rfl
   rw [hDef, lowerStmtsNativeWithSwitchIds_revert_zero_zero,
@@ -3417,9 +3417,9 @@ private theorem interpretIR_simpleStorage_retrieveHit
   -- Closed-form evaluation of the retrieve body for any fuel ≥ 2.
   have hbody : ∀ (n : Nat) (s : IRState), 2 ≤ n →
       execIRStmts (n + 1) s
-        [Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+        [Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
             [Yul.YulExpr.lit 0, Yul.YulExpr.call "sload" [Yul.YulExpr.lit 0]]),
-         Yul.YulStmt.expr (Yul.YulExpr.call "return"
+         Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
             [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])] =
           .return ((s.storage (IRStorageSlot.ofNat 0)).toNat)
             { s with memory := fun o =>
@@ -3434,9 +3434,9 @@ private theorem interpretIR_simpleStorage_retrieveHit
   -- The retrieve body has at least 2 statements, so `sizeOf body ≥ 2` by
   -- direct computation on the auto-derived size measure.
   have hsize : 2 ≤ sizeOf
-      ([Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+      ([Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
             [Yul.YulExpr.lit 0, Yul.YulExpr.call "sload" [Yul.YulExpr.lit 0]]),
-        Yul.YulStmt.expr (Yul.YulExpr.call "return"
+        Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
             [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])] : List Yul.YulStmt) := by
     decide
   unfold interpretIR
@@ -3478,9 +3478,9 @@ private theorem interpretIR_simpleStorage_storeHit_arg
       ret := IRType.unit
       body := [
         Yul.YulStmt.let_ "value" (Yul.YulExpr.call "calldataload" [Yul.YulExpr.lit 4]),
-        Yul.YulStmt.expr (Yul.YulExpr.call "sstore"
+        Yul.YulStmt.exprStmt (Yul.YulExpr.call "sstore"
           [Yul.YulExpr.lit 0, Yul.YulExpr.ident "value"]),
-        Yul.YulStmt.expr (Yul.YulExpr.call "stop" [])] }
+        Yul.YulStmt.exprStmt (Yul.YulExpr.call "stop" [])] }
   have hExec :=
     Compiler.Proofs.IRGeneration.execIRFunction_store0_calldataload4_stop_of_args_cons
       storeFn tx initialState arg rest (by rfl) hArgs
@@ -4158,8 +4158,8 @@ private theorem nativeResultsMatchOn_execIRFunction_store0_calldataload4_stop_ma
     (arg : Nat) (rest : List Nat)
     (hBody : fn.body = [
       Yul.YulStmt.let_ "value" (Yul.YulExpr.call "calldataload" [Yul.YulExpr.lit 4]),
-      Yul.YulStmt.expr (Yul.YulExpr.call "sstore" [Yul.YulExpr.lit 0, Yul.YulExpr.ident "value"]),
-      Yul.YulStmt.expr (Yul.YulExpr.call "stop" [])])
+      Yul.YulStmt.exprStmt (Yul.YulExpr.call "sstore" [Yul.YulExpr.lit 0, Yul.YulExpr.ident "value"]),
+      Yul.YulStmt.exprStmt (Yul.YulExpr.call "stop" [])])
     (hArgs : tx.args = arg :: rest) :
     let yulTx := YulTransaction.ofIR tx
     let slots :=
@@ -4246,8 +4246,8 @@ private theorem NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel.of_store0_ca
           some fn →
         fn.body = [
           Yul.YulStmt.let_ "value" (Yul.YulExpr.call "calldataload" [Yul.YulExpr.lit 4]),
-          Yul.YulStmt.expr (Yul.YulExpr.call "sstore" [Yul.YulExpr.lit 0, Yul.YulExpr.ident "value"]),
-          Yul.YulStmt.expr (Yul.YulExpr.call "stop" [])])
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "sstore" [Yul.YulExpr.lit 0, Yul.YulExpr.ident "value"]),
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "stop" [])])
     (hArgsCons : ∃ arg rest, tx.args = arg :: rest) :
     NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel irContract tx state
       observableSlots := by
@@ -4260,10 +4260,10 @@ private theorem NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel.of_store0_ca
           reservedNames userBodyStart
           ([Yul.YulStmt.let_ "value"
               (Yul.YulExpr.call "calldataload" [Yul.YulExpr.lit 4]),
-            Yul.YulStmt.expr
+            Yul.YulStmt.exprStmt
               (Yul.YulExpr.call "sstore"
                 [Yul.YulExpr.lit 0, Yul.YulExpr.ident "value"]),
-            Yul.YulStmt.expr (Yul.YulExpr.call "stop" [])] : List Yul.YulStmt) =
+            Yul.YulStmt.exprStmt (Yul.YulExpr.call "stop" [])] : List Yul.YulStmt) =
         .ok (simpleStorageLoweredStoreCaseBodyTail3, userBodyStart) := by
     simp [simpleStorageLoweredStoreCaseBodyTail3,
       Compiler.Proofs.YulGeneration.Backends.lowerStmtsNativeWithSwitchIds_cons,
@@ -4323,8 +4323,8 @@ private theorem NativeGeneratedSelectedUserBodyResultBridgeAtFuel.of_store0_call
           some fn →
         fn.body = [
           Yul.YulStmt.let_ "value" (Yul.YulExpr.call "calldataload" [Yul.YulExpr.lit 4]),
-          Yul.YulStmt.expr (Yul.YulExpr.call "sstore" [Yul.YulExpr.lit 0, Yul.YulExpr.ident "value"]),
-          Yul.YulStmt.expr (Yul.YulExpr.call "stop" [])])
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "sstore" [Yul.YulExpr.lit 0, Yul.YulExpr.ident "value"]),
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "stop" [])])
     (hArgsCons : ∃ arg rest, tx.args = arg :: rest) :
     NativeGeneratedSelectedUserBodyResultBridgeAtFuel irContract tx state
       observableSlots :=
@@ -4362,8 +4362,8 @@ private theorem nativeGeneratedCallDispatcherMatchesIR_of_compile_ok_supported_s
           some fn →
         fn.body = [
           Yul.YulStmt.let_ "value" (Yul.YulExpr.call "calldataload" [Yul.YulExpr.lit 4]),
-          Yul.YulStmt.expr (Yul.YulExpr.call "sstore" [Yul.YulExpr.lit 0, Yul.YulExpr.ident "value"]),
-          Yul.YulStmt.expr (Yul.YulExpr.call "stop" [])])
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "sstore" [Yul.YulExpr.lit 0, Yul.YulExpr.ident "value"]),
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "stop" [])])
     (hArgsCons : ∃ arg rest, tx.args = arg :: rest) :
     ∃ nativeContract : EvmYul.Yul.Ast.YulContract,
       Compiler.Proofs.YulGeneration.Backends.lowerRuntimeContractNative
@@ -4663,9 +4663,9 @@ private theorem nativeResultsMatchOn_execIRFunction_mstore0_sload0_return32_mark
     (switchId : Nat)
     (store : EvmYul.Yul.VarStore)
     (hBody : fn.body = [
-      Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+      Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
         [Yul.YulExpr.lit 0, Yul.YulExpr.call "sload" [Yul.YulExpr.lit 0]]),
-      Yul.YulStmt.expr (Yul.YulExpr.call "return"
+      Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
         [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])]) :
     let yulTx := YulTransaction.ofIR tx
     let slots :=
@@ -4772,9 +4772,9 @@ private theorem execIRFunction_zeroParam_mstore0_lit_return32
     (hNoWrap : 4 + tx.args.length * 32 < EvmYul.UInt256.size)
     (hBody : fn.body =
       Compiler.CompilationModel.genParamLoads [] ++
-      [Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+      [Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
         [Yul.YulExpr.lit 0, Yul.YulExpr.lit value]),
-       Yul.YulStmt.expr (Yul.YulExpr.call "return"
+       Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
         [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])]) :
     execIRFunction fn tx.args (applyIRTransactionContext tx initialState) =
       { success := true
@@ -4783,9 +4783,9 @@ private theorem execIRFunction_zeroParam_mstore0_lit_return32
         finalMappings := Compiler.Proofs.storageAsMappings initialState.storage
         events := initialState.events } := by
   let rest : List Yul.YulStmt :=
-    [Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+    [Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
       [Yul.YulExpr.lit 0, Yul.YulExpr.lit value]),
-     Yul.YulStmt.expr (Yul.YulExpr.call "return"
+     Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
       [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])]
   let params : List CompilationModel.Param := []
   let body := Compiler.CompilationModel.genParamLoads params ++ rest
@@ -4889,9 +4889,9 @@ private theorem execIRFunction_zeroParam_mstore0_sload0_return32
     (hNoWrap : 4 + tx.args.length * 32 < EvmYul.UInt256.size)
     (hBody : fn.body =
       Compiler.CompilationModel.genParamLoads [] ++
-      [Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+      [Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
         [Yul.YulExpr.lit 0, Yul.YulExpr.call "sload" [Yul.YulExpr.lit 0]]),
-       Yul.YulStmt.expr (Yul.YulExpr.call "return"
+       Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
         [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])]) :
     execIRFunction fn tx.args (applyIRTransactionContext tx initialState) =
       { success := true
@@ -4900,9 +4900,9 @@ private theorem execIRFunction_zeroParam_mstore0_sload0_return32
         finalMappings := Compiler.Proofs.storageAsMappings initialState.storage
         events := initialState.events } := by
   let rest : List Yul.YulStmt :=
-    [Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+    [Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
       [Yul.YulExpr.lit 0, Yul.YulExpr.call "sload" [Yul.YulExpr.lit 0]]),
-     Yul.YulStmt.expr (Yul.YulExpr.call "return"
+     Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
       [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])]
   let params : List CompilationModel.Param := []
   let body := Compiler.CompilationModel.genParamLoads params ++ rest
@@ -5018,9 +5018,9 @@ private theorem execIRFunction_oneParam_store0_value_stop
     (hBody : fn.body =
       Compiler.CompilationModel.genParamLoads
         [{ name := "value", ty := CompilationModel.ParamType.uint256 }] ++
-      [Yul.YulStmt.expr (Yul.YulExpr.call "sstore"
+      [Yul.YulStmt.exprStmt (Yul.YulExpr.call "sstore"
         [Yul.YulExpr.lit 0, Yul.YulExpr.ident "value"]),
-       Yul.YulStmt.expr (Yul.YulExpr.call "stop" [])]) :
+       Yul.YulStmt.exprStmt (Yul.YulExpr.call "stop" [])]) :
     execIRFunction fn tx.args (applyIRTransactionContext tx initialState) =
       { success := true
         returnValue := none
@@ -5037,9 +5037,9 @@ private theorem execIRFunction_oneParam_store0_value_stop
   let irParams : List IRParam :=
     [{ name := "value", ty := IRType.uint256 }]
   let restBody : List Yul.YulStmt :=
-    [Yul.YulStmt.expr (Yul.YulExpr.call "sstore"
+    [Yul.YulStmt.exprStmt (Yul.YulExpr.call "sstore"
       [Yul.YulExpr.lit 0, Yul.YulExpr.ident "value"]),
-     Yul.YulStmt.expr (Yul.YulExpr.call "stop" [])]
+     Yul.YulStmt.exprStmt (Yul.YulExpr.call "stop" [])]
   let body := Compiler.CompilationModel.genParamLoads params ++ restBody
   let txState := applyIRTransactionContext tx initialState
   let stateWithParams :=
@@ -5179,9 +5179,9 @@ private theorem nativeResultsMatchOn_execIRFunction_oneParam_store0_value_stop_m
     (hBody : fn.body =
       Compiler.CompilationModel.genParamLoads
         [{ name := "value", ty := CompilationModel.ParamType.uint256 }] ++
-      [Yul.YulStmt.expr (Yul.YulExpr.call "sstore"
+      [Yul.YulStmt.exprStmt (Yul.YulExpr.call "sstore"
         [Yul.YulExpr.lit 0, Yul.YulExpr.ident "value"]),
-       Yul.YulStmt.expr (Yul.YulExpr.call "stop" [])]) :
+       Yul.YulStmt.exprStmt (Yul.YulExpr.call "stop" [])]) :
     let yulTx := YulTransaction.ofIR tx
     let slots :=
       Compiler.Proofs.YulGeneration.Backends.Native.materializedStorageSlots
@@ -5274,9 +5274,9 @@ private theorem NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel.of_oneParam_
         fn.body =
           Compiler.CompilationModel.genParamLoads
             [{ name := "value", ty := CompilationModel.ParamType.uint256 }] ++
-          [Yul.YulStmt.expr (Yul.YulExpr.call "sstore"
+          [Yul.YulStmt.exprStmt (Yul.YulExpr.call "sstore"
             [Yul.YulExpr.lit 0, Yul.YulExpr.ident "value"]),
-           Yul.YulStmt.expr (Yul.YulExpr.call "stop" [])])
+           Yul.YulStmt.exprStmt (Yul.YulExpr.call "stop" [])])
     (hArgsCons : ∃ arg rest, tx.args = arg :: rest) :
     NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel irContract tx state
       observableSlots := by
@@ -5290,9 +5290,9 @@ private theorem NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel.of_oneParam_
           reservedNames userBodyStart
           (Compiler.CompilationModel.genParamLoads
             [{ name := "value", ty := CompilationModel.ParamType.uint256 }] ++
-          [Yul.YulStmt.expr (Yul.YulExpr.call "sstore"
+          [Yul.YulStmt.exprStmt (Yul.YulExpr.call "sstore"
             [Yul.YulExpr.lit 0, Yul.YulExpr.ident "value"]),
-           Yul.YulStmt.expr (Yul.YulExpr.call "stop" [])] : List Yul.YulStmt) =
+           Yul.YulStmt.exprStmt (Yul.YulExpr.call "stop" [])] : List Yul.YulStmt) =
         .ok (simpleStorageLoweredStoreCaseBodyTail2, userBodyStart) := by
     simp [simpleStorageLoweredStoreCaseBodyTail2,
       Compiler.CompilationModel.genParamLoads,
@@ -5386,9 +5386,9 @@ private theorem NativeGeneratedSelectedUserBodyResultBridgeAtFuel.of_oneParam_st
         fn.body =
           Compiler.CompilationModel.genParamLoads
             [{ name := "value", ty := CompilationModel.ParamType.uint256 }] ++
-          [Yul.YulStmt.expr (Yul.YulExpr.call "sstore"
+          [Yul.YulStmt.exprStmt (Yul.YulExpr.call "sstore"
             [Yul.YulExpr.lit 0, Yul.YulExpr.ident "value"]),
-           Yul.YulStmt.expr (Yul.YulExpr.call "stop" [])])
+           Yul.YulStmt.exprStmt (Yul.YulExpr.call "stop" [])])
     (hArgsCons : ∃ arg rest, tx.args = arg :: rest) :
     NativeGeneratedSelectedUserBodyResultBridgeAtFuel irContract tx state
       observableSlots :=
@@ -5427,9 +5427,9 @@ private theorem nativeGeneratedCallDispatcherMatchesIR_of_compile_ok_supported_o
         fn.body =
           Compiler.CompilationModel.genParamLoads
             [{ name := "value", ty := CompilationModel.ParamType.uint256 }] ++
-          [Yul.YulStmt.expr (Yul.YulExpr.call "sstore"
+          [Yul.YulStmt.exprStmt (Yul.YulExpr.call "sstore"
             [Yul.YulExpr.lit 0, Yul.YulExpr.ident "value"]),
-           Yul.YulStmt.expr (Yul.YulExpr.call "stop" [])])
+           Yul.YulStmt.exprStmt (Yul.YulExpr.call "stop" [])])
     (hArgsCons : ∃ arg rest, tx.args = arg :: rest) :
     ∃ nativeContract : EvmYul.Yul.Ast.YulContract,
       Compiler.Proofs.YulGeneration.Backends.lowerRuntimeContractNative
@@ -5471,9 +5471,9 @@ private theorem selectedCompiledFunction_oneParam_store0_value_stop_shape_of_for
           [] false (entry.1.params.map (·.name)) [] entry.1.body =
             Except.ok bodyStmts →
         bodyStmts =
-          [Yul.YulStmt.expr (Yul.YulExpr.call "sstore"
+          [Yul.YulStmt.exprStmt (Yul.YulExpr.call "sstore"
             [Yul.YulExpr.lit 0, Yul.YulExpr.ident "value"]),
-          Yul.YulStmt.expr (Yul.YulExpr.call "stop" [])])
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "stop" [])])
     (irFn : IRFunction)
     (hFind :
       irFns.find? (fun fn => fn.selector == tx.functionSelector) =
@@ -5482,9 +5482,9 @@ private theorem selectedCompiledFunction_oneParam_store0_value_stop_shape_of_for
     irFn.body =
       Compiler.CompilationModel.genParamLoads
         [{ name := "value", ty := CompilationModel.ParamType.uint256 }] ++
-      [Yul.YulStmt.expr (Yul.YulExpr.call "sstore"
+      [Yul.YulStmt.exprStmt (Yul.YulExpr.call "sstore"
         [Yul.YulExpr.lit 0, Yul.YulExpr.ident "value"]),
-      Yul.YulStmt.expr (Yul.YulExpr.call "stop" [])] := by
+      Yul.YulStmt.exprStmt (Yul.YulExpr.call "stop" [])] := by
   induction hcompiled with
   | nil =>
       simp at hFind
@@ -5508,9 +5508,9 @@ private theorem selectedCompiledFunction_oneParam_store0_value_stop_shape_of_for
           hSourceParams entry hEntryMem hEntrySelector
         have hBodyStmts :
             bodyStmts =
-              [Yul.YulStmt.expr (Yul.YulExpr.call "sstore"
+              [Yul.YulStmt.exprStmt (Yul.YulExpr.call "sstore"
                 [Yul.YulExpr.lit 0, Yul.YulExpr.ident "value"]),
-              Yul.YulStmt.expr (Yul.YulExpr.call "stop" [])] :=
+              Yul.YulStmt.exprStmt (Yul.YulExpr.call "stop" [])] :=
           hSourceBody entry bodyStmts hEntryMem hEntrySelector hbody
         constructor
         · rw [hirFn]
@@ -5550,9 +5550,9 @@ private theorem selectedGeneratedFunction_oneParam_store0_value_stop_shape_of_co
           .calldata [] false (entry.1.params.map (·.name)) []
           entry.1.body = Except.ok bodyStmts →
         bodyStmts =
-          [Yul.YulStmt.expr (Yul.YulExpr.call "sstore"
+          [Yul.YulStmt.exprStmt (Yul.YulExpr.call "sstore"
             [Yul.YulExpr.lit 0, Yul.YulExpr.ident "value"]),
-          Yul.YulStmt.expr (Yul.YulExpr.call "stop" [])])
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "stop" [])])
     (irFn : IRFunction)
     (hFind :
       irContract.functions.find? (fun fn => fn.selector == tx.functionSelector) =
@@ -5561,9 +5561,9 @@ private theorem selectedGeneratedFunction_oneParam_store0_value_stop_shape_of_co
     irFn.body =
       Compiler.CompilationModel.genParamLoads
         [{ name := "value", ty := CompilationModel.ParamType.uint256 }] ++
-      [Yul.YulStmt.expr (Yul.YulExpr.call "sstore"
+      [Yul.YulStmt.exprStmt (Yul.YulExpr.call "sstore"
         [Yul.YulExpr.lit 0, Yul.YulExpr.ident "value"]),
-      Yul.YulStmt.expr (Yul.YulExpr.call "stop" [])] := by
+      Yul.YulStmt.exprStmt (Yul.YulExpr.call "stop" [])] := by
   have hcompiled :=
     Compiler.Proofs.IRGeneration.Contract.compile_ok_yields_compiled_functions
       spec selectors hSupported irContract hcompile
@@ -5603,9 +5603,9 @@ private theorem nativeGeneratedCallDispatcherMatchesIR_of_compile_ok_supported_s
           .calldata [] false (entry.1.params.map (·.name)) []
           entry.1.body = Except.ok bodyStmts →
         bodyStmts =
-          [Yul.YulStmt.expr (Yul.YulExpr.call "sstore"
+          [Yul.YulStmt.exprStmt (Yul.YulExpr.call "sstore"
             [Yul.YulExpr.lit 0, Yul.YulExpr.ident "value"]),
-          Yul.YulStmt.expr (Yul.YulExpr.call "stop" [])])
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "stop" [])])
     (hArgsCons : ∃ arg rest, tx.args = arg :: rest) :
     ∃ nativeContract : EvmYul.Yul.Ast.YulContract,
       Compiler.Proofs.YulGeneration.Backends.lowerRuntimeContractNative
@@ -5656,9 +5656,9 @@ private theorem compile_preserves_native_evmYulLean_of_compile_ok_supported_gene
           .calldata [] false (entry.1.params.map (·.name)) []
           entry.1.body = Except.ok bodyStmts →
         bodyStmts =
-          [Yul.YulStmt.expr (Yul.YulExpr.call "sstore"
+          [Yul.YulStmt.exprStmt (Yul.YulExpr.call "sstore"
             [Yul.YulExpr.lit 0, Yul.YulExpr.ident "value"]),
-          Yul.YulStmt.expr (Yul.YulExpr.call "stop" [])])
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "stop" [])])
     (hArgsCons : ∃ arg rest, tx.args = arg :: rest) :
     ∃ nativeContract : EvmYul.Yul.Ast.YulContract,
       Compiler.Proofs.YulGeneration.Backends.lowerRuntimeContractNative
@@ -5699,9 +5699,9 @@ private theorem nativeResultsMatchOn_execIRFunction_mstore0_lit_return32_markedP
     (value : Nat)
     (hValueRange : value < EvmYul.UInt256.size)
     (hBody : fn.body = [
-      Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+      Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
         [Yul.YulExpr.lit 0, Yul.YulExpr.lit value]),
-      Yul.YulStmt.expr (Yul.YulExpr.call "return"
+      Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
         [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])]) :
     let yulTx := YulTransaction.ofIR tx
     let slots :=
@@ -5825,9 +5825,9 @@ private theorem nativeResultsMatchOn_execIRFunction_zeroParam_mstore0_lit_return
     (hNoWrap : 4 + tx.args.length * 32 < EvmYul.UInt256.size)
     (hBody : fn.body =
       Compiler.CompilationModel.genParamLoads [] ++
-      [Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+      [Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
         [Yul.YulExpr.lit 0, Yul.YulExpr.lit value]),
-      Yul.YulStmt.expr (Yul.YulExpr.call "return"
+      Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
         [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])]) :
     let yulTx := YulTransaction.ofIR tx
     let slots :=
@@ -5949,9 +5949,9 @@ private theorem nativeResultsMatchOn_execIRFunction_zeroParam_mstore0_sload0_ret
     (hNoWrap : 4 + tx.args.length * 32 < EvmYul.UInt256.size)
     (hBody : fn.body =
       Compiler.CompilationModel.genParamLoads [] ++
-      [Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+      [Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
         [Yul.YulExpr.lit 0, Yul.YulExpr.call "sload" [Yul.YulExpr.lit 0]]),
-      Yul.YulStmt.expr (Yul.YulExpr.call "return"
+      Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
         [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])]) :
     let yulTx := YulTransaction.ofIR tx
     let slots :=
@@ -6072,10 +6072,10 @@ private theorem nativeResultsMatchOn_execIRFunction_mstore0_calldataload_aligned
     (idx arg : Nat) (rest : List Nat)
     (hdrop : tx.args.drop idx = arg :: rest)
     (hBody : fn.body = [
-      Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+      Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
         [Yul.YulExpr.lit 0,
          Yul.YulExpr.call "calldataload" [Yul.YulExpr.lit (4 + 32 * idx)]]),
-      Yul.YulStmt.expr (Yul.YulExpr.call "return"
+      Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
         [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])]) :
     let yulTx := YulTransaction.ofIR tx
     let slots :=
@@ -6199,10 +6199,10 @@ private theorem nativeResultsMatchOn_execIRFunction_mstore0_calldataload4_return
     (arg : Nat) (rest : List Nat)
     (hArgs : tx.args = arg :: rest)
     (hBody : fn.body = [
-      Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+      Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
         [Yul.YulExpr.lit 0,
          Yul.YulExpr.call "calldataload" [Yul.YulExpr.lit 4]]),
-      Yul.YulStmt.expr (Yul.YulExpr.call "return"
+      Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
         [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])]) :
     let yulTx := YulTransaction.ofIR tx
     let slots :=
@@ -6321,9 +6321,9 @@ private theorem NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel.of_mstore0_s
         irContract.functions.find? (fun fn => fn.selector == tx.functionSelector) =
           some fn →
         fn.body = [
-          Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
             [Yul.YulExpr.lit 0, Yul.YulExpr.call "sload" [Yul.YulExpr.lit 0]]),
-          Yul.YulStmt.expr (Yul.YulExpr.call "return"
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
             [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])]) :
     NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel irContract tx state
       observableSlots := by
@@ -6333,9 +6333,9 @@ private theorem NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel.of_mstore0_s
   have hLowerConcrete :
       Compiler.Proofs.YulGeneration.Backends.lowerStmtsNativeWithSwitchIds
           reservedNames userBodyStart
-          ([Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+          ([Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
               [Yul.YulExpr.lit 0, Yul.YulExpr.call "sload" [Yul.YulExpr.lit 0]]),
-            Yul.YulStmt.expr (Yul.YulExpr.call "return"
+            Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
               [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])] : List Yul.YulStmt) =
         .ok (simpleStorageLoweredRetrieveCaseBodyTail3, userBodyStart) := by
     simp [simpleStorageLoweredRetrieveCaseBodyTail3,
@@ -6427,9 +6427,9 @@ private theorem NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel.of_zeroParam
           some fn →
         fn.body =
           Compiler.CompilationModel.genParamLoads [] ++
-          [Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+          [Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
             [Yul.YulExpr.lit 0, Yul.YulExpr.call "sload" [Yul.YulExpr.lit 0]]),
-          Yul.YulStmt.expr (Yul.YulExpr.call "return"
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
             [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])]) :
     NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel irContract tx state
       observableSlots := by
@@ -6441,9 +6441,9 @@ private theorem NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel.of_zeroParam
       Compiler.Proofs.YulGeneration.Backends.lowerStmtsNativeWithSwitchIds
           reservedNames userBodyStart
           (Compiler.CompilationModel.genParamLoads [] ++
-            [Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+            [Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
               [Yul.YulExpr.lit 0, Yul.YulExpr.call "sload" [Yul.YulExpr.lit 0]]),
-            Yul.YulStmt.expr (Yul.YulExpr.call "return"
+            Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
               [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])] : List Yul.YulStmt) =
         .ok (loweredZeroParamSload0ReturnCaseBody, userBodyStart) := by
     simp [loweredZeroParamSload0ReturnCaseBody,
@@ -6537,9 +6537,9 @@ private theorem NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel.of_mstore0_l
         irContract.functions.find? (fun fn => fn.selector == tx.functionSelector) =
           some fn →
         fn.body = [
-          Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
             [Yul.YulExpr.lit 0, Yul.YulExpr.lit value]),
-          Yul.YulStmt.expr (Yul.YulExpr.call "return"
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
             [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])]) :
     NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel irContract tx state
       observableSlots := by
@@ -6549,9 +6549,9 @@ private theorem NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel.of_mstore0_l
   have hLowerConcrete :
       Compiler.Proofs.YulGeneration.Backends.lowerStmtsNativeWithSwitchIds
           reservedNames userBodyStart
-          ([Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+          ([Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
               [Yul.YulExpr.lit 0, Yul.YulExpr.lit value]),
-            Yul.YulStmt.expr (Yul.YulExpr.call "return"
+            Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
               [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])] : List Yul.YulStmt) =
         .ok (loweredLiteralReturnCaseBodyTail value, userBodyStart) := by
     simp [loweredLiteralReturnCaseBodyTail,
@@ -6637,9 +6637,9 @@ private theorem NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel.of_zeroParam
           some fn →
         fn.body =
           Compiler.CompilationModel.genParamLoads [] ++
-          [Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+          [Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
             [Yul.YulExpr.lit 0, Yul.YulExpr.lit value]),
-          Yul.YulStmt.expr (Yul.YulExpr.call "return"
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
             [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])]) :
     NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel irContract tx state
       observableSlots := by
@@ -6651,9 +6651,9 @@ private theorem NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel.of_zeroParam
       Compiler.Proofs.YulGeneration.Backends.lowerStmtsNativeWithSwitchIds
           reservedNames userBodyStart
           (Compiler.CompilationModel.genParamLoads [] ++
-            [Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+            [Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
               [Yul.YulExpr.lit 0, Yul.YulExpr.lit value]),
-            Yul.YulStmt.expr (Yul.YulExpr.call "return"
+            Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
               [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])] : List Yul.YulStmt) =
         .ok (loweredZeroParamLiteralReturnCaseBody value, userBodyStart) := by
     simp [loweredZeroParamLiteralReturnCaseBody, loweredLiteralReturnCaseBodyTail,
@@ -6744,10 +6744,10 @@ private theorem NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel.of_mstore0_c
         irContract.functions.find? (fun fn => fn.selector == tx.functionSelector) =
           some fn →
         fn.body = [
-          Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
             [Yul.YulExpr.lit 0,
              Yul.YulExpr.call "calldataload" [Yul.YulExpr.lit 4]]),
-          Yul.YulStmt.expr (Yul.YulExpr.call "return"
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
             [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])]) :
     NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel irContract tx state
       observableSlots := by
@@ -6758,10 +6758,10 @@ private theorem NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel.of_mstore0_c
   have hLowerConcrete :
       Compiler.Proofs.YulGeneration.Backends.lowerStmtsNativeWithSwitchIds
           reservedNames userBodyStart
-          ([Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+          ([Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
               [Yul.YulExpr.lit 0,
                Yul.YulExpr.call "calldataload" [Yul.YulExpr.lit 4]]),
-            Yul.YulStmt.expr (Yul.YulExpr.call "return"
+            Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
               [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])] : List Yul.YulStmt) =
         .ok (loweredCalldataload4ReturnCaseBodyTail, userBodyStart) := by
     simp [loweredCalldataload4ReturnCaseBodyTail,
@@ -6847,10 +6847,10 @@ private theorem NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel.of_mstore0_c
         irContract.functions.find? (fun fn => fn.selector == tx.functionSelector) =
           some fn →
         fn.body = [
-          Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
             [Yul.YulExpr.lit 0,
              Yul.YulExpr.call "calldataload" [Yul.YulExpr.lit (4 + 32 * idx)]]),
-          Yul.YulStmt.expr (Yul.YulExpr.call "return"
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
             [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])]) :
     NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel irContract tx state
       observableSlots := by
@@ -6860,10 +6860,10 @@ private theorem NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel.of_mstore0_c
   have hLowerConcrete :
       Compiler.Proofs.YulGeneration.Backends.lowerStmtsNativeWithSwitchIds
           reservedNames userBodyStart
-          ([Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+          ([Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
               [Yul.YulExpr.lit 0,
                Yul.YulExpr.call "calldataload" [Yul.YulExpr.lit (4 + 32 * idx)]]),
-            Yul.YulStmt.expr (Yul.YulExpr.call "return"
+            Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
               [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])] : List Yul.YulStmt) =
         .ok (loweredCalldataloadReturnCaseBodyTail idx, userBodyStart) := by
     simp [loweredCalldataloadReturnCaseBodyTail,
@@ -6946,9 +6946,9 @@ private theorem NativeGeneratedSelectedUserBodyResultBridgeAtFuel.of_mstore0_slo
         irContract.functions.find? (fun fn => fn.selector == tx.functionSelector) =
           some fn →
         fn.body = [
-          Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
             [Yul.YulExpr.lit 0, Yul.YulExpr.call "sload" [Yul.YulExpr.lit 0]]),
-          Yul.YulStmt.expr (Yul.YulExpr.call "return"
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
             [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])]) :
     NativeGeneratedSelectedUserBodyResultBridgeAtFuel irContract tx state
       observableSlots :=
@@ -6974,9 +6974,9 @@ private theorem NativeGeneratedSelectedUserBodyResultBridgeAtFuel.of_zeroParam_m
           some fn →
         fn.body =
           Compiler.CompilationModel.genParamLoads [] ++
-          [Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+          [Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
             [Yul.YulExpr.lit 0, Yul.YulExpr.call "sload" [Yul.YulExpr.lit 0]]),
-          Yul.YulStmt.expr (Yul.YulExpr.call "return"
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
             [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])]) :
     NativeGeneratedSelectedUserBodyResultBridgeAtFuel irContract tx state
       observableSlots :=
@@ -6997,9 +6997,9 @@ private theorem NativeGeneratedSelectedUserBodyResultBridgeAtFuel.of_mstore0_lit
         irContract.functions.find? (fun fn => fn.selector == tx.functionSelector) =
           some fn →
         fn.body = [
-          Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
             [Yul.YulExpr.lit 0, Yul.YulExpr.lit value]),
-          Yul.YulStmt.expr (Yul.YulExpr.call "return"
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
             [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])]) :
     NativeGeneratedSelectedUserBodyResultBridgeAtFuel irContract tx state
       observableSlots :=
@@ -7027,9 +7027,9 @@ private theorem NativeGeneratedSelectedUserBodyResultBridgeAtFuel.of_zeroParam_m
           some fn →
         fn.body =
           Compiler.CompilationModel.genParamLoads [] ++
-          [Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+          [Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
             [Yul.YulExpr.lit 0, Yul.YulExpr.lit value]),
-          Yul.YulStmt.expr (Yul.YulExpr.call "return"
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
             [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])]) :
     NativeGeneratedSelectedUserBodyResultBridgeAtFuel irContract tx state
       observableSlots :=
@@ -7050,10 +7050,10 @@ private theorem NativeGeneratedSelectedUserBodyResultBridgeAtFuel.of_mstore0_cal
         irContract.functions.find? (fun fn => fn.selector == tx.functionSelector) =
           some fn →
         fn.body = [
-          Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
             [Yul.YulExpr.lit 0,
              Yul.YulExpr.call "calldataload" [Yul.YulExpr.lit 4]]),
-          Yul.YulStmt.expr (Yul.YulExpr.call "return"
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
             [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])]) :
     NativeGeneratedSelectedUserBodyResultBridgeAtFuel irContract tx state
       observableSlots :=
@@ -7076,10 +7076,10 @@ private theorem NativeGeneratedSelectedUserBodyResultBridgeAtFuel.of_mstore0_cal
         irContract.functions.find? (fun fn => fn.selector == tx.functionSelector) =
           some fn →
         fn.body = [
-          Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
             [Yul.YulExpr.lit 0,
              Yul.YulExpr.call "calldataload" [Yul.YulExpr.lit (4 + 32 * idx)]]),
-          Yul.YulStmt.expr (Yul.YulExpr.call "return"
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
             [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])]) :
     NativeGeneratedSelectedUserBodyResultBridgeAtFuel irContract tx state
       observableSlots :=
@@ -7116,9 +7116,9 @@ private theorem nativeGeneratedCallDispatcherMatchesIR_of_compile_ok_supported_m
         irContract.functions.find? (fun fn => fn.selector == tx.functionSelector) =
           some fn →
         fn.body = [
-          Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
             [Yul.YulExpr.lit 0, Yul.YulExpr.call "sload" [Yul.YulExpr.lit 0]]),
-          Yul.YulStmt.expr (Yul.YulExpr.call "return"
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
             [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])]) :
     ∃ nativeContract : EvmYul.Yul.Ast.YulContract,
       Compiler.Proofs.YulGeneration.Backends.lowerRuntimeContractNative
@@ -7167,9 +7167,9 @@ private theorem nativeGeneratedCallDispatcherMatchesIR_of_compile_ok_supported_z
           some fn →
         fn.body =
           Compiler.CompilationModel.genParamLoads [] ++
-          [Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+          [Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
             [Yul.YulExpr.lit 0, Yul.YulExpr.call "sload" [Yul.YulExpr.lit 0]]),
-          Yul.YulStmt.expr (Yul.YulExpr.call "return"
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
             [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])]) :
     ∃ nativeContract : EvmYul.Yul.Ast.YulContract,
       Compiler.Proofs.YulGeneration.Backends.lowerRuntimeContractNative
@@ -7213,9 +7213,9 @@ private theorem nativeGeneratedCallDispatcherMatchesIR_of_compile_ok_supported_m
         irContract.functions.find? (fun fn => fn.selector == tx.functionSelector) =
           some fn →
         fn.body = [
-          Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
             [Yul.YulExpr.lit 0, Yul.YulExpr.lit value]),
-          Yul.YulStmt.expr (Yul.YulExpr.call "return"
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
             [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])]) :
     ∃ nativeContract : EvmYul.Yul.Ast.YulContract,
       Compiler.Proofs.YulGeneration.Backends.lowerRuntimeContractNative
@@ -7257,9 +7257,9 @@ private theorem selectedCompiledFunction_zeroParam_lit_return32_shape_of_forall�
           [] false (entry.1.params.map (·.name)) [] entry.1.body =
             Except.ok bodyStmts →
         bodyStmts =
-          [Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+          [Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
             [Yul.YulExpr.lit 0, Yul.YulExpr.lit value]),
-          Yul.YulStmt.expr (Yul.YulExpr.call "return"
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
             [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])])
     (irFn : IRFunction)
     (hFind :
@@ -7268,9 +7268,9 @@ private theorem selectedCompiledFunction_zeroParam_lit_return32_shape_of_forall�
     irFn.params = [] ∧
     irFn.body =
       Compiler.CompilationModel.genParamLoads [] ++
-      [Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+      [Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
         [Yul.YulExpr.lit 0, Yul.YulExpr.lit value]),
-      Yul.YulStmt.expr (Yul.YulExpr.call "return"
+      Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
         [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])] := by
   induction hcompiled with
   | nil =>
@@ -7293,9 +7293,9 @@ private theorem selectedCompiledFunction_zeroParam_lit_return32_shape_of_forall�
           hSourceParams entry hEntryMem hEntrySelector
         have hBodyStmts :
             bodyStmts =
-              [Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+              [Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
                 [Yul.YulExpr.lit 0, Yul.YulExpr.lit value]),
-              Yul.YulStmt.expr (Yul.YulExpr.call "return"
+              Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
                 [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])] :=
           hSourceBody entry bodyStmts hEntryMem hEntrySelector hbody
         constructor
@@ -7335,9 +7335,9 @@ private theorem selectedGeneratedFunction_zeroParam_lit_return32_shape_of_compil
           .calldata [] false (entry.1.params.map (·.name)) []
           entry.1.body = Except.ok bodyStmts →
         bodyStmts =
-          [Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+          [Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
             [Yul.YulExpr.lit 0, Yul.YulExpr.lit value]),
-          Yul.YulStmt.expr (Yul.YulExpr.call "return"
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
             [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])])
     (irFn : IRFunction)
     (hFind :
@@ -7346,9 +7346,9 @@ private theorem selectedGeneratedFunction_zeroParam_lit_return32_shape_of_compil
     irFn.params = [] ∧
     irFn.body =
       Compiler.CompilationModel.genParamLoads [] ++
-      [Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+      [Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
         [Yul.YulExpr.lit 0, Yul.YulExpr.lit value]),
-      Yul.YulStmt.expr (Yul.YulExpr.call "return"
+      Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
         [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])] := by
   have hcompiled :=
     Compiler.Proofs.IRGeneration.Contract.compile_ok_yields_compiled_functions
@@ -7382,9 +7382,9 @@ private theorem selectedCompiledFunction_zeroParam_sload0_return32_shape_of_fora
           [] false (entry.1.params.map (·.name)) [] entry.1.body =
             Except.ok bodyStmts →
         bodyStmts =
-          [Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+          [Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
             [Yul.YulExpr.lit 0, Yul.YulExpr.call "sload" [Yul.YulExpr.lit 0]]),
-          Yul.YulStmt.expr (Yul.YulExpr.call "return"
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
             [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])])
     (irFn : IRFunction)
     (hFind :
@@ -7393,9 +7393,9 @@ private theorem selectedCompiledFunction_zeroParam_sload0_return32_shape_of_fora
     irFn.params = [] ∧
     irFn.body =
       Compiler.CompilationModel.genParamLoads [] ++
-      [Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+      [Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
         [Yul.YulExpr.lit 0, Yul.YulExpr.call "sload" [Yul.YulExpr.lit 0]]),
-      Yul.YulStmt.expr (Yul.YulExpr.call "return"
+      Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
         [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])] := by
   induction hcompiled with
   | nil =>
@@ -7418,9 +7418,9 @@ private theorem selectedCompiledFunction_zeroParam_sload0_return32_shape_of_fora
           hSourceParams entry hEntryMem hEntrySelector
         have hBodyStmts :
             bodyStmts =
-              [Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+              [Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
                 [Yul.YulExpr.lit 0, Yul.YulExpr.call "sload" [Yul.YulExpr.lit 0]]),
-              Yul.YulStmt.expr (Yul.YulExpr.call "return"
+              Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
                 [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])] :=
           hSourceBody entry bodyStmts hEntryMem hEntrySelector hbody
         constructor
@@ -7459,9 +7459,9 @@ private theorem selectedGeneratedFunction_zeroParam_sload0_return32_shape_of_com
           .calldata [] false (entry.1.params.map (·.name)) []
           entry.1.body = Except.ok bodyStmts →
         bodyStmts =
-          [Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+          [Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
             [Yul.YulExpr.lit 0, Yul.YulExpr.call "sload" [Yul.YulExpr.lit 0]]),
-          Yul.YulStmt.expr (Yul.YulExpr.call "return"
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
             [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])])
     (irFn : IRFunction)
     (hFind :
@@ -7470,9 +7470,9 @@ private theorem selectedGeneratedFunction_zeroParam_sload0_return32_shape_of_com
     irFn.params = [] ∧
     irFn.body =
       Compiler.CompilationModel.genParamLoads [] ++
-      [Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+      [Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
         [Yul.YulExpr.lit 0, Yul.YulExpr.call "sload" [Yul.YulExpr.lit 0]]),
-      Yul.YulStmt.expr (Yul.YulExpr.call "return"
+      Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
         [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])] := by
   have hcompiled :=
     Compiler.Proofs.IRGeneration.Contract.compile_ok_yields_compiled_functions
@@ -7516,9 +7516,9 @@ private theorem nativeGeneratedCallDispatcherMatchesIR_of_compile_ok_supported_z
           some fn →
         fn.body =
           Compiler.CompilationModel.genParamLoads [] ++
-          [Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+          [Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
             [Yul.YulExpr.lit 0, Yul.YulExpr.lit value]),
-          Yul.YulStmt.expr (Yul.YulExpr.call "return"
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
             [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])]) :
     ∃ nativeContract : EvmYul.Yul.Ast.YulContract,
       Compiler.Proofs.YulGeneration.Backends.lowerRuntimeContractNative
@@ -7572,9 +7572,9 @@ private theorem nativeGeneratedCallDispatcherMatchesIR_of_compile_ok_supported_s
           .calldata [] false (entry.1.params.map (·.name)) []
           entry.1.body = Except.ok bodyStmts →
         bodyStmts =
-          [Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+          [Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
             [Yul.YulExpr.lit 0, Yul.YulExpr.lit value]),
-          Yul.YulStmt.expr (Yul.YulExpr.call "return"
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
             [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])]) :
     ∃ nativeContract : EvmYul.Yul.Ast.YulContract,
       Compiler.Proofs.YulGeneration.Backends.lowerRuntimeContractNative
@@ -7626,9 +7626,9 @@ private theorem nativeGeneratedCallDispatcherMatchesIR_of_compile_ok_supported_s
           .calldata [] false (entry.1.params.map (·.name)) []
           entry.1.body = Except.ok bodyStmts →
         bodyStmts =
-          [Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+          [Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
             [Yul.YulExpr.lit 0, Yul.YulExpr.call "sload" [Yul.YulExpr.lit 0]]),
-          Yul.YulStmt.expr (Yul.YulExpr.call "return"
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
             [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])]) :
     ∃ nativeContract : EvmYul.Yul.Ast.YulContract,
       Compiler.Proofs.YulGeneration.Backends.lowerRuntimeContractNative
@@ -7679,9 +7679,9 @@ private theorem compile_preserves_native_evmYulLean_of_compile_ok_supported_gene
           .calldata [] false (entry.1.params.map (·.name)) []
           entry.1.body = Except.ok bodyStmts →
         bodyStmts =
-          [Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+          [Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
             [Yul.YulExpr.lit 0, Yul.YulExpr.lit value]),
-          Yul.YulStmt.expr (Yul.YulExpr.call "return"
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
             [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])]) :
     ∃ nativeContract : EvmYul.Yul.Ast.YulContract,
       Compiler.Proofs.YulGeneration.Backends.lowerRuntimeContractNative
@@ -7735,9 +7735,9 @@ private theorem compile_preserves_native_evmYulLean_of_compile_ok_supported_gene
           .calldata [] false (entry.1.params.map (·.name)) []
           entry.1.body = Except.ok bodyStmts →
         bodyStmts =
-          [Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+          [Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
             [Yul.YulExpr.lit 0, Yul.YulExpr.call "sload" [Yul.YulExpr.lit 0]]),
-          Yul.YulStmt.expr (Yul.YulExpr.call "return"
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
             [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])]) :
     ∃ nativeContract : EvmYul.Yul.Ast.YulContract,
       Compiler.Proofs.YulGeneration.Backends.lowerRuntimeContractNative
@@ -7790,10 +7790,10 @@ private theorem nativeGeneratedCallDispatcherMatchesIR_of_compile_ok_supported_m
         irContract.functions.find? (fun fn => fn.selector == tx.functionSelector) =
           some fn →
         fn.body = [
-          Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
             [Yul.YulExpr.lit 0,
              Yul.YulExpr.call "calldataload" [Yul.YulExpr.lit 4]]),
-          Yul.YulStmt.expr (Yul.YulExpr.call "return"
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
             [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])]) :
     ∃ nativeContract : EvmYul.Yul.Ast.YulContract,
       Compiler.Proofs.YulGeneration.Backends.lowerRuntimeContractNative
@@ -7839,10 +7839,10 @@ private theorem nativeGeneratedCallDispatcherMatchesIR_of_compile_ok_supported_m
         irContract.functions.find? (fun fn => fn.selector == tx.functionSelector) =
           some fn →
         fn.body = [
-          Yul.YulStmt.expr (Yul.YulExpr.call "mstore"
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
             [Yul.YulExpr.lit 0,
              Yul.YulExpr.call "calldataload" [Yul.YulExpr.lit (4 + 32 * idx)]]),
-          Yul.YulStmt.expr (Yul.YulExpr.call "return"
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
             [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])]) :
     ∃ nativeContract : EvmYul.Yul.Ast.YulContract,
       Compiler.Proofs.YulGeneration.Backends.lowerRuntimeContractNative
@@ -7925,8 +7925,8 @@ private theorem simpleStorageNativeRetrieveHitMatchBridge_proved
         params := []
         ret := IRType.uint256
         body := [
-          Yul.YulStmt.expr (Yul.YulExpr.call "mstore" [Yul.YulExpr.lit 0, Yul.YulExpr.call "sload" [Yul.YulExpr.lit 0]]),
-          Yul.YulStmt.expr (Yul.YulExpr.call "return" [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore" [Yul.YulExpr.lit 0, Yul.YulExpr.call "sload" [Yul.YulExpr.lit 0]]),
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "return" [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])
         ] }
     have hmem : retrieveFn ∈ simpleStorageIRContract.functions := by
       simp [retrieveFn, simpleStorageIRContract]
@@ -8057,8 +8057,8 @@ private theorem simpleStorageNativeStoreHitMatchBridge_proved
         ret := IRType.unit
         body := [
           Yul.YulStmt.let_ "value" (Yul.YulExpr.call "calldataload" [Yul.YulExpr.lit 4]),
-          Yul.YulStmt.expr (Yul.YulExpr.call "sstore" [Yul.YulExpr.lit 0, Yul.YulExpr.ident "value"]),
-          Yul.YulStmt.expr (Yul.YulExpr.call "stop" [])
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "sstore" [Yul.YulExpr.lit 0, Yul.YulExpr.ident "value"]),
+          Yul.YulStmt.exprStmt (Yul.YulExpr.call "stop" [])
         ] }
     have hmem : storeFn ∈ simpleStorageIRContract.functions := by
       simp [storeFn, simpleStorageIRContract]

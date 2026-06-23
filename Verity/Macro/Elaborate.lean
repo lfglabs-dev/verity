@@ -14,6 +14,39 @@ open Lean.Elab.Command
 
 set_option hygiene false
 
+partial def parseIntrinsicTemplateExpr (stx : TSyntax `verityIntrinsicTemplateExpr) :
+    CommandElabM Compiler.Yul.YulExpr := do
+  match stx with
+  | `(verityIntrinsicTemplateExpr| $func:ident ( $[$args:verityIntrinsicTemplateExpr],* )) => do
+      pure <| Compiler.Yul.YulExpr.call (toString func.getId)
+        (← args.toList.mapM parseIntrinsicTemplateExpr)
+  | `(verityIntrinsicTemplateExpr| $name:ident) =>
+      pure <| Compiler.Yul.YulExpr.ident (toString name.getId)
+  | `(verityIntrinsicTemplateExpr| $n:num) =>
+      pure <| Compiler.Yul.YulExpr.lit n.getNat
+  | `(verityIntrinsicTemplateExpr| $s:str) =>
+      pure <| Compiler.Yul.YulExpr.str s.getString
+  | _ =>
+      throwErrorAt stx "unsupported intrinsic template expression"
+
+def parseIntrinsicTemplateStmt (stx : TSyntax `verityIntrinsicTemplateStmt) :
+    CommandElabM Compiler.Yul.YulStmt := do
+  match stx with
+  | `(verityIntrinsicTemplateStmt| let $name:ident := $value:verityIntrinsicTemplateExpr) =>
+      pure <| Compiler.Yul.YulStmt.let_ (toString name.getId) (← parseIntrinsicTemplateExpr value)
+  | `(verityIntrinsicTemplateStmt| $name:ident := $value:verityIntrinsicTemplateExpr) =>
+      pure <| Compiler.Yul.YulStmt.assign (toString name.getId) (← parseIntrinsicTemplateExpr value)
+  | `(verityIntrinsicTemplateStmt| yulcall $func:ident ( $[$args:verityIntrinsicTemplateExpr],* )) =>
+      pure <| Compiler.Yul.YulStmt.exprStmt
+        (Compiler.Yul.YulExpr.call (toString func.getId)
+          (← args.toList.mapM parseIntrinsicTemplateExpr))
+  | `(verityIntrinsicTemplateStmt| comment $text:str) =>
+      pure <| Compiler.Yul.YulStmt.comment text.getString
+  | `(verityIntrinsicTemplateStmt| leave) =>
+      pure Compiler.Yul.YulStmt.leave
+  | _ =>
+      throwErrorAt stx "unsupported intrinsic template statement"
+
 @[command_elab verityContractCmd]
 def elabVerityContract : CommandElab := fun stx => do
   let parsed ← parseContractSyntax stx
@@ -190,8 +223,21 @@ def elabVerityIntrinsic : CommandElab := fun stx => do
                   throwErrorAt yul s!"verity_intrinsic `builtin \"{builtinName}\"` expects {inArity} input(s) but {paramNames.size} parameter(s) were declared"
             | none => pure ()
             pure <| Verity.Core.Intrinsics.YulLowering.builtin builtinName
+        | `(verityIntrinsicYul| [template ( $[$templateParams:ident],* ) -> $output:ident := [ $[$body:verityIntrinsicTemplateStmt],* ]]) =>
+            if templateParams.size != paramNames.size then
+              throwErrorAt yul s!"verity_intrinsic `template` input arity {templateParams.size} does not match the {paramNames.size} declared parameter(s)"
+            for pair in templateParams.zip paramNames do
+              let templateParam := toString pair.1.getId
+              let declaredParam := toString pair.2.getId
+              unless templateParam == declaredParam do
+                throwErrorAt pair.1 s!"verity_intrinsic `template` parameter '{templateParam}' does not match declared parameter '{declaredParam}'"
+            let bodyStmts ← body.toList.mapM parseIntrinsicTemplateStmt
+            pure <| Verity.Core.Intrinsics.YulLowering.template
+              (templateParams.toList.map (fun p => toString p.getId))
+              (toString output.getId)
+              bodyStmts
         | _ =>
-            throwErrorAt yul "expected `verbatim <inputs> <outputs> (hex \"...\")` or `builtin \"...\"`"
+            throwErrorAt yul "expected `verbatim <inputs> <outputs> (hex \"...\")`, `builtin \"...\"`, or `[template (<params>) -> <output> := [<statements>]]`"
       let minFork ←
         match Verity.Core.Intrinsics.HardFork.parse? (toString fork.getId) with
         | some parsed => pure parsed

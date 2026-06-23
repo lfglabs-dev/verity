@@ -715,7 +715,7 @@ private theorem sizeOf_buildSwitch_noFallback_noReceive_ge_source_cases_length
   set cases :=
     Compiler.Proofs.YulGeneration.Backends.Native.buildSwitchSourceCases fns
   set defaultStmts : List Compiler.Yul.YulStmt :=
-    [Compiler.Yul.YulStmt.expr
+    [Compiler.Yul.YulStmt.exprStmt
       (Compiler.Yul.YulExpr.call "revert"
         [Compiler.Yul.YulExpr.lit 0, Compiler.Yul.YulExpr.lit 0])]
   set sw := Compiler.Yul.YulStmt.switch
@@ -780,7 +780,7 @@ private theorem sizeOf_buildSwitch_noFallback_noReceive_ge_source_cases_length_p
   set cases :=
     Compiler.Proofs.YulGeneration.Backends.Native.buildSwitchSourceCases fns
   set defaultStmts : List Compiler.Yul.YulStmt :=
-    [Compiler.Yul.YulStmt.expr
+    [Compiler.Yul.YulStmt.exprStmt
       (Compiler.Yul.YulExpr.call "revert"
         [Compiler.Yul.YulExpr.lit 0, Compiler.Yul.YulExpr.lit 0])]
   set sw := Compiler.Yul.YulStmt.switch
@@ -8036,7 +8036,7 @@ private theorem lowerStmtsNative_initFreeMemoryPointer_buildSwitch_noFallback_no
   cases hTail :
       Compiler.Proofs.YulGeneration.Backends.lowerStmtsNativeWithSwitchIds
         (Compiler.Proofs.YulGeneration.Backends.yulStmtsIdentifierNames
-          [Yul.YulStmt.expr
+          [Yul.YulStmt.exprStmt
             (Yul.YulExpr.call "mstore"
               [Yul.YulExpr.lit Compiler.Constants.freeMemoryPointer,
                 Yul.YulExpr.lit 128]),
@@ -8054,7 +8054,7 @@ private theorem lowerStmtsNative_initFreeMemoryPointer_buildSwitch_noFallback_no
           rcases
             lowerStmtsNativeWithSwitchIds_buildSwitch_noFallback_noReceive_ok_block
               (Compiler.Proofs.YulGeneration.Backends.yulStmtsIdentifierNames
-                [Yul.YulStmt.expr
+                [Yul.YulStmt.exprStmt
                   (Yul.YulExpr.call "mstore"
                     [Yul.YulExpr.lit Compiler.Constants.freeMemoryPointer,
                       Yul.YulExpr.lit 128]),
@@ -21364,7 +21364,7 @@ private theorem nativeResultsMatchOn_execIRFunction_stop_body_markedPrefix
     (fn : IRFunction)
     (switchId : Nat)
     (store : EvmYul.Yul.VarStore)
-    (hBody : fn.body = [Yul.YulStmt.expr (Yul.YulExpr.call "stop" [])]) :
+    (hBody : fn.body = [Yul.YulStmt.exprStmt (Yul.YulExpr.call "stop" [])]) :
     nativeResultsMatchOn observableSlots
       (execIRFunction fn tx.args (applyIRTransactionContext tx state))
       (.ok
@@ -21411,12 +21411,12 @@ private theorem NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel.of_stop_body
       ∀ fn,
         irContract.functions.find? (fun fn => fn.selector == tx.functionSelector) =
           some fn →
-        fn.body = [Yul.YulStmt.expr (Yul.YulExpr.call "stop" [])]) :
+        fn.body = [Yul.YulStmt.exprStmt (Yul.YulExpr.call "stop" [])]) :
     NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel irContract tx state
       observableSlots := by
   intro nativeContract fn reservedNames n0 cases' bodyNative bodyEnd
     userBodyStart _hLowerRuntime hFind hUserBodyLower _hguards _hArgs
-  have hBody : fn.body = [Yul.YulStmt.expr (Yul.YulExpr.call "stop" [])] :=
+  have hBody : fn.body = [Yul.YulStmt.exprStmt (Yul.YulExpr.call "stop" [])] :=
     hStop fn hFind
   rw [hBody] at hUserBodyLower
   simp [Compiler.Proofs.YulGeneration.Backends.lowerStmtsNativeWithSwitchIds_cons,
@@ -21565,7 +21565,7 @@ theorem NativeGeneratedSelectedUserBodyResultBridgeAtFuel.of_stop_body
       ∀ fn,
         irContract.functions.find? (fun fn => fn.selector == tx.functionSelector) =
           some fn →
-        fn.body = [Yul.YulStmt.expr (Yul.YulExpr.call "stop" [])]) :
+        fn.body = [Yul.YulStmt.exprStmt (Yul.YulExpr.call "stop" [])]) :
     NativeGeneratedSelectedUserBodyResultBridgeAtFuel irContract tx state
       observableSlots :=
   NativeGeneratedSelectedUserBodyResultBridgeAtFuel.of_halt irContract tx state
@@ -27753,7 +27753,7 @@ private theorem nativeGeneratedCallDispatcherMatchesIR_of_compile_ok_supported_s
       ∀ fn,
         irContract.functions.find? (fun fn => fn.selector == tx.functionSelector) =
           some fn →
-        fn.body = [Yul.YulStmt.expr (Yul.YulExpr.call "stop" [])]) :
+        fn.body = [Yul.YulStmt.exprStmt (Yul.YulExpr.call "stop" [])]) :
     ∃ nativeContract : EvmYul.Yul.Ast.YulContract,
       Compiler.Proofs.YulGeneration.Backends.lowerRuntimeContractNative
         (Compiler.emitYul irContract).runtimeCode = .ok nativeContract ∧

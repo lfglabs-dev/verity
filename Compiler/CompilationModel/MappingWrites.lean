@@ -31,7 +31,7 @@ def compileMappingSlotWrite (fields : List Field) (field : String)
                 match findFieldWithResolvedSlot fields field with
                 | some (_, _) =>
                     pure [
-                      YulStmt.expr (YulExpr.call storeBuiltin [
+                      YulStmt.exprStmt (YulExpr.call storeBuiltin [
                         writeSlot,
                         valueExpr
                       ])
@@ -39,7 +39,7 @@ def compileMappingSlotWrite (fields : List Field) (field : String)
                 | none => throw s!"Compilation error: unknown mapping field '{field}' in {label}"
               else
                 pure [
-                  YulStmt.expr (YulExpr.call "sstore" [
+                  YulStmt.exprStmt (YulExpr.call "sstore" [
                     writeSlot,
                     valueExpr
                   ])
@@ -52,7 +52,7 @@ def compileMappingSlotWrite (fields : List Field) (field : String)
                 YulStmt.block (
                   [YulStmt.let_ "__compat_key" keyExpr, YulStmt.let_ "__compat_value" valueExpr] ++
                   slots.map (fun slot =>
-                    YulStmt.expr (YulExpr.call storeBuiltin [
+                    YulStmt.exprStmt (YulExpr.call storeBuiltin [
                       compatSlotExpr slot,
                       YulExpr.ident "__compat_value"
                     ]))
@@ -101,7 +101,7 @@ def compileMappingPackedSlotWrite (fields : List Field) (field : String)
                   YulExpr.ident "__compat_slot_word",
                   YulExpr.call "not" [YulExpr.lit shiftedMaskNat]
                 ]),
-                YulStmt.expr (YulExpr.call storeBuiltin [
+                YulStmt.exprStmt (YulExpr.call storeBuiltin [
                   writeSlot,
                   YulExpr.call "or" [
                     YulExpr.ident "__compat_slot_cleared",
@@ -128,7 +128,7 @@ def compileMappingPackedSlotWrite (fields : List Field) (field : String)
                       YulExpr.ident "__compat_slot_word",
                       YulExpr.call "not" [YulExpr.lit shiftedMaskNat]
                     ]),
-                    YulStmt.expr (YulExpr.call storeBuiltin [
+                    YulStmt.exprStmt (YulExpr.call storeBuiltin [
                       slotExpr slot,
                       YulExpr.call "or" [
                         YulExpr.ident "__compat_slot_cleared",

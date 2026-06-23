@@ -59,20 +59,20 @@ where
   lowerTStmt : TStmt → List YulStmt
     | .let_ dst rhs => [.let_ (tVarName dst) (lowerTExpr rhs)]
     | .assign dst rhs => [.assign (tVarName dst) (lowerTExpr rhs)]
-    | .setStorage slot value => [.expr (.call "sstore" [.lit slot, lowerTExpr value])]
-    | .setStorageAddr slot value => [.expr (.call "sstore" [.lit slot, lowerTExpr value])]
-    | .setStorageWord slot value => [.expr (.call "sstore" [.lit slot, lowerTExpr value])]
+    | .setStorage slot value => [.exprStmt (.call "sstore" [.lit slot, lowerTExpr value])]
+    | .setStorageAddr slot value => [.exprStmt (.call "sstore" [.lit slot, lowerTExpr value])]
+    | .setStorageWord slot value => [.exprStmt (.call "sstore" [.lit slot, lowerTExpr value])]
     | .setMapping slot key value =>
-        [ .expr (.call "sstore"
+        [ .exprStmt (.call "sstore"
             [.call "mappingSlot" [.lit slot, lowerTExpr key], lowerTExpr value])
         ]
     | .setMapping2 slot key1 key2 value =>
         let innerSlot := .call "mappingSlot" [.lit slot, lowerTExpr key1]
-        [ .expr (.call "sstore"
+        [ .exprStmt (.call "sstore"
             [.call "mappingSlot" [innerSlot, lowerTExpr key2], lowerTExpr value])
         ]
     | .setMappingUint slot key value =>
-        [ .expr (.call "sstore"
+        [ .exprStmt (.call "sstore"
             [.call "mappingSlot" [.lit slot, lowerTExpr key], lowerTExpr value])
         ]
     | .if_ cond thenBranch elseBranch =>
@@ -84,24 +84,24 @@ where
             [(1, lowerTStmts thenBranch)]
             (some (lowerTStmts elseBranch))
         ]
-    | .stop => [.expr (.call "stop" [])]
+    | .stop => [.exprStmt (.call "stop" [])]
     | .returnUint value =>
-        [ .expr (.call "mstore" [.lit 0, lowerTExpr value])
-        , .expr (.call "return" [.lit 0, .lit 32])
+        [ .exprStmt (.call "mstore" [.lit 0, lowerTExpr value])
+        , .exprStmt (.call "return" [.lit 0, .lit 32])
         ]
     | .returnAddr value =>
-        [ .expr (.call "mstore" [.lit 0, lowerTExpr value])
-        , .expr (.call "return" [.lit 0, .lit 32])
+        [ .exprStmt (.call "mstore" [.lit 0, lowerTExpr value])
+        , .exprStmt (.call "return" [.lit 0, .lit 32])
         ]
-    | .expr value => [.expr (lowerTExpr value)]
+    | .exprStmt value => [.exprStmt (lowerTExpr value)]
     | .emit eventName topics =>
-        [ .expr (.call s!"log{topics.length + 1}"
+        [ .exprStmt (.call s!"log{topics.length + 1}"
             ([.lit 0, .lit 0, .lit (typedEventNameTopicWord eventName)] ++ topics.map lowerTExpr))
         ]
     | .rawLog topics dataOffset dataSize =>
-        [ .expr (.call s!"log{topics.length}" ([lowerTExpr dataOffset, lowerTExpr dataSize] ++ topics.map lowerTExpr))
+        [ .exprStmt (.call s!"log{topics.length}" ([lowerTExpr dataOffset, lowerTExpr dataSize] ++ topics.map lowerTExpr))
         ]
-    | .revert _reason => [.expr (.call "revert" [.lit 0, .lit 0])]
+    | .revert _reason => [.exprStmt (.call "revert" [.lit 0, .lit 0])]
 
 /-- Lower a typed IR block into Yul statements for the existing IR/Yul backend. -/
 def lowerTBlock (block : TBlock) : List YulStmt :=
