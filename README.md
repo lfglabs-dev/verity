@@ -24,7 +24,7 @@
 <!-- BEGIN GENERATED STATS -->
 | Metric | Value |
 |--------|-------|
-| Theorems | 291 (291 proven, 0 sorry) |
+| Theorems | 294 (294 proven, 0 sorry) |
 | Axioms | 0 |
 | Foundry tests | 522 (239 property) |
 | Verified contracts | 13 |

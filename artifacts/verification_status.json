@@ -16,12 +16,12 @@
   },
   "theorems": {
     "categories": 13,
-    "coverage_percent": 88,
+    "coverage_percent": 87,
     "covered": 255,
-    "excluded": 36,
-    "non_stdlib_total": 291,
+    "excluded": 39,
+    "non_stdlib_total": 294,
     "per_contract": {
-      "Counter": 28,
+      "Counter": 31,
       "ERC20": 22,
       "ERC721": 11,
       "Ledger": 33,
@@ -35,9 +35,9 @@
       "SimpleToken": 61,
       "Vault": 3
     },
-    "proven": 291,
+    "proven": 294,
     "stdlib": 0,
-    "total": 291
+    "total": 294
   },
   "toolchain": {
     "lean": "leanprover/lean4:v4.22.0",

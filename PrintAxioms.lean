@@ -5,6 +5,7 @@
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeStepLemmas
 import Contracts.Counter.Proofs.Basic
 import Contracts.Counter.Proofs.Correctness
+import Contracts.Counter.Proofs.Preview
 import Contracts.ERC20.Proofs.Basic
 import Contracts.ERC20.Proofs.Correctness
 import Contracts.ERC20.Proofs.Native
@@ -246,6 +247,11 @@ end Verity.AxiomAudit
   Contracts.Counter.Proofs.Correctness.increment_decrement_meets_cancel
   Contracts.Counter.Proofs.Correctness.getCount_preserves_wellformedness
   Contracts.Counter.Proofs.Correctness.decrement_at_zero_wraps_max
+
+  -- Contracts/Counter/Proofs/Preview.lean
+  Contracts.Counter.Proofs.previewAddTwice_correct
+  Contracts.Counter.Proofs.previewAddTwice_preserves_state
+  Contracts.Counter.Proofs.previewOps_preserves_state
 
   -- Contracts/ERC20/Proofs/Basic.lean
   Contracts.ERC20.Proofs.constructor_meets_spec
@@ -5780,4 +5786,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5422 theorems/lemmas (3726 public, 1696 private, 0 sorry'd)
+-- Total: 5425 theorems/lemmas (3729 public, 1696 private, 0 sorry'd)
