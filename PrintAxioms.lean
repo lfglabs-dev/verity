@@ -5,6 +5,7 @@
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeStepLemmas
 import Contracts.Counter.Proofs.Basic
 import Contracts.Counter.Proofs.Correctness
+import Contracts.Counter.Proofs.Preview
 import Contracts.ERC20.Proofs.Basic
 import Contracts.ERC20.Proofs.Correctness
 import Contracts.ERC20.Proofs.Native
@@ -28,6 +29,7 @@ import Contracts.SimpleToken.Proofs.Basic
 import Contracts.SimpleToken.Proofs.Correctness
 import Contracts.SimpleToken.Proofs.Isolation
 import Contracts.SimpleToken.Proofs.Supply
+import Contracts.Vault.Proofs.Correctness
 import Contracts.Vault.Proofs.Native
 import Verity.Proofs.Stdlib.Automation
 import Verity.Proofs.Stdlib.ListSum
@@ -246,6 +248,11 @@ end Verity.AxiomAudit
   Contracts.Counter.Proofs.Correctness.increment_decrement_meets_cancel
   Contracts.Counter.Proofs.Correctness.getCount_preserves_wellformedness
   Contracts.Counter.Proofs.Correctness.decrement_at_zero_wraps_max
+
+  -- Contracts/Counter/Proofs/Preview.lean
+  Contracts.Counter.Proofs.previewAddTwice_correct
+  Contracts.Counter.Proofs.previewAddTwice_preserves_state
+  Contracts.Counter.Proofs.previewOps_preserves_state
 
   -- Contracts/ERC20/Proofs/Basic.lean
   Contracts.ERC20.Proofs.constructor_meets_spec
@@ -561,6 +568,14 @@ end Verity.AxiomAudit
   Contracts.SimpleToken.Proofs.Supply.mint_sum_singleton_to
   Contracts.SimpleToken.Proofs.Supply.transfer_sum_equation
   Contracts.SimpleToken.Proofs.Supply.transfer_sum_preserved_unique
+
+  -- Contracts/Vault/Proofs/Correctness.lean
+  Contracts.Vault.Proofs.totalAssets_meets_spec
+  Contracts.Vault.Proofs.totalAssets_preserves_state
+  Contracts.Vault.Proofs.totalSupply_meets_spec
+  Contracts.Vault.Proofs.totalSupply_preserves_state
+  Contracts.Vault.Proofs.balanceOf_meets_spec
+  Contracts.Vault.Proofs.balanceOf_preserves_state
 
   -- Contracts/Vault/Proofs/Native.lean
   Contracts.Vault.Proofs.Native.vaultMinimal_functions_bridged
@@ -5780,4 +5795,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5422 theorems/lemmas (3726 public, 1696 private, 0 sorry'd)
+-- Total: 5431 theorems/lemmas (3735 public, 1696 private, 0 sorry'd)
