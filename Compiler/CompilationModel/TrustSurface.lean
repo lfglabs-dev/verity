@@ -20,6 +20,33 @@ private def dedupLocalObligations (items : List LocalObligation) : List LocalObl
     (fun acc item => if acc.any (fun prev => prev.name = item.name) then acc else acc ++ [item])
     []
 
+private def proofStatusFromIntrinsicString : String → Compiler.ProofStatus
+  | "proved" => .proved
+  | "unchecked" => .unchecked
+  | _ => .assumed
+
+private def intrinsicTemplateObligation
+    (entry : String × String × String) : LocalObligation :=
+  { name := entry.1
+    proofStatus := proofStatusFromIntrinsicString entry.2.1
+    obligation := entry.2.2 }
+
+private def collectTemplateIntrinsicObligationsFromExpr (expr : Expr) :
+    List LocalObligation :=
+  let here :=
+    match expr with
+    | .intrinsic _ (.template _ _ _ obligations) _ _ =>
+        obligations.map intrinsicTemplateObligation
+    | _ => []
+  here ++ expr.children.attach.flatMap (fun ⟨child, hchild⟩ =>
+    have := Expr.children_sizeOf_lt expr child hchild
+    collectTemplateIntrinsicObligationsFromExpr child)
+termination_by sizeOf expr
+
+private def collectTemplateIntrinsicObligationsFromMetadata
+    (md : StmtMetadata) : List LocalObligation :=
+  md.subexpressions.flatMap collectTemplateIntrinsicObligationsFromExpr
+
 private def dedupEcmModules (items : List ECM.ExternalCallModule) : List ECM.ExternalCallModule :=
   items.foldl (fun acc item => if acc.contains item then acc else acc ++ [item]) []
 
@@ -717,7 +744,10 @@ private def collectLocalObligationsFromStmts
     (obligations : List LocalObligation)
     (stmts : List Stmt) : List LocalObligation :=
   dedupLocalObligations
-    (obligations ++ Stmt.foldList (fun acc _ md => acc ++ md.localObligations) [] stmts)
+    (obligations ++ Stmt.foldList
+      (fun acc _ md =>
+        acc ++ md.localObligations ++ collectTemplateIntrinsicObligationsFromMetadata md)
+      [] stmts)
 
 private def collectConstructorLocalObligations (spec : CompilationModel) : List LocalObligation :=
   match spec.constructor with

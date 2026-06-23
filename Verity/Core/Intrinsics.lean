@@ -94,18 +94,22 @@ inductive YulLowering where
       `output` as its single return variable. The `body` is already-typed Yul
       AST supplied by the intrinsic declaration, so Verity does not parse or
       verify the template body beyond arity/shape checks. -/
-  | template (params : List String) (output : String) (body : List YulStmt)
+  | template
+      (params : List String)
+      (output : String)
+      (body : List YulStmt)
+      (obligations : List (String × String × String) := [])
   deriving Repr, BEq
 
 def YulLowering.inputArity : YulLowering → Option Nat
   | .verbatim inArity _ _ => some inArity
   | .builtin _ => none
-  | .template params _ _ => some params.length
+  | .template params _ _ _ => some params.length
 
 def YulLowering.outputArity : YulLowering → Option Nat
   | .verbatim _ outArity _ => some outArity
   | .builtin _ => none
-  | .template _ _ _ => some 1
+  | .template _ _ _ _ => some 1
 
 def YulLowering.callName : YulLowering → String
   | .verbatim inArity outArity _ => s!"verbatim_{inArity}i_{outArity}o"
@@ -151,18 +155,18 @@ def yulBuiltinArity? (name : String) : Option (Nat × Nat) :=
 def YulLowering.inputArity? : YulLowering → Option Nat
   | .verbatim inArity _ _ => some inArity
   | .builtin name => (yulBuiltinArity? name).map Prod.fst
-  | .template params _ _ => some params.length
+  | .template params _ _ _ => some params.length
 
 def YulLowering.outputArity? : YulLowering → Option Nat
   | .verbatim _ outArity _ => some outArity
   | .builtin name => (yulBuiltinArity? name).map Prod.snd
-  | .template _ _ _ => some 1
+  | .template _ _ _ _ => some 1
 
 def YulLowering.templateHelperName (intrinsicName : String) : String :=
   s!"__verity_intrinsic_template_{intrinsicName}"
 
 def YulLowering.templateFuncDef? (intrinsicName : String) : YulLowering → Option YulStmt
-  | .template params output body =>
+  | .template params output body _ =>
       some (YulStmt.funcDef (templateHelperName intrinsicName) params [output] body)
   | _ => none
 

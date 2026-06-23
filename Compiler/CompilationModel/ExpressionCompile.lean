@@ -591,7 +591,7 @@ def compileExprWithInternals (fields : List Field)
           if args.length != inArity then
             throw s!"Compilation error: intrinsic {name} builtin {builtinName} expects {inArity} arg(s), got {args.length}"
           pure (YulExpr.call builtinName argExprs)
-      | .template params _output _body =>
+      | .template params _output _body _obligations =>
           if args.length != params.length then
             throw s!"Compilation error: intrinsic {name} template expects {params.length} arg(s), got {args.length}"
           pure (YulExpr.call (Verity.Core.Intrinsics.YulLowering.templateHelperName name) argExprs)

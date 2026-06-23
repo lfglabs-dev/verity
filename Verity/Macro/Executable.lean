@@ -105,12 +105,15 @@ def yulLoweringTerm (lowering : Verity.Core.Intrinsics.YulLowering) : CommandEla
           $(natTerm inArity) $(natTerm outArity) $(strTerm opcodeHex))
   | .builtin name =>
       `(Verity.Core.Intrinsics.YulLowering.builtin $(strTerm name))
-  | .template params output body => do
+  | .template params output body obligations => do
       let paramTerms := params.map strTerm
       let bodyTerms ← body.mapM yulStmtTerm
+      let obligationTerms ← obligations.mapM fun (name, status, message) =>
+        `(( $(strTerm name), $(strTerm status), $(strTerm message) ))
       `(Verity.Core.Intrinsics.YulLowering.template
           [ $[$paramTerms.toArray],* ]
           $(strTerm output)
-          [ $[$bodyTerms.toArray],* ])
+          [ $[$bodyTerms.toArray],* ]
+          [ $[$obligationTerms.toArray],* ])
 
 end Verity.Macro

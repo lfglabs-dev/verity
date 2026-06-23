@@ -17,6 +17,7 @@
 import Contracts.Common
 import Compiler.CompilationModel
 import Compiler.CompilationModel.ExpressionCompile
+import Compiler.CompilationModel.TrustSurface
 
 namespace Contracts.Smoke
 
@@ -99,7 +100,7 @@ verity_intrinsic entryPointPackInnerCalldata (sender : Uint256, gasLimit : Uint2
         min_fork := osaka;
         semantics := (fun sender gasLimit callDataOffset callDataLength =>
           Verity.Core.Uint256.ofNat ((sender.val + gasLimit.val + callDataOffset.val + callDataLength.val) % (2 ^ 256)));
-        obligation [entry_point_pack_template_refines_yul := assumed "template Yul body is unchecked; ERC-4337 consumer must prove or trust this lowering"]
+        obligation [entrypoint_inner_calldata_layout := assumed "template Yul body is unchecked; ERC-4337 consumer must prove or trust this lowering"]
 
 example :
     (entryPointPackInnerCalldata
@@ -124,6 +125,8 @@ private def templateLowering : Verity.Core.Intrinsics.YulLowering :=
           YulExpr.call "add" [YulExpr.ident "callDataOffset", YulExpr.ident "callDataLength"]
         ])
     ]
+    [("entrypoint_inner_calldata_layout", "assumed",
+      "template Yul body is unchecked; ERC-4337 consumer must prove or trust this lowering")]
 
 def templateIntrinsicCompilesToHelperCall : Bool :=
   match Compiler.CompilationModel.compileExpr [] .calldata
@@ -196,6 +199,13 @@ def templateIntrinsicCompilationEmitsHelper : Bool :=
 example : templateIntrinsicCompilationEmitsHelper = true := by
   native_decide
 
+def templateIntrinsicTrustReportSurfacesObligation : Bool :=
+  match Compiler.CompilationModel.collectLocalObligations templateIntrinsicModel with
+  | [{ name := "entrypoint_inner_calldata_layout", proofStatus := .assumed, .. }] => true
+  | _ => false
+
+#guard templateIntrinsicTrustReportSurfacesObligation
+
 /--
 error: verity_intrinsic `template` parameter 'wrongName' does not match declared parameter 'gasLimit'
 -/
@@ -206,6 +216,28 @@ verity_intrinsic entryPointPackTemplateParamMismatch (sender : Uint256, gasLimit
         min_fork := osaka;
         semantics := (fun sender gasLimit => Verity.Core.Uint256.ofNat ((sender.val + gasLimit.val) % (2 ^ 256)));
         obligation [entry_point_pack_template_mismatch := assumed "negative coverage; never elaborated"]
+
+/--
+error: verity_intrinsic parameter 'sender' must have type Uint256; got Bool
+-/
+#guard_msgs in
+verity_intrinsic entryPointPackTemplateNonUintParam (sender : Bool, gasLimit : Uint256) : Uint256
+  where pure;
+        yul := [template (sender, gasLimit) -> packed := []];
+        min_fork := osaka;
+        semantics := (fun sender gasLimit => Verity.Core.Uint256.ofNat 0);
+        obligation [entry_point_pack_template_non_uint := assumed "negative coverage; never elaborated"]
+
+/--
+error: verity_intrinsic return type must be Uint256; got Bool
+-/
+#guard_msgs in
+verity_intrinsic entryPointPackTemplateNonUintReturn (sender : Uint256, gasLimit : Uint256) : Bool
+  where pure;
+        yul := [template (sender, gasLimit) -> packed := []];
+        min_fork := osaka;
+        semantics := (fun sender gasLimit => true);
+        obligation [entry_point_pack_template_non_uint_return := assumed "negative coverage; never elaborated"]
 
 def templateIntrinsicRejectsWrongArity : Bool :=
   match Compiler.CompilationModel.compileExpr [] .calldata
