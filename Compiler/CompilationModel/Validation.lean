@@ -271,6 +271,8 @@ def stmtWritesStateNode : Stmt → Bool
       exprWritesState cond || exprListWritesState args
   | Stmt.revertError _ args =>
       exprListWritesState args
+  | .panicCode code =>
+      exprWritesState code
   | Stmt.return value =>
       exprWritesState value
   | Stmt.returnValues values =>
@@ -367,6 +369,8 @@ def stmtHasUntrackableWritesNode : Stmt → Bool
       exprHasUntrackableWrites cond || args.any exprHasUntrackableWrites
   | Stmt.revertError _ args | Stmt.returnValues args | Stmt.emit _ args =>
       args.any exprHasUntrackableWrites
+  | .panicCode code =>
+      exprHasUntrackableWrites code
   | Stmt.return value | Stmt.storageArrayPush _ value =>
       exprHasUntrackableWrites value
   | Stmt.setStorageArrayElement _ index value =>
@@ -458,6 +462,8 @@ def stmtContainsExternalCallNode : Stmt → Bool
       exprContainsExternalCall cond || args.any exprContainsExternalCall
   | Stmt.revertError _ args =>
       args.any exprContainsExternalCall
+  | .panicCode code =>
+      exprContainsExternalCall code
   | Stmt.return value =>
       exprContainsExternalCall value
   | Stmt.returnValues values =>
@@ -537,6 +543,8 @@ def stmtMayContainExternalCallNode : Stmt → Bool
       exprMayContainExternalCall cond || args.any exprMayContainExternalCall
   | Stmt.revertError _ args =>
       args.any exprMayContainExternalCall
+  | .panicCode code =>
+      exprMayContainExternalCall code
   | Stmt.return value =>
       exprMayContainExternalCall value
   | Stmt.returnValues values =>
@@ -595,6 +603,8 @@ def stmtReadsStateOrEnvNode : Stmt → Bool
       exprReadsStateOrEnv cond || args.any exprReadsStateOrEnv
   | Stmt.revertError _ args | Stmt.emit _ args | Stmt.returnValues args =>
       args.any exprReadsStateOrEnv
+  | .panicCode code =>
+      exprReadsStateOrEnv code
   | Stmt.returnArray _ | Stmt.returnBytes _ =>
       false
   | Stmt.returnStorageWords _ =>
@@ -687,6 +697,8 @@ def stmtWritesStateWithFunctionEffectsNode
         exprListWritesStateWithFunctionEffects effects args
   | Stmt.revertError _ args =>
       exprListWritesStateWithFunctionEffects effects args
+  | .panicCode code =>
+      exprWritesStateWithFunctionEffects effects code
   | Stmt.return value =>
       exprWritesStateWithFunctionEffects effects value
   | Stmt.returnValues values =>
@@ -766,6 +778,8 @@ def stmtReadsStateOrEnvWithFunctionEffectsNode
         exprListReadsStateOrEnvWithFunctionEffects effects args
   | Stmt.revertError _ args | Stmt.emit _ args | Stmt.returnValues args =>
       exprListReadsStateOrEnvWithFunctionEffects effects args
+  | .panicCode code =>
+      exprReadsStateOrEnvWithFunctionEffects effects code
   | Stmt.returnArray _ | Stmt.returnBytes _ =>
       false
   | Stmt.returnStorageWords _ =>
@@ -1048,6 +1062,11 @@ def validateNoUnsupportedAdtConstructNode : Stmt → Except String Unit
         pure ()
   | Stmt.revertError _ args | Stmt.returnValues args | Stmt.emit _ args =>
       if exprListContainsAdtConstruct args then
+        throw "Compilation error: ADT construction is only supported as the direct value of setStorage for ADT storage fields; expression-position ADT values are not scalar Yul expressions."
+      else
+        pure ()
+  | .panicCode code =>
+      if exprContainsAdtConstruct code then
         throw "Compilation error: ADT construction is only supported as the direct value of setStorage for ADT storage fields; expression-position ADT values are not scalar Yul expressions."
       else
         pure ()

@@ -961,6 +961,10 @@ mutual
         | some resolved =>
             if resolved != 0 then .continue state else .revert
         | none => .revert
+    | state, .panicCode code =>
+        match evalExpr oracle fields state code with
+        | some _ => .revert
+        | none => .revert
     | state, .return value =>
         match evalExpr oracle fields state value with
         | some resolved => .return resolved
