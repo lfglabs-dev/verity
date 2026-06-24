@@ -305,21 +305,24 @@ and routes through the underlying ECMs:
 
 - `Compiler.Modules.CodeData.writeTyped resultVar base write` — typed
   write. The `write : CodeDataWrite` carries a `FrameLayout` payload, an
-  optional ETH value, and a salt. Fails closed if the layout contains
-  any dynamic field (`Frame.layoutSourcesSupported` is the gate); this
-  is intentional because SSTORE2-style code-as-data is only sound for
-  static layouts.
+  optional ETH value, and a salt. Static payloads are ABI-materialized
+  from their typed fields. Runtime-sized payloads are accepted when the
+  layout carries `runtimeSize`; the payload is treated as a pre-encoded
+  ABI byte slice, copied from memory/calldata/code, and deployed as
+  `SSTORE2_PREFIX ++ abiPayload`.
 - `Compiler.Modules.CodeData.readTyped read` — typed read. Lowers to the
   underlying `extcodecopy` ECM after a matching layout-sources check.
+  SSTORE2 payload reads use code offset `1`, matching the observable
+  prefix byte written by `writeTyped`.
 - `Compiler.Modules.CodeData.roundtripShape resultVar base write read` —
   combined write+read, useful for tests and Midnight-style
   `toId`/`toMarket`/`touchMarket` round-trip patterns.
 
 Coverage in `Compiler.Modules.CodeDataTest` exercises the typed surface
 on (a) the full multi-field blob+meta payload, (b) an empty payload (no
-fields), (c) a one-word short payload, and (d) a dynamic payload — the
-last must be rejected with an explicit error so callers never silently
-store ABI-encoded dynamic tails into pointer code.
+fields), (c) a one-word short payload, and (d) a dynamic runtime-sized
+payload over `ParamType` with an observable `STOP ++ abi.encode(...)`
+byte layout.
 
 ### Packed Hashing Helpers
 

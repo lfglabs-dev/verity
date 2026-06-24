@@ -20,7 +20,48 @@ private def payload := layout
 private def deployUsesPayloadBuffer : List YulStmt → Bool :=
   fun stmts => stmts.any fun stmt =>
     match stmt with
-    | .let_ _ (.call "create2" [_value, .ident "__abi_frame_sstore2", .lit 160, _salt]) => true
+    | .let_ _ (.call "create2"
+        [ _value
+        , .ident "__abi_frame_sstore2"
+        , .call "add" [.lit 1, .lit 160]
+        , _salt ]) => true
+    | _ => false
+
+private def writesSstore2Prefix (base : String) : List YulStmt → Bool :=
+  fun stmts => stmts.any fun stmt =>
+    match stmt with
+    | .exprStmt (.call "mstore8" [.ident ptr, .lit 0]) => ptr == ptrName base
+    | _ => false
+
+private def readSkipsSstore2Prefix : List YulStmt → Bool :=
+  fun stmts => stmts.any fun stmt =>
+    match stmt with
+    | .exprStmt (.call "extcodecopy" [_ptr, _dest, .lit 1, _size]) => true
+    | _ => false
+
+private def deployUsesRuntimeSize (base sizeName : String) : List YulStmt → Bool :=
+  fun stmts => stmts.any fun stmt =>
+    match stmt with
+    | .let_ _ (.call "create2"
+        [ _value
+        , .ident ptr
+        , .call "add" [.lit 1, .ident size]
+        , _salt ]) =>
+          ptr == ptrName base && size == sizeName
+    | _ => false
+
+private def copiesRuntimeMemoryPayload (sourceName sizeName : String) : List YulStmt → Bool :=
+  fun stmts => stmts.any fun stmt =>
+    match stmt with
+    | .for_ _ (.call "lt" [.ident "__abi_frame_copy_i", .ident size]) _ body =>
+        size == sizeName &&
+          body.any (fun bodyStmt =>
+            match bodyStmt with
+            | .exprStmt (.call "mstore"
+                [ _
+                , .call "mload" [.call "add" [.ident source, .ident "__abi_frame_copy_i"]] ]) =>
+                  source == sourceName
+            | _ => false)
     | _ => false
 
 private def returnCodeDataHasExtentGuard : List YulStmt → Bool
@@ -50,11 +91,13 @@ private def emptyPayload := layout []
 private def shortPayload := layout
   [ { name := "word", ty := .uint256, source := .memory } ]
 
--- Dynamic payload (#1967): `layoutSourcesSupported` must reject dynamic
--- types so callers get a clear failure mode rather than corrupt code-as-
--- data shapes.
-private def dynamicPayload := layout
-  [ { name := "blob", ty := .bytes, source := .memory } ]
+-- Dynamic CodeData payload (#2023): callers can pass a pre-encoded
+-- runtime-sized ABI payload such as `abi.encode(market)`. The ParamType stays
+-- attached to the frame for typed read/write/return/id reasoning, while the
+-- byte extent is supplied by the caller at runtime.
+private def dynamicPayload := runtimeSizedLayout
+  [ { name := "market", ty := .tuple [.address, .address, .bytes], source := .memory, sourceBase := "marketAbi" } ]
+  (YulExpr.ident "marketSize")
 
 #eval! do
   let write : CodeDataWrite :=
@@ -72,7 +115,11 @@ private def dynamicPayload := layout
     | .error err => throw (IO.userError err)
   assert "typed roundtrip has create2 and extcodecopy" (hasCreate2AndExtcodecopy roundtrip)
   assert "typed write deploys the materialized payload buffer" (deployUsesPayloadBuffer roundtrip)
-  assert "trust surface is explicit" (trustSurface.length == 4)
+  assert "typed write materializes observable SSTORE2 STOP prefix"
+    (writesSstore2Prefix "sstore2" roundtrip)
+  assert "typed read skips observable SSTORE2 prefix byte"
+    (readSkipsSstore2Prefix roundtrip)
+  assert "trust surface is explicit" (trustSurface.length == 5)
   let returnCodeData ←
     match compileStmt [] [] [] .calldata [] false [] [] (Stmt.returnCodeData (Expr.param "ptr")) with
     | .ok stmts => pure stmts
@@ -114,18 +161,34 @@ private def dynamicPayload := layout
     (hasCreate2AndExtcodecopy shortRoundtrip)
   assert "short-payload layout has exactly one head word"
     (shortPayload.headWords == 1)
-  -- Dynamic-payload rejection (#1967): the typed surface must fail closed
-  -- when a field carries a dynamic ABI type. SSTORE2-style code-as-data is
-  -- only sound for static layouts; the diagnostic must surface that.
+  -- Dynamic runtime-sized payload (#2023): typed CodeData accepts a
+  -- pre-encoded ABI payload, stores `STOP ++ payload`, and uses the caller's
+  -- runtime byte length for the CREATE2 slice.
   let dynamicWrite : CodeDataWrite :=
     { salt := YulExpr.ident "salt", payload := dynamicPayload }
-  let dynamicResult :=
-    Compiler.Modules.CodeData.writeTyped "dynamicPtr" "dynamic" dynamicWrite
-  assert "dynamic payload write is rejected (typed surface stays static-only)"
-    (match dynamicResult with
-     | .ok _ => false
-     | .error _ => true)
+  let dynamicRead : CodeDataRead :=
+    { pointer := YulExpr.ident "ptr"
+      destOffset := YulExpr.ident "dest"
+      codeOffset := YulExpr.lit 1
+      size := YulExpr.ident "marketSize"
+      payload := dynamicPayload }
+  let dynamicRoundtrip ←
+    match roundtripShape "dynamicPtr" "dynamic" dynamicWrite dynamicRead with
+    | .ok stmts => pure stmts
+    | .error err => throw (IO.userError s!"dynamic payload roundtrip failed: {err}")
+  assert "dynamic CodeData roundtrip emits create2 + extcodecopy"
+    (hasCreate2AndExtcodecopy dynamicRoundtrip)
+  assert "dynamic CodeData writes SSTORE2 prefix"
+    (writesSstore2Prefix "dynamic" dynamicRoundtrip)
+  assert "dynamic CodeData create2 uses runtime payload size plus prefix"
+    (deployUsesRuntimeSize "dynamic" "marketSize" dynamicRoundtrip)
+  assert "dynamic CodeData copies the runtime-sized ABI payload"
+    (copiesRuntimeMemoryPayload "marketAbi" "marketSize" dynamicRoundtrip)
+  assert "dynamic CodeData read skips SSTORE2 prefix"
+    (readSkipsSstore2Prefix dynamicRoundtrip)
   assert "dynamic payload layout flags hasDynamic"
     dynamicPayload.hasDynamic
+  assert "dynamic payload layout records runtime byte size"
+    (layoutHasRuntimeSize dynamicPayload)
 
 end Compiler.Modules.CodeDataTest
