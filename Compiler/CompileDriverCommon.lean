@@ -279,6 +279,7 @@ private partial def specializeForkStmt
   | .require cond message => .require (specializeForkExpr targetFork cond) message
   | .requireError cond errorName args => .requireError (specializeForkExpr targetFork cond) errorName (args.map (specializeForkExpr targetFork))
   | .revertError errorName args => .revertError errorName (args.map (specializeForkExpr targetFork))
+  | .panicCode code => .panicCode (specializeForkExpr targetFork code)
   | .return value => .return (specializeForkExpr targetFork value)
   | .returnValues values => .returnValues (values.map (specializeForkExpr targetFork))
   | .returnCodeData pointer => .returnCodeData (specializeForkExpr targetFork pointer)
@@ -343,6 +344,8 @@ private partial def collectIntrinsicUsesStmt : Stmt → List IntrinsicUse
   | .externalCallBind _ _ args | .tryExternalCallBind _ _ _ args
   | .ecm _ args =>
       args.flatMap collectIntrinsicUsesExpr
+  | .panicCode code =>
+      collectIntrinsicUsesExpr code
   | .returnCodeData pointer =>
       collectIntrinsicUsesExpr pointer
   | .calldatacopy destOffset sourceOffset size

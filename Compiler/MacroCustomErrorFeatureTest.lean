@@ -1,4 +1,5 @@
 import Compiler.CompilationModel
+import Compiler.Yul.PrettyPrint
 import Contracts.Common
 
 namespace Compiler.MacroCustomErrorFeatureTest
@@ -68,6 +69,61 @@ def rejectLargeExecutableUsesRuntimeFallback : Bool :=
 example : rejectLargeExecutableUsesRuntimeFallback = true := by native_decide
 
 end MacroCustomErrorUsageSmoke
+
+namespace MacroPanicUsageSmoke
+
+verity_contract MacroPanicUsage where
+  storage
+    sentinel : Uint256 := slot 0
+
+  function failWithLiteralPanic () : Unit := do
+    panic(0x11)
+
+  function failWithParamPanic (code : Uint256) : Unit := do
+    panic(code)
+
+def literalPanicModelUsesBuiltInPanic : Bool :=
+  match MacroPanicUsage.failWithLiteralPanic_modelBody with
+  | [Stmt.panicCode (Expr.literal 0x11), Stmt.stop] => true
+  | _ => false
+
+example : literalPanicModelUsesBuiltInPanic = true := by native_decide
+
+def paramPanicModelUsesBuiltInPanic : Bool :=
+  match MacroPanicUsage.failWithParamPanic_modelBody with
+  | [Stmt.panicCode (Expr.param "code"), Stmt.stop] => true
+  | _ => false
+
+example : paramPanicModelUsesBuiltInPanic = true := by native_decide
+
+def literalPanicExecutableReverts : Bool :=
+  match MacroPanicUsage.failWithLiteralPanic Verity.defaultState with
+  | .revert _ state => state.sender == Verity.defaultState.sender
+  | .success _ _ => false
+
+example : literalPanicExecutableReverts = true := by native_decide
+
+def panicYulPayloadObservable : Bool :=
+  let contract : CompilationModel :=
+    { name := "PanicSurface"
+      fields := []
+      functions := [
+        { name := "boom"
+          params := []
+          returnType := none
+          body := [Stmt.panicCode (Expr.literal 0x11)] }
+      ] }
+  match compileContract contract with
+  | Except.ok ir =>
+      let yul := Compiler.Yul.prettyStmts (ir.functions.find? (·.name == "boom") |>.map (·.body) |>.getD [])
+      yul.contains "mstore(0, shl(224, 0x4e487b71))" &&
+        yul.contains "mstore(4, 17)" &&
+        yul.contains "revert(0, 36)"
+  | Except.error _ => false
+
+example : panicYulPayloadObservable = true := by native_decide
+
+end MacroPanicUsageSmoke
 
 namespace MacroCustomErrorRuntimeArgSmoke
 

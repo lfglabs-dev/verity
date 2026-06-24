@@ -274,6 +274,9 @@ def compileStmtWithFork (fields : List Field) (events : List EventDef := [])
         | none => throw s!"Compilation error: unknown custom error '{errorName}' ({issue586Ref})"
       let argExprs ← compileExprListWithInternals fields dynamicSource internalFunctions args
       revertWithCustomError dynamicSource errorDef args argExprs
+  | .panicCode code => do
+      let codeExpr ← compileExpr fields dynamicSource code
+      pure (solidityPanicPayloadExpr codeExpr)
   | Stmt.return value =>
     do
       let valueExpr ← compileExprWithInternals fields dynamicSource internalFunctions value
