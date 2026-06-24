@@ -936,6 +936,53 @@ def exprTouchesUnsupportedCoreSurface : Expr → Bool
   | .dynamicBytesEq _ _ | .intrinsic _ _ _ _
   | .adtConstruct _ _ _ | .adtTag _ _ | .adtField _ _ _ _ _ => true
 
+/-- Spec-only proof gate for dynamic ABI array/member accessors needed by
+ERC-4337 `PackedUserOperation[]` calldata decoding.
+
+This deliberately does not widen `exprTouchesUnsupportedCoreSurface` yet:
+`SourceSemantics.evalExpr` currently assigns `none` to these helper-backed
+accessors, so admitting them to `ExprCompileCore` would claim source/IR
+semantic preservation before the dynamic ABI decoder refinement is connected
+to expression evaluation. The intended widening is exactly the constructors
+listed here, with their index expressions already in the existing core
+fragment.
+
+PackedUserOperation[] needs:
+* `arrayElementDynamicWord ops i k` for static head/member words of `ops[i]`.
+* `arrayElementDynamicDataOffset ops i` for the dynamic element tail pointer.
+* `arrayElementDynamicMemberLength ops i k` for `ops[i].field.length`.
+* `arrayElementDynamicMemberDataOffset ops i k` for `ops[i].field` data.
+* `arrayElementDynamicMemberElement ops i k j` for `ops[i].field[j]`.
+-/
+def exprDynamicAbiArrayAccessorProofSupported : Expr → Bool
+  | .arrayElementDynamicWord _ index _ =>
+      exprTouchesUnsupportedCoreSurface index == false
+  | .arrayElementDynamicDataOffset _ index =>
+      exprTouchesUnsupportedCoreSurface index == false
+  | .arrayElementDynamicMemberLength _ index _ =>
+      exprTouchesUnsupportedCoreSurface index == false
+  | .arrayElementDynamicMemberDataOffset _ index _ =>
+      exprTouchesUnsupportedCoreSurface index == false
+  | .arrayElementDynamicMemberElement _ index _ innerIndex =>
+      (exprTouchesUnsupportedCoreSurface index == false) &&
+        (exprTouchesUnsupportedCoreSurface innerIndex == false)
+  | _ => false
+
+theorem exprDynamicAbiArrayAccessorProofSupported_static_member_word :
+    exprDynamicAbiArrayAccessorProofSupported
+      (.arrayElementDynamicWord "ops" (.localVar "i") 0) = true := by
+  rfl
+
+theorem exprDynamicAbiArrayAccessorProofSupported_dynamic_member_length :
+    exprDynamicAbiArrayAccessorProofSupported
+      (.arrayElementDynamicMemberLength "ops" (.localVar "i") 2) = true := by
+  rfl
+
+theorem exprDynamicAbiArrayAccessorProofSupported_dynamic_member_element :
+    exprDynamicAbiArrayAccessorProofSupported
+      (.arrayElementDynamicMemberElement "ops" (.localVar "i") 2 (.localVar "j")) = true := by
+  rfl
+
 /-- Stateful expression surfaces not yet carried by the generic Layer 2 body
 interface. These are the next storage/layout-style widening targets. -/
 def exprTouchesUnsupportedStateSurface : Expr → Bool
