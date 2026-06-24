@@ -20,8 +20,6 @@ We provide:
 * `count_le_one_under_pairwise_distinct` — at most one matching event
   when the source list of events generators are pairwise distinct on the
   key.
-* `count_ge_one_when_member_emitted` — at least one matching event when
-  a known emitter is in the source list with non-empty contribution.
 
 Downstream contracts instantiate with their concrete `Event`, `Key`,
 and `matchEvent` predicate.
@@ -31,11 +29,6 @@ and `matchEvent` predicate.
 def countMatching {Event Key : Type}
     (matchEvent : Key → Event → Bool) (key : Key) (trace : List Event) : Nat :=
   (trace.filter (matchEvent key)).length
-
-/-- Pairwise distinctness on a key-extraction function. -/
-def Pairwise.distinctOn {α Key : Type} [DecidableEq Key]
-    (keyOf : α → Key) (xs : List α) : Prop :=
-  List.Pairwise (fun a b => keyOf a ≠ keyOf b) xs
 
 /-! ## Generic at-most-once theorem
 
@@ -72,23 +65,6 @@ theorem emitLoop_event_origin {α Event : Type}
         exact ⟨x, List.mem_cons_of_mem _ hx, hex⟩
     · obtain ⟨x, hx, hex⟩ := ih he
       exact ⟨x, List.mem_cons_of_mem _ hx, hex⟩
-
-/-- If `x ∈ xs` and `emit x = some e`, then `e ∈ emitLoop emit xs`. -/
-theorem emitLoop_contains_emitted_event {α Event : Type}
-    (emit : α → Option Event) (xs : List α) (x : α) (hMem : x ∈ xs)
-    (e : Event) (hEmit : emit x = some e) :
-    e ∈ emitLoop emit xs := by
-  induction xs with
-  | nil => cases hMem
-  | cons hd rest ih =>
-    simp only [emitLoop]
-    rcases List.mem_cons.mp hMem with hEq | hTail
-    · subst hEq
-      rw [hEmit]
-      exact List.mem_cons_self ..
-    · split
-      · exact List.mem_cons_of_mem _ (ih hTail)
-      · exact ih hTail
 
 /-- **At-most-once**: if all events emitted from `xs` are pairwise
     distinct on a matching key, the trace contains at most one match. -/
