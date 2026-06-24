@@ -150,7 +150,8 @@ private def layoutReportSpec : CompilationModel := {
   fields := [
     layoutReportAdminField,
     layoutReportPausedField,
-    layoutReportBalancesField
+    layoutReportBalancesField,
+    layoutReportLiquidationLocksField
   ]
   reservedSlotRanges := [{ start := 20, end_ := 29 }]
   slotAliasRanges := [{ sourceStart := 5, sourceEnd := 6, targetStart := 100 }]
@@ -185,6 +186,13 @@ where
     let base : Field := { name := "balances", ty := FieldType.mappingTyped (.simple .address) }
     { base with
       «slot» := some 7
+    }
+
+  layoutReportLiquidationLocksField : Field :=
+    let base : Field := { name := "liquidationLocks", ty := FieldType.mappingTyped (.simple .bytes32) }
+    { base with
+      «slot» := some 8
+      isTransient := true
     }
 
 private def proxyLayoutBaselineSpec : CompilationModel := {
@@ -531,6 +539,7 @@ private def lowLevelOnlyTrustSurfaceSpec : CompilationModel := {
       params := [{ name := "target", ty := ParamType.address }]
       returnType := none
       returns := [ParamType.uint256]
+      reentrancyTrusted := true
       localObligations := [
         { name := "low_level_call_safety"
           obligation := "Callee behavior is assumption-backed"
@@ -1475,6 +1484,10 @@ unsafe def runTests : IO Unit := do
     throw (IO.userError "✗ layout report emits packed field metadata")
   if !contains layoutReport "\"kind\":\"mapping\",\"keys\":[\"address\"],\"valueKind\":\"uint256\"" then
     throw (IO.userError "✗ layout report emits mapping field type metadata")
+  if !contains layoutReport "\"name\":\"liquidationLocks\",\"declaredSlot\":8,\"canonicalSlot\":8" ||
+      !contains layoutReport "\"isTransient\":true,\"locationKind\":\"transient\"" ||
+      !contains layoutReport "\"name\":\"liquidationLocks\",\"locationKind\":\"transient\",\"kind\":\"mapping\",\"rootSlot\":8,\"keccakPreimage\":\"keccak256(key || slot=8) [keys: bytes32]\"" then
+    throw (IO.userError "✗ layout report emits transient computed-slot preimage metadata")
   if !contains layoutReport "\"reservedSlotRanges\":[{\"start\":20,\"end\":29}]" then
     throw (IO.userError "✗ layout report emits reserved slot ranges")
   if !contains layoutReport "\"slotAliasRanges\":[{\"sourceStart\":5,\"sourceEnd\":6,\"targetStart\":100}]" then
@@ -1927,9 +1940,10 @@ unsafe def runTests : IO Unit := do
   if !writtenLayoutReport then
     throw (IO.userError "✗ compileSpecsWithOptions writes layout report file")
   expectFileContains
-    "compileSpecsWithOptions layout report includes effective write slots"
+    "compileSpecsWithOptions layout report includes effective write slots and transient preimage metadata"
     layoutReportPath
-    ["\"contract\":\"LayoutReportSmoke\"", "\"writeSlots\":[5,50,100]", "\"writeSlots\":[6,101]"]
+    ["\"contract\":\"LayoutReportSmoke\"", "\"writeSlots\":[5,50,100]", "\"writeSlots\":[6,101]",
+      "\"name\":\"liquidationLocks\",\"locationKind\":\"transient\",\"kind\":\"mapping\",\"rootSlot\":8,\"keccakPreimage\":\"keccak256(key || slot=8) [keys: bytes32]\""]
 
   let layoutCompatibilityReportPath := s!"{layoutReportDir}/layout-compat-report.json"
   compileSpecsWithOptions
