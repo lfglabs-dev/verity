@@ -42,7 +42,7 @@ Verity proves that compilation preserves behavior at three stages. Each layer is
 
 **Layer 2** (CompilationModel to IR): a generic whole-contract theorem covers the supported fragment with zero axioms. No per-contract proof effort needed. Internal helper calls now exist at the source level, and helper-summary proof reuse is available in source-semantics lemmas, but that reuse is not yet fully consumed through the generic body/IR theorem path. ECMs, typed interface calls, external calls, and low-level call/returndata mechanics are trust-reported or compiler-supported rather than fully proof-modeled. Constructors, fallback/receive, events/logs, typed errors, proxy/delegatecall, local obligations, and richer storage-layout features remain outside the generic proof fragment or partial. `forEach` support is deliberately partial: zero-bound loops with supported bodies and arbitrary literal-bound empty-body loops are proved, while positive non-empty loop bodies remain outside the current theorem.
 
-**Layer 3** (IR to Yul): all statement types are proven equivalent. The dispatch bridge is an explicit theorem hypothesis, not an axiom.
+**Layer 3** (IR to Yul): the current public theorem surface targets native EVMYulLean dispatcher execution for the supported safe-body fragment. Body-closure proofs cover the whitelisted `BridgedSafeStmts` forms, while remaining call-family, ECM, and dispatch obligations stay explicit theorem hypotheses or trust-surfaced boundaries rather than an "all statement types" claim.
 
 The Yul-to-bytecode step is handled by `solc` (v0.8.33, pinned) and is not verified by Verity. See [TRUST_ASSUMPTIONS.md](TRUST_ASSUMPTIONS.md) for the complete trust boundary.
 
