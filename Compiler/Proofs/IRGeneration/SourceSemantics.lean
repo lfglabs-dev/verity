@@ -785,13 +785,91 @@ def writeStorageArray (world : Verity.ContractState) (slot : Nat)
 private def ceilDivVal (lhs rhs : Verity.Core.Uint256) : Nat :=
   if lhs == 0 then 0 else ((lhs - 1) / rhs + 1).val
 
+private def calldataWord (state : RuntimeState) (offset : Nat) : Nat :=
+  Compiler.Proofs.YulGeneration.calldataloadWord state.selector state.world.calldata offset
+
+private def calldataWordFits (state : RuntimeState) (offset : Nat) : Bool :=
+  offset ≤ state.world.calldataSize.val - 32
+
+private def dynamicArrayElementHead? (state : RuntimeState) (name : String) (index : Nat) :
+    Option Nat := do
+  let dataOffset := lookupValue state.bindings s!"{name}_data_offset"
+  let length := lookupValue state.bindings s!"{name}_length"
+  if hindex : index < length then
+    let elementRelOffset := calldataWord state (dataOffset + index * 32)
+    if elementRelOffset < length * 32 then
+      none
+    else
+      pure (dataOffset + elementRelOffset)
+  else
+    none
+
+private def dynamicArrayElementWord? (state : RuntimeState) (name : String) (index wordOffset : Nat) :
+    Option Nat := do
+  let elementHead ← dynamicArrayElementHead? state name index
+  let wordPos := elementHead + wordOffset * 32
+  if calldataWordFits state wordPos then
+    some (calldataWord state wordPos)
+  else
+    none
+
+private def dynamicArrayElementDataOffset? (state : RuntimeState) (name : String) (index : Nat) :
+    Option Nat := do
+  let elementHead ← dynamicArrayElementHead? state name index
+  if calldataWordFits state elementHead then
+    some elementHead
+  else
+    none
+
+private def dynamicArrayElementMemberDataPos? (state : RuntimeState) (name : String)
+    (index wordOffset : Nat) : Option Nat := do
+  let elementHead ← dynamicArrayElementHead? state name index
+  let memberRelOffset := calldataWord state (elementHead + wordOffset * 32)
+  let memberDataPos := elementHead + memberRelOffset
+  if calldataWordFits state memberDataPos then
+    some memberDataPos
+  else
+    none
+
+private def dynamicArrayElementMemberLength? (state : RuntimeState) (name : String)
+    (index wordOffset : Nat) : Option Nat := do
+  let memberDataPos ← dynamicArrayElementMemberDataPos? state name index wordOffset
+  some (calldataWord state memberDataPos)
+
+private def dynamicArrayElementMemberDataOffset? (state : RuntimeState) (name : String)
+    (index wordOffset : Nat) : Option Nat := do
+  let memberDataPos ← dynamicArrayElementMemberDataPos? state name index wordOffset
+  some (memberDataPos + 32)
+
+private def dynamicArrayElementMemberElement? (state : RuntimeState) (name : String)
+    (index wordOffset innerIndex : Nat) : Option Nat := do
+  let memberDataPos ← dynamicArrayElementMemberDataPos? state name index wordOffset
+  let memberLength := calldataWord state memberDataPos
+  if hinner : innerIndex < memberLength then
+    let wordPos := memberDataPos + 32 + innerIndex * 32
+    if calldataWordFits state wordPos then
+      some (calldataWord state wordPos)
+    else
+      none
+  else
+    none
+
 def evalExpr (fields : List Field) (state : RuntimeState) : Expr → Option Nat
   | .memoryArrayLength _ => none
   | .memoryArrayElement _ _ => none
-  | .arrayElementDynamicDataOffset _ _ => none
-  | .arrayElementDynamicMemberLength _ _ _ => none
-  | .arrayElementDynamicMemberDataOffset _ _ _ => none
-  | .arrayElementDynamicMemberElement _ _ _ _ => none
+  | .arrayElementDynamicDataOffset name index => do
+      let idx ← evalExpr fields state index
+      dynamicArrayElementDataOffset? state name idx
+  | .arrayElementDynamicMemberLength name index wordOffset => do
+      let idx ← evalExpr fields state index
+      dynamicArrayElementMemberLength? state name idx wordOffset
+  | .arrayElementDynamicMemberDataOffset name index wordOffset => do
+      let idx ← evalExpr fields state index
+      dynamicArrayElementMemberDataOffset? state name idx wordOffset
+  | .arrayElementDynamicMemberElement name index wordOffset innerIndex => do
+      let idx ← evalExpr fields state index
+      let innerIdx ← evalExpr fields state innerIndex
+      dynamicArrayElementMemberElement? state name idx wordOffset innerIdx
   | .paramDynamicMemberLength _ _ => none
   | .paramDynamicMemberDataOffset _ _ => none
   | .paramDynamicMemberElement _ _ _ => none
@@ -829,6 +907,9 @@ def evalExpr (fields : List Field) (state : RuntimeState) : Expr → Option Nat
   | .blobbasefee => some state.world.blobBaseFee.val
   | .calldatasize => some state.world.calldataSize.val
   | .localVar name => some (lookupValue state.bindings name)
+  | .arrayElementDynamicWord name index wordOffset => do
+      let idx ← evalExpr fields state index
+      dynamicArrayElementWord? state name idx wordOffset
   | .add a b => do
       let lhs : Verity.Core.Uint256 := ← evalExpr fields state a
       let rhs : Verity.Core.Uint256 := ← evalExpr fields state b
@@ -1672,14 +1753,18 @@ private theorem evalExpr_arrayElementDynamicWord
     (name : String)
     (index : Expr)
     (wordOffset : Nat) :
-    evalExpr fields state (.arrayElementDynamicWord name index wordOffset) = none := rfl
+    evalExpr fields state (.arrayElementDynamicWord name index wordOffset) = (do
+      let idx ← evalExpr fields state index
+      dynamicArrayElementWord? state name idx wordOffset) := rfl
 
 private theorem evalExpr_arrayElementDynamicDataOffset
     (fields : List Field)
     (state : RuntimeState)
     (name : String)
     (index : Expr) :
-    evalExpr fields state (.arrayElementDynamicDataOffset name index) = none := rfl
+    evalExpr fields state (.arrayElementDynamicDataOffset name index) = (do
+      let idx ← evalExpr fields state index
+      dynamicArrayElementDataOffset? state name idx) := rfl
 
 private theorem evalExpr_arrayElementDynamicMemberLength
     (fields : List Field)
@@ -1687,7 +1772,9 @@ private theorem evalExpr_arrayElementDynamicMemberLength
     (name : String)
     (index : Expr)
     (wordOffset : Nat) :
-    evalExpr fields state (.arrayElementDynamicMemberLength name index wordOffset) = none := rfl
+    evalExpr fields state (.arrayElementDynamicMemberLength name index wordOffset) = (do
+      let idx ← evalExpr fields state index
+      dynamicArrayElementMemberLength? state name idx wordOffset) := rfl
 
 private theorem evalExpr_arrayElementDynamicMemberDataOffset
     (fields : List Field)
@@ -1695,7 +1782,9 @@ private theorem evalExpr_arrayElementDynamicMemberDataOffset
     (name : String)
     (index : Expr)
     (wordOffset : Nat) :
-    evalExpr fields state (.arrayElementDynamicMemberDataOffset name index wordOffset) = none := rfl
+    evalExpr fields state (.arrayElementDynamicMemberDataOffset name index wordOffset) = (do
+      let idx ← evalExpr fields state index
+      dynamicArrayElementMemberDataOffset? state name idx wordOffset) := rfl
 
 private theorem evalExpr_arrayElementDynamicMemberElement
     (fields : List Field)
@@ -1705,7 +1794,37 @@ private theorem evalExpr_arrayElementDynamicMemberElement
     (wordOffset : Nat)
     (innerIndex : Expr) :
     evalExpr fields state
-        (.arrayElementDynamicMemberElement name index wordOffset innerIndex) = none := rfl
+        (.arrayElementDynamicMemberElement name index wordOffset innerIndex) = (do
+      let idx ← evalExpr fields state index
+      let innerIdx ← evalExpr fields state innerIndex
+      dynamicArrayElementMemberElement? state name idx wordOffset innerIdx) := rfl
+
+theorem evalExpr_dynamicAbiArrayAccessorProofSupported_semantics
+    (fields : List Field)
+    (state : RuntimeState) :
+    ∀ e : Expr,
+      exprDynamicAbiArrayAccessorProofSupported e = true →
+        evalExpr fields state e =
+          match e with
+          | .arrayElementDynamicWord name index wordOffset => do
+              let idx ← evalExpr fields state index
+              dynamicArrayElementWord? state name idx wordOffset
+          | .arrayElementDynamicDataOffset name index => do
+              let idx ← evalExpr fields state index
+              dynamicArrayElementDataOffset? state name idx
+          | .arrayElementDynamicMemberLength name index wordOffset => do
+              let idx ← evalExpr fields state index
+              dynamicArrayElementMemberLength? state name idx wordOffset
+          | .arrayElementDynamicMemberDataOffset name index wordOffset => do
+              let idx ← evalExpr fields state index
+              dynamicArrayElementMemberDataOffset? state name idx wordOffset
+          | .arrayElementDynamicMemberElement name index wordOffset innerIndex => do
+              let idx ← evalExpr fields state index
+              let innerIdx ← evalExpr fields state innerIndex
+              dynamicArrayElementMemberElement? state name idx wordOffset innerIdx
+          | _ => none := by
+  intro e _hsupported
+  cases e <;> rfl
 
 private theorem evalExpr_mappingWord
     (fields : List Field)
