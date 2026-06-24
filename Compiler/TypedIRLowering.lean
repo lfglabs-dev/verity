@@ -1,4 +1,5 @@
 import Verity.Core.Free.TypedIR
+import Compiler.CompilationModel.DynamicData
 import Compiler.Yul.Ast
 
 namespace Verity.Core.Free
@@ -102,6 +103,7 @@ where
         [ .exprStmt (.call s!"log{topics.length}" ([lowerTExpr dataOffset, lowerTExpr dataSize] ++ topics.map lowerTExpr))
         ]
     | .revert _reason => [.exprStmt (.call "revert" [.lit 0, .lit 0])]
+    | .panicCode code => Compiler.CompilationModel.solidityPanicPayloadExpr (lowerTExpr code)
 
 /-- Lower a typed IR block into Yul statements for the existing IR/Yul backend. -/
 def lowerTBlock (block : TBlock) : List YulStmt :=
