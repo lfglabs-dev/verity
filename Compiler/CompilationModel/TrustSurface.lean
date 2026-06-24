@@ -259,6 +259,8 @@ private partial def collectUnguardedLowLevelStmtMechanics : Stmt → List String
       []
   | .requireError cond _ args =>
       collectLowLevelExprMechanics cond ++ args.flatMap collectLowLevelExprMechanics
+  | .panic _ =>
+      []
   | .revertError _ args =>
       args.flatMap collectLowLevelExprMechanics
   | .mstore offset value =>

@@ -765,6 +765,8 @@ def stmtReadsStateOrEnvNode : Stmt → Bool
   | Stmt.calldatacopy _ _ _ | Stmt.returndataCopy _ _ _ => true
   | Stmt.revertReturndata =>
       true
+  | Stmt.panic _ =>
+      false
   | Stmt.stop =>
       false
   | Stmt.setMapping _ _ _ | Stmt.setMappingWord _ _ _ _ | Stmt.setMappingPackedWord _ _ _ _ _ | Stmt.setMappingUint _ _ _
@@ -937,6 +939,8 @@ def stmtReadsStateOrEnvWithFunctionEffectsNode
   | Stmt.calldatacopy _ _ _ | Stmt.returndataCopy _ _ _ => true
   | Stmt.revertReturndata =>
       true
+  | Stmt.panic _ =>
+      false
   | Stmt.stop =>
       false
   | Stmt.setMapping _ _ _ | Stmt.setMappingWord _ _ _ _ | Stmt.setMappingPackedWord _ _ _ _ _ | Stmt.setMappingUint _ _ _
@@ -1250,7 +1254,8 @@ def validateNoUnsupportedAdtConstructNode : Stmt → Except String Unit
           exprContainsAdtConstruct size then
         throw "Compilation error: ADT construction cannot be used in copy offsets or sizes."
   | Stmt.storageArrayPop _ | Stmt.returnArray _ | Stmt.returnBytes _
-  | Stmt.returnStorageWords _ | Stmt.returnCodeData _ | Stmt.revertReturndata | Stmt.stop =>
+  | Stmt.returnStorageWords _ | Stmt.returnCodeData _ | Stmt.panic _
+  | Stmt.revertReturndata | Stmt.stop =>
       pure ()
   | Stmt.unsafeYul fragment =>
       if fragment.obligations.isEmpty then

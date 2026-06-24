@@ -297,7 +297,7 @@ def stmtUsesArrayElementKind (includePlain includeWord : Bool) : Stmt → Bool
       exprListUsesArrayElementKind includePlain includeWord args
   | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ | Stmt.returnCodeData _ =>
       false
-  | Stmt.revertReturndata | Stmt.stop =>
+  | Stmt.panic _ | Stmt.revertReturndata | Stmt.stop =>
       false
   | Stmt.unsafeYul _ =>
       false
@@ -455,7 +455,7 @@ def stmtUsesArrayElement : Stmt → Bool
       exprListUsesArrayElement args
   | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ | Stmt.returnCodeData _ =>
       false
-  | Stmt.revertReturndata | Stmt.stop =>
+  | Stmt.panic _ | Stmt.revertReturndata | Stmt.stop =>
       false
   | Stmt.unsafeYul _ =>
       false
@@ -663,7 +663,7 @@ def stmtUsesParamDynamicHeadWord : Stmt → Bool
         exprUsesParamDynamicHeadWord dataSize
   | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ | Stmt.returnCodeData _ =>
       false
-  | Stmt.revertReturndata | Stmt.stop =>
+  | Stmt.panic _ | Stmt.revertReturndata | Stmt.stop =>
       false
   | Stmt.unsafeYul _ =>
       false
@@ -810,7 +810,7 @@ def stmtUsesMulDiv512 : Stmt → Bool
         exprUsesMulDiv512 dataOffset || exprUsesMulDiv512 dataSize
   | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ | Stmt.returnCodeData _ =>
       false
-  | Stmt.revertReturndata | Stmt.stop =>
+  | Stmt.panic _ | Stmt.revertReturndata | Stmt.stop =>
       false
   | Stmt.unsafeYul _ =>
       false
@@ -986,7 +986,7 @@ def stmtUsesStorageArrayElement : Stmt → Bool
       exprListUsesStorageArrayElement args
   | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ | Stmt.returnCodeData _ =>
       false
-  | Stmt.revertReturndata | Stmt.stop =>
+  | Stmt.panic _ | Stmt.revertReturndata | Stmt.stop =>
       false
   | Stmt.unsafeYul _ =>
       false
@@ -1142,7 +1142,7 @@ def stmtUsesDynamicBytesEq : Stmt → Bool
       exprListUsesDynamicBytesEq topics || exprUsesDynamicBytesEq dataOffset || exprUsesDynamicBytesEq dataSize
   | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ | Stmt.returnCodeData _ =>
       false
-  | Stmt.revertReturndata | Stmt.stop =>
+  | Stmt.panic _ | Stmt.revertReturndata | Stmt.stop =>
       false
   | Stmt.unsafeYul _ =>
       false

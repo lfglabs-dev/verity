@@ -25,6 +25,29 @@ def selectorShift : Nat := 224
     Used in `revertWithMessage` (compiler) and concrete IR proofs. -/
 def errorStringSelectorWord : Nat := 0x08c379a0 * (2 ^ 224)
 
+/-- The 4-byte selector for Solidity's built-in `Panic(uint256)` error. -/
+def panicSelector : Nat := 0x4e487b71
+
+/-- The 4-byte selector for Solidity's built-in `Panic(uint256)` error,
+    left-shifted to fill a 32-byte EVM word. -/
+def panicSelectorWord : Nat := panicSelector * (2 ^ 224)
+
+def wordByteBE (word : Nat) (idx : Nat) : UInt8 :=
+  UInt8.ofNat ((word / (256 ^ (31 - idx))) % 256)
+
+def wordBytesBE (word : Nat) : List UInt8 :=
+  (List.range 32).map (wordByteBE word)
+
+/-- Canonical ABI revert payload for Solidity's `Panic(uint256)`.
+    The payload is `0x4e487b71 ++ abi.encode(code)`, exactly 36 bytes. -/
+def solidityPanicRevertPayload (code : Nat) : ByteArray :=
+  ByteArray.mk
+    ([ UInt8.ofNat (panicSelector / 2^24 % 256)
+     , UInt8.ofNat (panicSelector / 2^16 % 256)
+     , UInt8.ofNat (panicSelector / 2^8 % 256)
+     , UInt8.ofNat (panicSelector % 256)
+     ] ++ wordBytesBE code).toArray
+
 /-- 160-bit address mask used to normalize EVM addresses (bitwise AND).
     EVM addresses are 20 bytes; calldataload reads a full 32-byte word,
     so the upper 96 bits must be cleared. -/

@@ -267,6 +267,8 @@ def compileStmtWithFork (fields : List Field) (events : List EventDef := [])
       let argExprs ← compileExprListWithInternals fields dynamicSource internalFunctions args
       let revertStmts ← revertWithCustomError dynamicSource errorDef args argExprs
       pure [YulStmt.if_ failCond revertStmts]
+  | Stmt.panic code =>
+      pure (solidityPanicPayload code)
   | Stmt.revertError errorName args => do
       let errorDef ←
         match errors.find? (·.name == errorName) with

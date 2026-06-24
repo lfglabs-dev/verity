@@ -382,6 +382,8 @@ private def compileStmt (fields : List Field) : Stmt → CompileM Unit
   | .require cond message => do
       let condExpr ← liftExcept <| asBool (← compileExpr fields cond)
       emit (.if_ condExpr [] [.revert message])
+  | .panic code =>
+      emit (.panic code)
   | .ite cond thenBranch elseBranch => do
       let condExpr ← liftExcept <| asBool (← compileExpr fields cond)
       let thenStmts ← compileBranch fields thenBranch

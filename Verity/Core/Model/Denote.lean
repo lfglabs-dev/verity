@@ -184,7 +184,7 @@ inductive StmtOutcome where
   | continue (state : DenoteState)
   | stop (state : DenoteState)
   | return (value : Nat) (state : DenoteState)
-  | revert
+  | revert (payload : Option ByteArray := none)
 
 /-! ## Storage read helpers (mirroring `SourceSemantics`) -/
 
@@ -927,7 +927,7 @@ def execForEachLoop
       | .continue next => execForEachLoop varName runBody next (index + 1) remaining
       | .stop next => .stop next
       | .return value next => .return value next
-      | .revert => .revert
+      | .revert payload => .revert payload
 
 def msbIndex (bitmap : Nat) : Nat :=
   if bitmap = 0 then 0 else Nat.log2 bitmap
@@ -952,7 +952,7 @@ def execForEachSetBitLoop
         | .continue next => execForEachSetBitLoop varName runBody fuel next (clearMsb bitmap)
         | .stop next => .stop next
         | .return value next => .return value next
-        | .revert => .revert
+        | .revert payload => .revert payload
 
 mutual
   def execStmt (oracle : DenoteOracle) (fields : List Field) :
@@ -1175,6 +1175,8 @@ mutual
         | some resolved =>
             if resolved != 0 then .continue state else .revert
         | none => .revert
+    | _, .panic code =>
+        .revert (some (Compiler.Constants.solidityPanicRevertPayload code))
     | state, .return value =>
         match evalExpr oracle fields state value with
         | some resolved => .return resolved
@@ -1230,7 +1232,7 @@ mutual
         | .continue next => execStmtList oracle fields next rest
         | .stop next => .stop next
         | .return value next => .return value next
-        | .revert => .revert
+        | .revert payload => .revert payload
 end
 
 /-! ## Function denotation (mirrors `SourceSemantics.interpretFunction`) -/
@@ -1253,6 +1255,7 @@ structure DenoteTransaction where
 structure DenoteResult where
   success : Bool
   returnValue : Option Nat
+  revertPayload : Option ByteArray := none
   finalStorage : Nat → Nat
   events : List (List Nat)
 
@@ -1266,6 +1269,15 @@ def revertedResult (oracle : DenoteOracle) (spec : CompilationModel)
     (initialWorld : Verity.ContractState) : DenoteResult :=
   { success := false
     returnValue := none
+    revertPayload := none
+    finalStorage := encodeStorage oracle spec initialWorld
+    events := encodeEvents initialWorld.events }
+
+def revertedResultWithPayload (oracle : DenoteOracle) (spec : CompilationModel)
+    (initialWorld : Verity.ContractState) (payload : Option ByteArray) : DenoteResult :=
+  { success := false
+    returnValue := none
+    revertPayload := payload
     finalStorage := encodeStorage oracle spec initialWorld
     events := encodeEvents initialWorld.events }
 
@@ -1273,6 +1285,7 @@ def successResult (oracle : DenoteOracle) (spec : CompilationModel)
     (world : Verity.ContractState) (ret : Option Nat) : DenoteResult :=
   { success := true
     returnValue := ret
+    revertPayload := none
     finalStorage := encodeStorage oracle spec world
     events := encodeEvents world.events }
 
@@ -1325,7 +1338,21 @@ def denoteFunction (oracle : DenoteOracle) (spec : CompilationModel) (fn : Funct
       | .continue state => successResult oracle spec state.world none
       | .stop state => successResult oracle spec state.world none
       | .return value state => successResult oracle spec state.world (some value)
-      | .revert => revertedResult oracle spec worldWithTx
+      | .revert payload => revertedResultWithPayload oracle spec worldWithTx payload
+
+@[simp] theorem panic_code_eq (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (code : Nat) :
+    execStmt oracle fields state (Stmt.panic code) =
+      StmtOutcome.revert (some (Compiler.Constants.solidityPanicRevertPayload code)) := rfl
+
+@[simp] theorem denoteFunction_panic_revertPayload
+    (oracle : DenoteOracle) (spec : CompilationModel)
+    (tx : DenoteTransaction) (initialWorld : Verity.ContractState) (code : Nat) :
+    (denoteFunction oracle spec
+        { name := "panic", params := [], returnType := none, body := [Stmt.panic code] }
+        tx initialWorld).revertPayload =
+      some (Compiler.Constants.solidityPanicRevertPayload code) := by
+  simp [denoteFunction, bindSupportedParams, execStmtList, revertedResultWithPayload]
 
 /-! ## Smoke checks (oracle-independent scenarios) -/
 

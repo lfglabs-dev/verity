@@ -178,6 +178,7 @@ def collectStmtNames : Stmt → List String
     collectExprNames key1 ++ collectExprNames key2 ++ collectExprNames value
   | Stmt.require cond _ => collectExprNames cond
   | Stmt.requireError cond errorName args => errorName :: collectExprNames cond ++ collectExprListNames args
+  | Stmt.panic _ => []
   | Stmt.revertError errorName args => errorName :: collectExprListNames args
   | Stmt.return value => collectExprNames value
   | Stmt.returnValues values => collectExprListNames values

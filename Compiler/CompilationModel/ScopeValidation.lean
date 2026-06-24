@@ -482,6 +482,8 @@ def validateScopedStmtIdentifiers
       validateScopedExprIdentifiers context params paramScope dynamicParams immutableNames localScope constructorArgCount cond
       validateScopedExprIdentifiersList context params paramScope dynamicParams immutableNames localScope constructorArgCount args
       pure localScope
+  | Stmt.panic _ =>
+      pure localScope
   | Stmt.revertError _ args | Stmt.emit _ args | Stmt.returnValues args => do
       validateScopedExprIdentifiersList context params paramScope dynamicParams immutableNames localScope constructorArgCount args
       pure localScope

@@ -3,6 +3,7 @@ import Verity.Core.Address
 import Verity.Core.Uint256
 import Verity.Core.Semantics
 import Verity.Core.Free.IRStepAttr
+import Verity.Core.Model.Constants
 namespace Verity.Core.Free
 
 /-- Type universe for typed IR values. -/
@@ -69,6 +70,7 @@ inductive TStmt where
   | emit (eventName : String) (topics : List (TExpr .uint256))
   | rawLog (topics : List (TExpr .uint256)) (dataOffset dataSize : TExpr .uint256)
   | revert (reason : String)
+  | panic (code : Nat)
   deriving Repr
 
 /-- Typed IR block: declared parameters, local variables, and body statements. -/
@@ -126,7 +128,7 @@ instance : Inhabited TExecState := ⟨{ world := Verity.defaultState, env := Ver
 /-- Statement/block evaluation result. -/
 inductive TExecResult where
   | ok (state : TExecState)
-  | revert (reason : String)
+  | revert (reason : String) (payload : Option ByteArray := none)
   deriving Inhabited
 
 /-- Evaluate a typed expression in the current execution state. -/
@@ -265,6 +267,8 @@ def evalTStmtFuel : Nat → TExecState → TStmt → TExecResult
         events := s.world.events ++
           [{ name := s!"log{topics.length}", args := [offsetVal, sizeVal], indexedArgs := topicVals }] } }
   | Nat.succ _, _, .revert reason => .revert reason
+  | Nat.succ _, _, .panic code =>
+      .revert s!"Panic({code})" (some (Compiler.Constants.solidityPanicRevertPayload code))
 
 /-- Fuel-bounded evaluator for a sequence of typed IR statements. -/
 def evalTStmtsFuel : Nat → TExecState → List TStmt → TExecResult
@@ -287,7 +291,7 @@ def evalTStmtsFuel : Nat → TExecState → List TStmt → TExecResult
             | _ => false
           if halts then .ok s'
           else evalTStmtsFuel fuel s' rest
-      | .revert reason => .revert reason
+      | .revert reason payload => .revert reason payload
 
 end
 
@@ -336,6 +340,11 @@ def evalTBlock (s : TExecState) (block : TBlock) : TExecResult :=
 
 @[simp, ir_step] theorem evalTStmt_revert (s : TExecState) (reason : String) :
     evalTStmt s (.revert reason) = .revert reason := by
+  simp [evalTStmt, defaultEvalFuel, evalTStmtFuel]
+
+@[simp, ir_step] theorem evalTStmt_panic (s : TExecState) (code : Nat) :
+    evalTStmt s (.panic code) =
+      .revert s!"Panic({code})" (some (Compiler.Constants.solidityPanicRevertPayload code)) := by
   simp [evalTStmt, defaultEvalFuel, evalTStmtFuel]
 
 @[simp, ir_step] theorem evalTStmts_nil (s : TExecState) :

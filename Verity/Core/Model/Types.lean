@@ -1083,6 +1083,9 @@ inductive Stmt
   | setStructMember2 (field : String) (key1 key2 : Expr) (memberName : String) (value : Expr)
   | require (cond : Expr) (message : String)
   | requireError (cond : Expr) (errorName : String) (args : List Expr)
+  /-- First-class Solidity `panic(code)` statement. Reverts with the canonical
+      `Panic(uint256)` ABI payload (`0x4e487b71 ++ abi.encode(code)`). -/
+  | panic (code : Nat)
   | revertError (errorName : String) (args : List Expr)
   | return (value : Expr)
   | returnValues (values : List Expr)  -- ABI-encode multiple static return words
@@ -1201,6 +1204,8 @@ def directMetadata : Stmt → StmtMetadata
       { subexpressions := [cond], termination := .mayTerminate, controlFlow := .mayReverting }
   | .requireError cond _ args =>
       { subexpressions := cond :: args, termination := .mayTerminate, controlFlow := .mayReverting }
+  | .panic _ =>
+      { termination := .alwaysTerminates, controlFlow := .reverts }
   | .revertError _ args =>
       { subexpressions := args, termination := .alwaysTerminates, controlFlow := .reverts }
   | .return value =>
@@ -1354,7 +1359,7 @@ mutual
 partial def controlFlow : Stmt → ControlFlowSummary
   | .require _ _ | .requireError _ _ _ =>
       .mayReverting
-  | .revertError _ _ | .revertReturndata =>
+  | .panic _ | .revertError _ _ | .revertReturndata =>
       .reverts
   | .return _ | .returnValues _ | .returnArray _ | .returnBytes _ | .returnStorageWords _ | .returnCodeData _ =>
       .returns
