@@ -79,7 +79,7 @@ theorem word_read_store_other
     (word readSlot).read
       (abstractStoreStorageOrMapping storage writeSlot value) =
     (word readSlot).read storage := by
-  simp [word, abstractLoadStorageOrMapping, abstractStoreStorageOrMapping, h]
+  simp [word, abstractLoadStorageOrMapping, h]
 
 end ViewLens
 
