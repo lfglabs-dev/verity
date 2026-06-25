@@ -134,6 +134,10 @@ ALLOWLIST: set[str] = {
     "selectedUserBodyClosureAndMatchedFresh_of_compile_ok_supported_switchFresh",
     # --- Helper-aware result packaging bridge ---
     "interpretFunctionWithHelpers_eq_execResultToIRResultWithInternals_of_body",
+    # ERC-4337 dynamic ABI view projection: mechanical destructuring of the
+    # nine-field PackedUserOperation decoder to expose its four dynamic bytes
+    # member bindings. Splitting would duplicate the same option-case spine.
+    "decodePackedUserOperationAt",
     "compiledStmtStep_setStructMember2_singleSlot_of_slotSafety_preserves",
     "stmtListGenericCore_singleton_setStructMember2Single_of_slotSafety",
     # --- Transient/memory write singleton bridges ---

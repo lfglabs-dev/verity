@@ -1,5 +1,5 @@
 import Compiler.CompilationModel.ParamLoading
-import Compiler.Proofs.YulGeneration.Calldata
+import Verity.Core.Model.DynamicAbi
 
 namespace Compiler.Proofs.IRGeneration
 
@@ -20,7 +20,7 @@ def externalCalldataSize (calldata : List Nat) : Nat :=
 def externalWordAt? (selector : Nat) (calldata : List Nat) (byteOffset : Nat) :
     Option Nat :=
   if 4 ≤ byteOffset ∧ byteOffset + 32 ≤ externalCalldataSize calldata then
-    some (Compiler.Proofs.YulGeneration.calldataloadWord selector calldata byteOffset)
+    some (Compiler.CompilationModel.DynamicAbi.calldataloadWord selector calldata byteOffset)
   else
     none
 
