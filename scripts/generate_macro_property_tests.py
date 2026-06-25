@@ -52,6 +52,17 @@ INTERFACE_RE = re.compile(r"^\s*interface\s+([A-Za-z_][A-Za-z0-9_]*)\s+where\s*$
 STORAGE_RE = re.compile(
     rf"^\s*{_IDENT}\s*:\s*(.+?)\s*:=\s*slot\s+([0-9]+)\s*$",
 )
+STORAGE_MODIFIER_RE = re.compile(r"^(transient|persistent)\s+(.*)$")
+
+
+def _split_storage_modifier(text: str) -> tuple[str | None, str]:
+    """Strip a leading `transient`/`persistent` location modifier from a storage decl."""
+    m = STORAGE_MODIFIER_RE.match(text)
+    if m:
+        return m.group(1), m.group(2)
+    return None, text
+
+
 VALUE_BINDING_RE = re.compile(
     rf"^\s*{_IDENT}\s*:\s*(.+?)\s*:=\s*(.+?)\s*$",
 )
@@ -145,6 +156,7 @@ class ContractDecl:
     storage_slots: dict[str, int]
     source: Path
     storage_types: dict[str, str] = field(default_factory=dict)
+    transient_slots: frozenset[str] = frozenset()
     newtypes: dict[str, str] = field(default_factory=dict)
     constants: dict[str, ValueDecl] = field(default_factory=dict)
     immutables: dict[str, ValueDecl] = field(default_factory=dict)
@@ -289,6 +301,7 @@ def parse_contracts(text: str, source: Path) -> dict[str, ContractDecl]:
     current_name: str | None = None
     current_constructor: ConstructorDecl | None = None
     current_storage_slots: dict[str, int] = {}
+    current_transient_slots: set[str] = set()
     current_storage_types: dict[str, str] = {}
     current_newtypes: dict[str, str] = {}
     current_structs: dict[str, tuple[ParamDecl, ...]] = {}
@@ -335,7 +348,7 @@ def parse_contracts(text: str, source: Path) -> dict[str, ContractDecl]:
         current_body = []
 
     def flush_current() -> None:
-        nonlocal current_name, current_constructor, current_storage_slots, current_storage_types, current_newtypes, current_structs, current_constants, current_immutables, current_functions, in_types_block, in_storage_block, in_constants_block, in_immutables_block, pending_storage_lines, current_struct_block_comment
+        nonlocal current_name, current_constructor, current_storage_slots, current_transient_slots, current_storage_types, current_newtypes, current_structs, current_constants, current_immutables, current_functions, in_types_block, in_storage_block, in_constants_block, in_immutables_block, pending_storage_lines, current_struct_block_comment
         if current_name is None:
             return
         flush_struct()
@@ -347,6 +360,7 @@ def parse_contracts(text: str, source: Path) -> dict[str, ContractDecl]:
             storage_slots=dict(current_storage_slots),
             source=source,
             storage_types=dict(current_storage_types),
+            transient_slots=frozenset(current_transient_slots),
             newtypes=dict(current_newtypes),
             constants=dict(current_constants),
             immutables=dict(current_immutables),
@@ -354,6 +368,7 @@ def parse_contracts(text: str, source: Path) -> dict[str, ContractDecl]:
         current_name = None
         current_constructor = None
         current_storage_slots = {}
+        current_transient_slots = set()
         current_storage_types = {}
         current_newtypes = {}
         current_structs = {}
@@ -522,18 +537,24 @@ def parse_contracts(text: str, source: Path) -> dict[str, ContractDecl]:
 
         if in_storage_block:
             stripped = line.strip()
-            sm = STORAGE_RE.match(stripped)
+            modifier, decl_body = _split_storage_modifier(stripped)
+            sm = STORAGE_RE.match(decl_body)
             if sm:
                 current_storage_slots[sm.group(1)] = int(sm.group(3))
                 current_storage_types[sm.group(1)] = _normalize_type(sm.group(2))
+                if modifier == "transient":
+                    current_transient_slots.add(sm.group(1))
                 pending_storage_lines = []
                 continue
             if pending_storage_lines:
                 pending_storage_lines.append(stripped)
-                sm = STORAGE_RE.match(" ".join(pending_storage_lines))
+                joined_modifier, joined_body = _split_storage_modifier(" ".join(pending_storage_lines))
+                sm = STORAGE_RE.match(joined_body)
                 if sm:
                     current_storage_slots[sm.group(1)] = int(sm.group(3))
                     current_storage_types[sm.group(1)] = _normalize_type(sm.group(2))
+                    if joined_modifier == "transient":
+                        current_transient_slots.add(sm.group(1))
                     pending_storage_lines = []
                 continue
             if stripped:
@@ -2215,9 +2236,24 @@ def _infer_straight_line_non_unit_test(
     )
 
 
+def _reads_transient_slot(contract: ContractDecl, body: list[str]) -> bool:
+    """A read of a transient storage slot cannot be modelled by the persistent
+    ``vm.store`` equivalence tests this generator emits, so such functions are
+    skipped (they fall through to a no-revert TODO stub)."""
+    if not contract.transient_slots:
+        return False
+    for line in body:
+        read = _parse_read_accessor(line)
+        if read is not None and read.storage_name in contract.transient_slots:
+            return True
+    return False
+
+
 def _render_inferred_non_unit_test(contract: ContractDecl, fn: FunctionDecl, idx: int, encode_args: str) -> str | None:
     fn_camel = _fn_camel(fn.name)
     body = list(fn.body)
+    if _reads_transient_slot(contract, body):
+        return None
     ty = _normalize_type(fn.return_type)
     param_examples = _choose_param_examples(fn)
     constructor_examples = (
