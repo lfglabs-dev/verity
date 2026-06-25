@@ -8,6 +8,8 @@
           "declaredAliasSlots": [],
           "declaredSlot": 0,
           "effectiveAliasSlots": [],
+          "isTransient": false,
+          "locationKind": "persistent",
           "name": "storedData",
           "packedBits": null,
           "type": {
@@ -26,6 +28,7 @@
         {
           "keccakPreimage": null,
           "kind": "scalar",
+          "locationKind": "persistent",
           "name": "storedData",
           "rootSlot": 0,
           "structWordRange": null
@@ -41,6 +44,8 @@
           "declaredAliasSlots": [],
           "declaredSlot": 0,
           "effectiveAliasSlots": [],
+          "isTransient": false,
+          "locationKind": "persistent",
           "name": "count",
           "packedBits": null,
           "type": {
@@ -59,6 +64,7 @@
         {
           "keccakPreimage": null,
           "kind": "scalar",
+          "locationKind": "persistent",
           "name": "count",
           "rootSlot": 0,
           "structWordRange": null
@@ -74,6 +80,8 @@
           "declaredAliasSlots": [],
           "declaredSlot": 0,
           "effectiveAliasSlots": [],
+          "isTransient": false,
+          "locationKind": "persistent",
           "name": "owner",
           "packedBits": null,
           "type": {
@@ -92,6 +100,7 @@
         {
           "keccakPreimage": null,
           "kind": "scalar",
+          "locationKind": "persistent",
           "name": "owner",
           "rootSlot": 0,
           "structWordRange": null
@@ -107,6 +116,8 @@
           "declaredAliasSlots": [],
           "declaredSlot": 0,
           "effectiveAliasSlots": [],
+          "isTransient": false,
+          "locationKind": "persistent",
           "name": "balances",
           "packedBits": null,
           "type": {
@@ -129,6 +140,7 @@
         {
           "keccakPreimage": "keccak256(key || slot=0) [keys: address]",
           "kind": "mapping",
+          "locationKind": "persistent",
           "name": "balances",
           "rootSlot": 0,
           "structWordRange": null
@@ -144,6 +156,8 @@
           "declaredAliasSlots": [],
           "declaredSlot": 0,
           "effectiveAliasSlots": [],
+          "isTransient": false,
+          "locationKind": "persistent",
           "name": "totalAssetsSlot",
           "packedBits": null,
           "type": {
@@ -158,6 +172,8 @@
           "declaredAliasSlots": [],
           "declaredSlot": 1,
           "effectiveAliasSlots": [],
+          "isTransient": false,
+          "locationKind": "persistent",
           "name": "totalSupplySlot",
           "packedBits": null,
           "type": {
@@ -172,6 +188,8 @@
           "declaredAliasSlots": [],
           "declaredSlot": 2,
           "effectiveAliasSlots": [],
+          "isTransient": false,
+          "locationKind": "persistent",
           "name": "shareBalancesSlot",
           "packedBits": null,
           "type": {
@@ -234,6 +252,7 @@
         {
           "keccakPreimage": null,
           "kind": "scalar",
+          "locationKind": "persistent",
           "name": "totalAssetsSlot",
           "rootSlot": 0,
           "structWordRange": null
@@ -241,6 +260,7 @@
         {
           "keccakPreimage": null,
           "kind": "scalar",
+          "locationKind": "persistent",
           "name": "totalSupplySlot",
           "rootSlot": 1,
           "structWordRange": null
@@ -248,6 +268,7 @@
         {
           "keccakPreimage": "keccak256(key || slot=2) [keys: address]",
           "kind": "mapping",
+          "locationKind": "persistent",
           "name": "shareBalancesSlot",
           "rootSlot": 2,
           "structWordRange": null
@@ -263,6 +284,8 @@
           "declaredAliasSlots": [],
           "declaredSlot": 0,
           "effectiveAliasSlots": [],
+          "isTransient": false,
+          "locationKind": "persistent",
           "name": "owner",
           "packedBits": null,
           "type": {
@@ -277,6 +300,8 @@
           "declaredAliasSlots": [],
           "declaredSlot": 1,
           "effectiveAliasSlots": [],
+          "isTransient": false,
+          "locationKind": "persistent",
           "name": "count",
           "packedBits": null,
           "type": {
@@ -309,6 +334,7 @@
         {
           "keccakPreimage": null,
           "kind": "scalar",
+          "locationKind": "persistent",
           "name": "owner",
           "rootSlot": 0,
           "structWordRange": null
@@ -316,6 +342,7 @@
         {
           "keccakPreimage": null,
           "kind": "scalar",
+          "locationKind": "persistent",
           "name": "count",
           "rootSlot": 1,
           "structWordRange": null
@@ -331,6 +358,8 @@
           "declaredAliasSlots": [],
           "declaredSlot": 0,
           "effectiveAliasSlots": [],
+          "isTransient": false,
+          "locationKind": "persistent",
           "name": "ownerSlot",
           "packedBits": null,
           "type": {
@@ -345,6 +374,8 @@
           "declaredAliasSlots": [],
           "declaredSlot": 1,
           "effectiveAliasSlots": [],
+          "isTransient": false,
+          "locationKind": "persistent",
           "name": "balancesSlot",
           "packedBits": null,
           "type": {
@@ -363,6 +394,8 @@
           "declaredAliasSlots": [],
           "declaredSlot": 2,
           "effectiveAliasSlots": [],
+          "isTransient": false,
+          "locationKind": "persistent",
           "name": "totalSupplySlot",
           "packedBits": null,
           "type": {
@@ -421,6 +454,7 @@
         {
           "keccakPreimage": null,
           "kind": "scalar",
+          "locationKind": "persistent",
           "name": "ownerSlot",
           "rootSlot": 0,
           "structWordRange": null
@@ -428,6 +462,7 @@
         {
           "keccakPreimage": "keccak256(key || slot=1) [keys: address]",
           "kind": "mapping",
+          "locationKind": "persistent",
           "name": "balancesSlot",
           "rootSlot": 1,
           "structWordRange": null
@@ -435,6 +470,7 @@
         {
           "keccakPreimage": null,
           "kind": "scalar",
+          "locationKind": "persistent",
           "name": "totalSupplySlot",
           "rootSlot": 2,
           "structWordRange": null
@@ -450,6 +486,8 @@
           "declaredAliasSlots": [],
           "declaredSlot": 0,
           "effectiveAliasSlots": [],
+          "isTransient": false,
+          "locationKind": "persistent",
           "name": "count",
           "packedBits": null,
           "type": {
@@ -468,6 +506,7 @@
         {
           "keccakPreimage": null,
           "kind": "scalar",
+          "locationKind": "persistent",
           "name": "count",
           "rootSlot": 0,
           "structWordRange": null
@@ -483,6 +522,8 @@
           "declaredAliasSlots": [],
           "declaredSlot": 0,
           "effectiveAliasSlots": [],
+          "isTransient": false,
+          "locationKind": "persistent",
           "name": "ownerSlot",
           "packedBits": null,
           "type": {
@@ -497,6 +538,8 @@
           "declaredAliasSlots": [],
           "declaredSlot": 1,
           "effectiveAliasSlots": [],
+          "isTransient": false,
+          "locationKind": "persistent",
           "name": "totalSupplySlot",
           "packedBits": null,
           "type": {
@@ -511,6 +554,8 @@
           "declaredAliasSlots": [],
           "declaredSlot": 2,
           "effectiveAliasSlots": [],
+          "isTransient": false,
+          "locationKind": "persistent",
           "name": "balancesSlot",
           "packedBits": null,
           "type": {
@@ -529,6 +574,8 @@
           "declaredAliasSlots": [],
           "declaredSlot": 3,
           "effectiveAliasSlots": [],
+          "isTransient": false,
+          "locationKind": "persistent",
           "name": "allowancesSlot",
           "packedBits": null,
           "type": {
@@ -631,6 +678,7 @@
         {
           "keccakPreimage": null,
           "kind": "scalar",
+          "locationKind": "persistent",
           "name": "ownerSlot",
           "rootSlot": 0,
           "structWordRange": null
@@ -638,6 +686,7 @@
         {
           "keccakPreimage": null,
           "kind": "scalar",
+          "locationKind": "persistent",
           "name": "totalSupplySlot",
           "rootSlot": 1,
           "structWordRange": null
@@ -645,6 +694,7 @@
         {
           "keccakPreimage": "keccak256(key || slot=2) [keys: address]",
           "kind": "mapping",
+          "locationKind": "persistent",
           "name": "balancesSlot",
           "rootSlot": 2,
           "structWordRange": null
@@ -652,6 +702,7 @@
         {
           "keccakPreimage": "keccak256(innerKey || keccak256(outerKey || slot=3)) [keys: address, address]",
           "kind": "nestedMapping",
+          "locationKind": "persistent",
           "name": "allowancesSlot",
           "rootSlot": 3,
           "structWordRange": null
