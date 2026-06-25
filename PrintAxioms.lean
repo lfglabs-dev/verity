@@ -73,6 +73,7 @@ import Compiler.Proofs.IRGeneration.SupportedSpec
 import Compiler.Proofs.KeccakBound
 import Compiler.Proofs.MappingSlot
 import Compiler.Proofs.StorageBounds
+import Compiler.Proofs.StorageLens
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBodyClosure.Base
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBodyClosure.Generic
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBodyClosure.Safe
@@ -3779,6 +3780,18 @@ end Verity.AxiomAudit
   Compiler.Proofs.StorageBounds.writeStorageArray_storage_unchanged
   Compiler.Proofs.StorageBounds.writeStorageArray_events_unchanged
 
+  -- Compiler/Proofs/StorageLens.lean
+  Compiler.Proofs.ViewLens.word_read
+  Compiler.Proofs.ViewLens.wordDecoded_read
+  Compiler.Proofs.ViewLens.mappingWord_read
+  Compiler.Proofs.ViewLens.word_read_store_other
+  Compiler.Proofs.StorageLens.toViewLens_read
+  Compiler.Proofs.StorageLens.word_read
+  Compiler.Proofs.StorageLens.word_write
+  Compiler.Proofs.view_lens_comp_correct
+  Compiler.Proofs.view_lens_of_storage_lens_correct
+  Compiler.Proofs.view_lens_comp_of_storage_lens_correct
+
   -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanBodyClosure/Base.lean
   -- Compiler.Proofs.YulGeneration.Backends.compileStmtWithFork_cancun_eq_compileStmt  -- private
   -- Compiler.Proofs.YulGeneration.Backends.compileStmtListWithFork_cancun_eq_compileStmtList  -- private
@@ -5807,4 +5820,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5431 theorems/lemmas (3735 public, 1696 private, 0 sorry'd)
+-- Total: 5441 theorems/lemmas (3745 public, 1696 private, 0 sorry'd)
