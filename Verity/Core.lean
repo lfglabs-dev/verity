@@ -128,6 +128,9 @@ def readTransient (s : ContractState) (slot : Nat) : Uint256 :=
 def writeTransient (s : ContractState) (slot : Nat) (value : Uint256) : ContractState :=
   { s with transientStorage := fun sl => if sl == slot then value else s.transientStorage sl }
 
+def clearTransient (s : ContractState) : ContractState :=
+  { s with transientStorage := fun _ => 0 }
+
 def readMap (s : ContractState) (slot : Nat) (key : Address) : Uint256 :=
   s.storageMap slot key
 
@@ -183,6 +186,14 @@ def writeArray (s : ContractState) (slot : Nat) (values : List Uint256) : Contra
     (s.writeTransient slot v).readTransient slot' = s.readTransient slot' := by
   simp [readTransient, writeTransient, h]
 
+@[storage_simps] theorem tstore_tload_correct (s : ContractState) (slot : Nat)
+    (v : Uint256) : (s.writeTransient slot v).readTransient slot = v := by
+  simp [readTransient, writeTransient]
+
+@[storage_simps] theorem tx_boundary_wipe (s : ContractState) (slot : Nat) :
+    (s.clearTransient).readTransient slot = 0 := by
+  simp [readTransient, clearTransient]
+
 @[storage_simps] theorem readMap_writeMap_same (s : ContractState) (slot : Nat) (key : Address)
     (v : Uint256) : (s.writeMap slot key v).readMap slot key = v := by
   simp [readMap, writeMap]
@@ -215,7 +226,7 @@ def writeArray (s : ContractState) (slot : Nat) (values : List Uint256) : Contra
 -- transparent so the existing raw-field proof surface keeps working unchanged.
 -- C5 removes this attribute and migrates proofs onto `storage_simps`.
 attribute [simp] readSlot writeSlot readAddrSlot writeAddrSlot readTransient
-  writeTransient readMap writeMap readMapUint writeMapUint readMap2 writeMap2
+  writeTransient clearTransient readMap writeMap readMapUint writeMapUint readMap2 writeMap2
   readArray writeArray
 
 end ContractState
@@ -239,6 +250,14 @@ def defaultState : ContractState where
   blockNumber := 0
   chainId := 0
   knownAddresses := fun _ => Core.FiniteAddressSet.empty
+
+namespace ContractState
+
+@[storage_simps] theorem tload_before_tstore_zero (slot : Nat) :
+    defaultState.readTransient slot = 0 := by
+  simp [defaultState, readTransient]
+
+end ContractState
 
 -- Repr instance for ContractState (simplified for readability)
 instance : Repr ContractState where
