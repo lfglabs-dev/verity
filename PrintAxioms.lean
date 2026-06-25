@@ -48,6 +48,7 @@ import Compiler.Proofs.IRGeneration.ContractShape
 import Compiler.Proofs.IRGeneration.DenoteAgreement
 import Compiler.Proofs.IRGeneration.DenoteFunctionAgreement
 import Compiler.Proofs.IRGeneration.Dispatch
+import Compiler.Proofs.IRGeneration.DynamicAbiRefinement
 import Compiler.Proofs.IRGeneration.Function
 import Compiler.Proofs.IRGeneration.FunctionBody.Base
 import Compiler.Proofs.IRGeneration.FunctionBody.Stmt
@@ -1976,6 +1977,12 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.Dispatch.interpretContract_correct_of_compiled_functions_with_helper_proofs_and_helper_ir_of_disjointRuntimeContract
   Compiler.Proofs.IRGeneration.Dispatch.interpretContract_correct_of_compiled_functions_with_helper_proofs_and_helper_ir_closed
 
+  -- Compiler/Proofs/IRGeneration/DynamicAbiRefinement.lean
+  Compiler.Proofs.IRGeneration.DynamicAbiRefinement.arrayElementDynamicHeadOffset?_index_oob
+  Compiler.Proofs.IRGeneration.DynamicAbiRefinement.arrayElementDynamicMemberDataOffset_eq_length_pos_add_word
+  Compiler.Proofs.IRGeneration.DynamicAbiRefinement.ERC4337.decodePackedUserOperationAt?_dynamic_bytes_members
+  Compiler.Proofs.IRGeneration.DynamicAbiRefinement.ERC4337.decodeHandleOps_ops_binding
+
   -- Compiler/Proofs/IRGeneration/Function.lean
   -- Compiler.Proofs.IRGeneration.Function.yulStmtList_length_le_sizeOf  -- private
   -- Compiler.Proofs.IRGeneration.Function.compiledFunctionIR_body_length_le_sizeOf  -- private
@@ -3398,6 +3405,11 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.SourceSemantics.execStmtListWithEvents_nil_eq_execStmtList
   Compiler.Proofs.IRGeneration.SourceSemantics.execStmtWithEvents_eq_execStmt_of_contractSurfaceClosed
   Compiler.Proofs.IRGeneration.SourceSemantics.execStmtListWithEvents_eq_execStmtList_of_contractSurfaceClosed
+  Compiler.Proofs.IRGeneration.SourceSemantics.decodeSupportedParamWord_eq_dynamicAbi
+  Compiler.Proofs.IRGeneration.SourceSemantics.bindSupportedParams_eq_dynamicAbi
+  Compiler.Proofs.IRGeneration.SourceSemantics.bindSupportedParams_some_length
+  Compiler.Proofs.IRGeneration.SourceSemantics.bindExternalParams_eq_some_of_bindSupportedParams
+  Compiler.Proofs.IRGeneration.SourceSemantics.bindExternalParams_eq_none_of_not_length_le
   Compiler.Proofs.IRGeneration.SourceSemantics.bindSupportedParams_take_param_length
   Compiler.Proofs.IRGeneration.SourceSemantics.findDynamicArrayElementAtSlot_withTransactionContext
   Compiler.Proofs.IRGeneration.SourceSemantics.findDynamicArrayElementAtSlot_congr_storageArray

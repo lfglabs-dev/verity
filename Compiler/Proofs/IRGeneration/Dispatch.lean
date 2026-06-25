@@ -261,8 +261,11 @@ theorem interpretContract_correct_of_compiled_functions
                 exact hlen (ParamLoading.bindSupportedParams_some_length hbind)
           have hlenIr : ¬ irFn.params.length ≤ tx.args.length := by
             simpa [hlenEq] using hlen
+          have hbindExternalNone :
+              SourceSemantics.bindExternalParams tx.functionSelector fn.params tx.args = none :=
+            SourceSemantics.bindExternalParams_eq_none_of_not_length_le tx.functionSelector hlen
           rw [hinterp, hfindIr]
-          simp [SourceSemantics.interpretFunction, hbindNone, hfindPairs, hguardFalse,
+          simp [SourceSemantics.interpretFunction, hbindNone, hbindExternalNone, hfindPairs, hguardFalse,
             hguardIrFalse, hlenIr, FunctionBody.sourceResultMatchesIRResult,
             SourceSemantics.revertedResult, FunctionBody.initialIRStateForTx,
             FunctionBody.encodeStorage_withTransactionContext,

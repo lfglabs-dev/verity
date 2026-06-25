@@ -68,12 +68,10 @@ theorem denote_evalExpr_eq (fields : List Field) (s : DenoteState) :
         SourceSemantics.evalExpr fields (toRuntimeState s) e
   | .literal _ | .param _ | .immutable _ | .constructorArg _ | .storage _ | .storageAddr _
   | .mappingChain .. | .localVar _ | .storageArrayLength _ | .dynamicBytesEq ..
-  | .memoryArrayLength _ | .memoryArrayElement .. | .arrayElementDynamicDataOffset ..
-  | .arrayElementDynamicMemberLength .. | .arrayElementDynamicMemberDataOffset ..
-  | .arrayElementDynamicMemberElement .. | .paramDynamicMemberLength ..
+  | .memoryArrayLength _ | .memoryArrayElement .. | .paramDynamicMemberLength ..
   | .paramDynamicMemberDataOffset .. | .paramDynamicMemberElement ..
   | .paramDynamicStaticComposite .. | .paramDynamicHeadWord ..
-  | .arrayLength _ | .arrayElement .. | .arrayElementWord .. | .arrayElementDynamicWord ..
+  | .arrayLength _ | .arrayElement .. | .arrayElementWord ..
   | .call .. | .staticcall .. | .delegatecall .. | .extcodesize _
   | .returndataOptionalBoolAt _ | .externalCall .. | .internalCall ..
   | .intrinsic .. | .forkIfAtLeast .. | .mulDiv512Down .. | .mulDiv512Up ..
@@ -83,7 +81,11 @@ theorem denote_evalExpr_eq (fields : List Field) (s : DenoteState) :
   | .returndataSize => rfl
   | .bitNot a | .logicalNot a | .mload a | .tload a | .calldataload a
   | .mapping _ a | .mappingWord _ a _ | .mappingPackedWord _ a _ _
-  | .mappingUint _ a | .structMember _ a _ | .storageArrayElement _ a =>
+  | .mappingUint _ a | .structMember _ a _ | .storageArrayElement _ a
+  | .arrayElementDynamicWord _ a _
+  | .arrayElementDynamicDataOffset _ a
+  | .arrayElementDynamicMemberLength _ a _
+  | .arrayElementDynamicMemberDataOffset _ a _ =>
       bindAgree (denote_evalExpr_eq fields s a) fun _ => rfl
   | .add a b | .sub a b | .mul a b | .div a b | .sdiv a b | .mod a b | .smod a b
   | .bitAnd a b | .bitOr a b | .bitXor a b | .shl a b | .shr a b | .sar a b
@@ -98,6 +100,9 @@ theorem denote_evalExpr_eq (fields : List Field) (s : DenoteState) :
       bindAgree (denote_evalExpr_eq fields s a) fun _ =>
         bindAgree (denote_evalExpr_eq fields s b) fun _ =>
           bindAgree (denote_evalExpr_eq fields s c) fun _ => rfl
+  | .arrayElementDynamicMemberElement _ a _ b =>
+      bindAgree (denote_evalExpr_eq fields s a) fun _ =>
+        bindAgree (denote_evalExpr_eq fields s b) fun _ => rfl
   | .ite c t e =>
       bindAgree (denote_evalExpr_eq fields s c) fun v => by
         by_cases h : (v != 0) = true

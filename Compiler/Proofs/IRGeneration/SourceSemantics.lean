@@ -3,6 +3,7 @@ import Compiler.Proofs.IRGeneration.IRInterpreter
 import Compiler.Proofs.MappingSlot
 import Compiler.CompilationModel.LayoutValidation
 import Compiler.Keccak.Sponge
+import Verity.Core.Model.DynamicAbi
 
 set_option linter.unnecessarySimpa false
 set_option linter.unusedSimpArgs false
@@ -1039,13 +1040,47 @@ def writeStorageArray (world : Verity.ContractState) (slot : Nat)
 private def ceilDivVal (lhs rhs : Verity.Core.Uint256) : Nat :=
   if lhs == 0 then 0 else ((lhs - 1) / rhs + 1).val
 
+private abbrev dynamicArrayBinding? :=
+  DynamicAbi.dynamicArrayBinding?
+
+private abbrev arrayElementDynamicHeadOffset? :=
+  DynamicAbi.arrayElementDynamicHeadOffset?
+
+private abbrev arrayElementDynamicWord? :=
+  DynamicAbi.arrayElementDynamicWord?
+
+private abbrev arrayElementDynamicMemberLength? :=
+  DynamicAbi.arrayElementDynamicMemberLength?
+
+private abbrev arrayElementDynamicMemberDataOffset? :=
+  DynamicAbi.arrayElementDynamicMemberDataOffset?
+
+private abbrev arrayElementDynamicMemberElement? :=
+  DynamicAbi.arrayElementDynamicMemberElement?
+
 def evalExpr (fields : List Field) (state : RuntimeState) : Expr → Option Nat
   | .memoryArrayLength _ => none
   | .memoryArrayElement _ _ => none
-  | .arrayElementDynamicDataOffset _ _ => none
-  | .arrayElementDynamicMemberLength _ _ _ => none
-  | .arrayElementDynamicMemberDataOffset _ _ _ => none
-  | .arrayElementDynamicMemberElement _ _ _ _ => none
+  | .arrayElementDynamicDataOffset name index => do
+      let idx ← evalExpr fields state index
+      let (dataOffset, length) ← dynamicArrayBinding? state.bindings name
+      arrayElementDynamicHeadOffset? state.selector state.world.calldata dataOffset length idx
+  | .arrayElementDynamicMemberLength name index wordOffset => do
+      let idx ← evalExpr fields state index
+      let (dataOffset, length) ← dynamicArrayBinding? state.bindings name
+      arrayElementDynamicMemberLength?
+        state.selector state.world.calldata dataOffset length idx wordOffset
+  | .arrayElementDynamicMemberDataOffset name index wordOffset => do
+      let idx ← evalExpr fields state index
+      let (dataOffset, length) ← dynamicArrayBinding? state.bindings name
+      arrayElementDynamicMemberDataOffset?
+        state.selector state.world.calldata dataOffset length idx wordOffset
+  | .arrayElementDynamicMemberElement name index wordOffset innerIndex => do
+      let idx ← evalExpr fields state index
+      let innerIdx ← evalExpr fields state innerIndex
+      let (dataOffset, length) ← dynamicArrayBinding? state.bindings name
+      arrayElementDynamicMemberElement?
+        state.selector state.world.calldata dataOffset length idx wordOffset innerIdx
   | .paramDynamicMemberLength _ _ => none
   | .paramDynamicMemberDataOffset _ _ => none
   | .paramDynamicMemberElement _ _ _ => none
@@ -1343,6 +1378,11 @@ def evalExpr (fields : List Field) (state : RuntimeState) : Expr → Option Nat
       some (keccakMemorySlice state.world.memory off size)
   | .constructorArg idx =>
       lookupBinding? state.bindings s!"arg{idx}"
+  | .arrayElementDynamicWord name index wordOffset => do
+      let idx ← evalExpr fields state index
+      let (dataOffset, length) ← dynamicArrayBinding? state.bindings name
+      arrayElementDynamicWord?
+        state.selector state.world.calldata dataOffset length idx wordOffset
   | _ => none
 
 def evalExprList (fields : List Field) (state : RuntimeState) : List Expr → Option (List Nat)
@@ -1941,14 +1981,22 @@ private theorem evalExpr_arrayElementDynamicWord
     (name : String)
     (index : Expr)
     (wordOffset : Nat) :
-    evalExpr fields state (.arrayElementDynamicWord name index wordOffset) = none := rfl
+    evalExpr fields state (.arrayElementDynamicWord name index wordOffset) = (do
+      let idx ← evalExpr fields state index
+      let (dataOffset, length) ← dynamicArrayBinding? state.bindings name
+      arrayElementDynamicWord?
+        state.selector state.world.calldata dataOffset length idx wordOffset) := rfl
 
 private theorem evalExpr_arrayElementDynamicDataOffset
     (fields : List Field)
     (state : RuntimeState)
     (name : String)
     (index : Expr) :
-    evalExpr fields state (.arrayElementDynamicDataOffset name index) = none := rfl
+    evalExpr fields state (.arrayElementDynamicDataOffset name index) = (do
+      let idx ← evalExpr fields state index
+      let (dataOffset, length) ← dynamicArrayBinding? state.bindings name
+      arrayElementDynamicHeadOffset?
+        state.selector state.world.calldata dataOffset length idx) := rfl
 
 private theorem evalExpr_arrayElementDynamicMemberLength
     (fields : List Field)
@@ -1956,7 +2004,11 @@ private theorem evalExpr_arrayElementDynamicMemberLength
     (name : String)
     (index : Expr)
     (wordOffset : Nat) :
-    evalExpr fields state (.arrayElementDynamicMemberLength name index wordOffset) = none := rfl
+    evalExpr fields state (.arrayElementDynamicMemberLength name index wordOffset) = (do
+      let idx ← evalExpr fields state index
+      let (dataOffset, length) ← dynamicArrayBinding? state.bindings name
+      arrayElementDynamicMemberLength?
+        state.selector state.world.calldata dataOffset length idx wordOffset) := rfl
 
 private theorem evalExpr_arrayElementDynamicMemberDataOffset
     (fields : List Field)
@@ -1964,7 +2016,11 @@ private theorem evalExpr_arrayElementDynamicMemberDataOffset
     (name : String)
     (index : Expr)
     (wordOffset : Nat) :
-    evalExpr fields state (.arrayElementDynamicMemberDataOffset name index wordOffset) = none := rfl
+    evalExpr fields state (.arrayElementDynamicMemberDataOffset name index wordOffset) = (do
+      let idx ← evalExpr fields state index
+      let (dataOffset, length) ← dynamicArrayBinding? state.bindings name
+      arrayElementDynamicMemberDataOffset?
+        state.selector state.world.calldata dataOffset length idx wordOffset) := rfl
 
 private theorem evalExpr_arrayElementDynamicMemberElement
     (fields : List Field)
@@ -1974,7 +2030,12 @@ private theorem evalExpr_arrayElementDynamicMemberElement
     (wordOffset : Nat)
     (innerIndex : Expr) :
     evalExpr fields state
-        (.arrayElementDynamicMemberElement name index wordOffset innerIndex) = none := rfl
+        (.arrayElementDynamicMemberElement name index wordOffset innerIndex) = (do
+      let idx ← evalExpr fields state index
+      let innerIdx ← evalExpr fields state innerIndex
+      let (dataOffset, length) ← dynamicArrayBinding? state.bindings name
+      arrayElementDynamicMemberElement?
+        state.selector state.world.calldata dataOffset length idx wordOffset innerIdx) := rfl
 
 private theorem evalExpr_mappingWord
     (fields : List Field)
@@ -2817,6 +2878,70 @@ def bindSupportedParams (params : List Param) (args : List Nat) :
       let bindings ← bindSupportedParams rest restArgs
       pure ((param.name, value) :: bindings)
 
+def bindExternalParam (selector : Nat) (calldata : List Nat)
+    (headSize baseOffset headOffset : Nat) (param : Param) :
+    Option (List (String × Nat)) :=
+  DynamicAbi.bindExternalParam selector calldata headSize baseOffset headOffset param
+
+def bindExternalParamsFrom (selector : Nat) (calldata : List Nat)
+    (headSize baseOffset : Nat) (params : List Param) (headOffset : Nat) :
+    Option (List (String × Nat)) :=
+  DynamicAbi.bindExternalParamsFrom selector calldata headSize baseOffset params headOffset
+
+def bindExternalParams (selector : Nat) (params : List Param) (calldata : List Nat) :
+    Option (List (String × Nat)) :=
+  DynamicAbi.bindExternalParams selector params calldata
+
+theorem decodeSupportedParamWord_eq_dynamicAbi (ty : ParamType) (word : Nat) :
+    decodeSupportedParamWord ty word = DynamicAbi.decodeSupportedParamWord ty word := by
+  cases ty <;> rfl
+
+theorem bindSupportedParams_eq_dynamicAbi :
+    ∀ (params : List Param) (args : List Nat),
+      bindSupportedParams params args = DynamicAbi.bindSupportedParams params args
+  | [], _ => rfl
+  | _ :: _, [] => rfl
+  | param :: rest, arg :: restArgs => by
+      simp only [bindSupportedParams, DynamicAbi.bindSupportedParams,
+        decodeSupportedParamWord_eq_dynamicAbi, bindSupportedParams_eq_dynamicAbi rest restArgs]
+
+theorem bindSupportedParams_some_length
+    {params : List Param} {args : List Nat} {bindings : List (String × Nat)}
+    (hbind : bindSupportedParams params args = some bindings) :
+    params.length ≤ args.length := by
+  induction params generalizing args bindings with
+  | nil =>
+      exact Nat.zero_le _
+  | cons param rest ih =>
+      cases args with
+      | nil =>
+          simp [bindSupportedParams] at hbind
+      | cons arg restArgs =>
+          cases hdecode : decodeSupportedParamWord param.ty arg <;>
+              simp [bindSupportedParams, hdecode] at hbind
+          case some value =>
+            cases hrest : bindSupportedParams rest restArgs <;>
+                simp [hrest] at hbind
+            case some restBindings =>
+              cases hbind
+              exact Nat.succ_le_succ (ih hrest)
+
+@[simp] theorem bindExternalParams_eq_some_of_bindSupportedParams
+    {params : List Param} {args : List Nat} {bindings : List (String × Nat)}
+    (selector : Nat)
+    (hbind : bindSupportedParams params args = some bindings) :
+    bindExternalParams selector params args = some bindings := by
+  have hlen := bindSupportedParams_some_length hbind
+  simp only [bindExternalParams, DynamicAbi.bindExternalParams, hlen, ↓reduceIte]
+  rw [← bindSupportedParams_eq_dynamicAbi, hbind]
+
+@[simp] theorem bindExternalParams_eq_none_of_not_length_le
+    {params : List Param} {args : List Nat}
+    (selector : Nat)
+    (hlen : ¬ params.length ≤ args.length) :
+    bindExternalParams selector params args = none := by
+  simp only [bindExternalParams, DynamicAbi.bindExternalParams, hlen, ↓reduceIte]
+
 theorem bindSupportedParams_take_param_length
     {params : List Param}
     {args : List Nat}
@@ -3114,7 +3239,7 @@ def interpretFunction (spec : CompilationModel) (fn : FunctionSpec)
     (tx : IRTransaction) (initialWorld : Verity.ContractState) : SourceContractResult :=
   let worldWithTx := withTransactionContext initialWorld tx
   let fields := effectiveFields spec
-  match bindSupportedParams fn.params tx.args with
+  match bindExternalParams tx.functionSelector fn.params tx.args with
   | none => revertedResult spec worldWithTx
   | some bindings =>
       match execStmtListWithEvents fields spec.events
@@ -3463,6 +3588,32 @@ mutual
         let off ← evalExprWithHelpers spec fields fuel state offExpr
         let size ← evalExprWithHelpers spec fields fuel state sizeExpr
         some (keccakMemorySlice state.world.memory off size)
+    | .arrayElementDynamicWord name index wordOffset => do
+        let idx ← evalExprWithHelpers spec fields fuel state index
+        let (dataOffset, length) ← dynamicArrayBinding? state.bindings name
+        arrayElementDynamicWord?
+          state.selector state.world.calldata dataOffset length idx wordOffset
+    | .arrayElementDynamicDataOffset name index => do
+        let idx ← evalExprWithHelpers spec fields fuel state index
+        let (dataOffset, length) ← dynamicArrayBinding? state.bindings name
+        arrayElementDynamicHeadOffset?
+          state.selector state.world.calldata dataOffset length idx
+    | .arrayElementDynamicMemberLength name index wordOffset => do
+        let idx ← evalExprWithHelpers spec fields fuel state index
+        let (dataOffset, length) ← dynamicArrayBinding? state.bindings name
+        arrayElementDynamicMemberLength?
+          state.selector state.world.calldata dataOffset length idx wordOffset
+    | .arrayElementDynamicMemberDataOffset name index wordOffset => do
+        let idx ← evalExprWithHelpers spec fields fuel state index
+        let (dataOffset, length) ← dynamicArrayBinding? state.bindings name
+        arrayElementDynamicMemberDataOffset?
+          state.selector state.world.calldata dataOffset length idx wordOffset
+    | .arrayElementDynamicMemberElement name index wordOffset innerIndex => do
+        let idx ← evalExprWithHelpers spec fields fuel state index
+        let innerIdx ← evalExprWithHelpers spec fields fuel state innerIndex
+        let (dataOffset, length) ← dynamicArrayBinding? state.bindings name
+        arrayElementDynamicMemberElement?
+          state.selector state.world.calldata dataOffset length idx wordOffset innerIdx
     -- Unmodeled / codegen-only constructors (no helper-aware semantics yet).
     -- Listed explicitly rather than via `| _ => none` so the
     -- `_mutual.eq_def` deriver does not enumerate the complement and trip
@@ -3474,11 +3625,7 @@ mutual
     | .paramDynamicMemberDataOffset _ _ | .paramDynamicMemberElement _ _ _
     | .arrayLength _ | .memoryArrayLength _
     | .arrayElement _ _ | .memoryArrayElement _ _
-    | .arrayElementWord _ _ _ _ | .arrayElementDynamicWord _ _ _
-    | .arrayElementDynamicDataOffset _ _
-    | .arrayElementDynamicMemberLength _ _ _
-    | .arrayElementDynamicMemberDataOffset _ _ _
-    | .arrayElementDynamicMemberElement _ _ _ _
+    | .arrayElementWord _ _ _ _
     | .extcodesize _ | .returndataSize | .returndataOptionalBoolAt _
     | .call _ _ _ _ _ _ _ | .staticcall _ _ _ _ _ _ | .delegatecall _ _ _ _ _ _
     | .externalCall _ _ | .mappingChain _ _ | .intrinsic _ _ _ _
@@ -3956,7 +4103,7 @@ def interpretFunctionWithHelpers
     (initialWorld : Verity.ContractState) : SourceContractResult :=
   let worldWithTx := withTransactionContext initialWorld tx
   let fields := effectiveFields spec
-  match bindSupportedParams fn.params tx.args with
+  match bindExternalParams tx.functionSelector fn.params tx.args with
   | none => revertedResult spec worldWithTx
   | some bindings =>
       match execStmtListWithHelpers spec fields fuel { world := worldWithTx, bindings := bindings, selector := tx.functionSelector } fn.body with
@@ -4701,15 +4848,32 @@ mutual
     | arrayElementWord _ b _ _ =>
         simp [evalExprWithHelpers, evalExpr_arrayElementWord]
     | arrayElementDynamicWord _ b _ =>
-        simp [evalExprWithHelpers, evalExpr_arrayElementDynamicWord]
+        simp only [exprTouchesUnsupportedHelperSurface] at hsurface
+        have hb :=
+          evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed spec fields fuel state b hsurface
+        simp only [evalExprWithHelpers, evalExpr_arrayElementDynamicWord, hb]
     | arrayElementDynamicDataOffset _ b =>
-        simp [evalExprWithHelpers, evalExpr_arrayElementDynamicDataOffset]
+        simp only [exprTouchesUnsupportedHelperSurface] at hsurface
+        have hb :=
+          evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed spec fields fuel state b hsurface
+        simp only [evalExprWithHelpers, evalExpr_arrayElementDynamicDataOffset, hb]
     | arrayElementDynamicMemberLength _ b _ =>
-        simp [evalExprWithHelpers, evalExpr_arrayElementDynamicMemberLength]
+        simp only [exprTouchesUnsupportedHelperSurface] at hsurface
+        have hb :=
+          evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed spec fields fuel state b hsurface
+        simp only [evalExprWithHelpers, evalExpr_arrayElementDynamicMemberLength, hb]
     | arrayElementDynamicMemberDataOffset _ b _ =>
-        simp [evalExprWithHelpers, evalExpr_arrayElementDynamicMemberDataOffset]
+        simp only [exprTouchesUnsupportedHelperSurface] at hsurface
+        have hb :=
+          evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed spec fields fuel state b hsurface
+        simp only [evalExprWithHelpers, evalExpr_arrayElementDynamicMemberDataOffset, hb]
     | arrayElementDynamicMemberElement _ a _ b =>
-        simp [evalExprWithHelpers, evalExpr_arrayElementDynamicMemberElement]
+        simp only [exprTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
+        have ha :=
+          evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed spec fields fuel state a hsurface.1
+        have hb :=
+          evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed spec fields fuel state b hsurface.2
+        simp only [evalExprWithHelpers, evalExpr_arrayElementDynamicMemberElement, ha, hb]
     | mappingWord _ b _ | mappingPackedWord _ b _ _ | structMember _ b _ =>
         simp only [exprTouchesUnsupportedHelperSurface] at hsurface
         have hb :=
@@ -5332,7 +5496,7 @@ theorem interpretFunctionWithHelpers_eq_interpretFunction_of_helperSurfaceClosed
       interpretFunction spec fn tx initialWorld := by
   unfold interpretFunctionWithHelpers interpretFunction
   simp only
-  cases hbind : bindSupportedParams fn.params tx.args with
+  cases hbind : bindExternalParams tx.functionSelector fn.params tx.args with
   | none =>
       simp
   | some bindings =>
