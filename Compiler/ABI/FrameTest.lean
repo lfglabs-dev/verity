@@ -32,6 +32,11 @@ private def dynamicStorageFields : List FrameField :=
 private def dynamicMemoryFields : List FrameField :=
   [ { name := "payload", ty := .bytes, source := .memory, sourceOffset := 32, tailBytes := 64 } ]
 
+private def runtimeDynamicMemoryLayout : FrameLayout :=
+  runtimeSizedLayout
+    [ { name := "payload", ty := .bytes, source := .memory, sourceBase := "payloadPtr" } ]
+    (YulExpr.ident "payloadSize")
+
 private def unpaddedDynamicFields : List FrameField :=
   [ { name := "payload", ty := .bytes, source := .calldata, tailBytes := 33 } ]
 
@@ -62,6 +67,10 @@ private def hasExtcodecopy : List YulStmt → Bool :=
     (!layoutSourcesSupported (layout dynamicStorageFields))
   assert "dynamic memory tails are rejected until runtime-sized ABI frames exist"
     (!layoutSourcesSupported (layout dynamicMemoryFields))
+  assert "runtime-sized dynamic memory layout records caller-provided size"
+    (frameSizeExpr runtimeDynamicMemoryLayout == YulExpr.ident "payloadSize")
+  assert "runtime-sized dynamic memory layout is source-supported for CodeData-style copies"
+    (layoutRuntimeSourcesSupported runtimeDynamicMemoryLayout)
   assert "dynamic source frame is pointer mode" (srcLayout.mode == FramePassMode.pointer)
   assert "code source spills through extcodecopy" (hasExtcodecopy (spillPayloadToMemory "src" srcLayout))
   let inlineNames := (inlineArgs (layout inlineFields)).filterMap calldataLoadName?

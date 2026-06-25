@@ -123,6 +123,11 @@ Recent progress for low-level calls + returndata handling (`#622`):
 - Raw `Expr.externalCall` interop names for low-level/builtin opcodes remain fail-fast rejected, preserving explicit migration diagnostics while the first-class surface continues to expand.
 
 Recent progress for dynamic ABI-shaped parameters:
+- Typed CodeData now has a runtime-sized ABI payload path for SSTORE2-style
+  code-as-data: `Frame.runtimeSizedLayout` keeps the `ParamType` attached,
+  `CodeData.writeTyped` deploys the observable `STOP ++ abi.encode(...)`
+  byte layout, `CodeData.readTyped` reads from code offset `1`, and
+  `Stmt.returnCodeData` returns the runtime payload after that prefix.
 - `verity_contract` now accepts dynamic array parameters whose element type is a static tuple of ABI words, e.g. `Array (Tuple [Uint256, Uint256, Int256])`, on tuple destructuring and tuple-return `arrayElement` paths. Those paths lower to checked word reads with the tuple element stride, which covers Solidity memory arrays of small fixed-size structs such as `CurveCut[]`; plain scalar `arrayElement` remains limited to single-word static element arrays.
 - `verity_contract` now accepts named `struct` declarations for function parameters as ABI tuple aliases. Executable contracts get Lean structures and field projection syntax, while the compilation model keeps the existing tuple ABI lowering. Nested static struct fields are supported for parameter field reads, covering the #1750 TermMax-style `config.feeConfig.borrowTakerFeeRatio` shape.
 - `verity_contract` now supports explicit storage layout trees with

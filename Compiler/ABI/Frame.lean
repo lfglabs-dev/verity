@@ -32,6 +32,7 @@ structure FrameLayout where
   headWords : Nat
   hasDynamic : Bool
   mode : FramePassMode
+  runtimeSize : Option YulExpr := none
   deriving Repr, BEq
 
 def spillThresholdWords : Nat := 4
@@ -57,6 +58,11 @@ def layout (fields : List FrameField) : FrameLayout :=
     hasDynamic
     mode := if shouldPassByPointer fields then .pointer else .inlineWords }
 
+def runtimeSizedLayout (fields : List FrameField) (size : YulExpr) : FrameLayout :=
+  { layout fields with
+    mode := .pointer
+    runtimeSize := some size }
+
 def fieldSourceSupported (field : FrameField) : Bool :=
   match field.source with
   | .memory | .code | .storage => true
@@ -68,6 +74,19 @@ def fieldLayoutSupported (field : FrameField) : Bool :=
 
 def layoutSourcesSupported (l : FrameLayout) : Bool :=
   l.fields.all fieldLayoutSupported
+
+def fieldRuntimeLayoutSupported (field : FrameField) : Bool :=
+  match field.source with
+  | .memory | .calldata | .code => true
+  | .storage => !isDynamicParamType field.ty
+
+def layoutRuntimeSourcesSupported (l : FrameLayout) : Bool :=
+  l.fields.all fieldRuntimeLayoutSupported
+
+def layoutHasRuntimeSize (l : FrameLayout) : Bool :=
+  match l.runtimeSize with
+  | some _ => true
+  | none => false
 
 def dynamicTailWords (field : FrameField) : Nat :=
   1 + (field.tailBytes + 31) / 32
@@ -81,6 +100,14 @@ def frameSizeBytes (l : FrameLayout) : Nat :=
 def frameAllocBytes (l : FrameLayout) : Nat :=
   l.fields.foldl (fun acc field => acc + fieldPayloadWords field * 32) 0
 
+def frameSizeExpr (l : FrameLayout) : YulExpr :=
+  match l.runtimeSize with
+  | some size => size
+  | none => YulExpr.lit (frameSizeBytes l)
+
+def frameAllocExpr (l : FrameLayout) : YulExpr :=
+  frameSizeExpr l
+
 def ptrName (base : String) : String :=
   "__abi_frame_" ++ base
 
@@ -91,7 +118,15 @@ def allocateFrame (base : String) (l : FrameLayout) : List YulStmt :=
   [ YulStmt.let_ (ptrName base) (YulExpr.call "mload" [YulExpr.lit 64])
   , YulStmt.exprStmt (YulExpr.call "mstore"
       [ YulExpr.lit 64
-      , YulExpr.call "add" [YulExpr.ident (ptrName base), YulExpr.lit (frameAllocBytes l)] ])]
+      , YulExpr.call "add" [YulExpr.ident (ptrName base), frameAllocExpr l] ])]
+
+def allocateFrameWithPrefix (base : String) (prefixBytes : Nat) (l : FrameLayout) : List YulStmt :=
+  [ YulStmt.let_ (ptrName base) (YulExpr.call "mload" [YulExpr.lit 64])
+  , YulStmt.exprStmt (YulExpr.call "mstore"
+      [ YulExpr.lit 64
+      , YulExpr.call "add"
+          [ YulExpr.call "add" [YulExpr.ident (ptrName base), YulExpr.lit prefixBytes]
+          , frameAllocExpr l ] ])]
 
 def sourceBaseName (field : FrameField) : String :=
   if field.sourceBase.isEmpty then field.name else field.sourceBase
@@ -165,6 +200,49 @@ private def spillDynamicField (base : String) (headOffsetWords tailOffsetWords :
         YulStmt.exprStmt (YulExpr.call "mstore"
           [dest, YulExpr.call "mload" [dynamicTailByteOffset field idx]])
 
+private def copyRuntimeMemoryPayload (base : String) (prefixBytes : Nat) (field : FrameField) (size : YulExpr) :
+    List YulStmt :=
+  let destBase := YulExpr.call "add" [YulExpr.ident (ptrName base), YulExpr.lit prefixBytes]
+  let srcBase := YulExpr.ident (sourceBaseName field)
+  [ YulStmt.for_
+      [YulStmt.let_ "__abi_frame_copy_i" (YulExpr.lit 0)]
+      (YulExpr.call "lt" [YulExpr.ident "__abi_frame_copy_i", size])
+      [YulStmt.assign "__abi_frame_copy_i"
+        (YulExpr.call "add" [YulExpr.ident "__abi_frame_copy_i", YulExpr.lit 32])]
+      [YulStmt.exprStmt (YulExpr.call "mstore"
+        [ YulExpr.call "add" [destBase, YulExpr.ident "__abi_frame_copy_i"]
+        , YulExpr.call "mload" [YulExpr.call "add" [srcBase, YulExpr.ident "__abi_frame_copy_i"]] ])] ]
+
+private def copyRuntimeCalldataPayload (base : String) (prefixBytes : Nat) (field : FrameField) (size : YulExpr) :
+    List YulStmt :=
+  [YulStmt.exprStmt (YulExpr.call "calldatacopy"
+    [ YulExpr.call "add" [YulExpr.ident (ptrName base), YulExpr.lit prefixBytes]
+    , YulExpr.ident (sourceBaseName field)
+    , size ])]
+
+private def copyRuntimeCodePayload (base : String) (prefixBytes : Nat) (field : FrameField) (size : YulExpr) :
+    List YulStmt :=
+  [YulStmt.exprStmt (YulExpr.call "extcodecopy"
+    [ YulExpr.ident (sourceBaseName field)
+    , YulExpr.call "add" [YulExpr.ident (ptrName base), YulExpr.lit prefixBytes]
+    , YulExpr.lit field.sourceOffset
+    , size ])]
+
+def copyRuntimePayloadToMemory (base : String) (prefixBytes : Nat) (l : FrameLayout) : Except String (List YulStmt) := do
+  let size ←
+    match l.runtimeSize with
+    | some size => pure size
+    | none => throw s!"ABI frame '{base}' has no runtime payload size"
+  match l.fields with
+  | [field] =>
+      match field.source with
+      | .memory => pure (copyRuntimeMemoryPayload base prefixBytes field size)
+      | .calldata => pure (copyRuntimeCalldataPayload base prefixBytes field size)
+      | .code => pure (copyRuntimeCodePayload base prefixBytes field size)
+      | .storage => throw s!"ABI frame '{base}' cannot runtime-copy dynamic storage payloads"
+  | _ =>
+      throw s!"ABI frame '{base}' runtime payload copy expects exactly one pre-encoded field"
+
 partial def spillFieldsAbi (base : String) (headOffsetWords tailOffsetWords : Nat) : List FrameField → List YulStmt
   | [] => []
   | field :: rest =>
@@ -183,7 +261,11 @@ def spillPayloadToMemory (base : String) (l : FrameLayout) : List YulStmt :=
   allocateFrame base l ++ spillFieldsAbi base 0 l.headWords l.fields
 
 def pointerArgs (base : String) (l : FrameLayout) : List YulExpr :=
-  [YulExpr.ident (ptrName base), YulExpr.lit (frameSizeBytes l)]
+  [YulExpr.ident (ptrName base), frameSizeExpr l]
+
+def pointerArgsWithPrefix (base : String) (prefixBytes : Nat) (l : FrameLayout) : List YulExpr :=
+  [ YulExpr.ident (ptrName base)
+  , YulExpr.call "add" [YulExpr.lit prefixBytes, frameSizeExpr l] ]
 
 def inlinePayloadToScratch (words : List YulExpr) : List YulStmt :=
   words.zipIdx.map fun (word, idx) =>
@@ -210,6 +292,11 @@ def materializePayloadToMemory (base : String) (l : FrameLayout) : List YulStmt 
       (spillPayloadToMemory base l, pointerArgs base l)
   | .inlineWords =>
       (inlinePayloadToScratch (inlineArgs l), [YulExpr.lit 0, YulExpr.lit (frameSizeBytes l)])
+
+def materializeRuntimePayloadToMemoryWithPrefix (base : String) (prefixBytes : Nat) (l : FrameLayout) :
+    Except String (List YulStmt × List YulExpr) := do
+  let copy ← copyRuntimePayloadToMemory base prefixBytes l
+  pure (allocateFrameWithPrefix base prefixBytes l ++ copy, pointerArgsWithPrefix base prefixBytes l)
 
 def containsDynamicArrayOrBytes (l : FrameLayout) : Bool :=
   l.fields.any fun field =>

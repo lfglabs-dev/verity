@@ -38,3 +38,4 @@ import Compiler.CompilationModel.Dispatch
 import Compiler.CompilationModel.LayoutReport
 import Compiler.CompilationModel.LayoutCompatibilityReport
 import Compiler.CompilationModel.TrustSurface
+import Verity.Core.Model.CodeDataABI
