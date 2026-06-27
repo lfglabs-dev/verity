@@ -2849,6 +2849,68 @@ structure SupportedSpecExceptMappingWrites
   functions :
     ∀ fn, fn ∈ spec.functions → SupportedFunctionExceptMappingWrites spec fn
 
+private theorem stmtTouchesUnsupportedStateSurfaceExceptMappingWrites_eq_false_of_stateSurface
+    {stmt : Stmt}
+    (hstate : stmtTouchesUnsupportedStateSurface stmt = false) :
+    stmtTouchesUnsupportedStateSurfaceExceptMappingWrites stmt = false := by
+  cases stmt <;>
+    simp [stmtTouchesUnsupportedStateSurfaceExceptMappingWrites,
+      stmtTouchesUnsupportedStateSurface] at hstate ⊢ <;>
+    try exact hstate
+
+theorem stmtListTouchesUnsupportedStateSurfaceExceptMappingWrites_eq_false_of_stateSurface
+    {stmts : List Stmt}
+    (hstate : stmtListTouchesUnsupportedStateSurface stmts = false) :
+    stmtListTouchesUnsupportedStateSurfaceExceptMappingWrites stmts = false := by
+  induction stmts with
+  | nil =>
+      simp [stmtListTouchesUnsupportedStateSurfaceExceptMappingWrites]
+  | cons stmt rest ih =>
+      have hsplit := Bool.or_eq_false_iff.mp hstate
+      simp [stmtListTouchesUnsupportedStateSurfaceExceptMappingWrites,
+        stmtTouchesUnsupportedStateSurfaceExceptMappingWrites_eq_false_of_stateSurface hsplit.1,
+        ih hsplit.2]
+
+def SupportedBodyStateInterface.exceptMappingWrites
+    {fn : FunctionSpec}
+    (hState : SupportedBodyStateInterface fn) :
+    SupportedBodyStateInterfaceExceptMappingWrites fn :=
+  { surfaceClosed :=
+      stmtListTouchesUnsupportedStateSurfaceExceptMappingWrites_eq_false_of_stateSurface
+        hState.surfaceClosed }
+
+def SupportedBodyInterface.exceptMappingWrites
+    {spec : CompilationModel} {fn : FunctionSpec}
+    (hBody : SupportedBodyInterface spec fn) :
+    SupportedBodyInterfaceExceptMappingWrites spec fn :=
+  { stmtList := hBody.stmtList
+    core := hBody.core
+    state := hBody.state.exceptMappingWrites
+    calls := hBody.calls
+    effects := hBody.effects
+    noLocalObligations := hBody.noLocalObligations }
+
+def SupportedFunction.exceptMappingWrites
+    {spec : CompilationModel} {fn : FunctionSpec}
+    (hSupported : SupportedFunction spec fn) :
+    SupportedFunctionExceptMappingWrites spec fn :=
+  { nonInternal := hSupported.nonInternal
+    nonSpecialEntrypoint := hSupported.nonSpecialEntrypoint
+    noNonReentrant := hSupported.noNonReentrant
+    params := hSupported.params
+    returns := hSupported.returns
+    body := hSupported.body.exceptMappingWrites }
+
+def SupportedSpec.exceptMappingWrites
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpec spec selectors) :
+    SupportedSpecExceptMappingWrites spec selectors :=
+  { invariants := hSupported.invariants
+    surface := hSupported.surface
+    constructor := hSupported.constructor
+    functions := fun fn hmem =>
+      (hSupported.functions fn hmem).exceptMappingWrites }
+
 theorem SupportedFunction.paramNamesNodup
     {spec : CompilationModel} {fn : FunctionSpec}
     (hSupported : SupportedFunction spec fn) :

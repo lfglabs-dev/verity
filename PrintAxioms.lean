@@ -3553,6 +3553,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.exprHelperCallNames_subset_helperCallNames
   Compiler.Proofs.IRGeneration.SupportedConstructor.paramNamesNodup
   Compiler.Proofs.IRGeneration.SupportedConstructor.paramsSupported
+  -- Compiler.Proofs.IRGeneration.stmtTouchesUnsupportedStateSurfaceExceptMappingWrites_eq_false_of_stateSurface  -- private
+  Compiler.Proofs.IRGeneration.stmtListTouchesUnsupportedStateSurfaceExceptMappingWrites_eq_false_of_stateSurface
   Compiler.Proofs.IRGeneration.SupportedFunction.paramNamesNodup
   Compiler.Proofs.IRGeneration.SupportedFunction.paramsSupported
   Compiler.Proofs.IRGeneration.SupportedFunction.paramCalldataThreshold
@@ -5820,4 +5822,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5450 theorems/lemmas (3754 public, 1696 private, 0 sorry'd)
+-- Total: 5452 theorems/lemmas (3755 public, 1697 private, 0 sorry'd)
