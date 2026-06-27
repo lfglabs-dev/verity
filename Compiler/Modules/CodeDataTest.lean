@@ -99,6 +99,52 @@ private def dynamicPayload := runtimeSizedLayout
   [ { name := "market", ty := .tuple [.address, .address, .bytes], source := .memory, sourceBase := "marketAbi" } ]
   (YulExpr.ident "marketSize")
 
+private def dynamicBytesPayload := layout
+  [ { name := "blob", ty := .bytes, source := .memory } ]
+
+private def dynamicStringPayload := layout
+  [ { name := "message", ty := .string, source := .calldata } ]
+
+private def dynamicArrayPayload := layout
+  [ { name := "items", ty := .array .uint256, source := .calldata } ]
+
+private def nestedDynamicPayload := layout
+  [ { name := "wrapped", ty := .tuple [.uint256, .bytes], source := .calldata } ]
+
+private def dynamicStoragePayload := layout
+  [ { name := "stored", ty := .bytes, source := .storage } ]
+
+private def deployUsesGeneratedDynamicSize (base : String) : List YulStmt → Bool :=
+  fun stmts => stmts.any fun stmt =>
+    match stmt with
+    | .let_ _ (.call "create2"
+        [ _value
+        , .ident ptr
+        , .ident "__codedata_bytes_total_size"
+        , _salt ]) =>
+          ptr == ptrName base
+    | _ => false
+
+private def hasGeneratedDynamicBytesStoresAndMemoryCopy (base : String) : List YulStmt → Bool :=
+  fun stmts =>
+    let payloadBase := YulExpr.call "add" [YulExpr.ident (ptrName base), YulExpr.lit 1]
+    stmts.any (fun
+      | .exprStmt (.call "mstore" [actualBase, .lit 32]) => actualBase == payloadBase
+      | _ => false) &&
+    stmts.any (fun
+      | .exprStmt (.call "mstore" [.call "add" [actualBase, .lit 32], .ident "blob_length"]) =>
+          actualBase == payloadBase
+      | _ => false) &&
+    stmts.any (fun
+      | .exprStmt (.call "mcopy" [.ident "__codedata_bytes_data_dest", .ident "blob_data_offset", .ident "blob_length"]) => true
+      | _ => false)
+
+private def hasGeneratedDynamicStringCalldataCopy : List YulStmt → Bool :=
+  fun stmts =>
+    stmts.any fun
+      | .exprStmt (.call "calldatacopy" [.ident "__codedata_bytes_data_dest", .ident "message_data_offset", .ident "message_length"]) => true
+      | _ => false
+
 #eval! do
   let write : CodeDataWrite :=
     { salt := YulExpr.ident "salt"
@@ -119,7 +165,7 @@ private def dynamicPayload := runtimeSizedLayout
     (writesSstore2Prefix "sstore2" roundtrip)
   assert "typed read skips observable SSTORE2 prefix byte"
     (readSkipsSstore2Prefix roundtrip)
-  assert "trust surface is explicit" (trustSurface.length == 5)
+  assert "trust surface is explicit" (trustSurface.length == 6)
   let returnCodeData ←
     match compileStmt [] [] [] .calldata [] false [] [] (Stmt.returnCodeData (Expr.param "ptr")) with
     | .ok stmts => pure stmts
@@ -190,5 +236,46 @@ private def dynamicPayload := runtimeSizedLayout
     dynamicPayload.hasDynamic
   assert "dynamic payload layout records runtime byte size"
     (layoutHasRuntimeSize dynamicPayload)
+  -- Dynamic bytes/string payloads (#2023): CodeData can also build the ABI
+  -- bytes/string payload at runtime from typed calldata/memory sources.
+  let dynamicBytesWrite : CodeDataWrite :=
+    { salt := YulExpr.ident "salt", payload := dynamicBytesPayload }
+  let dynamicBytesStmts ←
+    match Compiler.Modules.CodeData.writeTyped "dynamicBytesPtr" "dynamicBytes" dynamicBytesWrite with
+    | .ok stmts => pure stmts
+    | .error err => throw (IO.userError s!"dynamic bytes payload write failed: {err}")
+  assert "dynamic bytes payload write uses generated runtime create2 size"
+    (deployUsesGeneratedDynamicSize "dynamicBytes" dynamicBytesStmts)
+  assert "dynamic bytes payload writes SSTORE2 prefix"
+    (writesSstore2Prefix "dynamicBytes" dynamicBytesStmts)
+  assert "dynamic bytes payload writes ABI head/length and copies memory bytes"
+    (hasGeneratedDynamicBytesStoresAndMemoryCopy "dynamicBytes" dynamicBytesStmts)
+  let dynamicStringWrite : CodeDataWrite :=
+    { salt := YulExpr.ident "salt", payload := dynamicStringPayload }
+  let dynamicStringStmts ←
+    match Compiler.Modules.CodeData.writeTyped "dynamicStringPtr" "dynamicString" dynamicStringWrite with
+    | .ok stmts => pure stmts
+    | .error err => throw (IO.userError s!"dynamic string payload write failed: {err}")
+  assert "dynamic string payload copies calldata bytes"
+    (hasGeneratedDynamicStringCalldataCopy dynamicStringStmts)
+  let dynamicBytesRead : CodeDataRead :=
+    { pointer := YulExpr.ident "ptr"
+      destOffset := YulExpr.ident "dest"
+      codeOffset := YulExpr.lit 1
+      size := YulExpr.ident "size"
+      payload := dynamicBytesPayload }
+  assert "dynamic bytes payload read is accepted"
+    (match Compiler.Modules.CodeData.readTyped dynamicBytesRead with | .ok _ => true | .error _ => false)
+  assert "dynamic bytes ABI constants fix head/length/data offsets"
+    (codeDataBytesLengthOffset == codeDataBytesHeadOffset &&
+      codeDataBytesDataOffset == codeDataBytesHeadOffset + 32 &&
+      codeDataBytesPayloadBytes 33 == codeDataBytesDataOffset + codeDataBytesPaddedDataBytes 33)
+  let rejectedDynamicLayouts :=
+    [dynamicArrayPayload, nestedDynamicPayload, dynamicStoragePayload]
+  assert "nested and broader dynamic CodeData layouts stay rejected"
+    (rejectedDynamicLayouts.all fun payload =>
+      match Compiler.Modules.CodeData.writeTyped "rejectedPtr" "rejected" { salt := YulExpr.ident "salt", payload } with
+      | .ok _ => false
+      | .error _ => true)
 
 end Compiler.Modules.CodeDataTest
