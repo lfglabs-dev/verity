@@ -91,6 +91,9 @@ private def slotAliasRangeJson (range : SlotAliasRange) : String :=
     ("targetStart", jsonNat range.targetStart)
   ]
 
+private def fieldLocationKind (field : Field) : String :=
+  if field.isTransient then "transient" else "persistent"
+
 private def fieldJson (declaredField effectiveField : Field) (idx : Nat) : String :=
   let canonicalSlot := declaredField.slot.getD idx
   let effectiveAliasSlots := effectiveField.aliasSlots
@@ -102,7 +105,17 @@ private def fieldJson (declaredField effectiveField : Field) (idx : Nat) : Strin
     ("effectiveAliasSlots", jsonArray (effectiveAliasSlots.map jsonNat)),
     ("writeSlots", jsonArray ((canonicalSlot :: effectiveAliasSlots).map jsonNat)),
     ("type", fieldTypeJson declaredField.ty),
-    ("packedBits", jsonOption packedBitsJson declaredField.packedBits)
+    ("packedBits", jsonOption packedBitsJson declaredField.packedBits),
+    ("isTransient", if declaredField.isTransient then "true" else "false"),
+    ("locationKind", jsonString (fieldLocationKind declaredField))
+  ]
+
+private def immutableJson (imm : ImmutableSpec) : String :=
+  jsonObject [
+    ("name", jsonString imm.name),
+    ("type", jsonString (paramTypeToSolidityString imm.ty)),
+    ("storageFootprint", jsonNat 0),
+    ("kind", jsonString "bytecodeImmutable")
   ]
 
 /-! ### Storage families and non-alias certificate (#1966)
@@ -157,6 +170,7 @@ private def storageFamilyJson (declaredField : Field) (idx : Nat) : String :=
   let canonicalSlot := declaredField.slot.getD idx
   jsonObject [
     ("name", jsonString declaredField.name),
+    ("locationKind", jsonString (fieldLocationKind declaredField)),
     ("kind", jsonString (familyKindString declaredField.ty)),
     ("rootSlot", jsonNat canonicalSlot),
     ("keccakPreimage", familyKeccakPreimage declaredField.ty canonicalSlot),
@@ -285,6 +299,7 @@ where
       ("contract", jsonString spec.name),
       ("storageNamespace", nsField),
       ("fields", jsonArray fieldsJson),
+      ("immutables", jsonArray (spec.immutables.map immutableJson)),
       ("storageFamilies", jsonArray familiesJson),
       ("nonAliasClaims", jsonArray claimsJson),
       ("reservedSlotRanges", jsonArray (spec.reservedSlotRanges.map reservedSlotRangeJson)),

@@ -70,7 +70,7 @@ partial def compileIndexedInPlaceEncoding
   | ParamType.uint256 | ParamType.int256 | ParamType.uint8 | ParamType.uint16 | ParamType.address | ParamType.bool | ParamType.bytes32 =>
       let loaded := dynamicWordLoad dynamicSource srcBase
       pure ([
-        YulStmt.expr (YulExpr.call "mstore" [dstBase, normalizeEventWord ty loaded])
+        YulStmt.exprStmt (YulExpr.call "mstore" [dstBase, normalizeEventWord ty loaded])
       ], YulExpr.lit 32)
   | ParamType.bytes | ParamType.string =>
       let lenName := s!"{stem}_len"
@@ -85,7 +85,7 @@ partial def compileIndexedInPlaceEncoding
           YulExpr.call "add" [YulExpr.ident lenName, YulExpr.lit 31],
           YulExpr.call "not" [YulExpr.lit 31]
         ]),
-        YulStmt.expr (YulExpr.call "mstore" [
+        YulStmt.exprStmt (YulExpr.call "mstore" [
           YulExpr.call "add" [dstBase, YulExpr.ident lenName],
           YulExpr.lit 0
         ])
@@ -203,13 +203,13 @@ partial def compileIndexedInPlaceEncoding
   | ParamType.adt _ maxFields =>
       -- ADTs: ABI-encode as (uint8 tag, uint256 field0, ..., uint256 fieldN)
       let tagLoaded := dynamicWordLoad dynamicSource srcBase
-      let tagStore := YulStmt.expr (YulExpr.call "mstore" [
+      let tagStore := YulStmt.exprStmt (YulExpr.call "mstore" [
         dstBase, YulExpr.call "and" [tagLoaded, YulExpr.lit 0xFF]
       ])
       let fieldStores := (List.range maxFields).map fun i =>
         let srcOff := YulExpr.call "add" [srcBase, YulExpr.lit ((i + 1) * 32)]
         let dstOff := YulExpr.call "add" [dstBase, YulExpr.lit ((i + 1) * 32)]
-        YulStmt.expr (YulExpr.call "mstore" [dstOff, dynamicWordLoad dynamicSource srcOff])
+        YulStmt.exprStmt (YulExpr.call "mstore" [dstOff, dynamicWordLoad dynamicSource srcOff])
       let totalBytes := 32 * (1 + maxFields)
       pure (tagStore :: fieldStores, YulExpr.lit totalBytes)
   | ParamType.newtypeOf _ baseType =>

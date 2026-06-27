@@ -86,8 +86,8 @@ compiler must make that visible.
 
 ## Checklist for New Solidity-facing Features
 
-- Source syntax or API documented in `docs-site/content/edsl-api-reference.mdx`
-  or the relevant guide.
+- Source syntax or API documented under `docs-site/content/edsl/` (the relevant
+  EDSL reference page) or the relevant guide.
 - `CompilationModel` representation is typed and validated; no ad hoc string
   patching of generated Yul.
 - Mutability, selector/ABI visibility, result binding, and local scoping are

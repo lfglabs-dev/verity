@@ -27,6 +27,7 @@ def trustSurface : List String :=
   , "SSTORE2 pointer code layout is trusted as code-as-data"
   , "extcodecopy reads immutable deployed code bytes into caller-owned memory"
   , "ABI frame layout is typed by Compiler.ABI.Frame before write/read lowering"
+  , "Runtime-sized dynamic ABI payload copies preserve the caller-provided byte extent"
   , "single dynamic bytes/string CodeData payloads use ABI head/length/padded-tail layout" ]
 
 def isBytesLikeParamType : ParamType → Bool
@@ -42,9 +43,6 @@ def layoutCodeDataDynamicSupported (l : FrameLayout) : Bool :=
   match l.fields with
   | [field] => fieldCodeDataDynamicSupported field
   | _ => false
-
-def layoutCodeDataSupported (l : FrameLayout) : Bool :=
-  layoutSourcesSupported l || layoutCodeDataDynamicSupported l
 
 def codeDataBytesHeadOffset : Nat := 32
 def codeDataBytesLengthOffset : Nat := 32
@@ -63,6 +61,20 @@ theorem codeDataBytesAbiRoundtripSound (len : Nat) :
       codeDataBytesDataOffset + codeDataBytesPaddedDataBytes len := by
   simp [codeDataBytesLengthOffset, codeDataBytesHeadOffset,
     codeDataBytesDataOffset, codeDataBytesPayloadBytes]
+
+def sstore2PrefixBytes : Nat := 1
+
+def sstore2PrefixOffset : YulExpr := YulExpr.lit sstore2PrefixBytes
+
+def sstore2RuntimeSize (payloadSize : YulExpr) : YulExpr :=
+  YulExpr.call "add" [sstore2PrefixOffset, payloadSize]
+
+def codeDataPayloadSupported (payload : FrameLayout) : Bool :=
+  if layoutHasRuntimeSize payload then
+    layoutRuntimeSourcesSupported payload
+  else
+    (!payload.hasDynamic && layoutSourcesSupported payload) ||
+      layoutCodeDataDynamicSupported payload
 
 private def lengthName (field : FrameField) : String :=
   sourceBaseName field ++ "_length"
@@ -105,23 +117,67 @@ private def dynamicSourceOffsetAndLength (field : FrameField) : List YulStmt × 
 private def copyDynamicBytes (field : FrameField) (dest src len : YulExpr) : List YulStmt :=
   let clearPartialWord :=
     YulStmt.if_ (YulExpr.call "mod" [len, YulExpr.lit 32])
-      [YulStmt.expr (YulExpr.call "mstore" [
+      [YulStmt.exprStmt (YulExpr.call "mstore" [
         YulExpr.call "add" [dest, YulExpr.call "and" [len, YulExpr.call "not" [YulExpr.lit 31]]],
         YulExpr.lit 0
       ])]
   let copyStmt :=
     match field.source with
-    | .calldata => YulStmt.expr (YulExpr.call "calldatacopy" [dest, src, len])
-    | .memory => YulStmt.expr (YulExpr.call "mcopy" [dest, src, len])
-    | .code | .storage => YulStmt.expr (YulExpr.call "mcopy" [dest, src, len])
+    | .calldata => YulStmt.exprStmt (YulExpr.call "calldatacopy" [dest, src, len])
+    | .memory => YulStmt.exprStmt (YulExpr.call "mcopy" [dest, src, len])
+    | .code | .storage => YulStmt.exprStmt (YulExpr.call "mcopy" [dest, src, len])
   [clearPartialWord, copyStmt]
 
-private def materializeDynamicBytesPayloadToMemory
+private def copyMemorySlice (dest src size : YulExpr) : List YulStmt :=
+  [ YulStmt.for_
+      [YulStmt.let_ "__codedata_copy_i" (YulExpr.lit 0)]
+      (YulExpr.call "lt" [YulExpr.ident "__codedata_copy_i", size])
+      [YulStmt.assign "__codedata_copy_i"
+        (YulExpr.call "add" [YulExpr.ident "__codedata_copy_i", YulExpr.lit 32])]
+      [YulStmt.exprStmt (YulExpr.call "mstore"
+        [ YulExpr.call "add" [dest, YulExpr.ident "__codedata_copy_i"]
+        , YulExpr.call "mload" [YulExpr.call "add" [src, YulExpr.ident "__codedata_copy_i"]] ])] ]
+
+private def materializeStaticSstore2Payload (base : String) (payload : FrameLayout) :
+    Except String (List YulStmt × List YulExpr) := do
+  let (payloadPrelude, payloadArgs) := materializePayloadToMemory (base ++ "_payload") payload
+  let payloadOffset ←
+    match payloadArgs with
+    | [offset, _size] => pure offset
+    | _ => throw "CodeData write expected a memory payload pointer and size"
+  let payloadSize ←
+    match payloadArgs with
+    | [_offset, size] => pure size
+    | _ => throw "CodeData write expected a memory payload pointer and size"
+  let ptr := YulExpr.ident (ptrName base)
+  let dest := YulExpr.call "add" [ptr, sstore2PrefixOffset]
+  pure
+    ( payloadPrelude ++
+      [ YulStmt.let_ (ptrName base) (YulExpr.call "mload" [YulExpr.lit 64])
+      , YulStmt.exprStmt (YulExpr.call "mstore"
+          [ YulExpr.lit 64
+          , YulExpr.call "add" [ptr, sstore2RuntimeSize payloadSize] ])
+      , YulStmt.exprStmt (YulExpr.call "mstore8" [ptr, YulExpr.lit 0]) ] ++
+      copyMemorySlice dest payloadOffset payloadSize
+    , [ptr, sstore2RuntimeSize payloadSize] )
+
+private def materializeDynamicSstore2Payload (base : String) (payload : FrameLayout) :
+    Except String (List YulStmt × List YulExpr) := do
+  let (prelude, args) ← materializeRuntimePayloadToMemoryWithPrefix base sstore2PrefixBytes payload
+  pure
+    ( prelude ++
+      [YulStmt.exprStmt (YulExpr.call "mstore8" [YulExpr.ident (ptrName base), YulExpr.lit 0])]
+    , args )
+
+private def materializeDynamicBytesSstore2Payload
     (base : String) (field : FrameField) : List YulStmt × List YulExpr :=
   let (sourcePrelude, sourceOffset, sourceLen) := dynamicSourceOffsetAndLength field
   let paddedName := "__codedata_bytes_padded"
   let sizeName := "__codedata_bytes_size"
+  let totalSizeName := "__codedata_bytes_total_size"
   let dataDestName := "__codedata_bytes_data_dest"
+  let payloadBase :=
+    YulExpr.call "add" [YulExpr.ident (ptrName base), YulExpr.lit sstore2PrefixBytes]
   let allocPrelude :=
     [ YulStmt.let_ (ptrName base) (YulExpr.call "mload" [YulExpr.lit 64])
     , YulStmt.let_ paddedName (YulExpr.call "and" [
@@ -129,42 +185,44 @@ private def materializeDynamicBytesPayloadToMemory
         YulExpr.call "not" [YulExpr.lit 31]
       ])
     , YulStmt.let_ sizeName (YulExpr.call "add" [YulExpr.lit codeDataBytesDataOffset, YulExpr.ident paddedName])
-    , YulStmt.expr (YulExpr.call "mstore" [
+    , YulStmt.let_ totalSizeName (sstore2RuntimeSize (YulExpr.ident sizeName))
+    , YulStmt.exprStmt (YulExpr.call "mstore" [
         YulExpr.lit 64,
-        YulExpr.call "add" [YulExpr.ident (ptrName base), YulExpr.ident sizeName]
+        YulExpr.call "add" [YulExpr.ident (ptrName base), YulExpr.ident totalSizeName]
       ])
-    , YulStmt.expr (YulExpr.call "mstore" [
-        YulExpr.ident (ptrName base),
+    , YulStmt.exprStmt (YulExpr.call "mstore8" [YulExpr.ident (ptrName base), YulExpr.lit 0])
+    , YulStmt.exprStmt (YulExpr.call "mstore" [
+        payloadBase,
         YulExpr.lit codeDataBytesHeadOffset
       ])
-    , YulStmt.expr (YulExpr.call "mstore" [
-        YulExpr.call "add" [YulExpr.ident (ptrName base), YulExpr.lit codeDataBytesLengthOffset],
+    , YulStmt.exprStmt (YulExpr.call "mstore" [
+        YulExpr.call "add" [payloadBase, YulExpr.lit codeDataBytesLengthOffset],
         sourceLen
       ])
     , YulStmt.let_ dataDestName
-        (YulExpr.call "add" [YulExpr.ident (ptrName base), YulExpr.lit codeDataBytesDataOffset]) ]
+        (YulExpr.call "add" [payloadBase, YulExpr.lit codeDataBytesDataOffset]) ]
   ( sourcePrelude ++ allocPrelude ++
       copyDynamicBytes field (YulExpr.ident dataDestName) sourceOffset sourceLen
-  , [YulExpr.ident (ptrName base), YulExpr.ident sizeName] )
+  , [YulExpr.ident (ptrName base), YulExpr.ident totalSizeName] )
 
-private def materializeCodeDataPayloadToMemory
-    (base : String) (l : FrameLayout) : Except String (List YulStmt × List YulExpr) := do
-  if layoutSourcesSupported l then
-    pure (materializePayloadToMemory base l)
+def materializeSstore2Payload (base : String) (payload : FrameLayout) :
+    Except String (List YulStmt × List YulExpr) :=
+  if layoutHasRuntimeSize payload then
+    materializeDynamicSstore2Payload base payload
   else
-    match l.fields with
+    match payload.fields with
     | [field] =>
-        if fieldCodeDataDynamicSupported field then
-          pure (materializeDynamicBytesPayloadToMemory base field)
+        if payload.hasDynamic && fieldCodeDataDynamicSupported field then
+          pure (materializeDynamicBytesSstore2Payload base field)
         else
-          throw "CodeData payload supports only static layouts or one calldata/memory bytes/string field"
+          materializeStaticSstore2Payload base payload
     | _ =>
-        throw "CodeData payload supports only static layouts or one calldata/memory bytes/string field"
+        materializeStaticSstore2Payload base payload
 
 def writeTyped (resultVar base : String) (write : CodeDataWrite) : Except String (List YulStmt) := do
-  if !layoutCodeDataSupported write.payload then
+  if !codeDataPayloadSupported write.payload then
     throw "CodeData write payload has unsupported frame source or dynamic shape"
-  let (prelude, payloadArgs) ← materializeCodeDataPayloadToMemory base write.payload
+  let (prelude, payloadArgs) ← materializeSstore2Payload base write.payload
   let initcodeOffset ←
     match payloadArgs with
     | [offset, _size] => pure offset
@@ -178,7 +236,7 @@ def writeTyped (resultVar base : String) (write : CodeDataWrite) : Except String
   pure (prelude ++ deploy)
 
 def readTyped (read : CodeDataRead) : Except String (List YulStmt) := do
-  if !layoutCodeDataSupported read.payload then
+  if !codeDataPayloadSupported read.payload then
     throw "CodeData read payload has unsupported frame source or dynamic shape"
   (Compiler.Modules.Create2SSTORE2.readCodeModule).compile {}
     [read.pointer, read.destOffset, read.codeOffset, read.size]
@@ -194,7 +252,7 @@ def hasCreate2AndExtcodecopy (stmts : List YulStmt) : Bool :=
     | .let_ _ (.call "create2" _) => true
     | _ => false
   let hasExtcodecopy := stmts.any fun
-    | .expr (.call "extcodecopy" _) => true
+    | .exprStmt (.call "extcodecopy" _) => true
     | _ => false
   hasCreate2 && hasExtcodecopy
 

@@ -34,13 +34,17 @@ declare_syntax_cat verityNamespaceSpec
 declare_syntax_cat veritySpecialEntrypoint
 declare_syntax_cat verityModifier
 declare_syntax_cat verityModifierUse
+declare_syntax_cat verityRoleDecl
 declare_syntax_cat verityFunction
 declare_syntax_cat verityIntrinsicClause
 declare_syntax_cat verityIntrinsicYul
+declare_syntax_cat verityIntrinsicTemplateExpr
+declare_syntax_cat verityIntrinsicTemplateStmt
 declare_syntax_cat verityIntrinsicObligation
 
 syntax ident " : " term " := " "slot" num : verityStorageField
 syntax ident " : " term " := " "slot" num : verityStorageItem
+syntax "transient " ident " : " term " := " "slot" num : verityStorageItem
 syntax ident " : " term " @word " num : verityStorageStructMember
 syntax ident " : " term " @word " num " packed(" num "," num ")" : verityStorageStructMember
 syntax ident " : " "StorageStruct" "[" sepBy(verityStorageStructMember, ",") "]" " @word " num : verityStorageStructMember
@@ -91,6 +95,7 @@ syntax "no_external_calls" : verityMutability
 syntax "allow_post_interaction_writes" : verityMutability
 syntax "nonreentrant(" ident ")" : verityMutability
 syntax "cei_safe" : verityMutability
+syntax "reentrancy_trusted" : verityMutability
 syntax "modifies(" sepBy1(ident, ",") ")" : verityModifies
 syntax "requires(" ident ")" : verityRequiresRole
 syntax ident " : " term:max : verityNewtype
@@ -141,7 +146,6 @@ macro_rules
   | `(adt $_variant:str [ $[$_args:term],* ]) => `(0)
 syntax "revert " ident "(" sepBy(term, ",") ")" : doElem
 syntax "revertError " ident "(" sepBy(term, ",") ")" : doElem
-syntax "panic(" term ")" : doElem
 syntax "requireError " term:max ppSpace ident "(" sepBy(term, ",") ")" : doElem
 syntax (name := requireSomeUintErrorTerm) "requireSomeUintError " term:max ppSpace ident "(" sepBy(term, ",") ")" : term
 syntax "ecmBind " term:max ppSpace term:max ppSpace term:max : doElem
@@ -152,6 +156,7 @@ syntax "receive" (ppSpace verityLocalObligations)? " := " term : veritySpecialEn
 syntax "fallback" (ppSpace verityLocalObligations)? " := " term : veritySpecialEntrypoint
 syntax "modifier " ident " := " term : verityModifier
 syntax "with " sepBy1(ident, ",") : verityModifierUse
+syntax ident " := " ident : verityRoleDecl
 syntax "function " verityMutability* (pureMutabilityMarker)? verityMutability* ident " (" sepBy(verityParam, ",") ")" (ppSpace verityInitGuard)? (ppSpace verityModifierUse)? (ppSpace verityRequiresRole)? (ppSpace verityModifies)? (ppSpace verityLocalObligations)? " : " term " := " term : verityFunction
 
 -- verity_intrinsic syntax (minimal one-argument shape for consumer-owned intrinsics)
@@ -163,8 +168,19 @@ syntax &"min_fork" " := " ident : verityIntrinsicClause
 syntax &"semantics" " := " term : verityIntrinsicClause
 syntax &"obligation" "[" sepBy(verityIntrinsicObligation, ",") "]" : verityIntrinsicClause
 
+syntax (priority := high) ident "(" sepBy(verityIntrinsicTemplateExpr, ",") ")" : verityIntrinsicTemplateExpr
+syntax ident : verityIntrinsicTemplateExpr
+syntax num : verityIntrinsicTemplateExpr
+syntax str : verityIntrinsicTemplateExpr
+syntax "let " ident " := " verityIntrinsicTemplateExpr : verityIntrinsicTemplateStmt
+syntax ident " := " verityIntrinsicTemplateExpr : verityIntrinsicTemplateStmt
+syntax "yulcall " ident "(" sepBy(verityIntrinsicTemplateExpr, ",") ")" : verityIntrinsicTemplateStmt
+syntax "comment " str : verityIntrinsicTemplateStmt
+syntax "leave" : verityIntrinsicTemplateStmt
+
 syntax ident num num "(" ident str ")" : verityIntrinsicYul
 syntax ident str : verityIntrinsicYul
+syntax "[" &"template" "(" sepBy(ident, ",") ")" " -> " ident " := " "[" sepBy(verityIntrinsicTemplateStmt, ",") "]" "]" : verityIntrinsicYul
 syntax ident " := " ident str : verityIntrinsicObligation
 
 syntax (name := verityIntrinsicCmd)
@@ -178,6 +194,7 @@ syntax (name := verityContractCmd)
   ("inductive " verityAdtDecl+)?
   (verityNamespaceSpec)?
   "storage " verityStorageItem*
+  ("roles " verityRoleDecl+)?
   (verityStructDecl)*
   ("errors " verityError+)?
   ("event_defs " verityEvent+)?

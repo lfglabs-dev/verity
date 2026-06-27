@@ -55,7 +55,8 @@ structure EventDynamicArraySource where
   source : DynamicDataSource
 
 def eventDynamicArraySource?
-    (fields : List Field) (dynamicSource : DynamicDataSource) :
+    (fields : List Field) (dynamicSource : DynamicDataSource)
+    (internalFunctions : List FunctionSpec := []) :
     Expr → Except String (Option EventDynamicArraySource)
   | Expr.param name =>
       pure (some
@@ -68,14 +69,14 @@ def eventDynamicArraySource?
           dataOffsetExpr := YulExpr.ident s!"{name}_data_offset"
           source := .memory })
   | e@(Expr.paramDynamicMemberLength name wordOffset) => do
-      let dataOffsetExpr ← compileExpr fields dynamicSource
+      let dataOffsetExpr ← compileExprWithInternals fields dynamicSource internalFunctions
         (Expr.paramDynamicMemberDataOffset name wordOffset)
-      let lengthExpr ← compileExpr fields dynamicSource e
+      let lengthExpr ← compileExprWithInternals fields dynamicSource internalFunctions e
       pure (some { lengthExpr, dataOffsetExpr, source := dynamicSource })
   | e@(Expr.arrayElementDynamicMemberLength name index wordOffset) => do
-      let dataOffsetExpr ← compileExpr fields dynamicSource
+      let dataOffsetExpr ← compileExprWithInternals fields dynamicSource internalFunctions
         (Expr.arrayElementDynamicMemberDataOffset name index wordOffset)
-      let lengthExpr ← compileExpr fields dynamicSource e
+      let lengthExpr ← compileExprWithInternals fields dynamicSource internalFunctions e
       pure (some { lengthExpr, dataOffsetExpr, source := dynamicSource })
   | _ => pure none
 
@@ -96,7 +97,7 @@ def scalarEventUnindexedStoresFrom
   match unindexed with
   | [] => []
   | (p, _, argExpr) :: rest =>
-      YulStmt.expr (YulExpr.call "mstore" [
+      YulStmt.exprStmt (YulExpr.call "mstore" [
         YulExpr.call "add" [YulExpr.ident "__evt_ptr", YulExpr.lit headOffset],
         normalizeEventWord p.ty argExpr
       ]) :: scalarEventUnindexedStoresFrom rest (headOffset + eventHeadWordSize p.ty)
@@ -114,12 +115,12 @@ def scalarEventIndexedTopicParts
 
 def adtEventWordStores (basePtr : YulExpr) (sourceName : String)
     (maxFields : Nat) (tagExpr : YulExpr) : List YulStmt :=
-  let tagStore := YulStmt.expr (YulExpr.call "mstore" [
+  let tagStore := YulStmt.exprStmt (YulExpr.call "mstore" [
     basePtr,
     normalizeEventWord ParamType.uint8 tagExpr
   ])
   let fieldStores := (List.range maxFields).map fun fieldIdx =>
-    YulStmt.expr (YulExpr.call "mstore" [
+    YulStmt.exprStmt (YulExpr.call "mstore" [
       YulExpr.call "add" [basePtr, YulExpr.lit ((fieldIdx + 1) * 32)],
       YulExpr.ident s!"{sourceName}_f{fieldIdx}"
     ])
@@ -142,7 +143,7 @@ def compileStaticCompositeEventWordStores
   | Expr.param name =>
       let leaves := staticCompositeLeaves name ty
       pure <| leaves.zipIdx.map fun ((leafTy, leafExpr), wordIdx) =>
-        YulStmt.expr (YulExpr.call "mstore" [
+        YulStmt.exprStmt (YulExpr.call "mstore" [
           YulExpr.call "add" [basePtr, YulExpr.lit (wordIdx * 32)],
           normalizeEventWord leafTy leafExpr
         ])
@@ -152,7 +153,7 @@ def compileStaticCompositeEventWordStores
           argExpr,
           YulExpr.lit leafOffset
         ])
-        YulStmt.expr (YulExpr.call "mstore" [
+        YulStmt.exprStmt (YulExpr.call "mstore" [
           YulExpr.call "add" [basePtr, YulExpr.lit leafOffset],
           normalizeEventWord leafTy loadExpr
         ])
@@ -170,7 +171,7 @@ def compileScalarEmitFromCompiledArgs
   let freeMemPtr := YulExpr.call "mload" [YulExpr.lit freeMemoryPointer]
   let storePtr := YulStmt.let_ "__evt_ptr" freeMemPtr
   let sigStores := (chunkBytes32 sigBytes).zipIdx.map fun (chunk, idx) =>
-    YulStmt.expr (YulExpr.call "mstore" [
+    YulStmt.exprStmt (YulExpr.call "mstore" [
       YulExpr.call "add" [YulExpr.ident "__evt_ptr", YulExpr.lit (idx * 32)],
       YulExpr.hex (wordFromBytes chunk)
     ])
@@ -181,13 +182,14 @@ def compileScalarEmitFromCompiledArgs
   let dataSizeExpr := YulExpr.lit (eventUnindexedHeadSize unindexed)
   let logFn := eventLogFunction indexed.length
   let logArgs := eventLogArgs dataSizeExpr indexedTopicParts
-  let logStmt := YulStmt.expr (YulExpr.call logFn logArgs)
+  let logStmt := YulStmt.exprStmt (YulExpr.call logFn logArgs)
   [YulStmt.block ([storePtr] ++ sigStores ++ [topic0Store] ++
     unindexedStores ++ [logStmt])]
 
 def compileEmit (fields : List Field) (events : List EventDef)
     (dynamicSource : DynamicDataSource := .calldata)
-    (eventName : String) (args : List Expr) : Except String (List YulStmt) := do
+    (eventName : String) (args : List Expr) (internalFunctions : List FunctionSpec := []) :
+    Except String (List YulStmt) := do
   let eventDef? := events.find? (·.name == eventName)
   let eventDef ←
     match eventDef? with
@@ -195,7 +197,7 @@ def compileEmit (fields : List Field) (events : List EventDef)
     | none => throw s!"Compilation error: unknown event '{eventName}'"
   if args.length != eventDef.params.length then
     throw s!"Compilation error: event '{eventName}' expects {eventDef.params.length} args, got {args.length}"
-  let compiledArgs ← compileExprList fields dynamicSource args
+  let compiledArgs ← compileExprListWithInternals fields dynamicSource internalFunctions args
   let zippedWithSource := eventZippedWithSource eventDef args compiledArgs
   let indexed := eventIndexedArgs zippedWithSource
   let unindexed := eventUnindexedArgs zippedWithSource
@@ -209,7 +211,7 @@ def compileEmit (fields : List Field) (events : List EventDef)
   let freeMemPtr := YulExpr.call "mload" [YulExpr.lit freeMemoryPointer]
   let storePtr := YulStmt.let_ "__evt_ptr" freeMemPtr
   let sigStores := (chunkBytes32 sigBytes).zipIdx.map fun (chunk, idx) =>
-    YulStmt.expr (YulExpr.call "mstore" [
+    YulStmt.exprStmt (YulExpr.call "mstore" [
       YulExpr.call "add" [YulExpr.ident "__evt_ptr", YulExpr.lit (idx * 32)],
       YulExpr.hex (wordFromBytes chunk)
     ])
@@ -238,10 +240,10 @@ def compileEmit (fields : List Field) (events : List EventDef)
                   let dstName := s!"__evt_arg{argIdx}_dst"
                   let paddedName := s!"__evt_arg{argIdx}_padded"
                   pure ([
-                    YulStmt.expr (YulExpr.call "mstore" [curHeadPtr, YulExpr.ident "__evt_data_tail"]),
+                    YulStmt.exprStmt (YulExpr.call "mstore" [curHeadPtr, YulExpr.ident "__evt_data_tail"]),
                     YulStmt.let_ lenName (YulExpr.ident s!"{name}_length"),
                     YulStmt.let_ dstName (YulExpr.call "add" [YulExpr.ident "__evt_ptr", YulExpr.ident "__evt_data_tail"]),
-                    YulStmt.expr (YulExpr.call "mstore" [YulExpr.ident dstName, YulExpr.ident lenName]),
+                    YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.ident dstName, YulExpr.ident lenName]),
                   ] ++ dynamicCopyData dynamicSource
                     (YulExpr.call "add" [YulExpr.ident dstName, YulExpr.lit 32])
                     (YulExpr.ident s!"{name}_data_offset")
@@ -250,7 +252,7 @@ def compileEmit (fields : List Field) (events : List EventDef)
                       YulExpr.call "add" [YulExpr.ident lenName, YulExpr.lit 31],
                       YulExpr.call "not" [YulExpr.lit 31]
                     ]),
-                    YulStmt.expr (YulExpr.call "mstore" [
+                    YulStmt.exprStmt (YulExpr.call "mstore" [
                       YulExpr.call "add" [
                         YulExpr.call "add" [YulExpr.ident dstName, YulExpr.lit 32],
                         YulExpr.ident lenName
@@ -280,10 +282,10 @@ def compileEmit (fields : List Field) (events : List EventDef)
                       let elemDstName := s!"__evt_arg{argIdx}_elem_dst"
                       let elemPaddedName := s!"__evt_arg{argIdx}_elem_padded"
                       pure ([
-                        YulStmt.expr (YulExpr.call "mstore" [curHeadPtr, YulExpr.ident "__evt_data_tail"]),
+                        YulStmt.exprStmt (YulExpr.call "mstore" [curHeadPtr, YulExpr.ident "__evt_data_tail"]),
                         YulStmt.let_ lenName (YulExpr.ident s!"{name}_length"),
                         YulStmt.let_ dstName (YulExpr.call "add" [YulExpr.ident "__evt_ptr", YulExpr.ident "__evt_data_tail"]),
-                        YulStmt.expr (YulExpr.call "mstore" [YulExpr.ident dstName, YulExpr.ident lenName]),
+                        YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.ident dstName, YulExpr.ident lenName]),
                         YulStmt.let_ headLenName (YulExpr.call "mul" [YulExpr.ident lenName, YulExpr.lit 32]),
                         YulStmt.let_ tailLenName (YulExpr.ident headLenName),
                         YulStmt.for_
@@ -301,7 +303,7 @@ def compileEmit (fields : List Field) (events : List EventDef)
                             ]),
                             YulStmt.let_ elemLenName (dynamicWordLoad dynamicSource (YulExpr.ident elemLenPosName)),
                             YulStmt.let_ elemDataName (YulExpr.call "add" [YulExpr.ident elemLenPosName, YulExpr.lit 32]),
-                            YulStmt.expr (YulExpr.call "mstore" [
+                            YulStmt.exprStmt (YulExpr.call "mstore" [
                               YulExpr.call "add" [
                                 YulExpr.call "add" [YulExpr.ident dstName, YulExpr.lit 32],
                                 YulExpr.call "mul" [YulExpr.ident loopIndexName, YulExpr.lit 32]
@@ -312,7 +314,7 @@ def compileEmit (fields : List Field) (events : List EventDef)
                               YulExpr.call "add" [YulExpr.ident dstName, YulExpr.lit 32],
                               YulExpr.ident tailLenName
                             ]),
-                            YulStmt.expr (YulExpr.call "mstore" [
+                            YulStmt.exprStmt (YulExpr.call "mstore" [
                               YulExpr.ident elemDstName,
                               YulExpr.ident elemLenName
                             ])
@@ -324,7 +326,7 @@ def compileEmit (fields : List Field) (events : List EventDef)
                               YulExpr.call "add" [YulExpr.ident elemLenName, YulExpr.lit 31],
                               YulExpr.call "not" [YulExpr.lit 31]
                             ]),
-                            YulStmt.expr (YulExpr.call "mstore" [
+                            YulStmt.exprStmt (YulExpr.call "mstore" [
                               YulExpr.call "add" [
                                 YulExpr.call "add" [YulExpr.ident elemDstName, YulExpr.lit 32],
                                 YulExpr.ident elemLenName
@@ -344,7 +346,7 @@ def compileEmit (fields : List Field) (events : List EventDef)
                   | _ =>
                       throw s!"Compilation error: unindexed dynamic array event param '{p.name}' in event '{eventName}' currently requires direct parameter reference ({issue586Ref})."
               else if indexedDynamicArrayElemSupported elemTy then
-                match ← eventDynamicArraySource? fields dynamicSource srcExpr with
+                match ← eventDynamicArraySource? fields dynamicSource internalFunctions srcExpr with
                 | some source =>
                     let lenName := s!"__evt_arg{argIdx}_len"
                     let dstName := s!"__evt_arg{argIdx}_dst"
@@ -360,15 +362,15 @@ def compileEmit (fields : List Field) (events : List EventDef)
                           YulExpr.ident elemBaseName,
                           YulExpr.lit leafOffset
                         ])
-                        YulStmt.expr (YulExpr.call "mstore" [
+                        YulStmt.exprStmt (YulExpr.call "mstore" [
                           YulExpr.call "add" [YulExpr.ident elemOutBaseName, YulExpr.lit leafOffset],
                           normalizeEventWord leafTy loadExpr
                         ])
                     pure ([
-                      YulStmt.expr (YulExpr.call "mstore" [curHeadPtr, YulExpr.ident "__evt_data_tail"]),
+                      YulStmt.exprStmt (YulExpr.call "mstore" [curHeadPtr, YulExpr.ident "__evt_data_tail"]),
                       YulStmt.let_ lenName source.lengthExpr,
                       YulStmt.let_ dstName (YulExpr.call "add" [YulExpr.ident "__evt_ptr", YulExpr.ident "__evt_data_tail"]),
-                      YulStmt.expr (YulExpr.call "mstore" [YulExpr.ident dstName, YulExpr.ident lenName]),
+                      YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.ident dstName, YulExpr.ident lenName]),
                       YulStmt.let_ byteLenName (YulExpr.call "mul" [YulExpr.ident lenName, YulExpr.lit elemWordSize]),
                       YulStmt.for_
                         [YulStmt.let_ loopIndexName (YulExpr.lit 0)]
@@ -388,7 +390,7 @@ def compileEmit (fields : List Field) (events : List EventDef)
                         YulExpr.call "add" [YulExpr.ident byteLenName, YulExpr.lit 31],
                         YulExpr.call "not" [YulExpr.lit 31]
                       ]),
-                      YulStmt.expr (YulExpr.call "mstore" [
+                      YulStmt.exprStmt (YulExpr.call "mstore" [
                         YulExpr.call "add" [
                           YulExpr.call "add" [YulExpr.ident dstName, YulExpr.lit 32],
                           YulExpr.ident byteLenName
@@ -410,7 +412,7 @@ def compileEmit (fields : List Field) (events : List EventDef)
                     let (encStmts, encLen) ←
                       compileUnindexedAbiEncode dynamicSource p.ty srcBase (YulExpr.ident dstName) s!"__evt_arg{argIdx}"
                     pure ([
-                      YulStmt.expr (YulExpr.call "mstore" [curHeadPtr, YulExpr.ident "__evt_data_tail"]),
+                      YulStmt.exprStmt (YulExpr.call "mstore" [curHeadPtr, YulExpr.ident "__evt_data_tail"]),
                       YulStmt.let_ dstName (YulExpr.call "add" [YulExpr.ident "__evt_ptr", YulExpr.ident "__evt_data_tail"])
                     ] ++ encStmts ++ [
                       YulStmt.assign "__evt_data_tail" (YulExpr.call "add" [YulExpr.ident "__evt_data_tail", encLen])
@@ -428,7 +430,7 @@ def compileEmit (fields : List Field) (events : List EventDef)
                     let (encStmts, encLen) ←
                       compileUnindexedAbiEncode dynamicSource p.ty srcBase (YulExpr.ident dstName) s!"__evt_arg{argIdx}"
                     pure ([
-                      YulStmt.expr (YulExpr.call "mstore" [curHeadPtr, YulExpr.ident "__evt_data_tail"]),
+                      YulStmt.exprStmt (YulExpr.call "mstore" [curHeadPtr, YulExpr.ident "__evt_data_tail"]),
                       YulStmt.let_ dstName (YulExpr.call "add" [YulExpr.ident "__evt_ptr", YulExpr.ident "__evt_data_tail"])
                     ] ++ encStmts ++ [
                       YulStmt.assign "__evt_data_tail" (YulExpr.call "add" [YulExpr.ident "__evt_data_tail", encLen])
@@ -440,7 +442,7 @@ def compileEmit (fields : List Field) (events : List EventDef)
           | ParamType.adt _ maxFields =>
               compileAdtEventWordStores eventName p.name srcExpr argExpr curHeadPtr maxFields
           | _ =>
-              pure [YulStmt.expr (YulExpr.call "mstore" [curHeadPtr, normalizeEventWord p.ty argExpr])]
+              pure [YulStmt.exprStmt (YulExpr.call "mstore" [curHeadPtr, normalizeEventWord p.ty argExpr])]
         let tail ← compileUnindexedStores rest (argIdx + 1) (headOffset + eventHeadWordSize p.ty)
         pure (current ++ tail)
   let unindexedStores ← compileUnindexedStores unindexed 0 0
@@ -508,7 +510,7 @@ def compileEmit (fields : List Field) (events : List EventDef)
                         YulExpr.call "add" [YulExpr.ident elemLenName, YulExpr.lit 31],
                         YulExpr.call "not" [YulExpr.lit 31]
                       ]),
-                      YulStmt.expr (YulExpr.call "mstore" [
+                      YulStmt.exprStmt (YulExpr.call "mstore" [
                         YulExpr.call "add" [YulExpr.ident elemDstName, YulExpr.ident elemLenName],
                         YulExpr.lit 0
                       ]),
@@ -527,7 +529,7 @@ def compileEmit (fields : List Field) (events : List EventDef)
                 throw s!"Compilation error: indexed dynamic array event param '{p.name}' in event '{eventName}' currently requires direct parameter reference ({issue586Ref})."
         | _ =>
             if indexedDynamicArrayElemSupported elemTy then
-              match ← eventDynamicArraySource? fields dynamicSource srcExpr with
+              match ← eventDynamicArraySource? fields dynamicSource internalFunctions srcExpr with
               | some source =>
                   let topicName := s!"__evt_topic{idx + 1}"
                   let byteLenName := s!"__evt_arg{idx}_byte_len"
@@ -541,7 +543,7 @@ def compileEmit (fields : List Field) (events : List EventDef)
                         YulExpr.ident elemBaseName,
                         YulExpr.lit leafOffset
                       ])
-                      YulStmt.expr (YulExpr.call "mstore" [
+                      YulStmt.exprStmt (YulExpr.call "mstore" [
                         YulExpr.call "add" [
                           YulExpr.ident elemOutBaseName,
                           YulExpr.lit leafOffset
@@ -625,7 +627,7 @@ def compileEmit (fields : List Field) (events : List EventDef)
   let indexedTopicStmts := indexedTopicParts.flatMap (·.1)
   let logFn := eventLogFunction indexed.length
   let logArgs := eventLogArgs dataSizeExpr indexedTopicParts
-  let logStmt := YulStmt.expr (YulExpr.call logFn logArgs)
+  let logStmt := YulStmt.exprStmt (YulExpr.call logFn logArgs)
   pure [YulStmt.block ([storePtr] ++ sigStores ++ [topic0Store] ++ indexedTopicStmts ++ unindexedTailInit ++ unindexedStores ++ [logStmt])]
 
 end Compiler.CompilationModel

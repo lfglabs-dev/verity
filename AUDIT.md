@@ -38,11 +38,11 @@ equivalence theorems. Proof-only scaffolding; no compiler output changes.
 
 The current generic scalar-event slice is intentionally top-level only: supported
 `emit` statements may appear as function-body heads with scalar parameters and at
-most three indexed parameters. This slice is proved at the body/function level;
-the contract-level scalar-events theorem and its witness contract have not landed
-yet, so whole-contract correctness still assumes no events. Nested emits inside
-structural statements remain future work, and the Yul/EndToEnd proof layers still
-exclude event/log semantics.
+most three indexed parameters. The contract-level scalar-events wrapper now lifts
+the function-level proof over dispatch when callers supply the scalar-event
+list-interface witnesses, and `ContractFeatureTest.lean` includes a top-level
+emit smoke contract. Nested emits inside structural statements remain future
+work, and the Yul/EndToEnd proof layers still exclude event/log semantics.
 
 ### Compiler-Side Emit-Argument Scope Collection (2026-06)
 
@@ -91,6 +91,90 @@ arbitrary `pfx ++ sfx` split. End-to-end smoke proof in the same file.
 Wiring of `SupportedFragment` / `SupportedSpec` for contracts that
 actually use this family is the next milestone.
 
+## Reentrancy Rely-Guarantee Framework (2026-06)
+
+A new proof-level reentrancy framework, complementary to the runtime
+`nonreentrant` transient-storage guard (#1893). Additive and axiom-free; it
+keeps the "Project-level Lean axioms: 0" invariant above.
+
+- **New modules** (no `sorry`, no `axiom`, no `native_decide`):
+  - `Verity/Core/Invariant.lean` — state-polymorphic rely-guarantee library
+    (`Preserves` / `runSeq` / `runSeq_preserves`).
+  - `Verity/Core/Reentrancy.lean` — grounds it against the `Contract` monad:
+    `reentrantCall`, `ContractPreserves`, `ReentrancySpec` and the
+    whole-interleaving meta-theorem `ReentrancySpec.schedule_preserves`, plus a
+    forward-compatible multi-contract layer (`System` / `lift` / `Isys` /
+    `cross_contract_schedule_preserves`).
+- **New semantic surface**: `Env.reenter : ContractState → ContractState`
+  (default `id`, the no-reentry case) on `Verity/Core/Semantics.lean`.
+- **Worked example**: `Contracts/ReentrancyRelyGuarantee` machine-checks the
+  Midnight `take`/`liquidate` callback bug — the no-lock `take` admits a
+  permanent bad-debt liquidation; the locked `take` admits none for any
+  lock-respecting adversary.
+- **Trust boundary**: author obligations (entrypoint-registry completeness,
+  adversary-model fidelity, invariant adequacy). See the
+  "Reentrancy Rely-Guarantee Framework" section in `TRUST_ASSUMPTIONS.md`.
+- **CI state**: the example is registered in `test/property_manifest.json` and
+  classified proof-only in `test/property_exclusions.json` (abstract
+  state-transformer proofs, no compiled bytecode to property- or
+  differential-test); structure/Foundry-test exemptions are recorded in
+  `scripts/check_contract_structure.py`. `artifacts/verification_status.json`
+  and `docs/VERIFICATION_STATUS.md` now record 15 example contracts and +8
+  proven theorems (all proof-only, so runtime coverage moves 90% → 88% by
+  construction while proven count rises 283 → 291).
+
+### Cross-Function Reentrancy Gate (fail-closed)
+
+A compilation-level gate that complements the proof framework above:
+`validateReentrancyDisposition`
+([Compiler/CompilationModel/Validation.lean](Compiler/CompilationModel/Validation.lean)),
+a dedicated pass run after call well-formedness validation (and independent of
+the single-function CEI check in `validateFunctionSpec`),
+now **rejects** any non-`view`/`pure` function whose body makes a direct
+external call unless it carries a sound reentrancy disposition. This closes the
+cross-function reentrancy class (Midnight `take`/`liquidate`) at the toolchain
+boundary: a CEI-clean function is no longer enough, because its external
+callback still leaves a transiently-exploitable state live for a reentrant
+sibling entrypoint.
+
+- **Accept-set** (sound only): `nonreentrant(<lock>)` (runtime transient-storage
+  guard, #1893) or `reentrancy_trusted` (new metadata-only, unproven author
+  assertion — emits no code, no proof obligation, recorded as a trust boundary).
+- **Deliberately rejected**: `cei_safe` and `allow_post_interaction_writes`
+  concern single-function CEI ordering only and do **not** satisfy the gate.
+- **Internal-helper closure** (Bugbot HIGH on #2032): the `nonreentrant(<lock>)`
+  transient guard is attached **only** at the external dispatch boundary
+  (`attachNonReentrantGuard`, #1893), so it is absent on the lock-free
+  internal-helper shadow the macro emits for direct intra-contract calls. A
+  *lock-only* `nonreentrant` function (no `reentrancy_trusted`) is therefore
+  **rejected when invoked as an internal helper** at macro lowering
+  (`ensureCallableAsInternalHelper`,
+  [Verity/Macro/Internal.lean](Verity/Macro/Internal.lean)); routing such a call
+  through the shadow would run the guarded body without the lock and silently
+  bypass its only protection. A callee that *also* carries `reentrancy_trusted`
+  is accepted (the assertion covers the lock-free internal path). This mirrors
+  the existing `internal nonreentrant(<lock>)` rejection
+  (`NonreentrantInternalHelperRejected`, #1971).
+- **CEISafety demoted**: `Compiler.Proofs.IRGeneration.CEISafety`
+  (`CEIProofBackedExecution`) remains a valid proof surface, but it certifies
+  *single-function* Checks-Effects-Interactions ordering — it is **not** a
+  reentrancy defense and is no longer presented as one. Cross-function
+  reentrancy safety is owned solely by this gate's accept-set
+  (`nonreentrant`/`reentrancy_trusted`); CEI is subordinate ordering hygiene.
+- **New annotation surface**: `reentrancy_trusted` threads through the macro
+  (`Verity/Macro/Syntax.lean` → `Translate/Parsing.lean` → `Types.lean` →
+  `Translate.lean`) onto `FunctionDecl.reentrancyTrusted` /
+  `FunctionSpec.reentrancyTrusted` (defaulted `false`, backward compatible).
+- **Regression evidence**: `Contracts/Smoke/SecurityCombos.lean` pairs
+  `ReentrancyDispositionRequired` (a CEI-clean `take` rejected by the gate,
+  pinned with `#guard_msgs`) against `ReentrancyDispositionDeclared` (the
+  identical body accepted once it declares `reentrancy_trusted`) — identical
+  bodies, opposite verdicts, the Midnight shape proven unable to pass
+  `#check_contract` undeclared.
+- **Axiom-free**: the gate is a pure validation predicate; `AXIOMS.md` is
+  unchanged. Trust-boundary prose is in the "Cross-Function Reentrancy Gate"
+  section of `TRUST_ASSUMPTIONS.md`.
+
 ## Audit Artifacts
 
 | Artifact | Purpose | Check |
@@ -129,4 +213,4 @@ actually use this family is the next milestone.
    command.
 5. Run `make check`; run targeted Lean builds for changed proof modules.
 
-**Last Updated**: 2026-06 (event emission proof-model alignment, emit-argument scope collection, scratch memory wrapping; storage layout audit artifacts, #1897; nonreentrant transient-storage guard, #1893; non-alias certificate write-set overlap, #1967; nonreentrant fork requirement, #1968)
+**Last Updated**: 2026-06 (cross-function reentrancy gate: fail-closed `validateReentrancyDisposition` rejection of external-call functions lacking a sound disposition, new `reentrancy_trusted` metadata annotation, CEISafety demoted to single-function ordering hygiene, `#guard_msgs` regression pair in `SecurityCombos.lean` — axiom-free; reentrancy rely-guarantee framework: `Verity.Core.Invariant` / `Verity.Core.Reentrancy`, `Env.reenter` hook, Midnight `take`/`liquidate` worked example — additive, 0 axioms; event emission proof-model alignment, emit-argument scope collection, scratch memory wrapping; storage layout audit artifacts, #1897; nonreentrant transient-storage guard, #1893; non-alias certificate write-set overlap, #1967; nonreentrant fork requirement, #1968)

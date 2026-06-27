@@ -126,7 +126,7 @@ verity_contract ForEachMutableLocalSmoke where
       total := add total value)
     return total
 
-  function allow_post_interaction_writes sumOnCatch (values : Array Uint256)
+  function allow_post_interaction_writes reentrancy_trusted sumOnCatch (values : Array Uint256)
     local_obligations [manual_low_level_refinement := assumed "Low-level call success/failure boundary still requires a manual refinement argument."]
     : Uint256 := do
     tryCatch (call 0 0 1 0 0 0 0) (do

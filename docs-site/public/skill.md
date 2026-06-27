@@ -23,7 +23,7 @@ Primary docs:
 
 - `/first-contract.md`
 - `/guides/add-contract.md`
-- `/edsl-api-reference.md`
+- `/edsl.md` (EDSL reference hub; subpages `/edsl/storage.md`, `/edsl/computation.md`, `/edsl/control-flow.md`, `/edsl/functions.md`, `/edsl/external-calls.md`)
 - `/proof-techniques.md`
 - `/guides/debugging-proofs.md`
 

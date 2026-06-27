@@ -16,21 +16,24 @@ from property_utils import ROOT, die
 
 # Contracts that use non-standard structure (inline proofs, proof-only, etc.)
 EXCLUDED_CONTRACTS = {
-    "ReentrancyExample",  # Inline proofs in Examples/, no separate Proofs/ dir
-    "CryptoHash",         # Axiom-based, no separate proof structure
+    "ReentrancyExample",        # Inline proofs in Examples/, no separate Proofs/ dir
+    "CryptoHash",               # Axiom-based, no separate proof structure
+    "ReentrancyRelyGuarantee",  # Proof-only rely-guarantee framework example, inline proofs
 }
 
 # Contracts excluded from property test check
 EXCLUDED_FROM_PROPERTY_TESTS = {
-    "CryptoHash",         # External-library contract, no property tests
-    "Vault",              # Minimal scaffolding landed before proof/property suite completion
+    "CryptoHash",               # External-library contract, no property tests
+    "Vault",                    # Minimal scaffolding landed before proof/property suite completion
+    "ReentrancyRelyGuarantee",  # Abstract state-transformer proofs, no compiled contract to property-test
 }
 
 # Contracts excluded from differential test check
 EXCLUDED_FROM_DIFFERENTIAL_TESTS = {
-    "CryptoHash",         # External-library oracle behavior is not differential-tested
-    "ReentrancyExample",  # Reentrancy model requires dedicated external-call harnessing
-    "Vault",              # Minimal scaffolding landed before differential harness completion
+    "CryptoHash",               # External-library oracle behavior is not differential-tested
+    "ReentrancyExample",        # Reentrancy model requires dedicated external-call harnessing
+    "Vault",                    # Minimal scaffolding landed before differential harness completion
+    "ReentrancyRelyGuarantee",  # No compiled bytecode (abstract proofs), nothing to differential-test
 }
 
 # Expected files for each contract (relative to ROOT)

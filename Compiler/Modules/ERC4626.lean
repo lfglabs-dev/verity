@@ -69,16 +69,16 @@ private def readUint256Module
     let ptrName := s!"__erc4626_{moduleName}_ptr"
     let ptrExpr := YulExpr.ident ptrName
     let loadPtr := YulStmt.let_ ptrName (YulExpr.call "mload" [YulExpr.lit freeMemoryPointer])
-    let storeSelector := YulStmt.expr (YulExpr.call "mstore" [
+    let storeSelector := YulStmt.exprStmt (YulExpr.call "mstore" [
       ptrExpr,
       YulExpr.call "shl" [YulExpr.lit 224, YulExpr.hex selector]
     ])
     let storeArgs := argExprs.zipIdx.map fun (argExpr, idx) =>
-      YulStmt.expr (YulExpr.call "mstore" [
+      YulStmt.exprStmt (YulExpr.call "mstore" [
         YulExpr.call "add" [ptrExpr, YulExpr.lit (4 + idx * 32)],
         argExpr
       ])
-    let advancePtr := YulStmt.expr (YulExpr.call "mstore" [
+    let advancePtr := YulStmt.exprStmt (YulExpr.call "mstore" [
       YulExpr.lit freeMemoryPointer,
       YulExpr.call "add" [ptrExpr, YulExpr.lit frameSize]
     ])
@@ -90,15 +90,15 @@ private def readUint256Module
     ]
     let revertOnFailure := YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident "__erc4626_success"]) [
       YulStmt.let_ "__erc4626_rds" (YulExpr.call "returndatasize" []),
-      YulStmt.expr (YulExpr.call "returndatacopy" [
+      YulStmt.exprStmt (YulExpr.call "returndatacopy" [
         YulExpr.lit 0, YulExpr.lit 0, YulExpr.ident "__erc4626_rds"
       ]),
-      YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.ident "__erc4626_rds"])
+      YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.ident "__erc4626_rds"])
     ]
     let requireSingleWord := YulStmt.if_ (YulExpr.call "iszero" [
       YulExpr.call "eq" [YulExpr.call "returndatasize" [], YulExpr.lit 32]
     ]) [
-      YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+      YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
     ]
     let bindResult := YulStmt.let_ resultVar (YulExpr.lit 0)
     let assignResult := YulStmt.assign resultVar (YulExpr.call "mload" [ptrExpr])
@@ -133,16 +133,16 @@ private def writeUint256Module
     let ptrName := s!"__erc4626_{moduleName}_ptr"
     let ptrExpr := YulExpr.ident ptrName
     let loadPtr := YulStmt.let_ ptrName (YulExpr.call "mload" [YulExpr.lit freeMemoryPointer])
-    let storeSelector := YulStmt.expr (YulExpr.call "mstore" [
+    let storeSelector := YulStmt.exprStmt (YulExpr.call "mstore" [
       ptrExpr,
       YulExpr.call "shl" [YulExpr.lit 224, YulExpr.hex selector]
     ])
     let storeArgs := argExprs.zipIdx.map fun (argExpr, idx) =>
-      YulStmt.expr (YulExpr.call "mstore" [
+      YulStmt.exprStmt (YulExpr.call "mstore" [
         YulExpr.call "add" [ptrExpr, YulExpr.lit (4 + idx * 32)],
         argExpr
       ])
-    let advancePtr := YulStmt.expr (YulExpr.call "mstore" [
+    let advancePtr := YulStmt.exprStmt (YulExpr.call "mstore" [
       YulExpr.lit freeMemoryPointer,
       YulExpr.call "add" [ptrExpr, YulExpr.lit frameSize]
     ])
@@ -155,15 +155,15 @@ private def writeUint256Module
     ]
     let revertOnFailure := YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident "__erc4626_success"]) [
       YulStmt.let_ "__erc4626_rds" (YulExpr.call "returndatasize" []),
-      YulStmt.expr (YulExpr.call "returndatacopy" [
+      YulStmt.exprStmt (YulExpr.call "returndatacopy" [
         YulExpr.lit 0, YulExpr.lit 0, YulExpr.ident "__erc4626_rds"
       ]),
-      YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.ident "__erc4626_rds"])
+      YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.ident "__erc4626_rds"])
     ]
     let requireSingleWord := YulStmt.if_ (YulExpr.call "iszero" [
       YulExpr.call "eq" [YulExpr.call "returndatasize" [], YulExpr.lit 32]
     ]) [
-      YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+      YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
     ]
     let bindResult := YulStmt.let_ resultVar (YulExpr.lit 0)
     let assignResult := YulStmt.assign resultVar (YulExpr.call "mload" [ptrExpr])
@@ -332,11 +332,11 @@ def assetModule (resultVar : String) : ExternalCallModule where
     let ptrName := "__erc4626_asset_ptr"
     let ptrExpr := YulExpr.ident ptrName
     let loadPtr := YulStmt.let_ ptrName (YulExpr.call "mload" [YulExpr.lit freeMemoryPointer])
-    let storeSelector := YulStmt.expr (YulExpr.call "mstore" [
+    let storeSelector := YulStmt.exprStmt (YulExpr.call "mstore" [
       ptrExpr,
       YulExpr.call "shl" [YulExpr.lit 224, YulExpr.hex 0x38d52e0f]
     ])
-    let advancePtr := YulStmt.expr (YulExpr.call "mstore" [
+    let advancePtr := YulStmt.exprStmt (YulExpr.call "mstore" [
       YulExpr.lit freeMemoryPointer,
       YulExpr.call "add" [ptrExpr, YulExpr.lit 32]
     ])
@@ -348,15 +348,15 @@ def assetModule (resultVar : String) : ExternalCallModule where
     ]
     let revertOnFailure := YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident "__erc4626_success"]) [
       YulStmt.let_ "__erc4626_rds" (YulExpr.call "returndatasize" []),
-      YulStmt.expr (YulExpr.call "returndatacopy" [
+      YulStmt.exprStmt (YulExpr.call "returndatacopy" [
         YulExpr.lit 0, YulExpr.lit 0, YulExpr.ident "__erc4626_rds"
       ]),
-      YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.ident "__erc4626_rds"])
+      YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.ident "__erc4626_rds"])
     ]
     let requireSingleWord := YulStmt.if_ (YulExpr.call "iszero" [
       YulExpr.call "eq" [YulExpr.call "returndatasize" [], YulExpr.lit 32]
     ]) [
-      YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+      YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
     ]
     let bindResult := YulStmt.let_ resultVar (YulExpr.lit 0)
     let assignResult := YulStmt.assign resultVar

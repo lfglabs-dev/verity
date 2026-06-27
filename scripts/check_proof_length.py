@@ -69,6 +69,11 @@ ALLOWLIST: set[str] = {
     "compileStmtList_core_ok",
     "compileStmtList_terminal_core_ok",
     "compileStmtList_terminal_core_ok_nonempty",
+    # Fork-aware list append inversion and constructor smoke witnesses are
+    # mechanical normalization proofs; splitting them duplicates the same
+    # head/tail compile-success plumbing.
+    "compileStmtList_append_ok_inv",
+    "constructorOnly_compileBody_empty_surfaces_withFork",
     "execStmtList_terminal_core_not_continue",  # mstore/tstore widening — 9 per-constructor cases
     "compileStmtList_terminal_ite_ok_inv",
     "compileStmt_terminal_ite_ok_inv",
@@ -129,6 +134,10 @@ ALLOWLIST: set[str] = {
     "selectedUserBodyClosureAndMatchedFresh_of_compile_ok_supported_switchFresh",
     # --- Helper-aware result packaging bridge ---
     "interpretFunctionWithHelpers_eq_execResultToIRResultWithInternals_of_body",
+    # ERC-4337 dynamic ABI view projection: mechanical destructuring of the
+    # nine-field PackedUserOperation decoder to expose its four dynamic bytes
+    # member bindings. Splitting would duplicate the same option-case spine.
+    "decodePackedUserOperationAt",
     "compiledStmtStep_setStructMember2_singleSlot_of_slotSafety_preserves",
     "stmtListGenericCore_singleton_setStructMember2Single_of_slotSafety",
     # --- Transient/memory write singleton bridges ---
@@ -638,6 +647,18 @@ ALLOWLIST: set[str] = {
     # rcases branches would produce trivial single-use helpers whose
     # boilerplate exceeds the save.
     "compileMappingSlotWrite_multiSlot_bridged",
+    # `add`-wrapped (wordOffset != 0) twin of the multi-slot closure above:
+    # same outer `YulStmt.block` of two let-bindings plus N per-slot writes,
+    # but each store is `sstore/tstore(add(mappingSlot(..), lit wordOffset), ..)`.
+    # The proof enumerates the same four concrete membership cases (let
+    # __compat_key, let __compat_value, slot0, slot1) then the generic
+    # slotsRest map case, each delegating to the shared `hStoreFor` witness
+    # built from `bridgedStraightStmt_maybeFieldStorageStore_add` (which the
+    # field-aware transient/sstore selection requires). The inline AST-shape
+    # witness pads the span without substantive logic; decomposing the rcases
+    # branches would yield trivial single-use helpers whose boilerplate
+    # exceeds the save.
+    "compileMappingSlotWrite_multiSlot_nonzero_bridged",
     # Multi-slot setMapping2 compatibility branch emits an outer
     # `YulStmt.block` wrapping three let-bindings (__compat_key1,
     # __compat_key2, __compat_value) plus N nested-mappingSlot sstore

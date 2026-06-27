@@ -279,7 +279,6 @@ private partial def specializeForkStmt
   | .require cond message => .require (specializeForkExpr targetFork cond) message
   | .requireError cond errorName args => .requireError (specializeForkExpr targetFork cond) errorName (args.map (specializeForkExpr targetFork))
   | .revertError errorName args => .revertError errorName (args.map (specializeForkExpr targetFork))
-  | .panicCode code => .panicCode (specializeForkExpr targetFork code)
   | .return value => .return (specializeForkExpr targetFork value)
   | .returnValues values => .returnValues (values.map (specializeForkExpr targetFork))
   | .returnCodeData pointer => .returnCodeData (specializeForkExpr targetFork pointer)
@@ -289,6 +288,7 @@ private partial def specializeForkStmt
   | .returndataCopy dest source size => .returndataCopy (specializeForkExpr targetFork dest) (specializeForkExpr targetFork source) (specializeForkExpr targetFork size)
   | .ite cond thenBranch elseBranch => .ite (specializeForkExpr targetFork cond) (thenBranch.map (specializeForkStmt targetFork)) (elseBranch.map (specializeForkStmt targetFork))
   | .forEach varName count body => .forEach varName (specializeForkExpr targetFork count) (body.map (specializeForkStmt targetFork))
+  | .forEachSetBit varName bitmap body => .forEachSetBit varName (specializeForkExpr targetFork bitmap) (body.map (specializeForkStmt targetFork))
   | .emit eventName args => .emit eventName (args.map (specializeForkExpr targetFork))
   | .internalCall functionName args => .internalCall functionName (args.map (specializeForkExpr targetFork))
   | .internalCallAssign names functionName args => .internalCallAssign names functionName (args.map (specializeForkExpr targetFork))
@@ -322,7 +322,7 @@ private def specializeForkSpec
 
 private partial def collectIntrinsicUsesStmt : Stmt → List IntrinsicUse
   | .letVar _ value | .assignVar _ value | .setStorage _ value
-  | .setStorageAddr _ value | .setStorageWord _ _ value
+  | .setStorageAddr _ value | .setImmutable _ value | .setStorageWord _ _ value
   | .storageArrayPush _ value | .return value | .require value _ =>
       collectIntrinsicUsesExpr value
   | .setStorageArrayElement _ index value
@@ -343,8 +343,6 @@ private partial def collectIntrinsicUsesStmt : Stmt → List IntrinsicUse
   | .externalCallBind _ _ args | .tryExternalCallBind _ _ _ args
   | .ecm _ args =>
       args.flatMap collectIntrinsicUsesExpr
-  | .panicCode code =>
-      collectIntrinsicUsesExpr code
   | .returnCodeData pointer =>
       collectIntrinsicUsesExpr pointer
   | .calldatacopy destOffset sourceOffset size
@@ -358,6 +356,8 @@ private partial def collectIntrinsicUsesStmt : Stmt → List IntrinsicUse
         elseBranch.flatMap collectIntrinsicUsesStmt
   | .forEach _ count body =>
       collectIntrinsicUsesExpr count ++ body.flatMap collectIntrinsicUsesStmt
+  | .forEachSetBit _ bitmap body =>
+      collectIntrinsicUsesExpr bitmap ++ body.flatMap collectIntrinsicUsesStmt
   | .unsafeBlock _ body =>
       body.flatMap collectIntrinsicUsesStmt
   | .matchAdt _ scrutinee branches =>

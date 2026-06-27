@@ -87,7 +87,7 @@ private partial def mechanicsOfExpr : YulExpr → List LowLevelMechanic
 mutual
 private partial def mechanicsOfStmt : YulStmt → List LowLevelMechanic
   | .comment _ | .leave => []
-  | .let_ _ value | .letMany _ value | .assign _ value | .expr value =>
+  | .let_ _ value | .letMany _ value | .assign _ value | .exprStmt value =>
       mechanicsOfExpr value
   | .if_ cond body =>
       mechanicsOfExpr cond ++ mechanicsOfStmts body
@@ -119,7 +119,7 @@ private partial def controlFlowOfStmt : YulStmt → ControlFlowSummary
       .fallsThrough
   | .leave =>
       .returns
-  | .expr expr =>
+  | .exprStmt expr =>
       controlFlowOfExpr expr
   | .if_ cond body =>
       (controlFlowOfExpr cond).union { (controlFlowOfStmts body) with mayFallThrough := true }

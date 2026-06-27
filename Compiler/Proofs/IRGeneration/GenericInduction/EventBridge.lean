@@ -222,33 +222,33 @@ private theorem compileExpr_atomic_shape
   cases expr <;> simp [exprEventArgAtomic] at hatomic
   case literal n =>
       refine Or.inl ⟨n % CompilationModel.uint256Modulus, ?_⟩
-      simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm
+      simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, pure, Except.pure] using hcompile.symm
   case param name =>
       refine Or.inr (Or.inl ⟨name, ?_, ?_⟩)
-      · simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm
+      · simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, pure, Except.pure] using hcompile.symm
       · exact hinScope name (by simp [FunctionBody.exprBoundNames])
   case localVar name =>
       refine Or.inr (Or.inl ⟨name, ?_, ?_⟩)
-      · simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm
+      · simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, pure, Except.pure] using hcompile.symm
       · exact hinScope name (by simp [FunctionBody.exprBoundNames])
   case caller =>
-      exact Or.inr (Or.inr ⟨"caller", by simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm⟩)
+      exact Or.inr (Or.inr ⟨"caller", by simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, pure, Except.pure] using hcompile.symm⟩)
   case contractAddress =>
-      exact Or.inr (Or.inr ⟨"address", by simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm⟩)
+      exact Or.inr (Or.inr ⟨"address", by simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, pure, Except.pure] using hcompile.symm⟩)
   case txOrigin =>
-      exact Or.inr (Or.inr ⟨"origin", by simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm⟩)
+      exact Or.inr (Or.inr ⟨"origin", by simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, pure, Except.pure] using hcompile.symm⟩)
   case msgValue =>
-      exact Or.inr (Or.inr ⟨"callvalue", by simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm⟩)
+      exact Or.inr (Or.inr ⟨"callvalue", by simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, pure, Except.pure] using hcompile.symm⟩)
   case blockTimestamp =>
-      exact Or.inr (Or.inr ⟨"timestamp", by simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm⟩)
+      exact Or.inr (Or.inr ⟨"timestamp", by simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, pure, Except.pure] using hcompile.symm⟩)
   case blockNumber =>
-      exact Or.inr (Or.inr ⟨"number", by simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm⟩)
+      exact Or.inr (Or.inr ⟨"number", by simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, pure, Except.pure] using hcompile.symm⟩)
   case chainid =>
-      exact Or.inr (Or.inr ⟨"chainid", by simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm⟩)
+      exact Or.inr (Or.inr ⟨"chainid", by simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, pure, Except.pure] using hcompile.symm⟩)
   case blobbasefee =>
-      exact Or.inr (Or.inr ⟨"blobbasefee", by simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm⟩)
+      exact Or.inr (Or.inr ⟨"blobbasefee", by simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, pure, Except.pure] using hcompile.symm⟩)
   case calldatasize =>
-      exact Or.inr (Or.inr ⟨"calldatasize", by simpa [CompilationModel.compileExpr, pure, Except.pure] using hcompile.symm⟩)
+      exact Or.inr (Or.inr ⟨"calldatasize", by simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, pure, Except.pure] using hcompile.symm⟩)
 
 private theorem eventExprCompileCore_of_exprEventArgAtomic
     {expr : Expr}
@@ -266,9 +266,9 @@ private theorem eventCompileExprList_atomic_shapes
     List.Forall₂ (fun argExpr _ => AtomicArgIR scope argExpr) argExprs args := by
   induction args generalizing argExprs with
   | nil =>
-      simp [CompilationModel.compileExprList] at hcompile
-      injection hcompile with hargs
-      subst hargs
+      simp [CompilationModel.compileExprList, CompilationModel.compileExprListWithInternals,
+        pure, Except.pure] at hcompile
+      cases hcompile
       exact .nil
   | cons arg rest ih =>
       simp only [List.all_cons, Bool.and_eq_true] at hatomic
@@ -288,9 +288,16 @@ private theorem eventCompileExprList_atomic_shapes
           ((List.all_eq_true.mp hatomic.2) tailArg hmem)
       rcases compileExprList_core_ok (fields := fields) htailCore with
         ⟨restIRs, hrestIRs⟩
-      rw [CompilationModel.compileExprList, hargIR, hrestIRs] at hcompile
-      injection hcompile with hcompiledTail
-      subst hcompiledTail
+      have hargIRInternal :
+          CompilationModel.compileExprWithInternals fields .calldata [] arg = Except.ok argIR := by
+        simpa [CompilationModel.compileExprWithInternals_nil_eq] using hargIR
+      have hrestIRsInternal :
+          CompilationModel.compileExprListWithInternals fields .calldata [] rest =
+            Except.ok restIRs := by
+        simpa [CompilationModel.compileExprListWithInternals_nil_eq] using hrestIRs
+      simp [CompilationModel.compileExprList, CompilationModel.compileExprListWithInternals,
+        hargIRInternal, hrestIRsInternal, Bind.bind, Except.bind, pure, Except.pure] at hcompile
+      subst hcompile
       exact .cons
         (compileExpr_atomic_shape hatomic.1 hheadScope hargIR)
         (ih hatomic.2 htailScope hrestIRs)
@@ -448,7 +455,7 @@ private theorem eventExecIRStmt_mstore_step
     (hval : evalIRExpr state valExpr = some val)
     (extraFuel : Nat) :
     execIRStmt (extraFuel + 1) state
-        (YulStmt.expr (YulExpr.call "mstore" [offsetExpr, valExpr])) =
+        (YulStmt.exprStmt (YulExpr.call "mstore" [offsetExpr, valExpr])) =
       .continue { state with
         memory := fun o => if o = offset then val else state.memory o } := by
   simp [execIRStmt, hoff, hval]
@@ -457,7 +464,7 @@ private theorem eventExecIRStmt_log1_step
     {state : IRState} {args : List YulExpr} {offset size topic0 : Nat}
     (heval : evalIRExprs state args = some [offset, size, topic0])
     (extraFuel : Nat) :
-    execIRStmt (extraFuel + 1) state (YulStmt.expr (YulExpr.call "log1" args)) =
+    execIRStmt (extraFuel + 1) state (YulStmt.exprStmt (YulExpr.call "log1" args)) =
       .continue (state.appendYulLog offset size [topic0]) := by
   simp [execIRStmt, isYulLogName, heval]
 
@@ -465,7 +472,7 @@ private theorem eventExecIRStmt_log2_step
     {state : IRState} {args : List YulExpr} {offset size topic0 topic1 : Nat}
     (heval : evalIRExprs state args = some [offset, size, topic0, topic1])
     (extraFuel : Nat) :
-    execIRStmt (extraFuel + 1) state (YulStmt.expr (YulExpr.call "log2" args)) =
+    execIRStmt (extraFuel + 1) state (YulStmt.exprStmt (YulExpr.call "log2" args)) =
       .continue (state.appendYulLog offset size [topic0, topic1]) := by
   simp [execIRStmt, isYulLogName, heval]
 
@@ -473,7 +480,7 @@ private theorem eventExecIRStmt_log3_step
     {state : IRState} {args : List YulExpr} {offset size topic0 topic1 topic2 : Nat}
     (heval : evalIRExprs state args = some [offset, size, topic0, topic1, topic2])
     (extraFuel : Nat) :
-    execIRStmt (extraFuel + 1) state (YulStmt.expr (YulExpr.call "log3" args)) =
+    execIRStmt (extraFuel + 1) state (YulStmt.exprStmt (YulExpr.call "log3" args)) =
       .continue (state.appendYulLog offset size [topic0, topic1, topic2]) := by
   simp [execIRStmt, isYulLogName, heval]
 
@@ -483,7 +490,7 @@ private theorem eventExecIRStmt_log4_step
     (heval : evalIRExprs state args =
       some [offset, size, topic0, topic1, topic2, topic3])
     (extraFuel : Nat) :
-    execIRStmt (extraFuel + 1) state (YulStmt.expr (YulExpr.call "log4" args)) =
+    execIRStmt (extraFuel + 1) state (YulStmt.exprStmt (YulExpr.call "log4" args)) =
       .continue (state.appendYulLog offset size
         [topic0, topic1, topic2, topic3]) := by
   simp [execIRStmt, isYulLogName, heval]
@@ -519,8 +526,8 @@ private theorem eventLegacy_append
           exact .let_ name value (rest ++ back) (ih hrest hback)
       | assign name value _ hrest =>
           exact .assign name value (rest ++ back) (ih hrest hback)
-      | expr value _ hrest =>
-          exact .expr value (rest ++ back) (ih hrest hback)
+      | exprStmt value _ hrest =>
+          exact .exprStmt value (rest ++ back) (ih hrest hback)
       | if_ cond body _ hbody hrest =>
           exact .if_ cond body (rest ++ back) hbody (ih hrest hback)
       | block body _ hbody hrest =>
@@ -537,8 +544,8 @@ private theorem eventLegacy_singleton_let (name : String) (value : YulExpr) :
   .let_ name value [] .nil
 
 private theorem eventLegacy_singleton_expr (value : YulExpr) :
-    LegacyCompatibleExternalStmtList [YulStmt.expr value] :=
-  .expr value [] .nil
+    LegacyCompatibleExternalStmtList [YulStmt.exprStmt value] :=
+  .exprStmt value [] .nil
 
 private theorem eventIRState_set_memory_eq_self
     (state : IRState) {mem : Nat → Nat}
@@ -554,7 +561,7 @@ private def eventSignatureStoreStmtsFromWords :
     List Nat → Nat → List YulStmt
   | [], _ => []
   | word :: rest, startIdx =>
-    YulStmt.expr (YulExpr.call "mstore" [
+    YulStmt.exprStmt (YulExpr.call "mstore" [
       YulExpr.call "add" [
         YulExpr.ident "__evt_ptr",
         YulExpr.lit (startIdx * 32)
@@ -565,7 +572,7 @@ private def eventSignatureStoreStmtsFromWords :
 private def eventSignatureStoreStmtsFromChunks
     (chunks : List (List UInt8)) (startIdx : Nat) : List YulStmt :=
   (chunks.zipIdx startIdx).map fun (chunk, idx) =>
-    YulStmt.expr (YulExpr.call "mstore" [
+    YulStmt.exprStmt (YulExpr.call "mstore" [
       YulExpr.call "add" [
         YulExpr.ident "__evt_ptr",
         YulExpr.lit (idx * 32)
@@ -594,7 +601,7 @@ private theorem eventEvalIRExpr_evtPtr_add
 private theorem eventSignatureStoreStmtsFromWords_cons
     (word : Nat) (words : List Nat) (startIdx : Nat) :
     eventSignatureStoreStmtsFromWords (word :: words) startIdx =
-      YulStmt.expr (YulExpr.call "mstore" [
+      YulStmt.exprStmt (YulExpr.call "mstore" [
         YulExpr.call "add" [
           YulExpr.ident "__evt_ptr",
           YulExpr.lit (startIdx * 32)
@@ -624,7 +631,7 @@ private theorem eventSignatureStoreStmtsFromWords_legacy
       exact .nil
   | cons word rest ih =>
       rw [eventSignatureStoreStmtsFromWords_cons]
-      exact .expr _ _ (ih (startIdx + 1))
+      exact .exprStmt _ _ (ih (startIdx + 1))
 
 private theorem eventSignatureStoreStmtsFromChunks_legacy
     (chunks : List (List UInt8)) (startIdx : Nat) :
@@ -942,7 +949,7 @@ private theorem eventUnindexedStore_one_continue
     (hvalueLt : value < Compiler.Constants.evmModulus)
     (hmem : ∀ offset, state.memory offset = (srcMemory offset).val) :
     StmtsContinueFromTo state
-      [YulStmt.expr (YulExpr.call "mstore" [
+      [YulStmt.exprStmt (YulExpr.call "mstore" [
         YulExpr.call "add" [YulExpr.ident "__evt_ptr", YulExpr.lit (wordIdx * 32)],
         normalizeEventWord ty argExpr
       ])]
@@ -1038,7 +1045,7 @@ private theorem eventScalarUnindexedStoresFrom_legacy
   | cons entry rest ih =>
       rcases entry with ⟨param, srcExpr, argExpr⟩
       simp [scalarEventUnindexedStoresFrom]
-      exact .expr _ _ (ih (headOffset + eventHeadWordSize param.ty))
+      exact .exprStmt _ _ (ih (headOffset + eventHeadWordSize param.ty))
 
 theorem eventCompiledScalarEmit_legacy
     (eventDef : EventDef) (args : List Expr) (argExprs : List YulExpr) :
@@ -1051,7 +1058,7 @@ theorem eventCompiledScalarEmit_legacy
   let topic0Store := YulStmt.let_ "__evt_topic0"
     (YulExpr.call "keccak256" [YulExpr.ident "__evt_ptr", YulExpr.lit sigBytes.length])
   let unindexedStores := scalarEventUnindexedStores unindexed
-  let logStmt := YulStmt.expr (YulExpr.call (eventLogFunction (eventIndexedArgs zipped).length)
+  let logStmt := YulStmt.exprStmt (YulExpr.call (eventLogFunction (eventIndexedArgs zipped).length)
     (eventLogArgs (YulExpr.lit (eventUnindexedHeadSize unindexed))
       (scalarEventIndexedTopicParts (eventIndexedArgs zipped))))
   have hbody : LegacyCompatibleExternalStmtList
@@ -1115,7 +1122,7 @@ private theorem eventUnindexedStores_cons_continue
   · have hstmt :
         scalarEventUnindexedStoresFrom ((param, srcExpr, argExpr) :: rest)
             (wordIdx * 32) =
-          YulStmt.expr (YulExpr.call "mstore" [
+          YulStmt.exprStmt (YulExpr.call "mstore" [
             YulExpr.call "add" [
               YulExpr.ident "__evt_ptr", YulExpr.lit (wordIdx * 32)],
             normalizeEventWord param.ty argExpr]) ::
@@ -2066,7 +2073,7 @@ private theorem eventLogStmt_continue_zero
     (hptr : state.getVar "__evt_ptr" = some ptr)
     (htopic0 : state.getVar "__evt_topic0" = some topic0) :
     StmtsContinueFromTo state
-      [YulStmt.expr (YulExpr.call (eventLogFunction ([] : List (EventParam × Expr × YulExpr)).length)
+      [YulStmt.exprStmt (YulExpr.call (eventLogFunction ([] : List (EventParam × Expr × YulExpr)).length)
         (eventLogArgs (YulExpr.lit dataSize)
           (scalarEventIndexedTopicParts ([] : List (EventParam × Expr × YulExpr)))))]
       (state.appendYulLog ptr dataSize [topic0]) := by
@@ -2084,7 +2091,7 @@ private theorem eventLogStmt_continue_one
     (htopic0 : state.getVar "__evt_topic0" = some topic0)
     (hrel : List.Forall₂ (EventIndexedEntryOk scope state) [p1] [v1]) :
     StmtsContinueFromTo state
-      [YulStmt.expr (YulExpr.call (eventLogFunction [p1].length)
+      [YulStmt.exprStmt (YulExpr.call (eventLogFunction [p1].length)
         (eventLogArgs (YulExpr.lit dataSize)
           (scalarEventIndexedTopicParts [p1])))]
       (state.appendYulLog ptr dataSize
@@ -2108,7 +2115,7 @@ private theorem eventLogStmt_continue_two
     (htopic0 : state.getVar "__evt_topic0" = some topic0)
     (hrel : List.Forall₂ (EventIndexedEntryOk scope state) [p1, p2] [v1, v2]) :
     StmtsContinueFromTo state
-      [YulStmt.expr (YulExpr.call (eventLogFunction [p1, p2].length)
+      [YulStmt.exprStmt (YulExpr.call (eventLogFunction [p1, p2].length)
         (eventLogArgs (YulExpr.lit dataSize)
           (scalarEventIndexedTopicParts [p1, p2])))]
       (state.appendYulLog ptr dataSize
@@ -2139,7 +2146,7 @@ private theorem eventLogStmt_continue_three
     (hrel : List.Forall₂ (EventIndexedEntryOk scope state)
       [p1, p2, p3] [v1, v2, v3]) :
     StmtsContinueFromTo state
-      [YulStmt.expr (YulExpr.call (eventLogFunction [p1, p2, p3].length)
+      [YulStmt.exprStmt (YulExpr.call (eventLogFunction [p1, p2, p3].length)
         (eventLogArgs (YulExpr.lit dataSize)
           (scalarEventIndexedTopicParts [p1, p2, p3])))]
       (state.appendYulLog ptr dataSize
@@ -2280,8 +2287,13 @@ theorem eventCompileStmt_emit_scalar_shape
   have hscalarCompile :
       eventDefScalarCompileSupported eventDef = true := by
     simpa [eventDefScalarProofSupported] using hscalar
-  simp only [CompilationModel.compileStmt, CompilationModel.compileEmit] at hcompile
-  simp [hfind, hlen, hargExprs, hindexedGuard, hscalarCompile,
+  have hargExprsInternal :
+      CompilationModel.compileExprListWithInternals fields .calldata [] args =
+        Except.ok argExprs := by
+    simpa [CompilationModel.compileExprListWithInternals_nil_eq] using hargExprs
+  simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+    CompilationModel.compileEmit] at hcompile
+  simp [hfind, hlen, hargExprsInternal, hindexedGuard, hscalarCompile,
     Bind.bind, Except.bind, pure, Except.pure] at hcompile
   exact ⟨eventDef, argExprs, hfind, hargExprs, hcompile.symm⟩
 
@@ -2576,7 +2588,7 @@ private theorem eventLogStmt_continue_le_three
     (hrel : List.Forall₂ (EventIndexedEntryOk scope state) entries values)
     (hlen : entries.length ≤ 3) :
     StmtsContinueFromTo state
-      [YulStmt.expr (YulExpr.call (eventLogFunction entries.length)
+      [YulStmt.exprStmt (YulExpr.call (eventLogFunction entries.length)
         (eventLogArgs (YulExpr.lit dataSize)
           (scalarEventIndexedTopicParts entries)))]
       (state.appendYulLog ptr dataSize
@@ -2752,7 +2764,7 @@ macro "event_emit_semantic_bridge_tac" : tactic => `(tactic| unhygienic (
         [YulExpr.ident "__evt_ptr",
           YulExpr.lit (bytesFromString (eventSignature eventDef)).length])] ++
       scalarEventUnindexedStores unindexed ++
-      [YulStmt.expr (YulExpr.call (eventLogFunction indexed.length)
+      [YulStmt.exprStmt (YulExpr.call (eventLogFunction indexed.length)
         (eventLogArgs (YulExpr.lit (eventUnindexedHeadSize unindexed))
           (scalarEventIndexedTopicParts indexed)))]
   have hbodyContinue : StmtsContinueFromTo state body

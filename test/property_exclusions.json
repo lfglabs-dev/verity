@@ -5,12 +5,21 @@
     "erc20Minimal_totalSupply_nativeResultsMatchOn_revert_of_nonzero_value"
   ],
   "Vault": [
+    "balanceOf_meets_spec",
+    "balanceOf_preserves_state",
+    "totalAssets_meets_spec",
+    "totalAssets_preserves_state",
+    "totalSupply_meets_spec",
+    "totalSupply_preserves_state",
     "vaultMinimal_functions_bridged",
     "vaultMinimal_runtime_lowers_native",
     "vaultMinimal_totalAssets_nativeResultsMatchOn_revert_of_nonzero_value"
   ],
   "Counter": [
     "getStorage_reads_count",
+    "previewAddTwice_correct",
+    "previewAddTwice_preserves_state",
+    "previewOps_preserves_state",
     "setStorage_preserves_addr_storage",
     "setStorage_preserves_context",
     "setStorage_preserves_map_storage",
@@ -40,5 +49,15 @@
     "setStorageAddr_updates_owner",
     "setStorage_updates_supply",
     "transfer_sum_preserved_unique"
+  ],
+  "ReentrancyRelyGuarantee": [
+    "any_cross_contract_schedule_preserves_I",
+    "any_reentry_schedule_preserves_I",
+    "buggy_admits_permanent_bad_debt",
+    "liquidate_preserves_I",
+    "liquidate_respects_lock",
+    "locked_blocks_concrete_liquidation",
+    "locked_take_no_new_liquidation",
+    "locked_take_preserves_I"
   ]
 }

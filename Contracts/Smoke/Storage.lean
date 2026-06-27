@@ -18,6 +18,44 @@ verity_contract UintMapSmoke where
     let current ← getMappingUint values key
     return current
 
+verity_contract TransientStorageSmoke where
+  storage
+    transient lock : Uint256 := slot 0
+
+  function setLock (value : Uint256) : Unit := do
+    setStorage lock value
+
+  function getLock () : Uint256 := do
+    let current ← getStorage lock
+    return current
+
+example :
+    TransientStorageSmoke.spec.fields.all (fun field =>
+      if field.name == "lock" then field.isTransient else true) := by
+  decide
+
+verity_contract TransientComputedLockSmoke where
+  storage
+    transient locks : Bytes32 → Uint256 := slot 1
+
+  function acquire (lockId : Bytes32) : Unit := do
+    setMappingN locks [lockId] 1
+
+  function release (lockId : Bytes32) : Unit := do
+    setMappingN locks [lockId] 0
+
+  function locked (lockId : Bytes32) : Uint256 := do
+    let current ← getMappingN locks [lockId]
+    return current
+
+example :
+    TransientComputedLockSmoke.spec.fields.any (fun field =>
+      field.name == "locks" && field.isTransient &&
+        match field.ty with
+        | Compiler.CompilationModel.FieldType.mappingTyped _ => true
+        | _ => false) := by
+  decide
+
 verity_contract MappingChainSmoke where
   storage
     approvals : Address → Address → Address → Uint256 := slot 0

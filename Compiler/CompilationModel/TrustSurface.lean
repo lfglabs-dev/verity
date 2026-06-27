@@ -20,6 +20,33 @@ private def dedupLocalObligations (items : List LocalObligation) : List LocalObl
     (fun acc item => if acc.any (fun prev => prev.name = item.name) then acc else acc ++ [item])
     []
 
+private def proofStatusFromIntrinsicString : String → Compiler.ProofStatus
+  | "proved" => .proved
+  | "unchecked" => .unchecked
+  | _ => .assumed
+
+private def intrinsicTemplateObligation
+    (entry : String × String × String) : LocalObligation :=
+  { name := entry.1
+    proofStatus := proofStatusFromIntrinsicString entry.2.1
+    obligation := entry.2.2 }
+
+private def collectTemplateIntrinsicObligationsFromExpr (expr : Expr) :
+    List LocalObligation :=
+  let here :=
+    match expr with
+    | .intrinsic _ (.template _ _ _ obligations) _ _ =>
+        obligations.map intrinsicTemplateObligation
+    | _ => []
+  here ++ expr.children.attach.flatMap (fun ⟨child, hchild⟩ =>
+    have := Expr.children_sizeOf_lt expr child hchild
+    collectTemplateIntrinsicObligationsFromExpr child)
+termination_by sizeOf expr
+
+private def collectTemplateIntrinsicObligationsFromMetadata
+    (md : StmtMetadata) : List LocalObligation :=
+  md.subexpressions.flatMap collectTemplateIntrinsicObligationsFromExpr
+
 private def dedupEcmModules (items : List ECM.ExternalCallModule) : List ECM.ExternalCallModule :=
   items.foldl (fun acc item => if acc.contains item then acc else acc ++ [item]) []
 
@@ -220,6 +247,7 @@ private partial def collectUnguardedLowLevelStmtMechanics : Stmt → List String
   | .assignVar _ value
   | .setStorage _ value
   | .setStorageAddr _ value
+  | .setImmutable _ value
   | .setStorageWord _ _ value
   | .storageArrayPush _ value
   | .return value
@@ -233,8 +261,6 @@ private partial def collectUnguardedLowLevelStmtMechanics : Stmt → List String
       collectLowLevelExprMechanics cond ++ args.flatMap collectLowLevelExprMechanics
   | .revertError _ args =>
       args.flatMap collectLowLevelExprMechanics
-  | .panicCode code =>
-      collectLowLevelExprMechanics code
   | .mstore offset value =>
       ["mstore"] ++ collectLowLevelExprMechanics offset ++ collectLowLevelExprMechanics value
   | .tstore offset value =>
@@ -262,6 +288,8 @@ private partial def collectUnguardedLowLevelStmtMechanics : Stmt → List String
       collectLowLevelExprMechanics cond ++ thenBr.flatMap collectUnguardedLowLevelStmtMechanics ++ elseBr.flatMap collectUnguardedLowLevelStmtMechanics
   | .forEach _ count body =>
       collectLowLevelExprMechanics count ++ body.flatMap collectUnguardedLowLevelStmtMechanics
+  | .forEachSetBit _ bitmap body =>
+      collectLowLevelExprMechanics bitmap ++ body.flatMap collectUnguardedLowLevelStmtMechanics
   | .unsafeBlock _ _ =>
       []
   | .matchAdt _ scrutinee branches =>
@@ -716,7 +744,10 @@ private def collectLocalObligationsFromStmts
     (obligations : List LocalObligation)
     (stmts : List Stmt) : List LocalObligation :=
   dedupLocalObligations
-    (obligations ++ Stmt.foldList (fun acc _ md => acc ++ md.localObligations) [] stmts)
+    (obligations ++ Stmt.foldList
+      (fun acc _ md =>
+        acc ++ md.localObligations ++ collectTemplateIntrinsicObligationsFromMetadata md)
+      [] stmts)
 
 private def collectConstructorLocalObligations (spec : CompilationModel) : List LocalObligation :=
   match spec.constructor with
@@ -777,7 +808,7 @@ private def boundaryClassFromModule (mod : ECM.ExternalCallModule) : String :=
   match mod.name with
   | "ecrecover" | "sha256Memory" | "sha256" | "bn256Add" | "bn256ScalarMul" | "bn256Pairing" =>
       "compilerIntrinsic"
-  | "oracleReadUint256" =>
+  | "oracleReadUint256" | "oracleSummary" =>
       "oracleSummary"
   | "callback" =>
       "callback"
@@ -790,7 +821,7 @@ private def boundaryClassFromModule (mod : ECM.ExternalCallModule) : String :=
   | "maxDeposit" | "maxMint" | "maxWithdraw" | "maxRedeem" | "deposit" =>
       "tokenModel"
   | "externalCallWithReturn" | "externalCallNoReturn" | "callWithValue" | "callWithValueBytes"
-  | "bubblingValueCall" | "bubblingValueCallNoOutput" =>
+  | "bubblingValueCall" | "bubblingValueCallNoOutput" | "selfDelegateMulticallBytes" =>
       "abiBoundary"
   | "create2Deploy" | "sstore2ReadCode" =>
       "storageLayoutAssumption"
@@ -838,12 +869,24 @@ private def ecmJson (entry : String × String) : String :=
     ("boundaryClass", jsonString (boundaryClassFromAxiom entry.2))
   ]
 
+private def externalSummaryJson (summary : ECM.StatefulExternal.Summary) : String :=
+  jsonObject [
+    ("name", jsonString summary.name),
+    ("selector",
+      match summary.selector with
+      | some selector => toString selector
+      | none => "null"),
+    ("mutability", jsonString summary.mutability.toJsonString),
+    ("assumptions", jsonArray (summary.assumptionNames.map jsonString))
+  ]
+
 private def ecmModuleJson (entry : ECM.ExternalCallModule) : String :=
   jsonObject [
     ("module", jsonString entry.name),
     ("status", proofStatusString entry.proofStatus),
     ("axioms", jsonArray (entry.axioms.map jsonString)),
-    ("boundaryClass", jsonString (boundaryClassFromModule entry))
+    ("boundaryClass", jsonString (boundaryClassFromModule entry)),
+    ("externalSummary", externalSummaryJson entry.externalSummary)
   ]
 
 private def frameSpecJson (frame : FrameSpec) : String :=
@@ -884,6 +927,8 @@ private structure AssumptionReportEntry where
   linkMode : String := ""
   moduleName : String := ""
   axioms : List String := []
+  mutability : String := ""
+  selector : Option Nat := none
 
 private def assumptionReportEntryJson (entry : AssumptionReportEntry) : String :=
   jsonObject [
@@ -897,6 +942,11 @@ private def assumptionReportEntryJson (entry : AssumptionReportEntry) : String :
     ("linkMode", jsonString entry.linkMode),
     ("module", jsonString entry.moduleName),
     ("axioms", jsonArray (entry.axioms.map jsonString)),
+    ("mutability", jsonString entry.mutability),
+    ("selector",
+      match entry.selector with
+      | some selector => toString selector
+      | none => "null"),
     ("boundaryClass", jsonString entry.boundaryClass)
   ]
 
@@ -1088,7 +1138,9 @@ private def usageSitesJson (spec : CompilationModel) : String :=
         ("axiomatizedPrimitives", jsonArray (site.primitives.map primitiveAssumptionJson)),
         ("linkedExternals", jsonArray (site.externals.map assumptionJson)),
         ("ecmAxioms", jsonArray ((ecmAxiomsFromModules site.modules).map ecmJson)),
-        ("ecmModules", jsonArray (site.modules.map ecmModuleJson))
+        ("ecmModules", jsonArray (site.modules.map ecmModuleJson)),
+        ("externalSummaries", jsonArray (site.modules.map (fun mod =>
+          externalSummaryJson mod.externalSummary)))
       ])
     ]
   jsonArray ((collectUsageSiteSummaries spec).map siteJson)
@@ -1132,6 +1184,19 @@ private def assumptionReportEntriesForSite (site : UsageSiteSummary) : List Assu
           name := assumptionName
           status := mod.proofStatus
           moduleName := mod.name }))
+  let summaryEntries :=
+    site.modules.map (fun mod =>
+      let summary := mod.externalSummary
+      { category := "externalSummary"
+        boundaryClass := boundaryClassFromModule mod
+        siteKind := site.kind
+        siteName := site.name
+        name := summary.name
+        status := mod.proofStatus
+        moduleName := mod.name
+        axioms := summary.assumptionNames
+        mutability := summary.mutability.toJsonString
+        selector := summary.selector })
   let localObligationEntries :=
     site.localObligations.map (fun obligation =>
       { category := "localObligation"
@@ -1141,7 +1206,8 @@ private def assumptionReportEntriesForSite (site : UsageSiteSummary) : List Assu
         name := obligation.name
         status := obligation.proofStatus
         detail := obligation.obligation })
-  primitiveEntries ++ externalEntries ++ moduleEntries ++ axiomEntries ++ localObligationEntries
+  primitiveEntries ++ externalEntries ++ moduleEntries ++ axiomEntries ++ summaryEntries ++
+    localObligationEntries
 
 private def assumptionReportEntries (spec : CompilationModel) : List AssumptionReportEntry :=
   (collectUsageSiteSummaries spec).flatMap assumptionReportEntriesForSite
@@ -1502,7 +1568,9 @@ where
           jsonArray ((collectAxiomatizedPrimitives spec).map primitiveAssumptionJson)),
         ("linkedExternals", jsonArray ((collectUsedExternalAssumptions spec).map assumptionJson)),
         ("ecmAxioms", jsonArray ((collectEcmAxioms spec).map ecmJson)),
-        ("ecmModules", jsonArray ((collectUsedEcmModules spec).map ecmModuleJson))
+        ("ecmModules", jsonArray ((collectUsedEcmModules spec).map ecmModuleJson)),
+        ("externalSummaries", jsonArray ((collectUsedEcmModules spec).map (fun mod =>
+          externalSummaryJson mod.externalSummary)))
       ])
     ]
 

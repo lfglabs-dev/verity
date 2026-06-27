@@ -126,7 +126,7 @@ def validateInteropExpr (context : String) : Expr → Except String Unit
   -- not have to enumerate the complement of every pattern above. This avoids
   -- the `_mutual.eq_def` 200 000-heartbeat ceiling when new `Expr`
   -- constructors land (e.g. verity#1832's `paramDynamicHeadWord`).
-  | Expr.literal _ | Expr.param _ | Expr.constructorArg _
+  | Expr.literal _ | Expr.param _ | Expr.constructorArg _ | Expr.immutable _
   | Expr.storage _ | Expr.storageAddr _
   | Expr.caller | Expr.blockTimestamp | Expr.blockNumber
   | Expr.localVar _
@@ -165,8 +165,6 @@ def validateInteropStmt (context : String) : Stmt → Except String Unit
       validateInteropExprList context args
   | Stmt.revertError _ args =>
       validateInteropExprList context args
-  | .panicCode code =>
-      validateInteropExpr context code
   | Stmt.mstore offset value => do
       validateInteropExpr context offset
       validateInteropExpr context value

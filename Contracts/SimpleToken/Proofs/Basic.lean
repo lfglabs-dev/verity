@@ -142,10 +142,9 @@ private theorem mint_unfold (s : ContractState) (toAddr : Address) (amount : Uin
   (mint toAddr amount).run s = ContractResult.success ()
     { «storage» := fun slotIdx =>
         if (slotIdx == 2) = true then EVM.Uint256.add (s.storage 2) amount else s.storage slotIdx,
-      transientStorage := s.transientStorage,
-      storageAddr := s.storageAddr,
-        txOrigin := s.txOrigin,
-      storageMap := fun slotIdx addr =>
+        transientStorage := s.transientStorage,
+        storageAddr := s.storageAddr,
+        storageMap := fun slotIdx addr =>
         if (slotIdx == 1 && addr == toAddr) = true then EVM.Uint256.add (s.storageMap 1 toAddr) amount
         else s.storageMap slotIdx addr,
       storageMapUint := s.storageMapUint,
@@ -153,6 +152,7 @@ private theorem mint_unfold (s : ContractState) (toAddr : Address) (amount : Uin
       storageArray := s.storageArray,
       sender := s.sender,
       thisAddress := s.thisAddress,
+      txOrigin := s.txOrigin,
       msgValue := s.msgValue,
       selfBalance := s.selfBalance,
       blockTimestamp := s.blockTimestamp,
@@ -284,10 +284,9 @@ private theorem transfer_unfold_other (s : ContractState) (toAddr : Address) (am
   (h_no_overflow : (s.storageMap 1 toAddr : Nat) + (amount : Nat) ≤ MAX_UINT256) :
   (transfer toAddr amount).run s = ContractResult.success ()
     { «storage» := s.storage,
-      transientStorage := s.transientStorage,
-      storageAddr := s.storageAddr,
-        txOrigin := s.txOrigin,
-      storageMap := fun slotIdx addr =>
+        transientStorage := s.transientStorage,
+        storageAddr := s.storageAddr,
+        storageMap := fun slotIdx addr =>
         if (slotIdx == 1 && addr == toAddr) = true then EVM.Uint256.add (s.storageMap 1 toAddr) amount
         else if (slotIdx == 1 && addr == s.sender) = true then EVM.Uint256.sub (s.storageMap 1 s.sender) amount
         else s.storageMap slotIdx addr,
@@ -296,6 +295,7 @@ private theorem transfer_unfold_other (s : ContractState) (toAddr : Address) (am
       storageArray := s.storageArray,
       sender := s.sender,
       thisAddress := s.thisAddress,
+      txOrigin := s.txOrigin,
       msgValue := s.msgValue,
       selfBalance := s.selfBalance,
       blockTimestamp := s.blockTimestamp,

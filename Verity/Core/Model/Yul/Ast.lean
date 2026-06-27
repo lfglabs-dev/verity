@@ -6,7 +6,7 @@ inductive YulExpr
   | str (s : String)
   | ident (name : String)
   | call (func : String) (args : List YulExpr)
-  deriving Repr
+  deriving Repr, BEq
 
 namespace YulExpr
 
@@ -26,14 +26,14 @@ inductive YulStmt
   | let_ (name : String) (value : YulExpr)
   | letMany (names : List String) (value : YulExpr)
   | assign (name : String) (value : YulExpr)
-  | expr (e : YulExpr)
+  | exprStmt (e : YulExpr)
   | leave
   | if_ (cond : YulExpr) (body : List YulStmt)
   | for_ (init : List YulStmt) (cond : YulExpr) (post : List YulStmt) (body : List YulStmt)
   | switch (expr : YulExpr) (cases : List (Nat × List YulStmt)) (default : Option (List YulStmt))
   | block (stmts : List YulStmt)
   | funcDef (name : String) (params : List String) (rets : List String) (body : List YulStmt)
-  deriving Repr
+  deriving Repr, BEq
 
 structure YulObject where
   name : String

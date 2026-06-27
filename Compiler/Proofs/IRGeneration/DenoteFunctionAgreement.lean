@@ -194,19 +194,20 @@ theorem denoteFunction_eq
       SourceSemantics.interpretFunction spec fn tx initialWorld := by
   unfold Denote.denoteFunction SourceSemantics.interpretFunction
   simp only [hnoEvents, SourceSemantics.execStmtListWithEvents_nil_eq_execStmtList,
-    withTransactionContext_eq, effectiveFields_eq, bindSupportedParams_eq,
-    ofIRTransaction_args, ofIRTransaction_functionSelector]
-  cases hbind : SourceSemantics.bindSupportedParams fn.params tx.args with
-  | none => simp
+    withTransactionContext_eq, effectiveFields_eq, Denote.bindExternalParams,
+    SourceSemantics.bindExternalParams, ofIRTransaction_args, ofIRTransaction_functionSelector]
+  cases hbind : DynamicAbi.bindExternalParams tx.functionSelector fn.params tx.args with
+  | none =>
+      simp only [toSourceResult_revertedResult]
   | some bindings =>
       have hexec := execStmtList_eq (SourceSemantics.effectiveFields spec)
-        ⟨SourceSemantics.withTransactionContext initialWorld tx, bindings,
+        ⟨SourceSemantics.withTransactionContext initialWorld tx, fun _ => 0, bindings,
           tx.functionSelector⟩ fn.body
       simp only [toRuntimeState] at hexec
-      dsimp only
+      simp only
       rw [← hexec]
       cases Denote.execStmtList sourceOracle (SourceSemantics.effectiveFields spec)
-          ⟨SourceSemantics.withTransactionContext initialWorld tx, bindings,
+          ⟨SourceSemantics.withTransactionContext initialWorld tx, fun _ => 0, bindings,
             tx.functionSelector⟩ fn.body <;>
         simp [toStmtResult, toRuntimeState]
 

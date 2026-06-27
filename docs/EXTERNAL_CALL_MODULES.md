@@ -69,9 +69,13 @@ function readBalance (token : IERC20, owner : Address) : Uint256 := do
   return bal
 ```
 
-The interface-typed parameter is ABI-encoded as `Address`. The dot call emits
-`Compiler.Modules.Calls.withReturnModule`; `view` selects `staticcall`, while
-non-`view` selects `call`. Interface methods with no `returns` clause lower to
+The interface-typed parameter is ABI-encoded as `Address`. A bound `view` dot
+call with one static ABI-word return emits
+`Compiler.Modules.Oracle.typedReadWordSummaryModule`, which lowers to
+`staticcall` and records a source-shaped oracle summary name such as
+`IERC20.balanceOf` plus the exact ABI selector in trust reports. Non-`view`
+single-return calls continue to use `Compiler.Modules.Calls.withReturnModule`
+and select `call`. Interface methods with no `returns` clause lower to
 `Compiler.Modules.Calls.noReturnModule` in statement position. Interface calls
 currently support one return value and type-only interface parameter lists.
 
@@ -140,9 +144,12 @@ Standard modules ship in `Compiler/Modules/`:
 | `Precompiles.bn256Pairing` | Precompile 0x08 (EIP-197) | BN254 optimal-Ate pairing check over a caller-supplied input region; binds the single 32-byte boolean word | `evm_bn256_pairing_precompile` |
 | `Callbacks.callback` | Parameterized | ABI-encode selector + static args + bytes, call target | `callback_target_interface` |
 | `Calls.withReturn` | Parameterized | Generic call/staticcall with single uint256 return | `external_call_abi_interface` |
+| `Oracle.typedReadWordSummary` | Typed-interface `view` read | ABI-encode selector + static args, `staticcall` target, bind one static ABI-word return, and surface the source-shaped summary name and selector | `oracle_summary:<Interface.method>` (`oracle_summary:{summaryName}` in the module template) |
+| `Oracle.oracleReadUint256` | Legacy generic oracle read | ABI-encode selector + static args, `staticcall` target, bind one uint256 return | `oracle_read_uint256_interface` |
 | `Calls.callWithValue` | Parameterized | Generic `call{value:v}` over an already prepared calldata slice, with revert bubbling | `generic_call_with_value_interface` |
 | `Calls.callWithValueBytes` | Parameterized | Generic `call{value:v}` over a `bytes` parameter, with revert bubbling | `generic_call_with_value_interface` |
 | `Calls.bubblingValueCall` / `Calls.bubblingValueCallNoOutput` | `call{value: v}(data)` shape | Generic low-level value call over caller-provided memory slices; bubbles exact revert returndata on failure | `generic_low_level_value_call_interface` |
+| `Calls.selfDelegateMulticallBytes` | Parameterized | Self-delegatecall `multicall(bytes[])`; checks each bytes-array element offset, copies payload calldata, delegatecalls `address()`, and bubbles exact revert returndata | `self_delegate_multicall_bytes_revert_bubbling` |
 | `Create2SSTORE2.create2Deploy` | Parameterized | `create2(value, offset, size, salt)` over caller-prepared initcode | `create2_initcode_layout`, `create2_address_derivation` |
 | `Create2SSTORE2.sstore2ReadCode` | Parameterized | `extcodecopy(pointer, dest, codeOffset, size)` for code-as-data reads | `sstore2_pointer_code_layout` |
 
@@ -195,6 +202,21 @@ inputSize`. It is backed by the four-argument
 `ecmDo` call sites. Trust reports surface the distinct
 `bubblingValueCallNoOutput` module name with the same
 `generic_low_level_value_call_interface` assumption.
+
+### Self-Delegate Multicall
+
+`Compiler.Modules.Calls.selfDelegateMulticallBytes "calls"` is the standard
+source-level helper for Solidity-style `multicall(bytes[] calldata calls)` when
+each payload is executed against the current contract with the current storage
+context. It expects a named `bytes[]` ABI parameter, walks the checked dynamic
+array offset table, copies each element payload to the free-memory region, and
+emits `delegatecall(gas(), address(), ptr, size, 0, 0)`.
+
+On failure, the helper copies `returndatasize()` bytes from returndata offset
+zero to memory offset zero and reverts with that exact payload. The helper does
+not expose an implementation address, so trust reports surface it as the
+`selfDelegateMulticallBytes` ECM assumption rather than as a general
+proxy/upgradeability `delegatecall` mechanic.
 
 ### ERC-20 Optional Return Policies
 
@@ -283,21 +305,24 @@ and routes through the underlying ECMs:
 
 - `Compiler.Modules.CodeData.writeTyped resultVar base write` — typed
   write. The `write : CodeDataWrite` carries a `FrameLayout` payload, an
-  optional ETH value, and a salt. Fails closed if the layout contains
-  any dynamic field (`Frame.layoutSourcesSupported` is the gate); this
-  is intentional because SSTORE2-style code-as-data is only sound for
-  static layouts.
+  optional ETH value, and a salt. Static payloads are ABI-materialized
+  from their typed fields. Runtime-sized payloads are accepted when the
+  layout carries `runtimeSize`; the payload is treated as a pre-encoded
+  ABI byte slice, copied from memory/calldata/code, and deployed as
+  `SSTORE2_PREFIX ++ abiPayload`.
 - `Compiler.Modules.CodeData.readTyped read` — typed read. Lowers to the
   underlying `extcodecopy` ECM after a matching layout-sources check.
+  SSTORE2 payload reads use code offset `1`, matching the observable
+  prefix byte written by `writeTyped`.
 - `Compiler.Modules.CodeData.roundtripShape resultVar base write read` —
   combined write+read, useful for tests and Midnight-style
   `toId`/`toMarket`/`touchMarket` round-trip patterns.
 
 Coverage in `Compiler.Modules.CodeDataTest` exercises the typed surface
 on (a) the full multi-field blob+meta payload, (b) an empty payload (no
-fields), (c) a one-word short payload, and (d) a dynamic payload — the
-last must be rejected with an explicit error so callers never silently
-store ABI-encoded dynamic tails into pointer code.
+fields), (c) a one-word short payload, and (d) a dynamic runtime-sized
+payload over `ParamType` with an observable `STOP ++ abi.encode(...)`
+byte layout.
 
 ### Packed Hashing Helpers
 

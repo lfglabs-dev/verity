@@ -42,11 +42,11 @@ def ecrecoverModule (resultVar : String) : ExternalCallModule where
     let ptrName := "__ecr_ptr"
     let ptrExpr := YulExpr.ident ptrName
     let loadPtr := YulStmt.let_ ptrName (YulExpr.call "mload" [YulExpr.lit freeMemoryPointer])
-    let storeHash := YulStmt.expr (YulExpr.call "mstore" [ptrExpr, hashExpr])
-    let storeV := YulStmt.expr (YulExpr.call "mstore" [YulExpr.call "add" [ptrExpr, YulExpr.lit 32], vExpr])
-    let storeR := YulStmt.expr (YulExpr.call "mstore" [YulExpr.call "add" [ptrExpr, YulExpr.lit 64], rExpr])
-    let storeS := YulStmt.expr (YulExpr.call "mstore" [YulExpr.call "add" [ptrExpr, YulExpr.lit 96], sExpr])
-    let advancePtr := YulStmt.expr (YulExpr.call "mstore" [
+    let storeHash := YulStmt.exprStmt (YulExpr.call "mstore" [ptrExpr, hashExpr])
+    let storeV := YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.call "add" [ptrExpr, YulExpr.lit 32], vExpr])
+    let storeR := YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.call "add" [ptrExpr, YulExpr.lit 64], rExpr])
+    let storeS := YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.call "add" [ptrExpr, YulExpr.lit 96], sExpr])
+    let advancePtr := YulStmt.exprStmt (YulExpr.call "mstore" [
       YulExpr.lit freeMemoryPointer,
       YulExpr.call "add" [ptrExpr, YulExpr.lit 128]
     ])
@@ -57,10 +57,10 @@ def ecrecoverModule (resultVar : String) : ExternalCallModule where
       ptrExpr, YulExpr.lit 32
     ]
     let revertBlock := YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident "__ecr_success"]) [
-      YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+      YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
     ]
     let guardStale := YulStmt.if_ (YulExpr.call "iszero" [YulExpr.call "returndatasize" []]) [
-      YulStmt.expr (YulExpr.call "mstore" [ptrExpr, YulExpr.lit 0])
+      YulStmt.exprStmt (YulExpr.call "mstore" [ptrExpr, YulExpr.lit 0])
     ]
     let bindResult := YulStmt.let_ resultVar (YulExpr.lit 0)
     let assignResult := YulStmt.assign resultVar
@@ -100,7 +100,7 @@ def sha256MemoryModule (resultVar : String) : ExternalCallModule where
       outputOffsetTemp, YulExpr.lit 32
     ]
     let revertBlock := YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident "__sha256_success"]) [
-      YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+      YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
     ]
     let bindResult := YulStmt.let_ resultVar (YulExpr.lit 0)
     let assignResult := YulStmt.assign resultVar (YulExpr.call "mload" [outputOffsetTemp])
@@ -153,11 +153,11 @@ def bn256AddModule (resultXVar resultYVar : String) : ExternalCallModule where
     let ptrName := "__bn256_add_ptr"
     let ptrExpr := YulExpr.ident ptrName
     let loadPtr := YulStmt.let_ ptrName (YulExpr.call "mload" [YulExpr.lit freeMemoryPointer])
-    let storeX1 := YulStmt.expr (YulExpr.call "mstore" [ptrExpr, x1])
-    let storeY1 := YulStmt.expr (YulExpr.call "mstore" [YulExpr.call "add" [ptrExpr, YulExpr.lit 32], y1])
-    let storeX2 := YulStmt.expr (YulExpr.call "mstore" [YulExpr.call "add" [ptrExpr, YulExpr.lit 64], x2])
-    let storeY2 := YulStmt.expr (YulExpr.call "mstore" [YulExpr.call "add" [ptrExpr, YulExpr.lit 96], y2])
-    let advancePtr := YulStmt.expr (YulExpr.call "mstore" [
+    let storeX1 := YulStmt.exprStmt (YulExpr.call "mstore" [ptrExpr, x1])
+    let storeY1 := YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.call "add" [ptrExpr, YulExpr.lit 32], y1])
+    let storeX2 := YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.call "add" [ptrExpr, YulExpr.lit 64], x2])
+    let storeY2 := YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.call "add" [ptrExpr, YulExpr.lit 96], y2])
+    let advancePtr := YulStmt.exprStmt (YulExpr.call "mstore" [
       YulExpr.lit freeMemoryPointer,
       YulExpr.call "add" [ptrExpr, YulExpr.lit 128]
     ])
@@ -168,7 +168,7 @@ def bn256AddModule (resultXVar resultYVar : String) : ExternalCallModule where
       ptrExpr, YulExpr.lit 64
     ]
     let revertBlock := YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident "__bn256_add_success"]) [
-      YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+      YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
     ]
     let bindX := YulStmt.let_ resultXVar (YulExpr.lit 0)
     let bindY := YulStmt.let_ resultYVar (YulExpr.lit 0)
@@ -207,10 +207,10 @@ def bn256ScalarMulModule (resultXVar resultYVar : String) : ExternalCallModule w
     let ptrName := "__bn256_mul_ptr"
     let ptrExpr := YulExpr.ident ptrName
     let loadPtr := YulStmt.let_ ptrName (YulExpr.call "mload" [YulExpr.lit freeMemoryPointer])
-    let storeX := YulStmt.expr (YulExpr.call "mstore" [ptrExpr, x])
-    let storeY := YulStmt.expr (YulExpr.call "mstore" [YulExpr.call "add" [ptrExpr, YulExpr.lit 32], y])
-    let storeS := YulStmt.expr (YulExpr.call "mstore" [YulExpr.call "add" [ptrExpr, YulExpr.lit 64], scalar])
-    let advancePtr := YulStmt.expr (YulExpr.call "mstore" [
+    let storeX := YulStmt.exprStmt (YulExpr.call "mstore" [ptrExpr, x])
+    let storeY := YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.call "add" [ptrExpr, YulExpr.lit 32], y])
+    let storeS := YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.call "add" [ptrExpr, YulExpr.lit 64], scalar])
+    let advancePtr := YulStmt.exprStmt (YulExpr.call "mstore" [
       YulExpr.lit freeMemoryPointer,
       YulExpr.call "add" [ptrExpr, YulExpr.lit 96]
     ])
@@ -221,7 +221,7 @@ def bn256ScalarMulModule (resultXVar resultYVar : String) : ExternalCallModule w
       ptrExpr, YulExpr.lit 64
     ]
     let revertBlock := YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident "__bn256_mul_success"]) [
-      YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+      YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
     ]
     let bindX := YulStmt.let_ resultXVar (YulExpr.lit 0)
     let bindY := YulStmt.let_ resultYVar (YulExpr.lit 0)
@@ -269,7 +269,7 @@ def bn256PairingModule (resultVar : String) : ExternalCallModule where
       outputOffsetTemp, YulExpr.lit 32
     ]
     let revertBlock := YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident "__bn256_pairing_success"]) [
-      YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+      YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
     ]
     let bindResult := YulStmt.let_ resultVar (YulExpr.lit 0)
     let assignResult := YulStmt.assign resultVar (YulExpr.call "mload" [outputOffsetTemp])

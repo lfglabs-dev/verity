@@ -42,14 +42,14 @@ partial def compileUnindexedAbiEncode
   | ParamType.uint256 | ParamType.int256 | ParamType.uint8 | ParamType.uint16 | ParamType.address | ParamType.bool | ParamType.bytes32 =>
       let loaded := dynamicWordLoad dynamicSource srcBase
       pure ([
-        YulStmt.expr (YulExpr.call "mstore" [dstBase, normalizeEventWord ty loaded])
+        YulStmt.exprStmt (YulExpr.call "mstore" [dstBase, normalizeEventWord ty loaded])
       ], YulExpr.lit 32)
   | ParamType.bytes | ParamType.string =>
       let lenName := s!"{stem}_len"
       let paddedName := s!"{stem}_padded"
       pure ([
         YulStmt.let_ lenName (dynamicWordLoad dynamicSource srcBase),
-        YulStmt.expr (YulExpr.call "mstore" [dstBase, YulExpr.ident lenName])
+        YulStmt.exprStmt (YulExpr.call "mstore" [dstBase, YulExpr.ident lenName])
       ] ++ dynamicCopyData dynamicSource
         (YulExpr.call "add" [dstBase, YulExpr.lit 32])
         (YulExpr.call "add" [srcBase, YulExpr.lit 32])
@@ -58,7 +58,7 @@ partial def compileUnindexedAbiEncode
           YulExpr.call "add" [YulExpr.ident lenName, YulExpr.lit 31],
           YulExpr.call "not" [YulExpr.lit 31]
         ]),
-        YulStmt.expr (YulExpr.call "mstore" [
+        YulStmt.exprStmt (YulExpr.call "mstore" [
           YulExpr.call "add" [
             YulExpr.call "add" [dstBase, YulExpr.lit 32],
             YulExpr.ident lenName
@@ -90,7 +90,7 @@ partial def compileUnindexedAbiEncode
                 [YulStmt.let_ elemSrcName (YulExpr.call "add" [srcBase, YulExpr.lit headOffset])]
             let encStmts ←
               if eventIsDynamicType elemTy then do
-                let storeOffset := YulStmt.expr (YulExpr.call "mstore" [
+                let storeOffset := YulStmt.exprStmt (YulExpr.call "mstore" [
                   YulExpr.call "add" [dstBase, YulExpr.lit headOffset],
                   YulExpr.ident tailLenName
                 ])
@@ -125,7 +125,7 @@ partial def compileUnindexedAbiEncode
             let elemSrcName := s!"{stem}_fa{i}_src"
             let elemDstName := s!"{stem}_fa{i}_dst"
             let relName := s!"{stem}_fa{i}_rel"
-            let storeOffset := YulStmt.expr (YulExpr.call "mstore" [
+            let storeOffset := YulStmt.exprStmt (YulExpr.call "mstore" [
               YulExpr.call "add" [dstBase, YulExpr.lit (i * 32)],
               YulExpr.ident tailLenName
             ])
@@ -172,7 +172,7 @@ partial def compileUnindexedAbiEncode
   | ParamType.array elemTy =>
       let lenName := s!"{stem}_arr_len"
       let lenStmt := YulStmt.let_ lenName (dynamicWordLoad dynamicSource srcBase)
-      let storeLenStmt := YulStmt.expr (YulExpr.call "mstore" [dstBase, YulExpr.ident lenName])
+      let storeLenStmt := YulStmt.exprStmt (YulExpr.call "mstore" [dstBase, YulExpr.ident lenName])
       if eventIsDynamicType elemTy then
         let headLenName := s!"{stem}_arr_head_len"
         let tailLenName := s!"{stem}_arr_tail_len"
@@ -194,7 +194,7 @@ partial def compileUnindexedAbiEncode
             YulExpr.call "add" [srcBase, YulExpr.lit 32],
             YulExpr.ident elemRelName
           ]),
-          YulStmt.expr (YulExpr.call "mstore" [
+          YulStmt.exprStmt (YulExpr.call "mstore" [
             YulExpr.call "add" [
               YulExpr.call "add" [dstBase, YulExpr.lit 32],
               YulExpr.call "mul" [YulExpr.ident loopIdxName, YulExpr.lit 32]
@@ -256,14 +256,14 @@ partial def compileUnindexedAbiEncode
       -- ADTs are ABI-encoded as (uint8 tag, uint256 field0, ..., uint256 fieldN)
       -- Tag word: load and mask to uint8
       let tagLoaded := dynamicWordLoad dynamicSource srcBase
-      let tagStore := YulStmt.expr (YulExpr.call "mstore" [
+      let tagStore := YulStmt.exprStmt (YulExpr.call "mstore" [
         dstBase, YulExpr.call "and" [tagLoaded, YulExpr.lit 0xFF]
       ])
       -- Field words: load consecutive words from source
       let fieldStores := (List.range maxFields).map fun i =>
         let srcOff := YulExpr.call "add" [srcBase, YulExpr.lit ((i + 1) * 32)]
         let dstOff := YulExpr.call "add" [dstBase, YulExpr.lit ((i + 1) * 32)]
-        YulStmt.expr (YulExpr.call "mstore" [dstOff, dynamicWordLoad dynamicSource srcOff])
+        YulStmt.exprStmt (YulExpr.call "mstore" [dstOff, dynamicWordLoad dynamicSource srcOff])
       let totalBytes := 32 * (1 + maxFields)
       pure (tagStore :: fieldStores, YulExpr.lit totalBytes)
 
@@ -279,7 +279,7 @@ def revertWithCustomError (dynamicSource : DynamicDataSource)
   let sigBytes := bytesFromString (errorSignature errorDef)
   let storePtr := YulStmt.let_ "__err_ptr" (YulExpr.call "mload" [YulExpr.lit freeMemoryPointer])
   let sigStores := (chunkBytes32 sigBytes).zipIdx.map fun (chunk, idx) =>
-    YulStmt.expr (YulExpr.call "mstore" [
+    YulStmt.exprStmt (YulExpr.call "mstore" [
       YulExpr.call "add" [YulExpr.ident "__err_ptr", YulExpr.lit (idx * 32)],
       YulExpr.hex (wordFromBytes chunk)
     ])
@@ -287,7 +287,7 @@ def revertWithCustomError (dynamicSource : DynamicDataSource)
     (YulExpr.call "keccak256" [YulExpr.ident "__err_ptr", YulExpr.lit sigBytes.length])
   let selectorStmt := YulStmt.let_ "__err_selector"
     (YulExpr.call "shl" [YulExpr.lit selectorShift, YulExpr.call "shr" [YulExpr.lit selectorShift, YulExpr.ident "__err_hash"]])
-  let selectorStore := YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.ident "__err_selector"])
+  let selectorStore := YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.ident "__err_selector"])
   let headSize := abiHeadSize errorDef.params
   let tailInit := YulStmt.let_ "__err_tail" (YulExpr.lit headSize)
   let argsWithSources := (errorDef.params.zip sourceArgs).zip args |>.map (fun ((ty, srcExpr), argExpr) => (ty, srcExpr, argExpr))
@@ -302,16 +302,16 @@ def revertWithCustomError (dynamicSource : DynamicDataSource)
     match ty with
     | ParamType.uint256 | ParamType.int256 | ParamType.uint8 | ParamType.uint16 | ParamType.address | ParamType.bool | ParamType.bytes32 =>
         let encoded ← encodeStaticCustomErrorArg errorDef.name ty argExpr
-        pure [YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit headOffset, encoded])]
+        pure [YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit headOffset, encoded])]
     | ParamType.adt _ maxFields =>
         match srcExpr with
         | Expr.param name =>
-            let tagStore := YulStmt.expr (YulExpr.call "mstore" [
+            let tagStore := YulStmt.exprStmt (YulExpr.call "mstore" [
               YulExpr.lit headOffset,
               YulExpr.call "and" [argExpr, YulExpr.lit 0xFF]
             ])
             let fieldStores := (List.range maxFields).map fun fieldIdx =>
-              YulStmt.expr (YulExpr.call "mstore" [
+              YulStmt.exprStmt (YulExpr.call "mstore" [
                 YulExpr.lit (headOffset + (fieldIdx + 1) * 32),
                 YulExpr.ident s!"{name}_f{fieldIdx}"
               ])
@@ -321,7 +321,7 @@ def revertWithCustomError (dynamicSource : DynamicDataSource)
     | ParamType.newtypeOf _ baseType =>
         -- Newtypes erased to base type (#1727 Step 3b)
         let encoded ← encodeStaticCustomErrorArg errorDef.name baseType argExpr
-        pure [YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit headOffset, encoded])]
+        pure [YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit headOffset, encoded])]
     | ParamType.tuple _ | ParamType.fixedArray _ _ =>
         match srcExpr with
         | Expr.param name =>
@@ -331,7 +331,7 @@ def revertWithCustomError (dynamicSource : DynamicDataSource)
               let (encStmts, encLen) ←
                 compileUnindexedAbiEncode dynamicSource ty srcBase (YulExpr.ident dstName) s!"__err_arg{idx}"
               pure ([
-                YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit headOffset, YulExpr.ident "__err_tail"]),
+                YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit headOffset, YulExpr.ident "__err_tail"]),
                 YulStmt.let_ dstName (YulExpr.call "add" [YulExpr.lit 4, YulExpr.ident "__err_tail"])
               ] ++ encStmts ++ [
                 YulStmt.assign "__err_tail" (YulExpr.call "add" [YulExpr.ident "__err_tail", encLen])
@@ -339,7 +339,7 @@ def revertWithCustomError (dynamicSource : DynamicDataSource)
             else
               let leaves := staticCompositeLeaves name ty
               let stores := leaves.zipIdx.map fun ((leafTy, leafExpr), wordIdx) =>
-                YulStmt.expr (YulExpr.call "mstore" [
+                YulStmt.exprStmt (YulExpr.call "mstore" [
                   YulExpr.lit (headOffset + wordIdx * 32),
                   normalizeEventWord leafTy leafExpr
                 ])
@@ -354,14 +354,14 @@ def revertWithCustomError (dynamicSource : DynamicDataSource)
             let (encStmts, encLen) ←
               compileUnindexedAbiEncode dynamicSource ty srcBase (YulExpr.ident dstName) s!"__err_arg{idx}"
             pure ([
-              YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit headOffset, YulExpr.ident "__err_tail"]),
+              YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit headOffset, YulExpr.ident "__err_tail"]),
               YulStmt.let_ dstName (YulExpr.call "add" [YulExpr.lit 4, YulExpr.ident "__err_tail"])
             ] ++ encStmts ++ [
               YulStmt.assign "__err_tail" (YulExpr.call "add" [YulExpr.ident "__err_tail", encLen])
             ])
         | _ =>
             throw s!"Compilation error: custom error '{errorDef.name}' parameter of type {repr ty} currently requires direct parameter reference ({issue586Ref})."
-  let revertStmt := YulStmt.expr (YulExpr.call "revert" [
+  let revertStmt := YulStmt.exprStmt (YulExpr.call "revert" [
     YulExpr.lit 0,
     YulExpr.call "add" [YulExpr.lit 4, YulExpr.ident "__err_tail"]
   ])

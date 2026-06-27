@@ -120,6 +120,19 @@ private def literalMappingWrite_supported_spec :
           simp [contractUsesCheckedArithmetic, literalMappingWriteSpec,
             literalMappingWriteFunction, stmtListMayUseCheckedArithmetic,
             stmtMayUseCheckedArithmetic]
+        noTemplateIntrinsics := by
+          rw [templateIntrinsicItems, literalMappingWriteSpec, literalMappingWriteFunction]
+          unfold collectTemplateIntrinsicsFromStmts
+          simp only [List.flatMap_cons, List.flatMap_nil, List.append_nil]
+          rw [collectTemplateIntrinsicsFromStmt.eq_def]
+          simp only [Stmt.directMetadata, Stmt.childLists, List.attach_nil,
+            List.flatMap_nil, List.append_nil]
+          simp only [List.flatMap_cons, List.flatMap_nil]
+          rw [collectTemplateIntrinsicsFromExpr.eq_def]
+          rw [collectTemplateIntrinsicsFromExpr.eq_def]
+          simp [Expr.children]
+          rw [collectTemplateIntrinsicsFromStmt.eq_def]
+          simp [Stmt.directMetadata, Stmt.childLists]
         noFallback := literalMappingWrite_noFallback
         noReceive := literalMappingWrite_noReceive }
     constructor := by
@@ -508,6 +521,65 @@ private theorem constructorOnly_noConflict :
     firstFieldWriteSlotConflict constructorOnlySpec.fields = none := by
   native_decide
 
+private theorem constructorOnly_compileBody_empty_surfaces_withFork :
+    ∃ bodyStmts,
+      compileStmtListWithFork
+          constructorOnlySpec.fields
+          []
+          []
+          .memory
+          []
+          false
+          (constructorOnlyCtor.params.map (·.name))
+          []
+          Verity.Core.Intrinsics.HardFork.cancun
+          constructorOnlyCtor.body =
+        Except.ok bodyStmts := by
+  have hhead :
+      ∃ headIR,
+        CompilationModel.compileStmt constructorOnlySpec.fields [] [] .memory [] false
+          (constructorOnlyCtor.params.map (·.name)) [] (Stmt.setStorageAddr "owner" (.param "initialOwner")) =
+            Except.ok headIR := by
+    refine ⟨
+      match CompilationModel.compileStmt constructorOnlySpec.fields [] [] .memory [] false
+          (constructorOnlyCtor.params.map (·.name)) [] (Stmt.setStorageAddr "owner" (.param "initialOwner")) with
+      | .ok headIR => headIR
+      | .error _ => [], ?_⟩
+    simp [constructorOnlySpec, constructorOnlyCtor, constructorOnlyOwnerField,
+      CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+      CompilationModel.compileSetStorage,
+      CompilationModel.compileExprWithInternals, CompilationModel.isMapping,
+      constructorOnly_owner_resolved_lit, Bind.bind, Except.bind, Pure.pure,
+      Except.pure]
+  have htail :
+      ∃ tailIR,
+        CompilationModel.compileStmtList constructorOnlySpec.fields [] [] .memory [] false
+          (collectStmtNames (Stmt.setStorageAddr "owner" (.param "initialOwner")) ++
+            (constructorOnlyCtor.params.map (·.name))) []
+          [Stmt.stop] = Except.ok tailIR := by
+    have hstop :
+        ∃ stopIR,
+          CompilationModel.compileStmt constructorOnlySpec.fields [] [] .memory [] false
+            (collectStmtNames (Stmt.setStorageAddr "owner" (.param "initialOwner")) ++
+              (constructorOnlyCtor.params.map (·.name))) [] Stmt.stop =
+              Except.ok stopIR := by
+      refine ⟨
+        match CompilationModel.compileStmt constructorOnlySpec.fields [] [] .memory [] false
+            (collectStmtNames (Stmt.setStorageAddr "owner" (.param "initialOwner")) ++
+              (constructorOnlyCtor.params.map (·.name))) [] Stmt.stop with
+        | .ok stopIR => stopIR
+        | .error _ => [], ?_⟩
+      simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+        Pure.pure, Except.pure]
+    rcases hstop with ⟨stopIR, hstop⟩
+    exact ⟨stopIR ++ [],
+      FunctionBody.compileStmtList_cons_eq_ok _ _ _ _ _ _ _ _ _ _ _ _
+        hstop (FunctionBody.compileStmtList_nil_eq_ok _ _ _ _ _ _ _ _)⟩
+  rcases hhead with ⟨headIR, hhead⟩
+  rcases htail with ⟨tailIR, htail⟩
+  exact ⟨headIR ++ tailIR,
+    FunctionBody.compileStmtListWithFork_cons_eq_ok _ _ _ _ _ _ _ _ _ _ _ _ hhead htail⟩
+
 private theorem constructorOnly_compileBody :
     ∃ bodyStmts,
       compileStmtList
@@ -534,11 +606,11 @@ private theorem constructorOnly_compileBody :
         constructorOnlyCtor.body [] with
      | .ok body => body
      | .error _ => [], ?_⟩
-  simp [constructorOnlySpec, constructorOnlyCtor, constructorOnlyOwnerField,
-    CompilationModel.compileStmtList, CompilationModel.compileStmt,
-    CompilationModel.compileSetStorage, CompilationModel.compileExpr,
-    CompilationModel.isMapping, constructorOnly_owner_resolved_lit,
-    Bind.bind, Except.bind, Pure.pure, Except.pure]
+  rcases constructorOnly_compileBody_empty_surfaces_withFork with ⟨body, hbody⟩
+  rw [FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList] at hbody
+  simp [constructorOnlySpec, constructorOnlyCtor] at hbody
+  simp [constructorOnlySpec, constructorOnlyCtor]
+  rw [hbody]
 
 private theorem constructorOnly_compileConstructor :
     ∃ bodyStmts,
@@ -547,8 +619,8 @@ private theorem constructorOnly_compileConstructor :
           constructorOnlySpec.events
           constructorOnlySpec.errors
           []
-          constructorOnlySpec.constructor =
-        Except.ok (genConstructorArgLoads constructorOnlyCtor.params ++ bodyStmts) ∧
+      constructorOnlySpec.constructor =
+    Except.ok (genConstructorArgLoads constructorOnlyCtor.params ++ bodyStmts) ∧
       compileStmtList
           constructorOnlySpec.fields
           constructorOnlySpec.events
@@ -568,8 +640,9 @@ private theorem constructorOnly_compileConstructor :
       constructorOnlyCtor
       (genConstructorArgLoads constructorOnlyCtor.params ++ bodyStmts)
       (by
-        simp [CompilationModel.compileConstructor, hbodyCompile, Bind.bind,
-          Except.bind, Pure.pure, Except.pure]) with
+        simp [CompilationModel.compileConstructor,
+          FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList,
+          hbodyCompile, Bind.bind, Except.bind, Pure.pure, Except.pure]) with
       ⟨_, _, hdeploy⟩
   refine ⟨bodyStmts, ?_, hbodyCompile⟩
   exact Function.compileConstructor_some_ok_of_body
@@ -598,17 +671,17 @@ example :
       functionReturns identityInternalHelper = Except.ok returns →
       retNames =
         freshInternalRetNames returns
-          (identityInternalHelper.params.map (·.name) ++
+          (internalFunctionYulParamNames identityInternalHelper.params ++
             collectStmtListBindNames identityInternalHelper.body) →
       compileStmtList [] [] [] .calldata retNames true
-        (identityInternalHelper.params.map (·.name) ++ retNames)
+        (internalFunctionYulParamNames identityInternalHelper.params ++ retNames)
         []
         identityInternalHelper.body = Except.ok bodyStmts →
       compileInternalFunction [] [] [] [] identityInternalHelper =
         Except.ok
           (YulStmt.funcDef
             (internalFunctionYulName identityInternalHelper.name)
-            (identityInternalHelper.params.map (·.name))
+            (internalFunctionYulParamNames identityInternalHelper.params)
             retNames
             bodyStmts) := by
   intro returns retNames bodyStmts hvalidate hreturns hretNames hbody
@@ -867,11 +940,11 @@ example :
             (constructorOnlyCtor.params.map (·.name)) [] constructorOnlyCtor.body [] with
          | .ok body => body
          | .error _ => []) := by
-    simp [constructorOnlySpec, constructorOnlyCtor, constructorOnlyOwnerField,
-      CompilationModel.compileStmtList, CompilationModel.compileStmt,
-      CompilationModel.compileSetStorage, CompilationModel.compileExpr,
-      CompilationModel.isMapping, constructorOnly_owner_resolved_lit,
-      Bind.bind, Except.bind, Pure.pure, Except.pure]
+    rcases constructorOnly_compileBody_empty_surfaces_withFork with ⟨body, hbody⟩
+    rw [FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList] at hbody
+    simp [constructorOnlySpec, constructorOnlyCtor] at hbody
+    simp [constructorOnlySpec, constructorOnlyCtor]
+    rw [hbody]
   have hbind :
       SourceSemantics.bindSupportedParams
         [{ name := "initialOwner", ty := .address }]
@@ -937,11 +1010,11 @@ example :
         compileStmtList constructorOnlySpec.fields constructorOnlySpec.events constructorOnlySpec.errors
           .memory [] false (constructorOnlyCtor.params.map (·.name)) [] constructorOnlyCtor.body [] =
         Except.ok bodyStmts := by
-      simp [bodyStmts, constructorOnlySpec, constructorOnlyCtor, constructorOnlyOwnerField,
-        CompilationModel.compileStmtList, CompilationModel.compileStmt,
-        CompilationModel.compileSetStorage, CompilationModel.compileExpr,
-        CompilationModel.isMapping, constructorOnly_owner_resolved_lit,
-        Bind.bind, Except.bind, Pure.pure, Except.pure]
+      rcases constructorOnly_compileBody_empty_surfaces_withFork with ⟨body, hbody⟩
+      rw [FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList] at hbody
+      simp [bodyStmts, constructorOnlySpec, constructorOnlyCtor] at hbody
+      simp [bodyStmts, constructorOnlySpec, constructorOnlyCtor]
+      rw [hbody]
     have hbind :
         SourceSemantics.bindSupportedParams constructorOnlyCtor.params
             (constructorOnlyTrailingTx.args.take constructorOnlyCtor.params.length) =
@@ -1149,5 +1222,219 @@ example :
     SourceSemantics.wordNormalize, SourceSemantics.uint8Modulus,
     Compiler.Constants.addressMask, Compiler.Constants.evmModulus,
     Verity.Core.Uint256.ofNat, hunindexed, hindexed]
+
+private def scalarEventSmokeFunction : FunctionSpec :=
+  { name := "ping"
+    params := []
+    returnType := none
+    body := [Stmt.emit "Ping" [.literal 7, .literal 9]] }
+
+private def scalarEventSmokeSpec : CompilationModel :=
+  { name := "ScalarEventSmoke"
+    fields := []
+    constructor := none
+    events :=
+      [{ name := "Ping"
+         params :=
+          [{ name := "topic", ty := .uint256, kind := .indexed },
+           { name := "value", ty := .uint256, kind := .unindexed }] }]
+    functions := [scalarEventSmokeFunction] }
+
+private def scalarEventSmokeSelector : Nat := 0x22222222
+
+private theorem scalarEventSmoke_compileEmit_empty_events_ne_ok
+    (compiledIR : List YulStmt) :
+    compileEmit [] [] .calldata "Ping" [Expr.literal 7, Expr.literal 9] ≠
+      Except.ok compiledIR := by
+  simp [compileEmit, bind, Except.bind]
+
+private theorem scalarEventSmoke_noPackedFields :
+    ∀ field ∈ scalarEventSmokeSpec.fields, field.packedBits = none := by
+  intro field hfield
+  simp [scalarEventSmokeSpec] at hfield
+
+private theorem scalarEventSmoke_noFallback :
+    ∀ fn ∈ scalarEventSmokeSpec.functions, fn.name != "fallback" := by
+  intro fn hfn
+  simp [scalarEventSmokeSpec, scalarEventSmokeFunction] at hfn
+  rcases hfn with rfl
+  decide
+
+private theorem scalarEventSmoke_noReceive :
+    ∀ fn ∈ scalarEventSmokeSpec.functions, fn.name != "receive" := by
+  intro fn hfn
+  simp [scalarEventSmokeSpec, scalarEventSmokeFunction] at hfn
+  rcases hfn with rfl
+  decide
+
+private def scalarEventSmoke_supported_function :
+    ∀ fn, fn ∈ scalarEventSmokeSpec.functions →
+      SupportedFunctionWithScalarEvents scalarEventSmokeSpec fn := by
+  intro fn hfn
+  simp [scalarEventSmokeSpec, scalarEventSmokeFunction] at hfn
+  rcases hfn with rfl
+  exact
+    { nonInternal := rfl
+      nonSpecialEntrypoint := rfl
+      noNonReentrant := rfl
+      params :=
+        { namesNodup := by decide
+          supported := by intro param hparam; cases hparam
+          calldataThreshold := by decide }
+      returns := { resolved := ⟨[], rfl, trivial⟩ }
+      body :=
+        { stmtList :=
+            .emitEvent
+              (by intro arg harg; simp at harg; rcases harg with rfl | rfl <;> exact .literal _)
+              (by
+                intro arg harg
+                simp at harg
+                rcases harg with rfl | rfl
+                · intro name hname; simp [FunctionBody.exprBoundNames] at hname
+                · intro name hname; simp [FunctionBody.exprBoundNames] at hname)
+          core := { surfaceClosed := by decide }
+          state := { surfaceClosed := by decide }
+          calls :=
+            { helpers :=
+                { helperRank := 1
+                  callNamesNodup := helperCallNames_nodup _
+                  summaryOf := by
+                    intro calleeName hmem
+                    simp [helperCallNames, stmtListInternalHelperCallNames,
+                      stmtInternalHelperCallNames, exprListInternalHelperCallNames,
+                      exprInternalHelperCallNames] at hmem
+                  calleeRanksDecrease := by
+                    intro calleeName hmem
+                    simp [helperCallNames, stmtListInternalHelperCallNames,
+                      stmtInternalHelperCallNames, exprListInternalHelperCallNames,
+                      exprInternalHelperCallNames] at hmem
+                  exprCallsPreserveWorld := by
+                    intro calleeName hmem
+                    simp [exprHelperCallNames, stmtListExprHelperCallNames,
+                      stmtExprHelperCallNames, exprListInternalHelperCallNames,
+                      exprInternalHelperCallNames] at hmem }
+              foreign := by decide
+              lowLevel := by decide }
+          contractSurfaceWithEvents := by decide
+          topLevelEventHeads := by
+            intro s hs
+            simp at hs
+            rcases hs with rfl
+            exact Or.inl rfl
+          eventScratchFreshInitial := by decide
+          eventScratchFreshStmts := by
+            intro s hs
+            simp at hs
+            rcases hs with rfl
+            simp [collectStmtNames, collectExprListNames, collectExprNames]
+          emitArgsInScope := by
+            intro s hs eventName args heq arg harg
+            simp at hs
+            rcases hs with rfl
+            cases heq
+            simp at harg
+            rcases harg with rfl | rfl
+            · intro name hname; simp [FunctionBody.exprBoundNames] at hname
+            · intro name hname; simp [FunctionBody.exprBoundNames] at hname
+          noLocalObligations := rfl } }
+
+private def scalarEventSmoke_supported_spec :
+    SupportedSpecWithScalarEvents scalarEventSmokeSpec [scalarEventSmokeSelector] :=
+  { invariants :=
+      { normalizedFields := rfl
+        noPackedFields := scalarEventSmoke_noPackedFields
+        selectorCount := by decide
+        selectorsDistinct := by decide
+        functionNamesNodup := by decide }
+    surface :=
+      { eventsSupported := by intro eventDef hmem; simp [scalarEventSmokeSpec] at hmem; rcases hmem with rfl; decide
+        noErrors := rfl
+        noExternals := rfl
+        noAdtTypes := rfl
+        noCheckedArithmetic := by
+          simp [contractUsesCheckedArithmetic, scalarEventSmokeSpec,
+            scalarEventSmokeFunction, stmtListMayUseCheckedArithmetic,
+            stmtMayUseCheckedArithmetic]
+        noTemplateIntrinsics := by
+          rw [templateIntrinsicItems, scalarEventSmokeSpec, scalarEventSmokeFunction]
+          unfold collectTemplateIntrinsicsFromStmts
+          simp only [List.flatMap_cons, List.flatMap_nil, List.append_nil]
+          rw [collectTemplateIntrinsicsFromStmt.eq_def]
+          simp only [Stmt.directMetadata, Stmt.childLists, List.attach_nil,
+            List.flatMap_nil, List.append_nil]
+          simp only [List.flatMap_cons, List.flatMap_nil]
+          rw [collectTemplateIntrinsicsFromExpr.eq_def]
+          rw [collectTemplateIntrinsicsFromExpr.eq_def]
+          simp [Expr.children]
+        noFallback := scalarEventSmoke_noFallback
+        noReceive := scalarEventSmoke_noReceive }
+    constructor := by
+      intro ctor hctor
+      simp [scalarEventSmokeSpec] at hctor
+    functions := scalarEventSmoke_supported_function }
+
+private theorem scalarEventSmoke_helperFree :
+    ∀ fn, fn ∈ selectorDispatchedFunctions scalarEventSmokeSpec →
+      StmtListHelperFreeNonEventStepInterface
+        (SourceSemantics.effectiveFields scalarEventSmokeSpec)
+        (fn.params.map (·.name)) fn.body := by
+  intro fn hfn
+  simp [scalarEventSmokeSpec, selectorDispatchedFunctions, scalarEventSmokeFunction] at hfn
+  rcases hfn with ⟨rfl, _hinternal, _hspecial⟩
+  exact .cons
+    (fun _hhelper hevent => by simp [stmtTouchesEventSurface] at hevent)
+    .nil
+
+private theorem scalarEventSmoke_disjoint
+    (ir : IRContract) :
+    ∀ fn, fn ∈ selectorDispatchedFunctions scalarEventSmokeSpec →
+      StmtListHelperFreeCompiledCallsDisjoint { ir with internalFunctions := [] }
+        (SourceSemantics.effectiveFields scalarEventSmokeSpec)
+        (fn.params.map (·.name)) fn.body := by
+  intro fn hfn
+  simp [scalarEventSmokeSpec, selectorDispatchedFunctions, scalarEventSmokeFunction] at hfn
+  rcases hfn with ⟨rfl, _hinternal, _hspecial⟩
+  exact .cons
+    (fun _hhelper compiledIR hcompile => by
+      have hbad := scalarEventSmoke_compileEmit_empty_events_ne_ok compiledIR
+      simp [SourceSemantics.effectiveFields, scalarEventSmokeSpec,
+        CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] at hcompile
+      exact False.elim (hbad hcompile))
+    .nil
+
+theorem scalarEventSmoke_compile_preserves_semantics_with_scalar_events
+    (ir : IRContract)
+    (tx : IRTransaction)
+    (initialWorld : Verity.ContractState)
+    (htxNormalized : Function.TxContextNormalized tx)
+    (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
+    (hcompile :
+      CompilationModel.compile scalarEventSmokeSpec [scalarEventSmokeSelector] =
+        Except.ok ir) :
+    FunctionBody.sourceResultMatchesIRResult
+      (supportedSourceContractSemanticsWithScalarEvents scalarEventSmokeSpec
+        [scalarEventSmokeSelector] scalarEventSmoke_supported_spec tx initialWorld)
+      (interpretIR ir tx
+        (FunctionBody.initialIRStateForTx scalarEventSmokeSpec tx initialWorld)) := by
+  exact Contract.compile_preserves_semantics_with_scalar_events
+    (model := scalarEventSmokeSpec)
+    (selectors := [scalarEventSmokeSelector])
+    (hSupported := scalarEventSmoke_supported_spec)
+    (ir := ir)
+    (tx := tx)
+    (initialWorld := initialWorld)
+    (htxNormalized := htxNormalized)
+    (hcalldataSizeFits := hcalldataSizeFits)
+    (hcompile := hcompile)
+    (hfuelPos := by
+      dsimp [SupportedSpecWithScalarEvents.helperFuel,
+        SupportedSpecWithScalarEvents.helperFuelOfFunction,
+        scalarEventSmoke_supported_spec, scalarEventSmokeSpec,
+        selectorDispatchedFunctions, SupportedFunctionWithScalarEvents.helperFuel,
+        SupportedSpecWithScalarEvents.supportedFunctionOfSelectorDispatched,
+        scalarEventSmoke_supported_function]
+      simp [scalarEventSmokeFunction, isInteropEntrypointName])
+    (hhelperFree := scalarEventSmoke_helperFree)
+    (hstmtDisjoint := scalarEventSmoke_disjoint ir)
 
 end Compiler.Proofs.IRGeneration.ContractFeatureTest

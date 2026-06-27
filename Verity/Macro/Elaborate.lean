@@ -14,6 +14,57 @@ open Lean.Elab.Command
 
 set_option hygiene false
 
+partial def parseIntrinsicTemplateExpr (stx : TSyntax `verityIntrinsicTemplateExpr) :
+    CommandElabM Compiler.Yul.YulExpr := do
+  match stx with
+  | `(verityIntrinsicTemplateExpr| $func:ident ( $[$args:verityIntrinsicTemplateExpr],* )) => do
+      pure <| Compiler.Yul.YulExpr.call (toString func.getId)
+        (← args.toList.mapM parseIntrinsicTemplateExpr)
+  | `(verityIntrinsicTemplateExpr| $name:ident) =>
+      pure <| Compiler.Yul.YulExpr.ident (toString name.getId)
+  | `(verityIntrinsicTemplateExpr| $n:num) =>
+      pure <| Compiler.Yul.YulExpr.lit n.getNat
+  | `(verityIntrinsicTemplateExpr| $s:str) =>
+      pure <| Compiler.Yul.YulExpr.str s.getString
+  | _ =>
+      throwErrorAt stx "unsupported intrinsic template expression"
+
+def parseIntrinsicTemplateStmt (stx : TSyntax `verityIntrinsicTemplateStmt) :
+    CommandElabM Compiler.Yul.YulStmt := do
+  match stx with
+  | `(verityIntrinsicTemplateStmt| let $name:ident := $value:verityIntrinsicTemplateExpr) =>
+      pure <| Compiler.Yul.YulStmt.let_ (toString name.getId) (← parseIntrinsicTemplateExpr value)
+  | `(verityIntrinsicTemplateStmt| $name:ident := $value:verityIntrinsicTemplateExpr) =>
+      pure <| Compiler.Yul.YulStmt.assign (toString name.getId) (← parseIntrinsicTemplateExpr value)
+  | `(verityIntrinsicTemplateStmt| yulcall $func:ident ( $[$args:verityIntrinsicTemplateExpr],* )) =>
+      pure <| Compiler.Yul.YulStmt.exprStmt
+        (Compiler.Yul.YulExpr.call (toString func.getId)
+          (← args.toList.mapM parseIntrinsicTemplateExpr))
+  | `(verityIntrinsicTemplateStmt| comment $text:str) =>
+      pure <| Compiler.Yul.YulStmt.comment text.getString
+  | `(verityIntrinsicTemplateStmt| leave) =>
+      pure Compiler.Yul.YulStmt.leave
+  | _ =>
+      throwErrorAt stx "unsupported intrinsic template statement"
+
+private def cleanTypeSyntaxString (ty : Term) : String :=
+  String.mk <| (toString ty).toList.filter (fun c => c != '`')
+
+private def isUint256TypeSyntax (ty : Term) : Bool :=
+  let rendered := cleanTypeSyntaxString ty
+  rendered == "Uint256" ||
+    rendered == "Verity.Uint256" ||
+    rendered == "Verity.Core.Uint256" ||
+    rendered.endsWith ".Uint256"
+
+private def parseIntrinsicProofStatus (status : Ident) : CommandElabM String := do
+  let rendered := toString status.getId
+  match rendered with
+  | "proved" | "assumed" | "unchecked" => pure rendered
+  | _ =>
+      throwErrorAt status
+        "unsupported proof status for verity_intrinsic obligation; expected proved, assumed, or unchecked"
+
 @[command_elab verityContractCmd]
 def elabVerityContract : CommandElab := fun stx => do
   let parsed ← parseContractSyntax stx
@@ -21,6 +72,7 @@ def elabVerityContract : CommandElab := fun stx => do
   let structDecls := parsed.structDecls
   let adtDecls := parsed.adtDecls
   let fields := parsed.fields
+  let roleDecls := parsed.roleDecls
   let storageStructAccessors := parsed.storageStructAccessors
   let errorDecls := parsed.errorDecls
   let eventDecls := parsed.eventDecls
@@ -66,12 +118,12 @@ def elabVerityContract : CommandElab := fun stx => do
     elabCommand (← mkStorageNamespaceCommand (toString contractName.getId) storageNamespace)
 
     for fn in functions do
-      let fnCmds ← mkFunctionCommandsPublic fields constDecls immutableDecls externalDecls functions fn
+      let fnCmds ← mkFunctionCommandsPublic fields roleDecls constDecls immutableDecls externalDecls functions fn
       for cmd in fnCmds do
         elabCommand cmd
       elabCommand (← mkBridgeCommand fn.ident)
 
-    elabCommand (← mkSpecCommandPublic (toString contractName.getId) fields errorDecls eventDecls constDecls immutableDecls externalDecls ctor modifiers functions adtDecls storageNamespace)
+    elabCommand (← mkSpecCommandPublic (toString contractName.getId) fields roleDecls errorDecls eventDecls constDecls immutableDecls externalDecls ctor modifiers functions adtDecls storageNamespace)
 
     let findIdxSimpCmds ← mkFindIdxFieldSimpCommandsPublic contractName fields
     for cmd in findIdxSimpCmds do
@@ -89,6 +141,8 @@ def elabVerityContract : CommandElab := fun stx => do
     for fn in functions do
       if fn.isView then
         elabCommand (← mkViewTheoremCommand fn)
+        if fn.params.isEmpty && fn.requiresRole.isNone && fn.nonReentrantLock.isNone then
+          elabCommand (← mkViewFrameTheoremCommand fn)
 
     -- Emit per-function _is_pure theorems for pure functions.
     for fn in functions do
@@ -138,10 +192,16 @@ def elabVerityContract : CommandElab := fun stx => do
 
     -- Emit per-function _requires_role theorem for functions with requires(field).
     -- (#1728, Axis 2 Step 2c — access control)
+    for role in roleDecls do
+      elabCommand (← mkRoleDeclTheoremCommand role)
+
     for fn in functions do
       match fn.requiresRole with
       | some roleIdent =>
           elabCommand (← mkRequiresRoleTheoremCommand fn (toString roleIdent.getId))
+          match roleDecls.find? (fun role => role.name == toString roleIdent.getId) with
+          | some role => elabCommand (← mkAccessControlTheoremCommand fn role)
+          | none => pure ()
       | none => pure ()
 
     elabCommand (← `(end $contractName))
@@ -161,6 +221,19 @@ def elabVerityIntrinsic : CommandElab := fun stx => do
         throwErrorAt pureKw "verity_intrinsic currently supports only pure intrinsics"
       if paramNames.size == 0 then
         throwErrorAt stx "verity_intrinsic requires at least one parameter"
+      for pair in paramNames.zip paramTypes do
+        unless isUint256TypeSyntax pair.2 do
+          throwErrorAt pair.2
+            s!"verity_intrinsic parameter '{toString pair.1.getId}' must have type Uint256; got {cleanTypeSyntaxString pair.2}"
+      unless isUint256TypeSyntax retTy do
+        throwErrorAt retTy s!"verity_intrinsic return type must be Uint256; got {cleanTypeSyntaxString retTy}"
+      let parsedObligations ← obligations.mapM fun obligation => do
+        match obligation with
+        | `(verityIntrinsicObligation| $obligationName:ident := $status:ident $message:str) => do
+            let statusString ← parseIntrinsicProofStatus status
+            pure (toString obligationName.getId, statusString, message.getString)
+        | _ =>
+            throwErrorAt obligation "expected obligation entry `<name> := assumed \"reason\"`"
       let yulLowering ←
         match yul with
         | `(verityIntrinsicYul| verbatim $inArity:num $outArity:num (hex $opcode:str)) =>
@@ -181,19 +254,32 @@ def elabVerityIntrinsic : CommandElab := fun stx => do
                   throwErrorAt yul s!"verity_intrinsic `builtin \"{builtinName}\"` expects {inArity} input(s) but {paramNames.size} parameter(s) were declared"
             | none => pure ()
             pure <| Verity.Core.Intrinsics.YulLowering.builtin builtinName
+        | `(verityIntrinsicYul| [template ( $[$templateParams:ident],* ) -> $output:ident := [ $[$body:verityIntrinsicTemplateStmt],* ]]) =>
+            if templateParams.size != paramNames.size then
+              throwErrorAt yul s!"verity_intrinsic `template` input arity {templateParams.size} does not match the {paramNames.size} declared parameter(s)"
+            for pair in templateParams.zip paramNames do
+              let templateParam := toString pair.1.getId
+              let declaredParam := toString pair.2.getId
+              unless templateParam == declaredParam do
+                throwErrorAt pair.1 s!"verity_intrinsic `template` parameter '{templateParam}' does not match declared parameter '{declaredParam}'"
+            let bodyStmts ← body.toList.mapM parseIntrinsicTemplateStmt
+            pure <| Verity.Core.Intrinsics.YulLowering.template
+              (templateParams.toList.map (fun p => toString p.getId))
+              (toString output.getId)
+              bodyStmts
+              parsedObligations.toList
         | _ =>
-            throwErrorAt yul "expected `verbatim <inputs> <outputs> (hex \"...\")` or `builtin \"...\"`"
+            throwErrorAt yul "expected `verbatim <inputs> <outputs> (hex \"...\")`, `builtin \"...\"`, or `[template (<params>) -> <output> := [<statements>]]`"
+      match yulLowering.outputArity? with
+      | some 1 => pure ()
+      | some outArity =>
+          throwErrorAt yul s!"verity_intrinsic lowering must produce exactly 1 output word, got {outArity}"
+      | none => pure ()
       let minFork ←
         match Verity.Core.Intrinsics.HardFork.parse? (toString fork.getId) with
         | some parsed => pure parsed
         | none => throwErrorAt fork
             s!"unknown intrinsic min_fork '{toString fork.getId}' (expected cancun, prague, osaka, or fusaka alias)"
-      let parsedObligations ← obligations.mapM fun obligation => do
-        match obligation with
-        | `(verityIntrinsicObligation| $obligationName:ident := $status:ident $message:str) =>
-            pure (toString obligationName.getId, toString status.getId, message.getString)
-        | _ =>
-            throwErrorAt obligation "expected obligation entry `<name> := assumed \"reason\"`"
       let nameStr := toString name.getId
       let paramNameStrs : List String := paramNames.toList.map (fun id => toString id.getId)
       let paramTypeStrs : List String := paramTypes.toList.map toString

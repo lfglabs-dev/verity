@@ -29,7 +29,7 @@ private def packedWordBindings (words : List YulExpr) : List YulStmt :=
 
 private def packedWordTempStoresAt (base : YulExpr) (wordCount : Nat) : List YulStmt :=
   (List.range wordCount).map fun idx =>
-    YulStmt.expr (YulExpr.call "mstore" [
+    YulStmt.exprStmt (YulExpr.call "mstore" [
       YulExpr.call "add" [base, YulExpr.lit (idx * 32)],
       YulExpr.ident (packedWordTempName idx)
     ])
@@ -50,7 +50,7 @@ private def packedSegmentTempStoreAt (base : YulExpr) (offset width idx : Nat) :
         YulExpr.lit ((32 - width) * 8),
         YulExpr.call "and" [value, YulExpr.hex (packedSegmentMask width)]
       ]
-  YulStmt.expr (YulExpr.call "mstore" [
+  YulStmt.exprStmt (YulExpr.call "mstore" [
     YulExpr.call "add" [base, YulExpr.lit offset],
     stored
   ])
@@ -94,7 +94,7 @@ def abiEncodePackedWordsModule (resultVar : String) (wordCount : Nat) : External
         [YulStmt.let_ ptrName (YulExpr.call "mload" [YulExpr.lit freeMemoryPointer])] ++
         packedWordTempStoresAt ptr wordCount ++
         [
-      YulStmt.expr (YulExpr.call "mstore" [
+      YulStmt.exprStmt (YulExpr.call "mstore" [
         YulExpr.lit freeMemoryPointer,
         YulExpr.call "add" [ptr, YulExpr.lit (alignUp32 size)]
       ]),
@@ -139,7 +139,7 @@ def abiEncodeStaticWordsModule (resultVar : String) (wordCount : Nat) : External
         [YulStmt.let_ ptrName (YulExpr.call "mload" [YulExpr.lit freeMemoryPointer])] ++
         packedWordTempStoresAt ptr wordCount ++
         [
-          YulStmt.expr (YulExpr.call "mstore" [
+          YulStmt.exprStmt (YulExpr.call "mstore" [
             YulExpr.lit freeMemoryPointer,
             YulExpr.call "add" [ptr, YulExpr.lit (alignUp32 size)]
           ]),
@@ -151,6 +151,59 @@ def abiEncodeStaticWordsModule (resultVar : String) (wordCount : Nat) : External
     word arguments. -/
 def abiEncodeStaticWords (resultVar : String) (words : List Expr) : Stmt :=
   .ecm (abiEncodeStaticWordsModule resultVar words.length) words
+
+/-- EIP-712 `hashStruct(s) = keccak256(abi.encode(typeHash, ...members))`
+    for static word members. This is deliberately a thin wrapper around the
+    audited static ABI-word helper, so it introduces no new ECM or trust
+    boundary. -/
+def eip712HashStruct (resultVar : String) (typeHash : Expr) (members : List Expr) : Stmt :=
+  abiEncodeStaticWords resultVar (typeHash :: members)
+
+private def yulAdd (base : YulExpr) (offset : Nat) : YulExpr :=
+  YulExpr.call "add" [base, YulExpr.lit offset]
+
+/-- Concrete six-word Permit struct-hash Yul layout:
+    `keccak256(abi.encode(typeHash, owner, spender, value, nonce, deadline))`. -/
+def permitStructHashExpectedYul (typeHash : Nat) : List YulStmt :=
+  let resultVar := "structHash"
+  let ptrName := s!"__{resultVar}_abi_static_words_ptr"
+  let ptr := YulExpr.ident ptrName
+  let args :=
+    [ YulExpr.lit typeHash
+    , YulExpr.ident "owner"
+    , YulExpr.ident "spender"
+    , YulExpr.ident "value"
+    , YulExpr.ident "nonce"
+    , YulExpr.ident "deadline"
+    ]
+  [ YulStmt.let_ resultVar (YulExpr.lit 0)
+  , YulStmt.block (
+      packedWordBindings args ++
+      [YulStmt.let_ ptrName (YulExpr.call "mload" [YulExpr.lit freeMemoryPointer])] ++
+      packedWordTempStoresAt ptr 6 ++
+      [ YulStmt.exprStmt (YulExpr.call "mstore"
+          [ YulExpr.lit freeMemoryPointer
+          , yulAdd ptr 192
+          ])
+      , YulStmt.assign resultVar
+          (YulExpr.call "keccak256"
+            [ptr, YulExpr.lit 192])
+      ])
+  ]
+
+theorem abiEncodeStaticWordsModule_compile_permitStructHash_layout (typeHash : Nat) :
+    (abiEncodeStaticWordsModule "structHash" 6).compile {}
+      [ YulExpr.lit typeHash
+      , YulExpr.ident "owner"
+      , YulExpr.ident "spender"
+      , YulExpr.ident "value"
+      , YulExpr.ident "nonce"
+      , YulExpr.ident "deadline"
+      ] =
+    Except.ok (permitStructHashExpectedYul typeHash) := by
+  simp [abiEncodeStaticWordsModule, permitStructHashExpectedYul,
+    packedWordBindings, packedWordTempStoresAt, packedWordTempName,
+    alignUp32, yulAdd, Bind.bind, Except.bind, Pure.pure, Except.pure]
 
 /-- Keccak-256 over Solidity `abi.encode(array)` for a direct dynamic-array
     parameter whose elements have a fixed static word width.
@@ -193,8 +246,8 @@ def abiEncodeStaticArrayModule
       YulStmt.block ([
         YulStmt.let_ ptrName (YulExpr.call "mload" [YulExpr.lit freeMemoryPointer]),
         YulStmt.let_ lengthName arrayLengthExpr,
-        YulStmt.expr (YulExpr.call "mstore" [ptr, YulExpr.lit 32]),
-        YulStmt.expr (YulExpr.call "mstore" [
+        YulStmt.exprStmt (YulExpr.call "mstore" [ptr, YulExpr.lit 32]),
+        YulStmt.exprStmt (YulExpr.call "mstore" [
           YulExpr.call "add" [ptr, YulExpr.lit 32],
           length
         ]),
@@ -211,7 +264,7 @@ def abiEncodeStaticArrayModule
           YulExpr.call "add" [totalBytes, YulExpr.lit 31],
           YulExpr.call "not" [YulExpr.lit 31]
         ]),
-        YulStmt.expr (YulExpr.call "mstore" [
+        YulStmt.exprStmt (YulExpr.call "mstore" [
           YulExpr.lit freeMemoryPointer,
           YulExpr.call "add" [ptr, YulExpr.ident paddedTotalName]
         ]),
@@ -251,7 +304,7 @@ def abiEncodePackedStaticSegmentsModule (resultVar : String) (widths : List Nat)
         [YulStmt.let_ ptrName (YulExpr.call "mload" [YulExpr.lit freeMemoryPointer])] ++
         packedSegmentTempStoresAt ptr widths ++
         [
-          YulStmt.expr (YulExpr.call "mstore" [
+          YulStmt.exprStmt (YulExpr.call "mstore" [
             YulExpr.lit freeMemoryPointer,
             YulExpr.call "add" [ptr, YulExpr.lit (alignUp32 size)]
           ]),
@@ -288,19 +341,19 @@ def eip712DigestModule (resultVar : String) : ExternalCallModule where
       YulStmt.let_ resultVar (YulExpr.lit 0),
       YulStmt.block [
         YulStmt.let_ ptrName (YulExpr.call "mload" [YulExpr.lit freeMemoryPointer]),
-        YulStmt.expr (YulExpr.call "mstore" [
+        YulStmt.exprStmt (YulExpr.call "mstore" [
           ptr,
           YulExpr.call "shl" [YulExpr.lit 240, YulExpr.hex 0x1901]
         ]),
-        YulStmt.expr (YulExpr.call "mstore" [
+        YulStmt.exprStmt (YulExpr.call "mstore" [
           YulExpr.call "add" [ptr, YulExpr.lit 2],
           domainSeparatorExpr
         ]),
-        YulStmt.expr (YulExpr.call "mstore" [
+        YulStmt.exprStmt (YulExpr.call "mstore" [
           YulExpr.call "add" [ptr, YulExpr.lit 34],
           structHashExpr
         ]),
-        YulStmt.expr (YulExpr.call "mstore" [
+        YulStmt.exprStmt (YulExpr.call "mstore" [
           YulExpr.lit freeMemoryPointer,
           YulExpr.call "add" [ptr, YulExpr.lit 96]
         ]),
@@ -311,6 +364,41 @@ def eip712DigestModule (resultVar : String) : ExternalCallModule where
 /-- Convenience constructor for EIP-712 typed-data digest hashing. -/
 def eip712Digest (resultVar : String) (domainSeparator structHash : Expr) : Stmt :=
   .ecm (eip712DigestModule resultVar) [domainSeparator, structHash]
+
+/-- Concrete EIP-712 digest Yul layout:
+    `keccak256(0x1901 ++ domainSeparator ++ structHash)`. -/
+def eip712DigestExpectedYul : List YulStmt :=
+  let resultVar := "digest"
+  let ptrName := s!"__{resultVar}_eip712_ptr"
+  let ptr := YulExpr.ident ptrName
+  [ YulStmt.let_ resultVar (YulExpr.lit 0)
+  , YulStmt.block
+      [ YulStmt.let_ ptrName
+          (YulExpr.call "mload" [YulExpr.lit freeMemoryPointer])
+      , YulStmt.exprStmt (YulExpr.call "mstore"
+          [ ptr
+          , YulExpr.call "shl" [YulExpr.lit 240, YulExpr.hex 0x1901]
+          ])
+      , YulStmt.exprStmt (YulExpr.call "mstore"
+          [yulAdd ptr 2, YulExpr.ident "domainSeparator"])
+      , YulStmt.exprStmt (YulExpr.call "mstore"
+          [yulAdd ptr 34, YulExpr.ident "structHash"])
+      , YulStmt.exprStmt (YulExpr.call "mstore"
+          [ YulExpr.lit freeMemoryPointer
+          , yulAdd ptr 96
+          ])
+      , YulStmt.assign resultVar
+          (YulExpr.call "keccak256"
+            [ptr, YulExpr.lit 66])
+      ]
+  ]
+
+theorem eip712DigestModule_compile_digest_layout :
+    (eip712DigestModule "digest").compile {}
+      [YulExpr.ident "domainSeparator", YulExpr.ident "structHash"] =
+    Except.ok eip712DigestExpectedYul := by
+  simp [eip712DigestModule, eip712DigestExpectedYul, yulAdd,
+    Bind.bind, Except.bind, Pure.pure, Except.pure]
 
 /-- SHA-256 over packed static 32-byte words stored at free memory.
     The digest is written after the packed input words and then bound from
@@ -337,7 +425,7 @@ def sha256PackedWordsModule (resultVar : String) (wordCount : Nat) : ExternalCal
       outputOffset, YulExpr.lit 32
     ]
     let revertBlock := YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident "__sha256_packed_success"]) [
-      YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+      YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
     ]
     pure [
       YulStmt.let_ resultVar (YulExpr.lit 0),
@@ -348,7 +436,7 @@ def sha256PackedWordsModule (resultVar : String) (wordCount : Nat) : ExternalCal
         YulStmt.let_ "__sha256_packed_success" callExpr,
         revertBlock,
         YulStmt.assign resultVar (YulExpr.call "mload" [outputOffset]),
-        YulStmt.expr (YulExpr.call "mstore" [
+        YulStmt.exprStmt (YulExpr.call "mstore" [
           YulExpr.lit freeMemoryPointer,
           YulExpr.call "add" [outputOffset, YulExpr.lit 32]
         ])
@@ -391,7 +479,7 @@ def sha256PackedStaticSegmentsModule (resultVar : String) (widths : List Nat) : 
       outputOffset, YulExpr.lit 32
     ]
     let revertBlock := YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident "__sha256_packed_segments_success"]) [
-      YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+      YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
     ]
     pure [
       YulStmt.let_ resultVar (YulExpr.lit 0),
@@ -402,7 +490,7 @@ def sha256PackedStaticSegmentsModule (resultVar : String) (widths : List Nat) : 
         YulStmt.let_ "__sha256_packed_segments_success" callExpr,
         revertBlock,
         YulStmt.assign resultVar (YulExpr.call "mload" [outputOffset]),
-        YulStmt.expr (YulExpr.call "mstore" [
+        YulStmt.exprStmt (YulExpr.call "mstore" [
           YulExpr.lit freeMemoryPointer,
           YulExpr.call "add" [outputOffset, YulExpr.lit 32]
         ])

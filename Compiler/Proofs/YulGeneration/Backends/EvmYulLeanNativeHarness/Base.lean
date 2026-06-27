@@ -9425,7 +9425,7 @@ theorem NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_expr_call_of_b
         Compiler.Proofs.YulGeneration.Backends.BridgedExpr arg)
     (hLower :
       Backends.lowerStmtGroupNativeWithSwitchIds reservedNames nextSwitchId
-        (.expr (.call func args)) = .ok (native, finalSwitchId))
+        (.exprStmt (.call func args)) = .ok (native, finalSwitchId))
     (hMem : nativeStmt ∈ native) :
     NativeStmtPreservesWord name expected nativeStmt
       (some
@@ -11370,7 +11370,7 @@ theorem NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_expr_stop
     (nativeStmt : EvmYul.Yul.Ast.Stmt)
     (hLower :
       Backends.lowerStmtGroupNativeWithSwitchIds reservedNames nextSwitchId
-        (.expr (.call "stop" [])) = .ok (native, finalSwitchId))
+        (.exprStmt (.call "stop" [])) = .ok (native, finalSwitchId))
     (hMem : nativeStmt ∈ native) :
     NativeStmtPreservesWord name expected nativeStmt
       (some
@@ -11398,7 +11398,7 @@ theorem NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_expr_log0
         Compiler.Proofs.YulGeneration.Backends.BridgedExpr arg)
     (hLower :
       Backends.lowerStmtGroupNativeWithSwitchIds reservedNames nextSwitchId
-        (.expr (.call "log0" args)) = .ok (native, finalSwitchId))
+        (.exprStmt (.call "log0" args)) = .ok (native, finalSwitchId))
     (hMem : nativeStmt ∈ native)
     (hShape :
       ∀ fuel state,
@@ -11443,7 +11443,7 @@ theorem NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_expr_log1
         Compiler.Proofs.YulGeneration.Backends.BridgedExpr arg)
     (hLower :
       Backends.lowerStmtGroupNativeWithSwitchIds reservedNames nextSwitchId
-        (.expr (.call "log1" args)) = .ok (native, finalSwitchId))
+        (.exprStmt (.call "log1" args)) = .ok (native, finalSwitchId))
     (hMem : nativeStmt ∈ native)
     (hShape :
       ∀ fuel state,
@@ -11488,7 +11488,7 @@ theorem NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_expr_log2
         Compiler.Proofs.YulGeneration.Backends.BridgedExpr arg)
     (hLower :
       Backends.lowerStmtGroupNativeWithSwitchIds reservedNames nextSwitchId
-        (.expr (.call "log2" args)) = .ok (native, finalSwitchId))
+        (.exprStmt (.call "log2" args)) = .ok (native, finalSwitchId))
     (hMem : nativeStmt ∈ native)
     (hShape :
       ∀ fuel state,
@@ -11533,7 +11533,7 @@ theorem NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_expr_log3
         Compiler.Proofs.YulGeneration.Backends.BridgedExpr arg)
     (hLower :
       Backends.lowerStmtGroupNativeWithSwitchIds reservedNames nextSwitchId
-        (.expr (.call "log3" args)) = .ok (native, finalSwitchId))
+        (.exprStmt (.call "log3" args)) = .ok (native, finalSwitchId))
     (hMem : nativeStmt ∈ native)
     (hShape :
       ∀ fuel state,
@@ -11578,7 +11578,7 @@ theorem NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_expr_log4
         Compiler.Proofs.YulGeneration.Backends.BridgedExpr arg)
     (hLower :
       Backends.lowerStmtGroupNativeWithSwitchIds reservedNames nextSwitchId
-        (.expr (.call "log4" args)) = .ok (native, finalSwitchId))
+        (.exprStmt (.call "log4" args)) = .ok (native, finalSwitchId))
     (hMem : nativeStmt ∈ native)
     (hShape :
       ∀ fuel state,
@@ -11623,7 +11623,7 @@ theorem NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_expr_log0_of_n
         Compiler.Proofs.YulGeneration.Backends.BridgedExpr arg)
     (hLower :
       Backends.lowerStmtGroupNativeWithSwitchIds reservedNames nextSwitchId
-        (.expr (.call "log0" args)) = .ok (native, finalSwitchId))
+        (.exprStmt (.call "log0" args)) = .ok (native, finalSwitchId))
     (hMem : nativeStmt ∈ native) :
     NativeStmtPreservesWord name expected nativeStmt
       (some
@@ -11655,7 +11655,7 @@ theorem NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_expr_log1_of_n
         Compiler.Proofs.YulGeneration.Backends.BridgedExpr arg)
     (hLower :
       Backends.lowerStmtGroupNativeWithSwitchIds reservedNames nextSwitchId
-        (.expr (.call "log1" args)) = .ok (native, finalSwitchId))
+        (.exprStmt (.call "log1" args)) = .ok (native, finalSwitchId))
     (hMem : nativeStmt ∈ native) :
     NativeStmtPreservesWord name expected nativeStmt
       (some
@@ -11687,7 +11687,7 @@ theorem NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_expr_log2_of_n
         Compiler.Proofs.YulGeneration.Backends.BridgedExpr arg)
     (hLower :
       Backends.lowerStmtGroupNativeWithSwitchIds reservedNames nextSwitchId
-        (.expr (.call "log2" args)) = .ok (native, finalSwitchId))
+        (.exprStmt (.call "log2" args)) = .ok (native, finalSwitchId))
     (hMem : nativeStmt ∈ native) :
     NativeStmtPreservesWord name expected nativeStmt
       (some
@@ -11719,7 +11719,7 @@ theorem NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_expr_log3_of_n
         Compiler.Proofs.YulGeneration.Backends.BridgedExpr arg)
     (hLower :
       Backends.lowerStmtGroupNativeWithSwitchIds reservedNames nextSwitchId
-        (.expr (.call "log3" args)) = .ok (native, finalSwitchId))
+        (.exprStmt (.call "log3" args)) = .ok (native, finalSwitchId))
     (hMem : nativeStmt ∈ native) :
     NativeStmtPreservesWord name expected nativeStmt
       (some
@@ -11751,7 +11751,7 @@ theorem NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_expr_log4_of_n
         Compiler.Proofs.YulGeneration.Backends.BridgedExpr arg)
     (hLower :
       Backends.lowerStmtGroupNativeWithSwitchIds reservedNames nextSwitchId
-        (.expr (.call "log4" args)) = .ok (native, finalSwitchId))
+        (.exprStmt (.call "log4" args)) = .ok (native, finalSwitchId))
     (hMem : nativeStmt ∈ native) :
     NativeStmtPreservesWord name expected nativeStmt
       (some
@@ -11782,7 +11782,7 @@ theorem NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_expr_mstore
     (hVal : Compiler.Proofs.YulGeneration.Backends.BridgedExpr valExpr)
     (hLower :
       Backends.lowerStmtGroupNativeWithSwitchIds reservedNames nextSwitchId
-        (.expr (.call "mstore" [offsetExpr, valExpr])) =
+        (.exprStmt (.call "mstore" [offsetExpr, valExpr])) =
           .ok (native, finalSwitchId))
     (hMem : nativeStmt ∈ native)
     (hShape :
@@ -11833,7 +11833,7 @@ theorem NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_expr_mstore_of
     (hVal : Compiler.Proofs.YulGeneration.Backends.BridgedExpr valExpr)
     (hLower :
       Backends.lowerStmtGroupNativeWithSwitchIds reservedNames nextSwitchId
-        (.expr (.call "mstore" [offsetExpr, valExpr])) =
+        (.exprStmt (.call "mstore" [offsetExpr, valExpr])) =
           .ok (native, finalSwitchId))
     (hMem : nativeStmt ∈ native) :
     NativeStmtPreservesWord name expected nativeStmt
@@ -11871,7 +11871,7 @@ theorem NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_expr_mstore8
     (hVal : Compiler.Proofs.YulGeneration.Backends.BridgedExpr valExpr)
     (hLower :
       Backends.lowerStmtGroupNativeWithSwitchIds reservedNames nextSwitchId
-        (.expr (.call "mstore8" [offsetExpr, valExpr])) =
+        (.exprStmt (.call "mstore8" [offsetExpr, valExpr])) =
           .ok (native, finalSwitchId))
     (hMem : nativeStmt ∈ native)
     (hShape :
@@ -11922,7 +11922,7 @@ theorem NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_expr_mstore8_o
     (hVal : Compiler.Proofs.YulGeneration.Backends.BridgedExpr valExpr)
     (hLower :
       Backends.lowerStmtGroupNativeWithSwitchIds reservedNames nextSwitchId
-        (.expr (.call "mstore8" [offsetExpr, valExpr])) =
+        (.exprStmt (.call "mstore8" [offsetExpr, valExpr])) =
           .ok (native, finalSwitchId))
     (hMem : nativeStmt ∈ native) :
     NativeStmtPreservesWord name expected nativeStmt
@@ -11960,7 +11960,7 @@ theorem NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_expr_sstore
     (hVal : Compiler.Proofs.YulGeneration.Backends.BridgedExpr valExpr)
     (hLower :
       Backends.lowerStmtGroupNativeWithSwitchIds reservedNames nextSwitchId
-        (.expr (.call "sstore" [slotExpr, valExpr])) =
+        (.exprStmt (.call "sstore" [slotExpr, valExpr])) =
           .ok (native, finalSwitchId))
     (hMem : nativeStmt ∈ native)
     (hShape :
@@ -12011,7 +12011,7 @@ theorem NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_expr_sstore_of
     (hVal : Compiler.Proofs.YulGeneration.Backends.BridgedExpr valExpr)
     (hLower :
       Backends.lowerStmtGroupNativeWithSwitchIds reservedNames nextSwitchId
-        (.expr (.call "sstore" [slotExpr, valExpr])) =
+        (.exprStmt (.call "sstore" [slotExpr, valExpr])) =
           .ok (native, finalSwitchId))
     (hMem : nativeStmt ∈ native) :
     NativeStmtPreservesWord name expected nativeStmt
@@ -12049,7 +12049,7 @@ theorem NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_expr_tstore
     (hVal : Compiler.Proofs.YulGeneration.Backends.BridgedExpr valExpr)
     (hLower :
       Backends.lowerStmtGroupNativeWithSwitchIds reservedNames nextSwitchId
-        (.expr (.call "tstore" [slotExpr, valExpr])) =
+        (.exprStmt (.call "tstore" [slotExpr, valExpr])) =
           .ok (native, finalSwitchId))
     (hMem : nativeStmt ∈ native)
     (hShape :
@@ -12100,7 +12100,7 @@ theorem NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_expr_tstore_of
     (hVal : Compiler.Proofs.YulGeneration.Backends.BridgedExpr valExpr)
     (hLower :
       Backends.lowerStmtGroupNativeWithSwitchIds reservedNames nextSwitchId
-        (.expr (.call "tstore" [slotExpr, valExpr])) =
+        (.exprStmt (.call "tstore" [slotExpr, valExpr])) =
           .ok (native, finalSwitchId))
     (hMem : nativeStmt ∈ native) :
     NativeStmtPreservesWord name expected nativeStmt
@@ -12138,7 +12138,7 @@ theorem NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_expr_return
     (hSize : Compiler.Proofs.YulGeneration.Backends.BridgedExpr sizeExpr)
     (hLower :
       Backends.lowerStmtGroupNativeWithSwitchIds reservedNames nextSwitchId
-        (.expr (.call "return" [offsetExpr, sizeExpr])) =
+        (.exprStmt (.call "return" [offsetExpr, sizeExpr])) =
           .ok (native, finalSwitchId))
     (hMem : nativeStmt ∈ native)
     (hShape :
@@ -12189,7 +12189,7 @@ theorem NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_expr_return_of
     (hSize : Compiler.Proofs.YulGeneration.Backends.BridgedExpr sizeExpr)
     (hLower :
       Backends.lowerStmtGroupNativeWithSwitchIds reservedNames nextSwitchId
-        (.expr (.call "return" [offsetExpr, sizeExpr])) =
+        (.exprStmt (.call "return" [offsetExpr, sizeExpr])) =
           .ok (native, finalSwitchId))
     (hMem : nativeStmt ∈ native) :
     NativeStmtPreservesWord name expected nativeStmt
@@ -12227,7 +12227,7 @@ theorem NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_expr_revert
     (hSize : Compiler.Proofs.YulGeneration.Backends.BridgedExpr sizeExpr)
     (hLower :
       Backends.lowerStmtGroupNativeWithSwitchIds reservedNames nextSwitchId
-        (.expr (.call "revert" [offsetExpr, sizeExpr])) =
+        (.exprStmt (.call "revert" [offsetExpr, sizeExpr])) =
           .ok (native, finalSwitchId))
     (hMem : nativeStmt ∈ native)
     (hShape :
@@ -12278,7 +12278,7 @@ theorem NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_expr_revert_of
     (hSize : Compiler.Proofs.YulGeneration.Backends.BridgedExpr sizeExpr)
     (hLower :
       Backends.lowerStmtGroupNativeWithSwitchIds reservedNames nextSwitchId
-        (.expr (.call "revert" [offsetExpr, sizeExpr])) =
+        (.exprStmt (.call "revert" [offsetExpr, sizeExpr])) =
           .ok (native, finalSwitchId))
     (hMem : nativeStmt ∈ native) :
     NativeStmtPreservesWord name expected nativeStmt
@@ -12317,7 +12317,7 @@ theorem NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_expr_calldatac
     (hSize : Compiler.Proofs.YulGeneration.Backends.BridgedExpr sizeExpr)
     (hLower :
       Backends.lowerStmtGroupNativeWithSwitchIds reservedNames nextSwitchId
-        (.expr (.call "calldatacopy" [destOffset, sourceOffset, sizeExpr])) =
+        (.exprStmt (.call "calldatacopy" [destOffset, sourceOffset, sizeExpr])) =
           .ok (native, finalSwitchId))
     (hMem : nativeStmt ∈ native)
     (hShape :
@@ -12371,7 +12371,7 @@ theorem NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_expr_returndat
     (hSize : Compiler.Proofs.YulGeneration.Backends.BridgedExpr sizeExpr)
     (hLower :
       Backends.lowerStmtGroupNativeWithSwitchIds reservedNames nextSwitchId
-        (.expr (.call "returndatacopy" [destOffset, sourceOffset, sizeExpr])) =
+        (.exprStmt (.call "returndatacopy" [destOffset, sourceOffset, sizeExpr])) =
           .ok (native, finalSwitchId))
     (hMem : nativeStmt ∈ native)
     (hShape :
@@ -12425,7 +12425,7 @@ theorem NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_expr_calldatac
     (hSize : Compiler.Proofs.YulGeneration.Backends.BridgedExpr sizeExpr)
     (hLower :
       Backends.lowerStmtGroupNativeWithSwitchIds reservedNames nextSwitchId
-        (.expr (.call "calldatacopy" [destOffset, sourceOffset, sizeExpr])) =
+        (.exprStmt (.call "calldatacopy" [destOffset, sourceOffset, sizeExpr])) =
           .ok (native, finalSwitchId))
     (hMem : nativeStmt ∈ native) :
     NativeStmtPreservesWord name expected nativeStmt
@@ -12465,7 +12465,7 @@ theorem NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_expr_returndat
     (hSize : Compiler.Proofs.YulGeneration.Backends.BridgedExpr sizeExpr)
     (hLower :
       Backends.lowerStmtGroupNativeWithSwitchIds reservedNames nextSwitchId
-        (.expr (.call "returndatacopy" [destOffset, sourceOffset, sizeExpr])) =
+        (.exprStmt (.call "returndatacopy" [destOffset, sourceOffset, sizeExpr])) =
           .ok (native, finalSwitchId))
     (hMem : nativeStmt ∈ native) :
     NativeStmtPreservesWord name expected nativeStmt
@@ -12508,72 +12508,72 @@ inductive NativePreservableStraightStmt : YulStmt → Prop
       (hArgs :
         ∀ arg, arg ∈ args →
           Compiler.Proofs.YulGeneration.Backends.BridgedExpr arg) :
-      NativePreservableStraightStmt (.expr (.call func args))
+      NativePreservableStraightStmt (.exprStmt (.call func args))
   | expr_sstore (slotExpr valExpr : YulExpr)
       (hSlot : Compiler.Proofs.YulGeneration.Backends.BridgedExpr slotExpr)
       (hVal : Compiler.Proofs.YulGeneration.Backends.BridgedExpr valExpr) :
-      NativePreservableStraightStmt (.expr (.call "sstore" [slotExpr, valExpr]))
+      NativePreservableStraightStmt (.exprStmt (.call "sstore" [slotExpr, valExpr]))
   | expr_tstore (slotExpr valExpr : YulExpr)
       (hSlot : Compiler.Proofs.YulGeneration.Backends.BridgedExpr slotExpr)
       (hVal : Compiler.Proofs.YulGeneration.Backends.BridgedExpr valExpr) :
-      NativePreservableStraightStmt (.expr (.call "tstore" [slotExpr, valExpr]))
+      NativePreservableStraightStmt (.exprStmt (.call "tstore" [slotExpr, valExpr]))
   | expr_mstore (offsetExpr valExpr : YulExpr)
       (hOffset : Compiler.Proofs.YulGeneration.Backends.BridgedExpr offsetExpr)
       (hVal : Compiler.Proofs.YulGeneration.Backends.BridgedExpr valExpr) :
-      NativePreservableStraightStmt (.expr (.call "mstore" [offsetExpr, valExpr]))
+      NativePreservableStraightStmt (.exprStmt (.call "mstore" [offsetExpr, valExpr]))
   | expr_mstore8 (offsetExpr valExpr : YulExpr)
       (hOffset : Compiler.Proofs.YulGeneration.Backends.BridgedExpr offsetExpr)
       (hVal : Compiler.Proofs.YulGeneration.Backends.BridgedExpr valExpr) :
-      NativePreservableStraightStmt (.expr (.call "mstore8" [offsetExpr, valExpr]))
+      NativePreservableStraightStmt (.exprStmt (.call "mstore8" [offsetExpr, valExpr]))
   | expr_stop :
-      NativePreservableStraightStmt (.expr (.call "stop" []))
+      NativePreservableStraightStmt (.exprStmt (.call "stop" []))
   | expr_return (offsetExpr sizeExpr : YulExpr)
       (hOffset : Compiler.Proofs.YulGeneration.Backends.BridgedExpr offsetExpr)
       (hSize : Compiler.Proofs.YulGeneration.Backends.BridgedExpr sizeExpr) :
       NativePreservableStraightStmt
-        (.expr (.call "return" [offsetExpr, sizeExpr]))
+        (.exprStmt (.call "return" [offsetExpr, sizeExpr]))
   | expr_revert (offsetExpr sizeExpr : YulExpr)
       (hOffset : Compiler.Proofs.YulGeneration.Backends.BridgedExpr offsetExpr)
       (hSize : Compiler.Proofs.YulGeneration.Backends.BridgedExpr sizeExpr) :
       NativePreservableStraightStmt
-        (.expr (.call "revert" [offsetExpr, sizeExpr]))
+        (.exprStmt (.call "revert" [offsetExpr, sizeExpr]))
   | expr_log0 (args : List YulExpr)
       (hArgs :
         ∀ arg, arg ∈ args →
           Compiler.Proofs.YulGeneration.Backends.BridgedExpr arg) :
-      NativePreservableStraightStmt (.expr (.call "log0" args))
+      NativePreservableStraightStmt (.exprStmt (.call "log0" args))
   | expr_log1 (args : List YulExpr)
       (hArgs :
         ∀ arg, arg ∈ args →
           Compiler.Proofs.YulGeneration.Backends.BridgedExpr arg) :
-      NativePreservableStraightStmt (.expr (.call "log1" args))
+      NativePreservableStraightStmt (.exprStmt (.call "log1" args))
   | expr_log2 (args : List YulExpr)
       (hArgs :
         ∀ arg, arg ∈ args →
           Compiler.Proofs.YulGeneration.Backends.BridgedExpr arg) :
-      NativePreservableStraightStmt (.expr (.call "log2" args))
+      NativePreservableStraightStmt (.exprStmt (.call "log2" args))
   | expr_log3 (args : List YulExpr)
       (hArgs :
         ∀ arg, arg ∈ args →
           Compiler.Proofs.YulGeneration.Backends.BridgedExpr arg) :
-      NativePreservableStraightStmt (.expr (.call "log3" args))
+      NativePreservableStraightStmt (.exprStmt (.call "log3" args))
   | expr_log4 (args : List YulExpr)
       (hArgs :
         ∀ arg, arg ∈ args →
           Compiler.Proofs.YulGeneration.Backends.BridgedExpr arg) :
-      NativePreservableStraightStmt (.expr (.call "log4" args))
+      NativePreservableStraightStmt (.exprStmt (.call "log4" args))
   | expr_calldatacopy (destOffset sourceOffset sizeExpr : YulExpr)
       (hDest : Compiler.Proofs.YulGeneration.Backends.BridgedExpr destOffset)
       (hSource : Compiler.Proofs.YulGeneration.Backends.BridgedExpr sourceOffset)
       (hSize : Compiler.Proofs.YulGeneration.Backends.BridgedExpr sizeExpr) :
       NativePreservableStraightStmt
-        (.expr (.call "calldatacopy" [destOffset, sourceOffset, sizeExpr]))
+        (.exprStmt (.call "calldatacopy" [destOffset, sourceOffset, sizeExpr]))
   | expr_returndatacopy (destOffset sourceOffset sizeExpr : YulExpr)
       (hDest : Compiler.Proofs.YulGeneration.Backends.BridgedExpr destOffset)
       (hSource : Compiler.Proofs.YulGeneration.Backends.BridgedExpr sourceOffset)
       (hSize : Compiler.Proofs.YulGeneration.Backends.BridgedExpr sizeExpr) :
       NativePreservableStraightStmt
-        (.expr (.call "returndatacopy" [destOffset, sourceOffset, sizeExpr]))
+        (.exprStmt (.call "returndatacopy" [destOffset, sourceOffset, sizeExpr]))
 
 /-- Mapping-free straight statements whose lowered native form preserves a
 marker word for the actual runtime contract.
@@ -12600,66 +12600,66 @@ inductive NativeMappingFreePreservableStraightStmt : YulStmt → Prop
       (hName : Compiler.Proofs.YulGeneration.Backends.allowedExprCallName func)
       (hNoMapping : func ≠ "mappingSlot")
       (hArgs : ∀ arg, arg ∈ args → NativeMappingFreeBridgedExpr arg) :
-      NativeMappingFreePreservableStraightStmt (.expr (.call func args))
+      NativeMappingFreePreservableStraightStmt (.exprStmt (.call func args))
   | expr_sstore (slotExpr valExpr : YulExpr)
       (hSlot : NativeMappingFreeBridgedExpr slotExpr)
       (hVal : NativeMappingFreeBridgedExpr valExpr) :
       NativeMappingFreePreservableStraightStmt
-        (.expr (.call "sstore" [slotExpr, valExpr]))
+        (.exprStmt (.call "sstore" [slotExpr, valExpr]))
   | expr_tstore (slotExpr valExpr : YulExpr)
       (hSlot : NativeMappingFreeBridgedExpr slotExpr)
       (hVal : NativeMappingFreeBridgedExpr valExpr) :
       NativeMappingFreePreservableStraightStmt
-        (.expr (.call "tstore" [slotExpr, valExpr]))
+        (.exprStmt (.call "tstore" [slotExpr, valExpr]))
   | expr_mstore (offsetExpr valExpr : YulExpr)
       (hOffset : NativeMappingFreeBridgedExpr offsetExpr)
       (hVal : NativeMappingFreeBridgedExpr valExpr) :
       NativeMappingFreePreservableStraightStmt
-        (.expr (.call "mstore" [offsetExpr, valExpr]))
+        (.exprStmt (.call "mstore" [offsetExpr, valExpr]))
   | expr_mstore8 (offsetExpr valExpr : YulExpr)
       (hOffset : NativeMappingFreeBridgedExpr offsetExpr)
       (hVal : NativeMappingFreeBridgedExpr valExpr) :
       NativeMappingFreePreservableStraightStmt
-        (.expr (.call "mstore8" [offsetExpr, valExpr]))
+        (.exprStmt (.call "mstore8" [offsetExpr, valExpr]))
   | expr_stop :
-      NativeMappingFreePreservableStraightStmt (.expr (.call "stop" []))
+      NativeMappingFreePreservableStraightStmt (.exprStmt (.call "stop" []))
   | expr_return (offsetExpr sizeExpr : YulExpr)
       (hOffset : NativeMappingFreeBridgedExpr offsetExpr)
       (hSize : NativeMappingFreeBridgedExpr sizeExpr) :
       NativeMappingFreePreservableStraightStmt
-        (.expr (.call "return" [offsetExpr, sizeExpr]))
+        (.exprStmt (.call "return" [offsetExpr, sizeExpr]))
   | expr_revert (offsetExpr sizeExpr : YulExpr)
       (hOffset : NativeMappingFreeBridgedExpr offsetExpr)
       (hSize : NativeMappingFreeBridgedExpr sizeExpr) :
       NativeMappingFreePreservableStraightStmt
-        (.expr (.call "revert" [offsetExpr, sizeExpr]))
+        (.exprStmt (.call "revert" [offsetExpr, sizeExpr]))
   | expr_log0 (args : List YulExpr)
       (hArgs : ∀ arg, arg ∈ args → NativeMappingFreeBridgedExpr arg) :
-      NativeMappingFreePreservableStraightStmt (.expr (.call "log0" args))
+      NativeMappingFreePreservableStraightStmt (.exprStmt (.call "log0" args))
   | expr_log1 (args : List YulExpr)
       (hArgs : ∀ arg, arg ∈ args → NativeMappingFreeBridgedExpr arg) :
-      NativeMappingFreePreservableStraightStmt (.expr (.call "log1" args))
+      NativeMappingFreePreservableStraightStmt (.exprStmt (.call "log1" args))
   | expr_log2 (args : List YulExpr)
       (hArgs : ∀ arg, arg ∈ args → NativeMappingFreeBridgedExpr arg) :
-      NativeMappingFreePreservableStraightStmt (.expr (.call "log2" args))
+      NativeMappingFreePreservableStraightStmt (.exprStmt (.call "log2" args))
   | expr_log3 (args : List YulExpr)
       (hArgs : ∀ arg, arg ∈ args → NativeMappingFreeBridgedExpr arg) :
-      NativeMappingFreePreservableStraightStmt (.expr (.call "log3" args))
+      NativeMappingFreePreservableStraightStmt (.exprStmt (.call "log3" args))
   | expr_log4 (args : List YulExpr)
       (hArgs : ∀ arg, arg ∈ args → NativeMappingFreeBridgedExpr arg) :
-      NativeMappingFreePreservableStraightStmt (.expr (.call "log4" args))
+      NativeMappingFreePreservableStraightStmt (.exprStmt (.call "log4" args))
   | expr_calldatacopy (destOffset sourceOffset sizeExpr : YulExpr)
       (hDest : NativeMappingFreeBridgedExpr destOffset)
       (hSource : NativeMappingFreeBridgedExpr sourceOffset)
       (hSize : NativeMappingFreeBridgedExpr sizeExpr) :
       NativeMappingFreePreservableStraightStmt
-        (.expr (.call "calldatacopy" [destOffset, sourceOffset, sizeExpr]))
+        (.exprStmt (.call "calldatacopy" [destOffset, sourceOffset, sizeExpr]))
   | expr_returndatacopy (destOffset sourceOffset sizeExpr : YulExpr)
       (hDest : NativeMappingFreeBridgedExpr destOffset)
       (hSource : NativeMappingFreeBridgedExpr sourceOffset)
       (hSize : NativeMappingFreeBridgedExpr sizeExpr) :
       NativeMappingFreePreservableStraightStmt
-        (.expr (.call "returndatacopy" [destOffset, sourceOffset, sizeExpr]))
+        (.exprStmt (.call "returndatacopy" [destOffset, sourceOffset, sizeExpr]))
 
 def NativeMappingFreePreservableStraightStmts (stmts : List YulStmt) : Prop :=
   ∀ stmt, stmt ∈ stmts → NativeMappingFreePreservableStraightStmt stmt
@@ -12718,28 +12718,28 @@ def NativeMappingFreeSideConditionForBridgedStraightStmt :
       targets ≠ [] ∧ NativeMappingFreeBridgedExpr value
   | .assign _ value =>
       NativeMappingFreeSideConditionForBridgedExpr value
-  | .expr (.call "sstore" [.call "mappingSlot" _, _]) => False
-  | .expr (.call "sstore" [.lit _, valExpr]) =>
+  | .exprStmt (.call "sstore" [.call "mappingSlot" _, _]) => False
+  | .exprStmt (.call "sstore" [.lit _, valExpr]) =>
       NativeMappingFreeSideConditionForBridgedExpr valExpr
-  | .expr (.call "sstore" [.ident _, valExpr]) =>
+  | .exprStmt (.call "sstore" [.ident _, valExpr]) =>
       NativeMappingFreeSideConditionForBridgedExpr valExpr
-  | .expr (.call "sstore" [.call "add" [leftExpr, rightExpr], valExpr]) =>
+  | .exprStmt (.call "sstore" [.call "add" [leftExpr, rightExpr], valExpr]) =>
       NativeMappingFreeSideConditionForBridgedExpr leftExpr ∧
         NativeMappingFreeSideConditionForBridgedExpr rightExpr ∧
         NativeMappingFreeSideConditionForBridgedExpr valExpr
-  | .expr (.call "mstore" [offsetExpr, valExpr]) =>
+  | .exprStmt (.call "mstore" [offsetExpr, valExpr]) =>
       NativeMappingFreeSideConditionForBridgedExpr offsetExpr ∧
         NativeMappingFreeSideConditionForBridgedExpr valExpr
-  | .expr (.call "tstore" [offsetExpr, valExpr]) =>
+  | .exprStmt (.call "tstore" [offsetExpr, valExpr]) =>
       NativeMappingFreeSideConditionForBridgedExpr offsetExpr ∧
         NativeMappingFreeSideConditionForBridgedExpr valExpr
-  | .expr (.call "return" [offsetExpr, sizeExpr]) =>
+  | .exprStmt (.call "return" [offsetExpr, sizeExpr]) =>
       NativeMappingFreeSideConditionForBridgedExpr offsetExpr ∧
         NativeMappingFreeSideConditionForBridgedExpr sizeExpr
-  | .expr (.call "revert" [offsetExpr, sizeExpr]) =>
+  | .exprStmt (.call "revert" [offsetExpr, sizeExpr]) =>
       NativeMappingFreeBridgedExpr offsetExpr ∧
         NativeMappingFreeBridgedExpr sizeExpr
-  | .expr (.call func args) =>
+  | .exprStmt (.call func args) =>
       Compiler.Proofs.YulGeneration.isYulLogName func = true →
         ∀ arg, arg ∈ args → NativeMappingFreeSideConditionForBridgedExpr arg
   | .«leave» => False
@@ -12913,7 +12913,7 @@ def NativePreservableSideConditionForBridgedStraightStmt :
   | .letMany targets value =>
       targets ≠ [] ∧
         Compiler.Proofs.YulGeneration.Backends.BridgedExpr value
-  | .expr (.call "revert" [offsetExpr, sizeExpr]) =>
+  | .exprStmt (.call "revert" [offsetExpr, sizeExpr]) =>
       Compiler.Proofs.YulGeneration.Backends.BridgedExpr offsetExpr ∧
         Compiler.Proofs.YulGeneration.Backends.BridgedExpr sizeExpr
   | .«leave» => False

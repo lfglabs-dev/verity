@@ -74,9 +74,11 @@ theorem compileGuardedFunctionSpec_eq_of_none
     (sel : Nat) (fnSpec : FunctionSpec)
     (hnone : fnSpec.nonReentrantLock = none) :
     compileGuardedFunctionSpec fields events errors adtTypes internalFunctions sel fnSpec =
-      compileFunctionSpec fields events errors adtTypes sel fnSpec internalFunctions := by
+      compileFunctionSpec fields events errors adtTypes sel fnSpec
+        (targetFork := .cancun) internalFunctions := by
   unfold compileGuardedFunctionSpec
-  cases hcomp : compileFunctionSpec fields events errors adtTypes sel fnSpec internalFunctions with
+  cases hcomp : compileFunctionSpec fields events errors adtTypes sel fnSpec
+      (targetFork := .cancun) internalFunctions with
   | error err => simp [bind, Except.bind]
   | ok irFn =>
       simp [bind, Except.bind,
@@ -90,7 +92,8 @@ theorem guardedFunctionsMapM_eq
       (entries.mapM fun entry =>
         compileGuardedFunctionSpec fields events errors adtTypes internalFunctions entry.2 entry.1) =
       entries.mapM fun entry =>
-        compileFunctionSpec fields events errors adtTypes entry.2 entry.1 internalFunctions
+        compileFunctionSpec fields events errors adtTypes entry.2 entry.1
+          (targetFork := .cancun) internalFunctions
   | [], _ => rfl
   | e :: rest, hnolock => by
       have hhead : e.1.nonReentrantLock = none := hnolock e (by simp)
@@ -185,6 +188,7 @@ private theorem compileValidatedCore_ok_yields_compiled_functions
         (fun x => compileFunctionSpec model.fields [] [] [] x.2 x.1) with _ | irFns
   · simp [hmap] at hcore
   · simp [hmap] at hcore
+    simp [hSupported.surface.noTemplateIntrinsics] at hcore
     rcases hctor :
         compileConstructor model.fields [] [] [] model.constructor with _ | deployStmts
     · simp [hctor] at hcore
@@ -251,8 +255,8 @@ private theorem compileValidatedCore_ok_yields_internalFunctions_nil
   · simp [hmap] at hcore
   · rcases hctor :
         compileConstructor model.fields model.events model.errors [] model.constructor with _ | deployStmts
-    · simp [hmap, hctor, pure, Except.pure] at hcore
-    · simp [hmap, hctor, pure, Except.pure] at hcore
+    · simp [hmap, hctor, hSupported.surface.noTemplateIntrinsics, pure, Except.pure] at hcore
+    · simp [hmap, hctor, hSupported.surface.noTemplateIntrinsics, pure, Except.pure] at hcore
       cases hcore
       rfl
 
@@ -288,6 +292,7 @@ private theorem compileValidatedCore_ok_yields_deploy_compileConstructor
         (fun x => compileFunctionSpec model.fields [] [] [] x.2 x.1) with _ | irFns
   · simp [hmap] at hcore
   · simp [hmap] at hcore
+    simp [hSupported.surface.noTemplateIntrinsics] at hcore
     rcases hctor :
         compileConstructor model.fields [] [] [] model.constructor with _ | deployStmts
     · simp [hctor] at hcore
@@ -329,8 +334,8 @@ private theorem compileValidatedCore_ok_yields_noFallbackEntrypoint
   · rcases hctor :
         compileConstructor (applySlotAliasRanges model.fields model.slotAliasRanges)
           model.events model.errors model.adtTypes model.constructor with _ | deployStmts
-    · simp [hmap, hctor, Pure.pure, Except.pure] at hcore
-    · simp [hmap, hctor, Pure.pure, Except.pure] at hcore
+    · simp [hmap, hctor, hSupported.surface.noTemplateIntrinsics, Pure.pure, Except.pure] at hcore
+    · simp [hmap, hctor, hSupported.surface.noTemplateIntrinsics, Pure.pure, Except.pure] at hcore
       cases hcore
       rfl
 
@@ -367,8 +372,8 @@ private theorem compileValidatedCore_ok_yields_noReceiveEntrypoint
   · rcases hctor :
         compileConstructor (applySlotAliasRanges model.fields model.slotAliasRanges)
           model.events model.errors model.adtTypes model.constructor with _ | deployStmts
-    · simp [hmap, hctor, Pure.pure, Except.pure] at hcore
-    · simp [hmap, hctor, Pure.pure, Except.pure] at hcore
+    · simp [hmap, hctor, hSupported.surface.noTemplateIntrinsics, Pure.pure, Except.pure] at hcore
+    · simp [hmap, hctor, hSupported.surface.noTemplateIntrinsics, Pure.pure, Except.pure] at hcore
       cases hcore
       rfl
 
@@ -425,6 +430,7 @@ private theorem compileValidatedCore_ok_yields_compiled_functions_with_scalar_ev
       (fun x => compileFunctionSpec model.fields model.events [] [] x.2 x.1) with _ | irFns
   · simp [hmap] at hcore
   · simp [hmap] at hcore
+    simp [hSupported.surface.noTemplateIntrinsics] at hcore
     rcases hctor :
         compileConstructor model.fields model.events [] [] model.constructor with _ | deployStmts
     · simp [hctor] at hcore

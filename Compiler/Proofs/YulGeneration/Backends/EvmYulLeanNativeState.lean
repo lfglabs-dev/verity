@@ -72,7 +72,7 @@ mutual
     | .let_ _ value => yulExprLiteralStorageReadSlots value
     | .letMany _ value => yulExprLiteralStorageReadSlots value
     | .assign _ value => yulExprLiteralStorageReadSlots value
-    | .expr e => yulExprLiteralStorageReadSlots e
+    | .exprStmt e => yulExprLiteralStorageReadSlots e
     | .if_ cond body =>
         yulExprLiteralStorageReadSlots cond ++ yulStmtsLiteralStorageReadSlots body
     | .for_ init cond post body =>
@@ -132,7 +132,7 @@ mutual
     | .let_ _ value => yulExprUsesBuiltinExceptFunctions builtin functionNames value
     | .letMany _ value => yulExprUsesBuiltinExceptFunctions builtin functionNames value
     | .assign _ value => yulExprUsesBuiltinExceptFunctions builtin functionNames value
-    | .expr e => yulExprUsesBuiltinExceptFunctions builtin functionNames e
+    | .exprStmt e => yulExprUsesBuiltinExceptFunctions builtin functionNames e
     | .if_ cond body =>
         yulExprUsesBuiltinExceptFunctions builtin functionNames cond ||
           yulStmtsUseBuiltinExceptFunctions builtin functionNames body
@@ -164,7 +164,7 @@ mutual
     | .let_ _ value => yulExprCalledFunctions value
     | .letMany _ value => yulExprCalledFunctions value
     | .assign _ value => yulExprCalledFunctions value
-    | .expr e => yulExprCalledFunctions e
+    | .exprStmt e => yulExprCalledFunctions e
     | .if_ cond body => yulExprCalledFunctions cond ++ yulStmtsCalledFunctions body
     | .for_ init cond post body =>
         yulStmtsCalledFunctions init ++
@@ -223,7 +223,7 @@ mutual
           | some stmts => yulStmtsContainFuncDef stmts
           | none => false
     | .block stmts => yulStmtsContainFuncDef stmts
-    | .comment _ | .let_ _ _ | .letMany _ _ | .assign _ _ | .expr _ | .leave => false
+    | .comment _ | .let_ _ _ | .letMany _ _ | .assign _ _ | .exprStmt _ | .leave => false
 
   def yulStmtsContainFuncDef : List YulStmt → Bool
     | [] => false
@@ -286,7 +286,7 @@ theorem lowerStmtGroupNativeWithSwitchIds_ok_of_yulStmtContainsFuncDef_false
   | let_ name value => simp
   | letMany names value => simp
   | assign name value => simp
-  | expr e => simp
+  | exprStmt e => simp
   | «leave» => simp
   | if_ cond body =>
       have hBody : yulStmtsContainFuncDef body = false := by
@@ -1232,7 +1232,7 @@ theorem lowerStmtsNativeWithSwitchIds_switchCaseBody_payable_eq
       (Yul.YulExpr.call "lt"
         [Yul.YulExpr.call "calldatasize" [],
          Yul.YulExpr.lit (4 + fn.params.length * 32)])
-      [YulStmt.expr (Yul.YulExpr.call "revert" [Yul.YulExpr.lit 0,
+      [YulStmt.exprStmt (Yul.YulExpr.call "revert" [Yul.YulExpr.lit 0,
         Yul.YulExpr.lit 0])]
       fn.body afterComment next hAfterComment with
     ⟨guardBody, bodyStart, bodyNative, hAfterCommentShape, _hGuard,
@@ -1284,7 +1284,7 @@ theorem lowerStmtsNativeWithSwitchIds_switchCaseBody_nonpayable_eq
   rcases lowerStmtsNativeWithSwitchIds_if_head_eq
       reservedNames n0
       (Yul.YulExpr.call "callvalue" [])
-      [YulStmt.expr (Yul.YulExpr.call "revert" [Yul.YulExpr.lit 0,
+      [YulStmt.exprStmt (Yul.YulExpr.call "revert" [Yul.YulExpr.lit 0,
         Yul.YulExpr.lit 0])]
       (Compiler.CodegenCommon.calldatasizeGuard fn.params.length :: fn.body)
       afterComment next hAfterComment with
@@ -1295,7 +1295,7 @@ theorem lowerStmtsNativeWithSwitchIds_switchCaseBody_nonpayable_eq
       (Yul.YulExpr.call "lt"
         [Yul.YulExpr.call "calldatasize" [],
          Yul.YulExpr.lit (4 + fn.params.length * 32)])
-      [YulStmt.expr (Yul.YulExpr.call "revert" [Yul.YulExpr.lit 0,
+      [YulStmt.exprStmt (Yul.YulExpr.call "revert" [Yul.YulExpr.lit 0,
         Yul.YulExpr.lit 0])]
       fn.body afterCallvalue next hAfterCallvalue with
     ⟨calldataGuardBody, bodyStart, bodyNative, hAfterCallvalueShape,
@@ -1409,7 +1409,7 @@ without advancing the native switch counter. -/
 theorem lowerStmtsNativeWithSwitchIds_revert_zero_zero
     (reservedNames : List String) (n : Nat) :
     Backends.lowerStmtsNativeWithSwitchIds reservedNames n
-        [YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])] =
+        [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])] =
       .ok ([nativeRevertZeroZeroStmt], n) := by
   simp [Backends.lowerStmtsNativeWithSwitchIds, nativeRevertZeroZeroStmt,
     Backends.lowerExprNative, Backends.lookupRuntimePrimOp]
@@ -1456,7 +1456,7 @@ theorem lowerStmtsNativeWithSwitchIds_switchCaseBody_payable_revert_eq
       (Yul.YulExpr.call "lt"
         [Yul.YulExpr.call "calldatasize" [],
          Yul.YulExpr.lit (4 + fn.params.length * 32)])
-      [YulStmt.expr (Yul.YulExpr.call "revert" [Yul.YulExpr.lit 0,
+      [YulStmt.exprStmt (Yul.YulExpr.call "revert" [Yul.YulExpr.lit 0,
         Yul.YulExpr.lit 0])]
       fn.body afterComment next hAfterComment with
     ⟨guardBody, bodyStart, bodyNative, hAfterCommentShape, hGuard,
@@ -1534,7 +1534,7 @@ theorem lowerStmtsNativeWithSwitchIds_switchCaseBody_nonpayable_revert_eq
   rcases lowerStmtsNativeWithSwitchIds_if_head_eq
       reservedNames n0
       (Yul.YulExpr.call "callvalue" [])
-      [YulStmt.expr (Yul.YulExpr.call "revert" [Yul.YulExpr.lit 0,
+      [YulStmt.exprStmt (Yul.YulExpr.call "revert" [Yul.YulExpr.lit 0,
         Yul.YulExpr.lit 0])]
       (Compiler.CodegenCommon.calldatasizeGuard fn.params.length :: fn.body)
       afterComment next hAfterComment with
@@ -1545,7 +1545,7 @@ theorem lowerStmtsNativeWithSwitchIds_switchCaseBody_nonpayable_revert_eq
       (Yul.YulExpr.call "lt"
         [Yul.YulExpr.call "calldatasize" [],
          Yul.YulExpr.lit (4 + fn.params.length * 32)])
-      [YulStmt.expr (Yul.YulExpr.call "revert" [Yul.YulExpr.lit 0,
+      [YulStmt.exprStmt (Yul.YulExpr.call "revert" [Yul.YulExpr.lit 0,
         Yul.YulExpr.lit 0])]
       fn.body afterCallvalue next hAfterCallvalue with
     ⟨calldataGuardBody, bodyStart, bodyNative, hAfterCallvalueShape,
@@ -1726,7 +1726,7 @@ theorem lowerStmtsNativeWithSwitchIds_singleton_switch_revert_default_eq
     (inner : List EvmYul.Yul.Ast.Stmt) (next : Nat)
     (h : Backends.lowerStmtsNativeWithSwitchIds reservedNames n0
             [YulStmt.switch expr cases
-              (some [YulStmt.expr (YulExpr.call "revert"
+              (some [YulStmt.exprStmt (YulExpr.call "revert"
                 [YulExpr.lit 0, YulExpr.lit 0])])] = .ok (inner, next)) :
     ∃ (cases' : List (Nat × List EvmYul.Yul.Ast.Stmt)),
       inner = [Backends.lowerNativeSwitchBlock expr
@@ -1758,7 +1758,7 @@ theorem lowerStmtsNativeWithSwitchIds_singleton_switch_revert_default_eq_sourceL
     (inner : List EvmYul.Yul.Ast.Stmt) (next : Nat)
     (h : Backends.lowerStmtsNativeWithSwitchIds reservedNames n0
             [YulStmt.switch expr cases
-              (some [YulStmt.expr (YulExpr.call "revert"
+              (some [YulStmt.exprStmt (YulExpr.call "revert"
                 [YulExpr.lit 0, YulExpr.lit 0])])] = .ok (inner, next)) :
     ∃ (cases' : List (Nat × List EvmYul.Yul.Ast.Stmt)) (midN : Nat),
       inner = [Backends.lowerNativeSwitchBlock expr
@@ -2218,9 +2218,9 @@ theorem lowerFunctionDefinitionNativeWithReserved_mappingSlotFuncAt_zero_body
     (globalReservedNames : List String) :
     Backends.lowerFunctionDefinitionNativeWithReserved
       globalReservedNames ["baseSlot", "key"] ["slot"]
-      [YulStmt.expr
+      [YulStmt.exprStmt
         (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.ident "key"]),
-       YulStmt.expr
+       YulStmt.exprStmt
         (YulExpr.call "mstore"
           [YulExpr.lit (0 + 32), YulExpr.ident "baseSlot"]),
        YulStmt.assign "slot"
@@ -2279,8 +2279,8 @@ theorem lowerRuntimeContractNative_emitYul_mapping_noInternals_noFallback_noRece
         Backends.lowerStmtsNativeWithSwitchIds
         (Backends.yulStmtsIdentifierNames
           [YulStmt.funcDef "mappingSlot" ["baseSlot", "key"] ["slot"]
-              [YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.ident "key"]),
-                YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 32, YulExpr.ident "baseSlot"]),
+              [YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.ident "key"]),
+                YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 32, YulExpr.ident "baseSlot"]),
                 YulStmt.assign "slot" (YulExpr.call "keccak256" [YulExpr.lit 0, YulExpr.lit 64])],
             Compiler.CodegenCommon.initFreeMemoryPointer,
             Compiler.CodegenCommon.buildSwitch contract.functions none none])
