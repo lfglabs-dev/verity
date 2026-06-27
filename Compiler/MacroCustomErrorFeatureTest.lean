@@ -104,21 +104,13 @@ def literalPanicExecutableReverts : Bool :=
 example : literalPanicExecutableReverts = true := by native_decide
 
 def panicYulPayloadObservable : Bool :=
-  let contract : CompilationModel :=
-    { name := "PanicSurface"
-      fields := []
-      functions := [
-        { name := "boom"
-          params := []
-          returnType := none
-          body := [Stmt.panicCode (Expr.literal 0x11)] }
-      ] }
-  match compileContract contract with
-  | Except.ok ir =>
-      let yul := Compiler.Yul.prettyStmts (ir.functions.find? (·.name == "boom") |>.map (·.body) |>.getD [])
-      yul.contains "mstore(0, shl(224, 0x4e487b71))" &&
-        yul.contains "mstore(4, 17)" &&
-        yul.contains "revert(0, 36)"
+  match compileStmt (fields := []) (stmt := Stmt.panicCode (Expr.literal 0x11)) with
+  | Except.ok stmts =>
+      let yul := "\n".intercalate (Compiler.Yul.ppStmts 0 stmts)
+      let containsYul (needle : String) : Bool := (yul.splitOn needle).length > 1
+      containsYul "mstore(0, shl(224, 0x4e487b71))" &&
+        containsYul "mstore(4, 17)" &&
+        containsYul "revert(0, 36)"
   | Except.error _ => false
 
 example : panicYulPayloadObservable = true := by native_decide
