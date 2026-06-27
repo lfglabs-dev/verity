@@ -536,6 +536,7 @@ theorem execStmt_eq (fields : List Field) :
   | _, .setStorageArrayElement f i v => by denote_stmt_arm
   | _, .mstore o v | _, .tstore o v => by denote_stmt_arm
   | _, .require c m => by denote_stmt_arm
+  | _, .panicCode code => by denote_stmt_arm
   | _, .return v => by denote_stmt_arm
   | _, .stop => rfl
   | _, .emit n args => by denote_stmt_arm
