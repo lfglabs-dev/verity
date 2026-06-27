@@ -617,7 +617,7 @@ theorem stmtListScopeCore_prefix_of_compileStmtList_ok_of_stmtListTouchesUnsuppo
       | setMappingChain _ _ _
       | setStructMember _ _ _ _ | setStructMember2 _ _ _ _ _
       | storageArrayPush _ _ | storageArrayPop _ | setStorageArrayElement _ _ _
-      | requireError _ _ _ | revertError _ _ | returnValues _ | returnArray _
+      | requireError _ _ _ | revertError _ _ | panicCode _ | returnValues _ | returnArray _
       | returnBytes _ | returnStorageWords _ | returnCodeData _ | calldatacopy _ _ _
       | returndataCopy _ _ _ | revertReturndata
       | emit _ _ | internalCall _ _ | internalCallAssign _ _ _
