@@ -18,13 +18,13 @@ This document is the long-form reference for script responsibilities.
 
 ## Artifacts and documentation consistency
 
-- `docsync.py`: schema-driven doc-sync engine (P7 consolidation). One declarative registry of artifact/doc bindings; run `python3 scripts/docsync.py --check [--only <entry>]` or `--list`. Migrated entries: `low_level_call_boundary`, `linear_memory_boundary`, `axiomatized_primitive_boundary`, `struct_mapping_surface`, `layer2_boundary`, `interpreter_feature_boundary_catalog`. The legacy `check_*_sync.py` paths below remain as thin shims.
+- `docsync.py`: schema-driven doc-sync engine (P7 consolidation). One declarative registry of artifact/doc bindings; run `python3 scripts/docsync.py --check [--only <entry>]` or `--list`. Migrated entries: `low_level_call_boundary`, `linear_memory_boundary`, `axiomatized_primitive_boundary`, `struct_mapping_surface`, `layer2_boundary`, `layer2_boundary_catalog`, `interpreter_feature_boundary_catalog`. The legacy `check_*_sync.py` paths below remain as thin shims.
 - `generate_verification_status.py`: refresh/check `artifacts/verification_status.json`.
 - `generate_layer2_boundary_catalog.py`: refresh/check `artifacts/layer2_boundary_catalog.json`.
 - `check_feature_ownership.py`: validate `artifacts/feature_ownership.json`, the major feature-surface ownership and proof-boundary registry.
 - `check_verification_status_doc.py`: keep `docs/VERIFICATION_STATUS.md` aligned with the artifact-backed live totals.
 - `check_layer2_boundary_sync.py`: shim for `docsync.py --only layer2_boundary` (Layer 2 proof-boundary claims across README/trust/docs/docs-site surfaces).
-- `check_layer2_boundary_catalog_sync.py`: keep Layer 2 docs aligned with the machine-readable boundary catalog.
+- `check_layer2_boundary_catalog_sync.py`: shim for `docsync.py --only layer2_boundary_catalog` (Layer 2 docs aligned with the machine-readable boundary catalog).
 - `verification_metrics.py`: shared metric collection and strict artifact validation.
 - `refresh_verification_artifacts.sh`: regenerate and validate the verification artifact.
 

@@ -637,6 +637,8 @@ SPEC = {'check_only_paths': ['.github/workflows/**',
                                       'python3 scripts/docsync.py --check --only '
                                       'struct_mapping_surface',
                                       'python3 scripts/docsync.py --check --only layer2_boundary',
+                                      'python3 scripts/docsync.py --check --only '
+                                      'layer2_boundary_catalog',
                                       'python3 scripts/check_issue_templates.py',
                                       'python3 scripts/check_docs_workflow_sync.py',
                                       'python3 scripts/check_solc_pin.py',

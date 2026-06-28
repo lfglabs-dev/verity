@@ -285,6 +285,138 @@ class CategoryNoteEntry:
         return 0
 
 
+@dataclass(frozen=True)
+class Layer2BoundaryCatalogEntry:
+    """Validate docs against the machine-readable Layer 2 boundary catalog."""
+
+    name: str
+    catalog_rel: str
+    targets: dict[str, str]
+    pass_message: str
+
+    def _load_catalog(self, root: Path) -> dict:
+        catalog_path = _rel(root, self.catalog_rel)
+        if not catalog_path.exists():
+            raise DocSyncError(f"Missing: {self.catalog_rel}")
+        try:
+            catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+            self._validate_catalog(catalog)
+            return catalog
+        except (json.JSONDecodeError, ValueError) as exc:
+            raise DocSyncError(f"{self.catalog_rel}: {exc}") from exc
+
+    def _validate_catalog(self, catalog: dict) -> None:
+        target = catalog.get("theorem_target", {})
+        if target.get("intended_claim") != "proof_complete_macro_lowered_verity_contract_image":
+            raise ValueError("unexpected theorem target claim in Layer 2 boundary catalog")
+        if target.get("excludes_arbitrary_lean_compilation_models") is not True:
+            raise ValueError("Layer 2 boundary catalog must exclude arbitrary Lean-produced models")
+
+        helper = catalog.get("supported_spec_split", {}).get("helper_boundary", {})
+        if helper.get("current_fail_closed_gate") != "SupportedBodyInterface.stmtList":
+            raise ValueError("Layer 2 boundary catalog is missing the helper fail-closed gate")
+        if not helper.get("blocking_seams"):
+            raise ValueError("Layer 2 boundary catalog is missing helper blocking seams")
+
+    @staticmethod
+    def _lean_name(ref: str) -> str:
+        return ref.rsplit(".", 1)[-1]
+
+    def _catalog_surface_snippets(self, catalog: dict) -> list[str]:
+        helper = catalog["supported_spec_split"]["helper_boundary"]
+        compat = helper["compiled_target_compatibility_subset"]
+        source_helper = helper["source_helper_goal_surface"]
+        compiled_target = helper["compiled_target_proof_surface"]
+
+        refs = [
+            compat["goal_surface"],
+            compat["dispatch_goal_surface"],
+            compat["goal_composition_surface"],
+            compat["goal_decomposition_surface"],
+            compat["interface_builder_surface"],
+            compat["stmt_subgoal_surface"],
+            compat["stmt_subgoal_closed_surface"],
+            compat["expr_stmt_dedicated_builtin_classifier"],
+            source_helper["direct_body_goal"],
+            source_helper["direct_body_goal_helper_ir"],
+            catalog["current_theorem"]["helper_ir_goal_ready_variant"],
+            catalog["current_theorem"]["helper_ir_closed_variant"],
+            compiled_target["source"],
+        ]
+        return [f"`{self._lean_name(ref)}`" for ref in refs]
+
+    def _common_boundary_snippets(self, catalog: dict) -> list[str]:
+        helper = catalog["supported_spec_split"]["helper_boundary"]
+        return [
+            "`artifacts/layer2_boundary_catalog.json`",
+            f"`{helper['current_fail_closed_gate']}`",
+            "total fuel-indexed helper-aware IR semantics",
+            "direct helper-free lemmas for `stop`, `mstore`, `revert`, `return`, and mapping-slot `sstore`",
+            "helper-free conservative-extension goal is now closed",
+            "[#1638]",
+            *self._catalog_surface_snippets(catalog),
+        ]
+
+    def expected_snippets(self, catalog: dict) -> dict[str, list[str]]:
+        helper = catalog["supported_spec_split"]["helper_boundary"]
+        theorem_target = catalog["theorem_target"]
+        assert theorem_target["intended_claim"] == "proof_complete_macro_lowered_verity_contract_image"
+        assert helper["current_fail_closed_gate"] == "SupportedBodyInterface.stmtList"
+        common = self._common_boundary_snippets(catalog)
+        return {
+            "ROADMAP": [
+                *common,
+                "macro-lowered `verity_contract` image",
+                "`SupportedStmtList.helperSurfaceClosed`",
+                "`execIRFunctionWithInternals` / `interpretIRWithInternals`",
+                "conservative extension of `interpretIR`",
+            ],
+            "VERIFICATION_STATUS": [
+                *common,
+                "macro-lowered image of `verity_contract`",
+                "`SupportedBodyInterface.stmtList` gate",
+                "helper-aware body theorem does not yet consume helper-summary soundness/rank evidence",
+                "legacy-compatible external-body Yul subset",
+            ],
+            "COMPILER_PROOFS_README": [
+                *common,
+                "`SupportedSpec` split",
+                "`calls.helpers`",
+                "summary-soundness evidence",
+                "legacy-compatible external-body Yul subset",
+            ],
+        }
+
+    def check(self, root: Path) -> int:
+        try:
+            catalog = self._load_catalog(root)
+        except DocSyncError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+
+        errors: list[str] = []
+        expected = self.expected_snippets(catalog)
+        for label, rel_path in self.targets.items():
+            path = _rel(root, rel_path)
+            if not path.exists():
+                errors.append(f"Missing: {rel_path}")
+                continue
+            normalized = normalize_ws(path.read_text(encoding="utf-8"))
+            for snippet in expected[label]:
+                if normalize_ws(snippet) not in normalized:
+                    errors.append(
+                        f"{rel_path} is out of sync with the Layer 2 boundary catalog: missing `{snippet}`"
+                    )
+
+        if errors:
+            for error in errors:
+                print(error, file=sys.stderr)
+            return 1
+
+        print(self.pass_message)
+        return 0
+
+
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
@@ -616,6 +748,20 @@ INTERPRETER_FEATURE_BOUNDARY_CATALOG = CategoryNoteEntry(
 )
 
 
+LAYER2_BOUNDARY_CATALOG = Layer2BoundaryCatalogEntry(
+    name="layer2_boundary_catalog",
+    catalog_rel="artifacts/layer2_boundary_catalog.json",
+    targets={
+        "ROADMAP": "docs/ROADMAP.md",
+        "VERIFICATION_STATUS": "docs/VERIFICATION_STATUS.md",
+        "COMPILER_PROOFS_README": "Compiler/Proofs/README.md",
+    },
+    pass_message=(
+        "layer2 boundary catalog sync passed: docs reference the machine-readable Layer 2 boundary"
+    ),
+)
+
+
 ENTRIES = {
     entry.name: entry
     for entry in (
@@ -624,6 +770,7 @@ ENTRIES = {
         AXIOMATIZED_PRIMITIVE_BOUNDARY,
         STRUCT_MAPPING_SURFACE,
         LAYER2_BOUNDARY,
+        LAYER2_BOUNDARY_CATALOG,
         INTERPRETER_FEATURE_BOUNDARY_CATALOG,
     )
 }
