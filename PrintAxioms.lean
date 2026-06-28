@@ -1078,6 +1078,9 @@ end Verity.AxiomAudit
   Compiler.Proofs.EndToEnd.supportedFunctionSupportedStmtList_of_supported
   -- Compiler.Proofs.EndToEnd.stmtListTouchesUnsupportedStateSurface_append  -- private
   -- Compiler.Proofs.EndToEnd.stmtListTouchesUnsupportedStateSurfaceExceptMappingWrites_append  -- private
+  -- Compiler.Proofs.EndToEnd.stmtTouchesUnsupportedStateSurface_eq_false_of_mem  -- private
+  -- Compiler.Proofs.EndToEnd.stmtMappingWriteSlotSafe_of_stateSurfaceClosed  -- private
+  -- Compiler.Proofs.EndToEnd.stmtMappingWriteSlotSafe_of_supported_stateClosed  -- private
   -- Compiler.Proofs.EndToEnd.stmtListTouchesUnsupportedEffectSurface_append  -- private
   -- Compiler.Proofs.EndToEnd.stmtListTouchesUnsupportedCallSurface_append  -- private
   Compiler.Proofs.EndToEnd.supportedStmtList_safe_of_state_effect_closed
@@ -5822,4 +5825,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5452 theorems/lemmas (3755 public, 1697 private, 0 sorry'd)
+-- Total: 5455 theorems/lemmas (3755 public, 1700 private, 0 sorry'd)

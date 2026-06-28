@@ -5212,6 +5212,43 @@ private theorem stmtListTouchesUnsupportedStateSurfaceExceptMappingWrites_append
       simp [stmtListTouchesUnsupportedStateSurfaceExceptMappingWrites, ih,
         Bool.or_assoc]
 
+private theorem stmtTouchesUnsupportedStateSurface_eq_false_of_mem
+    {stmt : CompilationModel.Stmt} {stmts : List CompilationModel.Stmt}
+    (hState : stmtListTouchesUnsupportedStateSurface stmts = false)
+    (hmem : stmt ∈ stmts) :
+    stmtTouchesUnsupportedStateSurface stmt = false := by
+  induction stmts with
+  | nil =>
+      simp at hmem
+  | cons head rest ih =>
+      simp only [stmtListTouchesUnsupportedStateSurface, Bool.or_eq_false_iff] at hState
+      simp only [List.mem_cons] at hmem
+      rcases hmem with rfl | hmem
+      · exact hState.1
+      · exact ih hState.2 hmem
+
+private theorem stmtMappingWriteSlotSafe_of_stateSurfaceClosed
+    {fields : List CompilationModel.Field} {stmt : CompilationModel.Stmt}
+    (hState : stmtTouchesUnsupportedStateSurface stmt = false) :
+    StmtMappingWriteSlotSafe fields stmt := by
+  cases stmt <;>
+    simp [StmtMappingWriteSlotSafe, stmtTouchesUnsupportedStateSurface] at hState ⊢
+
+private theorem stmtMappingWriteSlotSafe_of_supported_stateClosed
+    {spec : CompilationModel.CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpec spec selectors) :
+    ∀ entry, entry ∈ SourceSemantics.selectorFunctionPairs spec selectors →
+      ∀ stmt, stmt ∈ entry.1.body →
+        StmtMappingWriteSlotSafe spec.fields stmt := by
+  intro entry hentry stmt hmem
+  have hfn : entry.1 ∈ selectorDispatchedFunctions spec := by
+    simpa [SourceSemantics.selectorFunctionPairs] using
+      (List.of_mem_zip hentry).1
+  exact stmtMappingWriteSlotSafe_of_stateSurfaceClosed
+    (stmtTouchesUnsupportedStateSurface_eq_false_of_mem
+      (hSupported.supportedFunctionOfSelectorDispatched hfn).body.state.surfaceClosed
+      hmem)
+
 private theorem stmtListTouchesUnsupportedEffectSurface_append
     (pfx sfx : List CompilationModel.Stmt) :
     stmtListTouchesUnsupportedEffectSurface (pfx ++ sfx) =
@@ -6879,8 +6916,9 @@ theorem generatedRuntimeNativeFragment_of_compile_ok_supported
     (hSupported : SupportedSpec spec selectors) :
     Compiler.Proofs.YulGeneration.Backends.Native.generatedRuntimeNativeFragment
       (Compiler.emitYul irContract).runtimeCode = true :=
-  generatedRuntimeNativeFragment_of_compile_ok_supported_safeBodies
-    hCompile hSupported (generatedRuntimeSafeBodies_of_supported hSupported)
+  generatedRuntimeNativeFragment_of_compile_ok_supported_except_mapping_writes_stmt_safety
+    hCompile hSupported.exceptMappingWrites
+    (stmtMappingWriteSlotSafe_of_supported_stateClosed hSupported)
 
 /-- Supported compiler output passes the native generated-runtime fragment
 validator. -/
