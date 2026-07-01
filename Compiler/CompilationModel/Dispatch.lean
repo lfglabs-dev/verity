@@ -227,6 +227,67 @@ def nonReentrantGuardPrologue (fields : List Field) (lockField : String) :
         YulStmt.exprStmt (YulExpr.call "tstore" [lockSlot, YulExpr.lit 1])
       pure [revertOnReentry, acquire]
 
+/-- Sound under-approximation of "this Yul halts the EVM call frame on every
+    exit" — i.e. control never falls through to a following statement. Only
+    returns `true` when it can prove halting: a halting builtin
+    (`return`/`stop`/`revert`/`invalid`/`selfdestruct`), a `block` whose body
+    halts, or a `switch` with a `default` where every branch halts. Everything
+    else (including `if` without a guaranteed-halting counterpart and `for`) is
+    treated as possibly falling through. Used to decide whether the guarded body
+    still needs a trailing fall-through lock release (#2075). -/
+mutual
+partial def yulFrameHalts : YulStmt → Bool
+  | .exprStmt (.call f _) =>
+      f == "return" || f == "stop" || f == "revert" || f == "invalid" || f == "selfdestruct"
+  | .block stmts => yulFrameHaltsList stmts
+  | .switch _ cases (some dflt) =>
+      yulFrameHaltsList dflt && cases.all (fun c => yulFrameHaltsList c.2)
+  | _ => false
+
+partial def yulFrameHaltsList : List YulStmt → Bool
+  | [] => false
+  | [s] => yulFrameHalts s
+  | _ :: rest => yulFrameHaltsList rest
+end
+
+/-- Splice `release` immediately before every reachable EVM-frame `return`/`stop`
+    in a guarded entrypoint body, recursing through `if`/`for`/`switch`/`block`.
+
+    Internal-helper `funcDef` bodies are deliberately left untouched: a helper's
+    `leave` (and its internal `return` lowering, which becomes `__ret := …;
+    leave`) returns into the still-running guarded body, not the EVM frame, so
+    releasing the lock there would clear it mid-execution. Only the top-level
+    frame-halting `return`/`stop` opcodes clear the lock (#2075). -/
+mutual
+partial def spliceLockRelease (release : YulStmt) : YulStmt → List YulStmt
+  | s@(.exprStmt (.call f _)) =>
+      if f == "return" || f == "stop" then [release, s] else [s]
+  | .if_ cond body => [.if_ cond (spliceLockReleaseList release body)]
+  | .for_ init cond post body =>
+      [.for_ (spliceLockReleaseList release init) cond
+             (spliceLockReleaseList release post)
+             (spliceLockReleaseList release body)]
+  | .switch e cases dflt =>
+      [.switch e
+        (cases.map (fun c => (c.1, spliceLockReleaseList release c.2)))
+        (dflt.map (spliceLockReleaseList release))]
+  | .block stmts => [.block (spliceLockReleaseList release stmts)]
+  | s => [s]
+
+partial def spliceLockReleaseList (release : YulStmt) : List YulStmt → List YulStmt
+  | [] => []
+  | s :: rest => spliceLockRelease release s ++ spliceLockReleaseList release rest
+end
+
+/-- Clear the transient lock on every successful exit of a guarded body: splice
+    `release` before each reachable `return`/`stop`, and keep a single trailing
+    `release` only when the body can fall off the end (no guaranteed halt). A
+    reverting exit rolls back the acquire, so no release is spliced before
+    `revert`. Fixes the dead-code-after-return leak in #2075. -/
+def applyLockReleaseOnExits (release : YulStmt) (body : List YulStmt) : List YulStmt :=
+  let released := spliceLockReleaseList release body
+  if yulFrameHaltsList body then released else released ++ [release]
+
 /-- Wrap an already-compiled `IRFunction` with the `nonreentrant(lockField)`
     guard prologue (#1893) when the source `FunctionSpec` carries the
     annotation. The prologue is inserted **after** parameter loading and
@@ -247,17 +308,19 @@ def attachNonReentrantGuard (fields : List Field) (spec : FunctionSpec)
       let guardStmts ← nonReentrantGuardPrologue fields lockField
       let paramLoadCount := (genParamLoads spec.params).length
       let (prefixLoads, suffix) := irFn.body.splitAt paramLoadCount
-      -- Release the transient lock on normal exit so that a second top-level
-      -- call to the same nonreentrant function in the same tx is allowed
-      -- (the guard only protects against reentrancy *during* execution).
-      -- Early returns/reverts inside the body may leave the lock set until
-      -- tx end (transient), but this fixes the "never clears" case for the
-      -- common fall-through path.
+      -- Release the transient lock on every *successful* exit so a later
+      -- top-level call to a same-lock nonreentrant entry in the same tx is
+      -- allowed (the guard only protects against reentrancy *during*
+      -- execution). The release is spliced before each reachable `return`/
+      -- `stop` — not merely appended after the body — because on the EVM those
+      -- opcodes halt the frame, so an appended release is dead code and the
+      -- lock would stay set for the rest of the tx (#2075). Reverting exits
+      -- roll back the acquire, so they need no release.
       let releaseSlot := match findFieldWithResolvedSlot fields lockField with
         | some (_, s) => s
         | none => 0   -- unreachable after prologue validation
       let release := YulStmt.exprStmt (YulExpr.call "tstore" [YulExpr.lit releaseSlot, YulExpr.lit 0])
-      pure { irFn with body := prefixLoads ++ guardStmts ++ suffix ++ [release] }
+      pure { irFn with body := prefixLoads ++ guardStmts ++ applyLockReleaseOnExits release suffix }
 
 private def compileSpecialEntrypoint (fields : List Field) (events : List EventDef)
     (errors : List ErrorDef) (adtTypes : List AdtTypeDef := [])
@@ -276,7 +339,7 @@ private def compileSpecialEntrypoint (fields : List Field) (events : List EventD
           | some (_, s) => s
           | none => 0
         let release := YulStmt.exprStmt (YulExpr.call "tstore" [YulExpr.lit releaseSlot, YulExpr.lit 0])
-        pure (guardStmts ++ bodyChunks ++ [release])
+        pure (guardStmts ++ applyLockReleaseOnExits release bodyChunks)
   pure {
     payable := spec.isPayable
     body := guardedBody
