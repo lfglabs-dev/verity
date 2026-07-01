@@ -227,14 +227,14 @@ def nonReentrantGuardPrologue (fields : List Field) (lockField : String) :
         YulStmt.exprStmt (YulExpr.call "tstore" [lockSlot, YulExpr.lit 1])
       pure [revertOnReentry, acquire]
 
-/-- Sound under-approximation of "this Yul halts the EVM call frame on every
-    exit" — i.e. control never falls through to a following statement. Only
-    returns `true` when it can prove halting: a halting builtin
-    (`return`/`stop`/`revert`/`invalid`/`selfdestruct`), a `block` whose body
-    halts, or a `switch` with a `default` where every branch halts. Everything
-    else (including `if` without a guaranteed-halting counterpart and `for`) is
-    treated as possibly falling through. Used to decide whether the guarded body
-    still needs a trailing fall-through lock release (#2075). -/
+/- Sound under-approximation of "this Yul halts the EVM call frame on every
+   exit" — i.e. control never falls through to a following statement. Only
+   returns `true` when it can prove halting: a halting builtin
+   (`return`/`stop`/`revert`/`invalid`/`selfdestruct`), a `block` whose body
+   halts, or a `switch` with a `default` where every branch halts. Everything
+   else (including `if` without a guaranteed-halting counterpart and `for`) is
+   treated as possibly falling through. Used to decide whether the guarded body
+   still needs a trailing fall-through lock release (#2075). -/
 mutual
 partial def yulFrameHalts : YulStmt → Bool
   | .exprStmt (.call f _) =>
@@ -250,14 +250,14 @@ partial def yulFrameHaltsList : List YulStmt → Bool
   | _ :: rest => yulFrameHaltsList rest
 end
 
-/-- Splice `release` immediately before every reachable EVM-frame `return`/`stop`
-    in a guarded entrypoint body, recursing through `if`/`for`/`switch`/`block`.
+/- Splice `release` immediately before every reachable EVM-frame `return`/`stop`
+   in a guarded entrypoint body, recursing through `if`/`for`/`switch`/`block`.
 
-    Internal-helper `funcDef` bodies are deliberately left untouched: a helper's
-    `leave` (and its internal `return` lowering, which becomes `__ret := …;
-    leave`) returns into the still-running guarded body, not the EVM frame, so
-    releasing the lock there would clear it mid-execution. Only the top-level
-    frame-halting `return`/`stop` opcodes clear the lock (#2075). -/
+   Internal-helper `funcDef` bodies are deliberately left untouched: a helper's
+   `leave` (and its internal `return` lowering, which becomes `__ret := …;
+   leave`) returns into the still-running guarded body, not the EVM frame, so
+   releasing the lock there would clear it mid-execution. Only the top-level
+   frame-halting `return`/`stop` opcodes clear the lock (#2075). -/
 mutual
 partial def spliceLockRelease (release : YulStmt) : YulStmt → List YulStmt
   | s@(.exprStmt (.call f _)) =>
