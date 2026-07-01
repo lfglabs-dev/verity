@@ -7070,12 +7070,12 @@ private def twoEntrySpec : CompilationModel := {
   functions := [
     { name := "foo"
       params := []
-      returnType := some ParamType.uint256
+      returnType := some FieldType.uint256
       nonReentrantLock := some "lock"
       body := [Stmt.return (Expr.literal 1)] },
     { name := "bar"
       params := []
-      returnType := some ParamType.uint256
+      returnType := some FieldType.uint256
       nonReentrantLock := some "lock"
       body := [Stmt.return (Expr.literal 2)] }
   ]
