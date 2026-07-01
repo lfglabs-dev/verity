@@ -4799,6 +4799,7 @@ private theorem execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux
   | .storageArrayPop _ => simp [execStmtWithHelpers, execStmtWithEvents]
   | .requireError _ _ _ => simp [execStmtWithHelpers, execStmtWithEvents]
   | .revertError _ _ => simp [execStmtWithHelpers, execStmtWithEvents]
+  | .panicCode _ => simp [execStmtWithHelpers, execStmtWithEvents]
   | .returnValues _ => simp [execStmtWithHelpers, execStmtWithEvents]
   | .returnArray _ => simp [execStmtWithHelpers, execStmtWithEvents]
   | .returnBytes _ => simp [execStmtWithHelpers, execStmtWithEvents]

@@ -246,6 +246,8 @@ def stmtUsesArrayElementKind (includePlain includeWord : Bool) : Stmt → Bool
         exprListUsesArrayElementKind includePlain includeWord args
   | Stmt.revertError _ args | Stmt.emit _ args | Stmt.returnValues args =>
       exprListUsesArrayElementKind includePlain includeWord args
+  | .panicCode code =>
+      exprUsesArrayElementKind includePlain includeWord code
   | Stmt.mstore offset value =>
       exprUsesArrayElementKind includePlain includeWord offset ||
         exprUsesArrayElementKind includePlain includeWord value
@@ -423,6 +425,8 @@ def stmtUsesArrayElement : Stmt → Bool
       exprUsesArrayElement cond || exprListUsesArrayElement args
   | Stmt.revertError _ args | Stmt.emit _ args | Stmt.returnValues args =>
       exprListUsesArrayElement args
+  | .panicCode code =>
+      exprUsesArrayElement code
   | Stmt.mstore offset value | Stmt.tstore offset value =>
       exprUsesArrayElement offset || exprUsesArrayElement value
   | Stmt.calldatacopy destOffset sourceOffset size
@@ -627,6 +631,8 @@ def stmtUsesParamDynamicHeadWord : Stmt → Bool
       exprUsesParamDynamicHeadWord cond || exprListUsesParamDynamicHeadWord args
   | Stmt.revertError _ args | Stmt.emit _ args | Stmt.returnValues args =>
       exprListUsesParamDynamicHeadWord args
+  | .panicCode code =>
+      exprUsesParamDynamicHeadWord code
   | Stmt.mstore offset value | Stmt.tstore offset value =>
       exprUsesParamDynamicHeadWord offset || exprUsesParamDynamicHeadWord value
   | Stmt.calldatacopy a b c | Stmt.returndataCopy a b c =>
@@ -777,6 +783,8 @@ def stmtUsesMulDiv512 : Stmt → Bool
       exprUsesMulDiv512 cond || exprListUsesMulDiv512 args
   | Stmt.revertError _ args | Stmt.emit _ args | Stmt.returnValues args =>
       exprListUsesMulDiv512 args
+  | .panicCode code =>
+      exprUsesMulDiv512 code
   | Stmt.mstore offset value | Stmt.tstore offset value =>
       exprUsesMulDiv512 offset || exprUsesMulDiv512 value
   | Stmt.calldatacopy a b c | Stmt.returndataCopy a b c =>
@@ -951,6 +959,8 @@ def stmtUsesStorageArrayElement : Stmt → Bool
       exprUsesStorageArrayElement cond || exprListUsesStorageArrayElement args
   | Stmt.revertError _ args | Stmt.emit _ args | Stmt.returnValues args =>
       exprListUsesStorageArrayElement args
+  | .panicCode code =>
+      exprUsesStorageArrayElement code
   | Stmt.mstore offset value =>
       exprUsesStorageArrayElement offset || exprUsesStorageArrayElement value
   | Stmt.tstore offset value =>
@@ -1110,6 +1120,8 @@ def stmtUsesDynamicBytesEq : Stmt → Bool
       exprUsesDynamicBytesEq cond || exprListUsesDynamicBytesEq args
   | Stmt.revertError _ args | Stmt.emit _ args | Stmt.returnValues args =>
       exprListUsesDynamicBytesEq args
+  | .panicCode code =>
+      exprUsesDynamicBytesEq code
   | Stmt.mstore offset value | Stmt.tstore offset value =>
       exprUsesDynamicBytesEq offset || exprUsesDynamicBytesEq value
   | Stmt.calldatacopy destOffset sourceOffset size

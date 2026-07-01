@@ -285,6 +285,9 @@ def compileStmt (fields : List Field) (events : List EventDef := [])
         | none => throw s!"Compilation error: unknown custom error '{errorName}' ({issue586Ref})"
       let argExprs ← compileExprList fields dynamicSource args
       revertWithCustomError dynamicSource errorDef args argExprs
+  | .panicCode code => do
+      let codeExpr ← compileExpr fields dynamicSource code
+      pure (solidityPanicPayloadExpr codeExpr)
   | Stmt.return value =>
     do
       let valueExpr ← compileExpr fields dynamicSource value

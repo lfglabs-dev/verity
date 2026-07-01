@@ -121,15 +121,18 @@ def panicError0x12HelperName : String :=
 
     The payload is exactly 36 bytes:
     4-byte selector `0x4e487b71` followed by one ABI word containing `code`. -/
-def solidityPanicPayload (code : Nat) : List YulStmt :=
+def solidityPanicPayloadExpr (code : YulExpr) : List YulStmt :=
   [
     YulStmt.expr (YulExpr.call "mstore" [
       YulExpr.lit 0,
       YulExpr.call "shl" [YulExpr.lit 224, YulExpr.hex 0x4e487b71]
     ]),
-    YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 4, YulExpr.lit code]),
+    YulStmt.expr (YulExpr.call "mstore" [YulExpr.lit 4, code]),
     YulStmt.expr (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 36])
   ]
+
+def solidityPanicPayload (code : Nat) : List YulStmt :=
+  solidityPanicPayloadExpr (YulExpr.lit code)
 
 def panicErrorHelper (helperName : String) (code : Nat) : YulStmt :=
   YulStmt.funcDef helperName [] [] (solidityPanicPayload code)

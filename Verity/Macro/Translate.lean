@@ -248,6 +248,10 @@ private partial def validateDoElemExprTypes
           validateCustomErrorCall ownerName (toString errorName.getId)
             params errorDecls args.getElems argTypes
           pure locals
+      | `(doElem| panic($code:term)) =>
+          requireWordLikeType code "panic code"
+            (← inferPureExprType fields constDecls immutableDecls externalDecls params locals code)
+          pure locals
       | `(doElem| tryCatch $attempt:term $handler:term) => do
           requireWordLikeType attempt "tryCatch attempt"
             (← inferPureExprType fields constDecls immutableDecls externalDecls params locals attempt)
@@ -1437,6 +1441,12 @@ private partial def translateDoElem
             (#[(← `(Compiler.CompilationModel.Stmt.revertError
                     $(strTerm (toString errorName.getId))
                     [ $[$argExprs],* ]))],
+              locals,
+              mutableLocals)
+      | `(doElem| panic($code:term)) =>
+          pure
+            (#[(← `(Compiler.CompilationModel.Stmt.panicCode
+                    $(← translatePureExprWithTypes fields constDecls immutableDecls params locals code)))],
               locals,
               mutableLocals)
       | `(doElem| unsafe $reason:str do $body:doSeq) =>

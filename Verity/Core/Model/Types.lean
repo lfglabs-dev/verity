@@ -1044,6 +1044,8 @@ inductive Stmt
   | require (cond : Expr) (message : String)
   | requireError (cond : Expr) (errorName : String) (args : List Expr)
   | revertError (errorName : String) (args : List Expr)
+  /-- Revert with Solidity's built-in `Panic(uint256)` ABI payload. -/
+  | panicCode (code : Expr)
   | return (value : Expr)
   | returnValues (values : List Expr)  -- ABI-encode multiple static return words
   | returnArray (name : String)        -- ABI-encode dynamic uint256[] parameter loaded from calldata
@@ -1155,6 +1157,8 @@ def directMetadata : Stmt → StmtMetadata
       { subexpressions := cond :: args, termination := .mayTerminate, controlFlow := .mayReverting }
   | .revertError _ args =>
       { subexpressions := args, termination := .alwaysTerminates, controlFlow := .reverts }
+  | .panicCode code =>
+      { subexpressions := [code], termination := .alwaysTerminates, controlFlow := .reverts }
   | .return value =>
       { subexpressions := [value], termination := .alwaysTerminates, controlFlow := .returns }
   | .returnValues values =>
@@ -1280,7 +1284,7 @@ mutual
 partial def controlFlow : Stmt → ControlFlowSummary
   | .require _ _ | .requireError _ _ _ =>
       .mayReverting
-  | .revertError _ _ | .revertReturndata =>
+  | .revertError _ _ | .panicCode _ | .revertReturndata =>
       .reverts
   | .return _ | .returnValues _ | .returnArray _ | .returnBytes _ | .returnStorageWords _ | .returnCodeData _ =>
       .returns
