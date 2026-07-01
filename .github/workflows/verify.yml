@@ -1032,6 +1032,9 @@ jobs:
             --dir compiler/yul-patched \
             --require-same-files compiler/yul compiler/yul-patched
 
+      - name: Hydrate EVMYulLean modules for gas-report
+        run: lake build EvmYul
+
       - name: Check static gas report invariants
         run: python3 scripts/check_gas.py report
 

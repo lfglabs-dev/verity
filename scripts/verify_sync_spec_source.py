@@ -694,7 +694,7 @@ SPEC = {'check_only_paths': ['.github/workflows/**',
                                       'gas-report-static-patched.tsv --min-improved-contracts 0 '
                                       '--summary-markdown patch-gas-delta-summary.md >> '
                                       '"$GITHUB_STEP_SUMMARY"'],
- 'required_compiler_audit_run_commands': [],
+ 'required_compiler_audit_run_commands': ['lake build EvmYul'],
  'expected_foundry': {'shards': 4, 'seed': 42},
  'expected_foundry_patched': {'seed': 42,
                               'shard_count': 1,
