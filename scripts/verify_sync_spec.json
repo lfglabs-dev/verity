@@ -788,7 +788,9 @@
     "check_gas.py report",
     "check_patch_gas_delta.py --baseline-report gas-report-static.tsv --patched-report gas-report-static-patched.tsv --min-improved-contracts 0 --summary-markdown patch-gas-delta-summary.md >> \"$GITHUB_STEP_SUMMARY\""
   ],
-  "required_compiler_audit_run_commands": [],
+  "required_compiler_audit_run_commands": [
+    "lake build EvmYul"
+  ],
   "expected_foundry": {
     "shards": 4,
     "seed": 42
