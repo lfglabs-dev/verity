@@ -9,9 +9,9 @@ events, errors, modifiers, functions) with one of:
 - ❌ requires a new EDSL feature (feature named)
 
 The maps are used to (a) prioritize feature work in issue
-[#1724](https://github.com/lfglabs-dev/verity/issues/1724) and (b) drive the
-nightly `contracts-smoke` CI job that compiles each reference contract through
-Verity and asserts no rows regress.
+[#1724](https://github.com/lfglabs-dev/verity/issues/1724) and (b) drive a
+planned nightly `contracts-smoke` CI job (not yet implemented) that will
+compile each reference contract through Verity and assert no rows regress.
 
 ## Contents
 
@@ -38,5 +38,4 @@ Lido, flashloan callback for Morpho) come next.
 ## Updating a map
 
 Any PR that changes a `verity_contract` construct row (adds support, changes
-signature, deletes) MUST update the corresponding row in these files. This is
-gate 7 in the roadmap agent's merge checklist.
+signature, deletes) MUST update the corresponding row in these files.
