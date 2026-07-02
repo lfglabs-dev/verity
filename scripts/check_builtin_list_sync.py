@@ -10,7 +10,8 @@ Expected differences:
   - yulBuiltins includes low-level call opcodes (call, staticcall, delegatecall,
     callcode) that CompilationModel tracks separately in `isLowLevelCallName`.
   - yulBuiltins includes Yul-object builtins (datasize, dataoffset, datacopy)
-    that are not EVM opcodes and not relevant to interop validation.
+    and immutable builtins (loadimmutable, setimmutable) that are not EVM
+    opcodes and not relevant to interop validation.
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ CONTRACT_SPEC = ROOT / "Compiler" / "CompilationModel.lean"
 # AND isLowLevelCallName. These are Yul-object builtins, not EVM opcodes.
 EXPECTED_LINKER_ONLY = {
     "datasize", "dataoffset", "datacopy",
+    "loadimmutable", "setimmutable",
 }
 
 
