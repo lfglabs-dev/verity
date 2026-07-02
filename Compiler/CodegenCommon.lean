@@ -319,12 +319,87 @@ private def runtimeCodeWithEmitOptions (contract : IRContract) (options : YulEmi
   let switchStmt := buildSwitch contract.functions contract.fallbackEntrypoint contract.receiveEntrypoint sortCases
   mapping ++ internals ++ [initFreeMemoryPointer, switchStmt]
 
+/-- Temp variable name holding an immutable's pending value during the
+    constructor body, before it is patched into the copied runtime image. -/
+private def immTempName (name : String) : String := "__imm_" ++ name
+
+/- Collect immutable names assigned anywhere in the constructor body,
+   descending into control flow so conditionally/repeatedly set immutables are
+   all discovered. `Stmt.setImmutable` lowers each assignment to
+   `setimmutable(dataoffset("runtime"), "<name>", <value>)`. Fuel bounds the
+   traversal for termination (mirrors `optimizeCheckedArithmeticStmtsFuel`). -/
+mutual
+private def collectImmNamesStmt : Nat → YulStmt → List String
+  | 0, _ => []
+  | _fuel + 1, YulStmt.exprStmt (YulExpr.call "setimmutable"
+      [YulExpr.call "dataoffset" [YulExpr.str "runtime"], YulExpr.str name, _]) => [name]
+  | fuel + 1, YulStmt.if_ _ body => collectImmNamesStmts fuel body
+  | fuel + 1, YulStmt.for_ init _ post body =>
+      collectImmNamesStmts fuel init ++ collectImmNamesStmts fuel post
+        ++ collectImmNamesStmts fuel body
+  | fuel + 1, YulStmt.switch _ cases default =>
+      (cases.map (fun c => collectImmNamesStmts fuel c.2)).flatten
+        ++ (match default with
+            | some body => collectImmNamesStmts fuel body
+            | none => [])
+  | fuel + 1, YulStmt.block stmts => collectImmNamesStmts fuel stmts
+  | fuel + 1, YulStmt.funcDef _ _ _ body => collectImmNamesStmts fuel body
+  | _fuel + 1, _ => []
+
+private def collectImmNamesStmts : Nat → List YulStmt → List String
+  | 0, _ => []
+  | _fuel + 1, [] => []
+  | fuel + 1, s :: rest => collectImmNamesStmt fuel s ++ collectImmNamesStmts fuel rest
+end
+
+/- Rewrite each in-body `setimmutable(dataoffset("runtime"), name, value)` to
+   `__imm_<name> := value`, preserving position within control flow so the
+   last executed assignment wins. The actual `setimmutable(0, …)` calls are
+   emitted after `datacopy` in `deployCodeWithProfile`. -/
+mutual
+private def rewriteImmSettersStmt : Nat → YulStmt → YulStmt
+  | 0, stmt => stmt
+  | _fuel + 1, YulStmt.exprStmt (YulExpr.call "setimmutable"
+      [YulExpr.call "dataoffset" [YulExpr.str "runtime"], YulExpr.str name, value]) =>
+      YulStmt.assign (immTempName name) value
+  | fuel + 1, YulStmt.if_ cond body => YulStmt.if_ cond (rewriteImmSettersStmts fuel body)
+  | fuel + 1, YulStmt.for_ init cond post body =>
+      YulStmt.for_
+        (rewriteImmSettersStmts fuel init) cond
+        (rewriteImmSettersStmts fuel post) (rewriteImmSettersStmts fuel body)
+  | fuel + 1, YulStmt.switch expr cases default =>
+      YulStmt.switch expr
+        (cases.map (fun c => (c.1, rewriteImmSettersStmts fuel c.2)))
+        (default.map (rewriteImmSettersStmts fuel))
+  | fuel + 1, YulStmt.block stmts => YulStmt.block (rewriteImmSettersStmts fuel stmts)
+  | fuel + 1, YulStmt.funcDef name params rets body =>
+      YulStmt.funcDef name params rets (rewriteImmSettersStmts fuel body)
+  | _fuel + 1, stmt => stmt
+
+private def rewriteImmSettersStmts : Nat → List YulStmt → List YulStmt
+  | 0, stmts => stmts
+  | _fuel + 1, [] => []
+  | fuel + 1, s :: rest => rewriteImmSettersStmt fuel s :: rewriteImmSettersStmts fuel rest
+end
+
+/-- Deduplicate a list of strings, keeping first-occurrence order. -/
+private def dedupStrings (xs : List String) : List String :=
+  (xs.foldl (fun acc x => if acc.contains x then acc else x :: acc) []).reverse
+
 private def deployCodeWithProfile (contract : IRContract) (profile : BackendProfile)
     (mappingSlotScratchBase : Nat := 0) : List YulStmt :=
   let valueGuard := if contract.constructorPayable then [] else [callvalueGuard]
   let mapping := if contract.usesMapping then [mappingSlotFuncAt mappingSlotScratchBase] else []
   let internals := internalHelpersForProfile profile contract.internalFunctions
-  [initFreeMemoryPointer] ++ valueGuard ++ mapping ++ internals ++ contract.deploy ++ [yulDatacopy, yulReturnRuntime]
+  let fuel := yulStmtListFuel contract.deploy
+  let immNames := dedupStrings (collectImmNamesStmts fuel contract.deploy)
+  let immDecls := immNames.map (fun n => YulStmt.let_ (immTempName n) (YulExpr.lit 0))
+  let deployBody := rewriteImmSettersStmts fuel contract.deploy
+  let immPatches := immNames.map (fun n =>
+    YulStmt.exprStmt (YulExpr.call "setimmutable"
+      [YulExpr.lit 0, YulExpr.str n, YulExpr.ident (immTempName n)]))
+  [initFreeMemoryPointer] ++ valueGuard ++ mapping ++ internals
+    ++ immDecls ++ deployBody ++ [yulDatacopy] ++ immPatches ++ [yulReturnRuntime]
 
 private def deployCode (contract : IRContract) : List YulStmt :=
   deployCodeWithProfile contract .semantic
