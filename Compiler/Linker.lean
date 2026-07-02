@@ -244,7 +244,8 @@ private def yulBuiltins : List String :=
    "log0", "log1", "log2", "log3", "log4",
    "create", "create2", "call", "callcode", "delegatecall", "staticcall",
    "return", "revert", "selfdestruct", "invalid", "stop",
-   "datasize", "dataoffset", "datacopy"]
+   "datasize", "dataoffset", "datacopy",
+   "loadimmutable", "setimmutable"]
 
 private def isYulBuiltinCall (name : String) : Bool :=
   yulBuiltins.contains name || name.startsWith "verbatim_"
