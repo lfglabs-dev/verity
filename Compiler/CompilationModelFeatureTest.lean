@@ -7018,4 +7018,101 @@ def nonreentrantCompileAcceptedAtDefaultFork : Bool :=
 
 end NonreentrantForkCompatibilitySmoke
 
+/-! ## Issue #2075: nonreentrant lock release before every reachable `return`/`stop`
+
+The `nonreentrant(lock)` guard used to append a single lock release *after* the
+compiled body. On the EVM `return`/`stop` halt the call frame, so that appended
+release was dead code whenever the body ended in (or branched to) a
+`return`/`stop` — the normal case for any function that returns a value. The
+transient lock therefore stayed set for the rest of the transaction, and a
+later same-lock guarded entry in the same transaction wrongly reverted as
+reentrant (e.g. ERC-4337 `validateUserOp` + execute sharing one lock).
+
+The fix (`applyLockReleaseOnExits`) splices the release immediately before every
+reachable `return`/`stop`, recursing through `if`/`for`/`switch`/`block`, keeps
+a trailing release only for a body that falls off the end, and never rewrites
+internal-helper `funcDef` bodies or `leave` (a helper's `leave` returns into the
+still-running guarded frame, not the EVM frame). Reverting exits are left
+untouched because the revert rolls back the acquire. -/
+namespace NonreentrantReleaseBeforeReturn
+
+open Compiler.Yul
+
+private def rel : YulStmt :=
+  YulStmt.exprStmt (YulExpr.call "tstore" [YulExpr.lit 0, YulExpr.lit 0])
+private def ret : YulStmt :=
+  YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])
+private def stp : YulStmt :=
+  YulStmt.exprStmt (YulExpr.call "stop" [])
+private def rev : YulStmt :=
+  YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+private def work : YulStmt :=
+  YulStmt.exprStmt (YulExpr.call "sstore" [YulExpr.lit 1, YulExpr.lit 7])
+
+/-- A release precedes the first EVM `return` (not appended dead after it). -/
+private def releaseBeforeReturn (yul : String) : Bool :=
+  match yul.splitOn "return(0, 32)" with
+  | before :: _ :: _ => contains before "tstore(0, 0)"
+  | _ => false
+
+/-- No dead lock release survives after the final EVM `return`. -/
+private def noReleaseAfterLastReturn (yul : String) : Bool :=
+  match (yul.splitOn "return(0, 32)").getLast? with
+  | some tail => !contains tail "tstore(0, 0)"
+  | none => true
+
+/-- Two external entrypoints guarded by the *same* lock slot, each ending in a
+    `return` — the exact shape that broke: `foo()` then `bar()` in one tx. -/
+private def twoEntrySpec : CompilationModel := {
+  name := "TwoNonreentrantEntries"
+  fields := [{ name := "lock", ty := FieldType.uint256, «slot» := some 0 }]
+  «constructor» := none
+  functions := [
+    { name := "foo"
+      params := []
+      returnType := some FieldType.uint256
+      nonReentrantLock := some "lock"
+      body := [Stmt.return (Expr.literal 1)] },
+    { name := "bar"
+      params := []
+      returnType := some FieldType.uint256
+      nonReentrantLock := some "lock"
+      body := [Stmt.return (Expr.literal 2)] }
+  ]
+}
+
+#eval! do
+  -- Unit-level: the IR transform on hand-built bodies.
+  expectTrue "#2075 release spliced before a trailing return"
+    (applyLockReleaseOnExits rel [work, ret] == [work, rel, ret])
+  expectTrue "#2075 release spliced before a trailing stop"
+    (applyLockReleaseOnExits rel [work, stp] == [work, rel, stp])
+  expectTrue "#2075 fall-through body keeps exactly one trailing release"
+    (applyLockReleaseOnExits rel [work] == [work, rel])
+  expectTrue "#2075 release spliced inside a branch, trailing release kept for the untaken path"
+    (applyLockReleaseOnExits rel [YulStmt.if_ (YulExpr.ident "c") [ret], work]
+      == [YulStmt.if_ (YulExpr.ident "c") [rel, ret], work, rel])
+  expectTrue "#2075 release spliced into every switch branch, no trailing release when all halt"
+    (applyLockReleaseOnExits rel
+        [YulStmt.switch (YulExpr.ident "s") [(0, [ret])] (some [stp])]
+      == [YulStmt.switch (YulExpr.ident "s") [(0, [rel, ret])] (some [rel, stp])])
+  expectTrue "#2075 reverting exit is left untouched (acquire rolls back)"
+    (applyLockReleaseOnExits rel [work, rev] == [work, rev])
+  expectTrue "#2075 internal-helper funcDef/leave bodies are never rewritten"
+    (applyLockReleaseOnExits rel
+        [YulStmt.funcDef "helper" [] ["r"] [ret, YulStmt.leave], work]
+      == [YulStmt.funcDef "helper" [] ["r"] [ret, YulStmt.leave], work, rel])
+  -- End-to-end: two same-lock guarded entries compile with the corrected shape.
+  let yul ← expectCompileToYul "two same-lock nonreentrant entries compile" twoEntrySpec
+  expectTrue "#2075 guard still checks the transient lock on entry (reentrancy still reverts)"
+    (contains yul "tload(0)" && contains yul "tstore(0, 1)")
+  expectTrue "#2075 lock release is spliced before the return, not dead after it"
+    (releaseBeforeReturn yul)
+  expectTrue "#2075 each guarded return clears the lock (two entries → two releases)"
+    (countOccurrences yul "tstore(0, 0)" == 2)
+  expectTrue "#2075 no dead lock release remains after the final return"
+    (noReleaseAfterLastReturn yul)
+
+end NonreentrantReleaseBeforeReturn
+
 end Compiler.CompilationModelFeatureTest
