@@ -197,6 +197,7 @@ docsync directly:
 - [x] check_axiomatized_primitive_boundary_sync.py → `axiomatized_primitive_boundary` (Cluster B)
 - [x] check_struct_mapping_surface_sync.py → `struct_mapping_surface` (Cluster B)
 - [x] check_layer2_boundary_sync.py → `layer2_boundary` (Cluster A)
+- [x] check_layer2_boundary_catalog_sync.py → `layer2_boundary_catalog` (Cluster A)
 - [x] check_interpreter_feature_boundary_catalog_sync.py → `interpreter_feature_boundary_catalog` (Cluster A)
 
 Cluster C landed as `scripts/property_pipeline.py` (subcommands `check
@@ -237,7 +238,7 @@ walk can land later behind the same `lean_lint.py` interface without touching
 callers.
 
 Still pending from Cluster A: the verification-status trio +
-update_doc_numbers.py, layer2 catalog generator/checker, the EVMYulLean report
+update_doc_numbers.py, the layer2 catalog generator, the EVMYulLean report
 generators, builtin-bridge / feature-summary matrix checkers,
 generate_storage_layout_report.py, generate_print_axioms.py.
 `verify_sync_spec_source.py` pins the new docsync Makefile commands

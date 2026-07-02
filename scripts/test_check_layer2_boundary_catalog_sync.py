@@ -12,7 +12,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-import check_layer2_boundary_catalog_sync as check
+import docsync
 
 
 class Layer2BoundaryCatalogSyncTests(unittest.TestCase):
@@ -100,7 +100,7 @@ class Layer2BoundaryCatalogSyncTests(unittest.TestCase):
         )
 
         catalog = json.loads(artifact.read_text(encoding="utf-8"))
-        expected = check.expected_snippets(catalog)
+        expected = docsync.get_entry("layer2_boundary_catalog").expected_snippets(catalog)
         docs = {
             label: "\n".join(snippets) + "\n" for label, snippets in expected.items()
         }
@@ -121,26 +121,11 @@ class Layer2BoundaryCatalogSyncTests(unittest.TestCase):
             root = Path(tmpdir)
             self._write_fixture_tree(root, good_docs=good_docs)
 
-            old_root = check.ROOT
-            old_catalog = check.CATALOG
-            old_targets = check.TARGET_FILES
-            check.ROOT = root
-            check.CATALOG = root / "artifacts" / "layer2_boundary_catalog.json"
-            check.TARGET_FILES = {
-                "ROADMAP": root / "docs" / "ROADMAP.md",
-                "VERIFICATION_STATUS": root / "docs" / "VERIFICATION_STATUS.md",
-                "COMPILER_PROOFS_README": root / "Compiler" / "Proofs" / "README.md",
-            }
-            try:
-                stdout = io.StringIO()
-                stderr = io.StringIO()
-                with redirect_stdout(stdout), redirect_stderr(stderr):
-                    rc = check.main()
-                return rc, stdout.getvalue() + stderr.getvalue()
-            finally:
-                check.ROOT = old_root
-                check.CATALOG = old_catalog
-                check.TARGET_FILES = old_targets
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                rc = docsync.run_entry("layer2_boundary_catalog", root=root)
+            return rc, stdout.getvalue() + stderr.getvalue()
 
     def test_matching_docs_pass(self) -> None:
         rc, output = self._run_check(good_docs=True)
@@ -156,7 +141,7 @@ class Layer2BoundaryCatalogSyncTests(unittest.TestCase):
         stdout = io.StringIO()
         stderr = io.StringIO()
         with redirect_stdout(stdout), redirect_stderr(stderr):
-            rc = check.main()
+            rc = docsync.run_entry("layer2_boundary_catalog")
         output = stdout.getvalue() + stderr.getvalue()
         self.assertEqual(rc, 0, output)
 
