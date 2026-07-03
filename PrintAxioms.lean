@@ -1780,6 +1780,9 @@ end Verity.AxiomAudit
   Compiler.Proofs.HelperStepProofs.compiledStmtStepWithHelpersAndHelperIR_internalCall_of_callHeadStepBridge
   Compiler.Proofs.HelperStepProofs.stmtListDirectInternalHelperCallStepInterface_cons_internalCall_of_callHeadStepBridge
   Compiler.Proofs.HelperStepProofs.stmtListDirectInternalHelperCallStepInterface_of_callHeadStepBridges
+  Compiler.Proofs.HelperStepProofs.compiledStmtStepWithHelpersAndHelperIR_internalCallAssign_of_assignHeadStepBridge
+  Compiler.Proofs.HelperStepProofs.stmtListDirectInternalHelperAssignStepInterface_cons_internalCallAssign_of_assignHeadStepBridge
+  Compiler.Proofs.HelperStepProofs.stmtListDirectInternalHelperAssignStepInterface_of_assignHeadStepBridges
   Compiler.Proofs.HelperStepProofs.allHelperInterfacesSatisfied_of_helperSurfaceClosed
   Compiler.Proofs.HelperStepProofs.fullHelperAwareListWitness_of_allInterfaces
   Compiler.Proofs.HelperStepProofs.fullHelperAwareListWitness_of_allInterfaces_disjoint
@@ -5828,4 +5831,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5458 theorems/lemmas (3758 public, 1700 private, 0 sorry'd)
+-- Total: 5461 theorems/lemmas (3761 public, 1700 private, 0 sorry'd)
