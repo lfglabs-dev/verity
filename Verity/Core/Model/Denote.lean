@@ -879,7 +879,21 @@ def evalExpr (oracle : DenoteOracle) (fields : List Field) (state : DenoteState)
           let outerSlot := oracle.mappingSlot innerSlot key2Val
           some (readFieldWord state.world field (wordNormalize (outerSlot + wordOffset))).val
       | none => none
-  -- mappingChain reads: deferred, exactly as in SourceSemantics.
+  | .mappingChain field [key] => do
+      let keyVal ← evalExpr oracle fields state key
+      match findFieldWithResolvedSlot fields field with
+      | some (field, slot) =>
+          some (readFieldWord state.world field (oracle.mappingSlot slot keyVal)).val
+      | none => none
+  | .mappingChain field [key1, key2] => do
+      let key1Val ← evalExpr oracle fields state key1
+      let key2Val ← evalExpr oracle fields state key2
+      match findFieldWithResolvedSlot fields field with
+      | some (field, slot) =>
+          let innerSlot := oracle.mappingSlot slot key1Val
+          some (readFieldWord state.world field (oracle.mappingSlot innerSlot key2Val)).val
+      | none => none
+  -- Longer mappingChain reads: deferred, exactly as in SourceSemantics.
   | .structMember field key memberName => do
       let keyVal ← evalExpr oracle fields state key
       match findFieldWithResolvedSlot fields field, findStructMembers fields field with

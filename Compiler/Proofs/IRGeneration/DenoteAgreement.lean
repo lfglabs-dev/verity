@@ -67,7 +67,8 @@ theorem denote_evalExpr_eq (fields : List Field) (s : DenoteState) :
       Denote.evalExpr sourceOracle fields s e =
         SourceSemantics.evalExpr fields (toRuntimeState s) e
   | .literal _ | .param _ | .immutable _ | .constructorArg _ | .storage _ | .storageAddr _
-  | .mappingChain .. | .localVar _ | .storageArrayLength _ | .dynamicBytesEq ..
+  | .mappingChain _ [] | .mappingChain _ (_ :: _ :: _ :: _) | .localVar _
+  | .storageArrayLength _ | .dynamicBytesEq ..
   | .memoryArrayLength _ | .memoryArrayElement .. | .paramDynamicMemberLength ..
   | .paramDynamicMemberDataOffset .. | .paramDynamicMemberElement ..
   | .paramDynamicStaticComposite .. | .paramDynamicHeadWord ..
@@ -81,7 +82,8 @@ theorem denote_evalExpr_eq (fields : List Field) (s : DenoteState) :
   | .returndataSize => rfl
   | .bitNot a | .logicalNot a | .mload a | .tload a | .calldataload a
   | .mapping _ a | .mappingWord _ a _ | .mappingPackedWord _ a _ _
-  | .mappingUint _ a | .structMember _ a _ | .storageArrayElement _ a
+  | .mappingUint _ a | .mappingChain _ [a] | .structMember _ a _
+  | .storageArrayElement _ a
   | .arrayElementDynamicWord _ a _
   | .arrayElementDynamicDataOffset _ a
   | .arrayElementDynamicMemberLength _ a _
@@ -93,6 +95,7 @@ theorem denote_evalExpr_eq (fields : List Field) (s : DenoteState) :
   | .lt a b | .slt a b | .le a b | .logicalAnd a b | .logicalOr a b
   | .ceilDiv a b | .wMulDown a b | .wDivUp a b | .min a b | .max a b
   | .keccak256 a b | .mapping2 _ a b | .mapping2Word _ a b _
+  | .mappingChain _ [a, b]
   | .structMember2 _ a b _ =>
       bindAgree (denote_evalExpr_eq fields s a) fun _ =>
         bindAgree (denote_evalExpr_eq fields s b) fun _ => rfl
