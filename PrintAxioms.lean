@@ -3404,6 +3404,8 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_structMember  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_storageArrayElement  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_mapping2  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_mappingChain_singleton  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_mappingChain_pair  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_mapping2Word  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_structMember2  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_ceilDiv  -- private
@@ -5831,4 +5833,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5461 theorems/lemmas (3761 public, 1700 private, 0 sorry'd)
+-- Total: 5463 theorems/lemmas (3761 public, 1702 private, 0 sorry'd)

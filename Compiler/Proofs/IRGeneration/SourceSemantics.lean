@@ -1314,8 +1314,22 @@ def evalExpr (fields : List Field) (state : RuntimeState) : Expr → Option Nat
           let outerSlot := Compiler.Proofs.abstractMappingSlot innerSlot key2Val
           some (readFieldWord state.world field (wordNormalize (outerSlot + wordOffset))).val
       | none => none
-  -- mappingChain: deferred — requires List Expr recursion infrastructure
-  -- | .mappingChain field keys => ...
+  | .mappingChain field [key] => do
+      let keyVal ← evalExpr fields state key
+      match findFieldWithResolvedSlot fields field with
+      | some (field, slot) =>
+          some (readFieldWord state.world field (Compiler.Proofs.abstractMappingSlot slot keyVal)).val
+      | none => none
+  | .mappingChain field [key1, key2] => do
+      let key1Val ← evalExpr fields state key1
+      let key2Val ← evalExpr fields state key2
+      match findFieldWithResolvedSlot fields field with
+      | some (field, slot) =>
+          let innerSlot := Compiler.Proofs.abstractMappingSlot slot key1Val
+          some (readFieldWord state.world field (Compiler.Proofs.abstractMappingSlot innerSlot key2Val)).val
+      | none => none
+  -- Longer mappingChain reads remain deferred until the evaluator has shared
+  -- list-recursion infrastructure for arbitrary key lists.
   | .structMember field key memberName => do
       let keyVal ← evalExpr fields state key
       match findFieldWithResolvedSlot fields field, findStructMembers fields field with
@@ -2114,6 +2128,32 @@ private theorem evalExpr_mapping2
     (field : String)
     (key1 key2 : Expr) :
     evalExpr fields state (.mapping2 field key1 key2) = (do
+      let key1Val ← evalExpr fields state key1
+      let key2Val ← evalExpr fields state key2
+      match findFieldWithResolvedSlot fields field with
+      | some (field, slot) =>
+          let innerSlot := Compiler.Proofs.abstractMappingSlot slot key1Val
+          some (readFieldWord state.world field (Compiler.Proofs.abstractMappingSlot innerSlot key2Val)).val
+      | none => none) := rfl
+
+private theorem evalExpr_mappingChain_singleton
+    (fields : List Field)
+    (state : RuntimeState)
+    (field : String)
+    (key : Expr) :
+    evalExpr fields state (.mappingChain field [key]) = (do
+      let keyVal ← evalExpr fields state key
+      match findFieldWithResolvedSlot fields field with
+      | some (field, slot) =>
+          some (readFieldWord state.world field (Compiler.Proofs.abstractMappingSlot slot keyVal)).val
+      | none => none) := rfl
+
+private theorem evalExpr_mappingChain_pair
+    (fields : List Field)
+    (state : RuntimeState)
+    (field : String)
+    (key1 key2 : Expr) :
+    evalExpr fields state (.mappingChain field [key1, key2]) = (do
       let key1Val ← evalExpr fields state key1
       let key2Val ← evalExpr fields state key2
       match findFieldWithResolvedSlot fields field with
