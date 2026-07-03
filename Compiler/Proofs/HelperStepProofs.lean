@@ -216,6 +216,128 @@ theorem stmtListDirectInternalHelperCallStepInterface_of_callHeadStepBridges
           (args := args)
           (hbridge hmem))
 
+/-!
+## Direct assign internal-helper calls
+
+These constructors mirror the direct void-call bridge above for
+`Stmt.internalCallAssign`. They keep the statement-return-binding proof seam
+callee-local, so future rank-decreasing helper induction can provide one
+`DirectInternalHelperAssignHeadStepBridge` per callee and reuse the mechanical
+list assembly here.
+-/
+
+/-- Build a helper-aware singleton compiled-step proof for a direct
+helper-return-binding call from the exact assign-head bridge. -/
+theorem compiledStmtStepWithHelpersAndHelperIR_internalCallAssign_of_assignHeadStepBridge
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {names : List String}
+    {calleeName : String}
+    {args : List Expr}
+    (hbridge :
+      DirectInternalHelperAssignHeadStepBridge runtimeContract spec fields calleeName) :
+    ∃ compiledIR,
+      CompiledStmtStepWithHelpersAndHelperIR
+        runtimeContract
+        spec
+        fields
+        scope
+        (Stmt.internalCallAssign names calleeName args)
+        compiledIR := by
+  rcases hbridge.compile (scope := scope) (names := names) (args := args) with
+    ⟨compiledIR, hcompile⟩
+  obtain ⟨argExprs, hargCompile, _⟩ := compileStmt_internalCallAssign_shape hcompile
+  have hcompileSpec :
+      CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
+        (Stmt.internalCallAssign names calleeName args) = Except.ok compiledIR := by
+    simpa [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] using hcompile
+  refine ⟨compiledIR, ?_⟩
+  exact
+    compiledStmtStepWithHelpersAndHelperIR_internalCallAssign
+      hcompileSpec
+      hargCompile
+      (hbridge.bridge
+        (scope := scope)
+        (names := names)
+        (args := args)
+        (compiledIR := compiledIR)
+        (argExprs := argExprs)
+        hcompile
+        hargCompile)
+
+/-- Non-vacuous list witness for a statement list headed by
+`Stmt.internalCallAssign`. -/
+theorem stmtListDirectInternalHelperAssignStepInterface_cons_internalCallAssign_of_assignHeadStepBridge
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {names : List String}
+    {calleeName : String}
+    {args : List Expr}
+    {rest : List Stmt}
+    (hbridge :
+      DirectInternalHelperAssignHeadStepBridge runtimeContract spec fields calleeName)
+    (hrest :
+      StmtListDirectInternalHelperAssignStepInterface
+        runtimeContract
+        spec
+        fields
+        (stmtNextScope scope (Stmt.internalCallAssign names calleeName args))
+        rest) :
+    StmtListDirectInternalHelperAssignStepInterface
+      runtimeContract
+      spec
+      fields
+      scope
+      (Stmt.internalCallAssign names calleeName args :: rest) := by
+  rcases
+      compiledStmtStepWithHelpersAndHelperIR_internalCallAssign_of_assignHeadStepBridge
+        (runtimeContract := runtimeContract)
+        (spec := spec)
+        (fields := fields)
+        (scope := scope)
+        (names := names)
+        (calleeName := calleeName)
+        (args := args)
+        hbridge with
+    ⟨compiledIR, hstep⟩
+  exact stmtListDirectInternalHelperAssignStepInterface_cons_internalCallAssign
+    (compiledIR := compiledIR) hstep hrest
+
+/-- Assemble the direct helper-return-binding list interface from per-callee
+assign bridges for helper names that occur in the statement list. -/
+theorem stmtListDirectInternalHelperAssignStepInterface_of_assignHeadStepBridges
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {stmts : List Stmt}
+    (hbridge :
+      ∀ {calleeName : String},
+        calleeName ∈ (stmtListInternalHelperCallNames stmts).eraseDups →
+        DirectInternalHelperAssignHeadStepBridge runtimeContract spec fields calleeName) :
+    StmtListDirectInternalHelperAssignStepInterface runtimeContract spec fields scope stmts := by
+  exact
+    stmtListDirectInternalHelperAssignStepInterface_of_internalCallAssignSteps_of_helperCallNames
+      (runtimeContract := runtimeContract)
+      (spec := spec)
+      (fields := fields)
+      (scope := scope)
+      (stmts := stmts)
+      (fun {scope} {names} {calleeName} {args} hmem =>
+        compiledStmtStepWithHelpersAndHelperIR_internalCallAssign_of_assignHeadStepBridge
+          (runtimeContract := runtimeContract)
+          (spec := spec)
+          (fields := fields)
+          (scope := scope)
+          (names := names)
+          (calleeName := calleeName)
+          (args := args)
+          (hbridge hmem))
+
 /-- For helper-surface-closed statement lists, the four narrow helper-step
 interfaces are all trivially satisfied. This is the entry point for contracts
 that do not use internal helpers at all. -/
