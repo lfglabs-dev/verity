@@ -217,17 +217,23 @@ theorem stmtListDirectInternalHelperCallStepInterface_of_callHeadStepBridges
           (hbridge hmem))
 
 /-!
-## Direct assign internal-helper calls
+## Direct helper-return-binding calls
 
-These constructors mirror the direct void-call bridge above for
-`Stmt.internalCallAssign`. They keep the statement-return-binding proof seam
-callee-local, so future rank-decreasing helper induction can provide one
-`DirectInternalHelperAssignHeadStepBridge` per callee and reuse the mechanical
-list assembly here.
+These constructors mirror the direct void-call witnesses above for
+`Stmt.internalCallAssign`.  They are intentionally still parameterised by
+`DirectInternalHelperAssignHeadStepBridge`: that bridge is the exact missing
+semantic seam for helper-return bindings, connecting source
+`execStmtWithHelpers` through `interpretInternalFunctionFuel` to helper-aware
+compiled execution through `execIRStmtsWithInternals` and
+`evalIRCallWithInternals`.  A closed bridge should be supplied by the later
+rank-decreasing helper-summary proof once the architecture exposes the needed
+compiled-helper summary lemma.
 -/
 
-/-- Build a helper-aware singleton compiled-step proof for a direct
-helper-return-binding call from the exact assign-head bridge. -/
+/-- Build a helper-aware singleton compiled-step proof for a direct helper
+return binding from the exact assign-head bridge.  This is non-vacuous: the
+`Stmt.internalCallAssign` head is compiled as a Yul `let` binding and its
+helper-aware source/IR execution is consumed directly from `hbridge`. -/
 theorem compiledStmtStepWithHelpersAndHelperIR_internalCallAssign_of_assignHeadStepBridge
     {runtimeContract : IRContract}
     {spec : CompilationModel}
@@ -268,7 +274,8 @@ theorem compiledStmtStepWithHelpersAndHelperIR_internalCallAssign_of_assignHeadS
         hargCompile)
 
 /-- Non-vacuous list witness for a statement list headed by
-`Stmt.internalCallAssign`. -/
+`Stmt.internalCallAssign`.  The head proof comes from the assign bridge; the
+tail remains the ordinary list interface at the post-head scope. -/
 theorem stmtListDirectInternalHelperAssignStepInterface_cons_internalCallAssign_of_assignHeadStepBridge
     {runtimeContract : IRContract}
     {spec : CompilationModel}
@@ -304,11 +311,14 @@ theorem stmtListDirectInternalHelperAssignStepInterface_cons_internalCallAssign_
         (args := args)
         hbridge with
     ⟨compiledIR, hstep⟩
-  exact stmtListDirectInternalHelperAssignStepInterface_cons_internalCallAssign
-    (compiledIR := compiledIR) hstep hrest
+  exact
+    stmtListDirectInternalHelperAssignStepInterface_cons_internalCallAssign
+      hstep
+      hrest
 
 /-- Assemble the direct helper-return-binding list interface from per-callee
-assign bridges for helper names that occur in the statement list. -/
+assign bridges for the helper names that occur in this statement list.  This is
+the assign-only counterpart of the broader direct-helper catalog assembly. -/
 theorem stmtListDirectInternalHelperAssignStepInterface_of_assignHeadStepBridges
     {runtimeContract : IRContract}
     {spec : CompilationModel}
@@ -337,6 +347,29 @@ theorem stmtListDirectInternalHelperAssignStepInterface_of_assignHeadStepBridges
           (calleeName := calleeName)
           (args := args)
           (hbridge hmem))
+
+/-- Assemble the direct helper-return-binding list interface for a function
+body from the per-callee assign bridge catalog used by the rank-decreasing
+helper-summary layer. -/
+theorem stmtListDirectInternalHelperAssignStepInterface_of_perCalleeAssignBridgeCatalog
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {fn : FunctionSpec}
+    (hbridge :
+      DirectInternalHelperPerCalleeAssignBridgeCatalog runtimeContract spec fields fn) :
+    StmtListDirectInternalHelperAssignStepInterface
+      runtimeContract spec fields scope fn.body := by
+  exact
+    stmtListDirectInternalHelperAssignStepInterface_of_assignHeadStepBridges
+      (runtimeContract := runtimeContract)
+      (spec := spec)
+      (fields := fields)
+      (scope := scope)
+      (stmts := fn.body)
+      (fun {calleeName} hmem =>
+        hbridge.assign (by simpa [helperCallNames] using hmem))
 
 /-- For helper-surface-closed statement lists, the four narrow helper-step
 interfaces are all trivially satisfied. This is the entry point for contracts
