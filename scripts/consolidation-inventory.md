@@ -64,7 +64,7 @@ drift mode unless noted.
 | generate_print_axioms.py | `PrintAxioms.lean` ↔ all theorem decls | lean-grep | regen + `--check` | property_utils |
 | check_proof_length.py | proof line limits (soft 30 / hard 50, allowlist) | lean-grep | exit | property_utils |
 | check_issue_1060_integrity.py | `artifacts/issue_1060_progress.json` ledger schema + repo facts | artifact + repo | exit | — |
-| update_doc_numbers.py --check | README.md + docs-site/public/llms.txt metric markers ↔ verification_status.json | artifact + doc-grep | regen + `--check` | — |
+| update_doc_numbers.py --check | docs-site/public/llms.txt metric markers ↔ verification_status.json | artifact + doc-grep | regen + `--check` | — |
 | (unittest discover `test_*.py`) | unit coverage of the above checkers | — | exit | — |
 
 ### 1.2 CI-only (workflows, not `make check`)

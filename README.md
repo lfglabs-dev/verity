@@ -21,18 +21,11 @@
 
 **Verity** is a formally verified smart contract compiler written in [Lean 4](https://lean-lang.org/). You write contracts in an embedded DSL, state what they should do, prove those properties hold, and compile to EVM bytecode. The compiler itself is proven to preserve semantics across three verified layers. Full documentation lives at [**veritylang.com**](https://veritylang.com).
 
-<!-- BEGIN GENERATED STATS -->
-| Metric | Value |
-|--------|-------|
-| Theorems | 300 (300 proven, 0 sorry) |
-| Axioms | 0 |
-| Foundry tests | 522 (239 property) |
-| Verified contracts | 13 |
-| Core EDSL | 830 lines |
-| Lean | 4.22.0 |
-<!-- END GENERATED STATS -->
+## Verification status
 
-Every number above is extracted from the codebase and verified on every commit. `0 sorry` means no proof is left incomplete. `0 axioms` means no unproven assumptions remain in the compiler stack.
+All proofs are machine-checked by the Lean kernel. CI rebuilds the proof development on every commit, and repository checks enforce that no proof is left incomplete (no `sorry`) and that the compiler proof stack carries 0 axioms (see [AXIOMS.md](AXIOMS.md)). Verification is scoped rather than total: the generic compiler theorems cover an explicitly documented fragment of the language, and the precise boundary between what is proven and what is trusted is maintained in [TRUST_ASSUMPTIONS.md](TRUST_ASSUMPTIONS.md).
+
+A detailed proof inventory — theorem status, per-contract results, and test coverage — is regenerated from the codebase and tracked in [docs/VERIFICATION_STATUS.md](docs/VERIFICATION_STATUS.md). All checks are reproducible locally (see [Quick start](#quick-start)).
 
 ## What is verified
 
