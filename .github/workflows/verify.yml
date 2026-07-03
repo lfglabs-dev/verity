@@ -661,6 +661,7 @@ jobs:
           set -euo pipefail
           smoke_modules=(
             Contracts.BytesEqSmoke
+            Contracts.Smoke.ImmutableSmoke
             Contracts.Smoke.LowLevelTryCatchSmoke
             Contracts.Smoke.SelfBalanceSmoke
             Contracts.StringArrayErrorSmoke
@@ -705,6 +706,7 @@ jobs:
           set -euo pipefail
           smoke_modules=(
             Contracts.BytesEqSmoke
+            Contracts.Smoke.ImmutableSmoke
             Contracts.Smoke.LowLevelTryCatchSmoke
             Contracts.Smoke.SelfBalanceSmoke
             Contracts.StringArrayErrorSmoke

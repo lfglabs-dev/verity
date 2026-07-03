@@ -66,6 +66,156 @@ open Compiler.CompilationModel
 open Compiler.Yul
 open Compiler.Proofs.IRGeneration
 
+/-!
+## Direct void internal-helper calls
+
+The constructors below are intentionally call-only: they prove the first
+non-vacuous `StmtListDirectInternalHelperCallStepInterface` witnesses while
+leaving the helper-surface-closed fast paths below unchanged.  The semantic
+payload is still supplied through `DirectInternalHelperCallHeadStepBridge`.
+That bridge is the current architecture's exact source/IR seam: source
+`execStmtWithHelpers` must be related to helper-aware compiled execution
+`execIRStmtsWithInternals` after compiling the argument list.
+
+Blocker for closing this from only `SupportedBodyHelperInterface` and
+`SupportedRuntimeHelperTableInterface`: the tree has source summary soundness
+(`InternalHelperSummarySound` for `interpretInternalFunctionFuel`) and IR
+helper lookup/dispatch lemmas, but it does not yet expose a theorem stating
+that executing a compiled internal helper body with
+`execIRInternalFunctionWithInternals` satisfies the same
+`InternalHelperSummaryContract.post` as the source helper.
+-/
+
+/-- Build a helper-aware singleton compiled-step proof for a direct void
+internal helper call from the exact call-head bridge.  This is non-vacuous:
+the `Stmt.internalCall` head is compiled and its helper-aware source/IR
+execution is consumed directly from `hbridge`. -/
+theorem compiledStmtStepWithHelpersAndHelperIR_internalCall_of_callHeadStepBridge
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {calleeName : String}
+    {args : List Expr}
+    (hbridge :
+      DirectInternalHelperCallHeadStepBridge runtimeContract spec fields calleeName) :
+    ∃ compiledIR,
+      CompiledStmtStepWithHelpersAndHelperIR
+        runtimeContract
+        spec
+        fields
+        scope
+        (Stmt.internalCall calleeName args)
+        compiledIR := by
+  rcases hbridge.compile (scope := scope) (args := args) with
+    ⟨compiledIR, hcompile⟩
+  obtain ⟨argExprs, hargCompile, _⟩ := compileStmt_internalCall_shape hcompile
+  have hcompileSpec :
+      CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
+        (Stmt.internalCall calleeName args) = Except.ok compiledIR := by
+    simpa [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] using hcompile
+  refine ⟨compiledIR, ?_⟩
+  exact
+    compiledStmtStepWithHelpersAndHelperIR_internalCall
+      (runtimeContract := runtimeContract)
+      (spec := spec)
+      (fields := fields)
+      (scope := scope)
+      (calleeName := calleeName)
+      (args := args)
+      (compiledIR := compiledIR)
+      (argExprs := argExprs)
+      hcompileSpec
+      hargCompile
+      (hbridge.bridge
+        (scope := scope)
+        (args := args)
+        (compiledIR := compiledIR)
+        (argExprs := argExprs)
+        hcompile
+        hargCompile)
+
+/-- Non-vacuous list witness for a statement list headed by
+`Stmt.internalCall`.  The head proof comes from the call bridge; the tail remains
+the ordinary list interface at the post-head scope. -/
+theorem stmtListDirectInternalHelperCallStepInterface_cons_internalCall_of_callHeadStepBridge
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {calleeName : String}
+    {args : List Expr}
+    {rest : List Stmt}
+    (hbridge :
+      DirectInternalHelperCallHeadStepBridge runtimeContract spec fields calleeName)
+    (hrest :
+      StmtListDirectInternalHelperCallStepInterface
+        runtimeContract
+        spec
+        fields
+        (stmtNextScope scope (Stmt.internalCall calleeName args))
+        rest) :
+    StmtListDirectInternalHelperCallStepInterface
+      runtimeContract
+      spec
+      fields
+      scope
+      (Stmt.internalCall calleeName args :: rest) := by
+  rcases
+      compiledStmtStepWithHelpersAndHelperIR_internalCall_of_callHeadStepBridge
+        (runtimeContract := runtimeContract)
+        (spec := spec)
+        (fields := fields)
+        (scope := scope)
+        (calleeName := calleeName)
+        (args := args)
+        hbridge with
+    ⟨compiledIR, hstep⟩
+  exact
+    stmtListDirectInternalHelperCallStepInterface_cons_internalCall
+      (runtimeContract := runtimeContract)
+      (spec := spec)
+      (fields := fields)
+      (scope := scope)
+      (calleeName := calleeName)
+      (args := args)
+      (compiledIR := compiledIR)
+      (rest := rest)
+      hstep
+      hrest
+
+/-- Assemble the direct void-helper-call list interface from per-callee call
+bridges for the helper names that occur in this statement list.  This is the
+call-only counterpart of the broader direct-helper catalog assembly and does
+not require the assign-call half. -/
+theorem stmtListDirectInternalHelperCallStepInterface_of_callHeadStepBridges
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {stmts : List Stmt}
+    (hbridge :
+      ∀ {calleeName : String},
+        calleeName ∈ (stmtListInternalHelperCallNames stmts).eraseDups →
+        DirectInternalHelperCallHeadStepBridge runtimeContract spec fields calleeName) :
+    StmtListDirectInternalHelperCallStepInterface runtimeContract spec fields scope stmts := by
+  exact
+    stmtListDirectInternalHelperCallStepInterface_of_internalCallSteps_of_helperCallNames
+      (runtimeContract := runtimeContract)
+      (spec := spec)
+      (fields := fields)
+      (scope := scope)
+      (stmts := stmts)
+      (fun {scope} {calleeName} {args} hmem =>
+        compiledStmtStepWithHelpersAndHelperIR_internalCall_of_callHeadStepBridge
+          (runtimeContract := runtimeContract)
+          (spec := spec)
+          (fields := fields)
+          (scope := scope)
+          (calleeName := calleeName)
+          (args := args)
+          (hbridge hmem))
+
 /-- For helper-surface-closed statement lists, the four narrow helper-step
 interfaces are all trivially satisfied. This is the entry point for contracts
 that do not use internal helpers at all. -/
