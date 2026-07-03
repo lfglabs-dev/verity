@@ -55,7 +55,8 @@ semantic definition.
 Exactly the constructs `SourceSemantics` itself maps to `none`/`.revert`:
 dynamic memory-array expressions (`memoryArrayLength`, `memoryArrayElement`,
 `arrayElementDynamic*`, `paramDynamic*`), `forkIfAtLeast`, `mappingChain`
-reads (writes are supported), and every `Expr`/`Stmt` constructor not listed
+reads with zero or three-plus keys (one/two-key reads and writes are
+supported), and every `Expr`/`Stmt` constructor not listed
 in the arms below (raw calls, ABI re-encoding returns, ECM, unsafe Yul,
 `matchAdt`, internal calls — internal-call semantics live in the separate
 `*WithHelpers` interpreters and are not part of this fragment).
