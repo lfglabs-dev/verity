@@ -1046,6 +1046,124 @@ theorem evalIRExprWithInternals_binary_builtin_of_values
       hnotTload hnotMload hnotKeccak,
     hbuiltin]
 
+/-- `Nat` values coerced to `Uint256` may be normalized before or after the
+coercion when using the EVM modulus. -/
+theorem uint256_ofNat_evmModulus_mod (value : Nat) :
+    Verity.Core.Uint256.ofNat value =
+      Verity.Core.Uint256.ofNat (value % Compiler.Constants.evmModulus) := by
+  ext
+  simp [Verity.Core.Uint256.ofNat, Verity.Core.Uint256.modulus,
+    Verity.Core.UINT256_MODULUS, Compiler.Constants.evmModulus]
+
+/-- Shared source/Yul value for the `Expr.add` constructor. -/
+def exprAddValue (leftValue rightValue : Nat) : Nat :=
+  (Verity.Core.Uint256.add
+    (Verity.Core.Uint256.ofNat (leftValue % Compiler.Constants.evmModulus))
+    (Verity.Core.Uint256.ofNat (rightValue % Compiler.Constants.evmModulus))).val
+
+/-- Constructor-specific compiler shape for `Expr.add` once both children have
+already compiled. -/
+theorem compileExprWithInternals_add_of_children
+    {fields : List Field} {internalFunctions : List FunctionSpec}
+    {left right : Expr} {leftIR rightIR : YulExpr}
+    (hcompileLeft :
+      CompilationModel.compileExprWithInternals fields .calldata internalFunctions left =
+        Except.ok leftIR)
+    (hcompileRight :
+      CompilationModel.compileExprWithInternals fields .calldata internalFunctions right =
+        Except.ok rightIR) :
+    CompilationModel.compileExprWithInternals fields .calldata internalFunctions
+        (Expr.add left right) =
+      Except.ok (YulExpr.call "add" [leftIR, rightIR]) := by
+  simp only [CompilationModel.compileExprWithInternals, hcompileLeft, hcompileRight,
+    CompilationModel.yulBinOp]
+  rfl
+
+/-- Constructor-specific source semantics for `Expr.add` once both child source
+values are known. -/
+theorem evalExprWithHelpers_add_of_values
+    (spec : CompilationModel) (fields : List Field)
+    (fuel : Nat) (runtime : SourceSemantics.RuntimeState)
+    {left right : Expr} {leftValue rightValue : Nat}
+    (hsourceLeft :
+      SourceSemantics.evalExprWithHelpers spec fields fuel runtime left =
+        some leftValue)
+    (hsourceRight :
+      SourceSemantics.evalExprWithHelpers spec fields fuel runtime right =
+        some rightValue) :
+    SourceSemantics.evalExprWithHelpers spec fields fuel runtime (Expr.add left right) =
+      some (exprAddValue leftValue rightValue) := by
+  simp [SourceSemantics.evalExprWithHelpers, hsourceLeft, hsourceRight,
+    exprAddValue, Verity.Core.Uint256.add]
+  conv_lhs =>
+    rw [uint256_ofNat_evmModulus_mod leftValue,
+      uint256_ofNat_evmModulus_mod rightValue]
+
+/-- Constructor-specific builtin semantics for the compiled Yul `add` call. -/
+theorem evalBuiltinCallWithEvmYulLeanContext_add_of_values
+    (state : IRState) (leftValue rightValue : Nat) :
+    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
+        state.storage state.sender state.msgValue state.thisAddress
+        state.blockTimestamp state.blockNumber state.chainId state.blobBaseFee
+        state.txOrigin state.selector state.calldata "add" [leftValue, rightValue] =
+      some (exprAddValue leftValue rightValue) := by
+  simp [Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
+    exprAddValue, Verity.Core.Uint256.add, Verity.Core.Uint256.ofNat,
+    Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS,
+    Compiler.Constants.evmModulus, Nat.add_mod]
+
+/-- Constructor-specific right-child bridge for `Expr.add`.
+
+This is the first non-call expression constructor that discharges its own
+source, compile, and IR facts using the threaded binary API.  The left operand
+is evaluated first in IR and may advance the state; the helper-bearing right
+operand is then evaluated from that intermediate state, while source evaluation
+continues from the original runtime. -/
+theorem exprInternalHelperCompositionalContextResult_add_right_threaded
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {left right : Expr} {leftIR rightIR : YulExpr} {helperFuel irFuel : Nat}
+    {runtime headRuntime : SourceSemantics.RuntimeState}
+    {parentState rightEntryState headState rightFinalState finalState : IRState}
+    {leftValue rightValue : Nat}
+    (hright : ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+      right rightIR helperFuel irFuel runtime headRuntime rightEntryState headState rightFinalState rightValue)
+    (hcompileLeft :
+      CompilationModel.compileExprWithInternals fields .calldata spec.functions left =
+        Except.ok leftIR)
+    (hsourceLeft : SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1) runtime left =
+      some leftValue)
+    (hirLeft :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) parentState leftIR =
+        .value leftValue rightEntryState)
+    (hirRight :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) rightEntryState rightIR =
+        .value rightValue finalState)
+    (hfindAdd : findInternalFunction? runtimeContract "add" = none) :
+    ExprInternalHelperCompositionalContextResult runtimeContract spec fields (Expr.add left right)
+      (YulExpr.call "add" [leftIR, rightIR]) helperFuel irFuel runtime headRuntime
+      parentState headState finalState (exprAddValue leftValue rightValue) := by
+  let value := exprAddValue leftValue rightValue
+  have hrightFacts := hright
+  unfold ExprInternalHelperCompositionalContextResult at hrightFacts
+  rcases hrightFacts with ⟨hcompileRight, hsourceRight, _, _, _⟩
+  let hcompile := compileExprWithInternals_add_of_children hcompileLeft hcompileRight
+  let hsource := evalExprWithHelpers_add_of_values spec fields (helperFuel + 1) runtime
+    hsourceLeft hsourceRight
+  let hbuiltin := evalBuiltinCallWithEvmYulLeanContext_add_of_values finalState leftValue rightValue
+  let hir := evalIRExprWithInternals_binary_builtin_of_values runtimeContract (irFuel + 1)
+    parentState rightEntryState finalState "add" leftIR rightIR leftValue rightValue value
+    hirLeft hirRight hfindAdd (by decide) (by decide) (by decide) hbuiltin
+  exact
+    exprInternalHelperCompositionalContextResult_binary_right_threaded_context
+      (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+      (left := left) (right := right) (leftIR := leftIR) (rightIR := rightIR)
+      (mkExpr := Expr.add) (mkIR := fun a b => YulExpr.call "add" [a, b])
+      (helperFuel := helperFuel) (irFuel := irFuel)
+      (runtime := runtime) (headRuntime := headRuntime)
+      (parentState := parentState) (rightEntryState := rightEntryState)
+      (headState := headState)
+      hright hcompile hsource hir
+
 /-- Expression-helper statement-head bridge. Future helper-summary induction
 should construct this for each statement head whose helper work appears in
 expression position. The semantic payload is the exact helper-aware source/IR
