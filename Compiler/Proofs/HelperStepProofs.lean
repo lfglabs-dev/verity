@@ -794,6 +794,39 @@ theorem exprInternalHelperCompositionalContextResult_of_outer_facts
   rcases hhead with ⟨_, _, _, hmatches, hpayload⟩
   exact ⟨hcompile, hsource, hir, hmatches, hpayload⟩
 
+/-- Variant of `exprInternalHelperCompositionalContextResult_of_outer_facts`
+where the helper-head IR expression starts from an intermediate state rather
+than the parent expression's entry state.  This is the shape needed for
+right-hand siblings: the left sibling may have already advanced IR state before
+the helper-bearing right expression is evaluated, while source expression
+evaluation still uses the same source runtime. -/
+theorem exprInternalHelperCompositionalContextResult_of_outer_facts_threaded_head
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {headExpr expr : Expr} {headExprIR exprIR : YulExpr}
+    {helperFuel irFuel : Nat}
+    {runtime headRuntime : SourceSemantics.RuntimeState}
+    {parentState headEntryState headState headFinalState finalState : IRState}
+    {headValue value : Nat}
+    (hhead :
+      ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+        headExpr headExprIR helperFuel irFuel runtime headRuntime headEntryState
+        headState headFinalState headValue)
+    (hcompile :
+      CompilationModel.compileExprWithInternals fields .calldata spec.functions expr =
+        Except.ok exprIR)
+    (hsource :
+      SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1) runtime expr =
+        some value)
+    (hir :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) parentState exprIR =
+        .value value finalState) :
+    ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+      expr exprIR helperFuel irFuel runtime headRuntime parentState headState
+      finalState value := by
+  unfold ExprInternalHelperCompositionalContextResult at hhead ⊢
+  rcases hhead with ⟨_, _, _, hmatches, hpayload⟩
+  exact ⟨hcompile, hsource, hir, hmatches, hpayload⟩
+
 /-- Unary non-call expression-context lift.  This is the common shape for
 constructors such as `bitNot`, `logicalNot`, `mload`, `tload`, `calldataload`,
 and single-child dynamic-array helpers once their outer facts are proved. -/
@@ -909,6 +942,109 @@ theorem exprInternalHelperCompositionalContextResult_binary_right_context
       (runtime := runtime) (headRuntime := headRuntime)
       (state := state) (headState := headState)
       hright hcompile hsource hir
+
+/-- Binary non-call expression-context lift when the helper payload is in the
+right child and the left sibling has already advanced the IR state.  This is the
+threaded counterpart of `exprInternalHelperCompositionalContextResult_binary_right_context`
+and is the reusable shape for source/IR expression compiler lemmas over sibling
+constructors. -/
+theorem exprInternalHelperCompositionalContextResult_binary_right_threaded_context
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {left right : Expr} {leftIR rightIR : YulExpr}
+    {mkExpr : Expr → Expr → Expr} {mkIR : YulExpr → YulExpr → YulExpr}
+    {helperFuel irFuel : Nat}
+    {runtime headRuntime : SourceSemantics.RuntimeState}
+    {parentState rightEntryState headState rightFinalState finalState : IRState}
+    {rightValue value : Nat}
+    (hright :
+      ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+        right rightIR helperFuel irFuel runtime headRuntime rightEntryState headState
+        rightFinalState rightValue)
+    (hcompile :
+      CompilationModel.compileExprWithInternals fields .calldata spec.functions
+          (mkExpr left right) =
+        Except.ok (mkIR leftIR rightIR))
+    (hsource :
+      SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1) runtime
+          (mkExpr left right) =
+        some value)
+    (hir :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) parentState
+          (mkIR leftIR rightIR) =
+        .value value finalState) :
+    ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+      (mkExpr left right) (mkIR leftIR rightIR) helperFuel irFuel runtime
+      headRuntime parentState headState finalState value := by
+  exact
+    exprInternalHelperCompositionalContextResult_of_outer_facts_threaded_head
+      (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+      (headExpr := right) (headExprIR := rightIR)
+      (helperFuel := helperFuel) (irFuel := irFuel)
+      (runtime := runtime) (headRuntime := headRuntime)
+      (parentState := parentState) (headEntryState := rightEntryState)
+      (headState := headState)
+      hright hcompile hsource hir
+
+/-- Successful two-argument IR expression evaluation with explicit
+left-to-right state threading. -/
+theorem evalIRExprsWithInternals_pair_of_values
+    (runtimeContract : IRContract)
+    (fuel : Nat)
+    (state leftState finalState : IRState)
+    (leftIR rightIR : YulExpr)
+    (leftValue rightValue : Nat)
+    (hleft :
+      evalIRExprWithInternals runtimeContract fuel state leftIR =
+        .value leftValue leftState)
+    (hright :
+      evalIRExprWithInternals runtimeContract fuel leftState rightIR =
+        .value rightValue finalState) :
+    evalIRExprsWithInternals runtimeContract fuel state [leftIR, rightIR] =
+      .values [leftValue, rightValue] finalState := by
+  simp [evalIRExprsWithInternals, hleft, hright]
+
+/-- Helper-aware compiled IR evaluation for a pure two-argument Yul builtin,
+with the sibling state threading exposed by
+`evalIRExprsWithInternals_pair_of_values`.  Constructor-specific source/compile
+lemmas can use this to discharge the IR side for binary non-call expression
+contexts after proving the source value computes to the same builtin result. -/
+theorem evalIRExprWithInternals_binary_builtin_of_values
+    (runtimeContract : IRContract)
+    (fuel : Nat)
+    (state leftState finalState : IRState)
+    (func : String)
+    (leftIR rightIR : YulExpr)
+    (leftValue rightValue value : Nat)
+    (hleft :
+      evalIRExprWithInternals runtimeContract fuel state leftIR =
+        .value leftValue leftState)
+    (hright :
+      evalIRExprWithInternals runtimeContract fuel leftState rightIR =
+        .value rightValue finalState)
+    (hfind : findInternalFunction? runtimeContract func = none)
+    (hnotTload : func ≠ "tload")
+    (hnotMload : func ≠ "mload")
+    (hnotKeccak : func ≠ "keccak256")
+    (hbuiltin :
+      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
+          finalState.storage finalState.sender finalState.msgValue finalState.thisAddress
+          finalState.blockTimestamp finalState.blockNumber finalState.chainId
+          finalState.blobBaseFee finalState.txOrigin finalState.selector
+          finalState.calldata func [leftValue, rightValue] =
+        some value) :
+    evalIRExprWithInternals runtimeContract fuel state
+        (YulExpr.call func [leftIR, rightIR]) =
+      .value value finalState := by
+  have hargs :
+      evalIRExprsWithInternals runtimeContract fuel state [leftIR, rightIR] =
+        .values [leftValue, rightValue] finalState :=
+    evalIRExprsWithInternals_pair_of_values runtimeContract fuel state leftState finalState
+      leftIR rightIR leftValue rightValue hleft hright
+  simp [evalIRExprWithInternals_call,
+    evalIRCallWithInternals_of_builtin runtimeContract fuel state func
+      [leftIR, rightIR] [leftValue, rightValue] finalState hargs hfind
+      hnotTload hnotMload hnotKeccak,
+    hbuiltin]
 
 /-- Expression-helper statement-head bridge. Future helper-summary induction
 should construct this for each statement head whose helper work appears in
