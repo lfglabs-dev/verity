@@ -695,6 +695,76 @@ theorem exprInternalHelperCallContextBridge_compileExprWithInternals_internalCal
   · exact evalIRExprWithInternals_call_of_dispatch
       runtimeContract irFuel state state' calleeName argExprs helper argVals hirDispatch
 
+/-- Expression-context payload that combines outer expression correspondence
+with the exact phase-5 helper-head evidence. The remaining blocker is the
+recursive non-call `Expr` theorem that constructs this package for contexts. -/
+def ExprInternalHelperCompositionalContextResult
+    (runtimeContract : IRContract)
+    (spec : CompilationModel)
+    (fields : List Field)
+    (expr : Expr)
+    (exprIR : YulExpr)
+    (helperFuel irFuel : Nat)
+    (runtime headRuntime : SourceSemantics.RuntimeState)
+    (state headState finalState : IRState)
+    (value : Nat) : Prop :=
+  CompilationModel.compileExprWithInternals fields .calldata spec.functions expr =
+      Except.ok exprIR ∧
+    SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1) runtime expr =
+      some value ∧
+    evalIRExprWithInternals runtimeContract (irFuel + 1) state exprIR =
+      .value value finalState ∧
+    FunctionBody.runtimeStateMatchesIR fields headRuntime headState ∧
+    ∃ (calleeName : String) (args : List Expr)
+        (hctx : ExprInternalHelperCallContextBridge runtimeContract spec calleeName)
+        (argVals : List Nat) (argExprs : List YulExpr) (argState : IRState),
+      ExprInternalHelperCompiledCallContextResult runtimeContract spec fields
+        calleeName args hctx helperFuel irFuel headRuntime headState argState
+        argVals argExprs
+
+/-- Direct-head base case for the compositional expression-context payload. -/
+theorem exprInternalHelperCompositionalContextResult_internalCall_head
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {calleeName : String} {args : List Expr}
+    (hctx : ExprInternalHelperCallContextBridge runtimeContract spec calleeName)
+    (hnodup : (spec.functions.map (·.name)).Nodup)
+    {helperFuel irFuel : Nat} {runtime : SourceSemantics.RuntimeState}
+    {state argState finalState : IRState} {argVals : List Nat}
+    {argExprs : List YulExpr} {value : Nat}
+    (hruntime : FunctionBody.runtimeStateMatchesIR fields runtime state)
+    (hsourceArgs :
+      SourceSemantics.evalExprListWithHelpers spec fields (helperFuel + 1) runtime args =
+        some argVals)
+    (hcompileArgs :
+      CompilationModel.compileInternalCallArgs fields .calldata spec.functions calleeName args =
+        Except.ok argExprs)
+    (hirArgs :
+      evalIRExprsWithInternals runtimeContract (irFuel + 1) state argExprs =
+        .values argVals argState)
+    (hsourceValue :
+      SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1) runtime
+          (Expr.internalCall calleeName args) =
+        some value)
+    (hirValue :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) state
+          (YulExpr.call (CompilationModel.internalFunctionYulName calleeName) argExprs) =
+        .value value finalState) :
+    ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+      (Expr.internalCall calleeName args)
+      (YulExpr.call (CompilationModel.internalFunctionYulName calleeName) argExprs)
+      helperFuel irFuel runtime runtime state state finalState value := by
+  unfold ExprInternalHelperCompositionalContextResult
+  refine ⟨?_, hsourceValue, hirValue, hruntime, ?_⟩
+  · exact compileExprWithInternals_internalCall_shape hcompileArgs
+  · refine ⟨calleeName, args, hctx, argVals, argExprs, argState, ?_⟩
+    exact
+      exprInternalHelperCallContextBridge_compileExprWithInternals_internalCall
+        (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+        (calleeName := calleeName) (args := args) hctx hnodup
+        (helperFuel := helperFuel) (irFuel := irFuel) (runtime := runtime)
+        (state := state) (state' := argState) (argVals := argVals)
+        (argExprs := argExprs) hsourceArgs hcompileArgs hirArgs
+
 /-- Expression-helper statement-head bridge. Future helper-summary induction
 should construct this for each statement head whose helper work appears in
 expression position. The semantic payload is the exact helper-aware source/IR
