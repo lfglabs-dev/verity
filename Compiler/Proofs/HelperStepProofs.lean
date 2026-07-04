@@ -539,6 +539,162 @@ theorem exprInternalHelperCallContextBridge_sourceEvidence
       (hpost := hctx.summarySound fuel state.world argVals)
       hsuccess
 
+/-- Compiler shape for an expression-position internal helper call.  The
+argument expressions are the exact output of `compileInternalCallArgs`, which is
+more general than `compileExprListWithInternals`: internal helper parameters may
+expand direct forwarded source arguments into several Yul arguments. -/
+theorem compileExprWithInternals_internalCall_shape
+    {fields : List Field}
+    {dynamicSource : DynamicDataSource}
+    {internalFunctions : List FunctionSpec}
+    {calleeName : String}
+    {args : List Expr}
+    {argExprs : List YulExpr}
+    (hargs :
+      CompilationModel.compileInternalCallArgs fields dynamicSource internalFunctions calleeName args =
+        Except.ok argExprs) :
+    CompilationModel.compileExprWithInternals fields dynamicSource internalFunctions
+        (Expr.internalCall calleeName args) =
+      Except.ok
+        (YulExpr.call (CompilationModel.internalFunctionYulName calleeName) argExprs) := by
+  simp [CompilationModel.compileExprWithInternals, hargs]
+
+/-- Result package for composing an expression-position internal helper call
+through source evaluation, expression compilation, compiled argument evaluation,
+and helper-aware IR dispatch.  It is factored out so the public theorem below
+stays below the proof-length gate while still exposing every piece of evidence
+needed by the later statement-head bridge. -/
+def ExprInternalHelperCompiledCallContextResult
+    (runtimeContract : IRContract)
+    (spec : CompilationModel)
+    (fields : List Field)
+    (calleeName : String)
+    (args : List Expr)
+    (hctx : ExprInternalHelperCallContextBridge runtimeContract spec calleeName)
+    (helperFuel irFuel : Nat)
+    (runtime : SourceSemantics.RuntimeState)
+    (state state' : IRState)
+    (argVals : List Nat)
+    (argExprs : List YulExpr) : Prop :=
+  let sourceResult :=
+    SourceSemantics.interpretInternalFunctionFuel
+      spec helperFuel hctx.sourceWitness.callee runtime.world argVals
+  ∃ helper,
+    CompilationModel.compileExprWithInternals fields .calldata spec.functions
+        (Expr.internalCall calleeName args) =
+      Except.ok
+        (YulExpr.call (CompilationModel.internalFunctionYulName calleeName) argExprs) ∧
+    SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1) runtime
+        (Expr.internalCall calleeName args) =
+      (if sourceResult.success then sourceResult.returnValue else none) ∧
+    hctx.sourceWitness.summary.contract.post helperFuel runtime.world argVals
+      sourceResult.success sourceResult.returnValue sourceResult.world ∧
+    (sourceResult.success = true → sourceResult.world = runtime.world) ∧
+    findInternalFunction? runtimeContract
+      (CompilationModel.internalFunctionYulName calleeName) = some helper ∧
+    evalIRCallWithInternals runtimeContract (irFuel + 1) state
+        (CompilationModel.internalFunctionYulName calleeName) argExprs =
+      execIRInternalFunctionWithInternals runtimeContract irFuel state' helper argVals ∧
+    evalIRExprWithInternals runtimeContract (irFuel + 1) state
+        (YulExpr.call (CompilationModel.internalFunctionYulName calleeName) argExprs) =
+      match execIRInternalFunctionWithInternals runtimeContract irFuel state' helper argVals with
+      | .values [value] state'' => .value value state''
+      | .values _ state'' => .revert state''
+      | .stop state'' => .stop state''
+      | .return value state'' => .return value state''
+      | .revert state'' => .revert state''
+
+/-- Lift an already-proved helper-aware call dispatch equality through
+`evalIRExprWithInternals` for the compiled call expression. -/
+theorem evalIRExprWithInternals_call_of_dispatch
+    (runtimeContract : IRContract)
+    (irFuel : Nat)
+    (state state' : IRState)
+    (calleeName : String)
+    (argExprs : List YulExpr)
+    (helper : IRInternalFunctionDef)
+    (argVals : List Nat)
+    (hirDispatch :
+      evalIRCallWithInternals runtimeContract (irFuel + 1) state
+          (CompilationModel.internalFunctionYulName calleeName) argExprs =
+        execIRInternalFunctionWithInternals runtimeContract irFuel state' helper argVals) :
+    evalIRExprWithInternals runtimeContract (irFuel + 1) state
+        (YulExpr.call (CompilationModel.internalFunctionYulName calleeName) argExprs) =
+      match execIRInternalFunctionWithInternals runtimeContract irFuel state' helper argVals with
+      | .values [value] state'' => .value value state''
+      | .values _ state'' => .revert state''
+      | .stop state'' => .stop state''
+      | .return value state'' => .return value state''
+      | .revert state'' => .revert state'' := by
+  rw [evalIRExprWithInternals_call, hirDispatch]
+  cases execIRInternalFunctionWithInternals runtimeContract irFuel state' helper argVals with
+  | values values state'' =>
+      cases values with
+      | nil => rfl
+      | cons value rest => cases rest <;> rfl
+  | stop state'' => rfl
+  | «return» value state'' => rfl
+  | revert state'' => rfl
+
+/-- Compose the phase-4 per-callee expression helper bridge with the expression
+compiler at the helper-call head.  This theorem is the current non-vacuous
+compiler/context handoff: once callers prove that the compiled Yul argument
+context evaluates to the same helper argument values as source
+`evalExprListWithHelpers`, the bridge supplies source summary soundness,
+helper-world preservation on success, compiled helper lookup/dispatch through
+`evalIRCallWithInternals`, and the corresponding `evalIRExprWithInternals`
+shape for the compiled call expression.
+
+This intentionally remains at the `Expr.internalCall` head.  Lifting it through
+arbitrary parent expressions and then through statement heads still requires a
+separate compositional expression compiler theorem relating
+`evalExprWithHelpers` and `evalIRExprWithInternals` for non-call expression
+contexts while preserving the helper-world and argument-evaluation evidence. -/
+theorem exprInternalHelperCallContextBridge_compileExprWithInternals_internalCall
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {calleeName : String}
+    {args : List Expr}
+    (hctx : ExprInternalHelperCallContextBridge runtimeContract spec calleeName)
+    (hnodup : (spec.functions.map (·.name)).Nodup)
+    {helperFuel irFuel : Nat}
+    {runtime : SourceSemantics.RuntimeState}
+    {state state' : IRState}
+    {argVals : List Nat}
+    {argExprs : List YulExpr}
+    (hsourceArgs :
+      SourceSemantics.evalExprListWithHelpers spec fields (helperFuel + 1) runtime args =
+        some argVals)
+    (hcompileArgs :
+      CompilationModel.compileInternalCallArgs fields .calldata spec.functions calleeName args =
+        Except.ok argExprs)
+    (hirArgs :
+      evalIRExprsWithInternals runtimeContract (irFuel + 1) state argExprs =
+        .values argVals state') :
+    ExprInternalHelperCompiledCallContextResult runtimeContract spec fields
+      calleeName args hctx helperFuel irFuel runtime state state' argVals argExprs := by
+  unfold ExprInternalHelperCompiledCallContextResult
+  dsimp only
+  have hcompile :
+      CompilationModel.compileExprWithInternals fields .calldata spec.functions
+          (Expr.internalCall calleeName args) =
+        Except.ok
+          (YulExpr.call (CompilationModel.internalFunctionYulName calleeName) argExprs) :=
+    compileExprWithInternals_internalCall_shape hcompileArgs
+  have hsource :=
+    exprInternalHelperCallContextBridge_sourceEvidence (runtimeContract := runtimeContract)
+      (spec := spec) (fields := fields) (calleeName := calleeName) (args := args)
+      hctx hnodup (fuel := helperFuel) (state := runtime) hsourceArgs
+  have hirCall := hctx.irCall state irFuel hirArgs
+  rcases hirCall with ⟨helper, hfind, hirDispatch⟩
+  refine ⟨helper, hcompile, ?_, ?_, ?_, hfind, hirDispatch, ?_⟩
+  · exact hsource.1
+  · exact hsource.2.1
+  · exact hsource.2.2
+  · exact evalIRExprWithInternals_call_of_dispatch
+      runtimeContract irFuel state state' calleeName argExprs helper argVals hirDispatch
+
 /-- Expression-helper statement-head bridge. Future helper-summary induction
 should construct this for each statement head whose helper work appears in
 expression position. The semantic payload is the exact helper-aware source/IR
