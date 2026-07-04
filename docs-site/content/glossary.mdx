@@ -122,6 +122,24 @@ The Lean term that establishes the contract's `Spec`. Lives under
 `Correctness.lean`, `Conservation.lean`, `Supply.lean`, `Isolation.lean`).
 Checked by `lake build`; a broken proof is a broken build.
 
+### Reentry schedule
+
+A finite list of contract entrypoints run in sequence, modeling everything a
+reentrant adversary can do inside a callback window. The theorem
+`schedule_preserves` (in `Verity/Core/Reentrancy.lean`) shows that if every
+registered entrypoint preserves the invariant, so does every schedule — any
+ordering, any repetition. See [Reentrancy Model](/reentrancy).
+
+### Rely-guarantee (ReentrancySpec)
+
+The proof discipline behind Verity's reentrancy framework: each entrypoint
+*guarantees* it preserves the contract invariant, and in exchange may *rely*
+on the same property for whatever runs during its external-call window. A
+`ReentrancySpec` bundles the invariant, the entrypoint registry, and the
+per-entrypoint preservation proofs; functions that open a window are modeled
+with an adversary-shaped hole placed at the call site. See
+[Reentrancy Model](/reentrancy).
+
 ### Spec
 
 The human-readable `Prop` statement of what each function should do. Lives in
@@ -139,6 +157,16 @@ The four-file shape of a Verity contract:
 - **Implementation**, the executable EDSL in `<Name>.lean`.
 - **Proof**, the Lean term in `Proofs/` that ties the implementation to the
   spec.
+
+### Strong vs weak invariant
+
+A *weak* invariant holds between transactions; a *strong* invariant also holds
+at every attacker-observable point during one, including before each external
+call. Verity's rely-guarantee framework proves the strong form (the invariant
+is consumed exactly at the adversary hole), typically paired with a
+lock-as-disjunct invariant (`healthy ∨ locked`) plus a separately-proven weak
+fact that the lock is released by transaction end. See
+[Reentrancy Model](/reentrancy).
 
 ### Trust report
 

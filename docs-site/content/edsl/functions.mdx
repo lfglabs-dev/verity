@@ -76,7 +76,9 @@ reentrancy. A lock-only `nonreentrant` function cannot be called as an internal
 helper (the guard materializes only at the external dispatch boundary) unless it
 also carries `reentrancy_trusted`. This is an unconditional compilation gate —
 there is no `--deny-*` flag to toggle it. See [Trust Model](/trust-model) for the
-disposition's place in the trust boundary.
+disposition's place in the trust boundary. If you want to *allow* reentry and
+prove it harmless instead of blocking it, see the rely-guarantee framework in
+[Reentrancy Model](/reentrancy).
 
 ## Internal helpers
 
