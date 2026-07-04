@@ -1784,6 +1784,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.HelperStepProofs.stmtListDirectInternalHelperAssignStepInterface_cons_internalCallAssign_of_assignHeadStepBridge
   Compiler.Proofs.HelperStepProofs.stmtListDirectInternalHelperAssignStepInterface_of_assignHeadStepBridges
   Compiler.Proofs.HelperStepProofs.stmtListDirectInternalHelperAssignStepInterface_of_perCalleeAssignBridgeCatalog
+  Compiler.Proofs.HelperStepProofs.evalIRCallWithInternals_of_compiledHelperWitness
+  Compiler.Proofs.HelperStepProofs.exprInternalHelperCallContextBridge_sourceEvidence
   Compiler.Proofs.HelperStepProofs.compiledStmtStepWithHelpersAndHelperIR_of_exprHeadStepBridge
   Compiler.Proofs.HelperStepProofs.stmtListExprInternalHelperStepInterface_cons_of_exprHeadStepBridge
   Compiler.Proofs.HelperStepProofs.stmtListExprInternalHelperStepInterface_of_exprHeadStepBridges
@@ -3451,6 +3453,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.SourceSemantics.execStmtWithHelpers_internalCallAssign_obeys_summary_of_witness
   Compiler.Proofs.IRGeneration.SourceSemantics.execStmtWithHelpers_internalCall_of_witness
   Compiler.Proofs.IRGeneration.SourceSemantics.evalExprWithHelpers_internalCall_of_witness
+  Compiler.Proofs.IRGeneration.SourceSemantics.evalExprWithHelpers_internalCall_obeys_summary_of_witness
+  Compiler.Proofs.IRGeneration.SourceSemantics.evalExprWithHelpers_internalCall_preserves_world_of_witness
   Compiler.Proofs.IRGeneration.SourceSemantics.SupportedBodyHelperInterface.summarySoundOfCall
   Compiler.Proofs.IRGeneration.SourceSemantics.SupportedBodyHelperInterface.exprCallSummaryPreservesWorld
   Compiler.Proofs.IRGeneration.SourceSemantics.SupportedHelperSummaryProofCatalog.soundOfWitness
@@ -5837,4 +5841,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5467 theorems/lemmas (3765 public, 1702 private, 0 sorry'd)
+-- Total: 5471 theorems/lemmas (3769 public, 1702 private, 0 sorry'd)

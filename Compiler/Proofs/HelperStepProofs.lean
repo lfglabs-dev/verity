@@ -390,6 +390,155 @@ world-preservation evidence to the corresponding compiled Yul expression
 evaluation under `evalIRCallWithInternals`.
 -/
 
+/-- Compiled-helper lookup specialized to helper-aware Yul expression calls.
+This is the expression-context counterpart of the statement-call shape lemmas
+for `execIRStmtsWithInternals`: after the argument expressions evaluate, the
+call dispatches through the internal helper table supplied by
+`SupportedCompiledInternalHelperWitness`. -/
+theorem evalIRCallWithInternals_of_compiledHelperWitness
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {calleeName : String}
+    (compiledHelper :
+      SupportedCompiledInternalHelperWitness spec runtimeContract calleeName)
+    (state : IRState)
+    (irFuel : Nat)
+    {argExprs : List YulExpr}
+    {argVals : List Nat}
+    {state' : IRState}
+    (hargs :
+      evalIRExprsWithInternals runtimeContract (irFuel + 1) state argExprs =
+        .values argVals state') :
+    ∃ helper,
+      findInternalFunction? runtimeContract
+        (CompilationModel.internalFunctionYulName calleeName) = some helper ∧
+      evalIRCallWithInternals runtimeContract (irFuel + 1) state
+          (CompilationModel.internalFunctionYulName calleeName) argExprs =
+        execIRInternalFunctionWithInternals runtimeContract irFuel state' helper argVals := by
+  have hcalleeName : compiledHelper.sourceWitness.callee.name = calleeName :=
+    compiledHelper.sourceWitness.nameEq
+  have hfindSome :
+      (findInternalFunction? runtimeContract
+        (CompilationModel.internalFunctionYulName calleeName)).isSome = true := by
+    simpa [hcalleeName] using
+      (findInternalFunction?_of_compileInternalFunction_mem
+        compiledHelper.compileOk
+        compiledHelper.presentInRuntime)
+  cases hfind : findInternalFunction? runtimeContract
+      (CompilationModel.internalFunctionYulName calleeName) with
+  | none =>
+      simp [hfind] at hfindSome
+  | some helper =>
+      refine ⟨helper, rfl, ?_⟩
+      simp [evalIRCallWithInternals, hargs, hfind]
+
+/-- Per-callee expression-context helper bridge. It binds together the source
+summary evidence used by `evalExprWithHelpers` and the compiled-helper witness
+used by `evalIRCallWithInternals`. The remaining non-closed obligation is still
+compositional expression compilation: callers must prove that their compiled
+Yul argument expressions evaluate to the same `argVals` in the corresponding IR
+state. -/
+structure ExprInternalHelperCallContextBridge
+    (runtimeContract : IRContract)
+    (spec : CompilationModel)
+    (calleeName : String) where
+  sourceWitness :
+    SupportedInternalHelperWitness spec calleeName
+  summarySound :
+    SourceSemantics.InternalHelperSummarySound
+      spec sourceWitness.callee sourceWitness.summary.contract
+  sourcePreservesWorld :
+    InternalHelperSummaryPreservesWorldOnSuccess sourceWitness.summary.contract
+  compiledHelper :
+    SupportedCompiledInternalHelperWitness spec runtimeContract calleeName
+  irCall :
+    ∀ (state : IRState) (irFuel : Nat)
+      {argExprs : List YulExpr} {argVals : List Nat} {state' : IRState},
+      evalIRExprsWithInternals runtimeContract (irFuel + 1) state argExprs =
+          .values argVals state' →
+      ∃ helper,
+        findInternalFunction? runtimeContract
+          (CompilationModel.internalFunctionYulName calleeName) = some helper ∧
+        evalIRCallWithInternals runtimeContract (irFuel + 1) state
+            (CompilationModel.internalFunctionYulName calleeName) argExprs =
+          execIRInternalFunctionWithInternals runtimeContract irFuel state' helper argVals
+
+/-- Construct the per-callee expression-context bridge from the current supported
+helper inventory: source summary soundness, expression-call world preservation,
+and the compiled runtime helper table. -/
+def exprInternalHelperCallContextBridge_of_supportedEvidence
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fn : FunctionSpec}
+    (hHelpers : SupportedBodyHelperInterface spec fn)
+    (hSummaries : SourceSemantics.SupportedBodyHelperSummariesSound spec fn hHelpers)
+    (hRuntime : SupportedRuntimeHelperTableInterface spec runtimeContract)
+    {calleeName : String}
+    (hmem : calleeName ∈ exprHelperCallNames fn) :
+    ExprInternalHelperCallContextBridge runtimeContract spec calleeName := by
+  let hcall : calleeName ∈ helperCallNames fn :=
+    exprHelperCallNames_subset_helperCallNames hmem
+  let witness := hHelpers.summaryOfCall hcall
+  refine
+    { sourceWitness := witness
+      summarySound :=
+        SourceSemantics.SupportedBodyHelperInterface.summarySoundOfCall
+          hHelpers hSummaries hcall
+      sourcePreservesWorld := hHelpers.exprSummaryPreservesWorld hmem
+      compiledHelper := hRuntime.compiledOfCall hHelpers hcall
+      irCall := ?_ }
+  intro state irFuel argExprs argVals state' hargs
+  exact
+    evalIRCallWithInternals_of_compiledHelperWitness
+      (runtimeContract := runtimeContract)
+      (spec := spec)
+      (calleeName := calleeName)
+      (hRuntime.compiledOfCall hHelpers hcall)
+      state
+      irFuel
+      hargs
+
+/-- Source half of the expression-context bridge for an expression-position
+helper call. It simultaneously exposes the `evalExprWithHelpers` reduction, the
+`InternalHelperSummaryContract.post` fact for the underlying
+`interpretInternalFunctionFuel`, and the world-preservation consequence used by
+expression contexts. -/
+theorem exprInternalHelperCallContextBridge_sourceEvidence
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {calleeName : String}
+    {args : List Expr}
+    (hctx : ExprInternalHelperCallContextBridge runtimeContract spec calleeName)
+    (hnodup : (spec.functions.map (·.name)).Nodup)
+    {fuel : Nat}
+    {state : SourceSemantics.RuntimeState}
+    {argVals : List Nat}
+    (hargs :
+      SourceSemantics.evalExprListWithHelpers spec fields (fuel + 1) state args =
+        some argVals) :
+    let result :=
+      SourceSemantics.interpretInternalFunctionFuel
+        spec fuel hctx.sourceWitness.callee state.world argVals
+    SourceSemantics.evalExprWithHelpers spec fields (fuel + 1) state
+        (Expr.internalCall calleeName args) =
+          (if result.success then result.returnValue else none) ∧
+      hctx.sourceWitness.summary.contract.post fuel state.world argVals
+        result.success result.returnValue result.world ∧
+      (result.success = true → result.world = state.world) := by
+  intro result
+  refine ⟨?_, ?_, ?_⟩
+  · simp +zetaDelta [
+      SourceSemantics.evalExprWithHelpers_internalCall_of_witness
+        hctx.sourceWitness hnodup,
+      hargs]
+  · exact hctx.summarySound fuel state.world argVals
+  · intro hsuccess
+    exact SourceSemantics.helperSummaryPreservesWorldOnSuccess
+      hctx.sourcePreservesWorld
+      (hpost := hctx.summarySound fuel state.world argVals)
+      hsuccess
+
 /-- Expression-helper statement-head bridge. Future helper-summary induction
 should construct this for each statement head whose helper work appears in
 expression position. The semantic payload is the exact helper-aware source/IR

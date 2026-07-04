@@ -4479,6 +4479,56 @@ theorem evalExprWithHelpers_internalCall_of_witness
         if hresult.success then hresult.returnValue else none) := by
   simpa [evalExprWithHelpers, findUniqueInternalFunction?_of_witness witness hnodup]
 
+/-- Version of `evalExprWithHelpers_internalCall_obeys_summary` that takes a
+`SupportedInternalHelperWitness` instead of the private
+`findUniqueInternalFunction?` hypothesis. This is the source-expression helper
+summary seam consumed by expression-context helper-call bridge proofs. -/
+theorem evalExprWithHelpers_internalCall_obeys_summary_of_witness
+    {spec : CompilationModel}
+    {fields : List Field}
+    {fuel : Nat}
+    {state : RuntimeState}
+    {calleeName : String}
+    {args : List Expr}
+    (witness : SupportedInternalHelperWitness spec calleeName)
+    (hnodup : (spec.functions.map (·.name)).Nodup)
+    (hsound : InternalHelperSummarySound spec witness.callee witness.summary.contract)
+    {argVals : List Nat}
+    (hargs : evalExprListWithHelpers spec fields fuel state args = some argVals) :
+    let result := interpretInternalFunctionFuel spec fuel witness.callee state.world argVals
+    witness.summary.contract.post fuel state.world argVals
+      result.success result.returnValue result.world :=
+  evalExprWithHelpers_internalCall_obeys_summary
+    (hfind := findUniqueInternalFunction?_of_witness witness hnodup)
+    (hsound := hsound)
+    (hargs := hargs)
+
+/-- Source-side world-preservation consequence for expression-position helper
+calls, packaged with public supported-helper witnesses. -/
+theorem evalExprWithHelpers_internalCall_preserves_world_of_witness
+    {spec : CompilationModel}
+    {fields : List Field}
+    {fuel : Nat}
+    {state : RuntimeState}
+    {calleeName : String}
+    {args : List Expr}
+    (witness : SupportedInternalHelperWitness spec calleeName)
+    (hnodup : (spec.functions.map (·.name)).Nodup)
+    (hsound : InternalHelperSummarySound spec witness.callee witness.summary.contract)
+    (hpreserve : InternalHelperSummaryPreservesWorldOnSuccess witness.summary.contract)
+    {argVals : List Nat}
+    (hargs : evalExprListWithHelpers spec fields fuel state args = some argVals) :
+    let result := interpretInternalFunctionFuel spec fuel witness.callee state.world argVals
+    result.success = true → result.world = state.world := by
+  intro result hsuccess
+  exact helperSummaryPreservesWorldOnSuccess hpreserve
+    (hpost := evalExprWithHelpers_internalCall_obeys_summary_of_witness
+      (witness := witness)
+      (hnodup := hnodup)
+      (hsound := hsound)
+      (hargs := hargs))
+    hsuccess
+
 theorem SupportedBodyHelperInterface.summarySoundOfCall
     {spec : CompilationModel}
     {fn : FunctionSpec}
