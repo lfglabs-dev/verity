@@ -1,0 +1,198 @@
+---
+title: Reentrancy Model
+description: How Verity blocks, gates, and — when you want reentry — proves reentrancy safe with a rely-guarantee framework.
+---
+
+# Reentrancy Model
+
+Verity treats reentrancy with four mechanisms that share a single rule: **no
+function may open a reentrancy window without an explicit, visible decision
+about it.** Two mechanisms block or gate reentry, one records a trusted
+assertion, and one lets you *allow* reentry and machine-check that it is
+harmless. This page explains all four, how the proof framework works, and
+where its trust boundary sits.
+
+## 1. The problem
+
+An external call hands control to code you do not own. Before your function
+finishes, the callee can call *back* into any public function of your
+contract — with your state in whatever intermediate shape the first half of
+your function left it.
+
+The classic failure mode is not "attacker drains funds in one call": it is
+that an invariant which holds *between* transactions is transiently false
+*during* one, and a reentrant call irreversibly acts on that transient state.
+A concrete example is the settlement-callback bug pattern found in
+order-settlement designs (the motivating case for this framework): a `take`
+function moves collateral, invokes a taker callback, and only *then* checks
+that the seller is healthy. During the callback window the seller is
+transiently unhealthy — and a reentrant `liquidate` performs a permanent
+liquidation that the final health check cannot undo. Every individual check
+in the contract is correct; the composition is not.
+
+## 2. Three dispositions, one gate
+
+Verity's compiler refuses to build any non-`view`/non-`pure` function that
+opens a reentrancy window (an external call or a raw low-level call reaching
+an untrusted callee) unless the function declares a disposition. This gate is
+**fail-closed and unconditional** — there is no flag to turn it off. The
+accepted dispositions are documented in
+[Functions § Reentrancy disposition](/edsl/functions#reentrancy-disposition):
+
+| You want | Disposition | What you get |
+| --- | --- | --- |
+| No reentry, ever | `nonreentrant(lock)` | A compiler-synthesized runtime guard on the `lock` flag (transient storage on Cancun+ targets). Reentry reverts at runtime; no invariant proof about the window is needed, because there is no window. |
+| Reentry, and you assert it is safe | `reentrancy_trusted` | Metadata only. **Unproven** — an explicit author assertion recorded in the trust report. |
+| Reentry, machine-checked harmless | `reentrancy_trusted` + a `ReentrancySpec` proof | The rely-guarantee framework below: a kernel-checked proof that *any* reentrant schedule of your contract's entrypoints preserves your invariant. |
+
+The rest of this page is about the third row.
+
+## 3. Proving reentry safe: rely-guarantee
+
+The framework lives in
+[`Verity/Core/Reentrancy.lean`](https://github.com/lfglabs-dev/verity/blob/main/Verity/Core/Reentrancy.lean)
+and
+[`Verity/Core/Invariant.lean`](https://github.com/lfglabs-dev/verity/blob/main/Verity/Core/Invariant.lean),
+with a fully worked example in
+[`Contracts/ReentrancyRelyGuarantee/Contract.lean`](https://github.com/lfglabs-dev/verity/blob/main/Contracts/ReentrancyRelyGuarantee/Contract.lean).
+
+### The adversary is a function parameter
+
+You cannot enumerate what an attacker's contract does during the callback. So
+you do not try. A function that opens a window is modeled with a *hole*: it
+takes the adversary as a parameter, placed exactly where the real external
+call happens.
+
+```lean
+-- f() { stmt1; call(); stmt2; }  becomes:
+def f (adv : ContractState → ContractState) (s : ContractState) : ContractState :=
+  let s1 := stmt1 s
+  let s2 := adv s1     -- the reentrancy window: arbitrary attacker code
+  stmt2 s2
+```
+
+The adversary is *any* function on contract state. The only thing you get to
+assume about it is the **rely condition**: that it preserves your invariant.
+In exchange, you must **guarantee** the same thing about each of your own
+entrypoints — hence *rely-guarantee*.
+
+### One obligation per entrypoint, all schedules for free
+
+What can the adversary actually do inside the window? Call your public
+entrypoints, in any order, any (finite) number of times. That is a *schedule*:
+a list of entrypoints, run in sequence. The framework's core theorem says:
+
+```lean
+def Preserves (Inv : ContractState → Prop) (c : ContractState → ContractState) : Prop :=
+  ∀ s, Inv s → Inv (c s)
+
+-- If every entrypoint preserves Inv, every finite schedule of them does.
+theorem schedule_preserves (spec : ReentrancySpec)
+    (sched : List (ContractState → ContractState))
+    (h : ∀ f, f ∈ sched → f ∈ spec.entrypoints) :
+    Preserves spec.Inv (runSeq sched)
+```
+
+A `ReentrancySpec` bundles three things: the invariant `Inv`, the list of
+public `entrypoints`, and one proof per entrypoint that it preserves `Inv`.
+`schedule_preserves` then collapses the entire adversarial interleaving space
+— every ordering, every repetition — into those per-entrypoint obligations.
+This is an induction over schedules, checked by the Lean kernel; no
+enumeration of attacker behaviors ever happens.
+
+Nested reentrancy (the adversary re-enters a function that itself opens a
+window) is handled by the same parameterization: prove
+`∀ adv, Preserves Inv adv → Preserves Inv (f adv)` and instantiate `adv` with
+`runSeq sched`. Note that entrypoints are always *whole public functions* —
+you never split `f` into "the part before the call" and "the part after"; the
+hole stays inside `f`, because an attacker cannot invoke half a function.
+
+### Why you cannot prove the wrong thing
+
+The rely hypothesis `hAdv : Preserves Inv adv` is only usable *at the state
+where the hole sits*. To apply it you must first prove `Inv s1` — the
+invariant at the exact mid-execution state handed to the attacker. If you
+placed the hole after the trade but your invariant is transiently false
+there, the proof does not go through. The logic itself forces you to
+establish the invariant at every attacker-observable point.
+
+## 4. Strong + weak layering (the lock-as-disjunct idiom)
+
+Real functions *do* transiently break the "nice" invariant during the window.
+The idiom that resolves this — the same one used in industrial Certora specs
+such as Morpho's Midnight solvency spec — is to build the escape hatch into
+the invariant itself:
+
+```lean
+-- "Every position is healthy, OR it is currently locked."
+def I (s : ContractState) : Prop := healthy s ∨ locked s
+```
+
+The worked example's fixed `take` acquires a per-position lock before the
+trade, so during the window `I` holds via the `locked` disjunct even though
+the seller is transiently unhealthy. `liquidate` — the dangerous reentrant
+entrypoint — refuses to touch locked positions, so it preserves `I` and
+(separately) can be shown to introduce no new liquidation under any schedule.
+
+This gives the same two-layer structure as strong/weak invariants in CVL:
+
+- **Strong layer**: `I` (with its correction disjunct or correction term)
+  holds at *every attacker-observable point*, including before each external
+  call — that is exactly what `schedule_preserves` consumes at the hole.
+- **Weak layer**: "the lock is released between transactions" (equivalently,
+  the correction term is zero) is proven per entrypoint as an ordinary exit
+  post-condition — usually a trivial frame lemma, and free by construction
+  for transient-storage locks, which the EVM clears at transaction end.
+
+The difference from an SMT-based prover is where the induction lives: a CVL
+spec `require`s the invariant after a havoc'd callback and justifies that
+assumption by an argument *outside* the tool; here the same induction is
+`schedule_preserves`, a kernel-checked theorem. No summaries, no timeouts, no
+semi-formal step — at the cost of writing Lean proofs instead of CVL.
+
+There is also a multi-contract layer: the same `ReentrancySpec`, lifted into
+a `System` of contracts, preserves the joint invariant against cross-contract
+reentry schedules with no new per-contract proof
+(`cross_contract_schedule_preserves`).
+
+## 5. Honest limits
+
+The framework is a proof *about a model*, and its trust boundary is recorded
+in
+[`TRUST_ASSUMPTIONS.md`](https://github.com/lfglabs-dev/verity/blob/main/TRUST_ASSUMPTIONS.md):
+
+- **Registry completeness.** `entrypoints` must list *every* state-mutating
+  public function. Omit one and the theorem quantifies over the wrong
+  adversary. The intended endgame is macro-emitted registries derived from
+  the contract's actual public surface; until that lands, the list is
+  author-supplied and auditable.
+- **Hole placement fidelity.** The `adv` hole must sit where the real
+  external call happens. Today the rely-guarantee model is written alongside
+  the executable contract, so this correspondence is reviewed, not checked.
+  (The `Env.reenter` hook exists in the semantics for exactly this purpose;
+  wiring it into elaboration so call sites and registries are emitted from a
+  single source is tracked in
+  [#2094](https://github.com/lfglabs-dev/verity/issues/2094).)
+- **Invariant adequacy.** The framework proves *your* `Inv` is preserved. If
+  `Inv` does not capture what you actually care about, preservation is
+  vacuous comfort.
+- **Finite schedules, terminating entrypoints.** Schedules are finite lists;
+  unbounded mutual recursion is out of scope. `ContractPreserves` also
+  restricts attention to successful executions — a reverted reentrant call
+  rolls back atomically on the EVM.
+- **Relational properties** ("the adversary does not change slot X") are
+  expressed today as explicit hypotheses on `adv` rather than derived from a
+  general guarantee relation.
+
+And a scoping note: functions guarded by `nonreentrant(lock)` do not *need*
+this framework — reentry is blocked at runtime — but the guard is a runtime
+mechanism, not a proof, and guarded functions currently sit outside the
+proved `SupportedSpec` fragment (proof-side guard lemmas are tracked
+separately in `TRUST_ASSUMPTIONS.md`).
+
+## See also
+
+- [Functions § Reentrancy disposition](/edsl/functions#reentrancy-disposition) — the compiler gate and disposition syntax.
+- [Trust Model](/trust-model) — where dispositions and the rely-guarantee obligations sit in the trust boundary.
+- [Proof Techniques](/proof-techniques) — the general proof patterns used across contracts.
+- [Glossary](/glossary) — *rely-guarantee*, *reentry schedule*, *strong vs weak invariant*.

@@ -24,6 +24,7 @@ export default {
   glossary: 'Glossary',
 
   '-- explanation': { type: 'separator', title: 'Explanation' },
+  reentrancy: 'Reentrancy Model',
   'proof-techniques': 'Proof Techniques',
   faq: 'FAQ',
 };
