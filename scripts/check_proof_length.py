@@ -140,6 +140,18 @@ ALLOWLIST: set[str] = {
     # that all share the locally-bound post-binding runtime'/state'. Splitting
     # would duplicate the compositional-result unpacking plumbing in each part.
     "exprInternalHelperHeadStepBridge_letVar_of_exprCompositionalResult",
+    # #2080 phase 9 concrete add-right helper bridge: constructor-specific
+    # source/compile/IR facts have to be assembled around the threaded binary
+    # adapter while preserving the original helper payload unchanged.
+    "exprInternalHelperCompositionalContextResult_add_right_threaded",
+    # #2080 phase 11 spec-functions letVar adapter: same invariant
+    # re-establishment spine as the phase-10 legacy adapter, but consuming the
+    # post-expression state companion directly from the expression payload.
+    "exprInternalHelperHeadStepBridgeWithInternals_letVar_of_exprPostStateResult",
+    # #2080 phase 11 concrete letVar/add-right instantiation: the wrapper must
+    # expose the phase-9 add payload at statement-head shape while preserving
+    # the caller's left/right source and IR state-threading evidence.
+    "exprInternalHelperHeadStepBridgeWithInternals_letVar_add_right_threaded",
     # ERC-4337 dynamic ABI view projection: mechanical destructuring of the
     # nine-field PackedUserOperation decoder to expose its four dynamic bytes
     # member bindings. Splitting would duplicate the same option-case spine.
