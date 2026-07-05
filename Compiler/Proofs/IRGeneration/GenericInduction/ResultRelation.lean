@@ -193,6 +193,44 @@ structure CompiledStmtStepWithHelpersAndHelperIR
         stmtStepMatchesIRExecWithInternals
           fields (stmtNextScope scope stmt) sourceResult irExec
 
+/-- Spec-functions-aware variant of `CompiledStmtStepWithHelpersAndHelperIR`.
+
+The existing generic list induction still reconstructs statement-list
+compilation through the default empty internal-function compiler argument.
+Expression-position internal-helper payloads, however, compile through
+`spec.functions`.  This witness records that exact compile shape while keeping
+the same helper-aware source/IR preservation contract.  It is the narrow API
+needed by helper-expression statement heads until the list-level induction gets
+the corresponding internal-functions-parametric compile/scope lemmas. -/
+structure CompiledStmtStepWithHelpersAndHelperIRWithInternals
+    (runtimeContract : IRContract)
+    (spec : CompilationModel)
+    (fields : List Field)
+    (scope : List String)
+    (stmt : Stmt)
+    (compiledIR : List YulStmt) : Prop where
+  compileOk :
+    CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
+        stmt spec.functions =
+      Except.ok compiledIR
+  preserves :
+    ∀ (runtime : SourceSemantics.RuntimeState)
+      (state : IRState)
+      (helperFuel : Nat)
+      (extraFuel : Nat),
+      0 < helperFuel →
+      FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state →
+      FunctionBody.scopeNamesPresent scope runtime.bindings →
+      FunctionBody.bindingsBounded runtime.bindings →
+      FunctionBody.runtimeStateMatchesIR fields runtime state →
+      sizeOf compiledIR - compiledIR.length ≤ extraFuel →
+      ∃ sourceResult irExec,
+        SourceSemantics.execStmtWithHelpers spec fields helperFuel runtime stmt = sourceResult ∧
+        execIRStmtsWithInternals runtimeContract
+          (compiledIR.length + extraFuel + 1) state compiledIR = irExec ∧
+        stmtStepMatchesIRExecWithInternals
+          fields (stmtNextScope scope stmt) sourceResult irExec
+
 /-- Any legacy generic statement-step proof remains valid for the helper-aware
 source semantics as long as the statement itself is helper-surface closed. This
 lets the existing helper-free library discharge the unchanged cases while the
