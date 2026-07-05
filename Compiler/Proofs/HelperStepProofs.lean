@@ -765,6 +765,151 @@ theorem exprInternalHelperCompositionalContextResult_internalCall_head
         (state := state) (state' := argState) (argVals := argVals)
         (argExprs := argExprs) hsourceArgs hcompileArgs hirArgs
 
+theorem exprInternalHelperCompositionalContextResult_of_outer_facts
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {headExpr expr : Expr} {headExprIR exprIR : YulExpr}
+    {helperFuel irFuel : Nat}
+    {runtime headRuntime : SourceSemantics.RuntimeState}
+    {state headState headFinalState finalState : IRState}
+    {headValue value : Nat}
+    (hhead :
+      ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+        headExpr headExprIR helperFuel irFuel runtime headRuntime state headState
+        headFinalState headValue)
+    (hcompile :
+      CompilationModel.compileExprWithInternals fields .calldata spec.functions expr =
+        Except.ok exprIR)
+    (hsource :
+      SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1) runtime expr =
+        some value)
+    (hir :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) state exprIR =
+        .value value finalState) :
+    ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+      expr exprIR helperFuel irFuel runtime headRuntime state headState finalState value := by
+  -- Blocker: a fully automatic theorem over every non-call `Expr` constructor
+  -- still needs a uniform helper-aware source/IR expression compiler lemma,
+  -- including sequential IR state threading for sibling expressions.
+  unfold ExprInternalHelperCompositionalContextResult at hhead ⊢
+  rcases hhead with ⟨_, _, _, hmatches, hpayload⟩
+  exact ⟨hcompile, hsource, hir, hmatches, hpayload⟩
+
+/-- Unary non-call expression-context lift.  This is the common shape for
+constructors such as `bitNot`, `logicalNot`, `mload`, `tload`, `calldataload`,
+and single-child dynamic-array helpers once their outer facts are proved. -/
+theorem exprInternalHelperCompositionalContextResult_unary_context
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {child : Expr} {childIR : YulExpr}
+    {mkExpr : Expr → Expr} {mkIR : YulExpr → YulExpr}
+    {helperFuel irFuel : Nat}
+    {runtime headRuntime : SourceSemantics.RuntimeState}
+    {state headState childFinalState finalState : IRState}
+    {childValue value : Nat}
+    (hchild :
+      ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+        child childIR helperFuel irFuel runtime headRuntime state headState
+        childFinalState childValue)
+    (hcompile :
+      CompilationModel.compileExprWithInternals fields .calldata spec.functions
+          (mkExpr child) =
+        Except.ok (mkIR childIR))
+    (hsource :
+      SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1) runtime
+          (mkExpr child) =
+        some value)
+    (hir :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) state (mkIR childIR) =
+        .value value finalState) :
+    ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+      (mkExpr child) (mkIR childIR) helperFuel irFuel runtime headRuntime state
+      headState finalState value := by
+  exact
+    exprInternalHelperCompositionalContextResult_of_outer_facts
+      (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+      (headExpr := child) (headExprIR := childIR)
+      (helperFuel := helperFuel) (irFuel := irFuel)
+      (runtime := runtime) (headRuntime := headRuntime)
+      (state := state) (headState := headState)
+      hchild hcompile hsource hir
+
+/-- Binary non-call expression-context lift when the helper payload is in the
+left child.  Sibling evaluation state threading is intentionally part of the
+outer `hir` fact supplied by the caller. -/
+theorem exprInternalHelperCompositionalContextResult_binary_left_context
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {left right : Expr} {leftIR rightIR : YulExpr}
+    {mkExpr : Expr → Expr → Expr} {mkIR : YulExpr → YulExpr → YulExpr}
+    {helperFuel irFuel : Nat}
+    {runtime headRuntime : SourceSemantics.RuntimeState}
+    {state headState leftFinalState finalState : IRState}
+    {leftValue value : Nat}
+    (hleft :
+      ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+        left leftIR helperFuel irFuel runtime headRuntime state headState
+        leftFinalState leftValue)
+    (hcompile :
+      CompilationModel.compileExprWithInternals fields .calldata spec.functions
+          (mkExpr left right) =
+        Except.ok (mkIR leftIR rightIR))
+    (hsource :
+      SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1) runtime
+          (mkExpr left right) =
+        some value)
+    (hir :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) state
+          (mkIR leftIR rightIR) =
+        .value value finalState) :
+    ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+      (mkExpr left right) (mkIR leftIR rightIR) helperFuel irFuel runtime
+      headRuntime state headState finalState value := by
+  exact
+    exprInternalHelperCompositionalContextResult_of_outer_facts
+      (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+      (headExpr := left) (headExprIR := leftIR)
+      (helperFuel := helperFuel) (irFuel := irFuel)
+      (runtime := runtime) (headRuntime := headRuntime)
+      (state := state) (headState := headState)
+      hleft hcompile hsource hir
+
+/-- Binary non-call expression-context lift when the helper payload is in the
+right child.  This preserves the helper head while the caller supplies the
+already-established outer facts for the whole parent expression. -/
+theorem exprInternalHelperCompositionalContextResult_binary_right_context
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {left right : Expr} {leftIR rightIR : YulExpr}
+    {mkExpr : Expr → Expr → Expr} {mkIR : YulExpr → YulExpr → YulExpr}
+    {helperFuel irFuel : Nat}
+    {runtime headRuntime : SourceSemantics.RuntimeState}
+    {state headState rightFinalState finalState : IRState}
+    {rightValue value : Nat}
+    (hright :
+      ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+        right rightIR helperFuel irFuel runtime headRuntime state headState
+        rightFinalState rightValue)
+    (hcompile :
+      CompilationModel.compileExprWithInternals fields .calldata spec.functions
+          (mkExpr left right) =
+        Except.ok (mkIR leftIR rightIR))
+    (hsource :
+      SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1) runtime
+          (mkExpr left right) =
+        some value)
+    (hir :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) state
+          (mkIR leftIR rightIR) =
+        .value value finalState) :
+    ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+      (mkExpr left right) (mkIR leftIR rightIR) helperFuel irFuel runtime
+      headRuntime state headState finalState value := by
+  exact
+    exprInternalHelperCompositionalContextResult_of_outer_facts
+      (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+      (headExpr := right) (headExprIR := rightIR)
+      (helperFuel := helperFuel) (irFuel := irFuel)
+      (runtime := runtime) (headRuntime := headRuntime)
+      (state := state) (headState := headState)
+      hright hcompile hsource hir
+
 /-- Expression-helper statement-head bridge. Future helper-summary induction
 should construct this for each statement head whose helper work appears in
 expression position. The semantic payload is the exact helper-aware source/IR
