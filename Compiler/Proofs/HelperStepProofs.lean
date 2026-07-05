@@ -1192,11 +1192,165 @@ structure ExprInternalHelperHeadStepBridge
         FunctionBody.scopeNamesPresent scope runtime.bindings →
         FunctionBody.bindingsBounded runtime.bindings →
         FunctionBody.runtimeStateMatchesIR fields runtime state →
+        sizeOf compiledIR - compiledIR.length ≤ irFuel →
         stmtStepMatchesIRExecWithInternals fields
           (stmtNextScope scope stmt)
           (SourceSemantics.execStmtWithHelpers spec fields helperFuel runtime stmt)
           (execIRStmtsWithInternals runtimeContract
             (compiledIR.length + irFuel + 1) state compiledIR)
+
+/-- `Stmt.letVar` compiler shape when the bound expression has already been
+compiled through the helper-aware expression compiler. -/
+theorem compileStmt_letVar_of_compileExprWithInternals
+    {fields : List Field}
+    {events : List EventDef}
+    {errors : List ErrorDef}
+    {scope : List String}
+    {name : String}
+    {value : Expr}
+    {valueIR : YulExpr}
+    {internalFunctions : List FunctionSpec}
+    (hcompile :
+      CompilationModel.compileExprWithInternals fields .calldata internalFunctions value =
+        Except.ok valueIR) :
+    CompilationModel.compileStmt fields events errors .calldata [] false scope []
+        (Stmt.letVar name value) internalFunctions =
+      Except.ok [YulStmt.let_ name valueIR] := by
+  simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, hcompile]
+
+/-- The first concrete expression-to-statement-head adapter for #2080.
+
+The expression compositional result supplies the source value, compiled
+expression value, and the helper-call payload introduced in phases 6-9.  The
+adapter adds only the `letVar` statement wrapper.  The statement-side compile
+shape remains explicit because `CompiledStmtStepWithHelpersAndHelperIR` still
+records the legacy `compileStmt ... stmt = ok ...` form with the default empty
+internal-function list, while the expression payload records
+`compileExprWithInternals ... spec.functions ...`.  Two post-expression facts
+also remain explicit because `ExprInternalHelperCompositionalContextResult`
+currently does not record them: the final IR state must still match the source
+runtime, and the old scope bindings must still agree in that final IR state. -/
+theorem exprInternalHelperHeadStepBridge_letVar_of_exprCompositionalResult
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {name : String}
+    {value : Expr}
+    {valueIR : YulExpr}
+    (hvalueCompileStmt :
+      CompilationModel.compileExprWithInternals fields .calldata [] value =
+        Except.ok valueIR)
+    (hvalue :
+      ∀ {scope : List String}
+        {runtime : SourceSemantics.RuntimeState}
+        {state : IRState}
+        {helperFuel irFuel : Nat},
+        0 < helperFuel →
+        0 < irFuel →
+        FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state →
+        FunctionBody.scopeNamesPresent scope runtime.bindings →
+        FunctionBody.bindingsBounded runtime.bindings →
+        FunctionBody.runtimeStateMatchesIR fields runtime state →
+        ∃ finalState valueNat,
+          ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+            value valueIR (helperFuel - 1) (irFuel - 1) runtime runtime state state
+            finalState valueNat ∧
+          FunctionBody.runtimeStateMatchesIR fields runtime finalState ∧
+          FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings finalState ∧
+          valueNat < Compiler.Constants.evmModulus)
+    (hvalueNamesInScope :
+      ∀ {scope : List String}
+        {runtime : SourceSemantics.RuntimeState}
+        {state : IRState}
+        {helperFuel irFuel : Nat},
+        0 < helperFuel →
+        0 < irFuel →
+        FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state →
+        FunctionBody.scopeNamesPresent scope runtime.bindings →
+        FunctionBody.bindingsBounded runtime.bindings →
+        FunctionBody.runtimeStateMatchesIR fields runtime state →
+        ∀ {n : String}, n ∈ collectExprNames value → n ∈ scope) :
+    ExprInternalHelperHeadStepBridge runtimeContract spec fields (Stmt.letVar name value) := by
+  refine ⟨?_, ?_⟩
+  · intro scope
+    exact ⟨[YulStmt.let_ name valueIR],
+      compileStmt_letVar_of_compileExprWithInternals
+        (events := spec.events) (errors := spec.errors) (scope := scope)
+        (name := name) hvalueCompileStmt⟩
+  · intro scope compiledIR hcompile runtime state helperFuel irFuel hfuelPos
+      hexact hscope hbounded hruntime hslack
+    have hcompiledEq : compiledIR = [YulStmt.let_ name valueIR] := by
+      have hshape :=
+        compileStmt_letVar_of_compileExprWithInternals
+          (events := spec.events) (errors := spec.errors) (scope := scope)
+          (name := name) hvalueCompileStmt
+      exact Except.ok.inj (hcompile.symm.trans hshape)
+    subst hcompiledEq
+    have hirFuelPos : 0 < irFuel := by
+      have hsize : sizeOf [YulStmt.let_ name valueIR] ≥ 2 := by
+        simp
+      simp at hslack
+      omega
+    rcases hvalue (scope := scope) (runtime := runtime) (state := state)
+        (helperFuel := helperFuel) (irFuel := irFuel) hfuelPos hirFuelPos
+        hexact hscope hbounded hruntime with
+      ⟨finalState, valueNat, hresult, hfinalRuntime, hfinalExact, hvalueLt⟩
+    have hresultFacts := hresult
+    unfold ExprInternalHelperCompositionalContextResult at hresultFacts
+    rcases hresultFacts with ⟨_hcompileExpr, hsourceValue, hirValue, _, _helperPayload⟩
+    have hhelperFuelEq : helperFuel - 1 + 1 = helperFuel := by
+      omega
+    have hirFuelEq : irFuel - 1 + 1 = irFuel := by
+      omega
+    rw [hhelperFuelEq] at hsourceValue
+    rw [hirFuelEq] at hirValue
+    let runtime' : SourceSemantics.RuntimeState :=
+      { runtime with bindings := SourceSemantics.bindValue runtime.bindings name valueNat }
+    let state' : IRState := finalState.setVar name valueNat
+    have hsourceExec :
+        SourceSemantics.execStmtWithHelpers spec fields helperFuel runtime
+            (Stmt.letVar name value) =
+          .continue runtime' := by
+      simp [SourceSemantics.execStmtWithHelpers, hsourceValue, runtime']
+    have hirExec :
+        execIRStmtsWithInternals runtimeContract
+            ([YulStmt.let_ name valueIR].length + irFuel + 1) state
+            [YulStmt.let_ name valueIR] =
+          .continue state' := by
+      have houter :
+          [YulStmt.let_ name valueIR].length + irFuel + 1 =
+            Nat.succ (Nat.succ irFuel) := by
+        simp
+        omega
+      rw [houter]
+      simp only [execIRStmtsWithInternals]
+      simp [execIRStmtWithInternals, hirValue, state']
+    have hruntime' : FunctionBody.runtimeStateMatchesIR fields runtime' state' := by
+      exact FunctionBody.runtimeStateMatchesIR_setVar_bindValue hfinalRuntime name valueNat
+    have hexactBase : FunctionBody.bindingsExactlyMatchIRVarsOnScope
+        (name :: scope) runtime'.bindings state' :=
+      FunctionBody.bindingsExactlyMatchIRVarsOnScope_setVar_bindValue hfinalExact
+    have hnextIncl : FunctionBody.scopeNamesIncluded
+        (stmtNextScope scope (Stmt.letVar name value)) (name :: scope) := by
+      intro n hn
+      simp [stmtNextScope, collectStmtNames] at hn
+      rcases hn with rfl | hn | hn
+      · simp
+      · exact List.mem_cons_of_mem _
+          (hvalueNamesInScope hfuelPos hirFuelPos hexact hscope hbounded hruntime hn)
+      · exact List.mem_cons_of_mem _ hn
+    have hexact' : FunctionBody.bindingsExactlyMatchIRVarsOnScope
+        (stmtNextScope scope (Stmt.letVar name value)) runtime'.bindings state' :=
+      FunctionBody.bindingsExactlyMatchIRVarsOnScope_of_included hexactBase hnextIncl
+    have hbounded' : FunctionBody.bindingsBounded runtime'.bindings :=
+      FunctionBody.bindingsBounded_bindValue hbounded name valueNat hvalueLt
+    have hscopeBase : FunctionBody.scopeNamesPresent (name :: scope) runtime'.bindings :=
+      FunctionBody.scopeNamesPresent_cons_bindValue hscope
+    have hscope' : FunctionBody.scopeNamesPresent
+        (stmtNextScope scope (Stmt.letVar name value)) runtime'.bindings :=
+      FunctionBody.scopeNamesPresent_of_included hscopeBase hnextIncl
+    rw [hsourceExec, hirExec]
+    exact ⟨hruntime', hexact', hbounded', hscope'⟩
 
 /-- Build a helper-aware singleton statement proof for an expression-position
 helper head from the exact expression-head bridge. -/
@@ -1241,7 +1395,8 @@ theorem compiledStmtStepWithHelpersAndHelperIR_of_exprHeadStepBridge
         hexact
         hscope
         hbounded
-        hruntime⟩
+        hruntime
+        hslack⟩
 
 /-- Non-vacuous list witness for a statement list whose head contains
 expression-position helper work. The head proof comes from the expression-head
