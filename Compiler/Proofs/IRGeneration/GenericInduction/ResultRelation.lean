@@ -328,6 +328,36 @@ theorem compileStmtList_ok_of_stmtListGenericCore_early
       exact ⟨headIR ++ tailIR,
         FunctionBody.compileStmtList_cons_ok_of_compileStmt_ok hhead htail⟩
 
+/-- Internal-functions-parametric cons reconstruction for `compileStmtList`.
+The existing `FunctionBody.compileStmtList_cons_eq_ok` defaults to `[]`; helper
+expression compilation needs the same structural reconstruction under
+`spec.functions`. -/
+theorem compileStmtList_cons_eq_ok_with_internals
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
+    (isInternal : Bool) (inScopeNames : List String)
+    (adtTypes : List AdtTypeDef) (stmt : Stmt) (rest : List Stmt)
+    (internalFunctions : List FunctionSpec)
+    (headIR tailIR : List YulStmt)
+    (hhead :
+      CompilationModel.compileStmt fields events errors dynamicSource
+        internalRetNames isInternal inScopeNames adtTypes stmt internalFunctions =
+          Except.ok headIR)
+    (htail :
+      CompilationModel.compileStmtList fields events errors dynamicSource
+        internalRetNames isInternal (collectStmtNames stmt ++ inScopeNames) adtTypes
+          rest internalFunctions =
+          Except.ok tailIR) :
+    CompilationModel.compileStmtList fields events errors dynamicSource
+      internalRetNames isInternal inScopeNames adtTypes (stmt :: rest) internalFunctions =
+        Except.ok (headIR ++ tailIR) := by
+  unfold CompilationModel.compileStmtList
+  unfold CompilationModel.compileStmtListWithFork
+  simp [bind, Except.bind, Pure.pure, Except.pure,
+    FunctionBody.compileStmtWithFork_cancun_eq_compileStmt,
+    FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList,
+    hhead, htail]
+
 /-- Weaker source-side reuse witness for the future helper-rich induction path:
 only helper-surface-closed heads must come with the existing helper-free
 generic step proof. Helper-surface-positive heads can instead be discharged by a
@@ -406,6 +436,64 @@ inductive StmtListGenericWithHelpersAndHelperIR
       StmtListGenericWithHelpersAndHelperIR
         runtimeContract spec fields (stmtNextScope scope stmt) rest →
       StmtListGenericWithHelpersAndHelperIR runtimeContract spec fields scope (stmt :: rest)
+
+/-- Spec-functions-aware sibling of
+`StmtListGenericWithHelpersAndHelperIR`.  It is deliberately narrow: it records
+the same helper-aware source/IR preservation witness, but its compile facts are
+for `compileStmt ... stmt spec.functions`.  The arbitrary-scope reconstruction
+API is still blocked on a parametric version of
+`FunctionBody.compileStmt_ok_any_scope_with_surface`; this exact-scope seam is
+enough for callers that thread the compiler scope structurally. -/
+inductive StmtListGenericWithHelpersAndHelperIRWithInternals
+    (runtimeContract : IRContract)
+    (spec : CompilationModel)
+    (fields : List Field) : List String → List Stmt → Prop where
+  | nil {scope : List String} :
+      StmtListGenericWithHelpersAndHelperIRWithInternals
+        runtimeContract spec fields scope []
+  | cons {scope : List String} {stmt : Stmt} {compiledIR : List YulStmt} {rest : List Stmt} :
+      CompiledStmtStepWithHelpersAndHelperIRWithInternals
+        runtimeContract spec fields scope stmt compiledIR →
+      StmtListGenericWithHelpersAndHelperIRWithInternals
+        runtimeContract spec fields (stmtNextScope scope stmt) rest →
+      StmtListGenericWithHelpersAndHelperIRWithInternals
+        runtimeContract spec fields scope (stmt :: rest)
+
+/-- Exact-scope compile reconstruction for the spec-functions-aware helper IR
+list seam.
+
+This is intentionally weaker than
+`compileStmtList_ok_of_stmtListGenericWithHelpersAndHelperIR`: it does not try
+to retarget compilation to a larger `inScopeNames`.  The current scope-lifting
+lemma in `FunctionBody` is hardcoded to the default empty internal-function
+world, so arbitrary-scope reconstruction for `spec.functions` still needs a
+new `internalFunctions`-parametric
+`compileStmt_ok_any_scope_with_surface`/`compileStmtList_ok_any_scope_with_surface`
+API. -/
+theorem compileStmtList_ok_of_stmtListGenericWithHelpersAndHelperIRWithInternals_exact
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {stmts : List Stmt}
+    (hgeneric :
+      StmtListGenericWithHelpersAndHelperIRWithInternals
+        runtimeContract spec fields scope stmts) :
+    ∃ bodyIR,
+      CompilationModel.compileStmtList
+        fields spec.events spec.errors .calldata [] false scope [] stmts spec.functions =
+          Except.ok bodyIR := by
+  induction hgeneric with
+  | nil =>
+      exact ⟨[], by
+        simp [CompilationModel.compileStmtList, CompilationModel.compileStmtListWithFork,
+          Pure.pure, Except.pure]⟩
+  | @cons scope stmt compiledIR rest hstep _hrest ih =>
+      rcases ih with ⟨tailIR, htail⟩
+      exact ⟨compiledIR ++ tailIR,
+        compileStmtList_cons_eq_ok_with_internals
+          fields spec.events spec.errors .calldata [] false scope [] stmt rest
+          spec.functions compiledIR tailIR hstep.compileOk htail⟩
 
 /-- Compiled-side compatibility witness for lifting existing helper-free generic
 statement proofs into the exact helper-aware compiled induction seam. This
