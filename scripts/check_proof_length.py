@@ -134,6 +134,12 @@ ALLOWLIST: set[str] = {
     "selectedUserBodyClosureAndMatchedFresh_of_compile_ok_supported_switchFresh",
     # --- Helper-aware result packaging bridge ---
     "interpretFunctionWithHelpers_eq_execResultToIRResultWithInternals_of_body",
+    # First concrete letVar statement-head adapter (#2080 phase 10): threads a
+    # single compositional-expression existential through source execution, IR
+    # fuel alignment, and four scope/runtime invariant re-establishment steps
+    # that all share the locally-bound post-binding runtime'/state'. Splitting
+    # would duplicate the compositional-result unpacking plumbing in each part.
+    "exprInternalHelperHeadStepBridge_letVar_of_exprCompositionalResult",
     # ERC-4337 dynamic ABI view projection: mechanical destructuring of the
     # nine-field PackedUserOperation decoder to expose its four dynamic bytes
     # member bindings. Splitting would duplicate the same option-case spine.
