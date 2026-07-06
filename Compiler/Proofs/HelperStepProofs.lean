@@ -2190,6 +2190,99 @@ theorem stmtListExprInternalHelperStepInterface_of_exprHeadStepBridges
         intro stmt' hmem hexpr
         exact hbridge (List.mem_cons_of_mem _ hmem) hexpr
 
+/-- Build the spec-functions structural-helper interface from an exact
+`WithInternals` compiled head and the structural tail witness. This packages the
+structural recursion case without converting back to the legacy empty-helper
+compiler world. -/
+theorem stmtListStructuralInternalHelperStepInterfaceWithInternals_cons_of_compiledStep
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {stmt : Stmt}
+    {compiledIR : List YulStmt}
+    {rest : List Stmt}
+    (hstep :
+      CompiledStmtStepWithHelpersAndHelperIRWithInternals
+        runtimeContract spec fields scope stmt compiledIR)
+    (hrest :
+      StmtListStructuralInternalHelperStepInterfaceWithInternals
+        runtimeContract spec fields (stmtNextScope scope stmt) rest) :
+    StmtListStructuralInternalHelperStepInterfaceWithInternals
+      runtimeContract spec fields scope (stmt :: rest) := by
+  refine .cons ?_ hrest
+  intro _
+  exact ⟨compiledIR, hstep⟩
+
+/-- Assemble the spec-functions structural-helper interface from exact
+`WithInternals` head steps for the structural-helper heads that occur in the
+statement list. -/
+theorem stmtListStructuralInternalHelperStepInterfaceWithInternals_of_structuralHeadStepsWithInternals
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {stmts : List Stmt}
+    (hstep :
+      ∀ {scope : List String} {stmt : Stmt},
+        stmt ∈ stmts →
+        stmtTouchesStructuralInternalHelperSurface stmt = true →
+        ∃ compiledIR,
+          CompiledStmtStepWithHelpersAndHelperIRWithInternals
+            runtimeContract spec fields scope stmt compiledIR) :
+    StmtListStructuralInternalHelperStepInterfaceWithInternals
+      runtimeContract spec fields scope stmts := by
+  induction stmts generalizing scope with
+  | nil =>
+      exact .nil
+  | cons stmt rest ih =>
+      refine .cons ?_ ?_
+      · intro hstruct
+        exact hstep (scope := scope) (stmt := stmt) (by simp) hstruct
+      · apply ih
+        intro scope' stmt' hmem hstruct
+        exact hstep (scope := scope') (stmt := stmt')
+          (List.mem_cons_of_mem stmt hmem) hstruct
+
+/-- Full spec-functions-aware assembly from the split helper interfaces into
+the exact `WithInternals` statement-list witness. This is the mixed-list
+counterpart of `fullHelperAwareListWitness_of_allInterfaces`; it avoids the
+legacy/default-empty helper-world list seam when callers provide exact
+`WithInternals` head witnesses for helper-free and helper-surface heads. -/
+theorem fullHelperAwareListWitnessWithInternals_of_allInterfaces
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {stmts : List Stmt}
+    (hhelperFree :
+      StmtListHelperFreeStepInterfaceWithInternals
+        runtimeContract spec fields scope stmts)
+    (hcall :
+      StmtListDirectInternalHelperCallStepInterfaceWithInternals
+        runtimeContract spec fields scope stmts)
+    (hassign :
+      StmtListDirectInternalHelperAssignStepInterfaceWithInternals
+        runtimeContract spec fields scope stmts)
+    (hexpr :
+      StmtListExprInternalHelperStepInterfaceWithInternals
+        runtimeContract spec fields scope stmts)
+    (hstruct :
+      StmtListStructuralInternalHelperStepInterfaceWithInternals
+        runtimeContract spec fields scope stmts)
+    (hresidual :
+      StmtListResidualHelperSurfaceStepInterfaceWithInternals
+        runtimeContract spec fields scope stmts) :
+    StmtListGenericWithHelpersAndHelperIRWithInternals
+      runtimeContract spec fields scope stmts :=
+  stmtListGenericWithHelpersAndHelperIRWithInternals_of_helperFreeStepInterfaceWithInternals_and_directInternalHelperStepInterfaceWithInternals_and_exprInternalHelperStepInterfaceWithInternals_and_structuralInternalHelperStepInterfaceWithInternals_and_residualHelperSurfaceStepInterfaceWithInternals
+    hhelperFree
+    (stmtListDirectInternalHelperStepInterfaceWithInternals_of_callStepInterfaceWithInternals_and_assignStepInterfaceWithInternals
+      hcall hassign)
+    hexpr
+    hstruct
+    hresidual
+
 /-- For helper-surface-closed statement lists, the four narrow helper-step
 interfaces are all trivially satisfied. This is the entry point for contracts
 that do not use internal helpers at all. -/
