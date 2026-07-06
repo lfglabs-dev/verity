@@ -693,6 +693,27 @@ inductive StmtListExprInternalHelperStepInterface
         runtimeContract spec fields (stmtNextScope scope stmt) rest →
       StmtListExprInternalHelperStepInterface runtimeContract spec fields scope (stmt :: rest)
 
+/-- Spec-functions-aware exact step interface for expression-position internal
+helper heads. This mirrors `StmtListExprInternalHelperStepInterface`, but the
+head proof records `compileStmt ... spec.functions`, so consumers can assemble
+the `WithInternals` list seam without passing through the legacy default-empty
+compile shape. -/
+inductive StmtListExprInternalHelperStepInterfaceWithInternals
+    (runtimeContract : IRContract)
+    (spec : CompilationModel)
+    (fields : List Field) : List String → List Stmt → Prop where
+  | nil {scope : List String} :
+      StmtListExprInternalHelperStepInterfaceWithInternals runtimeContract spec fields scope []
+  | cons {scope : List String} {stmt : Stmt} {rest : List Stmt} :
+      (stmtTouchesExprInternalHelperSurface stmt = true →
+        ∃ compiledIR,
+          CompiledStmtStepWithHelpersAndHelperIRWithInternals
+            runtimeContract spec fields scope stmt compiledIR) →
+      StmtListExprInternalHelperStepInterfaceWithInternals
+        runtimeContract spec fields (stmtNextScope scope stmt) rest →
+      StmtListExprInternalHelperStepInterfaceWithInternals
+        runtimeContract spec fields scope (stmt :: rest)
+
 /-- Exact step interface for structural heads whose helper burden is recursive
 transport through nested bodies (`ite` / `forEach`) rather than direct helper
 summary consumption at the head itself. -/
