@@ -1048,6 +1048,34 @@ theorem
         (ih (fun stmt' hmem =>
           hallDirect stmt' (List.mem_cons_of_mem stmt hmem)))
 
+/-- Spec-functions-aware structural-helper list bridge. Structural helper heads
+supplied by the `WithInternals` interface assemble directly into the
+`StmtListGenericWithHelpersAndHelperIRWithInternals` seam. This is intentionally
+narrow: every head in the list must be a recursive structural helper head. -/
+theorem
+    stmtListGenericWithHelpersAndHelperIRWithInternals_of_structuralInternalHelperStepInterfaceWithInternals
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {stmts : List Stmt}
+    (hstruct :
+      StmtListStructuralInternalHelperStepInterfaceWithInternals
+        runtimeContract spec fields scope stmts)
+    (hallStructural :
+      ∀ stmt ∈ stmts, stmtTouchesStructuralInternalHelperSurface stmt = true) :
+    StmtListGenericWithHelpersAndHelperIRWithInternals
+      runtimeContract spec fields scope stmts := by
+  induction hstruct with
+  | nil =>
+      exact .nil
+  | @cons scope stmt rest hhead htail ih =>
+      rcases hhead (hallStructural stmt List.mem_cons_self) with
+        ⟨compiledIR, hcompiled⟩
+      exact .cons hcompiled
+        (ih (fun stmt' hmem =>
+          hallStructural stmt' (List.mem_cons_of_mem stmt hmem)))
+
 /-- Spec-functions-aware mixed helper-list bridge. Helper-free heads and
 helper-positive heads both provide exact `compileStmt ... spec.functions`
 witnesses, so the assembled list lands directly in
