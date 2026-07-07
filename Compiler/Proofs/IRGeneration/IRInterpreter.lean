@@ -2171,6 +2171,37 @@ noncomputable def interpretIRWithInternals
     findInternalFunction? contract name = none := by
   simp [findInternalFunction?, hinternal]
 
+/-- Naming invariant for a runtime contract's internal-function table: every
+decoded helper's name begins with `internalFunctionPrefix`. Compiled contracts
+satisfy this because helpers are emitted via `internalFunctionYulName`, which
+prepends the prefix. Phrasing the invariant via `String.data.take` avoids any
+dependence on defeq of `internalFunctionYulName` (which appends to an opaque
+tail). -/
+def InternalTableNamesInternalPrefixed (contract : IRContract) : Prop :=
+  ∀ d ∈ contract.internalFunctions.filterMap irInternalFunctionDefOfStmt?,
+    d.name.data.take CompilationModel.internalFunctionPrefix.data.length =
+      CompilationModel.internalFunctionPrefix.data
+
+/-- A name that is not `internal_`-prefixed cannot resolve to any helper in a
+contract whose internal table satisfies the naming invariant. This is the
+forward-compatible generalization of
+`findInternalFunction?_eq_none_of_internalFunctions_nil`: it discharges the
+`findInternalFunction? ... = none` obligation for a concrete non-prefixed name
+(e.g. an EVM/Yul builtin) without requiring the internal table to be empty. -/
+theorem findInternalFunction?_eq_none_of_not_internalPrefixed
+    (contract : IRContract) (name : String)
+    (hinv : InternalTableNamesInternalPrefixed contract)
+    (hname : name.data.take CompilationModel.internalFunctionPrefix.data.length ≠
+        CompilationModel.internalFunctionPrefix.data) :
+    findInternalFunction? contract name = none := by
+  simp only [findInternalFunction?]
+  rw [List.find?_eq_none]
+  intro d hd hpred
+  have hdname : d.name = name := by simpa using hpred
+  have hdtake := hinv d hd
+  rw [hdname] at hdtake
+  exact hname hdtake
+
 /-- The first compiled-side helper retarget theorem only needs the current
 helper-free runtime-contract shape: no internal helpers and legacy-compatible
 external bodies. Encoding that shape as a proposition keeps the remaining
