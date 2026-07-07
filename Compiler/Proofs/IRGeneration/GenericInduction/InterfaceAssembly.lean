@@ -354,6 +354,37 @@ theorem stmtListDirectInternalHelperStepInterface_of_callStepInterface_and_assig
                 simp [hcallStmt] at hcallFalse ⊢
             exact hheadCall hcallTrue
 
+/-- Assemble the spec-functions-aware coarser direct helper interface from the
+two source-summary `WithInternals` shapes it contains. -/
+theorem stmtListDirectInternalHelperStepInterfaceWithInternals_of_callStepInterfaceWithInternals_and_assignStepInterfaceWithInternals
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {stmts : List Stmt}
+    (hcall :
+      StmtListDirectInternalHelperCallStepInterfaceWithInternals runtimeContract spec fields scope stmts)
+    (hassign :
+      StmtListDirectInternalHelperAssignStepInterfaceWithInternals runtimeContract spec fields scope stmts) :
+    StmtListDirectInternalHelperStepInterfaceWithInternals
+      runtimeContract spec fields scope stmts := by
+  induction hcall with
+  | nil =>
+      exact .nil
+  | @cons scope stmt rest hheadCall htailCall ih =>
+      cases hassign with
+      | cons hheadAssign htailAssign =>
+          refine .cons ?_ (ih htailAssign)
+          intro hdirect
+          by_cases hcallFalse : stmtTouchesDirectInternalHelperCallSurface stmt = false
+          · have hassignTrue : stmtTouchesDirectInternalHelperAssignSurface stmt = true := by
+              simpa [stmtTouchesDirectInternalHelperSurface_eq_split, hcallFalse] using hdirect
+            exact hheadAssign hassignTrue
+          · have hcallTrue : stmtTouchesDirectInternalHelperCallSurface stmt = true := by
+              cases hcallStmt : stmtTouchesDirectInternalHelperCallSurface stmt <;>
+                simp [hcallStmt] at hcallFalse ⊢
+            exact hheadCall hcallTrue
+
 /-- Helper-surface-closed statement lists also satisfy the direct
 statement-position internal-helper interface vacuously. -/
 theorem stmtListDirectInternalHelperStepInterface_of_helperSurfaceClosed
@@ -890,6 +921,33 @@ theorem
       exact .cons hcompiled
         (ih (fun stmt' hmem =>
           hallExpr stmt' (List.mem_cons_of_mem stmt hmem)))
+
+/-- Spec-functions-aware direct-helper list bridge. Direct helper heads supplied
+by the `WithInternals` interface assemble directly into the
+`StmtListGenericWithHelpersAndHelperIRWithInternals` seam. This is intentionally
+narrow: every head in the list must be a direct statement-position helper head. -/
+theorem
+    stmtListGenericWithHelpersAndHelperIRWithInternals_of_directInternalHelperStepInterfaceWithInternals
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {stmts : List Stmt}
+    (hdirect :
+      StmtListDirectInternalHelperStepInterfaceWithInternals
+        runtimeContract spec fields scope stmts)
+    (hallDirect :
+      ∀ stmt ∈ stmts, stmtTouchesDirectInternalHelperSurface stmt = true) :
+    StmtListGenericWithHelpersAndHelperIRWithInternals
+      runtimeContract spec fields scope stmts := by
+  induction hdirect with
+  | nil =>
+      exact .nil
+  | @cons scope stmt rest hhead htail ih =>
+      rcases hhead (hallDirect stmt List.mem_cons_self) with ⟨compiledIR, hcompiled⟩
+      exact .cons hcompiled
+        (ih (fun stmt' hmem =>
+          hallDirect stmt' (List.mem_cons_of_mem stmt hmem)))
 
 /-- Exact helper-aware list bridge with the helper-positive work split cleanly:
 genuine internal-helper heads are supplied through a narrow helper-specific

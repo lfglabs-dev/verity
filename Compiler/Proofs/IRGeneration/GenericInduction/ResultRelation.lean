@@ -657,6 +657,46 @@ inductive StmtListDirectInternalHelperAssignStepInterface
         runtimeContract spec fields (stmtNextScope scope stmt) rest →
       StmtListDirectInternalHelperAssignStepInterface runtimeContract spec fields scope (stmt :: rest)
 
+/-- Spec-functions-aware exact step interface for direct statement-position
+internal-helper heads. This mirrors
+`StmtListDirectInternalHelperCallStepInterface`, but records
+`compileStmt ... spec.functions` at the head. -/
+inductive StmtListDirectInternalHelperCallStepInterfaceWithInternals
+    (runtimeContract : IRContract)
+    (spec : CompilationModel)
+    (fields : List Field) : List String → List Stmt → Prop where
+  | nil {scope : List String} :
+      StmtListDirectInternalHelperCallStepInterfaceWithInternals runtimeContract spec fields scope []
+  | cons {scope : List String} {stmt : Stmt} {rest : List Stmt} :
+      (stmtTouchesDirectInternalHelperCallSurface stmt = true →
+        ∃ compiledIR,
+          CompiledStmtStepWithHelpersAndHelperIRWithInternals
+            runtimeContract spec fields scope stmt compiledIR) →
+      StmtListDirectInternalHelperCallStepInterfaceWithInternals
+        runtimeContract spec fields (stmtNextScope scope stmt) rest →
+      StmtListDirectInternalHelperCallStepInterfaceWithInternals
+        runtimeContract spec fields scope (stmt :: rest)
+
+/-- Spec-functions-aware exact step interface for direct statement-position
+helper-return binding heads. This mirrors
+`StmtListDirectInternalHelperAssignStepInterface`, but records
+`compileStmt ... spec.functions` at the head. -/
+inductive StmtListDirectInternalHelperAssignStepInterfaceWithInternals
+    (runtimeContract : IRContract)
+    (spec : CompilationModel)
+    (fields : List Field) : List String → List Stmt → Prop where
+  | nil {scope : List String} :
+      StmtListDirectInternalHelperAssignStepInterfaceWithInternals runtimeContract spec fields scope []
+  | cons {scope : List String} {stmt : Stmt} {rest : List Stmt} :
+      (stmtTouchesDirectInternalHelperAssignSurface stmt = true →
+        ∃ compiledIR,
+          CompiledStmtStepWithHelpersAndHelperIRWithInternals
+            runtimeContract spec fields scope stmt compiledIR) →
+      StmtListDirectInternalHelperAssignStepInterfaceWithInternals
+        runtimeContract spec fields (stmtNextScope scope stmt) rest →
+      StmtListDirectInternalHelperAssignStepInterfaceWithInternals
+        runtimeContract spec fields scope (stmt :: rest)
+
 /-- Coarser direct statement-position helper interface retained as the assembly
 point for the two direct helper proof shapes above. -/
 inductive StmtListDirectInternalHelperStepInterface
@@ -673,6 +713,25 @@ inductive StmtListDirectInternalHelperStepInterface
       StmtListDirectInternalHelperStepInterface
         runtimeContract spec fields (stmtNextScope scope stmt) rest →
       StmtListDirectInternalHelperStepInterface runtimeContract spec fields scope (stmt :: rest)
+
+/-- Spec-functions-aware coarser direct statement-position helper interface
+retained as the assembly point for the call/assign `WithInternals` proof
+shapes. -/
+inductive StmtListDirectInternalHelperStepInterfaceWithInternals
+    (runtimeContract : IRContract)
+    (spec : CompilationModel)
+    (fields : List Field) : List String → List Stmt → Prop where
+  | nil {scope : List String} :
+      StmtListDirectInternalHelperStepInterfaceWithInternals runtimeContract spec fields scope []
+  | cons {scope : List String} {stmt : Stmt} {rest : List Stmt} :
+      (stmtTouchesDirectInternalHelperSurface stmt = true →
+        ∃ compiledIR,
+          CompiledStmtStepWithHelpersAndHelperIRWithInternals
+            runtimeContract spec fields scope stmt compiledIR) →
+      StmtListDirectInternalHelperStepInterfaceWithInternals
+        runtimeContract spec fields (stmtNextScope scope stmt) rest →
+      StmtListDirectInternalHelperStepInterfaceWithInternals
+        runtimeContract spec fields scope (stmt :: rest)
 
 /-- Exact step interface for heads whose internal-helper work appears only in
 expression position at the current statement head. These are the cases that
