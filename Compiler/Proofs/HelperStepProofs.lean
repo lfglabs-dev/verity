@@ -2214,6 +2214,78 @@ theorem stmtListStructuralInternalHelperStepInterfaceWithInternals_cons_of_compi
   intro _
   exact ⟨compiledIR, hstep⟩
 
+/-- Concrete `WithInternals` structural witness for an `ite` head. The caller
+supplies the exact spec-functions compiled-step proof for the recursive
+statement form, and this packages it into the structural helper interface
+without falling back to the legacy empty-helper compiler world. -/
+theorem stmtListStructuralInternalHelperStepInterfaceWithInternals_cons_ite_of_compiledStep
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {cond : Expr}
+    {thenBranch elseBranch : List Stmt}
+    {compiledIR : List YulStmt}
+    {rest : List Stmt}
+    (hstep :
+      CompiledStmtStepWithHelpersAndHelperIRWithInternals
+        runtimeContract spec fields scope
+          (Stmt.ite cond thenBranch elseBranch) compiledIR)
+    (hrest :
+      StmtListStructuralInternalHelperStepInterfaceWithInternals
+        runtimeContract spec fields
+          (stmtNextScope scope (Stmt.ite cond thenBranch elseBranch)) rest) :
+    StmtListStructuralInternalHelperStepInterfaceWithInternals
+      runtimeContract spec fields scope
+      (Stmt.ite cond thenBranch elseBranch :: rest) := by
+  exact
+    stmtListStructuralInternalHelperStepInterfaceWithInternals_cons_of_compiledStep
+      (runtimeContract := runtimeContract)
+      (spec := spec)
+      (fields := fields)
+      (scope := scope)
+      (stmt := Stmt.ite cond thenBranch elseBranch)
+      (compiledIR := compiledIR)
+      (rest := rest)
+      hstep
+      hrest
+
+/-- Concrete `WithInternals` structural witness for a `forEach` head. The exact
+head step compiles against `spec.functions`, so the recursive structural case
+can participate in the phase-17 mixed-list assembly route directly. -/
+theorem stmtListStructuralInternalHelperStepInterfaceWithInternals_cons_forEach_of_compiledStep
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {varName : String}
+    {count : Expr}
+    {body : List Stmt}
+    {compiledIR : List YulStmt}
+    {rest : List Stmt}
+    (hstep :
+      CompiledStmtStepWithHelpersAndHelperIRWithInternals
+        runtimeContract spec fields scope
+          (Stmt.forEach varName count body) compiledIR)
+    (hrest :
+      StmtListStructuralInternalHelperStepInterfaceWithInternals
+        runtimeContract spec fields
+          (stmtNextScope scope (Stmt.forEach varName count body)) rest) :
+    StmtListStructuralInternalHelperStepInterfaceWithInternals
+      runtimeContract spec fields scope
+      (Stmt.forEach varName count body :: rest) := by
+  exact
+    stmtListStructuralInternalHelperStepInterfaceWithInternals_cons_of_compiledStep
+      (runtimeContract := runtimeContract)
+      (spec := spec)
+      (fields := fields)
+      (scope := scope)
+      (stmt := Stmt.forEach varName count body)
+      (compiledIR := compiledIR)
+      (rest := rest)
+      hstep
+      hrest
+
 /-- Assemble the spec-functions structural-helper interface from exact
 `WithInternals` head steps for the structural-helper heads that occur in the
 statement list. -/
