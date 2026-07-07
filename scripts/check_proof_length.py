@@ -134,6 +134,19 @@ ALLOWLIST: set[str] = {
     "selectedUserBodyClosureAndMatchedFresh_of_compile_ok_supported_switchFresh",
     # --- Helper-aware result packaging bridge ---
     "interpretFunctionWithHelpers_eq_execResultToIRResultWithInternals_of_body",
+    # #2080 phase 21 function-level WithInternals bridge: threads generated ABI
+    # param-load execution into the helper-aware compiled body while preserving
+    # the exact fuel equality needed by `execIRFunctionWithInternals`.
+    "exec_compiledFunctionIR_withInternals_of_body_extraFuel",
+    # #2080 phase 21 direct helper-aware function theorem: packages source
+    # helper semantics, the exact helper-IR body goal, function compilation
+    # shape, rollback state, and param-prefix execution into the final
+    # `execIRFunctionWithInternals` result.
+    "supported_function_correct_with_helper_proofs_body_goal_with_internals",
+    # #2080 phase 21 contract-level consumer: exposes the direct helper-aware
+    # function theorem through the contract proof API while keeping the
+    # generated param-load disjointness premise explicit.
+    "compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal",
     # First concrete letVar statement-head adapter (#2080 phase 10): threads a
     # single compositional-expression existential through source execution, IR
     # fuel alignment, and four scope/runtime invariant re-establishment steps

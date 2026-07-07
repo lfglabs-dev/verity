@@ -1041,6 +1041,62 @@ theorem compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir
       (hbind := hbind)
   simpa [hhelperIR] using hlegacy
 
+/-- Direct helper-aware compiled-side wrapper for the generic function theorem.
+This consumes the exact helper-aware body/IR goal and executes the compiled
+function through `execIRFunctionWithInternals` directly, leaving only the
+generated ABI parameter-load prefix disjointness as an explicit compiled-side
+premise. -/
+theorem compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal
+    (model : CompilationModel)
+    (selectors : List Nat)
+    (hSupported : SupportedSpec model selectors)
+    (hHelperProofs : SourceSemantics.SupportedSpecHelperProofs model selectors hSupported)
+    (hvalidateInputs : validateCompileInputs model selectors = Except.ok ())
+    (runtimeContract : IRContract)
+    (fn : FunctionSpec)
+    (sel : Nat)
+    (returns : List ParamType)
+    (bodyStmts : List YulStmt)
+    (irFn : IRFunction)
+    (tx : IRTransaction)
+    (initialWorld : Verity.ContractState)
+    (htxNormalized : Function.TxContextNormalized tx)
+    (bindings : List (String × Nat))
+    (extraFuel : Nat)
+    (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
+    (hfn : fn ∈ selectorDispatchedFunctions model)
+    (hvalidate : validateFunctionSpec fn = Except.ok ())
+    (hreturns : functionReturns fn = Except.ok returns)
+    (hbodyCompile :
+      compileStmtList model.fields model.events model.errors .calldata [] false
+        (fn.params.map (·.name)) [] fn.body = Except.ok bodyStmts)
+    (hcompileFn :
+      compileFunctionSpec model.fields model.events model.errors [] sel fn = Except.ok irFn)
+    (hbind : SourceSemantics.bindSupportedParams fn.params tx.args = some bindings)
+    (hcompiledBodyFuel :
+      (genParamLoads fn.params ++ bodyStmts).length + extraFuel =
+        sizeOf (Function.compiledFunctionIR sel fn returns bodyStmts).body)
+    (hbodyCorrect :
+      SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
+        runtimeContract model fn bodyStmts hSupported.helperFuel tx initialWorld
+        (ParamLoading.applyBindingsToIRState
+          (Function.prebindRawArgs
+            (FunctionBody.initialIRStateForTx model tx initialWorld) fn.params)
+          bindings)
+        bindings extraFuel)
+    (hparamDisjoint :
+      YulStmtListCallsDisjointFromInternalTable runtimeContract
+        (genParamLoads fn.params)) :
+    FunctionBody.sourceResultMatchesIRResult
+      (supportedSourceFunctionSemantics model selectors hSupported fn tx initialWorld)
+      (execIRFunctionWithInternals runtimeContract 0 irFn tx.args
+        (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
+  exact Function.supported_function_correct_with_helper_proofs_body_goal_with_internals
+    model selectors hSupported hHelperProofs hvalidateInputs runtimeContract
+    fn sel returns bodyStmts irFn tx initialWorld bindings hfn hvalidate hreturns
+    hbodyCompile hcompileFn hbind htxNormalized extraFuel hcompiledBodyFuel
+    hbodyCorrect hparamDisjoint hcalldataSizeFits
+
 /-- Structured helper-aware compiled-side wrapper for the generic function
 theorem. This replaces the raw function-level conservative-extension equality
 premise by the compiled-body disjointness witness that proves it. -/

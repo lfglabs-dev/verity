@@ -439,6 +439,139 @@ theorem exec_compiledFunctionIR_of_body_extraFuel
   rw [hprefix', hbody]
   rfl
 
+theorem execIRStmtsWithInternals_append_of_prefix_continue :
+    ∀ (contract : IRContract) (pre rest : List YulStmt) (fuel : Nat)
+      (state state' : IRState),
+      execIRStmtsWithInternals contract (pre.length + fuel) state pre = .continue state' →
+      execIRStmtsWithInternals contract (pre.length + fuel) state (pre ++ rest) =
+        execIRStmtsWithInternals contract fuel state' rest
+  | contract, [], rest, fuel, state, state', hprefix => by
+      simp only [List.length_nil, zero_add, execIRStmtsWithInternals] at hprefix
+      cases hprefix
+      simp
+  | contract, stmt :: pre, rest, fuel, state, state', hprefix => by
+      have hprefixNorm :
+          execIRStmtsWithInternals contract (Nat.succ (pre.length + fuel))
+            state (stmt :: pre) = .continue state' := by
+        simpa [List.length_cons, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using hprefix
+      simp only [List.length_cons, List.cons_append]
+      rw [show Nat.succ pre.length + fuel = Nat.succ (pre.length + fuel) by omega]
+      rw [execIRStmtsWithInternals]
+      cases hstep : execIRStmtWithInternals contract (pre.length + fuel) state stmt with
+      | «continue» next =>
+          have htail :
+              execIRStmtsWithInternals contract (pre.length + fuel) next pre =
+                .continue state' := by
+            simpa [execIRStmtsWithInternals, hstep] using hprefixNorm
+          exact execIRStmtsWithInternals_append_of_prefix_continue
+            contract pre rest fuel next state' htail
+      | «return» value next =>
+          simp [execIRStmtsWithInternals, hstep] at hprefixNorm
+      | stop next =>
+          simp [execIRStmtsWithInternals, hstep] at hprefixNorm
+      | revert next =>
+          simp [execIRStmtsWithInternals, hstep] at hprefixNorm
+      | «leave» next =>
+          simp [execIRStmtsWithInternals, hstep] at hprefixNorm
+
+theorem exec_genParamLoads_supported_then_extraFuel_withInternals
+    (runtimeContract : IRContract)
+    (state : IRState) (params : List Param) (bindings : List (String × Nat))
+    (rest : List YulStmt) (extraFuel : Nat)
+    (hsupported : ∀ param ∈ params, SupportedExternalParamType param.ty)
+    (hcalldataSizeFits : 4 + state.calldata.length * 32 < Compiler.Constants.evmModulus)
+    (hbind : SourceSemantics.bindSupportedParams params state.calldata = some bindings)
+    (hparamDisjoint :
+      YulStmtListCallsDisjointFromInternalTable runtimeContract (genParamLoads params)) :
+    execIRStmtsWithInternals runtimeContract
+        ((genParamLoads params).length + rest.length + extraFuel + 1) state
+        (genParamLoads params ++ rest) =
+      execIRStmtsWithInternals runtimeContract
+        (rest.length + extraFuel + 1)
+        (ParamLoading.applyBindingsToIRState state bindings) rest := by
+  let tailFuel := rest.length + extraFuel + 1
+  have hlegacyPrefix :
+      execIRStmts ((genParamLoads params).length + tailFuel) state (genParamLoads params) =
+        .continue (ParamLoading.applyBindingsToIRState state bindings) := by
+    have hlegacy :=
+      ParamLoading.exec_genParamLoads_supported_then_extraFuel
+        (state := state) (params := params) (bindings := bindings)
+        (rest := []) (extraFuel := rest.length + extraFuel)
+        hsupported hcalldataSizeFits hbind
+    simpa [tailFuel] using hlegacy
+  have hprefix :
+      execIRStmtsWithInternals runtimeContract ((genParamLoads params).length + tailFuel)
+          state (genParamLoads params) =
+        .continue (ParamLoading.applyBindingsToIRState state bindings) := by
+    have hcompat :=
+      execIRStmtsWithInternals_eq_execIRStmts_of_callsDisjoint
+        runtimeContract ((genParamLoads params).length + tailFuel)
+        state (genParamLoads params) hparamDisjoint
+    rw [hcompat, hlegacyPrefix]
+  have happend :=
+    execIRStmtsWithInternals_append_of_prefix_continue runtimeContract
+      (genParamLoads params) rest tailFuel state
+      (ParamLoading.applyBindingsToIRState state bindings) hprefix
+  simpa [tailFuel, List.length_append, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using happend
+
+theorem exec_compiledFunctionIR_withInternals_of_body_extraFuel
+    (runtimeContract : IRContract)
+    (state : IRState) (selector : Nat) (spec : FunctionSpec)
+    (returns : List ParamType) (bodyStmts : List YulStmt)
+    (bindings : List (String × Nat)) (tailResult : IRExecResultWithInternals)
+    (extraFuel : Nat)
+    (hsupported : ∀ param ∈ spec.params, SupportedExternalParamType param.ty)
+    (hcalldataSizeFits : 4 + state.calldata.length * 32 < Compiler.Constants.evmModulus)
+    (hbind : SourceSemantics.bindSupportedParams spec.params state.calldata = some bindings)
+    (hparamDisjoint :
+      YulStmtListCallsDisjointFromInternalTable runtimeContract (genParamLoads spec.params))
+    (hbody :
+      execIRStmtsWithInternals runtimeContract (bodyStmts.length + extraFuel + 1)
+        (ParamLoading.applyBindingsToIRState (prebindRawArgs state spec.params) bindings)
+        bodyStmts = tailResult) :
+    execIRStmtsWithInternals runtimeContract
+        ((genParamLoads spec.params ++ bodyStmts).length + extraFuel + 1)
+        (prebindRawArgs state spec.params)
+        (compiledFunctionIR selector spec returns bodyStmts).body =
+      tailResult := by
+  let preboundState := prebindRawArgs state spec.params
+  have hbind' :
+      SourceSemantics.bindSupportedParams spec.params preboundState.calldata = some bindings := by
+    simpa [preboundState] using hbind
+  have hcalldataSizeFits' :
+      4 + preboundState.calldata.length * 32 < Compiler.Constants.evmModulus := by
+    simpa [preboundState] using hcalldataSizeFits
+  have hprefix :
+      execIRStmtsWithInternals runtimeContract
+          ((genParamLoads spec.params).length + bodyStmts.length + extraFuel + 1)
+          preboundState (genParamLoads spec.params ++ bodyStmts) =
+        execIRStmtsWithInternals runtimeContract
+          (bodyStmts.length + extraFuel + 1)
+          (ParamLoading.applyBindingsToIRState preboundState bindings)
+          bodyStmts := by
+    simpa [preboundState, Nat.add_assoc] using
+      exec_genParamLoads_supported_then_extraFuel_withInternals
+        (runtimeContract := runtimeContract)
+        (state := preboundState)
+        (params := spec.params)
+        (bindings := bindings)
+        (rest := bodyStmts)
+        (extraFuel := extraFuel)
+        hsupported hcalldataSizeFits' hbind' hparamDisjoint
+  calc
+    execIRStmtsWithInternals runtimeContract
+        ((genParamLoads spec.params ++ bodyStmts).length + extraFuel + 1)
+        (prebindRawArgs state spec.params)
+        (compiledFunctionIR selector spec returns bodyStmts).body
+        =
+      execIRStmtsWithInternals runtimeContract
+        (bodyStmts.length + extraFuel + 1)
+        (ParamLoading.applyBindingsToIRState preboundState bindings)
+        bodyStmts := by
+          simpa [preboundState, compiledFunctionIR, List.length_append, Nat.add_assoc,
+            Nat.add_left_comm, Nat.add_comm] using hprefix
+    _ = tailResult := hbody
+
 theorem interpretFunction_eq_execResultToIRResult_of_body
     (model : CompilationModel) (fn : FunctionSpec)
     (tx : IRTransaction) (initialWorld : Verity.ContractState)
@@ -2149,6 +2282,138 @@ theorem supported_function_correct_with_helper_proofs_body_goal_and_helper_ir
       bodyStmts irFn tx initialWorld bindings hfn hvalidate hreturns hbodyCompile
       hcompile hbind htxNormalized extraFuel hcompiledBodyFuel hlegacyBody hcalldataSizeFits
   simpa [hhelperIR] using hlegacy
+
+/-- Direct helper-aware function theorem for compiled bodies that already prove
+the exact `execIRStmtsWithInternals` preservation goal. This is the function
+level analogue of the legacy param-load/body execution bridge: the generated
+ABI param-load prefix runs first under `WithInternals`, then execution continues
+with the helper-aware compiled body. -/
+theorem supported_function_correct_with_helper_proofs_body_goal_with_internals
+    (model : CompilationModel)
+    (selectors : List Nat)
+    (hSupported : SupportedSpec model selectors)
+    (_hHelperProofs : SourceSemantics.SupportedSpecHelperProofs model selectors hSupported)
+    (_hvalidateInputs : validateCompileInputs model selectors = Except.ok ())
+    (runtimeContract : IRContract)
+    (fn : FunctionSpec)
+    (selector : Nat)
+    (returns : List ParamType)
+    (bodyStmts : List YulStmt)
+    (irFn : IRFunction)
+    (tx : IRTransaction)
+    (initialWorld : Verity.ContractState)
+    (bindings : List (String × Nat))
+    (hfn : fn ∈ selectorDispatchedFunctions model)
+    (hvalidate : validateFunctionSpec fn = Except.ok ())
+    (hreturns : functionReturns fn = Except.ok returns)
+    (hbodyCompile :
+      compileStmtList model.fields model.events model.errors .calldata [] false
+        (fn.params.map (·.name)) [] fn.body = Except.ok bodyStmts)
+    (hcompile :
+      compileFunctionSpec model.fields model.events model.errors [] selector fn = Except.ok irFn)
+    (hbind : SourceSemantics.bindSupportedParams fn.params tx.args = some bindings)
+    (_htxNormalized : TxContextNormalized tx)
+    (extraFuel : Nat)
+    (hcompiledBodyFuel :
+      (genParamLoads fn.params ++ bodyStmts).length + extraFuel =
+        sizeOf (compiledFunctionIR selector fn returns bodyStmts).body)
+    (hbodyCorrect :
+      SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
+        runtimeContract
+        model fn bodyStmts hSupported.helperFuel tx initialWorld
+        (ParamLoading.applyBindingsToIRState
+          (prebindRawArgs
+            (FunctionBody.initialIRStateForTx model tx initialWorld) fn.params)
+          bindings)
+        bindings extraFuel)
+    (hparamDisjoint :
+      YulStmtListCallsDisjointFromInternalTable runtimeContract (genParamLoads fn.params))
+    (hcalldataSizeFits : TxCalldataSizeFitsEvm tx) :
+    FunctionBody.sourceResultMatchesIRResult
+      (supportedSourceFunctionSemantics model selectors hSupported fn tx initialWorld)
+      (execIRFunctionWithInternals runtimeContract 0 irFn tx.args
+        (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
+  let initialState := FunctionBody.initialIRStateForTx model tx initialWorld
+  rcases hbodyCorrect with ⟨sourceResult, irExec, hsource, hbodyExec, hmatch⟩
+  have hcompiled := compileFunctionSpec_ok_of_components model.fields model.events model.errors
+      selector fn returns bodyStmts hvalidate hreturns hbodyCompile
+  have hirFn : irFn = compiledFunctionIR selector fn returns bodyStmts := by
+    rw [hcompile] at hcompiled
+    injection hcompiled
+  have hrollbackStorage :
+        initialState.storage = fun s =>
+          Compiler.Proofs.IRGeneration.IRStorageWord.ofNat
+            (SourceSemantics.encodeStorage model
+              (SourceSemantics.withTransactionContext initialWorld tx) s.toNat) := by
+    funext s
+    simp [initialState, FunctionBody.initialIRStateForTx,
+      FunctionBody.encodeStorage_withTransactionContext]
+  have hrollbackEvents :
+      initialState.events =
+        SourceSemantics.encodeEvents
+          (SourceSemantics.withTransactionContext initialWorld tx).events := by
+    simp [initialState, FunctionBody.initialIRStateForTx]
+  have hsourceMatch :
+      FunctionBody.sourceResultMatchesIRResult
+        (supportedSourceFunctionSemantics model selectors hSupported fn tx initialWorld)
+        (FunctionBody.irResultOfExecResultWithInternals initialState irExec) := by
+    have hpack :=
+      interpretFunctionWithHelpers_eq_execResultToIRResultWithInternals_of_body
+        (model := model)
+        (fn := fn)
+        (helperFuel := hSupported.helperFuel)
+        (tx := tx)
+        (initialWorld := initialWorld)
+        (sourceResult := sourceResult)
+        (rollback := initialState)
+        (irResult := irExec)
+        (bindings := bindings)
+        hbind hsource hrollbackStorage hrollbackEvents hmatch
+    simpa [supportedSourceFunctionSemantics] using hpack
+  subst hirFn
+  have hcompiledBodyFuel' :
+      (genParamLoads fn.params ++ bodyStmts).length + extraFuel =
+        sizeOf (genParamLoads fn.params ++ bodyStmts) := by
+    simpa [compiledFunctionIR] using hcompiledBodyFuel
+  have hcompiledExec :
+      execIRStmtsWithInternals runtimeContract
+          (sizeOf (genParamLoads fn.params ++ bodyStmts) + 1)
+          (prebindRawArgs initialState fn.params)
+          (genParamLoads fn.params ++ bodyStmts) =
+        irExec := by
+    have hprefix :=
+      exec_compiledFunctionIR_withInternals_of_body_extraFuel
+        (runtimeContract := runtimeContract)
+        (state := initialState)
+        (selector := selector)
+        (spec := fn)
+        (returns := returns)
+        (bodyStmts := bodyStmts)
+        (bindings := bindings)
+        (tailResult := irExec)
+        (extraFuel := extraFuel)
+        (hSupported.selectorFunctionParamsSupported hfn)
+        hcalldataSizeFits hbind hparamDisjoint hbodyExec
+    have hfuel :
+        (genParamLoads fn.params ++ bodyStmts).length + extraFuel + 1 =
+          sizeOf (genParamLoads fn.params ++ bodyStmts) + 1 := by
+      omega
+    rw [← hfuel]
+    simpa [compiledFunctionIR] using hprefix
+  have hfunctionExec :
+      execIRFunctionWithInternals runtimeContract 0
+          (compiledFunctionIR selector fn returns bodyStmts) tx.args initialState =
+        FunctionBody.irResultOfExecResultWithInternals initialState irExec := by
+    have hstateWithParams :
+        List.foldl (fun s x => s.setVar x.1.name x.2) initialState
+            ((List.map Param.toIRParam fn.params).zip tx.args) =
+          prebindRawArgs initialState fn.params := by
+      simp [prebindRawArgs, initialState, FunctionBody.initialIRStateForTx]
+    rw [execIRFunctionWithInternals]
+    simp [compiledFunctionIR, hstateWithParams]
+    rw [hcompiledExec]
+    rfl
+  simpa [initialState, hfunctionExec] using hsourceMatch
 
 /-- Structured exact helper-aware function/IR wrapper under compiled-body
 disjointness. The exact helper-aware body theorem can now be reused all the way
