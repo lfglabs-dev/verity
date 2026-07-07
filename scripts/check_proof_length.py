@@ -159,6 +159,13 @@ ALLOWLIST: set[str] = {
     # a `compileInternalFunction` output). Body is a single term application; the
     # >50 lines are entirely the mirrored premise list.
     "compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_compiledInternalTable",
+    # #2080 whole-contract dispatch seam consumer: same signature-dominated wrapper
+    # as the `_of_compiledInternalTable` sibling, but discharges its `hcompiledTable`
+    # premise from the real compilation pipeline output
+    # (`compileValidatedCore model selectors = Except.ok runtimeContract`) instead of
+    # taking it as a hypothesis. Body is a single term application; the >50 lines are
+    # entirely the mirrored premise list.
+    "compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_compileValidatedCore",
     # First concrete letVar statement-head adapter (#2080 phase 10): threads a
     # single compositional-expression existential through source execution, IR
     # fuel alignment, and four scope/runtime invariant re-establishment steps

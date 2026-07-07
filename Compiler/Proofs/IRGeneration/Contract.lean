@@ -1220,6 +1220,222 @@ theorem compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_
     (Function.InternalTableNamesInternalPrefixed_of_all_compiledInternal runtimeContract
       hcompiledTable)
 
+/-- Generalized `Forall₂` bridge for the internal-function compilation `mapM`.
+
+Unlike `compiled_internal_functions_forall₂_of_mapM_ok` (which fixes
+`adtTypes = []` and the default `targetFork`/`internalFunctions` arguments), this
+matches the exact call shape used by `compileValidatedCore` when it populates the
+`internalFuncDefs` segment of the runtime internal table:
+`internalFns.mapM (fun fn => compileInternalFunction fields events errors adtTypes fn targetFork internalFns)`. -/
+private theorem compiled_internal_functions_forall₂_of_mapM_ok'
+    (fields : List Field)
+    (events : List EventDef)
+    (errors : List ErrorDef)
+    (adtTypes : List AdtTypeDef)
+    (targetFork : Verity.Core.Intrinsics.HardFork)
+    (internalFns : List FunctionSpec) :
+    ∀ (entries : List FunctionSpec) internalDefs,
+      (entries.mapM (fun fn =>
+        compileInternalFunction fields events errors adtTypes fn targetFork internalFns)) =
+        Except.ok internalDefs →
+      List.Forall₂
+        (fun fn internalDef =>
+          compileInternalFunction fields events errors adtTypes fn targetFork internalFns =
+            Except.ok internalDef)
+        entries internalDefs := by
+  intro entries
+  induction entries with
+  | nil =>
+      intro internalDefs hmap
+      cases hmap
+      simp
+  | cons entry entries ih =>
+      intro internalDefs hmap
+      rcases hstep :
+          compileInternalFunction fields events errors adtTypes entry targetFork internalFns with
+        _ | internalDef
+      · simp only [List.mapM_cons, hstep, bind, Except.bind] at hmap
+        cases hmap
+      · rcases htail :
+          List.mapM (fun fn =>
+            compileInternalFunction fields events errors adtTypes fn targetFork internalFns)
+            entries with _ | internalDefsTail
+        · simp only [List.mapM_cons, hstep, htail, bind, Except.bind] at hmap
+          cases hmap
+        · simp only [List.mapM_cons, hstep, htail, bind, Except.bind] at hmap
+          cases hmap
+          exact List.Forall₂.cons hstep (ih _ htail)
+
+/-- Mirror of `exists_right_of_forall₂_mem_left`: a member of the right list of a
+`Forall₂` witnesses a related member on the left. -/
+private theorem exists_left_of_forall₂_mem_right
+    {α β : Type}
+    {R : α → β → Prop}
+    {xs : List α}
+    {ys : List β}
+    (hrel : List.Forall₂ R xs ys)
+    {y : β}
+    (hmem : y ∈ ys) :
+    ∃ x, x ∈ xs ∧ R x y := by
+  induction hrel with
+  | nil =>
+      cases hmem
+  | @cons headX headY tailX tailY hhead htail ih =>
+      simp only [List.mem_cons] at hmem
+      rcases hmem with rfl | hmemTail
+      · exact ⟨headX, by simp, hhead⟩
+      · rcases ih hmemTail with ⟨x, hx, hRx⟩
+        exact ⟨x, by simp [hx], hRx⟩
+
+/-- Structural compiled-internal-table premise, derived from the compilation
+pipeline's `mapM` step. Every statement produced by
+`internalFns.mapM compileInternalFunction` is a `compileInternalFunction` output
+in the exact existential shape consumed by
+`..._of_body_goal_of_compiledInternalTable`'s `hcompiledTable`. This is
+non-vacuous: it holds for a *non-empty* `internalFns`, so it does not depend on
+any `internalFunctions = []` default-empty helper-world assumption. -/
+theorem compileInternalFunction_mapM_mem_exists
+    (fields : List Field)
+    (events : List EventDef)
+    (errors : List ErrorDef)
+    (adtTypes : List AdtTypeDef)
+    (targetFork : Verity.Core.Intrinsics.HardFork)
+    (internalFns : List FunctionSpec)
+    (internalDefs : List YulStmt)
+    (hmap : internalFns.mapM (fun fn =>
+        compileInternalFunction fields events errors adtTypes fn targetFork internalFns) =
+        Except.ok internalDefs) :
+    ∀ stmt ∈ internalDefs,
+      ∃ (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+        (adtTypes : List AdtTypeDef) (spec : FunctionSpec)
+        (targetFork : Verity.Core.Intrinsics.HardFork)
+        (internalFunctions : List FunctionSpec),
+        compileInternalFunction fields events errors adtTypes spec targetFork internalFunctions =
+          Except.ok stmt := by
+  intro stmt hstmt
+  have hforall₂ :=
+    compiled_internal_functions_forall₂_of_mapM_ok'
+      fields events errors adtTypes targetFork internalFns internalFns internalDefs hmap
+  obtain ⟨fn, _hfn, hcompile⟩ := exists_left_of_forall₂_mem_right hforall₂ hstmt
+  exact ⟨fields, events, errors, adtTypes, fn, targetFork, internalFns, hcompile⟩
+
+/-- Consumer seam packaging: for a runtime contract whose internal table *is* the
+`compileInternalFunction` image of some internal-function list, discharge the
+`hcompiledTable` premise of
+`compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_compiledInternalTable`
+directly from the compilation pipeline's `mapM` equation — no hand-supplied
+`InternalTableNamesInternalPrefixed` witness and no `internalFunctions = []`
+default-empty assumption. -/
+theorem compiledInternalTable_of_internalFunctions_eq_mapM
+    (runtimeContract : IRContract)
+    (fields : List Field)
+    (events : List EventDef)
+    (errors : List ErrorDef)
+    (adtTypes : List AdtTypeDef)
+    (targetFork : Verity.Core.Intrinsics.HardFork)
+    (internalFns : List FunctionSpec)
+    (internalDefs : List YulStmt)
+    (hmap : internalFns.mapM (fun fn =>
+        compileInternalFunction fields events errors adtTypes fn targetFork internalFns) =
+        Except.ok internalDefs)
+    (hinternal : runtimeContract.internalFunctions = internalDefs) :
+    ∀ stmt ∈ runtimeContract.internalFunctions,
+      ∃ (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+        (adtTypes : List AdtTypeDef) (spec : FunctionSpec)
+        (targetFork : Verity.Core.Intrinsics.HardFork)
+        (internalFunctions : List FunctionSpec),
+        compileInternalFunction fields events errors adtTypes spec targetFork internalFunctions =
+          Except.ok stmt := by
+  rw [hinternal]
+  exact compileInternalFunction_mapM_mem_exists fields events errors adtTypes targetFork
+    internalFns internalDefs hmap
+
+/-- Pipeline connector for the current `SupportedSpec` world: a contract produced
+by `compileValidatedCore` discharges the structural `hcompiledTable` premise
+outright. Under `SupportedSpec` the runtime internal table is empty
+(`compileValidatedCore_ok_yields_internalFunctions_nil`), so the premise holds
+vacuously; this exhibits the seam being fed from the real compilation output
+rather than from a separately-assumed hypothesis. The non-vacuous machinery for a
+populated table lives in `compiledInternalTable_of_internalFunctions_eq_mapM`. -/
+theorem compiledInternalTable_of_compileValidatedCore
+    (model : CompilationModel)
+    (selectors : List Nat)
+    (hSupported : SupportedSpec model selectors)
+    (ir : IRContract)
+    (hcore : compileValidatedCore model selectors = Except.ok ir) :
+    ∀ stmt ∈ ir.internalFunctions,
+      ∃ (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+        (adtTypes : List AdtTypeDef) (spec : FunctionSpec)
+        (targetFork : Verity.Core.Intrinsics.HardFork)
+        (internalFunctions : List FunctionSpec),
+        compileInternalFunction fields events errors adtTypes spec targetFork internalFunctions =
+          Except.ok stmt := by
+  intro stmt hstmt
+  have hnil :=
+    compileValidatedCore_ok_yields_internalFunctions_nil model selectors hSupported ir hcore
+  rw [hnil] at hstmt
+  cases hstmt
+
+/-- Whole-contract dispatch consumer of the compiled-internal-table seam.
+
+This feeds `..._of_body_goal_of_compiledInternalTable`'s `hcompiledTable` premise
+directly from the real compilation pipeline output
+(`compileValidatedCore model selectors = Except.ok runtimeContract`) via
+`compiledInternalTable_of_compileValidatedCore`, rather than requiring the caller
+to hand-supply that structural premise. The runtime contract whose
+`execIRFunctionWithInternals` dispatch is proven correct is exactly the contract
+emitted by the compiler, so the internal-table naming invariant is discharged by
+the pipeline itself and no `internalFunctions = []` default-empty assumption is
+introduced at the call site. -/
+theorem compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_compileValidatedCore
+    (model : CompilationModel)
+    (selectors : List Nat)
+    (hSupported : SupportedSpec model selectors)
+    (hHelperProofs : SourceSemantics.SupportedSpecHelperProofs model selectors hSupported)
+    (hvalidateInputs : validateCompileInputs model selectors = Except.ok ())
+    (runtimeContract : IRContract)
+    (hcore : compileValidatedCore model selectors = Except.ok runtimeContract)
+    (fn : FunctionSpec)
+    (sel : Nat)
+    (returns : List ParamType)
+    (bodyStmts : List YulStmt)
+    (irFn : IRFunction)
+    (tx : IRTransaction)
+    (initialWorld : Verity.ContractState)
+    (htxNormalized : Function.TxContextNormalized tx)
+    (bindings : List (String × Nat))
+    (extraFuel : Nat)
+    (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
+    (hfn : fn ∈ selectorDispatchedFunctions model)
+    (hvalidate : validateFunctionSpec fn = Except.ok ())
+    (hreturns : functionReturns fn = Except.ok returns)
+    (hbodyCompile :
+      compileStmtList model.fields model.events model.errors .calldata [] false
+        (fn.params.map (·.name)) [] fn.body = Except.ok bodyStmts)
+    (hcompileFn :
+      compileFunctionSpec model.fields model.events model.errors [] sel fn = Except.ok irFn)
+    (hbind : SourceSemantics.bindSupportedParams fn.params tx.args = some bindings)
+    (hcompiledBodyFuel :
+      (genParamLoads fn.params ++ bodyStmts).length + extraFuel =
+        sizeOf (Function.compiledFunctionIR sel fn returns bodyStmts).body)
+    (hbodyCorrect :
+      SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
+        runtimeContract model fn bodyStmts hSupported.helperFuel tx initialWorld
+        (ParamLoading.applyBindingsToIRState
+          (Function.prebindRawArgs
+            (FunctionBody.initialIRStateForTx model tx initialWorld) fn.params)
+          bindings)
+        bindings extraFuel) :
+    FunctionBody.sourceResultMatchesIRResult
+      (supportedSourceFunctionSemantics model selectors hSupported fn tx initialWorld)
+      (execIRFunctionWithInternals runtimeContract 0 irFn tx.args
+        (FunctionBody.initialIRStateForTx model tx initialWorld)) :=
+  compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_compiledInternalTable
+    model selectors hSupported hHelperProofs hvalidateInputs runtimeContract fn sel returns
+    bodyStmts irFn tx initialWorld htxNormalized bindings extraFuel hcalldataSizeFits hfn
+    hvalidate hreturns hbodyCompile hcompileFn hbind hcompiledBodyFuel hbodyCorrect
+    (compiledInternalTable_of_compileValidatedCore model selectors hSupported runtimeContract hcore)
+
 /-- Structured helper-aware compiled-side wrapper for the generic function
 theorem. This replaces the raw function-level conservative-extension equality
 premise by the compiled-body disjointness witness that proves it. -/

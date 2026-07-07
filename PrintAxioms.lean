@@ -1878,6 +1878,12 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal
   Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_internalNamesPrefixed
   Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_compiledInternalTable
+  -- Compiler.Proofs.IRGeneration.Contract.compiled_internal_functions_forall₂_of_mapM_ok'  -- private
+  -- Compiler.Proofs.IRGeneration.Contract.exists_left_of_forall₂_mem_right  -- private
+  Compiler.Proofs.IRGeneration.Contract.compileInternalFunction_mapM_mem_exists
+  Compiler.Proofs.IRGeneration.Contract.compiledInternalTable_of_internalFunctions_eq_mapM
+  Compiler.Proofs.IRGeneration.Contract.compiledInternalTable_of_compileValidatedCore
+  Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_compileValidatedCore
   Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_bodyCallsDisjoint
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics
   -- Compiler.Proofs.IRGeneration.Contract.scalar_events_contract_function_callback  -- private
@@ -5925,4 +5931,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5555 theorems/lemmas (3847 public, 1708 private, 0 sorry'd)
+-- Total: 5561 theorems/lemmas (3851 public, 1710 private, 0 sorry'd)
