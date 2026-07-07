@@ -385,6 +385,50 @@ theorem stmtListDirectInternalHelperStepInterfaceWithInternals_of_callStepInterf
                 simp [hcallStmt] at hcallFalse ⊢
             exact hheadCall hcallTrue
 
+/-- Assemble the spec-functions-aware genuine internal-helper interface from
+the direct, expression-position, and structural `WithInternals` interfaces. -/
+theorem stmtListInternalHelperSurfaceStepInterfaceWithInternals_of_directInternalHelperStepInterfaceWithInternals_and_exprInternalHelperStepInterfaceWithInternals_and_structuralInternalHelperStepInterfaceWithInternals
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {stmts : List Stmt}
+    (hdirect :
+      StmtListDirectInternalHelperStepInterfaceWithInternals
+        runtimeContract spec fields scope stmts)
+    (hexpr :
+      StmtListExprInternalHelperStepInterfaceWithInternals
+        runtimeContract spec fields scope stmts)
+    (hstruct :
+      StmtListStructuralInternalHelperStepInterfaceWithInternals
+        runtimeContract spec fields scope stmts) :
+    StmtListInternalHelperSurfaceStepInterfaceWithInternals
+      runtimeContract spec fields scope stmts := by
+  induction hdirect with
+  | nil =>
+      exact .nil
+  | @cons scope stmt rest hheadDirect htailDirect ih =>
+      cases hexpr with
+      | cons hheadExpr htailExpr =>
+          cases hstruct with
+          | cons hheadStruct htailStruct =>
+              refine .cons ?_ (ih htailExpr htailStruct)
+              intro hhelper
+              by_cases hdirectFalse : stmtTouchesDirectInternalHelperSurface stmt = false
+              · by_cases hexprFalse : stmtTouchesExprInternalHelperSurface stmt = false
+                · have hstructTrue : stmtTouchesStructuralInternalHelperSurface stmt = true := by
+                    simpa [stmtTouchesInternalHelperSurface_eq_split, hdirectFalse, hexprFalse]
+                      using hhelper
+                  exact hheadStruct hstructTrue
+                · have hexprTrue : stmtTouchesExprInternalHelperSurface stmt = true := by
+                    cases hexprStmt : stmtTouchesExprInternalHelperSurface stmt <;>
+                      simp [hexprStmt] at hexprFalse ⊢
+                  exact hheadExpr hexprTrue
+              · have hdirectTrue : stmtTouchesDirectInternalHelperSurface stmt = true := by
+                  cases hdirectStmt : stmtTouchesDirectInternalHelperSurface stmt <;>
+                    simp [hdirectStmt] at hdirectFalse ⊢
+                exact hheadDirect hdirectTrue
+
 /-- Helper-surface-closed statement lists also satisfy the direct
 statement-position internal-helper interface vacuously. -/
 theorem stmtListDirectInternalHelperStepInterface_of_helperSurfaceClosed
@@ -508,6 +552,30 @@ theorem stmtListStructuralInternalHelperStepInterface_of_structuralSurfaceClosed
       rw [hstmtSurface] at hhelper
       cases hhelper
 
+/-- Structural-helper-surface-closed statement lists satisfy the
+spec-functions-aware structural helper interface vacuously. -/
+theorem stmtListStructuralInternalHelperStepInterfaceWithInternals_of_structuralSurfaceClosed
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {stmts : List Stmt}
+    (hsurface : stmtListTouchesStructuralInternalHelperSurface stmts = false) :
+    StmtListStructuralInternalHelperStepInterfaceWithInternals
+      runtimeContract spec fields scope stmts := by
+  induction stmts generalizing scope with
+  | nil =>
+      exact .nil
+  | cons stmt rest ih =>
+      have hsplit := Bool.or_eq_false_iff.mp <| by
+        simpa [stmtListTouchesStructuralInternalHelperSurface] using hsurface
+      have hstmtSurface : stmtTouchesStructuralInternalHelperSurface stmt = false := hsplit.1
+      have hrestSurface : stmtListTouchesStructuralInternalHelperSurface rest = false := hsplit.2
+      refine .cons ?_ (ih hrestSurface)
+      intro hhelper
+      rw [hstmtSurface] at hhelper
+      cases hhelper
+
 /-- Assemble the coarse internal-helper interface from the narrower proof-cut
 interfaces that match the actual proof obligations: direct helper statements,
 expression-position helper calls, and recursive structural transport. -/
@@ -587,6 +655,37 @@ theorem stmtListHelperSurfaceStepInterface_of_internalHelperSurfaceStepInterface
     (hresidual :
       StmtListResidualHelperSurfaceStepInterface runtimeContract spec fields scope stmts) :
     StmtListHelperSurfaceStepInterface runtimeContract spec fields scope stmts := by
+  induction hinternal with
+  | nil =>
+      exact .nil
+  | @cons scope stmt rest hheadInternal htailInternal ih =>
+      cases hresidual with
+      | cons hheadResidual htailResidual =>
+          refine .cons ?_ (ih htailResidual)
+          intro hhelper
+          by_cases hactual : stmtTouchesInternalHelperSurface stmt = true
+          · exact hheadInternal hactual
+          · have hactualFalse : stmtTouchesInternalHelperSurface stmt = false := by
+              cases hactual' : stmtTouchesInternalHelperSurface stmt <;>
+                simp [hactual'] at hactual ⊢
+            exact hheadResidual hhelper hactualFalse
+
+/-- Assemble the spec-functions-aware coarse helper-surface interface from the
+split genuine-internal and residual `WithInternals` interfaces. -/
+theorem stmtListHelperSurfaceStepInterfaceWithInternals_of_internalHelperSurfaceStepInterfaceWithInternals_and_residualHelperSurfaceStepInterfaceWithInternals
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {stmts : List Stmt}
+    (hinternal :
+      StmtListInternalHelperSurfaceStepInterfaceWithInternals
+        runtimeContract spec fields scope stmts)
+    (hresidual :
+      StmtListResidualHelperSurfaceStepInterfaceWithInternals
+        runtimeContract spec fields scope stmts) :
+    StmtListHelperSurfaceStepInterfaceWithInternals
+      runtimeContract spec fields scope stmts := by
   induction hinternal with
   | nil =>
       exact .nil
@@ -948,6 +1047,82 @@ theorem
       exact .cons hcompiled
         (ih (fun stmt' hmem =>
           hallDirect stmt' (List.mem_cons_of_mem stmt hmem)))
+
+/-- Spec-functions-aware mixed helper-list bridge. Helper-free heads and
+helper-positive heads both provide exact `compileStmt ... spec.functions`
+witnesses, so the assembled list lands directly in
+`StmtListGenericWithHelpersAndHelperIRWithInternals` instead of falling back to
+the legacy/default-empty helper-world list seam. -/
+theorem
+    stmtListGenericWithHelpersAndHelperIRWithInternals_of_helperFreeStepInterfaceWithInternals_and_helperSurfaceStepInterfaceWithInternals
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {stmts : List Stmt}
+    (hhelperFree :
+      StmtListHelperFreeStepInterfaceWithInternals
+        runtimeContract spec fields scope stmts)
+    (hsteps :
+      StmtListHelperSurfaceStepInterfaceWithInternals
+        runtimeContract spec fields scope stmts) :
+    StmtListGenericWithHelpersAndHelperIRWithInternals
+      runtimeContract spec fields scope stmts := by
+  induction hsteps with
+  | nil =>
+      exact .nil
+  | @cons scope stmt rest hheadStep htailSteps ih =>
+      cases hhelperFree with
+      | cons hheadFree htailFree =>
+          by_cases hsurface : stmtTouchesUnsupportedHelperSurface stmt = false
+          · rcases hheadFree hsurface with ⟨compiledIR, hcompiled⟩
+            exact .cons hcompiled (ih htailFree)
+          · have hsurfaceTrue : stmtTouchesUnsupportedHelperSurface stmt = true := by
+              cases hstmt : stmtTouchesUnsupportedHelperSurface stmt <;>
+                simp [hstmt] at hsurface ⊢
+            rcases hheadStep hsurfaceTrue with ⟨compiledIR, hcompiled⟩
+            exact .cons hcompiled (ih htailFree)
+
+/-- Spec-functions-aware mixed helper-list bridge over the split
+helper-positive interfaces. This is the assembly point for lists containing any
+mix of helper-free, direct-helper, expression-helper, structural-helper, and
+residual helper-surface heads. -/
+theorem
+    stmtListGenericWithHelpersAndHelperIRWithInternals_of_helperFreeStepInterfaceWithInternals_and_directInternalHelperStepInterfaceWithInternals_and_exprInternalHelperStepInterfaceWithInternals_and_structuralInternalHelperStepInterfaceWithInternals_and_residualHelperSurfaceStepInterfaceWithInternals
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {stmts : List Stmt}
+    (hhelperFree :
+      StmtListHelperFreeStepInterfaceWithInternals
+        runtimeContract spec fields scope stmts)
+    (hdirect :
+      StmtListDirectInternalHelperStepInterfaceWithInternals
+        runtimeContract spec fields scope stmts)
+    (hexpr :
+      StmtListExprInternalHelperStepInterfaceWithInternals
+        runtimeContract spec fields scope stmts)
+    (hstruct :
+      StmtListStructuralInternalHelperStepInterfaceWithInternals
+        runtimeContract spec fields scope stmts)
+    (hresidual :
+      StmtListResidualHelperSurfaceStepInterfaceWithInternals
+        runtimeContract spec fields scope stmts) :
+    StmtListGenericWithHelpersAndHelperIRWithInternals
+      runtimeContract spec fields scope stmts := by
+  exact
+    stmtListGenericWithHelpersAndHelperIRWithInternals_of_helperFreeStepInterfaceWithInternals_and_helperSurfaceStepInterfaceWithInternals
+      (runtimeContract := runtimeContract)
+      (spec := spec)
+      (fields := fields)
+      (scope := scope)
+      (stmts := stmts)
+      hhelperFree
+      (stmtListHelperSurfaceStepInterfaceWithInternals_of_internalHelperSurfaceStepInterfaceWithInternals_and_residualHelperSurfaceStepInterfaceWithInternals
+        (stmtListInternalHelperSurfaceStepInterfaceWithInternals_of_directInternalHelperStepInterfaceWithInternals_and_exprInternalHelperStepInterfaceWithInternals_and_structuralInternalHelperStepInterfaceWithInternals
+          hdirect hexpr hstruct)
+        hresidual)
 
 /-- Exact helper-aware list bridge with the helper-positive work split cleanly:
 genuine internal-helper heads are supplied through a narrow helper-specific
