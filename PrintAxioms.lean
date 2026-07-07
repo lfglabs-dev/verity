@@ -2802,6 +2802,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.exec_compileStmtList_generic_sizeOf_extraFuel
   Compiler.Proofs.IRGeneration.exec_compileStmtList_generic_with_helpers_sizeOf_extraFuel
   Compiler.Proofs.IRGeneration.exec_compileStmtList_generic_with_helpers_and_helper_ir_sizeOf_extraFuel
+  Compiler.Proofs.IRGeneration.exec_compileStmtList_generic_with_helpers_and_helper_ir_with_internals_sizeOf_extraFuel_step
+  Compiler.Proofs.IRGeneration.exec_compileStmtList_generic_with_helpers_and_helper_ir_with_internals_sizeOf_extraFuel
   Compiler.Proofs.IRGeneration.exec_compileStmtList_generic_with_helpers_and_helper_ir_sizeOf_extraFuel_with_events
 
   -- Compiler/Proofs/IRGeneration/GenericInduction/InterfaceAssembly.lean
@@ -2877,6 +2879,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.supported_function_body_with_helpers_ir_goal_of_helper_ir_goal_callsDisjoint
   Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_helper_steps
   Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_helper_steps_and_helper_ir
+  Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_helper_steps_and_helper_ir_with_internals
+  Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_split_helper_steps_and_helper_ir_with_internals
   Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_helper_surface_steps_and_helper_ir
   Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_internal_helper_surface_steps_and_helper_ir
   Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_finer_split_internal_helper_surface_steps_and_helper_ir
@@ -5901,4 +5905,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5531 theorems/lemmas (3829 public, 1702 private, 0 sorry'd)
+-- Total: 5535 theorems/lemmas (3833 public, 1702 private, 0 sorry'd)

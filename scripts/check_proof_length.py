@@ -313,6 +313,11 @@ ALLOWLIST: set[str] = {
     "supported_function_body_correct_from_exact_state_generic_with_helpers_goal",
     "supported_function_body_correct_from_exact_state_generic_with_helpers_and_helper_ir_callsDisjoint",
     "supported_function_body_correct_from_exact_state_generic_helper_steps_raw",
+    # Issue #2080: exact helper-IR body seams remain mechanical wrappers around
+    # the generic list execution theorem while the helper-world API is split.
+    "supported_function_body_correct_from_exact_state_generic_helper_steps_and_helper_ir",
+    "supported_function_body_correct_from_exact_state_generic_helper_steps_and_helper_ir_with_internals",
+    "supported_function_body_correct_from_exact_state_generic_split_helper_steps_and_helper_ir_with_internals",
     "supported_function_body_correct_from_exact_state_generic_helper_surface_steps_and_helper_ir",
     "supported_function_body_correct_from_exact_state_generic_internal_helper_surface_steps_and_helper_ir",
     "supported_function_body_correct_from_exact_state_generic_finer_split_internal_helper_surface_steps_and_helper_ir",
@@ -332,6 +337,10 @@ ALLOWLIST: set[str] = {
     "compile_preserves_semantics_with_helper_proofs",
     "exec_compileStmtList_generic_with_helpers_sizeOf_extraFuel_step",
     "exec_compileStmtList_generic_with_helpers_and_helper_ir_sizeOf_extraFuel_step",
+    # Issue #2080: spec-functions-aware sibling of the helper-IR list
+    # execution theorem; proof mirrors the existing helper-IR induction.
+    "exec_compileStmtList_generic_with_helpers_and_helper_ir_with_internals_sizeOf_extraFuel_step",
+    "exec_compileStmtList_generic_with_helpers_and_helper_ir_with_internals_sizeOf_extraFuel",
     "stmtListGenericWithHelpersAndHelperIR_of_helperFreeStepInterface_and_internalHelperSurfaceStepInterface_and_residualHelperSurfaceStepInterface_and_helperFreeCompiledLegacyCompatible",
     "stmtListGenericWithHelpersAndHelperIR_of_withHelpers_and_compiledLegacyCompatible",
     # --- IR interpreter dispatch (mload pre-dispatch adds extra branches) ---
