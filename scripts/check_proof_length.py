@@ -147,6 +147,12 @@ ALLOWLIST: set[str] = {
     # function theorem through the contract proof API while keeping the
     # generated param-load disjointness premise explicit.
     "compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal",
+    # #2080 selector-dispatch consumer seam: same signature-dominated wrapper as
+    # its `_of_body_goal` sibling, but discharges the generated param-load
+    # disjointness premise from the runtime contract's internal-table naming
+    # invariant instead of taking it as an opaque hypothesis. Body is a single
+    # term application; the >50 lines are entirely the mirrored premise list.
+    "compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_internalNamesPrefixed",
     # First concrete letVar statement-head adapter (#2080 phase 10): threads a
     # single compositional-expression existential through source execution, IR
     # fuel alignment, and four scope/runtime invariant re-establishment steps

@@ -1097,6 +1097,64 @@ theorem compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_
     hbodyCompile hcompileFn hbind htxNormalized extraFuel hcompiledBodyFuel
     hbodyCorrect hparamDisjoint hcalldataSizeFits
 
+/-- Packaged helper-aware compiled-side wrapper that discharges the ABI
+parameter-load prefix disjointness from the runtime contract's internal-table
+naming invariant, rather than taking it as an opaque premise. This is the
+selector-dispatch consumer seam: once the whole-contract theorem establishes
+`InternalTableNamesInternalPrefixed` for the compiled runtime contract, each
+per-function correctness obligation feeds straight into
+`execIRFunctionWithInternals` without the `genParamLoads` disjointness witness
+having to be supplied by hand. Param supportedness comes from `SupportedSpec`. -/
+theorem compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_internalNamesPrefixed
+    (model : CompilationModel)
+    (selectors : List Nat)
+    (hSupported : SupportedSpec model selectors)
+    (hHelperProofs : SourceSemantics.SupportedSpecHelperProofs model selectors hSupported)
+    (hvalidateInputs : validateCompileInputs model selectors = Except.ok ())
+    (runtimeContract : IRContract)
+    (fn : FunctionSpec)
+    (sel : Nat)
+    (returns : List ParamType)
+    (bodyStmts : List YulStmt)
+    (irFn : IRFunction)
+    (tx : IRTransaction)
+    (initialWorld : Verity.ContractState)
+    (htxNormalized : Function.TxContextNormalized tx)
+    (bindings : List (String × Nat))
+    (extraFuel : Nat)
+    (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
+    (hfn : fn ∈ selectorDispatchedFunctions model)
+    (hvalidate : validateFunctionSpec fn = Except.ok ())
+    (hreturns : functionReturns fn = Except.ok returns)
+    (hbodyCompile :
+      compileStmtList model.fields model.events model.errors .calldata [] false
+        (fn.params.map (·.name)) [] fn.body = Except.ok bodyStmts)
+    (hcompileFn :
+      compileFunctionSpec model.fields model.events model.errors [] sel fn = Except.ok irFn)
+    (hbind : SourceSemantics.bindSupportedParams fn.params tx.args = some bindings)
+    (hcompiledBodyFuel :
+      (genParamLoads fn.params ++ bodyStmts).length + extraFuel =
+        sizeOf (Function.compiledFunctionIR sel fn returns bodyStmts).body)
+    (hbodyCorrect :
+      SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
+        runtimeContract model fn bodyStmts hSupported.helperFuel tx initialWorld
+        (ParamLoading.applyBindingsToIRState
+          (Function.prebindRawArgs
+            (FunctionBody.initialIRStateForTx model tx initialWorld) fn.params)
+          bindings)
+        bindings extraFuel)
+    (hinv : InternalTableNamesInternalPrefixed runtimeContract) :
+    FunctionBody.sourceResultMatchesIRResult
+      (supportedSourceFunctionSemantics model selectors hSupported fn tx initialWorld)
+      (execIRFunctionWithInternals runtimeContract 0 irFn tx.args
+        (FunctionBody.initialIRStateForTx model tx initialWorld)) :=
+  compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal
+    model selectors hSupported hHelperProofs hvalidateInputs runtimeContract fn sel returns
+    bodyStmts irFn tx initialWorld htxNormalized bindings extraFuel hcalldataSizeFits hfn
+    hvalidate hreturns hbodyCompile hcompileFn hbind hcompiledBodyFuel hbodyCorrect
+    (Function.genParamLoads_callsDisjoint_of_internalNamesPrefixed runtimeContract fn.params
+      (supported_params_of_supportedSpec model selectors hSupported fn hfn) hinv)
+
 /-- Structured helper-aware compiled-side wrapper for the generic function
 theorem. This replaces the raw function-level conservative-extension equality
 premise by the compiled-body disjointness witness that proves it. -/
