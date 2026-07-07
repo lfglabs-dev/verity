@@ -2858,6 +2858,138 @@ private theorem genParamLoads_scalar_legacy
   simp [genParamLoads, genParamLoadsFrom]
   exact .if_ _ _ _ (.exprStmt _ _ .nil) hbody
 
+/-- Disjointness of a single scalar param-load (with the `calldataload` word
+loader used by `genParamLoads`) from a runtime contract's internal-function
+table. Every EVM/Yul builtin emitted by `genScalarLoad`
+(`calldataload`, `and`, `iszero`) is assumed absent from the table; the
+generated statement introduces no other calls. -/
+private theorem genScalarLoad_calldataload_callsDisjoint
+    (runtimeContract : IRContract) (name : String) (ty : ParamType) (offset : Nat)
+    (hsupported : SupportedExternalParamType ty)
+    (hcd : findInternalFunction? runtimeContract "calldataload" = none)
+    (hand : findInternalFunction? runtimeContract "and" = none)
+    (hiszero : findInternalFunction? runtimeContract "iszero" = none) :
+    YulStmtListCallsDisjointFromInternalTable runtimeContract
+      (genScalarLoad (fun pos => YulExpr.call "calldataload" [pos]) name ty offset) := by
+  have hload : yulExprCallsDisjointFromInternalTable runtimeContract
+      (YulExpr.call "calldataload" [YulExpr.lit offset]) := by
+    simp only [yulExprCallsDisjointFromInternalTable]
+    refine ⟨hcd, ?_⟩
+    intro arg harg
+    simp only [List.mem_singleton] at harg
+    subst harg
+    simp only [yulExprCallsDisjointFromInternalTable]
+  cases ty <;> simp only [SupportedExternalParamType] at hsupported ⊢
+  all_goals
+    first
+    | exact .let_ _ _ [] hload .nil
+    | (refine .let_ _ _ [] ?_ .nil
+       simp only [yulExprCallsDisjointFromInternalTable]
+       refine ⟨hand, ?_⟩
+       intro arg harg
+       simp only [List.mem_cons, List.not_mem_nil, or_false] at harg
+       rcases harg with h1 | h2
+       · subst h1; exact hload
+       · subst h2; simp only [yulExprCallsDisjointFromInternalTable])
+    | (refine .let_ _ _ [] ?_ .nil
+       simp only [yulExprCallsDisjointFromInternalTable]
+       refine ⟨hiszero, ?_⟩
+       intro arg harg
+       simp only [List.mem_singleton] at harg
+       subst harg
+       simp only [yulExprCallsDisjointFromInternalTable]
+       refine ⟨hiszero, ?_⟩
+       intro arg2 harg2
+       simp only [List.mem_singleton] at harg2
+       subst harg2
+       exact hload)
+
+/-- Disjointness of the whole param-load body (the recursive `genSingleParamLoad`
+sequence used by `genParamLoads`) from a runtime contract's internal-function
+table, given the three scalar-load builtins are absent. Recurses over the
+supported scalar params, appending per-param disjointness. -/
+private theorem genParamLoadBodyFrom_calldataload_callsDisjoint
+    (runtimeContract : IRContract)
+    (hcd : findInternalFunction? runtimeContract "calldataload" = none)
+    (hand : findInternalFunction? runtimeContract "and" = none)
+    (hiszero : findInternalFunction? runtimeContract "iszero" = none)
+    (sizeExpr : YulExpr) (headSize baseOffset : Nat) :
+    ∀ (params : List Param) (headOffset : Nat),
+      (∀ param ∈ params, SupportedExternalParamType param.ty) →
+        YulStmtListCallsDisjointFromInternalTable runtimeContract
+          (genParamLoadBodyFrom (fun pos => YulExpr.call "calldataload" [pos])
+            sizeExpr headSize baseOffset params headOffset)
+  | [], _, _ => .nil
+  | param :: rest, headOffset, hsupported => by
+      have htail := genParamLoadBodyFrom_calldataload_callsDisjoint runtimeContract
+        hcd hand hiszero sizeExpr headSize baseOffset rest
+        (headOffset + paramHeadSize param.ty)
+        (by intro p hp; exact hsupported p (by simp [hp]))
+      have hhead_sup : SupportedExternalParamType param.ty := hsupported param (by simp)
+      have hhead := genScalarLoad_calldataload_callsDisjoint runtimeContract
+        param.name param.ty headOffset hhead_sup hcd hand hiszero
+      cases hty : param.ty <;>
+        simp only [SupportedExternalParamType, hty] at hhead_sup <;>
+        simpa only [genParamLoadBodyFrom, genSingleParamLoad, hty]
+          using yulStmtListCallsDisjoint_append hhead htail
+
+/-- Disjointness of the full `genParamLoads` output (min-input-size guard plus
+the param-load body) from a runtime contract's internal-function table, given
+that none of the six EVM/Yul builtins it emits (`calldataload`, `calldatasize`,
+`lt`, `revert`, `and`, `iszero`) collide with an internal helper. -/
+private theorem genParamLoads_callsDisjoint_of_builtins
+    (runtimeContract : IRContract) (params : List Param)
+    (hsupported : ∀ param ∈ params, SupportedExternalParamType param.ty)
+    (hcd : findInternalFunction? runtimeContract "calldataload" = none)
+    (hcdsize : findInternalFunction? runtimeContract "calldatasize" = none)
+    (hlt : findInternalFunction? runtimeContract "lt" = none)
+    (hrevert : findInternalFunction? runtimeContract "revert" = none)
+    (hand : findInternalFunction? runtimeContract "and" = none)
+    (hiszero : findInternalFunction? runtimeContract "iszero" = none) :
+    YulStmtListCallsDisjointFromInternalTable runtimeContract (genParamLoads params) := by
+  have hbody := genParamLoadBodyFrom_calldataload_callsDisjoint runtimeContract
+    hcd hand hiszero (YulExpr.call "calldatasize" [])
+    ((params.map (fun p => paramHeadSize p.ty)).foldl (· + ·) 0) 4 params 4 hsupported
+  simp only [genParamLoads, genParamLoadsFrom]
+  refine .if_ _ _ _ ?_ ?_ hbody
+  · simp only [yulExprCallsDisjointFromInternalTable]
+    refine ⟨hlt, ?_⟩
+    intro arg harg
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at harg
+    rcases harg with h1 | h2
+    · subst h1
+      simp only [yulExprCallsDisjointFromInternalTable]
+      exact ⟨hcdsize, by intro a ha; simp at ha⟩
+    · subst h2; simp only [yulExprCallsDisjointFromInternalTable]
+  · refine .exprStmt _ _ ?_ .nil
+    simp only [yulExprCallsDisjointFromInternalTable]
+    refine ⟨hrevert, ?_⟩
+    intro arg harg
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at harg
+    rcases harg with h1 | h2
+    · subst h1; simp only [yulExprCallsDisjointFromInternalTable]
+    · subst h2; simp only [yulExprCallsDisjointFromInternalTable]
+
+/-- Package `genParamLoads` disjointness directly from the runtime contract's
+internal-table naming invariant. Because every helper name begins with
+`internalFunctionPrefix` (`"internal_"`), none of the six builtins emitted by the
+param-load prologue — whose names are not `internal_`-prefixed — can resolve to a
+helper. This is the forward-compatible replacement for the
+`internalFunctions = []` disjointness route: it does not require the internal
+table to be empty. -/
+theorem genParamLoads_callsDisjoint_of_internalNamesPrefixed
+    (runtimeContract : IRContract) (params : List Param)
+    (hsupported : ∀ param ∈ params, SupportedExternalParamType param.ty)
+    (hinv : InternalTableNamesInternalPrefixed runtimeContract) :
+    YulStmtListCallsDisjointFromInternalTable runtimeContract (genParamLoads params) :=
+  genParamLoads_callsDisjoint_of_builtins runtimeContract params hsupported
+    (findInternalFunction?_eq_none_of_not_internalPrefixed runtimeContract "calldataload" hinv (by decide))
+    (findInternalFunction?_eq_none_of_not_internalPrefixed runtimeContract "calldatasize" hinv (by decide))
+    (findInternalFunction?_eq_none_of_not_internalPrefixed runtimeContract "lt" hinv (by decide))
+    (findInternalFunction?_eq_none_of_not_internalPrefixed runtimeContract "revert" hinv (by decide))
+    (findInternalFunction?_eq_none_of_not_internalPrefixed runtimeContract "and" hinv (by decide))
+    (findInternalFunction?_eq_none_of_not_internalPrefixed runtimeContract "iszero" hinv (by decide))
+
 private theorem compiledStmt_scalar_events_callsDisjoint
     (runtimeContract : IRContract) (hinternal : runtimeContract.internalFunctions = [])
     {fields : List Field} {spec : CompilationModel} {scope : List String}
