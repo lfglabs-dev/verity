@@ -1877,6 +1877,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir
   Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal
   Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_internalNamesPrefixed
+  Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_compiledInternalTable
   Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_bodyCallsDisjoint
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics
   -- Compiler.Proofs.IRGeneration.Contract.scalar_events_contract_function_callback  -- private
@@ -2108,6 +2109,9 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.Function.genParamLoadBodyFrom_calldataload_callsDisjoint  -- private
   -- Compiler.Proofs.IRGeneration.Function.genParamLoads_callsDisjoint_of_builtins  -- private
   Compiler.Proofs.IRGeneration.Function.genParamLoads_callsDisjoint_of_internalNamesPrefixed
+  Compiler.Proofs.IRGeneration.Function.internalFunctionYulName_take_prefix
+  Compiler.Proofs.IRGeneration.Function.compileInternalFunction_isFuncDef_internalNamed
+  Compiler.Proofs.IRGeneration.Function.InternalTableNamesInternalPrefixed_of_all_compiledInternal
   -- Compiler.Proofs.IRGeneration.Function.compiledStmt_scalar_events_callsDisjoint  -- private
   -- Compiler.Proofs.IRGeneration.Function.compileStmtList_scalar_events_callsDisjoint  -- private
   -- Compiler.Proofs.IRGeneration.Function.supported_function_correct_with_scalar_events_state_runtime  -- private
@@ -5921,4 +5925,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5551 theorems/lemmas (3843 public, 1708 private, 0 sorry'd)
+-- Total: 5555 theorems/lemmas (3847 public, 1708 private, 0 sorry'd)
