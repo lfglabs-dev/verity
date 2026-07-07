@@ -2990,6 +2990,85 @@ theorem genParamLoads_callsDisjoint_of_internalNamesPrefixed
     (findInternalFunction?_eq_none_of_not_internalPrefixed runtimeContract "and" hinv (by decide))
     (findInternalFunction?_eq_none_of_not_internalPrefixed runtimeContract "iszero" hinv (by decide))
 
+/-- The Yul name emitted for a compiled internal helper begins with
+`internalFunctionPrefix` (`"internal_"`). This is the structural fact that lets
+the whole-contract dispatch proof discharge `InternalTableNamesInternalPrefixed`
+directly from the compilation pipeline rather than assuming an empty internal
+table. -/
+theorem internalFunctionYulName_take_prefix (name : String) :
+    (internalFunctionYulName name).data.take internalFunctionPrefix.data.length =
+      internalFunctionPrefix.data := by
+  have hdata : (internalFunctionYulName name).data =
+      internalFunctionPrefix.data ++ name.data := by
+    have ts : ∀ s : String, toString s = s := fun _ => rfl
+    simp only [internalFunctionYulName, ts, String.data_append, List.nil_append, List.append_nil]
+  rw [hdata]
+  simp
+
+/-- Every successful `compileInternalFunction` output is a `funcDef` whose Yul
+name is exactly `internalFunctionYulName spec.name`. Mirrors the case analysis of
+`compileInternalFunction_ok_components`, extracting only the emitted name. -/
+theorem compileInternalFunction_isFuncDef_internalNamed
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (adtTypes : List AdtTypeDef) (spec : FunctionSpec)
+    (targetFork : Verity.Core.Intrinsics.HardFork)
+    (internalFunctions : List FunctionSpec) (stmt : YulStmt)
+    (hcompile : compileInternalFunction fields events errors adtTypes spec targetFork
+        internalFunctions = Except.ok stmt) :
+    ∃ params rets body,
+      stmt = YulStmt.funcDef (internalFunctionYulName spec.name) params rets body := by
+  unfold compileInternalFunction at hcompile
+  cases hvalidate : validateFunctionSpec spec
+  · rw [hvalidate] at hcompile
+    cases hcompile
+  case ok _ =>
+    cases hreturns : functionReturns spec
+    · rw [hvalidate, hreturns] at hcompile
+      cases hcompile
+    case ok returns =>
+      rw [hvalidate, hreturns] at hcompile
+      simp only [bind, Except.bind] at hcompile
+      cases hbody :
+          compileStmtListWithFork fields events errors .calldata
+            (freshInternalRetNames returns
+              (internalFunctionYulParamNames spec.params ++ collectStmtListBindNames spec.body))
+            true
+            (internalFunctionYulParamNames spec.params ++
+              freshInternalRetNames returns
+                (internalFunctionYulParamNames spec.params ++ collectStmtListBindNames spec.body))
+            adtTypes targetFork spec.body internalFunctions
+      · rw [hbody] at hcompile
+        cases hcompile
+      case ok bodyStmts =>
+        rw [hbody] at hcompile
+        simp only [pure, Except.pure, Except.ok.injEq] at hcompile
+        exact ⟨_, _, _, hcompile.symm⟩
+
+/-- If every statement in a runtime contract's internal table is the output of
+`compileInternalFunction`, then the contract satisfies
+`InternalTableNamesInternalPrefixed`. This packages the compiled-internal naming
+invariant for consumption by the whole-contract dispatch seam. -/
+theorem InternalTableNamesInternalPrefixed_of_all_compiledInternal
+    (runtimeContract : IRContract)
+    (hcompiled : ∀ stmt ∈ runtimeContract.internalFunctions,
+        ∃ (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+          (adtTypes : List AdtTypeDef) (spec : FunctionSpec)
+          (targetFork : Verity.Core.Intrinsics.HardFork)
+          (internalFunctions : List FunctionSpec),
+          compileInternalFunction fields events errors adtTypes spec targetFork internalFunctions
+            = Except.ok stmt) :
+    InternalTableNamesInternalPrefixed runtimeContract := by
+  intro d hd
+  rw [List.mem_filterMap] at hd
+  obtain ⟨stmt, hstmt, hdecode⟩ := hd
+  obtain ⟨fields, events, errors, adtTypes, spec, tf, ifs, hc⟩ := hcompiled stmt hstmt
+  obtain ⟨params, rets, body, hstmteq⟩ :=
+    compileInternalFunction_isFuncDef_internalNamed fields events errors adtTypes spec tf ifs stmt hc
+  subst hstmteq
+  simp only [irInternalFunctionDefOfStmt?_funcDef, Option.some.injEq] at hdecode
+  subst hdecode
+  exact internalFunctionYulName_take_prefix spec.name
+
 private theorem compiledStmt_scalar_events_callsDisjoint
     (runtimeContract : IRContract) (hinternal : runtimeContract.internalFunctions = [])
     {fields : List Field} {spec : CompilationModel} {scope : List String}

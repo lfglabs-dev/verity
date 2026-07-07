@@ -153,6 +153,12 @@ ALLOWLIST: set[str] = {
     # invariant instead of taking it as an opaque hypothesis. Body is a single
     # term application; the >50 lines are entirely the mirrored premise list.
     "compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_internalNamesPrefixed",
+    # #2080 whole-contract dispatch seam: same signature-dominated wrapper as the
+    # `_of_internalNamesPrefixed` sibling, but derives the internal-table naming
+    # invariant from the structural compilation fact (every internal-table stmt is
+    # a `compileInternalFunction` output). Body is a single term application; the
+    # >50 lines are entirely the mirrored premise list.
+    "compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_compiledInternalTable",
     # First concrete letVar statement-head adapter (#2080 phase 10): threads a
     # single compositional-expression existential through source execution, IR
     # fuel alignment, and four scope/runtime invariant re-establishment steps

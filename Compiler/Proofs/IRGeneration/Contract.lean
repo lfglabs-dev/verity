@@ -1155,6 +1155,71 @@ theorem compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_
     (Function.genParamLoads_callsDisjoint_of_internalNamesPrefixed runtimeContract fn.params
       (supported_params_of_supportedSpec model selectors hSupported fn hfn) hinv)
 
+/-- Whole-contract-facing consumer seam. Rather than taking the runtime
+contract's naming invariant `InternalTableNamesInternalPrefixed` as an opaque
+premise, this variant derives it from the structural compilation fact that every
+statement in the runtime internal table is a `compileInternalFunction` output.
+This is the concrete step that threads PR #2117's `WithInternals` selector seam
+into the whole-contract dispatch path: once the dispatch proof exhibits the
+internal table as compiled internal helpers, the per-function obligation flows
+into `execIRFunctionWithInternals` with no hand-supplied disjointness witness and
+no `internalFunctions = []` default-empty helper-world assumption. -/
+theorem compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_compiledInternalTable
+    (model : CompilationModel)
+    (selectors : List Nat)
+    (hSupported : SupportedSpec model selectors)
+    (hHelperProofs : SourceSemantics.SupportedSpecHelperProofs model selectors hSupported)
+    (hvalidateInputs : validateCompileInputs model selectors = Except.ok ())
+    (runtimeContract : IRContract)
+    (fn : FunctionSpec)
+    (sel : Nat)
+    (returns : List ParamType)
+    (bodyStmts : List YulStmt)
+    (irFn : IRFunction)
+    (tx : IRTransaction)
+    (initialWorld : Verity.ContractState)
+    (htxNormalized : Function.TxContextNormalized tx)
+    (bindings : List (String × Nat))
+    (extraFuel : Nat)
+    (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
+    (hfn : fn ∈ selectorDispatchedFunctions model)
+    (hvalidate : validateFunctionSpec fn = Except.ok ())
+    (hreturns : functionReturns fn = Except.ok returns)
+    (hbodyCompile :
+      compileStmtList model.fields model.events model.errors .calldata [] false
+        (fn.params.map (·.name)) [] fn.body = Except.ok bodyStmts)
+    (hcompileFn :
+      compileFunctionSpec model.fields model.events model.errors [] sel fn = Except.ok irFn)
+    (hbind : SourceSemantics.bindSupportedParams fn.params tx.args = some bindings)
+    (hcompiledBodyFuel :
+      (genParamLoads fn.params ++ bodyStmts).length + extraFuel =
+        sizeOf (Function.compiledFunctionIR sel fn returns bodyStmts).body)
+    (hbodyCorrect :
+      SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
+        runtimeContract model fn bodyStmts hSupported.helperFuel tx initialWorld
+        (ParamLoading.applyBindingsToIRState
+          (Function.prebindRawArgs
+            (FunctionBody.initialIRStateForTx model tx initialWorld) fn.params)
+          bindings)
+        bindings extraFuel)
+    (hcompiledTable : ∀ stmt ∈ runtimeContract.internalFunctions,
+        ∃ (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+          (adtTypes : List AdtTypeDef) (spec : FunctionSpec)
+          (targetFork : Verity.Core.Intrinsics.HardFork)
+          (internalFunctions : List FunctionSpec),
+          compileInternalFunction fields events errors adtTypes spec targetFork internalFunctions
+            = Except.ok stmt) :
+    FunctionBody.sourceResultMatchesIRResult
+      (supportedSourceFunctionSemantics model selectors hSupported fn tx initialWorld)
+      (execIRFunctionWithInternals runtimeContract 0 irFn tx.args
+        (FunctionBody.initialIRStateForTx model tx initialWorld)) :=
+  compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_internalNamesPrefixed
+    model selectors hSupported hHelperProofs hvalidateInputs runtimeContract fn sel returns
+    bodyStmts irFn tx initialWorld htxNormalized bindings extraFuel hcalldataSizeFits hfn
+    hvalidate hreturns hbodyCompile hcompileFn hbind hcompiledBodyFuel hbodyCorrect
+    (Function.InternalTableNamesInternalPrefixed_of_all_compiledInternal runtimeContract
+      hcompiledTable)
+
 /-- Structured helper-aware compiled-side wrapper for the generic function
 theorem. This replaces the raw function-level conservative-extension equality
 premise by the compiled-body disjointness witness that proves it. -/
