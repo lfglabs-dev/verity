@@ -1774,6 +1774,76 @@ theorem stmtListGenericWithHelpersAndHelperIRWithInternals_cons_of_exprHeadStepB
     ⟨compiledIR, hstep⟩
   exact .cons hstep hrest
 
+/-- Build the spec-functions expression-helper list interface from a
+`WithInternals` expression-head bridge at the current head. -/
+theorem stmtListExprInternalHelperStepInterfaceWithInternals_cons_of_exprHeadStepBridgeWithInternals
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {stmt : Stmt}
+    {rest : List Stmt}
+    (hbridge :
+      ExprInternalHelperHeadStepBridgeWithInternals runtimeContract spec fields stmt)
+    (hrest :
+      StmtListExprInternalHelperStepInterfaceWithInternals
+        runtimeContract
+        spec
+        fields
+        (stmtNextScope scope stmt)
+        rest) :
+    StmtListExprInternalHelperStepInterfaceWithInternals
+      runtimeContract
+      spec
+      fields
+      scope
+      (stmt :: rest) := by
+  rcases
+      compiledStmtStepWithHelpersAndHelperIRWithInternals_of_exprHeadStepBridgeWithInternals
+        (runtimeContract := runtimeContract)
+        (spec := spec)
+        (fields := fields)
+        (scope := scope)
+        (stmt := stmt)
+        hbridge with
+    ⟨compiledIR, hstep⟩
+  refine .cons ?_ hrest
+  intro _
+  exact ⟨compiledIR, hstep⟩
+
+/-- Assemble the spec-functions expression-helper interface from exact
+`WithInternals` bridges for each expression-helper head in the list. -/
+theorem stmtListExprInternalHelperStepInterfaceWithInternals_of_exprHeadStepBridgesWithInternals
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {stmts : List Stmt}
+    (hbridge :
+      ∀ {stmt : Stmt},
+        stmt ∈ stmts →
+        stmtTouchesExprInternalHelperSurface stmt = true →
+        ExprInternalHelperHeadStepBridgeWithInternals runtimeContract spec fields stmt) :
+    StmtListExprInternalHelperStepInterfaceWithInternals
+      runtimeContract spec fields scope stmts := by
+  induction stmts generalizing scope with
+  | nil =>
+      exact .nil
+  | cons stmt rest ih =>
+      refine .cons ?_ ?_
+      · intro hexpr
+        exact
+          compiledStmtStepWithHelpersAndHelperIRWithInternals_of_exprHeadStepBridgeWithInternals
+            (runtimeContract := runtimeContract)
+            (spec := spec)
+            (fields := fields)
+            (scope := scope)
+            (stmt := stmt)
+            (hbridge (by simp) hexpr)
+      · apply ih
+        intro stmt' hmem hexpr
+        exact hbridge (List.mem_cons_of_mem _ hmem) hexpr
+
 /-- Whole-list exact-scope assembler for statement lists whose heads all have
 spec-functions bridges.  This is intentionally a narrow scaffold: mixed
 helper-free/direct/residual list assembly still targets the legacy
@@ -1785,28 +1855,30 @@ theorem stmtListGenericWithHelpersAndHelperIRWithInternals_of_exprHeadStepBridge
     {fields : List Field}
     {scope : List String}
     {stmts : List Stmt}
+    (hsurface :
+      ∀ stmt ∈ stmts, stmtTouchesExprInternalHelperSurface stmt = true)
     (hbridge :
       ∀ {stmt : Stmt},
         stmt ∈ stmts →
         ExprInternalHelperHeadStepBridgeWithInternals runtimeContract spec fields stmt) :
     StmtListGenericWithHelpersAndHelperIRWithInternals
       runtimeContract spec fields scope stmts := by
-  induction stmts generalizing scope with
-  | nil =>
-      exact .nil
-  | cons stmt rest ih =>
-      exact
-        stmtListGenericWithHelpersAndHelperIRWithInternals_cons_of_exprHeadStepBridgeWithInternals
+  exact
+    stmtListGenericWithHelpersAndHelperIRWithInternals_of_exprInternalHelperStepInterfaceWithInternals
+      (runtimeContract := runtimeContract)
+      (spec := spec)
+      (fields := fields)
+      (scope := scope)
+      (stmts := stmts)
+      (hexpr :=
+        stmtListExprInternalHelperStepInterfaceWithInternals_of_exprHeadStepBridgesWithInternals
           (runtimeContract := runtimeContract)
           (spec := spec)
           (fields := fields)
           (scope := scope)
-          (stmt := stmt)
-          (rest := rest)
-          (hbridge (by simp))
-          (ih (scope := stmtNextScope scope stmt)
-            (fun {stmt'} hmem =>
-              hbridge (List.mem_cons_of_mem _ hmem)))
+          (stmts := stmts)
+          (fun {stmt} hmem _ => hbridge hmem))
+      (hallExpr := hsurface)
 
 /-- Non-vacuous list witness for a statement list whose head contains
 expression-position helper work. The head proof comes from the expression-head

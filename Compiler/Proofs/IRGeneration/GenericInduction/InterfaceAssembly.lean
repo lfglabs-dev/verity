@@ -859,6 +859,38 @@ theorem
                     (fun s hmem => hheads s (List.mem_cons_of_mem stmt hmem))
                     htailDisjoint)
 
+/-- Spec-functions-aware expression-helper list bridge. Expression-helper heads
+supplied by the `WithInternals` interface assemble directly into the
+`StmtListGenericWithHelpersAndHelperIRWithInternals` seam, avoiding the legacy
+default-empty `compileStmt` witness used by `StmtListExprInternalHelperStepInterface`.
+
+This theorem is intentionally narrow: every head in the list must be an
+expression-position helper head. Mixed helper-free/direct/structural lists still
+need their own `WithInternals` interfaces before the legacy assembly path can be
+removed. -/
+theorem
+    stmtListGenericWithHelpersAndHelperIRWithInternals_of_exprInternalHelperStepInterfaceWithInternals
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {stmts : List Stmt}
+    (hexpr :
+      StmtListExprInternalHelperStepInterfaceWithInternals
+        runtimeContract spec fields scope stmts)
+    (hallExpr :
+      ∀ stmt ∈ stmts, stmtTouchesExprInternalHelperSurface stmt = true) :
+    StmtListGenericWithHelpersAndHelperIRWithInternals
+      runtimeContract spec fields scope stmts := by
+  induction hexpr with
+  | nil =>
+      exact .nil
+  | @cons scope stmt rest hhead htail ih =>
+      rcases hhead (hallExpr stmt List.mem_cons_self) with ⟨compiledIR, hcompiled⟩
+      exact .cons hcompiled
+        (ih (fun stmt' hmem =>
+          hallExpr stmt' (List.mem_cons_of_mem stmt hmem)))
+
 /-- Exact helper-aware list bridge with the helper-positive work split cleanly:
 genuine internal-helper heads are supplied through a narrow helper-specific
 interface, while residual coarse helper-surface heads are tracked separately so

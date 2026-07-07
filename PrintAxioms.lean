@@ -1812,6 +1812,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.HelperStepProofs.compiledStmtStepWithHelpersAndHelperIR_of_exprHeadStepBridge
   Compiler.Proofs.HelperStepProofs.compiledStmtStepWithHelpersAndHelperIRWithInternals_of_exprHeadStepBridgeWithInternals
   Compiler.Proofs.HelperStepProofs.stmtListGenericWithHelpersAndHelperIRWithInternals_cons_of_exprHeadStepBridgeWithInternals
+  Compiler.Proofs.HelperStepProofs.stmtListExprInternalHelperStepInterfaceWithInternals_cons_of_exprHeadStepBridgeWithInternals
+  Compiler.Proofs.HelperStepProofs.stmtListExprInternalHelperStepInterfaceWithInternals_of_exprHeadStepBridgesWithInternals
   Compiler.Proofs.HelperStepProofs.stmtListGenericWithHelpersAndHelperIRWithInternals_of_exprHeadStepBridges
   Compiler.Proofs.HelperStepProofs.stmtListExprInternalHelperStepInterface_cons_of_exprHeadStepBridge
   Compiler.Proofs.HelperStepProofs.stmtListExprInternalHelperStepInterface_of_exprHeadStepBridges
@@ -2334,9 +2336,11 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList
   Compiler.Proofs.IRGeneration.FunctionBody.compileStmtList_nil_eq_ok
   Compiler.Proofs.IRGeneration.FunctionBody.compileStmtList_cons_eq_ok
+  Compiler.Proofs.IRGeneration.FunctionBody.compileStmtList_cons_eq_ok_with_internals
   Compiler.Proofs.IRGeneration.FunctionBody.compileStmtListWithFork_nil_eq_ok
   Compiler.Proofs.IRGeneration.FunctionBody.compileStmtListWithFork_cons_eq_ok
   Compiler.Proofs.IRGeneration.FunctionBody.compileStmtList_cons_ok_inv
+  Compiler.Proofs.IRGeneration.FunctionBody.compileStmtList_cons_ok_inv_with_internals
   Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesIR_setBothMemory
   Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesIR_updateMemoryEvents
   Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesIR_setTransientStorage
@@ -2372,7 +2376,9 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.FunctionBody.compileStmt_ok_any_scope
   -- Compiler.Proofs.IRGeneration.FunctionBody.compileStmt_ok_any_scope_with_surface_aux  -- private
   Compiler.Proofs.IRGeneration.FunctionBody.compileStmt_ok_any_scope_with_surface
+  Compiler.Proofs.IRGeneration.FunctionBody.compileStmt_ok_any_scope_with_surface_with_internals
   Compiler.Proofs.IRGeneration.FunctionBody.compileStmtList_ok_any_scope_with_surface
+  Compiler.Proofs.IRGeneration.FunctionBody.compileStmtList_ok_any_scope_with_surface_with_internals
   Compiler.Proofs.IRGeneration.FunctionBody.compileStmtList_ok_any_scope
   Compiler.Proofs.IRGeneration.FunctionBody.compileStmtList_cons_ok_of_compileStmt_ok_with_surface
   Compiler.Proofs.IRGeneration.FunctionBody.compileStmtList_cons_ok_of_compileStmt_ok
@@ -2865,6 +2871,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.compileStmtList_ok_of_stmtListGenericCore_early
   Compiler.Proofs.IRGeneration.compileStmtList_cons_eq_ok_with_internals
   Compiler.Proofs.IRGeneration.compileStmtList_ok_of_stmtListGenericWithHelpersAndHelperIRWithInternals_exact
+  Compiler.Proofs.IRGeneration.compileStmtList_ok_of_stmtListGenericWithHelpersAndHelperIRWithInternals
 
   -- Compiler/Proofs/IRGeneration/GenericInduction/Scope.lean
   Compiler.Proofs.IRGeneration.exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
@@ -5869,4 +5876,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5499 theorems/lemmas (3797 public, 1702 private, 0 sorry'd)
+-- Total: 5506 theorems/lemmas (3804 public, 1702 private, 0 sorry'd)
