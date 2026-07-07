@@ -329,6 +329,9 @@ ALLOWLIST: set[str] = {
     "supported_function_correct_with_helper_proofs_body_goal",
     "supported_function_correct_with_helper_proofs_body_goal_and_helper_ir",
     "supported_function_correct_with_helper_proofs_body_goal_and_helper_ir_of_bodyCallsDisjoint",
+    # Issue #2080: interface-heavy bridge from function compile facts into the
+    # split WithInternals body consumer; state/binding plumbing is factored.
+    "supported_function_body_with_internals_goal_of_compileFunctionSpec_with_internals",
     "compileFunctionSpec_correct_generic_with_helper_proofs",
     "compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir",
     "compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_bodyCallsDisjoint",
