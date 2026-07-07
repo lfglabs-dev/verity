@@ -1875,6 +1875,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_correct_generic_except_mapping_writes_stmtSafety
   Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_correct_generic_with_helper_proofs
   Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir
+  Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal
   Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_bodyCallsDisjoint
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics
   -- Compiler.Proofs.IRGeneration.Contract.scalar_events_contract_function_callback  -- private
@@ -2055,6 +2056,9 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.Function.compileConstructor_ok_components
   Compiler.Proofs.IRGeneration.Function.exec_compiledFunctionIR_of_body
   Compiler.Proofs.IRGeneration.Function.exec_compiledFunctionIR_of_body_extraFuel
+  Compiler.Proofs.IRGeneration.Function.execIRStmtsWithInternals_append_of_prefix_continue
+  Compiler.Proofs.IRGeneration.Function.exec_genParamLoads_supported_then_extraFuel_withInternals
+  Compiler.Proofs.IRGeneration.Function.exec_compiledFunctionIR_withInternals_of_body_extraFuel
   Compiler.Proofs.IRGeneration.Function.interpretFunction_eq_execResultToIRResult_of_body
   Compiler.Proofs.IRGeneration.Function.interpretFunctionWithHelpers_eq_execResultToIRResultWithInternals_of_body
   Compiler.Proofs.IRGeneration.Function.runtimeStateMatchesIR_applyBindingsToIRState
@@ -2085,6 +2089,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.Function.supported_function_correct_with_scalar_events_body_goal_fuel  -- private
   Compiler.Proofs.IRGeneration.Function.supported_function_correct_with_scalar_events_body_goal
   Compiler.Proofs.IRGeneration.Function.supported_function_correct_with_helper_proofs_body_goal_and_helper_ir
+  Compiler.Proofs.IRGeneration.Function.supported_function_correct_with_helper_proofs_body_goal_with_internals
   Compiler.Proofs.IRGeneration.Function.supported_function_correct_with_helper_proofs_body_goal_and_helper_ir_of_bodyCallsDisjoint
   -- Compiler.Proofs.IRGeneration.Function.function_body_scopeNamesPresent_of_bindSupportedParams  -- private
   -- Compiler.Proofs.IRGeneration.Function.function_body_state_runtime_of_bindSupportedParams  -- private
@@ -5910,4 +5915,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5540 theorems/lemmas (3835 public, 1705 private, 0 sorry'd)
+-- Total: 5545 theorems/lemmas (3840 public, 1705 private, 0 sorry'd)
