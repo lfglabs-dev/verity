@@ -1,0 +1,8 @@
+self-hosted-runner:
+  labels:
+    - paloma-ocr
+    - verity
+    - ocr
+    - nippur
+    - cpu-8
+    - mem-32g

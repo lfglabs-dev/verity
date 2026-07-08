@@ -1,0 +1,28 @@
+{
+  "rules": [
+    {
+      "path": "**/*.lean",
+      "rule": "Review Lean proof changes for semantic correctness, unsound shortcuts, changed trust boundaries, brittle simp usage, missing theorem coverage, accidental weakening of statements, and interactions with AUDIT.md/TRUST_ASSUMPTIONS.md/AXIOMS.md. Do not request stylistic rewrites unless they reduce proof fragility. Prefer high-confidence findings only.",
+      "merge_system_rule": true
+    },
+    {
+      "path": "**/*.{py,sh,bash,js,ts,json,yml,yaml,toml}",
+      "rule": "Review automation and CI changes for command injection, unsafe path handling, credential exposure, nondeterminism, missing failure handling, and divergence from documented project commands. Prefer high-confidence findings only.",
+      "merge_system_rule": true
+    },
+    {
+      "path": "docs/**",
+      "rule": "Review documentation changes for contradictions with code, trust-boundary drift, stale commands, and missing updates to related docs. Avoid wording nitpicks.",
+      "merge_system_rule": true
+    }
+  ],
+  "exclude": [
+    "**/.lake/**",
+    "**/lake-packages/**",
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/*.lock",
+    "**/generated/**"
+  ]
+}
