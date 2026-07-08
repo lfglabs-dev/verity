@@ -10,15 +10,16 @@ module.exports = async function postOcrReview({ github, context, core }) {
   const resultPath = process.env.OCR_RESULT_PATH;
   const stderrPath = process.env.OCR_STDERR_PATH;
   const maxInline = Number(process.env.OCR_MAX_INLINE_COMMENTS || 20);
-  const tag = `<!-- paloma-ocr-review:${commit_id} -->`;
+  const successTag = `<!-- paloma-ocr-review:${commit_id}:success -->`;
+  const retryableTag = `<!-- paloma-ocr-review:${commit_id}:retryable-failure -->`;
 
   if (!pull_number || !commit_id) {
     throw new Error('OCR_PR_NUMBER and OCR_HEAD_SHA are required');
   }
 
-  const alreadyPosted = await hasExistingTag(github, { owner, repo, pull_number, tag });
+  const alreadyPosted = await hasExistingTag(github, { owner, repo, pull_number, tag: successTag });
   if (alreadyPosted) {
-    core.notice(`OCR review for ${commit_id} was already posted; skipping duplicate.`);
+    core.notice(`Successful OCR review for ${commit_id} was already posted; skipping duplicate.`);
     return;
   }
 
@@ -30,7 +31,7 @@ module.exports = async function postOcrReview({ github, context, core }) {
   } catch (err) {
     await github.rest.issues.createComment({
       owner, repo, issue_number: pull_number,
-      body: `${tag}\n⚠️ **OpenCodeReview failed to produce valid JSON.**\n\n${stderr ? fenced(stderr) : 'No stderr captured.'}`,
+      body: `${retryableTag}\n⚠️ **OpenCodeReview failed to produce valid JSON.**\n\n${stderr ? fenced(stderr) : 'No stderr captured.'}`,
     });
     return;
   }
@@ -58,7 +59,7 @@ module.exports = async function postOcrReview({ github, context, core }) {
 
   const selected = usable.slice(0, maxInline);
   const overflow = usable.slice(maxInline);
-  const body = buildReviewBody({ tag, result, comments, selected, overflow, summaryOnly, warnings, stderr });
+  const body = buildReviewBody({ tag: successTag, result, comments, selected, overflow, summaryOnly, warnings, stderr });
 
   try {
     await github.rest.pulls.createReview({
@@ -72,7 +73,7 @@ module.exports = async function postOcrReview({ github, context, core }) {
     });
   } catch (err) {
     core.warning(`Batch createReview failed: ${err.message}`);
-    const fallbackBody = `${body}\n\n⚠️ Inline publication failed, so OCR findings are summarized here instead.\n\n${renderInlineFallback(selected)}\n\n${fenced(String(err.message || err))}`;
+    const fallbackBody = `${body.replace(successTag, retryableTag)}\n\n⚠️ Inline publication failed, so OCR findings are summarized here instead.\n\n${renderInlineFallback(selected)}\n\n${fenced(String(err.message || err))}`;
     await github.rest.issues.createComment({
       owner,
       repo,
