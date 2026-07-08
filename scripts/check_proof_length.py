@@ -153,6 +153,13 @@ ALLOWLIST: set[str] = {
     # invariant instead of taking it as an opaque hypothesis. Body is a single
     # term application; the >50 lines are entirely the mirrored premise list.
     "compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_internalNamesPrefixed",
+    # #2080 phase 27 reserved-name dispatch seam: same signature-dominated wrapper
+    # as its `_of_internalNamesPrefixed` sibling, but discharges the generated
+    # param-load disjointness premise from the runtime contract's *reserved-name*
+    # invariant (`InternalTableNamesReserved`) — the true generalization that
+    # populated tables containing non-`internal_` compiler helpers satisfy. Body is
+    # a single term application; the >50 lines are entirely the mirrored premise list.
+    "compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_reserved",
     # #2080 whole-contract dispatch seam: same signature-dominated wrapper as the
     # `_of_internalNamesPrefixed` sibling, but derives the internal-table naming
     # invariant from the structural compilation fact (every internal-table stmt is
