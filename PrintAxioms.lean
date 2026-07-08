@@ -1877,13 +1877,14 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir
   Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal
   Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_internalNamesPrefixed
+  Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_reserved
   Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_compiledInternalTable
   -- Compiler.Proofs.IRGeneration.Contract.compiled_internal_functions_forall₂_of_mapM_ok'  -- private
   -- Compiler.Proofs.IRGeneration.Contract.exists_left_of_forall₂_mem_right  -- private
   Compiler.Proofs.IRGeneration.Contract.compileInternalFunction_mapM_mem_exists
   Compiler.Proofs.IRGeneration.Contract.compiledInternalTable_of_internalFunctions_eq_mapM
-  Compiler.Proofs.IRGeneration.Contract.InternalTableNamesInternalPrefixed_of_internalFunctions_append
-  Compiler.Proofs.IRGeneration.Contract.InternalTableNamesInternalPrefixed_of_helpers_append_compiledInternalTable
+  Compiler.Proofs.IRGeneration.Contract.InternalTableNamesReserved_of_internalFunctions_append
+  Compiler.Proofs.IRGeneration.Contract.InternalTableNamesReserved_of_helpers_append_compiledInternalTable
   Compiler.Proofs.IRGeneration.Contract.compiledInternalTable_of_compileValidatedCore
   Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_compileValidatedCore
   Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_bodyCallsDisjoint
@@ -2116,6 +2117,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.Function.genScalarLoad_calldataload_callsDisjoint  -- private
   -- Compiler.Proofs.IRGeneration.Function.genParamLoadBodyFrom_calldataload_callsDisjoint  -- private
   -- Compiler.Proofs.IRGeneration.Function.genParamLoads_callsDisjoint_of_builtins  -- private
+  Compiler.Proofs.IRGeneration.Function.genParamLoads_callsDisjoint_of_reserved
   Compiler.Proofs.IRGeneration.Function.genParamLoads_callsDisjoint_of_internalNamesPrefixed
   Compiler.Proofs.IRGeneration.Function.internalFunctionYulName_take_prefix
   Compiler.Proofs.IRGeneration.Function.compileInternalFunction_isFuncDef_internalNamed
@@ -3200,6 +3202,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.execIRFunction_continue_extract_eq
   Compiler.Proofs.IRGeneration.findInternalFunction?_eq_none_of_internalFunctions_nil
   Compiler.Proofs.IRGeneration.findInternalFunction?_eq_none_of_not_internalPrefixed
+  Compiler.Proofs.IRGeneration.findInternalFunction?_eq_none_of_not_reserved
+  Compiler.Proofs.IRGeneration.InternalTableNamesReserved_of_internalPrefixed
   Compiler.Proofs.IRGeneration.legacyCompatibleExternalBodies_of_legacyCompatibleRuntimeContract
   Compiler.Proofs.IRGeneration.evalIRExprWithInternals_eq_evalIRExpr_of_no_internal
   Compiler.Proofs.IRGeneration.evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal
@@ -5933,4 +5937,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5563 theorems/lemmas (3853 public, 1710 private, 0 sorry'd)
+-- Total: 5567 theorems/lemmas (3857 public, 1710 private, 0 sorry'd)

@@ -2971,24 +2971,38 @@ private theorem genParamLoads_callsDisjoint_of_builtins
     · subst h2; simp only [yulExprCallsDisjointFromInternalTable]
 
 /-- Package `genParamLoads` disjointness directly from the runtime contract's
-internal-table naming invariant. Because every helper name begins with
-`internalFunctionPrefix` (`"internal_"`), none of the six builtins emitted by the
-param-load prologue — whose names are not `internal_`-prefixed — can resolve to a
-helper. This is the forward-compatible replacement for the
-`internalFunctions = []` disjointness route: it does not require the internal
-table to be empty. -/
+reserved-name invariant. Every helper name is reserved (`internal_`-, `__verity_`-,
+`checked_`-, or `panic_error_`-prefixed), while the six builtins emitted by the
+param-load prologue (`calldataload`, `calldatasize`, `lt`, `revert`, `and`,
+`iszero`) are provably *not* reserved, so none of them can resolve to a helper.
+This is the true seam that replaces the false "every helper is `internal_`-prefixed"
+premise: real compiler helpers are not `internal_`-prefixed, but they *are*
+reserved, so the invariant is dischargeable from actual compilation output. -/
+theorem genParamLoads_callsDisjoint_of_reserved
+    (runtimeContract : IRContract) (params : List Param)
+    (hsupported : ∀ param ∈ params, SupportedExternalParamType param.ty)
+    (hinv : InternalTableNamesReserved runtimeContract) :
+    YulStmtListCallsDisjointFromInternalTable runtimeContract (genParamLoads params) :=
+  genParamLoads_callsDisjoint_of_builtins runtimeContract params hsupported
+    (findInternalFunction?_eq_none_of_not_reserved runtimeContract "calldataload" hinv (by decide))
+    (findInternalFunction?_eq_none_of_not_reserved runtimeContract "calldatasize" hinv (by decide))
+    (findInternalFunction?_eq_none_of_not_reserved runtimeContract "lt" hinv (by decide))
+    (findInternalFunction?_eq_none_of_not_reserved runtimeContract "revert" hinv (by decide))
+    (findInternalFunction?_eq_none_of_not_reserved runtimeContract "and" hinv (by decide))
+    (findInternalFunction?_eq_none_of_not_reserved runtimeContract "iszero" hinv (by decide))
+
+/-- Package `genParamLoads` disjointness from the `internal_`-prefix naming
+invariant, routed through the reserved-name seam
+(`genParamLoads_callsDisjoint_of_reserved` +
+`InternalTableNamesReserved_of_internalPrefixed`). Retained as the compiled-only
+entry point; the populated-table path uses the reserved variant directly. -/
 theorem genParamLoads_callsDisjoint_of_internalNamesPrefixed
     (runtimeContract : IRContract) (params : List Param)
     (hsupported : ∀ param ∈ params, SupportedExternalParamType param.ty)
     (hinv : InternalTableNamesInternalPrefixed runtimeContract) :
     YulStmtListCallsDisjointFromInternalTable runtimeContract (genParamLoads params) :=
-  genParamLoads_callsDisjoint_of_builtins runtimeContract params hsupported
-    (findInternalFunction?_eq_none_of_not_internalPrefixed runtimeContract "calldataload" hinv (by decide))
-    (findInternalFunction?_eq_none_of_not_internalPrefixed runtimeContract "calldatasize" hinv (by decide))
-    (findInternalFunction?_eq_none_of_not_internalPrefixed runtimeContract "lt" hinv (by decide))
-    (findInternalFunction?_eq_none_of_not_internalPrefixed runtimeContract "revert" hinv (by decide))
-    (findInternalFunction?_eq_none_of_not_internalPrefixed runtimeContract "and" hinv (by decide))
-    (findInternalFunction?_eq_none_of_not_internalPrefixed runtimeContract "iszero" hinv (by decide))
+  genParamLoads_callsDisjoint_of_reserved runtimeContract params hsupported
+    (InternalTableNamesReserved_of_internalPrefixed runtimeContract hinv)
 
 /-- The Yul name emitted for a compiled internal helper begins with
 `internalFunctionPrefix` (`"internal_"`). This is the structural fact that lets

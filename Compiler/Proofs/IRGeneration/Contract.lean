@@ -1155,6 +1155,65 @@ theorem compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_
     (Function.genParamLoads_callsDisjoint_of_internalNamesPrefixed runtimeContract fn.params
       (supported_params_of_supportedSpec model selectors hSupported fn hfn) hinv)
 
+/-- Reserved-name variant of
+`compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_internalNamesPrefixed`.
+Takes the *true* `InternalTableNamesReserved` invariant — dischargeable from the
+real populated internal table via
+`InternalTableNamesReserved_of_helpers_append_compiledInternalTable` — and
+discharges the ABI parameter-load prefix disjointness through
+`Function.genParamLoads_callsDisjoint_of_reserved`. This is the per-function seam
+that lets the whole-contract `WithInternals` dispatch retarget consume a populated
+internal table containing non-`internal_` compiler helpers. -/
+theorem compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_reserved
+    (model : CompilationModel)
+    (selectors : List Nat)
+    (hSupported : SupportedSpec model selectors)
+    (hHelperProofs : SourceSemantics.SupportedSpecHelperProofs model selectors hSupported)
+    (hvalidateInputs : validateCompileInputs model selectors = Except.ok ())
+    (runtimeContract : IRContract)
+    (fn : FunctionSpec)
+    (sel : Nat)
+    (returns : List ParamType)
+    (bodyStmts : List YulStmt)
+    (irFn : IRFunction)
+    (tx : IRTransaction)
+    (initialWorld : Verity.ContractState)
+    (htxNormalized : Function.TxContextNormalized tx)
+    (bindings : List (String × Nat))
+    (extraFuel : Nat)
+    (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
+    (hfn : fn ∈ selectorDispatchedFunctions model)
+    (hvalidate : validateFunctionSpec fn = Except.ok ())
+    (hreturns : functionReturns fn = Except.ok returns)
+    (hbodyCompile :
+      compileStmtList model.fields model.events model.errors .calldata [] false
+        (fn.params.map (·.name)) [] fn.body = Except.ok bodyStmts)
+    (hcompileFn :
+      compileFunctionSpec model.fields model.events model.errors [] sel fn = Except.ok irFn)
+    (hbind : SourceSemantics.bindSupportedParams fn.params tx.args = some bindings)
+    (hcompiledBodyFuel :
+      (genParamLoads fn.params ++ bodyStmts).length + extraFuel =
+        sizeOf (Function.compiledFunctionIR sel fn returns bodyStmts).body)
+    (hbodyCorrect :
+      SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
+        runtimeContract model fn bodyStmts hSupported.helperFuel tx initialWorld
+        (ParamLoading.applyBindingsToIRState
+          (Function.prebindRawArgs
+            (FunctionBody.initialIRStateForTx model tx initialWorld) fn.params)
+          bindings)
+        bindings extraFuel)
+    (hinv : InternalTableNamesReserved runtimeContract) :
+    FunctionBody.sourceResultMatchesIRResult
+      (supportedSourceFunctionSemantics model selectors hSupported fn tx initialWorld)
+      (execIRFunctionWithInternals runtimeContract 0 irFn tx.args
+        (FunctionBody.initialIRStateForTx model tx initialWorld)) :=
+  compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal
+    model selectors hSupported hHelperProofs hvalidateInputs runtimeContract fn sel returns
+    bodyStmts irFn tx initialWorld htxNormalized bindings extraFuel hcalldataSizeFits hfn
+    hvalidate hreturns hbodyCompile hcompileFn hbind hcompiledBodyFuel hbodyCorrect
+    (Function.genParamLoads_callsDisjoint_of_reserved runtimeContract fn.params
+      (supported_params_of_supportedSpec model selectors hSupported fn hfn) hinv)
+
 /-- Whole-contract-facing consumer seam. Rather than taking the runtime
 contract's naming invariant `InternalTableNamesInternalPrefixed` as an opaque
 premise, this variant derives it from the structural compilation fact that every
@@ -1350,26 +1409,24 @@ theorem compiledInternalTable_of_internalFunctions_eq_mapM
   exact compileInternalFunction_mapM_mem_exists fields events errors adtTypes targetFork
     internalFns internalDefs hmap
 
-/-- Structural distribution of the internal-table naming invariant over a
-segmented table. `compileValidatedCore` populates `internalFunctions` as
+/-- Structural distribution of the reserved-name invariant over a segmented
+table. `compileValidatedCore` populates `internalFunctions` as
 `<prebuilt helper segments> ++ internalFuncDefs` (see `compileValidatedCore` in
 `Compiler/CompilationModel/Dispatch.lean`), so the whole-table
-`InternalTableNamesInternalPrefixed` obligation is exactly the conjunction of the
-same invariant restricted to each segment. Proving it via `List.mem_append`
-avoids any dependence on `filterMap`-append rewriting and keeps the two segment
-obligations independent, which is what lets a caller discharge the helper
-segment and the `internalFuncDefs` segment by different routes. -/
-theorem InternalTableNamesInternalPrefixed_of_internalFunctions_append
+`InternalTableNamesReserved` obligation is exactly the conjunction of the same
+invariant restricted to each segment. Proving it via `List.mem_append` avoids any
+dependence on `filterMap`-append rewriting and keeps the two segment obligations
+independent, which is what lets a caller discharge the helper segment and the
+`internalFuncDefs` segment by different routes. -/
+theorem InternalTableNamesReserved_of_internalFunctions_append
     (contract : IRContract)
     (helpers internalDefs : List YulStmt)
     (hcontract : contract.internalFunctions = helpers ++ internalDefs)
     (hhelpers : ∀ d ∈ helpers.filterMap irInternalFunctionDefOfStmt?,
-        d.name.data.take CompilationModel.internalFunctionPrefix.data.length =
-          CompilationModel.internalFunctionPrefix.data)
+        IsReservedInternalHelperName d.name)
     (hinternal : ∀ d ∈ internalDefs.filterMap irInternalFunctionDefOfStmt?,
-        d.name.data.take CompilationModel.internalFunctionPrefix.data.length =
-          CompilationModel.internalFunctionPrefix.data) :
-    InternalTableNamesInternalPrefixed contract := by
+        IsReservedInternalHelperName d.name) :
+    InternalTableNamesReserved contract := by
   intro d hd
   rw [hcontract, List.mem_filterMap] at hd
   obtain ⟨stmt, hstmt, hdecode⟩ := hd
@@ -1382,21 +1439,22 @@ theorem InternalTableNamesInternalPrefixed_of_internalFunctions_append
 pipeline. A runtime contract whose internal table is a prebuilt helper segment
 followed by the `compileInternalFunction` image of some internal-function list
 (`runtimeContract.internalFunctions = helpers ++ internalDefs` with
-`internalDefs` the `mapM` output) satisfies `InternalTableNamesInternalPrefixed`
-as soon as the helper segment is internal-prefixed: the `internalFuncDefs`
-segment is discharged structurally from the pipeline's `mapM` equation via
+`internalDefs` the `mapM` output) satisfies `InternalTableNamesReserved` as soon
+as the helper segment is reserved: the `internalFuncDefs` segment is discharged
+structurally from the pipeline's `mapM` equation via
 `compileInternalFunction_mapM_mem_exists` +
-`Function.InternalTableNamesInternalPrefixed_of_all_compiledInternal`, and the
-two segments are combined by
-`InternalTableNamesInternalPrefixed_of_internalFunctions_append`.
+`Function.InternalTableNamesInternalPrefixed_of_all_compiledInternal` +
+`InternalTableNamesReserved_of_internalPrefixed`, and the two segments are
+combined by `InternalTableNamesReserved_of_internalFunctions_append`.
 
-This is the non-empty-table analogue of
-`compiledInternalTable_of_compileValidatedCore`: it feeds the naming invariant
-consumed by
-`compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_internalNamesPrefixed`
-without any `internalFunctions = []` default-empty assumption, leaving only the
-helper-segment prefix obligation for a later slice. -/
-theorem InternalTableNamesInternalPrefixed_of_helpers_append_compiledInternalTable
+This replaces the false `internal_`-prefix helper-segment premise of the previous
+slice: real compiler helpers (`__verity_*`, `checked_*`, `panic_error_*`,
+template intrinsics) are reserved but *not* `internal_`-prefixed, so the helper
+premise here is dischargeable from the actual populated table. It feeds the
+reserved-name naming invariant consumed by
+`compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_reserved`
+without any `internalFunctions = []` default-empty assumption. -/
+theorem InternalTableNamesReserved_of_helpers_append_compiledInternalTable
     (runtimeContract : IRContract)
     (helpers : List YulStmt)
     (fields : List Field)
@@ -1411,16 +1469,17 @@ theorem InternalTableNamesInternalPrefixed_of_helpers_append_compiledInternalTab
         Except.ok internalDefs)
     (hcontract : runtimeContract.internalFunctions = helpers ++ internalDefs)
     (hhelpers : ∀ d ∈ helpers.filterMap irInternalFunctionDefOfStmt?,
-        d.name.data.take CompilationModel.internalFunctionPrefix.data.length =
-          CompilationModel.internalFunctionPrefix.data) :
-    InternalTableNamesInternalPrefixed runtimeContract := by
-  refine InternalTableNamesInternalPrefixed_of_internalFunctions_append
+        IsReservedInternalHelperName d.name) :
+    InternalTableNamesReserved runtimeContract := by
+  refine InternalTableNamesReserved_of_internalFunctions_append
     runtimeContract helpers internalDefs hcontract hhelpers ?_
   have hcompiled :=
     compileInternalFunction_mapM_mem_exists fields events errors adtTypes targetFork
       internalFns internalDefs hmap
-  exact Function.InternalTableNamesInternalPrefixed_of_all_compiledInternal
-    { runtimeContract with internalFunctions := internalDefs } hcompiled
+  exact InternalTableNamesReserved_of_internalPrefixed
+    { runtimeContract with internalFunctions := internalDefs }
+    (Function.InternalTableNamesInternalPrefixed_of_all_compiledInternal
+      { runtimeContract with internalFunctions := internalDefs } hcompiled)
 
 /-- Pipeline connector for the current `SupportedSpec` world: a contract produced
 by `compileValidatedCore` discharges the structural `hcompiledTable` premise
