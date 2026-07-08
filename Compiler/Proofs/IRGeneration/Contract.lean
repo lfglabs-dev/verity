@@ -1350,6 +1350,78 @@ theorem compiledInternalTable_of_internalFunctions_eq_mapM
   exact compileInternalFunction_mapM_mem_exists fields events errors adtTypes targetFork
     internalFns internalDefs hmap
 
+/-- Structural distribution of the internal-table naming invariant over a
+segmented table. `compileValidatedCore` populates `internalFunctions` as
+`<prebuilt helper segments> ++ internalFuncDefs` (see `compileValidatedCore` in
+`Compiler/CompilationModel/Dispatch.lean`), so the whole-table
+`InternalTableNamesInternalPrefixed` obligation is exactly the conjunction of the
+same invariant restricted to each segment. Proving it via `List.mem_append`
+avoids any dependence on `filterMap`-append rewriting and keeps the two segment
+obligations independent, which is what lets a caller discharge the helper
+segment and the `internalFuncDefs` segment by different routes. -/
+theorem InternalTableNamesInternalPrefixed_of_internalFunctions_append
+    (contract : IRContract)
+    (helpers internalDefs : List YulStmt)
+    (hcontract : contract.internalFunctions = helpers ++ internalDefs)
+    (hhelpers : ∀ d ∈ helpers.filterMap irInternalFunctionDefOfStmt?,
+        d.name.data.take CompilationModel.internalFunctionPrefix.data.length =
+          CompilationModel.internalFunctionPrefix.data)
+    (hinternal : ∀ d ∈ internalDefs.filterMap irInternalFunctionDefOfStmt?,
+        d.name.data.take CompilationModel.internalFunctionPrefix.data.length =
+          CompilationModel.internalFunctionPrefix.data) :
+    InternalTableNamesInternalPrefixed contract := by
+  intro d hd
+  rw [hcontract, List.mem_filterMap] at hd
+  obtain ⟨stmt, hstmt, hdecode⟩ := hd
+  rw [List.mem_append] at hstmt
+  rcases hstmt with hstmt | hstmt
+  · exact hhelpers d (List.mem_filterMap.mpr ⟨stmt, hstmt, hdecode⟩)
+  · exact hinternal d (List.mem_filterMap.mpr ⟨stmt, hstmt, hdecode⟩)
+
+/-- Consumer seam for the *populated* internal table produced by the compilation
+pipeline. A runtime contract whose internal table is a prebuilt helper segment
+followed by the `compileInternalFunction` image of some internal-function list
+(`runtimeContract.internalFunctions = helpers ++ internalDefs` with
+`internalDefs` the `mapM` output) satisfies `InternalTableNamesInternalPrefixed`
+as soon as the helper segment is internal-prefixed: the `internalFuncDefs`
+segment is discharged structurally from the pipeline's `mapM` equation via
+`compileInternalFunction_mapM_mem_exists` +
+`Function.InternalTableNamesInternalPrefixed_of_all_compiledInternal`, and the
+two segments are combined by
+`InternalTableNamesInternalPrefixed_of_internalFunctions_append`.
+
+This is the non-empty-table analogue of
+`compiledInternalTable_of_compileValidatedCore`: it feeds the naming invariant
+consumed by
+`compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_internalNamesPrefixed`
+without any `internalFunctions = []` default-empty assumption, leaving only the
+helper-segment prefix obligation for a later slice. -/
+theorem InternalTableNamesInternalPrefixed_of_helpers_append_compiledInternalTable
+    (runtimeContract : IRContract)
+    (helpers : List YulStmt)
+    (fields : List Field)
+    (events : List EventDef)
+    (errors : List ErrorDef)
+    (adtTypes : List AdtTypeDef)
+    (targetFork : Verity.Core.Intrinsics.HardFork)
+    (internalFns : List FunctionSpec)
+    (internalDefs : List YulStmt)
+    (hmap : internalFns.mapM (fun fn =>
+        compileInternalFunction fields events errors adtTypes fn targetFork internalFns) =
+        Except.ok internalDefs)
+    (hcontract : runtimeContract.internalFunctions = helpers ++ internalDefs)
+    (hhelpers : ∀ d ∈ helpers.filterMap irInternalFunctionDefOfStmt?,
+        d.name.data.take CompilationModel.internalFunctionPrefix.data.length =
+          CompilationModel.internalFunctionPrefix.data) :
+    InternalTableNamesInternalPrefixed runtimeContract := by
+  refine InternalTableNamesInternalPrefixed_of_internalFunctions_append
+    runtimeContract helpers internalDefs hcontract hhelpers ?_
+  have hcompiled :=
+    compileInternalFunction_mapM_mem_exists fields events errors adtTypes targetFork
+      internalFns internalDefs hmap
+  exact Function.InternalTableNamesInternalPrefixed_of_all_compiledInternal
+    { runtimeContract with internalFunctions := internalDefs } hcompiled
+
 /-- Pipeline connector for the current `SupportedSpec` world: a contract produced
 by `compileValidatedCore` discharges the structural `hcompiledTable` premise
 outright. Under `SupportedSpec` the runtime internal table is empty
