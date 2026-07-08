@@ -322,7 +322,7 @@ def attachNonReentrantGuard (fields : List Field) (spec : FunctionSpec)
       let release := YulStmt.exprStmt (YulExpr.call "tstore" [YulExpr.lit releaseSlot, YulExpr.lit 0])
       pure { irFn with body := prefixLoads ++ guardStmts ++ applyLockReleaseOnExits release suffix }
 
-private def compileSpecialEntrypoint (fields : List Field) (events : List EventDef)
+def compileSpecialEntrypoint (fields : List Field) (events : List EventDef)
     (errors : List ErrorDef) (adtTypes : List AdtTypeDef := [])
     (targetFork : HardFork := .cancun)
     (internalFunctions : List FunctionSpec := []) (spec : FunctionSpec) :

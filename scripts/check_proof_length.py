@@ -179,6 +179,12 @@ ALLOWLIST: set[str] = {
     # is dominated by the concrete helper list shape, not proof search.
     "DecodedInternalHelperNamesReserved.compileValidatedCore_helpers",
     "InternalTableNamesReserved_of_compileValidatedCore_helpers_append_compiledInternalTable",
+    # #2080 compileValidatedCore table-shape connector: extracts the concrete
+    # helper segment, template-helper equation, compiled-internal mapM equation,
+    # fallback/receive entrypoints, and constructor from the pipeline's monadic
+    # output. The length is dominated by case-splitting the do-block shape so the
+    # downstream dispatch seam can consume a premise-free reserved-table theorem.
+    "InternalTableNamesReserved_of_compileValidatedCore",
     # First concrete letVar statement-head adapter (#2080 phase 10): threads a
     # single compositional-expression existential through source execution, IR
     # fuel alignment, and four scope/runtime invariant re-establishment steps

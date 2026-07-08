@@ -1902,6 +1902,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.Contract.DecodedInternalHelperNamesReserved.checkedArithmetic  -- private
   -- Compiler.Proofs.IRGeneration.Contract.DecodedInternalHelperNamesReserved.compileValidatedCore_helpers  -- private
   Compiler.Proofs.IRGeneration.Contract.InternalTableNamesReserved_of_compileValidatedCore_helpers_append_compiledInternalTable
+  Compiler.Proofs.IRGeneration.Contract.InternalTableNamesReserved_of_compileValidatedCore
   Compiler.Proofs.IRGeneration.Contract.compiledInternalTable_of_compileValidatedCore
   Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_compileValidatedCore
   Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_bodyCallsDisjoint
@@ -5954,4 +5955,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5584 theorems/lemmas (3858 public, 1726 private, 0 sorry'd)
+-- Total: 5585 theorems/lemmas (3859 public, 1726 private, 0 sorry'd)
