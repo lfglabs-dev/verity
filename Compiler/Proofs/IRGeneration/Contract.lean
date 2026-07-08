@@ -1915,6 +1915,170 @@ theorem InternalTableNamesReserved_of_compileValidatedCore_helpers_append_compil
           checkedArithmeticHelpersRequired templateIntrinsicHelpers htemplate)
     exact hhelpers d hd
 
+/-- Full table-shape connector for the concrete `compileValidatedCore` output.
+
+The previous connector packaged the exact helper segment but still required
+callers to thread the template-helper reservation proof, the compiled-internal
+`mapM` equation, and the final `internalFunctions` append equation separately.
+This theorem extracts all three facts from
+`compileValidatedCore model selectors = Except.ok runtimeContract` and packages
+the real populated table:
+
+`compileValidatedCoreHelperSegment ... templateIntrinsicHelpers ++ internalFuncDefs`.
+
+It is intentionally independent of `SupportedSpec`: the supported fragment may
+make the compiled internal segment empty today, but this connector follows the
+pipeline shape directly and remains non-vacuous for source-internal functions. -/
+theorem InternalTableNamesReserved_of_compileValidatedCore
+    (model : CompilationModel)
+    (selectors : List Nat)
+    (runtimeContract : IRContract)
+    (hcore : compileValidatedCore model selectors = Except.ok runtimeContract) :
+    InternalTableNamesReserved runtimeContract := by
+  unfold compileValidatedCore at hcore
+  simp only [bind, Except.bind, pure, Except.pure] at hcore
+  rcases hfallback :
+      pickUniqueFunctionByName "fallback" model.functions with _ | fallbackSpec
+  · simp [hfallback] at hcore
+  · rcases hreceive :
+        pickUniqueFunctionByName "receive" model.functions with _ | receiveSpec
+    · simp [hfallback, hreceive] at hcore
+    · rcases hfunctions :
+          (((model.functions.filter fun fn => !fn.isInternal && !isInteropEntrypointName fn.name).zip
+              selectors).mapM fun entry =>
+            compileGuardedFunctionSpec (applySlotAliasRanges model.fields model.slotAliasRanges)
+              model.events model.errors model.adtTypes (model.functions.filter (·.isInternal))
+              entry.2 entry.1) with _ | functions
+      · simp [hfallback, hreceive, hfunctions] at hcore
+      · rcases hinternalDefs :
+            ((model.functions.filter (·.isInternal)).mapM fun fn =>
+              compileInternalFunction (applySlotAliasRanges model.fields model.slotAliasRanges)
+                model.events model.errors model.adtTypes fn (targetFork := .cancun)
+                (model.functions.filter (·.isInternal))) with _ | internalDefs
+        · simp [hfallback, hreceive, hfunctions, hinternalDefs] at hcore
+        · rcases htemplate :
+              (if (templateIntrinsicItems model).isEmpty then
+                pure []
+              else
+                compileTemplateIntrinsicHelpers model) with _ | templateIntrinsicHelpers
+          · by_cases hitems : (templateIntrinsicItems model).isEmpty
+            · simp [hitems] at htemplate
+              cases htemplate
+            · simp [hitems] at htemplate
+              simp [hfallback, hreceive, hfunctions, hinternalDefs, hitems, htemplate] at hcore
+          · simp [hfallback, hreceive, hfunctions, hinternalDefs] at hcore
+            by_cases hitems : (templateIntrinsicItems model).isEmpty
+            · simp [hitems] at htemplate
+              cases htemplate
+              simp [hitems] at hcore
+              rcases hfallbackEntrypoint :
+                  fallbackSpec.mapM
+                    (compileSpecialEntrypoint
+                      (applySlotAliasRanges model.fields model.slotAliasRanges)
+                      model.events model.errors model.adtTypes (targetFork := .cancun)
+                      (model.functions.filter (·.isInternal))) with _ | fallbackEntrypoint
+              · simp [hfallbackEntrypoint] at hcore
+              · rcases hreceiveEntrypoint :
+                    receiveSpec.mapM
+                      (compileSpecialEntrypoint
+                        (applySlotAliasRanges model.fields model.slotAliasRanges)
+                        model.events model.errors model.adtTypes (targetFork := .cancun)
+                        (model.functions.filter (·.isInternal))) with _ | receiveEntrypoint
+                · simp [hfallbackEntrypoint, hreceiveEntrypoint] at hcore
+                · rcases hdeploy :
+                      compileConstructor
+                        (applySlotAliasRanges model.fields model.slotAliasRanges)
+                        model.events model.errors model.adtTypes model.constructor
+                        (targetFork := .cancun) (model.functions.filter (·.isInternal)) with
+                    _ | deploy
+                  · simp [hfallbackEntrypoint, hreceiveEntrypoint, hdeploy] at hcore
+                  · simp [hfallbackEntrypoint, hreceiveEntrypoint, hdeploy] at hcore
+                    have hcontract :
+                        runtimeContract.internalFunctions =
+                          compileValidatedCoreHelperSegment
+                            (contractUsesPlainArrayElement model)
+                            (contractUsesArrayElementWord model)
+                            (contractUsesParamDynamicHeadWord model)
+                            (contractUsesMulDiv512 model)
+                            (contractUsesStorageArrayElement model)
+                            (contractUsesDynamicBytesEq model)
+                            (contractUsesCheckedArithmetic model)
+                            [] ++ internalDefs := by
+                      rw [← hcore]
+                      simp [compileValidatedCoreHelperSegment, List.append_assoc]
+                    exact
+                      InternalTableNamesReserved_of_compileValidatedCore_helpers_append_compiledInternalTable
+                        runtimeContract
+                        (contractUsesPlainArrayElement model)
+                        (contractUsesArrayElementWord model)
+                        (contractUsesParamDynamicHeadWord model)
+                        (contractUsesMulDiv512 model)
+                        (contractUsesStorageArrayElement model)
+                        (contractUsesDynamicBytesEq model)
+                        (contractUsesCheckedArithmetic model)
+                        [] DecodedInternalHelperNamesReserved.nil
+                        (applySlotAliasRanges model.fields model.slotAliasRanges)
+                        model.events model.errors model.adtTypes
+                        Verity.Core.Intrinsics.HardFork.cancun
+                        (model.functions.filter (·.isInternal))
+                        internalDefs hinternalDefs hcontract
+            · simp [hitems] at htemplate
+              simp [hitems, htemplate] at hcore
+              rcases hfallbackEntrypoint :
+                  fallbackSpec.mapM
+                    (compileSpecialEntrypoint
+                      (applySlotAliasRanges model.fields model.slotAliasRanges)
+                      model.events model.errors model.adtTypes (targetFork := .cancun)
+                      (model.functions.filter (·.isInternal))) with _ | fallbackEntrypoint
+              · simp [hfallbackEntrypoint] at hcore
+              · rcases hreceiveEntrypoint :
+                    receiveSpec.mapM
+                      (compileSpecialEntrypoint
+                        (applySlotAliasRanges model.fields model.slotAliasRanges)
+                        model.events model.errors model.adtTypes (targetFork := .cancun)
+                        (model.functions.filter (·.isInternal))) with _ | receiveEntrypoint
+                · simp [hfallbackEntrypoint, hreceiveEntrypoint] at hcore
+                · rcases hdeploy :
+                      compileConstructor
+                        (applySlotAliasRanges model.fields model.slotAliasRanges)
+                        model.events model.errors model.adtTypes model.constructor
+                        (targetFork := .cancun) (model.functions.filter (·.isInternal)) with
+                    _ | deploy
+                  · simp [hfallbackEntrypoint, hreceiveEntrypoint, hdeploy] at hcore
+                  · simp [hfallbackEntrypoint, hreceiveEntrypoint, hdeploy] at hcore
+                    have htemplateReserved :
+                        DecodedInternalHelperNamesReserved templateIntrinsicHelpers :=
+                      compileTemplateIntrinsicHelpers_reserved model templateIntrinsicHelpers htemplate
+                    have hcontract :
+                        runtimeContract.internalFunctions =
+                          compileValidatedCoreHelperSegment
+                            (contractUsesPlainArrayElement model)
+                            (contractUsesArrayElementWord model)
+                            (contractUsesParamDynamicHeadWord model)
+                            (contractUsesMulDiv512 model)
+                            (contractUsesStorageArrayElement model)
+                            (contractUsesDynamicBytesEq model)
+                            (contractUsesCheckedArithmetic model)
+                            templateIntrinsicHelpers ++ internalDefs := by
+                      rw [← hcore]
+                      simp [compileValidatedCoreHelperSegment, List.append_assoc]
+                    exact
+                      InternalTableNamesReserved_of_compileValidatedCore_helpers_append_compiledInternalTable
+                        runtimeContract
+                        (contractUsesPlainArrayElement model)
+                        (contractUsesArrayElementWord model)
+                        (contractUsesParamDynamicHeadWord model)
+                        (contractUsesMulDiv512 model)
+                        (contractUsesStorageArrayElement model)
+                        (contractUsesDynamicBytesEq model)
+                        (contractUsesCheckedArithmetic model)
+                        templateIntrinsicHelpers htemplateReserved
+                        (applySlotAliasRanges model.fields model.slotAliasRanges)
+                        model.events model.errors model.adtTypes
+                        Verity.Core.Intrinsics.HardFork.cancun
+                        (model.functions.filter (·.isInternal))
+                        internalDefs hinternalDefs hcontract
+
 /-- Pipeline connector for the current `SupportedSpec` world: a contract produced
 by `compileValidatedCore` discharges the structural `hcompiledTable` premise
 outright. Under `SupportedSpec` the runtime internal table is empty
@@ -1995,11 +2159,11 @@ theorem compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_
       (supportedSourceFunctionSemantics model selectors hSupported fn tx initialWorld)
       (execIRFunctionWithInternals runtimeContract 0 irFn tx.args
         (FunctionBody.initialIRStateForTx model tx initialWorld)) :=
-  compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_compiledInternalTable
+  compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_reserved
     model selectors hSupported hHelperProofs hvalidateInputs runtimeContract fn sel returns
     bodyStmts irFn tx initialWorld htxNormalized bindings extraFuel hcalldataSizeFits hfn
     hvalidate hreturns hbodyCompile hcompileFn hbind hcompiledBodyFuel hbodyCorrect
-    (compiledInternalTable_of_compileValidatedCore model selectors hSupported runtimeContract hcore)
+    (InternalTableNamesReserved_of_compileValidatedCore model selectors runtimeContract hcore)
 
 /-- Structured helper-aware compiled-side wrapper for the generic function
 theorem. This replaces the raw function-level conservative-extension equality
