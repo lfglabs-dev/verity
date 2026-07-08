@@ -1702,32 +1702,46 @@ theorem compiledStmtStepWithHelpersAndHelperIR_of_exprHeadStepBridge
         stmt
         compiledIR := by
   rcases hbridge.compile (scope := scope) with ⟨compiledIR, hcompile⟩
-  have hcompileSpec :
-      CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope [] stmt =
-        Except.ok compiledIR := by
-    exact hcompile
   refine ⟨compiledIR, ?_⟩
-  refine { compileOk := hcompileSpec, preserves := ?_ }
+  refine { compileOk := hcompile, preserves := ?_ }
   intro runtime state helperFuel extraFuel hfuelPos hexact hscope hbounded hruntime hslack
-  exact
-    ⟨_,
-      _,
-      rfl,
-      rfl,
-      hbridge.bridge
-        (scope := scope)
-        (compiledIR := compiledIR)
-        hcompile
-        runtime
-        state
-        helperFuel
-        extraFuel
-        hfuelPos
-        hexact
-        hscope
-        hbounded
-        hruntime
-        hslack⟩
+  exact ⟨_, _, rfl, rfl,
+    hbridge.bridge (scope := scope) (compiledIR := compiledIR) hcompile
+      runtime state helperFuel extraFuel hfuelPos hexact hscope hbounded hruntime hslack⟩
+
+/-- Spec-functions-aware singleton statement proof for an expression-position
+helper head.
+
+This is the mechanical composition point for the phase-11
+`ExprInternalHelperHeadStepBridgeWithInternals`/`Stmt.letVar` adapter.  It
+records the same `spec.functions` compile shape as the expression helper
+payload, avoiding the unsound conversion to the legacy default-empty internal
+function compiler argument.  The remaining generic-list blocker is an
+internal-functions-parametric analogue of the scope/list compilation lemmas
+used by `compileStmtList_ok_of_stmtListGenericWithHelpersAndHelperIR`. -/
+theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_of_exprHeadStepBridgeWithInternals
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {stmt : Stmt}
+    (hbridge :
+      ExprInternalHelperHeadStepBridgeWithInternals runtimeContract spec fields stmt) :
+    ∃ compiledIR,
+      CompiledStmtStepWithHelpersAndHelperIRWithInternals
+        runtimeContract
+        spec
+        fields
+        scope
+        stmt
+        compiledIR := by
+  rcases hbridge.compile (scope := scope) with ⟨compiledIR, hcompile⟩
+  refine ⟨compiledIR, ?_⟩
+  refine { compileOk := hcompile, preserves := ?_ }
+  intro runtime state helperFuel extraFuel hfuelPos hexact hscope hbounded hruntime hslack
+  exact ⟨_, _, rfl, rfl,
+    hbridge.bridge (scope := scope) (compiledIR := compiledIR) hcompile
+      runtime state helperFuel extraFuel hfuelPos hexact hscope hbounded hruntime hslack⟩
 
 /-- Non-vacuous list witness for a statement list whose head contains
 expression-position helper work. The head proof comes from the expression-head
