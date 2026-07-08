@@ -1882,6 +1882,8 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.Contract.exists_left_of_forall₂_mem_right  -- private
   Compiler.Proofs.IRGeneration.Contract.compileInternalFunction_mapM_mem_exists
   Compiler.Proofs.IRGeneration.Contract.compiledInternalTable_of_internalFunctions_eq_mapM
+  Compiler.Proofs.IRGeneration.Contract.InternalTableNamesInternalPrefixed_of_internalFunctions_append
+  Compiler.Proofs.IRGeneration.Contract.InternalTableNamesInternalPrefixed_of_helpers_append_compiledInternalTable
   Compiler.Proofs.IRGeneration.Contract.compiledInternalTable_of_compileValidatedCore
   Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_compileValidatedCore
   Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_bodyCallsDisjoint
@@ -5931,4 +5933,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5561 theorems/lemmas (3851 public, 1710 private, 0 sorry'd)
+-- Total: 5563 theorems/lemmas (3853 public, 1710 private, 0 sorry'd)
