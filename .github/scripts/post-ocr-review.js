@@ -72,11 +72,12 @@ module.exports = async function postOcrReview({ github, context, core }) {
     });
   } catch (err) {
     core.warning(`Batch createReview failed: ${err.message}`);
+    const fallbackBody = `${body}\n\n⚠️ Inline publication failed, so OCR findings are summarized here instead.\n\n${renderInlineFallback(selected)}\n\n${fenced(String(err.message || err))}`;
     await github.rest.issues.createComment({
       owner,
       repo,
       issue_number: pull_number,
-      body: `${body}\n\n⚠️ Inline publication failed, so OCR findings are summarized here instead.\n\n${fenced(String(err.message || err))}`,
+      body: fallbackBody,
     });
   }
 };
@@ -145,6 +146,15 @@ function renderComment(c) {
     body += `\n\nSuggested change:\n${fenced(String(c.suggestion_code))}`;
   }
   return body;
+}
+
+function renderInlineFallback(selected) {
+  if (!selected.length) return 'No positioned inline findings were selected.';
+  let body = '### Inline findings that could not be posted\n\n';
+  for (const c of selected) {
+    body += `- **${escapeMd(c.path)}:${c.line}** — ${escapeMd(firstLine(c.body.replace(/\*\*OpenCodeReview[^\n]*\*\*\n\n?/, '')))}\n`;
+  }
+  return body.trim();
 }
 
 function badge(c) {
