@@ -4,6 +4,10 @@ namespace Compiler.CompilationModel
 
 open Compiler.Yul
 
+def yulFuncDefName? : YulStmt → Option String
+  | YulStmt.funcDef name _ _ _ => some name
+  | _ => none
+
 inductive DynamicDataSource where
   | calldata
   | memory
@@ -933,6 +937,133 @@ def dynamicBytesEqCalldataHelper : YulStmt :=
 
 def dynamicBytesEqMemoryHelper : YulStmt :=
   dynamicBytesEqHelper dynamicBytesEqMemoryHelperName "mload"
+
+@[simp] theorem yulFuncDefName?_panicErrorHelper (helperName : String) (code : Nat) :
+    yulFuncDefName? (panicErrorHelper helperName code) = some helperName := rfl
+
+@[simp] theorem yulFuncDefName?_checkedArrayElementCalldataHelper :
+    yulFuncDefName? checkedArrayElementCalldataHelper =
+      some checkedArrayElementCalldataHelperName := rfl
+
+@[simp] theorem yulFuncDefName?_checkedArrayElementMemoryHelper :
+    yulFuncDefName? checkedArrayElementMemoryHelper =
+      some checkedArrayElementMemoryHelperName := rfl
+
+@[simp] theorem yulFuncDefName?_checkedArrayElementWordCalldataHelper :
+    yulFuncDefName? checkedArrayElementWordCalldataHelper =
+      some checkedArrayElementWordCalldataHelperName := rfl
+
+@[simp] theorem yulFuncDefName?_checkedArrayElementWordMemoryHelper :
+    yulFuncDefName? checkedArrayElementWordMemoryHelper =
+      some checkedArrayElementWordMemoryHelperName := rfl
+
+@[simp] theorem yulFuncDefName?_checkedArrayElementDynamicWordCalldataHelper :
+    yulFuncDefName? checkedArrayElementDynamicWordCalldataHelper =
+      some checkedArrayElementDynamicWordCalldataHelperName := rfl
+
+@[simp] theorem yulFuncDefName?_checkedArrayElementDynamicWordMemoryHelper :
+    yulFuncDefName? checkedArrayElementDynamicWordMemoryHelper =
+      some checkedArrayElementDynamicWordMemoryHelperName := rfl
+
+@[simp] theorem yulFuncDefName?_checkedArrayElementDynamicDataOffsetCalldataHelper :
+    yulFuncDefName? checkedArrayElementDynamicDataOffsetCalldataHelper =
+      some checkedArrayElementDynamicDataOffsetCalldataHelperName := rfl
+
+@[simp] theorem yulFuncDefName?_checkedArrayElementDynamicDataOffsetMemoryHelper :
+    yulFuncDefName? checkedArrayElementDynamicDataOffsetMemoryHelper =
+      some checkedArrayElementDynamicDataOffsetMemoryHelperName := rfl
+
+@[simp] theorem yulFuncDefName?_checkedParamDynamicHeadWordCalldataHelper :
+    yulFuncDefName? checkedParamDynamicHeadWordCalldataHelper =
+      some checkedParamDynamicHeadWordCalldataHelperName := rfl
+
+@[simp] theorem yulFuncDefName?_checkedParamDynamicHeadWordMemoryHelper :
+    yulFuncDefName? checkedParamDynamicHeadWordMemoryHelper =
+      some checkedParamDynamicHeadWordMemoryHelperName := rfl
+
+@[simp] theorem yulFuncDefName?_checkedParamDynamicMemberLengthCalldataHelper :
+    yulFuncDefName? checkedParamDynamicMemberLengthCalldataHelper =
+      some checkedParamDynamicMemberLengthCalldataHelperName := rfl
+
+@[simp] theorem yulFuncDefName?_checkedParamDynamicMemberLengthMemoryHelper :
+    yulFuncDefName? checkedParamDynamicMemberLengthMemoryHelper =
+      some checkedParamDynamicMemberLengthMemoryHelperName := rfl
+
+@[simp] theorem yulFuncDefName?_checkedParamDynamicMemberDataOffsetCalldataHelper :
+    yulFuncDefName? checkedParamDynamicMemberDataOffsetCalldataHelper =
+      some checkedParamDynamicMemberDataOffsetCalldataHelperName := rfl
+
+@[simp] theorem yulFuncDefName?_checkedParamDynamicMemberDataOffsetMemoryHelper :
+    yulFuncDefName? checkedParamDynamicMemberDataOffsetMemoryHelper =
+      some checkedParamDynamicMemberDataOffsetMemoryHelperName := rfl
+
+@[simp] theorem yulFuncDefName?_checkedParamDynamicMemberElementCalldataHelper :
+    yulFuncDefName? checkedParamDynamicMemberElementCalldataHelper =
+      some checkedParamDynamicMemberElementCalldataHelperName := rfl
+
+@[simp] theorem yulFuncDefName?_checkedParamDynamicMemberElementMemoryHelper :
+    yulFuncDefName? checkedParamDynamicMemberElementMemoryHelper =
+      some checkedParamDynamicMemberElementMemoryHelperName := rfl
+
+@[simp] theorem yulFuncDefName?_checkedArrayElementDynamicMemberLengthCalldataHelper :
+    yulFuncDefName? checkedArrayElementDynamicMemberLengthCalldataHelper =
+      some checkedArrayElementDynamicMemberLengthCalldataHelperName := rfl
+
+@[simp] theorem yulFuncDefName?_checkedArrayElementDynamicMemberLengthMemoryHelper :
+    yulFuncDefName? checkedArrayElementDynamicMemberLengthMemoryHelper =
+      some checkedArrayElementDynamicMemberLengthMemoryHelperName := rfl
+
+@[simp] theorem yulFuncDefName?_checkedArrayElementDynamicMemberDataOffsetCalldataHelper :
+    yulFuncDefName? checkedArrayElementDynamicMemberDataOffsetCalldataHelper =
+      some checkedArrayElementDynamicMemberDataOffsetCalldataHelperName := rfl
+
+@[simp] theorem yulFuncDefName?_checkedArrayElementDynamicMemberDataOffsetMemoryHelper :
+    yulFuncDefName? checkedArrayElementDynamicMemberDataOffsetMemoryHelper =
+      some checkedArrayElementDynamicMemberDataOffsetMemoryHelperName := rfl
+
+@[simp] theorem yulFuncDefName?_checkedArrayElementDynamicMemberElementCalldataHelper :
+    yulFuncDefName? checkedArrayElementDynamicMemberElementCalldataHelper =
+      some checkedArrayElementDynamicMemberElementCalldataHelperName := rfl
+
+@[simp] theorem yulFuncDefName?_checkedArrayElementDynamicMemberElementMemoryHelper :
+    yulFuncDefName? checkedArrayElementDynamicMemberElementMemoryHelper =
+      some checkedArrayElementDynamicMemberElementMemoryHelperName := rfl
+
+@[simp] theorem yulFuncDefName?_fullMulDivHelper :
+    yulFuncDefName? fullMulDivHelper = some fullMulDivHelperName := rfl
+
+@[simp] theorem yulFuncDefName?_fullMulDivUpHelper :
+    yulFuncDefName? fullMulDivUpHelper = some fullMulDivUpHelperName := rfl
+
+@[simp] theorem yulFuncDefName?_checkedStorageArrayElementHelper :
+    yulFuncDefName? checkedStorageArrayElementHelper =
+      some checkedStorageArrayElementHelperName := rfl
+
+@[simp] theorem yulFuncDefName?_dynamicBytesEqCalldataHelper :
+    yulFuncDefName? dynamicBytesEqCalldataHelper =
+      some dynamicBytesEqCalldataHelperName := rfl
+
+@[simp] theorem yulFuncDefName?_dynamicBytesEqMemoryHelper :
+    yulFuncDefName? dynamicBytesEqMemoryHelper =
+      some dynamicBytesEqMemoryHelperName := rfl
+
+@[simp] theorem yulFuncDefName?_panicError0x11Helper :
+    yulFuncDefName? panicError0x11Helper = some panicError0x11HelperName := rfl
+
+@[simp] theorem yulFuncDefName?_panicError0x12Helper :
+    yulFuncDefName? panicError0x12Helper = some panicError0x12HelperName := rfl
+
+@[simp] theorem yulFuncDefName?_checkedAddUint256Helper :
+    yulFuncDefName? checkedAddUint256Helper = some checkedAddUint256HelperName := rfl
+
+@[simp] theorem yulFuncDefName?_checkedSubUint256Helper :
+    yulFuncDefName? checkedSubUint256Helper = some checkedSubUint256HelperName := rfl
+
+@[simp] theorem yulFuncDefName?_checkedMulUint256Helper :
+    yulFuncDefName? checkedMulUint256Helper = some checkedMulUint256HelperName := rfl
+
+@[simp] theorem yulFuncDefName?_checkedDivUint256Helper :
+    yulFuncDefName? checkedDivUint256Helper = some checkedDivUint256HelperName := rfl
 
 def dynamicCopyData (source : DynamicDataSource)
     (destOffset sourceOffset len : YulExpr) : List YulStmt :=

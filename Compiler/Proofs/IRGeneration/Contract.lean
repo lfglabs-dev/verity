@@ -1481,6 +1481,440 @@ theorem InternalTableNamesReserved_of_helpers_append_compiledInternalTable
     (Function.InternalTableNamesInternalPrefixed_of_all_compiledInternal
       { runtimeContract with internalFunctions := internalDefs } hcompiled)
 
+/-- Segment-local reserved-name invariant for a list of internal helper
+statements. This is the helper-list analogue of `InternalTableNamesReserved`,
+used to compose the concrete helper segments emitted by `compileValidatedCore`
+before they are appended to the compiled source-internal definitions. -/
+def DecodedInternalHelperNamesReserved (stmts : List YulStmt) : Prop :=
+  ∀ d ∈ stmts.filterMap irInternalFunctionDefOfStmt?,
+    IsReservedInternalHelperName d.name
+
+private theorem DecodedInternalHelperNamesReserved.nil :
+    DecodedInternalHelperNamesReserved [] := by
+  intro d hd
+  cases hd
+
+private theorem DecodedInternalHelperNamesReserved.append
+    {xs ys : List YulStmt}
+    (hxs : DecodedInternalHelperNamesReserved xs)
+    (hys : DecodedInternalHelperNamesReserved ys) :
+    DecodedInternalHelperNamesReserved (xs ++ ys) := by
+  intro d hd
+  rw [List.filterMap_append, List.mem_append] at hd
+  rcases hd with hd | hd
+  · exact hxs d hd
+  · exact hys d hd
+
+private theorem DecodedInternalHelperNamesReserved.ifList
+    (b : Bool) {xs : List YulStmt}
+    (hxs : DecodedInternalHelperNamesReserved xs) :
+    DecodedInternalHelperNamesReserved (if b then xs else []) := by
+  cases b
+  · exact DecodedInternalHelperNamesReserved.nil
+  · exact hxs
+
+private theorem DecodedInternalHelperNamesReserved.of_funcDefNames
+    {stmts : List YulStmt}
+    (hnames : ∀ name ∈ stmts.filterMap yulFuncDefName?,
+      IsReservedInternalHelperName name) :
+    DecodedInternalHelperNamesReserved stmts := by
+  intro d hd
+  rw [List.mem_filterMap] at hd
+  obtain ⟨stmt, hstmt, hdecode⟩ := hd
+  exact hnames d.name (List.mem_filterMap.mpr ⟨stmt, hstmt, by
+    cases stmt <;> simp [irInternalFunctionDefOfStmt?, yulFuncDefName?] at hdecode ⊢
+    cases hdecode
+    rfl⟩)
+
+private theorem IsReservedInternalHelperName.templateHelperName (name : String) :
+    IsReservedInternalHelperName
+      (Verity.Core.Intrinsics.YulLowering.templateHelperName name) := by
+  refine ⟨"__verity_", by simp [reservedInternalHelperPrefixes], ?_⟩
+  unfold Verity.Core.Intrinsics.YulLowering.templateHelperName
+  simp only [String.data_append]
+  rw [List.append_assoc]
+  rw [List.take_append_of_le_length
+    (l₁ := (toString "__verity_intrinsic_template_").data)
+    (l₂ := ((toString name).data ++ (toString "").data))
+    (i := "__verity_".data.length)
+    (by decide)]
+  decide
+
+private theorem DecodedInternalHelperNamesReserved.templateFuncDef
+    (name : String) (lowering : Verity.Core.Intrinsics.YulLowering)
+    (stmt : YulStmt)
+    (hstmt :
+      Verity.Core.Intrinsics.YulLowering.templateFuncDef? name lowering =
+        some stmt) :
+    DecodedInternalHelperNamesReserved [stmt] := by
+  intro d hd
+  cases lowering <;> simp [Verity.Core.Intrinsics.YulLowering.templateFuncDef?] at hstmt
+  subst stmt
+  simp [irInternalFunctionDefOfStmt?] at hd
+  rcases hd with rfl
+  exact IsReservedInternalHelperName.templateHelperName name
+
+private theorem templateIntrinsicHelper_mapM_reserved :
+    ∀ (items : List (String × Verity.Core.Intrinsics.YulLowering)) helpers,
+      items.mapM (fun (name, lowering) =>
+        match Verity.Core.Intrinsics.YulLowering.templateFuncDef? name lowering with
+        | some funcDef => pure funcDef
+        | none =>
+            Except.error s!"Compilation error: intrinsic {name} is not a template lowering") =
+          Except.ok helpers →
+      DecodedInternalHelperNamesReserved helpers
+  | [], helpers, hmap => by
+      cases hmap
+      exact DecodedInternalHelperNamesReserved.nil
+  | (name, lowering) :: items, helpers, hmap => by
+      rcases hfunc :
+          Verity.Core.Intrinsics.YulLowering.templateFuncDef? name lowering with _ | stmt
+      · simp [List.mapM_cons, hfunc] at hmap
+        cases hmap
+      · rcases htail :
+          items.mapM (fun (name, lowering) =>
+            match Verity.Core.Intrinsics.YulLowering.templateFuncDef? name lowering with
+            | some funcDef => pure funcDef
+            | none =>
+                Except.error s!"Compilation error: intrinsic {name} is not a template lowering")
+            with _ | tail
+        · simp [List.mapM_cons, hfunc, htail] at hmap
+        · simp [List.mapM_cons, hfunc, htail] at hmap
+          cases hmap
+          exact DecodedInternalHelperNamesReserved.append
+            (DecodedInternalHelperNamesReserved.templateFuncDef name lowering stmt hfunc)
+            (templateIntrinsicHelper_mapM_reserved items tail htail)
+
+private theorem compileTemplateIntrinsicHelpers_reserved
+    (spec : CompilationModel)
+    (helpers : List YulStmt)
+    (hcompile : compileTemplateIntrinsicHelpers spec = Except.ok helpers) :
+    DecodedInternalHelperNamesReserved helpers := by
+  unfold compileTemplateIntrinsicHelpers at hcompile
+  rcases hitems : dedupTemplateIntrinsics (templateIntrinsicItems spec) with _ | items
+  · simp [hitems] at hcompile
+    cases hcompile
+  · simp [hitems] at hcompile
+    exact templateIntrinsicHelper_mapM_reserved items helpers hcompile
+
+private theorem DecodedInternalHelperNamesReserved.arrayElementBase :
+    DecodedInternalHelperNamesReserved
+      [ checkedArrayElementCalldataHelper
+      , checkedArrayElementMemoryHelper
+      ] :=
+  DecodedInternalHelperNamesReserved.of_funcDefNames (by
+  intro name hname
+  simp [checkedArrayElementCalldataHelperName, checkedArrayElementMemoryHelperName] at hname
+  rcases hname with rfl | rfl <;> decide)
+
+private theorem DecodedInternalHelperNamesReserved.arrayElementWord :
+    DecodedInternalHelperNamesReserved
+      [ checkedArrayElementWordCalldataHelper
+      , checkedArrayElementWordMemoryHelper
+      , checkedArrayElementDynamicWordCalldataHelper
+      , checkedArrayElementDynamicWordMemoryHelper
+      , checkedArrayElementDynamicDataOffsetCalldataHelper
+      , checkedArrayElementDynamicDataOffsetMemoryHelper
+      , checkedArrayElementDynamicMemberLengthCalldataHelper
+      , checkedArrayElementDynamicMemberLengthMemoryHelper
+      , checkedArrayElementDynamicMemberDataOffsetCalldataHelper
+      , checkedArrayElementDynamicMemberDataOffsetMemoryHelper
+      , checkedArrayElementDynamicMemberElementCalldataHelper
+      , checkedArrayElementDynamicMemberElementMemoryHelper
+      ] :=
+  DecodedInternalHelperNamesReserved.of_funcDefNames (by
+  intro name hname
+  simp [checkedArrayElementWordCalldataHelperName, checkedArrayElementWordMemoryHelperName,
+    checkedArrayElementDynamicWordCalldataHelperName,
+    checkedArrayElementDynamicWordMemoryHelperName,
+    checkedArrayElementDynamicDataOffsetCalldataHelperName,
+    checkedArrayElementDynamicDataOffsetMemoryHelperName,
+    checkedArrayElementDynamicMemberLengthCalldataHelperName,
+    checkedArrayElementDynamicMemberLengthMemoryHelperName,
+    checkedArrayElementDynamicMemberDataOffsetCalldataHelperName,
+    checkedArrayElementDynamicMemberDataOffsetMemoryHelperName,
+    checkedArrayElementDynamicMemberElementCalldataHelperName,
+    checkedArrayElementDynamicMemberElementMemoryHelperName] at hname
+  rcases hname with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
+    decide)
+
+private theorem DecodedInternalHelperNamesReserved.paramDynamicHeadWord :
+    DecodedInternalHelperNamesReserved
+      [ checkedParamDynamicHeadWordCalldataHelper
+      , checkedParamDynamicHeadWordMemoryHelper
+      , checkedParamDynamicMemberLengthCalldataHelper
+      , checkedParamDynamicMemberLengthMemoryHelper
+      , checkedParamDynamicMemberDataOffsetCalldataHelper
+      , checkedParamDynamicMemberDataOffsetMemoryHelper
+      , checkedParamDynamicMemberElementCalldataHelper
+      , checkedParamDynamicMemberElementMemoryHelper
+      ] :=
+  DecodedInternalHelperNamesReserved.of_funcDefNames (by
+  intro name hname
+  simp [checkedParamDynamicHeadWordCalldataHelperName, checkedParamDynamicHeadWordMemoryHelperName,
+    checkedParamDynamicMemberLengthCalldataHelperName,
+    checkedParamDynamicMemberLengthMemoryHelperName,
+    checkedParamDynamicMemberDataOffsetCalldataHelperName,
+    checkedParamDynamicMemberDataOffsetMemoryHelperName,
+    checkedParamDynamicMemberElementCalldataHelperName,
+    checkedParamDynamicMemberElementMemoryHelperName] at hname
+  rcases hname with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> decide)
+
+private theorem DecodedInternalHelperNamesReserved.mulDiv512 :
+    DecodedInternalHelperNamesReserved
+      [ fullMulDivHelper
+      , fullMulDivUpHelper
+      ] :=
+  DecodedInternalHelperNamesReserved.of_funcDefNames (by
+  intro name hname
+  simp [fullMulDivHelperName, fullMulDivUpHelperName] at hname
+  rcases hname with rfl | rfl <;> decide)
+
+private theorem DecodedInternalHelperNamesReserved.storageArray :
+    DecodedInternalHelperNamesReserved [checkedStorageArrayElementHelper] :=
+  DecodedInternalHelperNamesReserved.of_funcDefNames (by
+  intro name hname
+  simp [checkedStorageArrayElementHelperName] at hname
+  rcases hname with rfl
+  decide)
+
+private theorem DecodedInternalHelperNamesReserved.dynamicBytesEq :
+    DecodedInternalHelperNamesReserved
+      [dynamicBytesEqCalldataHelper, dynamicBytesEqMemoryHelper] :=
+  DecodedInternalHelperNamesReserved.of_funcDefNames (by
+  intro name hname
+  simp [dynamicBytesEqCalldataHelperName, dynamicBytesEqMemoryHelperName] at hname
+  rcases hname with rfl | rfl <;> decide)
+
+private theorem DecodedInternalHelperNamesReserved.checkedArithmetic :
+    DecodedInternalHelperNamesReserved
+      [ panicError0x11Helper
+      , panicError0x12Helper
+      , checkedAddUint256Helper
+      , checkedSubUint256Helper
+      , checkedMulUint256Helper
+      , checkedDivUint256Helper
+      ] :=
+  DecodedInternalHelperNamesReserved.of_funcDefNames (by
+  intro name hname
+  simp [panicError0x11HelperName, panicError0x12HelperName,
+    checkedAddUint256HelperName, checkedSubUint256HelperName,
+    checkedMulUint256HelperName, checkedDivUint256HelperName] at hname
+  rcases hname with rfl | rfl | rfl | rfl | rfl | rfl <;> decide)
+
+private theorem DecodedInternalHelperNamesReserved.compileValidatedCore_helpers
+    (arrayHelpersRequired arrayElementWordHelpersRequired
+      paramDynamicHeadWordHelpersRequired mulDiv512HelpersRequired
+      storageArrayHelpersRequired dynamicBytesEqHelpersRequired
+      checkedArithmeticHelpersRequired : Bool)
+    (templateIntrinsicHelpers : List YulStmt)
+    (htemplate : DecodedInternalHelperNamesReserved templateIntrinsicHelpers) :
+    DecodedInternalHelperNamesReserved
+      (((if arrayHelpersRequired then
+          [ checkedArrayElementCalldataHelper
+          , checkedArrayElementMemoryHelper
+          ]
+        else
+          []) ++
+        (if arrayElementWordHelpersRequired then
+          [ checkedArrayElementWordCalldataHelper
+          , checkedArrayElementWordMemoryHelper
+          , checkedArrayElementDynamicWordCalldataHelper
+          , checkedArrayElementDynamicWordMemoryHelper
+          , checkedArrayElementDynamicDataOffsetCalldataHelper
+          , checkedArrayElementDynamicDataOffsetMemoryHelper
+          , checkedArrayElementDynamicMemberLengthCalldataHelper
+          , checkedArrayElementDynamicMemberLengthMemoryHelper
+          , checkedArrayElementDynamicMemberDataOffsetCalldataHelper
+          , checkedArrayElementDynamicMemberDataOffsetMemoryHelper
+          , checkedArrayElementDynamicMemberElementCalldataHelper
+          , checkedArrayElementDynamicMemberElementMemoryHelper
+          ]
+        else
+          []) ++
+        (if paramDynamicHeadWordHelpersRequired then
+          [ checkedParamDynamicHeadWordCalldataHelper
+          , checkedParamDynamicHeadWordMemoryHelper
+          , checkedParamDynamicMemberLengthCalldataHelper
+          , checkedParamDynamicMemberLengthMemoryHelper
+          , checkedParamDynamicMemberDataOffsetCalldataHelper
+          , checkedParamDynamicMemberDataOffsetMemoryHelper
+          , checkedParamDynamicMemberElementCalldataHelper
+          , checkedParamDynamicMemberElementMemoryHelper
+          ]
+        else
+          []) ++
+        (if mulDiv512HelpersRequired then
+          [ fullMulDivHelper
+          , fullMulDivUpHelper
+          ]
+        else
+          [])) ++
+      (if storageArrayHelpersRequired then
+        [checkedStorageArrayElementHelper]
+      else
+        []) ++
+      (if dynamicBytesEqHelpersRequired then
+        [dynamicBytesEqCalldataHelper, dynamicBytesEqMemoryHelper]
+      else
+        []) ++
+      (if checkedArithmeticHelpersRequired then
+        [ panicError0x11Helper
+        , panicError0x12Helper
+        , checkedAddUint256Helper
+        , checkedSubUint256Helper
+        , checkedMulUint256Helper
+        , checkedDivUint256Helper
+        ]
+      else
+        []) ++
+      templateIntrinsicHelpers) :=
+  by
+  simpa [List.append_assoc] using
+  DecodedInternalHelperNamesReserved.append
+    (DecodedInternalHelperNamesReserved.append
+      (DecodedInternalHelperNamesReserved.append
+        (DecodedInternalHelperNamesReserved.append
+          (DecodedInternalHelperNamesReserved.append
+            (DecodedInternalHelperNamesReserved.ifList arrayHelpersRequired
+              DecodedInternalHelperNamesReserved.arrayElementBase)
+            (DecodedInternalHelperNamesReserved.ifList arrayElementWordHelpersRequired
+              DecodedInternalHelperNamesReserved.arrayElementWord))
+          (DecodedInternalHelperNamesReserved.ifList paramDynamicHeadWordHelpersRequired
+            DecodedInternalHelperNamesReserved.paramDynamicHeadWord))
+        (DecodedInternalHelperNamesReserved.ifList mulDiv512HelpersRequired
+          DecodedInternalHelperNamesReserved.mulDiv512))
+      (DecodedInternalHelperNamesReserved.ifList storageArrayHelpersRequired
+        DecodedInternalHelperNamesReserved.storageArray))
+    (DecodedInternalHelperNamesReserved.append
+      (DecodedInternalHelperNamesReserved.ifList dynamicBytesEqHelpersRequired
+        DecodedInternalHelperNamesReserved.dynamicBytesEq)
+      (DecodedInternalHelperNamesReserved.append
+        (DecodedInternalHelperNamesReserved.ifList checkedArithmeticHelpersRequired
+          DecodedInternalHelperNamesReserved.checkedArithmetic)
+        htemplate))
+
+def compileValidatedCoreHelperSegment
+    (arrayHelpersRequired arrayElementWordHelpersRequired
+      paramDynamicHeadWordHelpersRequired mulDiv512HelpersRequired
+      storageArrayHelpersRequired dynamicBytesEqHelpersRequired
+      checkedArithmeticHelpersRequired : Bool)
+    (templateIntrinsicHelpers : List YulStmt) : List YulStmt :=
+  (((if arrayHelpersRequired then
+      [ checkedArrayElementCalldataHelper
+      , checkedArrayElementMemoryHelper
+      ]
+    else
+      []) ++
+    (if arrayElementWordHelpersRequired then
+      [ checkedArrayElementWordCalldataHelper
+      , checkedArrayElementWordMemoryHelper
+      , checkedArrayElementDynamicWordCalldataHelper
+      , checkedArrayElementDynamicWordMemoryHelper
+      , checkedArrayElementDynamicDataOffsetCalldataHelper
+      , checkedArrayElementDynamicDataOffsetMemoryHelper
+      , checkedArrayElementDynamicMemberLengthCalldataHelper
+      , checkedArrayElementDynamicMemberLengthMemoryHelper
+      , checkedArrayElementDynamicMemberDataOffsetCalldataHelper
+      , checkedArrayElementDynamicMemberDataOffsetMemoryHelper
+      , checkedArrayElementDynamicMemberElementCalldataHelper
+      , checkedArrayElementDynamicMemberElementMemoryHelper
+      ]
+    else
+      []) ++
+    (if paramDynamicHeadWordHelpersRequired then
+      [ checkedParamDynamicHeadWordCalldataHelper
+      , checkedParamDynamicHeadWordMemoryHelper
+      , checkedParamDynamicMemberLengthCalldataHelper
+      , checkedParamDynamicMemberLengthMemoryHelper
+      , checkedParamDynamicMemberDataOffsetCalldataHelper
+      , checkedParamDynamicMemberDataOffsetMemoryHelper
+      , checkedParamDynamicMemberElementCalldataHelper
+      , checkedParamDynamicMemberElementMemoryHelper
+      ]
+    else
+      []) ++
+    (if mulDiv512HelpersRequired then
+      [ fullMulDivHelper
+      , fullMulDivUpHelper
+      ]
+    else
+      [])) ++
+  (if storageArrayHelpersRequired then
+    [checkedStorageArrayElementHelper]
+  else
+    []) ++
+  (if dynamicBytesEqHelpersRequired then
+    [dynamicBytesEqCalldataHelper, dynamicBytesEqMemoryHelper]
+  else
+    []) ++
+  (if checkedArithmeticHelpersRequired then
+    [ panicError0x11Helper
+    , panicError0x12Helper
+    , checkedAddUint256Helper
+    , checkedSubUint256Helper
+    , checkedMulUint256Helper
+    , checkedDivUint256Helper
+    ]
+  else
+    []) ++
+  templateIntrinsicHelpers)
+
+/-- Populated-table connector for the exact prebuilt helper segment shape emitted
+by `compileValidatedCore`. It removes the caller-supplied helper-segment
+reserved-name premise from
+`InternalTableNamesReserved_of_helpers_append_compiledInternalTable`; callers now
+only provide the template-helper compilation equation and the already-existing
+compiled source-internal `mapM` equation. -/
+theorem InternalTableNamesReserved_of_compileValidatedCore_helpers_append_compiledInternalTable
+    (runtimeContract : IRContract)
+    (arrayHelpersRequired arrayElementWordHelpersRequired
+      paramDynamicHeadWordHelpersRequired mulDiv512HelpersRequired
+      storageArrayHelpersRequired dynamicBytesEqHelpersRequired
+      checkedArithmeticHelpersRequired : Bool)
+    (templateIntrinsicHelpers : List YulStmt)
+    (htemplate : DecodedInternalHelperNamesReserved templateIntrinsicHelpers)
+    (fields : List Field)
+    (events : List EventDef)
+    (errors : List ErrorDef)
+    (adtTypes : List AdtTypeDef)
+    (targetFork : Verity.Core.Intrinsics.HardFork)
+    (internalFns : List FunctionSpec)
+    (internalDefs : List YulStmt)
+    (hmap : internalFns.mapM (fun fn =>
+        compileInternalFunction fields events errors adtTypes fn targetFork internalFns) =
+        Except.ok internalDefs)
+    (hcontract : runtimeContract.internalFunctions =
+      compileValidatedCoreHelperSegment
+        arrayHelpersRequired arrayElementWordHelpersRequired
+        paramDynamicHeadWordHelpersRequired mulDiv512HelpersRequired
+        storageArrayHelpersRequired dynamicBytesEqHelpersRequired
+        checkedArithmeticHelpersRequired templateIntrinsicHelpers ++ internalDefs) :
+    InternalTableNamesReserved runtimeContract := by
+  refine InternalTableNamesReserved_of_helpers_append_compiledInternalTable
+    runtimeContract
+    (compileValidatedCoreHelperSegment
+      arrayHelpersRequired arrayElementWordHelpersRequired
+      paramDynamicHeadWordHelpersRequired mulDiv512HelpersRequired
+      storageArrayHelpersRequired dynamicBytesEqHelpersRequired
+      checkedArithmeticHelpersRequired templateIntrinsicHelpers)
+    fields events errors adtTypes targetFork internalFns internalDefs hmap ?_ ?_
+  · simpa [List.append_assoc] using hcontract
+  · intro d hd
+    have hhelpers : DecodedInternalHelperNamesReserved
+        (compileValidatedCoreHelperSegment
+          arrayHelpersRequired arrayElementWordHelpersRequired
+          paramDynamicHeadWordHelpersRequired mulDiv512HelpersRequired
+          storageArrayHelpersRequired dynamicBytesEqHelpersRequired
+          checkedArithmeticHelpersRequired templateIntrinsicHelpers) := by
+      simpa [compileValidatedCoreHelperSegment, List.append_assoc] using
+        (DecodedInternalHelperNamesReserved.compileValidatedCore_helpers
+          arrayHelpersRequired arrayElementWordHelpersRequired
+          paramDynamicHeadWordHelpersRequired mulDiv512HelpersRequired
+          storageArrayHelpersRequired dynamicBytesEqHelpersRequired
+          checkedArithmeticHelpersRequired templateIntrinsicHelpers htemplate)
+    exact hhelpers d hd
+
 /-- Pipeline connector for the current `SupportedSpec` world: a contract produced
 by `compileValidatedCore` discharges the structural `hcompiledTable` premise
 outright. Under `SupportedSpec` the runtime internal table is empty
