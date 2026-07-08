@@ -202,6 +202,44 @@ theorem compileStmtList_cons_eq_ok
   simpa [bind, Except.bind, Pure.pure, Except.pure,
     compileStmtListWithFork_cancun_eq_compileStmtList, htail]
 
+theorem compileStmtList_cons_eq_ok_with_internals
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
+    (isInternal : Bool) (inScopeNames : List String)
+    (adtTypes : List AdtTypeDef) (stmt : Stmt) (rest : List Stmt)
+    (internalFunctions : List FunctionSpec)
+    (headIR tailIR : List YulStmt)
+    (hhead :
+      CompilationModel.compileStmt fields events errors dynamicSource
+        internalRetNames isInternal inScopeNames adtTypes stmt internalFunctions =
+          Except.ok headIR)
+    (htail :
+      CompilationModel.compileStmtList fields events errors dynamicSource
+        internalRetNames isInternal (collectStmtNames stmt ++ inScopeNames) adtTypes
+          rest internalFunctions =
+          Except.ok tailIR) :
+    CompilationModel.compileStmtList fields events errors dynamicSource
+      internalRetNames isInternal inScopeNames adtTypes (stmt :: rest) internalFunctions =
+        Except.ok (headIR ++ tailIR) := by
+  unfold CompilationModel.compileStmtList
+  unfold CompilationModel.compileStmtListWithFork
+  rw [show
+    CompilationModel.compileStmtWithFork fields events errors dynamicSource
+      internalRetNames isInternal inScopeNames adtTypes Verity.Core.Intrinsics.HardFork.cancun
+      stmt internalFunctions =
+    CompilationModel.compileStmt fields events errors dynamicSource
+      internalRetNames isInternal inScopeNames adtTypes stmt internalFunctions from rfl,
+    hhead]
+  simpa [bind, Except.bind, Pure.pure, Except.pure,
+    show
+      CompilationModel.compileStmtListWithFork fields events errors dynamicSource
+        internalRetNames isInternal (collectStmtNames stmt ++ inScopeNames) adtTypes
+        Verity.Core.Intrinsics.HardFork.cancun rest internalFunctions =
+      CompilationModel.compileStmtList fields events errors dynamicSource
+        internalRetNames isInternal (collectStmtNames stmt ++ inScopeNames) adtTypes
+        rest internalFunctions from rfl,
+    htail]
+
 theorem compileStmtListWithFork_nil_eq_ok
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
     (dynamicSource : DynamicDataSource) (internalRetNames : List String)
@@ -264,6 +302,55 @@ theorem compileStmtList_cons_ok_inv
       cases htail : CompilationModel.compileStmtList
           fields events errors .calldata [] false
             (collectStmtNames stmt ++ inScopeNames) adtTypes rest with
+      | error err =>
+          simp [compileStmtListWithFork_cancun_eq_compileStmtList, htail] at hcompile
+          cases hcompile
+      | ok tailIR =>
+          simp [compileStmtListWithFork_cancun_eq_compileStmtList, htail] at hcompile
+          injection hcompile with hbody
+          subst hbody
+          refine ⟨headIR, tailIR, ?_, ?_, rfl⟩
+          · simpa [hhead]
+          · simpa [htail]
+
+theorem compileStmtList_cons_ok_inv_with_internals
+    {fields : List Field}
+    {events : List EventDef}
+    {errors : List ErrorDef}
+    {inScopeNames : List String}
+    {adtTypes : List AdtTypeDef}
+    {stmt : Stmt}
+    {rest : List Stmt}
+    {internalFunctions : List FunctionSpec}
+    {bodyIR : List YulStmt}
+    (hcompile :
+      CompilationModel.compileStmtList
+        fields events errors .calldata [] false inScopeNames adtTypes (stmt :: rest) internalFunctions =
+          Except.ok bodyIR) :
+    ∃ headIR tailIR,
+      CompilationModel.compileStmt
+        fields events errors .calldata [] false inScopeNames adtTypes
+          stmt internalFunctions = Except.ok headIR ∧
+      CompilationModel.compileStmtList
+        fields events errors .calldata [] false (collectStmtNames stmt ++ inScopeNames)
+          adtTypes rest internalFunctions = Except.ok tailIR ∧
+      bodyIR = headIR ++ tailIR := by
+  rw [CompilationModel.compileStmtList] at hcompile
+  unfold CompilationModel.compileStmtListWithFork at hcompile
+  cases hhead : CompilationModel.compileStmt
+      fields events errors .calldata [] false inScopeNames adtTypes stmt internalFunctions with
+  | error err =>
+      rw [compileStmtWithFork_cancun_eq_compileStmt
+        fields events errors .calldata [] false inScopeNames adtTypes stmt internalFunctions,
+        hhead] at hcompile
+      cases hcompile
+  | ok headIR =>
+      rw [compileStmtWithFork_cancun_eq_compileStmt
+        fields events errors .calldata [] false inScopeNames adtTypes stmt internalFunctions,
+        hhead] at hcompile
+      cases htail : CompilationModel.compileStmtList
+          fields events errors .calldata [] false
+            (collectStmtNames stmt ++ inScopeNames) adtTypes rest internalFunctions with
       | error err =>
           simp [compileStmtListWithFork_cancun_eq_compileStmtList, htail] at hcompile
           cases hcompile
@@ -1147,19 +1234,20 @@ private theorem compileStmt_ok_any_scope_with_surface_aux
     (n : Nat)
     (fields : List Field)
     (events : List EventDef)
-    (errors : List ErrorDef) :
+    (errors : List ErrorDef)
+    (internalFunctions : List FunctionSpec) :
     (∀ (stmt : Stmt) (scope1 scope2 : List String),
       sizeOf stmt < n →
-      (∃ ir, CompilationModel.compileStmt fields events errors .calldata [] false scope1 [] stmt =
-        Except.ok ir) →
-      ∃ ir', CompilationModel.compileStmt fields events errors .calldata [] false scope2 [] stmt =
-        Except.ok ir') ∧
+      (∃ ir, CompilationModel.compileStmt fields events errors .calldata [] false scope1 []
+        stmt internalFunctions = Except.ok ir) →
+      ∃ ir', CompilationModel.compileStmt fields events errors .calldata [] false scope2 []
+        stmt internalFunctions = Except.ok ir') ∧
     (∀ (stmts : List Stmt) (scope1 scope2 : List String),
       sizeOf stmts < n →
-      (∃ ir, CompilationModel.compileStmtList fields events errors .calldata [] false scope1 [] stmts =
-        Except.ok ir) →
-      ∃ ir', CompilationModel.compileStmtList fields events errors .calldata [] false scope2 [] stmts =
-        Except.ok ir') := by
+      (∃ ir, CompilationModel.compileStmtList fields events errors .calldata [] false scope1 []
+        stmts internalFunctions = Except.ok ir) →
+      ∃ ir', CompilationModel.compileStmtList fields events errors .calldata [] false scope2 []
+        stmts internalFunctions = Except.ok ir') := by
   induction n with
   | zero => exact ⟨fun _ _ _ h => absurd h (Nat.not_lt_zero _),
                     fun _ _ _ h => absurd h (Nat.not_lt_zero _)⟩
@@ -1170,17 +1258,18 @@ private theorem compileStmt_ok_any_scope_with_surface_aux
       | ite cond thenBranch elseBranch =>
           rcases hok with ⟨ir, hir⟩
           simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, bind, Except.bind] at hir ⊢
-          cases hcond : CompilationModel.compileExprWithInternals fields .calldata [] cond with
+          cases hcond :
+              CompilationModel.compileExprWithInternals fields .calldata internalFunctions cond with
           | error e => simp [hcond] at hir
           | ok condIR =>
             simp only [hcond] at hir ⊢
             cases hthen1 : CompilationModel.compileStmtList
-                fields events errors .calldata [] false scope1 [] thenBranch with
+                fields events errors .calldata [] false scope1 [] thenBranch internalFunctions with
             | error e => simp [compileStmtListWithFork_cancun_eq_compileStmtList, hthen1] at hir
             | ok thenIR1 =>
               simp [compileStmtListWithFork_cancun_eq_compileStmtList, hthen1] at hir
               cases helse1 : CompilationModel.compileStmtList
-                  fields events errors .calldata [] false scope1 [] elseBranch with
+                  fields events errors .calldata [] false scope1 [] elseBranch internalFunctions with
               | error e => simp [compileStmtListWithFork_cancun_eq_compileStmtList, helse1] at hir
               | ok elseIR1 =>
                 rcases ih.2 thenBranch scope1 scope2
@@ -1194,13 +1283,15 @@ private theorem compileStmt_ok_any_scope_with_surface_aux
       | forEach varName count body =>
           rcases hok with ⟨ir, hir⟩
           simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, bind, Except.bind] at hir ⊢
-          cases hcount : CompilationModel.compileExprWithInternals fields .calldata [] count with
+          cases hcount :
+              CompilationModel.compileExprWithInternals fields .calldata internalFunctions count with
           | error e => simp [hcount] at hir
           | ok countIR =>
             simp only [hcount] at hir ⊢
             cases hbody1 : CompilationModel.compileStmtList
                 fields events errors .calldata [] false
-                (CompilationModel.forEachBodyScope scope1 varName count body) [] body with
+                (CompilationModel.forEachBodyScope scope1 varName count body) [] body
+                internalFunctions with
             | error e => simp [compileStmtListWithFork_cancun_eq_compileStmtList, hbody1] at hir
             | ok bodyIR1 =>
               rcases ih.2 body (CompilationModel.forEachBodyScope scope1 varName count body)
@@ -1213,13 +1304,15 @@ private theorem compileStmt_ok_any_scope_with_surface_aux
           rcases hok with ⟨ir, hir⟩
           simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
             bind, Except.bind] at hir ⊢
-          cases hbitmap : CompilationModel.compileExprWithInternals fields .calldata [] bitmap with
+          cases hbitmap :
+              CompilationModel.compileExprWithInternals fields .calldata internalFunctions bitmap with
           | error e => simp [hbitmap] at hir
           | ok bitmapIR =>
             simp only [hbitmap] at hir ⊢
             cases hbody1 : CompilationModel.compileStmtList
                 fields events errors .calldata [] false
-                (CompilationModel.forEachSetBitFallbackBodyScope scope1 varName bitmap body) [] body with
+                (CompilationModel.forEachSetBitFallbackBodyScope scope1 varName bitmap body) [] body
+                internalFunctions with
             | error e => simp [compileStmtListWithFork_cancun_eq_compileStmtList, hbody1] at hir
             | ok bodyIR1 =>
               rcases ih.2 body
@@ -1257,16 +1350,18 @@ private theorem compileStmt_ok_any_scope_with_surface_aux
               Pure.pure, Except.pure]⟩
         | cons s ss =>
             rcases hok with ⟨ir, hir⟩
-            rcases compileStmtList_cons_ok_inv (fields := fields) (events := events)
+            rcases compileStmtList_cons_ok_inv_with_internals
+                (fields := fields) (events := events)
                 (errors := errors) (inScopeNames := scope1) (adtTypes := [])
-                (stmt := s) (rest := ss) hir with
+                (stmt := s) (rest := ss) (internalFunctions := internalFunctions) hir with
               ⟨headIR1, tailIR1, hs1, hss1, _⟩
             rcases ih.1 s scope1 scope2 (by simp [List.cons.sizeOf_spec] at hlt; omega)
                 ⟨headIR1, hs1⟩ with ⟨headIR2, hs2⟩
             rcases ih.2 ss (collectStmtNames s ++ scope1) (collectStmtNames s ++ scope2)
                 (by simp [List.cons.sizeOf_spec] at hlt; omega) ⟨tailIR1, hss1⟩
               with ⟨tailIR2, hss2⟩
-            exact ⟨_, compileStmtList_cons_eq_ok _ _ _ _ _ _ _ _ _ _ _ _ hs2 hss2⟩
+            exact ⟨_, compileStmtList_cons_eq_ok_with_internals
+              _ _ _ _ _ _ _ _ _ _ internalFunctions _ _ hs2 hss2⟩
 
 theorem compileStmt_ok_any_scope_with_surface
     {fields : List Field}
@@ -1278,7 +1373,24 @@ theorem compileStmt_ok_any_scope_with_surface
       fields events errors .calldata [] false scope1 [] stmt = Except.ok ir) :
     ∃ ir', CompilationModel.compileStmt
       fields events errors .calldata [] false scope2 [] stmt = Except.ok ir' :=
-  (compileStmt_ok_any_scope_with_surface_aux (sizeOf stmt + 1) fields events errors).1
+  (compileStmt_ok_any_scope_with_surface_aux (sizeOf stmt + 1) fields events errors []).1
+    stmt scope1 scope2 (Nat.lt_succ_of_le (Nat.le_refl _)) hok
+
+theorem compileStmt_ok_any_scope_with_surface_with_internals
+    {fields : List Field}
+    {events : List EventDef}
+    {errors : List ErrorDef}
+    {internalFunctions : List FunctionSpec}
+    {scope1 scope2 : List String}
+    {stmt : Stmt}
+    (hok : ∃ ir, CompilationModel.compileStmt
+      fields events errors .calldata [] false scope1 [] stmt internalFunctions =
+        Except.ok ir) :
+    ∃ ir', CompilationModel.compileStmt
+      fields events errors .calldata [] false scope2 [] stmt internalFunctions =
+        Except.ok ir' :=
+  (compileStmt_ok_any_scope_with_surface_aux
+    (sizeOf stmt + 1) fields events errors internalFunctions).1
     stmt scope1 scope2 (Nat.lt_succ_of_le (Nat.le_refl _)) hok
 
 theorem compileStmtList_ok_any_scope_with_surface
@@ -1291,7 +1403,24 @@ theorem compileStmtList_ok_any_scope_with_surface
       fields events errors .calldata [] false scope1 [] stmts = Except.ok ir) :
     ∃ ir', CompilationModel.compileStmtList
       fields events errors .calldata [] false scope2 [] stmts = Except.ok ir' :=
-  (compileStmt_ok_any_scope_with_surface_aux (sizeOf stmts + 1) fields events errors).2
+  (compileStmt_ok_any_scope_with_surface_aux (sizeOf stmts + 1) fields events errors []).2
+    stmts scope1 scope2 (Nat.lt_succ_of_le (Nat.le_refl _)) hok
+
+theorem compileStmtList_ok_any_scope_with_surface_with_internals
+    {fields : List Field}
+    {events : List EventDef}
+    {errors : List ErrorDef}
+    {internalFunctions : List FunctionSpec}
+    {scope1 scope2 : List String}
+    {stmts : List Stmt}
+    (hok : ∃ ir, CompilationModel.compileStmtList
+      fields events errors .calldata [] false scope1 [] stmts internalFunctions =
+        Except.ok ir) :
+    ∃ ir', CompilationModel.compileStmtList
+      fields events errors .calldata [] false scope2 [] stmts internalFunctions =
+        Except.ok ir' :=
+  (compileStmt_ok_any_scope_with_surface_aux
+    (sizeOf stmts + 1) fields events errors internalFunctions).2
     stmts scope1 scope2 (Nat.lt_succ_of_le (Nat.le_refl _)) hok
 
 theorem compileStmtList_ok_any_scope
