@@ -25,7 +25,7 @@ jobs:
   review:
     name: OCR first-pass review
     runs-on: [self-hosted, linux, x64, paloma-ocr]
-    timeout-minutes: 30
+    timeout-minutes: 45
     if: |
       github.event_name == 'pull_request_target' ||
       github.event_name == 'workflow_dispatch' ||

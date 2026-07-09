@@ -66,7 +66,9 @@ module.exports = async function postOcrReview({ github, context, core }) {
   const selected = usable.slice(0, maxInline);
   const overflow = usable.slice(maxInline);
   const tag = retryableResult ? retryableTag : successTag;
-  const body = buildReviewBody({ tag, result, comments, selected, overflow, summaryOnly, warnings, stderr });
+  const body = retryableResult
+    ? buildReviewBody({ tag, result, comments, selected: [], overflow: [...selected, ...overflow], summaryOnly, warnings, stderr })
+    : buildReviewBody({ tag, result, comments, selected, overflow, summaryOnly, warnings, stderr });
 
   if (retryableResult) {
     await github.rest.issues.createComment({
