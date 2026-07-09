@@ -11,8 +11,9 @@ module.exports = async function postOcrReview({ github, context, core }) {
   const stderrPath = process.env.OCR_STDERR_PATH;
   const maxInline = Number(process.env.OCR_MAX_INLINE_COMMENTS || 20);
   const rulesHash = (process.env.OCR_RULES_HASH || 'rules-v0').slice(0, 12);
-  const successTag = `<!-- paloma-ocr-review:${commit_id}:${rulesHash}:success -->`;
-  const retryableTag = `<!-- paloma-ocr-review:${commit_id}:${rulesHash}:retryable-failure -->`;
+  const reviewerVersion = (process.env.OCR_REVIEWER_VERSION || 'reviewer-v2').slice(0, 20);
+  const successTag = `<!-- paloma-ocr-review:${commit_id}:${rulesHash}:${reviewerVersion}:success -->`;
+  const retryableTag = `<!-- paloma-ocr-review:${commit_id}:${rulesHash}:${reviewerVersion}:retryable-failure -->`;
 
   if (!pull_number || !commit_id) {
     throw new Error('OCR_PR_NUMBER and OCR_HEAD_SHA are required');
@@ -113,7 +114,7 @@ async function hasExistingTag(github, { owner, repo, pull_number, tag }) {
 
 function isRetryableResult(result) {
   const status = String(result.status || '').toLowerCase();
-  return status === 'error' || status === 'failed' || status === 'failure';
+  return status === 'error' || status === 'failed' || status === 'failure' || status === 'completed_with_errors';
 }
 
 function toReviewComment(c) {
