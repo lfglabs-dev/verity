@@ -35,7 +35,7 @@ For `large-lean-hotspots`, the scout is enabled by default and uses sandboxed.sh
 
 - `OCR_SCOUT_ENABLED`: optional, defaults to `true`; set to `false` to disable only the large Lean scout call.
 - `OCR_SCOUT_LLM_URL`: optional; defaults to `OCR_LLM_URL` when the same sandboxed endpoint supports model selection.
-- `OCR_SCOUT_LLM_KEY`: optional; defaults to `OCR_LLM_KEY` when the same sandboxed key can route both models.
+- `OCR_SCOUT_LLM_KEY`: optional; defaults to `OCR_LLM_KEY`, then `OCR_LLM_TOKEN`, when the same sandboxed key can route both models.
 - `OCR_SCOUT_LLM_MODEL`: optional; defaults to `MiniMax-M3`, the MiniMax hybrid long-context scout model listed in the sandboxed.sh provider catalog.
 
 The router sends only a bounded JSON risk dossier to the scout model. The scout model is cheap triage only: it selects packet IDs, reasons, risk categories, questions for a stronger reviewer, and residual coverage. It never produces final review approval. If scout configuration is absent, disabled, malformed, rejected by the provider, or the call fails, the router records that state in metrics and falls back to deterministic ranking.
