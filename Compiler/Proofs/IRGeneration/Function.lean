@@ -1,4 +1,5 @@
 import Compiler.CompilationModel.Dispatch
+import Compiler.Proofs.IRGeneration.FunctionShape
 import Compiler.Proofs.IRGeneration.FunctionBody
 import Compiler.Proofs.IRGeneration.GenericInduction
 import Compiler.Proofs.IRGeneration.GenericInduction.EventBridge
@@ -437,6 +438,139 @@ theorem exec_compiledFunctionIR_of_body_extraFuel
   rw [hprebound]
   rw [hprefix', hbody]
   rfl
+
+theorem execIRStmtsWithInternals_append_of_prefix_continue :
+    ∀ (contract : IRContract) (pre rest : List YulStmt) (fuel : Nat)
+      (state state' : IRState),
+      execIRStmtsWithInternals contract (pre.length + fuel) state pre = .continue state' →
+      execIRStmtsWithInternals contract (pre.length + fuel) state (pre ++ rest) =
+        execIRStmtsWithInternals contract fuel state' rest
+  | contract, [], rest, fuel, state, state', hprefix => by
+      simp only [List.length_nil, zero_add, execIRStmtsWithInternals] at hprefix
+      cases hprefix
+      simp
+  | contract, stmt :: pre, rest, fuel, state, state', hprefix => by
+      have hprefixNorm :
+          execIRStmtsWithInternals contract (Nat.succ (pre.length + fuel))
+            state (stmt :: pre) = .continue state' := by
+        simpa [List.length_cons, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using hprefix
+      simp only [List.length_cons, List.cons_append]
+      rw [show Nat.succ pre.length + fuel = Nat.succ (pre.length + fuel) by omega]
+      rw [execIRStmtsWithInternals]
+      cases hstep : execIRStmtWithInternals contract (pre.length + fuel) state stmt with
+      | «continue» next =>
+          have htail :
+              execIRStmtsWithInternals contract (pre.length + fuel) next pre =
+                .continue state' := by
+            simpa [execIRStmtsWithInternals, hstep] using hprefixNorm
+          exact execIRStmtsWithInternals_append_of_prefix_continue
+            contract pre rest fuel next state' htail
+      | «return» value next =>
+          simp [execIRStmtsWithInternals, hstep] at hprefixNorm
+      | stop next =>
+          simp [execIRStmtsWithInternals, hstep] at hprefixNorm
+      | revert next =>
+          simp [execIRStmtsWithInternals, hstep] at hprefixNorm
+      | «leave» next =>
+          simp [execIRStmtsWithInternals, hstep] at hprefixNorm
+
+theorem exec_genParamLoads_supported_then_extraFuel_withInternals
+    (runtimeContract : IRContract)
+    (state : IRState) (params : List Param) (bindings : List (String × Nat))
+    (rest : List YulStmt) (extraFuel : Nat)
+    (hsupported : ∀ param ∈ params, SupportedExternalParamType param.ty)
+    (hcalldataSizeFits : 4 + state.calldata.length * 32 < Compiler.Constants.evmModulus)
+    (hbind : SourceSemantics.bindSupportedParams params state.calldata = some bindings)
+    (hparamDisjoint :
+      YulStmtListCallsDisjointFromInternalTable runtimeContract (genParamLoads params)) :
+    execIRStmtsWithInternals runtimeContract
+        ((genParamLoads params).length + rest.length + extraFuel + 1) state
+        (genParamLoads params ++ rest) =
+      execIRStmtsWithInternals runtimeContract
+        (rest.length + extraFuel + 1)
+        (ParamLoading.applyBindingsToIRState state bindings) rest := by
+  let tailFuel := rest.length + extraFuel + 1
+  have hlegacyPrefix :
+      execIRStmts ((genParamLoads params).length + tailFuel) state (genParamLoads params) =
+        .continue (ParamLoading.applyBindingsToIRState state bindings) := by
+    have hlegacy :=
+      ParamLoading.exec_genParamLoads_supported_then_extraFuel
+        (state := state) (params := params) (bindings := bindings)
+        (rest := []) (extraFuel := rest.length + extraFuel)
+        hsupported hcalldataSizeFits hbind
+    simpa [tailFuel] using hlegacy
+  have hprefix :
+      execIRStmtsWithInternals runtimeContract ((genParamLoads params).length + tailFuel)
+          state (genParamLoads params) =
+        .continue (ParamLoading.applyBindingsToIRState state bindings) := by
+    have hcompat :=
+      execIRStmtsWithInternals_eq_execIRStmts_of_callsDisjoint
+        runtimeContract ((genParamLoads params).length + tailFuel)
+        state (genParamLoads params) hparamDisjoint
+    rw [hcompat, hlegacyPrefix]
+  have happend :=
+    execIRStmtsWithInternals_append_of_prefix_continue runtimeContract
+      (genParamLoads params) rest tailFuel state
+      (ParamLoading.applyBindingsToIRState state bindings) hprefix
+  simpa [tailFuel, List.length_append, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using happend
+
+theorem exec_compiledFunctionIR_withInternals_of_body_extraFuel
+    (runtimeContract : IRContract)
+    (state : IRState) (selector : Nat) (spec : FunctionSpec)
+    (returns : List ParamType) (bodyStmts : List YulStmt)
+    (bindings : List (String × Nat)) (tailResult : IRExecResultWithInternals)
+    (extraFuel : Nat)
+    (hsupported : ∀ param ∈ spec.params, SupportedExternalParamType param.ty)
+    (hcalldataSizeFits : 4 + state.calldata.length * 32 < Compiler.Constants.evmModulus)
+    (hbind : SourceSemantics.bindSupportedParams spec.params state.calldata = some bindings)
+    (hparamDisjoint :
+      YulStmtListCallsDisjointFromInternalTable runtimeContract (genParamLoads spec.params))
+    (hbody :
+      execIRStmtsWithInternals runtimeContract (bodyStmts.length + extraFuel + 1)
+        (ParamLoading.applyBindingsToIRState (prebindRawArgs state spec.params) bindings)
+        bodyStmts = tailResult) :
+    execIRStmtsWithInternals runtimeContract
+        ((genParamLoads spec.params ++ bodyStmts).length + extraFuel + 1)
+        (prebindRawArgs state spec.params)
+        (compiledFunctionIR selector spec returns bodyStmts).body =
+      tailResult := by
+  let preboundState := prebindRawArgs state spec.params
+  have hbind' :
+      SourceSemantics.bindSupportedParams spec.params preboundState.calldata = some bindings := by
+    simpa [preboundState] using hbind
+  have hcalldataSizeFits' :
+      4 + preboundState.calldata.length * 32 < Compiler.Constants.evmModulus := by
+    simpa [preboundState] using hcalldataSizeFits
+  have hprefix :
+      execIRStmtsWithInternals runtimeContract
+          ((genParamLoads spec.params).length + bodyStmts.length + extraFuel + 1)
+          preboundState (genParamLoads spec.params ++ bodyStmts) =
+        execIRStmtsWithInternals runtimeContract
+          (bodyStmts.length + extraFuel + 1)
+          (ParamLoading.applyBindingsToIRState preboundState bindings)
+          bodyStmts := by
+    simpa [preboundState, Nat.add_assoc] using
+      exec_genParamLoads_supported_then_extraFuel_withInternals
+        (runtimeContract := runtimeContract)
+        (state := preboundState)
+        (params := spec.params)
+        (bindings := bindings)
+        (rest := bodyStmts)
+        (extraFuel := extraFuel)
+        hsupported hcalldataSizeFits' hbind' hparamDisjoint
+  calc
+    execIRStmtsWithInternals runtimeContract
+        ((genParamLoads spec.params ++ bodyStmts).length + extraFuel + 1)
+        (prebindRawArgs state spec.params)
+        (compiledFunctionIR selector spec returns bodyStmts).body
+        =
+      execIRStmtsWithInternals runtimeContract
+        (bodyStmts.length + extraFuel + 1)
+        (ParamLoading.applyBindingsToIRState preboundState bindings)
+        bodyStmts := by
+          simpa [preboundState, compiledFunctionIR, List.length_append, Nat.add_assoc,
+            Nat.add_left_comm, Nat.add_comm] using hprefix
+    _ = tailResult := hbody
 
 theorem interpretFunction_eq_execResultToIRResult_of_body
     (model : CompilationModel) (fn : FunctionSpec)
@@ -2149,6 +2283,138 @@ theorem supported_function_correct_with_helper_proofs_body_goal_and_helper_ir
       hcompile hbind htxNormalized extraFuel hcompiledBodyFuel hlegacyBody hcalldataSizeFits
   simpa [hhelperIR] using hlegacy
 
+/-- Direct helper-aware function theorem for compiled bodies that already prove
+the exact `execIRStmtsWithInternals` preservation goal. This is the function
+level analogue of the legacy param-load/body execution bridge: the generated
+ABI param-load prefix runs first under `WithInternals`, then execution continues
+with the helper-aware compiled body. -/
+theorem supported_function_correct_with_helper_proofs_body_goal_with_internals
+    (model : CompilationModel)
+    (selectors : List Nat)
+    (hSupported : SupportedSpec model selectors)
+    (_hHelperProofs : SourceSemantics.SupportedSpecHelperProofs model selectors hSupported)
+    (_hvalidateInputs : validateCompileInputs model selectors = Except.ok ())
+    (runtimeContract : IRContract)
+    (fn : FunctionSpec)
+    (selector : Nat)
+    (returns : List ParamType)
+    (bodyStmts : List YulStmt)
+    (irFn : IRFunction)
+    (tx : IRTransaction)
+    (initialWorld : Verity.ContractState)
+    (bindings : List (String × Nat))
+    (hfn : fn ∈ selectorDispatchedFunctions model)
+    (hvalidate : validateFunctionSpec fn = Except.ok ())
+    (hreturns : functionReturns fn = Except.ok returns)
+    (hbodyCompile :
+      compileStmtList model.fields model.events model.errors .calldata [] false
+        (fn.params.map (·.name)) [] fn.body = Except.ok bodyStmts)
+    (hcompile :
+      compileFunctionSpec model.fields model.events model.errors [] selector fn = Except.ok irFn)
+    (hbind : SourceSemantics.bindSupportedParams fn.params tx.args = some bindings)
+    (_htxNormalized : TxContextNormalized tx)
+    (extraFuel : Nat)
+    (hcompiledBodyFuel :
+      (genParamLoads fn.params ++ bodyStmts).length + extraFuel =
+        sizeOf (compiledFunctionIR selector fn returns bodyStmts).body)
+    (hbodyCorrect :
+      SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
+        runtimeContract
+        model fn bodyStmts hSupported.helperFuel tx initialWorld
+        (ParamLoading.applyBindingsToIRState
+          (prebindRawArgs
+            (FunctionBody.initialIRStateForTx model tx initialWorld) fn.params)
+          bindings)
+        bindings extraFuel)
+    (hparamDisjoint :
+      YulStmtListCallsDisjointFromInternalTable runtimeContract (genParamLoads fn.params))
+    (hcalldataSizeFits : TxCalldataSizeFitsEvm tx) :
+    FunctionBody.sourceResultMatchesIRResult
+      (supportedSourceFunctionSemantics model selectors hSupported fn tx initialWorld)
+      (execIRFunctionWithInternals runtimeContract 0 irFn tx.args
+        (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
+  let initialState := FunctionBody.initialIRStateForTx model tx initialWorld
+  rcases hbodyCorrect with ⟨sourceResult, irExec, hsource, hbodyExec, hmatch⟩
+  have hcompiled := compileFunctionSpec_ok_of_components model.fields model.events model.errors
+      selector fn returns bodyStmts hvalidate hreturns hbodyCompile
+  have hirFn : irFn = compiledFunctionIR selector fn returns bodyStmts := by
+    rw [hcompile] at hcompiled
+    injection hcompiled
+  have hrollbackStorage :
+        initialState.storage = fun s =>
+          Compiler.Proofs.IRGeneration.IRStorageWord.ofNat
+            (SourceSemantics.encodeStorage model
+              (SourceSemantics.withTransactionContext initialWorld tx) s.toNat) := by
+    funext s
+    simp [initialState, FunctionBody.initialIRStateForTx,
+      FunctionBody.encodeStorage_withTransactionContext]
+  have hrollbackEvents :
+      initialState.events =
+        SourceSemantics.encodeEvents
+          (SourceSemantics.withTransactionContext initialWorld tx).events := by
+    simp [initialState, FunctionBody.initialIRStateForTx]
+  have hsourceMatch :
+      FunctionBody.sourceResultMatchesIRResult
+        (supportedSourceFunctionSemantics model selectors hSupported fn tx initialWorld)
+        (FunctionBody.irResultOfExecResultWithInternals initialState irExec) := by
+    have hpack :=
+      interpretFunctionWithHelpers_eq_execResultToIRResultWithInternals_of_body
+        (model := model)
+        (fn := fn)
+        (helperFuel := hSupported.helperFuel)
+        (tx := tx)
+        (initialWorld := initialWorld)
+        (sourceResult := sourceResult)
+        (rollback := initialState)
+        (irResult := irExec)
+        (bindings := bindings)
+        hbind hsource hrollbackStorage hrollbackEvents hmatch
+    simpa [supportedSourceFunctionSemantics] using hpack
+  subst hirFn
+  have hcompiledBodyFuel' :
+      (genParamLoads fn.params ++ bodyStmts).length + extraFuel =
+        sizeOf (genParamLoads fn.params ++ bodyStmts) := by
+    simpa [compiledFunctionIR] using hcompiledBodyFuel
+  have hcompiledExec :
+      execIRStmtsWithInternals runtimeContract
+          (sizeOf (genParamLoads fn.params ++ bodyStmts) + 1)
+          (prebindRawArgs initialState fn.params)
+          (genParamLoads fn.params ++ bodyStmts) =
+        irExec := by
+    have hprefix :=
+      exec_compiledFunctionIR_withInternals_of_body_extraFuel
+        (runtimeContract := runtimeContract)
+        (state := initialState)
+        (selector := selector)
+        (spec := fn)
+        (returns := returns)
+        (bodyStmts := bodyStmts)
+        (bindings := bindings)
+        (tailResult := irExec)
+        (extraFuel := extraFuel)
+        (hSupported.selectorFunctionParamsSupported hfn)
+        hcalldataSizeFits hbind hparamDisjoint hbodyExec
+    have hfuel :
+        (genParamLoads fn.params ++ bodyStmts).length + extraFuel + 1 =
+          sizeOf (genParamLoads fn.params ++ bodyStmts) + 1 := by
+      omega
+    rw [← hfuel]
+    simpa [compiledFunctionIR] using hprefix
+  have hfunctionExec :
+      execIRFunctionWithInternals runtimeContract 0
+          (compiledFunctionIR selector fn returns bodyStmts) tx.args initialState =
+        FunctionBody.irResultOfExecResultWithInternals initialState irExec := by
+    have hstateWithParams :
+        List.foldl (fun s x => s.setVar x.1.name x.2) initialState
+            ((List.map Param.toIRParam fn.params).zip tx.args) =
+          prebindRawArgs initialState fn.params := by
+      simp [prebindRawArgs, initialState, FunctionBody.initialIRStateForTx]
+    rw [execIRFunctionWithInternals]
+    simp [compiledFunctionIR, hstateWithParams]
+    rw [hcompiledExec]
+    rfl
+  simpa [initialState, hfunctionExec] using hsourceMatch
+
 /-- Structured exact helper-aware function/IR wrapper under compiled-body
 disjointness. The exact helper-aware body theorem can now be reused all the way
 up to function-level results without requiring callers to restate the
@@ -2225,6 +2491,218 @@ theorem supported_function_correct_with_helper_proofs_body_goal_and_helper_ir_of
         (FunctionBody.initialIRStateForTx model tx initialWorld)
         hfnBodyDisjoint)
       hcalldataSizeFits
+
+private theorem function_body_scopeNamesPresent_of_bindSupportedParams
+    (fn : FunctionSpec)
+    (tx : IRTransaction)
+    (bindings : List (String × Nat))
+    (hbind : SourceSemantics.bindSupportedParams fn.params tx.args = some bindings) :
+    FunctionBody.scopeNamesPresent (fn.params.map (·.name)) bindings := by
+  intro name hmem
+  have hmemBindings : name ∈ bindings.map Prod.fst := by
+    rw [ParamLoading.bindSupportedParams_names hbind]
+    simpa using hmem
+  exact lookupBinding?_some_of_mem bindings name hmemBindings
+
+private theorem function_body_state_runtime_of_bindSupportedParams
+    (model : CompilationModel)
+    (fn : FunctionSpec)
+    (tx : IRTransaction)
+    (initialWorld : Verity.ContractState)
+    (bindings : List (String × Nat))
+    (htxNormalized : TxContextNormalized tx)
+    (hcalldataSizeFits : TxCalldataSizeFitsEvm tx) :
+    FunctionBody.runtimeStateMatchesIR
+      (SourceSemantics.effectiveFields model)
+      { world := SourceSemantics.withTransactionContext initialWorld tx
+        bindings := []
+        selector := tx.functionSelector }
+      (ParamLoading.applyBindingsToIRState
+        (prebindRawArgs
+          (FunctionBody.initialIRStateForTx model tx initialWorld) fn.params)
+        bindings) := by
+  let initialState := FunctionBody.initialIRStateForTx model tx initialWorld
+  have hpreboundRuntime :
+      FunctionBody.runtimeStateMatchesIR
+        (SourceSemantics.effectiveFields model)
+        { world := SourceSemantics.withTransactionContext initialWorld tx
+          bindings := []
+          selector := tx.functionSelector }
+        (prebindRawArgs initialState fn.params) := by
+    simpa [initialState] using
+      runtimeStateMatchesIR_prebindRawArgs
+        (state := initialState)
+        (runtime := { world := SourceSemantics.withTransactionContext initialWorld tx,
+                      bindings := [],
+                      selector := tx.functionSelector })
+        (fields := SourceSemantics.effectiveFields model)
+        (params := fn.params)
+        (initialIRStateForTx_matches_runtime model tx initialWorld htxNormalized
+          hcalldataSizeFits)
+  exact runtimeStateMatchesIR_applyBindingsToIRState
+    (state := prebindRawArgs initialState fn.params)
+    (runtime := { world := SourceSemantics.withTransactionContext initialWorld tx,
+                  bindings := [],
+                  selector := tx.functionSelector })
+    (fields := SourceSemantics.effectiveFields model)
+    (bindings := bindings)
+    hpreboundRuntime
+
+private theorem function_body_state_bindings_of_bindSupportedParams
+    (model : CompilationModel)
+    (selectors : List Nat)
+    (hSupported : SupportedSpec model selectors)
+    (fn : FunctionSpec)
+    (tx : IRTransaction)
+    (initialWorld : Verity.ContractState)
+    (bindings : List (String × Nat))
+    (hfn : fn ∈ selectorDispatchedFunctions model)
+    (hbind : SourceSemantics.bindSupportedParams fn.params tx.args = some bindings) :
+    FunctionBody.bindingsExactlyMatchIRVars bindings
+      (ParamLoading.applyBindingsToIRState
+        (prebindRawArgs
+          (FunctionBody.initialIRStateForTx model tx initialWorld) fn.params)
+        bindings) := by
+  let initialState := FunctionBody.initialIRStateForTx model tx initialWorld
+  have hinitBindings :
+      FunctionBody.bindingsExactlyMatchIRVars [] initialState := by
+    simpa [initialState] using
+      FunctionBody.bindingsExactlyMatchIRVars_nil_initialIRStateForTx model tx initialWorld
+  have hparamNamesNodup :
+      (fn.params.map (·.name)).Nodup :=
+    hSupported.selectorFunctionParamNamesNodup hfn
+  exact supported_function_param_state_exact
+    initialState fn.params bindings hinitBindings hparamNamesNodup hbind
+
+/-- Function-level bridge from helper-aware `compileFunctionSpec` facts to the
+mixed `WithInternals` body consumer.
+
+The compile fact is reconstructed in the `model.functions` helper world and is
+then threaded directly into the split-interface body theorem introduced for the
+mixed helper-IR path. This packages the state/binding plumbing that callers
+otherwise had to rebuild before they could consume
+`supported_function_body_correct_from_exact_state_generic_split_helper_steps_and_helper_ir_with_internals`.
+-/
+theorem supported_function_body_with_internals_goal_of_compileFunctionSpec_with_internals
+    (runtimeContract : IRContract)
+    (model : CompilationModel)
+    (selectors : List Nat)
+    (hSupported : SupportedSpec model selectors)
+    (fn : FunctionSpec)
+    (selector : Nat)
+    (irFn : IRFunction)
+    (tx : IRTransaction)
+    (initialWorld : Verity.ContractState)
+    (bindings : List (String × Nat))
+    (hfn : fn ∈ selectorDispatchedFunctions model)
+    (hcompile :
+      compileFunctionSpec model.fields model.events model.errors model.adtTypes
+        selector fn .cancun model.functions = Except.ok irFn)
+    (hbind : SourceSemantics.bindSupportedParams fn.params tx.args = some bindings)
+    (htxNormalized : TxContextNormalized tx)
+    (hcalldataSizeFits : TxCalldataSizeFitsEvm tx)
+    (hfuelPos : 0 < hSupported.helperFuel)
+    (hhelperFree :
+      StmtListHelperFreeStepInterfaceWithInternals
+        runtimeContract model (SourceSemantics.effectiveFields model)
+        (fn.params.map (·.name)) fn.body)
+    (hcall :
+      StmtListDirectInternalHelperCallStepInterfaceWithInternals
+        runtimeContract model (SourceSemantics.effectiveFields model)
+        (fn.params.map (·.name)) fn.body)
+    (hassign :
+      StmtListDirectInternalHelperAssignStepInterfaceWithInternals
+        runtimeContract model (SourceSemantics.effectiveFields model)
+        (fn.params.map (·.name)) fn.body)
+    (hexpr :
+      StmtListExprInternalHelperStepInterfaceWithInternals
+        runtimeContract model (SourceSemantics.effectiveFields model)
+        (fn.params.map (·.name)) fn.body)
+    (hstruct :
+      StmtListStructuralInternalHelperStepInterfaceWithInternals
+        runtimeContract model (SourceSemantics.effectiveFields model)
+        (fn.params.map (·.name)) fn.body)
+    (hresidual :
+      StmtListResidualHelperSurfaceStepInterfaceWithInternals
+        runtimeContract model (SourceSemantics.effectiveFields model)
+        (fn.params.map (·.name)) fn.body) :
+    ∃ returns bodyStmts extraFuel,
+      irFn = compiledFunctionIR selector fn returns bodyStmts ∧
+      SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
+        runtimeContract
+        model fn bodyStmts hSupported.helperFuel tx initialWorld
+        (ParamLoading.applyBindingsToIRState
+          (prebindRawArgs
+            (FunctionBody.initialIRStateForTx model tx initialWorld) fn.params)
+          bindings)
+        bindings extraFuel := by
+  classical
+  let initialState := FunctionBody.initialIRStateForTx model tx initialWorld
+  rcases FunctionShape.compileFunctionSpec_ok_components_with_internals
+      model.fields model.events model.errors model.adtTypes model.functions
+      selector fn irFn hcompile with
+    ⟨returns, bodyStmts, _hvalidate, _hreturns, hbodyCompile, hirFn⟩
+  have hirFnLocal : irFn = compiledFunctionIR selector fn returns bodyStmts := by
+    simpa [FunctionShape.compiledFunctionIR, compiledFunctionIR] using hirFn
+  let extraFuel := sizeOf irFn.body - irFn.body.length
+  have hbodyExtraFuelLower :
+      sizeOf bodyStmts - bodyStmts.length ≤ extraFuel := by
+    dsimp [extraFuel]
+    rw [hirFnLocal]
+    simpa [compiledFunctionIR] using
+      yulStmtList_extraFuel_append_ge (genParamLoads fn.params) bodyStmts
+  have hscope :
+      FunctionBody.scopeNamesPresent (fn.params.map (·.name)) bindings := by
+    exact function_body_scopeNamesPresent_of_bindSupportedParams fn tx bindings hbind
+  have hbounded : FunctionBody.bindingsBounded bindings :=
+    FunctionBody.bindingsBounded_of_bindSupportedParams hbind
+  have hbodyStateRuntime :
+      FunctionBody.runtimeStateMatchesIR
+        (SourceSemantics.effectiveFields model)
+        { world := SourceSemantics.withTransactionContext initialWorld tx
+          bindings := []
+          selector := tx.functionSelector }
+        (ParamLoading.applyBindingsToIRState
+          (prebindRawArgs initialState fn.params) bindings) := by
+    simpa [initialState] using
+      function_body_state_runtime_of_bindSupportedParams
+        model fn tx initialWorld bindings htxNormalized hcalldataSizeFits
+  have hbodyStateBindings :
+      FunctionBody.bindingsExactlyMatchIRVars bindings
+        (ParamLoading.applyBindingsToIRState
+          (prebindRawArgs initialState fn.params) bindings) := by
+    simpa [initialState] using
+      function_body_state_bindings_of_bindSupportedParams
+        model selectors hSupported fn tx initialWorld bindings hfn hbind
+  have hbodyCorrect :
+      SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
+        runtimeContract
+        model fn bodyStmts hSupported.helperFuel tx initialWorld
+        (ParamLoading.applyBindingsToIRState
+          (prebindRawArgs initialState fn.params) bindings)
+        bindings extraFuel :=
+    supported_function_body_correct_from_exact_state_generic_split_helper_steps_and_helper_ir_with_internals
+      runtimeContract model fn bodyStmts hSupported.helperFuel tx initialWorld
+      (ParamLoading.applyBindingsToIRState
+        (prebindRawArgs initialState fn.params) bindings)
+      bindings extraFuel hbodyExtraFuelLower
+      hfuelPos
+      (by simpa [SourceSemantics.effectiveFields] using hSupported.normalizedFields)
+      hSupported.noEvents
+      hSupported.noErrors
+      hSupported.noAdtTypes
+      hhelperFree
+      hcall
+      hassign
+      hexpr
+      hstruct
+      hresidual
+      hbodyCompile
+      hscope
+      hbounded
+      hbodyStateRuntime
+      hbodyStateBindings
+  exact ⟨returns, bodyStmts, extraFuel, hirFnLocal, hbodyCorrect⟩
 
 /-- Scalar-event sibling of the helper-aware body-goal wrapper. -/
 theorem supported_function_correct_with_scalar_events_body_goal_and_helper_ir
@@ -2379,6 +2857,231 @@ private theorem genParamLoads_scalar_legacy
     ((params.map (fun p => paramHeadSize p.ty)).foldl (· + ·) 0) 4 params 4 hsupported
   simp [genParamLoads, genParamLoadsFrom]
   exact .if_ _ _ _ (.exprStmt _ _ .nil) hbody
+
+/-- Disjointness of a single scalar param-load (with the `calldataload` word
+loader used by `genParamLoads`) from a runtime contract's internal-function
+table. Every EVM/Yul builtin emitted by `genScalarLoad`
+(`calldataload`, `and`, `iszero`) is assumed absent from the table; the
+generated statement introduces no other calls. -/
+private theorem genScalarLoad_calldataload_callsDisjoint
+    (runtimeContract : IRContract) (name : String) (ty : ParamType) (offset : Nat)
+    (hsupported : SupportedExternalParamType ty)
+    (hcd : findInternalFunction? runtimeContract "calldataload" = none)
+    (hand : findInternalFunction? runtimeContract "and" = none)
+    (hiszero : findInternalFunction? runtimeContract "iszero" = none) :
+    YulStmtListCallsDisjointFromInternalTable runtimeContract
+      (genScalarLoad (fun pos => YulExpr.call "calldataload" [pos]) name ty offset) := by
+  have hload : yulExprCallsDisjointFromInternalTable runtimeContract
+      (YulExpr.call "calldataload" [YulExpr.lit offset]) := by
+    simp only [yulExprCallsDisjointFromInternalTable]
+    refine ⟨hcd, ?_⟩
+    intro arg harg
+    simp only [List.mem_singleton] at harg
+    subst harg
+    simp only [yulExprCallsDisjointFromInternalTable]
+  cases ty <;> simp only [SupportedExternalParamType] at hsupported ⊢
+  all_goals
+    first
+    | exact .let_ _ _ [] hload .nil
+    | (refine .let_ _ _ [] ?_ .nil
+       simp only [yulExprCallsDisjointFromInternalTable]
+       refine ⟨hand, ?_⟩
+       intro arg harg
+       simp only [List.mem_cons, List.not_mem_nil, or_false] at harg
+       rcases harg with h1 | h2
+       · subst h1; exact hload
+       · subst h2; simp only [yulExprCallsDisjointFromInternalTable])
+    | (refine .let_ _ _ [] ?_ .nil
+       simp only [yulExprCallsDisjointFromInternalTable]
+       refine ⟨hiszero, ?_⟩
+       intro arg harg
+       simp only [List.mem_singleton] at harg
+       subst harg
+       simp only [yulExprCallsDisjointFromInternalTable]
+       refine ⟨hiszero, ?_⟩
+       intro arg2 harg2
+       simp only [List.mem_singleton] at harg2
+       subst harg2
+       exact hload)
+
+/-- Disjointness of the whole param-load body (the recursive `genSingleParamLoad`
+sequence used by `genParamLoads`) from a runtime contract's internal-function
+table, given the three scalar-load builtins are absent. Recurses over the
+supported scalar params, appending per-param disjointness. -/
+private theorem genParamLoadBodyFrom_calldataload_callsDisjoint
+    (runtimeContract : IRContract)
+    (hcd : findInternalFunction? runtimeContract "calldataload" = none)
+    (hand : findInternalFunction? runtimeContract "and" = none)
+    (hiszero : findInternalFunction? runtimeContract "iszero" = none)
+    (sizeExpr : YulExpr) (headSize baseOffset : Nat) :
+    ∀ (params : List Param) (headOffset : Nat),
+      (∀ param ∈ params, SupportedExternalParamType param.ty) →
+        YulStmtListCallsDisjointFromInternalTable runtimeContract
+          (genParamLoadBodyFrom (fun pos => YulExpr.call "calldataload" [pos])
+            sizeExpr headSize baseOffset params headOffset)
+  | [], _, _ => .nil
+  | param :: rest, headOffset, hsupported => by
+      have htail := genParamLoadBodyFrom_calldataload_callsDisjoint runtimeContract
+        hcd hand hiszero sizeExpr headSize baseOffset rest
+        (headOffset + paramHeadSize param.ty)
+        (by intro p hp; exact hsupported p (by simp [hp]))
+      have hhead_sup : SupportedExternalParamType param.ty := hsupported param (by simp)
+      have hhead := genScalarLoad_calldataload_callsDisjoint runtimeContract
+        param.name param.ty headOffset hhead_sup hcd hand hiszero
+      cases hty : param.ty <;>
+        simp only [SupportedExternalParamType, hty] at hhead_sup <;>
+        simpa only [genParamLoadBodyFrom, genSingleParamLoad, hty]
+          using yulStmtListCallsDisjoint_append hhead htail
+
+/-- Disjointness of the full `genParamLoads` output (min-input-size guard plus
+the param-load body) from a runtime contract's internal-function table, given
+that none of the six EVM/Yul builtins it emits (`calldataload`, `calldatasize`,
+`lt`, `revert`, `and`, `iszero`) collide with an internal helper. -/
+private theorem genParamLoads_callsDisjoint_of_builtins
+    (runtimeContract : IRContract) (params : List Param)
+    (hsupported : ∀ param ∈ params, SupportedExternalParamType param.ty)
+    (hcd : findInternalFunction? runtimeContract "calldataload" = none)
+    (hcdsize : findInternalFunction? runtimeContract "calldatasize" = none)
+    (hlt : findInternalFunction? runtimeContract "lt" = none)
+    (hrevert : findInternalFunction? runtimeContract "revert" = none)
+    (hand : findInternalFunction? runtimeContract "and" = none)
+    (hiszero : findInternalFunction? runtimeContract "iszero" = none) :
+    YulStmtListCallsDisjointFromInternalTable runtimeContract (genParamLoads params) := by
+  have hbody := genParamLoadBodyFrom_calldataload_callsDisjoint runtimeContract
+    hcd hand hiszero (YulExpr.call "calldatasize" [])
+    ((params.map (fun p => paramHeadSize p.ty)).foldl (· + ·) 0) 4 params 4 hsupported
+  simp only [genParamLoads, genParamLoadsFrom]
+  refine .if_ _ _ _ ?_ ?_ hbody
+  · simp only [yulExprCallsDisjointFromInternalTable]
+    refine ⟨hlt, ?_⟩
+    intro arg harg
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at harg
+    rcases harg with h1 | h2
+    · subst h1
+      simp only [yulExprCallsDisjointFromInternalTable]
+      exact ⟨hcdsize, by intro a ha; simp at ha⟩
+    · subst h2; simp only [yulExprCallsDisjointFromInternalTable]
+  · refine .exprStmt _ _ ?_ .nil
+    simp only [yulExprCallsDisjointFromInternalTable]
+    refine ⟨hrevert, ?_⟩
+    intro arg harg
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at harg
+    rcases harg with h1 | h2
+    · subst h1; simp only [yulExprCallsDisjointFromInternalTable]
+    · subst h2; simp only [yulExprCallsDisjointFromInternalTable]
+
+/-- Package `genParamLoads` disjointness directly from the runtime contract's
+reserved-name invariant. Every helper name is reserved (`internal_`-, `__verity_`-,
+`checked_`-, or `panic_error_`-prefixed), while the six builtins emitted by the
+param-load prologue (`calldataload`, `calldatasize`, `lt`, `revert`, `and`,
+`iszero`) are provably *not* reserved, so none of them can resolve to a helper.
+This is the true seam that replaces the false "every helper is `internal_`-prefixed"
+premise: real compiler helpers are not `internal_`-prefixed, but they *are*
+reserved, so the invariant is dischargeable from actual compilation output. -/
+theorem genParamLoads_callsDisjoint_of_reserved
+    (runtimeContract : IRContract) (params : List Param)
+    (hsupported : ∀ param ∈ params, SupportedExternalParamType param.ty)
+    (hinv : InternalTableNamesReserved runtimeContract) :
+    YulStmtListCallsDisjointFromInternalTable runtimeContract (genParamLoads params) :=
+  genParamLoads_callsDisjoint_of_builtins runtimeContract params hsupported
+    (findInternalFunction?_eq_none_of_not_reserved runtimeContract "calldataload" hinv (by decide))
+    (findInternalFunction?_eq_none_of_not_reserved runtimeContract "calldatasize" hinv (by decide))
+    (findInternalFunction?_eq_none_of_not_reserved runtimeContract "lt" hinv (by decide))
+    (findInternalFunction?_eq_none_of_not_reserved runtimeContract "revert" hinv (by decide))
+    (findInternalFunction?_eq_none_of_not_reserved runtimeContract "and" hinv (by decide))
+    (findInternalFunction?_eq_none_of_not_reserved runtimeContract "iszero" hinv (by decide))
+
+/-- Package `genParamLoads` disjointness from the `internal_`-prefix naming
+invariant, routed through the reserved-name seam
+(`genParamLoads_callsDisjoint_of_reserved` +
+`InternalTableNamesReserved_of_internalPrefixed`). Retained as the compiled-only
+entry point; the populated-table path uses the reserved variant directly. -/
+theorem genParamLoads_callsDisjoint_of_internalNamesPrefixed
+    (runtimeContract : IRContract) (params : List Param)
+    (hsupported : ∀ param ∈ params, SupportedExternalParamType param.ty)
+    (hinv : InternalTableNamesInternalPrefixed runtimeContract) :
+    YulStmtListCallsDisjointFromInternalTable runtimeContract (genParamLoads params) :=
+  genParamLoads_callsDisjoint_of_reserved runtimeContract params hsupported
+    (InternalTableNamesReserved_of_internalPrefixed runtimeContract hinv)
+
+/-- The Yul name emitted for a compiled internal helper begins with
+`internalFunctionPrefix` (`"internal_"`). This is the structural fact that lets
+the whole-contract dispatch proof discharge `InternalTableNamesInternalPrefixed`
+directly from the compilation pipeline rather than assuming an empty internal
+table. -/
+theorem internalFunctionYulName_take_prefix (name : String) :
+    (internalFunctionYulName name).data.take internalFunctionPrefix.data.length =
+      internalFunctionPrefix.data := by
+  have hdata : (internalFunctionYulName name).data =
+      internalFunctionPrefix.data ++ name.data := by
+    have ts : ∀ s : String, toString s = s := fun _ => rfl
+    simp only [internalFunctionYulName, ts, String.data_append, List.nil_append, List.append_nil]
+  rw [hdata]
+  simp
+
+/-- Every successful `compileInternalFunction` output is a `funcDef` whose Yul
+name is exactly `internalFunctionYulName spec.name`. Mirrors the case analysis of
+`compileInternalFunction_ok_components`, extracting only the emitted name. -/
+theorem compileInternalFunction_isFuncDef_internalNamed
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (adtTypes : List AdtTypeDef) (spec : FunctionSpec)
+    (targetFork : Verity.Core.Intrinsics.HardFork)
+    (internalFunctions : List FunctionSpec) (stmt : YulStmt)
+    (hcompile : compileInternalFunction fields events errors adtTypes spec targetFork
+        internalFunctions = Except.ok stmt) :
+    ∃ params rets body,
+      stmt = YulStmt.funcDef (internalFunctionYulName spec.name) params rets body := by
+  unfold compileInternalFunction at hcompile
+  cases hvalidate : validateFunctionSpec spec
+  · rw [hvalidate] at hcompile
+    cases hcompile
+  case ok _ =>
+    cases hreturns : functionReturns spec
+    · rw [hvalidate, hreturns] at hcompile
+      cases hcompile
+    case ok returns =>
+      rw [hvalidate, hreturns] at hcompile
+      simp only [bind, Except.bind] at hcompile
+      cases hbody :
+          compileStmtListWithFork fields events errors .calldata
+            (freshInternalRetNames returns
+              (internalFunctionYulParamNames spec.params ++ collectStmtListBindNames spec.body))
+            true
+            (internalFunctionYulParamNames spec.params ++
+              freshInternalRetNames returns
+                (internalFunctionYulParamNames spec.params ++ collectStmtListBindNames spec.body))
+            adtTypes targetFork spec.body internalFunctions
+      · rw [hbody] at hcompile
+        cases hcompile
+      case ok bodyStmts =>
+        rw [hbody] at hcompile
+        simp only [pure, Except.pure, Except.ok.injEq] at hcompile
+        exact ⟨_, _, _, hcompile.symm⟩
+
+/-- If every statement in a runtime contract's internal table is the output of
+`compileInternalFunction`, then the contract satisfies
+`InternalTableNamesInternalPrefixed`. This packages the compiled-internal naming
+invariant for consumption by the whole-contract dispatch seam. -/
+theorem InternalTableNamesInternalPrefixed_of_all_compiledInternal
+    (runtimeContract : IRContract)
+    (hcompiled : ∀ stmt ∈ runtimeContract.internalFunctions,
+        ∃ (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+          (adtTypes : List AdtTypeDef) (spec : FunctionSpec)
+          (targetFork : Verity.Core.Intrinsics.HardFork)
+          (internalFunctions : List FunctionSpec),
+          compileInternalFunction fields events errors adtTypes spec targetFork internalFunctions
+            = Except.ok stmt) :
+    InternalTableNamesInternalPrefixed runtimeContract := by
+  intro d hd
+  rw [List.mem_filterMap] at hd
+  obtain ⟨stmt, hstmt, hdecode⟩ := hd
+  obtain ⟨fields, events, errors, adtTypes, spec, tf, ifs, hc⟩ := hcompiled stmt hstmt
+  obtain ⟨params, rets, body, hstmteq⟩ :=
+    compileInternalFunction_isFuncDef_internalNamed fields events errors adtTypes spec tf ifs stmt hc
+  subst hstmteq
+  simp only [irInternalFunctionDefOfStmt?_funcDef, Option.some.injEq] at hdecode
+  subst hdecode
+  exact internalFunctionYulName_take_prefix spec.name
 
 private theorem compiledStmt_scalar_events_callsDisjoint
     (runtimeContract : IRContract) (hinternal : runtimeContract.internalFunctions = [])

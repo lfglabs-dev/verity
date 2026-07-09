@@ -50,6 +50,44 @@ theorem compileFunctionSpec_ok_components
         refine ⟨returns, bodyStmts, ?_⟩
         exact ⟨by simp, by simp, by simpa [compileStmtList] using hbody, hEq.symm⟩
 
+/-- Parametric function-shape bridge for helper-aware compilation.  This is the
+same shape fact as `compileFunctionSpec_ok_components`, but it preserves the
+caller-provided ADT and internal-helper environments through to the body compile
+fact instead of specializing them to the legacy empty helper world. -/
+theorem compileFunctionSpec_ok_components_with_internals
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (adtTypes : List AdtTypeDef) (internalFunctions : List FunctionSpec)
+    (selector : Nat) (spec : FunctionSpec) (irFn : IRFunction)
+    (hcompile :
+      compileFunctionSpec fields events errors adtTypes selector spec .cancun internalFunctions =
+        Except.ok irFn) :
+    ∃ returns bodyStmts,
+      validateFunctionSpec spec = Except.ok () ∧
+      functionReturns spec = Except.ok returns ∧
+      compileStmtList fields events errors .calldata [] false
+        (spec.params.map (·.name)) adtTypes spec.body internalFunctions =
+          Except.ok bodyStmts ∧
+      irFn = compiledFunctionIR selector spec returns bodyStmts := by
+  unfold CompilationModel.compileFunctionSpec at hcompile
+  cases hvalidate : validateFunctionSpec spec
+  · rw [hvalidate] at hcompile
+    cases hcompile
+  case ok _ =>
+    cases hreturns : functionReturns spec
+    · rw [hvalidate, hreturns] at hcompile
+      cases hcompile
+    case ok returns =>
+      cases hbody :
+          compileStmtListWithFork fields events errors .calldata [] false
+            (spec.params.map (·.name)) adtTypes .cancun spec.body internalFunctions
+      · rw [hvalidate, hreturns, hbody] at hcompile
+        cases hcompile
+      case ok bodyStmts =>
+        rw [hvalidate, hreturns, hbody] at hcompile
+        injection hcompile with hEq
+        refine ⟨returns, bodyStmts, ?_⟩
+        exact ⟨by simp, by simp, by simpa [compileStmtList] using hbody, hEq.symm⟩
+
 end FunctionShape
 
 end Compiler.Proofs.IRGeneration

@@ -193,6 +193,44 @@ structure CompiledStmtStepWithHelpersAndHelperIR
         stmtStepMatchesIRExecWithInternals
           fields (stmtNextScope scope stmt) sourceResult irExec
 
+/-- Spec-functions-aware variant of `CompiledStmtStepWithHelpersAndHelperIR`.
+
+The existing generic list induction still reconstructs statement-list
+compilation through the default empty internal-function compiler argument.
+Expression-position internal-helper payloads, however, compile through
+`spec.functions`.  This witness records that exact compile shape while keeping
+the same helper-aware source/IR preservation contract.  It is the narrow API
+needed by helper-expression statement heads until the list-level induction gets
+the corresponding internal-functions-parametric compile/scope lemmas. -/
+structure CompiledStmtStepWithHelpersAndHelperIRWithInternals
+    (runtimeContract : IRContract)
+    (spec : CompilationModel)
+    (fields : List Field)
+    (scope : List String)
+    (stmt : Stmt)
+    (compiledIR : List YulStmt) : Prop where
+  compileOk :
+    CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
+        stmt spec.functions =
+      Except.ok compiledIR
+  preserves :
+    ∀ (runtime : SourceSemantics.RuntimeState)
+      (state : IRState)
+      (helperFuel : Nat)
+      (extraFuel : Nat),
+      0 < helperFuel →
+      FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state →
+      FunctionBody.scopeNamesPresent scope runtime.bindings →
+      FunctionBody.bindingsBounded runtime.bindings →
+      FunctionBody.runtimeStateMatchesIR fields runtime state →
+      sizeOf compiledIR - compiledIR.length ≤ extraFuel →
+      ∃ sourceResult irExec,
+        SourceSemantics.execStmtWithHelpers spec fields helperFuel runtime stmt = sourceResult ∧
+        execIRStmtsWithInternals runtimeContract
+          (compiledIR.length + extraFuel + 1) state compiledIR = irExec ∧
+        stmtStepMatchesIRExecWithInternals
+          fields (stmtNextScope scope stmt) sourceResult irExec
+
 /-- Any legacy generic statement-step proof remains valid for the helper-aware
 source semantics as long as the statement itself is helper-surface closed. This
 lets the existing helper-free library discharge the unchanged cases while the
@@ -290,6 +328,36 @@ theorem compileStmtList_ok_of_stmtListGenericCore_early
       exact ⟨headIR ++ tailIR,
         FunctionBody.compileStmtList_cons_ok_of_compileStmt_ok hhead htail⟩
 
+/-- Internal-functions-parametric cons reconstruction for `compileStmtList`.
+The existing `FunctionBody.compileStmtList_cons_eq_ok` defaults to `[]`; helper
+expression compilation needs the same structural reconstruction under
+`spec.functions`. -/
+theorem compileStmtList_cons_eq_ok_with_internals
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
+    (isInternal : Bool) (inScopeNames : List String)
+    (adtTypes : List AdtTypeDef) (stmt : Stmt) (rest : List Stmt)
+    (internalFunctions : List FunctionSpec)
+    (headIR tailIR : List YulStmt)
+    (hhead :
+      CompilationModel.compileStmt fields events errors dynamicSource
+        internalRetNames isInternal inScopeNames adtTypes stmt internalFunctions =
+          Except.ok headIR)
+    (htail :
+      CompilationModel.compileStmtList fields events errors dynamicSource
+        internalRetNames isInternal (collectStmtNames stmt ++ inScopeNames) adtTypes
+          rest internalFunctions =
+          Except.ok tailIR) :
+    CompilationModel.compileStmtList fields events errors dynamicSource
+      internalRetNames isInternal inScopeNames adtTypes (stmt :: rest) internalFunctions =
+        Except.ok (headIR ++ tailIR) := by
+  unfold CompilationModel.compileStmtList
+  unfold CompilationModel.compileStmtListWithFork
+  simp [bind, Except.bind, Pure.pure, Except.pure,
+    FunctionBody.compileStmtWithFork_cancun_eq_compileStmt,
+    FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList,
+    hhead, htail]
+
 /-- Weaker source-side reuse witness for the future helper-rich induction path:
 only helper-surface-closed heads must come with the existing helper-free
 generic step proof. Helper-surface-positive heads can instead be discharged by a
@@ -305,6 +373,29 @@ inductive StmtListHelperFreeStepInterface
           CompiledStmtStep fields scope stmt compiledIR) →
       StmtListHelperFreeStepInterface fields (stmtNextScope scope stmt) rest →
       StmtListHelperFreeStepInterface fields scope (stmt :: rest)
+
+/-- Spec-functions-aware helper-free head interface for mixed helper lists.
+
+This deliberately requires the exact `compileStmt ... spec.functions` witness
+for helper-free heads instead of converting from the legacy empty-helper-world
+compile proof. That keeps the remaining compiler-parametricity obligation
+visible while allowing mixed `WithInternals` list assembly to stop depending on
+`StmtListGenericWithHelpersAndHelperIR`. -/
+inductive StmtListHelperFreeStepInterfaceWithInternals
+    (runtimeContract : IRContract)
+    (spec : CompilationModel)
+    (fields : List Field) : List String → List Stmt → Prop where
+  | nil {scope : List String} :
+      StmtListHelperFreeStepInterfaceWithInternals runtimeContract spec fields scope []
+  | cons {scope : List String} {stmt : Stmt} {rest : List Stmt} :
+      (stmtTouchesUnsupportedHelperSurface stmt = false →
+        ∃ compiledIR,
+          CompiledStmtStepWithHelpersAndHelperIRWithInternals
+            runtimeContract spec fields scope stmt compiledIR) →
+      StmtListHelperFreeStepInterfaceWithInternals
+        runtimeContract spec fields (stmtNextScope scope stmt) rest →
+      StmtListHelperFreeStepInterfaceWithInternals
+        runtimeContract spec fields scope (stmt :: rest)
 
 /-- Scalar-event variant of the helper-free source-step interface. Event heads
 are discharged by `StmtListEventSurfaceStepInterface`, so helper-free compiled
@@ -368,6 +459,101 @@ inductive StmtListGenericWithHelpersAndHelperIR
       StmtListGenericWithHelpersAndHelperIR
         runtimeContract spec fields (stmtNextScope scope stmt) rest →
       StmtListGenericWithHelpersAndHelperIR runtimeContract spec fields scope (stmt :: rest)
+
+/-- Spec-functions-aware sibling of
+`StmtListGenericWithHelpersAndHelperIR`.  It is deliberately narrow: it records
+the same helper-aware source/IR preservation witness, but its compile facts are
+for `compileStmt ... stmt spec.functions`.  The arbitrary-scope reconstruction
+API is still blocked on a parametric version of
+`FunctionBody.compileStmt_ok_any_scope_with_surface`; this exact-scope seam is
+enough for callers that thread the compiler scope structurally. -/
+inductive StmtListGenericWithHelpersAndHelperIRWithInternals
+    (runtimeContract : IRContract)
+    (spec : CompilationModel)
+    (fields : List Field) : List String → List Stmt → Prop where
+  | nil {scope : List String} :
+      StmtListGenericWithHelpersAndHelperIRWithInternals
+        runtimeContract spec fields scope []
+  | cons {scope : List String} {stmt : Stmt} {compiledIR : List YulStmt} {rest : List Stmt} :
+      CompiledStmtStepWithHelpersAndHelperIRWithInternals
+        runtimeContract spec fields scope stmt compiledIR →
+      StmtListGenericWithHelpersAndHelperIRWithInternals
+        runtimeContract spec fields (stmtNextScope scope stmt) rest →
+      StmtListGenericWithHelpersAndHelperIRWithInternals
+        runtimeContract spec fields scope (stmt :: rest)
+
+/-- Exact-scope compile reconstruction for the spec-functions-aware helper IR
+list seam. -/
+theorem compileStmtList_ok_of_stmtListGenericWithHelpersAndHelperIRWithInternals_exact
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {stmts : List Stmt}
+    (hgeneric :
+      StmtListGenericWithHelpersAndHelperIRWithInternals
+        runtimeContract spec fields scope stmts) :
+    ∃ bodyIR,
+      CompilationModel.compileStmtList
+        fields spec.events spec.errors .calldata [] false scope [] stmts spec.functions =
+          Except.ok bodyIR := by
+  induction hgeneric with
+  | nil =>
+      exact ⟨[], by
+        simp [CompilationModel.compileStmtList, CompilationModel.compileStmtListWithFork,
+          Pure.pure, Except.pure]⟩
+  | @cons scope stmt compiledIR rest hstep _hrest ih =>
+      rcases ih with ⟨tailIR, htail⟩
+      exact ⟨compiledIR ++ tailIR,
+        compileStmtList_cons_eq_ok_with_internals
+          fields spec.events spec.errors .calldata [] false scope [] stmt rest
+          spec.functions compiledIR tailIR hstep.compileOk htail⟩
+
+/-- Scope-lifted compile reconstruction for the spec-functions-aware helper IR
+list seam.
+
+This is the `spec.functions` counterpart of
+`compileStmtList_ok_of_stmtListGenericWithHelpersAndHelperIR`: each exact head
+compile is first retargeted to the caller-provided scope with the
+internal-functions-parametric scope theorem, then the list is reconstructed
+under that same helper world. -/
+theorem compileStmtList_ok_of_stmtListGenericWithHelpersAndHelperIRWithInternals
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope inScopeNames : List String}
+    {stmts : List Stmt}
+    (hgeneric :
+      StmtListGenericWithHelpersAndHelperIRWithInternals
+        runtimeContract spec fields scope stmts)
+    (hincluded : FunctionBody.scopeNamesIncluded scope inScopeNames) :
+    ∃ bodyIR,
+      CompilationModel.compileStmtList
+        fields spec.events spec.errors .calldata [] false inScopeNames [] stmts spec.functions =
+          Except.ok bodyIR := by
+  induction hgeneric generalizing inScopeNames with
+  | nil =>
+      exact ⟨[], by
+        simp [CompilationModel.compileStmtList, CompilationModel.compileStmtListWithFork,
+          Pure.pure, Except.pure]⟩
+  | cons hstep _hrest ih =>
+      rcases FunctionBody.compileStmt_ok_any_scope_with_surface_with_internals
+          (scope2 := inScopeNames)
+          (internalFunctions := spec.functions)
+          ⟨_, hstep.compileOk⟩ with
+        ⟨headIR, hhead⟩
+      rcases ih (inScopeNames := collectStmtNames _ ++ inScopeNames)
+          (by
+            intro name hmem
+            simp [stmtNextScope] at hmem
+            rcases hmem with h | h
+            · exact List.mem_append_left _ h
+            · exact List.mem_append_right _ (hincluded name h))
+        with ⟨tailIR, htail⟩
+      exact ⟨headIR ++ tailIR,
+        compileStmtList_cons_eq_ok_with_internals
+          fields spec.events spec.errors .calldata [] false inScopeNames [] _ _
+          spec.functions headIR tailIR hhead htail⟩
 
 /-- Compiled-side compatibility witness for lifting existing helper-free generic
 statement proofs into the exact helper-aware compiled induction seam. This
@@ -494,6 +680,46 @@ inductive StmtListDirectInternalHelperAssignStepInterface
         runtimeContract spec fields (stmtNextScope scope stmt) rest →
       StmtListDirectInternalHelperAssignStepInterface runtimeContract spec fields scope (stmt :: rest)
 
+/-- Spec-functions-aware exact step interface for direct statement-position
+internal-helper heads. This mirrors
+`StmtListDirectInternalHelperCallStepInterface`, but records
+`compileStmt ... spec.functions` at the head. -/
+inductive StmtListDirectInternalHelperCallStepInterfaceWithInternals
+    (runtimeContract : IRContract)
+    (spec : CompilationModel)
+    (fields : List Field) : List String → List Stmt → Prop where
+  | nil {scope : List String} :
+      StmtListDirectInternalHelperCallStepInterfaceWithInternals runtimeContract spec fields scope []
+  | cons {scope : List String} {stmt : Stmt} {rest : List Stmt} :
+      (stmtTouchesDirectInternalHelperCallSurface stmt = true →
+        ∃ compiledIR,
+          CompiledStmtStepWithHelpersAndHelperIRWithInternals
+            runtimeContract spec fields scope stmt compiledIR) →
+      StmtListDirectInternalHelperCallStepInterfaceWithInternals
+        runtimeContract spec fields (stmtNextScope scope stmt) rest →
+      StmtListDirectInternalHelperCallStepInterfaceWithInternals
+        runtimeContract spec fields scope (stmt :: rest)
+
+/-- Spec-functions-aware exact step interface for direct statement-position
+helper-return binding heads. This mirrors
+`StmtListDirectInternalHelperAssignStepInterface`, but records
+`compileStmt ... spec.functions` at the head. -/
+inductive StmtListDirectInternalHelperAssignStepInterfaceWithInternals
+    (runtimeContract : IRContract)
+    (spec : CompilationModel)
+    (fields : List Field) : List String → List Stmt → Prop where
+  | nil {scope : List String} :
+      StmtListDirectInternalHelperAssignStepInterfaceWithInternals runtimeContract spec fields scope []
+  | cons {scope : List String} {stmt : Stmt} {rest : List Stmt} :
+      (stmtTouchesDirectInternalHelperAssignSurface stmt = true →
+        ∃ compiledIR,
+          CompiledStmtStepWithHelpersAndHelperIRWithInternals
+            runtimeContract spec fields scope stmt compiledIR) →
+      StmtListDirectInternalHelperAssignStepInterfaceWithInternals
+        runtimeContract spec fields (stmtNextScope scope stmt) rest →
+      StmtListDirectInternalHelperAssignStepInterfaceWithInternals
+        runtimeContract spec fields scope (stmt :: rest)
+
 /-- Coarser direct statement-position helper interface retained as the assembly
 point for the two direct helper proof shapes above. -/
 inductive StmtListDirectInternalHelperStepInterface
@@ -510,6 +736,25 @@ inductive StmtListDirectInternalHelperStepInterface
       StmtListDirectInternalHelperStepInterface
         runtimeContract spec fields (stmtNextScope scope stmt) rest →
       StmtListDirectInternalHelperStepInterface runtimeContract spec fields scope (stmt :: rest)
+
+/-- Spec-functions-aware coarser direct statement-position helper interface
+retained as the assembly point for the call/assign `WithInternals` proof
+shapes. -/
+inductive StmtListDirectInternalHelperStepInterfaceWithInternals
+    (runtimeContract : IRContract)
+    (spec : CompilationModel)
+    (fields : List Field) : List String → List Stmt → Prop where
+  | nil {scope : List String} :
+      StmtListDirectInternalHelperStepInterfaceWithInternals runtimeContract spec fields scope []
+  | cons {scope : List String} {stmt : Stmt} {rest : List Stmt} :
+      (stmtTouchesDirectInternalHelperSurface stmt = true →
+        ∃ compiledIR,
+          CompiledStmtStepWithHelpersAndHelperIRWithInternals
+            runtimeContract spec fields scope stmt compiledIR) →
+      StmtListDirectInternalHelperStepInterfaceWithInternals
+        runtimeContract spec fields (stmtNextScope scope stmt) rest →
+      StmtListDirectInternalHelperStepInterfaceWithInternals
+        runtimeContract spec fields scope (stmt :: rest)
 
 /-- Exact step interface for heads whose internal-helper work appears only in
 expression position at the current statement head. These are the cases that
@@ -530,6 +775,27 @@ inductive StmtListExprInternalHelperStepInterface
         runtimeContract spec fields (stmtNextScope scope stmt) rest →
       StmtListExprInternalHelperStepInterface runtimeContract spec fields scope (stmt :: rest)
 
+/-- Spec-functions-aware exact step interface for expression-position internal
+helper heads. This mirrors `StmtListExprInternalHelperStepInterface`, but the
+head proof records `compileStmt ... spec.functions`, so consumers can assemble
+the `WithInternals` list seam without passing through the legacy default-empty
+compile shape. -/
+inductive StmtListExprInternalHelperStepInterfaceWithInternals
+    (runtimeContract : IRContract)
+    (spec : CompilationModel)
+    (fields : List Field) : List String → List Stmt → Prop where
+  | nil {scope : List String} :
+      StmtListExprInternalHelperStepInterfaceWithInternals runtimeContract spec fields scope []
+  | cons {scope : List String} {stmt : Stmt} {rest : List Stmt} :
+      (stmtTouchesExprInternalHelperSurface stmt = true →
+        ∃ compiledIR,
+          CompiledStmtStepWithHelpersAndHelperIRWithInternals
+            runtimeContract spec fields scope stmt compiledIR) →
+      StmtListExprInternalHelperStepInterfaceWithInternals
+        runtimeContract spec fields (stmtNextScope scope stmt) rest →
+      StmtListExprInternalHelperStepInterfaceWithInternals
+        runtimeContract spec fields scope (stmt :: rest)
+
 /-- Exact step interface for structural heads whose helper burden is recursive
 transport through nested bodies (`ite` / `forEach`) rather than direct helper
 summary consumption at the head itself. -/
@@ -547,6 +813,25 @@ inductive StmtListStructuralInternalHelperStepInterface
       StmtListStructuralInternalHelperStepInterface
         runtimeContract spec fields (stmtNextScope scope stmt) rest →
       StmtListStructuralInternalHelperStepInterface runtimeContract spec fields scope (stmt :: rest)
+
+/-- Spec-functions-aware exact step interface for structural heads whose
+internal-helper work is recursive transport through nested statement lists. -/
+inductive StmtListStructuralInternalHelperStepInterfaceWithInternals
+    (runtimeContract : IRContract)
+    (spec : CompilationModel)
+    (fields : List Field) : List String → List Stmt → Prop where
+  | nil {scope : List String} :
+      StmtListStructuralInternalHelperStepInterfaceWithInternals
+        runtimeContract spec fields scope []
+  | cons {scope : List String} {stmt : Stmt} {rest : List Stmt} :
+      (stmtTouchesStructuralInternalHelperSurface stmt = true →
+        ∃ compiledIR,
+          CompiledStmtStepWithHelpersAndHelperIRWithInternals
+            runtimeContract spec fields scope stmt compiledIR) →
+      StmtListStructuralInternalHelperStepInterfaceWithInternals
+        runtimeContract spec fields (stmtNextScope scope stmt) rest →
+      StmtListStructuralInternalHelperStepInterfaceWithInternals
+        runtimeContract spec fields scope (stmt :: rest)
 
 /-- Residual exact-step interface for heads that still fall on the coarse old
 helper surface but do not actually execute internal helpers. Splitting these
@@ -567,6 +852,65 @@ inductive StmtListResidualHelperSurfaceStepInterface
       StmtListResidualHelperSurfaceStepInterface
         runtimeContract spec fields (stmtNextScope scope stmt) rest →
       StmtListResidualHelperSurfaceStepInterface runtimeContract spec fields scope (stmt :: rest)
+
+/-- Spec-functions-aware residual helper-surface interface. These heads still
+sit on the coarse helper surface but are not genuine internal-helper heads. -/
+inductive StmtListResidualHelperSurfaceStepInterfaceWithInternals
+    (runtimeContract : IRContract)
+    (spec : CompilationModel)
+    (fields : List Field) : List String → List Stmt → Prop where
+  | nil {scope : List String} :
+      StmtListResidualHelperSurfaceStepInterfaceWithInternals
+        runtimeContract spec fields scope []
+  | cons {scope : List String} {stmt : Stmt} {rest : List Stmt} :
+      (stmtTouchesUnsupportedHelperSurface stmt = true →
+        stmtTouchesInternalHelperSurface stmt = false →
+        ∃ compiledIR,
+          CompiledStmtStepWithHelpersAndHelperIRWithInternals
+            runtimeContract spec fields scope stmt compiledIR) →
+      StmtListResidualHelperSurfaceStepInterfaceWithInternals
+        runtimeContract spec fields (stmtNextScope scope stmt) rest →
+      StmtListResidualHelperSurfaceStepInterfaceWithInternals
+        runtimeContract spec fields scope (stmt :: rest)
+
+/-- Spec-functions-aware exact step interface for genuine internal-helper
+heads, assembled from direct, expression-position, and structural helper
+interfaces. -/
+inductive StmtListInternalHelperSurfaceStepInterfaceWithInternals
+    (runtimeContract : IRContract)
+    (spec : CompilationModel)
+    (fields : List Field) : List String → List Stmt → Prop where
+  | nil {scope : List String} :
+      StmtListInternalHelperSurfaceStepInterfaceWithInternals
+        runtimeContract spec fields scope []
+  | cons {scope : List String} {stmt : Stmt} {rest : List Stmt} :
+      (stmtTouchesInternalHelperSurface stmt = true →
+        ∃ compiledIR,
+          CompiledStmtStepWithHelpersAndHelperIRWithInternals
+            runtimeContract spec fields scope stmt compiledIR) →
+      StmtListInternalHelperSurfaceStepInterfaceWithInternals
+        runtimeContract spec fields (stmtNextScope scope stmt) rest →
+      StmtListInternalHelperSurfaceStepInterfaceWithInternals
+        runtimeContract spec fields scope (stmt :: rest)
+
+/-- Spec-functions-aware helper-surface interface, including genuine internal
+helper heads and residual coarse helper-surface heads. -/
+inductive StmtListHelperSurfaceStepInterfaceWithInternals
+    (runtimeContract : IRContract)
+    (spec : CompilationModel)
+    (fields : List Field) : List String → List Stmt → Prop where
+  | nil {scope : List String} :
+      StmtListHelperSurfaceStepInterfaceWithInternals
+        runtimeContract spec fields scope []
+  | cons {scope : List String} {stmt : Stmt} {rest : List Stmt} :
+      (stmtTouchesUnsupportedHelperSurface stmt = true →
+        ∃ compiledIR,
+          CompiledStmtStepWithHelpersAndHelperIRWithInternals
+            runtimeContract spec fields scope stmt compiledIR) →
+      StmtListHelperSurfaceStepInterfaceWithInternals
+        runtimeContract spec fields (stmtNextScope scope stmt) rest →
+      StmtListHelperSurfaceStepInterfaceWithInternals
+        runtimeContract spec fields scope (stmt :: rest)
 
 
 end Compiler.Proofs.IRGeneration

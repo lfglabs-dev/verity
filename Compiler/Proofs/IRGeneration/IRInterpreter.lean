@@ -2171,6 +2171,106 @@ noncomputable def interpretIRWithInternals
     findInternalFunction? contract name = none := by
   simp [findInternalFunction?, hinternal]
 
+/-- Naming invariant for a runtime contract's internal-function table: every
+decoded helper's name begins with `internalFunctionPrefix`. Compiled contracts
+satisfy this because helpers are emitted via `internalFunctionYulName`, which
+prepends the prefix. Phrasing the invariant via `String.data.take` avoids any
+dependence on defeq of `internalFunctionYulName` (which appends to an opaque
+tail). -/
+def InternalTableNamesInternalPrefixed (contract : IRContract) : Prop :=
+  ∀ d ∈ contract.internalFunctions.filterMap irInternalFunctionDefOfStmt?,
+    d.name.data.take CompilationModel.internalFunctionPrefix.data.length =
+      CompilationModel.internalFunctionPrefix.data
+
+/-- A name that is not `internal_`-prefixed cannot resolve to any helper in a
+contract whose internal table satisfies the naming invariant. This is the
+forward-compatible generalization of
+`findInternalFunction?_eq_none_of_internalFunctions_nil`: it discharges the
+`findInternalFunction? ... = none` obligation for a concrete non-prefixed name
+(e.g. an EVM/Yul builtin) without requiring the internal table to be empty. -/
+theorem findInternalFunction?_eq_none_of_not_internalPrefixed
+    (contract : IRContract) (name : String)
+    (hinv : InternalTableNamesInternalPrefixed contract)
+    (hname : name.data.take CompilationModel.internalFunctionPrefix.data.length ≠
+        CompilationModel.internalFunctionPrefix.data) :
+    findInternalFunction? contract name = none := by
+  simp only [findInternalFunction?]
+  rw [List.find?_eq_none]
+  intro d hd hpred
+  have hdname : d.name = name := by simpa using hpred
+  have hdtake := hinv d hd
+  rw [hdname] at hdtake
+  exact hname hdtake
+
+/-- Reserved name prefixes for compiler-emitted internal-table helpers. Every
+statement the compiler places in `IRContract.internalFunctions` is a helper whose
+Yul name begins with one of these:
+* `internal_` — source-level internal functions, emitted via
+  `internalFunctionYulName` (see `internalFunctionYulName_take_prefix`);
+* `__verity_` — built-in dynamic-data / full-precision-arithmetic helpers and
+  template intrinsics (`YulLowering.templateHelperName` names every template
+  helper `__verity_intrinsic_template_…`);
+* `checked_` — checked-arithmetic helpers (`checked_add_t_uint256`, …);
+* `panic_error_` — Solidity-compatible panic reverts (`panic_error_0x11`, …).
+None of the EVM/Yul builtins emitted by the ABI param-load prologue
+(`calldataload`, `calldatasize`, `lt`, `revert`, `and`, `iszero`) begins with any
+of these, so they are provably *not* reserved. -/
+def reservedInternalHelperPrefixes : List String :=
+  [CompilationModel.internalFunctionPrefix, "__verity_", "checked_", "panic_error_"]
+
+/-- A helper name is *reserved* when it carries one of the compiler's reserved
+helper prefixes. Phrased via `String.data.take` (rather than `String.startsWith`)
+so the `internal_` case reuses `internalFunctionYulName_take_prefix`, and so the
+predicate reduces under `decide` on concrete names. -/
+def IsReservedInternalHelperName (name : String) : Prop :=
+  ∃ p ∈ reservedInternalHelperPrefixes,
+    name.data.take p.data.length = p.data
+
+instance (name : String) : Decidable (IsReservedInternalHelperName name) := by
+  unfold IsReservedInternalHelperName
+  infer_instance
+
+/-- Reserved-name invariant for a runtime contract's internal-function table:
+every decoded helper name is reserved. This is the *true* generalization of
+`InternalTableNamesInternalPrefixed`: the compiled `internal_`-prefixed helpers
+satisfy it (`InternalTableNamesReserved_of_internalPrefixed`), and so do the
+non-`internal_` compiler helpers (`__verity_*`, `checked_*`, `panic_error_*`,
+template intrinsics) that a real *populated* internal table also contains. The
+consumer needs only that the param-load builtins are *not* reserved, so this
+invariant is dischargeable from the real compilation output rather than the
+false "every helper is `internal_`-prefixed" premise. -/
+def InternalTableNamesReserved (contract : IRContract) : Prop :=
+  ∀ d ∈ contract.internalFunctions.filterMap irInternalFunctionDefOfStmt?,
+    IsReservedInternalHelperName d.name
+
+/-- A name that is not reserved cannot resolve to any helper in a contract whose
+internal table satisfies `InternalTableNamesReserved`. Reserved-set generalization
+of `findInternalFunction?_eq_none_of_not_internalPrefixed`: it discharges
+`findInternalFunction? … = none` for a concrete non-reserved name (e.g. an
+EVM/Yul builtin) without requiring every helper to be `internal_`-prefixed. -/
+theorem findInternalFunction?_eq_none_of_not_reserved
+    (contract : IRContract) (name : String)
+    (hinv : InternalTableNamesReserved contract)
+    (hname : ¬ IsReservedInternalHelperName name) :
+    findInternalFunction? contract name = none := by
+  simp only [findInternalFunction?]
+  rw [List.find?_eq_none]
+  intro d hd hpred
+  have hdname : d.name = name := by simpa using hpred
+  have hdres := hinv d hd
+  rw [hdname] at hdres
+  exact hname hdres
+
+/-- Every `internal_`-prefixed table satisfies the weaker reserved-name invariant.
+Lets the compiled-internal naming route (which yields
+`InternalTableNamesInternalPrefixed`) feed the reserved-name consumer seam. -/
+theorem InternalTableNamesReserved_of_internalPrefixed
+    (contract : IRContract)
+    (hinv : InternalTableNamesInternalPrefixed contract) :
+    InternalTableNamesReserved contract :=
+  fun d hd => ⟨CompilationModel.internalFunctionPrefix,
+    by simp [reservedInternalHelperPrefixes], hinv d hd⟩
+
 /-- The first compiled-side helper retarget theorem only needs the current
 helper-free runtime-contract shape: no internal helpers and legacy-compatible
 external bodies. Encoding that shape as a proposition keeps the remaining

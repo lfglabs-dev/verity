@@ -135,6 +135,51 @@ theorem compiledStmtStepWithHelpersAndHelperIR_internalCall_of_callHeadStepBridg
         hcompile
         hargCompile)
 
+/-- Build a spec-functions-aware helper-aware singleton compiled-step proof for
+a direct void internal helper call from the exact `WithInternals` call-head
+bridge. -/
+theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCall_of_callHeadStepBridgeWithInternals
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {calleeName : String}
+    {args : List Expr}
+    (hbridge :
+      DirectInternalHelperCallHeadStepBridgeWithInternals runtimeContract spec fields calleeName) :
+    ∃ compiledIR,
+      CompiledStmtStepWithHelpersAndHelperIRWithInternals
+        runtimeContract
+        spec
+        fields
+        scope
+        (Stmt.internalCall calleeName args)
+        compiledIR := by
+  rcases hbridge.compile (scope := scope) (args := args) with
+    ⟨compiledIR, hcompile⟩
+  obtain ⟨argExprs, hargCompile, _⟩ :=
+    compileStmt_internalCall_shape_with_internals hcompile
+  refine ⟨compiledIR, ?_⟩
+  exact
+    compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCall
+      (runtimeContract := runtimeContract)
+      (spec := spec)
+      (fields := fields)
+      (scope := scope)
+      (calleeName := calleeName)
+      (args := args)
+      (compiledIR := compiledIR)
+      (argExprs := argExprs)
+      hcompile
+      hargCompile
+      (hbridge.bridge
+        (scope := scope)
+        (args := args)
+        (compiledIR := compiledIR)
+        (argExprs := argExprs)
+        hcompile
+        hargCompile)
+
 /-- Non-vacuous list witness for a statement list headed by
 `Stmt.internalCall`.  The head proof comes from the call bridge; the tail remains
 the ordinary list interface at the post-head scope. -/
@@ -184,6 +229,54 @@ theorem stmtListDirectInternalHelperCallStepInterface_cons_internalCall_of_callH
       hstep
       hrest
 
+/-- Non-vacuous `WithInternals` list witness for a statement list headed by
+`Stmt.internalCall`. -/
+theorem stmtListDirectInternalHelperCallStepInterfaceWithInternals_cons_internalCall_of_callHeadStepBridgeWithInternals
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {calleeName : String}
+    {args : List Expr}
+    {rest : List Stmt}
+    (hbridge :
+      DirectInternalHelperCallHeadStepBridgeWithInternals runtimeContract spec fields calleeName)
+    (hrest :
+      StmtListDirectInternalHelperCallStepInterfaceWithInternals
+        runtimeContract
+        spec
+        fields
+        (stmtNextScope scope (Stmt.internalCall calleeName args))
+        rest) :
+    StmtListDirectInternalHelperCallStepInterfaceWithInternals
+      runtimeContract
+      spec
+      fields
+      scope
+      (Stmt.internalCall calleeName args :: rest) := by
+  rcases
+      compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCall_of_callHeadStepBridgeWithInternals
+        (runtimeContract := runtimeContract)
+        (spec := spec)
+        (fields := fields)
+        (scope := scope)
+        (calleeName := calleeName)
+        (args := args)
+        hbridge with
+    ⟨compiledIR, hstep⟩
+  exact
+    stmtListDirectInternalHelperCallStepInterfaceWithInternals_cons_internalCall
+      (runtimeContract := runtimeContract)
+      (spec := spec)
+      (fields := fields)
+      (scope := scope)
+      (calleeName := calleeName)
+      (args := args)
+      (compiledIR := compiledIR)
+      (rest := rest)
+      hstep
+      hrest
+
 /-- Assemble the direct void-helper-call list interface from per-callee call
 bridges for the helper names that occur in this statement list.  This is the
 call-only counterpart of the broader direct-helper catalog assembly and does
@@ -208,6 +301,37 @@ theorem stmtListDirectInternalHelperCallStepInterface_of_callHeadStepBridges
       (stmts := stmts)
       (fun {scope} {calleeName} {args} hmem =>
         compiledStmtStepWithHelpersAndHelperIR_internalCall_of_callHeadStepBridge
+          (runtimeContract := runtimeContract)
+          (spec := spec)
+          (fields := fields)
+          (scope := scope)
+          (calleeName := calleeName)
+          (args := args)
+          (hbridge hmem))
+
+/-- Assemble the spec-functions-aware direct void-helper-call list interface
+from per-callee `WithInternals` call bridges for helper names in the list. -/
+theorem stmtListDirectInternalHelperCallStepInterfaceWithInternals_of_callHeadStepBridgesWithInternals
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {stmts : List Stmt}
+    (hbridge :
+      ∀ {calleeName : String},
+        calleeName ∈ (stmtListInternalHelperCallNames stmts).eraseDups →
+        DirectInternalHelperCallHeadStepBridgeWithInternals runtimeContract spec fields calleeName) :
+    StmtListDirectInternalHelperCallStepInterfaceWithInternals
+      runtimeContract spec fields scope stmts := by
+  exact
+    stmtListDirectInternalHelperCallStepInterfaceWithInternals_of_internalCallSteps_of_helperCallNames
+      (runtimeContract := runtimeContract)
+      (spec := spec)
+      (fields := fields)
+      (scope := scope)
+      (stmts := stmts)
+      (fun {scope} {calleeName} {args} hmem =>
+        compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCall_of_callHeadStepBridgeWithInternals
           (runtimeContract := runtimeContract)
           (spec := spec)
           (fields := fields)
@@ -273,6 +397,45 @@ theorem compiledStmtStepWithHelpersAndHelperIR_internalCallAssign_of_assignHeadS
         hcompile
         hargCompile)
 
+/-- Build a spec-functions-aware helper-aware singleton compiled-step proof for
+a direct helper return binding from the exact `WithInternals` assign-head
+bridge. -/
+theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCallAssign_of_assignHeadStepBridgeWithInternals
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {names : List String}
+    {calleeName : String}
+    {args : List Expr}
+    (hbridge :
+      DirectInternalHelperAssignHeadStepBridgeWithInternals runtimeContract spec fields calleeName) :
+    ∃ compiledIR,
+      CompiledStmtStepWithHelpersAndHelperIRWithInternals
+        runtimeContract
+        spec
+        fields
+        scope
+        (Stmt.internalCallAssign names calleeName args)
+        compiledIR := by
+  rcases hbridge.compile (scope := scope) (names := names) (args := args) with
+    ⟨compiledIR, hcompile⟩
+  obtain ⟨argExprs, hargCompile, _⟩ :=
+    compileStmt_internalCallAssign_shape_with_internals hcompile
+  refine ⟨compiledIR, ?_⟩
+  exact
+    compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCallAssign
+      hcompile
+      hargCompile
+      (hbridge.bridge
+        (scope := scope)
+        (names := names)
+        (args := args)
+        (compiledIR := compiledIR)
+        (argExprs := argExprs)
+        hcompile
+        hargCompile)
+
 /-- Non-vacuous list witness for a statement list headed by
 `Stmt.internalCallAssign`.  The head proof comes from the assign bridge; the
 tail remains the ordinary list interface at the post-head scope. -/
@@ -316,6 +479,48 @@ theorem stmtListDirectInternalHelperAssignStepInterface_cons_internalCallAssign_
       hstep
       hrest
 
+/-- Non-vacuous `WithInternals` list witness for a statement list headed by
+`Stmt.internalCallAssign`. -/
+theorem stmtListDirectInternalHelperAssignStepInterfaceWithInternals_cons_internalCallAssign_of_assignHeadStepBridgeWithInternals
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {names : List String}
+    {calleeName : String}
+    {args : List Expr}
+    {rest : List Stmt}
+    (hbridge :
+      DirectInternalHelperAssignHeadStepBridgeWithInternals runtimeContract spec fields calleeName)
+    (hrest :
+      StmtListDirectInternalHelperAssignStepInterfaceWithInternals
+        runtimeContract
+        spec
+        fields
+        (stmtNextScope scope (Stmt.internalCallAssign names calleeName args))
+        rest) :
+    StmtListDirectInternalHelperAssignStepInterfaceWithInternals
+      runtimeContract
+      spec
+      fields
+      scope
+      (Stmt.internalCallAssign names calleeName args :: rest) := by
+  rcases
+      compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCallAssign_of_assignHeadStepBridgeWithInternals
+        (runtimeContract := runtimeContract)
+        (spec := spec)
+        (fields := fields)
+        (scope := scope)
+        (names := names)
+        (calleeName := calleeName)
+        (args := args)
+        hbridge with
+    ⟨compiledIR, hstep⟩
+  exact
+    stmtListDirectInternalHelperAssignStepInterfaceWithInternals_cons_internalCallAssign
+      hstep
+      hrest
+
 /-- Assemble the direct helper-return-binding list interface from per-callee
 assign bridges for the helper names that occur in this statement list.  This is
 the assign-only counterpart of the broader direct-helper catalog assembly. -/
@@ -339,6 +544,38 @@ theorem stmtListDirectInternalHelperAssignStepInterface_of_assignHeadStepBridges
       (stmts := stmts)
       (fun {scope} {names} {calleeName} {args} hmem =>
         compiledStmtStepWithHelpersAndHelperIR_internalCallAssign_of_assignHeadStepBridge
+          (runtimeContract := runtimeContract)
+          (spec := spec)
+          (fields := fields)
+          (scope := scope)
+          (names := names)
+          (calleeName := calleeName)
+          (args := args)
+          (hbridge hmem))
+
+/-- Assemble the spec-functions-aware direct helper-return-binding list
+interface from per-callee `WithInternals` assign bridges. -/
+theorem stmtListDirectInternalHelperAssignStepInterfaceWithInternals_of_assignHeadStepBridgesWithInternals
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {stmts : List Stmt}
+    (hbridge :
+      ∀ {calleeName : String},
+        calleeName ∈ (stmtListInternalHelperCallNames stmts).eraseDups →
+        DirectInternalHelperAssignHeadStepBridgeWithInternals runtimeContract spec fields calleeName) :
+    StmtListDirectInternalHelperAssignStepInterfaceWithInternals
+      runtimeContract spec fields scope stmts := by
+  exact
+    stmtListDirectInternalHelperAssignStepInterfaceWithInternals_of_internalCallAssignSteps_of_helperCallNames
+      (runtimeContract := runtimeContract)
+      (spec := spec)
+      (fields := fields)
+      (scope := scope)
+      (stmts := stmts)
+      (fun {scope} {names} {calleeName} {args} hmem =>
+        compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCallAssign_of_assignHeadStepBridgeWithInternals
           (runtimeContract := runtimeContract)
           (spec := spec)
           (fields := fields)
@@ -722,6 +959,32 @@ def ExprInternalHelperCompositionalContextResult
         calleeName args hctx helperFuel irFuel headRuntime headState argState
         argVals argExprs
 
+/-- Post-expression state facts paired with the compositional helper payload.
+
+The base helper-head payload intentionally stays smaller: proving these facts
+for a direct `Expr.internalCall` still needs a compiled-helper state-preservation
+theorem for `execIRInternalFunctionWithInternals`.  This companion is the narrow
+shape statement-head adapters need once a constructor-specific expression proof
+has already established that the final IR state still matches the unchanged
+source runtime and old scope bindings. -/
+def ExprInternalHelperCompositionalPostStateResult
+    (runtimeContract : IRContract)
+    (spec : CompilationModel)
+    (fields : List Field)
+    (scope : List String)
+    (expr : Expr)
+    (exprIR : YulExpr)
+    (helperFuel irFuel : Nat)
+    (runtime headRuntime : SourceSemantics.RuntimeState)
+    (state headState finalState : IRState)
+    (value : Nat) : Prop :=
+  ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+      expr exprIR helperFuel irFuel runtime headRuntime state headState
+      finalState value ∧
+    FunctionBody.runtimeStateMatchesIR fields runtime finalState ∧
+    FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings finalState ∧
+    value < Compiler.Constants.evmModulus
+
 /-- Direct-head base case for the compositional expression-context payload. -/
 theorem exprInternalHelperCompositionalContextResult_internalCall_head
     {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
@@ -1061,6 +1324,14 @@ def exprAddValue (leftValue rightValue : Nat) : Nat :=
     (Verity.Core.Uint256.ofNat (leftValue % Compiler.Constants.evmModulus))
     (Verity.Core.Uint256.ofNat (rightValue % Compiler.Constants.evmModulus))).val
 
+theorem exprAddValue_lt_evmModulus (leftValue rightValue : Nat) :
+    exprAddValue leftValue rightValue < Compiler.Constants.evmModulus := by
+  simpa [exprAddValue, Verity.Core.Uint256.modulus,
+    Verity.Core.UINT256_MODULUS, Compiler.Constants.evmModulus] using
+    (Verity.Core.Uint256.add
+      (Verity.Core.Uint256.ofNat (leftValue % Compiler.Constants.evmModulus))
+      (Verity.Core.Uint256.ofNat (rightValue % Compiler.Constants.evmModulus))).isLt
+
 /-- Constructor-specific compiler shape for `Expr.add` once both children have
 already compiled. -/
 theorem compileExprWithInternals_add_of_children
@@ -1164,6 +1435,52 @@ theorem exprInternalHelperCompositionalContextResult_add_right_threaded
       (headState := headState)
       hright hcompile hsource hir
 
+/-- Post-state companion for the phase-9 `Expr.add` right-helper bridge.
+
+The `Expr.add` IR evaluation finishes in the same state produced by the
+right-hand child, so once the right child carries the post-expression source/IR
+state facts, the parent expression preserves them without any additional
+helper-body theorem. -/
+theorem exprInternalHelperCompositionalPostStateResult_add_right_threaded
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {scope : List String}
+    {left right : Expr} {leftIR rightIR : YulExpr} {helperFuel irFuel : Nat}
+    {runtime headRuntime : SourceSemantics.RuntimeState}
+    {parentState rightEntryState headState rightFinalState finalState : IRState}
+    {leftValue rightValue : Nat}
+    (hright : ExprInternalHelperCompositionalPostStateResult runtimeContract spec fields scope
+      right rightIR helperFuel irFuel runtime headRuntime rightEntryState headState
+      rightFinalState rightValue)
+    (hcompileLeft :
+      CompilationModel.compileExprWithInternals fields .calldata spec.functions left =
+        Except.ok leftIR)
+    (hsourceLeft : SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1) runtime left =
+      some leftValue)
+    (hirLeft :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) parentState leftIR =
+        .value leftValue rightEntryState)
+    (hirRight :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) rightEntryState rightIR =
+        .value rightValue finalState)
+    (hfindAdd : findInternalFunction? runtimeContract "add" = none)
+    (hfinalEq : finalState = rightFinalState) :
+    ExprInternalHelperCompositionalPostStateResult runtimeContract spec fields scope
+      (Expr.add left right) (YulExpr.call "add" [leftIR, rightIR]) helperFuel irFuel
+      runtime headRuntime parentState headState finalState
+      (exprAddValue leftValue rightValue) := by
+  rcases hright with ⟨hrightResult, hrightRuntime, hrightExact, _hrightLt⟩
+  subst hfinalEq
+  refine ⟨?_, hrightRuntime, hrightExact, exprAddValue_lt_evmModulus leftValue rightValue⟩
+  exact
+    exprInternalHelperCompositionalContextResult_add_right_threaded
+      (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+      (left := left) (right := right) (leftIR := leftIR) (rightIR := rightIR)
+      (helperFuel := helperFuel) (irFuel := irFuel)
+      (runtime := runtime) (headRuntime := headRuntime)
+      (parentState := parentState) (rightEntryState := rightEntryState)
+      (headState := headState)
+      hrightResult hcompileLeft hsourceLeft hirLeft hirRight hfindAdd
+
 /-- Expression-helper statement-head bridge. Future helper-summary induction
 should construct this for each statement head whose helper work appears in
 expression position. The semantic payload is the exact helper-aware source/IR
@@ -1182,6 +1499,46 @@ structure ExprInternalHelperHeadStepBridge
   bridge :
     ∀ {scope : List String} {compiledIR : List YulStmt},
       CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope [] stmt =
+        Except.ok compiledIR →
+      ∀ (runtime : SourceSemantics.RuntimeState)
+        (state : IRState)
+        (helperFuel : Nat)
+        (irFuel : Nat),
+        0 < helperFuel →
+        FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state →
+        FunctionBody.scopeNamesPresent scope runtime.bindings →
+        FunctionBody.bindingsBounded runtime.bindings →
+        FunctionBody.runtimeStateMatchesIR fields runtime state →
+        sizeOf compiledIR - compiledIR.length ≤ irFuel →
+        stmtStepMatchesIRExecWithInternals fields
+          (stmtNextScope scope stmt)
+          (SourceSemantics.execStmtWithHelpers spec fields helperFuel runtime stmt)
+          (execIRStmtsWithInternals runtimeContract
+            (compiledIR.length + irFuel + 1) state compiledIR)
+
+/-- Spec-functions variant of `ExprInternalHelperHeadStepBridge`.
+
+This closes the compile-shape gap for expression-position helper heads: the
+statement compile obligation uses the same `spec.functions` internal-helper
+environment carried by `compileExprWithInternals` payloads.  The legacy bridge
+above is left unchanged for the existing generic interface, whose
+`CompiledStmtStepWithHelpersAndHelperIR.compileOk` field still records the
+default empty-internal-function compile shape. -/
+structure ExprInternalHelperHeadStepBridgeWithInternals
+    (runtimeContract : IRContract)
+    (spec : CompilationModel)
+    (fields : List Field)
+    (stmt : Stmt) : Prop where
+  compile :
+    ∀ {scope : List String},
+      ∃ compiledIR,
+        CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
+            stmt spec.functions =
+          Except.ok compiledIR
+  bridge :
+    ∀ {scope : List String} {compiledIR : List YulStmt},
+      CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
+          stmt spec.functions =
         Except.ok compiledIR →
       ∀ (runtime : SourceSemantics.RuntimeState)
         (state : IRState)
@@ -1352,6 +1709,217 @@ theorem exprInternalHelperHeadStepBridge_letVar_of_exprCompositionalResult
     rw [hsourceExec, hirExec]
     exact ⟨hruntime', hexact', hbounded', hscope'⟩
 
+/-- Spec-functions `Stmt.letVar` head adapter from a post-state expression
+payload.  Unlike `exprInternalHelperHeadStepBridge_letVar_of_exprCompositionalResult`,
+this bridge uses the same `spec.functions` compile shape as the expression
+payload and consumes the post-expression source/IR state facts directly from
+`ExprInternalHelperCompositionalPostStateResult`. -/
+theorem exprInternalHelperHeadStepBridgeWithInternals_letVar_of_exprPostStateResult
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {name : String}
+    {value : Expr}
+    {valueIR : YulExpr}
+    (hvalueCompileSpec :
+      CompilationModel.compileExprWithInternals fields .calldata spec.functions value =
+        Except.ok valueIR)
+    (hvalue :
+      ∀ {scope : List String}
+        {runtime : SourceSemantics.RuntimeState}
+        {state : IRState}
+        {helperFuel irFuel : Nat},
+        0 < helperFuel →
+        0 < irFuel →
+        FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state →
+        FunctionBody.scopeNamesPresent scope runtime.bindings →
+        FunctionBody.bindingsBounded runtime.bindings →
+        FunctionBody.runtimeStateMatchesIR fields runtime state →
+        ∃ finalState valueNat,
+          ExprInternalHelperCompositionalPostStateResult runtimeContract spec fields scope
+            value valueIR (helperFuel - 1) (irFuel - 1) runtime runtime state state
+            finalState valueNat)
+    (hvalueNamesInScope :
+      ∀ {scope : List String}
+        {runtime : SourceSemantics.RuntimeState}
+        {state : IRState}
+        {helperFuel irFuel : Nat},
+        0 < helperFuel →
+        0 < irFuel →
+        FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state →
+        FunctionBody.scopeNamesPresent scope runtime.bindings →
+        FunctionBody.bindingsBounded runtime.bindings →
+        FunctionBody.runtimeStateMatchesIR fields runtime state →
+        ∀ {n : String}, n ∈ collectExprNames value → n ∈ scope) :
+    ExprInternalHelperHeadStepBridgeWithInternals runtimeContract spec fields
+      (Stmt.letVar name value) := by
+  refine ⟨?_, ?_⟩
+  · intro scope
+    exact ⟨[YulStmt.let_ name valueIR],
+      compileStmt_letVar_of_compileExprWithInternals
+        (events := spec.events) (errors := spec.errors) (scope := scope)
+        (name := name) hvalueCompileSpec⟩
+  · intro scope compiledIR hcompile runtime state helperFuel irFuel hfuelPos
+      hexact hscope hbounded hruntime hslack
+    have hcompiledEq : compiledIR = [YulStmt.let_ name valueIR] := by
+      have hshape :=
+        compileStmt_letVar_of_compileExprWithInternals
+          (events := spec.events) (errors := spec.errors) (scope := scope)
+          (name := name) hvalueCompileSpec
+      exact Except.ok.inj (hcompile.symm.trans hshape)
+    subst hcompiledEq
+    have hirFuelPos : 0 < irFuel := by
+      have hsize : sizeOf [YulStmt.let_ name valueIR] ≥ 2 := by
+        simp
+      simp at hslack
+      omega
+    rcases hvalue (scope := scope) (runtime := runtime) (state := state)
+        (helperFuel := helperFuel) (irFuel := irFuel) hfuelPos hirFuelPos
+        hexact hscope hbounded hruntime with
+      ⟨finalState, valueNat, hpost⟩
+    rcases hpost with ⟨hresult, hfinalRuntime, hfinalExact, hvalueLt⟩
+    have hresultFacts := hresult
+    unfold ExprInternalHelperCompositionalContextResult at hresultFacts
+    rcases hresultFacts with ⟨_hcompileExpr, hsourceValue, hirValue, _, _helperPayload⟩
+    have hhelperFuelEq : helperFuel - 1 + 1 = helperFuel := by
+      omega
+    have hirFuelEq : irFuel - 1 + 1 = irFuel := by
+      omega
+    rw [hhelperFuelEq] at hsourceValue
+    rw [hirFuelEq] at hirValue
+    let runtime' : SourceSemantics.RuntimeState :=
+      { runtime with bindings := SourceSemantics.bindValue runtime.bindings name valueNat }
+    let state' : IRState := finalState.setVar name valueNat
+    have hsourceExec :
+        SourceSemantics.execStmtWithHelpers spec fields helperFuel runtime
+            (Stmt.letVar name value) =
+          .continue runtime' := by
+      simp [SourceSemantics.execStmtWithHelpers, hsourceValue, runtime']
+    have hirExec :
+        execIRStmtsWithInternals runtimeContract
+            ([YulStmt.let_ name valueIR].length + irFuel + 1) state
+            [YulStmt.let_ name valueIR] =
+          .continue state' := by
+      have houter :
+          [YulStmt.let_ name valueIR].length + irFuel + 1 =
+            Nat.succ (Nat.succ irFuel) := by
+        simp
+        omega
+      rw [houter]
+      simp only [execIRStmtsWithInternals]
+      simp [execIRStmtWithInternals, hirValue, state']
+    have hruntime' : FunctionBody.runtimeStateMatchesIR fields runtime' state' := by
+      exact FunctionBody.runtimeStateMatchesIR_setVar_bindValue hfinalRuntime name valueNat
+    have hexactBase : FunctionBody.bindingsExactlyMatchIRVarsOnScope
+        (name :: scope) runtime'.bindings state' :=
+      FunctionBody.bindingsExactlyMatchIRVarsOnScope_setVar_bindValue hfinalExact
+    have hnextIncl : FunctionBody.scopeNamesIncluded
+        (stmtNextScope scope (Stmt.letVar name value)) (name :: scope) := by
+      intro n hn
+      simp [stmtNextScope, collectStmtNames] at hn
+      rcases hn with rfl | hn | hn
+      · simp
+      · exact List.mem_cons_of_mem _
+          (hvalueNamesInScope hfuelPos hirFuelPos hexact hscope hbounded hruntime hn)
+      · exact List.mem_cons_of_mem _ hn
+    have hexact' : FunctionBody.bindingsExactlyMatchIRVarsOnScope
+        (stmtNextScope scope (Stmt.letVar name value)) runtime'.bindings state' :=
+      FunctionBody.bindingsExactlyMatchIRVarsOnScope_of_included hexactBase hnextIncl
+    have hbounded' : FunctionBody.bindingsBounded runtime'.bindings :=
+      FunctionBody.bindingsBounded_bindValue hbounded name valueNat hvalueLt
+    have hscopeBase : FunctionBody.scopeNamesPresent (name :: scope) runtime'.bindings :=
+      FunctionBody.scopeNamesPresent_cons_bindValue hscope
+    have hscope' : FunctionBody.scopeNamesPresent
+        (stmtNextScope scope (Stmt.letVar name value)) runtime'.bindings :=
+      FunctionBody.scopeNamesPresent_of_included hscopeBase hnextIncl
+    rw [hsourceExec, hirExec]
+    exact ⟨hruntime', hexact', hbounded', hscope'⟩
+
+/-- Concrete spec-functions `Stmt.letVar` bridge for a value expression of the
+form `Expr.add left right` when the helper payload is in the right operand.
+This instantiates the statement-head adapter with the phase-9 constructor
+bridge and the post-state companion above. -/
+theorem exprInternalHelperHeadStepBridgeWithInternals_letVar_add_right_threaded
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {name : String}
+    {left right : Expr}
+    {leftIR rightIR : YulExpr}
+    (hcompileLeft :
+      CompilationModel.compileExprWithInternals fields .calldata spec.functions left =
+        Except.ok leftIR)
+    (hcompileRight :
+      CompilationModel.compileExprWithInternals fields .calldata spec.functions right =
+        Except.ok rightIR)
+    (hvalue :
+      ∀ {scope : List String}
+        {runtime : SourceSemantics.RuntimeState}
+        {state : IRState}
+        {helperFuel irFuel : Nat},
+        0 < helperFuel →
+        0 < irFuel →
+        FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state →
+        FunctionBody.scopeNamesPresent scope runtime.bindings →
+        FunctionBody.bindingsBounded runtime.bindings →
+        FunctionBody.runtimeStateMatchesIR fields runtime state →
+        ∃ rightEntryState finalState leftValue rightValue,
+          SourceSemantics.evalExprWithHelpers spec fields (helperFuel - 1 + 1)
+              runtime left =
+            some leftValue ∧
+          evalIRExprWithInternals runtimeContract (irFuel - 1 + 1) state leftIR =
+            .value leftValue rightEntryState ∧
+          ExprInternalHelperCompositionalPostStateResult runtimeContract spec fields scope
+            right rightIR (helperFuel - 1) (irFuel - 1) runtime runtime
+            rightEntryState state finalState rightValue ∧
+          evalIRExprWithInternals runtimeContract (irFuel - 1 + 1) rightEntryState rightIR =
+            .value rightValue finalState ∧
+          findInternalFunction? runtimeContract "add" = none)
+    (hvalueNamesInScope :
+      ∀ {scope : List String}
+        {runtime : SourceSemantics.RuntimeState}
+        {state : IRState}
+        {helperFuel irFuel : Nat},
+        0 < helperFuel →
+        0 < irFuel →
+        FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state →
+        FunctionBody.scopeNamesPresent scope runtime.bindings →
+        FunctionBody.bindingsBounded runtime.bindings →
+        FunctionBody.runtimeStateMatchesIR fields runtime state →
+        ∀ {n : String}, n ∈ collectExprNames (Expr.add left right) → n ∈ scope) :
+    ExprInternalHelperHeadStepBridgeWithInternals runtimeContract spec fields
+      (Stmt.letVar name (Expr.add left right)) := by
+  have hvalueCompileSpec :
+      CompilationModel.compileExprWithInternals fields .calldata spec.functions
+          (Expr.add left right) =
+        Except.ok (YulExpr.call "add" [leftIR, rightIR]) :=
+    compileExprWithInternals_add_of_children hcompileLeft hcompileRight
+  exact
+    exprInternalHelperHeadStepBridgeWithInternals_letVar_of_exprPostStateResult
+      (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+      (name := name) (value := Expr.add left right)
+      (valueIR := YulExpr.call "add" [leftIR, rightIR])
+      hvalueCompileSpec
+      (fun {scope} {runtime} {state} {helperFuel} {irFuel}
+          hfuelPos hirFuelPos hexact hscope hbounded hruntime => by
+        rcases hvalue (scope := scope) (runtime := runtime) (state := state)
+            (helperFuel := helperFuel) (irFuel := irFuel)
+            hfuelPos hirFuelPos hexact hscope hbounded hruntime with
+          ⟨rightEntryState, finalState, leftValue, rightValue,
+            hsourceLeft, hirLeft, hrightPost, hirRight, hfindAdd⟩
+        refine ⟨finalState, exprAddValue leftValue rightValue, ?_⟩
+        exact
+          exprInternalHelperCompositionalPostStateResult_add_right_threaded
+            (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+            (scope := scope)
+            (left := left) (right := right) (leftIR := leftIR) (rightIR := rightIR)
+            (helperFuel := helperFuel - 1) (irFuel := irFuel - 1)
+            (runtime := runtime) (headRuntime := runtime)
+            (parentState := state) (rightEntryState := rightEntryState)
+            (headState := state)
+            hrightPost hcompileLeft hsourceLeft hirLeft hirRight hfindAdd rfl)
+      hvalueNamesInScope
+
 /-- Build a helper-aware singleton statement proof for an expression-position
 helper head from the exact expression-head bridge. -/
 theorem compiledStmtStepWithHelpersAndHelperIR_of_exprHeadStepBridge
@@ -1371,32 +1939,183 @@ theorem compiledStmtStepWithHelpersAndHelperIR_of_exprHeadStepBridge
         stmt
         compiledIR := by
   rcases hbridge.compile (scope := scope) with ⟨compiledIR, hcompile⟩
-  have hcompileSpec :
-      CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope [] stmt =
-        Except.ok compiledIR := by
-    exact hcompile
   refine ⟨compiledIR, ?_⟩
-  refine { compileOk := hcompileSpec, preserves := ?_ }
+  refine { compileOk := hcompile, preserves := ?_ }
   intro runtime state helperFuel extraFuel hfuelPos hexact hscope hbounded hruntime hslack
-  exact
-    ⟨_,
-      _,
-      rfl,
-      rfl,
-      hbridge.bridge
+  exact ⟨_, _, rfl, rfl,
+    hbridge.bridge (scope := scope) (compiledIR := compiledIR) hcompile
+      runtime state helperFuel extraFuel hfuelPos hexact hscope hbounded hruntime hslack⟩
+
+/-- Spec-functions-aware singleton statement proof for an expression-position
+helper head.
+
+This is the mechanical composition point for the phase-11
+`ExprInternalHelperHeadStepBridgeWithInternals`/`Stmt.letVar` adapter.  It
+records the same `spec.functions` compile shape as the expression helper
+payload, avoiding the unsound conversion to the legacy default-empty internal
+function compiler argument.  The remaining generic-list blocker is an
+internal-functions-parametric analogue of the scope/list compilation lemmas
+used by `compileStmtList_ok_of_stmtListGenericWithHelpersAndHelperIR`. -/
+theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_of_exprHeadStepBridgeWithInternals
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {stmt : Stmt}
+    (hbridge :
+      ExprInternalHelperHeadStepBridgeWithInternals runtimeContract spec fields stmt) :
+    ∃ compiledIR,
+      CompiledStmtStepWithHelpersAndHelperIRWithInternals
+        runtimeContract
+        spec
+        fields
+        scope
+        stmt
+        compiledIR := by
+  rcases hbridge.compile (scope := scope) with ⟨compiledIR, hcompile⟩
+  refine ⟨compiledIR, ?_⟩
+  refine { compileOk := hcompile, preserves := ?_ }
+  intro runtime state helperFuel extraFuel hfuelPos hexact hscope hbounded hruntime hslack
+  exact ⟨_, _, rfl, rfl,
+    hbridge.bridge (scope := scope) (compiledIR := compiledIR) hcompile
+      runtime state helperFuel extraFuel hfuelPos hexact hscope hbounded hruntime hslack⟩
+
+/-- Compose a spec-functions statement-head bridge into the new exact-scope
+spec-functions list seam.  This is the first statement-list-level composition
+point for the phase-12 `CompiledStmtStepWithHelpersAndHelperIRWithInternals`
+witness; the full arbitrary-scope generic list theorem still needs the
+`internalFunctions`-parametric scope-lifting API named in
+`compileStmtList_ok_of_stmtListGenericWithHelpersAndHelperIRWithInternals_exact`. -/
+theorem stmtListGenericWithHelpersAndHelperIRWithInternals_cons_of_exprHeadStepBridgeWithInternals
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {stmt : Stmt}
+    {rest : List Stmt}
+    (hbridge :
+      ExprInternalHelperHeadStepBridgeWithInternals runtimeContract spec fields stmt)
+    (hrest :
+      StmtListGenericWithHelpersAndHelperIRWithInternals
+        runtimeContract spec fields (stmtNextScope scope stmt) rest) :
+    StmtListGenericWithHelpersAndHelperIRWithInternals
+      runtimeContract spec fields scope (stmt :: rest) := by
+  rcases
+      compiledStmtStepWithHelpersAndHelperIRWithInternals_of_exprHeadStepBridgeWithInternals
+        (runtimeContract := runtimeContract)
+        (spec := spec)
+        (fields := fields)
         (scope := scope)
-        (compiledIR := compiledIR)
-        hcompile
-        runtime
-        state
-        helperFuel
-        extraFuel
-        hfuelPos
-        hexact
-        hscope
-        hbounded
-        hruntime
-        hslack⟩
+        (stmt := stmt)
+        hbridge with
+    ⟨compiledIR, hstep⟩
+  exact .cons hstep hrest
+
+/-- Build the spec-functions expression-helper list interface from a
+`WithInternals` expression-head bridge at the current head. -/
+theorem stmtListExprInternalHelperStepInterfaceWithInternals_cons_of_exprHeadStepBridgeWithInternals
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {stmt : Stmt}
+    {rest : List Stmt}
+    (hbridge :
+      ExprInternalHelperHeadStepBridgeWithInternals runtimeContract spec fields stmt)
+    (hrest :
+      StmtListExprInternalHelperStepInterfaceWithInternals
+        runtimeContract
+        spec
+        fields
+        (stmtNextScope scope stmt)
+        rest) :
+    StmtListExprInternalHelperStepInterfaceWithInternals
+      runtimeContract
+      spec
+      fields
+      scope
+      (stmt :: rest) := by
+  rcases
+      compiledStmtStepWithHelpersAndHelperIRWithInternals_of_exprHeadStepBridgeWithInternals
+        (runtimeContract := runtimeContract)
+        (spec := spec)
+        (fields := fields)
+        (scope := scope)
+        (stmt := stmt)
+        hbridge with
+    ⟨compiledIR, hstep⟩
+  refine .cons ?_ hrest
+  intro _
+  exact ⟨compiledIR, hstep⟩
+
+/-- Assemble the spec-functions expression-helper interface from exact
+`WithInternals` bridges for each expression-helper head in the list. -/
+theorem stmtListExprInternalHelperStepInterfaceWithInternals_of_exprHeadStepBridgesWithInternals
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {stmts : List Stmt}
+    (hbridge :
+      ∀ {stmt : Stmt},
+        stmt ∈ stmts →
+        stmtTouchesExprInternalHelperSurface stmt = true →
+        ExprInternalHelperHeadStepBridgeWithInternals runtimeContract spec fields stmt) :
+    StmtListExprInternalHelperStepInterfaceWithInternals
+      runtimeContract spec fields scope stmts := by
+  induction stmts generalizing scope with
+  | nil =>
+      exact .nil
+  | cons stmt rest ih =>
+      refine .cons ?_ ?_
+      · intro hexpr
+        exact
+          compiledStmtStepWithHelpersAndHelperIRWithInternals_of_exprHeadStepBridgeWithInternals
+            (runtimeContract := runtimeContract)
+            (spec := spec)
+            (fields := fields)
+            (scope := scope)
+            (stmt := stmt)
+            (hbridge (by simp) hexpr)
+      · apply ih
+        intro stmt' hmem hexpr
+        exact hbridge (List.mem_cons_of_mem _ hmem) hexpr
+
+/-- Whole-list exact-scope assembler for statement lists whose heads all have
+spec-functions bridges.  This is intentionally a narrow scaffold: mixed
+helper-free/direct/residual list assembly still targets the legacy
+`StmtListGenericWithHelpersAndHelperIR` until the remaining scope-reconstruction
+lemmas are internal-functions-parametric. -/
+theorem stmtListGenericWithHelpersAndHelperIRWithInternals_of_exprHeadStepBridges
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {stmts : List Stmt}
+    (hsurface :
+      ∀ stmt ∈ stmts, stmtTouchesExprInternalHelperSurface stmt = true)
+    (hbridge :
+      ∀ {stmt : Stmt},
+        stmt ∈ stmts →
+        ExprInternalHelperHeadStepBridgeWithInternals runtimeContract spec fields stmt) :
+    StmtListGenericWithHelpersAndHelperIRWithInternals
+      runtimeContract spec fields scope stmts := by
+  exact
+    stmtListGenericWithHelpersAndHelperIRWithInternals_of_exprInternalHelperStepInterfaceWithInternals
+      (runtimeContract := runtimeContract)
+      (spec := spec)
+      (fields := fields)
+      (scope := scope)
+      (stmts := stmts)
+      (hexpr :=
+        stmtListExprInternalHelperStepInterfaceWithInternals_of_exprHeadStepBridgesWithInternals
+          (runtimeContract := runtimeContract)
+          (spec := spec)
+          (fields := fields)
+          (scope := scope)
+          (stmts := stmts)
+          (fun {stmt} hmem _ => hbridge hmem))
+      (hallExpr := hsurface)
 
 /-- Non-vacuous list witness for a statement list whose head contains
 expression-position helper work. The head proof comes from the expression-head
@@ -1470,6 +2189,171 @@ theorem stmtListExprInternalHelperStepInterface_of_exprHeadStepBridges
       · apply ih
         intro stmt' hmem hexpr
         exact hbridge (List.mem_cons_of_mem _ hmem) hexpr
+
+/-- Build the spec-functions structural-helper interface from an exact
+`WithInternals` compiled head and the structural tail witness. This packages the
+structural recursion case without converting back to the legacy empty-helper
+compiler world. -/
+theorem stmtListStructuralInternalHelperStepInterfaceWithInternals_cons_of_compiledStep
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {stmt : Stmt}
+    {compiledIR : List YulStmt}
+    {rest : List Stmt}
+    (hstep :
+      CompiledStmtStepWithHelpersAndHelperIRWithInternals
+        runtimeContract spec fields scope stmt compiledIR)
+    (hrest :
+      StmtListStructuralInternalHelperStepInterfaceWithInternals
+        runtimeContract spec fields (stmtNextScope scope stmt) rest) :
+    StmtListStructuralInternalHelperStepInterfaceWithInternals
+      runtimeContract spec fields scope (stmt :: rest) := by
+  refine .cons ?_ hrest
+  intro _
+  exact ⟨compiledIR, hstep⟩
+
+/-- Concrete `WithInternals` structural witness for an `ite` head. The caller
+supplies the exact spec-functions compiled-step proof for the recursive
+statement form, and this packages it into the structural helper interface
+without falling back to the legacy empty-helper compiler world. -/
+theorem stmtListStructuralInternalHelperStepInterfaceWithInternals_cons_ite_of_compiledStep
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {cond : Expr}
+    {thenBranch elseBranch : List Stmt}
+    {compiledIR : List YulStmt}
+    {rest : List Stmt}
+    (hstep :
+      CompiledStmtStepWithHelpersAndHelperIRWithInternals
+        runtimeContract spec fields scope
+          (Stmt.ite cond thenBranch elseBranch) compiledIR)
+    (hrest :
+      StmtListStructuralInternalHelperStepInterfaceWithInternals
+        runtimeContract spec fields
+          (stmtNextScope scope (Stmt.ite cond thenBranch elseBranch)) rest) :
+    StmtListStructuralInternalHelperStepInterfaceWithInternals
+      runtimeContract spec fields scope
+      (Stmt.ite cond thenBranch elseBranch :: rest) := by
+  exact
+    stmtListStructuralInternalHelperStepInterfaceWithInternals_cons_of_compiledStep
+      (runtimeContract := runtimeContract)
+      (spec := spec)
+      (fields := fields)
+      (scope := scope)
+      (stmt := Stmt.ite cond thenBranch elseBranch)
+      (compiledIR := compiledIR)
+      (rest := rest)
+      hstep
+      hrest
+
+/-- Concrete `WithInternals` structural witness for a `forEach` head. The exact
+head step compiles against `spec.functions`, so the recursive structural case
+can participate in the phase-17 mixed-list assembly route directly. -/
+theorem stmtListStructuralInternalHelperStepInterfaceWithInternals_cons_forEach_of_compiledStep
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {varName : String}
+    {count : Expr}
+    {body : List Stmt}
+    {compiledIR : List YulStmt}
+    {rest : List Stmt}
+    (hstep :
+      CompiledStmtStepWithHelpersAndHelperIRWithInternals
+        runtimeContract spec fields scope
+          (Stmt.forEach varName count body) compiledIR)
+    (hrest :
+      StmtListStructuralInternalHelperStepInterfaceWithInternals
+        runtimeContract spec fields
+          (stmtNextScope scope (Stmt.forEach varName count body)) rest) :
+    StmtListStructuralInternalHelperStepInterfaceWithInternals
+      runtimeContract spec fields scope
+      (Stmt.forEach varName count body :: rest) := by
+  exact
+    stmtListStructuralInternalHelperStepInterfaceWithInternals_cons_of_compiledStep
+      (runtimeContract := runtimeContract)
+      (spec := spec)
+      (fields := fields)
+      (scope := scope)
+      (stmt := Stmt.forEach varName count body)
+      (compiledIR := compiledIR)
+      (rest := rest)
+      hstep
+      hrest
+
+/-- Assemble the spec-functions structural-helper interface from exact
+`WithInternals` head steps for the structural-helper heads that occur in the
+statement list. -/
+theorem stmtListStructuralInternalHelperStepInterfaceWithInternals_of_structuralHeadStepsWithInternals
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {stmts : List Stmt}
+    (hstep :
+      ∀ {scope : List String} {stmt : Stmt},
+        stmt ∈ stmts →
+        stmtTouchesStructuralInternalHelperSurface stmt = true →
+        ∃ compiledIR,
+          CompiledStmtStepWithHelpersAndHelperIRWithInternals
+            runtimeContract spec fields scope stmt compiledIR) :
+    StmtListStructuralInternalHelperStepInterfaceWithInternals
+      runtimeContract spec fields scope stmts := by
+  induction stmts generalizing scope with
+  | nil =>
+      exact .nil
+  | cons stmt rest ih =>
+      refine .cons ?_ ?_
+      · intro hstruct
+        exact hstep (scope := scope) (stmt := stmt) (by simp) hstruct
+      · apply ih
+        intro scope' stmt' hmem hstruct
+        exact hstep (scope := scope') (stmt := stmt')
+          (List.mem_cons_of_mem stmt hmem) hstruct
+
+/-- Full spec-functions-aware assembly from the split helper interfaces into
+the exact `WithInternals` statement-list witness. This is the mixed-list
+counterpart of `fullHelperAwareListWitness_of_allInterfaces`; it avoids the
+legacy/default-empty helper-world list seam when callers provide exact
+`WithInternals` head witnesses for helper-free and helper-surface heads. -/
+theorem fullHelperAwareListWitnessWithInternals_of_allInterfaces
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {stmts : List Stmt}
+    (hhelperFree :
+      StmtListHelperFreeStepInterfaceWithInternals
+        runtimeContract spec fields scope stmts)
+    (hcall :
+      StmtListDirectInternalHelperCallStepInterfaceWithInternals
+        runtimeContract spec fields scope stmts)
+    (hassign :
+      StmtListDirectInternalHelperAssignStepInterfaceWithInternals
+        runtimeContract spec fields scope stmts)
+    (hexpr :
+      StmtListExprInternalHelperStepInterfaceWithInternals
+        runtimeContract spec fields scope stmts)
+    (hstruct :
+      StmtListStructuralInternalHelperStepInterfaceWithInternals
+        runtimeContract spec fields scope stmts)
+    (hresidual :
+      StmtListResidualHelperSurfaceStepInterfaceWithInternals
+        runtimeContract spec fields scope stmts) :
+    StmtListGenericWithHelpersAndHelperIRWithInternals
+      runtimeContract spec fields scope stmts :=
+  stmtListGenericWithHelpersAndHelperIRWithInternals_of_helperFreeStepInterfaceWithInternals_and_directInternalHelperStepInterfaceWithInternals_and_exprInternalHelperStepInterfaceWithInternals_and_structuralInternalHelperStepInterfaceWithInternals_and_residualHelperSurfaceStepInterfaceWithInternals
+    hhelperFree
+    (stmtListDirectInternalHelperStepInterfaceWithInternals_of_callStepInterfaceWithInternals_and_assignStepInterfaceWithInternals
+      hcall hassign)
+    hexpr
+    hstruct
+    hresidual
 
 /-- For helper-surface-closed statement lists, the four narrow helper-step
 interfaces are all trivially satisfied. This is the entry point for contracts

@@ -134,12 +134,63 @@ ALLOWLIST: set[str] = {
     "selectedUserBodyClosureAndMatchedFresh_of_compile_ok_supported_switchFresh",
     # --- Helper-aware result packaging bridge ---
     "interpretFunctionWithHelpers_eq_execResultToIRResultWithInternals_of_body",
+    # #2080 phase 21 function-level WithInternals bridge: threads generated ABI
+    # param-load execution into the helper-aware compiled body while preserving
+    # the exact fuel equality needed by `execIRFunctionWithInternals`.
+    "exec_compiledFunctionIR_withInternals_of_body_extraFuel",
+    # #2080 phase 21 direct helper-aware function theorem: packages source
+    # helper semantics, the exact helper-IR body goal, function compilation
+    # shape, rollback state, and param-prefix execution into the final
+    # `execIRFunctionWithInternals` result.
+    "supported_function_correct_with_helper_proofs_body_goal_with_internals",
+    # #2080 phase 21 contract-level consumer: exposes the direct helper-aware
+    # function theorem through the contract proof API while keeping the
+    # generated param-load disjointness premise explicit.
+    "compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal",
+    # #2080 selector-dispatch consumer seam: same signature-dominated wrapper as
+    # its `_of_body_goal` sibling, but discharges the generated param-load
+    # disjointness premise from the runtime contract's internal-table naming
+    # invariant instead of taking it as an opaque hypothesis. Body is a single
+    # term application; the >50 lines are entirely the mirrored premise list.
+    "compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_internalNamesPrefixed",
+    # #2080 phase 27 reserved-name dispatch seam: same signature-dominated wrapper
+    # as its `_of_internalNamesPrefixed` sibling, but discharges the generated
+    # param-load disjointness premise from the runtime contract's *reserved-name*
+    # invariant (`InternalTableNamesReserved`) — the true generalization that
+    # populated tables containing non-`internal_` compiler helpers satisfy. Body is
+    # a single term application; the >50 lines are entirely the mirrored premise list.
+    "compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_reserved",
+    # #2080 whole-contract dispatch seam: same signature-dominated wrapper as the
+    # `_of_internalNamesPrefixed` sibling, but derives the internal-table naming
+    # invariant from the structural compilation fact (every internal-table stmt is
+    # a `compileInternalFunction` output). Body is a single term application; the
+    # >50 lines are entirely the mirrored premise list.
+    "compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_compiledInternalTable",
+    # #2080 whole-contract dispatch seam consumer: same signature-dominated wrapper
+    # as the `_of_compiledInternalTable` sibling, but discharges its `hcompiledTable`
+    # premise from the real compilation pipeline output
+    # (`compileValidatedCore model selectors = Except.ok runtimeContract`) instead of
+    # taking it as a hypothesis. Body is a single term application; the >50 lines are
+    # entirely the mirrored premise list.
+    "compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_compileValidatedCore",
     # First concrete letVar statement-head adapter (#2080 phase 10): threads a
     # single compositional-expression existential through source execution, IR
     # fuel alignment, and four scope/runtime invariant re-establishment steps
     # that all share the locally-bound post-binding runtime'/state'. Splitting
     # would duplicate the compositional-result unpacking plumbing in each part.
     "exprInternalHelperHeadStepBridge_letVar_of_exprCompositionalResult",
+    # #2080 phase 9 concrete add-right helper bridge: constructor-specific
+    # source/compile/IR facts have to be assembled around the threaded binary
+    # adapter while preserving the original helper payload unchanged.
+    "exprInternalHelperCompositionalContextResult_add_right_threaded",
+    # #2080 phase 11 spec-functions letVar adapter: same invariant
+    # re-establishment spine as the phase-10 legacy adapter, but consuming the
+    # post-expression state companion directly from the expression payload.
+    "exprInternalHelperHeadStepBridgeWithInternals_letVar_of_exprPostStateResult",
+    # #2080 phase 11 concrete letVar/add-right instantiation: the wrapper must
+    # expose the phase-9 add payload at statement-head shape while preserving
+    # the caller's left/right source and IR state-threading evidence.
+    "exprInternalHelperHeadStepBridgeWithInternals_letVar_add_right_threaded",
     # ERC-4337 dynamic ABI view projection: mechanical destructuring of the
     # nine-field PackedUserOperation decoder to expose its four dynamic bytes
     # member bindings. Splitting would duplicate the same option-case spine.
@@ -301,6 +352,11 @@ ALLOWLIST: set[str] = {
     "supported_function_body_correct_from_exact_state_generic_with_helpers_goal",
     "supported_function_body_correct_from_exact_state_generic_with_helpers_and_helper_ir_callsDisjoint",
     "supported_function_body_correct_from_exact_state_generic_helper_steps_raw",
+    # Issue #2080: exact helper-IR body seams remain mechanical wrappers around
+    # the generic list execution theorem while the helper-world API is split.
+    "supported_function_body_correct_from_exact_state_generic_helper_steps_and_helper_ir",
+    "supported_function_body_correct_from_exact_state_generic_helper_steps_and_helper_ir_with_internals",
+    "supported_function_body_correct_from_exact_state_generic_split_helper_steps_and_helper_ir_with_internals",
     "supported_function_body_correct_from_exact_state_generic_helper_surface_steps_and_helper_ir",
     "supported_function_body_correct_from_exact_state_generic_internal_helper_surface_steps_and_helper_ir",
     "supported_function_body_correct_from_exact_state_generic_finer_split_internal_helper_surface_steps_and_helper_ir",
@@ -312,6 +368,9 @@ ALLOWLIST: set[str] = {
     "supported_function_correct_with_helper_proofs_body_goal",
     "supported_function_correct_with_helper_proofs_body_goal_and_helper_ir",
     "supported_function_correct_with_helper_proofs_body_goal_and_helper_ir_of_bodyCallsDisjoint",
+    # Issue #2080: interface-heavy bridge from function compile facts into the
+    # split WithInternals body consumer; state/binding plumbing is factored.
+    "supported_function_body_with_internals_goal_of_compileFunctionSpec_with_internals",
     "compileFunctionSpec_correct_generic_with_helper_proofs",
     "compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir",
     "compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_bodyCallsDisjoint",
@@ -320,6 +379,10 @@ ALLOWLIST: set[str] = {
     "compile_preserves_semantics_with_helper_proofs",
     "exec_compileStmtList_generic_with_helpers_sizeOf_extraFuel_step",
     "exec_compileStmtList_generic_with_helpers_and_helper_ir_sizeOf_extraFuel_step",
+    # Issue #2080: spec-functions-aware sibling of the helper-IR list
+    # execution theorem; proof mirrors the existing helper-IR induction.
+    "exec_compileStmtList_generic_with_helpers_and_helper_ir_with_internals_sizeOf_extraFuel_step",
+    "exec_compileStmtList_generic_with_helpers_and_helper_ir_with_internals_sizeOf_extraFuel",
     "stmtListGenericWithHelpersAndHelperIR_of_helperFreeStepInterface_and_internalHelperSurfaceStepInterface_and_residualHelperSurfaceStepInterface_and_helperFreeCompiledLegacyCompatible",
     "stmtListGenericWithHelpersAndHelperIR_of_withHelpers_and_compiledLegacyCompatible",
     # --- IR interpreter dispatch (mload pre-dispatch adds extra branches) ---
