@@ -7,12 +7,12 @@
     },
     {
       "path": "Compiler/Proofs/IRGeneration/**",
-      "rule": "Review IRGeneration proof changes as semantic preservation work. Look for theorem statements made weaker, missing cases in induction, new hypotheses that external callers cannot prove, accidental broadening of supported fragments, unsafe simp/simp_all rewrites, use of axioms/admitted facts, and changes that should be reflected in AUDIT.md/TRUST_ASSUMPTIONS.md/AXIOMS.md. Require high-confidence, proof-relevant comments only.",
+      "rule": "Review IRGeneration Lean proof changes as semantic preservation work. Apply the generic Lean checks too: look for unsound shortcuts, `sorry`, new axioms/admitted facts, large automation replacing structured proof (`by aesop`, broad `simp`/`simp_all`), theorem statements made weaker, missing induction cases, new hypotheses that external callers cannot prove, accidental broadening of supported fragments, and changes that should be reflected in AUDIT.md/TRUST_ASSUMPTIONS.md/AXIOMS.md. Require high-confidence, proof-relevant comments only.",
       "merge_system_rule": true
     },
     {
       "path": "Compiler/Proofs/YulGeneration/**",
-      "rule": "Review YulGeneration proof changes for Solidity/Yul observable equivalence: memory/storage layout, revert data and panic payloads, calls/returns, events/logs, aliasing, source-expression closures, and backend assumptions. Flag changed semantics, missing preconditions, theorem weakening, or doc trust drift. Avoid style feedback unless it reduces proof fragility.",
+      "rule": "Review YulGeneration Lean proof changes for Solidity/Yul observable equivalence: memory/storage layout, revert data and panic payloads, calls/returns, events/logs, aliasing, source-expression closures, and backend assumptions. Apply the generic Lean checks too: flag `sorry`, new axioms/admitted facts, weakened theorem conclusions, missing preconditions, broad automation replacing structured proof, brittle simp usage, or trust-doc drift. Avoid style feedback unless it reduces proof fragility.",
       "merge_system_rule": true
     },
     {
