@@ -275,7 +275,7 @@ def compileStmtWithFork (fields : List Field) (events : List EventDef := [])
       let argExprs ← compileExprListWithInternals fields dynamicSource internalFunctions args
       revertWithCustomError dynamicSource errorDef args argExprs
   | .panicCode code => do
-      let codeExpr ← compileExpr fields dynamicSource code
+      let codeExpr ← compileExprWithInternals fields dynamicSource internalFunctions code
       pure (solidityPanicPayloadExpr codeExpr)
   | Stmt.return value =>
     do
