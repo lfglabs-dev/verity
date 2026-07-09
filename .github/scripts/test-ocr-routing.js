@@ -297,6 +297,7 @@ async function testLargeLeanScoutApiFailureFallsBack() {
   assert.strictEqual(decision.scout.http_status, 400);
   assert.ok(decision.scout.error_detail.includes('MiniMax-M3'));
   assert.ok(!decision.scout.error_detail.includes('sandboxed.example'));
+  // The test token is redacted by the explicit `token <value>` sanitizer path.
   assert.ok(!decision.scout.error_detail.includes('abcdefghijklmnopqrstuvwxyz'));
   assert.deepStrictEqual(decision.packets.map(p => p.packet_id), originalPackets);
 }
