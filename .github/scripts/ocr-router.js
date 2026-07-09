@@ -557,7 +557,7 @@ function redactSecretJsonValue(value, key = '') {
   if (Array.isArray(value)) return value.map(item => redactSecretJsonValue(item));
   if (value && typeof value === 'object') {
     const secretContext = Object.entries(value).some(([childKey, childValue]) => {
-      if (!/^(field|param|parameter|name|key|loc|path)$/i.test(childKey)) return false;
+      if (!/^(field|field_name|fieldName|param|parameter|name|key|loc|path|property|property_name|propertyName|attribute|target)$/i.test(childKey)) return false;
       return hasSecretIndicator(childValue);
     });
     return Object.fromEntries(Object.entries(value).map(([childKey, childValue]) => [
@@ -583,7 +583,7 @@ function isSecretKey(key) {
     .replace(/[\s-]+/g, '_')
     .toLowerCase();
   return normalized === 'token'
-    || /(^|_)(api_key|apikey|access_token|refresh_token|id_token|client_secret|client_id|api_secret|consumer_secret|private_key|bearer_token|session_secret|session_token|auth_code|authcode|authorization|password|passphrase|credential|secret)($|_)/.test(normalized);
+    || /(^|_)(api_key|apikey|access_token|refresh_token|id_token|client_secret|client_id|api_secret|consumer_secret|private_key|bearer_token|session_secret|session_token|auth_code|authcode|authorization|password|passphrase|credential|credentials|secret)($|_)/.test(normalized);
 }
 
 function redactSecretText(text) {
@@ -592,9 +592,9 @@ function redactSecretText(text) {
     .replace(/\beyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, '[redacted]')
     .replace(/Bearer\s+[A-Za-z0-9._~+/-]+={0,2}/gi, 'Bearer [redacted]')
     .replace(/\bsk-[A-Za-z0-9._-]+/gi, '[redacted]')
-    .replace(/\b(api\s*key|api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?(?:secret|id)|api[_-]?secret|consumer[_-]?secret|private[_-]?key|bearer[_-]?token|session[_-]?(?:secret|token)|auth[_-]?code|credential|passphrase|token|authorization|password|secret)\b([^"'`\n]{0,120}?[:=]\s*)(["'`])(?:\\.|(?!\3).){0,300}\3/gi, '$1$2$3[redacted]$3')
-    .replace(/\b(?![a-f0-9]{40}\b)(?![0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b)(?=[A-Za-z0-9._~+/-]{32,}\b)(?=[A-Za-z0-9._~+/-]*[A-Za-z])(?=[A-Za-z0-9._~+/-]*\d)[A-Za-z0-9._~+/-]{32,}={0,2}\b/g, '[redacted]')
-    .replace(/\b((?:api\s*key|api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?(?:secret|id)|api[_-]?secret|consumer[_-]?secret|private[_-]?key|bearer[_-]?token|session[_-]?(?:secret|token)|auth[_-]?code|credential|passphrase|token|authorization|password|secret)\b[^"'`\n]{0,120}?)([A-Za-z0-9._~+/-]{12,}={0,2})/gi, '$1[redacted]');
+    .replace(/\b(api\s*key|api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?(?:secret|id)|api[_-]?secret|consumer[_-]?secret|private[_-]?key|bearer[_-]?token|session[_-]?(?:secret|token)|auth[_-]?code|credential|credentials|passphrase|token|authorization|password|secret)\b([^"'`\n]{0,120}?[:=]\s*)(["'`])(?:\\.|(?!\3).){0,300}\3/gi, '$1$2$3[redacted]$3')
+    .replace(/\b(?![a-f0-9]{40}\b)(?![0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b)(?!req_[A-Za-z0-9._-]{20,}\b)(?!trace[_-][A-Za-z0-9._-]{20,}\b)(?!correlation[_-][A-Za-z0-9._-]{20,}\b)(?=[A-Za-z0-9._~+/-]{32,}\b)(?=[A-Za-z0-9._~+/-]*[A-Za-z])(?=[A-Za-z0-9._~+/-]*\d)[A-Za-z0-9._~+/-]{32,}={0,2}\b/g, '[redacted]')
+    .replace(/\b((?:api\s*key|api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?(?:secret|id)|api[_-]?secret|consumer[_-]?secret|private[_-]?key|bearer[_-]?token|session[_-]?(?:secret|token)|auth[_-]?code|credential|credentials|passphrase|token|authorization|password|secret)\b[^"'`\n]{0,120}?[:=]\s*)([A-Za-z0-9._~+/-]{6,}={0,2})/gi, '$1[redacted]');
 }
 
 function openAiChatUrl(baseUrl) {

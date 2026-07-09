@@ -388,6 +388,7 @@ function testScoutErrorSanitizesAdditionalCredentialKeys() {
   const detail = router.sanitizeScoutErrorDetail(JSON.stringify({
     error: 'invalid MiniMax-M3 scout request',
     credential: 'short-secret',
+    credentials: 'plural-short-secret',
     passphrase: 'another-short-secret',
     authcode: 'auth-short-secret',
     client_id: 'client-short-secret',
@@ -395,6 +396,7 @@ function testScoutErrorSanitizesAdditionalCredentialKeys() {
   assert.ok(detail.includes('MiniMax-M3'));
   assert.ok(detail.includes('[redacted]'));
   assert.ok(!detail.includes('short-secret'));
+  assert.ok(!detail.includes('plural-short-secret'));
 }
 
 function testScoutErrorPreservesUuidDiagnostics() {
@@ -402,6 +404,36 @@ function testScoutErrorPreservesUuidDiagnostics() {
     'MiniMax-M3 trace id 550e8400-e29a-41d4-a716-446655440000 failed'
   );
   assert.ok(detail.includes('550e8400-e29a-41d4-a716-446655440000'));
+}
+
+function testScoutErrorSanitizesShortUnquotedDiagnostics() {
+  const detail = router.sanitizeScoutErrorDetail(
+    'MiniMax-M3 failed with token: abc12345 and credentials=short8'
+  );
+  assert.ok(detail.includes('MiniMax-M3'));
+  assert.ok(detail.includes('token: [redacted]'));
+  assert.ok(detail.includes('credentials=[redacted]'));
+  assert.ok(!detail.includes('abc12345'));
+  assert.ok(!detail.includes('short8'));
+}
+
+function testScoutErrorSanitizesPropertyValueDiagnostics() {
+  const detail = router.sanitizeScoutErrorDetail(JSON.stringify({
+    error: 'invalid MiniMax-M3 scout request',
+    propertyName: 'credentials',
+    value: 'short-secret',
+  }));
+  assert.ok(detail.includes('MiniMax-M3'));
+  assert.ok(detail.includes('[redacted]'));
+  assert.ok(!detail.includes('short-secret'));
+}
+
+function testScoutErrorPreservesTraceDiagnostics() {
+  const detail = router.sanitizeScoutErrorDetail(
+    'MiniMax-M3 request req_abcdefghijklmnopqrstuvwxyz123456 trace_id trace_abcdefghijklmnopqrstuvwxyz123456 failed'
+  );
+  assert.ok(detail.includes('req_abcdefghijklmnopqrstuvwxyz123456'));
+  assert.ok(detail.includes('trace_abcdefghijklmnopqrstuvwxyz123456'));
 }
 
 async function testLargeLeanScoutNoPacketsStatus() {
@@ -538,6 +570,9 @@ async function run() {
   testScoutErrorSanitizesShortQuotedProviderDiagnostics();
   testScoutErrorSanitizesAdditionalCredentialKeys();
   testScoutErrorPreservesUuidDiagnostics();
+  testScoutErrorSanitizesShortUnquotedDiagnostics();
+  testScoutErrorSanitizesPropertyValueDiagnostics();
+  testScoutErrorPreservesTraceDiagnostics();
   await testLargeLeanScoutNoPacketsStatus();
   testWorkflowDocsEnabled();
   testGenericScriptConfigEnabled();
