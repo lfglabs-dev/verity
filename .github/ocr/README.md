@@ -31,7 +31,14 @@ Before installing or invoking OpenCodeReview, `.github/scripts/ocr-router.js` co
 
 Packetized Lean mode is intentionally partial. It checks deterministic signals first, including introduced `sorry`/`admit`/`axiom`/`unsafe`, changed imports, public declaration or theorem signature changes, trust-boundary documentation drift, and large deleted proof obligations. It then ranks hotspots such as `Compiler/Proofs/YulGeneration/**`, `Compiler/Proofs/**`, `Compiler/**`, `IRGeneration/**`, `Semantics/**`, trust docs, and public theorem statements.
 
-If `OCR_SCOUT_LLM_URL`, `OCR_SCOUT_LLM_KEY`, and `OCR_SCOUT_LLM_MODEL` are configured in Actions, the router sends only a bounded JSON risk dossier to that OpenAI-compatible model. The scout model is cheap triage only: it selects packet IDs, reasons, risk categories, questions for a stronger reviewer, and residual coverage. It never produces final review approval. If scout configuration is absent or the call fails, the router records that state in metrics and falls back to deterministic ranking.
+For `large-lean-hotspots`, the scout is enabled by default and uses sandboxed.sh/OpenAI-compatible routing. Configuration knobs:
+
+- `OCR_SCOUT_ENABLED`: optional, defaults to `true`; set to `false` to disable only the large Lean scout call.
+- `OCR_SCOUT_LLM_URL`: optional; defaults to `OCR_LLM_URL` when the same sandboxed endpoint supports model selection.
+- `OCR_SCOUT_LLM_KEY`: optional; defaults to `OCR_LLM_KEY` when the same sandboxed key can route both models.
+- `OCR_SCOUT_LLM_MODEL`: optional; defaults to `MiniMax-M3`, the MiniMax hybrid long-context scout model listed in the sandboxed.sh provider catalog.
+
+The router sends only a bounded JSON risk dossier to the scout model. The scout model is cheap triage only: it selects packet IDs, reasons, risk categories, questions for a stronger reviewer, and residual coverage. It never produces final review approval. If scout configuration is absent, disabled, malformed, rejected by the provider, or the call fails, the router records that state in metrics and falls back to deterministic ranking.
 
 OpenCodeReview 1.7.5 is still invoked only for `small-lean`, `medium-lean`, and `config-docs` full-diff paths. The short-term bridge for `large-lean-hotspots` publishes scout/deterministic packet advisory comments and explicitly marks strong packet review as required but blocked on a safe OCR packet-window input mechanism. The posted comment lists the covered packets, packet budget, scout status, metrics, strong-review blocker, and residual risk. It must not be read as full review coverage or LGTM.
 
