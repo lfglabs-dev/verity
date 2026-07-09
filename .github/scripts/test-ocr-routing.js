@@ -283,8 +283,8 @@ async function testLargeLeanScoutApiFailureFallsBack() {
   const oldFetch = global.fetch;
   global.fetch = async () => ({
     ok: false,
-    status: 503,
-    text: async () => 'Service Unavailable with echoed request details',
+    status: 400,
+    text: async () => 'model MiniMax-M3 is not available at https://sandboxed.example/v1 with token abcdefghijklmnopqrstuvwxyz1234567890',
   });
   try {
     await router.applyScoutStage(decision, { files }, { url: 'https://example.invalid/v1', key: 'test-key', model: 'cheap-scout' });
@@ -294,6 +294,10 @@ async function testLargeLeanScoutApiFailureFallsBack() {
   assert.strictEqual(decision.scout.status, 'fallback_deterministic');
   assert.strictEqual(decision.scout.error, 'Scout model call failed; deterministic packet ranking retained.');
   assert.strictEqual(decision.scout.error_type, 'http_error');
+  assert.strictEqual(decision.scout.http_status, 400);
+  assert.ok(decision.scout.error_detail.includes('MiniMax-M3'));
+  assert.ok(!decision.scout.error_detail.includes('sandboxed.example'));
+  assert.ok(!decision.scout.error_detail.includes('abcdefghijklmnopqrstuvwxyz'));
   assert.deepStrictEqual(decision.packets.map(p => p.packet_id), originalPackets);
 }
 

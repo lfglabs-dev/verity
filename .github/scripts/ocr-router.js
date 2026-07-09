@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
-const ROUTER_VERSION = 'router-v5';
+const ROUTER_VERSION = 'router-v6';
 const DEFAULT_SCOUT_MODEL = 'MiniMax-M3';
 const STRONG_REVIEW_BLOCKER_MESSAGE = 'OpenCodeReview 1.7.5 supports --from/--to full diff ranges, but this workflow does not have a safe packet/window input bridge for Lean hunks yet.';
 const THRESHOLDS = Object.freeze({
@@ -351,6 +351,8 @@ async function applyScoutStage(decision, diff, config) {
     decision.scout.status = 'fallback_deterministic';
     decision.scout.error = 'Scout model call failed; deterministic packet ranking retained.';
     decision.scout.error_type = classifyScoutError(err);
+    decision.scout.error_detail = sanitizeScoutErrorDetail(err);
+    if (err?.status) decision.scout.http_status = err.status;
   }
   return decision;
 }
@@ -445,7 +447,9 @@ async function callScoutModel(config, dossier) {
     });
     const text = await response.text();
     if (!response.ok) {
-      throw new Error(`scout model HTTP ${response.status}`);
+      const err = new Error(`scout model HTTP ${response.status}: ${text}`);
+      err.status = response.status;
+      throw err;
     }
     const payload = JSON.parse(text);
     const content = payload.choices?.[0]?.message?.content;
@@ -526,6 +530,17 @@ function classifyScoutError(err) {
   if (text.includes('http')) return 'http_error';
   if (text.includes('json')) return 'invalid_json';
   return 'request_failed';
+}
+
+function sanitizeScoutErrorDetail(err) {
+  return String(err?.message || err || '')
+    .replace(/https?:\/\/[^\s"')]+/g, '[url-redacted]')
+    .replace(/Bearer\s+[A-Za-z0-9._~+/-]+={0,2}/gi, 'Bearer [redacted]')
+    .replace(/(api[_-]?key|token|authorization|password|secret)(["'\s:=]+)[^"',\s}]+/gi, '$1$2[redacted]')
+    .replace(/[A-Za-z0-9_-]{32,}/g, '[redacted]')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 500);
 }
 
 function openAiChatUrl(baseUrl) {
@@ -963,6 +978,7 @@ module.exports = {
   applyScoutStage,
   resolveScoutConfig,
   parseScoutJson,
+  sanitizeScoutErrorDetail,
   buildRiskDossier,
   parseUnifiedDiff,
   scorePathRisk,

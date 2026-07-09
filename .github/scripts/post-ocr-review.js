@@ -259,6 +259,10 @@ function renderPacketCoverage(metrics, result) {
   const scout = packetReview.scout || {};
   body += `- Packet review: ${packetReview.enabled ? 'enabled' : 'not used'}; selected ${packetReview.packets_selected ?? packets.length}/${packetReview.packet_budget ?? '?'} packet(s)\n`;
   body += `- Scout: ${scout.enabled ? 'configured' : 'not configured'}; status ${escapeMd(scout.status || 'unknown')}; model ${escapeMd(scout.model || 'none')}\n`;
+  if (scout.error_detail) {
+    const status = scout.http_status ? `HTTP ${scout.http_status}: ` : '';
+    body += `- Scout provider error: ${escapeMd(status + scout.error_detail)}\n`;
+  }
   if (packetReview.strong_review_required) {
     body += `- Strong review: required; status ${escapeMd(packetReview.strong_review_status || 'unknown')}\n`;
   }
