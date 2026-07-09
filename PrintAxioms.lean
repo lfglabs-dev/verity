@@ -1885,6 +1885,24 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.Contract.compiledInternalTable_of_internalFunctions_eq_mapM
   Compiler.Proofs.IRGeneration.Contract.InternalTableNamesReserved_of_internalFunctions_append
   Compiler.Proofs.IRGeneration.Contract.InternalTableNamesReserved_of_helpers_append_compiledInternalTable
+  -- Compiler.Proofs.IRGeneration.Contract.DecodedInternalHelperNamesReserved.nil  -- private
+  -- Compiler.Proofs.IRGeneration.Contract.DecodedInternalHelperNamesReserved.append  -- private
+  -- Compiler.Proofs.IRGeneration.Contract.DecodedInternalHelperNamesReserved.ifList  -- private
+  -- Compiler.Proofs.IRGeneration.Contract.DecodedInternalHelperNamesReserved.of_funcDefNames  -- private
+  -- Compiler.Proofs.IRGeneration.Contract.IsReservedInternalHelperName.templateHelperName  -- private
+  -- Compiler.Proofs.IRGeneration.Contract.DecodedInternalHelperNamesReserved.templateFuncDef  -- private
+  -- Compiler.Proofs.IRGeneration.Contract.templateIntrinsicHelper_mapM_reserved  -- private
+  -- Compiler.Proofs.IRGeneration.Contract.compileTemplateIntrinsicHelpers_reserved  -- private
+  -- Compiler.Proofs.IRGeneration.Contract.DecodedInternalHelperNamesReserved.arrayElementBase  -- private
+  -- Compiler.Proofs.IRGeneration.Contract.DecodedInternalHelperNamesReserved.arrayElementWord  -- private
+  -- Compiler.Proofs.IRGeneration.Contract.DecodedInternalHelperNamesReserved.paramDynamicHeadWord  -- private
+  -- Compiler.Proofs.IRGeneration.Contract.DecodedInternalHelperNamesReserved.mulDiv512  -- private
+  -- Compiler.Proofs.IRGeneration.Contract.DecodedInternalHelperNamesReserved.storageArray  -- private
+  -- Compiler.Proofs.IRGeneration.Contract.DecodedInternalHelperNamesReserved.dynamicBytesEq  -- private
+  -- Compiler.Proofs.IRGeneration.Contract.DecodedInternalHelperNamesReserved.checkedArithmetic  -- private
+  -- Compiler.Proofs.IRGeneration.Contract.DecodedInternalHelperNamesReserved.compileValidatedCore_helpers  -- private
+  Compiler.Proofs.IRGeneration.Contract.InternalTableNamesReserved_of_compileValidatedCore_helpers_append_compiledInternalTable
+  Compiler.Proofs.IRGeneration.Contract.InternalTableNamesReserved_of_compileValidatedCore
   Compiler.Proofs.IRGeneration.Contract.compiledInternalTable_of_compileValidatedCore
   Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_compileValidatedCore
   Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_bodyCallsDisjoint
@@ -5937,4 +5955,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5567 theorems/lemmas (3857 public, 1710 private, 0 sorry'd)
+-- Total: 5585 theorems/lemmas (3859 public, 1726 private, 0 sorry'd)

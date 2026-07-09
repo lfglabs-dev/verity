@@ -173,6 +173,18 @@ ALLOWLIST: set[str] = {
     # taking it as a hypothesis. Body is a single term application; the >50 lines are
     # entirely the mirrored premise list.
     "compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_compileValidatedCore",
+    # #2080 helper-segment reserved-name seam: these mechanically enumerate the
+    # exact conditional helper segment emitted by `compileValidatedCore` and
+    # package it with the existing compiled-internal-table connector. The length
+    # is dominated by the concrete helper list shape, not proof search.
+    "DecodedInternalHelperNamesReserved.compileValidatedCore_helpers",
+    "InternalTableNamesReserved_of_compileValidatedCore_helpers_append_compiledInternalTable",
+    # #2080 compileValidatedCore table-shape connector: extracts the concrete
+    # helper segment, template-helper equation, compiled-internal mapM equation,
+    # fallback/receive entrypoints, and constructor from the pipeline's monadic
+    # output. The length is dominated by case-splitting the do-block shape so the
+    # downstream dispatch seam can consume a premise-free reserved-table theorem.
+    "InternalTableNamesReserved_of_compileValidatedCore",
     # First concrete letVar statement-head adapter (#2080 phase 10): threads a
     # single compositional-expression existential through source execution, IR
     # fuel alignment, and four scope/runtime invariant re-establishment steps
