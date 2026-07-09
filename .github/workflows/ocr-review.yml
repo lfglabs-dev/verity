@@ -18,7 +18,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: ocr-review-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr_number }}
+  group: ocr-review-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr_number }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
