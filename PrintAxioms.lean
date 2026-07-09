@@ -1904,6 +1904,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.Contract.InternalTableNamesReserved_of_compileValidatedCore_helpers_append_compiledInternalTable
   Compiler.Proofs.IRGeneration.Contract.InternalTableNamesReserved_of_compileValidatedCore
   Compiler.Proofs.IRGeneration.Contract.compiledInternalTable_of_compileValidatedCore
+  Compiler.Proofs.IRGeneration.Contract.legacyCompatibleRuntimeContract_of_compileValidatedCore
   Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_compileValidatedCore
   Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_bodyCallsDisjoint
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics
@@ -1916,6 +1917,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_with_helper_proofs_and_helper_ir
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_with_helper_proofs_and_helper_ir_goal
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_with_helper_proofs_and_helper_ir_of_disjointRuntimeContract
+  Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_with_helper_proofs_and_helper_ir_of_compileValidatedCore
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_with_helper_proofs_and_helper_ir_closed
   Compiler.Proofs.IRGeneration.Contract.counter_supported_spec_compile_preserves_semantics
 
@@ -5955,4 +5957,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5585 theorems/lemmas (3859 public, 1726 private, 0 sorry'd)
+-- Total: 5587 theorems/lemmas (3861 public, 1726 private, 0 sorry'd)
