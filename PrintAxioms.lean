@@ -1912,6 +1912,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_with_scalar_events
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_except_mapping_writes
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_except_mapping_writes_stmtSafety
+  Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_except_mapping_writes_and_helper_ir_globalSlotSafety
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_except_mapping_writes_and_helper_ir
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_with_helper_proofs
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_with_helper_proofs_and_helper_ir
@@ -5957,4 +5958,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5587 theorems/lemmas (3861 public, 1726 private, 0 sorry'd)
+-- Total: 5588 theorems/lemmas (3862 public, 1726 private, 0 sorry'd)

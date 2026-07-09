@@ -2548,6 +2548,42 @@ theorem compile_preserves_semantics_except_mapping_writes_stmtSafety
 mapping-write whole-contract theorem. This keeps the widened Tier 2 theorem
 available on `interpretIRWithInternals` while the compiled-side retarget is
 factored behind a conservative-extension equality. -/
+theorem compile_preserves_semantics_except_mapping_writes_and_helper_ir_globalSlotSafety
+    (model : CompilationModel)
+    (selectors : List Nat)
+    (hSupported : SupportedSpecExceptMappingWrites model selectors)
+    (ir : IRContract)
+    (tx : IRTransaction)
+    (initialWorld : Verity.ContractState)
+    (hnoConflict : firstFieldWriteSlotConflict model.fields = none)
+    (hsafety : SupportedStmtListMappingWriteSlotSafety model.fields)
+    (htxNormalized : Function.TxContextNormalized tx)
+    (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
+    (hcompile : CompilationModel.compile model selectors = Except.ok ir)
+    (hhelperIR :
+      interpretIRWithInternals ir 0 tx
+        (FunctionBody.initialIRStateForTx model tx initialWorld) =
+      interpretIR ir tx
+        (FunctionBody.initialIRStateForTx model tx initialWorld)) :
+    FunctionBody.sourceResultMatchesIRResult
+      (supportedSourceContractSemanticsExceptMappingWrites model selectors hSupported tx initialWorld)
+      (interpretIRWithInternals ir 0 tx
+        (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
+  have hlegacy :=
+    compile_preserves_semantics_except_mapping_writes
+      (model := model)
+      (selectors := selectors)
+      (hSupported := hSupported)
+      (ir := ir)
+      (tx := tx)
+      (initialWorld := initialWorld)
+      (hnoConflict := hnoConflict)
+      (hsafety := hsafety)
+      (htxNormalized := htxNormalized)
+      (hcalldataSizeFits := hcalldataSizeFits)
+      (hcompile := hcompile)
+  simpa [hhelperIR] using hlegacy
+
 theorem compile_preserves_semantics_except_mapping_writes_and_helper_ir
     (model : CompilationModel)
     (selectors : List Nat)
