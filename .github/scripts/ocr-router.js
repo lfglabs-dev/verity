@@ -534,15 +534,48 @@ function classifyScoutError(err) {
 }
 
 function sanitizeScoutErrorDetail(err) {
-  return String(err?.message || err || '')
+  const raw = String(err?.message || err || '');
+  const structured = redactStructuredError(raw);
+  return redactSecretText(structured || raw)
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 500);
+}
+
+function redactStructuredError(text) {
+  const trimmed = String(text || '').trim();
+  if (!trimmed || !/^[\[{]/.test(trimmed)) return null;
+  try {
+    return JSON.stringify(redactSecretJsonValue(JSON.parse(trimmed)));
+  } catch {
+    return null;
+  }
+}
+
+function redactSecretJsonValue(value, key = '') {
+  if (isSecretKey(key)) return '[redacted]';
+  if (Array.isArray(value)) return value.map(item => redactSecretJsonValue(item));
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([childKey, childValue]) => [
+      childKey,
+      redactSecretJsonValue(childValue, childKey),
+    ]));
+  }
+  if (typeof value === 'string') return redactSecretText(value);
+  return value;
+}
+
+function isSecretKey(key) {
+  return /^(api\s*key|api[_-]?key|token|authorization|password|secret)$/i.test(String(key || ''));
+}
+
+function redactSecretText(text) {
+  return String(text || '')
     .replace(/https?:\/\/[^\s"')]+/g, '[url-redacted]')
     .replace(/Bearer\s+[A-Za-z0-9._~+/-]+={0,2}/gi, 'Bearer [redacted]')
     .replace(/\bsk-[A-Za-z0-9._-]+/gi, '[redacted]')
     .replace(/\b((?:api\s*key|api[_-]?key|token|authorization|password|secret)\b[^"'`\n]{0,120}?)([A-Za-z0-9._~+/-]{12,}={0,2})/gi, '$1[redacted]')
-    .replace(/\b(api\s*key|api[_-]?key|token|authorization|password|secret)(["'\s:=]+)[^"',\s}]+/gi, '$1$2[redacted]')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 500);
+    .replace(/\b(api\s*key|api[_-]?key|token|authorization|password|secret)(["'\s:=]+)[^"',\s}]+/gi, '$1$2[redacted]');
 }
 
 function openAiChatUrl(baseUrl) {

@@ -311,6 +311,18 @@ function testScoutErrorSanitizesApiKeyPhrases() {
   assert.ok(!detail.includes('sk-test'));
 }
 
+function testScoutErrorSanitizesStructuredSecrets() {
+  const detail = router.sanitizeScoutErrorDetail(JSON.stringify({
+    error: 'invalid MiniMax-M3 scout request',
+    api_key: ['abcdefghijklmnopqrstuvwxyz123456'],
+    nested: { authorization: { token: 'sk-test_abcdefghijklmnopqrstuvwxyz123456' } },
+  }));
+  assert.ok(detail.includes('MiniMax-M3'));
+  assert.ok(detail.includes('[redacted]'));
+  assert.ok(!detail.includes('abcdefghijklmnopqrstuvwxyz'));
+  assert.ok(!detail.includes('sk-test'));
+}
+
 async function testLargeLeanScoutNoPacketsStatus() {
   const files = Array.from({ length: 13 }, (_, i) => file(`Compiler/Proofs/Large${i}.lean`, 40, 0));
   const decision = router.decideRoute(files);
@@ -437,6 +449,7 @@ async function run() {
   await testLargeLeanScoutMalformedJsonFallsBack();
   await testLargeLeanScoutApiFailureFallsBack();
   testScoutErrorSanitizesApiKeyPhrases();
+  testScoutErrorSanitizesStructuredSecrets();
   await testLargeLeanScoutNoPacketsStatus();
   testWorkflowDocsEnabled();
   testGenericScriptConfigEnabled();
