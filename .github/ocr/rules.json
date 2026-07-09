@@ -1,13 +1,33 @@
 {
   "rules": [
     {
+      "path": "{AUDIT.md,TRUST_ASSUMPTIONS.md,AXIOMS.md}",
+      "rule": "Treat trust-boundary documentation changes as high-risk. Check whether a code/proof change weakens, broadens, or silently depends on assumptions, axioms, admitted facts, trusted external semantics, compiler equivalence, or audit exclusions. Flag any mismatch between these docs and changed Lean/Solidity/Yul/Cairo code. Prefer concrete line-linked findings; do not comment on wording unless it changes the trust model.",
+      "merge_system_rule": true
+    },
+    {
+      "path": "Compiler/Proofs/IRGeneration/**",
+      "rule": "Review IRGeneration proof changes as semantic preservation work. Look for theorem statements made weaker, missing cases in induction, new hypotheses that external callers cannot prove, accidental broadening of supported fragments, unsafe simp/simp_all rewrites, use of axioms/admitted facts, and changes that should be reflected in AUDIT.md/TRUST_ASSUMPTIONS.md/AXIOMS.md. Require high-confidence, proof-relevant comments only.",
+      "merge_system_rule": true
+    },
+    {
+      "path": "Compiler/Proofs/YulGeneration/**",
+      "rule": "Review YulGeneration proof changes for Solidity/Yul observable equivalence: memory/storage layout, revert data and panic payloads, calls/returns, events/logs, aliasing, source-expression closures, and backend assumptions. Flag changed semantics, missing preconditions, theorem weakening, or doc trust drift. Avoid style feedback unless it reduces proof fragility.",
+      "merge_system_rule": true
+    },
+    {
+      "path": "**/*.{sol,yul,cairo}",
+      "rule": "Review smart-contract and low-level code for semantic drift against Verity proofs, observable behavior differences, storage/memory layout, revert/panic payload compatibility, event topics/data, authorization boundaries, and test/parity coverage. Prefer concrete correctness/security findings over style.",
+      "merge_system_rule": true
+    },
+    {
       "path": "**/*.lean",
-      "rule": "Review Lean proof changes for semantic correctness, unsound shortcuts, changed trust boundaries, brittle simp usage, missing theorem coverage, accidental weakening of statements, and interactions with AUDIT.md/TRUST_ASSUMPTIONS.md/AXIOMS.md. Do not request stylistic rewrites unless they reduce proof fragility. Prefer high-confidence findings only.",
+      "rule": "Review Lean proof changes for semantic correctness, unsound shortcuts, changed trust boundaries, brittle simp usage, missing theorem coverage, accidental weakening of statements, and interactions with AUDIT.md/TRUST_ASSUMPTIONS.md/AXIOMS.md. Treat additions of axioms, admitted facts, `sorry`, `by aesop`/large automation replacing structured proof, or weakened theorem conclusions as high-risk unless clearly justified. Do not request stylistic rewrites unless they reduce proof fragility. Prefer high-confidence findings only.",
       "merge_system_rule": true
     },
     {
       "path": "**/*.{py,sh,bash,js,ts,json,yml,yaml,toml}",
-      "rule": "Review automation and CI changes for command injection, unsafe path handling, credential exposure, nondeterminism, missing failure handling, and divergence from documented project commands. Prefer high-confidence findings only.",
+      "rule": "Review automation and CI changes for command injection, unsafe path handling, credential exposure, nondeterminism, missing failure handling, brittle GitHub Actions permissions, untrusted pull_request_target checkout mistakes, and divergence from documented project commands. Prefer high-confidence findings only.",
       "merge_system_rule": true
     },
     {
