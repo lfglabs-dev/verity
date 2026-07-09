@@ -152,7 +152,6 @@ jobs:
             --rule "$RUNNER_TEMP/ocr-tools/rules.json" \
             --concurrency 3 \
             --timeout 20 \
-            --max-tools 20 \
             --background "$BACKGROUND" \
             > "$RUNNER_TEMP/ocr-result.json" \
             2> "$RUNNER_TEMP/ocr-stderr.log" || true
