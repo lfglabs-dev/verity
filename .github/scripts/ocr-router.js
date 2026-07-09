@@ -526,6 +526,7 @@ function extractJsonObject(text) {
 
 function classifyScoutError(err) {
   const text = String(err?.message || err || '').toLowerCase();
+  if (err?.status) return 'http_error';
   if (text.includes('abort')) return 'timeout';
   if (text.includes('http')) return 'http_error';
   if (text.includes('json')) return 'invalid_json';
@@ -536,8 +537,9 @@ function sanitizeScoutErrorDetail(err) {
   return String(err?.message || err || '')
     .replace(/https?:\/\/[^\s"')]+/g, '[url-redacted]')
     .replace(/Bearer\s+[A-Za-z0-9._~+/-]+={0,2}/gi, 'Bearer [redacted]')
-    .replace(/\b((?:api\s*key|api[_-]?key|token|authorization|password|secret)\b[^"'`\n]{0,120}?)(sk-[A-Za-z0-9._-]+|[A-Za-z0-9._~+/-]{20,}={0,2})/gi, '$1[redacted]')
-    .replace(/(api[_-]?key|token|authorization|password|secret)(["'\s:=]+)[^"',\s}]+/gi, '$1$2[redacted]')
+    .replace(/\bsk-[A-Za-z0-9._-]+/gi, '[redacted]')
+    .replace(/\b((?:api\s*key|api[_-]?key|token|authorization|password|secret)\b[^"'`\n]{0,120}?)([A-Za-z0-9._~+/-]{12,}={0,2})/gi, '$1[redacted]')
+    .replace(/\b(api\s*key|api[_-]?key|token|authorization|password|secret)(["'\s:=]+)[^"',\s}]+/gi, '$1$2[redacted]')
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 500);
