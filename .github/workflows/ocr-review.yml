@@ -125,8 +125,12 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          git -c "http.https://github.com/.extraheader=AUTHORIZATION: bearer ${GITHUB_TOKEN}" \
-            fetch --no-tags origin "${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+          origin_url="$(git remote get-url origin)"
+          trap 'git remote set-url origin "$origin_url"' EXIT
+          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --no-tags origin "${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+          git remote set-url origin "$origin_url"
+          trap - EXIT
           node "$GITHUB_WORKSPACE/ocr-trusted/.github/scripts/ocr-router.js"
 
       - name: Install OpenCodeReview
@@ -181,7 +185,7 @@ jobs:
           test -s "$RUNNER_TEMP/ocr-result.json" || echo '{"status":"error","comments":[],"message":"OCR produced no JSON output"}' > "$RUNNER_TEMP/ocr-result.json"
 
       - name: Post OCR review
-        if: steps.pr.outputs.skip != 'true' && always() && !cancelled()
+        if: steps.pr.outputs.skip != 'true' && always() && !cancelled() && steps.route.outcome == 'success'
         uses: actions/github-script@v7
         env:
           OCR_RESULT_PATH: ${{ runner.temp }}/ocr-result.json
@@ -200,7 +204,7 @@ jobs:
             await post({ github, context, core });
 
       - name: Upload OCR metrics
-        if: steps.pr.outputs.skip != 'true' && always() && !cancelled()
+        if: steps.pr.outputs.skip != 'true' && always() && !cancelled() && steps.route.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: ocr-metrics-${{ steps.pr.outputs.number }}-${{ steps.pr.outputs.head_sha }}
