@@ -50,7 +50,7 @@ function testNoSupportedFilesSkipped() {
     file('packages/cache.lock', 3, 1),
     file('build/generated.out', 5, 0),
   ]);
-  assert.strictEqual(decision.mode, 'skipped');
+  assert.strictEqual(decision.mode, 'no-supported');
   assert.strictEqual(decision.shouldRunOcr, false);
 }
 
@@ -58,7 +58,7 @@ function testOneLeanFileNormal() {
   const decision = router.decideRoute([
     file('Compiler/Proofs/IRGeneration/Small.lean', 120, 20),
   ]);
-  assert.strictEqual(decision.mode, 'normal');
+  assert.strictEqual(decision.mode, 'small-lean');
   assert.strictEqual(decision.shouldRunOcr, true);
   assert.strictEqual(decision.ocr.concurrency, 3);
 }
@@ -69,7 +69,7 @@ function testLargeLeanPacketized() {
     file('Compiler/Proofs/B.lean', 40, 0),
     file('Compiler/Proofs/C.lean', 40, 0),
   ]);
-  assert.strictEqual(decision.mode, 'packetized-lean');
+  assert.strictEqual(decision.mode, 'large-lean-hotspots');
   assert.strictEqual(decision.shouldRunOcr, false);
   assert.ok(decision.packets.length > 0);
   assert.ok(decision.packets[0].signals.includes('introduced unsafe'));
@@ -78,7 +78,7 @@ function testLargeLeanPacketized() {
 function testOversizedLeanGuarded() {
   const files = Array.from({ length: 13 }, (_, i) => file(`Compiler/Proofs/Large${i}.lean`, 40, 0));
   const decision = router.decideRoute(files);
-  assert.strictEqual(decision.mode, 'guarded-oversized-lean');
+  assert.strictEqual(decision.mode, 'large-lean-hotspots');
   assert.strictEqual(decision.shouldRunOcr, false);
 }
 
@@ -87,7 +87,7 @@ function testWorkflowDocsEnabled() {
     file('.github/workflows/ocr-review.yml', 80, 10),
     file('docs/ocr.md', 900, 4),
   ]);
-  assert.strictEqual(decision.mode, 'normal');
+  assert.strictEqual(decision.mode, 'config-docs');
   assert.strictEqual(decision.shouldRunOcr, true);
 }
 
@@ -97,7 +97,7 @@ function testGenericScriptConfigEnabled() {
     file('package.json', 6, 1),
     file('config/app.yml', 5, 2),
   ]);
-  assert.strictEqual(decision.mode, 'normal');
+  assert.strictEqual(decision.mode, 'config-docs');
   assert.strictEqual(decision.shouldRunOcr, true);
   assert.strictEqual(decision.counts.workflowScripts, 3);
 }
@@ -122,7 +122,7 @@ async function testCompletedWithErrorsRetryablePreservesFindings() {
   fs.writeFileSync(metricsPath, JSON.stringify({
     started_at: new Date(Date.now() - 1000).toISOString(),
     router_version: router.ROUTER_VERSION,
-    mode: 'bounded-lean',
+    mode: 'medium-lean',
     thresholds: router.THRESHOLDS,
     changed_files: {
       counts: { total: 1, supported: 1, lean: 1, trustDocs: 0, workflowScripts: 0, contracts: 0, docs: 0 },
@@ -142,7 +142,7 @@ async function testCompletedWithErrorsRetryablePreservesFindings() {
     OCR_RULES_HASH: 'ruleshash',
     OCR_REVIEWER_VERSION: 'reviewer-v3',
     OCR_ROUTER_VERSION: router.ROUTER_VERSION,
-    OCR_MODE: 'bounded-lean',
+    OCR_MODE: 'medium-lean',
   });
 
   let postedComment = '';

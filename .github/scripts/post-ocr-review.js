@@ -153,8 +153,8 @@ function buildReviewBody({ tag, result, comments, selected, overflow, summaryOnl
   body += `Status: **${escapeMd(status)}** · Mode: **${escapeMd(metrics?.mode || summary.mode || 'unknown')}** · ${comments.length} finding(s) · ${files}${tokens}${toolCalls}\n\n`;
 
   if (message) body += `${escapeMd(message)}\n\n`;
-  if ((metrics?.mode || summary.mode) === 'packetized-lean') {
-    body += `⚠️ Packetized Lean mode covers ranked hotspot packets only; it is not a full-file OCR review.\n`;
+  if ((metrics?.mode || summary.mode) === 'large-lean-hotspots') {
+    body += `⚠️ Large Lean hotspot mode covers ranked packets/checklists only; it is not a full-file OCR review.\n`;
   }
   if (selected.length > 0) body += `✅ Posted ${selected.length} inline comment(s).\n`;
   if (overflow.length > 0) body += `📝 ${overflow.length} additional positioned finding(s) omitted from inline comments to avoid spam.\n`;
@@ -218,7 +218,7 @@ function enrichMetrics(metrics, { mode, result, stderr, retryable }) {
     completed_at: completedAt,
     ocr: {
       ...(base.ocr || {}),
-      attempted: base.ocr?.attempted ?? !['skipped', 'guarded-oversized-lean', 'guarded-unpacketized-lean', 'packetized_review'].includes(String(result.status || '')),
+      attempted: base.ocr?.attempted ?? !['no-supported', 'large-lean-hotspots', 'packetized_review'].includes(String(result.status || '')),
       retryable: Boolean(retryable),
       status: extracted.status,
       comments_count: extracted.commentsCount,

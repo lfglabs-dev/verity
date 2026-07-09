@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
-const ROUTER_VERSION = 'router-v2';
+const ROUTER_VERSION = 'router-v3';
 const THRESHOLDS = Object.freeze({
   smallLeanFiles: 1,
   smallChangedLines: 300,
@@ -172,7 +172,7 @@ function decideRoute(files) {
 
   if (supportedFiles.length === 0) {
     return route({
-      mode: 'skipped',
+      mode: 'no-supported',
       shouldRunOcr: false,
       reason: 'No changed files matched OCR include rules.',
       counts,
@@ -184,13 +184,13 @@ function decideRoute(files) {
 
   if (leanFiles.length > 0 && (leanFiles.length > THRESHOLDS.packetMaxFiles || changedLines > THRESHOLDS.packetMaxChangedLines)) {
     return route({
-      mode: 'guarded-oversized-lean',
+      mode: 'large-lean-hotspots',
       shouldRunOcr: false,
       reason: `Lean packet budget exceeded: ${leanFiles.length} Lean file(s), ${changedLines} changed supported line(s).`,
       counts,
       changedLines,
       largestFiles,
-      packets,
+      packets: [],
       ocr: { concurrency: 0, timeout: 0, backgroundChars: 0 },
     });
   }
@@ -198,7 +198,7 @@ function decideRoute(files) {
   if (leanFiles.length > 0 && (leanFiles.length >= THRESHOLDS.largeLeanFiles || changedLines > THRESHOLDS.largeChangedLines)) {
     if (packets.length === 0) {
       return route({
-        mode: 'guarded-unpacketized-lean',
+        mode: 'large-lean-hotspots',
         shouldRunOcr: false,
         reason: `Lean diff exceeded full OCR thresholds, but no safe review packets could be produced: ${leanFiles.length} Lean file(s), ${changedLines} changed supported line(s).`,
         counts,
@@ -209,7 +209,7 @@ function decideRoute(files) {
       });
     }
     return route({
-      mode: 'packetized-lean',
+      mode: 'large-lean-hotspots',
       shouldRunOcr: false,
       reason: `Large Lean diff routed to bounded packet review: ${leanFiles.length} Lean file(s), ${changedLines} changed supported line(s).`,
       counts,
@@ -222,7 +222,7 @@ function decideRoute(files) {
 
   if (leanFiles.length > 0 && (leanFiles.length > THRESHOLDS.smallLeanFiles || changedLines > THRESHOLDS.smallChangedLines)) {
     return route({
-      mode: 'bounded-lean',
+      mode: 'medium-lean',
       shouldRunOcr: true,
       reason: `Medium Lean diff routed with reduced OCR bounds: ${leanFiles.length} Lean file(s), ${changedLines} changed supported line(s).`,
       counts,
@@ -234,7 +234,7 @@ function decideRoute(files) {
   }
 
   return route({
-    mode: 'normal',
+    mode: leanFiles.length > 0 ? 'small-lean' : 'config-docs',
     shouldRunOcr: true,
     reason: leanFiles.length > 0
       ? `Small Lean diff: ${leanFiles.length} Lean file(s), ${changedLines} changed supported line(s).`
@@ -447,7 +447,7 @@ function buildMetrics({ prNumber, headSha, baseRef, startedAt, decision, diff })
       })),
     },
     packet_review: shouldReportPacketReview(decision) ? {
-      enabled: decision.mode === 'packetized-lean',
+      enabled: decision.mode === 'large-lean-hotspots' && (decision.packets?.length || 0) > 0,
       packets_selected: decision.packets?.length || 0,
       packet_budget: THRESHOLDS.packetMaxCount,
       packets: (decision.packets || []).map(p => ({
@@ -478,7 +478,7 @@ function buildMetrics({ prNumber, headSha, baseRef, startedAt, decision, diff })
 }
 
 function buildSyntheticResult(decision, metrics) {
-  if (decision.mode === 'packetized-lean') {
+  if (decision.mode === 'large-lean-hotspots' && (decision.packets?.length || 0) > 0) {
     return buildPacketizedResult(decision, metrics);
   }
 
@@ -486,7 +486,7 @@ function buildSyntheticResult(decision, metrics) {
     status: decision.mode,
     message: decision.reason,
     comments: [],
-    warnings: ['guarded-oversized-lean', 'guarded-unpacketized-lean'].includes(decision.mode)
+    warnings: decision.mode === 'large-lean-hotspots'
       ? [{ type: 'routing', message: 'Diff exceeded bounded packet review capability; full OCR not attempted.' }]
       : [],
     summary: {
@@ -511,7 +511,7 @@ function buildPacketizedResult(decision, metrics) {
       path: packet.path,
       start_line: packet.start_line,
       end_line: packet.end_line,
-      category: 'packetized-lean',
+      category: 'large-lean-hotspots',
       severity: packet.score >= 90 ? 'high' : packet.score >= 60 ? 'medium' : 'low',
       content: renderPacketFinding(packet),
     })),
@@ -548,20 +548,20 @@ function renderPacketFinding(packet) {
 }
 
 function packetResidualRisk(decision) {
-  if (decision.mode === 'packetized-lean') {
+  if (decision.mode === 'large-lean-hotspots' && (decision.packets?.length || 0) > 0) {
     return `Reviewed top ${decision.packets?.length || 0} packet(s) by deterministic risk score; remaining changed hunks/files require Codex or human proof review.`;
   }
-  if (decision.mode === 'guarded-oversized-lean') {
+  if (decision.mode === 'large-lean-hotspots' && ((decision.counts?.lean || 0) > THRESHOLDS.packetMaxFiles || (decision.changedLines || 0) > THRESHOLDS.packetMaxChangedLines)) {
     return 'Diff exceeded packet budget; use top changed files and deterministic signals as required Codex/human review checklist.';
   }
-  if (decision.mode === 'guarded-unpacketized-lean') {
+  if (decision.mode === 'large-lean-hotspots') {
     return 'Router could not produce safe diff packets; use top changed files as required Codex/human review checklist.';
   }
   return null;
 }
 
 function shouldReportPacketReview(decision) {
-  return ['packetized-lean', 'guarded-oversized-lean', 'guarded-unpacketized-lean'].includes(decision.mode);
+  return decision.mode === 'large-lean-hotspots';
 }
 
 function uniqueCount(values) {
