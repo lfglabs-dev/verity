@@ -442,6 +442,22 @@ function testScoutErrorSanitizesShortUnquotedDiagnostics() {
   assert.ok(!detail.includes('short8'));
 }
 
+function testScoutErrorSanitizesPrefixedTextLabels() {
+  const quoted = router.sanitizeScoutErrorDetail(
+    'MiniMax-M3 failed with openai_api_key: "short-secret"'
+  );
+  assert.ok(quoted.includes('MiniMax-M3'));
+  assert.ok(quoted.includes('[redacted]'));
+  assert.ok(!quoted.includes('short-secret'));
+
+  const camel = router.sanitizeScoutErrorDetail(
+    'MiniMax-M3 failed with openaiApiKey: short8'
+  );
+  assert.ok(camel.includes('MiniMax-M3'));
+  assert.ok(camel.includes('[redacted]'));
+  assert.ok(!camel.includes('short8'));
+}
+
 function testScoutErrorSanitizesPropertyValueDiagnostics() {
   const detail = router.sanitizeScoutErrorDetail(JSON.stringify({
     error: 'invalid MiniMax-M3 scout request',
@@ -598,6 +614,7 @@ async function run() {
   testScoutErrorSanitizesAdditionalCredentialKeys();
   testScoutErrorPreservesUuidDiagnostics();
   testScoutErrorSanitizesShortUnquotedDiagnostics();
+  testScoutErrorSanitizesPrefixedTextLabels();
   testScoutErrorSanitizesPropertyValueDiagnostics();
   testScoutErrorPreservesTraceDiagnostics();
   await testLargeLeanScoutNoPacketsStatus();
