@@ -556,13 +556,25 @@ function redactSecretJsonValue(value, key = '') {
   if (isSecretKey(key)) return '[redacted]';
   if (Array.isArray(value)) return value.map(item => redactSecretJsonValue(item));
   if (value && typeof value === 'object') {
+    const secretContext = Object.entries(value).some(([childKey, childValue]) => {
+      if (!/^(field|param|parameter|name|key|loc|path)$/i.test(childKey)) return false;
+      return hasSecretIndicator(childValue);
+    });
     return Object.fromEntries(Object.entries(value).map(([childKey, childValue]) => [
       childKey,
-      redactSecretJsonValue(childValue, childKey),
+      secretContext && /^(value|input|provided|actual)$/i.test(childKey)
+        ? '[redacted]'
+        : redactSecretJsonValue(childValue, childKey),
     ]));
   }
   if (typeof value === 'string') return redactSecretText(value);
   return value;
+}
+
+function hasSecretIndicator(value) {
+  if (Array.isArray(value)) return value.some(hasSecretIndicator);
+  if (value && typeof value === 'object') return Object.values(value).some(hasSecretIndicator);
+  return isSecretKey(String(value || ''));
 }
 
 function isSecretKey(key) {
@@ -580,6 +592,7 @@ function redactSecretText(text) {
     .replace(/\beyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, '[redacted]')
     .replace(/Bearer\s+[A-Za-z0-9._~+/-]+={0,2}/gi, 'Bearer [redacted]')
     .replace(/\bsk-[A-Za-z0-9._-]+/gi, '[redacted]')
+    .replace(/\b(api\s*key|api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|api[_-]?secret|private[_-]?key|bearer[_-]?token|session[_-]?(?:secret|token)|token|authorization|password|secret)(\s*[:=]\s*)(["'`])(?:\\.|(?!\3).){0,300}\3/gi, '$1$2$3[redacted]$3')
     .replace(/\b(?![a-f0-9]{40}\b)(?=[A-Za-z0-9._~+/-]{32,}\b)(?=[A-Za-z0-9._~+/-]*[A-Za-z])(?=[A-Za-z0-9._~+/-]*\d)[A-Za-z0-9._~+/-]{32,}={0,2}\b/g, '[redacted]')
     .replace(/\b((?:api\s*key|api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|api[_-]?secret|private[_-]?key|bearer[_-]?token|session[_-]?(?:secret|token)|token|authorization|password|secret)\b[^"'`\n]{0,120}?)([A-Za-z0-9._~+/-]{12,}={0,2})/gi, '$1[redacted]');
 }

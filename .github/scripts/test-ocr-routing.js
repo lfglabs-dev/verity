@@ -352,6 +352,29 @@ function testScoutErrorSanitizesBareCredentialLikeStrings() {
   assert.ok(!detail.includes('abcdefghijklmnopqrstuvwxyz1234567890'));
 }
 
+function testScoutErrorSanitizesQuotedFallbackDiagnostics() {
+  const detail = router.sanitizeScoutErrorDetail(
+    '400 Bad Request: {"api_key":"abcdefghijklmnopqrstuvwxyz123456","error":"invalid MiniMax-M3 request"}'
+  );
+  assert.ok(detail.includes('MiniMax-M3'));
+  assert.ok(detail.includes('[redacted]'));
+  assert.ok(!detail.includes('abcdefghijklmnopqrstuvwxyz123456'));
+}
+
+function testScoutErrorSanitizesFieldValueDiagnostics() {
+  const detail = router.sanitizeScoutErrorDetail(JSON.stringify({
+    error: 'invalid MiniMax-M3 scout request',
+    issues: [
+      { field: 'api_key', value: 'abcdefghijklmnopqrstuvwxyz123456' },
+      { loc: ['body', 'client_secret'], input: 'abcdefghijklmnopqrstuvwxyz123457' },
+    ],
+  }));
+  assert.ok(detail.includes('MiniMax-M3'));
+  assert.ok(detail.includes('[redacted]'));
+  assert.ok(!detail.includes('abcdefghijklmnopqrstuvwxyz123456'));
+  assert.ok(!detail.includes('abcdefghijklmnopqrstuvwxyz123457'));
+}
+
 async function testLargeLeanScoutNoPacketsStatus() {
   const files = Array.from({ length: 13 }, (_, i) => file(`Compiler/Proofs/Large${i}.lean`, 40, 0));
   const decision = router.decideRoute(files);
@@ -481,6 +504,8 @@ async function run() {
   testScoutErrorSanitizesStructuredSecrets();
   testScoutErrorSanitizesJwtWithoutDroppingPlainDiagnostics();
   testScoutErrorSanitizesBareCredentialLikeStrings();
+  testScoutErrorSanitizesQuotedFallbackDiagnostics();
+  testScoutErrorSanitizesFieldValueDiagnostics();
   await testLargeLeanScoutNoPacketsStatus();
   testWorkflowDocsEnabled();
   testGenericScriptConfigEnabled();
