@@ -315,7 +315,12 @@ function testScoutErrorSanitizesStructuredSecrets() {
   const detail = router.sanitizeScoutErrorDetail(JSON.stringify({
     error: 'invalid MiniMax-M3 scout request',
     api_key: ['abcdefghijklmnopqrstuvwxyz123456'],
-    nested: { authorization: { token: 'sk-test_abcdefghijklmnopqrstuvwxyz123456' } },
+    access_token: 'abcdefghijklmnopqrstuvwxyz123456',
+    refreshToken: 'abcdefghijklmnopqrstuvwxyz123457',
+    nested: {
+      authorization: { token: 'sk-test_abcdefghijklmnopqrstuvwxyz123456' },
+      client_secret: 'abcdefghijklmnopqrstuvwxyz123458',
+    },
   }));
   assert.ok(detail.includes('MiniMax-M3'));
   assert.ok(detail.includes('[redacted]'));
