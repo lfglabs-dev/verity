@@ -4,7 +4,8 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
-const ROUTER_VERSION = 'router-v4';
+const ROUTER_VERSION = 'router-v5';
+const DEFAULT_SCOUT_MODEL = 'MiniMax-M3';
 const STRONG_REVIEW_BLOCKER_MESSAGE = 'OpenCodeReview 1.7.5 supports --from/--to full diff ranges, but this workflow does not have a safe packet/window input bridge for Lean hunks yet.';
 const THRESHOLDS = Object.freeze({
   smallLeanFiles: 1,
@@ -33,11 +34,7 @@ async function main() {
   const diff = loadDiff(`origin/${baseRef}`, headSha);
   const decision = decideRoute(diff.files);
   if (decision.mode === 'large-lean-hotspots') {
-    await applyScoutStage(decision, diff, {
-      url: process.env.OCR_SCOUT_LLM_URL || '',
-      key: process.env.OCR_SCOUT_LLM_KEY || '',
-      model: process.env.OCR_SCOUT_LLM_MODEL || '',
-    });
+    await applyScoutStage(decision, diff, resolveScoutConfig(process.env));
   }
   const metrics = buildMetrics({
     prNumber,
@@ -68,6 +65,9 @@ async function main() {
 
   console.log(`OCR route: ${decision.mode} (${decision.reason})`);
   console.log(`Changed files: ${diff.files.length}; supported: ${decision.counts.supported}; Lean: ${decision.counts.lean}; changed lines: ${decision.changedLines}`);
+  if (decision.scout) {
+    console.log(`Scout enabled: ${decision.scout.enabled}; model: ${decision.scout.model || DEFAULT_SCOUT_MODEL}; status: ${decision.scout.status}`);
+  }
 }
 
 function loadDiff(base, head) {
@@ -306,11 +306,14 @@ function renderHunkExcerpt(hunk, maxLines) {
 
 async function applyScoutStage(decision, diff, config) {
   const deterministicPackets = decision.packets || [];
+  const scoutSwitchOn = config.enabled !== false;
+  const enabled = Boolean(scoutSwitchOn && config.url && config.key && config.model);
   decision.scout = {
-    enabled: Boolean(config.url && config.key && config.model),
+    enabled,
+    configured: Boolean(config.url && config.key && config.model),
     attempted: false,
-    status: 'not_configured',
-    model: config.model ? redactModel(config.model) : null,
+    status: scoutSwitchOn ? 'not_configured' : 'disabled',
+    model: config.model ? redactModel(config.model) : DEFAULT_SCOUT_MODEL,
     selected_packets: deterministicPackets.map(p => p.packet_id),
     residual_coverage: packetResidualRisk(decision),
     strong_review_status: 'blocked_packet_input',
@@ -318,7 +321,7 @@ async function applyScoutStage(decision, diff, config) {
   };
 
   if (deterministicPackets.length === 0) {
-    decision.scout.status = decision.scout.enabled ? 'skipped_no_packets' : 'not_configured';
+    decision.scout.status = decision.scout.enabled ? 'skipped_no_packets' : decision.scout.status;
     decision.scout.residual_coverage = 'No safe packets were produced; use top changed files and deterministic checklist items for Codex/human review.';
     return decision;
   }
@@ -447,10 +450,73 @@ async function callScoutModel(config, dossier) {
     const payload = JSON.parse(text);
     const content = payload.choices?.[0]?.message?.content;
     if (!content) throw new Error('scout model returned no message content');
-    return JSON.parse(content);
+    return parseScoutJson(content);
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function resolveScoutConfig(env = process.env) {
+  const enabled = !isFalse(env.OCR_SCOUT_ENABLED);
+  return {
+    enabled,
+    url: env.OCR_SCOUT_LLM_URL || env.OCR_LLM_URL || '',
+    key: env.OCR_SCOUT_LLM_KEY || env.OCR_LLM_KEY || env.OCR_LLM_TOKEN || '',
+    model: env.OCR_SCOUT_LLM_MODEL || DEFAULT_SCOUT_MODEL,
+  };
+}
+
+function isFalse(value) {
+  return /^(0|false|no|off)$/i.test(String(value || '').trim());
+}
+
+function parseScoutJson(content) {
+  const text = stripThinking(String(content || '')).trim();
+  try {
+    return JSON.parse(text);
+  } catch (err) {
+    const extracted = extractJsonObject(text);
+    if (!extracted) throw err;
+    return JSON.parse(extracted);
+  }
+}
+
+function stripThinking(text) {
+  return text
+    .replace(/<mm:think>[\s\S]*?<\/mm:think>/gi, '')
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '');
+}
+
+function extractJsonObject(text) {
+  const start = text.indexOf('{');
+  if (start === -1) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i += 1) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+    } else if (ch === '{') {
+      depth += 1;
+    } else if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  return null;
 }
 
 function classifyScoutError(err) {
@@ -885,6 +951,7 @@ if (require.main === module) {
 module.exports = {
   ROUTER_VERSION,
   THRESHOLDS,
+  DEFAULT_SCOUT_MODEL,
   categorize,
   decideRoute,
   isSupported,
@@ -893,6 +960,8 @@ module.exports = {
   buildMetrics,
   buildReviewPackets,
   applyScoutStage,
+  resolveScoutConfig,
+  parseScoutJson,
   buildRiskDossier,
   parseUnifiedDiff,
   scorePathRisk,

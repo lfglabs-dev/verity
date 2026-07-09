@@ -135,7 +135,37 @@ async function testLargeLeanScoutNotConfiguredFallsBack() {
   assert.strictEqual(decision.mode, 'large-lean-hotspots');
   assert.strictEqual(decision.scout.enabled, false);
   assert.strictEqual(decision.scout.status, 'not_configured');
+  assert.strictEqual(decision.scout.model, 'MiniMax-M3');
   assert.strictEqual(decision.scout.strong_review_status, 'blocked_packet_input');
+}
+
+function testScoutConfigDefaultsToMiniMaxOnOcrEndpoint() {
+  const config = router.resolveScoutConfig({
+    OCR_LLM_URL: 'https://sandboxed.example/v1',
+    OCR_LLM_KEY: 'shared-key',
+  });
+  assert.strictEqual(config.enabled, true);
+  assert.strictEqual(config.url, 'https://sandboxed.example/v1');
+  assert.strictEqual(config.key, 'shared-key');
+  assert.strictEqual(config.model, 'MiniMax-M3');
+  const ocrReviewerModel = 'reviewer';
+  assert.strictEqual(ocrReviewerModel, 'reviewer');
+}
+
+function testScoutConfigCanDisableLargeLeanScout() {
+  const config = router.resolveScoutConfig({
+    OCR_SCOUT_ENABLED: 'false',
+    OCR_LLM_URL: 'https://sandboxed.example/v1',
+    OCR_LLM_KEY: 'shared-key',
+  });
+  assert.strictEqual(config.enabled, false);
+  assert.strictEqual(config.model, 'MiniMax-M3');
+}
+
+function testScoutJsonParsingHandlesMiniMaxThinkingWrapper() {
+  const parsed = router.parseScoutJson('<mm:think>ranking packets</mm:think>\n```json\n{"selected_packets":[],"residual_coverage":"none","summary":"ok"}\n```');
+  assert.deepStrictEqual(parsed.selected_packets, []);
+  assert.strictEqual(parsed.summary, 'ok');
 }
 
 async function testLargeLeanScoutSelectsPackets() {
@@ -211,6 +241,35 @@ async function testLargeLeanScoutEmptySelectionIsFallback() {
   assert.strictEqual(decision.scout.status, 'fallback_no_selection');
   assert.deepStrictEqual(decision.packets.map(p => p.packet_id), originalPackets);
   assert.strictEqual(decision.scout.raw_selected_count, 1);
+}
+
+async function testLargeLeanScoutMalformedJsonFallsBack() {
+  const files = [
+    file('Compiler/Proofs/A.lean', 40, 0),
+    file('Compiler/Proofs/B.lean', 40, 0),
+    file('Compiler/Proofs/C.lean', 40, 0),
+  ];
+  const decision = router.decideRoute(files);
+  const originalPackets = decision.packets.map(p => p.packet_id);
+  const oldFetch = global.fetch;
+  global.fetch = async () => ({
+    ok: true,
+    text: async () => JSON.stringify({
+      choices: [{
+        message: {
+          content: '{"selected_packets": [',
+        },
+      }],
+    }),
+  });
+  try {
+    await router.applyScoutStage(decision, { files }, { enabled: true, url: 'https://example.invalid/v1', key: 'test-key', model: 'MiniMax-M3' });
+  } finally {
+    global.fetch = oldFetch;
+  }
+  assert.strictEqual(decision.scout.status, 'fallback_deterministic');
+  assert.strictEqual(decision.scout.error_type, 'invalid_json');
+  assert.deepStrictEqual(decision.packets.map(p => p.packet_id), originalPackets);
 }
 
 async function testLargeLeanScoutApiFailureFallsBack() {
@@ -355,9 +414,13 @@ async function run() {
   testLeanBlockCommentDoesNotTriggerSorrySignal();
   testCodeAfterInlineBlockCommentIsScanned();
   testOversizedLeanGuarded();
+  testScoutConfigDefaultsToMiniMaxOnOcrEndpoint();
+  testScoutConfigCanDisableLargeLeanScout();
+  testScoutJsonParsingHandlesMiniMaxThinkingWrapper();
   await testLargeLeanScoutNotConfiguredFallsBack();
   await testLargeLeanScoutSelectsPackets();
   await testLargeLeanScoutEmptySelectionIsFallback();
+  await testLargeLeanScoutMalformedJsonFallsBack();
   await testLargeLeanScoutApiFailureFallsBack();
   await testLargeLeanScoutNoPacketsStatus();
   testWorkflowDocsEnabled();
