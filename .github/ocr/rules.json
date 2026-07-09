@@ -24,5 +24,17 @@
     "**/build/**",
     "**/*.lock",
     "**/generated/**"
+  ],
+  "include": [
+    "**/*.lean",
+    "**/*.sol",
+    "**/*.yul",
+    "**/*.cairo",
+    "AUDIT.md",
+    "TRUST_ASSUMPTIONS.md",
+    "AXIOMS.md",
+    "README.md",
+    "docs/**/*.md",
+    ".github/**/*"
   ]
 }
