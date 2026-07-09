@@ -558,6 +558,15 @@ function redactStructuredError(text) {
     const redacted = JSON.stringify(redactSecretJsonValue(JSON.parse(candidate)));
     return candidate === trimmed ? redacted : trimmed.replace(candidate, redacted);
   } catch {
+    const embedded = extractJsonObject(trimmed) || extractJsonValue(trimmed, '[', ']');
+    if (embedded && embedded !== candidate) {
+      try {
+        const redacted = JSON.stringify(redactSecretJsonValue(JSON.parse(embedded)));
+        return trimmed.replace(embedded, redacted);
+      } catch {
+        return null;
+      }
+    }
     return null;
   }
 }
