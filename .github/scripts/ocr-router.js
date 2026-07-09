@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
-const ROUTER_VERSION = 'router-v6';
+const ROUTER_VERSION = 'router-v7';
 const DEFAULT_SCOUT_MODEL = 'MiniMax-M3';
 const STRONG_REVIEW_BLOCKER_MESSAGE = 'OpenCodeReview 1.7.5 supports --from/--to full diff ranges, but this workflow does not have a safe packet/window input bridge for Lean hunks yet.';
 const THRESHOLDS = Object.freeze({
@@ -537,7 +537,6 @@ function sanitizeScoutErrorDetail(err) {
     .replace(/https?:\/\/[^\s"')]+/g, '[url-redacted]')
     .replace(/Bearer\s+[A-Za-z0-9._~+/-]+={0,2}/gi, 'Bearer [redacted]')
     .replace(/(api[_-]?key|token|authorization|password|secret)(["'\s:=]+)[^"',\s}]+/gi, '$1$2[redacted]')
-    .replace(/[A-Za-z0-9_-]{32,}/g, '[redacted]')
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 500);
