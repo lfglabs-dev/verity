@@ -142,6 +142,8 @@ jobs:
           # Keep the model focused: PR bodies can include long generated summaries (Bugbot/Cursor),
           # which inflated token use and caused Lean proof reviews to hit OCR subtask deadlines.
           CLEAN_BODY="${PR_BODY%%<!-- CURSOR_SUMMARY -->*}"
+          CLEAN_BODY="${CLEAN_BODY%%<!-- BUGBOT_SUMMARY -->*}"
+          CLEAN_BODY="${CLEAN_BODY%%<!-- BUGBOT_REVIEW -->*}"
           BACKGROUND="${PR_TITLE}"$'\n\n'"${CLEAN_BODY}"
           BACKGROUND="${BACKGROUND:0:1200}"
           ocr review \
