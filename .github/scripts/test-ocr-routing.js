@@ -153,6 +153,39 @@ async function testLargeLeanScoutSelectsPackets() {
   assert.ok(decision.packets[0].scout_question.includes('preserve'));
 }
 
+async function testLargeLeanScoutEmptySelectionIsFallback() {
+  const files = [
+    file('Compiler/Proofs/A.lean', 40, 0),
+    file('Compiler/Proofs/B.lean', 40, 0),
+    file('Compiler/Proofs/C.lean', 40, 0),
+  ];
+  const decision = router.decideRoute(files);
+  const originalPackets = decision.packets.map(p => p.packet_id);
+  const oldFetch = global.fetch;
+  global.fetch = async () => ({
+    ok: true,
+    text: async () => JSON.stringify({
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            selected_packets: [{ id: 'missing-packet', reason: 'bad id' }],
+            residual_coverage: 'Scout did not select a valid packet.',
+            summary: 'No valid selection.',
+          }),
+        },
+      }],
+    }),
+  });
+  try {
+    await router.applyScoutStage(decision, { files }, { url: 'https://example.invalid/v1', key: 'test-key', model: 'cheap-scout' });
+  } finally {
+    global.fetch = oldFetch;
+  }
+  assert.strictEqual(decision.scout.status, 'fallback_no_selection');
+  assert.deepStrictEqual(decision.packets.map(p => p.packet_id), originalPackets);
+  assert.strictEqual(decision.scout.raw_selected_count, 1);
+}
+
 function testWorkflowDocsEnabled() {
   const decision = router.decideRoute([
     file('.github/workflows/ocr-review.yml', 80, 10),
@@ -262,6 +295,7 @@ async function run() {
   testOversizedLeanGuarded();
   await testLargeLeanScoutNotConfiguredFallsBack();
   await testLargeLeanScoutSelectsPackets();
+  await testLargeLeanScoutEmptySelectionIsFallback();
   testWorkflowDocsEnabled();
   testGenericScriptConfigEnabled();
   await testCompletedWithErrorsRetryablePreservesFindings();

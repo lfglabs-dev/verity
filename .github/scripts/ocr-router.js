@@ -324,15 +324,19 @@ async function applyScoutStage(decision, diff, config) {
     const dossier = buildRiskDossier(decision, diff);
     const scout = await callScoutModel(config, dossier);
     const selected = selectScoutPackets(deterministicPackets, scout);
+    decision.scout.raw_selected_count = Array.isArray(scout.selected_packets) ? scout.selected_packets.length : null;
     if (selected.length > 0) {
       decision.packets = selected;
       decision.reason = `${decision.reason} Scout model ranked ${selected.length}/${deterministicPackets.length} packet(s) for stronger review.`;
       decision.scout.selected_packets = selected.map(p => p.packet_id);
+      decision.scout.status = 'success';
+      decision.scout.summary = scout.summary || '';
+      decision.scout.residual_coverage = scout.residual_coverage || decision.scout.residual_coverage;
+    } else {
+      decision.scout.status = 'fallback_no_selection';
+      decision.scout.summary = scout.summary || 'Scout returned no valid packet IDs; deterministic ranking retained.';
+      decision.scout.residual_coverage = 'Scout returned no valid packet IDs, so deterministic packet ranking was retained and all selected packets still need strong reviewer analysis.';
     }
-    decision.scout.status = 'success';
-    decision.scout.summary = scout.summary || '';
-    decision.scout.residual_coverage = scout.residual_coverage || decision.scout.residual_coverage;
-    decision.scout.raw_selected_count = Array.isArray(scout.selected_packets) ? scout.selected_packets.length : null;
   } catch (err) {
     decision.scout.status = 'fallback_deterministic';
     decision.scout.error = String(err.message || err).slice(0, 300);
