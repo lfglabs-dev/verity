@@ -153,6 +153,9 @@ function buildReviewBody({ tag, result, comments, selected, overflow, summaryOnl
   body += `Status: **${escapeMd(status)}** · Mode: **${escapeMd(metrics?.mode || summary.mode || 'unknown')}** · ${comments.length} finding(s) · ${files}${tokens}${toolCalls}\n\n`;
 
   if (message) body += `${escapeMd(message)}\n\n`;
+  if ((metrics?.mode || summary.mode) === 'packetized-lean') {
+    body += `⚠️ Packetized Lean mode covers ranked hotspot packets only; it is not a full-file OCR review.\n`;
+  }
   if (selected.length > 0) body += `✅ Posted ${selected.length} inline comment(s).\n`;
   if (overflow.length > 0) body += `📝 ${overflow.length} additional positioned finding(s) omitted from inline comments to avoid spam.\n`;
   if (summaryOnly.length > 0) body += `📝 ${summaryOnly.length} finding(s) had no resolvable line and are summarized below.\n`;
@@ -184,6 +187,7 @@ function buildReviewBody({ tag, result, comments, selected, overflow, summaryOnl
   }
 
   body += renderMetrics(metrics, result);
+  body += renderPacketCoverage(metrics, result);
   body += `_Pilot mode: advisory only. Codex Review remains the merge gate._`;
   return body;
 }
@@ -214,7 +218,7 @@ function enrichMetrics(metrics, { mode, result, stderr, retryable }) {
     completed_at: completedAt,
     ocr: {
       ...(base.ocr || {}),
-      attempted: base.ocr?.attempted ?? !['skipped', 'guarded-large-lean'].includes(String(result.status || '')),
+      attempted: base.ocr?.attempted ?? !['skipped', 'guarded-oversized-lean', 'guarded-unpacketized-lean', 'packetized_review'].includes(String(result.status || '')),
       retryable: Boolean(retryable),
       status: extracted.status,
       comments_count: extracted.commentsCount,
@@ -241,6 +245,27 @@ function renderMetrics(metrics, result) {
   body += `- OCR: status ${escapeMd(extracted.status)}; comments ${extracted.commentsCount}; files ${extracted.filesReviewed ?? 'unknown'}; tokens ${extracted.totalTokens ?? 0}; tool calls ${extracted.toolCallsTotal ?? 0}; warnings ${extracted.warningsCount ?? 0}; duration ${formatDuration(ocr.duration_ms)}\n`;
   if (largest.length > 0) {
     body += `- Largest changed files: ${largest.slice(0, 5).map(f => `${escapeMd(f.path)} (+${f.added}/-${f.deleted})`).join(', ')}\n`;
+  }
+  body += `\n`;
+  return body;
+}
+
+function renderPacketCoverage(metrics, result) {
+  const packetReview = metrics?.packet_review || result.summary?.packet_review;
+  if (!packetReview) return '';
+
+  const packets = Array.isArray(packetReview.packets) ? packetReview.packets : [];
+  let body = `### Packet coverage\n\n`;
+  body += `- Packet review: ${packetReview.enabled ? 'enabled' : 'not used'}; selected ${packetReview.packets_selected ?? packets.length}/${packetReview.packet_budget ?? '?'} packet(s)\n`;
+  if (packetReview.residual_risk) {
+    body += `- Residual risk: ${escapeMd(packetReview.residual_risk)}\n`;
+  }
+  if (packets.length > 0) {
+    body += `- Covered packets:\n`;
+    for (const packet of packets.slice(0, 8)) {
+      const signals = Array.isArray(packet.signals) && packet.signals.length ? packet.signals.join(', ') : 'hotspot path/churn';
+      body += `  - ${escapeMd(packet.path)}:${packet.start_line ?? '?'} score ${packet.score ?? '?'} — ${escapeMd(signals)}\n`;
+    }
   }
   body += `\n`;
   return body;

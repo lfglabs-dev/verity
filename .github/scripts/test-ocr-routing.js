@@ -16,6 +16,32 @@ function file(filePath, added = 10, deleted = 0) {
     changed: added + deleted,
     category: router.categorize(filePath),
     supported: router.isSupported(filePath),
+    hunks: [hunk(filePath, 10, [
+      ['ctx', 'namespace Verity'],
+      ['add', 'theorem soundness_preserved : True := by trivial'],
+      ['add', 'unsafe def riskyFastPath := 1'],
+    ])],
+  };
+}
+
+function hunk(filePath, newStart, lines) {
+  let next = newStart;
+  return {
+    path: filePath,
+    oldStart: newStart,
+    newStart,
+    newSpan: lines.length,
+    header: '',
+    lines: lines.map(([type, text]) => {
+      const entry = {
+        type,
+        text,
+        newLine: type === 'del' ? null : next,
+        oldLine: type === 'add' ? null : next,
+      };
+      if (type !== 'del') next += 1;
+      return entry;
+    }),
   };
 }
 
@@ -37,13 +63,22 @@ function testOneLeanFileNormal() {
   assert.strictEqual(decision.ocr.concurrency, 3);
 }
 
-function testLargeLeanGuarded() {
+function testLargeLeanPacketized() {
   const decision = router.decideRoute([
     file('Compiler/Proofs/A.lean', 40, 0),
     file('Compiler/Proofs/B.lean', 40, 0),
     file('Compiler/Proofs/C.lean', 40, 0),
   ]);
-  assert.strictEqual(decision.mode, 'guarded-large-lean');
+  assert.strictEqual(decision.mode, 'packetized-lean');
+  assert.strictEqual(decision.shouldRunOcr, false);
+  assert.ok(decision.packets.length > 0);
+  assert.ok(decision.packets[0].signals.includes('introduced unsafe'));
+}
+
+function testOversizedLeanGuarded() {
+  const files = Array.from({ length: 13 }, (_, i) => file(`Compiler/Proofs/Large${i}.lean`, 40, 0));
+  const decision = router.decideRoute(files);
+  assert.strictEqual(decision.mode, 'guarded-oversized-lean');
   assert.strictEqual(decision.shouldRunOcr, false);
 }
 
@@ -140,7 +175,8 @@ async function testCompletedWithErrorsRetryablePreservesFindings() {
 async function run() {
   testNoSupportedFilesSkipped();
   testOneLeanFileNormal();
-  testLargeLeanGuarded();
+  testLargeLeanPacketized();
+  testOversizedLeanGuarded();
   testWorkflowDocsEnabled();
   await testCompletedWithErrorsRetryablePreservesFindings();
   console.log('OCR routing tests passed');

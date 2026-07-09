@@ -25,10 +25,14 @@ Before installing or invoking OpenCodeReview, `.github/scripts/ocr-router.js` co
 
 - `normal`: OCR runs with the current pilot bounds (`--concurrency 3`, `--timeout 20`, PR background capped at 1200 characters). This is used for non-Lean supported changes and small Lean diffs of at most 1 Lean file and 300 supported changed lines.
 - `bounded-lean`: OCR runs with stricter bounds (`--concurrency 1`, `--timeout 12`, PR background capped at 800 characters). This is used for medium Lean diffs that are above the small threshold but below the large guard.
-- `guarded-large-lean`: OCR does not run. The workflow posts a deterministic advisory comment with changed-file counts, largest files, and thresholds. This triggers for at least 3 changed Lean files or more than 800 supported changed lines.
+- `packetized-lean`: full-file OCR does not run. The trusted router parses diff hunks, ranks deterministic Lean review packets, and posts bounded hotspot coverage. This triggers for at least 3 changed Lean files or more than 800 supported changed lines, as long as the diff is still within the packet budget.
+- `guarded-oversized-lean`: neither full-file OCR nor packetized review runs because the diff exceeds the bounded packet budget: more than 12 Lean files or more than 2500 supported changed lines.
+- `guarded-unpacketized-lean`: full-file OCR is avoided and packetized review could not safely produce any diff packets. The posted result is an actionable checklist based on changed-file metrics rather than a review.
 - `skipped`: OCR does not run because no changed files match the OCR include rules.
 
-The guarded mode is intentional: during the pilot, a 3-file Lean PR consumed about 1.25M tokens, made 121 tool calls, and still ended as `completed_with_errors`. Large Lean changes need Codex Review and human proof review rather than an unbounded OCR attempt.
+Packetized Lean mode is intentionally partial. It checks deterministic signals first, including introduced `sorry`/`admit`/`axiom`/`unsafe`, changed imports, public declaration or theorem signature changes, trust-boundary documentation drift, and large deleted proof obligations. It then ranks hotspots such as `Compiler/Proofs/YulGeneration/**`, `Compiler/Proofs/**`, `Compiler/**`, `IRGeneration/**`, `Semantics/**`, trust docs, and public theorem statements. The posted comment lists the covered packets, packet budget, metrics, and residual risk. It must not be read as full review coverage.
+
+The hard guarded modes are fallback behavior only. During the pilot, a 3-file Lean PR consumed about 1.25M tokens, made 121 tool calls, and still ended as `completed_with_errors`; packetized review is meant to keep OCR useful without pretending it reviewed whole files.
 
 Deduplication includes the commit, rules hash, reviewer version, router version, and routing mode. Retryable OCR statuses such as `completed_with_errors` do not write the success dedup tag, while deterministic guarded/skipped routing posts use a stable success tag to avoid repeated `/ocr review` spam for the same commit and router policy.
 

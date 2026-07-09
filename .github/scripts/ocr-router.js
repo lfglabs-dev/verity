@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
-const ROUTER_VERSION = 'router-v1';
+const ROUTER_VERSION = 'router-v2';
 const THRESHOLDS = Object.freeze({
   smallLeanFiles: 1,
   smallChangedLines: 300,
@@ -12,6 +12,10 @@ const THRESHOLDS = Object.freeze({
   mediumChangedLines: 800,
   largeLeanFiles: 3,
   largeChangedLines: 800,
+  packetMaxFiles: 12,
+  packetMaxChangedLines: 2500,
+  packetMaxCount: 8,
+  packetContextLines: 12,
 });
 
 function main() {
@@ -59,7 +63,17 @@ function main() {
 function loadDiff(base, head) {
   const output = git(['diff', '--numstat', '--find-renames', base, head, '--']);
   const files = output.split(/\r?\n/).filter(Boolean).map(parseNumstatLine).filter(Boolean);
+  const hunksByPath = loadDiffHunks(base, head);
+  for (const file of files) {
+    file.hunks = hunksByPath.get(file.path) || [];
+    file.risk = scoreFileRisk(file);
+  }
   return { base, head, files };
+}
+
+function loadDiffHunks(base, head) {
+  const output = git(['diff', '--find-renames', `--unified=${THRESHOLDS.packetContextLines}`, base, head, '--']);
+  return parseUnifiedDiff(output);
 }
 
 function parseNumstatLine(line) {
@@ -89,6 +103,64 @@ function normalizeDiffPath(rawPath) {
   return rawPath.trim();
 }
 
+function parseUnifiedDiff(diffText) {
+  const byPath = new Map();
+  let currentPath = null;
+  let currentHunk = null;
+  let oldLine = 0;
+  let newLine = 0;
+
+  for (const line of diffText.split(/\r?\n/)) {
+    if (line.startsWith('diff --git ')) {
+      currentPath = null;
+      currentHunk = null;
+      continue;
+    }
+    if (line.startsWith('+++ ')) {
+      const raw = line.slice(4).trim();
+      if (raw === '/dev/null') {
+        currentPath = null;
+        continue;
+      }
+      currentPath = raw.replace(/^b\//, '');
+      if (!byPath.has(currentPath)) byPath.set(currentPath, []);
+      continue;
+    }
+    const hunkHeader = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,(\d+))? @@(.*)$/);
+    if (hunkHeader && currentPath) {
+      oldLine = Number(hunkHeader[1]);
+      newLine = Number(hunkHeader[2]);
+      currentHunk = {
+        path: currentPath,
+        oldStart: oldLine,
+        newStart: newLine,
+        newSpan: Number(hunkHeader[3] || 1),
+        header: hunkHeader[4].trim(),
+        lines: [],
+      };
+      byPath.get(currentPath).push(currentHunk);
+      continue;
+    }
+    if (!currentHunk || line.startsWith('\\ No newline')) continue;
+
+    const prefix = line[0] || ' ';
+    const text = line.slice(1);
+    if (prefix === '+') {
+      currentHunk.lines.push({ type: 'add', newLine, oldLine: null, text });
+      newLine += 1;
+    } else if (prefix === '-') {
+      currentHunk.lines.push({ type: 'del', newLine: null, oldLine, text });
+      oldLine += 1;
+    } else {
+      currentHunk.lines.push({ type: 'ctx', newLine, oldLine, text });
+      oldLine += 1;
+      newLine += 1;
+    }
+  }
+
+  return byPath;
+}
+
 function decideRoute(files) {
   const included = files.filter(f => !isExcluded(f.path));
   const supportedFiles = included.filter(f => f.supported);
@@ -96,6 +168,7 @@ function decideRoute(files) {
   const changedLines = supportedFiles.reduce((sum, f) => sum + f.changed, 0);
   const counts = countCategories(included, supportedFiles);
   const largestFiles = [...supportedFiles].sort((a, b) => b.changed - a.changed).slice(0, 8);
+  const packets = buildReviewPackets(supportedFiles);
 
   if (supportedFiles.length === 0) {
     return route({
@@ -109,14 +182,40 @@ function decideRoute(files) {
     });
   }
 
-  if (leanFiles.length > 0 && (leanFiles.length >= THRESHOLDS.largeLeanFiles || changedLines > THRESHOLDS.largeChangedLines)) {
+  if (leanFiles.length > 0 && (leanFiles.length > THRESHOLDS.packetMaxFiles || changedLines > THRESHOLDS.packetMaxChangedLines)) {
     return route({
-      mode: 'guarded-large-lean',
+      mode: 'guarded-oversized-lean',
       shouldRunOcr: false,
-      reason: `Lean OCR guard: ${leanFiles.length} Lean file(s), ${changedLines} changed supported line(s).`,
+      reason: `Lean packet budget exceeded: ${leanFiles.length} Lean file(s), ${changedLines} changed supported line(s).`,
       counts,
       changedLines,
       largestFiles,
+      packets,
+      ocr: { concurrency: 0, timeout: 0, backgroundChars: 0 },
+    });
+  }
+
+  if (leanFiles.length > 0 && (leanFiles.length >= THRESHOLDS.largeLeanFiles || changedLines > THRESHOLDS.largeChangedLines)) {
+    if (packets.length === 0) {
+      return route({
+        mode: 'guarded-unpacketized-lean',
+        shouldRunOcr: false,
+        reason: `Lean diff exceeded full OCR thresholds, but no safe review packets could be produced: ${leanFiles.length} Lean file(s), ${changedLines} changed supported line(s).`,
+        counts,
+        changedLines,
+        largestFiles,
+        packets,
+        ocr: { concurrency: 0, timeout: 0, backgroundChars: 0 },
+      });
+    }
+    return route({
+      mode: 'packetized-lean',
+      shouldRunOcr: false,
+      reason: `Large Lean diff routed to bounded packet review: ${leanFiles.length} Lean file(s), ${changedLines} changed supported line(s).`,
+      counts,
+      changedLines,
+      largestFiles,
+      packets,
       ocr: { concurrency: 0, timeout: 0, backgroundChars: 0 },
     });
   }
@@ -129,6 +228,7 @@ function decideRoute(files) {
       counts,
       changedLines,
       largestFiles,
+      packets,
       ocr: { concurrency: 1, timeout: 12, backgroundChars: 800 },
     });
   }
@@ -142,12 +242,125 @@ function decideRoute(files) {
     counts,
     changedLines,
     largestFiles,
+    packets,
     ocr: { concurrency: 3, timeout: 20, backgroundChars: 1200 },
   });
 }
 
 function route(decision) {
   return { ...decision, thresholds: THRESHOLDS, routerVersion: ROUTER_VERSION };
+}
+
+function buildReviewPackets(files) {
+  const packets = [];
+  for (const file of files) {
+    if (!file.supported || !Array.isArray(file.hunks)) continue;
+    for (const hunk of file.hunks) {
+      const signals = detectSignals(file, hunk);
+      const pathRisk = scorePathRisk(file.path);
+      const churnRisk = Math.min(10, Math.floor((hunk.lines.filter(l => l.type !== 'ctx').length) / 20));
+      const score = pathRisk + churnRisk + signals.reduce((sum, s) => sum + s.weight, 0);
+      if (score <= 0 && file.category !== 'lean') continue;
+
+      const addedLines = hunk.lines.filter(l => l.type === 'add');
+      const changedLines = hunk.lines.filter(l => l.type !== 'ctx');
+      const anchor = firstChangedNewLine(hunk) || hunk.newStart || 1;
+      packets.push({
+        path: file.path,
+        start_line: anchor,
+        end_line: lastChangedNewLine(hunk) || anchor,
+        score,
+        category: file.category,
+        signals: signals.map(s => s.name),
+        summary: summarizePacket(file, hunk, signals, changedLines.length),
+        added_sample: addedLines.slice(0, 8).map(l => ({ line: l.newLine, text: l.text.slice(0, 220) })),
+        changed_lines: changedLines.length,
+      });
+    }
+  }
+
+  return packets
+    .sort((a, b) => b.score - a.score || b.changed_lines - a.changed_lines || a.path.localeCompare(b.path))
+    .slice(0, THRESHOLDS.packetMaxCount);
+}
+
+function scoreFileRisk(file) {
+  return scorePathRisk(file.path) + Math.min(20, Math.floor((file.changed || 0) / 100));
+}
+
+function scorePathRisk(filePath) {
+  if (/^Compiler\/Proofs\/YulGeneration\//.test(filePath)) return 35;
+  if (/^Compiler\/Proofs\//.test(filePath)) return 30;
+  if (/^Compiler\//.test(filePath)) return 25;
+  if (/^IRGeneration\//.test(filePath) || /\/IRGeneration\//.test(filePath)) return 25;
+  if (/^Semantics\//.test(filePath) || /\/Semantics\//.test(filePath)) return 25;
+  if (/TRUST|AXIOM|AUDIT/.test(path.posix.basename(filePath))) return 24;
+  if (/^docs\/.*(trust|axiom|audit|spec)/i.test(filePath)) return 18;
+  if (filePath.endsWith('.lean')) return 12;
+  if (filePath.startsWith('.github/')) return 10;
+  return 0;
+}
+
+function detectSignals(file, hunk) {
+  const signals = new Map();
+  const add = (name, weight) => signals.set(name, { name, weight: Math.max(weight, signals.get(name)?.weight || 0) });
+  const added = hunk.lines.filter(l => l.type === 'add').map(l => l.text);
+  const deleted = hunk.lines.filter(l => l.type === 'del').map(l => l.text);
+  const allChanged = [...added, ...deleted];
+
+  if (added.some(line => /\b(sorry|admit)\b/.test(line))) add('introduced sorry/admit', 80);
+  if (added.some(line => /^\s*axiom\b/.test(line) || /\baxiom\b/.test(line))) add('introduced/changed axiom', 75);
+  if (added.some(line => /\bunsafe\b/.test(line))) add('introduced unsafe', 55);
+  if (allChanged.some(line => /^\s*import\s+/.test(line))) add('changed imports', 30);
+  if (allChanged.some(line => publicDeclPattern().test(line))) add('public declaration/signature changed', 34);
+  if (file.category === 'trust-doc') add('trust-boundary docs drift', 38);
+  if (file.category === 'doc' && /(trust|axiom|audit|sound|semantic|proof)/i.test(file.path)) add('trust/proof docs drift', 25);
+  if (deleted.length >= 80 || deleted.join('\n').length > 6000) add('large deleted proof obligation', 35);
+  if (deleted.some(line => publicDeclPattern().test(line)) && added.some(line => publicDeclPattern().test(line))) {
+    add('theorem/public statement changed', 45);
+  }
+  if (changedTheoremStatements(deleted, added).length > 0) add('theorem statement changed/possibly weakened', 65);
+
+  return [...signals.values()].sort((a, b) => b.weight - a.weight || a.name.localeCompare(b.name));
+}
+
+function publicDeclPattern() {
+  return /^\s*(?:theorem|lemma|def|abbrev|axiom|opaque|instance|class|structure|inductive)\s+[A-Za-z0-9_'.]+/;
+}
+
+function changedTheoremStatements(deleted, added) {
+  const removed = new Map();
+  for (const line of deleted) {
+    const match = line.match(/^\s*(theorem|lemma)\s+([A-Za-z0-9_'.]+)\b(.*)$/);
+    if (match) removed.set(match[2], line.trim());
+  }
+  const changed = [];
+  for (const line of added) {
+    const match = line.match(/^\s*(theorem|lemma)\s+([A-Za-z0-9_'.]+)\b(.*)$/);
+    if (match && removed.has(match[2]) && removed.get(match[2]) !== line.trim()) {
+      changed.push(match[2]);
+    }
+  }
+  return changed;
+}
+
+function summarizePacket(file, hunk, signals, changedCount) {
+  const signalText = signals.length ? signals.map(s => s.name).join(', ') : 'hotspot path/churn';
+  return `${signalText}; ${changedCount} changed line(s) near ${file.path}:${firstChangedNewLine(hunk) || hunk.newStart || 1}`;
+}
+
+function firstChangedNewLine(hunk) {
+  const changed = hunk.lines.find(l => l.type === 'add' && Number.isFinite(l.newLine)) ||
+    hunk.lines.find(l => l.type === 'ctx' && Number.isFinite(l.newLine));
+  return changed?.newLine || null;
+}
+
+function lastChangedNewLine(hunk) {
+  for (let i = hunk.lines.length - 1; i >= 0; i -= 1) {
+    const line = hunk.lines[i];
+    if ((line.type === 'add' || line.type === 'ctx') && Number.isFinite(line.newLine)) return line.newLine;
+  }
+  return null;
 }
 
 function countCategories(included, supportedFiles) {
@@ -229,8 +442,25 @@ function buildMetrics({ prNumber, headSha, baseRef, startedAt, decision, diff })
         deleted: f.deleted,
         changed: f.changed,
         category: f.category,
+        risk: f.risk || scorePathRisk(f.path),
       })),
     },
+    packet_review: shouldReportPacketReview(decision) ? {
+      enabled: decision.mode === 'packetized-lean',
+      packets_selected: decision.packets?.length || 0,
+      packet_budget: THRESHOLDS.packetMaxCount,
+      packets: (decision.packets || []).map(p => ({
+        path: p.path,
+        start_line: p.start_line,
+        end_line: p.end_line,
+        score: p.score,
+        category: p.category,
+        signals: p.signals,
+        summary: p.summary,
+        changed_lines: p.changed_lines,
+      })),
+      residual_risk: packetResidualRisk(decision),
+    } : null,
     ocr: {
       attempted: decision.shouldRunOcr,
       status: decision.shouldRunOcr ? 'pending' : decision.mode,
@@ -247,12 +477,16 @@ function buildMetrics({ prNumber, headSha, baseRef, startedAt, decision, diff })
 }
 
 function buildSyntheticResult(decision, metrics) {
+  if (decision.mode === 'packetized-lean') {
+    return buildPacketizedResult(decision, metrics);
+  }
+
   return {
     status: decision.mode,
     message: decision.reason,
     comments: [],
-    warnings: decision.mode === 'guarded-large-lean'
-      ? [{ type: 'routing', message: 'Full OCR skipped by Lean scaling guard.' }]
+    warnings: ['guarded-oversized-lean', 'guarded-unpacketized-lean'].includes(decision.mode)
+      ? [{ type: 'routing', message: 'Diff exceeded bounded packet review capability; full OCR not attempted.' }]
       : [],
     summary: {
       files_reviewed: 0,
@@ -260,10 +494,77 @@ function buildSyntheticResult(decision, metrics) {
       mode: decision.mode,
       router_version: ROUTER_VERSION,
       changed_files: metrics.changed_files,
+      packet_review: metrics.packet_review,
       thresholds: decision.thresholds,
     },
     tool_calls: { total: 0 },
   };
+}
+
+function buildPacketizedResult(decision, metrics) {
+  const packets = decision.packets || [];
+  return {
+    status: 'packetized_review',
+    message: `${decision.reason} Full-file OCR was not attempted; this is deterministic hotspot coverage, not complete review coverage.`,
+    comments: packets.map(packet => ({
+      path: packet.path,
+      start_line: packet.start_line,
+      end_line: packet.end_line,
+      category: 'packetized-lean',
+      severity: packet.score >= 90 ? 'high' : packet.score >= 60 ? 'medium' : 'low',
+      content: renderPacketFinding(packet),
+    })),
+    warnings: [{
+      type: 'coverage',
+      message: 'Packetized Lean review covers ranked hotspots only. Codex/human review must cover skipped hunks and proof obligations.',
+    }],
+    summary: {
+      files_reviewed: uniqueCount(packets.map(p => p.path)),
+      total_tokens: 0,
+      mode: decision.mode,
+      router_version: ROUTER_VERSION,
+      changed_files: metrics.changed_files,
+      packet_review: metrics.packet_review,
+      thresholds: decision.thresholds,
+    },
+    tool_calls: { total: 0 },
+  };
+}
+
+function renderPacketFinding(packet) {
+  const lines = [
+    `Bounded Lean packet selected for review: ${packet.summary}.`,
+    `Risk signals: ${packet.signals.length ? packet.signals.join(', ') : 'hotspot path/churn'}.`,
+  ];
+  if (packet.added_sample.length > 0) {
+    lines.push('Added-line sample:');
+    for (const sample of packet.added_sample.slice(0, 5)) {
+      lines.push(`- L${sample.line}: ${sample.text}`);
+    }
+  }
+  lines.push('This packet is a coverage marker and deterministic checklist item; it is not a full OCR semantic review.');
+  return lines.join('\n');
+}
+
+function packetResidualRisk(decision) {
+  if (decision.mode === 'packetized-lean') {
+    return `Reviewed top ${decision.packets?.length || 0} packet(s) by deterministic risk score; remaining changed hunks/files require Codex or human proof review.`;
+  }
+  if (decision.mode === 'guarded-oversized-lean') {
+    return 'Diff exceeded packet budget; use top changed files and deterministic signals as required Codex/human review checklist.';
+  }
+  if (decision.mode === 'guarded-unpacketized-lean') {
+    return 'Router could not produce safe diff packets; use top changed files as required Codex/human review checklist.';
+  }
+  return null;
+}
+
+function shouldReportPacketReview(decision) {
+  return ['packetized-lean', 'guarded-oversized-lean', 'guarded-unpacketized-lean'].includes(decision.mode);
+}
+
+function uniqueCount(values) {
+  return new Set(values.filter(Boolean)).size;
 }
 
 function writeOutputs(outputPath, values) {
@@ -294,4 +595,7 @@ module.exports = {
   parseNumstatLine,
   buildSyntheticResult,
   buildMetrics,
+  buildReviewPackets,
+  parseUnifiedDiff,
+  scorePathRisk,
 };
