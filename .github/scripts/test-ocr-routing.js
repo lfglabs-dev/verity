@@ -375,6 +375,35 @@ function testScoutErrorSanitizesFieldValueDiagnostics() {
   assert.ok(!detail.includes('abcdefghijklmnopqrstuvwxyz123457'));
 }
 
+function testScoutErrorSanitizesShortQuotedProviderDiagnostics() {
+  const detail = router.sanitizeScoutErrorDetail(
+    'Incorrect API key provided: "abcdefghijklmnop123456". Model MiniMax-M3 rejected the request.'
+  );
+  assert.ok(detail.includes('MiniMax-M3'));
+  assert.ok(detail.includes('[redacted]'));
+  assert.ok(!detail.includes('abcdefghijklmnop123456'));
+}
+
+function testScoutErrorSanitizesAdditionalCredentialKeys() {
+  const detail = router.sanitizeScoutErrorDetail(JSON.stringify({
+    error: 'invalid MiniMax-M3 scout request',
+    credential: 'short-secret',
+    passphrase: 'another-short-secret',
+    authcode: 'auth-short-secret',
+    client_id: 'client-short-secret',
+  }));
+  assert.ok(detail.includes('MiniMax-M3'));
+  assert.ok(detail.includes('[redacted]'));
+  assert.ok(!detail.includes('short-secret'));
+}
+
+function testScoutErrorPreservesUuidDiagnostics() {
+  const detail = router.sanitizeScoutErrorDetail(
+    'MiniMax-M3 trace id 550e8400-e29a-41d4-a716-446655440000 failed'
+  );
+  assert.ok(detail.includes('550e8400-e29a-41d4-a716-446655440000'));
+}
+
 async function testLargeLeanScoutNoPacketsStatus() {
   const files = Array.from({ length: 13 }, (_, i) => file(`Compiler/Proofs/Large${i}.lean`, 40, 0));
   const decision = router.decideRoute(files);
@@ -506,6 +535,9 @@ async function run() {
   testScoutErrorSanitizesBareCredentialLikeStrings();
   testScoutErrorSanitizesQuotedFallbackDiagnostics();
   testScoutErrorSanitizesFieldValueDiagnostics();
+  testScoutErrorSanitizesShortQuotedProviderDiagnostics();
+  testScoutErrorSanitizesAdditionalCredentialKeys();
+  testScoutErrorPreservesUuidDiagnostics();
   await testLargeLeanScoutNoPacketsStatus();
   testWorkflowDocsEnabled();
   testGenericScriptConfigEnabled();
