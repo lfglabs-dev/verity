@@ -122,6 +122,9 @@ jobs:
           OCR_PR_NUMBER: ${{ steps.pr.outputs.number }}
           OCR_RESULT_PATH: ${{ runner.temp }}/ocr-result.json
           OCR_METRICS_PATH: ${{ runner.temp }}/ocr-metrics.json
+          OCR_SCOUT_LLM_URL: ${{ secrets.OCR_SCOUT_LLM_URL || secrets.OCR_LLM_URL }}
+          OCR_SCOUT_LLM_KEY: ${{ secrets.OCR_SCOUT_LLM_KEY || secrets.OCR_LLM_KEY }}
+          OCR_SCOUT_LLM_MODEL: ${{ vars.OCR_SCOUT_LLM_MODEL || secrets.OCR_SCOUT_LLM_MODEL }}
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail

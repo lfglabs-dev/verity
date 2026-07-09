@@ -4,7 +4,8 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
-const ROUTER_VERSION = 'router-v3';
+const ROUTER_VERSION = 'router-v4';
+const STRONG_REVIEW_BLOCKER_MESSAGE = 'OpenCodeReview 1.7.5 supports --from/--to full diff ranges, but this workflow does not have a safe packet/window input bridge for Lean hunks yet.';
 const THRESHOLDS = Object.freeze({
   smallLeanFiles: 1,
   smallChangedLines: 300,
@@ -16,9 +17,11 @@ const THRESHOLDS = Object.freeze({
   packetMaxChangedLines: 2500,
   packetMaxCount: 8,
   packetContextLines: 12,
+  scoutDossierMaxChars: 18000,
+  scoutTimeoutMs: 45000,
 });
 
-function main() {
+async function main() {
   const baseRef = requiredEnv('BASE_REF');
   const headSha = requiredEnv('HEAD_SHA');
   const prNumber = process.env.OCR_PR_NUMBER || '';
@@ -29,6 +32,13 @@ function main() {
   const startedAt = new Date().toISOString();
   const diff = loadDiff(`origin/${baseRef}`, headSha);
   const decision = decideRoute(diff.files);
+  if (decision.mode === 'large-lean-hotspots') {
+    await applyScoutStage(decision, diff, {
+      url: process.env.OCR_SCOUT_LLM_URL || '',
+      key: process.env.OCR_SCOUT_LLM_KEY || '',
+      model: process.env.OCR_SCOUT_LLM_MODEL || '',
+    });
+  }
   const metrics = buildMetrics({
     prNumber,
     headSha,
@@ -274,6 +284,7 @@ function buildReviewPackets(files) {
         signals: signals.map(s => s.name),
         summary: summarizePacket(file, hunk, signals, changedLines.length),
         added_sample: addedLines.slice(0, 8).map(l => ({ line: l.newLine, text: l.text.slice(0, 220) })),
+        diff_excerpt: renderHunkExcerpt(hunk, 24),
         changed_lines: changedLines.length,
       });
     }
@@ -281,7 +292,214 @@ function buildReviewPackets(files) {
 
   return packets
     .sort((a, b) => b.score - a.score || b.changed_lines - a.changed_lines || a.path.localeCompare(b.path))
-    .slice(0, THRESHOLDS.packetMaxCount);
+    .slice(0, THRESHOLDS.packetMaxCount)
+    .map((packet, index) => ({ ...packet, packet_id: `pkt-${index + 1}` }));
+}
+
+function renderHunkExcerpt(hunk, maxLines) {
+  return hunk.lines.slice(0, maxLines).map(line => {
+    const prefix = line.type === 'add' ? '+' : line.type === 'del' ? '-' : ' ';
+    const number = line.type === 'del' ? line.oldLine : line.newLine;
+    return `${prefix}${number || '?'} ${line.text}`.slice(0, 260);
+  }).join('\n');
+}
+
+async function applyScoutStage(decision, diff, config) {
+  const deterministicPackets = decision.packets || [];
+  decision.scout = {
+    enabled: Boolean(config.url && config.key && config.model),
+    attempted: false,
+    status: 'not_configured',
+    model: config.model ? redactModel(config.model) : null,
+    selected_packets: deterministicPackets.map(p => p.packet_id),
+    residual_coverage: packetResidualRisk(decision),
+    strong_review_status: 'blocked_packet_input',
+    strong_review_blocker: STRONG_REVIEW_BLOCKER_MESSAGE,
+  };
+
+  if (deterministicPackets.length === 0) {
+    decision.scout.status = decision.scout.enabled ? 'skipped_no_packets' : 'not_configured';
+    decision.scout.residual_coverage = 'No safe packets were produced; use top changed files and deterministic checklist items for Codex/human review.';
+    return decision;
+  }
+
+  if (!decision.scout.enabled) return decision;
+
+  decision.scout.attempted = true;
+  decision.scout.status = 'pending';
+  try {
+    const dossier = buildRiskDossier(decision, diff);
+    const scout = await callScoutModel(config, dossier);
+    const selected = selectScoutPackets(deterministicPackets, scout);
+    decision.scout.raw_selected_count = Array.isArray(scout.selected_packets) ? scout.selected_packets.length : null;
+    if (selected.length > 0) {
+      decision.packets = selected;
+      decision.reason = `${decision.reason} Scout model ranked ${selected.length}/${deterministicPackets.length} packet(s) for stronger review.`;
+      decision.scout.selected_packets = selected.map(p => p.packet_id);
+      decision.scout.status = 'success';
+      decision.scout.summary = scout.summary || '';
+      decision.scout.residual_coverage = scout.residual_coverage || decision.scout.residual_coverage;
+    } else {
+      decision.scout.status = 'fallback_no_selection';
+      decision.scout.summary = scout.summary || 'Scout returned no valid packet IDs; deterministic ranking retained.';
+      decision.scout.residual_coverage = 'Scout returned no valid packet IDs, so deterministic packet ranking was retained and all selected packets still need strong reviewer analysis.';
+    }
+  } catch (err) {
+    decision.scout.status = 'fallback_deterministic';
+    decision.scout.error = 'Scout model call failed; deterministic packet ranking retained.';
+    decision.scout.error_type = classifyScoutError(err);
+  }
+  return decision;
+}
+
+function buildRiskDossier(decision, diff) {
+  const packets = (decision.packets || []).map(packet => ({
+    id: packet.packet_id,
+    file: packet.path,
+    line_window: { start: packet.start_line, end: packet.end_line },
+    score: packet.score,
+    risk_category: packet.signals,
+    summary: packet.summary,
+    changed_lines: packet.changed_lines,
+    diff_excerpt: packet.diff_excerpt,
+  }));
+
+  const supported = diff.files.filter(f => f.supported);
+  const dossier = {
+    schema_version: 1,
+    task: 'Rank dangerous Lean review packets for a stronger reviewer. Do not approve the PR.',
+    mode: decision.mode,
+    thresholds: decision.thresholds,
+    counts: decision.counts,
+    total_supported_changed_lines: decision.changedLines,
+    top_changed_files: decision.largestFiles.map(f => ({
+      file: f.path,
+      added: f.added,
+      deleted: f.deleted,
+      category: f.category,
+      risk: f.risk,
+    })),
+    deterministic_signals: summarizeSignals(decision.packets || []),
+    supported_files: supported.map(f => ({
+      file: f.path,
+      added: f.added,
+      deleted: f.deleted,
+      category: f.category,
+      hunk_count: Array.isArray(f.hunks) ? f.hunks.length : 0,
+    })).slice(0, 30),
+    candidate_packets: packets,
+    required_json_schema: {
+      selected_packets: [{
+        id: 'pkt-1',
+        reason: 'Why this packet is dangerous.',
+        risk_category: 'sorry/admit | theorem weakening | trust boundary | import/axiom | proof deletion | semantic hotspot',
+        file: 'path',
+        line_window: { start: 1, end: 2 },
+        question_for_stronger_reviewer: 'Specific question OCR/reviewer should answer.',
+      }],
+      residual_coverage: 'What changed areas remain unreviewed after packet selection.',
+      summary: 'One sentence triage summary.',
+    },
+  };
+  return truncateJson(dossier, THRESHOLDS.scoutDossierMaxChars);
+}
+
+function summarizeSignals(packets) {
+  const counts = new Map();
+  for (const packet of packets) {
+    for (const signal of packet.signals || []) counts.set(signal, (counts.get(signal) || 0) + 1);
+  }
+  return [...counts.entries()].map(([signal, count]) => ({ signal, count }))
+    .sort((a, b) => b.count - a.count || a.signal.localeCompare(b.signal));
+}
+
+async function callScoutModel(config, dossier) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), THRESHOLDS.scoutTimeoutMs);
+  try {
+    const response = await fetch(openAiChatUrl(config.url), {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${config.key}`,
+      },
+      body: JSON.stringify({
+        model: config.model,
+        temperature: 0,
+        response_format: { type: 'json_object' },
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a cautious Lean proof-change triage scout. Return only JSON matching the requested schema. Never claim final review coverage or approval.',
+          },
+          {
+            role: 'user',
+            content: JSON.stringify(dossier),
+          },
+        ],
+      }),
+    });
+    const text = await response.text();
+    if (!response.ok) {
+      throw new Error(`scout model HTTP ${response.status}`);
+    }
+    const payload = JSON.parse(text);
+    const content = payload.choices?.[0]?.message?.content;
+    if (!content) throw new Error('scout model returned no message content');
+    return JSON.parse(content);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function classifyScoutError(err) {
+  const text = String(err?.message || err || '').toLowerCase();
+  if (text.includes('abort')) return 'timeout';
+  if (text.includes('http')) return 'http_error';
+  if (text.includes('json')) return 'invalid_json';
+  return 'request_failed';
+}
+
+function openAiChatUrl(baseUrl) {
+  const trimmed = String(baseUrl || '').replace(/\/+$/, '');
+  if (trimmed.endsWith('/chat/completions')) return trimmed;
+  if (trimmed.endsWith('/v1')) return `${trimmed}/chat/completions`;
+  return `${trimmed}/v1/chat/completions`;
+}
+
+function selectScoutPackets(deterministicPackets, scout) {
+  const byId = new Map(deterministicPackets.map(p => [p.packet_id, p]));
+  const selected = [];
+  for (const item of Array.isArray(scout?.selected_packets) ? scout.selected_packets : []) {
+    const packet = byId.get(String(item.id || item.packet_id || '').trim());
+    if (!packet || selected.some(p => p.packet_id === packet.packet_id)) continue;
+    selected.push({
+      ...packet,
+      scout_reason: String(item.reason || '').slice(0, 500),
+      scout_risk_category: String(item.risk_category || '').slice(0, 120),
+      scout_question: String(item.question_for_stronger_reviewer || '').slice(0, 500),
+    });
+  }
+  return selected.slice(0, THRESHOLDS.packetMaxCount);
+}
+
+function truncateJson(value, maxChars) {
+  const json = JSON.stringify(value);
+  if (json.length <= maxChars) return value;
+  const clone = JSON.parse(json);
+  clone.candidate_packets = (clone.candidate_packets || []).map(packet => ({
+    ...packet,
+    diff_excerpt: String(packet.diff_excerpt || '').slice(0, 900),
+  }));
+  while (JSON.stringify(clone).length > maxChars && clone.candidate_packets.length > 1) {
+    clone.candidate_packets.pop();
+  }
+  return clone;
+}
+
+function redactModel(model) {
+  return String(model).slice(0, 80);
 }
 
 function scoreFileRisk(file) {
@@ -306,22 +524,70 @@ function detectSignals(file, hunk) {
   const add = (name, weight) => signals.set(name, { name, weight: Math.max(weight, signals.get(name)?.weight || 0) });
   const added = hunk.lines.filter(l => l.type === 'add').map(l => l.text);
   const deleted = hunk.lines.filter(l => l.type === 'del').map(l => l.text);
-  const allChanged = [...added, ...deleted];
+  const addedCode = codeLines(added);
+  const deletedCode = codeLines(deleted);
+  const allChanged = [...addedCode, ...deletedCode];
 
-  if (added.some(line => /\b(sorry|admit)\b/.test(line))) add('introduced sorry/admit', 80);
-  if (added.some(line => /^\s*axiom\b/.test(line) || /\baxiom\b/.test(line))) add('introduced/changed axiom', 75);
-  if (added.some(line => /\bunsafe\b/.test(line))) add('introduced unsafe', 55);
+  if (addedCode.some(line => /\b(sorry|admit)\b/.test(line))) add('introduced sorry/admit', 80);
+  if (addedCode.some(line => /^\s*axiom\b/.test(line) || /\baxiom\b/.test(line))) add('introduced/changed axiom', 75);
+  if (addedCode.some(line => /\bunsafe\b/.test(line))) add('introduced unsafe', 55);
   if (allChanged.some(line => /^\s*import\s+/.test(line))) add('changed imports', 30);
   if (allChanged.some(line => publicDeclPattern().test(line))) add('public declaration/signature changed', 34);
   if (file.category === 'trust-doc') add('trust-boundary docs drift', 38);
   if (file.category === 'doc' && /(trust|axiom|audit|sound|semantic|proof)/i.test(file.path)) add('trust/proof docs drift', 25);
-  if (deleted.length >= 80 || deleted.join('\n').length > 6000) add('large deleted proof obligation', 35);
-  if (deleted.some(line => publicDeclPattern().test(line)) && added.some(line => publicDeclPattern().test(line))) {
+  if (deletedCode.length >= 80 || deletedCode.join('\n').length > 6000) add('large deleted proof obligation', 35);
+  if (deletedCode.some(line => publicDeclPattern().test(line)) && addedCode.some(line => publicDeclPattern().test(line))) {
     add('theorem/public statement changed', 45);
   }
-  if (changedTheoremStatements(deleted, added).length > 0) add('theorem statement changed/possibly weakened', 65);
+  if (changedTheoremStatements(deletedCode, addedCode).length > 0) add('theorem statement changed/possibly weakened', 65);
 
   return [...signals.values()].sort((a, b) => b.weight - a.weight || a.name.localeCompare(b.name));
+}
+
+function codeLines(lines) {
+  const code = [];
+  let inBlockComment = false;
+  for (const line of lines) {
+    const stripped = stripLeanCommentsFromLine(line, { inBlockComment });
+    inBlockComment = stripped.inBlockComment;
+    if (stripped.code.trim()) code.push(stripped.code);
+  }
+  return code;
+}
+
+function stripLeanCommentsFromLine(line, state) {
+  let rest = String(line || '');
+  let code = '';
+  let inBlockComment = Boolean(state.inBlockComment);
+
+  while (rest) {
+    if (inBlockComment) {
+      const blockEnd = rest.indexOf('-/');
+      if (blockEnd === -1) return { code, inBlockComment: true };
+      rest = rest.slice(blockEnd + 2);
+      inBlockComment = false;
+      continue;
+    }
+
+    const lineComment = rest.indexOf('--');
+    const blockStart = rest.indexOf('/-');
+    if (lineComment !== -1 && (blockStart === -1 || lineComment < blockStart)) {
+      code += rest.slice(0, lineComment);
+      return { code, inBlockComment: false };
+    }
+    if (blockStart === -1) {
+      code += rest;
+      return { code, inBlockComment: false };
+    }
+
+    code += rest.slice(0, blockStart);
+    rest = rest.slice(blockStart + 2);
+    const blockEnd = rest.indexOf('-/');
+    if (blockEnd === -1) return { code, inBlockComment: true };
+    rest = rest.slice(blockEnd + 2);
+  }
+
+  return { code, inBlockComment };
 }
 
 function publicDeclPattern() {
@@ -455,12 +721,20 @@ function buildMetrics({ prNumber, headSha, baseRef, startedAt, decision, diff })
         start_line: p.start_line,
         end_line: p.end_line,
         score: p.score,
+        packet_id: p.packet_id,
         category: p.category,
         signals: p.signals,
         summary: p.summary,
+        scout_reason: p.scout_reason || null,
+        scout_risk_category: p.scout_risk_category || null,
+        scout_question: p.scout_question || null,
         changed_lines: p.changed_lines,
       })),
       residual_risk: packetResidualRisk(decision),
+      scout: decision.scout || null,
+      strong_review_required: decision.mode === 'large-lean-hotspots',
+      strong_review_status: decision.scout?.strong_review_status || 'blocked_packet_input',
+      strong_review_blocker: decision.scout?.strong_review_blocker || STRONG_REVIEW_BLOCKER_MESSAGE,
     } : null,
     ocr: {
       attempted: decision.shouldRunOcr,
@@ -504,9 +778,13 @@ function buildSyntheticResult(decision, metrics) {
 
 function buildPacketizedResult(decision, metrics) {
   const packets = decision.packets || [];
+  const scout = decision.scout || {};
+  const reviewLabel = scout.attempted
+    ? `Scout triage ${scout.status}; strong packet review required.`
+    : 'Deterministic fallback triage; scout model not configured and strong packet review required.';
   return {
-    status: 'packetized_review',
-    message: `${decision.reason} Full-file OCR was not attempted; this is deterministic hotspot coverage, not complete review coverage.`,
+    status: 'scout_triage',
+    message: `${decision.reason} ${reviewLabel} Full-file OCR was not attempted.`,
     comments: packets.map(packet => ({
       path: packet.path,
       start_line: packet.start_line,
@@ -517,7 +795,7 @@ function buildPacketizedResult(decision, metrics) {
     })),
     warnings: [{
       type: 'coverage',
-      message: 'Packetized Lean review covers ranked hotspots only. Codex/human review must cover skipped hunks and proof obligations.',
+      message: 'Large Lean scout mode covers ranked hotspots only. Codex/human review must cover skipped hunks and proof obligations; OCR strong packet review is not wired yet.',
     }],
     summary: {
       files_reviewed: uniqueCount(packets.map(p => p.path)),
@@ -534,22 +812,36 @@ function buildPacketizedResult(decision, metrics) {
 
 function renderPacketFinding(packet) {
   const lines = [
-    `Bounded Lean packet selected for review: ${packet.summary}.`,
+    `Large Lean packet selected for stronger review: ${packet.summary}.`,
     `Risk signals: ${packet.signals.length ? packet.signals.join(', ') : 'hotspot path/churn'}.`,
   ];
+  if (packet.scout_reason) lines.push(`Scout reason: ${sanitizeCommentText(packet.scout_reason)}`);
+  if (packet.scout_question) lines.push(`Question for stronger reviewer: ${sanitizeCommentText(packet.scout_question)}`);
   if (packet.added_sample.length > 0) {
     lines.push('Added-line sample:');
     for (const sample of packet.added_sample.slice(0, 5)) {
-      lines.push(`- L${sample.line}: ${sample.text}`);
+      lines.push(`- L${sample.line}: ${sanitizeCommentText(sample.text)}`);
     }
   }
-  lines.push('This packet is a coverage marker and deterministic checklist item; it is not a full OCR semantic review.');
+  lines.push('This packet is scout triage and a coverage marker; it is not a final OCR semantic review or approval.');
   return lines.join('\n');
+}
+
+function sanitizeCommentText(value) {
+  return String(value || '')
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/@/g, '@\u200b')
+    .replace(/[<>]/g, ch => ({ '<': '&lt;', '>': '&gt;' }[ch]))
+    .replace(/([\\`*_{}\[\]()#+.!|-])/g, '\\$1')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 700);
 }
 
 function packetResidualRisk(decision) {
   if (decision.mode === 'large-lean-hotspots' && (decision.packets?.length || 0) > 0) {
-    return `Reviewed top ${decision.packets?.length || 0} packet(s) by deterministic risk score; remaining changed hunks/files require Codex or human proof review.`;
+    const basis = decision.scout?.attempted && decision.scout?.status === 'success' ? 'scout-ranked' : 'deterministically ranked';
+    return `Triaged top ${decision.packets?.length || 0} ${basis} packet(s); remaining changed hunks/files require Codex or human proof review, and selected packets still need strong reviewer analysis.`;
   }
   if (decision.mode === 'large-lean-hotspots' && ((decision.counts?.lean || 0) > THRESHOLDS.packetMaxFiles || (decision.changedLines || 0) > THRESHOLDS.packetMaxChangedLines)) {
     return 'Diff exceeded packet budget; use top changed files and deterministic signals as required Codex/human review checklist.';
@@ -584,7 +876,10 @@ function requiredEnv(name) {
 }
 
 if (require.main === module) {
-  main();
+  main().catch(err => {
+    console.error(err);
+    process.exit(1);
+  });
 }
 
 module.exports = {
@@ -597,6 +892,8 @@ module.exports = {
   buildSyntheticResult,
   buildMetrics,
   buildReviewPackets,
+  applyScoutStage,
+  buildRiskDossier,
   parseUnifiedDiff,
   scorePathRisk,
 };

@@ -154,7 +154,7 @@ function buildReviewBody({ tag, result, comments, selected, overflow, summaryOnl
 
   if (message) body += `${escapeMd(message)}\n\n`;
   if ((metrics?.mode || summary.mode) === 'large-lean-hotspots') {
-    body += `⚠️ Large Lean hotspot mode covers ranked packets/checklists only; it is not a full-file OCR review.\n`;
+    body += `⚠️ Large Lean scout mode covers ranked packets/checklists only; it is not a full-file OCR review and must not be read as LGTM.\n`;
   }
   if (selected.length > 0) body += `✅ Posted ${selected.length} inline comment(s).\n`;
   if (overflow.length > 0) body += `📝 ${overflow.length} additional positioned finding(s) omitted from inline comments to avoid spam.\n`;
@@ -256,15 +256,24 @@ function renderPacketCoverage(metrics, result) {
 
   const packets = Array.isArray(packetReview.packets) ? packetReview.packets : [];
   let body = `### Packet coverage\n\n`;
+  const scout = packetReview.scout || {};
   body += `- Packet review: ${packetReview.enabled ? 'enabled' : 'not used'}; selected ${packetReview.packets_selected ?? packets.length}/${packetReview.packet_budget ?? '?'} packet(s)\n`;
+  body += `- Scout: ${scout.enabled ? 'configured' : 'not configured'}; status ${escapeMd(scout.status || 'unknown')}; model ${escapeMd(scout.model || 'none')}\n`;
+  if (packetReview.strong_review_required) {
+    body += `- Strong review: required; status ${escapeMd(packetReview.strong_review_status || 'unknown')}\n`;
+  }
   if (packetReview.residual_risk) {
     body += `- Residual risk: ${escapeMd(packetReview.residual_risk)}\n`;
+  }
+  if (packetReview.strong_review_blocker) {
+    body += `- Strong packet-review blocker: ${escapeMd(packetReview.strong_review_blocker)}\n`;
   }
   if (packets.length > 0) {
     body += `- Covered packets:\n`;
     for (const packet of packets.slice(0, 8)) {
       const signals = Array.isArray(packet.signals) && packet.signals.length ? packet.signals.join(', ') : 'hotspot path/churn';
-      body += `  - ${escapeMd(packet.path)}:${packet.start_line ?? '?'} score ${packet.score ?? '?'} — ${escapeMd(signals)}\n`;
+      const question = packet.scout_question ? `; ask: ${packet.scout_question}` : '';
+      body += `  - ${escapeMd(packet.path)}:${packet.start_line ?? '?'} score ${packet.score ?? '?'} — ${escapeMd(signals + question)}\n`;
     }
   }
   body += `\n`;

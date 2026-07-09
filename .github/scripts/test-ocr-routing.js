@@ -77,11 +77,173 @@ function testLargeLeanPacketized() {
   assert.strictEqual(decision.packets[0].end_line, 12);
 }
 
+function testLeanCommentDoesNotTriggerSorrySignal() {
+  const leanFile = file('Compiler/Proofs/Comment.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/Comment.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['add', "-- Total: 0 sorry'd proofs"],
+    ['add', 'theorem still_ok : True := by trivial'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(!packets[0].signals.includes('introduced sorry/admit'));
+}
+
+function testLeanBlockCommentDoesNotTriggerSorrySignal() {
+  const leanFile = file('Compiler/Proofs/BlockComment.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/BlockComment.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['add', '/-'],
+    ['add', 'This proof used to mention sorry in prose.'],
+    ['add', '-/'],
+    ['add', 'theorem still_ok : True := by trivial'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(!packets[0].signals.includes('introduced sorry/admit'));
+}
+
+function testCodeAfterInlineBlockCommentIsScanned() {
+  const leanFile = file('Compiler/Proofs/InlineBlockComment.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/InlineBlockComment.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['add', '/- rationale -/ axiom bad : False'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(packets[0].signals.includes('introduced/changed axiom'));
+}
+
 function testOversizedLeanGuarded() {
   const files = Array.from({ length: 13 }, (_, i) => file(`Compiler/Proofs/Large${i}.lean`, 40, 0));
   const decision = router.decideRoute(files);
   assert.strictEqual(decision.mode, 'large-lean-hotspots');
   assert.strictEqual(decision.shouldRunOcr, false);
+}
+
+async function testLargeLeanScoutNotConfiguredFallsBack() {
+  const files = [
+    file('Compiler/Proofs/A.lean', 40, 0),
+    file('Compiler/Proofs/B.lean', 40, 0),
+    file('Compiler/Proofs/C.lean', 40, 0),
+  ];
+  const decision = router.decideRoute(files);
+  await router.applyScoutStage(decision, { files }, { url: '', key: '', model: '' });
+  assert.strictEqual(decision.mode, 'large-lean-hotspots');
+  assert.strictEqual(decision.scout.enabled, false);
+  assert.strictEqual(decision.scout.status, 'not_configured');
+  assert.strictEqual(decision.scout.strong_review_status, 'blocked_packet_input');
+}
+
+async function testLargeLeanScoutSelectsPackets() {
+  const files = [
+    file('Compiler/Proofs/A.lean', 40, 0),
+    file('Compiler/Proofs/B.lean', 40, 0),
+    file('Compiler/Proofs/C.lean', 40, 0),
+  ];
+  const decision = router.decideRoute(files);
+  const targetPacket = decision.packets[1];
+  const oldFetch = global.fetch;
+  global.fetch = async () => ({
+    ok: true,
+    text: async () => JSON.stringify({
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            selected_packets: [{
+              id: targetPacket.packet_id,
+              reason: 'The public theorem signature and unsafe helper sit in a proof hotspot.',
+              risk_category: 'semantic hotspot',
+              file: targetPacket.path,
+              line_window: { start: targetPacket.start_line, end: targetPacket.end_line },
+              question_for_stronger_reviewer: 'Does this preserve the theorem obligation under the changed helper?',
+            }],
+            residual_coverage: 'Other packets still require Codex/human review.',
+            summary: 'One hotspot selected.',
+          }),
+        },
+      }],
+    }),
+  });
+  try {
+    await router.applyScoutStage(decision, { files }, { url: 'https://example.invalid/v1', key: 'test-key', model: 'cheap-scout' });
+  } finally {
+    global.fetch = oldFetch;
+  }
+  assert.strictEqual(decision.scout.enabled, true);
+  assert.strictEqual(decision.scout.status, 'success');
+  assert.strictEqual(decision.packets.length, 1);
+  assert.strictEqual(decision.packets[0].packet_id, targetPacket.packet_id);
+  assert.ok(decision.packets[0].scout_question.includes('preserve'));
+}
+
+async function testLargeLeanScoutEmptySelectionIsFallback() {
+  const files = [
+    file('Compiler/Proofs/A.lean', 40, 0),
+    file('Compiler/Proofs/B.lean', 40, 0),
+    file('Compiler/Proofs/C.lean', 40, 0),
+  ];
+  const decision = router.decideRoute(files);
+  const originalPackets = decision.packets.map(p => p.packet_id);
+  const oldFetch = global.fetch;
+  global.fetch = async () => ({
+    ok: true,
+    text: async () => JSON.stringify({
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            selected_packets: [{ id: 'missing-packet', reason: 'bad id' }],
+            residual_coverage: 'Scout did not select a valid packet.',
+            summary: 'No valid selection.',
+          }),
+        },
+      }],
+    }),
+  });
+  try {
+    await router.applyScoutStage(decision, { files }, { url: 'https://example.invalid/v1', key: 'test-key', model: 'cheap-scout' });
+  } finally {
+    global.fetch = oldFetch;
+  }
+  assert.strictEqual(decision.scout.status, 'fallback_no_selection');
+  assert.deepStrictEqual(decision.packets.map(p => p.packet_id), originalPackets);
+  assert.strictEqual(decision.scout.raw_selected_count, 1);
+}
+
+async function testLargeLeanScoutApiFailureFallsBack() {
+  const files = [
+    file('Compiler/Proofs/A.lean', 40, 0),
+    file('Compiler/Proofs/B.lean', 40, 0),
+    file('Compiler/Proofs/C.lean', 40, 0),
+  ];
+  const decision = router.decideRoute(files);
+  const originalPackets = decision.packets.map(p => p.packet_id);
+  const oldFetch = global.fetch;
+  global.fetch = async () => ({
+    ok: false,
+    status: 503,
+    text: async () => 'Service Unavailable with echoed request details',
+  });
+  try {
+    await router.applyScoutStage(decision, { files }, { url: 'https://example.invalid/v1', key: 'test-key', model: 'cheap-scout' });
+  } finally {
+    global.fetch = oldFetch;
+  }
+  assert.strictEqual(decision.scout.status, 'fallback_deterministic');
+  assert.strictEqual(decision.scout.error, 'Scout model call failed; deterministic packet ranking retained.');
+  assert.strictEqual(decision.scout.error_type, 'http_error');
+  assert.deepStrictEqual(decision.packets.map(p => p.packet_id), originalPackets);
+}
+
+async function testLargeLeanScoutNoPacketsStatus() {
+  const files = Array.from({ length: 13 }, (_, i) => file(`Compiler/Proofs/Large${i}.lean`, 40, 0));
+  const decision = router.decideRoute(files);
+  await router.applyScoutStage(decision, { files }, { url: 'https://example.invalid/v1', key: 'test-key', model: 'cheap-scout' });
+  assert.strictEqual(decision.scout.enabled, true);
+  assert.strictEqual(decision.scout.status, 'skipped_no_packets');
 }
 
 function testWorkflowDocsEnabled() {
@@ -189,7 +351,15 @@ async function run() {
   testNoSupportedFilesSkipped();
   testOneLeanFileNormal();
   testLargeLeanPacketized();
+  testLeanCommentDoesNotTriggerSorrySignal();
+  testLeanBlockCommentDoesNotTriggerSorrySignal();
+  testCodeAfterInlineBlockCommentIsScanned();
   testOversizedLeanGuarded();
+  await testLargeLeanScoutNotConfiguredFallsBack();
+  await testLargeLeanScoutSelectsPackets();
+  await testLargeLeanScoutEmptySelectionIsFallback();
+  await testLargeLeanScoutApiFailureFallsBack();
+  await testLargeLeanScoutNoPacketsStatus();
   testWorkflowDocsEnabled();
   testGenericScriptConfigEnabled();
   await testCompletedWithErrorsRetryablePreservesFindings();
