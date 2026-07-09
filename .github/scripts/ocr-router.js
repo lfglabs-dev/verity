@@ -548,19 +548,46 @@ function codeLines(lines) {
   const code = [];
   let inBlockComment = false;
   for (const line of lines) {
-    const trimmed = String(line || '').trim();
-    if (!trimmed || trimmed.startsWith('--')) continue;
-    if (inBlockComment) {
-      if (trimmed.includes('-/')) inBlockComment = false;
-      continue;
-    }
-    if (trimmed.startsWith('/-')) {
-      if (!trimmed.includes('-/')) inBlockComment = true;
-      continue;
-    }
-    code.push(line);
+    const stripped = stripLeanCommentsFromLine(line, { inBlockComment });
+    inBlockComment = stripped.inBlockComment;
+    if (stripped.code.trim()) code.push(stripped.code);
   }
   return code;
+}
+
+function stripLeanCommentsFromLine(line, state) {
+  let rest = String(line || '');
+  let code = '';
+  let inBlockComment = Boolean(state.inBlockComment);
+
+  while (rest) {
+    if (inBlockComment) {
+      const blockEnd = rest.indexOf('-/');
+      if (blockEnd === -1) return { code, inBlockComment: true };
+      rest = rest.slice(blockEnd + 2);
+      inBlockComment = false;
+      continue;
+    }
+
+    const lineComment = rest.indexOf('--');
+    const blockStart = rest.indexOf('/-');
+    if (lineComment !== -1 && (blockStart === -1 || lineComment < blockStart)) {
+      code += rest.slice(0, lineComment);
+      return { code, inBlockComment: false };
+    }
+    if (blockStart === -1) {
+      code += rest;
+      return { code, inBlockComment: false };
+    }
+
+    code += rest.slice(0, blockStart);
+    rest = rest.slice(blockStart + 2);
+    const blockEnd = rest.indexOf('-/');
+    if (blockEnd === -1) return { code, inBlockComment: true };
+    rest = rest.slice(blockEnd + 2);
+  }
+
+  return { code, inBlockComment };
 }
 
 function publicDeclPattern() {

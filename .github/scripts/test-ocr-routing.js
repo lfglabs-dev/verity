@@ -105,6 +105,18 @@ function testLeanBlockCommentDoesNotTriggerSorrySignal() {
   assert.ok(!packets[0].signals.includes('introduced sorry/admit'));
 }
 
+function testCodeAfterInlineBlockCommentIsScanned() {
+  const leanFile = file('Compiler/Proofs/InlineBlockComment.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/InlineBlockComment.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['add', '/- rationale -/ axiom bad : False'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(packets[0].signals.includes('introduced/changed axiom'));
+}
+
 function testOversizedLeanGuarded() {
   const files = Array.from({ length: 13 }, (_, i) => file(`Compiler/Proofs/Large${i}.lean`, 40, 0));
   const decision = router.decideRoute(files);
@@ -341,6 +353,7 @@ async function run() {
   testLargeLeanPacketized();
   testLeanCommentDoesNotTriggerSorrySignal();
   testLeanBlockCommentDoesNotTriggerSorrySignal();
+  testCodeAfterInlineBlockCommentIsScanned();
   testOversizedLeanGuarded();
   await testLargeLeanScoutNotConfiguredFallsBack();
   await testLargeLeanScoutSelectsPackets();
