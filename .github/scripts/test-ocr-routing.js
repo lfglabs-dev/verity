@@ -148,8 +148,8 @@ function testScoutConfigDefaultsToMiniMaxOnOcrEndpoint() {
   assert.strictEqual(config.url, 'https://sandboxed.example/v1');
   assert.strictEqual(config.key, 'shared-key');
   assert.strictEqual(config.model, 'MiniMax-M3');
-  const ocrReviewerModel = 'reviewer';
-  assert.strictEqual(ocrReviewerModel, 'reviewer');
+  const workflow = fs.readFileSync(path.join(__dirname, '..', 'workflows', 'ocr-review.yml'), 'utf8');
+  assert.ok(workflow.includes('OCR_LLM_MODEL: reviewer'));
 }
 
 function testScoutConfigCanDisableLargeLeanScout() {

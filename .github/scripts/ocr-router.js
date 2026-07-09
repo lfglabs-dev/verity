@@ -485,6 +485,7 @@ function stripThinking(text) {
   return text
     .replace(/<mm:think>[\s\S]*?<\/mm:think>/gi, '')
     .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .trim()
     .replace(/^```(?:json)?\s*/i, '')
     .replace(/\s*```$/i, '');
 }
