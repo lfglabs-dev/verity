@@ -2137,7 +2137,13 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.Function.genParamLoadBodyFrom_scalar_legacy  -- private
   -- Compiler.Proofs.IRGeneration.Function.genParamLoads_scalar_legacy  -- private
   -- Compiler.Proofs.IRGeneration.Function.compileStmtList_legacyCompatible_of_interface  -- private
+  -- Compiler.Proofs.IRGeneration.Function.legacyCompatibleExternalStmtList_map_exprStmt  -- private
+  -- Compiler.Proofs.IRGeneration.Function.revertWithMessage_legacyCompatible  -- private
+  Compiler.Proofs.IRGeneration.Function.stmtListCompileCore_compiledLegacyCompatible
+  Compiler.Proofs.IRGeneration.Function.stmtListTerminalCore_compiledLegacyCompatible
   Compiler.Proofs.IRGeneration.Function.compileFunctionSpec_body_legacyCompatible_of_interface
+  Compiler.Proofs.IRGeneration.Function.compileFunctionSpec_body_legacyCompatible_of_compileCore
+  Compiler.Proofs.IRGeneration.Function.compileFunctionSpec_body_legacyCompatible_of_terminalCore
   -- Compiler.Proofs.IRGeneration.Function.genScalarLoad_calldataload_callsDisjoint  -- private
   -- Compiler.Proofs.IRGeneration.Function.genParamLoadBodyFrom_calldataload_callsDisjoint  -- private
   -- Compiler.Proofs.IRGeneration.Function.genParamLoads_callsDisjoint_of_builtins  -- private
@@ -5961,4 +5967,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5591 theorems/lemmas (3864 public, 1727 private, 0 sorry'd)
+-- Total: 5597 theorems/lemmas (3868 public, 1729 private, 0 sorry'd)

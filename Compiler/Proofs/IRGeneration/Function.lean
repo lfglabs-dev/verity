@@ -2887,6 +2887,250 @@ private theorem compileStmtList_legacyCompatible_of_interface
             (hhead headIR hheadCompile)
             (compileStmtList_legacyCompatible_of_interface htail htailCompile)
 
+private theorem legacyCompatibleExternalStmtList_map_exprStmt
+    {α : Type} (f : α → YulExpr) :
+    ∀ xs : List α,
+      LegacyCompatibleExternalStmtList (xs.map (fun x => YulStmt.exprStmt (f x)))
+  | [] => .nil
+  | _ :: rest => .exprStmt _ _ (legacyCompatibleExternalStmtList_map_exprStmt f rest)
+
+private theorem revertWithMessage_legacyCompatible
+    (message : String) :
+    LegacyCompatibleExternalStmtList (CompilationModel.revertWithMessage message) := by
+  simp only [CompilationModel.revertWithMessage]
+  exact .exprStmt _ _
+    (.exprStmt _ _
+      (.exprStmt _ _
+        (legacyCompatibleExternalStmtList_append
+          (legacyCompatibleExternalStmtList_map_exprStmt
+            (fun x : List UInt8 × Nat =>
+              YulExpr.call "mstore"
+                [YulExpr.lit (68 + x.2 * 32), YulExpr.hex (wordFromBytes x.1)])
+            (chunkBytes32 (bytesFromString message)).zipIdx)
+          (.exprStmt _ _ .nil))))
+
+/-- Generic compile-core statement lists discharge the per-head legacy-compatible
+compiled-output interface consumed by the helper-aware whole-contract bridge.
+
+The compiler scope is deliberately independent of the proof scope: core
+statement heads do not use the scope to choose their emitted Yul constructors,
+and the tail is threaded through the compiler's `stmtNextScope`. -/
+theorem stmtListCompileCore_compiledLegacyCompatible
+    (fields : List Field) :
+    ∀ {proofScope compilerScope : List String} {stmts : List Stmt},
+      FunctionBody.StmtListCompileCore proofScope stmts →
+        StmtListCompiledLegacyCompatible fields compilerScope stmts
+  | _, _, [], .nil => .nil
+  | _, compilerScope, .letVar name value :: rest,
+      .letVar _hvalue _hscope hrest =>
+      .cons
+        (fun compiledIR hcompile => by
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+            bind, Except.bind] at hcompile
+          split at hcompile <;> cases hcompile
+          exact .let_ _ _ [] .nil)
+        (stmtListCompileCore_compiledLegacyCompatible fields
+          (compilerScope := stmtNextScope compilerScope (.letVar name value)) hrest)
+  | _, compilerScope, .assignVar name value :: rest,
+      .assignVar _hvalue _hscope hrest =>
+      .cons
+        (fun compiledIR hcompile => by
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+            bind, Except.bind] at hcompile
+          split at hcompile <;> cases hcompile
+          exact .assign _ _ [] .nil)
+        (stmtListCompileCore_compiledLegacyCompatible fields
+          (compilerScope := stmtNextScope compilerScope (.assignVar name value)) hrest)
+  | _, compilerScope, .require cond message :: rest,
+      .require_ _hcond _hscope hrest =>
+      .cons
+        (fun compiledIR hcompile => by
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+            bind, Except.bind] at hcompile
+          split at hcompile <;> cases hcompile
+          exact .if_ _ _ [] (revertWithMessage_legacyCompatible message) .nil)
+        (stmtListCompileCore_compiledLegacyCompatible fields
+          (compilerScope := stmtNextScope compilerScope (.require cond message)) hrest)
+  | _, compilerScope, .return value :: rest,
+      .return_ _hvalue _hscope hrest =>
+      .cons
+        (fun compiledIR hcompile => by
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+            bind, Except.bind] at hcompile
+          split at hcompile <;> cases hcompile
+          exact .exprStmt _ _ (.exprStmt _ _ .nil))
+        (stmtListCompileCore_compiledLegacyCompatible fields
+          (compilerScope := stmtNextScope compilerScope (.return value)) hrest)
+  | _, compilerScope, .stop :: rest, .stop hrest =>
+      .cons
+        (fun compiledIR hcompile => by
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] at hcompile
+          cases hcompile
+          exact .exprStmt _ _ .nil)
+        (stmtListCompileCore_compiledLegacyCompatible fields
+          (compilerScope := stmtNextScope compilerScope .stop) hrest)
+  | _, compilerScope, .mstore offset value :: rest,
+      .mstore _hoffset _hscopeOffset _hvalue _hscopeValue hrest =>
+      .cons
+        (fun compiledIR hcompile => by
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+            bind, Except.bind] at hcompile
+          split at hcompile <;> try contradiction
+          split at hcompile <;> cases hcompile
+          exact .exprStmt _ _ .nil)
+        (stmtListCompileCore_compiledLegacyCompatible fields
+          (compilerScope := stmtNextScope compilerScope (.mstore offset value)) hrest)
+  | _, compilerScope, .tstore offset value :: rest,
+      .tstore _hoffset _hscopeOffset _hvalue _hscopeValue hrest =>
+      .cons
+        (fun compiledIR hcompile => by
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+            bind, Except.bind] at hcompile
+          split at hcompile <;> try contradiction
+          split at hcompile <;> cases hcompile
+          exact .exprStmt _ _ .nil)
+        (stmtListCompileCore_compiledLegacyCompatible fields
+          (compilerScope := stmtNextScope compilerScope (.tstore offset value)) hrest)
+
+/-- Terminal-core statement lists also discharge the per-head legacy-compatible
+compiled-output interface.  The `ite` case uses the existing list bridge on the
+terminal branches and compile-core tail. -/
+theorem stmtListTerminalCore_compiledLegacyCompatible
+    (fields : List Field) :
+    ∀ {proofScope compilerScope : List String} {stmts : List Stmt},
+      FunctionBody.StmtListTerminalCore proofScope stmts →
+        StmtListCompiledLegacyCompatible fields compilerScope stmts
+  | _, compilerScope, .letVar name value :: rest,
+      .letVar _hvalue _hscope hrest =>
+      .cons
+        (fun compiledIR hcompile => by
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+            bind, Except.bind] at hcompile
+          split at hcompile <;> cases hcompile
+          exact .let_ _ _ [] .nil)
+        (stmtListTerminalCore_compiledLegacyCompatible fields
+          (compilerScope := stmtNextScope compilerScope (.letVar name value)) hrest)
+  | _, compilerScope, .assignVar name value :: rest,
+      .assignVar _hvalue _hscope hrest =>
+      .cons
+        (fun compiledIR hcompile => by
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+            bind, Except.bind] at hcompile
+          split at hcompile <;> cases hcompile
+          exact .assign _ _ [] .nil)
+        (stmtListTerminalCore_compiledLegacyCompatible fields
+          (compilerScope := stmtNextScope compilerScope (.assignVar name value)) hrest)
+  | _, compilerScope, .require cond message :: rest,
+      .require_ _hcond _hscope hrest =>
+      .cons
+        (fun compiledIR hcompile => by
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+            bind, Except.bind] at hcompile
+          split at hcompile <;> cases hcompile
+          exact .if_ _ _ [] (revertWithMessage_legacyCompatible message) .nil)
+        (stmtListTerminalCore_compiledLegacyCompatible fields
+          (compilerScope := stmtNextScope compilerScope (.require cond message)) hrest)
+  | _, compilerScope, .return value :: rest,
+      .return_ _hvalue _hscope hrest =>
+      .cons
+        (fun compiledIR hcompile => by
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+            bind, Except.bind] at hcompile
+          split at hcompile <;> cases hcompile
+          exact .exprStmt _ _ (.exprStmt _ _ .nil))
+        (stmtListCompileCore_compiledLegacyCompatible fields
+          (compilerScope := stmtNextScope compilerScope (.return value)) hrest)
+  | _, compilerScope, .stop :: rest, .stop hrest =>
+      .cons
+        (fun compiledIR hcompile => by
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] at hcompile
+          cases hcompile
+          exact .exprStmt _ _ .nil)
+        (stmtListCompileCore_compiledLegacyCompatible fields
+          (compilerScope := stmtNextScope compilerScope .stop) hrest)
+  | _, compilerScope, .mstore offset value :: rest,
+      .mstore _hoffset _hscopeOffset _hvalue _hscopeValue hrest =>
+      .cons
+        (fun compiledIR hcompile => by
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+            bind, Except.bind] at hcompile
+          split at hcompile <;> try contradiction
+          split at hcompile <;> cases hcompile
+          exact .exprStmt _ _ .nil)
+        (stmtListTerminalCore_compiledLegacyCompatible fields
+          (compilerScope := stmtNextScope compilerScope (.mstore offset value)) hrest)
+  | _, compilerScope, .tstore offset value :: rest,
+      .tstore _hoffset _hscopeOffset _hvalue _hscopeValue hrest =>
+      .cons
+        (fun compiledIR hcompile => by
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+            bind, Except.bind] at hcompile
+          split at hcompile <;> try contradiction
+          split at hcompile <;> cases hcompile
+          exact .exprStmt _ _ .nil)
+        (stmtListTerminalCore_compiledLegacyCompatible fields
+          (compilerScope := stmtNextScope compilerScope (.tstore offset value)) hrest)
+  | _, compilerScope, .ite cond thenBranch elseBranch :: rest,
+      .ite _hcond _hscope hthen helse hrest =>
+      .cons
+        (fun compiledIR hcompile => by
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+            bind, Except.bind] at hcompile
+          split at hcompile <;> try contradiction
+          rename_i condIR hcondIR
+          split at hcompile <;> try contradiction
+          rename_i thenIR hthenIR
+          split at hcompile <;> try contradiction
+          rename_i elseIR helseIR
+          have hthenLegacy :
+              LegacyCompatibleExternalStmtList thenIR :=
+            compileStmtList_legacyCompatible_of_interface
+              (stmtListTerminalCore_compiledLegacyCompatible fields
+                (compilerScope := compilerScope) hthen)
+              hthenIR
+          have helseLegacy :
+              LegacyCompatibleExternalStmtList elseIR :=
+            compileStmtList_legacyCompatible_of_interface
+              (stmtListTerminalCore_compiledLegacyCompatible fields
+                (compilerScope := compilerScope) helse)
+              helseIR
+          by_cases hempty : elseBranch.isEmpty
+          · simp [hempty] at hcompile
+            cases hcompile
+            exact .if_ condIR thenIR [] hthenLegacy .nil
+          · simp [hempty] at hcompile
+            cases hcompile
+            exact .block
+              [YulStmt.let_
+                (pickFreshName "__ite_cond"
+                  (compilerScope ++
+                    (collectExprNames cond ++
+                      (collectStmtListNames thenBranch ++ collectStmtListNames elseBranch))))
+                condIR,
+               YulStmt.if_
+                (YulExpr.ident
+                  (pickFreshName "__ite_cond"
+                    (compilerScope ++
+                      (collectExprNames cond ++
+                        (collectStmtListNames thenBranch ++ collectStmtListNames elseBranch)))))
+                thenIR,
+               YulStmt.if_
+                (YulExpr.call "iszero"
+                  [YulExpr.ident
+                    (pickFreshName "__ite_cond"
+                      (compilerScope ++
+                        (collectExprNames cond ++
+                          (collectStmtListNames thenBranch ++ collectStmtListNames elseBranch))))])
+                elseIR]
+              []
+              (.let_ _ _ _
+                (.if_ _ _ _
+                  hthenLegacy
+                  (.if_ _ _ _ helseLegacy .nil)))
+              .nil)
+        (stmtListCompileCore_compiledLegacyCompatible fields
+          (compilerScope := stmtNextScope compilerScope (.ite cond thenBranch elseBranch)) hrest)
+
 /-- Per-function legacy-compatibility bridge. A supported external function whose
 scalar params are supported and whose compiled body satisfies the per-statement
 legacy interface compiles to a function whose IR body stays inside the
@@ -2906,6 +3150,37 @@ theorem compileFunctionSpec_body_legacyCompatible_of_interface
   exact legacyCompatibleExternalStmtList_append
     (genParamLoads_scalar_legacy spec.params hparams)
     (compileStmtList_legacyCompatible_of_interface hbodyInterface hbodyCompile)
+
+/-- Function-level legacy-compatibility package for the generic compile-core
+body fragment. This discharges #2080's per-statement legacy interface for
+external functions whose source body is already in `StmtListCompileCore`. -/
+theorem compileFunctionSpec_body_legacyCompatible_of_compileCore
+    (fields : List Field) (selector : Nat) (spec : FunctionSpec) (irFn : IRFunction)
+    (hparams : ∀ param ∈ spec.params, SupportedExternalParamType param.ty)
+    (hbodyCore :
+      FunctionBody.StmtListCompileCore (spec.params.map (·.name)) spec.body)
+    (hcompile : compileFunctionSpec fields [] [] [] selector spec = Except.ok irFn) :
+    LegacyCompatibleExternalStmtList irFn.body :=
+  compileFunctionSpec_body_legacyCompatible_of_interface
+    fields selector spec irFn hparams
+    (stmtListCompileCore_compiledLegacyCompatible fields
+      (compilerScope := spec.params.map (·.name)) hbodyCore)
+    hcompile
+
+/-- Function-level legacy-compatibility package for the terminal-core body
+fragment, including terminal `ite` bodies. -/
+theorem compileFunctionSpec_body_legacyCompatible_of_terminalCore
+    (fields : List Field) (selector : Nat) (spec : FunctionSpec) (irFn : IRFunction)
+    (hparams : ∀ param ∈ spec.params, SupportedExternalParamType param.ty)
+    (hbodyTerminal :
+      FunctionBody.StmtListTerminalCore (spec.params.map (·.name)) spec.body)
+    (hcompile : compileFunctionSpec fields [] [] [] selector spec = Except.ok irFn) :
+    LegacyCompatibleExternalStmtList irFn.body :=
+  compileFunctionSpec_body_legacyCompatible_of_interface
+    fields selector spec irFn hparams
+    (stmtListTerminalCore_compiledLegacyCompatible fields
+      (compilerScope := spec.params.map (·.name)) hbodyTerminal)
+    hcompile
 
 /-- Disjointness of a single scalar param-load (with the `calldataload` word
 loader used by `genParamLoads`) from a runtime contract's internal-function
