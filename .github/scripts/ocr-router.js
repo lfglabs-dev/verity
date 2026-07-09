@@ -495,7 +495,12 @@ function stripThinking(text) {
 }
 
 function extractJsonObject(text) {
-  const start = text.indexOf('{');
+  const extracted = extractJsonValue(text, '{', '}');
+  return extracted;
+}
+
+function extractJsonValue(text, open, close) {
+  const start = text.indexOf(open);
   if (start === -1) return null;
   let depth = 0;
   let inString = false;
@@ -514,9 +519,9 @@ function extractJsonObject(text) {
     }
     if (ch === '"') {
       inString = true;
-    } else if (ch === '{') {
+    } else if (ch === open) {
       depth += 1;
-    } else if (ch === '}') {
+    } else if (ch === close) {
       depth -= 1;
       if (depth === 0) return text.slice(start, i + 1);
     }
@@ -544,9 +549,14 @@ function sanitizeScoutErrorDetail(err) {
 
 function redactStructuredError(text) {
   const trimmed = String(text || '').trim();
-  if (!trimmed || !/^[\[{]/.test(trimmed)) return null;
+  if (!trimmed) return null;
+  const candidate = /^[\[{]/.test(trimmed)
+    ? trimmed
+    : extractJsonObject(trimmed) || extractJsonValue(trimmed, '[', ']');
+  if (!candidate) return null;
   try {
-    return JSON.stringify(redactSecretJsonValue(JSON.parse(trimmed)));
+    const redacted = JSON.stringify(redactSecretJsonValue(JSON.parse(candidate)));
+    return candidate === trimmed ? redacted : trimmed.replace(candidate, redacted);
   } catch {
     return null;
   }
