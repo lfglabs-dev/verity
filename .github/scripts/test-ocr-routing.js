@@ -339,6 +339,19 @@ function testScoutErrorSanitizesJwtWithoutDroppingPlainDiagnostics() {
   assert.ok(!detail.includes(jwt));
 }
 
+function testScoutErrorSanitizesBareCredentialLikeStrings() {
+  const detail = router.sanitizeScoutErrorDetail(JSON.stringify({
+    error: 'invalid MiniMax-M3 scout request',
+    detail: 'credential abcdefghijklmnopqrstuvwxyz1234567890 rejected',
+    commit: 'dcefe61cc822fc32c7f69d0570aa7278bec45605',
+    page_token: 'next-page-for-debugging',
+  }));
+  assert.ok(detail.includes('MiniMax-M3'));
+  assert.ok(detail.includes('dcefe61cc822fc32c7f69d0570aa7278bec45605'));
+  assert.ok(detail.includes('next-page-for-debugging'));
+  assert.ok(!detail.includes('abcdefghijklmnopqrstuvwxyz1234567890'));
+}
+
 async function testLargeLeanScoutNoPacketsStatus() {
   const files = Array.from({ length: 13 }, (_, i) => file(`Compiler/Proofs/Large${i}.lean`, 40, 0));
   const decision = router.decideRoute(files);
@@ -467,6 +480,7 @@ async function run() {
   testScoutErrorSanitizesApiKeyPhrases();
   testScoutErrorSanitizesStructuredSecrets();
   testScoutErrorSanitizesJwtWithoutDroppingPlainDiagnostics();
+  testScoutErrorSanitizesBareCredentialLikeStrings();
   await testLargeLeanScoutNoPacketsStatus();
   testWorkflowDocsEnabled();
   testGenericScriptConfigEnabled();

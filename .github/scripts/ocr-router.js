@@ -570,7 +570,8 @@ function isSecretKey(key) {
     .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
     .replace(/[\s-]+/g, '_')
     .toLowerCase();
-  return /(^|_)(api_key|access_token|refresh_token|id_token|client_secret|api_secret|private_key|bearer_token|session_secret|session_token|token|authorization|password|secret)($|_)/.test(normalized);
+  return normalized === 'token'
+    || /(^|_)(api_key|access_token|refresh_token|id_token|client_secret|api_secret|private_key|bearer_token|session_secret|session_token|authorization|password|secret)($|_)/.test(normalized);
 }
 
 function redactSecretText(text) {
@@ -579,6 +580,7 @@ function redactSecretText(text) {
     .replace(/\beyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, '[redacted]')
     .replace(/Bearer\s+[A-Za-z0-9._~+/-]+={0,2}/gi, 'Bearer [redacted]')
     .replace(/\bsk-[A-Za-z0-9._-]+/gi, '[redacted]')
+    .replace(/\b(?![a-f0-9]{40}\b)(?=[A-Za-z0-9._~+/-]{32,}\b)(?=[A-Za-z0-9._~+/-]*[A-Za-z])(?=[A-Za-z0-9._~+/-]*\d)[A-Za-z0-9._~+/-]{32,}={0,2}\b/g, '[redacted]')
     .replace(/\b((?:api\s*key|api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|api[_-]?secret|private[_-]?key|bearer[_-]?token|session[_-]?(?:secret|token)|token|authorization|password|secret)\b[^"'`\n]{0,120}?)([A-Za-z0-9._~+/-]{12,}={0,2})/gi, '$1[redacted]');
 }
 
