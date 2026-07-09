@@ -403,7 +403,8 @@ function isSupported(filePath) {
     /\.(sol|yul|cairo)$/.test(filePath) ||
     ['AUDIT.md', 'TRUST_ASSUMPTIONS.md', 'AXIOMS.md', 'README.md'].includes(base) ||
     (filePath.startsWith('docs/') && filePath.endsWith('.md')) ||
-    filePath.startsWith('.github/');
+    filePath.startsWith('.github/') ||
+    /\.(py|sh|bash|js|ts|json|ya?ml|toml)$/.test(filePath);
 }
 
 function isExcluded(filePath) {

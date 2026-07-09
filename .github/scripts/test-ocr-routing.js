@@ -91,6 +91,17 @@ function testWorkflowDocsEnabled() {
   assert.strictEqual(decision.shouldRunOcr, true);
 }
 
+function testGenericScriptConfigEnabled() {
+  const decision = router.decideRoute([
+    file('scripts/deploy.sh', 20, 4),
+    file('package.json', 6, 1),
+    file('config/app.yml', 5, 2),
+  ]);
+  assert.strictEqual(decision.mode, 'normal');
+  assert.strictEqual(decision.shouldRunOcr, true);
+  assert.strictEqual(decision.counts.workflowScripts, 3);
+}
+
 async function testCompletedWithErrorsRetryablePreservesFindings() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ocr-post-test-'));
   const resultPath = path.join(dir, 'result.json');
@@ -178,6 +189,7 @@ async function run() {
   testLargeLeanPacketized();
   testOversizedLeanGuarded();
   testWorkflowDocsEnabled();
+  testGenericScriptConfigEnabled();
   await testCompletedWithErrorsRetryablePreservesFindings();
   console.log('OCR routing tests passed');
 }
