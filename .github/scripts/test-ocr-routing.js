@@ -315,6 +315,8 @@ function testScoutErrorSanitizesStructuredSecrets() {
   const detail = router.sanitizeScoutErrorDetail(JSON.stringify({
     error: 'invalid MiniMax-M3 scout request',
     api_key: ['abcdefghijklmnopqrstuvwxyz123456'],
+    minimax_api_key: 'abcdefghijklmnopqrstuvwxyz123459',
+    openaiApiKey: 'abcdefghijklmnopqrstuvwxyz123460',
     access_token: 'abcdefghijklmnopqrstuvwxyz123456',
     refreshToken: 'abcdefghijklmnopqrstuvwxyz123457',
     nested: {
@@ -326,6 +328,15 @@ function testScoutErrorSanitizesStructuredSecrets() {
   assert.ok(detail.includes('[redacted]'));
   assert.ok(!detail.includes('abcdefghijklmnopqrstuvwxyz'));
   assert.ok(!detail.includes('sk-test'));
+}
+
+function testScoutErrorSanitizesJwtWithoutDroppingPlainDiagnostics() {
+  const jwt = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
+  const detail = router.sanitizeScoutErrorDetail(`token expired for MiniMax-M3. Bearer ${jwt}`);
+  assert.ok(detail.includes('token expired'));
+  assert.ok(detail.includes('MiniMax-M3'));
+  assert.ok(detail.includes('Bearer [redacted]'));
+  assert.ok(!detail.includes(jwt));
 }
 
 async function testLargeLeanScoutNoPacketsStatus() {
@@ -455,6 +466,7 @@ async function run() {
   await testLargeLeanScoutApiFailureFallsBack();
   testScoutErrorSanitizesApiKeyPhrases();
   testScoutErrorSanitizesStructuredSecrets();
+  testScoutErrorSanitizesJwtWithoutDroppingPlainDiagnostics();
   await testLargeLeanScoutNoPacketsStatus();
   testWorkflowDocsEnabled();
   testGenericScriptConfigEnabled();
