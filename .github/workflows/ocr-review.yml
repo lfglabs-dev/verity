@@ -101,6 +101,8 @@ jobs:
           mkdir -p "$RUNNER_TEMP/ocr-bin" "$RUNNER_TEMP/ocr-tools"
           cp "$TRUSTED_DIR/.github/scripts/ocr-git-wrapper.sh" "$RUNNER_TEMP/ocr-bin/git"
           cp "$TRUSTED_DIR/.github/ocr/rules.json" "$RUNNER_TEMP/ocr-tools/rules.json"
+          sha256sum "$RUNNER_TEMP/ocr-tools/rules.json" | cut -d' ' -f1 > "$RUNNER_TEMP/ocr-tools/rules.sha"
+          printf 'OCR_RULES_HASH=%s\n' "$(cut -c1-12 "$RUNNER_TEMP/ocr-tools/rules.sha")" >> "$GITHUB_ENV"
           chmod +x "$RUNNER_TEMP/ocr-bin/git"
           echo "$RUNNER_TEMP/ocr-bin" >> "$GITHUB_PATH"
 

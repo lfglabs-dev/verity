@@ -10,8 +10,9 @@ module.exports = async function postOcrReview({ github, context, core }) {
   const resultPath = process.env.OCR_RESULT_PATH;
   const stderrPath = process.env.OCR_STDERR_PATH;
   const maxInline = Number(process.env.OCR_MAX_INLINE_COMMENTS || 20);
-  const successTag = `<!-- paloma-ocr-review:${commit_id}:success -->`;
-  const retryableTag = `<!-- paloma-ocr-review:${commit_id}:retryable-failure -->`;
+  const rulesHash = (process.env.OCR_RULES_HASH || 'rules-v0').slice(0, 12);
+  const successTag = `<!-- paloma-ocr-review:${commit_id}:${rulesHash}:success -->`;
+  const retryableTag = `<!-- paloma-ocr-review:${commit_id}:${rulesHash}:retryable-failure -->`;
 
   if (!pull_number || !commit_id) {
     throw new Error('OCR_PR_NUMBER and OCR_HEAD_SHA are required');
