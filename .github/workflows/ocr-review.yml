@@ -25,7 +25,7 @@ jobs:
   review:
     name: OCR first-pass review
     runs-on: [self-hosted, linux, x64, paloma-ocr]
-    timeout-minutes: 30
+    timeout-minutes: 45
     if: |
       github.event_name == 'pull_request_target' ||
       github.event_name == 'workflow_dispatch' ||
@@ -139,15 +139,21 @@ jobs:
           mkdir -p "$HOME"
           printf 'Reviewing %s against origin/%s\n' "$HEAD_SHA" "$BASE_REF"
           git rev-parse --verify "origin/${BASE_REF}^{commit}" >/dev/null
-          BACKGROUND="${PR_TITLE}"$'\n\n'"${PR_BODY}"
-          BACKGROUND="${BACKGROUND:0:4000}"
+          # Keep the model focused: PR bodies can include long generated summaries (Bugbot/Cursor),
+          # which inflated token use and caused Lean proof reviews to hit OCR subtask deadlines.
+          CLEAN_BODY="${PR_BODY%%<!-- CURSOR_SUMMARY -->*}"
+          CLEAN_BODY="${CLEAN_BODY%%<!-- BUGBOT_SUMMARY -->*}"
+          CLEAN_BODY="${CLEAN_BODY%%<!-- BUGBOT_REVIEW -->*}"
+          BACKGROUND="${PR_TITLE}"$'\n\n'"${CLEAN_BODY}"
+          BACKGROUND="${BACKGROUND:0:1200}"
           ocr review \
             --from "origin/${BASE_REF}" \
             --to "${HEAD_SHA}" \
             --format json \
             --audience agent \
             --rule "$RUNNER_TEMP/ocr-tools/rules.json" \
-            --concurrency 4 \
+            --concurrency 3 \
+            --timeout 20 \
             --background "$BACKGROUND" \
             > "$RUNNER_TEMP/ocr-result.json" \
             2> "$RUNNER_TEMP/ocr-stderr.log" || true
