@@ -2873,6 +2873,51 @@ theorem compile_preserves_semantics_with_helper_proofs_and_helper_ir_of_compileV
         model selectors hSupported ir hcore hlegacyBodies)
     (hhelperIRGoal := interpretIRWithInternalsZeroConservativeExtensionGoal_closed ir)
 
+/-- Helper-aware whole-contract retarget theorem stated directly on the
+per-statement compiled legacy-compatibility interface.  This is the same
+statement as
+`compile_preserves_semantics_with_helper_proofs_and_helper_ir_of_compileValidatedCore`,
+but the `LegacyCompatibleExternalBodies ir` premise is replaced by the
+per-statement `StmtListCompiledLegacyCompatible` obligations that #2080 already
+tracks for the disjoint interface.  The whole-body-shape premise is discharged
+internally via `legacyCompatibleExternalBodies_of_compileValidatedCore_of_interface`,
+so downstream users only ever have to supply the per-statement interface. -/
+theorem compile_preserves_semantics_with_helper_proofs_and_helper_ir_of_compileValidatedCore_of_interface
+    (model : CompilationModel)
+    (selectors : List Nat)
+    (hSupported : SupportedSpec model selectors)
+    (hHelperProofs : SourceSemantics.SupportedSpecHelperProofs model selectors hSupported)
+    (ir : IRContract)
+    (tx : IRTransaction)
+    (initialWorld : Verity.ContractState)
+    (htxNormalized : Function.TxContextNormalized tx)
+    (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
+    (hvalidateInputs : validateCompileInputs model selectors = Except.ok ())
+    (hcore : compileValidatedCore model selectors = Except.ok ir)
+    (hbodies :
+      ∀ entry ∈ SourceSemantics.selectorFunctionPairs model selectors,
+        StmtListCompiledLegacyCompatible model.fields
+          (entry.1.params.map (·.name)) entry.1.body) :
+    FunctionBody.sourceResultMatchesIRResult
+      (supportedSourceContractSemantics model selectors hSupported tx initialWorld)
+      (interpretIRWithInternals ir 0 tx
+        (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
+  exact compile_preserves_semantics_with_helper_proofs_and_helper_ir_of_compileValidatedCore
+    (model := model)
+    (selectors := selectors)
+    (hSupported := hSupported)
+    (hHelperProofs := hHelperProofs)
+    (ir := ir)
+    (tx := tx)
+    (initialWorld := initialWorld)
+    (htxNormalized := htxNormalized)
+    (hcalldataSizeFits := hcalldataSizeFits)
+    (hvalidateInputs := hvalidateInputs)
+    (hcore := hcore)
+    (hlegacyBodies :=
+      legacyCompatibleExternalBodies_of_compileValidatedCore_of_interface
+        model selectors hSupported ir hcore hbodies)
+
 /-- Direct helper-aware whole-contract theorem on the current legacy-compatible
 runtime-contract boundary. The helper-aware compiled-side conservative-extension
 goal is now closed in `IRInterpreter.lean`, so theorem users no longer need to
