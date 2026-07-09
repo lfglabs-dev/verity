@@ -112,15 +112,32 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Install OpenCodeReview
+      - name: Route OCR review
         if: steps.pr.outputs.skip != 'true'
+        id: route
+        working-directory: repo
+        env:
+          BASE_REF: ${{ steps.pr.outputs.base_ref }}
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+          OCR_PR_NUMBER: ${{ steps.pr.outputs.number }}
+          OCR_RESULT_PATH: ${{ runner.temp }}/ocr-result.json
+          OCR_METRICS_PATH: ${{ runner.temp }}/ocr-metrics.json
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: bearer ${GITHUB_TOKEN}" \
+            fetch --no-tags origin "${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+          node "$GITHUB_WORKSPACE/ocr-trusted/.github/scripts/ocr-router.js"
+
+      - name: Install OpenCodeReview
+        if: steps.pr.outputs.skip != 'true' && steps.route.outputs.should_run_ocr == 'true'
         run: |
           set -euo pipefail
           npm install -g @alibaba-group/open-code-review@1.7.5
           ocr version
 
       - name: Run OpenCodeReview
-        if: steps.pr.outputs.skip != 'true'
+        if: steps.pr.outputs.skip != 'true' && steps.route.outputs.should_run_ocr == 'true'
         id: ocr
         working-directory: repo
         env:
@@ -134,42 +151,58 @@ jobs:
           PR_BODY: ${{ steps.pr.outputs.body }}
           BASE_REF: ${{ steps.pr.outputs.base_ref }}
           HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+          OCR_MODE: ${{ steps.route.outputs.mode }}
+          OCR_CONCURRENCY: ${{ steps.route.outputs.concurrency }}
+          OCR_TIMEOUT: ${{ steps.route.outputs.timeout }}
+          OCR_BACKGROUND_CHARS: ${{ steps.route.outputs.background_chars }}
         run: |
           set -euo pipefail
           mkdir -p "$HOME"
-          printf 'Reviewing %s against origin/%s\n' "$HEAD_SHA" "$BASE_REF"
+          printf 'Reviewing %s against origin/%s in %s mode\n' "$HEAD_SHA" "$BASE_REF" "$OCR_MODE"
           git rev-parse --verify "origin/${BASE_REF}^{commit}" >/dev/null
           # Keep the model focused: PR bodies can include long generated summaries (Bugbot/Cursor),
           # which inflated token use and caused Lean proof reviews to hit OCR subtask deadlines.
           CLEAN_BODY="${PR_BODY%%<!-- CURSOR_SUMMARY -->*}"
           CLEAN_BODY="${CLEAN_BODY%%<!-- BUGBOT_SUMMARY -->*}"
           CLEAN_BODY="${CLEAN_BODY%%<!-- BUGBOT_REVIEW -->*}"
-          BACKGROUND="${PR_TITLE}"$'\n\n'"${CLEAN_BODY}"
-          BACKGROUND="${BACKGROUND:0:1200}"
+          BACKGROUND="[OCR mode: ${OCR_MODE}]"$'\n\n'"${PR_TITLE}"$'\n\n'"${CLEAN_BODY}"
+          BACKGROUND="${BACKGROUND:0:${OCR_BACKGROUND_CHARS}}"
           ocr review \
             --from "origin/${BASE_REF}" \
             --to "${HEAD_SHA}" \
             --format json \
             --audience agent \
             --rule "$RUNNER_TEMP/ocr-tools/rules.json" \
-            --concurrency 3 \
-            --timeout 20 \
+            --concurrency "$OCR_CONCURRENCY" \
+            --timeout "$OCR_TIMEOUT" \
             --background "$BACKGROUND" \
             > "$RUNNER_TEMP/ocr-result.json" \
             2> "$RUNNER_TEMP/ocr-stderr.log" || true
           test -s "$RUNNER_TEMP/ocr-result.json" || echo '{"status":"error","comments":[],"message":"OCR produced no JSON output"}' > "$RUNNER_TEMP/ocr-result.json"
 
       - name: Post OCR review
-        if: steps.pr.outputs.skip != 'true'
+        if: steps.pr.outputs.skip != 'true' && always() && !cancelled()
         uses: actions/github-script@v7
         env:
           OCR_RESULT_PATH: ${{ runner.temp }}/ocr-result.json
           OCR_STDERR_PATH: ${{ runner.temp }}/ocr-stderr.log
+          OCR_METRICS_PATH: ${{ runner.temp }}/ocr-metrics.json
           OCR_PR_NUMBER: ${{ steps.pr.outputs.number }}
           OCR_HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
           OCR_MAX_INLINE_COMMENTS: "20"
+          OCR_MODE: ${{ steps.route.outputs.mode }}
+          OCR_ROUTER_VERSION: ${{ steps.route.outputs.router_version }}
+          OCR_REVIEWER_VERSION: "reviewer-v3"
           OCR_POST_SCRIPT: ${{ github.workspace }}/ocr-trusted/.github/scripts/post-ocr-review.js
         with:
           script: |
             const post = require(process.env.OCR_POST_SCRIPT);
             await post({ github, context, core });
+
+      - name: Upload OCR metrics
+        if: steps.pr.outputs.skip != 'true' && always() && !cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ocr-metrics-${{ steps.pr.outputs.number }}-${{ steps.pr.outputs.head_sha }}
+          path: ${{ runner.temp }}/ocr-metrics.json
+          if-no-files-found: ignore
