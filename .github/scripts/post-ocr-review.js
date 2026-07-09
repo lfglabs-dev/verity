@@ -40,6 +40,7 @@ module.exports = async function postOcrReview({ github, context, core }) {
   const warnings = Array.isArray(result.warnings) ? result.warnings : [];
   const usable = [];
   const summaryOnly = [];
+  const retryableResult = isRetryableResult(result);
 
   for (const c of comments) {
     const path = String(c.path || '').trim();
@@ -54,12 +55,26 @@ module.exports = async function postOcrReview({ github, context, core }) {
       line,
       side: 'RIGHT',
       body: renderComment(c),
+      content,
+      category: c.category,
+      severity: c.severity,
     });
   }
 
   const selected = usable.slice(0, maxInline);
   const overflow = usable.slice(maxInline);
-  const body = buildReviewBody({ tag: successTag, result, comments, selected, overflow, summaryOnly, warnings, stderr });
+  const tag = retryableResult ? retryableTag : successTag;
+  const body = buildReviewBody({ tag, result, comments, selected, overflow, summaryOnly, warnings, stderr });
+
+  if (retryableResult) {
+    await github.rest.issues.createComment({
+      owner,
+      repo,
+      issue_number: pull_number,
+      body: `${body}\n\n⚠️ OCR did not complete successfully; this run is intentionally retryable for the same commit.`,
+    });
+    return;
+  }
 
   try {
     await github.rest.pulls.createReview({
@@ -69,7 +84,7 @@ module.exports = async function postOcrReview({ github, context, core }) {
       commit_id,
       event: 'COMMENT',
       body,
-      comments: selected,
+      comments: selected.map(toReviewComment),
     });
   } catch (err) {
     core.warning(`Batch createReview failed: ${err.message}`);
@@ -93,6 +108,20 @@ async function hasExistingTag(github, { owner, repo, pull_number, tag }) {
     owner, repo, pull_number, per_page: 100,
   });
   return reviews.some(r => String(r.body || '').includes(tag));
+}
+
+function isRetryableResult(result) {
+  const status = String(result.status || '').toLowerCase();
+  return status === 'error' || status === 'failed' || status === 'failure';
+}
+
+function toReviewComment(c) {
+  return {
+    path: c.path,
+    line: c.line,
+    side: c.side,
+    body: c.body,
+  };
 }
 
 function buildReviewBody({ tag, result, comments, selected, overflow, summaryOnly, warnings, stderr }) {

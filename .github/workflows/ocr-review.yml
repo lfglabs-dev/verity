@@ -137,7 +137,8 @@ jobs:
           mkdir -p "$HOME"
           git fetch --no-tags origin "${BASE_REF}"
           printf 'Reviewing %s against origin/%s\n' "$HEAD_SHA" "$BASE_REF"
-          BACKGROUND=$(printf '%s\n\n%s\n' "$PR_TITLE" "$PR_BODY" | head -c 4000)
+          BACKGROUND="${PR_TITLE}"$'\n\n'"${PR_BODY}"
+          BACKGROUND="${BACKGROUND:0:4000}"
           ocr review \
             --from "origin/${BASE_REF}" \
             --to "${HEAD_SHA}" \
