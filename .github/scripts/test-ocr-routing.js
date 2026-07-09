@@ -90,6 +90,21 @@ function testLeanCommentDoesNotTriggerSorrySignal() {
   assert.ok(!packets[0].signals.includes('introduced sorry/admit'));
 }
 
+function testLeanBlockCommentDoesNotTriggerSorrySignal() {
+  const leanFile = file('Compiler/Proofs/BlockComment.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/BlockComment.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['add', '/-'],
+    ['add', 'This proof used to mention sorry in prose.'],
+    ['add', '-/'],
+    ['add', 'theorem still_ok : True := by trivial'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(!packets[0].signals.includes('introduced sorry/admit'));
+}
+
 function testOversizedLeanGuarded() {
   const files = Array.from({ length: 13 }, (_, i) => file(`Compiler/Proofs/Large${i}.lean`, 40, 0));
   const decision = router.decideRoute(files);
@@ -184,6 +199,39 @@ async function testLargeLeanScoutEmptySelectionIsFallback() {
   assert.strictEqual(decision.scout.status, 'fallback_no_selection');
   assert.deepStrictEqual(decision.packets.map(p => p.packet_id), originalPackets);
   assert.strictEqual(decision.scout.raw_selected_count, 1);
+}
+
+async function testLargeLeanScoutApiFailureFallsBack() {
+  const files = [
+    file('Compiler/Proofs/A.lean', 40, 0),
+    file('Compiler/Proofs/B.lean', 40, 0),
+    file('Compiler/Proofs/C.lean', 40, 0),
+  ];
+  const decision = router.decideRoute(files);
+  const originalPackets = decision.packets.map(p => p.packet_id);
+  const oldFetch = global.fetch;
+  global.fetch = async () => ({
+    ok: false,
+    status: 503,
+    text: async () => 'Service Unavailable with echoed request details',
+  });
+  try {
+    await router.applyScoutStage(decision, { files }, { url: 'https://example.invalid/v1', key: 'test-key', model: 'cheap-scout' });
+  } finally {
+    global.fetch = oldFetch;
+  }
+  assert.strictEqual(decision.scout.status, 'fallback_deterministic');
+  assert.strictEqual(decision.scout.error, 'Scout model call failed; deterministic packet ranking retained.');
+  assert.strictEqual(decision.scout.error_type, 'http_error');
+  assert.deepStrictEqual(decision.packets.map(p => p.packet_id), originalPackets);
+}
+
+async function testLargeLeanScoutNoPacketsStatus() {
+  const files = Array.from({ length: 13 }, (_, i) => file(`Compiler/Proofs/Large${i}.lean`, 40, 0));
+  const decision = router.decideRoute(files);
+  await router.applyScoutStage(decision, { files }, { url: 'https://example.invalid/v1', key: 'test-key', model: 'cheap-scout' });
+  assert.strictEqual(decision.scout.enabled, true);
+  assert.strictEqual(decision.scout.status, 'skipped_no_packets');
 }
 
 function testWorkflowDocsEnabled() {
@@ -292,10 +340,13 @@ async function run() {
   testOneLeanFileNormal();
   testLargeLeanPacketized();
   testLeanCommentDoesNotTriggerSorrySignal();
+  testLeanBlockCommentDoesNotTriggerSorrySignal();
   testOversizedLeanGuarded();
   await testLargeLeanScoutNotConfiguredFallsBack();
   await testLargeLeanScoutSelectsPackets();
   await testLargeLeanScoutEmptySelectionIsFallback();
+  await testLargeLeanScoutApiFailureFallsBack();
+  await testLargeLeanScoutNoPacketsStatus();
   testWorkflowDocsEnabled();
   testGenericScriptConfigEnabled();
   await testCompletedWithErrorsRetryablePreservesFindings();

@@ -5,6 +5,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 
 const ROUTER_VERSION = 'router-v4';
+const STRONG_REVIEW_BLOCKER_MESSAGE = 'OpenCodeReview 1.7.5 supports --from/--to full diff ranges, but this workflow does not have a safe packet/window input bridge for Lean hunks yet.';
 const THRESHOLDS = Object.freeze({
   smallLeanFiles: 1,
   smallChangedLines: 300,
@@ -313,10 +314,16 @@ async function applyScoutStage(decision, diff, config) {
     selected_packets: deterministicPackets.map(p => p.packet_id),
     residual_coverage: packetResidualRisk(decision),
     strong_review_status: 'blocked_packet_input',
-    strong_review_blocker: 'OpenCodeReview 1.7.5 supports --from/--to full diff ranges, but this workflow does not have a safe packet/window input bridge for Lean hunks yet.',
+    strong_review_blocker: STRONG_REVIEW_BLOCKER_MESSAGE,
   };
 
-  if (!decision.scout.enabled || deterministicPackets.length === 0) return decision;
+  if (deterministicPackets.length === 0) {
+    decision.scout.status = decision.scout.enabled ? 'skipped_no_packets' : 'not_configured';
+    decision.scout.residual_coverage = 'No safe packets were produced; use top changed files and deterministic checklist items for Codex/human review.';
+    return decision;
+  }
+
+  if (!decision.scout.enabled) return decision;
 
   decision.scout.attempted = true;
   decision.scout.status = 'pending';
@@ -339,7 +346,8 @@ async function applyScoutStage(decision, diff, config) {
     }
   } catch (err) {
     decision.scout.status = 'fallback_deterministic';
-    decision.scout.error = String(err.message || err).slice(0, 300);
+    decision.scout.error = 'Scout model call failed; deterministic packet ranking retained.';
+    decision.scout.error_type = classifyScoutError(err);
   }
   return decision;
 }
@@ -434,7 +442,7 @@ async function callScoutModel(config, dossier) {
     });
     const text = await response.text();
     if (!response.ok) {
-      throw new Error(`scout model HTTP ${response.status}: ${text.slice(0, 180)}`);
+      throw new Error(`scout model HTTP ${response.status}`);
     }
     const payload = JSON.parse(text);
     const content = payload.choices?.[0]?.message?.content;
@@ -443,6 +451,14 @@ async function callScoutModel(config, dossier) {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function classifyScoutError(err) {
+  const text = String(err?.message || err || '').toLowerCase();
+  if (text.includes('abort')) return 'timeout';
+  if (text.includes('http')) return 'http_error';
+  if (text.includes('json')) return 'invalid_json';
+  return 'request_failed';
 }
 
 function openAiChatUrl(baseUrl) {
@@ -508,8 +524,8 @@ function detectSignals(file, hunk) {
   const add = (name, weight) => signals.set(name, { name, weight: Math.max(weight, signals.get(name)?.weight || 0) });
   const added = hunk.lines.filter(l => l.type === 'add').map(l => l.text);
   const deleted = hunk.lines.filter(l => l.type === 'del').map(l => l.text);
-  const addedCode = added.filter(isCodeLine);
-  const deletedCode = deleted.filter(isCodeLine);
+  const addedCode = codeLines(added);
+  const deletedCode = codeLines(deleted);
   const allChanged = [...addedCode, ...deletedCode];
 
   if (addedCode.some(line => /\b(sorry|admit)\b/.test(line))) add('introduced sorry/admit', 80);
@@ -528,9 +544,23 @@ function detectSignals(file, hunk) {
   return [...signals.values()].sort((a, b) => b.weight - a.weight || a.name.localeCompare(b.name));
 }
 
-function isCodeLine(line) {
-  const trimmed = String(line || '').trim();
-  return trimmed !== '' && !trimmed.startsWith('--');
+function codeLines(lines) {
+  const code = [];
+  let inBlockComment = false;
+  for (const line of lines) {
+    const trimmed = String(line || '').trim();
+    if (!trimmed || trimmed.startsWith('--')) continue;
+    if (inBlockComment) {
+      if (trimmed.includes('-/')) inBlockComment = false;
+      continue;
+    }
+    if (trimmed.startsWith('/-')) {
+      if (!trimmed.includes('-/')) inBlockComment = true;
+      continue;
+    }
+    code.push(line);
+  }
+  return code;
 }
 
 function publicDeclPattern() {
@@ -677,7 +707,7 @@ function buildMetrics({ prNumber, headSha, baseRef, startedAt, decision, diff })
       scout: decision.scout || null,
       strong_review_required: decision.mode === 'large-lean-hotspots',
       strong_review_status: decision.scout?.strong_review_status || 'blocked_packet_input',
-      strong_review_blocker: decision.scout?.strong_review_blocker || 'OpenCodeReview packet-window review is not wired for large Lean hunks.',
+      strong_review_blocker: decision.scout?.strong_review_blocker || STRONG_REVIEW_BLOCKER_MESSAGE,
     } : null,
     ocr: {
       attempted: decision.shouldRunOcr,
@@ -758,16 +788,27 @@ function renderPacketFinding(packet) {
     `Large Lean packet selected for stronger review: ${packet.summary}.`,
     `Risk signals: ${packet.signals.length ? packet.signals.join(', ') : 'hotspot path/churn'}.`,
   ];
-  if (packet.scout_reason) lines.push(`Scout reason: ${packet.scout_reason}`);
-  if (packet.scout_question) lines.push(`Question for stronger reviewer: ${packet.scout_question}`);
+  if (packet.scout_reason) lines.push(`Scout reason: ${sanitizeCommentText(packet.scout_reason)}`);
+  if (packet.scout_question) lines.push(`Question for stronger reviewer: ${sanitizeCommentText(packet.scout_question)}`);
   if (packet.added_sample.length > 0) {
     lines.push('Added-line sample:');
     for (const sample of packet.added_sample.slice(0, 5)) {
-      lines.push(`- L${sample.line}: ${sample.text}`);
+      lines.push(`- L${sample.line}: ${sanitizeCommentText(sample.text)}`);
     }
   }
   lines.push('This packet is scout triage and a coverage marker; it is not a final OCR semantic review or approval.');
   return lines.join('\n');
+}
+
+function sanitizeCommentText(value) {
+  return String(value || '')
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/@/g, '@\u200b')
+    .replace(/[<>]/g, ch => ({ '<': '&lt;', '>': '&gt;' }[ch]))
+    .replace(/([\\`*_{}\[\]()#+.!|-])/g, '\\$1')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 700);
 }
 
 function packetResidualRisk(decision) {
