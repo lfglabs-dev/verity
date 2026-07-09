@@ -2105,6 +2105,25 @@ theorem compiledInternalTable_of_compileValidatedCore
   rw [hnil] at hstmt
   cases hstmt
 
+/-- Concrete compiled-runtime legacy-compatibility connector.
+
+For the current `SupportedSpec` core pipeline, `compileValidatedCore` still emits
+an empty internal table (`compileValidatedCore_ok_yields_internalFunctions_nil`).
+Package that concrete output fact with the external-body compatibility witness in
+the shape consumed by the closed helper-aware whole-contract theorem. -/
+theorem legacyCompatibleRuntimeContract_of_compileValidatedCore
+    (model : CompilationModel)
+    (selectors : List Nat)
+    (hSupported : SupportedSpec model selectors)
+    (ir : IRContract)
+    (hcore : compileValidatedCore model selectors = Except.ok ir)
+    (hlegacyBodies : LegacyCompatibleExternalBodies ir) :
+    LegacyCompatibleRuntimeContract ir := by
+  have hinternal :=
+    compileValidatedCore_ok_yields_internalFunctions_nil
+      model selectors hSupported ir hcore
+  exact ⟨hinternal, hlegacyBodies⟩
+
 /-- Whole-contract dispatch consumer of the compiled-internal-table seam.
 
 This feeds `..._of_body_goal_of_compiledInternalTable`'s `hcompiledTable` premise
@@ -2768,6 +2787,53 @@ theorem compile_preserves_semantics_with_helper_proofs_and_helper_ir_of_disjoint
         hdisjointIR
         tx
         (FunctionBody.initialIRStateForTx model tx initialWorld))
+
+/-- Whole-contract helper-aware retarget connector for a concrete
+`compileValidatedCore` output.
+
+This is the validated-core variant of
+`compile_preserves_semantics_with_helper_proofs_and_helper_ir_closed`: the
+manual `hhelperIR` equality is replaced by the closed helper-aware interpreter
+path for the actual runtime contract emitted by `compileValidatedCore`, and the
+public `CompilationModel.compile` equality is rebuilt from the validated-input
+proof plus the core result. -/
+theorem compile_preserves_semantics_with_helper_proofs_and_helper_ir_of_compileValidatedCore
+    (model : CompilationModel)
+    (selectors : List Nat)
+    (hSupported : SupportedSpec model selectors)
+    (hHelperProofs : SourceSemantics.SupportedSpecHelperProofs model selectors hSupported)
+    (ir : IRContract)
+    (tx : IRTransaction)
+    (initialWorld : Verity.ContractState)
+    (htxNormalized : Function.TxContextNormalized tx)
+    (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
+    (hvalidateInputs : validateCompileInputs model selectors = Except.ok ())
+    (hcore : compileValidatedCore model selectors = Except.ok ir)
+    (hlegacyBodies : LegacyCompatibleExternalBodies ir) :
+    FunctionBody.sourceResultMatchesIRResult
+      (supportedSourceContractSemantics model selectors hSupported tx initialWorld)
+      (interpretIRWithInternals ir 0 tx
+        (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
+  have hcompile : CompilationModel.compile model selectors = Except.ok ir := by
+    unfold CompilationModel.compile
+    rw [hvalidateInputs]
+    simp only [bind, Except.bind]
+    exact hcore
+  exact compile_preserves_semantics_with_helper_proofs_and_helper_ir_goal
+    (model := model)
+    (selectors := selectors)
+    (hSupported := hSupported)
+    (hHelperProofs := hHelperProofs)
+    (ir := ir)
+    (tx := tx)
+    (initialWorld := initialWorld)
+    (htxNormalized := htxNormalized)
+    (hcalldataSizeFits := hcalldataSizeFits)
+    (hcompile := hcompile)
+    (hlegacyIR :=
+      legacyCompatibleRuntimeContract_of_compileValidatedCore
+        model selectors hSupported ir hcore hlegacyBodies)
+    (hhelperIRGoal := interpretIRWithInternalsZeroConservativeExtensionGoal_closed ir)
 
 /-- Direct helper-aware whole-contract theorem on the current legacy-compatible
 runtime-contract boundary. The helper-aware compiled-side conservative-extension
