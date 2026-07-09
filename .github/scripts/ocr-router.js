@@ -358,7 +358,7 @@ function firstChangedNewLine(hunk) {
 function lastChangedNewLine(hunk) {
   for (let i = hunk.lines.length - 1; i >= 0; i -= 1) {
     const line = hunk.lines[i];
-    if ((line.type === 'add' || line.type === 'ctx') && Number.isFinite(line.newLine)) return line.newLine;
+    if (line.type === 'add' && Number.isFinite(line.newLine)) return line.newLine;
   }
   return null;
 }

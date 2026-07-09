@@ -20,6 +20,7 @@ function file(filePath, added = 10, deleted = 0) {
       ['ctx', 'namespace Verity'],
       ['add', 'theorem soundness_preserved : True := by trivial'],
       ['add', 'unsafe def riskyFastPath := 1'],
+      ['ctx', 'end Verity'],
     ])],
   };
 }
@@ -73,6 +74,7 @@ function testLargeLeanPacketized() {
   assert.strictEqual(decision.shouldRunOcr, false);
   assert.ok(decision.packets.length > 0);
   assert.ok(decision.packets[0].signals.includes('introduced unsafe'));
+  assert.strictEqual(decision.packets[0].end_line, 12);
 }
 
 function testOversizedLeanGuarded() {
