@@ -302,6 +302,15 @@ async function testLargeLeanScoutApiFailureFallsBack() {
   assert.deepStrictEqual(decision.packets.map(p => p.packet_id), originalPackets);
 }
 
+function testScoutErrorSanitizesApiKeyPhrases() {
+  const detail = router.sanitizeScoutErrorDetail(
+    'Incorrect API key provided: sk-test_abcdefghijklmnopqrstuvwxyz123456. Model MiniMax-M3 rejected the request.'
+  );
+  assert.ok(detail.includes('MiniMax-M3'));
+  assert.ok(detail.includes('[redacted]'));
+  assert.ok(!detail.includes('sk-test'));
+}
+
 async function testLargeLeanScoutNoPacketsStatus() {
   const files = Array.from({ length: 13 }, (_, i) => file(`Compiler/Proofs/Large${i}.lean`, 40, 0));
   const decision = router.decideRoute(files);
@@ -427,6 +436,7 @@ async function run() {
   await testLargeLeanScoutEmptySelectionIsFallback();
   await testLargeLeanScoutMalformedJsonFallsBack();
   await testLargeLeanScoutApiFailureFallsBack();
+  testScoutErrorSanitizesApiKeyPhrases();
   await testLargeLeanScoutNoPacketsStatus();
   testWorkflowDocsEnabled();
   testGenericScriptConfigEnabled();

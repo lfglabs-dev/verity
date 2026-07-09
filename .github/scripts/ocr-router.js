@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
-const ROUTER_VERSION = 'router-v7';
+const ROUTER_VERSION = 'router-v8';
 const DEFAULT_SCOUT_MODEL = 'MiniMax-M3';
 const STRONG_REVIEW_BLOCKER_MESSAGE = 'OpenCodeReview 1.7.5 supports --from/--to full diff ranges, but this workflow does not have a safe packet/window input bridge for Lean hunks yet.';
 const THRESHOLDS = Object.freeze({
@@ -447,7 +447,7 @@ async function callScoutModel(config, dossier) {
     });
     const text = await response.text();
     if (!response.ok) {
-      const err = new Error(`scout model HTTP ${response.status}: ${text}`);
+      const err = new Error(text || response.statusText || 'scout model rejected request');
       err.status = response.status;
       throw err;
     }
@@ -536,6 +536,7 @@ function sanitizeScoutErrorDetail(err) {
   return String(err?.message || err || '')
     .replace(/https?:\/\/[^\s"')]+/g, '[url-redacted]')
     .replace(/Bearer\s+[A-Za-z0-9._~+/-]+={0,2}/gi, 'Bearer [redacted]')
+    .replace(/\b((?:api\s*key|api[_-]?key|token|authorization|password|secret)\b[^"'`\n]{0,120}?)(sk-[A-Za-z0-9._-]+|[A-Za-z0-9._~+/-]{20,}={0,2})/gi, '$1[redacted]')
     .replace(/(api[_-]?key|token|authorization|password|secret)(["'\s:=]+)[^"',\s}]+/gi, '$1$2[redacted]')
     .replace(/\s+/g, ' ')
     .trim()
