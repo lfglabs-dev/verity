@@ -109,7 +109,7 @@ def panicYulPayloadObservable : Bool :=
       let yul := "\n".intercalate (Compiler.Yul.ppStmts 0 stmts)
       let containsYul (needle : String) : Bool := (yul.splitOn needle).length > 1
       containsYul "mstore(0, shl(224, 0x4e487b71))" &&
-        containsYul "mstore(4, 17)" &&
+        containsYul "mstore(4, __panic_code)" &&
         containsYul "revert(0, 36)"
   | Except.error _ => false
 
