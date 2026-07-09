@@ -276,9 +276,8 @@ def compileStmtWithFork (fields : List Field) (events : List EventDef := [])
       revertWithCustomError dynamicSource errorDef args argExprs
   | .panicCode code => do
       let codeExpr ← compileExprWithInternals fields dynamicSource internalFunctions code
-      let usedNames := inScopeNames ++ collectExprNames code
-      let codeName := pickFreshName "__panic_code" usedNames
-      pure (YulStmt.let_ codeName codeExpr :: solidityPanicPayloadExpr (YulExpr.ident codeName))
+      let codeName := "__panic_code"
+      pure [YulStmt.block (YulStmt.let_ codeName codeExpr :: solidityPanicPayloadExpr (YulExpr.ident codeName))]
   | Stmt.return value =>
     do
       let valueExpr ← compileExprWithInternals fields dynamicSource internalFunctions value

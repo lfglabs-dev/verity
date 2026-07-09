@@ -8,7 +8,7 @@ open Compiler.Yul
 def panicMloadCachesCodeBeforePayloadStores : Bool :=
   match compileStmt [] [] [] .calldata [] false [] []
       (Stmt.panicCode (Expr.mload (Expr.literal 0))) with
-  | .ok [
+  | .ok [YulStmt.block [
       YulStmt.let_ codeName (YulExpr.call "mload" [YulExpr.lit 0]),
       YulStmt.exprStmt (YulExpr.call "mstore" [
         YulExpr.lit 0,
@@ -16,7 +16,7 @@ def panicMloadCachesCodeBeforePayloadStores : Bool :=
       ]),
       YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 4, YulExpr.ident payloadCodeName]),
       YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 36])
-    ] =>
+    ]] =>
       codeName == "__panic_code" && payloadCodeName == codeName
   | _ => false
 
