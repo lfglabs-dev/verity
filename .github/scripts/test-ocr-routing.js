@@ -151,6 +151,21 @@ function testLeanStringCommentDelimiterInContextDoesNotHideSignals() {
   assert.ok(packets[0].signals.includes('introduced unsafe'));
 }
 
+function testLeanMultilineStringCommentDelimiterInContextDoesNotHideSignals() {
+  const leanFile = file('Compiler/Proofs/MultilineStringDelimiterContext.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/MultilineStringDelimiterContext.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['ctx', 'def marker := "string starts'],
+    ['ctx', '/- not a block comment'],
+    ['ctx', 'string ends"'],
+    ['add', 'unsafe def riskyAfterMultilineString : Nat := 0'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(packets[0].signals.includes('introduced unsafe'));
+}
+
 function testLeanStringLiteralsDoNotTriggerSignals() {
   const leanFile = file('Compiler/Proofs/StringSignalProse.lean', 10, 0);
   leanFile.hunks = [hunk('Compiler/Proofs/StringSignalProse.lean', 20, [
@@ -288,6 +303,19 @@ function testCodeAfterInlineBlockCommentIsScanned() {
   const packets = router.buildReviewPackets([leanFile]);
   assert.ok(packets.length > 0);
   assert.ok(packets[0].signals.includes('introduced/changed axiom'));
+}
+
+function testTheoremStatementStringLiteralChangesAreDetected() {
+  const leanFile = file('Compiler/Proofs/TheoremStringChange.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/TheoremStringChange.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['del', 'theorem render_sound : render x = "old" := by trivial'],
+    ['add', 'theorem render_sound : render x = "new" := by trivial'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(packets[0].signals.includes('theorem statement changed/possibly weakened'));
 }
 
 function testOversizedLeanGuarded() {
@@ -980,6 +1008,7 @@ async function run() {
   testLeanBlockCommentStateFromContextDoesNotTriggerSignals();
   testLeanCodeAfterContextBlockCommentIsScanned();
   testLeanStringCommentDelimiterInContextDoesNotHideSignals();
+  testLeanMultilineStringCommentDelimiterInContextDoesNotHideSignals();
   testLeanStringLiteralsDoNotTriggerSignals();
   testLeanInterpolatedStringExpressionsAreScanned();
   testLeanInterpolatedStringQuotedBracesDoNotStopScanning();
@@ -991,6 +1020,7 @@ async function run() {
   testBangBeforeStringDoesNotEnableInterpolationScanning();
   testLeanNestedBlockCommentDoesNotTriggerSignals();
   testCodeAfterInlineBlockCommentIsScanned();
+  testTheoremStatementStringLiteralChangesAreDetected();
   testOversizedLeanGuarded();
   testScoutConfigDefaultsToMiniMaxOnOcrEndpoint();
   testScoutConfigCanDisableLargeLeanScout();

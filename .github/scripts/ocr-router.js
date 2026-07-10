@@ -747,48 +747,78 @@ function detectSignals(file, hunk) {
   const add = (name, weight) => signals.set(name, { name, weight: Math.max(weight, signals.get(name)?.weight || 0) });
   const addedCode = codeLinesForHunkSide(hunk, 'new');
   const deletedCode = codeLinesForHunkSide(hunk, 'old');
+  const addedStatements = codeLinesForHunkSide(hunk, 'new', { preserveStrings: true });
+  const deletedStatements = codeLinesForHunkSide(hunk, 'old', { preserveStrings: true });
   const allChanged = [...addedCode, ...deletedCode];
+  const allChangedStatements = [...addedStatements, ...deletedStatements];
 
   if (addedCode.some(line => /\b(sorry|admit)\b/.test(line))) add('introduced sorry/admit', 80);
   if (addedCode.some(line => /^\s*axiom\b/.test(line) || /\baxiom\b/.test(line))) add('introduced/changed axiom', 75);
   if (addedCode.some(line => /\bunsafe\b/.test(line))) add('introduced unsafe', 55);
   if (allChanged.some(line => /^\s*import\s+/.test(line))) add('changed imports', 30);
-  if (allChanged.some(line => publicDeclPattern().test(line))) add('public declaration/signature changed', 34);
+  if (allChangedStatements.some(line => publicDeclPattern().test(line))) add('public declaration/signature changed', 34);
   if (file.category === 'trust-doc') add('trust-boundary docs drift', 38);
   if (file.category === 'doc' && /(trust|axiom|audit|sound|semantic|proof)/i.test(file.path)) add('trust/proof docs drift', 25);
   if (deletedCode.length >= 80 || deletedCode.join('\n').length > 6000) add('large deleted proof obligation', 35);
-  if (deletedCode.some(line => publicDeclPattern().test(line)) && addedCode.some(line => publicDeclPattern().test(line))) {
+  if (deletedStatements.some(line => publicDeclPattern().test(line)) && addedStatements.some(line => publicDeclPattern().test(line))) {
     add('theorem/public statement changed', 45);
   }
-  if (changedTheoremStatements(deletedCode, addedCode).length > 0) add('theorem statement changed/possibly weakened', 65);
+  if (changedTheoremStatements(deletedStatements, addedStatements).length > 0) add('theorem statement changed/possibly weakened', 65);
 
   return [...signals.values()].sort((a, b) => b.weight - a.weight || a.name.localeCompare(b.name));
 }
 
-function codeLinesForHunkSide(hunk, side) {
+function codeLinesForHunkSide(hunk, side, options = {}) {
   const includeType = side === 'old' ? 'del' : 'add';
   const skipType = side === 'old' ? 'add' : 'del';
   const code = [];
   let commentDepth = 0;
+  let inString = false;
+  let stringEscaped = false;
   for (const line of hunk.lines || []) {
     if (line.type === skipType) continue;
-    const stripped = stripLeanCommentsFromLine(line.text, { commentDepth });
+    const stripped = stripLeanCommentsFromLine(line.text, { commentDepth, inString, stringEscaped }, 0, options);
     commentDepth = stripped.commentDepth;
+    inString = stripped.inString;
+    stringEscaped = stripped.stringEscaped;
     if (line.type === includeType && stripped.code.trim()) code.push(stripped.code);
   }
   return code;
 }
 
-function stripLeanCommentsFromLine(line, state, depth = 0) {
+function stripLeanCommentsFromLine(line, state, depth = 0, options = {}) {
   const text = String(line || '');
-  if (depth > 8) return { code: '', inBlockComment: Boolean(state.commentDepth), commentDepth: Number(state.commentDepth || 0) };
+  if (depth > 8) {
+    return {
+      code: '',
+      inBlockComment: Boolean(state.commentDepth),
+      commentDepth: Number(state.commentDepth || 0),
+      inString: Boolean(state.inString),
+      stringEscaped: Boolean(state.stringEscaped),
+    };
+  }
   let code = '';
   let commentDepth = Number(state.commentDepth || 0);
+  let inString = Boolean(state.inString);
+  let stringEscaped = Boolean(state.stringEscaped);
   let i = 0;
 
   while (i < text.length) {
     const ch = text[i];
     const next = text[i + 1];
+
+    if (inString) {
+      if (options.preserveStrings) code += ch;
+      i += 1;
+      if (stringEscaped) {
+        stringEscaped = false;
+      } else if (ch === '\\') {
+        stringEscaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
 
     if (commentDepth > 0) {
       if (ch === '/' && next === '-') {
@@ -805,13 +835,17 @@ function stripLeanCommentsFromLine(line, state, depth = 0) {
 
     if (ch === '"') {
       const stringResult = scanLeanString(text, i, /[A-Za-z]!$/.test(text.slice(0, i)), depth + 1);
-      code += stringResult.code;
+      code += options.preserveStrings ? text.slice(i, stringResult.nextIndex) : stringResult.code;
       i = stringResult.nextIndex;
+      if (!stringResult.closed) {
+        inString = true;
+        stringEscaped = Boolean(stringResult.escaped);
+      }
       continue;
     }
 
     if (ch === '-' && next === '-') {
-      return { code, inBlockComment: false, commentDepth: 0 };
+      return { code, inBlockComment: false, commentDepth: 0, inString, stringEscaped };
     }
 
     if (ch === '/' && next === '-') {
@@ -824,14 +858,15 @@ function stripLeanCommentsFromLine(line, state, depth = 0) {
     i += 1;
   }
 
-  return { code, inBlockComment: commentDepth > 0, commentDepth };
+  return { code, inBlockComment: commentDepth > 0, commentDepth, inString, stringEscaped };
 }
 
 function scanLeanString(text, quoteIndex, interpolated, depth = 0) {
-  if (depth > 8) return { code: '""', nextIndex: quoteIndex + 1 };
+  if (depth > 8) return { code: '""', nextIndex: quoteIndex + 1, closed: false, escaped: false };
   let code = '""';
   let i = quoteIndex + 1;
   let escaped = false;
+  let closed = false;
   let interpolationDepth = 0;
   let interpolation = '';
   let interpolationString = false;
@@ -922,9 +957,12 @@ function scanLeanString(text, quoteIndex, interpolated, depth = 0) {
       interpolationCommentDepth = 0;
       continue;
     }
-    if (ch === '"') break;
+    if (ch === '"') {
+      closed = true;
+      break;
+    }
   }
-  return { code, nextIndex: i };
+  return { code, nextIndex: i, closed, escaped };
 }
 
 function isLeanIdentContinue(ch) {
