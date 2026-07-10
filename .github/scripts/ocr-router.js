@@ -745,72 +745,253 @@ function scorePathRisk(filePath) {
 function detectSignals(file, hunk) {
   const signals = new Map();
   const add = (name, weight) => signals.set(name, { name, weight: Math.max(weight, signals.get(name)?.weight || 0) });
-  const added = hunk.lines.filter(l => l.type === 'add').map(l => l.text);
-  const deleted = hunk.lines.filter(l => l.type === 'del').map(l => l.text);
-  const addedCode = codeLines(added);
-  const deletedCode = codeLines(deleted);
-  const allChanged = [...addedCode, ...deletedCode];
+  const addedRiskCode = codeLinesForHunkSide(hunk, 'new');
+  const deletedRiskCode = codeLinesForHunkSide(hunk, 'old');
+  const addedStatementText = statementLinesForHunkSide(hunk, 'new');
+  const deletedStatementText = statementLinesForHunkSide(hunk, 'old');
+  const allChangedRiskCode = [...addedRiskCode, ...deletedRiskCode];
+  const allChangedStatementText = [...addedStatementText, ...deletedStatementText];
 
-  if (addedCode.some(line => /\b(sorry|admit)\b/.test(line))) add('introduced sorry/admit', 80);
-  if (addedCode.some(line => /^\s*axiom\b/.test(line) || /\baxiom\b/.test(line))) add('introduced/changed axiom', 75);
-  if (addedCode.some(line => /\bunsafe\b/.test(line))) add('introduced unsafe', 55);
-  if (allChanged.some(line => /^\s*import\s+/.test(line))) add('changed imports', 30);
-  if (allChanged.some(line => publicDeclPattern().test(line))) add('public declaration/signature changed', 34);
+  if (addedRiskCode.some(line => /\b(sorry|admit)\b/.test(line))) add('introduced sorry/admit', 80);
+  if (addedRiskCode.some(line => /^\s*axiom\b/.test(line) || /\baxiom\b/.test(line))) add('introduced/changed axiom', 75);
+  if (addedRiskCode.some(line => /\bunsafe\b/.test(line))) add('introduced unsafe', 55);
+  if (allChangedRiskCode.some(line => /^\s*import\s+/.test(line))) add('changed imports', 30);
+  if (allChangedStatementText.some(line => publicDeclPattern().test(line))) add('public declaration/signature changed', 34);
   if (file.category === 'trust-doc') add('trust-boundary docs drift', 38);
   if (file.category === 'doc' && /(trust|axiom|audit|sound|semantic|proof)/i.test(file.path)) add('trust/proof docs drift', 25);
-  if (deletedCode.length >= 80 || deletedCode.join('\n').length > 6000) add('large deleted proof obligation', 35);
-  if (deletedCode.some(line => publicDeclPattern().test(line)) && addedCode.some(line => publicDeclPattern().test(line))) {
+  if (deletedRiskCode.length >= 80 || deletedRiskCode.join('\n').length > 6000) add('large deleted proof obligation', 35);
+  if (deletedStatementText.some(line => publicDeclPattern().test(line)) && addedStatementText.some(line => publicDeclPattern().test(line))) {
     add('theorem/public statement changed', 45);
   }
-  if (changedTheoremStatements(deletedCode, addedCode).length > 0) add('theorem statement changed/possibly weakened', 65);
+  if (changedTheoremStatements(deletedStatementText, addedStatementText).length > 0) add('theorem statement changed/possibly weakened', 65);
 
   return [...signals.values()].sort((a, b) => b.weight - a.weight || a.name.localeCompare(b.name));
 }
 
-function codeLines(lines) {
-  const code = [];
-  let inBlockComment = false;
-  for (const line of lines) {
-    const stripped = stripLeanCommentsFromLine(line, { inBlockComment });
-    inBlockComment = stripped.inBlockComment;
-    if (stripped.code.trim()) code.push(stripped.code);
+function codeLinesForHunkSide(hunk, side, options = {}) {
+  const includeType = side === 'old' ? 'del' : 'add';
+  const skipType = side === 'old' ? 'add' : 'del';
+  const scanner = createLeanChangedCodeScanner(options);
+  for (const line of hunk.lines || []) {
+    if (line.type === skipType) continue;
+    scanner.scanLine(line.text, line.type === includeType);
   }
-  return code;
+  return scanner.finish();
 }
 
-function stripLeanCommentsFromLine(line, state) {
-  let rest = String(line || '');
-  let code = '';
-  let inBlockComment = Boolean(state.inBlockComment);
+function statementLinesForHunkSide(hunk, side) {
+  return codeLinesForHunkSide(hunk, side, { preserveStrings: true });
+}
 
-  while (rest) {
-    if (inBlockComment) {
-      const blockEnd = rest.indexOf('-/');
-      if (blockEnd === -1) return { code, inBlockComment: true };
-      rest = rest.slice(blockEnd + 2);
-      inBlockComment = false;
-      continue;
+function createLeanChangedCodeScanner(options = {}) {
+  const code = [];
+  const interpolationFrames = [];
+  let current = '';
+  let commentDepth = 0;
+  let lineComment = false;
+  let escapedIdent = false;
+  let charLiteral = false;
+  let charEscaped = false;
+  let string = null;
+  let prefix = '';
+
+  const remember = ch => {
+    prefix = ch === '\n' ? '' : `${prefix}${ch}`.slice(-32);
+  };
+  const emit = (ch, include) => {
+    if (include) current += ch;
+  };
+  const flush = () => {
+    if (current.trim()) code.push(current);
+    current = '';
+  };
+  const inInterpolationCode = () => interpolationFrames.length > 0 && !string;
+  const rememberText = text => {
+    for (const ch of String(text || '')) remember(ch);
+  };
+  const emitText = (text, include) => {
+    if (include) current += text;
+  };
+  const openString = (interpolated, rawTerminator = null) => {
+    string = { interpolated, escaped: false, rawTerminator };
+  };
+  const openInterpolation = () => {
+    interpolationFrames.push({ braceDepth: 1, returnString: string ? { ...string, escaped: false } : null });
+    string = null;
+  };
+  const closeInterpolationBrace = () => {
+    const frame = interpolationFrames[interpolationFrames.length - 1];
+    frame.braceDepth -= 1;
+    if (frame.braceDepth === 0) {
+      interpolationFrames.pop();
+      string = frame.returnString;
+    }
+  };
+
+  const scanChar = (ch, next, include, text, index) => {
+    if (ch === '\n') {
+      lineComment = false;
+      flush();
+      remember(ch);
+      return 1;
     }
 
-    const lineComment = rest.indexOf('--');
-    const blockStart = rest.indexOf('/-');
-    if (lineComment !== -1 && (blockStart === -1 || lineComment < blockStart)) {
-      code += rest.slice(0, lineComment);
-      return { code, inBlockComment: false };
-    }
-    if (blockStart === -1) {
-      code += rest;
-      return { code, inBlockComment: false };
+    if (lineComment) return 1;
+
+    if (commentDepth > 0) {
+      if (ch === '/' && next === '-') {
+        commentDepth += 1;
+        return 2;
+      }
+      if (ch === '-' && next === '/') {
+        commentDepth -= 1;
+        return 2;
+      }
+      return 1;
     }
 
-    code += rest.slice(0, blockStart);
-    rest = rest.slice(blockStart + 2);
-    const blockEnd = rest.indexOf('-/');
-    if (blockEnd === -1) return { code, inBlockComment: true };
-    rest = rest.slice(blockEnd + 2);
-  }
+    if (escapedIdent) {
+      emit(ch, include);
+      remember(ch);
+      if (ch === '»') escapedIdent = false;
+      return 1;
+    }
 
-  return { code, inBlockComment };
+    if (charLiteral) {
+      emit(ch, include);
+      remember(ch);
+      if (charEscaped) {
+        charEscaped = false;
+      } else if (ch === '\\') {
+        charEscaped = true;
+      } else if (ch === "'") {
+        charLiteral = false;
+      }
+      return 1;
+    }
+
+    if (string) {
+      if (string.rawTerminator) {
+        if (ch === '"' && text.slice(index, index + string.rawTerminator.length) === string.rawTerminator) {
+          const length = string.rawTerminator.length;
+          if (options.preserveStrings) emitText(string.rawTerminator, include);
+          rememberText(string.rawTerminator);
+          string = null;
+          return length;
+        }
+        if (options.preserveStrings) emit(ch, include);
+        remember(ch);
+        return 1;
+      }
+      if (string.escaped) {
+        if (options.preserveStrings) emit(ch, include);
+        remember(ch);
+        string.escaped = false;
+        return 1;
+      }
+      if (ch === '\\') {
+        if (options.preserveStrings) emit(ch, include);
+        remember(ch);
+        string.escaped = true;
+        return 1;
+      }
+      if (string.interpolated && ch === '{') {
+        if (options.preserveStrings) emit(ch, include);
+        remember(ch);
+        openInterpolation();
+        return 1;
+      }
+      if (!string.rawTerminator && ch === '"') {
+        if (options.preserveStrings) emit(ch, include);
+        remember(ch);
+        string = null;
+        return 1;
+      }
+      if (options.preserveStrings) emit(ch, include);
+      remember(ch);
+      return 1;
+    }
+
+    if (ch === '-' && next === '-') {
+      lineComment = true;
+      return 2;
+    }
+    if (ch === '/' && next === '-') {
+      commentDepth = 1;
+      return 2;
+    }
+    if (ch === '«') {
+      escapedIdent = true;
+      emit(ch, include);
+      remember(ch);
+      return 1;
+    }
+    if (ch === '"') {
+      const rawTerminator = rawStringTerminatorBeforeQuote(prefix);
+      const interpolated = /[A-Za-z]!$/.test(prefix);
+      if (options.preserveStrings) emit(ch, include);
+      remember(ch);
+      openString(interpolated && !rawTerminator, rawTerminator);
+      return 1;
+    }
+    if (ch === "'" && startsLeanCharLiteral(text, index)) {
+      charLiteral = true;
+      charEscaped = false;
+      emit(ch, include);
+      remember(ch);
+      return 1;
+    }
+    if (inInterpolationCode() && ch === '{') {
+      interpolationFrames[interpolationFrames.length - 1].braceDepth += 1;
+      emit(ch, include);
+      remember(ch);
+      return 1;
+    }
+    if (inInterpolationCode() && ch === '}') {
+      if (options.preserveStrings) emit(ch, include);
+      remember(ch);
+      closeInterpolationBrace();
+      return 1;
+    }
+
+    emit(ch, include);
+    remember(ch);
+    return 1;
+  };
+
+  return {
+    scanLine(text, include) {
+      const line = `${String(text || '')}\n`;
+      for (let i = 0; i < line.length;) {
+        i += scanChar(line[i], line[i + 1], include, line, i);
+      }
+    },
+    finish() {
+      flush();
+      return code;
+    },
+  };
+}
+
+function isLeanIdentContinue(ch) {
+  return /^[\p{L}\p{N}\p{M}_]$/u.test(ch);
+}
+
+function rawStringTerminatorBeforeQuote(prefix) {
+  const match = String(prefix || '').match(/r(#{0,16})$/);
+  if (!match) return null;
+  return `"${match[1]}`;
+}
+
+function startsLeanCharLiteral(text, quoteIndex) {
+  const previous = previousCodePoint(text, quoteIndex);
+  return previous !== "'" && !isLeanIdentContinue(previous);
+}
+
+function previousCodePoint(text, index) {
+  if (index <= 0) return '';
+  const points = Array.from(text.slice(0, index));
+  return points[points.length - 1] || '';
 }
 
 function publicDeclPattern() {

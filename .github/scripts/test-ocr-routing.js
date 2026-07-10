@@ -105,6 +105,431 @@ function testLeanBlockCommentDoesNotTriggerSorrySignal() {
   assert.ok(!packets[0].signals.includes('introduced sorry/admit'));
 }
 
+function testLeanBlockCommentStateFromContextDoesNotTriggerSignals() {
+  const leanFile = file('Compiler/Proofs/ContextBlockComment.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/ContextBlockComment.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['ctx', '/-'],
+    ['add', 'This explanatory note mentions sorry, axiom, and unsafe in prose.'],
+    ['ctx', '-/'],
+    ['add', 'theorem still_ok : True := by trivial'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(!packets[0].signals.includes('introduced sorry/admit'));
+  assert.ok(!packets[0].signals.includes('introduced/changed axiom'));
+  assert.ok(!packets[0].signals.includes('introduced unsafe'));
+}
+
+function testLeanCodeAfterContextBlockCommentIsScanned() {
+  const leanFile = file('Compiler/Proofs/ContextBlockCommentCode.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/ContextBlockCommentCode.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['ctx', '/-'],
+    ['add', 'This explanatory note mentions sorry in prose.'],
+    ['ctx', '-/'],
+    ['add', 'unsafe def riskyAfterComment : Nat := 0'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(!packets[0].signals.includes('introduced sorry/admit'));
+  assert.ok(packets[0].signals.includes('introduced unsafe'));
+}
+
+function testLeanStringCommentDelimiterInContextDoesNotHideSignals() {
+  const leanFile = file('Compiler/Proofs/StringDelimiterContext.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/StringDelimiterContext.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['ctx', 'def marker := "/-"'],
+    ['add', 'unsafe def riskyAfterString : Nat := 0'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(packets[0].signals.includes('introduced unsafe'));
+}
+
+function testLeanMultilineStringCommentDelimiterInContextDoesNotHideSignals() {
+  const leanFile = file('Compiler/Proofs/MultilineStringDelimiterContext.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/MultilineStringDelimiterContext.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['ctx', 'def marker := "string starts'],
+    ['ctx', '/- not a block comment'],
+    ['ctx', 'string ends"'],
+    ['add', 'unsafe def riskyAfterMultilineString : Nat := 0'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(packets[0].signals.includes('introduced unsafe'));
+}
+
+function testLeanEscapedIdentifierCommentDelimiterInContextDoesNotHideSignals() {
+  const leanFile = file('Compiler/Proofs/EscapedIdentifierDelimiterContext.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/EscapedIdentifierDelimiterContext.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['ctx', 'def «/-» : Nat := 0'],
+    ['add', 'unsafe def riskyAfterEscapedIdentifier : Nat := 0'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(packets[0].signals.includes('introduced unsafe'));
+}
+
+function testLeanStringLiteralsDoNotTriggerSignals() {
+  const leanFile = file('Compiler/Proofs/StringSignalProse.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/StringSignalProse.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['add', 'def note := "sorry axiom unsafe"'],
+    ['add', 'theorem still_ok : True := by trivial'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(!packets[0].signals.includes('introduced sorry/admit'));
+  assert.ok(!packets[0].signals.includes('introduced/changed axiom'));
+  assert.ok(!packets[0].signals.includes('introduced unsafe'));
+}
+
+function testLeanInterpolatedStringExpressionsAreScanned() {
+  const leanFile = file('Compiler/Proofs/InterpolatedString.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/InterpolatedString.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['add', 'def note := s!"value {(by sorry : Nat)}"'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(packets[0].signals.includes('introduced sorry/admit'));
+}
+
+function testLeanInterpolatedStringQuotedBracesDoNotStopScanning() {
+  const leanFile = file('Compiler/Proofs/InterpolatedStringQuotedBrace.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/InterpolatedStringQuotedBrace.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['add', 'def exact := s!"{ let c := \'}\'; (by sorry : Nat) }"'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(packets[0].signals.includes('introduced sorry/admit'));
+}
+
+function testLeanInterpolatedStringNestedQuotedBracesDoNotStopScanning() {
+  const leanFile = file('Compiler/Proofs/InterpolatedStringNestedQuotedBrace.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/InterpolatedStringNestedQuotedBrace.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['add', 'def nested := s!"{ let text := "}"; (by admit : Nat) }"'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(packets[0].signals.includes('introduced sorry/admit'));
+}
+
+function testLeanInterpolatedStringBlockCommentBracesDoNotStopScanning() {
+  const leanFile = file('Compiler/Proofs/InterpolatedStringBlockCommentBrace.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/InterpolatedStringBlockCommentBrace.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['add', 'def commented := s!"{ /- } -/ (by sorry : Nat) }"'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(packets[0].signals.includes('introduced sorry/admit'));
+}
+
+function testLeanMultilineInterpolatedStringExpressionsAreScanned() {
+  const leanFile = file('Compiler/Proofs/MultilineInterpolatedString.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/MultilineInterpolatedString.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['add', 'def note := s!"value'],
+    ['add', '{(by sorry : Nat)}"'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(packets[0].signals.includes('introduced sorry/admit'));
+}
+
+function testLeanMultilineOpenInterpolationExpressionsAreScanned() {
+  const leanFile = file('Compiler/Proofs/MultilineOpenInterpolation.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/MultilineOpenInterpolation.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['add', 'def note := s!"value {'],
+    ['add', '(by admit : Nat)'],
+    ['add', '}"'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(packets[0].signals.includes('introduced sorry/admit'));
+}
+
+function testLeanMultilineInterpolationQuotedBracesDoNotStopScanning() {
+  const leanFile = file('Compiler/Proofs/MultilineInterpolationQuotedBrace.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/MultilineInterpolationQuotedBrace.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['add', 'def exact := s!"{'],
+    ['add', 'let c := \'}\''],
+    ['add', '(by sorry : Nat)'],
+    ['add', '}"'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(packets[0].signals.includes('introduced sorry/admit'));
+}
+
+function testLeanMultilineInterpolationUnicodePrimedIdentifiersDoNotStopScanning() {
+  const leanFile = file('Compiler/Proofs/MultilineInterpolationUnicodePrimedIdentifier.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/MultilineInterpolationUnicodePrimedIdentifier.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['add', 'def note := s!"value {'],
+    ['add', "let x₁' := 0"],
+    ['add', '(by sorry : Nat)'],
+    ['add', '}"'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(packets[0].signals.includes('introduced sorry/admit'));
+}
+
+function testLeanContextOpenedInterpolationAttributesAddedCode() {
+  const leanFile = file('Compiler/Proofs/ContextOpenedInterpolation.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/ContextOpenedInterpolation.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['ctx', 'def note := s!"value {'],
+    ['add', '(by sorry : Nat)'],
+    ['ctx', '}"'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(packets[0].signals.includes('introduced sorry/admit'));
+}
+
+function testLeanContextClosedInterpolationDoesNotAttributeContextCode() {
+  const leanFile = file('Compiler/Proofs/ContextClosedInterpolation.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/ContextClosedInterpolation.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['ctx', 'def note := s!"value {'],
+    ['add', '0'],
+    ['ctx', '}"; (by sorry : Nat)'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(!packets[0].signals.includes('introduced sorry/admit'));
+}
+
+function testLeanContextOpenedInterpolationDoesNotAttributePriorContextCode() {
+  const leanFile = file('Compiler/Proofs/ContextOpenedInterpolationPriorCode.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/ContextOpenedInterpolationPriorCode.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['ctx', 'def note := s!"value {'],
+    ['ctx', '(by sorry : Nat)'],
+    ['add', 'let harmless := 0'],
+    ['ctx', 'harmless'],
+    ['ctx', '}"'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(!packets[0].signals.includes('introduced sorry/admit'));
+}
+
+function testLeanContextOpenedInterpolationCommentDoesNotAttributeAddedProse() {
+  const leanFile = file('Compiler/Proofs/ContextOpenedInterpolationComment.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/ContextOpenedInterpolationComment.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['ctx', 'def note := s!"value { /-'],
+    ['add', 'prose mentioning sorry and unsafe'],
+    ['ctx', '-/ 0 }"'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(!packets[0].signals.includes('introduced sorry/admit'));
+  assert.ok(!packets[0].signals.includes('introduced unsafe'));
+}
+
+function testLeanContextOpenedInterpolationClosingChangeDoesNotAttributePriorCode() {
+  const leanFile = file('Compiler/Proofs/ContextOpenedInterpolationClosingChange.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/ContextOpenedInterpolationClosingChange.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['ctx', 'def note := s!"value {'],
+    ['ctx', '(by sorry : Nat)'],
+    ['del', '}"'],
+    ['add', '}!"'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(!packets[0].signals.includes('introduced sorry/admit'));
+}
+
+function testLeanContextOpenedInterpolationNestedStringResumesOnAddedLine() {
+  const leanFile = file('Compiler/Proofs/ContextOpenedInterpolationNestedString.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/ContextOpenedInterpolationNestedString.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['ctx', 'def note := s!"value { let s := "'],
+    ['add', '"; (by sorry : Nat) }"'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(packets[0].signals.includes('introduced sorry/admit'));
+}
+
+function testLeanContextOpenedInterpolationNestedCharResumesOnAddedLine() {
+  const leanFile = file('Compiler/Proofs/ContextOpenedInterpolationNestedChar.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/ContextOpenedInterpolationNestedChar.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['ctx', 'def note := s!"value { let c := \''],
+    ['add', '\'; (by admit : Nat) }"'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(packets[0].signals.includes('introduced sorry/admit'));
+}
+
+function testLeanContextOpenedInterpolationScansCodeAfterClosingString() {
+  const leanFile = file('Compiler/Proofs/ContextOpenedInterpolationPostStringCode.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/ContextOpenedInterpolationPostStringCode.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['ctx', 'def note : Nat := let _ := s!"value {'],
+    ['add', '0 }"; (by sorry : Nat)'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(packets[0].signals.includes('introduced sorry/admit'));
+}
+
+function testLeanContextOpenedInterpolationScansSecondInterpolationInTail() {
+  const leanFile = file('Compiler/Proofs/ContextOpenedInterpolationSecondTail.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/ContextOpenedInterpolationSecondTail.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['ctx', 'def note : String := s!"value {'],
+    ['add', '0 } and {(by sorry : Nat)}"'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(packets[0].signals.includes('introduced sorry/admit'));
+}
+
+function testLeanContextOpenedNestedInterpolationAttributesAddedCode() {
+  const leanFile = file('Compiler/Proofs/ContextOpenedNestedInterpolation.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/ContextOpenedNestedInterpolation.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['ctx', 'def note : String := s!"outer { s!"inner {'],
+    ['add', '(by sorry : Nat)'],
+    ['ctx', '}"}"'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(packets[0].signals.includes('introduced sorry/admit'));
+}
+
+function testLeanUnterminatedContextOpenedInterpolationFlushesAddedCode() {
+  const leanFile = file('Compiler/Proofs/UnterminatedContextOpenedInterpolation.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/UnterminatedContextOpenedInterpolation.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['ctx', 'def note := s!"value {'],
+    ['add', '(by sorry : Nat)'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(packets[0].signals.includes('introduced sorry/admit'));
+}
+
+function testLeanMultilineInterpolationLineCommentDoesNotHideNextLine() {
+  const leanFile = file('Compiler/Proofs/MultilineInterpolationLineComment.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/MultilineInterpolationLineComment.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['add', 'def note := s!"value {'],
+    ['add', '-- a comment about a proof'],
+    ['add', '(by admit : Nat)'],
+    ['add', '}"'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(packets[0].signals.includes('introduced sorry/admit'));
+}
+
+function testLeanInterpolatedStringPrimedIdentifiersDoNotStopScanning() {
+  const leanFile = file('Compiler/Proofs/InterpolatedStringPrimedIdentifier.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/InterpolatedStringPrimedIdentifier.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['add', "def note := s!\"value { let x' := (by sorry : Nat); x' }\""],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(packets[0].signals.includes('introduced sorry/admit'));
+}
+
+function testLeanInterpolatedStringMultiPrimedIdentifiersDoNotStopScanning() {
+  const leanFile = file('Compiler/Proofs/InterpolatedStringMultiPrimedIdentifier.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/InterpolatedStringMultiPrimedIdentifier.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['add', "def double := s!\"value { let h'' := (by admit : Nat); h'' }\""],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(packets[0].signals.includes('introduced sorry/admit'));
+}
+
+function testLeanInterpolatedStringUnicodePrimedIdentifiersDoNotStopScanning() {
+  const leanFile = file('Compiler/Proofs/InterpolatedStringUnicodePrimedIdentifier.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/InterpolatedStringUnicodePrimedIdentifier.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['add', "def note := s!\"value { let x1' := 0; let x₁' := x1'; (by sorry : Nat) }\""],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(packets[0].signals.includes('introduced sorry/admit'));
+}
+
+function testBangBeforeStringDoesNotEnableInterpolationScanning() {
+  const leanFile = file('Compiler/Proofs/BangString.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/BangString.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['add', 'def note := !"literal { not interpolation"'],
+    ['add', 'unsafe def riskyAfterBangString : Nat := 0'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(packets[0].signals.includes('introduced unsafe'));
+}
+
+function testLeanNestedBlockCommentDoesNotTriggerSignals() {
+  const leanFile = file('Compiler/Proofs/NestedBlockComment.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/NestedBlockComment.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['add', '/- outer /- inner -/ sorry axiom unsafe -/'],
+    ['add', 'theorem still_ok : True := by trivial'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(!packets[0].signals.includes('introduced sorry/admit'));
+  assert.ok(!packets[0].signals.includes('introduced/changed axiom'));
+  assert.ok(!packets[0].signals.includes('introduced unsafe'));
+}
+
 function testCodeAfterInlineBlockCommentIsScanned() {
   const leanFile = file('Compiler/Proofs/InlineBlockComment.lean', 10, 0);
   leanFile.hunks = [hunk('Compiler/Proofs/InlineBlockComment.lean', 20, [
@@ -115,6 +540,203 @@ function testCodeAfterInlineBlockCommentIsScanned() {
   const packets = router.buildReviewPackets([leanFile]);
   assert.ok(packets.length > 0);
   assert.ok(packets[0].signals.includes('introduced/changed axiom'));
+}
+
+function testTheoremStatementStringLiteralChangesAreDetected() {
+  const leanFile = file('Compiler/Proofs/TheoremStringChange.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/TheoremStringChange.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['del', 'theorem render_sound : render x = "old" := by trivial'],
+    ['add', 'theorem render_sound : render x = "new" := by trivial'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(packets[0].signals.includes('theorem statement changed/possibly weakened'));
+}
+
+function testLeanScannerBlockerRegressionCases() {
+  const cases = [
+    {
+      name: 'quoted braces inside interpolation expressions',
+      lines: [
+        ['ctx', 'namespace Verity'],
+        ['add', 'def x := s!"{ let c := \'}\'; (by sorry : Nat) }"'],
+        ['ctx', 'end Verity'],
+      ],
+      includes: ['introduced sorry/admit'],
+    },
+    {
+      name: 'Lean block comments inside interpolation are ignored and following code is scanned',
+      lines: [
+        ['ctx', 'namespace Verity'],
+        ['add', 'def x := s!"{ /- prose sorry axiom unsafe } -/ (by admit : Nat) }"'],
+        ['ctx', 'end Verity'],
+      ],
+      includes: ['introduced sorry/admit'],
+      excludes: ['introduced/changed axiom', 'introduced unsafe'],
+    },
+    {
+      name: 'theorem statement comparisons preserve changed raw string literal text',
+      lines: [
+        ['ctx', 'namespace Verity'],
+        ['del', 'theorem render_sound : render x = r#"old { sorry }"# := by trivial'],
+        ['add', 'theorem render_sound : render x = r#"new { sorry }"# := by trivial'],
+        ['ctx', 'end Verity'],
+      ],
+      includes: ['theorem statement changed/possibly weakened'],
+      excludes: ['introduced sorry/admit'],
+    },
+    {
+      name: 'theorem statement comparisons preserve raw strings with inner quotes',
+      lines: [
+        ['ctx', 'namespace Verity'],
+        ['del', 'theorem render_sound : render x = r#"old "quoted" value"# := by trivial'],
+        ['add', 'theorem render_sound : render x = r#"new "quoted" value"# := by trivial'],
+        ['ctx', 'end Verity'],
+      ],
+      includes: ['theorem statement changed/possibly weakened'],
+    },
+    {
+      name: 'theorem statement comparisons preserve interpolation braces',
+      lines: [
+        ['ctx', 'namespace Verity'],
+        ['del', 'theorem render_sound : render x = s!"{x}" := by trivial'],
+        ['add', 'theorem render_sound : render x = s!"x" := by trivial'],
+        ['ctx', 'end Verity'],
+      ],
+      includes: ['theorem statement changed/possibly weakened'],
+      excludes: ['introduced sorry/admit'],
+    },
+    {
+      name: 'code after a raw string with inner quotes is scanned',
+      lines: [
+        ['ctx', 'namespace Verity'],
+        ['add', 'def marker := r#"said "hi""#; unsafe def riskyAfterRaw : Nat := 0'],
+        ['ctx', 'end Verity'],
+      ],
+      includes: ['introduced unsafe'],
+    },
+    {
+      name: 'multiline interrupted interpolation keeps state from context into added line',
+      lines: [
+        ['ctx', 'namespace Verity'],
+        ['ctx', 'def x := s!"prefix {'],
+        ['ctx', 'let y := 0'],
+        ['add', '(by sorry : Nat)'],
+        ['ctx', '}"'],
+        ['ctx', 'end Verity'],
+      ],
+      includes: ['introduced sorry/admit'],
+    },
+    {
+      name: 'newline after interpolation line comment resumes scanning',
+      lines: [
+        ['ctx', 'namespace Verity'],
+        ['add', 'def x := s!"{'],
+        ['add', '-- comment with } sorry'],
+        ['add', '(by admit : Nat)'],
+        ['add', '}"'],
+        ['ctx', 'end Verity'],
+      ],
+      includes: ['introduced sorry/admit'],
+    },
+    {
+      name: 'unterminated interpolation fragments are flushed at hunk end',
+      lines: [
+        ['ctx', 'namespace Verity'],
+        ['ctx', 'def x := s!"{'],
+        ['add', '(by sorry : Nat)'],
+      ],
+      includes: ['introduced sorry/admit'],
+    },
+    {
+      name: 'interpolation block comment state is preserved while flushing added lines',
+      lines: [
+        ['ctx', 'namespace Verity'],
+        ['ctx', 'def x := s!"{ /-'],
+        ['add', 'prose sorry axiom unsafe'],
+        ['add', '-/ (by admit : Nat)'],
+        ['ctx', '}"'],
+        ['ctx', 'end Verity'],
+      ],
+      includes: ['introduced sorry/admit'],
+      excludes: ['introduced/changed axiom', 'introduced unsafe'],
+    },
+    {
+      name: 'code after a closed interpolation is scanned',
+      lines: [
+        ['ctx', 'namespace Verity'],
+        ['add', 'def x : Nat := let _ := s!"{0}"; (by sorry : Nat)'],
+        ['ctx', 'end Verity'],
+      ],
+      includes: ['introduced sorry/admit'],
+    },
+    {
+      name: 'subsequent interpolation in added tail is scanned',
+      lines: [
+        ['ctx', 'namespace Verity'],
+        ['ctx', 'def x := s!"{'],
+        ['add', '0 } and {(by admit : Nat)}"'],
+        ['ctx', 'end Verity'],
+      ],
+      includes: ['introduced sorry/admit'],
+    },
+    {
+      name: 'nested interpolated string resumes outer interpolation state',
+      lines: [
+        ['ctx', 'namespace Verity'],
+        ['add', 'def x := s!"outer { let inner := s!"inner {(0 : Nat)}"; (by sorry : Nat) }"'],
+        ['ctx', 'end Verity'],
+      ],
+      includes: ['introduced sorry/admit'],
+    },
+    {
+      name: 'escaped identifiers containing comment delimiters do not open comments',
+      lines: [
+        ['ctx', 'namespace Verity'],
+        ['add', 'def «/-» := 0'],
+        ['add', 'unsafe def riskyAfterEscapedIdent : Nat := 0'],
+        ['ctx', 'end Verity'],
+      ],
+      includes: ['introduced unsafe'],
+    },
+    {
+      name: 'opening interpolation fragment from added line is buffered through later added line',
+      lines: [
+        ['ctx', 'namespace Verity'],
+        ['add', 'def x := s!"prefix {'],
+        ['ctx', 'let old := 0'],
+        ['add', '(by sorry : Nat)'],
+        ['ctx', '}"'],
+        ['ctx', 'end Verity'],
+      ],
+      includes: ['introduced sorry/admit'],
+    },
+    {
+      name: 'apostrophe after non-ASCII Lean identifier is not a char literal',
+      lines: [
+        ['ctx', 'namespace Verity'],
+        ['add', "def x := s!\"{ let x₁' := 0; (by sorry : Nat) }\""],
+        ['ctx', 'end Verity'],
+      ],
+      includes: ['introduced sorry/admit'],
+    },
+  ];
+
+  for (const regression of cases) {
+    const leanFile = file(`Compiler/Proofs/${regression.name.replace(/[^A-Za-z0-9]+/g, '')}.lean`, 10, 0);
+    leanFile.hunks = [hunk(leanFile.path, 20, regression.lines)];
+    const packets = router.buildReviewPackets([leanFile]);
+    assert.ok(packets.length > 0, regression.name);
+    const signals = packets.flatMap(packet => packet.signals);
+    for (const signal of regression.includes || []) {
+      assert.ok(signals.includes(signal), `${regression.name}: expected ${signal}; got ${signals.join(', ')}`);
+    }
+    for (const signal of regression.excludes || []) {
+      assert.ok(!signals.includes(signal), `${regression.name}: unexpected ${signal}; got ${signals.join(', ')}`);
+    }
+  }
 }
 
 function testOversizedLeanGuarded() {
@@ -804,7 +1426,40 @@ async function run() {
   testLargeLeanPacketized();
   testLeanCommentDoesNotTriggerSorrySignal();
   testLeanBlockCommentDoesNotTriggerSorrySignal();
+  testLeanBlockCommentStateFromContextDoesNotTriggerSignals();
+  testLeanCodeAfterContextBlockCommentIsScanned();
+  testLeanStringCommentDelimiterInContextDoesNotHideSignals();
+  testLeanMultilineStringCommentDelimiterInContextDoesNotHideSignals();
+  testLeanEscapedIdentifierCommentDelimiterInContextDoesNotHideSignals();
+  testLeanStringLiteralsDoNotTriggerSignals();
+  testLeanInterpolatedStringExpressionsAreScanned();
+  testLeanInterpolatedStringQuotedBracesDoNotStopScanning();
+  testLeanInterpolatedStringNestedQuotedBracesDoNotStopScanning();
+  testLeanInterpolatedStringBlockCommentBracesDoNotStopScanning();
+  testLeanMultilineInterpolatedStringExpressionsAreScanned();
+  testLeanMultilineOpenInterpolationExpressionsAreScanned();
+  testLeanMultilineInterpolationQuotedBracesDoNotStopScanning();
+  testLeanMultilineInterpolationUnicodePrimedIdentifiersDoNotStopScanning();
+  testLeanContextOpenedInterpolationAttributesAddedCode();
+  testLeanContextClosedInterpolationDoesNotAttributeContextCode();
+  testLeanContextOpenedInterpolationDoesNotAttributePriorContextCode();
+  testLeanContextOpenedInterpolationCommentDoesNotAttributeAddedProse();
+  testLeanContextOpenedInterpolationClosingChangeDoesNotAttributePriorCode();
+  testLeanContextOpenedInterpolationNestedStringResumesOnAddedLine();
+  testLeanContextOpenedInterpolationNestedCharResumesOnAddedLine();
+  testLeanContextOpenedInterpolationScansCodeAfterClosingString();
+  testLeanContextOpenedInterpolationScansSecondInterpolationInTail();
+  testLeanContextOpenedNestedInterpolationAttributesAddedCode();
+  testLeanUnterminatedContextOpenedInterpolationFlushesAddedCode();
+  testLeanMultilineInterpolationLineCommentDoesNotHideNextLine();
+  testLeanInterpolatedStringPrimedIdentifiersDoNotStopScanning();
+  testLeanInterpolatedStringMultiPrimedIdentifiersDoNotStopScanning();
+  testLeanInterpolatedStringUnicodePrimedIdentifiersDoNotStopScanning();
+  testBangBeforeStringDoesNotEnableInterpolationScanning();
+  testLeanNestedBlockCommentDoesNotTriggerSignals();
   testCodeAfterInlineBlockCommentIsScanned();
+  testTheoremStatementStringLiteralChangesAreDetected();
+  testLeanScannerBlockerRegressionCases();
   testOversizedLeanGuarded();
   testScoutConfigDefaultsToMiniMaxOnOcrEndpoint();
   testScoutConfigCanDisableLargeLeanScout();
