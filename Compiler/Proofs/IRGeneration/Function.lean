@@ -2903,6 +2903,15 @@ private theorem legacyCompatibleExternalStmtList_map_exprStmt_call
   | _ :: rest => .exprStmt _ _
       (legacyCompatibleExternalStmtList_map_exprStmt_call f name rest)
 
+private theorem legacyCompatibleExternalStmtList_map_let
+    {α : Type} (name : α → String) (value : α → YulExpr) :
+    ∀ xs : List α,
+      LegacyCompatibleExternalStmtList
+        (xs.map (fun x => YulStmt.let_ (name x) (value x)))
+  | [] => .nil
+  | _ :: rest => .let_ _ _ _
+      (legacyCompatibleExternalStmtList_map_let name value rest)
+
 private theorem legacyCompatibleExternalStmtList_block_value_writes
     {α : Type} (f : α → YulExpr) (name : String) (value : YulExpr) (xs : List α) :
     LegacyCompatibleExternalStmtList
@@ -2925,6 +2934,34 @@ private theorem legacyCompatibleExternalStmtList_block_key_value_writes
               (YulExpr.call name [f x, YulExpr.ident "__compat_value"])))] := by
   exact .block _ _ (.let_ _ _ _ (.let_ _ _ _
     (legacyCompatibleExternalStmtList_map_exprStmt_call f name xs))) .nil
+
+private theorem legacyCompatibleExternalStmtList_block_key1_key2_value_writes
+    {α : Type} (f : α → YulExpr) (name : String)
+    (key1 key2 value : YulExpr) (xs : List α) :
+    LegacyCompatibleExternalStmtList
+      [YulStmt.block
+        ([YulStmt.let_ "__compat_key1" key1, YulStmt.let_ "__compat_key2" key2,
+          YulStmt.let_ "__compat_value" value] ++
+          xs.map (fun x =>
+            YulStmt.exprStmt
+              (YulExpr.call name [f x, YulExpr.ident "__compat_value"])))] := by
+  exact .block _ _ (.let_ _ _ _ (.let_ _ _ _ (.let_ _ _ _
+    (legacyCompatibleExternalStmtList_map_exprStmt_call f name xs)))) .nil
+
+private theorem legacyCompatibleExternalStmtList_block_value_lets_writes
+    {α β : Type} (letName : α → String) (letValue : α → YulExpr)
+    (f : β → YulExpr) (name : String) (value : YulExpr) (lets : List α) (xs : List β) :
+    LegacyCompatibleExternalStmtList
+      [YulStmt.block
+        ([YulStmt.let_ "__compat_value" value] ++
+          lets.map (fun x => YulStmt.let_ (letName x) (letValue x)) ++
+          xs.map (fun x =>
+            YulStmt.exprStmt
+              (YulExpr.call name [f x, YulExpr.ident "__compat_value"])))] := by
+  exact .block _ _ (.let_ _ _ _
+    (legacyCompatibleExternalStmtList_append
+      (legacyCompatibleExternalStmtList_map_let letName letValue lets)
+      (legacyCompatibleExternalStmtList_map_exprStmt_call f name xs))) .nil
 
 private theorem revertWithMessage_legacyCompatible
     (message : String) :
@@ -3235,6 +3272,99 @@ private theorem compileMappingSlotWrite_legacyCompatible
     | cases hcompile
       exact legacyCompatibleExternalStmtList_block_key_value_writes (α := Nat) (f := _) _ _ _ _
 
+private theorem compileSetMapping2_legacyCompatible
+    {fields : List Field}
+    {fieldName : String}
+    {dynamicSource : DynamicDataSource}
+    {key1 key2 value : Expr}
+    {compiledIR : List YulStmt}
+    (hcompile :
+      CompilationModel.compileSetMapping2 fields dynamicSource fieldName key1 key2 value [] =
+        Except.ok compiledIR) :
+    LegacyCompatibleExternalStmtList compiledIR := by
+  unfold CompilationModel.compileSetMapping2 at hcompile
+  cases hMapping2 : isMapping2 fields fieldName <;> simp [hMapping2] at hcompile
+  cases hSlots : findFieldWriteSlots fields fieldName <;> simp [hSlots] at hcompile
+  rename_i slots
+  cases hkey1Expr : compileExprWithInternals fields dynamicSource [] key1 with
+  | error err => simp [hkey1Expr, bind, Except.bind] at hcompile
+  | ok key1Expr =>
+      cases hkey2Expr : compileExprWithInternals fields dynamicSource [] key2 with
+      | error err => simp [hkey1Expr, hkey2Expr, bind, Except.bind] at hcompile
+      | ok key2Expr =>
+          cases hvalueExpr : compileExprWithInternals fields dynamicSource [] value with
+          | error err => simp [hkey1Expr, hkey2Expr, hvalueExpr, bind, Except.bind] at hcompile
+          | ok valueExpr =>
+              cases slots with
+              | nil => simp [hkey1Expr, hkey2Expr, hvalueExpr, bind, Except.bind] at hcompile
+              | cons slot rest =>
+                  cases rest with
+                  | nil =>
+                      simp [hkey1Expr, hkey2Expr, hvalueExpr, bind, Except.bind] at hcompile
+                      cases hcompile
+                      exact .exprStmt _ _ .nil
+                  | cons slot' rest =>
+                      simp [hkey1Expr, hkey2Expr, hvalueExpr, bind, Except.bind] at hcompile
+                      cases hcompile
+                      exact legacyCompatibleExternalStmtList_block_key1_key2_value_writes
+                        (α := Nat)
+                        (f := fun slot =>
+                          YulExpr.call "mappingSlot"
+                            [YulExpr.call "mappingSlot"
+                              [YulExpr.lit slot, YulExpr.ident "__compat_key1"],
+                              YulExpr.ident "__compat_key2"])
+                        (match findFieldWithResolvedSlot fields fieldName with
+                          | some (f, _) => if f.isTransient then "tstore" else "sstore"
+                          | none => "sstore")
+                        key1Expr key2Expr valueExpr (slot :: slot' :: rest)
+
+private theorem compileSetMappingChain_legacyCompatible
+    {fields : List Field}
+    {fieldName : String}
+    {dynamicSource : DynamicDataSource}
+    {keys : List Expr}
+    {value : Expr}
+    {compiledIR : List YulStmt}
+    (hcompile :
+      CompilationModel.compileSetMappingChain fields dynamicSource fieldName keys value [] =
+        Except.ok compiledIR) :
+    LegacyCompatibleExternalStmtList compiledIR := by
+  unfold CompilationModel.compileSetMappingChain at hcompile
+  cases hMapping : isMapping fields fieldName <;> simp [hMapping] at hcompile
+  cases hSlots : findFieldWriteSlots fields fieldName <;> simp [hSlots] at hcompile
+  rename_i slots
+  cases hkeyExprs : compileExprListWithInternals fields dynamicSource [] keys with
+  | error err => simp [hkeyExprs, bind, Except.bind] at hcompile
+  | ok keyExprs =>
+      cases hvalueExpr : compileExprWithInternals fields dynamicSource [] value with
+      | error err => simp [hkeyExprs, hvalueExpr, bind, Except.bind] at hcompile
+      | ok valueExpr =>
+          cases slots with
+          | nil => simp [hkeyExprs, hvalueExpr, bind, Except.bind] at hcompile
+          | cons slot rest =>
+              cases rest with
+              | nil =>
+                  simp [hkeyExprs, hvalueExpr, bind, Except.bind] at hcompile
+                  cases hcompile
+                  exact .exprStmt _ _ .nil
+              | cons slot' rest =>
+                  simp [hkeyExprs, hvalueExpr, bind, Except.bind] at hcompile
+                  cases hcompile
+                  simpa only [List.map, List.cons_append, List.append_assoc] using
+                    legacyCompatibleExternalStmtList_block_value_lets_writes
+                      (α := YulExpr × Nat) (β := Nat) (letName := fun x => s!"__compat_key{x.2}")
+                      (letValue := fun x => x.1)
+                      (f := fun slot =>
+                        (List.range keyExprs.length).map
+                          (fun idx => YulExpr.ident s!"__compat_key{idx}")
+                        |>.foldl
+                          (fun slotExpr keyExpr => YulExpr.call "mappingSlot" [slotExpr, keyExpr])
+                          (YulExpr.lit slot))
+                      (match findFieldWithResolvedSlot fields fieldName with
+                        | some (f, _) => if f.isTransient then "tstore" else "sstore"
+                        | none => "sstore")
+                      valueExpr keyExprs.zipIdx (slot :: slot' :: rest)
+
 /-- Singleton `setMapping` heads compile to ordinary legacy-compatible Yul. -/
 theorem stmtList_setMappingSingle_compiledLegacyCompatible
     (fields : List Field)
@@ -3257,6 +3387,47 @@ theorem stmtList_setMappingSingle_compiledLegacyCompatible
       split at hcompile <;> try contradiction
       rename_i valueExpr hvalueExpr
       exact compileMappingSlotWrite_legacyCompatible hcompile)
+    .nil
+
+/-- Singleton `setMappingChain` heads compile to ordinary legacy-compatible Yul. -/
+theorem stmtList_setMappingChainSingle_compiledLegacyCompatible
+    (fields : List Field)
+    {scope : List String}
+    {fieldName : String}
+    {keys : List Expr}
+    {value : Expr}
+    {slot : Nat}
+    (_hkeys : ∀ key ∈ keys, FunctionBody.ExprCompileCore key)
+    (_hscopeKeys : ∀ key ∈ keys, FunctionBody.exprBoundNamesInScope key scope)
+    (_hvalue : FunctionBody.ExprCompileCore value)
+    (_hscopeValue : FunctionBody.exprBoundNamesInScope value scope)
+    (_hslot : findFieldSlot fields fieldName = some slot) :
+    StmtListCompiledLegacyCompatible fields scope [Stmt.setMappingChain fieldName keys value] :=
+  .cons
+    (fun compiledIR hcompile => by
+      simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] at hcompile
+      exact compileSetMappingChain_legacyCompatible hcompile)
+    .nil
+
+/-- Singleton `setMapping2` heads compile to ordinary legacy-compatible Yul. -/
+theorem stmtList_setMapping2Single_compiledLegacyCompatible
+    (fields : List Field)
+    {scope : List String}
+    {fieldName : String}
+    {key1 key2 value : Expr}
+    {slot : Nat}
+    (_hkey1 : FunctionBody.ExprCompileCore key1)
+    (_hscopeKey1 : FunctionBody.exprBoundNamesInScope key1 scope)
+    (_hkey2 : FunctionBody.ExprCompileCore key2)
+    (_hscopeKey2 : FunctionBody.exprBoundNamesInScope key2 scope)
+    (_hvalue : FunctionBody.ExprCompileCore value)
+    (_hscopeValue : FunctionBody.exprBoundNamesInScope value scope)
+    (_hslot : findFieldSlot fields fieldName = some slot) :
+    StmtListCompiledLegacyCompatible fields scope [Stmt.setMapping2 fieldName key1 key2 value] :=
+  .cons
+    (fun compiledIR hcompile => by
+      simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] at hcompile
+      exact compileSetMapping2_legacyCompatible hcompile)
     .nil
 
 /-- Singleton `setMappingUint` heads compile to ordinary legacy-compatible Yul. -/
