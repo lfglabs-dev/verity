@@ -2167,6 +2167,9 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.Function.txCalldataSizeFitsEvm_of_constructorCalldataSizeFitsEvm  -- private
   -- Compiler.Proofs.IRGeneration.Function.bindingsExactlyMatchIRVars_applyBindingsToIRState_self  -- private
   -- Compiler.Proofs.IRGeneration.Function.constructorTouchesUnsupportedRawCalldataSurface_eq_false  -- private
+  -- Compiler.Proofs.IRGeneration.Function.wordNormalize_lt_evmModulus  -- private
+  -- Compiler.Proofs.IRGeneration.Function.constructorArgAliasRawValue_lt_evmModulus  -- private
+  -- Compiler.Proofs.IRGeneration.Function.constructorArgAliasLookupValue_lt_evmModulus  -- private
   -- Compiler.Proofs.IRGeneration.Function.constructorArgAliasValue?_lt_evmModulus  -- private
   -- Compiler.Proofs.IRGeneration.Function.bindConstructorArgAliasesFrom_bounded  -- private
   -- Compiler.Proofs.IRGeneration.Function.bindConstructorArgAliases_bounded  -- private
@@ -5980,4 +5983,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5610 theorems/lemmas (3872 public, 1738 private, 0 sorry'd)
+-- Total: 5613 theorems/lemmas (3872 public, 1741 private, 0 sorry'd)
