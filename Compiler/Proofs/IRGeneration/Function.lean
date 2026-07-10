@@ -3318,6 +3318,52 @@ private theorem compileSetMapping2_legacyCompatible
                           | none => "sstore")
                         key1Expr key2Expr valueExpr (slot :: slot' :: rest)
 
+private theorem compileSetMapping2Word_legacyCompatible
+    {fields : List Field} {fieldName : String} {dynamicSource : DynamicDataSource}
+    {key1 key2 value : Expr} {wordOffset : Nat} {compiledIR : List YulStmt}
+    (hcompile :
+      CompilationModel.compileSetMapping2Word fields dynamicSource fieldName key1 key2
+          wordOffset value [] =
+        Except.ok compiledIR) :
+    LegacyCompatibleExternalStmtList compiledIR := by
+  unfold CompilationModel.compileSetMapping2Word at hcompile
+  cases hMapping2 : isMapping2 fields fieldName <;> simp [hMapping2] at hcompile
+  cases hSlots : findFieldWriteSlots fields fieldName <;> simp [hSlots] at hcompile
+  rename_i slots
+  cases hkey1Expr : compileExprWithInternals fields dynamicSource [] key1 with
+  | error err => simp [hkey1Expr, bind, Except.bind] at hcompile
+  | ok key1Expr =>
+      cases hkey2Expr : compileExprWithInternals fields dynamicSource [] key2 with
+      | error err => simp [hkey1Expr, hkey2Expr, bind, Except.bind] at hcompile
+      | ok key2Expr =>
+          cases hvalueExpr : compileExprWithInternals fields dynamicSource [] value with
+          | error err => simp [hkey1Expr, hkey2Expr, hvalueExpr, bind, Except.bind] at hcompile
+          | ok valueExpr =>
+              cases slots with
+              | nil => simp [hkey1Expr, hkey2Expr, hvalueExpr, bind, Except.bind] at hcompile
+              | cons slot rest =>
+                  cases rest with
+                  | nil =>
+                      simp [hkey1Expr, hkey2Expr, hvalueExpr, bind, Except.bind] at hcompile
+                      cases hcompile
+                      exact .exprStmt _ _ .nil
+                  | cons slot' rest =>
+                      simp [hkey1Expr, hkey2Expr, hvalueExpr, bind, Except.bind] at hcompile
+                      cases hcompile
+                      exact legacyCompatibleExternalStmtList_block_key1_key2_value_writes
+                        (α := Nat)
+                        (f := fun slot =>
+                          let innerSlot :=
+                            YulExpr.call "mappingSlot" [YulExpr.lit slot, YulExpr.ident "__compat_key1"]
+                          let outerSlot :=
+                            YulExpr.call "mappingSlot" [innerSlot, YulExpr.ident "__compat_key2"]
+                          if wordOffset = 0 then outerSlot else
+                            YulExpr.call "add" [outerSlot, YulExpr.lit wordOffset])
+                        (match findFieldWithResolvedSlot fields fieldName with
+                          | some (f, _) => if f.isTransient then "tstore" else "sstore"
+                          | none => "sstore")
+                        key1Expr key2Expr valueExpr (slot :: slot' :: rest)
+
 private theorem compileSetMappingChain_legacyCompatible
     {fields : List Field}
     {fieldName : String}
@@ -3428,6 +3474,28 @@ theorem stmtList_setMapping2Single_compiledLegacyCompatible
     (fun compiledIR hcompile => by
       simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] at hcompile
       exact compileSetMapping2_legacyCompatible hcompile)
+    .nil
+
+/-- Singleton `setMapping2Word` heads compile to ordinary legacy-compatible Yul. -/
+theorem stmtList_setMapping2WordSingle_compiledLegacyCompatible
+    (fields : List Field)
+    {scope : List String}
+    {fieldName : String}
+    {key1 key2 value : Expr}
+    {wordOffset slot : Nat}
+    (_hkey1 : FunctionBody.ExprCompileCore key1)
+    (_hscopeKey1 : FunctionBody.exprBoundNamesInScope key1 scope)
+    (_hkey2 : FunctionBody.ExprCompileCore key2)
+    (_hscopeKey2 : FunctionBody.exprBoundNamesInScope key2 scope)
+    (_hvalue : FunctionBody.ExprCompileCore value)
+    (_hscopeValue : FunctionBody.exprBoundNamesInScope value scope)
+    (_hslot : findFieldSlot fields fieldName = some slot) :
+    StmtListCompiledLegacyCompatible fields scope
+      [Stmt.setMapping2Word fieldName key1 key2 wordOffset value] :=
+  .cons
+    (fun compiledIR hcompile => by
+      simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] at hcompile
+      exact compileSetMapping2Word_legacyCompatible hcompile)
     .nil
 
 /-- Singleton `setMappingUint` heads compile to ordinary legacy-compatible Yul. -/
