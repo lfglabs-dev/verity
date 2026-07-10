@@ -830,17 +830,68 @@ function codeLinesForHunkSide(hunk, side, options = {}) {
 }
 
 function changedInterpolationLineText(text, state, options = {}) {
-  if (Number(state?.interpolationCommentDepth || 0) > 0) {
-    const stripped = stripLeanCommentsFromLine(
-      text,
-      { commentDepth: Number(state.interpolationCommentDepth || 0) },
-      0,
-      options
-    );
-    return stripped.code.trim() ? `${stripped.code}\n` : '';
+  const line = String(text || '');
+  let code = '';
+  let interpolationString = Boolean(state?.interpolationString);
+  let interpolationChar = Boolean(state?.interpolationChar);
+  let interpolationEscaped = Boolean(state?.interpolationEscaped);
+  let interpolationCommentDepth = Number(state?.interpolationCommentDepth || 0);
+  let i = 0;
+  while (i < line.length) {
+    const ch = line[i];
+    const next = line[i + 1];
+    if (interpolationCommentDepth > 0) {
+      if (ch === '/' && next === '-') {
+        interpolationCommentDepth += 1;
+        i += 2;
+      } else if (ch === '-' && next === '/') {
+        interpolationCommentDepth -= 1;
+        i += 2;
+      } else {
+        i += 1;
+      }
+      continue;
+    }
+    if (interpolationEscaped) {
+      interpolationEscaped = false;
+      i += 1;
+      continue;
+    }
+    if (ch === '\\' && (interpolationString || interpolationChar)) {
+      interpolationEscaped = true;
+      i += 1;
+      continue;
+    }
+    if (interpolationString) {
+      if (ch === '"') interpolationString = false;
+      i += 1;
+      continue;
+    }
+    if (interpolationChar) {
+      if (ch === "'") interpolationChar = false;
+      i += 1;
+      continue;
+    }
+    if (ch === '-' && next === '-') break;
+    if (ch === '/' && next === '-') {
+      interpolationCommentDepth = 1;
+      i += 2;
+      continue;
+    }
+    if (ch === '"') {
+      interpolationString = true;
+      i += 1;
+      continue;
+    }
+    if (ch === "'" && startsLeanCharLiteral(line, i)) {
+      interpolationChar = true;
+      i += 1;
+      continue;
+    }
+    code += ch;
+    i += 1;
   }
-  if (state?.interpolationString || state?.interpolationChar) return '';
-  return `${text}\n`;
+  return code.trim() ? `${code}\n` : '';
 }
 
 function isOpenInterpolationState(state) {

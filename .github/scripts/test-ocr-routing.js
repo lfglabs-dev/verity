@@ -360,6 +360,32 @@ function testLeanContextOpenedInterpolationClosingChangeDoesNotAttributePriorCod
   assert.ok(!packets[0].signals.includes('introduced sorry/admit'));
 }
 
+function testLeanContextOpenedInterpolationNestedStringResumesOnAddedLine() {
+  const leanFile = file('Compiler/Proofs/ContextOpenedInterpolationNestedString.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/ContextOpenedInterpolationNestedString.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['ctx', 'def note := s!"value { let s := "'],
+    ['add', '"; (by sorry : Nat) }"'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(packets[0].signals.includes('introduced sorry/admit'));
+}
+
+function testLeanContextOpenedInterpolationNestedCharResumesOnAddedLine() {
+  const leanFile = file('Compiler/Proofs/ContextOpenedInterpolationNestedChar.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/ContextOpenedInterpolationNestedChar.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['ctx', 'def note := s!"value { let c := \''],
+    ['add', '\'; (by admit : Nat) }"'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(packets[0].signals.includes('introduced sorry/admit'));
+}
+
 function testLeanUnterminatedContextOpenedInterpolationFlushesAddedCode() {
   const leanFile = file('Compiler/Proofs/UnterminatedContextOpenedInterpolation.lean', 10, 0);
   leanFile.hunks = [hunk('Compiler/Proofs/UnterminatedContextOpenedInterpolation.lean', 20, [
@@ -1181,6 +1207,8 @@ async function run() {
   testLeanContextOpenedInterpolationDoesNotAttributePriorContextCode();
   testLeanContextOpenedInterpolationCommentDoesNotAttributeAddedProse();
   testLeanContextOpenedInterpolationClosingChangeDoesNotAttributePriorCode();
+  testLeanContextOpenedInterpolationNestedStringResumesOnAddedLine();
+  testLeanContextOpenedInterpolationNestedCharResumesOnAddedLine();
   testLeanUnterminatedContextOpenedInterpolationFlushesAddedCode();
   testLeanMultilineInterpolationLineCommentDoesNotHideNextLine();
   testLeanInterpolatedStringPrimedIdentifiersDoNotStopScanning();
