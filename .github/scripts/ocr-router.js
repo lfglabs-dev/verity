@@ -555,13 +555,13 @@ function redactStructuredError(text) {
   if (!candidate) return null;
   try {
     const redacted = JSON.stringify(redactSecretJsonValue(JSON.parse(candidate)));
-    return candidate === trimmed ? redacted : trimmed.replaceAll(candidate, redacted);
+    return candidate === trimmed ? redacted : replaceLiteralAll(trimmed, candidate, redacted);
   } catch {
     const embedded = extractJsonObject(trimmed) || extractJsonValue(trimmed, '[', ']');
     if (embedded && embedded !== candidate) {
       try {
         const redacted = JSON.stringify(redactSecretJsonValue(JSON.parse(embedded)));
-        return trimmed.replaceAll(embedded, redacted);
+        return replaceLiteralAll(trimmed, embedded, redacted);
       } catch {
         return null;
       }
@@ -572,7 +572,12 @@ function redactStructuredError(text) {
 
 function redactSecretJsonValue(value, key = '') {
   if (isSecretKey(key)) return '[redacted]';
-  if (Array.isArray(value)) return value.map(item => redactSecretJsonValue(item));
+  if (Array.isArray(value)) {
+    if (value.length >= 2 && hasSecretIndicator(value[0])) {
+      return value.map((item, index) => index === 1 ? '[redacted]' : redactSecretJsonValue(item));
+    }
+    return value.map(item => redactSecretJsonValue(item));
+  }
   if (value && typeof value === 'object') {
     const secretContext = Object.entries(value).some(([childKey, childValue]) => {
       if (!/^(field|field_name|fieldName|param|parameter|name|key|loc|path|property|property_name|propertyName|attribute|target)$/i.test(childKey)) return false;
@@ -613,7 +618,11 @@ function redactSecretText(text) {
     .replace(/(["'`])((?:[A-Za-z0-9_-]*(?:api\s*key|api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?(?:secret|id)|api[_-]?secret|consumer[_-]?secret|private[_-]?key|bearer[_-]?token|session[_-]?(?:secret|token)|auth[_-]?code|credential|credentials|passphrase|password|secret))|token|authorization)\1(\s*:\s*)(["'`])(?:\\.|(?!\4).){0,300}\4/gi, '$1$2$1$3$4[redacted]$4')
     .replace(/\b((?:[A-Za-z0-9_-]*(?:api\s*key|api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?(?:secret|id)|api[_-]?secret|consumer[_-]?secret|private[_-]?key|bearer[_-]?token|session[_-]?(?:secret|token)|auth[_-]?code|credential|credentials|passphrase|password|secret))|token|authorization)\b([^"'`\n]{0,120}?[:=]\s*)(["'`])(?:\\.|(?!\3).){0,300}\3/gi, '$1$2$3[redacted]$3')
     .replace(/\b(?![a-f0-9]{40}\b)(?![0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b)(?!req_[A-Za-z0-9._-]{20,}\b)(?!trace[_-][A-Za-z0-9._-]{20,}\b)(?!correlation[_-][A-Za-z0-9._-]{20,}\b)(?=[A-Za-z0-9._~+/-]{32,}\b)(?=[A-Za-z0-9._~+/-]*[A-Za-z])(?=[A-Za-z0-9._~+/-]*\d)[A-Za-z0-9._~+/-]{32,}={0,2}\b/g, '[redacted]')
-    .replace(/\b((?:(?:[A-Za-z0-9_-]*(?:api\s*key|api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?(?:secret|id)|api[_-]?secret|consumer[_-]?secret|private[_-]?key|bearer[_-]?token|session[_-]?(?:secret|token)|auth[_-]?code|credential|credentials|passphrase|password|secret))|token|authorization)\b[^"'`\n]{0,120}?[:=]\s*)([A-Za-z0-9._~+/-]{6,}={0,2})/gi, '$1[redacted]');
+    .replace(/\b((?:(?:[A-Za-z0-9_-]*(?:api\s*key|api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?(?:secret|id)|api[_-]?secret|consumer[_-]?secret|private[_-]?key|bearer[_-]?token|session[_-]?(?:secret|token)|auth[_-]?code|credential|credentials|passphrase|password|secret))|token|authorization)\b[^"'`\n]{0,120}?[:=]\s*)([^\s"',)}\]]{6,})/gi, '$1[redacted]');
+}
+
+function replaceLiteralAll(text, needle, replacement) {
+  return String(text).split(needle).join(replacement);
 }
 
 function openAiChatUrl(baseUrl) {

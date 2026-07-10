@@ -297,7 +297,7 @@ async function testLargeLeanScoutApiFailureFallsBack() {
   assert.strictEqual(decision.scout.http_status, 400);
   assert.ok(decision.scout.error_detail.includes('MiniMax-M3'));
   assert.ok(!decision.scout.error_detail.includes('sandboxed.example'));
-  // The test token is redacted by the explicit `token <value>` sanitizer path.
+  // The test token is redacted by the generic high-entropy sanitizer path.
   assert.ok(!decision.scout.error_detail.includes('abcdefghijklmnopqrstuvwxyz'));
   assert.deepStrictEqual(decision.packets.map(p => p.packet_id), originalPackets);
 }
@@ -448,6 +448,40 @@ function testScoutErrorSanitizesAdditionalCredentialKeys() {
   assert.ok(detail.includes('[redacted]'));
   assert.ok(!detail.includes('short-secret'));
   assert.ok(!detail.includes('plural-short-secret'));
+}
+
+function testScoutErrorSanitizesTupleArraySecrets() {
+  const detail = router.sanitizeScoutErrorDetail(JSON.stringify({
+    error: 'invalid MiniMax-M3 scout request',
+    headers: [
+      ['authorization', 'Bearer short-secret'],
+      ['x-api-key', 'another-short-secret'],
+    ],
+  }));
+  assert.ok(detail.includes('MiniMax-M3'));
+  assert.ok(detail.includes('[redacted]'));
+  assert.ok(!detail.includes('short-secret'));
+  assert.ok(!detail.includes('another-short-secret'));
+}
+
+function testScoutErrorUsesLiteralJsonReplacement() {
+  const detail = router.sanitizeScoutErrorDetail(
+    '400 Bad Request: {"field":"api_key","value":"short-secret","error":"MiniMax-M3 $& scout request"}'
+  );
+  assert.ok(detail.includes('MiniMax-M3 $& scout request'));
+  assert.ok(detail.includes('[redacted]'));
+  assert.ok(!detail.includes('short-secret'));
+}
+
+function testScoutErrorSanitizesPunctuatedUnquotedLabels() {
+  const detail = router.sanitizeScoutErrorDetail(
+    'MiniMax-M3 failed with api_key: key-id:secret and token=abc$defghi'
+  );
+  assert.ok(detail.includes('MiniMax-M3'));
+  assert.ok(detail.includes('api_key: [redacted]'));
+  assert.ok(detail.includes('token=[redacted]'));
+  assert.ok(!detail.includes('key-id:secret'));
+  assert.ok(!detail.includes('abc$defghi'));
 }
 
 function testScoutErrorPreservesUuidDiagnostics() {
@@ -660,6 +694,9 @@ async function run() {
   testScoutErrorSanitizesFieldValueDiagnostics();
   testScoutErrorSanitizesShortQuotedProviderDiagnostics();
   testScoutErrorSanitizesAdditionalCredentialKeys();
+  testScoutErrorSanitizesTupleArraySecrets();
+  testScoutErrorUsesLiteralJsonReplacement();
+  testScoutErrorSanitizesPunctuatedUnquotedLabels();
   testScoutErrorPreservesUuidDiagnostics();
   testScoutErrorSanitizesShortUnquotedDiagnostics();
   testScoutErrorSanitizesPrefixedTextLabels();
