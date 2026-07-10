@@ -1388,6 +1388,241 @@ async function testCompletedWithErrorsRetryablePreservesFindings() {
   assert.strictEqual(metrics.ocr.total_tokens, 12345);
 }
 
+async function testInvalidJsonSkipsRetryableFailureAfterExistingSuccess() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ocr-post-invalid-test-'));
+  const resultPath = path.join(dir, 'result.json');
+  const metricsPath = path.join(dir, 'metrics.json');
+  fs.writeFileSync(resultPath, '{not json');
+  fs.writeFileSync(metricsPath, JSON.stringify({ mode: 'large-lean-hotspots' }));
+
+  const oldEnv = { ...process.env };
+  Object.assign(process.env, {
+    OCR_PR_NUMBER: '123',
+    OCR_HEAD_SHA: 'abc123',
+    OCR_RESULT_PATH: resultPath,
+    OCR_METRICS_PATH: metricsPath,
+    OCR_RULES_HASH: 'ruleshash',
+    OCR_REVIEWER_VERSION: 'reviewer-v3',
+    OCR_ROUTER_VERSION: router.ROUTER_VERSION,
+    OCR_MODE: 'large-lean-hotspots',
+  });
+
+  const existingSuccessKey = postOcrReview.buildDedupKey({
+    commit_id: 'abc123',
+    rulesHash: 'ruleshash',
+    reviewerVersion: 'reviewer-v3',
+    routerVersion: router.ROUTER_VERSION.slice(0, 20),
+    mode: 'large-lean-hotspots',
+    result: { status: 'packetized_review', summary: { mode: 'large-lean-hotspots' } },
+    metrics: {
+      mode: 'large-lean-hotspots',
+      packet_review: {
+        packets_selected: 5,
+        packet_budget: 7,
+        scout: { enabled: true, status: 'success', model: 'reviewer_scout' },
+      },
+    },
+  });
+
+  let createCommentCalled = false;
+  let notice = '';
+  const github = {
+    paginate: async route => {
+      if (route === github.rest.pulls.listReviews) {
+        return [{ body: `<!-- paloma-ocr-review:${existingSuccessKey}:success -->\nexisting success` }];
+      }
+      return [];
+    },
+    rest: {
+      issues: {
+        listComments: async () => [],
+        createComment: async () => {
+          createCommentCalled = true;
+          return { data: {} };
+        },
+      },
+      pulls: {
+        listReviews: async () => [],
+        createReview: async () => {
+          throw new Error('createReview should not be called');
+        },
+      },
+    },
+  };
+
+  await postOcrReview({
+    github,
+    context: { repo: { owner: 'lfglabs-dev', repo: 'verity' } },
+    core: { notice(message) { notice = message; }, warning() {} },
+  });
+
+  process.env = oldEnv;
+  assert.strictEqual(createCommentCalled, false);
+  assert.ok(notice.includes('skipping invalid JSON failure duplicate'));
+}
+
+async function testSuccessfulDuplicateDoesNotRewriteMetrics() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ocr-post-duplicate-test-'));
+  const resultPath = path.join(dir, 'result.json');
+  const metricsPath = path.join(dir, 'metrics.json');
+  fs.writeFileSync(resultPath, JSON.stringify({
+    status: 'packetized_review',
+    comments: [],
+    summary: { mode: 'large-lean-hotspots' },
+  }));
+
+  const originalMetrics = {
+    mode: 'large-lean-hotspots',
+    packet_review: {
+      enabled: true,
+      packets_selected: 5,
+      packet_budget: 7,
+      scout: { enabled: true, status: 'success', model: 'reviewer_scout' },
+    },
+  };
+  fs.writeFileSync(metricsPath, JSON.stringify(originalMetrics, null, 2));
+
+  const oldEnv = { ...process.env };
+  Object.assign(process.env, {
+    OCR_PR_NUMBER: '123',
+    OCR_HEAD_SHA: 'abc123',
+    OCR_RESULT_PATH: resultPath,
+    OCR_METRICS_PATH: metricsPath,
+    OCR_RULES_HASH: 'ruleshash',
+    OCR_REVIEWER_VERSION: 'reviewer-v3',
+    OCR_ROUTER_VERSION: router.ROUTER_VERSION,
+    OCR_MODE: 'large-lean-hotspots',
+  });
+
+  const existingSuccessKey = postOcrReview.buildDedupKey({
+    commit_id: 'abc123',
+    rulesHash: 'ruleshash',
+    reviewerVersion: 'reviewer-v3',
+    routerVersion: router.ROUTER_VERSION.slice(0, 20),
+    mode: 'large-lean-hotspots',
+    result: { status: 'packetized_review', summary: { mode: 'large-lean-hotspots' } },
+    metrics: originalMetrics,
+  });
+
+  let createReviewCalled = false;
+  const github = {
+    paginate: async route => {
+      if (route === github.rest.pulls.listReviews) {
+        return [{ body: `<!-- paloma-ocr-review:${existingSuccessKey}:success -->\nexisting success` }];
+      }
+      return [];
+    },
+    rest: {
+      issues: {
+        listComments: async () => [],
+        createComment: async () => {
+          throw new Error('createComment should not be called');
+        },
+      },
+      pulls: {
+        listReviews: async () => [],
+        createReview: async () => {
+          createReviewCalled = true;
+        },
+      },
+    },
+  };
+
+  await postOcrReview({
+    github,
+    context: { repo: { owner: 'lfglabs-dev', repo: 'verity' } },
+    core: { notice() {}, warning() {} },
+  });
+
+  process.env = oldEnv;
+  assert.strictEqual(createReviewCalled, false);
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(metricsPath, 'utf8')), originalMetrics);
+}
+
+async function testLegacyLargeLeanBaseTagDedupsOnlyMatchingScoutConfig() {
+  async function runCase({ currentModel, existingModel }) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ocr-post-legacy-duplicate-test-'));
+    const resultPath = path.join(dir, 'result.json');
+    const metricsPath = path.join(dir, 'metrics.json');
+    fs.writeFileSync(resultPath, JSON.stringify({
+      status: 'packetized_review',
+      comments: [],
+      summary: { mode: 'large-lean-hotspots' },
+    }));
+    fs.writeFileSync(metricsPath, JSON.stringify({
+      mode: 'large-lean-hotspots',
+      packet_review: {
+        enabled: true,
+        packets_selected: 5,
+        packet_budget: 7,
+        scout: { enabled: true, status: 'success', model: currentModel },
+      },
+    }));
+
+    const oldEnv = { ...process.env };
+    Object.assign(process.env, {
+      OCR_PR_NUMBER: '123',
+      OCR_HEAD_SHA: 'abc123',
+      OCR_RESULT_PATH: resultPath,
+      OCR_METRICS_PATH: metricsPath,
+      OCR_RULES_HASH: 'ruleshash',
+      OCR_REVIEWER_VERSION: 'reviewer-v3',
+      OCR_ROUTER_VERSION: router.ROUTER_VERSION,
+      OCR_MODE: 'large-lean-hotspots',
+    });
+
+    const legacyBaseKey = [
+      'abc123',
+      'ruleshash',
+      'reviewer-v3',
+      router.ROUTER_VERSION.slice(0, 20),
+      'large-lean-hotspots',
+    ].join(':');
+    const legacyBody = [
+      `<!-- paloma-ocr-review:${legacyBaseKey}:success -->`,
+      '### Packet coverage',
+      '- Packet review: enabled; selected 5/7 packet(s)',
+      `- Scout: configured; status success; model ${existingModel}`,
+    ].join('\n');
+
+    let createReviewCalled = false;
+    const github = {
+      paginate: async route => {
+        if (route === github.rest.pulls.listReviews) return [{ body: legacyBody }];
+        return [];
+      },
+      rest: {
+        issues: {
+          listComments: async () => [],
+          createComment: async () => {
+            throw new Error('createComment should not be called');
+          },
+        },
+        pulls: {
+          listReviews: async () => [],
+          createReview: async () => {
+            createReviewCalled = true;
+            return { data: {} };
+          },
+        },
+      },
+    };
+
+    await postOcrReview({
+      github,
+      context: { repo: { owner: 'lfglabs-dev', repo: 'verity' } },
+      core: { notice() {}, warning() {} },
+    });
+
+    process.env = oldEnv;
+    return createReviewCalled;
+  }
+
+  assert.strictEqual(await runCase({ currentModel: 'reviewer_scout', existingModel: 'reviewer_scout' }), false);
+  assert.strictEqual(await runCase({ currentModel: 'reviewer_scout', existingModel: 'MiniMax-M3' }), true);
+  assert.strictEqual(await runCase({ currentModel: 'gpt-4', existingModel: 'gpt-4o' }), true);
+}
+
 function testScoutProviderErrorsNeutralizeMentions() {
   const body = postOcrReview.buildReviewBody({
     tag: '<!-- test -->',
@@ -1418,6 +1653,61 @@ function testScoutProviderErrorsNeutralizeMentions() {
   assert.ok(body.includes('&#64;octocat'));
   assert.ok(!body.includes('@verity-admins'));
   assert.ok(!body.includes('@octocat'));
+}
+
+function testLargeLeanScoutDedupVariesBySanitizedScoutConfig() {
+  const base = {
+    commit_id: 'abc123',
+    rulesHash: 'ruleshash',
+    reviewerVersion: 'reviewer-v3',
+    routerVersion: router.ROUTER_VERSION,
+    mode: 'large-lean-hotspots',
+    result: { status: 'packetized_review', summary: { mode: 'large-lean-hotspots' } },
+  };
+  const metricsFor = (model, packetIds = []) => ({
+    mode: 'large-lean-hotspots',
+    packet_review: {
+      enabled: true,
+      packets_selected: 5,
+      packet_budget: 7,
+      packets: packetIds.map(packet_id => ({ packet_id })),
+      scout: {
+        enabled: true,
+        status: 'success',
+        model,
+      },
+    },
+  });
+
+  const minimaxKey = postOcrReview.buildDedupKey({ ...base, metrics: metricsFor('MiniMax-M3') });
+  const reviewerScoutKey = postOcrReview.buildDedupKey({ ...base, metrics: metricsFor('reviewer_scout') });
+  assert.notStrictEqual(minimaxKey, reviewerScoutKey);
+  assert.ok(minimaxKey.includes('scout-v1:enabled:model-MiniMax-M3:status-success:packets-5-of-7:ids-none'));
+  assert.ok(reviewerScoutKey.includes('scout-v1:enabled:model-reviewer_scout:status-success:packets-5-of-7:ids-none'));
+
+  const packetSetAKey = postOcrReview.buildDedupKey({ ...base, metrics: metricsFor('reviewer_scout', ['lean-1', 'lean-2']) });
+  const packetSetBKey = postOcrReview.buildDedupKey({ ...base, metrics: metricsFor('reviewer_scout', ['lean-1', 'lean-3']) });
+  assert.notStrictEqual(packetSetAKey, packetSetBKey);
+  assert.ok(packetSetAKey.includes(':ids-'));
+  assert.ok(!packetSetAKey.includes('lean-1'));
+
+  const unsafeModel = 'https://sandboxed.example/v1?api_key=abcdefghijklmnopqrstuvwxyz123456';
+  const unsafeKey = postOcrReview.buildDedupKey({ ...base, metrics: metricsFor(unsafeModel) });
+  assert.ok(unsafeKey.includes('model-redacted-'));
+  assert.ok(!unsafeKey.includes('sandboxed.example'));
+  assert.ok(!unsafeKey.includes('abcdefghijklmnopqrstuvwxyz123456'));
+
+  const shortTokenKey = postOcrReview.buildDedupKey({ ...base, metrics: metricsFor('abcdefghijklmnop') });
+  assert.ok(shortTokenKey.includes('model-redacted-'));
+  assert.ok(!shortTokenKey.includes('abcdefghijklmnop'));
+
+  const normalKey = postOcrReview.buildDedupKey({
+    ...base,
+    mode: 'small-lean',
+    result: { status: 'success', summary: { mode: 'small-lean' } },
+    metrics: { mode: 'small-lean', packet_review: { scout: { model: 'reviewer_scout' } } },
+  });
+  assert.strictEqual(normalKey, `${base.commit_id}:${base.rulesHash}:${base.reviewerVersion}:${base.routerVersion}:small-lean`);
 }
 
 async function run() {
@@ -1504,7 +1794,11 @@ async function run() {
   testWorkflowDocsEnabled();
   testGenericScriptConfigEnabled();
   await testCompletedWithErrorsRetryablePreservesFindings();
+  await testInvalidJsonSkipsRetryableFailureAfterExistingSuccess();
+  await testSuccessfulDuplicateDoesNotRewriteMetrics();
+  await testLegacyLargeLeanBaseTagDedupsOnlyMatchingScoutConfig();
   testScoutProviderErrorsNeutralizeMentions();
+  testLargeLeanScoutDedupVariesBySanitizedScoutConfig();
   console.log('OCR routing tests passed');
 }
 
