@@ -420,6 +420,16 @@ function testScoutErrorSanitizesMultipleEmbeddedJsonFragments() {
   assert.ok(!detail.includes('short-secret'));
 }
 
+function testScoutErrorSanitizesJsonEncodedStringFields() {
+  const detail = router.sanitizeScoutErrorDetail(JSON.stringify({
+    error: 'invalid MiniMax-M3 scout request',
+    message: JSON.stringify({ field: 'api_key', value: 'short-secret' }),
+  }));
+  assert.ok(detail.includes('MiniMax-M3'));
+  assert.ok(detail.includes('[redacted]'));
+  assert.ok(!detail.includes('short-secret'));
+}
+
 function testScoutErrorSanitizesFieldValueDiagnostics() {
   const detail = router.sanitizeScoutErrorDetail(JSON.stringify({
     error: 'invalid MiniMax-M3 scout request',
@@ -805,6 +815,7 @@ async function run() {
   testScoutErrorSanitizesLeadingJsonWithTrailingText();
   testScoutErrorSanitizesRepeatedEmbeddedJson();
   testScoutErrorSanitizesMultipleEmbeddedJsonFragments();
+  testScoutErrorSanitizesJsonEncodedStringFields();
   testScoutErrorSanitizesFieldValueDiagnostics();
   testScoutErrorSanitizesShortQuotedProviderDiagnostics();
   testScoutErrorSanitizesAdditionalCredentialKeys();

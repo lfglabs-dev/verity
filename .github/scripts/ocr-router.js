@@ -636,7 +636,10 @@ function redactSecretJsonValue(value, key = '') {
         : redactSecretJsonValue(childValue, childKey),
     ]));
   }
-  if (typeof value === 'string') return redactSecretText(value);
+  if (typeof value === 'string') {
+    const structured = redactStructuredError(value);
+    return redactSecretText(structured || value);
+  }
   return value;
 }
 
