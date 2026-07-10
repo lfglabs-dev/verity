@@ -4,6 +4,7 @@ import Compiler.Proofs.IRGeneration.SupportedSpec
 namespace Compiler.Proofs.IRGeneration
 
 open Compiler.CompilationModel
+open Compiler.Yul
 
 mutual
 
@@ -131,5 +132,67 @@ theorem compileStmtListWithFork_internal_shape_irrelevant_of_returnFree
       ]
 
 end
+
+/-- Successful internal-helper compilation has the same body shape as external
+statement-list compilation whenever the source body avoids return-family
+statements.  The internal return slots may still be declared on the `funcDef`;
+this theorem only identifies the helper body. -/
+theorem compileInternalFunction_body_eq_external_of_returnFree
+    {fields : List Field} {events : List EventDef} {errors : List ErrorDef}
+    {adtTypes : List AdtTypeDef} {spec : FunctionSpec}
+    {targetFork : Verity.Core.Intrinsics.HardFork}
+    {internalFunctions : List FunctionSpec} {stmt : YulStmt}
+    (hcompile :
+      CompilationModel.compileInternalFunction fields events errors adtTypes spec
+        (targetFork := targetFork) (internalFunctions := internalFunctions) =
+          Except.ok stmt)
+    (hreturnFree : stmtListUsesReturnFamily spec.body = false) :
+    ∃ returns retNames bodyStmts,
+      CompilationModel.functionReturns spec = Except.ok returns ∧
+      CompilationModel.compileStmtListWithFork fields events errors .calldata
+        [] false
+        (CompilationModel.internalFunctionYulParamNames spec.params ++ retNames)
+        adtTypes targetFork spec.body internalFunctions = Except.ok bodyStmts ∧
+      stmt = YulStmt.funcDef
+        (CompilationModel.internalFunctionYulName spec.name)
+        (CompilationModel.internalFunctionYulParamNames spec.params)
+        retNames
+        bodyStmts := by
+  simp only [CompilationModel.compileInternalFunction, bind, Except.bind] at hcompile
+  cases hvalidate : CompilationModel.validateFunctionSpec spec with
+  | error e =>
+      simp [hvalidate] at hcompile
+  | ok _ =>
+      simp only [hvalidate] at hcompile
+      cases hreturns : CompilationModel.functionReturns spec with
+      | error e =>
+          simp [hreturns] at hcompile
+      | ok returns =>
+          simp only [hreturns] at hcompile
+          let paramNames := CompilationModel.internalFunctionYulParamNames spec.params
+          let usedNames := paramNames ++ collectStmtListBindNames spec.body
+          let retNames := CompilationModel.freshInternalRetNames returns usedNames
+          have hirrel :
+              CompilationModel.compileStmtListWithFork fields events errors .calldata
+                retNames true (paramNames ++ retNames) adtTypes targetFork
+                spec.body internalFunctions =
+              CompilationModel.compileStmtListWithFork fields events errors .calldata
+                [] false (paramNames ++ retNames) adtTypes targetFork
+                spec.body internalFunctions :=
+            compileStmtListWithFork_internal_shape_irrelevant_of_returnFree
+              fields events errors .calldata retNames true (paramNames ++ retNames)
+              adtTypes targetFork spec.body internalFunctions hreturnFree
+          cases hbody :
+              CompilationModel.compileStmtListWithFork fields events errors .calldata
+                retNames true (paramNames ++ retNames) adtTypes targetFork
+                spec.body internalFunctions with
+          | error e =>
+              rw [hbody] at hcompile
+              cases hcompile
+          | ok bodyStmts =>
+              rw [hbody] at hcompile
+              simp only [pure, Except.pure, Except.ok.injEq] at hcompile
+              refine ⟨returns, retNames, bodyStmts, rfl, ?_, hcompile.symm⟩
+              rw [← hirrel, hbody]
 
 end Compiler.Proofs.IRGeneration
