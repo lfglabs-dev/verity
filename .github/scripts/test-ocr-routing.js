@@ -339,6 +339,13 @@ function testScoutErrorSanitizesJwtWithoutDroppingPlainDiagnostics() {
   assert.ok(!detail.includes(jwt));
 }
 
+function testScoutErrorSanitizesPunctuatedBearerCredentials() {
+  const detail = router.sanitizeScoutErrorDetail('MiniMax-M3 failed with Bearer abc:def+ghi/jkl~mno');
+  assert.ok(detail.includes('MiniMax-M3'));
+  assert.ok(detail.includes('Bearer [redacted]'));
+  assert.ok(!detail.includes('abc:def'));
+}
+
 function testScoutErrorSanitizesBareCredentialLikeStrings() {
   const detail = router.sanitizeScoutErrorDetail(JSON.stringify({
     error: 'invalid MiniMax-M3 scout request',
@@ -630,6 +637,7 @@ async function run() {
   testScoutErrorSanitizesApiKeyPhrases();
   testScoutErrorSanitizesStructuredSecrets();
   testScoutErrorSanitizesJwtWithoutDroppingPlainDiagnostics();
+  testScoutErrorSanitizesPunctuatedBearerCredentials();
   testScoutErrorSanitizesBareCredentialLikeStrings();
   testScoutErrorSanitizesQuotedFallbackDiagnostics();
   testScoutErrorSanitizesEmbeddedJsonDiagnostics();

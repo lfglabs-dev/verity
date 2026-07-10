@@ -608,7 +608,7 @@ function redactSecretText(text) {
   return String(text || '')
     .replace(/https?:\/\/[^\s"')]+/g, '[url-redacted]')
     .replace(/\beyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, '[redacted]')
-    .replace(/Bearer\s+[A-Za-z0-9._~+/-]+={0,2}/gi, 'Bearer [redacted]')
+    .replace(/Bearer\s+[^\s"',)}\]]+/gi, 'Bearer [redacted]')
     .replace(/\bsk-[A-Za-z0-9._-]+/gi, '[redacted]')
     .replace(/(["'`])((?:[A-Za-z0-9_-]*(?:api\s*key|api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?(?:secret|id)|api[_-]?secret|consumer[_-]?secret|private[_-]?key|bearer[_-]?token|session[_-]?(?:secret|token)|auth[_-]?code|credential|credentials|passphrase|password|secret))|token|authorization)\1(\s*:\s*)(["'`])(?:\\.|(?!\4).){0,300}\4/gi, '$1$2$1$3$4[redacted]$4')
     .replace(/\b((?:[A-Za-z0-9_-]*(?:api\s*key|api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?(?:secret|id)|api[_-]?secret|consumer[_-]?secret|private[_-]?key|bearer[_-]?token|session[_-]?(?:secret|token)|auth[_-]?code|credential|credentials|passphrase|password|secret))|token|authorization)\b([^"'`\n]{0,120}?[:=]\s*)(["'`])(?:\\.|(?!\3).){0,300}\3/gi, '$1$2$3[redacted]$3')
