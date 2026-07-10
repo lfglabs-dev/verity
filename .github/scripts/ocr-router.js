@@ -775,12 +775,22 @@ function codeLinesForHunkSide(hunk, side, options = {}) {
   let commentDepth = 0;
   let inString = false;
   let stringEscaped = false;
+  let inStringInterpolated = false;
+  let stringInterpolationState = null;
   for (const line of hunk.lines || []) {
     if (line.type === skipType) continue;
-    const stripped = stripLeanCommentsFromLine(line.text, { commentDepth, inString, stringEscaped }, 0, options);
+    const stripped = stripLeanCommentsFromLine(line.text, {
+      commentDepth,
+      inString,
+      stringEscaped,
+      inStringInterpolated,
+      stringInterpolationState,
+    }, 0, options);
     commentDepth = stripped.commentDepth;
     inString = stripped.inString;
     stringEscaped = stripped.stringEscaped;
+    inStringInterpolated = stripped.inStringInterpolated;
+    stringInterpolationState = stripped.stringInterpolationState;
     if (line.type === includeType && stripped.code.trim()) code.push(stripped.code);
   }
   return code;
@@ -795,12 +805,16 @@ function stripLeanCommentsFromLine(line, state, depth = 0, options = {}) {
       commentDepth: Number(state.commentDepth || 0),
       inString: Boolean(state.inString),
       stringEscaped: Boolean(state.stringEscaped),
+      inStringInterpolated: Boolean(state.inStringInterpolated),
+      stringInterpolationState: state.stringInterpolationState || null,
     };
   }
   let code = '';
   let commentDepth = Number(state.commentDepth || 0);
   let inString = Boolean(state.inString);
   let stringEscaped = Boolean(state.stringEscaped);
+  let inStringInterpolated = Boolean(state.inStringInterpolated);
+  let stringInterpolationState = state.stringInterpolationState || null;
   let i = 0;
 
   while (i < text.length) {
@@ -808,6 +822,21 @@ function stripLeanCommentsFromLine(line, state, depth = 0, options = {}) {
     const next = text[i + 1];
 
     if (inString) {
+      if (inStringInterpolated) {
+        const stringResult = scanLeanString(text, -1, true, depth + 1, stringInterpolationState);
+        code += options.preserveStrings ? text.slice(0, stringResult.nextIndex) : stringResult.code;
+        i = stringResult.nextIndex;
+        if (stringResult.closed) {
+          inString = false;
+          stringEscaped = false;
+          inStringInterpolated = false;
+          stringInterpolationState = null;
+        } else {
+          stringEscaped = Boolean(stringResult.escaped);
+          stringInterpolationState = stringResult.state;
+        }
+        continue;
+      }
       if (options.preserveStrings) code += ch;
       i += 1;
       if (stringEscaped) {
@@ -834,18 +863,21 @@ function stripLeanCommentsFromLine(line, state, depth = 0, options = {}) {
     }
 
     if (ch === '"') {
-      const stringResult = scanLeanString(text, i, /[A-Za-z]!$/.test(text.slice(0, i)), depth + 1);
+      const interpolated = /[A-Za-z]!$/.test(text.slice(0, i));
+      const stringResult = scanLeanString(text, i, interpolated, depth + 1);
       code += options.preserveStrings ? text.slice(i, stringResult.nextIndex) : stringResult.code;
       i = stringResult.nextIndex;
       if (!stringResult.closed) {
         inString = true;
         stringEscaped = Boolean(stringResult.escaped);
+        inStringInterpolated = interpolated;
+        stringInterpolationState = stringResult.state;
       }
       continue;
     }
 
     if (ch === '-' && next === '-') {
-      return { code, inBlockComment: false, commentDepth: 0, inString, stringEscaped };
+      return { code, inBlockComment: false, commentDepth: 0, inString, stringEscaped, inStringInterpolated, stringInterpolationState };
     }
 
     if (ch === '/' && next === '-') {
@@ -858,21 +890,21 @@ function stripLeanCommentsFromLine(line, state, depth = 0, options = {}) {
     i += 1;
   }
 
-  return { code, inBlockComment: commentDepth > 0, commentDepth, inString, stringEscaped };
+  return { code, inBlockComment: commentDepth > 0, commentDepth, inString, stringEscaped, inStringInterpolated, stringInterpolationState };
 }
 
-function scanLeanString(text, quoteIndex, interpolated, depth = 0) {
-  if (depth > 8) return { code: '""', nextIndex: quoteIndex + 1, closed: false, escaped: false };
-  let code = '""';
-  let i = quoteIndex + 1;
-  let escaped = false;
+function scanLeanString(text, quoteIndex, interpolated, depth = 0, initialState = null) {
+  if (depth > 8) return { code: quoteIndex >= 0 ? '""' : '', nextIndex: Math.max(0, quoteIndex + 1), closed: false, escaped: false, state: null };
+  let code = quoteIndex >= 0 ? '""' : '';
+  let i = quoteIndex >= 0 ? quoteIndex + 1 : 0;
+  let escaped = Boolean(initialState?.escaped);
   let closed = false;
-  let interpolationDepth = 0;
-  let interpolation = '';
-  let interpolationString = false;
-  let interpolationChar = false;
-  let interpolationEscaped = false;
-  let interpolationCommentDepth = 0;
+  let interpolationDepth = Number(initialState?.interpolationDepth || 0);
+  let interpolation = String(initialState?.interpolation || '');
+  let interpolationString = Boolean(initialState?.interpolationString);
+  let interpolationChar = Boolean(initialState?.interpolationChar);
+  let interpolationEscaped = Boolean(initialState?.interpolationEscaped);
+  let interpolationCommentDepth = Number(initialState?.interpolationCommentDepth || 0);
   while (i < text.length) {
     const ch = text[i];
     i += 1;
@@ -962,7 +994,21 @@ function scanLeanString(text, quoteIndex, interpolated, depth = 0) {
       break;
     }
   }
-  return { code, nextIndex: i, closed, escaped };
+  return {
+    code,
+    nextIndex: i,
+    closed,
+    escaped,
+    state: {
+      escaped,
+      interpolationDepth,
+      interpolation,
+      interpolationString,
+      interpolationChar,
+      interpolationEscaped,
+      interpolationCommentDepth,
+    },
+  };
 }
 
 function isLeanIdentContinue(ch) {

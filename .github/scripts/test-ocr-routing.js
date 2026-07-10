@@ -229,6 +229,63 @@ function testLeanInterpolatedStringBlockCommentBracesDoNotStopScanning() {
   assert.ok(packets[0].signals.includes('introduced sorry/admit'));
 }
 
+function testLeanMultilineInterpolatedStringExpressionsAreScanned() {
+  const leanFile = file('Compiler/Proofs/MultilineInterpolatedString.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/MultilineInterpolatedString.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['add', 'def note := s!"value'],
+    ['add', '{(by sorry : Nat)}"'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(packets[0].signals.includes('introduced sorry/admit'));
+}
+
+function testLeanMultilineOpenInterpolationExpressionsAreScanned() {
+  const leanFile = file('Compiler/Proofs/MultilineOpenInterpolation.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/MultilineOpenInterpolation.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['add', 'def note := s!"value {'],
+    ['add', '(by admit : Nat)'],
+    ['add', '}"'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(packets[0].signals.includes('introduced sorry/admit'));
+}
+
+function testLeanMultilineInterpolationQuotedBracesDoNotStopScanning() {
+  const leanFile = file('Compiler/Proofs/MultilineInterpolationQuotedBrace.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/MultilineInterpolationQuotedBrace.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['add', 'def exact := s!"{'],
+    ['add', 'let c := \'}\''],
+    ['add', '(by sorry : Nat)'],
+    ['add', '}"'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(packets[0].signals.includes('introduced sorry/admit'));
+}
+
+function testLeanMultilineInterpolationUnicodePrimedIdentifiersDoNotStopScanning() {
+  const leanFile = file('Compiler/Proofs/MultilineInterpolationUnicodePrimedIdentifier.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/MultilineInterpolationUnicodePrimedIdentifier.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['add', 'def note := s!"value {'],
+    ['add', "let x₁' := 0"],
+    ['add', '(by sorry : Nat)'],
+    ['add', '}"'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(packets[0].signals.includes('introduced sorry/admit'));
+}
+
 function testLeanInterpolatedStringPrimedIdentifiersDoNotStopScanning() {
   const leanFile = file('Compiler/Proofs/InterpolatedStringPrimedIdentifier.lean', 10, 0);
   leanFile.hunks = [hunk('Compiler/Proofs/InterpolatedStringPrimedIdentifier.lean', 20, [
@@ -1014,6 +1071,10 @@ async function run() {
   testLeanInterpolatedStringQuotedBracesDoNotStopScanning();
   testLeanInterpolatedStringNestedQuotedBracesDoNotStopScanning();
   testLeanInterpolatedStringBlockCommentBracesDoNotStopScanning();
+  testLeanMultilineInterpolatedStringExpressionsAreScanned();
+  testLeanMultilineOpenInterpolationExpressionsAreScanned();
+  testLeanMultilineInterpolationQuotedBracesDoNotStopScanning();
+  testLeanMultilineInterpolationUnicodePrimedIdentifiersDoNotStopScanning();
   testLeanInterpolatedStringPrimedIdentifiersDoNotStopScanning();
   testLeanInterpolatedStringMultiPrimedIdentifiersDoNotStopScanning();
   testLeanInterpolatedStringUnicodePrimedIdentifiersDoNotStopScanning();
