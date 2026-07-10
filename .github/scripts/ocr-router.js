@@ -745,10 +745,8 @@ function scorePathRisk(filePath) {
 function detectSignals(file, hunk) {
   const signals = new Map();
   const add = (name, weight) => signals.set(name, { name, weight: Math.max(weight, signals.get(name)?.weight || 0) });
-  const added = hunk.lines.filter(l => l.type === 'add').map(l => l.text);
-  const deleted = hunk.lines.filter(l => l.type === 'del').map(l => l.text);
-  const addedCode = codeLines(added);
-  const deletedCode = codeLines(deleted);
+  const addedCode = codeLinesForHunkSide(hunk, 'new');
+  const deletedCode = codeLinesForHunkSide(hunk, 'old');
   const allChanged = [...addedCode, ...deletedCode];
 
   if (addedCode.some(line => /\b(sorry|admit)\b/.test(line))) add('introduced sorry/admit', 80);
@@ -767,50 +765,144 @@ function detectSignals(file, hunk) {
   return [...signals.values()].sort((a, b) => b.weight - a.weight || a.name.localeCompare(b.name));
 }
 
-function codeLines(lines) {
+function codeLinesForHunkSide(hunk, side) {
+  const includeType = side === 'old' ? 'del' : 'add';
+  const skipType = side === 'old' ? 'add' : 'del';
   const code = [];
-  let inBlockComment = false;
-  for (const line of lines) {
-    const stripped = stripLeanCommentsFromLine(line, { inBlockComment });
-    inBlockComment = stripped.inBlockComment;
-    if (stripped.code.trim()) code.push(stripped.code);
+  let commentDepth = 0;
+  for (const line of hunk.lines || []) {
+    if (line.type === skipType) continue;
+    const stripped = stripLeanCommentsFromLine(line.text, { commentDepth });
+    commentDepth = stripped.commentDepth;
+    if (line.type === includeType && stripped.code.trim()) code.push(stripped.code);
   }
   return code;
 }
 
-function stripLeanCommentsFromLine(line, state) {
-  let rest = String(line || '');
+function stripLeanCommentsFromLine(line, state, depth = 0) {
+  const text = String(line || '');
+  if (depth > 8) return { code: '', inBlockComment: Boolean(state.commentDepth), commentDepth: Number(state.commentDepth || 0) };
   let code = '';
-  let inBlockComment = Boolean(state.inBlockComment);
+  let commentDepth = Number(state.commentDepth || 0);
+  let i = 0;
 
-  while (rest) {
-    if (inBlockComment) {
-      const blockEnd = rest.indexOf('-/');
-      if (blockEnd === -1) return { code, inBlockComment: true };
-      rest = rest.slice(blockEnd + 2);
-      inBlockComment = false;
+  while (i < text.length) {
+    const ch = text[i];
+    const next = text[i + 1];
+
+    if (commentDepth > 0) {
+      if (ch === '/' && next === '-') {
+        commentDepth += 1;
+        i += 2;
+      } else if (ch === '-' && next === '/') {
+        commentDepth -= 1;
+        i += 2;
+      } else {
+        i += 1;
+      }
       continue;
     }
 
-    const lineComment = rest.indexOf('--');
-    const blockStart = rest.indexOf('/-');
-    if (lineComment !== -1 && (blockStart === -1 || lineComment < blockStart)) {
-      code += rest.slice(0, lineComment);
-      return { code, inBlockComment: false };
-    }
-    if (blockStart === -1) {
-      code += rest;
-      return { code, inBlockComment: false };
+    if (ch === '"') {
+      const stringResult = scanLeanString(text, i, /[A-Za-z]!$/.test(text.slice(0, i)), depth + 1);
+      code += stringResult.code;
+      i = stringResult.nextIndex;
+      continue;
     }
 
-    code += rest.slice(0, blockStart);
-    rest = rest.slice(blockStart + 2);
-    const blockEnd = rest.indexOf('-/');
-    if (blockEnd === -1) return { code, inBlockComment: true };
-    rest = rest.slice(blockEnd + 2);
+    if (ch === '-' && next === '-') {
+      return { code, inBlockComment: false, commentDepth: 0 };
+    }
+
+    if (ch === '/' && next === '-') {
+      commentDepth = 1;
+      i += 2;
+      continue;
+    }
+
+    code += ch;
+    i += 1;
   }
 
-  return { code, inBlockComment };
+  return { code, inBlockComment: commentDepth > 0, commentDepth };
+}
+
+function scanLeanString(text, quoteIndex, interpolated, depth = 0) {
+  if (depth > 8) return { code: '""', nextIndex: quoteIndex + 1 };
+  let code = '""';
+  let i = quoteIndex + 1;
+  let escaped = false;
+  let interpolationDepth = 0;
+  let interpolation = '';
+  let interpolationString = false;
+  let interpolationChar = false;
+  let interpolationEscaped = false;
+  while (i < text.length) {
+    const ch = text[i];
+    i += 1;
+
+    if (interpolationDepth > 0) {
+      interpolation += ch;
+      if (interpolationEscaped) {
+        interpolationEscaped = false;
+        continue;
+      }
+      if (ch === '\\') {
+        interpolationEscaped = interpolationString || interpolationChar;
+        continue;
+      }
+      if (interpolationString) {
+        if (ch === '"') interpolationString = false;
+        continue;
+      }
+      if (interpolationChar) {
+        if (ch === "'") interpolationChar = false;
+        continue;
+      }
+      if (ch === '"') {
+        interpolationString = true;
+        continue;
+      }
+      if (ch === "'" && !isLeanIdentContinue(interpolation[interpolation.length - 2] || '')) {
+        interpolationChar = true;
+        continue;
+      }
+      if (ch === '{') {
+        interpolationDepth += 1;
+      } else if (ch === '}') {
+        interpolationDepth -= 1;
+        if (interpolationDepth === 0) {
+          interpolation = interpolation.slice(0, -1);
+          code += ` ${stripLeanCommentsFromLine(interpolation, { commentDepth: 0 }, depth + 1).code} `;
+          interpolation = '';
+        }
+      }
+      continue;
+    }
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (ch === '\\') {
+      escaped = true;
+      continue;
+    }
+    if (interpolated && ch === '{') {
+      interpolationDepth = 1;
+      interpolation = '';
+      interpolationString = false;
+      interpolationChar = false;
+      interpolationEscaped = false;
+      continue;
+    }
+    if (ch === '"') break;
+  }
+  return { code, nextIndex: i };
+}
+
+function isLeanIdentContinue(ch) {
+  return /^[\p{L}\p{N}\p{M}_]$/u.test(ch);
 }
 
 function publicDeclPattern() {
