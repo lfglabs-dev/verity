@@ -580,7 +580,7 @@ function redactSecretJsonValue(value, key = '') {
   }
   if (value && typeof value === 'object') {
     const secretContext = Object.entries(value).some(([childKey, childValue]) => {
-      if (!/^(field|field_name|fieldName|param|parameter|name|key|loc|path|property|property_name|propertyName|attribute|target)$/i.test(childKey)) return false;
+      if (!/^(field|field_name|fieldName|param|parameter|name|key|loc|location|path|property|property_name|propertyName|attribute|target)$/i.test(childKey)) return false;
       return hasSecretIndicator(childValue);
     });
     return Object.fromEntries(Object.entries(value).map(([childKey, childValue]) => [
@@ -603,7 +603,7 @@ function hasSecretIndicator(value) {
 function isSecretKey(key) {
   const normalized = String(key || '')
     .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
-    .replace(/[\s-]+/g, '_')
+    .replace(/[^a-zA-Z0-9]+/g, '_')
     .toLowerCase();
   return normalized === 'token'
     || /(^|_)(api_key|apikey|access_token|refresh_token|id_token|client_secret|client_id|api_secret|consumer_secret|private_key|bearer_token|session_secret|session_token|auth_code|authcode|authorization|password|passphrase|credential|credentials|secret)($|_)/.test(normalized);

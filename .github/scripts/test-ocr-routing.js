@@ -529,6 +529,29 @@ function testScoutErrorSanitizesPropertyValueDiagnostics() {
   assert.ok(!detail.includes('short-secret'));
 }
 
+function testScoutErrorSanitizesDottedSecretKeys() {
+  const detail = router.sanitizeScoutErrorDetail(JSON.stringify({
+    error: 'invalid MiniMax-M3 scout request',
+    'config.apiKey': 'short-secret',
+    'openai.api_key': 'another-short-secret',
+  }));
+  assert.ok(detail.includes('MiniMax-M3'));
+  assert.ok(detail.includes('[redacted]'));
+  assert.ok(!detail.includes('short-secret'));
+  assert.ok(!detail.includes('another-short-secret'));
+}
+
+function testScoutErrorSanitizesLocationValueDiagnostics() {
+  const detail = router.sanitizeScoutErrorDetail(JSON.stringify({
+    error: 'invalid MiniMax-M3 scout request',
+    location: 'api_key',
+    value: 'short-secret',
+  }));
+  assert.ok(detail.includes('MiniMax-M3'));
+  assert.ok(detail.includes('[redacted]'));
+  assert.ok(!detail.includes('short-secret'));
+}
+
 function testScoutErrorPreservesTraceDiagnostics() {
   const detail = router.sanitizeScoutErrorDetail(
     'MiniMax-M3 request req_abcdefghijklmnopqrstuvwxyz123456 trace_id trace_abcdefghijklmnopqrstuvwxyz123456 failed'
@@ -701,6 +724,8 @@ async function run() {
   testScoutErrorSanitizesShortUnquotedDiagnostics();
   testScoutErrorSanitizesPrefixedTextLabels();
   testScoutErrorSanitizesPropertyValueDiagnostics();
+  testScoutErrorSanitizesDottedSecretKeys();
+  testScoutErrorSanitizesLocationValueDiagnostics();
   testScoutErrorPreservesTraceDiagnostics();
   testScoutErrorBoundsLargeProviderBodies();
   testScoutErrorRedactsLargeStructuredBodiesBeforeBounding();
