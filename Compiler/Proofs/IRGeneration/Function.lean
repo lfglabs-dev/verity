@@ -3781,6 +3781,42 @@ private theorem constructorTouchesUnsupportedRawCalldataSurface_eq_false
   simp [SourceSemantics.constructorTouchesUnsupportedRawCalldataSurface,
     hSupported.rawCalldataSurfaceClosed, hhelpers]
 
+private theorem wordNormalize_lt_evmModulus
+    (n : Nat) :
+    SourceSemantics.wordNormalize n < Compiler.Constants.evmModulus := by
+  rw [SourceSemantics.wordNormalize_eq_mod]
+  exact Nat.mod_lt n (by norm_num [Compiler.Constants.evmModulus, Verity.Core.UINT256_MODULUS])
+
+private theorem constructorArgAliasRawValue_lt_evmModulus
+    {rawArgs : List Nat}
+    {headWord value : Nat}
+    (hvalue :
+      Option.map SourceSemantics.wordNormalize rawArgs[headWord]? =
+        some value) :
+    value < Compiler.Constants.evmModulus := by
+  cases harg : rawArgs[headWord]? with
+  | none =>
+      simp [harg] at hvalue
+  | some raw =>
+      simp [harg] at hvalue
+      cases hvalue
+      exact wordNormalize_lt_evmModulus raw
+
+private theorem constructorArgAliasLookupValue_lt_evmModulus
+    {bindings : List (String × Nat)}
+    {name : String}
+    {value : Nat}
+    (hbounded : FunctionBody.bindingsBounded bindings)
+    (hvalue : SourceSemantics.lookupBinding? bindings name = some value) :
+    value < Compiler.Constants.evmModulus := by
+  have hlookup' :
+      FunctionBody.lookupBinding? bindings name = some value := by
+    simpa [FunctionBody.lookupBinding?, SourceSemantics.lookupBinding?] using hvalue
+  have hlookupValue :=
+    FunctionBody.lookupValue_eq_of_lookupBinding?_some hlookup'
+  rw [← hlookupValue]
+  exact hbounded name
+
 private theorem constructorArgAliasValue?_lt_evmModulus
     {param : Param}
     {rawArgs : List Nat}
@@ -3792,34 +3828,6 @@ private theorem constructorArgAliasValue?_lt_evmModulus
       SourceSemantics.constructorArgAliasValue? param rawArgs headWord bindings =
         some value) :
     value < Compiler.Constants.evmModulus := by
-  have hwordNormalize :
-      ∀ n, SourceSemantics.wordNormalize n < Compiler.Constants.evmModulus := by
-    intro n
-    rw [SourceSemantics.wordNormalize_eq_mod]
-    exact Nat.mod_lt n (by norm_num [Compiler.Constants.evmModulus, Verity.Core.UINT256_MODULUS])
-  have hrawBounded :
-      Option.map SourceSemantics.wordNormalize rawArgs[headWord]? = some value →
-        value < Compiler.Constants.evmModulus := by
-    intro hraw
-    cases harg : rawArgs[headWord]? with
-    | none =>
-        simp [harg] at hraw
-    | some raw =>
-        simp [harg] at hraw
-        cases hraw
-        exact hwordNormalize raw
-  have hlookupBounded :
-      ∀ {name value},
-        SourceSemantics.lookupBinding? bindings name = some value →
-          value < Compiler.Constants.evmModulus := by
-    intro name value hlookup
-    have hlookup' :
-        FunctionBody.lookupBinding? bindings name = some value := by
-      simpa [FunctionBody.lookupBinding?, SourceSemantics.lookupBinding?] using hlookup
-    have hlookupValue :=
-      FunctionBody.lookupValue_eq_of_lookupBinding?_some hlookup'
-    rw [← hlookupValue]
-    exact hbounded name
   rcases param with ⟨paramName, paramTy⟩
   unfold SourceSemantics.constructorArgAliasValue? at hvalue
   by_cases hdyn : isDynamicParamType paramTy = true
@@ -3828,66 +3836,15 @@ private theorem constructorArgAliasValue?_lt_evmModulus
       rw [hdyn] at hvalue
       simp only [if_true] at hvalue
       exact hvalue
-    exact hrawBounded hraw
+    exact constructorArgAliasRawValue_lt_evmModulus hraw
   · have hdynFalse : isDynamicParamType paramTy = false := by
       cases h : isDynamicParamType paramTy <;> simp [h] at hdyn ⊢
-    cases paramTy with
-    | uint256 =>
-        rw [hdynFalse] at hvalue
-        simp only [Bool.false_eq_true, if_false] at hvalue
-        exact hlookupBounded hvalue
-    | int256 =>
-        rw [hdynFalse] at hvalue
-        simp only [Bool.false_eq_true, if_false] at hvalue
-        exact hlookupBounded hvalue
-    | uint8 =>
-        rw [hdynFalse] at hvalue
-        simp only [Bool.false_eq_true, if_false] at hvalue
-        exact hlookupBounded hvalue
-    | uint16 =>
-        rw [hdynFalse] at hvalue
-        simp only [Bool.false_eq_true, if_false] at hvalue
-        exact hlookupBounded hvalue
-    | address =>
-        rw [hdynFalse] at hvalue
-        simp only [Bool.false_eq_true, if_false] at hvalue
-        exact hlookupBounded hvalue
-    | bool =>
-        rw [hdynFalse] at hvalue
-        simp only [Bool.false_eq_true, if_false] at hvalue
-        exact hlookupBounded hvalue
-    | bytes32 =>
-        rw [hdynFalse] at hvalue
-        simp only [Bool.false_eq_true, if_false] at hvalue
-        exact hlookupBounded hvalue
-    | string =>
-        rw [hdynFalse] at hvalue
-        simp only [Bool.false_eq_true, if_false] at hvalue
-        exact hrawBounded hvalue
-    | tuple elemTypes =>
-        rw [hdynFalse] at hvalue
-        simp only [Bool.false_eq_true, if_false] at hvalue
-        exact hrawBounded hvalue
-    | array elemType =>
-        rw [hdynFalse] at hvalue
-        simp only [Bool.false_eq_true, if_false] at hvalue
-        exact hrawBounded hvalue
-    | fixedArray elemType size =>
-        rw [hdynFalse] at hvalue
-        simp only [Bool.false_eq_true, if_false] at hvalue
-        exact hrawBounded hvalue
-    | bytes =>
-        rw [hdynFalse] at hvalue
-        simp only [Bool.false_eq_true, if_false] at hvalue
-        exact hrawBounded hvalue
-    | adt name maxFields =>
-        rw [hdynFalse] at hvalue
-        simp only [Bool.false_eq_true, if_false] at hvalue
-        exact hrawBounded hvalue
-    | newtypeOf name baseType =>
-        rw [hdynFalse] at hvalue
-        simp only [Bool.false_eq_true, if_false] at hvalue
-        exact hrawBounded hvalue
+    rw [hdynFalse] at hvalue
+    simp only [Bool.false_eq_true, if_false] at hvalue
+    cases paramTy <;>
+      first
+      | exact constructorArgAliasLookupValue_lt_evmModulus hbounded hvalue
+      | exact constructorArgAliasRawValue_lt_evmModulus hvalue
 
 private theorem bindConstructorArgAliasesFrom_bounded
     {remaining : List Param}
