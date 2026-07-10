@@ -549,6 +549,18 @@ function sanitizeScoutErrorDetail(err) {
 function redactStructuredError(text) {
   const trimmed = String(text || '').trim();
   if (!trimmed) return null;
+  let replaced = trimmed;
+  let changed = false;
+  for (const candidate of extractJsonCandidates(trimmed)) {
+    try {
+      const redacted = JSON.stringify(redactSecretJsonValue(JSON.parse(candidate)));
+      replaced = replaceLiteralAll(replaced, candidate, redacted);
+      changed = true;
+    } catch {
+      // Keep scanning; provider diagnostics may mix invalid and valid fragments.
+    }
+  }
+  if (changed) return replaced;
   const candidate = /^[\[{]/.test(trimmed)
     ? trimmed
     : extractJsonObject(trimmed) || extractJsonValue(trimmed, '[', ']');
@@ -568,6 +580,19 @@ function redactStructuredError(text) {
     }
     return null;
   }
+}
+
+function extractJsonCandidates(text) {
+  const candidates = [];
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (ch !== '{' && ch !== '[') continue;
+    const candidate = extractJsonValue(text.slice(i), ch, ch === '{' ? '}' : ']');
+    if (!candidate) continue;
+    candidates.push(candidate);
+    i += candidate.length - 1;
+  }
+  return candidates;
 }
 
 function redactSecretJsonValue(value, key = '') {
