@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const fs = require('fs');
 
 module.exports = async function postOcrReview({ github, context, core }) {
@@ -15,18 +16,11 @@ module.exports = async function postOcrReview({ github, context, core }) {
   const reviewerVersion = (process.env.OCR_REVIEWER_VERSION || 'reviewer-v2').slice(0, 20);
   const routerVersion = (process.env.OCR_ROUTER_VERSION || 'router-v0').slice(0, 20);
   const mode = (process.env.OCR_MODE || 'legacy').slice(0, 40);
-  const dedupKey = `${commit_id}:${rulesHash}:${reviewerVersion}:${routerVersion}:${mode}`;
-  const successTag = `<!-- paloma-ocr-review:${dedupKey}:success -->`;
-  const retryableTag = `<!-- paloma-ocr-review:${dedupKey}:retryable-failure -->`;
+  const defaultDedupKey = buildDedupBaseKey({ commit_id, rulesHash, reviewerVersion, routerVersion, mode });
+  const defaultRetryableTag = `<!-- paloma-ocr-review:${defaultDedupKey}:retryable-failure -->`;
 
   if (!pull_number || !commit_id) {
     throw new Error('OCR_PR_NUMBER and OCR_HEAD_SHA are required');
-  }
-
-  const alreadyPosted = await hasExistingTag(github, { owner, repo, pull_number, tag: successTag });
-  if (alreadyPosted) {
-    core.notice(`Successful OCR review for ${commit_id} was already posted; skipping duplicate.`);
-    return;
   }
 
   const raw = fs.existsSync(resultPath) ? fs.readFileSync(resultPath, 'utf8') : '';
@@ -35,6 +29,16 @@ module.exports = async function postOcrReview({ github, context, core }) {
   try {
     result = JSON.parse(raw);
   } catch (err) {
+    const alreadySucceeded = await hasExistingSuccessForDedupBase(github, {
+      owner,
+      repo,
+      pull_number,
+      dedupKeyBase: defaultDedupKey,
+    });
+    if (alreadySucceeded) {
+      core.notice(`Successful OCR review for ${commit_id} was already posted; skipping invalid JSON failure duplicate.`);
+      return;
+    }
     writeMetrics(metricsPath, enrichMetrics(readMetrics(metricsPath), {
       mode,
       result: { status: 'invalid_json', comments: [], warnings: [] },
@@ -43,7 +47,8 @@ module.exports = async function postOcrReview({ github, context, core }) {
     }));
     await github.rest.issues.createComment({
       owner, repo, issue_number: pull_number,
-      body: `${retryableTag}\n⚠️ **OpenCodeReview failed to produce valid JSON.**\n\n${stderr ? fenced(stderr) : 'No stderr captured.'}`,
+      // Invalid JSON has no trustworthy result/metrics payload, so use the base retryable tag.
+      body: `${defaultRetryableTag}\n⚠️ **OpenCodeReview failed to produce valid JSON.**\n\n${stderr ? fenced(stderr) : 'No stderr captured.'}`,
     });
     return;
   }
@@ -54,6 +59,28 @@ module.exports = async function postOcrReview({ github, context, core }) {
   const summaryOnly = [];
   const retryableResult = isRetryableResult(result);
   const metrics = enrichMetrics(readMetrics(metricsPath), { mode, result, stderr, retryable: retryableResult });
+  const dedupKey = buildDedupKey({ commit_id, rulesHash, reviewerVersion, routerVersion, mode, result, metrics });
+  const successTag = `<!-- paloma-ocr-review:${dedupKey}:success -->`;
+  const retryableTag = `<!-- paloma-ocr-review:${dedupKey}:retryable-failure -->`;
+
+  const alreadyPosted = await hasExistingTag(github, { owner, repo, pull_number, tag: successTag });
+  if (alreadyPosted) {
+    core.notice(`Successful OCR review for ${commit_id} was already posted; skipping duplicate.`);
+    return;
+  }
+  const legacyLargeLeanDuplicate = await hasExistingLegacyLargeLeanScoutSuccess(github, {
+    owner,
+    repo,
+    pull_number,
+    dedupKeyBase: defaultDedupKey,
+    result,
+    metrics,
+  });
+  if (legacyLargeLeanDuplicate) {
+    core.notice(`Successful large Lean scout review for ${commit_id} with the same scout discriminator was already posted; skipping duplicate.`);
+    return;
+  }
+
   writeMetrics(metricsPath, metrics);
 
   for (const c of comments) {
@@ -126,9 +153,151 @@ async function hasExistingTag(github, { owner, repo, pull_number, tag }) {
   return reviews.some(r => String(r.body || '').includes(tag));
 }
 
+async function hasExistingSuccessForDedupBase(github, { owner, repo, pull_number, dedupKeyBase }) {
+  const hasSuccess = body => {
+    const text = String(body || '');
+    const start = `<!-- paloma-ocr-review:${dedupKeyBase}`;
+    let index = text.indexOf(start);
+    while (index !== -1) {
+      const end = text.indexOf('-->', index);
+      if (end !== -1 && text.slice(index, end + 3).endsWith(':success -->')) return true;
+      index = text.indexOf(start, index + start.length);
+    }
+    return false;
+  };
+
+  const issueComments = await github.paginate(github.rest.issues.listComments, {
+    owner, repo, issue_number: pull_number, per_page: 100,
+  });
+  if (issueComments.some(c => hasSuccess(c.body))) return true;
+
+  const reviews = await github.paginate(github.rest.pulls.listReviews, {
+    owner, repo, pull_number, per_page: 100,
+  });
+  return reviews.some(r => hasSuccess(r.body));
+}
+
+async function hasExistingLegacyLargeLeanScoutSuccess(github, { owner, repo, pull_number, dedupKeyBase, result, metrics }) {
+  const signature = largeLeanScoutVisibleSignature({ result, metrics });
+  if (!signature) return false;
+  const legacyTag = `<!-- paloma-ocr-review:${dedupKeyBase}:success -->`;
+  const hasMatchingLegacySuccess = body => {
+    const text = String(body || '');
+    return text.includes(legacyTag)
+      && hasExactLegacyPacketLine(text, signature)
+      && hasExactLegacyScoutLine(text, signature);
+  };
+
+  const issueComments = await github.paginate(github.rest.issues.listComments, {
+    owner, repo, issue_number: pull_number, per_page: 100,
+  });
+  if (issueComments.some(c => hasMatchingLegacySuccess(c.body))) return true;
+
+  const reviews = await github.paginate(github.rest.pulls.listReviews, {
+    owner, repo, pull_number, per_page: 100,
+  });
+  return reviews.some(r => hasMatchingLegacySuccess(r.body));
+}
+
 function isRetryableResult(result) {
   const status = String(result.status || '').toLowerCase();
   return status === 'error' || status === 'failed' || status === 'failure' || status === 'completed_with_errors';
+}
+
+function buildDedupKey({ commit_id, rulesHash, reviewerVersion, routerVersion, mode, result, metrics }) {
+  const base = buildDedupBaseKey({ commit_id, rulesHash, reviewerVersion, routerVersion, mode });
+  const discriminator = buildLargeLeanScoutDedupDiscriminator({ mode, result, metrics });
+  return discriminator ? `${base}:${discriminator}` : base;
+}
+
+function buildDedupBaseKey({ commit_id, rulesHash, reviewerVersion, routerVersion, mode }) {
+  return `${commit_id}:${rulesHash}:${reviewerVersion}:${routerVersion}:${mode}`;
+}
+
+function buildLargeLeanScoutDedupDiscriminator({ mode, result, metrics }) {
+  const effectiveMode = metrics?.mode || result?.summary?.mode || mode;
+  const packetReview = metrics?.packet_review || result?.summary?.packet_review;
+  if (effectiveMode !== 'large-lean-hotspots' || !packetReview) return '';
+
+  const scout = packetReview.scout || {};
+  const enabled = scout.enabled ? 'enabled' : 'disabled';
+  const model = sanitizeDedupComponent(scout.model || 'none', 80);
+  const status = sanitizeDedupComponent(scout.status || 'unknown', 48);
+  const selected = sanitizeDedupComponent(packetReview.packets_selected ?? 'unknown', 24);
+  const budget = sanitizeDedupComponent(packetReview.packet_budget ?? 'unknown', 24);
+  const packetFingerprint = fingerprintPacketIds(packetReview);
+  return `scout-v1:${enabled}:model-${model}:status-${status}:packets-${selected}-of-${budget}:ids-${packetFingerprint}`;
+}
+
+function largeLeanScoutVisibleSignature({ result, metrics }) {
+  const effectiveMode = metrics?.mode || result?.summary?.mode;
+  const packetReview = metrics?.packet_review || result?.summary?.packet_review;
+  if (effectiveMode !== 'large-lean-hotspots' || !packetReview) return null;
+
+  const scout = packetReview.scout || {};
+  const model = String(scout.model || '').trim();
+  const status = String(scout.status || '').trim();
+  const selected = packetReview.packets_selected;
+  const budget = packetReview.packet_budget;
+  if (!model || !status || selected == null || budget == null) return null;
+  return {
+    model,
+    status,
+    selected: String(selected),
+    budget: String(budget),
+  };
+}
+
+function hasExactLegacyPacketLine(text, signature) {
+  const selected = escapeRegExp(signature.selected);
+  const budget = escapeRegExp(signature.budget);
+  return new RegExp(`(?:^|\\n)- Packet review: [^\\n]*selected ${selected}/${budget}(?:\\s|$)`).test(text);
+}
+
+function hasExactLegacyScoutLine(text, signature) {
+  const status = escapeRegExp(signature.status);
+  const model = escapeRegExp(signature.model);
+  return new RegExp(`(?:^|\\n)- Scout: [^\\n]*status ${status}; model ${model}(?:\\s|$)`).test(text);
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function sanitizeDedupComponent(value, maxLength = 80) {
+  const raw = String(value ?? '');
+  if (isSensitiveDedupValue(raw)) {
+    return `redacted-${hashDedupValue(raw)}`;
+  }
+  const sanitized = raw
+    .replace(/[^A-Za-z0-9._-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, maxLength);
+  return sanitized || 'empty';
+}
+
+function isSensitiveDedupValue(value) {
+  const text = String(value || '').trim();
+  if (!text) return false;
+  if (/https?:\/\//i.test(text) || /(^|[\s,;])\/\/[^\s,;]+/.test(text)) return true;
+  if (/(^|[\s,;])(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,}(?:[:/?#]|$)/.test(text)) return true;
+  if (/(api[_-]?key|token|secret|password|bearer)/i.test(text)) return true;
+  if (/^[A-Za-z0-9+/=_-]{16,}$/.test(text)) return true;
+  return false;
+}
+
+function hashDedupValue(value) {
+  return crypto.createHash('sha256').update(String(value)).digest('hex').slice(0, 12);
+}
+
+function fingerprintPacketIds(packetReview) {
+  const packets = Array.isArray(packetReview?.packets) ? packetReview.packets : [];
+  const ids = packets
+    .map(packet => packet?.packet_id || packet?.id || `${packet?.path || 'unknown'}:${packet?.start_line ?? '?'}-${packet?.end_line ?? '?'}`)
+    .filter(Boolean)
+    .map(String);
+  if (!ids.length) return 'none';
+  return hashDedupValue(ids.join('|'));
 }
 
 function toReviewComment(c) {
@@ -350,3 +519,5 @@ function escapeMd(s) {
 module.exports.isRetryableResult = isRetryableResult;
 module.exports.buildReviewBody = buildReviewBody;
 module.exports.extractOcrSummary = extractOcrSummary;
+module.exports.buildDedupKey = buildDedupKey;
+module.exports.buildLargeLeanScoutDedupDiscriminator = buildLargeLeanScoutDedupDiscriminator;
