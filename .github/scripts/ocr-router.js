@@ -778,10 +778,13 @@ function codeLinesForHunkSide(hunk, side, options = {}) {
   let inStringInterpolated = false;
   let stringInterpolationState = null;
   let pendingChangedInterpolation = false;
+  let pendingChangedInterpolationText = '';
   for (const line of hunk.lines || []) {
     if (line.type === skipType) continue;
-    if (line.type === includeType && isOpenInterpolationState({ inStringInterpolated, stringInterpolationState })) {
+    const wasOpenInterpolation = isOpenInterpolationState({ inStringInterpolated, stringInterpolationState });
+    if (line.type === includeType && wasOpenInterpolation) {
       pendingChangedInterpolation = true;
+      pendingChangedInterpolationText += `${line.text}\n`;
     }
     const stripped = stripLeanCommentsFromLine(line.text, {
       commentDepth,
@@ -800,17 +803,26 @@ function codeLinesForHunkSide(hunk, side, options = {}) {
     }
     if (line.type === includeType && stripped.code.trim()) {
       code.push(stripped.code);
-    } else if (pendingChangedInterpolation && stripped.emittedInterpolationCodeText?.trim()) {
-      code.push(stripped.emittedInterpolationCodeText);
+    } else if (pendingChangedInterpolation && !isOpenInterpolationState(stripped) && pendingChangedInterpolationText.trim()) {
+      const changedInterpolation = stripLeanCommentsFromText(
+        pendingChangedInterpolationText,
+        { commentDepth: 0 },
+        0,
+        options
+      );
+      if (changedInterpolation.code.trim()) code.push(changedInterpolation.code);
     }
     if (stripped.emittedInterpolationCode || !isOpenInterpolationState(stripped)) {
       pendingChangedInterpolation = false;
+      pendingChangedInterpolationText = '';
     }
   }
   if (pendingChangedInterpolation && isOpenInterpolationState({ inStringInterpolated, stringInterpolationState })) {
     const strippedInterpolation = stripLeanCommentsFromText(
-      stringInterpolationState.interpolation,
-      { commentDepth: 0 }
+      pendingChangedInterpolationText || stringInterpolationState.interpolation,
+      { commentDepth: 0 },
+      0,
+      options
     );
     if (strippedInterpolation.code.trim()) code.push(strippedInterpolation.code);
   }

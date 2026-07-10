@@ -314,6 +314,22 @@ function testLeanContextClosedInterpolationDoesNotAttributeContextCode() {
   assert.ok(!packets[0].signals.includes('introduced sorry/admit'));
 }
 
+function testLeanContextOpenedInterpolationDoesNotAttributePriorContextCode() {
+  const leanFile = file('Compiler/Proofs/ContextOpenedInterpolationPriorCode.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/ContextOpenedInterpolationPriorCode.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['ctx', 'def note := s!"value {'],
+    ['ctx', '(by sorry : Nat)'],
+    ['add', 'let harmless := 0'],
+    ['ctx', 'harmless'],
+    ['ctx', '}"'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(!packets[0].signals.includes('introduced sorry/admit'));
+}
+
 function testLeanUnterminatedContextOpenedInterpolationFlushesAddedCode() {
   const leanFile = file('Compiler/Proofs/UnterminatedContextOpenedInterpolation.lean', 10, 0);
   leanFile.hunks = [hunk('Compiler/Proofs/UnterminatedContextOpenedInterpolation.lean', 20, [
@@ -1132,6 +1148,7 @@ async function run() {
   testLeanMultilineInterpolationUnicodePrimedIdentifiersDoNotStopScanning();
   testLeanContextOpenedInterpolationAttributesAddedCode();
   testLeanContextClosedInterpolationDoesNotAttributeContextCode();
+  testLeanContextOpenedInterpolationDoesNotAttributePriorContextCode();
   testLeanUnterminatedContextOpenedInterpolationFlushesAddedCode();
   testLeanMultilineInterpolationLineCommentDoesNotHideNextLine();
   testLeanInterpolatedStringPrimedIdentifiersDoNotStopScanning();
