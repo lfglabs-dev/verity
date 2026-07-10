@@ -771,498 +771,180 @@ function detectSignals(file, hunk) {
 function codeLinesForHunkSide(hunk, side, options = {}) {
   const includeType = side === 'old' ? 'del' : 'add';
   const skipType = side === 'old' ? 'add' : 'del';
-  const code = [];
-  let commentDepth = 0;
-  let inString = false;
-  let stringEscaped = false;
-  let inStringInterpolated = false;
-  let stringInterpolationState = null;
-  let inEscapedIdent = false;
-  let pendingChangedInterpolation = false;
-  let pendingChangedInterpolationText = '';
+  const scanner = createLeanChangedCodeScanner(options);
   for (const line of hunk.lines || []) {
     if (line.type === skipType) continue;
-    const wasOpenInterpolation = isOpenInterpolationState({ inStringInterpolated, stringInterpolationState });
-    if (line.type === includeType && wasOpenInterpolation) {
-      pendingChangedInterpolation = true;
-      pendingChangedInterpolationText += changedInterpolationLineText(line.text, stringInterpolationState, options);
-    }
-    const stripped = stripLeanCommentsFromLine(line.text, {
-      commentDepth,
-      inString,
-      stringEscaped,
-      inStringInterpolated,
-      stringInterpolationState,
-      inEscapedIdent,
-    }, 0, options);
-    commentDepth = stripped.commentDepth;
-    inString = stripped.inString;
-    stringEscaped = stripped.stringEscaped;
-    inStringInterpolated = stripped.inStringInterpolated;
-    stringInterpolationState = stripped.stringInterpolationState;
-    inEscapedIdent = stripped.inEscapedIdent;
-    if (line.type === includeType && isOpenInterpolationState(stripped)) {
-      pendingChangedInterpolation = true;
-    }
-    if (line.type === includeType && stripped.code.trim() && !wasOpenInterpolation) {
-      code.push(stripped.code);
-    } else if (pendingChangedInterpolation && !isOpenInterpolationState(stripped) && pendingChangedInterpolationText.trim()) {
-      const changedInterpolation = stripLeanCommentsFromText(
-        pendingChangedInterpolationText,
-        { commentDepth: 0 },
-        0,
-        options
-      );
-      if (changedInterpolation.code.trim()) code.push(changedInterpolation.code);
-    }
-    if (stripped.emittedInterpolationCode || !isOpenInterpolationState(stripped)) {
-      pendingChangedInterpolation = false;
-      pendingChangedInterpolationText = '';
-    }
+    scanner.scanLine(line.text, line.type === includeType);
   }
-  if (pendingChangedInterpolation && isOpenInterpolationState({ inStringInterpolated, stringInterpolationState })) {
-    const strippedInterpolation = stripLeanCommentsFromText(
-      pendingChangedInterpolationText || stringInterpolationState.interpolation,
-      { commentDepth: 0 },
-      0,
-      options
-    );
-    if (strippedInterpolation.code.trim()) code.push(strippedInterpolation.code);
-  }
-  return code;
+  return scanner.finish();
 }
 
-function changedInterpolationLineText(text, state, options = {}) {
-  const line = String(text || '');
-  let code = '';
-  let interpolationString = Boolean(state?.interpolationString);
-  let interpolationStringInterpolated = Boolean(state?.interpolationStringInterpolated);
-  let interpolationStringInterpolationDepth = Number(state?.interpolationStringInterpolationDepth || 0);
-  let interpolationChar = Boolean(state?.interpolationChar);
-  let interpolationEscaped = Boolean(state?.interpolationEscaped);
-  let interpolationCommentDepth = Number(state?.interpolationCommentDepth || 0);
-  let interpolationEscapedIdent = Boolean(state?.interpolationEscapedIdent);
-  let interpolationDepth = Number(state?.interpolationDepth || 0);
-  let inOuterStringTail = interpolationDepth <= 0;
-  let outerStringEscaped = false;
-  let i = 0;
-  while (i < line.length) {
-    const ch = line[i];
-    const next = line[i + 1];
-    if (inOuterStringTail) {
-      if (outerStringEscaped) {
-        outerStringEscaped = false;
-      } else if (ch === '\\') {
-        outerStringEscaped = true;
-      } else if (ch === '{') {
-        interpolationDepth = 1;
-        interpolationString = false;
-        interpolationChar = false;
-        interpolationEscaped = false;
-        interpolationCommentDepth = 0;
-        inOuterStringTail = false;
-      } else if (ch === '"') {
-        inOuterStringTail = false;
-      }
-      i += 1;
-      continue;
-    }
-    if (interpolationCommentDepth > 0) {
-      if (ch === '/' && next === '-') {
-        interpolationCommentDepth += 1;
-        i += 2;
-      } else if (ch === '-' && next === '/') {
-        interpolationCommentDepth -= 1;
-        i += 2;
-      } else {
-        i += 1;
-      }
-      continue;
-    }
-    if (interpolationEscapedIdent) {
-      if (ch === '»') interpolationEscapedIdent = false;
-      code += ch;
-      i += 1;
-      continue;
-    }
-    if (interpolationEscaped) {
-      interpolationEscaped = false;
-      i += 1;
-      continue;
-    }
-    if (ch === '\\' && (interpolationString || interpolationChar)) {
-      interpolationEscaped = true;
-      i += 1;
-      continue;
-    }
-    if (interpolationString) {
-      if (interpolationStringInterpolated && interpolationStringInterpolationDepth > 0) {
-        if (ch === '{') {
-          interpolationStringInterpolationDepth += 1;
-          code += ch;
-        } else if (ch === '}') {
-          interpolationStringInterpolationDepth -= 1;
-        } else {
-          code += ch;
-        }
-        i += 1;
-        continue;
-      }
-      if (interpolationStringInterpolated && ch === '{') {
-        interpolationStringInterpolationDepth = 1;
-      } else if (ch === '"') {
-        interpolationString = false;
-        interpolationStringInterpolated = false;
-      }
-      i += 1;
-      continue;
-    }
-    if (interpolationChar) {
-      if (ch === "'") interpolationChar = false;
-      i += 1;
-      continue;
-    }
-    if (ch === '-' && next === '-') break;
-    if (ch === '/' && next === '-') {
-      interpolationCommentDepth = 1;
-      i += 2;
-      continue;
-    }
-    if (ch === '«') {
-      interpolationEscapedIdent = true;
-      code += ch;
-      i += 1;
-      continue;
-    }
-    if (ch === '"') {
-      interpolationString = true;
-      interpolationStringInterpolated = /[A-Za-z]!$/.test(line.slice(0, i));
-      interpolationStringInterpolationDepth = 0;
-      i += 1;
-      continue;
-    }
-    if (ch === "'" && startsLeanCharLiteral(line, i)) {
-      interpolationChar = true;
-      i += 1;
-      continue;
-    }
-    if (interpolationDepth > 0 && ch === '{') {
-      interpolationDepth += 1;
-      code += ch;
-      i += 1;
-      continue;
-    }
-    if (interpolationDepth > 0 && ch === '}') {
-      interpolationDepth -= 1;
-      if (interpolationDepth === 0) inOuterStringTail = true;
-      i += 1;
-      continue;
-    }
-    code += ch;
-    i += 1;
-  }
-  return code.trim() ? `${code}\n` : '';
-}
-
-function isOpenInterpolationState(state) {
-  return Boolean(
-    state?.inStringInterpolated &&
-    Number(state?.stringInterpolationState?.interpolationDepth || 0) > 0
-  );
-}
-
-function stripLeanCommentsFromText(text, state, depth = 0, options = {}) {
-  let nextState = state;
-  let emittedInterpolationCode = false;
-  let emittedInterpolationCodeText = '';
+function createLeanChangedCodeScanner(options = {}) {
   const code = [];
-  for (const line of String(text || '').split('\n')) {
-    const stripped = stripLeanCommentsFromLine(line, nextState, depth, options);
-    nextState = stripped;
-    emittedInterpolationCode = emittedInterpolationCode || Boolean(stripped.emittedInterpolationCode);
-    emittedInterpolationCodeText += stripped.emittedInterpolationCodeText || '';
-    if (stripped.code.trim()) code.push(stripped.code);
-  }
-  return {
-    ...nextState,
-    code: code.join('\n'),
-    emittedInterpolationCode,
-    emittedInterpolationCodeText,
+  const interpolationFrames = [];
+  let current = '';
+  let commentDepth = 0;
+  let lineComment = false;
+  let escapedIdent = false;
+  let charLiteral = false;
+  let charEscaped = false;
+  let string = null;
+  let prefix = '';
+
+  const remember = ch => {
+    prefix = ch === '\n' ? '' : `${prefix}${ch}`.slice(-32);
   };
-}
-
-function stripLeanCommentsFromLine(line, state, depth = 0, options = {}) {
-  const text = String(line || '');
-  if (depth > 8) {
-    return {
-      code: '',
-      inBlockComment: Boolean(state.commentDepth),
-      commentDepth: Number(state.commentDepth || 0),
-      inString: Boolean(state.inString),
-      stringEscaped: Boolean(state.stringEscaped),
-      inStringInterpolated: Boolean(state.inStringInterpolated),
-      stringInterpolationState: state.stringInterpolationState || null,
-      inEscapedIdent: Boolean(state.inEscapedIdent),
-      emittedInterpolationCode: false,
-      emittedInterpolationCodeText: '',
-    };
-  }
-  let code = '';
-  let emittedInterpolationCode = false;
-  let emittedInterpolationCodeText = '';
-  let commentDepth = Number(state.commentDepth || 0);
-  let inString = Boolean(state.inString);
-  let stringEscaped = Boolean(state.stringEscaped);
-  let inStringInterpolated = Boolean(state.inStringInterpolated);
-  let stringInterpolationState = state.stringInterpolationState || null;
-  let inEscapedIdent = Boolean(state.inEscapedIdent);
-  let i = 0;
-
-  while (i < text.length) {
-    const ch = text[i];
-    const next = text[i + 1];
-
-    if (inString) {
-      if (inStringInterpolated) {
-        const stringResult = scanLeanString(text, -1, true, depth + 1, stringInterpolationState);
-        code += options.preserveStrings ? text.slice(0, stringResult.nextIndex) : stringResult.code;
-        emittedInterpolationCode = emittedInterpolationCode || Boolean(stringResult.emittedInterpolationCode);
-        emittedInterpolationCodeText += stringResult.emittedInterpolationCodeText || '';
-        i = stringResult.nextIndex;
-        if (stringResult.closed) {
-          inString = false;
-          stringEscaped = false;
-          inStringInterpolated = false;
-          stringInterpolationState = null;
-        } else {
-          stringEscaped = Boolean(stringResult.escaped);
-          stringInterpolationState = stringResult.state;
-        }
-        continue;
-      }
-      if (options.preserveStrings) code += ch;
-      i += 1;
-      if (stringEscaped) {
-        stringEscaped = false;
-      } else if (ch === '\\') {
-        stringEscaped = true;
-      } else if (ch === '"') {
-        inString = false;
-      }
-      continue;
+  const emit = (ch, include) => {
+    if (include) current += ch;
+  };
+  const flush = () => {
+    if (current.trim()) code.push(current);
+    current = '';
+  };
+  const inInterpolationCode = () => interpolationFrames.length > 0 && !string;
+  const openString = interpolated => {
+    string = { interpolated, escaped: false };
+  };
+  const openInterpolation = () => {
+    interpolationFrames.push({ braceDepth: 1, returnString: string ? { ...string, escaped: false } : null });
+    string = null;
+  };
+  const closeInterpolationBrace = () => {
+    const frame = interpolationFrames[interpolationFrames.length - 1];
+    frame.braceDepth -= 1;
+    if (frame.braceDepth === 0) {
+      interpolationFrames.pop();
+      string = frame.returnString;
     }
+  };
+
+  const scanChar = (ch, next, include, text, index) => {
+    if (ch === '\n') {
+      lineComment = false;
+      flush();
+      remember(ch);
+      return 1;
+    }
+
+    if (lineComment) return 1;
 
     if (commentDepth > 0) {
       if (ch === '/' && next === '-') {
         commentDepth += 1;
-        i += 2;
-      } else if (ch === '-' && next === '/') {
+        return 2;
+      }
+      if (ch === '-' && next === '/') {
         commentDepth -= 1;
-        i += 2;
-      } else {
-        i += 1;
+        return 2;
       }
-      continue;
+      return 1;
     }
 
-    if (inEscapedIdent) {
-      if (options.preserveStrings) code += ch;
-      if (ch === '»') inEscapedIdent = false;
-      i += 1;
-      continue;
+    if (escapedIdent) {
+      emit(ch, include);
+      remember(ch);
+      if (ch === '»') escapedIdent = false;
+      return 1;
     }
 
-    if (ch === '"') {
-      const interpolated = /[A-Za-z]!$/.test(text.slice(0, i));
-      const stringResult = scanLeanString(text, i, interpolated, depth + 1);
-      code += options.preserveStrings ? text.slice(i, stringResult.nextIndex) : stringResult.code;
-      emittedInterpolationCode = emittedInterpolationCode || Boolean(stringResult.emittedInterpolationCode);
-      emittedInterpolationCodeText += stringResult.emittedInterpolationCodeText || '';
-      i = stringResult.nextIndex;
-      if (!stringResult.closed) {
-        inString = true;
-        stringEscaped = Boolean(stringResult.escaped);
-        inStringInterpolated = interpolated;
-        stringInterpolationState = stringResult.state;
+    if (charLiteral) {
+      emit(ch, include);
+      remember(ch);
+      if (charEscaped) {
+        charEscaped = false;
+      } else if (ch === '\\') {
+        charEscaped = true;
+      } else if (ch === "'") {
+        charLiteral = false;
       }
-      continue;
+      return 1;
+    }
+
+    if (string) {
+      if (string.escaped) {
+        if (options.preserveStrings) emit(ch, include);
+        remember(ch);
+        string.escaped = false;
+        return 1;
+      }
+      if (ch === '\\') {
+        if (options.preserveStrings) emit(ch, include);
+        remember(ch);
+        string.escaped = true;
+        return 1;
+      }
+      if (string.interpolated && ch === '{') {
+        remember(ch);
+        openInterpolation();
+        return 1;
+      }
+      if (ch === '"') {
+        if (options.preserveStrings) emit(ch, include);
+        remember(ch);
+        string = null;
+        return 1;
+      }
+      if (options.preserveStrings) emit(ch, include);
+      remember(ch);
+      return 1;
     }
 
     if (ch === '-' && next === '-') {
-      return { code, inBlockComment: false, commentDepth: 0, inString, stringEscaped, inStringInterpolated, stringInterpolationState, inEscapedIdent, emittedInterpolationCode, emittedInterpolationCodeText };
+      lineComment = true;
+      return 2;
     }
-
     if (ch === '/' && next === '-') {
       commentDepth = 1;
-      i += 2;
-      continue;
+      return 2;
     }
-
     if (ch === '«') {
-      if (options.preserveStrings) code += ch;
-      inEscapedIdent = true;
-      i += 1;
-      continue;
-    }
-
-    code += ch;
-    i += 1;
-  }
-
-  return { code, inBlockComment: commentDepth > 0, commentDepth, inString, stringEscaped, inStringInterpolated, stringInterpolationState, inEscapedIdent, emittedInterpolationCode, emittedInterpolationCodeText };
-}
-
-function scanLeanString(text, quoteIndex, interpolated, depth = 0, initialState = null) {
-  if (depth > 8) return { code: quoteIndex >= 0 ? '""' : '', nextIndex: Math.max(0, quoteIndex + 1), closed: false, escaped: false, state: null, emittedInterpolationCode: false, emittedInterpolationCodeText: '' };
-  let code = quoteIndex >= 0 ? '""' : '';
-  let i = quoteIndex >= 0 ? quoteIndex + 1 : 0;
-  let escaped = Boolean(initialState?.escaped);
-  let closed = false;
-  let emittedInterpolationCode = false;
-  let emittedInterpolationCodeText = '';
-  let interpolationDepth = Number(initialState?.interpolationDepth || 0);
-  let interpolation = String(initialState?.interpolation || '');
-  let interpolationString = Boolean(initialState?.interpolationString);
-  let interpolationStringInterpolated = Boolean(initialState?.interpolationStringInterpolated);
-  let interpolationStringInterpolationDepth = Number(initialState?.interpolationStringInterpolationDepth || 0);
-  let interpolationChar = Boolean(initialState?.interpolationChar);
-  let interpolationEscaped = Boolean(initialState?.interpolationEscaped);
-  let interpolationCommentDepth = Number(initialState?.interpolationCommentDepth || 0);
-  let interpolationEscapedIdent = Boolean(initialState?.interpolationEscapedIdent);
-  while (i < text.length) {
-    const ch = text[i];
-    i += 1;
-
-    if (interpolationDepth > 0) {
-      interpolation += ch;
-      const next = text[i];
-      if (interpolationCommentDepth > 0) {
-        if (ch === '/' && next === '-') {
-          interpolation += next;
-          i += 1;
-          interpolationCommentDepth += 1;
-        } else if (ch === '-' && next === '/') {
-          interpolation += next;
-          i += 1;
-          interpolationCommentDepth -= 1;
-        }
-        continue;
-      }
-      if (interpolationEscapedIdent) {
-        if (ch === '»') interpolationEscapedIdent = false;
-        continue;
-      }
-      if (interpolationEscaped) {
-        interpolationEscaped = false;
-        continue;
-      }
-      if (ch === '\\') {
-        interpolationEscaped = interpolationString || interpolationChar;
-        continue;
-      }
-      if (interpolationString) {
-        if (interpolationStringInterpolated && interpolationStringInterpolationDepth > 0) {
-          if (ch === '{') {
-            interpolationStringInterpolationDepth += 1;
-          } else if (ch === '}') {
-            interpolationStringInterpolationDepth -= 1;
-          }
-          continue;
-        }
-        if (interpolationStringInterpolated && ch === '{') {
-          interpolationStringInterpolationDepth = 1;
-        } else if (ch === '"') {
-          interpolationString = false;
-          interpolationStringInterpolated = false;
-        }
-        continue;
-      }
-      if (interpolationChar) {
-        if (ch === "'") interpolationChar = false;
-        continue;
-      }
-      if (ch === '"') {
-        interpolationString = true;
-        interpolationStringInterpolated = /[A-Za-z]!$/.test(interpolation.slice(0, -1));
-        interpolationStringInterpolationDepth = 0;
-        continue;
-      }
-      if (ch === "'" && startsLeanCharLiteral(interpolation, interpolation.length - 1)) {
-        interpolationChar = true;
-        continue;
-      }
-      if (ch === '-' && next === '-') {
-        interpolation += `${text.slice(i)}\n`;
-        i = text.length;
-        continue;
-      }
-      if (ch === '/' && next === '-') {
-        interpolation += next;
-        i += 1;
-        interpolationCommentDepth = 1;
-        continue;
-      }
-      if (ch === '«') {
-        interpolationEscapedIdent = true;
-        continue;
-      }
-      if (ch === '{') {
-        interpolationDepth += 1;
-      } else if (ch === '}') {
-        interpolationDepth -= 1;
-        if (interpolationDepth === 0) {
-          interpolation = interpolation.slice(0, -1);
-          const strippedInterpolation = stripLeanCommentsFromText(interpolation, { commentDepth: 0 }, depth + 1);
-          code += ` ${strippedInterpolation.code} `;
-          emittedInterpolationCode = true;
-          emittedInterpolationCodeText += ` ${strippedInterpolation.code} `;
-          interpolation = '';
-        }
-      }
-      continue;
-    }
-
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (ch === '\\') {
-      escaped = true;
-      continue;
-    }
-    if (interpolated && ch === '{') {
-      interpolationDepth = 1;
-      interpolation = '';
-      interpolationString = false;
-      interpolationChar = false;
-      interpolationEscaped = false;
-      interpolationCommentDepth = 0;
-      continue;
+      escapedIdent = true;
+      emit(ch, include);
+      remember(ch);
+      return 1;
     }
     if (ch === '"') {
-      closed = true;
-      break;
+      const interpolated = /[A-Za-z]!$/.test(prefix);
+      if (options.preserveStrings) emit(ch, include);
+      remember(ch);
+      openString(interpolated);
+      return 1;
     }
-  }
+    if (ch === "'" && startsLeanCharLiteral(text, index)) {
+      charLiteral = true;
+      charEscaped = false;
+      emit(ch, include);
+      remember(ch);
+      return 1;
+    }
+    if (inInterpolationCode() && ch === '{') {
+      interpolationFrames[interpolationFrames.length - 1].braceDepth += 1;
+      emit(ch, include);
+      remember(ch);
+      return 1;
+    }
+    if (inInterpolationCode() && ch === '}') {
+      remember(ch);
+      closeInterpolationBrace();
+      return 1;
+    }
+
+    emit(ch, include);
+    remember(ch);
+    return 1;
+  };
+
   return {
-    code,
-    nextIndex: i,
-    closed,
-    escaped,
-    state: {
-      escaped,
-      interpolationDepth,
-      interpolation,
-      interpolationString,
-      interpolationStringInterpolated,
-      interpolationStringInterpolationDepth,
-      interpolationChar,
-      interpolationEscaped,
-      interpolationCommentDepth,
-      interpolationEscapedIdent,
+    scanLine(text, include) {
+      const line = `${String(text || '')}\n`;
+      for (let i = 0; i < line.length;) {
+        i += scanChar(line[i], line[i + 1], include, line, i);
+      }
     },
-    emittedInterpolationCode,
-    emittedInterpolationCodeText,
+    finish() {
+      flush();
+      return code;
+    },
   };
 }
 

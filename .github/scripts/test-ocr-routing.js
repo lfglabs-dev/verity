@@ -555,6 +555,160 @@ function testTheoremStatementStringLiteralChangesAreDetected() {
   assert.ok(packets[0].signals.includes('theorem statement changed/possibly weakened'));
 }
 
+function testLeanScannerBlockerRegressionCases() {
+  const cases = [
+    {
+      name: 'quoted braces inside interpolation expressions',
+      lines: [
+        ['ctx', 'namespace Verity'],
+        ['add', 'def x := s!"{ let c := \'}\'; (by sorry : Nat) }"'],
+        ['ctx', 'end Verity'],
+      ],
+      includes: ['introduced sorry/admit'],
+    },
+    {
+      name: 'Lean block comments inside interpolation are ignored and following code is scanned',
+      lines: [
+        ['ctx', 'namespace Verity'],
+        ['add', 'def x := s!"{ /- prose sorry axiom unsafe } -/ (by admit : Nat) }"'],
+        ['ctx', 'end Verity'],
+      ],
+      includes: ['introduced sorry/admit'],
+      excludes: ['introduced/changed axiom', 'introduced unsafe'],
+    },
+    {
+      name: 'theorem statement comparisons preserve changed raw string literal text',
+      lines: [
+        ['ctx', 'namespace Verity'],
+        ['del', 'theorem render_sound : render x = r#"old { sorry }"# := by trivial'],
+        ['add', 'theorem render_sound : render x = r#"new { sorry }"# := by trivial'],
+        ['ctx', 'end Verity'],
+      ],
+      includes: ['theorem statement changed/possibly weakened'],
+      excludes: ['introduced sorry/admit'],
+    },
+    {
+      name: 'multiline interrupted interpolation keeps state from context into added line',
+      lines: [
+        ['ctx', 'namespace Verity'],
+        ['ctx', 'def x := s!"prefix {'],
+        ['ctx', 'let y := 0'],
+        ['add', '(by sorry : Nat)'],
+        ['ctx', '}"'],
+        ['ctx', 'end Verity'],
+      ],
+      includes: ['introduced sorry/admit'],
+    },
+    {
+      name: 'newline after interpolation line comment resumes scanning',
+      lines: [
+        ['ctx', 'namespace Verity'],
+        ['add', 'def x := s!"{'],
+        ['add', '-- comment with } sorry'],
+        ['add', '(by admit : Nat)'],
+        ['add', '}"'],
+        ['ctx', 'end Verity'],
+      ],
+      includes: ['introduced sorry/admit'],
+    },
+    {
+      name: 'unterminated interpolation fragments are flushed at hunk end',
+      lines: [
+        ['ctx', 'namespace Verity'],
+        ['ctx', 'def x := s!"{'],
+        ['add', '(by sorry : Nat)'],
+      ],
+      includes: ['introduced sorry/admit'],
+    },
+    {
+      name: 'interpolation block comment state is preserved while flushing added lines',
+      lines: [
+        ['ctx', 'namespace Verity'],
+        ['ctx', 'def x := s!"{ /-'],
+        ['add', 'prose sorry axiom unsafe'],
+        ['add', '-/ (by admit : Nat)'],
+        ['ctx', '}"'],
+        ['ctx', 'end Verity'],
+      ],
+      includes: ['introduced sorry/admit'],
+      excludes: ['introduced/changed axiom', 'introduced unsafe'],
+    },
+    {
+      name: 'code after a closed interpolation is scanned',
+      lines: [
+        ['ctx', 'namespace Verity'],
+        ['add', 'def x : Nat := let _ := s!"{0}"; (by sorry : Nat)'],
+        ['ctx', 'end Verity'],
+      ],
+      includes: ['introduced sorry/admit'],
+    },
+    {
+      name: 'subsequent interpolation in added tail is scanned',
+      lines: [
+        ['ctx', 'namespace Verity'],
+        ['ctx', 'def x := s!"{'],
+        ['add', '0 } and {(by admit : Nat)}"'],
+        ['ctx', 'end Verity'],
+      ],
+      includes: ['introduced sorry/admit'],
+    },
+    {
+      name: 'nested interpolated string resumes outer interpolation state',
+      lines: [
+        ['ctx', 'namespace Verity'],
+        ['add', 'def x := s!"outer { let inner := s!"inner {(0 : Nat)}"; (by sorry : Nat) }"'],
+        ['ctx', 'end Verity'],
+      ],
+      includes: ['introduced sorry/admit'],
+    },
+    {
+      name: 'escaped identifiers containing comment delimiters do not open comments',
+      lines: [
+        ['ctx', 'namespace Verity'],
+        ['add', 'def «/-» := 0'],
+        ['add', 'unsafe def riskyAfterEscapedIdent : Nat := 0'],
+        ['ctx', 'end Verity'],
+      ],
+      includes: ['introduced unsafe'],
+    },
+    {
+      name: 'opening interpolation fragment from added line is buffered through later added line',
+      lines: [
+        ['ctx', 'namespace Verity'],
+        ['add', 'def x := s!"prefix {'],
+        ['ctx', 'let old := 0'],
+        ['add', '(by sorry : Nat)'],
+        ['ctx', '}"'],
+        ['ctx', 'end Verity'],
+      ],
+      includes: ['introduced sorry/admit'],
+    },
+    {
+      name: 'apostrophe after non-ASCII Lean identifier is not a char literal',
+      lines: [
+        ['ctx', 'namespace Verity'],
+        ['add', "def x := s!\"{ let x₁' := 0; (by sorry : Nat) }\""],
+        ['ctx', 'end Verity'],
+      ],
+      includes: ['introduced sorry/admit'],
+    },
+  ];
+
+  for (const regression of cases) {
+    const leanFile = file(`Compiler/Proofs/${regression.name.replace(/[^A-Za-z0-9]+/g, '')}.lean`, 10, 0);
+    leanFile.hunks = [hunk(leanFile.path, 20, regression.lines)];
+    const packets = router.buildReviewPackets([leanFile]);
+    assert.ok(packets.length > 0, regression.name);
+    const signals = packets.flatMap(packet => packet.signals);
+    for (const signal of regression.includes || []) {
+      assert.ok(signals.includes(signal), `${regression.name}: expected ${signal}; got ${signals.join(', ')}`);
+    }
+    for (const signal of regression.excludes || []) {
+      assert.ok(!signals.includes(signal), `${regression.name}: unexpected ${signal}; got ${signals.join(', ')}`);
+    }
+  }
+}
+
 function testOversizedLeanGuarded() {
   const files = Array.from({ length: 13 }, (_, i) => file(`Compiler/Proofs/Large${i}.lean`, 40, 0));
   const decision = router.decideRoute(files);
@@ -1275,6 +1429,7 @@ async function run() {
   testLeanNestedBlockCommentDoesNotTriggerSignals();
   testCodeAfterInlineBlockCommentIsScanned();
   testTheoremStatementStringLiteralChangesAreDetected();
+  testLeanScannerBlockerRegressionCases();
   testOversizedLeanGuarded();
   testScoutConfigDefaultsToMiniMaxOnOcrEndpoint();
   testScoutConfigCanDisableLargeLeanScout();
