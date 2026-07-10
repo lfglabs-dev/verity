@@ -631,7 +631,7 @@ function redactSecretJsonValue(value, key = '') {
     });
     return Object.fromEntries(Object.entries(value).map(([childKey, childValue]) => [
       childKey,
-      secretContext && /^(value|input|input_value|inputValue|provided|actual)$/i.test(childKey)
+      secretContext && /^(value|input|input_value|inputValue|provided|actual|message|detail|details|text|description|error_description|errorDescription)$/i.test(childKey)
         ? '[redacted]'
         : redactSecretJsonValue(childValue, childKey),
     ]));

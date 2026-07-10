@@ -437,6 +437,7 @@ function testScoutErrorSanitizesFieldValueDiagnostics() {
       { field: 'api_key', value: 'abcdefghijklmnopqrstuvwxyz123456' },
       { loc: ['body', 'client_secret'], input: 'abcdefghijklmnopqrstuvwxyz123457' },
       { field: 'api_key', input_value: 'abcdefghijklmnopqrstuvwxyz123458' },
+      { field: 'api_key', message: 'short-secret' },
     ],
   }));
   assert.ok(detail.includes('MiniMax-M3'));
@@ -444,6 +445,7 @@ function testScoutErrorSanitizesFieldValueDiagnostics() {
   assert.ok(!detail.includes('abcdefghijklmnopqrstuvwxyz123456'));
   assert.ok(!detail.includes('abcdefghijklmnopqrstuvwxyz123457'));
   assert.ok(!detail.includes('abcdefghijklmnopqrstuvwxyz123458'));
+  assert.ok(!detail.includes('short-secret'));
 }
 
 function testScoutErrorSanitizesShortQuotedProviderDiagnostics() {
