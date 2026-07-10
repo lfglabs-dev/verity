@@ -777,6 +777,7 @@ function codeLinesForHunkSide(hunk, side, options = {}) {
   let stringEscaped = false;
   let inStringInterpolated = false;
   let stringInterpolationState = null;
+  let inEscapedIdent = false;
   let pendingChangedInterpolation = false;
   let pendingChangedInterpolationText = '';
   for (const line of hunk.lines || []) {
@@ -792,12 +793,14 @@ function codeLinesForHunkSide(hunk, side, options = {}) {
       stringEscaped,
       inStringInterpolated,
       stringInterpolationState,
+      inEscapedIdent,
     }, 0, options);
     commentDepth = stripped.commentDepth;
     inString = stripped.inString;
     stringEscaped = stripped.stringEscaped;
     inStringInterpolated = stripped.inStringInterpolated;
     stringInterpolationState = stripped.stringInterpolationState;
+    inEscapedIdent = stripped.inEscapedIdent;
     if (line.type === includeType && isOpenInterpolationState(stripped)) {
       pendingChangedInterpolation = true;
     }
@@ -838,6 +841,7 @@ function changedInterpolationLineText(text, state, options = {}) {
   let interpolationChar = Boolean(state?.interpolationChar);
   let interpolationEscaped = Boolean(state?.interpolationEscaped);
   let interpolationCommentDepth = Number(state?.interpolationCommentDepth || 0);
+  let interpolationEscapedIdent = Boolean(state?.interpolationEscapedIdent);
   let interpolationDepth = Number(state?.interpolationDepth || 0);
   let inOuterStringTail = interpolationDepth <= 0;
   let outerStringEscaped = false;
@@ -873,6 +877,12 @@ function changedInterpolationLineText(text, state, options = {}) {
       } else {
         i += 1;
       }
+      continue;
+    }
+    if (interpolationEscapedIdent) {
+      if (ch === '»') interpolationEscapedIdent = false;
+      code += ch;
+      i += 1;
       continue;
     }
     if (interpolationEscaped) {
@@ -916,6 +926,12 @@ function changedInterpolationLineText(text, state, options = {}) {
     if (ch === '/' && next === '-') {
       interpolationCommentDepth = 1;
       i += 2;
+      continue;
+    }
+    if (ch === '«') {
+      interpolationEscapedIdent = true;
+      code += ch;
+      i += 1;
       continue;
     }
     if (ch === '"') {
@@ -986,6 +1002,7 @@ function stripLeanCommentsFromLine(line, state, depth = 0, options = {}) {
       stringEscaped: Boolean(state.stringEscaped),
       inStringInterpolated: Boolean(state.inStringInterpolated),
       stringInterpolationState: state.stringInterpolationState || null,
+      inEscapedIdent: Boolean(state.inEscapedIdent),
       emittedInterpolationCode: false,
       emittedInterpolationCodeText: '',
     };
@@ -998,6 +1015,7 @@ function stripLeanCommentsFromLine(line, state, depth = 0, options = {}) {
   let stringEscaped = Boolean(state.stringEscaped);
   let inStringInterpolated = Boolean(state.inStringInterpolated);
   let stringInterpolationState = state.stringInterpolationState || null;
+  let inEscapedIdent = Boolean(state.inEscapedIdent);
   let i = 0;
 
   while (i < text.length) {
@@ -1047,6 +1065,13 @@ function stripLeanCommentsFromLine(line, state, depth = 0, options = {}) {
       continue;
     }
 
+    if (inEscapedIdent) {
+      if (options.preserveStrings) code += ch;
+      if (ch === '»') inEscapedIdent = false;
+      i += 1;
+      continue;
+    }
+
     if (ch === '"') {
       const interpolated = /[A-Za-z]!$/.test(text.slice(0, i));
       const stringResult = scanLeanString(text, i, interpolated, depth + 1);
@@ -1064,7 +1089,7 @@ function stripLeanCommentsFromLine(line, state, depth = 0, options = {}) {
     }
 
     if (ch === '-' && next === '-') {
-      return { code, inBlockComment: false, commentDepth: 0, inString, stringEscaped, inStringInterpolated, stringInterpolationState, emittedInterpolationCode, emittedInterpolationCodeText };
+      return { code, inBlockComment: false, commentDepth: 0, inString, stringEscaped, inStringInterpolated, stringInterpolationState, inEscapedIdent, emittedInterpolationCode, emittedInterpolationCodeText };
     }
 
     if (ch === '/' && next === '-') {
@@ -1073,11 +1098,18 @@ function stripLeanCommentsFromLine(line, state, depth = 0, options = {}) {
       continue;
     }
 
+    if (ch === '«') {
+      if (options.preserveStrings) code += ch;
+      inEscapedIdent = true;
+      i += 1;
+      continue;
+    }
+
     code += ch;
     i += 1;
   }
 
-  return { code, inBlockComment: commentDepth > 0, commentDepth, inString, stringEscaped, inStringInterpolated, stringInterpolationState, emittedInterpolationCode, emittedInterpolationCodeText };
+  return { code, inBlockComment: commentDepth > 0, commentDepth, inString, stringEscaped, inStringInterpolated, stringInterpolationState, inEscapedIdent, emittedInterpolationCode, emittedInterpolationCodeText };
 }
 
 function scanLeanString(text, quoteIndex, interpolated, depth = 0, initialState = null) {
@@ -1096,6 +1128,7 @@ function scanLeanString(text, quoteIndex, interpolated, depth = 0, initialState 
   let interpolationChar = Boolean(initialState?.interpolationChar);
   let interpolationEscaped = Boolean(initialState?.interpolationEscaped);
   let interpolationCommentDepth = Number(initialState?.interpolationCommentDepth || 0);
+  let interpolationEscapedIdent = Boolean(initialState?.interpolationEscapedIdent);
   while (i < text.length) {
     const ch = text[i];
     i += 1;
@@ -1113,6 +1146,10 @@ function scanLeanString(text, quoteIndex, interpolated, depth = 0, initialState 
           i += 1;
           interpolationCommentDepth -= 1;
         }
+        continue;
+      }
+      if (interpolationEscapedIdent) {
+        if (ch === '»') interpolationEscapedIdent = false;
         continue;
       }
       if (interpolationEscaped) {
@@ -1163,6 +1200,10 @@ function scanLeanString(text, quoteIndex, interpolated, depth = 0, initialState 
         interpolation += next;
         i += 1;
         interpolationCommentDepth = 1;
+        continue;
+      }
+      if (ch === '«') {
+        interpolationEscapedIdent = true;
         continue;
       }
       if (ch === '{') {
@@ -1218,6 +1259,7 @@ function scanLeanString(text, quoteIndex, interpolated, depth = 0, initialState 
       interpolationChar,
       interpolationEscaped,
       interpolationCommentDepth,
+      interpolationEscapedIdent,
     },
     emittedInterpolationCode,
     emittedInterpolationCodeText,

@@ -166,6 +166,19 @@ function testLeanMultilineStringCommentDelimiterInContextDoesNotHideSignals() {
   assert.ok(packets[0].signals.includes('introduced unsafe'));
 }
 
+function testLeanEscapedIdentifierCommentDelimiterInContextDoesNotHideSignals() {
+  const leanFile = file('Compiler/Proofs/EscapedIdentifierDelimiterContext.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/EscapedIdentifierDelimiterContext.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['ctx', 'def «/-» : Nat := 0'],
+    ['add', 'unsafe def riskyAfterEscapedIdentifier : Nat := 0'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(packets[0].signals.includes('introduced unsafe'));
+}
+
 function testLeanStringLiteralsDoNotTriggerSignals() {
   const leanFile = file('Compiler/Proofs/StringSignalProse.lean', 10, 0);
   leanFile.hunks = [hunk('Compiler/Proofs/StringSignalProse.lean', 20, [
@@ -1233,6 +1246,7 @@ async function run() {
   testLeanCodeAfterContextBlockCommentIsScanned();
   testLeanStringCommentDelimiterInContextDoesNotHideSignals();
   testLeanMultilineStringCommentDelimiterInContextDoesNotHideSignals();
+  testLeanEscapedIdentifierCommentDelimiterInContextDoesNotHideSignals();
   testLeanStringLiteralsDoNotTriggerSignals();
   testLeanInterpolatedStringExpressionsAreScanned();
   testLeanInterpolatedStringQuotedBracesDoNotStopScanning();
