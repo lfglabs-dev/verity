@@ -605,8 +605,10 @@ function isSecretKey(key) {
     .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
     .replace(/[^a-zA-Z0-9]+/g, '_')
     .toLowerCase();
+  const parts = normalized.split('_').filter(Boolean);
   return normalized === 'key'
     || normalized === 'token'
+    || (parts.some(part => /^(ocr|llm|scout)$/.test(part)) && parts.some(part => /^(key|token)$/.test(part)))
     || /(^|_)(api_key|apikey|access_token|refresh_token|id_token|client_secret|client_id|api_secret|consumer_secret|private_key|bearer_token|session_secret|session_token|auth_code|authcode|authorization|password|passphrase|credential|credentials|secret)($|_)/.test(normalized);
 }
 
