@@ -606,7 +606,6 @@ function redactSecretJsonValue(value, key = '') {
     return value.map((item, index) => {
       if (redactNext) {
         redactNext = false;
-        secretContext = false;
         return '[redacted]';
       }
       if (secretContext && isValueCarrier(item)) {
@@ -670,6 +669,7 @@ function redactSecretText(text) {
     .replace(/https?:\/\/[^\s"')]+/g, '[url-redacted]')
     .replace(/\beyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, '[redacted]')
     .replace(/Bearer\s+[^\s"',)}\]]+/gi, 'Bearer [redacted]')
+    .replace(/Basic\s+[A-Za-z0-9+/=._~-]+/gi, 'Basic [redacted]')
     .replace(/\bsk-[A-Za-z0-9._-]+/gi, '[redacted]')
     .replace(/(["'`])([A-Za-z0-9_-]*(?:ocr|llm|scout)[A-Za-z0-9_-]*(?:key|token)|[A-Za-z0-9_-]*(?:key|token)[A-Za-z0-9_-]*(?:ocr|llm|scout))\1(\s*:\s*)(["'`])(?:\\.|(?!\4).){0,300}\4/gi, '$1$2$1$3$4[redacted]$4')
     .replace(/\b([A-Za-z0-9_-]*(?:ocr|llm|scout)[A-Za-z0-9_-]*(?:key|token)|[A-Za-z0-9_-]*(?:key|token)[A-Za-z0-9_-]*(?:ocr|llm|scout))\b([^"'`\n]{0,120}?[:=]\s*)(["'`])(?:\\.|(?!\3).){0,300}\3/gi, '$1$2$3[redacted]$3')
@@ -677,8 +677,7 @@ function redactSecretText(text) {
     .replace(/(["'`])((?:[A-Za-z0-9_-]*(?:api\s*key|api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?(?:secret|id)|api[_-]?secret|consumer[_-]?secret|private[_-]?key|bearer[_-]?token|session[_-]?(?:secret|token)|auth[_-]?code|credential|credentials|passphrase|password|secret))|token|authorization)\1(\s*:\s*)(["'`])(?:\\.|(?!\4).){0,300}\4/gi, '$1$2$1$3$4[redacted]$4')
     .replace(/\b((?:[A-Za-z0-9_-]*(?:api\s*key|api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?(?:secret|id)|api[_-]?secret|consumer[_-]?secret|private[_-]?key|bearer[_-]?token|session[_-]?(?:secret|token)|auth[_-]?code|credential|credentials|passphrase|password|secret))|token|authorization)\b([^"'`\n]{0,120}?[:=]\s*)(["'`])(?:\\.|(?!\3).){0,300}\3/gi, '$1$2$3[redacted]$3')
     .replace(/\b((?:(?:[A-Za-z0-9_-]*(?:api\s*key|api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?(?:secret|id)|api[_-]?secret|consumer[_-]?secret|private[_-]?key|bearer[_-]?token|session[_-]?(?:secret|token)|auth[_-]?code|credential|credentials|passphrase|password|secret))|token|authorization)\b[^"'`\n]{0,120}?[:=]\s*)([^\s"',)}\]]{6,})/gi, '$1[redacted]')
-    .replace(/\b(?![a-f0-9]{40}\b)(?![0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b)(?!req_[A-Za-z0-9._-]{20,}\b)(?!trace[_-][A-Za-z0-9._-]{20,}\b)(?!correlation[_-][A-Za-z0-9._-]{20,}\b)(?=[A-Za-z0-9._~+/-]{32,}\b)(?=[A-Za-z0-9._~+/-]*[A-Za-z])(?=[A-Za-z0-9._~+/-]*\d)[A-Za-z0-9._~+/-]{32,}={0,2}\b/g, '[redacted]')
-    .replace(/\b((?:(?:[A-Za-z0-9_-]*(?:api\s*key|api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?(?:secret|id)|api[_-]?secret|consumer[_-]?secret|private[_-]?key|bearer[_-]?token|session[_-]?(?:secret|token)|auth[_-]?code|credential|credentials|passphrase|password|secret))|token|authorization)\b[^"'`\n]{0,120}?[:=]\s*)([^\s"',)}\]]{6,})/gi, '$1[redacted]');
+    .replace(/\b(?![a-f0-9]{40}\b)(?![0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b)(?!req_[A-Za-z0-9._-]{20,}\b)(?!trace[_-][A-Za-z0-9._-]{20,}\b)(?!correlation[_-][A-Za-z0-9._-]{20,}\b)(?=[A-Za-z0-9._~+/-]{32,}\b)(?=[A-Za-z0-9._~+/-]*[A-Za-z])(?=[A-Za-z0-9._~+/-]*\d)[A-Za-z0-9._~+/-]{32,}={0,2}\b/g, '[redacted]');
 }
 
 function replaceLiteralAll(text, needle, replacement) {

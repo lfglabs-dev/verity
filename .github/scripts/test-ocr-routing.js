@@ -347,6 +347,13 @@ function testScoutErrorSanitizesPunctuatedBearerCredentials() {
   assert.ok(!detail.includes('abc:def'));
 }
 
+function testScoutErrorSanitizesBasicAuthCredentials() {
+  const detail = router.sanitizeScoutErrorDetail('MiniMax-M3 failed with Authorization: Basic dXNlcjpwYXNz');
+  assert.ok(detail.includes('MiniMax-M3'));
+  assert.ok(detail.includes('Basic [redacted]'));
+  assert.ok(!detail.includes('dXNlcjpwYXNz'));
+}
+
 function testScoutErrorSanitizesBareCredentialLikeStrings() {
   const detail = router.sanitizeScoutErrorDetail(JSON.stringify({
     error: 'invalid MiniMax-M3 scout request',
@@ -479,13 +486,14 @@ function testScoutErrorSanitizesTupleArraySecrets() {
       ['authorization', 'Bearer short-secret'],
       ['x-api-key', 'another-short-secret'],
     ],
-    flat: ['field', 'api_key', 'value', 'flat-short-secret'],
+    flat: ['field', 'api_key', 'value', 'flat-short-secret', 'value', 'second-flat-secret'],
   }));
   assert.ok(detail.includes('MiniMax-M3'));
   assert.ok(detail.includes('[redacted]'));
   assert.ok(!detail.includes('short-secret'));
   assert.ok(!detail.includes('another-short-secret'));
   assert.ok(!detail.includes('flat-short-secret'));
+  assert.ok(!detail.includes('second-flat-secret'));
 }
 
 function testScoutErrorUsesLiteralJsonReplacement() {
@@ -810,6 +818,7 @@ async function run() {
   testScoutErrorSanitizesStructuredSecrets();
   testScoutErrorSanitizesJwtWithoutDroppingPlainDiagnostics();
   testScoutErrorSanitizesPunctuatedBearerCredentials();
+  testScoutErrorSanitizesBasicAuthCredentials();
   testScoutErrorSanitizesBareCredentialLikeStrings();
   testScoutErrorSanitizesQuotedFallbackDiagnostics();
   testScoutErrorSanitizesEmbeddedJsonDiagnostics();
