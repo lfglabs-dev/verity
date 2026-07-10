@@ -2894,6 +2894,38 @@ private theorem legacyCompatibleExternalStmtList_map_exprStmt
   | [] => .nil
   | _ :: rest => .exprStmt _ _ (legacyCompatibleExternalStmtList_map_exprStmt f rest)
 
+private theorem legacyCompatibleExternalStmtList_map_exprStmt_call
+    {α : Type} (f : α → YulExpr) (name : String) :
+    ∀ xs : List α,
+      LegacyCompatibleExternalStmtList
+        (xs.map (fun x => YulStmt.exprStmt (YulExpr.call name [f x, YulExpr.ident "__compat_value"])))
+  | [] => .nil
+  | _ :: rest => .exprStmt _ _
+      (legacyCompatibleExternalStmtList_map_exprStmt_call f name rest)
+
+private theorem legacyCompatibleExternalStmtList_block_value_writes
+    {α : Type} (f : α → YulExpr) (name : String) (value : YulExpr) (xs : List α) :
+    LegacyCompatibleExternalStmtList
+      [YulStmt.block
+        (YulStmt.let_ "__compat_value" value ::
+          xs.map (fun x =>
+            YulStmt.exprStmt
+              (YulExpr.call name [f x, YulExpr.ident "__compat_value"])))] := by
+  exact .block _ _ (.let_ _ _ _
+    (legacyCompatibleExternalStmtList_map_exprStmt_call f name xs)) .nil
+
+private theorem legacyCompatibleExternalStmtList_block_key_value_writes
+    {α : Type} (f : α → YulExpr) (name : String)
+    (key value : YulExpr) (xs : List α) :
+    LegacyCompatibleExternalStmtList
+      [YulStmt.block
+        ([YulStmt.let_ "__compat_key" key, YulStmt.let_ "__compat_value" value] ++
+          xs.map (fun x =>
+            YulStmt.exprStmt
+              (YulExpr.call name [f x, YulExpr.ident "__compat_value"])))] := by
+  exact .block _ _ (.let_ _ _ _ (.let_ _ _ _
+    (legacyCompatibleExternalStmtList_map_exprStmt_call f name xs))) .nil
+
 private theorem revertWithMessage_legacyCompatible
     (message : String) :
     LegacyCompatibleExternalStmtList (CompilationModel.revertWithMessage message) := by
@@ -3130,6 +3162,150 @@ theorem stmtListTerminalCore_compiledLegacyCompatible
               .nil)
         (stmtListCompileCore_compiledLegacyCompatible fields
           (compilerScope := stmtNextScope compilerScope (.ite cond thenBranch elseBranch)) hrest)
+
+/-- Singleton `setStorage` heads compile to ordinary legacy-compatible Yul when
+the supported-fragment witness resolves the field to one concrete uint256
+storage slot. -/
+theorem stmtList_setStorageSingleSlot_compiledLegacyCompatible
+    (fields : List Field)
+    {scope : List String}
+    {fieldName : String}
+    {value : Expr}
+    {slot : Nat}
+    (_hvalue : FunctionBody.ExprCompileCore value)
+    (_hscope : FunctionBody.exprBoundNamesInScope value scope)
+    (hfield :
+      findFieldWithResolvedSlot fields fieldName =
+        some ({ name := fieldName, ty := FieldType.uint256 }, slot)) :
+    StmtListCompiledLegacyCompatible fields scope [Stmt.setStorage fieldName value] :=
+  .cons
+    (fun compiledIR hcompile => by
+      simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] at hcompile
+      simp [CompilationModel.compileSetStorage, hfield] at hcompile
+      split at hcompile <;> try contradiction
+      cases hvalueExpr : compileExprWithInternals fields .calldata [] value <;>
+        simp [hvalueExpr] at hcompile
+      cases hcompile
+      exact .exprStmt _ _ .nil)
+    .nil
+
+/-- Singleton `setStorageAddr` heads compile to ordinary legacy-compatible Yul
+when the supported-fragment witness resolves the field to one concrete address
+storage slot. -/
+theorem stmtList_setStorageAddrSingleSlot_compiledLegacyCompatible
+    (fields : List Field)
+    {scope : List String}
+    {fieldName : String}
+    {value : Expr}
+    {slot : Nat}
+    (_hvalue : FunctionBody.ExprCompileCore value)
+    (_hscope : FunctionBody.exprBoundNamesInScope value scope)
+    (hfield :
+      findFieldWithResolvedSlot fields fieldName =
+        some ({ name := fieldName, ty := FieldType.address }, slot)) :
+    StmtListCompiledLegacyCompatible fields scope [Stmt.setStorageAddr fieldName value] :=
+  .cons
+    (fun compiledIR hcompile => by
+      simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] at hcompile
+      simp [CompilationModel.compileSetStorage, hfield] at hcompile
+      split at hcompile <;> try contradiction
+      cases hvalueExpr : compileExprWithInternals fields .calldata [] value <;>
+        simp [hvalueExpr] at hcompile
+      cases hcompile
+      exact .exprStmt _ _ .nil)
+    .nil
+
+private theorem compileMappingSlotWrite_legacyCompatible
+    {fields : List Field}
+    {fieldName label : String}
+    {keyExpr valueExpr : YulExpr}
+    {wordOffset : Nat}
+    {compiledIR : List YulStmt}
+    (hcompile :
+      CompilationModel.compileMappingSlotWrite fields fieldName keyExpr valueExpr
+          label wordOffset true =
+        Except.ok compiledIR) :
+    LegacyCompatibleExternalStmtList compiledIR := by
+  unfold CompilationModel.compileMappingSlotWrite at hcompile
+  repeat' split at hcompile <;> try contradiction
+  all_goals
+    first
+    | cases hcompile
+      exact .exprStmt _ _ .nil
+    | cases hcompile
+      exact legacyCompatibleExternalStmtList_block_key_value_writes (α := Nat) (f := _) _ _ _ _
+
+/-- Singleton `setMapping` heads compile to ordinary legacy-compatible Yul. -/
+theorem stmtList_setMappingSingle_compiledLegacyCompatible
+    (fields : List Field)
+    {scope : List String}
+    {fieldName : String}
+    {key value : Expr}
+    {slot : Nat}
+    (_hkey : FunctionBody.ExprCompileCore key)
+    (_hscopeKey : FunctionBody.exprBoundNamesInScope key scope)
+    (_hvalue : FunctionBody.ExprCompileCore value)
+    (_hscopeValue : FunctionBody.exprBoundNamesInScope value scope)
+    (_hslot : findFieldSlot fields fieldName = some slot) :
+    StmtListCompiledLegacyCompatible fields scope [Stmt.setMapping fieldName key value] :=
+  .cons
+    (fun compiledIR hcompile => by
+      simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+        bind, Except.bind] at hcompile
+      split at hcompile <;> try contradiction
+      rename_i keyExpr hkeyExpr
+      split at hcompile <;> try contradiction
+      rename_i valueExpr hvalueExpr
+      exact compileMappingSlotWrite_legacyCompatible hcompile)
+    .nil
+
+/-- Singleton `setMappingUint` heads compile to ordinary legacy-compatible Yul. -/
+theorem stmtList_setMappingUintSingle_compiledLegacyCompatible
+    (fields : List Field)
+    {scope : List String}
+    {fieldName : String}
+    {key value : Expr}
+    {slot : Nat}
+    (_hkey : FunctionBody.ExprCompileCore key)
+    (_hscopeKey : FunctionBody.exprBoundNamesInScope key scope)
+    (_hvalue : FunctionBody.ExprCompileCore value)
+    (_hscopeValue : FunctionBody.exprBoundNamesInScope value scope)
+    (_hslot : findFieldSlot fields fieldName = some slot) :
+    StmtListCompiledLegacyCompatible fields scope [Stmt.setMappingUint fieldName key value] :=
+  .cons
+    (fun compiledIR hcompile => by
+      simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+        bind, Except.bind] at hcompile
+      split at hcompile <;> try contradiction
+      rename_i keyExpr hkeyExpr
+      split at hcompile <;> try contradiction
+      rename_i valueExpr hvalueExpr
+      exact compileMappingSlotWrite_legacyCompatible hcompile)
+    .nil
+
+/-- Singleton `setMappingWord` heads compile to ordinary legacy-compatible Yul. -/
+theorem stmtList_setMappingWordSingle_compiledLegacyCompatible
+    (fields : List Field)
+    {scope : List String}
+    {fieldName : String}
+    {key value : Expr}
+    {wordOffset slot : Nat}
+    (_hkey : FunctionBody.ExprCompileCore key)
+    (_hscopeKey : FunctionBody.exprBoundNamesInScope key scope)
+    (_hvalue : FunctionBody.ExprCompileCore value)
+    (_hscopeValue : FunctionBody.exprBoundNamesInScope value scope)
+    (_hslot : findFieldSlot fields fieldName = some slot) :
+    StmtListCompiledLegacyCompatible fields scope [Stmt.setMappingWord fieldName key wordOffset value] :=
+  .cons
+    (fun compiledIR hcompile => by
+      simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+        bind, Except.bind] at hcompile
+      split at hcompile <;> try contradiction
+      rename_i keyExpr hkeyExpr
+      split at hcompile <;> try contradiction
+      rename_i valueExpr hvalueExpr
+      exact compileMappingSlotWrite_legacyCompatible hcompile)
+    .nil
 
 /-- Per-function legacy-compatibility bridge. A supported external function whose
 scalar params are supported and whose compiled body satisfies the per-statement
