@@ -552,6 +552,25 @@ function testScoutErrorSanitizesLocationValueDiagnostics() {
   assert.ok(!detail.includes('short-secret'));
 }
 
+function testScoutErrorSanitizesGenericKeyDiagnostics() {
+  const direct = router.sanitizeScoutErrorDetail(JSON.stringify({
+    error: 'invalid MiniMax-M3 scout request',
+    key: 'short-secret',
+  }));
+  assert.ok(direct.includes('MiniMax-M3'));
+  assert.ok(direct.includes('[redacted]'));
+  assert.ok(!direct.includes('short-secret'));
+
+  const field = router.sanitizeScoutErrorDetail(JSON.stringify({
+    error: 'invalid MiniMax-M3 scout request',
+    field: 'key',
+    value: 'another-short-secret',
+  }));
+  assert.ok(field.includes('MiniMax-M3'));
+  assert.ok(field.includes('[redacted]'));
+  assert.ok(!field.includes('another-short-secret'));
+}
+
 function testScoutErrorPreservesTraceDiagnostics() {
   const detail = router.sanitizeScoutErrorDetail(
     'MiniMax-M3 request req_abcdefghijklmnopqrstuvwxyz123456 trace_id trace_abcdefghijklmnopqrstuvwxyz123456 failed'
@@ -726,6 +745,7 @@ async function run() {
   testScoutErrorSanitizesPropertyValueDiagnostics();
   testScoutErrorSanitizesDottedSecretKeys();
   testScoutErrorSanitizesLocationValueDiagnostics();
+  testScoutErrorSanitizesGenericKeyDiagnostics();
   testScoutErrorPreservesTraceDiagnostics();
   testScoutErrorBoundsLargeProviderBodies();
   testScoutErrorRedactsLargeStructuredBodiesBeforeBounding();
