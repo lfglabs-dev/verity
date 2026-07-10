@@ -286,6 +286,35 @@ function testLeanMultilineInterpolationUnicodePrimedIdentifiersDoNotStopScanning
   assert.ok(packets[0].signals.includes('introduced sorry/admit'));
 }
 
+function testLeanContextOpenedInterpolationAttributesAddedCode() {
+  const leanFile = file('Compiler/Proofs/ContextOpenedInterpolation.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/ContextOpenedInterpolation.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['ctx', 'def note := s!"value {'],
+    ['add', '(by sorry : Nat)'],
+    ['ctx', '}"'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(packets[0].signals.includes('introduced sorry/admit'));
+}
+
+function testLeanMultilineInterpolationLineCommentDoesNotHideNextLine() {
+  const leanFile = file('Compiler/Proofs/MultilineInterpolationLineComment.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/MultilineInterpolationLineComment.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['add', 'def note := s!"value {'],
+    ['add', '-- a comment about a proof'],
+    ['add', '(by admit : Nat)'],
+    ['add', '}"'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(packets[0].signals.includes('introduced sorry/admit'));
+}
+
 function testLeanInterpolatedStringPrimedIdentifiersDoNotStopScanning() {
   const leanFile = file('Compiler/Proofs/InterpolatedStringPrimedIdentifier.lean', 10, 0);
   leanFile.hunks = [hunk('Compiler/Proofs/InterpolatedStringPrimedIdentifier.lean', 20, [
@@ -1075,6 +1104,8 @@ async function run() {
   testLeanMultilineOpenInterpolationExpressionsAreScanned();
   testLeanMultilineInterpolationQuotedBracesDoNotStopScanning();
   testLeanMultilineInterpolationUnicodePrimedIdentifiersDoNotStopScanning();
+  testLeanContextOpenedInterpolationAttributesAddedCode();
+  testLeanMultilineInterpolationLineCommentDoesNotHideNextLine();
   testLeanInterpolatedStringPrimedIdentifiersDoNotStopScanning();
   testLeanInterpolatedStringMultiPrimedIdentifiersDoNotStopScanning();
   testLeanInterpolatedStringUnicodePrimedIdentifiersDoNotStopScanning();
