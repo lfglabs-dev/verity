@@ -283,8 +283,8 @@ async function testLargeLeanScoutApiFailureFallsBack() {
   const oldFetch = global.fetch;
   global.fetch = async () => ({
     ok: false,
-    status: 503,
-    text: async () => 'Service Unavailable with echoed request details',
+    status: 400,
+    text: async () => 'model MiniMax-M3 is not available at https://sandboxed.example/v1 with token abcdefghijklmnopqrstuvwxyz1234567890',
   });
   try {
     await router.applyScoutStage(decision, { files }, { url: 'https://example.invalid/v1', key: 'test-key', model: 'cheap-scout' });
@@ -294,7 +294,367 @@ async function testLargeLeanScoutApiFailureFallsBack() {
   assert.strictEqual(decision.scout.status, 'fallback_deterministic');
   assert.strictEqual(decision.scout.error, 'Scout model call failed; deterministic packet ranking retained.');
   assert.strictEqual(decision.scout.error_type, 'http_error');
+  assert.strictEqual(decision.scout.http_status, 400);
+  assert.ok(decision.scout.error_detail.includes('MiniMax-M3'));
+  assert.ok(!decision.scout.error_detail.includes('sandboxed.example'));
+  // The test token is redacted by the generic high-entropy sanitizer path.
+  assert.ok(!decision.scout.error_detail.includes('abcdefghijklmnopqrstuvwxyz'));
   assert.deepStrictEqual(decision.packets.map(p => p.packet_id), originalPackets);
+}
+
+function testScoutErrorSanitizesApiKeyPhrases() {
+  const detail = router.sanitizeScoutErrorDetail(
+    'Incorrect API key provided: sk-test_abcdefghijklmnopqrstuvwxyz123456. Model MiniMax-M3 rejected the request.'
+  );
+  assert.ok(detail.includes('MiniMax-M3'));
+  assert.ok(detail.includes('[redacted]'));
+  assert.ok(!detail.includes('sk-test'));
+}
+
+function testScoutErrorSanitizesStructuredSecrets() {
+  const detail = router.sanitizeScoutErrorDetail(JSON.stringify({
+    error: 'invalid MiniMax-M3 scout request',
+    api_key: ['abcdefghijklmnopqrstuvwxyz123456'],
+    minimax_api_key: 'abcdefghijklmnopqrstuvwxyz123459',
+    api_token: 'abcdefghijklmnopqrstuvwxyz123461',
+    openaiApiKey: 'abcdefghijklmnopqrstuvwxyz123460',
+    access_token: 'abcdefghijklmnopqrstuvwxyz123456',
+    refreshToken: 'abcdefghijklmnopqrstuvwxyz123457',
+    nested: {
+      authorization: { token: 'sk-test_abcdefghijklmnopqrstuvwxyz123456' },
+      client_secret: 'abcdefghijklmnopqrstuvwxyz123458',
+    },
+  }));
+  assert.ok(detail.includes('MiniMax-M3'));
+  assert.ok(detail.includes('[redacted]'));
+  assert.ok(!detail.includes('abcdefghijklmnopqrstuvwxyz'));
+  assert.ok(!detail.includes('sk-test'));
+}
+
+function testScoutErrorSanitizesJwtWithoutDroppingPlainDiagnostics() {
+  const jwt = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
+  const detail = router.sanitizeScoutErrorDetail(`token expired for MiniMax-M3. Bearer ${jwt}`);
+  assert.ok(detail.includes('token expired'));
+  assert.ok(detail.includes('MiniMax-M3'));
+  assert.ok(detail.includes('Bearer [redacted]'));
+  assert.ok(!detail.includes(jwt));
+}
+
+function testScoutErrorSanitizesPunctuatedBearerCredentials() {
+  const detail = router.sanitizeScoutErrorDetail('MiniMax-M3 failed with Bearer abc:def+ghi/jkl~mno');
+  assert.ok(detail.includes('MiniMax-M3'));
+  assert.ok(detail.includes('Bearer [redacted]'));
+  assert.ok(!detail.includes('abc:def'));
+}
+
+function testScoutErrorSanitizesBasicAuthCredentials() {
+  const detail = router.sanitizeScoutErrorDetail('MiniMax-M3 failed with Authorization: Basic dXNlcjpwYXNz');
+  assert.ok(detail.includes('MiniMax-M3'));
+  assert.ok(detail.includes('Basic [redacted]'));
+  assert.ok(!detail.includes('dXNlcjpwYXNz'));
+}
+
+function testScoutErrorSanitizesBareCredentialLikeStrings() {
+  const detail = router.sanitizeScoutErrorDetail(JSON.stringify({
+    error: 'invalid MiniMax-M3 scout request',
+    detail: 'credential abcdefghijklmnopqrstuvwxyz1234567890 rejected',
+    commit: 'dcefe61cc822fc32c7f69d0570aa7278bec45605',
+    page_token: 'next-page-for-debugging',
+  }));
+  assert.ok(detail.includes('MiniMax-M3'));
+  assert.ok(detail.includes('dcefe61cc822fc32c7f69d0570aa7278bec45605'));
+  assert.ok(detail.includes('next-page-for-debugging'));
+  assert.ok(!detail.includes('abcdefghijklmnopqrstuvwxyz1234567890'));
+}
+
+function testScoutErrorSanitizesQuotedFallbackDiagnostics() {
+  const detail = router.sanitizeScoutErrorDetail(
+    '400 Bad Request: {"api_key":"abcdefghijklmnopqrstuvwxyz123456","error":"invalid MiniMax-M3 request"}'
+  );
+  assert.ok(detail.includes('MiniMax-M3'));
+  assert.ok(detail.includes('[redacted]'));
+  assert.ok(!detail.includes('abcdefghijklmnopqrstuvwxyz123456'));
+}
+
+function testScoutErrorSanitizesEmbeddedJsonDiagnostics() {
+  const detail = router.sanitizeScoutErrorDetail(
+    '400 Bad Request: {"api_key":"short-secret","error":"invalid MiniMax-M3 request"}'
+  );
+  assert.ok(detail.includes('MiniMax-M3'));
+  assert.ok(detail.includes('[redacted]'));
+  assert.ok(!detail.includes('short-secret'));
+}
+
+function testScoutErrorSanitizesEmbeddedStructuredJsonDiagnostics() {
+  const fieldValue = router.sanitizeScoutErrorDetail(
+    '400 Bad Request: {"field":"api_key","value":"short-secret","error":"invalid MiniMax-M3 request"}'
+  );
+  assert.ok(fieldValue.includes('MiniMax-M3'));
+  assert.ok(fieldValue.includes('[redacted]'));
+  assert.ok(!fieldValue.includes('short-secret'));
+
+  const arrayValue = router.sanitizeScoutErrorDetail(
+    '400 Bad Request: [{"api_key":["short-secret"],"error":"invalid MiniMax-M3 request"}]'
+  );
+  assert.ok(arrayValue.includes('MiniMax-M3'));
+  assert.ok(arrayValue.includes('[redacted]'));
+  assert.ok(!arrayValue.includes('short-secret'));
+}
+
+function testScoutErrorSanitizesLeadingJsonWithTrailingText() {
+  const detail = router.sanitizeScoutErrorDetail(
+    '{"field":"api_key","value":"short-secret","error":"invalid MiniMax-M3 request"} request rejected'
+  );
+  assert.ok(detail.includes('MiniMax-M3'));
+  assert.ok(detail.includes('request rejected'));
+  assert.ok(detail.includes('[redacted]'));
+  assert.ok(!detail.includes('short-secret'));
+}
+
+function testScoutErrorSanitizesRepeatedEmbeddedJson() {
+  const repeated = '{"field":"api_key","value":"short-secret"}';
+  const detail = router.sanitizeScoutErrorDetail(`${repeated} and ${repeated}`);
+  assert.ok(detail.includes('[redacted]'));
+  assert.ok(!detail.includes('short-secret'));
+}
+
+function testScoutErrorSanitizesMultipleEmbeddedJsonFragments() {
+  const detail = router.sanitizeScoutErrorDetail(
+    '400 {"error":"bad MiniMax-M3 request"} details {"field":"api_key","value":"short-secret"}'
+  );
+  assert.ok(detail.includes('MiniMax-M3'));
+  assert.ok(detail.includes('[redacted]'));
+  assert.ok(!detail.includes('short-secret'));
+}
+
+function testScoutErrorSanitizesJsonEncodedStringFields() {
+  const detail = router.sanitizeScoutErrorDetail(JSON.stringify({
+    error: 'invalid MiniMax-M3 scout request',
+    message: JSON.stringify({ field: 'api_key', value: 'short-secret' }),
+  }));
+  assert.ok(detail.includes('MiniMax-M3'));
+  assert.ok(detail.includes('[redacted]'));
+  assert.ok(!detail.includes('short-secret'));
+}
+
+function testScoutErrorSanitizesFieldValueDiagnostics() {
+  const detail = router.sanitizeScoutErrorDetail(JSON.stringify({
+    error: 'invalid MiniMax-M3 scout request',
+    issues: [
+      { field: 'api_key', value: 'abcdefghijklmnopqrstuvwxyz123456' },
+      { loc: ['body', 'client_secret'], input: 'abcdefghijklmnopqrstuvwxyz123457' },
+      { field: 'api_key', input_value: 'abcdefghijklmnopqrstuvwxyz123458' },
+      { field: 'api_key', message: 'short-secret' },
+    ],
+  }));
+  assert.ok(detail.includes('MiniMax-M3'));
+  assert.ok(detail.includes('[redacted]'));
+  assert.ok(!detail.includes('abcdefghijklmnopqrstuvwxyz123456'));
+  assert.ok(!detail.includes('abcdefghijklmnopqrstuvwxyz123457'));
+  assert.ok(!detail.includes('abcdefghijklmnopqrstuvwxyz123458'));
+  assert.ok(!detail.includes('short-secret'));
+}
+
+function testScoutErrorSanitizesShortQuotedProviderDiagnostics() {
+  const detail = router.sanitizeScoutErrorDetail(
+    'Incorrect API key provided: "abcdefghijklmnop123456". Model MiniMax-M3 rejected the request.'
+  );
+  assert.ok(detail.includes('MiniMax-M3'));
+  assert.ok(detail.includes('[redacted]'));
+  assert.ok(!detail.includes('abcdefghijklmnop123456'));
+}
+
+function testScoutErrorSanitizesAdditionalCredentialKeys() {
+  const detail = router.sanitizeScoutErrorDetail(JSON.stringify({
+    error: 'invalid MiniMax-M3 scout request',
+    credential: 'short-secret',
+    credentials: 'plural-short-secret',
+    passphrase: 'another-short-secret',
+    authcode: 'auth-short-secret',
+    client_id: 'client-short-secret',
+  }));
+  assert.ok(detail.includes('MiniMax-M3'));
+  assert.ok(detail.includes('[redacted]'));
+  assert.ok(!detail.includes('short-secret'));
+  assert.ok(!detail.includes('plural-short-secret'));
+}
+
+function testScoutErrorSanitizesTupleArraySecrets() {
+  const detail = router.sanitizeScoutErrorDetail(JSON.stringify({
+    error: 'invalid MiniMax-M3 scout request',
+    headers: [
+      ['authorization', 'Bearer short-secret'],
+      ['x-api-key', 'another-short-secret'],
+    ],
+    flat: ['field', 'api_key', 'value', 'flat-short-secret', 'value', 'second-flat-secret'],
+  }));
+  assert.ok(detail.includes('MiniMax-M3'));
+  assert.ok(detail.includes('[redacted]'));
+  assert.ok(!detail.includes('short-secret'));
+  assert.ok(!detail.includes('another-short-secret'));
+  assert.ok(!detail.includes('flat-short-secret'));
+  assert.ok(!detail.includes('second-flat-secret'));
+}
+
+function testScoutErrorUsesLiteralJsonReplacement() {
+  const detail = router.sanitizeScoutErrorDetail(
+    '400 Bad Request: {"field":"api_key","value":"short-secret","error":"MiniMax-M3 $& scout request"}'
+  );
+  assert.ok(detail.includes('MiniMax-M3 $& scout request'));
+  assert.ok(detail.includes('[redacted]'));
+  assert.ok(!detail.includes('short-secret'));
+}
+
+function testScoutErrorSanitizesPunctuatedUnquotedLabels() {
+  const detail = router.sanitizeScoutErrorDetail(
+    'MiniMax-M3 failed with api_key: key-id:secret and token=abc$defghi and api_secret: abcdefghijklmnopqrstuvwxyz1234567890:tail'
+  );
+  assert.ok(detail.includes('MiniMax-M3'));
+  assert.ok(detail.includes('api_key: [redacted]'));
+  assert.ok(detail.includes('token=[redacted]'));
+  assert.ok(!detail.includes('key-id:secret'));
+  assert.ok(!detail.includes('abc$defghi'));
+  assert.ok(!detail.includes('abcdefghijklmnopqrstuvwxyz'));
+  assert.ok(!detail.includes(':tail'));
+}
+
+function testScoutErrorPreservesUuidDiagnostics() {
+  const detail = router.sanitizeScoutErrorDetail(
+    'MiniMax-M3 trace id 550e8400-e29a-41d4-a716-446655440000 failed'
+  );
+  assert.ok(detail.includes('550e8400-e29a-41d4-a716-446655440000'));
+}
+
+function testScoutErrorSanitizesShortUnquotedDiagnostics() {
+  const detail = router.sanitizeScoutErrorDetail(
+    'MiniMax-M3 failed with token: abc12345 and credentials=short8'
+  );
+  assert.ok(detail.includes('MiniMax-M3'));
+  assert.ok(detail.includes('token: [redacted]'));
+  assert.ok(detail.includes('credentials=[redacted]'));
+  assert.ok(!detail.includes('abc12345'));
+  assert.ok(!detail.includes('short8'));
+}
+
+function testScoutErrorSanitizesPrefixedTextLabels() {
+  const quoted = router.sanitizeScoutErrorDetail(
+    'MiniMax-M3 failed with openai_api_key: "short-secret"'
+  );
+  assert.ok(quoted.includes('MiniMax-M3'));
+  assert.ok(quoted.includes('[redacted]'));
+  assert.ok(!quoted.includes('short-secret'));
+
+  const camel = router.sanitizeScoutErrorDetail(
+    'MiniMax-M3 failed with openaiApiKey: short8'
+  );
+  assert.ok(camel.includes('MiniMax-M3'));
+  assert.ok(camel.includes('[redacted]'));
+  assert.ok(!camel.includes('short8'));
+}
+
+function testScoutErrorSanitizesPropertyValueDiagnostics() {
+  const detail = router.sanitizeScoutErrorDetail(JSON.stringify({
+    error: 'invalid MiniMax-M3 scout request',
+    propertyName: 'credentials',
+    value: 'short-secret',
+  }));
+  assert.ok(detail.includes('MiniMax-M3'));
+  assert.ok(detail.includes('[redacted]'));
+  assert.ok(!detail.includes('short-secret'));
+}
+
+function testScoutErrorSanitizesDottedSecretKeys() {
+  const detail = router.sanitizeScoutErrorDetail(JSON.stringify({
+    error: 'invalid MiniMax-M3 scout request',
+    'config.apiKey': 'short-secret',
+    'openai.api_key': 'another-short-secret',
+  }));
+  assert.ok(detail.includes('MiniMax-M3'));
+  assert.ok(detail.includes('[redacted]'));
+  assert.ok(!detail.includes('short-secret'));
+  assert.ok(!detail.includes('another-short-secret'));
+}
+
+function testScoutErrorSanitizesLocationValueDiagnostics() {
+  const detail = router.sanitizeScoutErrorDetail(JSON.stringify({
+    error: 'invalid MiniMax-M3 scout request',
+    location: 'api_key',
+    value: 'short-secret',
+  }));
+  assert.ok(detail.includes('MiniMax-M3'));
+  assert.ok(detail.includes('[redacted]'));
+  assert.ok(!detail.includes('short-secret'));
+}
+
+function testScoutErrorSanitizesGenericKeyDiagnostics() {
+  const direct = router.sanitizeScoutErrorDetail(JSON.stringify({
+    error: 'invalid MiniMax-M3 scout request',
+    key: 'short-secret',
+  }));
+  assert.ok(direct.includes('MiniMax-M3'));
+  assert.ok(direct.includes('[redacted]'));
+  assert.ok(!direct.includes('short-secret'));
+
+  const field = router.sanitizeScoutErrorDetail(JSON.stringify({
+    error: 'invalid MiniMax-M3 scout request',
+    field: 'key',
+    value: 'another-short-secret',
+  }));
+  assert.ok(field.includes('MiniMax-M3'));
+  assert.ok(field.includes('[redacted]'));
+  assert.ok(!field.includes('another-short-secret'));
+}
+
+function testScoutErrorSanitizesWorkflowKeyDiagnostics() {
+  const detail = router.sanitizeScoutErrorDetail(JSON.stringify({
+    error: 'invalid MiniMax-M3 scout request',
+    OCR_LLM_KEY: 'short-secret',
+    OCR_LLM_TOKEN: 'another-short-secret',
+    scoutKey: 'third-short-secret',
+  }));
+  assert.ok(detail.includes('MiniMax-M3'));
+  assert.ok(detail.includes('[redacted]'));
+  assert.ok(!detail.includes('short-secret'));
+  assert.ok(!detail.includes('another-short-secret'));
+  assert.ok(!detail.includes('third-short-secret'));
+}
+
+function testScoutErrorSanitizesWorkflowKeyTextLabels() {
+  const detail = router.sanitizeScoutErrorDetail(
+    'MiniMax-M3 rejected OCR_LLM_KEY=short-secret OCR_LLM_TOKEN="another-short-secret" scoutKey: third-short-secret'
+  );
+  assert.ok(detail.includes('MiniMax-M3'));
+  assert.ok(detail.includes('[redacted]'));
+  assert.ok(!detail.includes('short-secret'));
+  assert.ok(!detail.includes('another-short-secret'));
+  assert.ok(!detail.includes('third-short-secret'));
+}
+
+function testScoutErrorPreservesTraceDiagnostics() {
+  const detail = router.sanitizeScoutErrorDetail(
+    'MiniMax-M3 request req_abcdefghijklmnopqrstuvwxyz123456 trace_id trace_abcdefghijklmnopqrstuvwxyz123456 failed'
+  );
+  assert.ok(detail.includes('req_abcdefghijklmnopqrstuvwxyz123456'));
+  assert.ok(detail.includes('trace_abcdefghijklmnopqrstuvwxyz123456'));
+}
+
+function testScoutErrorBoundsLargeProviderBodies() {
+  const detail = router.sanitizeScoutErrorDetail(`MiniMax-M3 ${'x'.repeat(5000)}`);
+  assert.ok(detail.length <= 500);
+  assert.ok(detail.includes('MiniMax-M3'));
+}
+
+function testScoutErrorRedactsLargeStructuredBodiesBeforeBounding() {
+  const detail = router.sanitizeScoutErrorDetail(JSON.stringify({
+    error: 'invalid MiniMax-M3 scout request',
+    padding: 'x'.repeat(3000),
+    issues: [
+      { field: 'api_key', value: 'short-secret' },
+    ],
+  }));
+  assert.ok(detail.length <= 500);
+  assert.ok(detail.includes('MiniMax-M3'));
+  assert.ok(!detail.includes('short-secret'));
 }
 
 async function testLargeLeanScoutNoPacketsStatus() {
@@ -406,6 +766,38 @@ async function testCompletedWithErrorsRetryablePreservesFindings() {
   assert.strictEqual(metrics.ocr.total_tokens, 12345);
 }
 
+function testScoutProviderErrorsNeutralizeMentions() {
+  const body = postOcrReview.buildReviewBody({
+    tag: '<!-- test -->',
+    result: { status: 'packetized_review', comments: [], summary: { mode: 'large-lean-hotspots' } },
+    comments: [],
+    selected: [],
+    overflow: [],
+    summaryOnly: [],
+    warnings: [],
+    stderr: '',
+    metrics: {
+      mode: 'large-lean-hotspots',
+      router_version: router.ROUTER_VERSION,
+      packet_review: {
+        enabled: true,
+        packets_selected: 0,
+        packet_budget: 8,
+        scout: {
+          enabled: true,
+          status: 'fallback_deterministic',
+          model: 'MiniMax-M3',
+          error_detail: 'provider echoed @verity-admins and @octocat',
+        },
+      },
+    },
+  });
+  assert.ok(body.includes('&#64;verity-admins'));
+  assert.ok(body.includes('&#64;octocat'));
+  assert.ok(!body.includes('@verity-admins'));
+  assert.ok(!body.includes('@octocat'));
+}
+
 async function run() {
   testNoSupportedFilesSkipped();
   testOneLeanFileNormal();
@@ -422,10 +814,42 @@ async function run() {
   await testLargeLeanScoutEmptySelectionIsFallback();
   await testLargeLeanScoutMalformedJsonFallsBack();
   await testLargeLeanScoutApiFailureFallsBack();
+  testScoutErrorSanitizesApiKeyPhrases();
+  testScoutErrorSanitizesStructuredSecrets();
+  testScoutErrorSanitizesJwtWithoutDroppingPlainDiagnostics();
+  testScoutErrorSanitizesPunctuatedBearerCredentials();
+  testScoutErrorSanitizesBasicAuthCredentials();
+  testScoutErrorSanitizesBareCredentialLikeStrings();
+  testScoutErrorSanitizesQuotedFallbackDiagnostics();
+  testScoutErrorSanitizesEmbeddedJsonDiagnostics();
+  testScoutErrorSanitizesEmbeddedStructuredJsonDiagnostics();
+  testScoutErrorSanitizesLeadingJsonWithTrailingText();
+  testScoutErrorSanitizesRepeatedEmbeddedJson();
+  testScoutErrorSanitizesMultipleEmbeddedJsonFragments();
+  testScoutErrorSanitizesJsonEncodedStringFields();
+  testScoutErrorSanitizesFieldValueDiagnostics();
+  testScoutErrorSanitizesShortQuotedProviderDiagnostics();
+  testScoutErrorSanitizesAdditionalCredentialKeys();
+  testScoutErrorSanitizesTupleArraySecrets();
+  testScoutErrorUsesLiteralJsonReplacement();
+  testScoutErrorSanitizesPunctuatedUnquotedLabels();
+  testScoutErrorPreservesUuidDiagnostics();
+  testScoutErrorSanitizesShortUnquotedDiagnostics();
+  testScoutErrorSanitizesPrefixedTextLabels();
+  testScoutErrorSanitizesPropertyValueDiagnostics();
+  testScoutErrorSanitizesDottedSecretKeys();
+  testScoutErrorSanitizesLocationValueDiagnostics();
+  testScoutErrorSanitizesGenericKeyDiagnostics();
+  testScoutErrorSanitizesWorkflowKeyDiagnostics();
+  testScoutErrorSanitizesWorkflowKeyTextLabels();
+  testScoutErrorPreservesTraceDiagnostics();
+  testScoutErrorBoundsLargeProviderBodies();
+  testScoutErrorRedactsLargeStructuredBodiesBeforeBounding();
   await testLargeLeanScoutNoPacketsStatus();
   testWorkflowDocsEnabled();
   testGenericScriptConfigEnabled();
   await testCompletedWithErrorsRetryablePreservesFindings();
+  testScoutProviderErrorsNeutralizeMentions();
   console.log('OCR routing tests passed');
 }
 

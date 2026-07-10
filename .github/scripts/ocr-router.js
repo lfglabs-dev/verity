@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
-const ROUTER_VERSION = 'router-v5';
+const ROUTER_VERSION = 'router-v8';
 const DEFAULT_SCOUT_MODEL = 'MiniMax-M3';
 const STRONG_REVIEW_BLOCKER_MESSAGE = 'OpenCodeReview 1.7.5 supports --from/--to full diff ranges, but this workflow does not have a safe packet/window input bridge for Lean hunks yet.';
 const THRESHOLDS = Object.freeze({
@@ -351,6 +351,8 @@ async function applyScoutStage(decision, diff, config) {
     decision.scout.status = 'fallback_deterministic';
     decision.scout.error = 'Scout model call failed; deterministic packet ranking retained.';
     decision.scout.error_type = classifyScoutError(err);
+    decision.scout.error_detail = sanitizeScoutErrorDetail(err);
+    if (err?.status) decision.scout.http_status = err.status;
   }
   return decision;
 }
@@ -445,7 +447,9 @@ async function callScoutModel(config, dossier) {
     });
     const text = await response.text();
     if (!response.ok) {
-      throw new Error(`scout model HTTP ${response.status}`);
+      const err = new Error(text || response.statusText || 'scout model rejected request');
+      err.status = response.status;
+      throw err;
     }
     const payload = JSON.parse(text);
     const content = payload.choices?.[0]?.message?.content;
@@ -491,7 +495,11 @@ function stripThinking(text) {
 }
 
 function extractJsonObject(text) {
-  const start = text.indexOf('{');
+  return extractJsonValue(text, '{', '}');
+}
+
+function extractJsonValue(text, open, close) {
+  const start = text.indexOf(open);
   if (start === -1) return null;
   let depth = 0;
   let inString = false;
@@ -510,9 +518,9 @@ function extractJsonObject(text) {
     }
     if (ch === '"') {
       inString = true;
-    } else if (ch === '{') {
+    } else if (ch === open) {
       depth += 1;
-    } else if (ch === '}') {
+    } else if (ch === close) {
       depth -= 1;
       if (depth === 0) return text.slice(start, i + 1);
     }
@@ -522,10 +530,158 @@ function extractJsonObject(text) {
 
 function classifyScoutError(err) {
   const text = String(err?.message || err || '').toLowerCase();
+  if (err?.status) return 'http_error';
   if (text.includes('abort')) return 'timeout';
   if (text.includes('http')) return 'http_error';
   if (text.includes('json')) return 'invalid_json';
   return 'request_failed';
+}
+
+function sanitizeScoutErrorDetail(err) {
+  const raw = String(err?.message || err || '');
+  const structured = redactStructuredError(raw.slice(0, 64000));
+  return redactSecretText(structured || raw.slice(0, 2000))
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 500);
+}
+
+function redactStructuredError(text) {
+  const trimmed = String(text || '').trim();
+  if (!trimmed) return null;
+  let replaced = trimmed;
+  let changed = false;
+  for (const candidate of extractJsonCandidates(trimmed)) {
+    try {
+      const redacted = JSON.stringify(redactSecretJsonValue(JSON.parse(candidate)));
+      replaced = replaceLiteralAll(replaced, candidate, redacted);
+      changed = true;
+    } catch {
+      // Keep scanning; provider diagnostics may mix invalid and valid fragments.
+    }
+  }
+  if (changed) return replaced;
+  const candidate = /^[\[{]/.test(trimmed)
+    ? trimmed
+    : extractJsonObject(trimmed) || extractJsonValue(trimmed, '[', ']');
+  if (!candidate) return null;
+  try {
+    const redacted = JSON.stringify(redactSecretJsonValue(JSON.parse(candidate)));
+    return candidate === trimmed ? redacted : replaceLiteralAll(trimmed, candidate, redacted);
+  } catch {
+    const embedded = extractJsonObject(trimmed) || extractJsonValue(trimmed, '[', ']');
+    if (embedded && embedded !== candidate) {
+      try {
+        const redacted = JSON.stringify(redactSecretJsonValue(JSON.parse(embedded)));
+        return replaceLiteralAll(trimmed, embedded, redacted);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+}
+
+function extractJsonCandidates(text) {
+  const candidates = [];
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (ch !== '{' && ch !== '[') continue;
+    const close = ch === '{' ? '}' : ']';
+    if (text.indexOf(close, i + 1) === -1) continue;
+    const candidate = extractJsonValue(text.slice(i, i + 8192), ch, close);
+    if (!candidate) continue;
+    candidates.push(candidate);
+    i += candidate.length - 1;
+    if (candidates.length >= 20) break;
+  }
+  return candidates;
+}
+
+function redactSecretJsonValue(value, key = '') {
+  if (isSecretKey(key)) return '[redacted]';
+  if (Array.isArray(value)) {
+    let redactNext = false;
+    let secretContext = false;
+    return value.map((item, index) => {
+      if (redactNext) {
+        redactNext = false;
+        return '[redacted]';
+      }
+      if (secretContext && isValueCarrier(item)) {
+        redactNext = true;
+        return redactSecretJsonValue(item);
+      }
+      if (typeof item === 'string' && hasSecretIndicator(item)) {
+        if (isValueCarrier(value[index + 1])) {
+          secretContext = true;
+        } else {
+          redactNext = true;
+        }
+        return redactSecretJsonValue(item);
+      }
+      return redactSecretJsonValue(item);
+    });
+  }
+  if (value && typeof value === 'object') {
+    const secretContext = Object.entries(value).some(([childKey, childValue]) => {
+      if (!/^(field|field_name|fieldName|param|parameter|name|key|loc|location|path|property|property_name|propertyName|attribute|target)$/i.test(childKey)) return false;
+      return hasSecretIndicator(childValue);
+    });
+    return Object.fromEntries(Object.entries(value).map(([childKey, childValue]) => [
+      childKey,
+      secretContext && /^(value|input|input_value|inputValue|provided|actual|message|detail|details|text|description|error_description|errorDescription)$/i.test(childKey)
+        ? '[redacted]'
+        : redactSecretJsonValue(childValue, childKey),
+    ]));
+  }
+  if (typeof value === 'string') {
+    const structured = redactStructuredError(value);
+    return redactSecretText(structured || value);
+  }
+  return value;
+}
+
+function hasSecretIndicator(value) {
+  if (Array.isArray(value)) return value.some(hasSecretIndicator);
+  if (value && typeof value === 'object') return Object.values(value).some(hasSecretIndicator);
+  return isSecretKey(String(value || ''));
+}
+
+function isValueCarrier(value) {
+  return /^(value|input|input_value|inputValue|provided|actual)$/i.test(String(value || ''));
+}
+
+function isSecretKey(key) {
+  const normalized = String(key || '')
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .replace(/[^a-zA-Z0-9]+/g, '_')
+    .toLowerCase();
+  const parts = normalized.split('_').filter(Boolean);
+  return normalized === 'key'
+    || normalized === 'token'
+    || (parts.some(part => /^(ocr|llm|scout)$/.test(part)) && parts.some(part => /^(key|token)$/.test(part)))
+    || /(^|_)(api_key|apikey|api_token|access_token|refresh_token|id_token|client_secret|client_id|api_secret|consumer_secret|private_key|bearer_token|session_secret|session_token|auth_code|authcode|authorization|password|passphrase|credential|credentials|secret)($|_)/.test(normalized);
+}
+
+function redactSecretText(text) {
+  return String(text || '')
+    .replace(/https?:\/\/[^\s"')]+/g, '[url-redacted]')
+    .replace(/\beyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, '[redacted]')
+    .replace(/Bearer\s+[^\s"',)}\]]+/gi, 'Bearer [redacted]')
+    .replace(/Basic\s+[A-Za-z0-9+/=._~-]+/gi, 'Basic [redacted]')
+    .replace(/\bsk-[A-Za-z0-9._-]+/gi, '[redacted]')
+    .replace(/(["'`])([A-Za-z0-9_-]*(?:ocr|llm|scout)[A-Za-z0-9_-]*(?:key|token)|[A-Za-z0-9_-]*(?:key|token)[A-Za-z0-9_-]*(?:ocr|llm|scout))\1(\s*:\s*)(["'`])(?:\\.|(?!\4).){0,300}\4/gi, '$1$2$1$3$4[redacted]$4')
+    .replace(/\b([A-Za-z0-9_-]*(?:ocr|llm|scout)[A-Za-z0-9_-]*(?:key|token)|[A-Za-z0-9_-]*(?:key|token)[A-Za-z0-9_-]*(?:ocr|llm|scout))\b([^"'`\n]{0,120}?[:=]\s*)(["'`])(?:\\.|(?!\3).){0,300}\3/gi, '$1$2$3[redacted]$3')
+    .replace(/\b([A-Za-z0-9_-]*(?:ocr|llm|scout)[A-Za-z0-9_-]*(?:key|token)|[A-Za-z0-9_-]*(?:key|token)[A-Za-z0-9_-]*(?:ocr|llm|scout))\b([^"'`\n]{0,120}?[:=]\s*)([^\s"',)}\]]{6,})/gi, '$1$2[redacted]')
+    .replace(/(["'`])((?:[A-Za-z0-9_-]*(?:api\s*key|api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?(?:secret|id)|api[_-]?secret|consumer[_-]?secret|private[_-]?key|bearer[_-]?token|session[_-]?(?:secret|token)|auth[_-]?code|credential|credentials|passphrase|password|secret))|token|authorization)\1(\s*:\s*)(["'`])(?:\\.|(?!\4).){0,300}\4/gi, '$1$2$1$3$4[redacted]$4')
+    .replace(/\b((?:[A-Za-z0-9_-]*(?:api\s*key|api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?(?:secret|id)|api[_-]?secret|consumer[_-]?secret|private[_-]?key|bearer[_-]?token|session[_-]?(?:secret|token)|auth[_-]?code|credential|credentials|passphrase|password|secret))|token|authorization)\b([^"'`\n]{0,120}?[:=]\s*)(["'`])(?:\\.|(?!\3).){0,300}\3/gi, '$1$2$3[redacted]$3')
+    .replace(/\b((?:(?:[A-Za-z0-9_-]*(?:api\s*key|api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?(?:secret|id)|api[_-]?secret|consumer[_-]?secret|private[_-]?key|bearer[_-]?token|session[_-]?(?:secret|token)|auth[_-]?code|credential|credentials|passphrase|password|secret))|token|authorization)\b[^"'`\n]{0,120}?[:=]\s*)([^\s"',)}\]]{6,})/gi, '$1[redacted]')
+    .replace(/\b(?![a-f0-9]{40}\b)(?![0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b)(?!req_[A-Za-z0-9._-]{20,}\b)(?!trace[_-][A-Za-z0-9._-]{20,}\b)(?!correlation[_-][A-Za-z0-9._-]{20,}\b)(?=[A-Za-z0-9._~+/-]{32,}\b)(?=[A-Za-z0-9._~+/-]*[A-Za-z])(?=[A-Za-z0-9._~+/-]*\d)[A-Za-z0-9._~+/-]{32,}={0,2}\b/g, '[redacted]');
+}
+
+function replaceLiteralAll(text, needle, replacement) {
+  return String(text).split(needle).join(replacement);
 }
 
 function openAiChatUrl(baseUrl) {
@@ -963,6 +1119,7 @@ module.exports = {
   applyScoutStage,
   resolveScoutConfig,
   parseScoutJson,
+  sanitizeScoutErrorDetail,
   buildRiskDossier,
   parseUnifiedDiff,
   scorePathRisk,
