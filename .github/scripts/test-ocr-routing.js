@@ -467,11 +467,13 @@ function testScoutErrorSanitizesTupleArraySecrets() {
       ['authorization', 'Bearer short-secret'],
       ['x-api-key', 'another-short-secret'],
     ],
+    flat: ['field', 'api_key', 'value', 'flat-short-secret'],
   }));
   assert.ok(detail.includes('MiniMax-M3'));
   assert.ok(detail.includes('[redacted]'));
   assert.ok(!detail.includes('short-secret'));
   assert.ok(!detail.includes('another-short-secret'));
+  assert.ok(!detail.includes('flat-short-secret'));
 }
 
 function testScoutErrorUsesLiteralJsonReplacement() {
@@ -485,13 +487,15 @@ function testScoutErrorUsesLiteralJsonReplacement() {
 
 function testScoutErrorSanitizesPunctuatedUnquotedLabels() {
   const detail = router.sanitizeScoutErrorDetail(
-    'MiniMax-M3 failed with api_key: key-id:secret and token=abc$defghi'
+    'MiniMax-M3 failed with api_key: key-id:secret and token=abc$defghi and api_secret: abcdefghijklmnopqrstuvwxyz1234567890:tail'
   );
   assert.ok(detail.includes('MiniMax-M3'));
   assert.ok(detail.includes('api_key: [redacted]'));
   assert.ok(detail.includes('token=[redacted]'));
   assert.ok(!detail.includes('key-id:secret'));
   assert.ok(!detail.includes('abc$defghi'));
+  assert.ok(!detail.includes('abcdefghijklmnopqrstuvwxyz'));
+  assert.ok(!detail.includes(':tail'));
 }
 
 function testScoutErrorPreservesUuidDiagnostics() {

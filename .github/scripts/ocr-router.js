@@ -587,10 +587,13 @@ function extractJsonCandidates(text) {
   for (let i = 0; i < text.length; i += 1) {
     const ch = text[i];
     if (ch !== '{' && ch !== '[') continue;
-    const candidate = extractJsonValue(text.slice(i), ch, ch === '{' ? '}' : ']');
+    const close = ch === '{' ? '}' : ']';
+    if (text.indexOf(close, i + 1) === -1) continue;
+    const candidate = extractJsonValue(text.slice(i, i + 8192), ch, close);
     if (!candidate) continue;
     candidates.push(candidate);
     i += candidate.length - 1;
+    if (candidates.length >= 20) break;
   }
   return candidates;
 }
@@ -598,10 +601,28 @@ function extractJsonCandidates(text) {
 function redactSecretJsonValue(value, key = '') {
   if (isSecretKey(key)) return '[redacted]';
   if (Array.isArray(value)) {
-    if (value.length >= 2 && hasSecretIndicator(value[0])) {
-      return value.map((item, index) => index === 1 ? '[redacted]' : redactSecretJsonValue(item));
-    }
-    return value.map(item => redactSecretJsonValue(item));
+    let redactNext = false;
+    let secretContext = false;
+    return value.map((item, index) => {
+      if (redactNext) {
+        redactNext = false;
+        secretContext = false;
+        return '[redacted]';
+      }
+      if (secretContext && isValueCarrier(item)) {
+        redactNext = true;
+        return redactSecretJsonValue(item);
+      }
+      if (typeof item === 'string' && hasSecretIndicator(item)) {
+        if (isValueCarrier(value[index + 1])) {
+          secretContext = true;
+        } else {
+          redactNext = true;
+        }
+        return redactSecretJsonValue(item);
+      }
+      return redactSecretJsonValue(item);
+    });
   }
   if (value && typeof value === 'object') {
     const secretContext = Object.entries(value).some(([childKey, childValue]) => {
@@ -623,6 +644,10 @@ function hasSecretIndicator(value) {
   if (Array.isArray(value)) return value.some(hasSecretIndicator);
   if (value && typeof value === 'object') return Object.values(value).some(hasSecretIndicator);
   return isSecretKey(String(value || ''));
+}
+
+function isValueCarrier(value) {
+  return /^(value|input|input_value|inputValue|provided|actual)$/i.test(String(value || ''));
 }
 
 function isSecretKey(key) {
@@ -648,6 +673,7 @@ function redactSecretText(text) {
     .replace(/\b([A-Za-z0-9_-]*(?:ocr|llm|scout)[A-Za-z0-9_-]*(?:key|token)|[A-Za-z0-9_-]*(?:key|token)[A-Za-z0-9_-]*(?:ocr|llm|scout))\b([^"'`\n]{0,120}?[:=]\s*)([^\s"',)}\]]{6,})/gi, '$1$2[redacted]')
     .replace(/(["'`])((?:[A-Za-z0-9_-]*(?:api\s*key|api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?(?:secret|id)|api[_-]?secret|consumer[_-]?secret|private[_-]?key|bearer[_-]?token|session[_-]?(?:secret|token)|auth[_-]?code|credential|credentials|passphrase|password|secret))|token|authorization)\1(\s*:\s*)(["'`])(?:\\.|(?!\4).){0,300}\4/gi, '$1$2$1$3$4[redacted]$4')
     .replace(/\b((?:[A-Za-z0-9_-]*(?:api\s*key|api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?(?:secret|id)|api[_-]?secret|consumer[_-]?secret|private[_-]?key|bearer[_-]?token|session[_-]?(?:secret|token)|auth[_-]?code|credential|credentials|passphrase|password|secret))|token|authorization)\b([^"'`\n]{0,120}?[:=]\s*)(["'`])(?:\\.|(?!\3).){0,300}\3/gi, '$1$2$3[redacted]$3')
+    .replace(/\b((?:(?:[A-Za-z0-9_-]*(?:api\s*key|api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?(?:secret|id)|api[_-]?secret|consumer[_-]?secret|private[_-]?key|bearer[_-]?token|session[_-]?(?:secret|token)|auth[_-]?code|credential|credentials|passphrase|password|secret))|token|authorization)\b[^"'`\n]{0,120}?[:=]\s*)([^\s"',)}\]]{6,})/gi, '$1[redacted]')
     .replace(/\b(?![a-f0-9]{40}\b)(?![0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b)(?!req_[A-Za-z0-9._-]{20,}\b)(?!trace[_-][A-Za-z0-9._-]{20,}\b)(?!correlation[_-][A-Za-z0-9._-]{20,}\b)(?=[A-Za-z0-9._~+/-]{32,}\b)(?=[A-Za-z0-9._~+/-]*[A-Za-z])(?=[A-Za-z0-9._~+/-]*\d)[A-Za-z0-9._~+/-]{32,}={0,2}\b/g, '[redacted]')
     .replace(/\b((?:(?:[A-Za-z0-9_-]*(?:api\s*key|api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?(?:secret|id)|api[_-]?secret|consumer[_-]?secret|private[_-]?key|bearer[_-]?token|session[_-]?(?:secret|token)|auth[_-]?code|credential|credentials|passphrase|password|secret))|token|authorization)\b[^"'`\n]{0,120}?[:=]\s*)([^\s"',)}\]]{6,})/gi, '$1[redacted]');
 }
