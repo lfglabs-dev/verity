@@ -634,7 +634,7 @@ function isSecretKey(key) {
   return normalized === 'key'
     || normalized === 'token'
     || (parts.some(part => /^(ocr|llm|scout)$/.test(part)) && parts.some(part => /^(key|token)$/.test(part)))
-    || /(^|_)(api_key|apikey|access_token|refresh_token|id_token|client_secret|client_id|api_secret|consumer_secret|private_key|bearer_token|session_secret|session_token|auth_code|authcode|authorization|password|passphrase|credential|credentials|secret)($|_)/.test(normalized);
+    || /(^|_)(api_key|apikey|api_token|access_token|refresh_token|id_token|client_secret|client_id|api_secret|consumer_secret|private_key|bearer_token|session_secret|session_token|auth_code|authcode|authorization|password|passphrase|credential|credentials|secret)($|_)/.test(normalized);
 }
 
 function redactSecretText(text) {

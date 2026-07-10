@@ -316,6 +316,7 @@ function testScoutErrorSanitizesStructuredSecrets() {
     error: 'invalid MiniMax-M3 scout request',
     api_key: ['abcdefghijklmnopqrstuvwxyz123456'],
     minimax_api_key: 'abcdefghijklmnopqrstuvwxyz123459',
+    api_token: 'abcdefghijklmnopqrstuvwxyz123461',
     openaiApiKey: 'abcdefghijklmnopqrstuvwxyz123460',
     access_token: 'abcdefghijklmnopqrstuvwxyz123456',
     refreshToken: 'abcdefghijklmnopqrstuvwxyz123457',
