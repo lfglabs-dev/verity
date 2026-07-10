@@ -195,4 +195,17 @@ theorem compileInternalFunction_body_eq_external_of_returnFree
               refine ⟨returns, retNames, bodyStmts, rfl, ?_, hcompile.symm⟩
               rw [← hirrel, hbody]
 
+/-- Concrete regression for the rank-0 void-helper body-shape seam: an empty
+helper body is unaffected by internal return targets. -/
+theorem empty_void_helper_body_compile_shape_irrelevant_regression :
+    CompilationModel.compileStmtListWithFork [] [] [] .calldata
+      ([] : List String) true ([] : List String) []
+      Verity.Core.Intrinsics.HardFork.cancun ([] : List Stmt) [] =
+    CompilationModel.compileStmtListWithFork [] [] [] .calldata
+      [] false [] [] Verity.Core.Intrinsics.HardFork.cancun ([] : List Stmt) [] := by
+  exact
+    compileStmtListWithFork_internal_shape_irrelevant_of_returnFree
+      [] [] [] .calldata ([] : List String) true ([] : List String) []
+      Verity.Core.Intrinsics.HardFork.cancun ([] : List Stmt) [] rfl
+
 end Compiler.Proofs.IRGeneration
