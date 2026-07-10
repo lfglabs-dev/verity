@@ -538,9 +538,9 @@ function classifyScoutError(err) {
 }
 
 function sanitizeScoutErrorDetail(err) {
-  const raw = String(err?.message || err || '').slice(0, 2000);
-  const structured = redactStructuredError(raw);
-  return redactSecretText(structured || raw)
+  const raw = String(err?.message || err || '');
+  const structured = redactStructuredError(raw.slice(0, 64000));
+  return redactSecretText(structured || raw.slice(0, 2000))
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 500);

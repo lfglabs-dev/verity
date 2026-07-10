@@ -509,6 +509,19 @@ function testScoutErrorBoundsLargeProviderBodies() {
   assert.ok(detail.includes('MiniMax-M3'));
 }
 
+function testScoutErrorRedactsLargeStructuredBodiesBeforeBounding() {
+  const detail = router.sanitizeScoutErrorDetail(JSON.stringify({
+    error: 'invalid MiniMax-M3 scout request',
+    padding: 'x'.repeat(3000),
+    issues: [
+      { field: 'api_key', value: 'short-secret' },
+    ],
+  }));
+  assert.ok(detail.length <= 500);
+  assert.ok(detail.includes('MiniMax-M3'));
+  assert.ok(!detail.includes('short-secret'));
+}
+
 async function testLargeLeanScoutNoPacketsStatus() {
   const files = Array.from({ length: 13 }, (_, i) => file(`Compiler/Proofs/Large${i}.lean`, 40, 0));
   const decision = router.decideRoute(files);
@@ -653,6 +666,7 @@ async function run() {
   testScoutErrorSanitizesPropertyValueDiagnostics();
   testScoutErrorPreservesTraceDiagnostics();
   testScoutErrorBoundsLargeProviderBodies();
+  testScoutErrorRedactsLargeStructuredBodiesBeforeBounding();
   await testLargeLeanScoutNoPacketsStatus();
   testWorkflowDocsEnabled();
   testGenericScriptConfigEnabled();
