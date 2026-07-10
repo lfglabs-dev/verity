@@ -1881,6 +1881,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_compiledInternalTable
   -- Compiler.Proofs.IRGeneration.Contract.compiled_internal_functions_forall₂_of_mapM_ok'  -- private
   -- Compiler.Proofs.IRGeneration.Contract.exists_left_of_forall₂_mem_right  -- private
+  Compiler.Proofs.IRGeneration.Contract.legacyCompatibleExternalBodies_of_compileValidatedCore_of_interface
   Compiler.Proofs.IRGeneration.Contract.compileInternalFunction_mapM_mem_exists
   Compiler.Proofs.IRGeneration.Contract.compiledInternalTable_of_internalFunctions_eq_mapM
   Compiler.Proofs.IRGeneration.Contract.InternalTableNamesReserved_of_internalFunctions_append
@@ -1918,6 +1919,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_with_helper_proofs_and_helper_ir_goal
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_with_helper_proofs_and_helper_ir_of_disjointRuntimeContract
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_with_helper_proofs_and_helper_ir_of_compileValidatedCore
+  Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_with_helper_proofs_and_helper_ir_of_compileValidatedCore_of_interface
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_with_helper_proofs_and_helper_ir_closed
   Compiler.Proofs.IRGeneration.Contract.counter_supported_spec_compile_preserves_semantics
 
@@ -2134,6 +2136,8 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.Function.genScalarLoad_legacy  -- private
   -- Compiler.Proofs.IRGeneration.Function.genParamLoadBodyFrom_scalar_legacy  -- private
   -- Compiler.Proofs.IRGeneration.Function.genParamLoads_scalar_legacy  -- private
+  -- Compiler.Proofs.IRGeneration.Function.compileStmtList_legacyCompatible_of_interface  -- private
+  Compiler.Proofs.IRGeneration.Function.compileFunctionSpec_body_legacyCompatible_of_interface
   -- Compiler.Proofs.IRGeneration.Function.genScalarLoad_calldataload_callsDisjoint  -- private
   -- Compiler.Proofs.IRGeneration.Function.genParamLoadBodyFrom_calldataload_callsDisjoint  -- private
   -- Compiler.Proofs.IRGeneration.Function.genParamLoads_callsDisjoint_of_builtins  -- private
@@ -5957,4 +5961,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5587 theorems/lemmas (3861 public, 1726 private, 0 sorry'd)
+-- Total: 5591 theorems/lemmas (3864 public, 1727 private, 0 sorry'd)

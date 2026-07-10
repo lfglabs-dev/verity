@@ -2858,6 +2858,55 @@ private theorem genParamLoads_scalar_legacy
   simp [genParamLoads, genParamLoadsFrom]
   exact .if_ _ _ _ (.exprStmt _ _ .nil) hbody
 
+/-- Legacy-compatibility analog of `compileStmtList_scalar_events_callsDisjoint`:
+turn a per-statement compiled legacy-compatibility interface
+(`StmtListCompiledLegacyCompatible`) into a whole-list legacy-compatibility
+witness for the emitted Yul body. This is the missing list-composition bridge
+that lifts the per-statement legacy obligations (the remaining #2080 discharge
+target) to a `LegacyCompatibleExternalStmtList` for the compiled body, mirroring
+the already-proven disjoint composition. -/
+private theorem compileStmtList_legacyCompatible_of_interface
+    {fields : List Field} :
+    ∀ {scope : List String} {stmts : List Stmt} {compiledIR : List YulStmt},
+      StmtListCompiledLegacyCompatible fields scope stmts →
+      CompilationModel.compileStmtList fields [] [] .calldata [] false scope [] stmts =
+          Except.ok compiledIR →
+      LegacyCompatibleExternalStmtList compiledIR
+  | _, [], _, _, hcompile => by
+      try unfold CompilationModel.compileStmtList at hcompile
+      unfold CompilationModel.compileStmtListWithFork at hcompile
+      cases hcompile
+      exact .nil
+  | _, _ :: _, _, hInterface, hcompile => by
+      obtain ⟨headIR, tailIR, hheadCompile, htailCompile, hbody⟩ :=
+        FunctionBody.compileStmtList_cons_ok_inv hcompile
+      cases hInterface with
+      | cons hhead htail =>
+          rw [hbody]
+          exact legacyCompatibleExternalStmtList_append
+            (hhead headIR hheadCompile)
+            (compileStmtList_legacyCompatible_of_interface htail htailCompile)
+
+/-- Per-function legacy-compatibility bridge. A supported external function whose
+scalar params are supported and whose compiled body satisfies the per-statement
+legacy interface compiles to a function whose IR body stays inside the
+legacy-compatible external Yul subset (`LegacyCompatibleExternalStmtList`).
+Composes `genParamLoads_scalar_legacy` with the body composition lemma. -/
+theorem compileFunctionSpec_body_legacyCompatible_of_interface
+    (fields : List Field) (selector : Nat) (spec : FunctionSpec) (irFn : IRFunction)
+    (hparams : ∀ param ∈ spec.params, SupportedExternalParamType param.ty)
+    (hbodyInterface :
+      StmtListCompiledLegacyCompatible fields (spec.params.map (·.name)) spec.body)
+    (hcompile : compileFunctionSpec fields [] [] [] selector spec = Except.ok irFn) :
+    LegacyCompatibleExternalStmtList irFn.body := by
+  obtain ⟨returns, bodyStmts, _hvalidate, _hreturns, hbodyCompile, hirFn⟩ :=
+    compileFunctionSpec_ok_components fields [] [] selector spec irFn hcompile
+  subst hirFn
+  simp only [compiledFunctionIR]
+  exact legacyCompatibleExternalStmtList_append
+    (genParamLoads_scalar_legacy spec.params hparams)
+    (compileStmtList_legacyCompatible_of_interface hbodyInterface hbodyCompile)
+
 /-- Disjointness of a single scalar param-load (with the `calldataload` word
 loader used by `genParamLoads`) from a runtime contract's internal-function
 table. Every EVM/Yul builtin emitted by `genScalarLoad`
