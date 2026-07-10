@@ -344,7 +344,7 @@ function fenced(s) {
 }
 
 function escapeMd(s) {
-  return String(s).replace(/[<>]/g, ch => ({ '<': '&lt;', '>': '&gt;' }[ch]));
+  return String(s).replace(/[<>@]/g, ch => ({ '<': '&lt;', '>': '&gt;', '@': '&#64;' }[ch]));
 }
 
 module.exports.isRetryableResult = isRetryableResult;

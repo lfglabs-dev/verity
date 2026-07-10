@@ -721,6 +721,38 @@ async function testCompletedWithErrorsRetryablePreservesFindings() {
   assert.strictEqual(metrics.ocr.total_tokens, 12345);
 }
 
+function testScoutProviderErrorsNeutralizeMentions() {
+  const body = postOcrReview.buildReviewBody({
+    tag: '<!-- test -->',
+    result: { status: 'packetized_review', comments: [], summary: { mode: 'large-lean-hotspots' } },
+    comments: [],
+    selected: [],
+    overflow: [],
+    summaryOnly: [],
+    warnings: [],
+    stderr: '',
+    metrics: {
+      mode: 'large-lean-hotspots',
+      router_version: router.ROUTER_VERSION,
+      packet_review: {
+        enabled: true,
+        packets_selected: 0,
+        packet_budget: 8,
+        scout: {
+          enabled: true,
+          status: 'fallback_deterministic',
+          model: 'MiniMax-M3',
+          error_detail: 'provider echoed @verity-admins and @octocat',
+        },
+      },
+    },
+  });
+  assert.ok(body.includes('&#64;verity-admins'));
+  assert.ok(body.includes('&#64;octocat'));
+  assert.ok(!body.includes('@verity-admins'));
+  assert.ok(!body.includes('@octocat'));
+}
+
 async function run() {
   testNoSupportedFilesSkipped();
   testOneLeanFileNormal();
@@ -768,6 +800,7 @@ async function run() {
   testWorkflowDocsEnabled();
   testGenericScriptConfigEnabled();
   await testCompletedWithErrorsRetryablePreservesFindings();
+  testScoutProviderErrorsNeutralizeMentions();
   console.log('OCR routing tests passed');
 }
 
