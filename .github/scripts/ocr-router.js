@@ -745,25 +745,25 @@ function scorePathRisk(filePath) {
 function detectSignals(file, hunk) {
   const signals = new Map();
   const add = (name, weight) => signals.set(name, { name, weight: Math.max(weight, signals.get(name)?.weight || 0) });
-  const addedCode = codeLinesForHunkSide(hunk, 'new');
-  const deletedCode = codeLinesForHunkSide(hunk, 'old');
-  const addedStatements = codeLinesForHunkSide(hunk, 'new', { preserveStrings: true });
-  const deletedStatements = codeLinesForHunkSide(hunk, 'old', { preserveStrings: true });
-  const allChanged = [...addedCode, ...deletedCode];
-  const allChangedStatements = [...addedStatements, ...deletedStatements];
+  const addedRiskCode = codeLinesForHunkSide(hunk, 'new');
+  const deletedRiskCode = codeLinesForHunkSide(hunk, 'old');
+  const addedStatementText = statementLinesForHunkSide(hunk, 'new');
+  const deletedStatementText = statementLinesForHunkSide(hunk, 'old');
+  const allChangedRiskCode = [...addedRiskCode, ...deletedRiskCode];
+  const allChangedStatementText = [...addedStatementText, ...deletedStatementText];
 
-  if (addedCode.some(line => /\b(sorry|admit)\b/.test(line))) add('introduced sorry/admit', 80);
-  if (addedCode.some(line => /^\s*axiom\b/.test(line) || /\baxiom\b/.test(line))) add('introduced/changed axiom', 75);
-  if (addedCode.some(line => /\bunsafe\b/.test(line))) add('introduced unsafe', 55);
-  if (allChanged.some(line => /^\s*import\s+/.test(line))) add('changed imports', 30);
-  if (allChangedStatements.some(line => publicDeclPattern().test(line))) add('public declaration/signature changed', 34);
+  if (addedRiskCode.some(line => /\b(sorry|admit)\b/.test(line))) add('introduced sorry/admit', 80);
+  if (addedRiskCode.some(line => /^\s*axiom\b/.test(line) || /\baxiom\b/.test(line))) add('introduced/changed axiom', 75);
+  if (addedRiskCode.some(line => /\bunsafe\b/.test(line))) add('introduced unsafe', 55);
+  if (allChangedRiskCode.some(line => /^\s*import\s+/.test(line))) add('changed imports', 30);
+  if (allChangedStatementText.some(line => publicDeclPattern().test(line))) add('public declaration/signature changed', 34);
   if (file.category === 'trust-doc') add('trust-boundary docs drift', 38);
   if (file.category === 'doc' && /(trust|axiom|audit|sound|semantic|proof)/i.test(file.path)) add('trust/proof docs drift', 25);
-  if (deletedCode.length >= 80 || deletedCode.join('\n').length > 6000) add('large deleted proof obligation', 35);
-  if (deletedStatements.some(line => publicDeclPattern().test(line)) && addedStatements.some(line => publicDeclPattern().test(line))) {
+  if (deletedRiskCode.length >= 80 || deletedRiskCode.join('\n').length > 6000) add('large deleted proof obligation', 35);
+  if (deletedStatementText.some(line => publicDeclPattern().test(line)) && addedStatementText.some(line => publicDeclPattern().test(line))) {
     add('theorem/public statement changed', 45);
   }
-  if (changedTheoremStatements(deletedStatements, addedStatements).length > 0) add('theorem statement changed/possibly weakened', 65);
+  if (changedTheoremStatements(deletedStatementText, addedStatementText).length > 0) add('theorem statement changed/possibly weakened', 65);
 
   return [...signals.values()].sort((a, b) => b.weight - a.weight || a.name.localeCompare(b.name));
 }
@@ -777,6 +777,10 @@ function codeLinesForHunkSide(hunk, side, options = {}) {
     scanner.scanLine(line.text, line.type === includeType);
   }
   return scanner.finish();
+}
+
+function statementLinesForHunkSide(hunk, side) {
+  return codeLinesForHunkSide(hunk, side, { preserveStrings: true });
 }
 
 function createLeanChangedCodeScanner(options = {}) {
@@ -896,7 +900,7 @@ function createLeanChangedCodeScanner(options = {}) {
         openInterpolation();
         return 1;
       }
-      if (ch === '"') {
+      if (!string.rawTerminator && ch === '"') {
         if (options.preserveStrings) emit(ch, include);
         remember(ch);
         string = null;
