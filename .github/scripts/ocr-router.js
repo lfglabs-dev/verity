@@ -802,8 +802,14 @@ function createLeanChangedCodeScanner(options = {}) {
     current = '';
   };
   const inInterpolationCode = () => interpolationFrames.length > 0 && !string;
-  const openString = interpolated => {
-    string = { interpolated, escaped: false };
+  const rememberText = text => {
+    for (const ch of String(text || '')) remember(ch);
+  };
+  const emitText = (text, include) => {
+    if (include) current += text;
+  };
+  const openString = (interpolated, rawTerminator = null) => {
+    string = { interpolated, escaped: false, rawTerminator };
   };
   const openInterpolation = () => {
     interpolationFrames.push({ braceDepth: 1, returnString: string ? { ...string, escaped: false } : null });
@@ -861,6 +867,18 @@ function createLeanChangedCodeScanner(options = {}) {
     }
 
     if (string) {
+      if (string.rawTerminator) {
+        if (ch === '"' && text.slice(index, index + string.rawTerminator.length) === string.rawTerminator) {
+          const length = string.rawTerminator.length;
+          if (options.preserveStrings) emitText(string.rawTerminator, include);
+          rememberText(string.rawTerminator);
+          string = null;
+          return length;
+        }
+        if (options.preserveStrings) emit(ch, include);
+        remember(ch);
+        return 1;
+      }
       if (string.escaped) {
         if (options.preserveStrings) emit(ch, include);
         remember(ch);
@@ -904,10 +922,11 @@ function createLeanChangedCodeScanner(options = {}) {
       return 1;
     }
     if (ch === '"') {
+      const rawTerminator = rawStringTerminatorBeforeQuote(prefix);
       const interpolated = /[A-Za-z]!$/.test(prefix);
       if (options.preserveStrings) emit(ch, include);
       remember(ch);
-      openString(interpolated);
+      openString(interpolated && !rawTerminator, rawTerminator);
       return 1;
     }
     if (ch === "'" && startsLeanCharLiteral(text, index)) {
@@ -950,6 +969,12 @@ function createLeanChangedCodeScanner(options = {}) {
 
 function isLeanIdentContinue(ch) {
   return /^[\p{L}\p{N}\p{M}_]$/u.test(ch);
+}
+
+function rawStringTerminatorBeforeQuote(prefix) {
+  const match = String(prefix || '').match(/r(#{0,16})$/);
+  if (!match) return null;
+  return `"${match[1]}`;
 }
 
 function startsLeanCharLiteral(text, quoteIndex) {

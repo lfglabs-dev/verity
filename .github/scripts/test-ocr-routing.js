@@ -588,6 +588,25 @@ function testLeanScannerBlockerRegressionCases() {
       excludes: ['introduced sorry/admit'],
     },
     {
+      name: 'theorem statement comparisons preserve raw strings with inner quotes',
+      lines: [
+        ['ctx', 'namespace Verity'],
+        ['del', 'theorem render_sound : render x = r#"old "quoted" value"# := by trivial'],
+        ['add', 'theorem render_sound : render x = r#"new "quoted" value"# := by trivial'],
+        ['ctx', 'end Verity'],
+      ],
+      includes: ['theorem statement changed/possibly weakened'],
+    },
+    {
+      name: 'code after a raw string with inner quotes is scanned',
+      lines: [
+        ['ctx', 'namespace Verity'],
+        ['add', 'def marker := r#"said "hi""#; unsafe def riskyAfterRaw : Nat := 0'],
+        ['ctx', 'end Verity'],
+      ],
+      includes: ['introduced unsafe'],
+    },
+    {
       name: 'multiline interrupted interpolation keeps state from context into added line',
       lines: [
         ['ctx', 'namespace Verity'],
