@@ -784,7 +784,7 @@ function codeLinesForHunkSide(hunk, side, options = {}) {
     const wasOpenInterpolation = isOpenInterpolationState({ inStringInterpolated, stringInterpolationState });
     if (line.type === includeType && wasOpenInterpolation) {
       pendingChangedInterpolation = true;
-      pendingChangedInterpolationText += `${line.text}\n`;
+      pendingChangedInterpolationText += changedInterpolationLineText(line.text, stringInterpolationState, options);
     }
     const stripped = stripLeanCommentsFromLine(line.text, {
       commentDepth,
@@ -801,7 +801,7 @@ function codeLinesForHunkSide(hunk, side, options = {}) {
     if (line.type === includeType && isOpenInterpolationState(stripped)) {
       pendingChangedInterpolation = true;
     }
-    if (line.type === includeType && stripped.code.trim()) {
+    if (line.type === includeType && stripped.code.trim() && !wasOpenInterpolation) {
       code.push(stripped.code);
     } else if (pendingChangedInterpolation && !isOpenInterpolationState(stripped) && pendingChangedInterpolationText.trim()) {
       const changedInterpolation = stripLeanCommentsFromText(
@@ -827,6 +827,20 @@ function codeLinesForHunkSide(hunk, side, options = {}) {
     if (strippedInterpolation.code.trim()) code.push(strippedInterpolation.code);
   }
   return code;
+}
+
+function changedInterpolationLineText(text, state, options = {}) {
+  if (Number(state?.interpolationCommentDepth || 0) > 0) {
+    const stripped = stripLeanCommentsFromLine(
+      text,
+      { commentDepth: Number(state.interpolationCommentDepth || 0) },
+      0,
+      options
+    );
+    return stripped.code.trim() ? `${stripped.code}\n` : '';
+  }
+  if (state?.interpolationString || state?.interpolationChar) return '';
+  return `${text}\n`;
 }
 
 function isOpenInterpolationState(state) {
