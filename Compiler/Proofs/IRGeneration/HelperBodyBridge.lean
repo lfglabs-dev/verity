@@ -231,6 +231,57 @@ theorem findInternalFunction?_some_eq_compiledHelper_of_witness
   rw [hname] at hfind hshape
   exact ⟨retNames, bodyStmts, hfind, hshape⟩
 
+/-- Return-free helper bodies found through the runtime helper table are exactly
+the externally-shaped body produced by `compileStmtList ... [] false`.  This is
+the body-level bridge used before applying the existing generic body theorem;
+the uniqueness hypothesis is the same explicit runtime-table obligation as in
+`findInternalFunction?_some_eq_compiledHelper_of_witness`. -/
+theorem findInternalFunction?_external_body_of_witness_returnFree
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {calleeName : String}
+    (compiledHelper :
+      SupportedCompiledInternalHelperWitness spec runtimeContract calleeName)
+    (hreturnFree :
+      stmtListUsesReturnFamily compiledHelper.sourceWitness.callee.body = false)
+    (hunique : ∀ stmt ∈ runtimeContract.internalFunctions,
+      ∀ p r b, irInternalFunctionDefOfStmt? stmt =
+        some ⟨CompilationModel.internalFunctionYulName
+          compiledHelper.sourceWitness.callee.name, p, r, b⟩ →
+        stmt = compiledHelper.compiledStmt) :
+    ∃ retNames bodyStmts,
+      findInternalFunction? runtimeContract
+          (CompilationModel.internalFunctionYulName calleeName) =
+        some { name := CompilationModel.internalFunctionYulName calleeName,
+               params := CompilationModel.internalFunctionYulParamNames
+                 compiledHelper.sourceWitness.callee.params,
+               rets := retNames,
+               body := bodyStmts } ∧
+      CompilationModel.compileStmtListWithFork
+        (CompilationModel.applySlotAliasRanges spec.fields spec.slotAliasRanges)
+        spec.events spec.errors .calldata [] false
+        (CompilationModel.internalFunctionYulParamNames
+          compiledHelper.sourceWitness.callee.params ++ retNames)
+        spec.adtTypes Verity.Core.Intrinsics.HardFork.cancun
+        compiledHelper.sourceWitness.callee.body =
+          Except.ok bodyStmts ∧
+      compiledHelper.compiledStmt = YulStmt.funcDef
+        (CompilationModel.internalFunctionYulName calleeName)
+        (CompilationModel.internalFunctionYulParamNames
+          compiledHelper.sourceWitness.callee.params)
+        retNames bodyStmts := by
+  rcases findInternalFunction?_some_eq_compiledHelper_of_witness
+      compiledHelper hunique with
+    ⟨retNames, bodyStmts, hfind, hshape⟩
+  rcases compileInternalFunction_body_eq_external_of_returnFree
+      compiledHelper.compileOk hreturnFree with
+    ⟨_returns, retNames', bodyStmts', _hreturns, hbodyCompile, hshape'⟩
+  rw [hshape] at hshape'
+  injection hshape' with _hname _hparams hrets hbody
+  subst retNames'
+  subst bodyStmts'
+  exact ⟨retNames, bodyStmts, hfind, hbodyCompile, hshape⟩
+
 /-- Concrete regression for the rank-0 void-helper body-shape seam: an empty
 helper body is unaffected by internal return targets. -/
 theorem empty_void_helper_body_compile_shape_irrelevant_regression :
