@@ -202,6 +202,18 @@ function testLeanInterpolatedStringNestedQuotedBracesDoNotStopScanning() {
   assert.ok(packets[0].signals.includes('introduced sorry/admit'));
 }
 
+function testLeanInterpolatedStringBlockCommentBracesDoNotStopScanning() {
+  const leanFile = file('Compiler/Proofs/InterpolatedStringBlockCommentBrace.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/InterpolatedStringBlockCommentBrace.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['add', 'def commented := s!"{ /- } -/ (by sorry : Nat) }"'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(packets[0].signals.includes('introduced sorry/admit'));
+}
+
 function testLeanInterpolatedStringPrimedIdentifiersDoNotStopScanning() {
   const leanFile = file('Compiler/Proofs/InterpolatedStringPrimedIdentifier.lean', 10, 0);
   leanFile.hunks = [hunk('Compiler/Proofs/InterpolatedStringPrimedIdentifier.lean', 20, [
@@ -972,6 +984,7 @@ async function run() {
   testLeanInterpolatedStringExpressionsAreScanned();
   testLeanInterpolatedStringQuotedBracesDoNotStopScanning();
   testLeanInterpolatedStringNestedQuotedBracesDoNotStopScanning();
+  testLeanInterpolatedStringBlockCommentBracesDoNotStopScanning();
   testLeanInterpolatedStringPrimedIdentifiersDoNotStopScanning();
   testLeanInterpolatedStringMultiPrimedIdentifiersDoNotStopScanning();
   testLeanInterpolatedStringUnicodePrimedIdentifiersDoNotStopScanning();

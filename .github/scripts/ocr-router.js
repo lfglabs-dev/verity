@@ -837,12 +837,26 @@ function scanLeanString(text, quoteIndex, interpolated, depth = 0) {
   let interpolationString = false;
   let interpolationChar = false;
   let interpolationEscaped = false;
+  let interpolationCommentDepth = 0;
   while (i < text.length) {
     const ch = text[i];
     i += 1;
 
     if (interpolationDepth > 0) {
       interpolation += ch;
+      const next = text[i];
+      if (interpolationCommentDepth > 0) {
+        if (ch === '/' && next === '-') {
+          interpolation += next;
+          i += 1;
+          interpolationCommentDepth += 1;
+        } else if (ch === '-' && next === '/') {
+          interpolation += next;
+          i += 1;
+          interpolationCommentDepth -= 1;
+        }
+        continue;
+      }
       if (interpolationEscaped) {
         interpolationEscaped = false;
         continue;
@@ -865,6 +879,17 @@ function scanLeanString(text, quoteIndex, interpolated, depth = 0) {
       }
       if (ch === "'" && startsLeanCharLiteral(interpolation, interpolation.length - 1)) {
         interpolationChar = true;
+        continue;
+      }
+      if (ch === '-' && next === '-') {
+        interpolation += text.slice(i);
+        i = text.length;
+        continue;
+      }
+      if (ch === '/' && next === '-') {
+        interpolation += next;
+        i += 1;
+        interpolationCommentDepth = 1;
         continue;
       }
       if (ch === '{') {
@@ -894,6 +919,7 @@ function scanLeanString(text, quoteIndex, interpolated, depth = 0) {
       interpolationString = false;
       interpolationChar = false;
       interpolationEscaped = false;
+      interpolationCommentDepth = 0;
       continue;
     }
     if (ch === '"') break;
