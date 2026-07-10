@@ -1,3 +1,4 @@
+import Compiler.Proofs.IRGeneration.IRInterpreter
 import Compiler.CompilationModel.Compile
 import Compiler.Proofs.IRGeneration.SupportedSpec
 
@@ -191,6 +192,44 @@ theorem compileInternalFunction_body_eq_external_of_returnFree
               simp only [pure, Except.pure, Except.ok.injEq] at hcompile
               refine ⟨returns, retNames, bodyStmts, rfl, ?_, hcompile.symm⟩
               rw [← hirrel, hbody]
+
+/-- Exact runtime-table lookup for a supported compiled helper, specialized to
+the witness type consumed by helper-call bridge code.  The uniqueness
+hypothesis is intentionally explicit: discharging it for whole compiled runtime
+contracts is a separate contract-table obligation. -/
+theorem findInternalFunction?_some_eq_compiledHelper_of_witness
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {calleeName : String}
+    (compiledHelper :
+      SupportedCompiledInternalHelperWitness spec runtimeContract calleeName)
+    (hunique : ∀ stmt ∈ runtimeContract.internalFunctions,
+      ∀ p r b, irInternalFunctionDefOfStmt? stmt =
+        some ⟨CompilationModel.internalFunctionYulName
+          compiledHelper.sourceWitness.callee.name, p, r, b⟩ →
+        stmt = compiledHelper.compiledStmt) :
+    ∃ retNames bodyStmts,
+      findInternalFunction? runtimeContract
+          (CompilationModel.internalFunctionYulName calleeName) =
+        some { name := CompilationModel.internalFunctionYulName calleeName,
+               params := CompilationModel.internalFunctionYulParamNames
+                 compiledHelper.sourceWitness.callee.params,
+               rets := retNames,
+               body := bodyStmts } ∧
+      compiledHelper.compiledStmt = YulStmt.funcDef
+        (CompilationModel.internalFunctionYulName calleeName)
+        (CompilationModel.internalFunctionYulParamNames
+          compiledHelper.sourceWitness.callee.params)
+        retNames bodyStmts := by
+  have hname : compiledHelper.sourceWitness.callee.name = calleeName :=
+    compiledHelper.sourceWitness.nameEq
+  rcases findInternalFunction?_exact_of_compileInternalFunction_mem_unique
+      compiledHelper.compileOk
+      compiledHelper.presentInRuntime
+      hunique with
+    ⟨retNames, bodyStmts, hfind, hshape⟩
+  rw [hname] at hfind hshape
+  exact ⟨retNames, bodyStmts, hfind, hshape⟩
 
 /-- Concrete regression for the rank-0 void-helper body-shape seam: an empty
 helper body is unaffected by internal return targets. -/
