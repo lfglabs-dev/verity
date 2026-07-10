@@ -361,6 +361,8 @@ def validateInternalCallShapesNodeStmt
       validateInternalCallShapesInExprList functions callerName callerParams args
   | Stmt.revertError _ args =>
       validateInternalCallShapesInExprList functions callerName callerParams args
+  | .panicCode code =>
+      validateInternalCallShapesInExpr functions callerName callerParams code
   | Stmt.mstore offset value | Stmt.tstore offset value => do
       validateInternalCallShapesInExpr functions callerName callerParams offset
       validateInternalCallShapesInExpr functions callerName callerParams value
@@ -508,6 +510,8 @@ def validateExternalCallTargetsNodeStmt
       validateExternalCallTargetsInExprList externals context args
   | Stmt.revertError _ args =>
       validateExternalCallTargetsInExprList externals context args
+  | .panicCode code =>
+      validateExternalCallTargetsInExpr externals context code
   | Stmt.mstore offset value | Stmt.tstore offset value => do
       validateExternalCallTargetsInExpr externals context offset
       validateExternalCallTargetsInExpr externals context value
