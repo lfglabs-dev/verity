@@ -182,7 +182,19 @@ function testLeanInterpolatedStringQuotedBracesDoNotStopScanning() {
   const leanFile = file('Compiler/Proofs/InterpolatedStringQuotedBrace.lean', 10, 0);
   leanFile.hunks = [hunk('Compiler/Proofs/InterpolatedStringQuotedBrace.lean', 20, [
     ['ctx', 'namespace Verity'],
-    ['add', "def note := s!\"value { let c := '}'; (by sorry : Nat) }\""],
+    ['add', 'def exact := s!"{ let c := \'}\'; (by sorry : Nat) }"'],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(packets[0].signals.includes('introduced sorry/admit'));
+}
+
+function testLeanInterpolatedStringNestedQuotedBracesDoNotStopScanning() {
+  const leanFile = file('Compiler/Proofs/InterpolatedStringNestedQuotedBrace.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/InterpolatedStringNestedQuotedBrace.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['add', 'def nested := s!"{ let text := "}"; (by admit : Nat) }"'],
     ['ctx', 'end Verity'],
   ])];
   const packets = router.buildReviewPackets([leanFile]);
@@ -195,6 +207,18 @@ function testLeanInterpolatedStringPrimedIdentifiersDoNotStopScanning() {
   leanFile.hunks = [hunk('Compiler/Proofs/InterpolatedStringPrimedIdentifier.lean', 20, [
     ['ctx', 'namespace Verity'],
     ['add', "def note := s!\"value { let x' := (by sorry : Nat); x' }\""],
+    ['ctx', 'end Verity'],
+  ])];
+  const packets = router.buildReviewPackets([leanFile]);
+  assert.ok(packets.length > 0);
+  assert.ok(packets[0].signals.includes('introduced sorry/admit'));
+}
+
+function testLeanInterpolatedStringMultiPrimedIdentifiersDoNotStopScanning() {
+  const leanFile = file('Compiler/Proofs/InterpolatedStringMultiPrimedIdentifier.lean', 10, 0);
+  leanFile.hunks = [hunk('Compiler/Proofs/InterpolatedStringMultiPrimedIdentifier.lean', 20, [
+    ['ctx', 'namespace Verity'],
+    ['add', "def double := s!\"value { let h'' := (by admit : Nat); h'' }\""],
     ['ctx', 'end Verity'],
   ])];
   const packets = router.buildReviewPackets([leanFile]);
@@ -947,7 +971,9 @@ async function run() {
   testLeanStringLiteralsDoNotTriggerSignals();
   testLeanInterpolatedStringExpressionsAreScanned();
   testLeanInterpolatedStringQuotedBracesDoNotStopScanning();
+  testLeanInterpolatedStringNestedQuotedBracesDoNotStopScanning();
   testLeanInterpolatedStringPrimedIdentifiersDoNotStopScanning();
+  testLeanInterpolatedStringMultiPrimedIdentifiersDoNotStopScanning();
   testLeanInterpolatedStringUnicodePrimedIdentifiersDoNotStopScanning();
   testBangBeforeStringDoesNotEnableInterpolationScanning();
   testLeanNestedBlockCommentDoesNotTriggerSignals();

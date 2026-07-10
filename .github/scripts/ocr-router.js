@@ -863,7 +863,7 @@ function scanLeanString(text, quoteIndex, interpolated, depth = 0) {
         interpolationString = true;
         continue;
       }
-      if (ch === "'" && !isLeanIdentContinue(interpolation[interpolation.length - 2] || '')) {
+      if (ch === "'" && startsLeanCharLiteral(interpolation, interpolation.length - 1)) {
         interpolationChar = true;
         continue;
       }
@@ -903,6 +903,17 @@ function scanLeanString(text, quoteIndex, interpolated, depth = 0) {
 
 function isLeanIdentContinue(ch) {
   return /^[\p{L}\p{N}\p{M}_]$/u.test(ch);
+}
+
+function startsLeanCharLiteral(text, quoteIndex) {
+  const previous = previousCodePoint(text, quoteIndex);
+  return previous !== "'" && !isLeanIdentContinue(previous);
+}
+
+function previousCodePoint(text, index) {
+  if (index <= 0) return '';
+  const points = Array.from(text.slice(0, index));
+  return points[points.length - 1] || '';
 }
 
 function publicDeclPattern() {
