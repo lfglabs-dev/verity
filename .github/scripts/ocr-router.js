@@ -896,6 +896,7 @@ function createLeanChangedCodeScanner(options = {}) {
         return 1;
       }
       if (string.interpolated && ch === '{') {
+        if (options.preserveStrings) emit(ch, include);
         remember(ch);
         openInterpolation();
         return 1;
@@ -947,6 +948,7 @@ function createLeanChangedCodeScanner(options = {}) {
       return 1;
     }
     if (inInterpolationCode() && ch === '}') {
+      if (options.preserveStrings) emit(ch, include);
       remember(ch);
       closeInterpolationBrace();
       return 1;

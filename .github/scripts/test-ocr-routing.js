@@ -598,6 +598,17 @@ function testLeanScannerBlockerRegressionCases() {
       includes: ['theorem statement changed/possibly weakened'],
     },
     {
+      name: 'theorem statement comparisons preserve interpolation braces',
+      lines: [
+        ['ctx', 'namespace Verity'],
+        ['del', 'theorem render_sound : render x = s!"{x}" := by trivial'],
+        ['add', 'theorem render_sound : render x = s!"x" := by trivial'],
+        ['ctx', 'end Verity'],
+      ],
+      includes: ['theorem statement changed/possibly weakened'],
+      excludes: ['introduced sorry/admit'],
+    },
+    {
       name: 'code after a raw string with inner quotes is scanned',
       lines: [
         ['ctx', 'namespace Verity'],
