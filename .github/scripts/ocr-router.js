@@ -848,6 +848,13 @@ function changedInterpolationLineText(text, state, options = {}) {
         outerStringEscaped = false;
       } else if (ch === '\\') {
         outerStringEscaped = true;
+      } else if (ch === '{') {
+        interpolationDepth = 1;
+        interpolationString = false;
+        interpolationChar = false;
+        interpolationEscaped = false;
+        interpolationCommentDepth = 0;
+        inOuterStringTail = false;
       } else if (ch === '"') {
         inOuterStringTail = false;
       }
