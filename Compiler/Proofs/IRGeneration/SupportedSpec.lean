@@ -817,6 +817,7 @@ def exprListTouchesUnsupportedConstructorRawCalldataSurface : List Expr → Bool
         exprListTouchesUnsupportedConstructorRawCalldataSurface rest
 
 def stmtTouchesUnsupportedConstructorRawCalldataSurface : Stmt → Bool
+  | .panicCode _ => false
   | .letVar _ value | .assignVar _ value | .setStorage _ value
   | .setStorageAddr _ value | .setImmutable _ value | .setStorageWord _ _ value
   | .require value _ | .return value
@@ -1363,6 +1364,7 @@ mutual
 /-- Observable/effect-rich surfaces outside the current generic whole-contract
 theorem: richer returns, logs, typed errors, and raw external effect hooks. -/
 def stmtTouchesUnsupportedEffectSurface : Stmt → Bool
+  | .panicCode _ => true
   | .requireError _ _ _ | .revertError _ _ | .returnValues _ | .returnArray _
   | .returnBytes _ | .returnStorageWords _ | .returnCodeData _ | .emit _ _ | .rawLog _ _ _
   | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _ => true
@@ -1389,6 +1391,7 @@ def stmtTouchesUnsupportedEffectSurface : Stmt → Bool
 core, excluding richer state/call/effect surfaces that now have dedicated
 interfaces of their own. -/
 def stmtTouchesUnsupportedCoreSurface : Stmt → Bool
+  | .panicCode _ => false
   | .letVar _ value | .assignVar _ value | .setStorage _ value =>
       exprTouchesUnsupportedCoreSurface value
   | .setStorageAddr _ value | .setImmutable _ value =>
@@ -1435,6 +1438,7 @@ def stmtTouchesUnsupportedCoreSurface : Stmt → Bool
 /-- State/layout-rich statement surfaces still outside the current whole-contract
 theorem. -/
 def stmtTouchesUnsupportedStateSurface : Stmt → Bool
+  | .panicCode _ => false
   | .letVar _ value | .assignVar _ value | .setStorage _ value =>
       exprTouchesUnsupportedStateSurface value
   | .require cond _ | .return cond =>
@@ -1476,6 +1480,7 @@ def stmtTouchesUnsupportedStateSurfaceExceptMappingWrites : Stmt → Bool
 /-- Helper/foreign/runtime-call statement surfaces still outside the current
 generic theorem. -/
 def stmtTouchesUnsupportedCallSurface : Stmt → Bool
+  | .panicCode _ => false
   | .letVar _ value | .assignVar _ value | .setStorage _ value
   | .setStorageAddr _ value | .setImmutable _ value | .setStorageWord _ _ value | .storageArrayPush _ value =>
       exprTouchesUnsupportedCallSurface value
@@ -1518,6 +1523,7 @@ def stmtTouchesUnsupportedCallSurface : Stmt → Bool
         stmtListTouchesUnsupportedCallSurface body
 
 def stmtTouchesUnsupportedHelperSurface : Stmt → Bool
+  | .panicCode _ => false
   | .letVar _ value | .assignVar _ value | .setStorage _ value
   | .setStorageAddr _ value | .setImmutable _ value | .setStorageWord _ _ value | .storageArrayPush _ value =>
       exprTouchesUnsupportedHelperSurface value
@@ -1562,6 +1568,7 @@ def stmtTouchesUnsupportedHelperSurface : Stmt → Bool
 this isolates heads that genuinely execute internal helpers, leaving residual
 non-helper unsupported cases to be tracked separately. -/
 def stmtTouchesInternalHelperSurface : Stmt → Bool
+  | .panicCode _ => false
   | .letVar _ value | .assignVar _ value | .setStorage _ value
   | .setStorageAddr _ value | .setImmutable _ value | .setStorageWord _ _ value | .storageArrayPush _ value =>
       exprTouchesInternalHelperSurface value
@@ -1629,6 +1636,7 @@ This isolates the cases that should consume the expression-level helper-summary
 soundness and world-preservation lemmas directly, rather than bundling them
 with direct helper statements or recursive structural transport. -/
 def stmtTouchesExprInternalHelperSurface : Stmt → Bool
+  | .panicCode _ => false
   | .letVar _ value | .assignVar _ value | .setStorage _ value
   | .setStorageAddr _ value | .setImmutable _ value | .setStorageWord _ _ value | .storageArrayPush _ value =>
       exprTouchesInternalHelperSurface value
@@ -1670,6 +1678,7 @@ def stmtTouchesExprInternalHelperSurface : Stmt → Bool
 head. This isolates `ite` / `forEach` obligations whose proof burden is mainly
 list-level recursion rather than direct helper-summary consumption. -/
 def stmtTouchesStructuralInternalHelperSurface : Stmt → Bool
+  | .panicCode _ => false
   | .ite _ thenBranch elseBranch =>
       stmtListTouchesInternalHelperSurface thenBranch ||
         stmtListTouchesInternalHelperSurface elseBranch
@@ -1694,6 +1703,7 @@ def stmtTouchesStructuralInternalHelperSurface : Stmt → Bool
   | .unsafeBlock _ _ | .unsafeYul _ | .matchAdt _ _ _ => true
 
 def stmtTouchesUnsupportedForeignSurface : Stmt → Bool
+  | .panicCode _ => false
   | .letVar _ value | .assignVar _ value | .setStorage _ value
   | .setStorageAddr _ value | .setImmutable _ value | .setStorageWord _ _ value | .storageArrayPush _ value =>
       exprTouchesUnsupportedForeignSurface value
@@ -1736,6 +1746,7 @@ def stmtTouchesUnsupportedForeignSurface : Stmt → Bool
         stmtListTouchesUnsupportedForeignSurface body
 
 def stmtTouchesUnsupportedLowLevelSurface : Stmt → Bool
+  | .panicCode _ => false
   | .letVar _ value | .assignVar _ value | .setStorage _ value
   | .setStorageAddr _ value | .setImmutable _ value | .setStorageWord _ _ value | .storageArrayPush _ value =>
       exprTouchesUnsupportedLowLevelSurface value
@@ -1806,7 +1817,8 @@ def stmtTouchesUnsupportedContractSurface (stmt : Stmt) : Bool :=
   | .returndataCopy _ _ _ | .revertReturndata
   | .emit _ _ | .internalCall _ _ | .internalCallAssign _ _ _
   | .rawLog _ _ _ | .externalCallBind _ _ _ | .ecm _ _
-  | .tryExternalCallBind _ _ _ _ | .unsafeBlock _ _ | .unsafeYul _ | .matchAdt _ _ _ => true
+  | .tryExternalCallBind _ _ _ _ | .unsafeBlock _ _ | .unsafeYul _ | .matchAdt _ _ _
+  | .panicCode _ => true
   | .forEach _ (.literal 0) body =>
       stmtListTouchesUnsupportedContractSurface body
   | .forEach _ (.literal _) [] => false
@@ -2049,7 +2061,7 @@ private theorem compileStmt_eventsErrorsAgnostic_aux
         | returnArray | returnBytes | returnStorageWords | returnCodeData
         | calldatacopy | returndataCopy | revertReturndata | emit | internalCall
         | internalCallAssign | rawLog | externalCallBind | ecm
-        | tryExternalCallBind | unsafeBlock | unsafeYul | matchAdt =>
+        | tryExternalCallBind | unsafeBlock | unsafeYul | matchAdt | panicCode =>
             simp [stmtTouchesUnsupportedContractSurface] at hsurface
       · intro stmts scope hlt hsurface
         cases stmts with
@@ -2214,6 +2226,7 @@ mutual
   positions. These calls must preserve the world on success because the current
   helper-aware expression semantics returns only a value. -/
   def stmtExprHelperCallNames : Stmt → List String
+    | .panicCode code => exprInternalHelperCallNames code
     | .letVar _ value | .assignVar _ value | .setStorage _ value | .setStorageAddr _ value
     | .setImmutable _ value
     | .setStorageWord _ _ value
@@ -2282,6 +2295,7 @@ end
 mutual
   /-- Collect direct internal-helper callee names mentioned by a statement list. -/
   def stmtInternalHelperCallNames : Stmt → List String
+    | .panicCode code => exprInternalHelperCallNames code
     | .letVar _ value | .assignVar _ value | .setStorage _ value | .setStorageAddr _ value
     | .setImmutable _ value
     | .setStorageWord _ _ value
@@ -4039,7 +4053,7 @@ mutual
     | stop | calldatacopy _ _ _ | returndataCopy _ _ _ | revertReturndata
     | externalCallBind _ _ _ | tryExternalCallBind _ _ _ _ | ecm _ _ | storageArrayPop _ | requireError _ _ _
     | revertError _ _ | returnValues _ | returnArray _ | returnBytes _
-    | returnStorageWords _ | emit _ _ | rawLog _ _ _ =>
+    | returnStorageWords _ | emit _ _ | rawLog _ _ _ | panicCode _ =>
         simp [stmtTouchesInternalHelperSurface]
   termination_by sizeOf stmt
 
@@ -5047,7 +5061,7 @@ theorem stmtTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
   | returnStorageWords _ | returnCodeData _ | calldatacopy _ _ _ | returndataCopy _ _ _
   | revertReturndata | emit _ _ | internalCall _ _
   | internalCallAssign _ _ _ | rawLog _ _ _ | externalCallBind _ _ _ | ecm _ _
-  | forEachSetBit _ _ _ =>
+  | forEachSetBit _ _ _ | panicCode _ =>
       cases hsurface
   | forEach varName count body =>
       cases count with

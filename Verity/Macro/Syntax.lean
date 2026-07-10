@@ -146,6 +146,7 @@ macro_rules
   | `(adt $_variant:str [ $[$_args:term],* ]) => `(0)
 syntax "revert " ident "(" sepBy(term, ",") ")" : doElem
 syntax "revertError " ident "(" sepBy(term, ",") ")" : doElem
+syntax "panic(" term ")" : doElem
 syntax "requireError " term:max ppSpace ident "(" sepBy(term, ",") ")" : doElem
 syntax (name := requireSomeUintErrorTerm) "requireSomeUintError " term:max ppSpace ident "(" sepBy(term, ",") ")" : term
 syntax "ecmBind " term:max ppSpace term:max ppSpace term:max : doElem
