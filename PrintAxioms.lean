@@ -2152,11 +2152,13 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.Function.compileMappingSlotWrite_legacyCompatible  -- private
   -- Compiler.Proofs.IRGeneration.Function.compileSetMapping2_legacyCompatible  -- private
   -- Compiler.Proofs.IRGeneration.Function.compileSetMapping2Word_legacyCompatible  -- private
+  -- Compiler.Proofs.IRGeneration.Function.compileSetStructMember2_legacyCompatible  -- private
   -- Compiler.Proofs.IRGeneration.Function.compileSetMappingChain_legacyCompatible  -- private
   Compiler.Proofs.IRGeneration.Function.stmtList_setMappingSingle_compiledLegacyCompatible
   Compiler.Proofs.IRGeneration.Function.stmtList_setMappingChainSingle_compiledLegacyCompatible
   Compiler.Proofs.IRGeneration.Function.stmtList_setMapping2Single_compiledLegacyCompatible
   Compiler.Proofs.IRGeneration.Function.stmtList_setMapping2WordSingle_compiledLegacyCompatible
+  Compiler.Proofs.IRGeneration.Function.stmtList_setStructMember2Single_compiledLegacyCompatible
   Compiler.Proofs.IRGeneration.Function.stmtList_setMappingUintSingle_compiledLegacyCompatible
   Compiler.Proofs.IRGeneration.Function.stmtList_setMappingWordSingle_compiledLegacyCompatible
   Compiler.Proofs.IRGeneration.Function.compileFunctionSpec_body_legacyCompatible_of_interface
@@ -5985,4 +5987,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5615 theorems/lemmas (3876 public, 1739 private, 0 sorry'd)
+-- Total: 5617 theorems/lemmas (3877 public, 1740 private, 0 sorry'd)
