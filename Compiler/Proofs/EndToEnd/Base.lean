@@ -5846,14 +5846,15 @@ theorem generatedRuntimeSafeBodies_of_supported_except_mapping_writes_stmt_safet
     (hSupported.supportedFunctionOfSelectorDispatched hfn).body.effects.surfaceClosed
 
 /-- A supported constructor exposes the same source statement-list witness as
-ordinary function bodies, scoped by decoded constructor parameter names. -/
+ordinary function bodies, scoped by decoded constructor argument aliases and
+parameter names. -/
 theorem generatedConstructorSupportedStmtList_of_supported
     {spec : CompilationModel.CompilationModel} {selectors : List Nat}
     (hSupported : SupportedSpec spec selectors) :
     ∀ ctor, spec.constructor = some ctor →
-      SupportedStmtList spec.fields (ctor.params.map (·.name)) ctor.body := by
+      SupportedStmtList spec.fields (CompilationModel.constructorBodyScope ctor.params) ctor.body := by
   intro ctor hctor
-  exact (hSupported.constructor ctor hctor).body.stmtList
+  exact (hSupported.constructor ctor hctor).stmtList_ctorBody
 
 /-- Constructor user bodies compile under the memory dynamic-data source. When
 their body also satisfies the full state/effect closure surface, the same
