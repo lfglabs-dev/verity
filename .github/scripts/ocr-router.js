@@ -833,6 +833,8 @@ function changedInterpolationLineText(text, state, options = {}) {
   const line = String(text || '');
   let code = '';
   let interpolationString = Boolean(state?.interpolationString);
+  let interpolationStringInterpolated = Boolean(state?.interpolationStringInterpolated);
+  let interpolationStringInterpolationDepth = Number(state?.interpolationStringInterpolationDepth || 0);
   let interpolationChar = Boolean(state?.interpolationChar);
   let interpolationEscaped = Boolean(state?.interpolationEscaped);
   let interpolationCommentDepth = Number(state?.interpolationCommentDepth || 0);
@@ -884,7 +886,24 @@ function changedInterpolationLineText(text, state, options = {}) {
       continue;
     }
     if (interpolationString) {
-      if (ch === '"') interpolationString = false;
+      if (interpolationStringInterpolated && interpolationStringInterpolationDepth > 0) {
+        if (ch === '{') {
+          interpolationStringInterpolationDepth += 1;
+          code += ch;
+        } else if (ch === '}') {
+          interpolationStringInterpolationDepth -= 1;
+        } else {
+          code += ch;
+        }
+        i += 1;
+        continue;
+      }
+      if (interpolationStringInterpolated && ch === '{') {
+        interpolationStringInterpolationDepth = 1;
+      } else if (ch === '"') {
+        interpolationString = false;
+        interpolationStringInterpolated = false;
+      }
       i += 1;
       continue;
     }
@@ -901,6 +920,8 @@ function changedInterpolationLineText(text, state, options = {}) {
     }
     if (ch === '"') {
       interpolationString = true;
+      interpolationStringInterpolated = /[A-Za-z]!$/.test(line.slice(0, i));
+      interpolationStringInterpolationDepth = 0;
       i += 1;
       continue;
     }
@@ -1070,6 +1091,8 @@ function scanLeanString(text, quoteIndex, interpolated, depth = 0, initialState 
   let interpolationDepth = Number(initialState?.interpolationDepth || 0);
   let interpolation = String(initialState?.interpolation || '');
   let interpolationString = Boolean(initialState?.interpolationString);
+  let interpolationStringInterpolated = Boolean(initialState?.interpolationStringInterpolated);
+  let interpolationStringInterpolationDepth = Number(initialState?.interpolationStringInterpolationDepth || 0);
   let interpolationChar = Boolean(initialState?.interpolationChar);
   let interpolationEscaped = Boolean(initialState?.interpolationEscaped);
   let interpolationCommentDepth = Number(initialState?.interpolationCommentDepth || 0);
@@ -1101,7 +1124,20 @@ function scanLeanString(text, quoteIndex, interpolated, depth = 0, initialState 
         continue;
       }
       if (interpolationString) {
-        if (ch === '"') interpolationString = false;
+        if (interpolationStringInterpolated && interpolationStringInterpolationDepth > 0) {
+          if (ch === '{') {
+            interpolationStringInterpolationDepth += 1;
+          } else if (ch === '}') {
+            interpolationStringInterpolationDepth -= 1;
+          }
+          continue;
+        }
+        if (interpolationStringInterpolated && ch === '{') {
+          interpolationStringInterpolationDepth = 1;
+        } else if (ch === '"') {
+          interpolationString = false;
+          interpolationStringInterpolated = false;
+        }
         continue;
       }
       if (interpolationChar) {
@@ -1110,6 +1146,8 @@ function scanLeanString(text, quoteIndex, interpolated, depth = 0, initialState 
       }
       if (ch === '"') {
         interpolationString = true;
+        interpolationStringInterpolated = /[A-Za-z]!$/.test(interpolation.slice(0, -1));
+        interpolationStringInterpolationDepth = 0;
         continue;
       }
       if (ch === "'" && startsLeanCharLiteral(interpolation, interpolation.length - 1)) {
@@ -1175,6 +1213,8 @@ function scanLeanString(text, quoteIndex, interpolated, depth = 0, initialState 
       interpolationDepth,
       interpolation,
       interpolationString,
+      interpolationStringInterpolated,
+      interpolationStringInterpolationDepth,
       interpolationChar,
       interpolationEscaped,
       interpolationCommentDepth,
