@@ -37,6 +37,7 @@ import Compiler.Proofs.IRGeneration.Contract
 import Compiler.Proofs.IRGeneration.Dispatch
 import Compiler.Proofs.IRGeneration.Function
 import Compiler.Proofs.IRGeneration.FunctionBody
+import Compiler.Proofs.IRGeneration.HelperBodyBridge
 import Compiler.Proofs.IRGeneration.ParamLoading
 import Compiler.Proofs.IRGeneration.SupportedSpec
 import Compiler.Proofs.IRGeneration.SourceSemantics
