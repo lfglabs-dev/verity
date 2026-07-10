@@ -495,8 +495,7 @@ function stripThinking(text) {
 }
 
 function extractJsonObject(text) {
-  const extracted = extractJsonValue(text, '{', '}');
-  return extracted;
+  return extractJsonValue(text, '{', '}');
 }
 
 function extractJsonValue(text, open, close) {
@@ -539,7 +538,7 @@ function classifyScoutError(err) {
 }
 
 function sanitizeScoutErrorDetail(err) {
-  const raw = String(err?.message || err || '');
+  const raw = String(err?.message || err || '').slice(0, 2000);
   const structured = redactStructuredError(raw);
   return redactSecretText(structured || raw)
     .replace(/\s+/g, ' ')
@@ -556,13 +555,13 @@ function redactStructuredError(text) {
   if (!candidate) return null;
   try {
     const redacted = JSON.stringify(redactSecretJsonValue(JSON.parse(candidate)));
-    return candidate === trimmed ? redacted : trimmed.replace(candidate, redacted);
+    return candidate === trimmed ? redacted : trimmed.replaceAll(candidate, redacted);
   } catch {
     const embedded = extractJsonObject(trimmed) || extractJsonValue(trimmed, '[', ']');
     if (embedded && embedded !== candidate) {
       try {
         const redacted = JSON.stringify(redactSecretJsonValue(JSON.parse(embedded)));
-        return trimmed.replace(embedded, redacted);
+        return trimmed.replaceAll(embedded, redacted);
       } catch {
         return null;
       }
@@ -581,7 +580,7 @@ function redactSecretJsonValue(value, key = '') {
     });
     return Object.fromEntries(Object.entries(value).map(([childKey, childValue]) => [
       childKey,
-      secretContext && /^(value|input|provided|actual)$/i.test(childKey)
+      secretContext && /^(value|input|input_value|inputValue|provided|actual)$/i.test(childKey)
         ? '[redacted]'
         : redactSecretJsonValue(childValue, childKey),
     ]));

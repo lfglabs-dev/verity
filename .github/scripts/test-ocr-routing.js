@@ -396,18 +396,27 @@ function testScoutErrorSanitizesLeadingJsonWithTrailingText() {
   assert.ok(!detail.includes('short-secret'));
 }
 
+function testScoutErrorSanitizesRepeatedEmbeddedJson() {
+  const repeated = '{"field":"api_key","value":"short-secret"}';
+  const detail = router.sanitizeScoutErrorDetail(`${repeated} and ${repeated}`);
+  assert.ok(detail.includes('[redacted]'));
+  assert.ok(!detail.includes('short-secret'));
+}
+
 function testScoutErrorSanitizesFieldValueDiagnostics() {
   const detail = router.sanitizeScoutErrorDetail(JSON.stringify({
     error: 'invalid MiniMax-M3 scout request',
     issues: [
       { field: 'api_key', value: 'abcdefghijklmnopqrstuvwxyz123456' },
       { loc: ['body', 'client_secret'], input: 'abcdefghijklmnopqrstuvwxyz123457' },
+      { field: 'api_key', input_value: 'abcdefghijklmnopqrstuvwxyz123458' },
     ],
   }));
   assert.ok(detail.includes('MiniMax-M3'));
   assert.ok(detail.includes('[redacted]'));
   assert.ok(!detail.includes('abcdefghijklmnopqrstuvwxyz123456'));
   assert.ok(!detail.includes('abcdefghijklmnopqrstuvwxyz123457'));
+  assert.ok(!detail.includes('abcdefghijklmnopqrstuvwxyz123458'));
 }
 
 function testScoutErrorSanitizesShortQuotedProviderDiagnostics() {
@@ -485,6 +494,12 @@ function testScoutErrorPreservesTraceDiagnostics() {
   );
   assert.ok(detail.includes('req_abcdefghijklmnopqrstuvwxyz123456'));
   assert.ok(detail.includes('trace_abcdefghijklmnopqrstuvwxyz123456'));
+}
+
+function testScoutErrorBoundsLargeProviderBodies() {
+  const detail = router.sanitizeScoutErrorDetail(`MiniMax-M3 ${'x'.repeat(5000)}`);
+  assert.ok(detail.length <= 500);
+  assert.ok(detail.includes('MiniMax-M3'));
 }
 
 async function testLargeLeanScoutNoPacketsStatus() {
@@ -620,6 +635,7 @@ async function run() {
   testScoutErrorSanitizesEmbeddedJsonDiagnostics();
   testScoutErrorSanitizesEmbeddedStructuredJsonDiagnostics();
   testScoutErrorSanitizesLeadingJsonWithTrailingText();
+  testScoutErrorSanitizesRepeatedEmbeddedJson();
   testScoutErrorSanitizesFieldValueDiagnostics();
   testScoutErrorSanitizesShortQuotedProviderDiagnostics();
   testScoutErrorSanitizesAdditionalCredentialKeys();
@@ -628,6 +644,7 @@ async function run() {
   testScoutErrorSanitizesPrefixedTextLabels();
   testScoutErrorSanitizesPropertyValueDiagnostics();
   testScoutErrorPreservesTraceDiagnostics();
+  testScoutErrorBoundsLargeProviderBodies();
   await testLargeLeanScoutNoPacketsStatus();
   testWorkflowDocsEnabled();
   testGenericScriptConfigEnabled();
