@@ -805,6 +805,13 @@ function codeLinesForHunkSide(hunk, side, options = {}) {
       pendingChangedInterpolation = false;
     }
   }
+  if (pendingChangedInterpolation && isOpenInterpolationState({ inStringInterpolated, stringInterpolationState })) {
+    const strippedInterpolation = stripLeanCommentsFromText(
+      stringInterpolationState.interpolation,
+      { commentDepth: 0 }
+    );
+    if (strippedInterpolation.code.trim()) code.push(strippedInterpolation.code);
+  }
   return code;
 }
 
