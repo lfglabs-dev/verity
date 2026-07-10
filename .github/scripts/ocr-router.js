@@ -836,10 +836,24 @@ function changedInterpolationLineText(text, state, options = {}) {
   let interpolationChar = Boolean(state?.interpolationChar);
   let interpolationEscaped = Boolean(state?.interpolationEscaped);
   let interpolationCommentDepth = Number(state?.interpolationCommentDepth || 0);
+  let interpolationDepth = Number(state?.interpolationDepth || 0);
+  let inOuterStringTail = interpolationDepth <= 0;
+  let outerStringEscaped = false;
   let i = 0;
   while (i < line.length) {
     const ch = line[i];
     const next = line[i + 1];
+    if (inOuterStringTail) {
+      if (outerStringEscaped) {
+        outerStringEscaped = false;
+      } else if (ch === '\\') {
+        outerStringEscaped = true;
+      } else if (ch === '"') {
+        inOuterStringTail = false;
+      }
+      i += 1;
+      continue;
+    }
     if (interpolationCommentDepth > 0) {
       if (ch === '/' && next === '-') {
         interpolationCommentDepth += 1;
@@ -885,6 +899,18 @@ function changedInterpolationLineText(text, state, options = {}) {
     }
     if (ch === "'" && startsLeanCharLiteral(line, i)) {
       interpolationChar = true;
+      i += 1;
+      continue;
+    }
+    if (interpolationDepth > 0 && ch === '{') {
+      interpolationDepth += 1;
+      code += ch;
+      i += 1;
+      continue;
+    }
+    if (interpolationDepth > 0 && ch === '}') {
+      interpolationDepth -= 1;
+      if (interpolationDepth === 0) inOuterStringTail = true;
       i += 1;
       continue;
     }
