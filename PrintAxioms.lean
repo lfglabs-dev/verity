@@ -64,6 +64,7 @@ import Compiler.Proofs.IRGeneration.GenericInduction.Main
 import Compiler.Proofs.IRGeneration.GenericInduction.ResultRelation
 import Compiler.Proofs.IRGeneration.GenericInduction.Scope
 import Compiler.Proofs.IRGeneration.GenericInduction.Storage
+import Compiler.Proofs.IRGeneration.HelperBodyBridge
 import Compiler.Proofs.IRGeneration.IRInterpreter
 import Compiler.Proofs.IRGeneration.IRStorageWord
 import Compiler.Proofs.IRGeneration.IntrinsicProofs
@@ -3156,6 +3157,12 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_mstoreSingle_of_surface
   Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_tstoreSingle_of_surface
 
+  -- Compiler/Proofs/IRGeneration/HelperBodyBridge.lean
+  Compiler.Proofs.IRGeneration.compileStmtWithFork_internal_shape_irrelevant_of_returnFree
+  Compiler.Proofs.IRGeneration.compileStmtListWithFork_internal_shape_irrelevant_of_returnFree
+  Compiler.Proofs.IRGeneration.compileInternalFunction_body_eq_external_of_returnFree
+  Compiler.Proofs.IRGeneration.empty_void_helper_body_compile_shape_irrelevant_regression
+
   -- Compiler/Proofs/IRGeneration/IRInterpreter.lean
   -- Compiler.Proofs.IRGeneration.exprSize_lt_exprsSize_cons  -- private
   -- Compiler.Proofs.IRGeneration.exprsSize_tail_lt_exprsSize_cons  -- private
@@ -5985,4 +5992,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5615 theorems/lemmas (3876 public, 1739 private, 0 sorry'd)
+-- Total: 5619 theorems/lemmas (3880 public, 1739 private, 0 sorry'd)

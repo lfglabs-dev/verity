@@ -144,8 +144,7 @@ theorem compileInternalFunction_body_eq_external_of_returnFree
     {internalFunctions : List FunctionSpec} {stmt : YulStmt}
     (hcompile :
       CompilationModel.compileInternalFunction fields events errors adtTypes spec
-        (targetFork := targetFork) (internalFunctions := internalFunctions) =
-          Except.ok stmt)
+        (targetFork := targetFork) (internalFunctions := internalFunctions) = Except.ok stmt)
     (hreturnFree : stmtListUsesReturnFamily spec.body = false) :
     ∃ returns retNames bodyStmts,
       CompilationModel.functionReturns spec = Except.ok returns ∧
@@ -155,9 +154,7 @@ theorem compileInternalFunction_body_eq_external_of_returnFree
         adtTypes targetFork spec.body internalFunctions = Except.ok bodyStmts ∧
       stmt = YulStmt.funcDef
         (CompilationModel.internalFunctionYulName spec.name)
-        (CompilationModel.internalFunctionYulParamNames spec.params)
-        retNames
-        bodyStmts := by
+        (CompilationModel.internalFunctionYulParamNames spec.params) retNames bodyStmts := by
   simp only [CompilationModel.compileInternalFunction, bind, Except.bind] at hcompile
   cases hvalidate : CompilationModel.validateFunctionSpec spec with
   | error e =>
@@ -179,13 +176,13 @@ theorem compileInternalFunction_body_eq_external_of_returnFree
               CompilationModel.compileStmtListWithFork fields events errors .calldata
                 [] false (paramNames ++ retNames) adtTypes targetFork
                 spec.body internalFunctions :=
-            compileStmtListWithFork_internal_shape_irrelevant_of_returnFree
-              fields events errors .calldata retNames true (paramNames ++ retNames)
-              adtTypes targetFork spec.body internalFunctions hreturnFree
+            compileStmtListWithFork_internal_shape_irrelevant_of_returnFree fields events errors
+              .calldata retNames true (paramNames ++ retNames) adtTypes targetFork
+              spec.body internalFunctions hreturnFree
           cases hbody :
               CompilationModel.compileStmtListWithFork fields events errors .calldata
-                retNames true (paramNames ++ retNames) adtTypes targetFork
-                spec.body internalFunctions with
+                retNames true (paramNames ++ retNames) adtTypes targetFork spec.body
+                internalFunctions with
           | error e =>
               rw [hbody] at hcompile
               cases hcompile
