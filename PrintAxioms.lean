@@ -65,6 +65,7 @@ import Compiler.Proofs.IRGeneration.GenericInduction.ResultRelation
 import Compiler.Proofs.IRGeneration.GenericInduction.Scope
 import Compiler.Proofs.IRGeneration.GenericInduction.Storage
 import Compiler.Proofs.IRGeneration.HelperBodyBridge
+import Compiler.Proofs.IRGeneration.HelperSummaryEvidence
 import Compiler.Proofs.IRGeneration.IRInterpreter
 import Compiler.Proofs.IRGeneration.IRStorageWord
 import Compiler.Proofs.IRGeneration.IntrinsicProofs
@@ -1914,6 +1915,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_with_scalar_events
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_except_mapping_writes
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_except_mapping_writes_stmtSafety
+  Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_except_mapping_writes_and_helper_ir_globalSlotSafety
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_except_mapping_writes_and_helper_ir
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_with_helper_proofs
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_with_helper_proofs_and_helper_ir
@@ -2153,11 +2155,13 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.Function.compileMappingSlotWrite_legacyCompatible  -- private
   -- Compiler.Proofs.IRGeneration.Function.compileSetMapping2_legacyCompatible  -- private
   -- Compiler.Proofs.IRGeneration.Function.compileSetMapping2Word_legacyCompatible  -- private
+  -- Compiler.Proofs.IRGeneration.Function.compileSetStructMember2_legacyCompatible  -- private
   -- Compiler.Proofs.IRGeneration.Function.compileSetMappingChain_legacyCompatible  -- private
   Compiler.Proofs.IRGeneration.Function.stmtList_setMappingSingle_compiledLegacyCompatible
   Compiler.Proofs.IRGeneration.Function.stmtList_setMappingChainSingle_compiledLegacyCompatible
   Compiler.Proofs.IRGeneration.Function.stmtList_setMapping2Single_compiledLegacyCompatible
   Compiler.Proofs.IRGeneration.Function.stmtList_setMapping2WordSingle_compiledLegacyCompatible
+  Compiler.Proofs.IRGeneration.Function.stmtList_setStructMember2Single_compiledLegacyCompatible
   Compiler.Proofs.IRGeneration.Function.stmtList_setMappingUintSingle_compiledLegacyCompatible
   Compiler.Proofs.IRGeneration.Function.stmtList_setMappingWordSingle_compiledLegacyCompatible
   Compiler.Proofs.IRGeneration.Function.compileFunctionSpec_body_legacyCompatible_of_interface
@@ -3164,6 +3168,26 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.findInternalFunction?_some_eq_compiledHelper_of_witness
   Compiler.Proofs.IRGeneration.findInternalFunction?_external_body_of_witness_returnFree
   Compiler.Proofs.IRGeneration.empty_void_helper_body_compile_shape_irrelevant_regression
+
+  -- Compiler/Proofs/IRGeneration/HelperSummaryEvidence.lean
+  -- Compiler.Proofs.IRGeneration.eraseDups_nodup_and_mem_aux_local  -- private
+  -- Compiler.Proofs.IRGeneration.List.mem_of_mem_eraseDups_local  -- private
+  Compiler.Proofs.IRGeneration.exactInternalHelperSummary_sound
+  -- Compiler.Proofs.IRGeneration.stmtResultWorldEq_of_eq  -- private
+  -- Compiler.Proofs.IRGeneration.execStmtWithHelpers_readOnly_world_eq  -- private
+  -- Compiler.Proofs.IRGeneration.execStmtListWithHelpers_readOnly_world_eq  -- private
+  Compiler.Proofs.IRGeneration.exactInternalHelperSummary_preservesWorldOnSuccess_of_readOnly_body
+  Compiler.Proofs.IRGeneration.exactInternalHelperSummary_preservesWorldOnSuccess_of_empty_body
+  Compiler.Proofs.IRGeneration.exactInternalHelperSupport_toWitness_contract_eq_exact
+  Compiler.Proofs.IRGeneration.exactInternalHelperSupport_toWitness_summary_sound
+  Compiler.Proofs.IRGeneration.exactInternalHelperSupport_toWitness_preservesWorldOnSuccess
+  Compiler.Proofs.IRGeneration.supportedBodyHelperSummariesSound_of_exactSummaries
+  -- Compiler.Proofs.IRGeneration.Regression.mem_helperB_eraseDups_singleton  -- private
+  -- Compiler.Proofs.IRGeneration.Regression.twoHelperRanksDecrease  -- private
+  Compiler.Proofs.IRGeneration.Regression.helperB_exactSummary_sound
+  Compiler.Proofs.IRGeneration.Regression.helperB_exactSummary_preservesWorld
+  Compiler.Proofs.IRGeneration.Regression.helperA_supportedBodyHelperInterface_summary_sound
+  Compiler.Proofs.IRGeneration.Regression.helperA_calls_helperB_rank_decreases
 
   -- Compiler/Proofs/IRGeneration/IRInterpreter.lean
   -- Compiler.Proofs.IRGeneration.exprSize_lt_exprsSize_cons  -- private
@@ -5994,4 +6018,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5621 theorems/lemmas (3882 public, 1739 private, 0 sorry'd)
+-- Total: 5642 theorems/lemmas (3895 public, 1747 private, 0 sorry'd)
