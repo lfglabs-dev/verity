@@ -37,6 +37,45 @@ def internalHelperResultOfStmtResult
   | .return value finalState => SourceSemantics.successInternalResult finalState.world (some value)
   | .revert => SourceSemantics.revertedInternalResult initialWorld
 
+theorem interpretInternalFunctionFuel_eq_internalHelperResultOfStmtResult_of_bindInternalArgs
+    {spec : CompilationModel} {callee : FunctionSpec}
+    {initialWorld : Verity.ContractState} {args : List Nat}
+    {sourceBindings : List (String × Nat)}
+    (helperFuel : Nat)
+    (hbind : SourceSemantics.bindInternalArgs callee.params args = some sourceBindings) :
+    SourceSemantics.interpretInternalFunctionFuel spec helperFuel callee initialWorld args =
+      internalHelperResultOfStmtResult initialWorld
+        (internalHelperBodySourceResult spec callee initialWorld sourceBindings helperFuel) := by
+  simp [SourceSemantics.interpretInternalFunctionFuel, internalHelperBodySourceResult,
+    internalHelperBodyRuntime, internalHelperResultOfStmtResult, hbind]
+  rfl
+
+/-- Projection-level helper body agreement.  This is the payload consumed by
+`InternalHelperSummaryContract`: success flag, optional return value, and final
+world.  It deliberately ignores final source bindings, which may differ when
+compiled helper return slots were prebound at helper entry. -/
+def internalHelperBodyResultProjection
+    (spec : CompilationModel) (callee : FunctionSpec)
+    (initialWorld : Verity.ContractState)
+    (sourceBindings entryBindings : List (String × Nat))
+    (helperFuel : Nat) : Prop :=
+  internalHelperResultOfStmtResult initialWorld
+      (internalHelperBodySourceResult spec callee initialWorld sourceBindings helperFuel) =
+    internalHelperResultOfStmtResult initialWorld
+      (internalHelperBodySourceResult spec callee initialWorld entryBindings helperFuel)
+
+theorem internalHelperBodyResultProjection_of_stmtResult_eq
+    {spec : CompilationModel} {callee : FunctionSpec}
+    {initialWorld : Verity.ContractState}
+    {sourceBindings entryBindings : List (String × Nat)}
+    {helperFuel : Nat}
+    (hbody :
+      internalHelperBodySourceResult spec callee initialWorld entryBindings helperFuel =
+        internalHelperBodySourceResult spec callee initialWorld sourceBindings helperFuel) :
+    internalHelperBodyResultProjection spec callee initialWorld
+      sourceBindings entryBindings helperFuel := by
+  simp [internalHelperBodyResultProjection, hbody]
+
 /-- Helper-entry source bindings: the raw source argument bindings extended with
 zero-initialized compiled helper return slots. -/
 def internalHelperEntryBindings
@@ -198,9 +237,11 @@ theorem internalHelperEntryBindings_source_reads_irrelevant
       sourceBindings helper (hfresh name hmem)
 
 /-- Assumptions needed to apply the generic helper-body theorem at an internal
-helper entry.  `bodyBindings` is the remaining ret-slot/source-binding seam:
-the generic theorem needs bindings for compiled return slots, while
-`interpretInternalFunctionFuel` starts from raw `bindInternalArgs` bindings. -/
+helper entry.  `bodyResultProjection` is the ret-slot/source-binding seam:
+the generic theorem executes from compiled helper-entry bindings, while
+`interpretInternalFunctionFuel` starts from raw `bindInternalArgs` bindings.
+The seam is phrased only over the helper-summary payload, not raw statement
+results. -/
 structure InternalHelperBodyExecContext
     (runtimeContract : IRContract) (spec : CompilationModel)
     (callee : FunctionSpec) (helper : IRInternalFunctionDef)
@@ -214,8 +255,8 @@ structure InternalHelperBodyExecContext
   bodyCompile : CompilationModel.compileStmtList (SourceSemantics.effectiveFields spec)
     [] [] .calldata [] false (internalHelperBodyScope callee helper)
     [] callee.body spec.functions = Except.ok helper.body
-  bodyBindings : internalHelperBodySourceResult spec callee initialWorld entryBindings helperFuel =
-    internalHelperBodySourceResult spec callee initialWorld sourceBindings helperFuel
+  bodyResultProjection : internalHelperBodyResultProjection spec callee initialWorld
+    sourceBindings entryBindings helperFuel
   scope : FunctionBody.scopeNamesPresent (internalHelperBodyScope callee helper) entryBindings
   exact : FunctionBody.bindingsExactlyMatchIRVarsOnScope
     (internalHelperBodyScope callee helper) entryBindings
@@ -227,8 +268,13 @@ structure InternalHelperBodyExecContext
     (internalHelperBodyRuntime initialWorld entryBindings)
     (prepareInternalCalleeState callerState helper args)
 
-/-- Helper-entry/body correspondence for the N1a internal-helper path. -/
-theorem internal_helper_body_exec_matches_of_bindInternalArgs_and_generic
+/-- Helper-entry/body correspondence for the N1a internal-helper path.
+
+The compiled helper body is matched against source execution from
+`entryBindings`, which include prebound helper return slots.  The source helper
+summary payload is related by the explicit projection seam, so callers need not
+prove false raw equality of final `StmtResult` bindings. -/
+theorem internal_helper_body_exec_matches_entryBindings_and_projected_result_of_bindInternalArgs_and_generic
     {runtimeContract : IRContract} {spec : CompilationModel}
     {callee : FunctionSpec} {helper : IRInternalFunctionDef}
     {callerState : IRState} {initialWorld : Verity.ContractState}
@@ -237,11 +283,11 @@ theorem internal_helper_body_exec_matches_of_bindInternalArgs_and_generic
     (ctx : InternalHelperBodyExecContext runtimeContract spec callee helper
       callerState initialWorld args sourceBindings entryBindings helperFuel) :
     stmtResultMatchesIRExecWithInternals (SourceSemantics.effectiveFields spec)
-        (internalHelperBodySourceResult spec callee initialWorld sourceBindings helperFuel)
+        (internalHelperBodySourceResult spec callee initialWorld entryBindings helperFuel)
         (internalHelperBodyIRExec runtimeContract helper callerState args extraFuel) ∧
       SourceSemantics.interpretInternalFunctionFuel spec helperFuel callee initialWorld args =
         internalHelperResultOfStmtResult initialWorld
-          (internalHelperBodySourceResult spec callee initialWorld sourceBindings helperFuel) := by
+          (internalHelperBodySourceResult spec callee initialWorld entryBindings helperFuel) := by
   have hgeneric' : StmtListGenericWithHelpersAndHelperIRWithInternals runtimeContract spec
       (SourceSemantics.effectiveFields spec) (helper.params ++ helper.rets) callee.body := by
     simpa [internalHelperBodyScope, ctx.helperParams] using ctx.generic
@@ -272,10 +318,10 @@ theorem internal_helper_body_exec_matches_of_bindInternalArgs_and_generic
         (internalHelperBodySourceResult spec callee initialWorld entryBindings helperFuel)
         (internalHelperBodyIRExec runtimeContract helper callerState args extraFuel) := by
       simpa [internalHelperBodySourceResult, internalHelperBodyIRExec] using hmatch
-    rw [ctx.bodyBindings] at hmatch'
     exact hmatch'
-  · simp [internalHelperBodySourceResult, internalHelperResultOfStmtResult,
-      SourceSemantics.interpretInternalFunctionFuel, ctx.bindArgs]
-    rfl
+  · exact (interpretInternalFunctionFuel_eq_internalHelperResultOfStmtResult_of_bindInternalArgs
+      (spec := spec) (callee := callee) (initialWorld := initialWorld)
+      (args := args) (sourceBindings := sourceBindings) helperFuel ctx.bindArgs).trans
+        ctx.bodyResultProjection
 
 end Compiler.Proofs.IRGeneration

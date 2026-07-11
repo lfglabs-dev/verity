@@ -3423,6 +3423,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.IRStorageSlot.toNat_ne_of_ne
 
   -- Compiler/Proofs/IRGeneration/InternalHelperBodyCorrespondence.lean
+  Compiler.Proofs.IRGeneration.interpretInternalFunctionFuel_eq_internalHelperResultOfStmtResult_of_bindInternalArgs
+  Compiler.Proofs.IRGeneration.internalHelperBodyResultProjection_of_stmtResult_eq
   -- Compiler.Proofs.IRGeneration.SourceSemantics.lookupBinding?_bindValue_ne  -- private
   -- Compiler.Proofs.IRGeneration.sourceBindingsAgreeOutside_refl  -- private
   -- Compiler.Proofs.IRGeneration.sourceBindingsAgreeOutside_mono  -- private
@@ -3433,7 +3435,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.lookupValue_internalHelperEntryBindings_of_not_mem
   Compiler.Proofs.IRGeneration.lookupBinding?_internalHelperEntryBindings_of_not_mem
   Compiler.Proofs.IRGeneration.internalHelperEntryBindings_source_reads_irrelevant
-  Compiler.Proofs.IRGeneration.internal_helper_body_exec_matches_of_bindInternalArgs_and_generic
+  Compiler.Proofs.IRGeneration.internal_helper_body_exec_matches_entryBindings_and_projected_result_of_bindInternalArgs_and_generic
 
   -- Compiler/Proofs/IRGeneration/IntrinsicProofs.lean
   Compiler.Proofs.IRGeneration.IntrinsicProofs.hardFork_allows_eq_rank_decide
@@ -6020,4 +6022,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5644 theorems/lemmas (3898 public, 1746 private, 0 sorry'd)
+-- Total: 5646 theorems/lemmas (3900 public, 1746 private, 0 sorry'd)
