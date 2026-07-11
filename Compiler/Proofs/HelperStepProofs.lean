@@ -4170,6 +4170,266 @@ theorem exprInternalHelperCompositionalPostStateResult_bitNot_threaded
       (parentState := parentState) (headState := headState)
       hchildResult hfindNot
 
+/-- Shared source/Yul value for the `Expr.shl` constructor. -/
+def exprShlValue (shiftValue valueValue : Nat) : Nat :=
+  (Verity.Core.Uint256.shl
+    (Verity.Core.Uint256.ofNat (shiftValue % Compiler.Constants.evmModulus))
+    (Verity.Core.Uint256.ofNat (valueValue % Compiler.Constants.evmModulus))).val
+
+theorem exprShlValue_lt_evmModulus (shiftValue valueValue : Nat) :
+    exprShlValue shiftValue valueValue < Compiler.Constants.evmModulus := by
+  simpa [exprShlValue, Verity.Core.Uint256.modulus,
+    Verity.Core.UINT256_MODULUS, Compiler.Constants.evmModulus] using
+    (Verity.Core.Uint256.shl
+      (Verity.Core.Uint256.ofNat (shiftValue % Compiler.Constants.evmModulus))
+      (Verity.Core.Uint256.ofNat (valueValue % Compiler.Constants.evmModulus))).isLt
+
+theorem exprShlValue_eq_builtin (shiftValue valueValue : Nat) :
+    exprShlValue shiftValue valueValue =
+      if shiftValue % Compiler.Constants.evmModulus < 256 then
+        ((valueValue % Compiler.Constants.evmModulus) *
+          2 ^ (shiftValue % Compiler.Constants.evmModulus)) %
+            Compiler.Constants.evmModulus
+      else
+        0 := by
+  let shiftNormalized := shiftValue % Compiler.Constants.evmModulus
+  let valueNormalized := valueValue % Compiler.Constants.evmModulus
+  have hshiftMod :
+      shiftNormalized % Compiler.Constants.evmModulus = shiftNormalized :=
+    Nat.mod_eq_of_lt (Nat.mod_lt shiftValue
+      (by decide : 0 < Compiler.Constants.evmModulus))
+  have hvalueMod :
+      valueNormalized % Compiler.Constants.evmModulus = valueNormalized :=
+    Nat.mod_eq_of_lt (Nat.mod_lt valueValue
+      (by decide : 0 < Compiler.Constants.evmModulus))
+  simp only [exprShlValue, Verity.Core.Uint256.shl, Verity.Core.Uint256.val_ofNat,
+    Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS,
+    Compiler.Constants.evmModulus, Nat.shiftLeft_eq]
+  rw [hshiftMod, hvalueMod]
+  by_cases hshiftLt : shiftNormalized < 256
+  · simp [shiftNormalized, valueNormalized, hshiftLt]
+  · simp only [shiftNormalized, valueNormalized, hshiftLt, ↓reduceIte]
+    have hshiftGe : 256 ≤ shiftValue % 2 ^ 256 := Nat.not_lt.mp hshiftLt
+    have h2pow : 2 ^ 256 ∣ 2 ^ (shiftValue % 2 ^ 256) :=
+      Nat.pow_dvd_pow 2 hshiftGe
+    calc
+      (valueValue % 2 ^ 256 * 2 ^ (shiftValue % 2 ^ 256)) % 2 ^ 256
+          = ((valueValue % 2 ^ 256) % 2 ^ 256 *
+              (2 ^ (shiftValue % 2 ^ 256) % 2 ^ 256)) % 2 ^ 256 := by
+            rw [Nat.mul_mod]
+      _ = 0 := by
+            rw [Nat.dvd_iff_mod_eq_zero.mp h2pow, Nat.mul_zero, Nat.zero_mod]
+
+theorem compileExprWithInternals_shl_of_children
+    {fields : List Field} {internalFunctions : List FunctionSpec}
+    {shift value : Expr} {shiftIR valueIR : YulExpr}
+    (hcompileShift :
+      CompilationModel.compileExprWithInternals fields .calldata internalFunctions shift =
+        Except.ok shiftIR)
+    (hcompileValue :
+      CompilationModel.compileExprWithInternals fields .calldata internalFunctions value =
+        Except.ok valueIR) :
+    CompilationModel.compileExprWithInternals fields .calldata internalFunctions
+        (Expr.shl shift value) =
+      Except.ok (YulExpr.call "shl" [shiftIR, valueIR]) := by
+  simp only [CompilationModel.compileExprWithInternals, hcompileShift, hcompileValue,
+    CompilationModel.yulBinOp]
+  rfl
+
+theorem evalExprWithHelpers_shl_of_values
+    (spec : CompilationModel) (fields : List Field)
+    (fuel : Nat) (runtime : SourceSemantics.RuntimeState)
+    {shift value : Expr} {shiftValue valueValue : Nat}
+    (hsourceShift :
+      SourceSemantics.evalExprWithHelpers spec fields fuel runtime shift =
+        some shiftValue)
+    (hsourceValue :
+      SourceSemantics.evalExprWithHelpers spec fields fuel runtime value =
+        some valueValue) :
+    SourceSemantics.evalExprWithHelpers spec fields fuel runtime (Expr.shl shift value) =
+      some (exprShlValue shiftValue valueValue) := by
+  simp [SourceSemantics.evalExprWithHelpers, hsourceShift, hsourceValue,
+    exprShlValue, Verity.Core.Uint256.shl]
+
+theorem evalBuiltinCallWithEvmYulLeanContext_shl_of_values
+    (state : IRState) (shiftValue valueValue : Nat) :
+    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
+        state.storage state.sender state.msgValue state.thisAddress
+        state.blockTimestamp state.blockNumber state.chainId state.blobBaseFee
+        state.txOrigin state.selector state.calldata "shl" [shiftValue, valueValue] =
+      some (exprShlValue shiftValue valueValue) := by
+  rw [exprShlValue_eq_builtin]
+  simp [Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext]
+
+theorem exprInternalHelperCompositionalContextResult_shl_right_threaded
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {shift value : Expr} {shiftIR valueIR : YulExpr} {helperFuel irFuel : Nat}
+    {runtime headRuntime : SourceSemantics.RuntimeState}
+    {parentState rightEntryState headState rightFinalState finalState : IRState}
+    {shiftValue valueValue : Nat}
+    (hright : ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+      value valueIR helperFuel irFuel runtime headRuntime rightEntryState headState
+      rightFinalState valueValue)
+    (hcompileShift :
+      CompilationModel.compileExprWithInternals fields .calldata spec.functions shift =
+        Except.ok shiftIR)
+    (hsourceShift : SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1)
+      runtime shift = some shiftValue)
+    (hirShift :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) parentState shiftIR =
+        .value shiftValue rightEntryState)
+    (hirRight :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) rightEntryState valueIR =
+        .value valueValue finalState)
+    (hfindShl : findInternalFunction? runtimeContract "shl" = none) :
+    ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+      (Expr.shl shift value) (YulExpr.call "shl" [shiftIR, valueIR]) helperFuel irFuel
+      runtime headRuntime parentState headState finalState
+      (exprShlValue shiftValue valueValue) := by
+  let result := exprShlValue shiftValue valueValue
+  have hrightFacts := hright
+  unfold ExprInternalHelperCompositionalContextResult at hrightFacts
+  rcases hrightFacts with ⟨hcompileValue, hsourceValue, _, _, _⟩
+  let hcompile := compileExprWithInternals_shl_of_children hcompileShift hcompileValue
+  let hsource := evalExprWithHelpers_shl_of_values spec fields (helperFuel + 1) runtime
+    hsourceShift hsourceValue
+  let hbuiltin := evalBuiltinCallWithEvmYulLeanContext_shl_of_values finalState
+    shiftValue valueValue
+  let hir := evalIRExprWithInternals_binary_builtin_of_values runtimeContract (irFuel + 1)
+    parentState rightEntryState finalState "shl" shiftIR valueIR shiftValue valueValue result
+    hirShift hirRight hfindShl (by decide) (by decide) (by decide) hbuiltin
+  exact
+    exprInternalHelperCompositionalContextResult_binary_right_threaded_context
+      (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+      (left := shift) (right := value) (leftIR := shiftIR) (rightIR := valueIR)
+      (mkExpr := Expr.shl) (mkIR := fun a b => YulExpr.call "shl" [a, b])
+      (helperFuel := helperFuel) (irFuel := irFuel)
+      (runtime := runtime) (headRuntime := headRuntime)
+      (parentState := parentState) (rightEntryState := rightEntryState)
+      (headState := headState)
+      hright hcompile hsource hir
+
+theorem exprInternalHelperCompositionalPostStateResult_shl_right_threaded
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {scope : List String}
+    {shift value : Expr} {shiftIR valueIR : YulExpr} {helperFuel irFuel : Nat}
+    {runtime headRuntime : SourceSemantics.RuntimeState}
+    {parentState rightEntryState headState rightFinalState finalState : IRState}
+    {shiftValue valueValue : Nat}
+    (hright : ExprInternalHelperCompositionalPostStateResult runtimeContract spec fields scope
+      value valueIR helperFuel irFuel runtime headRuntime rightEntryState headState
+      rightFinalState valueValue)
+    (hcompileShift :
+      CompilationModel.compileExprWithInternals fields .calldata spec.functions shift =
+        Except.ok shiftIR)
+    (hsourceShift : SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1)
+      runtime shift = some shiftValue)
+    (hirShift :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) parentState shiftIR =
+        .value shiftValue rightEntryState)
+    (hirRight :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) rightEntryState valueIR =
+        .value valueValue finalState)
+    (hfindShl : findInternalFunction? runtimeContract "shl" = none)
+    (hfinalEq : finalState = rightFinalState) :
+    ExprInternalHelperCompositionalPostStateResult runtimeContract spec fields scope
+      (Expr.shl shift value) (YulExpr.call "shl" [shiftIR, valueIR]) helperFuel irFuel
+      runtime headRuntime parentState headState finalState
+      (exprShlValue shiftValue valueValue) := by
+  rcases hright with ⟨hrightResult, hrightRuntime, hrightExact, _hrightLt⟩
+  subst hfinalEq
+  refine ⟨?_, hrightRuntime, hrightExact, exprShlValue_lt_evmModulus shiftValue valueValue⟩
+  exact
+    exprInternalHelperCompositionalContextResult_shl_right_threaded
+      (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+      (shift := shift) (value := value) (shiftIR := shiftIR) (valueIR := valueIR)
+      (helperFuel := helperFuel) (irFuel := irFuel)
+      (runtime := runtime) (headRuntime := headRuntime)
+      (parentState := parentState) (rightEntryState := rightEntryState)
+      (headState := headState)
+      hrightResult hcompileShift hsourceShift hirShift hirRight hfindShl
+
+theorem exprInternalHelperCompositionalContextResult_shl_left_threaded
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {shift value : Expr} {shiftIR valueIR : YulExpr} {helperFuel irFuel : Nat}
+    {runtime headRuntime : SourceSemantics.RuntimeState}
+    {parentState headState leftFinalState finalState : IRState}
+    {shiftValue valueValue : Nat}
+    (hleft : ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+      shift shiftIR helperFuel irFuel runtime headRuntime parentState headState
+      leftFinalState shiftValue)
+    (hcompileValue :
+      CompilationModel.compileExprWithInternals fields .calldata spec.functions value =
+        Except.ok valueIR)
+    (hsourceValue : SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1)
+      runtime value = some valueValue)
+    (hirValue :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) leftFinalState valueIR =
+        .value valueValue finalState)
+    (hfindShl : findInternalFunction? runtimeContract "shl" = none) :
+    ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+      (Expr.shl shift value) (YulExpr.call "shl" [shiftIR, valueIR]) helperFuel irFuel
+      runtime headRuntime parentState headState finalState
+      (exprShlValue shiftValue valueValue) := by
+  let result := exprShlValue shiftValue valueValue
+  have hleftFacts := hleft
+  unfold ExprInternalHelperCompositionalContextResult at hleftFacts
+  rcases hleftFacts with ⟨hcompileShift, hsourceShift, hirShift, _, _⟩
+  let hcompile := compileExprWithInternals_shl_of_children hcompileShift hcompileValue
+  let hsource := evalExprWithHelpers_shl_of_values spec fields (helperFuel + 1)
+    runtime hsourceShift hsourceValue
+  let hbuiltin := evalBuiltinCallWithEvmYulLeanContext_shl_of_values finalState
+    shiftValue valueValue
+  let hir := evalIRExprWithInternals_binary_builtin_of_values runtimeContract (irFuel + 1)
+    parentState leftFinalState finalState "shl" shiftIR valueIR shiftValue valueValue result
+    hirShift hirValue hfindShl (by decide) (by decide) (by decide) hbuiltin
+  exact
+    exprInternalHelperCompositionalContextResult_binary_left_context
+      (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+      (left := shift) (right := value) (leftIR := shiftIR) (rightIR := valueIR)
+      (mkExpr := Expr.shl) (mkIR := fun a b => YulExpr.call "shl" [a, b])
+      (helperFuel := helperFuel) (irFuel := irFuel)
+      (runtime := runtime) (headRuntime := headRuntime)
+      (state := parentState) (headState := headState)
+      hleft hcompile hsource hir
+
+theorem exprInternalHelperCompositionalPostStateResult_shl_left_threaded
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {scope : List String}
+    {shift value : Expr} {shiftIR valueIR : YulExpr} {helperFuel irFuel : Nat}
+    {runtime headRuntime : SourceSemantics.RuntimeState}
+    {parentState headState leftFinalState finalState : IRState}
+    {shiftValue valueValue : Nat}
+    (hleft : ExprInternalHelperCompositionalPostStateResult runtimeContract spec fields scope
+      shift shiftIR helperFuel irFuel runtime headRuntime parentState headState
+      leftFinalState shiftValue)
+    (hcompileValue :
+      CompilationModel.compileExprWithInternals fields .calldata spec.functions value =
+        Except.ok valueIR)
+    (hsourceValue : SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1)
+      runtime value = some valueValue)
+    (hirValue :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) leftFinalState valueIR =
+        .value valueValue finalState)
+    (hfindShl : findInternalFunction? runtimeContract "shl" = none)
+    (hfinalRuntime : FunctionBody.runtimeStateMatchesIR fields runtime finalState)
+    (hfinalExact :
+      FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings finalState) :
+    ExprInternalHelperCompositionalPostStateResult runtimeContract spec fields scope
+      (Expr.shl shift value) (YulExpr.call "shl" [shiftIR, valueIR]) helperFuel irFuel
+      runtime headRuntime parentState headState finalState
+      (exprShlValue shiftValue valueValue) := by
+  rcases hleft with ⟨hleftResult, _, _, _⟩
+  refine ⟨?_, hfinalRuntime, hfinalExact, exprShlValue_lt_evmModulus shiftValue valueValue⟩
+  exact
+    exprInternalHelperCompositionalContextResult_shl_left_threaded
+      (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+      (shift := shift) (value := value) (shiftIR := shiftIR) (valueIR := valueIR)
+      (helperFuel := helperFuel) (irFuel := irFuel)
+      (runtime := runtime) (headRuntime := headRuntime)
+      (parentState := parentState) (headState := headState)
+      hleftResult hcompileValue hsourceValue hirValue hfindShl
+
 /-- Expression-helper statement-head bridge. Future helper-summary induction
 should construct this for each statement head whose helper work appears in
 expression position. The semantic payload is the exact helper-aware source/IR
