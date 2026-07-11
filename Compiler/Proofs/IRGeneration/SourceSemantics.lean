@@ -3940,7 +3940,7 @@ mutual
             if resolved != 0 then .continue state else .revert
         | none => .revert
     | .requireError cond _ args =>
-        match evalExpr fields state cond with
+        match evalExprWithHelpers spec fields fuel state cond with
         | some resolved =>
             if resolved != 0 then .continue state else typedErrorRevertResult fields state args
         | none => .revert
@@ -5471,7 +5471,9 @@ private theorem execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux
   | .internalCallAssign _ _ _ => cases hsurface
   | .storageArrayPop _ => simp [execStmtWithHelpers, execStmtWithEvents]
   | .requireError cond _ args =>
-      simp [execStmtWithHelpers, execStmtWithEvents, typedErrorRevertResult]
+      simp only [stmtTouchesUnsupportedHelperSurface] at hsurface
+      simp [execStmtWithHelpers, execStmtWithEvents, typedErrorRevertResult,
+        evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed spec fields fuel state cond hsurface]
   | .revertError _ args =>
       simp [execStmtWithHelpers, execStmtWithEvents, typedErrorRevertResult]
   | .panicCode _ => simp [execStmtWithHelpers, execStmtWithEvents]

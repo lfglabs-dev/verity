@@ -1510,8 +1510,10 @@ def stmtTouchesUnsupportedCallSurface : Stmt → Bool
   | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _
   | .ecm _ _ => true
   | .stop | .storageArrayPop _
-  | .requireError _ _ _ | .revertError _ _ | .returnValues _ | .returnArray _
+  | .revertError _ _ | .returnValues _ | .returnArray _
   | .returnBytes _ | .returnStorageWords _ | .rawLog _ _ _ => false
+  | .requireError cond _ _ =>
+      exprTouchesUnsupportedHelperSurface cond
   | .emit _ args => args.any exprTouchesUnsupportedCallSurface
   | .unsafeBlock _ _ | .unsafeYul _ | .matchAdt _ _ _ => true
   | .ite cond thenBranch elseBranch =>
