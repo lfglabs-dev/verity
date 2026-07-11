@@ -55,6 +55,7 @@ import Compiler.Proofs.IRGeneration.FunctionBody.Stmt
 import Compiler.Proofs.IRGeneration.FunctionShape
 import Compiler.Proofs.IRGeneration.GenericInduction.Calls
 import Compiler.Proofs.IRGeneration.GenericInduction.DenoteSound
+import Compiler.Proofs.IRGeneration.GenericInduction.ErrorRevert
 import Compiler.Proofs.IRGeneration.GenericInduction.EventBridge
 import Compiler.Proofs.IRGeneration.GenericInduction.ExprStmt
 import Compiler.Proofs.IRGeneration.GenericInduction.Helpers
@@ -2631,6 +2632,12 @@ end Verity.AxiomAudit
   -- Compiler/Proofs/IRGeneration/GenericInduction/DenoteSound.lean
   Compiler.Proofs.IRGeneration.denote_sound
   Compiler.Proofs.IRGeneration.denote_sound_with_helpers
+
+  -- Compiler/Proofs/IRGeneration/GenericInduction/ErrorRevert.lean
+  -- Compiler.Proofs.IRGeneration.compiledStmtStep_requireError_revert_case  -- private
+  -- Compiler.Proofs.IRGeneration.compiledStmtStep_requireError_continue_case  -- private
+  Compiler.Proofs.IRGeneration.compiledStmtStep_requireError
+  Compiler.Proofs.IRGeneration.compiledStmtStep_revertError
 
   -- Compiler/Proofs/IRGeneration/GenericInduction/EventBridge.lean
   -- Compiler.Proofs.IRGeneration.length_le_sizeOf  -- private
@@ -5957,4 +5964,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5587 theorems/lemmas (3861 public, 1726 private, 0 sorry'd)
+-- Total: 5591 theorems/lemmas (3863 public, 1728 private, 0 sorry'd)
