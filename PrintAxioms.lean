@@ -3161,12 +3161,20 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_tstoreSingle_of_surface
 
   -- Compiler/Proofs/IRGeneration/HelperBodyBridge.lean
+  -- Compiler.Proofs.IRGeneration.bindInternalArgs_length_eq_of_some  -- private
   Compiler.Proofs.IRGeneration.compileStmtWithFork_internal_shape_irrelevant_of_returnFree
   Compiler.Proofs.IRGeneration.compileStmtListWithFork_internal_shape_irrelevant_of_returnFree
   Compiler.Proofs.IRGeneration.compileInternalFunction_body_eq_external_of_returnFree
   Compiler.Proofs.IRGeneration.findInternalFunction?_some_eq_compiledHelper_of_witness
   Compiler.Proofs.IRGeneration.findInternalFunction?_external_body_of_witness_returnFree
   Compiler.Proofs.IRGeneration.compiledInternalHelper_summary_boundary_of_witness_returnStopFree
+  Compiler.Proofs.IRGeneration.execIRInternalFunctionWithInternals_obeys_internal_helper_summary
+  -- Compiler.Proofs.IRGeneration.internalFunctionYulName_head  -- private
+  -- Compiler.Proofs.IRGeneration.internalFunctionYulName_ne_of_head  -- private
+  -- Compiler.Proofs.IRGeneration.internalFunctionYulName_isYulLogName_false  -- private
+  -- Compiler.Proofs.IRGeneration.execIRStmtsWithInternals_singleton_expr_internalFunctionYulName_call_internal  -- private
+  Compiler.Proofs.IRGeneration.execIRStmtsWithInternals_internalCallAssign_obeys_internal_helper_summary
+  Compiler.Proofs.IRGeneration.execIRStmtsWithInternals_internalCall_obeys_internal_helper_summary
   Compiler.Proofs.IRGeneration.empty_void_helper_body_compile_shape_irrelevant_regression
 
   -- Compiler/Proofs/IRGeneration/IRInterpreter.lean
@@ -6032,4 +6040,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5656 theorems/lemmas (3903 public, 1753 private, 0 sorry'd)
+-- Total: 5664 theorems/lemmas (3906 public, 1758 private, 0 sorry'd)
