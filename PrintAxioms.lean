@@ -3435,6 +3435,11 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.lookupValue_internalHelperEntryBindings_of_not_mem
   Compiler.Proofs.IRGeneration.lookupBinding?_internalHelperEntryBindings_of_not_mem
   Compiler.Proofs.IRGeneration.internalHelperEntryBindings_source_reads_irrelevant
+  -- Compiler.Proofs.IRGeneration.sourceBindingsAgreeOutside_symm  -- private
+  Compiler.Proofs.IRGeneration.evalExprWithHelpers_eq_of_internalHelperExprProjectionCore
+  Compiler.Proofs.IRGeneration.evalExprListWithHelpers_eq_of_internalHelperExprListProjectionCore
+  -- Compiler.Proofs.IRGeneration.internalHelperResultOfStmtListProjectionCore_eq  -- private
+  Compiler.Proofs.IRGeneration.internalHelperBodyResultProjection_of_entryBindings_projectionCore
   Compiler.Proofs.IRGeneration.internal_helper_body_exec_matches_entryBindings_and_projected_result_of_bindInternalArgs_and_generic
 
   -- Compiler/Proofs/IRGeneration/IntrinsicProofs.lean
@@ -6022,4 +6027,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5646 theorems/lemmas (3900 public, 1746 private, 0 sorry'd)
+-- Total: 5651 theorems/lemmas (3903 public, 1748 private, 0 sorry'd)
