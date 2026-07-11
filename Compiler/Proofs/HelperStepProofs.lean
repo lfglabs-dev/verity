@@ -4909,6 +4909,237 @@ theorem exprInternalHelperCompositionalPostStateResult_byte_left_threaded
       (parentState := parentState) (headState := headState)
       hleftResult hcompileValue hsourceValue hirValue hfindByte
 
+/-- Shared source/Yul value for the `Expr.signextend` constructor. -/
+def exprSignextendValue (byteIdxValue valueValue : Nat) : Nat :=
+  (Verity.Core.Uint256.signextend
+    (Verity.Core.Uint256.ofNat (byteIdxValue % Compiler.Constants.evmModulus))
+    (Verity.Core.Uint256.ofNat (valueValue % Compiler.Constants.evmModulus))).val
+
+theorem exprSignextendValue_lt_evmModulus (byteIdxValue valueValue : Nat) :
+    exprSignextendValue byteIdxValue valueValue < Compiler.Constants.evmModulus := by
+  simpa [exprSignextendValue, Verity.Core.Uint256.modulus,
+    Verity.Core.UINT256_MODULUS, Compiler.Constants.evmModulus] using
+    (Verity.Core.Uint256.signextend
+      (Verity.Core.Uint256.ofNat (byteIdxValue % Compiler.Constants.evmModulus))
+      (Verity.Core.Uint256.ofNat (valueValue % Compiler.Constants.evmModulus))).isLt
+
+theorem compileExprWithInternals_signextend_of_children
+    {fields : List Field} {internalFunctions : List FunctionSpec}
+    {byteIdx value : Expr} {byteIdxIR valueIR : YulExpr}
+    (hcompileByteIdx :
+      CompilationModel.compileExprWithInternals fields .calldata internalFunctions byteIdx =
+        Except.ok byteIdxIR)
+    (hcompileValue :
+      CompilationModel.compileExprWithInternals fields .calldata internalFunctions value =
+        Except.ok valueIR) :
+    CompilationModel.compileExprWithInternals fields .calldata internalFunctions
+        (Expr.signextend byteIdx value) =
+      Except.ok (YulExpr.call "signextend" [byteIdxIR, valueIR]) := by
+  simp only [CompilationModel.compileExprWithInternals, hcompileByteIdx, hcompileValue,
+    CompilationModel.yulBinOp]
+  rfl
+
+theorem evalExprWithHelpers_signextend_of_values
+    (spec : CompilationModel) (fields : List Field)
+    (fuel : Nat) (runtime : SourceSemantics.RuntimeState)
+    {byteIdx value : Expr} {byteIdxValue valueValue : Nat}
+    (hsourceByteIdx :
+      SourceSemantics.evalExprWithHelpers spec fields fuel runtime byteIdx =
+        some byteIdxValue)
+    (hsourceValue :
+      SourceSemantics.evalExprWithHelpers spec fields fuel runtime value =
+        some valueValue) :
+    SourceSemantics.evalExprWithHelpers spec fields fuel runtime
+        (Expr.signextend byteIdx value) =
+      some (exprSignextendValue byteIdxValue valueValue) := by
+  simp [SourceSemantics.evalExprWithHelpers, hsourceByteIdx, hsourceValue,
+    exprSignextendValue, Verity.Core.Uint256.signextend]
+
+theorem evalBuiltinCallWithEvmYulLeanContext_signextend_of_values
+    (state : IRState) (byteIdxValue valueValue : Nat) :
+    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
+        state.storage state.sender state.msgValue state.thisAddress
+        state.blockTimestamp state.blockNumber state.chainId state.blobBaseFee
+        state.txOrigin state.selector state.calldata "signextend" [byteIdxValue, valueValue] =
+      some (exprSignextendValue byteIdxValue valueValue) := by
+  simp [Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
+    exprSignextendValue]
+
+theorem exprInternalHelperCompositionalContextResult_signextend_right_threaded
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {byteIdx value : Expr} {byteIdxIR valueIR : YulExpr} {helperFuel irFuel : Nat}
+    {runtime headRuntime : SourceSemantics.RuntimeState}
+    {parentState rightEntryState headState rightFinalState finalState : IRState}
+    {byteIdxValue valueValue : Nat}
+    (hright : ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+      value valueIR helperFuel irFuel runtime headRuntime rightEntryState headState
+      rightFinalState valueValue)
+    (hcompileByteIdx :
+      CompilationModel.compileExprWithInternals fields .calldata spec.functions byteIdx =
+        Except.ok byteIdxIR)
+    (hsourceByteIdx : SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1)
+      runtime byteIdx = some byteIdxValue)
+    (hirByteIdx :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) parentState byteIdxIR =
+        .value byteIdxValue rightEntryState)
+    (hirRight :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) rightEntryState valueIR =
+        .value valueValue finalState)
+    (hfindSignextend : findInternalFunction? runtimeContract "signextend" = none) :
+    ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+      (Expr.signextend byteIdx value) (YulExpr.call "signextend" [byteIdxIR, valueIR])
+      helperFuel irFuel runtime headRuntime parentState headState finalState
+      (exprSignextendValue byteIdxValue valueValue) := by
+  let result := exprSignextendValue byteIdxValue valueValue
+  have hrightFacts := hright
+  unfold ExprInternalHelperCompositionalContextResult at hrightFacts
+  rcases hrightFacts with ⟨hcompileValue, hsourceValue, _, _, _⟩
+  let hcompile := compileExprWithInternals_signextend_of_children hcompileByteIdx hcompileValue
+  let hsource := evalExprWithHelpers_signextend_of_values spec fields (helperFuel + 1)
+    runtime hsourceByteIdx hsourceValue
+  let hbuiltin := evalBuiltinCallWithEvmYulLeanContext_signextend_of_values finalState
+    byteIdxValue valueValue
+  let hir := evalIRExprWithInternals_binary_builtin_of_values runtimeContract (irFuel + 1)
+    parentState rightEntryState finalState "signextend" byteIdxIR valueIR byteIdxValue
+    valueValue result hirByteIdx hirRight hfindSignextend (by decide) (by decide)
+    (by decide) hbuiltin
+  exact
+    exprInternalHelperCompositionalContextResult_binary_right_threaded_context
+      (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+      (left := byteIdx) (right := value) (leftIR := byteIdxIR) (rightIR := valueIR) (mkExpr := Expr.signextend)
+      (mkIR := fun a b => YulExpr.call "signextend" [a, b])
+      (helperFuel := helperFuel) (irFuel := irFuel)
+      (runtime := runtime) (headRuntime := headRuntime)
+      (parentState := parentState) (rightEntryState := rightEntryState)
+      (headState := headState)
+      hright hcompile hsource hir
+
+theorem exprInternalHelperCompositionalPostStateResult_signextend_right_threaded
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {scope : List String}
+    {byteIdx value : Expr} {byteIdxIR valueIR : YulExpr} {helperFuel irFuel : Nat}
+    {runtime headRuntime : SourceSemantics.RuntimeState}
+    {parentState rightEntryState headState rightFinalState finalState : IRState}
+    {byteIdxValue valueValue : Nat}
+    (hright : ExprInternalHelperCompositionalPostStateResult runtimeContract spec fields scope
+      value valueIR helperFuel irFuel runtime headRuntime rightEntryState headState
+      rightFinalState valueValue)
+    (hcompileByteIdx :
+      CompilationModel.compileExprWithInternals fields .calldata spec.functions byteIdx =
+        Except.ok byteIdxIR)
+    (hsourceByteIdx : SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1)
+      runtime byteIdx = some byteIdxValue)
+    (hirByteIdx :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) parentState byteIdxIR =
+        .value byteIdxValue rightEntryState)
+    (hirRight :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) rightEntryState valueIR =
+        .value valueValue finalState)
+    (hfindSignextend : findInternalFunction? runtimeContract "signextend" = none)
+    (hfinalEq : finalState = rightFinalState) :
+    ExprInternalHelperCompositionalPostStateResult runtimeContract spec fields scope
+      (Expr.signextend byteIdx value) (YulExpr.call "signextend" [byteIdxIR, valueIR])
+      helperFuel irFuel runtime headRuntime parentState headState finalState
+      (exprSignextendValue byteIdxValue valueValue) := by
+  rcases hright with ⟨hrightResult, hrightRuntime, hrightExact, _hrightLt⟩
+  subst hfinalEq
+  refine ⟨?_, hrightRuntime, hrightExact,
+    exprSignextendValue_lt_evmModulus byteIdxValue valueValue⟩
+  exact
+    exprInternalHelperCompositionalContextResult_signextend_right_threaded
+      (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+      (byteIdx := byteIdx) (value := value) (byteIdxIR := byteIdxIR) (valueIR := valueIR)
+      (helperFuel := helperFuel) (irFuel := irFuel)
+      (runtime := runtime) (headRuntime := headRuntime)
+      (parentState := parentState) (rightEntryState := rightEntryState)
+      (headState := headState)
+      hrightResult hcompileByteIdx hsourceByteIdx hirByteIdx hirRight hfindSignextend
+
+theorem exprInternalHelperCompositionalContextResult_signextend_left_threaded
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {byteIdx value : Expr} {byteIdxIR valueIR : YulExpr} {helperFuel irFuel : Nat}
+    {runtime headRuntime : SourceSemantics.RuntimeState}
+    {parentState headState leftFinalState finalState : IRState}
+    {byteIdxValue valueValue : Nat}
+    (hleft : ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+      byteIdx byteIdxIR helperFuel irFuel runtime headRuntime parentState headState
+      leftFinalState byteIdxValue)
+    (hcompileValue :
+      CompilationModel.compileExprWithInternals fields .calldata spec.functions value =
+        Except.ok valueIR)
+    (hsourceValue : SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1)
+      runtime value = some valueValue)
+    (hirValue :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) leftFinalState valueIR =
+        .value valueValue finalState)
+    (hfindSignextend : findInternalFunction? runtimeContract "signextend" = none) :
+    ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+      (Expr.signextend byteIdx value) (YulExpr.call "signextend" [byteIdxIR, valueIR])
+      helperFuel irFuel runtime headRuntime parentState headState finalState
+      (exprSignextendValue byteIdxValue valueValue) := by
+  let result := exprSignextendValue byteIdxValue valueValue
+  have hleftFacts := hleft
+  unfold ExprInternalHelperCompositionalContextResult at hleftFacts
+  rcases hleftFacts with ⟨hcompileByteIdx, hsourceByteIdx, hirByteIdx, _, _⟩
+  let hcompile := compileExprWithInternals_signextend_of_children
+    hcompileByteIdx hcompileValue
+  let hsource := evalExprWithHelpers_signextend_of_values spec fields (helperFuel + 1)
+    runtime hsourceByteIdx hsourceValue
+  let hbuiltin := evalBuiltinCallWithEvmYulLeanContext_signextend_of_values finalState
+    byteIdxValue valueValue
+  let hir := evalIRExprWithInternals_binary_builtin_of_values runtimeContract (irFuel + 1)
+    parentState leftFinalState finalState "signextend" byteIdxIR valueIR byteIdxValue
+    valueValue result hirByteIdx hirValue hfindSignextend (by decide) (by decide)
+    (by decide) hbuiltin
+  exact
+    exprInternalHelperCompositionalContextResult_binary_left_context
+      (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+      (left := byteIdx) (right := value) (leftIR := byteIdxIR) (rightIR := valueIR)
+      (mkExpr := Expr.signextend)
+      (mkIR := fun a b => YulExpr.call "signextend" [a, b])
+      (helperFuel := helperFuel) (irFuel := irFuel)
+      (runtime := runtime) (headRuntime := headRuntime)
+      (state := parentState) (headState := headState)
+      hleft hcompile hsource hir
+
+theorem exprInternalHelperCompositionalPostStateResult_signextend_left_threaded
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {scope : List String}
+    {byteIdx value : Expr} {byteIdxIR valueIR : YulExpr} {helperFuel irFuel : Nat}
+    {runtime headRuntime : SourceSemantics.RuntimeState}
+    {parentState headState leftFinalState finalState : IRState}
+    {byteIdxValue valueValue : Nat}
+    (hleft : ExprInternalHelperCompositionalPostStateResult runtimeContract spec fields scope
+      byteIdx byteIdxIR helperFuel irFuel runtime headRuntime parentState headState
+      leftFinalState byteIdxValue)
+    (hcompileValue :
+      CompilationModel.compileExprWithInternals fields .calldata spec.functions value =
+        Except.ok valueIR)
+    (hsourceValue : SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1)
+      runtime value = some valueValue)
+    (hirValue :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) leftFinalState valueIR =
+        .value valueValue finalState)
+    (hfindSignextend : findInternalFunction? runtimeContract "signextend" = none)
+    (hfinalRuntime : FunctionBody.runtimeStateMatchesIR fields runtime finalState)
+    (hfinalExact :
+      FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings finalState) :
+    ExprInternalHelperCompositionalPostStateResult runtimeContract spec fields scope
+      (Expr.signextend byteIdx value) (YulExpr.call "signextend" [byteIdxIR, valueIR])
+      helperFuel irFuel runtime headRuntime parentState headState finalState
+      (exprSignextendValue byteIdxValue valueValue) := by
+  rcases hleft with ⟨hleftResult, _, _, _⟩
+  refine ⟨?_, hfinalRuntime, hfinalExact,
+    exprSignextendValue_lt_evmModulus byteIdxValue valueValue⟩
+  exact
+    exprInternalHelperCompositionalContextResult_signextend_left_threaded
+      (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+      (byteIdx := byteIdx) (value := value) (byteIdxIR := byteIdxIR) (valueIR := valueIR)
+      (helperFuel := helperFuel) (irFuel := irFuel)
+      (runtime := runtime) (headRuntime := headRuntime)
+      (parentState := parentState) (headState := headState)
+      hleftResult hcompileValue hsourceValue hirValue hfindSignextend
+
 /-- Expression-helper statement-head bridge. Future helper-summary induction
 should construct this for each statement head whose helper work appears in
 expression position. The semantic payload is the exact helper-aware source/IR
