@@ -576,7 +576,13 @@ theorem compiledStmtStep_setStorageWord_singleSlot
       targetSlot =
         if wordOffset == 0 then slot
         else (slot + wordOffset) % Compiler.Constants.evmModulus)
-    (hslotSafety : setStorageWordTargetSafe fields targetSlot)
+    (hslotSafety :
+      (∃ targetField, findResolvedFieldAtSlotCopy fields targetSlot = some targetField ∧
+        SourceSemantics.fieldUsesAddressStorage targetField = false ∧
+        SourceSemantics.fieldUsesDynamicArrayStorage targetField = false) ∨
+      (findResolvedFieldAtSlotCopy fields targetSlot = none ∧
+        ∀ runtime : SourceSemantics.RuntimeState,
+          findDynamicArrayElementAtSlotCopy fields runtime.world targetSlot = none))
     (hvalueIR : CompilationModel.compileExpr fields .calldata value = Except.ok valueIR) :
     CompiledStmtStep fields scope (.setStorageWord fieldName wordOffset value)
       [YulStmt.exprStmt
