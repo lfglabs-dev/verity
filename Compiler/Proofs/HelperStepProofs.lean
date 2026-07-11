@@ -2206,6 +2206,94 @@ theorem exprInternalHelperCompositionalPostStateResult_add_right_threaded
       (headState := headState)
       hrightResult hcompileLeft hsourceLeft hirLeft hirRight hfindAdd
 
+/-- Constructor-specific left-child bridge for `Expr.add`.
+
+The helper-bearing left operand evaluates first; the right operand is then
+evaluated from the left operand's final IR state. -/
+theorem exprInternalHelperCompositionalContextResult_add_left_threaded
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {left right : Expr} {leftIR rightIR : YulExpr} {helperFuel irFuel : Nat}
+    {runtime headRuntime : SourceSemantics.RuntimeState}
+    {parentState headState leftFinalState finalState : IRState}
+    {leftValue rightValue : Nat}
+    (hleft : ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+      left leftIR helperFuel irFuel runtime headRuntime parentState headState
+      leftFinalState leftValue)
+    (hcompileRight :
+      CompilationModel.compileExprWithInternals fields .calldata spec.functions right =
+        Except.ok rightIR)
+    (hsourceRight :
+      SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1) runtime right =
+        some rightValue)
+    (hirRight :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) leftFinalState rightIR =
+        .value rightValue finalState)
+    (hfindAdd : findInternalFunction? runtimeContract "add" = none) :
+    ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+      (Expr.add left right) (YulExpr.call "add" [leftIR, rightIR]) helperFuel irFuel
+      runtime headRuntime parentState headState finalState
+      (exprAddValue leftValue rightValue) := by
+  let value := exprAddValue leftValue rightValue
+  have hleftFacts := hleft
+  unfold ExprInternalHelperCompositionalContextResult at hleftFacts
+  rcases hleftFacts with ⟨hcompileLeft, hsourceLeft, hirLeft, _, _⟩
+  let hcompile := compileExprWithInternals_add_of_children hcompileLeft hcompileRight
+  let hsource := evalExprWithHelpers_add_of_values spec fields (helperFuel + 1)
+    runtime hsourceLeft hsourceRight
+  let hbuiltin := evalBuiltinCallWithEvmYulLeanContext_add_of_values finalState
+    leftValue rightValue
+  let hir := evalIRExprWithInternals_binary_builtin_of_values runtimeContract (irFuel + 1)
+    parentState leftFinalState finalState "add" leftIR rightIR leftValue rightValue value
+    hirLeft hirRight hfindAdd (by decide) (by decide) (by decide) hbuiltin
+  exact
+    exprInternalHelperCompositionalContextResult_binary_left_context
+      (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+      (left := left) (right := right) (leftIR := leftIR) (rightIR := rightIR)
+      (mkExpr := Expr.add) (mkIR := fun a b => YulExpr.call "add" [a, b])
+      (helperFuel := helperFuel) (irFuel := irFuel)
+      (runtime := runtime) (headRuntime := headRuntime)
+      (state := parentState) (headState := headState)
+      hleft hcompile hsource hir
+
+/-- Post-state companion for the `Expr.add` left-helper bridge. -/
+theorem exprInternalHelperCompositionalPostStateResult_add_left_threaded
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {scope : List String}
+    {left right : Expr} {leftIR rightIR : YulExpr} {helperFuel irFuel : Nat}
+    {runtime headRuntime : SourceSemantics.RuntimeState}
+    {parentState headState leftFinalState finalState : IRState}
+    {leftValue rightValue : Nat}
+    (hleft : ExprInternalHelperCompositionalPostStateResult runtimeContract spec fields scope
+      left leftIR helperFuel irFuel runtime headRuntime parentState headState
+      leftFinalState leftValue)
+    (hcompileRight :
+      CompilationModel.compileExprWithInternals fields .calldata spec.functions right =
+        Except.ok rightIR)
+    (hsourceRight :
+      SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1) runtime right =
+        some rightValue)
+    (hirRight :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) leftFinalState rightIR =
+        .value rightValue finalState)
+    (hfindAdd : findInternalFunction? runtimeContract "add" = none)
+    (hfinalRuntime : FunctionBody.runtimeStateMatchesIR fields runtime finalState)
+    (hfinalExact :
+      FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings finalState) :
+    ExprInternalHelperCompositionalPostStateResult runtimeContract spec fields scope
+      (Expr.add left right) (YulExpr.call "add" [leftIR, rightIR]) helperFuel irFuel
+      runtime headRuntime parentState headState finalState
+      (exprAddValue leftValue rightValue) := by
+  rcases hleft with ⟨hleftResult, _, _, _⟩
+  refine ⟨?_, hfinalRuntime, hfinalExact, exprAddValue_lt_evmModulus leftValue rightValue⟩
+  exact
+    exprInternalHelperCompositionalContextResult_add_left_threaded
+      (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+      (left := left) (right := right) (leftIR := leftIR) (rightIR := rightIR)
+      (helperFuel := helperFuel) (irFuel := irFuel)
+      (runtime := runtime) (headRuntime := headRuntime)
+      (parentState := parentState) (headState := headState)
+      hleftResult hcompileRight hsourceRight hirRight hfindAdd
+
 /-- Expression-helper statement-head bridge. Future helper-summary induction
 should construct this for each statement head whose helper work appears in
 expression position. The semantic payload is the exact helper-aware source/IR
