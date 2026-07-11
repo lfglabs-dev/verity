@@ -281,22 +281,25 @@ example :
         some (Verity.wordToAddress (99 : Verity.Uint256)) := by
   native_decide
 
-/-- `requireError` guards use the broad call-surface gate: foreign calls are
-excluded there, while the distinct helper-surface gate continues to track only
-internal helper calls. -/
+/-- Custom-error guards and payloads use the broad call-surface gate. -/
 example :
     stmtTouchesUnsupportedCallSurface
       (.requireError (.externalCall "oracle" []) "OracleFailed" []) = true := by
   native_decide
 
 example :
-    stmtTouchesUnsupportedHelperSurface
-      (.requireError (.externalCall "oracle" []) "OracleFailed" []) = false := by
+    stmtTouchesUnsupportedCallSurface
+      (.requireError (.literal 0) "OracleFailed" [.externalCall "oracle" []]) = true := by
   native_decide
 
 example :
-    stmtTouchesUnsupportedHelperSurface
-      (.requireError (.internalCall "helper" []) "HelperFailed" []) = true := by
+    stmtTouchesUnsupportedCallSurface
+      (.revertError "OracleFailed" [.internalCall "helper" []]) = true := by
+  native_decide
+
+example :
+    stmtTouchesUnsupportedCallSurface
+      (.requireError (.literal 0) "CallFree" [.literal 1]) = false := by
   native_decide
 
 end Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest

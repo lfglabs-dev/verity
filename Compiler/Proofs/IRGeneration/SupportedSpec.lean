@@ -1510,10 +1510,12 @@ def stmtTouchesUnsupportedCallSurface : Stmt → Bool
   | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _
   | .ecm _ _ => true
   | .stop | .storageArrayPop _
-  | .revertError _ _ | .returnValues _ | .returnArray _
+  | .returnValues _ | .returnArray _
   | .returnBytes _ | .returnStorageWords _ | .rawLog _ _ _ => false
-  | .requireError cond _ _ =>
-      exprTouchesUnsupportedCallSurface cond
+  | .requireError cond _ args =>
+      exprTouchesUnsupportedCallSurface cond ||
+        args.any exprTouchesUnsupportedCallSurface
+  | .revertError _ args => args.any exprTouchesUnsupportedCallSurface
   | .emit _ args => args.any exprTouchesUnsupportedCallSurface
   | .unsafeBlock _ _ | .unsafeYul _ | .matchAdt _ _ _ => true
   | .ite cond thenBranch elseBranch =>
@@ -1554,8 +1556,12 @@ def stmtTouchesUnsupportedHelperSurface : Stmt → Bool
   | .stop | .calldatacopy _ _ _
   | .returndataCopy _ _ _ | .revertReturndata | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _
   | .ecm _ _ | .storageArrayPop _
-  | .requireError _ _ _ | .revertError _ _ | .returnValues _ | .returnArray _
+  | .returnValues _ | .returnArray _
   | .returnBytes _ | .returnStorageWords _ | .rawLog _ _ _ => false
+  | .requireError cond _ args =>
+      exprTouchesUnsupportedHelperSurface cond ||
+        exprListTouchesUnsupportedHelperSurface args
+  | .revertError _ args => exprListTouchesUnsupportedHelperSurface args
   | .emit _ args => exprListTouchesUnsupportedHelperSurface args
   | .unsafeBlock _ _ | .unsafeYul _ | .matchAdt _ _ _ => true
   | .ite cond thenBranch elseBranch =>
@@ -1735,8 +1741,12 @@ def stmtTouchesUnsupportedForeignSurface : Stmt → Bool
   | .internalCall _ _ | .internalCallAssign _ _ _
   | .calldatacopy _ _ _ | .returndataCopy _ _ _ | .revertReturndata
   | .storageArrayPop _
-  | .requireError _ _ _ | .revertError _ _ | .returnValues _ | .returnArray _
+  | .returnValues _ | .returnArray _
   | .returnBytes _ | .returnStorageWords _ | .rawLog _ _ _ => false
+  | .requireError cond _ args =>
+      exprTouchesUnsupportedForeignSurface cond ||
+        args.any exprTouchesUnsupportedForeignSurface
+  | .revertError _ args => args.any exprTouchesUnsupportedForeignSurface
   | .emit _ args => args.any exprTouchesUnsupportedForeignSurface
   | .unsafeBlock _ _ | .unsafeYul _ | .matchAdt _ _ _ => true
   | .ite cond thenBranch elseBranch =>
@@ -1777,8 +1787,12 @@ def stmtTouchesUnsupportedLowLevelSurface : Stmt → Bool
   | .stop
   | .internalCall _ _ | .internalCallAssign _ _ _ | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _
   | .ecm _ _ | .storageArrayPop _
-  | .requireError _ _ _ | .revertError _ _ | .returnValues _ | .returnArray _
+  | .returnValues _ | .returnArray _
   | .returnBytes _ | .returnStorageWords _ | .rawLog _ _ _ => false
+  | .requireError cond _ args =>
+      exprTouchesUnsupportedLowLevelSurface cond ||
+        args.any exprTouchesUnsupportedLowLevelSurface
+  | .revertError _ args => args.any exprTouchesUnsupportedLowLevelSurface
   | .emit _ args => args.any exprTouchesUnsupportedLowLevelSurface
   | .unsafeBlock _ _ | .unsafeYul _ | .matchAdt _ _ _ => true
   | .ite cond thenBranch elseBranch =>
