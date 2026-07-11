@@ -3285,9 +3285,12 @@ def bindConstructorArgAliasesFrom
       match constructorArgAliasValue? param rawArgs headWord bindings with
       | none => none
       | some value =>
-          bindConstructorArgAliasesFrom rest rawArgs (idx + 1)
-            (headWord + paramHeadSize param.ty / 32)
-            (bindValue bindings s!"arg{idx}" value)
+          if (bindings.map Prod.fst).contains s!"arg{idx}" then
+            none
+          else
+            bindConstructorArgAliasesFrom rest rawArgs (idx + 1)
+              (headWord + paramHeadSize param.ty / 32)
+              (bindValue bindings s!"arg{idx}" value)
 
 def bindConstructorArgAliases
     (params : List Param)
@@ -3316,7 +3319,7 @@ theorem bindConstructorArgAliasesFrom_preserves_lookup
       cases hvalue : constructorArgAliasValue? param rawArgs headWord bindings <;>
         simp [hvalue] at hbind
       case some value =>
-        exact ih hbind
+        exact ih hbind.2
           (lookupBinding?_bindValue_exists bindings s!"arg{idx}" queryName value hexists)
 
 theorem bindConstructorArgAliasesFrom_argAlias_present
@@ -3346,10 +3349,10 @@ theorem bindConstructorArgAliasesFrom_argAlias_present
                 (bindValue bindings s!"arg{idx}" value) s!"arg{target}" = some v := by
             rw [htarget]
             exact ⟨value, by simp [lookupBinding?, bindValue]⟩
-          exact bindConstructorArgAliasesFrom_preserves_lookup hbind hcurrent
+          exact bindConstructorArgAliasesFrom_preserves_lookup hbind.2 hcurrent
         · have hnextLo : idx + 1 ≤ target := by omega
           have hnextHi : target < idx + 1 + rest.length := by omega
-          exact ih hbind hnextLo hnextHi
+          exact ih hbind.2 hnextLo hnextHi
 
 theorem bindConstructorArgAliases_argAlias_present
     {params : List Param}
