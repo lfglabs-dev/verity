@@ -2294,6 +2294,242 @@ theorem exprInternalHelperCompositionalPostStateResult_add_left_threaded
       (parentState := parentState) (headState := headState)
       hleftResult hcompileRight hsourceRight hirRight hfindAdd
 
+/-- Shared source/Yul value for the `Expr.mul` constructor. -/
+def exprMulValue (leftValue rightValue : Nat) : Nat :=
+  (Verity.Core.Uint256.mul
+    (Verity.Core.Uint256.ofNat (leftValue % Compiler.Constants.evmModulus))
+    (Verity.Core.Uint256.ofNat (rightValue % Compiler.Constants.evmModulus))).val
+
+theorem exprMulValue_lt_evmModulus (leftValue rightValue : Nat) :
+    exprMulValue leftValue rightValue < Compiler.Constants.evmModulus := by
+  simpa [exprMulValue, Verity.Core.Uint256.modulus,
+    Verity.Core.UINT256_MODULUS, Compiler.Constants.evmModulus] using
+    (Verity.Core.Uint256.mul
+      (Verity.Core.Uint256.ofNat (leftValue % Compiler.Constants.evmModulus))
+      (Verity.Core.Uint256.ofNat (rightValue % Compiler.Constants.evmModulus))).isLt
+
+theorem compileExprWithInternals_mul_of_children
+    {fields : List Field} {internalFunctions : List FunctionSpec}
+    {left right : Expr} {leftIR rightIR : YulExpr}
+    (hcompileLeft :
+      CompilationModel.compileExprWithInternals fields .calldata internalFunctions left =
+        Except.ok leftIR)
+    (hcompileRight :
+      CompilationModel.compileExprWithInternals fields .calldata internalFunctions right =
+        Except.ok rightIR) :
+    CompilationModel.compileExprWithInternals fields .calldata internalFunctions
+        (Expr.mul left right) =
+      Except.ok (YulExpr.call "mul" [leftIR, rightIR]) := by
+  simp only [CompilationModel.compileExprWithInternals, hcompileLeft, hcompileRight,
+    CompilationModel.yulBinOp]
+  rfl
+
+theorem evalExprWithHelpers_mul_of_values
+    (spec : CompilationModel) (fields : List Field)
+    (fuel : Nat) (runtime : SourceSemantics.RuntimeState)
+    {left right : Expr} {leftValue rightValue : Nat}
+    (hsourceLeft :
+      SourceSemantics.evalExprWithHelpers spec fields fuel runtime left =
+        some leftValue)
+    (hsourceRight :
+      SourceSemantics.evalExprWithHelpers spec fields fuel runtime right =
+        some rightValue) :
+    SourceSemantics.evalExprWithHelpers spec fields fuel runtime (Expr.mul left right) =
+      some (exprMulValue leftValue rightValue) := by
+  simp [SourceSemantics.evalExprWithHelpers, hsourceLeft, hsourceRight,
+    exprMulValue, Verity.Core.Uint256.mul]
+  conv_lhs =>
+    rw [uint256_ofNat_evmModulus_mod leftValue,
+      uint256_ofNat_evmModulus_mod rightValue]
+  change
+    (Verity.Core.Uint256.mul
+      (Verity.Core.Uint256.ofNat (leftValue % Compiler.Constants.evmModulus))
+      (Verity.Core.Uint256.ofNat (rightValue % Compiler.Constants.evmModulus))).val =
+    leftValue * rightValue % Compiler.Constants.evmModulus
+  simp only [Verity.Core.Uint256.mul, Verity.Core.Uint256.ofNat]
+  simp [Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS,
+    Compiler.Constants.evmModulus, Nat.mul_mod]
+
+theorem evalBuiltinCallWithEvmYulLeanContext_mul_of_values
+    (state : IRState) (leftValue rightValue : Nat) :
+    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
+        state.storage state.sender state.msgValue state.thisAddress
+        state.blockTimestamp state.blockNumber state.chainId state.blobBaseFee
+        state.txOrigin state.selector state.calldata "mul" [leftValue, rightValue] =
+      some (exprMulValue leftValue rightValue) := by
+  simp [Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
+    exprMulValue, Verity.Core.Uint256.mul, Verity.Core.Uint256.ofNat,
+    Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS,
+    Compiler.Constants.evmModulus, Nat.mul_mod]
+
+theorem exprInternalHelperCompositionalContextResult_mul_right_threaded
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {left right : Expr} {leftIR rightIR : YulExpr} {helperFuel irFuel : Nat}
+    {runtime headRuntime : SourceSemantics.RuntimeState}
+    {parentState rightEntryState headState rightFinalState finalState : IRState}
+    {leftValue rightValue : Nat}
+    (hright : ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+      right rightIR helperFuel irFuel runtime headRuntime rightEntryState headState
+      rightFinalState rightValue)
+    (hcompileLeft :
+      CompilationModel.compileExprWithInternals fields .calldata spec.functions left =
+        Except.ok leftIR)
+    (hsourceLeft : SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1)
+      runtime left = some leftValue)
+    (hirLeft :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) parentState leftIR =
+        .value leftValue rightEntryState)
+    (hirRight :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) rightEntryState rightIR =
+        .value rightValue finalState)
+    (hfindMul : findInternalFunction? runtimeContract "mul" = none) :
+    ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+      (Expr.mul left right) (YulExpr.call "mul" [leftIR, rightIR]) helperFuel irFuel
+      runtime headRuntime parentState headState finalState
+      (exprMulValue leftValue rightValue) := by
+  let value := exprMulValue leftValue rightValue
+  have hrightFacts := hright
+  unfold ExprInternalHelperCompositionalContextResult at hrightFacts
+  rcases hrightFacts with ⟨hcompileRight, hsourceRight, _, _, _⟩
+  let hcompile := compileExprWithInternals_mul_of_children hcompileLeft hcompileRight
+  let hsource := evalExprWithHelpers_mul_of_values spec fields (helperFuel + 1) runtime
+    hsourceLeft hsourceRight
+  let hbuiltin := evalBuiltinCallWithEvmYulLeanContext_mul_of_values finalState leftValue rightValue
+  let hir := evalIRExprWithInternals_binary_builtin_of_values runtimeContract (irFuel + 1)
+    parentState rightEntryState finalState "mul" leftIR rightIR leftValue rightValue value
+    hirLeft hirRight hfindMul (by decide) (by decide) (by decide) hbuiltin
+  exact
+    exprInternalHelperCompositionalContextResult_binary_right_threaded_context
+      (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+      (left := left) (right := right) (leftIR := leftIR) (rightIR := rightIR)
+      (mkExpr := Expr.mul) (mkIR := fun a b => YulExpr.call "mul" [a, b])
+      (helperFuel := helperFuel) (irFuel := irFuel)
+      (runtime := runtime) (headRuntime := headRuntime)
+      (parentState := parentState) (rightEntryState := rightEntryState)
+      (headState := headState)
+      hright hcompile hsource hir
+
+theorem exprInternalHelperCompositionalPostStateResult_mul_right_threaded
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {scope : List String}
+    {left right : Expr} {leftIR rightIR : YulExpr} {helperFuel irFuel : Nat}
+    {runtime headRuntime : SourceSemantics.RuntimeState}
+    {parentState rightEntryState headState rightFinalState finalState : IRState}
+    {leftValue rightValue : Nat}
+    (hright : ExprInternalHelperCompositionalPostStateResult runtimeContract spec fields scope
+      right rightIR helperFuel irFuel runtime headRuntime rightEntryState headState
+      rightFinalState rightValue)
+    (hcompileLeft :
+      CompilationModel.compileExprWithInternals fields .calldata spec.functions left =
+        Except.ok leftIR)
+    (hsourceLeft : SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1)
+      runtime left = some leftValue)
+    (hirLeft :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) parentState leftIR =
+        .value leftValue rightEntryState)
+    (hirRight :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) rightEntryState rightIR =
+        .value rightValue finalState)
+    (hfindMul : findInternalFunction? runtimeContract "mul" = none)
+    (hfinalEq : finalState = rightFinalState) :
+    ExprInternalHelperCompositionalPostStateResult runtimeContract spec fields scope
+      (Expr.mul left right) (YulExpr.call "mul" [leftIR, rightIR]) helperFuel irFuel
+      runtime headRuntime parentState headState finalState
+      (exprMulValue leftValue rightValue) := by
+  rcases hright with ⟨hrightResult, hrightRuntime, hrightExact, _hrightLt⟩
+  subst hfinalEq
+  refine ⟨?_, hrightRuntime, hrightExact, exprMulValue_lt_evmModulus leftValue rightValue⟩
+  exact
+    exprInternalHelperCompositionalContextResult_mul_right_threaded
+      (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+      (left := left) (right := right) (leftIR := leftIR) (rightIR := rightIR)
+      (helperFuel := helperFuel) (irFuel := irFuel)
+      (runtime := runtime) (headRuntime := headRuntime)
+      (parentState := parentState) (rightEntryState := rightEntryState)
+      (headState := headState)
+      hrightResult hcompileLeft hsourceLeft hirLeft hirRight hfindMul
+
+theorem exprInternalHelperCompositionalContextResult_mul_left_threaded
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {left right : Expr} {leftIR rightIR : YulExpr} {helperFuel irFuel : Nat}
+    {runtime headRuntime : SourceSemantics.RuntimeState}
+    {parentState headState leftFinalState finalState : IRState}
+    {leftValue rightValue : Nat}
+    (hleft : ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+      left leftIR helperFuel irFuel runtime headRuntime parentState headState
+      leftFinalState leftValue)
+    (hcompileRight :
+      CompilationModel.compileExprWithInternals fields .calldata spec.functions right =
+        Except.ok rightIR)
+    (hsourceRight : SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1)
+      runtime right = some rightValue)
+    (hirRight :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) leftFinalState rightIR =
+        .value rightValue finalState)
+    (hfindMul : findInternalFunction? runtimeContract "mul" = none) :
+    ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+      (Expr.mul left right) (YulExpr.call "mul" [leftIR, rightIR]) helperFuel irFuel
+      runtime headRuntime parentState headState finalState
+      (exprMulValue leftValue rightValue) := by
+  let value := exprMulValue leftValue rightValue
+  have hleftFacts := hleft
+  unfold ExprInternalHelperCompositionalContextResult at hleftFacts
+  rcases hleftFacts with ⟨hcompileLeft, hsourceLeft, hirLeft, _, _⟩
+  let hcompile := compileExprWithInternals_mul_of_children hcompileLeft hcompileRight
+  let hsource := evalExprWithHelpers_mul_of_values spec fields (helperFuel + 1)
+    runtime hsourceLeft hsourceRight
+  let hbuiltin := evalBuiltinCallWithEvmYulLeanContext_mul_of_values finalState
+    leftValue rightValue
+  let hir := evalIRExprWithInternals_binary_builtin_of_values runtimeContract (irFuel + 1)
+    parentState leftFinalState finalState "mul" leftIR rightIR leftValue rightValue value
+    hirLeft hirRight hfindMul (by decide) (by decide) (by decide) hbuiltin
+  exact
+    exprInternalHelperCompositionalContextResult_binary_left_context
+      (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+      (left := left) (right := right) (leftIR := leftIR) (rightIR := rightIR)
+      (mkExpr := Expr.mul) (mkIR := fun a b => YulExpr.call "mul" [a, b])
+      (helperFuel := helperFuel) (irFuel := irFuel)
+      (runtime := runtime) (headRuntime := headRuntime)
+      (state := parentState) (headState := headState)
+      hleft hcompile hsource hir
+
+theorem exprInternalHelperCompositionalPostStateResult_mul_left_threaded
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {scope : List String}
+    {left right : Expr} {leftIR rightIR : YulExpr} {helperFuel irFuel : Nat}
+    {runtime headRuntime : SourceSemantics.RuntimeState}
+    {parentState headState leftFinalState finalState : IRState}
+    {leftValue rightValue : Nat}
+    (hleft : ExprInternalHelperCompositionalPostStateResult runtimeContract spec fields scope
+      left leftIR helperFuel irFuel runtime headRuntime parentState headState
+      leftFinalState leftValue)
+    (hcompileRight :
+      CompilationModel.compileExprWithInternals fields .calldata spec.functions right =
+        Except.ok rightIR)
+    (hsourceRight : SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1)
+      runtime right = some rightValue)
+    (hirRight :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) leftFinalState rightIR =
+        .value rightValue finalState)
+    (hfindMul : findInternalFunction? runtimeContract "mul" = none)
+    (hfinalRuntime : FunctionBody.runtimeStateMatchesIR fields runtime finalState)
+    (hfinalExact :
+      FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings finalState) :
+    ExprInternalHelperCompositionalPostStateResult runtimeContract spec fields scope
+      (Expr.mul left right) (YulExpr.call "mul" [leftIR, rightIR]) helperFuel irFuel
+      runtime headRuntime parentState headState finalState
+      (exprMulValue leftValue rightValue) := by
+  rcases hleft with ⟨hleftResult, _, _, _⟩
+  refine ⟨?_, hfinalRuntime, hfinalExact, exprMulValue_lt_evmModulus leftValue rightValue⟩
+  exact
+    exprInternalHelperCompositionalContextResult_mul_left_threaded
+      (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+      (left := left) (right := right) (leftIR := leftIR) (rightIR := rightIR)
+      (helperFuel := helperFuel) (irFuel := irFuel)
+      (runtime := runtime) (headRuntime := headRuntime)
+      (parentState := parentState) (headState := headState)
+      hleftResult hcompileRight hsourceRight hirRight hfindMul
+
 /-- Expression-helper statement-head bridge. Future helper-summary induction
 should construct this for each statement head whose helper work appears in
 expression position. The semantic payload is the exact helper-aware source/IR
