@@ -3165,6 +3165,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.compileInternalFunction_body_eq_external_of_returnFree
   Compiler.Proofs.IRGeneration.findInternalFunction?_some_eq_compiledHelper_of_witness
   Compiler.Proofs.IRGeneration.findInternalFunction?_external_body_of_witness_returnFree
+  Compiler.Proofs.IRGeneration.compiledInternalHelper_summary_boundary_of_witness_returnStopFree
   Compiler.Proofs.IRGeneration.empty_void_helper_body_compile_shape_irrelevant_regression
 
   -- Compiler/Proofs/IRGeneration/IRInterpreter.lean
@@ -5996,4 +5997,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5623 theorems/lemmas (3883 public, 1740 private, 0 sorry'd)
+-- Total: 5624 theorems/lemmas (3884 public, 1740 private, 0 sorry'd)

@@ -1,4 +1,5 @@
 import Compiler.Proofs.IRGeneration.IRInterpreter
+import Compiler.Proofs.IRGeneration.SourceSemantics
 import Compiler.CompilationModel.Compile
 import Compiler.Proofs.IRGeneration.SupportedSpec
 
@@ -281,6 +282,58 @@ theorem findInternalFunction?_external_body_of_witness_returnFree
   subst retNames'
   subst bodyStmts'
   exact ⟨retNames, bodyStmts, hfind, hbodyCompile, hshape⟩
+
+section InternalHelperSummaryBoundary
+
+variable {runtimeContract : IRContract}
+variable {spec : CompilationModel}
+variable {calleeName : String}
+variable (compiledHelper :
+  SupportedCompiledInternalHelperWitness spec runtimeContract calleeName)
+variable (hreturnFree :
+  stmtListUsesReturnFamily compiledHelper.sourceWitness.callee.body = false)
+variable (hstopFree :
+  stmtListUsesStop compiledHelper.sourceWitness.callee.body = false)
+variable (hunique : ∀ stmt ∈ runtimeContract.internalFunctions,
+  ∀ p r b, irInternalFunctionDefOfStmt? stmt =
+    some ⟨CompilationModel.internalFunctionYulName
+      compiledHelper.sourceWitness.callee.name, p, r, b⟩ →
+    stmt = compiledHelper.compiledStmt)
+variable (hsound : SourceSemantics.InternalHelperSummarySound spec
+  compiledHelper.sourceWitness.callee
+  compiledHelper.sourceWitness.summary.contract)
+
+include hreturnFree hstopFree hunique hsound
+
+/-- N1a boundary package: runtime lookup, return/stop exclusions, and real summary post. -/
+theorem compiledInternalHelper_summary_boundary_of_witness_returnStopFree
+    (fuel : Nat)
+    (initialWorld : Verity.ContractState)
+    (args : List Nat) :
+    let callee := compiledHelper.sourceWitness.callee
+    let yulName := CompilationModel.internalFunctionYulName calleeName
+    let paramNames := CompilationModel.internalFunctionYulParamNames callee.params
+    ∃ retNames bodyStmts,
+      findInternalFunction? runtimeContract yulName =
+        some { name := yulName, params := paramNames, rets := retNames, body := bodyStmts } ∧
+      CompilationModel.compileStmtListWithFork
+        (CompilationModel.applySlotAliasRanges spec.fields spec.slotAliasRanges)
+        spec.events spec.errors .calldata [] false (paramNames ++ retNames)
+        spec.adtTypes Verity.Core.Intrinsics.HardFork.cancun
+        callee.body = Except.ok bodyStmts ∧
+      stmtListUsesStop callee.body = false ∧
+      let result := SourceSemantics.interpretInternalFunctionFuel spec fuel
+        callee initialWorld args
+      compiledHelper.sourceWitness.summary.contract.post fuel initialWorld args
+        result.success result.returnValue result.world := by
+  dsimp only
+  rcases findInternalFunction?_external_body_of_witness_returnFree
+      compiledHelper hreturnFree hunique with
+    ⟨retNames, bodyStmts, hfind, hbodyCompile, _hshape⟩
+  refine ⟨retNames, bodyStmts, hfind, hbodyCompile, hstopFree, ?_⟩
+  exact hsound fuel initialWorld args
+
+end InternalHelperSummaryBoundary
 
 /-- Concrete regression for the rank-0 void-helper body-shape seam: an empty
 helper body is unaffected by internal return targets. -/
