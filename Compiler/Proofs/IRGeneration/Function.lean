@@ -4635,7 +4635,7 @@ private theorem bindConstructorArgAliasesFrom_bounded
           SourceSemantics.constructorArgAliasValue? param rawArgs headWord bindings <;>
         simp [hvalue] at hbind
       case some value =>
-        exact ih hbind
+        exact ih hbind.2
           (FunctionBody.bindingsBounded_bindValue hbounded s!"arg{idx}" value
             (constructorArgAliasValue?_lt_evmModulus hbounded hvalue))
 
@@ -4697,7 +4697,7 @@ private theorem bindConstructorArgAliasesFrom_names_nodup
           SourceSemantics.constructorArgAliasValue? param rawArgs headWord bindings <;>
         simp [hvalue] at hbind
       case some value =>
-        exact ih hbind (bindValue_names_nodup hnodup)
+        exact ih hbind.2 (bindValue_names_nodup hnodup)
 
 private theorem bindConstructorArgAliases_names_nodup
     {params : List Param}
