@@ -266,6 +266,18 @@ inductive InternalHelperExprListProjectionCore : List Expr → Prop where
 
 inductive InternalHelperStmtListProjectionCore : List Stmt → Prop where
   | nil : InternalHelperStmtListProjectionCore []
+  | letVar {name : String} {value : Expr} {rest : List Stmt} :
+      InternalHelperExprProjectionCore value →
+      InternalHelperStmtListProjectionCore rest →
+      InternalHelperStmtListProjectionCore (.letVar name value :: rest)
+  | assignVar {name : String} {value : Expr} {rest : List Stmt} :
+      InternalHelperExprProjectionCore value →
+      InternalHelperStmtListProjectionCore rest →
+      InternalHelperStmtListProjectionCore (.assignVar name value :: rest)
+  | require_ {cond : Expr} {msg : String} {rest : List Stmt} :
+      InternalHelperExprProjectionCore cond →
+      InternalHelperStmtListProjectionCore rest →
+      InternalHelperStmtListProjectionCore (.require cond msg :: rest)
   | return_ {value : Expr} {rest : List Stmt} :
       InternalHelperExprProjectionCore value →
       InternalHelperStmtListProjectionCore (.return value :: rest)
@@ -317,6 +329,201 @@ theorem evalExprListWithHelpers_eq_of_internalHelperExprListProjectionCore
         (by intro name hmem; exact hfresh name (by simp [FunctionBody.exprListBoundNames, hmem]))
       simp [SourceSemantics.evalExprListWithHelpers, hheadEq, hrestEq]
 
+private theorem internalHelperStmtListProjectionReadNames_fresh_tail
+    {stmt : Stmt} {rest : List Stmt} {reserved : List String}
+    (hfresh :
+      ∀ name, name ∈ internalHelperStmtListProjectionReadNames (stmt :: rest) →
+        name ∉ reserved) :
+    ∀ name, name ∈ internalHelperStmtListProjectionReadNames rest → name ∉ reserved := by
+  intro name hmem
+  exact hfresh name (by simp [internalHelperStmtListProjectionReadNames, hmem])
+
+private theorem internalHelperResultOfStmtListProjectionCore_eq_return
+    {spec : CompilationModel} {fields : List Field} {fuel : Nat}
+    {initialWorld : Verity.ContractState} {runtime : SourceSemantics.RuntimeState}
+    {reserved : List String} {lhs rhs : List (String × Nat)}
+    {value : Expr} {rest : List Stmt}
+    (hvalue : InternalHelperExprProjectionCore value)
+    (hagree : sourceBindingsAgreeOutside reserved lhs rhs)
+    (hfresh :
+      ∀ name, name ∈ internalHelperStmtListProjectionReadNames (.return value :: rest) →
+        name ∉ reserved) :
+    internalHelperResultOfStmtResult initialWorld
+        (SourceSemantics.execStmtListWithHelpers spec fields fuel
+          { runtime with bindings := lhs } (.return value :: rest)) =
+      internalHelperResultOfStmtResult initialWorld
+        (SourceSemantics.execStmtListWithHelpers spec fields fuel
+          { runtime with bindings := rhs } (.return value :: rest)) := by
+  have hvalueEq := evalExprWithHelpers_eq_of_internalHelperExprProjectionCore
+    (spec := spec) (fields := fields) (fuel := fuel) (runtime := runtime)
+    hvalue hagree
+    (by
+      intro name hmem
+      exact hfresh name (by
+        simp [internalHelperStmtListProjectionReadNames,
+          internalHelperStmtProjectionReadNames, hmem]))
+  cases hleft :
+      SourceSemantics.evalExprWithHelpers spec fields fuel
+        { runtime with bindings := lhs } value with
+  | none =>
+      have hright :
+          SourceSemantics.evalExprWithHelpers spec fields fuel
+            { runtime with bindings := rhs } value = none := by
+        simpa [hleft] using hvalueEq.symm
+      simp [SourceSemantics.execStmtListWithHelpers, SourceSemantics.execStmtWithHelpers,
+        internalHelperResultOfStmtResult, hleft, hright]
+  | some resolved =>
+      have hright :
+          SourceSemantics.evalExprWithHelpers spec fields fuel
+            { runtime with bindings := rhs } value = some resolved := by
+        simpa [hleft] using hvalueEq.symm
+      simp [SourceSemantics.execStmtListWithHelpers, SourceSemantics.execStmtWithHelpers,
+        internalHelperResultOfStmtResult, hleft, hright]
+
+private theorem internalHelperResultOfStmtListProjectionCore_eq_letVar
+    {spec : CompilationModel} {fields : List Field} {fuel : Nat}
+    {initialWorld : Verity.ContractState} {runtime : SourceSemantics.RuntimeState}
+    {reserved : List String} {lhs rhs : List (String × Nat)}
+    {name : String} {value : Expr} {rest : List Stmt}
+    (hvalue : InternalHelperExprProjectionCore value)
+    (hagree : sourceBindingsAgreeOutside reserved lhs rhs)
+    (hfresh :
+      ∀ query, query ∈ internalHelperStmtListProjectionReadNames (.letVar name value :: rest) →
+        query ∉ reserved)
+    (hrestEq : ∀ resolved,
+      internalHelperResultOfStmtResult initialWorld
+          (SourceSemantics.execStmtListWithHelpers spec fields fuel
+            { runtime with bindings := SourceSemantics.bindValue lhs name resolved } rest) =
+        internalHelperResultOfStmtResult initialWorld
+          (SourceSemantics.execStmtListWithHelpers spec fields fuel
+            { runtime with bindings := SourceSemantics.bindValue rhs name resolved } rest)) :
+    internalHelperResultOfStmtResult initialWorld
+        (SourceSemantics.execStmtListWithHelpers spec fields fuel
+          { runtime with bindings := lhs } (.letVar name value :: rest)) =
+      internalHelperResultOfStmtResult initialWorld
+        (SourceSemantics.execStmtListWithHelpers spec fields fuel
+          { runtime with bindings := rhs } (.letVar name value :: rest)) := by
+  have hvalueEq := evalExprWithHelpers_eq_of_internalHelperExprProjectionCore
+    (spec := spec) (fields := fields) (fuel := fuel) (runtime := runtime)
+    hvalue hagree
+    (by
+      intro query hmem
+      exact hfresh query (by
+        simp [internalHelperStmtListProjectionReadNames,
+          internalHelperStmtProjectionReadNames, hmem]))
+  cases hleft :
+      SourceSemantics.evalExprWithHelpers spec fields fuel
+        { runtime with bindings := lhs } value with
+  | none =>
+      have hright :
+          SourceSemantics.evalExprWithHelpers spec fields fuel
+            { runtime with bindings := rhs } value = none := by
+        simpa [hleft] using hvalueEq.symm
+      simp [SourceSemantics.execStmtListWithHelpers, SourceSemantics.execStmtWithHelpers,
+        internalHelperResultOfStmtResult, hleft, hright]
+  | some resolved =>
+      have hright :
+          SourceSemantics.evalExprWithHelpers spec fields fuel
+            { runtime with bindings := rhs } value = some resolved := by
+        simpa [hleft] using hvalueEq.symm
+      simp [SourceSemantics.execStmtListWithHelpers, SourceSemantics.execStmtWithHelpers,
+        hleft, hright, hrestEq resolved]
+
+private theorem internalHelperResultOfStmtListProjectionCore_eq_assignVar
+    {spec : CompilationModel} {fields : List Field} {fuel : Nat}
+    {initialWorld : Verity.ContractState} {runtime : SourceSemantics.RuntimeState}
+    {reserved : List String} {lhs rhs : List (String × Nat)}
+    {name : String} {value : Expr} {rest : List Stmt}
+    (hvalue : InternalHelperExprProjectionCore value)
+    (hagree : sourceBindingsAgreeOutside reserved lhs rhs)
+    (hfresh :
+      ∀ query, query ∈ internalHelperStmtListProjectionReadNames (.assignVar name value :: rest) →
+        query ∉ reserved)
+    (hrestEq : ∀ resolved,
+      internalHelperResultOfStmtResult initialWorld
+          (SourceSemantics.execStmtListWithHelpers spec fields fuel
+            { runtime with bindings := SourceSemantics.bindValue lhs name resolved } rest) =
+        internalHelperResultOfStmtResult initialWorld
+          (SourceSemantics.execStmtListWithHelpers spec fields fuel
+            { runtime with bindings := SourceSemantics.bindValue rhs name resolved } rest)) :
+    internalHelperResultOfStmtResult initialWorld
+        (SourceSemantics.execStmtListWithHelpers spec fields fuel
+          { runtime with bindings := lhs } (.assignVar name value :: rest)) =
+      internalHelperResultOfStmtResult initialWorld
+        (SourceSemantics.execStmtListWithHelpers spec fields fuel
+          { runtime with bindings := rhs } (.assignVar name value :: rest)) := by
+  have hvalueEq := evalExprWithHelpers_eq_of_internalHelperExprProjectionCore
+    (spec := spec) (fields := fields) (fuel := fuel) (runtime := runtime)
+    hvalue hagree
+    (by
+      intro query hmem
+      exact hfresh query (by
+        simp [internalHelperStmtListProjectionReadNames,
+          internalHelperStmtProjectionReadNames, hmem]))
+  cases hleft :
+      SourceSemantics.evalExprWithHelpers spec fields fuel
+        { runtime with bindings := lhs } value with
+  | none =>
+      have hright :
+          SourceSemantics.evalExprWithHelpers spec fields fuel
+            { runtime with bindings := rhs } value = none := by
+        simpa [hleft] using hvalueEq.symm
+      simp [SourceSemantics.execStmtListWithHelpers, SourceSemantics.execStmtWithHelpers,
+        internalHelperResultOfStmtResult, hleft, hright]
+  | some resolved =>
+      have hright :
+          SourceSemantics.evalExprWithHelpers spec fields fuel
+            { runtime with bindings := rhs } value = some resolved := by
+        simpa [hleft] using hvalueEq.symm
+      simp [SourceSemantics.execStmtListWithHelpers, SourceSemantics.execStmtWithHelpers,
+        hleft, hright, hrestEq resolved]
+
+private theorem internalHelperResultOfStmtListProjectionCore_eq_require
+    {spec : CompilationModel} {fields : List Field} {fuel : Nat}
+    {initialWorld : Verity.ContractState} {runtime : SourceSemantics.RuntimeState}
+    {reserved : List String} {lhs rhs : List (String × Nat)}
+    {cond : Expr} {msg : String} {rest : List Stmt}
+    (hcond : InternalHelperExprProjectionCore cond)
+    (hagree : sourceBindingsAgreeOutside reserved lhs rhs)
+    (hfresh : ∀ query,
+      query ∈ internalHelperStmtListProjectionReadNames (.require cond msg :: rest) →
+      query ∉ reserved)
+    (hrestEq :
+      internalHelperResultOfStmtResult initialWorld (SourceSemantics.execStmtListWithHelpers
+        spec fields fuel { runtime with bindings := lhs } rest) =
+      internalHelperResultOfStmtResult initialWorld (SourceSemantics.execStmtListWithHelpers
+        spec fields fuel { runtime with bindings := rhs } rest)) :
+    internalHelperResultOfStmtResult initialWorld (SourceSemantics.execStmtListWithHelpers
+        spec fields fuel { runtime with bindings := lhs } (.require cond msg :: rest)) =
+      internalHelperResultOfStmtResult initialWorld (SourceSemantics.execStmtListWithHelpers
+        spec fields fuel { runtime with bindings := rhs } (.require cond msg :: rest)) := by
+  have hcondEq := evalExprWithHelpers_eq_of_internalHelperExprProjectionCore
+    (spec := spec) (fields := fields) (fuel := fuel) (runtime := runtime)
+    hcond hagree
+    (by
+      intro query hmem
+      exact hfresh query (by simp [internalHelperStmtListProjectionReadNames,
+        internalHelperStmtProjectionReadNames, hmem]))
+  cases hleft : SourceSemantics.evalExprWithHelpers spec fields fuel
+      { runtime with bindings := lhs } cond with
+  | none =>
+      have hright :
+          SourceSemantics.evalExprWithHelpers spec fields fuel
+            { runtime with bindings := rhs } cond = none := by
+        simpa [hleft] using hcondEq.symm
+      simp [SourceSemantics.execStmtListWithHelpers, SourceSemantics.execStmtWithHelpers,
+        internalHelperResultOfStmtResult, hleft, hright]
+  | some resolved =>
+      have hright :
+          SourceSemantics.evalExprWithHelpers spec fields fuel
+            { runtime with bindings := rhs } cond = some resolved := by
+        simpa [hleft] using hcondEq.symm
+      by_cases hnonzero : resolved != 0
+      · simp [SourceSemantics.execStmtListWithHelpers, SourceSemantics.execStmtWithHelpers,
+          hleft, hright, hnonzero, hrestEq]
+      · simp [SourceSemantics.execStmtListWithHelpers, SourceSemantics.execStmtWithHelpers,
+          internalHelperResultOfStmtResult, hleft, hright, hnonzero]
+
 private theorem internalHelperResultOfStmtListProjectionCore_eq
     {spec : CompilationModel} {fields : List Field} {fuel : Nat}
     {initialWorld : Verity.ContractState} {runtime : SourceSemantics.RuntimeState}
@@ -332,35 +539,38 @@ private theorem internalHelperResultOfStmtListProjectionCore_eq
       internalHelperResultOfStmtResult initialWorld
         (SourceSemantics.execStmtListWithHelpers spec fields fuel
           { runtime with bindings := rhs } stmts) := by
-  cases hcore with
+  induction hcore generalizing runtime lhs rhs with
   | nil =>
       simp [SourceSemantics.execStmtListWithHelpers, internalHelperResultOfStmtResult]
+  | letVar hvalue _ ih =>
+      refine internalHelperResultOfStmtListProjectionCore_eq_letVar
+        hvalue hagree hfresh ?_
+      intro resolved
+      exact ih
+        (sourceBindingsAgreeOutside_bindValue hagree _ resolved)
+        (internalHelperStmtListProjectionReadNames_fresh_tail hfresh)
+  | assignVar hvalue _ ih =>
+      refine internalHelperResultOfStmtListProjectionCore_eq_assignVar
+        hvalue hagree hfresh ?_
+      intro resolved
+      exact ih
+        (sourceBindingsAgreeOutside_bindValue hagree _ resolved)
+        (internalHelperStmtListProjectionReadNames_fresh_tail hfresh)
+  | require_ hcond _ ih =>
+      refine internalHelperResultOfStmtListProjectionCore_eq_require
+        hcond hagree hfresh ?_
+      exact ih hagree (internalHelperStmtListProjectionReadNames_fresh_tail hfresh)
   | return_ hvalue =>
-      cases hvalue with
-      | literal value =>
-          simp [SourceSemantics.execStmtListWithHelpers, SourceSemantics.execStmtWithHelpers,
-            SourceSemantics.evalExprWithHelpers, internalHelperResultOfStmtResult]
-      | param name =>
-          have hlookup := (hagree name (hfresh name (by
-            simp [internalHelperStmtListProjectionReadNames,
-              internalHelperStmtProjectionReadNames, FunctionBody.exprBoundNames]))).1
-          simp [SourceSemantics.execStmtListWithHelpers, SourceSemantics.execStmtWithHelpers,
-            SourceSemantics.evalExprWithHelpers, internalHelperResultOfStmtResult, hlookup]
-      | localVar name =>
-          have hlookup := (hagree name (hfresh name (by
-            simp [internalHelperStmtListProjectionReadNames,
-              internalHelperStmtProjectionReadNames, FunctionBody.exprBoundNames]))).1
-          simp [SourceSemantics.execStmtListWithHelpers, SourceSemantics.execStmtWithHelpers,
-            SourceSemantics.evalExprWithHelpers, internalHelperResultOfStmtResult, hlookup]
+      exact internalHelperResultOfStmtListProjectionCore_eq_return hvalue hagree hfresh
   | stop =>
       simp [SourceSemantics.execStmtListWithHelpers, SourceSemantics.execStmtWithHelpers,
         internalHelperResultOfStmtResult]
 
 /-- Source-semantics discharge for the helper-entry binding projection seam over
-the current terminal projection-core fragment: empty bodies, `stop`, and
-`return` with literal, parameter, or local-variable expressions.  Sequencing
-cases, branches, loops, events, storage effects, and helper calls remain for the
-larger helper-aware source induction. -/
+the current projection-core fragment: empty bodies, `stop`, `return`, and
+sequencing through `letVar`, `assignVar`, and `require` with literal,
+parameter, or local-variable expressions.  Branches, loops, events, storage
+effects, and helper calls remain for the larger helper-aware source induction. -/
 theorem internalHelperBodyResultProjection_of_entryBindings_projectionCore
     {spec : CompilationModel} {callee : FunctionSpec} {helper : IRInternalFunctionDef}
     {initialWorld : Verity.ContractState} {sourceBindings : List (String × Nat)}
