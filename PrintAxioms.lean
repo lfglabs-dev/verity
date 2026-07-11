@@ -2137,7 +2137,33 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.Function.genParamLoadBodyFrom_scalar_legacy  -- private
   -- Compiler.Proofs.IRGeneration.Function.genParamLoads_scalar_legacy  -- private
   -- Compiler.Proofs.IRGeneration.Function.compileStmtList_legacyCompatible_of_interface  -- private
+  -- Compiler.Proofs.IRGeneration.Function.legacyCompatibleExternalStmtList_map_exprStmt  -- private
+  -- Compiler.Proofs.IRGeneration.Function.legacyCompatibleExternalStmtList_map_exprStmt_call  -- private
+  -- Compiler.Proofs.IRGeneration.Function.legacyCompatibleExternalStmtList_map_let  -- private
+  -- Compiler.Proofs.IRGeneration.Function.legacyCompatibleExternalStmtList_block_value_writes  -- private
+  -- Compiler.Proofs.IRGeneration.Function.legacyCompatibleExternalStmtList_block_key_value_writes  -- private
+  -- Compiler.Proofs.IRGeneration.Function.legacyCompatibleExternalStmtList_block_key1_key2_value_writes  -- private
+  -- Compiler.Proofs.IRGeneration.Function.legacyCompatibleExternalStmtList_block_value_lets_writes  -- private
+  -- Compiler.Proofs.IRGeneration.Function.revertWithMessage_legacyCompatible  -- private
+  Compiler.Proofs.IRGeneration.Function.stmtListCompileCore_compiledLegacyCompatible
+  Compiler.Proofs.IRGeneration.Function.stmtListTerminalCore_compiledLegacyCompatible
+  Compiler.Proofs.IRGeneration.Function.stmtList_setStorageSingleSlot_compiledLegacyCompatible
+  Compiler.Proofs.IRGeneration.Function.stmtList_setStorageAddrSingleSlot_compiledLegacyCompatible
+  -- Compiler.Proofs.IRGeneration.Function.compileMappingSlotWrite_legacyCompatible  -- private
+  -- Compiler.Proofs.IRGeneration.Function.compileSetMapping2_legacyCompatible  -- private
+  -- Compiler.Proofs.IRGeneration.Function.compileSetMapping2Word_legacyCompatible  -- private
+  -- Compiler.Proofs.IRGeneration.Function.compileSetStructMember2_legacyCompatible  -- private
+  -- Compiler.Proofs.IRGeneration.Function.compileSetMappingChain_legacyCompatible  -- private
+  Compiler.Proofs.IRGeneration.Function.stmtList_setMappingSingle_compiledLegacyCompatible
+  Compiler.Proofs.IRGeneration.Function.stmtList_setMappingChainSingle_compiledLegacyCompatible
+  Compiler.Proofs.IRGeneration.Function.stmtList_setMapping2Single_compiledLegacyCompatible
+  Compiler.Proofs.IRGeneration.Function.stmtList_setMapping2WordSingle_compiledLegacyCompatible
+  Compiler.Proofs.IRGeneration.Function.stmtList_setStructMember2Single_compiledLegacyCompatible
+  Compiler.Proofs.IRGeneration.Function.stmtList_setMappingUintSingle_compiledLegacyCompatible
+  Compiler.Proofs.IRGeneration.Function.stmtList_setMappingWordSingle_compiledLegacyCompatible
   Compiler.Proofs.IRGeneration.Function.compileFunctionSpec_body_legacyCompatible_of_interface
+  Compiler.Proofs.IRGeneration.Function.compileFunctionSpec_body_legacyCompatible_of_compileCore
+  Compiler.Proofs.IRGeneration.Function.compileFunctionSpec_body_legacyCompatible_of_terminalCore
   -- Compiler.Proofs.IRGeneration.Function.genScalarLoad_calldataload_callsDisjoint  -- private
   -- Compiler.Proofs.IRGeneration.Function.genParamLoadBodyFrom_calldataload_callsDisjoint  -- private
   -- Compiler.Proofs.IRGeneration.Function.genParamLoads_callsDisjoint_of_builtins  -- private
@@ -5983,4 +6009,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5613 theorems/lemmas (3872 public, 1741 private, 0 sorry'd)
+-- Total: 5639 theorems/lemmas (3885 public, 1754 private, 0 sorry'd)
