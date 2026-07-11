@@ -3328,6 +3328,12 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.evalIRExprWithInternals_call
   Compiler.Proofs.IRGeneration.execIRStmtWithInternals_letMany_call_internal
   Compiler.Proofs.IRGeneration.execIRInternalFunctionWithInternals_succ_of_params_match
+  Compiler.Proofs.IRGeneration.execIRInternalFunctionWithInternals_succ_values_nil_of_body_continue
+  Compiler.Proofs.IRGeneration.execIRInternalFunctionWithInternals_succ_values_singleton_of_body_continue
+  Compiler.Proofs.IRGeneration.execIRInternalFunctionWithInternals_succ_values_nil_of_body_leave
+  Compiler.Proofs.IRGeneration.execIRInternalFunctionWithInternals_succ_values_singleton_of_body_leave
+  Compiler.Proofs.IRGeneration.execIRInternalFunctionWithInternals_succ_stop_of_body_stop
+  Compiler.Proofs.IRGeneration.execIRInternalFunctionWithInternals_succ_return_of_body_return
   Compiler.Proofs.IRGeneration.execIRInternalFunctionWithInternals_succ_of_params_mismatch
   Compiler.Proofs.IRGeneration.execIRInternalFunctionWithInternals_zero
   Compiler.Proofs.IRGeneration.restoreCallerVars_storage
@@ -3597,6 +3603,9 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.SourceSemantics.interpretInternalFunctionFuel_zero
   Compiler.Proofs.IRGeneration.SourceSemantics.interpretInternalFunctionFuel_succ
   Compiler.Proofs.IRGeneration.SourceSemantics.helperSummarySound
+  Compiler.Proofs.IRGeneration.SourceSemantics.InternalHelperSummarySound.post_of_execStmtListWithHelpers_continue
+  Compiler.Proofs.IRGeneration.SourceSemantics.InternalHelperSummarySound.post_of_execStmtListWithHelpers_return
+  Compiler.Proofs.IRGeneration.SourceSemantics.InternalHelperSummarySound.post_of_execStmtListWithHelpers_stop
   Compiler.Proofs.IRGeneration.SourceSemantics.helperSummaryPreservesWorldOnSuccess
   Compiler.Proofs.IRGeneration.SourceSemantics.evalExprWithHelpers_internalCall_obeys_summary
   Compiler.Proofs.IRGeneration.SourceSemantics.evalExprWithHelpers_internalCall_preserves_world
@@ -5997,4 +6006,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5624 theorems/lemmas (3884 public, 1740 private, 0 sorry'd)
+-- Total: 5633 theorems/lemmas (3893 public, 1740 private, 0 sorry'd)
