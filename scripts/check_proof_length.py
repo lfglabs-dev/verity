@@ -69,6 +69,12 @@ ALLOWLIST: set[str] = {
     "compileStmtList_core_ok",
     "compileStmtList_terminal_core_ok",
     "compileStmtList_terminal_core_ok_nonempty",
+    # Mechanical per-constructor legacy-compatible Yul shape witnesses for the
+    # compile-core / terminal-core statement-list grammars. Splitting further
+    # would duplicate the same compile-success destructuring and constructor
+    # plumbing without reducing proof complexity.
+    "stmtListCompileCore_compiledLegacyCompatible",
+    "stmtListTerminalCore_compiledLegacyCompatible",
     # Fork-aware list append inversion and constructor smoke witnesses are
     # mechanical normalization proofs; splitting them duplicates the same
     # head/tail compile-success plumbing.
