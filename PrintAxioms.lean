@@ -3064,6 +3064,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeAddressKeyedMapping2WordSlots_singleton_eq_written  -- private
   -- Compiler.Proofs.IRGeneration.abstractStoreStorageOrMappingMany_eq  -- private
   -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeUintSlot  -- private
+  -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeStorageWordSlot_zeroOffset  -- private
   -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeAddressSlot  -- private
   -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeUintSlots  -- private
   -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeUintKeyedMappingSlot  -- private
@@ -3089,6 +3090,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.findFieldWriteSlots_of_findFieldWithResolvedSlot  -- private
   -- Compiler.Proofs.IRGeneration.findFieldWithResolvedSlot_of_findFieldWriteSlots_singleton  -- private
   Compiler.Proofs.IRGeneration.compiledStmtStep_setStorage_singleSlot
+  Compiler.Proofs.IRGeneration.compiledStmtStep_setStorageWord_singleSlot_zeroOffset
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_setStorageAddr_singleSlot_preserves  -- private
   Compiler.Proofs.IRGeneration.compiledStmtStep_setStorageAddr_singleSlot
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_mstore_single_preserves  -- private
@@ -3151,6 +3153,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_assignStorageAddrField
   Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_iteTerminal
   Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_setStorage_singleSlot
+  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_setStorageWord_zeroOffset_singleSlot  -- private
   -- Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_setStorageAddr_singleSlot  -- private
   -- Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_mstore_single  -- private
   -- Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_tstore_single  -- private
@@ -6008,4 +6011,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5635 theorems/lemmas (3888 public, 1747 private, 0 sorry'd)
+-- Total: 5638 theorems/lemmas (3889 public, 1749 private, 0 sorry'd)
