@@ -71,12 +71,13 @@ private def validateAdtPayloadParamNameCollisions
       throw s!"Compilation error: {context} reserves generated ADT payload local '{name}'. Rename the parameter or local binding that conflicts with generated '<param>_f<i>' locals."
   | none => pure ()
 
-private def validateConstructorArgAliasNameCollisions (params : List Param) :
+private def validateConstructorArgAliasNameCollisions (params : List Param) (body : List Stmt) :
     Except String Unit := do
   let generated := constructorArgAliasNames params
-  match params.find? (fun param => generated.contains param.name) with
-  | some param =>
-      throw s!"Compilation error: constructor parameter '{param.name}' conflicts with generated constructor argument alias local. Rename the parameter so it does not use generated 'arg<i>' names."
+  let userNames := params.map (·.name) ++ collectStmtListBindNames body
+  match generated.find? (fun name => userNames.contains name) with
+  | some name =>
+      throw s!"Compilation error: constructor reserves generated argument alias local '{name}'. Rename the parameter or local binding that conflicts with generated 'arg<i>' names."
   | none => pure ()
 
 private def immutableNames (immutables : List ImmutableSpec) : List String :=
@@ -1494,7 +1495,7 @@ def validateConstructorSpec (ctor : Option ConstructorSpec) : Except String Unit
       if spec.body.any stmtContainsUnsafeLogicalCallLike then
         throw s!"Compilation error: constructor uses Expr.logicalAnd/Expr.logicalOr/Expr.ite or arithmetic helpers (mulDivUp/wDivUp/min/max) with call-like operand(s) that would be duplicated in Yul output ({issue748Ref}). Move call-like expressions into Stmt.letVar before combining."
       validateAdtPayloadParamNameCollisions "constructor" spec.params spec.body
-      validateConstructorArgAliasNameCollisions spec.params
+      validateConstructorArgAliasNameCollisions spec.params spec.body
       validateNoUnsupportedAdtConstructInStmtList spec.body
       spec.body.forM validateNoRuntimeReturnsInConstructorStmt
       spec.body.forM (validateStmtParamReferences "constructor" spec.params)
