@@ -1833,6 +1833,15 @@ end Verity.AxiomAudit
   Compiler.Proofs.HelperStepProofs.exprInternalHelperCompositionalPostStateResult_mul_right_threaded
   Compiler.Proofs.HelperStepProofs.exprInternalHelperCompositionalContextResult_mul_left_threaded
   Compiler.Proofs.HelperStepProofs.exprInternalHelperCompositionalPostStateResult_mul_left_threaded
+  Compiler.Proofs.HelperStepProofs.exprSubValue_lt_evmModulus
+  Compiler.Proofs.HelperStepProofs.exprSubValue_eq_builtin
+  Compiler.Proofs.HelperStepProofs.compileExprWithInternals_sub_of_children
+  Compiler.Proofs.HelperStepProofs.evalExprWithHelpers_sub_of_values
+  Compiler.Proofs.HelperStepProofs.evalBuiltinCallWithEvmYulLeanContext_sub_of_values
+  Compiler.Proofs.HelperStepProofs.exprInternalHelperCompositionalContextResult_sub_right_threaded
+  Compiler.Proofs.HelperStepProofs.exprInternalHelperCompositionalPostStateResult_sub_right_threaded
+  Compiler.Proofs.HelperStepProofs.exprInternalHelperCompositionalContextResult_sub_left_threaded
+  Compiler.Proofs.HelperStepProofs.exprInternalHelperCompositionalPostStateResult_sub_left_threaded
   Compiler.Proofs.HelperStepProofs.compileStmt_letVar_of_compileExprWithInternals
   Compiler.Proofs.HelperStepProofs.exprInternalHelperHeadStepBridge_letVar_of_exprCompositionalResult
   Compiler.Proofs.HelperStepProofs.exprInternalHelperHeadStepBridgeWithInternals_letVar_of_exprPostStateResult
@@ -6064,4 +6073,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5688 theorems/lemmas (3928 public, 1760 private, 0 sorry'd)
+-- Total: 5697 theorems/lemmas (3937 public, 1760 private, 0 sorry'd)
