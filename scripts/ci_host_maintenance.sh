@@ -83,8 +83,22 @@ entry_is_recent() {
   [ $((now - mtime_epoch)) -lt $((MIN_ENTRY_AGE_HOURS * 3600)) ]
 }
 
+# Available GiB on the filesystem backing $1. Fails SAFE: if df errors (path
+# vanished, transient fs issue), report "plenty of space" so eviction stops
+# instead of looping or over-deleting on garbage input.
 avail_gb() {
-  df --output=avail -BG "$1" | tail -1 | tr -dc '0-9'
+  local out
+  out="$(df --output=avail -BG "$1" 2>/dev/null | tail -1 | tr -dc '0-9')"
+  if [ -z "$out" ]; then
+    echo 999999999
+  else
+    echo "$out"
+  fi
+}
+
+# Current epoch mtime of $1, empty if it vanished.
+current_mtime() {
+  stat -c %Y "$1" 2>/dev/null || true
 }
 
 # Keep only the newest $2 entries of $1 (mtime order). Age-based pruning
@@ -104,6 +118,12 @@ cap_tree_entries() {
   while IFS=$'\t' read -r -d '' mtime entry; do
     index=$((index + 1))
     if [ "$index" -le "$max_entries" ]; then
+      continue
+    fi
+    # Re-stat right before deleting: a job may have attached (touched) this
+    # entry after the snapshot above was taken.
+    mtime="$(current_mtime "$entry")"
+    if [ -z "$mtime" ]; then
       continue
     fi
     if entry_is_recent "$mtime"; then
@@ -141,6 +161,11 @@ evict_until_free() {
   while IFS=$'\t' read -r -d '' mtime entry; do
     if [ "$(avail_gb "$dir")" -ge "$min_free_gb" ]; then
       break
+    fi
+    # Re-stat right before deleting (same attach race as cap_tree_entries).
+    mtime="$(current_mtime "$entry")"
+    if [ -z "$mtime" ]; then
+      continue
     fi
     if entry_is_recent "$mtime"; then
       continue
