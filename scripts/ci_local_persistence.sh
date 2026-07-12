@@ -98,6 +98,10 @@ mount_persistent_dir() {
   fi
 
   cp -a "$fallback_dir/." "$primary_dir/"
+  # cp -a re-applies the fallback dir's (old) mtime onto the primary,
+  # undoing the attach-time touch above — refresh it again so maintenance
+  # still sees this entry as in-use.
+  touch "$primary_dir"
 }
 
 publish_artifact() {
