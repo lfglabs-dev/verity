@@ -84,6 +84,10 @@ mount_persistent_dir() {
   mkdir -p "$(dirname "$path")"
   rm -rf "$path"
   ln -s "$primary_dir" "$path"
+  # Refresh the entry mtime on attach: host maintenance treats a recently
+  # touched entry as in-use (MIN_ENTRY_AGE_HOURS) and will not delete the
+  # cache out from under a running job.
+  touch "$primary_dir"
 
   if ! is_dir_empty "$primary_dir"; then
     exit 0
