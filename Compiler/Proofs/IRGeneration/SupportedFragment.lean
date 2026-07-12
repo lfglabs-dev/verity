@@ -28,9 +28,10 @@ created by the statement are available to the continuation. -/
 def stmtNextScope (scope : List String) (stmt : Stmt) : List String :=
   collectStmtBindNames stmt ++ scope
 
-/-- An ordinary custom-error guard creates no runtime or IR binding for its
-error name. -/
-example :
+/-- An ordinary custom-error guard creates no runtime or IR binding: its error
+name and payload parameter references are uses, so the continuation scope is
+unchanged. -/
+theorem stmtNextScope_requireError_preserves_scope :
     stmtNextScope ["balance"]
       (.requireError (.literal 1) "InsufficientBalance" [.param "amount"])
       = ["balance"] := by
