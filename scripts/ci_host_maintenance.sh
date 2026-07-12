@@ -5,6 +5,8 @@ CACHE_ROOT="${CACHE_ROOT:-/srv/verity-ci-cache}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LAKE_BUILD_MAX_AGE_DAYS="${LAKE_BUILD_MAX_AGE_DAYS:-21}"
 LAKE_PACKAGES_MAX_AGE_DAYS="${LAKE_PACKAGES_MAX_AGE_DAYS:-14}"
+LAKE_PACKAGES_MAX_ENTRIES="${LAKE_PACKAGES_MAX_ENTRIES:-20}"
+MIN_FREE_GB="${MIN_FREE_GB:-100}"
 COMPILER_CCACHE_MAX_AGE_DAYS="${COMPILER_CCACHE_MAX_AGE_DAYS:-21}"
 ARTIFACT_MAX_AGE_HOURS="${ARTIFACT_MAX_AGE_HOURS:-24}"
 JOURNAL_VACUUM_TIME="${JOURNAL_VACUUM_TIME:-14d}"
@@ -25,6 +27,8 @@ Environment:
   CACHE_ROOT                    Default: /srv/verity-ci-cache
   LAKE_BUILD_MAX_AGE_DAYS       Default: 21
   LAKE_PACKAGES_MAX_AGE_DAYS    Default: 14
+  LAKE_PACKAGES_MAX_ENTRIES     Default: 20 (newest kept; one entry exists per PR/branch)
+  MIN_FREE_GB                   Default: 100 (LRU-evict lake-packages below this)
   COMPILER_CCACHE_MAX_AGE_DAYS  Default: 21
   ARTIFACT_MAX_AGE_HOURS        Default: 24
   JOURNAL_VACUUM_TIME           Default: 14d
@@ -58,12 +62,62 @@ prune_tree() {
   echo "${label}: removed ${count} entries older than ${max_age_days} days"
 }
 
+# Keep only the newest $2 entries of $1 (mtime order). Age-based pruning
+# alone cannot bound this cache: one ~6 GB entry exists per PR/branch, so
+# two weeks of PR churn filled 664 GB and took the runner host disk to 100%
+# on 2026-07-12 (runner listener crash-looped, CI jobs sat queued forever).
+cap_tree_entries() {
+  local dir="$1"
+  local max_entries="$2"
+  local label="$3"
+
+  if [ ! -d "$dir" ]; then
+    return
+  fi
+
+  local removed=0
+  while IFS= read -r entry; do
+    rm -rf "$dir/$entry"
+    removed=$((removed + 1))
+  done < <(ls -t "$dir" | tail -n +"$((max_entries + 1))")
+
+  echo "${label}: removed ${removed} entries beyond the newest ${max_entries}"
+}
+
+# LRU-evict entries of $1 until the filesystem has at least $2 GiB free.
+evict_until_free() {
+  local dir="$1"
+  local min_free_gb="$2"
+  local label="$3"
+
+  if [ ! -d "$dir" ]; then
+    return
+  fi
+
+  local removed=0
+  while [ "$(df --output=avail -BG "$dir" | tail -1 | tr -dc '0-9')" -lt "$min_free_gb" ]; do
+    local oldest
+    oldest="$(ls -t "$dir" | tail -1)"
+    if [ -z "$oldest" ]; then
+      break
+    fi
+    rm -rf "$dir/$oldest"
+    removed=$((removed + 1))
+  done
+
+  if [ "$removed" -gt 0 ]; then
+    echo "${label}: evicted ${removed} LRU entries to restore ${min_free_gb} GiB free"
+  fi
+}
+
 run_maintenance() {
   require_root
 
   mkdir -p "$CACHE_ROOT"
   prune_tree "$CACHE_ROOT/lake-build" "$LAKE_BUILD_MAX_AGE_DAYS" "lake-build cache"
   prune_tree "$CACHE_ROOT/lake-packages" "$LAKE_PACKAGES_MAX_AGE_DAYS" "lake-packages cache"
+  cap_tree_entries "$CACHE_ROOT/lake-packages" "$LAKE_PACKAGES_MAX_ENTRIES" "lake-packages cache"
+  evict_until_free "$CACHE_ROOT/lake-packages" "$MIN_FREE_GB" "lake-packages cache"
   prune_tree "$CACHE_ROOT/compiler-ccache" "$COMPILER_CCACHE_MAX_AGE_DAYS" "compiler ccache"
 
   if [ -x "$SCRIPT_DIR/ci_local_persistence.sh" ]; then
@@ -99,10 +153,10 @@ EOF
 
   cat > /etc/systemd/system/verity-ci-host-maintenance.timer <<'EOF'
 [Unit]
-Description=Weekly Verity CI host maintenance
+Description=Daily Verity CI host maintenance
 
 [Timer]
-OnCalendar=Sun *-*-* 04:30:00
+OnCalendar=*-*-* 04:30:00
 Persistent=true
 RandomizedDelaySec=30m
 
