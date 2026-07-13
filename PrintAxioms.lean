@@ -3,6 +3,7 @@
 -- Regenerate with: python3 scripts/generate_print_axioms.py
 
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeStepLemmas
+import Compiler.CompilationModel.ReservedScratchNames
 import Contracts.Counter.Proofs.Basic
 import Contracts.Counter.Proofs.Correctness
 import Contracts.Counter.Proofs.Preview
@@ -219,6 +220,10 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.step_gaslimit_ok
   Compiler.Proofs.YulGeneration.Backends.Native.step_selfbalance_ok
   Compiler.Proofs.YulGeneration.Backends.Native.step_and_ok
+
+  -- Compiler/CompilationModel/ReservedScratchNames.lean
+  Compiler.CompilationModel.compatScratch_startsWith_reserved
+  Compiler.CompilationModel.compatScratch_not_internalImmutable
 
   -- Contracts/Counter/Proofs/Basic.lean
   Contracts.Counter.Proofs.setStorage_updates_count
@@ -2445,6 +2450,9 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_core_split
   Compiler.Proofs.IRGeneration.FunctionBody.exec_compileStmt_letVar_core
   Compiler.Proofs.IRGeneration.FunctionBody.exec_compileStmt_assignVar_core
+  -- Compiler.Proofs.IRGeneration.FunctionBody.execIRStmt_mstore_zero_of_eval_succ  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.execIRStmt_return_zero_32_succ  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.execIRStmts_mstore_zero_return_32  -- private
   Compiler.Proofs.IRGeneration.FunctionBody.exec_compileStmt_return_core
   Compiler.Proofs.IRGeneration.FunctionBody.exec_compileStmt_return_core_extraFuel
   Compiler.Proofs.IRGeneration.FunctionBody.exec_compileStmt_stop_core
@@ -2652,6 +2660,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.stmtListDirectInternalHelperCallStepInterface_of_internalCallSteps_of_helperCallNames
   Compiler.Proofs.IRGeneration.stmtListDirectInternalHelperCallStepInterfaceWithInternals_of_internalCallSteps_of_helperCallNames
   Compiler.Proofs.IRGeneration.stmtListDirectInternalHelperStepInterfaces_of_headStepCatalog
+  -- Compiler.Proofs.IRGeneration.internalFunctionYulName_head  -- private
+  -- Compiler.Proofs.IRGeneration.internalFunctionYulName_ne_of_head  -- private
   -- Compiler.Proofs.IRGeneration.internalFunctionYulName_ne_stop  -- private
   -- Compiler.Proofs.IRGeneration.internalFunctionYulName_ne_sstore  -- private
   -- Compiler.Proofs.IRGeneration.internalFunctionYulName_ne_mstore  -- private
@@ -3084,8 +3094,6 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.execIRStmts_single_block_of_continue  -- private
   -- Compiler.Proofs.IRGeneration.singletonBlock_sizeOf_slack  -- private
   -- Compiler.Proofs.IRGeneration.compatValue_not_mem_scope_of_reservedPrefix  -- private
-  -- Compiler.Proofs.IRGeneration.compatScratch_startsWith_reserved  -- private
-  -- Compiler.Proofs.IRGeneration.compatScratch_not_internalImmutable  -- private
   -- Compiler.Proofs.IRGeneration.validateIdentifierShapes_fieldName_ne_reservedScratch  -- private
   -- Compiler.Proofs.IRGeneration.scopeAvoidsReservedCompilerPrefix_of_validateIdentifierShapes  -- private
   -- Compiler.Proofs.IRGeneration.findFieldWriteSlots_of_findFieldWithResolvedSlot  -- private
@@ -4798,6 +4806,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_log2_values
   Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_log3_values
   Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_log4_values
+  -- Compiler.Proofs.YulGeneration.Backends.Native.lookupRuntimePrimOp_ne_none_of_allowed_of_ne_mappingSlot  -- private
   Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_of_allowed_lookupRuntimePrimOp
   Compiler.Proofs.YulGeneration.Backends.Native.NativeExprPreservesWord_var
   Compiler.Proofs.YulGeneration.Backends.Native.NativeExprPreservesWord_lit
@@ -5384,6 +5393,51 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.exec_block_lowerStmtsNativeWithSwitchIds_ok_eq_of_NativeBlockPreservesWord
 
   -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeLowering.lean
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_iszero
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_lt
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_calldatasize
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_callvalue
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_sload
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_mstore
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_calldataload
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_return
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_revert
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_sstore
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_stop
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_keccak256
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_add
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_sub
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_mul
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_div
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_mod
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_gt
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_eq
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_and
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_or
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_xor
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_not
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_shl
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_shr
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_addmod
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_mulmod
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_byte
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_slt
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_sgt
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_exp
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_sdiv
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_smod
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_sar
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_signextend
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_caller
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_origin
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_address
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_timestamp
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_number
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_chainid
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_blobbasefee
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_tload
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_mload
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_mappingSlot
   Compiler.Proofs.YulGeneration.Backends.lowerExprNative_call_runtimePrimOp
   Compiler.Proofs.YulGeneration.Backends.lowerExprNative_call_userFunction
   Compiler.Proofs.YulGeneration.Backends.lowerNativeSwitchBlock_eq
@@ -5788,6 +5842,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchTempsFreshForWrites_nativeRevertZeroZeroStmt
   Compiler.Proofs.YulGeneration.Backends.Native.nativeStmtsWriteNames_payable_dispatch_guard_prefix
   Compiler.Proofs.YulGeneration.Backends.Native.nativeStmtsWriteNames_nonpayable_dispatch_guard_prefix
+  -- Compiler.Proofs.YulGeneration.Backends.Native.lowerExprNative_revert_zero_zero  -- private
   Compiler.Proofs.YulGeneration.Backends.Native.lowerStmtsNativeWithSwitchIds_revert_zero_zero
   Compiler.Proofs.YulGeneration.Backends.Native.lowerStmtsNativeWithSwitchIds_switchCaseBody_payable_revert_eq
   Compiler.Proofs.YulGeneration.Backends.Native.nativeStmtsWriteNames_lowerStmtsNativeWithSwitchIds_switchCaseBody_payable_eq_body
@@ -5813,6 +5868,9 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.generatedRuntimeFunctionNamesUnique_runtimeCode
   Compiler.Proofs.YulGeneration.Backends.Native.generatedRuntimeFunctionNamesUnique_emitYul_runtimeCode
   Compiler.Proofs.YulGeneration.Backends.Native.mappingSlotFuncAt_body_noFuncDefs
+  -- Compiler.Proofs.YulGeneration.Backends.Native.lowerExprNative_mstore_key  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.Native.lowerExprNative_mstore_baseSlot  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.Native.lowerAssignNative_slot_keccak256  -- private
   Compiler.Proofs.YulGeneration.Backends.Native.lowerFunctionDefinitionNativeWithReserved_mappingSlotFuncAt_zero
   Compiler.Proofs.YulGeneration.Backends.Native.lowerFunctionDefinitionNativeWithReserved_mappingSlotFuncAt_zero_body
   Compiler.Proofs.YulGeneration.Backends.Native.nativeMappingSlotFunctionDefinition_body
@@ -6012,4 +6070,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5639 theorems/lemmas (3890 public, 1749 private, 0 sorry'd)
+-- Total: 5694 theorems/lemmas (3937 public, 1757 private, 0 sorry'd)
