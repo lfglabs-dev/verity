@@ -327,7 +327,7 @@ private theorem simpleStorageNativeRuntimeDispatcherStmts_exists_init_block :
                             (fun fn =>
                               (fn.selector,
                                 Compiler.CodegenCommon.dispatchBody fn.payable
-                                  (toString "" ++ toString fn.name ++ toString "()")
+                                  (toString fn.name ++ toString "()")
                                   (Compiler.CodegenCommon.calldatasizeGuard
                                     fn.params.length :: fn.body)))
                             simpleStorageIRContract.functions)
@@ -351,7 +351,7 @@ private theorem simpleStorageNativeRuntimeDispatcherStmts_exists_init_block :
                         (fun fn =>
                           (fn.selector,
                             Compiler.CodegenCommon.dispatchBody fn.payable
-                              (toString "" ++ toString fn.name ++ toString "()")
+                              (toString fn.name ++ toString "()")
                               (Compiler.CodegenCommon.calldatasizeGuard
                                 fn.params.length :: fn.body)))
                         simpleStorageIRContract.functions)
@@ -359,7 +359,7 @@ private theorem simpleStorageNativeRuntimeDispatcherStmts_exists_init_block :
                         none none))]] =
                   .error err := by
               simpa [simpleStorageBuildSwitchSourceCases] using hInner'
-            simpa [hInnerMap] using hLowerList
+            simp [hInnerMap, simpleStorageBuildSwitchSourceCases] at hLowerList
           cases hBad
       | ok innerPair =>
           rcases innerPair with ⟨inner, innerNext⟩
@@ -449,7 +449,7 @@ private theorem simpleStorageNativeRuntimeDispatcherStmts_exists_init_block :
                             (fun fn =>
                               (fn.selector,
                                 Compiler.CodegenCommon.dispatchBody fn.payable
-                                  (toString "" ++ toString fn.name ++ toString "()")
+                                  (toString fn.name ++ toString "()")
                                   (Compiler.CodegenCommon.calldatasizeGuard
                                     fn.params.length :: fn.body)))
                             simpleStorageIRContract.functions)
@@ -473,7 +473,7 @@ private theorem simpleStorageNativeRuntimeDispatcherStmts_exists_init_block :
                         (fun fn =>
                           (fn.selector,
                             Compiler.CodegenCommon.dispatchBody fn.payable
-                              (toString "" ++ toString fn.name ++ toString "()")
+                              (toString fn.name ++ toString "()")
                               (Compiler.CodegenCommon.calldatasizeGuard
                                 fn.params.length :: fn.body)))
                         simpleStorageIRContract.functions)
@@ -481,7 +481,7 @@ private theorem simpleStorageNativeRuntimeDispatcherStmts_exists_init_block :
                         none none))]] =
                   .ok (inner, innerNext) := by
               simpa [simpleStorageBuildSwitchSourceCases] using hInner'
-            simpa [hInnerMap] using hLowerList
+            simpa [hInnerMap, simpleStorageBuildSwitchSourceCases] using hLowerList
           simp at hLowerList'
           rcases hLowerList' with ⟨hLowered, hNext⟩
           subst lowered
@@ -1918,7 +1918,8 @@ private theorem exec_block_store0_calldataload4_stop_markedPrefix_halt
       Compiler.Proofs.YulGeneration.Backends.Native.initialState_calldataload4_arg0_word
         contract tx storage observableSlots arg rest hArgs
   simp [simpleStorageLoweredStoreCaseBodyTail3, Backends.lowerExprNative,
-    Backends.lookupRuntimePrimOp, EvmYul.Yul.exec, EvmYul.Yul.eval,
+    Backends.lookupRuntimePrimOp_calldataload, Backends.lookupRuntimePrimOp_sstore,
+    Backends.lookupRuntimePrimOp_stop, EvmYul.Yul.exec, EvmYul.Yul.eval,
     EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail, EvmYul.Yul.execPrimCall,
     EvmYul.Yul.reverse', EvmYul.Yul.cons', EvmYul.Yul.multifill',
     EvmYul.Yul.State.multifill, initialWithStore, withValue, finalState,
@@ -2151,7 +2152,8 @@ private theorem exec_block_store0_calldataload4_stop_shared_halt
       .error (EvmYul.Yul.Exception.YulHalt finalState ⟨0⟩) := by
   intro initialWithStore withValue finalState
   simp [simpleStorageLoweredStoreCaseBodyTail3, Backends.lowerExprNative,
-    Backends.lookupRuntimePrimOp, EvmYul.Yul.exec, EvmYul.Yul.eval,
+    Backends.lookupRuntimePrimOp_calldataload, Backends.lookupRuntimePrimOp_sstore,
+    Backends.lookupRuntimePrimOp_stop, EvmYul.Yul.exec, EvmYul.Yul.eval,
     EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail, EvmYul.Yul.execPrimCall,
     EvmYul.Yul.reverse', EvmYul.Yul.cons', EvmYul.Yul.multifill',
     EvmYul.Yul.State.multifill, initialWithStore, withValue, finalState,
@@ -2188,7 +2190,8 @@ private theorem exec_block_store0_calldataload4_stop_shared_halt_tight
       .error (EvmYul.Yul.Exception.YulHalt finalState ⟨0⟩) := by
   intro initialWithStore withValue finalState
   simp [simpleStorageLoweredStoreCaseBodyTail3, Backends.lowerExprNative,
-    Backends.lookupRuntimePrimOp, EvmYul.Yul.exec, EvmYul.Yul.eval,
+    Backends.lookupRuntimePrimOp_calldataload, Backends.lookupRuntimePrimOp_sstore,
+    Backends.lookupRuntimePrimOp_stop, EvmYul.Yul.exec, EvmYul.Yul.eval,
     EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail, EvmYul.Yul.execPrimCall,
     EvmYul.Yul.reverse', EvmYul.Yul.cons', EvmYul.Yul.multifill',
     EvmYul.Yul.State.multifill, initialWithStore, withValue, finalState,
@@ -2338,7 +2341,7 @@ private theorem exec_block_simpleStorageLoweredStoreCaseBodyTail2_short_revert
   · change (EvmYul.UInt256.ofNat 1 : EvmYul.UInt256) ≠ ⟨0⟩
     decide
   · simpa [Backends.Native.nativeRevertZeroZeroStmt, Backends.lowerExprNative,
-      Backends.lookupRuntimePrimOp] using
+      Backends.lookupRuntimePrimOp_revert] using
       (Backends.Native.exec_block_cons_error (fuel + 8)
       Backends.Native.nativeRevertZeroZeroStmt [] codeOverride
       (.Ok shared store) EvmYul.Yul.Exception.Revert
@@ -2377,7 +2380,8 @@ private theorem exec_block_simpleStorageLoweredStoreCaseBodyTail3_halt
         Compiler.SimpleStorageNativeWitness.nativeContract tx storage observableSlots
         arg rest hArgs
   simp [simpleStorageLoweredStoreCaseBodyTail3, Backends.lowerExprNative,
-    Backends.lookupRuntimePrimOp, EvmYul.Yul.exec, EvmYul.Yul.eval,
+    Backends.lookupRuntimePrimOp_calldataload, Backends.lookupRuntimePrimOp_sstore,
+    Backends.lookupRuntimePrimOp_stop, EvmYul.Yul.exec, EvmYul.Yul.eval,
     EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail, EvmYul.Yul.execPrimCall,
     EvmYul.Yul.reverse', EvmYul.Yul.cons', EvmYul.Yul.multifill',
     EvmYul.Yul.State.multifill, initialWithStore, withValue, finalState,

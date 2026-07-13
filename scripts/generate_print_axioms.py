@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate PrintAxioms.lean from all top-level theorems in Contracts/*/Proofs/, Verity/Proofs/Stdlib/, and Compiler/Proofs/.
+"""Generate PrintAxioms.lean from proof trees and explicit trusted-boundary theorems.
 
 This script scans Lean proof files for top-level theorem/lemma declarations,
 resolves their fully-qualified names (accounting for namespace blocks), and
@@ -19,6 +19,9 @@ from property_utils import strip_lean_comments
 
 ROOT = Path(__file__).resolve().parent.parent
 PROOF_DIRS = [ROOT / "Verity" / "Proofs", ROOT / "Compiler" / "Proofs"]
+TRUST_BOUNDARY_FILES = [
+    ROOT / "Compiler" / "CompilationModel" / "ReservedScratchNames.lean",
+]
 
 def _collect_contract_proof_dirs() -> list[Path]:
     """Collect Contracts/*/Proofs/ directories."""
@@ -135,7 +138,7 @@ def extract_theorems(path: Path) -> list[tuple[str, bool, bool]]:
 
 def generate() -> str:
     """Generate the full PrintAxioms.lean content."""
-    all_files: list[Path] = []
+    all_files: list[Path] = [path for path in TRUST_BOUNDARY_FILES if path.is_file()]
     for d in _collect_contract_proof_dirs() + PROOF_DIRS:
         if d.exists():
             all_files.extend(sorted(d.rglob("*.lean")))
