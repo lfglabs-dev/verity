@@ -22509,7 +22509,7 @@ private theorem NativeExprPreservesWord_lowerExprNative_callvalue_any
   exact
     Compiler.Proofs.YulGeneration.Backends.Native.NativeExprPreservesWord_lowerExprNative_call_runtimePrimOp_of_nativeEvalArgs_primCall_preserves
       name "callvalue" value [] EvmYul.Operation.CALLVALUE codeOverride
-      (by simp [Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp])
+      Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_callvalue
       (Compiler.Proofs.YulGeneration.Backends.Native.NativeEvalArgsPreservesWord_nil
         name value codeOverride)
       (Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_callvalue_values
@@ -22532,7 +22532,7 @@ private theorem NativeExprPreservesWord_lowerExprNative_lt_calldatasize_lit_any
       name "lt" value
       [Compiler.Yul.YulExpr.call "calldatasize" [], Compiler.Yul.YulExpr.lit k]
       EvmYul.Operation.LT codeOverride
-      (by simp [Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp])
+      Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_lt
       (Compiler.Proofs.YulGeneration.Backends.Native.NativeEvalArgsPreservesWord_map_lowerExprNative_reverse
         name value
         [Compiler.Yul.YulExpr.call "calldatasize" [], Compiler.Yul.YulExpr.lit k]
@@ -22546,7 +22546,7 @@ private theorem NativeExprPreservesWord_lowerExprNative_lt_calldatasize_lit_any
               Compiler.Proofs.YulGeneration.Backends.Native.NativeExprPreservesWord_lowerExprNative_call_runtimePrimOp_of_nativeEvalArgs_primCall_preserves
                 name "calldatasize" value [] EvmYul.Operation.CALLDATASIZE
                 codeOverride
-                (by simp [Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp])
+                Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_calldatasize
                 (Compiler.Proofs.YulGeneration.Backends.Native.NativeEvalArgsPreservesWord_nil
                   name value codeOverride)
                 (Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_calldatasize_values

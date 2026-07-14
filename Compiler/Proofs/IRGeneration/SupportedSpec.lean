@@ -3849,8 +3849,8 @@ theorem SupportedStmtList.internalHelperCallNames_nil
           simp only [List.cons_append, stmtListInternalHelperCallNames]
           have : stmtInternalHelperCallNames x ++ stmtListInternalHelperCallNames xs' = [] := by
             simpa [stmtListInternalHelperCallNames] using hxs
-          have hx : stmtInternalHelperCallNames x = [] := List.append_eq_nil.mp this |>.1
-          have hxs' : stmtListInternalHelperCallNames xs' = [] := List.append_eq_nil.mp this |>.2
+          have hx : stmtInternalHelperCallNames x = [] := List.append_eq_nil_iff.mp this |>.1
+          have hxs' : stmtListInternalHelperCallNames xs' = [] := List.append_eq_nil_iff.mp this |>.2
           simp [hx, ihx hxs']
 
 

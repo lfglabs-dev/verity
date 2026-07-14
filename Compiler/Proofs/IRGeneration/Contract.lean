@@ -1570,10 +1570,9 @@ private theorem IsReservedInternalHelperName.templateHelperName (name : String) 
   refine ⟨"__verity_", by simp [reservedInternalHelperPrefixes], ?_⟩
   unfold Verity.Core.Intrinsics.YulLowering.templateHelperName
   simp only [String.data_append]
-  rw [List.append_assoc]
   rw [List.take_append_of_le_length
     (l₁ := (toString "__verity_intrinsic_template_").data)
-    (l₂ := ((toString name).data ++ (toString "").data))
+    (l₂ := (toString name).data)
     (i := "__verity_".data.length)
     (by decide)]
   decide
