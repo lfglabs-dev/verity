@@ -1,8 +1,6 @@
 import Compiler.Proofs.IRGeneration.GenericInduction
 import Compiler.Proofs.IRGeneration.SourceSemantics
 
-section
-
 /-!
 # Helper Step Interface Proofs (Phase 1)
 
@@ -586,6 +584,8 @@ theorem stmtListDirectInternalHelperAssignStepInterfaceWithInternals_of_assignHe
           (calleeName := calleeName)
           (args := args)
           (hbridge hmem))
+
+section
 
 /-!
 ### Direct statement helper context bridge
