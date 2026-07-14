@@ -666,8 +666,9 @@ structure DirectInternalHelperStatementContextBridge
       (state : IRState) (irFuel : Nat)
       {argVals : List Nat} {state' : IRState},
       CompilationModel.compileStmt fields [] [] .calldata [] false scope []
-        (Stmt.internalCall calleeName args) = Except.ok compiledIR →
-      CompilationModel.compileExprList fields .calldata args = Except.ok argExprs →
+        (Stmt.internalCall calleeName args) spec.functions = Except.ok compiledIR →
+      CompilationModel.compileInternalCallArgs fields .calldata spec.functions calleeName args =
+        Except.ok argExprs →
       evalIRExprsWithInternals runtimeContract (irFuel + 1) state argExprs =
         .values argVals state' →
       ∃ helper,
@@ -687,8 +688,9 @@ structure DirectInternalHelperStatementContextBridge
       (state : IRState) (irFuel : Nat)
       {argVals : List Nat} {state' : IRState},
       CompilationModel.compileStmt fields [] [] .calldata [] false scope []
-        (Stmt.internalCallAssign names calleeName args) = Except.ok compiledIR →
-      CompilationModel.compileExprList fields .calldata args = Except.ok argExprs →
+        (Stmt.internalCallAssign names calleeName args) spec.functions = Except.ok compiledIR →
+      CompilationModel.compileInternalCallArgs fields .calldata spec.functions calleeName args =
+        Except.ok argExprs →
       evalIRExprsWithInternals runtimeContract (irFuel + 1) state argExprs =
         .values argVals state' →
       ∃ helper,
@@ -731,7 +733,7 @@ def directInternalHelperStatementContextBridge_of_supportedEvidence
   · intro fields scope args compiledIR argExprs state irFuel argVals state'
       hcompile hargCompile hargs
     exact
-      execIRStmtsWithInternals_of_internalCall_compiledHelperWitness
+      execIRStmtsWithInternals_of_internalCall_compiledHelperWitness_with_internals
         (runtimeContract := runtimeContract)
         (spec := spec)
         (fields := fields)
@@ -749,7 +751,7 @@ def directInternalHelperStatementContextBridge_of_supportedEvidence
   · intro fields scope names args compiledIR argExprs state irFuel argVals state'
       hcompile hargCompile hargs
     exact
-      execIRStmtsWithInternals_of_internalCallAssign_compiledHelperWitness
+      execIRStmtsWithInternals_of_internalCallAssign_compiledHelperWitness_with_internals
         (runtimeContract := runtimeContract)
         (spec := spec)
         (fields := fields)
