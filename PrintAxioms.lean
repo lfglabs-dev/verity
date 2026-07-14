@@ -2719,6 +2719,8 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.internalFunctionYulName_ne_return  -- private
   Compiler.Proofs.IRGeneration.execIRStmtsWithInternals_of_internalCallAssign_compiledHelperWitness
   Compiler.Proofs.IRGeneration.execIRStmtsWithInternals_of_internalCall_compiledHelperWitness
+  Compiler.Proofs.IRGeneration.execIRStmtsWithInternals_of_internalCallAssign_compiledHelperWitness_with_internals
+  Compiler.Proofs.IRGeneration.execIRStmtsWithInternals_of_internalCall_compiledHelperWitness_with_internals
 
   -- Compiler/Proofs/IRGeneration/GenericInduction/DenoteSound.lean
   Compiler.Proofs.IRGeneration.denote_sound
@@ -6120,4 +6122,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5739 theorems/lemmas (3977 public, 1762 private, 0 sorry'd)
+-- Total: 5743 theorems/lemmas (3981 public, 1762 private, 0 sorry'd)
