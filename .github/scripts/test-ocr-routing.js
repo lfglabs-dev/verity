@@ -1306,6 +1306,7 @@ function testWorkflowDocsEnabled() {
   assert.ok(workflow.includes('lean-lsp-mcp==${LEAN_LSP_MCP_VERSION}'));
   assert.ok(workflow.includes('"lean_diagnostic_messages","lean_file_outline","lean_hover_info"'));
   assert.ok(workflow.includes('LEAN_MCP_DISABLED_TOOLS=lean_run_code,lean_build'));
+  assert.ok(workflow.includes('OCR_LLM_TOKEN='));
 }
 
 function testGenericScriptConfigEnabled() {

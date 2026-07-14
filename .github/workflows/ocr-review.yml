@@ -176,7 +176,7 @@ jobs:
           ocr config set mcp_servers.lean_lsp.command uvx
           ocr config set mcp_servers.lean_lsp.args "[\"--from\",\"lean-lsp-mcp==${LEAN_LSP_MCP_VERSION}\",\"lean-lsp-mcp\",\"--transport\",\"stdio\"]"
           ocr config set mcp_servers.lean_lsp.tools '["lean_diagnostic_messages","lean_file_outline","lean_hover_info"]'
-          ocr config set mcp_servers.lean_lsp.env "[\"LEAN_PROJECT_PATH=${GITHUB_WORKSPACE}/repo\",\"ELAN_HOME=${ELAN_HOME}\",\"ELAN_TOOLCHAIN=${LEAN_TOOLCHAIN}\",\"LEAN_MCP_DISABLED_TOOLS=lean_run_code,lean_build,lean_multi_attempt,lean_code_actions,lean_verify,lean_minimal_hypotheses,lean_local_search\",\"LEAN_LOG_LEVEL=WARNING\"]"
+          ocr config set mcp_servers.lean_lsp.env "[\"LEAN_PROJECT_PATH=${GITHUB_WORKSPACE}/repo\",\"ELAN_HOME=${ELAN_HOME}\",\"ELAN_TOOLCHAIN=${LEAN_TOOLCHAIN}\",\"LEAN_MCP_DISABLED_TOOLS=lean_run_code,lean_build,lean_multi_attempt,lean_code_actions,lean_verify,lean_minimal_hypotheses,lean_local_search\",\"LEAN_LOG_LEVEL=WARNING\",\"OCR_LLM_URL=\",\"OCR_LLM_TOKEN=\"]"
 
       - name: Run OpenCodeReview
         if: steps.pr.outputs.skip != 'true' && steps.route.outputs.should_run_ocr == 'true'
