@@ -36,6 +36,7 @@ import Verity.Proofs.Stdlib.Automation
 import Verity.Proofs.Stdlib.ListSum
 import Verity.Proofs.Stdlib.MappingAutomation
 import Verity.Proofs.Stdlib.Math
+import Compiler.Proofs.AbiEncoding
 import Compiler.Proofs.ArithmeticProfile
 import Compiler.Proofs.EndToEnd.Base
 import Compiler.Proofs.EndToEnd.SimpleStorage
@@ -974,6 +975,53 @@ end Verity.AxiomAudit
   Verity.Proofs.Stdlib.Math.safeDiv_self
   Verity.Proofs.Stdlib.Math.safeMul_result_bounded
   Verity.Proofs.Stdlib.Math.safeDiv_result_le_numerator
+
+  -- Compiler/Proofs/AbiEncoding.lean
+  Compiler.Proofs.AbiEncoding.abiScalarNormalize_uint256
+  Compiler.Proofs.AbiEncoding.abiScalarNormalize_int256
+  Compiler.Proofs.AbiEncoding.abiScalarNormalize_bytes32
+  Compiler.Proofs.AbiEncoding.abiScalarNormalize_uint8
+  Compiler.Proofs.AbiEncoding.abiScalarNormalize_uint16
+  Compiler.Proofs.AbiEncoding.abiScalarNormalize_address
+  Compiler.Proofs.AbiEncoding.abiScalarNormalize_bool
+  Compiler.Proofs.AbiEncoding.abiScalarNormalize_newtypeOf
+  -- Compiler.Proofs.AbiEncoding.lit_255_mod_evm  -- private
+  -- Compiler.Proofs.AbiEncoding.lit_65535_mod_evm  -- private
+  -- Compiler.Proofs.AbiEncoding.addressMask_mod_evm  -- private
+  Compiler.Proofs.AbiEncoding.normalizeEventWord_uint8_eval
+  Compiler.Proofs.AbiEncoding.normalizeEventWord_uint16_eval
+  Compiler.Proofs.AbiEncoding.normalizeEventWord_address_eval
+  Compiler.Proofs.AbiEncoding.normalizeEventWord_bool_eval
+  Compiler.Proofs.AbiEncoding.normalizeEventWord_uint256_eval
+  Compiler.Proofs.AbiEncoding.normalizeEventWord_int256_eval
+  Compiler.Proofs.AbiEncoding.normalizeEventWord_bytes32_eval
+  Compiler.Proofs.AbiEncoding.normalizeEventWord_newtypeOf_eval
+  Compiler.Proofs.AbiEncoding.encodeStaticCustomErrorArg_uint8_eval
+  Compiler.Proofs.AbiEncoding.encodeStaticCustomErrorArg_uint16_eval
+  Compiler.Proofs.AbiEncoding.encodeStaticCustomErrorArg_address_eval
+  Compiler.Proofs.AbiEncoding.encodeStaticCustomErrorArg_bool_eval
+  Compiler.Proofs.AbiEncoding.encodeStaticCustomErrorArg_uint256_eval
+  Compiler.Proofs.AbiEncoding.encodeStaticCustomErrorArg_int256_eval
+  Compiler.Proofs.AbiEncoding.encodeStaticCustomErrorArg_bytes32_eval
+  Compiler.Proofs.AbiEncoding.encodeStaticCustomErrorArg_eval_eq_normalizeEventWord_eval
+  Compiler.Proofs.AbiEncoding.encodeStaticCustomErrorArg_agrees_with_normalizeEventWord_uint8
+  Compiler.Proofs.AbiEncoding.encodeStaticCustomErrorArg_agrees_with_normalizeEventWord_uint16
+  Compiler.Proofs.AbiEncoding.abiScalarNormalize_bool_output
+  Compiler.Proofs.AbiEncoding.abiScalarNormalize_uint8_lt_evm
+  Compiler.Proofs.AbiEncoding.abiScalarNormalize_uint16_lt_evm
+  Compiler.Proofs.AbiEncoding.abiScalarNormalize_address_lt_evm
+  Compiler.Proofs.AbiEncoding.abiScalarNormalize_bool_lt_evm
+  Compiler.Proofs.AbiEncoding.abiScalarNormalize_lt_evm_of_lt_evm
+  Compiler.Proofs.AbiEncoding.abiScalarNormalize_address_fixed
+  -- Compiler.Proofs.AbiEncoding.land_idempotent_right  -- private
+  Compiler.Proofs.AbiEncoding.abiScalarNormalize_uint8_idem
+  Compiler.Proofs.AbiEncoding.abiScalarNormalize_uint16_idem
+  Compiler.Proofs.AbiEncoding.abiScalarNormalize_address_idem
+  Compiler.Proofs.AbiEncoding.abiScalarNormalize_bool_idem
+  Compiler.Proofs.AbiEncoding.abiScalarNormalize_idempotent
+  Compiler.Proofs.AbiEncoding.eventHeadWordSize_static_scalar_eq_32
+  -- Compiler.Proofs.AbiEncoding.foldl_eventHeadWordSize_static_scalar_eq  -- private
+  Compiler.Proofs.AbiEncoding.abiHeadSize_static_scalars_eq
 
   -- Compiler/Proofs/ArithmeticProfile.lean
   Compiler.Proofs.ArithmeticProfile.modulus_is_2_pow_256
@@ -6070,4 +6118,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5694 theorems/lemmas (3937 public, 1757 private, 0 sorry'd)
+-- Total: 5739 theorems/lemmas (3977 public, 1762 private, 0 sorry'd)
