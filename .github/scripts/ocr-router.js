@@ -54,6 +54,7 @@ async function main() {
   writeOutputs(outputPath, {
     mode: decision.mode,
     should_run_ocr: String(decision.shouldRunOcr),
+    has_lean: String(decision.counts.lean > 0),
     reason: decision.reason,
     concurrency: String(decision.ocr.concurrency),
     timeout: String(decision.ocr.timeout),

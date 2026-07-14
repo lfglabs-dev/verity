@@ -1300,6 +1300,7 @@ function testWorkflowDocsEnabled() {
   assert.ok(workflow.includes('npm install --prefix "$RUNNER_TEMP/ocr-cli"'));
   assert.ok(!workflow.includes('npm install -g @alibaba-group/open-code-review'));
   assert.ok(workflow.includes('prepare-lean-lsp.sh'));
+  assert.ok(workflow.includes("steps.route.outputs.has_lean == 'true'"));
   assert.ok(workflow.includes('Number(context.payload.inputs.pr_number)'));
   assert.ok(workflow.includes('ELAN_HOME: ${{ runner.temp }}/ocr-elan'));
   assert.ok(workflow.includes('lean-lsp-mcp==${LEAN_LSP_MCP_VERSION}'));

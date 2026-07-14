@@ -112,15 +112,6 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Prepare repository-pinned Lean toolchain for LSP evidence
-        if: steps.pr.outputs.skip != 'true'
-        env:
-          # Never reuse the runner's elan store for a PR-selected toolchain.
-          ELAN_HOME: ${{ runner.temp }}/ocr-elan
-        run: |
-          set -euo pipefail
-          "$GITHUB_WORKSPACE/ocr-trusted/.github/scripts/prepare-lean-lsp.sh" "$GITHUB_WORKSPACE/repo"
-
       - name: Route OCR review
         if: steps.pr.outputs.skip != 'true'
         id: route
@@ -148,6 +139,15 @@ jobs:
           trap - EXIT
           node "$GITHUB_WORKSPACE/ocr-trusted/.github/scripts/ocr-router.js"
 
+      - name: Prepare repository-pinned Lean toolchain for LSP evidence
+        if: steps.pr.outputs.skip != 'true' && steps.route.outputs.should_run_ocr == 'true' && steps.route.outputs.has_lean == 'true'
+        env:
+          # Never reuse the runner's elan store for a PR-selected toolchain.
+          ELAN_HOME: ${{ runner.temp }}/ocr-elan
+        run: |
+          set -euo pipefail
+          "$GITHUB_WORKSPACE/ocr-trusted/.github/scripts/prepare-lean-lsp.sh" "$GITHUB_WORKSPACE/repo"
+
       - name: Install OpenCodeReview
         if: steps.pr.outputs.skip != 'true' && steps.route.outputs.should_run_ocr == 'true'
         run: |
@@ -160,7 +160,7 @@ jobs:
           ocr version
 
       - name: Configure bounded Lean LSP evidence
-        if: steps.pr.outputs.skip != 'true' && steps.route.outputs.should_run_ocr == 'true'
+        if: steps.pr.outputs.skip != 'true' && steps.route.outputs.should_run_ocr == 'true' && steps.route.outputs.has_lean == 'true'
         env:
           HOME: ${{ runner.temp }}/ocr-home
           ELAN_HOME: ${{ runner.temp }}/ocr-elan
