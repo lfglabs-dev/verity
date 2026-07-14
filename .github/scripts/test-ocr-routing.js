@@ -1349,7 +1349,7 @@ function testWorkflowDocsEnabled() {
   assert.ok(workflow.includes('"lean_diagnostic_messages","lean_file_outline","lean_hover_info"'));
   assert.ok(workflow.includes('LEAN_MCP_DISABLED_TOOLS=lean_run_code,lean_build'));
   assert.ok(workflow.includes('OCR_LLM_TOKEN='));
-  assert.ok(workflow.includes("steps.ocr.outcome == 'success'"));
+  assert.ok(workflow.includes("steps.route.outputs.should_run_ocr != 'true' || steps.ocr.outcome == 'success'"));
 }
 
 function testGenericScriptConfigEnabled() {
