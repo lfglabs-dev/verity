@@ -6,7 +6,7 @@ const { execFileSync } = require('child_process');
 
 const ROUTER_VERSION = 'router-v8';
 const DEFAULT_SCOUT_MODEL = 'MiniMax-M3';
-const STRONG_REVIEW_BLOCKER_MESSAGE = 'OpenCodeReview 1.7.5 supports --from/--to full diff ranges, but this workflow does not have a safe packet/window input bridge for Lean hunks yet.';
+const STRONG_REVIEW_BLOCKER_MESSAGE = 'OpenCodeReview 1.7.9 supports --from/--to full diff ranges, but this workflow does not have a safe packet/window input bridge for Lean hunks yet.';
 const THRESHOLDS = Object.freeze({
   smallLeanFiles: 1,
   smallChangedLines: 300,

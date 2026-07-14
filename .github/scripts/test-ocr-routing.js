@@ -1294,6 +1294,16 @@ function testWorkflowDocsEnabled() {
   ]);
   assert.strictEqual(decision.mode, 'config-docs');
   assert.strictEqual(decision.shouldRunOcr, true);
+
+  const workflow = fs.readFileSync(path.join(__dirname, '..', 'workflows', 'ocr-review.yml'), 'utf8');
+  assert.ok(workflow.includes('@alibaba-group/open-code-review@1.7.9'));
+  assert.ok(workflow.includes('npm install --prefix "$RUNNER_TEMP/ocr-cli"'));
+  assert.ok(!workflow.includes('npm install -g @alibaba-group/open-code-review'));
+  assert.ok(workflow.includes('prepare-lean-lsp.sh'));
+  assert.ok(workflow.includes('ELAN_HOME: ${{ runner.temp }}/ocr-elan'));
+  assert.ok(workflow.includes('lean-lsp-mcp==${LEAN_LSP_MCP_VERSION}'));
+  assert.ok(workflow.includes('"lean_diagnostic_messages","lean_file_outline","lean_hover_info"'));
+  assert.ok(workflow.includes('LEAN_MCP_DISABLED_TOOLS=lean_run_code,lean_build'));
 }
 
 function testGenericScriptConfigEnabled() {

@@ -112,6 +112,15 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Prepare repository-pinned Lean toolchain for LSP evidence
+        if: steps.pr.outputs.skip != 'true'
+        env:
+          # Never reuse the runner's elan store for a PR-selected toolchain.
+          ELAN_HOME: ${{ runner.temp }}/ocr-elan
+        run: |
+          set -euo pipefail
+          "$GITHUB_WORKSPACE/ocr-trusted/.github/scripts/prepare-lean-lsp.sh" "$GITHUB_WORKSPACE/repo"
+
       - name: Route OCR review
         if: steps.pr.outputs.skip != 'true'
         id: route
@@ -143,8 +152,31 @@ jobs:
         if: steps.pr.outputs.skip != 'true' && steps.route.outputs.should_run_ocr == 'true'
         run: |
           set -euo pipefail
-          npm install -g @alibaba-group/open-code-review@1.7.5
+          # Keep the OCR client out of the self-hosted runner's global npm
+          # prefix.  It is run-scoped just like the elan toolchain above.
+          npm install --prefix "$RUNNER_TEMP/ocr-cli" @alibaba-group/open-code-review@1.7.9
+          echo "$RUNNER_TEMP/ocr-cli/node_modules/.bin" >> "$GITHUB_PATH"
+          export PATH="$RUNNER_TEMP/ocr-cli/node_modules/.bin:$PATH"
           ocr version
+
+      - name: Configure bounded Lean LSP evidence
+        if: steps.pr.outputs.skip != 'true' && steps.route.outputs.should_run_ocr == 'true'
+        env:
+          HOME: ${{ runner.temp }}/ocr-home
+          ELAN_HOME: ${{ runner.temp }}/ocr-elan
+          LEAN_LSP_MCP_VERSION: "0.28.0"
+        run: |
+          set -euo pipefail
+          command -v uvx >/dev/null
+          mkdir -p "$HOME"
+          # OCR 1.7.9 is the MCP client.  Expose only read-only local evidence
+          # tools: diagnostics, declaration outlines, and hover information.
+          # In particular, no build, code-execution, proof-attempt, or remote
+          # search tool is available to the model.
+          ocr config set mcp_servers.lean_lsp.command uvx
+          ocr config set mcp_servers.lean_lsp.args "[\"--from\",\"lean-lsp-mcp==${LEAN_LSP_MCP_VERSION}\",\"lean-lsp-mcp\",\"--transport\",\"stdio\"]"
+          ocr config set mcp_servers.lean_lsp.tools '["lean_diagnostic_messages","lean_file_outline","lean_hover_info"]'
+          ocr config set mcp_servers.lean_lsp.env "[\"LEAN_PROJECT_PATH=${GITHUB_WORKSPACE}/repo\",\"ELAN_HOME=${ELAN_HOME}\",\"ELAN_TOOLCHAIN=${LEAN_TOOLCHAIN}\",\"LEAN_MCP_DISABLED_TOOLS=lean_run_code,lean_build,lean_multi_attempt,lean_code_actions,lean_verify,lean_minimal_hypotheses,lean_local_search\",\"LEAN_LOG_LEVEL=WARNING\"]"
 
       - name: Run OpenCodeReview
         if: steps.pr.outputs.skip != 'true' && steps.route.outputs.should_run_ocr == 'true'
