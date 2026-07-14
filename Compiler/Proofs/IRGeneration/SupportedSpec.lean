@@ -2627,6 +2627,11 @@ structure SupportedCompiledInternalHelperWitness
       Except.ok compiledStmt
   presentInRuntime :
     compiledStmt ∈ runtimeContract.internalFunctions
+  uniqueInRuntime :
+    ∀ stmt ∈ runtimeContract.internalFunctions,
+      ∀ p r b, irInternalFunctionDefOfStmt? stmt =
+        some ⟨CompilationModel.internalFunctionYulName calleeName, p, r, b⟩ →
+        stmt = compiledStmt
 
 /-- Runtime-contract inventory of source-defined internal helpers.
 This keeps future exact helper-step proofs generic: they can require a

@@ -1641,21 +1641,18 @@ theorem execIRStmtsWithInternals_of_internalCallAssign_compiledHelperWitness_wit
     simp [hargCompile] at hargOk
     exact hargOk.symm
   subst argExprs'
-  have hcalleeName : compiledHelper.sourceWitness.callee.name = calleeName :=
-    compiledHelper.sourceWitness.nameEq
-  have hfindSome : (findInternalFunction? runtimeContract
-      (CompilationModel.internalFunctionYulName calleeName)).isSome = true := by
-    simpa [hcalleeName] using findInternalFunction?_of_compileInternalFunction_mem
-      compiledHelper.compileOk compiledHelper.presentInRuntime
-  cases hfind : findInternalFunction? runtimeContract
-      (CompilationModel.internalFunctionYulName calleeName) with
-  | none => simp [hfind] at hfindSome
-  | some helper =>
-      refine ⟨helper, hshape, hfind, ?_⟩
-      rw [hshape]
-      exact execIRStmtsWithInternals_singleton_letMany_call_internal runtimeContract irFuel state
-        names (CompilationModel.internalFunctionYulName calleeName) argExprs helper argVals state'
-        hargs hfind
+  obtain ⟨retNames, bodyStmts, hfind, hcompiled⟩ :=
+    findInternalFunction?_exact_of_compileInternalFunction_mem_unique
+      compiledHelper.compileOk compiledHelper.presentInRuntime (by
+        simpa [compiledHelper.sourceWitness.nameEq] using compiledHelper.uniqueInRuntime)
+  refine ⟨{ name := CompilationModel.internalFunctionYulName calleeName,
+    params := CompilationModel.internalFunctionYulParamNames compiledHelper.sourceWitness.callee.params,
+    rets := retNames, body := bodyStmts }, hshape, ?_, ?_⟩
+  · simpa [compiledHelper.sourceWitness.nameEq] using hfind
+  · rw [hshape]
+    exact execIRStmtsWithInternals_singleton_letMany_call_internal runtimeContract irFuel state
+      names (CompilationModel.internalFunctionYulName calleeName) argExprs _ argVals state'
+      hargs (by simpa [compiledHelper.sourceWitness.nameEq] using hfind)
 
 /-- Runtime-helper-table packaged dispatch for a direct void helper call
 compiled with the caller's internal-function environment. -/
@@ -1686,20 +1683,18 @@ theorem execIRStmtsWithInternals_of_internalCall_compiledHelperWitness_with_inte
     simp [hargCompile] at hargOk
     exact hargOk.symm
   subst argExprs'
-  have hcalleeName : compiledHelper.sourceWitness.callee.name = calleeName :=
-    compiledHelper.sourceWitness.nameEq
-  have hfindSome : (findInternalFunction? runtimeContract
-      (CompilationModel.internalFunctionYulName calleeName)).isSome = true := by
-    simpa [hcalleeName] using findInternalFunction?_of_compileInternalFunction_mem
-      compiledHelper.compileOk compiledHelper.presentInRuntime
-  cases hfind : findInternalFunction? runtimeContract
-      (CompilationModel.internalFunctionYulName calleeName) with
-  | none => simp [hfind] at hfindSome
-  | some helper =>
-      refine ⟨helper, hshape, hfind, ?_⟩
-      rw [hshape]
-      exact execIRStmtsWithInternals_singleton_expr_call_internal runtimeContract irFuel state
-        (CompilationModel.internalFunctionYulName calleeName) argExprs helper argVals state' hargs hfind
+  obtain ⟨retNames, bodyStmts, hfind, hcompiled⟩ :=
+    findInternalFunction?_exact_of_compileInternalFunction_mem_unique
+      compiledHelper.compileOk compiledHelper.presentInRuntime (by
+        simpa [compiledHelper.sourceWitness.nameEq] using compiledHelper.uniqueInRuntime)
+  refine ⟨{ name := CompilationModel.internalFunctionYulName calleeName,
+    params := CompilationModel.internalFunctionYulParamNames compiledHelper.sourceWitness.callee.params,
+    rets := retNames, body := bodyStmts }, hshape, ?_, ?_⟩
+  · simpa [compiledHelper.sourceWitness.nameEq] using hfind
+  · rw [hshape]
+    exact execIRStmtsWithInternals_singleton_expr_call_internal runtimeContract irFuel state
+      (CompilationModel.internalFunctionYulName calleeName) argExprs _ argVals state' hargs
+        (by simpa [compiledHelper.sourceWitness.nameEq] using hfind)
         (internalFunctionYulName_ne_stop calleeName) (internalFunctionYulName_ne_sstore calleeName)
         (internalFunctionYulName_ne_mstore calleeName)
         (by
