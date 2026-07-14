@@ -1645,9 +1645,10 @@ theorem execIRStmtsWithInternals_of_internalCallAssign_compiledHelperWitness_wit
     findInternalFunction?_exact_of_compileInternalFunction_mem_unique
       compiledHelper.compileOk compiledHelper.presentInRuntime (by
         simpa [compiledHelper.sourceWitness.nameEq] using compiledHelper.uniqueInRuntime)
-  refine ⟨{ name := CompilationModel.internalFunctionYulName calleeName,
-    params := CompilationModel.internalFunctionYulParamNames compiledHelper.sourceWitness.callee.params,
-    rets := retNames, body := bodyStmts }, hshape, ?_, ?_⟩
+  refine ⟨{ name := CompilationModel.internalFunctionYulName calleeName
+            params := CompilationModel.internalFunctionYulParamNames compiledHelper.sourceWitness.callee.params
+            rets := retNames
+            body := bodyStmts }, hshape, ?_, ?_⟩
   · simpa [compiledHelper.sourceWitness.nameEq] using hfind
   · rw [hshape]
     exact execIRStmtsWithInternals_singleton_letMany_call_internal runtimeContract irFuel state
@@ -1687,9 +1688,10 @@ theorem execIRStmtsWithInternals_of_internalCall_compiledHelperWitness_with_inte
     findInternalFunction?_exact_of_compileInternalFunction_mem_unique
       compiledHelper.compileOk compiledHelper.presentInRuntime (by
         simpa [compiledHelper.sourceWitness.nameEq] using compiledHelper.uniqueInRuntime)
-  refine ⟨{ name := CompilationModel.internalFunctionYulName calleeName,
-    params := CompilationModel.internalFunctionYulParamNames compiledHelper.sourceWitness.callee.params,
-    rets := retNames, body := bodyStmts }, hshape, ?_, ?_⟩
+  refine ⟨{ name := CompilationModel.internalFunctionYulName calleeName
+            params := CompilationModel.internalFunctionYulParamNames compiledHelper.sourceWitness.callee.params
+            rets := retNames
+            body := bodyStmts }, hshape, ?_, ?_⟩
   · simpa [compiledHelper.sourceWitness.nameEq] using hfind
   · rw [hshape]
     exact execIRStmtsWithInternals_singleton_expr_call_internal runtimeContract irFuel state

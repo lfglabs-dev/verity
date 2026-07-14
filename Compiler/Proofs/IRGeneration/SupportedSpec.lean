@@ -1,4 +1,5 @@
 import Compiler.Proofs.IRGeneration.SupportedFragment
+import Compiler.Proofs.IRGeneration.IRInterpreter
 import Compiler.CompilationModel.AbiHelpers
 import Compiler.CompilationModel.Dispatch
 import Compiler.CompilationModel.UsageAnalysis
@@ -4514,7 +4515,7 @@ decreasing_by
   all_goals
     simp_wf
     try simp [Stmt.ite.sizeOf_spec, Stmt.forEach.sizeOf_spec, List.cons.sizeOf_spec] at *
-    omega
+    try omega
 
 private theorem stmtTouchesUnsupportedCallSurface_eq_featureOr
     (stmt : Stmt) :
