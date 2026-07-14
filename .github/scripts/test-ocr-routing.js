@@ -1344,7 +1344,7 @@ function testWorkflowDocsEnabled() {
   assert.ok(workflow.includes('DIFF_BASE: ${{ steps.route.outputs.diff_base }}'));
   assert.ok(workflow.includes('--from "${DIFF_BASE}"'));
   assert.ok(workflow.includes('Number(context.payload.inputs.pr_number)'));
-  assert.ok(workflow.includes('ELAN_HOME: ${{ runner.temp }}/ocr-elan'));
+  assert.ok(workflow.includes('ELAN_HOME: ${{ runner.temp }}/ocr-elan-${{ github.run_id }}-${{ github.run_attempt }}'));
   assert.ok(workflow.includes('lean-lsp-mcp==${LEAN_LSP_MCP_VERSION}'));
   assert.ok(workflow.includes('"lean_diagnostic_messages","lean_file_outline","lean_hover_info"'));
   assert.ok(workflow.includes('LEAN_MCP_DISABLED_TOOLS=lean_run_code,lean_build'));
