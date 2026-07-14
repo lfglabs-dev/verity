@@ -5731,7 +5731,8 @@ private theorem internalFunctionYulName_ne_log (name logName : String)
   rw [internalFunctionYulName_head name, hlogHead] at hHead
   exact nomatch hHead
 
-private theorem internalFunctionYulName_isYulLogName_false (name : String) :
+/-- Compiler-generated internal function names cannot be Yul log builtins. -/
+theorem internalFunctionYulName_isYulLogName_false (name : String) :
     isYulLogName (CompilationModel.internalFunctionYulName name) = false := by
   simp [isYulLogName,
     internalFunctionYulName_ne_log name "log0" (by decide),
