@@ -5471,9 +5471,9 @@ private theorem execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux
   | .internalCallAssign _ _ _ => cases hsurface
   | .storageArrayPop _ => simp [execStmtWithHelpers, execStmtWithEvents]
   | .requireError cond _ args =>
-      simp only [stmtTouchesUnsupportedHelperSurface] at hsurface
+      simp only [stmtTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
       simp [execStmtWithHelpers, execStmtWithEvents, typedErrorRevertResult,
-        evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed spec fields fuel state cond hsurface]
+        evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed spec fields fuel state cond hsurface.1]
   | .revertError _ args =>
       simp [execStmtWithHelpers, execStmtWithEvents, typedErrorRevertResult]
   | .panicCode _ => simp [execStmtWithHelpers, execStmtWithEvents]

@@ -15,6 +15,9 @@ private theorem compiledStmtStep_requireError_revert_case
     {state : IRState} {scope : List String} {helperFuel extraFuel : Nat} {cond : Expr}
     {errorName : String} {args : List Expr} {failCond : YulExpr} {revertStmts : List YulStmt}
     (hCondSrc : SourceSemantics.evalExpr fields runtime cond = some 0)
+    (hCondHelpers :
+      SourceSemantics.evalExprWithHelpers spec fields helperFuel runtime cond =
+        SourceSemantics.evalExpr fields runtime cond)
     (hfailEval : evalIRExpr state failCond = some 1)
     (hrevertExec : ∀ state fuel, ∃ next, execIRStmts fuel state revertStmts = .revert next) :
     ∃ sourceResult irResult,
@@ -35,7 +38,8 @@ private theorem compiledStmtStep_requireError_revert_case
     simp [execIRStmts, hstmt]
   have hSrcExec : SourceSemantics.execStmtWithHelpers spec fields helperFuel runtime
       (.requireError cond errorName args) = .revert := by
-    simp [SourceSemantics.execStmtWithHelpers, SourceSemantics.typedErrorRevertResult, hCondSrc]
+    simp [SourceSemantics.execStmtWithHelpers, SourceSemantics.typedErrorRevertResult,
+      hCondHelpers, hCondSrc]
   refine ⟨.revert, .revert revState, hSrcExec, ?_, ?_⟩
   · simpa using hIRExec
   · simp [stmtStepMatchesIRExec]
@@ -46,6 +50,9 @@ private theorem compiledStmtStep_requireError_continue_case
     {state : IRState} {helperFuel extraFuel condVal : Nat} {cond : Expr} {errorName : String}
     {args : List Expr} {failCond : YulExpr} {revertStmts : List YulStmt}
     (hCondSrc : SourceSemantics.evalExpr fields runtime cond = some condVal)
+    (hCondHelpers :
+      SourceSemantics.evalExprWithHelpers spec fields helperFuel runtime cond =
+        SourceSemantics.evalExpr fields runtime cond)
     (hzero : condVal ≠ 0)
     (hfailEval : evalIRExpr state failCond = some 0)
     (hexact' : FunctionBody.bindingsExactlyMatchIRVarsOnScope
@@ -71,7 +78,7 @@ private theorem compiledStmtStep_requireError_continue_case
     simp [execIRStmts, hstmt]
   have hSrcExec : SourceSemantics.execStmtWithHelpers spec fields helperFuel runtime
       (.requireError cond errorName args) = .continue runtime := by
-    simp [SourceSemantics.execStmtWithHelpers, hCondSrc, hzero]
+    simp [SourceSemantics.execStmtWithHelpers, hCondHelpers, hCondSrc, hzero]
   refine ⟨.continue runtime, .continue state, hSrcExec, ?_, ?_⟩
   · simpa using hIRExec
   · simp [stmtStepMatchesIRExec]
@@ -88,6 +95,7 @@ private def compiledStmtStep_requireError_impl
     {revertStmts : List YulStmt}
     (hcore : FunctionBody.ExprCompileCore cond)
     (hinScope : FunctionBody.exprBoundNamesInScope cond scope)
+    (hhelperSurface : exprTouchesUnsupportedHelperSurface cond = false)
     (hnextScopeIncl :
       FunctionBody.scopeNamesIncluded
         (stmtNextScope scope (.requireError cond errorName args)) scope)
@@ -103,6 +111,9 @@ private def compiledStmtStep_requireError_impl
       [YulStmt.if_ failCond revertStmts] where
   compileOk := hcompile
   preserves runtime state helperFuel extraFuel hexact hscope hbounded hruntime hslack := by
+    have hCondHelpers :=
+      SourceSemantics.evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed
+        spec fields helperFuel runtime cond hhelperSurface
     have hpresent : FunctionBody.exprBoundNamesPresent cond runtime.bindings :=
       FunctionBody.exprBoundNamesPresent_of_scope hscope hinScope
     rcases FunctionBody.eval_compileRequireFailCond_core_of_scope
@@ -131,7 +142,7 @@ private def compiledStmtStep_requireError_impl
           (spec := spec) (fields := fields) (runtime := runtime) (state := state)
           (helperFuel := helperFuel) (extraFuel := extraFuel) (cond := cond)
           (errorName := errorName) (args := args) (failCond := failCond)
-          (revertStmts := revertStmts) hCondZero hfailEval' hrevertExec
+          (revertStmts := revertStmts) hCondZero hCondHelpers hfailEval' hrevertExec
       · have hfailEval' : evalIRExpr state failCond = some 0 := by
           have : SourceSemantics.evalExpr fields runtime cond ≠ some 0 := by
             rw [hCondSrc]
@@ -148,7 +159,7 @@ private def compiledStmtStep_requireError_impl
           (state := state) (helperFuel := helperFuel) (extraFuel := extraFuel)
           (condVal := condVal) (cond := cond) (errorName := errorName) (args := args)
           (failCond := failCond) (revertStmts := revertStmts)
-          hCondSrc hzero hfailEval' hexact' hscope' hbounded hruntime
+          hCondSrc hCondHelpers hzero hfailEval' hexact' hscope' hbounded hruntime
 
 theorem compiledStmtStep_requireError
     {spec : CompilationModel} {fields : List Field} {scope : List String} {cond : Expr}
@@ -165,8 +176,7 @@ theorem compiledStmtStep_requireError
     CompiledStmtStepWithHelpers spec fields scope (.requireError cond errorName args)
       [YulStmt.if_ failCond revertStmts] :=
   by
-    have _ : exprTouchesUnsupportedHelperSurface cond = false := hhelperSurface
-    exact compiledStmtStep_requireError_impl hcore hinScope hnextScopeIncl hfailCompile
+    exact compiledStmtStep_requireError_impl hcore hinScope hhelperSurface hnextScopeIncl hfailCompile
       hcompile hrevertExec
 
 theorem compiledStmtStep_revertError

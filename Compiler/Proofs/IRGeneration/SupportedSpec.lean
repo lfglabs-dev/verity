@@ -3857,8 +3857,8 @@ theorem SupportedStmtList.internalHelperCallNames_nil
           simp only [List.cons_append, stmtListInternalHelperCallNames]
           have : stmtInternalHelperCallNames x ++ stmtListInternalHelperCallNames xs' = [] := by
             simpa [stmtListInternalHelperCallNames] using hxs
-          have hx : stmtInternalHelperCallNames x = [] := List.append_eq_nil.mp this |>.1
-          have hxs' : stmtListInternalHelperCallNames xs' = [] := List.append_eq_nil.mp this |>.2
+          have hx : stmtInternalHelperCallNames x = [] := List.append_eq_nil_iff.mp this |>.1
+          have hxs' : stmtListInternalHelperCallNames xs' = [] := List.append_eq_nil_iff.mp this |>.2
           simp [hx, ihx hxs']
 
 
@@ -4497,6 +4497,19 @@ private theorem stmtOrListTouchesUnsupportedCallSurface_eq_featureOr :
             stmtTouchesUnsupportedLowLevelSurface]
           rw [exprListTouchesUnsupportedCallSurface_eq_featureOr,
               exprTouchesUnsupportedCallSurface_eq_featureOr value]
+          simp [Bool.or_assoc, Bool.or_left_comm, Bool.or_comm]
+      | requireError cond _ args =>
+          simp only [stmtTouchesUnsupportedCallSurface,
+            stmtTouchesUnsupportedHelperSurface, stmtTouchesUnsupportedForeignSurface,
+            stmtTouchesUnsupportedLowLevelSurface]
+          rw [exprTouchesUnsupportedCallSurface_eq_featureOr,
+              exprListTouchesUnsupportedCallSurface_eq_featureOr args]
+          simp [Bool.or_assoc, Bool.or_left_comm, Bool.or_comm]
+      | revertError _ args =>
+          simp only [stmtTouchesUnsupportedCallSurface,
+            stmtTouchesUnsupportedHelperSurface, stmtTouchesUnsupportedForeignSurface,
+            stmtTouchesUnsupportedLowLevelSurface]
+          rw [exprListTouchesUnsupportedCallSurface_eq_featureOr args]
           simp [Bool.or_assoc, Bool.or_left_comm, Bool.or_comm]
       | emit _ args =>
           simp only [stmtTouchesUnsupportedCallSurface,
