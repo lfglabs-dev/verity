@@ -47,7 +47,7 @@ jobs:
               pr = context.payload.pull_request;
             } else {
               const prNumber = context.eventName === 'workflow_dispatch'
-                ? Number(core.getInput('pr_number'))
+                ? Number(context.payload.inputs.pr_number)
                 : context.issue.number;
               const res = await github.rest.pulls.get({
                 owner: context.repo.owner,
