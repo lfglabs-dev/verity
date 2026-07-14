@@ -82,6 +82,11 @@ ALLOWLIST: set[str] = {
     # plumbing without reducing proof complexity.
     "stmtListCompileCore_compiledLegacyCompatible",
     "stmtListTerminalCore_compiledLegacyCompatible",
+    # Helper-body shape seam: the proof follows the compiler's own
+    # validate/returns/body split and then applies the mutually recursive
+    # return-free shape-irrelevance lemma. Splitting would duplicate that
+    # compileInternalFunction destructuring without reducing the proof burden.
+    "compileInternalFunction_body_eq_external_of_returnFree",
     # Fork-aware list append inversion and constructor smoke witnesses are
     # mechanical normalization proofs; splitting them duplicates the same
     # head/tail compile-success plumbing.
