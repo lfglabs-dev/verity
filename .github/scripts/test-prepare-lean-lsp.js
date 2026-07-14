@@ -13,15 +13,17 @@ function run(toolchain) {
   const repo = path.join(root, 'repo');
   const bin = path.join(root, 'bin');
   const elanLog = path.join(root, 'elan.log');
+  const elanHome = path.join(root, 'elan');
   const envFile = path.join(root, 'github-env');
   fs.mkdirSync(repo);
   fs.mkdirSync(bin);
   fs.writeFileSync(path.join(repo, 'lean-toolchain'), toolchain);
-  fs.writeFileSync(path.join(bin, 'elan'), `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> '${elanLog}'\n`);
-  fs.chmodSync(path.join(bin, 'elan'), 0o755);
+  fs.mkdirSync(path.join(elanHome, 'bin'), { recursive: true });
+  fs.writeFileSync(path.join(elanHome, 'bin', 'elan'), `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> '${elanLog}'\n`);
+  fs.chmodSync(path.join(elanHome, 'bin', 'elan'), 0o755);
   const result = spawnSync('bash', [script, repo], {
     encoding: 'utf8',
-    env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, ELAN_HOME: path.join(root, 'elan'), GITHUB_ENV: envFile },
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, ELAN_HOME: elanHome, GITHUB_ENV: envFile },
   });
   return { root, envFile, elanLog, result };
 }
@@ -37,6 +39,15 @@ function run(toolchain) {
   const { result } = run('leanprover/lean4:nightly\n');
   assert.notStrictEqual(result.status, 0);
   assert.match(result.stdout, /Refusing non-pinned/);
+}
+
+{
+  const source = fs.readFileSync(script, 'utf8');
+  assert.match(source, /elan_version='v4\.1\.2'/);
+  assert.match(source, /elan_sha256='f81c2e48c1588d4612cd2c8851947898a45ac8d72748a07dff3a5694f1cf589b'/);
+  assert.match(source, /elan_bin="\$ELAN_HOME\/bin\/elan"/);
+  assert.match(source, /ELAN_HOME="\$ELAN_HOME" "\$tmpdir\/elan-init"/);
+  assert.doesNotMatch(source, /command -v elan/);
 }
 
 console.log('Lean LSP setup tests passed');
