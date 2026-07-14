@@ -69,6 +69,12 @@ ALLOWLIST: set[str] = {
     "compileStmtList_core_ok",
     "compileStmtList_terminal_core_ok",
     "compileStmtList_terminal_core_ok_nonempty",
+    # Mechanical per-constructor legacy-compatible Yul shape witnesses for the
+    # compile-core / terminal-core statement-list grammars. Splitting further
+    # would duplicate the same compile-success destructuring and constructor
+    # plumbing without reducing proof complexity.
+    "stmtListCompileCore_compiledLegacyCompatible",
+    "stmtListTerminalCore_compiledLegacyCompatible",
     # Fork-aware list append inversion and constructor smoke witnesses are
     # mechanical normalization proofs; splitting them duplicates the same
     # head/tail compile-success plumbing.
@@ -107,6 +113,11 @@ ALLOWLIST: set[str] = {
     "stmtStepMatches_forEach_literal_empty_final",
     # --- Storage write compiled step proofs ---
     "compiledStmtStep_setStorage_singleSlot",
+    # Zero-offset storage-word writes lower to the same single `sstore` shape
+    # as scalar writes.  The preservation proof must keep source and IR states,
+    # fuel, and scope bindings aligned in one witness; factoring it would only
+    # move that coupled witness into a private wrapper.
+    "compiledStmtStep_setStorageWord_singleSlot_zeroOffset",
     "compiledStmtStep_setStorage_aliasSlots",
     "compiledStmtStep_setStorage_of_validateIdentifierShapes",
     "compiledStmtStep_setStorage_of_validateIdentifierShapes_of_scopeDiscipline",
