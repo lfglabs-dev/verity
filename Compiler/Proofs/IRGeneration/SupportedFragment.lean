@@ -35,7 +35,7 @@ theorem stmtNextScope_requireError_preserves_scope :
     stmtNextScope ["balance"]
       (.requireError (.literal 1) "InsufficientBalance" [.param "amount"])
       = ["balance"] := by
-  rfl
+  simp [stmtNextScope, collectStmtBindNames]
 
 /-- Proof-layer compositional witness for supported statement lists.
 
