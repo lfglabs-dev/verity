@@ -41,7 +41,6 @@ ALLOWLIST: set[str] = {
     # Splitting them would duplicate the same witness plumbing without reducing
     # the proof search performed by their bodies.
     "execIRStmtsWithInternals_of_internalCall_compiledHelperWitness_with_internals",
-    "stmtListDirectInternalHelperAssignStepInterface_of_perCalleeAssignBridgeCatalog",
     "directInternalHelperStatementContextBridge_sourceAssignEvidence",
     # --- Denote/SourceSemantics agreement (P4 seed) ---
     # Structural recursion over the fuelless forEach loop; the succ case must

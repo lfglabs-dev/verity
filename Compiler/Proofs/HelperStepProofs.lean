@@ -1,6 +1,8 @@
 import Compiler.Proofs.IRGeneration.GenericInduction
 import Compiler.Proofs.IRGeneration.SourceSemantics
 
+section
+
 /-!
 # Helper Step Interface Proofs (Phase 1)
 
@@ -585,29 +587,6 @@ theorem stmtListDirectInternalHelperAssignStepInterfaceWithInternals_of_assignHe
           (args := args)
           (hbridge hmem))
 
-/-- Assemble the direct helper-return-binding list interface for a function
-body from the per-callee assign bridge catalog used by the rank-decreasing
-helper-summary layer. -/
-theorem stmtListDirectInternalHelperAssignStepInterface_of_perCalleeAssignBridgeCatalog
-    {runtimeContract : IRContract}
-    {spec : CompilationModel}
-    {fields : List Field}
-    {scope : List String}
-    {fn : FunctionSpec}
-    (hbridge :
-      DirectInternalHelperPerCalleeAssignBridgeCatalog runtimeContract spec fields fn) :
-    StmtListDirectInternalHelperAssignStepInterface
-      runtimeContract spec fields scope fn.body := by
-  exact
-    stmtListDirectInternalHelperAssignStepInterface_of_assignHeadStepBridges
-      (runtimeContract := runtimeContract)
-      (spec := spec)
-      (fields := fields)
-      (scope := scope)
-      (stmts := fn.body)
-      (fun {calleeName} hmem =>
-        hbridge.assign (by simpa [helperCallNames] using hmem))
-
 /-!
 ### Direct statement helper context bridge
 
@@ -645,6 +624,31 @@ compiledHelper.sourceWitness.callee runtime.world argVals`, translated through
 post and the IR helper dispatch below cannot be assembled into the existing
 direct call/assign head-step bridge catalog non-vacuously.
 -/
+
+/-- Assemble the direct helper-return-binding list interface for a function
+body from the per-callee assign bridge catalog used by the rank-decreasing
+helper-summary layer. -/
+theorem stmtListDirectInternalHelperAssignStepInterface_of_perCalleeAssignBridgeCatalog
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {fn : FunctionSpec}
+    (hbridge :
+      DirectInternalHelperPerCalleeAssignBridgeCatalog runtimeContract spec fields fn) :
+    StmtListDirectInternalHelperAssignStepInterface
+      runtimeContract spec fields scope fn.body := by
+  exact
+    stmtListDirectInternalHelperAssignStepInterface_of_assignHeadStepBridges
+      (runtimeContract := runtimeContract)
+      (spec := spec)
+      (fields := fields)
+      (scope := scope)
+      (stmts := fn.body)
+      (fun {calleeName} hmem =>
+        hbridge.assign (by simpa [helperCallNames] using hmem))
+
+end
 
 /-- Direct-statement helper context bridge assembled from the currently exposed
 supported-helper APIs. It packages the source summary evidence and the compiled
