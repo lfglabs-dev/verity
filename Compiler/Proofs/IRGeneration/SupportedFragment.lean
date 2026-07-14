@@ -23,18 +23,19 @@ names: precompiles such as ecrecover have `readsState = true` and are excluded. 
 def ecmPureHashing (mod : Compiler.ECM.ExternalCallModule) : Bool :=
   !mod.writesState && !mod.readsState
 
-/-- Scope seen by the tail after compiling a single statement. This matches the
-statement-list compiler's `collectStmtNames` update. -/
+/-- Scope seen by the tail after compiling a single statement. Only bindings
+created by the statement are available to the continuation. -/
 def stmtNextScope (scope : List String) (stmt : Stmt) : List String :=
-  collectStmtNames stmt ++ scope
+  collectStmtBindNames stmt ++ scope
 
-/-- Typed-error guards follow the compiler's conservative used-name threading:
-the custom-error identifier and payload names remain reserved for the tail. -/
-theorem stmtNextScope_requireError_tracks_compiler_names :
+/-- An ordinary custom-error guard creates no runtime or IR binding: its error
+name and payload parameter references are uses, so the continuation scope is
+unchanged. -/
+theorem stmtNextScope_requireError_preserves_scope :
     stmtNextScope ["balance"]
       (.requireError (.literal 1) "InsufficientBalance" [.param "amount"])
-      = ["InsufficientBalance", "amount", "balance"] := by
-  simp [stmtNextScope, collectStmtNames, collectExprNames, collectExprListNames]
+      = ["balance"] := by
+  simp [stmtNextScope, collectStmtBindNames]
 
 /-- Proof-layer compositional witness for supported statement lists.
 
