@@ -47,20 +47,19 @@ abbrev Address := Nat
 
 `size` is measured in this module's abstract word units, matching the
 word-addressed memory model used by `Verity.EVM.MemoryModel`. The
-`wordAt` function is only semantically meaningful for indices below
-`size`; callers that copy returndata carry a bound proving that their
-source range is within this finite payload. -/
+`wordAt` is indexed by `Fin size`, so returndata cannot be observed
+outside its finite payload. -/
 structure ReturnData where
   size   : Nat
-  wordAt : Nat → Uint256
+  wordAt : Fin size → Uint256
 
 namespace ReturnData
 
-/-- Word lookup for a finite returndata payload. -/
-def lookup (data : ReturnData) (idx : Nat) : Uint256 :=
+/-- Bounds-checked word lookup for a finite returndata payload. -/
+def lookup (data : ReturnData) (idx : Fin data.size) : Uint256 :=
   data.wordAt idx
 
-theorem lookup_eq_wordAt (data : ReturnData) (idx : Nat) :
+theorem lookup_eq_wordAt (data : ReturnData) (idx : Fin data.size) :
     data.lookup idx = data.wordAt idx := rfl
 
 end ReturnData
@@ -115,7 +114,9 @@ def applyCallToCaller
   { caller with
       memory := fun i =>
         if outOff ≤ i ∧ i < outOff + callOutputCopySize outSize callee then
-          callee.returnedData.wordAt (i - outOff)
+          callee.returnedData.wordAt ⟨i - outOff, by
+            have hCopySize := callOutputCopySize_le_returnedDataSize outSize callee
+            omega⟩
         else
           caller.memory i
       returnDataBuf := callee.returnedData }
@@ -140,8 +141,8 @@ def applyCallResultToCaller
 def returndataSize (caller : CallerFrame) : Nat :=
   caller.returnDataBuf.size
 
-/-- Word lookup in the current finite returndata payload. -/
-def returndataWord (caller : CallerFrame) (idx : Nat) : Uint256 :=
+/-- Bounds-checked word lookup in the current finite returndata payload. -/
+def returndataWord (caller : CallerFrame) (idx : Fin (returndataSize caller)) : Uint256 :=
   caller.returnDataBuf.lookup idx
 
 /-- Bounded `RETURNDATACOPY` at the caller-frame level.
@@ -155,7 +156,9 @@ def boundedReturndataCopy
   { caller with
       memory := fun i =>
         if dst ≤ i ∧ i < dst + len then
-          caller.returnDataBuf.wordAt (src + (i - dst))
+          caller.returnDataBuf.wordAt ⟨src + (i - dst), by
+            change src + len ≤ caller.returnDataBuf.size at _hBound
+            omega⟩
         else
           caller.memory i }
 
@@ -221,7 +224,9 @@ theorem external_call_copies_returnData_word
     (i : Nat)
     (hIn : outOff ≤ i ∧ i < outOff + callOutputCopySize outSize callee) :
     (applyCallToCaller caller outOff outSize callee).memory i =
-      callee.returnedData.wordAt (i - outOff) := by
+      callee.returnedData.wordAt ⟨i - outOff, by
+        have hCopySize := callOutputCopySize_le_returnedDataSize outSize callee
+        omega⟩ := by
   simp [applyCallToCaller, hIn]
 
 /-- Headline form: caller-memory preservation under a disjoint output
@@ -249,7 +254,7 @@ theorem external_call_returndataSize_eq_callee_result
 
 theorem external_call_returndataWord_eq_callee_result
     (caller : CallerFrame) (outOff outSize : Nat) (callee : CalleeResult)
-    (idx : Nat) :
+    (idx : Fin callee.returnedData.size) :
     returndataWord (applyCallToCaller caller outOff outSize callee) idx =
       callee.returnedData.wordAt idx := rfl
 
@@ -294,7 +299,9 @@ theorem bounded_returndataCopy_copies_current_returnData_word
     (hBound : src + len ≤ returndataSize caller)
     (i : Nat) (hIn : dst ≤ i ∧ i < dst + len) :
     (boundedReturndataCopy caller dst src len hBound).memory i =
-      caller.returnDataBuf.wordAt (src + (i - dst)) := by
+      caller.returnDataBuf.wordAt ⟨src + (i - dst), by
+        change src + len ≤ caller.returnDataBuf.size at hBound
+        omega⟩ := by
   simp [boundedReturndataCopy, hIn]
 
 theorem bounded_returndataCopy_source_index_lt_returndataSize
@@ -316,7 +323,7 @@ theorem revertReturndata_returns_current_payload_size
     (revertReturndata caller).payload.size = returndataSize caller := rfl
 
 theorem revertReturndata_returns_current_payload_word
-    (caller : CallerFrame) (idx : Nat) :
+    (caller : CallerFrame) (idx : Fin caller.returnDataBuf.size) :
     (revertReturndata caller).payload.wordAt idx =
       caller.returnDataBuf.wordAt idx := rfl
 
