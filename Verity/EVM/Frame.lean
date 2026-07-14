@@ -113,10 +113,12 @@ def applyCallToCaller
     : CallerFrame :=
   { caller with
       memory := fun i =>
-        if outOff ≤ i ∧ i < outOff + callOutputCopySize outSize callee then
+        if h : outOff ≤ i ∧ i < outOff + callOutputCopySize outSize callee then
           callee.returnedData.wordAt ⟨i - outOff, by
-            have hCopySize := callOutputCopySize_le_returnedDataSize outSize callee
-            omega⟩
+            have hIndex : i - outOff < callOutputCopySize outSize callee := by
+              omega
+            exact Nat.lt_of_lt_of_le hIndex
+              (callOutputCopySize_le_returnedDataSize outSize callee)⟩
         else
           caller.memory i
       returnDataBuf := callee.returnedData }
@@ -155,10 +157,14 @@ def boundedReturndataCopy
     (_hBound : src + len ≤ returndataSize caller) : CallerFrame :=
   { caller with
       memory := fun i =>
-        if dst ≤ i ∧ i < dst + len then
+        if h : dst ≤ i ∧ i < dst + len then
           caller.returnDataBuf.wordAt ⟨src + (i - dst), by
             change src + len ≤ caller.returnDataBuf.size at _hBound
-            omega⟩
+            have hIndex : i - dst < len := by
+              omega
+            have hSourceIndex : src + (i - dst) < src + len :=
+              Nat.add_lt_add_left hIndex src
+            exact Nat.lt_of_lt_of_le hSourceIndex _hBound⟩
         else
           caller.memory i }
 
