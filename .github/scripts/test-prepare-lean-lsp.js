@@ -15,6 +15,7 @@ function run(toolchain) {
   const elanLog = path.join(root, 'elan.log');
   const elanHome = path.join(root, 'elan');
   const envFile = path.join(root, 'github-env');
+  const pathFile = path.join(root, 'github-path');
   fs.mkdirSync(repo);
   fs.mkdirSync(bin);
   fs.writeFileSync(path.join(repo, 'lean-toolchain'), toolchain);
@@ -23,15 +24,16 @@ function run(toolchain) {
   fs.chmodSync(path.join(elanHome, 'bin', 'elan'), 0o755);
   const result = spawnSync('bash', [script, repo], {
     encoding: 'utf8',
-    env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, ELAN_HOME: elanHome, GITHUB_ENV: envFile },
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, ELAN_HOME: elanHome, GITHUB_ENV: envFile, GITHUB_PATH: pathFile },
   });
-  return { root, envFile, elanLog, result };
+  return { root, envFile, pathFile, elanLog, result };
 }
 
 {
-  const { envFile, elanLog, result } = run('leanprover/lean4:v4.24.0\n');
+  const { envFile, pathFile, elanLog, result } = run('leanprover/lean4:v4.24.0\n');
   assert.strictEqual(result.status, 0, result.stderr);
   assert.strictEqual(fs.readFileSync(envFile, 'utf8'), 'LEAN_TOOLCHAIN=leanprover/lean4:v4.24.0\n');
+  assert.match(fs.readFileSync(pathFile, 'utf8'), /\/elan\/bin\n$/);
   assert.strictEqual(fs.readFileSync(elanLog, 'utf8'), 'toolchain install leanprover/lean4:v4.24.0\nrun leanprover/lean4:v4.24.0 lean --version\n');
 }
 
