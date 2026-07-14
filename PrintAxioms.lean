@@ -3754,7 +3754,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.supportedSourceContractSemanticsExceptMappingWrites_eq_sourceContractSemantics
 
   -- Compiler/Proofs/IRGeneration/SupportedFragment.lean
-  Compiler.Proofs.IRGeneration.stmtNextScope_requireError_tracks_compiler_names
+  Compiler.Proofs.IRGeneration.stmtNextScope_requireError_preserves_scope
 
   -- Compiler/Proofs/IRGeneration/SupportedSpec.lean
   Compiler.Proofs.IRGeneration.eventParamSourceShapeProofSupported_of_scalar
@@ -6138,4 +6138,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5745 theorems/lemmas (3983 public, 1762 private, 0 sorry'd)
+-- Total: 5750 theorems/lemmas (3986 public, 1764 private, 0 sorry'd)
