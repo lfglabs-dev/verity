@@ -31,9 +31,14 @@ if [ ! -x "$elan_bin" ]; then
   elan_archive='elan-x86_64-unknown-linux-gnu.tar.gz'
   elan_sha256='f81c2e48c1588d4612cd2c8851947898a45ac8d72748a07dff3a5694f1cf589b'
   elan_url="https://github.com/leanprover/elan/releases/download/${elan_version}/${elan_archive}"
+  if [ "${PREPARE_LEAN_LSP_TESTING:-}" = "1" ]; then
+    elan_archive="${PREPARE_LEAN_LSP_TEST_ELAN_ARCHIVE:-$elan_archive}"
+    elan_sha256="${PREPARE_LEAN_LSP_TEST_ELAN_SHA256:-$elan_sha256}"
+    elan_url="${PREPARE_LEAN_LSP_TEST_ELAN_URL:-$elan_url}"
+  fi
   tmpdir="$(mktemp -d)"
   trap 'rm -rf "$tmpdir"' EXIT
-  curl -fsSL --retry 3 --retry-delay 5 "$elan_url" -o "$tmpdir/$elan_archive"
+  curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 20 --max-time 120 "$elan_url" -o "$tmpdir/$elan_archive"
   printf '%s  %s\n' "$elan_sha256" "$tmpdir/$elan_archive" | sha256sum -c -
   tar -xzf "$tmpdir/$elan_archive" -C "$tmpdir"
   ELAN_HOME="$ELAN_HOME" "$tmpdir/elan-init" -y --no-modify-path --default-toolchain none
