@@ -194,14 +194,15 @@ jobs:
           BASE_REF: ${{ steps.pr.outputs.base_ref }}
           HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
           OCR_MODE: ${{ steps.route.outputs.mode }}
+          DIFF_BASE: ${{ steps.route.outputs.diff_base }}
           OCR_CONCURRENCY: ${{ steps.route.outputs.concurrency }}
           OCR_TIMEOUT: ${{ steps.route.outputs.timeout }}
           OCR_BACKGROUND_CHARS: ${{ steps.route.outputs.background_chars }}
         run: |
           set -euo pipefail
           mkdir -p "$HOME"
-          printf 'Reviewing %s against origin/%s in %s mode\n' "$HEAD_SHA" "$BASE_REF" "$OCR_MODE"
-          git rev-parse --verify "origin/${BASE_REF}^{commit}" >/dev/null
+          printf 'Reviewing %s from merge-base %s in %s mode\n' "$HEAD_SHA" "$DIFF_BASE" "$OCR_MODE"
+          git rev-parse --verify "${DIFF_BASE}^{commit}" >/dev/null
           # Keep the model focused: PR bodies can include long generated summaries (Bugbot/Cursor),
           # which inflated token use and caused Lean proof reviews to hit OCR subtask deadlines.
           CLEAN_BODY="${PR_BODY%%<!-- CURSOR_SUMMARY -->*}"
@@ -210,7 +211,7 @@ jobs:
           BACKGROUND="[OCR mode: ${OCR_MODE}]"$'\n\n'"${PR_TITLE}"$'\n\n'"${CLEAN_BODY}"
           BACKGROUND="${BACKGROUND:0:${OCR_BACKGROUND_CHARS}}"
           ocr review \
-            --from "origin/${BASE_REF}" \
+            --from "${DIFF_BASE}" \
             --to "${HEAD_SHA}" \
             --format json \
             --audience agent \
