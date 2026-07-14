@@ -3479,7 +3479,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.compileStmt_internalCall_shape
   -- Compiler.Proofs.IRGeneration.internalFunctionYulName_head  -- private
   -- Compiler.Proofs.IRGeneration.internalFunctionYulName_ne_log  -- private
-  -- Compiler.Proofs.IRGeneration.internalFunctionYulName_isYulLogName_false  -- private
+  Compiler.Proofs.IRGeneration.internalFunctionYulName_isYulLogName_false
   Compiler.Proofs.IRGeneration.execIRStmtsWithInternals_of_internalCallAssign_compile
   Compiler.Proofs.IRGeneration.execIRStmtsWithInternals_of_internalCall_compile
   Compiler.Proofs.IRGeneration.applyIRTransactionContext_sender
@@ -6131,4 +6131,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5745 theorems/lemmas (3983 public, 1762 private, 0 sorry'd)
+-- Total: 5749 theorems/lemmas (3988 public, 1761 private, 0 sorry'd)
