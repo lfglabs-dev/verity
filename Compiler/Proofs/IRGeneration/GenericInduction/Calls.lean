@@ -1616,7 +1616,7 @@ theorem execIRStmtsWithInternals_of_internalCallAssign_compiledHelperWitness_wit
     {compiledIR : List YulStmt}
     (compiledHelper : SupportedCompiledInternalHelperWitness spec runtimeContract calleeName)
     (state : IRState) (irFuel : Nat) {argVals : List Nat} {state' : IRState}
-    (hcompile : CompilationModel.compileStmt fields [] [] .calldata [] false scope []
+    (hcompile : CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
       (Stmt.internalCallAssign names calleeName args) spec.functions = Except.ok compiledIR)
     (argExprs : List YulExpr)
     (hargCompile : CompilationModel.compileInternalCallArgs fields .calldata spec.functions
@@ -1662,7 +1662,7 @@ theorem execIRStmtsWithInternals_of_internalCall_compiledHelperWitness_with_inte
     {scope : List String} {calleeName : String} {args : List Expr} {compiledIR : List YulStmt}
     (compiledHelper : SupportedCompiledInternalHelperWitness spec runtimeContract calleeName)
     (state : IRState) (irFuel : Nat) {argVals : List Nat} {state' : IRState}
-    (hcompile : CompilationModel.compileStmt fields [] [] .calldata [] false scope []
+    (hcompile : CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
       (Stmt.internalCall calleeName args) spec.functions = Except.ok compiledIR)
     (argExprs : List YulExpr)
     (hargCompile : CompilationModel.compileInternalCallArgs fields .calldata spec.functions

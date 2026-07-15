@@ -674,7 +674,7 @@ structure DirectInternalHelperStatementContextBridge
       {compiledIR : List YulStmt} {argExprs : List YulExpr}
       (state : IRState) (irFuel : Nat)
       {argVals : List Nat} {state' : IRState},
-      CompilationModel.compileStmt fields [] [] .calldata [] false scope []
+      CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
         (Stmt.internalCall calleeName args) spec.functions = Except.ok compiledIR →
       CompilationModel.compileInternalCallArgs fields .calldata spec.functions calleeName args =
         Except.ok argExprs →
@@ -696,7 +696,7 @@ structure DirectInternalHelperStatementContextBridge
       {args : List Expr} {compiledIR : List YulStmt} {argExprs : List YulExpr}
       (state : IRState) (irFuel : Nat)
       {argVals : List Nat} {state' : IRState},
-      CompilationModel.compileStmt fields [] [] .calldata [] false scope []
+      CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
         (Stmt.internalCallAssign names calleeName args) spec.functions = Except.ok compiledIR →
       CompilationModel.compileInternalCallArgs fields .calldata spec.functions calleeName args =
         Except.ok argExprs →
