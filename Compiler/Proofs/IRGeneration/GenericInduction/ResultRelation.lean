@@ -317,14 +317,12 @@ theorem compileStmtList_ok_of_stmtListGenericCore_early
   | cons hstep _hrest ih =>
       rcases FunctionBody.compileStmt_ok_any_scope
         (scope2 := inScopeNames) ⟨_, hstep.compileOk⟩ with ⟨headIR, hhead⟩
-      rcases ih (inScopeNames := collectStmtNames _ ++ inScopeNames)
-          (by
-            intro name hmem
-            simp [stmtNextScope] at hmem
-            rcases hmem with h | h
-            · exact List.mem_append_left _ h
-            · exact List.mem_append_right _ (hincluded name h))
+      rcases ih (inScopeNames := stmtNextScope _ _)
+          FunctionBody.scopeNamesIncluded_refl
         with ⟨tailIR, htail⟩
+      rcases FunctionBody.compileStmtList_ok_any_scope
+          (scope2 := collectStmtNames _ ++ inScopeNames) ⟨tailIR, htail⟩ with
+        ⟨tailIR, htail⟩
       exact ⟨headIR ++ tailIR,
         FunctionBody.compileStmtList_cons_ok_of_compileStmt_ok hhead htail⟩
 
@@ -504,6 +502,9 @@ theorem compileStmtList_ok_of_stmtListGenericWithHelpersAndHelperIRWithInternals
           Pure.pure, Except.pure]⟩
   | @cons scope stmt compiledIR rest hstep _hrest ih =>
       rcases ih with ⟨tailIR, htail⟩
+      rcases FunctionBody.compileStmtList_ok_any_scope_with_surface_with_internals
+          (scope2 := collectStmtNames stmt ++ scope) ⟨tailIR, htail⟩ with
+        ⟨tailIR, htail⟩
       exact ⟨compiledIR ++ tailIR,
         compileStmtList_cons_eq_ok_with_internals
           fields spec.events spec.errors .calldata [] false scope [] stmt rest
@@ -542,14 +543,12 @@ theorem compileStmtList_ok_of_stmtListGenericWithHelpersAndHelperIRWithInternals
           (internalFunctions := spec.functions)
           ⟨_, hstep.compileOk⟩ with
         ⟨headIR, hhead⟩
-      rcases ih (inScopeNames := collectStmtNames _ ++ inScopeNames)
-          (by
-            intro name hmem
-            simp [stmtNextScope] at hmem
-            rcases hmem with h | h
-            · exact List.mem_append_left _ h
-            · exact List.mem_append_right _ (hincluded name h))
+      rcases ih (inScopeNames := stmtNextScope _ _)
+          FunctionBody.scopeNamesIncluded_refl
         with ⟨tailIR, htail⟩
+      rcases FunctionBody.compileStmtList_ok_any_scope_with_surface_with_internals
+          (scope2 := collectStmtNames _ ++ inScopeNames) ⟨tailIR, htail⟩ with
+        ⟨tailIR, htail⟩
       exact ⟨headIR ++ tailIR,
         compileStmtList_cons_eq_ok_with_internals
           fields spec.events spec.errors .calldata [] false inScopeNames [] _ _
