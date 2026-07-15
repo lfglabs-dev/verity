@@ -1404,6 +1404,16 @@ theorem nativeStmtsWriteNames_nonpayable_dispatch_guard_prefix
       Backends.nativeStmtsWriteNames bodyNative := by
   simp [Backends.nativeStmtsWriteNames, Backends.nativeStmtWriteNames]
 
+private theorem lowerExprNative_revert_zero_zero :
+    EvmYul.Yul.Ast.Stmt.ExprStmtCall
+        (Backends.lowerExprNative
+          (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])) =
+      nativeRevertZeroZeroStmt := by
+  rw [Backends.lowerExprNative_call_runtimePrimOp _ _ _
+    Backends.lookupRuntimePrimOp_revert]
+  simp only [List.map, Backends.lowerExprNative,
+    nativeRevertZeroZeroStmt]
+
 /-- The singleton default-revert body lowers to the native `revert(0,0)` stmt
 without advancing the native switch counter. -/
 theorem lowerStmtsNativeWithSwitchIds_revert_zero_zero
@@ -1411,9 +1421,12 @@ theorem lowerStmtsNativeWithSwitchIds_revert_zero_zero
     Backends.lowerStmtsNativeWithSwitchIds reservedNames n
         [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])] =
       .ok ([nativeRevertZeroZeroStmt], n) := by
-  simp [Backends.lowerStmtsNativeWithSwitchIds, nativeRevertZeroZeroStmt,
-    Backends.lowerExprNative, Backends.lookupRuntimePrimOp]
-  rfl
+  simp only [Backends.lowerStmtsNativeWithSwitchIds_cons,
+    Backends.lowerStmtGroupNativeWithSwitchIds_expr,
+    Backends.lowerStmtsNativeWithSwitchIds_nil,
+    lowerExprNative_revert_zero_zero,
+    Bind.bind, Except.bind, Pure.pure, Except.pure,
+    List.append_nil]
 
 /-- Concrete generated-guard variant of
 `lowerStmtsNativeWithSwitchIds_switchCaseBody_payable_eq`: the payable case
@@ -2182,6 +2195,36 @@ theorem mappingSlotFuncAt_body_noFuncDefs (scratchBase : Nat) :
   simp [Compiler.mappingSlotFuncAt, Compiler.CodegenCommon.mappingSlotFuncAt,
     yulStmtContainsFuncDef, yulStmtsContainFuncDef]
 
+private theorem lowerExprNative_mstore_key :
+    Backends.lowerExprNative
+        (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.ident "key"]) =
+      EvmYul.Yul.Ast.Expr.Call (.inl EvmYul.Operation.MSTORE)
+        [.Lit (EvmYul.UInt256.ofNat 0), .Var "key"] := by
+  rw [Backends.lowerExprNative_call_runtimePrimOp _ _ _
+    Backends.lookupRuntimePrimOp_mstore]
+  simp only [List.map, Backends.lowerExprNative]
+
+private theorem lowerExprNative_mstore_baseSlot :
+    Backends.lowerExprNative
+        (YulExpr.call "mstore" [YulExpr.lit (0 + 32), YulExpr.ident "baseSlot"]) =
+      EvmYul.Yul.Ast.Expr.Call (.inl EvmYul.Operation.MSTORE)
+        [.Lit (EvmYul.UInt256.ofNat 32), .Var "baseSlot"] := by
+  rw [Backends.lowerExprNative_call_runtimePrimOp _ _ _
+    Backends.lookupRuntimePrimOp_mstore]
+  simp only [List.map, Backends.lowerExprNative]
+
+private theorem lowerAssignNative_slot_keccak256 :
+    Backends.lowerAssignNative "slot"
+        (YulExpr.call "keccak256" [YulExpr.lit 0, YulExpr.lit 64]) =
+      EvmYul.Yul.Ast.Stmt.Let ["slot"]
+        (some (.Call (.inl EvmYul.Operation.KECCAK256)
+          [.Lit (EvmYul.UInt256.ofNat 0),
+           .Lit (EvmYul.UInt256.ofNat 64)])) := by
+  unfold Backends.lowerAssignNative
+  rw [Backends.lowerExprNative_call_runtimePrimOp _ _ _
+    Backends.lookupRuntimePrimOp_keccak256]
+  simp only [List.map, Backends.lowerExprNative]
+
 /-- Native EVMYulLean definition produced by lowering the generated
 `mappingSlot` helper at scratch base zero. -/
 def nativeMappingSlotFunctionDefinition : EvmYul.Yul.Ast.FunctionDefinition :=
@@ -2204,12 +2247,17 @@ theorem lowerFunctionDefinitionNativeWithReserved_mappingSlotFuncAt_zero
       (match Compiler.mappingSlotFuncAt 0 with
       | YulStmt.funcDef _ _ _ body => body
       | _ => []) = .ok nativeMappingSlotFunctionDefinition := by
-  simp [Backends.lowerFunctionDefinitionNativeWithReserved,
-    Compiler.mappingSlotFuncAt, Compiler.CodegenCommon.mappingSlotFuncAt,
-    Backends.lowerStmtsNativeWithSwitchIds, Backends.lowerExprNative,
-    Backends.lowerAssignNative, Backends.lookupRuntimePrimOp,
-    nativeMappingSlotFunctionDefinition, Bind.bind, Except.bind, Pure.pure,
-    Except.pure]
+  simp only [Compiler.mappingSlotFuncAt,
+    Compiler.CodegenCommon.mappingSlotFuncAt,
+    Backends.lowerFunctionDefinitionNativeWithReserved,
+    Backends.lowerStmtsNativeWithSwitchIds_cons,
+    Backends.lowerStmtGroupNativeWithSwitchIds_expr,
+    Backends.lowerStmtGroupNativeWithSwitchIds_assign,
+    Backends.lowerStmtsNativeWithSwitchIds_nil,
+    lowerExprNative_mstore_key, lowerExprNative_mstore_baseSlot,
+    lowerAssignNative_slot_keccak256, nativeMappingSlotFunctionDefinition,
+    Bind.bind, Except.bind, Pure.pure, Except.pure, List.append_nil]
+  rfl
 
 /-- Body-form variant of
 `lowerFunctionDefinitionNativeWithReserved_mappingSlotFuncAt_zero`, for proof
@@ -2226,11 +2274,15 @@ theorem lowerFunctionDefinitionNativeWithReserved_mappingSlotFuncAt_zero_body
        YulStmt.assign "slot"
         (YulExpr.call "keccak256" [YulExpr.lit 0, YulExpr.lit 64])] =
       .ok nativeMappingSlotFunctionDefinition := by
-  simp [Backends.lowerFunctionDefinitionNativeWithReserved,
-    Backends.lowerStmtsNativeWithSwitchIds, Backends.lowerExprNative,
-    Backends.lowerAssignNative, Backends.lookupRuntimePrimOp,
-    nativeMappingSlotFunctionDefinition, Bind.bind, Except.bind, Pure.pure,
-    Except.pure]
+  simp only [Backends.lowerFunctionDefinitionNativeWithReserved,
+    Backends.lowerStmtsNativeWithSwitchIds_cons,
+    Backends.lowerStmtGroupNativeWithSwitchIds_expr,
+    Backends.lowerStmtGroupNativeWithSwitchIds_assign,
+    Backends.lowerStmtsNativeWithSwitchIds_nil,
+    lowerExprNative_mstore_key, lowerExprNative_mstore_baseSlot,
+    lowerAssignNative_slot_keccak256, nativeMappingSlotFunctionDefinition,
+    Bind.bind, Except.bind, Pure.pure, Except.pure, List.append_nil]
+  rfl
 
 def nativeMappingSlotFunctionBody : List EvmYul.Yul.Ast.Stmt :=
   [ .ExprStmtCall (.Call (.inl EvmYul.Operation.MSTORE)

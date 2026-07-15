@@ -1,4 +1,5 @@
 import Compiler.Proofs.IRGeneration.GenericInduction.ExprStmt
+import Compiler.CompilationModel.ReservedScratchNames
 
 set_option linter.unnecessarySeqFocus false
 set_option linter.unnecessarySimpa false
@@ -1371,6 +1372,53 @@ private theorem runtimeStateMatchesIR_writeUintSlot
         (encodeStorageAt_writeUintSlots_singleton_other
           (IRStorageSlot.ne_toNat_wordNormalize_of_ne_ofNat hEq)).symm
 
+private theorem runtimeStateMatchesIR_writeStorageWordSlot_zeroOffset
+    {fields : List Field}
+    {runtime : SourceSemantics.RuntimeState}
+    {state : IRState}
+    {slot value : Nat}
+    (hruntime : FunctionBody.runtimeStateMatchesIR fields runtime state)
+    {f : Field}
+    (hresolved : findResolvedFieldAtSlotCopy fields slot = some f)
+    (hnotAddr : SourceSemantics.fieldUsesAddressStorage f = false)
+    (hnotDyn : SourceSemantics.fieldUsesDynamicArrayStorage f = false)
+    (hvalue : value < Verity.Core.Uint256.modulus) :
+    FunctionBody.runtimeStateMatchesIR fields
+      { runtime with world := SourceSemantics.writeStorageWordSlots runtime.world [slot] 0 value }
+      { state with
+          storage := Compiler.Proofs.abstractStoreStorageOrMapping state.storage slot value } := by
+  rcases hruntime with
+    ⟨hstorage, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents⟩
+  refine ⟨?_, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents⟩
+  funext query
+  ·
+    by_cases hEq : query = IRStorageSlot.ofNat slot
+    · subst hEq
+      rw [Compiler.Proofs.abstractStoreStorageOrMapping_eq]
+      have hresolved' :
+          findResolvedFieldAtSlotCopy fields (IRStorageSlot.ofNat slot).toNat = some f := by
+        simpa [IRStorageSlot.toNat_ofNat_wordNormalize] using
+          (show findResolvedFieldAtSlotCopy fields (SourceSemantics.wordNormalize slot) = some f from
+            by rw [findResolvedFieldAtSlotCopy_wordNormalize]; exact hresolved)
+      rw [encodeStorageAt_eq_storage_of_resolvedSlot hresolved' hnotAddr hnotDyn]
+      simp [SourceSemantics.writeStorageWordSlots, IRStorageSlot.toNat_ofNat_wordNormalize,
+        SourceSemantics.wordNormalize, Compiler.Constants.evmModulus,
+        Verity.Core.UINT256_MODULUS, Verity.Core.Uint256.val_ofNat]
+      exact congrArg Compiler.Proofs.IRGeneration.IRStorageWord.ofNat
+        (Nat.mod_eq_of_lt hvalue).symm
+    · rw [Compiler.Proofs.abstractStoreStorageOrMapping_eq]
+      simp only [hEq, ↓reduceIte]
+      rw [hstorage]
+      symm
+      refine congrArg Compiler.Proofs.IRGeneration.IRStorageWord.ofNat ?_
+      have hneqNat := IRStorageSlot.ne_toNat_wordNormalize_of_ne_ofNat hEq
+      have hneqNat' : query.toNat ≠ slot % Compiler.Constants.evmModulus := by
+        simpa [SourceSemantics.wordNormalize] using hneqNat
+      apply SourceSemantics.encodeStorageAt_congr
+      · simp [SourceSemantics.writeStorageWordSlots, SourceSemantics.wordNormalize, hneqNat']
+      · simp [SourceSemantics.writeStorageWordSlots, SourceSemantics.wordNormalize, hneqNat']
+      · simp [SourceSemantics.writeStorageWordSlots]
+
 private theorem runtimeStateMatchesIR_writeAddressSlot
     {fields : List Field}
     {runtime : SourceSemantics.RuntimeState}
@@ -2018,230 +2066,6 @@ private theorem compatValue_not_mem_scope_of_reservedPrefix
     "__compat_value" ∉ scope := by
   exact hscopeReserved.1
 
-private theorem compatScratch_startsWith_reserved
-    {name : String}
-    (h :
-      name = "__compat_value" ∨
-      name = "__compat_packed" ∨
-      name = "__compat_slot_word" ∨
-      name = "__compat_slot_cleared") :
-    name.startsWith "__" = true := by
-  rcases h with h | h
-  · subst h
-    unfold String.startsWith
-    change Substring.beq ("__compat_value".toSubstring.take "__".length) "__".toSubstring = true
-    simp [Substring.beq, String.toSubstring, Substring.take]
-    constructor
-    · rfl
-    · unfold String.substrEq
-      simp
-      constructor
-      · decide
-      · unfold String.substrEq.loop
-        simp
-        right
-        constructor
-        · rfl
-        · unfold String.substrEq.loop
-          simp
-          right
-          constructor
-          · rfl
-          · unfold String.substrEq.loop
-            simp
-            left
-            decide
-  rcases h with h | h
-  · subst h
-    unfold String.startsWith
-    change Substring.beq ("__compat_packed".toSubstring.take "__".length) "__".toSubstring = true
-    simp [Substring.beq, String.toSubstring, Substring.take]
-    constructor
-    · rfl
-    · unfold String.substrEq
-      simp
-      constructor
-      · decide
-      · unfold String.substrEq.loop
-        simp
-        right
-        constructor
-        · rfl
-        · unfold String.substrEq.loop
-          simp
-          right
-          constructor
-          · rfl
-          · unfold String.substrEq.loop
-            simp
-            left
-            decide
-  rcases h with h | h
-  · subst h
-    unfold String.startsWith
-    change Substring.beq ("__compat_slot_word".toSubstring.take "__".length) "__".toSubstring = true
-    simp [Substring.beq, String.toSubstring, Substring.take]
-    constructor
-    · rfl
-    · unfold String.substrEq
-      simp
-      constructor
-      · decide
-      · unfold String.substrEq.loop
-        simp
-        right
-        constructor
-        · rfl
-        · unfold String.substrEq.loop
-          simp
-          right
-          constructor
-          · rfl
-          · unfold String.substrEq.loop
-            simp
-            left
-            decide
-  · subst h
-    unfold String.startsWith
-    change Substring.beq ("__compat_slot_cleared".toSubstring.take "__".length) "__".toSubstring = true
-    simp [Substring.beq, String.toSubstring, Substring.take]
-    constructor
-    · rfl
-    · unfold String.substrEq
-      simp
-      constructor
-      · decide
-      · unfold String.substrEq.loop
-        simp
-        right
-        constructor
-        · rfl
-        · unfold String.substrEq.loop
-          simp
-          right
-          constructor
-          · rfl
-          · unfold String.substrEq.loop
-            simp
-            left
-            decide
-
-private theorem compatScratch_not_internalImmutable
-    {name : String}
-    (h :
-      name = "__compat_value" ∨
-      name = "__compat_packed" ∨
-      name = "__compat_slot_word" ∨
-      name = "__compat_slot_cleared") :
-    name.startsWith "__immutable_" = false := by
-  rcases h with h | h
-  · subst h
-    unfold String.startsWith
-    change Substring.beq ("__compat_value".toSubstring.take "__immutable_".length)
-      "__immutable_".toSubstring = false
-    simp [Substring.beq, String.toSubstring, Substring.take]
-    intro hlen
-    unfold String.substrEq
-    simp
-    intro h1
-    intro h2
-    unfold String.substrEq.loop
-    simp
-    constructor
-    · decide
-    · intro hchar
-      unfold String.substrEq.loop
-      simp
-      constructor
-      · decide
-      · intro hchar2
-        unfold String.substrEq.loop
-        simp
-        constructor
-        · decide
-        · intro hchar3
-          cases hchar3
-  rcases h with h | h
-  · subst h
-    unfold String.startsWith
-    change Substring.beq ("__compat_packed".toSubstring.take "__immutable_".length)
-      "__immutable_".toSubstring = false
-    simp [Substring.beq, String.toSubstring, Substring.take]
-    intro hlen
-    unfold String.substrEq
-    simp
-    intro h1
-    intro h2
-    unfold String.substrEq.loop
-    simp
-    constructor
-    · decide
-    · intro hchar
-      unfold String.substrEq.loop
-      simp
-      constructor
-      · decide
-      · intro hchar2
-        unfold String.substrEq.loop
-        simp
-        constructor
-        · decide
-        · intro hchar3
-          cases hchar3
-  rcases h with h | h
-  · subst h
-    unfold String.startsWith
-    change Substring.beq ("__compat_slot_word".toSubstring.take "__immutable_".length)
-      "__immutable_".toSubstring = false
-    simp [Substring.beq, String.toSubstring, Substring.take]
-    intro hlen
-    unfold String.substrEq
-    simp
-    intro h1
-    intro h2
-    unfold String.substrEq.loop
-    simp
-    constructor
-    · decide
-    · intro hchar
-      unfold String.substrEq.loop
-      simp
-      constructor
-      · decide
-      · intro hchar2
-        unfold String.substrEq.loop
-        simp
-        constructor
-        · decide
-        · intro hchar3
-          cases hchar3
-  · subst h
-    unfold String.startsWith
-    change Substring.beq ("__compat_slot_cleared".toSubstring.take "__immutable_".length)
-      "__immutable_".toSubstring = false
-    simp [Substring.beq, String.toSubstring, Substring.take]
-    intro hlen
-    unfold String.substrEq
-    simp
-    intro h1
-    intro h2
-    unfold String.substrEq.loop
-    simp
-    constructor
-    · decide
-    · intro hchar
-      unfold String.substrEq.loop
-      simp
-      constructor
-      · decide
-      · intro hchar2
-        unfold String.substrEq.loop
-        simp
-        constructor
-        · decide
-        · intro hchar3
-          cases hchar3
-
 private theorem validateIdentifierShapes_fieldName_ne_reservedScratch
     {spec : CompilationModel}
     {name : String}
@@ -2525,6 +2349,93 @@ theorem compiledStmtStep_setStorage_singleSlot
       refine ⟨.continue runtime', .continue state', hSrcExec, hIRExec, ?_⟩
       simp [stmtStepMatchesIRExec]
       exact ⟨runtimeStateMatchesIR_writeUintSlot hruntime hresolvedSlot hnotAddr hnotDyn hvalueLt,
+        hexact', hbounded, hscope'⟩
+
+theorem compiledStmtStep_setStorageWord_singleSlot_zeroOffset
+    {fields : List Field}
+    {scope : List String}
+    {fieldName : String}
+    {value : Expr}
+    {valueIR : YulExpr}
+    {f : Field}
+    {slot : Nat}
+    (hcore : FunctionBody.ExprCompileCore value)
+    (hinScope : FunctionBody.exprBoundNamesInScope value scope)
+    (hfind : findFieldWithResolvedSlot fields fieldName = some (f, slot))
+    (hwriteSlots : findFieldWriteSlots fields fieldName = some [slot])
+    (halias : f.aliasSlots = [])
+    (hunpacked : f.packedBits = none)
+    (hnoConflict : firstFieldWriteSlotConflict fields = none)
+    (hnotAddr : SourceSemantics.fieldUsesAddressStorage f = false)
+    (hnotDyn : SourceSemantics.fieldUsesDynamicArrayStorage f = false)
+    (hnotTransient : f.isTransient = false)
+    (hvalueIR : CompilationModel.compileExpr fields .calldata value = Except.ok valueIR) :
+    CompiledStmtStep fields scope (.setStorageWord fieldName 0 value)
+      [YulStmt.exprStmt (YulExpr.call "sstore" [YulExpr.lit slot, valueIR])] where
+  compileOk := by
+    simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+      hfind, halias, hnotTransient, hvalueIR]
+  preserves runtime state extraFuel hexact hscope hbounded hruntime hslack := by
+    let compiledIR := [YulStmt.exprStmt (YulExpr.call "sstore" [YulExpr.lit slot, valueIR])]
+    have hresolvedSlot :
+        findResolvedFieldAtSlotCopy fields slot = some f :=
+      findResolvedFieldAtSlotCopy_of_findFieldWithResolvedSlot_singleton
+        hnoConflict hfind hwriteSlots hunpacked
+    have hvalueSourceEval :=
+      FunctionBody.eval_compileExpr_core_of_scope
+        hcore hexact hinScope hbounded
+        (FunctionBody.exprBoundNamesPresent_of_scope hscope hinScope)
+        hruntime
+    rw [hvalueIR] at hvalueSourceEval
+    simp [Except.toOption] at hvalueSourceEval
+    rcases hIRValue : evalIRExpr state valueIR with _ | valueNat
+    · simp [hIRValue, Option.bind] at hvalueSourceEval
+    · simp [hIRValue, Option.bind] at hvalueSourceEval
+      have hValueSrc : SourceSemantics.evalExpr fields runtime value = some valueNat :=
+        hvalueSourceEval.symm
+      have hvalueLt := FunctionBody.evalExpr_lt_evmModulus_core_of_scope
+          hcore hexact hinScope hbounded
+          (FunctionBody.exprBoundNamesPresent_of_scope hscope hinScope)
+          hruntime
+      rw [hValueSrc] at hvalueLt
+      simp at hvalueLt
+      set state' := { state with
+          storage :=
+            Compiler.Proofs.abstractStoreStorageOrMapping state.storage slot valueNat }
+      set runtime' := { runtime with
+          world := SourceSemantics.writeStorageWordSlots runtime.world [slot] 0 valueNat }
+      have hfieldTransient :
+          SourceSemantics.fieldIsTransient fields fieldName = false := by
+        simp [SourceSemantics.fieldIsTransient, hfind, hnotTransient]
+      have hSrcExec : SourceSemantics.execStmt fields runtime
+          (.setStorageWord fieldName 0 value) = .continue runtime' := by
+        simp [SourceSemantics.execStmt, SourceSemantics.writeStorageWordFieldSlots,
+          hwriteSlots, hValueSrc, hfieldTransient, runtime']
+      have hExecStmt :
+          execIRStmt (extraFuel + 1) state
+            (YulStmt.exprStmt (YulExpr.call "sstore" [YulExpr.lit slot, valueIR])) =
+              .continue state' :=
+        execIRStmt_sstore_lit_expr_succ_of_eval
+          extraFuel state slot valueIR valueNat hIRValue
+      have hfuelEq : 1 + extraFuel = extraFuel + 1 := by omega
+      have hIRExec : execIRStmts (compiledIR.length + extraFuel + 1) state compiledIR =
+          .continue state' := by
+        simp [compiledIR, execIRStmts, hfuelEq, hExecStmt]
+      have hincl : FunctionBody.scopeNamesIncluded
+          (stmtNextScope scope (.setStorageWord fieldName 0 value)) scope := by
+        intro n hn
+        simp [stmtNextScope, collectStmtNames] at hn
+        rcases hn with hv | hs
+        · exact hinScope n (collectExprNames_mem_exprBoundNames_of_core hcore n hv)
+        · exact hs
+      have hexact' := FunctionBody.bindingsExactlyMatchIRVarsOnScope_of_included
+        (bindingsExactlyMatchIRVarsOnScope_writeUintSlot (slot := slot) (value := valueNat) hexact)
+        hincl
+      have hscope' := FunctionBody.scopeNamesPresent_of_included hscope hincl
+      refine ⟨.continue runtime', .continue state', hSrcExec, hIRExec, ?_⟩
+      simp [stmtStepMatchesIRExec]
+      exact ⟨runtimeStateMatchesIR_writeStorageWordSlot_zeroOffset
+          hruntime hresolvedSlot hnotAddr hnotDyn hvalueLt,
         hexact', hbounded, hscope'⟩
 
 private theorem compiledStmtStep_setStorageAddr_singleSlot_preserves
@@ -7429,6 +7340,35 @@ theorem stmtListGenericCore_singleton_setStorage_singleSlot
       (hNotAdt := by
         intro name maxFields hty
         cases hty)
+      (hvalueIR := hvalueIR))
+    StmtListGenericCore.nil
+
+private theorem stmtListGenericCore_singleton_setStorageWord_zeroOffset_singleSlot
+    {fields : List Field}
+    {scope : List String}
+    {fieldName : String}
+    {slot : Nat}
+    {value : Expr}
+    (hnoConflict : firstFieldWriteSlotConflict fields = none)
+    (hfind : findFieldWithResolvedSlot fields fieldName =
+      some ({ name := fieldName, ty := FieldType.uint256 }, slot))
+    (hcore : FunctionBody.ExprCompileCore value)
+    (hinScope : FunctionBody.exprBoundNamesInScope value scope) :
+    StmtListGenericCore fields scope [Stmt.setStorageWord fieldName 0 value] := by
+  rcases FunctionBody.compileExpr_core_ok (fields := fields) hcore with
+    ⟨valueIR, hvalueIR⟩
+  exact StmtListGenericCore.cons
+    (compiledStmtStep_setStorageWord_singleSlot_zeroOffset
+      (hcore := hcore)
+      (hinScope := hinScope)
+      (hfind := hfind)
+      (hwriteSlots := by simpa using findFieldWriteSlots_of_findFieldWithResolvedSlot hfind)
+      (halias := by rfl)
+      (hunpacked := by rfl)
+      (hnoConflict := hnoConflict)
+      (hnotAddr := by rfl)
+      (hnotDyn := by rfl)
+      (hnotTransient := by rfl)
       (hvalueIR := hvalueIR))
     StmtListGenericCore.nil
 
