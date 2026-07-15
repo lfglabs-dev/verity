@@ -3078,7 +3078,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.exprBoundNamesInScope_setStorage_of_validateFunctionIdentifierReferences
   Compiler.Proofs.IRGeneration.collectExprNames_mem_exprBoundNames_of_core
   -- Compiler.Proofs.IRGeneration.mem_foldl_stmtNextScope_of_mem_scope  -- private
-  Compiler.Proofs.IRGeneration.stmtListNames_subset_foldl_stmtNextScope
+  Compiler.Proofs.IRGeneration.stmtListBindNames_subset_foldl_stmtNextScope
   Compiler.Proofs.IRGeneration.stmtListScopeDiscipline_scope_names
 
   -- Compiler/Proofs/IRGeneration/GenericInduction/Storage.lean
