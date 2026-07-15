@@ -2645,6 +2645,13 @@ structure SupportedRuntimeHelperTableInterface
   compiledOfWitness :
     ∀ calleeName (witness : SupportedInternalHelperWitness spec calleeName),
       SupportedCompiledInternalHelperWitness spec runtimeContract calleeName
+  /-- The compiled witness returned for a source witness is compiled from that
+  same source witness. Without this law `compiledOfWitness` could return a
+  witness carrying an unrelated `sourceWitness`, letting a source summary proof
+  be paired with a compiled helper it does not describe. -/
+  compiledOfWitness_sourceWitness :
+    ∀ calleeName (witness : SupportedInternalHelperWitness spec calleeName),
+      (compiledOfWitness calleeName witness).sourceWitness = witness
 
 /-- Helper-call boundary for the current generic theorem.
 It already inventories helper callees via positive summary witnesses, but it
@@ -4280,6 +4287,20 @@ def SupportedRuntimeHelperTableInterface.compiledOfCall
     (hmem : calleeName ∈ helperCallNames fn) :
     SupportedCompiledInternalHelperWitness spec runtimeContract calleeName :=
   hRuntime.compiledOfWitness calleeName (hHelpers.summaryOfCall hmem)
+
+/-- The compiled helper produced by `compiledOfCall` carries exactly the source
+witness inventoried for that call, so a source summary proof about
+`hHelpers.summaryOfCall hmem` is a proof about `compiledHelper.sourceWitness`. -/
+theorem SupportedRuntimeHelperTableInterface.compiledOfCall_sourceWitness
+    {spec : CompilationModel}
+    {runtimeContract : IRContract}
+    {fn : FunctionSpec}
+    (hRuntime : SupportedRuntimeHelperTableInterface spec runtimeContract)
+    (hHelpers : SupportedBodyHelperInterface spec fn)
+    {calleeName : String}
+    (hmem : calleeName ∈ helperCallNames fn) :
+    (hRuntime.compiledOfCall hHelpers hmem).sourceWitness = hHelpers.summaryOfCall hmem :=
+  hRuntime.compiledOfWitness_sourceWitness calleeName (hHelpers.summaryOfCall hmem)
 
 
 -- NOTE: An exact decomposition theorem

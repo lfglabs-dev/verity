@@ -664,6 +664,11 @@ structure DirectInternalHelperStatementContextBridge
       spec sourceWitness.callee sourceWitness.summary.contract
   compiledHelper :
     SupportedCompiledInternalHelperWitness spec runtimeContract calleeName
+  /-- The source summary evidence and the compiled helper describe one witness.
+  This prevents the packaged source proof from being paired with an unrelated
+  compiled helper selected from the runtime table. -/
+  sourceWitness_eq_compiledHelperSourceWitness :
+    sourceWitness = compiledHelper.sourceWitness
   irCallDispatch :
     ∀ {fields : List Field} {scope : List String} {args : List Expr}
       {compiledIR : List YulStmt} {argExprs : List YulExpr}
@@ -732,6 +737,8 @@ def directInternalHelperStatementContextBridge_of_supportedEvidence
         SourceSemantics.SupportedBodyHelperInterface.summarySoundOfCall
           hHelpers hSummaries hmem
       compiledHelper := compiledHelper
+      sourceWitness_eq_compiledHelperSourceWitness :=
+        (hRuntime.compiledOfCall_sourceWitness hHelpers hmem).symm
       irCallDispatch := ?_
       irAssignDispatch := ?_ }
   · intro fields scope args compiledIR argExprs state irFuel argVals state'
@@ -771,6 +778,23 @@ def directInternalHelperStatementContextBridge_of_supportedEvidence
         argExprs
         hargCompile
         hargs
+
+/-- The packaged source summary is explicitly available for the witness that
+produced the compiled helper. This is the bridge invariant consumed by the
+eventual source/IR helper-summary theorem. -/
+theorem directInternalHelperStatementContextBridge_summarySound_compiledHelper
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {calleeName : String}
+    (hctx :
+      DirectInternalHelperStatementContextBridge runtimeContract spec calleeName) :
+    SourceSemantics.InternalHelperSummarySound
+      spec hctx.compiledHelper.sourceWitness.callee
+        hctx.compiledHelper.sourceWitness.summary.contract := by
+  rcases hctx with ⟨sourceWitness, summarySound, compiledHelper, hsource, irCallDispatch,
+    irAssignDispatch⟩
+  cases hsource
+  exact summarySound
 
 /-- Source-side evidence for a direct void helper call from the packaged
 statement context bridge: the source statement reduces through the supported
