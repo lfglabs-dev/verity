@@ -1155,7 +1155,7 @@ private theorem stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers
               intro other hmem
               simp at hmem
               rcases hmem with rfl | hmem
-              · exact List.mem_append.mpr <| Or.inl <| by simp [stmtNextScope, collectStmtNames]
+              · exact List.mem_append.mpr <| Or.inl <| by simp [stmtNextScope, collectStmtBindNames]
               · exact mem_stmtNextScope_of_mem_scope (hlocalsInScope other hmem)))
   | assignVar hvalueCore hrest ih =>
       rcases validateScopedStmtListIdentifiers_cons_ok_inv hvalidate with
@@ -1553,7 +1553,7 @@ private theorem scopeNamesPresent_foldl_stmtNextScope_of_validateScopedStmtListI
             intro name hname
             simp at hname
             rcases hname with rfl | hname
-            · simp [stmtNextScope, collectStmtNames]
+            · simp [stmtNextScope, collectStmtBindNames]
             · exact mem_stmtNextScope_of_mem_scope (hlocalsInScope name hname))
           other hmem
   | assignVar hvalueCore hrest ih =>
@@ -1624,7 +1624,7 @@ private theorem scopeNamesPresent_foldl_stmtNextScope_of_validateScopedStmtListI
       simp only [pure, Except.pure] at hstmt'
       cases hstmt'
       intro other hmem
-      simp only [List.foldl, stmtNextScope, collectStmtNames] at hmem ⊢
+      simp only [List.foldl, stmtNextScope, collectStmtBindNames] at hmem ⊢
       exact ih hrestValidate hparamsInScope hlocalsInScope other hmem
   | setStorage hfield hvalueCore hrest ih =>
       rcases validateScopedStmtListIdentifiers_cons_ok_inv hvalidate with
@@ -1946,13 +1946,13 @@ theorem stmtListBindNames_subset_foldl_stmtNextScope
     (hmem : name ∈ collectStmtListBindNames stmts) :
     name ∈ List.foldl stmtNextScope scope stmts := by
   induction stmts generalizing scope with
-  | nil => simp [collectStmtListNames] at hmem
+  | nil => simp [collectStmtListBindNames] at hmem
   | cons stmt rest ih =>
       simp [collectStmtListBindNames] at hmem
       simp only [List.foldl]
       rcases hmem with hstmt | hrest
       · exact mem_foldl_stmtNextScope_of_mem_scope (by
-          simp [stmtNextScope]; exact hstmt)
+          simp [stmtNextScope]; exact Or.inl hstmt)
       · exact ih hrest
 
 theorem stmtListScopeDiscipline_scope_names
@@ -1976,9 +1976,8 @@ theorem stmtListScopeDiscipline_scope_names
       have htail := ih other hmem
       simp [stmtNextScope, collectStmtBindNames, collectStmtListBindNames,
         collectStmtListAssignedNames, collectStmtAssignedNames] at htail ⊢
-      rcases htail with hname | hvalue | hscope | hbind | hassign | hfield
+      rcases htail with hname | hscope | hbind | hassign | hfield
       · right; left; exact hname
-      · left; exact hinScope _ (collectExprNames_mem_exprBoundNames_of_core hcore _ hvalue)
       · left; exact hscope
       · right; right; left; exact hbind
       · right; right; right; left; exact hassign
@@ -1989,9 +1988,7 @@ theorem stmtListScopeDiscipline_scope_names
       have htail := ih other hmem
       simp [stmtNextScope, collectStmtBindNames, collectStmtListBindNames,
         collectStmtListAssignedNames, collectStmtAssignedNames] at htail ⊢
-      rcases htail with hname | hvalue | hscope | hbind | hassign | hfield
-      · right; right; left; exact hname
-      · left; exact hinScope _ (collectExprNames_mem_exprBoundNames_of_core hcore _ hvalue)
+      rcases htail with hscope | hbind | hassign | hfield
       · left; exact hscope
       · right; left; exact hbind
       · right; right; right; left; exact hassign
@@ -2002,8 +1999,7 @@ theorem stmtListScopeDiscipline_scope_names
       have htail := ih other hmem
       simp [stmtNextScope, collectStmtBindNames, collectStmtListBindNames,
         collectStmtListAssignedNames, collectStmtAssignedNames] at htail ⊢
-      rcases htail with hcond | hscope | hbind | hassign | hfield
-      · left; exact hinScope _ (collectExprNames_mem_exprBoundNames_of_core hcore _ hcond)
+      rcases htail with hscope | hbind | hassign | hfield
       · left; exact hscope
       · right; left; exact hbind
       · right; right; left; exact hassign
@@ -2014,8 +2010,7 @@ theorem stmtListScopeDiscipline_scope_names
       have htail := ih other hmem
       simp [stmtNextScope, collectStmtBindNames, collectStmtListBindNames,
         collectStmtListAssignedNames, collectStmtAssignedNames] at htail ⊢
-      rcases htail with hvalue | hscope | hbind | hassign | hfield
-      · left; exact hinScope _ (collectExprNames_mem_exprBoundNames_of_core hcore _ hvalue)
+      rcases htail with hscope | hbind | hassign | hfield
       · left; exact hscope
       · right; left; exact hbind
       · right; right; left; exact hassign
@@ -2033,8 +2028,7 @@ theorem stmtListScopeDiscipline_scope_names
       have htail := ih other hmem
       simp [stmtNextScope, collectStmtBindNames, collectStmtListBindNames,
         collectStmtListAssignedNames, collectStmtAssignedNames] at htail ⊢
-      rcases htail with hvalue | hscope | hbind | hassign | hfld
-      · left; exact hinScope _ (collectExprNames_mem_exprBoundNames_of_core hcore _ hvalue)
+      rcases htail with hscope | hbind | hassign | hfld
       · left; exact hscope
       · right; left; exact hbind
       · right; right; left; exact hassign
@@ -2045,8 +2039,7 @@ theorem stmtListScopeDiscipline_scope_names
       have htail := ih other hmem
       simp [stmtNextScope, collectStmtBindNames, collectStmtListBindNames,
         collectStmtListAssignedNames, collectStmtAssignedNames] at htail ⊢
-      rcases htail with hvalue | hscope | hbind | hassign | hfld
-      · left; exact hinScope _ (collectExprNames_mem_exprBoundNames_of_core hcore _ hvalue)
+      rcases htail with hscope | hbind | hassign | hfld
       · left; exact hscope
       · right; left; exact hbind
       · right; right; left; exact hassign
@@ -2057,8 +2050,7 @@ theorem stmtListScopeDiscipline_scope_names
       have htail := ih other hmem
       simp [stmtNextScope, collectStmtBindNames, collectStmtListBindNames,
         collectStmtListAssignedNames, collectStmtAssignedNames] at htail ⊢
-      rcases htail with hvalue | hscope | hbind | hassign | hfld
-      · left; exact hinScope _ (collectExprNames_mem_exprBoundNames_of_core hcore _ hvalue)
+      rcases htail with hscope | hbind | hassign | hfld
       · left; exact hscope
       · right; left; exact hbind
       · right; right; left; exact hassign
@@ -2069,8 +2061,7 @@ theorem stmtListScopeDiscipline_scope_names
       have htail := ih other hmem
       simp [stmtNextScope, collectStmtBindNames, collectStmtListBindNames,
         collectStmtListAssignedNames, collectStmtAssignedNames] at htail ⊢
-      rcases htail with hvalue | hscope | hbind | hassign | hfld
-      · left; exact hinScope _ (collectExprNames_mem_exprBoundNames_of_core hcore _ hvalue)
+      rcases htail with hscope | hbind | hassign | hfld
       · left; exact hscope
       · right; left; exact hbind
       · right; right; left; exact hassign
@@ -2081,9 +2072,7 @@ theorem stmtListScopeDiscipline_scope_names
       have htail := ih other hmem
       simp [stmtNextScope, collectStmtBindNames, collectStmtListBindNames,
         collectStmtListAssignedNames, collectStmtAssignedNames] at htail ⊢
-      rcases htail with hoffset | hvalue | hscope | hbind | hassign | hfld
-      · left; exact hinScopeOffset _ (collectExprNames_mem_exprBoundNames_of_core hcoreOffset _ hoffset)
-      · left; exact hinScopeValue _ (collectExprNames_mem_exprBoundNames_of_core hcoreValue _ hvalue)
+      rcases htail with hscope | hbind | hassign | hfld
       · left; exact hscope
       · right; left; exact hbind
       · right; right; left; exact hassign
@@ -2094,9 +2083,7 @@ theorem stmtListScopeDiscipline_scope_names
       have htail := ih other hmem
       simp [stmtNextScope, collectStmtBindNames, collectStmtListBindNames,
         collectStmtListAssignedNames, collectStmtAssignedNames] at htail ⊢
-      rcases htail with hoffset | hvalue | hscope | hbind | hassign | hfld
-      · left; exact hinScopeOffset _ (collectExprNames_mem_exprBoundNames_of_core hcoreOffset _ hoffset)
-      · left; exact hinScopeValue _ (collectExprNames_mem_exprBoundNames_of_core hcoreValue _ hvalue)
+      rcases htail with hscope | hbind | hassign | hfld
       · left; exact hscope
       · right; left; exact hbind
       · right; right; left; exact hassign
@@ -2108,9 +2095,7 @@ theorem stmtListScopeDiscipline_scope_names
       simp only [List.mem_append, stmtNextScope, collectStmtBindNames,
         collectStmtListBindNames, collectStmtBindNames,
         collectStmtListAssignedNames, collectStmtAssignedNames] at htail ⊢
-      rcases htail with ((((( hcond | hthenNames ) | helseNames ) | hscope ) | hbind ) | hassign ) | hfield
-      · left; left; left
-        exact hinScope _ (collectExprNames_mem_exprBoundNames_of_core hcore _ hcond)
+      rcases htail with (((( hthenNames | helseNames ) | hscope ) | hbind ) | hassign) | hfield
       · have hmemFoldl := stmtListBindNames_subset_foldl_stmtNextScope (scope := scope) hthenNames
         have hthenResult := ihThen other hmemFoldl
         simp only [List.mem_append,
