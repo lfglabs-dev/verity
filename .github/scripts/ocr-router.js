@@ -4,9 +4,9 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
-const ROUTER_VERSION = 'router-v8';
+const ROUTER_VERSION = 'router-v9';
 const DEFAULT_SCOUT_MODEL = 'MiniMax-M3';
-const STRONG_REVIEW_BLOCKER_MESSAGE = 'OpenCodeReview 1.7.5 supports --from/--to full diff ranges, but this workflow does not have a safe packet/window input bridge for Lean hunks yet.';
+const STRONG_REVIEW_BLOCKER_MESSAGE = 'OpenCodeReview 1.7.9 supports --from/--to full diff ranges, but this workflow does not have a safe packet/window input bridge for Lean hunks yet.';
 const THRESHOLDS = Object.freeze({
   smallLeanFiles: 1,
   smallChangedLines: 300,
@@ -54,12 +54,14 @@ async function main() {
   writeOutputs(outputPath, {
     mode: decision.mode,
     should_run_ocr: String(decision.shouldRunOcr),
+    has_lean: String(decision.counts.lean > 0),
     reason: decision.reason,
     concurrency: String(decision.ocr.concurrency),
     timeout: String(decision.ocr.timeout),
     background_chars: String(decision.ocr.backgroundChars),
     metrics_path: metricsPath,
     result_path: resultPath,
+    diff_base: diff.base,
     router_version: ROUTER_VERSION,
   });
 
@@ -71,14 +73,15 @@ async function main() {
 }
 
 function loadDiff(base, head) {
-  const output = git(['diff', '--numstat', '--find-renames', base, head, '--']);
+  const mergeBase = git(['merge-base', base, head]).trim();
+  const output = git(['diff', '--numstat', '--find-renames', mergeBase, head, '--']);
   const files = output.split(/\r?\n/).filter(Boolean).map(parseNumstatLine).filter(Boolean);
-  const hunksByPath = loadDiffHunks(base, head);
+  const hunksByPath = loadDiffHunks(mergeBase, head);
   for (const file of files) {
     file.hunks = hunksByPath.get(file.path) || [];
     file.risk = scoreFileRisk(file);
   }
-  return { base, head, files };
+  return { base: mergeBase, head, files };
 }
 
 function loadDiffHunks(base, head) {
@@ -1304,4 +1307,5 @@ module.exports = {
   buildRiskDossier,
   parseUnifiedDiff,
   scorePathRisk,
+  loadDiff,
 };
