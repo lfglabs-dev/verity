@@ -4,6 +4,7 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { execFileSync } = require('child_process');
 
 const router = require('./ocr-router');
 const postOcrReview = require('./post-ocr-review');
@@ -62,6 +63,45 @@ function testOneLeanFileNormal() {
   assert.strictEqual(decision.mode, 'small-lean');
   assert.strictEqual(decision.shouldRunOcr, true);
   assert.strictEqual(decision.ocr.concurrency, 3);
+}
+
+function testBaseOnlyLeanChangesDoNotRouteThroughLeanPath() {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'ocr-merge-base-routing-'));
+  const runGit = args => execFileSync('git', args, { cwd: repo, encoding: 'utf8' });
+  const write = (filePath, content) => {
+    const fullPath = path.join(repo, filePath);
+    fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+    fs.writeFileSync(fullPath, content);
+  };
+  const commit = message => {
+    runGit(['add', '.']);
+    runGit(['-c', 'user.name=OCR test', '-c', 'user.email=ocr-test@example.invalid', 'commit', '-m', message]);
+  };
+
+  runGit(['init', '--initial-branch=main']);
+  write('README.md', 'ancestor\n');
+  commit('ancestor');
+  runGit(['checkout', '-b', 'pr']);
+  write('.github/workflows/ocr-review.yml', 'name: OCR config only\n');
+  commit('PR workflow change');
+  const prHead = runGit(['rev-parse', 'HEAD']).trim();
+  runGit(['checkout', 'main']);
+  write('Compiler/BaseOnly.lean', 'theorem baseOnly : True := by trivial\n');
+  commit('base-only Lean change');
+  runGit(['update-ref', 'refs/remotes/origin/main', runGit(['rev-parse', 'HEAD']).trim()]);
+  runGit(['checkout', 'pr']);
+
+  const previousCwd = process.cwd();
+  try {
+    process.chdir(repo);
+    const diff = router.loadDiff('origin/main', prHead);
+    const decision = router.decideRoute(diff.files);
+    assert.strictEqual(diff.files.some(entry => entry.path.endsWith('.lean')), false);
+    assert.strictEqual(decision.counts.lean, 0);
+    assert.strictEqual(decision.mode, 'config-docs');
+  } finally {
+    process.chdir(previousCwd);
+  }
 }
 
 function testLargeLeanPacketized() {
@@ -1294,6 +1334,22 @@ function testWorkflowDocsEnabled() {
   ]);
   assert.strictEqual(decision.mode, 'config-docs');
   assert.strictEqual(decision.shouldRunOcr, true);
+
+  const workflow = fs.readFileSync(path.join(__dirname, '..', 'workflows', 'ocr-review.yml'), 'utf8');
+  assert.ok(workflow.includes('@alibaba-group/open-code-review@1.7.9'));
+  assert.ok(workflow.includes('npm install --prefix "$RUNNER_TEMP/ocr-cli"'));
+  assert.ok(!workflow.includes('npm install -g @alibaba-group/open-code-review'));
+  assert.ok(workflow.includes('prepare-lean-lsp.sh'));
+  assert.ok(workflow.includes("steps.route.outputs.has_lean == 'true'"));
+  assert.ok(workflow.includes('DIFF_BASE: ${{ steps.route.outputs.diff_base }}'));
+  assert.ok(workflow.includes('--from "${DIFF_BASE}"'));
+  assert.ok(workflow.includes('Number(context.payload.inputs.pr_number)'));
+  assert.ok(workflow.includes('ELAN_HOME: ${{ runner.temp }}/ocr-elan-${{ github.run_id }}-${{ github.run_attempt }}'));
+  assert.ok(workflow.includes('lean-lsp-mcp==${LEAN_LSP_MCP_VERSION}'));
+  assert.ok(workflow.includes('"lean_diagnostic_messages","lean_file_outline","lean_hover_info"'));
+  assert.ok(workflow.includes('LEAN_MCP_DISABLED_TOOLS=lean_run_code,lean_build'));
+  assert.ok(workflow.includes('OCR_LLM_TOKEN='));
+  assert.ok(workflow.includes("steps.route.outputs.should_run_ocr != 'true' || steps.ocr.outcome == 'success'"));
 }
 
 function testGenericScriptConfigEnabled() {
@@ -1713,6 +1769,7 @@ function testLargeLeanScoutDedupVariesBySanitizedScoutConfig() {
 async function run() {
   testNoSupportedFilesSkipped();
   testOneLeanFileNormal();
+  testBaseOnlyLeanChangesDoNotRouteThroughLeanPath();
   testLargeLeanPacketized();
   testLeanCommentDoesNotTriggerSorrySignal();
   testLeanBlockCommentDoesNotTriggerSorrySignal();

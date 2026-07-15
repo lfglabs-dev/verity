@@ -1,4 +1,5 @@
 import Compiler.Proofs.IRGeneration.SupportedFragment
+import Compiler.Proofs.IRGeneration.IRInterpreter
 import Compiler.CompilationModel.AbiHelpers
 import Compiler.CompilationModel.Dispatch
 import Compiler.CompilationModel.UsageAnalysis
@@ -2643,6 +2644,11 @@ structure SupportedCompiledInternalHelperWitness
       Except.ok compiledStmt
   presentInRuntime :
     compiledStmt ∈ runtimeContract.internalFunctions
+  uniqueInRuntime :
+    ∀ stmt ∈ runtimeContract.internalFunctions,
+      ∀ p r b, irInternalFunctionDefOfStmt? stmt =
+        some ⟨CompilationModel.internalFunctionYulName calleeName, p, r, b⟩ →
+        stmt = compiledStmt
 
 /-- Runtime-contract inventory of source-defined internal helpers.
 This keeps future exact helper-step proofs generic: they can require a
@@ -2655,6 +2661,13 @@ structure SupportedRuntimeHelperTableInterface
   compiledOfWitness :
     ∀ calleeName (witness : SupportedInternalHelperWitness spec calleeName),
       SupportedCompiledInternalHelperWitness spec runtimeContract calleeName
+  /-- The compiled witness returned for a source witness is compiled from that
+  same source witness. Without this law `compiledOfWitness` could return a
+  witness carrying an unrelated `sourceWitness`, letting a source summary proof
+  be paired with a compiled helper it does not describe. -/
+  compiledOfWitness_sourceWitness :
+    ∀ calleeName (witness : SupportedInternalHelperWitness spec calleeName),
+      (compiledOfWitness calleeName witness).sourceWitness = witness
 
 /-- Helper-call boundary for the current generic theorem.
 It already inventories helper callees via positive summary witnesses, but it
@@ -4291,6 +4304,20 @@ def SupportedRuntimeHelperTableInterface.compiledOfCall
     SupportedCompiledInternalHelperWitness spec runtimeContract calleeName :=
   hRuntime.compiledOfWitness calleeName (hHelpers.summaryOfCall hmem)
 
+/-- The compiled helper produced by `compiledOfCall` carries exactly the source
+witness inventoried for that call, so a source summary proof about
+`hHelpers.summaryOfCall hmem` is a proof about `compiledHelper.sourceWitness`. -/
+theorem SupportedRuntimeHelperTableInterface.compiledOfCall_sourceWitness
+    {spec : CompilationModel}
+    {runtimeContract : IRContract}
+    {fn : FunctionSpec}
+    (hRuntime : SupportedRuntimeHelperTableInterface spec runtimeContract)
+    (hHelpers : SupportedBodyHelperInterface spec fn)
+    {calleeName : String}
+    (hmem : calleeName ∈ helperCallNames fn) :
+    (hRuntime.compiledOfCall hHelpers hmem).sourceWitness = hHelpers.summaryOfCall hmem :=
+  hRuntime.compiledOfWitness_sourceWitness calleeName (hHelpers.summaryOfCall hmem)
+
 
 -- NOTE: An exact decomposition theorem
 --   exprTouchesUnsupportedContractSurface expr =
@@ -4538,7 +4565,7 @@ decreasing_by
   all_goals
     simp_wf
     try simp [Stmt.ite.sizeOf_spec, Stmt.forEach.sizeOf_spec, List.cons.sizeOf_spec] at *
-    omega
+    try omega
 
 private theorem stmtTouchesUnsupportedCallSurface_eq_featureOr
     (stmt : Stmt) :
