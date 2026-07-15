@@ -66,6 +66,7 @@ import Compiler.Proofs.IRGeneration.GenericInduction.Main
 import Compiler.Proofs.IRGeneration.GenericInduction.ResultRelation
 import Compiler.Proofs.IRGeneration.GenericInduction.Scope
 import Compiler.Proofs.IRGeneration.GenericInduction.Storage
+import Compiler.Proofs.IRGeneration.GenericInduction.StorageWord
 import Compiler.Proofs.IRGeneration.HelperBodyBridge
 import Compiler.Proofs.IRGeneration.HelperSummaryEvidence
 import Compiler.Proofs.IRGeneration.IRInterpreter
@@ -3225,6 +3226,29 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_mstoreSingle_of_surface
   Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_tstoreSingle_of_surface
 
+  -- Compiler/Proofs/IRGeneration/GenericInduction/StorageWord.lean
+  -- Compiler.Proofs.IRGeneration.compileExprWithInternals_nil_ok  -- private
+  -- Compiler.Proofs.IRGeneration.uint256_add_val_eq_mod  -- private
+  -- Compiler.Proofs.IRGeneration.IRStorageSlot.toNat_ofNat_wordNormalize  -- private
+  -- Compiler.Proofs.IRGeneration.IRStorageSlot.ne_toNat_wordNormalize_of_ne_ofNat  -- private
+  -- Compiler.Proofs.IRGeneration.execIRStmt_sstore_of_eval  -- private
+  -- Compiler.Proofs.IRGeneration.evalIRExpr_storageWordTarget_of_eval  -- private
+  -- Compiler.Proofs.IRGeneration.storageWordTarget_eq_wordNormalize  -- private
+  -- Compiler.Proofs.IRGeneration.bindingsExactlyMatchIRVarsOnScope_writeStorageWordSlot  -- private
+  -- Compiler.Proofs.IRGeneration.findDynamicArrayElementAtSlot_writeStorageWordSlots_none  -- private
+  -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeStorageWordSlot_target_none  -- private
+  -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeStorageWordSlot_target  -- private
+  -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeStorageWordSlot_other  -- private
+  -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeStorageWordSlot  -- private
+  -- Compiler.Proofs.IRGeneration.execStmt_setStorageWord_singleSlot_continue  -- private
+  -- Compiler.Proofs.IRGeneration.execIRStmts_setStorageWord_singleSlot_continue  -- private
+  -- Compiler.Proofs.IRGeneration.scopeNamesIncluded_setStorageWord  -- private
+  -- Compiler.Proofs.IRGeneration.setStorageWord_target_safety_runtime  -- private
+  -- Compiler.Proofs.IRGeneration.stmtStepMatchesIRExec_setStorageWord_singleSlot_continue  -- private
+  -- Compiler.Proofs.IRGeneration.compiledStmtStep_setStorageWord_singleSlot_preserves_of_eval  -- private
+  -- Compiler.Proofs.IRGeneration.compiledStmtStep_setStorageWord_singleSlot_preserves  -- private
+  Compiler.Proofs.IRGeneration.compiledStmtStep_setStorageWord_singleSlot
+
   -- Compiler/Proofs/IRGeneration/HelperBodyBridge.lean
   Compiler.Proofs.IRGeneration.compileStmtWithFork_internal_shape_irrelevant_of_returnFree
   Compiler.Proofs.IRGeneration.compileStmtListWithFork_internal_shape_irrelevant_of_returnFree
@@ -6133,4 +6157,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5751 theorems/lemmas (3990 public, 1761 private, 0 sorry'd)
+-- Total: 5772 theorems/lemmas (3991 public, 1781 private, 0 sorry'd)
