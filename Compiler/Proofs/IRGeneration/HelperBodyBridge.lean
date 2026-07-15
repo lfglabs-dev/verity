@@ -356,13 +356,24 @@ theorem empty_void_helper_body_compile_shape_irrelevant_regression :
 local stop-free boundary without a transitive no-stop summary for the callee. -/
 theorem stmtListUsesStop_rejects_statement_internal_helper_call_regression :
     stmtListUsesStop [Stmt.internalCall "stoppingHelper" []] = true := by
-  native_decide
+  unfold stmtListUsesStop Stmt.anyDeepList
+  simp only [List.any_cons, List.any_nil, Bool.or_false]
+  unfold Stmt.anyDeep
+  simp [stmtUsesStopBoundaryNode, Stmt.childLists]
 
 /-- Regression: expression-position helper calls are also rejected by the local
 stop-free boundary. -/
 theorem stmtListUsesStop_rejects_expression_internal_helper_call_regression :
     stmtListUsesStop
       [Stmt.letVar "value" (Expr.internalCall "stoppingHelper" [])] = true := by
-  native_decide
+  unfold stmtListUsesStop Stmt.anyDeepList
+  simp only [List.any_cons, List.any_nil, Bool.or_false]
+  unfold Stmt.anyDeep
+  simp only [Stmt.childLists, List.attach_nil, List.any_nil, Bool.or_false]
+  unfold stmtUsesStopBoundaryNode
+  simp only [Stmt.directMetadata, List.any_cons, List.any_nil, Bool.or_false]
+  unfold exprUsesInternalHelperCall Expr.anyDeep
+  simp only [exprUsesInternalHelperCallNode, Expr.children, List.attach_nil, List.any_nil,
+    Bool.or_false]
 
 end Compiler.Proofs.IRGeneration
