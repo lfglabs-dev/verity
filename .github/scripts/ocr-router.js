@@ -1273,12 +1273,11 @@ function renderCodeSample(value) {
     .trim()
     .slice(0, 200);
   if (!text) return '`(empty)`';
-  if (text.includes('`')) {
-    return text
-      .replace(/@/g, '@\u200b')
-      .replace(/[<>]/g, ch => ({ '<': '&lt;', '>': '&gt;' }[ch]));
-  }
-  return `\`${text}\``;
+  // Backticks inside a sample would terminate the code span; substitute a
+  // prime mark so the sample still renders inertly inside one code span
+  // (no markdown, mentions, or HTML interpretation) instead of falling back
+  // to prose rendering.
+  return `\`${text.replace(/`/g, '\u2032')}\``;
 }
 
 function packetResidualRisk(decision) {

@@ -368,7 +368,7 @@ function severityRollup(comments) {
   let unrated = 0;
   for (const c of comments) {
     const sev = String(c.severity || '').toLowerCase();
-    if (sev in counts) counts[sev] += 1;
+    if (Object.prototype.hasOwnProperty.call(counts, sev)) counts[sev] += 1;
     else unrated += 1;
   }
   const parts = [];
@@ -388,6 +388,9 @@ function verdictLine({ status, mode, comments, retryable }) {
     : 'no findings';
   if (retryable) {
     return `🔁 **Incomplete — this run did not finish and will retry on the same commit.** Do not count it as review coverage.`;
+  }
+  if (status === 'no-supported' || mode === 'no-supported') {
+    return `⚪ **OCR did not run** — this diff has no OCR-supported files. Not a review outcome.`;
   }
   if (status === 'error') {
     return `🔴 **Review errored** (${findings} before the failure) — treat this PR as unreviewed by OCR.`;
