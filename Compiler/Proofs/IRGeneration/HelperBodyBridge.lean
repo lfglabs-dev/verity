@@ -128,7 +128,7 @@ theorem compileStmtListWithFork_internal_shape_irrelevant_of_returnFree
           targetFork stmt internalFunctions hstmt,
         compileStmtListWithFork_internal_shape_irrelevant_of_returnFree
           fields events errors dynamicSource internalRetNames isInternal
-          (collectStmtNames stmt ++ inScopeNames) adtTypes targetFork rest
+          (collectStmtBindNames stmt ++ inScopeNames) adtTypes targetFork rest
           internalFunctions hrest
       ]
 
