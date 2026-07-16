@@ -3003,6 +3003,7 @@ end Verity.AxiomAudit
   -- Compiler/Proofs/IRGeneration/GenericInduction/Loops.lean
   -- Compiler.Proofs.IRGeneration.collectStmtBindNames_subset_collectStmtNames  -- private
   -- Compiler.Proofs.IRGeneration.collectStmtListBindNames_subset_collectStmtListNames  -- private
+  -- Compiler.Proofs.IRGeneration.collectMatchBranchBindNames_subset_collectMatchBranchNames  -- private
   -- Compiler.Proofs.IRGeneration.sourceExec_forEach_literal_zero  -- private
   -- Compiler.Proofs.IRGeneration.sourceExec_forEach_literal_empty  -- private
   -- Compiler.Proofs.IRGeneration.forEachZero_fresh_facts  -- private
@@ -6170,4 +6171,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5779 theorems/lemmas (3994 public, 1785 private, 0 sorry'd)
+-- Total: 5780 theorems/lemmas (3994 public, 1786 private, 0 sorry'd)
