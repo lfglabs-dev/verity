@@ -1537,7 +1537,7 @@ theorem IRStmtPreservesObsAt_of_tstore
   obtain ⟨v, hv⟩ := hValEval
   refine ⟨{ state with transientStorage := fun x =>
       if x = o % Compiler.Constants.evmModulus then v else state.transientStorage x }, fun _ => ?_⟩
-  simp only [execIRStmt, ho, hv]
+  simp [execIRStmt, ho, hv]
 
 /-- Cross-cast for `.exprStmt (.call "mstore" [offset, val])`: at any state where
 both `offset` and `val` evaluate, the stmt continues, updating memory. -/
@@ -1551,7 +1551,7 @@ theorem IRStmtPreservesObsAt_of_mstore
   obtain ⟨v, hv⟩ := hValEval
   refine ⟨{ state with memory := fun x => if x = o then v else state.memory x },
     fun _ => ?_⟩
-  simp only [execIRStmt, ho, hv]
+  simp [execIRStmt, ho, hv]
 
 /-- Cross-cast for `.exprStmt (.call "mstore8" [offset, val])`: the IR evaluator
 treats `mstore8` opaquely (the fallthrough `.continue state` branch), so the
@@ -5825,6 +5825,7 @@ theorem compileStmt_internalCall_shape
 private theorem internalFunctionYulName_head (name : String) :
     (CompilationModel.internalFunctionYulName name).toList.head? = some 'i' := by
   simp [CompilationModel.internalFunctionYulName, CompilationModel.internalFunctionPrefix]
+  left
   decide
 
 private theorem internalFunctionYulName_ne_log (name logName : String)
@@ -5940,14 +5941,11 @@ theorem execIRStmtsWithInternals_of_internalCall_compile
       (by
         intro hEq
         have hHead := congrArg (fun s => s.toList.head?) hEq
-        simp [CompilationModel.internalFunctionYulName, CompilationModel.internalFunctionPrefix] at hHead
-        cases hHead with
-        | inl h =>
-            have hcontra : (toString "").data.head? ≠ some 't' := by decide
-            exact hcontra h
-        | inr h =>
-            have hcontra : (toString "internal_").data.head? ≠ some 't' := by decide
-            exact hcontra h.2)
+        have hT : ("tstore" : String).toList.head? = some 't' := by decide
+        change (CompilationModel.internalFunctionYulName functionName).toList.head? =
+          ("tstore" : String).toList.head? at hHead
+        rw [internalFunctionYulName_head functionName, hT] at hHead
+        exact nomatch hHead)
       hrevert hreturn
       (internalFunctionYulName_isYulLogName_false functionName)⟩
 

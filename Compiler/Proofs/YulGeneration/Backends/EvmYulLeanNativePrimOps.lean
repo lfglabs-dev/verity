@@ -2311,10 +2311,9 @@ theorem lowerStmtsNative_revert_zero_zero :
     Backends.lowerStmtsNative
       [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])] =
       .ok [nativeRevertZeroZeroStmt] := by
-  simp [Backends.lowerStmtsNative, Backends.lowerStmtsNativeWithSwitchIds,
-    nativeRevertZeroZeroStmt, Backends.lowerExprNative,
-    Backends.lookupRuntimePrimOp]
-  rfl
+  simp only [Backends.lowerStmtsNative,
+    lowerStmtsNativeWithSwitchIds_revert_zero_zero,
+    Bind.bind, Except.bind, Pure.pure, Except.pure]
 
 /-- Native execution of the generated selector-miss body `revert(0, 0)`.
     This is the concrete primitive halt used by the dispatcher default path. -/
