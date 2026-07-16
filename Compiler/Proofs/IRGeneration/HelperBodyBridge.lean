@@ -1,4 +1,5 @@
 import Compiler.Proofs.IRGeneration.IRInterpreter
+import Compiler.Proofs.IRGeneration.SourceSemantics
 import Compiler.CompilationModel.Compile
 import Compiler.Proofs.IRGeneration.SupportedSpec
 
@@ -33,29 +34,33 @@ def stmtListUsesReturnFamily : List Stmt → Bool
 
 end
 
-mutual
-
-/-- Sufficient syntactic exclusion for helper bodies that can halt the caller via
-source-level `Stmt.stop`.  Conservative unsupported wrappers are rejected at the
-head, matching `stmtUsesReturnFamily`. -/
-def stmtUsesStop : Stmt → Bool
-  | .stop => true
-  | .unsafeBlock _ _ | .unsafeYul _ | .matchAdt _ _ _ => true
-  | .ite _ thenBranch elseBranch =>
-      stmtListUsesStop thenBranch ||
-        stmtListUsesStop elseBranch
-  | .forEach _ _ body | .forEachSetBit _ _ body =>
-      stmtListUsesStop body
+/-- Node-local classifier for expression-position helper calls. -/
+def exprUsesInternalHelperCallNode : Expr → Bool
+  | .internalCall _ _ => true
   | _ => false
 
-/-- List form of `stmtUsesStop`. -/
-def stmtListUsesStop : List Stmt → Bool
-  | [] => false
-  | stmt :: rest =>
-      stmtUsesStop stmt ||
-        stmtListUsesStop rest
+/-- Does an expression contain an internal helper call? -/
+def exprUsesInternalHelperCall (expr : Expr) : Bool :=
+  expr.anyDeep exprUsesInternalHelperCallNode
 
-end
+/-- Node-local classifier for helper-body shapes that can halt the caller, or
+whose stop behavior is not summarized at the N1a boundary. -/
+def stmtUsesStopBoundaryNode : Stmt → Bool
+  | .stop => true
+  | .internalCall _ _ | .internalCallAssign _ _ _ => true
+  | .unsafeBlock _ _ | .unsafeYul _ | .matchAdt _ _ _ => true
+  | stmt =>
+      stmt.directMetadata.subexpressions.any exprUsesInternalHelperCall
+
+/-- Sufficient syntactic exclusion for helper bodies that can halt the caller via
+source-level `Stmt.stop`.  Internal helper calls are rejected here because this
+boundary does not consume a transitive no-stop summary for callees. -/
+def stmtUsesStop (stmt : Stmt) : Bool :=
+  stmt.anyDeep stmtUsesStopBoundaryNode
+
+/-- List form of `stmtUsesStop`. -/
+def stmtListUsesStop (stmts : List Stmt) : Bool :=
+  Stmt.anyDeepList stmtUsesStopBoundaryNode stmts
 
 mutual
 
@@ -282,6 +287,58 @@ theorem findInternalFunction?_external_body_of_witness_returnFree
   subst bodyStmts'
   exact ⟨retNames, bodyStmts, hfind, hbodyCompile, hshape⟩
 
+section InternalHelperSummaryBoundary
+
+variable {runtimeContract : IRContract}
+variable {spec : CompilationModel}
+variable {calleeName : String}
+variable (compiledHelper :
+  SupportedCompiledInternalHelperWitness spec runtimeContract calleeName)
+variable (hreturnFree :
+  stmtListUsesReturnFamily compiledHelper.sourceWitness.callee.body = false)
+variable (hstopFree :
+  stmtListUsesStop compiledHelper.sourceWitness.callee.body = false)
+variable (hunique : ∀ stmt ∈ runtimeContract.internalFunctions,
+  ∀ p r b, irInternalFunctionDefOfStmt? stmt =
+    some ⟨CompilationModel.internalFunctionYulName
+      compiledHelper.sourceWitness.callee.name, p, r, b⟩ →
+    stmt = compiledHelper.compiledStmt)
+variable (hsound : SourceSemantics.InternalHelperSummarySound spec
+  compiledHelper.sourceWitness.callee
+  compiledHelper.sourceWitness.summary.contract)
+
+include hreturnFree hstopFree hunique hsound
+
+/-- N1a boundary package: runtime lookup, return/stop exclusions, and real summary post. -/
+theorem compiledInternalHelper_summary_boundary_of_witness_returnStopFree
+    (fuel : Nat)
+    (initialWorld : Verity.ContractState)
+    (args : List Nat) :
+    let callee := compiledHelper.sourceWitness.callee
+    let yulName := CompilationModel.internalFunctionYulName calleeName
+    let paramNames := CompilationModel.internalFunctionYulParamNames callee.params
+    ∃ retNames bodyStmts,
+      findInternalFunction? runtimeContract yulName =
+        some { name := yulName, params := paramNames, rets := retNames, body := bodyStmts } ∧
+      CompilationModel.compileStmtListWithFork
+        (CompilationModel.applySlotAliasRanges spec.fields spec.slotAliasRanges)
+        spec.events spec.errors .calldata [] false (paramNames ++ retNames)
+        spec.adtTypes Verity.Core.Intrinsics.HardFork.cancun
+        callee.body = Except.ok bodyStmts ∧
+      stmtListUsesStop callee.body = false ∧
+      let result := SourceSemantics.interpretInternalFunctionFuel spec fuel
+        callee initialWorld args
+      compiledHelper.sourceWitness.summary.contract.post fuel initialWorld args
+        result.success result.returnValue result.world := by
+  dsimp only
+  rcases findInternalFunction?_external_body_of_witness_returnFree
+      compiledHelper hreturnFree hunique with
+    ⟨retNames, bodyStmts, hfind, hbodyCompile, _hshape⟩
+  refine ⟨retNames, bodyStmts, hfind, hbodyCompile, hstopFree, ?_⟩
+  exact hsound fuel initialWorld args
+
+end InternalHelperSummaryBoundary
+
 /-- Concrete regression for the rank-0 void-helper body-shape seam: an empty
 helper body is unaffected by internal return targets. -/
 theorem empty_void_helper_body_compile_shape_irrelevant_regression :
@@ -294,5 +351,29 @@ theorem empty_void_helper_body_compile_shape_irrelevant_regression :
     compileStmtListWithFork_internal_shape_irrelevant_of_returnFree
       [] [] [] .calldata ([] : List String) true ([] : List String) []
       Verity.Core.Intrinsics.HardFork.cancun ([] : List Stmt) [] rfl
+
+/-- Regression: a helper that delegates to another helper is not accepted by the
+local stop-free boundary without a transitive no-stop summary for the callee. -/
+theorem stmtListUsesStop_rejects_statement_internal_helper_call_regression :
+    stmtListUsesStop [Stmt.internalCall "stoppingHelper" []] = true := by
+  unfold stmtListUsesStop Stmt.anyDeepList
+  simp only [List.any_cons, List.any_nil, Bool.or_false]
+  unfold Stmt.anyDeep
+  simp [stmtUsesStopBoundaryNode, Stmt.childLists]
+
+/-- Regression: expression-position helper calls are also rejected by the local
+stop-free boundary. -/
+theorem stmtListUsesStop_rejects_expression_internal_helper_call_regression :
+    stmtListUsesStop
+      [Stmt.letVar "value" (Expr.internalCall "stoppingHelper" [])] = true := by
+  unfold stmtListUsesStop Stmt.anyDeepList
+  simp only [List.any_cons, List.any_nil, Bool.or_false]
+  unfold Stmt.anyDeep
+  simp only [Stmt.childLists, List.attach_nil, List.any_nil, Bool.or_false]
+  unfold stmtUsesStopBoundaryNode
+  simp only [Stmt.directMetadata, List.any_cons, List.any_nil, Bool.or_false]
+  unfold exprUsesInternalHelperCall Expr.anyDeep
+  simp only [exprUsesInternalHelperCallNode, Expr.children, List.attach_nil, List.any_nil,
+    Bool.or_false]
 
 end Compiler.Proofs.IRGeneration
