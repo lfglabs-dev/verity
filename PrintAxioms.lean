@@ -66,6 +66,8 @@ import Compiler.Proofs.IRGeneration.GenericInduction.Main
 import Compiler.Proofs.IRGeneration.GenericInduction.ResultRelation
 import Compiler.Proofs.IRGeneration.GenericInduction.Scope
 import Compiler.Proofs.IRGeneration.GenericInduction.Storage
+import Compiler.Proofs.IRGeneration.GenericInduction.StorageWord
+import Compiler.Proofs.IRGeneration.HelperBodyBridge
 import Compiler.Proofs.IRGeneration.HelperSummaryEvidence
 import Compiler.Proofs.IRGeneration.IRInterpreter
 import Compiler.Proofs.IRGeneration.IRStorageWord
@@ -1844,6 +1846,9 @@ end Verity.AxiomAudit
   Compiler.Proofs.HelperStepProofs.stmtListDirectInternalHelperAssignStepInterface_of_assignHeadStepBridges
   Compiler.Proofs.HelperStepProofs.stmtListDirectInternalHelperAssignStepInterfaceWithInternals_of_assignHeadStepBridgesWithInternals
   Compiler.Proofs.HelperStepProofs.stmtListDirectInternalHelperAssignStepInterface_of_perCalleeAssignBridgeCatalog
+  Compiler.Proofs.HelperStepProofs.directInternalHelperStatementContextBridge_summarySound_compiledHelper
+  Compiler.Proofs.HelperStepProofs.directInternalHelperStatementContextBridge_sourceCallEvidence
+  Compiler.Proofs.HelperStepProofs.directInternalHelperStatementContextBridge_sourceAssignEvidence
   Compiler.Proofs.HelperStepProofs.evalIRCallWithInternals_of_compiledHelperWitness
   Compiler.Proofs.HelperStepProofs.exprInternalHelperCallContextBridge_sourceEvidence
   Compiler.Proofs.HelperStepProofs.compileExprWithInternals_internalCall_shape
@@ -2727,6 +2732,8 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.internalFunctionYulName_ne_return  -- private
   Compiler.Proofs.IRGeneration.execIRStmtsWithInternals_of_internalCallAssign_compiledHelperWitness
   Compiler.Proofs.IRGeneration.execIRStmtsWithInternals_of_internalCall_compiledHelperWitness
+  Compiler.Proofs.IRGeneration.execIRStmtsWithInternals_of_internalCallAssign_compiledHelperWitness_with_internals
+  Compiler.Proofs.IRGeneration.execIRStmtsWithInternals_of_internalCall_compiledHelperWitness_with_internals
 
   -- Compiler/Proofs/IRGeneration/GenericInduction/DenoteSound.lean
   Compiler.Proofs.IRGeneration.denote_sound
@@ -3233,6 +3240,37 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_mstoreSingle_of_surface
   Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_tstoreSingle_of_surface
 
+  -- Compiler/Proofs/IRGeneration/GenericInduction/StorageWord.lean
+  -- Compiler.Proofs.IRGeneration.compileExprWithInternals_nil_ok  -- private
+  -- Compiler.Proofs.IRGeneration.uint256_add_val_eq_mod  -- private
+  -- Compiler.Proofs.IRGeneration.IRStorageSlot.toNat_ofNat_wordNormalize  -- private
+  -- Compiler.Proofs.IRGeneration.IRStorageSlot.ne_toNat_wordNormalize_of_ne_ofNat  -- private
+  -- Compiler.Proofs.IRGeneration.execIRStmt_sstore_of_eval  -- private
+  -- Compiler.Proofs.IRGeneration.evalIRExpr_storageWordTarget_of_eval  -- private
+  -- Compiler.Proofs.IRGeneration.storageWordTarget_eq_wordNormalize  -- private
+  -- Compiler.Proofs.IRGeneration.bindingsExactlyMatchIRVarsOnScope_writeStorageWordSlot  -- private
+  -- Compiler.Proofs.IRGeneration.findDynamicArrayElementAtSlot_writeStorageWordSlots_none  -- private
+  -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeStorageWordSlot_target_none  -- private
+  -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeStorageWordSlot_target  -- private
+  -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeStorageWordSlot_other  -- private
+  -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeStorageWordSlot  -- private
+  -- Compiler.Proofs.IRGeneration.execStmt_setStorageWord_singleSlot_continue  -- private
+  -- Compiler.Proofs.IRGeneration.execIRStmts_setStorageWord_singleSlot_continue  -- private
+  -- Compiler.Proofs.IRGeneration.scopeNamesIncluded_setStorageWord  -- private
+  -- Compiler.Proofs.IRGeneration.setStorageWord_target_safety_runtime  -- private
+  -- Compiler.Proofs.IRGeneration.stmtStepMatchesIRExec_setStorageWord_singleSlot_continue  -- private
+  -- Compiler.Proofs.IRGeneration.compiledStmtStep_setStorageWord_singleSlot_preserves_of_eval  -- private
+  -- Compiler.Proofs.IRGeneration.compiledStmtStep_setStorageWord_singleSlot_preserves  -- private
+  Compiler.Proofs.IRGeneration.compiledStmtStep_setStorageWord_singleSlot
+
+  -- Compiler/Proofs/IRGeneration/HelperBodyBridge.lean
+  Compiler.Proofs.IRGeneration.compileStmtWithFork_internal_shape_irrelevant_of_returnFree
+  Compiler.Proofs.IRGeneration.compileStmtListWithFork_internal_shape_irrelevant_of_returnFree
+  Compiler.Proofs.IRGeneration.compileInternalFunction_body_eq_external_of_returnFree
+  Compiler.Proofs.IRGeneration.findInternalFunction?_some_eq_compiledHelper_of_witness
+  Compiler.Proofs.IRGeneration.findInternalFunction?_external_body_of_witness_returnFree
+  Compiler.Proofs.IRGeneration.empty_void_helper_body_compile_shape_irrelevant_regression
+
   -- Compiler/Proofs/IRGeneration/HelperSummaryEvidence.lean
   -- Compiler.Proofs.IRGeneration.eraseDups_nodup_and_mem_aux_local  -- private
   -- Compiler.Proofs.IRGeneration.List.mem_of_mem_eraseDups_local  -- private
@@ -3480,7 +3518,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.compileStmt_internalCall_shape
   -- Compiler.Proofs.IRGeneration.internalFunctionYulName_head  -- private
   -- Compiler.Proofs.IRGeneration.internalFunctionYulName_ne_log  -- private
-  -- Compiler.Proofs.IRGeneration.internalFunctionYulName_isYulLogName_false  -- private
+  Compiler.Proofs.IRGeneration.internalFunctionYulName_isYulLogName_false
   Compiler.Proofs.IRGeneration.execIRStmtsWithInternals_of_internalCallAssign_compile
   Compiler.Proofs.IRGeneration.execIRStmtsWithInternals_of_internalCall_compile
   Compiler.Proofs.IRGeneration.applyIRTransactionContext_sender
@@ -3886,6 +3924,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.SupportedBodyInterfaceExceptMappingWrites.helperSurfaceClosed
   Compiler.Proofs.IRGeneration.SupportedBodyHelperInterface.calleeRank_lt
   Compiler.Proofs.IRGeneration.SupportedBodyHelperInterface.exprSummaryPreservesWorld
+  Compiler.Proofs.IRGeneration.SupportedRuntimeHelperTableInterface.compiledOfCall_sourceWitness
   -- Compiler.Proofs.IRGeneration.exprTouchesUnsupportedCallSurface_eq_featureOr  -- private
   -- Compiler.Proofs.IRGeneration.exprListTouchesUnsupportedCallSurface_eq_featureOr  -- private
   -- Compiler.Proofs.IRGeneration.stmtOrListTouchesUnsupportedCallSurface_eq_featureOr  -- private
@@ -6140,4 +6179,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5761 theorems/lemmas (3985 public, 1776 private, 0 sorry'd)
+-- Total: 5794 theorems/lemmas (3999 public, 1795 private, 0 sorry'd)

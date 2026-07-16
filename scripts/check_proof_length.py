@@ -36,6 +36,12 @@ HARD_LIMIT = 50
 # before the check was introduced. New proofs must not be added here without a
 # justification comment in the PR explaining why decomposition is not feasible.
 ALLOWLIST: set[str] = {
+    # #2080 direct-helper dispatch seams: these are signature-dominated adapters
+    # that carry the helper table, compilation, and state/fuel relations together.
+    # Splitting them would duplicate the same witness plumbing without reducing
+    # the proof search performed by their bodies.
+    "execIRStmtsWithInternals_of_internalCall_compiledHelperWitness_with_internals",
+    "directInternalHelperStatementContextBridge_sourceAssignEvidence",
     # --- Denote/SourceSemantics agreement (P4 seed) ---
     # Structural recursion over the fuelless forEach loop; the succ case must
     # spell out the loop-state literal inside a `show`-match to align the two
@@ -75,6 +81,11 @@ ALLOWLIST: set[str] = {
     # plumbing without reducing proof complexity.
     "stmtListCompileCore_compiledLegacyCompatible",
     "stmtListTerminalCore_compiledLegacyCompatible",
+    # Helper-body shape seam: the proof follows the compiler's own
+    # validate/returns/body split and then applies the mutually recursive
+    # return-free shape-irrelevance lemma. Splitting would duplicate that
+    # compileInternalFunction destructuring without reducing the proof burden.
+    "compileInternalFunction_body_eq_external_of_returnFree",
     # Fork-aware list append inversion and constructor smoke witnesses are
     # mechanical normalization proofs; splitting them duplicates the same
     # head/tail compile-success plumbing.
