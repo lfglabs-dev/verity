@@ -1218,31 +1218,67 @@ function buildPacketizedResult(decision, metrics) {
 }
 
 function renderPacketFinding(packet) {
-  const lines = [
-    `Large Lean packet selected for stronger review: ${packet.summary}.`,
-    `Risk signals: ${packet.signals.length ? packet.signals.join(', ') : 'hotspot path/churn'}.`,
-  ];
-  if (packet.scout_reason) lines.push(`Scout reason: ${sanitizeCommentText(packet.scout_reason)}`);
-  if (packet.scout_question) lines.push(`Question for stronger reviewer: ${sanitizeCommentText(packet.scout_question)}`);
+  // Reader-first ordering: the substantive finding leads, the router's
+  // selection rationale follows, and the triage caveat closes.
+  const lines = [];
+  if (packet.scout_reason) {
+    lines.push(`**Finding:** ${sanitizeCommentText(packet.scout_reason)}`);
+  }
+  if (packet.scout_question) {
+    lines.push(`**Ask the reviewer:** ${sanitizeCommentText(packet.scout_question)}`);
+  }
+  lines.push(
+    `**Why flagged:** ${packet.summary}. Signals: ${
+      packet.signals.length ? packet.signals.join(', ') : 'hotspot path/churn'
+    }.`,
+  );
   if (packet.added_sample.length > 0) {
     lines.push('Added-line sample:');
     for (const sample of packet.added_sample.slice(0, 5)) {
-      lines.push(`- L${sample.line}: ${sanitizeCommentText(sample.text)}`);
+      lines.push(`- L${sample.line}: ${renderCodeSample(sample.text)}`);
     }
   }
-  lines.push('This packet is scout triage and a coverage marker; it is not a final OCR semantic review or approval.');
+  lines.push('_Scout triage coverage marker — not a final OCR semantic review or approval._');
   return lines.join('\n');
 }
 
+// Neutralize injection vectors (mentions, raw HTML, control characters) in
+// model-authored prose WITHOUT destroying markdown readability: code spans,
+// dots, hyphens, and paragraph breaks survive. Length-capped at a word
+// boundary with an explicit truncation marker instead of a mid-word cut.
 function sanitizeCommentText(value) {
-  return String(value || '')
-    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+  const text = String(value || '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, ' ')
     .replace(/@/g, '@\u200b')
     .replace(/[<>]/g, ch => ({ '<': '&lt;', '>': '&gt;' }[ch]))
-    .replace(/([\\`*_{}\[\]()#+.!|-])/g, '\\$1')
+    .replace(/[^\S\n]+/g, ' ')
+    .replace(/ ?\n ?/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  if (text.length <= 1200) return text;
+  const cut = text.slice(0, 1200);
+  const boundary = cut.lastIndexOf(' ');
+  return `${boundary > 800 ? cut.slice(0, boundary) : cut} \u2026 _(truncated)_`;
+}
+
+// Added-line samples are code: render as an inline code span so Lean/Yul
+// operators are not read as markdown. Inside a code span mentions and HTML
+// are inert; the plain-text fallback (sample contains a backtick) gets the
+// usual neutralization instead.
+function renderCodeSample(value) {
+  const text = String(value || '')
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
-    .slice(0, 700);
+    .slice(0, 200);
+  if (!text) return '`(empty)`';
+  if (text.includes('`')) {
+    return text
+      .replace(/@/g, '@\u200b')
+      .replace(/[<>]/g, ch => ({ '<': '&lt;', '>': '&gt;' }[ch]));
+  }
+  return `\`${text}\``;
 }
 
 function packetResidualRisk(decision) {
