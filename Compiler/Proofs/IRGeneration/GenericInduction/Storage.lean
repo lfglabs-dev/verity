@@ -6942,9 +6942,8 @@ private theorem compiledStmtStep_letStorageField
     set runtime' := { runtime with bindings := SourceSemantics.bindValue runtime.bindings tmp v }
     have hNextScopeIncl : FunctionBody.scopeNamesIncluded
         (stmtNextScope scope (.letVar tmp (Expr.storage fieldName))) (tmp :: scope) := by
-      intro n hn; simp [stmtNextScope, collectStmtNames, collectExprNames] at hn
-      rcases hn with rfl | rfl | hn <;>
-        [simp; exact List.mem_cons_of_mem _ hfieldInScope; exact List.mem_cons_of_mem _ hn]
+      intro n hn
+      simpa [stmtNextScope, collectStmtBindNames] using hn
     refine ⟨.continue runtime', .continue state', ?_, ?_, ?_⟩
     · show (match SourceSemantics.evalExpr fields runtime (.storage fieldName) with
         | some r => SourceSemantics.StmtResult.continue { runtime with
@@ -7028,9 +7027,8 @@ private theorem compiledStmtStep_letStorageAddrField
       Nat.lt_trans (runtime.world.storageAddr (SourceSemantics.wordNormalize slot)).isLt (by decide)
     have hNextScopeIncl : FunctionBody.scopeNamesIncluded
         (stmtNextScope scope (.letVar tmp (Expr.storageAddr fieldName))) (tmp :: scope) := by
-      intro n hn; simp [stmtNextScope, collectStmtNames, collectExprNames] at hn
-      rcases hn with rfl | rfl | hn <;>
-        [simp; exact List.mem_cons_of_mem _ hfieldInScope; exact List.mem_cons_of_mem _ hn]
+      intro n hn
+      simpa [stmtNextScope, collectStmtBindNames] using hn
     refine ⟨.continue runtime', .continue state', ?_, ?_, ?_⟩
     · show (match SourceSemantics.evalExpr fields runtime (.storageAddr fieldName) with
         | some r => SourceSemantics.StmtResult.continue { runtime with
@@ -7107,9 +7105,8 @@ private theorem compiledStmtStep_assignStorageField
     set runtime' := { runtime with bindings := SourceSemantics.bindValue runtime.bindings name v }
     have hNextScopeIncl : FunctionBody.scopeNamesIncluded
         (stmtNextScope scope (.assignVar name (Expr.storage fieldName))) (name :: scope) := by
-      intro n hn; simp [stmtNextScope, collectStmtNames, collectExprNames] at hn
-      rcases hn with rfl | rfl | hn <;>
-        [simp; exact List.mem_cons_of_mem _ hfieldInScope; exact List.mem_cons_of_mem _ hn]
+      intro n hn
+      simpa [stmtNextScope, collectStmtBindNames] using hn
     refine ⟨.continue runtime', .continue state', ?_, ?_, ?_⟩
     · show (match SourceSemantics.evalExpr fields runtime (.storage fieldName) with
         | some r => SourceSemantics.StmtResult.continue { runtime with
@@ -7193,9 +7190,8 @@ private theorem compiledStmtStep_assignStorageAddrField
       Nat.lt_trans (runtime.world.storageAddr (SourceSemantics.wordNormalize slot)).isLt (by decide)
     have hNextScopeIncl : FunctionBody.scopeNamesIncluded
         (stmtNextScope scope (.assignVar name (Expr.storageAddr fieldName))) (name :: scope) := by
-      intro n hn; simp [stmtNextScope, collectStmtNames, collectExprNames] at hn
-      rcases hn with rfl | rfl | hn <;>
-        [simp; exact List.mem_cons_of_mem _ hfieldInScope; exact List.mem_cons_of_mem _ hn]
+      intro n hn
+      simpa [stmtNextScope, collectStmtBindNames] using hn
     refine ⟨.continue runtime', .continue state', ?_, ?_, ?_⟩
     · show (match SourceSemantics.evalExpr fields runtime (.storageAddr fieldName) with
         | some r => SourceSemantics.StmtResult.continue { runtime with
