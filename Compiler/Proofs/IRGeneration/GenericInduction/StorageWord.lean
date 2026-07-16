@@ -396,10 +396,7 @@ private theorem scopeNamesIncluded_setStorageWord
     FunctionBody.scopeNamesIncluded
       (stmtNextScope scope (.setStorageWord fieldName wordOffset value)) scope := by
   intro n hn
-  simp [stmtNextScope, collectStmtBindNames, collectStmtNames] at hn
-  rcases hn with hv | hs
-  · exact hinScope n (collectExprNames_mem_exprBoundNames_of_core hcore n hv)
-  · exact hs
+  simpa [stmtNextScope, collectStmtBindNames] using hn
 
 private theorem setStorageWord_target_safety_runtime
     {fields : List Field}
