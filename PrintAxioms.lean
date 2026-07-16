@@ -2664,9 +2664,9 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.FunctionBody.stmtResultMatchesIRExec_compiled_stop_core_append_wholeFuel
   Compiler.Proofs.IRGeneration.FunctionBody.scopeNamesIncluded_refl
   Compiler.Proofs.IRGeneration.FunctionBody.scopeNamesIncluded_append_right
-  Compiler.Proofs.IRGeneration.FunctionBody.scopeNamesIncluded_collectStmtNames_tail
-  Compiler.Proofs.IRGeneration.FunctionBody.scopeNamesIncluded_collectStmtNames_letVar
-  Compiler.Proofs.IRGeneration.FunctionBody.scopeNamesIncluded_collectStmtNames_assignVar
+  Compiler.Proofs.IRGeneration.FunctionBody.scopeNamesIncluded_collectStmtBindNames_tail
+  Compiler.Proofs.IRGeneration.FunctionBody.scopeNamesIncluded_collectStmtBindNames_letVar
+  Compiler.Proofs.IRGeneration.FunctionBody.scopeNamesIncluded_collectStmtBindNames_assignVar
   Compiler.Proofs.IRGeneration.FunctionBody.scopeNamesIncluded_compiled_terminal_ite_usedNames
   Compiler.Proofs.IRGeneration.FunctionBody.pickFreshName_not_mem_scope_of_subset
   Compiler.Proofs.IRGeneration.FunctionBody.bindingsExactlyMatchIRVarsOnScope_setFreshTemp_irrelevant
@@ -2914,6 +2914,10 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.scopeNamesIncluded_cons  -- private
   -- Compiler.Proofs.IRGeneration.stmtListCompileCore_of_scopeNamesIncluded  -- private
   -- Compiler.Proofs.IRGeneration.stmtListTerminalCore_of_scopeNamesIncluded  -- private
+  -- Compiler.Proofs.IRGeneration.collectStmtBindNames_subset_collectStmtNames  -- private
+  -- Compiler.Proofs.IRGeneration.collectStmtListBindNames_subset_collectStmtListNames  -- private
+  -- Compiler.Proofs.IRGeneration.collectMatchBranchBindNames_subset_collectMatchBranchNames  -- private
+  -- Compiler.Proofs.IRGeneration.scopeNamesIncluded_scope_stmtNextScope  -- private
   -- Compiler.Proofs.IRGeneration.stmtListGenericCore_of_stmtListCompileCore_of_scopeNamesIncluded  -- private
   -- Compiler.Proofs.IRGeneration.stmtListGenericCore_of_stmtListTerminalCore_of_scopeNamesIncluded  -- private
   Compiler.Proofs.IRGeneration.stmtListGenericCore_of_stmtListCompileCore
@@ -6171,4 +6175,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5780 theorems/lemmas (3994 public, 1786 private, 0 sorry'd)
+-- Total: 5784 theorems/lemmas (3994 public, 1790 private, 0 sorry'd)
