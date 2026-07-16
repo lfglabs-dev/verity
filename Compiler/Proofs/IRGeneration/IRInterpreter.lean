@@ -4869,6 +4869,113 @@ theorem execIRInternalFunctionWithInternals_succ_of_params_match
           .revert callerState := by
   simp only [execIRInternalFunctionWithInternals, if_pos hlen]
 
+/-- If the prepared helper body continues, internal-helper execution returns
+the helper return slots to the caller frame.  This is the `.continue` result
+case needed before relating compiled helper execution to source helper
+summaries. -/
+theorem execIRInternalFunctionWithInternals_succ_values_nil_of_body_continue
+    (contract : IRContract) (fuel : Nat) (callerState : IRState)
+    (helper : IRInternalFunctionDef) (args : List Nat) (finalState : IRState)
+    (hlen : helper.params.length = args.length)
+    (hbody :
+      execIRStmtsWithInternals contract fuel
+        (prepareInternalCalleeState callerState helper args) helper.body =
+          .continue finalState)
+    (hrets : internalReturnValues finalState helper.rets = []) :
+    execIRInternalFunctionWithInternals contract (fuel + 1) callerState helper args =
+      .values [] (restoreCallerVars callerState finalState) := by
+  rw [execIRInternalFunctionWithInternals_succ_of_params_match
+    contract fuel callerState helper args hlen]
+  simp [hbody, hrets]
+
+/-- Singleton-return-slot specialization of the `.continue` helper-body case. -/
+theorem execIRInternalFunctionWithInternals_succ_values_singleton_of_body_continue
+    (contract : IRContract) (fuel : Nat) (callerState : IRState)
+    (helper : IRInternalFunctionDef) (args : List Nat) (finalState : IRState)
+    (value : Nat)
+    (hlen : helper.params.length = args.length)
+    (hbody :
+      execIRStmtsWithInternals contract fuel
+        (prepareInternalCalleeState callerState helper args) helper.body =
+          .continue finalState)
+    (hrets : internalReturnValues finalState helper.rets = [value]) :
+    execIRInternalFunctionWithInternals contract (fuel + 1) callerState helper args =
+      .values [value] (restoreCallerVars callerState finalState) := by
+  rw [execIRInternalFunctionWithInternals_succ_of_params_match
+    contract fuel callerState helper args hlen]
+  simp [hbody, hrets]
+
+/-- If the prepared helper body executes `leave`, internal-helper execution
+returns the helper return slots to the caller frame.  Internal-return-family
+compilation can use this shape, so it is kept separate from `.continue`. -/
+theorem execIRInternalFunctionWithInternals_succ_values_nil_of_body_leave
+    (contract : IRContract) (fuel : Nat) (callerState : IRState)
+    (helper : IRInternalFunctionDef) (args : List Nat) (finalState : IRState)
+    (hlen : helper.params.length = args.length)
+    (hbody :
+      execIRStmtsWithInternals contract fuel
+        (prepareInternalCalleeState callerState helper args) helper.body =
+          .leave finalState)
+    (hrets : internalReturnValues finalState helper.rets = []) :
+    execIRInternalFunctionWithInternals contract (fuel + 1) callerState helper args =
+      .values [] (restoreCallerVars callerState finalState) := by
+  rw [execIRInternalFunctionWithInternals_succ_of_params_match
+    contract fuel callerState helper args hlen]
+  simp [hbody, hrets]
+
+/-- Singleton-return-slot specialization of the `.leave` helper-body case. -/
+theorem execIRInternalFunctionWithInternals_succ_values_singleton_of_body_leave
+    (contract : IRContract) (fuel : Nat) (callerState : IRState)
+    (helper : IRInternalFunctionDef) (args : List Nat) (finalState : IRState)
+    (value : Nat)
+    (hlen : helper.params.length = args.length)
+    (hbody :
+      execIRStmtsWithInternals contract fuel
+        (prepareInternalCalleeState callerState helper args) helper.body =
+          .leave finalState)
+    (hrets : internalReturnValues finalState helper.rets = [value]) :
+    execIRInternalFunctionWithInternals contract (fuel + 1) callerState helper args =
+      .values [value] (restoreCallerVars callerState finalState) := by
+  rw [execIRInternalFunctionWithInternals_succ_of_params_match
+    contract fuel callerState helper args hlen]
+  simp [hbody, hrets]
+
+/-- If the prepared helper body stops, internal-helper execution propagates
+`.stop` after restoring caller locals.  This is the known N1a mismatch with the
+source internal-helper result shape, which treats source `.stop` as successful
+`none`. -/
+theorem execIRInternalFunctionWithInternals_succ_stop_of_body_stop
+    (contract : IRContract) (fuel : Nat) (callerState : IRState)
+    (helper : IRInternalFunctionDef) (args : List Nat) (finalState : IRState)
+    (hlen : helper.params.length = args.length)
+    (hbody :
+      execIRStmtsWithInternals contract fuel
+        (prepareInternalCalleeState callerState helper args) helper.body =
+          .stop finalState) :
+    execIRInternalFunctionWithInternals contract (fuel + 1) callerState helper args =
+      .stop (restoreCallerVars callerState finalState) := by
+  rw [execIRInternalFunctionWithInternals_succ_of_params_match
+    contract fuel callerState helper args hlen]
+  simp [hbody]
+
+/-- If the prepared helper body executes a Yul `return`, internal-helper
+execution propagates `.return` after restoring caller locals.  Return-free helper
+theorems must exclude this case rather than fold it into normal helper values. -/
+theorem execIRInternalFunctionWithInternals_succ_return_of_body_return
+    (contract : IRContract) (fuel : Nat) (callerState : IRState)
+    (helper : IRInternalFunctionDef) (args : List Nat) (value : Nat)
+    (finalState : IRState)
+    (hlen : helper.params.length = args.length)
+    (hbody :
+      execIRStmtsWithInternals contract fuel
+        (prepareInternalCalleeState callerState helper args) helper.body =
+          .return value finalState) :
+    execIRInternalFunctionWithInternals contract (fuel + 1) callerState helper args =
+      .return value (restoreCallerVars callerState finalState) := by
+  rw [execIRInternalFunctionWithInternals_succ_of_params_match
+    contract fuel callerState helper args hlen]
+  simp [hbody]
+
 /-- When fuel > 0 but params don't match, `execIRInternalFunctionWithInternals`
 reverts with the caller state. -/
 theorem execIRInternalFunctionWithInternals_succ_of_params_mismatch

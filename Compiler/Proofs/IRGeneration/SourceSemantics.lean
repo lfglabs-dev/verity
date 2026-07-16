@@ -4200,6 +4200,95 @@ theorem helperSummarySound
     summary.post fuel initialWorld args result.success result.returnValue result.world :=
   hsound fuel initialWorld args
 
+/-- Concrete source helper-body `.continue` case for `InternalHelperSummarySound`.
+This exposes the `interpretInternalFunctionFuel` reduction and then consumes the
+real summary postcondition. -/
+theorem InternalHelperSummarySound.post_of_execStmtListWithHelpers_continue
+    {spec : CompilationModel}
+    {fn : FunctionSpec}
+    {summary : InternalHelperSummaryContract}
+    (hsound : InternalHelperSummarySound spec fn summary)
+    {fuel : Nat}
+    {initialWorld : Verity.ContractState}
+    {args : List Nat}
+    {bindings : List (String × Nat)}
+    {finalState : RuntimeState}
+    (hbind : bindInternalArgs fn.params args = some bindings)
+    (hbody :
+      execStmtListWithHelpers spec (effectiveFields spec) fuel
+        { world := initialWorld, bindings := bindings } fn.body =
+          .continue finalState) :
+    interpretInternalFunctionFuel spec fuel fn initialWorld args =
+        successInternalResult finalState.world none ∧
+      summary.post fuel initialWorld args true none finalState.world := by
+  have hinterp :
+      interpretInternalFunctionFuel spec fuel fn initialWorld args =
+        successInternalResult finalState.world none := by
+    simp [interpretInternalFunctionFuel, hbind, hbody]
+  have hpost := hsound fuel initialWorld args
+  refine ⟨hinterp, ?_⟩
+  simpa [hinterp, successInternalResult] using hpost
+
+/-- Concrete source helper-body `.return` case for `InternalHelperSummarySound`.
+This is the source-side counterpart of singleton helper-return result cases on
+the compiled side. -/
+theorem InternalHelperSummarySound.post_of_execStmtListWithHelpers_return
+    {spec : CompilationModel}
+    {fn : FunctionSpec}
+    {summary : InternalHelperSummaryContract}
+    (hsound : InternalHelperSummarySound spec fn summary)
+    {fuel : Nat}
+    {initialWorld : Verity.ContractState}
+    {args : List Nat}
+    {bindings : List (String × Nat)}
+    {value : Nat}
+    {finalState : RuntimeState}
+    (hbind : bindInternalArgs fn.params args = some bindings)
+    (hbody :
+      execStmtListWithHelpers spec (effectiveFields spec) fuel
+        { world := initialWorld, bindings := bindings } fn.body =
+          .return value finalState) :
+    interpretInternalFunctionFuel spec fuel fn initialWorld args =
+        successInternalResult finalState.world (some value) ∧
+      summary.post fuel initialWorld args true (some value) finalState.world := by
+  have hinterp :
+      interpretInternalFunctionFuel spec fuel fn initialWorld args =
+        successInternalResult finalState.world (some value) := by
+    simp [interpretInternalFunctionFuel, hbind, hbody]
+  have hpost := hsound fuel initialWorld args
+  refine ⟨hinterp, ?_⟩
+  simpa [hinterp, successInternalResult] using hpost
+
+/-- Concrete source helper-body `.stop` case for `InternalHelperSummarySound`.
+Source internal-helper interpretation records this as a successful `none`
+result; the compiled-side runtime still propagates `.stop`, so full N1a needs a
+separate stop-exclusion hypothesis before this case can be ruled out. -/
+theorem InternalHelperSummarySound.post_of_execStmtListWithHelpers_stop
+    {spec : CompilationModel}
+    {fn : FunctionSpec}
+    {summary : InternalHelperSummaryContract}
+    (hsound : InternalHelperSummarySound spec fn summary)
+    {fuel : Nat}
+    {initialWorld : Verity.ContractState}
+    {args : List Nat}
+    {bindings : List (String × Nat)}
+    {finalState : RuntimeState}
+    (hbind : bindInternalArgs fn.params args = some bindings)
+    (hbody :
+      execStmtListWithHelpers spec (effectiveFields spec) fuel
+        { world := initialWorld, bindings := bindings } fn.body =
+          .stop finalState) :
+    interpretInternalFunctionFuel spec fuel fn initialWorld args =
+        successInternalResult finalState.world none ∧
+      summary.post fuel initialWorld args true none finalState.world := by
+  have hinterp :
+      interpretInternalFunctionFuel spec fuel fn initialWorld args =
+        successInternalResult finalState.world none := by
+    simp [interpretInternalFunctionFuel, hbind, hbody]
+  have hpost := hsound fuel initialWorld args
+  refine ⟨hinterp, ?_⟩
+  simpa [hinterp, successInternalResult] using hpost
+
 theorem helperSummaryPreservesWorldOnSuccess
     {summary : InternalHelperSummaryContract}
     (hpreserve : InternalHelperSummaryPreservesWorldOnSuccess summary)
