@@ -321,7 +321,7 @@ theorem compileStmtList_ok_of_stmtListGenericCore_early
           FunctionBody.scopeNamesIncluded_refl
         with ⟨tailIR, htail⟩
       rcases FunctionBody.compileStmtList_ok_any_scope
-          (scope2 := collectStmtNames _ ++ inScopeNames) ⟨tailIR, htail⟩ with
+          (scope2 := collectStmtBindNames _ ++ inScopeNames) ⟨tailIR, htail⟩ with
         ⟨tailIR, htail⟩
       exact ⟨headIR ++ tailIR,
         FunctionBody.compileStmtList_cons_ok_of_compileStmt_ok hhead htail⟩
@@ -343,7 +343,7 @@ theorem compileStmtList_cons_eq_ok_with_internals
           Except.ok headIR)
     (htail :
       CompilationModel.compileStmtList fields events errors dynamicSource
-        internalRetNames isInternal (collectStmtNames stmt ++ inScopeNames) adtTypes
+        internalRetNames isInternal (collectStmtBindNames stmt ++ inScopeNames) adtTypes
           rest internalFunctions =
           Except.ok tailIR) :
     CompilationModel.compileStmtList fields events errors dynamicSource
@@ -503,7 +503,7 @@ theorem compileStmtList_ok_of_stmtListGenericWithHelpersAndHelperIRWithInternals
   | @cons scope stmt compiledIR rest hstep _hrest ih =>
       rcases ih with ⟨tailIR, htail⟩
       rcases FunctionBody.compileStmtList_ok_any_scope_with_surface_with_internals
-          (scope2 := collectStmtNames stmt ++ scope) ⟨tailIR, htail⟩ with
+          (scope2 := collectStmtBindNames stmt ++ scope) ⟨tailIR, htail⟩ with
         ⟨tailIR, htail⟩
       exact ⟨compiledIR ++ tailIR,
         compileStmtList_cons_eq_ok_with_internals
@@ -547,7 +547,7 @@ theorem compileStmtList_ok_of_stmtListGenericWithHelpersAndHelperIRWithInternals
           FunctionBody.scopeNamesIncluded_refl
         with ⟨tailIR, htail⟩
       rcases FunctionBody.compileStmtList_ok_any_scope_with_surface_with_internals
-          (scope2 := collectStmtNames _ ++ inScopeNames) ⟨tailIR, htail⟩ with
+          (scope2 := collectStmtBindNames _ ++ inScopeNames) ⟨tailIR, htail⟩ with
         ⟨tailIR, htail⟩
       exact ⟨headIR ++ tailIR,
         compileStmtList_cons_eq_ok_with_internals

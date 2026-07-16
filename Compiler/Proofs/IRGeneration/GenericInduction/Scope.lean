@@ -308,7 +308,7 @@ theorem compileStmt_ok_of_compileStmtList_append_cons
     ∃ stmtIR,
       CompilationModel.compileStmt
         fields [] [] .calldata [] false
-          (List.foldl (fun acc s => collectStmtNames s ++ acc) scope «prefix»)
+          (List.foldl (fun acc s => collectStmtBindNames s ++ acc) scope «prefix»)
           [] stmt = Except.ok stmtIR := by
   induction «prefix» generalizing scope bodyIR with
   | nil => rcases FunctionBody.compileStmtList_cons_ok_inv hcompile with ⟨hd, _, hstmt, _⟩; exact ⟨hd, hstmt⟩

@@ -205,7 +205,7 @@ inductive StmtListCompileCore : List String → List Stmt → Prop where
   | assignVar {scope : List String} {name : String} {value : Expr} {rest : List Stmt} :
       ExprCompileCore value →
       exprBoundNamesInScope value scope →
-      StmtListCompileCore (name :: scope) rest →
+      StmtListCompileCore scope rest →
       StmtListCompileCore scope (.assignVar name value :: rest)
   | require_ {scope : List String} {cond : Expr} {message : String} {rest : List Stmt} :
       ExprCompileCore cond →
@@ -248,7 +248,7 @@ inductive StmtListTerminalCore : List String → List Stmt → Prop where
   | assignVar {scope : List String} {name : String} {value : Expr} {rest : List Stmt} :
       ExprCompileCore value →
       exprBoundNamesInScope value scope →
-      StmtListTerminalCore (name :: scope) rest →
+      StmtListTerminalCore scope rest →
       StmtListTerminalCore scope (.assignVar name value :: rest)
   | require_ {scope : List String} {cond : Expr} {message : String} {rest : List Stmt} :
       ExprCompileCore cond →

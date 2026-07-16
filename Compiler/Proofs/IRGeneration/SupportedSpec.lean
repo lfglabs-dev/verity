@@ -2092,7 +2092,7 @@ private theorem compileStmt_eventsErrorsAgnostic_aux
               ih.1 s scope
                 (by simp [List.cons.sizeOf_spec] at hlt; omega) hsurface.1,
               compileStmtListWithFork_cancun_eq_compileStmtList,
-              ih.2 ss (collectStmtNames s ++ scope)
+              ih.2 ss (collectStmtBindNames s ++ scope)
                 (by simp [List.cons.sizeOf_spec] at hlt; omega) hsurface.2]
             simp only [compileStmtWithFork_cancun_eq_compileStmt,
               compileStmtListWithFork_cancun_eq_compileStmtList]
