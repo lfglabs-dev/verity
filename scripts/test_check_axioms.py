@@ -135,6 +135,26 @@ class CheckAxiomsReportTests(unittest.TestCase):
         self.assertEqual(forbidden, {"sorryAx"})
         self.assertEqual(unexpected, {"mysteryAx": ["Foo.bar"]})
 
+    def test_classifies_lean424_native_codegen_axioms_as_builtin(self) -> None:
+        axiom_map = {
+            "Compiler.CompilationModel.compatScratch_startsWith_reserved": [
+                "Lean.ofReduceBool",
+                "Lean.trustCompiler",
+            ],
+        }
+
+        builtin, documented, forbidden, unexpected = check_axioms.classify_axioms(axiom_map)
+        report = check_axioms.generate_report(
+            axiom_map, builtin, documented, forbidden, unexpected
+        )
+
+        self.assertEqual(builtin, {"Lean.ofReduceBool", "Lean.trustCompiler"})
+        self.assertEqual(documented, set())
+        self.assertEqual(forbidden, set())
+        self.assertEqual(unexpected, {})
+        self.assertIn("Lean.trustCompiler", report)
+        self.assertIn("## Result: PASS", report)
+
     def test_run_report_check_passes_and_writes_output_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             output = Path(tmpdir) / "axiom-report.md"
