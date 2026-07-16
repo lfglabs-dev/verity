@@ -5368,7 +5368,7 @@ private theorem compiledStmtStep_setStructMember_singleSlot_of_slotSafety_preser
     cases SourceSemantics.evalExpr fields runtime key <;>
       cases SourceSemantics.evalExpr fields runtime value <;>
       simp [hmember]
-  · simpa [stmtStepMatchesIRExec, stmtNextScope, collectStmtNames]
+  · simpa [stmtStepMatchesIRExec, stmtNextScope, collectStmtBindNames]
       using hmatch
 
 theorem compiledStmtStep_setStructMember_singleSlot_of_slotSafety
@@ -6095,7 +6095,7 @@ private theorem compiledStmtStep_setStructMember2_singleSlot_of_slotSafety_prese
       cases SourceSemantics.evalExpr fields runtime key2 <;>
       cases SourceSemantics.evalExpr fields runtime value <;>
       simp [hmember]
-  · simpa [stmtStepMatchesIRExec, stmtNextScope, collectStmtNames]
+  · simpa [stmtStepMatchesIRExec, stmtNextScope, collectStmtBindNames]
       using hmatch
 
 theorem compiledStmtStep_setStructMember2_singleSlot_of_slotSafety
@@ -7106,7 +7106,8 @@ private theorem compiledStmtStep_assignStorageField
     have hNextScopeIncl : FunctionBody.scopeNamesIncluded
         (stmtNextScope scope (.assignVar name (Expr.storage fieldName))) (name :: scope) := by
       intro n hn
-      simpa [stmtNextScope, collectStmtBindNames] using hn
+      exact List.mem_cons_of_mem _ (by
+        simpa [stmtNextScope, collectStmtBindNames] using hn)
     refine ⟨.continue runtime', .continue state', ?_, ?_, ?_⟩
     · show (match SourceSemantics.evalExpr fields runtime (.storage fieldName) with
         | some r => SourceSemantics.StmtResult.continue { runtime with
@@ -7191,7 +7192,8 @@ private theorem compiledStmtStep_assignStorageAddrField
     have hNextScopeIncl : FunctionBody.scopeNamesIncluded
         (stmtNextScope scope (.assignVar name (Expr.storageAddr fieldName))) (name :: scope) := by
       intro n hn
-      simpa [stmtNextScope, collectStmtBindNames] using hn
+      exact List.mem_cons_of_mem _ (by
+        simpa [stmtNextScope, collectStmtBindNames] using hn)
     refine ⟨.continue runtime', .continue state', ?_, ?_, ?_⟩
     · show (match SourceSemantics.evalExpr fields runtime (.storageAddr fieldName) with
         | some r => SourceSemantics.StmtResult.continue { runtime with
