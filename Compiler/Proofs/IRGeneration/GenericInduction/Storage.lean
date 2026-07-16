@@ -2338,10 +2338,7 @@ theorem compiledStmtStep_setStorage_singleSlot
       have hincl : FunctionBody.scopeNamesIncluded
           (stmtNextScope scope (.setStorage fieldName value)) scope := by
         intro n hn
-        simp [stmtNextScope, collectStmtNames] at hn
-        rcases hn with hv | hs
-        · exact hinScope n (collectExprNames_mem_exprBoundNames_of_core hcore n hv)
-        · exact hs
+        simpa [stmtNextScope, collectStmtBindNames] using hn
       have hexact' := FunctionBody.bindingsExactlyMatchIRVarsOnScope_of_included
         (bindingsExactlyMatchIRVarsOnScope_writeUintSlot (slot := slot) (value := valueNat) hexact)
         hincl
