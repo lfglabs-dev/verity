@@ -2478,7 +2478,7 @@ private theorem eventStmtNextScope_emit_included
     FunctionBody.scopeNamesIncluded
       (stmtNextScope scope (Stmt.emit eventName args)) scope := by
   intro name hmem
-  simp [stmtNextScope, collectStmtNames] at hmem
+  simp [stmtNextScope, collectStmtBindNames, collectStmtNames] at hmem
   rcases hmem with hmem | hmem
   · exact eventCollectExprListNames_subset_scope hcore hinScope name hmem
   · exact hmem

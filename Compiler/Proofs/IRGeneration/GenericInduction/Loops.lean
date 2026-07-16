@@ -10,6 +10,24 @@ open Compiler
 open Compiler.CompilationModel
 open Compiler.Yul
 
+mutual
+private theorem collectStmtBindNames_subset_collectStmtNames (stmt : Stmt) :
+    ∀ name, name ∈ collectStmtBindNames stmt → name ∈ collectStmtNames stmt := by
+  intro name hmem
+  cases stmt <;>
+    simp only [collectStmtBindNames, collectStmtNames, List.mem_cons, List.mem_append] at hmem ⊢ <;>
+    aesop (add safe collectStmtListBindNames_subset_collectStmtListNames)
+
+private theorem collectStmtListBindNames_subset_collectStmtListNames (stmts : List Stmt) :
+    ∀ name, name ∈ collectStmtListBindNames stmts → name ∈ collectStmtListNames stmts := by
+  intro name hmem
+  induction stmts with
+  | nil => simp [collectStmtListBindNames] at hmem
+  | cons stmt rest ih =>
+      simp only [collectStmtListBindNames, collectStmtListNames, List.mem_append] at hmem ⊢
+      exact hmem.elim (collectStmtBindNames_subset_collectStmtNames stmt name) (ih name)
+end
+
 private def forEachZeroUsedNames (scope : List String) (varName : String) (body : List Stmt) :
     List String :=
   varName :: (scope ++ collectExprNames (Expr.literal 0) ++ collectStmtListNames body)
@@ -606,10 +624,10 @@ private theorem forEachZero_nextScopeIncluded
       (stmtNextScope scope (Stmt.forEach varName (Expr.literal 0) body))
       (varName :: scope) := by
   intro name hmem
-  simp [stmtNextScope, collectStmtNames, collectExprNames] at hmem
+  simp [stmtNextScope, collectStmtBindNames, collectStmtNames, collectExprNames] at hmem
   rcases hmem with hvar | hbody | hscopeMem
   · simp [hvar]
-  · exact hbodyNames name hbody
+  · exact hbodyNames name (collectStmtListBindNames_subset_collectStmtListNames body name hbody)
   · simp [hscopeMem]
 
 private theorem runtimeStateMatchesIR_forEachZeroLoop
@@ -848,7 +866,7 @@ private theorem stmtStepMatches_forEach_literal_empty_final
         (stmtNextScope scope (Stmt.forEach varName (Expr.literal n) []))
         (varName :: scope) := by
     intro name hmem
-    simp [stmtNextScope, collectStmtNames, collectExprNames] at hmem
+    simp [stmtNextScope, collectStmtBindNames, collectStmtNames, collectExprNames] at hmem
     rcases hmem with hvar | hscopeMem
     · simp [hvar]
     · rcases hscopeMem with hbody | hscopeMem
