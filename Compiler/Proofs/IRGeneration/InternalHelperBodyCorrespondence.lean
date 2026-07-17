@@ -375,18 +375,19 @@ cases, branches, loops, events, storage effects, and helper calls remain for the
 larger helper-aware source induction. -/
 theorem internalHelperBodyResultProjection_of_entryBindings_projectionCore
     {spec : CompilationModel} {callee : FunctionSpec} {helper : IRInternalFunctionDef}
-    {initialWorld : Verity.ContractState} {sourceBindings : List (String × Nat)}
+    {initialWorld : Verity.ContractState} {selector : Nat}
+    {sourceBindings : List (String × Nat)}
     {helperFuel : Nat}
     (hcore : InternalHelperStmtListProjectionCore callee.body)
     (hfresh :
       ∀ name, name ∈ internalHelperStmtListProjectionReadNames callee.body →
         name ∉ helper.rets) :
-    internalHelperBodyResultProjection spec callee initialWorld sourceBindings
+    internalHelperBodyResultProjection spec callee initialWorld selector sourceBindings
       (internalHelperEntryBindings sourceBindings helper) helperFuel := by
   exact internalHelperResultOfStmtListProjectionCore_eq
     (spec := spec) (fields := SourceSemantics.effectiveFields spec)
     (fuel := helperFuel) (initialWorld := initialWorld)
-    (runtime := internalHelperBodyRuntime initialWorld sourceBindings)
+    (runtime := internalHelperBodyRuntime initialWorld selector sourceBindings)
     (reserved := helper.rets)
     (lhs := sourceBindings)
     (rhs := internalHelperEntryBindings sourceBindings helper)
