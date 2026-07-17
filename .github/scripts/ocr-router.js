@@ -19,7 +19,11 @@ const THRESHOLDS = Object.freeze({
   packetMaxCount: 8,
   packetContextLines: 12,
   scoutDossierMaxChars: 18000,
-  scoutTimeoutMs: 45000,
+  // Thinking models (GLM-5.2, MiniMax-M3) reason at length before emitting
+  // the JSON verdict; 45s aborted every scout call and forced
+  // fallback_deterministic on all large-Lean reviews. The scout runs once
+  // per review inside a 45-minute job budget — give it real headroom.
+  scoutTimeoutMs: 240000,
 });
 
 async function main() {
