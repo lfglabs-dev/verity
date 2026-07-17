@@ -301,7 +301,7 @@ theorem compileConstructor_some_ok_of_body
     (ctor : ConstructorSpec) (bodyStmts : List YulStmt)
       (hbody :
         compileStmtList fields events errors .memory [] false
-          (ctor.params.map (·.name)) [] ctor.body [] = Except.ok bodyStmts) :
+          (constructorBodyScope ctor.params) [] ctor.body [] = Except.ok bodyStmts) :
       compileConstructor fields events errors [] (some ctor) =
         Except.ok (genConstructorArgLoads ctor.params ++ bodyStmts) := by
   simp [CompilationModel.compileConstructor,
@@ -314,11 +314,11 @@ theorem compileConstructor_ok_components
         compileConstructor fields events errors [] (some ctor) = Except.ok deployStmts) :
     ∃ bodyStmts,
         compileStmtList fields events errors .memory [] false
-          (ctor.params.map (·.name)) [] ctor.body [] = Except.ok bodyStmts ∧
+          (constructorBodyScope ctor.params) [] ctor.body [] = Except.ok bodyStmts ∧
         deployStmts = genConstructorArgLoads ctor.params ++ bodyStmts := by
     cases hbody :
         compileStmtList fields events errors .memory [] false
-          (ctor.params.map (·.name)) [] ctor.body [] with
+          (constructorBodyScope ctor.params) [] ctor.body [] with
   | error err =>
       simp [CompilationModel.compileConstructor,
         FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList, hbody] at hcompile
@@ -4213,7 +4213,7 @@ private theorem compileExpr_constructor_mode_eq
         compileExprWithInternals fields .calldata [] expr
   | .literal _, _, _ => by simp [compileExprWithInternals]
   | .param _, _, _ => by simp [compileExprWithInternals]
-  | .constructorArg _, hcore, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
+  | .constructorArg _, _, _ => by simp [compileExprWithInternals]
   | .storage _, _, _ => by simp [compileExprWithInternals]
   | .storageAddr _, _, _ => by simp [compileExprWithInternals]
   | .mapping _ _, hcore, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
@@ -4549,6 +4549,168 @@ private theorem constructorTouchesUnsupportedRawCalldataSurface_eq_false
   simp [SourceSemantics.constructorTouchesUnsupportedRawCalldataSurface,
     hSupported.rawCalldataSurfaceClosed, hhelpers]
 
+private theorem wordNormalize_lt_evmModulus
+    (n : Nat) :
+    SourceSemantics.wordNormalize n < Compiler.Constants.evmModulus := by
+  rw [SourceSemantics.wordNormalize_eq_mod]
+  exact Nat.mod_lt n (by norm_num [Compiler.Constants.evmModulus, Verity.Core.UINT256_MODULUS])
+
+private theorem constructorArgAliasRawValue_lt_evmModulus
+    {rawArgs : List Nat}
+    {headWord value : Nat}
+    (hvalue :
+      Option.map SourceSemantics.wordNormalize rawArgs[headWord]? =
+        some value) :
+    value < Compiler.Constants.evmModulus := by
+  cases harg : rawArgs[headWord]? with
+  | none =>
+      simp [harg] at hvalue
+  | some raw =>
+      simp [harg] at hvalue
+      cases hvalue
+      exact wordNormalize_lt_evmModulus raw
+
+private theorem constructorArgAliasLookupValue_lt_evmModulus
+    {bindings : List (String × Nat)}
+    {name : String}
+    {value : Nat}
+    (hbounded : FunctionBody.bindingsBounded bindings)
+    (hvalue : SourceSemantics.lookupBinding? bindings name = some value) :
+    value < Compiler.Constants.evmModulus := by
+  have hlookup' :
+      FunctionBody.lookupBinding? bindings name = some value := by
+    simpa [FunctionBody.lookupBinding?, SourceSemantics.lookupBinding?] using hvalue
+  have hlookupValue :=
+    FunctionBody.lookupValue_eq_of_lookupBinding?_some hlookup'
+  rw [← hlookupValue]
+  exact hbounded name
+
+private theorem constructorArgAliasValue?_lt_evmModulus
+    {param : Param}
+    {rawArgs : List Nat}
+    {headWord : Nat}
+    {bindings : List (String × Nat)}
+    {value : Nat}
+    (hbounded : FunctionBody.bindingsBounded bindings)
+    (hvalue :
+      SourceSemantics.constructorArgAliasValue? param rawArgs headWord bindings =
+        some value) :
+    value < Compiler.Constants.evmModulus := by
+  rcases param with ⟨paramName, paramTy⟩
+  unfold SourceSemantics.constructorArgAliasValue? at hvalue
+  by_cases hdyn : isDynamicParamType paramTy = true
+  · have hraw :
+        Option.map SourceSemantics.wordNormalize rawArgs[headWord]? = some value := by
+      rw [hdyn] at hvalue
+      simp only [if_true] at hvalue
+      exact hvalue
+    exact constructorArgAliasRawValue_lt_evmModulus hraw
+  · have hdynFalse : isDynamicParamType paramTy = false := by
+      cases h : isDynamicParamType paramTy <;> simp [h] at hdyn ⊢
+    rw [hdynFalse] at hvalue
+    simp only [Bool.false_eq_true, if_false] at hvalue
+    cases paramTy <;>
+      first
+      | exact constructorArgAliasLookupValue_lt_evmModulus hbounded hvalue
+      | exact constructorArgAliasRawValue_lt_evmModulus hvalue
+
+private theorem bindConstructorArgAliasesFrom_bounded
+    {remaining : List Param}
+    {rawArgs : List Nat}
+    {idx headWord : Nat}
+    {bindings out : List (String × Nat)}
+    (hbind :
+      SourceSemantics.bindConstructorArgAliasesFrom
+        remaining rawArgs idx headWord bindings = some out)
+    (hbounded : FunctionBody.bindingsBounded bindings) :
+    FunctionBody.bindingsBounded out := by
+  induction remaining generalizing idx headWord bindings out with
+  | nil =>
+      simp [SourceSemantics.bindConstructorArgAliasesFrom] at hbind
+      cases hbind
+      exact hbounded
+  | cons param rest ih =>
+      simp [SourceSemantics.bindConstructorArgAliasesFrom] at hbind
+      cases hvalue :
+          SourceSemantics.constructorArgAliasValue? param rawArgs headWord bindings <;>
+        simp [hvalue] at hbind
+      case some value =>
+        exact ih hbind.2
+          (FunctionBody.bindingsBounded_bindValue hbounded s!"arg{idx}" value
+            (constructorArgAliasValue?_lt_evmModulus hbounded hvalue))
+
+private theorem bindConstructorArgAliases_bounded
+    {params : List Param}
+    {rawArgs : List Nat}
+    {bindings out : List (String × Nat)}
+    (hbind :
+      SourceSemantics.bindConstructorArgAliases params rawArgs bindings = some out)
+    (hbounded : FunctionBody.bindingsBounded bindings) :
+    FunctionBody.bindingsBounded out :=
+  bindConstructorArgAliasesFrom_bounded
+    (by simpa [SourceSemantics.bindConstructorArgAliases] using hbind)
+    hbounded
+
+private theorem bindValue_names_nodup
+    {bindings : List (String × Nat)}
+    {name : String}
+    {value : Nat}
+    (hnodup : (bindings.map Prod.fst).Nodup) :
+    ((SourceSemantics.bindValue bindings name value).map Prod.fst).Nodup := by
+  have hmapFilter :
+      (bindings.filter (fun entry => entry.1 != name)).map Prod.fst =
+        (bindings.map Prod.fst).filter (fun entryName => entryName != name) := by
+    clear hnodup value
+    induction bindings with
+    | nil => simp
+    | cons entry rest ih =>
+        by_cases hentry : entry.1 = name <;> simp [hentry, ih]
+  have hnameNotMem :
+      name ∉ (bindings.filter (fun entry => entry.1 != name)).map Prod.fst := by
+    intro hmem
+    rcases List.mem_map.mp hmem with ⟨entry, hentry, hname⟩
+    have hfilter := List.mem_filter.mp hentry
+    have hne : entry.1 ≠ name := by
+      intro hEq
+      simp [hEq] at hfilter
+    exact hne hname
+  simp [SourceSemantics.bindValue, hnameNotMem, hmapFilter, hnodup.filter]
+
+private theorem bindConstructorArgAliasesFrom_names_nodup
+    {remaining : List Param}
+    {rawArgs : List Nat}
+    {idx headWord : Nat}
+    {bindings out : List (String × Nat)}
+    (hbind :
+      SourceSemantics.bindConstructorArgAliasesFrom
+        remaining rawArgs idx headWord bindings = some out)
+    (hnodup : (bindings.map Prod.fst).Nodup) :
+    (out.map Prod.fst).Nodup := by
+  induction remaining generalizing idx headWord bindings out with
+  | nil =>
+      simp [SourceSemantics.bindConstructorArgAliasesFrom] at hbind
+      cases hbind
+      exact hnodup
+  | cons param rest ih =>
+      simp [SourceSemantics.bindConstructorArgAliasesFrom] at hbind
+      cases hvalue :
+          SourceSemantics.constructorArgAliasValue? param rawArgs headWord bindings <;>
+        simp [hvalue] at hbind
+      case some value =>
+        exact ih hbind.2 (bindValue_names_nodup hnodup)
+
+private theorem bindConstructorArgAliases_names_nodup
+    {params : List Param}
+    {rawArgs : List Nat}
+    {bindings out : List (String × Nat)}
+    (hbind :
+      SourceSemantics.bindConstructorArgAliases params rawArgs bindings = some out)
+    (hnodup : (bindings.map Prod.fst).Nodup) :
+    (out.map Prod.fst).Nodup :=
+  bindConstructorArgAliasesFrom_names_nodup
+    (by simpa [SourceSemantics.bindConstructorArgAliases] using hbind)
+    hnodup
+
 /-- Constructor-body bridge for the currently proved statement fragment.
 This proves the user-written constructor body after constructor arguments have
 already been decoded into IR locals. The initcode wrapper that materializes
@@ -4595,13 +4757,16 @@ theorem supported_constructor_body_correct_with_body_interface
     (tx : IRTransaction)
     (initialWorld : Verity.ContractState)
     (bindings : List (String × Nat))
+    (ctorBindings : List (String × Nat))
     (bodyStmts : List YulStmt)
       (hbodyCompile :
         compileStmtList model.fields model.events model.errors .memory [] false
-          (ctor.params.map (·.name)) [] ctor.body = Except.ok bodyStmts)
+          (constructorBodyScope ctor.params) [] ctor.body = Except.ok bodyStmts)
     (hbind :
       SourceSemantics.bindSupportedParams ctor.params (tx.args.take ctor.params.length) =
         some bindings)
+    (hconstructorBindings :
+      SourceSemantics.constructorExecutionBindings ctor tx.args = some ctorBindings)
     (htxNormalized : TxContextNormalized tx)
     (hcalldataSizeFits : TxConstructorCalldataSizeFitsEvm tx) :
     FunctionBody.sourceResultMatchesIRResult
@@ -4612,7 +4777,7 @@ theorem supported_constructor_body_correct_with_body_interface
             (sizeOf bodyStmts + 1)
             (ParamLoading.applyBindingsToIRState
               (FunctionBody.initialIRStateForTx model tx initialWorld)
-              bindings)
+              ctorBindings)
             bodyStmts)) := by
     let _ := hfunctionNamesNodup
     let initialState := FunctionBody.initialIRStateForTx model tx initialWorld
@@ -4620,25 +4785,18 @@ theorem supported_constructor_body_correct_with_body_interface
     have hrawUnsupported :
         SourceSemantics.constructorTouchesUnsupportedRawCalldataSurface model ctor = false :=
       constructorTouchesUnsupportedRawCalldataSurface_eq_false hSupported
-    have hconstructorBindings :
-        SourceSemantics.constructorExecutionBindings ctor tx.args = some bindings := by
-      have hguard :
-          (stmtListTouchesUnsupportedCoreSurface ctor.body ||
-              stmtListTouchesUnsupportedCallSurface ctor.body ||
-            stmtListTouchesUnsupportedEffectSurface ctor.body) = false := by
-        exact Bool.or_eq_false_iff.mpr
-          ⟨Bool.or_eq_false_iff.mpr
-              ⟨hSupported.body.core.surfaceClosed,
-                SupportedBodyCallInterface.surfaceClosed_exceptMappingWrites hSupported.body⟩,
-            hSupported.body.effects.surfaceClosed⟩
-      simp [SourceSemantics.constructorExecutionBindings, hbind, hguard]
+    have hconstructorAliases :
+        SourceSemantics.bindConstructorArgAliases ctor.params tx.args bindings =
+          some ctorBindings := by
+      unfold SourceSemantics.constructorExecutionBindings at hconstructorBindings
+      simpa [hbind] using hconstructorBindings
     have hbodyCompileCalldata :
         compileStmtList model.fields [] [] .calldata [] false
-          (ctor.params.map (·.name)) [] ctor.body = Except.ok bodyStmts := by
+          (constructorBodyScope ctor.params) [] ctor.body = Except.ok bodyStmts := by
       have hmode :=
         compileStmtList_constructor_mode_eq' (fields := model.fields)
           (events := model.events) (errors := model.errors)
-          (scope := ctor.params.map (·.name))
+          (scope := constructorBodyScope ctor.params)
           (body := ctor.body)
           hSupported.body.effects.surfaceClosed
           hSupported.body.core.surfaceClosed
@@ -4648,15 +4806,15 @@ theorem supported_constructor_body_correct_with_body_interface
       exact hmode.symm
     have hbodyCompileEffective :
         compileStmtList (SourceSemantics.effectiveFields model) [] [] .calldata [] false
-          (ctor.params.map (·.name)) [] ctor.body = Except.ok bodyStmts := by
+          (constructorBodyScope ctor.params) [] ctor.body = Except.ok bodyStmts := by
       simpa [SourceSemantics.effectiveFields, hnormalized] using hbodyCompileCalldata
     have hstateRuntime :
         FunctionBody.runtimeStateMatchesIR
-          (SourceSemantics.effectiveFields model)
-          { world := SourceSemantics.withTransactionContext initialWorld tx
-            bindings := bindings
-            selector := tx.functionSelector }
-          (ParamLoading.applyBindingsToIRState initialState bindings) := by
+            (SourceSemantics.effectiveFields model)
+            { world := SourceSemantics.withTransactionContext initialWorld tx
+              bindings := ctorBindings
+              selector := tx.functionSelector }
+          (ParamLoading.applyBindingsToIRState initialState ctorBindings) := by
       have hinitRuntime :
           FunctionBody.runtimeStateMatchesIR
             (SourceSemantics.effectiveFields model)
@@ -4671,35 +4829,54 @@ theorem supported_constructor_body_correct_with_body_interface
         runtimeStateMatchesIR_applyBindingsToIRState
           (fields := SourceSemantics.effectiveFields model)
           (state := initialState)
-          hinitRuntime bindings
+          hinitRuntime ctorBindings
     have hstateBindings :
-        FunctionBody.bindingsExactlyMatchIRVars bindings
-          (ParamLoading.applyBindingsToIRState initialState bindings) := by
+        FunctionBody.bindingsExactlyMatchIRVars ctorBindings
+          (ParamLoading.applyBindingsToIRState initialState ctorBindings) := by
+      have hctorBindingsNodup : (ctorBindings.map Prod.fst).Nodup :=
+        bindConstructorArgAliases_names_nodup
+          hconstructorAliases
+          (ParamLoading.bindSupportedParams_names_nodup
+            hSupported.params.namesNodup hbind)
       exact bindingsExactlyMatchIRVars_applyBindingsToIRState_self
         (state := initialState)
-        (bindings := bindings)
+        (bindings := ctorBindings)
         (by simpa [initialState] using
           FunctionBody.bindingsExactlyMatchIRVars_nil_initialIRStateForTx model tx initialWorld)
-        (ParamLoading.bindSupportedParams_names_nodup hSupported.params.namesNodup hbind)
+        hctorBindingsNodup
     have hscope :
-        FunctionBody.scopeNamesPresent (ctor.params.map (·.name)) bindings := by
+        FunctionBody.scopeNamesPresent (constructorBodyScope ctor.params) ctorBindings := by
       intro name hmem
-      have hmemBindings : name ∈ bindings.map Prod.fst := by
-        rw [ParamLoading.bindSupportedParams_names hbind]
-        simpa using hmem
-      exact lookupBinding?_some_of_mem bindings name hmemBindings
-    have hbounded : FunctionBody.bindingsBounded bindings :=
-      FunctionBody.bindingsBounded_of_bindSupportedParams hbind
+      simp [constructorBodyScope, constructorArgAliasNames] at hmem
+      rcases hmem with hmemAlias | hmemParam
+      · rcases hmemAlias with ⟨idx, hidx, rfl⟩
+        exact SourceSemantics.constructorExecutionBindings_argAlias_present
+          hconstructorBindings hidx
+      · have hdecodedPresent :
+            ∃ value, SourceSemantics.lookupBinding? bindings name = some value := by
+          have hmemBindings : name ∈ bindings.map Prod.fst := by
+            rw [ParamLoading.bindSupportedParams_names hbind]
+            simpa using hmemParam
+          rcases lookupBinding?_some_of_mem bindings name hmemBindings with ⟨value, hvalue⟩
+          exact ⟨value, by simpa [FunctionBody.lookupBinding?,
+            SourceSemantics.lookupBinding?] using hvalue⟩
+        exact SourceSemantics.bindConstructorArgAliasesFrom_preserves_lookup
+          (by simpa [SourceSemantics.bindConstructorArgAliases] using hconstructorAliases)
+          hdecodedPresent
+    have hbounded : FunctionBody.bindingsBounded ctorBindings :=
+      bindConstructorArgAliases_bounded hconstructorAliases
+        (FunctionBody.bindingsBounded_of_bindSupportedParams hbind)
     have hhelperFree :
         StmtListHelperFreeStepInterface
           (SourceSemantics.effectiveFields model)
-          (ctor.params.map (·.name))
+          (constructorBodyScope ctor.params)
           ctor.body := by
-      simpa [SourceSemantics.effectiveFields, hnormalized, ctorFn] using
+      simpa [SourceSemantics.effectiveFields, hnormalized, ctorFn,
+        constructorAsFunctionSpec, constructorBodyScope, constructorArgAliasNames] using
         hSupported.body.helperFreeStepInterface_stmtSafety hnoConflict hsafety
     have hgeneric :
         StmtListGenericWithHelpers model (SourceSemantics.effectiveFields model)
-          (ctor.params.map (·.name)) ctor.body :=
+          (constructorBodyScope ctor.params) ctor.body :=
       stmtListGenericWithHelpers_of_helperFreeStepInterface_and_helperSurfaceClosed
         (spec := model)
         (hhelperFree := hhelperFree)
@@ -4709,8 +4886,8 @@ theorem supported_constructor_body_correct_with_body_interface
     rcases exec_compileStmtList_generic_with_helpers_sizeOf_extraFuel
         (spec := model)
         (fields := SourceSemantics.effectiveFields model)
-        (state := ParamLoading.applyBindingsToIRState initialState bindings)
-        (scope := ctor.params.map (·.name))
+        (state := ParamLoading.applyBindingsToIRState initialState ctorBindings)
+        (scope := constructorBodyScope ctor.params)
         (stmts := ctor.body)
         (helperFuel := helperFuel)
         (extraFuel := 0)
@@ -4750,11 +4927,11 @@ theorem supported_constructor_body_correct_with_body_interface
         (sourceResult := SourceSemantics.execStmtListWithHelpers model
           (SourceSemantics.effectiveFields model) helperFuel
           { world := SourceSemantics.withTransactionContext initialWorld tx
-            bindings := bindings
+            bindings := ctorBindings
             selector := tx.functionSelector }
           ctor.body)
         (irResult := execIRStmts (sizeOf bodyStmts + 1)
-          (ParamLoading.applyBindingsToIRState initialState bindings) bodyStmts)
+          (ParamLoading.applyBindingsToIRState initialState ctorBindings) bodyStmts)
         hrollbackStorage
         hrollbackEvents
         rfl
