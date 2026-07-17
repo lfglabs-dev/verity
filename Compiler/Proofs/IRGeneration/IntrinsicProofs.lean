@@ -113,11 +113,11 @@ theorem compileExpr_intrinsic_verbatim_zero_output_error
       compileExpr fields dynamicSource (.intrinsic name (.verbatim 1 0 opcodeHex) .cancun [.param x]) =
         .error msg := by
   refine ⟨toString "Compilation error: intrinsic " ++ toString name ++
-    toString " must produce exactly 1 output, got " ++ toString 0 ++ toString "", ?_⟩
+    toString " must produce exactly 1 output, got " ++ toString 0, ?_⟩
   unfold compileExpr
   unfold compileExprWithInternals
   rw [compileExprListWithInternals_param_one]
-  rfl
+  simp [Bind.bind, Except.bind]
 
 theorem compileExpr_intrinsic_verbatim_wrong_arity_error
     (fields : List Field) (dynamicSource : DynamicDataSource)
@@ -127,11 +127,11 @@ theorem compileExpr_intrinsic_verbatim_wrong_arity_error
         [.param x, .param y]) = .error msg := by
   refine ⟨toString "Compilation error: intrinsic " ++ toString name ++
     toString " expects " ++ toString 1 ++ toString " arg(s), got " ++
-    toString 2 ++ toString "", ?_⟩
+    toString 2, ?_⟩
   unfold compileExpr
   unfold compileExprWithInternals
   rw [compileExprListWithInternals_param_two]
-  rfl
+  simp [Bind.bind, Except.bind, Pure.pure, Except.pure]
 
 end IntrinsicProofs
 

@@ -84,6 +84,10 @@ mount_persistent_dir() {
   mkdir -p "$(dirname "$path")"
   rm -rf "$path"
   ln -s "$primary_dir" "$path"
+  # Refresh the entry mtime on attach: host maintenance treats a recently
+  # touched entry as in-use (MIN_ENTRY_AGE_HOURS) and will not delete the
+  # cache out from under a running job.
+  touch "$primary_dir"
 
   if ! is_dir_empty "$primary_dir"; then
     exit 0
@@ -94,6 +98,10 @@ mount_persistent_dir() {
   fi
 
   cp -a "$fallback_dir/." "$primary_dir/"
+  # cp -a re-applies the fallback dir's (old) mtime onto the primary,
+  # undoing the attach-time touch above — refresh it again so maintenance
+  # still sees this entry as in-use.
+  touch "$primary_dir"
 }
 
 publish_artifact() {

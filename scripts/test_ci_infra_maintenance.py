@@ -56,7 +56,7 @@ class CiInfraMaintenanceTests(unittest.TestCase):
         self.assertIn("runs-on: [self-hosted, linux, ARM64, dgx-spark, gpu]", text)
         self.assertIn("nvidia-smi", text)
 
-    def test_weekly_host_maintenance_prunes_ci_disk_journald_and_docker(self) -> None:
+    def test_daily_host_maintenance_prunes_ci_disk_journald_and_docker(self) -> None:
         text = MAINTENANCE_SCRIPT.read_text(encoding="utf-8")
         self.assertIn('CACHE_ROOT="${CACHE_ROOT:-/srv/verity-ci-cache}"', text)
         self.assertIn('prune_tree "$CACHE_ROOT/lake-build"', text)
@@ -64,8 +64,26 @@ class CiInfraMaintenanceTests(unittest.TestCase):
         self.assertIn('journalctl --vacuum-time="$JOURNAL_VACUUM_TIME"', text)
         self.assertIn('journalctl --vacuum-size="$JOURNAL_VACUUM_SIZE"', text)
         self.assertIn('docker image prune -af --filter "$DOCKER_PRUNE_FILTER"', text)
-        self.assertIn("OnCalendar=Sun *-*-* 04:30:00", text)
+        # Daily, not weekly: the weekly run executed hours before the
+        # 2026-07-12 disk-full incident and pruned nothing.
+        self.assertIn("OnCalendar=*-*-* 04:30:00", text)
+        self.assertNotIn("OnCalendar=Sun *-*-* 04:30:00", text)
         self.assertIn("verity-ci-host-maintenance.timer", text)
+
+    def test_host_maintenance_bounds_lake_packages_cache(self) -> None:
+        text = MAINTENANCE_SCRIPT.read_text(encoding="utf-8")
+        self.assertIn('cap_tree_entries "$CACHE_ROOT/lake-packages"', text)
+        self.assertIn('evict_until_free "$CACHE_ROOT/lake-packages"', text)
+        self.assertIn('LAKE_PACKAGES_MAX_ENTRIES="${LAKE_PACKAGES_MAX_ENTRIES:-20}"', text)
+        self.assertIn('MIN_FREE_GB="${MIN_FREE_GB:-100}"', text)
+        # In-use protection: recently attached entries are never deleted,
+        # and the mount path refreshes the entry mtime on attach.
+        self.assertIn('MIN_ENTRY_AGE_HOURS="${MIN_ENTRY_AGE_HOURS:-6}"', text)
+        self.assertIn("entry_is_recent", text)
+        persistence = (MAINTENANCE_SCRIPT.parent / "ci_local_persistence.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('touch "$primary_dir"', persistence)
 
     def test_parallel_build_jobs_use_four_lean_threads(self) -> None:
         text = VERIFY_WORKFLOW.read_text(encoding="utf-8")

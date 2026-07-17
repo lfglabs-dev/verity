@@ -30,6 +30,7 @@ import Compiler.Yul.PatchRules
 import Compiler.Keccak.SpongeProperties
 import Compiler.Proofs.KeccakBound
 import Compiler.Proofs.MappingSlot
+import Compiler.Proofs.AbiEncoding
 import Compiler.Proofs.StorageLens
 import Compiler.Proofs.IRGeneration.Expr
 import Compiler.Proofs.IRGeneration.SupportedFragment
@@ -40,6 +41,7 @@ import Compiler.Proofs.IRGeneration.FunctionBody
 import Compiler.Proofs.IRGeneration.ParamLoading
 import Compiler.Proofs.IRGeneration.SupportedSpec
 import Compiler.Proofs.IRGeneration.SourceSemantics
+import Compiler.Proofs.IRGeneration.HelperSummaryEvidence
 import Compiler.Proofs.Frames
 import Compiler.Proofs.YulGeneration.PatchRulesProofs
 import Compiler.Proofs.EndToEnd
