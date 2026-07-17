@@ -128,6 +128,7 @@ jobs:
           OCR_SCOUT_LLM_URL: ${{ secrets.OCR_SCOUT_LLM_URL || secrets.OCR_LLM_URL }}
           OCR_SCOUT_LLM_KEY: ${{ secrets.OCR_SCOUT_LLM_KEY || secrets.OCR_LLM_KEY }}
           OCR_SCOUT_LLM_MODEL: ${{ vars.OCR_SCOUT_LLM_MODEL || secrets.OCR_SCOUT_LLM_MODEL || 'MiniMax-M3' }}
+          OCR_SCOUT_LENSES: ${{ vars.OCR_SCOUT_LENSES || '' }}
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
