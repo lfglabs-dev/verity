@@ -46,7 +46,7 @@ theorem interpretInternalFunctionFuel_eq_internalHelperResultOfStmtResult_of_bin
     (hbind : SourceSemantics.bindInternalArgs callee.params args = some sourceBindings) :
     SourceSemantics.interpretInternalFunctionFuel spec helperFuel callee initialWorld args =
       internalHelperResultOfStmtResult initialWorld
-        (internalHelperBodySourceResult spec callee initialWorld sourceBindings helperFuel) := by
+        (internalHelperBodySourceResult spec callee initialWorld 0 sourceBindings helperFuel) := by
   simp [SourceSemantics.interpretInternalFunctionFuel, internalHelperBodySourceResult,
     internalHelperBodyRuntime, internalHelperResultOfStmtResult, hbind]
   rfl
