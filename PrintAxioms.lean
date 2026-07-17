@@ -3506,6 +3506,16 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.IRStorageSlot.toNat_ne_of_ne
 
   -- Compiler/Proofs/IRGeneration/InternalHelperBodyCorrespondence.lean
+  -- Compiler.Proofs.IRGeneration.SourceSemantics.lookupBinding?_bindValue_ne  -- private
+  -- Compiler.Proofs.IRGeneration.sourceBindingsAgreeOutside_refl  -- private
+  -- Compiler.Proofs.IRGeneration.sourceBindingsAgreeOutside_mono  -- private
+  -- Compiler.Proofs.IRGeneration.sourceBindingsAgreeOutside_trans  -- private
+  -- Compiler.Proofs.IRGeneration.sourceBindingsAgreeOutside_bindValue  -- private
+  -- Compiler.Proofs.IRGeneration.sourceBindingsAgreeOutside_bindValue_left_reserved  -- private
+  -- Compiler.Proofs.IRGeneration.sourceBindingsAgreeOutside_internalHelperEntryBindings  -- private
+  Compiler.Proofs.IRGeneration.lookupValue_internalHelperEntryBindings_of_not_mem
+  Compiler.Proofs.IRGeneration.lookupBinding?_internalHelperEntryBindings_of_not_mem
+  Compiler.Proofs.IRGeneration.internalHelperEntryBindings_source_reads_irrelevant
   Compiler.Proofs.IRGeneration.internal_helper_body_exec_matches_of_bindInternalArgs_and_generic
 
   -- Compiler/Proofs/IRGeneration/IntrinsicProofs.lean
@@ -6143,4 +6153,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5758 theorems/lemmas (3997 public, 1761 private, 0 sorry'd)
+-- Total: 5768 theorems/lemmas (4000 public, 1768 private, 0 sorry'd)
