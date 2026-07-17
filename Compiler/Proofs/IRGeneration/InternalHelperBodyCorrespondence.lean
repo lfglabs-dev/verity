@@ -134,12 +134,8 @@ theorem internal_helper_body_exec_matches_of_bindInternalArgs_and_generic
           simpa only [CompilationModel.compileStmtList] using hmode.symm
         _ = Except.ok helper.body := ctx.bodyCompile
     subst bodyIR
-    have hmatch' : stmtResultMatchesIRExecWithInternals (SourceSemantics.effectiveFields spec)
-        (internalHelperBodySourceResult spec callee initialWorld callerState.selector entryBindings helperFuel)
-        (internalHelperBodyIRExec runtimeContract helper callerState irArgs extraFuel) := by
-      simpa [internalHelperBodySourceResult, internalHelperBodyIRExec] using hmatch
-    rw [ctx.bodyBindings] at hmatch'
-    exact hmatch'
+    rw [← ctx.bodyBindings]
+    simpa [internalHelperBodySourceResult, internalHelperBodyIRExec] using hmatch
   · simp [internalHelperBodyInterpretation, ctx.bindArgs]
 
 end Compiler.Proofs.IRGeneration
