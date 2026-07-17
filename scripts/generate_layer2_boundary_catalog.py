@@ -50,6 +50,14 @@ def build_catalog() -> dict:
                 "Compiler.Proofs.IRGeneration.Contract."
                 "compile_preserves_semantics_with_helper_proofs_and_helper_ir_closed"
             ),
+            "mapping_write_helper_ir_global_slot_safety_variant": (
+                "Compiler.Proofs.IRGeneration.Contract."
+                "compile_preserves_semantics_except_mapping_writes_and_helper_ir_globalSlotSafety"
+            ),
+            "mapping_write_helper_ir_stmt_safety_variant": (
+                "Compiler.Proofs.IRGeneration.Contract."
+                "compile_preserves_semantics_except_mapping_writes_and_helper_ir"
+            ),
             "source_semantics": (
                 "Compiler.Proofs.IRGeneration.SourceSemantics.supportedSourceContractSemantics"
             ),
