@@ -471,6 +471,12 @@ function renderPacketCoverage(metrics, result) {
   const scout = packetReview.scout || {};
   body += `- Packet review: ${packetReview.enabled ? 'enabled' : 'not used'}; selected ${packetReview.packets_selected ?? packets.length}/${packetReview.packet_budget ?? '?'} packet(s)\n`;
   body += `- Scout: ${scout.enabled ? 'configured' : 'not configured'}; status ${escapeMd(scout.status || 'unknown')}; model ${escapeMd(scout.model || 'none')}\n`;
+  if (Array.isArray(scout.lenses) && scout.lenses.length) {
+    body += `- Scout lenses: ${escapeMd(scout.lenses.join(', '))}`;
+    if (scout.partial_lens_failures) body += ` (${scout.partial_lens_failures} lens(es) failed; union of the rest used)`;
+    if (scout.rubric_items != null) body += `; rubric items checked ${scout.rubric_items}`;
+    body += `\n`;
+  }
   if (scout.error_detail) {
     if (typeof scout.http_status === 'number') body += `- Scout provider HTTP status: ${scout.http_status}\n`;
     body += `- Scout provider error: ${escapeMd(scout.error_detail)}\n`;
@@ -488,8 +494,9 @@ function renderPacketCoverage(metrics, result) {
     body += `- Covered packets:\n`;
     for (const packet of packets.slice(0, 8)) {
       const signals = Array.isArray(packet.signals) && packet.signals.length ? packet.signals.join(', ') : 'hotspot path/churn';
+      const lensTag = Array.isArray(packet.scout_lens_ids) && packet.scout_lens_ids.length ? ` [lenses: ${packet.scout_lens_ids.join(', ')}]` : '';
       const question = packet.scout_question ? `; ask: ${packet.scout_question}` : '';
-      body += `  - ${escapeMd(packet.path)}:${packet.start_line ?? '?'} score ${packet.score ?? '?'} — ${escapeMd(signals + question)}\n`;
+      body += `  - ${escapeMd(packet.path)}:${packet.start_line ?? '?'} score ${packet.score ?? '?'}${escapeMd(lensTag)} — ${escapeMd(signals + question)}\n`;
     }
   }
   body += `\n`;
