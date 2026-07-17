@@ -1,4 +1,5 @@
 import Compiler.Proofs.IRGeneration.GenericInduction.Helpers
+import Compiler.Proofs.IRGeneration.HelperBodyBridge
 
 namespace Compiler.Proofs.IRGeneration
 
