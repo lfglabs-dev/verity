@@ -70,6 +70,9 @@ structure InternalHelperBodyExecContext
     spec.events spec.errors .calldata helper.rets true (internalHelperBodyScope callee helper)
     [] callee.body spec.functions = Except.ok helper.body
   returnFree : stmtListUsesReturnFamily callee.body = false
+  /-- This bridge returns an internal-function result, so bodies that can
+  propagate `.stop` to the IR caller are excluded at this boundary. -/
+  noStop : stmtListUsesStop callee.body = false
   /-- The source bindings obtained from logical arguments and the bindings at
   the prepared IR entry execute this body identically. -/
   bodyBindings :
@@ -82,8 +85,6 @@ structure InternalHelperBodyExecContext
     (internalHelperBodyScope callee helper) entryBindings
     (prepareInternalCalleeState callerState helper irArgs)
   bounded : FunctionBody.bindingsBounded entryBindings
-  noEvents : spec.events = []
-  noErrors : spec.errors = []
   runtime : FunctionBody.runtimeStateMatchesIR (SourceSemantics.effectiveFields spec)
     (internalHelperBodyRuntime initialWorld callerState.selector entryBindings)
     (prepareInternalCalleeState callerState helper irArgs)
@@ -104,14 +105,16 @@ theorem internal_helper_body_exec_matches_of_bindInternalArgs_and_generic
         internalHelperResultOfStmtResult initialWorld
           (internalHelperBodySourceResult spec callee initialWorld callerState.selector sourceBindings helperFuel) := by
   refine ⟨?_, ?_⟩
-  · rcases exec_compileStmtList_generic_with_helpers_and_helper_ir_with_internals_sizeOf_extraFuel
+  · rcases exec_compileStmtList_generic_with_helpers_and_helper_ir_with_internals_sizeOf_extraFuel_step
         (runtimeContract := runtimeContract) (spec := spec)
         (fields := SourceSemantics.effectiveFields spec)
         (runtime := internalHelperBodyRuntime initialWorld callerState.selector entryBindings)
         (state := prepareInternalCalleeState callerState helper irArgs)
         (scope := internalHelperBodyScope callee helper) (stmts := callee.body)
         helperFuel extraFuel hfuelPos ctx.generic ctx.scope ctx.exact ctx.bounded
-        ctx.noEvents ctx.noErrors ctx.runtime with ⟨bodyIR, hcompile, hmatch⟩
+        ctx.runtime with ⟨bodyIR, hcompile, hstep⟩
+    have hmatch :=
+      stmtStepMatchesIRExecWithInternals_implies_stmtResultMatchesIRExecWithInternals hstep
     have hmode :=
       compileStmtListWithFork_internal_shape_irrelevant_of_returnFree
         (SourceSemantics.effectiveFields spec) spec.events spec.errors .calldata
@@ -122,12 +125,8 @@ theorem internal_helper_body_exec_matches_of_bindInternalArgs_and_generic
       calc
         Except.ok bodyIR =
             CompilationModel.compileStmtList (SourceSemantics.effectiveFields spec)
-              [] [] .calldata [] false (internalHelperBodyScope callee helper)
+              spec.events spec.errors .calldata [] false (internalHelperBodyScope callee helper)
               [] callee.body spec.functions := hcompile.symm
-        _ = CompilationModel.compileStmtList (SourceSemantics.effectiveFields spec)
-              spec.events spec.errors .calldata [] false
-              (internalHelperBodyScope callee helper) [] callee.body spec.functions := by
-          simp only [ctx.noEvents, ctx.noErrors]
         _ = CompilationModel.compileStmtList (SourceSemantics.effectiveFields spec)
               spec.events spec.errors .calldata helper.rets true
               (internalHelperBodyScope callee helper) [] callee.body spec.functions := by
