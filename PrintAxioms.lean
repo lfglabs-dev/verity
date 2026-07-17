@@ -70,6 +70,7 @@ import Compiler.Proofs.IRGeneration.HelperBodyBridge
 import Compiler.Proofs.IRGeneration.HelperSummaryEvidence
 import Compiler.Proofs.IRGeneration.IRInterpreter
 import Compiler.Proofs.IRGeneration.IRStorageWord
+import Compiler.Proofs.IRGeneration.InternalHelperBodyCorrespondence
 import Compiler.Proofs.IRGeneration.IntrinsicProofs
 import Compiler.Proofs.IRGeneration.ParamLoading
 import Compiler.Proofs.IRGeneration.SourceSemantics
@@ -3270,7 +3271,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.evalIRCall_mload_singleton
   Compiler.Proofs.IRGeneration.evalIRCall_calldataload_singleton
   Compiler.Proofs.IRGeneration.evalIRCall_sload_singleton
-  -- Compiler.Proofs.IRGeneration.prepareInternalCalleeState_vars  -- private
+  Compiler.Proofs.IRGeneration.prepareInternalCalleeState_vars
   Compiler.Proofs.IRGeneration.execIRStmtWithInternals_log0_of_eval_args
   Compiler.Proofs.IRGeneration.execIRStmtWithInternals_log1_of_eval_args
   Compiler.Proofs.IRGeneration.execIRStmtWithInternals_log2_of_eval_args
@@ -3503,6 +3504,9 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.IRStorageSlot.toNat_lt_size
   Compiler.Proofs.IRGeneration.IRStorageSlot.eq_of_toNat_eq
   Compiler.Proofs.IRGeneration.IRStorageSlot.toNat_ne_of_ne
+
+  -- Compiler/Proofs/IRGeneration/InternalHelperBodyCorrespondence.lean
+  Compiler.Proofs.IRGeneration.internal_helper_body_exec_matches_of_bindInternalArgs_and_generic
 
   -- Compiler/Proofs/IRGeneration/IntrinsicProofs.lean
   Compiler.Proofs.IRGeneration.IntrinsicProofs.hardFork_allows_eq_rank_decide
@@ -6139,4 +6143,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5757 theorems/lemmas (3995 public, 1762 private, 0 sorry'd)
+-- Total: 5758 theorems/lemmas (3997 public, 1761 private, 0 sorry'd)

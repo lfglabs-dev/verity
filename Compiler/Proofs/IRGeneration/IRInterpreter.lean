@@ -347,22 +347,22 @@ end -- mutual
   | none => simp
   | some val => simp
 
-private def restoreCallerVars (callerState calleeState : IRState) : IRState :=
+def restoreCallerVars (callerState calleeState : IRState) : IRState :=
   { calleeState with vars := callerState.vars }
 
-private def internalReturnValues (state : IRState) (retNames : List String) : List Nat :=
+def internalReturnValues (state : IRState) (retNames : List String) : List Nat :=
   retNames.map (fun name => (state.getVar name).getD 0)
 
 /-- Internal helper calls execute with a fresh local-variable frame. They keep the
 caller's storage / memory / transaction context, but only helper params and
 declared return slots are in scope at function entry. -/
-private def prepareInternalCalleeState
+def prepareInternalCalleeState
     (callerState : IRState) (helper : IRInternalFunctionDef) (args : List Nat) : IRState :=
   let paramBindings := helper.params.zip args
   let retBindings := helper.rets.map (fun name => (name, 0))
   { callerState with vars := [] }.setVars (paramBindings ++ retBindings)
 
-@[simp] private theorem prepareInternalCalleeState_vars
+@[simp] theorem prepareInternalCalleeState_vars
     (callerState : IRState) (helper : IRInternalFunctionDef) (args : List Nat) :
     (prepareInternalCalleeState callerState helper args).vars =
       ({ callerState with vars := [] }.setVars
