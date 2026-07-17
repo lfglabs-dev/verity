@@ -70,6 +70,13 @@ structure InternalHelperBodyExecContext
     spec.events spec.errors .calldata helper.rets true (internalHelperBodyScope callee helper)
     [] callee.body spec.functions = Except.ok helper.body
   returnFree : stmtListUsesReturnFamily callee.body = false
+  /-- The source bindings obtained from logical arguments and the bindings at
+  the prepared IR entry execute this body identically. -/
+  bodyBindings :
+    internalHelperBodySourceResult spec callee initialWorld callerState.selector entryBindings
+      helperFuel =
+    internalHelperBodySourceResult spec callee initialWorld callerState.selector sourceBindings
+      helperFuel
   scope : FunctionBody.scopeNamesPresent (internalHelperBodyScope callee helper) entryBindings
   exact : FunctionBody.bindingsExactlyMatchIRVarsOnScope
     (internalHelperBodyScope callee helper) entryBindings
@@ -91,7 +98,7 @@ theorem internal_helper_body_exec_matches_of_bindInternalArgs_and_generic
     (ctx : InternalHelperBodyExecContext runtimeContract spec callee helper
       callerState initialWorld logicalArgs irArgs sourceBindings entryBindings helperFuel) :
     stmtResultMatchesIRExecWithInternals (SourceSemantics.effectiveFields spec)
-        (internalHelperBodySourceResult spec callee initialWorld callerState.selector entryBindings helperFuel)
+        (internalHelperBodySourceResult spec callee initialWorld callerState.selector sourceBindings helperFuel)
         (internalHelperBodyIRExec runtimeContract helper callerState irArgs extraFuel) ∧
       internalHelperBodyInterpretation spec helperFuel callee initialWorld callerState.selector logicalArgs =
         internalHelperResultOfStmtResult initialWorld
@@ -127,7 +134,12 @@ theorem internal_helper_body_exec_matches_of_bindInternalArgs_and_generic
           simpa only [CompilationModel.compileStmtList] using hmode.symm
         _ = Except.ok helper.body := ctx.bodyCompile
     subst bodyIR
-    exact hmatch
+    have hmatch' : stmtResultMatchesIRExecWithInternals (SourceSemantics.effectiveFields spec)
+        (internalHelperBodySourceResult spec callee initialWorld callerState.selector entryBindings helperFuel)
+        (internalHelperBodyIRExec runtimeContract helper callerState irArgs extraFuel) := by
+      simpa [internalHelperBodySourceResult, internalHelperBodyIRExec] using hmatch
+    rw [ctx.bodyBindings] at hmatch'
+    exact hmatch'
   · simp [internalHelperBodyInterpretation, ctx.bindArgs]
 
 end Compiler.Proofs.IRGeneration
