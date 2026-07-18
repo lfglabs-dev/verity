@@ -2726,7 +2726,7 @@ structure SupportedBodyInterfaceWithScalarEvents
       "__evt_topic0" ∉ fn.params.map (·.name)
   eventScratchFreshStmts :
     ∀ s ∈ fn.body,
-      "__evt_ptr" ∉ collectStmtNames s ∧ "__evt_topic0" ∉ collectStmtNames s
+      "__evt_ptr" ∉ collectStmtBindNames s ∧ "__evt_topic0" ∉ collectStmtBindNames s
   emitArgsInScope :
     ∀ s ∈ fn.body, ∀ (eventName : String) (args : List Expr),
       s = Stmt.emit eventName args →

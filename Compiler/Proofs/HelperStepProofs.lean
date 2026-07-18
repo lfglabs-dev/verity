@@ -1968,11 +1968,9 @@ theorem exprInternalHelperHeadStepBridge_letVar_of_exprCompositionalResult
     have hnextIncl : FunctionBody.scopeNamesIncluded
         (stmtNextScope scope (Stmt.letVar name value)) (name :: scope) := by
       intro n hn
-      simp [stmtNextScope, collectStmtNames] at hn
-      rcases hn with rfl | hn | hn
+      simp [stmtNextScope, collectStmtBindNames] at hn
+      rcases hn with rfl | hn
       · simp
-      · exact List.mem_cons_of_mem _
-          (hvalueNamesInScope hfuelPos hirFuelPos hexact hscope hbounded hruntime hn)
       · exact List.mem_cons_of_mem _ hn
     have hexact' : FunctionBody.bindingsExactlyMatchIRVarsOnScope
         (stmtNextScope scope (Stmt.letVar name value)) runtime'.bindings state' :=
@@ -2094,11 +2092,9 @@ theorem exprInternalHelperHeadStepBridgeWithInternals_letVar_of_exprPostStateRes
     have hnextIncl : FunctionBody.scopeNamesIncluded
         (stmtNextScope scope (Stmt.letVar name value)) (name :: scope) := by
       intro n hn
-      simp [stmtNextScope, collectStmtNames] at hn
-      rcases hn with rfl | hn | hn
+      simp [stmtNextScope, collectStmtBindNames] at hn
+      rcases hn with rfl | hn
       · simp
-      · exact List.mem_cons_of_mem _
-          (hvalueNamesInScope hfuelPos hirFuelPos hexact hscope hbounded hruntime hn)
       · exact List.mem_cons_of_mem _ hn
     have hexact' : FunctionBody.bindingsExactlyMatchIRVarsOnScope
         (stmtNextScope scope (Stmt.letVar name value)) runtime'.bindings state' :=
