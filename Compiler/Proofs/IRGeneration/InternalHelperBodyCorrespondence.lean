@@ -343,15 +343,6 @@ theorem evalExprListWithHelpers_eq_of_internalHelperExprListProjectionCore
         (by intro name hmem; exact hfresh name (by simp [FunctionBody.exprListBoundNames, hmem]))
       simp [SourceSemantics.evalExprListWithHelpers, hheadEq, hrestEq]
 
-private theorem internalHelperStmtListProjectionReadNames_fresh_tail
-    {stmt : Stmt} {rest : List Stmt} {reserved : List String}
-    (hfresh :
-      ∀ name, name ∈ internalHelperStmtListProjectionReadNames (stmt :: rest) →
-        name ∉ reserved) :
-    ∀ name, name ∈ internalHelperStmtListProjectionReadNames rest → name ∉ reserved := by
-  intro name hmem
-  exact hfresh name (by simp [internalHelperStmtListProjectionReadNames, hmem])
-
 private theorem internalHelperResultOfStmtListProjectionCore_eq_return
     {spec : CompilationModel} {fields : List Field} {fuel : Nat}
     {initialWorld : Verity.ContractState} {runtime : SourceSemantics.RuntimeState}
@@ -562,18 +553,30 @@ private theorem internalHelperResultOfStmtListProjectionCore_eq
       intro resolved
       exact ih
         (sourceBindingsAgreeOutside_bindValue hagree _ resolved)
-        (internalHelperStmtListProjectionReadNames_fresh_tail hfresh)
+        (by
+          intro query hmem
+          exact hfresh query (by
+            simp [internalHelperStmtListProjectionReadNames,
+              internalHelperStmtProjectionReadNames, hmem]))
   | assignVar hvalue _ ih =>
       refine internalHelperResultOfStmtListProjectionCore_eq_assignVar
         hvalue hagree hfresh ?_
       intro resolved
       exact ih
         (sourceBindingsAgreeOutside_bindValue hagree _ resolved)
-        (internalHelperStmtListProjectionReadNames_fresh_tail hfresh)
+        (by
+          intro query hmem
+          exact hfresh query (by
+            simp [internalHelperStmtListProjectionReadNames,
+              internalHelperStmtProjectionReadNames, hmem]))
   | require_ hcond _ ih =>
       refine internalHelperResultOfStmtListProjectionCore_eq_require
         hcond hagree hfresh ?_
-      exact ih hagree (internalHelperStmtListProjectionReadNames_fresh_tail hfresh)
+      exact ih hagree (by
+        intro query hmem
+        exact hfresh query (by
+          simp [internalHelperStmtListProjectionReadNames,
+            internalHelperStmtProjectionReadNames, hmem]))
   | return_ hvalue =>
       exact internalHelperResultOfStmtListProjectionCore_eq_return hvalue hagree hfresh
   | stop =>
