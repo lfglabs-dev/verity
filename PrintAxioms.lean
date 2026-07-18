@@ -3521,6 +3521,13 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.sourceBindingsAgreeOutside_symm  -- private
   Compiler.Proofs.IRGeneration.evalExprWithHelpers_eq_of_internalHelperExprProjectionCore
   Compiler.Proofs.IRGeneration.evalExprListWithHelpers_eq_of_internalHelperExprListProjectionCore
+  -- Compiler.Proofs.IRGeneration.internalHelperResultOfStmtListProjectionCore_eq_return  -- private
+  -- Compiler.Proofs.IRGeneration.internalHelperStmtListProjectionReadNames_fresh_tail_letVar  -- private
+  -- Compiler.Proofs.IRGeneration.internalHelperStmtListProjectionReadNames_fresh_tail_assignVar  -- private
+  -- Compiler.Proofs.IRGeneration.internalHelperStmtListProjectionReadNames_fresh_tail_require  -- private
+  -- Compiler.Proofs.IRGeneration.internalHelperResultOfStmtListProjectionCore_eq_letVar  -- private
+  -- Compiler.Proofs.IRGeneration.internalHelperResultOfStmtListProjectionCore_eq_assignVar  -- private
+  -- Compiler.Proofs.IRGeneration.internalHelperResultOfStmtListProjectionCore_eq_require  -- private
   -- Compiler.Proofs.IRGeneration.internalHelperResultOfStmtListProjectionCore_eq  -- private
   Compiler.Proofs.IRGeneration.internalHelperBodyResultProjection_of_entryBindings_projectionCore
   Compiler.Proofs.IRGeneration.internal_helper_body_exec_matches_entryBindings_and_projected_result_of_bindInternalArgs_and_generic
@@ -6160,4 +6167,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5775 theorems/lemmas (4005 public, 1770 private, 0 sorry'd)
+-- Total: 5782 theorems/lemmas (4005 public, 1777 private, 0 sorry'd)
