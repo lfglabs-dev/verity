@@ -377,6 +377,13 @@ private theorem internalHelperResultOfStmtListProjectionCore_eq_return
         simpa [hleft] using hvalueEq.symm
       simp [SourceSemantics.execStmtListWithHelpers, SourceSemantics.execStmtWithHelpers,
         internalHelperResultOfStmtResult, hleft, hright]
+  | some resolved =>
+      have hright :
+          SourceSemantics.evalExprWithHelpers spec fields fuel
+            { runtime with bindings := rhs } value = some resolved := by
+        simpa [hleft] using hvalueEq.symm
+      simp [SourceSemantics.execStmtListWithHelpers, SourceSemantics.execStmtWithHelpers,
+        internalHelperResultOfStmtResult, hleft, hright]
 
 private theorem internalHelperStmtListProjectionReadNames_fresh_tail_letVar
     {name : String} {value : Expr} {rest : List Stmt} {reserved : List String}
@@ -410,13 +417,6 @@ private theorem internalHelperStmtListProjectionReadNames_fresh_tail_require
   exact hfresh query (by
     simp [internalHelperStmtListProjectionReadNames,
       internalHelperStmtProjectionReadNames, hmem])
-  | some resolved =>
-      have hright :
-          SourceSemantics.evalExprWithHelpers spec fields fuel
-            { runtime with bindings := rhs } value = some resolved := by
-        simpa [hleft] using hvalueEq.symm
-      simp [SourceSemantics.execStmtListWithHelpers, SourceSemantics.execStmtWithHelpers,
-        internalHelperResultOfStmtResult, hleft, hright]
 
 private theorem internalHelperResultOfStmtListProjectionCore_eq_letVar
     {spec : CompilationModel} {fields : List Field} {fuel : Nat}
