@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "description": "Accumulating OCR review rubric. Each item is a defect CLASS that a real Verity PR needed a dedicated review cycle to catch. Every scout review injects this list into its dossier so past defect classes are re-checked on every future PR instead of being rediscovered serially. Append a new item with appendRubricItem() in ocr-router.js after a defect class is confirmed in review (see that helper's doc comment).",
+  "items": [
+    {
+      "id": "checksum-manifest-scoping",
+      "lens": "provenance",
+      "title": "Checksum / manifest scoping",
+      "check": "A checksum or manifest must cover EVERY artifact whose integrity the proof or verifier depends on. Flag manifests that pin only a subset of artifacts, hash a directory listing but not file contents, or let a producer add/swap an unlisted artifact without invalidating the checksum. Verify the manifest's scope matches the trust claim it backs.",
+      "origin": "Verity OCR review cycle 1",
+      "added_at": "2026-07-17"
+    },
+    {
+      "id": "verification-replay-independence",
+      "lens": "verification-independence",
+      "title": "Verification / replay independence",
+      "check": "A check advertised as an INDEPENDENT verification must not reuse the producer's own code, cached outputs, or state to reach its verdict. Flag replays that import the generator, trust a producer-emitted result file, or share a build step with the thing being verified — such a check can only confirm self-consistency, not correctness.",
+      "origin": "Verity OCR review cycle 2",
+      "added_at": "2026-07-17"
+    },
+    {
+      "id": "shallow-clone-verification-contract",
+      "lens": "verification-independence",
+      "title": "Shallow-clone verification contract",
+      "check": "Verification that runs against a shallow clone, a single ref, or a partial checkout must state and honor exactly which history/objects it needs. Flag shallow/sparse fetches that silently drop the merge-base, sibling refs, or blobs a sound verification requires, causing the check to pass on an incomplete view of the change.",
+      "origin": "Verity OCR review cycle 3",
+      "added_at": "2026-07-17"
+    }
+  ]
+}

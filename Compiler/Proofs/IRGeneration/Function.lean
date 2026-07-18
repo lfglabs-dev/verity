@@ -301,7 +301,7 @@ theorem compileConstructor_some_ok_of_body
     (ctor : ConstructorSpec) (bodyStmts : List YulStmt)
       (hbody :
         compileStmtList fields events errors .memory [] false
-          (ctor.params.map (·.name)) [] ctor.body [] = Except.ok bodyStmts) :
+          (constructorBodyScope ctor.params) [] ctor.body [] = Except.ok bodyStmts) :
       compileConstructor fields events errors [] (some ctor) =
         Except.ok (genConstructorArgLoads ctor.params ++ bodyStmts) := by
   simp [CompilationModel.compileConstructor,
@@ -314,11 +314,11 @@ theorem compileConstructor_ok_components
         compileConstructor fields events errors [] (some ctor) = Except.ok deployStmts) :
     ∃ bodyStmts,
         compileStmtList fields events errors .memory [] false
-          (ctor.params.map (·.name)) [] ctor.body [] = Except.ok bodyStmts ∧
+          (constructorBodyScope ctor.params) [] ctor.body [] = Except.ok bodyStmts ∧
         deployStmts = genConstructorArgLoads ctor.params ++ bodyStmts := by
     cases hbody :
         compileStmtList fields events errors .memory [] false
-          (ctor.params.map (·.name)) [] ctor.body [] with
+          (constructorBodyScope ctor.params) [] ctor.body [] with
   | error err =>
       simp [CompilationModel.compileConstructor,
         FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList, hbody] at hcompile
@@ -2858,6 +2858,823 @@ private theorem genParamLoads_scalar_legacy
   simp [genParamLoads, genParamLoadsFrom]
   exact .if_ _ _ _ (.exprStmt _ _ .nil) hbody
 
+/-- Legacy-compatibility analog of `compileStmtList_scalar_events_callsDisjoint`:
+turn a per-statement compiled legacy-compatibility interface
+(`StmtListCompiledLegacyCompatible`) into a whole-list legacy-compatibility
+witness for the emitted Yul body. This is the missing list-composition bridge
+that lifts the per-statement legacy obligations (the remaining #2080 discharge
+target) to a `LegacyCompatibleExternalStmtList` for the compiled body, mirroring
+the already-proven disjoint composition. -/
+private theorem compileStmtList_legacyCompatible_of_interface
+    {fields : List Field} :
+    ∀ {scope : List String} {stmts : List Stmt} {compiledIR : List YulStmt},
+      StmtListCompiledLegacyCompatible fields scope stmts →
+      CompilationModel.compileStmtList fields [] [] .calldata [] false scope [] stmts =
+          Except.ok compiledIR →
+      LegacyCompatibleExternalStmtList compiledIR
+  | _, [], _, _, hcompile => by
+      try unfold CompilationModel.compileStmtList at hcompile
+      unfold CompilationModel.compileStmtListWithFork at hcompile
+      cases hcompile
+      exact .nil
+  | _, _ :: _, _, hInterface, hcompile => by
+      obtain ⟨headIR, tailIR, hheadCompile, htailCompile, hbody⟩ :=
+        FunctionBody.compileStmtList_cons_ok_inv hcompile
+      cases hInterface with
+      | cons hhead htail =>
+          rw [hbody]
+          exact legacyCompatibleExternalStmtList_append
+            (hhead headIR hheadCompile)
+            (compileStmtList_legacyCompatible_of_interface htail htailCompile)
+
+private theorem legacyCompatibleExternalStmtList_map_exprStmt
+    {α : Type} (f : α → YulExpr) :
+    ∀ xs : List α,
+      LegacyCompatibleExternalStmtList (xs.map (fun x => YulStmt.exprStmt (f x)))
+  | [] => .nil
+  | _ :: rest => .exprStmt _ _ (legacyCompatibleExternalStmtList_map_exprStmt f rest)
+
+private theorem legacyCompatibleExternalStmtList_map_exprStmt_call
+    {α : Type} (f : α → YulExpr) (name : String) :
+    ∀ xs : List α,
+      LegacyCompatibleExternalStmtList
+        (xs.map (fun x => YulStmt.exprStmt (YulExpr.call name [f x, YulExpr.ident "__compat_value"])))
+  | [] => .nil
+  | _ :: rest => .exprStmt _ _
+      (legacyCompatibleExternalStmtList_map_exprStmt_call f name rest)
+
+private theorem legacyCompatibleExternalStmtList_map_let
+    {α : Type} (name : α → String) (value : α → YulExpr) :
+    ∀ xs : List α,
+      LegacyCompatibleExternalStmtList
+        (xs.map (fun x => YulStmt.let_ (name x) (value x)))
+  | [] => .nil
+  | _ :: rest => .let_ _ _ _
+      (legacyCompatibleExternalStmtList_map_let name value rest)
+
+private theorem legacyCompatibleExternalStmtList_block_value_writes
+    {α : Type} (f : α → YulExpr) (name : String) (value : YulExpr) (xs : List α) :
+    LegacyCompatibleExternalStmtList
+      [YulStmt.block
+        (YulStmt.let_ "__compat_value" value ::
+          xs.map (fun x =>
+            YulStmt.exprStmt
+              (YulExpr.call name [f x, YulExpr.ident "__compat_value"])))] := by
+  exact .block _ _ (.let_ _ _ _
+    (legacyCompatibleExternalStmtList_map_exprStmt_call f name xs)) .nil
+
+private theorem legacyCompatibleExternalStmtList_block_key_value_writes
+    {α : Type} (f : α → YulExpr) (name : String)
+    (key value : YulExpr) (xs : List α) :
+    LegacyCompatibleExternalStmtList
+      [YulStmt.block
+        ([YulStmt.let_ "__compat_key" key, YulStmt.let_ "__compat_value" value] ++
+          xs.map (fun x =>
+            YulStmt.exprStmt
+              (YulExpr.call name [f x, YulExpr.ident "__compat_value"])))] := by
+  exact .block _ _ (.let_ _ _ _ (.let_ _ _ _
+    (legacyCompatibleExternalStmtList_map_exprStmt_call f name xs))) .nil
+
+private theorem legacyCompatibleExternalStmtList_block_key1_key2_value_writes
+    {α : Type} (f : α → YulExpr) (name : String)
+    (key1 key2 value : YulExpr) (xs : List α) :
+    LegacyCompatibleExternalStmtList
+      [YulStmt.block
+        ([YulStmt.let_ "__compat_key1" key1, YulStmt.let_ "__compat_key2" key2,
+          YulStmt.let_ "__compat_value" value] ++
+          xs.map (fun x =>
+            YulStmt.exprStmt
+              (YulExpr.call name [f x, YulExpr.ident "__compat_value"])))] := by
+  exact .block _ _ (.let_ _ _ _ (.let_ _ _ _ (.let_ _ _ _
+    (legacyCompatibleExternalStmtList_map_exprStmt_call f name xs)))) .nil
+
+private theorem legacyCompatibleExternalStmtList_block_value_lets_writes
+    {α β : Type} (letName : α → String) (letValue : α → YulExpr)
+    (f : β → YulExpr) (name : String) (value : YulExpr) (lets : List α) (xs : List β) :
+    LegacyCompatibleExternalStmtList
+      [YulStmt.block
+        ([YulStmt.let_ "__compat_value" value] ++
+          lets.map (fun x => YulStmt.let_ (letName x) (letValue x)) ++
+          xs.map (fun x =>
+            YulStmt.exprStmt
+              (YulExpr.call name [f x, YulExpr.ident "__compat_value"])))] := by
+  exact .block _ _ (.let_ _ _ _
+    (legacyCompatibleExternalStmtList_append
+      (legacyCompatibleExternalStmtList_map_let letName letValue lets)
+      (legacyCompatibleExternalStmtList_map_exprStmt_call f name xs))) .nil
+
+private theorem revertWithMessage_legacyCompatible
+    (message : String) :
+    LegacyCompatibleExternalStmtList (CompilationModel.revertWithMessage message) := by
+  simp only [CompilationModel.revertWithMessage]
+  exact .exprStmt _ _
+    (.exprStmt _ _
+      (.exprStmt _ _
+        (legacyCompatibleExternalStmtList_append
+          (legacyCompatibleExternalStmtList_map_exprStmt
+            (fun x : List UInt8 × Nat =>
+              YulExpr.call "mstore"
+                [YulExpr.lit (68 + x.2 * 32), YulExpr.hex (wordFromBytes x.1)])
+            (chunkBytes32 (bytesFromString message)).zipIdx)
+          (.exprStmt _ _ .nil))))
+
+/-- Generic compile-core statement lists discharge the per-head legacy-compatible
+compiled-output interface consumed by the helper-aware whole-contract bridge.
+
+The compiler scope is deliberately independent of the proof scope: core
+statement heads do not use the scope to choose their emitted Yul constructors,
+and the tail is threaded through the compiler's `stmtNextScope`. -/
+theorem stmtListCompileCore_compiledLegacyCompatible
+    (fields : List Field) :
+    ∀ {proofScope compilerScope : List String} {stmts : List Stmt},
+      FunctionBody.StmtListCompileCore proofScope stmts →
+        StmtListCompiledLegacyCompatible fields compilerScope stmts
+  | _, _, [], .nil => .nil
+  | _, compilerScope, .letVar name value :: rest,
+      .letVar _hvalue _hscope hrest =>
+      .cons
+        (fun compiledIR hcompile => by
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+            bind, Except.bind] at hcompile
+          split at hcompile <;> cases hcompile
+          exact .let_ _ _ [] .nil)
+        (stmtListCompileCore_compiledLegacyCompatible fields
+          (compilerScope := stmtNextScope compilerScope (.letVar name value)) hrest)
+  | _, compilerScope, .assignVar name value :: rest,
+      .assignVar _hvalue _hscope hrest =>
+      .cons
+        (fun compiledIR hcompile => by
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+            bind, Except.bind] at hcompile
+          split at hcompile <;> cases hcompile
+          exact .assign _ _ [] .nil)
+        (stmtListCompileCore_compiledLegacyCompatible fields
+          (compilerScope := stmtNextScope compilerScope (.assignVar name value)) hrest)
+  | _, compilerScope, .require cond message :: rest,
+      .require_ _hcond _hscope hrest =>
+      .cons
+        (fun compiledIR hcompile => by
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+            bind, Except.bind] at hcompile
+          split at hcompile <;> cases hcompile
+          exact .if_ _ _ [] (revertWithMessage_legacyCompatible message) .nil)
+        (stmtListCompileCore_compiledLegacyCompatible fields
+          (compilerScope := stmtNextScope compilerScope (.require cond message)) hrest)
+  | _, compilerScope, .return value :: rest,
+      .return_ _hvalue _hscope hrest =>
+      .cons
+        (fun compiledIR hcompile => by
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+            bind, Except.bind] at hcompile
+          split at hcompile <;> cases hcompile
+          exact .exprStmt _ _ (.exprStmt _ _ .nil))
+        (stmtListCompileCore_compiledLegacyCompatible fields
+          (compilerScope := stmtNextScope compilerScope (.return value)) hrest)
+  | _, compilerScope, .stop :: rest, .stop hrest =>
+      .cons
+        (fun compiledIR hcompile => by
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] at hcompile
+          cases hcompile
+          exact .exprStmt _ _ .nil)
+        (stmtListCompileCore_compiledLegacyCompatible fields
+          (compilerScope := stmtNextScope compilerScope .stop) hrest)
+  | _, compilerScope, .mstore offset value :: rest,
+      .mstore _hoffset _hscopeOffset _hvalue _hscopeValue hrest =>
+      .cons
+        (fun compiledIR hcompile => by
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+            bind, Except.bind] at hcompile
+          split at hcompile <;> try contradiction
+          split at hcompile <;> cases hcompile
+          exact .exprStmt _ _ .nil)
+        (stmtListCompileCore_compiledLegacyCompatible fields
+          (compilerScope := stmtNextScope compilerScope (.mstore offset value)) hrest)
+  | _, compilerScope, .tstore offset value :: rest,
+      .tstore _hoffset _hscopeOffset _hvalue _hscopeValue hrest =>
+      .cons
+        (fun compiledIR hcompile => by
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+            bind, Except.bind] at hcompile
+          split at hcompile <;> try contradiction
+          split at hcompile <;> cases hcompile
+          exact .exprStmt _ _ .nil)
+        (stmtListCompileCore_compiledLegacyCompatible fields
+          (compilerScope := stmtNextScope compilerScope (.tstore offset value)) hrest)
+
+/-- Terminal-core statement lists also discharge the per-head legacy-compatible
+compiled-output interface.  The `ite` case uses the existing list bridge on the
+terminal branches and compile-core tail. -/
+theorem stmtListTerminalCore_compiledLegacyCompatible
+    (fields : List Field) :
+    ∀ {proofScope compilerScope : List String} {stmts : List Stmt},
+      FunctionBody.StmtListTerminalCore proofScope stmts →
+        StmtListCompiledLegacyCompatible fields compilerScope stmts
+  | _, compilerScope, .letVar name value :: rest,
+      .letVar _hvalue _hscope hrest =>
+      .cons
+        (fun compiledIR hcompile => by
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+            bind, Except.bind] at hcompile
+          split at hcompile <;> cases hcompile
+          exact .let_ _ _ [] .nil)
+        (stmtListTerminalCore_compiledLegacyCompatible fields
+          (compilerScope := stmtNextScope compilerScope (.letVar name value)) hrest)
+  | _, compilerScope, .assignVar name value :: rest,
+      .assignVar _hvalue _hscope hrest =>
+      .cons
+        (fun compiledIR hcompile => by
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+            bind, Except.bind] at hcompile
+          split at hcompile <;> cases hcompile
+          exact .assign _ _ [] .nil)
+        (stmtListTerminalCore_compiledLegacyCompatible fields
+          (compilerScope := stmtNextScope compilerScope (.assignVar name value)) hrest)
+  | _, compilerScope, .require cond message :: rest,
+      .require_ _hcond _hscope hrest =>
+      .cons
+        (fun compiledIR hcompile => by
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+            bind, Except.bind] at hcompile
+          split at hcompile <;> cases hcompile
+          exact .if_ _ _ [] (revertWithMessage_legacyCompatible message) .nil)
+        (stmtListTerminalCore_compiledLegacyCompatible fields
+          (compilerScope := stmtNextScope compilerScope (.require cond message)) hrest)
+  | _, compilerScope, .return value :: rest,
+      .return_ _hvalue _hscope hrest =>
+      .cons
+        (fun compiledIR hcompile => by
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+            bind, Except.bind] at hcompile
+          split at hcompile <;> cases hcompile
+          exact .exprStmt _ _ (.exprStmt _ _ .nil))
+        (stmtListCompileCore_compiledLegacyCompatible fields
+          (compilerScope := stmtNextScope compilerScope (.return value)) hrest)
+  | _, compilerScope, .stop :: rest, .stop hrest =>
+      .cons
+        (fun compiledIR hcompile => by
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] at hcompile
+          cases hcompile
+          exact .exprStmt _ _ .nil)
+        (stmtListCompileCore_compiledLegacyCompatible fields
+          (compilerScope := stmtNextScope compilerScope .stop) hrest)
+  | _, compilerScope, .mstore offset value :: rest,
+      .mstore _hoffset _hscopeOffset _hvalue _hscopeValue hrest =>
+      .cons
+        (fun compiledIR hcompile => by
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+            bind, Except.bind] at hcompile
+          split at hcompile <;> try contradiction
+          split at hcompile <;> cases hcompile
+          exact .exprStmt _ _ .nil)
+        (stmtListTerminalCore_compiledLegacyCompatible fields
+          (compilerScope := stmtNextScope compilerScope (.mstore offset value)) hrest)
+  | _, compilerScope, .tstore offset value :: rest,
+      .tstore _hoffset _hscopeOffset _hvalue _hscopeValue hrest =>
+      .cons
+        (fun compiledIR hcompile => by
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+            bind, Except.bind] at hcompile
+          split at hcompile <;> try contradiction
+          split at hcompile <;> cases hcompile
+          exact .exprStmt _ _ .nil)
+        (stmtListTerminalCore_compiledLegacyCompatible fields
+          (compilerScope := stmtNextScope compilerScope (.tstore offset value)) hrest)
+  | _, compilerScope, .ite cond thenBranch elseBranch :: rest,
+      .ite _hcond _hscope hthen helse hrest =>
+      .cons
+        (fun compiledIR hcompile => by
+          simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+            bind, Except.bind] at hcompile
+          split at hcompile <;> try contradiction
+          rename_i condIR hcondIR
+          split at hcompile <;> try contradiction
+          rename_i thenIR hthenIR
+          split at hcompile <;> try contradiction
+          rename_i elseIR helseIR
+          have hthenLegacy :
+              LegacyCompatibleExternalStmtList thenIR :=
+            compileStmtList_legacyCompatible_of_interface
+              (stmtListTerminalCore_compiledLegacyCompatible fields
+                (compilerScope := compilerScope) hthen)
+              hthenIR
+          have helseLegacy :
+              LegacyCompatibleExternalStmtList elseIR :=
+            compileStmtList_legacyCompatible_of_interface
+              (stmtListTerminalCore_compiledLegacyCompatible fields
+                (compilerScope := compilerScope) helse)
+              helseIR
+          by_cases hempty : elseBranch.isEmpty
+          · simp [hempty] at hcompile
+            cases hcompile
+            exact .if_ condIR thenIR [] hthenLegacy .nil
+          · simp [hempty] at hcompile
+            cases hcompile
+            exact .block
+              [YulStmt.let_
+                (pickFreshName "__ite_cond"
+                  (compilerScope ++
+                    (collectExprNames cond ++
+                      (collectStmtListNames thenBranch ++ collectStmtListNames elseBranch))))
+                condIR,
+               YulStmt.if_
+                (YulExpr.ident
+                  (pickFreshName "__ite_cond"
+                    (compilerScope ++
+                      (collectExprNames cond ++
+                        (collectStmtListNames thenBranch ++ collectStmtListNames elseBranch)))))
+                thenIR,
+               YulStmt.if_
+                (YulExpr.call "iszero"
+                  [YulExpr.ident
+                    (pickFreshName "__ite_cond"
+                      (compilerScope ++
+                        (collectExprNames cond ++
+                          (collectStmtListNames thenBranch ++ collectStmtListNames elseBranch))))])
+                elseIR]
+              []
+              (.let_ _ _ _
+                (.if_ _ _ _
+                  hthenLegacy
+                  (.if_ _ _ _ helseLegacy .nil)))
+              .nil)
+        (stmtListCompileCore_compiledLegacyCompatible fields
+          (compilerScope := stmtNextScope compilerScope (.ite cond thenBranch elseBranch)) hrest)
+
+/-- Singleton `setStorage` heads compile to ordinary legacy-compatible Yul when
+the supported-fragment witness resolves the field to one concrete uint256
+storage slot. -/
+theorem stmtList_setStorageSingleSlot_compiledLegacyCompatible
+    (fields : List Field)
+    {scope : List String}
+    {fieldName : String}
+    {value : Expr}
+    {slot : Nat}
+    (_hvalue : FunctionBody.ExprCompileCore value)
+    (_hscope : FunctionBody.exprBoundNamesInScope value scope)
+    (hfield :
+      findFieldWithResolvedSlot fields fieldName =
+        some ({ name := fieldName, ty := FieldType.uint256 }, slot)) :
+    StmtListCompiledLegacyCompatible fields scope [Stmt.setStorage fieldName value] :=
+  .cons
+    (fun compiledIR hcompile => by
+      simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] at hcompile
+      simp [CompilationModel.compileSetStorage, hfield] at hcompile
+      split at hcompile <;> try contradiction
+      cases hvalueExpr : compileExprWithInternals fields .calldata [] value <;>
+        simp [hvalueExpr] at hcompile
+      cases hcompile
+      exact .exprStmt _ _ .nil)
+    .nil
+
+/-- Singleton `setStorageAddr` heads compile to ordinary legacy-compatible Yul
+when the supported-fragment witness resolves the field to one concrete address
+storage slot. -/
+theorem stmtList_setStorageAddrSingleSlot_compiledLegacyCompatible
+    (fields : List Field)
+    {scope : List String}
+    {fieldName : String}
+    {value : Expr}
+    {slot : Nat}
+    (_hvalue : FunctionBody.ExprCompileCore value)
+    (_hscope : FunctionBody.exprBoundNamesInScope value scope)
+    (hfield :
+      findFieldWithResolvedSlot fields fieldName =
+        some ({ name := fieldName, ty := FieldType.address }, slot)) :
+    StmtListCompiledLegacyCompatible fields scope [Stmt.setStorageAddr fieldName value] :=
+  .cons
+    (fun compiledIR hcompile => by
+      simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] at hcompile
+      simp [CompilationModel.compileSetStorage, hfield] at hcompile
+      split at hcompile <;> try contradiction
+      cases hvalueExpr : compileExprWithInternals fields .calldata [] value <;>
+        simp [hvalueExpr] at hcompile
+      cases hcompile
+      exact .exprStmt _ _ .nil)
+    .nil
+
+private theorem compileMappingSlotWrite_legacyCompatible
+    {fields : List Field}
+    {fieldName label : String}
+    {keyExpr valueExpr : YulExpr}
+    {wordOffset : Nat}
+    {compiledIR : List YulStmt}
+    (hcompile :
+      CompilationModel.compileMappingSlotWrite fields fieldName keyExpr valueExpr
+          label wordOffset true =
+        Except.ok compiledIR) :
+    LegacyCompatibleExternalStmtList compiledIR := by
+  unfold CompilationModel.compileMappingSlotWrite at hcompile
+  repeat' split at hcompile <;> try contradiction
+  all_goals
+    first
+    | cases hcompile
+      exact .exprStmt _ _ .nil
+    | cases hcompile
+      exact legacyCompatibleExternalStmtList_block_key_value_writes (α := Nat) (f := _) _ _ _ _
+
+private theorem compileSetMapping2_legacyCompatible
+    {fields : List Field}
+    {fieldName : String}
+    {dynamicSource : DynamicDataSource}
+    {key1 key2 value : Expr}
+    {compiledIR : List YulStmt}
+    (hcompile :
+      CompilationModel.compileSetMapping2 fields dynamicSource fieldName key1 key2 value [] =
+        Except.ok compiledIR) :
+    LegacyCompatibleExternalStmtList compiledIR := by
+  unfold CompilationModel.compileSetMapping2 at hcompile
+  cases hMapping2 : isMapping2 fields fieldName <;> simp [hMapping2] at hcompile
+  cases hSlots : findFieldWriteSlots fields fieldName <;> simp [hSlots] at hcompile
+  rename_i slots
+  cases hkey1Expr : compileExprWithInternals fields dynamicSource [] key1 with
+  | error err => simp [hkey1Expr, bind, Except.bind] at hcompile
+  | ok key1Expr =>
+      cases hkey2Expr : compileExprWithInternals fields dynamicSource [] key2 with
+      | error err => simp [hkey1Expr, hkey2Expr, bind, Except.bind] at hcompile
+      | ok key2Expr =>
+          cases hvalueExpr : compileExprWithInternals fields dynamicSource [] value with
+          | error err => simp [hkey1Expr, hkey2Expr, hvalueExpr, bind, Except.bind] at hcompile
+          | ok valueExpr =>
+              cases slots with
+              | nil => simp [hkey1Expr, hkey2Expr, hvalueExpr, bind, Except.bind] at hcompile
+              | cons slot rest =>
+                  cases rest with
+                  | nil =>
+                      simp [hkey1Expr, hkey2Expr, hvalueExpr, bind, Except.bind] at hcompile
+                      cases hcompile
+                      exact .exprStmt _ _ .nil
+                  | cons slot' rest =>
+                      simp [hkey1Expr, hkey2Expr, hvalueExpr, bind, Except.bind] at hcompile
+                      cases hcompile
+                      exact legacyCompatibleExternalStmtList_block_key1_key2_value_writes
+                        (α := Nat)
+                        (f := fun slot =>
+                          YulExpr.call "mappingSlot"
+                            [YulExpr.call "mappingSlot"
+                              [YulExpr.lit slot, YulExpr.ident "__compat_key1"],
+                              YulExpr.ident "__compat_key2"])
+                        (match findFieldWithResolvedSlot fields fieldName with
+                          | some (f, _) => if f.isTransient then "tstore" else "sstore"
+                          | none => "sstore")
+                        key1Expr key2Expr valueExpr (slot :: slot' :: rest)
+
+private theorem compileSetMapping2Word_legacyCompatible
+    {fields : List Field} {fieldName : String} {dynamicSource : DynamicDataSource}
+    {key1 key2 value : Expr} {wordOffset : Nat} {compiledIR : List YulStmt}
+    (hcompile :
+      CompilationModel.compileSetMapping2Word fields dynamicSource fieldName key1 key2
+          wordOffset value [] =
+        Except.ok compiledIR) :
+    LegacyCompatibleExternalStmtList compiledIR := by
+  unfold CompilationModel.compileSetMapping2Word at hcompile
+  cases hMapping2 : isMapping2 fields fieldName <;> simp [hMapping2] at hcompile
+  cases hSlots : findFieldWriteSlots fields fieldName <;> simp [hSlots] at hcompile
+  rename_i slots
+  cases hkey1Expr : compileExprWithInternals fields dynamicSource [] key1 with
+  | error err => simp [hkey1Expr, bind, Except.bind] at hcompile
+  | ok key1Expr =>
+      cases hkey2Expr : compileExprWithInternals fields dynamicSource [] key2 with
+      | error err => simp [hkey1Expr, hkey2Expr, bind, Except.bind] at hcompile
+      | ok key2Expr =>
+          cases hvalueExpr : compileExprWithInternals fields dynamicSource [] value with
+          | error err => simp [hkey1Expr, hkey2Expr, hvalueExpr, bind, Except.bind] at hcompile
+          | ok valueExpr =>
+              cases slots with
+              | nil => simp [hkey1Expr, hkey2Expr, hvalueExpr, bind, Except.bind] at hcompile
+              | cons slot rest =>
+                  cases rest with
+                  | nil =>
+                      simp [hkey1Expr, hkey2Expr, hvalueExpr, bind, Except.bind] at hcompile
+                      cases hcompile
+                      exact .exprStmt _ _ .nil
+                  | cons slot' rest =>
+                      simp [hkey1Expr, hkey2Expr, hvalueExpr, bind, Except.bind] at hcompile
+                      cases hcompile
+                      exact legacyCompatibleExternalStmtList_block_key1_key2_value_writes
+                        (α := Nat)
+                        (f := fun slot =>
+                          let innerSlot :=
+                            YulExpr.call "mappingSlot" [YulExpr.lit slot, YulExpr.ident "__compat_key1"]
+                          let outerSlot :=
+                            YulExpr.call "mappingSlot" [innerSlot, YulExpr.ident "__compat_key2"]
+                          if wordOffset = 0 then outerSlot else
+                            YulExpr.call "add" [outerSlot, YulExpr.lit wordOffset])
+                        (match findFieldWithResolvedSlot fields fieldName with
+                          | some (f, _) => if f.isTransient then "tstore" else "sstore"
+                          | none => "sstore")
+                        key1Expr key2Expr valueExpr (slot :: slot' :: rest)
+
+private theorem compileSetStructMember2_legacyCompatible
+    {fields : List Field} {fieldName memberName : String} {dynamicSource : DynamicDataSource}
+    {key1 key2 value : Expr} {wordOffset : Nat} {members : List StructMember}
+    {compiledIR : List YulStmt}
+    (hmembers : findStructMembers fields fieldName = some members)
+    (hmember : findStructMember members memberName =
+        some { name := memberName, wordOffset := wordOffset, packed := none })
+    (hcompile : CompilationModel.compileSetStructMember2 fields dynamicSource fieldName key1 key2
+          memberName value [] = Except.ok compiledIR) :
+    LegacyCompatibleExternalStmtList compiledIR := by
+  unfold CompilationModel.compileSetStructMember2 at hcompile
+  cases hMapping2 : isMapping2 fields fieldName <;> simp [hMapping2] at hcompile
+  simp [hmembers, hmember] at hcompile
+  cases hSlots : findFieldWriteSlots fields fieldName <;> simp [hSlots] at hcompile
+  rename_i slots
+  cases hkey1Expr : compileExprWithInternals fields dynamicSource [] key1 with
+  | error err => simp [hkey1Expr, bind, Except.bind] at hcompile
+  | ok key1Expr =>
+      cases hkey2Expr : compileExprWithInternals fields dynamicSource [] key2 with
+      | error err => simp [hkey1Expr, hkey2Expr, bind, Except.bind] at hcompile
+      | ok key2Expr =>
+          cases hvalueExpr : compileExprWithInternals fields dynamicSource [] value with
+          | error err => simp [hkey1Expr, hkey2Expr, hvalueExpr, bind, Except.bind] at hcompile
+          | ok valueExpr =>
+              cases slots with
+              | nil => simp [hkey1Expr, hkey2Expr, hvalueExpr, bind, Except.bind] at hcompile
+              | cons slot rest =>
+                  cases rest with
+                  | nil =>
+                      simp [hkey1Expr, hkey2Expr, hvalueExpr, bind, Except.bind] at hcompile
+                      cases hcompile
+                      exact .exprStmt _ _ .nil
+                    | cons slot' rest =>
+                      simp [hkey1Expr, hkey2Expr, hvalueExpr, bind, Except.bind] at hcompile
+                      cases hcompile
+                      let finalSlot := fun slot =>
+                        let innerSlot :=
+                          YulExpr.call "mappingSlot" [YulExpr.lit slot, YulExpr.ident "__compat_key1"]
+                        let outerSlot :=
+                          YulExpr.call "mappingSlot" [innerSlot, YulExpr.ident "__compat_key2"]
+                        if wordOffset = 0 then outerSlot else
+                          YulExpr.call "add" [outerSlot, YulExpr.lit wordOffset]
+                      exact legacyCompatibleExternalStmtList_block_key1_key2_value_writes
+                        (α := Nat)
+                        (f := finalSlot)
+                        (match findFieldWithResolvedSlot fields fieldName with
+                          | some (f, _) => if f.isTransient then "tstore" else "sstore"
+                          | none => "sstore")
+                        key1Expr key2Expr valueExpr (slot :: slot' :: rest)
+
+private theorem compileSetMappingChain_legacyCompatible
+    {fields : List Field}
+    {fieldName : String}
+    {dynamicSource : DynamicDataSource}
+    {keys : List Expr}
+    {value : Expr}
+    {compiledIR : List YulStmt}
+    (hcompile :
+      CompilationModel.compileSetMappingChain fields dynamicSource fieldName keys value [] =
+        Except.ok compiledIR) :
+    LegacyCompatibleExternalStmtList compiledIR := by
+  unfold CompilationModel.compileSetMappingChain at hcompile
+  cases hMapping : isMapping fields fieldName <;> simp [hMapping] at hcompile
+  cases hSlots : findFieldWriteSlots fields fieldName <;> simp [hSlots] at hcompile
+  rename_i slots
+  cases hkeyExprs : compileExprListWithInternals fields dynamicSource [] keys with
+  | error err => simp [hkeyExprs, bind, Except.bind] at hcompile
+  | ok keyExprs =>
+      cases hvalueExpr : compileExprWithInternals fields dynamicSource [] value with
+      | error err => simp [hkeyExprs, hvalueExpr, bind, Except.bind] at hcompile
+      | ok valueExpr =>
+          cases slots with
+          | nil => simp [hkeyExprs, hvalueExpr, bind, Except.bind] at hcompile
+          | cons slot rest =>
+              cases rest with
+              | nil =>
+                  simp [hkeyExprs, hvalueExpr, bind, Except.bind] at hcompile
+                  cases hcompile
+                  exact .exprStmt _ _ .nil
+              | cons slot' rest =>
+                  simp [hkeyExprs, hvalueExpr, bind, Except.bind] at hcompile
+                  cases hcompile
+                  simpa only [List.map, List.cons_append, List.append_assoc] using
+                    legacyCompatibleExternalStmtList_block_value_lets_writes
+                      (α := YulExpr × Nat) (β := Nat) (letName := fun x => s!"__compat_key{x.2}")
+                      (letValue := fun x => x.1)
+                      (f := fun slot =>
+                        (List.range keyExprs.length).map
+                          (fun idx => YulExpr.ident s!"__compat_key{idx}")
+                        |>.foldl
+                          (fun slotExpr keyExpr => YulExpr.call "mappingSlot" [slotExpr, keyExpr])
+                          (YulExpr.lit slot))
+                      (match findFieldWithResolvedSlot fields fieldName with
+                        | some (f, _) => if f.isTransient then "tstore" else "sstore"
+                        | none => "sstore")
+                      valueExpr keyExprs.zipIdx (slot :: slot' :: rest)
+
+/-- Singleton `setMapping` heads compile to ordinary legacy-compatible Yul. -/
+theorem stmtList_setMappingSingle_compiledLegacyCompatible
+    (fields : List Field)
+    {scope : List String}
+    {fieldName : String}
+    {key value : Expr}
+    {slot : Nat}
+    (_hkey : FunctionBody.ExprCompileCore key)
+    (_hscopeKey : FunctionBody.exprBoundNamesInScope key scope)
+    (_hvalue : FunctionBody.ExprCompileCore value)
+    (_hscopeValue : FunctionBody.exprBoundNamesInScope value scope)
+    (_hslot : findFieldSlot fields fieldName = some slot) :
+    StmtListCompiledLegacyCompatible fields scope [Stmt.setMapping fieldName key value] :=
+  .cons
+    (fun compiledIR hcompile => by
+      simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+        bind, Except.bind] at hcompile
+      split at hcompile <;> try contradiction
+      rename_i keyExpr hkeyExpr
+      split at hcompile <;> try contradiction
+      rename_i valueExpr hvalueExpr
+      exact compileMappingSlotWrite_legacyCompatible hcompile)
+    .nil
+
+/-- Singleton `setMappingChain` heads compile to ordinary legacy-compatible Yul. -/
+theorem stmtList_setMappingChainSingle_compiledLegacyCompatible
+    (fields : List Field)
+    {scope : List String}
+    {fieldName : String}
+    {keys : List Expr}
+    {value : Expr}
+    {slot : Nat}
+    (_hkeys : ∀ key ∈ keys, FunctionBody.ExprCompileCore key)
+    (_hscopeKeys : ∀ key ∈ keys, FunctionBody.exprBoundNamesInScope key scope)
+    (_hvalue : FunctionBody.ExprCompileCore value)
+    (_hscopeValue : FunctionBody.exprBoundNamesInScope value scope)
+    (_hslot : findFieldSlot fields fieldName = some slot) :
+    StmtListCompiledLegacyCompatible fields scope [Stmt.setMappingChain fieldName keys value] :=
+  .cons
+    (fun compiledIR hcompile => by
+      simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] at hcompile
+      exact compileSetMappingChain_legacyCompatible hcompile)
+    .nil
+
+/-- Singleton `setMapping2` heads compile to ordinary legacy-compatible Yul. -/
+theorem stmtList_setMapping2Single_compiledLegacyCompatible
+    (fields : List Field)
+    {scope : List String}
+    {fieldName : String}
+    {key1 key2 value : Expr}
+    {slot : Nat}
+    (_hkey1 : FunctionBody.ExprCompileCore key1)
+    (_hscopeKey1 : FunctionBody.exprBoundNamesInScope key1 scope)
+    (_hkey2 : FunctionBody.ExprCompileCore key2)
+    (_hscopeKey2 : FunctionBody.exprBoundNamesInScope key2 scope)
+    (_hvalue : FunctionBody.ExprCompileCore value)
+    (_hscopeValue : FunctionBody.exprBoundNamesInScope value scope)
+    (_hslot : findFieldSlot fields fieldName = some slot) :
+    StmtListCompiledLegacyCompatible fields scope [Stmt.setMapping2 fieldName key1 key2 value] :=
+  .cons
+    (fun compiledIR hcompile => by
+      simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] at hcompile
+      exact compileSetMapping2_legacyCompatible hcompile)
+    .nil
+
+/-- Singleton `setMapping2Word` heads compile to ordinary legacy-compatible Yul. -/
+theorem stmtList_setMapping2WordSingle_compiledLegacyCompatible
+    (fields : List Field)
+    {scope : List String}
+    {fieldName : String}
+    {key1 key2 value : Expr}
+    {wordOffset slot : Nat}
+    (_hkey1 : FunctionBody.ExprCompileCore key1)
+    (_hscopeKey1 : FunctionBody.exprBoundNamesInScope key1 scope)
+    (_hkey2 : FunctionBody.ExprCompileCore key2)
+    (_hscopeKey2 : FunctionBody.exprBoundNamesInScope key2 scope)
+    (_hvalue : FunctionBody.ExprCompileCore value)
+    (_hscopeValue : FunctionBody.exprBoundNamesInScope value scope)
+    (_hslot : findFieldSlot fields fieldName = some slot) :
+    StmtListCompiledLegacyCompatible fields scope
+      [Stmt.setMapping2Word fieldName key1 key2 wordOffset value] :=
+  .cons
+    (fun compiledIR hcompile => by
+      simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] at hcompile
+      exact compileSetMapping2Word_legacyCompatible hcompile)
+    .nil
+
+/-- Singleton `setStructMember2` heads for unpacked members compile to ordinary
+legacy-compatible Yul. -/
+theorem stmtList_setStructMember2Single_compiledLegacyCompatible
+    (fields : List Field)
+    {scope : List String}
+    {fieldName memberName : String}
+    {key1 key2 value : Expr}
+    {slot wordOffset : Nat}
+    {members : List StructMember}
+    (_hkey1 : FunctionBody.ExprCompileCore key1)
+    (_hscopeKey1 : FunctionBody.exprBoundNamesInScope key1 scope)
+    (_hkey2 : FunctionBody.ExprCompileCore key2)
+    (_hscopeKey2 : FunctionBody.exprBoundNamesInScope key2 scope)
+    (_hvalue : FunctionBody.ExprCompileCore value)
+    (_hscopeValue : FunctionBody.exprBoundNamesInScope value scope)
+    (_hslot : findFieldSlot fields fieldName = some slot)
+    (hmembers : findStructMembers fields fieldName = some members)
+    (hmember :
+      findStructMember members memberName =
+        some { name := memberName, wordOffset := wordOffset, packed := none }) :
+    StmtListCompiledLegacyCompatible fields scope
+      [Stmt.setStructMember2 fieldName key1 key2 memberName value] :=
+  .cons
+    (fun compiledIR hcompile => by
+      simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] at hcompile
+      exact compileSetStructMember2_legacyCompatible hmembers hmember hcompile)
+    .nil
+
+/-- Singleton `setMappingUint` heads compile to ordinary legacy-compatible Yul. -/
+theorem stmtList_setMappingUintSingle_compiledLegacyCompatible
+    (fields : List Field)
+    {scope : List String}
+    {fieldName : String}
+    {key value : Expr}
+    {slot : Nat}
+    (_hkey : FunctionBody.ExprCompileCore key)
+    (_hscopeKey : FunctionBody.exprBoundNamesInScope key scope)
+    (_hvalue : FunctionBody.ExprCompileCore value)
+    (_hscopeValue : FunctionBody.exprBoundNamesInScope value scope)
+    (_hslot : findFieldSlot fields fieldName = some slot) :
+    StmtListCompiledLegacyCompatible fields scope [Stmt.setMappingUint fieldName key value] :=
+  .cons
+    (fun compiledIR hcompile => by
+      simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+        bind, Except.bind] at hcompile
+      split at hcompile <;> try contradiction
+      rename_i keyExpr hkeyExpr
+      split at hcompile <;> try contradiction
+      rename_i valueExpr hvalueExpr
+      exact compileMappingSlotWrite_legacyCompatible hcompile)
+    .nil
+
+/-- Singleton `setMappingWord` heads compile to ordinary legacy-compatible Yul. -/
+theorem stmtList_setMappingWordSingle_compiledLegacyCompatible
+    (fields : List Field)
+    {scope : List String}
+    {fieldName : String}
+    {key value : Expr}
+    {wordOffset slot : Nat}
+    (_hkey : FunctionBody.ExprCompileCore key)
+    (_hscopeKey : FunctionBody.exprBoundNamesInScope key scope)
+    (_hvalue : FunctionBody.ExprCompileCore value)
+    (_hscopeValue : FunctionBody.exprBoundNamesInScope value scope)
+    (_hslot : findFieldSlot fields fieldName = some slot) :
+    StmtListCompiledLegacyCompatible fields scope [Stmt.setMappingWord fieldName key wordOffset value] :=
+  .cons
+    (fun compiledIR hcompile => by
+      simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+        bind, Except.bind] at hcompile
+      split at hcompile <;> try contradiction
+      rename_i keyExpr hkeyExpr
+      split at hcompile <;> try contradiction
+      rename_i valueExpr hvalueExpr
+      exact compileMappingSlotWrite_legacyCompatible hcompile)
+    .nil
+
+/-- Per-function legacy-compatibility bridge. A supported external function whose
+scalar params are supported and whose compiled body satisfies the per-statement
+legacy interface compiles to a function whose IR body stays inside the
+legacy-compatible external Yul subset (`LegacyCompatibleExternalStmtList`).
+Composes `genParamLoads_scalar_legacy` with the body composition lemma. -/
+theorem compileFunctionSpec_body_legacyCompatible_of_interface
+    (fields : List Field) (selector : Nat) (spec : FunctionSpec) (irFn : IRFunction)
+    (hparams : ∀ param ∈ spec.params, SupportedExternalParamType param.ty)
+    (hbodyInterface :
+      StmtListCompiledLegacyCompatible fields (spec.params.map (·.name)) spec.body)
+    (hcompile : compileFunctionSpec fields [] [] [] selector spec = Except.ok irFn) :
+    LegacyCompatibleExternalStmtList irFn.body := by
+  obtain ⟨returns, bodyStmts, _hvalidate, _hreturns, hbodyCompile, hirFn⟩ :=
+    compileFunctionSpec_ok_components fields [] [] selector spec irFn hcompile
+  subst hirFn
+  simp only [compiledFunctionIR]
+  exact legacyCompatibleExternalStmtList_append
+    (genParamLoads_scalar_legacy spec.params hparams)
+    (compileStmtList_legacyCompatible_of_interface hbodyInterface hbodyCompile)
+
+/-- Function-level legacy-compatibility package for the generic compile-core
+body fragment. This discharges #2080's per-statement legacy interface for
+external functions whose source body is already in `StmtListCompileCore`. -/
+theorem compileFunctionSpec_body_legacyCompatible_of_compileCore
+    (fields : List Field) (selector : Nat) (spec : FunctionSpec) (irFn : IRFunction)
+    (hparams : ∀ param ∈ spec.params, SupportedExternalParamType param.ty)
+    (hbodyCore :
+      FunctionBody.StmtListCompileCore (spec.params.map (·.name)) spec.body)
+    (hcompile : compileFunctionSpec fields [] [] [] selector spec = Except.ok irFn) :
+    LegacyCompatibleExternalStmtList irFn.body :=
+  compileFunctionSpec_body_legacyCompatible_of_interface
+    fields selector spec irFn hparams
+    (stmtListCompileCore_compiledLegacyCompatible fields
+      (compilerScope := spec.params.map (·.name)) hbodyCore)
+    hcompile
+
+/-- Function-level legacy-compatibility package for the terminal-core body
+fragment, including terminal `ite` bodies. -/
+theorem compileFunctionSpec_body_legacyCompatible_of_terminalCore
+    (fields : List Field) (selector : Nat) (spec : FunctionSpec) (irFn : IRFunction)
+    (hparams : ∀ param ∈ spec.params, SupportedExternalParamType param.ty)
+    (hbodyTerminal :
+      FunctionBody.StmtListTerminalCore (spec.params.map (·.name)) spec.body)
+    (hcompile : compileFunctionSpec fields [] [] [] selector spec = Except.ok irFn) :
+    LegacyCompatibleExternalStmtList irFn.body :=
+  compileFunctionSpec_body_legacyCompatible_of_interface
+    fields selector spec irFn hparams
+    (stmtListTerminalCore_compiledLegacyCompatible fields
+      (compilerScope := spec.params.map (·.name)) hbodyTerminal)
+    hcompile
+
 /-- Disjointness of a single scalar param-load (with the `calldataload` word
 loader used by `genParamLoads`) from a runtime contract's internal-function
 table. Every EVM/Yul builtin emitted by `genScalarLoad`
@@ -3396,7 +4213,7 @@ private theorem compileExpr_constructor_mode_eq
         compileExprWithInternals fields .calldata [] expr
   | .literal _, _, _ => by simp [compileExprWithInternals]
   | .param _, _, _ => by simp [compileExprWithInternals]
-  | .constructorArg _, hcore, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
+  | .constructorArg _, _, _ => by simp [compileExprWithInternals]
   | .storage _, _, _ => by simp [compileExprWithInternals]
   | .storageAddr _, _, _ => by simp [compileExprWithInternals]
   | .mapping _ _, hcore, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
@@ -3732,6 +4549,168 @@ private theorem constructorTouchesUnsupportedRawCalldataSurface_eq_false
   simp [SourceSemantics.constructorTouchesUnsupportedRawCalldataSurface,
     hSupported.rawCalldataSurfaceClosed, hhelpers]
 
+private theorem wordNormalize_lt_evmModulus
+    (n : Nat) :
+    SourceSemantics.wordNormalize n < Compiler.Constants.evmModulus := by
+  rw [SourceSemantics.wordNormalize_eq_mod]
+  exact Nat.mod_lt n (by norm_num [Compiler.Constants.evmModulus, Verity.Core.UINT256_MODULUS])
+
+private theorem constructorArgAliasRawValue_lt_evmModulus
+    {rawArgs : List Nat}
+    {headWord value : Nat}
+    (hvalue :
+      Option.map SourceSemantics.wordNormalize rawArgs[headWord]? =
+        some value) :
+    value < Compiler.Constants.evmModulus := by
+  cases harg : rawArgs[headWord]? with
+  | none =>
+      simp [harg] at hvalue
+  | some raw =>
+      simp [harg] at hvalue
+      cases hvalue
+      exact wordNormalize_lt_evmModulus raw
+
+private theorem constructorArgAliasLookupValue_lt_evmModulus
+    {bindings : List (String × Nat)}
+    {name : String}
+    {value : Nat}
+    (hbounded : FunctionBody.bindingsBounded bindings)
+    (hvalue : SourceSemantics.lookupBinding? bindings name = some value) :
+    value < Compiler.Constants.evmModulus := by
+  have hlookup' :
+      FunctionBody.lookupBinding? bindings name = some value := by
+    simpa [FunctionBody.lookupBinding?, SourceSemantics.lookupBinding?] using hvalue
+  have hlookupValue :=
+    FunctionBody.lookupValue_eq_of_lookupBinding?_some hlookup'
+  rw [← hlookupValue]
+  exact hbounded name
+
+private theorem constructorArgAliasValue?_lt_evmModulus
+    {param : Param}
+    {rawArgs : List Nat}
+    {headWord : Nat}
+    {bindings : List (String × Nat)}
+    {value : Nat}
+    (hbounded : FunctionBody.bindingsBounded bindings)
+    (hvalue :
+      SourceSemantics.constructorArgAliasValue? param rawArgs headWord bindings =
+        some value) :
+    value < Compiler.Constants.evmModulus := by
+  rcases param with ⟨paramName, paramTy⟩
+  unfold SourceSemantics.constructorArgAliasValue? at hvalue
+  by_cases hdyn : isDynamicParamType paramTy = true
+  · have hraw :
+        Option.map SourceSemantics.wordNormalize rawArgs[headWord]? = some value := by
+      rw [hdyn] at hvalue
+      simp only [if_true] at hvalue
+      exact hvalue
+    exact constructorArgAliasRawValue_lt_evmModulus hraw
+  · have hdynFalse : isDynamicParamType paramTy = false := by
+      cases h : isDynamicParamType paramTy <;> simp [h] at hdyn ⊢
+    rw [hdynFalse] at hvalue
+    simp only [Bool.false_eq_true, if_false] at hvalue
+    cases paramTy <;>
+      first
+      | exact constructorArgAliasLookupValue_lt_evmModulus hbounded hvalue
+      | exact constructorArgAliasRawValue_lt_evmModulus hvalue
+
+private theorem bindConstructorArgAliasesFrom_bounded
+    {remaining : List Param}
+    {rawArgs : List Nat}
+    {idx headWord : Nat}
+    {bindings out : List (String × Nat)}
+    (hbind :
+      SourceSemantics.bindConstructorArgAliasesFrom
+        remaining rawArgs idx headWord bindings = some out)
+    (hbounded : FunctionBody.bindingsBounded bindings) :
+    FunctionBody.bindingsBounded out := by
+  induction remaining generalizing idx headWord bindings out with
+  | nil =>
+      simp [SourceSemantics.bindConstructorArgAliasesFrom] at hbind
+      cases hbind
+      exact hbounded
+  | cons param rest ih =>
+      simp [SourceSemantics.bindConstructorArgAliasesFrom] at hbind
+      cases hvalue :
+          SourceSemantics.constructorArgAliasValue? param rawArgs headWord bindings <;>
+        simp [hvalue] at hbind
+      case some value =>
+        exact ih hbind.2
+          (FunctionBody.bindingsBounded_bindValue hbounded s!"arg{idx}" value
+            (constructorArgAliasValue?_lt_evmModulus hbounded hvalue))
+
+private theorem bindConstructorArgAliases_bounded
+    {params : List Param}
+    {rawArgs : List Nat}
+    {bindings out : List (String × Nat)}
+    (hbind :
+      SourceSemantics.bindConstructorArgAliases params rawArgs bindings = some out)
+    (hbounded : FunctionBody.bindingsBounded bindings) :
+    FunctionBody.bindingsBounded out :=
+  bindConstructorArgAliasesFrom_bounded
+    (by simpa [SourceSemantics.bindConstructorArgAliases] using hbind)
+    hbounded
+
+private theorem bindValue_names_nodup
+    {bindings : List (String × Nat)}
+    {name : String}
+    {value : Nat}
+    (hnodup : (bindings.map Prod.fst).Nodup) :
+    ((SourceSemantics.bindValue bindings name value).map Prod.fst).Nodup := by
+  have hmapFilter :
+      (bindings.filter (fun entry => entry.1 != name)).map Prod.fst =
+        (bindings.map Prod.fst).filter (fun entryName => entryName != name) := by
+    clear hnodup value
+    induction bindings with
+    | nil => simp
+    | cons entry rest ih =>
+        by_cases hentry : entry.1 = name <;> simp [hentry, ih]
+  have hnameNotMem :
+      name ∉ (bindings.filter (fun entry => entry.1 != name)).map Prod.fst := by
+    intro hmem
+    rcases List.mem_map.mp hmem with ⟨entry, hentry, hname⟩
+    have hfilter := List.mem_filter.mp hentry
+    have hne : entry.1 ≠ name := by
+      intro hEq
+      simp [hEq] at hfilter
+    exact hne hname
+  simp [SourceSemantics.bindValue, hnameNotMem, hmapFilter, hnodup.filter]
+
+private theorem bindConstructorArgAliasesFrom_names_nodup
+    {remaining : List Param}
+    {rawArgs : List Nat}
+    {idx headWord : Nat}
+    {bindings out : List (String × Nat)}
+    (hbind :
+      SourceSemantics.bindConstructorArgAliasesFrom
+        remaining rawArgs idx headWord bindings = some out)
+    (hnodup : (bindings.map Prod.fst).Nodup) :
+    (out.map Prod.fst).Nodup := by
+  induction remaining generalizing idx headWord bindings out with
+  | nil =>
+      simp [SourceSemantics.bindConstructorArgAliasesFrom] at hbind
+      cases hbind
+      exact hnodup
+  | cons param rest ih =>
+      simp [SourceSemantics.bindConstructorArgAliasesFrom] at hbind
+      cases hvalue :
+          SourceSemantics.constructorArgAliasValue? param rawArgs headWord bindings <;>
+        simp [hvalue] at hbind
+      case some value =>
+        exact ih hbind.2 (bindValue_names_nodup hnodup)
+
+private theorem bindConstructorArgAliases_names_nodup
+    {params : List Param}
+    {rawArgs : List Nat}
+    {bindings out : List (String × Nat)}
+    (hbind :
+      SourceSemantics.bindConstructorArgAliases params rawArgs bindings = some out)
+    (hnodup : (bindings.map Prod.fst).Nodup) :
+    (out.map Prod.fst).Nodup :=
+  bindConstructorArgAliasesFrom_names_nodup
+    (by simpa [SourceSemantics.bindConstructorArgAliases] using hbind)
+    hnodup
+
 /-- Constructor-body bridge for the currently proved statement fragment.
 This proves the user-written constructor body after constructor arguments have
 already been decoded into IR locals. The initcode wrapper that materializes
@@ -3778,13 +4757,16 @@ theorem supported_constructor_body_correct_with_body_interface
     (tx : IRTransaction)
     (initialWorld : Verity.ContractState)
     (bindings : List (String × Nat))
+    (ctorBindings : List (String × Nat))
     (bodyStmts : List YulStmt)
       (hbodyCompile :
         compileStmtList model.fields model.events model.errors .memory [] false
-          (ctor.params.map (·.name)) [] ctor.body = Except.ok bodyStmts)
+          (constructorBodyScope ctor.params) [] ctor.body = Except.ok bodyStmts)
     (hbind :
       SourceSemantics.bindSupportedParams ctor.params (tx.args.take ctor.params.length) =
         some bindings)
+    (hconstructorBindings :
+      SourceSemantics.constructorExecutionBindings ctor tx.args = some ctorBindings)
     (htxNormalized : TxContextNormalized tx)
     (hcalldataSizeFits : TxConstructorCalldataSizeFitsEvm tx) :
     FunctionBody.sourceResultMatchesIRResult
@@ -3795,7 +4777,7 @@ theorem supported_constructor_body_correct_with_body_interface
             (sizeOf bodyStmts + 1)
             (ParamLoading.applyBindingsToIRState
               (FunctionBody.initialIRStateForTx model tx initialWorld)
-              bindings)
+              ctorBindings)
             bodyStmts)) := by
     let _ := hfunctionNamesNodup
     let initialState := FunctionBody.initialIRStateForTx model tx initialWorld
@@ -3803,25 +4785,18 @@ theorem supported_constructor_body_correct_with_body_interface
     have hrawUnsupported :
         SourceSemantics.constructorTouchesUnsupportedRawCalldataSurface model ctor = false :=
       constructorTouchesUnsupportedRawCalldataSurface_eq_false hSupported
-    have hconstructorBindings :
-        SourceSemantics.constructorExecutionBindings ctor tx.args = some bindings := by
-      have hguard :
-          (stmtListTouchesUnsupportedCoreSurface ctor.body ||
-              stmtListTouchesUnsupportedCallSurface ctor.body ||
-            stmtListTouchesUnsupportedEffectSurface ctor.body) = false := by
-        exact Bool.or_eq_false_iff.mpr
-          ⟨Bool.or_eq_false_iff.mpr
-              ⟨hSupported.body.core.surfaceClosed,
-                SupportedBodyCallInterface.surfaceClosed_exceptMappingWrites hSupported.body⟩,
-            hSupported.body.effects.surfaceClosed⟩
-      simp [SourceSemantics.constructorExecutionBindings, hbind, hguard]
+    have hconstructorAliases :
+        SourceSemantics.bindConstructorArgAliases ctor.params tx.args bindings =
+          some ctorBindings := by
+      unfold SourceSemantics.constructorExecutionBindings at hconstructorBindings
+      simpa [hbind] using hconstructorBindings
     have hbodyCompileCalldata :
         compileStmtList model.fields [] [] .calldata [] false
-          (ctor.params.map (·.name)) [] ctor.body = Except.ok bodyStmts := by
+          (constructorBodyScope ctor.params) [] ctor.body = Except.ok bodyStmts := by
       have hmode :=
         compileStmtList_constructor_mode_eq' (fields := model.fields)
           (events := model.events) (errors := model.errors)
-          (scope := ctor.params.map (·.name))
+          (scope := constructorBodyScope ctor.params)
           (body := ctor.body)
           hSupported.body.effects.surfaceClosed
           hSupported.body.core.surfaceClosed
@@ -3831,15 +4806,15 @@ theorem supported_constructor_body_correct_with_body_interface
       exact hmode.symm
     have hbodyCompileEffective :
         compileStmtList (SourceSemantics.effectiveFields model) [] [] .calldata [] false
-          (ctor.params.map (·.name)) [] ctor.body = Except.ok bodyStmts := by
+          (constructorBodyScope ctor.params) [] ctor.body = Except.ok bodyStmts := by
       simpa [SourceSemantics.effectiveFields, hnormalized] using hbodyCompileCalldata
     have hstateRuntime :
         FunctionBody.runtimeStateMatchesIR
-          (SourceSemantics.effectiveFields model)
-          { world := SourceSemantics.withTransactionContext initialWorld tx
-            bindings := bindings
-            selector := tx.functionSelector }
-          (ParamLoading.applyBindingsToIRState initialState bindings) := by
+            (SourceSemantics.effectiveFields model)
+            { world := SourceSemantics.withTransactionContext initialWorld tx
+              bindings := ctorBindings
+              selector := tx.functionSelector }
+          (ParamLoading.applyBindingsToIRState initialState ctorBindings) := by
       have hinitRuntime :
           FunctionBody.runtimeStateMatchesIR
             (SourceSemantics.effectiveFields model)
@@ -3854,35 +4829,54 @@ theorem supported_constructor_body_correct_with_body_interface
         runtimeStateMatchesIR_applyBindingsToIRState
           (fields := SourceSemantics.effectiveFields model)
           (state := initialState)
-          hinitRuntime bindings
+          hinitRuntime ctorBindings
     have hstateBindings :
-        FunctionBody.bindingsExactlyMatchIRVars bindings
-          (ParamLoading.applyBindingsToIRState initialState bindings) := by
+        FunctionBody.bindingsExactlyMatchIRVars ctorBindings
+          (ParamLoading.applyBindingsToIRState initialState ctorBindings) := by
+      have hctorBindingsNodup : (ctorBindings.map Prod.fst).Nodup :=
+        bindConstructorArgAliases_names_nodup
+          hconstructorAliases
+          (ParamLoading.bindSupportedParams_names_nodup
+            hSupported.params.namesNodup hbind)
       exact bindingsExactlyMatchIRVars_applyBindingsToIRState_self
         (state := initialState)
-        (bindings := bindings)
+        (bindings := ctorBindings)
         (by simpa [initialState] using
           FunctionBody.bindingsExactlyMatchIRVars_nil_initialIRStateForTx model tx initialWorld)
-        (ParamLoading.bindSupportedParams_names_nodup hSupported.params.namesNodup hbind)
+        hctorBindingsNodup
     have hscope :
-        FunctionBody.scopeNamesPresent (ctor.params.map (·.name)) bindings := by
+        FunctionBody.scopeNamesPresent (constructorBodyScope ctor.params) ctorBindings := by
       intro name hmem
-      have hmemBindings : name ∈ bindings.map Prod.fst := by
-        rw [ParamLoading.bindSupportedParams_names hbind]
-        simpa using hmem
-      exact lookupBinding?_some_of_mem bindings name hmemBindings
-    have hbounded : FunctionBody.bindingsBounded bindings :=
-      FunctionBody.bindingsBounded_of_bindSupportedParams hbind
+      simp [constructorBodyScope, constructorArgAliasNames] at hmem
+      rcases hmem with hmemAlias | hmemParam
+      · rcases hmemAlias with ⟨idx, hidx, rfl⟩
+        exact SourceSemantics.constructorExecutionBindings_argAlias_present
+          hconstructorBindings hidx
+      · have hdecodedPresent :
+            ∃ value, SourceSemantics.lookupBinding? bindings name = some value := by
+          have hmemBindings : name ∈ bindings.map Prod.fst := by
+            rw [ParamLoading.bindSupportedParams_names hbind]
+            simpa using hmemParam
+          rcases lookupBinding?_some_of_mem bindings name hmemBindings with ⟨value, hvalue⟩
+          exact ⟨value, by simpa [FunctionBody.lookupBinding?,
+            SourceSemantics.lookupBinding?] using hvalue⟩
+        exact SourceSemantics.bindConstructorArgAliasesFrom_preserves_lookup
+          (by simpa [SourceSemantics.bindConstructorArgAliases] using hconstructorAliases)
+          hdecodedPresent
+    have hbounded : FunctionBody.bindingsBounded ctorBindings :=
+      bindConstructorArgAliases_bounded hconstructorAliases
+        (FunctionBody.bindingsBounded_of_bindSupportedParams hbind)
     have hhelperFree :
         StmtListHelperFreeStepInterface
           (SourceSemantics.effectiveFields model)
-          (ctor.params.map (·.name))
+          (constructorBodyScope ctor.params)
           ctor.body := by
-      simpa [SourceSemantics.effectiveFields, hnormalized, ctorFn] using
+      simpa [SourceSemantics.effectiveFields, hnormalized, ctorFn,
+        constructorAsFunctionSpec, constructorBodyScope, constructorArgAliasNames] using
         hSupported.body.helperFreeStepInterface_stmtSafety hnoConflict hsafety
     have hgeneric :
         StmtListGenericWithHelpers model (SourceSemantics.effectiveFields model)
-          (ctor.params.map (·.name)) ctor.body :=
+          (constructorBodyScope ctor.params) ctor.body :=
       stmtListGenericWithHelpers_of_helperFreeStepInterface_and_helperSurfaceClosed
         (spec := model)
         (hhelperFree := hhelperFree)
@@ -3892,8 +4886,8 @@ theorem supported_constructor_body_correct_with_body_interface
     rcases exec_compileStmtList_generic_with_helpers_sizeOf_extraFuel
         (spec := model)
         (fields := SourceSemantics.effectiveFields model)
-        (state := ParamLoading.applyBindingsToIRState initialState bindings)
-        (scope := ctor.params.map (·.name))
+        (state := ParamLoading.applyBindingsToIRState initialState ctorBindings)
+        (scope := constructorBodyScope ctor.params)
         (stmts := ctor.body)
         (helperFuel := helperFuel)
         (extraFuel := 0)
@@ -3933,11 +4927,11 @@ theorem supported_constructor_body_correct_with_body_interface
         (sourceResult := SourceSemantics.execStmtListWithHelpers model
           (SourceSemantics.effectiveFields model) helperFuel
           { world := SourceSemantics.withTransactionContext initialWorld tx
-            bindings := bindings
+            bindings := ctorBindings
             selector := tx.functionSelector }
           ctor.body)
         (irResult := execIRStmts (sizeOf bodyStmts + 1)
-          (ParamLoading.applyBindingsToIRState initialState bindings) bodyStmts)
+          (ParamLoading.applyBindingsToIRState initialState ctorBindings) bodyStmts)
         hrollbackStorage
         hrollbackEvents
         rfl

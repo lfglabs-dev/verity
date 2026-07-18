@@ -18,14 +18,14 @@ permissions:
   issues: write
 
 concurrency:
-  group: ocr-review-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr_number }}
+  group: ocr-review-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr_number }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
   review:
     name: OCR first-pass review
     runs-on: [self-hosted, linux, x64, paloma-ocr]
-    timeout-minutes: 30
+    timeout-minutes: 45
     if: |
       github.event_name == 'pull_request_target' ||
       github.event_name == 'workflow_dispatch' ||
@@ -47,7 +47,7 @@ jobs:
               pr = context.payload.pull_request;
             } else {
               const prNumber = context.eventName === 'workflow_dispatch'
-                ? Number(core.getInput('pr_number'))
+                ? Number(context.payload.inputs.pr_number)
                 : context.issue.number;
               const res = await github.rest.pulls.get({
                 owner: context.repo.owner,
@@ -101,6 +101,8 @@ jobs:
           mkdir -p "$RUNNER_TEMP/ocr-bin" "$RUNNER_TEMP/ocr-tools"
           cp "$TRUSTED_DIR/.github/scripts/ocr-git-wrapper.sh" "$RUNNER_TEMP/ocr-bin/git"
           cp "$TRUSTED_DIR/.github/ocr/rules.json" "$RUNNER_TEMP/ocr-tools/rules.json"
+          sha256sum "$RUNNER_TEMP/ocr-tools/rules.json" | cut -d' ' -f1 > "$RUNNER_TEMP/ocr-tools/rules.sha"
+          printf 'OCR_RULES_HASH=%s\n' "$(cut -c1-12 "$RUNNER_TEMP/ocr-tools/rules.sha")" >> "$GITHUB_ENV"
           chmod +x "$RUNNER_TEMP/ocr-bin/git"
           echo "$RUNNER_TEMP/ocr-bin" >> "$GITHUB_PATH"
 
@@ -110,15 +112,77 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Install OpenCodeReview
+      - name: Route OCR review
         if: steps.pr.outputs.skip != 'true'
+        id: route
+        working-directory: repo
+        env:
+          BASE_REF: ${{ steps.pr.outputs.base_ref }}
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+          OCR_PR_NUMBER: ${{ steps.pr.outputs.number }}
+          OCR_RESULT_PATH: ${{ runner.temp }}/ocr-result.json
+          OCR_METRICS_PATH: ${{ runner.temp }}/ocr-metrics.json
+          OCR_LLM_URL: ${{ secrets.OCR_LLM_URL }}
+          OCR_LLM_KEY: ${{ secrets.OCR_LLM_KEY }}
+          OCR_SCOUT_ENABLED: ${{ vars.OCR_SCOUT_ENABLED || 'true' }}
+          OCR_SCOUT_LLM_URL: ${{ secrets.OCR_SCOUT_LLM_URL || secrets.OCR_LLM_URL }}
+          OCR_SCOUT_LLM_KEY: ${{ secrets.OCR_SCOUT_LLM_KEY || secrets.OCR_LLM_KEY }}
+          OCR_SCOUT_LLM_MODEL: ${{ vars.OCR_SCOUT_LLM_MODEL || secrets.OCR_SCOUT_LLM_MODEL || 'MiniMax-M3' }}
+          OCR_SCOUT_LENSES: ${{ vars.OCR_SCOUT_LENSES || '' }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          npm install -g @alibaba-group/open-code-review@1.7.5
+          origin_url="$(git remote get-url origin)"
+          trap 'git remote set-url origin "$origin_url"' EXIT
+          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --no-tags origin "${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+          git remote set-url origin "$origin_url"
+          trap - EXIT
+          node "$GITHUB_WORKSPACE/ocr-trusted/.github/scripts/ocr-router.js"
+
+      - name: Prepare repository-pinned Lean toolchain for LSP evidence
+        if: steps.pr.outputs.skip != 'true' && steps.route.outputs.should_run_ocr == 'true' && steps.route.outputs.has_lean == 'true'
+        env:
+          # Never reuse the runner's elan store for a PR-selected toolchain.
+          # The run/attempt suffix also prevents stale self-hosted runner state
+          # from bypassing the pinned elan bootstrap after an interrupted job.
+          ELAN_HOME: ${{ runner.temp }}/ocr-elan-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          "$GITHUB_WORKSPACE/ocr-trusted/.github/scripts/prepare-lean-lsp.sh" "$GITHUB_WORKSPACE/repo"
+
+      - name: Install OpenCodeReview
+        if: steps.pr.outputs.skip != 'true' && steps.route.outputs.should_run_ocr == 'true'
+        run: |
+          set -euo pipefail
+          # Keep the OCR client out of the self-hosted runner's global npm
+          # prefix.  It is run-scoped just like the elan toolchain above.
+          npm install --prefix "$RUNNER_TEMP/ocr-cli" @alibaba-group/open-code-review@1.7.9
+          echo "$RUNNER_TEMP/ocr-cli/node_modules/.bin" >> "$GITHUB_PATH"
+          export PATH="$RUNNER_TEMP/ocr-cli/node_modules/.bin:$PATH"
           ocr version
 
+      - name: Configure bounded Lean LSP evidence
+        if: steps.pr.outputs.skip != 'true' && steps.route.outputs.should_run_ocr == 'true' && steps.route.outputs.has_lean == 'true'
+        env:
+          HOME: ${{ runner.temp }}/ocr-home
+          ELAN_HOME: ${{ runner.temp }}/ocr-elan-${{ github.run_id }}-${{ github.run_attempt }}
+          LEAN_LSP_MCP_VERSION: "0.28.0"
+        run: |
+          set -euo pipefail
+          command -v uvx >/dev/null
+          mkdir -p "$HOME"
+          # OCR 1.7.9 is the MCP client.  Expose only read-only local evidence
+          # tools: diagnostics, declaration outlines, and hover information.
+          # In particular, no build, code-execution, proof-attempt, or remote
+          # search tool is available to the model.
+          ocr config set mcp_servers.lean_lsp.command uvx
+          ocr config set mcp_servers.lean_lsp.args "[\"--from\",\"lean-lsp-mcp==${LEAN_LSP_MCP_VERSION}\",\"lean-lsp-mcp\",\"--transport\",\"stdio\"]"
+          ocr config set mcp_servers.lean_lsp.tools '["lean_diagnostic_messages","lean_file_outline","lean_hover_info"]'
+          ocr config set mcp_servers.lean_lsp.env "[\"LEAN_PROJECT_PATH=${GITHUB_WORKSPACE}/repo\",\"ELAN_HOME=${ELAN_HOME}\",\"ELAN_TOOLCHAIN=${LEAN_TOOLCHAIN}\",\"LEAN_MCP_DISABLED_TOOLS=lean_run_code,lean_build,lean_multi_attempt,lean_code_actions,lean_verify,lean_minimal_hypotheses,lean_local_search\",\"LEAN_LOG_LEVEL=WARNING\",\"OCR_LLM_URL=\",\"OCR_LLM_TOKEN=\"]"
+
       - name: Run OpenCodeReview
-        if: steps.pr.outputs.skip != 'true'
+        if: steps.pr.outputs.skip != 'true' && steps.route.outputs.should_run_ocr == 'true'
         id: ocr
         working-directory: repo
         env:
@@ -132,36 +196,59 @@ jobs:
           PR_BODY: ${{ steps.pr.outputs.body }}
           BASE_REF: ${{ steps.pr.outputs.base_ref }}
           HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+          OCR_MODE: ${{ steps.route.outputs.mode }}
+          DIFF_BASE: ${{ steps.route.outputs.diff_base }}
+          OCR_CONCURRENCY: ${{ steps.route.outputs.concurrency }}
+          OCR_TIMEOUT: ${{ steps.route.outputs.timeout }}
+          OCR_BACKGROUND_CHARS: ${{ steps.route.outputs.background_chars }}
         run: |
           set -euo pipefail
           mkdir -p "$HOME"
-          printf 'Reviewing %s against origin/%s\n' "$HEAD_SHA" "$BASE_REF"
-          git rev-parse --verify "origin/${BASE_REF}^{commit}" >/dev/null
-          BACKGROUND="${PR_TITLE}"$'\n\n'"${PR_BODY}"
-          BACKGROUND="${BACKGROUND:0:4000}"
+          printf 'Reviewing %s from merge-base %s in %s mode\n' "$HEAD_SHA" "$DIFF_BASE" "$OCR_MODE"
+          git rev-parse --verify "${DIFF_BASE}^{commit}" >/dev/null
+          # Keep the model focused: PR bodies can include long generated summaries (Bugbot/Cursor),
+          # which inflated token use and caused Lean proof reviews to hit OCR subtask deadlines.
+          CLEAN_BODY="${PR_BODY%%<!-- CURSOR_SUMMARY -->*}"
+          CLEAN_BODY="${CLEAN_BODY%%<!-- BUGBOT_SUMMARY -->*}"
+          CLEAN_BODY="${CLEAN_BODY%%<!-- BUGBOT_REVIEW -->*}"
+          BACKGROUND="[OCR mode: ${OCR_MODE}]"$'\n\n'"${PR_TITLE}"$'\n\n'"${CLEAN_BODY}"
+          BACKGROUND="${BACKGROUND:0:${OCR_BACKGROUND_CHARS}}"
           ocr review \
-            --from "origin/${BASE_REF}" \
+            --from "${DIFF_BASE}" \
             --to "${HEAD_SHA}" \
             --format json \
             --audience agent \
             --rule "$RUNNER_TEMP/ocr-tools/rules.json" \
-            --concurrency 4 \
+            --concurrency "$OCR_CONCURRENCY" \
+            --timeout "$OCR_TIMEOUT" \
             --background "$BACKGROUND" \
             > "$RUNNER_TEMP/ocr-result.json" \
             2> "$RUNNER_TEMP/ocr-stderr.log" || true
           test -s "$RUNNER_TEMP/ocr-result.json" || echo '{"status":"error","comments":[],"message":"OCR produced no JSON output"}' > "$RUNNER_TEMP/ocr-result.json"
 
       - name: Post OCR review
-        if: steps.pr.outputs.skip != 'true'
+        if: steps.pr.outputs.skip != 'true' && always() && !cancelled() && steps.route.outcome == 'success' && (steps.route.outputs.should_run_ocr != 'true' || steps.ocr.outcome == 'success')
         uses: actions/github-script@v7
         env:
           OCR_RESULT_PATH: ${{ runner.temp }}/ocr-result.json
           OCR_STDERR_PATH: ${{ runner.temp }}/ocr-stderr.log
+          OCR_METRICS_PATH: ${{ runner.temp }}/ocr-metrics.json
           OCR_PR_NUMBER: ${{ steps.pr.outputs.number }}
           OCR_HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
           OCR_MAX_INLINE_COMMENTS: "20"
+          OCR_MODE: ${{ steps.route.outputs.mode }}
+          OCR_ROUTER_VERSION: ${{ steps.route.outputs.router_version }}
+          OCR_REVIEWER_VERSION: "reviewer-v3"
           OCR_POST_SCRIPT: ${{ github.workspace }}/ocr-trusted/.github/scripts/post-ocr-review.js
         with:
           script: |
             const post = require(process.env.OCR_POST_SCRIPT);
             await post({ github, context, core });
+
+      - name: Upload OCR metrics
+        if: steps.pr.outputs.skip != 'true' && always() && !cancelled() && steps.route.outcome == 'success' && (steps.route.outputs.should_run_ocr != 'true' || steps.ocr.outcome == 'success')
+        uses: actions/upload-artifact@v4
+        with:
+          name: ocr-metrics-${{ steps.pr.outputs.number }}-${{ steps.pr.outputs.head_sha }}
+          path: ${{ runner.temp }}/ocr-metrics.json
+          if-no-files-found: ignore

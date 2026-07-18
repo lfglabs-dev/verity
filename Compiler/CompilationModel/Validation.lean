@@ -21,6 +21,7 @@ import Compiler.CompilationModel.ValidationHelpers
 import Compiler.CompilationModel.ValidationInterop
 import Compiler.CompilationModel.SelectorInteropHelpers
 import Compiler.CompilationModel.ExpressionCompile
+import Compiler.CompilationModel.ParamLoading
 
 namespace Compiler.CompilationModel
 
@@ -68,6 +69,15 @@ private def validateAdtPayloadParamNameCollisions
   match generated.find? (fun name => userNames.contains name) with
   | some name =>
       throw s!"Compilation error: {context} reserves generated ADT payload local '{name}'. Rename the parameter or local binding that conflicts with generated '<param>_f<i>' locals."
+  | none => pure ()
+
+private def validateConstructorArgAliasNameCollisions (params : List Param) (body : List Stmt) :
+    Except String Unit := do
+  let generated := constructorArgAliasNames params
+  let userNames := params.map (·.name) ++ collectStmtListBindNames body
+  match generated.find? (fun name => userNames.contains name) with
+  | some name =>
+      throw s!"Compilation error: constructor reserves generated argument alias local '{name}'. Rename the parameter or local binding that conflicts with generated 'arg<i>' names."
   | none => pure ()
 
 private def immutableNames (immutables : List ImmutableSpec) : List String :=
@@ -409,6 +419,8 @@ def stmtWritesStateNode : Stmt → Bool
       exprWritesState cond || exprListWritesState args
   | Stmt.revertError _ args =>
       exprListWritesState args
+  | .panicCode code =>
+      exprWritesState code
   | Stmt.return value =>
       exprWritesState value
   | Stmt.returnValues values =>
@@ -505,6 +517,8 @@ def stmtHasUntrackableWritesNode : Stmt → Bool
       exprHasUntrackableWrites cond || args.any exprHasUntrackableWrites
   | Stmt.revertError _ args | Stmt.returnValues args | Stmt.emit _ args =>
       args.any exprHasUntrackableWrites
+  | .panicCode code =>
+      exprHasUntrackableWrites code
   | Stmt.return value | Stmt.storageArrayPush _ value =>
       exprHasUntrackableWrites value
   | Stmt.setStorageArrayElement _ index value =>
@@ -596,6 +610,8 @@ def stmtContainsExternalCallNode : Stmt → Bool
       exprContainsExternalCall cond || args.any exprContainsExternalCall
   | Stmt.revertError _ args =>
       args.any exprContainsExternalCall
+  | .panicCode code =>
+      exprContainsExternalCall code
   | Stmt.return value =>
       exprContainsExternalCall value
   | Stmt.returnValues values =>
@@ -696,6 +712,8 @@ def stmtMayContainExternalCallNode : Stmt → Bool
       exprMayContainExternalCall cond || args.any exprMayContainExternalCall
   | Stmt.revertError _ args =>
       args.any exprMayContainExternalCall
+  | .panicCode code =>
+      exprMayContainExternalCall code
   | Stmt.return value =>
       exprMayContainExternalCall value
   | Stmt.returnValues values =>
@@ -754,6 +772,8 @@ def stmtReadsStateOrEnvNode : Stmt → Bool
       exprReadsStateOrEnv cond || args.any exprReadsStateOrEnv
   | Stmt.revertError _ args | Stmt.emit _ args | Stmt.returnValues args =>
       args.any exprReadsStateOrEnv
+  | .panicCode code =>
+      exprReadsStateOrEnv code
   | Stmt.returnArray _ | Stmt.returnBytes _ =>
       false
   | Stmt.returnStorageWords _ =>
@@ -846,6 +866,8 @@ def stmtWritesStateWithFunctionEffectsNode
         exprListWritesStateWithFunctionEffects effects args
   | Stmt.revertError _ args =>
       exprListWritesStateWithFunctionEffects effects args
+  | .panicCode code =>
+      exprWritesStateWithFunctionEffects effects code
   | Stmt.return value =>
       exprWritesStateWithFunctionEffects effects value
   | Stmt.returnValues values =>
@@ -925,6 +947,8 @@ def stmtReadsStateOrEnvWithFunctionEffectsNode
         exprListReadsStateOrEnvWithFunctionEffects effects args
   | Stmt.revertError _ args | Stmt.emit _ args | Stmt.returnValues args =>
       exprListReadsStateOrEnvWithFunctionEffects effects args
+  | .panicCode code =>
+      exprReadsStateOrEnvWithFunctionEffects effects code
   | Stmt.returnArray _ | Stmt.returnBytes _ =>
       false
   | Stmt.returnStorageWords _ =>
@@ -1217,6 +1241,11 @@ def validateNoUnsupportedAdtConstructNode : Stmt → Except String Unit
         throw "Compilation error: ADT construction is only supported as the direct value of setStorage for ADT storage fields; expression-position ADT values are not scalar Yul expressions."
       else
         pure ()
+  | .panicCode code =>
+      if exprContainsAdtConstruct code then
+        throw "Compilation error: ADT construction is only supported as the direct value of setStorage for ADT storage fields; expression-position ADT values are not scalar Yul expressions."
+      else
+        pure ()
   | Stmt.rawLog topics dataOffset dataSize =>
       if exprListContainsAdtConstruct topics || exprContainsAdtConstruct dataOffset ||
           exprContainsAdtConstruct dataSize then
@@ -1466,6 +1495,7 @@ def validateConstructorSpec (ctor : Option ConstructorSpec) : Except String Unit
       if spec.body.any stmtContainsUnsafeLogicalCallLike then
         throw s!"Compilation error: constructor uses Expr.logicalAnd/Expr.logicalOr/Expr.ite or arithmetic helpers (mulDivUp/wDivUp/min/max) with call-like operand(s) that would be duplicated in Yul output ({issue748Ref}). Move call-like expressions into Stmt.letVar before combining."
       validateAdtPayloadParamNameCollisions "constructor" spec.params spec.body
+      validateConstructorArgAliasNameCollisions spec.params spec.body
       validateNoUnsupportedAdtConstructInStmtList spec.body
       spec.body.forM validateNoRuntimeReturnsInConstructorStmt
       spec.body.forM (validateStmtParamReferences "constructor" spec.params)

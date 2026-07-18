@@ -696,6 +696,46 @@ theorem exec_compileStmt_assignVar_core
       exact ⟨hruntime, bindingsExactlyMatchIRVars_setVar_bindValue hexact name v,
              bindingsBounded_bindValue hbounded name v hlt⟩
 
+private theorem execIRStmt_mstore_zero_of_eval_succ
+    (fuel : Nat) (state : IRState) (valueExpr : YulExpr) (value : Nat)
+    (heval : evalIRExpr state valueExpr = some value) :
+    execIRStmt (Nat.succ fuel) state
+        (YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueExpr])) =
+      .continue { state with memory := fun o => if o = 0 then value else state.memory o } := by
+  simp [execIRStmt, evalIRExpr, heval]
+
+private theorem execIRStmt_return_zero_32_succ
+    (fuel : Nat) (state : IRState) :
+    execIRStmt (Nat.succ fuel) state
+        (YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])) =
+      .return (state.memory 0) state := by
+  simp [execIRStmt, evalIRExpr]
+
+private theorem execIRStmts_mstore_zero_return_32
+    (extraFuel : Nat) (state : IRState) (valueExpr : YulExpr) (value : Nat)
+    (heval : evalIRExpr state valueExpr = some value) :
+    execIRStmts (2 + extraFuel + 1) state
+        [ YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueExpr])
+        , YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] =
+      .return value { state with memory := fun o => if o = 0 then value else state.memory o } := by
+  let state' : IRState :=
+    { state with memory := fun o => if o = 0 then value else state.memory o }
+  have hmstore :
+      execIRStmt (Nat.succ (Nat.succ extraFuel)) state
+          (YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueExpr])) =
+        .continue state' := by
+    simpa [state'] using execIRStmt_mstore_zero_of_eval_succ
+      (Nat.succ extraFuel) state valueExpr value heval
+  have hreturn :
+      execIRStmt (Nat.succ extraFuel) state'
+          (YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])) =
+        .return value state' := by
+    simpa [state'] using execIRStmt_return_zero_32_succ extraFuel state'
+  have hFuel : 2 + extraFuel + 1 = Nat.succ (Nat.succ (Nat.succ extraFuel)) := by omega
+  rw [hFuel]
+  simp only [execIRStmts, hmstore, hreturn]
+  rfl
+
 theorem exec_compileStmt_return_core
     {fields : List Field}
     {runtime : SourceSemantics.RuntimeState}
@@ -722,8 +762,7 @@ theorem exec_compileStmt_return_core
   · have heval := eval_compileExpr_core hcore hexact hbounded hpresent hruntime
     rw [hvalueIR] at heval
     simp [Except.toOption] at heval
-    simp only [SourceSemantics.execStmt, execIRStmts, List.length, execIRStmt, evalIRExpr,
-               evalIRExprs]
+    simp only [SourceSemantics.execStmt, List.length]
     rcases hIR : evalIRExpr state valueIR with _ | v
     · simp [hIR, Option.bind] at heval
     · simp [hIR, Option.bind] at heval
@@ -731,8 +770,10 @@ theorem exec_compileStmt_return_core
       have hlt : v < Verity.Core.Uint256.modulus := by
         have := evalExpr_lt_evmModulus_core hcore hexact hbounded hpresent hruntime
         rw [heval.symm] at this; exact this
-      simp [stmtResultMatchesIRExec, stmtResultMatchesIRExecExact]
-      exact ⟨runtimeStateMatchesIR_setBothMemory hruntime 0 v hlt, hexact, hbounded⟩
+      have hexec := execIRStmts_mstore_zero_return_32 0 state valueIR v hIR
+      simp only [Nat.zero_add] at hexec
+      rw [hexec]
+      exact ⟨⟨rfl, runtimeStateMatchesIR_setBothMemory hruntime 0 v hlt⟩, hexact, hbounded⟩
 
 theorem exec_compileStmt_return_core_extraFuel
     {fields : List Field}
@@ -776,11 +817,7 @@ theorem exec_compileStmt_return_core_extraFuel
           [ YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
           , YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] =
           .return v { state with memory := fun o => if o = 0 then v else state.memory o } := by
-        have : 2 + extraFuel + 1 = Nat.succ (Nat.succ (Nat.succ extraFuel)) := by omega
-        rw [this]
-        -- Now simp can unfold because fuel is Nat.succ form
-        simp only [execIRStmts, execIRStmt, evalIRExpr, evalIRExprs, hIR, Option.bind,
-                   ite_true, ite_false]
+        exact execIRStmts_mstore_zero_return_32 extraFuel state valueIR v hIR
       set runtime' : SourceSemantics.RuntimeState :=
         { runtime with world := { runtime.world with
             memory := fun o => if o = 0 then Verity.Core.Uint256.ofNat v else runtime.world.memory o } }
@@ -1194,7 +1231,7 @@ private theorem compileStmt_ok_any_scope_aux
       | storageArrayPop | setStorageArrayElement | setMapping | setMappingWord
       | setMappingPackedWord | setMapping2 | setMapping2Word | setMappingUint
       | setMappingChain | setStructMember | setStructMember2 | require
-      | requireError | revertError | «return» | returnValues | returnArray
+      | requireError | revertError | panicCode | «return» | returnValues | returnArray
       | returnBytes | returnStorageWords | returnCodeData | mstore | tstore | calldatacopy
       | returndataCopy | revertReturndata | stop | emit | internalCall
       | internalCallAssign | externalCallBind | tryExternalCallBind | ecm | rawLog
@@ -1337,7 +1374,7 @@ private theorem compileStmt_ok_any_scope_with_surface_aux
       | storageArrayPop | setStorageArrayElement | setMapping | setMappingWord
       | setMappingPackedWord | setMapping2 | setMapping2Word | setMappingUint
       | setMappingChain | setStructMember | setStructMember2 | require
-      | requireError | revertError | «return» | returnValues | returnArray
+      | requireError | revertError | panicCode | «return» | returnValues | returnArray
       | returnBytes | returnStorageWords | returnCodeData | mstore | tstore | calldatacopy
       | returndataCopy | revertReturndata | stop | emit | internalCall
       | internalCallAssign | externalCallBind | tryExternalCallBind

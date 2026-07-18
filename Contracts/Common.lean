@@ -72,6 +72,9 @@ macro_rules
           $cond
           $(Lean.quote (toString errorName.getId))
           [ $[$encodedArgs],* ])
+  | `(doElem| panic($code:term)) => do
+      let panicFn := Lean.mkIdentFrom code `_root_.Contracts.revertPanic
+      `(doElem| $panicFn:ident $code)
   | `(requireSomeUintError $optExpr:term $errorName:ident($args,*)) => do
       let requireFn := Lean.mkIdentFrom errorName `_root_.Contracts.requireSomeUintCustomError
       let encodeFn := Lean.mkIdentFrom errorName `_root_.Contracts.CustomErrorArg.encode
@@ -170,6 +173,14 @@ def requireSomeUintCustomError (opt : Option Uint256) (name : String) (args : Li
   | none => do
     let _ ← revertCustomError name args
     return 0
+
+/-- Executable counterpart to the `Stmt.panicCode` model/IR surface. Reverts
+unconditionally, mirroring Solidity's built-in `Panic(uint256)` payload that the
+Yul lowering emits (`solidityPanicPayloadExpr`). The runtime message carries the
+decimal panic code; on-chain the compiled contract reverts with the ABI-encoded
+`Panic(uint256)` selector + code instead. -/
+def revertPanic (code : Uint256) : Contract Unit :=
+  revertCustomError "Panic" [CustomErrorArg.encode code]
 
 private def wordToSigned (value : Uint256) : Int :=
   (toInt256 value : Int)
