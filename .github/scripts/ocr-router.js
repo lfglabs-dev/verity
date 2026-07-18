@@ -4,8 +4,40 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
-const ROUTER_VERSION = 'router-v9';
+const ROUTER_VERSION = 'router-v10';
 const DEFAULT_SCOUT_MODEL = 'MiniMax-M3';
+const RUBRIC_PATH = path.join(__dirname, '..', 'ocr', 'rubric.json');
+
+// Multi-lens scout configuration. A single scout pass converges serially: on a
+// real PR each pass surfaced exactly one new defect class, so review needed
+// three cycles (checksum-manifest scoping -> verification-replay independence ->
+// shallow-clone verification contract). Instead we run one scout call PER LENS
+// in parallel and union their findings, so a single review surfaces every
+// defect class at once. Each lens reframes the same bounded dossier toward a
+// distinct failure family. Extend by appending to this list (and, if the lens
+// maps to a recurring defect, adding a matching rubric item — see rubric.json).
+const LENSES = Object.freeze([
+  Object.freeze({
+    id: 'provenance',
+    title: 'Data & artifact provenance',
+    focus: 'Scrutinize data/artifact provenance and manifest scoping: does a checksum or manifest cover ALL relevant artifacts or only a subset; are inputs traceable to a trusted source; can a producer silently add or swap an artifact the manifest does not pin?',
+  }),
+  Object.freeze({
+    id: 'verification-independence',
+    title: 'Verification independence',
+    focus: 'Scrutinize whether a claimed-independent check is actually independent: does the verifier reuse producer code, trust a producer-emitted output, run against a shallow/partial clone that drops required history, or otherwise replay non-independently rather than re-deriving the result?',
+  }),
+  Object.freeze({
+    id: 'environment-determinism',
+    title: 'Environment determinism',
+    focus: 'Scrutinize environment, override, and toolchain assumptions: NVCC / RUN_CPU / feature flags, environment-variable overrides, unpinned toolchains, and nondeterministic build or runtime configuration that can change what is actually proven or verified between environments.',
+  }),
+  Object.freeze({
+    id: 'proof-soundness',
+    title: 'Lean proof soundness',
+    focus: 'Scrutinize Lean proof soundness: vacuous or over-strong hypotheses, introduced sorry/admit/axiom, unsound tactic shortcuts, weakened theorem conclusions, and broad automation replacing structured proof.',
+  }),
+]);
 const STRONG_REVIEW_BLOCKER_MESSAGE = 'OpenCodeReview 1.7.9 supports --from/--to full diff ranges, but this workflow does not have a safe packet/window input bridge for Lean hunks yet.';
 const THRESHOLDS = Object.freeze({
   smallLeanFiles: 1,
@@ -19,7 +51,11 @@ const THRESHOLDS = Object.freeze({
   packetMaxCount: 8,
   packetContextLines: 12,
   scoutDossierMaxChars: 18000,
-  scoutTimeoutMs: 45000,
+  // Thinking models (GLM-5.2, MiniMax-M3) reason at length before emitting
+  // the JSON verdict; 45s aborted every scout call and forced
+  // fallback_deterministic on all large-Lean reviews. The scout runs once
+  // per review inside a 45-minute job budget — give it real headroom.
+  scoutTimeoutMs: 240000,
 });
 
 async function main() {
@@ -311,12 +347,17 @@ async function applyScoutStage(decision, diff, config) {
   const deterministicPackets = decision.packets || [];
   const scoutSwitchOn = config.enabled !== false;
   const enabled = Boolean(scoutSwitchOn && config.url && config.key && config.model);
+  const lenses = resolveLenses(config);
+  const rubric = loadRubric();
   decision.scout = {
     enabled,
     configured: Boolean(config.url && config.key && config.model),
     attempted: false,
     status: scoutSwitchOn ? 'not_configured' : 'disabled',
     model: config.model ? redactModel(config.model) : DEFAULT_SCOUT_MODEL,
+    lenses: lenses.map(lens => lens.id),
+    lens_count: lenses.length,
+    rubric_items: rubric.length,
     selected_packets: deterministicPackets.map(p => p.packet_id),
     residual_coverage: packetResidualRisk(decision),
     strong_review_status: 'blocked_packet_input',
@@ -333,34 +374,144 @@ async function applyScoutStage(decision, diff, config) {
 
   decision.scout.attempted = true;
   decision.scout.status = 'pending';
-  try {
-    const dossier = buildRiskDossier(decision, diff);
-    const scout = await callScoutModel(config, dossier);
-    const selected = selectScoutPackets(deterministicPackets, scout);
-    decision.scout.raw_selected_count = Array.isArray(scout.selected_packets) ? scout.selected_packets.length : null;
-    if (selected.length > 0) {
-      decision.packets = selected;
-      decision.reason = `${decision.reason} Scout model ranked ${selected.length}/${deterministicPackets.length} packet(s) for stronger review.`;
-      decision.scout.selected_packets = selected.map(p => p.packet_id);
-      decision.scout.status = 'success';
-      decision.scout.summary = scout.summary || '';
-      decision.scout.residual_coverage = scout.residual_coverage || decision.scout.residual_coverage;
-    } else {
-      decision.scout.status = 'fallback_no_selection';
-      decision.scout.summary = scout.summary || 'Scout returned no valid packet IDs; deterministic ranking retained.';
-      decision.scout.residual_coverage = 'Scout returned no valid packet IDs, so deterministic packet ranking was retained and all selected packets still need strong reviewer analysis.';
-    }
-  } catch (err) {
+
+  // Fan out one scout call per lens IN PARALLEL. Each call reuses the same
+  // per-call scoutTimeoutMs, so wall-clock time stays bounded to a single
+  // scout timeout rather than N of them. Promise.all never rejects here because
+  // runScoutLens catches per-lens failures into a result object, so one broken
+  // lens cannot lose the findings of the others.
+  const results = await Promise.all(
+    lenses.map(lens => runScoutLens(config, decision, diff, lens, rubric)),
+  );
+  const successful = results.filter(r => r.ok);
+  const failed = results.filter(r => !r.ok);
+
+  decision.scout.lens_results = results.map(r => ({
+    lens: r.lens.id,
+    status: r.ok ? 'success' : 'error',
+    raw_selected: r.ok ? r.rawCount : null,
+    error_type: r.ok ? null : classifyScoutError(r.error),
+  }));
+  decision.scout.raw_selected_count = successful.reduce((sum, r) => sum + (r.rawCount || 0), 0);
+
+  if (successful.length === 0) {
+    // Every lens failed: identical outcome to the old single-call failure, so
+    // preserve the same failure surface (error/error_type/http_status/detail).
+    const err = failed[0]?.error;
     decision.scout.status = 'fallback_deterministic';
     decision.scout.error = 'Scout model call failed; deterministic packet ranking retained.';
     decision.scout.error_type = classifyScoutError(err);
     decision.scout.error_detail = sanitizeScoutErrorDetail(err);
     if (err?.status) decision.scout.http_status = err.status;
+    return decision;
+  }
+
+  const selected = unionScoutPackets(deterministicPackets, successful);
+  if (selected.length > 0) {
+    decision.packets = selected;
+    const lensList = successful.map(r => r.lens.id).join(', ');
+    decision.reason = `${decision.reason} Multi-lens scout (${successful.length}/${lenses.length} lens(es): ${lensList}) surfaced ${selected.length}/${deterministicPackets.length} packet(s) for stronger review.`;
+    decision.scout.selected_packets = selected.map(p => p.packet_id);
+    decision.scout.status = 'success';
+    decision.scout.summary = mergeLensSummaries(successful);
+    decision.scout.residual_coverage = mergeLensResidual(successful) || decision.scout.residual_coverage;
+    if (failed.length) {
+      decision.scout.partial_lens_failures = failed.length;
+    }
+  } else {
+    decision.scout.status = 'fallback_no_selection';
+    decision.scout.summary = mergeLensSummaries(successful) || 'Scout returned no valid packet IDs; deterministic ranking retained.';
+    decision.scout.residual_coverage = 'Scout returned no valid packet IDs, so deterministic packet ranking was retained and all selected packets still need strong reviewer analysis.';
   }
   return decision;
 }
 
-function buildRiskDossier(decision, diff) {
+// Run one lens's scout call. Builds a lens-framed, rubric-injected dossier and
+// resolves to a tagged result instead of throwing, so the caller can union
+// across lenses even when some fail.
+async function runScoutLens(config, decision, diff, lens, rubric) {
+  try {
+    const dossier = buildRiskDossier(decision, diff, { lens, rubric });
+    const scout = await callScoutModel(config, dossier, lens);
+    const rawCount = Array.isArray(scout.selected_packets) ? scout.selected_packets.length : 0;
+    return { lens, ok: true, scout, rawCount };
+  } catch (err) {
+    return { lens, ok: false, error: err };
+  }
+}
+
+// Union + de-duplicate packet selections across lenses. A packet flagged by
+// several lenses appears ONCE, carrying every lens's finding in scout_lenses.
+// Deterministic packet order is preserved. The legacy single-value scout fields
+// (scout_reason/scout_risk_category/scout_question) are kept, populated from the
+// first lens that flagged the packet, so the existing finding shape/contract is
+// unchanged for any consumer that does not read scout_lenses.
+function unionScoutPackets(deterministicPackets, lensResults) {
+  const byId = new Map(deterministicPackets.map(p => [p.packet_id, p]));
+  const order = deterministicPackets.map(p => p.packet_id);
+  const merged = new Map();
+  for (const result of lensResults) {
+    const items = Array.isArray(result.scout?.selected_packets) ? result.scout.selected_packets : [];
+    for (const item of items) {
+      const id = String(item.id || item.packet_id || '').trim();
+      const packet = byId.get(id);
+      if (!packet) continue;
+      if (!merged.has(id)) merged.set(id, { packet, findings: [] });
+      const entry = merged.get(id);
+      if (entry.findings.some(f => f.lens === result.lens.id)) continue;
+      entry.findings.push({
+        lens: result.lens.id,
+        lens_title: result.lens.title,
+        reason: String(item.reason || '').slice(0, 500),
+        risk_category: String(item.risk_category || '').slice(0, 120),
+        question: String(item.question_for_stronger_reviewer || '').slice(0, 500),
+      });
+    }
+  }
+  const selected = [];
+  for (const id of order) {
+    if (!merged.has(id)) continue;
+    const { packet, findings } = merged.get(id);
+    const primary = findings[0];
+    selected.push({
+      ...packet,
+      scout_reason: primary.reason,
+      scout_risk_category: primary.risk_category,
+      scout_question: primary.question,
+      scout_lenses: findings,
+      scout_lens_ids: findings.map(f => f.lens),
+    });
+  }
+  return selected.slice(0, THRESHOLDS.packetMaxCount);
+}
+
+function mergeLensSummaries(lensResults) {
+  const seen = new Set();
+  const parts = [];
+  for (const result of lensResults) {
+    const summary = String(result.scout?.summary || '').trim();
+    if (!summary || seen.has(summary)) continue;
+    seen.add(summary);
+    parts.push(`${result.lens.id}: ${summary}`);
+  }
+  return parts.join(' ').slice(0, 800);
+}
+
+function mergeLensResidual(lensResults) {
+  const seen = new Set();
+  const parts = [];
+  for (const result of lensResults) {
+    const residual = String(result.scout?.residual_coverage || '').trim();
+    if (!residual || seen.has(residual)) continue;
+    seen.add(residual);
+    parts.push(residual);
+  }
+  return parts.join(' ').slice(0, 800) || null;
+}
+
+function buildRiskDossier(decision, diff, options = {}) {
+  const lens = options.lens || null;
+  const rubric = Array.isArray(options.rubric) ? options.rubric : [];
   const packets = (decision.packets || []).map(packet => ({
     id: packet.packet_id,
     file: packet.path,
@@ -375,7 +526,10 @@ function buildRiskDossier(decision, diff) {
   const supported = diff.files.filter(f => f.supported);
   const dossier = {
     schema_version: 1,
-    task: 'Rank dangerous Lean review packets for a stronger reviewer. Do not approve the PR.',
+    task: lens
+      ? `Rank dangerous Lean/code review packets for a stronger reviewer THROUGH THE "${lens.title}" LENS. ${lens.focus} Only flag packets relevant to this lens. Do not approve the PR.`
+      : 'Rank dangerous Lean review packets for a stronger reviewer. Do not approve the PR.',
+    lens: lens ? { id: lens.id, title: lens.title, focus: lens.focus } : undefined,
     mode: decision.mode,
     thresholds: decision.thresholds,
     counts: decision.counts,
@@ -396,6 +550,18 @@ function buildRiskDossier(decision, diff) {
       hunk_count: Array.isArray(f.hunks) ? f.hunks.length : 0,
     })).slice(0, 30),
     candidate_packets: packets,
+    // Accumulating rubric: permanent checklist of defect classes confirmed on
+    // past Verity PRs. Every review re-checks these so a defect class is caught
+    // once and never has to be rediscovered serially.
+    rubric: rubric.length ? rubric.map(item => ({
+      id: item.id,
+      lens: item.lens,
+      title: item.title,
+      check: item.check,
+    })) : undefined,
+    lens_rubric_focus: lens && rubric.length
+      ? rubric.filter(item => item.lens === lens.id).map(item => item.id)
+      : undefined,
     required_json_schema: {
       selected_packets: [{
         id: 'pkt-1',
@@ -421,9 +587,12 @@ function summarizeSignals(packets) {
     .sort((a, b) => b.count - a.count || a.signal.localeCompare(b.signal));
 }
 
-async function callScoutModel(config, dossier) {
+async function callScoutModel(config, dossier, lens = null) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), THRESHOLDS.scoutTimeoutMs);
+  const systemContent = lens
+    ? `You are a cautious Lean/code review triage scout applying the "${lens.title}" lens. ${lens.focus} Only select packets relevant to this lens. Return only JSON matching the requested schema. Never claim final review coverage or approval.`
+    : 'You are a cautious Lean proof-change triage scout. Return only JSON matching the requested schema. Never claim final review coverage or approval.';
   try {
     const response = await fetch(openAiChatUrl(config.url), {
       method: 'POST',
@@ -439,7 +608,7 @@ async function callScoutModel(config, dossier) {
         messages: [
           {
             role: 'system',
-            content: 'You are a cautious Lean proof-change triage scout. Return only JSON matching the requested schema. Never claim final review coverage or approval.',
+            content: systemContent,
           },
           {
             role: 'user',
@@ -475,6 +644,60 @@ function resolveScoutConfig(env = process.env) {
 
 function isFalse(value) {
   return /^(0|false|no|off)$/i.test(String(value || '').trim());
+}
+
+// Which lenses fan out for this review. Defaults to the full LENSES set; an
+// operator can pin a subset via config.lenses or OCR_SCOUT_LENSES (a
+// comma-separated list of lens ids) without a code change. Unknown ids are
+// ignored, and an empty/all-unknown selection falls back to the full set so a
+// mis-set env var never silently disables scouting.
+function resolveLenses(config = {}, env = process.env) {
+  const requested = String(config.lenses || env.OCR_SCOUT_LENSES || '').trim();
+  if (!requested) return LENSES;
+  const ids = new Set(requested.split(',').map(s => s.trim().toLowerCase()).filter(Boolean));
+  const selected = LENSES.filter(lens => ids.has(lens.id));
+  return selected.length ? selected : LENSES;
+}
+
+// Load the accumulating review rubric. Every scout dossier embeds this so past
+// defect classes are re-checked on every future PR. Missing/invalid file is a
+// soft failure (empty rubric) — the scout still runs on its lenses.
+function loadRubric(rubricPath = RUBRIC_PATH) {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(rubricPath, 'utf8'));
+    return Array.isArray(parsed.items) ? parsed.items : [];
+  } catch {
+    return [];
+  }
+}
+
+// Mechanism for growing the rubric: when a review confirms a NEW defect class,
+// call appendRubricItem({ id, lens, title, check, origin }) to persist it as a
+// permanent checklist item so every later review explicitly checks for it.
+// De-dupes by id (returns false if the id already exists). This is the wiring
+// point for future automation (e.g. a bot that appends when a reviewer labels a
+// finding as a new class); today it is invoked deliberately by an operator.
+function appendRubricItem(item, rubricPath = RUBRIC_PATH) {
+  const id = String(item && item.id || '').trim();
+  if (!id) throw new Error('appendRubricItem requires an item.id');
+  let doc;
+  try {
+    doc = JSON.parse(fs.readFileSync(rubricPath, 'utf8'));
+  } catch {
+    doc = { schema_version: 1, items: [] };
+  }
+  if (!Array.isArray(doc.items)) doc.items = [];
+  if (doc.items.some(existing => String(existing.id).trim() === id)) return false;
+  doc.items.push({
+    id,
+    lens: String(item.lens || '').trim(),
+    title: String(item.title || '').trim(),
+    check: String(item.check || '').trim(),
+    origin: String(item.origin || '').trim(),
+    added_at: String(item.added_at || new Date().toISOString().slice(0, 10)),
+  });
+  fs.writeFileSync(rubricPath, `${JSON.stringify(doc, null, 2)}\n`);
+  return true;
 }
 
 function parseScoutJson(content) {
@@ -692,22 +915,6 @@ function openAiChatUrl(baseUrl) {
   if (trimmed.endsWith('/chat/completions')) return trimmed;
   if (trimmed.endsWith('/v1')) return `${trimmed}/chat/completions`;
   return `${trimmed}/v1/chat/completions`;
-}
-
-function selectScoutPackets(deterministicPackets, scout) {
-  const byId = new Map(deterministicPackets.map(p => [p.packet_id, p]));
-  const selected = [];
-  for (const item of Array.isArray(scout?.selected_packets) ? scout.selected_packets : []) {
-    const packet = byId.get(String(item.id || item.packet_id || '').trim());
-    if (!packet || selected.some(p => p.packet_id === packet.packet_id)) continue;
-    selected.push({
-      ...packet,
-      scout_reason: String(item.reason || '').slice(0, 500),
-      scout_risk_category: String(item.risk_category || '').slice(0, 120),
-      scout_question: String(item.question_for_stronger_reviewer || '').slice(0, 500),
-    });
-  }
-  return selected.slice(0, THRESHOLDS.packetMaxCount);
 }
 
 function truncateJson(value, maxChars) {
@@ -1135,6 +1342,7 @@ function buildMetrics({ prNumber, headSha, baseRef, startedAt, decision, diff })
         scout_reason: p.scout_reason || null,
         scout_risk_category: p.scout_risk_category || null,
         scout_question: p.scout_question || null,
+        scout_lens_ids: Array.isArray(p.scout_lens_ids) ? p.scout_lens_ids : null,
         changed_lines: p.changed_lines,
       })),
       residual_risk: packetResidualRisk(decision),
@@ -1218,31 +1426,82 @@ function buildPacketizedResult(decision, metrics) {
 }
 
 function renderPacketFinding(packet) {
-  const lines = [
-    `Large Lean packet selected for stronger review: ${packet.summary}.`,
-    `Risk signals: ${packet.signals.length ? packet.signals.join(', ') : 'hotspot path/churn'}.`,
-  ];
-  if (packet.scout_reason) lines.push(`Scout reason: ${sanitizeCommentText(packet.scout_reason)}`);
-  if (packet.scout_question) lines.push(`Question for stronger reviewer: ${sanitizeCommentText(packet.scout_question)}`);
+  // Reader-first ordering: the substantive finding leads, the router's
+  // selection rationale follows, and the triage caveat closes.
+  const lines = [];
+  const lensFindings = Array.isArray(packet.scout_lenses) ? packet.scout_lenses : [];
+  if (lensFindings.length > 1) {
+    // Multi-lens: this packet tripped more than one lens, so list every lens's
+    // finding — that is the whole point of the fan-out (surface all defect
+    // classes at once instead of one per review cycle).
+    lines.push(`**Findings (${lensFindings.length} lenses):**`);
+    for (const finding of lensFindings) {
+      const label = sanitizeCommentText(finding.lens_title || finding.lens || 'lens');
+      const detail = sanitizeCommentText(finding.reason || '(no detail)');
+      lines.push(`- _${label}:_ ${detail}`);
+      if (finding.question) {
+        lines.push(`  - Ask the reviewer: ${sanitizeCommentText(finding.question)}`);
+      }
+    }
+  } else {
+    if (packet.scout_reason) {
+      lines.push(`**Finding:** ${sanitizeCommentText(packet.scout_reason)}`);
+    }
+    if (packet.scout_question) {
+      lines.push(`**Ask the reviewer:** ${sanitizeCommentText(packet.scout_question)}`);
+    }
+  }
+  lines.push(
+    `**Why flagged:** ${packet.summary}. Signals: ${
+      packet.signals.length ? packet.signals.join(', ') : 'hotspot path/churn'
+    }.`,
+  );
   if (packet.added_sample.length > 0) {
     lines.push('Added-line sample:');
     for (const sample of packet.added_sample.slice(0, 5)) {
-      lines.push(`- L${sample.line}: ${sanitizeCommentText(sample.text)}`);
+      lines.push(`- L${sample.line}: ${renderCodeSample(sample.text)}`);
     }
   }
-  lines.push('This packet is scout triage and a coverage marker; it is not a final OCR semantic review or approval.');
+  lines.push('_Scout triage coverage marker — not a final OCR semantic review or approval._');
   return lines.join('\n');
 }
 
+// Neutralize injection vectors (mentions, raw HTML, control characters) in
+// model-authored prose WITHOUT destroying markdown readability: code spans,
+// dots, hyphens, and paragraph breaks survive. Length-capped at a word
+// boundary with an explicit truncation marker instead of a mid-word cut.
 function sanitizeCommentText(value) {
-  return String(value || '')
-    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+  const text = String(value || '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, ' ')
     .replace(/@/g, '@\u200b')
     .replace(/[<>]/g, ch => ({ '<': '&lt;', '>': '&gt;' }[ch]))
-    .replace(/([\\`*_{}\[\]()#+.!|-])/g, '\\$1')
+    .replace(/[^\S\n]+/g, ' ')
+    .replace(/ ?\n ?/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  if (text.length <= 1200) return text;
+  const cut = text.slice(0, 1200);
+  const boundary = cut.lastIndexOf(' ');
+  return `${boundary > 800 ? cut.slice(0, boundary) : cut} \u2026 _(truncated)_`;
+}
+
+// Added-line samples are code: render as an inline code span so Lean/Yul
+// operators are not read as markdown. Inside a code span mentions and HTML
+// are inert; the plain-text fallback (sample contains a backtick) gets the
+// usual neutralization instead.
+function renderCodeSample(value) {
+  const text = String(value || '')
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
-    .slice(0, 700);
+    .slice(0, 200);
+  if (!text) return '`(empty)`';
+  // Backticks inside a sample would terminate the code span; substitute a
+  // prime mark so the sample still renders inertly inside one code span
+  // (no markdown, mentions, or HTML interpretation) instead of falling back
+  // to prose rendering.
+  return `\`${text.replace(/`/g, '\u2032')}\``;
 }
 
 function packetResidualRisk(decision) {
@@ -1293,6 +1552,7 @@ module.exports = {
   ROUTER_VERSION,
   THRESHOLDS,
   DEFAULT_SCOUT_MODEL,
+  LENSES,
   categorize,
   decideRoute,
   isSupported,
@@ -1302,6 +1562,11 @@ module.exports = {
   buildReviewPackets,
   applyScoutStage,
   resolveScoutConfig,
+  resolveLenses,
+  loadRubric,
+  appendRubricItem,
+  unionScoutPackets,
+  renderPacketFinding,
   parseScoutJson,
   sanitizeScoutErrorDetail,
   buildRiskDossier,

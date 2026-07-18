@@ -1367,6 +1367,25 @@ theorem eval_compileExpr_localVar_of_expr_bindings
     congrArg (fun x => x.bind fun a => some (some a)) hident
   simpa [evalIRExpr, hsource] using hidentLift
 
+theorem eval_compileExpr_constructorArg_of_expr_bindings
+    {fields : List Field}
+    {runtime : SourceSemantics.RuntimeState}
+    {state : IRState}
+    (idx : Nat)
+    (hexact : bindingsExactlyMatchIRVarsOnExpr (.constructorArg idx) runtime.bindings state)
+    (hpresent : exprBoundNamesPresent (.constructorArg idx) runtime.bindings) :
+    evalIRExpr state (YulExpr.ident s!"arg{idx}") =
+      some (SourceSemantics.evalExpr fields runtime (.constructorArg idx)) := by
+  rcases hpresent s!"arg{idx}" (by simp [exprBoundNames]) with ⟨value, hlookup⟩
+  have hident := hexact s!"arg{idx}" (by simp [exprBoundNames])
+  rw [hlookup] at hident
+  have hsource : SourceSemantics.evalExpr fields runtime (.constructorArg idx) = some value := by
+    change SourceSemantics.lookupBinding? runtime.bindings s!"arg{idx}" = some value
+    simpa [lookupBinding?, SourceSemantics.lookupBinding?] using hlookup
+  have hidentLift :=
+    congrArg (fun x => x.bind fun a => some (some a)) hident
+  simpa [evalIRExpr, hsource] using hidentLift
+
 @[simp] theorem boolWord_lt_evmModulus (b : Bool) :
     SourceSemantics.boolWord b < Compiler.Constants.evmModulus := by
   cases b <;> norm_num [SourceSemantics.boolWord, Compiler.Constants.evmModulus]
@@ -4571,6 +4590,10 @@ theorem compileExpr_core_ok
       exact ⟨YulExpr.ident name, by
         unfold CompilationModel.compileExpr CompilationModel.compileExprWithInternals
         rfl⟩
+  | constructorArg idx =>
+      exact ⟨YulExpr.ident s!"arg{idx}", by
+        unfold CompilationModel.compileExpr CompilationModel.compileExprWithInternals
+        rfl⟩
   | localVar name =>
       exact ⟨YulExpr.ident name, by
         unfold CompilationModel.compileExpr CompilationModel.compileExprWithInternals
@@ -4848,6 +4871,9 @@ theorem eval_compileExpr_core_onExpr
   | param name =>
       simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals] using
         eval_compileExpr_param_of_expr_bindings name hexact hpresent
+  | constructorArg idx =>
+      simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals] using
+        eval_compileExpr_constructorArg_of_expr_bindings idx hexact hpresent
   | localVar name =>
       simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals] using
         eval_compileExpr_localVar_of_expr_bindings name hexact hpresent
@@ -5930,6 +5956,20 @@ theorem evalExpr_lt_evmModulus_core_onExpr
   | param name =>
       change SourceSemantics.lookupValue runtime.bindings name < Compiler.Constants.evmModulus
       exact hbounded name
+  | constructorArg idx =>
+      rcases hpresent s!"arg{idx}" (by simp [exprBoundNames]) with ⟨value, hlookup⟩
+      have hsourceLookup :
+          SourceSemantics.lookupBinding? runtime.bindings s!"arg{idx}" = some value := by
+        simpa [lookupBinding?, SourceSemantics.lookupBinding?] using hlookup
+      have hlookupValue :
+          SourceSemantics.lookupValue runtime.bindings s!"arg{idx}" = value :=
+        lookupValue_eq_of_lookupBinding?_some hlookup
+      have hlt := hbounded s!"arg{idx}"
+      rw [hlookupValue] at hlt
+      change SourceSemantics.lookupBinding? runtime.bindings s!"arg{idx}" <
+        Compiler.Constants.evmModulus
+      rw [hsourceLookup]
+      exact hlt
   | localVar name =>
       change SourceSemantics.lookupValue runtime.bindings name < Compiler.Constants.evmModulus
       exact hbounded name
@@ -6415,6 +6455,11 @@ theorem compileRequireFailCond_core_ok
         unfold CompilationModel.compileRequireFailCond CompilationModel.compileRequireFailCondWithInternals
         unfold CompilationModel.compileExprWithInternals
         rfl⟩
+  | constructorArg idx =>
+      exact ⟨YulExpr.call "iszero" [YulExpr.ident s!"arg{idx}"], by
+        unfold CompilationModel.compileRequireFailCond CompilationModel.compileRequireFailCondWithInternals
+        unfold CompilationModel.compileExprWithInternals
+        rfl⟩
   | localVar name =>
       exact ⟨YulExpr.call "iszero" [YulExpr.ident name], by
         unfold CompilationModel.compileRequireFailCond CompilationModel.compileRequireFailCondWithInternals
@@ -6883,6 +6928,14 @@ theorem eval_compileRequireFailCond_core_onExpr
         simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .param name)
           (show ExprCompileCore (.param name) from ExprCompileCore.param name) hexact hpresent hexpr
+  | constructorArg idx =>
+      rcases compileExpr_core_ok (fields := fields)
+          (show ExprCompileCore (.constructorArg idx) from ExprCompileCore.constructorArg idx) with ⟨exprIR, hexpr⟩
+      refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
+      · simpa using finishIszeroEval (expr := .constructorArg idx)
+          (show ExprCompileCore (.constructorArg idx) from ExprCompileCore.constructorArg idx) hexact hpresent hexpr
   | localVar name =>
       rcases compileExpr_core_ok (fields := fields)
           (show ExprCompileCore (.localVar name) from ExprCompileCore.localVar name) with ⟨exprIR, hexpr⟩
