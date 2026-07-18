@@ -3521,7 +3521,6 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.sourceBindingsAgreeOutside_symm  -- private
   Compiler.Proofs.IRGeneration.evalExprWithHelpers_eq_of_internalHelperExprProjectionCore
   Compiler.Proofs.IRGeneration.evalExprListWithHelpers_eq_of_internalHelperExprListProjectionCore
-  -- Compiler.Proofs.IRGeneration.internalHelperStmtListProjectionReadNames_fresh_tail  -- private
   -- Compiler.Proofs.IRGeneration.internalHelperResultOfStmtListProjectionCore_eq_return  -- private
   -- Compiler.Proofs.IRGeneration.internalHelperResultOfStmtListProjectionCore_eq_letVar  -- private
   -- Compiler.Proofs.IRGeneration.internalHelperResultOfStmtListProjectionCore_eq_assignVar  -- private
@@ -6165,4 +6164,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5780 theorems/lemmas (4005 public, 1775 private, 0 sorry'd)
+-- Total: 5779 theorems/lemmas (4005 public, 1774 private, 0 sorry'd)
