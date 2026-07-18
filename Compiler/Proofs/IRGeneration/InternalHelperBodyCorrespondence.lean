@@ -260,6 +260,8 @@ def internalHelperStmtProjectionReadNames : Stmt → List String
 
 def internalHelperStmtListProjectionReadNames : List Stmt → List String
   | [] => []
+  | .return value :: _ => FunctionBody.exprBoundNames value
+  | .stop :: _ => []
   | stmt :: rest =>
       internalHelperStmtProjectionReadNames stmt ++
         internalHelperStmtListProjectionReadNames rest
@@ -355,13 +357,13 @@ private theorem internalHelperResultOfStmtListProjectionCore_eq
       | param name =>
           have hlookup := (hagree name (hfresh name (by
             simp [internalHelperStmtListProjectionReadNames,
-              internalHelperStmtProjectionReadNames, FunctionBody.exprBoundNames]))).1
+              FunctionBody.exprBoundNames]))).1
           simp [SourceSemantics.execStmtListWithHelpers, SourceSemantics.execStmtWithHelpers,
             SourceSemantics.evalExprWithHelpers, internalHelperResultOfStmtResult, hlookup]
       | localVar name =>
           have hlookup := (hagree name (hfresh name (by
             simp [internalHelperStmtListProjectionReadNames,
-              internalHelperStmtProjectionReadNames, FunctionBody.exprBoundNames]))).1
+              FunctionBody.exprBoundNames]))).1
           simp [SourceSemantics.execStmtListWithHelpers, SourceSemantics.execStmtWithHelpers,
             SourceSemantics.evalExprWithHelpers, internalHelperResultOfStmtResult, hlookup]
   | stop =>
