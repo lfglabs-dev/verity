@@ -87,7 +87,7 @@ private theorem permitStaticHashAndDigest_supported :
       rcases ha with rfl | rfl <;>
         simp [FunctionBody.exprBoundNamesInScope, FunctionBody.exprBoundNames,
           stmtNextScope, permitScope, permitStructHashStmt,
-          collectStmtNames,
+          collectStmtBindNames,
           Compiler.Modules.Hashing.eip712HashStruct,
           Compiler.Modules.Hashing.abiEncodeStaticWords,
           Compiler.Modules.Hashing.abiEncodeStaticWordsModule]
