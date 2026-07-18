@@ -4098,9 +4098,18 @@ mutual
         simp [stmtTouchesUnsupportedHelperSurface] at hsurface
         simp [stmtTouchesInternalHelperSurface,
           exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface]
+    | requireError cond _ args =>
+        simp only [stmtTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
+        simp [stmtTouchesInternalHelperSurface,
+          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.1,
+          exprListTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.2]
+    | revertError _ args =>
+        simp only [stmtTouchesUnsupportedHelperSurface] at hsurface
+        simp [stmtTouchesInternalHelperSurface,
+          exprListTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface]
     | stop | calldatacopy _ _ _ | returndataCopy _ _ _ | revertReturndata
-    | externalCallBind _ _ _ | tryExternalCallBind _ _ _ _ | ecm _ _ | storageArrayPop _ | requireError _ _ _
-    | revertError _ _ | returnValues _ | returnArray _ | returnBytes _
+    | externalCallBind _ _ _ | tryExternalCallBind _ _ _ _ | ecm _ _ | storageArrayPop _
+    | returnValues _ | returnArray _ | returnBytes _
     | returnStorageWords _ | emit _ _ | rawLog _ _ _ | panicCode _ =>
         simp [stmtTouchesInternalHelperSurface]
   termination_by sizeOf stmt
