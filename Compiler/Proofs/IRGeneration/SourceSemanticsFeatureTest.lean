@@ -302,4 +302,26 @@ example :
       (.requireError (.literal 0) "CallFree" [.literal 1]) = false := by
   native_decide
 
+/-- Typed-error guards and payloads remain behind the constructor raw-calldata gate. -/
+example :
+    stmtTouchesUnsupportedConstructorRawCalldataSurface
+      (.requireError .calldatasize "RawCalldata" []) = true := by
+  native_decide
+
+example :
+    stmtTouchesUnsupportedConstructorRawCalldataSurface
+      (.revertError "RawCalldata" [.calldataload (.literal 0)]) = true := by
+  native_decide
+
+/-- Helper-aware typed-error expressions are classified as helper-executing. -/
+example :
+    stmtTouchesExprInternalHelperSurface
+      (.requireError (.internalCall "helper" []) "HelperFailed" []) = true := by
+  native_decide
+
+example :
+    stmtTouchesExprInternalHelperSurface
+      (.revertError "HelperFailed" [.internalCall "helper" []]) = true := by
+  native_decide
+
 end Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest
