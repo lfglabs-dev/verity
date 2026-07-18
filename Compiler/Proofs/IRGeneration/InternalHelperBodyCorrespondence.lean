@@ -270,6 +270,85 @@ inductive InternalHelperExprProjectionCore : Expr → Prop where
   | literal (value : Nat) : InternalHelperExprProjectionCore (.literal value)
   | param (name : String) : InternalHelperExprProjectionCore (.param name)
   | localVar (name : String) : InternalHelperExprProjectionCore (.localVar name)
+  | add {lhs rhs : Expr} :
+      InternalHelperExprProjectionCore lhs →
+      InternalHelperExprProjectionCore rhs →
+      InternalHelperExprProjectionCore (.add lhs rhs)
+  | sub {lhs rhs : Expr} :
+      InternalHelperExprProjectionCore lhs →
+      InternalHelperExprProjectionCore rhs →
+      InternalHelperExprProjectionCore (.sub lhs rhs)
+  | mul {lhs rhs : Expr} :
+      InternalHelperExprProjectionCore lhs →
+      InternalHelperExprProjectionCore rhs →
+      InternalHelperExprProjectionCore (.mul lhs rhs)
+  | div {lhs rhs : Expr} :
+      InternalHelperExprProjectionCore lhs →
+      InternalHelperExprProjectionCore rhs →
+      InternalHelperExprProjectionCore (.div lhs rhs)
+  | mod {lhs rhs : Expr} :
+      InternalHelperExprProjectionCore lhs →
+      InternalHelperExprProjectionCore rhs →
+      InternalHelperExprProjectionCore (.mod lhs rhs)
+  | eq {lhs rhs : Expr} :
+      InternalHelperExprProjectionCore lhs →
+      InternalHelperExprProjectionCore rhs →
+      InternalHelperExprProjectionCore (.eq lhs rhs)
+  | ge {lhs rhs : Expr} :
+      InternalHelperExprProjectionCore lhs →
+      InternalHelperExprProjectionCore rhs →
+      InternalHelperExprProjectionCore (.ge lhs rhs)
+  | gt {lhs rhs : Expr} :
+      InternalHelperExprProjectionCore lhs →
+      InternalHelperExprProjectionCore rhs →
+      InternalHelperExprProjectionCore (.gt lhs rhs)
+  | lt {lhs rhs : Expr} :
+      InternalHelperExprProjectionCore lhs →
+      InternalHelperExprProjectionCore rhs →
+      InternalHelperExprProjectionCore (.lt lhs rhs)
+  | le {lhs rhs : Expr} :
+      InternalHelperExprProjectionCore lhs →
+      InternalHelperExprProjectionCore rhs →
+      InternalHelperExprProjectionCore (.le lhs rhs)
+  | logicalAnd {lhs rhs : Expr} :
+      InternalHelperExprProjectionCore lhs →
+      InternalHelperExprProjectionCore rhs →
+      InternalHelperExprProjectionCore (.logicalAnd lhs rhs)
+  | logicalOr {lhs rhs : Expr} :
+      InternalHelperExprProjectionCore lhs →
+      InternalHelperExprProjectionCore rhs →
+      InternalHelperExprProjectionCore (.logicalOr lhs rhs)
+  | bitAnd {lhs rhs : Expr} :
+      InternalHelperExprProjectionCore lhs →
+      InternalHelperExprProjectionCore rhs →
+      InternalHelperExprProjectionCore (.bitAnd lhs rhs)
+  | bitOr {lhs rhs : Expr} :
+      InternalHelperExprProjectionCore lhs →
+      InternalHelperExprProjectionCore rhs →
+      InternalHelperExprProjectionCore (.bitOr lhs rhs)
+  | bitXor {lhs rhs : Expr} :
+      InternalHelperExprProjectionCore lhs →
+      InternalHelperExprProjectionCore rhs →
+      InternalHelperExprProjectionCore (.bitXor lhs rhs)
+  | min {lhs rhs : Expr} :
+      InternalHelperExprProjectionCore lhs →
+      InternalHelperExprProjectionCore rhs →
+      InternalHelperExprProjectionCore (.min lhs rhs)
+  | max {lhs rhs : Expr} :
+      InternalHelperExprProjectionCore lhs →
+      InternalHelperExprProjectionCore rhs →
+      InternalHelperExprProjectionCore (.max lhs rhs)
+  | logicalNot {expr : Expr} :
+      InternalHelperExprProjectionCore expr →
+      InternalHelperExprProjectionCore (.logicalNot expr)
+  | bitNot {expr : Expr} :
+      InternalHelperExprProjectionCore expr →
+      InternalHelperExprProjectionCore (.bitNot expr)
+  | ite {cond thenVal elseVal : Expr} :
+      InternalHelperExprProjectionCore cond →
+      InternalHelperExprProjectionCore thenVal →
+      InternalHelperExprProjectionCore elseVal →
+      InternalHelperExprProjectionCore (.ite cond thenVal elseVal)
 
 inductive InternalHelperExprListProjectionCore : List Expr → Prop where
   | nil : InternalHelperExprListProjectionCore []
@@ -315,11 +394,41 @@ theorem evalExprWithHelpers_eq_of_internalHelperExprProjectionCore
     (hfresh : ∀ name, name ∈ FunctionBody.exprBoundNames expr → name ∉ reserved) :
     SourceSemantics.evalExprWithHelpers spec fields fuel { runtime with bindings := lhs } expr =
       SourceSemantics.evalExprWithHelpers spec fields fuel { runtime with bindings := rhs } expr := by
-  cases hcore with
+  induction hcore generalizing reserved lhs rhs with
   | literal value => simp [SourceSemantics.evalExprWithHelpers]
   | param name | localVar name =>
       have hlookup := (hagree name (hfresh name (by simp [FunctionBody.exprBoundNames]))).1
       simp [SourceSemantics.evalExprWithHelpers, hlookup]
+  | add _ _ ihleft ihright | sub _ _ ihleft ihright | mul _ _ ihleft ihright
+  | div _ _ ihleft ihright | mod _ _ ihleft ihright | eq _ _ ihleft ihright
+  | ge _ _ ihleft ihright | gt _ _ ihleft ihright | lt _ _ ihleft ihright
+  | le _ _ ihleft ihright | logicalAnd _ _ ihleft ihright
+  | logicalOr _ _ ihleft ihright | bitAnd _ _ ihleft ihright
+  | bitOr _ _ ihleft ihright | bitXor _ _ ihleft ihright
+  | min _ _ ihleft ihright | max _ _ ihleft ihright =>
+      have hleftEq := ihleft hagree (by
+        intro name hmem
+        exact hfresh name (by simp [FunctionBody.exprBoundNames, hmem]))
+      have hrightEq := ihright hagree (by
+        intro name hmem
+        exact hfresh name (by simp [FunctionBody.exprBoundNames, hmem]))
+      simp [SourceSemantics.evalExprWithHelpers, hleftEq, hrightEq]
+  | logicalNot _ ih | bitNot _ ih =>
+      have hexprEq := ih hagree (by
+        intro name hmem
+        exact hfresh name (by simp [FunctionBody.exprBoundNames, hmem]))
+      simp [SourceSemantics.evalExprWithHelpers, hexprEq]
+  | ite _ _ _ ihcond ihthen helse =>
+      have hcondEq := ihcond hagree (by
+        intro name hmem
+        exact hfresh name (by simp [FunctionBody.exprBoundNames, hmem]))
+      have hthenEq := ihthen hagree (by
+        intro name hmem
+        exact hfresh name (by simp [FunctionBody.exprBoundNames, hmem]))
+      have helseEq := helse hagree (by
+        intro name hmem
+        exact hfresh name (by simp [FunctionBody.exprBoundNames, hmem]))
+      simp [SourceSemantics.evalExprWithHelpers, hcondEq, hthenEq, helseEq]
 
 theorem evalExprListWithHelpers_eq_of_internalHelperExprListProjectionCore
     {spec : CompilationModel} {fields : List Field} {fuel : Nat}
@@ -606,9 +715,9 @@ private theorem internalHelperResultOfStmtListProjectionCore_eq
 
 /-- Source-semantics discharge for the helper-entry binding projection seam over
 the current projection-core fragment: empty bodies, `stop`, `return`, and
-sequencing through `letVar`, `assignVar`, and `require` with literal,
-parameter, or local-variable expressions.  Branches, loops, events, storage
-effects, and helper calls remain for the larger helper-aware source induction. -/
+sequencing through `letVar`, `assignVar`, and `require` with binding-read-only
+pure expressions.  Branches, loops, events, storage effects, and helper calls
+remain for the larger helper-aware source induction. -/
 theorem internalHelperBodyResultProjection_of_entryBindings_projectionCore
     {spec : CompilationModel} {callee : FunctionSpec} {helper : IRInternalFunctionDef}
     {initialWorld : Verity.ContractState} {selector : Nat}
