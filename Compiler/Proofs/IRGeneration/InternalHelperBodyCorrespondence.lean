@@ -248,6 +248,156 @@ def internalHelperBodyInterpretation
   | some bindings => internalHelperResultOfStmtResult initialWorld
       (internalHelperBodySourceResult spec callee initialWorld selector bindings helperFuel)
 
+/-- Binding names read by the source statement cases covered by
+`InternalHelperStmtListProjectionCore`.  Other statements return `[]` here and
+are excluded by that fragment predicate. -/
+def internalHelperStmtProjectionReadNames : Stmt → List String
+  | .letVar _ value
+  | .assignVar _ value
+  | .require value _
+  | .return value => FunctionBody.exprBoundNames value
+  | _ => []
+
+def internalHelperStmtListProjectionReadNames : List Stmt → List String
+  | [] => []
+  | .return value :: _ => FunctionBody.exprBoundNames value
+  | .stop :: _ => []
+  | stmt :: rest =>
+      internalHelperStmtProjectionReadNames stmt ++
+        internalHelperStmtListProjectionReadNames rest
+
+inductive InternalHelperExprProjectionCore : Expr → Prop where
+  | literal (value : Nat) : InternalHelperExprProjectionCore (.literal value)
+  | param (name : String) : InternalHelperExprProjectionCore (.param name)
+  | localVar (name : String) : InternalHelperExprProjectionCore (.localVar name)
+
+inductive InternalHelperExprListProjectionCore : List Expr → Prop where
+  | nil : InternalHelperExprListProjectionCore []
+  | cons {expr : Expr} {rest : List Expr} :
+      InternalHelperExprProjectionCore expr →
+      InternalHelperExprListProjectionCore rest →
+      InternalHelperExprListProjectionCore (expr :: rest)
+
+inductive InternalHelperStmtListProjectionCore : List Stmt → Prop where
+  | nil : InternalHelperStmtListProjectionCore []
+  | return_ {value : Expr} {rest : List Stmt} :
+      InternalHelperExprProjectionCore value →
+      InternalHelperStmtListProjectionCore (.return value :: rest)
+  | stop {rest : List Stmt} :
+      InternalHelperStmtListProjectionCore (.stop :: rest)
+
+private theorem sourceBindingsAgreeOutside_symm
+    {reserved : List String} {lhs rhs : List (String × Nat)}
+    (hagree : sourceBindingsAgreeOutside reserved lhs rhs) :
+    sourceBindingsAgreeOutside reserved rhs lhs := by
+  intro name hname
+  rcases hagree name hname with ⟨hvalue, hbinding⟩
+  exact ⟨hvalue.symm, hbinding.symm⟩
+
+theorem evalExprWithHelpers_eq_of_internalHelperExprProjectionCore
+    {spec : CompilationModel} {fields : List Field} {fuel : Nat}
+    {runtime : SourceSemantics.RuntimeState}
+    {reserved : List String} {lhs rhs : List (String × Nat)} {expr : Expr}
+    (hcore : InternalHelperExprProjectionCore expr)
+    (hagree : sourceBindingsAgreeOutside reserved lhs rhs)
+    (hfresh : ∀ name, name ∈ FunctionBody.exprBoundNames expr → name ∉ reserved) :
+    SourceSemantics.evalExprWithHelpers spec fields fuel { runtime with bindings := lhs } expr =
+      SourceSemantics.evalExprWithHelpers spec fields fuel { runtime with bindings := rhs } expr := by
+  cases hcore with
+  | literal value => simp [SourceSemantics.evalExprWithHelpers]
+  | param name | localVar name =>
+      have hlookup := (hagree name (hfresh name (by simp [FunctionBody.exprBoundNames]))).1
+      simp [SourceSemantics.evalExprWithHelpers, hlookup]
+
+theorem evalExprListWithHelpers_eq_of_internalHelperExprListProjectionCore
+    {spec : CompilationModel} {fields : List Field} {fuel : Nat}
+    {runtime : SourceSemantics.RuntimeState}
+    {reserved : List String} {lhs rhs : List (String × Nat)} {exprs : List Expr}
+    (hcore : InternalHelperExprListProjectionCore exprs)
+    (hagree : sourceBindingsAgreeOutside reserved lhs rhs)
+    (hfresh : ∀ name, name ∈ FunctionBody.exprListBoundNames exprs → name ∉ reserved) :
+    SourceSemantics.evalExprListWithHelpers spec fields fuel
+        { runtime with bindings := lhs } exprs =
+      SourceSemantics.evalExprListWithHelpers spec fields fuel
+        { runtime with bindings := rhs } exprs := by
+  induction hcore with
+  | nil => simp [SourceSemantics.evalExprListWithHelpers]
+  | cons hhead _ hrest =>
+      have hheadEq := evalExprWithHelpers_eq_of_internalHelperExprProjectionCore
+        (spec := spec) (fields := fields) (fuel := fuel) (runtime := runtime)
+        hhead hagree
+        (by intro name hmem; exact hfresh name (by simp [FunctionBody.exprListBoundNames, hmem]))
+      have hrestEq := hrest
+        (by intro name hmem; exact hfresh name (by simp [FunctionBody.exprListBoundNames, hmem]))
+      simp [SourceSemantics.evalExprListWithHelpers, hheadEq, hrestEq]
+
+private theorem internalHelperResultOfStmtListProjectionCore_eq
+    {spec : CompilationModel} {fields : List Field} {fuel : Nat}
+    {initialWorld : Verity.ContractState} {runtime : SourceSemantics.RuntimeState}
+    {reserved : List String} {lhs rhs : List (String × Nat)}
+    {stmts : List Stmt}
+    (hcore : InternalHelperStmtListProjectionCore stmts)
+    (hagree : sourceBindingsAgreeOutside reserved lhs rhs)
+    (hfresh :
+      ∀ name, name ∈ internalHelperStmtListProjectionReadNames stmts → name ∉ reserved) :
+    internalHelperResultOfStmtResult initialWorld
+        (SourceSemantics.execStmtListWithHelpers spec fields fuel
+          { runtime with bindings := lhs } stmts) =
+      internalHelperResultOfStmtResult initialWorld
+        (SourceSemantics.execStmtListWithHelpers spec fields fuel
+          { runtime with bindings := rhs } stmts) := by
+  cases hcore with
+  | nil =>
+      simp [SourceSemantics.execStmtListWithHelpers, internalHelperResultOfStmtResult]
+  | return_ hvalue =>
+      cases hvalue with
+      | literal value =>
+          simp [SourceSemantics.execStmtListWithHelpers, SourceSemantics.execStmtWithHelpers,
+            SourceSemantics.evalExprWithHelpers, internalHelperResultOfStmtResult]
+      | param name =>
+          have hlookup := (hagree name (hfresh name (by
+            simp [internalHelperStmtListProjectionReadNames,
+              FunctionBody.exprBoundNames]))).1
+          simp [SourceSemantics.execStmtListWithHelpers, SourceSemantics.execStmtWithHelpers,
+            SourceSemantics.evalExprWithHelpers, internalHelperResultOfStmtResult, hlookup]
+      | localVar name =>
+          have hlookup := (hagree name (hfresh name (by
+            simp [internalHelperStmtListProjectionReadNames,
+              FunctionBody.exprBoundNames]))).1
+          simp [SourceSemantics.execStmtListWithHelpers, SourceSemantics.execStmtWithHelpers,
+            SourceSemantics.evalExprWithHelpers, internalHelperResultOfStmtResult, hlookup]
+  | stop =>
+      simp [SourceSemantics.execStmtListWithHelpers, SourceSemantics.execStmtWithHelpers,
+        internalHelperResultOfStmtResult]
+
+/-- Source-semantics discharge for the helper-entry binding projection seam over
+the current terminal projection-core fragment: empty bodies, `stop`, and
+`return` with literal, parameter, or local-variable expressions.  Sequencing
+cases, branches, loops, events, storage effects, and helper calls remain for the
+larger helper-aware source induction. -/
+theorem internalHelperBodyResultProjection_of_entryBindings_projectionCore
+    {spec : CompilationModel} {callee : FunctionSpec} {helper : IRInternalFunctionDef}
+    {initialWorld : Verity.ContractState} {selector : Nat}
+    {sourceBindings : List (String × Nat)}
+    {helperFuel : Nat}
+    (hcore : InternalHelperStmtListProjectionCore callee.body)
+    (hfresh :
+      ∀ name, name ∈ internalHelperStmtListProjectionReadNames callee.body →
+        name ∉ helper.rets) :
+    internalHelperBodyResultProjection spec callee initialWorld selector sourceBindings
+      (internalHelperEntryBindings sourceBindings helper) helperFuel := by
+  exact internalHelperResultOfStmtListProjectionCore_eq
+    (spec := spec) (fields := SourceSemantics.effectiveFields spec)
+    (fuel := helperFuel) (initialWorld := initialWorld)
+    (runtime := internalHelperBodyRuntime initialWorld selector sourceBindings)
+    (reserved := helper.rets)
+    (lhs := sourceBindings)
+    (rhs := internalHelperEntryBindings sourceBindings helper)
+    hcore
+    (sourceBindingsAgreeOutside_symm
+      (sourceBindingsAgreeOutside_internalHelperEntryBindings sourceBindings helper))
+    hfresh
+
 /-- Assumptions needed to apply the generic helper-body theorem at an internal
 helper entry. The generic theorem compiles an external-mode body, so this bridge
 is limited to return-family-free bodies. `bodyResultProjection` relates the
