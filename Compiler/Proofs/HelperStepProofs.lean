@@ -1174,6 +1174,10 @@ theorem internalCallWithInternalsSufficientBridge_of_directContextEvidence
       ∀ runtime state stmtHelperFuel irFuel,
         1 < stmtHelperFuel →
         helperBodySize + 2 ≤ irFuel →
+        FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state →
+        FunctionBody.scopeNamesPresent scope runtime.bindings →
+        FunctionBody.bindingsBounded runtime.bindings →
+        FunctionBody.runtimeStateMatchesIR fields runtime state →
         DirectInternalHelperCallSufficientFuelEvidence
           (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
           (scope := scope) (calleeName := calleeName) (args := args)
@@ -1181,7 +1185,8 @@ theorem internalCallWithInternalsSufficientBridge_of_directContextEvidence
     InternalCallWithInternalsSufficientBridge runtimeContract spec fields scope
       calleeName args argExprs helperBodySize := by
   intro runtime state stmtHelperFuel irFuel hstmtFuel hirFuel hfuel hexact hscope hbounded hruntime
-  rcases hevidence runtime state stmtHelperFuel irFuel hstmtFuel hirFuel with
+  rcases hevidence runtime state stmtHelperFuel irFuel hstmtFuel hirFuel
+      hexact hscope hbounded hruntime with
     ⟨helper, callerState, argVals, sourceBindings, entryBindings, hsize, bodyCtx,
       harity, hfind, hsourceArgs, hirArgs, hpostMatch⟩
   have hirFuel' : sizeOf helper.body + 2 ≤ irFuel := by omega
@@ -1213,6 +1218,10 @@ theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCall_of_dire
       ∀ runtime state stmtHelperFuel irFuel,
         1 < stmtHelperFuel →
         helperBodySize + 2 ≤ irFuel →
+        FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state →
+        FunctionBody.scopeNamesPresent scope runtime.bindings →
+        FunctionBody.bindingsBounded runtime.bindings →
+        FunctionBody.runtimeStateMatchesIR fields runtime state →
         DirectInternalHelperCallSufficientFuelEvidence
           (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
           (scope := scope) (calleeName := calleeName) (args := args)
@@ -1269,6 +1278,10 @@ theorem internalCallAssignWithInternalsSufficientBridge_of_directContextEvidence
       ∀ runtime state stmtHelperFuel irFuel,
         1 < stmtHelperFuel →
         helperBodySize + 2 ≤ irFuel →
+        FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state →
+        FunctionBody.scopeNamesPresent scope runtime.bindings →
+        FunctionBody.bindingsBounded runtime.bindings →
+        FunctionBody.runtimeStateMatchesIR fields runtime state →
         DirectInternalHelperAssignSufficientFuelEvidence
           (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
           (scope := scope) (calleeName := calleeName) (args := args)
@@ -1276,7 +1289,8 @@ theorem internalCallAssignWithInternalsSufficientBridge_of_directContextEvidence
     InternalCallAssignWithInternalsSufficientBridge runtimeContract spec fields scope
       names calleeName args argExprs helperBodySize := by
   intro runtime state stmtHelperFuel irFuel hstmtFuel hirFuel hfuel hexact hscope hbounded hruntime
-  rcases hevidence runtime state stmtHelperFuel irFuel hstmtFuel hirFuel with
+  rcases hevidence runtime state stmtHelperFuel irFuel hstmtFuel hirFuel
+      hexact hscope hbounded hruntime with
     ⟨helper, callerState, argVals, sourceBindings, entryBindings, hsize, bodyCtx,
       harity, hfind, hsourceArgs, hirArgs, hpostMatch⟩
   have hirFuel' : sizeOf helper.body + 2 ≤ irFuel := by omega
@@ -1308,6 +1322,10 @@ theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCallAssign_o
       ∀ runtime state stmtHelperFuel irFuel,
         1 < stmtHelperFuel →
         helperBodySize + 2 ≤ irFuel →
+        FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state →
+        FunctionBody.scopeNamesPresent scope runtime.bindings →
+        FunctionBody.bindingsBounded runtime.bindings →
+        FunctionBody.runtimeStateMatchesIR fields runtime state →
         DirectInternalHelperAssignSufficientFuelEvidence
           (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
           (scope := scope) (calleeName := calleeName) (args := args)
