@@ -2318,6 +2318,19 @@ private theorem evalExpr_forkIfAtLeast
     (thenExpr elseExpr : Expr) :
     evalExpr fields state (.forkIfAtLeast required thenExpr elseExpr) = none := rfl
 
+/-- Source-level custom-error revert at the current observable granularity.
+
+`StmtResult` does not yet carry returndata, so the ABI selector and encoded
+typed payload produced by compiled Yul are intentionally not observable here.
+That richer payload relation is deferred to the planned `StmtResult`/`IRResult`
+returndata extension. The argument list is still evaluated on the reverting
+path to match the compiled code's control-flow surface; success for
+`requireError` skips argument evaluation. -/
+def typedErrorRevertResult (fields : List Field) (state : RuntimeState) (args : List Expr) :
+    StmtResult :=
+  match evalExprList fields state args with
+  | _ => .revert
+
 mutual
   def execStmtWithEvents (fields : List Field) (events : List EventDef) :
       RuntimeState → Stmt → StmtResult
@@ -2537,6 +2550,13 @@ mutual
         | some resolved =>
             if resolved != 0 then .continue state else .revert
         | none => .revert
+    | state, .requireError cond _ args =>
+        match evalExpr fields state cond with
+        | some resolved =>
+            if resolved != 0 then .continue state else typedErrorRevertResult fields state args
+        | none => .revert
+    | state, .revertError _ args =>
+        typedErrorRevertResult fields state args
     | state, .return value =>
         match evalExpr fields state value with
         | some resolved => .return resolved
@@ -2813,6 +2833,13 @@ mutual
         | some resolved =>
             if resolved != 0 then .continue state else .revert
         | none => .revert
+    | state, .requireError cond _ args =>
+        match evalExpr fields state cond with
+        | some resolved =>
+            if resolved != 0 then .continue state else typedErrorRevertResult fields state args
+        | none => .revert
+    | state, .revertError _ args =>
+        typedErrorRevertResult fields state args
     | state, .return value =>
         match evalExpr fields state value with
         | some resolved => .return resolved
@@ -4079,6 +4106,13 @@ mutual
         | some resolved =>
             if resolved != 0 then .continue state else .revert
         | none => .revert
+    | .requireError cond _ args =>
+        match evalExprWithHelpers spec fields fuel state cond with
+        | some resolved =>
+            if resolved != 0 then .continue state else typedErrorRevertResult fields state args
+        | none => .revert
+    | .revertError _ args =>
+        typedErrorRevertResult fields state args
     | .return value =>
         match evalExprWithHelpers spec fields fuel state value with
         | some resolved => .return resolved
@@ -5603,8 +5637,12 @@ private theorem execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux
   | .internalCall _ _ => cases hsurface
   | .internalCallAssign _ _ _ => cases hsurface
   | .storageArrayPop _ => simp [execStmtWithHelpers, execStmtWithEvents]
-  | .requireError _ _ _ => simp [execStmtWithHelpers, execStmtWithEvents]
-  | .revertError _ _ => simp [execStmtWithHelpers, execStmtWithEvents]
+  | .requireError cond _ args =>
+      simp only [stmtTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
+      simp [execStmtWithHelpers, execStmtWithEvents, typedErrorRevertResult,
+        evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed spec fields fuel state cond hsurface.1]
+  | .revertError _ args =>
+      simp [execStmtWithHelpers, execStmtWithEvents, typedErrorRevertResult]
   | .panicCode _ => simp [execStmtWithHelpers, execStmtWithEvents]
   | .returnValues _ => simp [execStmtWithHelpers, execStmtWithEvents]
   | .returnArray _ => simp [execStmtWithHelpers, execStmtWithEvents]

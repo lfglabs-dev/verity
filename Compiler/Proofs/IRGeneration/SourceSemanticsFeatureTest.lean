@@ -281,4 +281,47 @@ example :
         some (Verity.wordToAddress (99 : Verity.Uint256)) := by
   native_decide
 
+/-- Custom-error guards and payloads use the broad call-surface gate. -/
+example :
+    stmtTouchesUnsupportedCallSurface
+      (.requireError (.externalCall "oracle" []) "OracleFailed" []) = true := by
+  native_decide
+
+example :
+    stmtTouchesUnsupportedCallSurface
+      (.requireError (.literal 0) "OracleFailed" [.externalCall "oracle" []]) = true := by
+  native_decide
+
+example :
+    stmtTouchesUnsupportedCallSurface
+      (.revertError "OracleFailed" [.internalCall "helper" []]) = true := by
+  native_decide
+
+example :
+    stmtTouchesUnsupportedCallSurface
+      (.requireError (.literal 0) "CallFree" [.literal 1]) = false := by
+  native_decide
+
+/-- Typed-error guards and payloads remain behind the constructor raw-calldata gate. -/
+example :
+    stmtTouchesUnsupportedConstructorRawCalldataSurface
+      (.requireError .calldatasize "RawCalldata" []) = true := by
+  native_decide
+
+example :
+    stmtTouchesUnsupportedConstructorRawCalldataSurface
+      (.revertError "RawCalldata" [.calldataload (.literal 0)]) = true := by
+  native_decide
+
+/-- Helper-aware typed-error expressions are classified as helper-executing. -/
+example :
+    stmtTouchesExprInternalHelperSurface
+      (.requireError (.internalCall "helper" []) "HelperFailed" []) = true := by
+  native_decide
+
+example :
+    stmtTouchesExprInternalHelperSurface
+      (.revertError "HelperFailed" [.internalCall "helper" []]) = true := by
+  native_decide
+
 end Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest

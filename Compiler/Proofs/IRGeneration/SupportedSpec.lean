@@ -850,7 +850,12 @@ def stmtTouchesUnsupportedConstructorRawCalldataSurface : Stmt → Bool
   | .forEach _ count body | .forEachSetBit _ count body =>
       exprTouchesUnsupportedConstructorRawCalldataSurface count ||
         stmtListTouchesUnsupportedConstructorRawCalldataSurface body
-  | .stop | .storageArrayPop _ | .requireError _ _ _ | .revertError _ _
+  | .requireError cond _ args =>
+      exprTouchesUnsupportedConstructorRawCalldataSurface cond ||
+        exprListTouchesUnsupportedConstructorRawCalldataSurface args
+  | .revertError _ args =>
+      exprListTouchesUnsupportedConstructorRawCalldataSurface args
+  | .stop | .storageArrayPop _
   | .returnValues _ | .returnArray _ | .returnBytes _ | .returnStorageWords _
   | .calldatacopy _ _ _ | .returndataCopy _ _ _ | .revertReturndata
   | .rawLog _ _ _ | .ecm _ _ => false
@@ -1511,8 +1516,12 @@ def stmtTouchesUnsupportedCallSurface : Stmt → Bool
   | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _
   | .ecm _ _ => true
   | .stop | .storageArrayPop _
-  | .requireError _ _ _ | .revertError _ _ | .returnValues _ | .returnArray _
+  | .returnValues _ | .returnArray _
   | .returnBytes _ | .returnStorageWords _ | .rawLog _ _ _ => false
+  | .requireError cond _ args =>
+      exprTouchesUnsupportedCallSurface cond ||
+        args.any exprTouchesUnsupportedCallSurface
+  | .revertError _ args => args.any exprTouchesUnsupportedCallSurface
   | .emit _ args => args.any exprTouchesUnsupportedCallSurface
   | .unsafeBlock _ _ | .unsafeYul _ | .matchAdt _ _ _ => true
   | .ite cond thenBranch elseBranch =>
@@ -1553,8 +1562,12 @@ def stmtTouchesUnsupportedHelperSurface : Stmt → Bool
   | .stop | .calldatacopy _ _ _
   | .returndataCopy _ _ _ | .revertReturndata | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _
   | .ecm _ _ | .storageArrayPop _
-  | .requireError _ _ _ | .revertError _ _ | .returnValues _ | .returnArray _
+  | .returnValues _ | .returnArray _
   | .returnBytes _ | .returnStorageWords _ | .rawLog _ _ _ => false
+  | .requireError cond _ args =>
+      exprTouchesUnsupportedHelperSurface cond ||
+        exprListTouchesUnsupportedHelperSurface args
+  | .revertError _ args => exprListTouchesUnsupportedHelperSurface args
   | .emit _ args => exprListTouchesUnsupportedHelperSurface args
   | .unsafeBlock _ _ | .unsafeYul _ | .matchAdt _ _ _ => true
   | .ite cond thenBranch elseBranch =>
@@ -1597,10 +1610,13 @@ def stmtTouchesInternalHelperSurface : Stmt → Bool
   | .internalCall _ _ | .internalCallAssign _ _ _ => true
   | .stop | .calldatacopy _ _ _
   | .returndataCopy _ _ _ | .revertReturndata | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _
-  | .ecm _ _ | .storageArrayPop _ | .requireError _ _ _
-  | .revertError _ _ | .returnValues _ | .returnArray _
+  | .ecm _ _ | .storageArrayPop _ | .returnValues _ | .returnArray _
   | .returnBytes _ | .returnStorageWords _ | .emit _ _
   | .rawLog _ _ _ => false
+  | .requireError cond _ args =>
+      exprTouchesInternalHelperSurface cond ||
+        args.any exprTouchesInternalHelperSurface
+  | .revertError _ args => args.any exprTouchesInternalHelperSurface
   | .unsafeBlock _ _ | .unsafeYul _ | .matchAdt _ _ _ => true
   | .ite cond thenBranch elseBranch =>
       exprTouchesInternalHelperSurface cond ||
@@ -1669,10 +1685,13 @@ def stmtTouchesExprInternalHelperSurface : Stmt → Bool
   | .internalCall _ _ | .internalCallAssign _ _ _ | .stop
   | .calldatacopy _ _ _ | .returndataCopy _ _ _
   | .revertReturndata | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _ | .ecm _ _
-  | .storageArrayPop _ | .requireError _ _ _
-  | .revertError _ _ | .returnValues _ | .returnArray _
+  | .storageArrayPop _ | .returnValues _ | .returnArray _
   | .returnBytes _ | .returnStorageWords _ | .emit _ _
   | .rawLog _ _ _ => false
+  | .requireError cond _ args =>
+      exprTouchesInternalHelperSurface cond ||
+        args.any exprTouchesInternalHelperSurface
+  | .revertError _ args => args.any exprTouchesInternalHelperSurface
   | .unsafeBlock _ _ | .unsafeYul _ | .matchAdt _ _ _ => true
 
 /-- Recursive structural internal-helper transport at the current statement
@@ -1734,8 +1753,12 @@ def stmtTouchesUnsupportedForeignSurface : Stmt → Bool
   | .internalCall _ _ | .internalCallAssign _ _ _
   | .calldatacopy _ _ _ | .returndataCopy _ _ _ | .revertReturndata
   | .storageArrayPop _
-  | .requireError _ _ _ | .revertError _ _ | .returnValues _ | .returnArray _
+  | .returnValues _ | .returnArray _
   | .returnBytes _ | .returnStorageWords _ | .rawLog _ _ _ => false
+  | .requireError cond _ args =>
+      exprTouchesUnsupportedForeignSurface cond ||
+        args.any exprTouchesUnsupportedForeignSurface
+  | .revertError _ args => args.any exprTouchesUnsupportedForeignSurface
   | .emit _ args => args.any exprTouchesUnsupportedForeignSurface
   | .unsafeBlock _ _ | .unsafeYul _ | .matchAdt _ _ _ => true
   | .ite cond thenBranch elseBranch =>
@@ -1776,8 +1799,12 @@ def stmtTouchesUnsupportedLowLevelSurface : Stmt → Bool
   | .stop
   | .internalCall _ _ | .internalCallAssign _ _ _ | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _
   | .ecm _ _ | .storageArrayPop _
-  | .requireError _ _ _ | .revertError _ _ | .returnValues _ | .returnArray _
+  | .returnValues _ | .returnArray _
   | .returnBytes _ | .returnStorageWords _ | .rawLog _ _ _ => false
+  | .requireError cond _ args =>
+      exprTouchesUnsupportedLowLevelSurface cond ||
+        args.any exprTouchesUnsupportedLowLevelSurface
+  | .revertError _ args => args.any exprTouchesUnsupportedLowLevelSurface
   | .emit _ args => args.any exprTouchesUnsupportedLowLevelSurface
   | .unsafeBlock _ _ | .unsafeYul _ | .matchAdt _ _ _ => true
   | .ite cond thenBranch elseBranch =>
@@ -2076,7 +2103,7 @@ private theorem compileStmt_eventsErrorsAgnostic_aux
               ih.1 s scope
                 (by simp [List.cons.sizeOf_spec] at hlt; omega) hsurface.1,
               compileStmtListWithFork_cancun_eq_compileStmtList,
-              ih.2 ss (collectStmtNames s ++ scope)
+              ih.2 ss (collectStmtBindNames s ++ scope)
                 (by simp [List.cons.sizeOf_spec] at hlt; omega) hsurface.2]
             simp only [compileStmtWithFork_cancun_eq_compileStmt,
               compileStmtListWithFork_cancun_eq_compileStmtList]
@@ -2710,7 +2737,7 @@ structure SupportedBodyInterfaceWithScalarEvents
       "__evt_topic0" ∉ fn.params.map (·.name)
   eventScratchFreshStmts :
     ∀ s ∈ fn.body,
-      "__evt_ptr" ∉ collectStmtNames s ∧ "__evt_topic0" ∉ collectStmtNames s
+      "__evt_ptr" ∉ collectStmtBindNames s ∧ "__evt_topic0" ∉ collectStmtBindNames s
   emitArgsInScope :
     ∀ s ∈ fn.body, ∀ (eventName : String) (args : List Expr),
       s = Stmt.emit eventName args →
@@ -4071,9 +4098,18 @@ mutual
         simp [stmtTouchesUnsupportedHelperSurface] at hsurface
         simp [stmtTouchesInternalHelperSurface,
           exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface]
+    | requireError cond _ args =>
+        simp only [stmtTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
+        simp [stmtTouchesInternalHelperSurface,
+          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.1,
+          exprListTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.2]
+    | revertError _ args =>
+        simp only [stmtTouchesUnsupportedHelperSurface] at hsurface
+        simp [stmtTouchesInternalHelperSurface,
+          exprListTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface]
     | stop | calldatacopy _ _ _ | returndataCopy _ _ _ | revertReturndata
-    | externalCallBind _ _ _ | tryExternalCallBind _ _ _ _ | ecm _ _ | storageArrayPop _ | requireError _ _ _
-    | revertError _ _ | returnValues _ | returnArray _ | returnBytes _
+    | externalCallBind _ _ _ | tryExternalCallBind _ _ _ _ | ecm _ _ | storageArrayPop _
+    | returnValues _ | returnArray _ | returnBytes _
     | returnStorageWords _ | emit _ _ | rawLog _ _ _ | panicCode _ =>
         simp [stmtTouchesInternalHelperSurface]
   termination_by sizeOf stmt
@@ -4516,6 +4552,19 @@ private theorem stmtOrListTouchesUnsupportedCallSurface_eq_featureOr :
             stmtTouchesUnsupportedLowLevelSurface]
           rw [exprListTouchesUnsupportedCallSurface_eq_featureOr,
               exprTouchesUnsupportedCallSurface_eq_featureOr value]
+          simp [Bool.or_assoc, Bool.or_left_comm, Bool.or_comm]
+      | requireError cond _ args =>
+          simp only [stmtTouchesUnsupportedCallSurface,
+            stmtTouchesUnsupportedHelperSurface, stmtTouchesUnsupportedForeignSurface,
+            stmtTouchesUnsupportedLowLevelSurface]
+          rw [exprTouchesUnsupportedCallSurface_eq_featureOr,
+              exprListTouchesUnsupportedCallSurface_eq_featureOr args]
+          simp [Bool.or_assoc, Bool.or_left_comm, Bool.or_comm]
+      | revertError _ args =>
+          simp only [stmtTouchesUnsupportedCallSurface,
+            stmtTouchesUnsupportedHelperSurface, stmtTouchesUnsupportedForeignSurface,
+            stmtTouchesUnsupportedLowLevelSurface]
+          rw [exprListTouchesUnsupportedCallSurface_eq_featureOr args]
           simp [Bool.or_assoc, Bool.or_left_comm, Bool.or_comm]
       | emit _ args =>
           simp only [stmtTouchesUnsupportedCallSurface,

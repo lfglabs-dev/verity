@@ -143,7 +143,7 @@ def compileStmtListWithFork (fields : List Field) (events : List EventDef := [])
   | [] => pure []
   | s :: ss => do
       let head ← compileStmtWithFork fields events errors dynamicSource internalRetNames isInternal inScopeNames adtTypes targetFork s internalFunctions
-      let nextScopeNames := collectStmtNames s ++ inScopeNames
+      let nextScopeNames := collectStmtBindNames s ++ inScopeNames
       let tail ← compileStmtListWithFork fields events errors dynamicSource internalRetNames isInternal nextScopeNames adtTypes targetFork ss internalFunctions
       pure (head ++ tail)
 
