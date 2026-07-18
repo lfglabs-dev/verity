@@ -1610,10 +1610,13 @@ def stmtTouchesInternalHelperSurface : Stmt → Bool
   | .internalCall _ _ | .internalCallAssign _ _ _ => true
   | .stop | .calldatacopy _ _ _
   | .returndataCopy _ _ _ | .revertReturndata | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _
-  | .ecm _ _ | .storageArrayPop _ | .requireError _ _ _
-  | .revertError _ _ | .returnValues _ | .returnArray _
+  | .ecm _ _ | .storageArrayPop _ | .returnValues _ | .returnArray _
   | .returnBytes _ | .returnStorageWords _ | .emit _ _
   | .rawLog _ _ _ => false
+  | .requireError cond _ args =>
+      exprTouchesInternalHelperSurface cond ||
+        args.any exprTouchesInternalHelperSurface
+  | .revertError _ args => args.any exprTouchesInternalHelperSurface
   | .unsafeBlock _ _ | .unsafeYul _ | .matchAdt _ _ _ => true
   | .ite cond thenBranch elseBranch =>
       exprTouchesInternalHelperSurface cond ||
