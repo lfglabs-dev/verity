@@ -377,6 +377,39 @@ private theorem internalHelperResultOfStmtListProjectionCore_eq_return
         simpa [hleft] using hvalueEq.symm
       simp [SourceSemantics.execStmtListWithHelpers, SourceSemantics.execStmtWithHelpers,
         internalHelperResultOfStmtResult, hleft, hright]
+
+private theorem internalHelperStmtListProjectionReadNames_fresh_tail_letVar
+    {name : String} {value : Expr} {rest : List Stmt} {reserved : List String}
+    (hfresh : ∀ query,
+      query ∈ internalHelperStmtListProjectionReadNames (.letVar name value :: rest) →
+        query ∉ reserved) :
+    ∀ query, query ∈ internalHelperStmtListProjectionReadNames rest → query ∉ reserved := by
+  intro query hmem
+  exact hfresh query (by
+    simp [internalHelperStmtListProjectionReadNames,
+      internalHelperStmtProjectionReadNames, hmem])
+
+private theorem internalHelperStmtListProjectionReadNames_fresh_tail_assignVar
+    {name : String} {value : Expr} {rest : List Stmt} {reserved : List String}
+    (hfresh : ∀ query,
+      query ∈ internalHelperStmtListProjectionReadNames (.assignVar name value :: rest) →
+        query ∉ reserved) :
+    ∀ query, query ∈ internalHelperStmtListProjectionReadNames rest → query ∉ reserved := by
+  intro query hmem
+  exact hfresh query (by
+    simp [internalHelperStmtListProjectionReadNames,
+      internalHelperStmtProjectionReadNames, hmem])
+
+private theorem internalHelperStmtListProjectionReadNames_fresh_tail_require
+    {cond : Expr} {msg : String} {rest : List Stmt} {reserved : List String}
+    (hfresh : ∀ query,
+      query ∈ internalHelperStmtListProjectionReadNames (.require cond msg :: rest) →
+        query ∉ reserved) :
+    ∀ query, query ∈ internalHelperStmtListProjectionReadNames rest → query ∉ reserved := by
+  intro query hmem
+  exact hfresh query (by
+    simp [internalHelperStmtListProjectionReadNames,
+      internalHelperStmtProjectionReadNames, hmem])
   | some resolved =>
       have hright :
           SourceSemantics.evalExprWithHelpers spec fields fuel
@@ -553,30 +586,18 @@ private theorem internalHelperResultOfStmtListProjectionCore_eq
       intro resolved
       exact ih
         (sourceBindingsAgreeOutside_bindValue hagree _ resolved)
-        (by
-          intro query hmem
-          exact hfresh query (by
-            simp [internalHelperStmtListProjectionReadNames,
-              internalHelperStmtProjectionReadNames, hmem]))
+        (internalHelperStmtListProjectionReadNames_fresh_tail_letVar hfresh)
   | assignVar hvalue _ ih =>
       refine internalHelperResultOfStmtListProjectionCore_eq_assignVar
         hvalue hagree hfresh ?_
       intro resolved
       exact ih
         (sourceBindingsAgreeOutside_bindValue hagree _ resolved)
-        (by
-          intro query hmem
-          exact hfresh query (by
-            simp [internalHelperStmtListProjectionReadNames,
-              internalHelperStmtProjectionReadNames, hmem]))
+        (internalHelperStmtListProjectionReadNames_fresh_tail_assignVar hfresh)
   | require_ hcond _ ih =>
       refine internalHelperResultOfStmtListProjectionCore_eq_require
         hcond hagree hfresh ?_
-      exact ih hagree (by
-        intro query hmem
-        exact hfresh query (by
-          simp [internalHelperStmtListProjectionReadNames,
-            internalHelperStmtProjectionReadNames, hmem]))
+      exact ih hagree (internalHelperStmtListProjectionReadNames_fresh_tail_require hfresh)
   | return_ hvalue =>
       exact internalHelperResultOfStmtListProjectionCore_eq_return hvalue hagree hfresh
   | stop =>
