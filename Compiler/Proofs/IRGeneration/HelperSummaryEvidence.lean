@@ -57,27 +57,23 @@ private theorem List.mem_of_mem_eraseDups_local [BEq α] [LawfulBEq α]
     {a : α} {l : List α} (h : a ∈ l.eraseDups) : a ∈ l :=
   ((eraseDups_nodup_and_mem_aux_local l.length l (Nat.le_refl _)).2 a).mp h
 
-/-- Canonical selector-aware helper summary. Its postcondition is the union of
-the exact result graphs over inherited selectors; this is the strongest exact
-contract expressible by `InternalHelperSummaryContract`, whose postcondition
-does not itself carry a selector argument. -/
+/-- Canonical selector-aware helper summary. -/
 def exactInternalHelperSummary
     (spec : CompilationModel)
     (fn : FunctionSpec) : InternalHelperSummaryContract where
-  post fuel initialWorld args success returnValue finalWorld :=
-    ∃ selector,
-      let result := internalHelperBodyInterpretation
-        spec fuel fn initialWorld selector args
-      success = result.success ∧
-        returnValue = result.returnValue ∧
-        finalWorld = result.world
+  post fuel selector initialWorld args success returnValue finalWorld :=
+    let result := internalHelperBodyInterpretation
+      spec fuel fn initialWorld selector args
+    success = result.success ∧
+      returnValue = result.returnValue ∧
+      finalWorld = result.world
 
 theorem exactInternalHelperSummary_soundAtSelector
     (selector : Nat) (spec : CompilationModel) (fn : FunctionSpec) :
     InternalHelperSummarySoundAtSelector selector spec fn
       (exactInternalHelperSummary spec fn) := by
   intro fuel initialWorld args
-  exact ⟨selector, rfl, rfl, rfl⟩
+  exact ⟨rfl, rfl, rfl⟩
 
 /-- Legacy selector-free soundness of the exact summary, recovered via the
 selector-0 bridge from `InternalHelperSummarySoundAtSelector`. -/

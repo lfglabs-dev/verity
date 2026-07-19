@@ -48,7 +48,7 @@ theorem execIRInternalFunctionWithInternals_obeys_internal_helper_summary
       internalHelperBodyIRExecResultAsCallResult callerState helper
         (internalHelperBodyIRExec runtimeContract helper callerState irArgs extraFuel))
     ∧
-      summary.post helperFuel initialWorld logicalArgs
+      summary.post helperFuel callerState.selector initialWorld logicalArgs
         (internalHelperResultOfStmtResult initialWorld
           (internalHelperBodySourceResult spec callee initialWorld callerState.selector
             entryBindings helperFuel)).success
@@ -114,7 +114,7 @@ abbrev internalHelperSummaryPostAt
     (entryBindings : List (String × Nat))
     (helperFuel : Nat) (args : List Nat)
     (summary : InternalHelperSummaryContract) : Prop :=
-  summary.post helperFuel initialWorld args
+  summary.post helperFuel selector initialWorld args
     (internalHelperResultOfStmtResult initialWorld
       (internalHelperBodySourceResult spec callee initialWorld selector entryBindings helperFuel)).success
     (internalHelperResultOfStmtResult initialWorld

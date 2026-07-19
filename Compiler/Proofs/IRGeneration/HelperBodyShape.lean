@@ -353,7 +353,7 @@ theorem compiledInternalHelper_summary_boundary_of_witness_returnStopFree
       stmtListUsesStop callee.body = false ∧
       let result := SourceSemantics.interpretInternalFunctionFuel spec fuel
         callee initialWorld args
-      compiledHelper.sourceWitness.summary.contract.post fuel initialWorld args
+      compiledHelper.sourceWitness.summary.contract.post fuel 0 initialWorld args
         result.success result.returnValue result.world := by
   dsimp only
   rcases findInternalFunction?_external_body_of_witness_returnFree
@@ -363,4 +363,3 @@ theorem compiledInternalHelper_summary_boundary_of_witness_returnStopFree
   exact hsound fuel initialWorld args
 
 end InternalHelperSummaryBoundary
-

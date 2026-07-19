@@ -769,7 +769,7 @@ theorem directInternalHelperStatementContextBridge_sourceCallEvidence
           (if result.success then
             .continue { state with world := result.world }
           else .revert) ∧
-      hctx.sourceWitness.summary.contract.post fuel state.world argVals
+      hctx.sourceWitness.summary.contract.post fuel 0 state.world argVals
         result.success result.returnValue result.world := by
   intro result
   refine ⟨?_, ?_⟩
@@ -810,7 +810,7 @@ abbrev DirectInternalHelperAssignSourceEvidence
   SourceSemantics.execStmtWithHelpers spec fields (fuel + 1) state
       (Stmt.internalCallAssign names calleeName args) =
         directInternalHelperAssignSourceResult state names result ∧
-    hctx.sourceWitness.summary.contract.post fuel state.world argVals
+    hctx.sourceWitness.summary.contract.post fuel 0 state.world argVals
       result.success result.returnValue result.world
 
 /-- Source-side evidence for a direct helper return-binding call from the
@@ -877,7 +877,7 @@ abbrev DirectInternalHelperCallSummaryStepPostcondition
   let sourceResult :=
     SourceSemantics.interpretInternalFunctionFuel
       spec helperFuel hctx.sourceWitness.callee runtime.world argVals
-  hctx.sourceWitness.summary.contract.post helperFuel runtime.world argVals
+  hctx.sourceWitness.summary.contract.post helperFuel 0 runtime.world argVals
       sourceResult.success sourceResult.returnValue sourceResult.world →
     stmtStepMatchesIRExecWithInternals fields nextScope
       (directInternalHelperCallSourceResult runtime sourceResult)
@@ -901,7 +901,7 @@ abbrev DirectInternalHelperAssignSummaryStepPostcondition
   let sourceResult :=
     SourceSemantics.interpretInternalFunctionFuel
       spec helperFuel hctx.sourceWitness.callee runtime.world argVals
-  hctx.sourceWitness.summary.contract.post helperFuel runtime.world argVals
+  hctx.sourceWitness.summary.contract.post helperFuel 0 runtime.world argVals
       sourceResult.success sourceResult.returnValue sourceResult.world →
     stmtStepMatchesIRExecWithInternals fields nextScope
       (directInternalHelperAssignSourceResult runtime names sourceResult)
@@ -1504,7 +1504,7 @@ theorem exprInternalHelperCallContextBridge_sourceEvidence
     SourceSemantics.evalExprWithHelpers spec fields (fuel + 1) state
         (Expr.internalCall calleeName args) =
           (if result.success then result.returnValue else none) ∧
-      hctx.sourceWitness.summary.contract.post fuel state.world argVals
+      hctx.sourceWitness.summary.contract.post fuel 0 state.world argVals
         result.success result.returnValue result.world ∧
       (result.success = true → result.world = state.world) := by
   intro result
@@ -1571,7 +1571,7 @@ def ExprInternalHelperCompiledCallContextResult
     SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1) runtime
         (Expr.internalCall calleeName args) =
       (if sourceResult.success then sourceResult.returnValue else none) ∧
-    hctx.sourceWitness.summary.contract.post helperFuel runtime.world argVals
+    hctx.sourceWitness.summary.contract.post helperFuel 0 runtime.world argVals
       sourceResult.success sourceResult.returnValue sourceResult.world ∧
     (sourceResult.success = true → sourceResult.world = runtime.world) ∧
     findInternalFunction? runtimeContract

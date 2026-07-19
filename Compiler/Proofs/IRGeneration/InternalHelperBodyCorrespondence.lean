@@ -257,7 +257,7 @@ def InternalHelperSummarySoundAtSelector
   ∀ fuel initialWorld args,
     let result :=
       internalHelperBodyInterpretation spec fuel callee initialWorld selector args
-    summary.post fuel initialWorld args
+    summary.post fuel selector initialWorld args
       result.success result.returnValue result.world
 
 /-- Legacy source entry `interpretInternalFunctionFuel` is exactly the
