@@ -9,7 +9,8 @@ namespace Compiler.Proofs.IRGeneration
 open Compiler.CompilationModel
 open Compiler.Yul
 
-private theorem bindInternalArgs_length_eq_of_some
+/-- Successful internal-argument binding implies exact source arity. -/
+theorem bindInternalArgs_length_eq_of_some
     {params : List Param} {args : List Nat} {bindings : List (String × Nat)}
     (hbind : SourceSemantics.bindInternalArgs params args = some bindings) :
     params.length = args.length := by
@@ -362,5 +363,4 @@ theorem compiledInternalHelper_summary_boundary_of_witness_returnStopFree
   exact hsound fuel initialWorld args
 
 end InternalHelperSummaryBoundary
-
 

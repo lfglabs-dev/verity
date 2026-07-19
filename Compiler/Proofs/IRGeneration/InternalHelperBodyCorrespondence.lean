@@ -248,6 +248,65 @@ def internalHelperBodyInterpretation
   | some bindings => internalHelperResultOfStmtResult initialWorld
       (internalHelperBodySourceResult spec callee initialWorld selector bindings helperFuel)
 
+/-- Soundness of an internal-helper summary at the selector inherited from its
+caller. Internal helper bodies may observe selector-sensitive calldata, so the
+selector is part of the semantic contract. -/
+def InternalHelperSummarySoundAtSelector
+    (selector : Nat) (spec : CompilationModel) (callee : FunctionSpec)
+    (summary : InternalHelperSummaryContract) : Prop :=
+  ∀ fuel initialWorld args,
+    let result :=
+      internalHelperBodyInterpretation spec fuel callee initialWorld selector args
+    summary.post fuel initialWorld args
+      result.success result.returnValue result.world
+
+/-- Legacy source entry `interpretInternalFunctionFuel` is exactly the
+selector-aware helper interpretation at the default selector `0`.  This is the
+justified bridge between the public selector-free soundness predicate and
+`InternalHelperSummarySoundAtSelector`. -/
+theorem internalHelperBodyInterpretation_selector_zero_eq_interpretInternalFunctionFuel
+    (spec : CompilationModel) (helperFuel : Nat) (callee : FunctionSpec)
+    (initialWorld : Verity.ContractState) (args : List Nat) :
+    internalHelperBodyInterpretation spec helperFuel callee initialWorld 0 args =
+      SourceSemantics.interpretInternalFunctionFuel spec helperFuel callee initialWorld args := by
+  unfold internalHelperBodyInterpretation SourceSemantics.interpretInternalFunctionFuel
+  cases SourceSemantics.bindInternalArgs callee.params args with
+  | none =>
+      simp [SourceSemantics.revertedInternalResult]
+  | some bindings =>
+      simp [internalHelperBodySourceResult, internalHelperBodyRuntime,
+        internalHelperResultOfStmtResult]
+      rfl
+
+/-- Legacy selector-0 bridge: public `InternalHelperSummarySound` is soundness of
+the same contract at the default source selector. -/
+theorem InternalHelperSummarySound_iff_soundAtSelector_zero
+    (spec : CompilationModel) (callee : FunctionSpec)
+    (summary : InternalHelperSummaryContract) :
+    SourceSemantics.InternalHelperSummarySound spec callee summary ↔
+      InternalHelperSummarySoundAtSelector 0 spec callee summary := by
+  constructor
+  · intro hsound fuel initialWorld args
+    simpa [internalHelperBodyInterpretation_selector_zero_eq_interpretInternalFunctionFuel]
+      using hsound fuel initialWorld args
+  · intro hsound fuel initialWorld args
+    simpa [internalHelperBodyInterpretation_selector_zero_eq_interpretInternalFunctionFuel]
+      using hsound fuel initialWorld args
+
+theorem InternalHelperSummarySound_of_soundAtSelector_zero
+    {spec : CompilationModel} {callee : FunctionSpec}
+    {summary : InternalHelperSummaryContract}
+    (hsound : InternalHelperSummarySoundAtSelector 0 spec callee summary) :
+    SourceSemantics.InternalHelperSummarySound spec callee summary :=
+  (InternalHelperSummarySound_iff_soundAtSelector_zero spec callee summary).mpr hsound
+
+theorem InternalHelperSummarySoundAtSelector_zero_of_sound
+    {spec : CompilationModel} {callee : FunctionSpec}
+    {summary : InternalHelperSummaryContract}
+    (hsound : SourceSemantics.InternalHelperSummarySound spec callee summary) :
+    InternalHelperSummarySoundAtSelector 0 spec callee summary :=
+  (InternalHelperSummarySound_iff_soundAtSelector_zero spec callee summary).mp hsound
+
 /-- Binding names read by the source statement cases covered by
 `InternalHelperStmtListProjectionCore`.  Other statements return `[]` here and
 are excluded by that fragment predicate. -/

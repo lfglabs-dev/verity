@@ -34,46 +34,53 @@ theorem execIRInternalFunctionWithInternals_obeys_internal_helper_summary
     {runtimeContract : IRContract} {spec : CompilationModel}
     {callee : FunctionSpec} {helper : IRInternalFunctionDef}
     {callerState : IRState} {initialWorld : Verity.ContractState}
-    {args : List Nat} {sourceBindings entryBindings : List (String × Nat)}
+    {logicalArgs irArgs : List Nat} {sourceBindings entryBindings : List (String × Nat)}
     {summary : InternalHelperSummaryContract}
     (helperFuel extraFuel : Nat) (hfuelPos : 0 < helperFuel)
     (ctx : InternalHelperBodyExecContext runtimeContract spec callee helper
-      callerState initialWorld args sourceBindings entryBindings helperFuel)
-    (hsound : SourceSemantics.InternalHelperSummarySound spec callee summary)
-    (harity : helper.params.length = callee.params.length) :
+      callerState initialWorld logicalArgs irArgs sourceBindings entryBindings helperFuel)
+    (hsound : InternalHelperSummarySoundAtSelector
+      callerState.selector spec callee summary)
+    (harity : helper.params.length = callee.params.length)
+    (hirArgsLen : helper.params.length = irArgs.length) :
     (execIRInternalFunctionWithInternals runtimeContract
-        (sizeOf helper.body + extraFuel + 1 + 1) callerState helper args =
+        (sizeOf helper.body + extraFuel + 1 + 1) callerState helper irArgs =
       internalHelperBodyIRExecResultAsCallResult callerState helper
-        (internalHelperBodyIRExec runtimeContract helper callerState args extraFuel))
+        (internalHelperBodyIRExec runtimeContract helper callerState irArgs extraFuel))
     ∧
-      summary.post helperFuel initialWorld args
+      summary.post helperFuel initialWorld logicalArgs
         (internalHelperResultOfStmtResult initialWorld
-          (internalHelperBodySourceResult spec callee initialWorld entryBindings helperFuel)).success
+          (internalHelperBodySourceResult spec callee initialWorld callerState.selector
+            entryBindings helperFuel)).success
         (internalHelperResultOfStmtResult initialWorld
-          (internalHelperBodySourceResult spec callee initialWorld entryBindings helperFuel)).returnValue
+          (internalHelperBodySourceResult spec callee initialWorld callerState.selector
+            entryBindings helperFuel)).returnValue
         (internalHelperResultOfStmtResult initialWorld
-          (internalHelperBodySourceResult spec callee initialWorld entryBindings helperFuel)).world := by
+          (internalHelperBodySourceResult spec callee initialWorld callerState.selector
+            entryBindings helperFuel)).world := by
   rcases internal_helper_body_exec_matches_entryBindings_and_projected_result_of_bindInternalArgs_and_generic
       (runtimeContract := runtimeContract) (spec := spec) (callee := callee)
       (helper := helper) (callerState := callerState)
-      (initialWorld := initialWorld) (args := args)
+      (initialWorld := initialWorld) (logicalArgs := logicalArgs) (irArgs := irArgs)
       (sourceBindings := sourceBindings) (entryBindings := entryBindings)
       helperFuel extraFuel hfuelPos ctx with
     ⟨_hmatch, hinterp⟩
   constructor
-  · have hsourceLen : callee.params.length = args.length :=
+  · -- Public source-arity fact retained for consumers (`harity` + bind).
+    have hsourceLen : callee.params.length = logicalArgs.length :=
       bindInternalArgs_length_eq_of_some ctx.bindArgs
-    have hlen : helper.params.length = args.length := harity.trans hsourceLen
+    have _hlogic : helper.params.length = logicalArgs.length := harity.trans hsourceLen
     rw [execIRInternalFunctionWithInternals_succ_of_params_match
       runtimeContract (sizeOf helper.body + extraFuel + 1)
-      callerState helper args hlen]
+      callerState helper irArgs hirArgsLen]
     rfl
-  · have hpost := hsound helperFuel initialWorld args
+  · have hpost := hsound helperFuel initialWorld logicalArgs
     simpa [hinterp] using hpost
 
 private theorem internalFunctionYulName_head (calleeName : String) :
     (CompilationModel.internalFunctionYulName calleeName).toList.head? = some 'i' := by
   simp [CompilationModel.internalFunctionYulName, CompilationModel.internalFunctionPrefix]
+  left
   decide
 
 private theorem internalFunctionYulName_ne_of_head
@@ -103,16 +110,17 @@ noncomputable abbrev internalHelperCallFuel
 abbrev internalHelperSummaryPostAt
     (spec : CompilationModel) (callee : FunctionSpec)
     (initialWorld : Verity.ContractState)
+    (selector : Nat)
     (entryBindings : List (String × Nat))
     (helperFuel : Nat) (args : List Nat)
     (summary : InternalHelperSummaryContract) : Prop :=
   summary.post helperFuel initialWorld args
     (internalHelperResultOfStmtResult initialWorld
-      (internalHelperBodySourceResult spec callee initialWorld entryBindings helperFuel)).success
+      (internalHelperBodySourceResult spec callee initialWorld selector entryBindings helperFuel)).success
     (internalHelperResultOfStmtResult initialWorld
-      (internalHelperBodySourceResult spec callee initialWorld entryBindings helperFuel)).returnValue
+      (internalHelperBodySourceResult spec callee initialWorld selector entryBindings helperFuel)).returnValue
     (internalHelperResultOfStmtResult initialWorld
-      (internalHelperBodySourceResult spec callee initialWorld entryBindings helperFuel)).world
+      (internalHelperBodySourceResult spec callee initialWorld selector entryBindings helperFuel)).world
 
 abbrev internalHelperAssignCallResult
     (names : List String) (callerState : IRState) (helper : IRInternalFunctionDef)
@@ -163,43 +171,46 @@ theorem execIRStmtsWithInternals_internalCallAssign_obeys_internal_helper_summar
     {callee : FunctionSpec} {helper : IRInternalFunctionDef}
     {state callerState : IRState} {initialWorld : Verity.ContractState}
     {names : List String} {calleeName : String}
-    {argExprs : List YulExpr} {args : List Nat}
+    {argExprs : List YulExpr} {logicalArgs irArgs : List Nat}
     {sourceBindings entryBindings : List (String × Nat)}
     {summary : InternalHelperSummaryContract}
     (helperFuel extraFuel : Nat) (hfuelPos : 0 < helperFuel)
     (ctx : InternalHelperBodyExecContext runtimeContract spec callee helper
-      callerState initialWorld args sourceBindings entryBindings helperFuel)
-    (hsound : SourceSemantics.InternalHelperSummarySound spec callee summary)
+      callerState initialWorld logicalArgs irArgs sourceBindings entryBindings helperFuel)
+    (hsound : InternalHelperSummarySoundAtSelector
+      callerState.selector spec callee summary)
     (harity : helper.params.length = callee.params.length)
+    (hirArgsLen : helper.params.length = irArgs.length)
     (hfind : findInternalFunction? runtimeContract
       (CompilationModel.internalFunctionYulName calleeName) = some helper)
     (hargs : evalIRExprsWithInternals runtimeContract
       (internalHelperCallFuel helper extraFuel + 1) state argExprs =
-        .values args callerState) :
+        .values irArgs callerState) :
     (execIRStmtsWithInternals runtimeContract
         (internalHelperCallFuel helper extraFuel + 3) state
         [YulStmt.letMany names
           (YulExpr.call (CompilationModel.internalFunctionYulName calleeName) argExprs)] =
       internalHelperAssignCallResult names callerState helper
-        (internalHelperBodyIRExec runtimeContract helper callerState args extraFuel))
+        (internalHelperBodyIRExec runtimeContract helper callerState irArgs extraFuel))
     ∧
-      internalHelperSummaryPostAt spec callee initialWorld entryBindings
-        helperFuel args summary := by
+      internalHelperSummaryPostAt spec callee initialWorld callerState.selector entryBindings
+        helperFuel logicalArgs summary := by
   have hsummary := execIRInternalFunctionWithInternals_obeys_internal_helper_summary
     (runtimeContract := runtimeContract) (spec := spec) (callee := callee) (helper := helper)
-    (callerState := callerState) (initialWorld := initialWorld) (args := args)
+    (callerState := callerState) (initialWorld := initialWorld)
+    (logicalArgs := logicalArgs) (irArgs := irArgs)
     (sourceBindings := sourceBindings) (entryBindings := entryBindings) (summary := summary)
-    helperFuel extraFuel hfuelPos ctx hsound harity
+    helperFuel extraFuel hfuelPos ctx hsound harity hirArgsLen
   constructor
   · rw [execIRStmtsWithInternals_singleton_letMany_call_internal
       runtimeContract (internalHelperCallFuel helper extraFuel) state names
-      (CompilationModel.internalFunctionYulName calleeName) argExprs helper args
+      (CompilationModel.internalFunctionYulName calleeName) argExprs helper irArgs
       callerState hargs hfind]
     rw [show internalHelperCallFuel helper extraFuel =
       sizeOf helper.body + extraFuel + 1 + 1 from rfl, hsummary.1]
     simp [internalHelperAssignCallResult]
     cases internalHelperBodyIRExecResultAsCallResult callerState helper
-      (internalHelperBodyIRExec runtimeContract helper callerState args extraFuel) <;> rfl
+      (internalHelperBodyIRExec runtimeContract helper callerState irArgs extraFuel) <;> rfl
   · exact hsummary.2
 
 /-- N2/N3 void-call instantiation of the N1a helper-summary bridge.  The normal
@@ -209,43 +220,45 @@ theorem execIRStmtsWithInternals_internalCall_obeys_internal_helper_summary
     {runtimeContract : IRContract} {spec : CompilationModel}
     {callee : FunctionSpec} {helper : IRInternalFunctionDef}
     {state callerState : IRState} {initialWorld : Verity.ContractState}
-    {calleeName : String} {argExprs : List YulExpr} {args : List Nat}
+    {calleeName : String} {argExprs : List YulExpr} {logicalArgs irArgs : List Nat}
     {sourceBindings entryBindings : List (String × Nat)}
     {summary : InternalHelperSummaryContract}
     (helperFuel extraFuel : Nat) (hfuelPos : 0 < helperFuel)
     (ctx : InternalHelperBodyExecContext runtimeContract spec callee helper
-      callerState initialWorld args sourceBindings entryBindings helperFuel)
-    (hsound : SourceSemantics.InternalHelperSummarySound spec callee summary)
+      callerState initialWorld logicalArgs irArgs sourceBindings entryBindings helperFuel)
+    (hsound : InternalHelperSummarySoundAtSelector
+      callerState.selector spec callee summary)
     (harity : helper.params.length = callee.params.length)
+    (hirArgsLen : helper.params.length = irArgs.length)
     (hfind : findInternalFunction? runtimeContract
       (CompilationModel.internalFunctionYulName calleeName) = some helper)
     (hargs : evalIRExprsWithInternals runtimeContract
       (internalHelperCallFuel helper extraFuel + 1) state argExprs =
-        .values args callerState) :
+        .values irArgs callerState) :
     (execIRStmtsWithInternals runtimeContract
         (internalHelperCallFuel helper extraFuel + 3) state
         [YulStmt.exprStmt
           (YulExpr.call (CompilationModel.internalFunctionYulName calleeName) argExprs)] =
       match internalHelperBodyIRExecResultAsCallResult callerState helper
-          (internalHelperBodyIRExec runtimeContract helper callerState args extraFuel) with
+          (internalHelperBodyIRExec runtimeContract helper callerState irArgs extraFuel) with
       | .values _ state' => IRExecResultWithInternals.continue state'
       | .stop state' => IRExecResultWithInternals.stop state'
       | .return value state' => IRExecResultWithInternals.return value state'
       | .revert state' => IRExecResultWithInternals.revert state')
     ∧
-      internalHelperSummaryPostAt spec callee initialWorld entryBindings
-        helperFuel args summary := by
+      internalHelperSummaryPostAt spec callee initialWorld callerState.selector entryBindings
+        helperFuel logicalArgs summary := by
   have hsummary :=
     execIRInternalFunctionWithInternals_obeys_internal_helper_summary
       (runtimeContract := runtimeContract) (spec := spec) (callee := callee)
       (helper := helper) (callerState := callerState)
-      (initialWorld := initialWorld) (args := args)
+      (initialWorld := initialWorld) (logicalArgs := logicalArgs) (irArgs := irArgs)
       (sourceBindings := sourceBindings) (entryBindings := entryBindings)
-      (summary := summary) helperFuel extraFuel hfuelPos ctx hsound harity
+      (summary := summary) helperFuel extraFuel hfuelPos ctx hsound harity hirArgsLen
   constructor
   · rw [execIRStmtsWithInternals_singleton_expr_internalFunctionYulName_call_internal
       runtimeContract (internalHelperCallFuel helper extraFuel) state
-      calleeName argExprs helper args callerState hargs hfind]
+      calleeName argExprs helper irArgs callerState hargs hfind]
     rw [show internalHelperCallFuel helper extraFuel =
       sizeOf helper.body + extraFuel + 1 + 1 from rfl]
     rw [hsummary.1]
