@@ -67,6 +67,7 @@ import Compiler.Proofs.IRGeneration.GenericInduction.ResultRelation
 import Compiler.Proofs.IRGeneration.GenericInduction.Scope
 import Compiler.Proofs.IRGeneration.GenericInduction.Storage
 import Compiler.Proofs.IRGeneration.HelperBodyBridge
+import Compiler.Proofs.IRGeneration.HelperBodyShape
 import Compiler.Proofs.IRGeneration.HelperSummaryEvidence
 import Compiler.Proofs.IRGeneration.IRInterpreter
 import Compiler.Proofs.IRGeneration.IRStorageWord
@@ -3236,13 +3237,6 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_tstoreSingle_of_surface
 
   -- Compiler/Proofs/IRGeneration/HelperBodyBridge.lean
-  -- Compiler.Proofs.IRGeneration.bindInternalArgs_length_eq_of_some  -- private
-  Compiler.Proofs.IRGeneration.compileStmtWithFork_internal_shape_irrelevant_of_returnFree
-  Compiler.Proofs.IRGeneration.compileStmtListWithFork_internal_shape_irrelevant_of_returnFree
-  Compiler.Proofs.IRGeneration.compileInternalFunction_body_eq_external_of_returnFree
-  Compiler.Proofs.IRGeneration.findInternalFunction?_some_eq_compiledHelper_of_witness
-  Compiler.Proofs.IRGeneration.findInternalFunction?_external_body_of_witness_returnFree
-  Compiler.Proofs.IRGeneration.compiledInternalHelper_summary_boundary_of_witness_returnStopFree
   Compiler.Proofs.IRGeneration.execIRInternalFunctionWithInternals_obeys_internal_helper_summary
   -- Compiler.Proofs.IRGeneration.internalFunctionYulName_head  -- private
   -- Compiler.Proofs.IRGeneration.internalFunctionYulName_ne_of_head  -- private
@@ -3253,6 +3247,15 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.empty_void_helper_body_compile_shape_irrelevant_regression
   Compiler.Proofs.IRGeneration.stmtListUsesStop_rejects_statement_internal_helper_call_regression
   Compiler.Proofs.IRGeneration.stmtListUsesStop_rejects_expression_internal_helper_call_regression
+
+  -- Compiler/Proofs/IRGeneration/HelperBodyShape.lean
+  -- Compiler.Proofs.IRGeneration.bindInternalArgs_length_eq_of_some  -- private
+  Compiler.Proofs.IRGeneration.compileStmtWithFork_internal_shape_irrelevant_of_returnFree
+  Compiler.Proofs.IRGeneration.compileStmtListWithFork_internal_shape_irrelevant_of_returnFree
+  Compiler.Proofs.IRGeneration.compileInternalFunction_body_eq_external_of_returnFree
+  Compiler.Proofs.IRGeneration.findInternalFunction?_some_eq_compiledHelper_of_witness
+  Compiler.Proofs.IRGeneration.findInternalFunction?_external_body_of_witness_returnFree
+  Compiler.Proofs.IRGeneration.compiledInternalHelper_summary_boundary_of_witness_returnStopFree
 
   -- Compiler/Proofs/IRGeneration/HelperSummaryEvidence.lean
   -- Compiler.Proofs.IRGeneration.eraseDups_nodup_and_mem_aux_local  -- private
