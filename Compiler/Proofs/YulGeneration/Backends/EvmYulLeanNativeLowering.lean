@@ -101,6 +101,79 @@ def lookupRuntimePrimOp : String → Option (EvmYul.Operation .Yul)
   | "callcode"       => some .CALLCODE
   | _                => none
 
+-- Keep common generated-runtime lookups as small rewrite lemmas.  On Lean
+-- 4.24, repeatedly reducing the full string-pattern matcher inside large
+-- `simp` proofs can exhaust the declaration checker's heartbeat budget.
+theorem lookupRuntimePrimOp_iszero :
+    lookupRuntimePrimOp "iszero" = some .ISZERO := by rfl
+
+theorem lookupRuntimePrimOp_lt :
+    lookupRuntimePrimOp "lt" = some .LT := by rfl
+
+theorem lookupRuntimePrimOp_calldatasize :
+    lookupRuntimePrimOp "calldatasize" = some .CALLDATASIZE := by rfl
+
+theorem lookupRuntimePrimOp_callvalue :
+    lookupRuntimePrimOp "callvalue" = some .CALLVALUE := by rfl
+
+theorem lookupRuntimePrimOp_sload :
+    lookupRuntimePrimOp "sload" = some .SLOAD := by rfl
+
+theorem lookupRuntimePrimOp_mstore :
+    lookupRuntimePrimOp "mstore" = some .MSTORE := by rfl
+
+theorem lookupRuntimePrimOp_calldataload :
+    lookupRuntimePrimOp "calldataload" = some .CALLDATALOAD := by rfl
+
+theorem lookupRuntimePrimOp_return :
+    lookupRuntimePrimOp "return" = some .RETURN := by rfl
+
+theorem lookupRuntimePrimOp_revert :
+    lookupRuntimePrimOp "revert" = some .REVERT := by rfl
+
+theorem lookupRuntimePrimOp_sstore :
+    lookupRuntimePrimOp "sstore" = some .SSTORE := by rfl
+
+theorem lookupRuntimePrimOp_stop :
+    lookupRuntimePrimOp "stop" = some .STOP := by rfl
+
+theorem lookupRuntimePrimOp_keccak256 :
+    lookupRuntimePrimOp "keccak256" = some .KECCAK256 := by rfl
+
+theorem lookupRuntimePrimOp_add : lookupRuntimePrimOp "add" = some .ADD := by rfl
+theorem lookupRuntimePrimOp_sub : lookupRuntimePrimOp "sub" = some .SUB := by rfl
+theorem lookupRuntimePrimOp_mul : lookupRuntimePrimOp "mul" = some .MUL := by rfl
+theorem lookupRuntimePrimOp_div : lookupRuntimePrimOp "div" = some .DIV := by rfl
+theorem lookupRuntimePrimOp_mod : lookupRuntimePrimOp "mod" = some .MOD := by rfl
+theorem lookupRuntimePrimOp_gt : lookupRuntimePrimOp "gt" = some .GT := by rfl
+theorem lookupRuntimePrimOp_eq : lookupRuntimePrimOp "eq" = some .EQ := by rfl
+theorem lookupRuntimePrimOp_and : lookupRuntimePrimOp "and" = some .AND := by rfl
+theorem lookupRuntimePrimOp_or : lookupRuntimePrimOp "or" = some .OR := by rfl
+theorem lookupRuntimePrimOp_xor : lookupRuntimePrimOp "xor" = some .XOR := by rfl
+theorem lookupRuntimePrimOp_not : lookupRuntimePrimOp "not" = some .NOT := by rfl
+theorem lookupRuntimePrimOp_shl : lookupRuntimePrimOp "shl" = some .SHL := by rfl
+theorem lookupRuntimePrimOp_shr : lookupRuntimePrimOp "shr" = some .SHR := by rfl
+theorem lookupRuntimePrimOp_addmod : lookupRuntimePrimOp "addmod" = some .ADDMOD := by rfl
+theorem lookupRuntimePrimOp_mulmod : lookupRuntimePrimOp "mulmod" = some .MULMOD := by rfl
+theorem lookupRuntimePrimOp_byte : lookupRuntimePrimOp "byte" = some .BYTE := by rfl
+theorem lookupRuntimePrimOp_slt : lookupRuntimePrimOp "slt" = some .SLT := by rfl
+theorem lookupRuntimePrimOp_sgt : lookupRuntimePrimOp "sgt" = some .SGT := by rfl
+theorem lookupRuntimePrimOp_exp : lookupRuntimePrimOp "exp" = some .EXP := by rfl
+theorem lookupRuntimePrimOp_sdiv : lookupRuntimePrimOp "sdiv" = some .SDIV := by rfl
+theorem lookupRuntimePrimOp_smod : lookupRuntimePrimOp "smod" = some .SMOD := by rfl
+theorem lookupRuntimePrimOp_sar : lookupRuntimePrimOp "sar" = some .SAR := by rfl
+theorem lookupRuntimePrimOp_signextend : lookupRuntimePrimOp "signextend" = some .SIGNEXTEND := by rfl
+theorem lookupRuntimePrimOp_caller : lookupRuntimePrimOp "caller" = some .CALLER := by rfl
+theorem lookupRuntimePrimOp_origin : lookupRuntimePrimOp "origin" = some .ORIGIN := by rfl
+theorem lookupRuntimePrimOp_address : lookupRuntimePrimOp "address" = some .ADDRESS := by rfl
+theorem lookupRuntimePrimOp_timestamp : lookupRuntimePrimOp "timestamp" = some .TIMESTAMP := by rfl
+theorem lookupRuntimePrimOp_number : lookupRuntimePrimOp "number" = some .NUMBER := by rfl
+theorem lookupRuntimePrimOp_chainid : lookupRuntimePrimOp "chainid" = some .CHAINID := by rfl
+theorem lookupRuntimePrimOp_blobbasefee : lookupRuntimePrimOp "blobbasefee" = some .BLOBBASEFEE := by rfl
+theorem lookupRuntimePrimOp_tload : lookupRuntimePrimOp "tload" = some .TLOAD := by rfl
+theorem lookupRuntimePrimOp_mload : lookupRuntimePrimOp "mload" = some .MLOAD := by rfl
+theorem lookupRuntimePrimOp_mappingSlot : lookupRuntimePrimOp "mappingSlot" = none := by rfl
+
 def lowerExprNative : YulExpr → EvmYul.Yul.Ast.Expr
   | .lit n => .Lit (EvmYul.UInt256.ofNat n)
   | .hex n => .Lit (EvmYul.UInt256.ofNat n)
