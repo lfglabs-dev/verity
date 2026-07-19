@@ -84,8 +84,10 @@ concurrency:
   # Keep scheduled cache-warming runs out of the push/manual validation lane.
   # Otherwise a cron run for main can cancel an explicit workflow_dispatch run
   # before the proof/build jobs get a runner.
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || (github.event_name == 'schedule' && format('schedule-{0}', github.ref) || github.ref) }}
-  cancel-in-progress: ${{ github.event_name != 'schedule' }}
+  # Closed-event cleanup must never cancel a PR run through concurrency before
+  # its fail-closed stack guard executes.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.action == 'closed' && format('closed-pr-cleanup-{0}-{1}', github.event.pull_request.number, github.run_id) || (github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || (github.event_name == 'schedule' && format('schedule-{0}', github.ref) || github.ref)) }}
+  cancel-in-progress: ${{ github.event_name != 'schedule' && !(github.event_name == 'pull_request' && github.event.action == 'closed') }}
 
 env:
   SOLC_VERSION: "0.8.33"
@@ -114,6 +116,8 @@ jobs:
       # plus a direct open-PR base-ref fallback (beta/API lag safe).
       - uses: actions/checkout@v6
         with:
+          # Never execute a guard supplied or modified by the closing PR.
+          ref: ${{ github.event.pull_request.base.sha }}
           sparse-checkout: |
             scripts/closed_pr_cleanup_guard.py
           sparse-checkout-cone-mode: false

@@ -68,6 +68,25 @@ class ParseMetadataTests(unittest.TestCase):
 
 
 class EvaluateGuardTests(unittest.TestCase):
+    def test_stack_peer_with_empty_merged_at_is_retained(self) -> None:
+        decision = guard.evaluate_guard(
+            repo="lfglabs-dev/verity",
+            pr_number=1,
+            head_branch="closed-base",
+            stacks=[{
+                "open": False,
+                "pull_requests": [
+                    {"number": 1, "state": "closed", "merged_at": None,
+                     "head": {"ref": "closed-base"}},
+                    {"number": 2, "state": "open", "merged_at": "",
+                     "head": {"ref": "dependent"}},
+                ],
+            }],
+            open_pulls=[],
+        )
+        self.assertFalse(decision.eligible_for_cleanup)
+        self.assertTrue(any("native stack" in reason for reason in decision.retain_reasons))
+
     def test_standalone_closed_pr_eligible(self) -> None:
         decision = guard.evaluate_guard(
             repo="lfglabs-dev/verity",

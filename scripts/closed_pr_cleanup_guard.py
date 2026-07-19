@@ -189,9 +189,12 @@ def stack_resource_involves_pr_or_branch(
         is_self = number == pr_number or (head_ref is not None and head_ref == branch)
         if is_self:
             saw_member = True
-        elif state in {"open", "draft"} or entry.get("merged_at") in (None, "") and state != "closed":
-            # Count non-closed peers as dependents still needing the stack.
-            if state != "closed" and entry.get("merged_at") is None:
+        else:
+            merged_at = entry.get("merged_at")
+            # Only clear a peer when the payload affirmatively says it is
+            # closed/merged. Empty or missing fields are ambiguous and retain.
+            is_clearly_closed = state in {"closed", "merged"} or merged_at not in (None, "")
+            if not is_clearly_closed:
                 saw_open_other = True
 
     open_flag = stack.get("open")
