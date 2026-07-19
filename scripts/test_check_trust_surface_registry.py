@@ -14,6 +14,20 @@ import check_trust_surface_registry
 
 
 class CheckTrustSurfaceRegistryTests(unittest.TestCase):
+    def _write_valid_string_boundary(self, root: Path) -> None:
+        boundary = root / check_trust_surface_registry.LEAN424_STRING_BOUNDARY
+        boundary.parent.mkdir(parents=True, exist_ok=True)
+        boundary.write_text(
+            "\n".join(
+                [
+                    "theorem compatScratch_startsWith_reserved : True := by native_decide",
+                    "theorem compatScratch_not_internalImmutable : True := by native_decide",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
     def test_collects_mechanisms_and_ecm_axioms(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -80,6 +94,43 @@ class CheckTrustSurfaceRegistryTests(unittest.TestCase):
                 "first_surface": ("Compiler/A.lean", 2),
                 "second_surface": ("Compiler/A.lean", 2),
             },
+        )
+
+    def test_accepts_exact_lean424_string_boundary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            self._write_valid_string_boundary(root)
+
+            errors = check_trust_surface_registry.check_lean424_string_boundary(root)
+
+        self.assertEqual(errors, [])
+
+    def test_rejects_native_decide_in_compiler_proofs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            self._write_valid_string_boundary(root)
+            proof = root / "Compiler" / "Proofs" / "Bad.lean"
+            proof.parent.mkdir(parents=True)
+            proof.write_text("theorem bad : True := by native_decide\n", encoding="utf-8")
+
+            errors = check_trust_surface_registry.check_lean424_string_boundary(root)
+
+        self.assertTrue(any("outside non-test Compiler/Proofs" in error for error in errors))
+
+    def test_rejects_relocated_string_boundary_theorem(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            self._write_valid_string_boundary(root)
+            duplicate = root / "Compiler" / "Elsewhere.lean"
+            duplicate.write_text(
+                "theorem compatScratch_startsWith_reserved : True := by trivial\n",
+                encoding="utf-8",
+            )
+
+            errors = check_trust_surface_registry.check_lean424_string_boundary(root)
+
+        self.assertTrue(
+            any("compatScratch_startsWith_reserved" in error for error in errors)
         )
 
 

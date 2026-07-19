@@ -118,6 +118,11 @@ ALLOWLIST: set[str] = {
     "stmtStepMatches_forEach_literal_empty_final",
     # --- Storage write compiled step proofs ---
     "compiledStmtStep_setStorage_singleSlot",
+    # Zero-offset storage-word writes lower to the same single `sstore` shape
+    # as scalar writes.  The preservation proof must keep source and IR states,
+    # fuel, and scope bindings aligned in one witness; factoring it would only
+    # move that coupled witness into a private wrapper.
+    "compiledStmtStep_setStorageWord_singleSlot_zeroOffset",
     "compiledStmtStep_setStorage_aliasSlots",
     "compiledStmtStep_setStorage_of_validateIdentifierShapes",
     "compiledStmtStep_setStorage_of_validateIdentifierShapes_of_scopeDiscipline",
