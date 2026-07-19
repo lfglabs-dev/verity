@@ -67,6 +67,7 @@ import Compiler.Proofs.IRGeneration.GenericInduction.ResultRelation
 import Compiler.Proofs.IRGeneration.GenericInduction.Scope
 import Compiler.Proofs.IRGeneration.GenericInduction.Storage
 import Compiler.Proofs.IRGeneration.HelperBodyBridge
+import Compiler.Proofs.IRGeneration.HelperBodyShape
 import Compiler.Proofs.IRGeneration.HelperSummaryEvidence
 import Compiler.Proofs.IRGeneration.IRInterpreter
 import Compiler.Proofs.IRGeneration.IRStorageWord
@@ -1852,6 +1853,10 @@ end Verity.AxiomAudit
   Compiler.Proofs.HelperStepProofs.directInternalHelperStatementContextBridge_assignStepMatch_at_internalHelperCallFuel
   Compiler.Proofs.HelperStepProofs.directInternalHelperStatementContextBridge_callStepMatch_of_sufficientFuel
   Compiler.Proofs.HelperStepProofs.directInternalHelperStatementContextBridge_assignStepMatch_of_sufficientFuel
+  Compiler.Proofs.HelperStepProofs.internalCallWithInternalsSufficientBridge_of_directContextEvidence
+  Compiler.Proofs.HelperStepProofs.compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCall_of_directContextFuelSplit
+  Compiler.Proofs.HelperStepProofs.internalCallAssignWithInternalsSufficientBridge_of_directContextEvidence
+  Compiler.Proofs.HelperStepProofs.compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCallAssign_of_directContextFuelSplit
   Compiler.Proofs.HelperStepProofs.evalIRCallWithInternals_of_compiledHelperWitness
   Compiler.Proofs.HelperStepProofs.exprInternalHelperCallContextBridge_sourceEvidence
   Compiler.Proofs.HelperStepProofs.compileExprWithInternals_internalCall_shape
@@ -3232,13 +3237,6 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_tstoreSingle_of_surface
 
   -- Compiler/Proofs/IRGeneration/HelperBodyBridge.lean
-  -- Compiler.Proofs.IRGeneration.bindInternalArgs_length_eq_of_some  -- private
-  Compiler.Proofs.IRGeneration.compileStmtWithFork_internal_shape_irrelevant_of_returnFree
-  Compiler.Proofs.IRGeneration.compileStmtListWithFork_internal_shape_irrelevant_of_returnFree
-  Compiler.Proofs.IRGeneration.compileInternalFunction_body_eq_external_of_returnFree
-  Compiler.Proofs.IRGeneration.findInternalFunction?_some_eq_compiledHelper_of_witness
-  Compiler.Proofs.IRGeneration.findInternalFunction?_external_body_of_witness_returnFree
-  Compiler.Proofs.IRGeneration.compiledInternalHelper_summary_boundary_of_witness_returnStopFree
   Compiler.Proofs.IRGeneration.execIRInternalFunctionWithInternals_obeys_internal_helper_summary
   -- Compiler.Proofs.IRGeneration.internalFunctionYulName_head  -- private
   -- Compiler.Proofs.IRGeneration.internalFunctionYulName_ne_of_head  -- private
@@ -3250,9 +3248,19 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.stmtListUsesStop_rejects_statement_internal_helper_call_regression
   Compiler.Proofs.IRGeneration.stmtListUsesStop_rejects_expression_internal_helper_call_regression
 
+  -- Compiler/Proofs/IRGeneration/HelperBodyShape.lean
+  Compiler.Proofs.IRGeneration.bindInternalArgs_length_eq_of_some
+  Compiler.Proofs.IRGeneration.compileStmtWithFork_internal_shape_irrelevant_of_returnFree
+  Compiler.Proofs.IRGeneration.compileStmtListWithFork_internal_shape_irrelevant_of_returnFree
+  Compiler.Proofs.IRGeneration.compileInternalFunction_body_eq_external_of_returnFree
+  Compiler.Proofs.IRGeneration.findInternalFunction?_some_eq_compiledHelper_of_witness
+  Compiler.Proofs.IRGeneration.findInternalFunction?_external_body_of_witness_returnFree
+  Compiler.Proofs.IRGeneration.compiledInternalHelper_summary_boundary_of_witness_returnStopFree
+
   -- Compiler/Proofs/IRGeneration/HelperSummaryEvidence.lean
   -- Compiler.Proofs.IRGeneration.eraseDups_nodup_and_mem_aux_local  -- private
   -- Compiler.Proofs.IRGeneration.List.mem_of_mem_eraseDups_local  -- private
+  Compiler.Proofs.IRGeneration.exactInternalHelperSummary_soundAtSelector
   Compiler.Proofs.IRGeneration.exactInternalHelperSummary_sound
   -- Compiler.Proofs.IRGeneration.stmtResultWorldEq_of_eq  -- private
   -- Compiler.Proofs.IRGeneration.execStmtWithHelpers_readOnly_world_eq  -- private
@@ -3261,8 +3269,10 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.exactInternalHelperSummary_preservesWorldOnSuccess_of_empty_body
   Compiler.Proofs.IRGeneration.exactInternalHelperSupport_toWitness_contract_eq_exact
   Compiler.Proofs.IRGeneration.exactInternalHelperSupport_toWitness_summary_sound
+  Compiler.Proofs.IRGeneration.exactInternalHelperSupport_toWitness_summary_soundAtSelector
   Compiler.Proofs.IRGeneration.exactInternalHelperSupport_toWitness_preservesWorldOnSuccess
   Compiler.Proofs.IRGeneration.supportedBodyHelperSummariesSound_of_exactSummaries
+  Compiler.Proofs.IRGeneration.supportedBodyHelperSummariesSoundAtSelector_of_exactSummaries
   -- Compiler.Proofs.IRGeneration.Regression.mem_helperB_eraseDups_singleton  -- private
   -- Compiler.Proofs.IRGeneration.Regression.twoHelperRanksDecrease  -- private
   Compiler.Proofs.IRGeneration.Regression.helperB_exactSummary_sound
@@ -3536,6 +3546,10 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.lookupValue_internalHelperEntryBindings_of_not_mem
   Compiler.Proofs.IRGeneration.lookupBinding?_internalHelperEntryBindings_of_not_mem
   Compiler.Proofs.IRGeneration.internalHelperEntryBindings_source_reads_irrelevant
+  Compiler.Proofs.IRGeneration.internalHelperBodyInterpretation_selector_zero_eq_interpretInternalFunctionFuel
+  Compiler.Proofs.IRGeneration.InternalHelperSummarySound_iff_soundAtSelector_zero
+  Compiler.Proofs.IRGeneration.InternalHelperSummarySound_of_soundAtSelector_zero
+  Compiler.Proofs.IRGeneration.InternalHelperSummarySoundAtSelector_zero_of_sound
   -- Compiler.Proofs.IRGeneration.sourceBindingsAgreeOutside_symm  -- private
   Compiler.Proofs.IRGeneration.evalExprWithHelpers_eq_of_internalHelperExprProjectionCore
   Compiler.Proofs.IRGeneration.evalExprListWithHelpers_eq_of_internalHelperExprListProjectionCore
@@ -6185,4 +6199,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5782 theorems/lemmas (4005 public, 1777 private, 0 sorry'd)
+-- Total: 5811 theorems/lemmas (4028 public, 1783 private, 0 sorry'd)

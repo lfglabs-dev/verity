@@ -628,9 +628,11 @@ structure DirectInternalHelperStatementContextBridge
     (calleeName : String) where
   sourceWitness :
     SupportedInternalHelperWitness spec calleeName
-  summarySound :
-    SourceSemantics.InternalHelperSummarySound
-      spec sourceWitness.callee sourceWitness.summary.contract
+  /-- Selector-aware summary soundness at every inherited caller selector. -/
+  summarySoundAt :
+    ∀ selector,
+      InternalHelperSummarySoundAtSelector selector
+        spec sourceWitness.callee sourceWitness.summary.contract
   compiledHelper :
     SupportedCompiledInternalHelperWitness spec runtimeContract calleeName
   irCallDispatch :
@@ -686,7 +688,11 @@ def directInternalHelperStatementContextBridge_of_supportedEvidence
     {spec : CompilationModel}
     {fn : FunctionSpec}
     (hHelpers : SupportedBodyHelperInterface spec fn)
-    (hSummaries : SourceSemantics.SupportedBodyHelperSummariesSound spec fn hHelpers)
+    (hSummariesAt :
+      ∀ selector calleeName (hmem : calleeName ∈ helperCallNames fn),
+        InternalHelperSummarySoundAtSelector selector spec
+          (hHelpers.summaryOfCall hmem).callee
+          (hHelpers.summaryContractOfCall hmem))
     (hRuntime : SupportedRuntimeHelperTableInterface spec runtimeContract)
     {calleeName : String}
     (hmem : calleeName ∈ helperCallNames fn) :
@@ -695,9 +701,7 @@ def directInternalHelperStatementContextBridge_of_supportedEvidence
   let compiledHelper := hRuntime.compiledOfCall hHelpers hmem
   refine
     { sourceWitness := witness
-      summarySound :=
-        SourceSemantics.SupportedBodyHelperInterface.summarySoundOfCall
-          hHelpers hSummaries hmem
+      summarySoundAt := fun selector => hSummariesAt selector calleeName hmem
       compiledHelper := compiledHelper
       irCallDispatch := ?_
       irAssignDispatch := ?_ }
@@ -765,7 +769,7 @@ theorem directInternalHelperStatementContextBridge_sourceCallEvidence
           (if result.success then
             .continue { state with world := result.world }
           else .revert) ∧
-      hctx.sourceWitness.summary.contract.post fuel state.world argVals
+      hctx.sourceWitness.summary.contract.post fuel 0 state.world argVals
         result.success result.returnValue result.world := by
   intro result
   refine ⟨?_, ?_⟩
@@ -779,7 +783,8 @@ theorem directInternalHelperStatementContextBridge_sourceCallEvidence
         (args := args)
         hctx.sourceWitness
         hnodup
-  · simpa [result] using hctx.summarySound fuel state.world argVals
+  · simpa [result, internalHelperBodyInterpretation_selector_zero_eq_interpretInternalFunctionFuel]
+      using hctx.summarySoundAt 0 fuel state.world argVals
 
 abbrev directInternalHelperAssignSourceResult
     (state : SourceSemantics.RuntimeState)
@@ -805,7 +810,7 @@ abbrev DirectInternalHelperAssignSourceEvidence
   SourceSemantics.execStmtWithHelpers spec fields (fuel + 1) state
       (Stmt.internalCallAssign names calleeName args) =
         directInternalHelperAssignSourceResult state names result ∧
-    hctx.sourceWitness.summary.contract.post fuel state.world argVals
+    hctx.sourceWitness.summary.contract.post fuel 0 state.world argVals
       result.success result.returnValue result.world
 
 /-- Source-side evidence for a direct helper return-binding call from the
@@ -833,7 +838,8 @@ theorem directInternalHelperStatementContextBridge_sourceAssignEvidence
         (args := args)
         hctx.sourceWitness
         hnodup
-  · simpa using hctx.summarySound fuel state.world argVals
+  · simpa [internalHelperBodyInterpretation_selector_zero_eq_interpretInternalFunctionFuel]
+      using hctx.summarySoundAt 0 fuel state.world argVals
 
 abbrev directInternalHelperCallSourceResult
     (state : SourceSemantics.RuntimeState)
@@ -871,7 +877,7 @@ abbrev DirectInternalHelperCallSummaryStepPostcondition
   let sourceResult :=
     SourceSemantics.interpretInternalFunctionFuel
       spec helperFuel hctx.sourceWitness.callee runtime.world argVals
-  hctx.sourceWitness.summary.contract.post helperFuel runtime.world argVals
+  hctx.sourceWitness.summary.contract.post helperFuel 0 runtime.world argVals
       sourceResult.success sourceResult.returnValue sourceResult.world →
     stmtStepMatchesIRExecWithInternals fields nextScope
       (directInternalHelperCallSourceResult runtime sourceResult)
@@ -895,7 +901,7 @@ abbrev DirectInternalHelperAssignSummaryStepPostcondition
   let sourceResult :=
     SourceSemantics.interpretInternalFunctionFuel
       spec helperFuel hctx.sourceWitness.callee runtime.world argVals
-  hctx.sourceWitness.summary.contract.post helperFuel runtime.world argVals
+  hctx.sourceWitness.summary.contract.post helperFuel 0 runtime.world argVals
       sourceResult.success sourceResult.returnValue sourceResult.world →
     stmtStepMatchesIRExecWithInternals fields nextScope
       (directInternalHelperAssignSourceResult runtime names sourceResult)
@@ -922,49 +928,45 @@ into the concrete source/IR statement-step state relation. -/
 theorem directInternalHelperStatementContextBridge_callStepMatch_at_internalHelperCallFuel
     (hctx : DirectInternalHelperStatementContextBridge runtimeContract spec calleeName)
     (hnodup : (spec.functions.map (·.name)).Nodup)
-    (helperFuel extraFuel : Nat)
-    (hfuelPos : 0 < helperFuel)
+    (helperFuel extraFuel : Nat) (hfuelPos : 0 < helperFuel)
     (bodyCtx : InternalHelperBodyExecContext runtimeContract spec
-      hctx.sourceWitness.callee helper callerState runtime.world argVals
+      hctx.sourceWitness.callee helper callerState runtime.world argVals argVals
       sourceBindings entryBindings helperFuel)
     (harity : helper.params.length = hctx.sourceWitness.callee.params.length)
     (hfind : findInternalFunction? runtimeContract
       (CompilationModel.internalFunctionYulName calleeName) = some helper)
-    (hsourceArgs :
-      SourceSemantics.evalExprListWithHelpers spec fields (helperFuel + 1)
-        runtime args = some argVals)
-    (hirArgs :
-      evalIRExprsWithInternals runtimeContract
-          (internalHelperCallFuel helper extraFuel + 1) state argExprs =
-        .values argVals callerState)
-    (hpostMatch :
-      DirectInternalHelperCallSummaryStepPostcondition fields
-        (stmtNextScope scope (Stmt.internalCall calleeName args))
-        hctx helperFuel runtime argVals callerState helper
-        (internalHelperBodyIRExec runtimeContract helper callerState argVals extraFuel)) :
+    (hsourceArgs : SourceSemantics.evalExprListWithHelpers spec fields (helperFuel + 1)
+      runtime args = some argVals)
+    (hirArgs : evalIRExprsWithInternals runtimeContract
+        (internalHelperCallFuel helper extraFuel + 1) state argExprs =
+      .values argVals callerState)
+    (hpostMatch : DirectInternalHelperCallSummaryStepPostcondition fields
+      (stmtNextScope scope (Stmt.internalCall calleeName args))
+      hctx helperFuel runtime argVals callerState helper
+      (internalHelperBodyIRExec runtimeContract helper callerState argVals extraFuel)) :
     stmtStepMatchesIRExecWithInternals fields
       (stmtNextScope scope (Stmt.internalCall calleeName args))
-      (SourceSemantics.execStmtWithHelpers spec fields (helperFuel + 1) runtime (Stmt.internalCall calleeName args))
+      (SourceSemantics.execStmtWithHelpers spec fields (helperFuel + 1) runtime
+        (Stmt.internalCall calleeName args))
       (execIRStmtsWithInternals runtimeContract
         (internalHelperCallFuel helper extraFuel + 3) state
         [YulStmt.exprStmt (YulExpr.call
           (CompilationModel.internalFunctionYulName calleeName) argExprs)]) := by
-  have hsource :=
-    directInternalHelperStatementContextBridge_sourceCallEvidence
-      (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
-      (calleeName := calleeName) (args := args) hctx hnodup
-      (fuel := helperFuel) (state := runtime) hsourceArgs
-  have hir :=
-    execIRStmtsWithInternals_internalCall_obeys_internal_helper_summary
-      (runtimeContract := runtimeContract) (spec := spec)
-      (callee := hctx.sourceWitness.callee) (helper := helper)
-      (state := state) (callerState := callerState)
-      (initialWorld := runtime.world) (args := argVals)
-      (sourceBindings := sourceBindings) (entryBindings := entryBindings)
-      (summary := hctx.sourceWitness.summary.contract)
-      helperFuel extraFuel hfuelPos bodyCtx hctx.summarySound harity hfind hirArgs
-  rw [hsource.1, hir.1]
-  exact hpostMatch hsource.2
+  have hsource := directInternalHelperStatementContextBridge_sourceCallEvidence
+    (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+    (calleeName := calleeName) (args := args) hctx hnodup
+    (fuel := helperFuel) (state := runtime) hsourceArgs
+  have hirArgsLen := harity.trans (bindInternalArgs_length_eq_of_some bodyCtx.bindArgs)
+  have hir := execIRStmtsWithInternals_internalCall_obeys_internal_helper_summary
+    (runtimeContract := runtimeContract) (spec := spec)
+    (callee := hctx.sourceWitness.callee) (helper := helper)
+    (state := state) (callerState := callerState) (initialWorld := runtime.world)
+    (logicalArgs := argVals) (irArgs := argVals)
+    (sourceBindings := sourceBindings) (entryBindings := entryBindings)
+    (summary := hctx.sourceWitness.summary.contract)
+    helperFuel extraFuel hfuelPos bodyCtx (hctx.summarySoundAt callerState.selector)
+    harity hirArgsLen hfind hirArgs
+  rw [hsource.1, hir.1]; exact hpostMatch hsource.2
 
 /-- Direct return-binding helper-call step match at the exact helper-call fuel
 required by
@@ -973,26 +975,22 @@ theorem directInternalHelperStatementContextBridge_assignStepMatch_at_internalHe
     {names : List String}
     (hctx : DirectInternalHelperStatementContextBridge runtimeContract spec calleeName)
     (hnodup : (spec.functions.map (·.name)).Nodup)
-    (helperFuel extraFuel : Nat)
-    (hfuelPos : 0 < helperFuel)
+    (helperFuel extraFuel : Nat) (hfuelPos : 0 < helperFuel)
     (bodyCtx : InternalHelperBodyExecContext runtimeContract spec
-      hctx.sourceWitness.callee helper callerState runtime.world argVals
+      hctx.sourceWitness.callee helper callerState runtime.world argVals argVals
       sourceBindings entryBindings helperFuel)
     (harity : helper.params.length = hctx.sourceWitness.callee.params.length)
     (hfind : findInternalFunction? runtimeContract
       (CompilationModel.internalFunctionYulName calleeName) = some helper)
-    (hsourceArgs :
-      SourceSemantics.evalExprListWithHelpers spec fields (helperFuel + 1)
-        runtime args = some argVals)
-    (hirArgs :
-      evalIRExprsWithInternals runtimeContract
-          (internalHelperCallFuel helper extraFuel + 1) state argExprs =
-        .values argVals callerState)
-    (hpostMatch :
-      DirectInternalHelperAssignSummaryStepPostcondition fields
-        (stmtNextScope scope (Stmt.internalCallAssign names calleeName args))
-        names hctx helperFuel runtime argVals callerState helper
-        (internalHelperBodyIRExec runtimeContract helper callerState argVals extraFuel)) :
+    (hsourceArgs : SourceSemantics.evalExprListWithHelpers spec fields (helperFuel + 1)
+      runtime args = some argVals)
+    (hirArgs : evalIRExprsWithInternals runtimeContract
+        (internalHelperCallFuel helper extraFuel + 1) state argExprs =
+      .values argVals callerState)
+    (hpostMatch : DirectInternalHelperAssignSummaryStepPostcondition fields
+      (stmtNextScope scope (Stmt.internalCallAssign names calleeName args))
+      names hctx helperFuel runtime argVals callerState helper
+      (internalHelperBodyIRExec runtimeContract helper callerState argVals extraFuel)) :
     stmtStepMatchesIRExecWithInternals fields
       (stmtNextScope scope (Stmt.internalCallAssign names calleeName args))
       (SourceSemantics.execStmtWithHelpers spec fields (helperFuel + 1) runtime
@@ -1001,23 +999,22 @@ theorem directInternalHelperStatementContextBridge_assignStepMatch_at_internalHe
         (internalHelperCallFuel helper extraFuel + 3) state
         [YulStmt.letMany names (YulExpr.call
           (CompilationModel.internalFunctionYulName calleeName) argExprs)]) := by
-  have hsource :=
-    directInternalHelperStatementContextBridge_sourceAssignEvidence
-      (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
-      (calleeName := calleeName) (names := names) (args := args)
-      hctx hnodup (fuel := helperFuel) (state := runtime) hsourceArgs
-  have hir :=
-    execIRStmtsWithInternals_internalCallAssign_obeys_internal_helper_summary
-      (runtimeContract := runtimeContract) (spec := spec)
-      (callee := hctx.sourceWitness.callee) (helper := helper)
-      (state := state) (callerState := callerState)
-      (initialWorld := runtime.world) (names := names) (calleeName := calleeName)
-      (argExprs := argExprs) (args := argVals)
-      (sourceBindings := sourceBindings) (entryBindings := entryBindings)
-      (summary := hctx.sourceWitness.summary.contract)
-      helperFuel extraFuel hfuelPos bodyCtx hctx.summarySound harity hfind hirArgs
-  rw [hsource.1, hir.1]
-  exact hpostMatch hsource.2
+  have hsource := directInternalHelperStatementContextBridge_sourceAssignEvidence
+    (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+    (calleeName := calleeName) (names := names) (args := args)
+    hctx hnodup (fuel := helperFuel) (state := runtime) hsourceArgs
+  have hirArgsLen := harity.trans (bindInternalArgs_length_eq_of_some bodyCtx.bindArgs)
+  have hir := execIRStmtsWithInternals_internalCallAssign_obeys_internal_helper_summary
+    (runtimeContract := runtimeContract) (spec := spec)
+    (callee := hctx.sourceWitness.callee) (helper := helper)
+    (state := state) (callerState := callerState) (initialWorld := runtime.world)
+    (names := names) (calleeName := calleeName) (argExprs := argExprs)
+    (logicalArgs := argVals) (irArgs := argVals)
+    (sourceBindings := sourceBindings) (entryBindings := entryBindings)
+    (summary := hctx.sourceWitness.summary.contract)
+    helperFuel extraFuel hfuelPos bodyCtx (hctx.summarySoundAt callerState.selector)
+    harity hirArgsLen hfind hirArgs
+  rw [hsource.1, hir.1]; exact hpostMatch hsource.2
 
 noncomputable abbrev directInternalHelperExtraFuel
     (helper : IRInternalFunctionDef) (irFuel : Nat) : Nat :=
@@ -1040,7 +1037,7 @@ theorem directInternalHelperStatementContextBridge_callStepMatch_of_sufficientFu
     (hstmtFuel : 1 < stmtHelperFuel)
     (hirFuel : sizeOf helper.body + 2 ≤ irFuel)
     (bodyCtx : InternalHelperBodyExecContext runtimeContract spec
-      hctx.sourceWitness.callee helper callerState runtime.world argVals
+      hctx.sourceWitness.callee helper callerState runtime.world argVals argVals
       sourceBindings entryBindings (stmtHelperFuel - 1))
     (harity : helper.params.length = hctx.sourceWitness.callee.params.length)
     (hfind : findInternalFunction? runtimeContract
@@ -1090,7 +1087,7 @@ theorem directInternalHelperStatementContextBridge_assignStepMatch_of_sufficient
     (hstmtFuel : 1 < stmtHelperFuel)
     (hirFuel : sizeOf helper.body + 2 ≤ irFuel)
     (bodyCtx : InternalHelperBodyExecContext runtimeContract spec
-      hctx.sourceWitness.callee helper callerState runtime.world argVals
+      hctx.sourceWitness.callee helper callerState runtime.world argVals argVals
       sourceBindings entryBindings (stmtHelperFuel - 1))
     (harity : helper.params.length = hctx.sourceWitness.callee.params.length)
     (hfind : findInternalFunction? runtimeContract
@@ -1133,6 +1130,221 @@ theorem directInternalHelperStatementContextBridge_assignStepMatch_of_sufficient
   simpa [hstmtFuelEq] using hmatch
 
 end DirectInternalHelperStatementSufficientFuel
+
+section DirectInternalHelperFuelSplitConsumer
+
+variable {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+variable {scope : List String} {calleeName : String}
+variable {args : List Expr} {argExprs : List YulExpr}
+variable {runtime : SourceSemantics.RuntimeState} {state : IRState}
+
+abbrev DirectInternalHelperCallSufficientFuelEvidence
+    (hctx : DirectInternalHelperStatementContextBridge runtimeContract spec calleeName)
+    (helperBodySize stmtHelperFuel irFuel : Nat)
+    (runtime : SourceSemantics.RuntimeState) (state : IRState) : Prop :=
+  ∃ (helper : IRInternalFunctionDef) (callerState : IRState) (argVals : List Nat)
+      (sourceBindings entryBindings : List (String × Nat)),
+    sizeOf helper.body = helperBodySize ∧
+      InternalHelperBodyExecContext runtimeContract spec
+        hctx.sourceWitness.callee helper callerState runtime.world argVals argVals
+        sourceBindings entryBindings (stmtHelperFuel - 1) ∧
+      helper.params.length = hctx.sourceWitness.callee.params.length ∧
+      findInternalFunction? runtimeContract
+        (CompilationModel.internalFunctionYulName calleeName) = some helper ∧
+      SourceSemantics.evalExprListWithHelpers spec fields stmtHelperFuel runtime args =
+        some argVals ∧
+      evalIRExprsWithInternals runtimeContract (irFuel + 1) state argExprs =
+        .values argVals callerState ∧
+      DirectInternalHelperCallSummaryStepPostcondition fields
+        (stmtNextScope scope (Stmt.internalCall calleeName args))
+        hctx (stmtHelperFuel - 1) runtime argVals callerState helper
+        (internalHelperBodyIRExec runtimeContract helper callerState argVals
+          (directInternalHelperExtraFuel helper irFuel))
+
+/-- Consume the direct-call sufficient-fuel statement-context adapter as the
+normal-region bridge required by the fuel-split singleton constructor. -/
+theorem internalCallWithInternalsSufficientBridge_of_directContextEvidence
+    (hctx : DirectInternalHelperStatementContextBridge runtimeContract spec calleeName)
+    (hnodup : (spec.functions.map (·.name)).Nodup)
+    (helperBodySize : Nat)
+    (hevidence :
+      ∀ runtime state stmtHelperFuel irFuel,
+        1 < stmtHelperFuel →
+        helperBodySize + 2 ≤ irFuel →
+        FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state →
+        FunctionBody.scopeNamesPresent scope runtime.bindings →
+        FunctionBody.bindingsBounded runtime.bindings →
+        FunctionBody.runtimeStateMatchesIR fields runtime state →
+        DirectInternalHelperCallSufficientFuelEvidence
+          (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+          (scope := scope) (calleeName := calleeName) (args := args)
+          (argExprs := argExprs) hctx helperBodySize stmtHelperFuel irFuel runtime state) :
+    InternalCallWithInternalsSufficientBridge runtimeContract spec fields scope
+      calleeName args argExprs helperBodySize := by
+  intro runtime state stmtHelperFuel irFuel hstmtFuel hirFuel hfuel hexact hscope hbounded hruntime
+  rcases hevidence runtime state stmtHelperFuel irFuel hstmtFuel hirFuel
+      hexact hscope hbounded hruntime with
+    ⟨helper, callerState, argVals, sourceBindings, entryBindings, hsize, bodyCtx,
+      harity, hfind, hsourceArgs, hirArgs, hpostMatch⟩
+  have hirFuel' : sizeOf helper.body + 2 ≤ irFuel := by omega
+  exact
+    directInternalHelperStatementContextBridge_callStepMatch_of_sufficientFuel
+      (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+      (scope := scope) (calleeName := calleeName) (args := args)
+      (helper := helper) (runtime := runtime) (state := state)
+      (callerState := callerState) (argVals := argVals) (argExprs := argExprs)
+      (sourceBindings := sourceBindings) (entryBindings := entryBindings)
+      hctx hnodup stmtHelperFuel irFuel hstmtFuel hirFuel' bodyCtx harity hfind
+      hsourceArgs hirArgs hpostMatch
+
+/-- Direct void-call singleton proof from the reviewed fuel split: the normal
+region is discharged by direct statement-context evidence, while the residual
+low/insufficient-fuel branch remains an explicit caller obligation. -/
+theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCall_of_directContextFuelSplit
+    (hctx : DirectInternalHelperStatementContextBridge runtimeContract spec calleeName)
+    (hnodup : (spec.functions.map (·.name)).Nodup)
+    (helperBodySize : Nat)
+    {compiledIR : List YulStmt}
+    (hcompile :
+      CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
+        (Stmt.internalCall calleeName args) spec.functions = Except.ok compiledIR)
+    (hargCompile :
+      CompilationModel.compileInternalCallArgs fields .calldata spec.functions
+        calleeName args = Except.ok argExprs)
+    (hevidence :
+      ∀ runtime state stmtHelperFuel irFuel,
+        1 < stmtHelperFuel →
+        helperBodySize + 2 ≤ irFuel →
+        FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state →
+        FunctionBody.scopeNamesPresent scope runtime.bindings →
+        FunctionBody.bindingsBounded runtime.bindings →
+        FunctionBody.runtimeStateMatchesIR fields runtime state →
+        DirectInternalHelperCallSufficientFuelEvidence
+          (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+          (scope := scope) (calleeName := calleeName) (args := args)
+          (argExprs := argExprs) hctx helperBodySize stmtHelperFuel irFuel runtime state)
+    (hresidual :
+      InternalCallWithInternalsResidualBridge runtimeContract spec fields scope
+        calleeName args argExprs helperBodySize) :
+    CompiledStmtStepWithHelpersAndHelperIRWithInternals runtimeContract spec fields scope
+      (Stmt.internalCall calleeName args) compiledIR := by
+  exact
+    compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCall_of_fuelSplitBridge
+      (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+      (scope := scope) (calleeName := calleeName) (args := args)
+      (compiledIR := compiledIR) (argExprs := argExprs) helperBodySize
+      hcompile hargCompile
+      (internalCallWithInternalsSufficientBridge_of_directContextEvidence
+        (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+        (scope := scope) (calleeName := calleeName) (args := args)
+        (argExprs := argExprs) hctx hnodup helperBodySize hevidence)
+      hresidual
+
+abbrev DirectInternalHelperAssignSufficientFuelEvidence
+    (names : List String)
+    (hctx : DirectInternalHelperStatementContextBridge runtimeContract spec calleeName)
+    (helperBodySize stmtHelperFuel irFuel : Nat)
+    (runtime : SourceSemantics.RuntimeState) (state : IRState) : Prop :=
+  ∃ (helper : IRInternalFunctionDef) (callerState : IRState) (argVals : List Nat)
+      (sourceBindings entryBindings : List (String × Nat)),
+    sizeOf helper.body = helperBodySize ∧
+      InternalHelperBodyExecContext runtimeContract spec
+        hctx.sourceWitness.callee helper callerState runtime.world argVals argVals
+        sourceBindings entryBindings (stmtHelperFuel - 1) ∧
+      helper.params.length = hctx.sourceWitness.callee.params.length ∧
+      findInternalFunction? runtimeContract
+        (CompilationModel.internalFunctionYulName calleeName) = some helper ∧
+      SourceSemantics.evalExprListWithHelpers spec fields stmtHelperFuel runtime args =
+        some argVals ∧
+      evalIRExprsWithInternals runtimeContract (irFuel + 1) state argExprs =
+        .values argVals callerState ∧
+      DirectInternalHelperAssignSummaryStepPostcondition fields
+        (stmtNextScope scope (Stmt.internalCallAssign names calleeName args))
+        names hctx (stmtHelperFuel - 1) runtime argVals callerState helper
+        (internalHelperBodyIRExec runtimeContract helper callerState argVals
+          (directInternalHelperExtraFuel helper irFuel))
+
+/-- Assignment-call counterpart of
+`internalCallWithInternalsSufficientBridge_of_directContextEvidence`. -/
+theorem internalCallAssignWithInternalsSufficientBridge_of_directContextEvidence
+    {names : List String}
+    (hctx : DirectInternalHelperStatementContextBridge runtimeContract spec calleeName)
+    (hnodup : (spec.functions.map (·.name)).Nodup)
+    (helperBodySize : Nat)
+    (hevidence :
+      ∀ runtime state stmtHelperFuel irFuel,
+        1 < stmtHelperFuel →
+        helperBodySize + 2 ≤ irFuel →
+        FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state →
+        FunctionBody.scopeNamesPresent scope runtime.bindings →
+        FunctionBody.bindingsBounded runtime.bindings →
+        FunctionBody.runtimeStateMatchesIR fields runtime state →
+        DirectInternalHelperAssignSufficientFuelEvidence
+          (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+          (scope := scope) (calleeName := calleeName) (args := args)
+          (argExprs := argExprs) names hctx helperBodySize stmtHelperFuel irFuel runtime state) :
+    InternalCallAssignWithInternalsSufficientBridge runtimeContract spec fields scope
+      names calleeName args argExprs helperBodySize := by
+  intro runtime state stmtHelperFuel irFuel hstmtFuel hirFuel hfuel hexact hscope hbounded hruntime
+  rcases hevidence runtime state stmtHelperFuel irFuel hstmtFuel hirFuel
+      hexact hscope hbounded hruntime with
+    ⟨helper, callerState, argVals, sourceBindings, entryBindings, hsize, bodyCtx,
+      harity, hfind, hsourceArgs, hirArgs, hpostMatch⟩
+  have hirFuel' : sizeOf helper.body + 2 ≤ irFuel := by omega
+  exact
+    directInternalHelperStatementContextBridge_assignStepMatch_of_sufficientFuel
+      (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+      (scope := scope) (calleeName := calleeName) (names := names) (args := args)
+      (helper := helper) (runtime := runtime) (state := state)
+      (callerState := callerState) (argVals := argVals) (argExprs := argExprs)
+      (sourceBindings := sourceBindings) (entryBindings := entryBindings)
+      hctx hnodup stmtHelperFuel irFuel hstmtFuel hirFuel' bodyCtx harity hfind
+      hsourceArgs hirArgs hpostMatch
+
+/-- Assignment-call singleton counterpart of
+`compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCall_of_directContextFuelSplit`. -/
+theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCallAssign_of_directContextFuelSplit
+    {names : List String}
+    (hctx : DirectInternalHelperStatementContextBridge runtimeContract spec calleeName)
+    (hnodup : (spec.functions.map (·.name)).Nodup)
+    (helperBodySize : Nat)
+    {compiledIR : List YulStmt}
+    (hcompile :
+      CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
+        (Stmt.internalCallAssign names calleeName args) spec.functions = Except.ok compiledIR)
+    (hargCompile :
+      CompilationModel.compileInternalCallArgs fields .calldata spec.functions
+        calleeName args = Except.ok argExprs)
+    (hevidence :
+      ∀ runtime state stmtHelperFuel irFuel,
+        1 < stmtHelperFuel →
+        helperBodySize + 2 ≤ irFuel →
+        FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state →
+        FunctionBody.scopeNamesPresent scope runtime.bindings →
+        FunctionBody.bindingsBounded runtime.bindings →
+        FunctionBody.runtimeStateMatchesIR fields runtime state →
+        DirectInternalHelperAssignSufficientFuelEvidence
+          (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+          (scope := scope) (calleeName := calleeName) (args := args)
+          (argExprs := argExprs) names hctx helperBodySize stmtHelperFuel irFuel runtime state)
+    (hresidual :
+      InternalCallAssignWithInternalsResidualBridge runtimeContract spec fields scope names
+        calleeName args argExprs helperBodySize) :
+    CompiledStmtStepWithHelpersAndHelperIRWithInternals runtimeContract spec fields scope
+      (Stmt.internalCallAssign names calleeName args) compiledIR := by
+  exact
+    compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCallAssign_of_fuelSplitBridge
+      (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+      (scope := scope) (names := names) (calleeName := calleeName) (args := args)
+      (compiledIR := compiledIR) (argExprs := argExprs) helperBodySize
+      hcompile hargCompile
+      (internalCallAssignWithInternalsSufficientBridge_of_directContextEvidence
+        (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+        (scope := scope) (calleeName := calleeName) (args := args)
+        (argExprs := argExprs) (names := names) hctx hnodup helperBodySize hevidence)
+      hresidual
+
+end DirectInternalHelperFuelSplitConsumer
 
 end DirectInternalHelperStatementSummaryStepMatch
 
@@ -1209,9 +1421,11 @@ structure ExprInternalHelperCallContextBridge
     (calleeName : String) where
   sourceWitness :
     SupportedInternalHelperWitness spec calleeName
-  summarySound :
-    SourceSemantics.InternalHelperSummarySound
-      spec sourceWitness.callee sourceWitness.summary.contract
+  /-- Selector-aware summary soundness at every inherited caller selector. -/
+  summarySoundAt :
+    ∀ selector,
+      InternalHelperSummarySoundAtSelector selector
+        spec sourceWitness.callee sourceWitness.summary.contract
   sourcePreservesWorld :
     InternalHelperSummaryPreservesWorldOnSuccess sourceWitness.summary.contract
   compiledHelper :
@@ -1236,7 +1450,11 @@ def exprInternalHelperCallContextBridge_of_supportedEvidence
     {spec : CompilationModel}
     {fn : FunctionSpec}
     (hHelpers : SupportedBodyHelperInterface spec fn)
-    (hSummaries : SourceSemantics.SupportedBodyHelperSummariesSound spec fn hHelpers)
+    (hSummariesAt :
+      ∀ selector calleeName (hmem : calleeName ∈ helperCallNames fn),
+        InternalHelperSummarySoundAtSelector selector spec
+          (hHelpers.summaryOfCall hmem).callee
+          (hHelpers.summaryContractOfCall hmem))
     (hRuntime : SupportedRuntimeHelperTableInterface spec runtimeContract)
     {calleeName : String}
     (hmem : calleeName ∈ exprHelperCallNames fn) :
@@ -1246,9 +1464,7 @@ def exprInternalHelperCallContextBridge_of_supportedEvidence
   let witness := hHelpers.summaryOfCall hcall
   refine
     { sourceWitness := witness
-      summarySound :=
-        SourceSemantics.SupportedBodyHelperInterface.summarySoundOfCall
-          hHelpers hSummaries hcall
+      summarySoundAt := fun selector => hSummariesAt selector calleeName hcall
       sourcePreservesWorld := hHelpers.exprSummaryPreservesWorld hmem
       compiledHelper := hRuntime.compiledOfCall hHelpers hcall
       irCall := ?_ }
@@ -1288,7 +1504,7 @@ theorem exprInternalHelperCallContextBridge_sourceEvidence
     SourceSemantics.evalExprWithHelpers spec fields (fuel + 1) state
         (Expr.internalCall calleeName args) =
           (if result.success then result.returnValue else none) ∧
-      hctx.sourceWitness.summary.contract.post fuel state.world argVals
+      hctx.sourceWitness.summary.contract.post fuel 0 state.world argVals
         result.success result.returnValue result.world ∧
       (result.success = true → result.world = state.world) := by
   intro result
@@ -1297,11 +1513,14 @@ theorem exprInternalHelperCallContextBridge_sourceEvidence
       SourceSemantics.evalExprWithHelpers_internalCall_of_witness
         hctx.sourceWitness hnodup,
       hargs]
-  · exact hctx.summarySound fuel state.world argVals
+  · simpa [internalHelperBodyInterpretation_selector_zero_eq_interpretInternalFunctionFuel] using
+      hctx.summarySoundAt 0 fuel state.world argVals
   · intro hsuccess
     exact SourceSemantics.helperSummaryPreservesWorldOnSuccess
       hctx.sourcePreservesWorld
-      (hpost := hctx.summarySound fuel state.world argVals)
+      (hpost := by
+        simpa [internalHelperBodyInterpretation_selector_zero_eq_interpretInternalFunctionFuel] using
+          hctx.summarySoundAt 0 fuel state.world argVals)
       hsuccess
 
 /-- Compiler shape for an expression-position internal helper call.  The
@@ -1352,7 +1571,7 @@ def ExprInternalHelperCompiledCallContextResult
     SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1) runtime
         (Expr.internalCall calleeName args) =
       (if sourceResult.success then sourceResult.returnValue else none) ∧
-    hctx.sourceWitness.summary.contract.post helperFuel runtime.world argVals
+    hctx.sourceWitness.summary.contract.post helperFuel 0 runtime.world argVals
       sourceResult.success sourceResult.returnValue sourceResult.world ∧
     (sourceResult.success = true → sourceResult.world = runtime.world) ∧
     findInternalFunction? runtimeContract
