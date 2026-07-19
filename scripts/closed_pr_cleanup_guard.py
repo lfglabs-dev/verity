@@ -65,7 +65,8 @@ def parse_stack_metadata(raw: Any) -> tuple[dict[str, Any] | None, str | None]:
     """Parse pull-request ``.stack`` metadata.
 
     Returns (stack_dict_or_none, error_reason_or_none).
-    ``None`` raw means "field absent/null" (not an error).
+    ``None`` raw means the field was absent (not an error). Callers that can
+    distinguish a present JSON null must classify it as malformed.
     Empty objects, wrong types, or missing required fields are malformed.
     """
     if raw is None:
@@ -74,14 +75,16 @@ def parse_stack_metadata(raw: Any) -> tuple[dict[str, Any] | None, str | None]:
         return None, "stack metadata is empty string"
     if isinstance(raw, str):
         text = raw.strip()
-        if not text or text in ("null", "undefined"):
-            return None, None
+        if not text:
+            return None, "stack metadata is empty string"
+        if text in ("null", "undefined"):
+            return None, "stack metadata is null/undefined"
         try:
             raw = json.loads(text)
         except json.JSONDecodeError as exc:
             return None, f"stack metadata is not valid JSON: {exc}"
     if raw is None:
-        return None, None
+        return None, "stack metadata is null"
     if not isinstance(raw, dict):
         return None, f"stack metadata must be an object, got {type(raw).__name__}"
     if not raw:
@@ -112,11 +115,9 @@ def stack_metadata_implies_retain(stack: dict[str, Any]) -> str | None:
     if size >= 2:
         pos_note = f", position={position}" if isinstance(position, int) else ""
         return f"PR is a native stack member (stack size={size}{pos_note})"
-    # size == 1: single-PR "stack" — still treat as stack-tagged; retain only
-    # if position claims a multi-stack layout (defensive).
-    if isinstance(position, int) and position > 1:
-        return f"PR stack position={position} inconsistent with size=1"
-    return None
+    # A valid stack object is affirmative membership evidence even at size 1.
+    # Retaining is deliberate: cleanup must never race native stack updates.
+    return f"PR has native stack metadata (stack size={size})"
 
 
 def parse_stacks_list_payload(raw: Any) -> tuple[list[dict[str, Any]] | None, str | None]:
@@ -293,30 +294,42 @@ def fetch_stacks(
     pull_request: int | None,
     http_get: HttpGetter,
     api_version: str = DEFAULT_API_VERSION,
+    per_page: int = 100,
 ) -> tuple[list[dict[str, Any]] | None, str | None]:
     """GET /repos/{owner}/{repo}/stacks, optionally filtered by pull_request."""
     owner, name = _normalize_repo(repo)
-    query = ""
-    if pull_request is not None:
-        query = "?" + urllib.parse.urlencode({"pull_request": str(pull_request)})
-    url = f"https://api.github.com/repos/{owner}/{name}/stacks{query}"
-    try:
-        status, body = http_get(url, _api_headers(api_version))
-    except GuardError as exc:
-        return None, str(exc)
-    # 404: stacks private preview not enabled for this repo, or no such route.
-    # That is a clear "no native stacks" signal — preserve standalone cleanup.
-    # Transport failures, 5xx, and malformed 200 bodies remain fail-closed.
-    if status == 404:
-        return [], None
-    if status == 204:
-        return [], None
-    if status in {401, 403}:
-        # Auth/permission ambiguity: cannot rule out stack membership.
-        return None, f"stacks API returned HTTP {status} (ambiguous authorization)"
-    if status != 200:
-        return None, f"stacks API returned HTTP {status}"
-    return parse_stacks_list_payload(body)
+    stacks: list[dict[str, Any]] = []
+    page = 1
+    while True:
+        params = {"per_page": str(per_page), "page": str(page)}
+        if pull_request is not None:
+            params["pull_request"] = str(pull_request)
+        query = "?" + urllib.parse.urlencode(params)
+        url = f"https://api.github.com/repos/{owner}/{name}/stacks{query}"
+        try:
+            status, body = http_get(url, _api_headers(api_version))
+        except GuardError as exc:
+            return None, str(exc)
+        # A first-page 404 is the private-preview-not-enabled contract. A 404
+        # after successful pagination is inconsistent and therefore ambiguous.
+        if status == 404 and page == 1:
+            return [], None
+        if status == 204 and page == 1:
+            return [], None
+        if status in {401, 403}:
+            return None, f"stacks API returned HTTP {status} (ambiguous authorization)"
+        if status != 200:
+            return None, f"stacks API returned HTTP {status} on page {page}"
+        page_items, err = parse_stacks_list_payload(body)
+        if err:
+            return None, err
+        assert page_items is not None
+        stacks.extend(page_items)
+        if len(page_items) < per_page:
+            return stacks, None
+        page += 1
+        if page > 50:
+            return None, "stacks API pagination exceeded safety cap"
 
 
 def fetch_open_pulls(
@@ -475,8 +488,10 @@ def _load_stack_metadata_arg(raw: str | None) -> Any:
     if raw is None:
         return None
     text = raw.strip()
-    if not text or text in ("null", "undefined", "None"):
-        return None
+    if not text:
+        return {"__malformed__": "stack metadata argument is empty"}
+    if text in ("null", "undefined", "None"):
+        return {"__malformed__": "stack metadata argument is null/undefined"}
     # Allow passing a path to a JSON file via @path
     if text.startswith("@"):
         path = text[1:]
@@ -485,8 +500,10 @@ def _load_stack_metadata_arg(raw: str | None) -> Any:
         except OSError as exc:
             # Unreadable file → fail closed via malformed string path
             return {"__malformed__": f"unreadable stack metadata file: {exc}"}
-        if not file_text or file_text in ("null", "undefined", "None"):
-            return None
+        if not file_text:
+            return {"__malformed__": "stack metadata file is empty"}
+        if file_text in ("null", "undefined", "None"):
+            return {"__malformed__": "stack metadata file is null/undefined"}
         try:
             return json.loads(file_text)
         except json.JSONDecodeError as exc:
@@ -496,6 +513,22 @@ def _load_stack_metadata_arg(raw: str | None) -> Any:
     except json.JSONDecodeError:
         # Leave as string; parse_stack_metadata will classify
         return text
+
+
+def _load_stack_metadata_from_event(path: str) -> Any:
+    """Load PR stack metadata while preserving absent versus present-null."""
+    try:
+        event = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return {"__malformed__": f"unreadable/malformed GitHub event: {exc}"}
+    pull_request = event.get("pull_request") if isinstance(event, dict) else None
+    if not isinstance(pull_request, dict):
+        return {"__malformed__": "GitHub event missing pull_request object"}
+    if "stack" not in pull_request:
+        return None
+    if pull_request["stack"] is None:
+        return {"__malformed__": "present stack metadata is null"}
+    return pull_request["stack"]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -511,6 +544,11 @@ def main(argv: list[str] | None = None) -> int:
         help='PR .stack JSON, JSON string, or @file path (optional)',
     )
     parser.add_argument(
+        "--event-path",
+        default=None,
+        help="GitHub event JSON path (preserves absent versus present-null .stack)",
+    )
+    parser.add_argument(
         "--output",
         choices=("text", "json"),
         default="text",
@@ -521,9 +559,15 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="If set, append eligible_for_cleanup=<bool> to this file (GITHUB_OUTPUT)",
     )
-    args = parser.parse_args([] if argv is None else argv)
+    args = parser.parse_args(argv)
 
-    stack_metadata = _load_stack_metadata_arg(args.stack_metadata)
+    if args.event_path and args.stack_metadata is not None:
+        parser.error("--event-path and --stack-metadata are mutually exclusive")
+    stack_metadata = (
+        _load_stack_metadata_from_event(args.event_path)
+        if args.event_path
+        else _load_stack_metadata_arg(args.stack_metadata)
+    )
     decision = run_guard(
         repo=args.repo,
         pr_number=args.pr,

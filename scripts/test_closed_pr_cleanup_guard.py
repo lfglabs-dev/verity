@@ -33,7 +33,7 @@ class ParseMetadataTests(unittest.TestCase):
         self.assertIsNone(err)
         obj, err = guard.parse_stack_metadata("null")
         self.assertIsNone(obj)
-        self.assertIsNone(err)
+        self.assertIsNotNone(err)
 
     def test_empty_and_malformed_metadata(self) -> None:
         obj, err = guard.parse_stack_metadata({})
@@ -193,6 +193,43 @@ class EvaluateGuardTests(unittest.TestCase):
 
 
 class HttpIntegrationTests(unittest.TestCase):
+    def test_stacks_pagination_and_later_error(self) -> None:
+        calls: list[str] = []
+
+        def http_get(url: str, headers: Mapping[str, str]) -> tuple[int, str]:
+            del headers
+            calls.append(url)
+            if "&page=1&" in url:
+                return 200, json.dumps([{"open": False, "pull_requests": []}])
+            return 503, '{"message":"unavailable"}'
+
+        stacks, err = guard.fetch_stacks(
+            repo="lfglabs-dev/verity", pull_request=2172, http_get=http_get, per_page=1
+        )
+        self.assertIsNone(stacks)
+        self.assertIn("page 2", err or "")
+        self.assertEqual(len(calls), 2)
+
+    def test_event_metadata_absent_vs_present_null(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            event = Path(tmp) / "event.json"
+            event.write_text('{"pull_request": {}}', encoding="utf-8")
+            self.assertIsNone(guard._load_stack_metadata_from_event(str(event)))
+            event.write_text('{"pull_request": {"stack": null}}', encoding="utf-8")
+            loaded = guard._load_stack_metadata_from_event(str(event))
+            decision = guard.evaluate_guard(
+                repo="lfglabs-dev/verity", pr_number=1, head_branch="x",
+                stack_metadata=loaded, stacks=[], open_pulls=[]
+            )
+            self.assertFalse(decision.eligible_for_cleanup)
+
+    def test_draft_dependent_is_open_and_retained(self) -> None:
+        pulls = [{"number": 2, "state": "open", "draft": True, "base": {"ref": "base"}}]
+        self.assertEqual(
+            guard.open_dependents_on_branch(pulls, head_branch="base", closed_pr_number=1),
+            [2],
+        )
+
     def test_run_guard_with_injected_http(self) -> None:
         stacks_body = json.dumps(_load_fixture("stacks_open_with_member.json"))
         pulls_body = json.dumps(_load_fixture("open_pulls_with_dependent.json"))

@@ -125,20 +125,15 @@ jobs:
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
-          # github.event.pull_request.stack when present (native stacks private preview)
-          STACK_METADATA: ${{ toJSON(github.event.pull_request.stack) }}
         run: |
           set -euo pipefail
-          stack_file="$(mktemp)"
-          printf '%s' "${STACK_METADATA}" > "${stack_file}"
           python3 scripts/closed_pr_cleanup_guard.py \
             --repo "${REPO}" \
             --pr "${PR_NUMBER}" \
             --head-branch "${HEAD_BRANCH}" \
-            --stack-metadata "@${stack_file}" \
+            --event-path "${GITHUB_EVENT_PATH}" \
             --github-output "${GITHUB_OUTPUT}" \
             --output text
-          rm -f "${stack_file}"
 
       - name: Cancel queued and running CI for the closed PR
         if: steps.stack-guard.outputs.eligible_for_cleanup == 'true'
@@ -178,10 +173,12 @@ jobs:
 
       - name: Skip destructive cleanup while stack-retained
         if: steps.stack-guard.outputs.eligible_for_cleanup != 'true'
+        env:
+          RETAIN_REASON: ${{ steps.stack-guard.outputs.reason }}
         run: |
           set -euo pipefail
           echo "closed-pr-cleanup: retaining branch/PR/artifacts; skipping cancel and any destructive cleanup."
-          echo "reason=${{ steps.stack-guard.outputs.reason }}"
+          printf 'reason=%s\n' "${RETAIN_REASON}"
 
   changes:
     if: github.event_name != 'pull_request' || github.event.action != 'closed'
