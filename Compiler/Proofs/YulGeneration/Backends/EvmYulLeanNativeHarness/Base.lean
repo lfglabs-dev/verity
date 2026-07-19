@@ -67,7 +67,8 @@ theorem eval_lowerExprNative_iszero_lt_calldatasize_4_ok
           (EvmYul.UInt256.lt
             (EvmYul.UInt256.ofNat shared.executionEnv.calldata.size)
             (EvmYul.UInt256.ofNat 4))) := by
-  simp [Backends.lowerExprNative, Backends.lookupRuntimePrimOp,
+  simp [Backends.lowerExprNative, Backends.lookupRuntimePrimOp_iszero,
+    Backends.lookupRuntimePrimOp_lt, Backends.lookupRuntimePrimOp_calldatasize,
     EvmYul.Yul.eval, EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail,
     EvmYul.Yul.evalPrimCall, EvmYul.Yul.reverse', EvmYul.Yul.cons',
     EvmYul.Yul.head', EvmYul.Yul.State.executionEnv]
@@ -142,7 +143,7 @@ theorem eval_lowerExprNative_callvalue_ok
         (Backends.lowerExprNative (Yul.YulExpr.call "callvalue" []))
         codeOverride (.Ok shared store) =
       .ok (.Ok shared store, shared.executionEnv.weiValue) := by
-  simp [Backends.lookupRuntimePrimOp,
+  simp [Backends.lookupRuntimePrimOp_callvalue,
     EvmYul.Yul.eval, EvmYul.Yul.evalArgs, EvmYul.Yul.evalPrimCall,
     EvmYul.Yul.reverse', EvmYul.Yul.head', EvmYul.Yul.State.executionEnv]
 
@@ -172,7 +173,7 @@ theorem eval_lowerExprNative_callvalue_ok_fuel
         (Backends.lowerExprNative (Yul.YulExpr.call "callvalue" []))
         codeOverride (.Ok shared store) =
       .ok (.Ok shared store, shared.executionEnv.weiValue) := by
-  simp [Backends.lookupRuntimePrimOp,
+  simp [Backends.lookupRuntimePrimOp_callvalue,
     EvmYul.Yul.eval, EvmYul.Yul.evalArgs, EvmYul.Yul.evalPrimCall,
     EvmYul.Yul.reverse', EvmYul.Yul.head', EvmYul.Yul.State.executionEnv]
 
@@ -199,7 +200,8 @@ theorem eval_lowerExprNative_lt_calldatasize_ok_fuel
         EvmYul.UInt256.lt
           (EvmYul.UInt256.ofNat shared.executionEnv.calldata.size)
           (EvmYul.UInt256.ofNat k)) := by
-  simp [Backends.lowerExprNative, Backends.lookupRuntimePrimOp,
+  simp [Backends.lowerExprNative, Backends.lookupRuntimePrimOp_lt,
+    Backends.lookupRuntimePrimOp_calldatasize,
     EvmYul.Yul.eval, EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail,
     EvmYul.Yul.evalPrimCall, EvmYul.Yul.reverse', EvmYul.Yul.cons',
     EvmYul.Yul.head', EvmYul.Yul.State.executionEnv]
@@ -224,7 +226,8 @@ theorem eval_lowerExprNative_lt_calldatasize_fuel
         EvmYul.UInt256.lt
           (EvmYul.UInt256.ofNat s.executionEnv.calldata.size)
           (EvmYul.UInt256.ofNat k)) := by
-  simp [Backends.lowerExprNative, Backends.lookupRuntimePrimOp,
+  simp [Backends.lowerExprNative, Backends.lookupRuntimePrimOp_lt,
+    Backends.lookupRuntimePrimOp_calldatasize,
     EvmYul.Yul.eval, EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail,
     EvmYul.Yul.evalPrimCall, EvmYul.Yul.reverse', EvmYul.Yul.cons',
     EvmYul.Yul.head']
@@ -245,7 +248,8 @@ theorem eval_lowerExprNative_lt_calldatasize_fuel_ge_6
         EvmYul.UInt256.lt
           (EvmYul.UInt256.ofNat s.executionEnv.calldata.size)
           (EvmYul.UInt256.ofNat k)) := by
-  simp [Backends.lowerExprNative, Backends.lookupRuntimePrimOp,
+  simp [Backends.lowerExprNative, Backends.lookupRuntimePrimOp_lt,
+    Backends.lookupRuntimePrimOp_calldatasize,
     EvmYul.Yul.eval, EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail,
     EvmYul.Yul.evalPrimCall, EvmYul.Yul.reverse', EvmYul.Yul.cons',
     EvmYul.Yul.head']
@@ -261,7 +265,7 @@ theorem eval_lowerExprNative_callvalue_fuel
         (Backends.lowerExprNative (Yul.YulExpr.call "callvalue" []))
         codeOverride s =
       .ok (s, s.executionEnv.weiValue) := by
-  simp [Backends.lookupRuntimePrimOp,
+  simp [Backends.lookupRuntimePrimOp_callvalue,
     EvmYul.Yul.eval, EvmYul.Yul.evalArgs, EvmYul.Yul.evalPrimCall,
     EvmYul.Yul.reverse', EvmYul.Yul.head']
 
@@ -274,7 +278,7 @@ theorem eval_lowerExprNative_callvalue_fuel_ge_2
         (Backends.lowerExprNative (Yul.YulExpr.call "callvalue" []))
         codeOverride s =
       .ok (s, s.executionEnv.weiValue) := by
-  simp [Backends.lookupRuntimePrimOp,
+  simp [Backends.lookupRuntimePrimOp_callvalue,
     EvmYul.Yul.eval, EvmYul.Yul.evalArgs, EvmYul.Yul.evalPrimCall,
     EvmYul.Yul.reverse', EvmYul.Yul.head']
 
@@ -372,7 +376,7 @@ private theorem eval_lowerExprNative_callvalue_lt2_not_ok
   rcases fuel with _ | _ | _
   all_goals first
     | omega
-    | (simp [Backends.lookupRuntimePrimOp,
+    | (simp [Backends.lookupRuntimePrimOp_callvalue,
         EvmYul.Yul.eval, EvmYul.Yul.evalArgs, EvmYul.Yul.evalPrimCall,
         EvmYul.Yul.reverse'] at hEval)
 
@@ -417,10 +421,10 @@ private theorem eval_lowerExprNative_lt_calldatasize_lt6_not_ok
   rcases fuel with _ | _ | _ | _ | _ | _ | _
   all_goals first
     | omega
-    | (simp [Backends.lowerExprNative, Backends.lookupRuntimePrimOp,
+    | (simp [Backends.lowerExprNative, Backends.lookupRuntimePrimOp_lt,
+        Backends.lookupRuntimePrimOp_calldatasize,
         EvmYul.Yul.eval, EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail,
-        EvmYul.Yul.evalPrimCall, EvmYul.Yul.reverse', EvmYul.Yul.cons',
-        EvmYul.Yul.head'] at hEval)
+        EvmYul.Yul.evalPrimCall, EvmYul.Yul.reverse', EvmYul.Yul.cons'] at hEval)
 
 /-- UNIVERSAL-INPUT reviveJump discharge for the dispatcher's
 `lt(calldatasize, k)` guard: for ANY fuel and ANY state, a successful eval
@@ -467,7 +471,7 @@ theorem eval_lowerExprNative_sload_ok_fuel
         codeOverride (.Ok shared store) =
       let (state', value) := shared.sload (EvmYul.UInt256.ofNat slot)
       .ok (.Ok { shared with toState := state' } store, value) := by
-  simp [Backends.lowerExprNative, Backends.lookupRuntimePrimOp,
+  simp [Backends.lowerExprNative, Backends.lookupRuntimePrimOp_sload,
     EvmYul.Yul.eval, EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail,
     EvmYul.Yul.evalPrimCall, EvmYul.Yul.reverse', EvmYul.Yul.cons',
     EvmYul.Yul.head', EvmYul.Yul.State.toState,
@@ -499,7 +503,8 @@ theorem exec_lowerExprNative_mstore_lit_sload_lit_ok_fuel
                    shared'.toMachineState.mstore
                      (EvmYul.UInt256.ofNat memOffset) value }
             store) := by
-  simp [Backends.lowerExprNative, Backends.lookupRuntimePrimOp,
+  simp [Backends.lowerExprNative, Backends.lookupRuntimePrimOp_mstore,
+    Backends.lookupRuntimePrimOp_sload,
     EvmYul.Yul.exec, EvmYul.Yul.eval, EvmYul.Yul.evalArgs,
     EvmYul.Yul.evalTail, EvmYul.Yul.evalPrimCall, EvmYul.Yul.execPrimCall,
     EvmYul.Yul.reverse', EvmYul.Yul.cons', EvmYul.Yul.head',
@@ -528,7 +533,7 @@ theorem exec_lowerExprNative_mstore_lit_lit_ok_fuel
                      (EvmYul.UInt256.ofNat memOffset)
                      (EvmYul.UInt256.ofNat value) }
             store) := by
-  simp [Backends.lowerExprNative, Backends.lookupRuntimePrimOp,
+  simp [Backends.lowerExprNative, Backends.lookupRuntimePrimOp_mstore,
     EvmYul.Yul.exec, EvmYul.Yul.eval, EvmYul.Yul.evalArgs,
     EvmYul.Yul.evalTail, EvmYul.Yul.execPrimCall,
     EvmYul.Yul.reverse', EvmYul.Yul.cons', EvmYul.Yul.multifill',
@@ -556,7 +561,8 @@ theorem exec_lowerExprNative_mstore_lit_calldataload_lit_ok_fuel
                      (EvmYul.UInt256.ofNat memOffset)
                      (shared.calldataload (EvmYul.UInt256.ofNat cdOffset)) }
             store) := by
-  simp [Backends.lowerExprNative, Backends.lookupRuntimePrimOp,
+  simp [Backends.lowerExprNative, Backends.lookupRuntimePrimOp_mstore,
+    Backends.lookupRuntimePrimOp_calldataload,
     EvmYul.Yul.exec, EvmYul.Yul.eval, EvmYul.Yul.evalArgs,
     EvmYul.Yul.evalTail, EvmYul.Yul.evalPrimCall, EvmYul.Yul.execPrimCall,
     EvmYul.Yul.reverse', EvmYul.Yul.cons', EvmYul.Yul.head',
@@ -590,7 +596,7 @@ theorem exec_lowerExprNative_return_lit_lit_error_fuel
                    (EvmYul.UInt256.ofNat memSize) }
           store)
         ⟨1⟩) := by
-  simp [Backends.lowerExprNative, Backends.lookupRuntimePrimOp,
+  simp [Backends.lowerExprNative, Backends.lookupRuntimePrimOp_return,
     EvmYul.Yul.exec, EvmYul.Yul.eval, EvmYul.Yul.evalArgs,
     EvmYul.Yul.evalTail, EvmYul.Yul.execPrimCall,
     EvmYul.Yul.reverse', EvmYul.Yul.cons',
@@ -652,7 +658,8 @@ theorem exec_let_lowerExprNative_iszero_lt_calldatasize_4_ok
           (EvmYul.UInt256.lt
             (EvmYul.UInt256.ofNat shared.executionEnv.calldata.size)
             (EvmYul.UInt256.ofNat 4)))) := by
-  simp [Backends.lowerExprNative, Backends.lookupRuntimePrimOp,
+  simp [Backends.lowerExprNative, Backends.lookupRuntimePrimOp_iszero,
+    Backends.lookupRuntimePrimOp_lt, Backends.lookupRuntimePrimOp_calldatasize,
     EvmYul.Yul.exec, EvmYul.Yul.eval, EvmYul.Yul.evalArgs,
     EvmYul.Yul.evalTail, EvmYul.Yul.evalPrimCall, EvmYul.Yul.execPrimCall,
     EvmYul.Yul.reverse', EvmYul.Yul.cons', EvmYul.Yul.head',
@@ -710,7 +717,8 @@ theorem exec_let_lowerExprNative_iszero_lt_calldatasize_4_ok_fuel
           (EvmYul.UInt256.lt
             (EvmYul.UInt256.ofNat shared.executionEnv.calldata.size)
             (EvmYul.UInt256.ofNat 4)))) := by
-  simp [Backends.lowerExprNative, Backends.lookupRuntimePrimOp,
+  simp [Backends.lowerExprNative, Backends.lookupRuntimePrimOp_iszero,
+    Backends.lookupRuntimePrimOp_lt, Backends.lookupRuntimePrimOp_calldatasize,
     EvmYul.Yul.exec, EvmYul.Yul.eval, EvmYul.Yul.evalArgs,
     EvmYul.Yul.evalTail, EvmYul.Yul.evalPrimCall, EvmYul.Yul.execPrimCall,
     EvmYul.Yul.reverse', EvmYul.Yul.cons', EvmYul.Yul.head',
@@ -758,7 +766,7 @@ theorem eval_lowerExprNative_iszero_ident_one_ok
           (Yul.YulExpr.call "iszero" [Yul.YulExpr.ident name]))
         codeOverride state =
       .ok (state, EvmYul.UInt256.ofNat 0) := by
-  simp [Backends.lowerExprNative, Backends.lookupRuntimePrimOp,
+  simp [Backends.lowerExprNative, Backends.lookupRuntimePrimOp_iszero,
     EvmYul.Yul.eval, EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail,
     EvmYul.Yul.evalPrimCall, EvmYul.Yul.reverse', EvmYul.Yul.cons',
     EvmYul.Yul.head', hVal]
@@ -776,7 +784,7 @@ theorem eval_lowerExprNative_iszero_ident_one_ok_fuel
           (Yul.YulExpr.call "iszero" [Yul.YulExpr.ident name]))
         codeOverride state =
       .ok (state, EvmYul.UInt256.ofNat 0) := by
-  simp [Backends.lowerExprNative, Backends.lookupRuntimePrimOp,
+  simp [Backends.lowerExprNative, Backends.lookupRuntimePrimOp_iszero,
     EvmYul.Yul.eval, EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail,
     EvmYul.Yul.evalPrimCall, EvmYul.Yul.reverse', EvmYul.Yul.cons',
     EvmYul.Yul.head', hVal]
@@ -5953,6 +5961,45 @@ theorem NativePrimCallPreservesWord_log4_values
                                       at hExec
                                     cases hExec
 
+private theorem lookupRuntimePrimOp_ne_none_of_allowed_of_ne_mappingSlot
+    (func : EvmYul.Identifier)
+    (hAllowed :
+      Compiler.Proofs.YulGeneration.Backends.allowedExprCallName func)
+    (hNeMapping : func ≠ "mappingSlot") :
+    Backends.lookupRuntimePrimOp func ≠ none := by
+  simp only [Compiler.Proofs.YulGeneration.Backends.allowedExprCallName,
+    Compiler.Proofs.YulGeneration.Backends.bridgedBuiltins,
+    List.mem_cons, List.not_mem_nil, or_false, or_assoc] at hAllowed
+  rcases hAllowed with
+    rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+    rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+    rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+    rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+  all_goals
+    simp only [Backends.lookupRuntimePrimOp_add,
+      Backends.lookupRuntimePrimOp_sub, Backends.lookupRuntimePrimOp_mul,
+      Backends.lookupRuntimePrimOp_div, Backends.lookupRuntimePrimOp_mod,
+      Backends.lookupRuntimePrimOp_lt, Backends.lookupRuntimePrimOp_gt,
+      Backends.lookupRuntimePrimOp_eq, Backends.lookupRuntimePrimOp_iszero,
+      Backends.lookupRuntimePrimOp_and, Backends.lookupRuntimePrimOp_or,
+      Backends.lookupRuntimePrimOp_xor, Backends.lookupRuntimePrimOp_not,
+      Backends.lookupRuntimePrimOp_shl, Backends.lookupRuntimePrimOp_shr,
+      Backends.lookupRuntimePrimOp_addmod, Backends.lookupRuntimePrimOp_mulmod,
+      Backends.lookupRuntimePrimOp_byte, Backends.lookupRuntimePrimOp_slt,
+      Backends.lookupRuntimePrimOp_sgt, Backends.lookupRuntimePrimOp_exp,
+      Backends.lookupRuntimePrimOp_sdiv, Backends.lookupRuntimePrimOp_smod,
+      Backends.lookupRuntimePrimOp_sar, Backends.lookupRuntimePrimOp_signextend,
+      Backends.lookupRuntimePrimOp_caller, Backends.lookupRuntimePrimOp_origin,
+      Backends.lookupRuntimePrimOp_address, Backends.lookupRuntimePrimOp_callvalue,
+      Backends.lookupRuntimePrimOp_timestamp, Backends.lookupRuntimePrimOp_number,
+      Backends.lookupRuntimePrimOp_chainid, Backends.lookupRuntimePrimOp_blobbasefee,
+      Backends.lookupRuntimePrimOp_calldataload,
+      Backends.lookupRuntimePrimOp_calldatasize,
+      Backends.lookupRuntimePrimOp_sload, Backends.lookupRuntimePrimOp_mappingSlot,
+      Backends.lookupRuntimePrimOp_tload, Backends.lookupRuntimePrimOp_mload,
+      Backends.lookupRuntimePrimOp_keccak256]
+  all_goals first | contradiction | decide
+
 theorem NativePrimCallPreservesWord_of_allowed_lookupRuntimePrimOp
     (name func : EvmYul.Identifier)
     (expected : EvmYul.Literal)
@@ -5964,9 +6011,39 @@ theorem NativePrimCallPreservesWord_of_allowed_lookupRuntimePrimOp
       state[name]! = expected →
         EvmYul.Yul.primCall fuel state op values = .ok (final, rets) →
         final[name]! = expected := by
-  unfold Backends.lookupRuntimePrimOp at hOp
-  split at hOp <;> cases hOp <;>
-    first
+  simp only [Compiler.Proofs.YulGeneration.Backends.allowedExprCallName,
+    Compiler.Proofs.YulGeneration.Backends.bridgedBuiltins,
+    List.mem_cons, List.not_mem_nil, or_false, or_assoc] at hAllowed
+  rcases hAllowed with
+    rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+    rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+    rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+    rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+  all_goals
+    simp only [Backends.lookupRuntimePrimOp_add,
+      Backends.lookupRuntimePrimOp_sub, Backends.lookupRuntimePrimOp_mul,
+      Backends.lookupRuntimePrimOp_div, Backends.lookupRuntimePrimOp_mod,
+      Backends.lookupRuntimePrimOp_lt, Backends.lookupRuntimePrimOp_gt,
+      Backends.lookupRuntimePrimOp_eq, Backends.lookupRuntimePrimOp_iszero,
+      Backends.lookupRuntimePrimOp_and, Backends.lookupRuntimePrimOp_or,
+      Backends.lookupRuntimePrimOp_xor, Backends.lookupRuntimePrimOp_not,
+      Backends.lookupRuntimePrimOp_shl, Backends.lookupRuntimePrimOp_shr,
+      Backends.lookupRuntimePrimOp_addmod, Backends.lookupRuntimePrimOp_mulmod,
+      Backends.lookupRuntimePrimOp_byte, Backends.lookupRuntimePrimOp_slt,
+      Backends.lookupRuntimePrimOp_sgt, Backends.lookupRuntimePrimOp_exp,
+      Backends.lookupRuntimePrimOp_sdiv, Backends.lookupRuntimePrimOp_smod,
+      Backends.lookupRuntimePrimOp_sar, Backends.lookupRuntimePrimOp_signextend,
+      Backends.lookupRuntimePrimOp_caller, Backends.lookupRuntimePrimOp_origin,
+      Backends.lookupRuntimePrimOp_address, Backends.lookupRuntimePrimOp_callvalue,
+      Backends.lookupRuntimePrimOp_timestamp, Backends.lookupRuntimePrimOp_number,
+      Backends.lookupRuntimePrimOp_chainid, Backends.lookupRuntimePrimOp_blobbasefee,
+      Backends.lookupRuntimePrimOp_calldataload,
+      Backends.lookupRuntimePrimOp_calldatasize,
+      Backends.lookupRuntimePrimOp_sload, Backends.lookupRuntimePrimOp_mappingSlot,
+      Backends.lookupRuntimePrimOp_tload, Backends.lookupRuntimePrimOp_mload,
+      Backends.lookupRuntimePrimOp_keccak256, Option.some.injEq] at hOp
+  all_goals cases hOp
+  all_goals first
     | exact NativePrimCallPreservesWord_add_values name expected
     | exact NativePrimCallPreservesWord_sub_values name expected
     | exact NativePrimCallPreservesWord_mul_values name expected
@@ -6006,9 +6083,6 @@ theorem NativePrimCallPreservesWord_of_allowed_lookupRuntimePrimOp
     | exact NativePrimCallPreservesWord_mload_values name expected
     | exact NativePrimCallPreservesWord_sload_values name expected
     | exact NativePrimCallPreservesWord_tload_values name expected
-    | exfalso
-      simp [Compiler.Proofs.YulGeneration.Backends.allowedExprCallName,
-        Compiler.Proofs.YulGeneration.Backends.bridgedBuiltins] at hAllowed
 
 theorem NativeExprPreservesWord_var
     (name : EvmYul.Identifier)
@@ -6754,12 +6828,8 @@ theorem NativeExprPreservesWord_lowerExprNative_of_bridgedExpr_mappingContract
                   name func expected op hName hOp)
         | none =>
             exfalso
-            unfold Backends.lookupRuntimePrimOp at hOp
-            split at hOp <;> simp at hOp
-            simp [Compiler.Proofs.YulGeneration.Backends.allowedExprCallName,
-              Compiler.Proofs.YulGeneration.Backends.bridgedBuiltins,
-              hMapping] at hName
-            tauto
+            exact lookupRuntimePrimOp_ne_none_of_allowed_of_ne_mappingSlot
+              func hName hMapping hOp
 
 theorem NativeEvalArgsPreservesWord_lowerExprNative_reverse_of_bridgedExprs_mappingContract
     (name : EvmYul.Identifier)
@@ -6843,12 +6913,8 @@ theorem NativeExprPreservesWord_lowerExprNative_of_mappingFreeBridgedExpr
                 name func expected op hName hOp)
       | none =>
           exfalso
-          unfold Backends.lookupRuntimePrimOp at hOp
-          split at hOp <;> simp at hOp
-          simp [Compiler.Proofs.YulGeneration.Backends.allowedExprCallName,
-            Compiler.Proofs.YulGeneration.Backends.bridgedBuiltins,
-            hNoMapping] at hName
-          tauto
+          exact lookupRuntimePrimOp_ne_none_of_allowed_of_ne_mappingSlot
+            func hName hNoMapping hOp
 
 theorem NativeEvalArgsPreservesWord_lowerExprNative_reverse_of_mappingFreeBridgedExprs
     (name : EvmYul.Identifier)
@@ -8520,12 +8586,8 @@ theorem NativeStmtPreservesWord_let_lowerExprNative_of_mappingFreeBridgedExpr
                     name func expected op hName hOp)
           | none =>
               exfalso
-              unfold Backends.lookupRuntimePrimOp at hOp
-              split at hOp <;> simp at hOp
-              simp [Compiler.Proofs.YulGeneration.Backends.allowedExprCallName,
-                Compiler.Proofs.YulGeneration.Backends.bridgedBuiltins,
-                hNoMapping] at hName
-              tauto
+              exact lookupRuntimePrimOp_ne_none_of_allowed_of_ne_mappingSlot
+                func hName hNoMapping hOp
 
 theorem NativeStmtPreservesWord_letMany_lowerExprNative_of_mappingFreeBridgedExpr
     (name : EvmYul.Identifier)
@@ -8573,12 +8635,8 @@ theorem NativeStmtPreservesWord_letMany_lowerExprNative_of_mappingFreeBridgedExp
                     name func expected op hName hOp)
           | none =>
               exfalso
-              unfold Backends.lookupRuntimePrimOp at hOp
-              split at hOp <;> simp at hOp
-              simp [Compiler.Proofs.YulGeneration.Backends.allowedExprCallName,
-                Compiler.Proofs.YulGeneration.Backends.bridgedBuiltins,
-                hNoMapping] at hName
-              tauto
+              exact lookupRuntimePrimOp_ne_none_of_allowed_of_ne_mappingSlot
+                func hName hNoMapping hOp
 
 theorem NativeStmtPreservesWord_lowerAssignNative_of_mappingFreeBridgedExpr
     (name : EvmYul.Identifier)
@@ -8685,12 +8743,8 @@ theorem NativeStmtPreservesWord_let_lowerExprNative_of_bridgedExpr_mappingContra
                       name func expected op hName hOp)
             | none =>
                 exfalso
-                unfold Backends.lookupRuntimePrimOp at hOp
-                split at hOp <;> simp at hOp
-                simp [Compiler.Proofs.YulGeneration.Backends.allowedExprCallName,
-                  Compiler.Proofs.YulGeneration.Backends.bridgedBuiltins,
-                  hMapping] at hName
-                tauto
+                exact lookupRuntimePrimOp_ne_none_of_allowed_of_ne_mappingSlot
+                  func hName hMapping hOp
 
 theorem NativeStmtPreservesWord_letMany_lowerExprNative_of_bridgedExpr_mappingContract
     (name : EvmYul.Identifier)
@@ -8751,12 +8805,8 @@ theorem NativeStmtPreservesWord_letMany_lowerExprNative_of_bridgedExpr_mappingCo
                       name func expected op hName hOp)
             | none =>
                 exfalso
-                unfold Backends.lookupRuntimePrimOp at hOp
-                split at hOp <;> simp at hOp
-                simp [Compiler.Proofs.YulGeneration.Backends.allowedExprCallName,
-                  Compiler.Proofs.YulGeneration.Backends.bridgedBuiltins,
-                  hMapping] at hName
-                tauto
+                exact lookupRuntimePrimOp_ne_none_of_allowed_of_ne_mappingSlot
+                  func hName hMapping hOp
 
 theorem NativeStmtPreservesWord_lowerAssignNative_of_bridgedExpr_mappingContract
     (name : EvmYul.Identifier)
@@ -9459,12 +9509,8 @@ theorem NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_expr_call_of_b
               name func expected op hName hOp)
     | none =>
         exfalso
-        unfold Backends.lookupRuntimePrimOp at hOp
-        split at hOp <;> simp at hOp
-        simp [Compiler.Proofs.YulGeneration.Backends.allowedExprCallName,
-          Compiler.Proofs.YulGeneration.Backends.bridgedBuiltins,
-          hMapping] at hName
-        tauto
+        exact lookupRuntimePrimOp_ne_none_of_allowed_of_ne_mappingSlot
+          func hName hMapping hOp
 
 theorem NativeStmtPreservesWord_exprStmtCall_mstore_of_evalArgs_preserves
     (name : EvmYul.Identifier)
@@ -13113,12 +13159,8 @@ theorem NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_of_mappingFree
                 name func expected op hName hOp)
       | none =>
           exfalso
-          unfold Backends.lookupRuntimePrimOp at hOp
-          split at hOp <;> simp at hOp
-          simp [Compiler.Proofs.YulGeneration.Backends.allowedExprCallName,
-            Compiler.Proofs.YulGeneration.Backends.bridgedBuiltins,
-            hNoMapping] at hName
-          tauto
+          exact lookupRuntimePrimOp_ne_none_of_allowed_of_ne_mappingSlot
+            func hName hNoMapping hOp
   | expr_sstore slotExpr valExpr hSlot hVal =>
       rw [Backends.lowerStmtGroupNativeWithSwitchIds_expr] at hLower
       cases hLower
