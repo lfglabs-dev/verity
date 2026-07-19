@@ -25,6 +25,9 @@ LEAN_BUILTIN_AXIOMS = frozenset([
     "Quot.sound",
     "Classical.choice",
     "Lean.ofReduceBool",
+    # native_decide implicitly trusts native codegen even when #print axioms only records
+    # Lean.ofReduceBool for the current generated proof terms.
+    "Lean.trustCompiler",
 ])
 
 DOCUMENTED_AXIOMS = frozenset([
@@ -217,7 +220,8 @@ def generate_report(
     lines.append(f"Axiom-free (pure logic): {axiom_free}")
     lines.append(
         "Uses only Lean builtins "
-        "(propext, Quot.sound, Classical.choice, Lean.ofReduceBool): "
+        "(propext, Quot.sound, Classical.choice, Lean.ofReduceBool, "
+        "Lean.trustCompiler): "
         f"{builtin_only}"
     )
     lines.append(f"Uses documented project axioms: {uses_documented}")
