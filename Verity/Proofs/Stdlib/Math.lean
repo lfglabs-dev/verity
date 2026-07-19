@@ -7,8 +7,8 @@
 
 import Verity.Core
 import Verity.Stdlib.Math
-import Mathlib.Data.Complex.Exponential
-import Mathlib.Data.Complex.ExponentialBounds
+import Mathlib.Analysis.Complex.Exponential
+import Mathlib.Analysis.Complex.ExponentialBounds
 import Mathlib.Tactic.Linarith
 import Mathlib.Tactic.Ring
 
@@ -497,7 +497,7 @@ theorem abs_pow_sub_pow_le (b c : ℝ) (n : Nat) :
         |c ^ (n + 1) - b ^ (n + 1)|
             = |c * (c ^ n - b ^ n) + (c - b) * b ^ n| := by rw [hdecomp]
         _ ≤ |c * (c ^ n - b ^ n)| + |(c - b) * b ^ n| :=
-            abs_add _ _
+            abs_add_le _ _
         _ = |c| * |c ^ n - b ^ n| + d * |b| ^ n := by
             simp [abs_mul, abs_pow, d, mul_comm]
         _ ≤ M * ((n : ℝ) * M ^ (n - 1) * d) + d * M ^ n := by
@@ -659,7 +659,6 @@ private theorem sdivTrunc_neg_ofNat_mul_WAD (a k : Nat) (hk : 0 < k) :
       rw [abs_of_nonneg]
       positivity
     simp [WAD_NAT, hk_ne, ha_pos]
-    exact congrArg (fun d : Int => (a : Int) / d) hdenAbsInt'
 
 private theorem sdivTrunc_sq_of_neg_nat (s : Nat) :
     sdivTrunc (-(s : Int) * -(s : Int)) (2 * Int.ofNat WAD_NAT) =
@@ -1138,7 +1137,7 @@ private theorem real_abs_mul_sub_mul_le
   calc
     |A * B - Ahat * Bhat|
         = |(A - Ahat) * B + Ahat * (B - Bhat)| := by ring_nf
-    _ ≤ |(A - Ahat) * B| + |Ahat * (B - Bhat)| := abs_add _ _
+    _ ≤ |(A - Ahat) * B| + |Ahat * (B - Bhat)| := abs_add_le _ _
     _ = |A - Ahat| * B + Ahat * |B - Bhat| := by
       rw [abs_mul, abs_mul, abs_of_nonneg hB, abs_of_nonneg hAhat]
     _ ≤ epsA * B + Ahat * epsB :=
@@ -1261,7 +1260,6 @@ private theorem WEXP_ONE_E36_real_div_scaled_div_WAD_eq_inv
     exact_mod_cast WEXP_ONE_E36_eq_WAD_mul_WAD
   rw [hconst]
   field_simp [hscaled_ne, hwad_ne]
-  ring
 
  private theorem tickWExpReference_neg_nonneg_error {x : Int} (_hx : x < 0) :
     |((((Int.toNat (wExpSignedCubicKernel (wExpRangeR (wExpAbsInput x))) *
@@ -1358,7 +1356,7 @@ theorem tickWExpReference_real_error_neg {x : Int} (hx : x < 0) :
         ≤ |((tickWExpReference x : ℝ) / (WAD_NAT : ℝ)) - invScaled|
           + |invScaled - Real.exp (-((wExpAbsInput x : ℝ) / (WAD_NAT : ℝ)))| := by
       simpa [sub_eq_add_neg, add_assoc] using
-        abs_add (((tickWExpReference x : ℝ) / (WAD_NAT : ℝ)) - invScaled)
+        abs_add_le (((tickWExpReference x : ℝ) / (WAD_NAT : ℝ)) - invScaled)
           (invScaled - Real.exp (-((wExpAbsInput x : ℝ) / (WAD_NAT : ℝ))))
     _ ≤ 1 / (WAD_NAT : ℝ)
         + ((2 : ℝ) ^ wExpRangeQ (wExpAbsInput x)

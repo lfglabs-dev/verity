@@ -47,13 +47,23 @@
       "sha": "7785a9bba344db917e42b7f1033ee8346197bb40",
       "title": "Expose checkpoint state projections",
       "trust_impact": "Low. This changes proof-facing state query behavior on checkpoint values only; it does not change Yul/EVM execution semantics or runtime state transitions."
+    },
+    {
+      "category": "toolchain",
+      "diff_summary": "6 files changed, 82 insertions(+), 60 deletions(-): update toolchain metadata and mechanical compatibility points for Lean 4.24.0. The EvmYul default target still builds all 1059 jobs successfully.",
+      "file": "lean-toolchain, lakefile.lean, lake-manifest.json, Conform/Wheels.lean, EvmYul/Yul/YulNotation.lean, EvmYul/EVM/Semantics.lean",
+      "rationale": "Move the fork and its Mathlib dependency from Lean 4.22.0 to Lean 4.24.0 so downstream Verity projects can use the same toolchain as lean-lsp-mcp 0.28.0. Adapt JSON object iteration to Std.TreeMap.Raw, update the custom Yul parser to current parser-context APIs and non-conflicting syntax category names, and make a UInt256 zero literal explicit.",
+      "semantic_change": false,
+      "sha": "38d53df8b4488d5322894619ea8385fcbb2e6f5d",
+      "title": "chore: upgrade Lean toolchain to v4.24.0",
+      "trust_impact": "Low. The migration preserves the existing JSON conversion, Yul syntax and execution behavior while adopting renamed or stricter Lean 4.24 APIs. No EVM/Yul transition rule changes."
     }
   ],
-  "divergence_summary": "Fork is exactly 4 commits ahead of upstream/main. All commits are non-semantic: one visibility change (private -> default) on an internal exponentiation accumulator, one Lean 4.22.0 deprecation fix (nativeLibDir -> staticLibDir) in the lakefile, and one FFI body exposure for ByteArray.zeroes that matches the extern zero-fill behavior, and one checkpoint-state projection exposure that makes existing saved shared-state/store fields visible to downstream proofs. None of these commits changes EVM/Yul execution semantics, so upstream Ethereum conformance test coverage continues to apply transitively.",
-  "fork_ahead_by": 4,
+  "divergence_summary": "Fork is exactly 5 commits ahead of upstream/main. All commits are non-semantic: one visibility change (private -> default) on an internal exponentiation accumulator, one Lean 4.22.0 deprecation fix (nativeLibDir -> staticLibDir) in the lakefile, one FFI body exposure for ByteArray.zeroes that matches the extern zero-fill behavior, one checkpoint-state projection exposure that makes existing saved shared-state/store fields visible to downstream proofs, and one Lean 4.24 compatibility migration covering build metadata, JSON object traversal, parser APIs, and stricter elaboration. None of these commits changes EVM/Yul execution semantics, so upstream Ethereum conformance test coverage continues to apply transitively.",
+  "fork_ahead_by": 5,
   "fork_behind_by": 0,
   "fork_url": "https://github.com/lfglabs-dev/EVMYulLean",
-  "pinned_commit": "7785a9bba344db917e42b7f1033ee8346197bb40",
+  "pinned_commit": "38d53df8b4488d5322894619ea8385fcbb2e6f5d",
   "reproduction": {
     "script": "scripts/generate_evmyullean_fork_audit.py",
     "steps": [
@@ -66,7 +76,7 @@
     ]
   },
   "schema_version": 1,
-  "trust_boundary": "Verity's effective trust boundary for Yul/EVM semantics is (upstream NethermindEth/EVMYulLean at commit 047f63070309f436b66c61e276ab3b6d1169265a) plus the 4 visibility/toolchain fork commits enumerated above. None of these fork commits touches EVM/Yul execution semantics, so upstream Ethereum conformance test coverage applies transitively.",
+  "trust_boundary": "Verity's effective trust boundary for Yul/EVM semantics is (upstream NethermindEth/EVMYulLean at commit 047f63070309f436b66c61e276ab3b6d1169265a) plus the 5 visibility/toolchain fork commits enumerated above. None of these fork commits touches EVM/Yul execution semantics, so upstream Ethereum conformance test coverage applies transitively.",
   "upstream_base": "047f63070309f436b66c61e276ab3b6d1169265a",
   "upstream_url": "https://github.com/NethermindEth/EVMYulLean"
 }

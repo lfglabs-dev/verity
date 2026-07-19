@@ -49,18 +49,20 @@ FORK_AUDIT = {
     "schema_version": 1,
     "fork_url": "https://github.com/lfglabs-dev/EVMYulLean",
     "upstream_url": "https://github.com/NethermindEth/EVMYulLean",
-    "pinned_commit": "7785a9bba344db917e42b7f1033ee8346197bb40",
+    "pinned_commit": "38d53df8b4488d5322894619ea8385fcbb2e6f5d",
     "upstream_base": "047f63070309f436b66c61e276ab3b6d1169265a",
-    "fork_ahead_by": 4,
+    "fork_ahead_by": 5,
     "fork_behind_by": 0,
     "divergence_summary": (
-        "Fork is exactly 4 commits ahead of upstream/main. All commits are "
+        "Fork is exactly 5 commits ahead of upstream/main. All commits are "
         "non-semantic: one visibility change (private -> default) on an "
         "internal exponentiation accumulator, one Lean 4.22.0 deprecation "
-        "fix (nativeLibDir -> staticLibDir) in the lakefile, and one FFI "
+        "fix (nativeLibDir -> staticLibDir) in the lakefile, one FFI "
         "body exposure for ByteArray.zeroes that matches the extern zero-fill "
-        "behavior, and one checkpoint-state projection exposure that makes "
-        "existing saved shared-state/store fields visible to downstream proofs. "
+        "behavior, one checkpoint-state projection exposure that makes "
+        "existing saved shared-state/store fields visible to downstream proofs, "
+        "and one Lean 4.24 compatibility migration covering build metadata, "
+        "JSON object traversal, parser APIs, and stricter elaboration. "
         "None of these commits changes EVM/Yul execution semantics, "
         "so upstream Ethereum conformance test coverage continues to apply "
         "transitively."
@@ -166,6 +168,32 @@ FORK_AUDIT = {
                 "semantics or runtime state transitions."
             ),
         },
+        {
+            "sha": "38d53df8b4488d5322894619ea8385fcbb2e6f5d",
+            "title": "chore: upgrade Lean toolchain to v4.24.0",
+            "file": "lean-toolchain, lakefile.lean, lake-manifest.json, Conform/Wheels.lean, EvmYul/Yul/YulNotation.lean, EvmYul/EVM/Semantics.lean",
+            "category": "toolchain",
+            "semantic_change": False,
+            "rationale": (
+                "Move the fork and its Mathlib dependency from Lean 4.22.0 "
+                "to Lean 4.24.0 so downstream Verity projects can use the "
+                "same toolchain as lean-lsp-mcp 0.28.0. Adapt JSON object "
+                "iteration to Std.TreeMap.Raw, update the custom Yul parser "
+                "to current parser-context APIs and non-conflicting syntax "
+                "category names, and make a UInt256 zero literal explicit."
+            ),
+            "diff_summary": (
+                "6 files changed, 82 insertions(+), 60 deletions(-): update "
+                "toolchain metadata and mechanical compatibility points for "
+                "Lean 4.24.0. The EvmYul default target still builds all 1059 "
+                "jobs successfully."
+            ),
+            "trust_impact": (
+                "Low. The migration preserves the existing JSON conversion, "
+                "Yul syntax and execution behavior while adopting renamed or "
+                "stricter Lean 4.24 APIs. No EVM/Yul transition rule changes."
+            ),
+        },
     ],
     "audit_methodology": [
         "1. Clone lfglabs-dev/EVMYulLean at pinned commit into a local worktree.",
@@ -189,7 +217,7 @@ FORK_AUDIT = {
     "trust_boundary": (
         "Verity's effective trust boundary for Yul/EVM semantics is "
         "(upstream NethermindEth/EVMYulLean at commit "
-        "047f63070309f436b66c61e276ab3b6d1169265a) plus the 4 "
+        "047f63070309f436b66c61e276ab3b6d1169265a) plus the 5 "
         "visibility/toolchain fork commits enumerated above. None of these "
         "fork commits touches EVM/Yul execution semantics, so upstream "
         "Ethereum conformance test coverage applies transitively."
