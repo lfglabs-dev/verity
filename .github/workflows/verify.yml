@@ -108,7 +108,40 @@ jobs:
       actions: write
       contents: read
     steps:
+      # Fail-closed native Stacked PRs guard (#2173): never cancel runs, delete
+      # branches, close dependents, or drop artifacts while the closed PR/branch
+      # is a stack member/base or has open dependent PRs. Uses Stacks REST API
+      # plus a direct open-PR base-ref fallback (beta/API lag safe).
+      - uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            scripts/closed_pr_cleanup_guard.py
+          sparse-checkout-cone-mode: false
+
+      - name: Evaluate native stack cleanup guard
+        id: stack-guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+          # github.event.pull_request.stack when present (native stacks private preview)
+          STACK_METADATA: ${{ toJSON(github.event.pull_request.stack) }}
+        run: |
+          set -euo pipefail
+          stack_file="$(mktemp)"
+          printf '%s' "${STACK_METADATA}" > "${stack_file}"
+          python3 scripts/closed_pr_cleanup_guard.py \
+            --repo "${REPO}" \
+            --pr "${PR_NUMBER}" \
+            --head-branch "${HEAD_BRANCH}" \
+            --stack-metadata "@${stack_file}" \
+            --github-output "${GITHUB_OUTPUT}" \
+            --output text
+          rm -f "${stack_file}"
+
       - name: Cancel queued and running CI for the closed PR
+        if: steps.stack-guard.outputs.eligible_for_cleanup == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -142,6 +175,13 @@ jobs:
               fi
             done
           done
+
+      - name: Skip destructive cleanup while stack-retained
+        if: steps.stack-guard.outputs.eligible_for_cleanup != 'true'
+        run: |
+          set -euo pipefail
+          echo "closed-pr-cleanup: retaining branch/PR/artifacts; skipping cancel and any destructive cleanup."
+          echo "reason=${{ steps.stack-guard.outputs.reason }}"
 
   changes:
     if: github.event_name != 'pull_request' || github.event.action != 'closed'
