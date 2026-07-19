@@ -1,5 +1,5 @@
 import Compiler.Proofs.IRGeneration.GenericInduction.Helpers
-import Compiler.Proofs.IRGeneration.HelperBodyBridge
+import Compiler.Proofs.IRGeneration.HelperBodyShape
 
 namespace Compiler.Proofs.IRGeneration
 
