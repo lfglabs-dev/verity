@@ -20,6 +20,7 @@ import Compiler.CompilationModel.LayoutReport
 import Compiler.CompilationModel.LayoutValidation
 import Compiler.CompilationModel.LogicalPurity
 import Compiler.CompilationModel.MappingWrites
+import Compiler.CompilationModel.ReservedScratchNames
 import Compiler.CompilationModel.ScopeValidation
 import Compiler.CompilationModel.StorageWrites
 import Compiler.CompilationModel.TrustSurface
