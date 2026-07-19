@@ -2574,12 +2574,12 @@ structure SupportedBodyEffectInterface (fn : FunctionSpec) : Prop where
   surfaceClosed : stmtListTouchesUnsupportedEffectSurface fn.body = false
 
 structure InternalHelperSummaryContract where
-  post : Nat → Verity.ContractState → List Nat → Bool → Option Nat → Verity.ContractState → Prop
+  post : Nat → Nat → Verity.ContractState → List Nat → Bool → Option Nat → Verity.ContractState → Prop
 
 def InternalHelperSummaryPreservesWorldOnSuccess
     (summary : InternalHelperSummaryContract) : Prop :=
-  ∀ fuel initialWorld args success returnValue finalWorld,
-    summary.post fuel initialWorld args success returnValue finalWorld →
+  ∀ fuel selector initialWorld args success returnValue finalWorld,
+    summary.post fuel selector initialWorld args success returnValue finalWorld →
       success = true →
       finalWorld = initialWorld
 
@@ -3841,8 +3841,8 @@ theorem SupportedStmtList.internalHelperCallNames_nil
           simp only [List.cons_append, stmtListInternalHelperCallNames]
           have : stmtInternalHelperCallNames x ++ stmtListInternalHelperCallNames xs' = [] := by
             simpa [stmtListInternalHelperCallNames] using hxs
-          have hx : stmtInternalHelperCallNames x = [] := List.append_eq_nil.mp this |>.1
-          have hxs' : stmtListInternalHelperCallNames xs' = [] := List.append_eq_nil.mp this |>.2
+          have hx : stmtInternalHelperCallNames x = [] := List.append_eq_nil_iff.mp this |>.1
+          have hxs' : stmtListInternalHelperCallNames xs' = [] := List.append_eq_nil_iff.mp this |>.2
           simp [hx, ihx hxs']
 
 
