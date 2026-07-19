@@ -199,9 +199,16 @@ theorem exactInternalHelperSummary_preservesWorldOnSuccess_of_readOnly_body
     (hbody : helperBodyNoWorldMutationOnSuccess fn) :
     InternalHelperSummaryPreservesWorldOnSuccess
       (exactInternalHelperSummary spec fn) := by
-  intro fuel initialWorld args success returnValue finalWorld hpost hsuccess
-  simp only [exactInternalHelperSummary] at hpost
-  rcases hpost with ⟨selector, hsuccessEq, _hret, hworld⟩
+  intro fuel selector initialWorld args success returnValue finalWorld hpost hsuccess
+  change
+    success =
+        (internalHelperBodyInterpretation spec fuel fn initialWorld selector args).success ∧
+      returnValue =
+        (internalHelperBodyInterpretation spec fuel fn initialWorld selector args).returnValue ∧
+      finalWorld =
+        (internalHelperBodyInterpretation spec fuel fn initialWorld selector args).world
+    at hpost
+  rcases hpost with ⟨hsuccessEq, _hret, hworld⟩
   have hsuccess' :
       (internalHelperBodyInterpretation spec fuel fn initialWorld selector args).success =
         true := by
