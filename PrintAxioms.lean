@@ -1911,6 +1911,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.HelperStepProofs.exprInternalHelperHeadStepBridgeWithInternals_letVar_mul_right_threaded
   Compiler.Proofs.HelperStepProofs.exprInternalHelperHeadStepBridgeWithInternals_letVar_mul_left_threaded
   Compiler.Proofs.HelperStepProofs.exprInternalHelperHeadStepBridgeWithInternals_letVar_sub_right_threaded
+  Compiler.Proofs.HelperStepProofs.exprInternalHelperHeadStepBridgeWithInternals_letVar_sub_left_threaded
   Compiler.Proofs.HelperStepProofs.compiledStmtStepWithHelpersAndHelperIR_of_exprHeadStepBridge
   Compiler.Proofs.HelperStepProofs.compiledStmtStepWithHelpersAndHelperIRWithInternals_of_exprHeadStepBridgeWithInternals
   Compiler.Proofs.HelperStepProofs.stmtListGenericWithHelpersAndHelperIRWithInternals_cons_of_exprHeadStepBridgeWithInternals
@@ -6291,4 +6292,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5894 theorems/lemmas (4070 public, 1824 private, 0 sorry'd)
+-- Total: 5895 theorems/lemmas (4071 public, 1824 private, 0 sorry'd)
