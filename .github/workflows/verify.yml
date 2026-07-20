@@ -288,7 +288,7 @@ jobs:
         run: |
           if [ -d .git ]; then
             git sparse-checkout disable || true
-            git ls-files -z | git update-index --no-skip-worktree -z --stdin || true
+            rm -f "$(git rev-parse --git-path index)"
             git reset --hard HEAD
           fi
 
