@@ -1,0 +1,14 @@
+[
+  {
+    "number": 50,
+    "state": "open",
+    "base": { "ref": "main" },
+    "head": { "ref": "other-feature" }
+  },
+  {
+    "number": 2173,
+    "state": "open",
+    "base": { "ref": "codex/2080-direct-helper-fuel-split-consumer" },
+    "head": { "ref": "codex/2080-expr-helper-add-left" }
+  }
+]

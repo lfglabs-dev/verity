@@ -102,8 +102,10 @@ private partial def stmtSummary : Stmt → TransitionSummary
       { reads := dedup (exprReads key ++ exprReads value), writes := [field ++ "." ++ member] }
   | .setStructMember2 field key1 key2 member value =>
       { reads := dedup (exprReads key1 ++ exprReads key2 ++ exprReads value), writes := [field ++ "." ++ member] }
-  | .require cond label | .requireError cond label _ =>
+  | .require cond label =>
       { reads := dedup (exprReads cond), guards := [label] }
+  | .requireError cond label args =>
+      { reads := dedup (exprReads cond ++ args.flatMap exprReads), guards := [label] }
   | .revertError label args =>
       { reads := dedup (args.flatMap exprReads), guards := [label] }
   | .panicCode code =>

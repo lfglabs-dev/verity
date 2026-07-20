@@ -1,0 +1,14 @@
+[
+  {
+    "number": 50,
+    "state": "open",
+    "base": { "ref": "main" },
+    "head": { "ref": "other-feature" }
+  },
+  {
+    "number": 51,
+    "state": "open",
+    "base": { "ref": "main" },
+    "head": { "ref": "unrelated" }
+  }
+]

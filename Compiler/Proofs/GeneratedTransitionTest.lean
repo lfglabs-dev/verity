@@ -20,5 +20,12 @@ private def assert (label : String) (ok : Bool) : IO Unit := do
   assert "extracts guards" (summary.guards.contains "nonzero")
   assert "extracts events" (summary.events.contains "Take")
   assert "non-empty summary can feed later Midnight RCF/totalUnits" (enoughForMidnightRcfTotalUnits summary)
+  let failingRequireError := extract
+    [Stmt.requireError (Expr.literal 0) "InsufficientBalance" [Expr.storage "balance"]]
+  assert "failing requireError includes payload storage reads"
+    (failingRequireError.reads.contains "balance")
+  let literalRequireError := extract
+    [Stmt.requireError (Expr.literal 0) "InsufficientBalance" [Expr.literal 1]]
+  assert "literal requireError payload remains read-free" literalRequireError.reads.isEmpty
 
 end Compiler.Proofs.GeneratedTransitionTest

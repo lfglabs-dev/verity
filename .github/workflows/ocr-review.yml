@@ -47,7 +47,7 @@ jobs:
               pr = context.payload.pull_request;
             } else {
               const prNumber = context.eventName === 'workflow_dispatch'
-                ? Number(core.getInput('pr_number'))
+                ? Number(context.payload.inputs.pr_number)
                 : context.issue.number;
               const res = await github.rest.pulls.get({
                 owner: context.repo.owner,
@@ -128,6 +128,7 @@ jobs:
           OCR_SCOUT_LLM_URL: ${{ secrets.OCR_SCOUT_LLM_URL || secrets.OCR_LLM_URL }}
           OCR_SCOUT_LLM_KEY: ${{ secrets.OCR_SCOUT_LLM_KEY || secrets.OCR_LLM_KEY }}
           OCR_SCOUT_LLM_MODEL: ${{ vars.OCR_SCOUT_LLM_MODEL || secrets.OCR_SCOUT_LLM_MODEL || 'MiniMax-M3' }}
+          OCR_SCOUT_LENSES: ${{ vars.OCR_SCOUT_LENSES || '' }}
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -139,12 +140,46 @@ jobs:
           trap - EXIT
           node "$GITHUB_WORKSPACE/ocr-trusted/.github/scripts/ocr-router.js"
 
+      - name: Prepare repository-pinned Lean toolchain for LSP evidence
+        if: steps.pr.outputs.skip != 'true' && steps.route.outputs.should_run_ocr == 'true' && steps.route.outputs.has_lean == 'true'
+        env:
+          # Never reuse the runner's elan store for a PR-selected toolchain.
+          # The run/attempt suffix also prevents stale self-hosted runner state
+          # from bypassing the pinned elan bootstrap after an interrupted job.
+          ELAN_HOME: ${{ runner.temp }}/ocr-elan-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          "$GITHUB_WORKSPACE/ocr-trusted/.github/scripts/prepare-lean-lsp.sh" "$GITHUB_WORKSPACE/repo"
+
       - name: Install OpenCodeReview
         if: steps.pr.outputs.skip != 'true' && steps.route.outputs.should_run_ocr == 'true'
         run: |
           set -euo pipefail
-          npm install -g @alibaba-group/open-code-review@1.7.5
+          # Keep the OCR client out of the self-hosted runner's global npm
+          # prefix.  It is run-scoped just like the elan toolchain above.
+          npm install --prefix "$RUNNER_TEMP/ocr-cli" @alibaba-group/open-code-review@1.7.9
+          echo "$RUNNER_TEMP/ocr-cli/node_modules/.bin" >> "$GITHUB_PATH"
+          export PATH="$RUNNER_TEMP/ocr-cli/node_modules/.bin:$PATH"
           ocr version
+
+      - name: Configure bounded Lean LSP evidence
+        if: steps.pr.outputs.skip != 'true' && steps.route.outputs.should_run_ocr == 'true' && steps.route.outputs.has_lean == 'true'
+        env:
+          HOME: ${{ runner.temp }}/ocr-home
+          ELAN_HOME: ${{ runner.temp }}/ocr-elan-${{ github.run_id }}-${{ github.run_attempt }}
+          LEAN_LSP_MCP_VERSION: "0.28.0"
+        run: |
+          set -euo pipefail
+          command -v uvx >/dev/null
+          mkdir -p "$HOME"
+          # OCR 1.7.9 is the MCP client.  Expose only read-only local evidence
+          # tools: diagnostics, declaration outlines, and hover information.
+          # In particular, no build, code-execution, proof-attempt, or remote
+          # search tool is available to the model.
+          ocr config set mcp_servers.lean_lsp.command uvx
+          ocr config set mcp_servers.lean_lsp.args "[\"--from\",\"lean-lsp-mcp==${LEAN_LSP_MCP_VERSION}\",\"lean-lsp-mcp\",\"--transport\",\"stdio\"]"
+          ocr config set mcp_servers.lean_lsp.tools '["lean_diagnostic_messages","lean_file_outline","lean_hover_info"]'
+          ocr config set mcp_servers.lean_lsp.env "[\"LEAN_PROJECT_PATH=${GITHUB_WORKSPACE}/repo\",\"ELAN_HOME=${ELAN_HOME}\",\"ELAN_TOOLCHAIN=${LEAN_TOOLCHAIN}\",\"LEAN_MCP_DISABLED_TOOLS=lean_run_code,lean_build,lean_multi_attempt,lean_code_actions,lean_verify,lean_minimal_hypotheses,lean_local_search\",\"LEAN_LOG_LEVEL=WARNING\",\"OCR_LLM_URL=\",\"OCR_LLM_TOKEN=\"]"
 
       - name: Run OpenCodeReview
         if: steps.pr.outputs.skip != 'true' && steps.route.outputs.should_run_ocr == 'true'
@@ -162,14 +197,15 @@ jobs:
           BASE_REF: ${{ steps.pr.outputs.base_ref }}
           HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
           OCR_MODE: ${{ steps.route.outputs.mode }}
+          DIFF_BASE: ${{ steps.route.outputs.diff_base }}
           OCR_CONCURRENCY: ${{ steps.route.outputs.concurrency }}
           OCR_TIMEOUT: ${{ steps.route.outputs.timeout }}
           OCR_BACKGROUND_CHARS: ${{ steps.route.outputs.background_chars }}
         run: |
           set -euo pipefail
           mkdir -p "$HOME"
-          printf 'Reviewing %s against origin/%s in %s mode\n' "$HEAD_SHA" "$BASE_REF" "$OCR_MODE"
-          git rev-parse --verify "origin/${BASE_REF}^{commit}" >/dev/null
+          printf 'Reviewing %s from merge-base %s in %s mode\n' "$HEAD_SHA" "$DIFF_BASE" "$OCR_MODE"
+          git rev-parse --verify "${DIFF_BASE}^{commit}" >/dev/null
           # Keep the model focused: PR bodies can include long generated summaries (Bugbot/Cursor),
           # which inflated token use and caused Lean proof reviews to hit OCR subtask deadlines.
           CLEAN_BODY="${PR_BODY%%<!-- CURSOR_SUMMARY -->*}"
@@ -178,7 +214,7 @@ jobs:
           BACKGROUND="[OCR mode: ${OCR_MODE}]"$'\n\n'"${PR_TITLE}"$'\n\n'"${CLEAN_BODY}"
           BACKGROUND="${BACKGROUND:0:${OCR_BACKGROUND_CHARS}}"
           ocr review \
-            --from "origin/${BASE_REF}" \
+            --from "${DIFF_BASE}" \
             --to "${HEAD_SHA}" \
             --format json \
             --audience agent \
@@ -191,7 +227,7 @@ jobs:
           test -s "$RUNNER_TEMP/ocr-result.json" || echo '{"status":"error","comments":[],"message":"OCR produced no JSON output"}' > "$RUNNER_TEMP/ocr-result.json"
 
       - name: Post OCR review
-        if: steps.pr.outputs.skip != 'true' && always() && !cancelled() && steps.route.outcome == 'success'
+        if: steps.pr.outputs.skip != 'true' && always() && !cancelled() && steps.route.outcome == 'success' && (steps.route.outputs.should_run_ocr != 'true' || steps.ocr.outcome == 'success')
         uses: actions/github-script@v7
         env:
           OCR_RESULT_PATH: ${{ runner.temp }}/ocr-result.json
@@ -210,7 +246,7 @@ jobs:
             await post({ github, context, core });
 
       - name: Upload OCR metrics
-        if: steps.pr.outputs.skip != 'true' && always() && !cancelled() && steps.route.outcome == 'success'
+        if: steps.pr.outputs.skip != 'true' && always() && !cancelled() && steps.route.outcome == 'success' && (steps.route.outputs.should_run_ocr != 'true' || steps.ocr.outcome == 'success')
         uses: actions/upload-artifact@v4
         with:
           name: ocr-metrics-${{ steps.pr.outputs.number }}-${{ steps.pr.outputs.head_sha }}
