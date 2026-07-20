@@ -23,14 +23,14 @@
     - storage reads whose compiler field lookup succeeds: `storage`,
       `storageAddr`, `storageArrayLength`, `adtTag`, `adtField`
     - singleton and nested mapping reads through the abstract `mappingSlot`
-      bridge: `mapping`, `mappingWord`, `mappingUint`, `mapping2`,
-      `mapping2Word`
+      bridge: `mapping`, `mappingWord`, `mappingPackedWord`, `mappingUint`,
+      `mapping2`, `mapping2Word`
     - single-mapping struct-member reads through the same `mappingSlot`
       bridge: `structMember`, `structMember2`
     - unary calldata/memory/transient reads: `calldataload`, `mload`, `tload`
     - native syntactic memory-slice hashing: `keccak256`
 
-  General external/internal calls, packed mapping entries, checked
+  General external/internal calls, checked
   dynamic-array elements, storage-array elements, ADT
   construction/matching, returndata, dynamic helpers, ABI casts,
   `selfBalance`, and external account/state reads are out of scope and require
@@ -100,7 +100,7 @@ theorem compileExpr_bridgedSource_leaf
     branchless arithmetic helpers, the reserved exponentiation builtin surface,
     zero-argument environment/calldata-size reads, unary calldata/memory/
     transient reads, syntactic memory-slice `keccak256`, and `ge`/`le` negated
-    comparisons. General external/internal calls, packed mapping entries,
+    comparisons. General external/internal calls,
     checked dynamic-array elements, storage-array elements, ADT
     construction/matching, returndata, dynamic helpers, ABI casts,
     `selfBalance`, and external account/state reads are out of scope. -/
@@ -127,6 +127,9 @@ inductive BridgedSourceExpr : Expr → Prop
   | mappingWord {key : Expr} (fieldName : String) (hKey : BridgedSourceExpr key)
       (wordOffset : Nat) :
       BridgedSourceExpr (.mappingWord fieldName key wordOffset)
+  | mappingPackedWord {key : Expr} (fieldName : String)
+      (hKey : BridgedSourceExpr key) (wordOffset : Nat) (packed : PackedBits) :
+      BridgedSourceExpr (.mappingPackedWord fieldName key wordOffset packed)
   | mappingUint {key : Expr} (fieldName : String) (hKey : BridgedSourceExpr key) :
       BridgedSourceExpr (.mappingUint fieldName key)
   | mapping2 {key1 key2 : Expr} (fieldName : String)
@@ -1106,6 +1109,32 @@ theorem compileExpr_bridgedSource
       | ok keyExpr =>
           rw [hCompiledKey] at hOk
           exact compileMappingSlotRead_bridged (ihKey hCompiledKey) hOk
+  | mappingPackedWord fieldName hKey wordOffset packed ihKey =>
+      intro out hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
+      split at hOk
+      · simp at hOk
+      · simp only [bind, Except.bind] at hOk
+        cases hCompiledKey : compileExprWithInternals fields src [] _ with
+        | error err =>
+            rw [hCompiledKey] at hOk
+            cases hOk
+        | ok keyExpr =>
+            rw [hCompiledKey] at hOk
+            simp at hOk
+            cases hSlot :
+                compileMappingSlotRead fields fieldName keyExpr "mappingPackedWord"
+                  wordOffset with
+            | error err =>
+                rw [hSlot] at hOk
+                cases hOk
+            | ok slotWord =>
+                rw [hSlot] at hOk
+                simp only [Pure.pure, Except.pure, Except.ok.injEq] at hOk
+                subst out
+                exact bridgedExpr_packed_read
+                  (compileMappingSlotRead_bridged (ihKey hCompiledKey) hSlot)
+                  packed.offset (packedMaskNat packed)
   | mappingUint fieldName hKey ihKey =>
       intro out hOk
       simp only [compileExpr, compileExprWithInternals, bind, Except.bind] at hOk
@@ -1621,6 +1650,9 @@ theorem compileRequireFailCond_bridgedSource
   | mappingWord fieldName hKey wordOffset =>
       exact compileRequireFailCond_default_bridgedSource
         (BridgedSourceExpr.mappingWord fieldName hKey wordOffset) hOk
+  | mappingPackedWord fieldName hKey wordOffset packed =>
+      exact compileRequireFailCond_default_bridgedSource
+        (BridgedSourceExpr.mappingPackedWord fieldName hKey wordOffset packed) hOk
   | mappingUint fieldName hKey =>
       exact compileRequireFailCond_default_bridgedSource
         (BridgedSourceExpr.mappingUint fieldName hKey) hOk
