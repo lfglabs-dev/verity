@@ -2164,7 +2164,7 @@ mutual
         | ok headOut =>
             simp [compileStmtWithFork_cancun_eq_compileStmt, compileStmtListWithFork_cancun_eq_compileStmtList, hHeadCompile] at hOk
             cases hTailCompile : compileStmtList fields events errors dynamicSource
-                internalRetNames false (collectStmtNames head ++ inScopeNames) [] tail with
+                internalRetNames false (collectStmtBindNames head ++ inScopeNames) [] tail with
             | error err =>
                 simp [compileStmtListWithFork_cancun_eq_compileStmtList, hTailCompile] at hOk
             | ok tailOut =>
@@ -2176,7 +2176,7 @@ mutual
                     hHeadCompile)
                   (compileStmtList_external_recursive_body_fragment_bridged fields
                     events errors dynamicSource internalRetNames hTail
-                    (collectStmtNames head ++ inScopeNames) hTailCompile)
+                    (collectStmtBindNames head ++ inScopeNames) hTailCompile)
 end
 
 mutual
@@ -2249,7 +2249,7 @@ mutual
         | ok headOut =>
             simp [compileStmtWithFork_cancun_eq_compileStmt, compileStmtListWithFork_cancun_eq_compileStmtList, hHeadCompile] at hOk
             cases hTailCompile : compileStmtList fields events errors dynamicSource
-                internalRetNames false (collectStmtNames head ++ inScopeNames) [] tail with
+                internalRetNames false (collectStmtBindNames head ++ inScopeNames) [] tail with
             | error err => simp [compileStmtListWithFork_cancun_eq_compileStmtList, hTailCompile] at hOk
             | ok tailOut =>
                 simp [compileStmtListWithFork_cancun_eq_compileStmtList, hTailCompile, Pure.pure, Except.pure] at hOk
@@ -2259,7 +2259,7 @@ mutual
                     errors dynamicSource internalRetNames inScopeNames hHead hHeadCompile,
                   compileStmtList_external_recursive_body_fragment_noFuncDefs fields
                     events errors dynamicSource internalRetNames hTail
-                    (collectStmtNames head ++ inScopeNames) hTailCompile]
+                    (collectStmtBindNames head ++ inScopeNames) hTailCompile]
 end
 
 mutual
@@ -2354,7 +2354,7 @@ mutual
         | ok headOut =>
             simp [compileStmtWithFork_cancun_eq_compileStmt, compileStmtListWithFork_cancun_eq_compileStmtList, hHeadCompile] at hOk
             cases hTailCompile : compileStmtList fields events errors dynamicSource
-                internalRetNames true (collectStmtNames head ++ inScopeNames) [] tail with
+                internalRetNames true (collectStmtBindNames head ++ inScopeNames) [] tail with
             | error err =>
                 simp [compileStmtListWithFork_cancun_eq_compileStmtList, hTailCompile] at hOk
             | ok tailOut =>
@@ -2366,7 +2366,7 @@ mutual
                     hHeadCompile)
                   (compileStmtList_internal_recursive_body_fragment_bridged fields
                     events errors dynamicSource internalRetNames hTail
-                    (collectStmtNames head ++ inScopeNames) hTailCompile)
+                    (collectStmtBindNames head ++ inScopeNames) hTailCompile)
 end
 
 mutual
@@ -2439,7 +2439,7 @@ mutual
         | ok headOut =>
             simp [compileStmtWithFork_cancun_eq_compileStmt, compileStmtListWithFork_cancun_eq_compileStmtList, hHeadCompile] at hOk
             cases hTailCompile : compileStmtList fields events errors dynamicSource
-                internalRetNames true (collectStmtNames head ++ inScopeNames) [] tail with
+                internalRetNames true (collectStmtBindNames head ++ inScopeNames) [] tail with
             | error err => simp [compileStmtListWithFork_cancun_eq_compileStmtList, hTailCompile] at hOk
             | ok tailOut =>
                 simp [compileStmtListWithFork_cancun_eq_compileStmtList, hTailCompile, Pure.pure, Except.pure] at hOk
@@ -2449,7 +2449,7 @@ mutual
                     errors dynamicSource internalRetNames inScopeNames hHead hHeadCompile,
                   compileStmtList_internal_recursive_body_fragment_noFuncDefs fields
                     events errors dynamicSource internalRetNames hTail
-                    (collectStmtNames head ++ inScopeNames) hTailCompile]
+                    (collectStmtBindNames head ++ inScopeNames) hTailCompile]
 end
 
 /-! ## Source statement body closure: direct memory writes (`mstore`/`tstore`)
@@ -3553,7 +3553,7 @@ mutual
         | ok headOut =>
             simp [compileStmtWithFork_cancun_eq_compileStmt, compileStmtListWithFork_cancun_eq_compileStmtList, hHeadCompile] at hOk
             cases hTailCompile : compileStmtList fields events errors dynamicSource
-                internalRetNames false (collectStmtNames head ++ inScopeNames) [] tail with
+                internalRetNames false (collectStmtBindNames head ++ inScopeNames) [] tail with
             | error err =>
                 simp [compileStmtListWithFork_cancun_eq_compileStmtList, hTailCompile] at hOk
             | ok tailOut =>
@@ -3565,7 +3565,7 @@ mutual
                     hHeadCompile)
                   (compileStmtList_external_recursive_body_with_errors_bridged fields
                     events errors dynamicSource internalRetNames hTail
-                    (collectStmtNames head ++ inScopeNames) hTailCompile)
+                    (collectStmtBindNames head ++ inScopeNames) hTailCompile)
 end
 
 mutual
@@ -3670,7 +3670,7 @@ mutual
         | ok headOut =>
             simp [compileStmtWithFork_cancun_eq_compileStmt, compileStmtListWithFork_cancun_eq_compileStmtList, hHeadCompile] at hOk
             cases hTailCompile : compileStmtList fields events errors dynamicSource
-                internalRetNames true (collectStmtNames head ++ inScopeNames) [] tail with
+                internalRetNames true (collectStmtBindNames head ++ inScopeNames) [] tail with
             | error err =>
                 simp [compileStmtListWithFork_cancun_eq_compileStmtList, hTailCompile] at hOk
             | ok tailOut =>
@@ -3682,7 +3682,7 @@ mutual
                     hHeadCompile)
                   (compileStmtList_internal_recursive_body_with_errors_bridged fields
                     events errors dynamicSource internalRetNames hTail
-                    (collectStmtNames head ++ inScopeNames) hTailCompile)
+                    (collectStmtBindNames head ++ inScopeNames) hTailCompile)
 end
 
 /-! ### Lifting plain body aliases into the with-errors body predicate
@@ -4225,7 +4225,7 @@ mutual
         | ok headOut =>
             simp [compileStmtWithFork_cancun_eq_compileStmt, compileStmtListWithFork_cancun_eq_compileStmtList, hHeadCompile] at hOk
             cases hTailCompile : compileStmtList fields events errors dynamicSource
-                internalRetNames false (collectStmtNames head ++ inScopeNames) [] tail with
+                internalRetNames false (collectStmtBindNames head ++ inScopeNames) [] tail with
             | error err =>
                 simp [compileStmtListWithFork_cancun_eq_compileStmtList, hTailCompile] at hOk
             | ok tailOut =>
@@ -4237,7 +4237,7 @@ mutual
                     hHeadCompile)
                   (compileStmtList_external_recursive_body_with_raw_log_bridged fields
                     events errors dynamicSource internalRetNames hTail
-                    (collectStmtNames head ++ inScopeNames) hTailCompile)
+                    (collectStmtBindNames head ++ inScopeNames) hTailCompile)
 end
 
 mutual
@@ -4342,7 +4342,7 @@ mutual
         | ok headOut =>
             simp [compileStmtWithFork_cancun_eq_compileStmt, compileStmtListWithFork_cancun_eq_compileStmtList, hHeadCompile] at hOk
             cases hTailCompile : compileStmtList fields events errors dynamicSource
-                internalRetNames true (collectStmtNames head ++ inScopeNames) [] tail with
+                internalRetNames true (collectStmtBindNames head ++ inScopeNames) [] tail with
             | error err =>
                 simp [compileStmtListWithFork_cancun_eq_compileStmtList, hTailCompile] at hOk
             | ok tailOut =>
@@ -4354,7 +4354,7 @@ mutual
                     hHeadCompile)
                   (compileStmtList_internal_recursive_body_with_raw_log_bridged fields
                     events errors dynamicSource internalRetNames hTail
-                    (collectStmtNames head ++ inScopeNames) hTailCompile)
+                    (collectStmtBindNames head ++ inScopeNames) hTailCompile)
 end
 
 mutual
@@ -4413,7 +4413,7 @@ mutual
         | ok headOut =>
             simp [compileStmtWithFork_cancun_eq_compileStmt, compileStmtListWithFork_cancun_eq_compileStmtList, hHeadCompile] at hOk
             cases hTailCompile : compileStmtList fields events errors dynamicSource
-                internalRetNames false (collectStmtNames head ++ inScopeNames) [] tail with
+                internalRetNames false (collectStmtBindNames head ++ inScopeNames) [] tail with
             | error err => simp [compileStmtListWithFork_cancun_eq_compileStmtList, hTailCompile] at hOk
             | ok tailOut =>
                 simp [compileStmtListWithFork_cancun_eq_compileStmtList, hTailCompile, Pure.pure, Except.pure] at hOk
@@ -4424,7 +4424,7 @@ mutual
                     inScopeNames hHead hHeadCompile,
                   compileStmtList_external_recursive_body_with_raw_log_noFuncDefs
                     fields events errors dynamicSource internalRetNames hTail
-                    (collectStmtNames head ++ inScopeNames) hTailCompile]
+                    (collectStmtBindNames head ++ inScopeNames) hTailCompile]
 end
 
 mutual
@@ -4483,7 +4483,7 @@ mutual
         | ok headOut =>
             simp [compileStmtWithFork_cancun_eq_compileStmt, compileStmtListWithFork_cancun_eq_compileStmtList, hHeadCompile] at hOk
             cases hTailCompile : compileStmtList fields events errors dynamicSource
-                internalRetNames true (collectStmtNames head ++ inScopeNames) [] tail with
+                internalRetNames true (collectStmtBindNames head ++ inScopeNames) [] tail with
             | error err => simp [compileStmtListWithFork_cancun_eq_compileStmtList, hTailCompile] at hOk
             | ok tailOut =>
                 simp [compileStmtListWithFork_cancun_eq_compileStmtList, hTailCompile, Pure.pure, Except.pure] at hOk
@@ -4494,7 +4494,7 @@ mutual
                     inScopeNames hHead hHeadCompile,
                   compileStmtList_internal_recursive_body_with_raw_log_noFuncDefs
                     fields events errors dynamicSource internalRetNames hTail
-                    (collectStmtNames head ++ inScopeNames) hTailCompile]
+                    (collectStmtBindNames head ++ inScopeNames) hTailCompile]
 end
 
 /-! ## Source statement body closure: single-slot double-mapping writes
