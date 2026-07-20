@@ -4047,6 +4047,243 @@ theorem exprInternalHelperCompositionalPostStateResult_bitOr_left_threaded
       (parentState := parentState) (headState := headState)
       hleftResult hcompileRight hsourceRight hirRight hfindOr
 
+/-- Shared source/Yul value for the `Expr.bitXor` constructor. -/
+def exprBitXorValue (leftValue rightValue : Nat) : Nat :=
+  (Verity.Core.Uint256.xor
+    (Verity.Core.Uint256.ofNat (leftValue % Compiler.Constants.evmModulus))
+    (Verity.Core.Uint256.ofNat (rightValue % Compiler.Constants.evmModulus))).val
+
+theorem exprBitXorValue_lt_evmModulus (leftValue rightValue : Nat) :
+    exprBitXorValue leftValue rightValue < Compiler.Constants.evmModulus := by
+  simpa [exprBitXorValue, Verity.Core.Uint256.modulus,
+    Verity.Core.UINT256_MODULUS, Compiler.Constants.evmModulus] using
+    (Verity.Core.Uint256.xor
+      (Verity.Core.Uint256.ofNat (leftValue % Compiler.Constants.evmModulus))
+      (Verity.Core.Uint256.ofNat (rightValue % Compiler.Constants.evmModulus))).isLt
+
+theorem exprBitXorValue_eq_builtin (leftValue rightValue : Nat) :
+    exprBitXorValue leftValue rightValue =
+      Nat.xor (leftValue % Compiler.Constants.evmModulus)
+        (rightValue % Compiler.Constants.evmModulus) := by
+  simp [exprBitXorValue, Verity.Core.Uint256.xor, Verity.Core.Uint256.ofNat,
+    Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS,
+    Compiler.Constants.evmModulus]
+  exact Nat.xor_lt_two_pow (n := 256)
+    (by simpa [Compiler.Constants.evmModulus] using
+      Nat.mod_lt leftValue (by decide : 0 < Compiler.Constants.evmModulus))
+    (by simpa [Compiler.Constants.evmModulus] using
+      Nat.mod_lt rightValue (by decide : 0 < Compiler.Constants.evmModulus))
+
+theorem compileExprWithInternals_bitXor_of_children
+    {fields : List Field} {internalFunctions : List FunctionSpec}
+    {left right : Expr} {leftIR rightIR : YulExpr}
+    (hcompileLeft :
+      CompilationModel.compileExprWithInternals fields .calldata internalFunctions left =
+        Except.ok leftIR)
+    (hcompileRight :
+      CompilationModel.compileExprWithInternals fields .calldata internalFunctions right =
+        Except.ok rightIR) :
+    CompilationModel.compileExprWithInternals fields .calldata internalFunctions
+        (Expr.bitXor left right) =
+      Except.ok (YulExpr.call "xor" [leftIR, rightIR]) := by
+  simp only [CompilationModel.compileExprWithInternals, hcompileLeft, hcompileRight,
+    CompilationModel.yulBinOp]
+  rfl
+
+theorem evalExprWithHelpers_bitXor_of_values
+    (spec : CompilationModel) (fields : List Field)
+    (fuel : Nat) (runtime : SourceSemantics.RuntimeState)
+    {left right : Expr} {leftValue rightValue : Nat}
+    (hsourceLeft :
+      SourceSemantics.evalExprWithHelpers spec fields fuel runtime left =
+        some leftValue)
+    (hsourceRight :
+      SourceSemantics.evalExprWithHelpers spec fields fuel runtime right =
+        some rightValue) :
+    SourceSemantics.evalExprWithHelpers spec fields fuel runtime (Expr.bitXor left right) =
+      some (exprBitXorValue leftValue rightValue) := by
+  simp [SourceSemantics.evalExprWithHelpers, hsourceLeft, hsourceRight,
+    exprBitXorValue, Verity.Core.Uint256.xor]
+
+theorem evalBuiltinCallWithEvmYulLeanContext_bitXor_of_values
+    (state : IRState) (leftValue rightValue : Nat) :
+    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
+        state.storage state.sender state.msgValue state.thisAddress
+        state.blockTimestamp state.blockNumber state.chainId state.blobBaseFee
+        state.txOrigin state.selector state.calldata "xor" [leftValue, rightValue] =
+      some (exprBitXorValue leftValue rightValue) := by
+  rw [exprBitXorValue_eq_builtin]
+  simp [Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext]
+
+theorem exprInternalHelperCompositionalContextResult_bitXor_right_threaded
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {left right : Expr} {leftIR rightIR : YulExpr} {helperFuel irFuel : Nat}
+    {runtime headRuntime : SourceSemantics.RuntimeState}
+    {parentState rightEntryState headState rightFinalState finalState : IRState}
+    {leftValue rightValue : Nat}
+    (hright : ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+      right rightIR helperFuel irFuel runtime headRuntime rightEntryState headState
+      rightFinalState rightValue)
+    (hcompileLeft :
+      CompilationModel.compileExprWithInternals fields .calldata spec.functions left =
+        Except.ok leftIR)
+    (hsourceLeft : SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1)
+      runtime left = some leftValue)
+    (hirLeft :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) parentState leftIR =
+        .value leftValue rightEntryState)
+    (hirRight :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) rightEntryState rightIR =
+        .value rightValue finalState)
+    (hfindXor : findInternalFunction? runtimeContract "xor" = none) :
+    ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+      (Expr.bitXor left right) (YulExpr.call "xor" [leftIR, rightIR]) helperFuel irFuel
+      runtime headRuntime parentState headState finalState
+      (exprBitXorValue leftValue rightValue) := by
+  let value := exprBitXorValue leftValue rightValue
+  have hrightFacts := hright
+  unfold ExprInternalHelperCompositionalContextResult at hrightFacts
+  rcases hrightFacts with ⟨hcompileRight, hsourceRight, _, _, _⟩
+  let hcompile := compileExprWithInternals_bitXor_of_children hcompileLeft hcompileRight
+  let hsource := evalExprWithHelpers_bitXor_of_values spec fields (helperFuel + 1) runtime
+    hsourceLeft hsourceRight
+  let hbuiltin := evalBuiltinCallWithEvmYulLeanContext_bitXor_of_values finalState
+    leftValue rightValue
+  let hir := evalIRExprWithInternals_binary_builtin_of_values runtimeContract (irFuel + 1)
+    parentState rightEntryState finalState "xor" leftIR rightIR leftValue rightValue value
+    hirLeft hirRight hfindXor (by decide) (by decide) (by decide) hbuiltin
+  exact
+    exprInternalHelperCompositionalContextResult_binary_right_threaded_context
+      (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+      (left := left) (right := right) (leftIR := leftIR) (rightIR := rightIR)
+      (mkExpr := Expr.bitXor) (mkIR := fun a b => YulExpr.call "xor" [a, b])
+      (helperFuel := helperFuel) (irFuel := irFuel)
+      (runtime := runtime) (headRuntime := headRuntime)
+      (parentState := parentState) (rightEntryState := rightEntryState)
+      (headState := headState)
+      hright hcompile hsource hir
+
+theorem exprInternalHelperCompositionalPostStateResult_bitXor_right_threaded
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {scope : List String}
+    {left right : Expr} {leftIR rightIR : YulExpr} {helperFuel irFuel : Nat}
+    {runtime headRuntime : SourceSemantics.RuntimeState}
+    {parentState rightEntryState headState rightFinalState finalState : IRState}
+    {leftValue rightValue : Nat}
+    (hright : ExprInternalHelperCompositionalPostStateResult runtimeContract spec fields scope
+      right rightIR helperFuel irFuel runtime headRuntime rightEntryState headState
+      rightFinalState rightValue)
+    (hcompileLeft :
+      CompilationModel.compileExprWithInternals fields .calldata spec.functions left =
+        Except.ok leftIR)
+    (hsourceLeft : SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1)
+      runtime left = some leftValue)
+    (hirLeft :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) parentState leftIR =
+        .value leftValue rightEntryState)
+    (hirRight :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) rightEntryState rightIR =
+        .value rightValue finalState)
+    (hfindXor : findInternalFunction? runtimeContract "xor" = none)
+    (hfinalEq : finalState = rightFinalState) :
+    ExprInternalHelperCompositionalPostStateResult runtimeContract spec fields scope
+      (Expr.bitXor left right) (YulExpr.call "xor" [leftIR, rightIR]) helperFuel irFuel
+      runtime headRuntime parentState headState finalState
+      (exprBitXorValue leftValue rightValue) := by
+  rcases hright with ⟨hrightResult, hrightRuntime, hrightExact, _hrightLt⟩
+  subst hfinalEq
+  refine ⟨?_, hrightRuntime, hrightExact, exprBitXorValue_lt_evmModulus leftValue rightValue⟩
+  exact
+    exprInternalHelperCompositionalContextResult_bitXor_right_threaded
+      (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+      (left := left) (right := right) (leftIR := leftIR) (rightIR := rightIR)
+      (helperFuel := helperFuel) (irFuel := irFuel)
+      (runtime := runtime) (headRuntime := headRuntime)
+      (parentState := parentState) (rightEntryState := rightEntryState)
+      (headState := headState)
+      hrightResult hcompileLeft hsourceLeft hirLeft hirRight hfindXor
+
+theorem exprInternalHelperCompositionalContextResult_bitXor_left_threaded
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {left right : Expr} {leftIR rightIR : YulExpr} {helperFuel irFuel : Nat}
+    {runtime headRuntime : SourceSemantics.RuntimeState}
+    {parentState headState leftFinalState finalState : IRState}
+    {leftValue rightValue : Nat}
+    (hleft : ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+      left leftIR helperFuel irFuel runtime headRuntime parentState headState
+      leftFinalState leftValue)
+    (hcompileRight :
+      CompilationModel.compileExprWithInternals fields .calldata spec.functions right =
+        Except.ok rightIR)
+    (hsourceRight : SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1)
+      runtime right = some rightValue)
+    (hirRight :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) leftFinalState rightIR =
+        .value rightValue finalState)
+    (hfindXor : findInternalFunction? runtimeContract "xor" = none) :
+    ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+      (Expr.bitXor left right) (YulExpr.call "xor" [leftIR, rightIR]) helperFuel irFuel
+      runtime headRuntime parentState headState finalState
+      (exprBitXorValue leftValue rightValue) := by
+  let value := exprBitXorValue leftValue rightValue
+  have hleftFacts := hleft
+  unfold ExprInternalHelperCompositionalContextResult at hleftFacts
+  rcases hleftFacts with ⟨hcompileLeft, hsourceLeft, hirLeft, _, _⟩
+  let hcompile := compileExprWithInternals_bitXor_of_children hcompileLeft hcompileRight
+  let hsource := evalExprWithHelpers_bitXor_of_values spec fields (helperFuel + 1)
+    runtime hsourceLeft hsourceRight
+  let hbuiltin := evalBuiltinCallWithEvmYulLeanContext_bitXor_of_values finalState
+    leftValue rightValue
+  let hir := evalIRExprWithInternals_binary_builtin_of_values runtimeContract (irFuel + 1)
+    parentState leftFinalState finalState "xor" leftIR rightIR leftValue rightValue value
+    hirLeft hirRight hfindXor (by decide) (by decide) (by decide) hbuiltin
+  exact
+    exprInternalHelperCompositionalContextResult_binary_left_context
+      (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+      (left := left) (right := right) (leftIR := leftIR) (rightIR := rightIR)
+      (mkExpr := Expr.bitXor) (mkIR := fun a b => YulExpr.call "xor" [a, b])
+      (helperFuel := helperFuel) (irFuel := irFuel)
+      (runtime := runtime) (headRuntime := headRuntime)
+      (state := parentState) (headState := headState)
+      hleft hcompile hsource hir
+
+theorem exprInternalHelperCompositionalPostStateResult_bitXor_left_threaded
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {scope : List String}
+    {left right : Expr} {leftIR rightIR : YulExpr} {helperFuel irFuel : Nat}
+    {runtime headRuntime : SourceSemantics.RuntimeState}
+    {parentState headState leftFinalState finalState : IRState}
+    {leftValue rightValue : Nat}
+    (hleft : ExprInternalHelperCompositionalPostStateResult runtimeContract spec fields scope
+      left leftIR helperFuel irFuel runtime headRuntime parentState headState
+      leftFinalState leftValue)
+    (hcompileRight :
+      CompilationModel.compileExprWithInternals fields .calldata spec.functions right =
+        Except.ok rightIR)
+    (hsourceRight : SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1)
+      runtime right = some rightValue)
+    (hirRight :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) leftFinalState rightIR =
+        .value rightValue finalState)
+    (hfindXor : findInternalFunction? runtimeContract "xor" = none)
+    (hfinalRuntime : FunctionBody.runtimeStateMatchesIR fields runtime finalState)
+    (hfinalExact :
+      FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings finalState) :
+    ExprInternalHelperCompositionalPostStateResult runtimeContract spec fields scope
+      (Expr.bitXor left right) (YulExpr.call "xor" [leftIR, rightIR]) helperFuel irFuel
+      runtime headRuntime parentState headState finalState
+      (exprBitXorValue leftValue rightValue) := by
+  rcases hleft with ⟨hleftResult, _, _, _⟩
+  refine ⟨?_, hfinalRuntime, hfinalExact, exprBitXorValue_lt_evmModulus leftValue rightValue⟩
+  exact
+    exprInternalHelperCompositionalContextResult_bitXor_left_threaded
+      (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+      (left := left) (right := right) (leftIR := leftIR) (rightIR := rightIR)
+      (helperFuel := helperFuel) (irFuel := irFuel)
+      (runtime := runtime) (headRuntime := headRuntime)
+      (parentState := parentState) (headState := headState)
+      hleftResult hcompileRight hsourceRight hirRight hfindXor
+
 /-- Expression-helper statement-head bridge. Future helper-summary induction
 should construct this for each statement head whose helper work appears in
 expression position. The semantic payload is the exact helper-aware source/IR
