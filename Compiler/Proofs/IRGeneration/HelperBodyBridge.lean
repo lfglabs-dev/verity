@@ -77,13 +77,13 @@ theorem execIRInternalFunctionWithInternals_obeys_internal_helper_summary
   · have hpost := hsound helperFuel initialWorld logicalArgs
     simpa [hinterp] using hpost
 
-private theorem internalFunctionYulName_head (calleeName : String) :
+private theorem helperBridge_internalFunctionYulName_head (calleeName : String) :
     (CompilationModel.internalFunctionYulName calleeName).toList.head? = some 'i' := by
   simp [CompilationModel.internalFunctionYulName, CompilationModel.internalFunctionPrefix]
   left
   decide
 
-private theorem internalFunctionYulName_ne_of_head
+private theorem helperBridge_internalFunctionYulName_ne_of_head
     (calleeName builtinName : String)
     (hhead : builtinName.toList.head? ≠ some 'i') :
     CompilationModel.internalFunctionYulName calleeName ≠ builtinName := by
@@ -91,17 +91,17 @@ private theorem internalFunctionYulName_ne_of_head
   have hHead := congrArg (fun s : String => s.toList.head?) hEq
   change (CompilationModel.internalFunctionYulName calleeName).toList.head? =
     builtinName.toList.head? at hHead
-  rw [internalFunctionYulName_head calleeName] at hHead
+  rw [helperBridge_internalFunctionYulName_head calleeName] at hHead
   exact hhead hHead.symm
 
-private theorem internalFunctionYulName_isYulLogName_false (calleeName : String) :
+private theorem helperBridge_internalFunctionYulName_isYulLogName_false (calleeName : String) :
     isYulLogName (CompilationModel.internalFunctionYulName calleeName) = false := by
   simp [isYulLogName,
-    internalFunctionYulName_ne_of_head calleeName "log0" (by decide),
-    internalFunctionYulName_ne_of_head calleeName "log1" (by decide),
-    internalFunctionYulName_ne_of_head calleeName "log2" (by decide),
-    internalFunctionYulName_ne_of_head calleeName "log3" (by decide),
-    internalFunctionYulName_ne_of_head calleeName "log4" (by decide)]
+    helperBridge_internalFunctionYulName_ne_of_head calleeName "log0" (by decide),
+    helperBridge_internalFunctionYulName_ne_of_head calleeName "log1" (by decide),
+    helperBridge_internalFunctionYulName_ne_of_head calleeName "log2" (by decide),
+    helperBridge_internalFunctionYulName_ne_of_head calleeName "log3" (by decide),
+    helperBridge_internalFunctionYulName_ne_of_head calleeName "log4" (by decide)]
 
 noncomputable abbrev internalHelperCallFuel
     (helper : IRInternalFunctionDef) (extraFuel : Nat) : Nat :=
@@ -155,13 +155,13 @@ private theorem execIRStmtsWithInternals_singleton_expr_internalFunctionYulName_
     runtimeContract fuel state
     (CompilationModel.internalFunctionYulName calleeName) argExprs helper args callerState
     hargs hfind
-    (internalFunctionYulName_ne_of_head calleeName "stop" (by decide))
-    (internalFunctionYulName_ne_of_head calleeName "sstore" (by decide))
-    (internalFunctionYulName_ne_of_head calleeName "mstore" (by decide))
-    (internalFunctionYulName_ne_of_head calleeName "tstore" (by decide))
-    (internalFunctionYulName_ne_of_head calleeName "revert" (by decide))
-    (internalFunctionYulName_ne_of_head calleeName "return" (by decide))
-    (internalFunctionYulName_isYulLogName_false calleeName)
+    (helperBridge_internalFunctionYulName_ne_of_head calleeName "stop" (by decide))
+    (helperBridge_internalFunctionYulName_ne_of_head calleeName "sstore" (by decide))
+    (helperBridge_internalFunctionYulName_ne_of_head calleeName "mstore" (by decide))
+    (helperBridge_internalFunctionYulName_ne_of_head calleeName "tstore" (by decide))
+    (helperBridge_internalFunctionYulName_ne_of_head calleeName "revert" (by decide))
+    (helperBridge_internalFunctionYulName_ne_of_head calleeName "return" (by decide))
+    (helperBridge_internalFunctionYulName_isYulLogName_false calleeName)
 
 /-- N2/N3 assignment-call instantiation of the N1a helper-summary bridge.
 This is the singleton `letMany (.call internal_helper ...)` wrapper around

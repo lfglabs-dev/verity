@@ -167,7 +167,7 @@ theorem stmtListEventSurfaceStepInterface_of_eventHeadStepCatalog_of_surfaceWith
     (hinternal : runtimeContract.internalFunctions = [])
     (hfresh : "__evt_ptr" ∉ scope ∧ "__evt_topic0" ∉ scope)
     (hfreshStmts : ∀ s ∈ stmts,
-        "__evt_ptr" ∉ collectStmtNames s ∧ "__evt_topic0" ∉ collectStmtNames s)
+        "__evt_ptr" ∉ collectStmtBindNames s ∧ "__evt_topic0" ∉ collectStmtBindNames s)
     (hinScopeEmit : ∀ s ∈ stmts, ∀ (eventName : String) (args : List Expr),
         s = Stmt.emit eventName args →
         ∀ arg ∈ args, FunctionBody.exprBoundNamesInScope arg scope) :

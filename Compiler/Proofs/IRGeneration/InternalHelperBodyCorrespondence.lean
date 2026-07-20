@@ -93,18 +93,6 @@ private def sourceBindingsAgreeOutside
     SourceSemantics.lookupValue lhs name = SourceSemantics.lookupValue rhs name ∧
       SourceSemantics.lookupBinding? lhs name = SourceSemantics.lookupBinding? rhs name
 
-private theorem SourceSemantics.lookupBinding?_bindValue_ne
-    (bindings : List (String × Nat))
-    (boundName queryName : String)
-    (value : Nat)
-    (hNe : queryName ≠ boundName) :
-    SourceSemantics.lookupBinding?
-      (SourceSemantics.bindValue bindings boundName value)
-      queryName =
-    SourceSemantics.lookupBinding? bindings queryName := by
-  simpa [FunctionBody.lookupBinding?, SourceSemantics.lookupBinding?] using
-    (FunctionBody.lookupBinding?_bindValue_ne bindings boundName queryName value hNe)
-
 private theorem sourceBindingsAgreeOutside_refl
     (reserved : List String) (bindings : List (String × Nat)) :
     sourceBindingsAgreeOutside reserved bindings bindings := by
