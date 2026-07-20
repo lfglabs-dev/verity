@@ -5846,14 +5846,15 @@ theorem generatedRuntimeSafeBodies_of_supported_except_mapping_writes_stmt_safet
     (hSupported.supportedFunctionOfSelectorDispatched hfn).body.effects.surfaceClosed
 
 /-- A supported constructor exposes the same source statement-list witness as
-ordinary function bodies, scoped by decoded constructor parameter names. -/
+ordinary function bodies, scoped by decoded constructor argument aliases and
+parameter names. -/
 theorem generatedConstructorSupportedStmtList_of_supported
     {spec : CompilationModel.CompilationModel} {selectors : List Nat}
     (hSupported : SupportedSpec spec selectors) :
     ∀ ctor, spec.constructor = some ctor →
-      SupportedStmtList spec.fields (ctor.params.map (·.name)) ctor.body := by
+      SupportedStmtList spec.fields (CompilationModel.constructorBodyScope ctor.params) ctor.body := by
   intro ctor hctor
-  exact (hSupported.constructor ctor hctor).body.stmtList
+  exact (hSupported.constructor ctor hctor).stmtList_ctorBody
 
 /-- Constructor user bodies compile under the memory dynamic-data source. When
 their body also satisfies the full state/effect closure surface, the same
@@ -5930,10 +5931,11 @@ theorem compileConstructorBody_bridged_of_safe
         fields errors .memory [] false ctor.body)
     (hBody :
       CompilationModel.compileStmtList fields events errors .memory [] false
-        (ctor.params.map (·.name)) [] ctor.body = .ok bodyStmts) :
+        (CompilationModel.constructorBodyScope ctor.params) [] ctor.body = .ok bodyStmts) :
     Compiler.Proofs.YulGeneration.Backends.BridgedStmts bodyStmts := by
   exact Compiler.Proofs.YulGeneration.Backends.compileStmtList_always_bridged
-    fields events errors .memory [] false ctor.body (ctor.params.map (·.name))
+    fields events errors .memory [] false ctor.body
+    (CompilationModel.constructorBodyScope ctor.params)
     hSafe hBody
 
 /-- Supported constructor user bodies compile to `BridgedStmts` once the
@@ -5949,7 +5951,7 @@ theorem compileConstructorBody_bridged_of_supported_state_closed
     (hState : stmtListTouchesUnsupportedStateSurface ctor.body = false)
     (hBody :
       CompilationModel.compileStmtList spec.fields spec.events spec.errors
-        .memory [] false (ctor.params.map (·.name)) [] ctor.body =
+        .memory [] false (CompilationModel.constructorBodyScope ctor.params) [] ctor.body =
           .ok bodyStmts) :
     Compiler.Proofs.YulGeneration.Backends.BridgedStmts bodyStmts := by
   exact compileConstructorBody_bridged_of_safe spec.fields spec.events
@@ -5971,7 +5973,7 @@ theorem compileConstructorBody_bridged_of_supported_stmt_safety
       ∀ stmt, stmt ∈ ctor.body → StmtMappingWriteSlotSafe spec.fields stmt)
     (hBody :
       CompilationModel.compileStmtList spec.fields spec.events spec.errors
-        .memory [] false (ctor.params.map (·.name)) [] ctor.body =
+        .memory [] false (CompilationModel.constructorBodyScope ctor.params) [] ctor.body =
           .ok bodyStmts) :
     Compiler.Proofs.YulGeneration.Backends.BridgedStmts bodyStmts := by
   exact compileConstructorBody_bridged_of_safe spec.fields spec.events
