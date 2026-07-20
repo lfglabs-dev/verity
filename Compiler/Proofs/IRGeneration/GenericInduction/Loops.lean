@@ -10,6 +10,89 @@ open Compiler
 open Compiler.CompilationModel
 open Compiler.Yul
 
+mutual
+private def stmtBindNamesComplexity : Stmt → Nat
+  | .ite _ thenBranch elseBranch =>
+      1 + stmtListBindNamesComplexity thenBranch + stmtListBindNamesComplexity elseBranch
+  | .forEach _ _ body | .forEachSetBit _ _ body | .unsafeBlock _ body =>
+      1 + stmtListBindNamesComplexity body
+  | .matchAdt _ _ branches => 1 + matchBranchBindNamesComplexity branches
+  | _ => 0
+
+private def stmtListBindNamesComplexity : List Stmt → Nat
+  | [] => 0
+  | stmt :: rest => 1 + stmtBindNamesComplexity stmt + stmtListBindNamesComplexity rest
+
+private def matchBranchBindNamesComplexity : List (String × List String × List Stmt) → Nat
+  | [] => 0
+  | (_, _, body) :: rest =>
+      1 + stmtListBindNamesComplexity body + matchBranchBindNamesComplexity rest
+end
+
+mutual
+private theorem collectStmtBindNames_subset_collectStmtNames (stmt : Stmt) :
+    ∀ name, name ∈ collectStmtBindNames stmt → name ∈ collectStmtNames stmt := by
+  intro name hmem
+  cases stmt <;>
+    simp only [collectStmtBindNames, collectStmtNames, List.mem_cons, List.mem_append] at hmem ⊢
+  case matchAdt adtName scrutinee branches =>
+    exact Or.inr (collectMatchBranchBindNames_subset_collectMatchBranchNames branches name hmem)
+  all_goals aesop (add safe collectStmtListBindNames_subset_collectStmtListNames)
+termination_by stmtBindNamesComplexity stmt
+decreasing_by
+  all_goals subst_vars
+  all_goals simp [stmtBindNamesComplexity, stmtListBindNamesComplexity,
+    matchBranchBindNamesComplexity]
+  all_goals omega
+
+private theorem collectStmtListBindNames_subset_collectStmtListNames (stmts : List Stmt) :
+    ∀ name, name ∈ collectStmtListBindNames stmts → name ∈ collectStmtListNames stmts := by
+  intro name hmem
+  cases stmts with
+  | nil => simp [collectStmtListBindNames] at hmem
+  | cons stmt rest =>
+      rw [collectStmtListBindNames] at hmem
+      rw [collectStmtListNames]
+      exact (List.mem_append.mp hmem).elim
+        (fun hstmt => List.mem_append.mpr
+          (Or.inl (collectStmtBindNames_subset_collectStmtNames stmt name hstmt)))
+        (fun hrest => List.mem_append.mpr (Or.inr
+          (collectStmtListBindNames_subset_collectStmtListNames rest name hrest)))
+termination_by stmtListBindNamesComplexity stmts
+decreasing_by
+  all_goals subst_vars
+  all_goals simp [stmtBindNamesComplexity, stmtListBindNamesComplexity,
+    matchBranchBindNamesComplexity]
+  all_goals omega
+
+private theorem collectMatchBranchBindNames_subset_collectMatchBranchNames
+    (branches : List (String × List String × List Stmt)) :
+    ∀ name, name ∈ collectMatchBranchBindNames branches → name ∈ collectMatchBranchNames branches := by
+  intro name hmem
+  cases branches with
+  | nil => simp [collectMatchBranchBindNames] at hmem
+  | cons branch rest =>
+      cases branch with
+      | mk tag pair =>
+          cases pair with
+          | mk varNames body =>
+              rw [collectMatchBranchBindNames] at hmem
+              rw [collectMatchBranchNames]
+              rcases List.mem_append.mp hmem with hbranch | hrest
+              · rcases List.mem_append.mp hbranch with hvar | hbody
+                · exact List.mem_append.mpr (Or.inl (List.mem_append.mpr (Or.inl hvar)))
+                · exact List.mem_append.mpr (Or.inl (List.mem_append.mpr (Or.inr
+                    (collectStmtListBindNames_subset_collectStmtListNames body name hbody))))
+              · exact List.mem_append.mpr (Or.inr
+                  (collectMatchBranchBindNames_subset_collectMatchBranchNames rest name hrest))
+termination_by matchBranchBindNamesComplexity branches
+decreasing_by
+  all_goals subst_vars
+  all_goals simp [stmtBindNamesComplexity, stmtListBindNamesComplexity,
+    matchBranchBindNamesComplexity]
+  all_goals omega
+end
+
 private def forEachZeroUsedNames (scope : List String) (varName : String) (body : List Stmt) :
     List String :=
   varName :: (scope ++ collectExprNames (Expr.literal 0) ++ collectStmtListNames body)
@@ -606,10 +689,10 @@ private theorem forEachZero_nextScopeIncluded
       (stmtNextScope scope (Stmt.forEach varName (Expr.literal 0) body))
       (varName :: scope) := by
   intro name hmem
-  simp [stmtNextScope, collectStmtNames, collectExprNames] at hmem
+  simp [stmtNextScope, collectStmtBindNames, collectStmtNames, collectExprNames] at hmem
   rcases hmem with hvar | hbody | hscopeMem
   · simp [hvar]
-  · exact hbodyNames name hbody
+  · exact hbodyNames name (collectStmtListBindNames_subset_collectStmtListNames body name hbody)
   · simp [hscopeMem]
 
 private theorem runtimeStateMatchesIR_forEachZeroLoop
@@ -848,11 +931,11 @@ private theorem stmtStepMatches_forEach_literal_empty_final
         (stmtNextScope scope (Stmt.forEach varName (Expr.literal n) []))
         (varName :: scope) := by
     intro name hmem
-    simp [stmtNextScope, collectStmtNames, collectExprNames] at hmem
+    simp [stmtNextScope, collectStmtBindNames, collectStmtNames, collectExprNames] at hmem
     rcases hmem with hvar | hscopeMem
     · simp [hvar]
     · rcases hscopeMem with hbody | hscopeMem
-      · exact False.elim (by simpa [collectStmtListNames] using hbody)
+      · exact False.elim (by simpa [collectStmtListBindNames] using hbody)
       · simp [hscopeMem]
   simp [stmtStepMatchesIRExec]
   exact ⟨by simpa [idxName, countName, runtimeLoop, stateLoop, stateCount] using hruntimeFinal,

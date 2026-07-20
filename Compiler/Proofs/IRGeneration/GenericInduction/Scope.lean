@@ -166,6 +166,7 @@ theorem exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
   match expr, hsurface with
   | .literal _, _ => exact .literal _
   | .param _, _ => exact .param _
+  | .constructorArg idx, _ => exact .constructorArg idx
   | .localVar _, _ => exact .localVar _
   | .immutable _, hsurface => simp [exprTouchesUnsupportedContractSurface] at hsurface
   | .caller, _ => exact .caller
@@ -308,7 +309,7 @@ theorem compileStmt_ok_of_compileStmtList_append_cons
     ∃ stmtIR,
       CompilationModel.compileStmt
         fields [] [] .calldata [] false
-          (List.foldl (fun acc s => collectStmtNames s ++ acc) scope «prefix»)
+          (List.foldl (fun acc s => collectStmtBindNames s ++ acc) scope «prefix»)
           [] stmt = Except.ok stmtIR := by
   induction «prefix» generalizing scope bodyIR with
   | nil => rcases FunctionBody.compileStmtList_cons_ok_inv hcompile with ⟨hd, _, hstmt, _⟩; exact ⟨hd, hstmt⟩
@@ -689,6 +690,47 @@ private theorem mem_stmtNextScopeList_of_mem_scope
   | cons stmt rest ih =>
       exact ih (mem_stmtNextScope_of_mem_scope hmem)
 
+private def ConstructorArgsInScope
+    (constructorArgCount : Option Nat)
+    (scope : List String) : Prop :=
+  ∀ idx count, constructorArgCount = some count → idx < count → s!"arg{idx}" ∈ scope
+
+private theorem constructorArgsInScope_stmtNextScope
+    {constructorArgCount : Option Nat}
+    {scope : List String}
+    {stmt : Stmt}
+    (hscope : ConstructorArgsInScope constructorArgCount scope) :
+    ConstructorArgsInScope constructorArgCount (stmtNextScope scope stmt) := by
+  intro idx count hcount hidx
+  exact mem_stmtNextScope_of_mem_scope (hscope idx count hcount hidx)
+
+private theorem constructorArgsInScope_cons
+    {constructorArgCount : Option Nat}
+    {scope : List String}
+    {name : String}
+    (hscope : ConstructorArgsInScope constructorArgCount scope) :
+    ConstructorArgsInScope constructorArgCount (name :: scope) := by
+  intro idx count hcount hidx
+  exact List.mem_cons_of_mem name (hscope idx count hcount hidx)
+
+private theorem constructorArgsInScope_foldl_stmtNextScope
+    {constructorArgCount : Option Nat}
+    {scope : List String}
+    {stmts : List Stmt}
+    (hscope : ConstructorArgsInScope constructorArgCount scope) :
+    ConstructorArgsInScope constructorArgCount (List.foldl stmtNextScope scope stmts) := by
+  induction stmts generalizing scope with
+  | nil =>
+      exact hscope
+  | cons stmt rest ih =>
+      exact ih (constructorArgsInScope_stmtNextScope hscope)
+
+private theorem constructorArgsInScope_none
+    {scope : List String} :
+    ConstructorArgsInScope none scope := by
+  intro idx count hcount hidx
+  cases hcount
+
 private theorem validateScopedExprIdentifiers_pair_ok_left
     {context : String}
     {params : List Param}
@@ -753,7 +795,8 @@ private theorem exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
         context params paramScope dynamicParams immutableNames localScope constructorArgCount expr =
           Except.ok ())
     (hparamsInScope : ∀ name, name ∈ paramScope → name ∈ scope)
-    (hlocalsInScope : ∀ name, name ∈ localScope → name ∈ scope) :
+    (hlocalsInScope : ∀ name, name ∈ localScope → name ∈ scope)
+    (hconstructorArgsInScope : ConstructorArgsInScope constructorArgCount scope) :
     FunctionBody.exprBoundNamesInScope expr scope := by
   induction hcore with
   | literal =>
@@ -768,6 +811,21 @@ private theorem exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
       simp [FunctionBody.exprBoundNames] at hmem
       subst name
       exact hparamsInScope name0 hparam
+  | constructorArg idx =>
+      intro name hmem
+      have harg :
+          ∃ count, constructorArgCount = some count ∧ idx < count := by
+        cases constructorArgCount with
+        | none =>
+            simp [validateScopedExprIdentifiers] at hvalidate
+        | some count =>
+            by_cases hidx : idx < count
+            · exact ⟨count, rfl, hidx⟩
+            · simp [validateScopedExprIdentifiers, hidx] at hvalidate
+      rcases harg with ⟨count, hcount, hidx⟩
+      simp [FunctionBody.exprBoundNames] at hmem
+      subst name
+      exact hconstructorArgsInScope idx count hcount hidx
   | localVar name0 =>
       intro name hmem
       have hlocal : name0 ∈ localScope := by
@@ -1123,7 +1181,8 @@ private theorem stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers
         context params paramScope dynamicParams immutableNames localScope constructorArgCount stmts =
           Except.ok finalScope)
     (hparamsInScope : ∀ name, name ∈ paramScope → name ∈ scope)
-    (hlocalsInScope : ∀ name, name ∈ localScope → name ∈ scope) :
+    (hlocalsInScope : ∀ name, name ∈ localScope → name ∈ scope)
+    (hconstructorArgsInScope : ConstructorArgsInScope constructorArgCount scope) :
     StmtListScopeDiscipline fieldNames scope stmts := by
   induction hcore generalizing localScope scope finalScope with
   | nil =>
@@ -1146,7 +1205,7 @@ private theorem stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers
         exact StmtListScopeDiscipline.letVar
           hvalueCore
           (exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
-            hvalueCore hExprVal hparamsInScope hlocalsInScope)
+            hvalueCore hExprVal hparamsInScope hlocalsInScope hconstructorArgsInScope)
           (ih hrestValidate
             (by
               intro other hmem
@@ -1155,8 +1214,9 @@ private theorem stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers
               intro other hmem
               simp at hmem
               rcases hmem with rfl | hmem
-              · exact List.mem_append.mpr <| Or.inl <| by simp [stmtNextScope, collectStmtNames]
-              · exact mem_stmtNextScope_of_mem_scope (hlocalsInScope other hmem)))
+              · exact List.mem_append.mpr <| Or.inl <| by simp [stmtNextScope, collectStmtBindNames]
+              · exact mem_stmtNextScope_of_mem_scope (hlocalsInScope other hmem))
+            (constructorArgsInScope_stmtNextScope hconstructorArgsInScope))
   | assignVar hvalueCore hrest ih =>
       rcases validateScopedStmtListIdentifiers_cons_ok_inv hvalidate with
         ⟨nextLocalScope, hstmt, hrestValidate⟩
@@ -1174,14 +1234,15 @@ private theorem stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers
           exact StmtListScopeDiscipline.assignVar
             hvalueCore
             (exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
-              hvalueCore hExprVal hparamsInScope hlocalsInScope)
+              hvalueCore hExprVal hparamsInScope hlocalsInScope hconstructorArgsInScope)
             (ih hrestValidate
               (by
                 intro other hmem
                 exact mem_stmtNextScope_of_mem_scope (hparamsInScope other hmem))
               (by
                 intro other hmem
-                exact mem_stmtNextScope_of_mem_scope (hlocalsInScope other hmem)))
+                exact mem_stmtNextScope_of_mem_scope (hlocalsInScope other hmem))
+              (constructorArgsInScope_stmtNextScope hconstructorArgsInScope))
   | require hcondCore hrest ih =>
       rcases validateScopedStmtListIdentifiers_cons_ok_inv hvalidate with
         ⟨nextLocalScope, hstmt, hrestValidate⟩
@@ -1195,14 +1256,15 @@ private theorem stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers
         exact StmtListScopeDiscipline.require
           hcondCore
           (exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
-            hcondCore hExprVal hparamsInScope hlocalsInScope)
+            hcondCore hExprVal hparamsInScope hlocalsInScope hconstructorArgsInScope)
           (ih hrestValidate
             (by
               intro other hmem
               exact mem_stmtNextScope_of_mem_scope (hparamsInScope other hmem))
             (by
               intro other hmem
-              exact mem_stmtNextScope_of_mem_scope (hlocalsInScope other hmem)))
+              exact mem_stmtNextScope_of_mem_scope (hlocalsInScope other hmem))
+            (constructorArgsInScope_stmtNextScope hconstructorArgsInScope))
   | return_ hvalueCore hrest ih =>
       rcases validateScopedStmtListIdentifiers_cons_ok_inv hvalidate with
         ⟨nextLocalScope, hstmt, hrestValidate⟩
@@ -1216,14 +1278,15 @@ private theorem stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers
         exact StmtListScopeDiscipline.return_
           hvalueCore
           (exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
-            hvalueCore hExprVal hparamsInScope hlocalsInScope)
+            hvalueCore hExprVal hparamsInScope hlocalsInScope hconstructorArgsInScope)
           (ih hrestValidate
             (by
               intro other hmem
               exact mem_stmtNextScope_of_mem_scope (hparamsInScope other hmem))
             (by
               intro other hmem
-              exact mem_stmtNextScope_of_mem_scope (hlocalsInScope other hmem)))
+              exact mem_stmtNextScope_of_mem_scope (hlocalsInScope other hmem))
+            (constructorArgsInScope_stmtNextScope hconstructorArgsInScope))
   | stop hrest ih =>
       rcases validateScopedStmtListIdentifiers_cons_ok_inv hvalidate with
         ⟨nextLocalScope, hstmt, hrestValidate⟩
@@ -1232,7 +1295,7 @@ private theorem stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers
       simp only [pure, Except.pure] at hstmt'
       cases hstmt'
       refine StmtListScopeDiscipline.stop ?_
-      exact ih hrestValidate hparamsInScope hlocalsInScope
+      exact ih hrestValidate hparamsInScope hlocalsInScope hconstructorArgsInScope
   | setStorage hfield hvalueCore hrest ih =>
       rcases validateScopedStmtListIdentifiers_cons_ok_inv hvalidate with
         ⟨nextLocalScope, hstmt, hrestValidate⟩
@@ -1247,14 +1310,15 @@ private theorem stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers
           hfield
           hvalueCore
           (exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
-            hvalueCore hExprVal hparamsInScope hlocalsInScope)
+            hvalueCore hExprVal hparamsInScope hlocalsInScope hconstructorArgsInScope)
           (ih hrestValidate
             (by
               intro other hmem
               exact mem_stmtNextScope_of_mem_scope (hparamsInScope other hmem))
             (by
               intro other hmem
-              exact mem_stmtNextScope_of_mem_scope (hlocalsInScope other hmem)))
+              exact mem_stmtNextScope_of_mem_scope (hlocalsInScope other hmem))
+            (constructorArgsInScope_stmtNextScope hconstructorArgsInScope))
   | setStorageAddr hfield hvalueCore hrest ih =>
       rcases validateScopedStmtListIdentifiers_cons_ok_inv hvalidate with
         ⟨nextLocalScope, hstmt, hrestValidate⟩
@@ -1269,14 +1333,15 @@ private theorem stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers
           hfield
           hvalueCore
           (exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
-            hvalueCore hExprVal hparamsInScope hlocalsInScope)
+            hvalueCore hExprVal hparamsInScope hlocalsInScope hconstructorArgsInScope)
           (ih hrestValidate
             (by
               intro other hmem
               exact mem_stmtNextScope_of_mem_scope (hparamsInScope other hmem))
             (by
               intro other hmem
-              exact mem_stmtNextScope_of_mem_scope (hlocalsInScope other hmem)))
+              exact mem_stmtNextScope_of_mem_scope (hlocalsInScope other hmem))
+            (constructorArgsInScope_stmtNextScope hconstructorArgsInScope))
   | setImmutable hvalueCore hrest ih =>
       rename_i immName immValue immRest
       rcases validateScopedStmtListIdentifiers_cons_ok_inv hvalidate with
@@ -1308,14 +1373,15 @@ private theorem stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers
               exact StmtListScopeDiscipline.setImmutable
                 hvalueCore
                 (exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
-                  hvalueCore hExprVal hparamsInScope hlocalsInScope)
+                  hvalueCore hExprVal hparamsInScope hlocalsInScope hconstructorArgsInScope)
                 (ih hrestValidate
                   (by
                     intro other hmem
                     exact mem_stmtNextScope_of_mem_scope (hparamsInScope other hmem))
                   (by
                     intro other hmem
-                    exact mem_stmtNextScope_of_mem_scope (hlocalsInScope other hmem)))
+                    exact mem_stmtNextScope_of_mem_scope (hlocalsInScope other hmem))
+                  (constructorArgsInScope_stmtNextScope hconstructorArgsInScope))
             · simp [hExprVal, himm, bind, Except.bind] at h
               cases h
   | setStorageWord hfield hvalueCore hrest ih =>
@@ -1332,14 +1398,15 @@ private theorem stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers
           hfield
           hvalueCore
           (exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
-            hvalueCore hExprVal hparamsInScope hlocalsInScope)
+            hvalueCore hExprVal hparamsInScope hlocalsInScope hconstructorArgsInScope)
           (ih hrestValidate
             (by
               intro other hmem
               exact mem_stmtNextScope_of_mem_scope (hparamsInScope other hmem))
             (by
               intro other hmem
-              exact mem_stmtNextScope_of_mem_scope (hlocalsInScope other hmem)))
+              exact mem_stmtNextScope_of_mem_scope (hlocalsInScope other hmem))
+            (constructorArgsInScope_stmtNextScope hconstructorArgsInScope))
   | mstore hcoreOffset hcoreValue hrest ih =>
       rcases validateScopedStmtListIdentifiers_cons_ok_inv hvalidate with
         ⟨nextLocalScope, hstmt, hrestValidate⟩
@@ -1358,15 +1425,16 @@ private theorem stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers
           exact StmtListScopeDiscipline.mstore
             hcoreOffset
             (exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
-              hcoreOffset hOffsetVal hparamsInScope hlocalsInScope)
+              hcoreOffset hOffsetVal hparamsInScope hlocalsInScope hconstructorArgsInScope)
             hcoreValue
             (exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
-              hcoreValue hValueVal hparamsInScope hlocalsInScope)
+              hcoreValue hValueVal hparamsInScope hlocalsInScope hconstructorArgsInScope)
             (ih hrestValidate
               (by intro other hmem
                   exact mem_stmtNextScope_of_mem_scope (hparamsInScope other hmem))
               (by intro other hmem
-                  exact mem_stmtNextScope_of_mem_scope (hlocalsInScope other hmem)))
+                  exact mem_stmtNextScope_of_mem_scope (hlocalsInScope other hmem))
+              (constructorArgsInScope_stmtNextScope hconstructorArgsInScope))
   | tstore hcoreOffset hcoreValue hrest ih =>
       rcases validateScopedStmtListIdentifiers_cons_ok_inv hvalidate with
         ⟨nextLocalScope, hstmt, hrestValidate⟩
@@ -1385,15 +1453,16 @@ private theorem stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers
           exact StmtListScopeDiscipline.tstore
             hcoreOffset
             (exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
-              hcoreOffset hOffsetVal hparamsInScope hlocalsInScope)
+              hcoreOffset hOffsetVal hparamsInScope hlocalsInScope hconstructorArgsInScope)
             hcoreValue
             (exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
-              hcoreValue hValueVal hparamsInScope hlocalsInScope)
+              hcoreValue hValueVal hparamsInScope hlocalsInScope hconstructorArgsInScope)
             (ih hrestValidate
               (by intro other hmem
                   exact mem_stmtNextScope_of_mem_scope (hparamsInScope other hmem))
               (by intro other hmem
-                  exact mem_stmtNextScope_of_mem_scope (hlocalsInScope other hmem)))
+                  exact mem_stmtNextScope_of_mem_scope (hlocalsInScope other hmem))
+              (constructorArgsInScope_stmtNextScope hconstructorArgsInScope))
   | ite hcondCore hthenCore helseCore hrest ihThen ihElse ihRest =>
       rcases validateScopedStmtListIdentifiers_cons_ok_inv hvalidate with
         ⟨nextLocalScope, hstmt, hrestValidate⟩
@@ -1413,16 +1482,17 @@ private theorem stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers
             exact StmtListScopeDiscipline.ite
               hcondCore
               (exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
-                hcondCore hCondVal hparamsInScope hlocalsInScope)
-              (ihThen hThenVal hparamsInScope hlocalsInScope)
-              (ihElse hElseVal hparamsInScope hlocalsInScope)
+                hcondCore hCondVal hparamsInScope hlocalsInScope hconstructorArgsInScope)
+              (ihThen hThenVal hparamsInScope hlocalsInScope hconstructorArgsInScope)
+              (ihElse hElseVal hparamsInScope hlocalsInScope hconstructorArgsInScope)
               (ihRest hrestValidate
                 (by
                   intro other hmem
                   exact mem_stmtNextScope_of_mem_scope (hparamsInScope other hmem))
                 (by
                   intro other hmem
-                  exact mem_stmtNextScope_of_mem_scope (hlocalsInScope other hmem)))
+                  exact mem_stmtNextScope_of_mem_scope (hlocalsInScope other hmem))
+                (constructorArgsInScope_stmtNextScope hconstructorArgsInScope))
   | forEachLiteralZero hbodyCore hrestCore ihBody ihRest =>
       rcases validateScopedStmtListIdentifiers_cons_ok_inv hvalidate with
         ⟨nextLocalScope, hstmt, hrestValidate⟩
@@ -1451,14 +1521,16 @@ private theorem stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers
                 simp at hmem
                 rcases hmem with h | h
                 · simp [h]
-                · simp [hlocalsInScope other h]))
+                · simp [hlocalsInScope other h])
+              (constructorArgsInScope_cons hconstructorArgsInScope))
             (ihRest hrestValidate
               (by
                 intro other hmem
                 exact mem_stmtNextScope_of_mem_scope (hparamsInScope other hmem))
               (by
                 intro other hmem
-                exact mem_stmtNextScope_of_mem_scope (hlocalsInScope other hmem)))
+                exact mem_stmtNextScope_of_mem_scope (hlocalsInScope other hmem))
+              (constructorArgsInScope_stmtNextScope hconstructorArgsInScope))
   | forEachLiteralEmpty hrestCore ihRest =>
       rcases validateScopedStmtListIdentifiers_cons_ok_inv hvalidate with
         ⟨nextLocalScope, hstmt, hrestValidate⟩
@@ -1484,7 +1556,8 @@ private theorem stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers
                 exact mem_stmtNextScope_of_mem_scope (hparamsInScope other hmem))
               (by
                 intro other hmem
-                exact mem_stmtNextScope_of_mem_scope (hlocalsInScope other hmem)))
+                exact mem_stmtNextScope_of_mem_scope (hlocalsInScope other hmem))
+              (constructorArgsInScope_stmtNextScope hconstructorArgsInScope))
 theorem stmtListScopeDiscipline_of_validateFunctionIdentifierReferences_prefix
     {spec : FunctionSpec}
     {fieldNames : List String}
@@ -1508,6 +1581,7 @@ theorem stmtListScopeDiscipline_of_validateFunctionIdentifierReferences_prefix
     simpa using hmem
   · intro name hmem
     simp at hmem
+  · exact constructorArgsInScope_none
 
 private theorem scopeNamesPresent_foldl_stmtNextScope_of_validateScopedStmtListIdentifiers
     {fieldNames : List String}
@@ -1553,7 +1627,7 @@ private theorem scopeNamesPresent_foldl_stmtNextScope_of_validateScopedStmtListI
             intro name hname
             simp at hname
             rcases hname with rfl | hname
-            · simp [stmtNextScope, collectStmtNames]
+            · simp [stmtNextScope, collectStmtBindNames]
             · exact mem_stmtNextScope_of_mem_scope (hlocalsInScope name hname))
           other hmem
   | assignVar hvalueCore hrest ih =>
@@ -1624,7 +1698,7 @@ private theorem scopeNamesPresent_foldl_stmtNextScope_of_validateScopedStmtListI
       simp only [pure, Except.pure] at hstmt'
       cases hstmt'
       intro other hmem
-      simp only [List.foldl, stmtNextScope, collectStmtNames] at hmem ⊢
+      simp only [List.foldl, stmtNextScope, collectStmtBindNames] at hmem ⊢
       exact ih hrestValidate hparamsInScope hlocalsInScope other hmem
   | setStorage hfield hvalueCore hrest ih =>
       rcases validateScopedStmtListIdentifiers_cons_ok_inv hvalidate with
@@ -1884,6 +1958,7 @@ theorem exprBoundNamesInScope_setStorage_of_validateFunctionIdentifierReferences
         (by intro other hmem; rw [hparamScope] at hmem; simpa using hmem)
         (by intro other hmem; simp at hmem)
         name hname
+    · exact constructorArgsInScope_foldl_stmtNextScope constructorArgsInScope_none
 
 theorem collectExprNames_mem_exprBoundNames_of_core
     {expr : Expr}
@@ -1891,7 +1966,7 @@ theorem collectExprNames_mem_exprBoundNames_of_core
     ∀ name, name ∈ collectExprNames expr → name ∈ FunctionBody.exprBoundNames expr := by
   induction hcore with
   | literal _ | caller | contractAddress | txOrigin | msgValue | blockTimestamp | blockNumber | chainid
-  | blobbasefee | calldatasize =>
+  | blobbasefee | calldatasize | constructorArg _ =>
       intro name hmem; simp [collectExprNames] at hmem
   | param _ | localVar _ =>
       intro name hmem; simpa [collectExprNames, FunctionBody.exprBoundNames] using hmem
@@ -1939,20 +2014,20 @@ private theorem mem_foldl_stmtNextScope_of_mem_scope
       simp only [List.foldl]
       exact ih (by simp [stmtNextScope]; right; exact hmem)
 
-theorem stmtListNames_subset_foldl_stmtNextScope
+theorem stmtListBindNames_subset_foldl_stmtNextScope
     {scope : List String}
     {stmts : List Stmt}
     {name : String}
-    (hmem : name ∈ collectStmtListNames stmts) :
+    (hmem : name ∈ collectStmtListBindNames stmts) :
     name ∈ List.foldl stmtNextScope scope stmts := by
   induction stmts generalizing scope with
-  | nil => simp [collectStmtListNames] at hmem
+  | nil => simp [collectStmtListBindNames] at hmem
   | cons stmt rest ih =>
-      simp [collectStmtListNames] at hmem
+      simp [collectStmtListBindNames] at hmem
       simp only [List.foldl]
       rcases hmem with hstmt | hrest
       · exact mem_foldl_stmtNextScope_of_mem_scope (by
-          simp [stmtNextScope]; left; exact hstmt)
+          simp [stmtNextScope]; exact Or.inl hstmt)
       · exact ih hrest
 
 theorem stmtListScopeDiscipline_scope_names
@@ -1974,11 +2049,10 @@ theorem stmtListScopeDiscipline_scope_names
       intro other hmem
       simp only [List.foldl] at hmem
       have htail := ih other hmem
-      simp [stmtNextScope, collectStmtNames, collectStmtListBindNames, collectStmtBindNames,
+      simp [stmtNextScope, collectStmtBindNames, collectStmtListBindNames,
         collectStmtListAssignedNames, collectStmtAssignedNames] at htail ⊢
-      rcases htail with hname | hvalue | hscope | hbind | hassign | hfield
+      rcases htail with hname | hscope | hbind | hassign | hfield
       · right; left; exact hname
-      · left; exact hinScope _ (collectExprNames_mem_exprBoundNames_of_core hcore _ hvalue)
       · left; exact hscope
       · right; right; left; exact hbind
       · right; right; right; left; exact hassign
@@ -1987,11 +2061,9 @@ theorem stmtListScopeDiscipline_scope_names
       intro other hmem
       simp only [List.foldl] at hmem
       have htail := ih other hmem
-      simp [stmtNextScope, collectStmtNames, collectStmtListBindNames, collectStmtBindNames,
+      simp [stmtNextScope, collectStmtBindNames, collectStmtListBindNames,
         collectStmtListAssignedNames, collectStmtAssignedNames] at htail ⊢
-      rcases htail with hname | hvalue | hscope | hbind | hassign | hfield
-      · right; right; left; exact hname
-      · left; exact hinScope _ (collectExprNames_mem_exprBoundNames_of_core hcore _ hvalue)
+      rcases htail with hscope | hbind | hassign | hfield
       · left; exact hscope
       · right; left; exact hbind
       · right; right; right; left; exact hassign
@@ -2000,10 +2072,9 @@ theorem stmtListScopeDiscipline_scope_names
       intro other hmem
       simp only [List.foldl] at hmem
       have htail := ih other hmem
-      simp [stmtNextScope, collectStmtNames, collectStmtListBindNames, collectStmtBindNames,
+      simp [stmtNextScope, collectStmtBindNames, collectStmtListBindNames,
         collectStmtListAssignedNames, collectStmtAssignedNames] at htail ⊢
-      rcases htail with hcond | hscope | hbind | hassign | hfield
-      · left; exact hinScope _ (collectExprNames_mem_exprBoundNames_of_core hcore _ hcond)
+      rcases htail with hscope | hbind | hassign | hfield
       · left; exact hscope
       · right; left; exact hbind
       · right; right; left; exact hassign
@@ -2012,17 +2083,16 @@ theorem stmtListScopeDiscipline_scope_names
       intro other hmem
       simp only [List.foldl] at hmem
       have htail := ih other hmem
-      simp [stmtNextScope, collectStmtNames, collectStmtListBindNames, collectStmtBindNames,
+      simp [stmtNextScope, collectStmtBindNames, collectStmtListBindNames,
         collectStmtListAssignedNames, collectStmtAssignedNames] at htail ⊢
-      rcases htail with hvalue | hscope | hbind | hassign | hfield
-      · left; exact hinScope _ (collectExprNames_mem_exprBoundNames_of_core hcore _ hvalue)
+      rcases htail with hscope | hbind | hassign | hfield
       · left; exact hscope
       · right; left; exact hbind
       · right; right; left; exact hassign
       · right; right; right; exact hfield
   | stop _ ih =>
       intro other hmem
-      simp only [List.foldl, stmtNextScope, collectStmtNames, List.nil_append] at hmem
+      simp only [List.foldl, stmtNextScope, collectStmtBindNames, List.nil_append] at hmem
       have htail := ih other hmem
       simp [collectStmtListBindNames, collectStmtBindNames,
         collectStmtListAssignedNames, collectStmtAssignedNames] at htail ⊢
@@ -2031,10 +2101,9 @@ theorem stmtListScopeDiscipline_scope_names
       intro other hmem
       simp only [List.foldl] at hmem
       have htail := ih other hmem
-      simp [stmtNextScope, collectStmtNames, collectStmtListBindNames, collectStmtBindNames,
+      simp [stmtNextScope, collectStmtBindNames, collectStmtListBindNames,
         collectStmtListAssignedNames, collectStmtAssignedNames] at htail ⊢
-      rcases htail with hvalue | hscope | hbind | hassign | hfld
-      · left; exact hinScope _ (collectExprNames_mem_exprBoundNames_of_core hcore _ hvalue)
+      rcases htail with hscope | hbind | hassign | hfld
       · left; exact hscope
       · right; left; exact hbind
       · right; right; left; exact hassign
@@ -2043,10 +2112,9 @@ theorem stmtListScopeDiscipline_scope_names
       intro other hmem
       simp only [List.foldl] at hmem
       have htail := ih other hmem
-      simp [stmtNextScope, collectStmtNames, collectStmtListBindNames, collectStmtBindNames,
+      simp [stmtNextScope, collectStmtBindNames, collectStmtListBindNames,
         collectStmtListAssignedNames, collectStmtAssignedNames] at htail ⊢
-      rcases htail with hvalue | hscope | hbind | hassign | hfld
-      · left; exact hinScope _ (collectExprNames_mem_exprBoundNames_of_core hcore _ hvalue)
+      rcases htail with hscope | hbind | hassign | hfld
       · left; exact hscope
       · right; left; exact hbind
       · right; right; left; exact hassign
@@ -2055,10 +2123,9 @@ theorem stmtListScopeDiscipline_scope_names
       intro other hmem
       simp only [List.foldl] at hmem
       have htail := ih other hmem
-      simp [stmtNextScope, collectStmtNames, collectStmtListBindNames, collectStmtBindNames,
+      simp [stmtNextScope, collectStmtBindNames, collectStmtListBindNames,
         collectStmtListAssignedNames, collectStmtAssignedNames] at htail ⊢
-      rcases htail with hvalue | hscope | hbind | hassign | hfld
-      · left; exact hinScope _ (collectExprNames_mem_exprBoundNames_of_core hcore _ hvalue)
+      rcases htail with hscope | hbind | hassign | hfld
       · left; exact hscope
       · right; left; exact hbind
       · right; right; left; exact hassign
@@ -2067,10 +2134,9 @@ theorem stmtListScopeDiscipline_scope_names
       intro other hmem
       simp only [List.foldl] at hmem
       have htail := ih other hmem
-      simp [stmtNextScope, collectStmtNames, collectStmtListBindNames, collectStmtBindNames,
+      simp [stmtNextScope, collectStmtBindNames, collectStmtListBindNames,
         collectStmtListAssignedNames, collectStmtAssignedNames] at htail ⊢
-      rcases htail with hvalue | hscope | hbind | hassign | hfld
-      · left; exact hinScope _ (collectExprNames_mem_exprBoundNames_of_core hcore _ hvalue)
+      rcases htail with hscope | hbind | hassign | hfld
       · left; exact hscope
       · right; left; exact hbind
       · right; right; left; exact hassign
@@ -2079,11 +2145,9 @@ theorem stmtListScopeDiscipline_scope_names
       intro other hmem
       simp only [List.foldl] at hmem
       have htail := ih other hmem
-      simp [stmtNextScope, collectStmtNames, collectStmtListBindNames, collectStmtBindNames,
+      simp [stmtNextScope, collectStmtBindNames, collectStmtListBindNames,
         collectStmtListAssignedNames, collectStmtAssignedNames] at htail ⊢
-      rcases htail with hoffset | hvalue | hscope | hbind | hassign | hfld
-      · left; exact hinScopeOffset _ (collectExprNames_mem_exprBoundNames_of_core hcoreOffset _ hoffset)
-      · left; exact hinScopeValue _ (collectExprNames_mem_exprBoundNames_of_core hcoreValue _ hvalue)
+      rcases htail with hscope | hbind | hassign | hfld
       · left; exact hscope
       · right; left; exact hbind
       · right; right; left; exact hassign
@@ -2092,11 +2156,9 @@ theorem stmtListScopeDiscipline_scope_names
       intro other hmem
       simp only [List.foldl] at hmem
       have htail := ih other hmem
-      simp [stmtNextScope, collectStmtNames, collectStmtListBindNames, collectStmtBindNames,
+      simp [stmtNextScope, collectStmtBindNames, collectStmtListBindNames,
         collectStmtListAssignedNames, collectStmtAssignedNames] at htail ⊢
-      rcases htail with hoffset | hvalue | hscope | hbind | hassign | hfld
-      · left; exact hinScopeOffset _ (collectExprNames_mem_exprBoundNames_of_core hcoreOffset _ hoffset)
-      · left; exact hinScopeValue _ (collectExprNames_mem_exprBoundNames_of_core hcoreValue _ hvalue)
+      rcases htail with hscope | hbind | hassign | hfld
       · left; exact hscope
       · right; left; exact hbind
       · right; right; left; exact hassign
@@ -2105,13 +2167,11 @@ theorem stmtListScopeDiscipline_scope_names
       intro other hmem
       simp only [List.foldl] at hmem
       have htail := ihRest other hmem
-      simp only [List.mem_append, stmtNextScope, collectStmtNames,
+      simp only [List.mem_append, stmtNextScope, collectStmtBindNames,
         collectStmtListBindNames, collectStmtBindNames,
         collectStmtListAssignedNames, collectStmtAssignedNames] at htail ⊢
-      rcases htail with ((((( hcond | hthenNames ) | helseNames ) | hscope ) | hbind ) | hassign ) | hfield
-      · left; left; left
-        exact hinScope _ (collectExprNames_mem_exprBoundNames_of_core hcore _ hcond)
-      · have hmemFoldl := stmtListNames_subset_foldl_stmtNextScope (scope := scope) hthenNames
+      rcases htail with (((( hthenNames | helseNames ) | hscope ) | hbind ) | hassign) | hfield
+      · have hmemFoldl := stmtListBindNames_subset_foldl_stmtNextScope (scope := scope) hthenNames
         have hthenResult := ihThen other hmemFoldl
         simp only [List.mem_append,
           collectStmtListBindNames, collectStmtBindNames,
@@ -2121,7 +2181,7 @@ theorem stmtListScopeDiscipline_scope_names
         · left; left; right; left; left; exact hbind
         · left; right; left; left; exact hassign
         · right; exact hfield
-      · have hmemFoldl := stmtListNames_subset_foldl_stmtNextScope (scope := scope) helseNames
+      · have hmemFoldl := stmtListBindNames_subset_foldl_stmtNextScope (scope := scope) helseNames
         have helseResult := ihElse other hmemFoldl
         simp only [List.mem_append,
           collectStmtListBindNames, collectStmtBindNames,
@@ -2139,14 +2199,14 @@ theorem stmtListScopeDiscipline_scope_names
       intro other hmem
       simp only [List.foldl] at hmem
       have htail := ihRest other hmem
-      simp [stmtNextScope, collectStmtNames, collectExprNames,
+      simp [stmtNextScope, collectStmtBindNames, collectExprNames,
         collectStmtListBindNames, collectStmtBindNames,
         collectStmtListAssignedNames, collectStmtAssignedNames] at htail
       rcases htail with hvar | hbodyName | hscope | hbindRest | hassignRest | hfield
       · simp [collectStmtListBindNames, collectStmtBindNames,
           collectStmtListAssignedNames, collectStmtAssignedNames, hvar]
       ·
-        have hmemFoldl := stmtListNames_subset_foldl_stmtNextScope
+        have hmemFoldl := stmtListBindNames_subset_foldl_stmtNextScope
           (scope := varName :: scope) hbodyName
         have hbodyResult := ihBody other hmemFoldl
         simp [collectStmtListBindNames, collectStmtBindNames,
@@ -2164,8 +2224,8 @@ theorem stmtListScopeDiscipline_scope_names
       intro other hmem
       simp only [List.foldl] at hmem
       have htail := ihRest other hmem
-      simp [stmtNextScope, collectStmtNames, collectExprNames,
-        collectStmtListNames, collectStmtListBindNames, collectStmtBindNames,
+      simp [stmtNextScope, collectStmtBindNames, collectExprNames,
+        collectStmtListBindNames,
         collectStmtListAssignedNames, collectStmtAssignedNames] at htail ⊢
       tauto
 

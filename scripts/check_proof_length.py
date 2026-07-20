@@ -36,6 +36,12 @@ HARD_LIMIT = 50
 # before the check was introduced. New proofs must not be added here without a
 # justification comment in the PR explaining why decomposition is not feasible.
 ALLOWLIST: set[str] = {
+    # #2080 direct-helper dispatch seams: these are signature-dominated adapters
+    # that carry the helper table, compilation, and state/fuel relations together.
+    # Splitting them would duplicate the same witness plumbing without reducing
+    # the proof search performed by their bodies.
+    "execIRStmtsWithInternals_of_internalCall_compiledHelperWitness_with_internals",
+    "directInternalHelperStatementContextBridge_sourceAssignEvidence",
     # --- Denote/SourceSemantics agreement (P4 seed) ---
     # Structural recursion over the fuelless forEach loop; the succ case must
     # spell out the loop-state literal inside a `show`-match to align the two
