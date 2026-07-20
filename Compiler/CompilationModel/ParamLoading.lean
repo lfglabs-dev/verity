@@ -216,6 +216,12 @@ def genParamLoadsFrom
 def genParamLoads (params : List Param) : List YulStmt :=
   genParamLoadsFrom (fun pos => YulExpr.call "calldataload" [pos]) (YulExpr.call "calldatasize" []) 4 4 params
 
+def constructorArgAliasNames (params : List Param) : List String :=
+  (List.range params.length).map (fun idx => s!"arg{idx}")
+
+def constructorBodyScope (params : List Param) : List String :=
+  constructorArgAliasNames params ++ params.map (·.name)
+
 private def constructorArgAliases (params : List Param) : List YulStmt :=
   let rec go (ps : List Param) (idx : Nat) (headOffset : Nat) : List YulStmt :=
     match ps with

@@ -2338,10 +2338,7 @@ theorem compiledStmtStep_setStorage_singleSlot
       have hincl : FunctionBody.scopeNamesIncluded
           (stmtNextScope scope (.setStorage fieldName value)) scope := by
         intro n hn
-        simp [stmtNextScope, collectStmtNames] at hn
-        rcases hn with hv | hs
-        · exact hinScope n (collectExprNames_mem_exprBoundNames_of_core hcore n hv)
-        · exact hs
+        simpa [stmtNextScope, collectStmtBindNames] using hn
       have hexact' := FunctionBody.bindingsExactlyMatchIRVarsOnScope_of_included
         (bindingsExactlyMatchIRVarsOnScope_writeUintSlot (slot := slot) (value := valueNat) hexact)
         hincl
@@ -2424,10 +2421,7 @@ theorem compiledStmtStep_setStorageWord_singleSlot_zeroOffset
       have hincl : FunctionBody.scopeNamesIncluded
           (stmtNextScope scope (.setStorageWord fieldName 0 value)) scope := by
         intro n hn
-        simp [stmtNextScope, collectStmtNames] at hn
-        rcases hn with hv | hs
-        · exact hinScope n (collectExprNames_mem_exprBoundNames_of_core hcore n hv)
-        · exact hs
+        simpa [stmtNextScope, collectStmtBindNames] using hn
       have hexact' := FunctionBody.bindingsExactlyMatchIRVarsOnScope_of_included
         (bindingsExactlyMatchIRVarsOnScope_writeUintSlot (slot := slot) (value := valueNat) hexact)
         hincl
@@ -2562,10 +2556,7 @@ private theorem compiledStmtStep_setStorageAddr_singleSlot_preserves
     have hincl : FunctionBody.scopeNamesIncluded
         (stmtNextScope scope (.setStorageAddr fieldName value)) scope := by
       intro n hn
-      simp [stmtNextScope, collectStmtNames] at hn
-      rcases hn with hv | hs
-      · exact hinScope n (collectExprNames_mem_exprBoundNames_of_core hcore n hv)
-      · exact hs
+      simpa [stmtNextScope, collectStmtBindNames] using hn
     have hexact' := FunctionBody.bindingsExactlyMatchIRVarsOnScope_of_included
       (bindingsExactlyMatchIRVarsOnScope_writeUintSlot
         (state := state) (slot := slot)
@@ -2688,11 +2679,7 @@ private theorem compiledStmtStep_mstore_single_preserves
       have hincl : FunctionBody.scopeNamesIncluded
           (stmtNextScope scope (.mstore offset value)) scope := by
         intro n hn
-        simp [stmtNextScope, collectStmtNames] at hn
-        rcases hn with ho | hv | hs
-        · exact hinScopeOffset n (collectExprNames_mem_exprBoundNames_of_core hcoreOffset n ho)
-        · exact hinScopeValue n (collectExprNames_mem_exprBoundNames_of_core hcoreValue n hv)
-        · exact hs
+        simpa [stmtNextScope, collectStmtBindNames] using hn
       -- Bindings: getVar only depends on vars, not memory
       have hexact' : FunctionBody.bindingsExactlyMatchIRVarsOnScope
           (stmtNextScope scope (.mstore offset value))
@@ -2831,11 +2818,7 @@ private theorem compiledStmtStep_tstore_single_preserves
       have hincl : FunctionBody.scopeNamesIncluded
           (stmtNextScope scope (.tstore offset value)) scope := by
         intro n hn
-        simp [stmtNextScope, collectStmtNames] at hn
-        rcases hn with ho | hv | hs
-        · exact hinScopeOffset n (collectExprNames_mem_exprBoundNames_of_core hcoreOffset n ho)
-        · exact hinScopeValue n (collectExprNames_mem_exprBoundNames_of_core hcoreValue n hv)
-        · exact hs
+        simpa [stmtNextScope, collectStmtBindNames] using hn
       -- Bindings: getVar only depends on vars, not transientStorage
       have hexact' : FunctionBody.bindingsExactlyMatchIRVarsOnScope
           (stmtNextScope scope (.tstore offset value))
@@ -2964,11 +2947,7 @@ private theorem compiledStmtStep_setMappingUint_singleSlot_of_slotSafety_preserv
       have hincl : FunctionBody.scopeNamesIncluded
           (stmtNextScope scope (.setMappingUint fieldName key value)) scope := by
         intro n hn
-        simp [stmtNextScope, collectStmtNames] at hn
-        rcases hn with hk | hv | hs
-        · exact hinScopeKey n (collectExprNames_mem_exprBoundNames_of_core hcoreKey n hk)
-        · exact hinScopeValue n (collectExprNames_mem_exprBoundNames_of_core hcoreValue n hv)
-        · exact hs
+        simpa [stmtNextScope, collectStmtBindNames] using hn
       have hscope' : FunctionBody.scopeNamesPresent
           (stmtNextScope scope (.setMappingUint fieldName key value))
           runtime.bindings :=
@@ -3687,26 +3666,7 @@ private theorem compiledStmtStep_setMappingChain_singleSlot_of_slotSafety_preser
     have hincl : FunctionBody.scopeNamesIncluded
         (stmtNextScope scope (.setMappingChain fieldName keys value)) scope := by
       intro n hn
-      simp [stmtNextScope, collectStmtNames] at hn
-      rcases hn with hk | hv | hs
-      · -- name from collectExprListNames keys — prove ∃ expr ∈ keys with name ∈ collectExprNames expr
-        suffices ∀ (ks : List Expr),
-            (∀ e, e ∈ ks → FunctionBody.ExprCompileCore e) →
-            (∀ e, e ∈ ks → FunctionBody.exprBoundNamesInScope e scope) →
-            n ∈ collectExprListNames ks → n ∈ scope from
-          this keys hcoreKeys hinScopeKeys hk
-        intro ks hcore' hscope' hmem
-        induction ks with
-        | nil => simp [collectExprListNames] at hmem
-        | cons hd tl ih =>
-          simp [collectExprListNames] at hmem
-          rcases hmem with hhd | htl
-          · exact hscope' hd (by simp) n
-              (collectExprNames_mem_exprBoundNames_of_core (hcore' hd (by simp)) n hhd)
-          · exact ih (fun e he => hcore' e (by simp [he]))
-              (fun e he => hscope' e (by simp [he])) htl
-      · exact hinScopeValue n (collectExprNames_mem_exprBoundNames_of_core hcoreValue n hv)
-      · exact hs
+      simpa [stmtNextScope, collectStmtBindNames] using hn
     have hscope' : FunctionBody.scopeNamesPresent
         (stmtNextScope scope (.setMappingChain fieldName keys value))
         runtime.bindings :=
@@ -3936,11 +3896,7 @@ private theorem compiledStmtStep_setMapping_singleSlot_of_slotSafety_preserves
       have hincl : FunctionBody.scopeNamesIncluded
           (stmtNextScope scope (.setMapping fieldName key value)) scope := by
         intro n hn
-        simp [stmtNextScope, collectStmtNames] at hn
-        rcases hn with hk | hv | hs
-        · exact hinScopeKey n (collectExprNames_mem_exprBoundNames_of_core hcoreKey n hk)
-        · exact hinScopeValue n (collectExprNames_mem_exprBoundNames_of_core hcoreValue n hv)
-        · exact hs
+        simpa [stmtNextScope, collectStmtBindNames] using hn
       have hscope' : FunctionBody.scopeNamesPresent
           (stmtNextScope scope (.setMapping fieldName key value))
           runtime.bindings :=
@@ -4190,11 +4146,7 @@ private theorem compiledStmtStep_setMappingWord_singleSlot_of_slotSafety_preserv
       have hincl : FunctionBody.scopeNamesIncluded
           (stmtNextScope scope (.setMappingWord fieldName key wordOffset value)) scope := by
         intro n hn
-        simp [stmtNextScope, collectStmtNames] at hn
-        rcases hn with hk | hv | hs
-        · exact hinScopeKey n (collectExprNames_mem_exprBoundNames_of_core hcoreKey n hk)
-        · exact hinScopeValue n (collectExprNames_mem_exprBoundNames_of_core hcoreValue n hv)
-        · exact hs
+        simpa [stmtNextScope, collectStmtBindNames] using hn
       have hscope' : FunctionBody.scopeNamesPresent
           (stmtNextScope scope (.setMappingWord fieldName key wordOffset value))
           runtime.bindings :=
@@ -5102,11 +5054,7 @@ private theorem compiledStmtStep_setMappingPackedWord_singleSlot_of_slotSafety_p
       have hincl : FunctionBody.scopeNamesIncluded
           (stmtNextScope scope (.setMappingPackedWord fieldName key wordOffset packed value)) scope := by
         intro n hn
-        simp [stmtNextScope, collectStmtNames] at hn
-        rcases hn with hk | hv | hs
-        · exact hinScopeKey n (collectExprNames_mem_exprBoundNames_of_core hcoreKey n hk)
-        · exact hinScopeValue n (collectExprNames_mem_exprBoundNames_of_core hcoreValue n hv)
-        · exact hs
+        simpa [stmtNextScope, collectStmtBindNames] using hn
       have hscope' := FunctionBody.scopeNamesPresent_of_included hscope hincl
       have hruntime1 :=
         FunctionBody.runtimeStateMatchesIR_setVar_irrelevant
@@ -5420,7 +5368,7 @@ private theorem compiledStmtStep_setStructMember_singleSlot_of_slotSafety_preser
     cases SourceSemantics.evalExpr fields runtime key <;>
       cases SourceSemantics.evalExpr fields runtime value <;>
       simp [hmember]
-  · simpa [stmtStepMatchesIRExec, stmtNextScope, collectStmtNames]
+  · simpa [stmtStepMatchesIRExec, stmtNextScope, collectStmtBindNames]
       using hmatch
 
 theorem compiledStmtStep_setStructMember_singleSlot_of_slotSafety
@@ -5587,12 +5535,7 @@ private theorem compiledStmtStep_setMapping2_singleSlot_of_slotSafety_preserves
         have hincl : FunctionBody.scopeNamesIncluded
             (stmtNextScope scope (.setMapping2 fieldName key1 key2 value)) scope := by
           intro n hn
-          simp [stmtNextScope, collectStmtNames] at hn
-          rcases hn with hk1 | hk2 | hv | hs
-          · exact hinScopeKey1 n (collectExprNames_mem_exprBoundNames_of_core hcoreKey1 n hk1)
-          · exact hinScopeKey2 n (collectExprNames_mem_exprBoundNames_of_core hcoreKey2 n hk2)
-          · exact hinScopeValue n (collectExprNames_mem_exprBoundNames_of_core hcoreValue n hv)
-          · exact hs
+          simpa [stmtNextScope, collectStmtBindNames] using hn
         have hscope' : FunctionBody.scopeNamesPresent
             (stmtNextScope scope (.setMapping2 fieldName key1 key2 value))
             runtime.bindings :=
@@ -5903,12 +5846,7 @@ private theorem compiledStmtStep_setMapping2Word_singleSlot_of_slotSafety_preser
         have hincl : FunctionBody.scopeNamesIncluded
             (stmtNextScope scope (.setMapping2Word fieldName key1 key2 wordOffset value)) scope := by
           intro n hn
-          simp [stmtNextScope, collectStmtNames] at hn
-          rcases hn with hk1 | hk2 | hv | hs
-          · exact hinScopeKey1 n (collectExprNames_mem_exprBoundNames_of_core hcoreKey1 n hk1)
-          · exact hinScopeKey2 n (collectExprNames_mem_exprBoundNames_of_core hcoreKey2 n hk2)
-          · exact hinScopeValue n (collectExprNames_mem_exprBoundNames_of_core hcoreValue n hv)
-          · exact hs
+          simpa [stmtNextScope, collectStmtBindNames] using hn
         have hscope' : FunctionBody.scopeNamesPresent
             (stmtNextScope scope (.setMapping2Word fieldName key1 key2 wordOffset value))
             runtime.bindings :=
@@ -6157,7 +6095,7 @@ private theorem compiledStmtStep_setStructMember2_singleSlot_of_slotSafety_prese
       cases SourceSemantics.evalExpr fields runtime key2 <;>
       cases SourceSemantics.evalExpr fields runtime value <;>
       simp [hmember]
-  · simpa [stmtStepMatchesIRExec, stmtNextScope, collectStmtNames]
+  · simpa [stmtStepMatchesIRExec, stmtNextScope, collectStmtBindNames]
       using hmatch
 
 theorem compiledStmtStep_setStructMember2_singleSlot_of_slotSafety
@@ -6352,10 +6290,7 @@ theorem compiledStmtStep_setStorage_aliasSlots
       have hincl : FunctionBody.scopeNamesIncluded
           (stmtNextScope scope (.setStorage fieldName value)) scope := by
         intro n hn
-        simp [stmtNextScope, collectStmtNames] at hn
-        rcases hn with hv | hs
-        · exact hinScope n (collectExprNames_mem_exprBoundNames_of_core hcore n hv)
-        · exact hs
+        simpa [stmtNextScope, collectStmtBindNames] using hn
       have hscope' := FunctionBody.scopeNamesPresent_of_included hscope hincl
       -- Runtime state match
       have hruntimeSet :
@@ -7007,9 +6942,8 @@ private theorem compiledStmtStep_letStorageField
     set runtime' := { runtime with bindings := SourceSemantics.bindValue runtime.bindings tmp v }
     have hNextScopeIncl : FunctionBody.scopeNamesIncluded
         (stmtNextScope scope (.letVar tmp (Expr.storage fieldName))) (tmp :: scope) := by
-      intro n hn; simp [stmtNextScope, collectStmtNames, collectExprNames] at hn
-      rcases hn with rfl | rfl | hn <;>
-        [simp; exact List.mem_cons_of_mem _ hfieldInScope; exact List.mem_cons_of_mem _ hn]
+      intro n hn
+      simpa [stmtNextScope, collectStmtBindNames] using hn
     refine ⟨.continue runtime', .continue state', ?_, ?_, ?_⟩
     · show (match SourceSemantics.evalExpr fields runtime (.storage fieldName) with
         | some r => SourceSemantics.StmtResult.continue { runtime with
@@ -7093,9 +7027,8 @@ private theorem compiledStmtStep_letStorageAddrField
       Nat.lt_trans (runtime.world.storageAddr (SourceSemantics.wordNormalize slot)).isLt (by decide)
     have hNextScopeIncl : FunctionBody.scopeNamesIncluded
         (stmtNextScope scope (.letVar tmp (Expr.storageAddr fieldName))) (tmp :: scope) := by
-      intro n hn; simp [stmtNextScope, collectStmtNames, collectExprNames] at hn
-      rcases hn with rfl | rfl | hn <;>
-        [simp; exact List.mem_cons_of_mem _ hfieldInScope; exact List.mem_cons_of_mem _ hn]
+      intro n hn
+      simpa [stmtNextScope, collectStmtBindNames] using hn
     refine ⟨.continue runtime', .continue state', ?_, ?_, ?_⟩
     · show (match SourceSemantics.evalExpr fields runtime (.storageAddr fieldName) with
         | some r => SourceSemantics.StmtResult.continue { runtime with
@@ -7172,9 +7105,9 @@ private theorem compiledStmtStep_assignStorageField
     set runtime' := { runtime with bindings := SourceSemantics.bindValue runtime.bindings name v }
     have hNextScopeIncl : FunctionBody.scopeNamesIncluded
         (stmtNextScope scope (.assignVar name (Expr.storage fieldName))) (name :: scope) := by
-      intro n hn; simp [stmtNextScope, collectStmtNames, collectExprNames] at hn
-      rcases hn with rfl | rfl | hn <;>
-        [simp; exact List.mem_cons_of_mem _ hfieldInScope; exact List.mem_cons_of_mem _ hn]
+      intro n hn
+      exact List.mem_cons_of_mem _ (by
+        simpa [stmtNextScope, collectStmtBindNames] using hn)
     refine ⟨.continue runtime', .continue state', ?_, ?_, ?_⟩
     · show (match SourceSemantics.evalExpr fields runtime (.storage fieldName) with
         | some r => SourceSemantics.StmtResult.continue { runtime with
@@ -7258,9 +7191,9 @@ private theorem compiledStmtStep_assignStorageAddrField
       Nat.lt_trans (runtime.world.storageAddr (SourceSemantics.wordNormalize slot)).isLt (by decide)
     have hNextScopeIncl : FunctionBody.scopeNamesIncluded
         (stmtNextScope scope (.assignVar name (Expr.storageAddr fieldName))) (name :: scope) := by
-      intro n hn; simp [stmtNextScope, collectStmtNames, collectExprNames] at hn
-      rcases hn with rfl | rfl | hn <;>
-        [simp; exact List.mem_cons_of_mem _ hfieldInScope; exact List.mem_cons_of_mem _ hn]
+      intro n hn
+      exact List.mem_cons_of_mem _ (by
+        simpa [stmtNextScope, collectStmtBindNames] using hn)
     refine ⟨.continue runtime', .continue state', ?_, ?_, ?_⟩
     · show (match SourceSemantics.evalExpr fields runtime (.storageAddr fieldName) with
         | some r => SourceSemantics.StmtResult.continue { runtime with

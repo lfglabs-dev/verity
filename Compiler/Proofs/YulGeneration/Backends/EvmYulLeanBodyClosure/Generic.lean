@@ -470,7 +470,7 @@ private theorem compileStmtList_cons_ok_inv
       compileStmt fields events errors dynamicSource internalRetNames
           isInternal inScopeNames adtTypes stmt = .ok headIR ∧
       compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal (collectStmtNames stmt ++ inScopeNames) adtTypes rest =
+          isInternal (collectStmtBindNames stmt ++ inScopeNames) adtTypes rest =
         .ok tailIR ∧
       bodyIR = headIR ++ tailIR := by
   simp only [compileStmtList] at hOk
@@ -483,7 +483,7 @@ private theorem compileStmtList_cons_ok_inv
   | ok headIR =>
     simp [hHead] at hOk
     cases hTail : compileStmtList fields events errors dynamicSource
-      internalRetNames isInternal (collectStmtNames stmt ++ inScopeNames)
+      internalRetNames isInternal (collectStmtBindNames stmt ++ inScopeNames)
       adtTypes rest with
     | error _ => simp [compileStmtListWithFork_cancun_eq_compileStmtList, hTail] at hOk
     | ok tailIR =>

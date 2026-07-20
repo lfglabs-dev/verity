@@ -1,0 +1,10 @@
+{
+  "id": 9876543,
+  "number": 42,
+  "size": 3,
+  "position": 2,
+  "base": {
+    "ref": "main",
+    "sha": "abc123"
+  }
+}
