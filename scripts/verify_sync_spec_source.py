@@ -218,6 +218,9 @@ SPEC = {'check_only_paths': ['.github/workflows/**',
                              'checks': [{'name': 'Normalize reused checkout state',
                                          'run': 'if [ -d .git ]; then\n'
                                                 '  git sparse-checkout disable || true\n'
+                                                '  git ls-files -z | git update-index '
+                                                '--no-skip-worktree -z --stdin || true\n'
+                                                '  git reset --hard HEAD\n'
                                                 'fi'},
                                         {'name': 'Clear sticky remote refs before PR checkout',
                                          'if': "github.event_name == 'pull_request'",
