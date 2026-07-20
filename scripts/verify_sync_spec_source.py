@@ -228,6 +228,8 @@ SPEC = {'check_only_paths': ['.github/workflows/**',
                                                 '  rm -rf .git/refs/remotes/origin\n'
                                                 'fi'},
                                         {'uses': 'actions/checkout@v6'},
+                                        {'name': 'Materialize reused checkout',
+                                         'run': 'git reset --hard HEAD'},
                                         {'name': 'Run all checks', 'run': 'make check'}],
                              'timeout-watchdog': [{'name': 'Warn on timeout-risk trend',
                                                    'env': {'GH_TOKEN': '${{ github.token }}'},

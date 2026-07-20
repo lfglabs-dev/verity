@@ -263,6 +263,10 @@
         "uses": "actions/checkout@v6"
       },
       {
+        "name": "Materialize reused checkout",
+        "run": "git reset --hard HEAD"
+      },
+      {
         "name": "Run all checks",
         "run": "make check"
       }
