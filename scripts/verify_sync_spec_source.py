@@ -220,7 +220,9 @@ SPEC = {'check_only_paths': ['.github/workflows/**',
                                         {'name': 'Materialize reused checkout',
                                          'run': 'git reset --hard HEAD'},
                                         {'name': 'Run all checks', 'run': 'make check'}],
-                             'timeout-watchdog': [{'name': 'Warn on timeout-risk trend',
+                             'timeout-watchdog': [{'uses': 'actions/checkout@v6',
+                                                   'with': {'path': 'watchdog-${{ github.run_id }}-${{ github.run_attempt }}'}},
+                                                  {'name': 'Warn on timeout-risk trend',
                                                    'env': {'GH_TOKEN': '${{ github.token }}'},
                                                    'run': 'python3 scripts/ci_timeout_watchdog.py '
                                                           '\\\n'

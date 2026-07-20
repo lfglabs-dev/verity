@@ -327,11 +327,16 @@ jobs:
     timeout-minutes: 5
     needs: checks
     if: needs.checks.result == 'success' && !(github.event_name == 'workflow_dispatch' && inputs.clean_build)
+    defaults:
+      run:
+        working-directory: watchdog-${{ github.run_id }}-${{ github.run_attempt }}
     permissions:
       actions: read
       contents: read
     steps:
       - uses: actions/checkout@v6
+        with:
+          path: watchdog-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Warn on timeout-risk trend
         env:

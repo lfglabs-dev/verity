@@ -269,6 +269,12 @@
     ],
     "timeout-watchdog": [
       {
+        "uses": "actions/checkout@v6",
+        "with": {
+          "path": "watchdog-${{ github.run_id }}-${{ github.run_attempt }}"
+        }
+      },
+      {
         "name": "Warn on timeout-risk trend",
         "env": {
           "GH_TOKEN": "${{ github.token }}"
