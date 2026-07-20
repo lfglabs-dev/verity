@@ -3712,6 +3712,86 @@ theorem exprInternalHelperHeadStepBridgeWithInternals_letVar_mul_right_threaded
             hrightPost hcompileLeft hsourceLeft hirLeft hirRight hfindMul rfl)
       hvalueNamesInScope
 
+/-- Payload needed to lift a left-helper `Expr.mul` into a `Stmt.letVar`
+expression-head bridge. -/
+def LetVarMulLeftThreadedEvidence
+    (runtimeContract : IRContract)
+    (spec : CompilationModel)
+    (fields : List Field)
+    (left right : Expr)
+    (leftIR rightIR : YulExpr) : Prop :=
+  ∀ {scope : List String}
+    {runtime : SourceSemantics.RuntimeState}
+    {state : IRState}
+    {helperFuel irFuel : Nat},
+    0 < helperFuel →
+    0 < irFuel →
+    FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state →
+    FunctionBody.scopeNamesPresent scope runtime.bindings →
+    FunctionBody.bindingsBounded runtime.bindings →
+    FunctionBody.runtimeStateMatchesIR fields runtime state →
+    ∃ leftFinalState finalState leftValue rightValue,
+      ExprInternalHelperCompositionalPostStateResult runtimeContract spec fields scope
+        left leftIR (helperFuel - 1) (irFuel - 1) runtime runtime
+        state state leftFinalState leftValue ∧
+      SourceSemantics.evalExprWithHelpers spec fields (helperFuel - 1 + 1)
+          runtime right =
+        some rightValue ∧
+      evalIRExprWithInternals runtimeContract (irFuel - 1 + 1) leftFinalState rightIR =
+        .value rightValue finalState ∧
+      findInternalFunction? runtimeContract "mul" = none ∧
+      FunctionBody.runtimeStateMatchesIR fields runtime finalState ∧
+      FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings finalState
+
+/-- Concrete spec-functions `Stmt.letVar` bridge for a value expression of the
+form `Expr.mul left right` when the helper payload is in the left operand. -/
+theorem exprInternalHelperHeadStepBridgeWithInternals_letVar_mul_left_threaded
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {name : String} {left right : Expr} {leftIR rightIR : YulExpr}
+    (hcompileLeft :
+      CompilationModel.compileExprWithInternals fields .calldata spec.functions left =
+        Except.ok leftIR)
+    (hcompileRight :
+      CompilationModel.compileExprWithInternals fields .calldata spec.functions right =
+        Except.ok rightIR)
+    (hvalue :
+      LetVarMulLeftThreadedEvidence runtimeContract spec fields left right leftIR rightIR)
+    (hvalueNamesInScope : LetVarMulNamesInScopeEvidence spec fields left right) :
+    ExprInternalHelperHeadStepBridgeWithInternals runtimeContract spec fields
+      (Stmt.letVar name (Expr.mul left right)) := by
+  have hvalueCompileSpec :
+      CompilationModel.compileExprWithInternals fields .calldata spec.functions
+          (Expr.mul left right) =
+        Except.ok (YulExpr.call "mul" [leftIR, rightIR]) :=
+    compileExprWithInternals_mul_of_children hcompileLeft hcompileRight
+  exact
+    exprInternalHelperHeadStepBridgeWithInternals_letVar_of_exprPostStateResult
+      (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+      (name := name) (value := Expr.mul left right)
+      (valueIR := YulExpr.call "mul" [leftIR, rightIR])
+      hvalueCompileSpec
+      (fun {scope} {runtime} {state} {helperFuel} {irFuel}
+          hfuelPos hirFuelPos hexact hscope hbounded hruntime => by
+        rcases hvalue (scope := scope) (runtime := runtime) (state := state)
+            (helperFuel := helperFuel) (irFuel := irFuel)
+            hfuelPos hirFuelPos hexact hscope hbounded hruntime with
+          ⟨leftFinalState, finalState, leftValue, rightValue,
+            hleftPost, hsourceRight, hirRight, hfindMul, hfinalRuntime, hfinalExact⟩
+        refine ⟨finalState, exprMulValue leftValue rightValue, ?_⟩
+        exact
+          exprInternalHelperCompositionalPostStateResult_mul_left_threaded
+            (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+            (scope := scope)
+            (left := left) (right := right) (leftIR := leftIR) (rightIR := rightIR)
+            (helperFuel := helperFuel - 1) (irFuel := irFuel - 1)
+            (runtime := runtime) (headRuntime := runtime)
+            (parentState := state) (headState := state)
+            hleftPost hcompileRight hsourceRight hirRight hfindMul
+            hfinalRuntime hfinalExact)
+      hvalueNamesInScope
+
 /-- Build a helper-aware singleton statement proof for an expression-position
 helper head from the exact expression-head bridge. -/
 theorem compiledStmtStepWithHelpersAndHelperIR_of_exprHeadStepBridge
