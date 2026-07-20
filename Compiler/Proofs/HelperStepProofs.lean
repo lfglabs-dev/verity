@@ -651,6 +651,8 @@ theorem stmtListDirectInternalHelperAssignStepInterface_of_perCalleeAssignBridge
 
 end
 
+namespace LegacyDirectStatementBridge
+
 /-- Direct-statement helper context bridge assembled from the currently exposed
 supported-helper APIs. It packages the source summary evidence and the compiled
 helper dispatch facts for both direct void calls and return-binding calls. -/
@@ -823,7 +825,7 @@ theorem directInternalHelperStatementContextBridge_sourceCallEvidence
           (if result.success then
             .continue { state with world := result.world }
           else .revert) ∧
-      hctx.sourceWitness.summary.contract.post fuel state.world argVals
+      hctx.sourceWitness.summary.contract.post fuel 0 state.world argVals
         result.success result.returnValue result.world := by
   intro result
   refine ⟨?_, ?_⟩
@@ -870,7 +872,7 @@ theorem directInternalHelperStatementContextBridge_sourceAssignEvidence
                     bindings := SourceSemantics.bindValue state.bindings name value }
             | _, _ => .revert
           else .revert) ∧
-      hctx.sourceWitness.summary.contract.post fuel state.world argVals
+      hctx.sourceWitness.summary.contract.post fuel 0 state.world argVals
         result.success result.returnValue result.world := by
   intro result
   refine ⟨?_, ?_⟩
@@ -886,6 +888,8 @@ theorem directInternalHelperStatementContextBridge_sourceAssignEvidence
         hctx.sourceWitness
         hnodup
   · simpa [result] using hctx.summarySound fuel state.world argVals
+
+end LegacyDirectStatementBridge
 
 /-!
 ### Direct statement helper context bridge
