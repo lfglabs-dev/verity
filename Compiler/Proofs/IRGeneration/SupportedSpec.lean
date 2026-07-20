@@ -1,4 +1,5 @@
 import Compiler.Proofs.IRGeneration.SupportedFragment
+import Compiler.Proofs.IRGeneration.IRInterpreter
 import Compiler.CompilationModel.AbiHelpers
 import Compiler.CompilationModel.Dispatch
 import Compiler.CompilationModel.UsageAnalysis
@@ -849,7 +850,12 @@ def stmtTouchesUnsupportedConstructorRawCalldataSurface : Stmt → Bool
   | .forEach _ count body | .forEachSetBit _ count body =>
       exprTouchesUnsupportedConstructorRawCalldataSurface count ||
         stmtListTouchesUnsupportedConstructorRawCalldataSurface body
-  | .stop | .storageArrayPop _ | .requireError _ _ _ | .revertError _ _
+  | .requireError cond _ args =>
+      exprTouchesUnsupportedConstructorRawCalldataSurface cond ||
+        exprListTouchesUnsupportedConstructorRawCalldataSurface args
+  | .revertError _ args =>
+      exprListTouchesUnsupportedConstructorRawCalldataSurface args
+  | .stop | .storageArrayPop _
   | .returnValues _ | .returnArray _ | .returnBytes _ | .returnStorageWords _
   | .calldatacopy _ _ _ | .returndataCopy _ _ _ | .revertReturndata
   | .rawLog _ _ _ | .ecm _ _ => false
@@ -887,7 +893,7 @@ rather than a semantic trust boundary. -/
 def exprTouchesUnsupportedCoreSurface : Expr → Bool
   | .literal _ | .param _ | .caller | .contractAddress | .txOrigin
   | .chainid | .msgValue | .blockTimestamp | .blockNumber
-  | .blobbasefee | .calldatasize | .localVar _ => false
+  | .blobbasefee | .calldatasize | .localVar _ | .constructorArg _ => false
   | .immutable _ => true
   | .selfBalance => true
   | .storage _ | .storageAddr _ => false
@@ -920,7 +926,7 @@ def exprTouchesUnsupportedCoreSurface : Expr → Bool
   | .mapping _ _ | .mappingWord _ _ _ | .mappingPackedWord _ _ _ _
   | .mapping2 _ _ _ | .mapping2Word _ _ _ _ | .mappingUint _ _ | .mappingChain _ _
   | .structMember _ _ _ | .structMember2 _ _ _ _
-  | .constructorArg _ | .keccak256 _ _
+  | .keccak256 _ _
   | .call _ _ _ _ _ _ _ | .staticcall _ _ _ _ _ _ | .delegatecall _ _ _ _ _ _
   | .returndataSize | .extcodesize _
   | .returndataOptionalBoolAt _ | .externalCall _ _ | .internalCall _ _
@@ -1314,7 +1320,7 @@ def exprTouchesUnsupportedContractSurface (expr : Expr) : Bool :=
   match expr with
   | .literal _ | .param _ | .caller | .contractAddress | .txOrigin
   | .chainid | .msgValue | .blockTimestamp | .blockNumber
-  | .blobbasefee | .calldatasize | .localVar _ => false
+  | .blobbasefee | .calldatasize | .localVar _ | .constructorArg _ => false
   | .immutable _ => true
   | .selfBalance => true
   | .storage _ | .storageAddr _ => true
@@ -1341,7 +1347,7 @@ def exprTouchesUnsupportedContractSurface (expr : Expr) : Bool :=
   | .mapping _ _ | .mappingWord _ _ _ | .mappingPackedWord _ _ _ _
   | .mapping2 _ _ _ | .mapping2Word _ _ _ _ | .mappingUint _ _ | .mappingChain _ _
   | .structMember _ _ _ | .structMember2 _ _ _ _
-  | .constructorArg _ | .keccak256 _ _
+  | .keccak256 _ _
   | .call _ _ _ _ _ _ _ | .staticcall _ _ _ _ _ _ | .delegatecall _ _ _ _ _ _
   | .returndataSize | .extcodesize _
   | .returndataOptionalBoolAt _ | .externalCall _ _ | .internalCall _ _
@@ -1510,8 +1516,12 @@ def stmtTouchesUnsupportedCallSurface : Stmt → Bool
   | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _
   | .ecm _ _ => true
   | .stop | .storageArrayPop _
-  | .requireError _ _ _ | .revertError _ _ | .returnValues _ | .returnArray _
+  | .returnValues _ | .returnArray _
   | .returnBytes _ | .returnStorageWords _ | .rawLog _ _ _ => false
+  | .requireError cond _ args =>
+      exprTouchesUnsupportedCallSurface cond ||
+        args.any exprTouchesUnsupportedCallSurface
+  | .revertError _ args => args.any exprTouchesUnsupportedCallSurface
   | .emit _ args => args.any exprTouchesUnsupportedCallSurface
   | .unsafeBlock _ _ | .unsafeYul _ | .matchAdt _ _ _ => true
   | .ite cond thenBranch elseBranch =>
@@ -1552,8 +1562,12 @@ def stmtTouchesUnsupportedHelperSurface : Stmt → Bool
   | .stop | .calldatacopy _ _ _
   | .returndataCopy _ _ _ | .revertReturndata | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _
   | .ecm _ _ | .storageArrayPop _
-  | .requireError _ _ _ | .revertError _ _ | .returnValues _ | .returnArray _
+  | .returnValues _ | .returnArray _
   | .returnBytes _ | .returnStorageWords _ | .rawLog _ _ _ => false
+  | .requireError cond _ args =>
+      exprTouchesUnsupportedHelperSurface cond ||
+        exprListTouchesUnsupportedHelperSurface args
+  | .revertError _ args => exprListTouchesUnsupportedHelperSurface args
   | .emit _ args => exprListTouchesUnsupportedHelperSurface args
   | .unsafeBlock _ _ | .unsafeYul _ | .matchAdt _ _ _ => true
   | .ite cond thenBranch elseBranch =>
@@ -1596,10 +1610,13 @@ def stmtTouchesInternalHelperSurface : Stmt → Bool
   | .internalCall _ _ | .internalCallAssign _ _ _ => true
   | .stop | .calldatacopy _ _ _
   | .returndataCopy _ _ _ | .revertReturndata | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _
-  | .ecm _ _ | .storageArrayPop _ | .requireError _ _ _
-  | .revertError _ _ | .returnValues _ | .returnArray _
+  | .ecm _ _ | .storageArrayPop _ | .returnValues _ | .returnArray _
   | .returnBytes _ | .returnStorageWords _ | .emit _ _
   | .rawLog _ _ _ => false
+  | .requireError cond _ args =>
+      exprTouchesInternalHelperSurface cond ||
+        args.any exprTouchesInternalHelperSurface
+  | .revertError _ args => args.any exprTouchesInternalHelperSurface
   | .unsafeBlock _ _ | .unsafeYul _ | .matchAdt _ _ _ => true
   | .ite cond thenBranch elseBranch =>
       exprTouchesInternalHelperSurface cond ||
@@ -1668,10 +1685,13 @@ def stmtTouchesExprInternalHelperSurface : Stmt → Bool
   | .internalCall _ _ | .internalCallAssign _ _ _ | .stop
   | .calldatacopy _ _ _ | .returndataCopy _ _ _
   | .revertReturndata | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _ | .ecm _ _
-  | .storageArrayPop _ | .requireError _ _ _
-  | .revertError _ _ | .returnValues _ | .returnArray _
+  | .storageArrayPop _ | .returnValues _ | .returnArray _
   | .returnBytes _ | .returnStorageWords _ | .emit _ _
   | .rawLog _ _ _ => false
+  | .requireError cond _ args =>
+      exprTouchesInternalHelperSurface cond ||
+        args.any exprTouchesInternalHelperSurface
+  | .revertError _ args => args.any exprTouchesInternalHelperSurface
   | .unsafeBlock _ _ | .unsafeYul _ | .matchAdt _ _ _ => true
 
 /-- Recursive structural internal-helper transport at the current statement
@@ -1733,8 +1753,12 @@ def stmtTouchesUnsupportedForeignSurface : Stmt → Bool
   | .internalCall _ _ | .internalCallAssign _ _ _
   | .calldatacopy _ _ _ | .returndataCopy _ _ _ | .revertReturndata
   | .storageArrayPop _
-  | .requireError _ _ _ | .revertError _ _ | .returnValues _ | .returnArray _
+  | .returnValues _ | .returnArray _
   | .returnBytes _ | .returnStorageWords _ | .rawLog _ _ _ => false
+  | .requireError cond _ args =>
+      exprTouchesUnsupportedForeignSurface cond ||
+        args.any exprTouchesUnsupportedForeignSurface
+  | .revertError _ args => args.any exprTouchesUnsupportedForeignSurface
   | .emit _ args => args.any exprTouchesUnsupportedForeignSurface
   | .unsafeBlock _ _ | .unsafeYul _ | .matchAdt _ _ _ => true
   | .ite cond thenBranch elseBranch =>
@@ -1775,8 +1799,12 @@ def stmtTouchesUnsupportedLowLevelSurface : Stmt → Bool
   | .stop
   | .internalCall _ _ | .internalCallAssign _ _ _ | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _
   | .ecm _ _ | .storageArrayPop _
-  | .requireError _ _ _ | .revertError _ _ | .returnValues _ | .returnArray _
+  | .returnValues _ | .returnArray _
   | .returnBytes _ | .returnStorageWords _ | .rawLog _ _ _ => false
+  | .requireError cond _ args =>
+      exprTouchesUnsupportedLowLevelSurface cond ||
+        args.any exprTouchesUnsupportedLowLevelSurface
+  | .revertError _ args => args.any exprTouchesUnsupportedLowLevelSurface
   | .emit _ args => args.any exprTouchesUnsupportedLowLevelSurface
   | .unsafeBlock _ _ | .unsafeYul _ | .matchAdt _ _ _ => true
   | .ite cond thenBranch elseBranch =>
@@ -2075,7 +2103,7 @@ private theorem compileStmt_eventsErrorsAgnostic_aux
               ih.1 s scope
                 (by simp [List.cons.sizeOf_spec] at hlt; omega) hsurface.1,
               compileStmtListWithFork_cancun_eq_compileStmtList,
-              ih.2 ss (collectStmtNames s ++ scope)
+              ih.2 ss (collectStmtBindNames s ++ scope)
                 (by simp [List.cons.sizeOf_spec] at hlt; omega) hsurface.2]
             simp only [compileStmtWithFork_cancun_eq_compileStmt,
               compileStmtListWithFork_cancun_eq_compileStmtList]
@@ -2627,6 +2655,11 @@ structure SupportedCompiledInternalHelperWitness
       Except.ok compiledStmt
   presentInRuntime :
     compiledStmt ∈ runtimeContract.internalFunctions
+  uniqueInRuntime :
+    ∀ stmt ∈ runtimeContract.internalFunctions,
+      ∀ p r b, irInternalFunctionDefOfStmt? stmt =
+        some ⟨CompilationModel.internalFunctionYulName calleeName, p, r, b⟩ →
+        stmt = compiledStmt
 
 /-- Runtime-contract inventory of source-defined internal helpers.
 This keeps future exact helper-step proofs generic: they can require a
@@ -2639,6 +2672,13 @@ structure SupportedRuntimeHelperTableInterface
   compiledOfWitness :
     ∀ calleeName (witness : SupportedInternalHelperWitness spec calleeName),
       SupportedCompiledInternalHelperWitness spec runtimeContract calleeName
+  /-- The compiled witness returned for a source witness is compiled from that
+  same source witness. Without this law `compiledOfWitness` could return a
+  witness carrying an unrelated `sourceWitness`, letting a source summary proof
+  be paired with a compiled helper it does not describe. -/
+  compiledOfWitness_sourceWitness :
+    ∀ calleeName (witness : SupportedInternalHelperWitness spec calleeName),
+      (compiledOfWitness calleeName witness).sourceWitness = witness
 
 /-- Helper-call boundary for the current generic theorem.
 It already inventories helper callees via positive summary witnesses, but it
@@ -2697,7 +2737,7 @@ structure SupportedBodyInterfaceWithScalarEvents
       "__evt_topic0" ∉ fn.params.map (·.name)
   eventScratchFreshStmts :
     ∀ s ∈ fn.body,
-      "__evt_ptr" ∉ collectStmtNames s ∧ "__evt_topic0" ∉ collectStmtNames s
+      "__evt_ptr" ∉ collectStmtBindNames s ∧ "__evt_topic0" ∉ collectStmtBindNames s
   emitArgsInScope :
     ∀ s ∈ fn.body, ∀ (eventName : String) (args : List Expr),
       s = Stmt.emit eventName args →
@@ -2757,7 +2797,8 @@ structure SupportedFunctionExceptMappingWrites
 functions once deploy-time arguments have been decoded into local bindings. -/
 def constructorAsFunctionSpec (ctor : ConstructorSpec) : FunctionSpec :=
   { name := "__constructor__"
-    params := ctor.params
+    params := (constructorArgAliasNames ctor.params).map (fun name => { name := name, ty := .uint256 }) ++
+      ctor.params
     returnType := none
     returns := []
     isPayable := ctor.isPayable
@@ -2787,6 +2828,13 @@ theorem SupportedConstructor.paramsSupported
     (hSupported : SupportedConstructor spec ctor) :
     ∀ param ∈ ctor.params, SupportedExternalParamType param.ty :=
   hSupported.params.supported
+
+theorem SupportedConstructor.stmtList_ctorBody
+    {spec : CompilationModel} {ctor : ConstructorSpec}
+    (hSupported : SupportedConstructor spec ctor) :
+    SupportedStmtList spec.fields (constructorBodyScope ctor.params) ctor.body := by
+  simpa [constructorAsFunctionSpec, constructorBodyScope, constructorArgAliasNames] using
+    hSupported.body.stmtList
 
 /-- Whole-contract invariants that should remain global preconditions for the
 current generic theorem, independent of feature-local proof interfaces. -/
@@ -3023,7 +3071,7 @@ private theorem exprCompileCore_helperSurfaceClosed
     (hcore : FunctionBody.ExprCompileCore expr) :
     exprTouchesUnsupportedHelperSurface expr = false := by
   induction hcore with
-  | literal | param | localVar | caller | contractAddress | txOrigin | msgValue
+  | literal | param | constructorArg | localVar | caller | contractAddress | txOrigin | msgValue
     | blockTimestamp | blockNumber | chainid | blobbasefee | calldatasize =>
       simp only [exprTouchesUnsupportedHelperSurface]
   | add _ _ ihL ihR
@@ -3063,7 +3111,7 @@ private theorem exprCompileCore_internalHelperCallNames_nil
     (hcore : FunctionBody.ExprCompileCore expr) :
     exprInternalHelperCallNames expr = [] := by
   induction hcore with
-  | literal | param | localVar | caller | contractAddress | txOrigin | msgValue
+  | literal | param | constructorArg | localVar | caller | contractAddress | txOrigin | msgValue
     | blockTimestamp | blockNumber | chainid | blobbasefee | calldatasize =>
       simp only [exprInternalHelperCallNames]
   | add _ _ ihL ihR
@@ -4050,9 +4098,18 @@ mutual
         simp [stmtTouchesUnsupportedHelperSurface] at hsurface
         simp [stmtTouchesInternalHelperSurface,
           exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface]
+    | requireError cond _ args =>
+        simp only [stmtTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
+        simp [stmtTouchesInternalHelperSurface,
+          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.1,
+          exprListTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.2]
+    | revertError _ args =>
+        simp only [stmtTouchesUnsupportedHelperSurface] at hsurface
+        simp [stmtTouchesInternalHelperSurface,
+          exprListTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface]
     | stop | calldatacopy _ _ _ | returndataCopy _ _ _ | revertReturndata
-    | externalCallBind _ _ _ | tryExternalCallBind _ _ _ _ | ecm _ _ | storageArrayPop _ | requireError _ _ _
-    | revertError _ _ | returnValues _ | returnArray _ | returnBytes _
+    | externalCallBind _ _ _ | tryExternalCallBind _ _ _ _ | ecm _ _ | storageArrayPop _
+    | returnValues _ | returnArray _ | returnBytes _
     | returnStorageWords _ | emit _ _ | rawLog _ _ _ | panicCode _ =>
         simp [stmtTouchesInternalHelperSurface]
   termination_by sizeOf stmt
@@ -4275,6 +4332,20 @@ def SupportedRuntimeHelperTableInterface.compiledOfCall
     SupportedCompiledInternalHelperWitness spec runtimeContract calleeName :=
   hRuntime.compiledOfWitness calleeName (hHelpers.summaryOfCall hmem)
 
+/-- The compiled helper produced by `compiledOfCall` carries exactly the source
+witness inventoried for that call, so a source summary proof about
+`hHelpers.summaryOfCall hmem` is a proof about `compiledHelper.sourceWitness`. -/
+theorem SupportedRuntimeHelperTableInterface.compiledOfCall_sourceWitness
+    {spec : CompilationModel}
+    {runtimeContract : IRContract}
+    {fn : FunctionSpec}
+    (hRuntime : SupportedRuntimeHelperTableInterface spec runtimeContract)
+    (hHelpers : SupportedBodyHelperInterface spec fn)
+    {calleeName : String}
+    (hmem : calleeName ∈ helperCallNames fn) :
+    (hRuntime.compiledOfCall hHelpers hmem).sourceWitness = hHelpers.summaryOfCall hmem :=
+  hRuntime.compiledOfWitness_sourceWitness calleeName (hHelpers.summaryOfCall hmem)
+
 
 -- NOTE: An exact decomposition theorem
 --   exprTouchesUnsupportedContractSurface expr =
@@ -4482,6 +4553,19 @@ private theorem stmtOrListTouchesUnsupportedCallSurface_eq_featureOr :
           rw [exprListTouchesUnsupportedCallSurface_eq_featureOr,
               exprTouchesUnsupportedCallSurface_eq_featureOr value]
           simp [Bool.or_assoc, Bool.or_left_comm, Bool.or_comm]
+      | requireError cond _ args =>
+          simp only [stmtTouchesUnsupportedCallSurface,
+            stmtTouchesUnsupportedHelperSurface, stmtTouchesUnsupportedForeignSurface,
+            stmtTouchesUnsupportedLowLevelSurface]
+          rw [exprTouchesUnsupportedCallSurface_eq_featureOr,
+              exprListTouchesUnsupportedCallSurface_eq_featureOr args]
+          simp [Bool.or_assoc, Bool.or_left_comm, Bool.or_comm]
+      | revertError _ args =>
+          simp only [stmtTouchesUnsupportedCallSurface,
+            stmtTouchesUnsupportedHelperSurface, stmtTouchesUnsupportedForeignSurface,
+            stmtTouchesUnsupportedLowLevelSurface]
+          rw [exprListTouchesUnsupportedCallSurface_eq_featureOr args]
+          simp [Bool.or_assoc, Bool.or_left_comm, Bool.or_comm]
       | emit _ args =>
           simp only [stmtTouchesUnsupportedCallSurface,
             stmtTouchesUnsupportedHelperSurface, stmtTouchesUnsupportedForeignSurface,
@@ -4509,7 +4593,7 @@ decreasing_by
   all_goals
     simp_wf
     try simp [Stmt.ite.sizeOf_spec, Stmt.forEach.sizeOf_spec, List.cons.sizeOf_spec] at *
-    omega
+    try omega
 
 private theorem stmtTouchesUnsupportedCallSurface_eq_featureOr
     (stmt : Stmt) :
@@ -4535,7 +4619,7 @@ private theorem exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed
     (hcalls : exprTouchesUnsupportedCallSurface expr = false) :
     exprTouchesUnsupportedContractSurface expr = false := by
   cases expr with
-  | literal _ | param _ | localVar _ | caller | contractAddress | txOrigin
+  | literal _ | param _ | constructorArg _ | localVar _ | caller | contractAddress | txOrigin
   | chainid | msgValue | blockTimestamp | blockNumber | blobbasefee
   | calldatasize =>
       simp [exprTouchesUnsupportedContractSurface]
@@ -4549,7 +4633,6 @@ private theorem exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed
   | paramDynamicMemberLength _ _
   | paramDynamicMemberDataOffset _ _ | paramDynamicMemberElement _ _ _ =>
       cases hcore
-  | constructorArg _
   | returndataSize | arrayLength _ | memoryArrayLength _ | storageArrayLength _
   | returndataOptionalBoolAt _ | extcodesize _
   | dynamicBytesEq _ _ | keccak256 _ _ =>
@@ -4666,7 +4749,7 @@ private theorem exprTouchesUnsupportedCallSurface_eq_false_of_coreClosed
     (hcore : exprTouchesUnsupportedCoreSurface expr = false) :
     exprTouchesUnsupportedCallSurface expr = false := by
   cases expr with
-  | literal _ | param _ | localVar _ | caller | contractAddress
+  | literal _ | param _ | constructorArg _ | localVar _ | caller | contractAddress
   | chainid | msgValue | blockTimestamp | blockNumber | blobbasefee
   | calldatasize | storage _ | storageAddr _ =>
       simp [exprTouchesUnsupportedCallSurface]
@@ -4927,7 +5010,7 @@ theorem exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
     (hsurface : exprTouchesUnsupportedContractSurface expr = false) :
     exprTouchesUnsupportedHelperSurface expr = false := by
   cases expr with
-  | literal _ | param _ | localVar _ | caller | contractAddress | txOrigin
+  | literal _ | param _ | constructorArg _ | localVar _ | caller | contractAddress | txOrigin
   | chainid | msgValue | blockTimestamp | blockNumber | blobbasefee
   | calldatasize =>
       simp [exprTouchesUnsupportedHelperSurface]
@@ -4938,7 +5021,7 @@ theorem exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
   | adtConstruct _ _ _ | adtTag _ _ | adtField _ _ _ _ _ =>
       simp [exprTouchesUnsupportedContractSurface] at hsurface
   | storage _ | storageAddr _ | internalCall _ _ | externalCall _ _
-  | constructorArg _ | keccak256 _ _
+  | keccak256 _ _
   | returndataSize | extcodesize _
   | returndataOptionalBoolAt _ | arrayLength _ | memoryArrayLength _ | storageArrayLength _
   | dynamicBytesEq _ _
@@ -5197,7 +5280,7 @@ private theorem exprUsesArrayElement_eq_false_of_coreClosed
     (hcore : exprTouchesUnsupportedCoreSurface expr = false) :
     exprUsesArrayElement expr = false := by
   cases expr with
-  | literal _ | param _ | localVar _ | caller | contractAddress | txOrigin
+  | literal _ | param _ | constructorArg _ | localVar _ | caller | contractAddress | txOrigin
   | chainid | msgValue | blockTimestamp | blockNumber
   | blobbasefee | calldatasize =>
       simp [exprUsesArrayElement]
@@ -5247,7 +5330,7 @@ private theorem exprUsesStorageArrayElement_eq_false_of_coreClosed
     (hcore : exprTouchesUnsupportedCoreSurface expr = false) :
     exprUsesStorageArrayElement expr = false := by
   cases expr with
-  | literal _ | param _ | localVar _ | caller | contractAddress | txOrigin
+  | literal _ | param _ | constructorArg _ | localVar _ | caller | contractAddress | txOrigin
   | chainid | msgValue | blockTimestamp | blockNumber
   | blobbasefee | calldatasize =>
       simp [exprUsesStorageArrayElement]
@@ -5299,7 +5382,7 @@ private theorem exprUsesDynamicBytesEq_eq_false_of_coreClosed
     (hcore : exprTouchesUnsupportedCoreSurface expr = false) :
     exprUsesDynamicBytesEq expr = false := by
   cases expr with
-  | literal _ | param _ | localVar _ | caller | contractAddress | txOrigin
+  | literal _ | param _ | constructorArg _ | localVar _ | caller | contractAddress | txOrigin
   | chainid | msgValue | blockTimestamp | blockNumber
   | blobbasefee | calldatasize =>
       simp [exprUsesDynamicBytesEq]
@@ -5350,7 +5433,7 @@ private theorem exprCompileCore_usesArrayElement_false
     (hcore : FunctionBody.ExprCompileCore expr) :
     exprUsesArrayElement expr = false := by
   induction hcore with
-  | literal | param | localVar | caller | contractAddress | txOrigin | msgValue
+  | literal | param | constructorArg | localVar | caller | contractAddress | txOrigin | msgValue
     | blockTimestamp | blockNumber | chainid
     | blobbasefee | calldatasize =>
       simp only [exprUsesArrayElement, Bool.false_or]
@@ -5378,7 +5461,7 @@ private theorem exprCompileCore_usesStorageArrayElement_false
     (hcore : FunctionBody.ExprCompileCore expr) :
     exprUsesStorageArrayElement expr = false := by
   induction hcore with
-  | literal | param | localVar | caller | contractAddress | txOrigin | msgValue
+  | literal | param | constructorArg | localVar | caller | contractAddress | txOrigin | msgValue
     | blockTimestamp | blockNumber | chainid
     | blobbasefee | calldatasize =>
       simp only [exprUsesStorageArrayElement, Bool.false_or]
@@ -5406,7 +5489,7 @@ private theorem exprCompileCore_usesDynamicBytesEq_false
     (hcore : FunctionBody.ExprCompileCore expr) :
     exprUsesDynamicBytesEq expr = false := by
   induction hcore with
-  | literal | param | localVar | caller | contractAddress | txOrigin | msgValue
+  | literal | param | constructorArg | localVar | caller | contractAddress | txOrigin | msgValue
     | blockTimestamp | blockNumber | chainid
     | blobbasefee | calldatasize =>
       simp only [exprUsesDynamicBytesEq, Bool.false_or]
@@ -6086,7 +6169,7 @@ private theorem exprCompileCore_usesMulDiv512_false
     (hcore : FunctionBody.ExprCompileCore expr) :
     exprUsesMulDiv512 expr = false := by
   induction hcore with
-  | literal | param | localVar | caller | contractAddress | txOrigin | msgValue
+  | literal | param | constructorArg | localVar | caller | contractAddress | txOrigin | msgValue
     | blockTimestamp | blockNumber | chainid
     | blobbasefee | calldatasize =>
       simp only [exprUsesMulDiv512, Bool.false_or]
@@ -6114,7 +6197,7 @@ private theorem exprCompileCore_usesParamDynamicHeadWord_false
     (hcore : FunctionBody.ExprCompileCore expr) :
     exprUsesParamDynamicHeadWord expr = false := by
   induction hcore with
-  | literal | param | localVar | caller | contractAddress | txOrigin | msgValue
+  | literal | param | constructorArg | localVar | caller | contractAddress | txOrigin | msgValue
     | blockTimestamp | blockNumber | chainid
     | blobbasefee | calldatasize =>
       simp only [exprUsesParamDynamicHeadWord, Bool.false_or]
@@ -6578,7 +6661,7 @@ theorem SupportedSpec.contractUsesMulDiv512_eq_false
       have hctorMulDiv :
           ctor.body.any stmtUsesMulDiv512 = false := by
         have := supportedStmtList_usesMulDiv512_false
-          (hSupported.constructor ctor hctor).body.stmtList
+          (hSupported.constructor ctor hctor).stmtList_ctorBody
         rw [stmtListUsesMulDiv512_eq_any] at this
         simpa using this
       simp [contractUsesMulDiv512, hctor, hctorMulDiv, hfunctionsAny]
@@ -6605,7 +6688,7 @@ theorem SupportedSpec.contractUsesParamDynamicHeadWord_eq_false
       have hctorParam :
           ctor.body.any stmtUsesParamDynamicHeadWord = false := by
         have := supportedStmtList_usesParamDynamicHeadWord_false
-          (hSupported.constructor ctor hctor).body.stmtList
+          (hSupported.constructor ctor hctor).stmtList_ctorBody
         rw [stmtListUsesParamDynamicHeadWord_eq_any] at this
         simpa using this
       simp [contractUsesParamDynamicHeadWord, hctor, hctorParam, hfunctionsAny]
@@ -6631,7 +6714,7 @@ theorem SupportedSpecExceptMappingWrites.contractUsesMulDiv512_eq_false
       have hctorMulDiv :
           ctor.body.any stmtUsesMulDiv512 = false := by
         have := supportedStmtList_usesMulDiv512_false
-          (hSupported.constructor ctor hctor).body.stmtList
+          (hSupported.constructor ctor hctor).stmtList_ctorBody
         rw [stmtListUsesMulDiv512_eq_any] at this
         simpa using this
       simp [contractUsesMulDiv512, hctor, hctorMulDiv, hfunctionsAny]
@@ -6658,7 +6741,7 @@ theorem SupportedSpecExceptMappingWrites.contractUsesParamDynamicHeadWord_eq_fal
       have hctorParam :
           ctor.body.any stmtUsesParamDynamicHeadWord = false := by
         have := supportedStmtList_usesParamDynamicHeadWord_false
-          (hSupported.constructor ctor hctor).body.stmtList
+          (hSupported.constructor ctor hctor).stmtList_ctorBody
         rw [stmtListUsesParamDynamicHeadWord_eq_any] at this
         simpa using this
       simp [contractUsesParamDynamicHeadWord, hctor, hctorParam, hfunctionsAny]
@@ -6703,7 +6786,7 @@ theorem SupportedSpec.contractUsesArrayElement_eq_false
           ctor.body.any stmtUsesArrayElement = false := by
         rw [← stmtListUsesArrayElement_eq_any]
         exact supportedStmtList_usesArrayElement_false
-          (hSupported.constructor ctor hctor).body.stmtList
+          (hSupported.constructor ctor hctor).stmtList_ctorBody
       simp [contractUsesArrayElement, hctor, constructorUsesArrayElement, hctorArray,
         hfunctionsAny]
 
@@ -6726,7 +6809,7 @@ theorem SupportedSpecExceptMappingWrites.contractUsesArrayElement_eq_false
           ctor.body.any stmtUsesArrayElement = false := by
         rw [← stmtListUsesArrayElement_eq_any]
         exact supportedStmtList_usesArrayElement_false
-          (hSupported.constructor ctor hctor).body.stmtList
+          (hSupported.constructor ctor hctor).stmtList_ctorBody
       simp [contractUsesArrayElement, hctor, constructorUsesArrayElement, hctorArray,
         hfunctionsAny]
 
@@ -6751,7 +6834,7 @@ theorem SupportedSpec.contractUsesStorageArrayElement_eq_false
           ctor.body.any stmtUsesStorageArrayElement = false := by
         rw [← stmtListUsesStorageArrayElement_eq_any]
         exact supportedStmtList_usesStorageArrayElement_false
-          (hSupported.constructor ctor hctor).body.stmtList
+          (hSupported.constructor ctor hctor).stmtList_ctorBody
       simp [contractUsesStorageArrayElement, hctor, constructorUsesStorageArrayElement,
         hctorArray, hfunctionsAny]
 
@@ -6776,7 +6859,7 @@ theorem SupportedSpecExceptMappingWrites.contractUsesStorageArrayElement_eq_fals
           ctor.body.any stmtUsesStorageArrayElement = false := by
         rw [← stmtListUsesStorageArrayElement_eq_any]
         exact supportedStmtList_usesStorageArrayElement_false
-          (hSupported.constructor ctor hctor).body.stmtList
+          (hSupported.constructor ctor hctor).stmtList_ctorBody
       simp [contractUsesStorageArrayElement, hctor, constructorUsesStorageArrayElement,
         hctorArray, hfunctionsAny]
 
@@ -6801,7 +6884,7 @@ theorem SupportedSpec.contractUsesDynamicBytesEq_eq_false
       have hctorDynamic :
           ctor.body.any stmtUsesDynamicBytesEq = false := by
         have := supportedStmtList_usesDynamicBytesEq_false
-          (hSupported.constructor ctor hctor).body.stmtList
+          (hSupported.constructor ctor hctor).stmtList_ctorBody
         rw [stmtListUsesDynamicBytesEq_eq_any] at this
         simpa using this
       simp [contractUsesDynamicBytesEq, hctor, hctorDynamic, hfunctionsAny]
@@ -6827,7 +6910,7 @@ theorem SupportedSpecExceptMappingWrites.contractUsesDynamicBytesEq_eq_false
       have hctorDynamic :
           ctor.body.any stmtUsesDynamicBytesEq = false := by
         have := supportedStmtList_usesDynamicBytesEq_false
-          (hSupported.constructor ctor hctor).body.stmtList
+          (hSupported.constructor ctor hctor).stmtList_ctorBody
         rw [stmtListUsesDynamicBytesEq_eq_any] at this
         simpa using this
       simp [contractUsesDynamicBytesEq, hctor, hctorDynamic, hfunctionsAny]

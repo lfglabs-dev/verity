@@ -106,15 +106,15 @@ module.exports = async function postOcrReview({ github, context, core }) {
   const overflow = usable.slice(maxInline);
   const tag = retryableResult ? retryableTag : successTag;
   const body = retryableResult
-    ? buildReviewBody({ tag, result, comments, selected: [], overflow: [...selected, ...overflow], summaryOnly, warnings, stderr, metrics })
-    : buildReviewBody({ tag, result, comments, selected, overflow, summaryOnly, warnings, stderr, metrics });
+    ? buildReviewBody({ tag, result, comments, selected: [], overflow: [...selected, ...overflow], summaryOnly, warnings, stderr, metrics, retryable: true })
+    : buildReviewBody({ tag, result, comments, selected, overflow, summaryOnly, warnings, stderr, metrics, retryable: false });
 
   if (retryableResult) {
     await github.rest.issues.createComment({
       owner,
       repo,
       issue_number: pull_number,
-      body: `${body}\n\n⚠️ OCR did not complete successfully; this run is intentionally retryable for the same commit.`,
+      body,
     });
     return;
   }
@@ -309,26 +309,19 @@ function toReviewComment(c) {
   };
 }
 
-function buildReviewBody({ tag, result, comments, selected, overflow, summaryOnly, warnings, stderr, metrics }) {
+function buildReviewBody({ tag, result, comments, selected, overflow, summaryOnly, warnings, stderr, metrics, retryable = false }) {
   const status = result.status || 'unknown';
   const message = result.message || '';
   const summary = result.summary || {};
-  const extracted = extractOcrSummary(result);
-  const tokens = extracted.totalTokens != null ? ` · ${extracted.totalTokens} tokens` : '';
-  const files = extracted.filesReviewed != null ? `${extracted.filesReviewed} files` : 'files unknown';
-  const toolCalls = extracted.toolCallsTotal != null ? ` · ${extracted.toolCallsTotal} tool calls` : '';
+  const mode = metrics?.mode || summary.mode || 'unknown';
 
   let body = `${tag}\n## OpenCodeReview first-pass review\n\n`;
-  body += `Status: **${escapeMd(status)}** · Mode: **${escapeMd(metrics?.mode || summary.mode || 'unknown')}** · ${comments.length} finding(s) · ${files}${tokens}${toolCalls}\n\n`;
+  body += `${verdictLine({ status, mode, comments, retryable })}\n\n`;
 
   if (message) body += `${escapeMd(message)}\n\n`;
-  if ((metrics?.mode || summary.mode) === 'large-lean-hotspots') {
-    body += `⚠️ Large Lean scout mode covers ranked packets/checklists only; it is not a full-file OCR review and must not be read as LGTM.\n`;
-  }
   if (selected.length > 0) body += `✅ Posted ${selected.length} inline comment(s).\n`;
   if (overflow.length > 0) body += `📝 ${overflow.length} additional positioned finding(s) omitted from inline comments to avoid spam.\n`;
   if (summaryOnly.length > 0) body += `📝 ${summaryOnly.length} finding(s) had no resolvable line and are summarized below.\n`;
-  if (warnings.length > 0) body += `⚠️ ${warnings.length} OCR warning(s) reported.\n`;
   body += `\n`;
 
   const summarized = [...summaryOnly, ...overflow].slice(0, 20);
@@ -340,9 +333,14 @@ function buildReviewBody({ tag, result, comments, selected, overflow, summaryOnl
     body += `\n`;
   }
 
-  if (warnings.length > 0) {
+  // The scout-coverage caveat already leads the verdict line for
+  // large-lean-hotspots runs; repeating it in the warnings list is noise.
+  const visibleWarnings = warnings.filter(
+    w => !(mode === 'large-lean-hotspots' && /scout mode covers ranked hotspots/i.test(String(w.message || ''))),
+  );
+  if (visibleWarnings.length > 0) {
     body += `### Warnings\n\n`;
-    for (const w of warnings.slice(0, 10)) {
+    for (const w of visibleWarnings.slice(0, 10)) {
       body += `- **${escapeMd(w.type || 'warning')}** ${escapeMd(w.file || '')}: ${escapeMd(firstLine(w.message || ''))}\n`;
     }
     body += `\n`;
@@ -355,10 +353,55 @@ function buildReviewBody({ tag, result, comments, selected, overflow, summaryOnl
     }
   }
 
-  body += renderMetrics(metrics, result);
-  body += renderPacketCoverage(metrics, result);
+  // Operator telemetry stays available but folded, so the visible comment is
+  // the review, not the pipeline report.
+  const opsDetails = `${renderMetrics(metrics, result)}${renderPacketCoverage(metrics, result)}`.trim();
+  if (opsDetails) {
+    body += `<details><summary>OCR pilot metrics & packet coverage</summary>\n\n${opsDetails}\n\n</details>\n\n`;
+  }
   body += `_Pilot mode: advisory only. Codex Review remains the merge gate._`;
   return body;
+}
+
+function severityRollup(comments) {
+  const counts = { high: 0, medium: 0, low: 0 };
+  let unrated = 0;
+  for (const c of comments) {
+    const sev = String(c.severity || '').toLowerCase();
+    if (Object.prototype.hasOwnProperty.call(counts, sev)) counts[sev] += 1;
+    else unrated += 1;
+  }
+  const parts = [];
+  if (counts.high) parts.push(`${counts.high} high`);
+  if (counts.medium) parts.push(`${counts.medium} medium`);
+  if (counts.low) parts.push(`${counts.low} low`);
+  if (unrated) parts.push(`${unrated} unrated`);
+  return parts.join(' / ');
+}
+
+// One plain-language line a reviewer can act on without decoding router
+// internals. Mode/status/version details live in the folded metrics block.
+function verdictLine({ status, mode, comments, retryable }) {
+  const rollup = severityRollup(comments);
+  const findings = comments.length
+    ? `${comments.length} finding(s)${rollup ? ` (${rollup})` : ''}`
+    : 'no findings';
+  if (retryable) {
+    return `🔁 **Incomplete — this run did not finish and will retry on the same commit.** Do not count it as review coverage.`;
+  }
+  if (status === 'no-supported' || mode === 'no-supported') {
+    return `⚪ **OCR did not run** — this diff has no OCR-supported files. Not a review outcome.`;
+  }
+  if (status === 'error') {
+    return `🔴 **Review errored** (${findings} before the failure) — treat this PR as unreviewed by OCR.`;
+  }
+  if (mode === 'large-lean-hotspots') {
+    return `🟡 **Scout triage only — not a full review.** ${findings}; a human or Codex must still cover the unflagged hunks and proof obligations.`;
+  }
+  if (comments.length > 0) {
+    return `🟠 **${findings}** — see inline comments.`;
+  }
+  return `🟢 **No findings from the OCR first pass.** Advisory only.`;
 }
 
 function extractOcrSummary(result) {
@@ -428,6 +471,12 @@ function renderPacketCoverage(metrics, result) {
   const scout = packetReview.scout || {};
   body += `- Packet review: ${packetReview.enabled ? 'enabled' : 'not used'}; selected ${packetReview.packets_selected ?? packets.length}/${packetReview.packet_budget ?? '?'} packet(s)\n`;
   body += `- Scout: ${scout.enabled ? 'configured' : 'not configured'}; status ${escapeMd(scout.status || 'unknown')}; model ${escapeMd(scout.model || 'none')}\n`;
+  if (Array.isArray(scout.lenses) && scout.lenses.length) {
+    body += `- Scout lenses: ${escapeMd(scout.lenses.join(', '))}`;
+    if (scout.partial_lens_failures) body += ` (${scout.partial_lens_failures} lens(es) failed; union of the rest used)`;
+    if (scout.rubric_items != null) body += `; rubric items checked ${scout.rubric_items}`;
+    body += `\n`;
+  }
   if (scout.error_detail) {
     if (typeof scout.http_status === 'number') body += `- Scout provider HTTP status: ${scout.http_status}\n`;
     body += `- Scout provider error: ${escapeMd(scout.error_detail)}\n`;
@@ -445,8 +494,9 @@ function renderPacketCoverage(metrics, result) {
     body += `- Covered packets:\n`;
     for (const packet of packets.slice(0, 8)) {
       const signals = Array.isArray(packet.signals) && packet.signals.length ? packet.signals.join(', ') : 'hotspot path/churn';
+      const lensTag = Array.isArray(packet.scout_lens_ids) && packet.scout_lens_ids.length ? ` [lenses: ${packet.scout_lens_ids.join(', ')}]` : '';
       const question = packet.scout_question ? `; ask: ${packet.scout_question}` : '';
-      body += `  - ${escapeMd(packet.path)}:${packet.start_line ?? '?'} score ${packet.score ?? '?'} — ${escapeMd(signals + question)}\n`;
+      body += `  - ${escapeMd(packet.path)}:${packet.start_line ?? '?'} score ${packet.score ?? '?'}${escapeMd(lensTag)} — ${escapeMd(signals + question)}\n`;
     }
   }
   body += `\n`;
@@ -498,8 +548,21 @@ function renderInlineFallback(selected) {
   return body.trim();
 }
 
+// Router mode names are pipeline internals, not review categories; keep the
+// badge to reviewer-meaningful bits (severity, semantic categories).
+const MODE_LIKE_CATEGORIES = new Set([
+  'large-lean-hotspots',
+  'packetized_review',
+  'small-lean',
+  'standard',
+  'workflow-scripts',
+]);
+
 function badge(c) {
-  const bits = [c.category, c.severity].filter(Boolean).map(String);
+  const bits = [c.category, c.severity]
+    .filter(Boolean)
+    .map(String)
+    .filter(bit => !MODE_LIKE_CATEGORIES.has(bit));
   return bits.length ? ` [${bits.join(' · ')}]` : '';
 }
 
