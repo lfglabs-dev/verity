@@ -2295,6 +2295,20 @@ theorem evalIRExprsWithInternals_pair_of_values
       .values [leftValue, rightValue] finalState := by
   simp [evalIRExprsWithInternals, hleft, hright]
 
+/-- Successful one-argument IR expression evaluation with final state exposed. -/
+theorem evalIRExprsWithInternals_single_of_value
+    (runtimeContract : IRContract)
+    (fuel : Nat)
+    (state finalState : IRState)
+    (exprIR : YulExpr)
+    (value : Nat)
+    (hexpr :
+      evalIRExprWithInternals runtimeContract fuel state exprIR =
+        .value value finalState) :
+    evalIRExprsWithInternals runtimeContract fuel state [exprIR] =
+      .values [value] finalState := by
+  simp [evalIRExprsWithInternals, hexpr]
+
 /-- Helper-aware compiled IR evaluation for a pure two-argument Yul builtin,
 with the sibling state threading exposed by
 `evalIRExprsWithInternals_pair_of_values`.  Constructor-specific source/compile
@@ -2336,6 +2350,41 @@ theorem evalIRExprWithInternals_binary_builtin_of_values
     evalIRCallWithInternals_of_builtin runtimeContract fuel state func
       [leftIR, rightIR] [leftValue, rightValue] finalState hargs hfind
       hnotTload hnotMload hnotKeccak,
+    hbuiltin]
+
+/-- Helper-aware compiled IR evaluation for a pure one-argument Yul builtin. -/
+theorem evalIRExprWithInternals_unary_builtin_of_value
+    (runtimeContract : IRContract)
+    (fuel : Nat)
+    (state finalState : IRState)
+    (func : String)
+    (exprIR : YulExpr)
+    (argValue value : Nat)
+    (hexpr :
+      evalIRExprWithInternals runtimeContract fuel state exprIR =
+        .value argValue finalState)
+    (hfind : findInternalFunction? runtimeContract func = none)
+    (hnotTload : func ≠ "tload")
+    (hnotMload : func ≠ "mload")
+    (hnotKeccak : func ≠ "keccak256")
+    (hbuiltin :
+      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
+          finalState.storage finalState.sender finalState.msgValue finalState.thisAddress
+          finalState.blockTimestamp finalState.blockNumber finalState.chainId
+          finalState.blobBaseFee finalState.txOrigin finalState.selector
+          finalState.calldata func [argValue] =
+        some value) :
+    evalIRExprWithInternals runtimeContract fuel state
+        (YulExpr.call func [exprIR]) =
+      .value value finalState := by
+  have hargs :
+      evalIRExprsWithInternals runtimeContract fuel state [exprIR] =
+        .values [argValue] finalState :=
+    evalIRExprsWithInternals_single_of_value runtimeContract fuel state finalState
+      exprIR argValue hexpr
+  simp [evalIRExprWithInternals_call,
+    evalIRCallWithInternals_of_builtin runtimeContract fuel state func
+      [exprIR] [argValue] finalState hargs hfind hnotTload hnotMload hnotKeccak,
     hbuiltin]
 
 /-- `Nat` values coerced to `Uint256` may be normalized before or after the
@@ -4283,6 +4332,147 @@ theorem exprInternalHelperCompositionalPostStateResult_bitXor_left_threaded
       (runtime := runtime) (headRuntime := headRuntime)
       (parentState := parentState) (headState := headState)
       hleftResult hcompileRight hsourceRight hirRight hfindXor
+
+/-- Shared source/Yul value for the `Expr.bitNot` constructor. -/
+def exprBitNotValue (value : Nat) : Nat :=
+  (Verity.Core.Uint256.not
+    (Verity.Core.Uint256.ofNat (value % Compiler.Constants.evmModulus))).val
+
+theorem exprBitNotValue_lt_evmModulus (value : Nat) :
+    exprBitNotValue value < Compiler.Constants.evmModulus := by
+  simpa [exprBitNotValue, Verity.Core.Uint256.modulus,
+    Verity.Core.UINT256_MODULUS, Compiler.Constants.evmModulus] using
+    (Verity.Core.Uint256.not
+      (Verity.Core.Uint256.ofNat (value % Compiler.Constants.evmModulus))).isLt
+
+theorem exprBitNotValue_eq_builtin (value : Nat) :
+    exprBitNotValue value =
+      Nat.xor (value % Compiler.Constants.evmModulus)
+        (Compiler.Constants.evmModulus - 1) := by
+  let normalized := value % Compiler.Constants.evmModulus
+  have hnormalizedLt : normalized < Compiler.Constants.evmModulus :=
+    Nat.mod_lt value (by decide : 0 < Compiler.Constants.evmModulus)
+  have hnormalizedLt256 : normalized < 2 ^ 256 := by
+    rwa [show (2 : Nat) ^ 256 = Compiler.Constants.evmModulus from rfl]
+  have hxor_eq :
+      Nat.xor normalized (2 ^ 256 - 1) = 2 ^ 256 - 1 - normalized := by
+    have key :
+        (BitVec.ofNat 256 normalized ^^^ BitVec.allOnes 256).toNat =
+          2 ^ 256 - 1 - normalized := by
+      rw [BitVec.xor_allOnes]
+      simp only [BitVec.toNat_not, BitVec.toNat_ofNat,
+        Nat.mod_eq_of_lt hnormalizedLt256]
+    have lhs_eq :
+        Nat.xor normalized (2 ^ 256 - 1) =
+          (BitVec.ofNat 256 normalized ^^^ BitVec.allOnes 256).toNat := by
+      simp only [BitVec.toNat_xor, BitVec.toNat_ofNat,
+        Nat.mod_eq_of_lt hnormalizedLt256, BitVec.toNat_allOnes]
+      rfl
+    rw [lhs_eq, key]
+  simp only [exprBitNotValue, Verity.Core.Uint256.not,
+    Verity.Core.Uint256.val_ofNat, Verity.Core.MAX_UINT256,
+    Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS,
+    Compiler.Constants.evmModulus]
+  change (2 ^ 256 - 1 - (value % 2 ^ 256) % 2 ^ 256) % 2 ^ 256 =
+    Nat.xor (value % 2 ^ 256) (2 ^ 256 - 1)
+  rw [show value % 2 ^ 256 = normalized by rfl,
+    Nat.mod_eq_of_lt hnormalizedLt256]
+  rw [Nat.mod_eq_of_lt (by omega : 2 ^ 256 - 1 - normalized < 2 ^ 256),
+    hxor_eq]
+
+theorem compileExprWithInternals_bitNot_of_child
+    {fields : List Field} {internalFunctions : List FunctionSpec}
+    {expr : Expr} {exprIR : YulExpr}
+    (hcompile :
+      CompilationModel.compileExprWithInternals fields .calldata internalFunctions expr =
+        Except.ok exprIR) :
+    CompilationModel.compileExprWithInternals fields .calldata internalFunctions
+        (Expr.bitNot expr) =
+      Except.ok (YulExpr.call "not" [exprIR]) := by
+  simp only [CompilationModel.compileExprWithInternals, hcompile]
+  rfl
+
+theorem evalExprWithHelpers_bitNot_of_value
+    (spec : CompilationModel) (fields : List Field)
+    (fuel : Nat) (runtime : SourceSemantics.RuntimeState)
+    {expr : Expr} {value : Nat}
+    (hsource :
+      SourceSemantics.evalExprWithHelpers spec fields fuel runtime expr =
+        some value) :
+    SourceSemantics.evalExprWithHelpers spec fields fuel runtime (Expr.bitNot expr) =
+      some (exprBitNotValue value) := by
+  simp [SourceSemantics.evalExprWithHelpers, hsource, exprBitNotValue,
+    Verity.Core.Uint256.not]
+
+theorem evalBuiltinCallWithEvmYulLeanContext_bitNot_of_value
+    (state : IRState) (value : Nat) :
+    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
+        state.storage state.sender state.msgValue state.thisAddress
+        state.blockTimestamp state.blockNumber state.chainId state.blobBaseFee
+        state.txOrigin state.selector state.calldata "not" [value] =
+      some (exprBitNotValue value) := by
+  rw [exprBitNotValue_eq_builtin]
+  simp [Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext]
+
+theorem exprInternalHelperCompositionalContextResult_bitNot_threaded
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {expr : Expr} {exprIR : YulExpr} {helperFuel irFuel : Nat}
+    {runtime headRuntime : SourceSemantics.RuntimeState}
+    {parentState headState exprFinalState : IRState}
+    {value : Nat}
+    (hchild : ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+      expr exprIR helperFuel irFuel runtime headRuntime parentState headState
+      exprFinalState value)
+    (hfindNot : findInternalFunction? runtimeContract "not" = none) :
+    ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+      (Expr.bitNot expr) (YulExpr.call "not" [exprIR]) helperFuel irFuel
+      runtime headRuntime parentState headState exprFinalState
+      (exprBitNotValue value) := by
+  have hchildFacts := hchild
+  unfold ExprInternalHelperCompositionalContextResult at hchildFacts
+  rcases hchildFacts with ⟨hcompileChild, hsourceChild, hirChild, _, _⟩
+  let hcompile := compileExprWithInternals_bitNot_of_child hcompileChild
+  let hsource := evalExprWithHelpers_bitNot_of_value spec fields (helperFuel + 1)
+    runtime hsourceChild
+  let hbuiltin := evalBuiltinCallWithEvmYulLeanContext_bitNot_of_value exprFinalState value
+  let hir := evalIRExprWithInternals_unary_builtin_of_value runtimeContract (irFuel + 1)
+    parentState exprFinalState "not" exprIR value (exprBitNotValue value)
+    hirChild hfindNot (by decide) (by decide) (by decide) hbuiltin
+  exact
+    exprInternalHelperCompositionalContextResult_unary_context
+      (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+      (child := expr) (childIR := exprIR)
+      (mkExpr := Expr.bitNot) (mkIR := fun ir => YulExpr.call "not" [ir])
+      (helperFuel := helperFuel) (irFuel := irFuel)
+      (runtime := runtime) (headRuntime := headRuntime)
+      (state := parentState) (headState := headState)
+      hchild hcompile hsource hir
+
+theorem exprInternalHelperCompositionalPostStateResult_bitNot_threaded
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {scope : List String}
+    {expr : Expr} {exprIR : YulExpr} {helperFuel irFuel : Nat}
+    {runtime headRuntime : SourceSemantics.RuntimeState}
+    {parentState headState exprFinalState : IRState}
+    {value : Nat}
+    (hchild : ExprInternalHelperCompositionalPostStateResult runtimeContract spec fields scope
+      expr exprIR helperFuel irFuel runtime headRuntime parentState headState
+      exprFinalState value)
+    (hfindNot : findInternalFunction? runtimeContract "not" = none) :
+    ExprInternalHelperCompositionalPostStateResult runtimeContract spec fields scope
+      (Expr.bitNot expr) (YulExpr.call "not" [exprIR]) helperFuel irFuel
+      runtime headRuntime parentState headState exprFinalState
+      (exprBitNotValue value) := by
+  rcases hchild with ⟨hchildResult, hchildRuntime, hchildExact, _hchildLt⟩
+  refine ⟨?_, hchildRuntime, hchildExact, exprBitNotValue_lt_evmModulus value⟩
+  exact
+    exprInternalHelperCompositionalContextResult_bitNot_threaded
+      (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+      (expr := expr) (exprIR := exprIR)
+      (helperFuel := helperFuel) (irFuel := irFuel)
+      (runtime := runtime) (headRuntime := headRuntime)
+      (parentState := parentState) (headState := headState)
+      hchildResult hfindNot
 
 /-- Expression-helper statement-head bridge. Future helper-summary induction
 should construct this for each statement head whose helper work appears in

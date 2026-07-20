@@ -1876,7 +1876,9 @@ end Verity.AxiomAudit
   Compiler.Proofs.HelperStepProofs.exprInternalHelperCompositionalContextResult_binary_right_context
   Compiler.Proofs.HelperStepProofs.exprInternalHelperCompositionalContextResult_binary_right_threaded_context
   Compiler.Proofs.HelperStepProofs.evalIRExprsWithInternals_pair_of_values
+  Compiler.Proofs.HelperStepProofs.evalIRExprsWithInternals_single_of_value
   Compiler.Proofs.HelperStepProofs.evalIRExprWithInternals_binary_builtin_of_values
+  Compiler.Proofs.HelperStepProofs.evalIRExprWithInternals_unary_builtin_of_value
   Compiler.Proofs.HelperStepProofs.uint256_ofNat_evmModulus_mod
   Compiler.Proofs.HelperStepProofs.exprAddValue_lt_evmModulus
   Compiler.Proofs.HelperStepProofs.compileExprWithInternals_add_of_children
@@ -1948,6 +1950,13 @@ end Verity.AxiomAudit
   Compiler.Proofs.HelperStepProofs.exprInternalHelperCompositionalPostStateResult_bitXor_right_threaded
   Compiler.Proofs.HelperStepProofs.exprInternalHelperCompositionalContextResult_bitXor_left_threaded
   Compiler.Proofs.HelperStepProofs.exprInternalHelperCompositionalPostStateResult_bitXor_left_threaded
+  Compiler.Proofs.HelperStepProofs.exprBitNotValue_lt_evmModulus
+  Compiler.Proofs.HelperStepProofs.exprBitNotValue_eq_builtin
+  Compiler.Proofs.HelperStepProofs.compileExprWithInternals_bitNot_of_child
+  Compiler.Proofs.HelperStepProofs.evalExprWithHelpers_bitNot_of_value
+  Compiler.Proofs.HelperStepProofs.evalBuiltinCallWithEvmYulLeanContext_bitNot_of_value
+  Compiler.Proofs.HelperStepProofs.exprInternalHelperCompositionalContextResult_bitNot_threaded
+  Compiler.Proofs.HelperStepProofs.exprInternalHelperCompositionalPostStateResult_bitNot_threaded
   Compiler.Proofs.HelperStepProofs.compileStmt_letVar_of_compileExprWithInternals
   Compiler.Proofs.HelperStepProofs.exprInternalHelperHeadStepBridge_letVar_of_exprCompositionalResult
   Compiler.Proofs.HelperStepProofs.exprInternalHelperHeadStepBridgeWithInternals_letVar_of_exprPostStateResult
@@ -6337,4 +6346,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5940 theorems/lemmas (4116 public, 1824 private, 0 sorry'd)
+-- Total: 5949 theorems/lemmas (4125 public, 1824 private, 0 sorry'd)
