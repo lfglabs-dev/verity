@@ -65,7 +65,9 @@
   "expected_job_needs": {
     "closed-pr-cleanup": [],
     "changes": [],
-    "checks": [],
+    "checks": [
+      "changes"
+    ],
     "timeout-watchdog": [
       "checks"
     ],

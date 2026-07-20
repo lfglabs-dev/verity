@@ -278,6 +278,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
   checks:
+    needs: changes
     if: github.event_name != 'pull_request' || github.event.action != 'closed'
     runs-on: [self-hosted, linux, ARM64, dgx-spark, verity, fastlane]
     timeout-minutes: 10
