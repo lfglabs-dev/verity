@@ -555,18 +555,18 @@ private theorem constructorOnly_compileBody_empty_surfaces_withFork :
   have htail :
       ∃ tailIR,
         CompilationModel.compileStmtList constructorOnlySpec.fields [] [] .memory [] false
-          (collectStmtNames (Stmt.setStorageAddr "owner" (.param "initialOwner")) ++
+          (collectStmtBindNames (Stmt.setStorageAddr "owner" (.param "initialOwner")) ++
             (constructorBodyScope constructorOnlyCtor.params)) []
           [Stmt.stop] = Except.ok tailIR := by
     have hstop :
         ∃ stopIR,
           CompilationModel.compileStmt constructorOnlySpec.fields [] [] .memory [] false
-            (collectStmtNames (Stmt.setStorageAddr "owner" (.param "initialOwner")) ++
+            (collectStmtBindNames (Stmt.setStorageAddr "owner" (.param "initialOwner")) ++
               (constructorBodyScope constructorOnlyCtor.params)) [] Stmt.stop =
               Except.ok stopIR := by
       refine ⟨
         match CompilationModel.compileStmt constructorOnlySpec.fields [] [] .memory [] false
-            (collectStmtNames (Stmt.setStorageAddr "owner" (.param "initialOwner")) ++
+            (collectStmtBindNames (Stmt.setStorageAddr "owner" (.param "initialOwner")) ++
               (constructorBodyScope constructorOnlyCtor.params)) [] Stmt.stop with
         | .ok stopIR => stopIR
         | .error _ => [], ?_⟩
@@ -1346,7 +1346,7 @@ private def scalarEventSmoke_supported_function :
             intro s hs
             simp at hs
             rcases hs with rfl
-            simp [collectStmtNames, collectExprListNames, collectExprNames]
+            simp [collectStmtBindNames]
           emitArgsInScope := by
             intro s hs eventName args heq arg harg
             simp at hs

@@ -1060,7 +1060,7 @@ private theorem stmtListCompileCore_of_scopeNamesIncluded
   | assignVar hvalue hinScope hrest ih =>
       exact .assignVar hvalue
         (exprBoundNamesInScope_of_scopeNamesIncluded hinScope hincluded)
-        (ih <| scopeNamesIncluded_cons hincluded)
+        (ih hincluded)
   | require_ hcond hinScope hrest ih =>
       exact .require_ hcond
         (exprBoundNamesInScope_of_scopeNamesIncluded hinScope hincluded)
@@ -1098,7 +1098,7 @@ private theorem stmtListTerminalCore_of_scopeNamesIncluded
   | assignVar hvalue hinScope hrest ih =>
       exact .assignVar hvalue
         (exprBoundNamesInScope_of_scopeNamesIncluded hinScope hincluded)
-        (ih <| scopeNamesIncluded_cons hincluded)
+        (ih hincluded)
   | require_ hcond hinScope hrest ih =>
       exact .require_ hcond
         (exprBoundNamesInScope_of_scopeNamesIncluded hinScope hincluded)
@@ -1128,6 +1128,96 @@ private theorem stmtListTerminalCore_of_scopeNamesIncluded
         (ihElse hincluded)
         (stmtListCompileCore_of_scopeNamesIncluded hrest hincluded)
 
+mutual
+private def stmtBindNamesComplexity : Stmt → Nat
+  | .ite _ thenBranch elseBranch =>
+      1 + stmtListBindNamesComplexity thenBranch + stmtListBindNamesComplexity elseBranch
+  | .forEach _ _ body | .forEachSetBit _ _ body | .unsafeBlock _ body =>
+      1 + stmtListBindNamesComplexity body
+  | .matchAdt _ _ branches => 1 + matchBranchBindNamesComplexity branches
+  | _ => 0
+
+private def stmtListBindNamesComplexity : List Stmt → Nat
+  | [] => 0
+  | stmt :: rest => 1 + stmtBindNamesComplexity stmt + stmtListBindNamesComplexity rest
+
+private def matchBranchBindNamesComplexity : List (String × List String × List Stmt) → Nat
+  | [] => 0
+  | (_, _, body) :: rest =>
+      1 + stmtListBindNamesComplexity body + matchBranchBindNamesComplexity rest
+end
+
+mutual
+private theorem collectStmtBindNames_subset_collectStmtNames (stmt : Stmt) :
+    ∀ name, name ∈ collectStmtBindNames stmt → name ∈ collectStmtNames stmt := by
+  intro name hmem
+  cases stmt <;>
+    simp only [collectStmtBindNames, collectStmtNames, List.mem_cons, List.mem_append] at hmem ⊢
+  case matchAdt adtName scrutinee branches =>
+    exact Or.inr (collectMatchBranchBindNames_subset_collectMatchBranchNames branches name hmem)
+  all_goals aesop (add safe collectStmtListBindNames_subset_collectStmtListNames)
+termination_by stmtBindNamesComplexity stmt
+decreasing_by
+  all_goals subst_vars
+  all_goals simp [stmtBindNamesComplexity, stmtListBindNamesComplexity,
+    matchBranchBindNamesComplexity]
+  all_goals omega
+
+private theorem collectStmtListBindNames_subset_collectStmtListNames (stmts : List Stmt) :
+    ∀ name, name ∈ collectStmtListBindNames stmts → name ∈ collectStmtListNames stmts := by
+  intro name hmem
+  cases stmts with
+  | nil => simp [collectStmtListBindNames] at hmem
+  | cons stmt rest =>
+      rw [collectStmtListBindNames] at hmem
+      rw [collectStmtListNames]
+      exact (List.mem_append.mp hmem).elim
+        (fun hstmt => List.mem_append.mpr
+          (Or.inl (collectStmtBindNames_subset_collectStmtNames stmt name hstmt)))
+        (fun hrest => List.mem_append.mpr (Or.inr
+          (collectStmtListBindNames_subset_collectStmtListNames rest name hrest)))
+termination_by stmtListBindNamesComplexity stmts
+decreasing_by
+  all_goals subst_vars
+  all_goals simp [stmtBindNamesComplexity, stmtListBindNamesComplexity,
+    matchBranchBindNamesComplexity]
+  all_goals omega
+
+private theorem collectMatchBranchBindNames_subset_collectMatchBranchNames
+    (branches : List (String × List String × List Stmt)) :
+    ∀ name, name ∈ collectMatchBranchBindNames branches → name ∈ collectMatchBranchNames branches := by
+  intro name hmem
+  cases branches with
+  | nil => simp [collectMatchBranchBindNames] at hmem
+  | cons branch rest =>
+      cases branch with
+      | mk tag pair =>
+          cases pair with
+          | mk varNames body =>
+              rw [collectMatchBranchBindNames] at hmem
+              rw [collectMatchBranchNames]
+              rcases List.mem_append.mp hmem with hbranch | hrest
+              · rcases List.mem_append.mp hbranch with hvar | hbody
+                · exact List.mem_append.mpr (Or.inl (List.mem_append.mpr (Or.inl hvar)))
+                · exact List.mem_append.mpr (Or.inl (List.mem_append.mpr (Or.inr
+                    (collectStmtListBindNames_subset_collectStmtListNames body name hbody))))
+              · exact List.mem_append.mpr (Or.inr
+                  (collectMatchBranchBindNames_subset_collectMatchBranchNames rest name hrest))
+termination_by matchBranchBindNamesComplexity branches
+decreasing_by
+  all_goals subst_vars
+  all_goals simp [stmtBindNamesComplexity, stmtListBindNamesComplexity,
+    matchBranchBindNamesComplexity]
+  all_goals omega
+end
+
+private theorem scopeNamesIncluded_scope_stmtNextScope
+    {scope largerScope : List String}
+    {stmt : Stmt}
+    (hincluded : FunctionBody.scopeNamesIncluded scope largerScope) :
+    FunctionBody.scopeNamesIncluded scope (stmtNextScope largerScope stmt) :=
+  FunctionBody.scopeNamesIncluded_append_right hincluded
+
 private theorem stmtListGenericCore_of_stmtListCompileCore_of_scopeNamesIncluded
     {fields : List Field}
     {scope largerScope : List String}
@@ -1145,7 +1235,11 @@ private theorem stmtListGenericCore_of_stmtListCompileCore_of_scopeNamesIncluded
           (hcore := hvalue)
           (hinScope := exprBoundNamesInScope_of_scopeNamesIncluded hinScope hincluded)
           (hvalueIR := hvalueIR))
-        (ih <| FunctionBody.scopeNamesIncluded_collectStmtNames_letVar hincluded)
+        (ih <| by
+          intro other hmem
+          simp only [stmtNextScope, collectStmtBindNames, List.singleton_append,
+            List.mem_cons] at hmem ⊢
+          exact hmem.elim Or.inl (fun h => Or.inr (hincluded other h)))
   | assignVar hvalue hinScope hrest ih =>
       rcases FunctionBody.compileExpr_core_ok (fields := fields) hvalue with
         ⟨valueIR, hvalueIR⟩
@@ -1154,7 +1248,7 @@ private theorem stmtListGenericCore_of_stmtListCompileCore_of_scopeNamesIncluded
           (hcore := hvalue)
           (hinScope := exprBoundNamesInScope_of_scopeNamesIncluded hinScope hincluded)
           (hvalueIR := hvalueIR))
-        (ih <| FunctionBody.scopeNamesIncluded_collectStmtNames_assignVar hincluded)
+        (ih <| by simpa [stmtNextScope, collectStmtBindNames] using hincluded)
   | require_ hcond hinScope hrest ih =>
       rcases FunctionBody.compileRequireFailCond_core_ok (fields := fields) hcond with
         ⟨failCond, hfailCond⟩
@@ -1163,8 +1257,7 @@ private theorem stmtListGenericCore_of_stmtListCompileCore_of_scopeNamesIncluded
           (hcore := hcond)
           (hinScope := exprBoundNamesInScope_of_scopeNamesIncluded hinScope hincluded)
           (hfailCompile := hfailCond))
-        (ih <| FunctionBody.scopeNamesIncluded_collectStmtNames_tail
-          (stmt := .require _ _) hincluded)
+        (ih <| scopeNamesIncluded_scope_stmtNextScope hincluded)
   | return_ hvalue hinScope hrest ih =>
       rcases FunctionBody.compileExpr_core_ok (fields := fields) hvalue with
         ⟨valueIR, hvalueIR⟩
@@ -1173,12 +1266,10 @@ private theorem stmtListGenericCore_of_stmtListCompileCore_of_scopeNamesIncluded
           (hcore := hvalue)
           (hinScope := exprBoundNamesInScope_of_scopeNamesIncluded hinScope hincluded)
           (hvalueIR := hvalueIR))
-        (ih <| FunctionBody.scopeNamesIncluded_collectStmtNames_tail
-            (stmt := .return _) hincluded)
+        (ih <| scopeNamesIncluded_scope_stmtNextScope hincluded)
   | stop hrest ih =>
       exact StmtListGenericCore.cons compiledStmtStep_stop
-        (ih <| FunctionBody.scopeNamesIncluded_collectStmtNames_tail
-            (stmt := .stop) hincluded)
+        (ih <| scopeNamesIncluded_scope_stmtNextScope hincluded)
   | mstore hcoreOffset hinScopeOffset hcoreValue hinScopeValue hrest ih =>
       rcases FunctionBody.compileExpr_core_ok (fields := fields) hcoreOffset with
         ⟨offsetIR, hoffsetIR⟩
@@ -1192,8 +1283,7 @@ private theorem stmtListGenericCore_of_stmtListCompileCore_of_scopeNamesIncluded
           (hinScopeValue := exprBoundNamesInScope_of_scopeNamesIncluded hinScopeValue hincluded)
           (hoffsetIR := hoffsetIR)
           (hvalueIR := hvalueIR))
-        (ih <| FunctionBody.scopeNamesIncluded_collectStmtNames_tail
-            (stmt := .mstore _ _) hincluded)
+        (ih <| scopeNamesIncluded_scope_stmtNextScope hincluded)
   | tstore hcoreOffset hinScopeOffset hcoreValue hinScopeValue hrest ih =>
       rcases FunctionBody.compileExpr_core_ok (fields := fields) hcoreOffset with
         ⟨offsetIR, hoffsetIR⟩
@@ -1207,8 +1297,7 @@ private theorem stmtListGenericCore_of_stmtListCompileCore_of_scopeNamesIncluded
           (hinScopeValue := exprBoundNamesInScope_of_scopeNamesIncluded hinScopeValue hincluded)
           (hoffsetIR := hoffsetIR)
           (hvalueIR := hvalueIR))
-        (ih <| FunctionBody.scopeNamesIncluded_collectStmtNames_tail
-            (stmt := .tstore _ _) hincluded)
+        (ih <| scopeNamesIncluded_scope_stmtNextScope hincluded)
 
 private theorem stmtListGenericCore_of_stmtListTerminalCore_of_scopeNamesIncluded
     {fields : List Field}
@@ -1226,7 +1315,11 @@ private theorem stmtListGenericCore_of_stmtListTerminalCore_of_scopeNamesInclude
           (hcore := hvalue)
           (hinScope := exprBoundNamesInScope_of_scopeNamesIncluded hinScope hincluded)
           (hvalueIR := hvalueIR))
-        (ih <| FunctionBody.scopeNamesIncluded_collectStmtNames_letVar hincluded)
+        (ih <| by
+          intro other hmem
+          simp only [stmtNextScope, collectStmtBindNames, List.singleton_append,
+            List.mem_cons] at hmem ⊢
+          exact hmem.elim Or.inl (fun h => Or.inr (hincluded other h)))
   | assignVar hvalue hinScope hrest ih =>
       rcases FunctionBody.compileExpr_core_ok (fields := fields) hvalue with
         ⟨valueIR, hvalueIR⟩
@@ -1235,7 +1328,7 @@ private theorem stmtListGenericCore_of_stmtListTerminalCore_of_scopeNamesInclude
           (hcore := hvalue)
           (hinScope := exprBoundNamesInScope_of_scopeNamesIncluded hinScope hincluded)
           (hvalueIR := hvalueIR))
-        (ih <| FunctionBody.scopeNamesIncluded_collectStmtNames_assignVar hincluded)
+        (ih <| by simpa [stmtNextScope, collectStmtBindNames] using hincluded)
   | require_ hcond hinScope hrest ih =>
       rcases FunctionBody.compileRequireFailCond_core_ok (fields := fields) hcond with
         ⟨failCond, hfailCond⟩
@@ -1244,8 +1337,7 @@ private theorem stmtListGenericCore_of_stmtListTerminalCore_of_scopeNamesInclude
           (hcore := hcond)
           (hinScope := exprBoundNamesInScope_of_scopeNamesIncluded hinScope hincluded)
           (hfailCompile := hfailCond))
-        (ih <| FunctionBody.scopeNamesIncluded_collectStmtNames_tail
-          (stmt := .require _ _) hincluded)
+        (ih <| scopeNamesIncluded_scope_stmtNextScope hincluded)
   | return_ hvalue hinScope hrest =>
       rcases FunctionBody.compileExpr_core_ok (fields := fields) hvalue with
         ⟨valueIR, hvalueIR⟩
@@ -1256,14 +1348,12 @@ private theorem stmtListGenericCore_of_stmtListTerminalCore_of_scopeNamesInclude
           (hvalueIR := hvalueIR))
         (stmtListGenericCore_of_stmtListCompileCore_of_scopeNamesIncluded
           hrest
-          (FunctionBody.scopeNamesIncluded_collectStmtNames_tail
-            (stmt := .return _) hincluded))
+          (scopeNamesIncluded_scope_stmtNextScope hincluded))
   | stop hrest =>
       exact StmtListGenericCore.cons compiledStmtStep_stop
         (stmtListGenericCore_of_stmtListCompileCore_of_scopeNamesIncluded
           hrest
-          (FunctionBody.scopeNamesIncluded_collectStmtNames_tail
-            (stmt := .stop) hincluded))
+          (scopeNamesIncluded_scope_stmtNextScope hincluded))
   | mstore hcoreOffset hinScopeOffset hcoreValue hinScopeValue hrest ih =>
       rcases FunctionBody.compileExpr_core_ok (fields := fields) hcoreOffset with
         ⟨offsetIR, hoffsetIR⟩
@@ -1277,8 +1367,7 @@ private theorem stmtListGenericCore_of_stmtListTerminalCore_of_scopeNamesInclude
           (hinScopeValue := exprBoundNamesInScope_of_scopeNamesIncluded hinScopeValue hincluded)
           (hoffsetIR := hoffsetIR)
           (hvalueIR := hvalueIR))
-        (ih <| FunctionBody.scopeNamesIncluded_collectStmtNames_tail
-            (stmt := .mstore _ _) hincluded)
+        (ih <| scopeNamesIncluded_scope_stmtNextScope hincluded)
   | tstore hcoreOffset hinScopeOffset hcoreValue hinScopeValue hrest ih =>
       rcases FunctionBody.compileExpr_core_ok (fields := fields) hcoreOffset with
         ⟨offsetIR, hoffsetIR⟩
@@ -1292,8 +1381,7 @@ private theorem stmtListGenericCore_of_stmtListTerminalCore_of_scopeNamesInclude
           (hinScopeValue := exprBoundNamesInScope_of_scopeNamesIncluded hinScopeValue hincluded)
           (hoffsetIR := hoffsetIR)
           (hvalueIR := hvalueIR))
-        (ih <| FunctionBody.scopeNamesIncluded_collectStmtNames_tail
-            (stmt := .tstore _ _) hincluded)
+        (ih <| scopeNamesIncluded_scope_stmtNextScope hincluded)
   | ite hcond hinScope hthen helse hrest ihThen ihElse =>
       rcases compiledStmtStep_ite (fields := fields) hcond
           (exprBoundNamesInScope_of_scopeNamesIncluded hinScope hincluded)
@@ -1303,8 +1391,7 @@ private theorem stmtListGenericCore_of_stmtListTerminalCore_of_scopeNamesInclude
       exact StmtListGenericCore.cons hstep
         (stmtListGenericCore_of_stmtListCompileCore_of_scopeNamesIncluded
           hrest
-          (FunctionBody.scopeNamesIncluded_collectStmtNames_tail
-            (stmt := .ite _ _ _) hincluded))
+          (scopeNamesIncluded_scope_stmtNextScope hincluded))
 
 theorem stmtListGenericCore_of_stmtListCompileCore
     {fields : List Field}
@@ -1466,15 +1553,15 @@ private theorem stmtNextScope_requireLiteralGuardFamilyClause
           cases guard <;>
             simp [stmtNextScope,
               Verity.Core.Free.RequireLiteralGuardFamilyClause.toStmt,
-              collectStmtNames, collectExprNames]
+              collectStmtBindNames]
       | andEqLt =>
           simp [stmtNextScope,
             Verity.Core.Free.RequireLiteralGuardFamilyClause.toStmt,
-            collectStmtNames, collectExprNames]
+            collectStmtBindNames]
       | orEqLt =>
           simp [stmtNextScope,
             Verity.Core.Free.RequireLiteralGuardFamilyClause.toStmt,
-            collectStmtNames, collectExprNames]
+            collectStmtBindNames]
 
 private theorem stmtListGenericCore_of_supportedStmtList_append_of_surface_exceptMappingWrites
     {fields : List Field}
@@ -2341,7 +2428,7 @@ theorem compileStmtList_ok_of_stmtListGenericCore
   | cons hstep _hrest ih =>
       rcases FunctionBody.compileStmt_ok_any_scope
         (scope2 := inScopeNames) ⟨_, hstep.compileOk⟩ with ⟨headIR, hhead⟩
-      rcases ih (inScopeNames := collectStmtNames _ ++ inScopeNames)
+      rcases ih (inScopeNames := collectStmtBindNames _ ++ inScopeNames)
           (by intro name hmem
               simp [stmtNextScope] at hmem
               rcases hmem with h | h
@@ -2369,7 +2456,7 @@ theorem compileStmtList_ok_of_stmtListGenericWithHelpers
   | cons hstep _hrest ih =>
       rcases FunctionBody.compileStmt_ok_any_scope_with_surface
         (scope2 := inScopeNames) ⟨_, hstep.compileOk⟩ with ⟨headIR, hhead⟩
-      rcases ih (inScopeNames := collectStmtNames _ ++ inScopeNames)
+      rcases ih (inScopeNames := collectStmtBindNames _ ++ inScopeNames)
           (by intro name hmem
               simp [stmtNextScope] at hmem
               rcases hmem with h | h
@@ -2399,7 +2486,7 @@ theorem compileStmtList_ok_of_stmtListGenericWithHelpersAndHelperIR
   | cons hstep _hrest ih =>
       rcases FunctionBody.compileStmt_ok_any_scope_with_surface
         (scope2 := inScopeNames) ⟨_, hstep.compileOk⟩ with ⟨headIR, hhead⟩
-      rcases ih (inScopeNames := collectStmtNames _ ++ inScopeNames)
+      rcases ih (inScopeNames := collectStmtBindNames _ ++ inScopeNames)
           (by intro name hmem
               simp [stmtNextScope] at hmem
               rcases hmem with h | h
@@ -2496,7 +2583,8 @@ private theorem scopeNamesIncluded_stmtNextScope
       (collectStmtNames stmt ++ inScopeNames) := by
   intro name hname
   rcases List.mem_append.mp hname with hhead | htail
-  · exact List.mem_append.mpr <| Or.inl hhead
+  · exact List.mem_append.mpr <| Or.inl <|
+      collectStmtBindNames_subset_collectStmtNames stmt name hhead
   · exact List.mem_append.mpr <| Or.inr <| hincluded name htail
 
 private theorem execIRStmts_append_of_continue

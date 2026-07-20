@@ -1237,6 +1237,18 @@ mutual
         | some resolved =>
             if resolved != 0 then .continue state else .revert
         | none => .revert
+    | state, .requireError cond _ args =>
+        match evalExpr oracle fields state cond with
+        | some resolved =>
+            if resolved != 0 then
+              .continue state
+            else
+              match evalExprList oracle fields state args with
+              | _ => .revert
+        | none => .revert
+    | state, .revertError _ args =>
+        match evalExprList oracle fields state args with
+        | _ => .revert
     | state, .panicCode code =>
         match evalExpr oracle fields state code with
         | some _ => .revert

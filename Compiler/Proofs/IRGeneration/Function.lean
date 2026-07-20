@@ -4422,7 +4422,7 @@ private theorem compileStmtList_constructor_mode_eq'
         compileStmt_constructor_mode_eq (events := events) (errors := errors)
           (scope := scope) heffectsStmt hcoreStmt hcallStmt hrawStmt,
         compileStmtList_constructor_mode_eq' (events := events) (errors := errors)
-          (scope := collectStmtNames stmt ++ scope)
+          (scope := collectStmtBindNames stmt ++ scope)
           heffectsRest hcoreRest hcallRest hrawRest]
 end
 

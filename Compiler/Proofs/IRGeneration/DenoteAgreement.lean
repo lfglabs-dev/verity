@@ -535,7 +535,7 @@ theorem execStmt_eq (fields : List Field) :
   | _, .storageArrayPush f v | _, .storageArrayPop f => by denote_stmt_arm
   | _, .setStorageArrayElement f i v => by denote_stmt_arm
   | _, .mstore o v | _, .tstore o v => by denote_stmt_arm
-  | _, .require _ _ | _, .panicCode _ => by denote_stmt_arm
+  | _, .require _ _ | _, .requireError .. | _, .revertError .. | _, .panicCode _ => by denote_stmt_arm
   | _, .return v => by denote_stmt_arm
   | _, .stop => rfl
   | _, .emit n args => by denote_stmt_arm
@@ -561,7 +561,7 @@ theorem execStmt_eq (fields : List Field) :
             0 bound
   | st, .forEachSetBit v bitmap body =>
       execStmt_forEachSetBit_eq fields st v bitmap body (fun ls => execStmtList_eq fields ls body)
-  | _, .requireError .. | _, .revertError .. | _, .returnValues .. | _, .returnArray ..
+  | _, .returnValues .. | _, .returnArray ..
   | _, .returnBytes .. | _, .returnStorageWords .. | _, .returnCodeData .. | _, .calldatacopy ..
   | _, .returndataCopy .. | _, .revertReturndata .. | _, .internalCall .. | _, .internalCallAssign ..
   | _, .rawLog .. | _, .externalCallBind .. | _, .tryExternalCallBind .. | _, .ecm ..
