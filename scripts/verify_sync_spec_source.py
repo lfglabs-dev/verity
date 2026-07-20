@@ -215,21 +215,8 @@ SPEC = {'check_only_paths': ['.github/workflows/**',
                                                   'CODE_CHANGED': '${{ steps.filter.outputs.code }}',
                                                   'BUILD_CHANGED': '${{ steps.filter.outputs.build }}',
                                                   'COMPILER_CHANGED': '${{ steps.filter.outputs.compiler }}'}}],
-                             'checks': [{'name': 'Normalize reused checkout state',
-                                         'run': 'if [ -d .git ]; then\n'
-                                                '  git sparse-checkout disable || true\n'
-                                                '  rm -f "$(git rev-parse --git-path index)"\n'
-                                                '  git reset --hard HEAD\n'
-                                                'fi'},
-                                        {'name': 'Clear sticky remote refs before PR checkout',
-                                         'if': "github.event_name == 'pull_request'",
-                                         'run': 'if [ -d .git ]; then\n'
-                                                "  git for-each-ref --format='delete "
-                                                "%(refname)' refs/remotes/origin | git "
-                                                'update-ref --stdin || true\n'
-                                                '  rm -rf .git/refs/remotes/origin\n'
-                                                'fi'},
-                                        {'uses': 'actions/checkout@v6'},
+                             'checks': [{'uses': 'actions/checkout@v6',
+                                         'with': {'path': 'checks-${{ github.run_id }}-${{ github.run_attempt }}'}},
                                         {'name': 'Materialize reused checkout',
                                          'run': 'git reset --hard HEAD'},
                                         {'name': 'Run all checks', 'run': 'make check'}],

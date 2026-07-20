@@ -282,30 +282,18 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.action != 'closed'
     runs-on: [self-hosted, linux, ARM64, dgx-spark, verity, fastlane]
     timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: checks-${{ github.run_id }}-${{ github.run_attempt }}
     permissions:
       contents: write
     steps:
-      - name: Normalize reused checkout state
-        run: |
-          if [ -d .git ]; then
-            git sparse-checkout disable || true
-            rm -f "$(git rev-parse --git-path index)"
-            git reset --hard HEAD
-          fi
-
-      - name: Clear sticky remote refs before PR checkout
-        if: github.event_name == 'pull_request'
-        run: |
-          if [ -d .git ]; then
-            git for-each-ref --format='delete %(refname)' refs/remotes/origin | git update-ref --stdin || true
-            rm -rf .git/refs/remotes/origin
-          fi
-
       - uses: actions/checkout@v6
         with:
           repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || '' }}
           token: ${{ github.token }}
+          path: checks-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Materialize reused checkout
         run: git reset --hard HEAD
