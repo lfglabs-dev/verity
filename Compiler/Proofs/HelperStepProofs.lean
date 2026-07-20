@@ -4989,6 +4989,230 @@ theorem exprInternalHelperCompositionalPostStateResult_shr_left_threaded
       (parentState := parentState) (headState := headState)
       hleftResult hcompileValue hsourceValue hirValue hfindShr
 
+/-- Shared source/Yul value for the `Expr.byte` constructor. -/
+def exprByteValue (indexValue valueValue : Nat) : Nat :=
+  (Verity.Core.Uint256.byte
+    (Verity.Core.Uint256.ofNat (indexValue % Compiler.Constants.evmModulus))
+    (Verity.Core.Uint256.ofNat (valueValue % Compiler.Constants.evmModulus))).val
+
+theorem exprByteValue_lt_evmModulus (indexValue valueValue : Nat) :
+    exprByteValue indexValue valueValue < Compiler.Constants.evmModulus := by
+  simpa [exprByteValue, Verity.Core.Uint256.modulus,
+    Verity.Core.UINT256_MODULUS, Compiler.Constants.evmModulus] using
+    (Verity.Core.Uint256.byte
+      (Verity.Core.Uint256.ofNat (indexValue % Compiler.Constants.evmModulus))
+      (Verity.Core.Uint256.ofNat (valueValue % Compiler.Constants.evmModulus))).isLt
+
+theorem compileExprWithInternals_byte_of_children
+    {fields : List Field} {internalFunctions : List FunctionSpec}
+    {index value : Expr} {indexIR valueIR : YulExpr}
+    (hcompileIndex :
+      CompilationModel.compileExprWithInternals fields .calldata internalFunctions index =
+        Except.ok indexIR)
+    (hcompileValue :
+      CompilationModel.compileExprWithInternals fields .calldata internalFunctions value =
+        Except.ok valueIR) :
+    CompilationModel.compileExprWithInternals fields .calldata internalFunctions
+        (Expr.byte index value) =
+      Except.ok (YulExpr.call "byte" [indexIR, valueIR]) := by
+  simp only [CompilationModel.compileExprWithInternals, hcompileIndex, hcompileValue,
+    CompilationModel.yulBinOp]
+  rfl
+
+theorem evalExprWithHelpers_byte_of_values
+    (spec : CompilationModel) (fields : List Field)
+    (fuel : Nat) (runtime : SourceSemantics.RuntimeState)
+    {index value : Expr} {indexValue valueValue : Nat}
+    (hsourceIndex :
+      SourceSemantics.evalExprWithHelpers spec fields fuel runtime index =
+        some indexValue)
+    (hsourceValue :
+      SourceSemantics.evalExprWithHelpers spec fields fuel runtime value =
+        some valueValue) :
+    SourceSemantics.evalExprWithHelpers spec fields fuel runtime (Expr.byte index value) =
+      some (exprByteValue indexValue valueValue) := by
+  simp [SourceSemantics.evalExprWithHelpers, hsourceIndex, hsourceValue,
+    exprByteValue, Verity.Core.Uint256.byte]
+
+theorem evalBuiltinCallWithEvmYulLeanContext_byte_of_values
+    (state : IRState) (indexValue valueValue : Nat) :
+    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
+        state.storage state.sender state.msgValue state.thisAddress
+        state.blockTimestamp state.blockNumber state.chainId state.blobBaseFee
+        state.txOrigin state.selector state.calldata "byte" [indexValue, valueValue] =
+      some (exprByteValue indexValue valueValue) := by
+  simp [Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
+    exprByteValue]
+
+theorem exprInternalHelperCompositionalContextResult_byte_right_threaded
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {index value : Expr} {indexIR valueIR : YulExpr} {helperFuel irFuel : Nat}
+    {runtime headRuntime : SourceSemantics.RuntimeState}
+    {parentState rightEntryState headState rightFinalState finalState : IRState}
+    {indexValue valueValue : Nat}
+    (hright : ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+      value valueIR helperFuel irFuel runtime headRuntime rightEntryState headState
+      rightFinalState valueValue)
+    (hcompileIndex :
+      CompilationModel.compileExprWithInternals fields .calldata spec.functions index =
+        Except.ok indexIR)
+    (hsourceIndex : SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1)
+      runtime index = some indexValue)
+    (hirIndex :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) parentState indexIR =
+        .value indexValue rightEntryState)
+    (hirRight :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) rightEntryState valueIR =
+        .value valueValue finalState)
+    (hfindByte : findInternalFunction? runtimeContract "byte" = none) :
+    ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+      (Expr.byte index value) (YulExpr.call "byte" [indexIR, valueIR]) helperFuel irFuel
+      runtime headRuntime parentState headState finalState
+      (exprByteValue indexValue valueValue) := by
+  let result := exprByteValue indexValue valueValue
+  have hrightFacts := hright
+  unfold ExprInternalHelperCompositionalContextResult at hrightFacts
+  rcases hrightFacts with ⟨hcompileValue, hsourceValue, _, _, _⟩
+  let hcompile := compileExprWithInternals_byte_of_children hcompileIndex hcompileValue
+  let hsource := evalExprWithHelpers_byte_of_values spec fields (helperFuel + 1) runtime
+    hsourceIndex hsourceValue
+  let hbuiltin := evalBuiltinCallWithEvmYulLeanContext_byte_of_values finalState
+    indexValue valueValue
+  let hir := evalIRExprWithInternals_binary_builtin_of_values runtimeContract (irFuel + 1)
+    parentState rightEntryState finalState "byte" indexIR valueIR indexValue valueValue result
+    hirIndex hirRight hfindByte (by decide) (by decide) (by decide) hbuiltin
+  exact
+    exprInternalHelperCompositionalContextResult_binary_right_threaded_context
+      (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+      (left := index) (right := value) (leftIR := indexIR) (rightIR := valueIR)
+      (mkExpr := Expr.byte) (mkIR := fun a b => YulExpr.call "byte" [a, b])
+      (helperFuel := helperFuel) (irFuel := irFuel)
+      (runtime := runtime) (headRuntime := headRuntime)
+      (parentState := parentState) (rightEntryState := rightEntryState)
+      (headState := headState)
+      hright hcompile hsource hir
+
+theorem exprInternalHelperCompositionalPostStateResult_byte_right_threaded
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {scope : List String}
+    {index value : Expr} {indexIR valueIR : YulExpr} {helperFuel irFuel : Nat}
+    {runtime headRuntime : SourceSemantics.RuntimeState}
+    {parentState rightEntryState headState rightFinalState finalState : IRState}
+    {indexValue valueValue : Nat}
+    (hright : ExprInternalHelperCompositionalPostStateResult runtimeContract spec fields scope
+      value valueIR helperFuel irFuel runtime headRuntime rightEntryState headState
+      rightFinalState valueValue)
+    (hcompileIndex :
+      CompilationModel.compileExprWithInternals fields .calldata spec.functions index =
+        Except.ok indexIR)
+    (hsourceIndex : SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1)
+      runtime index = some indexValue)
+    (hirIndex :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) parentState indexIR =
+        .value indexValue rightEntryState)
+    (hirRight :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) rightEntryState valueIR =
+        .value valueValue finalState)
+    (hfindByte : findInternalFunction? runtimeContract "byte" = none)
+    (hfinalEq : finalState = rightFinalState) :
+    ExprInternalHelperCompositionalPostStateResult runtimeContract spec fields scope
+      (Expr.byte index value) (YulExpr.call "byte" [indexIR, valueIR]) helperFuel irFuel
+      runtime headRuntime parentState headState finalState
+      (exprByteValue indexValue valueValue) := by
+  rcases hright with ⟨hrightResult, hrightRuntime, hrightExact, _hrightLt⟩
+  subst hfinalEq
+  refine ⟨?_, hrightRuntime, hrightExact, exprByteValue_lt_evmModulus indexValue valueValue⟩
+  exact
+    exprInternalHelperCompositionalContextResult_byte_right_threaded
+      (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+      (index := index) (value := value) (indexIR := indexIR) (valueIR := valueIR)
+      (helperFuel := helperFuel) (irFuel := irFuel)
+      (runtime := runtime) (headRuntime := headRuntime)
+      (parentState := parentState) (rightEntryState := rightEntryState)
+      (headState := headState)
+      hrightResult hcompileIndex hsourceIndex hirIndex hirRight hfindByte
+
+theorem exprInternalHelperCompositionalContextResult_byte_left_threaded
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {index value : Expr} {indexIR valueIR : YulExpr} {helperFuel irFuel : Nat}
+    {runtime headRuntime : SourceSemantics.RuntimeState}
+    {parentState headState leftFinalState finalState : IRState}
+    {indexValue valueValue : Nat}
+    (hleft : ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+      index indexIR helperFuel irFuel runtime headRuntime parentState headState
+      leftFinalState indexValue)
+    (hcompileValue :
+      CompilationModel.compileExprWithInternals fields .calldata spec.functions value =
+        Except.ok valueIR)
+    (hsourceValue : SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1)
+      runtime value = some valueValue)
+    (hirValue :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) leftFinalState valueIR =
+        .value valueValue finalState)
+    (hfindByte : findInternalFunction? runtimeContract "byte" = none) :
+    ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+      (Expr.byte index value) (YulExpr.call "byte" [indexIR, valueIR]) helperFuel irFuel
+      runtime headRuntime parentState headState finalState
+      (exprByteValue indexValue valueValue) := by
+  let result := exprByteValue indexValue valueValue
+  have hleftFacts := hleft
+  unfold ExprInternalHelperCompositionalContextResult at hleftFacts
+  rcases hleftFacts with ⟨hcompileIndex, hsourceIndex, hirIndex, _, _⟩
+  let hcompile := compileExprWithInternals_byte_of_children hcompileIndex hcompileValue
+  let hsource := evalExprWithHelpers_byte_of_values spec fields (helperFuel + 1)
+    runtime hsourceIndex hsourceValue
+  let hbuiltin := evalBuiltinCallWithEvmYulLeanContext_byte_of_values finalState
+    indexValue valueValue
+  let hir := evalIRExprWithInternals_binary_builtin_of_values runtimeContract (irFuel + 1)
+    parentState leftFinalState finalState "byte" indexIR valueIR indexValue valueValue result
+    hirIndex hirValue hfindByte (by decide) (by decide) (by decide) hbuiltin
+  exact
+    exprInternalHelperCompositionalContextResult_binary_left_context
+      (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+      (left := index) (right := value) (leftIR := indexIR) (rightIR := valueIR)
+      (mkExpr := Expr.byte) (mkIR := fun a b => YulExpr.call "byte" [a, b])
+      (helperFuel := helperFuel) (irFuel := irFuel)
+      (runtime := runtime) (headRuntime := headRuntime)
+      (state := parentState) (headState := headState)
+      hleft hcompile hsource hir
+
+theorem exprInternalHelperCompositionalPostStateResult_byte_left_threaded
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {scope : List String}
+    {index value : Expr} {indexIR valueIR : YulExpr} {helperFuel irFuel : Nat}
+    {runtime headRuntime : SourceSemantics.RuntimeState}
+    {parentState headState leftFinalState finalState : IRState}
+    {indexValue valueValue : Nat}
+    (hleft : ExprInternalHelperCompositionalPostStateResult runtimeContract spec fields scope
+      index indexIR helperFuel irFuel runtime headRuntime parentState headState
+      leftFinalState indexValue)
+    (hcompileValue :
+      CompilationModel.compileExprWithInternals fields .calldata spec.functions value =
+        Except.ok valueIR)
+    (hsourceValue : SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1)
+      runtime value = some valueValue)
+    (hirValue :
+      evalIRExprWithInternals runtimeContract (irFuel + 1) leftFinalState valueIR =
+        .value valueValue finalState)
+    (hfindByte : findInternalFunction? runtimeContract "byte" = none)
+    (hfinalRuntime : FunctionBody.runtimeStateMatchesIR fields runtime finalState)
+    (hfinalExact :
+      FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings finalState) :
+    ExprInternalHelperCompositionalPostStateResult runtimeContract spec fields scope
+      (Expr.byte index value) (YulExpr.call "byte" [indexIR, valueIR]) helperFuel irFuel
+      runtime headRuntime parentState headState finalState
+      (exprByteValue indexValue valueValue) := by
+  rcases hleft with ⟨hleftResult, _, _, _⟩
+  refine ⟨?_, hfinalRuntime, hfinalExact, exprByteValue_lt_evmModulus indexValue valueValue⟩
+  exact
+    exprInternalHelperCompositionalContextResult_byte_left_threaded
+      (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+      (index := index) (value := value) (indexIR := indexIR) (valueIR := valueIR)
+      (helperFuel := helperFuel) (irFuel := irFuel)
+      (runtime := runtime) (headRuntime := headRuntime)
+      (parentState := parentState) (headState := headState)
+      hleftResult hcompileValue hsourceValue hirValue hfindByte
+
 /-- Expression-helper statement-head bridge. Future helper-summary induction
 should construct this for each statement head whose helper work appears in
 expression position. The semantic payload is the exact helper-aware source/IR
