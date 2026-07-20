@@ -16,6 +16,7 @@ namespace FunctionBody
 mutual
 def exprBoundNames : Expr → List String
   | .param name => [name]
+  | .constructorArg idx => [s!"arg{idx}"]
   | .localVar name => [name]
   | .mapping _ key | .mappingWord _ key _ | .mappingPackedWord _ key _ _ | .mappingUint _ key
   | .structMember _ key _ | .extcodesize key | .mload key | .tload key
@@ -72,7 +73,7 @@ def exprBoundNames : Expr → List String
       exprBoundNames thenExpr ++ exprBoundNames elseExpr
   | .mappingChain _ keys => exprListBoundNames keys
   | .dynamicBytesEq lhsName rhsName => [lhsName, rhsName]
-  | .literal _ | .constructorArg _ | .immutable _ | .storage _ | .storageAddr _ | .caller
+  | .literal _ | .immutable _ | .storage _ | .storageAddr _ | .caller
   | .contractAddress | .chainid | .msgValue | .blockTimestamp | .blockNumber
   | .selfBalance | .blobbasefee | .calldatasize | .returndataSize | .txOrigin => []
 termination_by expr => sizeOf expr
@@ -97,6 +98,7 @@ operators. Storage/mapping/dynamic forms still require separate invariants. -/
 inductive ExprCompileCore : Expr → Prop where
   | literal (value : Nat) : ExprCompileCore (.literal value)
   | param (name : String) : ExprCompileCore (.param name)
+  | constructorArg (idx : Nat) : ExprCompileCore (.constructorArg idx)
   | localVar (name : String) : ExprCompileCore (.localVar name)
   | caller : ExprCompileCore .caller
   | contractAddress : ExprCompileCore .contractAddress
@@ -205,7 +207,7 @@ inductive StmtListCompileCore : List String → List Stmt → Prop where
   | assignVar {scope : List String} {name : String} {value : Expr} {rest : List Stmt} :
       ExprCompileCore value →
       exprBoundNamesInScope value scope →
-      StmtListCompileCore (name :: scope) rest →
+      StmtListCompileCore scope rest →
       StmtListCompileCore scope (.assignVar name value :: rest)
   | require_ {scope : List String} {cond : Expr} {message : String} {rest : List Stmt} :
       ExprCompileCore cond →
@@ -248,7 +250,7 @@ inductive StmtListTerminalCore : List String → List Stmt → Prop where
   | assignVar {scope : List String} {name : String} {value : Expr} {rest : List Stmt} :
       ExprCompileCore value →
       exprBoundNamesInScope value scope →
-      StmtListTerminalCore (name :: scope) rest →
+      StmtListTerminalCore scope rest →
       StmtListTerminalCore scope (.assignVar name value :: rest)
   | require_ {scope : List String} {cond : Expr} {message : String} {rest : List Stmt} :
       ExprCompileCore cond →
