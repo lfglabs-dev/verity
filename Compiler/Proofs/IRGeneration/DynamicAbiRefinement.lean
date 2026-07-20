@@ -164,23 +164,25 @@ def arrayElementDynamicMemberElement? (selector : Nat) (calldata : List Nat)
 theorem arrayElementDynamicMemberDataOffset_eq_length_pos_add_word
     {selector : Nat} {calldata : List Nat} {dataOffset length index wordOffset data : Nat}
     (h :
-      arrayElementDynamicMemberDataOffset? selector calldata dataOffset length index wordOffset =
-        some data) :
+      DynamicAbi.arrayElementDynamicMemberDataOffset?
+          selector calldata dataOffset length index wordOffset = some data) :
     ∃ elementHead memberRelOffset,
-      arrayElementDynamicHeadOffset? selector calldata dataOffset length index = some elementHead ∧
-      externalWordAt? selector calldata (elementHead + wordOffset * 32) = some memberRelOffset ∧
+      DynamicAbi.arrayElementDynamicHeadOffset?
+          selector calldata dataOffset length index = some elementHead ∧
+      DynamicAbi.externalWordAt? selector calldata
+          (elementHead + wordOffset * 32) = some memberRelOffset ∧
       data = elementHead + memberRelOffset + 32 := by
-  unfold arrayElementDynamicMemberDataOffset? at h
+  unfold DynamicAbi.arrayElementDynamicMemberDataOffset? at h
   cases hhead :
-      arrayElementDynamicHeadOffset? selector calldata dataOffset length index with
+      DynamicAbi.arrayElementDynamicHeadOffset? selector calldata dataOffset length index with
   | none => simp [hhead] at h
   | some elementHead =>
       cases hmember :
-          externalWordAt? selector calldata (elementHead + wordOffset * 32) with
+          DynamicAbi.externalWordAt? selector calldata (elementHead + wordOffset * 32) with
       | none => simp [hhead, hmember] at h
       | some memberRelOffset =>
           by_cases hbounds :
-              elementHead + memberRelOffset + 32 ≤ externalCalldataSize calldata
+              elementHead + memberRelOffset + 32 ≤ DynamicAbi.externalCalldataSize calldata
           · simp [hhead, hmember, hbounds] at h
             refine ⟨elementHead, memberRelOffset, ?_, ?_, ?_⟩
             · rfl

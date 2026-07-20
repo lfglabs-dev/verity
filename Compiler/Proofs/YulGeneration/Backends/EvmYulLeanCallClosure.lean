@@ -172,7 +172,7 @@ private theorem compileStmtList_cons_ok_inv_generic
       compileStmt fields events errors dynamicSource internalRetNames
           isInternal inScopeNames adtTypes stmt = .ok headIR ∧
       compileStmtList fields events errors dynamicSource internalRetNames
-          isInternal (collectStmtNames stmt ++ inScopeNames) adtTypes rest =
+          isInternal (collectStmtBindNames stmt ++ inScopeNames) adtTypes rest =
         .ok tailIR ∧
       bodyIR = headIR ++ tailIR := by
   simp only [compileStmtList, compileStmtListWithFork, bind, Except.bind] at hOk
@@ -182,7 +182,7 @@ private theorem compileStmtList_cons_ok_inv_generic
   | ok headIR =>
     simp [hHead] at hOk
     cases hTail : compileStmtListWithFork fields events errors dynamicSource
-      internalRetNames isInternal (collectStmtNames stmt ++ inScopeNames)
+      internalRetNames isInternal (collectStmtBindNames stmt ++ inScopeNames)
       adtTypes .cancun rest with
     | error _ => simp [hTail] at hOk
     | ok tailIR =>
@@ -676,7 +676,7 @@ theorem compileStmtList_append_ok_inv
             isInternal inScopeNames adtTypes pfx = .ok pfxOut ∧
         compileStmtList fields events errors dynamicSource internalRetNames
             isInternal
-            (List.foldl (fun s stmt => collectStmtNames stmt ++ s) inScopeNames pfx)
+          (List.foldl (fun s stmt => collectStmtBindNames stmt ++ s) inScopeNames pfx)
             adtTypes sfx = .ok sfxOut ∧
         out = pfxOut ++ sfxOut := by
   intro pfx
@@ -696,18 +696,18 @@ theorem compileStmtList_append_ok_inv
     | ok headOut =>
       simp [hHead] at hOk
       cases hRest : compileStmtListWithFork fields events errors dynamicSource
-        internalRetNames isInternal (collectStmtNames s ++ inScopeNames)
+        internalRetNames isInternal (collectStmtBindNames s ++ inScopeNames)
         adtTypes .cancun (rest ++ sfx) with
       | error _ => simp [hRest] at hOk
       | ok restOut =>
         simp [hRest, Pure.pure, Except.pure] at hOk
         subst out
         obtain ⟨pfxOut, sfxOut, hPfx, hSfx, hEq⟩ :=
-          ih sfx (collectStmtNames s ++ inScopeNames) hRest
+          ih sfx (collectStmtBindNames s ++ inScopeNames) hRest
         refine ⟨headOut ++ pfxOut, sfxOut, ?_, ?_, ?_⟩
         · have hPfxFork := (show
             compileStmtListWithFork fields events errors dynamicSource internalRetNames isInternal
-                (collectStmtNames s ++ inScopeNames) adtTypes .cancun rest = .ok pfxOut by
+                (collectStmtBindNames s ++ inScopeNames) adtTypes .cancun rest = .ok pfxOut by
             simpa [compileStmtList] using hPfx)
           simp [compileStmtList, compileStmtListWithFork, hHead, hPfxFork]
           rfl
@@ -731,7 +731,7 @@ theorem BridgedStmts_of_compileStmtList_append
     (hSfx : ∀ {sfxOut : List YulStmt},
       compileStmtList fields events errors dynamicSource internalRetNames
           isInternal
-          (List.foldl (fun s stmt => collectStmtNames stmt ++ s) inScopeNames pfx)
+            (List.foldl (fun s stmt => collectStmtBindNames stmt ++ s) inScopeNames pfx)
           adtTypes sfx = .ok sfxOut →
       BridgedStmts sfxOut) :
     BridgedStmts out := by

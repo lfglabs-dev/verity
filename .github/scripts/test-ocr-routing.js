@@ -4,6 +4,7 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { execFileSync } = require('child_process');
 
 const router = require('./ocr-router');
 const postOcrReview = require('./post-ocr-review');
@@ -62,6 +63,45 @@ function testOneLeanFileNormal() {
   assert.strictEqual(decision.mode, 'small-lean');
   assert.strictEqual(decision.shouldRunOcr, true);
   assert.strictEqual(decision.ocr.concurrency, 3);
+}
+
+function testBaseOnlyLeanChangesDoNotRouteThroughLeanPath() {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'ocr-merge-base-routing-'));
+  const runGit = args => execFileSync('git', args, { cwd: repo, encoding: 'utf8' });
+  const write = (filePath, content) => {
+    const fullPath = path.join(repo, filePath);
+    fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+    fs.writeFileSync(fullPath, content);
+  };
+  const commit = message => {
+    runGit(['add', '.']);
+    runGit(['-c', 'user.name=OCR test', '-c', 'user.email=ocr-test@example.invalid', 'commit', '-m', message]);
+  };
+
+  runGit(['init', '--initial-branch=main']);
+  write('README.md', 'ancestor\n');
+  commit('ancestor');
+  runGit(['checkout', '-b', 'pr']);
+  write('.github/workflows/ocr-review.yml', 'name: OCR config only\n');
+  commit('PR workflow change');
+  const prHead = runGit(['rev-parse', 'HEAD']).trim();
+  runGit(['checkout', 'main']);
+  write('Compiler/BaseOnly.lean', 'theorem baseOnly : True := by trivial\n');
+  commit('base-only Lean change');
+  runGit(['update-ref', 'refs/remotes/origin/main', runGit(['rev-parse', 'HEAD']).trim()]);
+  runGit(['checkout', 'pr']);
+
+  const previousCwd = process.cwd();
+  try {
+    process.chdir(repo);
+    const diff = router.loadDiff('origin/main', prHead);
+    const decision = router.decideRoute(diff.files);
+    assert.strictEqual(diff.files.some(entry => entry.path.endsWith('.lean')), false);
+    assert.strictEqual(decision.counts.lean, 0);
+    assert.strictEqual(decision.mode, 'config-docs');
+  } finally {
+    process.chdir(previousCwd);
+  }
 }
 
 function testLargeLeanPacketized() {
@@ -862,7 +902,9 @@ async function testLargeLeanScoutEmptySelectionIsFallback() {
   }
   assert.strictEqual(decision.scout.status, 'fallback_no_selection');
   assert.deepStrictEqual(decision.packets.map(p => p.packet_id), originalPackets);
-  assert.strictEqual(decision.scout.raw_selected_count, 1);
+  // Multi-lens: every lens returned one (invalid) selection, so the raw count is
+  // summed across the full lens fan-out.
+  assert.strictEqual(decision.scout.raw_selected_count, router.LENSES.length);
 }
 
 async function testLargeLeanScoutMalformedJsonFallsBack() {
@@ -1294,6 +1336,22 @@ function testWorkflowDocsEnabled() {
   ]);
   assert.strictEqual(decision.mode, 'config-docs');
   assert.strictEqual(decision.shouldRunOcr, true);
+
+  const workflow = fs.readFileSync(path.join(__dirname, '..', 'workflows', 'ocr-review.yml'), 'utf8');
+  assert.ok(workflow.includes('@alibaba-group/open-code-review@1.7.9'));
+  assert.ok(workflow.includes('npm install --prefix "$RUNNER_TEMP/ocr-cli"'));
+  assert.ok(!workflow.includes('npm install -g @alibaba-group/open-code-review'));
+  assert.ok(workflow.includes('prepare-lean-lsp.sh'));
+  assert.ok(workflow.includes("steps.route.outputs.has_lean == 'true'"));
+  assert.ok(workflow.includes('DIFF_BASE: ${{ steps.route.outputs.diff_base }}'));
+  assert.ok(workflow.includes('--from "${DIFF_BASE}"'));
+  assert.ok(workflow.includes('Number(context.payload.inputs.pr_number)'));
+  assert.ok(workflow.includes('ELAN_HOME: ${{ runner.temp }}/ocr-elan-${{ github.run_id }}-${{ github.run_attempt }}'));
+  assert.ok(workflow.includes('lean-lsp-mcp==${LEAN_LSP_MCP_VERSION}'));
+  assert.ok(workflow.includes('"lean_diagnostic_messages","lean_file_outline","lean_hover_info"'));
+  assert.ok(workflow.includes('LEAN_MCP_DISABLED_TOOLS=lean_run_code,lean_build'));
+  assert.ok(workflow.includes('OCR_LLM_TOKEN='));
+  assert.ok(workflow.includes("steps.route.outputs.should_run_ocr != 'true' || steps.ocr.outcome == 'success'"));
 }
 
 function testGenericScriptConfigEnabled() {
@@ -1710,9 +1768,248 @@ function testLargeLeanScoutDedupVariesBySanitizedScoutConfig() {
   assert.strictEqual(normalKey, `${base.commit_id}:${base.rulesHash}:${base.reviewerVersion}:${base.routerVersion}:small-lean`);
 }
 
+// Build a fetch stub that answers each scout call according to which LENS it is
+// running. It reads the lens id back out of the dossier the router sent, so the
+// tests exercise the real per-lens dossier construction, not a bypass.
+function lensAwareFetch(perLens, captured) {
+  return async (url, init) => {
+    const body = JSON.parse(init.body);
+    const dossier = JSON.parse(body.messages[1].content);
+    const lensId = dossier.lens && dossier.lens.id;
+    if (captured) captured.push({ lensId, dossier, system: body.messages[0].content });
+    const spec = perLens(lensId, dossier) || {};
+    if (spec.fail) {
+      return { ok: false, status: spec.status || 500, text: async () => spec.text || 'lens failed' };
+    }
+    return {
+      ok: true,
+      text: async () => JSON.stringify({
+        choices: [{ message: { content: JSON.stringify(spec.content || { selected_packets: [], residual_coverage: 'none', summary: 'none' }) } }],
+      }),
+    };
+  };
+}
+
+function largeLeanDecision() {
+  const files = [
+    file('Compiler/Proofs/A.lean', 40, 0),
+    file('Compiler/Proofs/B.lean', 40, 0),
+    file('Compiler/Proofs/C.lean', 40, 0),
+  ];
+  const decision = router.decideRoute(files);
+  return { files, decision };
+}
+
+async function testMultiLensScoutUnionsFindingsAcrossLenses() {
+  const { files, decision } = largeLeanDecision();
+  const ids = decision.packets.map(p => p.packet_id);
+  assert.ok(ids.length >= 3, 'fixture should yield at least three packets');
+  // Each lens flags a distinct packet; provenance and proof-soundness overlap on
+  // the first packet so we also exercise cross-lens de-duplication.
+  const lensToPacket = {
+    provenance: ids[0],
+    'verification-independence': ids[1],
+    'environment-determinism': ids[2],
+    'proof-soundness': ids[0],
+  };
+  const oldFetch = global.fetch;
+  global.fetch = lensAwareFetch(lensId => ({
+    content: {
+      selected_packets: [{
+        id: lensToPacket[lensId],
+        reason: `${lensId} sees a risk here`,
+        risk_category: lensId,
+        question_for_stronger_reviewer: `Check the ${lensId} concern.`,
+      }],
+      residual_coverage: `${lensId} residual`,
+      summary: `${lensId} summary`,
+    },
+  }));
+  try {
+    await router.applyScoutStage(decision, { files }, { url: 'https://example.invalid/v1', key: 'k', model: 'cheap-scout' });
+  } finally {
+    global.fetch = oldFetch;
+  }
+  assert.strictEqual(decision.scout.status, 'success');
+  assert.deepStrictEqual(decision.scout.lenses, router.LENSES.map(l => l.id));
+  assert.strictEqual(decision.scout.lens_count, router.LENSES.length);
+  // Union of {ids[0], ids[1], ids[2]} (proof-soundness dedups onto ids[0]).
+  assert.strictEqual(decision.packets.length, 3);
+  const first = decision.packets.find(p => p.packet_id === ids[0]);
+  assert.deepStrictEqual(first.scout_lens_ids, ['provenance', 'proof-soundness']);
+  assert.strictEqual(first.scout_lenses.length, 2);
+  // Legacy single-value contract preserved from the first flagging lens.
+  assert.strictEqual(first.scout_reason, 'provenance sees a risk here');
+  assert.ok(first.scout_question.includes('provenance'));
+  const second = decision.packets.find(p => p.packet_id === ids[1]);
+  assert.deepStrictEqual(second.scout_lens_ids, ['verification-independence']);
+  assert.ok(decision.scout.lens_results.every(r => r.status === 'success'));
+  assert.strictEqual(decision.scout.raw_selected_count, router.LENSES.length);
+}
+
+async function testMultiLensScoutRendersEveryLensFinding() {
+  const { files, decision } = largeLeanDecision();
+  const ids = decision.packets.map(p => p.packet_id);
+  const oldFetch = global.fetch;
+  // provenance and verification-independence both flag ids[0].
+  global.fetch = lensAwareFetch(lensId => {
+    if (lensId === 'provenance' || lensId === 'verification-independence') {
+      return {
+        content: {
+          selected_packets: [{
+            // provenance smuggles an @mention + HTML to prove per-lens prose is
+            // still neutralized after the union.
+            id: ids[0],
+            reason: lensId === 'provenance' ? 'ping @verity-admins <script> detail' : `${lensId} detail`,
+            risk_category: lensId,
+            question_for_stronger_reviewer: `${lensId} question`,
+          }],
+          summary: `${lensId} summary`,
+        },
+      };
+    }
+    return { content: { selected_packets: [], summary: `${lensId} summary` } };
+  });
+  try {
+    await router.applyScoutStage(decision, { files }, { url: 'https://example.invalid/v1', key: 'k', model: 'cheap-scout' });
+  } finally {
+    global.fetch = oldFetch;
+  }
+  const packet = decision.packets.find(p => p.packet_id === ids[0]);
+  const rendered = router.renderPacketFinding(packet);
+  assert.ok(rendered.includes('Findings (2 lenses)'));
+  assert.ok(rendered.includes('verification-independence detail'));
+  // Injection neutralization still applies to model-authored lens prose.
+  assert.ok(!rendered.includes('@verity-admins'));
+  assert.ok(!rendered.includes('<script>'));
+}
+
+async function testMultiLensScoutSurvivesPartialLensFailure() {
+  const { files, decision } = largeLeanDecision();
+  const ids = decision.packets.map(p => p.packet_id);
+  const oldFetch = global.fetch;
+  global.fetch = lensAwareFetch(lensId => {
+    if (lensId === 'provenance') return { fail: true, status: 503, text: 'provenance lens upstream error' };
+    return {
+      content: {
+        selected_packets: [{ id: ids[1], reason: `${lensId} risk`, risk_category: lensId, question_for_stronger_reviewer: 'q' }],
+        summary: `${lensId} summary`,
+      },
+    };
+  });
+  try {
+    await router.applyScoutStage(decision, { files }, { url: 'https://example.invalid/v1', key: 'k', model: 'cheap-scout' });
+  } finally {
+    global.fetch = oldFetch;
+  }
+  // A single broken lens must NOT lose the findings of the others.
+  assert.strictEqual(decision.scout.status, 'success');
+  assert.strictEqual(decision.scout.partial_lens_failures, 1);
+  assert.deepStrictEqual(decision.packets.map(p => p.packet_id), [ids[1]]);
+  const provenanceResult = decision.scout.lens_results.find(r => r.lens === 'provenance');
+  assert.strictEqual(provenanceResult.status, 'error');
+}
+
+async function testMultiLensScoutAllLensesFailFallsBack() {
+  const { files, decision } = largeLeanDecision();
+  const originalPackets = decision.packets.map(p => p.packet_id);
+  const oldFetch = global.fetch;
+  global.fetch = lensAwareFetch(() => ({ fail: true, status: 429, text: 'model MiniMax-M3 rate limited' }));
+  try {
+    await router.applyScoutStage(decision, { files }, { url: 'https://example.invalid/v1', key: 'k', model: 'MiniMax-M3' });
+  } finally {
+    global.fetch = oldFetch;
+  }
+  assert.strictEqual(decision.scout.status, 'fallback_deterministic');
+  assert.strictEqual(decision.scout.error_type, 'http_error');
+  assert.strictEqual(decision.scout.http_status, 429);
+  assert.deepStrictEqual(decision.packets.map(p => p.packet_id), originalPackets);
+}
+
+async function testScoutDossierInjectsRubricAndLensFraming() {
+  const { files, decision } = largeLeanDecision();
+  const captured = [];
+  const oldFetch = global.fetch;
+  global.fetch = lensAwareFetch(() => ({ content: { selected_packets: [], summary: 'none' } }), captured);
+  try {
+    await router.applyScoutStage(decision, { files }, { url: 'https://example.invalid/v1', key: 'k', model: 'cheap-scout' });
+  } finally {
+    global.fetch = oldFetch;
+  }
+  assert.strictEqual(captured.length, router.LENSES.length);
+  const seededIds = router.loadRubric().map(item => item.id);
+  assert.ok(seededIds.includes('checksum-manifest-scoping'));
+  for (const call of captured) {
+    // Every scout dossier carries the full rubric and a lens framing.
+    assert.ok(Array.isArray(call.dossier.rubric) && call.dossier.rubric.length >= 3);
+    for (const id of seededIds) {
+      assert.ok(call.dossier.rubric.some(r => r.id === id), `rubric ${id} present for ${call.lensId}`);
+    }
+    assert.ok(call.dossier.lens && call.dossier.lens.id === call.lensId);
+    const lensDef = router.LENSES.find(l => l.id === call.lensId);
+    assert.ok(call.dossier.task.includes(lensDef.title));
+    assert.ok(call.system.includes(lensDef.title));
+  }
+  // Lens-scoped rubric focus points each lens at its own past defect classes.
+  const provCall = captured.find(c => c.lensId === 'provenance');
+  assert.ok(provCall.dossier.lens_rubric_focus.includes('checksum-manifest-scoping'));
+  const viCall = captured.find(c => c.lensId === 'verification-independence');
+  assert.ok(viCall.dossier.lens_rubric_focus.includes('verification-replay-independence'));
+  assert.ok(viCall.dossier.lens_rubric_focus.includes('shallow-clone-verification-contract'));
+}
+
+function testRubricSeedContainsKnownDefectClasses() {
+  const items = router.loadRubric();
+  const ids = items.map(i => i.id);
+  assert.ok(ids.includes('checksum-manifest-scoping'));
+  assert.ok(ids.includes('verification-replay-independence'));
+  assert.ok(ids.includes('shallow-clone-verification-contract'));
+  // Each seeded class names a lens and a concrete check.
+  for (const item of items) {
+    assert.ok(item.lens && router.LENSES.some(l => l.id === item.lens), `rubric item ${item.id} maps to a real lens`);
+    assert.ok(String(item.check || '').length > 20);
+  }
+}
+
+function testAppendRubricItemAddsAndDedups() {
+  const tmp = path.join(os.tmpdir(), `ocr-rubric-${process.pid}-${Date.now()}.json`);
+  fs.writeFileSync(tmp, `${JSON.stringify({ schema_version: 1, items: [] }, null, 2)}\n`);
+  try {
+    const added = router.appendRubricItem({
+      id: 'new-defect-class',
+      lens: 'environment-determinism',
+      title: 'New defect class',
+      check: 'A confirmed new defect class discovered in review.',
+      origin: 'unit test',
+    }, tmp);
+    assert.strictEqual(added, true);
+    const again = router.appendRubricItem({ id: 'new-defect-class', lens: 'environment-determinism', title: 'dup', check: 'dup' }, tmp);
+    assert.strictEqual(again, false);
+    const doc = JSON.parse(fs.readFileSync(tmp, 'utf8'));
+    assert.strictEqual(doc.items.length, 1);
+    assert.strictEqual(doc.items[0].id, 'new-defect-class');
+    assert.ok(doc.items[0].added_at);
+    assert.throws(() => router.appendRubricItem({ lens: 'x' }, tmp), /requires an item.id/);
+  } finally {
+    fs.rmSync(tmp, { force: true });
+  }
+}
+
+function testResolveLensesSubsetAndFallback() {
+  assert.deepStrictEqual(router.resolveLenses({}, {}).map(l => l.id), router.LENSES.map(l => l.id));
+  const subset = router.resolveLenses({}, { OCR_SCOUT_LENSES: 'provenance, proof-soundness' });
+  assert.deepStrictEqual(subset.map(l => l.id), ['provenance', 'proof-soundness']);
+  // Config override wins over env, and unknown ids fall back to the full set.
+  const viaConfig = router.resolveLenses({ lenses: 'verification-independence' }, { OCR_SCOUT_LENSES: 'provenance' });
+  assert.deepStrictEqual(viaConfig.map(l => l.id), ['verification-independence']);
+  const unknown = router.resolveLenses({}, { OCR_SCOUT_LENSES: 'does-not-exist' });
+  assert.deepStrictEqual(unknown.map(l => l.id), router.LENSES.map(l => l.id));
+}
+
 async function run() {
   testNoSupportedFilesSkipped();
   testOneLeanFileNormal();
+  testBaseOnlyLeanChangesDoNotRouteThroughLeanPath();
   testLargeLeanPacketized();
   testLeanCommentDoesNotTriggerSorrySignal();
   testLeanBlockCommentDoesNotTriggerSorrySignal();
@@ -1791,6 +2088,14 @@ async function run() {
   testScoutErrorBoundsLargeProviderBodies();
   testScoutErrorRedactsLargeStructuredBodiesBeforeBounding();
   await testLargeLeanScoutNoPacketsStatus();
+  await testMultiLensScoutUnionsFindingsAcrossLenses();
+  await testMultiLensScoutRendersEveryLensFinding();
+  await testMultiLensScoutSurvivesPartialLensFailure();
+  await testMultiLensScoutAllLensesFailFallsBack();
+  await testScoutDossierInjectsRubricAndLensFraming();
+  testRubricSeedContainsKnownDefectClasses();
+  testAppendRubricItemAddsAndDedups();
+  testResolveLensesSubsetAndFallback();
   testWorkflowDocsEnabled();
   testGenericScriptConfigEnabled();
   await testCompletedWithErrorsRetryablePreservesFindings();

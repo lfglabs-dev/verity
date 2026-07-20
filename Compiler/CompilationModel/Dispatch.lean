@@ -368,7 +368,7 @@ def compileConstructor (fields : List Field) (events : List EventDef) (errors : 
   | some spec =>
     let argLoads := genConstructorArgLoads spec.params
     let bodyChunks ← compileStmtListWithFork fields events errors .memory [] false
-      (spec.params.map (·.name)) adtTypes targetFork spec.body internalFunctions
+      (constructorBodyScope spec.params) adtTypes targetFork spec.body internalFunctions
     return argLoads ++ bodyChunks
 
 -- Main compilation function
