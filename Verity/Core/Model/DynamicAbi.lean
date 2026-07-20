@@ -233,6 +233,83 @@ def bindExternalParamsFrom (selector : Nat) (calldata : List Nat)
         (headOffset + paramHeadSize param.ty)
       some (here ++ tail)
 
+/-- Witness that one external ABI parameter is accepted by `bindExternalParam`
+at a particular absolute head offset. -/
+def ExternalParamBindingWitness
+    (selector : Nat) (calldata : List Nat)
+    (headSize baseOffset headOffset : Nat)
+    (param : Param) : Prop :=
+  ∃ bindings,
+    bindExternalParam selector calldata headSize baseOffset headOffset param =
+      some bindings
+
+/-- One `ExternalParamBindingWitness` per parameter, using the exact ABI head
+offset progression consumed by `bindExternalParamsFrom`. -/
+inductive ExternalParamBindingWitnessesFrom
+    (selector : Nat) (calldata : List Nat)
+    (headSize baseOffset : Nat) : List Param → Nat → Prop where
+  | nil (headOffset : Nat) :
+      ExternalParamBindingWitnessesFrom selector calldata headSize baseOffset [] headOffset
+  | cons {param : Param} {rest : List Param} {headOffset : Nat}
+      (head :
+        ExternalParamBindingWitness selector calldata headSize baseOffset headOffset param)
+      (tail :
+        ExternalParamBindingWitnessesFrom selector calldata headSize baseOffset rest
+          (headOffset + paramHeadSize param.ty)) :
+      ExternalParamBindingWitnessesFrom selector calldata headSize baseOffset
+        (param :: rest) headOffset
+
+theorem bindExternalParamsFrom_some_of_witnesses
+    {selector : Nat} {calldata : List Nat} {headSize baseOffset : Nat}
+    {params : List Param} {headOffset : Nat}
+    (h :
+      ExternalParamBindingWitnessesFrom selector calldata headSize baseOffset params headOffset) :
+    ∃ bindings,
+      bindExternalParamsFrom selector calldata headSize baseOffset params headOffset =
+        some bindings := by
+  induction h with
+  | nil headOffset =>
+      exact ⟨[], rfl⟩
+  | cons head tail ih =>
+      rcases head with ⟨here, hhere⟩
+      rcases ih with ⟨there, hthere⟩
+      exact ⟨here ++ there, by
+        simp [bindExternalParamsFrom, hhere, hthere]⟩
+
+/-- Static tuples are not expanded by the current semantic external-parameter
+binder. Generated loaders can emit member bindings for static tuples, but
+`bindExternalParam` only binds scalar heads and dynamic-shape metadata today. -/
+theorem bindExternalParam_staticTuple_eq_none
+    {selector : Nat} {calldata : List Nat} {headSize baseOffset headOffset : Nat}
+    {name : String} {elemTys : List ParamType}
+    (hstatic : isDynamicParamTypeList elemTys = false) :
+    bindExternalParam selector calldata headSize baseOffset headOffset
+      { name := name, ty := ParamType.tuple elemTys } = none := by
+  have hdecode :
+      decodeSupportedParamWord (ParamType.tuple elemTys) =<<
+        externalWordAt? selector calldata headOffset = none := by
+    cases externalWordAt? selector calldata headOffset <;> rfl
+  unfold bindExternalParam
+  rw [hdecode]
+  simp [externalDynamicPayloadShape?, isDynamicParamType, hstatic]
+
+/-- Static fixed arrays are not expanded by the current semantic
+external-parameter binder. This documents the remaining gap without claiming
+support for every static composite constructor. -/
+theorem bindExternalParam_staticFixedArray_eq_none
+    {selector : Nat} {calldata : List Nat} {headSize baseOffset headOffset : Nat}
+    {name : String} {elemTy : ParamType} {size : Nat}
+    (hstatic : isDynamicParamType elemTy = false) :
+    bindExternalParam selector calldata headSize baseOffset headOffset
+      { name := name, ty := ParamType.fixedArray elemTy size } = none := by
+  have hdecode :
+      decodeSupportedParamWord (ParamType.fixedArray elemTy size) =<<
+        externalWordAt? selector calldata headOffset = none := by
+    cases externalWordAt? selector calldata headOffset <;> rfl
+  unfold bindExternalParam
+  rw [hdecode]
+  simp [externalDynamicPayloadShape?, isDynamicParamType, hstatic]
+
 def bindExternalParams (selector : Nat) (params : List Param) (calldata : List Nat) :
     Option (List (String × Nat)) :=
   if params.length ≤ calldata.length then

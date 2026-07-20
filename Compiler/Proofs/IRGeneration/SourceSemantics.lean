@@ -746,6 +746,73 @@ def lookupValue (bindings : List (String × Nat)) (name : String) : Nat :=
 def lookupBinding? (bindings : List (String × Nat)) (name : String) : Option Nat :=
   bindings.find? (fun entry => entry.1 == name) |>.map Prod.snd
 
+private theorem findEntry_filter_ne_eq_findEntry
+    (entries : List (String × Nat))
+    (blockedName queryName : String)
+    (hNe : queryName ≠ blockedName) :
+    List.find? (fun entry => entry.1 == queryName)
+        (entries.filter (fun entry => entry.1 != blockedName)) =
+      List.find? (fun entry => entry.1 == queryName) entries := by
+  induction entries with
+  | nil =>
+      simp
+  | cons entry rest ih =>
+      by_cases hBlocked : entry.1 = blockedName
+      · subst hBlocked
+        have hHeadNe : entry.1 ≠ queryName := by
+          intro hHeadEq
+          apply hNe
+          simp [hHeadEq]
+        simp [hHeadNe, ih]
+      · by_cases hQuery : entry.1 = queryName
+        · subst hQuery
+          simp [hBlocked]
+        · simp [hBlocked, hQuery, ih]
+
+theorem lookupBinding?_bindValue_ne
+    (bindings : List (String × Nat))
+    (boundName queryName : String)
+    (value : Nat)
+    (hNe : queryName ≠ boundName) :
+    lookupBinding?
+      (bindValue bindings boundName value)
+      queryName =
+    lookupBinding? bindings queryName := by
+  have hNe' : boundName ≠ queryName := by
+    intro hEq
+    apply hNe
+    simp [hEq]
+  calc
+    lookupBinding?
+        (bindValue bindings boundName value)
+        queryName
+        =
+          Option.map Prod.snd
+            (List.find? (fun entry => entry.1 == queryName)
+              ((boundName, value) :: List.filter (fun entry => entry.1 != boundName) bindings)) := by
+                rfl
+    _ = Option.map Prod.snd
+          (List.find? (fun entry => entry.1 == queryName)
+            (List.filter (fun entry => entry.1 != boundName) bindings)) := by
+              simp [hNe']
+    _ = Option.map Prod.snd
+          (List.find? (fun entry => entry.1 == queryName) bindings) := by
+              rw [findEntry_filter_ne_eq_findEntry bindings boundName queryName hNe]
+    _ = lookupBinding? bindings queryName := by
+          rfl
+
+theorem lookupBinding?_bindValue_exists
+    (bindings : List (String × Nat))
+    (boundName queryName : String)
+    (value : Nat)
+    (hexists : ∃ found, lookupBinding? bindings queryName = some found) :
+    ∃ found, lookupBinding? (bindValue bindings boundName value) queryName = some found := by
+  by_cases hEq : queryName = boundName
+  · subst hEq
+    exact ⟨value, by simp [lookupBinding?, bindValue]⟩
+  · rcases hexists with ⟨found, hfound⟩
+    exact ⟨found, by rw [lookupBinding?_bindValue_ne bindings boundName queryName value hEq, hfound]⟩
+
 def bindInternalArgs (params : List Param) (args : List Nat) :
     Option (List (String × Nat)) :=
   match params, args with
@@ -2251,6 +2318,19 @@ private theorem evalExpr_forkIfAtLeast
     (thenExpr elseExpr : Expr) :
     evalExpr fields state (.forkIfAtLeast required thenExpr elseExpr) = none := rfl
 
+/-- Source-level custom-error revert at the current observable granularity.
+
+`StmtResult` does not yet carry returndata, so the ABI selector and encoded
+typed payload produced by compiled Yul are intentionally not observable here.
+That richer payload relation is deferred to the planned `StmtResult`/`IRResult`
+returndata extension. The argument list is still evaluated on the reverting
+path to match the compiled code's control-flow surface; success for
+`requireError` skips argument evaluation. -/
+def typedErrorRevertResult (fields : List Field) (state : RuntimeState) (args : List Expr) :
+    StmtResult :=
+  match evalExprList fields state args with
+  | _ => .revert
+
 mutual
   def execStmtWithEvents (fields : List Field) (events : List EventDef) :
       RuntimeState → Stmt → StmtResult
@@ -2470,6 +2550,13 @@ mutual
         | some resolved =>
             if resolved != 0 then .continue state else .revert
         | none => .revert
+    | state, .requireError cond _ args =>
+        match evalExpr fields state cond with
+        | some resolved =>
+            if resolved != 0 then .continue state else typedErrorRevertResult fields state args
+        | none => .revert
+    | state, .revertError _ args =>
+        typedErrorRevertResult fields state args
     | state, .return value =>
         match evalExpr fields state value with
         | some resolved => .return resolved
@@ -2746,6 +2833,13 @@ mutual
         | some resolved =>
             if resolved != 0 then .continue state else .revert
         | none => .revert
+    | state, .requireError cond _ args =>
+        match evalExpr fields state cond with
+        | some resolved =>
+            if resolved != 0 then .continue state else typedErrorRevertResult fields state args
+        | none => .revert
+    | state, .revertError _ args =>
+        typedErrorRevertResult fields state args
     | state, .return value =>
         match evalExpr fields state value with
         | some resolved => .return resolved
@@ -3190,6 +3284,21 @@ def findFunctionBySelector (spec : CompilationModel) (selectors : List Nat) (sel
     Option FunctionSpec :=
   (selectorFunctionPairs spec selectors).find? (fun entry => entry.2 == selector) |>.map Prod.fst
 
+def constructorArgAliasValue?
+    (param : Param)
+    (rawArgs : List Nat)
+    (headWord : Nat)
+    (bindings : List (String × Nat)) :
+    Option Nat :=
+  if isDynamicParamType param.ty then
+    rawArgs[headWord]? |> Option.map wordNormalize
+  else
+    match param.ty with
+    | .uint256 | .int256 | .uint8 | .uint16 | .address | .bool | .bytes32 =>
+        lookupBinding? bindings param.name
+    | _ =>
+        rawArgs[headWord]? |> Option.map wordNormalize
+
 def bindConstructorArgAliasesFrom
     (remaining : List Param)
     (rawArgs : List Nat)
@@ -3200,21 +3309,15 @@ def bindConstructorArgAliasesFrom
   match remaining with
   | [] => some bindings
   | param :: rest =>
-      let aliasValue? :=
-        if isDynamicParamType param.ty then
-          rawArgs[headWord]? |> Option.map wordNormalize
-        else
-          match param.ty with
-          | .uint256 | .int256 | .uint8 | .uint16 | .address | .bool | .bytes32 =>
-              lookupBinding? bindings param.name
-          | _ =>
-              rawArgs[headWord]? |> Option.map wordNormalize
-      match aliasValue? with
+      match constructorArgAliasValue? param rawArgs headWord bindings with
       | none => none
       | some value =>
-          bindConstructorArgAliasesFrom rest rawArgs (idx + 1)
-            (headWord + paramHeadSize param.ty / 32)
-            (bindValue bindings s!"arg{idx}" value)
+          if (bindings.map Prod.fst).contains s!"arg{idx}" then
+            none
+          else
+            bindConstructorArgAliasesFrom rest rawArgs (idx + 1)
+              (headWord + paramHeadSize param.ty / 32)
+              (bindValue bindings s!"arg{idx}" value)
 
 def bindConstructorArgAliases
     (params : List Param)
@@ -3223,6 +3326,81 @@ def bindConstructorArgAliases
     Option (List (String × Nat)) :=
   bindConstructorArgAliasesFrom params rawArgs 0 0 bindings
 
+theorem bindConstructorArgAliasesFrom_preserves_lookup
+    {remaining : List Param}
+    {rawArgs : List Nat}
+    {idx headWord : Nat}
+    {bindings out : List (String × Nat)}
+    {queryName : String}
+    (hbind :
+      bindConstructorArgAliasesFrom remaining rawArgs idx headWord bindings = some out)
+    (hexists : ∃ v, lookupBinding? bindings queryName = some v) :
+    ∃ v, lookupBinding? out queryName = some v := by
+  induction remaining generalizing idx headWord bindings out with
+  | nil =>
+      simp [bindConstructorArgAliasesFrom] at hbind
+      cases hbind
+      exact hexists
+  | cons param rest ih =>
+      simp [bindConstructorArgAliasesFrom] at hbind
+      cases hvalue : constructorArgAliasValue? param rawArgs headWord bindings <;>
+        simp [hvalue] at hbind
+      case some value =>
+        exact ih hbind.2
+          (lookupBinding?_bindValue_exists bindings s!"arg{idx}" queryName value hexists)
+
+theorem bindConstructorArgAliasesFrom_argAlias_present
+    {remaining : List Param}
+    {rawArgs : List Nat}
+    {idx headWord target : Nat}
+    {bindings out : List (String × Nat)}
+    (hbind :
+      bindConstructorArgAliasesFrom remaining rawArgs idx headWord bindings = some out)
+    (hlo : idx ≤ target)
+    (hhi : target < idx + remaining.length) :
+  ∃ v, lookupBinding? out s!"arg{target}" = some v := by
+  induction remaining generalizing idx headWord bindings out with
+  | nil =>
+      simp at hhi
+      omega
+  | cons param rest ih =>
+      have hhi' : target < idx + (rest.length + 1) := by
+        simpa using hhi
+      simp [bindConstructorArgAliasesFrom] at hbind
+      cases hvalue : constructorArgAliasValue? param rawArgs headWord bindings <;>
+        simp [hvalue] at hbind
+      case some value =>
+        by_cases htarget : target = idx
+        · have hcurrent :
+              ∃ v, lookupBinding?
+                (bindValue bindings s!"arg{idx}" value) s!"arg{target}" = some v := by
+            rw [htarget]
+            exact ⟨value, by simp [lookupBinding?, bindValue]⟩
+          exact bindConstructorArgAliasesFrom_preserves_lookup hbind.2 hcurrent
+        · have hnextLo : idx + 1 ≤ target := by omega
+          have hnextHi : target < idx + 1 + rest.length := by omega
+          exact ih hbind.2 hnextLo hnextHi
+
+theorem bindConstructorArgAliases_argAlias_present
+    {params : List Param}
+    {rawArgs : List Nat}
+    {bindings out : List (String × Nat)}
+    {idx : Nat}
+    (hbind : bindConstructorArgAliases params rawArgs bindings = some out)
+    (hidx : idx < params.length) :
+    ∃ v, lookupBinding? out s!"arg{idx}" = some v := by
+  exact bindConstructorArgAliasesFrom_argAlias_present
+    (remaining := params)
+    (rawArgs := rawArgs)
+    (idx := 0)
+    (headWord := 0)
+    (target := idx)
+    (bindings := bindings)
+    (out := out)
+    (by simpa [bindConstructorArgAliases] using hbind)
+    (Nat.zero_le idx)
+    (by simpa using hidx)
+
 def constructorExecutionBindings
     (ctor : ConstructorSpec)
     (rawArgs : List Nat) :
@@ -3230,14 +3408,30 @@ def constructorExecutionBindings
   match bindSupportedParams ctor.params (rawArgs.take ctor.params.length) with
   | none => none
   | some bindings =>
-      if stmtListTouchesUnsupportedCoreSurface ctor.body ||
-          stmtListTouchesUnsupportedCallSurface ctor.body ||
-          stmtListTouchesUnsupportedEffectSurface ctor.body then
-        match bindConstructorArgAliases ctor.params rawArgs bindings with
-        | some ctorBindings => some ctorBindings
-        | none => some bindings
-      else
-        some bindings
+      bindConstructorArgAliases ctor.params rawArgs bindings
+
+theorem constructorExecutionBindings_argAlias_present
+    {ctor : ConstructorSpec}
+    {rawArgs : List Nat}
+    {bindings : List (String × Nat)}
+    {idx : Nat}
+    (hbind : constructorExecutionBindings ctor rawArgs = some bindings)
+    (hidx : idx < ctor.params.length) :
+    ∃ v, lookupBinding? bindings s!"arg{idx}" = some v := by
+  unfold constructorExecutionBindings at hbind
+  cases hparams :
+      bindSupportedParams ctor.params (rawArgs.take ctor.params.length) with
+  | none =>
+      simp [hparams] at hbind
+  | some decoded =>
+      exact bindConstructorArgAliases_argAlias_present
+        (params := ctor.params)
+        (rawArgs := rawArgs)
+        (bindings := decoded)
+        (out := bindings)
+        (idx := idx)
+        (by simpa [hparams] using hbind)
+        hidx
 
 def directHelperTouchesUnsupportedConstructorRawCalldataSurface
     (spec : CompilationModel)
@@ -3912,6 +4106,13 @@ mutual
         | some resolved =>
             if resolved != 0 then .continue state else .revert
         | none => .revert
+    | .requireError cond _ args =>
+        match evalExprWithHelpers spec fields fuel state cond with
+        | some resolved =>
+            if resolved != 0 then .continue state else typedErrorRevertResult fields state args
+        | none => .revert
+    | .revertError _ args =>
+        typedErrorRevertResult fields state args
     | .return value =>
         match evalExprWithHelpers spec fields fuel state value with
         | some resolved => .return resolved
@@ -5525,8 +5726,12 @@ private theorem execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux
   | .internalCall _ _ => cases hsurface
   | .internalCallAssign _ _ _ => cases hsurface
   | .storageArrayPop _ => simp [execStmtWithHelpers, execStmtWithEvents]
-  | .requireError _ _ _ => simp [execStmtWithHelpers, execStmtWithEvents]
-  | .revertError _ _ => simp [execStmtWithHelpers, execStmtWithEvents]
+  | .requireError cond _ args =>
+      simp only [stmtTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
+      simp [execStmtWithHelpers, execStmtWithEvents, typedErrorRevertResult,
+        evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed spec fields fuel state cond hsurface.1]
+  | .revertError _ args =>
+      simp [execStmtWithHelpers, execStmtWithEvents, typedErrorRevertResult]
   | .panicCode _ => simp [execStmtWithHelpers, execStmtWithEvents]
   | .returnValues _ => simp [execStmtWithHelpers, execStmtWithEvents]
   | .returnArray _ => simp [execStmtWithHelpers, execStmtWithEvents]
