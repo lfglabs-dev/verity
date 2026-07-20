@@ -1686,7 +1686,7 @@ theorem supported_function_body_correct_from_exact_state_generic_with_helpers_an
     (hheads : ∀ s ∈ fn.body, stmtTouchesEventSurface s = true ∨ stmtTouchesUnsupportedContractSurface s = false)
     (hhelperFree : StmtListHelperFreeNonEventStepInterface (SourceSemantics.effectiveFields model) (fn.params.map (·.name)) fn.body)
     (hfresh : "__evt_ptr" ∉ fn.params.map (·.name) ∧ "__evt_topic0" ∉ fn.params.map (·.name))
-    (hfreshStmts : ∀ s ∈ fn.body, "__evt_ptr" ∉ collectStmtNames s ∧ "__evt_topic0" ∉ collectStmtNames s)
+    (hfreshStmts : ∀ s ∈ fn.body, "__evt_ptr" ∉ collectStmtBindNames s ∧ "__evt_topic0" ∉ collectStmtBindNames s)
     (hinScopeEmit : ∀ s ∈ fn.body, ∀ (eventName : String) (args : List Expr),
       s = Stmt.emit eventName args → ∀ arg ∈ args, FunctionBody.exprBoundNamesInScope arg (fn.params.map (·.name)))
     (hinternal : runtimeContract.internalFunctions = [])

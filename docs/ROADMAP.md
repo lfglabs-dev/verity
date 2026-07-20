@@ -492,6 +492,7 @@ The older Phase 1 / Phase 2 / Phase 3 calendar framing is no longer accurate. Th
 - Add larger verified example contracts such as governance and AMM systems.
 - Improve contributor UX with tutorials, proof-pattern guides, and better IDE/documentation integration.
 - Expand optimization, parity-pack, and artifact-generation workflows once the current verification/documentation baselines stay stable.
+- As the final roadmap priority, upgrade Verity and its maintained EVMYulLean fork to Lean 4.30 after the existing PR drain and active proof lanes are complete; see the [migration and refactor plan in #2196](https://github.com/lfglabs-dev/verity/issues/2196).
 
 ---
 
@@ -501,5 +502,5 @@ See [`CONTRIBUTING.md`](../CONTRIBUTING.md) for contribution guidelines and [`VE
 
 ---
 
-**Last Updated**: 2026-05-11
+**Last Updated**: 2026-07-15
 **Status**: Layer 1 is complete for the current contract set; Layer 2 now has a generic whole-contract theorem for the current supported fragment, with remaining [#1510](https://github.com/lfglabs-dev/verity/issues/1510) work focused on fragment widening and legacy bridge migration; Layer 3 is complete. Trust reduction 1/3 done. Sum properties complete (7/7 proven). CompilationModel now supports real-world contracts (loops, branching, events, multi-mappings, internal call mechanics, verified externs).
