@@ -84,8 +84,10 @@ concurrency:
   # Keep scheduled cache-warming runs out of the push/manual validation lane.
   # Otherwise a cron run for main can cancel an explicit workflow_dispatch run
   # before the proof/build jobs get a runner.
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || (github.event_name == 'schedule' && format('schedule-{0}', github.ref) || github.ref) }}
-  cancel-in-progress: ${{ github.event_name != 'schedule' }}
+  # Closed-event cleanup must never cancel a PR run through concurrency before
+  # its fail-closed stack guard executes.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.action == 'closed' && format('closed-pr-cleanup-{0}-{1}', github.event.pull_request.number, github.run_id) || (github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || (github.event_name == 'schedule' && format('schedule-{0}', github.ref) || github.ref)) }}
+  cancel-in-progress: ${{ github.event_name != 'schedule' && !(github.event_name == 'pull_request' && github.event.action == 'closed') }}
 
 env:
   SOLC_VERSION: "0.8.33"
@@ -108,7 +110,37 @@ jobs:
       actions: write
       contents: read
     steps:
+      # Fail-closed native Stacked PRs guard (#2173): never cancel runs, delete
+      # branches, close dependents, or drop artifacts while the closed PR/branch
+      # is a stack member/base or has open dependent PRs. Uses Stacks REST API
+      # plus a direct open-PR base-ref fallback (beta/API lag safe).
+      - uses: actions/checkout@v6
+        with:
+          # Never execute a guard supplied or modified by the closing PR.
+          ref: ${{ github.event.pull_request.base.sha }}
+          sparse-checkout: |
+            scripts/closed_pr_cleanup_guard.py
+          sparse-checkout-cone-mode: false
+
+      - name: Evaluate native stack cleanup guard
+        id: stack-guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          python3 scripts/closed_pr_cleanup_guard.py \
+            --repo "${REPO}" \
+            --pr "${PR_NUMBER}" \
+            --head-branch "${HEAD_BRANCH}" \
+            --event-path "${GITHUB_EVENT_PATH}" \
+            --github-output "${GITHUB_OUTPUT}" \
+            --output text
+
       - name: Cancel queued and running CI for the closed PR
+        if: steps.stack-guard.outputs.eligible_for_cleanup == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -142,6 +174,15 @@ jobs:
               fi
             done
           done
+
+      - name: Skip destructive cleanup while stack-retained
+        if: steps.stack-guard.outputs.eligible_for_cleanup != 'true'
+        env:
+          RETAIN_REASON: ${{ steps.stack-guard.outputs.reason }}
+        run: |
+          set -euo pipefail
+          echo "closed-pr-cleanup: retaining branch/PR/artifacts; skipping cancel and any destructive cleanup."
+          printf 'reason=%s\n' "${RETAIN_REASON}"
 
   changes:
     if: github.event_name != 'pull_request' || github.event.action != 'closed'
@@ -243,6 +284,12 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Normalize reused checkout state
+        run: |
+          if [ -d .git ]; then
+            git sparse-checkout disable || true
+          fi
+
       - name: Clear sticky remote refs before PR checkout
         if: github.event_name == 'pull_request'
         run: |
