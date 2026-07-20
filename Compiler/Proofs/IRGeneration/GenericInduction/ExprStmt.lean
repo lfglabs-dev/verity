@@ -75,18 +75,11 @@ theorem compiledStmtStep_letVar
       have hexact_base : FunctionBody.bindingsExactlyMatchIRVarsOnScope
           (name :: scope) runtime'.bindings state' :=
         FunctionBody.bindingsExactlyMatchIRVarsOnScope_setVar_bindValue hexact
-      -- Extend to the full stmtNextScope = collectStmtNames (.letVar name value) ++ scope
-      -- = (name :: collectExprNames value) ++ scope
-      -- Since collectExprNames value ⊆ exprBoundNames value ⊆ scope (by hcore and hinScope),
-      -- the full nextScope ⊆ name :: scope.
+      -- A `letVar` introduces just its bound name into the tail scope.
       have hNextScopeIncl : FunctionBody.scopeNamesIncluded
           (stmtNextScope scope (.letVar name value)) (name :: scope) := by
         intro n hn
-        simp [stmtNextScope, collectStmtNames] at hn
-        rcases hn with rfl | hn | hn
-        · simp
-        · simp [hinScope n (collectExprNames_mem_exprBoundNames_of_core hcore n hn)]
-        · exact List.mem_cons_of_mem _ hn
+        simpa [stmtNextScope, collectStmtBindNames] using hn
       have hexact' : FunctionBody.bindingsExactlyMatchIRVarsOnScope
           (stmtNextScope scope (.letVar name value)) runtime'.bindings state' :=
         FunctionBody.bindingsExactlyMatchIRVarsOnScope_of_included hexact_base hNextScopeIncl
@@ -169,11 +162,8 @@ theorem compiledStmtStep_assignVar
       have hNextScopeIncl : FunctionBody.scopeNamesIncluded
           (stmtNextScope scope (.assignVar name value)) (name :: scope) := by
         intro n hn
-        simp [stmtNextScope, collectStmtNames] at hn
-        rcases hn with rfl | hn | hn
-        · simp
-        · simp [hinScope n (collectExprNames_mem_exprBoundNames_of_core hcore n hn)]
-        · exact List.mem_cons_of_mem _ hn
+        simp [stmtNextScope, collectStmtBindNames] at hn
+        exact List.mem_cons_of_mem _ hn
       have hexact' : FunctionBody.bindingsExactlyMatchIRVarsOnScope
           (stmtNextScope scope (.assignVar name value)) runtime'.bindings state' :=
         FunctionBody.bindingsExactlyMatchIRVarsOnScope_of_included hexact_base hNextScopeIncl
@@ -280,14 +270,11 @@ theorem compiledStmtStep_require
         have hfuelEq :
             [YulStmt.if_ failCond (CompilationModel.revertWithMessage message)].length +
               extraFuel + 1 = 1 + extraFuel + 1 := by simp
-        -- Prove stmtNextScope inclusion: collectExprNames cond ++ scope ⊆ scope
+        -- A `require` introduces no bindings into the tail scope.
         have hNextScopeIncl : FunctionBody.scopeNamesIncluded
             (stmtNextScope scope (.require cond message)) scope := by
           intro n hn
-          simp [stmtNextScope, collectStmtNames] at hn
-          rcases hn with hn | hn
-          · exact hinScope n (collectExprNames_mem_exprBoundNames_of_core hcore n hn)
-          · exact hn
+          simpa [stmtNextScope, collectStmtBindNames] using hn
         have hexact' : FunctionBody.bindingsExactlyMatchIRVarsOnScope
             (stmtNextScope scope (.require cond message)) runtime.bindings state :=
           FunctionBody.bindingsExactlyMatchIRVarsOnScope_of_included hexact hNextScopeIncl
