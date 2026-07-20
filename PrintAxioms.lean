@@ -3298,9 +3298,9 @@ end Verity.AxiomAudit
 
   -- Compiler/Proofs/IRGeneration/HelperBodyBridge.lean
   Compiler.Proofs.IRGeneration.execIRInternalFunctionWithInternals_obeys_internal_helper_summary
-  -- Compiler.Proofs.IRGeneration.internalFunctionYulName_head  -- private
-  -- Compiler.Proofs.IRGeneration.internalFunctionYulName_ne_of_head  -- private
-  -- Compiler.Proofs.IRGeneration.internalFunctionYulName_isYulLogName_false  -- private
+  -- Compiler.Proofs.IRGeneration.helperBridge_internalFunctionYulName_head  -- private
+  -- Compiler.Proofs.IRGeneration.helperBridge_internalFunctionYulName_ne_of_head  -- private
+  -- Compiler.Proofs.IRGeneration.helperBridge_internalFunctionYulName_isYulLogName_false  -- private
   -- Compiler.Proofs.IRGeneration.execIRStmtsWithInternals_singleton_expr_internalFunctionYulName_call_internal  -- private
   Compiler.Proofs.IRGeneration.execIRStmtsWithInternals_internalCallAssign_obeys_internal_helper_summary
   Compiler.Proofs.IRGeneration.execIRStmtsWithInternals_internalCall_obeys_internal_helper_summary
@@ -3596,7 +3596,6 @@ end Verity.AxiomAudit
   -- Compiler/Proofs/IRGeneration/InternalHelperBodyCorrespondence.lean
   Compiler.Proofs.IRGeneration.interpretInternalFunctionFuel_eq_internalHelperResultOfStmtResult_of_bindInternalArgs
   Compiler.Proofs.IRGeneration.internalHelperBodyResultProjection_of_stmtResult_eq
-  -- Compiler.Proofs.IRGeneration.SourceSemantics.lookupBinding?_bindValue_ne  -- private
   -- Compiler.Proofs.IRGeneration.sourceBindingsAgreeOutside_refl  -- private
   -- Compiler.Proofs.IRGeneration.sourceBindingsAgreeOutside_mono  -- private
   -- Compiler.Proofs.IRGeneration.sourceBindingsAgreeOutside_trans  -- private
@@ -6271,4 +6270,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5874 theorems/lemmas (4049 public, 1825 private, 0 sorry'd)
+-- Total: 5873 theorems/lemmas (4049 public, 1824 private, 0 sorry'd)
