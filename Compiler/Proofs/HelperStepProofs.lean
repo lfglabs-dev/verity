@@ -586,6 +586,46 @@ theorem stmtListDirectInternalHelperAssignStepInterfaceWithInternals_of_assignHe
           (args := args)
           (hbridge hmem))
 
+section
+
+/-!
+### Direct statement helper context bridge
+
+The package below is the bounded N2/N3 bridge-instantiation slice from the
+current supported-helper inventory. It consumes:
+
+* `SupportedBodyHelperInterface` for the source helper witness;
+* `SupportedBodyHelperSummariesSound` for the source helper summary post;
+* `SupportedRuntimeHelperTableInterface` for the compiled runtime helper table.
+
+It intentionally stops one step before constructing
+`DirectInternalHelperCallHeadStepBridgeWithInternals` or
+`DirectInternalHelperAssignHeadStepBridgeWithInternals`. The missing theorem is
+`execIRInternalFunctionWithInternals_obeys_internal_helper_summary`: from the
+existing hypotheses
+
+* `compiledHelper :
+    SupportedCompiledInternalHelperWitness spec runtimeContract calleeName`;
+* `summarySound :
+    SourceSemantics.InternalHelperSummarySound spec
+      compiledHelper.sourceWitness.callee
+      compiledHelper.sourceWitness.summary.contract`;
+* the existing source/IR state relation hypotheses carried by
+  `DirectInternalHelperCallHeadStepBridgeWithInternals.bridge` and
+  `DirectInternalHelperAssignHeadStepBridgeWithInternals.bridge`;
+* the helper lookup exposed by `findInternalFunction? runtimeContract
+    (CompilationModel.internalFunctionYulName calleeName) = some helper`;
+
+the architecture still needs a theorem stating that
+`execIRInternalFunctionWithInternals runtimeContract irFuel state helper argVals`
+satisfies the same `InternalHelperSummaryContract.post` as
+`SourceSemantics.interpretInternalFunctionFuel spec helperFuel
+compiledHelper.sourceWitness.callee runtime.world argVals`, translated through
+`FunctionBody.runtimeStateMatchesIR`. Without that theorem, the source summary
+post and the IR helper dispatch below cannot be assembled into the existing
+direct call/assign head-step bridge catalog non-vacuously.
+-/
+
 /-- Assemble the direct helper-return-binding list interface for a function
 body from the per-callee assign bridge catalog used by the rank-decreasing
 helper-summary layer. -/
@@ -608,6 +648,248 @@ theorem stmtListDirectInternalHelperAssignStepInterface_of_perCalleeAssignBridge
       (stmts := fn.body)
       (fun {calleeName} hmem =>
         hbridge.assign (by simpa [helperCallNames] using hmem))
+
+end
+
+namespace LegacyDirectStatementBridge
+
+/-- Direct-statement helper context bridge assembled from the currently exposed
+supported-helper APIs. It packages the source summary evidence and the compiled
+helper dispatch facts for both direct void calls and return-binding calls. -/
+structure DirectInternalHelperStatementContextBridge
+    (runtimeContract : IRContract)
+    (spec : CompilationModel)
+    (calleeName : String) where
+  sourceWitness :
+    SupportedInternalHelperWitness spec calleeName
+  summarySound :
+    SourceSemantics.InternalHelperSummarySound
+      spec sourceWitness.callee sourceWitness.summary.contract
+  compiledHelper :
+    SupportedCompiledInternalHelperWitness spec runtimeContract calleeName
+  /-- The source summary evidence and the compiled helper describe one witness.
+  This prevents the packaged source proof from being paired with an unrelated
+  compiled helper selected from the runtime table. -/
+  sourceWitness_eq_compiledHelperSourceWitness :
+    sourceWitness = compiledHelper.sourceWitness
+  irCallDispatch :
+    ∀ {fields : List Field} {scope : List String} {args : List Expr}
+      {compiledIR : List YulStmt} {argExprs : List YulExpr}
+      (state : IRState) (irFuel : Nat)
+      {argVals : List Nat} {state' : IRState},
+      CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
+        (Stmt.internalCall calleeName args) spec.functions = Except.ok compiledIR →
+      CompilationModel.compileInternalCallArgs fields .calldata spec.functions calleeName args =
+        Except.ok argExprs →
+      evalIRExprsWithInternals runtimeContract (irFuel + 1) state argExprs =
+        .values argVals state' →
+      ∃ helper,
+        compiledIR = [YulStmt.exprStmt
+          (YulExpr.call (CompilationModel.internalFunctionYulName calleeName) argExprs)] ∧
+        findInternalFunction? runtimeContract
+          (CompilationModel.internalFunctionYulName calleeName) = some helper ∧
+        execIRStmtsWithInternals runtimeContract (irFuel + 3) state compiledIR =
+          match execIRInternalFunctionWithInternals runtimeContract irFuel state' helper argVals with
+          | .values _ state'' => .continue state''
+          | .stop state'' => .stop state''
+          | .return value' state'' => .return value' state''
+          | .revert state'' => .revert state''
+  irAssignDispatch :
+    ∀ {fields : List Field} {scope : List String} {names : List String}
+      {args : List Expr} {compiledIR : List YulStmt} {argExprs : List YulExpr}
+      (state : IRState) (irFuel : Nat)
+      {argVals : List Nat} {state' : IRState},
+      CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
+        (Stmt.internalCallAssign names calleeName args) spec.functions = Except.ok compiledIR →
+      CompilationModel.compileInternalCallArgs fields .calldata spec.functions calleeName args =
+        Except.ok argExprs →
+      evalIRExprsWithInternals runtimeContract (irFuel + 1) state argExprs =
+        .values argVals state' →
+      ∃ helper,
+        compiledIR = [YulStmt.letMany names
+          (YulExpr.call (CompilationModel.internalFunctionYulName calleeName) argExprs)] ∧
+        findInternalFunction? runtimeContract
+          (CompilationModel.internalFunctionYulName calleeName) = some helper ∧
+        execIRStmtsWithInternals runtimeContract (irFuel + 3) state compiledIR =
+          match execIRInternalFunctionWithInternals runtimeContract irFuel state' helper argVals with
+          | .values values state'' =>
+              if names.length = values.length then
+                .continue (state''.setVars (names.zip values))
+              else .revert state''
+          | .stop state'' => .stop state''
+          | .return value' state'' => .return value' state''
+          | .revert state'' => .revert state''
+
+/-- Instantiate the direct-statement helper context bridge from the supported
+helper inventory for a callee that appears in `helperCallNames fn`. -/
+def directInternalHelperStatementContextBridge_of_supportedEvidence
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fn : FunctionSpec}
+    (hHelpers : SupportedBodyHelperInterface spec fn)
+    (hSummaries : SourceSemantics.SupportedBodyHelperSummariesSound spec fn hHelpers)
+    (hRuntime : SupportedRuntimeHelperTableInterface spec runtimeContract)
+    {calleeName : String}
+    (hmem : calleeName ∈ helperCallNames fn) :
+    DirectInternalHelperStatementContextBridge runtimeContract spec calleeName := by
+  let witness := hHelpers.summaryOfCall hmem
+  let compiledHelper := hRuntime.compiledOfCall hHelpers hmem
+  refine
+    { sourceWitness := witness
+      summarySound :=
+        SourceSemantics.SupportedBodyHelperInterface.summarySoundOfCall
+          hHelpers hSummaries hmem
+      compiledHelper := compiledHelper
+      sourceWitness_eq_compiledHelperSourceWitness :=
+        (hRuntime.compiledOfCall_sourceWitness hHelpers hmem).symm
+      irCallDispatch := ?_
+      irAssignDispatch := ?_ }
+  · intro fields scope args compiledIR argExprs state irFuel argVals state'
+      hcompile hargCompile hargs
+    exact
+      execIRStmtsWithInternals_of_internalCall_compiledHelperWitness_with_internals
+        (runtimeContract := runtimeContract)
+        (spec := spec)
+        (fields := fields)
+        (scope := scope)
+        (calleeName := calleeName)
+        (args := args)
+        (compiledIR := compiledIR)
+        compiledHelper
+        state
+        irFuel
+        hcompile
+        argExprs
+        hargCompile
+        hargs
+  · intro fields scope names args compiledIR argExprs state irFuel argVals state'
+      hcompile hargCompile hargs
+    exact
+      execIRStmtsWithInternals_of_internalCallAssign_compiledHelperWitness_with_internals
+        (runtimeContract := runtimeContract)
+        (spec := spec)
+        (fields := fields)
+        (scope := scope)
+        (names := names)
+        (calleeName := calleeName)
+        (args := args)
+        (compiledIR := compiledIR)
+        compiledHelper
+        state
+        irFuel
+        hcompile
+        argExprs
+        hargCompile
+        hargs
+
+/-- The packaged source summary is explicitly available for the witness that
+produced the compiled helper. This is the bridge invariant consumed by the
+eventual source/IR helper-summary theorem. -/
+theorem directInternalHelperStatementContextBridge_summarySound_compiledHelper
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {calleeName : String}
+    (hctx :
+      DirectInternalHelperStatementContextBridge runtimeContract spec calleeName) :
+    SourceSemantics.InternalHelperSummarySound
+      spec hctx.compiledHelper.sourceWitness.callee
+        hctx.compiledHelper.sourceWitness.summary.contract := by
+  rcases hctx with ⟨sourceWitness, summarySound, compiledHelper, hsource, irCallDispatch,
+    irAssignDispatch⟩
+  cases hsource
+  exact summarySound
+
+/-- Source-side evidence for a direct void helper call from the packaged
+statement context bridge: the source statement reduces through the supported
+callee witness and the callee summary post holds for the same helper result. -/
+theorem directInternalHelperStatementContextBridge_sourceCallEvidence
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {calleeName : String}
+    {args : List Expr}
+    (hctx :
+      DirectInternalHelperStatementContextBridge runtimeContract spec calleeName)
+    (hnodup : (spec.functions.map (·.name)).Nodup)
+    {fuel : Nat}
+    {state : SourceSemantics.RuntimeState}
+    {argVals : List Nat}
+    (hargs :
+      SourceSemantics.evalExprListWithHelpers spec fields (fuel + 1) state args =
+        some argVals) :
+    let result :=
+      SourceSemantics.interpretInternalFunctionFuel
+        spec fuel hctx.sourceWitness.callee state.world argVals
+    SourceSemantics.execStmtWithHelpers spec fields (fuel + 1) state
+        (Stmt.internalCall calleeName args) =
+          (if result.success then
+            .continue { state with world := result.world }
+          else .revert) ∧
+      hctx.sourceWitness.summary.contract.post fuel 0 state.world argVals
+        result.success result.returnValue result.world := by
+  intro result
+  refine ⟨?_, ?_⟩
+  · simpa [result, hargs] using
+      SourceSemantics.execStmtWithHelpers_internalCall_of_witness
+        (spec := spec)
+        (fields := fields)
+        (fuel := fuel)
+        (state := state)
+        (calleeName := calleeName)
+        (args := args)
+        hctx.sourceWitness
+        hnodup
+  · simpa [result] using hctx.summarySound fuel state.world argVals
+
+/-- Source-side evidence for a direct helper return-binding call from the
+packaged statement context bridge. -/
+theorem directInternalHelperStatementContextBridge_sourceAssignEvidence
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {calleeName : String}
+    {names : List String}
+    {args : List Expr}
+    (hctx :
+      DirectInternalHelperStatementContextBridge runtimeContract spec calleeName)
+    (hnodup : (spec.functions.map (·.name)).Nodup)
+    {fuel : Nat}
+    {state : SourceSemantics.RuntimeState}
+    {argVals : List Nat}
+    (hargs :
+      SourceSemantics.evalExprListWithHelpers spec fields (fuel + 1) state args =
+        some argVals) :
+    let result :=
+      SourceSemantics.interpretInternalFunctionFuel
+        spec fuel hctx.sourceWitness.callee state.world argVals
+    SourceSemantics.execStmtWithHelpers spec fields (fuel + 1) state
+        (Stmt.internalCallAssign names calleeName args) =
+          (if result.success then
+            match names, result.returnValue with
+            | [name], some value =>
+                .continue
+                  { world := result.world
+                    bindings := SourceSemantics.bindValue state.bindings name value }
+            | _, _ => .revert
+          else .revert) ∧
+      hctx.sourceWitness.summary.contract.post fuel 0 state.world argVals
+        result.success result.returnValue result.world := by
+  intro result
+  refine ⟨?_, ?_⟩
+  · simpa [result, hargs] using
+      SourceSemantics.execStmtWithHelpers_internalCallAssign_of_witness
+        (spec := spec)
+        (fields := fields)
+        (fuel := fuel)
+        (state := state)
+        (names := names)
+        (calleeName := calleeName)
+        (args := args)
+        hctx.sourceWitness
+        hnodup
+  · simpa [result] using hctx.summarySound fuel state.world argVals
+
+end LegacyDirectStatementBridge
 
 /-!
 ### Direct statement helper context bridge
@@ -4401,11 +4683,9 @@ theorem exprInternalHelperHeadStepBridge_letVar_of_exprCompositionalResult
     have hnextIncl : FunctionBody.scopeNamesIncluded
         (stmtNextScope scope (Stmt.letVar name value)) (name :: scope) := by
       intro n hn
-      simp [stmtNextScope, collectStmtNames] at hn
-      rcases hn with rfl | hn | hn
+      simp [stmtNextScope, collectStmtBindNames] at hn
+      rcases hn with rfl | hn
       · simp
-      · exact List.mem_cons_of_mem _
-          (hvalueNamesInScope hfuelPos hirFuelPos hexact hscope hbounded hruntime hn)
       · exact List.mem_cons_of_mem _ hn
     have hexact' : FunctionBody.bindingsExactlyMatchIRVarsOnScope
         (stmtNextScope scope (Stmt.letVar name value)) runtime'.bindings state' :=
@@ -4527,11 +4807,9 @@ theorem exprInternalHelperHeadStepBridgeWithInternals_letVar_of_exprPostStateRes
     have hnextIncl : FunctionBody.scopeNamesIncluded
         (stmtNextScope scope (Stmt.letVar name value)) (name :: scope) := by
       intro n hn
-      simp [stmtNextScope, collectStmtNames] at hn
-      rcases hn with rfl | hn | hn
+      simp [stmtNextScope, collectStmtBindNames] at hn
+      rcases hn with rfl | hn
       · simp
-      · exact List.mem_cons_of_mem _
-          (hvalueNamesInScope hfuelPos hirFuelPos hexact hscope hbounded hruntime hn)
       · exact List.mem_cons_of_mem _ hn
     have hexact' : FunctionBody.bindingsExactlyMatchIRVarsOnScope
         (stmtNextScope scope (Stmt.letVar name value)) runtime'.bindings state' :=
