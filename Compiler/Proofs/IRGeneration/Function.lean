@@ -3396,7 +3396,7 @@ private theorem compileSetStructMember2_legacyCompatible
                       simp [hkey1Expr, hkey2Expr, hvalueExpr, bind, Except.bind] at hcompile
                       cases hcompile
                       exact .exprStmt _ _ .nil
-                    | cons slot' rest =>
+                  | cons slot' rest =>
                       simp [hkey1Expr, hkey2Expr, hvalueExpr, bind, Except.bind] at hcompile
                       cases hcompile
                       let finalSlot := fun slot =>

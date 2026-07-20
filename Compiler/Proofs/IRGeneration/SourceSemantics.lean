@@ -4322,7 +4322,7 @@ def InternalHelperSummarySound
     (summary : InternalHelperSummaryContract) : Prop :=
   ∀ fuel initialWorld args,
     let result := interpretInternalFunctionFuel spec fuel fn initialWorld args
-    summary.post fuel initialWorld args result.success result.returnValue result.world
+    summary.post fuel 0 initialWorld args result.success result.returnValue result.world
 
 /-- The direct-callee summary inventory carried by `SupportedBodyHelperInterface`
 becomes a proof interface once each summary contract is proved sound for the
@@ -4398,8 +4398,97 @@ theorem helperSummarySound
     (initialWorld : Verity.ContractState)
     (args : List Nat) :
     let result := interpretInternalFunctionFuel spec fuel fn initialWorld args
-    summary.post fuel initialWorld args result.success result.returnValue result.world :=
+    summary.post fuel 0 initialWorld args result.success result.returnValue result.world :=
   hsound fuel initialWorld args
+
+/-- Concrete source helper-body `.continue` case for `InternalHelperSummarySound`.
+This exposes the `interpretInternalFunctionFuel` reduction and then consumes the
+real summary postcondition. -/
+theorem InternalHelperSummarySound.post_of_execStmtListWithHelpers_continue
+    {spec : CompilationModel}
+    {fn : FunctionSpec}
+    {summary : InternalHelperSummaryContract}
+    (hsound : InternalHelperSummarySound spec fn summary)
+    {fuel : Nat}
+    {initialWorld : Verity.ContractState}
+    {args : List Nat}
+    {bindings : List (String × Nat)}
+    {finalState : RuntimeState}
+    (hbind : bindInternalArgs fn.params args = some bindings)
+    (hbody :
+      execStmtListWithHelpers spec (effectiveFields spec) fuel
+        { world := initialWorld, bindings := bindings } fn.body =
+          .continue finalState) :
+    interpretInternalFunctionFuel spec fuel fn initialWorld args =
+        successInternalResult finalState.world none ∧
+      summary.post fuel 0 initialWorld args true none finalState.world := by
+  have hinterp :
+      interpretInternalFunctionFuel spec fuel fn initialWorld args =
+        successInternalResult finalState.world none := by
+    simp [interpretInternalFunctionFuel, hbind, hbody]
+  have hpost := hsound fuel initialWorld args
+  refine ⟨hinterp, ?_⟩
+  simpa [hinterp, successInternalResult] using hpost
+
+/-- Concrete source helper-body `.return` case for `InternalHelperSummarySound`.
+This is the source-side counterpart of singleton helper-return result cases on
+the compiled side. -/
+theorem InternalHelperSummarySound.post_of_execStmtListWithHelpers_return
+    {spec : CompilationModel}
+    {fn : FunctionSpec}
+    {summary : InternalHelperSummaryContract}
+    (hsound : InternalHelperSummarySound spec fn summary)
+    {fuel : Nat}
+    {initialWorld : Verity.ContractState}
+    {args : List Nat}
+    {bindings : List (String × Nat)}
+    {value : Nat}
+    {finalState : RuntimeState}
+    (hbind : bindInternalArgs fn.params args = some bindings)
+    (hbody :
+      execStmtListWithHelpers spec (effectiveFields spec) fuel
+        { world := initialWorld, bindings := bindings } fn.body =
+          .return value finalState) :
+    interpretInternalFunctionFuel spec fuel fn initialWorld args =
+        successInternalResult finalState.world (some value) ∧
+      summary.post fuel 0 initialWorld args true (some value) finalState.world := by
+  have hinterp :
+      interpretInternalFunctionFuel spec fuel fn initialWorld args =
+        successInternalResult finalState.world (some value) := by
+    simp [interpretInternalFunctionFuel, hbind, hbody]
+  have hpost := hsound fuel initialWorld args
+  refine ⟨hinterp, ?_⟩
+  simpa [hinterp, successInternalResult] using hpost
+
+/-- Concrete source helper-body `.stop` case for `InternalHelperSummarySound`.
+Source internal-helper interpretation records this as a successful `none`
+result; the compiled-side runtime still propagates `.stop`, so full N1a needs a
+separate stop-exclusion hypothesis before this case can be ruled out. -/
+theorem InternalHelperSummarySound.post_of_execStmtListWithHelpers_stop
+    {spec : CompilationModel}
+    {fn : FunctionSpec}
+    {summary : InternalHelperSummaryContract}
+    (hsound : InternalHelperSummarySound spec fn summary)
+    {fuel : Nat}
+    {initialWorld : Verity.ContractState}
+    {args : List Nat}
+    {bindings : List (String × Nat)}
+    {finalState : RuntimeState}
+    (hbind : bindInternalArgs fn.params args = some bindings)
+    (hbody :
+      execStmtListWithHelpers spec (effectiveFields spec) fuel
+        { world := initialWorld, bindings := bindings } fn.body =
+          .stop finalState) :
+    interpretInternalFunctionFuel spec fuel fn initialWorld args =
+        successInternalResult finalState.world none ∧
+      summary.post fuel 0 initialWorld args true none finalState.world := by
+  have hinterp :
+      interpretInternalFunctionFuel spec fuel fn initialWorld args =
+        successInternalResult finalState.world none := by
+    simp [interpretInternalFunctionFuel, hbind, hbody]
+  have hpost := hsound fuel initialWorld args
+  refine ⟨hinterp, ?_⟩
+  simpa [hinterp, successInternalResult] using hpost
 
 theorem helperSummaryPreservesWorldOnSuccess
     {summary : InternalHelperSummaryContract}
@@ -4410,10 +4499,10 @@ theorem helperSummaryPreservesWorldOnSuccess
     {success : Bool}
     {returnValue : Option Nat}
     {finalWorld : Verity.ContractState}
-    (hpost : summary.post fuel initialWorld args success returnValue finalWorld)
+    (hpost : summary.post fuel 0 initialWorld args success returnValue finalWorld)
     (hsuccess : success = true) :
     finalWorld = initialWorld :=
-  hpreserve fuel initialWorld args success returnValue finalWorld hpost hsuccess
+  hpreserve fuel 0 initialWorld args success returnValue finalWorld hpost hsuccess
 
 theorem evalExprWithHelpers_internalCall_obeys_summary
     {spec : CompilationModel}
@@ -4429,7 +4518,7 @@ theorem evalExprWithHelpers_internalCall_obeys_summary
     {argVals : List Nat}
     (hargs : evalExprListWithHelpers spec fields fuel state args = some argVals) :
     let result := interpretInternalFunctionFuel spec fuel callee state.world argVals
-    summary.post fuel state.world argVals result.success result.returnValue result.world := by
+    summary.post fuel 0 state.world argVals result.success result.returnValue result.world := by
   simpa [InternalHelperSummarySound] using hsound fuel state.world argVals
 
 theorem evalExprWithHelpers_internalCall_preserves_world
@@ -4468,7 +4557,7 @@ theorem execStmtWithHelpers_internalCall_obeys_summary
     {argVals : List Nat}
     (hargs : evalExprListWithHelpers spec fields fuel state args = some argVals) :
     let result := interpretInternalFunctionFuel spec fuel callee state.world argVals
-    summary.post fuel state.world argVals result.success result.returnValue result.world := by
+    summary.post fuel 0 state.world argVals result.success result.returnValue result.world := by
   simpa [execStmtWithHelpers, hfind, hargs] using
     evalExprWithHelpers_internalCall_obeys_summary
       (hfind := hfind)
@@ -4490,7 +4579,7 @@ theorem execStmtWithHelpers_internalCallAssign_obeys_summary
     {argVals : List Nat}
     (hargs : evalExprListWithHelpers spec fields fuel state args = some argVals) :
     let result := interpretInternalFunctionFuel spec fuel callee state.world argVals
-    summary.post fuel state.world argVals result.success result.returnValue result.world := by
+    summary.post fuel 0 state.world argVals result.success result.returnValue result.world := by
   simpa [execStmtWithHelpers, hfind, hargs] using
     evalExprWithHelpers_internalCall_obeys_summary
       (hfind := hfind)
@@ -4629,7 +4718,7 @@ theorem execStmtWithHelpers_internalCallAssign_obeys_summary_of_witness
     {argVals : List Nat}
     (hargs : evalExprListWithHelpers spec fields fuel state args = some argVals) :
     let result := interpretInternalFunctionFuel spec fuel witness.callee state.world argVals
-    witness.summary.contract.post fuel state.world argVals
+    witness.summary.contract.post fuel 0 state.world argVals
       result.success result.returnValue result.world :=
   execStmtWithHelpers_internalCallAssign_obeys_summary
     (names := names)
@@ -4697,7 +4786,7 @@ theorem evalExprWithHelpers_internalCall_obeys_summary_of_witness
     {argVals : List Nat}
     (hargs : evalExprListWithHelpers spec fields fuel state args = some argVals) :
     let result := interpretInternalFunctionFuel spec fuel witness.callee state.world argVals
-    witness.summary.contract.post fuel state.world argVals
+    witness.summary.contract.post fuel 0 state.world argVals
       result.success result.returnValue result.world :=
   evalExprWithHelpers_internalCall_obeys_summary
     (hfind := findUniqueInternalFunction?_of_witness witness hnodup)
@@ -4886,7 +4975,7 @@ theorem SupportedSpecHelperProofs.evalInternalCallObeysSummary
     let result := interpretInternalFunctionFuel spec fuel witness.callee state.world argVals
     evalExprWithHelpers spec fields (fuel + 1) state (Expr.internalCall calleeName args)
         = (if result.success then result.returnValue else none)
-      ∧ witness.summary.contract.post fuel state.world argVals
+      ∧ witness.summary.contract.post fuel 0 state.world argVals
           result.success result.returnValue result.world := by
   intro witness result
   refine ⟨?_, ?_⟩
@@ -4920,7 +5009,7 @@ theorem SupportedSpecHelperProofs.execInternalCallObeysSummary
     let result := interpretInternalFunctionFuel spec fuel witness.callee state.world argVals
     execStmtWithHelpers spec fields (fuel + 1) state (Stmt.internalCall calleeName args)
         = (if result.success then .continue { state with world := result.world } else .revert)
-      ∧ witness.summary.contract.post fuel state.world argVals
+      ∧ witness.summary.contract.post fuel 0 state.world argVals
           result.success result.returnValue result.world := by
   intro witness result
   refine ⟨?_, ?_⟩
@@ -4960,7 +5049,7 @@ theorem SupportedSpecHelperProofs.execInternalCallAssignObeysSummary
                 .continue { world := result.world, bindings := bindValue state.bindings name value }
             | _, _ => .revert
           else .revert)
-      ∧ witness.summary.contract.post fuel state.world argVals
+      ∧ witness.summary.contract.post fuel 0 state.world argVals
           result.success result.returnValue result.world := by
   intro witness result
   refine ⟨?_, ?_⟩

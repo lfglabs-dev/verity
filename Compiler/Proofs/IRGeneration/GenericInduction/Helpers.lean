@@ -3349,8 +3349,6 @@ theorem exec_compileStmtList_generic_with_helpers_and_helper_ir_with_internals_s
     (hscope : FunctionBody.scopeNamesPresent scope runtime.bindings)
     (hexact : FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state)
     (hbounded : FunctionBody.bindingsBounded runtime.bindings)
-    (_hnoEvents : spec.events = [])
-    (_hnoErrors : spec.errors = [])
     (hruntime : FunctionBody.runtimeStateMatchesIR fields runtime state) :
     ∃ bodyIR,
       CompilationModel.compileStmtList
@@ -3562,8 +3560,6 @@ theorem exec_compileStmtList_generic_with_helpers_and_helper_ir_with_internals_s
       hscope
       hexact
       hbounded
-      hnoEvents
-      hnoErrors
       hruntime with
     ⟨bodyIR, hcompile, hstep⟩
   refine ⟨bodyIR, by simpa [hnoEvents, hnoErrors] using hcompile, ?_⟩

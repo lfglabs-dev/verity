@@ -1,4 +1,4 @@
-import Compiler.Proofs.IRGeneration.SourceSemantics
+import Compiler.Proofs.IRGeneration.InternalHelperBodyCorrespondence
 
 set_option linter.deprecated false
 set_option linter.unnecessarySimpa false
@@ -57,23 +57,32 @@ private theorem List.mem_of_mem_eraseDups_local [BEq α] [LawfulBEq α]
     {a : α} {l : List α} (h : a ∈ l.eraseDups) : a ∈ l :=
   ((eraseDups_nodup_and_mem_aux_local l.length l (Nat.le_refl _)).2 a).mp h
 
-/-- Canonical exact helper summary: its postcondition is exactly the graph of
-`interpretInternalFunctionFuel`. -/
+/-- Canonical selector-aware helper summary. -/
 def exactInternalHelperSummary
     (spec : CompilationModel)
     (fn : FunctionSpec) : InternalHelperSummaryContract where
-  post fuel initialWorld args success returnValue finalWorld :=
-    let result := interpretInternalFunctionFuel spec fuel fn initialWorld args
+  post fuel selector initialWorld args success returnValue finalWorld :=
+    let result := internalHelperBodyInterpretation
+      spec fuel fn initialWorld selector args
     success = result.success ∧
       returnValue = result.returnValue ∧
       finalWorld = result.world
 
+theorem exactInternalHelperSummary_soundAtSelector
+    (selector : Nat) (spec : CompilationModel) (fn : FunctionSpec) :
+    InternalHelperSummarySoundAtSelector selector spec fn
+      (exactInternalHelperSummary spec fn) := by
+  intro fuel initialWorld args
+  exact ⟨rfl, rfl, rfl⟩
+
+/-- Legacy selector-free soundness of the exact summary, recovered via the
+selector-0 bridge from `InternalHelperSummarySoundAtSelector`. -/
 theorem exactInternalHelperSummary_sound
     (spec : CompilationModel)
     (fn : FunctionSpec) :
-    InternalHelperSummarySound spec fn (exactInternalHelperSummary spec fn) := by
-  intro fuel initialWorld args
-  simp [InternalHelperSummarySound, exactInternalHelperSummary]
+    InternalHelperSummarySound spec fn (exactInternalHelperSummary spec fn) :=
+  InternalHelperSummarySound_of_soundAtSelector_zero
+    (exactInternalHelperSummary_soundAtSelector 0 spec fn)
 
 /-- Expressions admitted in read-only helper bodies. This reuses the existing
 call-surface classifier: storage, transient-storage, calldata, memory, and
@@ -190,29 +199,49 @@ theorem exactInternalHelperSummary_preservesWorldOnSuccess_of_readOnly_body
     (hbody : helperBodyNoWorldMutationOnSuccess fn) :
     InternalHelperSummaryPreservesWorldOnSuccess
       (exactInternalHelperSummary spec fn) := by
-  intro fuel initialWorld args success returnValue finalWorld hpost hsuccess
-  simp [exactInternalHelperSummary] at hpost
+  intro fuel selector initialWorld args success returnValue finalWorld hpost hsuccess
+  change
+    success = (internalHelperBodyInterpretation spec fuel fn initialWorld selector args).success ∧
+      returnValue = (internalHelperBodyInterpretation spec fuel fn initialWorld selector args).returnValue ∧
+      finalWorld = (internalHelperBodyInterpretation spec fuel fn initialWorld selector args).world
+    at hpost
   rcases hpost with ⟨hsuccessEq, _hret, hworld⟩
+  have hsuccess' :
+      (internalHelperBodyInterpretation spec fuel fn initialWorld selector args).success =
+        true := by
+    simpa [hsuccessEq] using hsuccess
   rw [hworld]
-  unfold interpretInternalFunctionFuel
+  unfold internalHelperBodyInterpretation at hsuccess' ⊢
   cases hbind : bindInternalArgs fn.params args with
   | none =>
-      simp [hbind, revertedInternalResult]
+      simp [hbind, revertedInternalResult] at hsuccess'
   | some bindings =>
-      simp [hbind] at hsuccessEq ⊢
+      simp [hbind, internalHelperBodySourceResult, internalHelperBodyRuntime] at hsuccess' ⊢
       have hreadonly :=
         execStmtListWithHelpers_readOnly_world_eq
           (spec := spec) (fields := effectiveFields spec) (fuel := fuel)
-          (state := { world := initialWorld, bindings := bindings })
+          (state := { world := initialWorld, bindings := bindings, selector := selector })
           (stmts := fn.body) hbody
-      cases hresult :
-          execStmtListWithHelpers spec (effectiveFields spec) fuel
-            { world := initialWorld, bindings := bindings } fn.body <;>
-        simp [hresult] at hsuccessEq hreadonly ⊢
-      · exact hreadonly
-      · exact hreadonly
-      · exact hreadonly
-      · rfl
+      -- Case on the statement result; keyword constructors need `rename_i`.
+      generalize hresult :
+        execStmtListWithHelpers spec (effectiveFields spec) fuel
+          { world := initialWorld, bindings := bindings, selector := selector } fn.body =
+        result
+      match result, hresult, hreadonly, hsuccess' with
+      | StmtResult.continue state, hresult, hreadonly, hsuccess' =>
+          simp [hresult, internalHelperResultOfStmtResult, successInternalResult,
+            stmtResultWorldEq] at hreadonly ⊢
+          exact hreadonly
+      | StmtResult.stop state, hresult, hreadonly, hsuccess' =>
+          simp [hresult, internalHelperResultOfStmtResult, successInternalResult,
+            stmtResultWorldEq] at hreadonly ⊢
+          exact hreadonly
+      | StmtResult.return value state, hresult, hreadonly, hsuccess' =>
+          simp [hresult, internalHelperResultOfStmtResult, successInternalResult,
+            stmtResultWorldEq] at hreadonly ⊢
+          exact hreadonly
+      | StmtResult.revert, hresult, hreadonly, hsuccess' =>
+          simp [hresult, internalHelperResultOfStmtResult, revertedInternalResult] at hsuccess'
 
 theorem exactInternalHelperSummary_preservesWorldOnSuccess_of_empty_body
     {spec : CompilationModel}
@@ -301,6 +330,14 @@ theorem exactInternalHelperSupport_toWitness_summary_sound
       (ExactInternalHelperSupport.toWitness support).summary.contract := by
   exact exactInternalHelperSummary_sound spec support.callee
 
+theorem exactInternalHelperSupport_toWitness_summary_soundAtSelector
+    {spec : CompilationModel} {calleeName : String}
+    (support : ExactInternalHelperSupport spec calleeName) (selector : Nat) :
+    InternalHelperSummarySoundAtSelector selector spec
+      (ExactInternalHelperSupport.toWitness support).callee
+      (ExactInternalHelperSupport.toWitness support).summary.contract := by
+  exact exactInternalHelperSummary_soundAtSelector selector spec support.callee
+
 theorem exactInternalHelperSupport_toWitness_preservesWorldOnSuccess
     {spec : CompilationModel}
     {calleeName : String}
@@ -363,6 +400,24 @@ theorem supportedBodyHelperSummariesSound_of_exactSummaries
   intro calleeName hmem
   rw [hexact calleeName hmem]
   exact exactInternalHelperSummary_sound spec (hHelpers.summaryOfCall hmem).callee
+
+/-- Exact supported-helper evidence is sound at every inherited selector. -/
+theorem supportedBodyHelperSummariesSoundAtSelector_of_exactSummaries
+    {spec : CompilationModel} {fn : FunctionSpec}
+    (hHelpers : SupportedBodyHelperInterface spec fn)
+    (hexact :
+      ∀ calleeName (hmem : calleeName ∈ helperCallNames fn),
+        hHelpers.summaryContractOfCall hmem =
+          exactInternalHelperSummary spec (hHelpers.summaryOfCall hmem).callee)
+    (selector : Nat) :
+    ∀ calleeName (hmem : calleeName ∈ helperCallNames fn),
+      InternalHelperSummarySoundAtSelector selector spec
+        (hHelpers.summaryOfCall hmem).callee
+        (hHelpers.summaryContractOfCall hmem) := by
+  intro calleeName hmem
+  rw [hexact calleeName hmem]
+  exact exactInternalHelperSummary_soundAtSelector selector spec
+    (hHelpers.summaryOfCall hmem).callee
 
 namespace Regression
 
