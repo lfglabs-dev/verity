@@ -450,48 +450,6 @@ abbrev InternalCallWithInternalsResidualBridge
     InternalCallWithInternalsBridgeAt runtimeContract spec fields scope calleeName args argExprs
       runtime state helperFuel irFuel
 
-/-- Sound caller-supplied-fuel package for a compiled direct helper call.
-
-Unlike `CompiledStmtStepWithHelpersAndHelperIRWithInternals`, this interface
-does not quantify over IR fuel below the amount needed to enter and execute the
-compiled helper body.  It is the appropriate input for a future fuel-indexed
-statement-list induction: the caller must supply `helperBodySize + 2` units of
-call fuel, in addition to positive source helper fuel. -/
-structure CompiledInternalCallWithInternalsFuelBounded
-    (runtimeContract : IRContract) (spec : CompilationModel) (fields : List Field)
-    (scope : List String) (calleeName : String) (args : List Expr)
-    (compiledIR : List YulStmt) (argExprs : List YulExpr) (helperBodySize : Nat) : Prop where
-  compileOk :
-    CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
-      (Stmt.internalCall calleeName args) spec.functions = Except.ok compiledIR
-  argsCompileOk :
-    CompilationModel.compileInternalCallArgs fields .calldata spec.functions
-      calleeName args = Except.ok argExprs
-  preserves :
-    InternalCallWithInternalsSufficientBridge runtimeContract spec fields scope calleeName args
-      argExprs helperBodySize
-
-/-- Constructor for the fuel-bounded direct-call package.  Keeping this
-separate from the legacy all-fuels step prevents an insufficient-fuel residual
-obligation from being smuggled into a genuine successful helper call. -/
-theorem compiledInternalCallWithInternalsFuelBounded_of_sufficientBridge
-    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
-    {scope : List String} {calleeName : String} {args : List Expr}
-    {compiledIR : List YulStmt} {argExprs : List YulExpr}
-    (helperBodySize : Nat)
-    (hcompile :
-      CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
-        (Stmt.internalCall calleeName args) spec.functions = Except.ok compiledIR)
-    (hargCompile :
-      CompilationModel.compileInternalCallArgs fields .calldata spec.functions
-        calleeName args = Except.ok argExprs)
-    (bridge :
-      InternalCallWithInternalsSufficientBridge runtimeContract spec fields scope calleeName args
-        argExprs helperBodySize) :
-    CompiledInternalCallWithInternalsFuelBounded runtimeContract spec fields scope calleeName args
-      compiledIR argExprs helperBodySize :=
-  ⟨hcompile, hargCompile, bridge⟩
-
 /-- Fuel-split variant of the direct void-call singleton constructor.
 
 The existing public single-step interface still asks for every positive source
