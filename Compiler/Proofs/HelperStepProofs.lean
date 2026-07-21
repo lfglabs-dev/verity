@@ -2137,33 +2137,123 @@ theorem exprListInternalHelperCompositionalContextResult_cons_head
   · simp [evalIRExprsWithInternals, hir, hirRest]
   exact ⟨hcompile, hsource, hir, hruntime, hpayload⟩
 
-/-- Lift a helper-bearing list of children through an arbitrary enclosing
-expression constructor once that constructor's compile/source/IR equations are
-known.  This is the generic n-ary recursion theorem; unary, binary, ternary,
-internal-call argument, intrinsic argument, ADT-constructor argument, and
-mapping-chain contexts are all instances. -/
-theorem exprInternalHelperCompositionalContextResult_of_exprList
+/-- Lift a helper-bearing list through a source/IR expression context.
+
+Unlike an unconstrained outer-expression lift, the result is indexed by
+`sourceContext children` and `irContext childrenIR`.  Thus the exact source
+children carrying the helper and their exact threaded IR compilation are
+definitionally the children used by the enclosing expressions.  Constructor-
+specific proofs only need to discharge the three ordinary outer equations. -/
+theorem exprInternalHelperCompositionalContextResult_of_exprListContext
     {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
     {children : List Expr} {childrenIR : List YulExpr} {childValues : List Nat}
-    {expr : Expr} {exprIR : YulExpr} {helperFuel irFuel : Nat}
+    (sourceContext : List Expr → Expr) (irContext : List YulExpr → YulExpr)
+    {helperFuel irFuel : Nat}
     {runtime headRuntime : SourceSemantics.RuntimeState}
     {state headState childrenFinalState finalState : IRState} {value : Nat}
     (hchildren : ExprListInternalHelperCompositionalContextResult runtimeContract spec fields
       children childrenIR helperFuel irFuel runtime headRuntime state headState
       childrenFinalState childValues)
-    (hcompile : CompilationModel.compileExprWithInternals fields .calldata spec.functions expr =
-      Except.ok exprIR)
-    (hsource : SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1) runtime expr =
-      some value)
-    (hir : evalIRExprWithInternals runtimeContract (irFuel + 1) state exprIR =
-      .value value finalState) :
+    (hcompile : CompilationModel.compileExprWithInternals fields .calldata spec.functions
+      (sourceContext children) = Except.ok (irContext childrenIR))
+    (hsource : SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1) runtime
+      (sourceContext children) = some value)
+    (hir : evalIRExprWithInternals runtimeContract (irFuel + 1) state
+      (irContext childrenIR) = .value value finalState) :
     ExprInternalHelperCompositionalContextResult runtimeContract spec fields
-      expr exprIR helperFuel irFuel runtime headRuntime state headState finalState value := by
+      (sourceContext children) (irContext childrenIR) helperFuel irFuel runtime
+      headRuntime state headState finalState value := by
   rcases hchildren with ⟨_, _, _, hruntime, pre, suffix, preIR, suffixIR,
     preValues, suffixValues, headExpr, headExprIR, headValue, headEntryState,
     headFinalState, _, _, _, hhead⟩
   rcases hhead with ⟨_, _, _, _, hpayload⟩
   exact ⟨hcompile, hsource, hir, hruntime, hpayload⟩
+
+/-- Focused non-head-sibling witness: a helper-bearing middle expression can
+be threaded between an evaluated left sibling and an evaluated right sibling.
+The source runtime is unchanged for all three expressions, while IR states are
+`state → middleEntry → middleFinal → finalState`. -/
+theorem exprListInternalHelperCompositionalContextResult_three_middle
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {left middle right : Expr} {leftIR middleIR rightIR : YulExpr}
+    {helperFuel irFuel : Nat} {runtime headRuntime : SourceSemantics.RuntimeState}
+    {state middleEntry headState middleFinal finalState : IRState}
+    {leftValue middleValue rightValue : Nat}
+    (hcompileLeft : CompilationModel.compileExprWithInternals fields .calldata spec.functions
+      left = Except.ok leftIR)
+    (hsourceLeft : SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1)
+      runtime left = some leftValue)
+    (hirLeft : evalIRExprWithInternals runtimeContract (irFuel + 1) state leftIR =
+      .value leftValue middleEntry)
+    (hmiddle : ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+      middle middleIR helperFuel irFuel runtime headRuntime middleEntry headState
+      middleFinal middleValue)
+    (hcompileRight : CompilationModel.compileExprWithInternals fields .calldata spec.functions
+      right = Except.ok rightIR)
+    (hsourceRight : SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1)
+      runtime right = some rightValue)
+    (hirRight : evalIRExprWithInternals runtimeContract (irFuel + 1) middleFinal rightIR =
+      .value rightValue finalState) :
+    ExprListInternalHelperCompositionalContextResult runtimeContract spec fields
+      [left, middle, right] [leftIR, middleIR, rightIR] helperFuel irFuel runtime
+      headRuntime state headState finalState [leftValue, middleValue, rightValue] := by
+  apply exprListInternalHelperCompositionalContextResult_cons_tail
+      hcompileLeft hsourceLeft hirLeft
+  apply exprListInternalHelperCompositionalContextResult_cons_head hmiddle
+  · simp [CompilationModel.compileExprListWithInternals, hcompileRight]
+  · simp [SourceSemantics.evalExprListWithHelpers, hsourceRight]
+  · simp [evalIRExprsWithInternals, hirRight]
+
+/-- N-ary ADT-constructor instantiation of the structurally tied context lift. -/
+theorem exprInternalHelperCompositionalContextResult_adtConstruct_args
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {typeName ctorName : String} {args : List Expr} {argsIR : List YulExpr}
+    {argValues : List Nat} (assembleIR : List YulExpr → YulExpr)
+    {helperFuel irFuel : Nat}
+    {runtime headRuntime : SourceSemantics.RuntimeState}
+    {state headState argsFinalState finalState : IRState} {value : Nat}
+    (hargs : ExprListInternalHelperCompositionalContextResult runtimeContract spec fields
+      args argsIR helperFuel irFuel runtime headRuntime state headState argsFinalState argValues)
+    (hcompile : CompilationModel.compileExprWithInternals fields .calldata spec.functions
+      (.adtConstruct typeName ctorName args) = Except.ok (assembleIR argsIR))
+    (hsource : SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1) runtime
+      (.adtConstruct typeName ctorName args) = some value)
+    (hir : evalIRExprWithInternals runtimeContract (irFuel + 1) state (assembleIR argsIR) =
+      .value value finalState) :
+    ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+      (.adtConstruct typeName ctorName args) (assembleIR argsIR) helperFuel irFuel runtime
+      headRuntime state headState finalState value := by
+  exact exprInternalHelperCompositionalContextResult_of_exprListContext
+    (fun xs => .adtConstruct typeName ctorName xs) assembleIR
+    hargs hcompile hsource hir
+
+/-- Internal-call argument-context instantiation.  The exact helper-bearing
+`args` and their left-to-right compiled `argsIR` are tied to the enclosing call
+and its Yul call node. -/
+theorem exprInternalHelperCompositionalContextResult_internalCall_args
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {calleeName : String} {args : List Expr} {argsIR : List YulExpr}
+    {argValues : List Nat} {helperFuel irFuel : Nat}
+    {runtime headRuntime : SourceSemantics.RuntimeState}
+    {state headState argsFinalState finalState : IRState} {value : Nat}
+    (hargs : ExprListInternalHelperCompositionalContextResult runtimeContract spec fields
+      args argsIR helperFuel irFuel runtime headRuntime state headState argsFinalState argValues)
+    (hcompile : CompilationModel.compileExprWithInternals fields .calldata spec.functions
+      (.internalCall calleeName args) =
+        Except.ok (.call (CompilationModel.internalFunctionYulName calleeName) argsIR))
+    (hsource : SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1) runtime
+      (.internalCall calleeName args) = some value)
+    (hir : evalIRExprWithInternals runtimeContract (irFuel + 1) state
+      (.call (CompilationModel.internalFunctionYulName calleeName) argsIR) =
+        .value value finalState) :
+    ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+      (.internalCall calleeName args)
+      (.call (CompilationModel.internalFunctionYulName calleeName) argsIR)
+      helperFuel irFuel runtime headRuntime state headState finalState value := by
+  exact exprInternalHelperCompositionalContextResult_of_exprListContext
+    (fun xs => .internalCall calleeName xs)
+    (fun xs => .call (CompilationModel.internalFunctionYulName calleeName) xs)
+    hargs hcompile hsource hir
 
 /-- Direct-head base case for the compositional expression-context payload. -/
 theorem exprInternalHelperCompositionalContextResult_internalCall_head
