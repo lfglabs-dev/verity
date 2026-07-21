@@ -1868,6 +1868,13 @@ end Verity.AxiomAudit
   Compiler.Proofs.HelperStepProofs.compileExprWithInternals_internalCall_shape
   Compiler.Proofs.HelperStepProofs.evalIRExprWithInternals_call_of_dispatch
   Compiler.Proofs.HelperStepProofs.exprInternalHelperCallContextBridge_compileExprWithInternals_internalCall
+  Compiler.Proofs.HelperStepProofs.exprListInternalHelperCompositionalContextResult_singleton
+  Compiler.Proofs.HelperStepProofs.exprListInternalHelperCompositionalContextResult_cons_tail
+  Compiler.Proofs.HelperStepProofs.exprListInternalHelperCompositionalContextResult_cons_head
+  Compiler.Proofs.HelperStepProofs.exprInternalHelperCompositionalContextResult_of_exprListContext
+  Compiler.Proofs.HelperStepProofs.exprListInternalHelperCompositionalContextResult_three_middle
+  Compiler.Proofs.HelperStepProofs.exprInternalHelperCompositionalContextResult_adtConstruct_args
+  Compiler.Proofs.HelperStepProofs.exprInternalHelperCompositionalContextResult_internalCall_args
   Compiler.Proofs.HelperStepProofs.exprInternalHelperCompositionalContextResult_internalCall_head
   Compiler.Proofs.HelperStepProofs.exprInternalHelperCompositionalContextResult_of_outer_facts
   Compiler.Proofs.HelperStepProofs.exprInternalHelperCompositionalContextResult_of_outer_facts_threaded_head
@@ -3430,6 +3437,7 @@ end Verity.AxiomAudit
   -- Compiler/Proofs/IRGeneration/HelperSummaryEvidence.lean
   -- Compiler.Proofs.IRGeneration.eraseDups_nodup_and_mem_aux_local  -- private
   -- Compiler.Proofs.IRGeneration.List.mem_of_mem_eraseDups_local  -- private
+  -- Compiler.Proofs.IRGeneration.List.mem_eraseDups_of_mem_local  -- private
   Compiler.Proofs.IRGeneration.exactInternalHelperSummary_soundAtSelector
   Compiler.Proofs.IRGeneration.exactInternalHelperSummary_sound
   -- Compiler.Proofs.IRGeneration.stmtResultWorldEq_of_eq  -- private
@@ -3447,6 +3455,8 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.Regression.twoHelperRanksDecrease  -- private
   Compiler.Proofs.IRGeneration.Regression.helperB_exactSummary_sound
   Compiler.Proofs.IRGeneration.Regression.helperB_exactSummary_preservesWorld
+  Compiler.Proofs.IRGeneration.Regression.helperA_contains_internal_helper_call
+  Compiler.Proofs.IRGeneration.Regression.helperA_helperB_occurs_in_call_inventory
   Compiler.Proofs.IRGeneration.Regression.helperA_supportedBodyHelperInterface_summary_sound
   Compiler.Proofs.IRGeneration.Regression.helperA_calls_helperB_rank_decreases
 
@@ -6380,4 +6390,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5983 theorems/lemmas (4159 public, 1824 private, 0 sorry'd)
+-- Total: 5993 theorems/lemmas (4168 public, 1825 private, 0 sorry'd)
