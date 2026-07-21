@@ -302,6 +302,20 @@ abbrev InternalCallAssignWithInternalsSufficientBridge
     InternalCallAssignWithInternalsBridgeAt runtimeContract spec fields scope names calleeName
       args argExprs runtime state helperFuel irFuel
 
+/-- Compositional sufficient-fuel obligation for a direct assignment helper
+call.  The helper consumes `helperBodySize + 2` units before recursive
+preservation is invoked, so the caller must reserve the downstream slack
+additively rather than proving two unrelated upper bounds. -/
+abbrev InternalCallAssignWithInternalsAdditiveBridge
+    (runtimeContract : IRContract) (spec : CompilationModel) (fields : List Field)
+    (scope : List String) (names : List String) (calleeName : String) (args : List Expr)
+    (argExprs : List YulExpr) (helperBodySize irFuelSlack : Nat) : Prop :=
+  ∀ (runtime : SourceSemantics.RuntimeState) (state : IRState) (helperFuel irFuel : Nat),
+    1 < helperFuel →
+    helperBodySize + 2 + irFuelSlack ≤ irFuel →
+    InternalCallAssignWithInternalsBridgeAt runtimeContract spec fields scope names calleeName
+      args argExprs runtime state helperFuel irFuel
+
 abbrev InternalCallAssignWithInternalsResidualBridge
     (runtimeContract : IRContract) (spec : CompilationModel) (fields : List Field)
     (scope : List String) (names : List String) (calleeName : String) (args : List Expr)
@@ -440,6 +454,29 @@ abbrev InternalCallWithInternalsSufficientBridge
     helperBodySize + 2 ≤ irFuel →
     InternalCallWithInternalsBridgeAt runtimeContract spec fields scope calleeName args argExprs
       runtime state helperFuel irFuel
+
+/-- Compositional sufficient-fuel obligation for a direct void helper call.
+After entering and executing the helper body, `irFuelSlack` remains available
+to the recursive preservation proof.  In particular, equal independent bounds
+on the body cost, slack, and caller fuel are intentionally not accepted. -/
+abbrev InternalCallWithInternalsAdditiveBridge
+    (runtimeContract : IRContract) (spec : CompilationModel) (fields : List Field)
+    (scope : List String) (calleeName : String) (args : List Expr)
+    (argExprs : List YulExpr) (helperBodySize irFuelSlack : Nat) : Prop :=
+  ∀ (runtime : SourceSemantics.RuntimeState) (state : IRState) (helperFuel irFuel : Nat),
+    1 < helperFuel →
+    helperBodySize + 2 + irFuelSlack ≤ irFuel →
+    InternalCallWithInternalsBridgeAt runtimeContract spec fields scope calleeName args argExprs
+      runtime state helperFuel irFuel
+
+/-- The arithmetic fact needed at the recursive helper boundary: the additive
+caller obligation leaves the complete promised slack after subtracting the
+helper-entry/body cost. -/
+theorem internalCall_irFuelSlack_le_residual
+    (helperBodySize irFuelSlack irFuel : Nat)
+    (h : helperBodySize + 2 + irFuelSlack ≤ irFuel) :
+    irFuelSlack ≤ irFuel - (helperBodySize + 2) := by
+  omega
 
 abbrev InternalCallWithInternalsResidualBridge
     (runtimeContract : IRContract) (spec : CompilationModel) (fields : List Field)
