@@ -2114,6 +2114,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_with_helper_proofs_and_helper_ir_of_compileValidatedCore
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_with_helper_proofs_and_helper_ir_of_compileValidatedCore_of_interface
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_with_helper_proofs_and_helper_ir_closed
+  Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_correct_with_helper_rich_support_of_body_goal
   Compiler.Proofs.IRGeneration.Contract.counter_supported_spec_compile_preserves_semantics
 
   -- Compiler/Proofs/IRGeneration/ContractFeatureTest.lean
@@ -2248,7 +2249,11 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.Dispatch.find_compiledFunction_some_of_forall₂  -- private
   -- Compiler.Proofs.IRGeneration.Dispatch.find_compiledFunction_none_of_forall₂  -- private
   Compiler.Proofs.IRGeneration.Dispatch.interpretContract_correct_of_compiled_functions
+  Compiler.Proofs.IRGeneration.Dispatch.interpretContractWithInternals_correct_of_compiled_functions
+  Compiler.Proofs.IRGeneration.Dispatch.interpretContractWithHelpersWithInternals_correct_of_compiled_functions
+  Compiler.Proofs.IRGeneration.Dispatch.interpretContractWithInternals_correct_of_compiled_functions_with_helper_rich_support
   Compiler.Proofs.IRGeneration.Dispatch.interpretContract_correct_of_compiled_functions_with_helper_proofs
+  Compiler.Proofs.IRGeneration.Dispatch.interpretContractWithInternals_correct_of_compiled_functions_with_helper_proofs
   -- Compiler.Proofs.IRGeneration.Dispatch.legacy_function_correct_of_supportedSourceFunctionSemanticsExceptMappingWrites  -- private
   Compiler.Proofs.IRGeneration.Dispatch.interpretContract_correct_of_compiled_functions_except_mapping_writes
   Compiler.Proofs.IRGeneration.Dispatch.interpretContract_correct_of_compiled_functions_except_mapping_writes_and_helper_ir
@@ -2274,6 +2279,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.Function.rawArgBindings_names_of_length_le
   Compiler.Proofs.IRGeneration.Function.rawArgBindings_names_of_bindSupportedParams
   Compiler.Proofs.IRGeneration.Function.compileFunctionSpec_ok_of_components
+  Compiler.Proofs.IRGeneration.Function.compileFunctionSpec_ok_of_components_with_internals
   Compiler.Proofs.IRGeneration.Function.compileFunctionSpec_ok_params
   Compiler.Proofs.IRGeneration.Function.compileFunctionSpec_ok_selector
   Compiler.Proofs.IRGeneration.Function.compileFunctionSpec_ok_payable
@@ -2316,6 +2322,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.Function.supported_function_correct_with_scalar_events_body_goal
   Compiler.Proofs.IRGeneration.Function.supported_function_correct_with_helper_proofs_body_goal_and_helper_ir
   Compiler.Proofs.IRGeneration.Function.supported_function_correct_with_helper_proofs_body_goal_with_internals
+  Compiler.Proofs.IRGeneration.Function.supported_function_correct_with_helper_rich_support_body_goal_with_internals
   Compiler.Proofs.IRGeneration.Function.supported_function_correct_with_helper_proofs_body_goal_and_helper_ir_of_bodyCallsDisjoint
   -- Compiler.Proofs.IRGeneration.Function.function_body_scopeNamesPresent_of_bindSupportedParams  -- private
   -- Compiler.Proofs.IRGeneration.Function.function_body_state_runtime_of_bindSupportedParams  -- private
@@ -2830,6 +2837,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCallAssign_of_fuelSplitBridge
   Compiler.Proofs.IRGeneration.compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCall
   -- Compiler.Proofs.IRGeneration.compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCall_delimiter  -- private
+  Compiler.Proofs.IRGeneration.internalCall_irFuelSlack_le_residual
   Compiler.Proofs.IRGeneration.compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCall_of_fuelSplitBridge
   Compiler.Proofs.IRGeneration.stmtListDirectInternalHelperAssignStepInterface_cons_internalCallAssign
   Compiler.Proofs.IRGeneration.stmtListDirectInternalHelperAssignStepInterfaceWithInternals_cons_internalCallAssign
@@ -4243,6 +4251,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.SupportedSpec.noReceive
   Compiler.Proofs.IRGeneration.SupportedSpecExceptMappingWrites.noReceive
   Compiler.Proofs.IRGeneration.SupportedSpec.selectorFunctionParamsSupported
+  Compiler.Proofs.IRGeneration.SupportedSpecWithHelpers.selectorFunctionParamsSupported
   Compiler.Proofs.IRGeneration.SupportedSpec.selectorFunctionParamCalldataThreshold
   Compiler.Proofs.IRGeneration.SupportedSpecExceptMappingWrites.selectorFunctionParamsSupported
   Compiler.Proofs.IRGeneration.SupportedSpecExceptMappingWrites.selectorFunctionParamCalldataThreshold
@@ -6390,4 +6399,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5993 theorems/lemmas (4168 public, 1825 private, 0 sorry'd)
+-- Total: 6002 theorems/lemmas (4177 public, 1825 private, 0 sorry'd)
