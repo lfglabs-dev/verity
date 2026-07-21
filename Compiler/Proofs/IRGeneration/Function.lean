@@ -2313,10 +2313,11 @@ theorem supported_function_correct_with_helper_proofs_body_goal_with_internals
       compileFunctionSpec model.fields model.events model.errors [] selector fn = Except.ok irFn)
     (hbind : SourceSemantics.bindSupportedParams fn.params tx.args = some bindings)
     (_htxNormalized : TxContextNormalized tx)
+    (irFuelSlack : Nat)
     (extraFuel : Nat)
     (hcompiledBodyFuel :
       (genParamLoads fn.params ++ bodyStmts).length + extraFuel =
-        sizeOf (compiledFunctionIR selector fn returns bodyStmts).body)
+        sizeOf (compiledFunctionIR selector fn returns bodyStmts).body + irFuelSlack)
     (hbodyCorrect :
       SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
         runtimeContract
@@ -2331,7 +2332,7 @@ theorem supported_function_correct_with_helper_proofs_body_goal_with_internals
     (hcalldataSizeFits : TxCalldataSizeFitsEvm tx) :
     FunctionBody.sourceResultMatchesIRResult
       (supportedSourceFunctionSemantics model selectors hSupported fn tx initialWorld)
-      (execIRFunctionWithInternals runtimeContract 0 irFn tx.args
+      (execIRFunctionWithInternals runtimeContract irFuelSlack irFn tx.args
         (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
   let initialState := FunctionBody.initialIRStateForTx model tx initialWorld
   rcases hbodyCorrect with ⟨sourceResult, irExec, hsource, hbodyExec, hmatch⟩
@@ -2373,11 +2374,11 @@ theorem supported_function_correct_with_helper_proofs_body_goal_with_internals
   subst hirFn
   have hcompiledBodyFuel' :
       (genParamLoads fn.params ++ bodyStmts).length + extraFuel =
-        sizeOf (genParamLoads fn.params ++ bodyStmts) := by
+        sizeOf (genParamLoads fn.params ++ bodyStmts) + irFuelSlack := by
     simpa [compiledFunctionIR] using hcompiledBodyFuel
   have hcompiledExec :
       execIRStmtsWithInternals runtimeContract
-          (sizeOf (genParamLoads fn.params ++ bodyStmts) + 1)
+          (sizeOf (genParamLoads fn.params ++ bodyStmts) + irFuelSlack + 1)
           (prebindRawArgs initialState fn.params)
           (genParamLoads fn.params ++ bodyStmts) =
         irExec := by
@@ -2396,12 +2397,12 @@ theorem supported_function_correct_with_helper_proofs_body_goal_with_internals
         hcalldataSizeFits hbind hparamDisjoint hbodyExec
     have hfuel :
         (genParamLoads fn.params ++ bodyStmts).length + extraFuel + 1 =
-          sizeOf (genParamLoads fn.params ++ bodyStmts) + 1 := by
+          sizeOf (genParamLoads fn.params ++ bodyStmts) + irFuelSlack + 1 := by
       omega
     rw [← hfuel]
     simpa [compiledFunctionIR] using hprefix
   have hfunctionExec :
-      execIRFunctionWithInternals runtimeContract 0
+      execIRFunctionWithInternals runtimeContract irFuelSlack
           (compiledFunctionIR selector fn returns bodyStmts) tx.args initialState =
         FunctionBody.irResultOfExecResultWithInternals initialState irExec := by
     have hstateWithParams :
