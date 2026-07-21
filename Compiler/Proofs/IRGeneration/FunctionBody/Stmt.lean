@@ -173,9 +173,10 @@ theorem compileStmtList_nil_eq_ok
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
     (dynamicSource : DynamicDataSource) (internalRetNames : List String)
     (isInternal : Bool) (inScopeNames : List String)
-    (adtTypes : List AdtTypeDef) :
+    (adtTypes : List AdtTypeDef)
+    (internalFunctions : List FunctionSpec := []) :
     CompilationModel.compileStmtList fields events errors dynamicSource
-      internalRetNames isInternal inScopeNames adtTypes [] = Except.ok [] := by
+      internalRetNames isInternal inScopeNames adtTypes [] internalFunctions = Except.ok [] := by
   unfold CompilationModel.compileStmtList
   unfold CompilationModel.compileStmtListWithFork
   rfl
@@ -244,31 +245,38 @@ theorem compileStmtListWithFork_nil_eq_ok
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
     (dynamicSource : DynamicDataSource) (internalRetNames : List String)
     (isInternal : Bool) (inScopeNames : List String)
-    (adtTypes : List AdtTypeDef) :
+    (adtTypes : List AdtTypeDef)
+    (internalFunctions : List FunctionSpec := []) :
     CompilationModel.compileStmtListWithFork fields events errors dynamicSource
       internalRetNames isInternal inScopeNames adtTypes Verity.Core.Intrinsics.HardFork.cancun
-      [] = Except.ok [] := by
-  rw [compileStmtListWithFork_cancun_eq_compileStmtList]
-  exact compileStmtList_nil_eq_ok _ _ _ _ _ _ _ _
+      [] internalFunctions = Except.ok [] := by
+  rw [compileStmtListWithFork_cancun_eq_compileStmtList
+    fields events errors dynamicSource internalRetNames isInternal inScopeNames adtTypes []
+    internalFunctions]
+  exact compileStmtList_nil_eq_ok _ _ _ _ _ _ _ _ internalFunctions
 
 theorem compileStmtListWithFork_cons_eq_ok
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
     (dynamicSource : DynamicDataSource) (internalRetNames : List String)
     (isInternal : Bool) (inScopeNames : List String)
     (adtTypes : List AdtTypeDef) (stmt : Stmt) (rest : List Stmt)
+    (internalFunctions : List FunctionSpec := [])
     (headIR tailIR : List YulStmt)
     (hhead :
       CompilationModel.compileStmt fields events errors dynamicSource
-        internalRetNames isInternal inScopeNames adtTypes stmt = Except.ok headIR)
+        internalRetNames isInternal inScopeNames adtTypes stmt internalFunctions = Except.ok headIR)
     (htail :
       CompilationModel.compileStmtList fields events errors dynamicSource
-        internalRetNames isInternal (collectStmtBindNames stmt ++ inScopeNames) adtTypes rest =
-          Except.ok tailIR) :
+        internalRetNames isInternal (collectStmtBindNames stmt ++ inScopeNames) adtTypes rest
+          internalFunctions = Except.ok tailIR) :
     CompilationModel.compileStmtListWithFork fields events errors dynamicSource
       internalRetNames isInternal inScopeNames adtTypes Verity.Core.Intrinsics.HardFork.cancun
-      (stmt :: rest) = Except.ok (headIR ++ tailIR) := by
-  rw [compileStmtListWithFork_cancun_eq_compileStmtList]
-  exact compileStmtList_cons_eq_ok _ _ _ _ _ _ _ _ _ _ _ _ hhead htail
+      (stmt :: rest) internalFunctions = Except.ok (headIR ++ tailIR) := by
+  rw [compileStmtListWithFork_cancun_eq_compileStmtList
+    fields events errors dynamicSource internalRetNames isInternal inScopeNames adtTypes
+    (stmt :: rest) internalFunctions]
+  exact compileStmtList_cons_eq_ok_with_internals
+    _ _ _ _ _ _ _ _ _ _ internalFunctions _ _ hhead htail
 
 theorem compileStmtList_cons_ok_inv
     {fields : List Field}
