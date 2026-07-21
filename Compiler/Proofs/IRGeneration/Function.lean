@@ -193,6 +193,33 @@ theorem compileFunctionSpec_ok_of_components
   rw [hvalidate, hreturns, FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList, hbody]
   rfl
 
+/-- Populated-internal-table variant of `compileFunctionSpec_ok_of_components`.
+The body equation and the enclosing function compilation must use the same
+caller-supplied internal function table. -/
+theorem compileFunctionSpec_ok_of_components_with_internals
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (internalFunctions : List FunctionSpec)
+    (selector : Nat) (spec : FunctionSpec)
+    (returns : List ParamType) (bodyStmts : List YulStmt)
+    (hvalidate : validateFunctionSpec spec = Except.ok ())
+    (hreturns : functionReturns spec = Except.ok returns)
+    (hbody :
+      compileStmtList fields events errors .calldata [] false
+        (spec.params.map (·.name)) [] spec.body internalFunctions = Except.ok bodyStmts) :
+    compileFunctionSpec fields events errors [] selector spec
+        (internalFunctions := internalFunctions) =
+      Except.ok (compiledFunctionIR selector spec returns bodyStmts) := by
+  unfold CompilationModel.compileFunctionSpec
+  rw [hvalidate, hreturns]
+  change
+    (do
+      let compiledBody ←
+        compileStmtList fields events errors .calldata [] false
+          (spec.params.map (fun p : Param => p.name)) [] spec.body internalFunctions
+      pure (compiledFunctionIR selector spec returns compiledBody)) = _
+  rw [hbody]
+  rfl
+
 theorem compileFunctionSpec_ok_params
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
     (selector : Nat) (spec : FunctionSpec) (irFn : IRFunction)
@@ -2303,14 +2330,16 @@ theorem supported_function_correct_with_helper_proofs_body_goal_with_internals
     (tx : IRTransaction)
     (initialWorld : Verity.ContractState)
     (bindings : List (String × Nat))
+    (internalFunctions : List FunctionSpec)
     (hfn : fn ∈ selectorDispatchedFunctions model)
     (hvalidate : validateFunctionSpec fn = Except.ok ())
     (hreturns : functionReturns fn = Except.ok returns)
     (hbodyCompile :
       compileStmtList model.fields model.events model.errors .calldata [] false
-        (fn.params.map (·.name)) [] fn.body = Except.ok bodyStmts)
+        (fn.params.map (·.name)) [] fn.body internalFunctions = Except.ok bodyStmts)
     (hcompile :
-      compileFunctionSpec model.fields model.events model.errors [] selector fn = Except.ok irFn)
+      compileFunctionSpec model.fields model.events model.errors [] selector fn
+        (internalFunctions := internalFunctions) = Except.ok irFn)
     (hbind : SourceSemantics.bindSupportedParams fn.params tx.args = some bindings)
     (_htxNormalized : TxContextNormalized tx)
     (irFuelSlack : Nat)
@@ -2336,8 +2365,9 @@ theorem supported_function_correct_with_helper_proofs_body_goal_with_internals
         (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
   let initialState := FunctionBody.initialIRStateForTx model tx initialWorld
   rcases hbodyCorrect with ⟨sourceResult, irExec, hsource, hbodyExec, hmatch⟩
-  have hcompiled := compileFunctionSpec_ok_of_components model.fields model.events model.errors
-      selector fn returns bodyStmts hvalidate hreturns hbodyCompile
+  have hcompiled := compileFunctionSpec_ok_of_components_with_internals
+      model.fields model.events model.errors internalFunctions selector fn returns bodyStmts
+      hvalidate hreturns hbodyCompile
   have hirFn : irFn = compiledFunctionIR selector fn returns bodyStmts := by
     rw [hcompile] at hcompiled
     injection hcompiled
