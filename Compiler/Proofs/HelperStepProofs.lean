@@ -2014,6 +2014,157 @@ def ExprInternalHelperCompositionalPostStateResult
     FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings finalState ∧
     value < Compiler.Constants.evmModulus
 
+/-- Expression-list counterpart of
+`ExprInternalHelperCompositionalContextResult`.
+
+Source expressions are all evaluated in the same (read-only) source runtime,
+whereas the compiled expressions thread their state from left to right.  The
+last conjunct retains a concrete helper-bearing member of the list, including
+the IR state at which that member starts and finishes.  Consequently this
+carrier can be nested through any expression constructor whose children are
+compiled and evaluated as an expression list; it does not require the other
+siblings, or the enclosing expression, to be helper-surface closed. -/
+def ExprListInternalHelperCompositionalContextResult
+    (runtimeContract : IRContract)
+    (spec : CompilationModel)
+    (fields : List Field)
+    (exprs : List Expr)
+    (exprIRs : List YulExpr)
+    (helperFuel irFuel : Nat)
+    (runtime headRuntime : SourceSemantics.RuntimeState)
+    (state headState finalState : IRState)
+    (values : List Nat) : Prop :=
+  CompilationModel.compileExprListWithInternals fields .calldata spec.functions exprs =
+      Except.ok exprIRs ∧
+    SourceSemantics.evalExprListWithHelpers spec fields (helperFuel + 1) runtime exprs =
+      some values ∧
+    evalIRExprsWithInternals runtimeContract (irFuel + 1) state exprIRs =
+      .values values finalState ∧
+    FunctionBody.runtimeStateMatchesIR fields headRuntime headState ∧
+    ∃ (pre suffix : List Expr) (preIR suffixIR : List YulExpr)
+        (preValues suffixValues : List Nat)
+        (headExpr : Expr) (headExprIR : YulExpr)
+        (headValue : Nat) (headEntryState headFinalState : IRState),
+      exprs = pre ++ headExpr :: suffix ∧
+      exprIRs = preIR ++ headExprIR :: suffixIR ∧
+      values = preValues ++ headValue :: suffixValues ∧
+      ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+        headExpr headExprIR helperFuel irFuel runtime headRuntime headEntryState
+        headState headFinalState headValue
+
+/-- A helper-bearing expression is a helper-bearing singleton expression list.
+The equal entry/final list states expose the precise one-element threading
+boundary for later `cons` composition. -/
+theorem exprListInternalHelperCompositionalContextResult_singleton
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {expr : Expr} {exprIR : YulExpr} {helperFuel irFuel : Nat}
+    {runtime headRuntime : SourceSemantics.RuntimeState}
+    {state headState finalState : IRState} {value : Nat}
+    (hexpr : ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+      expr exprIR helperFuel irFuel runtime headRuntime state headState finalState value) :
+    ExprListInternalHelperCompositionalContextResult runtimeContract spec fields
+      [expr] [exprIR] helperFuel irFuel runtime headRuntime state headState
+      finalState [value] := by
+  rcases hexpr with ⟨hcompile, hsource, hir, hruntime, hpayload⟩
+  refine ⟨?_, ?_, ?_, hruntime, [], [], [], [], [], [], expr, exprIR, value,
+    state, finalState, by simp, by simp, by simp, ?_⟩
+  · simp [CompilationModel.compileExprListWithInternals, hcompile]
+  · simp [SourceSemantics.evalExprListWithHelpers, hsource]
+  · simp [evalIRExprsWithInternals, hir]
+  exact ⟨hcompile, hsource, hir, hruntime, hpayload⟩
+
+/-- Add an already-evaluated left sibling in front of a helper-bearing tail.
+The source sibling uses the original source runtime, while its compiled result
+state is exactly the entry state used by the tail. -/
+theorem exprListInternalHelperCompositionalContextResult_cons_tail
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {expr : Expr} {rest : List Expr} {exprIR : YulExpr} {restIR : List YulExpr}
+    {helperFuel irFuel : Nat} {runtime headRuntime : SourceSemantics.RuntimeState}
+    {state restState headState finalState : IRState}
+    {value : Nat} {values : List Nat}
+    (hcompile : CompilationModel.compileExprWithInternals fields .calldata spec.functions expr =
+      Except.ok exprIR)
+    (hsource : SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1) runtime expr =
+      some value)
+    (hir : evalIRExprWithInternals runtimeContract (irFuel + 1) state exprIR =
+      .value value restState)
+    (hrest : ExprListInternalHelperCompositionalContextResult runtimeContract spec fields
+      rest restIR helperFuel irFuel runtime headRuntime restState headState finalState values) :
+    ExprListInternalHelperCompositionalContextResult runtimeContract spec fields
+      (expr :: rest) (exprIR :: restIR) helperFuel irFuel runtime headRuntime state
+      headState finalState (value :: values) := by
+  rcases hrest with ⟨hcompileRest, hsourceRest, hirRest, hruntime,
+    pre, suffix, preIR, suffixIR, preValues, suffixValues,
+    headExpr, headExprIR, headValue, headEntryState, headFinalState,
+    hexprs, hexprIRs, hvalues, hhead⟩
+  refine ⟨?_, ?_, ?_, hruntime, expr :: pre, suffix, exprIR :: preIR,
+    suffixIR, value :: preValues, suffixValues, headExpr, headExprIR, headValue,
+    headEntryState, headFinalState, ?_, ?_, ?_, hhead⟩
+  · simp [CompilationModel.compileExprListWithInternals, hcompile, hcompileRest,
+      bind, Except.bind, pure, Except.pure]
+  · simp [SourceSemantics.evalExprListWithHelpers, hsource, hsourceRest]
+  · simp [evalIRExprsWithInternals, hir, hirRest]
+  · simp [hexprs]
+  · simp [hexprIRs]
+  · simp [hvalues]
+
+/-- Add a helper-bearing head in front of an already-evaluated sibling tail.
+The tail starts in the helper head's final IR state, providing the dual of
+`exprListInternalHelperCompositionalContextResult_cons_tail`. -/
+theorem exprListInternalHelperCompositionalContextResult_cons_head
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {expr : Expr} {rest : List Expr} {exprIR : YulExpr} {restIR : List YulExpr}
+    {helperFuel irFuel : Nat} {runtime headRuntime : SourceSemantics.RuntimeState}
+    {state headState exprFinalState finalState : IRState}
+    {value : Nat} {values : List Nat}
+    (hexpr : ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+      expr exprIR helperFuel irFuel runtime headRuntime state headState exprFinalState value)
+    (hcompileRest : CompilationModel.compileExprListWithInternals fields .calldata
+      spec.functions rest = Except.ok restIR)
+    (hsourceRest : SourceSemantics.evalExprListWithHelpers spec fields (helperFuel + 1)
+      runtime rest = some values)
+    (hirRest : evalIRExprsWithInternals runtimeContract (irFuel + 1) exprFinalState restIR =
+      .values values finalState) :
+    ExprListInternalHelperCompositionalContextResult runtimeContract spec fields
+      (expr :: rest) (exprIR :: restIR) helperFuel irFuel runtime headRuntime state
+      headState finalState (value :: values) := by
+  rcases hexpr with ⟨hcompile, hsource, hir, hruntime, hpayload⟩
+  refine ⟨?_, ?_, ?_, hruntime, [], rest, [], restIR, [], values, expr, exprIR,
+    value, state, exprFinalState, by simp, by simp, by simp, ?_⟩
+  · simp [CompilationModel.compileExprListWithInternals, hcompile, hcompileRest,
+      bind, Except.bind, pure, Except.pure]
+  · simp [SourceSemantics.evalExprListWithHelpers, hsource, hsourceRest]
+  · simp [evalIRExprsWithInternals, hir, hirRest]
+  exact ⟨hcompile, hsource, hir, hruntime, hpayload⟩
+
+/-- Lift a helper-bearing list of children through an arbitrary enclosing
+expression constructor once that constructor's compile/source/IR equations are
+known.  This is the generic n-ary recursion theorem; unary, binary, ternary,
+internal-call argument, intrinsic argument, ADT-constructor argument, and
+mapping-chain contexts are all instances. -/
+theorem exprInternalHelperCompositionalContextResult_of_exprList
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {children : List Expr} {childrenIR : List YulExpr} {childValues : List Nat}
+    {expr : Expr} {exprIR : YulExpr} {helperFuel irFuel : Nat}
+    {runtime headRuntime : SourceSemantics.RuntimeState}
+    {state headState childrenFinalState finalState : IRState} {value : Nat}
+    (hchildren : ExprListInternalHelperCompositionalContextResult runtimeContract spec fields
+      children childrenIR helperFuel irFuel runtime headRuntime state headState
+      childrenFinalState childValues)
+    (hcompile : CompilationModel.compileExprWithInternals fields .calldata spec.functions expr =
+      Except.ok exprIR)
+    (hsource : SourceSemantics.evalExprWithHelpers spec fields (helperFuel + 1) runtime expr =
+      some value)
+    (hir : evalIRExprWithInternals runtimeContract (irFuel + 1) state exprIR =
+      .value value finalState) :
+    ExprInternalHelperCompositionalContextResult runtimeContract spec fields
+      expr exprIR helperFuel irFuel runtime headRuntime state headState finalState value := by
+  rcases hchildren with ⟨_, _, _, hruntime, pre, suffix, preIR, suffixIR,
+    preValues, suffixValues, headExpr, headExprIR, headValue, headEntryState,
+    headFinalState, _, _, _, hhead⟩
+  rcases hhead with ⟨_, _, _, _, hpayload⟩
+  exact ⟨hcompile, hsource, hir, hruntime, hpayload⟩
+
 /-- Direct-head base case for the compositional expression-context payload. -/
 theorem exprInternalHelperCompositionalContextResult_internalCall_head
     {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
