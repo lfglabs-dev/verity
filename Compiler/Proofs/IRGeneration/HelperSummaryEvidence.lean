@@ -574,7 +574,73 @@ def helperA_supportedHelperRichBodyFragment :
     apply List.mem_eraseDups_of_mem_local
     simp [helperA, stmtListInternalHelperCallNames,
       stmtInternalHelperCallNames, exprInternalHelperCallNames,
-      exprListInternalHelperCallNames]⟩
+    exprListInternalHelperCallNames]⟩
+
+/-- Function-boundary witness for the genuine helper caller.  This is the
+non-vacuous inhabitant that the legacy `SupportedFunction` gate could not
+express. -/
+def helperA_supportedFunctionWithHelpers :
+    SupportedFunctionWithHelpers twoHelperSpec helperA := by
+  refine {
+    nonSpecialEntrypoint := by simp [helperA, isInteropEntrypointName]
+    noNonReentrant := rfl
+    params := ?_
+    returns := ?_
+    body := .helperRich helperA_supportedHelperRichBodyFragment
+  }
+  · refine ⟨by simp [helperA], ?_, ?_⟩
+    · simp [helperA]
+    · simp [helperA, Compiler.Constants.evmModulus]
+  · exact { resolved := ⟨[], rfl, trivial⟩ }
+
+private def helperB_supportedFunctionWithHelpers :
+    SupportedFunctionWithHelpers twoHelperSpec helperB := by
+  refine {
+    nonSpecialEntrypoint := by simp [helperB, isInteropEntrypointName]
+    noNonReentrant := rfl
+    params := ?_
+    returns := ?_
+    body := .internalHelper helperB_support.toWitness.summary
+  }
+  · refine ⟨by simp [helperB], ?_, ?_⟩
+    · simp [helperB]
+    · simp [helperB, Compiler.Constants.evmModulus]
+  · exact { resolved := ⟨[], rfl, trivial⟩ }
+
+/-- Whole-spec regression: a model containing an internal helper caller and
+its callee now inhabits the helper-aware support inventory without any
+helper-free premise. -/
+noncomputable def twoHelper_supportedSpecWithHelpers :
+    SupportedSpecWithHelpers twoHelperSpec [] := by
+  refine {
+    invariants := ?_
+    surface := ?_
+    constructor := ?_
+    functions := ?_
+  }
+  · refine ⟨rfl, ?_, rfl, rfl, ?_⟩
+    · simp [twoHelperSpec]
+    · simp [twoHelperSpec, helperA, helperB]
+  · refine ⟨rfl, rfl, rfl, rfl, ?_, ?_, ?_, ?_⟩
+    · native_decide
+    · rw [templateIntrinsicItems, twoHelperSpec, helperA, helperB]
+      unfold collectTemplateIntrinsicsFromStmts
+      simp only [List.flatMap_cons, List.flatMap_nil, List.append_nil]
+      repeat rw [collectTemplateIntrinsicsFromStmt.eq_def]
+      simp [Stmt.directMetadata, Stmt.childLists,
+        collectTemplateIntrinsicsFromExpr, Expr.children]
+    · simp [twoHelperSpec, helperA, helperB]
+    · simp [twoHelperSpec, helperA, helperB]
+  · intro ctor hctor
+    simp [twoHelperSpec] at hctor
+  · intro fn hfn
+    simp [twoHelperSpec] at hfn
+    by_cases hA : fn = helperA
+    · subst fn
+      exact helperA_supportedFunctionWithHelpers
+    · have hB : fn = helperB := Or.resolve_left hfn hA
+      subst fn
+      exact helperB_supportedFunctionWithHelpers
 
 /-- Explicit source-syntax evidence that the positive witness is genuinely
 helper-rich, rather than inhabited through an empty call inventory. -/

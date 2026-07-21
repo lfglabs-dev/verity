@@ -6050,6 +6050,17 @@ noncomputable def supportedSourceFunctionSemantics
   SourceSemantics.interpretFunctionWithHelpers
     spec hSupported.helperFuel fn tx initialWorld
 
+noncomputable def supportedSourceFunctionSemanticsWithHelpers
+    (spec : CompilationModel)
+    (selectors : List Nat)
+    (hSupported : SupportedSpecWithHelpers spec selectors)
+    (fn : FunctionSpec)
+    (tx : IRTransaction)
+    (initialWorld : Verity.ContractState) :
+    SourceSemantics.SourceContractResult :=
+  SourceSemantics.interpretFunctionWithHelpers
+    spec hSupported.helperFuel fn tx initialWorld
+
 noncomputable def supportedSourceFunctionSemanticsExceptMappingWrites
     (spec : CompilationModel)
     (selectors : List Nat)
@@ -6079,6 +6090,15 @@ noncomputable def supportedSourceContractSemantics
     (tx : IRTransaction)
     (initialWorld : Verity.ContractState) :
   SourceSemantics.SourceContractResult :=
+  sourceContractSemanticsWithHelpers spec selectors hSupported.helperFuel tx initialWorld
+
+noncomputable def supportedSourceContractSemanticsWithHelpers
+    (spec : CompilationModel)
+    (selectors : List Nat)
+    (hSupported : SupportedSpecWithHelpers spec selectors)
+    (tx : IRTransaction)
+    (initialWorld : Verity.ContractState) :
+    SourceSemantics.SourceContractResult :=
   sourceContractSemanticsWithHelpers spec selectors hSupported.helperFuel tx initialWorld
 
 noncomputable def supportedSourceContractSemanticsWithScalarEvents

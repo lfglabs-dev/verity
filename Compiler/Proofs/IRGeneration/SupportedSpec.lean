@@ -2832,6 +2832,28 @@ structure SupportedFunction (spec : CompilationModel) (fn : FunctionSpec) where
   returns : SupportedReturnProfile fn
   body : SupportedBodyInterface spec fn
 
+/-- Body support at the helper-aware function boundary.  The legacy arm keeps
+all existing helper-free consumers available, while the helper-rich arm admits
+the positive fragment directly without manufacturing a `SupportedStmtList`
+witness (which would imply that the helper-call inventory is empty). -/
+inductive SupportedFunctionBodyWithHelpers
+    (spec : CompilationModel) (fn : FunctionSpec) : Type where
+  | legacy (body : SupportedBodyInterface spec fn)
+  | helperRich (body : SupportedHelperRichBodyFragment spec fn)
+  | internalHelper (summary : SupportedInternalHelperSummary spec fn)
+
+/-- Function support interface for helper-aware consumers.  Internal helpers
+and selector-dispatched callers share this interface; whether a function is an
+external dispatch target remains a property of `selectorDispatchedFunctions`,
+not a body-fragment restriction. -/
+structure SupportedFunctionWithHelpers
+    (spec : CompilationModel) (fn : FunctionSpec) where
+  nonSpecialEntrypoint : isInteropEntrypointName fn.name = false
+  noNonReentrant : fn.nonReentrantLock = none
+  params : SupportedParamProfile fn.params
+  returns : SupportedReturnProfile fn
+  body : SupportedFunctionBodyWithHelpers spec fn
+
 /-- Supported external function for the scalar-event Layer 2 slice. -/
 structure SupportedFunctionWithScalarEvents
     (spec : CompilationModel) (fn : FunctionSpec) where
@@ -2949,6 +2971,19 @@ structure SupportedSpec (spec : CompilationModel) (selectors : List Nat) where
     ∀ ctor, spec.constructor = some ctor → SupportedConstructor spec ctor
   functions :
     ∀ fn, fn ∈ spec.functions → SupportedFunction spec fn
+
+/-- Whole-contract support inventory for the helper-aware Function/Contract/
+Dispatch chain.  It shares the established global invariants and surface gates,
+but its function inventory accepts `SupportedHelperRichBodyFragment` through
+`SupportedFunctionWithHelpers`. -/
+structure SupportedSpecWithHelpers
+    (spec : CompilationModel) (selectors : List Nat) where
+  invariants : SupportedSpecInvariants spec selectors
+  surface : SupportedSpecSurface spec
+  constructor :
+    ∀ ctor, spec.constructor = some ctor → SupportedConstructor spec ctor
+  functions :
+    ∀ fn, fn ∈ spec.functions → SupportedFunctionWithHelpers spec fn
 
 /-- Whole-contract support witness for the top-level scalar-event theorem. -/
 structure SupportedSpecWithScalarEvents
@@ -3125,6 +3160,31 @@ def SupportedFunctionExceptMappingWrites.helperFuel
     {spec : CompilationModel} {fn : FunctionSpec}
     (hSupported : SupportedFunctionExceptMappingWrites spec fn) : Nat :=
   hSupported.body.calls.helpers.helperRank
+
+def SupportedFunctionWithHelpers.helperFuel
+    {spec : CompilationModel} {fn : FunctionSpec}
+    (hSupported : SupportedFunctionWithHelpers spec fn) : Nat :=
+  match hSupported.body with
+  | .legacy body => body.calls.helpers.helperRank
+  | .helperRich body => body.calls.helpers.helperRank
+  | .internalHelper summary => summary.helperRank
+
+def SupportedFunction.withHelpers
+    {spec : CompilationModel} {fn : FunctionSpec}
+    (hSupported : SupportedFunction spec fn) : SupportedFunctionWithHelpers spec fn :=
+  { nonSpecialEntrypoint := hSupported.nonSpecialEntrypoint
+    noNonReentrant := hSupported.noNonReentrant
+    params := hSupported.params
+    returns := hSupported.returns
+    body := .legacy hSupported.body }
+
+def SupportedSpec.withHelpers
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpec spec selectors) : SupportedSpecWithHelpers spec selectors :=
+  { invariants := hSupported.invariants
+    surface := hSupported.surface
+    constructor := hSupported.constructor
+    functions := fun fn hmem => (hSupported.functions fn hmem).withHelpers }
 
 private theorem exprCompileCore_helperSurfaceClosed
     {expr : Expr}
@@ -7164,6 +7224,14 @@ def SupportedSpec.supportedFunctionOfSelectorDispatched
     SupportedFunction spec fn :=
   hSupported.functions fn ((List.mem_filter.mp hfn).1)
 
+def SupportedSpecWithHelpers.supportedFunctionOfSelectorDispatched
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecWithHelpers spec selectors)
+    {fn : FunctionSpec}
+    (hfn : fn ∈ selectorDispatchedFunctions spec) :
+    SupportedFunctionWithHelpers spec fn :=
+  hSupported.functions fn ((List.mem_filter.mp hfn).1)
+
 def SupportedSpecExceptMappingWrites.supportedFunctionOfSelectorDispatched
     {spec : CompilationModel} {selectors : List Nat}
     (hSupported : SupportedSpecExceptMappingWrites spec selectors)
@@ -7183,6 +7251,16 @@ def SupportedSpecWithScalarEvents.supportedFunctionOfSelectorDispatched
 noncomputable def SupportedSpec.helperFuelOfFunction
     {spec : CompilationModel} {selectors : List Nat}
     (hSupported : SupportedSpec spec selectors)
+    (fn : FunctionSpec) : Nat :=
+  open Classical in
+  if hfn : fn ∈ selectorDispatchedFunctions spec then
+    (hSupported.supportedFunctionOfSelectorDispatched hfn).helperFuel
+  else
+    0
+
+noncomputable def SupportedSpecWithHelpers.helperFuelOfFunction
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecWithHelpers spec selectors)
     (fn : FunctionSpec) : Nat :=
   open Classical in
   if hfn : fn ∈ selectorDispatchedFunctions spec then
@@ -7218,6 +7296,13 @@ noncomputable def SupportedSpec.helperFuel
     (fun fuel fn => max fuel (hSupported.helperFuelOfFunction fn))
     0
 
+noncomputable def SupportedSpecWithHelpers.helperFuel
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecWithHelpers spec selectors) : Nat :=
+  (selectorDispatchedFunctions spec).foldl
+    (fun fuel fn => max fuel (hSupported.helperFuelOfFunction fn))
+    0
+
 noncomputable def SupportedSpecExceptMappingWrites.helperFuel
     {spec : CompilationModel} {selectors : List Nat}
     (hSupported : SupportedSpecExceptMappingWrites spec selectors) : Nat :=
@@ -7235,6 +7320,14 @@ noncomputable def SupportedSpecWithScalarEvents.helperFuel
 theorem SupportedSpec.selectorFunctionParamsSupported
     {spec : CompilationModel} {selectors : List Nat}
     (hSupported : SupportedSpec spec selectors)
+    {fn : FunctionSpec}
+    (hfn : fn ∈ selectorDispatchedFunctions spec) :
+    ∀ param ∈ fn.params, SupportedExternalParamType param.ty :=
+  (hSupported.supportedFunctionOfSelectorDispatched hfn).params.supported
+
+theorem SupportedSpecWithHelpers.selectorFunctionParamsSupported
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecWithHelpers spec selectors)
     {fn : FunctionSpec}
     (hfn : fn ∈ selectorDispatchedFunctions spec) :
     ∀ param ∈ fn.params, SupportedExternalParamType param.ty :=
