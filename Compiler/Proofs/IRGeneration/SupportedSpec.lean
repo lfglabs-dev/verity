@@ -1436,7 +1436,7 @@ def stmtTouchesUnsupportedCoreSurface : Stmt → Bool
   | .storageArrayPop _
   | .requireError _ _ _ | .revertError _ _ | .returnValues _ | .returnArray _
   | .returnBytes _ | .returnStorageWords _ | .returnCodeData _ | .calldatacopy _ _ _
-  | .returndataCopy _ _ _ | .revertReturndata
+  | .returndataCopy _ _ _ | .revertReturndata => false
   | .emit _ _ | .internalCall _ _ | .internalCallAssign _ _ _
   | .rawLog _ _ _ | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _ | .ecm _ _ => false
   | .unsafeBlock _ _ | .unsafeYul _ | .matchAdt _ _ _ => true
@@ -1462,8 +1462,12 @@ def stmtTouchesUnsupportedStateSurface : Stmt → Bool
   | .stop
   | .requireError _ _ _ | .revertError _ _ | .returnValues _ | .returnArray _
   | .returnBytes _ | .returnStorageWords _ | .returnCodeData _ | .calldatacopy _ _ _
-  | .returndataCopy _ _ _ | .revertReturndata
-  | .emit _ _ | .internalCall _ _ | .internalCallAssign _ _ _
+  | .returndataCopy _ _ _ | .revertReturndata => false
+  | .internalCall _ args =>
+      exprListTouchesUnsupportedStateSurface args
+  | .internalCallAssign _ _ args =>
+      exprListTouchesUnsupportedStateSurface args
+  | .emit _ _
   | .rawLog _ _ _ | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _ | .ecm _ _ => false
   | .unsafeBlock _ _ | .unsafeYul _ | .matchAdt _ _ _ => true
   | .ite cond thenBranch elseBranch =>
@@ -1472,6 +1476,12 @@ def stmtTouchesUnsupportedStateSurface : Stmt → Bool
         stmtListTouchesUnsupportedStateSurface elseBranch
   | .forEach _ (.literal _) [] => false
   | .forEach _ _ _ | .forEachSetBit _ _ _ => true
+
+def exprListTouchesUnsupportedStateSurface : List Expr → Bool
+  | [] => false
+  | expr :: rest =>
+      exprTouchesUnsupportedStateSurface expr ||
+        exprListTouchesUnsupportedStateSurface rest
 
 /-- Weaker Tier 2 state-surface gate used by the singleton storage-write bridge:
 all existing unsupported stateful forms remain excluded except for the proved
@@ -2718,6 +2728,22 @@ def stmtHelperRichCoreSupported : Stmt → Bool
 def stmtListHelperRichCoreSupported (stmts : List Stmt) : Bool :=
   stmts.all stmtHelperRichCoreSupported
 
+/-- Scope check retained specifically for helper-call arguments.  The scope is
+threaded across the surrounding statement list, so a helper may consume an
+earlier local but cannot refer to a name that has not yet been bound. -/
+def stmtHelperCallArgsInScope (scope : List String) : Stmt → Prop
+  | .internalCall _ args | .internalCallAssign _ _ args =>
+      ∀ arg ∈ args, FunctionBody.exprBoundNamesInScope arg scope
+  | .letVar _ (.internalCall _ args) | .assignVar _ (.internalCall _ args) =>
+      ∀ arg ∈ args, FunctionBody.exprBoundNamesInScope arg scope
+  | _ => True
+
+def stmtListHelperCallArgsInScope : List String → List Stmt → Prop
+  | _, [] => True
+  | scope, stmt :: rest =>
+      stmtHelperCallArgsInScope scope stmt ∧
+        stmtListHelperCallArgsInScope (stmtNextScope scope stmt) rest
+
 /-- Positive supported fragment for a helper-rich function body. Unlike the
 initial `SupportedBodyInterface`, this interface does not pass through
 `SupportedStmtList` (whose current constructors imply helper-surface closure).
@@ -2730,6 +2756,8 @@ structure SupportedHelperRichBodyFragment
     (spec : CompilationModel) (fn : FunctionSpec) where
   hasInternalHelperCall : ∃ calleeName, calleeName ∈ helperCallNames fn
   coreSupported : stmtListHelperRichCoreSupported fn.body = true
+  helperArgsInScope :
+    stmtListHelperCallArgsInScope (fn.params.map (·.name)) fn.body
   state : SupportedBodyStateInterface fn
   calls : SupportedBodyCallInterface spec fn
   effects : SupportedBodyEffectInterface fn

@@ -2048,6 +2048,12 @@ def ExprListInternalHelperCompositionalContextResult
       exprs = pre ++ headExpr :: suffix ∧
       exprIRs = preIR ++ headExprIR :: suffixIR ∧
       values = preValues ++ headValue :: suffixValues ∧
+      CompilationModel.compileExprListWithInternals fields .calldata spec.functions pre =
+        Except.ok preIR ∧
+      SourceSemantics.evalExprListWithHelpers spec fields (helperFuel + 1) runtime pre =
+        some preValues ∧
+      evalIRExprsWithInternals runtimeContract (irFuel + 1) state preIR =
+        .values preValues headEntryState ∧
       ExprInternalHelperCompositionalContextResult runtimeContract spec fields
         headExpr headExprIR helperFuel irFuel runtime headRuntime headEntryState
         headState headFinalState headValue
@@ -2067,7 +2073,10 @@ theorem exprListInternalHelperCompositionalContextResult_singleton
       finalState [value] := by
   rcases hexpr with ⟨hcompile, hsource, hir, hruntime, hpayload⟩
   refine ⟨?_, ?_, ?_, hruntime, [], [], [], [], [], [], expr, exprIR, value,
-    state, finalState, by simp, by simp, by simp, ?_⟩
+    state, finalState, by simp, by simp, by simp,
+    by simp [CompilationModel.compileExprListWithInternals, pure, Except.pure],
+    by simp [SourceSemantics.evalExprListWithHelpers],
+    by simp [evalIRExprsWithInternals], ?_⟩
   · simp [CompilationModel.compileExprListWithInternals, hcompile]
   · simp [SourceSemantics.evalExprListWithHelpers, hsource]
   · simp [evalIRExprsWithInternals, hir]
@@ -2096,10 +2105,10 @@ theorem exprListInternalHelperCompositionalContextResult_cons_tail
   rcases hrest with ⟨hcompileRest, hsourceRest, hirRest, hruntime,
     pre, suffix, preIR, suffixIR, preValues, suffixValues,
     headExpr, headExprIR, headValue, headEntryState, headFinalState,
-    hexprs, hexprIRs, hvalues, hhead⟩
+    hexprs, hexprIRs, hvalues, hcompilePre, hsourcePre, hirPre, hhead⟩
   refine ⟨?_, ?_, ?_, hruntime, expr :: pre, suffix, exprIR :: preIR,
     suffixIR, value :: preValues, suffixValues, headExpr, headExprIR, headValue,
-    headEntryState, headFinalState, ?_, ?_, ?_, hhead⟩
+    headEntryState, headFinalState, ?_, ?_, ?_, ?_, ?_, ?_, hhead⟩
   · simp [CompilationModel.compileExprListWithInternals, hcompile, hcompileRest,
       bind, Except.bind, pure, Except.pure]
   · simp [SourceSemantics.evalExprListWithHelpers, hsource, hsourceRest]
@@ -2107,6 +2116,10 @@ theorem exprListInternalHelperCompositionalContextResult_cons_tail
   · simp [hexprs]
   · simp [hexprIRs]
   · simp [hvalues]
+  · simp [CompilationModel.compileExprListWithInternals, hcompile, hcompilePre,
+      bind, Except.bind, pure, Except.pure]
+  · simp [SourceSemantics.evalExprListWithHelpers, hsource, hsourcePre]
+  · simp [evalIRExprsWithInternals, hir, hirPre]
 
 /-- Add a helper-bearing head in front of an already-evaluated sibling tail.
 The tail starts in the helper head's final IR state, providing the dual of
@@ -2130,7 +2143,10 @@ theorem exprListInternalHelperCompositionalContextResult_cons_head
       headState finalState (value :: values) := by
   rcases hexpr with ⟨hcompile, hsource, hir, hruntime, hpayload⟩
   refine ⟨?_, ?_, ?_, hruntime, [], rest, [], restIR, [], values, expr, exprIR,
-    value, state, exprFinalState, by simp, by simp, by simp, ?_⟩
+    value, state, exprFinalState, by simp, by simp, by simp,
+    by simp [CompilationModel.compileExprListWithInternals, pure, Except.pure],
+    by simp [SourceSemantics.evalExprListWithHelpers],
+    by simp [evalIRExprsWithInternals], ?_⟩
   · simp [CompilationModel.compileExprListWithInternals, hcompile, hcompileRest,
       bind, Except.bind, pure, Except.pure]
   · simp [SourceSemantics.evalExprListWithHelpers, hsource, hsourceRest]
@@ -2165,7 +2181,7 @@ theorem exprInternalHelperCompositionalContextResult_of_exprListContext
       headRuntime state headState finalState value := by
   rcases hchildren with ⟨_, _, _, hruntime, pre, suffix, preIR, suffixIR,
     preValues, suffixValues, headExpr, headExprIR, headValue, headEntryState,
-    headFinalState, _, _, _, hhead⟩
+    headFinalState, _, _, _, _, _, _, hhead⟩
   rcases hhead with ⟨_, _, _, _, hpayload⟩
   exact ⟨hcompile, hsource, hir, hruntime, hpayload⟩
 

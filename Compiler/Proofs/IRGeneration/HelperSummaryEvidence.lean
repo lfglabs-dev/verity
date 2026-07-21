@@ -558,6 +558,9 @@ def helperA_supportedHelperRichBodyFragment :
   refine {
     hasInternalHelperCall := ?_
     coreSupported := rfl
+    helperArgsInScope := by
+      simp [helperA, stmtListHelperCallArgsInScope, stmtHelperCallArgsInScope,
+        stmtNextScope]
     state := ⟨rfl⟩
     calls :=
       { helpers := helperA_supportedBodyHelperInterface
