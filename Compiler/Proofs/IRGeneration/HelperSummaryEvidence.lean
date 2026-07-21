@@ -57,6 +57,10 @@ private theorem List.mem_of_mem_eraseDups_local [BEq α] [LawfulBEq α]
     {a : α} {l : List α} (h : a ∈ l.eraseDups) : a ∈ l :=
   ((eraseDups_nodup_and_mem_aux_local l.length l (Nat.le_refl _)).2 a).mp h
 
+private theorem List.mem_eraseDups_of_mem_local [BEq α] [LawfulBEq α]
+    {a : α} {l : List α} (h : a ∈ l) : a ∈ l.eraseDups :=
+  ((eraseDups_nodup_and_mem_aux_local l.length l (Nat.le_refl _)).2 a).mpr h
+
 /-- Canonical selector-aware helper summary. -/
 def exactInternalHelperSummary
     (spec : CompilationModel)
@@ -544,6 +548,43 @@ def helperA_supportedBodyHelperInterface :
     change helperStmtListReadOnly helperB.body = true
     simp [helperB, helperStmtListReadOnly, helperStmtReadOnly,
       helperExprReadOnly, exprTouchesUnsupportedCallSurface]
+
+/-- Non-vacuous witness for the positive helper-rich supported fragment.
+`helperA` contains the expression-position call `helperB()`, whose exact
+summary, decreasing rank, and successful world preservation are supplied by
+`helperA_supportedBodyHelperInterface`. -/
+def helperA_supportedHelperRichBodyFragment :
+    SupportedHelperRichBodyFragment twoHelperSpec helperA := by
+  refine {
+    hasInternalHelperCall := ?_
+    coreSupported := rfl
+    state := ⟨rfl⟩
+    calls :=
+      { helpers := helperA_supportedBodyHelperInterface
+        foreign := rfl
+        lowLevel := rfl }
+    effects := ⟨rfl⟩
+    constructorRawCalldataSurfaceClosed := rfl
+    noLocalObligations := rfl
+  }
+  exact ⟨"helperB", by
+    apply List.mem_eraseDups_of_mem_local
+    simp [helperA, stmtListInternalHelperCallNames,
+      stmtInternalHelperCallNames, exprInternalHelperCallNames,
+      exprListInternalHelperCallNames]⟩
+
+/-- Explicit source-syntax evidence that the positive witness is genuinely
+helper-rich, rather than inhabited through an empty call inventory. -/
+theorem helperA_contains_internal_helper_call :
+    Stmt.letVar "x" (Expr.internalCall "helperB" []) ∈ helperA.body := by
+  simp [helperA]
+
+theorem helperA_helperB_occurs_in_call_inventory :
+    "helperB" ∈ helperCallNames helperA := by
+  apply List.mem_eraseDups_of_mem_local
+  simp [helperA, stmtListInternalHelperCallNames,
+    stmtInternalHelperCallNames, exprInternalHelperCallNames,
+    exprListInternalHelperCallNames]
 
 theorem helperA_supportedBodyHelperInterface_summary_sound :
     SupportedBodyHelperSummariesSound twoHelperSpec helperA

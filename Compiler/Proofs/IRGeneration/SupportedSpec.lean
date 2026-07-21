@@ -2680,10 +2680,10 @@ structure SupportedRuntimeHelperTableInterface
     ∀ calleeName (witness : SupportedInternalHelperWitness spec calleeName),
       (compiledOfWitness calleeName witness).sourceWitness = witness
 
-/-- Helper-call boundary for the current generic theorem.
-It already inventories helper callees via positive summary witnesses, but it
-still carries the helper-excluding body fragment witness, so the generic theorem
-shape and trusted boundary remain unchanged until helper semantics are modeled. -/
+/-- Positive helper-summary boundary used by both helper-free and helper-rich
+bodies. Every syntactically mentioned callee must resolve to a supported
+internal function with a decreasing rank, and expression-position helpers must
+preserve the world on success. -/
 structure SupportedBodyHelperInterface (spec : CompilationModel) (fn : FunctionSpec) where
   helperRank : Nat
   callNamesNodup : (helperCallNames fn).Nodup
@@ -2704,6 +2704,38 @@ structure SupportedBodyCallInterface (spec : CompilationModel) (fn : FunctionSpe
   helpers : SupportedBodyHelperInterface spec fn
   foreign : stmtListTouchesUnsupportedForeignSurface fn.body = false
   lowLevel : stmtListTouchesUnsupportedLowLevelSurface fn.body = false
+
+/-- Core-safe helper-positive statement heads. Helper arguments must remain in
+the existing core expression fragment; every non-helper head still passes the
+existing fail-closed core classifier. -/
+def stmtHelperRichCoreSupported : Stmt → Bool
+  | .internalCall _ args | .internalCallAssign _ _ args =>
+      args.all (fun arg => !exprTouchesUnsupportedCoreSurface arg)
+  | .letVar _ (.internalCall _ args) | .assignVar _ (.internalCall _ args) =>
+      args.all (fun arg => !exprTouchesUnsupportedCoreSurface arg)
+  | stmt => !stmtTouchesUnsupportedCoreSurface stmt
+
+def stmtListHelperRichCoreSupported (stmts : List Stmt) : Bool :=
+  stmts.all stmtHelperRichCoreSupported
+
+/-- Positive supported fragment for a helper-rich function body. Unlike the
+initial `SupportedBodyInterface`, this interface does not pass through
+`SupportedStmtList` (whose current constructors imply helper-surface closure).
+Instead it explicitly requires a genuine internal-helper call while retaining
+the independent syntactic gates and the semantic helper-summary obligations.
+
+This is only a supported-fragment definition; it does not claim the final
+whole-contract correctness theorem for helper-rich bodies. -/
+structure SupportedHelperRichBodyFragment
+    (spec : CompilationModel) (fn : FunctionSpec) where
+  hasInternalHelperCall : ∃ calleeName, calleeName ∈ helperCallNames fn
+  coreSupported : stmtListHelperRichCoreSupported fn.body = true
+  state : SupportedBodyStateInterface fn
+  calls : SupportedBodyCallInterface spec fn
+  effects : SupportedBodyEffectInterface fn
+  constructorRawCalldataSurfaceClosed :
+    stmtListTouchesUnsupportedConstructorRawCalldataSurface fn.body = false
+  noLocalObligations : fn.localObligations = []
 
 /-- Body-level interface for the initial theorem boundary. This keeps the current
 syntactic support inventory local to the body witness instead of baking it
