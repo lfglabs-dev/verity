@@ -63,7 +63,7 @@ theorem execIRInternalFunctionWithInternals_obeys_internal_helper_summary
       (helper := helper) (callerState := callerState)
       (initialWorld := initialWorld) (logicalArgs := logicalArgs) (irArgs := irArgs)
       (sourceBindings := sourceBindings) (entryBindings := entryBindings)
-      helperFuel extraFuel hfuelPos ctx with
+      helperFuel extraFuel hfuelPos (Nat.zero_le extraFuel) ctx with
     ⟨_hmatch, hinterp⟩
   constructor
   · -- Public source-arity fact retained for consumers (`harity` + bind).

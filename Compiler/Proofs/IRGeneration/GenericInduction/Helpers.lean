@@ -3340,12 +3340,14 @@ theorem exec_compileStmtList_generic_with_helpers_and_helper_ir_with_internals_s
     {state : IRState}
     {scope : List String}
     {stmts : List Stmt}
+    {irFuelSlack : Nat}
     (helperFuel : Nat)
     (extraFuel : Nat)
     (hfuelPos : 0 < helperFuel)
+    (hreserve : irFuelSlack ≤ extraFuel)
     (hgeneric :
       StmtListGenericWithHelpersAndHelperIRWithInternals
-        runtimeContract spec fields scope stmts)
+        runtimeContract spec fields scope stmts irFuelSlack)
     (hscope : FunctionBody.scopeNamesPresent scope runtime.bindings)
     (hexact : FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state)
     (hbounded : FunctionBody.bindingsBounded runtime.bindings)
@@ -3370,7 +3372,7 @@ theorem exec_compileStmtList_generic_with_helpers_and_helper_ir_with_internals_s
       · simp [SourceSemantics.execStmtListWithHelpers, execIRStmtsWithInternals,
               stmtStepMatchesIRExecWithInternals]
         exact And.intro hruntime <| And.intro hexact <| And.intro hbounded hscope
-  | @cons scope stmt compiledIR rest hstep hrest ih =>
+  | @cons irFuelSlack scope stmt compiledIR rest hstep hrest ih =>
       rcases compileStmtList_ok_of_stmtListGenericWithHelpersAndHelperIRWithInternals_exact
           hrest with ⟨tailIR, htailCompile⟩
       let bodyIR := compiledIR ++ tailIR
@@ -3384,7 +3386,7 @@ theorem exec_compileStmtList_generic_with_helpers_and_helper_ir_with_internals_s
           spec.functions compiledIR tailIR hstep.compileOk htailCompile
       let headExtraFuel := sizeOf bodyIR - compiledIR.length + extraFuel
       have hheadSlack :
-          sizeOf compiledIR - compiledIR.length ≤ headExtraFuel := by
+          sizeOf compiledIR - compiledIR.length + irFuelSlack ≤ headExtraFuel := by
         have hsize : sizeOf compiledIR ≤ sizeOf bodyIR := by
           simpa [bodyIR] using yulStmtList_sizeOf_append_left_le compiledIR tailIR
         dsimp [headExtraFuel]
@@ -3407,11 +3409,15 @@ theorem exec_compileStmtList_generic_with_helpers_and_helper_ir_with_internals_s
         rcases hheadMatch with ⟨hruntime', hexact', hbounded', hscope'⟩
         let tailExtraFuel' :=
           sizeOf bodyIR - compiledIR.length - sizeOf tailIR + extraFuel
+        have htailReserve : irFuelSlack ≤ tailExtraFuel' := by
+          dsimp [tailExtraFuel']
+          omega
         have htailSem' :=
           ih
             (runtime := _)
             (state := _)
             (extraFuel := tailExtraFuel')
+            htailReserve
             hscope' hexact' hbounded' hruntime'
         rcases htailSem' with ⟨tailIR', htailCompile', htailSem''⟩
         rw [htailCompile] at htailCompile'
@@ -3556,6 +3562,7 @@ theorem exec_compileStmtList_generic_with_helpers_and_helper_ir_with_internals_s
       (helperFuel := helperFuel)
       (extraFuel := extraFuel)
       hfuelPos
+      (Nat.zero_le extraFuel)
       hgeneric
       hscope
       hexact

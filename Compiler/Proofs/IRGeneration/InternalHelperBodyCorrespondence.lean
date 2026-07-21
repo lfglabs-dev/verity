@@ -797,13 +797,14 @@ structure InternalHelperBodyExecContext
     (callee : FunctionSpec) (helper : IRInternalFunctionDef)
     (callerState : IRState) (initialWorld : Verity.ContractState)
     (logicalArgs irArgs : List Nat) (sourceBindings entryBindings : List (String × Nat))
-    (helperFuel : Nat) : Prop where
+    (helperFuel : Nat) (irFuelSlack : Nat := 0) : Prop where
   /-- Source arguments have one value per source parameter, whereas `irArgs`
   has one value per lowered Yul parameter. -/
   bindArgs : SourceSemantics.bindInternalArgs callee.params logicalArgs = some sourceBindings
   helperParams : helper.params = CompilationModel.internalFunctionYulParamNames callee.params
   generic : StmtListGenericWithHelpersAndHelperIRWithInternals runtimeContract spec
     (SourceSemantics.effectiveFields spec) (internalHelperBodyScope callee helper) callee.body
+    irFuelSlack
   bodyCompile : CompilationModel.compileStmtList (SourceSemantics.effectiveFields spec)
     spec.events spec.errors .calldata helper.rets true (internalHelperBodyScope callee helper)
     [] callee.body spec.functions = Except.ok helper.body
@@ -833,9 +834,11 @@ theorem internal_helper_body_exec_matches_entryBindings_and_projected_result_of_
     {callee : FunctionSpec} {helper : IRInternalFunctionDef}
     {callerState : IRState} {initialWorld : Verity.ContractState}
     {logicalArgs irArgs : List Nat} {sourceBindings entryBindings : List (String × Nat)}
+    {irFuelSlack : Nat}
     (helperFuel extraFuel : Nat) (hfuelPos : 0 < helperFuel)
+    (hreserve : irFuelSlack ≤ extraFuel)
     (ctx : InternalHelperBodyExecContext runtimeContract spec callee helper
-      callerState initialWorld logicalArgs irArgs sourceBindings entryBindings helperFuel) :
+      callerState initialWorld logicalArgs irArgs sourceBindings entryBindings helperFuel irFuelSlack) :
     stmtResultMatchesIRExecWithInternals (SourceSemantics.effectiveFields spec)
         (internalHelperBodySourceResult spec callee initialWorld callerState.selector entryBindings helperFuel)
         (internalHelperBodyIRExec runtimeContract helper callerState irArgs extraFuel) ∧
@@ -849,7 +852,7 @@ theorem internal_helper_body_exec_matches_entryBindings_and_projected_result_of_
         (runtime := internalHelperBodyRuntime initialWorld callerState.selector entryBindings)
         (state := prepareInternalCalleeState callerState helper irArgs)
         (scope := internalHelperBodyScope callee helper) (stmts := callee.body)
-        helperFuel extraFuel hfuelPos ctx.generic ctx.scope ctx.exact ctx.bounded
+        helperFuel extraFuel hfuelPos hreserve ctx.generic ctx.scope ctx.exact ctx.bounded
         ctx.runtime with ⟨bodyIR, hcompile, hstep⟩
     have hmatch :=
       stmtStepMatchesIRExecWithInternals_implies_stmtResultMatchesIRExecWithInternals hstep

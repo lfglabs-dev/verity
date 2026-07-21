@@ -208,7 +208,8 @@ structure CompiledStmtStepWithHelpersAndHelperIRWithInternals
     (fields : List Field)
     (scope : List String)
     (stmt : Stmt)
-    (compiledIR : List YulStmt) : Prop where
+    (compiledIR : List YulStmt)
+    (irFuelSlack : Nat := 0) : Prop where
   compileOk :
     CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
         stmt spec.functions =
@@ -223,7 +224,7 @@ structure CompiledStmtStepWithHelpersAndHelperIRWithInternals
       FunctionBody.scopeNamesPresent scope runtime.bindings →
       FunctionBody.bindingsBounded runtime.bindings →
       FunctionBody.runtimeStateMatchesIR fields runtime state →
-      sizeOf compiledIR - compiledIR.length ≤ extraFuel →
+      sizeOf compiledIR - compiledIR.length + irFuelSlack ≤ extraFuel →
       ∃ sourceResult irExec,
         SourceSemantics.execStmtWithHelpers spec fields helperFuel runtime stmt = sourceResult ∧
         execIRStmtsWithInternals runtimeContract
@@ -468,17 +469,17 @@ enough for callers that thread the compiler scope structurally. -/
 inductive StmtListGenericWithHelpersAndHelperIRWithInternals
     (runtimeContract : IRContract)
     (spec : CompilationModel)
-    (fields : List Field) : List String → List Stmt → Prop where
+    (fields : List Field) : List String → List Stmt → (irFuelSlack : Nat := 0) → Prop where
   | nil {scope : List String} :
       StmtListGenericWithHelpersAndHelperIRWithInternals
-        runtimeContract spec fields scope []
+        runtimeContract spec fields scope [] irFuelSlack
   | cons {scope : List String} {stmt : Stmt} {compiledIR : List YulStmt} {rest : List Stmt} :
       CompiledStmtStepWithHelpersAndHelperIRWithInternals
-        runtimeContract spec fields scope stmt compiledIR →
+        runtimeContract spec fields scope stmt compiledIR irFuelSlack →
       StmtListGenericWithHelpersAndHelperIRWithInternals
-        runtimeContract spec fields (stmtNextScope scope stmt) rest →
+        runtimeContract spec fields (stmtNextScope scope stmt) rest irFuelSlack →
       StmtListGenericWithHelpersAndHelperIRWithInternals
-        runtimeContract spec fields scope (stmt :: rest)
+        runtimeContract spec fields scope (stmt :: rest) irFuelSlack
 
 /-- Exact-scope compile reconstruction for the spec-functions-aware helper IR
 list seam. -/
@@ -488,9 +489,10 @@ theorem compileStmtList_ok_of_stmtListGenericWithHelpersAndHelperIRWithInternals
     {fields : List Field}
     {scope : List String}
     {stmts : List Stmt}
+    {irFuelSlack : Nat}
     (hgeneric :
       StmtListGenericWithHelpersAndHelperIRWithInternals
-        runtimeContract spec fields scope stmts) :
+        runtimeContract spec fields scope stmts irFuelSlack) :
     ∃ bodyIR,
       CompilationModel.compileStmtList
         fields spec.events spec.errors .calldata [] false scope [] stmts spec.functions =
@@ -500,7 +502,7 @@ theorem compileStmtList_ok_of_stmtListGenericWithHelpersAndHelperIRWithInternals
       exact ⟨[], by
         simp [CompilationModel.compileStmtList, CompilationModel.compileStmtListWithFork,
           Pure.pure, Except.pure]⟩
-  | @cons scope stmt compiledIR rest hstep _hrest ih =>
+  | @cons irFuelSlack scope stmt compiledIR rest hstep _hrest ih =>
       rcases ih with ⟨tailIR, htail⟩
       rcases FunctionBody.compileStmtList_ok_any_scope_with_surface_with_internals
           (scope2 := collectStmtBindNames stmt ++ scope) ⟨tailIR, htail⟩ with
@@ -524,9 +526,10 @@ theorem compileStmtList_ok_of_stmtListGenericWithHelpersAndHelperIRWithInternals
     {fields : List Field}
     {scope inScopeNames : List String}
     {stmts : List Stmt}
+    {irFuelSlack : Nat}
     (hgeneric :
       StmtListGenericWithHelpersAndHelperIRWithInternals
-        runtimeContract spec fields scope stmts)
+        runtimeContract spec fields scope stmts irFuelSlack)
     (hincluded : FunctionBody.scopeNamesIncluded scope inScopeNames) :
     ∃ bodyIR,
       CompilationModel.compileStmtList
