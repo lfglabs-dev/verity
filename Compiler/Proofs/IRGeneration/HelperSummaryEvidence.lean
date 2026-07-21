@@ -622,7 +622,10 @@ noncomputable def twoHelper_supportedSpecWithHelpers :
     · simp [twoHelperSpec]
     · simp [twoHelperSpec, helperA, helperB]
   · refine ⟨rfl, rfl, rfl, rfl, ?_, ?_, ?_, ?_⟩
-    · native_decide
+    · simp [contractUsesCheckedArithmetic, twoHelperSpec]
+      constructor
+      · simp [helperA, stmtListMayUseCheckedArithmetic, stmtMayUseCheckedArithmetic]
+      · simp [helperB, stmtListMayUseCheckedArithmetic, stmtMayUseCheckedArithmetic]
     · rw [templateIntrinsicItems, twoHelperSpec, helperA, helperB]
       unfold collectTemplateIntrinsicsFromStmts
       simp only [List.flatMap_cons, List.flatMap_nil, List.append_nil]
