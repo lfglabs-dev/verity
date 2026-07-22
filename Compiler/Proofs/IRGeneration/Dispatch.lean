@@ -80,14 +80,16 @@ private theorem find_compiledFunction_some_of_forall₂
     (hcompiled :
       List.Forall₂
         (fun entry irFn =>
-          compileFunctionSpec fields events errors [] entry.2 entry.1 internalFunctions = Except.ok irFn)
+          compileFunctionSpec fields events errors [] entry.2 entry.1
+            (internalFunctions := internalFunctions) = Except.ok irFn)
         pairs irFns)
     {fn : FunctionSpec} {sel : Nat}
     (hfind :
       pairs.find? (fun entry => entry.2 == selector) = some (fn, sel)) :
     ∃ irFn,
       irFns.find? (fun irFn => irFn.selector == selector) = some irFn ∧
-      compileFunctionSpec fields events errors [] sel fn internalFunctions = Except.ok irFn := by
+      compileFunctionSpec fields events errors [] sel fn
+        (internalFunctions := internalFunctions) = Except.ok irFn := by
   induction hcompiled generalizing fn sel with
   | nil =>
       simp at hfind
@@ -96,7 +98,8 @@ private theorem find_compiledFunction_some_of_forall₂
       by_cases hselEq : headSel = selector
       · simp [hselEq] at hfind
         rcases hfind with ⟨rfl, rfl⟩
-        have hhead' : compileFunctionSpec fields events errors [] selector headFn internalFunctions = Except.ok irFn := by
+        have hhead' : compileFunctionSpec fields events errors [] selector headFn
+            (internalFunctions := internalFunctions) = Except.ok irFn := by
           simpa [hselEq] using hhead
         refine ⟨irFn, ?_, hhead'⟩
         have hselector : irFn.selector = selector := by
@@ -124,7 +127,8 @@ private theorem find_compiledFunction_none_of_forall₂
     (hcompiled :
       List.Forall₂
         (fun entry irFn =>
-          compileFunctionSpec fields events errors [] entry.2 entry.1 internalFunctions = Except.ok irFn)
+          compileFunctionSpec fields events errors [] entry.2 entry.1
+            (internalFunctions := internalFunctions) = Except.ok irFn)
         pairs irFns)
     (hfind :
       pairs.find? (fun entry => entry.2 == selector) = none) :
@@ -430,7 +434,7 @@ theorem interpretContractWithHelpersWithInternals_correct_of_compiled_functions
     (hcompiled :
       List.Forall₂
         (fun entry irFn => compileFunctionSpec model.fields model.events model.errors [] entry.2 entry.1
-          (model.functions.filter (·.isInternal)) = Except.ok irFn)
+          (internalFunctions := model.functions.filter (·.isInternal)) = Except.ok irFn)
         (SourceSemantics.selectorFunctionPairs model selectors)
         irFns)
     (hparamsSupported :
@@ -440,7 +444,7 @@ theorem interpretContractWithHelpersWithInternals_correct_of_compiled_functions
       ∀ fn sel irFn bindings,
         fn ∈ selectorDispatchedFunctions model →
         compileFunctionSpec model.fields model.events model.errors [] sel fn
-          (model.functions.filter (·.isInternal)) = Except.ok irFn →
+          (internalFunctions := model.functions.filter (·.isInternal)) = Except.ok irFn →
         SourceSemantics.bindSupportedParams fn.params tx.args = some bindings →
         FunctionBody.sourceResultMatchesIRResult
           (SourceSemantics.interpretFunctionWithHelpers model helperFuel fn tx initialWorld)
@@ -574,13 +578,13 @@ theorem interpretContractWithInternals_correct_of_compiled_functions_with_helper
     (hcompiled :
       List.Forall₂
         (fun entry irFn => compileFunctionSpec model.fields model.events model.errors [] entry.2 entry.1
-          (model.functions.filter (·.isInternal)) = Except.ok irFn)
+          (internalFunctions := model.functions.filter (·.isInternal)) = Except.ok irFn)
         (SourceSemantics.selectorFunctionPairs model selectors) irFns)
     (hfunction :
       ∀ fn sel irFn bindings,
         fn ∈ selectorDispatchedFunctions model →
         compileFunctionSpec model.fields model.events model.errors [] sel fn
-          (model.functions.filter (·.isInternal)) = Except.ok irFn →
+          (internalFunctions := model.functions.filter (·.isInternal)) = Except.ok irFn →
         SourceSemantics.bindSupportedParams fn.params tx.args = some bindings →
         FunctionBody.sourceResultMatchesIRResult
           (supportedSourceFunctionSemanticsWithHelpers
