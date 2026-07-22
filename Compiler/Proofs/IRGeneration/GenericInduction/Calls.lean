@@ -219,7 +219,6 @@ theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCallAssign
     {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
     {scope : List String} {names : List String} {calleeName : String} {args : List Expr}
     {compiledIR : List YulStmt} {argExprs : List YulExpr}
-    (irFuelSlack : Nat := 0)
     (hcompile :
       CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
         (Stmt.internalCallAssign names calleeName args) spec.functions = Except.ok compiledIR)
@@ -240,7 +239,8 @@ theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCallAssign
             (Stmt.internalCallAssign names calleeName args))
           (execIRStmtsWithInternals runtimeContract (irFuel + 3) state
             [YulStmt.letMany names (YulExpr.call
-              (CompilationModel.internalFunctionYulName calleeName) argExprs)])) :
+              (CompilationModel.internalFunctionYulName calleeName) argExprs)]))
+    (irFuelSlack : Nat := 0) :
     CompiledStmtStepWithHelpersAndHelperIRWithInternals
       runtimeContract spec fields scope
         (Stmt.internalCallAssign names calleeName args) compiledIR irFuelSlack := by
@@ -367,7 +367,7 @@ theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCallAssign_o
     compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCallAssign
       (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
       (scope := scope) (names := names) (calleeName := calleeName) (args := args)
-      (compiledIR := compiledIR) (argExprs := argExprs) hcompile hargCompile ?_
+      (compiledIR := compiledIR) (argExprs := argExprs) hcompile hargCompile ?_ irFuelSlack
   intro runtime state helperFuel irFuel hfuel hexact hscope hbounded hruntime
   by_cases hsource : 1 < helperFuel
   · by_cases hir : helperBodySize + 2 + irFuelSlack ≤ irFuel
@@ -384,7 +384,6 @@ theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCall
     {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
     {scope : List String} {calleeName : String} {args : List Expr}
     {compiledIR : List YulStmt} {argExprs : List YulExpr}
-    (irFuelSlack : Nat := 0)
     (hcompile :
       CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
         (Stmt.internalCall calleeName args) spec.functions = Except.ok compiledIR)
@@ -405,7 +404,8 @@ theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCall
             (Stmt.internalCall calleeName args))
           (execIRStmtsWithInternals runtimeContract (irFuel + 3) state
             [YulStmt.exprStmt (YulExpr.call
-              (CompilationModel.internalFunctionYulName calleeName) argExprs)])) :
+              (CompilationModel.internalFunctionYulName calleeName) argExprs)]))
+    (irFuelSlack : Nat := 0) :
     CompiledStmtStepWithHelpersAndHelperIRWithInternals
       runtimeContract spec fields scope (Stmt.internalCall calleeName args) compiledIR irFuelSlack := by
   refine { compileOk := hcompile, preserves := ?_ }
@@ -540,7 +540,7 @@ theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCall_of_fuel
     compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCall
       (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
       (scope := scope) (calleeName := calleeName) (args := args)
-      (compiledIR := compiledIR) (argExprs := argExprs) hcompile hargCompile ?_
+      (compiledIR := compiledIR) (argExprs := argExprs) hcompile hargCompile ?_ irFuelSlack
   intro runtime state helperFuel irFuel hfuel hexact hscope hbounded hruntime
   by_cases hsource : 1 < helperFuel
   · by_cases hir : helperBodySize + 2 + irFuelSlack ≤ irFuel
