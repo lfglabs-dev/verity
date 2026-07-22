@@ -2715,10 +2715,10 @@ structure SupportedBodyCallInterface (spec : CompilationModel) (fn : FunctionSpe
   foreign : stmtListTouchesUnsupportedForeignSurface fn.body = false
   lowLevel : stmtListTouchesUnsupportedLowLevelSurface fn.body = false
 
-/-- Core-safe helper-positive statement heads. Helper arguments must remain in
-the existing core expression fragment; every non-helper head still passes the
-existing fail-closed core classifier. -/
 mutual
+  /-- Core-safe helper-positive statement heads. Helper arguments must remain in
+  the existing core expression fragment; every non-helper head still passes the
+  existing fail-closed core classifier. -/
   def stmtHelperRichCoreSupported : Stmt → Bool
     | .internalCall _ args | .internalCallAssign _ _ args =>
         args.all (fun arg => !exprTouchesUnsupportedCoreSurface arg)
@@ -2736,10 +2736,10 @@ mutual
         stmtHelperRichCoreSupported stmt && stmtListHelperRichCoreSupported rest
 end
 
-/-- Scope check retained specifically for helper-call arguments.  The scope is
-threaded across the surrounding statement list, so a helper may consume an
-earlier local but cannot refer to a name that has not yet been bound. -/
 mutual
+  /-- Scope check retained specifically for helper-call arguments.  The scope is
+  threaded across the surrounding statement list, so a helper may consume an
+  earlier local but cannot refer to a name that has not yet been bound. -/
   def stmtHelperCallArgsInScope (scope : List String) : Stmt → Prop
     | .internalCall _ args | .internalCallAssign _ _ args =>
         ∀ arg ∈ args, FunctionBody.exprBoundNamesInScope arg scope
@@ -2769,7 +2769,7 @@ example :
     ¬ stmtListHelperCallArgsInScope []
       [.ite (.literal 1) [.internalCall "helper" [.param "missing"]] []] := by
   simp [stmtListHelperCallArgsInScope, stmtHelperCallArgsInScope,
-    FunctionBody.exprBoundNamesInScope, exprBoundNames]
+    FunctionBody.exprBoundNamesInScope, FunctionBody.exprBoundNames]
 
 /-- Positive supported fragment for a helper-rich function body. Unlike the
 initial `SupportedBodyInterface`, this interface does not pass through
