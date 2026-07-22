@@ -868,8 +868,8 @@ theorem directInternalHelperStatementContextBridge_sourceAssignEvidence
           (if result.success then
             match names, result.returnValue with
             | [name], some value =>
-                .continue
-                  { world := result.world
+                .continue { state with
+                    world := result.world
                     bindings := SourceSemantics.bindValue state.bindings name value }
             | _, _ => .revert
           else .revert) ∧
@@ -1077,8 +1077,8 @@ abbrev directInternalHelperAssignSourceResult
   if result.success then
     match names, result.returnValue with
     | [name], some value =>
-        .continue
-          { world := result.world
+        .continue { state with
+            world := result.world
             bindings := SourceSemantics.bindValue state.bindings name value }
     | _, _ => .revert
   else .revert
