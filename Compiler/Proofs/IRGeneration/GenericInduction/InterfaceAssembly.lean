@@ -372,7 +372,7 @@ theorem stmtListDirectInternalHelperStepInterfaceWithInternals_of_callStepInterf
   induction hcall with
   | nil =>
       exact .nil
-  | @cons scope stmt rest hheadCall htailCall ih =>
+  | @cons _ scope stmt rest hheadCall htailCall ih =>
       cases hassign with
       | cons hheadAssign htailAssign =>
           refine .cons ?_ (ih htailAssign)
@@ -409,7 +409,7 @@ theorem stmtListInternalHelperSurfaceStepInterfaceWithInternals_of_directInterna
   induction hdirect with
   | nil =>
       exact .nil
-  | @cons scope stmt rest hheadDirect htailDirect ih =>
+  | @cons _ scope stmt rest hheadDirect htailDirect ih =>
       cases hexpr with
       | cons hheadExpr htailExpr =>
           cases hstruct with
@@ -693,7 +693,7 @@ theorem stmtListHelperSurfaceStepInterfaceWithInternals_of_internalHelperSurface
   induction hinternal with
   | nil =>
       exact .nil
-  | @cons scope stmt rest hheadInternal htailInternal ih =>
+  | @cons _ scope stmt rest hheadInternal htailInternal ih =>
       cases hresidual with
       | cons hheadResidual htailResidual =>
           refine .cons ?_ (ih htailResidual)
@@ -1020,7 +1020,7 @@ theorem
   induction hexpr with
   | nil =>
       exact .nil
-  | @cons scope stmt rest hhead htail ih =>
+  | @cons _ scope stmt rest hhead htail ih =>
       rcases hhead (hallExpr stmt List.mem_cons_self) with ⟨compiledIR, hcompiled⟩
       exact .cons hcompiled
         (ih (fun stmt' hmem =>
@@ -1048,7 +1048,7 @@ theorem
   induction hdirect with
   | nil =>
       exact .nil
-  | @cons scope stmt rest hhead htail ih =>
+  | @cons _ scope stmt rest hhead htail ih =>
       rcases hhead (hallDirect stmt List.mem_cons_self) with ⟨compiledIR, hcompiled⟩
       exact .cons hcompiled
         (ih (fun stmt' hmem =>
@@ -1076,7 +1076,7 @@ theorem
   induction hstruct with
   | nil =>
       exact .nil
-  | @cons scope stmt rest hhead htail ih =>
+  | @cons _ scope stmt rest hhead htail ih =>
       rcases hhead (hallStructural stmt List.mem_cons_self) with
         ⟨compiledIR, hcompiled⟩
       exact .cons hcompiled
@@ -1107,7 +1107,7 @@ theorem
   induction hsteps with
   | nil =>
       exact .nil
-  | @cons scope stmt rest hheadStep htailSteps ih =>
+  | @cons _ scope stmt rest hheadStep htailSteps ih =>
       cases hhelperFree with
       | cons hheadFree htailFree =>
           by_cases hsurface : stmtTouchesUnsupportedHelperSurface stmt = false
