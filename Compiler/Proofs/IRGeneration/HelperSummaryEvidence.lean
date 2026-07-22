@@ -559,6 +559,8 @@ def helperA_supportedHelperRichBodyFragment :
     hasInternalHelperCall := ?_
     coreSupported := rfl
     expressionsInScope := by
+      -- The concrete helper call has no arguments, so exposing the expression-list
+      -- bound-name fold closes the direct-metadata subexpression obligation.
       simp [helperA, stmtListHelperRichExprsInScope, stmtHelperRichExprsInScope,
         Stmt.directMetadata, FunctionBody.exprBoundNamesInScope,
         FunctionBody.exprBoundNames, FunctionBody.exprListBoundNames, stmtNextScope]
