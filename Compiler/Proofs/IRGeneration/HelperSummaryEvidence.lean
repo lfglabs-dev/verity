@@ -563,7 +563,11 @@ def helperA_supportedHelperRichBodyFragment :
       -- bound-name fold closes the direct-metadata subexpression obligation.
       simp [helperA, stmtListHelperRichExprsInScope, stmtHelperRichExprsInScope,
         Stmt.directMetadata, FunctionBody.exprBoundNamesInScope,
-        FunctionBody.exprBoundNames, FunctionBody.exprListBoundNames, stmtNextScope]
+        FunctionBody.exprBoundNames, FunctionBody.exprListBoundNames,
+        stmtHelperRichNextScope, stmtNextScope]
+    assignTargetsSupported := by
+      simp [helperA, stmtListHelperRichAssignTargetsSupported,
+        stmtHelperRichAssignTargetsSupported]
     stateSupported := rfl
     calls :=
       { helpers := helperA_supportedBodyHelperInterface

@@ -219,6 +219,7 @@ theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCallAssign
     {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
     {scope : List String} {names : List String} {calleeName : String} {args : List Expr}
     {compiledIR : List YulStmt} {argExprs : List YulExpr}
+    {irFuelSlack : Nat := 0}
     (hcompile :
       CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
         (Stmt.internalCallAssign names calleeName args) spec.functions = Except.ok compiledIR)
@@ -241,7 +242,8 @@ theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCallAssign
             [YulStmt.letMany names (YulExpr.call
               (CompilationModel.internalFunctionYulName calleeName) argExprs)])) :
     CompiledStmtStepWithHelpersAndHelperIRWithInternals
-      runtimeContract spec fields scope (Stmt.internalCallAssign names calleeName args) compiledIR := by
+      runtimeContract spec fields scope
+        (Stmt.internalCallAssign names calleeName args) compiledIR irFuelSlack := by
   refine { compileOk := hcompile, preserves := ?_ }
   intro runtime state helperFuel extraFuel hfuelPos hexact hscope hbounded hruntime hslack
   obtain ⟨argExprs', hargOk, hshape⟩ := compileStmt_internalCallAssign_shape_with_internals hcompile
@@ -325,6 +327,15 @@ abbrev InternalCallAssignWithInternalsResidualBridge
     InternalCallAssignWithInternalsBridgeAt runtimeContract spec fields scope names calleeName
       args argExprs runtime state helperFuel irFuel
 
+abbrev InternalCallAssignWithInternalsAdditiveResidualBridge
+    (runtimeContract : IRContract) (spec : CompilationModel) (fields : List Field)
+    (scope : List String) (names : List String) (calleeName : String) (args : List Expr)
+    (argExprs : List YulExpr) (helperBodySize irFuelSlack : Nat) : Prop :=
+  ∀ (runtime : SourceSemantics.RuntimeState) (state : IRState) (helperFuel irFuel : Nat),
+    (¬ 1 < helperFuel ∨ ¬ helperBodySize + 2 + irFuelSlack ≤ irFuel) →
+    InternalCallAssignWithInternalsBridgeAt runtimeContract spec fields scope names calleeName
+      args argExprs runtime state helperFuel irFuel
+
 /-- Fuel-split variant of the direct assignment-call singleton constructor.
 
 This preserves the existing all-positive-fuel public target while exposing the
@@ -335,6 +346,7 @@ theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCallAssign_o
     {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
     {scope : List String} {names : List String} {calleeName : String} {args : List Expr}
     {compiledIR : List YulStmt} {argExprs : List YulExpr}
+    {irFuelSlack : Nat := 0}
     (helperBodySize : Nat)
     (hcompile :
       CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
@@ -343,14 +355,14 @@ theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCallAssign_o
       CompilationModel.compileInternalCallArgs fields .calldata spec.functions
         calleeName args = Except.ok argExprs)
     (bridgeSufficient :
-      InternalCallAssignWithInternalsSufficientBridge runtimeContract spec fields scope names
-        calleeName args argExprs helperBodySize)
+      InternalCallAssignWithInternalsAdditiveBridge runtimeContract spec fields scope names
+        calleeName args argExprs helperBodySize irFuelSlack)
     (bridgeResidual :
-      InternalCallAssignWithInternalsResidualBridge runtimeContract spec fields scope names
-        calleeName args argExprs helperBodySize) :
+      InternalCallAssignWithInternalsAdditiveResidualBridge runtimeContract spec fields scope names
+        calleeName args argExprs helperBodySize irFuelSlack) :
     CompiledStmtStepWithHelpersAndHelperIRWithInternals
       runtimeContract spec fields scope
-      (Stmt.internalCallAssign names calleeName args) compiledIR := by
+      (Stmt.internalCallAssign names calleeName args) compiledIR irFuelSlack := by
   refine
     compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCallAssign
       (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
@@ -358,7 +370,7 @@ theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCallAssign_o
       (compiledIR := compiledIR) (argExprs := argExprs) hcompile hargCompile ?_
   intro runtime state helperFuel irFuel hfuel hexact hscope hbounded hruntime
   by_cases hsource : 1 < helperFuel
-  · by_cases hir : helperBodySize + 2 ≤ irFuel
+  · by_cases hir : helperBodySize + 2 + irFuelSlack ≤ irFuel
     · exact bridgeSufficient runtime state helperFuel irFuel hsource hir
         hfuel hexact hscope hbounded hruntime
     · exact bridgeResidual runtime state helperFuel irFuel (.inr hir)
@@ -372,6 +384,7 @@ theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCall
     {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
     {scope : List String} {calleeName : String} {args : List Expr}
     {compiledIR : List YulStmt} {argExprs : List YulExpr}
+    {irFuelSlack : Nat := 0}
     (hcompile :
       CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
         (Stmt.internalCall calleeName args) spec.functions = Except.ok compiledIR)
@@ -394,7 +407,7 @@ theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCall
             [YulStmt.exprStmt (YulExpr.call
               (CompilationModel.internalFunctionYulName calleeName) argExprs)])) :
     CompiledStmtStepWithHelpersAndHelperIRWithInternals
-      runtimeContract spec fields scope (Stmt.internalCall calleeName args) compiledIR := by
+      runtimeContract spec fields scope (Stmt.internalCall calleeName args) compiledIR irFuelSlack := by
   refine { compileOk := hcompile, preserves := ?_ }
   intro runtime state helperFuel extraFuel hfuelPos hexact hscope hbounded hruntime hslack
   obtain ⟨argExprs', hargOk, hshape⟩ := compileStmt_internalCall_shape_with_internals hcompile
@@ -487,6 +500,15 @@ abbrev InternalCallWithInternalsResidualBridge
     InternalCallWithInternalsBridgeAt runtimeContract spec fields scope calleeName args argExprs
       runtime state helperFuel irFuel
 
+abbrev InternalCallWithInternalsAdditiveResidualBridge
+    (runtimeContract : IRContract) (spec : CompilationModel) (fields : List Field)
+    (scope : List String) (calleeName : String) (args : List Expr)
+    (argExprs : List YulExpr) (helperBodySize irFuelSlack : Nat) : Prop :=
+  ∀ (runtime : SourceSemantics.RuntimeState) (state : IRState) (helperFuel irFuel : Nat),
+    (¬ 1 < helperFuel ∨ ¬ helperBodySize + 2 + irFuelSlack ≤ irFuel) →
+    InternalCallWithInternalsBridgeAt runtimeContract spec fields scope calleeName args argExprs
+      runtime state helperFuel irFuel
+
 /-- Fuel-split variant of the direct void-call singleton constructor.
 
 The existing public single-step interface still asks for every positive source
@@ -498,6 +520,7 @@ theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCall_of_fuel
     {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
     {scope : List String} {calleeName : String} {args : List Expr}
     {compiledIR : List YulStmt} {argExprs : List YulExpr}
+    {irFuelSlack : Nat := 0}
     (helperBodySize : Nat)
     (hcompile :
       CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
@@ -506,13 +529,13 @@ theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCall_of_fuel
       CompilationModel.compileInternalCallArgs fields .calldata spec.functions
         calleeName args = Except.ok argExprs)
     (bridgeSufficient :
-      InternalCallWithInternalsSufficientBridge runtimeContract spec fields scope calleeName args
-        argExprs helperBodySize)
+      InternalCallWithInternalsAdditiveBridge runtimeContract spec fields scope calleeName args
+        argExprs helperBodySize irFuelSlack)
     (bridgeResidual :
-      InternalCallWithInternalsResidualBridge runtimeContract spec fields scope calleeName args
-        argExprs helperBodySize) :
+      InternalCallWithInternalsAdditiveResidualBridge runtimeContract spec fields scope calleeName args
+        argExprs helperBodySize irFuelSlack) :
     CompiledStmtStepWithHelpersAndHelperIRWithInternals
-      runtimeContract spec fields scope (Stmt.internalCall calleeName args) compiledIR := by
+      runtimeContract spec fields scope (Stmt.internalCall calleeName args) compiledIR irFuelSlack := by
   refine
     compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCall
       (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
@@ -520,7 +543,7 @@ theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCall_of_fuel
       (compiledIR := compiledIR) (argExprs := argExprs) hcompile hargCompile ?_
   intro runtime state helperFuel irFuel hfuel hexact hscope hbounded hruntime
   by_cases hsource : 1 < helperFuel
-  · by_cases hir : helperBodySize + 2 ≤ irFuel
+  · by_cases hir : helperBodySize + 2 + irFuelSlack ≤ irFuel
     · exact bridgeSufficient runtime state helperFuel irFuel hsource hir
         hfuel hexact hscope hbounded hruntime
     · exact bridgeResidual runtime state helperFuel irFuel (.inr hir)
@@ -572,24 +595,25 @@ theorem stmtListDirectInternalHelperAssignStepInterfaceWithInternals_cons_intern
     {names : List String} {calleeName : String} {args : List Expr}
     {compiledIR : List YulStmt}
     {rest : List Stmt}
+    {irFuelSlack : Nat := 0}
     (hstep :
       CompiledStmtStepWithHelpersAndHelperIRWithInternals
         runtimeContract spec fields scope
         (Stmt.internalCallAssign names calleeName args)
-        compiledIR)
+        compiledIR irFuelSlack)
     (hrest :
       StmtListDirectInternalHelperAssignStepInterfaceWithInternals
         runtimeContract
         spec
         fields
         (stmtNextScope scope (Stmt.internalCallAssign names calleeName args))
-        rest) :
+        rest irFuelSlack) :
     StmtListDirectInternalHelperAssignStepInterfaceWithInternals
       runtimeContract
       spec
       fields
       scope
-      (Stmt.internalCallAssign names calleeName args :: rest) := by
+      (Stmt.internalCallAssign names calleeName args :: rest) irFuelSlack := by
   refine .cons ?_ hrest
   intro _
   exact ⟨compiledIR, hstep⟩
@@ -1411,24 +1435,25 @@ theorem stmtListDirectInternalHelperCallStepInterfaceWithInternals_cons_internal
     {calleeName : String} {args : List Expr}
     {compiledIR : List YulStmt}
     {rest : List Stmt}
+    {irFuelSlack : Nat := 0}
     (hstep :
       CompiledStmtStepWithHelpersAndHelperIRWithInternals
         runtimeContract spec fields scope
         (Stmt.internalCall calleeName args)
-        compiledIR)
+        compiledIR irFuelSlack)
     (hrest :
       StmtListDirectInternalHelperCallStepInterfaceWithInternals
         runtimeContract
         spec
         fields
         (stmtNextScope scope (Stmt.internalCall calleeName args))
-        rest) :
+        rest irFuelSlack) :
     StmtListDirectInternalHelperCallStepInterfaceWithInternals
       runtimeContract
       spec
       fields
       scope
-      (Stmt.internalCall calleeName args :: rest) := by
+      (Stmt.internalCall calleeName args :: rest) irFuelSlack := by
   refine .cons ?_ hrest
   intro _
   exact ⟨compiledIR, hstep⟩

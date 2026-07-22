@@ -1449,10 +1449,11 @@ theorem internalCallWithInternalsSufficientBridge_of_directContextEvidence
     (hctx : DirectInternalHelperStatementContextBridge runtimeContract spec calleeName)
     (hnodup : (spec.functions.map (·.name)).Nodup)
     (helperBodySize : Nat)
+    {irFuelSlack : Nat := 0}
     (hevidence :
       ∀ runtime state stmtHelperFuel irFuel,
         1 < stmtHelperFuel →
-        helperBodySize + 2 ≤ irFuel →
+        helperBodySize + 2 + irFuelSlack ≤ irFuel →
         FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state →
         FunctionBody.scopeNamesPresent scope runtime.bindings →
         FunctionBody.bindingsBounded runtime.bindings →
@@ -1461,8 +1462,8 @@ theorem internalCallWithInternalsSufficientBridge_of_directContextEvidence
           (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
           (scope := scope) (calleeName := calleeName) (args := args)
           (argExprs := argExprs) hctx helperBodySize stmtHelperFuel irFuel runtime state) :
-    InternalCallWithInternalsSufficientBridge runtimeContract spec fields scope
-      calleeName args argExprs helperBodySize := by
+    InternalCallWithInternalsAdditiveBridge runtimeContract spec fields scope
+      calleeName args argExprs helperBodySize irFuelSlack := by
   intro runtime state stmtHelperFuel irFuel hstmtFuel hirFuel hfuel hexact hscope hbounded hruntime
   rcases hevidence runtime state stmtHelperFuel irFuel hstmtFuel hirFuel
       hexact hscope hbounded hruntime with
@@ -1486,6 +1487,7 @@ theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCall_of_dire
     (hctx : DirectInternalHelperStatementContextBridge runtimeContract spec calleeName)
     (hnodup : (spec.functions.map (·.name)).Nodup)
     (helperBodySize : Nat)
+    {irFuelSlack : Nat := 0}
     {compiledIR : List YulStmt}
     (hcompile :
       CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
@@ -1496,7 +1498,7 @@ theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCall_of_dire
     (hevidence :
       ∀ runtime state stmtHelperFuel irFuel,
         1 < stmtHelperFuel →
-        helperBodySize + 2 ≤ irFuel →
+        helperBodySize + 2 + irFuelSlack ≤ irFuel →
         FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state →
         FunctionBody.scopeNamesPresent scope runtime.bindings →
         FunctionBody.bindingsBounded runtime.bindings →
@@ -1506,10 +1508,10 @@ theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCall_of_dire
           (scope := scope) (calleeName := calleeName) (args := args)
           (argExprs := argExprs) hctx helperBodySize stmtHelperFuel irFuel runtime state)
     (hresidual :
-      InternalCallWithInternalsResidualBridge runtimeContract spec fields scope
-        calleeName args argExprs helperBodySize) :
+      InternalCallWithInternalsAdditiveResidualBridge runtimeContract spec fields scope
+        calleeName args argExprs helperBodySize irFuelSlack) :
     CompiledStmtStepWithHelpersAndHelperIRWithInternals runtimeContract spec fields scope
-      (Stmt.internalCall calleeName args) compiledIR := by
+      (Stmt.internalCall calleeName args) compiledIR irFuelSlack := by
   exact
     compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCall_of_fuelSplitBridge
       (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
@@ -1553,10 +1555,11 @@ theorem internalCallAssignWithInternalsSufficientBridge_of_directContextEvidence
     (hctx : DirectInternalHelperStatementContextBridge runtimeContract spec calleeName)
     (hnodup : (spec.functions.map (·.name)).Nodup)
     (helperBodySize : Nat)
+    {irFuelSlack : Nat := 0}
     (hevidence :
       ∀ runtime state stmtHelperFuel irFuel,
         1 < stmtHelperFuel →
-        helperBodySize + 2 ≤ irFuel →
+        helperBodySize + 2 + irFuelSlack ≤ irFuel →
         FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state →
         FunctionBody.scopeNamesPresent scope runtime.bindings →
         FunctionBody.bindingsBounded runtime.bindings →
@@ -1565,8 +1568,8 @@ theorem internalCallAssignWithInternalsSufficientBridge_of_directContextEvidence
           (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
           (scope := scope) (calleeName := calleeName) (args := args)
           (argExprs := argExprs) names hctx helperBodySize stmtHelperFuel irFuel runtime state) :
-    InternalCallAssignWithInternalsSufficientBridge runtimeContract spec fields scope
-      names calleeName args argExprs helperBodySize := by
+    InternalCallAssignWithInternalsAdditiveBridge runtimeContract spec fields scope
+      names calleeName args argExprs helperBodySize irFuelSlack := by
   intro runtime state stmtHelperFuel irFuel hstmtFuel hirFuel hfuel hexact hscope hbounded hruntime
   rcases hevidence runtime state stmtHelperFuel irFuel hstmtFuel hirFuel
       hexact hscope hbounded hruntime with
@@ -1590,6 +1593,7 @@ theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCallAssign_o
     (hctx : DirectInternalHelperStatementContextBridge runtimeContract spec calleeName)
     (hnodup : (spec.functions.map (·.name)).Nodup)
     (helperBodySize : Nat)
+    {irFuelSlack : Nat := 0}
     {compiledIR : List YulStmt}
     (hcompile :
       CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
@@ -1600,7 +1604,7 @@ theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCallAssign_o
     (hevidence :
       ∀ runtime state stmtHelperFuel irFuel,
         1 < stmtHelperFuel →
-        helperBodySize + 2 ≤ irFuel →
+        helperBodySize + 2 + irFuelSlack ≤ irFuel →
         FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state →
         FunctionBody.scopeNamesPresent scope runtime.bindings →
         FunctionBody.bindingsBounded runtime.bindings →
@@ -1610,10 +1614,10 @@ theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCallAssign_o
           (scope := scope) (calleeName := calleeName) (args := args)
           (argExprs := argExprs) names hctx helperBodySize stmtHelperFuel irFuel runtime state)
     (hresidual :
-      InternalCallAssignWithInternalsResidualBridge runtimeContract spec fields scope names
-        calleeName args argExprs helperBodySize) :
+      InternalCallAssignWithInternalsAdditiveResidualBridge runtimeContract spec fields scope names
+        calleeName args argExprs helperBodySize irFuelSlack) :
     CompiledStmtStepWithHelpersAndHelperIRWithInternals runtimeContract spec fields scope
-      (Stmt.internalCallAssign names calleeName args) compiledIR := by
+      (Stmt.internalCallAssign names calleeName args) compiledIR irFuelSlack := by
   exact
     compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCallAssign_of_fuelSplitBridge
       (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
@@ -6994,26 +6998,27 @@ theorem fullHelperAwareListWitnessWithInternals_of_allInterfaces
     {fields : List Field}
     {scope : List String}
     {stmts : List Stmt}
+    {irFuelSlack : Nat}
     (hhelperFree :
       StmtListHelperFreeStepInterfaceWithInternals
-        runtimeContract spec fields scope stmts)
+        runtimeContract spec fields scope stmts irFuelSlack)
     (hcall :
       StmtListDirectInternalHelperCallStepInterfaceWithInternals
-        runtimeContract spec fields scope stmts)
+        runtimeContract spec fields scope stmts irFuelSlack)
     (hassign :
       StmtListDirectInternalHelperAssignStepInterfaceWithInternals
-        runtimeContract spec fields scope stmts)
+        runtimeContract spec fields scope stmts irFuelSlack)
     (hexpr :
       StmtListExprInternalHelperStepInterfaceWithInternals
-        runtimeContract spec fields scope stmts)
+        runtimeContract spec fields scope stmts irFuelSlack)
     (hstruct :
       StmtListStructuralInternalHelperStepInterfaceWithInternals
-        runtimeContract spec fields scope stmts)
+        runtimeContract spec fields scope stmts irFuelSlack)
     (hresidual :
       StmtListResidualHelperSurfaceStepInterfaceWithInternals
-        runtimeContract spec fields scope stmts) :
+        runtimeContract spec fields scope stmts irFuelSlack) :
     StmtListGenericWithHelpersAndHelperIRWithInternals
-      runtimeContract spec fields scope stmts :=
+      runtimeContract spec fields scope stmts irFuelSlack :=
   stmtListGenericWithHelpersAndHelperIRWithInternals_of_helperFreeStepInterfaceWithInternals_and_directInternalHelperStepInterfaceWithInternals_and_exprInternalHelperStepInterfaceWithInternals_and_structuralInternalHelperStepInterfaceWithInternals_and_residualHelperSurfaceStepInterfaceWithInternals
     hhelperFree
     (stmtListDirectInternalHelperStepInterfaceWithInternals_of_callStepInterfaceWithInternals_and_assignStepInterfaceWithInternals

@@ -868,6 +868,14 @@ def stmtListTouchesUnsupportedConstructorRawCalldataSurface : List Stmt → Bool
         stmtListTouchesUnsupportedConstructorRawCalldataSurface rest
 end
 
+/-- Scope exposed to the continuation of a helper-rich statement.  Branch
+bindings of an `ite` are local to the branch in both source validation and Yul,
+so unlike the compiler's conservative name inventory they must not be added to
+the tail scope. -/
+def stmtHelperRichNextScope (scope : List String) : Stmt → List String
+  | .ite _ _ _ => scope
+  | stmt => stmtNextScope scope stmt
+
 /-- Selector-dispatched entrypoints in the same order used by `CompilationModel.compile`. -/
 def selectorDispatchedFunctions (spec : CompilationModel) : List FunctionSpec :=
   spec.functions.filter (fun fn => !fn.isInternal && !isInteropEntrypointName fn.name)
@@ -2773,7 +2781,32 @@ mutual
     | _, [] => True
     | scope, stmt :: rest =>
         stmtHelperRichExprsInScope scope stmt ∧
-          stmtListHelperRichExprsInScope (stmtNextScope scope stmt) rest
+          stmtListHelperRichExprsInScope (stmtHelperRichNextScope scope stmt) rest
+end
+
+mutual
+  /-- Direct assigning helper calls are supported only when the source helper
+  has exactly one resolved return and the call binds exactly one target.  This
+  matches the successful arm of `execStmtWithHelpers`; in particular, an empty
+  or multi-target `letMany` can no longer expose names to a continuation that
+  source execution would never reach. -/
+  def stmtHelperRichAssignTargetsSupported
+      (spec : CompilationModel) : Stmt → Prop
+    | .internalCallAssign names calleeName _ =>
+        (∃ name, names = [name]) ∧
+          ∃ callee ∈ spec.functions, callee.name = calleeName ∧
+            ∃ returnTy, functionReturns callee = Except.ok [returnTy]
+    | .ite _ thenBranch elseBranch =>
+        stmtListHelperRichAssignTargetsSupported spec thenBranch ∧
+          stmtListHelperRichAssignTargetsSupported spec elseBranch
+    | _ => True
+
+  def stmtListHelperRichAssignTargetsSupported
+      (spec : CompilationModel) : List Stmt → Prop
+    | [] => True
+    | stmt :: rest =>
+        stmtHelperRichAssignTargetsSupported spec stmt ∧
+          stmtListHelperRichAssignTargetsSupported spec rest
 end
 
 /-- Regression: helper arguments nested below a branch remain subject to the
@@ -2800,6 +2833,24 @@ example :
     Stmt.directMetadata, FunctionBody.exprBoundNamesInScope,
     FunctionBody.exprBoundNames, stmtNextScope, collectStmtBindNames]
 
+/-- Regression: a binding introduced inside either `ite` branch is not visible
+to the statement following the conditional. -/
+example :
+    ¬ stmtListHelperRichExprsInScope []
+      [.ite (.literal 1) [.letVar "x" (.literal 1)] [],
+        .letVar "y" (.localVar "x")] := by
+  simp [stmtListHelperRichExprsInScope, stmtHelperRichExprsInScope,
+    stmtHelperRichNextScope, Stmt.directMetadata,
+    FunctionBody.exprBoundNamesInScope, FunctionBody.exprBoundNames]
+
+/-- Regression: direct helper assignment cannot advertise no targets (and the
+same singleton requirement excludes multiple targets). -/
+example (spec : CompilationModel) :
+    ¬ stmtListHelperRichAssignTargetsSupported spec
+      [.internalCallAssign [] "helper" []] := by
+  simp [stmtListHelperRichAssignTargetsSupported,
+    stmtHelperRichAssignTargetsSupported]
+
 /-- Regression: admitting an expression-position helper call does not hide a
 stateful argument from the helper-rich state boundary. -/
 example :
@@ -2821,6 +2872,8 @@ structure SupportedHelperRichBodyFragment
   coreSupported : stmtListHelperRichCoreSupported fn.body = true
   expressionsInScope :
     stmtListHelperRichExprsInScope (fn.params.map (·.name)) fn.body
+  assignTargetsSupported :
+    stmtListHelperRichAssignTargetsSupported spec fn.body
   stateSupported : stmtListHelperRichStateSupported fn.body = true
   calls : SupportedBodyCallInterface spec fn
   effects : SupportedBodyEffectInterface fn
