@@ -2718,31 +2718,58 @@ structure SupportedBodyCallInterface (spec : CompilationModel) (fn : FunctionSpe
 /-- Core-safe helper-positive statement heads. Helper arguments must remain in
 the existing core expression fragment; every non-helper head still passes the
 existing fail-closed core classifier. -/
-def stmtHelperRichCoreSupported : Stmt → Bool
-  | .internalCall _ args | .internalCallAssign _ _ args =>
-      args.all (fun arg => !exprTouchesUnsupportedCoreSurface arg)
-  | .letVar _ (.internalCall _ args) | .assignVar _ (.internalCall _ args) =>
-      args.all (fun arg => !exprTouchesUnsupportedCoreSurface arg)
-  | stmt => !stmtTouchesUnsupportedCoreSurface stmt
+mutual
+  def stmtHelperRichCoreSupported : Stmt → Bool
+    | .internalCall _ args | .internalCallAssign _ _ args =>
+        args.all (fun arg => !exprTouchesUnsupportedCoreSurface arg)
+    | .letVar _ (.internalCall _ args) | .assignVar _ (.internalCall _ args) =>
+        args.all (fun arg => !exprTouchesUnsupportedCoreSurface arg)
+    | .ite cond thenBranch elseBranch =>
+        !exprTouchesUnsupportedCoreSurface cond &&
+          stmtListHelperRichCoreSupported thenBranch &&
+          stmtListHelperRichCoreSupported elseBranch
+    | stmt => !stmtTouchesUnsupportedCoreSurface stmt
 
-def stmtListHelperRichCoreSupported (stmts : List Stmt) : Bool :=
-  stmts.all stmtHelperRichCoreSupported
+  def stmtListHelperRichCoreSupported : List Stmt → Bool
+    | [] => true
+    | stmt :: rest =>
+        stmtHelperRichCoreSupported stmt && stmtListHelperRichCoreSupported rest
+end
 
 /-- Scope check retained specifically for helper-call arguments.  The scope is
 threaded across the surrounding statement list, so a helper may consume an
 earlier local but cannot refer to a name that has not yet been bound. -/
-def stmtHelperCallArgsInScope (scope : List String) : Stmt → Prop
-  | .internalCall _ args | .internalCallAssign _ _ args =>
-      ∀ arg ∈ args, FunctionBody.exprBoundNamesInScope arg scope
-  | .letVar _ (.internalCall _ args) | .assignVar _ (.internalCall _ args) =>
-      ∀ arg ∈ args, FunctionBody.exprBoundNamesInScope arg scope
-  | _ => True
+mutual
+  def stmtHelperCallArgsInScope (scope : List String) : Stmt → Prop
+    | .internalCall _ args | .internalCallAssign _ _ args =>
+        ∀ arg ∈ args, FunctionBody.exprBoundNamesInScope arg scope
+    | .letVar _ (.internalCall _ args) | .assignVar _ (.internalCall _ args) =>
+        ∀ arg ∈ args, FunctionBody.exprBoundNamesInScope arg scope
+    | .ite _ thenBranch elseBranch =>
+        stmtListHelperCallArgsInScope scope thenBranch ∧
+          stmtListHelperCallArgsInScope scope elseBranch
+    | _ => True
 
-def stmtListHelperCallArgsInScope : List String → List Stmt → Prop
-  | _, [] => True
-  | scope, stmt :: rest =>
-      stmtHelperCallArgsInScope scope stmt ∧
-        stmtListHelperCallArgsInScope (stmtNextScope scope stmt) rest
+  def stmtListHelperCallArgsInScope : List String → List Stmt → Prop
+    | _, [] => True
+    | scope, stmt :: rest =>
+        stmtHelperCallArgsInScope scope stmt ∧
+          stmtListHelperCallArgsInScope (stmtNextScope scope stmt) rest
+end
+
+/-- Regression: helper arguments nested below a branch remain subject to the
+core-expression gate. -/
+example :
+    stmtListHelperRichCoreSupported
+      [.ite (.literal 1) [.internalCall "helper" [.internalCall "nested" []]] []] = false := by
+  rfl
+
+/-- Regression: branch-local helper calls cannot consume an unbound name. -/
+example :
+    ¬ stmtListHelperCallArgsInScope []
+      [.ite (.literal 1) [.internalCall "helper" [.param "missing"]] []] := by
+  simp [stmtListHelperCallArgsInScope, stmtHelperCallArgsInScope,
+    FunctionBody.exprBoundNamesInScope, exprBoundNames]
 
 /-- Positive supported fragment for a helper-rich function body. Unlike the
 initial `SupportedBodyInterface`, this interface does not pass through
