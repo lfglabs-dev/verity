@@ -2283,6 +2283,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.Function.compileFunctionSpec_ok_params
   Compiler.Proofs.IRGeneration.Function.compileFunctionSpec_ok_selector
   Compiler.Proofs.IRGeneration.Function.compileFunctionSpec_ok_payable
+  Compiler.Proofs.IRGeneration.Function.compileFunctionSpec_ok_metadata_with_internals
   Compiler.Proofs.IRGeneration.Function.compileFunctionSpec_ok_components
   Compiler.Proofs.IRGeneration.Function.compileConstructor_some_ok_of_body
   Compiler.Proofs.IRGeneration.Function.compileConstructor_ok_components
@@ -6399,4 +6400,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6002 theorems/lemmas (4177 public, 1825 private, 0 sorry'd)
+-- Total: 6003 theorems/lemmas (4178 public, 1825 private, 0 sorry'd)
