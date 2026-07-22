@@ -560,7 +560,8 @@ def helperA_supportedHelperRichBodyFragment :
     coreSupported := rfl
     expressionsInScope := by
       simp [helperA, stmtListHelperRichExprsInScope, stmtHelperRichExprsInScope,
-        stmtNextScope]
+        Stmt.directMetadata, FunctionBody.exprBoundNamesInScope,
+        FunctionBody.exprBoundNames, stmtNextScope]
     stateSupported := rfl
     calls :=
       { helpers := helperA_supportedBodyHelperInterface
