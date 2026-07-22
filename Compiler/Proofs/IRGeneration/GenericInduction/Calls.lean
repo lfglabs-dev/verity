@@ -219,7 +219,7 @@ theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCallAssign
     {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
     {scope : List String} {names : List String} {calleeName : String} {args : List Expr}
     {compiledIR : List YulStmt} {argExprs : List YulExpr}
-    {irFuelSlack : Nat := 0}
+    (irFuelSlack : Nat := 0)
     (hcompile :
       CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
         (Stmt.internalCallAssign names calleeName args) spec.functions = Except.ok compiledIR)
@@ -346,7 +346,7 @@ theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCallAssign_o
     {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
     {scope : List String} {names : List String} {calleeName : String} {args : List Expr}
     {compiledIR : List YulStmt} {argExprs : List YulExpr}
-    {irFuelSlack : Nat := 0}
+    (irFuelSlack : Nat := 0)
     (helperBodySize : Nat)
     (hcompile :
       CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
@@ -384,7 +384,7 @@ theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCall
     {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
     {scope : List String} {calleeName : String} {args : List Expr}
     {compiledIR : List YulStmt} {argExprs : List YulExpr}
-    {irFuelSlack : Nat := 0}
+    (irFuelSlack : Nat := 0)
     (hcompile :
       CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
         (Stmt.internalCall calleeName args) spec.functions = Except.ok compiledIR)
@@ -520,7 +520,7 @@ theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCall_of_fuel
     {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
     {scope : List String} {calleeName : String} {args : List Expr}
     {compiledIR : List YulStmt} {argExprs : List YulExpr}
-    {irFuelSlack : Nat := 0}
+    (irFuelSlack : Nat := 0)
     (helperBodySize : Nat)
     (hcompile :
       CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
@@ -595,7 +595,7 @@ theorem stmtListDirectInternalHelperAssignStepInterfaceWithInternals_cons_intern
     {names : List String} {calleeName : String} {args : List Expr}
     {compiledIR : List YulStmt}
     {rest : List Stmt}
-    {irFuelSlack : Nat := 0}
+    (irFuelSlack : Nat := 0)
     (hstep :
       CompiledStmtStepWithHelpersAndHelperIRWithInternals
         runtimeContract spec fields scope
@@ -1435,7 +1435,7 @@ theorem stmtListDirectInternalHelperCallStepInterfaceWithInternals_cons_internal
     {calleeName : String} {args : List Expr}
     {compiledIR : List YulStmt}
     {rest : List Stmt}
-    {irFuelSlack : Nat := 0}
+    (irFuelSlack : Nat := 0)
     (hstep :
       CompiledStmtStepWithHelpersAndHelperIRWithInternals
         runtimeContract spec fields scope

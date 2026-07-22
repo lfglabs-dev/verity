@@ -1449,7 +1449,7 @@ theorem internalCallWithInternalsSufficientBridge_of_directContextEvidence
     (hctx : DirectInternalHelperStatementContextBridge runtimeContract spec calleeName)
     (hnodup : (spec.functions.map (·.name)).Nodup)
     (helperBodySize : Nat)
-    {irFuelSlack : Nat := 0}
+    (irFuelSlack : Nat := 0)
     (hevidence :
       ∀ runtime state stmtHelperFuel irFuel,
         1 < stmtHelperFuel →
@@ -1487,7 +1487,7 @@ theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCall_of_dire
     (hctx : DirectInternalHelperStatementContextBridge runtimeContract spec calleeName)
     (hnodup : (spec.functions.map (·.name)).Nodup)
     (helperBodySize : Nat)
-    {irFuelSlack : Nat := 0}
+    (irFuelSlack : Nat := 0)
     {compiledIR : List YulStmt}
     (hcompile :
       CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
@@ -1555,7 +1555,7 @@ theorem internalCallAssignWithInternalsSufficientBridge_of_directContextEvidence
     (hctx : DirectInternalHelperStatementContextBridge runtimeContract spec calleeName)
     (hnodup : (spec.functions.map (·.name)).Nodup)
     (helperBodySize : Nat)
-    {irFuelSlack : Nat := 0}
+    (irFuelSlack : Nat := 0)
     (hevidence :
       ∀ runtime state stmtHelperFuel irFuel,
         1 < stmtHelperFuel →
@@ -1593,7 +1593,7 @@ theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCallAssign_o
     (hctx : DirectInternalHelperStatementContextBridge runtimeContract spec calleeName)
     (hnodup : (spec.functions.map (·.name)).Nodup)
     (helperBodySize : Nat)
-    {irFuelSlack : Nat := 0}
+    (irFuelSlack : Nat := 0)
     {compiledIR : List YulStmt}
     (hcompile :
       CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
