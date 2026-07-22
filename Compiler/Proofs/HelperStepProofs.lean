@@ -275,6 +275,7 @@ theorem stmtListDirectInternalHelperCallStepInterfaceWithInternals_cons_internal
       (args := args)
       (compiledIR := compiledIR)
       (rest := rest)
+      (irFuelSlack := 0)
       hstep
       hrest
 
@@ -519,6 +520,7 @@ theorem stmtListDirectInternalHelperAssignStepInterfaceWithInternals_cons_intern
     ⟨compiledIR, hstep⟩
   exact
     stmtListDirectInternalHelperAssignStepInterfaceWithInternals_cons_internalCallAssign
+      (irFuelSlack := 0)
       hstep
       hrest
 
@@ -1516,12 +1518,14 @@ theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCall_of_dire
     compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCall_of_fuelSplitBridge
       (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
       (scope := scope) (calleeName := calleeName) (args := args)
-      (compiledIR := compiledIR) (argExprs := argExprs) helperBodySize
+      (compiledIR := compiledIR) (argExprs := argExprs)
+      (irFuelSlack := irFuelSlack) helperBodySize
       hcompile hargCompile
       (internalCallWithInternalsSufficientBridge_of_directContextEvidence
         (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
         (scope := scope) (calleeName := calleeName) (args := args)
-        (argExprs := argExprs) hctx hnodup helperBodySize hevidence)
+        (argExprs := argExprs) hctx hnodup helperBodySize
+        (irFuelSlack := irFuelSlack) hevidence)
       hresidual
 
 abbrev DirectInternalHelperAssignSufficientFuelEvidence
@@ -1622,12 +1626,14 @@ theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCallAssign_o
     compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCallAssign_of_fuelSplitBridge
       (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
       (scope := scope) (names := names) (calleeName := calleeName) (args := args)
-      (compiledIR := compiledIR) (argExprs := argExprs) helperBodySize
+      (compiledIR := compiledIR) (argExprs := argExprs)
+      (irFuelSlack := irFuelSlack) helperBodySize
       hcompile hargCompile
       (internalCallAssignWithInternalsSufficientBridge_of_directContextEvidence
         (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
         (scope := scope) (calleeName := calleeName) (args := args)
-        (argExprs := argExprs) (names := names) hctx hnodup helperBodySize hevidence)
+        (argExprs := argExprs) (names := names) hctx hnodup helperBodySize
+        (irFuelSlack := irFuelSlack) hevidence)
       hresidual
 
 end DirectInternalHelperFuelSplitConsumer
