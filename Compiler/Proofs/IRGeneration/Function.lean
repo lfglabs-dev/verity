@@ -317,11 +317,13 @@ theorem compileFunctionSpec_ok_metadata_with_internals
           compileStmtList fields events errors .calldata [] false
             (spec.params.map (·.name)) [] spec.body internalFunctions
       · rw [hvalidate, hreturns,
-          FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList, hbody] at hcompile
+          FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList
+            (internalFunctions := internalFunctions), hbody] at hcompile
         cases hcompile
       case ok bodyStmts =>
         rw [hvalidate, hreturns,
-          FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList, hbody] at hcompile
+          FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList
+            (internalFunctions := internalFunctions), hbody] at hcompile
         injection hcompile with hEq
         exact ⟨by simpa using congrArg IRFunction.params hEq.symm,
           by simpa using congrArg IRFunction.selector hEq.symm,
