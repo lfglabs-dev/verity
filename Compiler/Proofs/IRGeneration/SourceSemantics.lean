@@ -5046,7 +5046,9 @@ theorem SupportedSpecHelperProofs.execInternalCallAssignObeysSummary
         = (if result.success then
             match names, result.returnValue with
             | [name], some value =>
-                .continue { world := result.world, bindings := bindValue state.bindings name value }
+                .continue { state with
+                  world := result.world
+                  bindings := bindValue state.bindings name value }
             | _, _ => .revert
           else .revert)
       ∧ witness.summary.contract.post fuel 0 state.world argVals
