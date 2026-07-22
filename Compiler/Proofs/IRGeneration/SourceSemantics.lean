@@ -4690,7 +4690,7 @@ theorem execStmtWithHelpers_internalCallAssign_of_witness
         if hresult.success then
           match names, hresult.returnValue with
           | [name], some value =>
-              .continue {
+              .continue { state with
                 world := hresult.world
                 bindings := bindValue state.bindings name value
               }
