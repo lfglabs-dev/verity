@@ -558,8 +558,8 @@ def helperA_supportedHelperRichBodyFragment :
   refine {
     hasInternalHelperCall := ?_
     coreSupported := rfl
-    helperArgsInScope := by
-      simp [helperA, stmtListHelperCallArgsInScope, stmtHelperCallArgsInScope,
+    expressionsInScope := by
+      simp [helperA, stmtListHelperRichExprsInScope, stmtHelperRichExprsInScope,
         stmtNextScope]
     state := ⟨rfl⟩
     calls :=

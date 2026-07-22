@@ -2737,24 +2737,24 @@ mutual
 end
 
 mutual
-  /-- Scope check retained specifically for helper-call arguments.  The scope is
-  threaded across the surrounding statement list, so a helper may consume an
-  earlier local but cannot refer to a name that has not yet been bound. -/
-  def stmtHelperCallArgsInScope (scope : List String) : Stmt → Prop
-    | .internalCall _ args | .internalCallAssign _ _ args =>
-        ∀ arg ∈ args, FunctionBody.exprBoundNamesInScope arg scope
-    | .letVar _ (.internalCall _ args) | .assignVar _ (.internalCall _ args) =>
-        ∀ arg ∈ args, FunctionBody.exprBoundNamesInScope arg scope
+  /-- Every expression evaluated by an admitted helper-rich statement must use
+  only names already in scope. `directMetadata.subexpressions` is the common
+  inventory for all statement heads, including ordinary expressions and helper
+  arguments; admitted `ite` children are checked recursively. -/
+  def stmtHelperRichExprsInScope (scope : List String) (stmt : Stmt) : Prop :=
+    (∀ expr ∈ stmt.directMetadata.subexpressions,
+      FunctionBody.exprBoundNamesInScope expr scope) ∧
+    match stmt with
     | .ite _ thenBranch elseBranch =>
-        stmtListHelperCallArgsInScope scope thenBranch ∧
-          stmtListHelperCallArgsInScope scope elseBranch
+        stmtListHelperRichExprsInScope scope thenBranch ∧
+          stmtListHelperRichExprsInScope scope elseBranch
     | _ => True
 
-  def stmtListHelperCallArgsInScope : List String → List Stmt → Prop
+  def stmtListHelperRichExprsInScope : List String → List Stmt → Prop
     | _, [] => True
     | scope, stmt :: rest =>
-        stmtHelperCallArgsInScope scope stmt ∧
-          stmtListHelperCallArgsInScope (stmtNextScope scope stmt) rest
+        stmtHelperRichExprsInScope scope stmt ∧
+          stmtListHelperRichExprsInScope (stmtNextScope scope stmt) rest
 end
 
 /-- Regression: helper arguments nested below a branch remain subject to the
@@ -2766,10 +2766,19 @@ example :
 
 /-- Regression: branch-local helper calls cannot consume an unbound name. -/
 example :
-    ¬ stmtListHelperCallArgsInScope []
+    ¬ stmtListHelperRichExprsInScope []
       [.ite (.literal 1) [.internalCall "helper" [.param "missing"]] []] := by
-  simp [stmtListHelperCallArgsInScope, stmtHelperCallArgsInScope,
+  simp [stmtListHelperRichExprsInScope, stmtHelperRichExprsInScope,
     FunctionBody.exprBoundNamesInScope, FunctionBody.exprBoundNames]
+
+/-- Regression: a valid helper call elsewhere in the body does not allow an
+ordinary expression to read an unbound local. -/
+example :
+    ¬ stmtListHelperRichExprsInScope []
+      [.letVar "x" (.localVar "missing"), .internalCall "helper" []] := by
+  simp [stmtListHelperRichExprsInScope, stmtHelperRichExprsInScope,
+    FunctionBody.exprBoundNamesInScope, FunctionBody.exprBoundNames,
+    stmtNextScope, collectStmtBindNames]
 
 /-- Positive supported fragment for a helper-rich function body. Unlike the
 initial `SupportedBodyInterface`, this interface does not pass through
@@ -2783,8 +2792,8 @@ structure SupportedHelperRichBodyFragment
     (spec : CompilationModel) (fn : FunctionSpec) where
   hasInternalHelperCall : ∃ calleeName, calleeName ∈ helperCallNames fn
   coreSupported : stmtListHelperRichCoreSupported fn.body = true
-  helperArgsInScope :
-    stmtListHelperCallArgsInScope (fn.params.map (·.name)) fn.body
+  expressionsInScope :
+    stmtListHelperRichExprsInScope (fn.params.map (·.name)) fn.body
   state : SupportedBodyStateInterface fn
   calls : SupportedBodyCallInterface spec fn
   effects : SupportedBodyEffectInterface fn
