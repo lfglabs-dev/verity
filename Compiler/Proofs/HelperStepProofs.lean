@@ -274,8 +274,7 @@ theorem stmtListDirectInternalHelperCallStepInterfaceWithInternals_cons_internal
       (calleeName := calleeName)
       (args := args)
       (compiledIR := compiledIR)
-      (rest := rest)
-      (irFuelSlack := 0)
+      (rest := rest) (irFuelSlack := 0)
       hstep
       hrest
 
