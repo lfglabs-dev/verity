@@ -299,7 +299,8 @@ theorem compileFunctionSpec_ok_metadata_with_internals
     (selector : Nat) (spec : FunctionSpec) (irFn : IRFunction)
     (internalFunctions : List FunctionSpec)
     (hcompile :
-      compileFunctionSpec fields events errors [] selector spec internalFunctions =
+      compileFunctionSpec fields events errors [] selector spec
+        (internalFunctions := internalFunctions) =
         Except.ok irFn) :
     irFn.params = spec.params.map Param.toIRParam ∧
       irFn.selector = selector ∧ irFn.payable = spec.isPayable := by
