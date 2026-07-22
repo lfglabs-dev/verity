@@ -160,6 +160,19 @@ ALLOWLIST: set[str] = {
     # param-load execution into the helper-aware compiled body while preserving
     # the exact fuel equality needed by `execIRFunctionWithInternals`.
     "exec_compiledFunctionIR_withInternals_of_body_extraFuel",
+    # #2205 selector dispatch with populated internal tables: these two proofs
+    # mirror the same payable/argument-length case split as the legacy dispatch
+    # theorem while threading the helper-aware interpreter. Splitting either
+    # would duplicate the Forall₂ lookup and rollback-result plumbing.
+    "interpretContractWithInternals_correct_of_compiled_functions",
+    "interpretContractWithHelpersWithInternals_correct_of_compiled_functions",
+    # #2205 helper-rich function seam: source/IR rollback states, parameter
+    # prefix execution, and the exact helper/body fuel equality form one coupled
+    # witness. Factoring the cases would only move that witness into wrappers.
+    "supported_function_correct_with_helper_rich_support_body_goal_with_internals",
+    # #2205 contract-facing adapter: the body is one application; its length is
+    # dominated by the mirrored helper-rich function premises and named types.
+    "compileFunctionSpec_correct_with_helper_rich_support_of_body_goal",
     # #2080 phase 21 direct helper-aware function theorem: packages source
     # helper semantics, the exact helper-IR body goal, function compilation
     # shape, rollback state, and param-prefix execution into the final
