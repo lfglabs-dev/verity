@@ -561,7 +561,7 @@ def helperA_supportedHelperRichBodyFragment :
     expressionsInScope := by
       simp [helperA, stmtListHelperRichExprsInScope, stmtHelperRichExprsInScope,
         stmtNextScope]
-    state := ⟨rfl⟩
+    stateSupported := rfl
     calls :=
       { helpers := helperA_supportedBodyHelperInterface
         foreign := rfl

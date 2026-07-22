@@ -2730,10 +2730,29 @@ mutual
           stmtListHelperRichCoreSupported elseBranch
     | stmt => !stmtTouchesUnsupportedCoreSurface stmt
 
-  def stmtListHelperRichCoreSupported : List Stmt → Bool
+def stmtListHelperRichCoreSupported : List Stmt → Bool
     | [] => true
     | stmt :: rest =>
         stmtHelperRichCoreSupported stmt && stmtListHelperRichCoreSupported rest
+end
+
+mutual
+  /-- State-surface gate for helper-rich statements. Expression-position helper
+  calls are transparent here: their arguments must satisfy the ordinary state
+  classifier even though the helper call node itself is admitted. -/
+  def stmtHelperRichStateSupported : Stmt → Bool
+    | .letVar _ (.internalCall _ args) | .assignVar _ (.internalCall _ args) =>
+        args.all (fun arg => !exprTouchesUnsupportedStateSurface arg)
+    | .ite cond thenBranch elseBranch =>
+        !exprTouchesUnsupportedStateSurface cond &&
+          stmtListHelperRichStateSupported thenBranch &&
+          stmtListHelperRichStateSupported elseBranch
+    | stmt => !stmtTouchesUnsupportedStateSurface stmt
+
+  def stmtListHelperRichStateSupported : List Stmt → Bool
+    | [] => true
+    | stmt :: rest =>
+        stmtHelperRichStateSupported stmt && stmtListHelperRichStateSupported rest
 end
 
 mutual
@@ -2769,7 +2788,8 @@ example :
     ¬ stmtListHelperRichExprsInScope []
       [.ite (.literal 1) [.internalCall "helper" [.param "missing"]] []] := by
   simp [stmtListHelperRichExprsInScope, stmtHelperRichExprsInScope,
-    FunctionBody.exprBoundNamesInScope, FunctionBody.exprBoundNames]
+    Stmt.directMetadata, FunctionBody.exprBoundNamesInScope,
+    FunctionBody.exprBoundNames]
 
 /-- Regression: a valid helper call elsewhere in the body does not allow an
 ordinary expression to read an unbound local. -/
@@ -2777,8 +2797,15 @@ example :
     ¬ stmtListHelperRichExprsInScope []
       [.letVar "x" (.localVar "missing"), .internalCall "helper" []] := by
   simp [stmtListHelperRichExprsInScope, stmtHelperRichExprsInScope,
-    FunctionBody.exprBoundNamesInScope, FunctionBody.exprBoundNames,
-    stmtNextScope, collectStmtBindNames]
+    Stmt.directMetadata, FunctionBody.exprBoundNamesInScope,
+    FunctionBody.exprBoundNames, stmtNextScope, collectStmtBindNames]
+
+/-- Regression: admitting an expression-position helper call does not hide a
+stateful argument from the helper-rich state boundary. -/
+example :
+    stmtListHelperRichStateSupported
+      [.letVar "x" (.internalCall "helper" [.storage "slot"])] = false := by
+  rfl
 
 /-- Positive supported fragment for a helper-rich function body. Unlike the
 initial `SupportedBodyInterface`, this interface does not pass through
@@ -2794,7 +2821,7 @@ structure SupportedHelperRichBodyFragment
   coreSupported : stmtListHelperRichCoreSupported fn.body = true
   expressionsInScope :
     stmtListHelperRichExprsInScope (fn.params.map (·.name)) fn.body
-  state : SupportedBodyStateInterface fn
+  stateSupported : stmtListHelperRichStateSupported fn.body = true
   calls : SupportedBodyCallInterface spec fn
   effects : SupportedBodyEffectInterface fn
   constructorRawCalldataSurfaceClosed :
