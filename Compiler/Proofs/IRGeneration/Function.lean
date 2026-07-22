@@ -292,6 +292,40 @@ theorem compileFunctionSpec_ok_payable
         injection hcompile with hEq
         simpa using congrArg IRFunction.payable hEq.symm
 
+/-- Structural fields of a compiled function do not depend on whether its body
+is compiled against an empty or populated internal-function table. -/
+theorem compileFunctionSpec_ok_metadata_with_internals
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (selector : Nat) (spec : FunctionSpec) (irFn : IRFunction)
+    (internalFunctions : List FunctionSpec)
+    (hcompile :
+      compileFunctionSpec fields events errors [] selector spec internalFunctions =
+        Except.ok irFn) :
+    irFn.params = spec.params.map Param.toIRParam ∧
+      irFn.selector = selector ∧ irFn.payable = spec.isPayable := by
+  unfold CompilationModel.compileFunctionSpec at hcompile
+  cases hvalidate : validateFunctionSpec spec
+  · rw [hvalidate] at hcompile
+    cases hcompile
+  case ok _ =>
+    cases hreturns : functionReturns spec
+    · rw [hvalidate, hreturns] at hcompile
+      cases hcompile
+    case ok returns =>
+      cases hbody :
+          compileStmtList fields events errors .calldata [] false
+            (spec.params.map (·.name)) [] spec.body internalFunctions
+      · rw [hvalidate, hreturns,
+          FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList, hbody] at hcompile
+        cases hcompile
+      case ok bodyStmts =>
+        rw [hvalidate, hreturns,
+          FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList, hbody] at hcompile
+        injection hcompile with hEq
+        exact ⟨by simpa using congrArg IRFunction.params hEq.symm,
+          by simpa using congrArg IRFunction.selector hEq.symm,
+          by simpa using congrArg IRFunction.payable hEq.symm⟩
+
 theorem compileFunctionSpec_ok_components
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
     (selector : Nat) (spec : FunctionSpec) (irFn : IRFunction)

@@ -75,18 +75,19 @@ private theorem bindSupportedParams_some_of_supported
 private theorem find_compiledFunction_some_of_forall₂
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
     (selector : Nat)
+    (internalFunctions : List FunctionSpec := [])
     {pairs : List (FunctionSpec × Nat)} {irFns : List IRFunction}
     (hcompiled :
       List.Forall₂
         (fun entry irFn =>
-          compileFunctionSpec fields events errors [] entry.2 entry.1 = Except.ok irFn)
+          compileFunctionSpec fields events errors [] entry.2 entry.1 internalFunctions = Except.ok irFn)
         pairs irFns)
     {fn : FunctionSpec} {sel : Nat}
     (hfind :
       pairs.find? (fun entry => entry.2 == selector) = some (fn, sel)) :
     ∃ irFn,
       irFns.find? (fun irFn => irFn.selector == selector) = some irFn ∧
-      compileFunctionSpec fields events errors [] sel fn = Except.ok irFn := by
+      compileFunctionSpec fields events errors [] sel fn internalFunctions = Except.ok irFn := by
   induction hcompiled generalizing fn sel with
   | nil =>
       simp at hfind
@@ -95,14 +96,14 @@ private theorem find_compiledFunction_some_of_forall₂
       by_cases hselEq : headSel = selector
       · simp [hselEq] at hfind
         rcases hfind with ⟨rfl, rfl⟩
-        have hhead' : compileFunctionSpec fields events errors [] selector headFn = Except.ok irFn := by
+        have hhead' : compileFunctionSpec fields events errors [] selector headFn internalFunctions = Except.ok irFn := by
           simpa [hselEq] using hhead
         refine ⟨irFn, ?_, hhead'⟩
         have hselector : irFn.selector = selector := by
           calc
             irFn.selector = headSel :=
-              Function.compileFunctionSpec_ok_selector
-                fields events errors headSel headFn irFn hhead
+              (Function.compileFunctionSpec_ok_metadata_with_internals
+                fields events errors headSel headFn irFn internalFunctions hhead).2.1
             _ = selector := hselEq
         simp [hselector]
       · have hfindRest :
@@ -111,18 +112,19 @@ private theorem find_compiledFunction_some_of_forall₂
         rcases ih hfindRest with ⟨irFn', hfindIr, hcompile⟩
         refine ⟨irFn', ?_, hcompile⟩
         have hheadSelector : irFn.selector = headSel := by
-          exact Function.compileFunctionSpec_ok_selector
-            fields events errors headSel headFn irFn hhead
+          exact (Function.compileFunctionSpec_ok_metadata_with_internals
+            fields events errors headSel headFn irFn internalFunctions hhead).2.1
         simp [hselEq, hheadSelector, hfindIr]
 
 private theorem find_compiledFunction_none_of_forall₂
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
     (selector : Nat)
+    (internalFunctions : List FunctionSpec := [])
     {pairs : List (FunctionSpec × Nat)} {irFns : List IRFunction}
     (hcompiled :
       List.Forall₂
         (fun entry irFn =>
-          compileFunctionSpec fields events errors [] entry.2 entry.1 = Except.ok irFn)
+          compileFunctionSpec fields events errors [] entry.2 entry.1 internalFunctions = Except.ok irFn)
         pairs irFns)
     (hfind :
       pairs.find? (fun entry => entry.2 == selector) = none) :
@@ -137,8 +139,8 @@ private theorem find_compiledFunction_none_of_forall₂
       · have hfindRest : pairs.find? (fun entry => entry.2 == selector) = none := by
           simpa [hselEq] using hfind
         have hheadSelector : irFn.selector = headSel := by
-          exact Function.compileFunctionSpec_ok_selector
-            fields events errors headSel headFn irFn hhead
+          exact (Function.compileFunctionSpec_ok_metadata_with_internals
+            fields events errors headSel headFn irFn internalFunctions hhead).2.1
         simp [hselEq, hheadSelector, ih hfindRest]
 
 theorem interpretContract_correct_of_compiled_functions
@@ -204,7 +206,7 @@ theorem interpretContract_correct_of_compiled_functions
       have hfindIr :
           irFns.find? (fun irFn => irFn.selector == tx.functionSelector) = none :=
         find_compiledFunction_none_of_forall₂
-          model.fields model.events model.errors tx.functionSelector hcompiled hfindPairs
+          model.fields model.events model.errors tx.functionSelector [] hcompiled hfindPairs
       rw [hinterp, hfindIr]
       simp [hfindPairs, FunctionBody.sourceResultMatchesIRResult,
         SourceSemantics.revertedResult, FunctionBody.initialIRStateForTx,
@@ -213,7 +215,7 @@ theorem interpretContract_correct_of_compiled_functions
   | some pair =>
       rcases pair with ⟨fn, sel⟩
       rcases find_compiledFunction_some_of_forall₂
-          model.fields model.events model.errors tx.functionSelector hcompiled hfindPairs with
+          model.fields model.events model.errors tx.functionSelector [] hcompiled hfindPairs with
         ⟨irFn, hfindIr, hcompileFn⟩
       have hpairMem : (fn, sel) ∈ pairs := List.mem_of_find?_eq_some hfindPairs
       have hfnMem : fn ∈ selectorDispatchedFunctions model := by
@@ -344,7 +346,7 @@ theorem interpretContractWithInternals_correct_of_compiled_functions
       have hfindIr :
           irFns.find? (fun irFn => irFn.selector == tx.functionSelector) = none :=
         find_compiledFunction_none_of_forall₂
-          model.fields model.events model.errors tx.functionSelector hcompiled hfindPairs
+          model.fields model.events model.errors tx.functionSelector [] hcompiled hfindPairs
       rw [hinterp, hfindIr]
       simp [hfindPairs, FunctionBody.sourceResultMatchesIRResult,
         SourceSemantics.revertedResult, FunctionBody.initialIRStateForTx,
@@ -353,7 +355,7 @@ theorem interpretContractWithInternals_correct_of_compiled_functions
   | some pair =>
       rcases pair with ⟨fn, sel⟩
       rcases find_compiledFunction_some_of_forall₂
-          model.fields model.events model.errors tx.functionSelector hcompiled hfindPairs with
+          model.fields model.events model.errors tx.functionSelector [] hcompiled hfindPairs with
         ⟨irFn, hfindIr, hcompileFn⟩
       have hpairMem : (fn, sel) ∈ pairs := List.mem_of_find?_eq_some hfindPairs
       have hfnMem : fn ∈ selectorDispatchedFunctions model := by
@@ -427,7 +429,8 @@ theorem interpretContractWithHelpersWithInternals_correct_of_compiled_functions
     (hfunctions : runtimeContract.functions = irFns)
     (hcompiled :
       List.Forall₂
-        (fun entry irFn => compileFunctionSpec model.fields model.events model.errors [] entry.2 entry.1 = Except.ok irFn)
+        (fun entry irFn => compileFunctionSpec model.fields model.events model.errors [] entry.2 entry.1
+          (model.functions.filter (·.isInternal)) = Except.ok irFn)
         (SourceSemantics.selectorFunctionPairs model selectors)
         irFns)
     (hparamsSupported :
@@ -436,7 +439,8 @@ theorem interpretContractWithHelpersWithInternals_correct_of_compiled_functions
     (hfunction :
       ∀ fn sel irFn bindings,
         fn ∈ selectorDispatchedFunctions model →
-        compileFunctionSpec model.fields model.events model.errors [] sel fn = Except.ok irFn →
+        compileFunctionSpec model.fields model.events model.errors [] sel fn
+          (model.functions.filter (·.isInternal)) = Except.ok irFn →
         SourceSemantics.bindSupportedParams fn.params tx.args = some bindings →
         FunctionBody.sourceResultMatchesIRResult
           (SourceSemantics.interpretFunctionWithHelpers model helperFuel fn tx initialWorld)
@@ -490,7 +494,8 @@ theorem interpretContractWithHelpersWithInternals_correct_of_compiled_functions
       have hfindIr :
           irFns.find? (fun irFn => irFn.selector == tx.functionSelector) = none :=
         find_compiledFunction_none_of_forall₂
-          model.fields model.events model.errors tx.functionSelector hcompiled hfindPairs
+          model.fields model.events model.errors tx.functionSelector
+          (model.functions.filter (·.isInternal)) hcompiled hfindPairs
       rw [hinterp, hfindIr]
       simp [hfindPairs, FunctionBody.sourceResultMatchesIRResult,
         SourceSemantics.revertedResult, FunctionBody.initialIRStateForTx,
@@ -499,19 +504,19 @@ theorem interpretContractWithHelpersWithInternals_correct_of_compiled_functions
   | some pair =>
       rcases pair with ⟨fn, sel⟩
       rcases find_compiledFunction_some_of_forall₂
-          model.fields model.events model.errors tx.functionSelector hcompiled hfindPairs with
+          model.fields model.events model.errors tx.functionSelector
+          (model.functions.filter (·.isInternal)) hcompiled hfindPairs with
         ⟨irFn, hfindIr, hcompileFn⟩
       have hpairMem : (fn, sel) ∈ pairs := List.mem_of_find?_eq_some hfindPairs
       have hfnMem : fn ∈ selectorDispatchedFunctions model := by
         simpa [pairs, SourceSemantics.selectorFunctionPairs] using (List.of_mem_zip hpairMem).1
-      have hparamsEq : irFn.params = fn.params.map Param.toIRParam :=
-        Function.compileFunctionSpec_ok_params
-          model.fields model.events model.errors sel fn irFn hcompileFn
+      have hmetadata := Function.compileFunctionSpec_ok_metadata_with_internals
+        model.fields model.events model.errors sel fn irFn
+        (model.functions.filter (·.isInternal)) hcompileFn
+      have hparamsEq : irFn.params = fn.params.map Param.toIRParam := hmetadata.1
       have hlenEq : irFn.params.length = fn.params.length := by
         simpa [hparamsEq]
-      have hpayableEq : irFn.payable = fn.isPayable :=
-        Function.compileFunctionSpec_ok_payable
-          model.fields model.events model.errors sel fn irFn hcompileFn
+      have hpayableEq : irFn.payable = fn.isPayable := hmetadata.2.2
       by_cases hguard :
           (!fn.isPayable && tx.msgValue % Compiler.Constants.evmModulus != 0) = true
       · have hguardIr :
@@ -568,12 +573,14 @@ theorem interpretContractWithInternals_correct_of_compiled_functions_with_helper
     (hfunctions : runtimeContract.functions = irFns)
     (hcompiled :
       List.Forall₂
-        (fun entry irFn => compileFunctionSpec model.fields model.events model.errors [] entry.2 entry.1 = Except.ok irFn)
+        (fun entry irFn => compileFunctionSpec model.fields model.events model.errors [] entry.2 entry.1
+          (model.functions.filter (·.isInternal)) = Except.ok irFn)
         (SourceSemantics.selectorFunctionPairs model selectors) irFns)
     (hfunction :
       ∀ fn sel irFn bindings,
         fn ∈ selectorDispatchedFunctions model →
-        compileFunctionSpec model.fields model.events model.errors [] sel fn = Except.ok irFn →
+        compileFunctionSpec model.fields model.events model.errors [] sel fn
+          (model.functions.filter (·.isInternal)) = Except.ok irFn →
         SourceSemantics.bindSupportedParams fn.params tx.args = some bindings →
         FunctionBody.sourceResultMatchesIRResult
           (supportedSourceFunctionSemanticsWithHelpers
