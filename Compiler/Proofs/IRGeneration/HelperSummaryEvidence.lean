@@ -1,4 +1,5 @@
 import Compiler.Proofs.IRGeneration.InternalHelperBodyCorrespondence
+import Compiler.Proofs.HelperStepProofs
 
 set_option linter.deprecated false
 set_option linter.unnecessarySimpa false
@@ -439,10 +440,7 @@ private def helperB : FunctionSpec :=
     returnType := none
     returns := []
     isInternal := true
-    body := [
-      Stmt.letVar "x" (Expr.literal 7),
-      Stmt.assignVar "x" (Expr.add (Expr.localVar "x") (Expr.literal 1))
-    ] }
+    body := [] }
 
 private def helperA : FunctionSpec :=
   { name := "helperA"
@@ -450,7 +448,7 @@ private def helperA : FunctionSpec :=
     returnType := none
     returns := []
     isInternal := true
-    body := [Stmt.letVar "x" (Expr.internalCall "helperB" [])] }
+    body := [Stmt.internalCall "helperB" []] }
 
 private def twoHelperSpec : CompilationModel :=
   { name := "TwoHelperEvidence"
@@ -539,28 +537,21 @@ def helperA_supportedBodyHelperInterface :
     subst calleeName
     exact helperB_support
   · intro calleeName hmem
-    have hname : calleeName = "helperB" := by
-      apply mem_helperB_eraseDups_singleton
-      simpa [helperA, exprHelperCallNames, stmtListExprHelperCallNames,
-        stmtExprHelperCallNames, exprInternalHelperCallNames,
-        exprListInternalHelperCallNames] using hmem
-    subst calleeName
-    change helperStmtListReadOnly helperB.body = true
-    simp [helperB, helperStmtListReadOnly, helperStmtReadOnly,
-      helperExprReadOnly, exprTouchesUnsupportedCallSurface]
+    simp [helperA, exprHelperCallNames, stmtListExprHelperCallNames,
+      stmtExprHelperCallNames, exprInternalHelperCallNames,
+      exprListInternalHelperCallNames] at hmem
 
 /-- Non-vacuous witness for the positive helper-rich supported fragment.
-`helperA` contains the expression-position call `helperB()`, whose exact
-summary, decreasing rank, and successful world preservation are supplied by
-`helperA_supportedBodyHelperInterface`. -/
+`helperA` contains the direct void call `helperB()`, whose exact summary and
+decreasing rank are supplied by `helperA_supportedBodyHelperInterface`. -/
 def helperA_supportedHelperRichBodyFragment :
     SupportedHelperRichBodyFragment twoHelperSpec helperA := by
   refine {
     hasInternalHelperCall := ?_
     coreSupported := rfl
     expressionsInScope := by
-      -- The concrete helper call has no arguments, so exposing the expression-list
-      -- bound-name fold closes the direct-metadata subexpression obligation.
+      -- The concrete helper call has no arguments, so the direct-metadata
+      -- subexpression obligation closes without a scope assumption.
       simp [helperA, stmtListHelperRichExprsInScope, stmtHelperRichExprsInScope,
         Stmt.directMetadata, FunctionBody.exprBoundNamesInScope,
         FunctionBody.exprBoundNames, FunctionBody.exprListBoundNames,
@@ -655,7 +646,7 @@ noncomputable def twoHelper_supportedSpecWithHelpers :
 /-- Explicit source-syntax evidence that the positive witness is genuinely
 helper-rich, rather than inhabited through an empty call inventory. -/
 theorem helperA_contains_internal_helper_call :
-    Stmt.letVar "x" (Expr.internalCall "helperB" []) ∈ helperA.body := by
+    Stmt.internalCall "helperB" [] ∈ helperA.body := by
   simp [helperA]
 
 theorem helperA_helperB_occurs_in_call_inventory :
@@ -682,6 +673,232 @@ theorem helperA_calls_helperB_rank_decreases :
     internalHelperTableRank twoHelperSpec "helperB" <
       internalHelperTableRank twoHelperSpec "helperA" := by
   simpa [internalHelperTableRank, twoHelperSpec, helperA, helperB]
+
+/-- The concrete runtime table deliberately contains the compiled callee.  The
+caller body below is therefore checked against the same internal-function
+lookup that the helper-aware IR interpreter uses at execution time. -/
+private def helperBCompiled : YulStmt :=
+  .funcDef (internalFunctionYulName "helperB") [] [] []
+
+private def twoHelperRuntimeContract : IRContract :=
+  { name := "TwoHelperEvidence"
+    deploy := []
+    functions := []
+    usesMapping := false
+    internalFunctions := [helperBCompiled] }
+
+private theorem helperBCompiled_compile_ok :
+    compileInternalFunction
+        (applySlotAliasRanges twoHelperSpec.fields twoHelperSpec.slotAliasRanges)
+        twoHelperSpec.events twoHelperSpec.errors twoHelperSpec.adtTypes helperB =
+      Except.ok helperBCompiled := by
+  simp [helperBCompiled, helperB, twoHelperSpec, compileInternalFunction,
+    validateFunctionSpec, functionReturns, CompilationModel.compileStmtList,
+    CompilationModel.compileStmtListWithFork]
+
+private def helperB_compiledWitness :
+    SupportedCompiledInternalHelperWitness twoHelperSpec twoHelperRuntimeContract
+      "helperB" := by
+  refine {
+    sourceWitness := helperB_support.toWitness
+    compiledStmt := helperBCompiled
+    compileOk := helperBCompiled_compile_ok
+    presentInRuntime := by simp [twoHelperRuntimeContract]
+    uniqueInRuntime := ?_ }
+  intro stmt hmem p r b hdef
+  simp [twoHelperRuntimeContract, helperBCompiled] at hmem
+  simpa [hmem]
+
+private def helperB_directContext :
+    DirectInternalHelperStatementContextBridge twoHelperRuntimeContract twoHelperSpec
+      "helperB" := by
+  refine {
+    sourceWitness := helperB_support.toWitness
+    summarySoundAt := fun selector =>
+      exactInternalHelperSummary_soundAtSelector selector twoHelperSpec helperB
+    compiledHelper := helperB_compiledWitness
+    irCallDispatch := ?_
+    irAssignDispatch := ?_ }
+  · intro fields scope args compiledIR argExprs state irFuel argVals state'
+      hcompile hargCompile hargs
+    exact execIRStmtsWithInternals_of_internalCall_compiledHelperWitness
+      (runtimeContract := twoHelperRuntimeContract)
+      (spec := twoHelperSpec)
+      (fields := fields)
+      (scope := scope)
+      (calleeName := "helperB")
+      (args := args)
+      (compiledIR := compiledIR)
+      helperB_compiledWitness state irFuel hcompile argExprs hargCompile hargs
+  · intro fields scope names args compiledIR argExprs state irFuel argVals state'
+      hcompile hargCompile hargs
+    exact execIRStmtsWithInternals_of_internalCallAssign_compiledHelperWitness
+      (runtimeContract := twoHelperRuntimeContract)
+      (spec := twoHelperSpec)
+      (fields := fields)
+      (scope := scope)
+      (names := names)
+      (calleeName := "helperB")
+      (args := args)
+      (compiledIR := compiledIR)
+      helperB_compiledWitness state irFuel hcompile argExprs hargCompile hargs
+
+private def helperBIR : IRInternalFunctionDef :=
+  { name := internalFunctionYulName "helperB"
+    params := []
+    rets := []
+    body := [] }
+
+private theorem helperB_find_in_runtime :
+    findInternalFunction? twoHelperRuntimeContract
+      (internalFunctionYulName "helperB") = some helperBIR := by
+  simp [twoHelperRuntimeContract, helperBCompiled, helperBIR, findInternalFunction?,
+    irInternalFunctionDefOfStmt?]
+
+private theorem helperB_body_context
+    (runtime : SourceSemantics.RuntimeState) (state : IRState) (helperFuel : Nat)
+    (hruntime : FunctionBody.runtimeStateMatchesIR [] runtime state) :
+    InternalHelperBodyExecContext twoHelperRuntimeContract twoHelperSpec helperB helperBIR
+      state runtime.world [] [] [] [] helperFuel := by
+  refine {
+    bindArgs := by simp [SourceSemantics.bindInternalArgs]
+    helperParams := by simp [helperB, helperBIR, internalFunctionYulParamNames]
+    generic := .nil
+    bodyCompile := by
+      simp [helperB, helperBIR, twoHelperSpec, SourceSemantics.effectiveFields,
+        CompilationModel.compileStmtList, CompilationModel.compileStmtListWithFork]
+    returnFree := by
+      simp [helperB, stmtListUsesReturnFamily]
+    noStop := by
+      simp [helperB, stmtListUsesStop]
+    bodyResultProjection := by
+      simp [internalHelperBodyResultProjection, internalHelperBodySourceResult,
+        internalHelperBodyRuntime, internalHelperResultOfStmtResult, helperB,
+        SourceSemantics.execStmtListWithHelpers]
+    scope := by
+      simp [internalHelperBodyScope, helperB, helperBIR]
+    exact := by
+      simp [internalHelperBodyScope, helperB, helperBIR]
+    bounded := FunctionBody.bindingsBounded_nil
+    runtime := by
+      simpa [internalHelperBodyRuntime, prepareInternalCalleeState, helperBIR,
+        SourceSemantics.effectiveFields, twoHelperSpec] using hruntime }
+
+private theorem helperB_direct_postcondition
+    (runtime : SourceSemantics.RuntimeState) (state : IRState)
+    (helperFuel extraFuel : Nat)
+    (hexact : FunctionBody.bindingsExactlyMatchIRVarsOnScope [] runtime.bindings state)
+    (hscope : FunctionBody.scopeNamesPresent [] runtime.bindings)
+    (hbounded : FunctionBody.bindingsBounded runtime.bindings)
+    (hruntime : FunctionBody.runtimeStateMatchesIR [] runtime state) :
+    DirectInternalHelperCallSummaryStepPostcondition []
+      (stmtNextScope [] (Stmt.internalCall "helperB" [])) helperB_directContext
+      helperFuel runtime [] state helperBIR
+      (internalHelperBodyIRExec twoHelperRuntimeContract helperBIR state [] extraFuel) := by
+  intro _hsummary
+  simpa [DirectInternalHelperCallSummaryStepPostcondition,
+    directInternalHelperCallSourceResult, directInternalHelperCallIRResult,
+    helperB_directContext, helperBIR, helperB, twoHelperSpec,
+    SourceSemantics.interpretInternalFunctionFuel,
+    SourceSemantics.bindInternalArgs,
+    SourceSemantics.execStmtListWithHelpers,
+    internalHelperBodyIRExec, internalHelperBodyIRExecResultAsCallResult,
+    execIRStmtsWithInternals, execIRInternalFunctionWithInternals,
+    prepareInternalCalleeState, restoreCallerVars, stmtNextScope] using
+    ⟨hruntime, hexact, hbounded, hscope⟩
+
+private theorem helperA_direct_call_compile :
+    CompilationModel.compileStmt [] twoHelperSpec.events twoHelperSpec.errors
+      .calldata [] false [] [] (Stmt.internalCall "helperB" [])
+      twoHelperSpec.functions =
+      Except.ok [YulStmt.exprStmt
+        (YulExpr.call (internalFunctionYulName "helperB") [])] := by
+  simp [twoHelperSpec, helperA, helperB, CompilationModel.compileStmt,
+    CompilationModel.compileStmtWithFork,
+    CompilationModel.compileInternalCallArgs]
+
+private theorem helperA_direct_call_step :
+    CompiledStmtStepWithHelpersAndHelperIRWithInternals
+      twoHelperRuntimeContract twoHelperSpec [] []
+      (Stmt.internalCall "helperB" [])
+      [YulStmt.exprStmt (YulExpr.call (internalFunctionYulName "helperB") [])] 2 := by
+  refine { compileOk := helperA_direct_call_compile, preserves := ?_ }
+  intro runtime state helperFuel extraFuel hfuelPos hexact hscope hbounded hruntime hslack
+  have hextra : 3 ≤ extraFuel := by
+    norm_num [YulStmt.exprStmt, YulExpr.call] at hslack ⊢
+    omega
+  by_cases hhelperFuel : 1 < helperFuel
+  · let irFuel := extraFuel - 1
+    have hirFuel : sizeOf helperBIR.body + 2 ≤ irFuel := by
+      simp [irFuel, helperBIR]
+      omega
+    have hsourceArgs :
+        SourceSemantics.evalExprListWithHelpers twoHelperSpec [] helperFuel runtime [] =
+          some [] := by
+      simp [SourceSemantics.evalExprListWithHelpers]
+    have hirArgs :
+        evalIRExprsWithInternals twoHelperRuntimeContract (irFuel + 1) state [] =
+          .values [] state := by
+      simp [evalIRExprsWithInternals]
+    have hmatch :=
+      directInternalHelperStatementContextBridge_callStepMatch_of_sufficientFuel
+        (runtimeContract := twoHelperRuntimeContract) (spec := twoHelperSpec)
+        (fields := []) (scope := []) (calleeName := "helperB") (args := [])
+        (helper := helperBIR) (runtime := runtime) (state := state)
+        (callerState := state) (argVals := []) (argExprs := [])
+        (sourceBindings := []) (entryBindings := [])
+        helperB_directContext (by simp [twoHelperSpec, helperA, helperB])
+        helperFuel irFuel hhelperFuel hirFuel
+        (helperB_body_context runtime state (helperFuel - 1) hruntime)
+        (by simp [helperB, helperBIR]) helperB_find_in_runtime hsourceArgs hirArgs
+        (helperB_direct_postcondition runtime state (helperFuel - 1)
+          (directInternalHelperExtraFuel helperBIR irFuel)
+          hexact hscope hbounded hruntime)
+    refine ⟨_, _, rfl, rfl, ?_⟩
+    simpa [irFuel] using hmatch
+  · have hfuelOne : helperFuel = 1 := by omega
+    subst helperFuel
+    refine ⟨.continue runtime, .continue state, ?_, ?_, ?_⟩
+    · simp [SourceSemantics.execStmtWithHelpers,
+        SourceSemantics.evalExprListWithHelpers,
+        SourceSemantics.findUniqueInternalFunction?,
+        SourceSemantics.interpretInternalFunctionFuel,
+        SourceSemantics.bindInternalArgs, twoHelperSpec, helperA, helperB]
+    · cases extraFuel with
+      | zero => omega
+      | succ extraFuel =>
+          cases extraFuel with
+          | zero => omega
+          | succ extraFuel =>
+              cases extraFuel with
+              | zero => omega
+              | succ remaining =>
+                  simp [execIRStmtsWithInternals, execIRStmtWithInternals,
+                    evalIRCallWithInternals, evalIRExprsWithInternals,
+                    execIRInternalFunctionWithInternals, findInternalFunction?,
+                    irInternalFunctionDefOfStmt?, twoHelperRuntimeContract,
+                    helperBCompiled, helperBIR, prepareInternalCalleeState,
+                    restoreCallerVars]
+    · simpa [stmtNextScope] using ⟨hruntime, hexact, hbounded, hscope⟩
+
+private def helperA_body_generic :
+    StmtListGenericWithHelpersAndHelperIRWithInternals
+      twoHelperRuntimeContract twoHelperSpec [] [] helperA.body 2 := by
+  simpa [helperA] using
+    (StmtListGenericWithHelpersAndHelperIRWithInternals.cons helperA_direct_call_step
+      (StmtListGenericWithHelpersAndHelperIRWithInternals.nil
+        (runtimeContract := twoHelperRuntimeContract) (spec := twoHelperSpec)
+        (fields := []) (irFuelSlack := 2)))
+
+/-- End-to-end concrete consumer: the genuine `helperA()` body call compiles
+through `spec.functions` after its helper-aware generic witness is built. -/
+theorem helperA_compileStmtList_from_genuine_helper_body_generic :
+    ∃ bodyIR,
+      CompilationModel.compileStmtList [] twoHelperSpec.events twoHelperSpec.errors
+        .calldata [] false [] [] helperA.body twoHelperSpec.functions =
+        Except.ok bodyIR :=
+  compileStmtList_ok_of_stmtListGenericWithHelpersAndHelperIRWithInternals_exact
+    helperA_body_generic
 
 end Regression
 
