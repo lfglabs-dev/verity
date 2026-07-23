@@ -10,6 +10,8 @@ namespace Compiler.Proofs.IRGeneration
 
 open Compiler
 open Compiler.CompilationModel
+open Compiler.Yul
+open Compiler.Proofs.HelperStepProofs
 open SourceSemantics
 
 private theorem eraseDups_nodup_and_mem_aux_local [BEq α] [LawfulBEq α]
