@@ -362,16 +362,17 @@ theorem stmtListDirectInternalHelperStepInterfaceWithInternals_of_callStepInterf
     {fields : List Field}
     {scope : List String}
     {stmts : List Stmt}
+    {irFuelSlack : Nat}
     (hcall :
-      StmtListDirectInternalHelperCallStepInterfaceWithInternals runtimeContract spec fields scope stmts)
+      StmtListDirectInternalHelperCallStepInterfaceWithInternals runtimeContract spec fields scope stmts irFuelSlack)
     (hassign :
-      StmtListDirectInternalHelperAssignStepInterfaceWithInternals runtimeContract spec fields scope stmts) :
+      StmtListDirectInternalHelperAssignStepInterfaceWithInternals runtimeContract spec fields scope stmts irFuelSlack) :
     StmtListDirectInternalHelperStepInterfaceWithInternals
-      runtimeContract spec fields scope stmts := by
+      runtimeContract spec fields scope stmts irFuelSlack := by
   induction hcall with
   | nil =>
       exact .nil
-  | @cons scope stmt rest hheadCall htailCall ih =>
+  | @cons _ scope stmt rest hheadCall htailCall ih =>
       cases hassign with
       | cons hheadAssign htailAssign =>
           refine .cons ?_ (ih htailAssign)
@@ -393,21 +394,22 @@ theorem stmtListInternalHelperSurfaceStepInterfaceWithInternals_of_directInterna
     {fields : List Field}
     {scope : List String}
     {stmts : List Stmt}
+    {irFuelSlack : Nat}
     (hdirect :
       StmtListDirectInternalHelperStepInterfaceWithInternals
-        runtimeContract spec fields scope stmts)
+        runtimeContract spec fields scope stmts irFuelSlack)
     (hexpr :
       StmtListExprInternalHelperStepInterfaceWithInternals
-        runtimeContract spec fields scope stmts)
+        runtimeContract spec fields scope stmts irFuelSlack)
     (hstruct :
       StmtListStructuralInternalHelperStepInterfaceWithInternals
-        runtimeContract spec fields scope stmts) :
+        runtimeContract spec fields scope stmts irFuelSlack) :
     StmtListInternalHelperSurfaceStepInterfaceWithInternals
-      runtimeContract spec fields scope stmts := by
+      runtimeContract spec fields scope stmts irFuelSlack := by
   induction hdirect with
   | nil =>
       exact .nil
-  | @cons scope stmt rest hheadDirect htailDirect ih =>
+  | @cons _ scope stmt rest hheadDirect htailDirect ih =>
       cases hexpr with
       | cons hheadExpr htailExpr =>
           cases hstruct with
@@ -560,9 +562,10 @@ theorem stmtListStructuralInternalHelperStepInterfaceWithInternals_of_structural
     {fields : List Field}
     {scope : List String}
     {stmts : List Stmt}
+    {irFuelSlack : Nat}
     (hsurface : stmtListTouchesStructuralInternalHelperSurface stmts = false) :
     StmtListStructuralInternalHelperStepInterfaceWithInternals
-      runtimeContract spec fields scope stmts := by
+      runtimeContract spec fields scope stmts irFuelSlack := by
   induction stmts generalizing scope with
   | nil =>
       exact .nil
@@ -678,18 +681,19 @@ theorem stmtListHelperSurfaceStepInterfaceWithInternals_of_internalHelperSurface
     {fields : List Field}
     {scope : List String}
     {stmts : List Stmt}
+    {irFuelSlack : Nat}
     (hinternal :
       StmtListInternalHelperSurfaceStepInterfaceWithInternals
-        runtimeContract spec fields scope stmts)
+        runtimeContract spec fields scope stmts irFuelSlack)
     (hresidual :
       StmtListResidualHelperSurfaceStepInterfaceWithInternals
-        runtimeContract spec fields scope stmts) :
+        runtimeContract spec fields scope stmts irFuelSlack) :
     StmtListHelperSurfaceStepInterfaceWithInternals
-      runtimeContract spec fields scope stmts := by
+      runtimeContract spec fields scope stmts irFuelSlack := by
   induction hinternal with
   | nil =>
       exact .nil
-  | @cons scope stmt rest hheadInternal htailInternal ih =>
+  | @cons _ scope stmt rest hheadInternal htailInternal ih =>
       cases hresidual with
       | cons hheadResidual htailResidual =>
           refine .cons ?_ (ih htailResidual)
@@ -1005,17 +1009,18 @@ theorem
     {fields : List Field}
     {scope : List String}
     {stmts : List Stmt}
+    {irFuelSlack : Nat}
     (hexpr :
       StmtListExprInternalHelperStepInterfaceWithInternals
-        runtimeContract spec fields scope stmts)
+        runtimeContract spec fields scope stmts irFuelSlack)
     (hallExpr :
       ∀ stmt ∈ stmts, stmtTouchesExprInternalHelperSurface stmt = true) :
     StmtListGenericWithHelpersAndHelperIRWithInternals
-      runtimeContract spec fields scope stmts := by
+      runtimeContract spec fields scope stmts irFuelSlack := by
   induction hexpr with
   | nil =>
       exact .nil
-  | @cons scope stmt rest hhead htail ih =>
+  | @cons _ scope stmt rest hhead htail ih =>
       rcases hhead (hallExpr stmt List.mem_cons_self) with ⟨compiledIR, hcompiled⟩
       exact .cons hcompiled
         (ih (fun stmt' hmem =>
@@ -1032,17 +1037,18 @@ theorem
     {fields : List Field}
     {scope : List String}
     {stmts : List Stmt}
+    {irFuelSlack : Nat}
     (hdirect :
       StmtListDirectInternalHelperStepInterfaceWithInternals
-        runtimeContract spec fields scope stmts)
+        runtimeContract spec fields scope stmts irFuelSlack)
     (hallDirect :
       ∀ stmt ∈ stmts, stmtTouchesDirectInternalHelperSurface stmt = true) :
     StmtListGenericWithHelpersAndHelperIRWithInternals
-      runtimeContract spec fields scope stmts := by
+      runtimeContract spec fields scope stmts irFuelSlack := by
   induction hdirect with
   | nil =>
       exact .nil
-  | @cons scope stmt rest hhead htail ih =>
+  | @cons _ scope stmt rest hhead htail ih =>
       rcases hhead (hallDirect stmt List.mem_cons_self) with ⟨compiledIR, hcompiled⟩
       exact .cons hcompiled
         (ih (fun stmt' hmem =>
@@ -1059,17 +1065,18 @@ theorem
     {fields : List Field}
     {scope : List String}
     {stmts : List Stmt}
+    {irFuelSlack : Nat}
     (hstruct :
       StmtListStructuralInternalHelperStepInterfaceWithInternals
-        runtimeContract spec fields scope stmts)
+        runtimeContract spec fields scope stmts irFuelSlack)
     (hallStructural :
       ∀ stmt ∈ stmts, stmtTouchesStructuralInternalHelperSurface stmt = true) :
     StmtListGenericWithHelpersAndHelperIRWithInternals
-      runtimeContract spec fields scope stmts := by
+      runtimeContract spec fields scope stmts irFuelSlack := by
   induction hstruct with
   | nil =>
       exact .nil
-  | @cons scope stmt rest hhead htail ih =>
+  | @cons _ scope stmt rest hhead htail ih =>
       rcases hhead (hallStructural stmt List.mem_cons_self) with
         ⟨compiledIR, hcompiled⟩
       exact .cons hcompiled
@@ -1088,18 +1095,19 @@ theorem
     {fields : List Field}
     {scope : List String}
     {stmts : List Stmt}
+    {irFuelSlack : Nat}
     (hhelperFree :
       StmtListHelperFreeStepInterfaceWithInternals
-        runtimeContract spec fields scope stmts)
+        runtimeContract spec fields scope stmts irFuelSlack)
     (hsteps :
       StmtListHelperSurfaceStepInterfaceWithInternals
-        runtimeContract spec fields scope stmts) :
+        runtimeContract spec fields scope stmts irFuelSlack) :
     StmtListGenericWithHelpersAndHelperIRWithInternals
-      runtimeContract spec fields scope stmts := by
+      runtimeContract spec fields scope stmts irFuelSlack := by
   induction hsteps with
   | nil =>
       exact .nil
-  | @cons scope stmt rest hheadStep htailSteps ih =>
+  | @cons _ scope stmt rest hheadStep htailSteps ih =>
       cases hhelperFree with
       | cons hheadFree htailFree =>
           by_cases hsurface : stmtTouchesUnsupportedHelperSurface stmt = false
@@ -1122,23 +1130,24 @@ theorem
     {fields : List Field}
     {scope : List String}
     {stmts : List Stmt}
+    {irFuelSlack : Nat}
     (hhelperFree :
       StmtListHelperFreeStepInterfaceWithInternals
-        runtimeContract spec fields scope stmts)
+        runtimeContract spec fields scope stmts irFuelSlack)
     (hdirect :
       StmtListDirectInternalHelperStepInterfaceWithInternals
-        runtimeContract spec fields scope stmts)
+        runtimeContract spec fields scope stmts irFuelSlack)
     (hexpr :
       StmtListExprInternalHelperStepInterfaceWithInternals
-        runtimeContract spec fields scope stmts)
+        runtimeContract spec fields scope stmts irFuelSlack)
     (hstruct :
       StmtListStructuralInternalHelperStepInterfaceWithInternals
-        runtimeContract spec fields scope stmts)
+        runtimeContract spec fields scope stmts irFuelSlack)
     (hresidual :
       StmtListResidualHelperSurfaceStepInterfaceWithInternals
-        runtimeContract spec fields scope stmts) :
+        runtimeContract spec fields scope stmts irFuelSlack) :
     StmtListGenericWithHelpersAndHelperIRWithInternals
-      runtimeContract spec fields scope stmts := by
+      runtimeContract spec fields scope stmts irFuelSlack := by
   exact
     stmtListGenericWithHelpersAndHelperIRWithInternals_of_helperFreeStepInterfaceWithInternals_and_helperSurfaceStepInterfaceWithInternals
       (runtimeContract := runtimeContract)

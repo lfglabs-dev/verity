@@ -579,7 +579,7 @@ private theorem constructorOnly_compileBody_empty_surfaces_withFork :
   rcases hhead with ⟨headIR, hhead⟩
   rcases htail with ⟨tailIR, htail⟩
   exact ⟨headIR ++ tailIR,
-    FunctionBody.compileStmtListWithFork_cons_eq_ok _ _ _ _ _ _ _ _ _ _ _ _ hhead htail⟩
+    FunctionBody.compileStmtListWithFork_cons_eq_ok _ _ _ _ _ _ _ _ _ _ _ _ _ hhead htail⟩
 
 private theorem constructorOnly_compileBody :
     ∃ bodyStmts,

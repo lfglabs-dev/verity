@@ -868,6 +868,14 @@ def stmtListTouchesUnsupportedConstructorRawCalldataSurface : List Stmt → Bool
         stmtListTouchesUnsupportedConstructorRawCalldataSurface rest
 end
 
+/-- Scope exposed to the continuation of a helper-rich statement.  Branch
+bindings of an `ite` are local to the branch in both source validation and Yul,
+so unlike the compiler's conservative name inventory they must not be added to
+the tail scope. -/
+def stmtHelperRichNextScope (scope : List String) : Stmt → List String
+  | .ite _ _ _ => scope
+  | stmt => stmtNextScope scope stmt
+
 /-- Selector-dispatched entrypoints in the same order used by `CompilationModel.compile`. -/
 def selectorDispatchedFunctions (spec : CompilationModel) : List FunctionSpec :=
   spec.functions.filter (fun fn => !fn.isInternal && !isInteropEntrypointName fn.name)
@@ -1436,7 +1444,7 @@ def stmtTouchesUnsupportedCoreSurface : Stmt → Bool
   | .storageArrayPop _
   | .requireError _ _ _ | .revertError _ _ | .returnValues _ | .returnArray _
   | .returnBytes _ | .returnStorageWords _ | .returnCodeData _ | .calldatacopy _ _ _
-  | .returndataCopy _ _ _ | .revertReturndata
+  | .returndataCopy _ _ _ | .revertReturndata => false
   | .emit _ _ | .internalCall _ _ | .internalCallAssign _ _ _
   | .rawLog _ _ _ | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _ | .ecm _ _ => false
   | .unsafeBlock _ _ | .unsafeYul _ | .matchAdt _ _ _ => true
@@ -1462,8 +1470,12 @@ def stmtTouchesUnsupportedStateSurface : Stmt → Bool
   | .stop
   | .requireError _ _ _ | .revertError _ _ | .returnValues _ | .returnArray _
   | .returnBytes _ | .returnStorageWords _ | .returnCodeData _ | .calldatacopy _ _ _
-  | .returndataCopy _ _ _ | .revertReturndata
-  | .emit _ _ | .internalCall _ _ | .internalCallAssign _ _ _
+  | .returndataCopy _ _ _ | .revertReturndata => false
+  | .internalCall _ args =>
+      exprListTouchesUnsupportedStateSurface args
+  | .internalCallAssign _ _ args =>
+      exprListTouchesUnsupportedStateSurface args
+  | .emit _ _
   | .rawLog _ _ _ | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _ | .ecm _ _ => false
   | .unsafeBlock _ _ | .unsafeYul _ | .matchAdt _ _ _ => true
   | .ite cond thenBranch elseBranch =>
@@ -1472,6 +1484,12 @@ def stmtTouchesUnsupportedStateSurface : Stmt → Bool
         stmtListTouchesUnsupportedStateSurface elseBranch
   | .forEach _ (.literal _) [] => false
   | .forEach _ _ _ | .forEachSetBit _ _ _ => true
+
+def exprListTouchesUnsupportedStateSurface : List Expr → Bool
+  | [] => false
+  | expr :: rest =>
+      exprTouchesUnsupportedStateSurface expr ||
+        exprListTouchesUnsupportedStateSurface rest
 
 /-- Weaker Tier 2 state-surface gate used by the singleton storage-write bridge:
 all existing unsupported stateful forms remain excluded except for the proved
@@ -2680,10 +2698,10 @@ structure SupportedRuntimeHelperTableInterface
     ∀ calleeName (witness : SupportedInternalHelperWitness spec calleeName),
       (compiledOfWitness calleeName witness).sourceWitness = witness
 
-/-- Helper-call boundary for the current generic theorem.
-It already inventories helper callees via positive summary witnesses, but it
-still carries the helper-excluding body fragment witness, so the generic theorem
-shape and trusted boundary remain unchanged until helper semantics are modeled. -/
+/-- Positive helper-summary boundary used by both helper-free and helper-rich
+bodies. Every syntactically mentioned callee must resolve to a supported
+internal function with a decreasing rank, and expression-position helpers must
+preserve the world on success. -/
 structure SupportedBodyHelperInterface (spec : CompilationModel) (fn : FunctionSpec) where
   helperRank : Nat
   callNamesNodup : (helperCallNames fn).Nodup
@@ -2704,6 +2722,164 @@ structure SupportedBodyCallInterface (spec : CompilationModel) (fn : FunctionSpe
   helpers : SupportedBodyHelperInterface spec fn
   foreign : stmtListTouchesUnsupportedForeignSurface fn.body = false
   lowLevel : stmtListTouchesUnsupportedLowLevelSurface fn.body = false
+
+mutual
+  /-- Core-safe helper-positive statement heads. Helper arguments must remain in
+  the existing core expression fragment; every non-helper head still passes the
+  existing fail-closed core classifier. -/
+  def stmtHelperRichCoreSupported : Stmt → Bool
+    | .internalCall _ args | .internalCallAssign _ _ args =>
+        args.all (fun arg => !exprTouchesUnsupportedCoreSurface arg)
+    | .letVar _ (.internalCall _ args) | .assignVar _ (.internalCall _ args) =>
+        args.all (fun arg => !exprTouchesUnsupportedCoreSurface arg)
+    | .ite cond thenBranch elseBranch =>
+        !exprTouchesUnsupportedCoreSurface cond &&
+          stmtListHelperRichCoreSupported thenBranch &&
+          stmtListHelperRichCoreSupported elseBranch
+    | stmt => !stmtTouchesUnsupportedCoreSurface stmt
+
+def stmtListHelperRichCoreSupported : List Stmt → Bool
+    | [] => true
+    | stmt :: rest =>
+        stmtHelperRichCoreSupported stmt && stmtListHelperRichCoreSupported rest
+end
+
+mutual
+  /-- State-surface gate for helper-rich statements. Expression-position helper
+  calls are transparent here: their arguments must satisfy the ordinary state
+  classifier even though the helper call node itself is admitted. -/
+  def stmtHelperRichStateSupported : Stmt → Bool
+    | .letVar _ (.internalCall _ args) | .assignVar _ (.internalCall _ args) =>
+        args.all (fun arg => !exprTouchesUnsupportedStateSurface arg)
+    | .ite cond thenBranch elseBranch =>
+        !exprTouchesUnsupportedStateSurface cond &&
+          stmtListHelperRichStateSupported thenBranch &&
+          stmtListHelperRichStateSupported elseBranch
+    | stmt => !stmtTouchesUnsupportedStateSurface stmt
+
+  def stmtListHelperRichStateSupported : List Stmt → Bool
+    | [] => true
+    | stmt :: rest =>
+        stmtHelperRichStateSupported stmt && stmtListHelperRichStateSupported rest
+end
+
+mutual
+  /-- Every expression evaluated by an admitted helper-rich statement must use
+  only names already in scope. `directMetadata.subexpressions` is the common
+  inventory for all statement heads, including ordinary expressions and helper
+  arguments; admitted `ite` children are checked recursively. -/
+  def stmtHelperRichExprsInScope (scope : List String) (stmt : Stmt) : Prop :=
+    (∀ expr ∈ stmt.directMetadata.subexpressions,
+      FunctionBody.exprBoundNamesInScope expr scope) ∧
+    match stmt with
+    | .ite _ thenBranch elseBranch =>
+        stmtListHelperRichExprsInScope scope thenBranch ∧
+          stmtListHelperRichExprsInScope scope elseBranch
+    | _ => True
+
+  def stmtListHelperRichExprsInScope : List String → List Stmt → Prop
+    | _, [] => True
+    | scope, stmt :: rest =>
+        stmtHelperRichExprsInScope scope stmt ∧
+          stmtListHelperRichExprsInScope (stmtHelperRichNextScope scope stmt) rest
+end
+
+mutual
+  /-- Direct assigning helper calls are supported only when the source helper
+  has exactly one resolved return and the call binds exactly one target.  This
+  matches the successful arm of `execStmtWithHelpers`; in particular, an empty
+  or multi-target `letMany` can no longer expose names to a continuation that
+  source execution would never reach. -/
+  def stmtHelperRichAssignTargetsSupported
+      (spec : CompilationModel) : Stmt → Prop
+    | .internalCallAssign names calleeName _ =>
+        (∃ name, names = [name]) ∧
+          ∃ callee ∈ spec.functions, callee.name = calleeName ∧
+            ∃ returnTy, functionReturns callee = Except.ok [returnTy]
+    | .ite _ thenBranch elseBranch =>
+        stmtListHelperRichAssignTargetsSupported spec thenBranch ∧
+          stmtListHelperRichAssignTargetsSupported spec elseBranch
+    | _ => True
+
+  def stmtListHelperRichAssignTargetsSupported
+      (spec : CompilationModel) : List Stmt → Prop
+    | [] => True
+    | stmt :: rest =>
+        stmtHelperRichAssignTargetsSupported spec stmt ∧
+          stmtListHelperRichAssignTargetsSupported spec rest
+end
+
+/-- Regression: helper arguments nested below a branch remain subject to the
+core-expression gate. -/
+example :
+    stmtListHelperRichCoreSupported
+      [.ite (.literal 1) [.internalCall "helper" [.internalCall "nested" []]] []] = false := by
+  rfl
+
+/-- Regression: branch-local helper calls cannot consume an unbound name. -/
+example :
+    ¬ stmtListHelperRichExprsInScope []
+      [.ite (.literal 1) [.internalCall "helper" [.param "missing"]] []] := by
+  simp [stmtListHelperRichExprsInScope, stmtHelperRichExprsInScope,
+    Stmt.directMetadata, FunctionBody.exprBoundNamesInScope,
+    FunctionBody.exprBoundNames]
+
+/-- Regression: a valid helper call elsewhere in the body does not allow an
+ordinary expression to read an unbound local. -/
+example :
+    ¬ stmtListHelperRichExprsInScope []
+      [.letVar "x" (.localVar "missing"), .internalCall "helper" []] := by
+  simp [stmtListHelperRichExprsInScope, stmtHelperRichExprsInScope,
+    Stmt.directMetadata, FunctionBody.exprBoundNamesInScope,
+    FunctionBody.exprBoundNames, stmtNextScope, collectStmtBindNames]
+
+/-- Regression: a binding introduced inside either `ite` branch is not visible
+to the statement following the conditional. -/
+example :
+    ¬ stmtListHelperRichExprsInScope []
+      [.ite (.literal 1) [.letVar "x" (.literal 1)] [],
+        .letVar "y" (.localVar "x")] := by
+  simp [stmtListHelperRichExprsInScope, stmtHelperRichExprsInScope,
+    stmtHelperRichNextScope, Stmt.directMetadata,
+    FunctionBody.exprBoundNamesInScope, FunctionBody.exprBoundNames]
+
+/-- Regression: direct helper assignment cannot advertise no targets (and the
+same singleton requirement excludes multiple targets). -/
+example (spec : CompilationModel) :
+    ¬ stmtListHelperRichAssignTargetsSupported spec
+      [.internalCallAssign [] "helper" []] := by
+  simp [stmtListHelperRichAssignTargetsSupported,
+    stmtHelperRichAssignTargetsSupported]
+
+/-- Regression: admitting an expression-position helper call does not hide a
+stateful argument from the helper-rich state boundary. -/
+example :
+    stmtListHelperRichStateSupported
+      [.letVar "x" (.internalCall "helper" [.storage "slot"])] = false := by
+  rfl
+
+/-- Positive supported fragment for a helper-rich function body. Unlike the
+initial `SupportedBodyInterface`, this interface does not pass through
+`SupportedStmtList` (whose current constructors imply helper-surface closure).
+Instead it explicitly requires a genuine internal-helper call while retaining
+the independent syntactic gates and the semantic helper-summary obligations.
+
+This is only a supported-fragment definition; it does not claim the final
+whole-contract correctness theorem for helper-rich bodies. -/
+structure SupportedHelperRichBodyFragment
+    (spec : CompilationModel) (fn : FunctionSpec) where
+  hasInternalHelperCall : ∃ calleeName, calleeName ∈ helperCallNames fn
+  coreSupported : stmtListHelperRichCoreSupported fn.body = true
+  expressionsInScope :
+    stmtListHelperRichExprsInScope (fn.params.map (·.name)) fn.body
+  assignTargetsSupported :
+    stmtListHelperRichAssignTargetsSupported spec fn.body
+  stateSupported : stmtListHelperRichStateSupported fn.body = true
+  calls : SupportedBodyCallInterface spec fn
+  effects : SupportedBodyEffectInterface fn
+  constructorRawCalldataSurfaceClosed :
+    stmtListTouchesUnsupportedConstructorRawCalldataSurface fn.body = false
+  noLocalObligations : fn.localObligations = []
 
 /-- Body-level interface for the initial theorem boundary. This keeps the current
 syntactic support inventory local to the body witness instead of baking it
@@ -2771,6 +2947,28 @@ structure SupportedFunction (spec : CompilationModel) (fn : FunctionSpec) where
   params : SupportedParamProfile fn.params
   returns : SupportedReturnProfile fn
   body : SupportedBodyInterface spec fn
+
+/-- Body support at the helper-aware function boundary.  The legacy arm keeps
+all existing helper-free consumers available, while the helper-rich arm admits
+the positive fragment directly without manufacturing a `SupportedStmtList`
+witness (which would imply that the helper-call inventory is empty). -/
+inductive SupportedFunctionBodyWithHelpers
+    (spec : CompilationModel) (fn : FunctionSpec) : Type where
+  | legacy (body : SupportedBodyInterface spec fn)
+  | helperRich (body : SupportedHelperRichBodyFragment spec fn)
+  | internalHelper (summary : SupportedInternalHelperSummary spec fn)
+
+/-- Function support interface for helper-aware consumers.  Internal helpers
+and selector-dispatched callers share this interface; whether a function is an
+external dispatch target remains a property of `selectorDispatchedFunctions`,
+not a body-fragment restriction. -/
+structure SupportedFunctionWithHelpers
+    (spec : CompilationModel) (fn : FunctionSpec) where
+  nonSpecialEntrypoint : isInteropEntrypointName fn.name = false
+  noNonReentrant : fn.nonReentrantLock = none
+  params : SupportedParamProfile fn.params
+  returns : SupportedReturnProfile fn
+  body : SupportedFunctionBodyWithHelpers spec fn
 
 /-- Supported external function for the scalar-event Layer 2 slice. -/
 structure SupportedFunctionWithScalarEvents
@@ -2889,6 +3087,19 @@ structure SupportedSpec (spec : CompilationModel) (selectors : List Nat) where
     ∀ ctor, spec.constructor = some ctor → SupportedConstructor spec ctor
   functions :
     ∀ fn, fn ∈ spec.functions → SupportedFunction spec fn
+
+/-- Whole-contract support inventory for the helper-aware Function/Contract/
+Dispatch chain.  It shares the established global invariants and surface gates,
+but its function inventory accepts `SupportedHelperRichBodyFragment` through
+`SupportedFunctionWithHelpers`. -/
+structure SupportedSpecWithHelpers
+    (spec : CompilationModel) (selectors : List Nat) where
+  invariants : SupportedSpecInvariants spec selectors
+  surface : SupportedSpecSurface spec
+  constructor :
+    ∀ ctor, spec.constructor = some ctor → SupportedConstructor spec ctor
+  functions :
+    ∀ fn, fn ∈ spec.functions → SupportedFunctionWithHelpers spec fn
 
 /-- Whole-contract support witness for the top-level scalar-event theorem. -/
 structure SupportedSpecWithScalarEvents
@@ -3065,6 +3276,31 @@ def SupportedFunctionExceptMappingWrites.helperFuel
     {spec : CompilationModel} {fn : FunctionSpec}
     (hSupported : SupportedFunctionExceptMappingWrites spec fn) : Nat :=
   hSupported.body.calls.helpers.helperRank
+
+def SupportedFunctionWithHelpers.helperFuel
+    {spec : CompilationModel} {fn : FunctionSpec}
+    (hSupported : SupportedFunctionWithHelpers spec fn) : Nat :=
+  match hSupported.body with
+  | .legacy body => body.calls.helpers.helperRank
+  | .helperRich body => body.calls.helpers.helperRank
+  | .internalHelper summary => summary.helperRank
+
+def SupportedFunction.withHelpers
+    {spec : CompilationModel} {fn : FunctionSpec}
+    (hSupported : SupportedFunction spec fn) : SupportedFunctionWithHelpers spec fn :=
+  { nonSpecialEntrypoint := hSupported.nonSpecialEntrypoint
+    noNonReentrant := hSupported.noNonReentrant
+    params := hSupported.params
+    returns := hSupported.returns
+    body := .legacy hSupported.body }
+
+def SupportedSpec.withHelpers
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpec spec selectors) : SupportedSpecWithHelpers spec selectors :=
+  { invariants := hSupported.invariants
+    surface := hSupported.surface
+    constructor := hSupported.constructor
+    functions := fun fn hmem => (hSupported.functions fn hmem).withHelpers }
 
 private theorem exprCompileCore_helperSurfaceClosed
     {expr : Expr}
@@ -7104,6 +7340,14 @@ def SupportedSpec.supportedFunctionOfSelectorDispatched
     SupportedFunction spec fn :=
   hSupported.functions fn ((List.mem_filter.mp hfn).1)
 
+def SupportedSpecWithHelpers.supportedFunctionOfSelectorDispatched
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecWithHelpers spec selectors)
+    {fn : FunctionSpec}
+    (hfn : fn ∈ selectorDispatchedFunctions spec) :
+    SupportedFunctionWithHelpers spec fn :=
+  hSupported.functions fn ((List.mem_filter.mp hfn).1)
+
 def SupportedSpecExceptMappingWrites.supportedFunctionOfSelectorDispatched
     {spec : CompilationModel} {selectors : List Nat}
     (hSupported : SupportedSpecExceptMappingWrites spec selectors)
@@ -7123,6 +7367,16 @@ def SupportedSpecWithScalarEvents.supportedFunctionOfSelectorDispatched
 noncomputable def SupportedSpec.helperFuelOfFunction
     {spec : CompilationModel} {selectors : List Nat}
     (hSupported : SupportedSpec spec selectors)
+    (fn : FunctionSpec) : Nat :=
+  open Classical in
+  if hfn : fn ∈ selectorDispatchedFunctions spec then
+    (hSupported.supportedFunctionOfSelectorDispatched hfn).helperFuel
+  else
+    0
+
+noncomputable def SupportedSpecWithHelpers.helperFuelOfFunction
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecWithHelpers spec selectors)
     (fn : FunctionSpec) : Nat :=
   open Classical in
   if hfn : fn ∈ selectorDispatchedFunctions spec then
@@ -7158,6 +7412,13 @@ noncomputable def SupportedSpec.helperFuel
     (fun fuel fn => max fuel (hSupported.helperFuelOfFunction fn))
     0
 
+noncomputable def SupportedSpecWithHelpers.helperFuel
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecWithHelpers spec selectors) : Nat :=
+  (selectorDispatchedFunctions spec).foldl
+    (fun fuel fn => max fuel (hSupported.helperFuelOfFunction fn))
+    0
+
 noncomputable def SupportedSpecExceptMappingWrites.helperFuel
     {spec : CompilationModel} {selectors : List Nat}
     (hSupported : SupportedSpecExceptMappingWrites spec selectors) : Nat :=
@@ -7175,6 +7436,14 @@ noncomputable def SupportedSpecWithScalarEvents.helperFuel
 theorem SupportedSpec.selectorFunctionParamsSupported
     {spec : CompilationModel} {selectors : List Nat}
     (hSupported : SupportedSpec spec selectors)
+    {fn : FunctionSpec}
+    (hfn : fn ∈ selectorDispatchedFunctions spec) :
+    ∀ param ∈ fn.params, SupportedExternalParamType param.ty :=
+  (hSupported.supportedFunctionOfSelectorDispatched hfn).params.supported
+
+theorem SupportedSpecWithHelpers.selectorFunctionParamsSupported
+    {spec : CompilationModel} {selectors : List Nat}
+    (hSupported : SupportedSpecWithHelpers spec selectors)
     {fn : FunctionSpec}
     (hfn : fn ∈ selectorDispatchedFunctions spec) :
     ∀ param ∈ fn.params, SupportedExternalParamType param.ty :=

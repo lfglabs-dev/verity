@@ -1062,6 +1062,8 @@ theorem compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_
     (initialWorld : Verity.ContractState)
     (htxNormalized : Function.TxContextNormalized tx)
     (bindings : List (String × Nat))
+    (internalFunctions : List FunctionSpec)
+    (irFuelSlack : Nat)
     (extraFuel : Nat)
     (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
     (hfn : fn ∈ selectorDispatchedFunctions model)
@@ -1069,13 +1071,14 @@ theorem compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_
     (hreturns : functionReturns fn = Except.ok returns)
     (hbodyCompile :
       compileStmtList model.fields model.events model.errors .calldata [] false
-        (fn.params.map (·.name)) [] fn.body = Except.ok bodyStmts)
+        (fn.params.map (·.name)) [] fn.body internalFunctions = Except.ok bodyStmts)
     (hcompileFn :
-      compileFunctionSpec model.fields model.events model.errors [] sel fn = Except.ok irFn)
+      compileFunctionSpec model.fields model.events model.errors [] sel fn
+        (internalFunctions := internalFunctions) = Except.ok irFn)
     (hbind : SourceSemantics.bindSupportedParams fn.params tx.args = some bindings)
     (hcompiledBodyFuel :
       (genParamLoads fn.params ++ bodyStmts).length + extraFuel =
-        sizeOf (Function.compiledFunctionIR sel fn returns bodyStmts).body)
+        sizeOf (Function.compiledFunctionIR sel fn returns bodyStmts).body + irFuelSlack)
     (hbodyCorrect :
       SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
         runtimeContract model fn bodyStmts hSupported.helperFuel tx initialWorld
@@ -1089,12 +1092,12 @@ theorem compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_
         (genParamLoads fn.params)) :
     FunctionBody.sourceResultMatchesIRResult
       (supportedSourceFunctionSemantics model selectors hSupported fn tx initialWorld)
-      (execIRFunctionWithInternals runtimeContract 0 irFn tx.args
+      (execIRFunctionWithInternals runtimeContract irFuelSlack irFn tx.args
         (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
   exact Function.supported_function_correct_with_helper_proofs_body_goal_with_internals
     model selectors hSupported hHelperProofs hvalidateInputs runtimeContract
-    fn sel returns bodyStmts irFn tx initialWorld bindings hfn hvalidate hreturns
-    hbodyCompile hcompileFn hbind htxNormalized extraFuel hcompiledBodyFuel
+    fn sel returns bodyStmts irFn tx initialWorld bindings internalFunctions hfn hvalidate hreturns
+    hbodyCompile hcompileFn hbind htxNormalized irFuelSlack extraFuel hcompiledBodyFuel
     hbodyCorrect hparamDisjoint hcalldataSizeFits
 
 /-- Packaged helper-aware compiled-side wrapper that discharges the ABI
@@ -1121,6 +1124,8 @@ theorem compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_
     (initialWorld : Verity.ContractState)
     (htxNormalized : Function.TxContextNormalized tx)
     (bindings : List (String × Nat))
+    (internalFunctions : List FunctionSpec)
+    (irFuelSlack : Nat)
     (extraFuel : Nat)
     (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
     (hfn : fn ∈ selectorDispatchedFunctions model)
@@ -1128,13 +1133,14 @@ theorem compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_
     (hreturns : functionReturns fn = Except.ok returns)
     (hbodyCompile :
       compileStmtList model.fields model.events model.errors .calldata [] false
-        (fn.params.map (·.name)) [] fn.body = Except.ok bodyStmts)
+        (fn.params.map (·.name)) [] fn.body internalFunctions = Except.ok bodyStmts)
     (hcompileFn :
-      compileFunctionSpec model.fields model.events model.errors [] sel fn = Except.ok irFn)
+      compileFunctionSpec model.fields model.events model.errors [] sel fn
+        (internalFunctions := internalFunctions) = Except.ok irFn)
     (hbind : SourceSemantics.bindSupportedParams fn.params tx.args = some bindings)
     (hcompiledBodyFuel :
       (genParamLoads fn.params ++ bodyStmts).length + extraFuel =
-        sizeOf (Function.compiledFunctionIR sel fn returns bodyStmts).body)
+        sizeOf (Function.compiledFunctionIR sel fn returns bodyStmts).body + irFuelSlack)
     (hbodyCorrect :
       SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
         runtimeContract model fn bodyStmts hSupported.helperFuel tx initialWorld
@@ -1146,11 +1152,12 @@ theorem compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_
     (hinv : InternalTableNamesInternalPrefixed runtimeContract) :
     FunctionBody.sourceResultMatchesIRResult
       (supportedSourceFunctionSemantics model selectors hSupported fn tx initialWorld)
-      (execIRFunctionWithInternals runtimeContract 0 irFn tx.args
+      (execIRFunctionWithInternals runtimeContract irFuelSlack irFn tx.args
         (FunctionBody.initialIRStateForTx model tx initialWorld)) :=
   compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal
     model selectors hSupported hHelperProofs hvalidateInputs runtimeContract fn sel returns
-    bodyStmts irFn tx initialWorld htxNormalized bindings extraFuel hcalldataSizeFits hfn
+    bodyStmts irFn tx initialWorld htxNormalized bindings internalFunctions irFuelSlack extraFuel
+    hcalldataSizeFits hfn
     hvalidate hreturns hbodyCompile hcompileFn hbind hcompiledBodyFuel hbodyCorrect
     (Function.genParamLoads_callsDisjoint_of_internalNamesPrefixed runtimeContract fn.params
       (supported_params_of_supportedSpec model selectors hSupported fn hfn) hinv)
@@ -1180,6 +1187,8 @@ theorem compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_
     (initialWorld : Verity.ContractState)
     (htxNormalized : Function.TxContextNormalized tx)
     (bindings : List (String × Nat))
+    (internalFunctions : List FunctionSpec)
+    (irFuelSlack : Nat)
     (extraFuel : Nat)
     (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
     (hfn : fn ∈ selectorDispatchedFunctions model)
@@ -1187,13 +1196,14 @@ theorem compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_
     (hreturns : functionReturns fn = Except.ok returns)
     (hbodyCompile :
       compileStmtList model.fields model.events model.errors .calldata [] false
-        (fn.params.map (·.name)) [] fn.body = Except.ok bodyStmts)
+        (fn.params.map (·.name)) [] fn.body internalFunctions = Except.ok bodyStmts)
     (hcompileFn :
-      compileFunctionSpec model.fields model.events model.errors [] sel fn = Except.ok irFn)
+      compileFunctionSpec model.fields model.events model.errors [] sel fn
+        (internalFunctions := internalFunctions) = Except.ok irFn)
     (hbind : SourceSemantics.bindSupportedParams fn.params tx.args = some bindings)
     (hcompiledBodyFuel :
       (genParamLoads fn.params ++ bodyStmts).length + extraFuel =
-        sizeOf (Function.compiledFunctionIR sel fn returns bodyStmts).body)
+        sizeOf (Function.compiledFunctionIR sel fn returns bodyStmts).body + irFuelSlack)
     (hbodyCorrect :
       SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
         runtimeContract model fn bodyStmts hSupported.helperFuel tx initialWorld
@@ -1205,11 +1215,12 @@ theorem compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_
     (hinv : InternalTableNamesReserved runtimeContract) :
     FunctionBody.sourceResultMatchesIRResult
       (supportedSourceFunctionSemantics model selectors hSupported fn tx initialWorld)
-      (execIRFunctionWithInternals runtimeContract 0 irFn tx.args
+      (execIRFunctionWithInternals runtimeContract irFuelSlack irFn tx.args
         (FunctionBody.initialIRStateForTx model tx initialWorld)) :=
   compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal
     model selectors hSupported hHelperProofs hvalidateInputs runtimeContract fn sel returns
-    bodyStmts irFn tx initialWorld htxNormalized bindings extraFuel hcalldataSizeFits hfn
+    bodyStmts irFn tx initialWorld htxNormalized bindings internalFunctions irFuelSlack extraFuel
+    hcalldataSizeFits hfn
     hvalidate hreturns hbodyCompile hcompileFn hbind hcompiledBodyFuel hbodyCorrect
     (Function.genParamLoads_callsDisjoint_of_reserved runtimeContract fn.params
       (supported_params_of_supportedSpec model selectors hSupported fn hfn) hinv)
@@ -1239,6 +1250,7 @@ theorem compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_
     (initialWorld : Verity.ContractState)
     (htxNormalized : Function.TxContextNormalized tx)
     (bindings : List (String × Nat))
+    (irFuelSlack : Nat)
     (extraFuel : Nat)
     (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
     (hfn : fn ∈ selectorDispatchedFunctions model)
@@ -1252,7 +1264,7 @@ theorem compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_
     (hbind : SourceSemantics.bindSupportedParams fn.params tx.args = some bindings)
     (hcompiledBodyFuel :
       (genParamLoads fn.params ++ bodyStmts).length + extraFuel =
-        sizeOf (Function.compiledFunctionIR sel fn returns bodyStmts).body)
+        sizeOf (Function.compiledFunctionIR sel fn returns bodyStmts).body + irFuelSlack)
     (hbodyCorrect :
       SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
         runtimeContract model fn bodyStmts hSupported.helperFuel tx initialWorld
@@ -1270,11 +1282,11 @@ theorem compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_
             = Except.ok stmt) :
     FunctionBody.sourceResultMatchesIRResult
       (supportedSourceFunctionSemantics model selectors hSupported fn tx initialWorld)
-      (execIRFunctionWithInternals runtimeContract 0 irFn tx.args
+      (execIRFunctionWithInternals runtimeContract irFuelSlack irFn tx.args
         (FunctionBody.initialIRStateForTx model tx initialWorld)) :=
   compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_internalNamesPrefixed
     model selectors hSupported hHelperProofs hvalidateInputs runtimeContract fn sel returns
-    bodyStmts irFn tx initialWorld htxNormalized bindings extraFuel hcalldataSizeFits hfn
+    bodyStmts irFn tx initialWorld htxNormalized bindings [] irFuelSlack extraFuel hcalldataSizeFits hfn
     hvalidate hreturns hbodyCompile hcompileFn hbind hcompiledBodyFuel hbodyCorrect
     (Function.InternalTableNamesInternalPrefixed_of_all_compiledInternal runtimeContract
       hcompiledTable)
@@ -2189,6 +2201,7 @@ theorem compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_
     (initialWorld : Verity.ContractState)
     (htxNormalized : Function.TxContextNormalized tx)
     (bindings : List (String × Nat))
+    (irFuelSlack : Nat)
     (extraFuel : Nat)
     (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
     (hfn : fn ∈ selectorDispatchedFunctions model)
@@ -2202,7 +2215,7 @@ theorem compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_
     (hbind : SourceSemantics.bindSupportedParams fn.params tx.args = some bindings)
     (hcompiledBodyFuel :
       (genParamLoads fn.params ++ bodyStmts).length + extraFuel =
-        sizeOf (Function.compiledFunctionIR sel fn returns bodyStmts).body)
+        sizeOf (Function.compiledFunctionIR sel fn returns bodyStmts).body + irFuelSlack)
     (hbodyCorrect :
       SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
         runtimeContract model fn bodyStmts hSupported.helperFuel tx initialWorld
@@ -2213,11 +2226,11 @@ theorem compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_
         bindings extraFuel) :
     FunctionBody.sourceResultMatchesIRResult
       (supportedSourceFunctionSemantics model selectors hSupported fn tx initialWorld)
-      (execIRFunctionWithInternals runtimeContract 0 irFn tx.args
+      (execIRFunctionWithInternals runtimeContract irFuelSlack irFn tx.args
         (FunctionBody.initialIRStateForTx model tx initialWorld)) :=
   compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_reserved
     model selectors hSupported hHelperProofs hvalidateInputs runtimeContract fn sel returns
-    bodyStmts irFn tx initialWorld htxNormalized bindings extraFuel hcalldataSizeFits hfn
+    bodyStmts irFn tx initialWorld htxNormalized bindings [] irFuelSlack extraFuel hcalldataSizeFits hfn
     hvalidate hreturns hbodyCompile hcompileFn hbind hcompiledBodyFuel hbodyCorrect
     (InternalTableNamesReserved_of_compileValidatedCore model selectors runtimeContract hcore)
 
@@ -2763,14 +2776,15 @@ theorem compile_preserves_semantics_with_helper_proofs_and_helper_ir
     (htxNormalized : Function.TxContextNormalized tx)
     (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
     (hcompile : CompilationModel.compile model selectors = Except.ok ir)
+    (irFuelSlack : Nat := 0)
     (hhelperIR :
-      interpretIRWithInternals ir 0 tx
+      interpretIRWithInternals ir irFuelSlack tx
         (FunctionBody.initialIRStateForTx model tx initialWorld) =
       interpretIR ir tx
         (FunctionBody.initialIRStateForTx model tx initialWorld)) :
     FunctionBody.sourceResultMatchesIRResult
       (supportedSourceContractSemantics model selectors hSupported tx initialWorld)
-      (interpretIRWithInternals ir 0 tx
+      (interpretIRWithInternals ir irFuelSlack tx
         (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
   have hlegacy :=
     compile_preserves_semantics_with_helper_proofs
@@ -2986,6 +3000,61 @@ theorem compile_preserves_semantics_with_helper_proofs_and_helper_ir_closed
     (hcompile := hcompile)
     (hlegacyIR := hlegacyIR)
     (hhelperIRGoal := interpretIRWithInternalsZeroConservativeExtensionGoal_closed ir)
+
+/-- Contract-facing wrapper for the helper-rich Function support boundary.
+The caller supplies the exact helper-aware body/IR preservation goal, while
+parameter support and helper fuel come from `SupportedSpecWithHelpers`. -/
+theorem compileFunctionSpec_correct_with_helper_rich_support_of_body_goal
+    (model : CompilationModel)
+    (selectors : List Nat)
+    (hSupported : SupportedSpecWithHelpers model selectors)
+    (hvalidateInputs : validateCompileInputs model selectors = Except.ok ())
+    (runtimeContract : IRContract)
+    (fn : FunctionSpec)
+    (sel : Nat)
+    (returns : List ParamType)
+    (bodyStmts : List YulStmt)
+    (irFn : IRFunction)
+    (tx : IRTransaction)
+    (initialWorld : Verity.ContractState)
+    (htxNormalized : Function.TxContextNormalized tx)
+    (bindings : List (String × Nat))
+    (internalFunctions : List FunctionSpec)
+    (irFuelSlack extraFuel : Nat)
+    (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
+    (hfn : fn ∈ selectorDispatchedFunctions model)
+    (hvalidate : validateFunctionSpec fn = Except.ok ())
+    (hreturns : functionReturns fn = Except.ok returns)
+    (hbodyCompile :
+      compileStmtList model.fields model.events model.errors .calldata [] false
+        (fn.params.map (·.name)) [] fn.body internalFunctions = Except.ok bodyStmts)
+    (hcompileFn :
+      compileFunctionSpec model.fields model.events model.errors [] sel fn
+        (internalFunctions := internalFunctions) = Except.ok irFn)
+    (hbind : SourceSemantics.bindSupportedParams fn.params tx.args = some bindings)
+    (hcompiledBodyFuel :
+      (genParamLoads fn.params ++ bodyStmts).length + extraFuel =
+        sizeOf (Function.compiledFunctionIR sel fn returns bodyStmts).body + irFuelSlack)
+    (hbodyCorrect :
+      SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
+        runtimeContract model fn bodyStmts hSupported.helperFuel tx initialWorld
+        (ParamLoading.applyBindingsToIRState
+          (Function.prebindRawArgs
+            (FunctionBody.initialIRStateForTx model tx initialWorld) fn.params)
+          bindings)
+        bindings extraFuel)
+    (hparamDisjoint :
+      YulStmtListCallsDisjointFromInternalTable runtimeContract (genParamLoads fn.params)) :
+    FunctionBody.sourceResultMatchesIRResult
+      (supportedSourceFunctionSemanticsWithHelpers
+        model selectors hSupported fn tx initialWorld)
+      (execIRFunctionWithInternals runtimeContract irFuelSlack irFn tx.args
+        (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
+  exact Function.supported_function_correct_with_helper_rich_support_body_goal_with_internals
+    model selectors hSupported hvalidateInputs runtimeContract fn sel returns bodyStmts irFn
+    tx initialWorld bindings internalFunctions hfn hvalidate hreturns hbodyCompile hcompileFn
+    hbind htxNormalized irFuelSlack extraFuel hcompiledBodyFuel hbodyCorrect hparamDisjoint
+    hcalldataSizeFits
 
 /-- First direct consumer of the generic Layer 2 theorem surface: the existing
 supported single-function demo model can now obtain whole-contract correctness

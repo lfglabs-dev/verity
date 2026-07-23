@@ -57,6 +57,10 @@ private theorem List.mem_of_mem_eraseDups_local [BEq α] [LawfulBEq α]
     {a : α} {l : List α} (h : a ∈ l.eraseDups) : a ∈ l :=
   ((eraseDups_nodup_and_mem_aux_local l.length l (Nat.le_refl _)).2 a).mp h
 
+private theorem List.mem_eraseDups_of_mem_local [BEq α] [LawfulBEq α]
+    {a : α} {l : List α} (h : a ∈ l) : a ∈ l.eraseDups :=
+  ((eraseDups_nodup_and_mem_aux_local l.length l (Nat.le_refl _)).2 a).mpr h
+
 /-- Canonical selector-aware helper summary. -/
 def exactInternalHelperSummary
     (spec : CompilationModel)
@@ -544,6 +548,122 @@ def helperA_supportedBodyHelperInterface :
     change helperStmtListReadOnly helperB.body = true
     simp [helperB, helperStmtListReadOnly, helperStmtReadOnly,
       helperExprReadOnly, exprTouchesUnsupportedCallSurface]
+
+/-- Non-vacuous witness for the positive helper-rich supported fragment.
+`helperA` contains the expression-position call `helperB()`, whose exact
+summary, decreasing rank, and successful world preservation are supplied by
+`helperA_supportedBodyHelperInterface`. -/
+def helperA_supportedHelperRichBodyFragment :
+    SupportedHelperRichBodyFragment twoHelperSpec helperA := by
+  refine {
+    hasInternalHelperCall := ?_
+    coreSupported := rfl
+    expressionsInScope := by
+      -- The concrete helper call has no arguments, so exposing the expression-list
+      -- bound-name fold closes the direct-metadata subexpression obligation.
+      simp [helperA, stmtListHelperRichExprsInScope, stmtHelperRichExprsInScope,
+        Stmt.directMetadata, FunctionBody.exprBoundNamesInScope,
+        FunctionBody.exprBoundNames, FunctionBody.exprListBoundNames,
+        stmtHelperRichNextScope, stmtNextScope]
+    assignTargetsSupported := by
+      simp [helperA, stmtListHelperRichAssignTargetsSupported,
+        stmtHelperRichAssignTargetsSupported]
+    stateSupported := rfl
+    calls :=
+      { helpers := helperA_supportedBodyHelperInterface
+        foreign := rfl
+        lowLevel := rfl }
+    effects := ⟨rfl⟩
+    constructorRawCalldataSurfaceClosed := rfl
+    noLocalObligations := rfl
+  }
+  exact ⟨"helperB", by
+    apply List.mem_eraseDups_of_mem_local
+    simp [helperA, stmtListInternalHelperCallNames,
+      stmtInternalHelperCallNames, exprInternalHelperCallNames,
+    exprListInternalHelperCallNames]⟩
+
+/-- Function-boundary witness for the genuine helper caller.  This is the
+non-vacuous inhabitant that the legacy `SupportedFunction` gate could not
+express. -/
+def helperA_supportedFunctionWithHelpers :
+    SupportedFunctionWithHelpers twoHelperSpec helperA := by
+  refine {
+    nonSpecialEntrypoint := by simp [helperA, isInteropEntrypointName]
+    noNonReentrant := rfl
+    params := ?_
+    returns := ?_
+    body := .helperRich helperA_supportedHelperRichBodyFragment
+  }
+  · refine ⟨by simp [helperA], ?_, ?_⟩
+    · simp [helperA]
+    · simp [helperA, Compiler.Constants.evmModulus]
+  · exact { resolved := ⟨[], rfl, trivial⟩ }
+
+private def helperB_supportedFunctionWithHelpers :
+    SupportedFunctionWithHelpers twoHelperSpec helperB := by
+  refine {
+    nonSpecialEntrypoint := by simp [helperB, isInteropEntrypointName]
+    noNonReentrant := rfl
+    params := ?_
+    returns := ?_
+    body := .internalHelper helperB_support.toWitness.summary
+  }
+  · refine ⟨by simp [helperB], ?_, ?_⟩
+    · simp [helperB]
+    · simp [helperB, Compiler.Constants.evmModulus]
+  · exact { resolved := ⟨[], rfl, trivial⟩ }
+
+/-- Whole-spec regression: a model containing an internal helper caller and
+its callee now inhabits the helper-aware support inventory without any
+helper-free premise. -/
+noncomputable def twoHelper_supportedSpecWithHelpers :
+    SupportedSpecWithHelpers twoHelperSpec [] := by
+  refine {
+    invariants := ?_
+    surface := ?_
+    constructor := ?_
+    functions := ?_
+  }
+  · refine ⟨rfl, ?_, rfl, rfl, ?_⟩
+    · simp [twoHelperSpec]
+    · simp [twoHelperSpec, helperA, helperB]
+  · refine ⟨rfl, rfl, rfl, rfl, ?_, ?_, ?_, ?_⟩
+    · simp [contractUsesCheckedArithmetic, twoHelperSpec]
+      constructor
+      · simp [helperA, stmtListMayUseCheckedArithmetic, stmtMayUseCheckedArithmetic]
+      · simp [helperB, stmtListMayUseCheckedArithmetic, stmtMayUseCheckedArithmetic]
+    · rw [templateIntrinsicItems, twoHelperSpec, helperA, helperB]
+      unfold collectTemplateIntrinsicsFromStmts
+      simp only [List.flatMap_cons, List.flatMap_nil, List.append_nil]
+      repeat rw [collectTemplateIntrinsicsFromStmt.eq_def]
+      simp [Stmt.directMetadata, Stmt.childLists,
+        collectTemplateIntrinsicsFromExpr, Expr.children]
+    · simp [twoHelperSpec, helperA, helperB]
+    · simp [twoHelperSpec, helperA, helperB]
+  · intro ctor hctor
+    simp [twoHelperSpec] at hctor
+  · intro fn hfn
+    simp [twoHelperSpec] at hfn
+    by_cases hA : fn = helperA
+    · subst fn
+      exact helperA_supportedFunctionWithHelpers
+    · have hB : fn = helperB := Or.resolve_left hfn hA
+      subst fn
+      exact helperB_supportedFunctionWithHelpers
+
+/-- Explicit source-syntax evidence that the positive witness is genuinely
+helper-rich, rather than inhabited through an empty call inventory. -/
+theorem helperA_contains_internal_helper_call :
+    Stmt.letVar "x" (Expr.internalCall "helperB" []) ∈ helperA.body := by
+  simp [helperA]
+
+theorem helperA_helperB_occurs_in_call_inventory :
+    "helperB" ∈ helperCallNames helperA := by
+  apply List.mem_eraseDups_of_mem_local
+  simp [helperA, stmtListInternalHelperCallNames,
+    stmtInternalHelperCallNames, exprInternalHelperCallNames,
+    exprListInternalHelperCallNames]
 
 theorem helperA_supportedBodyHelperInterface_summary_sound :
     SupportedBodyHelperSummariesSound twoHelperSpec helperA
