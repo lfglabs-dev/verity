@@ -140,6 +140,10 @@ jobs:
           trap - EXIT
           node "$GITHUB_WORKSPACE/ocr-trusted/.github/scripts/ocr-router.js"
 
+      - name: Setup uv
+        if: steps.pr.outputs.skip != 'true' && steps.route.outputs.should_run_ocr == 'true' && steps.route.outputs.has_lean == 'true'
+        uses: astral-sh/setup-uv@v6
+
       - name: Prepare repository-pinned Lean toolchain for LSP evidence
         if: steps.pr.outputs.skip != 'true' && steps.route.outputs.should_run_ocr == 'true' && steps.route.outputs.has_lean == 'true'
         env:
