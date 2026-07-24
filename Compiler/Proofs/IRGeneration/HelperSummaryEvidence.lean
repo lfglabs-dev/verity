@@ -452,6 +452,18 @@ private def helperA : FunctionSpec :=
     isInternal := true
     body := [Stmt.internalCall "helperB" []] }
 
+/-- Keep a concrete expression-position caller alongside the direct-call
+regression.  The direct body below exercises the statement bridge; this
+separate fixture continues to exercise the expression helper's successful
+world-preservation obligation. -/
+private def expressionHelperCaller : FunctionSpec :=
+  { name := "expressionHelperCaller"
+    params := []
+    returnType := none
+    returns := []
+    isInternal := true
+    body := [Stmt.letVar "x" (Expr.internalCall "helperB" [])] }
+
 private def twoHelperSpec : CompilationModel :=
   { name := "TwoHelperEvidence"
     fields := []
@@ -542,6 +554,33 @@ def helperA_supportedBodyHelperInterface :
     simp [helperA, exprHelperCallNames, stmtListExprHelperCallNames,
       stmtExprHelperCallNames, exprInternalHelperCallNames,
       exprListInternalHelperCallNames] at hmem
+
+/-- The expression-position fixture is intentionally separate from `helperA`:
+it prevents the direct-call regression from making expression-helper coverage
+vacuous. -/
+private def expressionHelperCaller_supportedBodyHelperInterface :
+    SupportedBodyHelperInterface twoHelperSpec expressionHelperCaller := by
+  refine supportedBodyHelperInterface_of_exactSummariesAndRanks
+    (spec := twoHelperSpec)
+    (fn := expressionHelperCaller)
+    ?_ twoHelperRanksDecrease ?_ ?_
+  · simp [twoHelperSpec, expressionHelperCaller]
+  · intro calleeName hmem
+    have hname : calleeName = "helperB" := by
+      apply mem_helperB_eraseDups_singleton
+      simpa [expressionHelperCaller, helperCallNames, stmtListInternalHelperCallNames,
+        stmtInternalHelperCallNames, exprInternalHelperCallNames,
+        exprListInternalHelperCallNames] using hmem
+    subst calleeName
+    exact helperB_support
+  · intro calleeName hmem
+    have hname : calleeName = "helperB" := by
+      apply mem_helperB_eraseDups_singleton
+      simpa [expressionHelperCaller, exprHelperCallNames, stmtListExprHelperCallNames,
+        stmtExprHelperCallNames, exprInternalHelperCallNames,
+        exprListInternalHelperCallNames] using hmem
+    subst calleeName
+    exact helperB_exactSummary_preservesWorld
 
 /-- Non-vacuous witness for the positive helper-rich supported fragment.
 `helperA` contains the direct void call `helperB()`, whose exact summary and
@@ -882,6 +921,9 @@ private theorem helperA_direct_call_step_oneFuel
           [YulStmt.exprStmt (YulExpr.call (internalFunctionYulName "helperB") [])] = irExec ∧
         stmtStepMatchesIRExecWithInternals [] (stmtNextScope [] (Stmt.internalCall "helperB" []))
           sourceResult irExec := by
+  have hextra : 3 ≤ extraFuel := by
+    norm_num [YulStmt.exprStmt, YulExpr.call] at hslack ⊢
+    omega
   refine ⟨.continue runtime, .continue state, ?_, ?_, ?_⟩
   · simp [SourceSemantics.execStmtWithHelpers, SourceSemantics.evalExprListWithHelpers,
       SourceSemantics.findUniqueInternalFunction?, SourceSemantics.interpretInternalFunctionFuel,
@@ -900,7 +942,7 @@ private theorem helperA_direct_call_step_oneFuel
                   execIRInternalFunctionWithInternals, findInternalFunction?,
                   irInternalFunctionDefOfStmt?, twoHelperRuntimeContract,
                   helperBCompiled, helperBIR, prepareInternalCalleeState, restoreCallerVars]
-  · simpa [stmtNextScope] using ⟨hruntime, hexact, hbounded, hscope⟩
+  · simpa [stmtNextScope, collectStmtBindNames] using ⟨hruntime, hexact, hbounded, hscope⟩
 
 private theorem helperA_direct_call_step :
     CompiledStmtStepWithHelpersAndHelperIRWithInternals
@@ -910,11 +952,13 @@ private theorem helperA_direct_call_step :
   refine { compileOk := helperA_direct_call_compile, preserves := ?_ }
   intro runtime state helperFuel extraFuel hfuelPos hexact hscope hbounded hruntime hslack
   by_cases hhelperFuel : 1 < helperFuel
-  · exact helperA_direct_call_step_sufficientFuel runtime state helperFuel extraFuel hfuelPos
-      hexact hscope hbounded hruntime hslack hhelperFuel
+  · simpa using
+      (helperA_direct_call_step_sufficientFuel runtime state helperFuel extraFuel hfuelPos
+        hexact hscope hbounded hruntime hslack hhelperFuel)
   · have hfuelOne : helperFuel = 1 := by omega
     subst helperFuel
-    exact helperA_direct_call_step_oneFuel runtime state extraFuel hexact hscope hbounded hruntime hslack
+    simpa using
+      (helperA_direct_call_step_oneFuel runtime state extraFuel hexact hscope hbounded hruntime hslack)
 
 private def helperA_body_generic :
     StmtListGenericWithHelpersAndHelperIRWithInternals
