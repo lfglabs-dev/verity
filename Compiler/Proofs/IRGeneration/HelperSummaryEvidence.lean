@@ -737,7 +737,7 @@ private def twoHelperRuntimeContract : IRContract :=
     usesMapping := false
     internalFunctions := [helperBCompiled] }
 
-private theorem helperBCompiled_compile_ok :
+private proof helperBCompiled_compile_ok :
     compileInternalFunction
         (applySlotAliasRanges twoHelperSpec.fields twoHelperSpec.slotAliasRanges)
         twoHelperSpec.events twoHelperSpec.errors twoHelperSpec.adtTypes helperB =
@@ -799,13 +799,13 @@ private def helperBIR : IRInternalFunctionDef :=
     rets := []
     body := [] }
 
-private theorem helperB_find_in_runtime :
+private proof helperB_find_in_runtime :
     findInternalFunction? twoHelperRuntimeContract
       (internalFunctionYulName "helperB") = some helperBIR := by
   simp [twoHelperRuntimeContract, helperBCompiled, helperBIR, findInternalFunction?,
     irInternalFunctionDefOfStmt?]
 
-private theorem helperB_body_context
+private proof helperB_body_context
     (runtime : SourceSemantics.RuntimeState) (state : IRState) (helperFuel : Nat)
     (hruntime : FunctionBody.runtimeStateMatchesIR [] runtime state) :
     InternalHelperBodyExecContext twoHelperRuntimeContract twoHelperSpec helperB helperBIR
@@ -834,7 +834,7 @@ private theorem helperB_body_context
       simpa [internalHelperBodyRuntime, prepareInternalCalleeState, helperBIR,
         SourceSemantics.effectiveFields, twoHelperSpec] using hruntime }
 
-private theorem helperB_direct_postcondition
+private proof helperB_direct_postcondition
     (runtime : SourceSemantics.RuntimeState) (state : IRState)
     (helperFuel extraFuel : Nat)
     (hexact : FunctionBody.bindingsExactlyMatchIRVarsOnScope [] runtime.bindings state)
@@ -857,7 +857,7 @@ private theorem helperB_direct_postcondition
     prepareInternalCalleeState, restoreCallerVars, stmtNextScope] using
     ⟨hruntime, hexact, hbounded, hscope⟩
 
-private theorem helperA_direct_call_compile :
+private proof helperA_direct_call_compile :
     CompilationModel.compileStmt [] twoHelperSpec.events twoHelperSpec.errors
       .calldata [] false [] [] (Stmt.internalCall "helperB" [])
       twoHelperSpec.functions =
@@ -923,7 +923,7 @@ private proof helperA_direct_call_step_sufficient
   rw [← hFuel]
   exact hmatch
 
-private theorem helperA_direct_call_step_oneFuel
+private proof helperA_direct_call_step_oneFuel
     (runtime : SourceSemantics.RuntimeState) (state : IRState) (extraFuel : Nat)
     (hexact : FunctionBody.bindingsExactlyMatchIRVarsOnScope [] runtime.bindings state)
     (hscope : FunctionBody.scopeNamesPresent [] runtime.bindings)
@@ -965,7 +965,7 @@ private theorem helperA_direct_call_step_oneFuel
                   internalFunctionYulName]
   · simpa [stmtNextScope, collectStmtBindNames] using ⟨hruntime, hexact, hbounded, hscope⟩
 
-private theorem helperA_direct_call_step :
+private proof helperA_direct_call_step :
     CompiledStmtStepWithHelpersAndHelperIRWithInternals
       twoHelperRuntimeContract twoHelperSpec [] []
       (Stmt.internalCall "helperB" [])
@@ -992,7 +992,7 @@ private def helperA_body_generic :
 
 /-- End-to-end concrete consumer: the genuine `helperA()` body call compiles
 through `spec.functions` after its helper-aware generic witness is built. -/
-theorem helperA_compileStmtList_from_genuine_helper_body_generic :
+proof helperA_compileStmtList_from_genuine_helper_body_generic :
     ∃ bodyIR,
       CompilationModel.compileStmtList [] twoHelperSpec.events twoHelperSpec.errors
         .calldata [] false [] [] helperA.body twoHelperSpec.functions =
