@@ -869,7 +869,6 @@ private theorem helperA_direct_call_compile :
     CompilationModel.findInternalFunctionForCall?]
 
 private theorem helperA_direct_call_step_sufficient
-  Fuel
     (runtime : SourceSemantics.RuntimeState) (state : IRState)
     (helperFuel extraFuel : Nat) (hfuelPos : 0 < helperFuel)
     (hexact : FunctionBody.bindingsExactlyMatchIRVarsOnScope [] runtime.bindings state)
@@ -991,7 +990,7 @@ private def helperA_body_generic :
 
 /-- End-to-end concrete consumer: the genuine `helperA()` body call compiles
 through `spec.functions` after its helper-aware generic witness is built. -/
-proof helperA_compileStmtList_from_genuine_helper_body_generic :
+theorem helperA_compileStmtList_from_genuine_helper_body_generic :
     ∃ bodyIR,
       CompilationModel.compileStmtList [] twoHelperSpec.events twoHelperSpec.errors
         .calldata [] false [] [] helperA.body twoHelperSpec.functions =
