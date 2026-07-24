@@ -434,6 +434,14 @@ private theorem mem_helperB_eraseDups_singleton
     List.mem_of_mem_eraseDups_local hmem
   simpa using hraw
 
+private theorem mem_expressionHelper_eraseDups_singleton
+    {calleeName : String}
+    (hmem : calleeName ∈ (["expressionHelper"] : List String).eraseDups) :
+    calleeName = "expressionHelper" := by
+  have hraw : calleeName ∈ (["expressionHelper"] : List String) :=
+    List.mem_of_mem_eraseDups_local hmem
+  simpa using hraw
+
 private def helperB : FunctionSpec :=
   { name := "helperB"
     params := []
@@ -533,6 +541,7 @@ private def expressionHelper_support :
       calldataThreshold := by simp [expressionHelper, Compiler.Constants.evmModulus] }
     intro param hmem
     simp [expressionHelper] at hmem
+    simp [SupportedExternalParamType]
   · exact ⟨⟨[.uint256], rfl, by simp [SupportedExternalReturnProfile]⟩⟩
   · exact ⟨rfl⟩
   · exact ⟨rfl⟩
@@ -552,6 +561,7 @@ private theorem twoHelperRanksDecrease :
     decide
   · rcases hcaller with rfl | hcaller
     · have hname : calleeName = "expressionHelper" := by
+        apply mem_expressionHelper_eraseDups_singleton
         simpa [expressionHelperCaller, expressionHelper, helperCallNames,
           stmtListInternalHelperCallNames, stmtInternalHelperCallNames,
           exprInternalHelperCallNames, exprListInternalHelperCallNames] using hmem
@@ -612,6 +622,7 @@ private def expressionHelperCaller_supportedBodyHelperInterface :
   · simp [twoHelperSpec, expressionHelperCaller]
   · intro calleeName hmem
     have hname : calleeName = "expressionHelper" := by
+      apply mem_expressionHelper_eraseDups_singleton
       simpa [expressionHelperCaller, expressionHelper, helperCallNames, stmtListInternalHelperCallNames,
         stmtInternalHelperCallNames, exprInternalHelperCallNames,
         exprListInternalHelperCallNames] using hmem
@@ -619,6 +630,7 @@ private def expressionHelperCaller_supportedBodyHelperInterface :
     exact expressionHelper_support
   · intro calleeName hmem
     have hname : calleeName = "expressionHelper" := by
+      apply mem_expressionHelper_eraseDups_singleton
       simpa [expressionHelperCaller, expressionHelper, exprHelperCallNames, stmtListExprHelperCallNames,
         stmtExprHelperCallNames, exprInternalHelperCallNames,
         exprListInternalHelperCallNames] using hmem
@@ -702,7 +714,7 @@ private def expressionHelper_supportedFunctionWithHelpers :
   · refine ⟨by simp [expressionHelper], ?_, ?_⟩
     · simp [expressionHelper]
     · simp [expressionHelper, Compiler.Constants.evmModulus]
-  · exact { resolved := ⟨[.uint256], rfl, by simp⟩ }
+  · exact { resolved := ⟨[.uint256], rfl, trivial⟩ }
 
 private def expressionHelperCaller_supportedHelperRichBodyFragment :
     SupportedHelperRichBodyFragment twoHelperSpec expressionHelperCaller := by
@@ -785,12 +797,11 @@ noncomputable def twoHelper_supportedSpecWithHelpers :
       · subst fn
         exact expressionHelperCaller_supportedFunctionWithHelpers
       · have hB : fn = helperB ∨ fn = expressionHelper := by
-          rcases hfn with hA' | hfn
+          rcases hfn with hA' | hExpr' | hB | hExpression
           · exact False.elim (hA hA')
-          · rcases hfn with hExpr' | hB
-            · exact False.elim (hExpr hExpr')
-            · exact Or.inl hB
-            · exact Or.inr hfn
+          · exact False.elim (hExpr hExpr')
+          · exact Or.inl hB
+          · exact Or.inr hExpression
         rcases hB with rfl | rfl
         · exact helperB_supportedFunctionWithHelpers
         · exact expressionHelper_supportedFunctionWithHelpers
