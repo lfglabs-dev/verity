@@ -994,7 +994,48 @@ private theorem helperA_direct_call_compile :
     CompilationModel.compileInternalCallArgsWithParams,
     CompilationModel.findInternalFunctionForCall?]
 
-private theorem helperA_direct_call_step_sufficient
+private theorem helperA_direct_call_has_extra_fuel
+    (extraFuel : Nat)
+    (hslack : sizeOf [YulStmt.exprStmt
+      (YulExpr.call (internalFunctionYulName "helperB") [])] - 1 + 2 ≤ extraFuel) :
+    3 ≤ extraFuel := by
+  norm_num [YulStmt.exprStmt, YulExpr.call, helperBIR] at hslack ⊢
+  omega
+
+private theorem helperA_direct_call_bridge_match
+    (runtime : SourceSemantics.RuntimeState) (state : IRState)
+    (helperFuel irFuel : Nat) (hhelperFuel : 1 < helperFuel)
+    (hirFuel : sizeOf helperBIR.body + 2 ≤ irFuel)
+    (hexact : FunctionBody.bindingsExactlyMatchIRVarsOnScope [] runtime.bindings state)
+    (hscope : FunctionBody.scopeNamesPresent [] runtime.bindings)
+    (hbounded : FunctionBody.bindingsBounded runtime.bindings)
+    (hruntime : FunctionBody.runtimeStateMatchesIR [] runtime state) :
+    stmtStepMatchesIRExecWithInternals [] (stmtNextScope [] (Stmt.internalCall "helperB" []))
+      (SourceSemantics.execStmtWithHelpers twoHelperSpec [] helperFuel runtime
+        (Stmt.internalCall "helperB" []))
+      (execIRStmtsWithInternals twoHelperRuntimeContract (irFuel + 3) state
+        [YulStmt.exprStmt (YulExpr.call (internalFunctionYulName "helperB") [])]) := by
+  have hsourceArgs :
+      SourceSemantics.evalExprListWithHelpers twoHelperSpec [] helperFuel runtime [] =
+        some [] := by
+    simp [SourceSemantics.evalExprListWithHelpers]
+  have hirArgs :
+      evalIRExprsWithInternals twoHelperRuntimeContract (irFuel + 1) state [] =
+        .values [] state := by
+    simp [evalIRExprsWithInternals]
+  exact directInternalHelperStatementContextBridge_callStepMatch_of_sufficientFuel
+    (runtimeContract := twoHelperRuntimeContract) (spec := twoHelperSpec)
+    (fields := []) (scope := []) (calleeName := "helperB") (args := [])
+    (helper := helperBIR) (runtime := runtime) (state := state) (callerState := state)
+    (argVals := []) (argExprs := []) (sourceBindings := []) (entryBindings := [])
+    helperB_directContext (by simp [helperB_directContext, helperB_compiledWitness,
+      helperB_support, helperB, twoHelperSpec]) helperFuel irFuel hhelperFuel hirFuel
+    (helperB_body_context runtime state (helperFuel - 1) hruntime)
+    (by simp [helperB, helperBIR]) helperB_find_in_runtime hsourceArgs hirArgs
+    (helperB_direct_postcondition runtime state (helperFuel - 1)
+      (directInternalHelperExtraFuel helperBIR irFuel) hexact hscope hbounded hruntime)
+
+private theorem helperA_direct_call_step_sufficientFuel
     (runtime : SourceSemantics.RuntimeState) (state : IRState)
     (helperFuel extraFuel : Nat) (hfuelPos : 0 < helperFuel)
     (hexact : FunctionBody.bindingsExactlyMatchIRVarsOnScope [] runtime.bindings state)
@@ -1011,41 +1052,18 @@ private theorem helperA_direct_call_step_sufficient
           [YulStmt.exprStmt (YulExpr.call (internalFunctionYulName "helperB") [])] = irExec ∧
         stmtStepMatchesIRExecWithInternals [] (stmtNextScope [] (Stmt.internalCall "helperB" []))
           sourceResult irExec := by
-  have hextra : 3 ≤ extraFuel := by
-    norm_num [YulStmt.exprStmt, YulExpr.call, helperBIR] at hslack ⊢
-    omega
+  have hextra := helperA_direct_call_has_extra_fuel extraFuel hslack
   let irFuel := extraFuel - 1
   have hirFuel : sizeOf helperBIR.body + 2 ≤ irFuel := by
     simp [irFuel, helperBIR]
     omega
-  have hsourceArgs :
-      SourceSemantics.evalExprListWithHelpers twoHelperSpec [] helperFuel runtime [] =
-        some [] := by
-    simp [SourceSemantics.evalExprListWithHelpers]
-  have hirArgs :
-      evalIRExprsWithInternals twoHelperRuntimeContract (irFuel + 1) state [] =
-        .values [] state := by
-    simp [evalIRExprsWithInternals]
-  have hmatch :=
-    directInternalHelperStatementContextBridge_callStepMatch_of_sufficientFuel
-      (runtimeContract := twoHelperRuntimeContract) (spec := twoHelperSpec)
-      (fields := []) (scope := []) (calleeName := "helperB") (args := [])
-      (helper := helperBIR) (runtime := runtime) (state := state)
-      (callerState := state) (argVals := []) (argExprs := [])
-      (sourceBindings := []) (entryBindings := [])
-      helperB_directContext (by simp [helperB_directContext, helperB_compiledWitness,
-        helperB_support, helperB, twoHelperSpec])
-      helperFuel irFuel hhelperFuel hirFuel
-      (helperB_body_context runtime state (helperFuel - 1) hruntime)
-      (by simp [helperB, helperBIR]) helperB_find_in_runtime hsourceArgs hirArgs
-      (helperB_direct_postcondition runtime state (helperFuel - 1)
-        (directInternalHelperExtraFuel helperBIR irFuel) hexact hscope hbounded hruntime)
   refine ⟨_, _, rfl, rfl, ?_⟩
   have hFuel : irFuel + 3 = extraFuel + 2 := by
     dsimp [irFuel]
     omega
   rw [← hFuel]
-  exact hmatch
+  exact helperA_direct_call_bridge_match runtime state helperFuel irFuel hhelperFuel hirFuel
+    hexact hscope hbounded hruntime
 
 private theorem helperA_direct_call_step_oneFuel
     (runtime : SourceSemantics.RuntimeState) (state : IRState) (extraFuel : Nat)
