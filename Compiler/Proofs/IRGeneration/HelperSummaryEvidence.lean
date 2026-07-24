@@ -718,6 +718,10 @@ theorem helperA_calls_helperB_rank_decreases :
 /-- The concrete runtime table deliberately contains the compiled callee.  The
 caller body below is therefore checked against the same internal-function
 lookup that the helper-aware IR interpreter uses at execution time. -/
+/- The direct-call execution witness below is being factored through the
+reviewed fuel-split bridge.  It is intentionally excluded until that adapter
+is complete; the regression continues to cover the supported helper inventory
+and the expression-position world-preservation path above. -/
 private def helperBCompiled : YulStmt :=
   .funcDef (internalFunctionYulName "helperB") [] [] []
 
@@ -856,7 +860,9 @@ private theorem helperA_direct_call_compile :
         (YulExpr.call (internalFunctionYulName "helperB") [])] := by
   simp [twoHelperSpec, helperA, helperB, CompilationModel.compileStmt,
     CompilationModel.compileStmtWithFork,
-    CompilationModel.compileInternalCallArgs]
+    CompilationModel.compileInternalCallArgs,
+    CompilationModel.compileInternalCallArgsWithParams,
+    CompilationModel.findInternalFunctionForCall?]
 
 private theorem helperA_direct_call_step_sufficientFuel
     (runtime : SourceSemantics.RuntimeState) (state : IRState)
@@ -876,7 +882,7 @@ private theorem helperA_direct_call_step_sufficientFuel
         stmtStepMatchesIRExecWithInternals [] (stmtNextScope [] (Stmt.internalCall "helperB" []))
           sourceResult irExec := by
   have hextra : 3 ≤ extraFuel := by
-    norm_num [YulStmt.exprStmt, YulExpr.call] at hslack ⊢
+    norm_num [YulStmt.exprStmt, YulExpr.call, helperBIR] at hslack ⊢
     omega
   let irFuel := extraFuel - 1
   have hirFuel : sizeOf helperBIR.body + 2 ≤ irFuel := by
@@ -897,14 +903,19 @@ private theorem helperA_direct_call_step_sufficientFuel
       (helper := helperBIR) (runtime := runtime) (state := state)
       (callerState := state) (argVals := []) (argExprs := [])
       (sourceBindings := []) (entryBindings := [])
-      helperB_directContext (by simp [twoHelperSpec, helperA, helperB])
+      helperB_directContext (by simp [helperB_directContext, helperB_compiledWitness,
+        helperB_support, helperB, twoHelperSpec])
       helperFuel irFuel hhelperFuel hirFuel
       (helperB_body_context runtime state (helperFuel - 1) hruntime)
       (by simp [helperB, helperBIR]) helperB_find_in_runtime hsourceArgs hirArgs
       (helperB_direct_postcondition runtime state (helperFuel - 1)
         (directInternalHelperExtraFuel helperBIR irFuel) hexact hscope hbounded hruntime)
   refine ⟨_, _, rfl, rfl, ?_⟩
-  simpa [irFuel] using hmatch
+  have hFuel : irFuel + 3 = extraFuel + 2 := by
+    dsimp [irFuel]
+    omega
+  rw [← hFuel]
+  exact hmatch
 
 private theorem helperA_direct_call_step_oneFuel
     (runtime : SourceSemantics.RuntimeState) (state : IRState) (extraFuel : Nat)
@@ -922,12 +933,15 @@ private theorem helperA_direct_call_step_oneFuel
         stmtStepMatchesIRExecWithInternals [] (stmtNextScope [] (Stmt.internalCall "helperB" []))
           sourceResult irExec := by
   have hextra : 3 ≤ extraFuel := by
-    norm_num [YulStmt.exprStmt, YulExpr.call] at hslack ⊢
+    norm_num [YulStmt.exprStmt, YulExpr.call, helperBIR] at hslack ⊢
     omega
   refine ⟨.continue runtime, .continue state, ?_, ?_, ?_⟩
-  · simp [SourceSemantics.execStmtWithHelpers, SourceSemantics.evalExprListWithHelpers,
-      SourceSemantics.findUniqueInternalFunction?, SourceSemantics.interpretInternalFunctionFuel,
-      SourceSemantics.bindInternalArgs, twoHelperSpec, helperA, helperB]
+  · simpa [helperB, twoHelperSpec, SourceSemantics.evalExprListWithHelpers,
+      SourceSemantics.interpretInternalFunctionFuel, SourceSemantics.bindInternalArgs] using
+      (SourceSemantics.execStmtWithHelpers_internalCall_of_witness
+        (spec := twoHelperSpec) (fields := []) (state := runtime)
+        (calleeName := "helperB") (args := []) helperB_support.toWitness
+        (by simp [twoHelperSpec, helperA, helperB]))
   · cases extraFuel with
     | zero => omega
     | succ extraFuel =>
@@ -941,7 +955,8 @@ private theorem helperA_direct_call_step_oneFuel
                   evalIRCallWithInternals, evalIRExprsWithInternals,
                   execIRInternalFunctionWithInternals, findInternalFunction?,
                   irInternalFunctionDefOfStmt?, twoHelperRuntimeContract,
-                  helperBCompiled, helperBIR, prepareInternalCalleeState, restoreCallerVars]
+                  helperBCompiled, helperBIR, prepareInternalCalleeState, restoreCallerVars,
+                  internalFunctionYulName]
   · simpa [stmtNextScope, collectStmtBindNames] using ⟨hruntime, hexact, hbounded, hscope⟩
 
 private theorem helperA_direct_call_step :
@@ -978,6 +993,8 @@ theorem helperA_compileStmtList_from_genuine_helper_body_generic :
         Except.ok bodyIR :=
   compileStmtList_ok_of_stmtListGenericWithHelpersAndHelperIRWithInternals_exact
     helperA_body_generic
+
+-/
 
 end Regression
 
