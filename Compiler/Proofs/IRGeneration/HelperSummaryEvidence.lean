@@ -796,17 +796,19 @@ noncomputable def twoHelper_supportedSpecWithHelpers :
     · by_cases hExpr : fn = expressionHelperCaller
       · subst fn
         exact expressionHelperCaller_supportedFunctionWithHelpers
-      · have hB : fn = helperB ∨ fn = expressionHelper := by
-          rcases hfn with hA' | hfn
-          · exact False.elim (hA hA')
-          · rcases hfn with hExpr' | hfn
-            · exact False.elim (hExpr hExpr')
-            · rcases hfn with hB | hExpression
-              · exact Or.inl hB
-              · exact Or.inr hExpression
-        rcases hB with rfl | rfl
-        · exact helperB_supportedFunctionWithHelpers
-        · exact expressionHelper_supportedFunctionWithHelpers
+      · by_cases hB : fn = helperB
+        · subst fn
+          exact helperB_supportedFunctionWithHelpers
+        · have hExpression : fn = expressionHelper := by
+            rcases hfn with hA' | hfn
+            · exact False.elim (hA hA')
+            · rcases hfn with hExpr' | hfn
+              · exact False.elim (hExpr hExpr')
+              · rcases hfn with hB' | hExpression
+                · exact False.elim (hB hB')
+                · exact hExpression
+          subst fn
+          exact expressionHelper_supportedFunctionWithHelpers
 
 /-- Explicit source-syntax evidence that the positive witness is genuinely
 helper-rich, rather than inhabited through an empty call inventory. -/
