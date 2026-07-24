@@ -99,10 +99,11 @@ def helperExprReadOnly (expr : Expr) : Bool :=
 /-- Statement heads that preserve `RuntimeState.world` in the helper-aware
 source semantics. The slice admits local binding updates and pure/read-only
 control flow, but excludes storage/mapping writes, memory/transient writes,
-returns, logs, helper calls, foreign calls, ECMs, and unsafe/Yul surfaces. -/
+logs, helper calls, foreign calls, ECMs, and unsafe/Yul surfaces. -/
 def helperStmtReadOnly : Stmt → Bool
   | .letVar _ value | .assignVar _ value | .require value _ =>
       helperExprReadOnly value
+  | .return value => helperExprReadOnly value
   | .stop => true
   | _ => false
 
@@ -157,6 +158,10 @@ private theorem execStmtWithHelpers_readOnly_world_eq
         by_cases hcond : resolved != 0
         · simp [hcond, stmtResultWorldEq]
         · simp [hcond, stmtResultWorldEq]
+  case return value =>
+    unfold execStmtWithHelpers
+    cases evalExprWithHelpers spec fields fuel state value <;>
+      simp [stmtResultWorldEq]
   case stop =>
     unfold execStmtWithHelpers
     simp [stmtResultWorldEq]
