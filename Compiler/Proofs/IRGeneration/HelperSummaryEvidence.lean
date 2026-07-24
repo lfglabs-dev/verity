@@ -475,7 +475,7 @@ private def expressionHelperCaller : FunctionSpec :=
     returnType := none
     returns := []
     isInternal := true
-    body := [Stmt.internalCall "helperB" []] }
+    body := [Stmt.letVar "x" (Expr.internalCall "expressionHelper" [])] }
 
 private def twoHelperSpec : CompilationModel :=
   { name := "TwoHelperEvidence"
@@ -560,8 +560,8 @@ private theorem twoHelperRanksDecrease :
     subst calleeName
     decide
   · rcases hcaller with rfl | hcaller
-    · have hname : calleeName = "helperB" := by
-        apply mem_helperB_eraseDups_singleton
+    · have hname : calleeName = "expressionHelper" := by
+        apply mem_expressionHelper_eraseDups_singleton
         simpa [expressionHelperCaller, helperCallNames,
           stmtListInternalHelperCallNames, stmtInternalHelperCallNames,
           exprInternalHelperCallNames, exprListInternalHelperCallNames] using hmem
@@ -621,21 +621,21 @@ private def expressionHelperCaller_supportedBodyHelperInterface :
     ?_ twoHelperRanksDecrease ?_ ?_
   · simp [twoHelperSpec, expressionHelperCaller]
   · intro calleeName hmem
-    have hname : calleeName = "helperB" := by
-      apply mem_helperB_eraseDups_singleton
+    have hname : calleeName = "expressionHelper" := by
+      apply mem_expressionHelper_eraseDups_singleton
       simpa [expressionHelperCaller, expressionHelper, helperCallNames, stmtListInternalHelperCallNames,
         stmtInternalHelperCallNames, exprInternalHelperCallNames,
         exprListInternalHelperCallNames] using hmem
     subst calleeName
-    exact helperB_support
+    exact expressionHelper_support
   · intro calleeName hmem
-    have hname : calleeName = "helperB" := by
-      apply mem_helperB_eraseDups_singleton
+    have hname : calleeName = "expressionHelper" := by
+      apply mem_expressionHelper_eraseDups_singleton
       simpa [expressionHelperCaller, expressionHelper, exprHelperCallNames, stmtListExprHelperCallNames,
         stmtExprHelperCallNames, exprInternalHelperCallNames,
         exprListInternalHelperCallNames] using hmem
     subst calleeName
-    simp [helperB_support, helperBodyNoWorldMutationOnSuccess, helperB,
+    simp [expressionHelper_support, helperBodyNoWorldMutationOnSuccess, expressionHelper,
       helperStmtListReadOnly, helperStmtReadOnly, helperExprReadOnly,
       exprTouchesUnsupportedCallSurface]
 
@@ -839,7 +839,7 @@ theorem helperA_supportedBodyHelperInterface_summary_sound :
 /-- The concrete caller can consume `helperB`'s exact summary at every
 selector.  This is the selector-indexed premise required by the next direct
 internal-call execution bridge. -/
-theorem helperA_helperB_exactSummary_soundAtSelector (selector : Nat) :
+theorem helperB_exactSummary_soundAtSelector (selector : Nat) :
     InternalHelperSummarySoundAtSelector selector twoHelperSpec helperB
       (exactInternalHelperSummary twoHelperSpec helperB) :=
   exactInternalHelperSummary_soundAtSelector selector twoHelperSpec helperB
@@ -852,10 +852,6 @@ private def helperA_deferred_direct_execution_boundary : Unit := ()
 /- The concrete runtime table deliberately contains the compiled callee.  The
 caller body below is therefore checked against the same internal-function
 lookup that the helper-aware IR interpreter uses at execution time. -/
-/- The direct-call execution witness below is being factored through the
-reviewed fuel-split bridge.  It is intentionally excluded until that adapter
-is complete; the regression continues to cover the supported helper inventory
-and the expression-position world-preservation path above.
 private def helperBCompiled : YulStmt :=
   .funcDef (internalFunctionYulName "helperB") [] [] []
 
@@ -1127,8 +1123,6 @@ theorem helperA_compileStmtList_from_genuine_helper_body_generic :
         Except.ok bodyIR :=
   compileStmtList_ok_of_stmtListGenericWithHelpersAndHelperIRWithInternals_exact
     helperA_body_generic
-
--/
 
 theorem helperA_calls_helperB_rank_decreases :
     internalHelperTableRank twoHelperSpec "helperB" <

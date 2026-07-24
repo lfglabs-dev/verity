@@ -3468,7 +3468,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.Regression.helperA_contains_internal_helper_call
   Compiler.Proofs.IRGeneration.Regression.helperA_helperB_occurs_in_call_inventory
   Compiler.Proofs.IRGeneration.Regression.helperA_supportedBodyHelperInterface_summary_sound
-  Compiler.Proofs.IRGeneration.Regression.helperA_helperB_exactSummary_soundAtSelector
+  Compiler.Proofs.IRGeneration.Regression.helperB_exactSummary_soundAtSelector
+  Compiler.Proofs.IRGeneration.Regression.helperA_compileStmtList_from_genuine_helper_body_generic
   Compiler.Proofs.IRGeneration.Regression.helperA_calls_helperB_rank_decreases
 
   -- Compiler/Proofs/IRGeneration/IRInterpreter.lean
