@@ -770,6 +770,14 @@ theorem helperA_supportedBodyHelperInterface_summary_sound :
   subst calleeName
   rfl
 
+/-- The concrete caller can consume `helperB`'s exact summary at every
+selector.  This is the selector-indexed premise required by the next direct
+internal-call execution bridge. -/
+theorem helperA_helperB_exactSummary_soundAtSelector (selector : Nat) :
+    InternalHelperSummarySoundAtSelector selector twoHelperSpec helperB
+      (exactInternalHelperSummary twoHelperSpec helperB) :=
+  exactInternalHelperSummary_soundAtSelector selector twoHelperSpec helperB
+
 /- The concrete runtime table deliberately contains the compiled callee.  The
 caller body below is therefore checked against the same internal-function
 lookup that the helper-aware IR interpreter uses at execution time. -/
