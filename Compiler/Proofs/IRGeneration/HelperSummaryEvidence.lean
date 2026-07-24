@@ -526,6 +526,7 @@ private theorem twoHelperRanksDecrease :
     · simp [helperB, helperCallNames, stmtListInternalHelperCallNames,
         stmtInternalHelperCallNames, exprInternalHelperCallNames,
         exprListInternalHelperCallNames] at hmem
+      contradiction
 
 theorem helperB_exactSummary_sound :
     InternalHelperSummarySound twoHelperSpec helperB
@@ -586,7 +587,7 @@ private def expressionHelperCaller_supportedBodyHelperInterface :
         stmtExprHelperCallNames, exprInternalHelperCallNames,
         exprListInternalHelperCallNames] using hmem
     subst calleeName
-    simp [helperBodyNoWorldMutationOnSuccess, helperB,
+    simp [helperB_support, helperBodyNoWorldMutationOnSuccess, helperB,
       helperStmtListReadOnly, helperStmtReadOnly, helperExprReadOnly,
       exprTouchesUnsupportedCallSurface]
 
