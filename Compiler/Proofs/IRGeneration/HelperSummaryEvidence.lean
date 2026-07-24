@@ -523,10 +523,10 @@ private theorem twoHelperRanksDecrease :
           exprListInternalHelperCallNames] using hmem
       subst calleeName
       decide
-    · simp [helperB, helperCallNames, stmtListInternalHelperCallNames,
+    · subst caller
+      simp [helperB, helperCallNames, stmtListInternalHelperCallNames,
         stmtInternalHelperCallNames, exprInternalHelperCallNames,
         exprListInternalHelperCallNames] at hmem
-      contradiction
 
 theorem helperB_exactSummary_sound :
     InternalHelperSummarySound twoHelperSpec helperB
