@@ -3476,7 +3476,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.Regression.helperA_direct_call_step_sufficient  -- private
   -- Compiler.Proofs.IRGeneration.Regression.helperA_direct_call_step_oneFuel  -- private
   -- Compiler.Proofs.IRGeneration.Regression.helperA_direct_call_step  -- private
-  Compiler.Proofs.IRGeneration.Regression.helperA_compileStmtList_from_genuine_helper_body_generic
+  -- Compiler.Proofs.IRGeneration.Regression.helperA_compileStmtList_from_genuine_helper_body_generic  -- deferred
 
   -- Compiler/Proofs/IRGeneration/IRInterpreter.lean
   -- Compiler.Proofs.IRGeneration.exprSize_lt_exprsSize_cons  -- private

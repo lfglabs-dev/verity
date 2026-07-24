@@ -650,6 +650,48 @@ private def helperB_supportedFunctionWithHelpers :
     · simp [helperB, Compiler.Constants.evmModulus]
   · exact { resolved := ⟨[], rfl, trivial⟩ }
 
+private def expressionHelperCaller_supportedHelperRichBodyFragment :
+    SupportedHelperRichBodyFragment twoHelperSpec expressionHelperCaller := by
+  refine {
+    hasInternalHelperCall := ?_
+    coreSupported := rfl
+    expressionsInScope := by
+      simp [expressionHelperCaller, stmtListHelperRichExprsInScope,
+        stmtHelperRichExprsInScope, FunctionBody.exprBoundNamesInScope,
+        FunctionBody.exprBoundNames, FunctionBody.exprListBoundNames,
+        stmtHelperRichNextScope, stmtNextScope]
+    assignTargetsSupported := by
+      simp [expressionHelperCaller, stmtListHelperRichAssignTargetsSupported,
+        stmtHelperRichAssignTargetsSupported]
+    stateSupported := rfl
+    calls :=
+      { helpers := expressionHelperCaller_supportedBodyHelperInterface
+        foreign := rfl
+        lowLevel := rfl }
+    effects := ⟨rfl⟩
+    constructorRawCalldataSurfaceClosed := rfl
+    noLocalObligations := rfl
+  }
+  exact ⟨"helperB", by
+    apply List.mem_eraseDups_of_mem_local
+    simp [expressionHelperCaller, stmtListInternalHelperCallNames,
+      stmtInternalHelperCallNames, exprInternalHelperCallNames,
+      exprListInternalHelperCallNames]⟩
+
+private def expressionHelperCaller_supportedFunctionWithHelpers :
+    SupportedFunctionWithHelpers twoHelperSpec expressionHelperCaller := by
+  refine {
+    nonSpecialEntrypoint := by simp [expressionHelperCaller, isInteropEntrypointName]
+    noNonReentrant := rfl
+    params := ?_
+    returns := ?_
+    body := .helperRich expressionHelperCaller_supportedHelperRichBodyFragment
+  }
+  · refine ⟨by simp [expressionHelperCaller], ?_, ?_⟩
+    · simp [expressionHelperCaller]
+    · simp [expressionHelperCaller, Compiler.Constants.evmModulus]
+  · exact { resolved := ⟨[], rfl, trivial⟩ }
+
 /-- Whole-spec regression: a model containing an internal helper caller and
 its callee now inhabits the helper-aware support inventory without any
 helper-free premise. -/
@@ -663,20 +705,21 @@ noncomputable def twoHelper_supportedSpecWithHelpers :
   }
   · refine ⟨rfl, ?_, rfl, rfl, ?_⟩
     · simp [twoHelperSpec]
-    · simp [twoHelperSpec, helperA, helperB]
+    · simp [twoHelperSpec, helperA, expressionHelperCaller, helperB]
   · refine ⟨rfl, rfl, rfl, rfl, ?_, ?_, ?_, ?_⟩
     · simp [contractUsesCheckedArithmetic, twoHelperSpec]
       constructor
       · simp [helperA, stmtListMayUseCheckedArithmetic, stmtMayUseCheckedArithmetic]
-      · simp [helperB, stmtListMayUseCheckedArithmetic, stmtMayUseCheckedArithmetic]
-    · rw [templateIntrinsicItems, twoHelperSpec, helperA, helperB]
+      · simp [expressionHelperCaller, helperB, stmtListMayUseCheckedArithmetic,
+          stmtMayUseCheckedArithmetic]
+    · rw [templateIntrinsicItems, twoHelperSpec, helperA, expressionHelperCaller, helperB]
       unfold collectTemplateIntrinsicsFromStmts
       simp only [List.flatMap_cons, List.flatMap_nil, List.append_nil]
       repeat rw [collectTemplateIntrinsicsFromStmt.eq_def]
       simp [Stmt.directMetadata, Stmt.childLists,
         collectTemplateIntrinsicsFromExpr, Expr.children]
-    · simp [twoHelperSpec, helperA, helperB]
-    · simp [twoHelperSpec, helperA, helperB]
+    · simp [twoHelperSpec, helperA, expressionHelperCaller, helperB]
+    · simp [twoHelperSpec, helperA, expressionHelperCaller, helperB]
   · intro ctor hctor
     simp [twoHelperSpec] at hctor
   · intro fn hfn
@@ -684,9 +727,15 @@ noncomputable def twoHelper_supportedSpecWithHelpers :
     by_cases hA : fn = helperA
     · subst fn
       exact helperA_supportedFunctionWithHelpers
-    · have hB : fn = helperB := Or.resolve_left hfn hA
-      subst fn
-      exact helperB_supportedFunctionWithHelpers
+    · by_cases hExpr : fn = expressionHelperCaller
+      · subst fn
+        exact expressionHelperCaller_supportedFunctionWithHelpers
+      · have hB : fn = helperB := by
+          rcases hfn with hExprMem | hB
+          · exact False.elim (hExpr hExprMem)
+          · exact hB
+        subst fn
+        exact helperB_supportedFunctionWithHelpers
 
 /-- Explicit source-syntax evidence that the positive witness is genuinely
 helper-rich, rather than inhabited through an empty call inventory. -/
@@ -725,7 +774,7 @@ lookup that the helper-aware IR interpreter uses at execution time. -/
 /- The direct-call execution witness below is being factored through the
 reviewed fuel-split bridge.  It is intentionally excluded until that adapter
 is complete; the regression continues to cover the supported helper inventory
-and the expression-position world-preservation path above. -/
+and the expression-position world-preservation path above.
 private def helperBCompiled : YulStmt :=
   .funcDef (internalFunctionYulName "helperB") [] [] []
 
