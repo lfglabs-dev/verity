@@ -738,7 +738,7 @@ private def expressionHelperCaller_supportedHelperRichBodyFragment :
     constructorRawCalldataSurfaceClosed := rfl
     noLocalObligations := rfl
   }
-  exact ⟨"expressionHelper", by
+  exact ⟨"helperB", by
     apply List.mem_eraseDups_of_mem_local
     simp [expressionHelperCaller, expressionHelper, stmtListInternalHelperCallNames,
       stmtInternalHelperCallNames, exprInternalHelperCallNames,
