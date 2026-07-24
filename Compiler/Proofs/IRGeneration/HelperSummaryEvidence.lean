@@ -869,7 +869,7 @@ private theorem helperA_direct_call_compile :
     CompilationModel.compileInternalCallArgsWithParams,
     CompilationModel.findInternalFunctionForCall?]
 
-private theorem helperA_direct_call_step_sufficient
+private proof helperA_direct_call_step_sufficient
   Fuel
     (runtime : SourceSemantics.RuntimeState) (state : IRState)
     (helperFuel extraFuel : Nat) (hfuelPos : 0 < helperFuel)
