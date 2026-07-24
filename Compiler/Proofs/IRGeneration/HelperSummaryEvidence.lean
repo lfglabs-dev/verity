@@ -769,11 +769,6 @@ theorem helperA_supportedBodyHelperInterface_summary_sound :
   subst calleeName
   rfl
 
-theorem helperA_calls_helperB_rank_decreases :
-    internalHelperTableRank twoHelperSpec "helperB" <
-      internalHelperTableRank twoHelperSpec "helperA" := by
-  decide
-
 /- The concrete runtime table deliberately contains the compiled callee.  The
 caller body below is therefore checked against the same internal-function
 lookup that the helper-aware IR interpreter uses at execution time. -/
@@ -1054,6 +1049,11 @@ theorem helperA_compileStmtList_from_genuine_helper_body_generic :
     helperA_body_generic
 
 -/
+
+theorem helperA_calls_helperB_rank_decreases :
+    internalHelperTableRank twoHelperSpec "helperB" <
+      internalHelperTableRank twoHelperSpec "helperA" := by
+  decide
 
 end Regression
 
