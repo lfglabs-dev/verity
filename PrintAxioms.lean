@@ -3467,6 +3467,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.Regression.helperA_contains_internal_helper_call
   Compiler.Proofs.IRGeneration.Regression.helperA_helperB_occurs_in_call_inventory
   Compiler.Proofs.IRGeneration.Regression.helperA_supportedBodyHelperInterface_summary_sound
+  Compiler.Proofs.IRGeneration.Regression.helperA_helperB_exactSummary_soundAtSelector
   Compiler.Proofs.IRGeneration.Regression.helperA_calls_helperB_rank_decreases
 
   -- Compiler/Proofs/IRGeneration/IRInterpreter.lean
@@ -6400,4 +6401,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6003 theorems/lemmas (4178 public, 1825 private, 0 sorry'd)
+-- Total: 6004 theorems/lemmas (4179 public, 1825 private, 0 sorry'd)
