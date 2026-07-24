@@ -523,7 +523,9 @@ private theorem twoHelperRanksDecrease :
           exprListInternalHelperCallNames] using hmem
       subst calleeName
       decide
-    · simp [twoHelperSpec] at hcaller
+    · simp [helperB, helperCallNames, stmtListInternalHelperCallNames,
+        stmtInternalHelperCallNames, exprInternalHelperCallNames,
+        exprListInternalHelperCallNames] at hmem
 
 theorem helperB_exactSummary_sound :
     InternalHelperSummarySound twoHelperSpec helperB
@@ -584,7 +586,9 @@ private def expressionHelperCaller_supportedBodyHelperInterface :
         stmtExprHelperCallNames, exprInternalHelperCallNames,
         exprListInternalHelperCallNames] using hmem
     subst calleeName
-    simpa [helperB_support] using helperB_exactSummary_preservesWorld
+    simp [helperBodyNoWorldMutationOnSuccess, helperB,
+      helperStmtListReadOnly, helperStmtReadOnly, helperExprReadOnly,
+      exprTouchesUnsupportedCallSurface]
 
 /-- Non-vacuous witness for the positive helper-rich supported fragment.
 `helperA` contains the direct void call `helperB()`, whose exact summary and
@@ -659,7 +663,7 @@ private def expressionHelperCaller_supportedHelperRichBodyFragment :
       simp [expressionHelperCaller, stmtListHelperRichExprsInScope,
         stmtHelperRichExprsInScope, FunctionBody.exprBoundNamesInScope,
         FunctionBody.exprBoundNames, FunctionBody.exprListBoundNames,
-        stmtHelperRichNextScope, stmtNextScope]
+        stmtHelperRichNextScope, stmtNextScope, Stmt.directMetadata, Expr.children]
     assignTargetsSupported := by
       simp [expressionHelperCaller, stmtListHelperRichAssignTargetsSupported,
         stmtHelperRichAssignTargetsSupported]
@@ -731,9 +735,11 @@ noncomputable def twoHelper_supportedSpecWithHelpers :
       · subst fn
         exact expressionHelperCaller_supportedFunctionWithHelpers
       · have hB : fn = helperB := by
-          rcases hfn with hExprMem | hB
-          · exact False.elim (hExpr hExprMem)
-          · exact hB
+          rcases hfn with hA' | hfn
+          · exact False.elim (hA hA')
+          · rcases hfn with hExpr' | hB
+            · exact False.elim (hExpr hExpr')
+            · exact hB
         subst fn
         exact helperB_supportedFunctionWithHelpers
 
@@ -766,9 +772,9 @@ theorem helperA_supportedBodyHelperInterface_summary_sound :
 theorem helperA_calls_helperB_rank_decreases :
     internalHelperTableRank twoHelperSpec "helperB" <
       internalHelperTableRank twoHelperSpec "helperA" := by
-  simpa [internalHelperTableRank, twoHelperSpec, helperA, helperB]
+  decide
 
-/-- The concrete runtime table deliberately contains the compiled callee.  The
+/- The concrete runtime table deliberately contains the compiled callee.  The
 caller body below is therefore checked against the same internal-function
 lookup that the helper-aware IR interpreter uses at execution time. -/
 /- The direct-call execution witness below is being factored through the
