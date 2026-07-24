@@ -475,7 +475,7 @@ private def expressionHelperCaller : FunctionSpec :=
     returnType := none
     returns := []
     isInternal := true
-    body := [Stmt.letVar "x" (Expr.internalCall "expressionHelper" [])] }
+    body := [Stmt.internalCall "helperB" []] }
 
 private def twoHelperSpec : CompilationModel :=
   { name := "TwoHelperEvidence"
@@ -541,7 +541,8 @@ private def expressionHelper_support :
       calldataThreshold := by simp [expressionHelper, Compiler.Constants.evmModulus] }
     intro param hmem
     simp [expressionHelper] at hmem
-  · exact ⟨⟨[.uint256], rfl, by simp [SupportedExternalReturnProfile]⟩⟩
+  · exact ⟨⟨[.uint256], rfl, by
+      simp [SupportedExternalReturnProfile, SupportedExternalParamType]⟩⟩
   · exact ⟨rfl⟩
   · exact ⟨rfl⟩
   · exact ⟨rfl⟩
@@ -559,9 +560,9 @@ private theorem twoHelperRanksDecrease :
     subst calleeName
     decide
   · rcases hcaller with rfl | hcaller
-    · have hname : calleeName = "expressionHelper" := by
-        apply mem_expressionHelper_eraseDups_singleton
-        simpa [expressionHelperCaller, expressionHelper, helperCallNames,
+    · have hname : calleeName = "helperB" := by
+        apply mem_helperB_eraseDups_singleton
+        simpa [expressionHelperCaller, helperCallNames,
           stmtListInternalHelperCallNames, stmtInternalHelperCallNames,
           exprInternalHelperCallNames, exprListInternalHelperCallNames] using hmem
       subst calleeName
@@ -620,21 +621,21 @@ private def expressionHelperCaller_supportedBodyHelperInterface :
     ?_ twoHelperRanksDecrease ?_ ?_
   · simp [twoHelperSpec, expressionHelperCaller]
   · intro calleeName hmem
-    have hname : calleeName = "expressionHelper" := by
-      apply mem_expressionHelper_eraseDups_singleton
+    have hname : calleeName = "helperB" := by
+      apply mem_helperB_eraseDups_singleton
       simpa [expressionHelperCaller, expressionHelper, helperCallNames, stmtListInternalHelperCallNames,
         stmtInternalHelperCallNames, exprInternalHelperCallNames,
         exprListInternalHelperCallNames] using hmem
     subst calleeName
-    exact expressionHelper_support
+    exact helperB_support
   · intro calleeName hmem
-    have hname : calleeName = "expressionHelper" := by
-      apply mem_expressionHelper_eraseDups_singleton
+    have hname : calleeName = "helperB" := by
+      apply mem_helperB_eraseDups_singleton
       simpa [expressionHelperCaller, expressionHelper, exprHelperCallNames, stmtListExprHelperCallNames,
         stmtExprHelperCallNames, exprInternalHelperCallNames,
         exprListInternalHelperCallNames] using hmem
     subst calleeName
-    simp [expressionHelper_support, helperBodyNoWorldMutationOnSuccess, expressionHelper,
+    simp [helperB_support, helperBodyNoWorldMutationOnSuccess, helperB,
       helperStmtListReadOnly, helperStmtReadOnly, helperExprReadOnly,
       exprTouchesUnsupportedCallSurface]
 
@@ -796,11 +797,13 @@ noncomputable def twoHelper_supportedSpecWithHelpers :
       · subst fn
         exact expressionHelperCaller_supportedFunctionWithHelpers
       · have hB : fn = helperB ∨ fn = expressionHelper := by
-          rcases hfn with hA' | hExpr' | hB | hExpression
+          rcases hfn with hA' | hfn
           · exact False.elim (hA hA')
-          · exact False.elim (hExpr hExpr')
-          · exact Or.inl hB
-          · exact Or.inr hExpression
+          · rcases hfn with hExpr' | hfn
+            · exact False.elim (hExpr hExpr')
+            · rcases hfn with hB | hExpression
+              · exact Or.inl hB
+              · exact Or.inr hExpression
         rcases hB with rfl | rfl
         · exact helperB_supportedFunctionWithHelpers
         · exact expressionHelper_supportedFunctionWithHelpers
