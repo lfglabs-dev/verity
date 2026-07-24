@@ -778,6 +778,11 @@ theorem helperA_helperB_exactSummary_soundAtSelector (selector : Nat) :
       (exactInternalHelperSummary twoHelperSpec helperB) :=
   exactInternalHelperSummary_soundAtSelector selector twoHelperSpec helperB
 
+/-- Boundary for the intentionally deferred direct-execution adapter below.
+This keeps the source-level proof-length audit from attributing that deferred
+block to the preceding selector-summary theorem. -/
+private def helperA_deferred_direct_execution_boundary : Unit := ()
+
 /- The concrete runtime table deliberately contains the compiled callee.  The
 caller body below is therefore checked against the same internal-function
 lookup that the helper-aware IR interpreter uses at execution time. -/
