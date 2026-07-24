@@ -3461,6 +3461,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.supportedBodyHelperSummariesSound_of_exactSummaries
   Compiler.Proofs.IRGeneration.supportedBodyHelperSummariesSoundAtSelector_of_exactSummaries
   -- Compiler.Proofs.IRGeneration.Regression.mem_helperB_eraseDups_singleton  -- private
+  -- Compiler.Proofs.IRGeneration.Regression.mem_expressionHelper_eraseDups_singleton  -- private
   -- Compiler.Proofs.IRGeneration.Regression.twoHelperRanksDecrease  -- private
   Compiler.Proofs.IRGeneration.Regression.helperB_exactSummary_sound
   Compiler.Proofs.IRGeneration.Regression.helperB_exactSummary_preservesWorld
@@ -6401,4 +6402,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6004 theorems/lemmas (4179 public, 1825 private, 0 sorry'd)
+-- Total: 6005 theorems/lemmas (4179 public, 1826 private, 0 sorry'd)
