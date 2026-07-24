@@ -103,7 +103,6 @@ logs, helper calls, foreign calls, ECMs, and unsafe/Yul surfaces. -/
 def helperStmtReadOnly : Stmt → Bool
   | .letVar _ value | .assignVar _ value | .require value _ =>
       helperExprReadOnly value
-  | .return value => helperExprReadOnly value
   | .stop => true
   | _ => false
 
@@ -158,10 +157,6 @@ private theorem execStmtWithHelpers_readOnly_world_eq
         by_cases hcond : resolved != 0
         · simp [hcond, stmtResultWorldEq]
         · simp [hcond, stmtResultWorldEq]
-  case return value =>
-    unfold execStmtWithHelpers
-    cases evalExprWithHelpers spec fields fuel state value <;>
-      simp [stmtResultWorldEq]
   case stop =>
     unfold execStmtWithHelpers
     simp [stmtResultWorldEq]
@@ -546,7 +541,6 @@ private def expressionHelper_support :
       calldataThreshold := by simp [expressionHelper, Compiler.Constants.evmModulus] }
     intro param hmem
     simp [expressionHelper] at hmem
-    simp [SupportedExternalParamType]
   · exact ⟨⟨[.uint256], rfl, by simp [SupportedExternalReturnProfile]⟩⟩
   · exact ⟨rfl⟩
   · exact ⟨rfl⟩
