@@ -468,7 +468,7 @@ private def twoHelperSpec : CompilationModel :=
   { name := "TwoHelperEvidence"
     fields := []
     constructor := none
-    functions := [helperA, helperB] }
+    functions := [helperA, expressionHelperCaller, helperB] }
 
 private def helperB_support :
     ExactInternalHelperSupport twoHelperSpec "helperB" := by
@@ -489,7 +489,7 @@ private def helperB_support :
     noLocalObligations := rfl
   }
   · right
-    left
+    right
   · refine {
       namesNodup := ?_
       supported := ?_
@@ -507,7 +507,7 @@ private def helperB_support :
 private theorem twoHelperRanksDecrease :
     InternalHelperTableRanksDecrease twoHelperSpec := by
   intro caller hcaller calleeName hmem _hcalleePresent
-  simp [twoHelperSpec, helperA, helperB] at hcaller
+  simp [twoHelperSpec, helperA, expressionHelperCaller, helperB] at hcaller
   rcases hcaller with rfl | hcaller
   · have hname : calleeName = "helperB" := by
       apply mem_helperB_eraseDups_singleton
@@ -516,10 +516,15 @@ private theorem twoHelperRanksDecrease :
         exprListInternalHelperCallNames] using hmem
     subst calleeName
     decide
-  · rcases hcaller with rfl | hnil
-    · simp [helperCallNames, stmtListInternalHelperCallNames,
-        stmtInternalHelperCallNames, exprInternalHelperCallNames,
-        exprListInternalHelperCallNames] at hmem
+  · rcases hcaller with rfl | hcaller
+    · have hname : calleeName = "helperB" := by
+        apply mem_helperB_eraseDups_singleton
+        simpa [expressionHelperCaller, helperCallNames, stmtListInternalHelperCallNames,
+          stmtInternalHelperCallNames, exprInternalHelperCallNames,
+          exprListInternalHelperCallNames] using hmem
+      subst calleeName
+      decide
+    · rcases hcaller with rfl | hnil
 
 theorem helperB_exactSummary_sound :
     InternalHelperSummarySound twoHelperSpec helperB
