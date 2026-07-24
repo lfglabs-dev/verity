@@ -1,5 +1,4 @@
 import Compiler.Proofs.IRGeneration.InternalHelperBodyCorrespondence
-import Compiler.Proofs.HelperStepProofs
 
 set_option linter.deprecated false
 set_option linter.unnecessarySimpa false
@@ -11,7 +10,6 @@ namespace Compiler.Proofs.IRGeneration
 open Compiler
 open Compiler.CompilationModel
 open Compiler.Yul
-open Compiler.Proofs.HelperStepProofs
 open SourceSemantics
 
 private theorem eraseDups_nodup_and_mem_aux_local [BEq α] [LawfulBEq α]
@@ -452,6 +450,13 @@ private def helperA : FunctionSpec :=
     isInternal := true
     body := [Stmt.internalCall "helperB" []] }
 
+private def expressionHelper : FunctionSpec :=
+  { name := "expressionHelper"
+    params := []
+    returnType := some .uint256
+    isInternal := true
+    body := [Stmt.return (.literal 0)] }
+
 /-- Keep a concrete expression-position caller alongside the direct-call
 regression.  The direct body below exercises the statement bridge; this
 separate fixture continues to exercise the expression helper's successful
@@ -462,13 +467,13 @@ private def expressionHelperCaller : FunctionSpec :=
     returnType := none
     returns := []
     isInternal := true
-    body := [Stmt.letVar "x" (Expr.internalCall "helperB" [])] }
+    body := [Stmt.letVar "x" (Expr.internalCall "expressionHelper" [])] }
 
 private def twoHelperSpec : CompilationModel :=
   { name := "TwoHelperEvidence"
     fields := []
     constructor := none
-    functions := [helperA, expressionHelperCaller, helperB] }
+    functions := [helperA, expressionHelperCaller, helperB, expressionHelper] }
 
 private def helperB_support :
     ExactInternalHelperSupport twoHelperSpec "helperB" := by
@@ -488,7 +493,7 @@ private def helperB_support :
     constructorRawCalldataSurfaceClosed := rfl
     noLocalObligations := rfl
   }
-  · simp [twoHelperSpec, helperA, expressionHelperCaller, helperB]
+  · simp [twoHelperSpec, helperA, expressionHelperCaller, helperB, expressionHelper]
   · refine {
       namesNodup := ?_
       supported := ?_
@@ -503,10 +508,40 @@ private def helperB_support :
   · exact ⟨rfl⟩
   · exact ⟨rfl⟩
 
+private def expressionHelper_support :
+    ExactInternalHelperSupport twoHelperSpec "expressionHelper" := by
+  refine {
+    callee := expressionHelper
+    nameEq := rfl
+    present := ?_
+    internal := rfl
+    nonSpecialEntrypoint := rfl
+    params := ?_
+    returns := ?_
+    core := ?_
+    state := ?_
+    foreign := rfl
+    lowLevel := rfl
+    effects := ?_
+    constructorRawCalldataSurfaceClosed := rfl
+    noLocalObligations := rfl
+  }
+  · simp [twoHelperSpec, helperA, expressionHelperCaller, helperB, expressionHelper]
+  · refine {
+      namesNodup := by simp [expressionHelper]
+      supported := ?_
+      calldataThreshold := by simp [expressionHelper, Compiler.Constants.evmModulus] }
+    intro param hmem
+    simp [expressionHelper] at hmem
+  · exact ⟨⟨[.uint256], rfl, by simp [SupportedExternalReturnProfile]⟩⟩
+  · exact ⟨rfl⟩
+  · exact ⟨rfl⟩
+  · exact ⟨rfl⟩
+
 private theorem twoHelperRanksDecrease :
     InternalHelperTableRanksDecrease twoHelperSpec := by
   intro caller hcaller calleeName hmem _hcalleePresent
-  simp [twoHelperSpec, helperA, expressionHelperCaller, helperB] at hcaller
+  simp [twoHelperSpec, helperA, expressionHelperCaller, helperB, expressionHelper] at hcaller
   rcases hcaller with rfl | hcaller
   · have hname : calleeName = "helperB" := by
       apply mem_helperB_eraseDups_singleton
@@ -516,17 +551,20 @@ private theorem twoHelperRanksDecrease :
     subst calleeName
     decide
   · rcases hcaller with rfl | hcaller
-    · have hname : calleeName = "helperB" := by
-        apply mem_helperB_eraseDups_singleton
-        simpa [expressionHelperCaller, helperCallNames, stmtListInternalHelperCallNames,
-          stmtInternalHelperCallNames, exprInternalHelperCallNames,
-          exprListInternalHelperCallNames] using hmem
+    · have hname : calleeName = "expressionHelper" := by
+        simpa [expressionHelperCaller, expressionHelper, helperCallNames,
+          stmtListInternalHelperCallNames, stmtInternalHelperCallNames,
+          exprInternalHelperCallNames, exprListInternalHelperCallNames] using hmem
       subst calleeName
       decide
-    · subst caller
-      simp [helperB, helperCallNames, stmtListInternalHelperCallNames,
-        stmtInternalHelperCallNames, exprInternalHelperCallNames,
-        exprListInternalHelperCallNames] at hmem
+    · rcases hcaller with rfl | hcaller
+      · simp [helperB, helperCallNames, stmtListInternalHelperCallNames,
+          stmtInternalHelperCallNames, exprInternalHelperCallNames,
+          exprListInternalHelperCallNames] at hmem
+      · subst caller
+        simp [expressionHelper, helperCallNames, stmtListInternalHelperCallNames,
+          stmtInternalHelperCallNames, exprInternalHelperCallNames,
+          exprListInternalHelperCallNames] at hmem
 
 theorem helperB_exactSummary_sound :
     InternalHelperSummarySound twoHelperSpec helperB
@@ -573,21 +611,19 @@ private def expressionHelperCaller_supportedBodyHelperInterface :
     ?_ twoHelperRanksDecrease ?_ ?_
   · simp [twoHelperSpec, expressionHelperCaller]
   · intro calleeName hmem
-    have hname : calleeName = "helperB" := by
-      apply mem_helperB_eraseDups_singleton
-      simpa [expressionHelperCaller, helperCallNames, stmtListInternalHelperCallNames,
+    have hname : calleeName = "expressionHelper" := by
+      simpa [expressionHelperCaller, expressionHelper, helperCallNames, stmtListInternalHelperCallNames,
         stmtInternalHelperCallNames, exprInternalHelperCallNames,
         exprListInternalHelperCallNames] using hmem
     subst calleeName
-    exact helperB_support
+    exact expressionHelper_support
   · intro calleeName hmem
-    have hname : calleeName = "helperB" := by
-      apply mem_helperB_eraseDups_singleton
-      simpa [expressionHelperCaller, exprHelperCallNames, stmtListExprHelperCallNames,
+    have hname : calleeName = "expressionHelper" := by
+      simpa [expressionHelperCaller, expressionHelper, exprHelperCallNames, stmtListExprHelperCallNames,
         stmtExprHelperCallNames, exprInternalHelperCallNames,
         exprListInternalHelperCallNames] using hmem
     subst calleeName
-    simp [helperB_support, helperBodyNoWorldMutationOnSuccess, helperB,
+    simp [expressionHelper_support, helperBodyNoWorldMutationOnSuccess, expressionHelper,
       helperStmtListReadOnly, helperStmtReadOnly, helperExprReadOnly,
       exprTouchesUnsupportedCallSurface]
 
@@ -655,6 +691,19 @@ private def helperB_supportedFunctionWithHelpers :
     · simp [helperB, Compiler.Constants.evmModulus]
   · exact { resolved := ⟨[], rfl, trivial⟩ }
 
+private def expressionHelper_supportedFunctionWithHelpers :
+    SupportedFunctionWithHelpers twoHelperSpec expressionHelper := by
+  refine {
+    nonSpecialEntrypoint := by simp [expressionHelper, isInteropEntrypointName]
+    noNonReentrant := rfl
+    params := ?_
+    returns := ?_
+    body := .internalHelper expressionHelper_support.toWitness.summary }
+  · refine ⟨by simp [expressionHelper], ?_, ?_⟩
+    · simp [expressionHelper]
+    · simp [expressionHelper, Compiler.Constants.evmModulus]
+  · exact { resolved := ⟨[.uint256], rfl, by simp⟩ }
+
 private def expressionHelperCaller_supportedHelperRichBodyFragment :
     SupportedHelperRichBodyFragment twoHelperSpec expressionHelperCaller := by
   refine {
@@ -677,9 +726,9 @@ private def expressionHelperCaller_supportedHelperRichBodyFragment :
     constructorRawCalldataSurfaceClosed := rfl
     noLocalObligations := rfl
   }
-  exact ⟨"helperB", by
+  exact ⟨"expressionHelper", by
     apply List.mem_eraseDups_of_mem_local
-    simp [expressionHelperCaller, stmtListInternalHelperCallNames,
+    simp [expressionHelperCaller, expressionHelper, stmtListInternalHelperCallNames,
       stmtInternalHelperCallNames, exprInternalHelperCallNames,
       exprListInternalHelperCallNames]⟩
 
@@ -710,21 +759,21 @@ noncomputable def twoHelper_supportedSpecWithHelpers :
   }
   · refine ⟨rfl, ?_, rfl, rfl, ?_⟩
     · simp [twoHelperSpec]
-    · simp [twoHelperSpec, helperA, expressionHelperCaller, helperB]
+    · simp [twoHelperSpec, helperA, expressionHelperCaller, helperB, expressionHelper]
   · refine ⟨rfl, rfl, rfl, rfl, ?_, ?_, ?_, ?_⟩
     · simp [contractUsesCheckedArithmetic, twoHelperSpec]
       constructor
       · simp [helperA, stmtListMayUseCheckedArithmetic, stmtMayUseCheckedArithmetic]
-      · simp [expressionHelperCaller, helperB, stmtListMayUseCheckedArithmetic,
+      · simp [expressionHelperCaller, helperB, expressionHelper, stmtListMayUseCheckedArithmetic,
           stmtMayUseCheckedArithmetic]
-    · rw [templateIntrinsicItems, twoHelperSpec, helperA, expressionHelperCaller, helperB]
+    · rw [templateIntrinsicItems, twoHelperSpec, helperA, expressionHelperCaller, helperB, expressionHelper]
       unfold collectTemplateIntrinsicsFromStmts
       simp only [List.flatMap_cons, List.flatMap_nil, List.append_nil]
       repeat rw [collectTemplateIntrinsicsFromStmt.eq_def]
       simp [Stmt.directMetadata, Stmt.childLists,
         collectTemplateIntrinsicsFromExpr, Expr.children]
-    · simp [twoHelperSpec, helperA, expressionHelperCaller, helperB]
-    · simp [twoHelperSpec, helperA, expressionHelperCaller, helperB]
+    · simp [twoHelperSpec, helperA, expressionHelperCaller, helperB, expressionHelper]
+    · simp [twoHelperSpec, helperA, expressionHelperCaller, helperB, expressionHelper]
   · intro ctor hctor
     simp [twoHelperSpec] at hctor
   · intro fn hfn
@@ -735,14 +784,16 @@ noncomputable def twoHelper_supportedSpecWithHelpers :
     · by_cases hExpr : fn = expressionHelperCaller
       · subst fn
         exact expressionHelperCaller_supportedFunctionWithHelpers
-      · have hB : fn = helperB := by
+      · have hB : fn = helperB ∨ fn = expressionHelper := by
           rcases hfn with hA' | hfn
           · exact False.elim (hA hA')
           · rcases hfn with hExpr' | hB
             · exact False.elim (hExpr hExpr')
-            · exact hB
-        subst fn
-        exact helperB_supportedFunctionWithHelpers
+            · exact Or.inl hB
+            · exact Or.inr hfn
+        rcases hB with rfl | rfl
+        · exact helperB_supportedFunctionWithHelpers
+        · exact expressionHelper_supportedFunctionWithHelpers
 
 /-- Explicit source-syntax evidence that the positive witness is genuinely
 helper-rich, rather than inhabited through an empty call inventory. -/
