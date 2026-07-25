@@ -448,7 +448,7 @@ private def helperB : FunctionSpec :=
     returnType := none
     returns := []
     isInternal := true
-    body := [Stmt.letVar "readOnlyLocal" (Expr.literal 0)] }
+    body := [] }
 
 private def helperA : FunctionSpec :=
   { name := "helperA"
@@ -465,17 +465,18 @@ private def expressionHelper : FunctionSpec :=
     isInternal := true
     body := [Stmt.return (.literal 0)] }
 
-/-- Keep a concrete expression-position caller alongside the direct-call
-regression.  The direct body below exercises the statement bridge; this
-separate fixture continues to exercise the expression helper's successful
-world-preservation obligation. -/
+/-- A second direct-call consumer keeps the helper-rich support witness tied to
+the only currently proved, world-preserving internal-helper path.  Expression
+position calls require a returned value, while source `return` updates the
+scratch-memory result slot, so they are deliberately outside this read-only
+summary fragment. -/
 private def expressionHelperCaller : FunctionSpec :=
   { name := "expressionHelperCaller"
     params := []
     returnType := none
     returns := []
     isInternal := true
-    body := [Stmt.letVar "x" (Expr.internalCall "expressionHelper" [])] }
+    body := [Stmt.internalCall "helperB" []] }
 
 private def twoHelperSpec : CompilationModel :=
   { name := "TwoHelperEvidence"
@@ -560,8 +561,8 @@ private theorem twoHelperRanksDecrease :
     subst calleeName
     decide
   · rcases hcaller with rfl | hcaller
-    · have hname : calleeName = "expressionHelper" := by
-        apply mem_expressionHelper_eraseDups_singleton
+    · have hname : calleeName = "helperB" := by
+        apply mem_helperB_eraseDups_singleton
         simpa [expressionHelperCaller, helperCallNames,
           stmtListInternalHelperCallNames, stmtInternalHelperCallNames,
           exprInternalHelperCallNames, exprListInternalHelperCallNames] using hmem
@@ -610,9 +611,8 @@ def helperA_supportedBodyHelperInterface :
       stmtExprHelperCallNames, exprInternalHelperCallNames,
       exprListInternalHelperCallNames] at hmem
 
-/-- The expression-position fixture is intentionally separate from `helperA`:
-it prevents the direct-call regression from making expression-helper coverage
-vacuous. -/
+/-- The secondary direct caller independently exercises the helper-aware
+support interface without claiming expression-position coverage. -/
 private def expressionHelperCaller_supportedBodyHelperInterface :
     SupportedBodyHelperInterface twoHelperSpec expressionHelperCaller := by
   refine supportedBodyHelperInterface_of_exactSummariesAndRanks
@@ -621,23 +621,17 @@ private def expressionHelperCaller_supportedBodyHelperInterface :
     ?_ twoHelperRanksDecrease ?_ ?_
   · simp [twoHelperSpec, expressionHelperCaller]
   · intro calleeName hmem
-    have hname : calleeName = "expressionHelper" := by
-      apply mem_expressionHelper_eraseDups_singleton
-      simpa [expressionHelperCaller, expressionHelper, helperCallNames, stmtListInternalHelperCallNames,
+    have hname : calleeName = "helperB" := by
+      apply mem_helperB_eraseDups_singleton
+      simpa [expressionHelperCaller, helperCallNames, stmtListInternalHelperCallNames,
         stmtInternalHelperCallNames, exprInternalHelperCallNames,
         exprListInternalHelperCallNames] using hmem
     subst calleeName
-    exact expressionHelper_support
+    exact helperB_support
   · intro calleeName hmem
-    have hname : calleeName = "expressionHelper" := by
-      apply mem_expressionHelper_eraseDups_singleton
-      simpa [expressionHelperCaller, expressionHelper, exprHelperCallNames, stmtListExprHelperCallNames,
-        stmtExprHelperCallNames, exprInternalHelperCallNames,
-        exprListInternalHelperCallNames] using hmem
-    subst calleeName
-    simp [expressionHelper_support, helperBodyNoWorldMutationOnSuccess, expressionHelper,
-      helperStmtListReadOnly, helperStmtReadOnly, helperExprReadOnly,
-      exprTouchesUnsupportedCallSurface]
+    simp [expressionHelperCaller, exprHelperCallNames, stmtListExprHelperCallNames,
+      stmtExprHelperCallNames, exprInternalHelperCallNames,
+      exprListInternalHelperCallNames] at hmem
 
 /-- Non-vacuous witness for the positive helper-rich supported fragment.
 `helperA` contains the direct void call `helperB()`, whose exact summary and
@@ -740,7 +734,7 @@ private def expressionHelperCaller_supportedHelperRichBodyFragment :
   }
   exact ⟨"helperB", by
     apply List.mem_eraseDups_of_mem_local
-    simp [expressionHelperCaller, expressionHelper, stmtListInternalHelperCallNames,
+    simp [expressionHelperCaller, stmtListInternalHelperCallNames,
       stmtInternalHelperCallNames, exprInternalHelperCallNames,
       exprListInternalHelperCallNames]⟩
 
@@ -1132,8 +1126,10 @@ private def helperA_body_generic :
         (runtimeContract := twoHelperRuntimeContract) (spec := twoHelperSpec)
         (fields := []) (irFuelSlack := 2)))
 
-/-- End-to-end concrete consumer: the genuine `helperA()` body call compiles
-through `spec.functions` after its helper-aware generic witness is built. -/
+/-- Compilation-existence consumer: the genuine `helperA()` body has a
+`compileStmtList` output after its helper-aware generic witness is built.  This
+does not by itself claim execution fidelity, dispatch coverage, or revert
+semantics. -/
 theorem helperA_compileStmtList_from_genuine_helper_body_generic :
     ∃ bodyIR,
       CompilationModel.compileStmtList [] twoHelperSpec.events twoHelperSpec.errors
