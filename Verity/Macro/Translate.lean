@@ -2115,7 +2115,7 @@ private def mkModelLocalObligationTerm (obligation : LocalObligationDecl) : Comm
       $proofStatusTerm)
 
 private def termSource (term : Term) : String :=
-  (term.raw.reprint.getD (toString term.raw)).trim
+  (term.raw.reprint.getD (toString term.raw)).trimAscii.toString
 
 private def isIdentChar (c : Char) : Bool :=
   ('a' ≤ c && c ≤ 'z') || ('A' ≤ c && c ≤ 'Z') || ('0' ≤ c && c ≤ '9')
@@ -2129,7 +2129,7 @@ private def sanitizeObligationPart (s : String) : String :=
       | _ => acc ++ [c])
     []
   let trimmed := (collapsed.dropWhile (· == '_')).reverse.dropWhile (· == '_') |>.reverse
-  let rendered := String.mk trimmed
+  let rendered := String.ofList trimmed
   if rendered.isEmpty then "expr" else rendered
 
 private def checkedArithmeticApp? (term : Term) : Option (String × String × Term × Term) :=

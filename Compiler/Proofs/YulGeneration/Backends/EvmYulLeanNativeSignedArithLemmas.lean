@@ -25,7 +25,7 @@ private theorem fin_val_mul_neg1 (n x : Nat) (hn : 0 < n) (hx : x < n) (hxpos : 
 
 private theorem natAbs_ofNat_sub (a b : Nat) (h : a < b) :
     (Int.ofNat a - Int.ofNat b).natAbs = b - a := by
-  simp only [Int.ofNat_eq_coe]
+  simp only [Int.ofNat_eq_natCast]
   rw [show (a : Int) - ((b : Nat) : Int) = -(((b : Nat) : Int) - (a : Int)) from by omega]
   rw [Int.natAbs_neg]
   rw [show ((b : Nat) : Int) - (a : Int) = ((b - a : Nat) : Int) from by omega]
@@ -1147,7 +1147,7 @@ private theorem se_sign_clear (value : Nat) (hvS : value < EvmYul.UInt256.size)
     (h : ¬(EvmYul.UInt256.land ⟨⟨value, hvS⟩⟩ sb ≠
       ⟨⟨0, by rw [EvmYul.UInt256.size]; omega⟩⟩)) :
     value &&& 2^bp = 0 := by
-  push_neg at h
+  push Not at h
   have h1 := se_val_val_of_eq _ _ h
   rw [se_land_val, hsb] at h1
   rwa [Nat.mod_eq_of_lt (Nat.lt_of_le_of_lt Nat.and_le_left hvS)] at h1
