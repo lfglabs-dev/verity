@@ -35,7 +35,7 @@ import EvmYul.Maps.StorageMap
 import Batteries.Data.ByteArray
 import Batteries.Data.RBMap.Lemmas
 
-namespace Batteries
+namespace RBTree
 namespace RBNode
 
 open RBColor
@@ -318,7 +318,7 @@ theorem find?_erase_of_ne {cmp : α → α → Ordering} [Std.TransCmp cmp]
   exact hNe hKey
 
 end RBMap
-end Batteries
+end RBTree
 
 namespace Compiler.Proofs.YulGeneration.Backends.StateBridge
 
