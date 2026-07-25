@@ -448,7 +448,7 @@ private def helperB : FunctionSpec :=
     returnType := none
     returns := []
     isInternal := true
-    body := [] }
+    body := [Stmt.letVar "readOnlyLocal" (Expr.literal 0)] }
 
 private def helperA : FunctionSpec :=
   { name := "helperA"
