@@ -18,7 +18,7 @@ def parseHexNat? (s : String) : Option Nat :=
     if hexPart.isEmpty then
       none
     else
-      hexPart.data.foldl (fun acc c =>
+      hexPart.toString.toList.foldl (fun acc c =>
         match acc, hexCharToNat? c with
         | some n, some d => some (n * 16 + d)
         | _, _ => none
