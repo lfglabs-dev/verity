@@ -847,11 +847,15 @@ theorem helperA_compileStmtList_from_genuine_helper_body_generic :
         .calldata [] false [] [] helperA.body twoHelperSpec.functions =
         Except.ok bodyIR := by
   refine ⟨[YulStmt.exprStmt (YulExpr.call (internalFunctionYulName "helperB") [])], ?_⟩
-  simp [helperA, helperB, twoHelperSpec, CompilationModel.compileStmtList,
+  simp [helperA, helperB, expressionHelperCaller, expressionHelper, twoHelperSpec,
+    CompilationModel.compileStmtList,
     CompilationModel.compileStmtListWithFork, CompilationModel.compileStmt,
     CompilationModel.compileStmtWithFork, CompilationModel.compileInternalCallArgs,
     CompilationModel.compileInternalCallArgsWithParams,
-    CompilationModel.findInternalFunctionForCall?]
+    CompilationModel.compileExpandedInternalCallArgsWithParams,
+    CompilationModel.compileExprListWithInternals,
+    CompilationModel.findInternalFunctionForCall?, pure, Except.pure, Bind.bind,
+    Except.bind]
 
 theorem helperA_calls_helperB_rank_decreases :
     internalHelperTableRank twoHelperSpec "helperB" <
