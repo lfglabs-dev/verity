@@ -36,8 +36,8 @@ set_option maxRecDepth 4096 in
 theorem int256_div_toUint256_val_eq_uint256_sdiv (a b : Nat)
     (ha : a < Compiler.Constants.evmModulus) (hb : b < Compiler.Constants.evmModulus) :
     (Verity.Core.Int256.div
-      (Verity.Core.Int256.ofUint256 ⟨a, ha⟩)
-      (Verity.Core.Int256.ofUint256 ⟨b, hb⟩)).toUint256.val =
+      (Verity.Core.Int256.ofUint256 ⟨a, by simpa [Verity.Core.UINT256_MODULUS] using ha⟩)
+      (Verity.Core.Int256.ofUint256 ⟨b, by simpa [Verity.Core.UINT256_MODULUS] using hb⟩)).toUint256.val =
     EvmYul.UInt256.toNat (EvmYul.UInt256.sdiv ⟨⟨a, by rw [EvmYul.UInt256.size]; exact ha⟩⟩
                                                ⟨⟨b, by rw [EvmYul.UInt256.size]; exact hb⟩⟩) := by
   unfold Compiler.Constants.evmModulus at ha hb
@@ -198,6 +198,7 @@ theorem int256_div_toUint256_val_eq_uint256_sdiv (a b : Nat)
       simp only [Int.toNat]
       simp only [HDiv.hDiv, Div.div, EvmYul.UInt256.div, Fin.div, Fin.mul]
       norm_num
+      simp only [EvmYul.UInt256.size]
       rw [fin_val_mul_neg1 (2^256) a (by omega) ha (by omega),
           fin_val_mul_neg1 (2^256) b (by omega) hb (by omega)]
       exact Nat.mod_eq_of_lt (Nat.lt_of_le_of_lt (Nat.div_le_self _ _) (by omega))
@@ -456,7 +457,7 @@ private theorem uint256_abs_toNat_eq_specAbs (a : Nat) (ha : a < Compiler.Consta
          SignedArithSpec.specModulus - a
     simp only [EvmYul.UInt256.size]
     norm_num
-    simp only [Fin.val_neg]
+    simp [Fin.val_neg]
     norm_num
     -- After simp + norm_num, the goal reduces to
     -- `(if a = 0 then 0 else 115792... - a) = SignedArithSpec.specModulus - a`.
