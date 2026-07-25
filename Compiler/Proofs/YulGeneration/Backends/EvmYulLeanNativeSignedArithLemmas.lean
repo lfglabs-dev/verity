@@ -31,29 +31,31 @@ private theorem natAbs_ofNat_sub (a b : Nat) (h : a < b) :
   rw [show ((b : Nat) : Int) - (a : Int) = ((b - a : Nat) : Int) from by omega]
   simp only [Int.natAbs_natCast]
 
+private theorem lt_uint256_modulus_of_lt_evmModulus {x : Nat}
+    (h : x < Compiler.Constants.evmModulus) :
+    x < Verity.Core.UINT256_MODULUS := by
+  simpa only [Compiler.Constants.evmModulus, Verity.Core.UINT256_MODULUS] using h
+
 set_option maxHeartbeats 400000000 in
 set_option maxRecDepth 4096 in
 theorem int256_div_toUint256_val_eq_uint256_sdiv (a b : Nat)
     (ha : a < Compiler.Constants.evmModulus) (hb : b < Compiler.Constants.evmModulus) :
     (Verity.Core.Int256.div
       (Verity.Core.Int256.ofUint256 ⟨a, by
-        norm_num [Compiler.Constants.evmModulus, Verity.Core.UINT256_MODULUS] at ha ⊢
-        exact ha⟩)
+        exact lt_uint256_modulus_of_lt_evmModulus ha⟩)
       (Verity.Core.Int256.ofUint256 ⟨b, by
-        norm_num [Compiler.Constants.evmModulus, Verity.Core.UINT256_MODULUS] at hb ⊢
-        exact hb⟩)).toUint256.val =
+        exact lt_uint256_modulus_of_lt_evmModulus hb⟩)).toUint256.val =
     EvmYul.UInt256.toNat (EvmYul.UInt256.sdiv ⟨⟨a, by rw [EvmYul.UInt256.size]; exact ha⟩⟩
                                                ⟨⟨b, by rw [EvmYul.UInt256.size]; exact hb⟩⟩) := by
-  unfold Compiler.Constants.evmModulus at ha hb
+  have haPow : a < 2^256 := ha
+  have hbPow : b < 2^256 := hb
   by_cases hb0 : b = 0
   · subst hb0
     simp only [Verity.Core.Int256.div, Verity.Core.Int256.toInt, Verity.Core.Int256.ofUint256,
       Verity.Core.Int256.signBit, Verity.Core.Int256.signedAbsNat,
       Verity.Core.Int256.ofInt, Verity.Core.Int256.toUint256,
       Verity.Core.Int256.modulus, Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS,
-      Verity.Core.Uint256.ofNat,
       EvmYul.UInt256.sdiv, EvmYul.UInt256.abs, EvmYul.UInt256.toNat,
-      EvmYul.UInt256.size,
       HDiv.hDiv, Div.div, EvmYul.UInt256.div, Fin.div]
     simp only [show (0 : Nat) < 2^255 from by omega,
       show ¬(2^255 ≤ (0:Nat)) from by omega, ↓reduceIte]
@@ -65,9 +67,7 @@ theorem int256_div_toUint256_val_eq_uint256_sdiv (a b : Nat)
         Verity.Core.Int256.signBit, Verity.Core.Int256.signedAbsNat,
         Verity.Core.Int256.ofInt, Verity.Core.Int256.toUint256,
         Verity.Core.Int256.modulus, Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS,
-        Verity.Core.Uint256.ofNat,
-        EvmYul.UInt256.sdiv, EvmYul.UInt256.abs, EvmYul.UInt256.toNat,
-        EvmYul.UInt256.size]
+        EvmYul.UInt256.sdiv, EvmYul.UInt256.abs, EvmYul.UInt256.toNat]
       simp only [eq_true haS, eq_true hbS, ↓reduceIte,
         eq_false (show ¬(2^255 ≤ a) from by omega),
         eq_false (show ¬(2^255 ≤ b) from by omega),
@@ -81,15 +81,13 @@ theorem int256_div_toUint256_val_eq_uint256_sdiv (a b : Nat)
         ↓reduceIte]
       simp only [Int.toNat]
       simp only [HDiv.hDiv, Div.div, EvmYul.UInt256.div, Fin.div]
-      exact Nat.mod_eq_of_lt (Nat.lt_of_le_of_lt (Nat.div_le_self a b) ha)
-    · have hb' : (Int.ofNat b : Int) < Int.ofNat (2^256) := Int.ofNat_lt.mpr hb
+      exact Nat.mod_eq_of_lt (Nat.lt_of_le_of_lt (Nat.div_le_self a b) haPow)
+    · have hb' : (Int.ofNat b : Int) < Int.ofNat (2^256) := Int.ofNat_lt.mpr hbPow
       simp only [Verity.Core.Int256.div, Verity.Core.Int256.toInt, Verity.Core.Int256.ofUint256,
         Verity.Core.Int256.signBit, Verity.Core.Int256.signedAbsNat,
         Verity.Core.Int256.ofInt, Verity.Core.Int256.toUint256,
         Verity.Core.Int256.modulus, Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS,
-        Verity.Core.Uint256.ofNat,
-        EvmYul.UInt256.sdiv, EvmYul.UInt256.abs, EvmYul.UInt256.toNat,
-        EvmYul.UInt256.size]
+        EvmYul.UInt256.sdiv, EvmYul.UInt256.abs, EvmYul.UInt256.toNat]
       simp only [eq_true haS, eq_false hbS,
         eq_false (show ¬(2^255 ≤ a) from by omega),
         eq_true (show 2^255 ≤ b from by omega), ↓reduceIte,
@@ -98,24 +96,28 @@ theorem int256_div_toUint256_val_eq_uint256_sdiv (a b : Nat)
         eq_true (show Int.ofNat b - Int.ofNat (2^256) < (0 : Int) from by omega)]
       simp only [BEq.beq, decide_false]
       simp only [show (Int.ofNat a).natAbs = a from rfl,
-                 natAbs_ofNat_sub b (2^256) hb]
+                 natAbs_ofNat_sub b (2^256) hbPow]
       simp only [HDiv.hDiv, Div.div, EvmYul.UInt256.div, Fin.div, Fin.mul]
+      have hneg1_pow :
+          (EvmYul.UInt256.size - (1 : Fin EvmYul.UInt256.size).val) % EvmYul.UInt256.size =
+          2^256 - 1 := by
+        change (2^256 - 1) % (2^256) = 2^256 - 1
+        norm_num
+      simp only [hneg1_pow]
+      have habs_b_pow : b * (2^256 - 1) % EvmYul.UInt256.size = 2^256 - b := by
+        rw [EvmYul.UInt256.size]
+        exact fin_val_mul_neg1 (2^256) b (by omega) hbPow (by omega)
+      simp only [habs_b_pow]
+      simp only [mul_neg, mul_one, Fin.val_neg]
       norm_num
-      have habs_b_lit : b * 115792089237316195423570985008687907853269984665640564039457584007913129639935 %
-        115792089237316195423570985008687907853269984665640564039457584007913129639936 =
-        115792089237316195423570985008687907853269984665640564039457584007913129639936 - b := by
-        have := fin_val_mul_neg1 (2^256) b (by omega) hb (by omega)
-        norm_num at this; exact this
-      simp only [habs_b_lit]
-      simp only [Fin.val_neg]
       split
       · rename_i hqpos
         have hqlt : a.div (115792089237316195423570985008687907853269984665640564039457584007913129639936 - b) <
           115792089237316195423570985008687907853269984665640564039457584007913129639936 :=
-          Nat.lt_of_le_of_lt (Nat.div_le_self a _) ha
+          Nat.lt_of_le_of_lt (Nat.div_le_self a _) haPow
         split
         · rename_i h_fin_zero
-          exfalso; have hval := Fin.val_eq_of_eq h_fin_zero; simp at hval; omega
+          omega
         · show (115792089237316195423570985008687907853269984665640564039457584007913129639936 -
               a.div (115792089237316195423570985008687907853269984665640564039457584007913129639936 - b) %
                 115792089237316195423570985008687907853269984665640564039457584007913129639936) %
@@ -129,15 +131,13 @@ theorem int256_div_toUint256_val_eq_uint256_sdiv (a b : Nat)
         · rfl
         · rename_i h_fin_ne; exfalso; apply h_fin_ne
           have : a.div (115792089237316195423570985008687907853269984665640564039457584007913129639936 - b) = 0 := by omega
-          ext; simp [this]
-    · have ha' : (Int.ofNat a : Int) < Int.ofNat (2^256) := Int.ofNat_lt.mpr ha
+          exact this
+    · have ha' : (Int.ofNat a : Int) < Int.ofNat (2^256) := Int.ofNat_lt.mpr haPow
       simp only [Verity.Core.Int256.div, Verity.Core.Int256.toInt, Verity.Core.Int256.ofUint256,
         Verity.Core.Int256.signBit, Verity.Core.Int256.signedAbsNat,
         Verity.Core.Int256.ofInt, Verity.Core.Int256.toUint256,
         Verity.Core.Int256.modulus, Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS,
-        Verity.Core.Uint256.ofNat,
-        EvmYul.UInt256.sdiv, EvmYul.UInt256.abs, EvmYul.UInt256.toNat,
-        EvmYul.UInt256.size]
+        EvmYul.UInt256.sdiv, EvmYul.UInt256.abs, EvmYul.UInt256.toNat]
       simp only [eq_false haS, eq_true hbS,
         eq_true (show 2^255 ≤ a from by omega),
         eq_false (show ¬(2^255 ≤ b) from by omega), ↓reduceIte,
@@ -145,17 +145,21 @@ theorem int256_div_toUint256_val_eq_uint256_sdiv (a b : Nat)
         eq_false (show ¬(Int.ofNat b < (0 : Int)) from not_lt.mpr (Int.natCast_nonneg b)),
         eq_false (show ¬((Int.ofNat b : Int) = 0) from Int.ofNat_ne_zero.mpr hb0)]
       simp only [BEq.beq, decide_false]
-      simp only [natAbs_ofNat_sub a (2^256) ha,
+      simp only [natAbs_ofNat_sub a (2^256) haPow,
                  show (Int.ofNat b).natAbs = b from rfl]
       simp only [HDiv.hDiv, Div.div, EvmYul.UInt256.div, Fin.div, Fin.mul]
+      have hneg1_pow :
+          (EvmYul.UInt256.size - (1 : Fin EvmYul.UInt256.size).val) % EvmYul.UInt256.size =
+          2^256 - 1 := by
+        change (2^256 - 1) % (2^256) = 2^256 - 1
+        norm_num
+      simp only [hneg1_pow]
+      have habs_a_pow : a * (2^256 - 1) % EvmYul.UInt256.size = 2^256 - a := by
+        rw [EvmYul.UInt256.size]
+        exact fin_val_mul_neg1 (2^256) a (by omega) haPow (by omega)
+      simp only [habs_a_pow]
+      simp only [mul_neg, mul_one, Fin.val_neg]
       norm_num
-      have habs_a_lit : a * 115792089237316195423570985008687907853269984665640564039457584007913129639935 %
-        115792089237316195423570985008687907853269984665640564039457584007913129639936 =
-        115792089237316195423570985008687907853269984665640564039457584007913129639936 - a := by
-        have := fin_val_mul_neg1 (2^256) a (by omega) ha (by omega)
-        norm_num at this; exact this
-      simp only [habs_a_lit]
-      simp only [Fin.val_neg]
       split
       · rename_i hqpos
         have hqlt : (115792089237316195423570985008687907853269984665640564039457584007913129639936 - a).div b <
@@ -163,7 +167,7 @@ theorem int256_div_toUint256_val_eq_uint256_sdiv (a b : Nat)
           Nat.lt_of_le_of_lt (Nat.div_le_self _ _) (by omega)
         split
         · rename_i h_fin_zero
-          exfalso; have hval := Fin.val_eq_of_eq h_fin_zero; simp at hval; omega
+          omega
         · show (115792089237316195423570985008687907853269984665640564039457584007913129639936 -
               (115792089237316195423570985008687907853269984665640564039457584007913129639936 - a).div b %
                 115792089237316195423570985008687907853269984665640564039457584007913129639936) %
@@ -177,9 +181,9 @@ theorem int256_div_toUint256_val_eq_uint256_sdiv (a b : Nat)
         · rfl
         · rename_i h_fin_ne; exfalso; apply h_fin_ne
           have : (115792089237316195423570985008687907853269984665640564039457584007913129639936 - a).div b = 0 := by omega
-          ext; simp [this]
-    · have ha' : (Int.ofNat a : Int) < Int.ofNat (2^256) := Int.ofNat_lt.mpr ha
-      have hb' : (Int.ofNat b : Int) < Int.ofNat (2^256) := Int.ofNat_lt.mpr hb
+          exact this
+    · have ha' : (Int.ofNat a : Int) < Int.ofNat (2^256) := Int.ofNat_lt.mpr haPow
+      have hb' : (Int.ofNat b : Int) < Int.ofNat (2^256) := Int.ofNat_lt.mpr hbPow
       simp only [Verity.Core.Int256.div, Verity.Core.Int256.toInt, Verity.Core.Int256.ofUint256,
         Verity.Core.Int256.signBit, Verity.Core.Int256.signedAbsNat,
         Verity.Core.Int256.ofInt, Verity.Core.Int256.toUint256,
@@ -194,17 +198,18 @@ theorem int256_div_toUint256_val_eq_uint256_sdiv (a b : Nat)
         eq_true (show Int.ofNat a - Int.ofNat (2^256) < (0 : Int) from by omega),
         eq_true (show Int.ofNat b - Int.ofNat (2^256) < (0 : Int) from by omega)]
       simp only [BEq.beq]
-      simp only [natAbs_ofNat_sub a (2^256) ha,
-                 natAbs_ofNat_sub b (2^256) hb]
+      simp only [natAbs_ofNat_sub a (2^256) haPow,
+                 natAbs_ofNat_sub b (2^256) hbPow]
       simp only [decide_true, ↓reduceIte,
         eq_false (show ¬(Int.ofNat ((2^256 - a) / (2^256 - b)) < (0 : Int)) from
           not_lt.mpr (Int.natCast_nonneg _))]
       simp only [Int.toNat]
       simp only [HDiv.hDiv, Div.div, EvmYul.UInt256.div, Fin.div, Fin.mul]
       norm_num
-      simp only [EvmYul.UInt256.size]
-      rw [fin_val_mul_neg1 (2^256) a (by omega) ha (by omega),
-          fin_val_mul_neg1 (2^256) b (by omega) hb (by omega)]
+      change (2^256 - a).div (2^256 - b) % (2^256) =
+        (a * (2^256 - 1) % (2^256)).div (b * (2^256 - 1) % (2^256))
+      rw [fin_val_mul_neg1 (2^256) a (by omega) haPow (by omega),
+          fin_val_mul_neg1 (2^256) b (by omega) hbPow (by omega)]
       exact Nat.mod_eq_of_lt (Nat.lt_of_le_of_lt (Nat.div_le_self _ _) (by omega))
 
 private theorem eq0_true_of_val_eq_zero (x : EvmYul.UInt256) (h : x.val = 0) :
@@ -459,17 +464,8 @@ private theorem uint256_abs_toNat_eq_specAbs (a : Nat) (ha : a < Compiler.Consta
     rw [if_pos hge, if_neg haS]
     show ((⟨a, _⟩ : Fin EvmYul.UInt256.size) * (-1 : Fin EvmYul.UInt256.size)).val =
          SignedArithSpec.specModulus - a
-    simp only [EvmYul.UInt256.size]
-    norm_num
-    rw [Fin.val_neg]
-    norm_num
-    -- After simp + norm_num, the goal reduces to
-    -- `(if a = 0 then 0 else 115792... - a) = SignedArithSpec.specModulus - a`.
-    -- `hpos : 0 < a` discharges the `a = 0` branch, and the literal is
-    -- definitionally `specModulus`.
-    have ha0 : a ≠ 0 := Nat.pos_iff_ne_zero.mp hpos
-    rw [if_neg ha0]
-    rfl
+    change a * (2^256 - 1) % (2^256) = 2^256 - a
+    rw [fin_val_mul_neg1 (2^256) a (by omega) ha hpos]
 
 /-! ### EVMYulLean-side mod reduction to Nat-level mod (for A2b)
 

@@ -153,21 +153,12 @@ theorem compileInternalFunction_some_ok_of_components
           paramNames
           (freshInternalRetNames returns (paramNames ++ collectStmtListBindNames spec.body))
           bodyStmts) := by
-    simpa [paramNames, compiledName] using
-      congrArg
-        (fun compiledBody =>
-          Except.map
-            (fun compiledStmts =>
-              YulStmt.funcDef
-                compiledName
-                paramNames
-                (freshInternalRetNames returns (paramNames ++ collectStmtListBindNames spec.body))
-                compiledStmts)
-            compiledBody)
-        hbody'
+    rw [hbody']
+    rfl
   unfold compileInternalFunction
-  simp [hvalidate, hreturns]
-  simpa [paramNames, compiledName, hretNames] using hmap
+  simp only [hvalidate, hreturns]
+  simp only [hretNames]
+  exact hmap
 
 -- Compile function spec to IR function
 def compileFunctionSpec (fields : List Field) (events : List EventDef) (errors : List ErrorDef)

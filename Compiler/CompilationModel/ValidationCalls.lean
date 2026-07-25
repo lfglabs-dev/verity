@@ -793,7 +793,8 @@ private theorem validateContractIdentifiers_ok_of_mem
               cases hvalidate
           | ok _ =>
               have htail : validateContractIdentifiers kind tail = Except.ok () := by
-                simpa [validateContractIdentifiers, hcontract, hreserved] using hvalidate
+                simp only [validateContractIdentifiers, hcontract, hreserved] at hvalidate
+                exact hvalidate
               simp at hmem
               rcases hmem with rfl | hmem
               · exact ensureNonReservedYulIdentifier_ok hreserved
@@ -816,7 +817,8 @@ private theorem validateFieldIdentifiers_ok_of_mem
       | ok _ =>
           by_cases himm : isInternalImmutableStorageName head.name
           · have htail : validateFieldIdentifiers tail = Except.ok () := by
-              simpa [validateFieldIdentifiers, hcontract, himm] using hvalidate
+              simp only [validateFieldIdentifiers, hcontract, himm] at hvalidate
+              exact hvalidate
             simp at hmem
             rcases hmem with rfl | hmem
             · simp [himm]
@@ -827,13 +829,14 @@ private theorem validateFieldIdentifiers_ok_of_mem
                 cases hvalidate
             | ok _ =>
                 have htail : validateFieldIdentifiers tail = Except.ok () := by
-                  simpa [validateFieldIdentifiers, hcontract, himm, hreserved] using hvalidate
+                  simp only [validateFieldIdentifiers, hcontract, himm, hreserved] at hvalidate
+                  exact hvalidate
                 simp at hmem
                 rcases hmem with rfl | hmem
                 · intro hbad
                   have hbadReserved := hbad
-                  simp [himm] at hbadReserved
-                  exact (ensureNonReservedYulIdentifier_ok hreserved) hbadReserved
+                  simp only [Bool.and_eq_true] at hbadReserved
+                  exact (ensureNonReservedYulIdentifier_ok hreserved) hbadReserved.1
                 · exact ih htail hmem
 
 private theorem validateFunctionYulIdentifiers_params_ok_of_mem
@@ -911,7 +914,8 @@ private theorem validateFunctionYulIdentifiers_assignTargets_ok_of_mem
   have hassign :
       validateContractIdentifiers "assignment target" (collectStmtListAssignedNames fn.body) = Except.ok () := by
     unfold validateFunctionYulIdentifiers at hvalidate
-    simpa [hparams, hlocals] using hvalidate
+    simp only [hparams, hlocals] at hvalidate
+    exact hvalidate
   exact validateContractIdentifiers_ok_of_mem hassign hmem
 
 private theorem validateFunctionIdentifierList_ok_of_mem
@@ -930,7 +934,8 @@ private theorem validateFunctionIdentifierList_ok_of_mem
           cases hvalidate
       | ok _ =>
           have htail : validateFunctionIdentifierList tail = Except.ok () := by
-            simpa [validateFunctionIdentifierList, hhead] using hvalidate
+            simp only [validateFunctionIdentifierList, hhead] at hvalidate
+            exact hvalidate
           simp at hmem
           rcases hmem with rfl | hmem
           · simp [hhead]
@@ -950,7 +955,8 @@ theorem validateFunctionIdentifiers_params_avoidReservedCompilerPrefix
         simp [hname] at hvalidate
         cases hvalidate
     | ok _ =>
-        simpa [validateFunctionIdentifiers, hname] using hvalidate
+        simp only [hname] at hvalidate
+        exact hvalidate
   exact validateFunctionYulIdentifiers_params_ok_of_mem hyul hmem
 
 theorem validateFunctionIdentifiers_locals_avoidReservedCompilerPrefix
@@ -967,7 +973,8 @@ theorem validateFunctionIdentifiers_locals_avoidReservedCompilerPrefix
         simp [hname] at hvalidate
         cases hvalidate
     | ok _ =>
-        simpa [validateFunctionIdentifiers, hname] using hvalidate
+        simp only [hname] at hvalidate
+        exact hvalidate
   exact validateFunctionYulIdentifiers_locals_ok_of_mem hyul hmem
 
 theorem validateFunctionIdentifiers_assignTargets_avoidReservedCompilerPrefix
@@ -984,7 +991,8 @@ theorem validateFunctionIdentifiers_assignTargets_avoidReservedCompilerPrefix
         simp [hname] at hvalidate
         cases hvalidate
     | ok _ =>
-        simpa [validateFunctionIdentifiers, hname] using hvalidate
+        simp only [hname] at hvalidate
+        exact hvalidate
   exact validateFunctionYulIdentifiers_assignTargets_ok_of_mem hyul hmem
 
 theorem validateIdentifierShapes_field_avoidReservedCompilerPrefix

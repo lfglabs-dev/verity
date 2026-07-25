@@ -25,7 +25,8 @@ infixl:65 " +++ " => byteAppend
 
 @[simp] theorem byteAppend_size (lhs rhs : ByteArray) :
     (lhs +++ rhs).size = lhs.size + rhs.size := by
-  simp [byteAppend, ByteArray.size, Array.size_append]
+  change (lhs.data ++ rhs.data).size = lhs.data.size + rhs.data.size
+  exact Array.size_append
 
 /-- A byte layout whose runtime code is exactly `codePrefix ++ payload`. -/
 structure Layout where

@@ -662,7 +662,8 @@ theorem validateScopedStmtListIdentifiers_append_ok_inv
           rcases ih (localScope := nextScope) hvalidate with
             ⟨midScope, hprefix, hsuffix⟩
           refine ⟨midScope, ?_, hsuffix⟩
-          simpa [validateScopedStmtListIdentifiers, hnext] using hprefix
+          simp only [validateScopedStmtListIdentifiers, hnext]
+          exact hprefix
 
 theorem validateScopedStmtListIdentifiers_cons_ok_inv
     {context : String}
