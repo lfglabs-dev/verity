@@ -6353,19 +6353,19 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.compileExpr_mappingChain_bridgedSource
 
   -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanStateBridge.lean
-  Batteries.RBNode.All.setBlack'
-  Batteries.RBNode.find?_eq_none_of_all_ne
-  Batteries.RBNode.del_all_cut_ne
-  Batteries.RBNode.erase_all_cut_ne
-  Batteries.RBNode.findP?_erase_none
-  Batteries.RBNode.append_toList
-  Batteries.RBNode.mem_del_of_mem_ne
-  Batteries.RBNode.mem_of_mem_del
-  Batteries.RBNode.mem_erase_of_mem_ne
-  Batteries.RBNode.mem_of_mem_erase
-  Batteries.RBNode.find?_erase_of_ne
-  Batteries.RBMap.find?_erase_self
-  Batteries.RBMap.find?_erase_of_ne
+  RBTree.RBNode.All.setBlack'
+  RBTree.RBNode.find?_eq_none_of_all_ne
+  RBTree.RBNode.del_all_cut_ne
+  RBTree.RBNode.erase_all_cut_ne
+  RBTree.RBNode.findP?_erase_none
+  RBTree.RBNode.append_toList
+  RBTree.RBNode.mem_del_of_mem_ne
+  RBTree.RBNode.mem_of_mem_del
+  RBTree.RBNode.mem_erase_of_mem_ne
+  RBTree.RBNode.mem_of_mem_erase
+  RBTree.RBNode.find?_erase_of_ne
+  RBTree.RBMap.find?_erase_self
+  RBTree.RBMap.find?_erase_of_ne
   -- Compiler.Proofs.YulGeneration.Backends.StateBridge.calldataToByteArray_selectorBytes_size  -- private
   -- Compiler.Proofs.YulGeneration.Backends.StateBridge.calldataToByteArray_wordBytes_size  -- private
   -- Compiler.Proofs.YulGeneration.Backends.StateBridge.calldataToByteArray_fold_size  -- private
