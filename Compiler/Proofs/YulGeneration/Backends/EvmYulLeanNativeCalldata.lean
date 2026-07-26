@@ -45,7 +45,8 @@ theorem readBytes_zero_get?_of_lt_source
           byteArray_get?_append_left hCopySize
     _ = byteArrayGet? source i := by
       simp only [byteArrayGet?, ByteArray.data_copySlice]
-      simp [Array.getElem?_extract, hiData]
+      simp [Array.getElem?_append_left, Array.getElem?_append_right,
+        Array.getElem?_extract, hiData, hi32]
 
 /-- Reading a 32-byte window preserves every byte that is already present in the
     source window, for offsets accepted by EVMYulLean's optimized
@@ -78,7 +79,8 @@ theorem readBytes_get?_of_lt_source
           byteArray_get?_append_left hCopySize
     _ = byteArrayGet? source (offset + i) := by
       simp only [byteArrayGet?, ByteArray.data_copySlice]
-      simp [Array.getElem?_extract, hiData]
+      simp [Array.getElem?_append_left, Array.getElem?_append_right,
+        Array.getElem?_extract, hiData, hi32]
 
 /-- Reading the ABI word at calldata offset four preserves each source byte
     already present in that 32-byte argument window. This is the native
