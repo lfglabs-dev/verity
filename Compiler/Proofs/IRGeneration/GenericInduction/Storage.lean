@@ -3402,7 +3402,8 @@ private theorem evalIRExpr_mappingWordTarget_of_eval
   have hMappingBaseEval :
       evalIRExpr state (YulExpr.call "mappingSlot" [YulExpr.lit slot, keyIR]) =
         some (Compiler.Proofs.abstractMappingSlot slot keyNat) := by
-    simpa [Compiler.Proofs.abstractMappingSlot_eq_solidity] using
+    simpa [SourceSemantics.mappingSlotChain,
+      Compiler.Proofs.abstractMappingSlot_eq_solidity] using
       (evalIRExpr_mappingSlotChain
         (state := state)
         (baseSlot := slot)
@@ -3450,7 +3451,8 @@ private theorem evalIRExpr_mappingSlot2_of_eval
         [YulExpr.call "mappingSlot" [YulExpr.lit slot, key1IR], key2IR]) =
       some (Compiler.Proofs.abstractMappingSlot
         (Compiler.Proofs.abstractMappingSlot slot key1Nat) key2Nat) := by
-  simpa [Compiler.Proofs.abstractMappingSlot_eq_solidity] using
+  simpa [SourceSemantics.mappingSlotChain,
+    Compiler.Proofs.abstractMappingSlot_eq_solidity] using
     (evalIRExpr_mappingSlotChain
       (state := state)
       (baseSlot := slot)
@@ -4571,7 +4573,8 @@ private theorem compiledStmtStep_setMappingPackedWord_singleSlot_of_slotSafety_p
       have hMappingBaseEval :
           evalIRExpr state (YulExpr.call "mappingSlot" [YulExpr.lit slot, keyIR]) =
             some (Compiler.Proofs.abstractMappingSlot slot keyNat) := by
-        simpa [Compiler.Proofs.abstractMappingSlot_eq_solidity] using
+        simpa [SourceSemantics.mappingSlotChain,
+          Compiler.Proofs.abstractMappingSlot_eq_solidity] using
           (evalIRExpr_mappingSlotChain
             (state := state)
             (baseSlot := slot)
@@ -4673,7 +4676,8 @@ private theorem compiledStmtStep_setMappingPackedWord_singleSlot_of_slotSafety_p
       have hMappingBaseEval2 :
           evalIRExpr state2 (YulExpr.call "mappingSlot" [YulExpr.lit slot, keyIR]) =
             some (Compiler.Proofs.abstractMappingSlot slot keyNat) := by
-        simpa [Compiler.Proofs.abstractMappingSlot_eq_solidity] using
+        simpa [SourceSemantics.mappingSlotChain,
+          Compiler.Proofs.abstractMappingSlot_eq_solidity] using
           (evalIRExpr_mappingSlotChain
             (state := state2)
             (baseSlot := slot)
@@ -4942,7 +4946,8 @@ private theorem compiledStmtStep_setMappingPackedWord_singleSlot_of_slotSafety_p
       have hMappingBaseEval4 :
           evalIRExpr state4 (YulExpr.call "mappingSlot" [YulExpr.lit slot, keyIR]) =
             some (Compiler.Proofs.abstractMappingSlot slot keyNat) := by
-        simpa [Compiler.Proofs.abstractMappingSlot_eq_solidity] using
+        simpa [SourceSemantics.mappingSlotChain,
+          Compiler.Proofs.abstractMappingSlot_eq_solidity] using
           (evalIRExpr_mappingSlotChain
             (state := state4)
             (baseSlot := slot)
