@@ -59,7 +59,7 @@ elaboration:
   The two closed identifier facts
   `Compiler.CompilationModel.compatScratch_startsWith_reserved` and
   `Compiler.CompilationModel.compatScratch_not_internalImmutable` are an
-  explicit compiler-proof boundary of this kind. Lean 4.24 keeps the recursive
+  explicit compiler-proof boundary of this kind. Lean 4.31 keeps the recursive
   worker behind `String.startsWith` private and exposes no public correctness
   theorem for it. `#print axioms` records `Lean.ofReduceBool` on these facts and
   their consumers; executing `native_decide` additionally trusts Lean's native

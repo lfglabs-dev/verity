@@ -22,8 +22,8 @@ SCAN_ROOTS = ("Compiler", "Verity", "Contracts", "Benchmark")
 DOC_PATHS = ("AXIOMS.md", "TRUST_ASSUMPTIONS.md")
 DOC_DIRS = ("docs",)
 
-LEAN424_STRING_BOUNDARY = Path("Compiler/CompilationModel/ReservedScratchNames.lean")
-LEAN424_STRING_THEOREMS = (
+LEAN431_STRING_BOUNDARY = Path("Compiler/CompilationModel/ReservedScratchNames.lean")
+LEAN431_STRING_THEOREMS = (
     "compatScratch_startsWith_reserved",
     "compatScratch_not_internalImmutable",
 )
@@ -79,31 +79,31 @@ def collect_trust_surface(root: Path = ROOT) -> tuple[dict[str, int], dict[str, 
     return mechanisms, ecm_axioms
 
 
-def check_lean424_string_boundary(root: Path = ROOT) -> list[str]:
-    """Keep the Lean 4.24 native string facts in one explicit trust boundary."""
+def check_lean431_string_boundary(root: Path = ROOT) -> list[str]:
+    """Keep the Lean 4.31 native string facts in one explicit trust boundary."""
     errors: list[str] = []
-    boundary = root / LEAN424_STRING_BOUNDARY
+    boundary = root / LEAN431_STRING_BOUNDARY
     if not boundary.is_file():
-        return [f"missing Lean 4.24 string trust boundary: {LEAN424_STRING_BOUNDARY}"]
+        return [f"missing Lean 4.31 string trust boundary: {LEAN431_STRING_BOUNDARY}"]
 
     boundary_text = scrub_lean_code(boundary.read_text(encoding="utf-8"))
     native_count = len(re.findall(r"\bnative_decide\b", boundary_text))
     if native_count != 2:
         errors.append(
-            f"{LEAN424_STRING_BOUNDARY}: expected exactly 2 native_decide facts, "
+            f"{LEAN431_STRING_BOUNDARY}: expected exactly 2 native_decide facts, "
             f"found {native_count}"
         )
 
-    declarations: dict[str, list[str]] = {name: [] for name in LEAN424_STRING_THEOREMS}
+    declarations: dict[str, list[str]] = {name: [] for name in LEAN431_STRING_THEOREMS}
     compiler_root = root / "Compiler"
     for path in sorted(compiler_root.rglob("*.lean")):
         text = scrub_lean_code(path.read_text(encoding="utf-8"))
         rel = str(path.relative_to(root))
-        for name in LEAN424_STRING_THEOREMS:
+        for name in LEAN431_STRING_THEOREMS:
             if re.search(rf"\b(?:theorem|lemma)\s+{re.escape(name)}\b", text):
                 declarations[name].append(rel)
 
-    expected_path = str(LEAN424_STRING_BOUNDARY)
+    expected_path = str(LEAN431_STRING_BOUNDARY)
     for name, locations in declarations.items():
         if locations != [expected_path]:
             errors.append(
@@ -130,7 +130,7 @@ def main() -> int:
     docs = _read_doc_corpus()
     mechanisms, ecm_axioms = collect_trust_surface()
 
-    errors = check_lean424_string_boundary()
+    errors = check_lean431_string_boundary()
     for name, count in mechanisms.items():
         if count > 0 and name not in docs:
             errors.append(
@@ -149,7 +149,7 @@ def main() -> int:
         f"{len(ecm_axioms)} ECM assumption(s), "
         + ", ".join(f"{name}={count}" for name, count in mechanisms.items())
         + "; native_decide trusts builtin Lean.ofReduceBool + Lean.trustCompiler; "
-        + f"Lean 4.24 string boundary={LEAN424_STRING_BOUNDARY} (2 facts)"
+        + f"Lean 4.31 string boundary={LEAN431_STRING_BOUNDARY} (2 facts)"
     )
     return 0
 

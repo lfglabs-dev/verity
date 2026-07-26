@@ -42,7 +42,8 @@ Lean 4.31 `ByteArray` has no `get?`. Provide a typed local helper via `.data`
 which reduces to `Array` operations with known `getElem_ofFn`/`append` lemmas.
 -/
 
-private def byteArrayGet? (a : ByteArray) (i : Nat) : Option UInt8 :=
+/-- Lean 4.31-compatible optional byte lookup used by bridge consumers. -/
+def byteArrayGet? (a : ByteArray) (i : Nat) : Option UInt8 :=
   a.data[i]?
 
 private theorem byteArrayGet?_ofFn {n : Nat} (f : Fin n → UInt8) (i : Nat) (hi : i < n) :
@@ -700,29 +701,31 @@ theorem foldl_insert_preserves_find_projected_value
         rw [Std.TreeMap.get?_insert_of_ne acc (natToUInt256 hd) (natToUInt256 slot) (toEvmUInt256 (storage (IRStorageSlot.ofNat hd))) hne]
         exact hAcc
 
-/-- Helper: after folding projected Nat slots, an observed slot retains its
-    bounded IR value. Nat aliases denote the same `IRStorageSlot`, so this
-    intentionally needs no range hypothesis. -/
+/-- Helper: after folding a suffix of Nat slots into an accumulator, if `slot`
+    appears in that suffix, then the accumulated projected map contains the
+    bounded value for `slot`.
+
+    This form deliberately has no Nat range hypothesis: slots that alias
+    modulo `2^256` denote the same `IRStorageSlot` and therefore write the
+    same projected value. -/
 theorem foldl_insert_find_projected (storage : IRStorageSlot → IRStorageWord)
     (slots : List Nat) (slot : Nat) (hSlot : slot ∈ slots)
     (acc : EvmYul.Storage) :
     (slots.foldl (fun m s =>
         m.insert (natToUInt256 s)
-          (toEvmUInt256 (storage (IRStorageSlot.ofNat s)))) acc).get? (natToUInt256 slot) =
+          (toEvmUInt256 (storage (IRStorageSlot.ofNat s)))) acc).find? (natToUInt256 slot) =
         some (toEvmUInt256 (storage (IRStorageSlot.ofNat slot))) := by
   induction slots generalizing acc with
   | nil => exact absurd hSlot List.not_mem_nil
   | cons hd tl ih =>
-      simp only [List.foldl_cons]
-      cases List.mem_cons.mp hSlot with
-      | inl hEq =>
-          subst hEq
-          apply foldl_insert_preserves_find_projected_value storage tl slot
-          rw [Std.TreeMap.get?_insert_of_eq acc (natToUInt256 slot)
-            (natToUInt256 slot)
-            (toEvmUInt256 (storage (IRStorageSlot.ofNat slot)))
-            Std.ReflCmp.compare_self]
-      | inr hMem => exact ih hMem _
+    simp only [List.foldl_cons]
+    cases List.mem_cons.mp hSlot with
+    | inl heq =>
+      subst heq
+      apply foldl_insert_preserves_find_projected_value
+      rw [Std.TreeMap.get?_insert_of_eq acc (natToUInt256 slot) (natToUInt256 slot)
+        (toEvmUInt256 (storage (IRStorageSlot.ofNat slot))) Std.ReflCmp.compare_self]
+    | inr hmem => exact ih hmem _
 
 /-- Storage lookup commutes: reading a slot from the projected storage
     yields the same value as reading it from Verity's storage function.
@@ -733,17 +736,11 @@ theorem foldl_insert_find_projected (storage : IRStorageSlot → IRStorageWord)
     last-write-wins semantics of `foldl` would make the theorem false. -/
 theorem storageLookup_projectStorage (storage : IRStorageSlot → IRStorageWord)
     (slots : List Nat) (slot : Nat) (hSlot : slot ∈ slots)
-    (hRange : ∀ s ∈ slots, s < UInt256.size) :
+    (_hRange : ∀ s ∈ slots, s < UInt256.size) :
     storageLookup (projectStorage storage slots) (natToUInt256 slot) =
       storage (IRStorageSlot.ofNat slot) := by
-  -- Mechanical delegation to the already-proved foldl_insert_find (exact-head TreeMap shape).
-  have hget :
-      (slots.foldl (fun m s => m.insert (natToUInt256 s) (toEvmUInt256 (storage (IRStorageSlot.ofNat s))))
-           (Std.TreeMap.empty : EvmYul.Storage)).get? (natToUInt256 slot) =
-      some (toEvmUInt256 (storage (IRStorageSlot.ofNat slot))) := by
-    exact foldl_insert_find storage slots slot hSlot hRange (Std.TreeMap.empty : EvmYul.Storage)
-  unfold storageLookup projectStorage
-  simp only [hget]
+  simp only [storageLookup, projectStorage]
+  rw [foldl_insert_find_projected storage slots slot hSlot]
   rfl
 
 /-- Range-free storage lookup for projected bounded IR storage. -/
@@ -752,10 +749,8 @@ theorem storageLookup_projectStorage_projected
     (slots : List Nat) (slot : Nat) (hSlot : slot ∈ slots) :
     storageLookup (projectStorage storage slots) (natToUInt256 slot) =
       storage (IRStorageSlot.ofNat slot) := by
-  have hget := foldl_insert_find_projected storage slots slot hSlot
-    (Std.TreeMap.empty : EvmYul.Storage)
-  unfold storageLookup projectStorage
-  simp only [hget]
+  simp only [storageLookup, projectStorage]
+  rw [foldl_insert_find_projected storage slots slot hSlot]
   rfl
 
 /-- Nat→UInt256→Nat round-trip for values in range.

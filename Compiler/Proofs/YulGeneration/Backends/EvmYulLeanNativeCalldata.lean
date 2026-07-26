@@ -12,17 +12,9 @@ open Compiler.Proofs.IRGeneration
 
 private theorem byteArray_get?_append_left
     {a b : ByteArray} {i : Nat} (h : i < a.size) :
-    (a ++ b).get? i = a.get? i := by
-  unfold ByteArray.get?
-  split
-  · apply congrArg some
-    have hEq : (a ++ b)[i] = a[i] := ByteArray.get_append_left h
-    convert hEq using 1
-  · exact False.elim (by
-      rename_i hAppend
-      exact hAppend (by
-        rw [ByteArray.size_append]
-        exact Nat.lt_of_lt_of_le h (Nat.le_add_right a.size b.size)))
+    byteArrayGet? (a ++ b) i = byteArrayGet? a i := by
+  simp only [byteArrayGet?]
+  simp [Array.getElem?_append_left h]
 
 /-- Reading the first ABI word from offset zero preserves every source byte
     already present in the first 32-byte window. This isolates the non-opaque
@@ -34,7 +26,7 @@ theorem readBytes_zero_get?_of_lt_source
     (i : Nat)
     (hi : i < source.size)
     (hi32 : i < 32) :
-    (ByteArray.readBytes source 0 32).get? i = source.get? i := by
+    byteArrayGet? (ByteArray.readBytes source 0 32) i = byteArrayGet? source i := by
   unfold ByteArray.readBytes
   have hsmall : (decide (0 < 2 ^ 64) && decide (32 < 2 ^ 64)) = true := by
     norm_num
@@ -42,20 +34,19 @@ theorem readBytes_zero_get?_of_lt_source
   have hiData : i < source.data.size := by
     simpa using hi
   have hCopySize : i < (source.copySlice 0 ByteArray.empty 0 32).size := by
-    simp [ByteArray.size, ByteArray.data_copySlice]
+    simp [-ByteArray.size_data, ByteArray.size, ByteArray.data_copySlice]
     exact ⟨hi32, hiData⟩
   calc
-    (source.copySlice 0 ByteArray.empty 0 32 ++
+    byteArrayGet? (source.copySlice 0 ByteArray.empty 0 32 ++
           ffi.ByteArray.zeroes
             { toBitVec := ↑32 -
-              ↑(source.copySlice 0 ByteArray.empty 0 32).size }).get? i
-        = (source.copySlice 0 ByteArray.empty 0 32).get? i :=
+              ↑(source.copySlice 0 ByteArray.empty 0 32).size }) i
+        = byteArrayGet? (source.copySlice 0 ByteArray.empty 0 32) i :=
           byteArray_get?_append_left hCopySize
-    _ = source.get? i := by
-      unfold ByteArray.get?
-      split
-      · simp [ByteArray.get]
-      · contradiction
+    _ = byteArrayGet? source i := by
+      simp only [byteArrayGet?, ByteArray.data_copySlice]
+      simp [Array.getElem?_append_left, Array.getElem?_append_right,
+        Array.getElem?_extract, hiData, hi32]
 
 /-- Reading a 32-byte window preserves every byte that is already present in the
     source window, for offsets accepted by EVMYulLean's optimized
@@ -66,8 +57,8 @@ theorem readBytes_get?_of_lt_source
     (hoffset : offset < 2 ^ 64)
     (hi : offset + i < source.size)
     (hi32 : i < 32) :
-    (ByteArray.readBytes source offset 32).get? i =
-      source.get? (offset + i) := by
+    byteArrayGet? (ByteArray.readBytes source offset 32) i =
+      byteArrayGet? source (offset + i) := by
   unfold ByteArray.readBytes
   have hoffset' : offset < 18446744073709551616 := by
     simpa using hoffset
@@ -77,20 +68,20 @@ theorem readBytes_get?_of_lt_source
   have hiData : offset + i < source.data.size := by
     simpa using hi
   have hCopySize : i < (source.copySlice offset ByteArray.empty 0 32).size := by
-    simp [ByteArray.size, ByteArray.data_copySlice]
+    simp [-ByteArray.size_data, ByteArray.size, ByteArray.data_copySlice]
     omega
   calc
-    (source.copySlice offset ByteArray.empty 0 32 ++
+    byteArrayGet? (source.copySlice offset ByteArray.empty 0 32 ++
           ffi.ByteArray.zeroes
             { toBitVec := ↑32 -
-              ↑(source.copySlice offset ByteArray.empty 0 32).size }).get? i
-        = (source.copySlice offset ByteArray.empty 0 32).get? i :=
+              ↑(source.copySlice offset ByteArray.empty 0 32).size }) i
+        = byteArrayGet? (source.copySlice offset ByteArray.empty 0 32) i :=
           byteArray_get?_append_left hCopySize
-    _ = source.get? (offset + i) := by
-      unfold ByteArray.get?
-      split
-      · simp [ByteArray.get]
-      · contradiction
+    _ = byteArrayGet? source (offset + i) := by
+      simp only [byteArrayGet?, ByteArray.data_copySlice]
+      simp [Array.getElem?_append_left, Array.getElem?_append_right,
+        Array.getElem?_extract, hiData, hi32]
+      omega
 
 /-- Reading the ABI word at calldata offset four preserves each source byte
     already present in that 32-byte argument window. This is the native
@@ -101,7 +92,7 @@ theorem readBytes_offset4_get?_of_lt_source
     (i : Nat)
     (hi : 4 + i < source.size)
     (hi32 : i < 32) :
-    (ByteArray.readBytes source 4 32).get? i = source.get? (4 + i) := by
+    byteArrayGet? (ByteArray.readBytes source 4 32) i = byteArrayGet? source (4 + i) := by
   exact readBytes_get?_of_lt_source source 4 i (by norm_num) hi hi32
 
 @[simp] theorem initialState_calldataReadWord_selectorByte0
@@ -109,9 +100,9 @@ theorem readBytes_offset4_get?_of_lt_source
     (tx : YulTransaction)
     (storage : IRStorageSlot → IRStorageWord)
     (observableSlots : List Nat) :
-    (ByteArray.readBytes
+    byteArrayGet? (ByteArray.readBytes
         (initialState contract tx storage observableSlots).toState.executionEnv.calldata
-        0 32).get? 0 =
+        0 32) 0 =
       some (UInt8.ofNat (tx.functionSelector / 2^24 % 256)) := by
   rw [readBytes_zero_get?_of_lt_source]
   · rw [show
@@ -133,9 +124,9 @@ theorem readBytes_offset4_get?_of_lt_source
     (tx : YulTransaction)
     (storage : IRStorageSlot → IRStorageWord)
     (observableSlots : List Nat) :
-    (ByteArray.readBytes
+    byteArrayGet? (ByteArray.readBytes
         (initialState contract tx storage observableSlots).toState.executionEnv.calldata
-        0 32).get? 1 =
+        0 32) 1 =
       some (UInt8.ofNat (tx.functionSelector / 2^16 % 256)) := by
   rw [readBytes_zero_get?_of_lt_source]
   · rw [show
@@ -158,9 +149,9 @@ theorem readBytes_offset4_get?_of_lt_source
     (tx : YulTransaction)
     (storage : IRStorageSlot → IRStorageWord)
     (observableSlots : List Nat) :
-    (ByteArray.readBytes
+    byteArrayGet? (ByteArray.readBytes
         (initialState contract tx storage observableSlots).toState.executionEnv.calldata
-        0 32).get? 2 =
+        0 32) 2 =
       some (UInt8.ofNat (tx.functionSelector / 2^8 % 256)) := by
   rw [readBytes_zero_get?_of_lt_source]
   · rw [show
@@ -183,9 +174,9 @@ theorem readBytes_offset4_get?_of_lt_source
     (tx : YulTransaction)
     (storage : IRStorageSlot → IRStorageWord)
     (observableSlots : List Nat) :
-    (ByteArray.readBytes
+    byteArrayGet? (ByteArray.readBytes
         (initialState contract tx storage observableSlots).toState.executionEnv.calldata
-        0 32).get? 3 =
+        0 32) 3 =
       some (UInt8.ofNat (tx.functionSelector % 256)) := by
   rw [readBytes_zero_get?_of_lt_source]
   · rw [show
@@ -215,9 +206,9 @@ theorem initialState_calldataReadWord_arg0Byte
     (hArgs : tx.args = arg :: rest)
     (i : Nat)
     (hi : i < 32) :
-    (ByteArray.readBytes
+    byteArrayGet? (ByteArray.readBytes
         (initialState contract tx storage observableSlots).toState.executionEnv.calldata
-        4 32).get? i =
+        4 32) i =
       some (UInt8.ofNat (arg / 2 ^ ((31 - i) * 8) % 256)) := by
   rw [readBytes_offset4_get?_of_lt_source]
   · rw [show
@@ -251,9 +242,9 @@ theorem initialState_calldataReadWord_argByte_of_drop_eq_cons
     (hoffset : 4 + 32 * idx < 2 ^ 64)
     (i : Nat)
     (hi : i < 32) :
-    (ByteArray.readBytes
+    byteArrayGet? (ByteArray.readBytes
         (initialState contract tx storage observableSlots).toState.executionEnv.calldata
-        (4 + 32 * idx) 32).get? i =
+        (4 + 32 * idx) 32) i =
       some (UInt8.ofNat (arg / 2 ^ ((31 - i) * 8) % 256)) := by
   rw [readBytes_get?_of_lt_source]
   · rw [show
@@ -279,14 +270,9 @@ private theorem byteArray_data_toList_get?_of_get?
     (ba : ByteArray)
     (i : Nat)
     (b : UInt8)
-    (h : ba.get? i = some b) :
+    (h : byteArrayGet? ba i = some b) :
     ba.data.toList[i]? = some b := by
-  unfold ByteArray.get? at h
-  split at h
-  · cases h
-    rw [Array.getElem?_toList]
-    simp [ByteArray.get]
-  · contradiction
+  simpa only [byteArrayGet?, Array.getElem?_toList] using h
 
 private theorem list_reverse_eq_drop4_reverse_append_four
     {α : Type}
@@ -622,7 +608,7 @@ theorem readBytes_zero_32_size (source : ByteArray) :
     norm_num
   simp only [hsmall, ↓reduceIte]
   rw [ByteArray.size_append]
-  simp [ffi.ByteArray.zeroes, ByteArray.size]
+  simp [-ByteArray.size_data, ffi.ByteArray.zeroes, ByteArray.size]
   rw [usize_sub_toNat_of_le_32]
   · omega
   · omega
@@ -637,7 +623,7 @@ theorem readBytes_32_size (source : ByteArray) (offset : Nat)
     simp [hoffset']
   simp only [hsmall, ↓reduceIte]
   rw [ByteArray.size_append]
-  simp [ffi.ByteArray.zeroes, ByteArray.size]
+  simp [-ByteArray.size_data, ffi.ByteArray.zeroes, ByteArray.size]
   rw [usize_sub_toNat_of_le_32]
   · omega
   · omega
@@ -661,8 +647,8 @@ theorem readWithPadding_32_size (source : ByteArray) (addr : Nat) :
       omega
   have hReadLeData :
       (source.readWithoutPadding addr 32).data.size ≤ 32 := by
-    simpa [ByteArray.size] using hReadLe
-  simp [ffi.ByteArray.zeroes, ByteArray.size]
+    simpa [-ByteArray.size_data, ByteArray.size] using hReadLe
+  simp [-ByteArray.size_data, ffi.ByteArray.zeroes, ByteArray.size]
   rw [usize_sub_toNat_of_le_32]
   · omega
   · exact hReadLeData
@@ -677,7 +663,7 @@ private theorem byteArray_extract_zero_32_eq_of_size
     (hSize : source.size = 32) :
     source.extract 0 32 = source := by
   apply ByteArray.ext
-  simp [ByteArray.data_extract, ByteArray.size] at hSize ⊢
+  simp [-ByteArray.size_data, ByteArray.data_extract, ByteArray.size] at hSize ⊢
   rw [hSize]
   simp
 
@@ -695,8 +681,8 @@ private theorem byteArray_readWithPadding_zero_32_eq_of_size
   rw [byteArray_extract_zero_32_eq_of_size source hSize]
   apply ByteArray.ext
   have hDataSize : source.data.size = 32 := by
-    simpa [ByteArray.size] using hSize
-  simp [ByteArray.data_append, ByteArray.size, ffi.ByteArray.zeroes]
+    simpa [-ByteArray.size_data, ByteArray.size] using hSize
+  simp [-ByteArray.size_data, ByteArray.data_append, ByteArray.size, ffi.ByteArray.zeroes]
   rw [usize_sub_toNat_of_le_32]
   · omega
   · omega
@@ -714,7 +700,7 @@ private theorem byteArray_write_empty_zero_32_eq_of_size
   have hDestPadding : 0 - ByteArray.empty.size = 0 := by simp
   simp only [hPractical, hEnd, hDestPadding]
   apply ByteArray.ext
-  simp [ByteArray.data_copySlice, ByteArray.size, ffi.ByteArray.zeroes] at hSize ⊢
+  simp [-ByteArray.size_data, ByteArray.data_copySlice, ByteArray.size, ffi.ByteArray.zeroes] at hSize ⊢
   exact Or.inr (by omega)
 
 /-- A full-word memory write to empty memory at offset zero is returned
@@ -778,17 +764,11 @@ theorem list_toByteArray_data_toList (bytes : List UInt8) :
 
 theorem uint256_toByteArray_size (value : EvmYul.UInt256) :
     value.toByteArray.size = 32 := by
-  have hBytesSize :
-      (EvmYul.toBytesBigEndian value.toNat).toByteArray.data.size =
-        (EvmYul.toBytesBigEndian value.toNat).length := by
-    simpa [ByteArray.size] using
-      list_toByteArray_size (EvmYul.toBytesBigEndian value.toNat)
   have hLen : (EvmYul.toBytesBigEndian value.toNat).length ≤ 32 :=
     toBytesBigEndian_uint256_length_le (n := value.toNat) value.val.isLt
   unfold EvmYul.UInt256.toByteArray BE
   rw [ByteArray.size_append]
-  simp [ffi.ByteArray.zeroes, ByteArray.size]
-  rw [hBytesSize]
+  simp [-ByteArray.size_data, ffi.ByteArray.zeroes, ByteArray.size]
   rw [usize_sub_toNat_of_le_32]
   · omega
   · exact hLen
@@ -828,7 +808,7 @@ theorem initialState_calldataReadWord_arg0Bytes
       have hlen : bytes.data.toList.length = 32 := by
         have hsize := readBytes_offset4_32_size
           (initialState contract tx storage observableSlots).toState.executionEnv.calldata
-        simpa [bytes, ByteArray.size] using hsize
+        simpa [-ByteArray.size_data, bytes, ByteArray.size] using hsize
       exact List.getElem?_eq_none (by omega)
     have hright :
         (List.ofFn (fun i : Fin 32 =>
@@ -876,7 +856,7 @@ theorem initialState_calldataReadWord_argBytes_of_drop_eq_cons
         have hsize := readBytes_32_size
           (initialState contract tx storage observableSlots).toState.executionEnv.calldata
           (4 + 32 * idx) hoffset
-        simpa [bytes, ByteArray.size] using hsize
+        simpa [-ByteArray.size_data, bytes, ByteArray.size] using hsize
       exact List.getElem?_eq_none (by omega)
     have hright :
         (List.ofFn (fun i : Fin 32 =>
@@ -1035,7 +1015,7 @@ theorem initialState_selectorExpr_native_value
   have hlen : bytes.data.toList.length = 32 := by
     have hsize := readBytes_zero_32_size
       (initialState contract tx storage observableSlots).toState.executionEnv.calldata
-    simpa [bytes, ByteArray.size] using hsize
+    simpa [-ByteArray.size_data, bytes, ByteArray.size] using hsize
   have htailLen : (bytes.data.toList.drop 4).length = 28 := by
     simp [hlen]
   unfold EvmYul.State.calldataload EvmYul.uInt256OfByteArray
@@ -1093,7 +1073,7 @@ theorem initialState_selectorExpr_native_uint256
           (EvmYul.UInt256.ofNat 0))
         (EvmYul.UInt256.ofNat Compiler.Constants.selectorShift)) =
       tx.functionSelector % Compiler.Constants.selectorModulus by
-    simpa [EvmYul.Yul.State.toState] using
+    simpa [initialState, EvmYul.Yul.State.toState, EvmYul.Yul.State.sharedState] using
       initialState_selectorExpr_native_value contract tx storage observableSlots]
   rw [uint256_ofNat_toNat_of_lt]
   have hmod :

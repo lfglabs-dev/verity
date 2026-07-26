@@ -68,7 +68,7 @@ theorem mint_preserves_wellformedness (s : ContractState) (toAddr : Address) (am
   have h_spec := mint_meets_spec_when_owner s toAddr amount h_owner h_no_bal_overflow h_no_sup_overflow
   have h_owner_pres :
       ((mint toAddr amount).run s).snd.storageAddr 0 = s.storageAddr 0 := by
-    simpa [mint_spec] using h_spec.2.2.2.2.1
+    simpa [mint_spec, Specs.sameStorageAddrSlot] using h_spec.2.2.2.2.1
   have h_ctx :
       Specs.sameContext s ((mint toAddr amount).run s).snd := by
     simpa [mint_spec, Specs.sameStorageAddrSlotContext] using h_spec.2.2.2.2.2
@@ -88,7 +88,7 @@ theorem transfer_preserves_wellformedness (s : ContractState) (toAddr : Address)
   have h_spec := transfer_meets_spec_when_sufficient s toAddr amount h_balance h_no_overflow
   have h_owner_pres :
       ((transfer toAddr amount).run s).snd.storageAddr 0 = s.storageAddr 0 := by
-    simpa [transfer_spec] using h_spec.2.2.2.2.1
+    simpa [transfer_spec, Specs.sameStorageAddrSlot] using h_spec.2.2.2.2.1
   have h_addr_ctx :
       Specs.sameStorageAddrContext s ((transfer toAddr amount).run s).snd := by
     simpa [transfer_spec] using h_spec.2.2.2.2.2
@@ -112,7 +112,7 @@ theorem mint_preserves_owner (s : ContractState) (toAddr : Address) (amount : Ui
   let s' := ((mint toAddr amount).run s).snd
   s'.storageAddr 0 = s.storageAddr 0 :=
   by
-    simpa [mint_spec] using
+    simpa [mint_spec, Specs.sameStorageAddrSlot] using
       (mint_meets_spec_when_owner s toAddr amount h_owner h_no_bal_overflow h_no_sup_overflow).2.2.2.2.1
 
 /-- Transfer does not change the owner address. -/
@@ -122,7 +122,7 @@ theorem transfer_preserves_owner (s : ContractState) (toAddr : Address) (amount 
   let s' := ((transfer toAddr amount).run s).snd
   s'.storageAddr 0 = s.storageAddr 0 :=
   by
-    simpa [transfer_spec] using
+    simpa [transfer_spec, Specs.sameStorageAddrSlot] using
       (transfer_meets_spec_when_sufficient s toAddr amount h_balance h_no_overflow).2.2.2.2.1
 
 /-! ## End-toAddr-End Composition
