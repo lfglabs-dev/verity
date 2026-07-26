@@ -15,7 +15,7 @@ import check_trust_surface_registry
 
 class CheckTrustSurfaceRegistryTests(unittest.TestCase):
     def _write_valid_string_boundary(self, root: Path) -> None:
-        boundary = root / check_trust_surface_registry.LEAN424_STRING_BOUNDARY
+        boundary = root / check_trust_surface_registry.LEAN431_STRING_BOUNDARY
         boundary.parent.mkdir(parents=True, exist_ok=True)
         boundary.write_text(
             "\n".join(
@@ -96,7 +96,7 @@ class CheckTrustSurfaceRegistryTests(unittest.TestCase):
             },
         )
 
-    def test_accepts_exact_lean424_string_boundary(self) -> None:
+    def test_accepts_exact_lean431_string_boundary(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             self._write_valid_string_boundary(root)
