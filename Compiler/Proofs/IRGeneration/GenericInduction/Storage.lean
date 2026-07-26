@@ -2697,7 +2697,7 @@ private theorem compiledStmtStep_mstore_single_preserves
           (stmtNextScope scope (.mstore offset value))
           runtime'.bindings state' :=
         FunctionBody.bindingsExactlyMatchIRVarsOnScope_of_included
-          (by simpa [FunctionBody.bindingsExactlyMatchIRVarsOnScope, state', runtime'] using hexact)
+          (by simpa [FunctionBody.bindingsExactlyMatchIRVarsOnScope, IRState.getVar, state', runtime'] using hexact)
           hincl
       have hscope' : FunctionBody.scopeNamesPresent
           (stmtNextScope scope (.mstore offset value))
@@ -2836,7 +2836,7 @@ private theorem compiledStmtStep_tstore_single_preserves
           (stmtNextScope scope (.tstore offset value))
           runtime'.bindings state' :=
         FunctionBody.bindingsExactlyMatchIRVarsOnScope_of_included
-          (by simpa [FunctionBody.bindingsExactlyMatchIRVarsOnScope, state', runtime'] using hexact)
+          (by simpa [FunctionBody.bindingsExactlyMatchIRVarsOnScope, IRState.getVar, state', runtime'] using hexact)
           hincl
       have hscope' : FunctionBody.scopeNamesPresent
           (stmtNextScope scope (.tstore offset value))
@@ -3229,7 +3229,7 @@ theorem eval_compileExpr_core_some_of_scope
     have h :=
       FunctionBody.eval_compileExpr_core_of_scope
         hcore hexact hinScope hbounded hpresent hruntime
-    simpa [hcompiled] using h
+    simpa [hcompiled, Except.toOption] using h
   rcases he : SourceSemantics.evalExpr fields runtime expr with _ | value
   · cases hIR : evalIRExpr state exprIR <;> simp [hIR, he] at heval
   · have hIRsome : evalIRExpr state exprIR = some value := by
@@ -3402,7 +3402,7 @@ private theorem evalIRExpr_mappingWordTarget_of_eval
   have hMappingBaseEval :
       evalIRExpr state (YulExpr.call "mappingSlot" [YulExpr.lit slot, keyIR]) =
         some (Compiler.Proofs.abstractMappingSlot slot keyNat) := by
-    simpa using
+    simpa [Compiler.Proofs.abstractMappingSlot_eq_solidity] using
       (evalIRExpr_mappingSlotChain
         (state := state)
         (baseSlot := slot)
@@ -3450,7 +3450,7 @@ private theorem evalIRExpr_mappingSlot2_of_eval
         [YulExpr.call "mappingSlot" [YulExpr.lit slot, key1IR], key2IR]) =
       some (Compiler.Proofs.abstractMappingSlot
         (Compiler.Proofs.abstractMappingSlot slot key1Nat) key2Nat) := by
-  simpa using
+  simpa [Compiler.Proofs.abstractMappingSlot_eq_solidity] using
     (evalIRExpr_mappingSlotChain
       (state := state)
       (baseSlot := slot)
@@ -4571,7 +4571,7 @@ private theorem compiledStmtStep_setMappingPackedWord_singleSlot_of_slotSafety_p
       have hMappingBaseEval :
           evalIRExpr state (YulExpr.call "mappingSlot" [YulExpr.lit slot, keyIR]) =
             some (Compiler.Proofs.abstractMappingSlot slot keyNat) := by
-        simpa using
+        simpa [Compiler.Proofs.abstractMappingSlot_eq_solidity] using
           (evalIRExpr_mappingSlotChain
             (state := state)
             (baseSlot := slot)
@@ -4673,7 +4673,7 @@ private theorem compiledStmtStep_setMappingPackedWord_singleSlot_of_slotSafety_p
       have hMappingBaseEval2 :
           evalIRExpr state2 (YulExpr.call "mappingSlot" [YulExpr.lit slot, keyIR]) =
             some (Compiler.Proofs.abstractMappingSlot slot keyNat) := by
-        simpa using
+        simpa [Compiler.Proofs.abstractMappingSlot_eq_solidity] using
           (evalIRExpr_mappingSlotChain
             (state := state2)
             (baseSlot := slot)
@@ -4942,7 +4942,7 @@ private theorem compiledStmtStep_setMappingPackedWord_singleSlot_of_slotSafety_p
       have hMappingBaseEval4 :
           evalIRExpr state4 (YulExpr.call "mappingSlot" [YulExpr.lit slot, keyIR]) =
             some (Compiler.Proofs.abstractMappingSlot slot keyNat) := by
-        simpa using
+        simpa [Compiler.Proofs.abstractMappingSlot_eq_solidity] using
           (evalIRExpr_mappingSlotChain
             (state := state4)
             (baseSlot := slot)
