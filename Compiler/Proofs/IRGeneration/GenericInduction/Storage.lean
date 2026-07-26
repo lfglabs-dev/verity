@@ -512,31 +512,31 @@ private theorem fieldWriteEntriesAt_alias_mem
     | uint256 =>
         simp [fieldWriteEntriesAt, firstFieldWriteSlotConflict.fieldOccupiedSlots,
           SourceSemantics.wordNormalize]
-        exact Or.inr ⟨slot, aliasIdx, halias, by simp [SourceSemantics.wordNormalize]⟩
+        exact Or.inr ⟨slot, ⟨aliasIdx, halias⟩, by simp [SourceSemantics.wordNormalize]⟩
     | address =>
         simp [fieldWriteEntriesAt, firstFieldWriteSlotConflict.fieldOccupiedSlots,
           SourceSemantics.wordNormalize]
-        exact Or.inr ⟨slot, aliasIdx, halias, by simp [SourceSemantics.wordNormalize]⟩
+        exact Or.inr ⟨slot, ⟨aliasIdx, halias⟩, by simp [SourceSemantics.wordNormalize]⟩
     | adt _ maxFields =>
         simp [fieldWriteEntriesAt, firstFieldWriteSlotConflict.fieldOccupiedSlots,
           SourceSemantics.wordNormalize]
-        exact Or.inr ⟨slot, aliasIdx, halias, 0, by simp, by simp [SourceSemantics.wordNormalize]⟩
+        exact Or.inr ⟨slot, ⟨aliasIdx, halias⟩, 0, by simp, by simp [SourceSemantics.wordNormalize]⟩
     | dynamicArray _ =>
         simp [fieldWriteEntriesAt, firstFieldWriteSlotConflict.fieldOccupiedSlots,
           SourceSemantics.wordNormalize]
-        exact Or.inr ⟨slot, aliasIdx, halias, by simp [SourceSemantics.wordNormalize]⟩
+        exact Or.inr ⟨slot, ⟨aliasIdx, halias⟩, by simp [SourceSemantics.wordNormalize]⟩
     | mappingTyped _ =>
         simp [fieldWriteEntriesAt, firstFieldWriteSlotConflict.fieldOccupiedSlots,
           SourceSemantics.wordNormalize]
-        exact Or.inr ⟨slot, aliasIdx, halias, by simp [SourceSemantics.wordNormalize]⟩
+        exact Or.inr ⟨slot, ⟨aliasIdx, halias⟩, by simp [SourceSemantics.wordNormalize]⟩
     | mappingStruct _ _ =>
         simp [fieldWriteEntriesAt, firstFieldWriteSlotConflict.fieldOccupiedSlots,
           SourceSemantics.wordNormalize]
-        exact Or.inr ⟨slot, aliasIdx, halias, by simp [SourceSemantics.wordNormalize]⟩
+        exact Or.inr ⟨slot, ⟨aliasIdx, halias⟩, by simp [SourceSemantics.wordNormalize]⟩
     | mappingStruct2 _ _ _ =>
         simp [fieldWriteEntriesAt, firstFieldWriteSlotConflict.fieldOccupiedSlots,
           SourceSemantics.wordNormalize]
-        exact Or.inr ⟨slot, aliasIdx, halias, by simp [SourceSemantics.wordNormalize]⟩
+        exact Or.inr ⟨slot, ⟨aliasIdx, halias⟩, by simp [SourceSemantics.wordNormalize]⟩
 
 private theorem fieldWriteEntriesAt_packed_none_of_unpacked
     {idx : Nat} {field : Field} {packed : Option PackedBits}
