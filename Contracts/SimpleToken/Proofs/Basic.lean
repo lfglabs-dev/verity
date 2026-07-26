@@ -183,6 +183,7 @@ private theorem mint_unfold (s : ContractState) (toAddr : Address) (amount : Uin
     setMapping, setStorage, ContractState.writeMap, ContractState.writeSlot,
     Contract.run, ContractResult.snd, ContractResult.fst]
   simp only [HAdd.hAdd, Add.add, h_owner]
+  rfl
 
 -- Mint correctness when caller is owner and no overflow
 theorem mint_meets_spec_when_owner (s : ContractState) (toAddr : Address) (amount : Uint256)
