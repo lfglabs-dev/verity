@@ -5,6 +5,7 @@ import Compiler.Proofs.YulGeneration.RuntimeTypes
 import Compiler.Codegen
 import EvmYul.Yul.Interpreter
 import Lean
+import Std.Data.TreeMap
 
 namespace Compiler.Proofs.YulGeneration.Backends.Native
 
@@ -50,7 +51,7 @@ def initialState
           balance := ⟨0⟩
           storage := projectStorage storage observableSlots
           code := contract
-          tstorage := Batteries.RBMap.empty }
+          tstorage := Std.TreeMap.empty }
   let shared' : EvmYul.SharedState .Yul :=
     { shared with
       accountMap := shared.accountMap.insert addr account
@@ -727,7 +728,7 @@ theorem lowerSwitchCasesNativeWithSwitchIds_find?_some_of_find_function
       Backends.lowerStmtsNativeWithSwitchIds reservedNames bodyStart
         (switchCaseBody fn) = .ok (body', bodyEnd) := by
   have hCase :
-      (switchCases funcs).find? (fun entry => entry.1 == selector) =
+      (switchCases funcs).find? (fun (c, _) => c = selector) =
         some (selector, switchCaseBody fn) := by
     simpa using
       (find_switch_case_of_find_function_eq_selector funcs selector fn hFind)
@@ -2111,9 +2112,9 @@ theorem generatedRuntimeDispatcherHasNoFuncDefs_emitYul_runtimeCode_noFallback_n
     (hNoReceive : contract.receiveEntrypoint = none) :
     generatedRuntimeDispatcherHasNoFuncDefs
       (Compiler.emitYul contract).runtimeCode = true := by
-  simpa [Compiler.emitYul, Compiler.CodegenCommon.emitYul] using
-    generatedRuntimeDispatcherHasNoFuncDefs_runtimeCode_noFallback_noReceive
-      contract hInternals hBodies hNoFallback hNoReceive
+  simp [Compiler.emitYul, Compiler.CodegenCommon.emitYul]
+  exact generatedRuntimeDispatcherHasNoFuncDefs_runtimeCode_noFallback_noReceive
+    contract hInternals hBodies hNoFallback hNoReceive
 
 theorem generatedRuntimeFunctionNamesUnique_append_nonFunc_suffix
     (funcPrefix suffix : List YulStmt)
@@ -2184,8 +2185,9 @@ theorem generatedRuntimeFunctionNamesUnique_emitYul_runtimeCode
         contract.internalFunctions) = true) :
     generatedRuntimeFunctionNamesUnique
       (Compiler.emitYul contract).runtimeCode = true := by
-  simpa [Compiler.emitYul, Compiler.CodegenCommon.emitYul] using
-    generatedRuntimeFunctionNamesUnique_runtimeCode contract hPrefixUnique
+  rw [Compiler.emitYul, Compiler.CodegenCommon.emitYul]
+  simp only [Compiler.runtimeCode]
+  exact generatedRuntimeFunctionNamesUnique_runtimeCode contract hPrefixUnique
 
 theorem mappingSlotFuncAt_body_noFuncDefs (scratchBase : Nat) :
     yulStmtsContainFuncDef
@@ -2509,9 +2511,9 @@ theorem generatedRuntimeFunctionBodiesHaveNoNestedFuncDefs_emitYul_runtimeCode
         yulStmtsContainFuncDef body = false) :
     generatedRuntimeFunctionBodiesHaveNoNestedFuncDefs
       (Compiler.emitYul contract).runtimeCode = true := by
-  simpa [Compiler.emitYul, Compiler.CodegenCommon.emitYul] using
-    generatedRuntimeFunctionBodiesHaveNoNestedFuncDefs_runtimeCode
-      contract hInternalBodies
+  simp [Compiler.emitYul, Compiler.CodegenCommon.emitYul]
+  exact generatedRuntimeFunctionBodiesHaveNoNestedFuncDefs_runtimeCode
+    contract hInternalBodies
 
 /-- Executable characterization for the generated runtime shape that the
     native EVMYulLean lowering path currently accepts: top-level `funcDef`
@@ -2856,9 +2858,18 @@ def validateNativeRuntimeEnvironment
     ((initialState contract tx storage observableSlots).sharedState.accountMap.find?
         (natToAddress tx.thisAddress)).map (fun account => account.code) =
       some contract := by
-  simp only [initialState, EvmYul.Yul.State.sharedState]
-  rw [Batteries.RBMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
-  split <;> simp
+  simp only [initialState, EvmYul.Yul.State.sharedState, toSharedState]
+  simp only [Std.TreeMap.find?]
+  let addr := natToAddress tx.thisAddress
+  -- The accountMap at this point is the one from toSharedState, then we insert at addr.
+  -- Reduce the outer match in initialState by simp on find? at addr, then discharge the inserted result.
+  split
+  · -- existed: we did {acc with code := contract} then .insert addr ...
+    rw [Std.TreeMap.get?_insert_of_eq _ addr addr _ Std.ReflCmp.compare_self]
+    simp
+  · -- none: we inserted fresh { ..., code := contract }
+    rw [Std.TreeMap.get?_insert_of_eq _ addr addr _ Std.ReflCmp.compare_self]
+    simp
 
 @[simp] theorem initialState_transactionEnvironment
     (contract : EvmYul.Yul.Ast.YulContract)
