@@ -42,7 +42,8 @@ Lean 4.31 `ByteArray` has no `get?`. Provide a typed local helper via `.data`
 which reduces to `Array` operations with known `getElem_ofFn`/`append` lemmas.
 -/
 
-private def byteArrayGet? (a : ByteArray) (i : Nat) : Option UInt8 :=
+/-- Lean 4.31-compatible optional byte lookup used by bridge consumers. -/
+def byteArrayGet? (a : ByteArray) (i : Nat) : Option UInt8 :=
   a.data[i]?
 
 private theorem byteArrayGet?_ofFn {n : Nat} (f : Fin n → UInt8) (i : Nat) (hi : i < n) :
@@ -677,17 +678,27 @@ theorem foldl_insert_preserves_find_projected_value
     appears in that suffix, then the accumulated projected map contains the
     bounded value for `slot`.
 
-    The range hypothesis is required for the TreeMap orientation proof
-    (mechanical 4.31 adjustment; no semantic change). -/
+    This form deliberately has no Nat range hypothesis: slots that alias
+    modulo `2^256` denote the same `IRStorageSlot` and therefore write the
+    same projected value. -/
 theorem foldl_insert_find_projected (storage : IRStorageSlot → IRStorageWord)
     (slots : List Nat) (slot : Nat) (hSlot : slot ∈ slots)
-    (hRange : ∀ s ∈ slots, s < UInt256.size)
     (acc : EvmYul.Storage) :
     (slots.foldl (fun m s =>
         m.insert (natToUInt256 s)
           (toEvmUInt256 (storage (IRStorageSlot.ofNat s)))) acc).get? (natToUInt256 slot) =
         some (toEvmUInt256 (storage (IRStorageSlot.ofNat slot))) := by
-  exact foldl_insert_find storage slots slot hSlot hRange acc
+  induction slots generalizing acc with
+  | nil => exact absurd hSlot List.not_mem_nil
+  | cons hd tl ih =>
+    simp only [List.foldl_cons]
+    cases List.mem_cons.mp hSlot with
+    | inl heq =>
+      subst heq
+      apply foldl_insert_preserves_find_projected_value
+      rw [Std.TreeMap.get?_insert_of_eq acc (natToUInt256 slot) (natToUInt256 slot)
+        (toEvmUInt256 (storage (IRStorageSlot.ofNat slot))) Std.ReflCmp.compare_self]
+    | inr hmem => exact ih hmem _
 
 /-- Storage lookup commutes: reading a slot from the projected storage
     yields the same value as reading it from Verity's storage function.
@@ -698,27 +709,22 @@ theorem foldl_insert_find_projected (storage : IRStorageSlot → IRStorageWord)
     last-write-wins semantics of `foldl` would make the theorem false. -/
 theorem storageLookup_projectStorage (storage : IRStorageSlot → IRStorageWord)
     (slots : List Nat) (slot : Nat) (hSlot : slot ∈ slots)
-    (hRange : ∀ s ∈ slots, s < UInt256.size) :
+    (_hRange : ∀ s ∈ slots, s < UInt256.size) :
     storageLookup (projectStorage storage slots) (natToUInt256 slot) =
       storage (IRStorageSlot.ofNat slot) := by
-  -- Mechanical delegation to the already-proved foldl_insert_find (exact-head TreeMap shape).
-  have hget :
-      (slots.foldl (fun m s => m.insert (natToUInt256 s) (toEvmUInt256 (storage (IRStorageSlot.ofNat s))))
-           (Std.TreeMap.empty : EvmYul.Storage)).get? (natToUInt256 slot) =
-      some (toEvmUInt256 (storage (IRStorageSlot.ofNat slot))) := by
-    exact foldl_insert_find storage slots slot hSlot hRange (Std.TreeMap.empty : EvmYul.Storage)
-  unfold storageLookup projectStorage
-  simp only [hget]
+  simp only [storageLookup, projectStorage]
+  rw [foldl_insert_find_projected storage slots slot hSlot]
   rfl
 
-/-- Range-free storage lookup for projected bounded IR storage (requires range). -/
+/-- Range-free storage lookup for projected bounded IR storage. -/
 theorem storageLookup_projectStorage_projected
     (storage : IRStorageSlot → IRStorageWord)
-    (slots : List Nat) (slot : Nat) (hSlot : slot ∈ slots)
-    (hRange : ∀ s ∈ slots, s < UInt256.size) :
+    (slots : List Nat) (slot : Nat) (hSlot : slot ∈ slots) :
     storageLookup (projectStorage storage slots) (natToUInt256 slot) =
       storage (IRStorageSlot.ofNat slot) := by
-  exact storageLookup_projectStorage storage slots slot hSlot hRange
+  simp only [storageLookup, projectStorage]
+  rw [foldl_insert_find_projected storage slots slot hSlot]
+  rfl
 
 /-- Nat→UInt256→Nat round-trip for values in range.
     Proof: `ofNat n = ⟨Fin.ofNat _ n⟩ = ⟨⟨n % size, _⟩⟩`, and

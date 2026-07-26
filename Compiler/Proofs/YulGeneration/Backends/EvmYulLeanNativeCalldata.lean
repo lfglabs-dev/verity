@@ -12,8 +12,8 @@ open Compiler.Proofs.IRGeneration
 
 private theorem byteArray_get?_append_left
     {a b : ByteArray} {i : Nat} (h : i < a.size) :
-    (a ++ b).get? i = a.get? i := by
-  unfold ByteArray.get?
+    byteArrayGet? (a ++ b) i = byteArrayGet? a i := by
+  unfold byteArrayGet?
   split
   · apply congrArg some
     have hEq : (a ++ b)[i] = a[i] := ByteArray.get_append_left h
@@ -34,7 +34,7 @@ theorem readBytes_zero_get?_of_lt_source
     (i : Nat)
     (hi : i < source.size)
     (hi32 : i < 32) :
-    (ByteArray.readBytes source 0 32).get? i = source.get? i := by
+    byteArrayGet? (ByteArray.readBytes source 0 32) i = byteArrayGet? source i := by
   unfold ByteArray.readBytes
   have hsmall : (decide (0 < 2 ^ 64) && decide (32 < 2 ^ 64)) = true := by
     norm_num
@@ -45,14 +45,14 @@ theorem readBytes_zero_get?_of_lt_source
     simp [ByteArray.size, ByteArray.data_copySlice]
     exact ⟨hi32, hiData⟩
   calc
-    (source.copySlice 0 ByteArray.empty 0 32 ++
+    byteArrayGet? (source.copySlice 0 ByteArray.empty 0 32 ++
           ffi.ByteArray.zeroes
             { toBitVec := ↑32 -
-              ↑(source.copySlice 0 ByteArray.empty 0 32).size }).get? i
-        = (source.copySlice 0 ByteArray.empty 0 32).get? i :=
+              ↑(source.copySlice 0 ByteArray.empty 0 32).size }) i
+        = byteArrayGet? (source.copySlice 0 ByteArray.empty 0 32) i :=
           byteArray_get?_append_left hCopySize
-    _ = source.get? i := by
-      unfold ByteArray.get?
+    _ = byteArrayGet? source i := by
+      unfold byteArrayGet?
       split
       · simp [ByteArray.get]
       · contradiction
@@ -66,8 +66,8 @@ theorem readBytes_get?_of_lt_source
     (hoffset : offset < 2 ^ 64)
     (hi : offset + i < source.size)
     (hi32 : i < 32) :
-    (ByteArray.readBytes source offset 32).get? i =
-      source.get? (offset + i) := by
+    byteArrayGet? (ByteArray.readBytes source offset 32) i =
+      byteArrayGet? source (offset + i) := by
   unfold ByteArray.readBytes
   have hoffset' : offset < 18446744073709551616 := by
     simpa using hoffset
@@ -80,14 +80,14 @@ theorem readBytes_get?_of_lt_source
     simp [ByteArray.size, ByteArray.data_copySlice]
     omega
   calc
-    (source.copySlice offset ByteArray.empty 0 32 ++
+    byteArrayGet? (source.copySlice offset ByteArray.empty 0 32 ++
           ffi.ByteArray.zeroes
             { toBitVec := ↑32 -
-              ↑(source.copySlice offset ByteArray.empty 0 32).size }).get? i
-        = (source.copySlice offset ByteArray.empty 0 32).get? i :=
+              ↑(source.copySlice offset ByteArray.empty 0 32).size }) i
+        = byteArrayGet? (source.copySlice offset ByteArray.empty 0 32) i :=
           byteArray_get?_append_left hCopySize
-    _ = source.get? (offset + i) := by
-      unfold ByteArray.get?
+    _ = byteArrayGet? source (offset + i) := by
+      unfold byteArrayGet?
       split
       · simp [ByteArray.get]
       · contradiction
@@ -101,7 +101,7 @@ theorem readBytes_offset4_get?_of_lt_source
     (i : Nat)
     (hi : 4 + i < source.size)
     (hi32 : i < 32) :
-    (ByteArray.readBytes source 4 32).get? i = source.get? (4 + i) := by
+    byteArrayGet? (ByteArray.readBytes source 4 32) i = byteArrayGet? source (4 + i) := by
   exact readBytes_get?_of_lt_source source 4 i (by norm_num) hi hi32
 
 @[simp] theorem initialState_calldataReadWord_selectorByte0
@@ -109,9 +109,9 @@ theorem readBytes_offset4_get?_of_lt_source
     (tx : YulTransaction)
     (storage : IRStorageSlot → IRStorageWord)
     (observableSlots : List Nat) :
-    (ByteArray.readBytes
+    byteArrayGet? (ByteArray.readBytes
         (initialState contract tx storage observableSlots).toState.executionEnv.calldata
-        0 32).get? 0 =
+        0 32) 0 =
       some (UInt8.ofNat (tx.functionSelector / 2^24 % 256)) := by
   rw [readBytes_zero_get?_of_lt_source]
   · rw [show
@@ -133,9 +133,9 @@ theorem readBytes_offset4_get?_of_lt_source
     (tx : YulTransaction)
     (storage : IRStorageSlot → IRStorageWord)
     (observableSlots : List Nat) :
-    (ByteArray.readBytes
+    byteArrayGet? (ByteArray.readBytes
         (initialState contract tx storage observableSlots).toState.executionEnv.calldata
-        0 32).get? 1 =
+        0 32) 1 =
       some (UInt8.ofNat (tx.functionSelector / 2^16 % 256)) := by
   rw [readBytes_zero_get?_of_lt_source]
   · rw [show
@@ -158,9 +158,9 @@ theorem readBytes_offset4_get?_of_lt_source
     (tx : YulTransaction)
     (storage : IRStorageSlot → IRStorageWord)
     (observableSlots : List Nat) :
-    (ByteArray.readBytes
+    byteArrayGet? (ByteArray.readBytes
         (initialState contract tx storage observableSlots).toState.executionEnv.calldata
-        0 32).get? 2 =
+        0 32) 2 =
       some (UInt8.ofNat (tx.functionSelector / 2^8 % 256)) := by
   rw [readBytes_zero_get?_of_lt_source]
   · rw [show
@@ -183,9 +183,9 @@ theorem readBytes_offset4_get?_of_lt_source
     (tx : YulTransaction)
     (storage : IRStorageSlot → IRStorageWord)
     (observableSlots : List Nat) :
-    (ByteArray.readBytes
+    byteArrayGet? (ByteArray.readBytes
         (initialState contract tx storage observableSlots).toState.executionEnv.calldata
-        0 32).get? 3 =
+        0 32) 3 =
       some (UInt8.ofNat (tx.functionSelector % 256)) := by
   rw [readBytes_zero_get?_of_lt_source]
   · rw [show
@@ -215,9 +215,9 @@ theorem initialState_calldataReadWord_arg0Byte
     (hArgs : tx.args = arg :: rest)
     (i : Nat)
     (hi : i < 32) :
-    (ByteArray.readBytes
+    byteArrayGet? (ByteArray.readBytes
         (initialState contract tx storage observableSlots).toState.executionEnv.calldata
-        4 32).get? i =
+        4 32) i =
       some (UInt8.ofNat (arg / 2 ^ ((31 - i) * 8) % 256)) := by
   rw [readBytes_offset4_get?_of_lt_source]
   · rw [show
@@ -251,9 +251,9 @@ theorem initialState_calldataReadWord_argByte_of_drop_eq_cons
     (hoffset : 4 + 32 * idx < 2 ^ 64)
     (i : Nat)
     (hi : i < 32) :
-    (ByteArray.readBytes
+    byteArrayGet? (ByteArray.readBytes
         (initialState contract tx storage observableSlots).toState.executionEnv.calldata
-        (4 + 32 * idx) 32).get? i =
+        (4 + 32 * idx) 32) i =
       some (UInt8.ofNat (arg / 2 ^ ((31 - i) * 8) % 256)) := by
   rw [readBytes_get?_of_lt_source]
   · rw [show
@@ -279,9 +279,9 @@ private theorem byteArray_data_toList_get?_of_get?
     (ba : ByteArray)
     (i : Nat)
     (b : UInt8)
-    (h : ba.get? i = some b) :
+    (h : byteArrayGet? ba i = some b) :
     ba.data.toList[i]? = some b := by
-  unfold ByteArray.get? at h
+  unfold byteArrayGet? at h
   split at h
   · cases h
     rw [Array.getElem?_toList]
