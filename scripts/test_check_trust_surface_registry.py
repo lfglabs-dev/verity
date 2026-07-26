@@ -101,7 +101,7 @@ class CheckTrustSurfaceRegistryTests(unittest.TestCase):
             root = Path(tmpdir)
             self._write_valid_string_boundary(root)
 
-            errors = check_trust_surface_registry.check_lean424_string_boundary(root)
+            errors = check_trust_surface_registry.check_lean431_string_boundary(root)
 
         self.assertEqual(errors, [])
 
@@ -113,7 +113,7 @@ class CheckTrustSurfaceRegistryTests(unittest.TestCase):
             proof.parent.mkdir(parents=True)
             proof.write_text("theorem bad : True := by native_decide\n", encoding="utf-8")
 
-            errors = check_trust_surface_registry.check_lean424_string_boundary(root)
+            errors = check_trust_surface_registry.check_lean431_string_boundary(root)
 
         self.assertTrue(any("outside non-test Compiler/Proofs" in error for error in errors))
 
@@ -127,7 +127,7 @@ class CheckTrustSurfaceRegistryTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            errors = check_trust_surface_registry.check_lean424_string_boundary(root)
+            errors = check_trust_surface_registry.check_lean431_string_boundary(root)
 
         self.assertTrue(
             any("compatScratch_startsWith_reserved" in error for error in errors)
