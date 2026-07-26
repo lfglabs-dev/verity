@@ -4867,16 +4867,21 @@ theorem eval_compileExpr_core_onExpr
         some (SourceSemantics.evalExpr fields runtime expr) := by
   induction hcore generalizing runtime state with
   | literal value =>
-      simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, Except.toOption, Option.getD] using eval_compileExpr_literal fields runtime state value
+      change evalIRExpr state (YulExpr.lit (value % Compiler.Constants.evmModulus)) =
+        some (SourceSemantics.evalExpr fields runtime (.literal value))
+      exact eval_compileExpr_literal fields runtime state value
   | param name =>
-      simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, Except.toOption, Option.getD] using
-        eval_compileExpr_param_of_expr_bindings name hexact hpresent
+      change evalIRExpr state (YulExpr.var name) =
+        some (SourceSemantics.evalExpr fields runtime (.param name))
+      exact eval_compileExpr_param_of_expr_bindings name hexact hpresent
   | constructorArg idx =>
-      simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, Except.toOption, Option.getD] using
-        eval_compileExpr_constructorArg_of_expr_bindings idx hexact hpresent
+      change evalIRExpr state (YulExpr.var ("constructor_arg_" ++ toString idx)) =
+        some (SourceSemantics.evalExpr fields runtime (.constructorArg idx))
+      exact eval_compileExpr_constructorArg_of_expr_bindings idx hexact hpresent
   | localVar name =>
-      simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, Except.toOption, Option.getD] using
-        eval_compileExpr_localVar_of_expr_bindings name hexact hpresent
+      change evalIRExpr state (YulExpr.var name) =
+        some (SourceSemantics.evalExpr fields runtime (.localVar name))
+      exact eval_compileExpr_localVar_of_expr_bindings name hexact hpresent
   | caller =>
       exact eval_compileExpr_caller hruntime
   | contractAddress =>
@@ -4916,11 +4921,11 @@ theorem eval_compileExpr_core_onExpr
       have hEvalL : evalIRExpr state lhsIR = some (SourceSemantics.evalExpr fields runtime lhs) := by
         have htmp := ihL hexactL hbounded hpresentL hruntime
         rw [hlhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       have hEvalR : evalIRExpr state rhsIR = some (SourceSemantics.evalExpr fields runtime rhs) := by
         have htmp := ihR hexactR hbounded hpresentR hruntime
         rw [hrhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       exact eval_compileExpr_add_of_compiled hlhs hrhs
         hEvalL hEvalR
   | sub hL hR ihL ihR =>
@@ -4944,11 +4949,11 @@ theorem eval_compileExpr_core_onExpr
       have hEvalL : evalIRExpr state lhsIR = some (SourceSemantics.evalExpr fields runtime lhs) := by
         have htmp := ihL hexactL hbounded hpresentL hruntime
         rw [hlhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       have hEvalR : evalIRExpr state rhsIR = some (SourceSemantics.evalExpr fields runtime rhs) := by
         have htmp := ihR hexactR hbounded hpresentR hruntime
         rw [hrhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       exact eval_compileExpr_sub_of_compiled hlhs hrhs
         hEvalL hEvalR
         (evalExpr_lt_evmModulus_core_onExpr hL hexactL hbounded hpresentL hruntime)
@@ -4974,11 +4979,11 @@ theorem eval_compileExpr_core_onExpr
       have hEvalL : evalIRExpr state lhsIR = some (SourceSemantics.evalExpr fields runtime lhs) := by
         have htmp := ihL hexactL hbounded hpresentL hruntime
         rw [hlhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       have hEvalR : evalIRExpr state rhsIR = some (SourceSemantics.evalExpr fields runtime rhs) := by
         have htmp := ihR hexactR hbounded hpresentR hruntime
         rw [hrhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       exact eval_compileExpr_mul_of_compiled hlhs hrhs
         hEvalL hEvalR
   | div hL hR ihL ihR =>
@@ -5002,11 +5007,11 @@ theorem eval_compileExpr_core_onExpr
       have hEvalL : evalIRExpr state lhsIR = some (SourceSemantics.evalExpr fields runtime lhs) := by
         have htmp := ihL hexactL hbounded hpresentL hruntime
         rw [hlhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       have hEvalR : evalIRExpr state rhsIR = some (SourceSemantics.evalExpr fields runtime rhs) := by
         have htmp := ihR hexactR hbounded hpresentR hruntime
         rw [hrhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       exact eval_compileExpr_div_of_compiled hlhs hrhs
         hEvalL hEvalR
         (evalExpr_lt_evmModulus_core_onExpr hL hexactL hbounded hpresentL hruntime)
@@ -5032,11 +5037,11 @@ theorem eval_compileExpr_core_onExpr
       have hEvalL : evalIRExpr state lhsIR = some (SourceSemantics.evalExpr fields runtime lhs) := by
         have htmp := ihL hexactL hbounded hpresentL hruntime
         rw [hlhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       have hEvalR : evalIRExpr state rhsIR = some (SourceSemantics.evalExpr fields runtime rhs) := by
         have htmp := ihR hexactR hbounded hpresentR hruntime
         rw [hrhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       exact eval_compileExpr_mod_of_compiled hlhs hrhs
         hEvalL hEvalR
         (evalExpr_lt_evmModulus_core_onExpr hL hexactL hbounded hpresentL hruntime)
@@ -5062,11 +5067,11 @@ theorem eval_compileExpr_core_onExpr
       have hEvalL : evalIRExpr state lhsIR = some (SourceSemantics.evalExpr fields runtime lhs) := by
         have htmp := ihL hexactL hbounded hpresentL hruntime
         rw [hlhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       have hEvalR : evalIRExpr state rhsIR = some (SourceSemantics.evalExpr fields runtime rhs) := by
         have htmp := ihR hexactR hbounded hpresentR hruntime
         rw [hrhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       exact eval_compileExpr_eq_of_compiled hlhs hrhs
         hEvalL hEvalR
         (evalExpr_lt_evmModulus_core_onExpr hL hexactL hbounded hpresentL hruntime)
@@ -5092,11 +5097,11 @@ theorem eval_compileExpr_core_onExpr
       have hEvalL : evalIRExpr state lhsIR = some (SourceSemantics.evalExpr fields runtime lhs) := by
         have htmp := ihL hexactL hbounded hpresentL hruntime
         rw [hlhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       have hEvalR : evalIRExpr state rhsIR = some (SourceSemantics.evalExpr fields runtime rhs) := by
         have htmp := ihR hexactR hbounded hpresentR hruntime
         rw [hrhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       exact eval_compileExpr_lt_of_compiled hlhs hrhs
         hEvalL hEvalR
         (evalExpr_lt_evmModulus_core_onExpr hL hexactL hbounded hpresentL hruntime)
@@ -5122,11 +5127,11 @@ theorem eval_compileExpr_core_onExpr
       have hEvalL : evalIRExpr state lhsIR = some (SourceSemantics.evalExpr fields runtime lhs) := by
         have htmp := ihL hexactL hbounded hpresentL hruntime
         rw [hlhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       have hEvalR : evalIRExpr state rhsIR = some (SourceSemantics.evalExpr fields runtime rhs) := by
         have htmp := ihR hexactR hbounded hpresentR hruntime
         rw [hrhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       exact eval_compileExpr_slt_of_compiled hlhs hrhs
         hEvalL hEvalR
         (evalExpr_lt_evmModulus_core_onExpr hL hexactL hbounded hpresentL hruntime)
@@ -5152,11 +5157,11 @@ theorem eval_compileExpr_core_onExpr
       have hEvalL : evalIRExpr state lhsIR = some (SourceSemantics.evalExpr fields runtime lhs) := by
         have htmp := ihL hexactL hbounded hpresentL hruntime
         rw [hlhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       have hEvalR : evalIRExpr state rhsIR = some (SourceSemantics.evalExpr fields runtime rhs) := by
         have htmp := ihR hexactR hbounded hpresentR hruntime
         rw [hrhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       exact eval_compileExpr_sgt_of_compiled hlhs hrhs
         hEvalL hEvalR
         (evalExpr_lt_evmModulus_core_onExpr hL hexactL hbounded hpresentL hruntime)
@@ -5182,11 +5187,11 @@ theorem eval_compileExpr_core_onExpr
       have hEvalL : evalIRExpr state lhsIR = some (SourceSemantics.evalExpr fields runtime lhs) := by
         have htmp := ihL hexactL hbounded hpresentL hruntime
         rw [hlhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       have hEvalR : evalIRExpr state rhsIR = some (SourceSemantics.evalExpr fields runtime rhs) := by
         have htmp := ihR hexactR hbounded hpresentR hruntime
         rw [hrhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       exact eval_compileExpr_sdiv_of_compiled hlhs hrhs
         hEvalL hEvalR
         (evalExpr_lt_evmModulus_core_onExpr hL hexactL hbounded hpresentL hruntime)
@@ -5212,11 +5217,11 @@ theorem eval_compileExpr_core_onExpr
       have hEvalL : evalIRExpr state lhsIR = some (SourceSemantics.evalExpr fields runtime lhs) := by
         have htmp := ihL hexactL hbounded hpresentL hruntime
         rw [hlhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       have hEvalR : evalIRExpr state rhsIR = some (SourceSemantics.evalExpr fields runtime rhs) := by
         have htmp := ihR hexactR hbounded hpresentR hruntime
         rw [hrhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       exact eval_compileExpr_smod_of_compiled hlhs hrhs
         hEvalL hEvalR
         (evalExpr_lt_evmModulus_core_onExpr hL hexactL hbounded hpresentL hruntime)
@@ -5242,11 +5247,11 @@ theorem eval_compileExpr_core_onExpr
       have hEvalL : evalIRExpr state lhsIR = some (SourceSemantics.evalExpr fields runtime lhs) := by
         have htmp := ihL hexactL hbounded hpresentL hruntime
         rw [hlhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       have hEvalR : evalIRExpr state rhsIR = some (SourceSemantics.evalExpr fields runtime rhs) := by
         have htmp := ihR hexactR hbounded hpresentR hruntime
         rw [hrhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       exact eval_compileExpr_sar_of_compiled hlhs hrhs
         hEvalL hEvalR
         (evalExpr_lt_evmModulus_core_onExpr hL hexactL hbounded hpresentL hruntime)
@@ -5272,11 +5277,11 @@ theorem eval_compileExpr_core_onExpr
       have hEvalIndex : evalIRExpr state indexIR = some (SourceSemantics.evalExpr fields runtime index) := by
         have htmp := ihL hexactIndex hbounded hpresentIndex hruntime
         rw [hindex] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       have hEvalValue : evalIRExpr state valueIR = some (SourceSemantics.evalExpr fields runtime value) := by
         have htmp := ihR hexactValue hbounded hpresentValue hruntime
         rw [hvalue] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       exact eval_compileExpr_byte_of_compiled hindex hvalue
         hEvalIndex hEvalValue
         (evalExpr_lt_evmModulus_core_onExpr hL hexactIndex hbounded hpresentIndex hruntime)
@@ -5302,11 +5307,11 @@ theorem eval_compileExpr_core_onExpr
       have hEvalL : evalIRExpr state lhsIR = some (SourceSemantics.evalExpr fields runtime lhs) := by
         have htmp := ihL hexactL hbounded hpresentL hruntime
         rw [hlhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       have hEvalR : evalIRExpr state rhsIR = some (SourceSemantics.evalExpr fields runtime rhs) := by
         have htmp := ihR hexactR hbounded hpresentR hruntime
         rw [hrhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       exact eval_compileExpr_signextend_of_compiled hlhs hrhs
         hEvalL hEvalR
         (evalExpr_lt_evmModulus_core_onExpr hL hexactL hbounded hpresentL hruntime)
@@ -5332,11 +5337,11 @@ theorem eval_compileExpr_core_onExpr
       have hEvalL : evalIRExpr state lhsIR = some (SourceSemantics.evalExpr fields runtime lhs) := by
         have htmp := ihL hexactL hbounded hpresentL hruntime
         rw [hlhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       have hEvalR : evalIRExpr state rhsIR = some (SourceSemantics.evalExpr fields runtime rhs) := by
         have htmp := ihR hexactR hbounded hpresentR hruntime
         rw [hrhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       exact eval_compileExpr_gt_of_compiled hlhs hrhs
         hEvalL hEvalR
         (evalExpr_lt_evmModulus_core_onExpr hL hexactL hbounded hpresentL hruntime)
@@ -5362,11 +5367,11 @@ theorem eval_compileExpr_core_onExpr
       have hEvalL : evalIRExpr state lhsIR = some (SourceSemantics.evalExpr fields runtime lhs) := by
         have htmp := ihL hexactL hbounded hpresentL hruntime
         rw [hlhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       have hEvalR : evalIRExpr state rhsIR = some (SourceSemantics.evalExpr fields runtime rhs) := by
         have htmp := ihR hexactR hbounded hpresentR hruntime
         rw [hrhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       exact eval_compileExpr_ge_of_compiled hlhs hrhs
         hEvalL hEvalR
         (evalExpr_lt_evmModulus_core_onExpr hL hexactL hbounded hpresentL hruntime)
@@ -5392,11 +5397,11 @@ theorem eval_compileExpr_core_onExpr
       have hEvalL : evalIRExpr state lhsIR = some (SourceSemantics.evalExpr fields runtime lhs) := by
         have htmp := ihL hexactL hbounded hpresentL hruntime
         rw [hlhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       have hEvalR : evalIRExpr state rhsIR = some (SourceSemantics.evalExpr fields runtime rhs) := by
         have htmp := ihR hexactR hbounded hpresentR hruntime
         rw [hrhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       exact eval_compileExpr_le_of_compiled hlhs hrhs
         hEvalL hEvalR
         (evalExpr_lt_evmModulus_core_onExpr hL hexactL hbounded hpresentL hruntime)
@@ -5414,7 +5419,7 @@ theorem eval_compileExpr_core_onExpr
       have hEval : evalIRExpr state exprIR = some (SourceSemantics.evalExpr fields runtime expr) := by
         have htmp := ih hexact' hbounded hpresent' hruntime
         rw [hexpr] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       exact eval_compileExpr_logicalNot_of_compiled hexpr
         hEval
         (evalExpr_lt_evmModulus_core_onExpr h hexact' hbounded hpresent' hruntime)
@@ -5439,11 +5444,11 @@ theorem eval_compileExpr_core_onExpr
       have hEvalL : evalIRExpr state lhsIR = some (SourceSemantics.evalExpr fields runtime lhs) := by
         have htmp := ihL hexactL hbounded hpresentL hruntime
         rw [hlhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       have hEvalR : evalIRExpr state rhsIR = some (SourceSemantics.evalExpr fields runtime rhs) := by
         have htmp := ihR hexactR hbounded hpresentR hruntime
         rw [hrhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       exact eval_compileExpr_logicalAnd_of_compiled hlhs hrhs
         hEvalL hEvalR
         (evalExpr_lt_evmModulus_core_onExpr hL hexactL hbounded hpresentL hruntime)
@@ -5469,11 +5474,11 @@ theorem eval_compileExpr_core_onExpr
       have hEvalL : evalIRExpr state lhsIR = some (SourceSemantics.evalExpr fields runtime lhs) := by
         have htmp := ihL hexactL hbounded hpresentL hruntime
         rw [hlhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       have hEvalR : evalIRExpr state rhsIR = some (SourceSemantics.evalExpr fields runtime rhs) := by
         have htmp := ihR hexactR hbounded hpresentR hruntime
         rw [hrhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       exact eval_compileExpr_logicalOr_of_compiled hlhs hrhs
         hEvalL hEvalR
         (evalExpr_lt_evmModulus_core_onExpr hL hexactL hbounded hpresentL hruntime)
@@ -5499,11 +5504,11 @@ theorem eval_compileExpr_core_onExpr
       have hEvalL : evalIRExpr state lhsIR = some (SourceSemantics.evalExpr fields runtime lhs) := by
         have htmp := ihL hexactL hbounded hpresentL hruntime
         rw [hlhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       have hEvalR : evalIRExpr state rhsIR = some (SourceSemantics.evalExpr fields runtime rhs) := by
         have htmp := ihR hexactR hbounded hpresentR hruntime
         rw [hrhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       exact eval_compileExpr_bitAnd_of_compiled hlhs hrhs
         hEvalL hEvalR
         (evalExpr_lt_evmModulus_core_onExpr hL hexactL hbounded hpresentL hruntime)
@@ -5529,11 +5534,11 @@ theorem eval_compileExpr_core_onExpr
       have hEvalL : evalIRExpr state lhsIR = some (SourceSemantics.evalExpr fields runtime lhs) := by
         have htmp := ihL hexactL hbounded hpresentL hruntime
         rw [hlhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       have hEvalR : evalIRExpr state rhsIR = some (SourceSemantics.evalExpr fields runtime rhs) := by
         have htmp := ihR hexactR hbounded hpresentR hruntime
         rw [hrhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       exact eval_compileExpr_bitOr_of_compiled hlhs hrhs
         hEvalL hEvalR
         (evalExpr_lt_evmModulus_core_onExpr hL hexactL hbounded hpresentL hruntime)
@@ -5559,11 +5564,11 @@ theorem eval_compileExpr_core_onExpr
       have hEvalL : evalIRExpr state lhsIR = some (SourceSemantics.evalExpr fields runtime lhs) := by
         have htmp := ihL hexactL hbounded hpresentL hruntime
         rw [hlhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       have hEvalR : evalIRExpr state rhsIR = some (SourceSemantics.evalExpr fields runtime rhs) := by
         have htmp := ihR hexactR hbounded hpresentR hruntime
         rw [hrhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       exact eval_compileExpr_bitXor_of_compiled hlhs hrhs
         hEvalL hEvalR
         (evalExpr_lt_evmModulus_core_onExpr hL hexactL hbounded hpresentL hruntime)
@@ -5581,7 +5586,7 @@ theorem eval_compileExpr_core_onExpr
       have hEval : evalIRExpr state exprIR = some (SourceSemantics.evalExpr fields runtime expr) := by
         have htmp := ih hexact' hbounded hpresent' hruntime
         rw [hexpr] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       exact eval_compileExpr_bitNot_of_compiled hexpr
         hEval
         (evalExpr_lt_evmModulus_core_onExpr h hexact' hbounded hpresent' hruntime)
@@ -5606,11 +5611,11 @@ theorem eval_compileExpr_core_onExpr
       have hEvalS : evalIRExpr state shiftIR = some (SourceSemantics.evalExpr fields runtime shift) := by
         have htmp := ihS hexactS hbounded hpresentS hruntime
         rw [hshift] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       have hEvalV : evalIRExpr state valueIR = some (SourceSemantics.evalExpr fields runtime value) := by
         have htmp := ihV hexactV hbounded hpresentV hruntime
         rw [hvalue] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       exact eval_compileExpr_shl_of_compiled hshift hvalue
         hEvalS hEvalV
         (evalExpr_lt_evmModulus_core_onExpr hS hexactS hbounded hpresentS hruntime)
@@ -5636,11 +5641,11 @@ theorem eval_compileExpr_core_onExpr
       have hEvalS : evalIRExpr state shiftIR = some (SourceSemantics.evalExpr fields runtime shift) := by
         have htmp := ihS hexactS hbounded hpresentS hruntime
         rw [hshift] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       have hEvalV : evalIRExpr state valueIR = some (SourceSemantics.evalExpr fields runtime value) := by
         have htmp := ihV hexactV hbounded hpresentV hruntime
         rw [hvalue] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       exact eval_compileExpr_shr_of_compiled hshift hvalue
         hEvalS hEvalV
         (evalExpr_lt_evmModulus_core_onExpr hS hexactS hbounded hpresentS hruntime)
@@ -5666,11 +5671,11 @@ theorem eval_compileExpr_core_onExpr
       have hEvalL : evalIRExpr state lhsIR = some (SourceSemantics.evalExpr fields runtime lhs) := by
         have htmp := ihL hexactL hbounded hpresentL hruntime
         rw [hlhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       have hEvalR : evalIRExpr state rhsIR = some (SourceSemantics.evalExpr fields runtime rhs) := by
         have htmp := ihR hexactR hbounded hpresentR hruntime
         rw [hrhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       exact eval_compileExpr_min_of_compiled hlhs hrhs
         hEvalL hEvalR
         (evalExpr_lt_evmModulus_core_onExpr hL hexactL hbounded hpresentL hruntime)
@@ -5696,11 +5701,11 @@ theorem eval_compileExpr_core_onExpr
       have hEvalL : evalIRExpr state lhsIR = some (SourceSemantics.evalExpr fields runtime lhs) := by
         have htmp := ihL hexactL hbounded hpresentL hruntime
         rw [hlhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       have hEvalR : evalIRExpr state rhsIR = some (SourceSemantics.evalExpr fields runtime rhs) := by
         have htmp := ihR hexactR hbounded hpresentR hruntime
         rw [hrhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       exact eval_compileExpr_max_of_compiled hlhs hrhs
         hEvalL hEvalR
         (evalExpr_lt_evmModulus_core_onExpr hL hexactL hbounded hpresentL hruntime)
@@ -5757,11 +5762,11 @@ theorem eval_compileExpr_core_onExpr
       have hEvalL : evalIRExpr state lhsIR = some (SourceSemantics.evalExpr fields runtime lhs) := by
         have htmp := ihL hexactL hbounded hpresentL hruntime
         rw [hlhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       have hEvalR : evalIRExpr state rhsIR = some (SourceSemantics.evalExpr fields runtime rhs) := by
         have htmp := ihR hexactR hbounded hpresentR hruntime
         rw [hrhs] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       exact eval_compileExpr_ceilDiv_of_compiled hlhs hrhs
         hEvalL hEvalR
         (evalExpr_lt_evmModulus_core_onExpr hL hexactL hbounded hpresentL hruntime)
@@ -5886,7 +5891,7 @@ theorem eval_compileExpr_core_onExpr
           some (SourceSemantics.evalExpr fields runtime offset) := by
         have htmp := ihO hexact' hbounded hpresent' hruntime
         rw [hoffset] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       exact eval_compileExpr_tload_of_compiled hoffset hEvalOff hruntime
         (evalExpr_lt_evmModulus_core_onExpr hO hexact' hbounded hpresent' hruntime)
   | calldataload hO ihO =>
@@ -5903,7 +5908,7 @@ theorem eval_compileExpr_core_onExpr
           some (SourceSemantics.evalExpr fields runtime offset) := by
         have htmp := ihO hexact' hbounded hpresent' hruntime
         rw [hoffset] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       exact eval_compileExpr_calldataload_of_compiled hoffset hEvalOff hruntime
   | mload hO ihO =>
       rename_i offset
@@ -5919,7 +5924,7 @@ theorem eval_compileExpr_core_onExpr
           some (SourceSemantics.evalExpr fields runtime offset) := by
         have htmp := ihO hexact' hbounded hpresent' hruntime
         rw [hoffset] at htmp
-        simpa using htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
       exact eval_compileExpr_mload_of_compiled hoffset hEvalOff hruntime
 
 theorem eval_compileExpr_core

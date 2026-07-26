@@ -13,16 +13,8 @@ open Compiler.Proofs.IRGeneration
 private theorem byteArray_get?_append_left
     {a b : ByteArray} {i : Nat} (h : i < a.size) :
     byteArrayGet? (a ++ b) i = byteArrayGet? a i := by
-  unfold byteArrayGet?
-  split
-  · apply congrArg some
-    have hEq : (a ++ b)[i] = a[i] := ByteArray.get_append_left h
-    convert hEq using 1
-  · exact False.elim (by
-      rename_i hAppend
-      exact hAppend (by
-        rw [ByteArray.size_append]
-        exact Nat.lt_of_lt_of_le h (Nat.le_add_right a.size b.size)))
+  simp only [byteArrayGet?]
+  simp [Array.getElem?_append_left h]
 
 /-- Reading the first ABI word from offset zero preserves every source byte
     already present in the first 32-byte window. This isolates the non-opaque
@@ -42,7 +34,7 @@ theorem readBytes_zero_get?_of_lt_source
   have hiData : i < source.data.size := by
     simpa using hi
   have hCopySize : i < (source.copySlice 0 ByteArray.empty 0 32).size := by
-    simp [ByteArray.size, ByteArray.data_copySlice]
+    simp [-ByteArray.size_data, ByteArray.size, ByteArray.data_copySlice]
     exact ⟨hi32, hiData⟩
   calc
     byteArrayGet? (source.copySlice 0 ByteArray.empty 0 32 ++
@@ -52,10 +44,8 @@ theorem readBytes_zero_get?_of_lt_source
         = byteArrayGet? (source.copySlice 0 ByteArray.empty 0 32) i :=
           byteArray_get?_append_left hCopySize
     _ = byteArrayGet? source i := by
-      unfold byteArrayGet?
-      split
-      · simp [ByteArray.get]
-      · contradiction
+      simp only [byteArrayGet?, ByteArray.data_copySlice]
+      simp [hiData]
 
 /-- Reading a 32-byte window preserves every byte that is already present in the
     source window, for offsets accepted by EVMYulLean's optimized
@@ -77,7 +67,7 @@ theorem readBytes_get?_of_lt_source
   have hiData : offset + i < source.data.size := by
     simpa using hi
   have hCopySize : i < (source.copySlice offset ByteArray.empty 0 32).size := by
-    simp [ByteArray.size, ByteArray.data_copySlice]
+    simp [-ByteArray.size_data, ByteArray.size, ByteArray.data_copySlice]
     omega
   calc
     byteArrayGet? (source.copySlice offset ByteArray.empty 0 32 ++
@@ -87,10 +77,8 @@ theorem readBytes_get?_of_lt_source
         = byteArrayGet? (source.copySlice offset ByteArray.empty 0 32) i :=
           byteArray_get?_append_left hCopySize
     _ = byteArrayGet? source (offset + i) := by
-      unfold byteArrayGet?
-      split
-      · simp [ByteArray.get]
-      · contradiction
+      simp only [byteArrayGet?, ByteArray.data_copySlice]
+      simp [hiData]
 
 /-- Reading the ABI word at calldata offset four preserves each source byte
     already present in that 32-byte argument window. This is the native
@@ -281,12 +269,7 @@ private theorem byteArray_data_toList_get?_of_get?
     (b : UInt8)
     (h : byteArrayGet? ba i = some b) :
     ba.data.toList[i]? = some b := by
-  unfold byteArrayGet? at h
-  split at h
-  · cases h
-    rw [Array.getElem?_toList]
-    simp [ByteArray.get]
-  · contradiction
+  simpa only [byteArrayGet?, Array.getElem?_toList] using h
 
 private theorem list_reverse_eq_drop4_reverse_append_four
     {α : Type}
