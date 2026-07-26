@@ -6353,24 +6353,20 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.compileExpr_mappingChain_bridgedSource
 
   -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanStateBridge.lean
-  RBTree.RBNode.All.setBlack'
-  RBTree.RBNode.find?_eq_none_of_all_ne
-  RBTree.RBNode.del_all_cut_ne
-  RBTree.RBNode.erase_all_cut_ne
-  RBTree.RBNode.findP?_erase_none
-  RBTree.RBNode.append_toList
-  RBTree.RBNode.mem_del_of_mem_ne
-  RBTree.RBNode.mem_of_mem_del
-  RBTree.RBNode.mem_erase_of_mem_ne
-  RBTree.RBNode.mem_of_mem_erase
-  RBTree.RBNode.find?_erase_of_ne
-  RBTree.RBMap.find?_erase_self
-  RBTree.RBMap.find?_erase_of_ne
+  -- byteArrayGet?_ofFn  -- private
+  -- byteArrayGet?_append_left  -- private
+  -- byteArrayGet?_append_right  -- private
+  Std.TreeMap.get?_insert_of_eq
+  Std.TreeMap.get?_insert_of_ne
+  Std.TreeMap.get?_erase_self
+  -- Compiler.Proofs.YulGeneration.Backends.StateBridge.ordering_then_eq  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.StateBridge.UInt256_compare_eq_fin  -- private
+  Compiler.Proofs.YulGeneration.Backends.StateBridge.UInt256_eq_of_compare_eq
+  Compiler.Proofs.YulGeneration.Backends.StateBridge.natToUInt256_injective
+  Compiler.Proofs.YulGeneration.Backends.StateBridge.compare_natToUInt256_ne
   -- Compiler.Proofs.YulGeneration.Backends.StateBridge.calldataToByteArray_selectorBytes_size  -- private
   -- Compiler.Proofs.YulGeneration.Backends.StateBridge.calldataToByteArray_wordBytes_size  -- private
   -- Compiler.Proofs.YulGeneration.Backends.StateBridge.calldataToByteArray_fold_size  -- private
-  -- Compiler.Proofs.YulGeneration.Backends.StateBridge.byteArray_get?_append_left  -- private
-  -- Compiler.Proofs.YulGeneration.Backends.StateBridge.byteArray_get?_append_right  -- private
   -- Compiler.Proofs.YulGeneration.Backends.StateBridge.calldataToByteArray_fold_get?_left  -- private
   -- Compiler.Proofs.YulGeneration.Backends.StateBridge.calldataToByteArray_fold_get?_word  -- private
   Compiler.Proofs.YulGeneration.Backends.StateBridge.calldataToByteArray_size
@@ -6378,13 +6374,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.StateBridge.calldataToByteArray_selectorByte1
   Compiler.Proofs.YulGeneration.Backends.StateBridge.calldataToByteArray_selectorByte2
   Compiler.Proofs.YulGeneration.Backends.StateBridge.calldataToByteArray_selectorByte3
-  Compiler.Proofs.YulGeneration.Backends.StateBridge.calldataToByteArray_arg0Byte
   Compiler.Proofs.YulGeneration.Backends.StateBridge.calldataToByteArray_argByte_of_drop_eq_cons
-  -- Compiler.Proofs.YulGeneration.Backends.StateBridge.ordering_then_eq  -- private
-  -- Compiler.Proofs.YulGeneration.Backends.StateBridge.UInt256_compare_eq_fin  -- private
-  Compiler.Proofs.YulGeneration.Backends.StateBridge.UInt256_eq_of_compare_eq
-  Compiler.Proofs.YulGeneration.Backends.StateBridge.natToUInt256_injective
-  Compiler.Proofs.YulGeneration.Backends.StateBridge.compare_natToUInt256_ne
+  Compiler.Proofs.YulGeneration.Backends.StateBridge.calldataToByteArray_arg0Byte
   Compiler.Proofs.YulGeneration.Backends.StateBridge.foldl_insert_find_not_mem
   Compiler.Proofs.YulGeneration.Backends.StateBridge.foldl_insert_find
   Compiler.Proofs.YulGeneration.Backends.StateBridge.IRStorageSlot_ofNat_eq_of_natToUInt256_eq
@@ -6404,4 +6395,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6007 theorems/lemmas (4180 public, 1827 private, 0 sorry'd)
+-- Total: 5998 theorems/lemmas (4170 public, 1828 private, 0 sorry'd)
