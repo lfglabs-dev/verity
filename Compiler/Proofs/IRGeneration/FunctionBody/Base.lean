@@ -4867,17 +4867,21 @@ theorem eval_compileExpr_core_onExpr
         some (SourceSemantics.evalExpr fields runtime expr) := by
   induction hcore generalizing runtime state with
   | literal value =>
-      change evalIRExpr state (YulExpr.lit (value % CompilationModel.uint256Modulus)) = _
-      exact eval_compileExpr_literal fields runtime state value
+      simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals,
+        Except.toOption, Option.getD, Option.bind] using
+        eval_compileExpr_literal fields runtime state value
   | param name =>
-      change evalIRExpr state (YulExpr.ident name) = _
-      exact eval_compileExpr_param_of_expr_bindings name hexact hpresent
+      simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals,
+        Except.toOption, Option.getD, Option.bind] using
+        eval_compileExpr_param_of_expr_bindings name hexact hpresent
   | constructorArg idx =>
-      change evalIRExpr state (YulExpr.ident s!"arg{idx}") = _
-      exact eval_compileExpr_constructorArg_of_expr_bindings idx hexact hpresent
+      simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals,
+        Except.toOption, Option.getD, Option.bind] using
+        eval_compileExpr_constructorArg_of_expr_bindings idx hexact hpresent
   | localVar name =>
-      change evalIRExpr state (YulExpr.ident name) = _
-      exact eval_compileExpr_localVar_of_expr_bindings name hexact hpresent
+      simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals,
+        Except.toOption, Option.getD, Option.bind] using
+        eval_compileExpr_localVar_of_expr_bindings name hexact hpresent
   | caller =>
       exact eval_compileExpr_caller hruntime
   | contractAddress =>
