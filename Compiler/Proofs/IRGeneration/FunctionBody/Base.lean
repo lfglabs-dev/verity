@@ -4867,21 +4867,16 @@ theorem eval_compileExpr_core_onExpr
         some (SourceSemantics.evalExpr fields runtime expr) := by
   induction hcore generalizing runtime state with
   | literal value =>
-      change evalIRExpr state (YulExpr.lit (value % Compiler.Constants.evmModulus)) =
-        some (SourceSemantics.evalExpr fields runtime (.literal value))
-      exact eval_compileExpr_literal fields runtime state value
+      simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, Except.toOption, Option.getD] using eval_compileExpr_literal fields runtime state value
   | param name =>
-      change evalIRExpr state (YulExpr.var name) =
-        some (SourceSemantics.evalExpr fields runtime (.param name))
-      exact eval_compileExpr_param_of_expr_bindings name hexact hpresent
+      simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, Except.toOption, Option.getD] using
+        eval_compileExpr_param_of_expr_bindings name hexact hpresent
   | constructorArg idx =>
-      change evalIRExpr state (YulExpr.var ("constructor_arg_" ++ toString idx)) =
-        some (SourceSemantics.evalExpr fields runtime (.constructorArg idx))
-      exact eval_compileExpr_constructorArg_of_expr_bindings idx hexact hpresent
+      simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, Except.toOption, Option.getD] using
+        eval_compileExpr_constructorArg_of_expr_bindings idx hexact hpresent
   | localVar name =>
-      change evalIRExpr state (YulExpr.var name) =
-        some (SourceSemantics.evalExpr fields runtime (.localVar name))
-      exact eval_compileExpr_localVar_of_expr_bindings name hexact hpresent
+      simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, Except.toOption, Option.getD] using
+        eval_compileExpr_localVar_of_expr_bindings name hexact hpresent
   | caller =>
       exact eval_compileExpr_caller hruntime
   | contractAddress =>
