@@ -4867,16 +4867,17 @@ theorem eval_compileExpr_core_onExpr
         some (SourceSemantics.evalExpr fields runtime expr) := by
   induction hcore generalizing runtime state with
   | literal value =>
-      simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, Except.toOption, Option.getD] using eval_compileExpr_literal fields runtime state value
+      change evalIRExpr state (YulExpr.lit (value % CompilationModel.uint256Modulus)) = _
+      exact eval_compileExpr_literal fields runtime state value
   | param name =>
-      simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, Except.toOption, Option.getD] using
-        eval_compileExpr_param_of_expr_bindings name hexact hpresent
+      change evalIRExpr state (YulExpr.ident name) = _
+      exact eval_compileExpr_param_of_expr_bindings name hexact hpresent
   | constructorArg idx =>
-      simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, Except.toOption, Option.getD] using
-        eval_compileExpr_constructorArg_of_expr_bindings idx hexact hpresent
+      change evalIRExpr state (YulExpr.ident s!"arg{idx}") = _
+      exact eval_compileExpr_constructorArg_of_expr_bindings idx hexact hpresent
   | localVar name =>
-      simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, Except.toOption, Option.getD] using
-        eval_compileExpr_localVar_of_expr_bindings name hexact hpresent
+      change evalIRExpr state (YulExpr.ident name) = _
+      exact eval_compileExpr_localVar_of_expr_bindings name hexact hpresent
   | caller =>
       exact eval_compileExpr_caller hruntime
   | contractAddress =>
@@ -5726,11 +5727,11 @@ theorem eval_compileExpr_core_onExpr
       have hpresentE := exprBoundNamesPresent_of_subset hpresent (by
         intro name hmem; simp [exprBoundNames]; exact Or.inr (Or.inr hmem))
       have hEvalC : evalIRExpr state condIR = some (SourceSemantics.evalExpr fields runtime cond) := by
-        have htmp := ihC hexactC hbounded hpresentC hruntime; rw [hcond] at htmp; simpa using htmp
+        have htmp := ihC hexactC hbounded hpresentC hruntime; rw [hcond] at htmp; simpa only [Except.toOption, Option.getD_some] using htmp
       have hEvalT : evalIRExpr state thenIR = some (SourceSemantics.evalExpr fields runtime thenVal) := by
-        have htmp := ihT hexactT hbounded hpresentT hruntime; rw [hthen] at htmp; simpa using htmp
+        have htmp := ihT hexactT hbounded hpresentT hruntime; rw [hthen] at htmp; simpa only [Except.toOption, Option.getD_some] using htmp
       have hEvalE : evalIRExpr state elseIR = some (SourceSemantics.evalExpr fields runtime elseVal) := by
-        have htmp := ihE hexactE hbounded hpresentE hruntime; rw [helse] at htmp; simpa using htmp
+        have htmp := ihE hexactE hbounded hpresentE hruntime; rw [helse] at htmp; simpa only [Except.toOption, Option.getD_some] using htmp
       exact eval_compileExpr_ite_of_compiled hcond hthen helse
         hEvalC hEvalT hEvalE
         (evalExpr_lt_evmModulus_core_onExpr hC hexactC hbounded hpresentC hruntime)
@@ -5781,9 +5782,9 @@ theorem eval_compileExpr_core_onExpr
       have hpresentR := exprBoundNamesPresent_of_subset hpresent (by
         intro name hmem; simpa [exprBoundNames] using List.mem_append.mpr (Or.inr hmem))
       have hEvalL : evalIRExpr state lhsIR = some (SourceSemantics.evalExpr fields runtime lhs) := by
-        have htmp := ihL hexactL hbounded hpresentL hruntime; rw [hlhs] at htmp; simpa using htmp
+        have htmp := ihL hexactL hbounded hpresentL hruntime; rw [hlhs] at htmp; simpa only [Except.toOption, Option.getD_some] using htmp
       have hEvalR : evalIRExpr state rhsIR = some (SourceSemantics.evalExpr fields runtime rhs) := by
-        have htmp := ihR hexactR hbounded hpresentR hruntime; rw [hrhs] at htmp; simpa using htmp
+        have htmp := ihR hexactR hbounded hpresentR hruntime; rw [hrhs] at htmp; simpa only [Except.toOption, Option.getD_some] using htmp
       exact eval_compileExpr_wMulDown_of_compiled hlhs hrhs
         hEvalL hEvalR
         (evalExpr_lt_evmModulus_core_onExpr hL hexactL hbounded hpresentL hruntime)
@@ -5803,9 +5804,9 @@ theorem eval_compileExpr_core_onExpr
       have hpresentR := exprBoundNamesPresent_of_subset hpresent (by
         intro name hmem; simpa [exprBoundNames] using List.mem_append.mpr (Or.inr hmem))
       have hEvalL : evalIRExpr state lhsIR = some (SourceSemantics.evalExpr fields runtime lhs) := by
-        have htmp := ihL hexactL hbounded hpresentL hruntime; rw [hlhs] at htmp; simpa using htmp
+        have htmp := ihL hexactL hbounded hpresentL hruntime; rw [hlhs] at htmp; simpa only [Except.toOption, Option.getD_some] using htmp
       have hEvalR : evalIRExpr state rhsIR = some (SourceSemantics.evalExpr fields runtime rhs) := by
-        have htmp := ihR hexactR hbounded hpresentR hruntime; rw [hrhs] at htmp; simpa using htmp
+        have htmp := ihR hexactR hbounded hpresentR hruntime; rw [hrhs] at htmp; simpa only [Except.toOption, Option.getD_some] using htmp
       exact eval_compileExpr_wDivUp_of_compiled hlhs hrhs
         hEvalL hEvalR
         (evalExpr_lt_evmModulus_core_onExpr hL hexactL hbounded hpresentL hruntime)
@@ -5831,11 +5832,11 @@ theorem eval_compileExpr_core_onExpr
       have hpresentC := exprBoundNamesPresent_of_subset hpresent (by
         intro name hmem; simp [exprBoundNames]; exact Or.inr (Or.inr hmem))
       have hEvalA : evalIRExpr state aIR = some (SourceSemantics.evalExpr fields runtime a) := by
-        have htmp := ihA hexactA hbounded hpresentA hruntime; rw [ha] at htmp; simpa using htmp
+        have htmp := ihA hexactA hbounded hpresentA hruntime; rw [ha] at htmp; simpa only [Except.toOption, Option.getD_some] using htmp
       have hEvalB : evalIRExpr state bIR = some (SourceSemantics.evalExpr fields runtime b) := by
-        have htmp := ihB hexactB hbounded hpresentB hruntime; rw [hb] at htmp; simpa using htmp
+        have htmp := ihB hexactB hbounded hpresentB hruntime; rw [hb] at htmp; simpa only [Except.toOption, Option.getD_some] using htmp
       have hEvalC : evalIRExpr state cIR = some (SourceSemantics.evalExpr fields runtime c) := by
-        have htmp := ihC hexactC hbounded hpresentC hruntime; rw [hc] at htmp; simpa using htmp
+        have htmp := ihC hexactC hbounded hpresentC hruntime; rw [hc] at htmp; simpa only [Except.toOption, Option.getD_some] using htmp
       exact eval_compileExpr_mulDivDown_of_compiled ha hb hc
         hEvalA hEvalB hEvalC
         (evalExpr_lt_evmModulus_core_onExpr hA hexactA hbounded hpresentA hruntime)
@@ -5862,11 +5863,11 @@ theorem eval_compileExpr_core_onExpr
       have hpresentC := exprBoundNamesPresent_of_subset hpresent (by
         intro name hmem; simp [exprBoundNames]; exact Or.inr (Or.inr hmem))
       have hEvalA : evalIRExpr state aIR = some (SourceSemantics.evalExpr fields runtime a) := by
-        have htmp := ihA hexactA hbounded hpresentA hruntime; rw [ha] at htmp; simpa using htmp
+        have htmp := ihA hexactA hbounded hpresentA hruntime; rw [ha] at htmp; simpa only [Except.toOption, Option.getD_some] using htmp
       have hEvalB : evalIRExpr state bIR = some (SourceSemantics.evalExpr fields runtime b) := by
-        have htmp := ihB hexactB hbounded hpresentB hruntime; rw [hb] at htmp; simpa using htmp
+        have htmp := ihB hexactB hbounded hpresentB hruntime; rw [hb] at htmp; simpa only [Except.toOption, Option.getD_some] using htmp
       have hEvalC : evalIRExpr state cIR = some (SourceSemantics.evalExpr fields runtime c) := by
-        have htmp := ihC hexactC hbounded hpresentC hruntime; rw [hc] at htmp; simpa using htmp
+        have htmp := ihC hexactC hbounded hpresentC hruntime; rw [hc] at htmp; simpa only [Except.toOption, Option.getD_some] using htmp
       exact eval_compileExpr_mulDivUp_of_compiled ha hb hc
         hEvalA hEvalB hEvalC
         (evalExpr_lt_evmModulus_core_onExpr hA hexactA hbounded hpresentA hruntime)

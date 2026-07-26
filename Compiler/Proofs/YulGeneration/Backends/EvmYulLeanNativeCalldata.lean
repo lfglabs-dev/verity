@@ -45,7 +45,8 @@ theorem readBytes_zero_get?_of_lt_source
           byteArray_get?_append_left hCopySize
     _ = byteArrayGet? source i := by
       simp only [byteArrayGet?, ByteArray.data_copySlice]
-      simp [hiData]
+      rw [Array.getElem?_extract]
+      simp
 
 /-- Reading a 32-byte window preserves every byte that is already present in the
     source window, for offsets accepted by EVMYulLean's optimized
@@ -78,7 +79,8 @@ theorem readBytes_get?_of_lt_source
           byteArray_get?_append_left hCopySize
     _ = byteArrayGet? source (offset + i) := by
       simp only [byteArrayGet?, ByteArray.data_copySlice]
-      simp [hiData]
+      rw [Array.getElem?_extract]
+      simp
 
 /-- Reading the ABI word at calldata offset four preserves each source byte
     already present in that 32-byte argument window. This is the native
@@ -605,7 +607,7 @@ theorem readBytes_zero_32_size (source : ByteArray) :
     norm_num
   simp only [hsmall, ↓reduceIte]
   rw [ByteArray.size_append]
-  simp [ffi.ByteArray.zeroes, ByteArray.size]
+  simp [-ByteArray.size_data, ffi.ByteArray.zeroes, ByteArray.size]
   rw [usize_sub_toNat_of_le_32]
   · omega
   · omega
@@ -620,7 +622,7 @@ theorem readBytes_32_size (source : ByteArray) (offset : Nat)
     simp [hoffset']
   simp only [hsmall, ↓reduceIte]
   rw [ByteArray.size_append]
-  simp [ffi.ByteArray.zeroes, ByteArray.size]
+  simp [-ByteArray.size_data, ffi.ByteArray.zeroes, ByteArray.size]
   rw [usize_sub_toNat_of_le_32]
   · omega
   · omega
@@ -644,8 +646,8 @@ theorem readWithPadding_32_size (source : ByteArray) (addr : Nat) :
       omega
   have hReadLeData :
       (source.readWithoutPadding addr 32).data.size ≤ 32 := by
-    simpa [ByteArray.size] using hReadLe
-  simp [ffi.ByteArray.zeroes, ByteArray.size]
+    simpa [-ByteArray.size_data, ByteArray.size] using hReadLe
+  simp [-ByteArray.size_data, ffi.ByteArray.zeroes, ByteArray.size]
   rw [usize_sub_toNat_of_le_32]
   · omega
   · exact hReadLeData
@@ -660,7 +662,7 @@ private theorem byteArray_extract_zero_32_eq_of_size
     (hSize : source.size = 32) :
     source.extract 0 32 = source := by
   apply ByteArray.ext
-  simp [ByteArray.data_extract, ByteArray.size] at hSize ⊢
+  simp [-ByteArray.size_data, ByteArray.data_extract, ByteArray.size] at hSize ⊢
   rw [hSize]
   simp
 
@@ -678,8 +680,8 @@ private theorem byteArray_readWithPadding_zero_32_eq_of_size
   rw [byteArray_extract_zero_32_eq_of_size source hSize]
   apply ByteArray.ext
   have hDataSize : source.data.size = 32 := by
-    simpa [ByteArray.size] using hSize
-  simp [ByteArray.data_append, ByteArray.size, ffi.ByteArray.zeroes]
+    simpa [-ByteArray.size_data, ByteArray.size] using hSize
+  simp [-ByteArray.size_data, ByteArray.data_append, ByteArray.size, ffi.ByteArray.zeroes]
   rw [usize_sub_toNat_of_le_32]
   · omega
   · omega
@@ -697,7 +699,7 @@ private theorem byteArray_write_empty_zero_32_eq_of_size
   have hDestPadding : 0 - ByteArray.empty.size = 0 := by simp
   simp only [hPractical, hEnd, hDestPadding]
   apply ByteArray.ext
-  simp [ByteArray.data_copySlice, ByteArray.size, ffi.ByteArray.zeroes] at hSize ⊢
+  simp [-ByteArray.size_data, ByteArray.data_copySlice, ByteArray.size, ffi.ByteArray.zeroes] at hSize ⊢
   exact Or.inr (by omega)
 
 /-- A full-word memory write to empty memory at offset zero is returned
@@ -761,17 +763,11 @@ theorem list_toByteArray_data_toList (bytes : List UInt8) :
 
 theorem uint256_toByteArray_size (value : EvmYul.UInt256) :
     value.toByteArray.size = 32 := by
-  have hBytesSize :
-      (EvmYul.toBytesBigEndian value.toNat).toByteArray.data.size =
-        (EvmYul.toBytesBigEndian value.toNat).length := by
-    simpa [ByteArray.size] using
-      list_toByteArray_size (EvmYul.toBytesBigEndian value.toNat)
   have hLen : (EvmYul.toBytesBigEndian value.toNat).length ≤ 32 :=
     toBytesBigEndian_uint256_length_le (n := value.toNat) value.val.isLt
   unfold EvmYul.UInt256.toByteArray BE
   rw [ByteArray.size_append]
-  simp [ffi.ByteArray.zeroes, ByteArray.size]
-  rw [hBytesSize]
+  simp [-ByteArray.size_data, ffi.ByteArray.zeroes, ByteArray.size]
   rw [usize_sub_toNat_of_le_32]
   · omega
   · exact hLen
@@ -811,7 +807,7 @@ theorem initialState_calldataReadWord_arg0Bytes
       have hlen : bytes.data.toList.length = 32 := by
         have hsize := readBytes_offset4_32_size
           (initialState contract tx storage observableSlots).toState.executionEnv.calldata
-        simpa [bytes, ByteArray.size] using hsize
+        simpa [-ByteArray.size_data, bytes, ByteArray.size] using hsize
       exact List.getElem?_eq_none (by omega)
     have hright :
         (List.ofFn (fun i : Fin 32 =>
@@ -859,7 +855,7 @@ theorem initialState_calldataReadWord_argBytes_of_drop_eq_cons
         have hsize := readBytes_32_size
           (initialState contract tx storage observableSlots).toState.executionEnv.calldata
           (4 + 32 * idx) hoffset
-        simpa [bytes, ByteArray.size] using hsize
+        simpa [-ByteArray.size_data, bytes, ByteArray.size] using hsize
       exact List.getElem?_eq_none (by omega)
     have hright :
         (List.ofFn (fun i : Fin 32 =>
@@ -1018,7 +1014,7 @@ theorem initialState_selectorExpr_native_value
   have hlen : bytes.data.toList.length = 32 := by
     have hsize := readBytes_zero_32_size
       (initialState contract tx storage observableSlots).toState.executionEnv.calldata
-    simpa [bytes, ByteArray.size] using hsize
+    simpa [-ByteArray.size_data, bytes, ByteArray.size] using hsize
   have htailLen : (bytes.data.toList.drop 4).length = 28 := by
     simp [hlen]
   unfold EvmYul.State.calldataload EvmYul.uInt256OfByteArray
@@ -1076,7 +1072,7 @@ theorem initialState_selectorExpr_native_uint256
           (EvmYul.UInt256.ofNat 0))
         (EvmYul.UInt256.ofNat Compiler.Constants.selectorShift)) =
       tx.functionSelector % Compiler.Constants.selectorModulus by
-    simpa [EvmYul.Yul.State.toState] using
+    simpa [initialState, EvmYul.Yul.State.toState] using
       initialState_selectorExpr_native_value contract tx storage observableSlots]
   rw [uint256_ofNat_toNat_of_lt]
   have hmod :
