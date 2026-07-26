@@ -4867,15 +4867,24 @@ theorem eval_compileExpr_core_onExpr
         some (SourceSemantics.evalExpr fields runtime expr) := by
   induction hcore generalizing runtime state with
   | literal value =>
-      simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, Except.toOption, Option.getD] using eval_compileExpr_literal fields runtime state value
+      simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals,
+        Except.toOption, Option.getD, Functor.map, Except.map, Bind.bind,
+        Except.bind, Pure.pure, Except.pure] using
+        eval_compileExpr_literal fields runtime state value
   | param name =>
-      simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, Except.toOption, Option.getD] using
+      simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals,
+        Except.toOption, Option.getD, Functor.map, Except.map, Bind.bind,
+        Except.bind, Pure.pure, Except.pure] using
         eval_compileExpr_param_of_expr_bindings name hexact hpresent
   | constructorArg idx =>
-      simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, Except.toOption, Option.getD] using
+      simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals,
+        Except.toOption, Option.getD, Functor.map, Except.map, Bind.bind,
+        Except.bind, Pure.pure, Except.pure] using
         eval_compileExpr_constructorArg_of_expr_bindings idx hexact hpresent
   | localVar name =>
-      simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, Except.toOption, Option.getD] using
+      simpa [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals,
+        Except.toOption, Option.getD, Functor.map, Except.map, Bind.bind,
+        Except.bind, Pure.pure, Except.pure] using
         eval_compileExpr_localVar_of_expr_bindings name hexact hpresent
   | caller =>
       exact eval_compileExpr_caller hruntime
