@@ -6359,6 +6359,10 @@ end Verity.AxiomAudit
   Std.TreeMap.get?_insert_of_eq
   Std.TreeMap.get?_insert_of_ne
   Std.TreeMap.get?_erase_self
+  Std.TreeMap.find?_insert_of_eq
+  Std.TreeMap.find?_insert_of_ne
+  Std.TreeMap.find?_erase_self
+  Std.TreeMap.find?_erase_of_ne
   -- Compiler.Proofs.YulGeneration.Backends.StateBridge.ordering_then_eq  -- private
   -- Compiler.Proofs.YulGeneration.Backends.StateBridge.UInt256_compare_eq_fin  -- private
   Compiler.Proofs.YulGeneration.Backends.StateBridge.UInt256_eq_of_compare_eq
@@ -6395,4 +6399,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5998 theorems/lemmas (4170 public, 1828 private, 0 sorry'd)
+-- Total: 6002 theorems/lemmas (4174 public, 1828 private, 0 sorry'd)
