@@ -81,6 +81,7 @@ theorem readBytes_get?_of_lt_source
       simp only [byteArrayGet?, ByteArray.data_copySlice]
       simp [Array.getElem?_append_left, Array.getElem?_append_right,
         Array.getElem?_extract, hiData, hi32]
+      omega
 
 /-- Reading the ABI word at calldata offset four preserves each source byte
     already present in that 32-byte argument window. This is the native
