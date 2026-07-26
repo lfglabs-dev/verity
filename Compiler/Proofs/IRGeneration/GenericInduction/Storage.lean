@@ -512,31 +512,31 @@ private theorem fieldWriteEntriesAt_alias_mem
     | uint256 =>
         simp [fieldWriteEntriesAt, firstFieldWriteSlotConflict.fieldOccupiedSlots,
           SourceSemantics.wordNormalize]
-        exact Or.inr ⟨_, _, _, _, halias, rfl, rfl, rfl⟩
+        exact Or.inr ⟨slot, aliasIdx, halias, by simp [SourceSemantics.wordNormalize]⟩
     | address =>
         simp [fieldWriteEntriesAt, firstFieldWriteSlotConflict.fieldOccupiedSlots,
           SourceSemantics.wordNormalize]
-        exact Or.inr ⟨_, _, _, _, halias, rfl, rfl, rfl⟩
+        exact Or.inr ⟨slot, aliasIdx, halias, by simp [SourceSemantics.wordNormalize]⟩
     | adt _ maxFields =>
         simp [fieldWriteEntriesAt, firstFieldWriteSlotConflict.fieldOccupiedSlots,
           SourceSemantics.wordNormalize]
-        exact Or.inr ⟨s!"{name}.aliasSlots[{aliasIdx}]", none, slot, aliasIdx, halias, 0, by omega, by simp⟩
+        exact Or.inr ⟨slot, aliasIdx, halias, 0, by simp, by simp [SourceSemantics.wordNormalize]⟩
     | dynamicArray _ =>
         simp [fieldWriteEntriesAt, firstFieldWriteSlotConflict.fieldOccupiedSlots,
           SourceSemantics.wordNormalize]
-        exact Or.inr ⟨_, _, _, _, halias, rfl, rfl, rfl⟩
+        exact Or.inr ⟨slot, aliasIdx, halias, by simp [SourceSemantics.wordNormalize]⟩
     | mappingTyped _ =>
         simp [fieldWriteEntriesAt, firstFieldWriteSlotConflict.fieldOccupiedSlots,
           SourceSemantics.wordNormalize]
-        exact Or.inr ⟨_, _, _, _, halias, rfl, rfl, rfl⟩
+        exact Or.inr ⟨slot, aliasIdx, halias, by simp [SourceSemantics.wordNormalize]⟩
     | mappingStruct _ _ =>
         simp [fieldWriteEntriesAt, firstFieldWriteSlotConflict.fieldOccupiedSlots,
           SourceSemantics.wordNormalize]
-        exact Or.inr ⟨_, _, _, _, halias, rfl, rfl, rfl⟩
+        exact Or.inr ⟨slot, aliasIdx, halias, by simp [SourceSemantics.wordNormalize]⟩
     | mappingStruct2 _ _ _ =>
         simp [fieldWriteEntriesAt, firstFieldWriteSlotConflict.fieldOccupiedSlots,
           SourceSemantics.wordNormalize]
-        exact Or.inr ⟨_, _, _, _, halias, rfl, rfl, rfl⟩
+        exact Or.inr ⟨slot, aliasIdx, halias, by simp [SourceSemantics.wordNormalize]⟩
 
 private theorem fieldWriteEntriesAt_packed_none_of_unpacked
     {idx : Nat} {field : Field} {packed : Option PackedBits}
@@ -1459,7 +1459,8 @@ private theorem runtimeStateMatchesIR_writeAddressSlot
         Verity.Core.Address.modulus, Compiler.Constants.addressMask]
       rw [Nat.mod_eq_of_lt hvalue]
       refine congrArg Compiler.Proofs.IRGeneration.IRStorageWord.ofNat ?_
-      simpa [Compiler.Constants.addressMask, Verity.Core.Address.modulus] using
+      simpa [Compiler.Constants.addressMask, Verity.Core.Address.modulus,
+        Verity.Core.ADDRESS_MODULUS] using
         (Nat.and_two_pow_sub_one_eq_mod (n := 160) value)
     · rw [Compiler.Proofs.abstractStoreStorageOrMapping_eq]
       simp only [hEq, ↓reduceIte]
@@ -1559,7 +1560,8 @@ private theorem runtimeStateMatchesIR_writeUintKeyedMappingSlot
   · subst hEq
     simp only [↓reduceIte]
     exact congrArg Compiler.Proofs.IRGeneration.IRStorageWord.ofNat (by
-        simpa [IRStorageSlot.toNat_ofNat_wordNormalize,
+        simpa [IRStorageSlot.toNat_ofNat_wordNormalize, Compiler.Constants.evmModulus,
+          Verity.Core.UINT256_MODULUS,
           Compiler.Proofs.abstractMappingSlot_eq_solidity,
           SourceSemantics.wordNormalize_idem] using
           (encodeStorageAt_writeUintKeyedMappingSlots_singleton_eq_written
@@ -1644,7 +1646,8 @@ private theorem runtimeStateMatchesIR_writeAddressKeyedMappingChainSlot
       simp only [encodeStorageAtCopy, hresolved, hdyn]
     simp only [hstorage, henc]
     exact congrArg Compiler.Proofs.IRGeneration.IRStorageWord.ofNat (by
-        simpa [IRStorageSlot.toNat_ofNat_wordNormalize,
+        simpa [IRStorageSlot.toNat_ofNat_wordNormalize, Compiler.Constants.evmModulus,
+          Verity.Core.UINT256_MODULUS,
           SourceSemantics.wordNormalize_idem] using
           (encodeStorageAt_writeAddressKeyedMappingChainSlots_singleton_eq_written
             (fields := fields) (world := runtime.world) (slot := slot) (keys := keys)
@@ -1695,7 +1698,8 @@ private theorem runtimeStateMatchesIR_writeAddressKeyedMappingSlot
   · subst hEq
     simp only [↓reduceIte]
     exact congrArg Compiler.Proofs.IRGeneration.IRStorageWord.ofNat (by
-        simpa [IRStorageSlot.toNat_ofNat_wordNormalize,
+        simpa [IRStorageSlot.toNat_ofNat_wordNormalize, Compiler.Constants.evmModulus,
+          Verity.Core.UINT256_MODULUS,
           Compiler.Proofs.abstractMappingSlot_eq_solidity,
           SourceSemantics.wordNormalize_idem] using
           (encodeStorageAt_writeUintKeyedMappingSlots_singleton_eq_written
@@ -1872,7 +1876,8 @@ private theorem runtimeStateMatchesIR_writeAddressKeyedMapping2Slot
     simp only [↓reduceIte]
     rw [Compiler.Proofs.abstractMappingSlot_eq_solidity] at hresolved hdyn
     exact congrArg Compiler.Proofs.IRGeneration.IRStorageWord.ofNat (by
-          simpa [IRStorageSlot.toNat_ofNat_wordNormalize,
+          simpa [IRStorageSlot.toNat_ofNat_wordNormalize, Compiler.Constants.evmModulus,
+            Verity.Core.UINT256_MODULUS,
             Compiler.Proofs.abstractMappingSlot_eq_solidity,
             SourceSemantics.wordNormalize_idem] using
             (encodeStorageAt_writeAddressKeyedMapping2Slots_singleton_eq_written
@@ -2529,7 +2534,8 @@ private theorem compiledStmtStep_setStorageAddr_singleSlot_preserves
         evalIRExpr state
           (YulExpr.call "and" [valueIR, YulExpr.hex Compiler.Constants.addressMask]) =
             some (valueNat &&& Compiler.Constants.addressMask) := by
-      simpa [Nat.mod_eq_of_lt hvalueLt, Compiler.Constants.addressMask] using hMaskedEvalRaw
+      simpa [Nat.mod_eq_of_lt hvalueLt, Compiler.Constants.addressMask,
+        Compiler.Constants.evmModulus, Verity.Core.UINT256_MODULUS] using hMaskedEvalRaw
     set state' := { state with
         storage :=
           Compiler.Proofs.abstractStoreStorageOrMapping state.storage slot
