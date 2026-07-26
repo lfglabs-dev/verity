@@ -95,6 +95,33 @@ theorem get?_erase_self {α β : Type} {cmp : α → α → Ordering} [TransCmp 
   simp only [TreeMap.get?, TreeMap.erase]
   exact DTreeMap.Const.get?_erase_self
 
+/-- The `find?` spelling retained by native bridge proofs, derived from the
+    canonical `TreeMap.get?` lemmas. -/
+theorem find?_insert_of_eq {α β : Type} {cmp : α → α → Ordering} [TransCmp cmp]
+    (m : TreeMap α β cmp) {k k' : α} {v : β} (h : cmp k' k = Ordering.eq) :
+    (m.insert k v).find? k' = some v := by
+  apply get?_insert_of_eq m k k' v
+  exact Std.OrientedCmp.eq_swap h
+
+theorem find?_insert_of_ne {α β : Type} {cmp : α → α → Ordering} [TransCmp cmp]
+    (m : TreeMap α β cmp) {k k' : α} {v : β} (h : cmp k' k ≠ Ordering.eq) :
+    (m.insert k v).find? k' = m.find? k' := by
+  apply get?_insert_of_ne m k k' v
+  intro hEq
+  exact h (Std.OrientedCmp.eq_swap hEq)
+
+theorem find?_erase_self {α β : Type} {cmp : α → α → Ordering} [TransCmp cmp]
+    (m : TreeMap α β cmp) (k : α) :
+    (m.erase k).find? k = none :=
+  get?_erase_self m k
+
+theorem find?_erase_of_ne {α β : Type} {cmp : α → α → Ordering} [TransCmp cmp]
+    (m : TreeMap α β cmp) {k k' : α} (h : cmp k' k ≠ Ordering.eq) :
+    (m.erase k).find? k' = m.find? k' := by
+  simp only [find?, TreeMap.get?, TreeMap.erase, DTreeMap.Const.get?_erase]
+  have h' : cmp k k' ≠ Ordering.eq := fun hEq => h (Std.OrientedCmp.eq_swap hEq)
+  simp [h']
+
 end Std.TreeMap
 
 namespace Compiler.Proofs.YulGeneration.Backends.StateBridge
@@ -673,21 +700,29 @@ theorem foldl_insert_preserves_find_projected_value
         rw [Std.TreeMap.get?_insert_of_ne acc (natToUInt256 hd) (natToUInt256 slot) (toEvmUInt256 (storage (IRStorageSlot.ofNat hd))) hne]
         exact hAcc
 
-/-- Helper: after folding a suffix of Nat slots into an accumulator, if `slot`
-    appears in that suffix, then the accumulated projected map contains the
-    bounded value for `slot`.
-
-    The range hypothesis is required for the TreeMap orientation proof
-    (mechanical 4.31 adjustment; no semantic change). -/
+/-- Helper: after folding projected Nat slots, an observed slot retains its
+    bounded IR value. Nat aliases denote the same `IRStorageSlot`, so this
+    intentionally needs no range hypothesis. -/
 theorem foldl_insert_find_projected (storage : IRStorageSlot → IRStorageWord)
     (slots : List Nat) (slot : Nat) (hSlot : slot ∈ slots)
-    (hRange : ∀ s ∈ slots, s < UInt256.size)
     (acc : EvmYul.Storage) :
     (slots.foldl (fun m s =>
         m.insert (natToUInt256 s)
           (toEvmUInt256 (storage (IRStorageSlot.ofNat s)))) acc).get? (natToUInt256 slot) =
         some (toEvmUInt256 (storage (IRStorageSlot.ofNat slot))) := by
-  exact foldl_insert_find storage slots slot hSlot hRange acc
+  induction slots generalizing acc with
+  | nil => exact absurd hSlot List.not_mem_nil
+  | cons hd tl ih =>
+      simp only [List.foldl_cons]
+      cases List.mem_cons.mp hSlot with
+      | inl hEq =>
+          subst hEq
+          apply foldl_insert_preserves_find_projected_value storage tl slot
+          rw [Std.TreeMap.get?_insert_of_eq acc (natToUInt256 slot)
+            (natToUInt256 slot)
+            (toEvmUInt256 (storage (IRStorageSlot.ofNat slot)))
+            Std.ReflCmp.compare_self]
+      | inr hMem => exact ih hMem _
 
 /-- Storage lookup commutes: reading a slot from the projected storage
     yields the same value as reading it from Verity's storage function.
@@ -711,14 +746,17 @@ theorem storageLookup_projectStorage (storage : IRStorageSlot → IRStorageWord)
   simp only [hget]
   rfl
 
-/-- Range-free storage lookup for projected bounded IR storage (requires range). -/
+/-- Range-free storage lookup for projected bounded IR storage. -/
 theorem storageLookup_projectStorage_projected
     (storage : IRStorageSlot → IRStorageWord)
-    (slots : List Nat) (slot : Nat) (hSlot : slot ∈ slots)
-    (hRange : ∀ s ∈ slots, s < UInt256.size) :
+    (slots : List Nat) (slot : Nat) (hSlot : slot ∈ slots) :
     storageLookup (projectStorage storage slots) (natToUInt256 slot) =
       storage (IRStorageSlot.ofNat slot) := by
-  exact storageLookup_projectStorage storage slots slot hSlot hRange
+  have hget := foldl_insert_find_projected storage slots slot hSlot
+    (Std.TreeMap.empty : EvmYul.Storage)
+  unfold storageLookup projectStorage
+  simp only [hget]
+  rfl
 
 /-- Nat→UInt256→Nat round-trip for values in range.
     Proof: `ofNat n = ⟨Fin.ofNat _ n⟩ = ⟨⟨n % size, _⟩⟩`, and

@@ -10,6 +10,10 @@ open Lean Elab Tactic Meta
 open Compiler.Proofs.IRGeneration
   (IRResult IRState IRStorageSlot IRStorageWord IRTransaction)
 
+/-- Lean 4.31 exposes optional byte-array access through its backing array. -/
+private def byteArrayGet? (a : ByteArray) (i : Nat) : Option UInt8 :=
+  a.data[i]?
+
 /-- Native evaluation of the lowered generated selector expression peels to
     exactly EVMYulLean `calldataload(0)` followed by `shr(224, ...)`. -/
 theorem eval_lowerExprNative_selectorExpr_ok
@@ -17659,8 +17663,8 @@ theorem initialState_observableStorageSlot
       storage (IRStorageSlot.ofNat slot) := by
   simp only [projectStorageFromState, extractStorage, initialState,
     EvmYul.Yul.State.sharedState, YulState.initial, toSharedState]
-  rw [Batteries.RBMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
-  rw [Batteries.RBMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
+  rw [Std.TreeMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
+  rw [Std.TreeMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
   have h := storageLookup_projectStorage storage observableSlots slot hSlot hRange
   unfold storageLookup at h
   exact h
@@ -17681,8 +17685,8 @@ theorem initialState_materializedStorageSlot
       storage (IRStorageSlot.ofNat slot) := by
   simp only [projectStorageFromState, extractStorage, initialState,
     EvmYul.Yul.State.sharedState, YulState.initial, toSharedState]
-  rw [Batteries.RBMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
-  rw [Batteries.RBMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
+  rw [Std.TreeMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
+  rw [Std.TreeMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
   have h := storageLookup_projectStorage_projected storage slots slot hSlot
   unfold storageLookup at h
   exact h
@@ -17753,12 +17757,12 @@ theorem initialState_sload_observableSlot_value
         some (storage (IRStorageSlot.ofNat slot)) := by
     simpa [projectStorage, IRStorageWord.toUInt256] using
       foldl_insert_find storage observableSlots slot hSlot hRange
-        (Batteries.RBMap.empty : EvmYul.Storage)
+        (Std.TreeMap.empty : EvmYul.Storage)
   simp only [EvmYul.State.sload, EvmYul.State.lookupAccount,
     EvmYul.Yul.State.toState, initialState, toSharedState, YulState.initial]
-  rw [Batteries.RBMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
-  rw [Batteries.RBMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
-  change (Batteries.RBMap.find? (projectStorage storage observableSlots)
+  rw [Std.TreeMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
+  rw [Std.TreeMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
+  change (Std.TreeMap.find? (projectStorage storage observableSlots)
       (natToUInt256 slot)).getD ⟨0⟩ = storage (IRStorageSlot.ofNat slot)
   rw [hFindStorage]
   rfl
@@ -17783,12 +17787,12 @@ theorem initialState_sload_materializedSlot_value
         some (storage (IRStorageSlot.ofNat slot)) := by
     simpa [projectStorage, IRStorageWord.toUInt256] using
       foldl_insert_find_projected storage slots slot hSlot
-        (Batteries.RBMap.empty : EvmYul.Storage)
+        (Std.TreeMap.empty : EvmYul.Storage)
   simp only [EvmYul.State.sload, EvmYul.State.lookupAccount,
     EvmYul.Yul.State.toState, initialState, toSharedState, YulState.initial]
-  rw [Batteries.RBMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
-  rw [Batteries.RBMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
-  change (Batteries.RBMap.find? (projectStorage storage slots)
+  rw [Std.TreeMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
+  rw [Std.TreeMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
+  change (Std.TreeMap.find? (projectStorage storage slots)
       (natToUInt256 slot)).getD ⟨0⟩ = storage (IRStorageSlot.ofNat slot)
   rw [hFindStorage]
   rfl
@@ -17829,8 +17833,8 @@ theorem projectStorageFromState_retrieveHit_initialState_materialized
   simp only [projectStorageFromState, extractStorage,
     EvmYul.Yul.State.sharedState, hAccountMap, initialState, YulState.initial,
     toSharedState]
-  rw [Batteries.RBMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
-  rw [Batteries.RBMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
+  rw [Std.TreeMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
+  rw [Std.TreeMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
   have h := storageLookup_projectStorage_projected storage slots slot hSlot
   unfold storageLookup at h
   exact h
@@ -17855,12 +17859,12 @@ theorem initialState_sload_omittedSlot_value
       (projectStorage storage observableSlots).find? (natToUInt256 slot) = none := by
     simpa [projectStorage] using
       foldl_insert_find_not_mem storage observableSlots slot hNotSlot hRange
-        hSlotRange (Batteries.RBMap.empty : EvmYul.Storage)
+        hSlotRange (Std.TreeMap.empty : EvmYul.Storage)
   simp only [EvmYul.State.sload, EvmYul.State.lookupAccount,
     EvmYul.Yul.State.toState, initialState, toSharedState, YulState.initial]
-  rw [Batteries.RBMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
-  rw [Batteries.RBMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
-  change (Batteries.RBMap.find? (projectStorage storage observableSlots)
+  rw [Std.TreeMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
+  rw [Std.TreeMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
+  change (Std.TreeMap.find? (projectStorage storage observableSlots)
       (natToUInt256 slot)).getD ⟨0⟩ = natToUInt256 0
   rw [hFindStorage]
   rfl
@@ -18288,11 +18292,11 @@ theorem initialState_omittedStorageSlot
       (initialState contract tx storage observableSlots) (IRStorageSlot.ofNat slot) = 0 := by
   simp only [projectStorageFromState, extractStorage, initialState,
     EvmYul.Yul.State.sharedState, YulState.initial, toSharedState]
-  rw [Batteries.RBMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
-  rw [Batteries.RBMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
+  rw [Std.TreeMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
+  rw [Std.TreeMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
   simp only
   have h := foldl_insert_find_not_mem storage observableSlots slot hNotSlot
-    hRange hSlotRange (Batteries.RBMap.empty : EvmYul.Storage)
+    hRange hSlotRange (Std.TreeMap.empty : EvmYul.Storage)
   have hNone :
       (projectStorage storage observableSlots).find? (natToUInt256 slot) = none := by
     simpa [projectStorage] using h
@@ -18301,7 +18305,7 @@ theorem initialState_omittedStorageSlot
 /-- Decode one 32-byte big-endian word from an EVMYulLean byte array. -/
 def byteArrayWord (bytes : ByteArray) (offset : Nat) : Nat :=
   (List.range 32).foldl
-    (fun acc i => (acc * 256 + ((bytes.get? (offset + i)).getD 0).toNat) %
+    (fun acc i => (acc * 256 + ((byteArrayGet? bytes (offset + i)).getD 0).toNat) %
       Compiler.Constants.evmModulus)
     0
 
@@ -18389,17 +18393,8 @@ private theorem listByteArrayWordMod_eq_noMod
       rw [Nat.mod_eq_of_lt hNoMod]
 
 private theorem byteArray_get?_data_toList (bytes : ByteArray) (i : Nat) :
-    bytes.get? i = bytes.data.toList[i]? := by
-  unfold ByteArray.get?
-  split
-  · rw [Array.getElem?_toList]
-    simp [ByteArray.get]
-  · rename_i h
-    have hlen : bytes.data.toList.length ≤ i := by
-      simp [ByteArray.size] at h
-      simpa using h
-    have hnone : bytes.data.toList[i]? = none := List.getElem?_eq_none hlen
-    exact hnone.symm
+    byteArrayGet? bytes i = bytes.data.toList[i]? := by
+  simp [byteArrayGet?, Array.getElem?_toList]
 
 theorem byteArrayWord_eq_fromBytes'_reverse_of_size
     (bytes : ByteArray)
@@ -18410,7 +18405,7 @@ theorem byteArrayWord_eq_fromBytes'_reverse_of_size
   unfold byteArrayWord
   rw [show
       List.foldl
-          (fun acc i => (acc * 256 + ((bytes.get? (0 + i)).getD 0).toNat) %
+          (fun acc i => (acc * 256 + ((byteArrayGet? bytes (0 + i)).getD 0).toNat) %
             Compiler.Constants.evmModulus)
           0 (List.range 32) =
         listByteArrayWordMod bytes.data.toList 32 by
@@ -19164,7 +19159,7 @@ theorem primCall_sstore_initialState_wordSlot_projectResult_slot
           false := by
       simpa [natToUInt256, EvmYul.UInt256.instInhabited] using hValueNonzero
     rw [hBranch]
-    simp [Option.option, Batteries.RBMap.find?_insert_of_eq _
+    simp [Option.option, Std.TreeMap.find?_insert_of_eq _
       Std.ReflCmp.compare_self]
 
 /-- Native primitive execution of `sstore(slot, 0)` on a word-canonical
@@ -19210,10 +19205,10 @@ theorem primCall_sstore_initialState_wordSlot_projectResult_slot_zero_of_erase
       simpa [natToUInt256, EvmYul.UInt256.instInhabited] using hValueZero
     rw [hBranch]
     have hErase :
-        (Batteries.RBMap.erase (projectStorage storage observableSlots)
+        (Std.TreeMap.erase (projectStorage storage observableSlots)
           (natToUInt256 slot)).find? (natToUInt256 slot) = none :=
-      Batteries.RBMap.find?_erase_self _ _
-    simp [Option.option, Batteries.RBMap.find?_insert_of_eq _
+      Std.TreeMap.find?_erase_self _ _
+    simp [Option.option, Std.TreeMap.find?_insert_of_eq _
       Std.ReflCmp.compare_self, IRStorageSlot.toUInt256, IRStorageSlot.ofNat, hErase]
 
 /-- Native primitive execution of `sstore(slot, 0)` on a word-canonical
@@ -19283,7 +19278,7 @@ theorem primCall_sstore_initialState_wordSlot_withStore_projectResult_slot
           false := by
       simpa [natToUInt256, EvmYul.UInt256.instInhabited] using hValueNonzero
     rw [hBranch]
-    simp [Option.option, Batteries.RBMap.find?_insert_of_eq _
+    simp [Option.option, Std.TreeMap.find?_insert_of_eq _
       Std.ReflCmp.compare_self]
 
 /-- Native primitive execution of `sstore(slot, 0)` from an initial runtime
@@ -19329,10 +19324,10 @@ theorem primCall_sstore_initialState_wordSlot_withStore_projectResult_slot_zero_
       simpa [natToUInt256, EvmYul.UInt256.instInhabited] using hValueZero
     rw [hBranch]
     have hErase :
-        (Batteries.RBMap.erase (projectStorage storage observableSlots)
+        (Std.TreeMap.erase (projectStorage storage observableSlots)
           (natToUInt256 slot)).find? (natToUInt256 slot) = none :=
-      Batteries.RBMap.find?_erase_self _ _
-    simp [Option.option, Batteries.RBMap.find?_insert_of_eq _
+      Std.TreeMap.find?_erase_self _ _
+    simp [Option.option, Std.TreeMap.find?_insert_of_eq _
       Std.ReflCmp.compare_self, IRStorageSlot.toUInt256, IRStorageSlot.ofNat, hErase]
 
 /-- Native primitive execution of `sstore(slot, 0)` from an arbitrary local
@@ -19697,7 +19692,7 @@ theorem primCall_calldataload4_then_sstore0_stop_initialState_arg0_withStore_pro
           false := by
       simpa [natToUInt256, EvmYul.UInt256.instInhabited] using hValueNonzero
     rw [hBranch]
-    simp [Option.option, Batteries.RBMap.find?_insert_of_eq _
+    simp [Option.option, Std.TreeMap.find?_insert_of_eq _
       Std.ReflCmp.compare_self]
 
 /-- Zero-write storage projection for the full generated `store(uint256)`
@@ -19746,10 +19741,10 @@ theorem primCall_calldataload4_then_sstore0_stop_initialState_arg0_withStore_pro
       simpa [natToUInt256, EvmYul.UInt256.instInhabited] using hValueZero
     rw [hBranch]
     have hErase :
-        (Batteries.RBMap.erase (projectStorage storage observableSlots)
+        (Std.TreeMap.erase (projectStorage storage observableSlots)
           (EvmYul.UInt256.ofNat 0)).find? (EvmYul.UInt256.ofNat 0) = none :=
-      Batteries.RBMap.find?_erase_self _ _
-    simp [Option.option, Batteries.RBMap.find?_insert_of_eq _
+      Std.TreeMap.find?_erase_self _ _
+    simp [Option.option, Std.TreeMap.find?_insert_of_eq _
       Std.ReflCmp.compare_self, IRStorageSlot.toUInt256, IRStorageSlot.ofNat, hErase]
 
 /-- Zero-write storage projection for the full generated `store(uint256)`
@@ -19853,7 +19848,7 @@ theorem primCall_calldataload4_then_sstore0_stop_initialState_arg0_projectResult
           false := by
       simpa [natToUInt256, EvmYul.UInt256.instInhabited] using hValueNonzero
     rw [hBranch]
-    simp [Option.option, Batteries.RBMap.find?_insert_of_eq _
+    simp [Option.option, Std.TreeMap.find?_insert_of_eq _
       Std.ReflCmp.compare_self]
 
 /-- Zero-write storage projection for the full generated `store(uint256)` selected
@@ -19899,10 +19894,10 @@ theorem primCall_calldataload4_then_sstore0_stop_initialState_arg0_projectResult
       simpa [natToUInt256, EvmYul.UInt256.instInhabited] using hValueZero
     rw [hBranch]
     have hErase :
-        (Batteries.RBMap.erase (projectStorage storage observableSlots)
+        (Std.TreeMap.erase (projectStorage storage observableSlots)
           (EvmYul.UInt256.ofNat 0)).find? (EvmYul.UInt256.ofNat 0) = none :=
-      Batteries.RBMap.find?_erase_self _ _
-    simp [Option.option, Batteries.RBMap.find?_insert_of_eq _
+      Std.TreeMap.find?_erase_self _ _
+    simp [Option.option, Std.TreeMap.find?_insert_of_eq _
       Std.ReflCmp.compare_self, IRStorageSlot.toUInt256, IRStorageSlot.ofNat, hErase]
 
 /-- Zero-write storage projection for the full generated `store(uint256)` selected
@@ -19975,7 +19970,7 @@ theorem primCall_calldataload4_then_sstore0_initialState_arg0_projectResult_slot
           false := by
       simpa [natToUInt256, EvmYul.UInt256.instInhabited] using hValueNonzero
     rw [hBranch]
-    simp [Option.option, Batteries.RBMap.find?_insert_of_eq _
+    simp [Option.option, Std.TreeMap.find?_insert_of_eq _
       Std.ReflCmp.compare_self]
 
 /-- Zero `sstore` projection, with the remaining RBMap erasure fact isolated. -/
@@ -20022,10 +20017,10 @@ theorem primCall_calldataload4_then_sstore0_initialState_arg0_projectResult_slot
       simpa [natToUInt256, EvmYul.UInt256.instInhabited] using hValueZero
     rw [hBranch]
     have hErase :
-        (Batteries.RBMap.erase (projectStorage storage observableSlots)
+        (Std.TreeMap.erase (projectStorage storage observableSlots)
           (EvmYul.UInt256.ofNat 0)).find? (EvmYul.UInt256.ofNat 0) = none :=
-      Batteries.RBMap.find?_erase_self _ _
-    simp [Option.option, Batteries.RBMap.find?_insert_of_eq _
+      Std.TreeMap.find?_erase_self _ _
+    simp [Option.option, Std.TreeMap.find?_insert_of_eq _
       Std.ReflCmp.compare_self, IRStorageSlot.toUInt256, IRStorageSlot.ofNat, hErase]
 
 /-- Zero `sstore` projection with empty observable-slot materialization. -/
