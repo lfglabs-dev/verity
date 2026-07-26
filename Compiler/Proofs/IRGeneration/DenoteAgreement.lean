@@ -190,10 +190,12 @@ theorem storageRel_step {cur : Nat → Nat} {CUR : IRStorageSlot → IRStorageWo
     constructor
     · intro hn
       apply IRStorageSlot.eq_of_toNat_eq
-      simpa [SourceSemantics.UInt256_size_eq_UINT256_MODULUS] using hn
+      simpa [SourceSemantics.wordNormalize_eq_mod,
+        SourceSemantics.UInt256_size_eq_UINT256_MODULUS] using hn
     · intro hn
       have := congrArg IRStorageSlot.toNat hn
-      simpa [SourceSemantics.UInt256_size_eq_UINT256_MODULUS] using this
+      simpa [SourceSemantics.wordNormalize_eq_mod,
+        SourceSemantics.UInt256_size_eq_UINT256_MODULUS] using this
   by_cases hc : Denote.wordNormalize n =
       Denote.wordNormalize (sourceOracle.mappingSlot base k)
   · rw [if_pos hc, if_pos (hcond.mp hc)]

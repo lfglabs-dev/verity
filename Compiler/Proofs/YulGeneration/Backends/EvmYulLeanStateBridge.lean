@@ -686,7 +686,7 @@ theorem foldl_insert_find_projected (storage : IRStorageSlot → IRStorageWord)
     (acc : EvmYul.Storage) :
     (slots.foldl (fun m s =>
         m.insert (natToUInt256 s)
-          (toEvmUInt256 (storage (IRStorageSlot.ofNat s)))) acc).get? (natToUInt256 slot) =
+          (toEvmUInt256 (storage (IRStorageSlot.ofNat s)))) acc).find? (natToUInt256 slot) =
         some (toEvmUInt256 (storage (IRStorageSlot.ofNat slot))) := by
   induction slots generalizing acc with
   | nil => exact absurd hSlot List.not_mem_nil
