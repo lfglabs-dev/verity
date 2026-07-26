@@ -159,7 +159,8 @@ private theorem IRStorageSlot.ne_toNat_wordNormalize_of_ne_ofNat
   intro h
   apply hneq
   apply IRStorageSlot.eq_of_toNat_eq
-  simpa [IRStorageSlot.toNat_ofNat_wordNormalize] using h
+  simpa [IRStorageSlot.toNat_ofNat_wordNormalize, Compiler.Constants.evmModulus,
+    Verity.Core.UINT256_MODULUS] using h
 
 private theorem IRStorageSlot.ne_toNat_of_ne_ofNat_of_lt
     {query : IRStorageSlot} {slot : Nat}
@@ -1356,7 +1357,8 @@ private theorem runtimeStateMatchesIR_writeUintSlot
       rw [Compiler.Proofs.abstractStoreStorageOrMapping_eq]
       have hresolved' :
           findResolvedFieldAtSlotCopy fields (IRStorageSlot.ofNat slot).toNat = some f := by
-        simpa [IRStorageSlot.toNat_ofNat_wordNormalize] using
+        simpa [IRStorageSlot.toNat_ofNat_wordNormalize, Compiler.Constants.evmModulus,
+          Verity.Core.UINT256_MODULUS] using
           (show findResolvedFieldAtSlotCopy fields (SourceSemantics.wordNormalize slot) = some f from
             by rw [findResolvedFieldAtSlotCopy_wordNormalize]; exact hresolved)
       rw [encodeStorageAt_eq_storage_of_resolvedSlot hresolved' hnotAddr hnotDyn]
@@ -1397,7 +1399,8 @@ private theorem runtimeStateMatchesIR_writeStorageWordSlot_zeroOffset
       rw [Compiler.Proofs.abstractStoreStorageOrMapping_eq]
       have hresolved' :
           findResolvedFieldAtSlotCopy fields (IRStorageSlot.ofNat slot).toNat = some f := by
-        simpa [IRStorageSlot.toNat_ofNat_wordNormalize] using
+        simpa [IRStorageSlot.toNat_ofNat_wordNormalize, Compiler.Constants.evmModulus,
+          Verity.Core.UINT256_MODULUS] using
           (show findResolvedFieldAtSlotCopy fields (SourceSemantics.wordNormalize slot) = some f from
             by rw [findResolvedFieldAtSlotCopy_wordNormalize]; exact hresolved)
       rw [encodeStorageAt_eq_storage_of_resolvedSlot hresolved' hnotAddr hnotDyn]
@@ -1444,7 +1447,8 @@ private theorem runtimeStateMatchesIR_writeAddressSlot
       rw [Compiler.Proofs.abstractStoreStorageOrMapping_eq]
       have hresolved' :
           findResolvedFieldAtSlotCopy fields (IRStorageSlot.ofNat slot).toNat = some f := by
-        simpa [IRStorageSlot.toNat_ofNat_wordNormalize] using
+        simpa [IRStorageSlot.toNat_ofNat_wordNormalize, Compiler.Constants.evmModulus,
+          Verity.Core.UINT256_MODULUS] using
           (show findResolvedFieldAtSlotCopy fields (SourceSemantics.wordNormalize slot) = some f from
             by rw [findResolvedFieldAtSlotCopy_wordNormalize]; exact hresolved)
       rw [encodeStorageAt_eq_storageAddr_of_resolvedSlot hresolved' haddr hnotDyn]
@@ -1497,7 +1501,8 @@ private theorem runtimeStateMatchesIR_writeUintSlots
         rcases hmem with ⟨slot, hslotMem, rfl⟩
         have hresolved' :
             findResolvedFieldAtSlotCopy fields (IRStorageSlot.ofNat slot).toNat = some f := by
-          simpa [IRStorageSlot.toNat_ofNat_wordNormalize] using
+          simpa [IRStorageSlot.toNat_ofNat_wordNormalize, Compiler.Constants.evmModulus,
+            Verity.Core.UINT256_MODULUS] using
             (show findResolvedFieldAtSlotCopy fields (SourceSemantics.wordNormalize slot) = some f from
               by rw [findResolvedFieldAtSlotCopy_wordNormalize]; exact hresolved slot hslotMem)
         rw [encodeStorageAt_eq_storage_of_resolvedSlot hresolved' hnotAddr hnotDyn]
@@ -1523,7 +1528,8 @@ private theorem runtimeStateMatchesIR_writeUintSlots
           rcases List.mem_map.mp hq with ⟨slot, hslotMem, hslotEq⟩
           apply hmem
           exact ⟨slot, hslotMem, IRStorageSlot.eq_of_toNat_eq (by
-            simpa [IRStorageSlot.toNat_ofNat_wordNormalize] using hslotEq.symm)⟩
+            simpa [IRStorageSlot.toNat_ofNat_wordNormalize, Compiler.Constants.evmModulus,
+              Verity.Core.UINT256_MODULUS] using hslotEq.symm)⟩
         exact congrArg Compiler.Proofs.IRGeneration.IRStorageWord.ofNat
           (encodeStorageAt_writeUintSlots_other hnotMem).symm
 
@@ -6932,7 +6938,8 @@ private theorem compiledStmtStep_letStorageField
     have hresolved' :
           findResolvedFieldAtSlotCopy fields (IRStorageSlot.ofNat slot).toNat =
             some { name := fieldName, ty := FieldType.uint256 } := by
-        simpa [IRStorageSlot.toNat_ofNat_wordNormalize] using
+        simpa [IRStorageSlot.toNat_ofNat_wordNormalize, Compiler.Constants.evmModulus,
+          Verity.Core.UINT256_MODULUS] using
           (show findResolvedFieldAtSlotCopy fields (SourceSemantics.wordNormalize slot) =
               some { name := fieldName, ty := FieldType.uint256 } from
             by rw [findResolvedFieldAtSlotCopy_wordNormalize]; exact hresolved)
@@ -7015,7 +7022,8 @@ private theorem compiledStmtStep_letStorageAddrField
     have hresolved' :
           findResolvedFieldAtSlotCopy fields (IRStorageSlot.ofNat slot).toNat =
             some { name := fieldName, ty := FieldType.address } := by
-        simpa [IRStorageSlot.toNat_ofNat_wordNormalize] using
+        simpa [IRStorageSlot.toNat_ofNat_wordNormalize, Compiler.Constants.evmModulus,
+          Verity.Core.UINT256_MODULUS] using
           (show findResolvedFieldAtSlotCopy fields (SourceSemantics.wordNormalize slot) =
               some { name := fieldName, ty := FieldType.address } from
             by rw [findResolvedFieldAtSlotCopy_wordNormalize]; exact hresolved)
@@ -7095,7 +7103,8 @@ private theorem compiledStmtStep_assignStorageField
     have hresolved' :
           findResolvedFieldAtSlotCopy fields (IRStorageSlot.ofNat slot).toNat =
             some { name := fieldName, ty := FieldType.uint256 } := by
-        simpa [IRStorageSlot.toNat_ofNat_wordNormalize] using
+        simpa [IRStorageSlot.toNat_ofNat_wordNormalize, Compiler.Constants.evmModulus,
+          Verity.Core.UINT256_MODULUS] using
           (show findResolvedFieldAtSlotCopy fields (SourceSemantics.wordNormalize slot) =
               some { name := fieldName, ty := FieldType.uint256 } from
             by rw [findResolvedFieldAtSlotCopy_wordNormalize]; exact hresolved)
@@ -7179,7 +7188,8 @@ private theorem compiledStmtStep_assignStorageAddrField
     have hresolved' :
           findResolvedFieldAtSlotCopy fields (IRStorageSlot.ofNat slot).toNat =
             some { name := fieldName, ty := FieldType.address } := by
-        simpa [IRStorageSlot.toNat_ofNat_wordNormalize] using
+        simpa [IRStorageSlot.toNat_ofNat_wordNormalize, Compiler.Constants.evmModulus,
+          Verity.Core.UINT256_MODULUS] using
           (show findResolvedFieldAtSlotCopy fields (SourceSemantics.wordNormalize slot) =
               some { name := fieldName, ty := FieldType.address } from
             by rw [findResolvedFieldAtSlotCopy_wordNormalize]; exact hresolved)
