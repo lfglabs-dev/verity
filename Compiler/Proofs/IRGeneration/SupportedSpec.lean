@@ -3033,7 +3033,7 @@ theorem SupportedConstructor.stmtList_ctorBody
     SupportedStmtList spec.fields (constructorBodyScope ctor.params) ctor.body := by
   change SupportedStmtList spec.fields
     (constructorArgAliasNames ctor.params ++ ctor.params.map (·.name)) ctor.body
-  exact hSupported.body.stmtList
+  simpa [constructorAsFunctionSpec] using hSupported.body.stmtList
 
 /-- Whole-contract invariants that should remain global preconditions for the
 current generic theorem, independent of feature-local proof interfaces. -/

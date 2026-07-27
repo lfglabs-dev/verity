@@ -20277,7 +20277,7 @@ theorem primCall_sload0_then_mstore0_return32_initialState_projectResult_returnV
           (storage 0) hMemory with
         ⟨haltState, haltValue, hExec, hReturn⟩
       refine ⟨haltState, haltValue, ?_, ?_⟩
-      · simpa [sharedAfterLoad] using hExec
+      · simpa [sharedAfterLoad, initialState] using hExec
       · convert hReturn using 1 <;>
           norm_num [natToUInt256, EvmYul.UInt256.toNat, uint256ToNat]
 
@@ -20322,8 +20322,9 @@ theorem primCall_sload0_then_mstore0_return32_initialState_omittedSlot_projectRe
           (natToUInt256 0) hMemory with
         ⟨haltState, haltValue, hExec, hReturn⟩
       refine ⟨haltState, haltValue, ?_, ?_⟩
-      · simpa [sharedAfterLoad] using hExec
-      · simpa [natToUInt256, EvmYul.UInt256.toNat, uint256ToNat] using hReturn
+      · simpa [sharedAfterLoad, initialState] using hExec
+      · convert hReturn using 1 <;>
+          norm_num [natToUInt256, EvmYul.UInt256.toNat, uint256ToNat]
 
 /-- Native primitive execution of the generated `retrieve()` scalar-return core,
     with the slot-zero materialization split discharged internally.
@@ -20413,7 +20414,7 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_projectResu
         ⟨haltState, haltValue, hExec, hReturn⟩
       refine ⟨haltState, haltValue, ?_, ?_⟩
       · convert hExec using 1 <;>
-          simp [sharedAfterLoad, initialWithStore]
+          simp [sharedAfterLoad, initialWithStore, initialState]
       · convert hReturn using 1 <;>
           simp [natToUInt256, EvmYul.UInt256.toNat, uint256ToNat]
 
@@ -20462,7 +20463,7 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_omittedSlot
         ⟨haltState, haltValue, hExec, hReturn⟩
       refine ⟨haltState, haltValue, ?_, ?_⟩
       · convert hExec using 1 <;>
-          simp [sharedAfterLoad, initialWithStore]
+          simp [sharedAfterLoad, initialWithStore, initialState]
       · convert hReturn using 1 <;>
           norm_num [natToUInt256, EvmYul.UInt256.toNat, uint256ToNat]
 
@@ -20946,7 +20947,7 @@ theorem exec_lowerNativeSwitchBlock_selector_find_hit_error_store_projectResult_
     observableSlots store err hSelector hFind hSelectorRange hTagsRange
     (by
       intro pre suffix hCases
-      simpa [nativeSwitchStorePrefixStateForId,
+      simpa [initialState, nativeSwitchStorePrefixStateForId,
         nativeSwitchStoreMarkedPrefixStateForId]
         using hBody pre suffix hCases)
 
