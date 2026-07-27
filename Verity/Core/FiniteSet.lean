@@ -257,7 +257,8 @@ def contains (addr : Address) (s : FiniteAddressSet) : Bool :=
 
 @[simp] theorem mem_insert (a b : Address) (s : FiniteAddressSet) :
     a ∈ s.insert b ↔ a = b ∨ a ∈ s := by
-  simpa [FiniteAddressSet.mem] using FiniteSet.mem_elements_insert a b s.addresses
+  change a ∈ (FiniteSet.insert b s.addresses).elements ↔ a = b ∨ a ∈ s.addresses.elements
+  exact FiniteSet.mem_elements_insert a b s.addresses
 
 @[simp] theorem contains_eq_true (addr : Address) (s : FiniteAddressSet) :
     s.contains addr = true ↔ addr ∈ s := by
@@ -358,7 +359,8 @@ def contains (n : Nat) (s : FiniteNatSet) : Bool :=
 
 @[simp] theorem mem_insert (a b : Nat) (s : FiniteNatSet) :
     a ∈ s.insert b ↔ a = b ∨ a ∈ s := by
-  simpa [FiniteNatSet.mem] using FiniteSet.mem_elements_insert a b s.nats
+  change a ∈ (FiniteSet.insert b s.nats).elements ↔ a = b ∨ a ∈ s.nats.elements
+  exact FiniteSet.mem_elements_insert a b s.nats
 
 @[simp] theorem contains_eq_true (n : Nat) (s : FiniteNatSet) :
     s.contains n = true ↔ n ∈ s := by
