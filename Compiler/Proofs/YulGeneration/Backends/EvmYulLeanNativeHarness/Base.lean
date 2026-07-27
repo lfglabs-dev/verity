@@ -682,7 +682,7 @@ theorem exec_let_lowerExprNative_iszero_lt_calldatasize_4_initialState_ok
     (tx : YulTransaction)
     (storage : IRStorageSlot → IRStorageWord)
     (observableSlots : List Nat)
-    (name : String)
+    (name : EvmYul.Identifier)
     (hNoWrap : 4 + tx.args.length * 32 < EvmYul.UInt256.size) :
     EvmYul.Yul.exec 11
         (.Let [name]
@@ -737,7 +737,7 @@ theorem exec_let_lowerExprNative_iszero_lt_calldatasize_4_initialState_ok_fuel
     (tx : YulTransaction)
     (storage : IRStorageSlot → IRStorageWord)
     (observableSlots : List Nat)
-    (name : String)
+    (name : EvmYul.Identifier)
     (hNoWrap : 4 + tx.args.length * 32 < EvmYul.UInt256.size) :
     EvmYul.Yul.exec (fuel + 11)
         (.Let [name]
@@ -763,7 +763,7 @@ theorem exec_let_lowerExprNative_iszero_lt_calldatasize_4_initialState_ok_fuel
 theorem eval_lowerExprNative_iszero_ident_one_ok
     (state : EvmYul.Yul.State)
     (codeOverride : Option EvmYul.Yul.Ast.YulContract)
-    (name : EvmYul.Identifier)
+    (name : String)
     (hVal : state[name]! = EvmYul.UInt256.ofNat 1) :
     EvmYul.Yul.eval 8
         (Backends.lowerExprNative
@@ -781,7 +781,7 @@ theorem eval_lowerExprNative_iszero_ident_one_ok_fuel
     (fuel : Nat)
     (state : EvmYul.Yul.State)
     (codeOverride : Option EvmYul.Yul.Ast.YulContract)
-    (name : EvmYul.Identifier)
+    (name : String)
     (hVal : state[name]! = EvmYul.UInt256.ofNat 1) :
     EvmYul.Yul.eval (fuel + 8)
         (Backends.lowerExprNative
