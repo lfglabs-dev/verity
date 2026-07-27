@@ -763,7 +763,7 @@ theorem exec_let_lowerExprNative_iszero_lt_calldatasize_4_initialState_ok_fuel
 theorem eval_lowerExprNative_iszero_ident_one_ok
     (state : EvmYul.Yul.State)
     (codeOverride : Option EvmYul.Yul.Ast.YulContract)
-    (name : String)
+    (name : EvmYul.Identifier)
     (hVal : state[name]! = EvmYul.UInt256.ofNat 1) :
     EvmYul.Yul.eval 8
         (Backends.lowerExprNative
@@ -781,7 +781,7 @@ theorem eval_lowerExprNative_iszero_ident_one_ok_fuel
     (fuel : Nat)
     (state : EvmYul.Yul.State)
     (codeOverride : Option EvmYul.Yul.Ast.YulContract)
-    (name : String)
+    (name : EvmYul.Identifier)
     (hVal : state[name]! = EvmYul.UInt256.ofNat 1) :
     EvmYul.Yul.eval (fuel + 8)
         (Backends.lowerExprNative
