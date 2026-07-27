@@ -557,10 +557,11 @@ private theorem evalPureBuiltinViaEvmYulLean_byte_normalized (index value : Nat)
       exact hgt
     have hshift_small : (31 - index % EvmYul.UInt256.size) * 8 < EvmYul.UInt256.size := by
       unfold EvmYul.UInt256.size; omega
+    have hshift : EvmYul.UInt256.ofNat ((31 - (EvmYul.UInt256.ofNat index).toNat) * 8) =
+        ⟨(31 - index % EvmYul.UInt256.size) * 8, hshift_small⟩ := Fin.ext (by rfl)
     have hguard : ¬ 256 ≤ (EvmYul.UInt256.ofNat ((31 - (EvmYul.UInt256.ofNat index).toNat) * 8)).val := by
       change ¬ 256 ≤ ((31 - index % EvmYul.UInt256.size) * 8) % EvmYul.UInt256.size
       rw [Nat.mod_eq_of_lt hshift_small]; omega
-    have hofNat_toNat : (EvmYul.UInt256.ofNat index).toNat = index % EvmYul.UInt256.size := rfl
     unfold EvmYul.UInt256.byteAt
     rw [if_neg hle']
     show some (EvmYul.UInt256.toNat
@@ -569,11 +570,10 @@ private theorem evalPureBuiltinViaEvmYulLean_byte_normalized (index value : Nat)
             (EvmYul.UInt256.ofNat ((31 - (EvmYul.UInt256.ofNat index).toNat) * 8)))
           ⟨255⟩)) = _
     unfold EvmYul.UInt256.shiftRight
-    rw [if_neg hguard, hofNat_toNat]
+    rw [if_neg hguard, hshift]
     simp only [hgt, ite_false, EvmYul.UInt256.land, EvmYul.UInt256.toNat,
       EvmYul.UInt256.ofNat, Id.run, Fin.land, Fin.shiftRight, Fin.ofNat,
       Nat.shiftRight_eq_div_pow]
-    rw [Nat.mod_eq_of_lt hshift_small]
     rw [show (255 : Nat) % EvmYul.UInt256.size = 255 from by unfold EvmYul.UInt256.size; omega]
     have hdiv_lt :
         value % EvmYul.UInt256.size / 2 ^ ((31 - index % EvmYul.UInt256.size) * 8) <
