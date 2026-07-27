@@ -3707,8 +3707,9 @@ private theorem compiledStmtStep_setMappingChain_singleSlot_of_slotSafety_preser
         have h := execIRStmt_tstore_of_eval
           (state := state) (slotExpr := writeSlotExpr) (valueExpr := valueIR)
           (fuel := extraFuel) hWriteSlotEval hIRValue
-        simpa [fieldStoreBuiltin, htrans, state', target, SourceSemantics.wordNormalize,
-          SourceSemantics.mappingSlotChain] using h
+        convert h using 1 <;>
+          simp [fieldStoreBuiltin, htrans, state', target, SourceSemantics.wordNormalize,
+            SourceSemantics.mappingSlotChain]
       have hfuelEq : 1 + extraFuel = extraFuel + 1 := by omega
       have hIRExec : execIRStmts (compiledIR.length + extraFuel + 1) state compiledIR =
           .continue state' := by
@@ -4728,7 +4729,7 @@ private theorem compiledStmtStep_setMappingPackedWord_singleSlot_of_slotSafety_p
             Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallViaEvmYulLean] using
             congrArg
               (fun r => r.bind (fun a =>
-                some (state.transientStorage (a % Compiler.Constants.evmModulus))))
+                some (state2.transientStorage (a % Compiler.Constants.evmModulus))))
               hWriteSlotEval2
         · have htransFalse : SourceSemantics.fieldIsTransient fields fieldName = false := by
             cases h : SourceSemantics.fieldIsTransient fields fieldName <;> simp [h] at htrans ⊢
@@ -5191,18 +5192,26 @@ private theorem compiledStmtStep_setMappingPackedWord_singleSlot_of_slotSafety_p
                   SourceSemantics.writeAddressKeyedMappingPackedWordFieldSlots, htrans,
                   htargetNorm, htargetModSelf, hquery, hbeq, hqueryTarget, htransient]
                 exact congrFun htransient query
-            · simpa [SourceSemantics.writeAddressKeyedMappingPackedWordFieldSlots, htrans] using hsender
-            · simpa [SourceSemantics.writeAddressKeyedMappingPackedWordFieldSlots, htrans] using hmsgValue
-            · simpa [SourceSemantics.writeAddressKeyedMappingPackedWordFieldSlots, htrans] using hthis
-            · simpa [SourceSemantics.writeAddressKeyedMappingPackedWordFieldSlots, htrans] using htimestamp
-            · simpa [SourceSemantics.writeAddressKeyedMappingPackedWordFieldSlots, htrans] using hblock
-            · simpa [SourceSemantics.writeAddressKeyedMappingPackedWordFieldSlots, htrans] using hchain
-            · simpa [SourceSemantics.writeAddressKeyedMappingPackedWordFieldSlots, htrans] using hret
-            · simpa [SourceSemantics.writeAddressKeyedMappingPackedWordFieldSlots, htrans] using hevents
+            · simpa [SourceSemantics.writeAddressKeyedMappingPackedWordFieldSlots, htrans,
+                state4, state3, state2, state1] using hsender
+            · simpa [SourceSemantics.writeAddressKeyedMappingPackedWordFieldSlots, htrans,
+                state4, state3, state2, state1] using hmsgValue
+            · simpa [SourceSemantics.writeAddressKeyedMappingPackedWordFieldSlots, htrans,
+                state4, state3, state2, state1] using hthis
+            · simpa [SourceSemantics.writeAddressKeyedMappingPackedWordFieldSlots, htrans,
+                state4, state3, state2, state1] using htimestamp
+            · simpa [SourceSemantics.writeAddressKeyedMappingPackedWordFieldSlots, htrans,
+                state4, state3, state2, state1] using hblock
+            · simpa [SourceSemantics.writeAddressKeyedMappingPackedWordFieldSlots, htrans,
+                state4, state3, state2, state1] using hchain
+            · simpa [SourceSemantics.writeAddressKeyedMappingPackedWordFieldSlots, htrans,
+                state4, state3, state2, state1] using hret
+            · simpa [SourceSemantics.writeAddressKeyedMappingPackedWordFieldSlots, htrans,
+                state4, state3, state2, state1] using hevents
           simpa [state', htrans] using hmatch
         · have htransFalse : SourceSemantics.fieldIsTransient fields fieldName = false := by
             cases h : SourceSemantics.fieldIsTransient fields fieldName <;> simp [h] at htrans ⊢
-          simpa [state', targetSlot, oldWordNat, storedWordNat,
+          simpa [state', state4, state3, state2, state1, targetSlot, oldWordNat, storedWordNat,
             SourceSemantics.writeAddressKeyedMappingPackedWordFieldSlots, htransFalse] using
             runtimeStateMatchesIR_writeAddressKeyedMappingPackedWordSlot
               (runtime := runtime)
@@ -6229,7 +6238,7 @@ theorem compiledStmtStep_setStorage_aliasSlots
           omega
       have hbodyFuelLe : slots.length + 2 ≤ extraFuel := by
         have hslack' : sizeOf compiledIR - compiledIR.length ≤ extraFuel := by
-          simpa [compiledIR] using hslack
+          simpa [compiledIR, blockBody, slots] using hslack
         have hlen : compiledIR.length = 1 := by simp [compiledIR]
         -- blockBody.length = 1 + slots.length (let_ + map)
         have hBodyLen : blockBody.length = 1 + slots.length := by
@@ -7060,7 +7069,7 @@ private theorem compiledStmtStep_letStorageAddrField
         Verity.Core.UINT256_MODULUS]
       apply congrArg (state.setVar tmp)
       exact Nat.mod_eq_of_lt (by
-        simpa [Verity.Core.UINT256_MODULUS] using hAddrLt)
+        simpa [Verity.Core.UINT256_MODULUS, v] using hAddrLt)
     · simp only [stmtStepMatchesIRExec]
       exact ⟨FunctionBody.runtimeStateMatchesIR_setVar_bindValue hruntime tmp v,
         FunctionBody.bindingsExactlyMatchIRVarsOnScope_of_included
@@ -7227,7 +7236,7 @@ private theorem compiledStmtStep_assignStorageAddrField
         Verity.Core.UINT256_MODULUS]
       apply congrArg (state.setVar name)
       exact Nat.mod_eq_of_lt (by
-        simpa [Verity.Core.UINT256_MODULUS] using hAddrLt)
+        simpa [Verity.Core.UINT256_MODULUS, v] using hAddrLt)
     · simp only [stmtStepMatchesIRExec]
       exact ⟨FunctionBody.runtimeStateMatchesIR_setVar_bindValue hruntime name v,
         FunctionBody.bindingsExactlyMatchIRVarsOnScope_of_included
