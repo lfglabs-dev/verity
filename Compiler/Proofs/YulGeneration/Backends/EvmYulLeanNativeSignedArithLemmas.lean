@@ -37,6 +37,27 @@ private theorem uint256_neg_val (x : Nat) (hx : x < EvmYul.UInt256.size)
   rw [hone]
   exact fin_val_mul_neg1 EvmYul.UInt256.size x hsize hx hxpos
 
+/-- The corresponding normalization while retaining the exact dependent
+`Fin UInt256.size` type.  Keeping this lemma at the original modulus avoids
+rewriting a type-indexed multiplication through the numeral representation. -/
+private theorem uint256_fin_mul_neg1_val (x : Fin EvmYul.UInt256.size)
+    (hxpos : 0 < x.val) :
+    (x * (-1 : Fin EvmYul.UInt256.size)).val = EvmYul.UInt256.size - x.val := by
+  change x.val * (EvmYul.UInt256.size - 1 % EvmYul.UInt256.size) %
+    EvmYul.UInt256.size = EvmYul.UInt256.size - x.val
+  exact uint256_neg_val x.val x.isLt hxpos
+
+private theorem uint256_fin_zero_mul_neg1_val :
+    ((0 : Fin EvmYul.UInt256.size) * (-1 : Fin EvmYul.UInt256.size)).val = 0 := by
+  simp
+
+private theorem uint256_fin_mul_neg1_val_of_zero (x : Fin EvmYul.UInt256.size)
+    (hx : x.val = 0) :
+    (x * (-1 : Fin EvmYul.UInt256.size)).val = 0 := by
+  have hzero : x = 0 := Fin.ext hx
+  subst x
+  exact uint256_fin_zero_mul_neg1_val
+
 private theorem natAbs_ofNat_sub (a b : Nat) (h : a < b) :
     (Int.ofNat a - Int.ofNat b).natAbs = b - a := by
   simp only [Int.ofNat_eq_coe]
@@ -122,23 +143,18 @@ theorem int256_div_toUint256_val_eq_uint256_sdiv (a b : Nat)
         have hqlt : a.div (115792089237316195423570985008687907853269984665640564039457584007913129639936 - b) <
           115792089237316195423570985008687907853269984665640564039457584007913129639936 :=
           Nat.lt_of_le_of_lt (Nat.div_le_self a _) ha
-        split
-        · rename_i h_fin_zero
-          exfalso; have hval := Fin.val_eq_of_eq h_fin_zero; simp at hval; omega
-        · show (115792089237316195423570985008687907853269984665640564039457584007913129639936 -
-              a.div (115792089237316195423570985008687907853269984665640564039457584007913129639936 - b) %
-                115792089237316195423570985008687907853269984665640564039457584007913129639936) %
-              115792089237316195423570985008687907853269984665640564039457584007913129639936 =
-            115792089237316195423570985008687907853269984665640564039457584007913129639936 -
-              a.div (115792089237316195423570985008687907853269984665640564039457584007913129639936 - b)
-          rw [Nat.mod_eq_of_lt hqlt]
-          exact Nat.mod_eq_of_lt (by omega)
+        have hneg := uint256_fin_mul_neg1_val
+          ⟨a.div (EvmYul.UInt256.size - b), by simpa [EvmYul.UInt256.size] using hqlt⟩
+          (by simpa [EvmYul.UInt256.size] using hqpos)
+        simpa [EvmYul.UInt256.size] using hneg
       · rename_i hq0
-        split
-        · rfl
-        · rename_i h_fin_ne; exfalso; apply h_fin_ne
-          have : a.div (115792089237316195423570985008687907853269984665640564039457584007913129639936 - b) = 0 := by omega
-          ext; simp [this]
+        have hq : a.div (115792089237316195423570985008687907853269984665640564039457584007913129639936 - b) = 0 := by omega
+        have hzero := uint256_fin_mul_neg1_val_of_zero
+          ⟨a.div (EvmYul.UInt256.size - b), by
+            apply Nat.lt_of_le_of_lt (Nat.div_le_self _ _)
+            simpa [EvmYul.UInt256.size] using ha⟩
+          (by simpa [EvmYul.UInt256.size] using hq)
+        simpa [EvmYul.UInt256.size, hq] using hzero
     · have ha' : (Int.ofNat a : Int) < Int.ofNat (2^256) := Int.ofNat_lt.mpr ha
       simp only [Verity.Core.Int256.div, Verity.Core.Int256.toInt, Verity.Core.Int256.ofUint256,
         Verity.Core.Int256.signBit, Verity.Core.Int256.signedAbsNat,
@@ -169,23 +185,20 @@ theorem int256_div_toUint256_val_eq_uint256_sdiv (a b : Nat)
         have hqlt : (115792089237316195423570985008687907853269984665640564039457584007913129639936 - a).div b <
           115792089237316195423570985008687907853269984665640564039457584007913129639936 :=
           Nat.lt_of_le_of_lt (Nat.div_le_self _ _) (by omega)
-        split
-        · rename_i h_fin_zero
-          exfalso; have hval := Fin.val_eq_of_eq h_fin_zero; simp at hval; omega
-        · show (115792089237316195423570985008687907853269984665640564039457584007913129639936 -
-              (115792089237316195423570985008687907853269984665640564039457584007913129639936 - a).div b %
-                115792089237316195423570985008687907853269984665640564039457584007913129639936) %
-              115792089237316195423570985008687907853269984665640564039457584007913129639936 =
-            115792089237316195423570985008687907853269984665640564039457584007913129639936 -
-              (115792089237316195423570985008687907853269984665640564039457584007913129639936 - a).div b
-          rw [Nat.mod_eq_of_lt hqlt]
-          exact Nat.mod_eq_of_lt (by omega)
+        have hneg := uint256_fin_mul_neg1_val
+          ⟨(EvmYul.UInt256.size - a).div b, by simpa [EvmYul.UInt256.size] using hqlt⟩
+          (by simpa [EvmYul.UInt256.size] using hqpos)
+        simpa [EvmYul.UInt256.size] using hneg
       · rename_i hq0
-        split
-        · rfl
-        · rename_i h_fin_ne; exfalso; apply h_fin_ne
-          have : (115792089237316195423570985008687907853269984665640564039457584007913129639936 - a).div b = 0 := by omega
-          ext; simp [this]
+        have hq : (115792089237316195423570985008687907853269984665640564039457584007913129639936 - a).div b = 0 := by omega
+        have hzero := uint256_fin_mul_neg1_val_of_zero
+          ⟨(EvmYul.UInt256.size - a).div b, by
+            apply Nat.lt_of_le_of_lt (Nat.div_le_self _ _)
+            have ha0 : 0 < a := by omega
+            rw [EvmYul.UInt256.size]
+            omega⟩
+          (by simpa [EvmYul.UInt256.size] using hq)
+        simpa [EvmYul.UInt256.size, hq] using hzero
     · have ha' : (Int.ofNat a : Int) < Int.ofNat (2^256) := Int.ofNat_lt.mpr ha
       have hb' : (Int.ofNat b : Int) < Int.ofNat (2^256) := Int.ofNat_lt.mpr hb
       simp only [Verity.Core.Int256.div, Verity.Core.Int256.toInt, Verity.Core.Int256.ofUint256,
