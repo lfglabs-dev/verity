@@ -6356,19 +6356,6 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.compileExpr_mappingChain_bridgedSource
 
   -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanStateBridge.lean
-  Batteries.RBNode.All.setBlack'
-  Batteries.RBNode.find?_eq_none_of_all_ne
-  Batteries.RBNode.del_all_cut_ne
-  Batteries.RBNode.erase_all_cut_ne
-  Batteries.RBNode.findP?_erase_none
-  Batteries.RBNode.append_toList
-  Batteries.RBNode.mem_del_of_mem_ne
-  Batteries.RBNode.mem_of_mem_del
-  Batteries.RBNode.mem_erase_of_mem_ne
-  Batteries.RBNode.mem_of_mem_erase
-  Batteries.RBNode.find?_erase_of_ne
-  Batteries.RBMap.find?_erase_self
-  Batteries.RBMap.find?_erase_of_ne
   -- Compiler.Proofs.YulGeneration.Backends.StateBridge.calldataToByteArray_selectorBytes_size  -- private
   -- Compiler.Proofs.YulGeneration.Backends.StateBridge.calldataToByteArray_wordBytes_size  -- private
   -- Compiler.Proofs.YulGeneration.Backends.StateBridge.calldataToByteArray_fold_size  -- private
@@ -6385,6 +6372,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.StateBridge.calldataToByteArray_argByte_of_drop_eq_cons
   -- Compiler.Proofs.YulGeneration.Backends.StateBridge.ordering_then_eq  -- private
   -- Compiler.Proofs.YulGeneration.Backends.StateBridge.UInt256_compare_eq_fin  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.StateBridge.storage_get?_insert_of_ne  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.StateBridge.storage_get?_insert_of_eq  -- private
   Compiler.Proofs.YulGeneration.Backends.StateBridge.UInt256_eq_of_compare_eq
   Compiler.Proofs.YulGeneration.Backends.StateBridge.natToUInt256_injective
   Compiler.Proofs.YulGeneration.Backends.StateBridge.compare_natToUInt256_ne
@@ -6407,4 +6396,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6010 theorems/lemmas (4180 public, 1830 private, 0 sorry'd)
+-- Total: 5999 theorems/lemmas (4167 public, 1832 private, 0 sorry'd)
