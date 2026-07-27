@@ -33,8 +33,12 @@ import EvmYul.State.Account
 import EvmYul.UInt256
 import EvmYul.Maps.StorageMap
 import Batteries.Data.ByteArray
-import Batteries.Data.RBMap.Lemmas
+import Std.Data.TreeMap.Lemmas
 
+/-! The following RB-tree compatibility lemmas support the Lean 4.24 map
+implementation.  EVMYulLean storage and account maps are `Std.TreeMap`s in
+Lean 4.31, so the bridge below uses the standard TreeMap lemmas instead. -/
+/-
 namespace Batteries
 namespace RBNode
 
@@ -319,6 +323,7 @@ theorem find?_erase_of_ne {cmp : α → α → Ordering} [Std.TransCmp cmp]
 
 end RBMap
 end Batteries
+-/
 
 namespace Compiler.Proofs.YulGeneration.Backends.StateBridge
 
@@ -379,7 +384,7 @@ project. In practice, this is the set of slots written during execution. -/
 /-- Look up a storage slot in EVMYulLean's Storage map, returning 0 for
     unwritten slots (matching Verity's `Nat → Nat` semantics). -/
 def storageLookup (s : EvmYul.Storage) (slot : UInt256) : UInt256 :=
-  match s.find? slot with
+  match s.get? slot with
   | some val => val
   | none => ⟨0⟩
 
@@ -392,7 +397,7 @@ def storageWrite (s : EvmYul.Storage) (slot val : UInt256) : EvmYul.Storage :=
 Nat slot inputs are normalized through `IRStorageSlot.ofNat`, matching the
 EVMYulLean `UInt256` key used in the projected map. -/
 def projectStorage (storage : IRStorageSlot → IRStorageWord) (slots : List Nat) : EvmYul.Storage :=
-  slots.foldl (init := Batteries.RBMap.empty) fun acc slot =>
+  slots.foldl (init := Std.TreeMap.empty) fun acc slot =>
     let key := natToUInt256 slot
     let val := IRStorageWord.toUInt256 (storage (IRStorageSlot.ofNat slot))
     acc.insert key val
@@ -487,7 +492,7 @@ private theorem byteArray_get?_append_left
   split
   · apply congrArg some
     have hEq : (a ++ b)[i] = a[i] := ByteArray.get_append_left h
-    convert hEq using 1
+    simpa only [ByteArray.get, ByteArray.getElem_eq_getElem_data] using hEq
   · exact False.elim (by
       rename_i hAppend
       exact hAppend (by
@@ -508,7 +513,7 @@ private theorem byteArray_get?_append_right
     apply congrArg some
     have hEq : (a ++ b)[i] = b[i - a.size] :=
       ByteArray.get_append_right hle hget
-    convert hEq using 1
+    simpa only [ByteArray.get, ByteArray.getElem_eq_getElem_data] using hEq
   · rename_i hnot
     exact False.elim (hnot h)
 
@@ -782,9 +787,9 @@ def toSharedState (state : YulState) (observableSlots : List Nat) :
       balance := ⟨0⟩
       storage := storage
       code := emptyCode
-      tstorage := Batteries.RBMap.empty }
+      tstorage := Std.TreeMap.empty }
   let accountMap : AccountMap .Yul :=
-    (Batteries.RBMap.empty).insert addr account
+    (Std.TreeMap.empty).insert addr account
   let execEnv : ExecutionEnv .Yul :=
     { codeOwner := addr
       sender := natToAddress state.sender
@@ -799,14 +804,14 @@ def toSharedState (state : YulState) (observableSlots : List Nat) :
       blobVersionedHashes := [] }
   { -- State τ fields
     accountMap := accountMap
-    σ₀ := Batteries.RBMap.empty
+    σ₀ := Std.TreeMap.empty
     totalGasUsedInBlock := 0
     transactionReceipts := #[]
     substate := Inhabited.default
     executionEnv := execEnv
     blocks := #[]
     genesisBlockHeader := mkBlockHeader state
-    createdAccounts := Batteries.RBSet.empty
+    createdAccounts := Std.TreeSet.empty
     -- MachineState fields
     gasAvailable := ⟨0⟩
     activeWords := ⟨0⟩
@@ -822,9 +827,9 @@ with respect to the IR storage domain. -/
 def extractStorage (sharedState : SharedState .Yul) (addr : AccountAddress) :
     IRStorageSlot → IRStorageWord :=
   fun slot =>
-    match sharedState.accountMap.find? addr with
+    match sharedState.accountMap.get? addr with
     | some account =>
-      match account.storage.find? (IRStorageSlot.toUInt256 slot) with
+      match account.storage.get? (IRStorageSlot.toUInt256 slot) with
       | some val => val
       | none => 0
     | none => 0
@@ -867,6 +872,30 @@ instance instTransCmpUInt256 : Std.TransCmp (α := UInt256) compare where
     simp only [UInt256_compare_eq_fin] at hab hbc ⊢
     exact Std.TransCmp.isLE_trans hab hbc
 
+/-- TreeMap lookup after insertion, stated with the lookup key first to match
+the storage-bridge induction hypotheses. -/
+private theorem storage_get?_insert_of_ne
+    (m : EvmYul.Storage) (lookup inserted : UInt256) (value : UInt256)
+    (h : compare lookup inserted ≠ Ordering.eq) :
+    (m.insert inserted value).get? lookup = m.get? lookup := by
+  change (m.insert inserted value)[lookup]? = m[lookup]?
+  rw [Std.TreeMap.getElem?_insert]
+  split
+  · rename_i heq
+    apply False.elim
+    apply h
+    exact Std.OrientedCmp.eq_comm.mp heq
+  · rfl
+
+private theorem storage_get?_insert_of_eq
+    (m : EvmYul.Storage) (lookup inserted : UInt256) (value : UInt256)
+    (h : compare lookup inserted = Ordering.eq) :
+    (m.insert inserted value).get? lookup = some value := by
+  change (m.insert inserted value)[lookup]? = some value
+  rw [Std.TreeMap.getElem?_insert]
+  apply if_pos
+  exact Std.OrientedCmp.eq_comm.mpr h
+
 /-- `compare` on `UInt256` returning `.eq` implies equality.
     Proved by reducing to `Fin`'s compare and using `LawfulEqOrd`. -/
 theorem UInt256_eq_of_compare_eq {u v : UInt256}
@@ -904,8 +933,8 @@ theorem foldl_insert_find_not_mem (storage : IRStorageSlot → IRStorageWord)
     (hRange : ∀ s ∈ slots, s < UInt256.size)
     (hSlotRange : slot < UInt256.size)
     (acc : EvmYul.Storage) :
-    (slots.foldl (fun m s => m.insert (natToUInt256 s) (IRStorageWord.toUInt256 (storage (IRStorageSlot.ofNat s)))) acc).find?
-      (natToUInt256 slot) = acc.find? (natToUInt256 slot) := by
+    (slots.foldl (fun m s => m.insert (natToUInt256 s) (IRStorageWord.toUInt256 (storage (IRStorageSlot.ofNat s)))) acc).get?
+      (natToUInt256 slot) = acc.get? (natToUInt256 slot) := by
   induction slots generalizing acc with
   | nil => rfl
   | cons hd tl ih =>
@@ -914,7 +943,7 @@ theorem foldl_insert_find_not_mem (storage : IRStorageSlot → IRStorageWord)
     have hne : hd ≠ slot := fun h => hNotMem (h ▸ List.mem_cons_self)
     have hd_range : hd < UInt256.size := hRange hd (List.mem_cons_self)
     rw [ih hNotMemTl (fun s hs => hRange s (List.mem_cons_of_mem _ hs))]
-    exact Batteries.RBMap.find?_insert_of_ne _
+    exact storage_get?_insert_of_ne _ _ _ _
       (compare_natToUInt256_ne hSlotRange hd_range (Ne.symm hne))
 
 /-- Helper: after folding a suffix of slots into an accumulator, if `slot`
@@ -926,7 +955,7 @@ theorem foldl_insert_find (storage : IRStorageSlot → IRStorageWord)
     (slots : List Nat) (slot : Nat) (hSlot : slot ∈ slots)
     (hRange : ∀ s ∈ slots, s < UInt256.size)
     (acc : EvmYul.Storage) :
-    (slots.foldl (fun m s => m.insert (natToUInt256 s) (IRStorageWord.toUInt256 (storage (IRStorageSlot.ofNat s)))) acc).find?
+    (slots.foldl (fun m s => m.insert (natToUInt256 s) (IRStorageWord.toUInt256 (storage (IRStorageSlot.ofNat s)))) acc).get?
       (natToUInt256 slot) = some (IRStorageWord.toUInt256 (storage (IRStorageSlot.ofNat slot))) := by
   induction slots generalizing acc with
   | nil => exact absurd hSlot List.not_mem_nil
@@ -942,7 +971,7 @@ theorem foldl_insert_find (storage : IRStorageSlot → IRStorageWord)
         have hSlotRange : slot < UInt256.size := hRange slot (List.mem_cons_self)
         rw [foldl_insert_find_not_mem storage tl slot hmem
           (fun s hs => hRange s (List.mem_cons_of_mem _ hs)) hSlotRange]
-        exact Batteries.RBMap.find?_insert_of_eq _ Std.ReflCmp.compare_self
+        exact storage_get?_insert_of_eq _ _ _ _ Std.ReflCmp.compare_self
     | inr hmem =>
       exact ih hmem (fun s hs => hRange s (List.mem_cons_of_mem _ hs)) _
 
@@ -959,11 +988,11 @@ theorem foldl_insert_preserves_find_projected_value
     (storage : IRStorageSlot → IRStorageWord)
     (slots : List Nat) (slot : Nat) (acc : EvmYul.Storage)
     (hAcc :
-      acc.find? (natToUInt256 slot) =
+      acc.get? (natToUInt256 slot) =
         some (IRStorageWord.toUInt256 (storage (IRStorageSlot.ofNat slot)))) :
     (slots.foldl (fun m s =>
         m.insert (natToUInt256 s)
-          (IRStorageWord.toUInt256 (storage (IRStorageSlot.ofNat s)))) acc).find?
+          (IRStorageWord.toUInt256 (storage (IRStorageSlot.ofNat s)))) acc).get?
       (natToUInt256 slot) =
         some (IRStorageWord.toUInt256 (storage (IRStorageSlot.ofNat slot))) := by
   induction slots generalizing acc with
@@ -976,10 +1005,10 @@ theorem foldl_insert_preserves_find_projected_value
         have hslot : IRStorageSlot.ofNat hd = IRStorageSlot.ofNat slot :=
           (IRStorageSlot_ofNat_eq_of_natToUInt256_eq hkey.symm)
         apply ih
-        rw [Batteries.RBMap.find?_insert_of_eq _ hcmp]
+        rw [storage_get?_insert_of_eq _ _ _ _ hcmp]
         simp [hslot]
       · apply ih
-        rw [Batteries.RBMap.find?_insert_of_ne _ hcmp]
+        rw [storage_get?_insert_of_ne _ _ _ _ hcmp]
         exact hAcc
 
 /-- Helper: after folding a suffix of Nat slots into an accumulator, if `slot`
@@ -994,7 +1023,7 @@ theorem foldl_insert_find_projected (storage : IRStorageSlot → IRStorageWord)
     (acc : EvmYul.Storage) :
     (slots.foldl (fun m s =>
         m.insert (natToUInt256 s)
-          (IRStorageWord.toUInt256 (storage (IRStorageSlot.ofNat s)))) acc).find?
+          (IRStorageWord.toUInt256 (storage (IRStorageSlot.ofNat s)))) acc).get?
       (natToUInt256 slot) =
         some (IRStorageWord.toUInt256 (storage (IRStorageSlot.ofNat slot))) := by
   induction slots generalizing acc with
@@ -1005,7 +1034,7 @@ theorem foldl_insert_find_projected (storage : IRStorageSlot → IRStorageWord)
       | inl heq =>
           subst heq
           apply foldl_insert_preserves_find_projected_value
-          rw [Batteries.RBMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
+          rw [storage_get?_insert_of_eq _ _ _ _ Std.ReflCmp.compare_self]
       | inr hmem =>
           exact ih hmem _
 

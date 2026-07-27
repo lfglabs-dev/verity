@@ -168,8 +168,9 @@ theorem compileInternalFunction_some_ok_of_components
           compiledBody)
       hbody'
   unfold compileInternalFunction
-  simp only [hvalidate, Except.bind, hreturns]
-  simpa [paramNames, compiledName, hretNames] using hmap
+  rw [hvalidate, hreturns]
+  simp only [bind, Except.bind]
+  simpa [Except.map, pure, Except.pure, paramNames, compiledName, hretNames] using hmap
 
 -- Compile function spec to IR function
 def compileFunctionSpec (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
