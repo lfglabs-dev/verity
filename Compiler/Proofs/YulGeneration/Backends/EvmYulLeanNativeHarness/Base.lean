@@ -20580,8 +20580,8 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_projectResu
     (projectResult tx initialStorage initialEvents
       (.error (.YulHalt state value))).finalStorage (IRStorageSlot.ofNat slot) =
         slotValue := by
-  simp [projectResult, projectStorageFromState_accountStorageSlot,
-    hAccount, hSlot]
+  change projectStorageFromState tx state (IRStorageSlot.ofNat slot) = slotValue
+  exact projectStorageFromState_accountStorageSlot tx state slot account slotValue hAccount hSlot
 
 @[simp] theorem projectResult_yulHalt_missingFinalStorageAccountSlot
     (tx : YulTransaction)
@@ -20595,7 +20595,8 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_projectResu
         none) :
     (projectResult tx initialStorage initialEvents
       (.error (.YulHalt state value))).finalStorage (IRStorageSlot.ofNat slot) = 0 := by
-  simp [projectResult, projectStorageFromState_missingAccount, hAccount]
+  change projectStorageFromState tx state (IRStorageSlot.ofNat slot) = 0
+  exact projectStorageFromState_missingAccount tx state slot hAccount
 
 @[simp] theorem projectResult_yulHalt_missingFinalStorageSlot
     (tx : YulTransaction)
@@ -20611,8 +20612,8 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_projectResu
     (hSlot : account.storage.get? (natToUInt256 slot) = none) :
     (projectResult tx initialStorage initialEvents
       (.error (.YulHalt state value))).finalStorage (IRStorageSlot.ofNat slot) = 0 := by
-  simp [projectResult, projectStorageFromState_missingAccountStorageSlot,
-    hAccount, hSlot]
+  change projectStorageFromState tx state (IRStorageSlot.ofNat slot) = 0
+  exact projectStorageFromState_missingAccountStorageSlot tx state slot account hAccount hSlot
 
 @[simp] theorem projectResult_stop
     (tx : YulTransaction)
@@ -20945,7 +20946,8 @@ theorem exec_lowerNativeSwitchBlock_selector_find_hit_error_store_projectResult_
     observableSlots store err hSelector hFind hSelectorRange hTagsRange
     (by
       intro pre suffix hCases
-      simpa [nativeSwitchStoreMarkedPrefixStateForId]
+      simpa [nativeSwitchStorePrefixStateForId,
+        nativeSwitchStoreMarkedPrefixStateForId]
         using hBody pre suffix hCases)
 
 /-- Store-parametric selector-hit projection after the generated
