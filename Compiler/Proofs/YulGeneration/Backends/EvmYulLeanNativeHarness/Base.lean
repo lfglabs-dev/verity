@@ -773,7 +773,7 @@ theorem eval_lowerExprNative_iszero_ident_one_ok
   simp [Backends.lowerExprNative, Backends.lookupRuntimePrimOp_iszero,
     EvmYul.Yul.eval, EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail,
     EvmYul.Yul.evalPrimCall, EvmYul.Yul.reverse', EvmYul.Yul.cons',
-    EvmYul.Yul.head', hVal]
+    EvmYul.Yul.head']
   rw [hVal]
   decide
 
@@ -792,7 +792,7 @@ theorem eval_lowerExprNative_iszero_ident_one_ok_fuel
   simp [Backends.lowerExprNative, Backends.lookupRuntimePrimOp_iszero,
     EvmYul.Yul.eval, EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail,
     EvmYul.Yul.evalPrimCall, EvmYul.Yul.reverse', EvmYul.Yul.cons',
-    EvmYul.Yul.head', hVal]
+    EvmYul.Yul.head']
   rw [hVal]
   decide
 
