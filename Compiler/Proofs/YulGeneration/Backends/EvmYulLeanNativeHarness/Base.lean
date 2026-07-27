@@ -682,7 +682,7 @@ theorem exec_let_lowerExprNative_iszero_lt_calldatasize_4_initialState_ok
     (tx : YulTransaction)
     (storage : IRStorageSlot → IRStorageWord)
     (observableSlots : List Nat)
-    (name : EvmYul.Identifier)
+    (name : String)
     (hNoWrap : 4 + tx.args.length * 32 < EvmYul.UInt256.size) :
     EvmYul.Yul.exec 11
         (.Let [name]
@@ -737,7 +737,7 @@ theorem exec_let_lowerExprNative_iszero_lt_calldatasize_4_initialState_ok_fuel
     (tx : YulTransaction)
     (storage : IRStorageSlot → IRStorageWord)
     (observableSlots : List Nat)
-    (name : EvmYul.Identifier)
+    (name : String)
     (hNoWrap : 4 + tx.args.length * 32 < EvmYul.UInt256.size) :
     EvmYul.Yul.exec (fuel + 11)
         (.Let [name]
@@ -2006,7 +2006,7 @@ private theorem nativeSwitchInitialOkState_insert_lookup_self
 theorem exec_if_lowerExprNative_ident_one_take_fuel
     (fuel : Nat) (body : List EvmYul.Yul.Ast.Stmt)
     (codeOverride : Option EvmYul.Yul.Ast.YulContract)
-    (state : EvmYul.Yul.State) (name : EvmYul.Identifier)
+    (state : EvmYul.Yul.State) (name : String)
     (hVal : state[name]! = EvmYul.UInt256.ofNat 1) :
     EvmYul.Yul.exec (fuel + 2)
         (.If (Backends.lowerExprNative (Yul.YulExpr.ident name)) body)
