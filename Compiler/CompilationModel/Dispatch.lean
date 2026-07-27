@@ -136,26 +136,39 @@ theorem compileInternalFunction_some_ok_of_components
   let paramNames := internalFunctionYulParamNames spec.params
   let compiledName := internalFunctionYulName spec.name
   have hmap :
-      (YulStmt.funcDef
-          compiledName
-          paramNames
-          (freshInternalRetNames returns (paramNames ++ collectStmtListBindNames spec.body))) <$>
-        compileStmtListWithFork fields events errors .calldata
+      Except.map
+        (fun compiledStmts =>
+          YulStmt.funcDef
+            compiledName
+            paramNames
+            (freshInternalRetNames returns (paramNames ++ collectStmtListBindNames spec.body))
+            compiledStmts)
+        (compileStmtListWithFork fields events errors .calldata
           (freshInternalRetNames returns (paramNames ++ collectStmtListBindNames spec.body))
           true
           (paramNames ++ freshInternalRetNames returns (paramNames ++ collectStmtListBindNames spec.body))
           []
           HardFork.cancun
-          spec.body =
+          spec.body) =
       Except.ok
         (YulStmt.funcDef
           compiledName
           paramNames
           (freshInternalRetNames returns (paramNames ++ collectStmtListBindNames spec.body))
           bodyStmts) := by
-    simp [hbody']
+    exact congrArg
+      (fun compiledBody =>
+        Except.map
+          (fun compiledStmts =>
+            YulStmt.funcDef
+              compiledName
+              paramNames
+              (freshInternalRetNames returns (paramNames ++ collectStmtListBindNames spec.body))
+              compiledStmts)
+          compiledBody)
+      hbody'
   unfold compileInternalFunction
-  simp only [hvalidate, Except.bind_ok, hreturns]
+  simp only [hvalidate, Except.bind, hreturns]
   simpa [paramNames, compiledName, hretNames] using hmap
 
 -- Compile function spec to IR function
