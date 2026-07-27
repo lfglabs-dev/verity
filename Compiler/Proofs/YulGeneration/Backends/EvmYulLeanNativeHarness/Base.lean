@@ -20276,7 +20276,8 @@ theorem primCall_sload0_then_mstore0_return32_initialState_projectResult_returnV
         ⟨haltState, haltValue, hExec, hReturn⟩
       refine ⟨haltState, haltValue, ?_, ?_⟩
       · simpa [sharedAfterLoad] using hExec
-      · simpa [natToUInt256, EvmYul.UInt256.toNat, uint256ToNat] using hReturn
+      · convert hReturn using 1 <;>
+          norm_num [natToUInt256, EvmYul.UInt256.toNat, uint256ToNat]
 
 /-- Native primitive execution of the generated `retrieve()` scalar-return core
     when slot zero was not materialized into the finite native storage map:
@@ -20409,8 +20410,10 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_projectResu
           (storage 0) hMemory with
         ⟨haltState, haltValue, hExec, hReturn⟩
       refine ⟨haltState, haltValue, ?_, ?_⟩
-      · simpa [sharedAfterLoad, initialWithStore] using hExec
-      · simpa [natToUInt256, EvmYul.UInt256.toNat, uint256ToNat] using hReturn
+      · convert hExec using 1 <;>
+          simp [sharedAfterLoad, initialWithStore]
+      · convert hReturn using 1 <;>
+          simp [natToUInt256, EvmYul.UInt256.toNat, uint256ToNat]
 
 /-- Native primitive execution of the generated `retrieve()` scalar-return core
     from an arbitrary local store when slot zero is omitted. -/
@@ -20456,8 +20459,10 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_omittedSlot
           (natToUInt256 0) hMemory with
         ⟨haltState, haltValue, hExec, hReturn⟩
       refine ⟨haltState, haltValue, ?_, ?_⟩
-      · simpa [sharedAfterLoad, initialWithStore] using hExec
-      · simpa [natToUInt256, EvmYul.UInt256.toNat, uint256ToNat] using hReturn
+      · convert hExec using 1 <;>
+          simp [sharedAfterLoad, initialWithStore]
+      · convert hReturn using 1 <;>
+          norm_num [natToUInt256, EvmYul.UInt256.toNat, uint256ToNat]
 
 /-- Native primitive execution of the generated `retrieve()` scalar-return core
     from an arbitrary local store, with materialized/omitted slot zero handled
@@ -23596,7 +23601,8 @@ theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_f
   have hResult := hDispatcherContinuation hWholeBody rfl
   refine ⟨reservedNames, n0, cases', body', bodyNative, bodyStart, bodyEnd,
     userBodyStart, hCase, hBodyLower, hUserBodyLower, ?_⟩
-  simpa [contract, Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using hResult
+  simpa [contract, Compiler.Proofs.YulGeneration.selectorExpr,
+    Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using hResult
 
 set_option linter.unusedVariables false in
 /-- Exact-total-fuel companion of
@@ -23847,7 +23853,8 @@ theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_f
   have hResult := hDispatcherContinuation hWholeBody rfl
   refine ⟨reservedNames, n0, cases', body', bodyNative, bodyStart, bodyEnd,
     userBodyStart, hCase, hBodyLower, hUserBodyLower, ?_⟩
-  simpa [contract, Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using hResult
+  simpa [contract, Compiler.Proofs.YulGeneration.selectorExpr,
+    Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using hResult
 
 set_option linter.unusedVariables false in
 /-- Non-payable selector-hit calldata guard failure for a generated dispatcher
@@ -23946,7 +23953,8 @@ theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_f
   have hResult := hDispatcherContinuation hWholeBody rfl
   refine ⟨reservedNames, n0, cases', body', bodyNative, bodyStart, bodyEnd,
     userBodyStart, hCase, hBodyLower, hUserBodyLower, ?_⟩
-  simpa [contract, Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using hResult
+  simpa [contract, Compiler.Proofs.YulGeneration.selectorExpr,
+    Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using hResult
 
 set_option linter.unusedVariables false in
 /-- Exact-total-fuel companion of
@@ -24867,7 +24875,8 @@ theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_f
   intro hUserBody hPreservesUser hProject
   rw [hPeel']
   have hResult := hDispatcherContinuation hUserBody hPreservesUser hProject
-  simpa [contract, Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using hResult
+  simpa [contract, Compiler.Proofs.YulGeneration.selectorExpr,
+    Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using hResult
 
 /-- Generated-prefix success variant for non-payable selector hits. The public
     selected-body premises are over the lowered user body `fn.body`, not over
@@ -25430,7 +25439,8 @@ theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_f
     simpa [fuel, contract, Nat.add_assoc, Nat.add_comm, Nat.add_left_comm]
       using hUserBody pre suffix hCases
   have hResult := hDispatcherContinuation hUserBody' hPreservesUser hProject
-  simpa [contract, fuel, Nat.add_assoc, Nat.add_comm, Nat.add_left_comm]
+  simpa [contract, fuel, Compiler.Proofs.YulGeneration.selectorExpr,
+    Nat.add_assoc, Nat.add_comm, Nat.add_left_comm]
     using hResult
 
 /-- Exact-total-fuel companion of
@@ -25617,7 +25627,8 @@ theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_f
     simpa [fuel, contract, Nat.add_assoc, Nat.add_comm, Nat.add_left_comm]
       using hUserBody pre suffix hCases
   have hResult := hDispatcherContinuation hUserBody' hPreservesUser hProject
-  simpa [contract, fuel, Nat.add_assoc, Nat.add_comm, Nat.add_left_comm]
+  simpa [contract, fuel, Compiler.Proofs.YulGeneration.selectorExpr,
+    Nat.add_assoc, Nat.add_comm, Nat.add_left_comm]
     using hResult
 
 /-- Exact-total-fuel reserved-context companion of
