@@ -102,7 +102,7 @@ theorem find?_insert_of_eq {α β : Type} {cmp : α → α → Ordering} [TransC
     (m : TreeMap α β cmp) {k k' : α} {v : β} (h : cmp k' k = Ordering.eq) :
     (m.insert k v).find? k' = some v := by
   apply get?_insert_of_eq m k k' v
-  simpa [h] using (Std.OrientedCmp.eq_swap (cmp := cmp) k k')
+  simpa [h] using (Std.OrientedCmp.eq_swap (cmp := cmp) (a := k) (b := k'))
 
 theorem find?_insert_of_ne {α β : Type} {cmp : α → α → Ordering} [TransCmp cmp]
     (m : TreeMap α β cmp) {k k' : α} {v : β} (h : cmp k' k ≠ Ordering.eq) :
@@ -110,7 +110,7 @@ theorem find?_insert_of_ne {α β : Type} {cmp : α → α → Ordering} [TransC
   apply get?_insert_of_ne m k k' v
   intro hEq
   apply h
-  simpa [hEq] using (Std.OrientedCmp.eq_swap (cmp := cmp) k' k)
+  simpa [hEq] using (Std.OrientedCmp.eq_swap (cmp := cmp) (a := k') (b := k))
 
 theorem find?_erase_self {α β : Type} {cmp : α → α → Ordering} [TransCmp cmp]
     (m : TreeMap α β cmp) (k : α) :
@@ -124,7 +124,7 @@ theorem find?_erase_of_ne {α β : Type} {cmp : α → α → Ordering} [TransCm
   have h' : cmp k k' ≠ Ordering.eq := by
     intro hEq
     apply h
-    simpa [hEq] using (Std.OrientedCmp.eq_swap (cmp := cmp) k' k)
+    simpa [hEq] using (Std.OrientedCmp.eq_swap (cmp := cmp) (a := k') (b := k))
   simp [h']
 
 end Std.TreeMap
