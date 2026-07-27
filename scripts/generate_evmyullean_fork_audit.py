@@ -260,7 +260,7 @@ FORK_AUDIT = {
         {
             "sha": "d4afe3be9b9160a6162f084f3b187dc3c7282b66",
             "title": "fix: migrate RBMap usage to Std TreeMap",
-            "file": "Conform and EvmYul map/API modules",
+            "file": "Conform/Main.lean, Conform/Model.lean, Conform/Wheels.lean, EvmYul/EVM/Semantics.lean, EvmYul/MachineStateOps.lean, EvmYul/Maps/AccountMap.lean, EvmYul/Maps/ByteMap.lean, EvmYul/Maps/StorageMap.lean, EvmYul/State.lean, EvmYul/State/Substate.lean, EvmYul/State/Transaction.lean, EvmYul/StateOps.lean, EvmYul/Yul/YulSemanticsTests/Main.lean",
             "category": "toolchain",
             "semantic_change": False,
             "rationale": "Renames Lean collection APIs from RBMap to Std TreeMap across equivalent map operations.",
@@ -270,7 +270,7 @@ FORK_AUDIT = {
         {
             "sha": "26ed6f948fd2d555325b4c4bfb7001237b752063",
             "title": "fix: adapt maps and slices for Lean 4.31",
-            "file": "Conform/Wheels.lean, EvmYul map and notation modules",
+            "file": "Conform/Wheels.lean, EvmYul/Maps/StorageMap.lean, EvmYul/Yul/YulNotation.lean",
             "category": "toolchain",
             "semantic_change": False,
             "rationale": "Adapts changed map and slice APIs without changing their data-level behavior.",
@@ -280,7 +280,7 @@ FORK_AUDIT = {
         {
             "sha": "ab541b3febf7f3c75dbee43ff98f594aa7fe5cfc",
             "title": "fix: update TreeMap APIs for Lean 4.31",
-            "file": "EvmYul EVM, state, map, interpreter, and conformance modules",
+            "file": "Conform/TestRunner.lean, EvmYul/EVM/Gas.lean, EvmYul/EVM/Semantics.lean, EvmYul/EllipticCurves.lean, EvmYul/Maps/AccountMap.lean, EvmYul/Pretty.lean, EvmYul/State.lean, EvmYul/State/Account.lean, EvmYul/State/AccountOps.lean, EvmYul/State/Substate.lean, EvmYul/State/Withdrawal.lean, EvmYul/StateOps.lean, EvmYul/Yul/Interpreter.lean",
             "category": "toolchain",
             "semantic_change": False,
             "rationale": "Updates TreeMap API calls throughout equivalent EVM/Yul data access code.",

@@ -557,12 +557,14 @@ private theorem evalPureBuiltinViaEvmYulLean_byte_normalized (index value : Nat)
       exact hgt
     have hshift_small : (31 - index % EvmYul.UInt256.size) * 8 < EvmYul.UInt256.size := by
       unfold EvmYul.UInt256.size; omega
-    have hguard : ¬ 256 ≤ (EvmYul.UInt256.ofNat
-        ((31 - (EvmYul.UInt256.ofNat index).toNat) * 8)).val := by
-      change ¬ 256 ≤ ((31 - index % EvmYul.UInt256.size) * 8) % EvmYul.UInt256.size
+    have hguard : ¬ 256 ≤
+        ((31 - index % EvmYul.UInt256.size) * 8) % EvmYul.UInt256.size := by
       rw [Nat.mod_eq_of_lt hshift_small]; omega
+    have hofNat_toNat : (EvmYul.UInt256.ofNat index).toNat =
+        index % EvmYul.UInt256.size := rfl
     unfold EvmYul.UInt256.byteAt
     rw [if_neg hle']
+    rw [hofNat_toNat]
     show some (EvmYul.UInt256.toNat
         (EvmYul.UInt256.land
           (EvmYul.UInt256.shiftRight (EvmYul.UInt256.ofNat value)
