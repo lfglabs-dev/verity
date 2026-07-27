@@ -19410,7 +19410,7 @@ def primCall_calldataload4_then_sstore0_stop_initialState_arg0
     (storage : IRStorageSlot → IRStorageWord)
     (observableSlots : List Nat) :
     Except EvmYul.Yul.Exception
-      (EvmYul.Yul.State × List EvmYul.Yul.Ast.Literal) := do
+      (EvmYul.Yul.State × List EvmYul.Literal) := do
   let (state', values) ←
     EvmYul.Yul.primCall (loadFuel + 1)
       (initialState contract tx storage observableSlots)
@@ -19440,7 +19440,7 @@ def primCall_calldataload4_then_sstore0_stop_initialState_arg0_withStore
     (observableSlots : List Nat)
     (store : EvmYul.Yul.VarStore) :
     Except EvmYul.Yul.Exception
-      (EvmYul.Yul.State × List EvmYul.Yul.Ast.Literal) := do
+      (EvmYul.Yul.State × List EvmYul.Literal) := do
   let (state', values) ←
     EvmYul.Yul.primCall (loadFuel + 1)
       (.Ok (initialState contract tx storage observableSlots).sharedState store)
