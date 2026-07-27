@@ -17758,7 +17758,7 @@ theorem initialState_sload_observableSlot_value
     EvmYul.Yul.State.toState, initialState, toSharedState, YulState.initial]
   rw [Std.TreeMap.getElem?_insert_self]
   rw [Std.TreeMap.getElem?_insert_self]
-  change (((projectStorage storage observableSlots).get? natToUInt256 slot)).getD ⟨0⟩ = storage (IRStorageSlot.ofNat slot)
+  change (((projectStorage storage observableSlots).get? (natToUInt256 slot))).getD ⟨0⟩ = storage (IRStorageSlot.ofNat slot)
   rw [hFindStorage]
   rfl
 
@@ -17787,7 +17787,7 @@ theorem initialState_sload_materializedSlot_value
     EvmYul.Yul.State.toState, initialState, toSharedState, YulState.initial]
   rw [Std.TreeMap.getElem?_insert_self]
   rw [Std.TreeMap.getElem?_insert_self]
-  change (((projectStorage storage slots).get? natToUInt256 slot)).getD ⟨0⟩ = storage (IRStorageSlot.ofNat slot)
+  change (((projectStorage storage slots).get? (natToUInt256 slot))).getD ⟨0⟩ = storage (IRStorageSlot.ofNat slot)
   rw [hFindStorage]
   rfl
 
@@ -17858,7 +17858,7 @@ theorem initialState_sload_omittedSlot_value
     EvmYul.Yul.State.toState, initialState, toSharedState, YulState.initial]
   rw [Std.TreeMap.getElem?_insert_self]
   rw [Std.TreeMap.getElem?_insert_self]
-  change (((projectStorage storage observableSlots).get? natToUInt256 slot)).getD ⟨0⟩ = natToUInt256 0
+  change (((projectStorage storage observableSlots).get? (natToUInt256 slot))).getD ⟨0⟩ = natToUInt256 0
   rw [hFindStorage]
   rfl
 
@@ -19206,7 +19206,7 @@ theorem primCall_sstore_initialState_wordSlot_projectResult_slot_zero_of_erase
       simpa [natToUInt256, EvmYul.UInt256.instInhabited] using hValueZero
     rw [hBranch]
     have hErase :
-        (((projectStorage storage observableSlots).erase natToUInt256 slot)).get? (natToUInt256 slot) = none :=
+        (((projectStorage storage observableSlots).erase (natToUInt256 slot))).get? (natToUInt256 slot) = none :=
       Std.TreeMap.getElem?_erase_self
     simp [Option.option, Std.TreeMap.getElem?_insert_self, IRStorageSlot.toUInt256, IRStorageSlot.ofNat, hErase]
 
@@ -19322,7 +19322,7 @@ theorem primCall_sstore_initialState_wordSlot_withStore_projectResult_slot_zero_
       simpa [natToUInt256, EvmYul.UInt256.instInhabited] using hValueZero
     rw [hBranch]
     have hErase :
-        (((projectStorage storage observableSlots).erase natToUInt256 slot)).get? (natToUInt256 slot) = none :=
+        (((projectStorage storage observableSlots).erase (natToUInt256 slot))).get? (natToUInt256 slot) = none :=
       Std.TreeMap.getElem?_erase_self
     simp [Option.option, Std.TreeMap.getElem?_insert_self, IRStorageSlot.toUInt256, IRStorageSlot.ofNat, hErase]
 
@@ -19736,7 +19736,7 @@ theorem primCall_calldataload4_then_sstore0_stop_initialState_arg0_withStore_pro
       simpa [natToUInt256, EvmYul.UInt256.instInhabited] using hValueZero
     rw [hBranch]
     have hErase :
-        (((projectStorage storage observableSlots).erase EvmYul.UInt256.ofNat 0)).get? (EvmYul.UInt256.ofNat 0) = none :=
+        (((projectStorage storage observableSlots).erase (EvmYul.UInt256.ofNat 0))).get? (EvmYul.UInt256.ofNat 0) = none :=
       Std.TreeMap.getElem?_erase_self
     simp [Option.option, Std.TreeMap.getElem?_insert_self, IRStorageSlot.toUInt256, IRStorageSlot.ofNat, hErase]
 
@@ -19886,7 +19886,7 @@ theorem primCall_calldataload4_then_sstore0_stop_initialState_arg0_projectResult
       simpa [natToUInt256, EvmYul.UInt256.instInhabited] using hValueZero
     rw [hBranch]
     have hErase :
-        (((projectStorage storage observableSlots).erase EvmYul.UInt256.ofNat 0)).get? (EvmYul.UInt256.ofNat 0) = none :=
+        (((projectStorage storage observableSlots).erase (EvmYul.UInt256.ofNat 0))).get? (EvmYul.UInt256.ofNat 0) = none :=
       Std.TreeMap.getElem?_erase_self
     simp [Option.option, Std.TreeMap.getElem?_insert_self, IRStorageSlot.toUInt256, IRStorageSlot.ofNat, hErase]
 
@@ -20006,7 +20006,7 @@ theorem primCall_calldataload4_then_sstore0_initialState_arg0_projectResult_slot
       simpa [natToUInt256, EvmYul.UInt256.instInhabited] using hValueZero
     rw [hBranch]
     have hErase :
-        (((projectStorage storage observableSlots).erase EvmYul.UInt256.ofNat 0)).get? (EvmYul.UInt256.ofNat 0) = none :=
+        (((projectStorage storage observableSlots).erase (EvmYul.UInt256.ofNat 0))).get? (EvmYul.UInt256.ofNat 0) = none :=
       Std.TreeMap.getElem?_erase_self
     simp [Option.option, Std.TreeMap.getElem?_insert_self, IRStorageSlot.toUInt256, IRStorageSlot.ofNat, hErase]
 
