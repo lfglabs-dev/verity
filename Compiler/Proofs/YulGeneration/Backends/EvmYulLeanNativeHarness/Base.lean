@@ -105,6 +105,7 @@ private theorem uint256_lt_ofNat_4_eq_zero_of_ge
     that `ISZERO 0 = 1`. -/
 private theorem uint256_isZero_ofNat_zero :
     EvmYul.UInt256.isZero (EvmYul.UInt256.ofNat 0) = EvmYul.UInt256.ofNat 1 := by
+  rw [hVal]
   decide
 
 /-- Specialisation of
@@ -774,6 +775,7 @@ theorem eval_lowerExprNative_iszero_ident_one_ok
     EvmYul.Yul.eval, EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail,
     EvmYul.Yul.evalPrimCall, EvmYul.Yul.reverse', EvmYul.Yul.cons',
     EvmYul.Yul.head', hVal]
+  rw [hVal]
   decide
 
 /-- Fuel-parametric form of `eval_lowerExprNative_iszero_ident_one_ok`. -/
@@ -2006,7 +2008,7 @@ private theorem nativeSwitchInitialOkState_insert_lookup_self
 theorem exec_if_lowerExprNative_ident_one_take_fuel
     (fuel : Nat) (body : List EvmYul.Yul.Ast.Stmt)
     (codeOverride : Option EvmYul.Yul.Ast.YulContract)
-    (state : EvmYul.Yul.State) (name : String)
+    (state : EvmYul.Yul.State) (name : EvmYul.Identifier)
     (hVal : state[name]! = EvmYul.UInt256.ofNat 1) :
     EvmYul.Yul.exec (fuel + 2)
         (.If (Backends.lowerExprNative (Yul.YulExpr.ident name)) body)
