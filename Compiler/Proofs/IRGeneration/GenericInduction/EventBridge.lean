@@ -1118,7 +1118,7 @@ private theorem eventUnindexedStores_cons_continue
   rcases hok with ⟨heval, hsupport, hlt, hshape, hsize, hkind⟩
   constructor
   · simp [SourceSemantics.writeUnindexedEventScratchFrom, hkind]
-    convert hwriteTail using 1 <;> simp [eventUnindexedNextMemory]
+    convert hwriteTail using 1 <;> first | rfl | simp [eventUnindexedNextMemory]
   · have hstmt :
         scalarEventUnindexedStoresFrom ((param, srcExpr, argExpr) :: rest)
             (wordIdx * 32) =
