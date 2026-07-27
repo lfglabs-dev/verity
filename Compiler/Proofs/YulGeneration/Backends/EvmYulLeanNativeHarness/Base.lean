@@ -105,7 +105,6 @@ private theorem uint256_lt_ofNat_4_eq_zero_of_ge
     that `ISZERO 0 = 1`. -/
 private theorem uint256_isZero_ofNat_zero :
     EvmYul.UInt256.isZero (EvmYul.UInt256.ofNat 0) = EvmYul.UInt256.ofNat 1 := by
-  rw [hVal]
   decide
 
 /-- Specialisation of
@@ -794,6 +793,7 @@ theorem eval_lowerExprNative_iszero_ident_one_ok_fuel
     EvmYul.Yul.eval, EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail,
     EvmYul.Yul.evalPrimCall, EvmYul.Yul.reverse', EvmYul.Yul.cons',
     EvmYul.Yul.head', hVal]
+  rw [hVal]
   decide
 
 theorem exec_let_lowerExprNative_selectorExpr_initialState_ok
