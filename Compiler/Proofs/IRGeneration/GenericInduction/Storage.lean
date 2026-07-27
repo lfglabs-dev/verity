@@ -3707,8 +3707,9 @@ private theorem compiledStmtStep_setMappingChain_singleSlot_of_slotSafety_preser
         have h := execIRStmt_tstore_of_eval
           (state := state) (slotExpr := writeSlotExpr) (valueExpr := valueIR)
           (fuel := extraFuel) hWriteSlotEval hIRValue
-        simpa [fieldStoreBuiltin, htrans, state', target, SourceSemantics.wordNormalize,
-          SourceSemantics.mappingSlotChain] using h
+        convert h using 1
+        · simp [fieldStoreBuiltin, htrans]
+        · congr 1
       have hfuelEq : 1 + extraFuel = extraFuel + 1 := by omega
       have hIRExec : execIRStmts (compiledIR.length + extraFuel + 1) state compiledIR =
           .continue state' := by
@@ -4722,7 +4723,7 @@ private theorem compiledStmtStep_setMappingPackedWord_singleSlot_of_slotSafety_p
           evalIRExpr state2 (YulExpr.call (fieldLoadBuiltin fields fieldName) [writeSlotExpr]) = some oldWordNat := by
         by_cases htrans : SourceSemantics.fieldIsTransient fields fieldName = true
         · simpa [evalIRExpr, evalIRCall, evalIRExprs,
-            fieldLoadBuiltin, htrans, oldWordNat, state2, state1,
+            fieldLoadBuiltin, htrans, oldWordNat, state2, state1, IRState.setVar,
             SourceSemantics.wordNormalize,
             Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
             Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallViaEvmYulLean] using
