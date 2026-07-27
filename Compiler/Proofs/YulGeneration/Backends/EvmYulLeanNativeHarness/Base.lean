@@ -767,13 +767,14 @@ theorem eval_lowerExprNative_iszero_ident_one_ok
     (hVal : state[name]! = EvmYul.UInt256.ofNat 1) :
     EvmYul.Yul.eval 8
         (Backends.lowerExprNative
-          (Yul.YulExpr.call "iszero" [Yul.YulExpr.ident name]))
+          (Yul.YulExpr.call "iszero" [Yul.YulExpr.ident (name : String)]))
         codeOverride state =
       .ok (state, EvmYul.UInt256.ofNat 0) := by
   simp only [Backends.lowerExprNative, Backends.lookupRuntimePrimOp_iszero,
     EvmYul.Yul.eval, EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail,
     EvmYul.Yul.evalPrimCall, EvmYul.Yul.reverse', EvmYul.Yul.cons',
     EvmYul.Yul.head']
+  change state[(name : String)]! = EvmYul.UInt256.ofNat 1 at hVal
   rw [hVal]
   decide
 
@@ -786,13 +787,14 @@ theorem eval_lowerExprNative_iszero_ident_one_ok_fuel
     (hVal : state[name]! = EvmYul.UInt256.ofNat 1) :
     EvmYul.Yul.eval (fuel + 8)
         (Backends.lowerExprNative
-          (Yul.YulExpr.call "iszero" [Yul.YulExpr.ident name]))
+          (Yul.YulExpr.call "iszero" [Yul.YulExpr.ident (name : String)]))
         codeOverride state =
       .ok (state, EvmYul.UInt256.ofNat 0) := by
   simp only [Backends.lowerExprNative, Backends.lookupRuntimePrimOp_iszero,
     EvmYul.Yul.eval, EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail,
     EvmYul.Yul.evalPrimCall, EvmYul.Yul.reverse', EvmYul.Yul.cons',
     EvmYul.Yul.head']
+  change state[(name : String)]! = EvmYul.UInt256.ofNat 1 at hVal
   rw [hVal]
   decide
 
@@ -6541,7 +6543,7 @@ theorem native_call_preserves_lookup_of_revivable_body
   | succ fuel' =>
       simp only [EvmYul.Yul.call] at hCall
       cases hCode :
-          (EvmYul.Yul.State.Ok shared store).sharedState.accountMap.find?
+          (EvmYul.Yul.State.Ok shared store).sharedState.accountMap.get?
             (EvmYul.Yul.State.Ok shared store).executionEnv.codeOwner with
       | none =>
           simp [hCode] at hCall
@@ -6704,7 +6706,7 @@ theorem native_mappingSlot_call_preserves_lookup_state
       | succ fuel' =>
           simp only [EvmYul.Yul.call] at hCall
           cases hCode :
-              EvmYul.Yul.State.OutOfFuel.sharedState.accountMap.find?
+              EvmYul.Yul.State.OutOfFuel.sharedState.accountMap.get?
                 EvmYul.Yul.State.OutOfFuel.executionEnv.codeOwner with
           | none =>
               simp [hCode] at hCall
@@ -6735,7 +6737,7 @@ theorem native_mappingSlot_call_preserves_lookup_state
       | succ fuel' =>
           simp only [EvmYul.Yul.call] at hCall
           cases hCode :
-              (EvmYul.Yul.State.Checkpoint jump).sharedState.accountMap.find?
+              (EvmYul.Yul.State.Checkpoint jump).sharedState.accountMap.get?
                 (EvmYul.Yul.State.Checkpoint jump).executionEnv.codeOwner with
           | none =>
               simp [hCode] at hCall
@@ -7213,10 +7215,10 @@ theorem NativeBlockPreservesWord_of_forall_stmt_write_not_mem
     (body : List EvmYul.Yul.Ast.Stmt)
     (codeOverride : Option EvmYul.Yul.Ast.YulContract)
     (hFresh :
-      ∀ stmt, stmt ∈ body → name ∉ Backends.nativeStmtWriteNames stmt)
+      ∀ stmt, stmt ∈ body → (name : String) ∉ Backends.nativeStmtWriteNames stmt)
     (hPreserves :
       ∀ stmt, stmt ∈ body →
-        name ∉ Backends.nativeStmtWriteNames stmt →
+        (name : String) ∉ Backends.nativeStmtWriteNames stmt →
           NativeStmtPreservesWord name value stmt codeOverride) :
     NativeBlockPreservesWord name value body codeOverride :=
   NativeBlockPreservesWord_of_forall_stmt name value body codeOverride
@@ -7228,9 +7230,9 @@ theorem nativeStmtWriteNames_not_mem_of_nativeStmtsWriteNames_not_mem
     (name : EvmYul.Identifier)
     (body : List EvmYul.Yul.Ast.Stmt)
     (stmt : EvmYul.Yul.Ast.Stmt)
-    (hFresh : name ∉ Backends.nativeStmtsWriteNames body)
+    (hFresh : (name : String) ∉ Backends.nativeStmtsWriteNames body)
     (hMem : stmt ∈ body) :
-    name ∉ Backends.nativeStmtWriteNames stmt := by
+    (name : String) ∉ Backends.nativeStmtWriteNames stmt := by
   induction body with
   | nil =>
       simp at hMem
@@ -7244,7 +7246,7 @@ theorem nativeStmtWriteNames_not_mem_of_nativeStmtsWriteNames_not_mem
 theorem nativeStmtWriteNames_let_singleton_not_mem_ne
     (name target : EvmYul.Identifier)
     (value : Option EvmYul.Yul.Ast.Expr)
-    (hFresh : name ∉ Backends.nativeStmtWriteNames (.Let [target] value)) :
+    (hFresh : (name : String) ∉ Backends.nativeStmtWriteNames (.Let [target] value)) :
     name ≠ target := by
   intro hEq
   subst hEq
@@ -7254,7 +7256,7 @@ theorem nativeStmtWriteNames_let_not_mem_vars
     (name : EvmYul.Identifier)
     (vars : List EvmYul.Identifier)
     (value : Option EvmYul.Yul.Ast.Expr)
-    (hFresh : name ∉ Backends.nativeStmtWriteNames (.Let vars value)) :
+    (hFresh : (name : String) ∉ Backends.nativeStmtWriteNames (.Let vars value)) :
     name ∉ vars := by
   simpa [Backends.nativeStmtWriteNames] using hFresh
 
@@ -7262,7 +7264,7 @@ theorem nativeStmtWriteNames_lowerAssignNative_not_mem_ne
     (name target : EvmYul.Identifier)
     (value : YulExpr)
     (hFresh :
-      name ∉ Backends.nativeStmtWriteNames
+      (name : String) ∉ Backends.nativeStmtWriteNames
         (Backends.lowerAssignNative target value)) :
     name ≠ target := by
   intro hEq
@@ -7302,9 +7304,9 @@ theorem yulStmtWriteNames_not_mem_of_yulStmtsWriteNames_not_mem
     (name : EvmYul.Identifier)
     (body : List YulStmt)
     (stmt : YulStmt)
-    (hFresh : name ∉ Backends.yulStmtsWriteNames body)
+    (hFresh : (name : String) ∉ Backends.yulStmtsWriteNames body)
     (hMem : stmt ∈ body) :
-    name ∉ Backends.yulStmtWriteNames stmt := by
+    (name : String) ∉ Backends.yulStmtWriteNames stmt := by
   induction body with
   | nil =>
       simp at hMem
@@ -7350,9 +7352,9 @@ theorem nativeStmtsWriteNames_cons_not_mem_iff
     (name : EvmYul.Identifier)
     (stmt : EvmYul.Yul.Ast.Stmt)
     (rest : List EvmYul.Yul.Ast.Stmt) :
-    name ∉ Backends.nativeStmtsWriteNames (stmt :: rest) ↔
-      name ∉ Backends.nativeStmtWriteNames stmt ∧
-        name ∉ Backends.nativeStmtsWriteNames rest := by
+    (name : String) ∉ Backends.nativeStmtsWriteNames (stmt :: rest) ↔
+      (name : String) ∉ Backends.nativeStmtWriteNames stmt ∧
+        (name : String) ∉ Backends.nativeStmtsWriteNames rest := by
   rw [nativeStmtsWriteNames_cons, List.mem_append]
   constructor
   · intro hFresh
@@ -7368,8 +7370,8 @@ theorem nativeStmtsWriteNames_head_not_mem_of_cons_not_mem
     (name : EvmYul.Identifier)
     (stmt : EvmYul.Yul.Ast.Stmt)
     (rest : List EvmYul.Yul.Ast.Stmt)
-    (hFresh : name ∉ Backends.nativeStmtsWriteNames (stmt :: rest)) :
-    name ∉ Backends.nativeStmtWriteNames stmt := by
+    (hFresh : (name : String) ∉ Backends.nativeStmtsWriteNames (stmt :: rest)) :
+    (name : String) ∉ Backends.nativeStmtWriteNames stmt := by
   intro hMem
   apply hFresh
   rw [nativeStmtsWriteNames_cons]
@@ -7379,8 +7381,8 @@ theorem nativeStmtsWriteNames_tail_not_mem_of_cons_not_mem
     (name : EvmYul.Identifier)
     (stmt : EvmYul.Yul.Ast.Stmt)
     (rest : List EvmYul.Yul.Ast.Stmt)
-    (hFresh : name ∉ Backends.nativeStmtsWriteNames (stmt :: rest)) :
-    name ∉ Backends.nativeStmtsWriteNames rest := by
+    (hFresh : (name : String) ∉ Backends.nativeStmtsWriteNames (stmt :: rest)) :
+    (name : String) ∉ Backends.nativeStmtsWriteNames rest := by
   intro hMem
   apply hFresh
   rw [nativeStmtsWriteNames_cons]
@@ -7389,8 +7391,8 @@ theorem nativeStmtsWriteNames_tail_not_mem_of_cons_not_mem
 theorem nativeStmtsWriteNames_left_not_mem_of_append_not_mem
     (name : EvmYul.Identifier)
     (left right : List EvmYul.Yul.Ast.Stmt)
-    (hFresh : name ∉ Backends.nativeStmtsWriteNames (left ++ right)) :
-    name ∉ Backends.nativeStmtsWriteNames left := by
+    (hFresh : (name : String) ∉ Backends.nativeStmtsWriteNames (left ++ right)) :
+    (name : String) ∉ Backends.nativeStmtsWriteNames left := by
   intro hMem
   apply hFresh
   rw [nativeStmtsWriteNames_append]
@@ -7399,8 +7401,8 @@ theorem nativeStmtsWriteNames_left_not_mem_of_append_not_mem
 theorem nativeStmtsWriteNames_right_not_mem_of_append_not_mem
     (name : EvmYul.Identifier)
     (left right : List EvmYul.Yul.Ast.Stmt)
-    (hFresh : name ∉ Backends.nativeStmtsWriteNames (left ++ right)) :
-    name ∉ Backends.nativeStmtsWriteNames right := by
+    (hFresh : (name : String) ∉ Backends.nativeStmtsWriteNames (left ++ right)) :
+    (name : String) ∉ Backends.nativeStmtsWriteNames right := by
   intro hMem
   apply hFresh
   rw [nativeStmtsWriteNames_append]
@@ -7409,9 +7411,9 @@ theorem nativeStmtsWriteNames_right_not_mem_of_append_not_mem
 theorem nativeStmtsWriteNames_append_not_mem_iff
     (name : EvmYul.Identifier)
     (left right : List EvmYul.Yul.Ast.Stmt) :
-    name ∉ Backends.nativeStmtsWriteNames (left ++ right) ↔
-      name ∉ Backends.nativeStmtsWriteNames left ∧
-        name ∉ Backends.nativeStmtsWriteNames right := by
+    (name : String) ∉ Backends.nativeStmtsWriteNames (left ++ right) ↔
+      (name : String) ∉ Backends.nativeStmtsWriteNames left ∧
+        (name : String) ∉ Backends.nativeStmtsWriteNames right := by
   rw [nativeStmtsWriteNames_append, List.mem_append]
   constructor
   · intro hFresh
@@ -7449,10 +7451,10 @@ theorem NativeBlockPreservesWord_of_nativeStmtsWriteNames_not_mem
     (value : EvmYul.Literal)
     (body : List EvmYul.Yul.Ast.Stmt)
     (codeOverride : Option EvmYul.Yul.Ast.YulContract)
-    (hFresh : name ∉ Backends.nativeStmtsWriteNames body)
+    (hFresh : (name : String) ∉ Backends.nativeStmtsWriteNames body)
     (hPreserves :
       ∀ stmt, stmt ∈ body →
-        name ∉ Backends.nativeStmtWriteNames stmt →
+        (name : String) ∉ Backends.nativeStmtWriteNames stmt →
           NativeStmtPreservesWord name value stmt codeOverride) :
     NativeBlockPreservesWord name value body codeOverride :=
   NativeBlockPreservesWord_of_forall_stmt_write_not_mem name value body
@@ -7469,12 +7471,12 @@ theorem NativeBlockPreservesWord_cons_of_nativeStmtsWriteNames_not_mem
     (stmt : EvmYul.Yul.Ast.Stmt)
     (rest : List EvmYul.Yul.Ast.Stmt)
     (codeOverride : Option EvmYul.Yul.Ast.YulContract)
-    (hFresh : name ∉ Backends.nativeStmtsWriteNames (stmt :: rest))
+    (hFresh : (name : String) ∉ Backends.nativeStmtsWriteNames (stmt :: rest))
     (hHead :
-      name ∉ Backends.nativeStmtWriteNames stmt →
+      (name : String) ∉ Backends.nativeStmtWriteNames stmt →
         NativeStmtPreservesWord name value stmt codeOverride)
     (hRest :
-      name ∉ Backends.nativeStmtsWriteNames rest →
+      (name : String) ∉ Backends.nativeStmtsWriteNames rest →
         NativeBlockPreservesWord name value rest codeOverride) :
     NativeBlockPreservesWord name value (stmt :: rest) codeOverride :=
   NativeBlockPreservesWord_cons_stmt name value stmt rest codeOverride
@@ -7499,10 +7501,10 @@ theorem NativeStmtPreservesWord_block_of_nativeStmtsWriteNames_not_mem
     (value : EvmYul.Literal)
     (body : List EvmYul.Yul.Ast.Stmt)
     (codeOverride : Option EvmYul.Yul.Ast.YulContract)
-    (hFresh : name ∉ Backends.nativeStmtsWriteNames body)
+    (hFresh : (name : String) ∉ Backends.nativeStmtsWriteNames body)
     (hPreserves :
       ∀ stmt, stmt ∈ body →
-        name ∉ Backends.nativeStmtWriteNames stmt →
+        (name : String) ∉ Backends.nativeStmtWriteNames stmt →
           NativeStmtPreservesWord name value stmt codeOverride) :
     NativeStmtPreservesWord name value (.Block body) codeOverride :=
   NativeStmtPreservesWord_block name value body codeOverride
@@ -7514,15 +7516,15 @@ theorem NativeBlockPreservesWord_append_of_nativeStmtsWriteNames_not_mem
     (value : EvmYul.Literal)
     (left right : List EvmYul.Yul.Ast.Stmt)
     (codeOverride : Option EvmYul.Yul.Ast.YulContract)
-    (hLeftFresh : name ∉ Backends.nativeStmtsWriteNames left)
-    (hRightFresh : name ∉ Backends.nativeStmtsWriteNames right)
+    (hLeftFresh : (name : String) ∉ Backends.nativeStmtsWriteNames left)
+    (hRightFresh : (name : String) ∉ Backends.nativeStmtsWriteNames right)
     (hLeft :
       ∀ stmt, stmt ∈ left →
-        name ∉ Backends.nativeStmtWriteNames stmt →
+        (name : String) ∉ Backends.nativeStmtWriteNames stmt →
           NativeStmtPreservesWord name value stmt codeOverride)
     (hRight :
       ∀ stmt, stmt ∈ right →
-        name ∉ Backends.nativeStmtWriteNames stmt →
+        (name : String) ∉ Backends.nativeStmtWriteNames stmt →
           NativeStmtPreservesWord name value stmt codeOverride) :
     NativeBlockPreservesWord name value (left ++ right) codeOverride :=
   NativeBlockPreservesWord_of_nativeStmtsWriteNames_not_mem name value
@@ -7546,14 +7548,14 @@ theorem NativeBlockPreservesWord_append_of_nativeStmtsWriteNames_append_not_mem
     (value : EvmYul.Literal)
     (left right : List EvmYul.Yul.Ast.Stmt)
     (codeOverride : Option EvmYul.Yul.Ast.YulContract)
-    (hFresh : name ∉ Backends.nativeStmtsWriteNames (left ++ right))
+    (hFresh : (name : String) ∉ Backends.nativeStmtsWriteNames (left ++ right))
     (hLeft :
       ∀ stmt, stmt ∈ left →
-        name ∉ Backends.nativeStmtWriteNames stmt →
+        (name : String) ∉ Backends.nativeStmtWriteNames stmt →
           NativeStmtPreservesWord name value stmt codeOverride)
     (hRight :
       ∀ stmt, stmt ∈ right →
-        name ∉ Backends.nativeStmtWriteNames stmt →
+        (name : String) ∉ Backends.nativeStmtWriteNames stmt →
           NativeStmtPreservesWord name value stmt codeOverride) :
     NativeBlockPreservesWord name value (left ++ right) codeOverride :=
   NativeBlockPreservesWord_append_of_nativeStmtsWriteNames_not_mem
@@ -7639,10 +7641,10 @@ theorem NativeStmtPreservesWord_if_of_eval_preserves_and_nativeStmtsWriteNames_n
             EvmYul.Yul.eval fuel cond codeOverride state =
               .ok (condState, condValue) ∧
             condState[name]! = value)
-    (hFresh : name ∉ Backends.nativeStmtsWriteNames body)
+    (hFresh : (name : String) ∉ Backends.nativeStmtsWriteNames body)
     (hPreserves :
       ∀ stmt, stmt ∈ body →
-        name ∉ Backends.nativeStmtWriteNames stmt →
+        (name : String) ∉ Backends.nativeStmtWriteNames stmt →
           NativeStmtPreservesWord name value stmt codeOverride) :
     NativeStmtPreservesWord name value (.If cond body) codeOverride :=
   NativeStmtPreservesWord_if_of_eval_preserves name value cond body codeOverride
@@ -7689,10 +7691,10 @@ theorem NativeStmtPreservesWord_if_of_cond_preserves_and_nativeStmtsWriteNames_n
     (body : List EvmYul.Yul.Ast.Stmt)
     (codeOverride : Option EvmYul.Yul.Ast.YulContract)
     (hCond : NativeExprPreservesWord name value cond codeOverride)
-    (hFresh : name ∉ Backends.nativeStmtsWriteNames body)
+    (hFresh : (name : String) ∉ Backends.nativeStmtsWriteNames body)
     (hPreserves :
       ∀ stmt, stmt ∈ body →
-        name ∉ Backends.nativeStmtWriteNames stmt →
+        (name : String) ∉ Backends.nativeStmtWriteNames stmt →
           NativeStmtPreservesWord name value stmt codeOverride) :
     NativeStmtPreservesWord name value (.If cond body) codeOverride :=
   NativeStmtPreservesWord_if_of_cond_preserves name value cond body codeOverride
@@ -7937,10 +7939,10 @@ theorem NativeStmtPreservesWord_switch_of_cond_preserves_and_nativeStmtsWriteNam
     (codeOverride : Option EvmYul.Yul.Ast.YulContract)
     (hCond : NativeExprPreservesWord name value cond codeOverride)
     (hCasesFresh : ∀ tag body, (tag, body) ∈ cases →
-      name ∉ Backends.nativeStmtsWriteNames body)
-    (hDefaultFresh : name ∉ Backends.nativeStmtsWriteNames defaultBody)
+      (name : String) ∉ Backends.nativeStmtsWriteNames body)
+    (hDefaultFresh : (name : String) ∉ Backends.nativeStmtsWriteNames defaultBody)
     (hPreserves :
-      ∀ stmt, name ∉ Backends.nativeStmtWriteNames stmt →
+      ∀ stmt, (name : String) ∉ Backends.nativeStmtWriteNames stmt →
         NativeStmtPreservesWord name value stmt codeOverride) :
     NativeStmtPreservesWord name value (.Switch cond cases defaultBody)
       codeOverride :=
@@ -7969,10 +7971,10 @@ theorem NativeStmtPreservesWord_switch_of_eval_preserves_and_nativeStmtsWriteNam
               .ok (condState, condValue) ∧
             condState[name]! = value)
     (hCasesFresh : ∀ tag body, (tag, body) ∈ cases →
-      name ∉ Backends.nativeStmtsWriteNames body)
-    (hDefaultFresh : name ∉ Backends.nativeStmtsWriteNames defaultBody)
+      (name : String) ∉ Backends.nativeStmtsWriteNames body)
+    (hDefaultFresh : (name : String) ∉ Backends.nativeStmtsWriteNames defaultBody)
     (hPreserves :
-      ∀ stmt, name ∉ Backends.nativeStmtWriteNames stmt →
+      ∀ stmt, (name : String) ∉ Backends.nativeStmtWriteNames stmt →
         NativeStmtPreservesWord name value stmt codeOverride) :
     NativeStmtPreservesWord name value (.Switch cond cases defaultBody)
       codeOverride :=
@@ -9100,7 +9102,7 @@ theorem NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_let_of_write_n
       Backends.lowerStmtGroupNativeWithSwitchIds reservedNames nextSwitchId
         (.let_ target value) = .ok (native, finalSwitchId))
     (hMem : nativeStmt ∈ native)
-    (hFresh : name ∉ Backends.nativeStmtWriteNames nativeStmt) :
+    (hFresh : (name : String) ∉ Backends.nativeStmtWriteNames nativeStmt) :
     NativeStmtPreservesWord name expected nativeStmt
       (some
         { dispatcher := dispatcher
@@ -9134,7 +9136,7 @@ theorem NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_letMany_of_wri
       Backends.lowerStmtGroupNativeWithSwitchIds reservedNames nextSwitchId
         (.letMany targets value) = .ok (native, finalSwitchId))
     (hMem : nativeStmt ∈ native)
-    (hFresh : name ∉ Backends.nativeStmtWriteNames nativeStmt) :
+    (hFresh : (name : String) ∉ Backends.nativeStmtWriteNames nativeStmt) :
     NativeStmtPreservesWord name expected nativeStmt
       (some
         { dispatcher := dispatcher
@@ -9197,7 +9199,7 @@ theorem NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_assign_of_writ
       Backends.lowerStmtGroupNativeWithSwitchIds reservedNames nextSwitchId
         (.assign target value) = .ok (native, finalSwitchId))
     (hMem : nativeStmt ∈ native)
-    (hFresh : name ∉ Backends.nativeStmtWriteNames nativeStmt) :
+    (hFresh : (name : String) ∉ Backends.nativeStmtWriteNames nativeStmt) :
     NativeStmtPreservesWord name expected nativeStmt
       (some
         { dispatcher := dispatcher
@@ -13108,7 +13110,7 @@ theorem NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_of_mappingFree
       Backends.lowerStmtGroupNativeWithSwitchIds reservedNames nextSwitchId stmt =
         .ok (native, finalSwitchId))
     (hMem : nativeStmt ∈ native)
-    (hFresh : name ∉ Backends.nativeStmtWriteNames nativeStmt) :
+    (hFresh : (name : String) ∉ Backends.nativeStmtWriteNames nativeStmt) :
     NativeStmtPreservesWord name expected nativeStmt codeOverride := by
   induction hStmt with
   | comment text =>
@@ -13374,7 +13376,7 @@ theorem NativeStmtPreservesWord_of_mem_lowerStmtsNativeWithSwitchIds_of_mappingF
       Backends.lowerStmtsNativeWithSwitchIds reservedNames nextSwitchId stmts =
         .ok (native, finalSwitchId))
     (hMem : nativeStmt ∈ native)
-    (hFresh : name ∉ Backends.nativeStmtWriteNames nativeStmt) :
+    (hFresh : (name : String) ∉ Backends.nativeStmtWriteNames nativeStmt) :
     NativeStmtPreservesWord name expected nativeStmt codeOverride := by
   induction stmts generalizing nextSwitchId native finalSwitchId with
   | nil =>
@@ -13432,7 +13434,7 @@ theorem NativeBlockPreservesWord_lowerStmtsNativeWithSwitchIds_of_mappingFreePre
     (hLower :
       Backends.lowerStmtsNativeWithSwitchIds reservedNames nextSwitchId stmts =
         .ok (native, finalSwitchId))
-    (hFresh : name ∉ Backends.nativeStmtsWriteNames native) :
+    (hFresh : (name : String) ∉ Backends.nativeStmtsWriteNames native) :
     NativeBlockPreservesWord name expected native codeOverride :=
   NativeBlockPreservesWord_of_nativeStmtsWriteNames_not_mem name expected native
     codeOverride hFresh
@@ -13458,7 +13460,7 @@ theorem NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_of_nativePrese
       Backends.lowerStmtGroupNativeWithSwitchIds reservedNames nextSwitchId stmt =
         .ok (native, finalSwitchId))
     (hMem : nativeStmt ∈ native)
-    (hFresh : name ∉ Backends.nativeStmtWriteNames nativeStmt) :
+    (hFresh : (name : String) ∉ Backends.nativeStmtWriteNames nativeStmt) :
     NativeStmtPreservesWord name expected nativeStmt
       (some
         { dispatcher := dispatcher
@@ -13576,7 +13578,7 @@ theorem NativeStmtPreservesWord_of_mem_lowerStmtsNativeWithSwitchIds_of_nativePr
       Backends.lowerStmtsNativeWithSwitchIds reservedNames nextSwitchId stmts =
         .ok (native, finalSwitchId))
     (hMem : nativeStmt ∈ native)
-    (hFresh : name ∉ Backends.nativeStmtWriteNames nativeStmt) :
+    (hFresh : (name : String) ∉ Backends.nativeStmtWriteNames nativeStmt) :
     NativeStmtPreservesWord name expected nativeStmt
       (some
         { dispatcher := dispatcher
@@ -13644,7 +13646,7 @@ theorem NativeStmtPreservesWord_of_mem_lowerStmtsNativeWithSwitchIds_of_bridgedS
       Backends.lowerStmtsNativeWithSwitchIds reservedNames nextSwitchId stmts =
         .ok (native, finalSwitchId))
     (hMem : nativeStmt ∈ native)
-    (hFresh : name ∉ Backends.nativeStmtWriteNames nativeStmt) :
+    (hFresh : (name : String) ∉ Backends.nativeStmtWriteNames nativeStmt) :
     NativeStmtPreservesWord name expected nativeStmt
       (some
         { dispatcher := dispatcher
@@ -13669,7 +13671,7 @@ theorem NativeBlockPreservesWord_lowerStmtsNativeWithSwitchIds_of_nativePreserva
     (hLower :
       Backends.lowerStmtsNativeWithSwitchIds reservedNames nextSwitchId stmts =
         .ok (native, finalSwitchId))
-    (hFresh : name ∉ Backends.nativeStmtsWriteNames native) :
+    (hFresh : (name : String) ∉ Backends.nativeStmtsWriteNames native) :
     NativeBlockPreservesWord name expected native
       (some
         { dispatcher := dispatcher
@@ -13713,7 +13715,7 @@ theorem NativeBlockPreservesWord_lowerStmtsNativeWithSwitchIds_of_bridgedStraigh
     (hLower :
       Backends.lowerStmtsNativeWithSwitchIds reservedNames nextSwitchId stmts =
         .ok (native, finalSwitchId))
-    (hFresh : name ∉ Backends.nativeStmtsWriteNames native) :
+    (hFresh : (name : String) ∉ Backends.nativeStmtsWriteNames native) :
     NativeBlockPreservesWord name expected native
       (some
         { dispatcher := dispatcher
@@ -17621,9 +17623,9 @@ def projectStorageFromState (tx : YulTransaction) (state : EvmYul.Yul.State) :
     (account : EvmYul.Account .Yul)
     (value : EvmYul.UInt256)
     (hAccount :
-      state.sharedState.accountMap.find? (natToAddress tx.thisAddress) =
+      state.sharedState.accountMap.get? (natToAddress tx.thisAddress) =
         some account)
-    (hSlot : account.storage.find? (natToUInt256 slot) = some value) :
+    (hSlot : account.storage.get? (natToUInt256 slot) = some value) :
     projectStorageFromState tx state (IRStorageSlot.ofNat slot) = value := by
   simp [projectStorageFromState, extractStorage, hAccount, hSlot]
 
@@ -17635,9 +17637,9 @@ def projectStorageFromState (tx : YulTransaction) (state : EvmYul.Yul.State) :
     (slot : Nat)
     (account : EvmYul.Account .Yul)
     (hAccount :
-      state.sharedState.accountMap.find? (natToAddress tx.thisAddress) =
+      state.sharedState.accountMap.get? (natToAddress tx.thisAddress) =
         some account)
-    (hSlot : account.storage.find? (natToUInt256 slot) = none) :
+    (hSlot : account.storage.get? (natToUInt256 slot) = none) :
     projectStorageFromState tx state (IRStorageSlot.ofNat slot) = 0 := by
   simp [projectStorageFromState, extractStorage, hAccount, hSlot]
 
@@ -17648,7 +17650,7 @@ def projectStorageFromState (tx : YulTransaction) (state : EvmYul.Yul.State) :
     (state : EvmYul.Yul.State)
     (slot : Nat)
     (hAccount :
-      state.sharedState.accountMap.find? (natToAddress tx.thisAddress) =
+      state.sharedState.accountMap.get? (natToAddress tx.thisAddress) =
         none) :
     projectStorageFromState tx state (IRStorageSlot.ofNat slot) = 0 := by
   simp [projectStorageFromState, extractStorage, hAccount]
@@ -17669,8 +17671,8 @@ theorem initialState_observableStorageSlot
       storage (IRStorageSlot.ofNat slot) := by
   simp only [projectStorageFromState, extractStorage, initialState,
     EvmYul.Yul.State.sharedState, YulState.initial, toSharedState]
-  rw [Std.TreeMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
-  rw [Std.TreeMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
+  rw [Std.TreeMap.get?_insert_of_eq _ Std.ReflCmp.compare_self]
+  rw [Std.TreeMap.get?_insert_of_eq _ Std.ReflCmp.compare_self]
   have h := storageLookup_projectStorage storage observableSlots slot hSlot hRange
   unfold storageLookup at h
   exact h
@@ -17691,8 +17693,8 @@ theorem initialState_materializedStorageSlot
       storage (IRStorageSlot.ofNat slot) := by
   simp only [projectStorageFromState, extractStorage, initialState,
     EvmYul.Yul.State.sharedState, YulState.initial, toSharedState]
-  rw [Std.TreeMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
-  rw [Std.TreeMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
+  rw [Std.TreeMap.get?_insert_of_eq _ Std.ReflCmp.compare_self]
+  rw [Std.TreeMap.get?_insert_of_eq _ Std.ReflCmp.compare_self]
   have h := storageLookup_projectStorage_projected storage slots slot hSlot
   unfold storageLookup at h
   exact h
@@ -17759,16 +17761,16 @@ theorem initialState_sload_observableSlot_value
       (natToUInt256 slot)).2 =
       storage (IRStorageSlot.ofNat slot) := by
   have hFindStorage :
-      (projectStorage storage observableSlots).find? (natToUInt256 slot) =
+      (projectStorage storage observableSlots).get? (natToUInt256 slot) =
         some (storage (IRStorageSlot.ofNat slot)) := by
     simpa [projectStorage, IRStorageWord.toUInt256] using
       foldl_insert_find storage observableSlots slot hSlot hRange
         (Std.TreeMap.empty : EvmYul.Storage)
   simp only [EvmYul.State.sload, EvmYul.State.lookupAccount,
     EvmYul.Yul.State.toState, initialState, toSharedState, YulState.initial]
-  rw [Std.TreeMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
-  rw [Std.TreeMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
-  change (Std.TreeMap.find? (projectStorage storage observableSlots)
+  rw [Std.TreeMap.get?_insert_of_eq _ Std.ReflCmp.compare_self]
+  rw [Std.TreeMap.get?_insert_of_eq _ Std.ReflCmp.compare_self]
+  change (Std.TreeMap.get? (projectStorage storage observableSlots)
       (natToUInt256 slot)).getD ⟨0⟩ = storage (IRStorageSlot.ofNat slot)
   rw [hFindStorage]
   rfl
@@ -17789,16 +17791,16 @@ theorem initialState_sload_materializedSlot_value
       (natToUInt256 slot)).2 =
       storage (IRStorageSlot.ofNat slot) := by
   have hFindStorage :
-      (projectStorage storage slots).find? (natToUInt256 slot) =
+      (projectStorage storage slots).get? (natToUInt256 slot) =
         some (storage (IRStorageSlot.ofNat slot)) := by
     simpa [projectStorage, IRStorageWord.toUInt256] using
       foldl_insert_find_projected storage slots slot hSlot
         (Std.TreeMap.empty : EvmYul.Storage)
   simp only [EvmYul.State.sload, EvmYul.State.lookupAccount,
     EvmYul.Yul.State.toState, initialState, toSharedState, YulState.initial]
-  rw [Std.TreeMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
-  rw [Std.TreeMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
-  change (Std.TreeMap.find? (projectStorage storage slots)
+  rw [Std.TreeMap.get?_insert_of_eq _ Std.ReflCmp.compare_self]
+  rw [Std.TreeMap.get?_insert_of_eq _ Std.ReflCmp.compare_self]
+  change (Std.TreeMap.get? (projectStorage storage slots)
       (natToUInt256 slot)).getD ⟨0⟩ = storage (IRStorageSlot.ofNat slot)
   rw [hFindStorage]
   rfl
@@ -17839,8 +17841,8 @@ theorem projectStorageFromState_retrieveHit_initialState_materialized
   simp only [projectStorageFromState, extractStorage,
     EvmYul.Yul.State.sharedState, hAccountMap, initialState, YulState.initial,
     toSharedState]
-  rw [Std.TreeMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
-  rw [Std.TreeMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
+  rw [Std.TreeMap.get?_insert_of_eq _ Std.ReflCmp.compare_self]
+  rw [Std.TreeMap.get?_insert_of_eq _ Std.ReflCmp.compare_self]
   have h := storageLookup_projectStorage_projected storage slots slot hSlot
   unfold storageLookup at h
   exact h
@@ -17862,15 +17864,15 @@ theorem initialState_sload_omittedSlot_value
       (natToUInt256 slot)).2 =
       natToUInt256 0 := by
   have hFindStorage :
-      (projectStorage storage observableSlots).find? (natToUInt256 slot) = none := by
+      (projectStorage storage observableSlots).get? (natToUInt256 slot) = none := by
     simpa [projectStorage] using
       foldl_insert_find_not_mem storage observableSlots slot hNotSlot hRange
         hSlotRange (Std.TreeMap.empty : EvmYul.Storage)
   simp only [EvmYul.State.sload, EvmYul.State.lookupAccount,
     EvmYul.Yul.State.toState, initialState, toSharedState, YulState.initial]
-  rw [Std.TreeMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
-  rw [Std.TreeMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
-  change (Std.TreeMap.find? (projectStorage storage observableSlots)
+  rw [Std.TreeMap.get?_insert_of_eq _ Std.ReflCmp.compare_self]
+  rw [Std.TreeMap.get?_insert_of_eq _ Std.ReflCmp.compare_self]
+  change (Std.TreeMap.get? (projectStorage storage observableSlots)
       (natToUInt256 slot)).getD ⟨0⟩ = natToUInt256 0
   rw [hFindStorage]
   rfl
@@ -18298,13 +18300,13 @@ theorem initialState_omittedStorageSlot
       (initialState contract tx storage observableSlots) (IRStorageSlot.ofNat slot) = 0 := by
   simp only [projectStorageFromState, extractStorage, initialState,
     EvmYul.Yul.State.sharedState, YulState.initial, toSharedState]
-  rw [Std.TreeMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
-  rw [Std.TreeMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
+  rw [Std.TreeMap.get?_insert_of_eq _ Std.ReflCmp.compare_self]
+  rw [Std.TreeMap.get?_insert_of_eq _ Std.ReflCmp.compare_self]
   simp only
   have h := foldl_insert_find_not_mem storage observableSlots slot hNotSlot
     hRange hSlotRange (Std.TreeMap.empty : EvmYul.Storage)
   have hNone :
-      (projectStorage storage observableSlots).find? (natToUInt256 slot) = none := by
+      (projectStorage storage observableSlots).get? (natToUInt256 slot) = none := by
     simpa [projectStorage] using h
   simp [IRStorageSlot.toUInt256, IRStorageSlot.ofNat, hNone]
 
@@ -19084,9 +19086,9 @@ theorem primCall_sstore_initialState_wordSlot_withStore_projectResult_eq
     (account : EvmYul.Account .Yul)
     (value : EvmYul.UInt256)
     (hAccount :
-      state.sharedState.accountMap.find? (natToAddress tx.thisAddress) =
+      state.sharedState.accountMap.get? (natToAddress tx.thisAddress) =
         some account)
-    (hSlot : account.storage.find? (natToUInt256 slot) = some value) :
+    (hSlot : account.storage.get? (natToUInt256 slot) = some value) :
     (projectResult tx initialStorage initialEvents
       (.ok (state, values))).finalStorage (IRStorageSlot.ofNat slot) = value := by
   simp [projectResult, projectStorageFromState_accountStorageSlot,
@@ -19100,7 +19102,7 @@ theorem primCall_sstore_initialState_wordSlot_withStore_projectResult_eq
     (values : List EvmYul.Yul.Ast.Literal)
     (slot : Nat)
     (hAccount :
-      state.sharedState.accountMap.find? (natToAddress tx.thisAddress) =
+      state.sharedState.accountMap.get? (natToAddress tx.thisAddress) =
         none) :
     (projectResult tx initialStorage initialEvents
       (.ok (state, values))).finalStorage (IRStorageSlot.ofNat slot) = 0 := by
@@ -19115,9 +19117,9 @@ theorem primCall_sstore_initialState_wordSlot_withStore_projectResult_eq
     (slot : Nat)
     (account : EvmYul.Account .Yul)
     (hAccount :
-      state.sharedState.accountMap.find? (natToAddress tx.thisAddress) =
+      state.sharedState.accountMap.get? (natToAddress tx.thisAddress) =
         some account)
-    (hSlot : account.storage.find? (natToUInt256 slot) = none) :
+    (hSlot : account.storage.get? (natToUInt256 slot) = none) :
     (projectResult tx initialStorage initialEvents
       (.ok (state, values))).finalStorage (IRStorageSlot.ofNat slot) = 0 := by
   simp [projectResult, projectStorageFromState_missingAccountStorageSlot,
@@ -19165,7 +19167,7 @@ theorem primCall_sstore_initialState_wordSlot_projectResult_slot
           false := by
       simpa [natToUInt256, EvmYul.UInt256.instInhabited] using hValueNonzero
     rw [hBranch]
-    simp [Option.option, Std.TreeMap.find?_insert_of_eq _
+    simp [Option.option, Std.TreeMap.get?_insert_of_eq _
       Std.ReflCmp.compare_self]
 
 /-- Native primitive execution of `sstore(slot, 0)` on a word-canonical
@@ -19212,9 +19214,9 @@ theorem primCall_sstore_initialState_wordSlot_projectResult_slot_zero_of_erase
     rw [hBranch]
     have hErase :
         (Std.TreeMap.erase (projectStorage storage observableSlots)
-          (natToUInt256 slot)).find? (natToUInt256 slot) = none :=
-      Std.TreeMap.find?_erase_self _ _
-    simp [Option.option, Std.TreeMap.find?_insert_of_eq _
+          (natToUInt256 slot)).get? (natToUInt256 slot) = none :=
+      Std.TreeMap.get?_erase_self _ _
+    simp [Option.option, Std.TreeMap.get?_insert_of_eq _
       Std.ReflCmp.compare_self, IRStorageSlot.toUInt256, IRStorageSlot.ofNat, hErase]
 
 /-- Native primitive execution of `sstore(slot, 0)` on a word-canonical
@@ -19284,7 +19286,7 @@ theorem primCall_sstore_initialState_wordSlot_withStore_projectResult_slot
           false := by
       simpa [natToUInt256, EvmYul.UInt256.instInhabited] using hValueNonzero
     rw [hBranch]
-    simp [Option.option, Std.TreeMap.find?_insert_of_eq _
+    simp [Option.option, Std.TreeMap.get?_insert_of_eq _
       Std.ReflCmp.compare_self]
 
 /-- Native primitive execution of `sstore(slot, 0)` from an initial runtime
@@ -19331,9 +19333,9 @@ theorem primCall_sstore_initialState_wordSlot_withStore_projectResult_slot_zero_
     rw [hBranch]
     have hErase :
         (Std.TreeMap.erase (projectStorage storage observableSlots)
-          (natToUInt256 slot)).find? (natToUInt256 slot) = none :=
-      Std.TreeMap.find?_erase_self _ _
-    simp [Option.option, Std.TreeMap.find?_insert_of_eq _
+          (natToUInt256 slot)).get? (natToUInt256 slot) = none :=
+      Std.TreeMap.get?_erase_self _ _
+    simp [Option.option, Std.TreeMap.get?_insert_of_eq _
       Std.ReflCmp.compare_self, IRStorageSlot.toUInt256, IRStorageSlot.ofNat, hErase]
 
 /-- Native primitive execution of `sstore(slot, 0)` from an arbitrary local
@@ -19698,7 +19700,7 @@ theorem primCall_calldataload4_then_sstore0_stop_initialState_arg0_withStore_pro
           false := by
       simpa [natToUInt256, EvmYul.UInt256.instInhabited] using hValueNonzero
     rw [hBranch]
-    simp [Option.option, Std.TreeMap.find?_insert_of_eq _
+    simp [Option.option, Std.TreeMap.get?_insert_of_eq _
       Std.ReflCmp.compare_self]
 
 /-- Zero-write storage projection for the full generated `store(uint256)`
@@ -19748,9 +19750,9 @@ theorem primCall_calldataload4_then_sstore0_stop_initialState_arg0_withStore_pro
     rw [hBranch]
     have hErase :
         (Std.TreeMap.erase (projectStorage storage observableSlots)
-          (EvmYul.UInt256.ofNat 0)).find? (EvmYul.UInt256.ofNat 0) = none :=
-      Std.TreeMap.find?_erase_self _ _
-    simp [Option.option, Std.TreeMap.find?_insert_of_eq _
+          (EvmYul.UInt256.ofNat 0)).get? (EvmYul.UInt256.ofNat 0) = none :=
+      Std.TreeMap.get?_erase_self _ _
+    simp [Option.option, Std.TreeMap.get?_insert_of_eq _
       Std.ReflCmp.compare_self, IRStorageSlot.toUInt256, IRStorageSlot.ofNat, hErase]
 
 /-- Zero-write storage projection for the full generated `store(uint256)`
@@ -19854,7 +19856,7 @@ theorem primCall_calldataload4_then_sstore0_stop_initialState_arg0_projectResult
           false := by
       simpa [natToUInt256, EvmYul.UInt256.instInhabited] using hValueNonzero
     rw [hBranch]
-    simp [Option.option, Std.TreeMap.find?_insert_of_eq _
+    simp [Option.option, Std.TreeMap.get?_insert_of_eq _
       Std.ReflCmp.compare_self]
 
 /-- Zero-write storage projection for the full generated `store(uint256)` selected
@@ -19901,9 +19903,9 @@ theorem primCall_calldataload4_then_sstore0_stop_initialState_arg0_projectResult
     rw [hBranch]
     have hErase :
         (Std.TreeMap.erase (projectStorage storage observableSlots)
-          (EvmYul.UInt256.ofNat 0)).find? (EvmYul.UInt256.ofNat 0) = none :=
-      Std.TreeMap.find?_erase_self _ _
-    simp [Option.option, Std.TreeMap.find?_insert_of_eq _
+          (EvmYul.UInt256.ofNat 0)).get? (EvmYul.UInt256.ofNat 0) = none :=
+      Std.TreeMap.get?_erase_self _ _
+    simp [Option.option, Std.TreeMap.get?_insert_of_eq _
       Std.ReflCmp.compare_self, IRStorageSlot.toUInt256, IRStorageSlot.ofNat, hErase]
 
 /-- Zero-write storage projection for the full generated `store(uint256)` selected
@@ -19976,7 +19978,7 @@ theorem primCall_calldataload4_then_sstore0_initialState_arg0_projectResult_slot
           false := by
       simpa [natToUInt256, EvmYul.UInt256.instInhabited] using hValueNonzero
     rw [hBranch]
-    simp [Option.option, Std.TreeMap.find?_insert_of_eq _
+    simp [Option.option, Std.TreeMap.get?_insert_of_eq _
       Std.ReflCmp.compare_self]
 
 /-- Zero `sstore` projection, with the remaining RBMap erasure fact isolated. -/
@@ -20024,9 +20026,9 @@ theorem primCall_calldataload4_then_sstore0_initialState_arg0_projectResult_slot
     rw [hBranch]
     have hErase :
         (Std.TreeMap.erase (projectStorage storage observableSlots)
-          (EvmYul.UInt256.ofNat 0)).find? (EvmYul.UInt256.ofNat 0) = none :=
-      Std.TreeMap.find?_erase_self _ _
-    simp [Option.option, Std.TreeMap.find?_insert_of_eq _
+          (EvmYul.UInt256.ofNat 0)).get? (EvmYul.UInt256.ofNat 0) = none :=
+      Std.TreeMap.get?_erase_self _ _
+    simp [Option.option, Std.TreeMap.get?_insert_of_eq _
       Std.ReflCmp.compare_self, IRStorageSlot.toUInt256, IRStorageSlot.ofNat, hErase]
 
 /-- Zero `sstore` projection with empty observable-slot materialization. -/
@@ -20572,9 +20574,9 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_projectResu
     (account : EvmYul.Account .Yul)
     (slotValue : EvmYul.UInt256)
     (hAccount :
-      state.sharedState.accountMap.find? (natToAddress tx.thisAddress) =
+      state.sharedState.accountMap.get? (natToAddress tx.thisAddress) =
         some account)
-    (hSlot : account.storage.find? (natToUInt256 slot) = some slotValue) :
+    (hSlot : account.storage.get? (natToUInt256 slot) = some slotValue) :
     (projectResult tx initialStorage initialEvents
       (.error (.YulHalt state value))).finalStorage (IRStorageSlot.ofNat slot) =
         slotValue := by
@@ -20589,7 +20591,7 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_projectResu
     (value : EvmYul.Yul.Ast.Literal)
     (slot : Nat)
     (hAccount :
-      state.sharedState.accountMap.find? (natToAddress tx.thisAddress) =
+      state.sharedState.accountMap.get? (natToAddress tx.thisAddress) =
         none) :
     (projectResult tx initialStorage initialEvents
       (.error (.YulHalt state value))).finalStorage (IRStorageSlot.ofNat slot) = 0 := by
@@ -20604,9 +20606,9 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_projectResu
     (slot : Nat)
     (account : EvmYul.Account .Yul)
     (hAccount :
-      state.sharedState.accountMap.find? (natToAddress tx.thisAddress) =
+      state.sharedState.accountMap.get? (natToAddress tx.thisAddress) =
         some account)
-    (hSlot : account.storage.find? (natToUInt256 slot) = none) :
+    (hSlot : account.storage.get? (natToUInt256 slot) = none) :
     (projectResult tx initialStorage initialEvents
       (.error (.YulHalt state value))).finalStorage (IRStorageSlot.ofNat slot) = 0 := by
   simp [projectResult, projectStorageFromState_missingAccountStorageSlot,
