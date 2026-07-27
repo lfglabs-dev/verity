@@ -40,7 +40,7 @@
     "total": 300
   },
   "toolchain": {
-    "lean": "leanprover/lean4:v4.24.0",
+    "lean": "leanprover/lean4:v4.31.0",
     "solc": "0.8.33"
   }
 }
