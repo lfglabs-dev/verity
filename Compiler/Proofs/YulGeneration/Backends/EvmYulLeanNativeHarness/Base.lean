@@ -773,9 +773,7 @@ theorem eval_lowerExprNative_iszero_ident_one_ok
   simp [Backends.lowerExprNative, Backends.lookupRuntimePrimOp_iszero,
     EvmYul.Yul.eval, EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail,
     EvmYul.Yul.evalPrimCall, EvmYul.Yul.reverse', EvmYul.Yul.cons',
-    EvmYul.Yul.head']
-  rw [hVal]
-  decide
+    EvmYul.Yul.head', hVal]
 
 /-- Fuel-parametric form of `eval_lowerExprNative_iszero_ident_one_ok`. -/
 theorem eval_lowerExprNative_iszero_ident_one_ok_fuel
@@ -792,9 +790,7 @@ theorem eval_lowerExprNative_iszero_ident_one_ok_fuel
   simp [Backends.lowerExprNative, Backends.lookupRuntimePrimOp_iszero,
     EvmYul.Yul.eval, EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail,
     EvmYul.Yul.evalPrimCall, EvmYul.Yul.reverse', EvmYul.Yul.cons',
-    EvmYul.Yul.head']
-  rw [hVal]
-  decide
+    EvmYul.Yul.head', hVal]
 
 theorem exec_let_lowerExprNative_selectorExpr_initialState_ok
     (contract : EvmYul.Yul.Ast.YulContract)
