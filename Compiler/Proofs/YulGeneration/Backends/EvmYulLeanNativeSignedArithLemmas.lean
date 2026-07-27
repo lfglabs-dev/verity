@@ -23,6 +23,20 @@ private theorem fin_val_mul_neg1 (n x : Nat) (hn : 0 < n) (hx : x < n) (hxpos : 
   rw [hdiv]
   exact Nat.mul_add_mod_of_lt (by omega)
 
+/- Lean 4.31 keeps the `Fin UInt256.size` instance in the elaborated term.
+State this normalization at that exact modulus, rather than rewriting the
+dependent size parameter to its numeral. -/
+private theorem uint256_neg_val (x : Nat) (hx : x < EvmYul.UInt256.size)
+    (hxpos : 0 < x) :
+    x * (EvmYul.UInt256.size - 1 % EvmYul.UInt256.size) % EvmYul.UInt256.size =
+      EvmYul.UInt256.size - x := by
+  have hsize : 0 < EvmYul.UInt256.size := by
+    unfold EvmYul.UInt256.size
+    positivity
+  have hone : 1 % EvmYul.UInt256.size = 1 := Nat.mod_eq_of_lt (by omega)
+  rw [hone]
+  exact fin_val_mul_neg1 EvmYul.UInt256.size x hsize hx hxpos
+
 private theorem natAbs_ofNat_sub (a b : Nat) (h : a < b) :
     (Int.ofNat a - Int.ofNat b).natAbs = b - a := by
   simp only [Int.ofNat_eq_coe]
@@ -97,13 +111,12 @@ theorem int256_div_toUint256_val_eq_uint256_sdiv (a b : Nat)
                  natAbs_ofNat_sub b (2^256) hb]
       simp only [HDiv.hDiv, Div.div, EvmYul.UInt256.div, Fin.div, Fin.mul]
       norm_num
-      have habs_b_lit : b * 115792089237316195423570985008687907853269984665640564039457584007913129639935 %
-        115792089237316195423570985008687907853269984665640564039457584007913129639936 =
-        115792089237316195423570985008687907853269984665640564039457584007913129639936 - b := by
-        have := fin_val_mul_neg1 (2^256) b (by omega) hb (by omega)
-        norm_num at this; exact this
-      simp only [habs_b_lit]
-      simp only [Fin.val_neg]
+      have habs_b : b * (EvmYul.UInt256.size - 1 % EvmYul.UInt256.size) %
+          EvmYul.UInt256.size = EvmYul.UInt256.size - b := by
+        apply uint256_neg_val
+        · simpa [EvmYul.UInt256.size] using hb
+        · omega
+      simp only [habs_b]
       split
       · rename_i hqpos
         have hqlt : a.div (115792089237316195423570985008687907853269984665640564039457584007913129639936 - b) <
@@ -145,13 +158,12 @@ theorem int256_div_toUint256_val_eq_uint256_sdiv (a b : Nat)
                  show (Int.ofNat b).natAbs = b from rfl]
       simp only [HDiv.hDiv, Div.div, EvmYul.UInt256.div, Fin.div, Fin.mul]
       norm_num
-      have habs_a_lit : a * 115792089237316195423570985008687907853269984665640564039457584007913129639935 %
-        115792089237316195423570985008687907853269984665640564039457584007913129639936 =
-        115792089237316195423570985008687907853269984665640564039457584007913129639936 - a := by
-        have := fin_val_mul_neg1 (2^256) a (by omega) ha (by omega)
-        norm_num at this; exact this
-      simp only [habs_a_lit]
-      simp only [Fin.val_neg]
+      have habs_a : a * (EvmYul.UInt256.size - 1 % EvmYul.UInt256.size) %
+          EvmYul.UInt256.size = EvmYul.UInt256.size - a := by
+        apply uint256_neg_val
+        · simpa [EvmYul.UInt256.size] using ha
+        · omega
+      simp only [habs_a]
       split
       · rename_i hqpos
         have hqlt : (115792089237316195423570985008687907853269984665640564039457584007913129639936 - a).div b <
@@ -198,8 +210,17 @@ theorem int256_div_toUint256_val_eq_uint256_sdiv (a b : Nat)
       simp only [Int.toNat]
       simp only [HDiv.hDiv, Div.div, EvmYul.UInt256.div, Fin.div, Fin.mul]
       norm_num
-      rw [fin_val_mul_neg1 (2^256) a (by omega) ha (by omega),
-          fin_val_mul_neg1 (2^256) b (by omega) hb (by omega)]
+      have habs_a : a * (EvmYul.UInt256.size - 1 % EvmYul.UInt256.size) %
+          EvmYul.UInt256.size = EvmYul.UInt256.size - a := by
+        apply uint256_neg_val
+        · simpa [EvmYul.UInt256.size] using ha
+        · omega
+      have habs_b : b * (EvmYul.UInt256.size - 1 % EvmYul.UInt256.size) %
+          EvmYul.UInt256.size = EvmYul.UInt256.size - b := by
+        apply uint256_neg_val
+        · simpa [EvmYul.UInt256.size] using hb
+        · omega
+      rw [habs_a, habs_b]
       exact Nat.mod_eq_of_lt (Nat.lt_of_le_of_lt (Nat.div_le_self _ _) (by omega))
 
 private theorem eq0_true_of_val_eq_zero (x : EvmYul.UInt256) (h : x.val = 0) :
@@ -454,16 +475,9 @@ private theorem uint256_abs_toNat_eq_specAbs (a : Nat) (ha : a < Compiler.Consta
     rw [if_pos hge, if_neg haS]
     show ((⟨a, _⟩ : Fin EvmYul.UInt256.size) * (-1 : Fin EvmYul.UInt256.size)).val =
          SignedArithSpec.specModulus - a
-    simp only [EvmYul.UInt256.size]
-    norm_num
-    simp only [Fin.val_neg]
-    norm_num
-    -- After simp + norm_num, the goal reduces to
-    -- `(if a = 0 then 0 else 115792... - a) = SignedArithSpec.specModulus - a`.
-    -- `hpos : 0 < a` discharges the `a = 0` branch, and the literal is
-    -- definitionally `specModulus`.
-    have ha0 : a ≠ 0 := Nat.pos_iff_ne_zero.mp hpos
-    rw [if_neg ha0]
+    change a * (EvmYul.UInt256.size - 1 % EvmYul.UInt256.size) %
+        EvmYul.UInt256.size = SignedArithSpec.specModulus - a
+    rw [uint256_neg_val a (by simpa [EvmYul.UInt256.size] using ha) hpos]
     rfl
 
 /-! ### EVMYulLean-side mod reduction to Nat-level mod (for A2b)
