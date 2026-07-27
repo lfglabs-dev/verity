@@ -770,10 +770,11 @@ theorem eval_lowerExprNative_iszero_ident_one_ok
           (Yul.YulExpr.call "iszero" [Yul.YulExpr.ident name]))
         codeOverride state =
       .ok (state, EvmYul.UInt256.ofNat 0) := by
+  rw [hVal]
   simp [Backends.lowerExprNative, Backends.lookupRuntimePrimOp_iszero,
     EvmYul.Yul.eval, EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail,
     EvmYul.Yul.evalPrimCall, EvmYul.Yul.reverse', EvmYul.Yul.cons',
-    EvmYul.Yul.head', hVal]
+    EvmYul.Yul.head']
   decide
 
 /-- Fuel-parametric form of `eval_lowerExprNative_iszero_ident_one_ok`. -/
@@ -788,10 +789,11 @@ theorem eval_lowerExprNative_iszero_ident_one_ok_fuel
           (Yul.YulExpr.call "iszero" [Yul.YulExpr.ident name]))
         codeOverride state =
       .ok (state, EvmYul.UInt256.ofNat 0) := by
+  rw [hVal]
   simp [Backends.lowerExprNative, Backends.lookupRuntimePrimOp_iszero,
     EvmYul.Yul.eval, EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail,
     EvmYul.Yul.evalPrimCall, EvmYul.Yul.reverse', EvmYul.Yul.cons',
-    EvmYul.Yul.head', hVal]
+    EvmYul.Yul.head']
   decide
 
 theorem exec_let_lowerExprNative_selectorExpr_initialState_ok
@@ -1370,13 +1372,15 @@ theorem exec_initFreeMemoryPointer_head_ok
       (nativeSwitchInitialOkState contract tx storage observableSlots) =
     .ok (nativeSwitchPostInitFreeMemoryState contract tx storage
       observableSlots ∅) := by
-  simpa [nativeSwitchInitialOkState] using
-    (exec_lowerExprNative_mstore_lit_lit_ok_fuel
+  convert exec_lowerExprNative_mstore_lit_lit_ok_fuel
       fuel
       (initialState contract tx storage observableSlots).sharedState
       (∅ : EvmYul.Yul.VarStore)
       (some contract)
-      Compiler.Constants.freeMemoryPointer 128)
+      Compiler.Constants.freeMemoryPointer 128 using 1 <;>
+    simp [nativeSwitchInitialOkState, nativeSwitchPostInitFreeMemoryState,
+      nativeSwitchPostInitFreeMemorySharedState, EvmYul.SharedState.toState,
+      EvmYul.Yul.State.toMachineState]
 
 /-- Peel the exact generated `initFreeMemoryPointer` head from a dispatcher
     block, exposing the residual dispatcher execution on the concrete
@@ -2011,7 +2015,8 @@ theorem exec_if_lowerExprNative_ident_one_take_fuel
         codeOverride state =
       EvmYul.Yul.exec (fuel + 1) (.Block body) codeOverride state := by
   have hNe : (EvmYul.UInt256.ofNat 1 : EvmYul.UInt256) ≠ ⟨0⟩ := by decide
-  simp [EvmYul.Yul.exec, Backends.lowerExprNative, EvmYul.Yul.eval, hVal, hNe]
+  rw [hVal]
+  simp [EvmYul.Yul.exec, Backends.lowerExprNative, EvmYul.Yul.eval, hNe]
 
 /-- Native singleton-block exec equals the inner statement exec at decremented
     fuel: the trailing `Block []` peel always succeeds at positive fuel and
@@ -2212,6 +2217,7 @@ theorem eval_nativeSwitchGuardedMatch_ok
   simp [Backends.nativePrimCall, EvmYul.Yul.eval, EvmYul.Yul.evalArgs,
     EvmYul.Yul.evalTail, EvmYul.Yul.evalPrimCall, EvmYul.Yul.reverse',
     EvmYul.Yul.cons', EvmYul.Yul.head']
+  rfl
 
 /-- Fuel-parametric form of `eval_nativeSwitchGuardedMatch_ok`, for use under
     recursively executed generated switch blocks. -/
@@ -2235,7 +2241,7 @@ theorem eval_nativeSwitchGuardedMatch_ok_fuel
   cases fuel <;>
     simp [Backends.nativePrimCall, EvmYul.Yul.eval, EvmYul.Yul.evalArgs,
       EvmYul.Yul.evalTail, EvmYul.Yul.evalPrimCall, EvmYul.Yul.reverse',
-      EvmYul.Yul.cons', EvmYul.Yul.head']
+      EvmYul.Yul.cons', EvmYul.Yul.head'] <;> rfl
 
 /-- The selected lowered switch case has a nonzero guard while no previous case
     has marked the switch matched and the discriminator equals the case tag. -/
@@ -2630,6 +2636,7 @@ theorem eval_nativeSwitchDefaultGuard_ok
   simp [Backends.nativePrimCall, EvmYul.Yul.eval, EvmYul.Yul.evalArgs,
     EvmYul.Yul.evalTail, EvmYul.Yul.evalPrimCall, EvmYul.Yul.reverse',
     EvmYul.Yul.cons', EvmYul.Yul.head']
+  rfl
 
 /-- Fuel-parametric form of `eval_nativeSwitchDefaultGuard_ok`, for use under
     recursively executed generated switch blocks. -/
@@ -2646,7 +2653,7 @@ theorem eval_nativeSwitchDefaultGuard_ok_fuel
   cases fuel <;>
     simp [Backends.nativePrimCall, EvmYul.Yul.eval, EvmYul.Yul.evalArgs,
       EvmYul.Yul.evalTail, EvmYul.Yul.evalPrimCall, EvmYul.Yul.reverse',
-      EvmYul.Yul.cons', EvmYul.Yul.head']
+      EvmYul.Yul.cons', EvmYul.Yul.head'] <;> rfl
 
 /-- If no lowered switch case has matched, the default guard is nonzero. -/
 theorem eval_nativeSwitchDefaultGuard_unmatched_ok
@@ -3282,12 +3289,12 @@ theorem NativePrimCallPreservesWord_balance
       cases hExec
       cases state with
       | Ok shared store =>
-          simpa [EvmYul.Yul.State.setSharedState] using hLookup
+          convert hLookup using 1 <;> simp [EvmYul.Yul.State.setSharedState]
       | OutOfFuel =>
-          simpa [EvmYul.Yul.State.setSharedState] using hLookup
+          convert hLookup using 1 <;> simp [EvmYul.Yul.State.setSharedState]
       | Checkpoint jump =>
           cases jump <;>
-            simpa [EvmYul.Yul.State.setSharedState] using hLookup
+            convert hLookup using 1 <;> simp [EvmYul.Yul.State.setSharedState]
 
 theorem NativePrimCallPreservesWord_origin
     (name : EvmYul.Identifier)
