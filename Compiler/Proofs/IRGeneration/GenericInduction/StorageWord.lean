@@ -209,8 +209,8 @@ private theorem encodeStorageAt_writeStorageWordSlot_target_none
   have hqueryTarget :
       (IRStorageSlot.ofNat targetSlot).toNat =
         SourceSemantics.wordNormalize (slot + wordOffset) := by
-    rw [IRStorageSlot.toNat_ofNat_wordNormalize]
-    simpa only [SourceSemantics.wordNormalize] using htargetEq
+    simpa only [IRStorageSlot.toNat_ofNat, SourceSemantics.wordNormalize,
+      Verity.Core.Uint256.val_ofNat] using htargetEq
   have hresolvedNorm :
       findResolvedFieldAtSlotCopy fields (IRStorageSlot.ofNat targetSlot).toNat =
         findResolvedFieldAtSlotCopy fields targetSlot := by
@@ -247,8 +247,8 @@ private theorem encodeStorageAt_writeStorageWordSlot_target
   have hqueryTarget :
       (IRStorageSlot.ofNat targetSlot).toNat =
         SourceSemantics.wordNormalize (slot + wordOffset) := by
-    rw [IRStorageSlot.toNat_ofNat_wordNormalize]
-    simpa only [SourceSemantics.wordNormalize] using htargetEq
+    simpa only [IRStorageSlot.toNat_ofNat, SourceSemantics.wordNormalize,
+      Verity.Core.Uint256.val_ofNat] using htargetEq
   have hresolvedNorm :
       findResolvedFieldAtSlotCopy fields (IRStorageSlot.ofNat targetSlot).toNat =
         findResolvedFieldAtSlotCopy fields targetSlot := by
