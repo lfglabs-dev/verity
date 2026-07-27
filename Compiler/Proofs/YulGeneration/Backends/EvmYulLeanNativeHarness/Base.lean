@@ -770,11 +770,10 @@ theorem eval_lowerExprNative_iszero_ident_one_ok
           (Yul.YulExpr.call "iszero" [Yul.YulExpr.ident name]))
         codeOverride state =
       .ok (state, EvmYul.UInt256.ofNat 0) := by
-  rw [hVal]
   simp [Backends.lowerExprNative, Backends.lookupRuntimePrimOp_iszero,
     EvmYul.Yul.eval, EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail,
     EvmYul.Yul.evalPrimCall, EvmYul.Yul.reverse', EvmYul.Yul.cons',
-    EvmYul.Yul.head']
+    EvmYul.Yul.head', hVal]
   decide
 
 /-- Fuel-parametric form of `eval_lowerExprNative_iszero_ident_one_ok`. -/
@@ -789,11 +788,10 @@ theorem eval_lowerExprNative_iszero_ident_one_ok_fuel
           (Yul.YulExpr.call "iszero" [Yul.YulExpr.ident name]))
         codeOverride state =
       .ok (state, EvmYul.UInt256.ofNat 0) := by
-  rw [hVal]
   simp [Backends.lowerExprNative, Backends.lookupRuntimePrimOp_iszero,
     EvmYul.Yul.eval, EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail,
     EvmYul.Yul.evalPrimCall, EvmYul.Yul.reverse', EvmYul.Yul.cons',
-    EvmYul.Yul.head']
+    EvmYul.Yul.head', hVal]
   decide
 
 theorem exec_let_lowerExprNative_selectorExpr_initialState_ok
@@ -2015,8 +2013,7 @@ theorem exec_if_lowerExprNative_ident_one_take_fuel
         codeOverride state =
       EvmYul.Yul.exec (fuel + 1) (.Block body) codeOverride state := by
   have hNe : (EvmYul.UInt256.ofNat 1 : EvmYul.UInt256) ≠ ⟨0⟩ := by decide
-  rw [hVal]
-  simp [EvmYul.Yul.exec, Backends.lowerExprNative, EvmYul.Yul.eval, hNe]
+  simp [EvmYul.Yul.exec, Backends.lowerExprNative, EvmYul.Yul.eval, hVal, hNe]
 
 /-- Native singleton-block exec equals the inner statement exec at decremented
     fuel: the trailing `Block []` peel always succeeds at positive fuel and
