@@ -25003,7 +25003,8 @@ theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_f
   intro hUserBody hPreservesUser hProject
   rw [hPeel']
   have hResult := hDispatcherContinuation hUserBody hPreservesUser hProject
-  simpa [contract, Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using hResult
+  simpa [Compiler.Proofs.YulGeneration.selectorExpr, contract, Nat.add_assoc, Nat.add_comm,
+    Nat.add_left_comm] using hResult
 
 /-- Reserved-context generated-prefix success variant for payable selector hits.
     The selected-body premises are over the lowered user body `fn.body`, not
@@ -25129,7 +25130,8 @@ theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_f
   intro hUserBody hPreservesUser hProject
   rw [hPeel']
   have hResult := hDispatcherContinuation hUserBody hPreservesUser hProject
-  simpa [contract, Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using hResult
+  simpa [Compiler.Proofs.YulGeneration.selectorExpr, contract, Nat.add_assoc, Nat.add_comm,
+    Nat.add_left_comm] using hResult
 
 /-- Reserved-context generated-prefix success variant for non-payable selector
     hits. The selected-body premises are over the lowered user body `fn.body`,
@@ -25255,7 +25257,8 @@ theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_f
   intro hUserBody hPreservesUser hProject
   rw [hPeel']
   have hResult := hDispatcherContinuation hUserBody hPreservesUser hProject
-  simpa [contract, Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using hResult
+  simpa [Compiler.Proofs.YulGeneration.selectorExpr, contract, Nat.add_assoc, Nat.add_comm,
+    Nat.add_left_comm] using hResult
 
 /-- Exact-total-fuel companion of
 `contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_find_some_ok_payable_generated_prefix_projectResult_eq`.
@@ -25818,7 +25821,8 @@ theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_f
     simpa [fuel, contract, Nat.add_assoc, Nat.add_comm, Nat.add_left_comm]
       using hUserBody pre suffix hCases
   have hResult := hDispatcherContinuation hUserBody' hPreservesUser hProject
-  simpa [contract, fuel, Nat.add_assoc, Nat.add_comm, Nat.add_left_comm]
+  simpa [Compiler.Proofs.YulGeneration.selectorExpr, contract, fuel, Nat.add_assoc, Nat.add_comm,
+    Nat.add_left_comm]
     using hResult
 
 /-- Exact-total-fuel reserved-context companion of
@@ -26006,7 +26010,8 @@ theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_f
     simpa [fuel, contract, Nat.add_assoc, Nat.add_comm, Nat.add_left_comm]
       using hUserBody pre suffix hCases
   have hResult := hDispatcherContinuation hUserBody' hPreservesUser hProject
-  simpa [contract, fuel, Nat.add_assoc, Nat.add_comm, Nat.add_left_comm]
+  simpa [Compiler.Proofs.YulGeneration.selectorExpr, contract, fuel, Nat.add_assoc, Nat.add_comm,
+    Nat.add_left_comm]
     using hResult
 
 /-- Exact-total-fuel companion of

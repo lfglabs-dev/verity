@@ -3031,9 +3031,9 @@ theorem SupportedConstructor.stmtList_ctorBody
     {spec : CompilationModel} {ctor : ConstructorSpec}
     (hSupported : SupportedConstructor spec ctor) :
     SupportedStmtList spec.fields (constructorBodyScope ctor.params) ctor.body := by
-  simpa only [constructorAsFunctionSpec, constructorBodyScope,
-    List.map_append, List.map_map, Function.comp_apply] using
-    hSupported.body.stmtList
+  change SupportedStmtList spec.fields
+    (constructorArgAliasNames ctor.params ++ ctor.params.map (·.name)) ctor.body
+  exact hSupported.body.stmtList
 
 /-- Whole-contract invariants that should remain global preconditions for the
 current generic theorem, independent of feature-local proof interfaces. -/
