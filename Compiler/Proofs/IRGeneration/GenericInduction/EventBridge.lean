@@ -670,8 +670,8 @@ private theorem eventSignatureScratchStores_continue {state : IRState}
             srcMemory offset).val } := by
   induction words generalizing state srcMemory startIdx with
   | nil =>
-      simpa [eventSignatureStoreStmtsFromWords,
-        SourceSemantics.writeEventSignatureScratchFrom] using
+      simpa only [eventSignatureStoreStmtsFromWords,
+        SourceSemantics.writeEventSignatureScratchFrom, StmtsContinueFromTo] using
         (eventIRState_set_memory_eq_self state
           (by intro offset; exact (hmem offset).symm)).symm
   | cons word rest ih =>
@@ -1118,7 +1118,7 @@ private theorem eventUnindexedStores_cons_continue
   rcases hok with ⟨heval, hsupport, hlt, hshape, hsize, hkind⟩
   constructor
   · simp [SourceSemantics.writeUnindexedEventScratchFrom, hkind]
-    simpa [eventUnindexedNextMemory] using hwriteTail
+    convert hwriteTail using 1 <;> simp [eventUnindexedNextMemory]
   · have hstmt :
         scalarEventUnindexedStoresFrom ((param, srcExpr, argExpr) :: rest)
             (wordIdx * 32) =
@@ -1161,7 +1161,7 @@ private theorem eventUnindexedStores_continue
       | nil =>
           refine ⟨srcMemory, ?_, ?_⟩
           · simp [SourceSemantics.writeUnindexedEventScratchFrom]
-          · simpa [scalarEventUnindexedStoresFrom] using
+          · simpa only [scalarEventUnindexedStoresFrom, StmtsContinueFromTo] using
               (eventIRState_set_memory_eq_self state
                 (by intro offset; exact (hmem offset).symm)).symm
       | cons value values => cases hrel
