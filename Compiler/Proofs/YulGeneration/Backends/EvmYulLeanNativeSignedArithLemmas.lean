@@ -146,7 +146,11 @@ theorem int256_div_toUint256_val_eq_uint256_sdiv (a b : Nat)
         have hneg := uint256_fin_mul_neg1_val
           ⟨a.div (EvmYul.UInt256.size - b), by simpa [EvmYul.UInt256.size] using hqlt⟩
           (by simpa [EvmYul.UInt256.size] using hqpos)
-        simpa [EvmYul.UInt256.size] using hneg
+        have hsub_lt : 115792089237316195423570985008687907853269984665640564039457584007913129639936 -
+            a.div (115792089237316195423570985008687907853269984665640564039457584007913129639936 - b) <
+            115792089237316195423570985008687907853269984665640564039457584007913129639936 := by omega
+        simpa [EvmYul.UInt256.size, Nat.mod_eq_of_lt hqlt,
+          Nat.mod_eq_of_lt hsub_lt] using hneg.symm
       · rename_i hq0
         have hq : a.div (115792089237316195423570985008687907853269984665640564039457584007913129639936 - b) = 0 := by omega
         have hzero := uint256_fin_mul_neg1_val_of_zero
@@ -154,7 +158,7 @@ theorem int256_div_toUint256_val_eq_uint256_sdiv (a b : Nat)
             apply Nat.lt_of_le_of_lt (Nat.div_le_self _ _)
             simpa [EvmYul.UInt256.size] using ha⟩
           (by simpa [EvmYul.UInt256.size] using hq)
-        simpa [EvmYul.UInt256.size, hq] using hzero
+        simpa [EvmYul.UInt256.size, hq] using hzero.symm
     · have ha' : (Int.ofNat a : Int) < Int.ofNat (2^256) := Int.ofNat_lt.mpr ha
       simp only [Verity.Core.Int256.div, Verity.Core.Int256.toInt, Verity.Core.Int256.ofUint256,
         Verity.Core.Int256.signBit, Verity.Core.Int256.signedAbsNat,
@@ -188,7 +192,11 @@ theorem int256_div_toUint256_val_eq_uint256_sdiv (a b : Nat)
         have hneg := uint256_fin_mul_neg1_val
           ⟨(EvmYul.UInt256.size - a).div b, by simpa [EvmYul.UInt256.size] using hqlt⟩
           (by simpa [EvmYul.UInt256.size] using hqpos)
-        simpa [EvmYul.UInt256.size] using hneg
+        have hsub_lt : 115792089237316195423570985008687907853269984665640564039457584007913129639936 -
+            (115792089237316195423570985008687907853269984665640564039457584007913129639936 - a).div b <
+            115792089237316195423570985008687907853269984665640564039457584007913129639936 := by omega
+        simpa [EvmYul.UInt256.size, Nat.mod_eq_of_lt hqlt,
+          Nat.mod_eq_of_lt hsub_lt] using hneg.symm
       · rename_i hq0
         have hq : (115792089237316195423570985008687907853269984665640564039457584007913129639936 - a).div b = 0 := by omega
         have hzero := uint256_fin_mul_neg1_val_of_zero
@@ -198,7 +206,7 @@ theorem int256_div_toUint256_val_eq_uint256_sdiv (a b : Nat)
             rw [EvmYul.UInt256.size]
             omega⟩
           (by simpa [EvmYul.UInt256.size] using hq)
-        simpa [EvmYul.UInt256.size, hq] using hzero
+        simpa [EvmYul.UInt256.size, hq] using hzero.symm
     · have ha' : (Int.ofNat a : Int) < Int.ofNat (2^256) := Int.ofNat_lt.mpr ha
       have hb' : (Int.ofNat b : Int) < Int.ofNat (2^256) := Int.ofNat_lt.mpr hb
       simp only [Verity.Core.Int256.div, Verity.Core.Int256.toInt, Verity.Core.Int256.ofUint256,
