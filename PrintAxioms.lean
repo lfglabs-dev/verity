@@ -6067,6 +6067,10 @@ end Verity.AxiomAudit
 
   -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeSignedArithLemmas.lean
   -- Compiler.Proofs.YulGeneration.Backends.fin_val_mul_neg1  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.uint256_neg_val  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.uint256_fin_mul_neg1_val  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.uint256_fin_zero_mul_neg1_val  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.uint256_fin_mul_neg1_val_of_zero  -- private
   -- Compiler.Proofs.YulGeneration.Backends.natAbs_ofNat_sub  -- private
   Compiler.Proofs.YulGeneration.Backends.int256_div_toUint256_val_eq_uint256_sdiv
   -- Compiler.Proofs.YulGeneration.Backends.eq0_true_of_val_eq_zero  -- private
@@ -6403,4 +6407,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6006 theorems/lemmas (4180 public, 1826 private, 0 sorry'd)
+-- Total: 6010 theorems/lemmas (4180 public, 1830 private, 0 sorry'd)
