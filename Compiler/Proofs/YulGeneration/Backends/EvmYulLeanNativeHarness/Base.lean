@@ -770,10 +770,12 @@ theorem eval_lowerExprNative_iszero_ident_one_ok
           (Yul.YulExpr.call "iszero" [Yul.YulExpr.ident name]))
         codeOverride state =
       .ok (state, EvmYul.UInt256.ofNat 0) := by
-  simpa [Backends.lowerExprNative, Backends.lookupRuntimePrimOp_iszero,
+  simp only [Backends.lowerExprNative, Backends.lookupRuntimePrimOp_iszero,
     EvmYul.Yul.eval, EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail,
     EvmYul.Yul.evalPrimCall, EvmYul.Yul.reverse', EvmYul.Yul.cons',
-    EvmYul.Yul.head'] using congrArg EvmYul.UInt256.isZero hVal
+    EvmYul.Yul.head']
+  rw [hVal]
+  decide
 
 /-- Fuel-parametric form of `eval_lowerExprNative_iszero_ident_one_ok`. -/
 theorem eval_lowerExprNative_iszero_ident_one_ok_fuel
@@ -787,10 +789,12 @@ theorem eval_lowerExprNative_iszero_ident_one_ok_fuel
           (Yul.YulExpr.call "iszero" [Yul.YulExpr.ident name]))
         codeOverride state =
       .ok (state, EvmYul.UInt256.ofNat 0) := by
-  simpa [Backends.lowerExprNative, Backends.lookupRuntimePrimOp_iszero,
+  simp only [Backends.lowerExprNative, Backends.lookupRuntimePrimOp_iszero,
     EvmYul.Yul.eval, EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail,
     EvmYul.Yul.evalPrimCall, EvmYul.Yul.reverse', EvmYul.Yul.cons',
-    EvmYul.Yul.head'] using congrArg EvmYul.UInt256.isZero hVal
+    EvmYul.Yul.head']
+  rw [hVal]
+  decide
 
 theorem exec_let_lowerExprNative_selectorExpr_initialState_ok
     (contract : EvmYul.Yul.Ast.YulContract)
