@@ -20,7 +20,7 @@ private abbrev freshSuffixLen (usedNames : List String) : Nat :=
 /-- Deterministic suffix whose length alone guarantees freshness against
 `usedNames`. -/
 private def freshSuffix (usedNames : List String) : String :=
-  String.mk (List.replicate (freshSuffixLen usedNames) '_')
+  String.ofList (List.replicate (freshSuffixLen usedNames) '_')
 
 def pickFreshName (base : String) (usedNames : List String) : String :=
   if !usedNames.contains base then
@@ -91,7 +91,8 @@ theorem pickFreshName_not_mem_usedNames
           (queryName := base ++ "_" ++ freshSuffix usedNames)
           hmem)
     have hlenFresh : freshSuffixLen usedNames ≤ (base ++ "_" ++ freshSuffix usedNames).length := by
-      simp [freshSuffix, freshSuffixLen, usedNamesTotalLength]
+      simp [freshSuffix, freshSuffixLen, usedNamesTotalLength, String.length]
+      omega
     omega
   · simp [hbase]
 
