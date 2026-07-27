@@ -3030,7 +3030,7 @@ theorem SupportedConstructor.paramsSupported
 theorem SupportedConstructor.stmtList_ctorBody
     {spec : CompilationModel} {ctor : ConstructorSpec}
     (hSupported : SupportedConstructor spec ctor) :
-    SupportedStmtList spec.fields ((constructorAsFunctionSpec ctor).params.map (·.name)) ctor.body := by
+    SupportedStmtList spec.fields (constructorBodyScope ctor.params) ctor.body := by
   simpa [constructorAsFunctionSpec, constructorBodyScope, constructorArgAliasNames] using
     hSupported.body.stmtList
 
