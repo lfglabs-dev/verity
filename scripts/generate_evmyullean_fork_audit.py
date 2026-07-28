@@ -49,20 +49,23 @@ FORK_AUDIT = {
     "schema_version": 1,
     "fork_url": "https://github.com/lfglabs-dev/EVMYulLean",
     "upstream_url": "https://github.com/NethermindEth/EVMYulLean",
-    "pinned_commit": "38d53df8b4488d5322894619ea8385fcbb2e6f5d",
+    "pinned_commit": "f7e4ee0dc8f8d5265ce822a937ab5be771f182e9",
     "upstream_base": "047f63070309f436b66c61e276ab3b6d1169265a",
-    "fork_ahead_by": 5,
+    "fork_ahead_by": 6,
     "fork_behind_by": 0,
     "divergence_summary": (
-        "Fork is exactly 5 commits ahead of upstream/main. All commits are "
-        "non-semantic: one visibility change (private -> default) on an "
+        "The fork has 6 audited non-semantic change groups beyond the "
+        "recorded upstream base: one visibility change (private -> default) on an "
         "internal exponentiation accumulator, one Lean 4.22.0 deprecation "
         "fix (nativeLibDir -> staticLibDir) in the lakefile, one FFI "
         "body exposure for ByteArray.zeroes that matches the extern zero-fill "
         "behavior, one checkpoint-state projection exposure that makes "
         "existing saved shared-state/store fields visible to downstream proofs, "
-        "and one Lean 4.24 compatibility migration covering build metadata, "
+        "one Lean 4.24 compatibility migration covering build metadata, "
         "JSON object traversal, parser APIs, and stricter elaboration. "
+        "The final audited change group is the Lean 4.31 compatibility "
+        "migration covering collection APIs, slices, JSON product keys, "
+        "and toolchain metadata. "
         "None of these commits changes EVM/Yul execution semantics, "
         "so upstream Ethereum conformance test coverage continues to apply "
         "transitively."
@@ -194,6 +197,33 @@ FORK_AUDIT = {
                 "stricter Lean 4.24 APIs. No EVM/Yul transition rule changes."
             ),
         },
+        {
+            "sha": "f7e4ee0dc8f8d5265ce822a937ab5be771f182e9",
+            "title": "chore: upgrade to Lean 4.31.0",
+            "file": "lean-toolchain, lakefile.lean, lake-manifest.json, Conform/*.lean, EvmYul/**/*.lean",
+            "category": "toolchain",
+            "semantic_change": False,
+            "rationale": (
+                "Move the fork and its Mathlib dependency from Lean 4.24.0 "
+                "to Lean 4.31.0 so downstream Verity projects can share the "
+                "same toolchain. Adapt removed RBMap APIs to Std.TreeMap, "
+                "update slices and collection conversions, preserve the "
+                "homogeneous UInt256 xor instance, and update JSON object "
+                "traversal to product keys."
+            ),
+            "diff_summary": (
+                "28 files changed, 117 insertions(+), 130 deletions(-): "
+                "mechanical Lean 4.31 compatibility updates across the "
+                "conformance runner, EVM/Yul model, and build metadata. "
+                "No execution rule or theorem statement changes."
+            ),
+            "trust_impact": (
+                "Low. The migration preserves the existing EVM/Yul model "
+                "while adopting renamed or stricter Lean 4.31 APIs. The "
+                "conformance suite and downstream bridge proofs rebuild "
+                "against the migrated definitions."
+            ),
+        },
     ],
     "audit_methodology": [
         "1. Clone lfglabs-dev/EVMYulLean at pinned commit into a local worktree.",
@@ -217,8 +247,8 @@ FORK_AUDIT = {
     "trust_boundary": (
         "Verity's effective trust boundary for Yul/EVM semantics is "
         "(upstream NethermindEth/EVMYulLean at commit "
-        "047f63070309f436b66c61e276ab3b6d1169265a) plus the 5 "
-        "visibility/toolchain fork commits enumerated above. None of these "
+        "047f63070309f436b66c61e276ab3b6d1169265a) plus the 6 "
+        "visibility/toolchain fork change groups enumerated above. None of these "
         "fork commits touches EVM/Yul execution semantics, so upstream "
         "Ethereum conformance test coverage applies transitively."
     ),
