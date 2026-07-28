@@ -2414,6 +2414,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.Function.supported_function_correct_with_helper_proofs
 
   -- Compiler/Proofs/IRGeneration/FunctionBody/Base.lean
+  Compiler.Proofs.IRGeneration.FunctionBody.except_ok_toOption_getD
+  Compiler.Proofs.IRGeneration.FunctionBody.except_pure_toOption_getD
   Compiler.Proofs.IRGeneration.FunctionBody.lookupValue_eq_of_lookupBinding?_some
   Compiler.Proofs.IRGeneration.FunctionBody.bindingsExactlyMatchIRVars_implies_bindingsMatchIRVars
   Compiler.Proofs.IRGeneration.FunctionBody.bindingsExactlyMatchIRVars_implies_onScope
@@ -6413,4 +6415,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6010 theorems/lemmas (4169 public, 1841 private, 0 sorry'd)
+-- Total: 6012 theorems/lemmas (4171 public, 1841 private, 0 sorry'd)
