@@ -202,7 +202,6 @@ theorem sumBalances_update_existing {slot : Nat} {addr : Address} {addrs : Finit
     (by simp [BEq.beq])
     (fun x _ hne => by simp [BEq.beq, hne])
   -- h_result has (fun a => balances slot a) addr which beta-reduces to balances slot addr
-  simp only [] at h_result
   rw [h_old] at h_result
   -- h_result uses HSub/HAdd: _ - _ + _, goal uses add (sub ...) ...
   -- These are definitionally equal
