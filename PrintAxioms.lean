@@ -2414,6 +2414,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.Function.supported_function_correct_with_helper_proofs
 
   -- Compiler/Proofs/IRGeneration/FunctionBody/Base.lean
+  Compiler.Proofs.IRGeneration.FunctionBody.except_ok_toOption_getD
+  Compiler.Proofs.IRGeneration.FunctionBody.except_pure_toOption_getD
   Compiler.Proofs.IRGeneration.FunctionBody.lookupValue_eq_of_lookupBinding?_some
   Compiler.Proofs.IRGeneration.FunctionBody.bindingsExactlyMatchIRVars_implies_bindingsMatchIRVars
   Compiler.Proofs.IRGeneration.FunctionBody.bindingsExactlyMatchIRVars_implies_onScope
@@ -5512,6 +5514,15 @@ end Verity.AxiomAudit
 
   -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeHarness/Projection.lean
   -- Compiler.Proofs.YulGeneration.Backends.Native.treeMap_get?_insert_self  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.Native.treeMap_getD_of_get?  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.Native.treeMap_getD_of_get?_none  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.Native.treeMap_getElem?_none_of_get?  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.Native.account_updateStorage_get?_self_of_nonzero  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.Native.account_updateStorage_storage_of_nonzero  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.Native.account_updateStorage_storage_of_zero  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.Native.account_updateStorage_get?_self_of_zero  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.Native.projectStorageFromState_setMachineState  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.Native.projectStorageFromState_withMachineState  -- private
   Compiler.Proofs.YulGeneration.Backends.Native.projectStorageFromState_accountStorageSlot
   Compiler.Proofs.YulGeneration.Backends.Native.projectStorageFromState_missingAccountStorageSlot
   Compiler.Proofs.YulGeneration.Backends.Native.projectStorageFromState_missingAccount
@@ -6404,4 +6415,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6001 theorems/lemmas (4169 public, 1832 private, 0 sorry'd)
+-- Total: 6012 theorems/lemmas (4171 public, 1841 private, 0 sorry'd)
