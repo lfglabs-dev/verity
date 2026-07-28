@@ -890,7 +890,8 @@ theorem wExpSignedCubicKernel_real_error {r : Int}
         have hWpos : (0 : ℝ) < (WAD_NAT : ℝ) := by norm_num [WAD_NAT]
         have hconst : (3 : ℝ) / WAD_NAT ≤ 4 / WAD_NAT := by
           exact div_le_div_of_nonneg_right (by norm_num) (le_of_lt hWpos)
-        exact add_le_add_right hconst (((r:ℝ)/WAD_NAT)^4 * (5 / 96))
+        simpa [add_comm] using
+          add_le_add_right hconst (((r:ℝ)/WAD_NAT)^4 * (5 / 96))
   · exact wExpSignedCubicKernel_real_error_neg hr0 (le_of_lt h)
 
 /-- `wExpRangeR` is exactly the signed residual left by `wExpRangeQ`. -/
