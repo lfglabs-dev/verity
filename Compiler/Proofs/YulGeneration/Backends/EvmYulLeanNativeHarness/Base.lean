@@ -20280,8 +20280,7 @@ theorem primCall_sload0_then_mstore0_return32_initialState_projectResult_returnV
         ⟨haltState, haltValue, hExec, hReturn⟩
       refine ⟨haltState, haltValue, ?_, ?_⟩
       · simpa [sharedAfterLoad, initialState] using hExec
-      · convert hReturn using 1 <;>
-          norm_num [natToUInt256, EvmYul.UInt256.toNat, uint256ToNat]
+      · simpa [natToUInt256, EvmYul.UInt256.toNat, uint256ToNat] using hReturn
 
 /-- Native primitive execution of the generated `retrieve()` scalar-return core
     when slot zero was not materialized into the finite native storage map:
@@ -20417,8 +20416,7 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_projectResu
       refine ⟨haltState, haltValue, ?_, ?_⟩
       · convert hExec using 1 <;>
           simp [sharedAfterLoad, initialWithStore, initialState]
-      · convert hReturn using 1 <;>
-          simp [natToUInt256, EvmYul.UInt256.toNat, uint256ToNat]
+      · simpa [natToUInt256, EvmYul.UInt256.toNat, uint256ToNat] using hReturn
 
 /-- Native primitive execution of the generated `retrieve()` scalar-return core
     from an arbitrary local store when slot zero is omitted. -/
@@ -20466,8 +20464,7 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_omittedSlot
       refine ⟨haltState, haltValue, ?_, ?_⟩
       · convert hExec using 1 <;>
           simp [sharedAfterLoad, initialWithStore, initialState]
-      · convert hReturn using 1 <;>
-          norm_num [natToUInt256, EvmYul.UInt256.toNat, uint256ToNat]
+      · simpa [natToUInt256, EvmYul.UInt256.toNat, uint256ToNat] using hReturn
 
 /-- Native primitive execution of the generated `retrieve()` scalar-return core
     from an arbitrary local store, with materialized/omitted slot zero handled
@@ -20949,7 +20946,8 @@ theorem exec_lowerNativeSwitchBlock_selector_find_hit_error_store_projectResult_
     observableSlots store err hSelector hFind hSelectorRange hTagsRange
     (by
       intro pre suffix hCases
-      simpa [initialState, nativeSwitchStorePrefixStateForId,
+      simpa [initialState, nativeSwitchStoreInitialState,
+        nativeSwitchStorePrefixStateForId,
         nativeSwitchStoreMarkedPrefixStateForId]
         using hBody pre suffix hCases)
 
@@ -21546,7 +21544,8 @@ theorem exec_block_lowerNativeSwitchBlock_revert_default_postInitFreeMemory_hasS
     omega
   refine ⟨?_, by simp⟩
   rw [hFuelEq]
-  simpa [store, nativeSwitchPostInitFreeMemoryState, EvmYul.Yul.State.insert]
+  simpa [store, initialState, nativeSwitchPostInitFreeMemoryState,
+    EvmYul.Yul.State.insert]
     using exec_block_cons_error (fuel + cases.length + 12) _ [] _ _
       EvmYul.Yul.Exception.Revert hEndpoint
 
