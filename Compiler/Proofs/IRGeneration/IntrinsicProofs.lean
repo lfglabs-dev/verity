@@ -117,7 +117,7 @@ theorem compileExpr_intrinsic_verbatim_zero_output_error
   unfold compileExpr
   unfold compileExprWithInternals
   rw [compileExprListWithInternals_param_one]
-  simp [Bind.bind, Except.bind]
+  rfl
 
 theorem compileExpr_intrinsic_verbatim_wrong_arity_error
     (fields : List Field) (dynamicSource : DynamicDataSource)
@@ -131,7 +131,7 @@ theorem compileExpr_intrinsic_verbatim_wrong_arity_error
   unfold compileExpr
   unfold compileExprWithInternals
   rw [compileExprListWithInternals_param_two]
-  simp [Bind.bind, Except.bind, Pure.pure, Except.pure]
+  rfl
 
 end IntrinsicProofs
 

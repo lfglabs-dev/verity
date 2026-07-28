@@ -48,8 +48,8 @@ theorem constructor_meets_spec (s : ContractState) (initialOwner : Address) :
 /-- `balanceOf` returns balances slot 3 at address `addr`. -/
 theorem balanceOf_meets_spec (s : ContractState) (addr : Address) :
     balanceOf_spec addr ((Contracts.ERC721.balanceOf addr).runValue s) s := by
-  simpa [balanceOf_spec, Contracts.ERC721.balanceOf] using
-    (Verity.Proofs.Stdlib.Automation.getMapping_runValue
+  simp [balanceOf_spec, Contracts.ERC721.balanceOf, getMapping, Contract.runValue, Verity.bind, Bind.bind, Pure.pure]
+  exact (Verity.Proofs.Stdlib.Automation.getMapping_runValue
       Contracts.ERC721.balances addr s)
 
 /-- `ownerOf` reverts for unminted tokens and returns owner for minted tokens. -/

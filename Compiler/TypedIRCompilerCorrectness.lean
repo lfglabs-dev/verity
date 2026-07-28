@@ -2473,7 +2473,6 @@ theorem compile_require_binary_literal_clauses_semantics
   | cons clause rest ih =>
       simp [execCompiledRequireBinaryLiteralClauses, execSourceRequireBinaryLiteralClauses,
         compile_require_binary_literal_guard_semantics, ih]
-      rfl
 
 /-- Unified guard family for semantic-preservation coverage across supported
 single-guard and composite-guard `require` literal subsets. -/
@@ -2560,7 +2559,6 @@ theorem compile_require_family_then_setStorage_literal_semantics
     execSourceRequireFamilyThenSetStorageLiteral,
     compile_require_literal_guard_family_semantics, compile_setStorage_literal_semantics,
     hfind]
-  rfl
 
 /-- Source semantics for a broader supported sequencing subset:
 run one supported `require` guard-family clause, then execute
@@ -2634,7 +2632,6 @@ theorem compile_require_literal_guard_family_clauses_semantics
       simp [execCompiledRequireLiteralGuardFamilyClauses,
         execSourceRequireLiteralGuardFamilyClauses,
         compile_require_literal_guard_family_semantics, ih]
-      rfl
 
 /-- Source semantics for a broader supported sequencing subset:
 run a list of supported unified `require` guard-family clauses, then execute
@@ -3119,7 +3116,6 @@ theorem compile_require_family_clauses_then_setStorage_literal_semantics
     execSourceRequireFamilyClausesThenSetStorageLiteral,
     compile_require_literal_guard_family_clauses_semantics,
     compile_setStorage_literal_semantics, hfind]
-  rfl
 
 /-- Sequencing semantic-preservation theorem for a broader supported subset:
 for unified `require` guard-family clause lists followed by
@@ -3141,7 +3137,6 @@ theorem compile_require_family_clauses_then_ite_eq_setStorage_literals_semantics
     execSourceRequireFamilyClausesThenIteEqSetStorageLiterals,
     compile_require_literal_guard_family_clauses_semantics,
     compile_ite_eq_setStorage_literals_semantics, hfind]
-  rfl
 
 /-- Sequencing semantic-preservation theorem for a broader supported subset:
 for unified `require` guard-family clause lists followed by
@@ -3163,7 +3158,6 @@ theorem compile_require_family_clauses_then_ite_eq_setStorage_then_return_litera
     execSourceRequireFamilyClausesThenIteEqSetStorageThenReturnLiteral,
     compile_require_literal_guard_family_clauses_semantics,
     compile_ite_eq_setStorage_then_return_literal_semantics, hfind]
-  rfl
 
 /-- Sequencing semantic-preservation theorem for a broader supported subset:
 for unified `require` guard-family clause lists followed by
@@ -3185,7 +3179,6 @@ theorem compile_require_family_clauses_then_ite_eq_return_then_setStorage_litera
     execSourceRequireFamilyClausesThenIteEqReturnThenSetStorageLiteral,
     compile_require_literal_guard_family_clauses_semantics,
     compile_ite_eq_return_then_setStorage_literal_semantics, hfind]
-  rfl
 
 /-- Sequencing semantic-preservation theorem for a broader supported subset:
 for unified `require` guard-family clause lists followed by
@@ -3204,7 +3197,6 @@ theorem compile_require_family_clauses_then_ite_eq_return_literals_semantics
     execSourceRequireFamilyClausesThenIteEqReturnLiterals,
     compile_require_literal_guard_family_clauses_semantics,
     compile_ite_eq_return_literals_semantics]
-  rfl
 
 /-- Sequencing semantic-preservation theorem for a broader supported subset:
 for unified `require` guard-family clause lists followed by nested
@@ -3223,7 +3215,6 @@ theorem compile_require_family_clauses_then_ite_eq_then_ite_eq_return_literals_s
     execSourceRequireFamilyClausesThenIteEqThenIteEqReturnLiterals,
     compile_require_literal_guard_family_clauses_semantics,
     compile_ite_eq_then_ite_eq_return_literals_semantics]
-  rfl
 
 /-- Sequencing semantic-preservation theorem for a broader supported subset:
 for unified `require` guard-family clause lists followed by nested
@@ -3245,7 +3236,6 @@ theorem compile_require_family_clauses_then_ite_eq_then_ite_eq_setStorage_litera
     execSourceRequireFamilyClausesThenIteEqThenIteEqSetStorageLiteralsThenReturnLiteral,
     compile_require_literal_guard_family_clauses_semantics,
     compile_ite_eq_then_ite_eq_setStorage_literals_then_return_literal_semantics, hfind]
-  rfl
 
 /-- Sequencing semantic-preservation theorem for a broader supported subset:
 for unified `require` guard-family clause lists followed by nested
@@ -3267,7 +3257,6 @@ theorem compile_require_family_clauses_then_ite_eq_then_ite_eq_return_literals_t
     execSourceRequireFamilyClausesThenIteEqThenIteEqReturnLiteralsThenSetStorageLiteral,
     compile_require_literal_guard_family_clauses_semantics,
     compile_ite_eq_then_ite_eq_return_literals_then_setStorage_literal_semantics, hfind]
-  rfl
 
 /-- Sequencing semantic-preservation theorem for a broader supported subset:
 for unified `require` guard-family clause lists followed by nested
@@ -3289,7 +3278,6 @@ theorem compile_require_family_clauses_then_ite_eq_then_ite_eq_return_literals_t
     execSourceRequireFamilyClausesThenIteEqThenIteEqReturnLiteralsThenSetStorageLiteralThenReturnLiteral,
     compile_require_literal_guard_family_clauses_semantics,
     compile_ite_eq_then_ite_eq_return_literals_then_setStorage_literal_then_return_literal_semantics, hfind]
-  rfl
 
 /-- Sequencing semantic-preservation theorem for a broader supported subset:
 for unified `require` guard-family clause lists followed by nested
@@ -3311,7 +3299,6 @@ theorem compile_require_family_clauses_then_ite_eq_then_ite_eq_setStorage_litera
     execSourceRequireFamilyClausesThenIteEqThenIteEqSetStorageLiteralsThenSetStorageLiteral,
     compile_require_literal_guard_family_clauses_semantics,
     compile_ite_eq_then_ite_eq_setStorage_literals_then_setStorage_literal_semantics, hfind]
-  rfl
 
 /-- Sequencing semantic-preservation theorem for a broader supported subset:
 for unified `require` guard-family clause lists followed by nested
@@ -3333,7 +3320,6 @@ theorem compile_require_family_clauses_then_ite_eq_then_ite_eq_setStorage_then_r
     execSourceRequireFamilyClausesThenIteEqThenIteEqSetStorageThenReturnLiteralThenReturnLiteral,
     compile_require_literal_guard_family_clauses_semantics,
     compile_ite_eq_then_ite_eq_setStorage_then_return_literal_then_return_literal_semantics, hfind]
-  rfl
 
 /-- Sequencing semantic-preservation theorem for a broader supported subset:
 for unified `require` guard-family clause lists followed by nested
@@ -3355,7 +3341,6 @@ theorem compile_require_family_clauses_then_ite_eq_then_ite_eq_setStorage_then_r
     execSourceRequireFamilyClausesThenIteEqThenIteEqSetStorageThenReturnLiteralThenSetStorageLiteral,
     compile_require_literal_guard_family_clauses_semantics,
     compile_ite_eq_then_ite_eq_setStorage_then_return_literal_then_setStorage_literal_semantics, hfind]
-  rfl
 
 /-- Sequencing semantic-preservation theorem for a broader supported subset:
 for unified `require` guard-family clause lists followed by nested
@@ -3377,7 +3362,6 @@ theorem compile_require_family_clauses_then_ite_eq_then_ite_eq_return_then_setSt
     execSourceRequireFamilyClausesThenIteEqThenIteEqReturnThenSetStorageLiteralThenReturnLiteral,
     compile_require_literal_guard_family_clauses_semantics,
     compile_ite_eq_then_ite_eq_return_then_setStorage_literal_then_return_literal_semantics, hfind]
-  rfl
 
 /-- Sequencing semantic-preservation theorem for a broader supported subset:
 for unified `require` guard-family clause lists followed by nested
@@ -3399,7 +3383,6 @@ theorem compile_require_family_clauses_then_ite_eq_then_ite_eq_return_then_setSt
     execSourceRequireFamilyClausesThenIteEqThenIteEqReturnThenSetStorageLiteralThenSetStorageLiteral,
     compile_require_literal_guard_family_clauses_semantics,
     compile_ite_eq_then_ite_eq_return_then_setStorage_literal_then_setStorage_literal_semantics, hfind]
-  rfl
 
 /-- Source semantics for a broader supported sequencing subset:
 run a list of supported unified `require` guard-family clauses, then perform
@@ -3766,7 +3749,6 @@ theorem compile_require_family_clauses_then_return_storage_semantics
     execSourceRequireFamilyClausesThenReturnStorage,
     compile_require_literal_guard_family_clauses_semantics,
     compile_return_storage_semantics, hfind]
-  split <;> simp_all
 
 /-- Sequencing theorem: `require` clauses followed by `return (storage field)` (address). -/
 theorem compile_require_family_clauses_then_return_storage_addr_semantics
@@ -3782,7 +3764,6 @@ theorem compile_require_family_clauses_then_return_storage_addr_semantics
     execSourceRequireFamilyClausesThenReturnStorageAddr,
     compile_require_literal_guard_family_clauses_semantics,
     compile_return_storage_addr_semantics, hfind]
-  split <;> simp_all
 
 /-- Source semantics for `require` clauses followed by `return (mapping field caller)`. -/
 def execSourceRequireFamilyClausesThenReturnMappingCaller
@@ -3813,7 +3794,6 @@ theorem compile_require_family_clauses_then_return_mapping_caller_semantics
     execSourceRequireFamilyClausesThenReturnMappingCaller,
     compile_require_literal_guard_family_clauses_semantics,
     compile_return_mapping_caller_semantics, hSlot]
-  split <;> simp_all
 
 /-- Source semantics for require-clauses + address storage-read + return. -/
 def execSourceRequireFamilyClausesThenLetStorageAddrReturnLocal
@@ -4000,7 +3980,6 @@ theorem compile_require_family_clauses_then_setMappingUint_params_stop_semantics
     execSourceRequireFamilyClausesThenSetMappingUintParamsStop,
     compile_require_literal_guard_family_clauses_semantics,
     compile_setMappingUint_params_stop_semantics, hSlot, hp]
-  cases h : execSourceRequireLiteralGuardFamilyClauses init clauses <;> rfl
 
 /-- Source semantics for require-clauses + requireCallerEqStorageAddr + setStorage(add) + stop. -/
 def execSourceRequireFamilyClausesThenRequireCallerEqStorageAddrSetStorageAddStop
@@ -4036,7 +4015,6 @@ theorem compile_require_family_clauses_then_require_caller_eq_storage_addr_setSt
     execSourceRequireFamilyClausesThenRequireCallerEqStorageAddrSetStorageAddStop,
     compile_require_literal_guard_family_clauses_semantics,
     compile_require_caller_eq_storage_addr_setStorage_add_stop_semantics, hOwner, hCount]
-  split <;> simp_all
 
 /-- Source semantics for require-clauses + requireCallerEqStorageAddr + setStorage(sub) + stop. -/
 def execSourceRequireFamilyClausesThenRequireCallerEqStorageAddrSetStorageSubStop
@@ -4072,7 +4050,6 @@ theorem compile_require_family_clauses_then_require_caller_eq_storage_addr_setSt
     execSourceRequireFamilyClausesThenRequireCallerEqStorageAddrSetStorageSubStop,
     compile_require_literal_guard_family_clauses_semantics,
     compile_require_caller_eq_storage_addr_setStorage_sub_stop_semantics, hOwner, hCount]
-  split <;> simp_all
 
 /-- Sequencing semantic-preservation theorem for a broader supported subset:
 for unified `require` guard-family clause lists followed by `return literal`,
@@ -4088,7 +4065,6 @@ theorem compile_require_family_clauses_then_return_literal_semantics
     execSourceRequireFamilyClausesThenReturnLiteral,
     compile_require_literal_guard_family_clauses_semantics,
     compile_return_literal_semantics]
-  rfl
 
 /-- Sequencing semantic-preservation theorem for a broader supported subset:
 for unified `require` guard families followed by `return literal`,
@@ -4105,7 +4081,6 @@ theorem compile_require_family_then_return_literal_semantics
   simp [execCompiledRequireFamilyThenReturnLiteral,
     execSourceRequireFamilyThenReturnLiteral,
     compile_require_literal_guard_family_semantics, compile_return_literal_semantics]
-  rfl
 
 /-- Sequencing semantic-preservation theorem for a broader supported subset:
 for unified `require` guard-family clause lists followed by
