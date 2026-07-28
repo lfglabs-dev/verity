@@ -91,7 +91,9 @@ import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBridgePredicates
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBuiltinSemantics
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanCallClosure
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeCalldata
-import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeHarness.Base
+import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeHarness.Foundation
+import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeHarness.Preservation
+import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeHarness.Projection
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeHarness.Runtime
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeLowering
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativePrimOps
@@ -4885,7 +4887,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.initialState_selectorExpr_native_uint256
   Compiler.Proofs.YulGeneration.Backends.Native.lowerExprNative_selectorExpr
 
-  -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeHarness/Base.lean
+  -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeHarness/Foundation.lean
   Compiler.Proofs.YulGeneration.Backends.Native.eval_lowerExprNative_selectorExpr_ok
   Compiler.Proofs.YulGeneration.Backends.Native.eval_lowerExprNative_selectorExpr_initialState_ok
   Compiler.Proofs.YulGeneration.Backends.Native.eval_lowerExprNative_iszero_lt_calldatasize_4_ok
@@ -4918,6 +4920,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.exec_let_lowerExprNative_iszero_lt_calldatasize_4_initialState_ok
   Compiler.Proofs.YulGeneration.Backends.Native.exec_let_lowerExprNative_iszero_lt_calldatasize_4_ok_fuel
   Compiler.Proofs.YulGeneration.Backends.Native.exec_let_lowerExprNative_iszero_lt_calldatasize_4_initialState_ok_fuel
+  -- Compiler.Proofs.YulGeneration.Backends.Native.lowerExprNative_iszero_ident_shape  -- private
   Compiler.Proofs.YulGeneration.Backends.Native.eval_lowerExprNative_iszero_ident_one_ok
   Compiler.Proofs.YulGeneration.Backends.Native.eval_lowerExprNative_iszero_ident_one_ok_fuel
   Compiler.Proofs.YulGeneration.Backends.Native.exec_let_lowerExprNative_selectorExpr_initialState_ok
@@ -4963,7 +4966,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.exec_if_lowerExprNative_lt_calldatasize_skip_ge_fuel
   Compiler.Proofs.YulGeneration.Backends.Native.exec_if_lowerExprNative_lt_calldatasize_take_lt_revert_fuel
   Compiler.Proofs.YulGeneration.Backends.Native.exec_if_lowerExprNative_iszero_ident_one_skip_fuel
-  -- Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchInitialOkState_insert_lookup_self  -- private
+  Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchInitialOkState_insert_lookup_self
   Compiler.Proofs.YulGeneration.Backends.Native.exec_if_lowerExprNative_ident_one_take_fuel
   Compiler.Proofs.YulGeneration.Backends.Native.exec_block_singleton_eq
   Compiler.Proofs.YulGeneration.Backends.Native.exec_block_letSelector_if1Skip_initialState_fuel
@@ -5139,7 +5142,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_log2_values
   Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_log3_values
   Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_log4_values
-  -- Compiler.Proofs.YulGeneration.Backends.Native.lookupRuntimePrimOp_ne_none_of_allowed_of_ne_mappingSlot  -- private
+  Compiler.Proofs.YulGeneration.Backends.Native.lookupRuntimePrimOp_ne_none_of_allowed_of_ne_mappingSlot
   Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_of_allowed_lookupRuntimePrimOp
   Compiler.Proofs.YulGeneration.Backends.Native.NativeExprPreservesWord_var
   Compiler.Proofs.YulGeneration.Backends.Native.NativeExprPreservesWord_lit
@@ -5159,6 +5162,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.NativeExprPreservesWord_lowerExprNative_call_userFunction_of_evalArgs_call_preserves
   Compiler.Proofs.YulGeneration.Backends.Native.NativeExprPreservesWord_lowerExprNative_call_runtimePrimOp_of_nativeEvalArgs_primCall_preserves
   Compiler.Proofs.YulGeneration.Backends.Native.NativeExprPreservesWord_lowerExprNative_call_userFunction_of_nativeEvalArgs_call_preserves
+
+  -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeHarness/Preservation.lean
   Compiler.Proofs.YulGeneration.Backends.Native.state_getElem_overwrite?_left
   Compiler.Proofs.YulGeneration.Backends.Native.state_getElem_restoreCallFrame_of_ok
   Compiler.Proofs.YulGeneration.Backends.Native.native_call_preserves_lookup_of_revivable_body
@@ -5504,6 +5509,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.exec_block_lowerNativeSwitchBlock_selector_find_hit_hasSelectorState_ok_fresh
   Compiler.Proofs.YulGeneration.Backends.Native.exec_lowerNativeSwitchBlock_selector_find_none_without_default_fuel
   Compiler.Proofs.YulGeneration.Backends.Native.initialState_unbridgedEnvironmentDefaults
+
+  -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeHarness/Projection.lean
   -- Compiler.Proofs.YulGeneration.Backends.Native.treeMap_get?_insert_self  -- private
   Compiler.Proofs.YulGeneration.Backends.Native.projectStorageFromState_accountStorageSlot
   Compiler.Proofs.YulGeneration.Backends.Native.projectStorageFromState_missingAccountStorageSlot
@@ -6397,4 +6404,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6000 theorems/lemmas (4167 public, 1833 private, 0 sorry'd)
+-- Total: 6001 theorems/lemmas (4169 public, 1832 private, 0 sorry'd)
