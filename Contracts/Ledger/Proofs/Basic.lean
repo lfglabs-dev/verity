@@ -74,6 +74,7 @@ private theorem deposit_unfold (s : ContractState) (amount : Uint256) :
       events := s.events } := by
   verity_unfold deposit
   simp only [balances]
+  rfl
 
 theorem deposit_meets_spec (s : ContractState) (amount : Uint256) :
   let s' := ((deposit amount).run s).snd

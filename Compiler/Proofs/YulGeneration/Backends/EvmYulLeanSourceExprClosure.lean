@@ -1684,158 +1684,158 @@ theorem compileRequireFailCond_bridgedSource
         (compileExpr_bridgedSource fields src hb hB)
   | literal n =>
       exact compileRequireFailCond_default_bridgedSource (.literal n)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | param name =>
       exact compileRequireFailCond_default_bridgedSource (.param name)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | constructorArg idx =>
       exact compileRequireFailCond_default_bridgedSource (.constructorArg idx)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | localVar name =>
       exact compileRequireFailCond_default_bridgedSource (.localVar name)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | arrayLength name =>
       exact compileRequireFailCond_default_bridgedSource (.arrayLength name)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | caller =>
       exact compileRequireFailCond_default_bridgedSource .caller
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | txOrigin =>
       exact compileRequireFailCond_default_bridgedSource .txOrigin
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | contractAddress =>
       exact compileRequireFailCond_default_bridgedSource .contractAddress
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | msgValue =>
       exact compileRequireFailCond_default_bridgedSource .msgValue
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | blockTimestamp =>
       exact compileRequireFailCond_default_bridgedSource .blockTimestamp
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | blockNumber =>
       exact compileRequireFailCond_default_bridgedSource .blockNumber
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | chainid =>
       exact compileRequireFailCond_default_bridgedSource .chainid
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | blobbasefee =>
       exact compileRequireFailCond_default_bridgedSource .blobbasefee
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | calldatasize =>
       exact compileRequireFailCond_default_bridgedSource .calldatasize
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | calldataload hOffset =>
       exact compileRequireFailCond_default_bridgedSource (.calldataload hOffset)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | mload hOffset =>
       exact compileRequireFailCond_default_bridgedSource (.mload hOffset)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | tload hOffset =>
       exact compileRequireFailCond_default_bridgedSource (.tload hOffset)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | keccak256 hOffset hSize =>
       exact compileRequireFailCond_default_bridgedSource (.keccak256 hOffset hSize)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | add ha hb =>
       exact compileRequireFailCond_default_bridgedSource (.add ha hb)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | sub ha hb =>
       exact compileRequireFailCond_default_bridgedSource (.sub ha hb)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | mul ha hb =>
       exact compileRequireFailCond_default_bridgedSource (.mul ha hb)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | div ha hb =>
       exact compileRequireFailCond_default_bridgedSource (.div ha hb)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | sdiv ha hb =>
       exact compileRequireFailCond_default_bridgedSource (.sdiv ha hb)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | mod ha hb =>
       exact compileRequireFailCond_default_bridgedSource (.mod ha hb)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | smod ha hb =>
       exact compileRequireFailCond_default_bridgedSource (.smod ha hb)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | bitAnd ha hb =>
       exact compileRequireFailCond_default_bridgedSource (.bitAnd ha hb)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | bitOr ha hb =>
       exact compileRequireFailCond_default_bridgedSource (.bitOr ha hb)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | bitXor ha hb =>
       exact compileRequireFailCond_default_bridgedSource (.bitXor ha hb)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | bitNot ha =>
       exact compileRequireFailCond_default_bridgedSource (.bitNot ha)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | shl hs hv =>
       exact compileRequireFailCond_default_bridgedSource (.shl hs hv)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | shr hs hv =>
       exact compileRequireFailCond_default_bridgedSource (.shr hs hv)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | sar hs hv =>
       exact compileRequireFailCond_default_bridgedSource (.sar hs hv)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | byte hi hv =>
       exact compileRequireFailCond_default_bridgedSource (.byte hi hv)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | signextend hb hv =>
       exact compileRequireFailCond_default_bridgedSource (.signextend hb hv)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | eq ha hb =>
       exact compileRequireFailCond_default_bridgedSource (.eq ha hb)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | gt ha hb =>
       exact compileRequireFailCond_default_bridgedSource (.gt ha hb)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | sgt ha hb =>
       exact compileRequireFailCond_default_bridgedSource (.sgt ha hb)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | lt ha hb =>
       exact compileRequireFailCond_default_bridgedSource (.lt ha hb)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | slt ha hb =>
       exact compileRequireFailCond_default_bridgedSource (.slt ha hb)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | logicalAnd ha hb =>
       exact compileRequireFailCond_default_bridgedSource (.logicalAnd ha hb)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | logicalOr ha hb =>
       exact compileRequireFailCond_default_bridgedSource (.logicalOr ha hb)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | logicalNot ha =>
       exact compileRequireFailCond_default_bridgedSource (.logicalNot ha)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | ceilDiv ha hb =>
       exact compileRequireFailCond_default_bridgedSource (.ceilDiv ha hb)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | mulDivDown ha hb hc =>
       exact compileRequireFailCond_default_bridgedSource (.mulDivDown ha hb hc)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | mulDivUp ha hb hc =>
       exact compileRequireFailCond_default_bridgedSource (.mulDivUp ha hb hc)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | wMulDown ha hb =>
       exact compileRequireFailCond_default_bridgedSource (.wMulDown ha hb)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | wDivUp ha hb =>
       exact compileRequireFailCond_default_bridgedSource (.wDivUp ha hb)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | builtinExp hBase hExponent =>
       exact compileRequireFailCond_default_bridgedSource
         (.builtinExp hBase hExponent)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | min ha hb =>
       exact compileRequireFailCond_default_bridgedSource (.min ha hb)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | max ha hb =>
       exact compileRequireFailCond_default_bridgedSource (.max ha hb)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
   | ite hCond hThen hElse =>
       exact compileRequireFailCond_default_bridgedSource (.ite hCond hThen hElse)
-        (by simpa [compileRequireFailCond] using hOk)
+        hOk
 
 /-- List-level closure: when every source expression in a list is
     `BridgedSourceExpr`, `compileExprList` produces a list whose every

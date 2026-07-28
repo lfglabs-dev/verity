@@ -129,6 +129,7 @@ private theorem mint_unfold (s : ContractState) (toAddr : Address) (amount : Uin
   rw [h_safe_sup]
   simp only [Verity.pure]
   simp only [HAdd.hAdd, h_owner]
+  rfl
 
 /-- `mint` satisfies `mint_spec` under owner and no-overflow preconditions. -/
 theorem mint_meets_spec_when_owner (s : ContractState) (toAddr : Address) (amount : Uint256)

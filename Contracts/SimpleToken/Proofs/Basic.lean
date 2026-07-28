@@ -168,7 +168,6 @@ private theorem mint_unfold (s : ContractState) (toAddr : Address) (amount : Uin
       events := s.events } := by
   have h_safe_bal := safeAdd_some (s.storageMap 1 toAddr) amount h_no_bal_overflow
   have h_safe_sup := safeAdd_some (s.storage 2) amount h_no_sup_overflow
-  -- Unfold mint (checks-before-effects ordering: both requireSomeUint before mutations)
   verity_unfold mint
   simp only [Contracts.SimpleToken.onlyOwner, isOwner,
     Contracts.SimpleToken.ownerSlot, Contracts.SimpleToken.balancesSlot,
@@ -183,6 +182,7 @@ private theorem mint_unfold (s : ContractState) (toAddr : Address) (amount : Uin
     setMapping, setStorage, ContractState.writeMap, ContractState.writeSlot,
     Contract.run, ContractResult.snd, ContractResult.fst]
   simp only [HAdd.hAdd, Add.add, h_owner]
+  rfl
 
 -- Mint correctness when caller is owner and no overflow
 theorem mint_meets_spec_when_owner (s : ContractState) (toAddr : Address) (amount : Uint256)
