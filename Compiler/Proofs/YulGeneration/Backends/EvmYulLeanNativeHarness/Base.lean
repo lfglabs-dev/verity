@@ -20334,9 +20334,7 @@ theorem primCall_sload0_then_mstore0_return32_initialState_omittedSlot_projectRe
         ⟨haltState, haltValue, hExec, hReturn⟩
       refine ⟨haltState, haltValue, ?_, ?_⟩
       · simpa [sharedAfterLoad, initialState] using hExec
-      · rw [show uint256ToNat (natToUInt256 0) = 0 by
-            exact uint256_roundtrip 0 (by norm_num [EvmYul.UInt256.size])] at hReturn
-        simpa using hReturn
+      · simpa [natToUInt256, EvmYul.UInt256.toNat, uint256ToNat] using hReturn
 
 /-- Native primitive execution of the generated `retrieve()` scalar-return core,
     with the slot-zero materialization split discharged internally.
@@ -21557,7 +21555,7 @@ theorem exec_block_lowerNativeSwitchBlock_revert_default_postInitFreeMemory_hasS
     omega
   refine ⟨?_, by simp⟩
   rw [hFuelEq]
-  simpa only [store]
+  simpa [store]
     using exec_block_cons_error (fuel + cases.length + 12) _ [] _ _
       EvmYul.Yul.Exception.Revert hEndpoint
 
