@@ -310,7 +310,7 @@ def Contract.tryCatch {α : Type} (attempt : Contract α) (handler : String → 
     | ContractResult.success _ s' => ContractResult.success () s'
     | ContractResult.revert msg rollback => handler msg rollback
 
-theorem Contract.eq_of_run_success {α : Type} {c : Contract α} {s : ContractState}
+@[simp] theorem Contract.eq_of_run_success {α : Type} {c : Contract α} {s : ContractState}
     {a : α} {s' : ContractState} (h : c.run s = ContractResult.success a s') :
     c s = ContractResult.success a s' := by
   unfold Contract.run at h
