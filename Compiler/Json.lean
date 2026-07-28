@@ -6,7 +6,7 @@ private def hexDigit (n : Nat) : Char :=
 private def toHex2 (n : Nat) : String :=
   let hi := n / 16
   let lo := n % 16
-  String.mk [hexDigit hi, hexDigit lo]
+  String.ofList [hexDigit hi, hexDigit lo]
 
 def escapeJsonChar (c : Char) : String :=
   match c with
@@ -24,7 +24,7 @@ def escapeJsonChar (c : Char) : String :=
         String.singleton c
 
 def escapeJsonString (s : String) : String :=
-  s.data.foldl (fun acc c => acc ++ escapeJsonChar c) ""
+  s.toList.foldl (fun acc c => acc ++ escapeJsonChar c) ""
 
 def jsonString (s : String) : String :=
   "\"" ++ escapeJsonString s ++ "\""

@@ -637,8 +637,9 @@ theorem primCall_calldataload4_initialState_arg0_ok_withStore
   have hWord :=
     initialState_calldataload4_arg0_word contract tx storage
       observableSlots arg rest hArgs
+  unfold initialState at hWord ⊢
   rw [primCall_calldataload_ok]
-  simpa [EvmYul.Yul.State.toState] using hWord
+  simpa [hWord]
 
 /-- Native primitive execution of `calldataload(4)` for an IR transaction
     already converted to the native Yul transaction surface. This is the

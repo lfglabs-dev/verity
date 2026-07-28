@@ -48,7 +48,7 @@ def parseIntrinsicTemplateStmt (stx : TSyntax `verityIntrinsicTemplateStmt) :
       throwErrorAt stx "unsupported intrinsic template statement"
 
 private def cleanTypeSyntaxString (ty : Term) : String :=
-  String.mk <| (toString ty).toList.filter (fun c => c != '`')
+  String.ofList <| (toString ty).toList.filter (fun c => c != '`')
 
 private def isUint256TypeSyntax (ty : Term) : Bool :=
   let rendered := cleanTypeSyntaxString ty
