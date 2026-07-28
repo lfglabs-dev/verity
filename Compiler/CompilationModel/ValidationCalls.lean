@@ -838,7 +838,7 @@ private theorem validateFieldIdentifiers_ok_of_mem
                   have hbadReserved : field.name.startsWith "__" = true := by
                     cases hstarts : field.name.startsWith "__" with
                     | false => simp [hstarts] at hbad
-                    | true => exact hstarts
+                    | true => rfl
                   exact (ensureNonReservedYulIdentifier_ok hreserved) hbadReserved
                 · exact ih htail hmem
 
