@@ -17,6 +17,14 @@ open Compiler.Yul
 
 namespace FunctionBody
 
+@[simp] theorem except_ok_toOption_getD
+    {ε α : Type} (value : α) (fallback : α) :
+    (Except.ok value : Except ε α).toOption.getD fallback = value := rfl
+
+@[simp] theorem except_pure_toOption_getD
+    {ε α : Type} (value : α) (fallback : α) :
+    (pure value : Except ε α).toOption.getD fallback = value := rfl
+
 def lookupBinding? (bindings : List (String × Nat)) (name : String) : Option Nat :=
   bindings.find? (fun entry => entry.1 == name) |>.map Prod.snd
 

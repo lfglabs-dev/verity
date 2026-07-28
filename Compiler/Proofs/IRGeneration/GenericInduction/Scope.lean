@@ -781,7 +781,8 @@ private theorem validateScopedExprIdentifiers_pair_ok_right
       cases hvalidate
   | ok val =>
       cases val
-      simpa [hlhs] using hvalidate
+      simp only [hlhs, Except.bind] at hvalidate
+      exact hvalidate
 
 private theorem exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
     {context : String}
