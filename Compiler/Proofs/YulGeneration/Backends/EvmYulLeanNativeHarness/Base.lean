@@ -20334,8 +20334,9 @@ theorem primCall_sload0_then_mstore0_return32_initialState_omittedSlot_projectRe
         ⟨haltState, haltValue, hExec, hReturn⟩
       refine ⟨haltState, haltValue, ?_, ?_⟩
       · simpa [sharedAfterLoad, initialState] using hExec
-      · convert hReturn using 1 <;>
-          norm_num [natToUInt256, EvmYul.UInt256.toNat, uint256ToNat]
+      · rw [show uint256ToNat (natToUInt256 0) = 0 by
+            exact uint256_roundtrip 0 (by norm_num [EvmYul.UInt256.size])] at hReturn
+        simpa using hReturn
 
 /-- Native primitive execution of the generated `retrieve()` scalar-return core,
     with the slot-zero materialization split discharged internally.
@@ -20424,8 +20425,9 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_projectResu
           (storage 0) hMemory with
         ⟨haltState, haltValue, hExec, hReturn⟩
       refine ⟨haltState, haltValue, ?_, ?_⟩
-      · convert hExec using 1 <;>
-          simp [sharedAfterLoad, initialWithStore, initialState]
+      · simpa [sharedAfterLoad, initialWithStore, initialState,
+          EvmYul.Yul.State.toSharedState, EvmYul.Yul.State.sharedState,
+          YulState.initial, toSharedState] using hExec
       · simpa [natToUInt256, EvmYul.UInt256.toNat, uint256ToNat] using hReturn
 
 /-- Native primitive execution of the generated `retrieve()` scalar-return core
@@ -20472,9 +20474,12 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_omittedSlot
           (natToUInt256 0) hMemory with
         ⟨haltState, haltValue, hExec, hReturn⟩
       refine ⟨haltState, haltValue, ?_, ?_⟩
-      · convert hExec using 1 <;>
-          simp [sharedAfterLoad, initialWithStore, initialState]
-      · simpa [natToUInt256, EvmYul.UInt256.toNat, uint256ToNat] using hReturn
+      · simpa [sharedAfterLoad, initialWithStore, initialState,
+          EvmYul.Yul.State.toSharedState, EvmYul.Yul.State.sharedState,
+          YulState.initial, toSharedState] using hExec
+      · rw [show uint256ToNat (natToUInt256 0) = 0 by
+            exact uint256_roundtrip 0 (by norm_num [EvmYul.UInt256.size])] at hReturn
+        simpa using hReturn
 
 /-- Native primitive execution of the generated `retrieve()` scalar-return core
     from an arbitrary local store, with materialized/omitted slot zero handled
@@ -21554,8 +21559,7 @@ theorem exec_block_lowerNativeSwitchBlock_revert_default_postInitFreeMemory_hasS
     omega
   refine ⟨?_, by simp⟩
   rw [hFuelEq]
-  simpa [store, initialState, nativeSwitchPostInitFreeMemoryState,
-    EvmYul.Yul.State.insert]
+  simpa only [store]
     using exec_block_cons_error (fuel + cases.length + 12) _ [] _ _
       EvmYul.Yul.Exception.Revert hEndpoint
 
