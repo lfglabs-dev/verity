@@ -2830,8 +2830,7 @@ theorem primCall_sload0_then_mstore0_return32_initialState_omittedSlot_projectRe
         (.error (EvmYul.Yul.Exception.YulHalt haltState haltValue))).returnValue =
         some 0 := by
   unfold primCall_sload0_then_mstore0_return32_initialState
-  rw [primCall_sload_initialState_omittedSlot_ok sloadFuel contract tx storage
-    observableSlots 0 hNotSlot hRange (by norm_num [EvmYul.UInt256.size])]
+  rw [primCall_sload_initialState_omittedSlot_ok sloadFuel contract tx storage observableSlots 0 hNotSlot hRange (by norm_num [EvmYul.UInt256.size])]
   generalize hload :
       EvmYul.State.sload
         (initialState contract tx storage observableSlots).toState
@@ -2970,8 +2969,7 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_omittedSlot
         (.error (EvmYul.Yul.Exception.YulHalt haltState haltValue))).returnValue =
         some 0 := by
   unfold primCall_sload0_then_mstore0_return32_initialState_withStore
-  rw [primCall_sload_initialState_omittedSlot_ok_withStore sloadFuel
-    contract tx storage observableSlots store 0 hNotSlot hRange
+  rw [primCall_sload_initialState_omittedSlot_ok_withStore sloadFuel contract tx storage observableSlots store 0 hNotSlot hRange
     (by norm_num [EvmYul.UInt256.size])]
   generalize hload :
       EvmYul.State.sload
