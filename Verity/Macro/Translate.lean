@@ -2115,7 +2115,7 @@ private def mkModelLocalObligationTerm (obligation : LocalObligationDecl) : Comm
       $proofStatusTerm)
 
 private def termSource (term : Term) : String :=
-  (term.raw.reprint.getD (toString term.raw)).trimAscii
+  (term.raw.reprint.getD (toString term.raw)).trimAscii.toString
 
 private def isIdentChar (c : Char) : Bool :=
   ('a' ≤ c && c ≤ 'z') || ('A' ≤ c && c ≤ 'Z') || ('0' ≤ c && c ≤ '9')
