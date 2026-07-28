@@ -2030,6 +2030,8 @@ theorem exec_if_lowerExprNative_ident_one_take_fuel
       EvmYul.Yul.exec (fuel + 1) (.Block body) codeOverride state := by
   have hNe : (EvmYul.UInt256.ofNat 1 : EvmYul.UInt256) ≠ ⟨0⟩ := by decide
   simp [EvmYul.Yul.exec, Backends.lowerExprNative, EvmYul.Yul.eval, hVal, hNe]
+  intro hZero
+  exact (hNe (hVal.symm.trans hZero)).elim
 
 /-- Native singleton-block exec equals the inner statement exec at decremented
     fuel: the trailing `Block []` peel always succeeds at positive fuel and
@@ -3302,9 +3304,13 @@ theorem NativePrimCallPreservesWord_balance
       cases hExec
       cases state with
       | Ok shared store =>
-          convert hLookup using 1 <;> simp [EvmYul.Yul.State.setSharedState]
+          change ((EvmYul.Yul.State.Ok shared store).setSharedState _)[name]! = expected
+          rw [state_getElem_setSharedState]
+          exact hLookup
       | OutOfFuel =>
-          convert hLookup using 1 <;> simp [EvmYul.Yul.State.setSharedState]
+          change ((EvmYul.Yul.State.OutOfFuel).setSharedState _)[name]! = expected
+          rw [state_getElem_setSharedState]
+          exact hLookup
       | Checkpoint jump =>
           cases jump <;>
             convert hLookup using 1 <;> simp [EvmYul.Yul.State.setSharedState]
@@ -20291,8 +20297,8 @@ theorem primCall_sload0_then_mstore0_return32_initialState_projectResult_returnV
         ⟨haltState, haltValue, hExec, hReturn⟩
       refine ⟨haltState, haltValue, ?_, ?_⟩
       · simpa [sharedAfterLoad, initialState] using hExec
-      · convert hReturn using 1 <;>
-          norm_num [natToUInt256, EvmYul.UInt256.toNat, uint256ToNat]
+      · convert hReturn using 1
+        rfl
 
 /-- Native primitive execution of the generated `retrieve()` scalar-return core
     when slot zero was not materialized into the finite native storage map:
