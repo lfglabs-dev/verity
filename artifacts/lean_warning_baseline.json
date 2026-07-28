@@ -11,9 +11,9 @@
   },
   "by_message": {
     "Left-hand side of simp theorem has a variable as head symbol. This means the theorem will be tried on every simp step, which can be expensive. This may be acceptable for `local` or `scoped` simp lemmas.": 1,
-    "String.data` has been deprecated: Use `String.toList` instead": 5,
-    "String.mk` has been deprecated: Use `String.ofList` instead": 4,
-    "String.trim` has been deprecated: Use `String.trimAscii` instead": 1,
+    "`String.data` has been deprecated: Use `String.toList` instead": 5,
+    "`String.mk` has been deprecated: Use `String.ofList` instead": 4,
+    "`String.trim` has been deprecated: Use `String.trimAscii` instead": 1,
     "try 'simp' instead of 'simpa'": 1
   },
   "schema_version": 1,
