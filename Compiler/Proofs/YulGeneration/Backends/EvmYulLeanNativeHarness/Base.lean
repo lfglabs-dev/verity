@@ -770,7 +770,6 @@ theorem eval_lowerExprNative_iszero_ident_one_ok
           (Yul.YulExpr.call "iszero" [Yul.YulExpr.ident (name : String)]))
         codeOverride state =
       .ok (state, EvmYul.UInt256.ofNat 0) := by
-  unfold EvmYul.Identifier at name hVal ⊢
   simp only [Backends.lowerExprNative, Backends.lookupRuntimePrimOp_iszero,
     EvmYul.Yul.eval, EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail,
     EvmYul.Yul.evalPrimCall, EvmYul.Yul.reverse', EvmYul.Yul.cons',
@@ -791,7 +790,6 @@ theorem eval_lowerExprNative_iszero_ident_one_ok_fuel
           (Yul.YulExpr.call "iszero" [Yul.YulExpr.ident (name : String)]))
         codeOverride state =
       .ok (state, EvmYul.UInt256.ofNat 0) := by
-  unfold EvmYul.Identifier at name hVal ⊢
   simp only [Backends.lowerExprNative, Backends.lookupRuntimePrimOp_iszero,
     EvmYul.Yul.eval, EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail,
     EvmYul.Yul.evalPrimCall, EvmYul.Yul.reverse', EvmYul.Yul.cons',
@@ -17616,6 +17614,18 @@ def projectStorageFromState (tx : YulTransaction) (state : EvmYul.Yul.State) :
     IRStorageSlot → IRStorageWord :=
   extractStorage state.sharedState (natToAddress tx.thisAddress)
 
+/-- Lean 4.31 exposes TreeMap insertion lookup through `getElem?`, rather
+than the removed `get?_insert_of_eq` compatibility lemma. -/
+private theorem storage_get?_insert_of_eq
+    (m : EvmYul.Storage) (lookup inserted : EvmYul.UInt256)
+    (value : EvmYul.UInt256)
+    (h : compare lookup inserted = Ordering.eq) :
+    (m.insert inserted value).get? lookup = some value := by
+  change (m.insert inserted value)[lookup]? = some value
+  rw [Std.TreeMap.getElem?_insert]
+  apply if_pos
+  exact Std.OrientedCmp.eq_comm.mpr h
+
 /-- Projecting final native storage reads the current contract account storage
     entry for the requested slot. -/
 @[simp] theorem projectStorageFromState_accountStorageSlot
@@ -17673,8 +17683,8 @@ theorem initialState_observableStorageSlot
       storage (IRStorageSlot.ofNat slot) := by
   simp only [projectStorageFromState, extractStorage, initialState,
     EvmYul.Yul.State.sharedState, YulState.initial, toSharedState]
-  rw [Std.TreeMap.get?_insert_of_eq _ Std.ReflCmp.compare_self]
-  rw [Std.TreeMap.get?_insert_of_eq _ Std.ReflCmp.compare_self]
+  rw [storage_get?_insert_of_eq _ _ _ _ Std.ReflCmp.compare_self]
+  rw [storage_get?_insert_of_eq _ _ _ _ Std.ReflCmp.compare_self]
   have h := storageLookup_projectStorage storage observableSlots slot hSlot hRange
   unfold storageLookup at h
   exact h
@@ -17695,8 +17705,8 @@ theorem initialState_materializedStorageSlot
       storage (IRStorageSlot.ofNat slot) := by
   simp only [projectStorageFromState, extractStorage, initialState,
     EvmYul.Yul.State.sharedState, YulState.initial, toSharedState]
-  rw [Std.TreeMap.get?_insert_of_eq _ Std.ReflCmp.compare_self]
-  rw [Std.TreeMap.get?_insert_of_eq _ Std.ReflCmp.compare_self]
+  rw [storage_get?_insert_of_eq _ _ _ _ Std.ReflCmp.compare_self]
+  rw [storage_get?_insert_of_eq _ _ _ _ Std.ReflCmp.compare_self]
   have h := storageLookup_projectStorage_projected storage slots slot hSlot
   unfold storageLookup at h
   exact h
