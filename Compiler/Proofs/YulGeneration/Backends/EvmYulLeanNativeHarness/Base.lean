@@ -774,6 +774,7 @@ theorem eval_lowerExprNative_iszero_ident_one_ok
     EvmYul.Yul.eval, EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail,
     EvmYul.Yul.evalPrimCall, EvmYul.Yul.reverse', EvmYul.Yul.cons',
     EvmYul.Yul.head']
+  change state[(name : String)]! = EvmYul.UInt256.ofNat 1 at hVal
   rw [hVal]
   decide
 
@@ -793,6 +794,7 @@ theorem eval_lowerExprNative_iszero_ident_one_ok_fuel
     EvmYul.Yul.eval, EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail,
     EvmYul.Yul.evalPrimCall, EvmYul.Yul.reverse', EvmYul.Yul.cons',
     EvmYul.Yul.head']
+  change state[(name : String)]! = EvmYul.UInt256.ofNat 1 at hVal
   rw [hVal]
   decide
 
@@ -1763,7 +1765,7 @@ theorem exec_if_lowerExprNative_iszero_ident_one_skip
     EvmYul.Yul.exec 9
         (.If
           (Backends.lowerExprNative
-            (Yul.YulExpr.call "iszero" [Yul.YulExpr.ident name]))
+            (Yul.YulExpr.call "iszero" [Yul.YulExpr.ident (name : String)]))
           body)
         codeOverride state =
       .ok state :=
@@ -1977,7 +1979,7 @@ theorem exec_if_lowerExprNative_iszero_ident_one_skip_fuel
     EvmYul.Yul.exec (fuel + 9)
         (.If
           (Backends.lowerExprNative
-            (Yul.YulExpr.call "iszero" [Yul.YulExpr.ident name]))
+            (Yul.YulExpr.call "iszero" [Yul.YulExpr.ident (name : String)]))
           body)
         codeOverride state =
       .ok state := by
@@ -2011,7 +2013,7 @@ theorem exec_if_lowerExprNative_ident_one_take_fuel
     (state : EvmYul.Yul.State) (name : EvmYul.Identifier)
     (hVal : state[name]! = EvmYul.UInt256.ofNat 1) :
     EvmYul.Yul.exec (fuel + 2)
-        (.If (Backends.lowerExprNative (Yul.YulExpr.ident name)) body)
+        (.If (Backends.lowerExprNative (Yul.YulExpr.ident (name : String))) body)
         codeOverride state =
       EvmYul.Yul.exec (fuel + 1) (.Block body) codeOverride state := by
   have hNe : (EvmYul.UInt256.ofNat 1 : EvmYul.UInt256) ≠ ⟨0⟩ := by decide
