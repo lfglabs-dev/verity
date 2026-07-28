@@ -5504,6 +5504,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.exec_block_lowerNativeSwitchBlock_selector_find_hit_hasSelectorState_ok_fresh
   Compiler.Proofs.YulGeneration.Backends.Native.exec_lowerNativeSwitchBlock_selector_find_none_without_default_fuel
   Compiler.Proofs.YulGeneration.Backends.Native.initialState_unbridgedEnvironmentDefaults
+  -- Compiler.Proofs.YulGeneration.Backends.Native.storage_get?_insert_of_eq  -- private
   Compiler.Proofs.YulGeneration.Backends.Native.projectStorageFromState_accountStorageSlot
   Compiler.Proofs.YulGeneration.Backends.Native.projectStorageFromState_missingAccountStorageSlot
   Compiler.Proofs.YulGeneration.Backends.Native.projectStorageFromState_missingAccount
@@ -6396,4 +6397,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 5999 theorems/lemmas (4167 public, 1832 private, 0 sorry'd)
+-- Total: 6000 theorems/lemmas (4167 public, 1833 private, 0 sorry'd)
