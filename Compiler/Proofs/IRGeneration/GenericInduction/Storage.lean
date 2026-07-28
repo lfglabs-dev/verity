@@ -12,7 +12,6 @@ open Compiler.CompilationModel
 open Compiler.Yul
 
 attribute [local simp] CompilationModel.compileExprWithInternals_nil_eq
-attribute [local simp] Verity.Contract.eq_of_run_success
 
 private theorem compileExprWithInternals_nil_ok
     {fields : List Field} {dynamicSource : DynamicDataSource} {expr : Expr} {exprIR : YulExpr}

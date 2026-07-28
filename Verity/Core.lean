@@ -324,6 +324,8 @@ theorem Contract.eq_of_run_success {α : Type} {c : Contract α} {s : ContractSt
   | revert msg s0 =>
     simp [hcs] at h
 
+attribute [simp] Contract.eq_of_run_success
+
 @[simp] theorem pure_run (a : α) (state : ContractState) :
   (pure a : Contract α).run state = ContractResult.success a state := rfl
 
