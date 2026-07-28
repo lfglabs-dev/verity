@@ -20454,10 +20454,8 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_omittedSlot
   rw [primCall_sload_initialState_omittedSlot_ok_withStore sloadFuel
     contract tx storage observableSlots store 0 hNotSlot hRange
     (by norm_num [EvmYul.UInt256.size])]
-  generalize hload :
-      EvmYul.State.sload
-        (initialState contract tx storage observableSlots).toState
-        (natToUInt256 0) = loaded
+  generalize hload : EvmYul.State.sload
+    (initialState contract tx storage observableSlots).toState (natToUInt256 0) = loaded
   cases loaded with
   | mk stateAfterLoad _ =>
       let initialWithStore : EvmYul.Yul.State :=
