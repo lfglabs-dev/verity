@@ -2853,7 +2853,7 @@ theorem primCall_sload0_then_mstore0_return32_initialState_omittedSlot_projectRe
       · simpa [sharedAfterLoad, initialState, EvmYul.Yul.State.setSharedState,
           EvmYul.Yul.State.toSharedState, Bind.bind, Except.bind,
           IRStorageSlot.ofNat, hload] using hExec
-      · have hZero : (natToUInt256 0).toNat = 0 := by rfl; rwa [hZero] at hReturn
+      · have hZero : (natToUInt256 0).toNat = 0 := rfl; rwa [hZero] at hReturn
 
 /-- Native primitive execution of the generated `retrieve()` scalar-return core,
     with the slot-zero materialization split discharged internally.
@@ -2995,7 +2995,7 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_omittedSlot
       · simpa [sharedAfterLoad, initialWithStore, initialState,
           EvmYul.Yul.State.setSharedState, EvmYul.Yul.State.toSharedState,
           Bind.bind, Except.bind, IRStorageSlot.ofNat, hload] using hExec
-      · have hZero : (natToUInt256 0).toNat = 0 := by rfl; rwa [hZero] at hReturn
+      · have hZero : (natToUInt256 0).toNat = 0 := rfl; rwa [hZero] at hReturn
 
 /-- Native primitive execution of the generated `retrieve()` scalar-return core
     from an arbitrary local store, with materialized/omitted slot zero handled
