@@ -18,7 +18,7 @@ def parseHexNat? (s : String) : Option Nat :=
     if hexPart.isEmpty then
       none
     else
-      hexPart.copy.data.foldl (fun acc c =>
+      hexPart.copy.toList.foldl (fun acc c =>
         match acc, hexCharToNat? c with
         | some n, some d => some (n * 16 + d)
         | _, _ => none
@@ -27,7 +27,7 @@ def parseHexNat? (s : String) : Option Nat :=
     none  -- Only parse as hex if it has "0x" prefix
 
 def stringToNat (s : String) : Nat :=
-  s.data.foldl (fun acc c => acc * 256 + c.toNat) 0
+  s.toList.foldl (fun acc c => acc * 256 + c.toNat) 0
 
 -- Normalize address to lowercase for consistent comparison
 def normalizeAddress (addr : String) : String :=
@@ -50,11 +50,11 @@ private def natToHexCore (val : Nat) (acc : List Char) : List Char :=
 def natToHex (n : Nat) (digits : Nat := 8) : String :=
   let raw := natToHexCore n []
   let padded := List.replicate (digits - raw.length) '0' ++ raw
-  "0x" ++ String.mk padded
+  "0x" ++ String.ofList padded
 
 /-- Convert a Nat to a minimal unpadded hex string without prefix (e.g. 255 → "ff"). -/
 def natToHexUnpadded (n : Nat) : String :=
   if n = 0 then "0"
-  else String.mk (natToHexCore n [])
+  else String.ofList (natToHexCore n [])
 
 end Compiler.Hex
