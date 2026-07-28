@@ -76,34 +76,43 @@ theorem native_call_preserves_lookup_of_revivable_body
           (EvmYul.Yul.State.Ok shared store).sharedState.accountMap.get?
             (EvmYul.Yul.State.Ok shared store).executionEnv.codeOwner with
       | none =>
-          simp [hCode] at hCall
+          change
+            (match
+                Std.TreeMap.get?
+                    (EvmYul.Yul.State.Ok shared store).sharedState.accountMap
+                    (EvmYul.Yul.State.Ok shared store).executionEnv.codeOwner with
+              | none =>
+                  (Except.error
+                    (EvmYul.Yul.Exception.MissingContract
+                      s!"{(EvmYul.Yul.State.Ok shared store).executionEnv.codeOwner}") :
+                    Except EvmYul.Yul.Exception
+                      (EvmYul.Yul.State × List EvmYul.Literal))
+              | some _ => _ ) = .ok (final, rets) at hCall
+          rw [hCode] at hCall
+          cases hCall
       | some yulContract =>
-          simp [hCode] at hCall
-          cases hFunction :
-              (codeOverride.getD yulContract.code).functions.lookup
-                functionName with
-          | none =>
-              simp [hFunction] at hCall
-          | some functionDef =>
-              simp [hFunction] at hCall
-              cases hExec :
-                  EvmYul.Yul.exec fuel'
-                    (.Block functionDef.body) codeOverride
-                    (EvmYul.Yul.State.mkOk
-                      (EvmYul.Yul.State.initcall functionDef.params values
-                        (EvmYul.Yul.State.Ok shared store))) with
-              | error err =>
-                  simp [hExec] at hCall
-              | ok calleeState =>
-                  simp [hExec] at hCall
-                  rcases hCall with ⟨hFinal, _⟩
-                  subst final
-                  exact
-                    state_getElem_restoreCallFrame_of_ok
-                      (EvmYul.Yul.State.Ok shared store) calleeState name
-                      ⟨shared, store, rfl⟩
-                      (hRevivable yulContract functionDef calleeState
-                        hFunction (by simpa using hExec)) ▸ hLookup
+          have hCode' :
+              getElem? (EvmYul.Yul.State.Ok shared store).sharedState.accountMap
+                (EvmYul.Yul.State.Ok shared store).executionEnv.codeOwner =
+                  some yulContract := by
+            rw [← Std.TreeMap.get?_eq_getElem?]
+            exact hCode
+          simp [hCode'] at hCall
+          split at hCall
+          next hFunction =>
+            cases hCall
+          next functionDef hFunction =>
+            split at hCall
+            next err hExec =>
+              cases hCall
+            next calleeState hExec =>
+              rcases hCall with ⟨hFinal, _⟩
+              exact
+                state_getElem_restoreCallFrame_of_ok
+                  (EvmYul.Yul.State.Ok shared store) calleeState name
+                  ⟨shared, store, rfl⟩
+                  (hRevivable yulContract functionDef calleeState
+                    hFunction (by simpa using hExec)) ▸ hLookup
 
 theorem nativeMappingSlotFunctionDefinition_exec_revivable_of_ok_state
     (fuel : Nat)
@@ -147,13 +156,18 @@ theorem state_mkOk_initcall_ok_exists
         (EvmYul.Yul.State.initcall params values
           (EvmYul.Yul.State.Ok shared store)) =
         EvmYul.Yul.State.Ok shared' store' := by
-  simp [EvmYul.Yul.State.initcall, EvmYul.Yul.State.setStore,
-    EvmYul.Yul.State.multifill]
+  simp only [EvmYul.Yul.State.initcall, EvmYul.Yul.State.setStore,
+    EvmYul.Yul.State.multifill, EvmYul.Yul.State.mkOk]
   let emptyStore : EvmYul.Yul.VarStore := Inhabited.default
+  have hDefault : (Inhabited.default : EvmYul.Yul.State) =
+      EvmYul.Yul.State.Ok (Inhabited.default : EvmYul.SharedState .Yul)
+        emptyStore := rfl
+  rw [hDefault]
+  simp only
   rcases state_foldr_insert_ok_exists (List.zip params values) shared
       emptyStore with
     ⟨shared', store', hFill⟩
-  exact ⟨shared', store', by rw [hFill]; rfl⟩
+  exact ⟨shared', store', by rw [hFill]⟩
 
 theorem native_mappingSlot_call_preserves_lookup
     (name : EvmYul.Identifier)
@@ -187,6 +201,12 @@ theorem native_mappingSlot_call_preserves_lookup
       shared store final rets hLookup
   · intro yulContract functionDef calleeState hFunction hExec
     simp only [Option.getD_some] at hFunction
+    change
+      (((∅ : NativeFunctionMap).insert
+        ("mappingSlot" : EvmYul.Yul.Ast.YulFunctionName)
+        nativeMappingSlotFunctionDefinition).lookup
+        ("mappingSlot" : EvmYul.Yul.Ast.YulFunctionName) =
+        some functionDef) at hFunction
     rw [Finmap.lookup_insert] at hFunction
     injection hFunction with hDef
     subst functionDef
@@ -239,24 +259,20 @@ theorem native_mappingSlot_call_preserves_lookup_state
               EvmYul.Yul.State.OutOfFuel.sharedState.accountMap.get?
                 EvmYul.Yul.State.OutOfFuel.executionEnv.codeOwner with
           | none =>
-              simp [hCode] at hCall
+              rw [hCode] at hCall
+              cases hCall
           | some yulContract =>
-              simp [hCode] at hCall
-              cases hExec :
-                  EvmYul.Yul.exec fuel'
-                    (.Block nativeMappingSlotFunctionDefinition.body)
-                    (some
-                      { dispatcher := dispatcher
-                        functions := ((∅ : NativeFunctionMap).insert
-                          "mappingSlot" nativeMappingSlotFunctionDefinition) })
-                    (EvmYul.Yul.State.mkOk
-                      (EvmYul.Yul.State.initcall
-                        nativeMappingSlotFunctionDefinition.params values
-                        EvmYul.Yul.State.OutOfFuel)) with
-              | error err =>
-                  simp [hExec] at hCall
-              | ok calleeState =>
-                  simp [hExec, EvmYul.Yul.State.overwrite?,
+              rw [hCode] at hCall
+              simp only [Option.getD_some] at hCall
+              split at hCall
+              next hFunction =>
+                cases hCall
+              next functionDef hFunction =>
+                split at hCall
+                next err hExec =>
+                  cases hCall
+                next calleeState hExec =>
+                  simp only [EvmYul.Yul.State.overwrite?,
                     EvmYul.Yul.State.setStore] at hCall
                   rcases hCall with ⟨rfl, _⟩
                   exact hLookup
@@ -767,11 +783,13 @@ theorem nativeStmtWriteNames_not_mem_of_nativeStmtsWriteNames_not_mem
   | nil =>
       simp at hMem
   | cons head tail ih =>
-      simp [Backends.nativeStmtsWriteNames] at hFresh hMem
+      simp only [Backends.nativeStmtsWriteNames] at hFresh
+      simp only [List.mem_cons] at hMem
       rcases hMem with hEq | hTail
       · subst stmt
-        exact hFresh.1
-      · exact ih hFresh.2 hTail
+        intro hName
+        exact hFresh (List.mem_append_left _ hName)
+      · exact ih (fun hName => hFresh (List.mem_append_right _ hName)) hTail
 
 theorem nativeStmtWriteNames_let_singleton_not_mem_ne
     (name target : EvmYul.Identifier)
@@ -779,7 +797,8 @@ theorem nativeStmtWriteNames_let_singleton_not_mem_ne
     (hFresh : (name : String) ∉ Backends.nativeStmtWriteNames (.Let [target] value)) :
     name ≠ target := by
   intro hEq
-  subst hEq
+  subst target
+  unfold EvmYul.Identifier at hFresh
   simp [Backends.nativeStmtWriteNames] at hFresh
 
 theorem nativeStmtWriteNames_let_not_mem_vars
@@ -788,7 +807,10 @@ theorem nativeStmtWriteNames_let_not_mem_vars
     (value : Option EvmYul.Yul.Ast.Expr)
     (hFresh : (name : String) ∉ Backends.nativeStmtWriteNames (.Let vars value)) :
     name ∉ vars := by
-  simpa [Backends.nativeStmtWriteNames] using hFresh
+  intro hMem
+  unfold EvmYul.Identifier at hFresh hMem
+  apply hFresh
+  simpa [Backends.nativeStmtWriteNames] using hMem
 
 theorem nativeStmtWriteNames_lowerAssignNative_not_mem_ne
     (name target : EvmYul.Identifier)
@@ -797,9 +819,9 @@ theorem nativeStmtWriteNames_lowerAssignNative_not_mem_ne
       (name : String) ∉ Backends.nativeStmtWriteNames
         (Backends.lowerAssignNative target value)) :
     name ≠ target := by
-  intro hEq
-  subst hEq
-  simp [Backends.nativeStmtWriteNames, Backends.lowerAssignNative] at hFresh
+  exact nativeStmtWriteNames_let_singleton_not_mem_ne name target
+    (some (Backends.lowerExprNative value))
+    (by simpa [Backends.lowerAssignNative] using hFresh)
 
 theorem collectYulStmtWriteNames_append
     (writeStmt : YulStmt → List String)
@@ -841,13 +863,18 @@ theorem yulStmtWriteNames_not_mem_of_yulStmtsWriteNames_not_mem
   | nil =>
       simp at hMem
   | cons head tail ih =>
-      rw [yulStmtsWriteNames_cons] at hFresh
-      simp only [List.mem_append, not_or] at hFresh
+  rw [yulStmtsWriteNames_cons] at hFresh
       simp only [List.mem_cons] at hMem
       rcases hMem with hEq | hTail
       · subst stmt
-        exact hFresh.1
-      · exact ih hFresh.2 hTail
+        intro hName
+        apply hFresh
+        exact List.mem_append_left _ hName
+      · apply ih
+        · intro hName
+          apply hFresh
+          exact List.mem_append_right _ hName
+        · exact hTail
 
 theorem collectNativeStmtWriteNames_append
     (writeStmt : EvmYul.Yul.Ast.Stmt → List String)
@@ -885,14 +912,14 @@ theorem nativeStmtsWriteNames_cons_not_mem_iff
     (name : String) ∉ Backends.nativeStmtsWriteNames (stmt :: rest) ↔
       (name : String) ∉ Backends.nativeStmtWriteNames stmt ∧
         (name : String) ∉ Backends.nativeStmtsWriteNames rest := by
-  rw [nativeStmtsWriteNames_cons, List.mem_append]
+  rw [nativeStmtsWriteNames_cons]
   constructor
   · intro hFresh
-    exact ⟨fun hMem => hFresh (Or.inl hMem),
-      fun hMem => hFresh (Or.inr hMem)⟩
+    exact ⟨fun hMem => hFresh (List.mem_append_left _ hMem),
+      fun hMem => hFresh (List.mem_append_right _ hMem)⟩
   · intro hFresh hMem
     rcases hFresh with ⟨hHead, hTail⟩
-    rcases hMem with hMem | hMem
+    rcases List.mem_append.mp hMem with hMem | hMem
     · exact hHead hMem
     · exact hTail hMem
 
@@ -944,14 +971,14 @@ theorem nativeStmtsWriteNames_append_not_mem_iff
     (name : String) ∉ Backends.nativeStmtsWriteNames (left ++ right) ↔
       (name : String) ∉ Backends.nativeStmtsWriteNames left ∧
         (name : String) ∉ Backends.nativeStmtsWriteNames right := by
-  rw [nativeStmtsWriteNames_append, List.mem_append]
+  rw [nativeStmtsWriteNames_append]
   constructor
   · intro hFresh
-    exact ⟨fun hMem => hFresh (Or.inl hMem),
-      fun hMem => hFresh (Or.inr hMem)⟩
+    exact ⟨fun hMem => hFresh (List.mem_append_left _ hMem),
+      fun hMem => hFresh (List.mem_append_right _ hMem)⟩
   · intro hFresh hMem
     rcases hFresh with ⟨hLeft, hRight⟩
-    rcases hMem with hMem | hMem
+    rcases List.mem_append.mp hMem with hMem | hMem
     · exact hLeft hMem
     · exact hRight hMem
 
@@ -971,8 +998,7 @@ theorem NativeBlockPreservesWord_append_of_forall_stmt
     codeOverride
     (by
       intro stmt hMem
-      rw [List.mem_append] at hMem
-      rcases hMem with hMem | hMem
+      rcases List.mem_append.mp hMem with hMem | hMem
       · exact hLeft stmt hMem
       · exact hRight stmt hMem)
 
@@ -1534,8 +1560,7 @@ theorem NativeStmtPreservesWord_lowerAssignNative_lit_of_ne
   | succ fuel' =>
       simp [Backends.lowerAssignNative, Backends.lowerExprNative] at hExec
       cases hExec
-      rw [state_getElem_insert_of_ne state name target
-        (EvmYul.UInt256.ofNat assigned) hne]
+      rw [state_getElem_insert_of_ne state name target _ hne]
       exact hLookup
 
 theorem NativeStmtPreservesWord_lowerAssignNative_hex_of_ne
@@ -1569,11 +1594,10 @@ theorem NativeStmtPreservesWord_lowerAssignNative_ident_of_ne
   | zero =>
       simp [EvmYul.Yul.exec] at hExec
   | succ fuel' =>
-      have hFinal : state.insert target state[source]! = final := by
-        simpa [Backends.lowerAssignNative, Backends.lowerExprNative,
-          EvmYul.Yul.exec] using hExec
-      subst final
-      rw [state_getElem_insert_of_ne state name target state[source]! hne]
+      simp [Backends.lowerAssignNative, Backends.lowerExprNative,
+        EvmYul.Yul.exec] at hExec
+      cases hExec
+      rw [state_getElem_insert_of_ne state name target _ hne]
       exact hLookup
 
 theorem NativeStmtPreservesWord_lowerAssignNative_str_of_ne
@@ -1588,11 +1612,10 @@ theorem NativeStmtPreservesWord_lowerAssignNative_str_of_ne
   | zero =>
       simp [EvmYul.Yul.exec] at hExec
   | succ fuel' =>
-      have hFinal : state.insert target state[source]! = final := by
-        simpa [Backends.lowerAssignNative, Backends.lowerExprNative,
-          EvmYul.Yul.exec] using hExec
-      subst final
-      rw [state_getElem_insert_of_ne state name target state[source]! hne]
+      simp [Backends.lowerAssignNative, Backends.lowerExprNative,
+        EvmYul.Yul.exec] at hExec
+      cases hExec
+      rw [state_getElem_insert_of_ne state name target _ hne]
       exact hLookup
 
 theorem NativeStmtPreservesWord_let_none_of_not_mem
@@ -3083,16 +3106,10 @@ theorem NativeStmtPreservesWord_exprStmtCall_mstore_of_evalArgs_preserves
           simp [EvmYul.Yul.primCall] at hExec
       | succ primFuel =>
           rw [primCall_mstore_ok] at hExec
-          simp [EvmYul.Yul.State.multifill] at hExec
           cases hExec
-          cases argState with
-          | Ok shared store =>
-              simpa [EvmYul.Yul.State.setMachineState] using hArgLookup
-          | OutOfFuel =>
-              simpa [EvmYul.Yul.State.setMachineState] using hArgLookup
-          | Checkpoint jump =>
-              cases jump <;>
-                simpa [EvmYul.Yul.State.setMachineState] using hArgLookup
+          rw [state_getElem_multifill_of_not_mem _ name [] [] (by simp)]
+          rw [state_getElem_setMachineState]
+          exact hArgLookup
 
 theorem NativeStmtPreservesWord_exprStmtCall_mstore_of_nativeEvalArgs_and_evalArgs_shape_preserves
     (name : EvmYul.Identifier)
@@ -3224,16 +3241,10 @@ theorem NativeStmtPreservesWord_exprStmtCall_mstore8_of_evalArgs_preserves
           simp [EvmYul.Yul.primCall] at hExec
       | succ primFuel =>
           rw [primCall_mstore8_ok] at hExec
-          simp [EvmYul.Yul.State.multifill] at hExec
           cases hExec
-          cases argState with
-          | Ok shared store =>
-              simpa [EvmYul.Yul.State.setMachineState] using hArgLookup
-          | OutOfFuel =>
-              simpa [EvmYul.Yul.State.setMachineState] using hArgLookup
-          | Checkpoint jump =>
-              cases jump <;>
-                simpa [EvmYul.Yul.State.setMachineState] using hArgLookup
+          rw [state_getElem_multifill_of_not_mem _ name [] [] (by simp)]
+          rw [state_getElem_setMachineState]
+          exact hArgLookup
 
 theorem NativeStmtPreservesWord_exprStmtCall_mstore8_of_nativeEvalArgs_and_evalArgs_shape_preserves
     (name : EvmYul.Identifier)
@@ -3369,16 +3380,10 @@ theorem NativeStmtPreservesWord_exprStmtCall_sstore_of_evalArgs_preserves
               EvmYul.Yul.State.multifill] at hExec
             cases hExec
           · rw [primCall_sstore_ok primFuel argState slot value hPerm] at hExec
-            simp [EvmYul.Yul.State.multifill] at hExec
             cases hExec
-            cases argState with
-            | Ok shared store =>
-                simpa [EvmYul.Yul.State.setState] using hArgLookup
-            | OutOfFuel =>
-                simpa [EvmYul.Yul.State.setState] using hArgLookup
-            | Checkpoint jump =>
-                cases jump <;>
-                  simpa [EvmYul.Yul.State.setState] using hArgLookup
+            rw [state_getElem_multifill_of_not_mem _ name [] [] (by simp)]
+            rw [state_getElem_setState]
+            exact hArgLookup
 
 theorem NativeStmtPreservesWord_exprStmtCall_sstore_of_nativeEvalArgs_and_evalArgs_shape_preserves
     (name : EvmYul.Identifier)
@@ -3514,16 +3519,10 @@ theorem NativeStmtPreservesWord_exprStmtCall_tstore_of_evalArgs_preserves
               EvmYul.Yul.State.multifill] at hExec
             cases hExec
           · rw [primCall_tstore_ok primFuel argState slot value hPerm] at hExec
-            simp [EvmYul.Yul.State.multifill] at hExec
             cases hExec
-            cases argState with
-            | Ok shared store =>
-                simpa [EvmYul.Yul.State.setState] using hArgLookup
-            | OutOfFuel =>
-                simpa [EvmYul.Yul.State.setState] using hArgLookup
-            | Checkpoint jump =>
-                cases jump <;>
-                  simpa [EvmYul.Yul.State.setState] using hArgLookup
+            rw [state_getElem_multifill_of_not_mem _ name [] [] (by simp)]
+            rw [state_getElem_setState]
+            exact hArgLookup
 
 theorem NativeStmtPreservesWord_exprStmtCall_tstore_of_nativeEvalArgs_and_evalArgs_shape_preserves
     (name : EvmYul.Identifier)
@@ -3655,16 +3654,10 @@ theorem NativeStmtPreservesWord_exprStmtCall_calldatacopy_of_evalArgs_preserves
           simp [EvmYul.Yul.primCall] at hExec
       | succ primFuel =>
           rw [primCall_calldatacopy_ok] at hExec
-          simp [EvmYul.Yul.State.multifill] at hExec
           cases hExec
-          cases argState with
-          | Ok shared store =>
-              simpa [EvmYul.Yul.State.setSharedState] using hArgLookup
-          | OutOfFuel =>
-              simpa [EvmYul.Yul.State.setSharedState] using hArgLookup
-          | Checkpoint jump =>
-              cases jump <;>
-                simpa [EvmYul.Yul.State.setSharedState] using hArgLookup
+          rw [state_getElem_multifill_of_not_mem _ name [] [] (by simp)]
+          rw [state_getElem_setSharedState]
+          exact hArgLookup
 
 theorem NativeStmtPreservesWord_exprStmtCall_calldatacopy_of_nativeEvalArgs_and_evalArgs_shape_preserves
     (name : EvmYul.Identifier)
@@ -3767,16 +3760,10 @@ theorem NativeStmtPreservesWord_exprStmtCall_returndatacopy_of_evalArgs_preserve
           simp [EvmYul.Yul.primCall] at hExec
       | succ primFuel =>
           rw [primCall_returndatacopy_ok] at hExec
-          simp [EvmYul.Yul.State.multifill] at hExec
           cases hExec
-          cases argState with
-          | Ok shared store =>
-              simpa [EvmYul.Yul.State.setMachineState] using hArgLookup
-          | OutOfFuel =>
-              simpa [EvmYul.Yul.State.setMachineState] using hArgLookup
-          | Checkpoint jump =>
-              cases jump <;>
-                simpa [EvmYul.Yul.State.setMachineState] using hArgLookup
+          rw [state_getElem_multifill_of_not_mem _ name [] [] (by simp)]
+          rw [state_getElem_setMachineState]
+          exact hArgLookup
 
 theorem NativeStmtPreservesWord_exprStmtCall_returndatacopy_of_nativeEvalArgs_and_evalArgs_shape_preserves
     (name : EvmYul.Identifier)
@@ -3941,16 +3928,10 @@ theorem NativeStmtPreservesWord_exprStmtCall_log0_of_evalArgs_preserves
               EvmYul.Yul.State.multifill] at hExec
             cases hExec
           · rw [primCall_log0_ok primFuel argState offset size hPerm] at hExec
-            simp [EvmYul.Yul.State.multifill] at hExec
             cases hExec
-            cases argState with
-            | Ok shared store =>
-                simpa [EvmYul.Yul.State.setSharedState] using hArgLookup
-            | OutOfFuel =>
-                simpa [EvmYul.Yul.State.setSharedState] using hArgLookup
-            | Checkpoint jump =>
-                cases jump <;>
-                  simpa [EvmYul.Yul.State.setSharedState] using hArgLookup
+            rw [state_getElem_multifill_of_not_mem _ name [] [] (by simp)]
+            rw [state_getElem_setSharedState]
+            exact hArgLookup
 
 theorem NativeStmtPreservesWord_exprStmtCall_log0_of_nativeEvalArgs_and_evalArgs_shape_preserves
     (name : EvmYul.Identifier)
@@ -4057,16 +4038,10 @@ theorem NativeStmtPreservesWord_exprStmtCall_log1_of_evalArgs_preserves
               EvmYul.Yul.State.multifill] at hExec
             cases hExec
           · rw [primCall_log1_ok primFuel argState offset size topic0 hPerm] at hExec
-            simp [EvmYul.Yul.State.multifill] at hExec
             cases hExec
-            cases argState with
-            | Ok shared store =>
-                simpa [EvmYul.Yul.State.setSharedState] using hArgLookup
-            | OutOfFuel =>
-                simpa [EvmYul.Yul.State.setSharedState] using hArgLookup
-            | Checkpoint jump =>
-                cases jump <;>
-                  simpa [EvmYul.Yul.State.setSharedState] using hArgLookup
+            rw [state_getElem_multifill_of_not_mem _ name [] [] (by simp)]
+            rw [state_getElem_setSharedState]
+            exact hArgLookup
 
 theorem NativeStmtPreservesWord_exprStmtCall_log1_of_nativeEvalArgs_and_evalArgs_shape_preserves
     (name : EvmYul.Identifier)
@@ -4173,16 +4148,10 @@ theorem NativeStmtPreservesWord_exprStmtCall_log2_of_evalArgs_preserves
               EvmYul.Yul.State.multifill] at hExec
             cases hExec
           · rw [primCall_log2_ok primFuel argState offset size topic0 topic1 hPerm] at hExec
-            simp [EvmYul.Yul.State.multifill] at hExec
             cases hExec
-            cases argState with
-            | Ok shared store =>
-                simpa [EvmYul.Yul.State.setSharedState] using hArgLookup
-            | OutOfFuel =>
-                simpa [EvmYul.Yul.State.setSharedState] using hArgLookup
-            | Checkpoint jump =>
-                cases jump <;>
-                  simpa [EvmYul.Yul.State.setSharedState] using hArgLookup
+            rw [state_getElem_multifill_of_not_mem _ name [] [] (by simp)]
+            rw [state_getElem_setSharedState]
+            exact hArgLookup
 
 theorem NativeStmtPreservesWord_exprStmtCall_log2_of_nativeEvalArgs_and_evalArgs_shape_preserves
     (name : EvmYul.Identifier)
@@ -4289,16 +4258,10 @@ theorem NativeStmtPreservesWord_exprStmtCall_log3_of_evalArgs_preserves
               EvmYul.Yul.State.multifill] at hExec
             cases hExec
           · rw [primCall_log3_ok primFuel argState offset size topic0 topic1 topic2 hPerm] at hExec
-            simp [EvmYul.Yul.State.multifill] at hExec
             cases hExec
-            cases argState with
-            | Ok shared store =>
-                simpa [EvmYul.Yul.State.setSharedState] using hArgLookup
-            | OutOfFuel =>
-                simpa [EvmYul.Yul.State.setSharedState] using hArgLookup
-            | Checkpoint jump =>
-                cases jump <;>
-                  simpa [EvmYul.Yul.State.setSharedState] using hArgLookup
+            rw [state_getElem_multifill_of_not_mem _ name [] [] (by simp)]
+            rw [state_getElem_setSharedState]
+            exact hArgLookup
 
 theorem NativeStmtPreservesWord_exprStmtCall_log3_of_nativeEvalArgs_and_evalArgs_shape_preserves
     (name : EvmYul.Identifier)
@@ -4407,16 +4370,10 @@ theorem NativeStmtPreservesWord_exprStmtCall_log4_of_evalArgs_preserves
               EvmYul.Yul.State.multifill] at hExec
             cases hExec
           · rw [primCall_log4_ok primFuel argState offset size topic0 topic1 topic2 topic3 hPerm] at hExec
-            simp [EvmYul.Yul.State.multifill] at hExec
             cases hExec
-            cases argState with
-            | Ok shared store =>
-                simpa [EvmYul.Yul.State.setSharedState] using hArgLookup
-            | OutOfFuel =>
-                simpa [EvmYul.Yul.State.setSharedState] using hArgLookup
-            | Checkpoint jump =>
-                cases jump <;>
-                  simpa [EvmYul.Yul.State.setSharedState] using hArgLookup
+            rw [state_getElem_multifill_of_not_mem _ name [] [] (by simp)]
+            rw [state_getElem_setSharedState]
+            exact hArgLookup
 
 theorem NativeStmtPreservesWord_exprStmtCall_log4_of_nativeEvalArgs_and_evalArgs_shape_preserves
     (name : EvmYul.Identifier)
