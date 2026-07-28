@@ -774,7 +774,6 @@ theorem eval_lowerExprNative_iszero_ident_one_ok
     EvmYul.Yul.eval, EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail,
     EvmYul.Yul.evalPrimCall, EvmYul.Yul.reverse', EvmYul.Yul.cons',
     EvmYul.Yul.head']
-  change state[(name : String)]! = EvmYul.UInt256.ofNat 1 at hVal
   rw [hVal]
   decide
 
@@ -794,7 +793,6 @@ theorem eval_lowerExprNative_iszero_ident_one_ok_fuel
     EvmYul.Yul.eval, EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail,
     EvmYul.Yul.evalPrimCall, EvmYul.Yul.reverse', EvmYul.Yul.cons',
     EvmYul.Yul.head']
-  change state[(name : String)]! = EvmYul.UInt256.ofNat 1 at hVal
   rw [hVal]
   decide
 
@@ -17616,15 +17614,11 @@ def projectStorageFromState (tx : YulTransaction) (state : EvmYul.Yul.State) :
 
 /-- Lean 4.31 exposes TreeMap insertion lookup through `getElem?`, rather
 than the removed `get?_insert_of_eq` compatibility lemma. -/
-private theorem storage_get?_insert_of_eq
-    (m : EvmYul.Storage) (lookup inserted : EvmYul.UInt256)
-    (value : EvmYul.UInt256)
-    (h : compare lookup inserted = Ordering.eq) :
-    (m.insert inserted value).get? lookup = some value := by
-  change (m.insert inserted value)[lookup]? = some value
-  rw [Std.TreeMap.getElem?_insert]
-  apply if_pos
-  exact Std.OrientedCmp.eq_comm.mpr h
+private theorem treeMap_get?_insert_self
+    {α β : Type} {cmp : α → α → Ordering} [Std.TransCmp cmp]
+    (m : Std.TreeMap α β cmp) (key : α) (value : β) :
+    (m.insert key value).get? key = some value := by
+  rw [Std.TreeMap.get?_eq_getElem?, Std.TreeMap.getElem?_insert_self]
 
 /-- Projecting final native storage reads the current contract account storage
     entry for the requested slot. -/
@@ -17683,8 +17677,8 @@ theorem initialState_observableStorageSlot
       storage (IRStorageSlot.ofNat slot) := by
   simp only [projectStorageFromState, extractStorage, initialState,
     EvmYul.Yul.State.sharedState, YulState.initial, toSharedState]
-  rw [storage_get?_insert_of_eq _ _ _ _ Std.ReflCmp.compare_self]
-  rw [storage_get?_insert_of_eq _ _ _ _ Std.ReflCmp.compare_self]
+  rw [treeMap_get?_insert_self]
+  rw [treeMap_get?_insert_self]
   have h := storageLookup_projectStorage storage observableSlots slot hSlot hRange
   unfold storageLookup at h
   exact h
@@ -17705,8 +17699,8 @@ theorem initialState_materializedStorageSlot
       storage (IRStorageSlot.ofNat slot) := by
   simp only [projectStorageFromState, extractStorage, initialState,
     EvmYul.Yul.State.sharedState, YulState.initial, toSharedState]
-  rw [storage_get?_insert_of_eq _ _ _ _ Std.ReflCmp.compare_self]
-  rw [storage_get?_insert_of_eq _ _ _ _ Std.ReflCmp.compare_self]
+  rw [treeMap_get?_insert_self]
+  rw [treeMap_get?_insert_self]
   have h := storageLookup_projectStorage_projected storage slots slot hSlot
   unfold storageLookup at h
   exact h
@@ -17780,8 +17774,9 @@ theorem initialState_sload_observableSlot_value
         (Std.TreeMap.empty : EvmYul.Storage)
   simp only [EvmYul.State.sload, EvmYul.State.lookupAccount,
     EvmYul.Yul.State.toState, initialState, toSharedState, YulState.initial]
-  rw [Std.TreeMap.get?_insert_of_eq _ Std.ReflCmp.compare_self]
-  rw [Std.TreeMap.get?_insert_of_eq _ Std.ReflCmp.compare_self]
+  rw [treeMap_get?_insert_self]
+  rw [treeMap_get?_insert_self]
+  simp only
   change (Std.TreeMap.get? (projectStorage storage observableSlots)
       (natToUInt256 slot)).getD ⟨0⟩ = storage (IRStorageSlot.ofNat slot)
   rw [hFindStorage]
@@ -17810,8 +17805,9 @@ theorem initialState_sload_materializedSlot_value
         (Std.TreeMap.empty : EvmYul.Storage)
   simp only [EvmYul.State.sload, EvmYul.State.lookupAccount,
     EvmYul.Yul.State.toState, initialState, toSharedState, YulState.initial]
-  rw [Std.TreeMap.get?_insert_of_eq _ Std.ReflCmp.compare_self]
-  rw [Std.TreeMap.get?_insert_of_eq _ Std.ReflCmp.compare_self]
+  rw [treeMap_get?_insert_self]
+  rw [treeMap_get?_insert_self]
+  simp only
   change (Std.TreeMap.get? (projectStorage storage slots)
       (natToUInt256 slot)).getD ⟨0⟩ = storage (IRStorageSlot.ofNat slot)
   rw [hFindStorage]
@@ -17853,8 +17849,8 @@ theorem projectStorageFromState_retrieveHit_initialState_materialized
   simp only [projectStorageFromState, extractStorage,
     EvmYul.Yul.State.sharedState, hAccountMap, initialState, YulState.initial,
     toSharedState]
-  rw [Std.TreeMap.get?_insert_of_eq _ Std.ReflCmp.compare_self]
-  rw [Std.TreeMap.get?_insert_of_eq _ Std.ReflCmp.compare_self]
+  rw [treeMap_get?_insert_self]
+  rw [treeMap_get?_insert_self]
   have h := storageLookup_projectStorage_projected storage slots slot hSlot
   unfold storageLookup at h
   exact h
@@ -17882,8 +17878,9 @@ theorem initialState_sload_omittedSlot_value
         hSlotRange (Std.TreeMap.empty : EvmYul.Storage)
   simp only [EvmYul.State.sload, EvmYul.State.lookupAccount,
     EvmYul.Yul.State.toState, initialState, toSharedState, YulState.initial]
-  rw [Std.TreeMap.get?_insert_of_eq _ Std.ReflCmp.compare_self]
-  rw [Std.TreeMap.get?_insert_of_eq _ Std.ReflCmp.compare_self]
+  rw [treeMap_get?_insert_self]
+  rw [treeMap_get?_insert_self]
+  simp only
   change (Std.TreeMap.get? (projectStorage storage observableSlots)
       (natToUInt256 slot)).getD ⟨0⟩ = natToUInt256 0
   rw [hFindStorage]
@@ -18312,8 +18309,8 @@ theorem initialState_omittedStorageSlot
       (initialState contract tx storage observableSlots) (IRStorageSlot.ofNat slot) = 0 := by
   simp only [projectStorageFromState, extractStorage, initialState,
     EvmYul.Yul.State.sharedState, YulState.initial, toSharedState]
-  rw [Std.TreeMap.get?_insert_of_eq _ Std.ReflCmp.compare_self]
-  rw [Std.TreeMap.get?_insert_of_eq _ Std.ReflCmp.compare_self]
+  rw [treeMap_get?_insert_self]
+  rw [treeMap_get?_insert_self]
   simp only
   have h := foldl_insert_find_not_mem storage observableSlots slot hNotSlot
     hRange hSlotRange (Std.TreeMap.empty : EvmYul.Storage)
@@ -19179,8 +19176,7 @@ theorem primCall_sstore_initialState_wordSlot_projectResult_slot
           false := by
       simpa [natToUInt256, EvmYul.UInt256.instInhabited] using hValueNonzero
     rw [hBranch]
-    simp [Option.option, Std.TreeMap.get?_insert_of_eq _
-      Std.ReflCmp.compare_self]
+    simp [Option.option, treeMap_get?_insert_self]
 
 /-- Native primitive execution of `sstore(slot, 0)` on a word-canonical
     initial runtime slot, lifted through Verity's projected native result
@@ -19228,8 +19224,7 @@ theorem primCall_sstore_initialState_wordSlot_projectResult_slot_zero_of_erase
         (Std.TreeMap.erase (projectStorage storage observableSlots)
           (natToUInt256 slot)).get? (natToUInt256 slot) = none :=
       Std.TreeMap.get?_erase_self _ _
-    simp [Option.option, Std.TreeMap.get?_insert_of_eq _
-      Std.ReflCmp.compare_self, IRStorageSlot.toUInt256, IRStorageSlot.ofNat, hErase]
+    simp [Option.option, treeMap_get?_insert_self, IRStorageSlot.toUInt256, IRStorageSlot.ofNat, hErase]
 
 /-- Native primitive execution of `sstore(slot, 0)` on a word-canonical
     initial runtime slot with no observable slots materialized. The zero-write
@@ -19298,8 +19293,7 @@ theorem primCall_sstore_initialState_wordSlot_withStore_projectResult_slot
           false := by
       simpa [natToUInt256, EvmYul.UInt256.instInhabited] using hValueNonzero
     rw [hBranch]
-    simp [Option.option, Std.TreeMap.get?_insert_of_eq _
-      Std.ReflCmp.compare_self]
+    simp [Option.option, treeMap_get?_insert_self]
 
 /-- Native primitive execution of `sstore(slot, 0)` from an initial runtime
     shared state and arbitrary local-variable store, lifted through Verity's
@@ -19347,8 +19341,7 @@ theorem primCall_sstore_initialState_wordSlot_withStore_projectResult_slot_zero_
         (Std.TreeMap.erase (projectStorage storage observableSlots)
           (natToUInt256 slot)).get? (natToUInt256 slot) = none :=
       Std.TreeMap.get?_erase_self _ _
-    simp [Option.option, Std.TreeMap.get?_insert_of_eq _
-      Std.ReflCmp.compare_self, IRStorageSlot.toUInt256, IRStorageSlot.ofNat, hErase]
+    simp [Option.option, treeMap_get?_insert_self, IRStorageSlot.toUInt256, IRStorageSlot.ofNat, hErase]
 
 /-- Native primitive execution of `sstore(slot, 0)` from an arbitrary local
     store when no observable storage (IRStorageSlot.ofNat slot)s were materialized. -/
@@ -19712,8 +19705,7 @@ theorem primCall_calldataload4_then_sstore0_stop_initialState_arg0_withStore_pro
           false := by
       simpa [natToUInt256, EvmYul.UInt256.instInhabited] using hValueNonzero
     rw [hBranch]
-    simp [Option.option, Std.TreeMap.get?_insert_of_eq _
-      Std.ReflCmp.compare_self]
+    simp [Option.option, treeMap_get?_insert_self]
 
 /-- Zero-write storage projection for the full generated `store(uint256)`
     selected body from an arbitrary local store, through the terminating
@@ -19764,8 +19756,7 @@ theorem primCall_calldataload4_then_sstore0_stop_initialState_arg0_withStore_pro
         (Std.TreeMap.erase (projectStorage storage observableSlots)
           (EvmYul.UInt256.ofNat 0)).get? (EvmYul.UInt256.ofNat 0) = none :=
       Std.TreeMap.get?_erase_self _ _
-    simp [Option.option, Std.TreeMap.get?_insert_of_eq _
-      Std.ReflCmp.compare_self, IRStorageSlot.toUInt256, IRStorageSlot.ofNat, hErase]
+    simp [Option.option, treeMap_get?_insert_self, IRStorageSlot.toUInt256, IRStorageSlot.ofNat, hErase]
 
 /-- Zero-write storage projection for the full generated `store(uint256)`
     selected body from an arbitrary local store when no observable slots were
@@ -19868,8 +19859,7 @@ theorem primCall_calldataload4_then_sstore0_stop_initialState_arg0_projectResult
           false := by
       simpa [natToUInt256, EvmYul.UInt256.instInhabited] using hValueNonzero
     rw [hBranch]
-    simp [Option.option, Std.TreeMap.get?_insert_of_eq _
-      Std.ReflCmp.compare_self]
+    simp [Option.option, treeMap_get?_insert_self]
 
 /-- Zero-write storage projection for the full generated `store(uint256)` selected
     body through the terminating `STOP`, with the remaining RBMap erasure fact
@@ -19917,8 +19907,7 @@ theorem primCall_calldataload4_then_sstore0_stop_initialState_arg0_projectResult
         (Std.TreeMap.erase (projectStorage storage observableSlots)
           (EvmYul.UInt256.ofNat 0)).get? (EvmYul.UInt256.ofNat 0) = none :=
       Std.TreeMap.get?_erase_self _ _
-    simp [Option.option, Std.TreeMap.get?_insert_of_eq _
-      Std.ReflCmp.compare_self, IRStorageSlot.toUInt256, IRStorageSlot.ofNat, hErase]
+    simp [Option.option, treeMap_get?_insert_self, IRStorageSlot.toUInt256, IRStorageSlot.ofNat, hErase]
 
 /-- Zero-write storage projection for the full generated `store(uint256)` selected
     body through `STOP` when no observable slots were materialized. -/
@@ -19990,8 +19979,7 @@ theorem primCall_calldataload4_then_sstore0_initialState_arg0_projectResult_slot
           false := by
       simpa [natToUInt256, EvmYul.UInt256.instInhabited] using hValueNonzero
     rw [hBranch]
-    simp [Option.option, Std.TreeMap.get?_insert_of_eq _
-      Std.ReflCmp.compare_self]
+    simp [Option.option, treeMap_get?_insert_self]
 
 /-- Zero `sstore` projection, with the remaining RBMap erasure fact isolated. -/
 theorem primCall_calldataload4_then_sstore0_initialState_arg0_projectResult_slot0_zero_of_erase
@@ -20040,8 +20028,7 @@ theorem primCall_calldataload4_then_sstore0_initialState_arg0_projectResult_slot
         (Std.TreeMap.erase (projectStorage storage observableSlots)
           (EvmYul.UInt256.ofNat 0)).get? (EvmYul.UInt256.ofNat 0) = none :=
       Std.TreeMap.get?_erase_self _ _
-    simp [Option.option, Std.TreeMap.get?_insert_of_eq _
-      Std.ReflCmp.compare_self, IRStorageSlot.toUInt256, IRStorageSlot.ofNat, hErase]
+    simp [Option.option, treeMap_get?_insert_self, IRStorageSlot.toUInt256, IRStorageSlot.ofNat, hErase]
 
 /-- Zero `sstore` projection with empty observable-slot materialization. -/
 theorem primCall_calldataload4_then_sstore0_initialState_arg0_projectResult_slot0_zero_emptyObservable
@@ -20290,7 +20277,8 @@ theorem primCall_sload0_then_mstore0_return32_initialState_projectResult_returnV
         ⟨haltState, haltValue, hExec, hReturn⟩
       refine ⟨haltState, haltValue, ?_, ?_⟩
       · simpa [sharedAfterLoad, initialState] using hExec
-      · simpa [natToUInt256, EvmYul.UInt256.toNat, uint256ToNat] using hReturn
+      · convert hReturn using 1 <;>
+          norm_num [natToUInt256, EvmYul.UInt256.toNat, uint256ToNat]
 
 /-- Native primitive execution of the generated `retrieve()` scalar-return core
     when slot zero was not materialized into the finite native storage map:
@@ -20334,7 +20322,8 @@ theorem primCall_sload0_then_mstore0_return32_initialState_omittedSlot_projectRe
         ⟨haltState, haltValue, hExec, hReturn⟩
       refine ⟨haltState, haltValue, ?_, ?_⟩
       · simpa [sharedAfterLoad, initialState] using hExec
-      · simpa [natToUInt256, EvmYul.UInt256.toNat, uint256ToNat] using hReturn
+      · convert hReturn using 1 <;>
+          norm_num [natToUInt256, EvmYul.UInt256.toNat, uint256ToNat]
 
 /-- Native primitive execution of the generated `retrieve()` scalar-return core,
     with the slot-zero materialization split discharged internally.
@@ -20423,10 +20412,10 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_projectResu
           (storage 0) hMemory with
         ⟨haltState, haltValue, hExec, hReturn⟩
       refine ⟨haltState, haltValue, ?_, ?_⟩
-      · simpa [sharedAfterLoad, initialWithStore, initialState,
-          EvmYul.Yul.State.toSharedState, EvmYul.Yul.State.sharedState,
-          YulState.initial, toSharedState] using hExec
-      · simpa [natToUInt256, EvmYul.UInt256.toNat, uint256ToNat] using hReturn
+      · convert hExec using 1 <;>
+          simp [sharedAfterLoad, initialWithStore, initialState]
+      · convert hReturn using 1 <;>
+          simp [natToUInt256, EvmYul.UInt256.toNat, uint256ToNat]
 
 /-- Native primitive execution of the generated `retrieve()` scalar-return core
     from an arbitrary local store when slot zero is omitted. -/
@@ -20452,8 +20441,10 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_omittedSlot
   rw [primCall_sload_initialState_omittedSlot_ok_withStore sloadFuel
     contract tx storage observableSlots store 0 hNotSlot hRange
     (by norm_num [EvmYul.UInt256.size])]
-  generalize hload : EvmYul.State.sload
-    (initialState contract tx storage observableSlots).toState (natToUInt256 0) = loaded
+  generalize hload :
+      EvmYul.State.sload
+        (initialState contract tx storage observableSlots).toState
+        (natToUInt256 0) = loaded
   cases loaded with
   | mk stateAfterLoad _ =>
       let initialWithStore : EvmYul.Yul.State :=
@@ -20470,12 +20461,10 @@ theorem primCall_sload0_then_mstore0_return32_initialState_withStore_omittedSlot
           (natToUInt256 0) hMemory with
         ⟨haltState, haltValue, hExec, hReturn⟩
       refine ⟨haltState, haltValue, ?_, ?_⟩
-      · simpa [sharedAfterLoad, initialWithStore, initialState,
-          EvmYul.Yul.State.toSharedState, EvmYul.Yul.State.sharedState,
-          YulState.initial, toSharedState] using hExec
-      · rw [show uint256ToNat (natToUInt256 0) = 0 by
-            exact uint256_roundtrip 0 (by norm_num [EvmYul.UInt256.size])] at hReturn
-        simpa using hReturn
+      · convert hExec using 1 <;>
+          simp [sharedAfterLoad, initialWithStore, initialState]
+      · convert hReturn using 1 <;>
+          norm_num [natToUInt256, EvmYul.UInt256.toNat, uint256ToNat]
 
 /-- Native primitive execution of the generated `retrieve()` scalar-return core
     from an arbitrary local store, with materialized/omitted slot zero handled
@@ -21555,9 +21544,8 @@ theorem exec_block_lowerNativeSwitchBlock_revert_default_postInitFreeMemory_hasS
     omega
   refine ⟨?_, by simp⟩
   rw [hFuelEq]
-  simpa [store]
-    using exec_block_cons_error (fuel + cases.length + 12) _ [] _ _
-      EvmYul.Yul.Exception.Revert hEndpoint
+  exact exec_block_cons_error (fuel + cases.length + 12) _ [] _ _
+    EvmYul.Yul.Exception.Revert hEndpoint
 
 /-- Bridge-shape selector-hit error projection on the post-`__has_selector := 1`
     state. This packages a selected body halt/error with its projected result
