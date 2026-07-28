@@ -43,14 +43,14 @@ def initialState
   let shared := toSharedState verityState observableSlots
   let addr := natToAddress tx.thisAddress
   let account : EvmYul.Account .Yul :=
-    match shared.accountMap.find? addr with
+    match shared.accountMap.get? addr with
     | some acc => { acc with code := contract }
     | none =>
         { nonce := ⟨0⟩
           balance := ⟨0⟩
           storage := projectStorage storage observableSlots
           code := contract
-          tstorage := Batteries.RBMap.empty }
+          tstorage := Std.TreeMap.empty }
   let shared' : EvmYul.SharedState .Yul :=
     { shared with
       accountMap := shared.accountMap.insert addr account
@@ -729,8 +729,8 @@ theorem lowerSwitchCasesNativeWithSwitchIds_find?_some_of_find_function
   have hCase :
       (switchCases funcs).find? (fun entry => entry.1 == selector) =
         some (selector, switchCaseBody fn) := by
-    simpa using
-      (find_switch_case_of_find_function_eq_selector funcs selector fn hFind)
+    change (switchCases funcs).find? (fun entry => decide (entry.1 = selector)) = _
+    exact find_switch_case_of_find_function_eq_selector funcs selector fn hFind
   exact Backends.lowerSwitchCasesNativeWithSwitchIds_find?_some
     reservedNames nextSwitchId final selector selector (switchCaseBody fn)
     (switchCases funcs) cases' hLower hCase
@@ -2111,7 +2111,7 @@ theorem generatedRuntimeDispatcherHasNoFuncDefs_emitYul_runtimeCode_noFallback_n
     (hNoReceive : contract.receiveEntrypoint = none) :
     generatedRuntimeDispatcherHasNoFuncDefs
       (Compiler.emitYul contract).runtimeCode = true := by
-  simpa [Compiler.emitYul, Compiler.CodegenCommon.emitYul] using
+  simpa [Compiler.emitYul, Compiler.CodegenCommon.emitYul, Compiler.runtimeCode] using
     generatedRuntimeDispatcherHasNoFuncDefs_runtimeCode_noFallback_noReceive
       contract hInternals hBodies hNoFallback hNoReceive
 
@@ -2184,7 +2184,7 @@ theorem generatedRuntimeFunctionNamesUnique_emitYul_runtimeCode
         contract.internalFunctions) = true) :
     generatedRuntimeFunctionNamesUnique
       (Compiler.emitYul contract).runtimeCode = true := by
-  simpa [Compiler.emitYul, Compiler.CodegenCommon.emitYul] using
+  simpa [Compiler.emitYul, Compiler.CodegenCommon.emitYul, Compiler.runtimeCode] using
     generatedRuntimeFunctionNamesUnique_runtimeCode contract hPrefixUnique
 
 theorem mappingSlotFuncAt_body_noFuncDefs (scratchBase : Nat) :
@@ -2509,7 +2509,7 @@ theorem generatedRuntimeFunctionBodiesHaveNoNestedFuncDefs_emitYul_runtimeCode
         yulStmtsContainFuncDef body = false) :
     generatedRuntimeFunctionBodiesHaveNoNestedFuncDefs
       (Compiler.emitYul contract).runtimeCode = true := by
-  simpa [Compiler.emitYul, Compiler.CodegenCommon.emitYul] using
+  simpa [Compiler.emitYul, Compiler.CodegenCommon.emitYul, Compiler.runtimeCode] using
     generatedRuntimeFunctionBodiesHaveNoNestedFuncDefs_runtimeCode
       contract hInternalBodies
 
@@ -2853,12 +2853,14 @@ def validateNativeRuntimeEnvironment
     (tx : YulTransaction)
     (storage : IRStorageSlot → IRStorageWord)
     (observableSlots : List Nat) :
-    ((initialState contract tx storage observableSlots).sharedState.accountMap.find?
+    ((initialState contract tx storage observableSlots).sharedState.accountMap.get?
         (natToAddress tx.thisAddress)).map (fun account => account.code) =
       some contract := by
-  simp only [initialState, EvmYul.Yul.State.sharedState]
-  rw [Batteries.RBMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
-  split <;> simp
+  unfold initialState
+  simp only [EvmYul.Yul.State.sharedState]
+  dsimp
+  split <;> rename_i h
+  all_goals simp [Std.TreeMap.get?, Std.TreeMap.getElem?_insert]
 
 @[simp] theorem initialState_transactionEnvironment
     (contract : EvmYul.Yul.Ast.YulContract)
