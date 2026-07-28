@@ -779,7 +779,6 @@ theorem exec_compileStmt_return_core
         have := evalExpr_lt_evmModulus_core hcore hexact hbounded hpresent hruntime
         rw [heval.symm] at this; exact this
       have hexec := execIRStmts_mstore_zero_return_32 0 state valueIR v hIR
-      simp only [Nat.zero_add] at hexec
       rw [hexec]
       exact ⟨⟨rfl, runtimeStateMatchesIR_setBothMemory hruntime 0 v hlt⟩, hexact, hbounded⟩
 
@@ -1184,7 +1183,26 @@ private theorem compileStmt_ok_any_scope_aux
                     (by simp [Stmt.ite.sizeOf_spec] at hlt; omega) ⟨elseIR1, helse1⟩
                   with ⟨elseIR2, helse2⟩
                 simp [compileStmtListWithFork_cancun_eq_compileStmtList, hthen2, helse2]
-                cases elseBranch.isEmpty <;> exact ⟨_, rfl⟩
+                by_cases hEmpty : elseBranch = []
+                · simp only [hEmpty, if_true]
+                  exact ⟨[YulStmt.if_ condIR thenIR2], by simp only [Pure.pure, Except.pure]⟩
+                · simp only [hEmpty, if_false]
+                  exact ⟨[YulStmt.block
+                    [ YulStmt.let_
+                        (CompilationModel.pickFreshName "__ite_cond"
+                          (scope2 ++ (collectExprNames cond ++
+                            (collectStmtListNames thenBranch ++ collectStmtListNames elseBranch))))
+                        condIR
+                    , YulStmt.if_
+                        (YulExpr.ident (CompilationModel.pickFreshName "__ite_cond"
+                          (scope2 ++ (collectExprNames cond ++
+                            (collectStmtListNames thenBranch ++ collectStmtListNames elseBranch)))))
+                        thenIR2
+                    , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident
+                        (CompilationModel.pickFreshName "__ite_cond"
+                          (scope2 ++ (collectExprNames cond ++
+                            (collectStmtListNames thenBranch ++ collectStmtListNames elseBranch))))])
+                        elseIR2]], by simp only [Pure.pure, Except.pure]⟩
       | forEach varName count body =>
           rcases hok with ⟨ir, hir⟩
           simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, bind, Except.bind] at hir ⊢
@@ -1324,7 +1342,26 @@ private theorem compileStmt_ok_any_scope_with_surface_aux
                     (by simp [Stmt.ite.sizeOf_spec] at hlt; omega) ⟨elseIR1, helse1⟩
                   with ⟨elseIR2, helse2⟩
                 simp [compileStmtListWithFork_cancun_eq_compileStmtList, hthen2, helse2]
-                cases elseBranch.isEmpty <;> exact ⟨_, rfl⟩
+                by_cases hEmpty : elseBranch = []
+                · simp only [hEmpty, if_true]
+                  exact ⟨[YulStmt.if_ condIR thenIR2], by simp only [Pure.pure, Except.pure]⟩
+                · simp only [hEmpty, if_false]
+                  exact ⟨[YulStmt.block
+                    [ YulStmt.let_
+                        (CompilationModel.pickFreshName "__ite_cond"
+                          (scope2 ++ (collectExprNames cond ++
+                            (collectStmtListNames thenBranch ++ collectStmtListNames elseBranch))))
+                        condIR
+                    , YulStmt.if_
+                        (YulExpr.ident (CompilationModel.pickFreshName "__ite_cond"
+                          (scope2 ++ (collectExprNames cond ++
+                            (collectStmtListNames thenBranch ++ collectStmtListNames elseBranch)))))
+                        thenIR2
+                    , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident
+                        (CompilationModel.pickFreshName "__ite_cond"
+                          (scope2 ++ (collectExprNames cond ++
+                            (collectStmtListNames thenBranch ++ collectStmtListNames elseBranch))))])
+                        elseIR2]], by simp only [Pure.pure, Except.pure]⟩
       | forEach varName count body =>
           rcases hok with ⟨ir, hir⟩
           simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, bind, Except.bind] at hir ⊢
@@ -4421,7 +4458,7 @@ theorem execIRStmt_compiled_terminal_ite_then_branch_entry
                       elseIR
                   ]] ++ tailIR) + extraFuel - 4)
           (state.setVar tempName condValue) thenIR := by
-    simpa using
+    simpa [Nat.sub_sub] using
       execIRStmt_if_true_of_eval_nonzeroFuel
         (fuel :=
           sizeOf
@@ -4459,7 +4496,7 @@ theorem execIRStmt_compiled_terminal_ite_then_branch_entry
                   ]] ++ tailIR) -
             (sizeOf thenIR + 5) +
             extraFuel) + 1 := by
-    simpa using
+    simpa [Nat.sub_sub] using
       (compiled_terminal_ite_body_thenBranch_execFuel_eq
         extraFuel tempName condIR thenIR elseIR tailIR).symm
   calc
@@ -4604,7 +4641,7 @@ theorem execIRStmt_compiled_terminal_ite_else_branch_entry
                       elseIR
                   ]] ++ tailIR) + extraFuel - 4)
           (state.setVar tempName condValue) elseIR := by
-    simpa using
+    simpa [Nat.sub_sub] using
       execIRStmt_if_true_of_eval_nonzeroFuel
         (fuel :=
           sizeOf
@@ -4642,7 +4679,7 @@ theorem execIRStmt_compiled_terminal_ite_else_branch_entry
                   ]] ++ tailIR) -
             (sizeOf elseIR + 5) +
             extraFuel) + 1 := by
-    simpa using
+    simpa [Nat.sub_sub] using
       (compiled_terminal_ite_body_elseBranch_execFuel_eq
         extraFuel tempName condIR thenIR elseIR tailIR).symm
   calc
@@ -4745,7 +4782,7 @@ theorem execIRStmt_compiled_terminal_ite_else_branch_entry_tailFuel
                       elseIR
                   ]] ++ tailIR) + extraFuel - 5)
           (state.setVar tempName condValue) elseIR := by
-    simpa using
+    simpa [Nat.sub_sub] using
       execIRStmt_if_true_of_eval_nonzeroFuel
         (fuel :=
           sizeOf
@@ -7778,7 +7815,14 @@ theorem exec_compileStmtList_terminal_core_sizeOf_extraFuel
             simp only [SourceSemantics.execStmtList, SourceSemantics.execStmt, hOffsetSrc, hValueSrc, hirExec]
             dsimp [runtime', state']
             convert htailSem using 2
-            simp
+            have hvalueLt' : valueNat < Verity.Core.Uint256.modulus := by
+              simpa [Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS,
+                Compiler.Constants.evmModulus] using hvalueLt
+            have hmod : Verity.Core.Uint256.modulus = Compiler.Constants.evmModulus := by
+              simp [Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS,
+                Compiler.Constants.evmModulus]
+            rw [hmod] at hvalueLt'
+            simp [Verity.Core.Uint256.val_ofNat, hmod, Nat.mod_eq_of_lt hvalueLt']
             omega
   | tstore hoffset hinScopeOffset hvalue hinScopeValue hrest ih =>
       rename_i scope offset value rest
@@ -7852,9 +7896,14 @@ theorem exec_compileStmtList_terminal_core_sizeOf_extraFuel
                 extraFuel state state' (YulStmt.exprStmt (YulExpr.call "tstore" [offsetIR, valueIR])) tailIR hstmt
             simp only [SourceSemantics.execStmtList, SourceSemantics.execStmt, hOffsetSrc, hValueSrc, hirExec]
             dsimp [runtime', state']
+            have hwordNormalize : SourceSemantics.wordNormalize offsetNat = offsetKey := by
+              simp [SourceSemantics.wordNormalize, offsetKey, Verity.Core.Uint256.modulus,
+                Verity.Core.UINT256_MODULUS, Compiler.Constants.evmModulus]
             convert htailSem using 2
-            simp
-            omega
+            · simp only [runtime']
+              rw [hwordNormalize]
+            · simp
+              omega
   | ite hcond hinScope hthen helse hrest ih_then ih_else =>
       rename_i scope cond thenBranch elseBranch rest
       have hpresent : exprBoundNamesPresent cond runtime.bindings :=

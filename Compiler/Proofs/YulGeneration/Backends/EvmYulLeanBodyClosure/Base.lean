@@ -703,7 +703,9 @@ private theorem genStaticTypeLoads_go_noFuncDefs
               (genStaticTypeLoads loadWord name ty offset) = false := by
         intro ty hMem
         exact hNoFunc ty (by simp [hMem])
-      simp [hHere, ih (idx + 1) (curOffset + paramHeadSize elemTy) hTail]
+      rw [Nat.toString_eq_repr] at hHere
+      simp [Nat.toString_eq_repr, hHere,
+        ih (idx + 1) (curOffset + paramHeadSize elemTy) hTail]
 
 private theorem genStaticTypeLoads_noFuncDefs
     (loadWord : YulExpr → YulExpr) (name : String)
@@ -3832,8 +3834,9 @@ theorem compileStmt_rawLog_bridged
       simp only [compileStmt, compileStmtWithFork] at hOk
       by_cases hLen : topics.length > 4
       · exfalso
-        simp only [if_pos hLen, bind, Except.bind] at hOk
-        exact Except.noConfusion hOk
+        simp only [if_pos hLen, bind, Except.bind, Pure.pure, Except.pure,
+          throw, throwThe, MonadExceptOf.throw] at hOk
+        cases hOk
       · simp only [if_neg hLen, bind, Except.bind,
                    Pure.pure, Except.pure] at hOk
         cases hTopicsExpr : compileExprListWithInternals fields dynamicSource [] topics with
@@ -3894,8 +3897,9 @@ theorem compileStmt_rawLog_noFuncDefs
   | rawLog topics dataOffset dataSize hTopics hOffset hSize =>
       simp only [compileStmt, compileStmtWithFork] at hOk
       by_cases hLen : topics.length > 4
-      · simp only [if_pos hLen, bind, Except.bind] at hOk
-        exact Except.noConfusion hOk
+      · simp only [if_pos hLen, bind, Except.bind, Pure.pure, Except.pure,
+          throw, throwThe, MonadExceptOf.throw] at hOk
+        cases hOk
       · simp only [if_neg hLen, bind, Except.bind,
           Pure.pure, Except.pure] at hOk
         cases hTopicsExpr : compileExprListWithInternals fields dynamicSource [] topics with

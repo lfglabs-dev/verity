@@ -286,24 +286,20 @@ theorem native_mappingSlot_call_preserves_lookup_state
               (EvmYul.Yul.State.Checkpoint jump).sharedState.accountMap.get?
                 (EvmYul.Yul.State.Checkpoint jump).executionEnv.codeOwner with
           | none =>
-              simp [hCode] at hCall
+              rw [hCode] at hCall
+              cases hCall
           | some yulContract =>
-              simp [hCode] at hCall
-              cases hExec :
-                  EvmYul.Yul.exec fuel'
-                    (.Block nativeMappingSlotFunctionDefinition.body)
-                    (some
-                      { dispatcher := dispatcher
-                        functions := ((∅ : NativeFunctionMap).insert
-                          "mappingSlot" nativeMappingSlotFunctionDefinition) })
-                    (EvmYul.Yul.State.mkOk
-                      (EvmYul.Yul.State.initcall
-                        nativeMappingSlotFunctionDefinition.params values
-                        (EvmYul.Yul.State.Checkpoint jump))) with
-              | error err =>
-                  simp [hExec] at hCall
-              | ok calleeState =>
-                  simp [hExec, EvmYul.Yul.State.overwrite?,
+              rw [hCode] at hCall
+              simp only [Option.getD_some] at hCall
+              split at hCall
+              next hFunction =>
+                cases hCall
+              next functionDef hFunction =>
+                split at hCall
+                next err hExec =>
+                  cases hCall
+                next calleeState hExec =>
+                  simp only [EvmYul.Yul.State.overwrite?,
                     EvmYul.Yul.State.setStore] at hCall
                   rcases hCall with ⟨rfl, _⟩
                   exact hLookup
@@ -863,7 +859,7 @@ theorem yulStmtWriteNames_not_mem_of_yulStmtsWriteNames_not_mem
   | nil =>
       simp at hMem
   | cons head tail ih =>
-  rw [yulStmtsWriteNames_cons] at hFresh
+      rw [yulStmtsWriteNames_cons] at hFresh
       simp only [List.mem_cons] at hMem
       rcases hMem with hEq | hTail
       · subst stmt
@@ -1088,14 +1084,12 @@ theorem NativeBlockPreservesWord_append_of_nativeStmtsWriteNames_not_mem
     (by
       rw [nativeStmtsWriteNames_append]
       intro hMem
-      rw [List.mem_append] at hMem
-      rcases hMem with hMem | hMem
+      rcases List.mem_append.mp hMem with hMem | hMem
       · exact hLeftFresh hMem
       · exact hRightFresh hMem)
     (by
       intro stmt hMem hFresh
-      rw [List.mem_append] at hMem
-      rcases hMem with hMem | hMem
+      rcases List.mem_append.mp hMem with hMem | hMem
       · exact hLeft stmt hMem hFresh
       · exact hRight stmt hMem hFresh)
 
@@ -1655,7 +1649,7 @@ theorem NativeStmtPreservesWord_let_var_of_not_mem
   | succ fuel' =>
       simp [EvmYul.Yul.exec] at hExec
       cases hExec
-      rw [state_getElem_insert_of_ne state name head state[identifier]! hneq]
+      rw [state_getElem_insert_of_ne state name head _ hneq]
       exact hLookup
 
 theorem NativeStmtPreservesWord_let_lit_of_not_mem
@@ -9348,17 +9342,16 @@ theorem nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId_reviveJump_eq
           observableSlots switchId store)[matchedName]! =
           EvmYul.UInt256.ofNat 1 := by
   intro matchedName hMatchedName
-  subst matchedName
-  simpa [nativeSwitchStoreMarkedPrefixStateForId,
-    nativeSwitchStorePrefixStateForId, nativeSwitchStoreInitialState] using
-    state_getElem_insert_self_ok
-      (initialState contract tx storage observableSlots).sharedState
-      ((store.insert (Backends.nativeSwitchDiscrTempName switchId)
+  change
+    ((EvmYul.Yul.State.Ok (initialState contract tx storage observableSlots).sharedState
+      ((store.insert (Backends.nativeSwitchDiscrTempName switchId : EvmYul.Identifier)
         (EvmYul.UInt256.ofNat
           (tx.functionSelector % Compiler.Constants.selectorModulus))).insert
-        (Backends.nativeSwitchMatchedTempName switchId)
-        (EvmYul.UInt256.ofNat 0))
-      (Backends.nativeSwitchMatchedTempName switchId) (EvmYul.UInt256.ofNat 1)
+        (Backends.nativeSwitchMatchedTempName switchId : EvmYul.Identifier) (EvmYul.UInt256.ofNat 0))).insert
+      (Backends.nativeSwitchMatchedTempName switchId : EvmYul.Identifier) (EvmYul.UInt256.ofNat 1))[
+        matchedName]! = EvmYul.UInt256.ofNat 1
+  rw [← hMatchedName]
+  exact state_getElem_insert_self_ok _ _ _ _
 
 @[simp] theorem nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId_weiValue
     (contract : EvmYul.Yul.Ast.YulContract) (tx : YulTransaction)
@@ -9398,19 +9391,16 @@ theorem nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId_reviveJump_eq
           storage observableSlots switchId store)[matchedName]! =
           EvmYul.UInt256.ofNat 1 := by
   intro matchedName hMatchedName
-  subst matchedName
-  simpa [nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId,
-    nativeSwitchPostInitFreeMemoryStorePrefixStateForId,
-    nativeSwitchPostInitFreeMemoryState] using
-    state_getElem_insert_self_ok
-      (nativeSwitchPostInitFreeMemorySharedState contract tx storage
-        observableSlots)
-      ((store.insert (Backends.nativeSwitchDiscrTempName switchId)
+  change
+    ((EvmYul.Yul.State.Ok (nativeSwitchPostInitFreeMemorySharedState contract tx storage observableSlots)
+      ((store.insert (Backends.nativeSwitchDiscrTempName switchId : EvmYul.Identifier)
         (EvmYul.UInt256.ofNat
           (tx.functionSelector % Compiler.Constants.selectorModulus))).insert
-        (Backends.nativeSwitchMatchedTempName switchId)
-        (EvmYul.UInt256.ofNat 0))
-      (Backends.nativeSwitchMatchedTempName switchId) (EvmYul.UInt256.ofNat 1)
+        (Backends.nativeSwitchMatchedTempName switchId : EvmYul.Identifier) (EvmYul.UInt256.ofNat 0))).insert
+      (Backends.nativeSwitchMatchedTempName switchId : EvmYul.Identifier) (EvmYul.UInt256.ofNat 1))[
+        matchedName]! = EvmYul.UInt256.ofNat 1
+  rw [← hMatchedName]
+  exact state_getElem_insert_self_ok _ _ _ _
 
 /-- Selected-switch-state form of the callvalue guard skip: after the lazy
 switch has selected a function case and marked the matched flag, a modular-zero
@@ -9438,19 +9428,17 @@ theorem exec_if_callvalue_skip_markedPrefix_zero_mod_fuel
         (⟨0⟩ : EvmYul.Literal) := by
     rw [nativeSwitchStoreMarkedPrefixStateForId_weiValue]
     exact natToUInt256_eq_zero_of_mod_evm tx.msgValue hZero
-  simpa [nativeSwitchStoreMarkedPrefixStateForId,
-    nativeSwitchStorePrefixStateForId, nativeSwitchStoreInitialState,
-    EvmYul.Yul.State.insert] using
-    exec_if_lowerExprNative_callvalue_skip_zero_fuel fuel body (some contract)
+  convert exec_if_lowerExprNative_callvalue_skip_zero_fuel fuel body (some contract)
       (initialState contract tx storage observableSlots).sharedState
-      (((store.insert (Backends.nativeSwitchDiscrTempName switchId)
-          (EvmYul.UInt256.ofNat
+      ((store.insert (Backends.nativeSwitchDiscrTempName switchId)
+        (EvmYul.UInt256.ofNat
             (tx.functionSelector % Compiler.Constants.selectorModulus))).insert
-          (Backends.nativeSwitchMatchedTempName switchId)
-          (EvmYul.UInt256.ofNat 0)).insert
         (Backends.nativeSwitchMatchedTempName switchId)
         (EvmYul.UInt256.ofNat 1))
-      hWei
+      hWei using 1 <;>
+    simp [nativeSwitchStoreMarkedPrefixStateForId,
+      nativeSwitchStorePrefixStateForId, nativeSwitchStoreInitialState,
+      EvmYul.Yul.State.insert] <;> rfl
 
 /-- Selected-switch-state form of the callvalue guard failure: after the lazy
 switch has selected a non-payable function case and the transaction has
@@ -9480,9 +9468,10 @@ theorem exec_if_callvalue_take_markedPrefix_nonzero_revert_fuel
           (Backends.lowerExprNative (Yul.YulExpr.call "callvalue" []))
           (some contract) state =
         .ok (state, natToUInt256 tx.msgValue) := by
-    simpa [state] using
-      (eval_lowerExprNative_callvalue_ok_fuel (fuel + 2)
-        (state.sharedState) (state.store) (some contract))
+    have hFuel : fuel + 7 = (fuel + 2) + 5 := by omega
+    rw [hFuel]
+    exact eval_lowerExprNative_callvalue_ok_fuel (fuel + 2)
+      state.sharedState state.store (some contract)
   have hBody :
       EvmYul.Yul.exec (fuel + 7) (.Block [nativeRevertZeroZeroStmt])
           (some contract) state =
@@ -9538,20 +9527,18 @@ theorem exec_if_lt_calldatasize_skip_markedPrefix_ge_fuel
         (nativeSwitchStoreMarkedPrefixStateForId contract tx storage
           observableSlots switchId store).sharedState.executionEnv.calldata.size := by
     simpa using hGe
-  simpa [nativeSwitchStoreMarkedPrefixStateForId,
-    nativeSwitchStorePrefixStateForId, nativeSwitchStoreInitialState,
-    EvmYul.Yul.State.insert] using
-    exec_if_lowerExprNative_lt_calldatasize_skip_ge_fuel fuel body
+  convert exec_if_lowerExprNative_lt_calldatasize_skip_ge_fuel fuel body
       (some contract)
       (initialState contract tx storage observableSlots).sharedState
-      (((store.insert (Backends.nativeSwitchDiscrTempName switchId)
-          (EvmYul.UInt256.ofNat
+      ((store.insert (Backends.nativeSwitchDiscrTempName switchId)
+        (EvmYul.UInt256.ofNat
             (tx.functionSelector % Compiler.Constants.selectorModulus))).insert
-          (Backends.nativeSwitchMatchedTempName switchId)
-          (EvmYul.UInt256.ofNat 0)).insert
         (Backends.nativeSwitchMatchedTempName switchId)
         (EvmYul.UInt256.ofNat 1))
-      k hSize' hKSize hGe'
+      k hSize' hKSize hGe' using 1 <;>
+    simp [nativeSwitchStoreMarkedPrefixStateForId,
+      nativeSwitchStorePrefixStateForId, nativeSwitchStoreInitialState,
+      EvmYul.Yul.State.insert] <;> rfl
 
 /-- Selected-switch-state form of the calldata-size guard take: after the lazy
 switch has selected a function case and marked the matched flag, the generated
@@ -9589,20 +9576,18 @@ theorem exec_if_lt_calldatasize_take_markedPrefix_lt_revert_fuel
         observableSlots switchId store).sharedState.executionEnv.calldata.size <
         k := by
     simpa using hLt
-  simpa [nativeSwitchStoreMarkedPrefixStateForId,
-    nativeSwitchStorePrefixStateForId, nativeSwitchStoreInitialState,
-    EvmYul.Yul.State.insert] using
-    exec_if_lowerExprNative_lt_calldatasize_take_lt_revert_fuel fuel
+  convert exec_if_lowerExprNative_lt_calldatasize_take_lt_revert_fuel fuel
       (some contract)
       (initialState contract tx storage observableSlots).sharedState
-      (((store.insert (Backends.nativeSwitchDiscrTempName switchId)
-          (EvmYul.UInt256.ofNat
+      ((store.insert (Backends.nativeSwitchDiscrTempName switchId)
+        (EvmYul.UInt256.ofNat
             (tx.functionSelector % Compiler.Constants.selectorModulus))).insert
-          (Backends.nativeSwitchMatchedTempName switchId)
-          (EvmYul.UInt256.ofNat 0)).insert
         (Backends.nativeSwitchMatchedTempName switchId)
         (EvmYul.UInt256.ofNat 1))
-      k hSize' hKSize hLt'
+      k hSize' hKSize hLt' using 1 <;>
+    simp [nativeSwitchStoreMarkedPrefixStateForId,
+      nativeSwitchStorePrefixStateForId, nativeSwitchStoreInitialState,
+      EvmYul.Yul.State.insert] <;> rfl
 
 /-- Execute a payable selected switch-case prefix as a no-op and continue with
 the lowered user body. The generated case prefix is the lowered comment no-op
@@ -10060,9 +10045,10 @@ theorem exec_switchCaseBody_nonpayable_callvalue_revert_postInitFreeMemory_fuel
             (Backends.lowerExprNative (Yul.YulExpr.call "callvalue" []))
             (some contract) state =
           .ok (state, natToUInt256 tx.msgValue) := by
-      simpa [state] using
-        (eval_lowerExprNative_callvalue_ok_fuel (fuel + 4)
-          (state.sharedState) (state.store) (some contract))
+      have hFuel : fuel + 9 = (fuel + 4) + 5 := by omega
+      rw [hFuel]
+      exact eval_lowerExprNative_callvalue_ok_fuel (fuel + 4)
+        state.sharedState state.store (some contract)
     have hBody :
         EvmYul.Yul.exec (fuel + 9) (.Block [nativeRevertZeroZeroStmt])
             (some contract) state =
