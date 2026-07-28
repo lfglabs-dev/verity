@@ -755,6 +755,16 @@ theorem exec_let_lowerExprNative_iszero_lt_calldatasize_4_initialState_ok_fuel
       uint256_lt_ofNat_4_eq_zero_of_ge _ (by omega) hNoWrap,
       uint256_isZero_ofNat_zero]
 
+/-- The native lowering shape of the selector-miss guard.  Keep this
+explicit: Lean 4.31 does not unfold this lowering definitionally through the
+`change` tactic. -/
+private theorem lowerExprNative_iszero_ident_shape
+    (name : EvmYul.Identifier) :
+    Backends.lowerExprNative
+        (Yul.YulExpr.call "iszero" [Yul.YulExpr.ident (name : String)]) =
+      .Call (.inl .ISZERO) [.Var (name : String)] := by
+  simp [Backends.lowerExprNative, Backends.lookupRuntimePrimOp_iszero]
+
 /-- State-generic native `eval` of the lowered selector-miss guard
     `iszero(__has_selector)`: when the named variable is bound to
     `UInt256.ofNat 1` in the variable store, the guard evaluates to
@@ -770,8 +780,14 @@ theorem eval_lowerExprNative_iszero_ident_one_ok
           (Yul.YulExpr.call "iszero" [Yul.YulExpr.ident (name : String)]))
         codeOverride state =
       .ok (state, EvmYul.UInt256.ofNat 0) := by
-  change EvmYul.Yul.eval 8 (.Call (.inl .ISZERO) [.Var name]) codeOverride state = _
-  simp [EvmYul.Yul.eval, hVal]
+  rw [lowerExprNative_iszero_ident_shape]
+  simp [EvmYul.Yul.eval, EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail,
+    EvmYul.Yul.evalPrimCall, EvmYul.Yul.reverse', EvmYul.Yul.cons',
+    EvmYul.Yul.head']
+  calc
+    EvmYul.UInt256.isZero state[name]! =
+        EvmYul.UInt256.isZero (EvmYul.UInt256.ofNat 1) := congrArg _ hVal
+    _ = EvmYul.UInt256.ofNat 0 := by decide
 
 /-- Fuel-parametric form of `eval_lowerExprNative_iszero_ident_one_ok`. -/
 theorem eval_lowerExprNative_iszero_ident_one_ok_fuel
@@ -785,8 +801,14 @@ theorem eval_lowerExprNative_iszero_ident_one_ok_fuel
           (Yul.YulExpr.call "iszero" [Yul.YulExpr.ident (name : String)]))
         codeOverride state =
       .ok (state, EvmYul.UInt256.ofNat 0) := by
-  change EvmYul.Yul.eval (fuel + 8) (.Call (.inl .ISZERO) [.Var name]) codeOverride state = _
-  simp [EvmYul.Yul.eval, hVal]
+  rw [lowerExprNative_iszero_ident_shape]
+  simp [EvmYul.Yul.eval, EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail,
+    EvmYul.Yul.evalPrimCall, EvmYul.Yul.reverse', EvmYul.Yul.cons',
+    EvmYul.Yul.head']
+  calc
+    EvmYul.UInt256.isZero state[name]! =
+        EvmYul.UInt256.isZero (EvmYul.UInt256.ofNat 1) := congrArg _ hVal
+    _ = EvmYul.UInt256.ofNat 0 := by decide
 
 theorem exec_let_lowerExprNative_selectorExpr_initialState_ok
     (contract : EvmYul.Yul.Ast.YulContract)
