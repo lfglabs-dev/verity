@@ -3645,9 +3645,7 @@ private theorem compileSetMappingChain_legacyCompatible
               | cons slot' rest =>
                   simp [hkeyExprs, hvalueExpr, bind, Except.bind] at hcompile
                   cases hcompile
-                  simpa only [List.map, List.cons_append, List.append_assoc, List.nil_append,
-                    Nat.toString_eq_repr] using
-                    legacyCompatibleExternalStmtList_block_value_lets_writes
+                  convert legacyCompatibleExternalStmtList_block_value_lets_writes
                       (α := YulExpr × Nat) (β := Nat)
                       (letName := fun x => toString "__compat_key" ++ x.2.repr)
                       (letValue := fun x => x.1)
@@ -3660,7 +3658,9 @@ private theorem compileSetMappingChain_legacyCompatible
                       (match findFieldWithResolvedSlot fields fieldName with
                         | some (f, _) => if f.isTransient then "tstore" else "sstore"
                         | none => "sstore")
-                      valueExpr keyExprs.zipIdx (slot :: slot' :: rest)
+                      valueExpr keyExprs.zipIdx (slot :: slot' :: rest) using 1 <;>
+                    simp only [List.map, List.cons_append, List.append_assoc,
+                      List.nil_append, Nat.toString_eq_repr]
 
 /-- Singleton `setMapping` heads compile to ordinary legacy-compatible Yul. -/
 theorem stmtList_setMappingSingle_compiledLegacyCompatible
