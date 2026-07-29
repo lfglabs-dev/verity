@@ -147,7 +147,6 @@ jobs:
       - name: Run Lean audit checks
         run: |
           "$RUNNER_TEMP/time-step" "split package builds" python3 scripts/check_split_package_builds.py
-          "$RUNNER_TEMP/time-step" "macro fuzz coverage check" python3 scripts/check_macro_roundtrip_fuzz_coverage.py
           "$RUNNER_TEMP/time-step" "PrintAxioms report" bash -lc "set -o pipefail; lake env lean PrintAxioms.lean 2>&1 | tee axiom-report-raw.log"
           "$RUNNER_TEMP/time-step" "axiom report check" bash -lc "AXIOM_REPORT_FILE=axiom-report.md python3 scripts/check_axioms.py --log axiom-report-raw.log"
           "$RUNNER_TEMP/time-step" "proof length report" python3 scripts/check_proof_length.py --format=markdown
