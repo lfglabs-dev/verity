@@ -155,6 +155,29 @@ class CheckAxiomsReportTests(unittest.TestCase):
         self.assertIn("Lean.trustCompiler", report)
         self.assertIn("## Result: PASS", report)
 
+    def test_classifies_lean431_per_proof_native_decide_axiom_as_builtin(self) -> None:
+        generated = (
+            "Compiler.SimpleStorageNativeWitness.lowerRuntimeContractNative_eq"
+            "._native.native_decide.ax_1_1"
+        )
+        axiom_map = {"Compiler.Proofs.EndToEnd.simpleStorage_endToEnd": [generated]}
+
+        builtin, documented, forbidden, unexpected = check_axioms.classify_axioms(axiom_map)
+        report = check_axioms.generate_report(
+            axiom_map, builtin, documented, forbidden, unexpected
+        )
+
+        self.assertEqual(builtin, {generated})
+        self.assertEqual(documented, set())
+        self.assertEqual(forbidden, set())
+        self.assertEqual(unexpected, {})
+        self.assertIn("## Result: PASS", report)
+
+    def test_similar_project_axiom_is_not_treated_as_native_decide_builtin(self) -> None:
+        fake = "Project.native_decide.ax_1_1"
+        _, _, _, unexpected = check_axioms.classify_axioms({"Foo.bar": [fake]})
+        self.assertEqual(unexpected, {fake: ["Foo.bar"]})
+
     def test_run_report_check_passes_and_writes_output_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             output = Path(tmpdir) / "axiom-report.md"

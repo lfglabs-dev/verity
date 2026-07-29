@@ -38,6 +38,15 @@ FORBIDDEN_AXIOMS = frozenset([
     "sorryAx",
 ])
 
+NATIVE_DECIDE_AXIOM_RE = re.compile(
+    r"^.+\._native\.native_decide\.ax(?:_[0-9]+)+$"
+)
+
+
+def is_lean_builtin_axiom(name: str) -> bool:
+    """Recognize Lean builtins, including 4.31's per-proof native_decide names."""
+    return name in LEAN_BUILTIN_AXIOMS or NATIVE_DECIDE_AXIOM_RE.fullmatch(name) is not None
+
 
 def parse_axiom_entries(axioms_md_text: str) -> list[tuple[str, str, int]]:
     """Extract ``(axiom_name, relative_path, claimed_line)`` entries from AXIOMS.md."""
@@ -181,10 +190,10 @@ def classify_axioms(
     for axioms in axiom_map.values():
         all_axioms.update(axioms)
 
-    builtin = all_axioms & LEAN_BUILTIN_AXIOMS
+    builtin = {axiom for axiom in all_axioms if is_lean_builtin_axiom(axiom)}
     documented = all_axioms & DOCUMENTED_AXIOMS
     forbidden = all_axioms & FORBIDDEN_AXIOMS
-    unexpected = all_axioms - LEAN_BUILTIN_AXIOMS - DOCUMENTED_AXIOMS - FORBIDDEN_AXIOMS
+    unexpected = all_axioms - builtin - documented - forbidden
 
     unexpected_usage: dict[str, list[str]] = {}
     for axiom in unexpected:
@@ -210,7 +219,7 @@ def generate_report(
     builtin_only = sum(
         1
         for axioms in axiom_map.values()
-        if axioms and all(axiom in LEAN_BUILTIN_AXIOMS for axiom in axioms)
+        if axioms and all(is_lean_builtin_axiom(axiom) for axiom in axioms)
     )
     uses_documented = sum(
         1 for axioms in axiom_map.values() if any(axiom in DOCUMENTED_AXIOMS for axiom in axioms)
