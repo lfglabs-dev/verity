@@ -13232,6 +13232,8 @@ private theorem compile_preserves_native_evmYulLean_selector_miss_of_compile_ok_
 
 -- Lean 4.31 no longer unfolds these thin state constructors in the selector
 -- bridge `simpa` calls below.
+section
+
 attribute [local simp]
   Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId
   Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStorePrefixStateForId
@@ -19076,6 +19078,8 @@ theorem nativeGeneratedCallDispatcherResult_selector_hit_ok_matchesIR_exists_of_
       _hLowerCases, hCase, hBodyLower, hDispatcherContinuation⟩
   exact ⟨nativeContract, hLowerRuntime, reservedNames, n0, cases',
     body', bodyStart, bodyEnd, hCase, hBodyLower, hDispatcherContinuation⟩
+
+end
 
 /-- Selector-hit lowered-artifact theorem for a supported generated runtime.
 
