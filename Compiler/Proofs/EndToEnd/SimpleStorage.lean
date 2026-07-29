@@ -4245,21 +4245,18 @@ private theorem projectStorageFromState_storeHit_markedPrefix_materialized
     (contract : EvmYul.Yul.Ast.YulContract)
     (tx : YulTransaction) (storage : IRStorageSlot → IRStorageWord)
     (slots : List Nat) (switchId : Nat) (store : EvmYul.Yul.VarStore)
-    (arg slot : Nat)
-    (hSlot : slot ∈ slots) :
+    (arg slot : Nat) (hSlot : slot ∈ slots) :
     let initialWithStore :=
       Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId
         contract tx storage slots switchId store
-    let withValue := initialWithStore.insert "value"
-      (Compiler.Proofs.YulGeneration.Backends.StateBridge.natToUInt256 arg)
+    let value := Compiler.Proofs.YulGeneration.Backends.StateBridge.natToUInt256 arg
+    let withValue := initialWithStore.insert "value" value
     let finalState := withValue.setState
-      (withValue.toState.sstore (EvmYul.UInt256.ofNat 0)
-        (Compiler.Proofs.YulGeneration.Backends.StateBridge.natToUInt256 arg))
-    Compiler.Proofs.YulGeneration.Backends.Native.projectStorageFromState tx
-        finalState (IRStorageSlot.ofNat slot) =
-      (Compiler.Proofs.abstractStoreStorageOrMapping storage 0 arg)
-        (IRStorageSlot.ofNat slot) := by
-  intro initialWithStore withValue finalState
+      (withValue.toState.sstore (EvmYul.UInt256.ofNat 0) value)
+    Compiler.Proofs.YulGeneration.Backends.Native.projectStorageFromState tx finalState
+        (IRStorageSlot.ofNat slot) =
+      Compiler.Proofs.abstractStoreStorageOrMapping storage 0 arg (IRStorageSlot.ofNat slot) := by
+  intro initialWithStore value withValue finalState
   let markedStore :=
     (((store.insert
       (Backends.nativeSwitchDiscrTempName switchId)
@@ -4283,20 +4280,12 @@ private theorem projectStorageFromState_storeHit_markedPrefix_materialized
       (EvmYul.UInt256.ofNat 0)
       (Compiler.Proofs.YulGeneration.Backends.StateBridge.natToUInt256 arg)
       (nativeSwitchPostInitFreeMemorySharedState_toState contract tx storage slots)
-  change
-    Compiler.Proofs.YulGeneration.Backends.Native.projectStorageFromState tx
-        (((EvmYul.Yul.State.Ok
-          (Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemorySharedState
-            contract tx storage slots) markedStore).insert "value"
-          (Compiler.Proofs.YulGeneration.Backends.StateBridge.natToUInt256 arg)).setState
-          (((EvmYul.Yul.State.Ok
-            (Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemorySharedState
-              contract tx storage slots) markedStore).insert "value"
-            (Compiler.Proofs.YulGeneration.Backends.StateBridge.natToUInt256 arg)).toState.sstore
-            (EvmYul.UInt256.ofNat 0)
-            (Compiler.Proofs.YulGeneration.Backends.StateBridge.natToUInt256 arg)))
-          (IRStorageSlot.ofNat slot) =
-      _
+  change Compiler.Proofs.YulGeneration.Backends.Native.projectStorageFromState tx
+    (((EvmYul.Yul.State.Ok (Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemorySharedState
+      contract tx storage slots) markedStore).insert "value" value).setState
+      (((EvmYul.Yul.State.Ok (Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemorySharedState
+        contract tx storage slots) markedStore).insert "value" value).toState.sstore
+        (EvmYul.UInt256.ofNat 0) value)) (IRStorageSlot.ofNat slot) = _
   rw [hTransport]
   exact hInitial
 
