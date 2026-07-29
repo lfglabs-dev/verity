@@ -659,9 +659,8 @@ theorem interpretContract_correct_of_compiled_functions_with_helper_proofs
       (hcompiled := hcompiled)
       (hparamsSupported := hparamsSupported)
       (hfunction := hlegacyFunction)
-  simpa [supportedSourceContractSemantics_eq_sourceContractSemantics,
-    sourceContractSemantics
-    (hSupported := hSupported) tx initialWorld] using hlegacy
+  simpa [supportedSourceContractSemantics_eq_sourceContractSemantics
+    (hSupported := hSupported) tx initialWorld, sourceContractSemantics] using hlegacy
 
 /-- Populated-runtime, slack-indexed dispatch consumer for helper-aware
 per-function correctness results. -/
@@ -705,9 +704,8 @@ theorem interpretContractWithInternals_correct_of_compiled_functions_with_helper
       simpa [supportedSourceFunctionSemantics_eq_interpretFunction_of_selectorDispatched
         (hSupported := hSupported) hfn tx initialWorld] using
         hfunction fn sel irFn bindings hfn hcompileFn hbind)
-  simpa [supportedSourceContractSemantics_eq_sourceContractSemantics,
-    sourceContractSemantics
-    (hSupported := hSupported) tx initialWorld] using hlegacy
+  simpa [supportedSourceContractSemantics_eq_sourceContractSemantics
+    (hSupported := hSupported) tx initialWorld, sourceContractSemantics] using hlegacy
 
 private theorem legacy_function_correct_of_supportedSourceFunctionSemanticsExceptMappingWrites
     (model : CompilationModel)
@@ -765,9 +763,8 @@ theorem interpretContract_correct_of_compiled_functions_except_mapping_writes
     FunctionBody.sourceResultMatchesIRResult (supportedSourceContractSemanticsExceptMappingWrites model selectors hSupported tx initialWorld)
       (interpretIR (runtimeContractOfFunctions model.name irFns) tx
         (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
-  simpa [supportedSourceContractSemanticsExceptMappingWrites_eq_sourceContractSemantics,
-    sourceContractSemantics
-    (hSupported := hSupported) tx initialWorld] using
+  simpa [supportedSourceContractSemanticsExceptMappingWrites_eq_sourceContractSemantics
+    (hSupported := hSupported) tx initialWorld, sourceContractSemantics] using
     (interpretContract_correct_of_compiled_functions
       (model := model)
       (selectors := selectors)
