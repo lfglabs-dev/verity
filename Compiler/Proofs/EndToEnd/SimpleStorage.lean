@@ -7,6 +7,13 @@ open Compiler.Proofs.IRGeneration
 open Compiler.Proofs.YulGeneration
 open Compiler.Proofs.YulGeneration.Backends
 
+-- Lean 4.31 no longer unfolds these thin aliases consistently across `simpa`
+-- boundaries in the concrete execution proofs below.
+attribute [local simp]
+  EvmYul.Yul.State.sharedState
+  EvmYul.Yul.State.toState
+  Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemorySharedState
+
 /-! ## Concrete Instantiation: SimpleStorage -/
 
 /-- The concrete SimpleStorage IR fixture uses only EVMYulLean-bridged Yul
@@ -4002,7 +4009,7 @@ private theorem projectStorageFromState_storeHit_initialState_materialized
     YulState.initial,
     Compiler.Proofs.YulGeneration.Backends.StateBridge.natToUInt256]
   simp only [Option.option,
-    Batteries.RBMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
+    RBTree.RBMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
   by_cases hValueZero :
       (EvmYul.UInt256.ofNat arg == (Inhabited.default : EvmYul.UInt256)) = true
   · rw [hValueZero]
@@ -4033,13 +4040,13 @@ private theorem projectStorageFromState_storeHit_initialState_materialized
           EvmYul.UInt256.ofNat slot = EvmYul.UInt256.ofNat 0 := by
         simpa [IRStorageSlot.ofNat] using hSlotEq
       have hErase :
-          (Batteries.RBMap.erase
+          (RBTree.RBMap.erase
             (Compiler.Proofs.YulGeneration.Backends.StateBridge.projectStorage
               storage slots)
             (EvmYul.UInt256.ofNat 0)).find? (EvmYul.UInt256.ofNat slot) =
             none := by
         simpa [hUInt] using
-          (Batteries.RBMap.find?_erase_self
+          (RBTree.RBMap.find?_erase_self
             (Compiler.Proofs.YulGeneration.Backends.StateBridge.projectStorage
               storage slots)
             (EvmYul.UInt256.ofNat 0))
@@ -4050,13 +4057,13 @@ private theorem projectStorageFromState_storeHit_initialState_materialized
       rw [hArgZeroUInt]
       rfl
     · have hErase :
-          (Batteries.RBMap.erase
+          (RBTree.RBMap.erase
             (Compiler.Proofs.YulGeneration.Backends.StateBridge.projectStorage
               storage slots)
             (EvmYul.UInt256.ofNat 0)).find? (EvmYul.UInt256.ofNat slot) =
           (Compiler.Proofs.YulGeneration.Backends.StateBridge.projectStorage
               storage slots).find? (EvmYul.UInt256.ofNat slot) := by
-        exact Batteries.RBMap.find?_erase_of_ne _ hKey
+        exact RBTree.RBMap.find?_erase_of_ne _ hKey
       have hLookup :=
         Compiler.Proofs.YulGeneration.Backends.StateBridge.storageLookup_projectStorage_projected
           storage slots slot hSlot
@@ -4111,11 +4118,11 @@ private theorem projectStorageFromState_storeHit_initialState_materialized
       have hUInt :
           EvmYul.UInt256.ofNat slot = EvmYul.UInt256.ofNat 0 := by
         simpa [IRStorageSlot.ofNat] using hSlotEq
-      rw [Batteries.RBMap.find?_insert_of_eq _ hKey]
+      rw [RBTree.RBMap.find?_insert_of_eq _ hKey]
       rw [hUInt]
       simp [Compiler.Proofs.abstractStoreStorageOrMapping,
         Compiler.Proofs.IRGeneration.IRStorageWord.ofNat, IRStorageSlot.ofNat]
-    · rw [Batteries.RBMap.find?_insert_of_ne _ hKey]
+    · rw [RBTree.RBMap.find?_insert_of_ne _ hKey]
       have hLookup :=
         Compiler.Proofs.YulGeneration.Backends.StateBridge.storageLookup_projectStorage_projected
           storage slots slot hSlot
