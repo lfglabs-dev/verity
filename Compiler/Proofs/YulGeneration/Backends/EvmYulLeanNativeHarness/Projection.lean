@@ -1025,6 +1025,11 @@ def projectLogsFromState (state : EvmYul.Yul.State) : List (List Nat) :=
     YulState.initial, toSharedState, mkBlockHeader]
   rfl
 
+@[simp] theorem projectLogsFromState_reviveJump
+    (state : EvmYul.Yul.State) :
+    projectLogsFromState state.reviveJump = projectLogsFromState state := by
+  cases state <;> rfl
+
 @[simp] theorem projectLogsFromState_nativeSwitchStoreMarkedPrefixStateForId
     (contract : EvmYul.Yul.Ast.YulContract)
     (tx : YulTransaction)

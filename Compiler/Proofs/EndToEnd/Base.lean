@@ -484,15 +484,14 @@ private theorem nativeGeneratedCallDispatcherMatchesIROn_of_dispatcherExec
     nativeGeneratedCallDispatcherMatchesIROn contract tx state observableSlots
       nativeContract := by
   convert hMatch using 1 <;>
-    first
-    | rfl
-    | simp [nativeGeneratedCallDispatcherMatchesIROn,
-    nativeGeneratedCallDispatcherResultOf,
-    nativeGeneratedDispatcherExecMatchesIROn,
-    EvmYul.Yul.Ast.FunctionDefinition.rets,
-    Compiler.Proofs.YulGeneration.Backends.Native.callDispatcher_succ_eq_callDispatcherBlockResult,
-    Compiler.Proofs.YulGeneration.Backends.Native.callDispatcherBlockResult_initialState_eq_contractDispatcherBlockResult,
-    Compiler.Proofs.YulGeneration.Backends.Native.contractDispatcherBlockResult_eq_execResult]
+    try simp [nativeGeneratedCallDispatcherMatchesIROn,
+      nativeGeneratedCallDispatcherResultOf,
+      nativeGeneratedDispatcherExecMatchesIROn,
+      EvmYul.Yul.Ast.FunctionDefinition.rets,
+      Compiler.Proofs.YulGeneration.Backends.Native.callDispatcher_succ_eq_callDispatcherBlockResult,
+      Compiler.Proofs.YulGeneration.Backends.Native.callDispatcherBlockResult_initialState_eq_contractDispatcherBlockResult,
+      Compiler.Proofs.YulGeneration.Backends.Native.contractDispatcherBlockResult_eq_execResult]
+  all_goals exact Subsingleton.elim _ _
 
 /-- Re-target a native result match from the selected IR function body to the
 top-level IR interpreter, once selector-hit success guards are known. -/
@@ -1196,12 +1195,7 @@ private theorem nativeIRRuntimeMatchesIR_of_generated_lowered_dispatcherExec_pos
       hNoFallback hNoReceive)
     hLower hEnv]
   unfold nativeDispatcherExecMatchesIRPositive at hMatch
-  convert hMatch using 1 <;>
-    first
-    | rfl
-    | simp [Compiler.emitYul, Compiler.runtimeCode,
-        EvmYul.Yul.Ast.FunctionDefinition.rets,
-        Compiler.CodegenCommon.emitYul]
+  convert hMatch using 1 <;> rfl
 
 theorem nativeDispatcherExecMatchesIRPositive_of_project_eq_match
     {fuel' : Nat} {contract : IRContract} {tx : IRTransaction}

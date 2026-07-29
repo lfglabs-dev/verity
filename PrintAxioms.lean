@@ -5558,6 +5558,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.projectLogEntry_topicsAndWordData
   Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState_logSeries
   Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState_initialState
+  Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState_reviveJump
   Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState_nativeSwitchStoreMarkedPrefixStateForId
   Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState_nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId
   Compiler.Proofs.YulGeneration.Backends.Native.projectStorageFromState_setStore_ok_left
@@ -6414,4 +6415,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6011 theorems/lemmas (4170 public, 1841 private, 0 sorry'd)
+-- Total: 6012 theorems/lemmas (4171 public, 1841 private, 0 sorry'd)
