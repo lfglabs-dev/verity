@@ -397,7 +397,8 @@ theorem exec_genParamLoadBodyFrom_supported_then
                       some value := by
                   simpa [hty] using hdecode'
                 have hoff : 4 + 32 * (idx + 1) = 4 + (32 + 32 * idx) := by omega
-                simpa [Compiler.CompilationModel.genParamLoadBodyFrom, Compiler.CompilationModel.genSingleParamLoad, paramHeadSize, IRState.setVar,
+                simpa [Compiler.CompilationModel.genParamLoadBodyFrom,
+                  Compiler.CompilationModel.genSingleParamLoad, genScalarLoad, paramHeadSize, IRState.setVar,
                   Nat.add_assoc, Nat.add_comm, Nat.add_left_comm, applyBindingsToIRState, hty, hoff] using
                   (exec_genScalarLoad_supported_then (state := state)
                     (rest := genParamLoadBodyFrom (fun pos => YulExpr.call "calldataload" [pos])
@@ -420,7 +421,8 @@ theorem exec_genParamLoadBodyFrom_supported_then
                       some value := by
                   simpa [hty] using hdecode'
                 have hoff : 4 + 32 * (idx + 1) = 4 + (32 + 32 * idx) := by omega
-                simpa [Compiler.CompilationModel.genParamLoadBodyFrom, Compiler.CompilationModel.genSingleParamLoad, paramHeadSize, IRState.setVar,
+                simpa [Compiler.CompilationModel.genParamLoadBodyFrom,
+                  Compiler.CompilationModel.genSingleParamLoad, genScalarLoad, paramHeadSize, IRState.setVar,
                   Nat.add_assoc, Nat.add_comm, Nat.add_left_comm, applyBindingsToIRState, hty, hoff] using
                   (exec_genScalarLoad_supported_then (state := state)
                     (rest := genParamLoadBodyFrom (fun pos => YulExpr.call "calldataload" [pos])
@@ -443,7 +445,8 @@ theorem exec_genParamLoadBodyFrom_supported_then
                       some value := by
                   simpa [hty] using hdecode'
                 have hoff : 4 + 32 * (idx + 1) = 4 + (32 + 32 * idx) := by omega
-                simpa [Compiler.CompilationModel.genParamLoadBodyFrom, Compiler.CompilationModel.genSingleParamLoad, paramHeadSize, IRState.setVar,
+                simpa [Compiler.CompilationModel.genParamLoadBodyFrom,
+                  Compiler.CompilationModel.genSingleParamLoad, genScalarLoad, paramHeadSize, IRState.setVar,
                   Nat.add_assoc, Nat.add_comm, Nat.add_left_comm, applyBindingsToIRState, hty, hoff] using
                   (exec_genScalarLoad_supported_then (state := state)
                     (rest := genParamLoadBodyFrom (fun pos => YulExpr.call "calldataload" [pos])
@@ -466,7 +469,8 @@ theorem exec_genParamLoadBodyFrom_supported_then
                       some value := by
                   simpa [hty] using hdecode'
                 have hoff : 4 + 32 * (idx + 1) = 4 + (32 + 32 * idx) := by omega
-                simpa [Compiler.CompilationModel.genParamLoadBodyFrom, Compiler.CompilationModel.genSingleParamLoad, paramHeadSize, IRState.setVar,
+                simpa [Compiler.CompilationModel.genParamLoadBodyFrom,
+                  Compiler.CompilationModel.genSingleParamLoad, genScalarLoad, paramHeadSize, IRState.setVar,
                   Nat.add_assoc, Nat.add_comm, Nat.add_left_comm, applyBindingsToIRState, hty, hoff] using
                   (exec_genScalarLoad_supported_then (state := state)
                     (rest := genParamLoadBodyFrom (fun pos => YulExpr.call "calldataload" [pos])
@@ -489,7 +493,8 @@ theorem exec_genParamLoadBodyFrom_supported_then
                       some value := by
                   simpa [hty] using hdecode'
                 have hoff : 4 + 32 * (idx + 1) = 4 + (32 + 32 * idx) := by omega
-                simpa [Compiler.CompilationModel.genParamLoadBodyFrom, Compiler.CompilationModel.genSingleParamLoad, paramHeadSize, IRState.setVar,
+                simpa [Compiler.CompilationModel.genParamLoadBodyFrom,
+                  Compiler.CompilationModel.genSingleParamLoad, genScalarLoad, paramHeadSize, IRState.setVar,
                   Nat.add_assoc, Nat.add_comm, Nat.add_left_comm, applyBindingsToIRState, hty, hoff] using
                   (exec_genScalarLoad_supported_then (state := state)
                     (rest := genParamLoadBodyFrom (fun pos => YulExpr.call "calldataload" [pos])
@@ -512,7 +517,8 @@ theorem exec_genParamLoadBodyFrom_supported_then
                       some value := by
                   simpa [hty] using hdecode'
                 have hoff : 4 + 32 * (idx + 1) = 4 + (32 + 32 * idx) := by omega
-                simpa [Compiler.CompilationModel.genParamLoadBodyFrom, Compiler.CompilationModel.genSingleParamLoad, paramHeadSize, IRState.setVar,
+                simpa [Compiler.CompilationModel.genParamLoadBodyFrom,
+                  Compiler.CompilationModel.genSingleParamLoad, genScalarLoad, paramHeadSize, IRState.setVar,
                   Nat.add_assoc, Nat.add_comm, Nat.add_left_comm, applyBindingsToIRState, hty, hoff] using
                   (exec_genScalarLoad_supported_then (state := state)
                     (rest := genParamLoadBodyFrom (fun pos => YulExpr.call "calldataload" [pos])
@@ -535,7 +541,8 @@ theorem exec_genParamLoadBodyFrom_supported_then
                       some value := by
                   simpa [hty] using hdecode'
                 have hoff : 4 + 32 * (idx + 1) = 4 + (32 + 32 * idx) := by omega
-                simpa [Compiler.CompilationModel.genParamLoadBodyFrom, Compiler.CompilationModel.genSingleParamLoad, paramHeadSize, IRState.setVar,
+                simpa [Compiler.CompilationModel.genParamLoadBodyFrom,
+                  Compiler.CompilationModel.genSingleParamLoad, genScalarLoad, paramHeadSize, IRState.setVar,
                   Nat.add_assoc, Nat.add_comm, Nat.add_left_comm, applyBindingsToIRState, hty, hoff] using
                   (exec_genScalarLoad_supported_then (state := state)
                     (rest := genParamLoadBodyFrom (fun pos => YulExpr.call "calldataload" [pos])

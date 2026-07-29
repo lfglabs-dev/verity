@@ -191,7 +191,10 @@ theorem stmtWritesOnly_letVar
       split at h <;> cases h
       intro i _ _; rfl
   | binding key =>
-      have hne : key ≠ name := hdisj (.binding name) (by simp)
+      have hne : key ≠ name := by
+        intro h
+        subst key
+        exact (hdisj (.binding name) (by simp)) rfl
       simp [OwnedEq, execStmt] at h ⊢
       split at h <;> cases h
       exact Compiler.Proofs.IRGeneration.FunctionBody.lookupValue_bindValue_ne _ _ _ _ hne
@@ -210,7 +213,10 @@ theorem stmtWritesOnly_assignVar
       split at h <;> cases h
       intro i _ _; rfl
   | binding key =>
-      have hne : key ≠ name := hdisj (.binding name) (by simp)
+      have hne : key ≠ name := by
+        intro h
+        subst key
+        exact (hdisj (.binding name) (by simp)) rfl
       simp [OwnedEq, execStmt] at h ⊢
       split at h <;> cases h
       exact Compiler.Proofs.IRGeneration.FunctionBody.lookupValue_bindValue_ne _ _ _ _ hne

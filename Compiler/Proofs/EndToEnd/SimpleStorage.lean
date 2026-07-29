@@ -4002,7 +4002,7 @@ private theorem projectStorageFromState_storeHit_initialState_materialized
     YulState.initial,
     Compiler.Proofs.YulGeneration.Backends.StateBridge.natToUInt256]
   simp only [Option.option,
-    Std.TreeMap.getElem?_insert_self]
+    Std.TreeMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
   by_cases hValueZero :
       (EvmYul.UInt256.ofNat arg == (Inhabited.default : EvmYul.UInt256)) = true
   · rw [hValueZero]
@@ -4033,14 +4033,16 @@ private theorem projectStorageFromState_storeHit_initialState_materialized
           EvmYul.UInt256.ofNat slot = EvmYul.UInt256.ofNat 0 := by
         simpa [IRStorageSlot.ofNat] using hSlotEq
       have hErase :
-          ((Compiler.Proofs.YulGeneration.Backends.StateBridge.projectStorage
-              storage slots).erase
-            (EvmYul.UInt256.ofNat 0)).get? (EvmYul.UInt256.ofNat slot) =
+          (Std.TreeMap.erase
+            (Compiler.Proofs.YulGeneration.Backends.StateBridge.projectStorage
+              storage slots)
+            (EvmYul.UInt256.ofNat 0)).find? (EvmYul.UInt256.ofNat slot) =
             none := by
         simpa [hUInt] using
-          (Std.TreeMap.getElem?_erase_self
-            (t := Compiler.Proofs.YulGeneration.Backends.StateBridge.projectStorage
-              storage slots))
+          (Std.TreeMap.find?_erase_self
+            (Compiler.Proofs.YulGeneration.Backends.StateBridge.projectStorage
+              storage slots)
+            (EvmYul.UInt256.ofNat 0))
       rw [hErase, hUInt]
       simp only [Compiler.Proofs.abstractStoreStorageOrMapping,
         Compiler.Proofs.IRGeneration.IRStorageWord.ofNat, IRStorageSlot.ofNat]
@@ -4048,21 +4050,20 @@ private theorem projectStorageFromState_storeHit_initialState_materialized
       rw [hArgZeroUInt]
       rfl
     · have hErase :
-          ((Compiler.Proofs.YulGeneration.Backends.StateBridge.projectStorage
-              storage slots).erase
-            (EvmYul.UInt256.ofNat 0)).get? (EvmYul.UInt256.ofNat slot) =
+          (Std.TreeMap.erase
+            (Compiler.Proofs.YulGeneration.Backends.StateBridge.projectStorage
+              storage slots)
+            (EvmYul.UInt256.ofNat 0)).find? (EvmYul.UInt256.ofNat slot) =
           (Compiler.Proofs.YulGeneration.Backends.StateBridge.projectStorage
-              storage slots).get? (EvmYul.UInt256.ofNat slot) := by
-        rw [Std.TreeMap.getElem?_erase]
-        simp only [if_neg]
-        exact fun h => hKey (Std.OrientedCmp.eq_comm.mp h)
+              storage slots).find? (EvmYul.UInt256.ofNat slot) := by
+        exact Std.TreeMap.find?_erase_of_ne _ hKey
       have hLookup :=
         Compiler.Proofs.YulGeneration.Backends.StateBridge.storageLookup_projectStorage_projected
           storage slots slot hSlot
       have hLookup' :
           (match
             (Compiler.Proofs.YulGeneration.Backends.StateBridge.projectStorage
-              storage slots).get? (EvmYul.UInt256.ofNat slot) with
+              storage slots).find? (EvmYul.UInt256.ofNat slot) with
           | some val => val
           | none => (⟨0⟩ : EvmYul.UInt256)) =
             storage (IRStorageSlot.ofNat slot) := by
@@ -4110,21 +4111,18 @@ private theorem projectStorageFromState_storeHit_initialState_materialized
       have hUInt :
           EvmYul.UInt256.ofNat slot = EvmYul.UInt256.ofNat 0 := by
         simpa [IRStorageSlot.ofNat] using hSlotEq
-      rw [Std.TreeMap.getElem?_insert]
-      simp only [if_pos (Std.OrientedCmp.eq_comm.mpr hKey)]
+      rw [Std.TreeMap.find?_insert_of_eq _ hKey]
       rw [hUInt]
       simp [Compiler.Proofs.abstractStoreStorageOrMapping,
         Compiler.Proofs.IRGeneration.IRStorageWord.ofNat, IRStorageSlot.ofNat]
-    · rw [Std.TreeMap.getElem?_insert]
-      simp only [if_neg]
-      · exact fun h => hKey (Std.OrientedCmp.eq_comm.mp h)
+    · rw [Std.TreeMap.find?_insert_of_ne _ hKey]
       have hLookup :=
         Compiler.Proofs.YulGeneration.Backends.StateBridge.storageLookup_projectStorage_projected
           storage slots slot hSlot
       have hLookup' :
           (match
             (Compiler.Proofs.YulGeneration.Backends.StateBridge.projectStorage
-              storage slots).get? (EvmYul.UInt256.ofNat slot) with
+              storage slots).find? (EvmYul.UInt256.ofNat slot) with
           | some val => val
           | none => (⟨0⟩ : EvmYul.UInt256)) =
             storage (IRStorageSlot.ofNat slot) := by
