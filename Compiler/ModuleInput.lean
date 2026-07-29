@@ -100,6 +100,7 @@ private def existingSplitPackageSearchRoots : IO SearchPath := do
 
 /-- Import modules and evaluate their canonical `<Module>.spec` constants. -/
 unsafe def loadSpecsFromModules (moduleNames : List Name) : IO (Except String (List CompilationModel)) := do
+  Lean.enableInitializersExecution
   Lean.initSearchPath (← Lean.findSysroot)
   let originalSearchPath ← searchPathRef.get
   let extraSearchRoots ← existingSplitPackageSearchRoots
