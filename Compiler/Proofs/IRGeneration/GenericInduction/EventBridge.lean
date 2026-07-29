@@ -2697,7 +2697,8 @@ macro "event_emit_semantic_bridge_tac" : tactic => `(tactic| unhygienic (
       hfresh.2 topic0
   have hunindexedRel : List.Forall₂ (EventUnindexedEntryOk scope stateTopic)
       unindexed (eventValuesForKind EventParamKind.unindexed eventDef.params values) := by
-    simpa [zipped, unindexed] using eventUnindexedEntriesOk_of_eval
+    simpa [zipped, unindexed, eventZippedWithSource, eventUnindexedArgs] using
+      eventUnindexedEntriesOk_of_eval
       hirEvalTopic hshapes hparams.1 hparams.2 hvaluesLt hargsLen
   rcases eventUnindexedStores_continue
       (scope := scope) (state := stateTopic) (srcMemory := sigMemory)
@@ -2741,7 +2742,8 @@ macro "event_emit_semantic_bridge_tac" : tactic => `(tactic| unhygienic (
       indexed (eventValuesForKind EventParamKind.indexed eventDef.params values) := by
     have hirEvalFinal := eventForall₂_eval_atomic_memory_of_args hshapes
       hirEvalTopic (fun o => (irSourceMemory o).val)
-    simpa [zipped, indexed] using eventIndexedEntriesOk_of_eval
+    simpa [zipped, indexed, eventZippedWithSource, eventIndexedArgs] using
+      eventIndexedEntriesOk_of_eval
       hirEvalFinal hshapes hparams.1 hvaluesLt hargsLen
   have hindexedLen : indexed.length ≤ 3 := by
     simpa [indexed, zipped] using
@@ -2798,7 +2800,8 @@ macro "event_emit_semantic_bridge_tac" : tactic => `(tactic| unhygienic (
       (YulStmtListCallsDisjointFromInternalTable_of_internalFunctions_nil
         runtimeContract hinternal compiledIR
         (by rw [hcompiled]; exact eventCompiledScalarEmit_legacy eventDef args argExprs))).trans
-        (by simpa [irExec] using congrArg externalIRExecResultToWithInternals hplainIR)
+        (by simpa [irExec, externalIRExecResultToWithInternals] using
+          congrArg externalIRExecResultToWithInternals hplainIR)
   · have hindexedParams := eventIndexedEntryParams_eq_filter hargsLen
         hargExprsLen
     have hunindexedParams := eventUnindexedEntryParams_eq_filter hargsLen
@@ -2869,7 +2872,7 @@ macro "event_emit_semantic_bridge_tac" : tactic => `(tactic| unhygienic (
         constructor <;> intro hmem
         · exact hfresh.1 (hincl "__evt_ptr" hmem)
         · exact hfresh.2 (hincl "__evt_topic0" hmem)
-      simpa [IRState.appendYulLog, stateTopic, stateSig] using
+      simpa [IRState.appendYulLog, stateTopic, stateSig, IRState.setVar] using
         eventBindingsExactlyMatch_after_emit
           (scope := stmtNextScope scope (Stmt.emit eventName args))
           (bindings := runtime.bindings) (state := state)

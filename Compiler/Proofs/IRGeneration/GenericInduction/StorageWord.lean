@@ -210,7 +210,8 @@ private theorem encodeStorageAt_writeStorageWordSlot_target_none
       (IRStorageSlot.ofNat targetSlot).toNat =
         SourceSemantics.wordNormalize (slot + wordOffset) := by
     simpa only [IRStorageSlot.toNat_ofNat, SourceSemantics.wordNormalize,
-      Verity.Core.Uint256.val_ofNat] using htargetEq
+      Verity.Core.Uint256.val_ofNat, Compiler.Constants.evmModulus,
+      EvmYul.UInt256.size, Verity.Core.UINT256_MODULUS] using htargetEq
   have hresolvedNorm :
       findResolvedFieldAtSlotCopy fields (IRStorageSlot.ofNat targetSlot).toNat =
         findResolvedFieldAtSlotCopy fields targetSlot := by
@@ -248,7 +249,8 @@ private theorem encodeStorageAt_writeStorageWordSlot_target
       (IRStorageSlot.ofNat targetSlot).toNat =
         SourceSemantics.wordNormalize (slot + wordOffset) := by
     simpa only [IRStorageSlot.toNat_ofNat, SourceSemantics.wordNormalize,
-      Verity.Core.Uint256.val_ofNat] using htargetEq
+      Verity.Core.Uint256.val_ofNat, Compiler.Constants.evmModulus,
+      EvmYul.UInt256.size, Verity.Core.UINT256_MODULUS] using htargetEq
   have hresolvedNorm :
       findResolvedFieldAtSlotCopy fields (IRStorageSlot.ofNat targetSlot).toNat =
         findResolvedFieldAtSlotCopy fields targetSlot := by
