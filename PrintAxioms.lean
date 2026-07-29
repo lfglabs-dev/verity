@@ -1692,7 +1692,11 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.EndToEnd.simpleStorage_storage_get?_erase_of_ne  -- private
   -- Compiler.Proofs.EndToEnd.simpleStorage_account_updateStorage_storage_of_nonzero  -- private
   -- Compiler.Proofs.EndToEnd.simpleStorage_account_updateStorage_storage_of_zero  -- private
+  -- Compiler.Proofs.EndToEnd.projectStorageFromState_eq_of_accountMap_eq  -- private
+  -- Compiler.Proofs.EndToEnd.projectStorageFromState_insert_sstore_eq_of_toState_eq  -- private
   -- Compiler.Proofs.EndToEnd.projectStorageFromState_storeHit_initialState_materialized  -- private
+  -- Compiler.Proofs.EndToEnd.projectStorageFromState_storeHit_markedPrefix_materialized  -- private
+  -- Compiler.Proofs.EndToEnd.projectStorageFromState_storeHit_postInit_materialized  -- private
   -- Compiler.Proofs.EndToEnd.nativeResultsMatchOn_execIRFunction_store0_calldataload4_stop_markedPrefix  -- private
   -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel.of_store0_calldataload4_stop  -- private
   -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectedUserBodyResultBridgeAtFuel.of_store0_calldataload4_stop  -- private
@@ -6422,4 +6426,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6019 theorems/lemmas (4170 public, 1849 private, 0 sorry'd)
+-- Total: 6023 theorems/lemmas (4170 public, 1853 private, 0 sorry'd)
