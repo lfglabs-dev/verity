@@ -377,8 +377,7 @@ def nativeDispatcherExecMatchesIRPositive
     (observableSlots : List Nat)
     (nativeContract : EvmYul.Yul.Ast.YulContract) :
     Prop :=
-  let initial :=
-    Compiler.Proofs.YulGeneration.Backends.Native.initialState nativeContract
+  let initial := Compiler.Proofs.YulGeneration.Backends.Native.initialState nativeContract
       (YulTransaction.ofIR tx) state.storage
       (Compiler.Proofs.YulGeneration.Backends.Native.materializedStorageSlots
         (Compiler.runtimeCode contract) observableSlots)
@@ -408,8 +407,7 @@ private def nativeGeneratedDispatcherExecMatchesIROn
     (nativeContract : EvmYul.Yul.Ast.YulContract) :
     Prop :=
   let fuel' := sizeOf (Compiler.emitYul contract).runtimeCode
-  let initial :=
-    Compiler.Proofs.YulGeneration.Backends.Native.initialState nativeContract
+  let initial := Compiler.Proofs.YulGeneration.Backends.Native.initialState nativeContract
       (YulTransaction.ofIR tx) state.storage
       (Compiler.Proofs.YulGeneration.Backends.Native.materializedStorageSlots
         (Compiler.runtimeCode contract) observableSlots)
@@ -476,20 +474,44 @@ private theorem nativeGeneratedCallDispatcherMatchesIROn_of_dispatcherExec
         observableSlots nativeContract) :
     nativeGeneratedCallDispatcherMatchesIROn contract tx state observableSlots
       nativeContract := by
+  let initial :=
+    Compiler.Proofs.YulGeneration.Backends.Native.initialState nativeContract
+      (YulTransaction.ofIR tx) state.storage
+      (Compiler.Proofs.YulGeneration.Backends.Native.materializedStorageSlots
+        (Compiler.runtimeCode contract) observableSlots)
+  have hCall : EvmYul.Yul.callDispatcher (Nat.succ (sizeOf (Compiler.emitYul contract).runtimeCode))
+          (some nativeContract) initial =
+        match
+          Compiler.Proofs.YulGeneration.Backends.Native.contractDispatcherExecResult
+            (sizeOf (Compiler.emitYul contract).runtimeCode)
+            nativeContract initial with
+        | .error err => .error err
+        | .ok finalState =>
+            let restored :=
+              finalState.reviveJump.overwrite? initial |>.setStore initial
+            .ok (restored, []) := by
+    rw [
+      Compiler.Proofs.YulGeneration.Backends.Native.callDispatcher_succ_eq_callDispatcherBlockResult,
+      show initial =
+          Compiler.Proofs.YulGeneration.Backends.Native.initialState nativeContract
+            (YulTransaction.ofIR tx) state.storage
+            (Compiler.Proofs.YulGeneration.Backends.Native.materializedStorageSlots
+              (Compiler.runtimeCode contract) observableSlots) by rfl,
+      Compiler.Proofs.YulGeneration.Backends.Native.callDispatcherBlockResult_initialState_eq_contractDispatcherBlockResult,
+      Compiler.Proofs.YulGeneration.Backends.Native.contractDispatcherBlockResult_eq_execResult]
+    simp [EvmYul.Yul.Ast.FunctionDefinition.rets]
   unfold nativeGeneratedCallDispatcherMatchesIROn
   simp only [nativeGeneratedCallDispatcherResultOf]
-  rw [
-    Compiler.Proofs.YulGeneration.Backends.Native.callDispatcher_succ_eq_callDispatcherBlockResult,
-    Compiler.Proofs.YulGeneration.Backends.Native.callDispatcherBlockResult_initialState_eq_contractDispatcherBlockResult,
-    Compiler.Proofs.YulGeneration.Backends.Native.contractDispatcherBlockResult_eq_execResult]
+  change nativeResultsMatchOn observableSlots (interpretIR contract tx state)
+    (.ok
+      (Compiler.Proofs.YulGeneration.Backends.Native.projectResult
+        (YulTransaction.ofIR tx) state.storage state.events
+        (EvmYul.Yul.callDispatcher
+          (Nat.succ (sizeOf (Compiler.emitYul contract).runtimeCode))
+          (some nativeContract) initial)))
+  rw [hCall]
   unfold nativeGeneratedDispatcherExecMatchesIROn at hMatch
-  generalize hExec :
-    Compiler.Proofs.YulGeneration.Backends.Native.contractDispatcherExecResult
-      _ nativeContract _ = execResult at hMatch ⊢
-  cases execResult <;>
-    simpa [nativeResultsMatchOn,
-      Compiler.Proofs.YulGeneration.Backends.Native.nativeResultsMatchOn,
-      EvmYul.Yul.Ast.FunctionDefinition.rets] using hMatch
+  simpa [initial] using hMatch
 
 /-- Re-target a native result match from the selected IR function body to the
 top-level IR interpreter, once selector-hit success guards are known. -/
