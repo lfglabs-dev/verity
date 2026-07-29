@@ -52,6 +52,13 @@ open Compiler.Proofs.IRGeneration
 open Compiler.Proofs.YulGeneration
 open Compiler.Proofs.YulGeneration.Backends
 
+-- Lean 4.31 no longer unfolds these two thin state constructors in several
+-- `simpa` calls below.  Keep their old normalization behavior local to this
+-- compatibility proof file.
+attribute [local simp]
+  Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId
+  Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStorePrefixStateForId
+
 /-! ## Native Runtime Result Surface -/
 
 /-- Observable result comparison surface for native EVMYulLean execution. -/
@@ -479,6 +486,7 @@ private theorem nativeGeneratedCallDispatcherMatchesIROn_of_dispatcherExec
   simpa [nativeGeneratedCallDispatcherMatchesIROn,
     nativeGeneratedCallDispatcherResultOf,
     nativeGeneratedDispatcherExecMatchesIROn,
+    EvmYul.Yul.Ast.FunctionDefinition.rets,
     Compiler.Proofs.YulGeneration.Backends.Native.callDispatcher_succ_eq_callDispatcherBlockResult,
     Compiler.Proofs.YulGeneration.Backends.Native.callDispatcherBlockResult_initialState_eq_contractDispatcherBlockResult,
     Compiler.Proofs.YulGeneration.Backends.Native.contractDispatcherBlockResult_eq_execResult] using hMatch
@@ -1185,7 +1193,8 @@ private theorem nativeIRRuntimeMatchesIR_of_generated_lowered_dispatcherExec_pos
       hNoFallback hNoReceive)
     hLower hEnv]
   unfold nativeDispatcherExecMatchesIRPositive at hMatch
-  simpa using hMatch
+  simpa [Compiler.emitYul, Compiler.runtimeCode,
+    Compiler.CodegenCommon.emitYul] using hMatch
 
 theorem nativeDispatcherExecMatchesIRPositive_of_project_eq_match
     {fuel' : Nat} {contract : IRContract} {tx : IRTransaction}
@@ -6585,7 +6594,7 @@ theorem emitYul_runtimeCode_bridged_of_compile_ok_supported
     (hSupported : SupportedSpec spec selectors) :
     Compiler.Proofs.YulGeneration.Backends.BridgedStmts
       (Compiler.emitYul irContract).runtimeCode := by
-  simpa [Compiler.emitYul] using
+  simpa [Compiler.emitYul, Compiler.CodegenCommon.emitYul] using
     runtimeCode_bridged_local
     irContract
     (generatedRuntimeExternalBodiesBridged_of_compile_ok_supported
@@ -6616,7 +6625,7 @@ theorem emitYul_runtimeCode_bridged_of_compile_ok_supported_except_mapping_write
           StmtMappingWriteSlotSafe spec.fields stmt) :
     Compiler.Proofs.YulGeneration.Backends.BridgedStmts
       (Compiler.emitYul irContract).runtimeCode := by
-  simpa [Compiler.emitYul] using
+  simpa [Compiler.emitYul, Compiler.CodegenCommon.emitYul] using
     runtimeCode_bridged_local
     irContract
     (generatedRuntimeExternalBodiesBridged_of_compile_ok_supported_except_mapping_writes_stmt_safety
