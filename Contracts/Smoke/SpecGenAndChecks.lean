@@ -112,6 +112,7 @@ def safeAddRequireSurfacesOverflowObligation : Bool :=
        proofStatus := .assumed }] => true
   | _ => false
 
+set_option maxRecDepth 4096 in
 example : safeAddRequireSurfacesOverflowObligation = true := by rfl
 
 def safeSubRequireSurfacesUnderflowObligation : Bool :=
@@ -121,6 +122,7 @@ def safeSubRequireSurfacesUnderflowObligation : Bool :=
        proofStatus := .assumed }] => true
   | _ => false
 
+set_option maxRecDepth 4096 in
 example : safeSubRequireSurfacesUnderflowObligation = true := by rfl
 
 def safeMulRequireSurfacesOverflowObligation : Bool :=
@@ -130,6 +132,7 @@ def safeMulRequireSurfacesOverflowObligation : Bool :=
        proofStatus := .assumed }] => true
   | _ => false
 
+set_option maxRecDepth 4096 in
 example : safeMulRequireSurfacesOverflowObligation = true := by rfl
 
 end CheckedArithmeticObligationSmoke

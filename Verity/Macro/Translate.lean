@@ -78,7 +78,7 @@ private partial def validateDoElemExprTypes
   let tupleCase? ← do
     let stx := elem.raw
     if stx.getKind == `Lean.Parser.Term.doLet then
-      let decl := stx[2]
+      let decl := stx[3]
       let patDecl := decl[0]
       match tupleBinderNames? patDecl[0] with
       | some names =>
@@ -104,10 +104,10 @@ private partial def validateDoElemExprTypes
                   | none => pure none
       | none => pure none
     else if stx.getKind == `Lean.Parser.Term.doLetArrow then
-      let patDecl := stx[2]
+      let patDecl := stx[3]
       match tupleBinderNames? patDecl[0] with
       | some names =>
-          let rhs : Term := ⟨patDecl[2][0]⟩
+          let rhs : Term := ⟨patDecl[3][0]⟩
           match ← resolveQualifiedFunctionApp? fields constDecls immutableDecls externalDecls params locals rhs with
           | some (qualifiedName, _) =>
               let typedNames ← unsafe qualifiedTupleBindTypedLocals patDecl qualifiedName names
@@ -1060,7 +1060,7 @@ private partial def translateDoElem
   let tupleCase? ← do
     let stx := elem.raw
     if stx.getKind == `Lean.Parser.Term.doLet then
-      let decl := stx[2]
+      let decl := stx[3]
       let patDecl := decl[0]
       match tupleBinderNames? patDecl[0] with
       | some names =>
@@ -1160,11 +1160,11 @@ private partial def translateDoElem
                               | none => throwErrorAt rhs "unable to infer tuple local types"
       | none => pure none
     else if stx.getKind == `Lean.Parser.Term.doLetArrow then
-      let patDecl := stx[2]
+      let patDecl := stx[3]
       match tupleBinderNames? patDecl[0] with
       | some names =>
           ensureFreshLocalNames localNames names stx
-          let rhs : Term := ⟨patDecl[2][0]⟩
+          let rhs : Term := ⟨patDecl[3][0]⟩
           match (← tupleInternalCallAssignStmt? fields constDecls immutableDecls externalDecls functions params locals rhs names) with
           | some stmt =>
               let valueTys ← inferTupleSourceTypes? fields constDecls immutableDecls externalDecls functions params locals rhs
