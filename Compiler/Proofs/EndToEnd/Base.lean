@@ -477,7 +477,7 @@ private theorem nativeGeneratedCallDispatcherMatchesIROn_of_dispatcherExec
     nativeGeneratedCallDispatcherMatchesIROn contract tx state observableSlots
       nativeContract := by
   unfold nativeGeneratedCallDispatcherMatchesIROn
-  unfold nativeGeneratedCallDispatcherResultOf
+  simp only [nativeGeneratedCallDispatcherResultOf]
   rw [
     Compiler.Proofs.YulGeneration.Backends.Native.callDispatcher_succ_eq_callDispatcherBlockResult,
     Compiler.Proofs.YulGeneration.Backends.Native.callDispatcherBlockResult_initialState_eq_contractDispatcherBlockResult,
@@ -20732,7 +20732,14 @@ private theorem nativeResultsMatchOn_execIRFunction_leave_body_markedPrefix
         nativeContract (YulTransaction.ofIR tx) state.storage state.events
         (Compiler.runtimeCode irContract) observableSlots switchId store slot
         hSlot).symm
-  · simpa [Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState]
+  · simpa [Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState,
+      Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId,
+      Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStorePrefixStateForId,
+      Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryState,
+      Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemorySharedState,
+      EvmYul.Yul.State.insert, EvmYul.Yul.State.setLeave,
+      EvmYul.Yul.State.reviveJump, EvmYul.Yul.State.revive,
+      EvmYul.Yul.State.sharedState]
       using
         (Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState_nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId
           nativeContract (YulTransaction.ofIR tx) state.storage
@@ -20783,7 +20790,14 @@ private theorem nativeResultsMatchOn_execIRFunction_label_prefix_leave_body_mark
         nativeContract (YulTransaction.ofIR tx) state.storage state.events
         (Compiler.runtimeCode irContract) observableSlots switchId store slot
         hSlot).symm
-  · simpa [Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState]
+  · simpa [Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState,
+      Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId,
+      Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStorePrefixStateForId,
+      Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryState,
+      Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemorySharedState,
+      EvmYul.Yul.State.insert, EvmYul.Yul.State.setLeave,
+      EvmYul.Yul.State.reviveJump, EvmYul.Yul.State.revive,
+      EvmYul.Yul.State.sharedState]
       using
         (Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState_nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId
           nativeContract (YulTransaction.ofIR tx) state.storage
@@ -20986,7 +21000,14 @@ private theorem nativeResultsMatchOn_execIRFunction_block_leave_body_markedPrefi
         nativeContract (YulTransaction.ofIR tx) state.storage state.events
         (Compiler.runtimeCode irContract) observableSlots switchId store slot
         hSlot).symm
-  · simpa [Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState]
+  · simpa [Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState,
+      Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId,
+      Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStorePrefixStateForId,
+      Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryState,
+      Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemorySharedState,
+      EvmYul.Yul.State.insert, EvmYul.Yul.State.setLeave,
+      EvmYul.Yul.State.reviveJump, EvmYul.Yul.State.revive,
+      EvmYul.Yul.State.sharedState]
       using
         (Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState_nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId
           nativeContract (YulTransaction.ofIR tx) state.storage
@@ -21036,7 +21057,14 @@ private theorem nativeResultsMatchOn_execIRFunction_label_prefix_block_leave_bod
         nativeContract (YulTransaction.ofIR tx) state.storage state.events
         (Compiler.runtimeCode irContract) observableSlots switchId store slot
         hSlot).symm
-  · simpa [Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState]
+  · simpa [Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState,
+      Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId,
+      Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStorePrefixStateForId,
+      Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryState,
+      Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemorySharedState,
+      EvmYul.Yul.State.insert, EvmYul.Yul.State.setLeave,
+      EvmYul.Yul.State.reviveJump, EvmYul.Yul.State.revive,
+      EvmYul.Yul.State.sharedState]
       using
         (Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState_nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId
           nativeContract (YulTransaction.ofIR tx) state.storage
