@@ -682,9 +682,8 @@ theorem interpretFunction_eq_execResultToIRResult_of_body
       (sourceResult := sourceResult)
       (irResult := irResult)
       hrollbackStorage hrollbackEvents rfl hmatch
-  simpa only [SourceSemantics.interpretFunction, hbind, hsourceWithEvents,
-    FunctionBody.stmtResultToSourceResult, FunctionBody.sourceResultMatchesIRResult,
-    FunctionBody.irResultOfExecResult, execResultToIRResult] using hpack
+  rw [SourceSemantics.interpretFunction, hbind, hsourceWithEvents]
+  exact hpack
 
 theorem interpretFunctionWithHelpers_eq_execResultToIRResultWithInternals_of_body
     (model : CompilationModel) (fn : FunctionSpec)
@@ -2078,10 +2077,9 @@ theorem supported_function_correct_with_helper_proofs_body_goal
         (sourceResult := sourceResult)
         (irResult := irExec)
         hrollbackStorage hrollbackEvents rfl hmatch
-    simpa only [supportedSourceFunctionSemantics, SourceSemantics.interpretFunctionWithHelpers,
-      hbind, hsource, FunctionBody.stmtResultToSourceResult,
-      FunctionBody.sourceResultMatchesIRResult, FunctionBody.irResultOfExecResult,
-      execResultToIRResult] using hpack
+    rw [supportedSourceFunctionSemantics,
+      SourceSemantics.interpretFunctionWithHelpers, hbind, hsource]
+    exact hpack
   have hcompiledExec :
       Compiler.Proofs.YulGeneration.execIRFunctionFuel
           ((genParamLoads fn.params ++ bodyStmts).length + extraFuel + 1)
@@ -2165,11 +2163,9 @@ private theorem supported_function_correct_with_scalar_events_body_goal_source_m
       (rollback := FunctionBody.initialIRStateForTx model tx initialWorld)
       (sourceResult := sourceResult) (irResult := irExec)
       hrollbackStorage hrollbackEvents rfl hmatch
-  simpa only [supportedSourceFunctionSemanticsWithScalarEvents,
-    SourceSemantics.interpretFunctionWithHelpers,
-    hbind, hsource, FunctionBody.stmtResultToSourceResult,
-    FunctionBody.sourceResultMatchesIRResult, FunctionBody.irResultOfExecResult,
-    execResultToIRResult] using hpack
+  rw [supportedSourceFunctionSemanticsWithScalarEvents,
+    SourceSemantics.interpretFunctionWithHelpers, hbind, hsource]
+  exact hpack
 
 private theorem supported_function_correct_with_scalar_events_body_goal_compiled_exec
     (model : CompilationModel) (selectors : List Nat) (hSupported : SupportedSpecWithScalarEvents model selectors)
@@ -2841,8 +2837,7 @@ theorem supported_function_body_with_internals_goal_of_compileFunctionSpec_with_
       selector fn irFn hcompile with
     ⟨returns, bodyStmts, _hvalidate, _hreturns, hbodyCompile, hirFn⟩
   have hirFnLocal : irFn = compiledFunctionIR selector fn returns bodyStmts := by
-    simpa [FunctionShape.compiledFunctionIR, compiledFunctionIR,
-      CompilationModel.compileFunctionSpec] using hirFn
+    convert hirFn using 1 <;> rfl
   let extraFuel := sizeOf irFn.body - irFn.body.length
   have hbodyExtraFuelLower :
       sizeOf bodyStmts - bodyStmts.length ≤ extraFuel := by
@@ -4032,7 +4027,9 @@ theorem internalFunctionYulName_take_prefix (name : String) :
       internalFunctionPrefix.data ++ name.data := by
     have ts : ∀ s : String, toString s = s := fun _ => rfl
     simpa only [internalFunctionYulName, ts, List.nil_append, List.append_nil] using
-      String.toList_append internalFunctionPrefix name
+      (String.toList_append :
+        (internalFunctionPrefix ++ name).toList =
+          internalFunctionPrefix.toList ++ name.toList)
   rw [hdata]
   simp
 
@@ -5072,7 +5069,8 @@ theorem supported_constructor_body_correct_with_body_interface
           (constructorBodyScope ctor.params)
           ctor.body := by
       simpa [SourceSemantics.effectiveFields, hnormalized, ctorFn,
-        constructorAsFunctionSpec, constructorBodyScope, constructorArgAliasNames] using
+        constructorAsFunctionSpec, constructorBodyScope, constructorArgAliasNames,
+        Function.comp_apply] using
         hSupported.body.helperFreeStepInterface_stmtSafety hnoConflict hsafety
     have hgeneric :
         StmtListGenericWithHelpers model (SourceSemantics.effectiveFields model)
@@ -5082,7 +5080,8 @@ theorem supported_constructor_body_correct_with_body_interface
         (hhelperFree := hhelperFree)
         (hnoEvents := hnoEvents)
         (hnoErrors := hnoErrors)
-        (hsurface := by simpa [ctorFn] using hSupported.body.helperSurfaceClosed)
+        (hsurface := by simpa [ctorFn, constructorAsFunctionSpec] using
+          hSupported.body.helperSurfaceClosed)
     rcases exec_compileStmtList_generic_with_helpers_sizeOf_extraFuel
         (spec := model)
         (fields := SourceSemantics.effectiveFields model)
@@ -5136,10 +5135,9 @@ theorem supported_constructor_body_correct_with_body_interface
         hrollbackEvents
         rfl
         hmatch
-    simpa only [SourceSemantics.interpretConstructorWithHelpers, hrawUnsupported,
-      hconstructorBindings, FunctionBody.stmtResultToSourceResult,
-      FunctionBody.sourceResultMatchesIRResult, FunctionBody.irResultOfExecResult,
-      execResultToIRResult, initialState, SourceSemantics.effectiveFields] using hpack
+    rw [SourceSemantics.interpretConstructorWithHelpers, hrawUnsupported,
+      hconstructorBindings]
+    exact hpack
 
 
 /-- Function-level Tier 2 bridge for bodies admitted by the alternate
