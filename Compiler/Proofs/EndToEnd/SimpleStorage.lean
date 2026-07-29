@@ -4002,7 +4002,7 @@ private theorem projectStorageFromState_storeHit_initialState_materialized
     YulState.initial,
     Compiler.Proofs.YulGeneration.Backends.StateBridge.natToUInt256]
   simp only [Option.option,
-    Std.TreeMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
+    Batteries.RBMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
   by_cases hValueZero :
       (EvmYul.UInt256.ofNat arg == (Inhabited.default : EvmYul.UInt256)) = true
   · rw [hValueZero]
@@ -4033,13 +4033,13 @@ private theorem projectStorageFromState_storeHit_initialState_materialized
           EvmYul.UInt256.ofNat slot = EvmYul.UInt256.ofNat 0 := by
         simpa [IRStorageSlot.ofNat] using hSlotEq
       have hErase :
-          (Std.TreeMap.erase
+          (Batteries.RBMap.erase
             (Compiler.Proofs.YulGeneration.Backends.StateBridge.projectStorage
               storage slots)
             (EvmYul.UInt256.ofNat 0)).find? (EvmYul.UInt256.ofNat slot) =
             none := by
         simpa [hUInt] using
-          (Std.TreeMap.find?_erase_self
+          (Batteries.RBMap.find?_erase_self
             (Compiler.Proofs.YulGeneration.Backends.StateBridge.projectStorage
               storage slots)
             (EvmYul.UInt256.ofNat 0))
@@ -4050,13 +4050,13 @@ private theorem projectStorageFromState_storeHit_initialState_materialized
       rw [hArgZeroUInt]
       rfl
     · have hErase :
-          (Std.TreeMap.erase
+          (Batteries.RBMap.erase
             (Compiler.Proofs.YulGeneration.Backends.StateBridge.projectStorage
               storage slots)
             (EvmYul.UInt256.ofNat 0)).find? (EvmYul.UInt256.ofNat slot) =
           (Compiler.Proofs.YulGeneration.Backends.StateBridge.projectStorage
               storage slots).find? (EvmYul.UInt256.ofNat slot) := by
-        exact Std.TreeMap.find?_erase_of_ne _ hKey
+        exact Batteries.RBMap.find?_erase_of_ne _ hKey
       have hLookup :=
         Compiler.Proofs.YulGeneration.Backends.StateBridge.storageLookup_projectStorage_projected
           storage slots slot hSlot
@@ -4111,11 +4111,11 @@ private theorem projectStorageFromState_storeHit_initialState_materialized
       have hUInt :
           EvmYul.UInt256.ofNat slot = EvmYul.UInt256.ofNat 0 := by
         simpa [IRStorageSlot.ofNat] using hSlotEq
-      rw [Std.TreeMap.find?_insert_of_eq _ hKey]
+      rw [Batteries.RBMap.find?_insert_of_eq _ hKey]
       rw [hUInt]
       simp [Compiler.Proofs.abstractStoreStorageOrMapping,
         Compiler.Proofs.IRGeneration.IRStorageWord.ofNat, IRStorageSlot.ofNat]
-    · rw [Std.TreeMap.find?_insert_of_ne _ hKey]
+    · rw [Batteries.RBMap.find?_insert_of_ne _ hKey]
       have hLookup :=
         Compiler.Proofs.YulGeneration.Backends.StateBridge.storageLookup_projectStorage_projected
           storage slots slot hSlot

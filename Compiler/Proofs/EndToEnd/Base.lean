@@ -19077,10 +19077,6 @@ theorem nativeGeneratedCallDispatcherResult_selector_hit_ok_matchesIR_exists_of_
   exact ⟨nativeContract, hLowerRuntime, reservedNames, n0, cases',
     body', bodyStart, bodyEnd, hCase, hBodyLower, hDispatcherContinuation⟩
 
-attribute [-simp]
-  Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId
-  Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStorePrefixStateForId
-
 /-- Selector-hit lowered-artifact theorem for a supported generated runtime.
 
 Unlike the selector-hit success theorem, this exposes the selected native case
