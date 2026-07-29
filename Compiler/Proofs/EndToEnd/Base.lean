@@ -483,13 +483,14 @@ private theorem nativeGeneratedCallDispatcherMatchesIROn_of_dispatcherExec
         observableSlots nativeContract) :
     nativeGeneratedCallDispatcherMatchesIROn contract tx state observableSlots
       nativeContract := by
-  simpa [nativeGeneratedCallDispatcherMatchesIROn,
+  convert hMatch using 1 <;>
+    simp [nativeGeneratedCallDispatcherMatchesIROn,
     nativeGeneratedCallDispatcherResultOf,
     nativeGeneratedDispatcherExecMatchesIROn,
     EvmYul.Yul.Ast.FunctionDefinition.rets,
     Compiler.Proofs.YulGeneration.Backends.Native.callDispatcher_succ_eq_callDispatcherBlockResult,
     Compiler.Proofs.YulGeneration.Backends.Native.callDispatcherBlockResult_initialState_eq_contractDispatcherBlockResult,
-    Compiler.Proofs.YulGeneration.Backends.Native.contractDispatcherBlockResult_eq_execResult] using hMatch
+    Compiler.Proofs.YulGeneration.Backends.Native.contractDispatcherBlockResult_eq_execResult]
 
 /-- Re-target a native result match from the selected IR function body to the
 top-level IR interpreter, once selector-hit success guards are known. -/
@@ -1194,6 +1195,7 @@ private theorem nativeIRRuntimeMatchesIR_of_generated_lowered_dispatcherExec_pos
     hLower hEnv]
   unfold nativeDispatcherExecMatchesIRPositive at hMatch
   simpa [Compiler.emitYul, Compiler.runtimeCode,
+    EvmYul.Yul.Ast.FunctionDefinition.rets,
     Compiler.CodegenCommon.emitYul] using hMatch
 
 theorem nativeDispatcherExecMatchesIRPositive_of_project_eq_match
@@ -6995,7 +6997,7 @@ theorem validateGeneratedRuntimeNativeFragment_of_compile_ok_supported_except_ma
 /-- The direct generated-runtime `callDispatcher` result is the executable
 native harness result once the supported emitted runtime lowers successfully
 and its native environment is valid. -/
-private theorem nativeGeneratedCallDispatcherResultOf_eq_interpretIRRuntimeNative_of_lowerRuntimeContractNative_supported
+private theorem nativeGeneratedCallDispatcherResultOf_eq_interpretIRRuntimeNative_of_lowerRuntimeContractNative_supported_local
     {spec : CompilationModel.CompilationModel} {selectors : List Nat}
     {irContract : IRContract}
     (tx : IRTransaction) (state : IRState) (observableSlots : List Nat)
@@ -7022,7 +7024,7 @@ private theorem nativeGeneratedCallDispatcherResultOf_eq_interpretIRRuntimeNativ
     Compiler.runtimeCode, Compiler.CodegenCommon.emitYul]
   exact hInterp.symm
 
-private theorem nativeGeneratedCallDispatcherResultOf_eq_interpretIRRuntimeNative_of_lowerRuntimeContractNative_supported_except_mapping_writes_stmt_safety
+private theorem nativeGeneratedCallDispatcherResultOf_eq_interpretIRRuntimeNative_of_lowerRuntimeContractNative_supported_except_mapping_writes_stmt_safety_local
     {spec : CompilationModel.CompilationModel} {selectors : List Nat}
     {irContract : IRContract}
     (tx : IRTransaction) (state : IRState) (observableSlots : List Nat)
@@ -7128,7 +7130,7 @@ private theorem compile_preserves_native_evmYulLean_of_interpretIRRuntimeNative_
         (FunctionBody.initialIRStateForTx model tx initialWorld)
         observableSlots nativeContract) := by
   rw [
-    nativeGeneratedCallDispatcherResultOf_eq_interpretIRRuntimeNative_of_lowerRuntimeContractNative_supported
+    nativeGeneratedCallDispatcherResultOf_eq_interpretIRRuntimeNative_of_lowerRuntimeContractNative_supported_local
       tx (FunctionBody.initialIRStateForTx model tx initialWorld)
       observableSlots nativeContract hcompile hSupported hLower hEnv]
   exact
@@ -14644,7 +14646,7 @@ private theorem compile_preserves_native_evmYulLean_callDispatcher_selector_hit_
     hCase, hBodyLower, ?_⟩
   intro hBody hPreservesMatched hProject hMatch
   have hSource := hDispatcherContinuation hBody hPreservesMatched hProject hMatch
-  rw [nativeGeneratedCallDispatcherResultOf_eq_interpretIRRuntimeNative_of_lowerRuntimeContractNative_supported
+  rw [nativeGeneratedCallDispatcherResultOf_eq_interpretIRRuntimeNative_of_lowerRuntimeContractNative_supported_local
     tx initialState observableSlots
     (nativeContractOfInitPrefixedDispatcher [.Block inner])
     hcompile hSupported hLowerRuntime hEnv]
@@ -16655,7 +16657,7 @@ private theorem compile_preserves_native_evmYulLean_callDispatcher_selector_hit_
     hCase, hBodyLower, ?_⟩
   intro hBody hProject hMatch
   have hSource := hDispatcherContinuation hBody hProject hMatch
-  rw [nativeGeneratedCallDispatcherResultOf_eq_interpretIRRuntimeNative_of_lowerRuntimeContractNative_supported
+  rw [nativeGeneratedCallDispatcherResultOf_eq_interpretIRRuntimeNative_of_lowerRuntimeContractNative_supported_local
     tx initialState observableSlots
     (nativeContractOfInitPrefixedDispatcher [.Block inner])
     hcompile hSupported hLowerRuntime hEnv]
@@ -17144,7 +17146,7 @@ private theorem compile_preserves_native_evmYulLean_callDispatcher_selector_hit_
     hCase, hBodyLower, ?_⟩
   intro hBody hProject hMatch
   have hSource := hDispatcherContinuation hBody hProject hMatch
-  rw [nativeGeneratedCallDispatcherResultOf_eq_interpretIRRuntimeNative_of_lowerRuntimeContractNative_supported
+  rw [nativeGeneratedCallDispatcherResultOf_eq_interpretIRRuntimeNative_of_lowerRuntimeContractNative_supported_local
     tx initialState observableSlots
     (nativeContractOfInitPrefixedDispatcherWithMapping [.Block inner])
     hcompile hSupported hLowerRuntime hEnv]
@@ -22397,12 +22399,9 @@ private theorem NativeGeneratedSelectorHitUserBodyPreservesBridgeAtFuel.of_bridg
       (hBodyStraight fn hFind)
       (hSide fn hFind)
       hUserBodyLower
-      (by
-        simpa using
-          hFresh (nativeContractOfDispatcherWithMapping dispatcher) fn
-            reservedNames n0 cases' body' bodyNative bodyStart bodyEnd
-            userBodyStart (by simpa [nativeContractOfDispatcherWithMapping] using
-          hLowerRuntime) hFind hCase hBodyLower hUserBodyLower)
+      (hFresh (nativeContractOfDispatcherWithMapping dispatcher) fn
+        reservedNames n0 cases' body' bodyNative bodyStart bodyEnd
+        userBodyStart hLowerRuntime hFind hCase hBodyLower hUserBodyLower)
 
 /-- Package direct selected-body execution with the mapping-helper straight-body
 preservation closure into the unified selected-body result bridge.
@@ -25472,7 +25471,8 @@ suffix.length +
               (Compiler.runtimeCode irContract) observableSlots)
             switchId
             Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchHasSelectorStore
-        simpa [selectedState, hReviveSelected] using hRaw
+        rw [hReviveSelected]
+        exact hRaw
       exact
         Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchMatchedFlag_of_revived_body_final
           switchId matchedName
@@ -25592,7 +25592,8 @@ suffix.length +
               (Compiler.runtimeCode irContract) observableSlots)
             switchId
             Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchHasSelectorStore
-        simpa [selectedState, hReviveSelected] using hRaw
+        rw [hReviveSelected]
+        exact hRaw
       exact
         Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchMatchedFlag_of_revived_body_final
           switchId matchedName
@@ -27914,7 +27915,7 @@ private theorem compile_preserves_native_evmYulLean_of_compile_ok_supported_gene
           irContract tx
           (FunctionBody.initialIRStateForTx spec tx initialWorld)
           observableSlots :=
-    nativeGeneratedCallDispatcherResultOf_eq_interpretIRRuntimeNative_of_lowerRuntimeContractNative_supported
+    nativeGeneratedCallDispatcherResultOf_eq_interpretIRRuntimeNative_of_lowerRuntimeContractNative_supported_local
       tx (FunctionBody.initialIRStateForTx spec tx initialWorld) observableSlots
       nativeContract hcompile hSupported hLower hEnv
   rw [hEq] at hMatch
@@ -28549,8 +28550,8 @@ attribute [deprecated compile_preserves_native_evmYulLean_of_nativeGeneratedCall
 
 attribute [deprecated nativeGeneratedCallDispatcherResultOf
   (since := "2026-05-07")]
-  nativeGeneratedCallDispatcherResultOf_eq_interpretIRRuntimeNative_of_lowerRuntimeContractNative_supported
-  nativeGeneratedCallDispatcherResultOf_eq_interpretIRRuntimeNative_of_lowerRuntimeContractNative_supported_except_mapping_writes_stmt_safety
+  nativeGeneratedCallDispatcherResultOf_eq_interpretIRRuntimeNative_of_lowerRuntimeContractNative_supported_local
+  nativeGeneratedCallDispatcherResultOf_eq_interpretIRRuntimeNative_of_lowerRuntimeContractNative_supported_except_mapping_writes_stmt_safety_local
 
 /-- Selector-hit error lowered-runtime wrapper with generated function selector
 ranges derived from the source selector list. The selected-body
@@ -29160,7 +29161,7 @@ private theorem compile_preserves_native_evmYulLean_callDispatcher_selector_hit_
     hCase, hBodyLower, ?_⟩
   intro hBody hPreservesMatched hProject hMatch
   have hSource := hDispatcherContinuation hBody hPreservesMatched hProject hMatch
-  rw [nativeGeneratedCallDispatcherResultOf_eq_interpretIRRuntimeNative_of_lowerRuntimeContractNative_supported
+  rw [nativeGeneratedCallDispatcherResultOf_eq_interpretIRRuntimeNative_of_lowerRuntimeContractNative_supported_local
     tx initialState observableSlots
     (nativeContractOfInitPrefixedDispatcherWithMapping [.Block inner])
     hcompile hSupported hLowerRuntime hEnv]
