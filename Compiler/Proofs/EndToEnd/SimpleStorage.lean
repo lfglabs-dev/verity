@@ -4040,6 +4040,36 @@ private theorem simpleStorage_account_updateStorage_storage_of_zero
         contract tx storage slots).sharedState.toState := by
   rfl
 
+private theorem projectStorageFromState_eq_of_accountMap_eq
+    (tx : YulTransaction) (left right : EvmYul.Yul.State)
+    (h :
+      left.sharedState.accountMap =
+        right.sharedState.accountMap) :
+    Compiler.Proofs.YulGeneration.Backends.Native.projectStorageFromState tx left =
+      Compiler.Proofs.YulGeneration.Backends.Native.projectStorageFromState tx right := by
+  unfold Compiler.Proofs.YulGeneration.Backends.Native.projectStorageFromState
+  unfold Compiler.Proofs.YulGeneration.Backends.StateBridge.extractStorage
+  rw [h]
+
+private theorem projectStorageFromState_insert_sstore_eq_of_toState_eq
+    (tx : YulTransaction)
+    (leftShared rightShared : EvmYul.SharedState .Yul)
+    (leftStore rightStore : EvmYul.Yul.VarStore)
+    (name : String) (value slot stored : EvmYul.UInt256)
+    (hState : leftShared.toState = rightShared.toState) :
+    Compiler.Proofs.YulGeneration.Backends.Native.projectStorageFromState tx
+        (((EvmYul.Yul.State.Ok leftShared leftStore).insert name value).setState
+          (((EvmYul.Yul.State.Ok leftShared leftStore).insert name value).toState.sstore
+            slot stored)) =
+      Compiler.Proofs.YulGeneration.Backends.Native.projectStorageFromState tx
+        (((EvmYul.Yul.State.Ok rightShared rightStore).insert name value).setState
+          (((EvmYul.Yul.State.Ok rightShared rightStore).insert name value).toState.sstore
+            slot stored)) := by
+  apply projectStorageFromState_eq_of_accountMap_eq
+  simp only [EvmYul.Yul.State.sharedState, EvmYul.Yul.State.insert,
+    EvmYul.Yul.State.setState, EvmYul.Yul.State.toState]
+  rw [hState]
+
 private theorem projectStorageFromState_storeHit_initialState_materialized
     (contract : EvmYul.Yul.Ast.YulContract)
     (tx : YulTransaction) (storage : IRStorageSlot → IRStorageWord)
@@ -4155,6 +4185,7 @@ private theorem projectStorageFromState_storeHit_initialState_materialized
           (Inhabited.default : EvmYul.UInt256) := by rfl
       rw [hZero]
       convert hLookup using 1 <;> rfl
+
   · have hValueNonzero :
         (EvmYul.UInt256.ofNat arg == (Inhabited.default : EvmYul.UInt256)) =
           false := by
@@ -4210,6 +4241,100 @@ private theorem projectStorageFromState_storeHit_initialState_materialized
       rw [hZero]
       convert hLookup using 1 <;> rfl
 
+private theorem projectStorageFromState_storeHit_markedPrefix_materialized
+    (contract : EvmYul.Yul.Ast.YulContract)
+    (tx : YulTransaction) (storage : IRStorageSlot → IRStorageWord)
+    (slots : List Nat) (switchId : Nat) (store : EvmYul.Yul.VarStore)
+    (arg slot : Nat)
+    (hSlot : slot ∈ slots) :
+    let initialWithStore :=
+      Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId
+        contract tx storage slots switchId store
+    let withValue := initialWithStore.insert "value"
+      (Compiler.Proofs.YulGeneration.Backends.StateBridge.natToUInt256 arg)
+    let finalState := withValue.setState
+      (withValue.toState.sstore (EvmYul.UInt256.ofNat 0)
+        (Compiler.Proofs.YulGeneration.Backends.StateBridge.natToUInt256 arg))
+    Compiler.Proofs.YulGeneration.Backends.Native.projectStorageFromState tx
+        finalState (IRStorageSlot.ofNat slot) =
+      (Compiler.Proofs.abstractStoreStorageOrMapping storage 0 arg)
+        (IRStorageSlot.ofNat slot) := by
+  intro initialWithStore withValue finalState
+  let markedStore :=
+    (((store.insert
+      (Backends.nativeSwitchDiscrTempName switchId)
+      (EvmYul.UInt256.ofNat
+        (tx.functionSelector % Compiler.Constants.selectorModulus))).insert
+      (Backends.nativeSwitchMatchedTempName switchId)
+      (EvmYul.UInt256.ofNat 0)).insert
+      (Backends.nativeSwitchMatchedTempName switchId)
+      (EvmYul.UInt256.ofNat 1))
+  have hInitial :=
+    projectStorageFromState_storeHit_initialState_materialized
+      contract tx storage slots markedStore arg slot hSlot
+  have hTransport :=
+    projectStorageFromState_insert_sstore_eq_of_toState_eq tx
+      (Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemorySharedState
+        contract tx storage slots)
+      (Compiler.Proofs.YulGeneration.Backends.Native.initialState
+        contract tx storage slots).sharedState
+      markedStore markedStore "value"
+      (Compiler.Proofs.YulGeneration.Backends.StateBridge.natToUInt256 arg)
+      (EvmYul.UInt256.ofNat 0)
+      (Compiler.Proofs.YulGeneration.Backends.StateBridge.natToUInt256 arg)
+      (nativeSwitchPostInitFreeMemorySharedState_toState contract tx storage slots)
+  change
+    Compiler.Proofs.YulGeneration.Backends.Native.projectStorageFromState tx
+        (((EvmYul.Yul.State.Ok
+          (Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemorySharedState
+            contract tx storage slots) markedStore).insert "value"
+          (Compiler.Proofs.YulGeneration.Backends.StateBridge.natToUInt256 arg)).setState
+          (((EvmYul.Yul.State.Ok
+            (Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemorySharedState
+              contract tx storage slots) markedStore).insert "value"
+            (Compiler.Proofs.YulGeneration.Backends.StateBridge.natToUInt256 arg)).toState.sstore
+            (EvmYul.UInt256.ofNat 0)
+            (Compiler.Proofs.YulGeneration.Backends.StateBridge.natToUInt256 arg)))
+          (IRStorageSlot.ofNat slot) =
+      _
+  rw [hTransport]
+  exact hInitial
+
+private theorem projectStorageFromState_storeHit_postInit_materialized
+    (contract : EvmYul.Yul.Ast.YulContract)
+    (tx : YulTransaction) (storage : IRStorageSlot → IRStorageWord)
+    (slots : List Nat) (store : EvmYul.Yul.VarStore)
+    (arg slot : Nat) (hSlot : slot ∈ slots) :
+    let initialWithStore : EvmYul.Yul.State := .Ok
+      (Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemorySharedState
+        contract tx storage slots) store
+    let withValue := initialWithStore.insert "value"
+      (Compiler.Proofs.YulGeneration.Backends.StateBridge.natToUInt256 arg)
+    let finalState := withValue.setState
+      (withValue.toState.sstore (EvmYul.UInt256.ofNat 0)
+        (Compiler.Proofs.YulGeneration.Backends.StateBridge.natToUInt256 arg))
+    Compiler.Proofs.YulGeneration.Backends.Native.projectStorageFromState tx
+        finalState (IRStorageSlot.ofNat slot) =
+      (Compiler.Proofs.abstractStoreStorageOrMapping storage 0 arg)
+        (IRStorageSlot.ofNat slot) := by
+  intro initialWithStore withValue finalState
+  have hInitial :=
+    projectStorageFromState_storeHit_initialState_materialized
+      contract tx storage slots store arg slot hSlot
+  have hTransport :=
+    projectStorageFromState_insert_sstore_eq_of_toState_eq tx
+      (Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemorySharedState
+        contract tx storage slots)
+      (Compiler.Proofs.YulGeneration.Backends.Native.initialState
+        contract tx storage slots).sharedState
+      store store "value"
+      (Compiler.Proofs.YulGeneration.Backends.StateBridge.natToUInt256 arg)
+      (EvmYul.UInt256.ofNat 0)
+      (Compiler.Proofs.YulGeneration.Backends.StateBridge.natToUInt256 arg)
+      (nativeSwitchPostInitFreeMemorySharedState_toState contract tx storage slots)
+  rw [hTransport]
+  exact hInitial
+
 /-- The direct lowered setter halt projects to the same observable storage,
 success bit, return value, and logs as the selected IR setter body. -/
 private theorem nativeResultsMatchOn_execIRFunction_store0_calldataload4_stop_markedPrefix
@@ -4257,31 +4382,15 @@ private theorem nativeResultsMatchOn_execIRFunction_store0_calldataload4_stop_ma
     have hslot' : slot ∈ slots := by
       simp [slots, Compiler.Proofs.YulGeneration.Backends.Native.materializedStorageSlots,
         hslot]
-    let markedStore :=
-      (((store.insert
-        (Backends.nativeSwitchDiscrTempName switchId)
-        (EvmYul.UInt256.ofNat
-          (yulTx.functionSelector % Compiler.Constants.selectorModulus))).insert
-        (Backends.nativeSwitchMatchedTempName switchId)
-        (EvmYul.UInt256.ofNat 0)).insert
-        (Backends.nativeSwitchMatchedTempName switchId)
-        (EvmYul.UInt256.ofNat 1))
     have hNative :=
-      projectStorageFromState_storeHit_initialState_materialized
-        nativeContract yulTx state.storage slots markedStore arg slot hslot'
+      projectStorageFromState_storeHit_markedPrefix_materialized
+        nativeContract yulTx state.storage slots switchId store arg slot hslot'
     have hArgMod :
         EvmYul.UInt256.ofNat arg =
           EvmYul.UInt256.ofNat (arg % evmModulus) := by
       unfold EvmYul.UInt256.ofNat
       simp [Id.run, Fin.ofNat, evmModulus, EvmYul.UInt256.size]
-    simpa [finalState, withValue, initialWithStore, markedStore,
-      Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId,
-      Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStorePrefixStateForId,
-      Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryState,
-      Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemorySharedState,
-      Compiler.Proofs.YulGeneration.Backends.Native.initialState,
-      EvmYul.Yul.State.sharedState, EvmYul.Yul.State.toState,
-      EvmYul.SharedState.toState,
+    simpa [finalState, withValue, initialWithStore,
       Compiler.Proofs.abstractStoreStorageOrMapping,
       Compiler.Proofs.IRGeneration.IRStorageWord.ofNat, hArgMod] using
       hNative.symm
@@ -4375,7 +4484,10 @@ private theorem NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel.of_store0_ca
         Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchHasSelectorStore
         arg rest (by simpa [yulTx, YulTransaction.ofIR] using hArgs))
   · simpa [switchId, yulTx, slots, initialWithStore, withValue, haltState,
-      nativeYul] using
+      nativeYul,
+      Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId,
+      Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStorePrefixStateForId,
+      Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryState] using
       (nativeResultsMatchOn_execIRFunction_store0_calldataload4_stop_markedPrefix
         irContract tx state observableSlots nativeContract fn switchId
         Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchHasSelectorStore
@@ -4496,7 +4608,9 @@ private theorem byteArray_readWithPadding_prefix
     rw [show (32 : Nat) = source.data.size by omega]
     exact array_extract_append_left source.data #[]]
   rw [show min 32 source.data.size = 32 by omega]
-  norm_num
+  rw [show 32 - source.data.size = 0 by omega]
+  rw [show min 0 suffix.data.size = 0 by omega]
+  simp
 
 private theorem byteArray_append_zeroes_zero (source : ByteArray) :
     source ++ ffi.ByteArray.zeroes (OfNat.ofNat 0) = source := by
@@ -4529,9 +4643,16 @@ private theorem byteArray_write_zero_32_readWithPadding_eq_of_size
         (dest ++ ffi.ByteArray.zeroes { toBitVec := 0 }) 0 (32 + 0) =
         (⟨source.data ++ (dest.extract 32 dest.size).data⟩ : ByteArray) := by
     rw [ByteArray.copySlice_eq_append]
-    simp only [byteArray_append_zeroes_zero, Nat.add_zero]
-    rw [byteArray_extract_zero_32_eq_of_size source hSize]
-    rfl
+    simp [ffi.ByteArray.zeroes, ByteArray.data_append, ByteArray.data_extract,
+      -ByteArray.size_data, ByteArray.size, hSize]
+    have hSourceZero : source ++ ({ data := #[] } : ByteArray) = source := by
+      simpa [ffi.ByteArray.zeroes] using byteArray_append_zeroes_zero source
+    have hDestZero : dest ++ ({ data := #[] } : ByteArray) = dest := by
+      simpa [ffi.ByteArray.zeroes] using byteArray_append_zeroes_zero dest
+    rw [hSourceZero, hDestZero, byteArray_extract_zero_32_eq_of_size source hSize]
+    apply ByteArray.ext
+    simp [ByteArray.data_append, ByteArray.data_extract]
+    rw [show min 32 source.size = 32 by omega]
   have hPrefix :=
     byteArray_readWithPadding_prefix source (dest.extract 32 dest.size) hSize
   rw [← hCopy] at hPrefix
@@ -4550,12 +4671,10 @@ private theorem byteArray_write_empty_64_32_size_ge_32
   have hDestPaddingLength : 64 - ByteArray.empty.size = 64 := by simp
   simp only [hPractical, hEnd, hSourcePaddingLength, hDestPaddingLength]
   rw [ByteArray.copySlice_eq_append]
-  have hZeroesSize :
-      (ffi.ByteArray.zeroes (OfNat.ofNat 64)).size = 64 := by
-    simp [-ByteArray.size_data, ffi.ByteArray.zeroes, ByteArray.size]
-  simp only [byteArray_append_zeroes_zero, Nat.add_zero]
-  rw [byteArray_extract_zero_32_eq_of_size source hSize]
-  simp [hZeroesSize]
+  simp [ffi.ByteArray.zeroes, ByteArray.data_append, ByteArray.data_extract,
+    -ByteArray.size_data, ByteArray.size, hSize]
+  norm_num
+  omega
 
 private theorem nativeSwitchPostInitFreeMemorySharedState_memory_size_ge_32
     (contract : EvmYul.Yul.Ast.YulContract) (tx : YulTransaction)
@@ -5301,31 +5420,15 @@ private theorem nativeResultsMatchOn_execIRFunction_oneParam_store0_value_stop_m
     have hslot' : slot ∈ slots := by
       simp [slots, Compiler.Proofs.YulGeneration.Backends.Native.materializedStorageSlots,
         hslot]
-    let markedStore :=
-      (((store.insert
-        (Backends.nativeSwitchDiscrTempName switchId)
-        (EvmYul.UInt256.ofNat
-          (yulTx.functionSelector % Compiler.Constants.selectorModulus))).insert
-        (Backends.nativeSwitchMatchedTempName switchId)
-        (EvmYul.UInt256.ofNat 0)).insert
-        (Backends.nativeSwitchMatchedTempName switchId)
-        (EvmYul.UInt256.ofNat 1))
     have hNative :=
-      projectStorageFromState_storeHit_initialState_materialized
-        nativeContract yulTx state.storage slots markedStore arg slot hslot'
+      projectStorageFromState_storeHit_markedPrefix_materialized
+        nativeContract yulTx state.storage slots switchId store arg slot hslot'
     have hArgMod :
         EvmYul.UInt256.ofNat arg =
           EvmYul.UInt256.ofNat (arg % evmModulus) := by
       unfold EvmYul.UInt256.ofNat
       simp [Id.run, Fin.ofNat, evmModulus, EvmYul.UInt256.size]
-    simpa [finalState, withValue, initialWithStore, markedStore,
-      Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId,
-      Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStorePrefixStateForId,
-      Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryState,
-      Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemorySharedState,
-      Compiler.Proofs.YulGeneration.Backends.Native.initialState,
-      EvmYul.Yul.State.sharedState, EvmYul.Yul.State.toState,
-      EvmYul.SharedState.toState,
+    simpa [finalState, withValue, initialWithStore,
       Compiler.Proofs.abstractStoreStorageOrMapping,
       Compiler.Proofs.IRGeneration.IRStorageWord.ofNat, hArgMod] using
       hNative.symm
@@ -5453,12 +5556,20 @@ private theorem NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel.of_oneParam_
     simpa [switchId, yulTx, slots, markedStore, shared, initialWithStore,
       withValue, haltState, Nat.add_assoc, Nat.add_comm, Nat.add_left_comm]
       using hExec
-  · simpa [switchId, yulTx, slots, initialWithStore, withValue, haltState,
-      nativeYul] using
-      (nativeResultsMatchOn_execIRFunction_oneParam_store0_value_stop_markedPrefix
+  · have hInitial :
+        Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId
+            nativeContract yulTx state.storage slots switchId
+            Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchHasSelectorStore =
+          initialWithStore := by
+      rfl
+    have hMatch :=
+      nativeResultsMatchOn_execIRFunction_oneParam_store0_value_stop_markedPrefix
         irContract tx state observableSlots nativeContract fn switchId
         Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchHasSelectorStore
-        arg rest hFnParams hNoWrap hArgs hBody)
+        arg rest hFnParams hNoWrap hArgs hBody
+    dsimp only at hMatch
+    rw [hInitial] at hMatch
+    simpa [nativeYul, haltState, withValue] using hMatch
 
 private theorem NativeGeneratedSelectedUserBodyResultBridgeAtFuel.of_oneParam_store0_value_stop
     (irContract : IRContract)
@@ -5895,6 +6006,7 @@ private theorem nativeResultsMatchOn_execIRFunction_mstore0_lit_return32_markedP
             (IRStorageSlot.ofNat slot) =
           state.storage (IRStorageSlot.ofNat slot) := by
       simpa [Compiler.Proofs.YulGeneration.Backends.Native.projectStorageFromState,
+        Compiler.Proofs.YulGeneration.Backends.StateBridge.extractStorage,
         EvmYul.Yul.State.sharedState, hAccountMap] using hNative
     exact hNative'.symm
   · rw [hLogs, List.append_nil]
@@ -6021,6 +6133,7 @@ private theorem nativeResultsMatchOn_execIRFunction_zeroParam_mstore0_lit_return
             (IRStorageSlot.ofNat slot) =
           state.storage (IRStorageSlot.ofNat slot) := by
       simpa [Compiler.Proofs.YulGeneration.Backends.Native.projectStorageFromState,
+        Compiler.Proofs.YulGeneration.Backends.StateBridge.extractStorage,
         EvmYul.Yul.State.sharedState, hAccountMap] using hNative
     exact hNative'.symm
   · rw [hLogs, List.append_nil]
@@ -6115,14 +6228,12 @@ private theorem nativeResultsMatchOn_execIRFunction_zeroParam_mstore0_sload0_ret
     have hload :=
       Compiler.Proofs.YulGeneration.Backends.Native.initialState_sload_materializedSlot_value
         nativeContract yulTx state.storage slots 0 hSlotZero
-    simpa [p, shared,
-      Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemorySharedState,
-      Compiler.Proofs.YulGeneration.Backends.Native.initialState,
-      Compiler.Proofs.YulGeneration.Backends.StateBridge.toSharedState,
-      YulState.initial, EvmYul.Yul.State.sharedState,
-      EvmYul.SharedState.toState,
-      Compiler.Proofs.YulGeneration.Backends.StateBridge.natToUInt256]
-      using hload
+    have hsload := congrArg
+      (fun s : EvmYul.State .Yul =>
+        (s.sload (EvmYul.UInt256.ofNat 0)).2)
+      (nativeSwitchPostInitFreeMemorySharedState_toState
+        nativeContract yulTx state.storage slots)
+    exact (by simpa [p, shared] using hsload.trans hload)
   have hLogs :
       Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState
         (EvmYul.Yul.State.Ok shared3 markedStore) = [] := by
@@ -6278,6 +6389,7 @@ private theorem nativeResultsMatchOn_execIRFunction_mstore0_calldataload_aligned
             (IRStorageSlot.ofNat slot) =
           state.storage (IRStorageSlot.ofNat slot) := by
       simpa [Compiler.Proofs.YulGeneration.Backends.Native.projectStorageFromState,
+        Compiler.Proofs.YulGeneration.Backends.StateBridge.extractStorage,
         EvmYul.Yul.State.sharedState, hAccountMap] using hNative
     exact hNative'.symm
   · rw [hLogs, List.append_nil]
@@ -6403,6 +6515,7 @@ private theorem nativeResultsMatchOn_execIRFunction_mstore0_calldataload4_return
             (IRStorageSlot.ofNat slot) =
           state.storage (IRStorageSlot.ofNat slot) := by
       simpa [Compiler.Proofs.YulGeneration.Backends.Native.projectStorageFromState,
+        Compiler.Proofs.YulGeneration.Backends.StateBridge.extractStorage,
         EvmYul.Yul.State.sharedState, hAccountMap] using hNative
     exact hNative'.symm
   · rw [hLogs, List.append_nil]
@@ -6500,7 +6613,7 @@ private theorem NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel.of_mstore0_s
           nativeGeneratedSelectorHitUserBodyFuel irContract fn cases' +
             suffix.length + 1 + 9 by
         rw [show (10 : Nat) = 1 + 9 by rfl]]
-    simpa [yulTx, slots, markedStore, shared, p, shared1, shared2, shared3, haltState,
+    simpa [switchId, yulTx, slots, markedStore, shared, p, shared1, shared2, shared3, haltState,
       Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId,
       Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStorePrefixStateForId,
       Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryState,
@@ -6622,14 +6735,12 @@ private theorem NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel.of_zeroParam
         (nativeGeneratedSelectorHitUserBodyFuel irContract fn cases' +
           suffix.length)
         (some nativeContract) shared markedStore hSize hGe
-    simpa [yulTx, slots, markedStore, shared, p, shared1, shared2, shared3, haltState,
+    change EvmYul.Yul.exec _ _ _ (EvmYul.Yul.State.Ok shared markedStore) = _
+    simpa [switchId, yulTx, slots, markedStore, shared, p, shared1, shared2, shared3,
+      haltState,
       Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId,
       Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStorePrefixStateForId,
-      Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryState,
-      Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemorySharedState,
-      Compiler.Proofs.YulGeneration.Backends.Native.initialState,
-      Compiler.Proofs.YulGeneration.Backends.StateBridge.toSharedState,
-      YulState.initial, EvmYul.Yul.State.sharedState] using hExec
+      Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryState] using hExec
   · simpa [switchId, yulTx, slots, markedStore, shared, p, shared1, shared2,
       shared3, haltState, nativeYul] using
       (nativeResultsMatchOn_execIRFunction_zeroParam_mstore0_sload0_return32_markedPrefix
@@ -6722,7 +6833,8 @@ private theorem NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel.of_mstore0_l
           nativeGeneratedSelectorHitUserBodyFuel irContract fn cases' +
             suffix.length + 2 + 8 by
         rw [show (10 : Nat) = 2 + 8 by rfl]]
-    simpa [yulTx, slots, markedStore, shared, shared1, shared2, haltState,
+    change EvmYul.Yul.exec _ _ _ (EvmYul.Yul.State.Ok shared markedStore) = _
+    simpa [switchId, yulTx, slots, markedStore, shared, shared1, shared2, haltState,
       Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId,
       Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStorePrefixStateForId,
       Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryState] using hExec
@@ -6840,7 +6952,8 @@ private theorem NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel.of_zeroParam
         (nativeGeneratedSelectorHitUserBodyFuel irContract fn cases' +
           suffix.length)
         (some nativeContract) shared markedStore value hSize hGe
-    simpa [yulTx, slots, markedStore, shared, shared1, shared2, haltState,
+    change EvmYul.Yul.exec _ _ _ (EvmYul.Yul.State.Ok shared markedStore) = _
+    simpa [switchId, yulTx, slots, markedStore, shared, shared1, shared2, haltState,
       Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId,
       Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStorePrefixStateForId,
       Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryState] using hExec
@@ -6948,7 +7061,9 @@ private theorem NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel.of_mstore0_c
           nativeGeneratedSelectorHitUserBodyFuel irContract fn cases' +
             suffix.length + 1 + 9 by
         rw [show (10 : Nat) = 1 + 9 by rfl]]
-    simpa [yulTx, slots, markedStore, shared, value, shared1, shared2, haltState,
+    change EvmYul.Yul.exec _ _ _ (EvmYul.Yul.State.Ok shared markedStore) = _
+    simpa [switchId, yulTx, slots, markedStore, shared, value, shared1, shared2,
+      haltState,
       Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId,
       Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStorePrefixStateForId,
       Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryState] using hExec
@@ -7059,7 +7174,9 @@ private theorem NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel.of_mstore0_c
           nativeGeneratedSelectorHitUserBodyFuel irContract fn cases' +
             suffix.length + 1 + 9 by
         rw [show (10 : Nat) = 1 + 9 by rfl]]
-    simpa [yulTx, slots, markedStore, shared, value, shared1, shared2, haltState,
+    change EvmYul.Yul.exec _ _ _ (EvmYul.Yul.State.Ok shared markedStore) = _
+    simpa [switchId, yulTx, slots, markedStore, shared, value, shared1, shared2,
+      haltState,
       Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId,
       Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStorePrefixStateForId,
       Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryState] using hExec
@@ -8109,14 +8226,13 @@ private theorem simpleStorageNativeRetrieveHitMatchBridge_proved
       Compiler.Proofs.YulGeneration.Backends.Native.initialState_sload_materializedSlot_value
         Compiler.SimpleStorageNativeWitness.nativeContract yulTx initialState.storage
         slots 0 hSlotZero
-    simpa [p, shared,
-      Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemorySharedState,
-      Compiler.Proofs.YulGeneration.Backends.Native.initialState,
-      Compiler.Proofs.YulGeneration.Backends.StateBridge.toSharedState,
-      YulState.initial, EvmYul.Yul.State.sharedState,
-      EvmYul.SharedState.toState,
-      Compiler.Proofs.YulGeneration.Backends.StateBridge.natToUInt256]
-      using hload
+    have hsload := congrArg
+      (fun s : EvmYul.State .Yul =>
+        (s.sload (EvmYul.UInt256.ofNat 0)).2)
+      (nativeSwitchPostInitFreeMemorySharedState_toState
+        Compiler.SimpleStorageNativeWitness.nativeContract yulTx
+        initialState.storage slots)
+    exact (by simpa [p, shared] using hsload.trans hload)
   have hProject :
       Compiler.Proofs.YulGeneration.Backends.Native.projectResult
         (YulTransaction.ofIR tx) initialState.storage initialState.events
@@ -8296,7 +8412,7 @@ private theorem simpleStorageNativeStoreHitMatchBridge_proved
             simp [slots, Compiler.Proofs.YulGeneration.Backends.Native.materializedStorageSlots,
               hslot]
           have hNative :=
-            projectStorageFromState_storeHit_initialState_materialized
+            projectStorageFromState_storeHit_postInit_materialized
               Compiler.SimpleStorageNativeWitness.nativeContract yulTx
               initialState.storage slots store arg slot hslot'
           have hArgMod :
@@ -8305,10 +8421,6 @@ private theorem simpleStorageNativeStoreHitMatchBridge_proved
             unfold EvmYul.UInt256.ofNat
             simp [Id.run, Fin.ofNat, evmModulus, EvmYul.UInt256.size]
           simpa [hHaltState,
-            Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemorySharedState,
-            Compiler.Proofs.YulGeneration.Backends.Native.initialState,
-            EvmYul.Yul.State.sharedState, EvmYul.Yul.State.toState,
-            EvmYul.SharedState.toState,
             Compiler.Proofs.abstractStoreStorageOrMapping,
             Compiler.Proofs.IRGeneration.IRStorageWord.ofNat, hArgMod] using hNative.symm
         · rw [hLogs, List.append_nil]
@@ -8416,8 +8528,9 @@ theorem simpleStorage_endToEnd_native_evmYulLean
     Compiler.Proofs.YulGeneration.Backends.Native.callDispatcherBlockResult_initialState_eq_contractDispatcherBlockResult,
     Compiler.Proofs.YulGeneration.Backends.Native.contractDispatcherBlockResult_eq_execResult
   ]
-  simpa [simpleStorageNativeDispatcherFuel, simpleStorage_runtimeCode_eq_single_dispatcher]
-    using hConcrete
+  convert hConcrete using 1 <;>
+    simp [simpleStorageNativeDispatcherFuel, simpleStorage_runtimeCode_eq_single_dispatcher,
+      EvmYul.Yul.Ast.FunctionDefinition.rets] <;> rfl
 
 /-- Source-level SimpleStorage native theorem from any already established
 source-to-IR result match.
