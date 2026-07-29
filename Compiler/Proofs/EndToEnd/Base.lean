@@ -483,9 +483,13 @@ private theorem nativeGeneratedCallDispatcherMatchesIROn_of_dispatcherExec
     Compiler.Proofs.YulGeneration.Backends.Native.callDispatcherBlockResult_initialState_eq_contractDispatcherBlockResult,
     Compiler.Proofs.YulGeneration.Backends.Native.contractDispatcherBlockResult_eq_execResult]
   unfold nativeGeneratedDispatcherExecMatchesIROn at hMatch
-  simpa [nativeResultsMatchOn,
-    Compiler.Proofs.YulGeneration.Backends.Native.nativeResultsMatchOn,
-    EvmYul.Yul.Ast.FunctionDefinition.rets] using hMatch
+  generalize hExec :
+    Compiler.Proofs.YulGeneration.Backends.Native.contractDispatcherExecResult
+      _ nativeContract _ = execResult at hMatch ⊢
+  cases execResult <;>
+    simpa [nativeResultsMatchOn,
+      Compiler.Proofs.YulGeneration.Backends.Native.nativeResultsMatchOn,
+      EvmYul.Yul.Ast.FunctionDefinition.rets] using hMatch
 
 /-- Re-target a native result match from the selected IR function body to the
 top-level IR interpreter, once selector-hit success guards are known. -/
