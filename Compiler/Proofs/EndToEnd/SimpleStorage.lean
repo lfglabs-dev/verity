@@ -7,12 +7,8 @@ open Compiler.Proofs.IRGeneration
 open Compiler.Proofs.YulGeneration
 open Compiler.Proofs.YulGeneration.Backends
 
--- Lean 4.31 no longer unfolds these thin aliases consistently across `simpa`
--- boundaries in the concrete execution proofs below.
-attribute [local simp]
-  EvmYul.Yul.State.sharedState
-  EvmYul.Yul.State.toState
-  Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemorySharedState
+-- Lean 4.31 does not consistently reduce this thin projection across `simpa`.
+attribute [local simp] EvmYul.Yul.State.sharedState
 
 /-! ## Concrete Instantiation: SimpleStorage -/
 
