@@ -324,6 +324,9 @@ theorem Contract.eq_of_run_success {α : Type} {c : Contract α} {s : ContractSt
   | revert msg s0 =>
     simp [hcs] at h
 
+-- This intentionally flexible simp lemma bridges `Contract.run` hypotheses back
+-- to direct contract application throughout the compiler-correctness proofs.
+set_option linter.flexible false in
 attribute [simp] Contract.eq_of_run_success
 
 @[simp] theorem pure_run (a : α) (state : ContractState) :
