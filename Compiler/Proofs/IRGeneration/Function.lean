@@ -3645,15 +3645,15 @@ private theorem compileSetMappingChain_legacyCompatible
               | cons slot' rest =>
                   simp [hkeyExprs, hvalueExpr, bind, Except.bind] at hcompile
                   cases hcompile
-                  simpa only [List.map, List.cons_append, List.append_assoc,
+                  simpa only [List.map, List.cons_append, List.append_assoc, List.nil_append,
                     Nat.toString_eq_repr] using
                     legacyCompatibleExternalStmtList_block_value_lets_writes
                       (α := YulExpr × Nat) (β := Nat)
-                      (letName := fun x => "__compat_key" ++ x.2.repr)
+                      (letName := fun x => toString "__compat_key" ++ x.2.repr)
                       (letValue := fun x => x.1)
                       (f := fun slot =>
                         (List.range keyExprs.length).map
-                          (fun idx => YulExpr.ident ("__compat_key" ++ idx.repr))
+                          (fun idx => YulExpr.ident (toString "__compat_key" ++ idx.repr))
                         |>.foldl
                           (fun slotExpr keyExpr => YulExpr.call "mappingSlot" [slotExpr, keyExpr])
                           (YulExpr.lit slot))
