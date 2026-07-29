@@ -1687,6 +1687,9 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.EndToEnd.simpleStorageNativeContract_dispatcherExec_retrieveHit_halt_atFuel  -- private
   -- Compiler.Proofs.EndToEnd.simpleStorageNativeContract_dispatcherExec_storeHit_halt_atFuel  -- private
   -- Compiler.Proofs.EndToEnd.simpleStorageNativeContract_dispatcherExec_storeHit_short_revert_atFuel  -- private
+  -- Compiler.Proofs.EndToEnd.simpleStorage_storage_get?_insert_of_ne  -- private
+  -- Compiler.Proofs.EndToEnd.simpleStorage_storage_get?_insert_of_eq  -- private
+  -- Compiler.Proofs.EndToEnd.simpleStorage_storage_get?_erase_of_ne  -- private
   -- Compiler.Proofs.EndToEnd.projectStorageFromState_storeHit_initialState_materialized  -- private
   -- Compiler.Proofs.EndToEnd.nativeResultsMatchOn_execIRFunction_store0_calldataload4_stop_markedPrefix  -- private
   -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel.of_store0_calldataload4_stop  -- private
@@ -6414,4 +6417,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6011 theorems/lemmas (4170 public, 1841 private, 0 sorry'd)
+-- Total: 6014 theorems/lemmas (4170 public, 1844 private, 0 sorry'd)
