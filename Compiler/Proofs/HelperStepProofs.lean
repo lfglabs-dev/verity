@@ -877,8 +877,7 @@ theorem directInternalHelperStatementContextBridge_sourceAssignEvidence
         result.success result.returnValue result.world := by
   intro result
   refine ⟨?_, ?_⟩
-  · simpa [result, hargs] using
-      SourceSemantics.execStmtWithHelpers_internalCallAssign_of_witness
+  · rw [SourceSemantics.execStmtWithHelpers_internalCallAssign_of_witness
         (spec := spec)
         (fields := fields)
         (fuel := fuel)
@@ -886,8 +885,7 @@ theorem directInternalHelperStatementContextBridge_sourceAssignEvidence
         (names := names)
         (calleeName := calleeName)
         (args := args)
-        hctx.sourceWitness
-        hnodup
+        hctx.sourceWitness hnodup, hargs]
   · simpa [result] using hctx.summarySound fuel state.world argVals
 
 end LegacyDirectStatementBridge
@@ -1110,8 +1108,7 @@ theorem directInternalHelperStatementContextBridge_sourceAssignEvidence
     DirectInternalHelperAssignSourceEvidence fields names args hctx fuel state argVals := by
   dsimp [DirectInternalHelperAssignSourceEvidence]
   refine ⟨?_, ?_⟩
-  · simpa only [hargs, directInternalHelperAssignSourceResult] using
-      SourceSemantics.execStmtWithHelpers_internalCallAssign_of_witness
+  · rw [SourceSemantics.execStmtWithHelpers_internalCallAssign_of_witness
         (spec := spec)
         (fields := fields)
         (fuel := fuel)
@@ -1119,8 +1116,8 @@ theorem directInternalHelperStatementContextBridge_sourceAssignEvidence
         (names := names)
         (calleeName := calleeName)
         (args := args)
-        hctx.sourceWitness
-        hnodup
+        hctx.sourceWitness hnodup, hargs]
+    rfl
   · simpa [internalHelperBodyInterpretation_selector_zero_eq_interpretInternalFunctionFuel]
       using hctx.summarySoundAt 0 fuel state.world argVals
 

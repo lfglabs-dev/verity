@@ -682,7 +682,8 @@ theorem interpretFunction_eq_execResultToIRResult_of_body
       (sourceResult := sourceResult)
       (irResult := irResult)
       hrollbackStorage hrollbackEvents rfl hmatch
-  rw [SourceSemantics.interpretFunction, hbind, hsourceWithEvents]
+  rw [SourceSemantics.interpretFunction,
+    SourceSemantics.bindExternalParams_eq_some_of_bindSupportedParams _ hbind, hsourceWithEvents]
   exact hpack
 
 theorem interpretFunctionWithHelpers_eq_execResultToIRResultWithInternals_of_body
@@ -2078,7 +2079,9 @@ theorem supported_function_correct_with_helper_proofs_body_goal
         (irResult := irExec)
         hrollbackStorage hrollbackEvents rfl hmatch
     rw [supportedSourceFunctionSemantics,
-      SourceSemantics.interpretFunctionWithHelpers, hbind, hsource]
+      SourceSemantics.interpretFunctionWithHelpers,
+      SourceSemantics.bindExternalParams_eq_some_of_bindSupportedParams _ hbind,
+      hsource]
     exact hpack
   have hcompiledExec :
       Compiler.Proofs.YulGeneration.execIRFunctionFuel
@@ -2164,7 +2167,9 @@ private theorem supported_function_correct_with_scalar_events_body_goal_source_m
       (sourceResult := sourceResult) (irResult := irExec)
       hrollbackStorage hrollbackEvents rfl hmatch
   rw [supportedSourceFunctionSemanticsWithScalarEvents,
-    SourceSemantics.interpretFunctionWithHelpers, hbind, hsource]
+    SourceSemantics.interpretFunctionWithHelpers,
+    SourceSemantics.bindExternalParams_eq_some_of_bindSupportedParams _ hbind,
+    hsource]
   exact hpack
 
 private theorem supported_function_correct_with_scalar_events_body_goal_compiled_exec
@@ -3640,7 +3645,8 @@ private theorem compileSetMappingChain_legacyCompatible
               | cons slot' rest =>
                   simp [hkeyExprs, hvalueExpr, bind, Except.bind] at hcompile
                   cases hcompile
-                  simpa only [List.map, List.cons_append, List.append_assoc] using
+                  simpa only [List.map, List.cons_append, List.append_assoc,
+                    Nat.toString_eq_repr] using
                     legacyCompatibleExternalStmtList_block_value_lets_writes
                       (α := YulExpr × Nat) (β := Nat) (letName := fun x => s!"__compat_key{x.2}")
                       (letValue := fun x => x.1)
@@ -4021,12 +4027,11 @@ the whole-contract dispatch proof discharge `InternalTableNamesInternalPrefixed`
 directly from the compilation pipeline rather than assuming an empty internal
 table. -/
 theorem internalFunctionYulName_take_prefix (name : String) :
-    (internalFunctionYulName name).data.take internalFunctionPrefix.data.length =
-      internalFunctionPrefix.data := by
-  have hdata : (internalFunctionYulName name).data =
-      internalFunctionPrefix.data ++ name.data := by
-    have ts : ∀ s : String, toString s = s := fun _ => rfl
-    simpa only [internalFunctionYulName, ts, List.nil_append, List.append_nil] using
+    (internalFunctionYulName name).toList.take internalFunctionPrefix.toList.length =
+      internalFunctionPrefix.toList := by
+  have hdata : (internalFunctionYulName name).toList =
+      internalFunctionPrefix.toList ++ name.toList := by
+    simpa only [internalFunctionYulName] using
       (String.toList_append :
         (internalFunctionPrefix ++ name).toList =
           internalFunctionPrefix.toList ++ name.toList)
@@ -5070,7 +5075,7 @@ theorem supported_constructor_body_correct_with_body_interface
           ctor.body := by
       simpa [SourceSemantics.effectiveFields, hnormalized, ctorFn,
         constructorAsFunctionSpec, constructorBodyScope, constructorArgAliasNames,
-        Function.comp_apply] using
+        Function.comp_apply, List.map_map, Param.toIRParam] using
         hSupported.body.helperFreeStepInterface_stmtSafety hnoConflict hsafety
     have hgeneric :
         StmtListGenericWithHelpers model (SourceSemantics.effectiveFields model)
