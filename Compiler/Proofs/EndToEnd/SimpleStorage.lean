@@ -2275,7 +2275,7 @@ private theorem exec_block_simpleStorageLoweredStoreCaseBodyTail2_markedPrefix_h
         Compiler.Proofs.YulGeneration.Backends.StateBridge.natToUInt256 arg := by
     simpa [shared,
       Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemorySharedState,
-      EvmYul.Yul.State.toState] using
+      EvmYul.Yul.State.toState, EvmYul.Yul.State.sharedState] using
       Compiler.Proofs.YulGeneration.Backends.Native.initialState_calldataload4_arg0_word
         contract tx storage observableSlots arg rest hArgs
   have hTail3 :
@@ -2375,7 +2375,7 @@ private theorem exec_block_simpleStorageLoweredStoreCaseBodyTail3_halt
         Compiler.SimpleStorageNativeWitness.nativeContract tx storage
         observableSlots).sharedState.calldataload (EvmYul.UInt256.ofNat 4) =
         Compiler.Proofs.YulGeneration.Backends.StateBridge.natToUInt256 arg := by
-    simpa [EvmYul.Yul.State.toState] using
+    simpa [EvmYul.Yul.State.toState, EvmYul.Yul.State.sharedState] using
       Compiler.Proofs.YulGeneration.Backends.Native.initialState_calldataload4_arg0_word
         Compiler.SimpleStorageNativeWitness.nativeContract tx storage observableSlots
         arg rest hArgs
@@ -3778,7 +3778,7 @@ private theorem simpleStorageNativeContract_dispatcherExec_storeHit_halt_atFuel
           observableSlots).calldataload (EvmYul.UInt256.ofNat 4) =
           Compiler.Proofs.YulGeneration.Backends.StateBridge.natToUInt256 arg := by
       simpa [Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemorySharedState,
-        EvmYul.Yul.State.toState] using
+        EvmYul.Yul.State.toState, EvmYul.Yul.State.sharedState] using
         Compiler.Proofs.YulGeneration.Backends.Native.initialState_calldataload4_arg0_word
           Compiler.SimpleStorageNativeWitness.nativeContract tx storage observableSlots
           arg rest hArgs
@@ -6845,7 +6845,8 @@ private theorem NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel.of_mstore0_c
   · intro _pre suffix
     have hWord :
         shared.calldataload (EvmYul.UInt256.ofNat 4) = value := by
-      simpa [shared, value, EvmYul.Yul.State.toState] using
+      simpa [shared, value, EvmYul.Yul.State.toState,
+        EvmYul.Yul.State.sharedState] using
         Compiler.Proofs.YulGeneration.Backends.Native.initialState_calldataload4_arg0_word
           nativeContract yulTx state.storage slots arg rest hArgs
     have hExec :=
@@ -6948,7 +6949,8 @@ private theorem NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel.of_mstore0_c
   · intro _pre suffix
     have hWord :
         shared.calldataload (EvmYul.UInt256.ofNat (4 + 32 * idx)) = value := by
-      simpa [shared, value, yulTx, EvmYul.Yul.State.toState] using
+      simpa [shared, value, yulTx, EvmYul.Yul.State.toState,
+        EvmYul.Yul.State.sharedState] using
         Compiler.Proofs.YulGeneration.Backends.Native.initialState_calldataload_aligned_arg_word
           nativeContract yulTx state.storage slots idx arg rest hArgDrop hOffset64
     have hExec :=
