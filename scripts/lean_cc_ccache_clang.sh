@@ -12,11 +12,14 @@ for arg in "$@"; do
   fi
 done
 
+lean_prefix="${LEAN_SYSROOT:-$(lean --print-prefix)}"
+lean_clang="${lean_prefix}/bin/clang"
+
 if $is_compile; then
   exec ccache clang -fuse-ld=lld "$@"
 else
-  # Lean 4.31's distributed runtime archives use libc++ (`std::__1`).
-  # Invoke the C driver as Lake expects, but supply the matching C++ runtime
-  # explicitly for final executable links.
-  exec clang -fuse-ld=lld "$@" -lc++ -lc++abi
+  # Use the compiler shipped with Lean: its libc++ ABI matches the distributed
+  # Lean 4.31 runtime archives, unlike an independently installed host clang.
+  exec "$lean_clang" -fuse-ld=lld -L "$lean_prefix/lib" \
+    "-Wl,-rpath,$lean_prefix/lib" "$@" -lunwind
 fi
