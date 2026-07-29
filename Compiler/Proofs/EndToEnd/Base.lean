@@ -437,8 +437,7 @@ noncomputable def nativeGeneratedCallDispatcherResultOf
     (nativeContract : EvmYul.Yul.Ast.YulContract) :
     Except Compiler.Proofs.YulGeneration.Backends.NativeLoweringError YulResult :=
   let fuel := Nat.succ (sizeOf (Compiler.emitYul contract).runtimeCode)
-  let initial :=
-    Compiler.Proofs.YulGeneration.Backends.Native.initialState nativeContract
+  let initial := Compiler.Proofs.YulGeneration.Backends.Native.initialState nativeContract
       (YulTransaction.ofIR tx) state.storage
       (Compiler.Proofs.YulGeneration.Backends.Native.materializedStorageSlots
         (Compiler.runtimeCode contract) observableSlots)
@@ -467,8 +466,7 @@ private def nativeGeneratedCallDispatcherMatchesIROn
 
 private theorem nativeGeneratedCallDispatcherMatchesIROn_of_dispatcherExec
     {contract : IRContract} {tx : IRTransaction} {state : IRState}
-    {observableSlots : List Nat}
-    {nativeContract : EvmYul.Yul.Ast.YulContract}
+    {observableSlots : List Nat} {nativeContract : EvmYul.Yul.Ast.YulContract}
     (hMatch :
       nativeGeneratedDispatcherExecMatchesIROn contract tx state
         observableSlots nativeContract) :
@@ -479,8 +477,8 @@ private theorem nativeGeneratedCallDispatcherMatchesIROn_of_dispatcherExec
       (YulTransaction.ofIR tx) state.storage
       (Compiler.Proofs.YulGeneration.Backends.Native.materializedStorageSlots
         (Compiler.runtimeCode contract) observableSlots)
-  have hCall : EvmYul.Yul.callDispatcher (Nat.succ (sizeOf (Compiler.emitYul contract).runtimeCode))
-          (some nativeContract) initial =
+  have hCall : EvmYul.Yul.callDispatcher
+          (Nat.succ (sizeOf (Compiler.emitYul contract).runtimeCode)) (some nativeContract) initial =
         match
           Compiler.Proofs.YulGeneration.Backends.Native.contractDispatcherExecResult
             (sizeOf (Compiler.emitYul contract).runtimeCode)
@@ -500,6 +498,7 @@ private theorem nativeGeneratedCallDispatcherMatchesIROn_of_dispatcherExec
       Compiler.Proofs.YulGeneration.Backends.Native.callDispatcherBlockResult_initialState_eq_contractDispatcherBlockResult,
       Compiler.Proofs.YulGeneration.Backends.Native.contractDispatcherBlockResult_eq_execResult]
     simp [EvmYul.Yul.Ast.FunctionDefinition.rets]
+    rfl
   unfold nativeGeneratedCallDispatcherMatchesIROn
   simp only [nativeGeneratedCallDispatcherResultOf]
   change nativeResultsMatchOn observableSlots (interpretIR contract tx state)
