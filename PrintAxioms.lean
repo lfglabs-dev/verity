@@ -1214,8 +1214,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.EndToEnd.validateGeneratedRuntimeNativeFragment_of_compile_ok_supported_safeBodies
   Compiler.Proofs.EndToEnd.validateGeneratedRuntimeNativeFragment_of_compile_ok_supported
   Compiler.Proofs.EndToEnd.validateGeneratedRuntimeNativeFragment_of_compile_ok_supported_except_mapping_writes_stmt_safety
-  -- Compiler.Proofs.EndToEnd.nativeGeneratedCallDispatcherResultOf_eq_interpretIRRuntimeNative_of_lowerRuntimeContractNative_supported_local  -- private
-  -- Compiler.Proofs.EndToEnd.nativeGeneratedCallDispatcherResultOf_eq_interpretIRRuntimeNative_of_lowerRuntimeContractNative_supported_except_mapping_writes_stmt_safety_local  -- private
+  -- Compiler.Proofs.EndToEnd.callDispatcherResult_eq_nativeRuntime_supported_local  -- private
+  -- Compiler.Proofs.EndToEnd.callDispatcherResult_eq_nativeRuntime_supported_except_mapping_writes_local  -- private
   Compiler.Proofs.EndToEnd.compile_preserves_native_evmYulLean_of_nativeGeneratedCallDispatcherResult_match
   -- Compiler.Proofs.EndToEnd.compile_preserves_native_evmYulLean_of_interpretIRRuntimeNative_match  -- private
   -- Compiler.Proofs.EndToEnd.compile_preserves_native_evmYulLean_of_interpretIRRuntimeNative_match_ofIR_environment  -- private
