@@ -3660,7 +3660,7 @@ private theorem compileSetMappingChain_legacyCompatible
                         | none => "sstore")
                       valueExpr keyExprs.zipIdx (slot :: slot' :: rest) using 1 <;>
                     simp only [List.map, List.cons_append, List.append_assoc,
-                      List.nil_append, Nat.toString_eq_repr]
+                      List.nil_append, Nat.toString_eq_repr] <;> rfl
 
 /-- Singleton `setMapping` heads compile to ordinary legacy-compatible Yul. -/
 theorem stmtList_setMappingSingle_compiledLegacyCompatible
