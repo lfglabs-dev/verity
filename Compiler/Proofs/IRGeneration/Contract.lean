@@ -2019,6 +2019,8 @@ theorem InternalTableNamesReserved_of_compileValidatedCore
             by_cases hitems : (templateIntrinsicItems model).isEmpty
             · simp [hitems] at htemplate
               cases htemplate
+              have hitemsNil := List.isEmpty_iff.mp hitems
+              rw [if_pos hitemsNil] at hcore
               rcases hfallbackEntrypoint :
                   fallbackSpec.mapM
                     (compileSpecialEntrypoint
@@ -2041,7 +2043,6 @@ theorem InternalTableNamesReserved_of_compileValidatedCore
                     _ | deploy
                   · simp [hfallbackEntrypoint, hreceiveEntrypoint, hdeploy] at hcore
                   · simp [hfallbackEntrypoint, hreceiveEntrypoint, hdeploy] at hcore
-                    apply Except.ok.inj at hcore
                     have hcontract :
                         runtimeContract.internalFunctions =
                           compileValidatedCoreHelperSegment
@@ -2072,7 +2073,12 @@ theorem InternalTableNamesReserved_of_compileValidatedCore
                         (model.functions.filter (·.isInternal))
                         internalDefs hinternalDefs hcontract
             · simp [hitems] at htemplate
-              simp [hitems, htemplate] at hcore
+              have hitemsNe : templateIntrinsicItems model ≠ [] := by
+                intro hnil
+                rw [hnil] at hitems
+                simp at hitems
+              rw [if_neg hitemsNe] at hcore
+              simp [htemplate] at hcore
               rcases hfallbackEntrypoint :
                   fallbackSpec.mapM
                     (compileSpecialEntrypoint
