@@ -562,7 +562,7 @@ theorem exec_genParamLoads_supported_then_extraFuel_withInternals
         (state := state) (params := params) (bindings := bindings)
         (rest := []) (extraFuel := rest.length + extraFuel)
         hsupported hcalldataSizeFits hbind
-    simpa [tailFuel] using hlegacy
+    simpa [tailFuel, execIRStmts, Nat.add_assoc] using hlegacy
   have hprefix :
       execIRStmtsWithInternals runtimeContract ((genParamLoads params).length + tailFuel)
           state (genParamLoads params) =
@@ -682,7 +682,7 @@ theorem interpretFunction_eq_execResultToIRResult_of_body
       (sourceResult := sourceResult)
       (irResult := irResult)
       hrollbackStorage hrollbackEvents rfl hmatch
-  simpa [SourceSemantics.interpretFunction, hbind, hsourceWithEvents,
+  simpa only [SourceSemantics.interpretFunction, hbind, hsourceWithEvents,
     FunctionBody.stmtResultToSourceResult, FunctionBody.sourceResultMatchesIRResult,
     FunctionBody.irResultOfExecResult, execResultToIRResult] using hpack
 
@@ -982,14 +982,17 @@ theorem initialIRStateForTx_matches_runtime
     dsimp [Compiler.Constants.addressModulus, Compiler.Constants.evmModulus] at hthis ⊢
     omega
   have hsenderAddr : tx.sender < Verity.Core.Address.modulus := by
-    simpa [Verity.Core.Address.modulus, Compiler.Constants.addressModulus] using hsender
+    simpa [Verity.Core.Address.modulus, Compiler.Constants.addressModulus,
+      Verity.Core.ADDRESS_MODULUS] using hsender
   have hthisAddr : tx.thisAddress < Verity.Core.Address.modulus := by
-    simpa [Verity.Core.Address.modulus, Compiler.Constants.addressModulus] using hthis
+    simpa [Verity.Core.Address.modulus, Compiler.Constants.addressModulus,
+      Verity.Core.ADDRESS_MODULUS] using hthis
   have htxOriginEvm : tx.txOrigin < Compiler.Constants.evmModulus := by
     dsimp [Compiler.Constants.addressModulus, Compiler.Constants.evmModulus] at htxOrigin ⊢
     omega
   have htxOriginAddr : tx.txOrigin < Verity.Core.Address.modulus := by
-    simpa [Verity.Core.Address.modulus, Compiler.Constants.addressModulus] using htxOrigin
+    simpa [Verity.Core.Address.modulus, Compiler.Constants.addressModulus,
+      Verity.Core.ADDRESS_MODULUS] using htxOrigin
   refine ⟨?_, rfl, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · simpa [FunctionBody.initialIRStateForTx, SourceSemantics.effectiveFields,
       SourceSemantics.encodeStorage] using
@@ -1066,7 +1069,8 @@ private theorem addressWord_roundtrip_of_lt_addressModulus
     dsimp [Compiler.Constants.addressModulus, Compiler.Constants.evmModulus] at h ⊢
     omega
   have hAddr : v < Verity.Core.Address.modulus := by
-    simpa [Verity.Core.Address.modulus, Compiler.Constants.addressModulus] using h
+    simpa [Verity.Core.Address.modulus, Compiler.Constants.addressModulus,
+      Verity.Core.ADDRESS_MODULUS] using h
   rw [Nat.mod_eq_of_lt hEvm, Nat.mod_eq_of_lt hAddr]
 
 
@@ -1094,9 +1098,11 @@ theorem initialIRStateForTx_matches_constructor_runtime
     dsimp [Compiler.Constants.addressModulus, Compiler.Constants.evmModulus] at hthis ⊢
     omega
   have hsenderAddr : tx.sender < Verity.Core.Address.modulus := by
-    simpa [Verity.Core.Address.modulus, Compiler.Constants.addressModulus] using hsender
+    simpa [Verity.Core.Address.modulus, Compiler.Constants.addressModulus,
+      Verity.Core.ADDRESS_MODULUS] using hsender
   have hthisAddr : tx.thisAddress < Verity.Core.Address.modulus := by
-    simpa [Verity.Core.Address.modulus, Compiler.Constants.addressModulus] using hthis
+    simpa [Verity.Core.Address.modulus, Compiler.Constants.addressModulus,
+      Verity.Core.ADDRESS_MODULUS] using hthis
   have hsenderWord :
       tx.sender % Compiler.Constants.evmModulus % Verity.Core.Address.modulus = tx.sender := by
     rw [Nat.mod_eq_of_lt hsenderEvm, Nat.mod_eq_of_lt hsenderAddr]
@@ -1105,7 +1111,9 @@ theorem initialIRStateForTx_matches_constructor_runtime
         tx.thisAddress := by
     rw [Nat.mod_eq_of_lt hthisEvm, Nat.mod_eq_of_lt hthisAddr]
   have hcalldataSizeFits' : tx.args.length * 32 < Verity.Core.Uint256.modulus := by
-    simpa [TxConstructorCalldataSizeFitsEvm, Verity.Core.Uint256.modulus] using hcalldataSizeFits
+    simpa [TxConstructorCalldataSizeFitsEvm, Verity.Core.Uint256.modulus,
+      Compiler.Constants.evmModulus, Verity.Core.UINT256_MODULUS] using
+        hcalldataSizeFits
   have htxOriginWord := addressWord_roundtrip_of_lt_addressModulus htxOrigin
   refine ⟨?_, ?_⟩
   · simpa [FunctionBody.initialIRStateForTx, SourceSemantics.effectiveFields,
@@ -2070,7 +2078,7 @@ theorem supported_function_correct_with_helper_proofs_body_goal
         (sourceResult := sourceResult)
         (irResult := irExec)
         hrollbackStorage hrollbackEvents rfl hmatch
-    simpa [supportedSourceFunctionSemantics, SourceSemantics.interpretFunctionWithHelpers,
+    simpa only [supportedSourceFunctionSemantics, SourceSemantics.interpretFunctionWithHelpers,
       hbind, hsource, FunctionBody.stmtResultToSourceResult,
       FunctionBody.sourceResultMatchesIRResult, FunctionBody.irResultOfExecResult,
       execResultToIRResult] using hpack
@@ -2157,7 +2165,8 @@ private theorem supported_function_correct_with_scalar_events_body_goal_source_m
       (rollback := FunctionBody.initialIRStateForTx model tx initialWorld)
       (sourceResult := sourceResult) (irResult := irExec)
       hrollbackStorage hrollbackEvents rfl hmatch
-  simpa [supportedSourceFunctionSemanticsWithScalarEvents, SourceSemantics.interpretFunctionWithHelpers,
+  simpa only [supportedSourceFunctionSemanticsWithScalarEvents,
+    SourceSemantics.interpretFunctionWithHelpers,
     hbind, hsource, FunctionBody.stmtResultToSourceResult,
     FunctionBody.sourceResultMatchesIRResult, FunctionBody.irResultOfExecResult,
     execResultToIRResult] using hpack
@@ -2832,7 +2841,8 @@ theorem supported_function_body_with_internals_goal_of_compileFunctionSpec_with_
       selector fn irFn hcompile with
     ⟨returns, bodyStmts, _hvalidate, _hreturns, hbodyCompile, hirFn⟩
   have hirFnLocal : irFn = compiledFunctionIR selector fn returns bodyStmts := by
-    simpa [FunctionShape.compiledFunctionIR, compiledFunctionIR] using hirFn
+    simpa [FunctionShape.compiledFunctionIR, compiledFunctionIR,
+      CompilationModel.compileFunctionSpec] using hirFn
   let extraFuel := sizeOf irFn.body - irFn.body.length
   have hbodyExtraFuelLower :
       sizeOf bodyStmts - bodyStmts.length ≤ extraFuel := by
@@ -4021,7 +4031,8 @@ theorem internalFunctionYulName_take_prefix (name : String) :
   have hdata : (internalFunctionYulName name).data =
       internalFunctionPrefix.data ++ name.data := by
     have ts : ∀ s : String, toString s = s := fun _ => rfl
-    simp only [internalFunctionYulName, ts, String.data_append, List.nil_append, List.append_nil]
+    simpa only [internalFunctionYulName, ts, List.nil_append, List.append_nil] using
+      String.toList_append internalFunctionPrefix name
   rw [hdata]
   simp
 
@@ -5125,7 +5136,7 @@ theorem supported_constructor_body_correct_with_body_interface
         hrollbackEvents
         rfl
         hmatch
-    simpa [SourceSemantics.interpretConstructorWithHelpers, hrawUnsupported,
+    simpa only [SourceSemantics.interpretConstructorWithHelpers, hrawUnsupported,
       hconstructorBindings, FunctionBody.stmtResultToSourceResult,
       FunctionBody.sourceResultMatchesIRResult, FunctionBody.irResultOfExecResult,
       execResultToIRResult, initialState, SourceSemantics.effectiveFields] using hpack
