@@ -1053,7 +1053,9 @@ def projectLogsFromState (state : EvmYul.Yul.State) : List (List Nat) :=
     nativeSwitchPostInitFreeMemoryStorePrefixStateForId,
     nativeSwitchPostInitFreeMemoryState,
     nativeSwitchPostInitFreeMemorySharedState,
-    initialState, EvmYul.Yul.State.insert, EvmYul.Yul.State.sharedState]
+    initialState, EvmYul.Yul.State.insert, EvmYul.Yul.State.sharedState,
+    YulState.initial, toSharedState, mkBlockHeader]
+  rfl
 
 theorem projectStorageFromState_setStore_ok_left
     (tx : YulTransaction)
