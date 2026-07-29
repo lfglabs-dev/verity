@@ -310,7 +310,7 @@ def Contract.tryCatch {α : Type} (attempt : Contract α) (handler : String → 
     | ContractResult.success _ s' => ContractResult.success () s'
     | ContractResult.revert msg rollback => handler msg rollback
 
-set_option warning.simp.varHead false in
+set_option warning.simp.varHead false
 @[simp] theorem Contract.eq_of_run_success {α : Type} {c : Contract α} {s : ContractState}
     {a : α} {s' : ContractState} (h : c.run s = ContractResult.success a s') :
     c s = ContractResult.success a s' := by
@@ -324,6 +324,8 @@ set_option warning.simp.varHead false in
     rfl
   | revert msg s0 =>
     simp [hcs] at h
+
+set_option warning.simp.varHead true
 
 @[simp] theorem pure_run (a : α) (state : ContractState) :
   (pure a : Contract α).run state = ContractResult.success a state := rfl
