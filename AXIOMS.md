@@ -56,19 +56,11 @@ elaboration:
   concrete bridge checks, and explicitly documented reduction witnesses, but
   they are tracked as trusted reduction surface rather than counted as
   project-level axioms.
-  The two closed identifier facts
-  `Compiler.CompilationModel.compatScratch_startsWith_reserved` and
-  `Compiler.CompilationModel.compatScratch_not_internalImmutable` are an
-  explicit compiler-proof boundary of this kind. Lean 4.24 keeps the recursive
-  worker behind `String.startsWith` private and exposes no public correctness
-  theorem for it. `#print axioms` records `Lean.ofReduceBool` on these facts and
-  their consumers; executing `native_decide` additionally trusts Lean's native
-  compiler, represented by the builtin `Lean.trustCompiler` code-generation
-  surface even though that name is not present in these printed proof terms.
-  They are isolated in
-  `Compiler/CompilationModel/ReservedScratchNames.lean` and must return to a
-  kernel proof once Lean or Batteries exposes `substrEq`/`startsWith`
-  correctness lemmas.
+  Lean 4.31 exposes `String.startsWith_string_iff` and
+  `String.startsWith_string_eq_false_iff`. The closed compatibility scratch-name
+  facts in `Compiler/CompilationModel/ReservedScratchNames.lean` now use those
+  lemmas and kernel `decide`; their former Lean 4.24 native-code trust boundary
+  has been eliminated.
 - `@[implemented_by ...]` may redirect runtime execution to a faster
   implementation. The proof term still sees the kernel-computable definition,
   so this is a runtime/codegen trust boundary rather than a Lean axiom.

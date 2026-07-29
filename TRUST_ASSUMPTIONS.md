@@ -82,18 +82,14 @@ Current theorem totals, property-test coverage, and proof status live in [docs/V
 
 ### 8. Lean Kernel
 - **Role**: Proof checker soundness. Foundational assumption for all Lean-based verification.
-- **Lean 4.24 string-reduction boundary**: The closed scratch-name facts
+- **Lean 4.31 kernel string facts**: The closed scratch-name facts
   `Compiler.CompilationModel.compatScratch_startsWith_reserved` and
-  `Compiler.CompilationModel.compatScratch_not_internalImmutable` use
-  `native_decide`. Their printed proof dependencies add `Lean.ofReduceBool` to
-  downstream consumers; the reduction also implicitly trusts Lean's native
-  compiler (`Lean.trustCompiler`), although that builtin does not occur in the
-  current `#print axioms` terms. They are kept in
-  the dedicated non-proof module
-  `Compiler/CompilationModel/ReservedScratchNames.lean`: Lean 4.24 makes the
-  recursive `String.startsWith` worker private and provides no public
-  correctness theorem. This boundary should be removed as soon as Lean or
-  Batteries supplies `substrEq`/`startsWith` correctness lemmas.
+  `Compiler.CompilationModel.compatScratch_not_internalImmutable` are proved
+  with Lean 4.31's public `String.startsWith_string_iff` and
+  `String.startsWith_string_eq_false_iff` lemmas followed by kernel `decide`.
+  They remain grouped in
+  `Compiler/CompilationModel/ReservedScratchNames.lean`, and no longer add
+  `Lean.ofReduceBool` or `Lean.trustCompiler` to the trust surface.
 
 ### 9. Macro Elaborator (`verity_contract`)
 - **Role**: Generates both EDSL `Contract` monad value and `CompilationModel` from one syntax tree.

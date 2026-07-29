@@ -3,7 +3,7 @@
     "1. Clone lfglabs-dev/EVMYulLean at pinned commit into a local worktree.",
     "2. Add NethermindEth/EVMYulLean as `upstream` remote and fetch.",
     "3. Compute `git merge-base upstream/main origin/main` to find the divergence point.",
-    "4. For each commit in `upstream/main..origin/main`, record SHA, title, touched files, and categorize as {visibility, toolchain, lemma-addition, builtin-addition, semantic-change}.",
+    "4. For each commit in `upstream/main..origin/main`, record SHA, title, touched files, and categorize as {visibility, toolchain, lemma-addition, builtin-addition, semantic-change, merge}.",
     "5. Reject `semantic-change` category without explicit Issue #1722 scope expansion (would break upstream conformance test coverage).",
     "6. Commit this artifact alongside Verity's lake-manifest.json pin bump."
   ],

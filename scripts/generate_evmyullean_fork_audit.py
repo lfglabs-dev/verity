@@ -332,7 +332,7 @@ FORK_AUDIT = {
         "1. Clone lfglabs-dev/EVMYulLean at pinned commit into a local worktree.",
         "2. Add NethermindEth/EVMYulLean as `upstream` remote and fetch.",
         "3. Compute `git merge-base upstream/main origin/main` to find the divergence point.",
-        "4. For each commit in `upstream/main..origin/main`, record SHA, title, touched files, and categorize as {visibility, toolchain, lemma-addition, builtin-addition, semantic-change}.",
+        "4. For each commit in `upstream/main..origin/main`, record SHA, title, touched files, and categorize as {visibility, toolchain, lemma-addition, builtin-addition, semantic-change, merge}.",
         "5. Reject `semantic-change` category without explicit Issue #1722 scope expansion (would break upstream conformance test coverage).",
         "6. Commit this artifact alongside Verity's lake-manifest.json pin bump.",
     ],
@@ -356,6 +356,15 @@ FORK_AUDIT = {
         "Ethereum conformance test coverage applies transitively."
     ),
 }
+
+ALLOWED_CATEGORIES = frozenset({
+    "visibility",
+    "toolchain",
+    "lemma-addition",
+    "builtin-addition",
+    "semantic-change",
+    "merge",
+})
 
 
 def _read_evmyul_package(manifest_path: Path) -> dict[str, object]:
@@ -381,6 +390,11 @@ def _validate_audit() -> None:
             "coverage applies transitively"
         )
     for commit in FORK_AUDIT["commits"]:
+        if commit.get("category") not in ALLOWED_CATEGORIES:
+            raise RuntimeError(
+                f"commit {commit['sha'][:10]} has unsupported category "
+                f"{commit.get('category')!r}"
+            )
         if commit.get("semantic_change") is not False:
             raise RuntimeError(
                 f"commit {commit['sha'][:10]} must be non-semantic; "
