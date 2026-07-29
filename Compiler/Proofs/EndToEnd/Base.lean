@@ -52,13 +52,6 @@ open Compiler.Proofs.IRGeneration
 open Compiler.Proofs.YulGeneration
 open Compiler.Proofs.YulGeneration.Backends
 
--- Lean 4.31 no longer unfolds these two thin state constructors in several
--- `simpa` calls below.  Keep their old normalization behavior local to this
--- compatibility proof file.
-attribute [local simp]
-  Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId
-  Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStorePrefixStateForId
-
 /-! ## Native Runtime Result Surface -/
 
 /-- Observable result comparison surface for native EVMYulLean execution. -/
@@ -483,15 +476,14 @@ private theorem nativeGeneratedCallDispatcherMatchesIROn_of_dispatcherExec
         observableSlots nativeContract) :
     nativeGeneratedCallDispatcherMatchesIROn contract tx state observableSlots
       nativeContract := by
-  convert hMatch using 1 <;>
-    try simp [nativeGeneratedCallDispatcherMatchesIROn,
-      nativeGeneratedCallDispatcherResultOf,
-      nativeGeneratedDispatcherExecMatchesIROn,
-      EvmYul.Yul.Ast.FunctionDefinition.rets,
-      Compiler.Proofs.YulGeneration.Backends.Native.callDispatcher_succ_eq_callDispatcherBlockResult,
-      Compiler.Proofs.YulGeneration.Backends.Native.callDispatcherBlockResult_initialState_eq_contractDispatcherBlockResult,
-      Compiler.Proofs.YulGeneration.Backends.Native.contractDispatcherBlockResult_eq_execResult]
-  all_goals exact Subsingleton.elim _ _
+  unfold nativeGeneratedCallDispatcherMatchesIROn
+  unfold nativeGeneratedCallDispatcherResultOf
+  rw [
+    Compiler.Proofs.YulGeneration.Backends.Native.callDispatcher_succ_eq_callDispatcherBlockResult,
+    Compiler.Proofs.YulGeneration.Backends.Native.callDispatcherBlockResult_initialState_eq_contractDispatcherBlockResult,
+    Compiler.Proofs.YulGeneration.Backends.Native.contractDispatcherBlockResult_eq_execResult]
+  unfold nativeGeneratedDispatcherExecMatchesIROn at hMatch
+  simpa [EvmYul.Yul.Ast.FunctionDefinition.rets] using hMatch
 
 /-- Re-target a native result match from the selected IR function body to the
 top-level IR interpreter, once selector-hit success guards are known. -/
@@ -13211,6 +13203,12 @@ private theorem compile_preserves_native_evmYulLean_selector_miss_of_compile_ok_
         (by simpa [nativeInitFreeMemoryPointerStmt] using hLowerDispatcher)
         hFind hSelectorRange hNoWrap hFunctionSelectorsRange hEnv
 
+-- Lean 4.31 no longer unfolds these thin state constructors in the selector
+-- bridge `simpa` calls below.
+attribute [local simp]
+  Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId
+  Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStorePrefixStateForId
+
 /-- Supported no-mapping selector-hit source theorem at the structural fuel
 exposed by the generic native selector-hit success execution lemma. The
 selected-body execution, switch-temporary freshness, matched-flag preservation,
@@ -19052,6 +19050,10 @@ theorem nativeGeneratedCallDispatcherResult_selector_hit_ok_matchesIR_exists_of_
   exact ⟨nativeContract, hLowerRuntime, reservedNames, n0, cases',
     body', bodyStart, bodyEnd, hCase, hBodyLower, hDispatcherContinuation⟩
 
+attribute [-simp]
+  Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId
+  Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStorePrefixStateForId
+
 /-- Selector-hit lowered-artifact theorem for a supported generated runtime.
 
 Unlike the selector-hit success theorem, this exposes the selected native case
@@ -20590,8 +20592,7 @@ private theorem nativeResultsMatchOn_execIRFunction_empty_body_markedPrefix
         nativeContract (YulTransaction.ofIR tx) state.storage state.events
         (Compiler.runtimeCode irContract) observableSlots switchId store slot
         hSlot).symm
-  · rw [Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId_reviveJump_eq]
-    simpa [Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState]
+  · simpa [Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState]
       using
         (Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState_nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId
           nativeContract (YulTransaction.ofIR tx) state.storage
@@ -20731,8 +20732,7 @@ private theorem nativeResultsMatchOn_execIRFunction_leave_body_markedPrefix
         nativeContract (YulTransaction.ofIR tx) state.storage state.events
         (Compiler.runtimeCode irContract) observableSlots switchId store slot
         hSlot).symm
-  · rw [Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId_reviveJump_eq]
-    simpa [Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState]
+  · simpa [Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState]
       using
         (Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState_nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId
           nativeContract (YulTransaction.ofIR tx) state.storage
@@ -20783,8 +20783,7 @@ private theorem nativeResultsMatchOn_execIRFunction_label_prefix_leave_body_mark
         nativeContract (YulTransaction.ofIR tx) state.storage state.events
         (Compiler.runtimeCode irContract) observableSlots switchId store slot
         hSlot).symm
-  · rw [Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId_reviveJump_eq]
-    simpa [Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState]
+  · simpa [Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState]
       using
         (Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState_nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId
           nativeContract (YulTransaction.ofIR tx) state.storage
@@ -20987,8 +20986,7 @@ private theorem nativeResultsMatchOn_execIRFunction_block_leave_body_markedPrefi
         nativeContract (YulTransaction.ofIR tx) state.storage state.events
         (Compiler.runtimeCode irContract) observableSlots switchId store slot
         hSlot).symm
-  · rw [Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId_reviveJump_eq]
-    simpa [Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState]
+  · simpa [Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState]
       using
         (Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState_nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId
           nativeContract (YulTransaction.ofIR tx) state.storage
@@ -21038,8 +21036,7 @@ private theorem nativeResultsMatchOn_execIRFunction_label_prefix_block_leave_bod
         nativeContract (YulTransaction.ofIR tx) state.storage state.events
         (Compiler.runtimeCode irContract) observableSlots switchId store slot
         hSlot).symm
-  · rw [Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId_reviveJump_eq]
-    simpa [Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState]
+  · simpa [Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState]
       using
         (Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState_nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId
           nativeContract (YulTransaction.ofIR tx) state.storage
@@ -21218,8 +21215,7 @@ private theorem nativeResultsMatchOn_execIRFunction_block_empty_body_markedPrefi
         nativeContract (YulTransaction.ofIR tx) state.storage state.events
         (Compiler.runtimeCode irContract) observableSlots switchId store slot
         hSlot).symm
-  · rw [Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId_reviveJump_eq]
-    simpa [Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState]
+  · simpa [Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState]
       using
         (Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState_nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId
           nativeContract (YulTransaction.ofIR tx) state.storage
@@ -21334,8 +21330,7 @@ private theorem nativeResultsMatchOn_execIRFunction_singleton_comment_body_marke
         nativeContract (YulTransaction.ofIR tx) state.storage state.events
         (Compiler.runtimeCode irContract) observableSlots switchId store slot
         hSlot).symm
-  · rw [Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId_reviveJump_eq]
-    simpa [Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState]
+  · simpa [Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState]
       using
         (Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState_nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId
           nativeContract (YulTransaction.ofIR tx) state.storage
@@ -21449,8 +21444,7 @@ private theorem nativeResultsMatchOn_execIRFunction_stop_body_markedPrefix
         switchId store slot
         (Compiler.Proofs.YulGeneration.Backends.Native.observableSlot_mem_materializedStorageSlots
           (Compiler.runtimeCode irContract) observableSlots slot hSlot)).symm
-  · rw [Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId_reviveJump_eq]
-    simpa [Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState]
+  · simpa [Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState]
       using
         (Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState_nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId
           nativeContract (YulTransaction.ofIR tx) state.storage
