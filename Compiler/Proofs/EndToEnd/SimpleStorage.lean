@@ -4849,9 +4849,10 @@ private theorem execIRFunction_zeroParam_mstore0_lit_return32
       sizeOf body + 1 =
         (Compiler.CompilationModel.genParamLoads params).length + rest.length +
           (sizeOf body - body.length) + 1 := by
-    simp [body, params, rest, Compiler.CompilationModel.genParamLoads,
-      Compiler.CompilationModel.genParamLoadsFrom,
-      Compiler.CompilationModel.genParamLoadBodyFrom]
+    have hBodyLength :
+        body.length = (Compiler.CompilationModel.genParamLoads params).length +
+          rest.length := by
+      simp [body]
     omega
   have hParam :
       execIRStmts
@@ -4966,9 +4967,10 @@ private theorem execIRFunction_zeroParam_mstore0_sload0_return32
       sizeOf body + 1 =
         (Compiler.CompilationModel.genParamLoads params).length + rest.length +
           (sizeOf body - body.length) + 1 := by
-    simp [body, params, rest, Compiler.CompilationModel.genParamLoads,
-      Compiler.CompilationModel.genParamLoadsFrom,
-      Compiler.CompilationModel.genParamLoadBodyFrom]
+    have hBodyLength :
+        body.length = (Compiler.CompilationModel.genParamLoads params).length +
+          rest.length := by
+      simp [body]
     omega
   have hParam :
       execIRStmts
@@ -5107,11 +5109,10 @@ private theorem execIRFunction_oneParam_store0_value_stop
       sizeOf body + 1 =
         (Compiler.CompilationModel.genParamLoads params).length +
           restBody.length + (sizeOf body - body.length) + 1 := by
-    simp [body, params, restBody, Compiler.CompilationModel.genParamLoads,
-      Compiler.CompilationModel.genParamLoadsFrom,
-      Compiler.CompilationModel.genParamLoadBodyFrom,
-      Compiler.CompilationModel.genSingleParamLoad,
-      Compiler.CompilationModel.genScalarLoad]
+    have hBodyLength :
+        body.length = (Compiler.CompilationModel.genParamLoads params).length +
+          restBody.length := by
+      simp [body]
     omega
   have hBind :
       SourceSemantics.bindSupportedParams params stateWithParams.calldata =
