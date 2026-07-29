@@ -1048,12 +1048,10 @@ def projectLogsFromState (state : EvmYul.Yul.State) : List (List Nat) :=
     projectLogsFromState
       (nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId contract tx
         storage slots switchId store) = [] := by
-  simp [projectLogsFromState,
-    nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId,
-    nativeSwitchPostInitFreeMemoryStorePrefixStateForId,
-    nativeSwitchPostInitFreeMemoryState,
-    nativeSwitchPostInitFreeMemorySharedState,
-    EvmYul.Yul.State.insert]
+  change
+    (initialState contract tx storage slots).sharedState.substate.logSeries = #[]
+  simpa [projectLogsFromState] using
+    projectLogsFromState_initialState contract tx storage slots
 
 theorem projectStorageFromState_setStore_ok_left
     (tx : YulTransaction)
