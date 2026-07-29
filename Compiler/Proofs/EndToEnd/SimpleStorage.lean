@@ -3970,6 +3970,36 @@ private theorem simpleStorageNativeContract_dispatcherExec_storeHit_short_revert
 with the IR setter update on every materialized slot. The native zero-write
 case erases slot zero from the finite EVM map; projected lookup still agrees
 with IR storage because missing native storage reads as the zero word. -/
+private theorem simpleStorage_storage_get?_insert_of_ne
+    (m : EvmYul.Storage) (lookup inserted value : EvmYul.UInt256)
+    (h : compare lookup inserted ≠ Ordering.eq) :
+    (m.insert inserted value).get? lookup = m.get? lookup := by
+  change (m.insert inserted value)[lookup]? = m[lookup]?
+  rw [Std.TreeMap.getElem?_insert]
+  split
+  · rename_i heq
+    exact False.elim (h (Std.OrientedCmp.eq_comm.mp heq))
+  · rfl
+
+private theorem simpleStorage_storage_get?_insert_of_eq
+    (m : EvmYul.Storage) (lookup inserted value : EvmYul.UInt256)
+    (h : compare lookup inserted = Ordering.eq) :
+    (m.insert inserted value).get? lookup = some value := by
+  change (m.insert inserted value)[lookup]? = some value
+  rw [Std.TreeMap.getElem?_insert]
+  exact if_pos (Std.OrientedCmp.eq_comm.mpr h)
+
+private theorem simpleStorage_storage_get?_erase_of_ne
+    (m : EvmYul.Storage) (lookup erased : EvmYul.UInt256)
+    (h : compare lookup erased ≠ Ordering.eq) :
+    (m.erase erased).get? lookup = m.get? lookup := by
+  change (m.erase erased)[lookup]? = m[lookup]?
+  rw [Std.TreeMap.getElem?_erase]
+  split
+  · rename_i heq
+    exact False.elim (h (Std.OrientedCmp.eq_comm.mp heq))
+  · rfl
+
 private theorem projectStorageFromState_storeHit_initialState_materialized
     (contract : EvmYul.Yul.Ast.YulContract)
     (tx : YulTransaction) (storage : IRStorageSlot → IRStorageWord)
@@ -4001,8 +4031,8 @@ private theorem projectStorageFromState_storeHit_initialState_materialized
     Compiler.Proofs.YulGeneration.Backends.StateBridge.toSharedState,
     YulState.initial,
     Compiler.Proofs.YulGeneration.Backends.StateBridge.natToUInt256]
-  simp only [Option.option,
-    Std.TreeMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
+  simp only [Option.option, Std.TreeMap.get?_eq_getElem?,
+    Std.TreeMap.getElem?_insert_self]
   by_cases hValueZero :
       (EvmYul.UInt256.ofNat arg == (Inhabited.default : EvmYul.UInt256)) = true
   · rw [hValueZero]
@@ -4036,10 +4066,10 @@ private theorem projectStorageFromState_storeHit_initialState_materialized
           (Std.TreeMap.erase
             (Compiler.Proofs.YulGeneration.Backends.StateBridge.projectStorage
               storage slots)
-            (EvmYul.UInt256.ofNat 0)).find? (EvmYul.UInt256.ofNat slot) =
+            (EvmYul.UInt256.ofNat 0)).get? (EvmYul.UInt256.ofNat slot) =
             none := by
-        simpa [hUInt] using
-          (Std.TreeMap.find?_erase_self
+        simpa [Std.TreeMap.get?_eq_getElem?, hUInt] using
+          (Std.TreeMap.getElem?_erase_self
             (Compiler.Proofs.YulGeneration.Backends.StateBridge.projectStorage
               storage slots)
             (EvmYul.UInt256.ofNat 0))
@@ -4053,17 +4083,17 @@ private theorem projectStorageFromState_storeHit_initialState_materialized
           (Std.TreeMap.erase
             (Compiler.Proofs.YulGeneration.Backends.StateBridge.projectStorage
               storage slots)
-            (EvmYul.UInt256.ofNat 0)).find? (EvmYul.UInt256.ofNat slot) =
+            (EvmYul.UInt256.ofNat 0)).get? (EvmYul.UInt256.ofNat slot) =
           (Compiler.Proofs.YulGeneration.Backends.StateBridge.projectStorage
-              storage slots).find? (EvmYul.UInt256.ofNat slot) := by
-        exact Std.TreeMap.find?_erase_of_ne _ hKey
+              storage slots).get? (EvmYul.UInt256.ofNat slot) := by
+        exact simpleStorage_storage_get?_erase_of_ne _ _ _ hKey
       have hLookup :=
         Compiler.Proofs.YulGeneration.Backends.StateBridge.storageLookup_projectStorage_projected
           storage slots slot hSlot
       have hLookup' :
           (match
             (Compiler.Proofs.YulGeneration.Backends.StateBridge.projectStorage
-              storage slots).find? (EvmYul.UInt256.ofNat slot) with
+              storage slots).get? (EvmYul.UInt256.ofNat slot) with
           | some val => val
           | none => (⟨0⟩ : EvmYul.UInt256)) =
             storage (IRStorageSlot.ofNat slot) := by
@@ -4111,18 +4141,18 @@ private theorem projectStorageFromState_storeHit_initialState_materialized
       have hUInt :
           EvmYul.UInt256.ofNat slot = EvmYul.UInt256.ofNat 0 := by
         simpa [IRStorageSlot.ofNat] using hSlotEq
-      rw [Std.TreeMap.find?_insert_of_eq _ hKey]
+      rw [simpleStorage_storage_get?_insert_of_eq _ _ _ _ hKey]
       rw [hUInt]
       simp [Compiler.Proofs.abstractStoreStorageOrMapping,
         Compiler.Proofs.IRGeneration.IRStorageWord.ofNat, IRStorageSlot.ofNat]
-    · rw [Std.TreeMap.find?_insert_of_ne _ hKey]
+    · rw [simpleStorage_storage_get?_insert_of_ne _ _ _ _ hKey]
       have hLookup :=
         Compiler.Proofs.YulGeneration.Backends.StateBridge.storageLookup_projectStorage_projected
           storage slots slot hSlot
       have hLookup' :
           (match
             (Compiler.Proofs.YulGeneration.Backends.StateBridge.projectStorage
-              storage slots).find? (EvmYul.UInt256.ofNat slot) with
+              storage slots).get? (EvmYul.UInt256.ofNat slot) with
           | some val => val
           | none => (⟨0⟩ : EvmYul.UInt256)) =
             storage (IRStorageSlot.ofNat slot) := by
