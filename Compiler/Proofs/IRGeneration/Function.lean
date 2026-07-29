@@ -682,9 +682,9 @@ theorem interpretFunction_eq_execResultToIRResult_of_body
       (sourceResult := sourceResult)
       (irResult := irResult)
       hrollbackStorage hrollbackEvents rfl hmatch
-  rw [SourceSemantics.interpretFunction,
-    SourceSemantics.bindExternalParams_eq_some_of_bindSupportedParams _ hbind, hsourceWithEvents]
-  exact hpack
+  simp only [SourceSemantics.interpretFunction,
+    SourceSemantics.bindExternalParams_eq_some_of_bindSupportedParams _ hbind]
+  rw [hsourceWithEvents]; exact hpack
 
 theorem interpretFunctionWithHelpers_eq_execResultToIRResultWithInternals_of_body
     (model : CompilationModel) (fn : FunctionSpec)
@@ -2078,10 +2078,10 @@ theorem supported_function_correct_with_helper_proofs_body_goal
         (sourceResult := sourceResult)
         (irResult := irExec)
         hrollbackStorage hrollbackEvents rfl hmatch
-    rw [supportedSourceFunctionSemantics,
+    simp only [supportedSourceFunctionSemantics,
       SourceSemantics.interpretFunctionWithHelpers,
-      SourceSemantics.bindExternalParams_eq_some_of_bindSupportedParams _ hbind,
-      hsource]
+      SourceSemantics.bindExternalParams_eq_some_of_bindSupportedParams _ hbind]
+    rw [hsource]
     exact hpack
   have hcompiledExec :
       Compiler.Proofs.YulGeneration.execIRFunctionFuel
@@ -2166,10 +2166,10 @@ private theorem supported_function_correct_with_scalar_events_body_goal_source_m
       (rollback := FunctionBody.initialIRStateForTx model tx initialWorld)
       (sourceResult := sourceResult) (irResult := irExec)
       hrollbackStorage hrollbackEvents rfl hmatch
-  rw [supportedSourceFunctionSemanticsWithScalarEvents,
+  simp only [supportedSourceFunctionSemanticsWithScalarEvents,
     SourceSemantics.interpretFunctionWithHelpers,
-    SourceSemantics.bindExternalParams_eq_some_of_bindSupportedParams _ hbind,
-    hsource]
+    SourceSemantics.bindExternalParams_eq_some_of_bindSupportedParams _ hbind]
+  rw [hsource]
   exact hpack
 
 private theorem supported_function_correct_with_scalar_events_body_goal_compiled_exec
@@ -3648,11 +3648,12 @@ private theorem compileSetMappingChain_legacyCompatible
                   simpa only [List.map, List.cons_append, List.append_assoc,
                     Nat.toString_eq_repr] using
                     legacyCompatibleExternalStmtList_block_value_lets_writes
-                      (α := YulExpr × Nat) (β := Nat) (letName := fun x => s!"__compat_key{x.2}")
+                      (α := YulExpr × Nat) (β := Nat)
+                      (letName := fun x => "__compat_key" ++ x.2.repr)
                       (letValue := fun x => x.1)
                       (f := fun slot =>
                         (List.range keyExprs.length).map
-                          (fun idx => YulExpr.ident s!"__compat_key{idx}")
+                          (fun idx => YulExpr.ident ("__compat_key" ++ idx.repr))
                         |>.foldl
                           (fun slotExpr keyExpr => YulExpr.call "mappingSlot" [slotExpr, keyExpr])
                           (YulExpr.lit slot))
@@ -4031,7 +4032,8 @@ theorem internalFunctionYulName_take_prefix (name : String) :
       internalFunctionPrefix.toList := by
   have hdata : (internalFunctionYulName name).toList =
       internalFunctionPrefix.toList ++ name.toList := by
-    simpa only [internalFunctionYulName] using
+    have ts : ∀ s : String, toString s = s := fun _ => rfl
+    simpa only [internalFunctionYulName, ts] using
       (String.toList_append :
         (internalFunctionPrefix ++ name).toList =
           internalFunctionPrefix.toList ++ name.toList)
@@ -5073,10 +5075,16 @@ theorem supported_constructor_body_correct_with_body_interface
           (SourceSemantics.effectiveFields model)
           (constructorBodyScope ctor.params)
           ctor.body := by
-      simpa [SourceSemantics.effectiveFields, hnormalized, ctorFn,
-        constructorAsFunctionSpec, constructorBodyScope, constructorArgAliasNames,
-        Function.comp_apply, List.map_map, Param.toIRParam] using
-        hSupported.body.helperFreeStepInterface_stmtSafety hnoConflict hsafety
+      have hscopeEq :
+          (constructorAsFunctionSpec ctor).params.map (·.name) =
+            constructorBodyScope ctor.params := by
+        simp [constructorAsFunctionSpec, constructorBodyScope,
+          constructorArgAliasNames, Function.comp_apply, List.map_map,
+          Param.toIRParam]
+      rw [show SourceSemantics.effectiveFields model = model.fields by
+        simp [SourceSemantics.effectiveFields, hnormalized]]
+      rw [← hscopeEq]
+      exact hSupported.body.helperFreeStepInterface_stmtSafety hnoConflict hsafety
     have hgeneric :
         StmtListGenericWithHelpers model (SourceSemantics.effectiveFields model)
           (constructorBodyScope ctor.params) ctor.body :=

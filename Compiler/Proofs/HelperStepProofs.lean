@@ -886,6 +886,7 @@ theorem directInternalHelperStatementContextBridge_sourceAssignEvidence
         (calleeName := calleeName)
         (args := args)
         hctx.sourceWitness hnodup, hargs]
+    rfl
   · simpa [result] using hctx.summarySound fuel state.world argVals
 
 end LegacyDirectStatementBridge
