@@ -310,7 +310,8 @@ def Contract.tryCatch {α : Type} (attempt : Contract α) (handler : String → 
     | ContractResult.success _ s' => ContractResult.success () s'
     | ContractResult.revert msg rollback => handler msg rollback
 
-theorem Contract.eq_of_run_success {α : Type} {c : Contract α} {s : ContractState}
+set_option warning.simp.varHead false in
+@[simp] theorem Contract.eq_of_run_success {α : Type} {c : Contract α} {s : ContractState}
     {a : α} {s' : ContractState} (h : c.run s = ContractResult.success a s') :
     c s = ContractResult.success a s' := by
   unfold Contract.run at h
@@ -323,11 +324,6 @@ theorem Contract.eq_of_run_success {α : Type} {c : Contract α} {s : ContractSt
     rfl
   | revert msg s0 =>
     simp [hcs] at h
-
--- This intentionally flexible simp lemma bridges `Contract.run` hypotheses back
--- to direct contract application throughout the compiler-correctness proofs.
-set_option warning.simp.varHead false in
-attribute [export simp] Contract.eq_of_run_success
 
 @[simp] theorem pure_run (a : α) (state : ContractState) :
   (pure a : Contract α).run state = ContractResult.success a state := rfl
