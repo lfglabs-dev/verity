@@ -1690,13 +1690,18 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.EndToEnd.simpleStorage_storage_get?_insert_of_ne  -- private
   -- Compiler.Proofs.EndToEnd.simpleStorage_storage_get?_insert_of_eq  -- private
   -- Compiler.Proofs.EndToEnd.simpleStorage_storage_get?_erase_of_ne  -- private
+  -- Compiler.Proofs.EndToEnd.simpleStorage_account_updateStorage_storage_of_nonzero  -- private
+  -- Compiler.Proofs.EndToEnd.simpleStorage_account_updateStorage_storage_of_zero  -- private
   -- Compiler.Proofs.EndToEnd.projectStorageFromState_storeHit_initialState_materialized  -- private
   -- Compiler.Proofs.EndToEnd.nativeResultsMatchOn_execIRFunction_store0_calldataload4_stop_markedPrefix  -- private
   -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel.of_store0_calldataload4_stop  -- private
   -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectedUserBodyResultBridgeAtFuel.of_store0_calldataload4_stop  -- private
   -- Compiler.Proofs.EndToEnd.nativeGeneratedCallDispatcherMatchesIR_of_compile_ok_supported_store0_calldataload4_stop  -- private
   -- Compiler.Proofs.EndToEnd.array_extract_append_left  -- private
+  -- Compiler.Proofs.EndToEnd.simpleStorage_yulStmtList_length_le_sizeOf  -- private
   -- Compiler.Proofs.EndToEnd.byteArray_readWithPadding_prefix  -- private
+  -- Compiler.Proofs.EndToEnd.byteArray_append_zeroes_zero  -- private
+  -- Compiler.Proofs.EndToEnd.byteArray_extract_zero_32_eq_of_size  -- private
   -- Compiler.Proofs.EndToEnd.byteArray_write_zero_32_readWithPadding_eq_of_size  -- private
   -- Compiler.Proofs.EndToEnd.byteArray_write_empty_64_32_size_ge_32  -- private
   -- Compiler.Proofs.EndToEnd.nativeSwitchPostInitFreeMemorySharedState_memory_size_ge_32  -- private
@@ -6417,4 +6422,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6014 theorems/lemmas (4170 public, 1844 private, 0 sorry'd)
+-- Total: 6019 theorems/lemmas (4170 public, 1849 private, 0 sorry'd)
