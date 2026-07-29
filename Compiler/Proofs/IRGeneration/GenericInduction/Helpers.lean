@@ -2824,7 +2824,7 @@ theorem exec_compileStmtList_generic_sizeOf_extraFuel_step
             (by intro next hcontra; simp at hcontra)
         rw [SourceSemantics.execStmtList, hsourceHead]
         rw [hfullExec]
-        simpa [List.foldl] using hheadMatch
+        simpa [List.foldl, stmtStepMatchesIRExec] using hheadMatch
       ·
         rcases hheadMatch with ⟨rfl, hruntime'⟩
         have hheadExec' :
@@ -2985,7 +2985,7 @@ theorem exec_compileStmtList_generic_with_helpers_sizeOf_extraFuel_step
             (by intro next hcontra; simp at hcontra)
         rw [SourceSemantics.execStmtListWithHelpers, hsourceHead]
         rw [hfullExec]
-        simpa [List.foldl] using hheadMatch
+        simpa [List.foldl, stmtStepMatchesIRExec] using hheadMatch
       ·
         rcases hheadMatch with ⟨rfl, hruntime'⟩
         have hheadExec' :
@@ -3160,7 +3160,7 @@ theorem exec_compileStmtList_generic_with_helpers_and_helper_ir_sizeOf_extraFuel
             (by intro next hcontra; simp at hcontra)
         rw [SourceSemantics.execStmtListWithHelpers, hsourceHead]
         rw [hfullExec]
-        simpa [List.foldl] using hheadMatch
+        simpa [List.foldl, stmtStepMatchesIRExecWithInternals] using hheadMatch
       ·
         rcases hheadMatch with ⟨rfl, hruntime'⟩
         have hheadExec' :
@@ -3475,7 +3475,7 @@ theorem exec_compileStmtList_generic_with_helpers_and_helper_ir_with_internals_s
             (by intro next hcontra; simp at hcontra)
         rw [SourceSemantics.execStmtListWithHelpers, hsourceHead]
         rw [hfullExec]
-        simpa [List.foldl] using hheadMatch
+        simpa [List.foldl, stmtStepMatchesIRExecWithInternals] using hheadMatch
       ·
         rcases hheadMatch with ⟨rfl, hruntime'⟩
         have hheadExec' :
