@@ -4495,8 +4495,7 @@ private theorem byteArray_readWithPadding_prefix
   rw [show source.data.extract 0 32 = source.data by
     rw [show (32 : Nat) = source.data.size by omega]
     exact array_extract_append_left source.data #[]]
-  rw [show min 32 source.size = 32 by omega]
-  norm_num
+  simp [hSizeData]
 
 private theorem byteArray_append_zeroes_zero (source : ByteArray) :
     source ++ ffi.ByteArray.zeroes (OfNat.ofNat 0) = source := by
@@ -4529,9 +4528,10 @@ private theorem byteArray_write_zero_32_readWithPadding_eq_of_size
         (dest ++ ffi.ByteArray.zeroes { toBitVec := 0 }) 0 (32 + 0) =
         (⟨source.data ++ (dest.extract 32 dest.size).data⟩ : ByteArray) := by
     rw [ByteArray.copySlice_eq_append]
-    simp only [byteArray_append_zeroes_zero, Nat.add_zero]
-    rw [byteArray_extract_zero_32_eq_of_size source hSize]
-    rfl
+    have hSizeData : source.data.size = 32 := by
+      simpa [-ByteArray.size_data, ByteArray.size] using hSize
+    simp [ByteArray.data_append, ByteArray.data_extract, ffi.ByteArray.zeroes,
+      -ByteArray.size_data, ByteArray.size, hSizeData]
   have hPrefix :=
     byteArray_readWithPadding_prefix source (dest.extract 32 dest.size) hSize
   rw [← hCopy] at hPrefix
@@ -4552,10 +4552,12 @@ private theorem byteArray_write_empty_64_32_size_ge_32
   rw [ByteArray.copySlice_eq_append]
   have hZeroesSize :
       (ffi.ByteArray.zeroes (OfNat.ofNat 64)).size = 64 := by
-    simp [-ByteArray.size_data, ffi.ByteArray.zeroes, ByteArray.size]
-  simp only [byteArray_append_zeroes_zero, Nat.add_zero]
-  rw [byteArray_extract_zero_32_eq_of_size source hSize]
-  simp [hZeroesSize]
+    change USize.toNat (OfNat.ofNat 64) = 64
+    native_decide
+  have hSizeData : source.data.size = 32 := by
+    simpa [-ByteArray.size_data, ByteArray.size] using hSize
+  simp [ByteArray.data_append, ByteArray.data_extract, ffi.ByteArray.zeroes,
+    -ByteArray.size_data, ByteArray.size, hSizeData, hZeroesSize]
 
 private theorem nativeSwitchPostInitFreeMemorySharedState_memory_size_ge_32
     (contract : EvmYul.Yul.Ast.YulContract) (tx : YulTransaction)
