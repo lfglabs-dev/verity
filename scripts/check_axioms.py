@@ -230,7 +230,7 @@ def generate_report(
     lines.append(
         "Uses only Lean builtins "
         "(propext, Quot.sound, Classical.choice, Lean.ofReduceBool, "
-        "Lean.trustCompiler): "
+        "Lean 4.31 generated per-proof native_decide axioms, Lean.trustCompiler): "
         f"{builtin_only}"
     )
     lines.append(f"Uses documented project axioms: {uses_documented}")

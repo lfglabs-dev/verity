@@ -148,7 +148,8 @@ def main() -> int:
         "OK: trust-surface registry documents "
         f"{len(ecm_axioms)} ECM assumption(s), "
         + ", ".join(f"{name}={count}" for name, count in mechanisms.items())
-        + "; native_decide trusts builtin Lean.ofReduceBool + Lean.trustCompiler; "
+        + "; native_decide trusts Lean.ofReduceBool or Lean 4.31 generated "
+        + "per-proof native_decide axioms + Lean.trustCompiler; "
         + f"Lean 4.31 kernel string facts={LEAN431_STRING_FACTS} (2 facts)"
     )
     return 0

@@ -51,11 +51,14 @@ Verity currently has zero project-level Lean axioms, but some proofs and tests
 intentionally rely on Lean mechanisms that sit outside ordinary kernel
 elaboration:
 
-- `native_decide` proofs depend on Lean's native code generation and the builtin
-  `Lean.ofReduceBool` axiom. They are acceptable for executable smoke tests,
-  concrete bridge checks, and explicitly documented reduction witnesses, but
-  they are tracked as trusted reduction surface rather than counted as
-  project-level axioms.
+- `native_decide` proofs depend on Lean's native code generation. Depending on
+  the generated proof shape, `#print axioms` reports either the builtin
+  `Lean.ofReduceBool` or a Lean 4.31 generated per-proof constant whose name has
+  the form `…._native.native_decide.ax_<digits>`. Both forms rely on the native
+  compiler trust boundary (`Lean.trustCompiler`); the generated constants are
+  not Verity project axioms. They are acceptable for executable smoke tests,
+  concrete bridge checks, and explicitly documented reduction witnesses, and
+  are tracked as trusted reduction surface.
   Lean 4.31 exposes `String.startsWith_string_iff` and
   `String.startsWith_string_eq_false_iff`. The closed compatibility scratch-name
   facts in `Compiler/CompilationModel/ReservedScratchNames.lean` now use those

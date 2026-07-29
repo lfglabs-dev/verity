@@ -171,6 +171,7 @@ class CheckAxiomsReportTests(unittest.TestCase):
         self.assertEqual(documented, set())
         self.assertEqual(forbidden, set())
         self.assertEqual(unexpected, {})
+        self.assertIn("generated per-proof native_decide axioms", report)
         self.assertIn("## Result: PASS", report)
 
     def test_similar_project_axiom_is_not_treated_as_native_decide_builtin(self) -> None:

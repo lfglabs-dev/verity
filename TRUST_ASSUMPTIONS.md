@@ -82,6 +82,12 @@ Current theorem totals, property-test coverage, and proof status live in [docs/V
 
 ### 8. Lean Kernel
 - **Role**: Proof checker soundness. Foundational assumption for all Lean-based verification.
+- **Native decision proofs**: `native_decide` relies on native code generation.
+  Lean 4.31 may expose that boundary in `#print axioms` as a generated per-proof
+  constant named `…._native.native_decide.ax_<digits>` instead of
+  `Lean.ofReduceBool`. The audit accepts only that narrowly shaped family and
+  records both forms under the native compiler (`Lean.trustCompiler`) boundary,
+  not as Verity project axioms.
 - **Lean 4.31 kernel string facts**: The closed scratch-name facts
   `Compiler.CompilationModel.compatScratch_startsWith_reserved` and
   `Compiler.CompilationModel.compatScratch_not_internalImmutable` are proved
