@@ -2576,7 +2576,8 @@ private theorem exec_block_loweredZeroParamLiteralReturnCaseBody_closed
       exec_block_loweredLiteralReturnCaseBodyTail_closed
         (fuel + 1) codeOverride shared store value
     rw [show fuel + 1 + 8 = fuel + 9 by omega] at hTail
-    convert hTail using 1 <;> rfl
+    unfold EvmYul.State.sload at hTail
+    exact hTail
 
 /-- Closed-form native exec of the generated zero-parameter storage-return body.
     The body includes `genParamLoads []`'s leading calldata-size guard before
@@ -3655,7 +3656,9 @@ private theorem simpleStorageNativeContract_dispatcherExec_retrieveHit_halt_atFu
         simp only [List.nil_append, List.cons.injEq] at hRest
         obtain ⟨_, hSuf⟩ := hRest
         subst hSuf
-        simpa [simpleStorageDispatcherHitBodyInputState] using hBodyHalt
+        simpa [simpleStorageDispatcherHitBodyInputState,
+          Backends.Native.nativeSwitchPostInitFreeMemoryState,
+          EvmYul.State.sload] using hBodyHalt
       | cons _ _ => simp at hRest
   -- Apply `_retrieveHit_error_via_reduction` at `fuel := g + 4` with
   -- `err := YulHalt (.Ok shared3 store_body) ⟨1⟩`.
@@ -3811,8 +3814,9 @@ private theorem simpleStorageNativeContract_dispatcherExec_storeHit_halt_atFuel
         simp only [List.nil_append, List.cons.injEq] at hDecomp
         obtain ⟨_, hSuf⟩ := hDecomp
         subst hSuf
-        simpa [simpleStorageDispatcherHitBodyInputState, initialWithStore,
-          withValue, finalState] using hBodyHalt
+        simpa [simpleStorageDispatcherHitBodyInputState,
+          Backends.Native.nativeSwitchPostInitFreeMemoryState,
+          initialWithStore, withValue, finalState] using hBodyHalt
       | cons _ restPre =>
         exfalso
         simp only [List.cons_append, List.cons.injEq] at hDecomp
@@ -4004,7 +4008,7 @@ private theorem projectStorageFromState_storeHit_initialState_materialized
     RBTree.RBMap.find?_insert_of_eq _ Std.ReflCmp.compare_self]
   by_cases hValueZero :
       (EvmYul.UInt256.ofNat arg == (Inhabited.default : EvmYul.UInt256)) = true
-  · rw [hValueZero]
+  · simp only [if_pos hValueZero]
     simp only [ite_true, IRStorageSlot.toUInt256, IRStorageSlot.ofNat]
     have hArgZeroUInt :
         EvmYul.UInt256.ofNat arg = (⟨0⟩ : EvmYul.UInt256) := by
@@ -4094,7 +4098,7 @@ private theorem projectStorageFromState_storeHit_initialState_materialized
       cases h :
           (EvmYul.UInt256.ofNat arg == (Inhabited.default : EvmYul.UInt256)) <;>
         simp [h] at hValueZero ⊢
-    rw [hValueNonzero]
+    simp only [if_neg hValueZero]
     simp only [Bool.false_eq_true, ite_false, IRStorageSlot.toUInt256,
       IRStorageSlot.ofNat]
     by_cases hKey :
