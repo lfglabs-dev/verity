@@ -160,16 +160,16 @@ SPEC = {'check_only_paths': ['.github/workflows/**',
                           'changes': '[self-hosted, linux, ARM64, dgx-spark, verity, fastlane]',
                           'checks': '[self-hosted, linux, ARM64, dgx-spark, verity, fastlane]',
                           'timeout-watchdog': '[self-hosted, linux, ARM64, dgx-spark, verity, fastlane]',
-                          'build': '[self-hosted, linux, x64, verity, build]',
-                          'build-audits': '[self-hosted, linux, x64, verity, build]',
-                          'build-compiler-binaries': '[self-hosted, linux, x64, verity, build]',
-                          'compiler-audits': '[self-hosted, linux, x64, verity, build]',
-                          'compiler-regressions': '[self-hosted, linux, x64, verity, build]',
-                          'lean-profile': '[self-hosted, linux, x64, verity, build]',
-                          'foundry-gas-calibration': '[self-hosted, linux, x64, verity, build]',
-                          'foundry': '[self-hosted, linux, x64, verity, build]',
-                          'foundry-patched': '[self-hosted, linux, x64, verity, build]',
-                          'foundry-multi-seed': '[self-hosted, linux, x64, verity, build]',
+                          'build': '[self-hosted, linux, x64, verity, build, build-heavy]',
+                          'build-audits': '[self-hosted, linux, x64, verity, build, build-heavy]',
+                          'build-compiler-binaries': '[self-hosted, linux, x64, verity, build, build-heavy]',
+                          'compiler-audits': '[self-hosted, linux, x64, verity, build, build-heavy]',
+                          'compiler-regressions': '[self-hosted, linux, x64, verity, build, build-heavy]',
+                          'lean-profile': '[self-hosted, linux, x64, verity, build, build-heavy]',
+                          'foundry-gas-calibration': '[self-hosted, linux, x64, verity, build, build-heavy]',
+                          'foundry': '[self-hosted, linux, x64, verity, build, build-heavy]',
+                          'foundry-patched': '[self-hosted, linux, x64, verity, build, build-heavy]',
+                          'foundry-multi-seed': '[self-hosted, linux, x64, verity, build, build-heavy]',
                           'failure-hints': '[self-hosted, linux, ARM64, dgx-spark, verity, fastlane]'},
  'expected_job_timeouts': {'closed-pr-cleanup': 5,
                            'changes': 5,
@@ -823,7 +823,7 @@ SPEC['expected_job_if_conditions'].update({
 })
 
 SPEC['expected_job_runs_on'].update({
-    'build-compiler-binaries': '[self-hosted, linux, x64, verity, build]',
+    'build-compiler-binaries': '[self-hosted, linux, x64, verity, build, build-heavy]',
 })
 
 SPEC['expected_job_timeouts'].update({
