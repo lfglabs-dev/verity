@@ -627,6 +627,31 @@ post and the IR helper dispatch below cannot be assembled into the existing
 direct call/assign head-step bridge catalog non-vacuously.
 -/
 
+/-- Assemble the direct void-helper-call list interface for a function body
+from the per-callee bridge catalog used by the rank-decreasing helper-summary
+layer.  This is the call-only consumer of that catalog: it deliberately does
+not require an assign bridge for a body whose helper surface consists solely
+of void `Stmt.internalCall` statements. -/
+theorem stmtListDirectInternalHelperCallStepInterface_of_perCalleeBridgeCatalog
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {fn : FunctionSpec}
+    (hbridge :
+      DirectInternalHelperPerCalleeCallBridgeCatalog runtimeContract spec fields fn) :
+    StmtListDirectInternalHelperCallStepInterface
+      runtimeContract spec fields scope fn.body := by
+  exact
+    stmtListDirectInternalHelperCallStepInterface_of_callHeadStepBridges
+      (runtimeContract := runtimeContract)
+      (spec := spec)
+      (fields := fields)
+      (scope := scope)
+      (stmts := fn.body)
+      (fun {calleeName} hmem =>
+        hbridge.call (by simpa [helperCallNames] using hmem))
+
 /-- Assemble the direct helper-return-binding list interface for a function
 body from the per-callee assign bridge catalog used by the rank-decreasing
 helper-summary layer. -/

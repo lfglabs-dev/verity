@@ -876,6 +876,18 @@ structure DirectInternalHelperPerCalleeBridgeCatalog
       calleeName ∈ helperCallNames fn →
       DirectInternalHelperAssignHeadStepBridge runtimeContract spec fields calleeName
 
+/-- Call-only half of the callee-local Tier 4 bridge inventory. This lets
+void-helper-call consumers avoid requiring unrelated return-binding bridges. -/
+structure DirectInternalHelperPerCalleeCallBridgeCatalog
+    (runtimeContract : IRContract)
+    (spec : CompilationModel)
+    (fields : List Field)
+    (fn : FunctionSpec) : Prop where
+  call :
+    ∀ {calleeName : String},
+      calleeName ∈ helperCallNames fn →
+      DirectInternalHelperCallHeadStepBridge runtimeContract spec fields calleeName
+
 /-- Assign-only half of the callee-local Tier 4 bridge inventory. This isolates
 the roadmap's current blocker, namely helper-return-binding steps, while the
 void-call half remains mechanically vacuous under the current fragment. -/
