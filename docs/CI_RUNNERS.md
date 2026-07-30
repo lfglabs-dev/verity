@@ -13,7 +13,7 @@ GitHub Actions for lfglabs-dev/verity
   |-- build-88-99-4-254-1
   |     host: 88.99.4.254
   |     role: heavy Lean/build/proof jobs
-  |     labels: self-hosted, linux, x64, verity, build, hetzner, hz2
+  |     labels: self-hosted, linux, x64, verity, build, build-heavy, hetzner, hz2
   |
   |-- tmd-verity-fastlane-1
   |     host: 95.216.244.60
