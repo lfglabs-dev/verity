@@ -2857,6 +2857,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCall_of_fuelSplitBridge
   Compiler.Proofs.IRGeneration.stmtListDirectInternalHelperAssignStepInterface_cons_internalCallAssign
   Compiler.Proofs.IRGeneration.stmtListDirectInternalHelperAssignStepInterfaceWithInternals_cons_internalCallAssign
+  Compiler.Proofs.IRGeneration.directInternalHelperPerCalleeCallBridgeCatalog_of_bridgeCatalog
   Compiler.Proofs.IRGeneration.directInternalHelperPerCalleeBridgeCatalog_of_supportedBody_and_assignBridgeCatalog
   Compiler.Proofs.IRGeneration.directInternalHelperPerCalleeCallCompileCatalog_of_supportedBody
   Compiler.Proofs.IRGeneration.directInternalHelperHeadStepBridgeCatalog_of_perCalleeBridgeCatalog
@@ -6427,4 +6428,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6024 theorems/lemmas (4171 public, 1853 private, 0 sorry'd)
+-- Total: 6025 theorems/lemmas (4172 public, 1853 private, 0 sorry'd)

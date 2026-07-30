@@ -888,6 +888,18 @@ structure DirectInternalHelperPerCalleeCallBridgeCatalog
       calleeName ∈ helperCallNames fn →
       DirectInternalHelperCallHeadStepBridge runtimeContract spec fields calleeName
 
+/-- Project the void-call half of a complete per-callee bridge inventory. This
+lets call-only consumers use an already established full bridge catalog without
+introducing an assign-bridge obligation at their API boundary. -/
+theorem directInternalHelperPerCalleeCallBridgeCatalog_of_bridgeCatalog
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {fn : FunctionSpec}
+    (hbridge : DirectInternalHelperPerCalleeBridgeCatalog runtimeContract spec fields fn) :
+    DirectInternalHelperPerCalleeCallBridgeCatalog runtimeContract spec fields fn := by
+  exact ⟨hbridge.call⟩
+
 /-- Assign-only half of the callee-local Tier 4 bridge inventory. This isolates
 the roadmap's current blocker, namely helper-return-binding steps, while the
 void-call half remains mechanically vacuous under the current fragment. -/
