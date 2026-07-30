@@ -394,7 +394,7 @@ jobs:
         run: make verify-storage-layout
 
       - name: Package prepared Lean workspace build
-        run: tar -hcf lean-workspace-build.tar .lake/build .lake/lakefile.olean .lake/lakefile.olean.trace
+        run: tar -hcf lean-workspace-build.tar .lake/build
 
       - name: Publish Lean workspace build locally
         run: |

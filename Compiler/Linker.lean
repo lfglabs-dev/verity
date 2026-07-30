@@ -28,26 +28,25 @@ We use a simple line-based parser to extract function definitions from library f
 
 -- Extract function name from a Yul function definition line
 private def extractFunctionName (line : String) : Option String :=
-  let trimmed := line.trim
+  let trimmed := line.trimAscii.toString
   if trimmed.startsWith "function " then
-    let afterFunction := trimmed.drop "function ".length
-    let beforeParen := afterFunction.takeWhile (· != '(')
-    some beforeParen.trim
+    let afterFunction := (trimmed.drop "function ".length).toString
+    let beforeParen := (afterFunction.takeWhile (· != '(')).toString
+    some beforeParen.trimAscii.toString
   else
     none
 
 -- Extract parameter count from a Yul function definition line
 -- e.g. "function foo(a, b) -> result {" has arity 2
 private def extractFunctionArity (line : String) : Nat :=
-  let trimmed := line.trim
+  let trimmed := line.trimAscii.toString
   -- Find the parameter list between '(' and ')'
-  match trimmed.posOf '(', trimmed.posOf ')' with
-  | openPos, closePos =>
-    if openPos < closePos then
-      let params := (trimmed.extract ⟨openPos.byteIdx + 1⟩ closePos).trim
-      if params.isEmpty then 0
-      else (params.splitOn ",").length
-    else 0
+  let afterOpen := (trimmed.dropWhile (· != '(')).drop 1
+  if afterOpen.isEmpty then 0
+  else
+    let params := (afterOpen.takeWhile (· != ')')).trimAscii.toString
+    if params.isEmpty then 0
+    else (params.splitOn ",").length
 
 -- Check if a line starts a function definition
 private def isFunctionStart (line : String) : Bool :=

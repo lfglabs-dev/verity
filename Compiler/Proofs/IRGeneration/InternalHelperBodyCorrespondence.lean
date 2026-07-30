@@ -875,6 +875,7 @@ theorem internal_helper_body_exec_matches_entryBindings_and_projected_result_of_
         _ = Except.ok helper.body := ctx.bodyCompile
     subst bodyIR
     simpa [internalHelperBodySourceResult, internalHelperBodyIRExec] using hmatch
-  · simpa [internalHelperBodyInterpretation, ctx.bindArgs] using ctx.bodyResultProjection
+  · simpa [internalHelperBodyInterpretation, ctx.bindArgs,
+      internalHelperBodyResultProjection] using ctx.bodyResultProjection
 
 end Compiler.Proofs.IRGeneration

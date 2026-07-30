@@ -31,6 +31,13 @@ def _manifest(url: str, rev: str, input_rev: str) -> dict[str, object]:
 
 
 class ForkAuditValidationTests(unittest.TestCase):
+    def test_validate_audit_rejects_unsupported_category(self) -> None:
+        fork_audit = deepcopy(audit.FORK_AUDIT)
+        fork_audit["commits"][0]["category"] = "unreviewed"
+        with patch.object(audit, "FORK_AUDIT", fork_audit):
+            with self.assertRaisesRegex(RuntimeError, "unsupported category"):
+                audit._validate_audit()
+
     def test_validate_audit_requires_pinned_commit_to_match_audited_tip(self) -> None:
         fork_audit = deepcopy(audit.FORK_AUDIT)
         fork_audit["pinned_commit"] = fork_audit["commits"][0]["sha"]

@@ -19,7 +19,7 @@ open Compiler.ECM
 open Compiler.CompilationModel (Stmt Expr freeMemoryPointer)
 
 private def selectorHex (selector : Nat) : String :=
-  "0x" ++ String.mk (Nat.toDigits 16 selector)
+  "0x" ++ String.ofList (Nat.toDigits 16 selector)
 
 private def compileStaticSingleWordRead
     (moduleName : String) (selector : Nat) (numStaticArgs : Nat)

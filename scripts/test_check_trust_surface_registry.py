@@ -15,13 +15,13 @@ import check_trust_surface_registry
 
 class CheckTrustSurfaceRegistryTests(unittest.TestCase):
     def _write_valid_string_boundary(self, root: Path) -> None:
-        boundary = root / check_trust_surface_registry.LEAN424_STRING_BOUNDARY
+        boundary = root / check_trust_surface_registry.LEAN431_STRING_FACTS
         boundary.parent.mkdir(parents=True, exist_ok=True)
         boundary.write_text(
             "\n".join(
                 [
-                    "theorem compatScratch_startsWith_reserved : True := by native_decide",
-                    "theorem compatScratch_not_internalImmutable : True := by native_decide",
+                    "theorem compatScratch_startsWith_reserved : True := by trivial",
+                    "theorem compatScratch_not_internalImmutable : True := by trivial",
                 ]
             )
             + "\n",
@@ -96,12 +96,12 @@ class CheckTrustSurfaceRegistryTests(unittest.TestCase):
             },
         )
 
-    def test_accepts_exact_lean424_string_boundary(self) -> None:
+    def test_accepts_exact_lean431_string_kernel_facts(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             self._write_valid_string_boundary(root)
 
-            errors = check_trust_surface_registry.check_lean424_string_boundary(root)
+            errors = check_trust_surface_registry.check_lean431_string_kernel_facts(root)
 
         self.assertEqual(errors, [])
 
@@ -113,7 +113,7 @@ class CheckTrustSurfaceRegistryTests(unittest.TestCase):
             proof.parent.mkdir(parents=True)
             proof.write_text("theorem bad : True := by native_decide\n", encoding="utf-8")
 
-            errors = check_trust_surface_registry.check_lean424_string_boundary(root)
+            errors = check_trust_surface_registry.check_lean431_string_kernel_facts(root)
 
         self.assertTrue(any("outside non-test Compiler/Proofs" in error for error in errors))
 
@@ -127,7 +127,7 @@ class CheckTrustSurfaceRegistryTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            errors = check_trust_surface_registry.check_lean424_string_boundary(root)
+            errors = check_trust_surface_registry.check_lean431_string_kernel_facts(root)
 
         self.assertTrue(
             any("compatScratch_startsWith_reserved" in error for error in errors)

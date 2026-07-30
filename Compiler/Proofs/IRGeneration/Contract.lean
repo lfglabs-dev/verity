@@ -1581,11 +1581,11 @@ private theorem IsReservedInternalHelperName.templateHelperName (name : String) 
       (Verity.Core.Intrinsics.YulLowering.templateHelperName name) := by
   refine ⟨"__verity_", by simp [reservedInternalHelperPrefixes], ?_⟩
   unfold Verity.Core.Intrinsics.YulLowering.templateHelperName
-  simp only [String.data_append]
+  simp only [String.toList_append]
   rw [List.take_append_of_le_length
-    (l₁ := (toString "__verity_intrinsic_template_").data)
-    (l₂ := (toString name).data)
-    (i := "__verity_".data.length)
+    (l₁ := (toString "__verity_intrinsic_template_").toList)
+    (l₂ := (toString name).toList)
+    (i := "__verity_".toList.length)
     (by decide)]
   decide
 
@@ -2019,7 +2019,8 @@ theorem InternalTableNamesReserved_of_compileValidatedCore
             by_cases hitems : (templateIntrinsicItems model).isEmpty
             · simp [hitems] at htemplate
               cases htemplate
-              simp [hitems] at hcore
+              have hitemsNil := List.isEmpty_iff.mp hitems
+              rw [if_pos hitemsNil] at hcore
               rcases hfallbackEntrypoint :
                   fallbackSpec.mapM
                     (compileSpecialEntrypoint
@@ -2072,7 +2073,12 @@ theorem InternalTableNamesReserved_of_compileValidatedCore
                         (model.functions.filter (·.isInternal))
                         internalDefs hinternalDefs hcontract
             · simp [hitems] at htemplate
-              simp [hitems, htemplate] at hcore
+              have hitemsNe : templateIntrinsicItems model ≠ [] := by
+                intro hnil
+                rw [hnil] at hitems
+                simp at hitems
+              rw [if_neg hitemsNe] at hcore
+              simp [htemplate] at hcore
               rcases hfallbackEntrypoint :
                   fallbackSpec.mapM
                     (compileSpecialEntrypoint
@@ -2372,7 +2378,7 @@ theorem compile_preserves_semantics
       (hparamsSupported := hparamsSupported)
       (hfunction := hfunction)
   simpa [supportedSourceContractSemantics_eq_sourceContractSemantics
-    (hSupported := hSupported) tx initialWorld] using hcontract
+    (hSupported := hSupported) tx initialWorld, sourceContractSemantics] using hcontract
 
 private theorem scalar_events_contract_function_callback
     (model : CompilationModel) (selectors : List Nat)
@@ -2450,7 +2456,7 @@ theorem compile_preserves_semantics_with_scalar_events
     (hcompiled := hcompiled) (hparamsSupported := hparamsSupported)
     (hfunction := hfunction)
   simpa [supportedSourceContractSemanticsWithScalarEvents_eq_sourceContractSemantics
-    (hSupported := hSupported) tx initialWorld] using hcontract
+    (hSupported := hSupported) tx initialWorld, sourceContractSemantics] using hcontract
 
 /-- Whole-contract Tier 2 bridge for specs whose selector-dispatched bodies use
 the alternate singleton-storage-write state interface. This keeps the contract
@@ -2758,7 +2764,7 @@ theorem compile_preserves_semantics_with_helper_proofs
       (hparamsSupported := hparamsSupported)
       (hfunction := hfunction)
   simpa [supportedSourceContractSemantics_eq_sourceContractSemantics
-    (hSupported := hSupported) tx initialWorld] using hcontract
+    (hSupported := hSupported) tx initialWorld, sourceContractSemantics] using hcontract
 
 /-- Helper-aware compiled-side wrapper for the whole-contract theorem.
 The remaining compiled-side blocker is exactly the conservative-extension proof

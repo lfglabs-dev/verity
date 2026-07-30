@@ -49,20 +49,23 @@ FORK_AUDIT = {
     "schema_version": 1,
     "fork_url": "https://github.com/lfglabs-dev/EVMYulLean",
     "upstream_url": "https://github.com/NethermindEth/EVMYulLean",
-    "pinned_commit": "38d53df8b4488d5322894619ea8385fcbb2e6f5d",
+    "pinned_commit": "f7e4ee0dc8f8d5265ce822a937ab5be771f182e9",
     "upstream_base": "047f63070309f436b66c61e276ab3b6d1169265a",
-    "fork_ahead_by": 5,
+    "fork_ahead_by": 18,
     "fork_behind_by": 0,
     "divergence_summary": (
-        "Fork is exactly 5 commits ahead of upstream/main. All commits are "
-        "non-semantic: one visibility change (private -> default) on an "
+        "The fork has 18 audited non-semantic commits beyond the "
+        "recorded upstream base: one visibility change (private -> default) on an "
         "internal exponentiation accumulator, one Lean 4.22.0 deprecation "
         "fix (nativeLibDir -> staticLibDir) in the lakefile, one FFI "
         "body exposure for ByteArray.zeroes that matches the extern zero-fill "
         "behavior, one checkpoint-state projection exposure that makes "
         "existing saved shared-state/store fields visible to downstream proofs, "
-        "and one Lean 4.24 compatibility migration covering build metadata, "
+        "one Lean 4.24 compatibility migration covering build metadata, "
         "JSON object traversal, parser APIs, and stricter elaboration. "
+        "The final audited change group is the Lean 4.31 compatibility "
+        "migration covering collection APIs, slices, JSON product keys, "
+        "and toolchain metadata. "
         "None of these commits changes EVM/Yul execution semantics, "
         "so upstream Ethereum conformance test coverage continues to apply "
         "transitively."
@@ -194,12 +197,142 @@ FORK_AUDIT = {
                 "stricter Lean 4.24 APIs. No EVM/Yul transition rule changes."
             ),
         },
+        {
+            "sha": "fc8e4788cef3af6d41a2ab5022c2c68fc107e25d",
+            "title": "Merge pull request #2 from lfglabs-dev/codex/lean424-checkpoint",
+            "file": "merge commit",
+            "category": "merge",
+            "semantic_change": False,
+            "rationale": "Merge commit combining the audited Lean 4.24 and checkpoint-projection changes.",
+            "diff_summary": "Merge-only history node; content is enumerated by its parent commits.",
+            "trust_impact": "Zero beyond the individually audited parent commits.",
+        },
+        {
+            "sha": "2400ef4ec3db40da832a1d0394f1726e299ed632",
+            "title": "Merge pull request #1 from lfglabs-dev/fix/checkpoint-state-queries",
+            "file": "merge commit",
+            "category": "merge",
+            "semantic_change": False,
+            "rationale": "Merge commit landing the audited checkpoint projection and Lean 4.24 changes.",
+            "diff_summary": "Merge-only history node; content is enumerated by its parent commits.",
+            "trust_impact": "Zero beyond the individually audited parent commits.",
+        },
+        {
+            "sha": "2850ea1b2785bffb9ae44b36c1e7516d02fe6826",
+            "title": "chore: upgrade to Lean 4.31.0",
+            "file": "lean-toolchain, lakefile.lean, lake-manifest.json",
+            "category": "toolchain",
+            "semantic_change": False,
+            "rationale": "Update Lean, Mathlib, and Lake metadata from 4.24 to 4.31.",
+            "diff_summary": "3 files changed, 17 insertions(+), 16 deletions(-).",
+            "trust_impact": "Low; build metadata only.",
+        },
+        {
+            "sha": "8401b6e668fc48c145c14acb4e8c52fca8c80d74",
+            "title": "fix: adapt bitwise xor to Lean 4.31",
+            "file": "EvmYul/UInt256.lean, lakefile.lean",
+            "category": "toolchain",
+            "semantic_change": False,
+            "rationale": "Adapt xor notation and the Lake version declaration to Lean 4.31 APIs.",
+            "diff_summary": "2 files changed, 2 insertions(+), 2 deletions(-).",
+            "trust_impact": "Low; type-directed compatibility changes preserve xor behavior.",
+        },
+        {
+            "sha": "4060647fc55121d2575e64fa5dc37af62117e08f",
+            "title": "fix: convert string slice before lowercasing",
+            "file": "EvmYul/Wheels.lean",
+            "category": "toolchain",
+            "semantic_change": False,
+            "rationale": "Materialize the Lean 4.31 string slice before applying lowercase conversion.",
+            "diff_summary": "1 file changed, 1 insertion(+), 1 deletion(-).",
+            "trust_impact": "Low; preserves the parsed lowercase string.",
+        },
+        {
+            "sha": "959420a4b00e07939aa2a2a6d5f430aa94e35438",
+            "title": "fix: preserve homogeneous xor instance",
+            "file": "EvmYul/UInt256.lean",
+            "category": "toolchain",
+            "semantic_change": False,
+            "rationale": "Make the UInt256 xor instance result type explicit under Lean 4.31.",
+            "diff_summary": "1 file changed, 1 insertion(+), 1 deletion(-).",
+            "trust_impact": "Low; instance elaboration only.",
+        },
+        {
+            "sha": "d4afe3be9b9160a6162f084f3b187dc3c7282b66",
+            "title": "fix: migrate RBMap usage to Std TreeMap",
+            "file": "Conform/*.lean, EvmYul/**/*.lean",
+            "category": "toolchain",
+            "semantic_change": False,
+            "rationale": "Replace removed RBMap construction and traversal APIs with Std.TreeMap equivalents.",
+            "diff_summary": "13 files changed, 25 insertions(+), 39 deletions(-).",
+            "trust_impact": "Low; collection representation migration preserves keys and values.",
+        },
+        {
+            "sha": "26ed6f948fd2d555325b4c4bfb7001237b752063",
+            "title": "fix: adapt maps and slices for Lean 4.31",
+            "file": "Conform/Wheels.lean, EvmYul/Maps/StorageMap.lean, EvmYul/Yul/YulNotation.lean",
+            "category": "toolchain",
+            "semantic_change": False,
+            "rationale": "Adapt remaining map and slice call sites to their Lean 4.31 types.",
+            "diff_summary": "3 files changed, 2 insertions(+), 6 deletions(-).",
+            "trust_impact": "Low; mechanical API compatibility.",
+        },
+        {
+            "sha": "ab541b3febf7f3c75dbee43ff98f594aa7fe5cfc",
+            "title": "fix: update TreeMap APIs for Lean 4.31",
+            "file": "Conform/*.lean, EvmYul/**/*.lean",
+            "category": "toolchain",
+            "semantic_change": False,
+            "rationale": "Update TreeMap lookup, fold, and conversion calls to Lean 4.31 signatures.",
+            "diff_summary": "13 files changed, 69 insertions(+), 65 deletions(-).",
+            "trust_impact": "Low; preserves collection operations while changing API spelling.",
+        },
+        {
+            "sha": "76653da7c02d2359e6058872702b99e37fd377db",
+            "title": "fix: complete Lean 4.31 collection migration",
+            "file": "EvmYul/EVM/Semantics.lean",
+            "category": "toolchain",
+            "semantic_change": False,
+            "rationale": "Complete the remaining collection conversions in EVM semantics.",
+            "diff_summary": "1 file changed, 3 insertions(+), 3 deletions(-).",
+            "trust_impact": "Low; representation-compatible collection access.",
+        },
+        {
+            "sha": "7a33dd5f20d1fcff7fe960f8ed14627d81277c97",
+            "title": "fix: return arrays from conformance partition",
+            "file": "Conform/Main.lean",
+            "category": "toolchain",
+            "semantic_change": False,
+            "rationale": "Convert the partition result to the array type required by Lean 4.31.",
+            "diff_summary": "1 file changed, 1 insertion(+), 1 deletion(-).",
+            "trust_impact": "Low; preserves partition membership and ordering.",
+        },
+        {
+            "sha": "01f260fe7cbffce47b7babe7d55e4e4f41bdec7a",
+            "title": "fix: use product keys with Lean 4.31 JSON objects",
+            "file": "Conform/Main.lean, Conform/TestParser.lean",
+            "category": "toolchain",
+            "semantic_change": False,
+            "rationale": "Project JSON object key/value products using the Lean 4.31 object API.",
+            "diff_summary": "2 files changed, 2 insertions(+), 2 deletions(-).",
+            "trust_impact": "Low; preserves the same JSON keys and values.",
+        },
+        {
+            "sha": "f7e4ee0dc8f8d5265ce822a937ab5be771f182e9",
+            "title": "Merge pull request #3 from lfglabs-dev/codex/lean-4.31.0",
+            "file": "merge commit",
+            "category": "merge",
+            "semantic_change": False,
+            "rationale": "Merge commit landing the ten individually audited Lean 4.31 compatibility commits.",
+            "diff_summary": "Merge-only history node; content is enumerated by its parent commits.",
+            "trust_impact": "Zero beyond the individually audited parent commits.",
+        },
     ],
     "audit_methodology": [
         "1. Clone lfglabs-dev/EVMYulLean at pinned commit into a local worktree.",
         "2. Add NethermindEth/EVMYulLean as `upstream` remote and fetch.",
         "3. Compute `git merge-base upstream/main origin/main` to find the divergence point.",
-        "4. For each commit in `upstream/main..origin/main`, record SHA, title, touched files, and categorize as {visibility, toolchain, lemma-addition, builtin-addition, semantic-change}.",
+        "4. For each commit in `upstream/main..origin/main`, record SHA, title, touched files, and categorize as {visibility, toolchain, lemma-addition, builtin-addition, semantic-change, merge}.",
         "5. Reject `semantic-change` category without explicit Issue #1722 scope expansion (would break upstream conformance test coverage).",
         "6. Commit this artifact alongside Verity's lake-manifest.json pin bump.",
     ],
@@ -217,12 +350,21 @@ FORK_AUDIT = {
     "trust_boundary": (
         "Verity's effective trust boundary for Yul/EVM semantics is "
         "(upstream NethermindEth/EVMYulLean at commit "
-        "047f63070309f436b66c61e276ab3b6d1169265a) plus the 5 "
-        "visibility/toolchain fork commits enumerated above. None of these "
+        "047f63070309f436b66c61e276ab3b6d1169265a) plus the 18 "
+        "visibility/toolchain/merge fork commits enumerated above. None of these "
         "fork commits touches EVM/Yul execution semantics, so upstream "
         "Ethereum conformance test coverage applies transitively."
     ),
 }
+
+ALLOWED_CATEGORIES = frozenset({
+    "visibility",
+    "toolchain",
+    "lemma-addition",
+    "builtin-addition",
+    "semantic-change",
+    "merge",
+})
 
 
 def _read_evmyul_package(manifest_path: Path) -> dict[str, object]:
@@ -248,6 +390,11 @@ def _validate_audit() -> None:
             "coverage applies transitively"
         )
     for commit in FORK_AUDIT["commits"]:
+        if commit.get("category") not in ALLOWED_CATEGORIES:
+            raise RuntimeError(
+                f"commit {commit['sha'][:10]} has unsupported category "
+                f"{commit.get('category')!r}"
+            )
         if commit.get("semantic_change") is not False:
             raise RuntimeError(
                 f"commit {commit['sha'][:10]} must be non-semantic; "

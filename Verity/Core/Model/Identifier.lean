@@ -18,7 +18,7 @@ def isIdentifierContinue (c : Char) : Bool :=
 
 /-- Shared identifier validator for AST and CompilationModel frontends. -/
 def isValidIdentifier (name : String) : Bool :=
-  match name.data with
+  match name.toList with
   | [] => false
   | c :: cs => isIdentifierStart c && cs.all isIdentifierContinue
 

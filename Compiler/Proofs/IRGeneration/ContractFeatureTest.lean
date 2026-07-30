@@ -960,7 +960,8 @@ example :
       some [("arg0", Compiler.Constants.addressMask &&& 11),
         ("initialOwner", Compiler.Constants.addressMask &&& 11)] := by
     native_decide
-  simpa [constructorOnlySpec, constructorOnlyTx, constructorOnlySupported, Function.execResultToIRResult] using
+  simpa [constructorOnlySpec, constructorOnlyCtor, constructorOnlyTx,
+    constructorOnlySupported, Function.execResultToIRResult] using
     Function.supported_constructor_body_correct_with_body_interface
       (model := constructorOnlySpec)
       (ctor := constructorOnlyCtor)

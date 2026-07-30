@@ -58,7 +58,7 @@ def isQualifiedFunctionName (name : Name) : Bool :=
   (nameComponents name).length == 2
 
 def startsWithLowercaseAscii (s : String) : Bool :=
-  match s.data with
+  match s.toList with
   | c :: _ => 'a' ≤ c && c ≤ 'z'
   | [] => false
 

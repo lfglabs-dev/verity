@@ -190,9 +190,15 @@ theorem storageRel_step {cur : Nat → Nat} {CUR : IRStorageSlot → IRStorageWo
     constructor
     · intro hn
       apply IRStorageSlot.eq_of_toNat_eq
-      simpa [SourceSemantics.UInt256_size_eq_UINT256_MODULUS] using hn
+      change n % Verity.Core.UINT256_MODULUS =
+        Compiler.Proofs.solidityMappingSlot base k % Verity.Core.UINT256_MODULUS
+      change n % Verity.Core.UINT256_MODULUS =
+        Compiler.Proofs.solidityMappingSlot base k % Verity.Core.UINT256_MODULUS at hn
+      exact hn
     · intro hn
       have := congrArg IRStorageSlot.toNat hn
+      change n % Verity.Core.UINT256_MODULUS =
+        Compiler.Proofs.solidityMappingSlot base k % Verity.Core.UINT256_MODULUS
       simpa [SourceSemantics.UInt256_size_eq_UINT256_MODULUS] using this
   by_cases hc : Denote.wordNormalize n =
       Denote.wordNormalize (sourceOracle.mappingSlot base k)

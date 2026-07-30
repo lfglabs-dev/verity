@@ -51,24 +51,19 @@ Verity currently has zero project-level Lean axioms, but some proofs and tests
 intentionally rely on Lean mechanisms that sit outside ordinary kernel
 elaboration:
 
-- `native_decide` proofs depend on Lean's native code generation and the builtin
-  `Lean.ofReduceBool` axiom. They are acceptable for executable smoke tests,
-  concrete bridge checks, and explicitly documented reduction witnesses, but
-  they are tracked as trusted reduction surface rather than counted as
-  project-level axioms.
-  The two closed identifier facts
-  `Compiler.CompilationModel.compatScratch_startsWith_reserved` and
-  `Compiler.CompilationModel.compatScratch_not_internalImmutable` are an
-  explicit compiler-proof boundary of this kind. Lean 4.24 keeps the recursive
-  worker behind `String.startsWith` private and exposes no public correctness
-  theorem for it. `#print axioms` records `Lean.ofReduceBool` on these facts and
-  their consumers; executing `native_decide` additionally trusts Lean's native
-  compiler, represented by the builtin `Lean.trustCompiler` code-generation
-  surface even though that name is not present in these printed proof terms.
-  They are isolated in
-  `Compiler/CompilationModel/ReservedScratchNames.lean` and must return to a
-  kernel proof once Lean or Batteries exposes `substrEq`/`startsWith`
-  correctness lemmas.
+- `native_decide` proofs depend on Lean's native code generation. Depending on
+  the generated proof shape, `#print axioms` reports either the builtin
+  `Lean.ofReduceBool` or a Lean 4.31 generated per-proof constant whose name has
+  the form `…._native.native_decide.ax_<digits>`. Both forms rely on the native
+  compiler trust boundary (`Lean.trustCompiler`); the generated constants are
+  not Verity project axioms. They are acceptable for executable smoke tests,
+  concrete bridge checks, and explicitly documented reduction witnesses, and
+  are tracked as trusted reduction surface.
+  Lean 4.31 exposes `String.startsWith_string_iff` and
+  `String.startsWith_string_eq_false_iff`. The closed compatibility scratch-name
+  facts in `Compiler/CompilationModel/ReservedScratchNames.lean` now use those
+  lemmas and kernel `decide`; their former Lean 4.24 native-code trust boundary
+  has been eliminated.
 - `@[implemented_by ...]` may redirect runtime execution to a faster
   implementation. The proof term still sees the kernel-computable definition,
   so this is a runtime/codegen trust boundary rather than a Lean axiom.

@@ -2174,13 +2174,13 @@ noncomputable def interpretIRWithInternals
 /-- Naming invariant for a runtime contract's internal-function table: every
 decoded helper's name begins with `internalFunctionPrefix`. Compiled contracts
 satisfy this because helpers are emitted via `internalFunctionYulName`, which
-prepends the prefix. Phrasing the invariant via `String.data.take` avoids any
+prepends the prefix. Phrasing the invariant via `String.toList.take` avoids any
 dependence on defeq of `internalFunctionYulName` (which appends to an opaque
 tail). -/
 def InternalTableNamesInternalPrefixed (contract : IRContract) : Prop :=
   ∀ d ∈ contract.internalFunctions.filterMap irInternalFunctionDefOfStmt?,
-    d.name.data.take CompilationModel.internalFunctionPrefix.data.length =
-      CompilationModel.internalFunctionPrefix.data
+    d.name.toList.take CompilationModel.internalFunctionPrefix.toList.length =
+      CompilationModel.internalFunctionPrefix.toList
 
 /-- A name that is not `internal_`-prefixed cannot resolve to any helper in a
 contract whose internal table satisfies the naming invariant. This is the
@@ -2191,8 +2191,8 @@ forward-compatible generalization of
 theorem findInternalFunction?_eq_none_of_not_internalPrefixed
     (contract : IRContract) (name : String)
     (hinv : InternalTableNamesInternalPrefixed contract)
-    (hname : name.data.take CompilationModel.internalFunctionPrefix.data.length ≠
-        CompilationModel.internalFunctionPrefix.data) :
+    (hname : name.toList.take CompilationModel.internalFunctionPrefix.toList.length ≠
+        CompilationModel.internalFunctionPrefix.toList) :
     findInternalFunction? contract name = none := by
   simp only [findInternalFunction?]
   rw [List.find?_eq_none]
@@ -2219,12 +2219,12 @@ def reservedInternalHelperPrefixes : List String :=
   [CompilationModel.internalFunctionPrefix, "__verity_", "checked_", "panic_error_"]
 
 /-- A helper name is *reserved* when it carries one of the compiler's reserved
-helper prefixes. Phrased via `String.data.take` (rather than `String.startsWith`)
+helper prefixes. Phrased via `String.toList.take` (rather than `String.startsWith`)
 so the `internal_` case reuses `internalFunctionYulName_take_prefix`, and so the
 predicate reduces under `decide` on concrete names. -/
 def IsReservedInternalHelperName (name : String) : Prop :=
   ∃ p ∈ reservedInternalHelperPrefixes,
-    name.data.take p.data.length = p.data
+    name.toList.take p.toList.length = p.toList
 
 instance (name : String) : Decidable (IsReservedInternalHelperName name) := by
   unfold IsReservedInternalHelperName

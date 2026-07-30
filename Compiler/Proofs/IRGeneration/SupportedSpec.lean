@@ -3031,7 +3031,9 @@ theorem SupportedConstructor.stmtList_ctorBody
     {spec : CompilationModel} {ctor : ConstructorSpec}
     (hSupported : SupportedConstructor spec ctor) :
     SupportedStmtList spec.fields (constructorBodyScope ctor.params) ctor.body := by
-  simpa [constructorAsFunctionSpec, constructorBodyScope, constructorArgAliasNames] using
+  change SupportedStmtList spec.fields
+    (constructorArgAliasNames ctor.params ++ ctor.params.map (·.name)) ctor.body
+  simpa [constructorAsFunctionSpec, constructorArgAliasNames, Function.comp_def] using
     hSupported.body.stmtList
 
 /-- Whole-contract invariants that should remain global preconditions for the

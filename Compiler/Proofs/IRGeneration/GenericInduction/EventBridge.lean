@@ -670,8 +670,8 @@ private theorem eventSignatureScratchStores_continue {state : IRState}
             srcMemory offset).val } := by
   induction words generalizing state srcMemory startIdx with
   | nil =>
-      simpa [eventSignatureStoreStmtsFromWords,
-        SourceSemantics.writeEventSignatureScratchFrom] using
+      simpa only [eventSignatureStoreStmtsFromWords,
+        SourceSemantics.writeEventSignatureScratchFrom, StmtsContinueFromTo] using
         (eventIRState_set_memory_eq_self state
           (by intro offset; exact (hmem offset).symm)).symm
   | cons word rest ih =>
@@ -1118,7 +1118,7 @@ private theorem eventUnindexedStores_cons_continue
   rcases hok with ⟨heval, hsupport, hlt, hshape, hsize, hkind⟩
   constructor
   · simp [SourceSemantics.writeUnindexedEventScratchFrom, hkind]
-    simpa [eventUnindexedNextMemory] using hwriteTail
+    convert hwriteTail using 1 <;> first | rfl | simp [eventUnindexedNextMemory]
   · have hstmt :
         scalarEventUnindexedStoresFrom ((param, srcExpr, argExpr) :: rest)
             (wordIdx * 32) =
@@ -1161,7 +1161,7 @@ private theorem eventUnindexedStores_continue
       | nil =>
           refine ⟨srcMemory, ?_, ?_⟩
           · simp [SourceSemantics.writeUnindexedEventScratchFrom]
-          · simpa [scalarEventUnindexedStoresFrom] using
+          · simpa only [scalarEventUnindexedStoresFrom, StmtsContinueFromTo] using
               (eventIRState_set_memory_eq_self state
                 (by intro offset; exact (hmem offset).symm)).symm
       | cons value values => cases hrel
@@ -2697,7 +2697,8 @@ macro "event_emit_semantic_bridge_tac" : tactic => `(tactic| unhygienic (
       hfresh.2 topic0
   have hunindexedRel : List.Forall₂ (EventUnindexedEntryOk scope stateTopic)
       unindexed (eventValuesForKind EventParamKind.unindexed eventDef.params values) := by
-    simpa [zipped, unindexed] using eventUnindexedEntriesOk_of_eval
+    simpa [zipped, unindexed, eventZippedWithSource, eventUnindexedArgs] using
+      eventUnindexedEntriesOk_of_eval
       hirEvalTopic hshapes hparams.1 hparams.2 hvaluesLt hargsLen
   rcases eventUnindexedStores_continue
       (scope := scope) (state := stateTopic) (srcMemory := sigMemory)
@@ -2741,7 +2742,8 @@ macro "event_emit_semantic_bridge_tac" : tactic => `(tactic| unhygienic (
       indexed (eventValuesForKind EventParamKind.indexed eventDef.params values) := by
     have hirEvalFinal := eventForall₂_eval_atomic_memory_of_args hshapes
       hirEvalTopic (fun o => (irSourceMemory o).val)
-    simpa [zipped, indexed] using eventIndexedEntriesOk_of_eval
+    simpa [zipped, indexed, eventZippedWithSource, eventIndexedArgs] using
+      eventIndexedEntriesOk_of_eval
       hirEvalFinal hshapes hparams.1 hvaluesLt hargsLen
   have hindexedLen : indexed.length ≤ 3 := by
     simpa [indexed, zipped] using
@@ -2798,7 +2800,7 @@ macro "event_emit_semantic_bridge_tac" : tactic => `(tactic| unhygienic (
       (YulStmtListCallsDisjointFromInternalTable_of_internalFunctions_nil
         runtimeContract hinternal compiledIR
         (by rw [hcompiled]; exact eventCompiledScalarEmit_legacy eventDef args argExprs))).trans
-        (by simpa [irExec] using congrArg externalIRExecResultToWithInternals hplainIR)
+        (by simp only [hplainIR, irExec, externalIRExecResultToWithInternals])
   · have hindexedParams := eventIndexedEntryParams_eq_filter hargsLen
         hargExprsLen
     have hunindexedParams := eventUnindexedEntryParams_eq_filter hargsLen
@@ -2869,12 +2871,15 @@ macro "event_emit_semantic_bridge_tac" : tactic => `(tactic| unhygienic (
         constructor <;> intro hmem
         · exact hfresh.1 (hincl "__evt_ptr" hmem)
         · exact hfresh.2 (hincl "__evt_topic0" hmem)
-      simpa [IRState.appendYulLog, stateTopic, stateSig] using
-        eventBindingsExactlyMatch_after_emit
-          (scope := stmtNextScope scope (Stmt.emit eventName args))
-          (bindings := runtime.bindings) (state := state)
-          (ptr := ptr) (topic0 := topic0)
-          (irMemory := fun o => (irSourceMemory o).val) hexactNext hfreshNext
+      intro name hname
+      simpa [IRState.appendYulLog, stateTopic, stateSig, IRState.setVar,
+        IRState.getVar] using
+          eventBindingsExactlyMatch_after_emit
+            (scope := stmtNextScope scope (Stmt.emit eventName args))
+            (bindings := runtime.bindings) (state := state)
+            (ptr := ptr) (topic0 := topic0)
+            (irMemory := fun o => (irSourceMemory o).val)
+            hexactNext hfreshNext name hname
     · exact FunctionBody.scopeNamesPresent_of_included hscope
         (eventStmtNextScope_emit_included hcore hinScope)
 ))

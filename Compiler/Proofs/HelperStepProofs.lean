@@ -830,7 +830,7 @@ theorem directInternalHelperStatementContextBridge_sourceCallEvidence
         result.success result.returnValue result.world := by
   intro result
   refine ⟨?_, ?_⟩
-  · simpa [result, hargs] using
+  · simpa only [result, hargs] using
       SourceSemantics.execStmtWithHelpers_internalCall_of_witness
         (spec := spec)
         (fields := fields)
@@ -877,8 +877,7 @@ theorem directInternalHelperStatementContextBridge_sourceAssignEvidence
         result.success result.returnValue result.world := by
   intro result
   refine ⟨?_, ?_⟩
-  · simpa [result, hargs] using
-      SourceSemantics.execStmtWithHelpers_internalCallAssign_of_witness
+  · rw [SourceSemantics.execStmtWithHelpers_internalCallAssign_of_witness
         (spec := spec)
         (fields := fields)
         (fuel := fuel)
@@ -886,8 +885,8 @@ theorem directInternalHelperStatementContextBridge_sourceAssignEvidence
         (names := names)
         (calleeName := calleeName)
         (args := args)
-        hctx.sourceWitness
-        hnodup
+        hctx.sourceWitness hnodup, hargs]
+    rfl
   · simpa [result] using hctx.summarySound fuel state.world argVals
 
 end LegacyDirectStatementBridge
@@ -1110,8 +1109,7 @@ theorem directInternalHelperStatementContextBridge_sourceAssignEvidence
     DirectInternalHelperAssignSourceEvidence fields names args hctx fuel state argVals := by
   dsimp [DirectInternalHelperAssignSourceEvidence]
   refine ⟨?_, ?_⟩
-  · simpa [hargs, directInternalHelperAssignSourceResult] using
-      SourceSemantics.execStmtWithHelpers_internalCallAssign_of_witness
+  · rw [SourceSemantics.execStmtWithHelpers_internalCallAssign_of_witness
         (spec := spec)
         (fields := fields)
         (fuel := fuel)
@@ -1119,8 +1117,8 @@ theorem directInternalHelperStatementContextBridge_sourceAssignEvidence
         (names := names)
         (calleeName := calleeName)
         (args := args)
-        hctx.sourceWitness
-        hnodup
+        hctx.sourceWitness hnodup, hargs]
+    rfl
   · simpa [internalHelperBodyInterpretation_selector_zero_eq_interpretInternalFunctionFuel]
       using hctx.summarySoundAt 0 fuel state.world argVals
 
@@ -3907,12 +3905,11 @@ theorem exprBitAndValue_eq_builtin (leftValue rightValue : Nat) :
   simp [exprBitAndValue, Verity.Core.Uint256.and, Verity.Core.Uint256.ofNat,
     Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS,
     Compiler.Constants.evmModulus]
-  exact Nat.mod_eq_of_lt
-    (Nat.bitwise_lt_two_pow (f := Bool.and) (n := 256)
-      (by simpa [Compiler.Constants.evmModulus] using
-        Nat.mod_lt leftValue (by decide : 0 < Compiler.Constants.evmModulus))
-      (by simpa [Compiler.Constants.evmModulus] using
-        Nat.mod_lt rightValue (by decide : 0 < Compiler.Constants.evmModulus)))
+  exact Nat.bitwise_lt_two_pow (f := Bool.and) (n := 256)
+    (by simpa [Compiler.Constants.evmModulus] using
+      Nat.mod_lt leftValue (by decide : 0 < Compiler.Constants.evmModulus))
+    (by simpa [Compiler.Constants.evmModulus] using
+      Nat.mod_lt rightValue (by decide : 0 < Compiler.Constants.evmModulus))
 
 theorem compileExprWithInternals_bitAnd_of_children
     {fields : List Field} {internalFunctions : List FunctionSpec}
@@ -4145,12 +4142,11 @@ theorem exprBitOrValue_eq_builtin (leftValue rightValue : Nat) :
   simp [exprBitOrValue, Verity.Core.Uint256.or, Verity.Core.Uint256.ofNat,
     Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS,
     Compiler.Constants.evmModulus]
-  exact Nat.mod_eq_of_lt
-    (Nat.bitwise_lt_two_pow (f := Bool.or) (n := 256)
-      (by simpa [Compiler.Constants.evmModulus] using
-        Nat.mod_lt leftValue (by decide : 0 < Compiler.Constants.evmModulus))
-      (by simpa [Compiler.Constants.evmModulus] using
-        Nat.mod_lt rightValue (by decide : 0 < Compiler.Constants.evmModulus)))
+  exact Nat.bitwise_lt_two_pow (f := Bool.or) (n := 256)
+    (by simpa [Compiler.Constants.evmModulus] using
+      Nat.mod_lt leftValue (by decide : 0 < Compiler.Constants.evmModulus))
+    (by simpa [Compiler.Constants.evmModulus] using
+      Nat.mod_lt rightValue (by decide : 0 < Compiler.Constants.evmModulus))
 
 theorem compileExprWithInternals_bitOr_of_children
     {fields : List Field} {internalFunctions : List FunctionSpec}
