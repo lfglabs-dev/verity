@@ -310,6 +310,14 @@
         "run": "git reset --hard HEAD"
       },
       {
+        "name": "Cleanup stale local artifacts",
+        "run": "cleanup_script=\"${RUNNER_TEMP}/ci-local-persistence-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.sh\"\ngit show HEAD:scripts/ci_local_persistence.sh > \"${cleanup_script}\"\nchmod +x \"${cleanup_script}\"\n\"${cleanup_script}\" cleanup --max-age-hours 24"
+      },
+      {
+        "name": "Rematerialize checkout after cleanup",
+        "run": "git reset --hard HEAD"
+      },
+      {
         "name": "Setup Lean",
         "uses": "./.github/actions/setup-lean",
         "with": {

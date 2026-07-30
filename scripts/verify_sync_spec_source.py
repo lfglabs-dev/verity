@@ -250,6 +250,13 @@ SPEC = {'check_only_paths': ['.github/workflows/**',
                                         'with': {'submodules': 'recursive'}},
                                        {'name': 'Materialize reused checkout',
                                         'run': 'git reset --hard HEAD'},
+                                       {'name': 'Cleanup stale local artifacts',
+                                        'run': 'cleanup_script="${RUNNER_TEMP}/ci-local-persistence-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.sh"\n'
+                                               'git show HEAD:scripts/ci_local_persistence.sh > "${cleanup_script}"\n'
+                                               'chmod +x "${cleanup_script}"\n'
+                                               '"${cleanup_script}" cleanup --max-age-hours 24'},
+                                       {'name': 'Rematerialize checkout after cleanup',
+                                        'run': 'git reset --hard HEAD'},
                                        {'name': 'Setup Lean',
                                         'uses': './.github/actions/setup-lean',
                                         'with': {'cache-key-prefix': 'lake',
