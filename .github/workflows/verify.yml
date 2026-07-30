@@ -1189,7 +1189,16 @@ jobs:
         run: stdbuf -oL -eL lake build compiler-main-test
 
       - name: Run compiler CLI regression module
-        run: chmod +x ./.lake/build/bin/compiler-main-test && stdbuf -oL -eL ./.lake/build/bin/compiler-main-test
+        # #2214: one phase per process. The whole suite in a single process
+        # accumulated ~56 GB of interpreter/environment memory under Lean 4.31
+        # and was OOM-killed; per-phase processes bound the peak to one phase.
+        run: |
+          chmod +x ./.lake/build/bin/compiler-main-test
+          for phase in flags compile gates mechanics; do
+            echo "::group::compiler-main-test $phase"
+            stdbuf -oL -eL ./.lake/build/bin/compiler-main-test "$phase"
+            echo "::endgroup::"
+          done
 
       - name: Build CompilationModel feature regression module
         run: stdbuf -oL -eL lake build Compiler.CompilationModelFeatureTest

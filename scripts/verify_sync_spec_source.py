@@ -476,7 +476,7 @@ SPEC = {'check_only_paths': ['.github/workflows/**',
                                                       {'name': 'Build compiler CLI regression executable',
                                                        'run': 'stdbuf -oL -eL lake build compiler-main-test'},
                                          {'name': 'Run compiler CLI regression module',
-                                          'run': 'chmod +x ./.lake/build/bin/compiler-main-test && stdbuf -oL -eL ./.lake/build/bin/compiler-main-test'},
+                                          'run': 'chmod +x ./.lake/build/bin/compiler-main-test\nfor phase in flags compile gates mechanics; do\n  echo "::group::compiler-main-test $phase"\n  stdbuf -oL -eL ./.lake/build/bin/compiler-main-test "$phase"\n  echo "::endgroup::"\ndone'},
                                                       {'name': 'Build CompilationModel feature '
                                                                'regression module',
                                                                'run': 'stdbuf -oL -eL lake build '
