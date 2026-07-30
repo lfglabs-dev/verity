@@ -57,6 +57,7 @@ private def selfDelegateMulticallBytesSmokeSpec : CompilationModel := {
         { name := "calls", ty := ParamType.array ParamType.bytes }
       ]
       returnType := none
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.Calls.selfDelegateMulticallBytes "calls",
         Stmt.stop
@@ -75,6 +76,7 @@ private def selfDelegateMulticallBytesBadAritySpec : CompilationModel := {
         { name := "calls", ty := ParamType.array ParamType.bytes }
       ]
       returnType := none
+      reentrancyTrusted := true
       body := [
         Stmt.ecm (Compiler.Modules.Calls.selfDelegateMulticallBytesModule "calls")
           [Expr.arrayLength "calls"],
@@ -94,6 +96,7 @@ private def selfDelegateMulticallBytesEmptyParamSpec : CompilationModel := {
         { name := "calls", ty := ParamType.array ParamType.bytes }
       ]
       returnType := none
+      reentrancyTrusted := true
       body := [
         Compiler.Modules.Calls.selfDelegateMulticallBytes "",
         Stmt.stop
@@ -112,6 +115,7 @@ private def selfDelegateMulticallBytesViewRejectedSpec : CompilationModel := {
         { name := "calls", ty := ParamType.array ParamType.bytes }
       ]
       returnType := none
+      reentrancyTrusted := true
       isView := true
       body := [
         Compiler.Modules.Calls.selfDelegateMulticallBytes "calls",
