@@ -913,6 +913,18 @@ structure DirectInternalHelperPerCalleeAssignBridgeCatalog
       calleeName ∈ helperCallNames fn →
       DirectInternalHelperAssignHeadStepBridge runtimeContract spec fields calleeName
 
+/-- Project the helper-return-binding half of a complete per-callee bridge
+inventory. This lets assign-only consumers use an already established full
+bridge catalog without exposing an unrelated void-call obligation. -/
+theorem directInternalHelperPerCalleeAssignBridgeCatalog_of_bridgeCatalog
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {fn : FunctionSpec}
+    (hbridge : DirectInternalHelperPerCalleeBridgeCatalog runtimeContract spec fields fn) :
+    DirectInternalHelperPerCalleeAssignBridgeCatalog runtimeContract spec fields fn := by
+  exact ⟨hbridge.assign⟩
+
 /-- Reassemble the full callee-local bridge catalog from the current supported
 body witness plus the assign-only bridge half. The call half is vacuous because
 `SupportedStmtList` still excludes direct helper calls from the fragment. -/
