@@ -290,6 +290,10 @@
         }
       },
       {
+        "name": "Materialize reused checkout",
+        "run": "git reset --hard HEAD"
+      },
+      {
         "name": "Setup Lean",
         "uses": "./.github/actions/setup-lean",
         "with": {

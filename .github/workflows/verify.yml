@@ -361,6 +361,9 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Materialize reused checkout
+        run: git reset --hard HEAD
+
       - name: Cleanup stale local artifacts
         run: scripts/ci_local_persistence.sh cleanup --max-age-hours 24
 
