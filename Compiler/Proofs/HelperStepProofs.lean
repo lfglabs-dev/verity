@@ -639,7 +639,7 @@ theorem stmtListDirectInternalHelperCallStepInterface_of_perCalleeBridgeCatalog
     {scope : List String}
     {fn : FunctionSpec}
     (hbridge :
-      DirectInternalHelperPerCalleeBridgeCatalog runtimeContract spec fields fn) :
+      DirectInternalHelperPerCalleeCallBridgeCatalog runtimeContract spec fields fn) :
     StmtListDirectInternalHelperCallStepInterface
       runtimeContract spec fields scope fn.body := by
   exact
