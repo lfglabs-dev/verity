@@ -867,6 +867,7 @@ def check_job_contracts(snapshot: Snapshot, spec: dict) -> CheckResult:
     expected_needs: dict[str, list[str]] = spec.get("expected_job_needs", {})
     expected_conditions: dict[str, str] = spec.get("expected_job_if_conditions", {})
     expected_runs_on: dict[str, str] = spec.get("expected_job_runs_on", {})
+    heavy_runner_jobs: set[str] = set(spec.get("heavy_runner_jobs", []))
     expected_timeouts: dict[str, int] = spec.get("expected_job_timeouts", {})
     expected_fail_fast: dict[str, bool] = spec.get("expected_job_strategy_fail_fast", {})
     expected_outputs: dict[str, dict[str, str]] = spec.get("expected_job_outputs", {})
@@ -940,6 +941,11 @@ def check_job_contracts(snapshot: Snapshot, spec: dict) -> CheckResult:
 
         actual_runs_on = _extract_top_level_job_value(job_body, "runs-on")
         expected_job_runs_on = expected_runs_on.get(job)
+        if job in heavy_runner_jobs and expected_job_runs_on is not None:
+            if not expected_job_runs_on.endswith("]"):
+                errors.append(f"{job} runs-on spec is not a label list: {expected_job_runs_on!r}")
+            else:
+                expected_job_runs_on = expected_job_runs_on[:-1] + ", build-heavy]"
         if actual_runs_on != expected_job_runs_on:
             errors.append(
                 f"{job} runs-on does not match spec: workflow={actual_runs_on!r}, spec={expected_job_runs_on!r}"
