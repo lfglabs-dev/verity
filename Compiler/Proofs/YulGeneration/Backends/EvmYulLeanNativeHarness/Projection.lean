@@ -6066,7 +6066,6 @@ theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_f
   have hResult := hDispatcherContinuation hWholeBody hProject
   simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using hResult
 
-set_option linter.unusedVariables false in
 /-- Non-payable selector-hit value-guard failure for a generated dispatcher.
 
 This closes the generated `callvalue()` revert path directly: when the selected
@@ -6097,7 +6096,7 @@ theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_f
       ∀ fn, fn ∈ funcs → fn.selector < EvmYul.UInt256.size)
     (hNonPayable : fn.payable = false)
     (hNonzero : tx.msgValue % evmModulus ≠ 0) :
-    ∃ (reservedNames : List String) (n0 : Nat)
+    ∃ (reservedNames : List String) (_ : Nat)
       (cases' : List (Nat × List EvmYul.Yul.Ast.Stmt))
       (body' bodyNative : List EvmYul.Yul.Ast.Stmt)
       (bodyStart bodyEnd userBodyStart : Nat),
@@ -6158,7 +6157,6 @@ theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_f
   simpa [contract, Compiler.Proofs.YulGeneration.selectorExpr,
     Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using hResult
 
-set_option linter.unusedVariables false in
 /-- Exact-total-fuel companion of
 `contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_find_some_nonpayable_callvalue_revert_projectResult_eq`.
 -/
@@ -6309,7 +6307,6 @@ theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_f
     (fuel + 5) + cases'.length + 13 by omega]
   simpa [Compiler.Proofs.YulGeneration.selectorExpr] using hSwitch
 
-set_option linter.unusedVariables false in
 /-- Payable selector-hit calldata guard failure for a generated dispatcher.
 
 When the selected function is payable but the ABI calldata is too short for
@@ -6340,7 +6337,7 @@ theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_f
     (hPayable : fn.payable = true)
     (hguards : DispatchGuardsSafe fn tx)
     (hArgsShort : ¬ fn.params.length ≤ tx.args.length) :
-    ∃ (reservedNames : List String) (n0 : Nat)
+    ∃ (reservedNames : List String) (_ : Nat)
       (cases' : List (Nat × List EvmYul.Yul.Ast.Stmt))
       (body' bodyNative : List EvmYul.Yul.Ast.Stmt)
       (bodyStart bodyEnd userBodyStart : Nat),
@@ -6410,7 +6407,6 @@ theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_f
   simpa [contract, Compiler.Proofs.YulGeneration.selectorExpr,
     Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using hResult
 
-set_option linter.unusedVariables false in
 /-- Non-payable selector-hit calldata guard failure for a generated dispatcher
 after the zero-callvalue guard skips. -/
 theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_find_some_nonpayable_args_short_revert_projectResult_eq
@@ -6439,7 +6435,7 @@ theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_f
     (hguards : DispatchGuardsSafe fn tx)
     (hZero : tx.msgValue % evmModulus = 0)
     (hArgsShort : ¬ fn.params.length ≤ tx.args.length) :
-    ∃ (reservedNames : List String) (n0 : Nat)
+    ∃ (reservedNames : List String) (_ : Nat)
       (cases' : List (Nat × List EvmYul.Yul.Ast.Stmt))
       (body' bodyNative : List EvmYul.Yul.Ast.Stmt)
       (bodyStart bodyEnd userBodyStart : Nat),
@@ -6510,7 +6506,6 @@ theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_f
   simpa [contract, Compiler.Proofs.YulGeneration.selectorExpr,
     Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using hResult
 
-set_option linter.unusedVariables false in
 /-- Exact-total-fuel companion of
 `contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_find_some_payable_args_short_revert_projectResult_eq`. -/
 theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_find_some_payable_args_short_revert_atFuel_projectResult_eq
@@ -6670,7 +6665,6 @@ theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_f
     (fuel + 4) + cases'.length + 13 by omega]
   simpa [Compiler.Proofs.YulGeneration.selectorExpr] using hSwitch
 
-set_option linter.unusedVariables false in
 /-- Exact-total-fuel companion of
 `contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_find_some_nonpayable_args_short_revert_projectResult_eq`. -/
 theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_find_some_nonpayable_args_short_revert_atFuel_projectResult_eq
@@ -6832,7 +6826,6 @@ theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_f
     (fuel + 5) + cases'.length + 13 by omega]
   simpa [Compiler.Proofs.YulGeneration.selectorExpr] using hSwitch
 
-set_option linter.unusedVariables false in
 /-- Exact-total-fuel reserved-context companion of
 `contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_find_some_nonpayable_callvalue_revert_atFuel_projectResult_eq`. -/
 theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_find_some_nonpayable_callvalue_revert_withSwitchIds_atFuel_projectResult_eq
@@ -6983,7 +6976,6 @@ theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_f
     (fuel + 5) + cases'.length + 13 by omega]
   simpa [Compiler.Proofs.YulGeneration.selectorExpr] using hSwitch
 
-set_option linter.unusedVariables false in
 /-- Exact-total-fuel reserved-context companion of
 `contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_find_some_payable_args_short_revert_atFuel_projectResult_eq`. -/
 theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_find_some_payable_args_short_revert_withSwitchIds_atFuel_projectResult_eq
@@ -7143,7 +7135,6 @@ theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_f
     (fuel + 4) + cases'.length + 13 by omega]
   simpa [Compiler.Proofs.YulGeneration.selectorExpr] using hSwitch
 
-set_option linter.unusedVariables false in
 /-- Exact-total-fuel reserved-context companion of
 `contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_find_some_nonpayable_args_short_revert_atFuel_projectResult_eq`. -/
 theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_find_some_nonpayable_args_short_revert_withSwitchIds_atFuel_projectResult_eq
