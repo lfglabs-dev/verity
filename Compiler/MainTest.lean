@@ -46,8 +46,14 @@ private def moduleArgs (modules : List String) : List String :=
 private def contractArtifactPath (outDir : String) (moduleName : String) : String :=
   s!"{outDir}/{contractNameOfModule moduleName}.yul"
 
+/-! #2214: the regression suite compiles contracts through the Lean interpreter
+many times over. Running every case in one process accumulated interpreter and
+environment memory to ~56 GB under Lean 4.31 and got OOM-killed on the 64 GB
+build runner. The suite is therefore split into self-contained phases; CI runs
+each phase in a fresh process so peak memory is one phase, not the sum. -/
+
 set_option maxRecDepth 100000 in
-unsafe def runTests : IO Unit := do
+unsafe def runFlagAndUnitTests : IO Unit := do
   let tempRoot := (← IO.getEnv "TMPDIR").getD "/tmp"
   let tempPath (name : String) : String := s!"{tempRoot}/{name}"
   expectErrorContains "missing --link value" ["--link"] "Missing value for --link"
@@ -73,7 +79,73 @@ unsafe def runTests : IO Unit := do
     "missing manifest file is rejected"
     ["--manifest", tempPath "definitely-missing-verty-manifest", "--output", tempPath "verity-main-test-missing-manifest"]
     "Failed to read manifest"
+  expectErrorContains "bare --patch-report errors missing value" ["--patch-report"] "Missing value for --patch-report"
+  expectErrorContains "missing --assumption-report value" ["--assumption-report"] "Missing value for --assumption-report"
+  expectErrorContains "missing --layout-report value" ["--layout-report"] "Missing value for --layout-report"
+  expectErrorContains "missing --layout-compat-report value" ["--layout-compat-report"] "Missing value for --layout-compat-report"
+  expectErrorContains "bare --patch-max-iterations errors missing value" ["--patch-max-iterations"] "Missing value for --patch-max-iterations"
+  expectErrorContains "missing --backend-profile value" ["--backend-profile"] "Missing value for --backend-profile"
+  expectErrorContains "invalid --backend-profile value" ["--backend-profile", "invalid-profile"] "expected semantic, solidity-parity-ordering, or solidity-parity"
+  expectErrorContains "solidity-parity backend profile accepted; errors no input" ["--backend-profile", "solidity-parity"] "No compiler input provided"
+  expectErrorContains "bare --parity-pack errors missing value" ["--parity-pack"] "Missing value for --parity-pack"
+  expectErrorContains "invalid parity pack id is rejected" ["--parity-pack", "invalid-pack"] "Invalid value for --parity-pack"
+  expectErrorContains "unknown parity pack id is rejected" ["--parity-pack", "solc-0.8.33-o200-viair-false-evm-shanghai", "--parity-pack", "solc-0.8.28-o999999-viair-true-evm-paris"] "Invalid value for --parity-pack"
+  expectErrorContains "backend-profile + parity-pack conflict is rejected (profile first)" ["--backend-profile", "semantic", "--parity-pack", "solc-0.8.33-o200-viair-false-evm-shanghai"] "Cannot combine --parity-pack with --backend-profile"
+  expectErrorContains "unknown parity pack id rejected before backend-profile conflict check" ["--parity-pack", "solc-0.8.33-o200-viair-false-evm-shanghai", "--backend-profile", "semantic"] "Invalid value for --parity-pack"
+  expectErrorContains "missing --mapping-slot-scratch-base value" ["--mapping-slot-scratch-base"] "Missing value for --mapping-slot-scratch-base"
+  expectErrorContains "invalid --mapping-slot-scratch-base value" ["--mapping-slot-scratch-base", "not-a-number"] "Invalid value for --mapping-slot-scratch-base: not-a-number"
+  expectErrorContains "removed --ast flag is rejected" ["--ast"] "Unknown argument: --ast"
+  expectErrorContains "unknown argument still reported" ["--definitely-unknown-flag"] "Unknown argument: --definitely-unknown-flag"
+  expectTrue "shipped parity packs have proof composition metadata"
+    Compiler.allParityPacksProofCompositionValid
+  let invalidPack : Compiler.ParityPack :=
+    { id := "invalid-proof-pack"
+      compat := {
+        solcVersion := "0.8.28"
+        solcCommit := "7893614a"
+        optimizerRuns := 200
+        viaIR := false
+        evmVersion := "shanghai"
+        metadataMode := "default"
+      }
+      backendProfile := .solidityParity
+      forcePatches := true
+      defaultPatchMaxIterations := 2
+      rewriteBundleId := Compiler.Yul.foundationRewriteBundleId
+      compositionProofRef := .anonymous
+      requiredProofRefs := [] }
+  expectTrue "parity pack proof composition rejects empty metadata" (!invalidPack.proofCompositionValid)
+  let missingBundlePack := { invalidPack with
+    compositionProofRef := Compiler.Yul.proofRefName "Compiler.Proofs.YulGeneration.PatchRulesProofs.foundation_patch_pack_obligations"
+    requiredProofRefs := Compiler.Yul.foundationProofAllowlist
+    rewriteBundleId := "missing-rewrite-bundle" }
+  expectTrue "parity pack proof composition rejects unknown rewrite bundle IDs"
+    (!missingBundlePack.proofCompositionValid)
 
+  let libWithCommentAndStringBraces :=
+    "{\n" ++
+    "function PoseidonT3_hash(a, b) -> result {\n" ++
+    "  // } stray brace in comment\n" ++
+    "  result := add(a, b)\n" ++
+    "}\n\n" ++
+    "function PoseidonT4_hash(a, b, c) -> result {\n" ++
+    "  let marker := \"} in string\"\n" ++
+    "  result := add(add(a, b), c)\n" ++
+    "}\n" ++
+    "}\n"
+
+  let parsed := Compiler.Linker.parseLibrary libWithCommentAndStringBraces
+  expectTrue "linker parses two functions when braces appear in comments/strings" (parsed.length == 2)
+  expectTrue "linker keeps first function boundary intact" ((parsed.getD 0 {name := "", arity := 0, body := []}).name == "PoseidonT3_hash")
+  expectTrue "linker keeps second function boundary intact" ((parsed.getD 1 {name := "", arity := 0, body := []}).name == "PoseidonT4_hash")
+  let firstBody := String.intercalate "\n" ((parsed.getD 0 {name := "", arity := 0, body := []}).body)
+  expectTrue "first function body does not swallow next function" (!contains firstBody "function PoseidonT4_hash")
+
+set_option maxRecDepth 100000 in
+unsafe def runCompileModeTests : IO Unit := do
+  let tempRoot := (← IO.getEnv "TMPDIR").getD "/tmp"
+  let tempPath (name : String) : String := s!"{tempRoot}/{name}"
+  let nonce ← IO.monoMsNow
   let nonce ← IO.monoMsNow
   let allOutDir := tempPath s!"verity-main-test-{nonce}-all-out"
   IO.FS.createDirAll allOutDir
@@ -87,6 +159,17 @@ unsafe def runTests : IO Unit := do
   Compiler.Main.run (["--module", "Contracts.Counter.Counter", "--output", singleOutDir])
   let selectedCounterArtifact ← fileExists s!"{singleOutDir}/Counter.yul"
   expectTrue "module input mode compiles explicitly selected contract" selectedCounterArtifact
+  let nonSelectedArtifactFlags ←
+    (canonicalModules.filter (· != "Contracts.Counter.Counter")).mapM
+      (fun moduleName => fileExists (contractArtifactPath singleOutDir moduleName))
+  let nonSelectedArtifactsAbsent := nonSelectedArtifactFlags.all (fun isPresent => !isPresent)
+  expectTrue "selected module mode does not emit non-selected artifacts" nonSelectedArtifactsAbsent
+
+set_option maxRecDepth 100000 in
+unsafe def runStrictGateTests : IO Unit := do
+  let tempRoot := (← IO.getEnv "TMPDIR").getD "/tmp"
+  let tempPath (name : String) : String := s!"{tempRoot}/{name}"
+  let nonce ← IO.monoMsNow
   let strictOutDir := tempPath s!"verity-main-test-{nonce}-strict-out"
   IO.FS.createDirAll strictOutDir
   Compiler.Main.run (["--module", "Contracts.Counter.Counter", "--deny-unchecked-dependencies", "--output", strictOutDir])
@@ -151,6 +234,12 @@ unsafe def runTests : IO Unit := do
     "strict local-obligation gate rejects macro-declared undischarged obligations"
     ["--module", "Contracts.LocalObligationMacroSmoke.LocalObligationMacroSmoke", "--deny-local-obligations", "--output", tempPath s!"verity-main-test-{nonce}-macro-local-obligation-fail-out"]
     "LocalObligationMacroSmoke [constructor:constructor]: unchecked local obligations: constructor_storage_layout"
+
+set_option maxRecDepth 100000 in
+unsafe def runMechanicsAndProxyTests : IO Unit := do
+  let tempRoot := (← IO.getEnv "TMPDIR").getD "/tmp"
+  let tempPath (name : String) : String := s!"{tempRoot}/{name}"
+  let nonce ← IO.monoMsNow
   let memoryStrictOutDir := tempPath s!"verity-main-test-{nonce}-memory-strict-out"
   IO.FS.createDirAll memoryStrictOutDir
   Compiler.Main.run (["--module", "Contracts.SimpleStorage.SimpleStorage", "--deny-linear-memory-mechanics", "--output", memoryStrictOutDir])
@@ -260,72 +349,24 @@ unsafe def runTests : IO Unit := do
     , "--output", tempPath s!"verity-main-test-{nonce}-proxy-layout-compat-fail-out"
     ]
     "field 'admin' moved slots: 1 -> 2"
-  let nonSelectedArtifactFlags ←
-    (canonicalModules.filter (· != "Contracts.Counter.Counter")).mapM
-      (fun moduleName => fileExists (contractArtifactPath singleOutDir moduleName))
-  let nonSelectedArtifactsAbsent := nonSelectedArtifactFlags.all (fun isPresent => !isPresent)
-  expectTrue "selected module mode does not emit non-selected artifacts" nonSelectedArtifactsAbsent
 
-  expectErrorContains "bare --patch-report errors missing value" ["--patch-report"] "Missing value for --patch-report"
-  expectErrorContains "missing --assumption-report value" ["--assumption-report"] "Missing value for --assumption-report"
-  expectErrorContains "missing --layout-report value" ["--layout-report"] "Missing value for --layout-report"
-  expectErrorContains "missing --layout-compat-report value" ["--layout-compat-report"] "Missing value for --layout-compat-report"
-  expectErrorContains "bare --patch-max-iterations errors missing value" ["--patch-max-iterations"] "Missing value for --patch-max-iterations"
-  expectErrorContains "missing --backend-profile value" ["--backend-profile"] "Missing value for --backend-profile"
-  expectErrorContains "invalid --backend-profile value" ["--backend-profile", "invalid-profile"] "expected semantic, solidity-parity-ordering, or solidity-parity"
-  expectErrorContains "solidity-parity backend profile accepted; errors no input" ["--backend-profile", "solidity-parity"] "No compiler input provided"
-  expectErrorContains "bare --parity-pack errors missing value" ["--parity-pack"] "Missing value for --parity-pack"
-  expectErrorContains "invalid parity pack id is rejected" ["--parity-pack", "invalid-pack"] "Invalid value for --parity-pack"
-  expectErrorContains "unknown parity pack id is rejected" ["--parity-pack", "solc-0.8.33-o200-viair-false-evm-shanghai", "--parity-pack", "solc-0.8.28-o999999-viair-true-evm-paris"] "Invalid value for --parity-pack"
-  expectErrorContains "backend-profile + parity-pack conflict is rejected (profile first)" ["--backend-profile", "semantic", "--parity-pack", "solc-0.8.33-o200-viair-false-evm-shanghai"] "Cannot combine --parity-pack with --backend-profile"
-  expectErrorContains "unknown parity pack id rejected before backend-profile conflict check" ["--parity-pack", "solc-0.8.33-o200-viair-false-evm-shanghai", "--backend-profile", "semantic"] "Invalid value for --parity-pack"
-  expectErrorContains "missing --mapping-slot-scratch-base value" ["--mapping-slot-scratch-base"] "Missing value for --mapping-slot-scratch-base"
-  expectErrorContains "invalid --mapping-slot-scratch-base value" ["--mapping-slot-scratch-base", "not-a-number"] "Invalid value for --mapping-slot-scratch-base: not-a-number"
-  expectErrorContains "removed --ast flag is rejected" ["--ast"] "Unknown argument: --ast"
-  expectErrorContains "unknown argument still reported" ["--definitely-unknown-flag"] "Unknown argument: --definitely-unknown-flag"
-  expectTrue "shipped parity packs have proof composition metadata"
-    Compiler.allParityPacksProofCompositionValid
-  let invalidPack : Compiler.ParityPack :=
-    { id := "invalid-proof-pack"
-      compat := {
-        solcVersion := "0.8.28"
-        solcCommit := "7893614a"
-        optimizerRuns := 200
-        viaIR := false
-        evmVersion := "shanghai"
-        metadataMode := "default"
-      }
-      backendProfile := .solidityParity
-      forcePatches := true
-      defaultPatchMaxIterations := 2
-      rewriteBundleId := Compiler.Yul.foundationRewriteBundleId
-      compositionProofRef := .anonymous
-      requiredProofRefs := [] }
-  expectTrue "parity pack proof composition rejects empty metadata" (!invalidPack.proofCompositionValid)
-  let missingBundlePack := { invalidPack with
-    compositionProofRef := Compiler.Yul.proofRefName "Compiler.Proofs.YulGeneration.PatchRulesProofs.foundation_patch_pack_obligations"
-    requiredProofRefs := Compiler.Yul.foundationProofAllowlist
-    rewriteBundleId := "missing-rewrite-bundle" }
-  expectTrue "parity pack proof composition rejects unknown rewrite bundle IDs"
-    (!missingBundlePack.proofCompositionValid)
+/-- All phases in one process: local convenience entry point. CI invokes the
+phases individually (see `runPhase`) to keep peak memory bounded. -/
+unsafe def runTests : IO Unit := do
+  runFlagAndUnitTests
+  runCompileModeTests
+  runStrictGateTests
+  runMechanicsAndProxyTests
 
-  let libWithCommentAndStringBraces :=
-    "{\n" ++
-    "function PoseidonT3_hash(a, b) -> result {\n" ++
-    "  // } stray brace in comment\n" ++
-    "  result := add(a, b)\n" ++
-    "}\n\n" ++
-    "function PoseidonT4_hash(a, b, c) -> result {\n" ++
-    "  let marker := \"} in string\"\n" ++
-    "  result := add(add(a, b), c)\n" ++
-    "}\n" ++
-    "}\n"
-
-  let parsed := Compiler.Linker.parseLibrary libWithCommentAndStringBraces
-  expectTrue "linker parses two functions when braces appear in comments/strings" (parsed.length == 2)
-  expectTrue "linker keeps first function boundary intact" ((parsed.getD 0 {name := "", arity := 0, body := []}).name == "PoseidonT3_hash")
-  expectTrue "linker keeps second function boundary intact" ((parsed.getD 1 {name := "", arity := 0, body := []}).name == "PoseidonT4_hash")
-  let firstBody := String.intercalate "\n" ((parsed.getD 0 {name := "", arity := 0, body := []}).body)
-  expectTrue "first function body does not swallow next function" (!contains firstBody "function PoseidonT4_hash")
+unsafe def runPhase (phase : String) : IO UInt32 := do
+  match phase with
+  | "flags" => runFlagAndUnitTests; pure 0
+  | "compile" => runCompileModeTests; pure 0
+  | "gates" => runStrictGateTests; pure 0
+  | "mechanics" => runMechanicsAndProxyTests; pure 0
+  | _ =>
+    IO.eprintln s!"unknown phase '{phase}'; expected flags|compile|gates|mechanics"
+    pure 2
 
 end Compiler.MainTest
+
