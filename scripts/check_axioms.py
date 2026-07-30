@@ -39,13 +39,25 @@ FORBIDDEN_AXIOMS = frozenset([
 ])
 
 NATIVE_DECIDE_AXIOM_RE = re.compile(
-    r"^.+\._native\.native_decide\.ax(?:_[0-9]+)+$"
+    r"^(?P<origin>.+)\._native\.native_decide\.ax(?:_[0-9]+)+$"
 )
+
+# Lean 4.31 generates per-proof axiom names for these audited native_decide
+# witnesses.  Keep the origins explicit: accepting the suffix alone would let
+# an unrelated dependency disguise an ordinary axiom as generated code.
+NATIVE_DECIDE_AXIOM_ORIGINS = frozenset([
+    "Compiler.ERC20MinimalNativeWitness.lowerRuntimeContractNative_eq",
+    "Compiler.SimpleStorageNativeWitness.lowerRuntimeContractNative_eq",
+    "Compiler.VaultMinimalNativeWitness.lowerRuntimeContractNative_eq",
+])
 
 
 def is_lean_builtin_axiom(name: str) -> bool:
     """Recognize Lean builtins, including 4.31's per-proof native_decide names."""
-    return name in LEAN_BUILTIN_AXIOMS or NATIVE_DECIDE_AXIOM_RE.fullmatch(name) is not None
+    if name in LEAN_BUILTIN_AXIOMS:
+        return True
+    match = NATIVE_DECIDE_AXIOM_RE.fullmatch(name)
+    return match is not None and match.group("origin") in NATIVE_DECIDE_AXIOM_ORIGINS
 
 
 def parse_axiom_entries(axioms_md_text: str) -> list[tuple[str, str, int]]:

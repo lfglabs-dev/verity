@@ -179,6 +179,11 @@ class CheckAxiomsReportTests(unittest.TestCase):
         _, _, _, unexpected = check_axioms.classify_axioms({"Foo.bar": [fake]})
         self.assertEqual(unexpected, {fake: ["Foo.bar"]})
 
+    def test_dependency_cannot_spoof_native_decide_generated_name(self) -> None:
+        fake = "Dependency.foo._native.native_decide.ax_1_1"
+        _, _, _, unexpected = check_axioms.classify_axioms({"Foo.bar": [fake]})
+        self.assertEqual(unexpected, {fake: ["Foo.bar"]})
+
     def test_run_report_check_passes_and_writes_output_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             output = Path(tmpdir) / "axiom-report.md"

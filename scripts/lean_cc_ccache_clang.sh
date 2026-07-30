@@ -20,6 +20,8 @@ if $is_compile; then
 else
   # Use the compiler shipped with Lean: its libc++ ABI matches the distributed
   # Lean 4.31 runtime archives, unlike an independently installed host clang.
+  # Link libunwind statically so packaged binaries do not retain the builder's
+  # absolute Lean prefix in DT_RUNPATH.
   exec "$lean_clang" -fuse-ld=lld -L "$lean_prefix/lib" \
-    "-Wl,-rpath,$lean_prefix/lib" "$@" -lunwind
+    "$@" "$lean_prefix/lib/libunwind.a"
 fi
