@@ -37,21 +37,14 @@ class CiInfraMaintenanceTests(unittest.TestCase):
         self.assertIn("verity,fastlane,dgx,dgx-spark,gpu,nvidia", text)
         self.assertIn("arm64-gb10", text)
 
-    def test_verify_fastlane_jobs_are_arch_neutral(self) -> None:
+    def test_verify_fastlane_jobs_route_to_dgx(self) -> None:
         text = VERIFY_WORKFLOW.read_text(encoding="utf-8")
-        # Fastlane jobs are script-only. Pinning an arch or a single host made
-        # the DGX arbiter's lowest-priority runner the only eligible executor,
-        # wedging every workflow behind changes/checks during P0 campaigns;
-        # redundant runners (e.g. the cgroup-capped x64 one on agent-core)
-        # must also qualify.
-        self.assertNotIn(
-            "runs-on: [self-hosted, linux, ARM64, dgx-spark, verity, fastlane]", text
-        )
+        self.assertNotIn("runs-on: [self-hosted, linux, x64, verity, fastlane]", text)
         for job in ("changes", "checks", "timeout-watchdog", "failure-hints"):
             match = re.search(rf"^  {job}:\n(?P<body>.*?)(?=^  [a-zA-Z0-9_-]+:|\Z)", text, re.S | re.M)
             self.assertIsNotNone(match, job)
             self.assertIn(
-                "runs-on: [self-hosted, linux, verity, fastlane]",
+                "runs-on: [self-hosted, linux, ARM64, dgx-spark, verity, fastlane]",
                 match.group("body"),
                 job,
             )

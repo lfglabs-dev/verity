@@ -106,7 +106,7 @@ env:
 jobs:
   closed-pr-cleanup:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
-    runs-on: [self-hosted, linux, verity, fastlane]
+    runs-on: [self-hosted, linux, ARM64, dgx-spark, verity, fastlane]
     timeout-minutes: 5
     permissions:
       actions: write
@@ -188,7 +188,7 @@ jobs:
 
   changes:
     if: github.event_name != 'pull_request' || github.event.action != 'closed'
-    runs-on: [self-hosted, linux, verity, fastlane]
+    runs-on: [self-hosted, linux, ARM64, dgx-spark, verity, fastlane]
     timeout-minutes: 5
     outputs:
       code: ${{ steps.effective.outputs.code }}
@@ -284,7 +284,7 @@ jobs:
   checks:
     needs: changes
     if: github.event_name != 'pull_request' || github.event.action != 'closed'
-    runs-on: [self-hosted, linux, verity, fastlane]
+    runs-on: [self-hosted, linux, ARM64, dgx-spark, verity, fastlane]
     timeout-minutes: 10
     defaults:
       run:
@@ -327,7 +327,7 @@ jobs:
         run: make check
 
   timeout-watchdog:
-    runs-on: [self-hosted, linux, verity, fastlane]
+    runs-on: [self-hosted, linux, ARM64, dgx-spark, verity, fastlane]
     timeout-minutes: 5
     needs: checks
     if: needs.checks.result == 'success' && !(github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.clean_build))
@@ -1672,7 +1672,7 @@ jobs:
           echo "::notice::Reproduce locally: FOUNDRY_PROFILE=difftest DIFFTEST_RANDOM_SEED=${{ matrix.seed }} forge test -vv"
 
   failure-hints:
-    runs-on: [self-hosted, linux, verity, fastlane]
+    runs-on: [self-hosted, linux, ARM64, dgx-spark, verity, fastlane]
     needs: [checks, build, build-audits, build-compiler-binaries, compiler-audits, compiler-regressions, foundry-gas-calibration, foundry, foundry-patched, foundry-multi-seed]
     if: always() && github.event_name == 'pull_request' && contains(join(needs.*.result, ','), 'failure')
     permissions:
