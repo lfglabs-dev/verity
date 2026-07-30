@@ -164,10 +164,10 @@
     "failure-hints": "always() && github.event_name == 'pull_request' && contains(join(needs.*.result, ','), 'failure')"
   },
   "expected_job_runs_on": {
-    "closed-pr-cleanup": "[self-hosted, linux, ARM64, dgx-spark, verity, fastlane]",
-    "changes": "[self-hosted, linux, ARM64, dgx-spark, verity, fastlane]",
-    "checks": "[self-hosted, linux, ARM64, dgx-spark, verity, fastlane]",
-    "timeout-watchdog": "[self-hosted, linux, ARM64, dgx-spark, verity, fastlane]",
+    "closed-pr-cleanup": "[self-hosted, linux, verity, fastlane]",
+    "changes": "[self-hosted, linux, verity, fastlane]",
+    "checks": "[self-hosted, linux, verity, fastlane]",
+    "timeout-watchdog": "[self-hosted, linux, verity, fastlane]",
     "build": "[self-hosted, linux, x64, verity, build, build-heavy]",
     "build-audits": "[self-hosted, linux, x64, verity, build, build-heavy]",
     "build-compiler-binaries": "[self-hosted, linux, x64, verity, build, build-heavy]",
@@ -178,7 +178,7 @@
     "foundry": "[self-hosted, linux, x64, verity, build, build-heavy]",
     "foundry-patched": "[self-hosted, linux, x64, verity, build, build-heavy]",
     "foundry-multi-seed": "[self-hosted, linux, x64, verity, build, build-heavy]",
-    "failure-hints": "[self-hosted, linux, ARM64, dgx-spark, verity, fastlane]"
+    "failure-hints": "[self-hosted, linux, verity, fastlane]"
   },
   "expected_job_timeouts": {
     "closed-pr-cleanup": 5,
