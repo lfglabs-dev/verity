@@ -30,7 +30,7 @@ GitHub Actions for lfglabs-dev/verity
 The workflows route by capability, not by hostname:
 
 ```yaml
-runs-on: [self-hosted, linux, verity, fastlane]
+runs-on: [self-hosted, linux, ARM64, dgx-spark, verity, fastlane]
 runs-on: [self-hosted, linux, x64, verity, build, build-heavy]
 runs-on: [self-hosted, linux, ARM64, dgx-spark, gpu]
 ```
@@ -42,8 +42,9 @@ them only for temporary debugging or deliberate host pinning.
 
 - Keep fast jobs and long proof/build jobs on separate runner labels.
 - Require `build-heavy` for proof, compiler, and Foundry jobs. The generic
-  `build` label also exists on the 20 GiB cgroup-capped fastlane fallback and
-  is not a sufficient resource bound for those jobs.
+  `build` label alone does not distinguish high-memory hosts from lighter,
+  cgroup-capped build hosts and is not a sufficient resource bound for those
+  jobs.
 - Prefer one full Verity build runner per 8-core host. Lean jobs commonly use
   `LEAN_NUM_THREADS=8`; two such jobs on one 8-core host oversubscribe CPU,
   memory bandwidth, and the Lake cache.
