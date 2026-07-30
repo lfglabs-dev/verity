@@ -345,7 +345,6 @@ SPEC = {'check_only_paths': ['.github/workflows/**',
                                                           'uses': 'actions/download-artifact@v7',
                                                           'with': {'name': 'lean-workspace-build'}},
                                                          {'name': 'Restore compiler ccache fallback cache',
-                                                          'if': "env.VERIFY_CLEAN_BUILD != 'true'",
                                                           'uses': 'actions/cache/restore@v5',
                                                           'with': {'path': '${{ runner.temp }}/compiler-ccache-cache',
                                                                    'key': 'compiler-ccache-cache-${{ '
@@ -814,6 +813,11 @@ SPEC['build_compiler_job_names'] = [
 
 SPEC['expected_step_contracts']['build-compiler-binaries'] = [
     {'uses': 'actions/checkout@v6', 'with': {'submodules': 'recursive'}},
+    {'name': 'Restore compiler ccache fallback cache',
+     'if': "env.VERIFY_CLEAN_BUILD != 'true'",
+     'uses': 'actions/cache/restore@v5',
+     'with': {'path': '${{ runner.temp }}/compiler-ccache-cache',
+              'key': "compiler-ccache-cache-${{ env.VERIFY_CACHE_BUCKET }}-${{ runner.os }}-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('lakefile.lean') }}-${{ hashFiles('lake-manifest.json') }}-${{ github.run_id }}"}},
     {'name': 'Restore prepared Lean workspace build (local)', 'run': 'scripts/ci_local_persistence.sh fetch \\\n  --run-id "${{ github.run_id }}" \\\n  --name lean-workspace-build \\\n  --timeout 60'},
     {'name': 'Download prepared Lean workspace build', 'if': "steps.local-restore-lean-workspace.outcome != 'success'", 'uses': 'actions/download-artifact@v7', 'with': {'name': 'lean-workspace-build'}},
     {'name': 'Build verity-compiler', 'uses': './.github/actions/build-compiler-target'},
