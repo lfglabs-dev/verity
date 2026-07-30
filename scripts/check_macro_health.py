@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 
 import check_macro_property_test_generation
+import check_macro_roundtrip_fuzz_coverage
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -30,6 +31,10 @@ def main(argv: list[str] | None = None) -> int:
         rc = check_macro_property_test_generation.main(["--check"])
         if rc != 0:
             return rc
+
+    rc = check_macro_roundtrip_fuzz_coverage.main([])
+    if rc != 0:
+        return rc
 
     print("macro health checks passed")
     return 0
