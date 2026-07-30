@@ -81,7 +81,7 @@ permissions:
   contents: read
 
 concurrency:
-  # Keep scheduled cache-warming runs out of the push/manual validation lane.
+  # Keep scheduled cold-build runs out of the push/manual validation lane.
   # Otherwise a cron run for main can cancel an explicit workflow_dispatch run
   # before the proof/build jobs get a runner.
   # Closed-event cleanup must never cancel a PR run through concurrency before
@@ -93,10 +93,12 @@ env:
   SOLC_VERSION: "0.8.33"
   SOLC_URL: "https://binaries.soliditylang.org/linux-amd64/solc-linux-amd64-v0.8.33+commit.64118f21"
   SOLC_SHA256: "1274e5c4621ae478090c5a1f48466fd3c5f658ed9e14b15a0b213dc806215468"
-  VERIFY_CLEAN_BUILD: ${{ github.event_name == 'workflow_dispatch' && inputs.clean_build && 'true' || 'false' }}
+  # The daily main run is the periodic cold exact-head receipt. Manual clean
+  # dispatches use the same path; ordinary push/PR runs retain warm caches.
+  VERIFY_CLEAN_BUILD: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.clean_build)) && 'true' || 'false' }}
   VERIFY_FORCE_FULL_RUN: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.force_full_run)) && 'true' || 'false' }}
-  VERIFY_USE_STICKY_DISKS: ${{ (github.event_name == 'workflow_dispatch' && inputs.clean_build) && 'false' || 'true' }}
-  VERIFY_DISABLE_LAKE_CACHE_RESTORE: ${{ github.event_name == 'workflow_dispatch' && inputs.clean_build && 'true' || 'false' }}
+  VERIFY_USE_STICKY_DISKS: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.clean_build)) && 'false' || 'true' }}
+  VERIFY_DISABLE_LAKE_CACHE_RESTORE: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.clean_build)) && 'true' || 'false' }}
   VERIFY_CACHE_BUCKET: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('ref-{0}', github.ref_name) }}
   VERIFY_MAIN_CACHE_BUCKET: ref-main
   VERIFY_LOCAL_ARTIFACT_ROOT: /srv/verity-ci-cache/artifacts
@@ -326,7 +328,7 @@ jobs:
     runs-on: [self-hosted, linux, ARM64, dgx-spark, verity, fastlane]
     timeout-minutes: 5
     needs: checks
-    if: needs.checks.result == 'success' && !(github.event_name == 'workflow_dispatch' && inputs.clean_build)
+    if: needs.checks.result == 'success' && !(github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.clean_build))
     defaults:
       run:
         working-directory: watchdog-${{ github.run_id }}-${{ github.run_attempt }}
@@ -349,7 +351,7 @@ jobs:
 
   build:
     runs-on: [self-hosted, linux, x64, verity, build]
-    timeout-minutes: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.clean_build && '60' || '35') }}
+    timeout-minutes: ${{ fromJSON((github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.clean_build)) && '60' || '35') }}
     needs: [changes, checks]
     if: needs.checks.result == 'success' && needs.changes.outputs.build == 'true'
     env:
@@ -560,6 +562,7 @@ jobs:
         run: mkdir -p "$CCACHE_DIR"
 
       - name: Restore compiler ccache fallback cache
+        if: env.VERIFY_CLEAN_BUILD != 'true'
         uses: actions/cache/restore@v5
         with:
           path: ${{ runner.temp }}/compiler-ccache-cache
@@ -578,6 +581,7 @@ jobs:
             --fallback-key "${{ github.event_name == 'pull_request' && format('compiler-ccache-{0}-{1}-{2}-{3}-{4}', env.VERIFY_MAIN_CACHE_BUCKET, runner.os, hashFiles('lean-toolchain'), hashFiles('lakefile.lean'), hashFiles('lake-manifest.json')) || '' }}"
 
       - name: Seed compiler ccache from GitHub cache fallback
+        if: env.VERIFY_CLEAN_BUILD != 'true'
         run: |
           if find "$CCACHE_DIR" -mindepth 1 -print -quit | grep -q .; then
             exit 0
@@ -1124,7 +1128,7 @@ jobs:
 
   compiler-regressions:
     runs-on: [self-hosted, linux, x64, verity, build]
-    timeout-minutes: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.clean_build && '150' || '90') }}
+    timeout-minutes: ${{ fromJSON((github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.clean_build)) && '150' || '90') }}
     needs: [changes, checks, build, build-compiler-binaries]
     if: needs.checks.result == 'success' && needs.build.result == 'success' && needs.build-compiler-binaries.result == 'success' && needs.changes.outputs.compiler == 'true'
     env:
