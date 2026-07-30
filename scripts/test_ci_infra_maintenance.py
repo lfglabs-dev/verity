@@ -19,7 +19,10 @@ class CiInfraMaintenanceTests(unittest.TestCase):
         self.assertIn('RUNNER_PROFILE="${RUNNER_PROFILE_INPUT:-build}"', text)
         self.assertIn('RUNNER_COUNT="${RUNNER_COUNT:-1}"', text)
         self.assertIn("ci-host-88-99-4-254", text)
-        self.assertIn("build-heavy", text)
+        self.assertIn(
+            '${RUNNER_LABELS_1:-verity,build,build-heavy,hetzner,cpu-8,mem-64g}',
+            text,
+        )
 
     def test_runner_host_profiles_keep_overloaded_host_fastlane_only(self) -> None:
         text = RUNNER_SCRIPT.read_text(encoding="utf-8")

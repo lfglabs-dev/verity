@@ -79,7 +79,7 @@ RUNNER_TOKEN=<registration-token> \
 RUNNER_PROFILE=build \
 RUNNER_COUNT=1 \
 RUNNER_NAME_PREFIX=<short-hostname>-verity-build \
-RUNNER_LABELS_1=verity,build,hetzner,<host-label>,cpu-8,mem-64g \
+RUNNER_LABELS_1=verity,build,build-heavy,hetzner,<host-label>,cpu-8,mem-64g \
 scripts/install_self_hosted_runner.sh
 ```
 
