@@ -220,6 +220,7 @@ jobs:
               - 'foundry.toml'
             build:
               - '.github/actions/**'
+              - '.github/workflows/verify.yml'
               - 'Verity/**'
               - 'Verity.lean'
               - 'Compiler/**'
@@ -233,6 +234,7 @@ jobs:
               - 'lean-toolchain'
             compiler:
               - '.github/actions/**'
+              - '.github/workflows/verify.yml'
               - 'Verity/**'
               - '!Verity/Proofs/**'
               - 'Compiler/**'

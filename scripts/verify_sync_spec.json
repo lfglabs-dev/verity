@@ -10,8 +10,24 @@
     "README.md",
     "TRUST_ASSUMPTIONS.md"
   ],
+  "build_paths": [
+    ".github/actions/**",
+    ".github/workflows/verify.yml",
+    "Verity/**",
+    "Verity.lean",
+    "Compiler/**",
+    "Compiler.lean",
+    "Contracts/**",
+    "Contracts.lean",
+    "examples/**",
+    "packages/**",
+    "lakefile.lean",
+    "lake-manifest.json",
+    "lean-toolchain"
+  ],
   "compiler_paths": [
     ".github/actions/**",
+    ".github/workflows/verify.yml",
     "Verity/**",
     "!Verity/Proofs/**",
     "Compiler/**",

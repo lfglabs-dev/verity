@@ -774,6 +774,11 @@ def check_paths(snapshot: Snapshot, spec: dict) -> CheckResult:
     push_paths = _extract_push_paths(snapshot.workflow_text)
     pr_paths = _extract_pr_paths(snapshot.workflow_text)
     changes_paths = _extract_changes_filter_paths(snapshot.workflow_text, "code")
+    build_changes_paths = (
+        _extract_changes_filter_paths(snapshot.workflow_text, "build")
+        if "build_paths" in spec
+        else []
+    )
     compiler_changes_paths = _extract_changes_filter_paths(snapshot.workflow_text, "compiler")
     expected_trigger_keys = spec.get("expected_trigger_keys", [])
     expected_push_branches = spec.get("expected_push_branches", [])
@@ -785,6 +790,8 @@ def check_paths(snapshot: Snapshot, spec: dict) -> CheckResult:
         ("changes.filter.code", changes_paths),
         ("changes.filter.compiler", compiler_changes_paths),
     ]
+    if "build_paths" in spec:
+        list_blocks.append(("changes.filter.build", build_changes_paths))
     push_branches: list[str] = []
     if expected_push_branches:
         push_branches = _extract_push_branches(snapshot.workflow_text)
@@ -827,6 +834,15 @@ def check_paths(snapshot: Snapshot, spec: dict) -> CheckResult:
 
     expected_changes = [p for p in push_paths if p not in set(check_only)]
     errors.extend(_compare_lists("changes.filter.code", changes_paths, "expected push minus check_only", expected_changes))
+    if "build_paths" in spec:
+        errors.extend(
+            _compare_lists(
+                "changes.filter.build",
+                build_changes_paths,
+                "spec build paths",
+                spec["build_paths"],
+            )
+        )
     errors.extend(
         _compare_lists(
             "changes.filter.compiler",
