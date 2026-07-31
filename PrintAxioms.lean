@@ -41,6 +41,7 @@ import Compiler.Proofs.ArithmeticProfile
 import Compiler.Proofs.EndToEnd.Base
 import Compiler.Proofs.EndToEnd.SimpleStorage
 import Compiler.Proofs.EventSemantics
+import Compiler.Proofs.ExecutionSummary
 import Compiler.Proofs.Frames
 import Compiler.Proofs.HelperStepProofs
 import Compiler.Proofs.IRGeneration.CEISafety
@@ -103,6 +104,7 @@ import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanPureBuiltinLemmas
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanSignedArithSpec
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanSourceExprClosure
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanStateBridge
+import Compiler.Proofs.YulGeneration.ExecutionSummary
 import Compiler.Proofs.YulGeneration.IRFuel
 import Compiler.Proofs.YulGeneration.RuntimeTypes
 
@@ -1776,6 +1778,12 @@ end Verity.AxiomAudit
   Compiler.Proofs.EventSemantics.emit_step_spec
   Compiler.Proofs.EventSemantics.events_update_preserves_transientStorage
   Compiler.Proofs.EventSemantics.events_update_preserves_sender
+
+  -- Compiler/Proofs/ExecutionSummary.lean
+  Compiler.Proofs.RawSummary.toExecutionSummary?_success
+  Compiler.Proofs.RawSummary.toExecutionSummary?_revert
+  Compiler.Proofs.RawSummary.toExecutionSummary?_failed_with_return
+  Compiler.Proofs.RawSummary.toExecutionSummary?_adequate
 
   -- Compiler/Proofs/Frames.lean
   Compiler.Proofs.Frames.Resource.disjoint_comm
@@ -6419,6 +6427,9 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.StateBridge.storageLookup_projectStorage_projected
   Compiler.Proofs.YulGeneration.Backends.StateBridge.uint256_roundtrip
 
+  -- Compiler/Proofs/YulGeneration/ExecutionSummary.lean
+  Compiler.Proofs.YulGeneration.RawSummary.ofYulResult_refines_of_eq
+
   -- Compiler/Proofs/YulGeneration/IRFuel.lean
   Compiler.Proofs.YulGeneration.execIRStmtsFuel_nil
   Compiler.Proofs.YulGeneration.execIRStmtsFuel_cons
@@ -6429,4 +6440,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6026 theorems/lemmas (4173 public, 1853 private, 0 sorry'd)
+-- Total: 6031 theorems/lemmas (4178 public, 1853 private, 0 sorry'd)
