@@ -110,7 +110,12 @@ function reviewGroup(plan, group, rulesPath) {
     return { ...base, status: 'success', findings: comments.length, comments };
   } catch (err) {
     const detail = String(err && err.message ? err.message : err).slice(0, 300);
-    const status = err && err.killed ? 'timeout' : 'error';
+    // execFileSync surfaces its timeout as code ETIMEDOUT (killed stays false
+    // on some platforms) — observed live on PR #2219 group 2. Label budget
+    // exhaustion as timeout so the summary suggests raising
+    // OCR_PACKET_TIMEOUT_MINUTES rather than implying a crash.
+    const timedOut = Boolean(err && (err.killed || err.code === 'ETIMEDOUT' || /ETIMEDOUT/.test(detail)));
+    const status = timedOut ? 'timeout' : 'error';
     return { ...base, status, error: detail };
   }
 }
