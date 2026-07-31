@@ -81,7 +81,7 @@ permissions:
   contents: read
 
 concurrency:
-  # Keep scheduled cache-warming runs out of the push/manual validation lane.
+  # Keep scheduled cold-build runs out of the push/manual validation lane.
   # Otherwise a cron run for main can cancel an explicit workflow_dispatch run
   # before the proof/build jobs get a runner.
   # Closed-event cleanup must never cancel a PR run through concurrency before
@@ -93,10 +93,12 @@ env:
   SOLC_VERSION: "0.8.33"
   SOLC_URL: "https://binaries.soliditylang.org/linux-amd64/solc-linux-amd64-v0.8.33+commit.64118f21"
   SOLC_SHA256: "1274e5c4621ae478090c5a1f48466fd3c5f658ed9e14b15a0b213dc806215468"
-  VERIFY_CLEAN_BUILD: ${{ github.event_name == 'workflow_dispatch' && inputs.clean_build && 'true' || 'false' }}
+  # The daily main run is the periodic cold exact-head receipt. Manual clean
+  # dispatches use the same path; ordinary push/PR runs retain warm caches.
+  VERIFY_CLEAN_BUILD: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.clean_build)) && 'true' || 'false' }}
   VERIFY_FORCE_FULL_RUN: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.force_full_run)) && 'true' || 'false' }}
-  VERIFY_USE_STICKY_DISKS: ${{ (github.event_name == 'workflow_dispatch' && inputs.clean_build) && 'false' || 'true' }}
-  VERIFY_DISABLE_LAKE_CACHE_RESTORE: ${{ github.event_name == 'workflow_dispatch' && inputs.clean_build && 'true' || 'false' }}
+  VERIFY_USE_STICKY_DISKS: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.clean_build)) && 'false' || 'true' }}
+  VERIFY_DISABLE_LAKE_CACHE_RESTORE: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.clean_build)) && 'true' || 'false' }}
   VERIFY_CACHE_BUCKET: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('ref-{0}', github.ref_name) }}
   VERIFY_MAIN_CACHE_BUCKET: ref-main
   VERIFY_LOCAL_ARTIFACT_ROOT: /srv/verity-ci-cache/artifacts
@@ -218,6 +220,7 @@ jobs:
               - 'foundry.toml'
             build:
               - '.github/actions/**'
+              - '.github/workflows/verify.yml'
               - 'Verity/**'
               - 'Verity.lean'
               - 'Compiler/**'
@@ -231,6 +234,7 @@ jobs:
               - 'lean-toolchain'
             compiler:
               - '.github/actions/**'
+              - '.github/workflows/verify.yml'
               - 'Verity/**'
               - '!Verity/Proofs/**'
               - 'Compiler/**'
@@ -326,7 +330,7 @@ jobs:
     runs-on: [self-hosted, linux, verity, fastlane]
     timeout-minutes: 5
     needs: checks
-    if: needs.checks.result == 'success' && !(github.event_name == 'workflow_dispatch' && inputs.clean_build)
+    if: needs.checks.result == 'success' && !(github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.clean_build))
     defaults:
       run:
         working-directory: watchdog-${{ github.run_id }}-${{ github.run_attempt }}
@@ -348,8 +352,8 @@ jobs:
             --branch ${{ github.event.pull_request.base.ref || github.ref_name }}
 
   build:
-    runs-on: [self-hosted, linux, x64, verity, build]
-    timeout-minutes: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.clean_build && '60' || '35') }}
+    runs-on: [self-hosted, linux, x64, verity, build, build-heavy]
+    timeout-minutes: ${{ fromJSON((github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.clean_build)) && '60' || '35') }}
     needs: [changes, checks]
     if: needs.checks.result == 'success' && needs.changes.outputs.build == 'true'
     env:
@@ -359,8 +363,18 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Materialize reused checkout
+        run: git reset --hard HEAD
+
       - name: Cleanup stale local artifacts
-        run: scripts/ci_local_persistence.sh cleanup --max-age-hours 24
+        run: |
+          cleanup_script="${RUNNER_TEMP}/ci-local-persistence-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.sh"
+          git show HEAD:scripts/ci_local_persistence.sh > "${cleanup_script}"
+          chmod +x "${cleanup_script}"
+          "${cleanup_script}" cleanup --max-age-hours 24
+
+      - name: Rematerialize checkout after cleanup
+        run: git reset --hard HEAD
 
       - name: Setup Lean
         id: setup-lean
@@ -424,7 +438,7 @@ jobs:
           key: lake-${{ runner.os }}-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('lakefile.lean') }}-${{ hashFiles('lake-manifest.json') }}
 
   build-audits:
-    runs-on: [self-hosted, linux, x64, verity, build]
+    runs-on: [self-hosted, linux, x64, verity, build, build-heavy]
     timeout-minutes: 20
     needs: [changes, checks, build]
     if: needs.checks.result == 'success' && needs.build.result == 'success' && needs.changes.outputs.build == 'true'
@@ -498,7 +512,7 @@ jobs:
             axiom-report-raw.log
 
   build-compiler-binaries:
-    runs-on: [self-hosted, linux, x64, verity, build]
+    runs-on: [self-hosted, linux, x64, verity, build, build-heavy]
     timeout-minutes: 360
     needs: [changes, checks, build]
     if: needs.checks.result == 'success' && needs.build.result == 'success' && needs.changes.outputs.compiler == 'true'
@@ -560,6 +574,7 @@ jobs:
         run: mkdir -p "$CCACHE_DIR"
 
       - name: Restore compiler ccache fallback cache
+        if: env.VERIFY_CLEAN_BUILD != 'true'
         uses: actions/cache/restore@v5
         with:
           path: ${{ runner.temp }}/compiler-ccache-cache
@@ -578,6 +593,7 @@ jobs:
             --fallback-key "${{ github.event_name == 'pull_request' && format('compiler-ccache-{0}-{1}-{2}-{3}-{4}', env.VERIFY_MAIN_CACHE_BUCKET, runner.os, hashFiles('lean-toolchain'), hashFiles('lakefile.lean'), hashFiles('lake-manifest.json')) || '' }}"
 
       - name: Seed compiler ccache from GitHub cache fallback
+        if: env.VERIFY_CLEAN_BUILD != 'true'
         run: |
           if find "$CCACHE_DIR" -mindepth 1 -print -quit | grep -q .; then
             exit 0
@@ -916,7 +932,7 @@ jobs:
           path: gas-report-static-patched.tsv
 
   compiler-audits:
-    runs-on: [self-hosted, linux, x64, verity, build]
+    runs-on: [self-hosted, linux, x64, verity, build, build-heavy]
     timeout-minutes: 45
     needs: [changes, checks, build, build-compiler-binaries]
     if: needs.checks.result == 'success' && needs.build.result == 'success' && needs.build-compiler-binaries.result == 'success' && needs.changes.outputs.compiler == 'true'
@@ -1123,8 +1139,8 @@ jobs:
       # Parity-pack identity report upload removed (see above).
 
   compiler-regressions:
-    runs-on: [self-hosted, linux, x64, verity, build]
-    timeout-minutes: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.clean_build && '150' || '90') }}
+    runs-on: [self-hosted, linux, x64, verity, build, build-heavy]
+    timeout-minutes: ${{ fromJSON((github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.clean_build)) && '150' || '90') }}
     needs: [changes, checks, build, build-compiler-binaries]
     if: needs.checks.result == 'success' && needs.build.result == 'success' && needs.build-compiler-binaries.result == 'success' && needs.changes.outputs.compiler == 'true'
     env:
@@ -1204,7 +1220,7 @@ jobs:
         run: stdbuf -oL -eL lake build Compiler.CompilationModelFeatureTest
 
   lean-profile:
-    runs-on: [self-hosted, linux, x64, verity, build]
+    runs-on: [self-hosted, linux, x64, verity, build, build-heavy]
     timeout-minutes: 45
     needs: [changes, build]
     # Profiling is diagnostic telemetry. Keep it behind the proof build and
@@ -1236,7 +1252,7 @@ jobs:
           path: lean-perf-queue.md
 
   foundry-gas-calibration:
-    runs-on: [self-hosted, linux, x64, verity, build]
+    runs-on: [self-hosted, linux, x64, verity, build, build-heavy]
     timeout-minutes: 15
     needs: [changes, build-compiler-binaries]
     if: needs.changes.outputs.compiler == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
@@ -1293,7 +1309,7 @@ jobs:
           --allow-missing-contract Vault
 
   foundry:
-    runs-on: [self-hosted, linux, x64, verity, build]
+    runs-on: [self-hosted, linux, x64, verity, build, build-heavy]
     timeout-minutes: 30
     needs: [changes, build-compiler-binaries]
     if: needs.changes.outputs.compiler == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
@@ -1407,7 +1423,7 @@ jobs:
           forge test
 
   foundry-patched:
-    runs-on: [self-hosted, linux, x64, verity, build]
+    runs-on: [self-hosted, linux, x64, verity, build, build-heavy]
     timeout-minutes: 60
     needs: [changes, build-compiler-binaries]
     if: needs.changes.outputs.compiler == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
@@ -1533,7 +1549,7 @@ jobs:
           forge test --no-match-test "Random10000"
 
   foundry-multi-seed:
-    runs-on: [self-hosted, linux, x64, verity, build]
+    runs-on: [self-hosted, linux, x64, verity, build, build-heavy]
     timeout-minutes: 75
     needs: [changes, build-compiler-binaries]
     if: needs.changes.outputs.compiler == 'true' && github.event_name != 'pull_request'

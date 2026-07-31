@@ -774,6 +774,11 @@ def check_paths(snapshot: Snapshot, spec: dict) -> CheckResult:
     push_paths = _extract_push_paths(snapshot.workflow_text)
     pr_paths = _extract_pr_paths(snapshot.workflow_text)
     changes_paths = _extract_changes_filter_paths(snapshot.workflow_text, "code")
+    build_changes_paths = (
+        _extract_changes_filter_paths(snapshot.workflow_text, "build")
+        if "build_paths" in spec
+        else []
+    )
     compiler_changes_paths = _extract_changes_filter_paths(snapshot.workflow_text, "compiler")
     expected_trigger_keys = spec.get("expected_trigger_keys", [])
     expected_push_branches = spec.get("expected_push_branches", [])
@@ -785,6 +790,8 @@ def check_paths(snapshot: Snapshot, spec: dict) -> CheckResult:
         ("changes.filter.code", changes_paths),
         ("changes.filter.compiler", compiler_changes_paths),
     ]
+    if "build_paths" in spec:
+        list_blocks.append(("changes.filter.build", build_changes_paths))
     push_branches: list[str] = []
     if expected_push_branches:
         push_branches = _extract_push_branches(snapshot.workflow_text)
@@ -827,6 +834,15 @@ def check_paths(snapshot: Snapshot, spec: dict) -> CheckResult:
 
     expected_changes = [p for p in push_paths if p not in set(check_only)]
     errors.extend(_compare_lists("changes.filter.code", changes_paths, "expected push minus check_only", expected_changes))
+    if "build_paths" in spec:
+        errors.extend(
+            _compare_lists(
+                "changes.filter.build",
+                build_changes_paths,
+                "spec build paths",
+                spec["build_paths"],
+            )
+        )
     errors.extend(
         _compare_lists(
             "changes.filter.compiler",
@@ -851,6 +867,7 @@ def check_job_contracts(snapshot: Snapshot, spec: dict) -> CheckResult:
     expected_needs: dict[str, list[str]] = spec.get("expected_job_needs", {})
     expected_conditions: dict[str, str] = spec.get("expected_job_if_conditions", {})
     expected_runs_on: dict[str, str] = spec.get("expected_job_runs_on", {})
+    heavy_runner_jobs: set[str] = set(spec.get("heavy_runner_jobs", []))
     expected_timeouts: dict[str, int] = spec.get("expected_job_timeouts", {})
     expected_fail_fast: dict[str, bool] = spec.get("expected_job_strategy_fail_fast", {})
     expected_outputs: dict[str, dict[str, str]] = spec.get("expected_job_outputs", {})
@@ -924,6 +941,11 @@ def check_job_contracts(snapshot: Snapshot, spec: dict) -> CheckResult:
 
         actual_runs_on = _extract_top_level_job_value(job_body, "runs-on")
         expected_job_runs_on = expected_runs_on.get(job)
+        if job in heavy_runner_jobs and expected_job_runs_on is not None:
+            if not expected_job_runs_on.endswith("]"):
+                errors.append(f"{job} runs-on spec is not a label list: {expected_job_runs_on!r}")
+            else:
+                expected_job_runs_on = expected_job_runs_on[:-1] + ", build-heavy]"
         if actual_runs_on != expected_job_runs_on:
             errors.append(
                 f"{job} runs-on does not match spec: workflow={actual_runs_on!r}, spec={expected_job_runs_on!r}"

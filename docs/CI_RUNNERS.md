@@ -13,7 +13,7 @@ GitHub Actions for lfglabs-dev/verity
   |-- build-88-99-4-254-1
   |     host: 88.99.4.254
   |     role: heavy Lean/build/proof jobs
-  |     labels: self-hosted, linux, x64, verity, build, hetzner, hz2
+  |     labels: self-hosted, linux, x64, verity, build, build-heavy, hetzner, hz2
   |
   |-- tmd-verity-fastlane-1
   |     host: 95.216.244.60
@@ -31,7 +31,7 @@ The workflows route by capability, not by hostname:
 
 ```yaml
 runs-on: [self-hosted, linux, ARM64, dgx-spark, verity, fastlane]
-runs-on: [self-hosted, linux, x64, verity, build]
+runs-on: [self-hosted, linux, x64, verity, build, build-heavy]
 runs-on: [self-hosted, linux, ARM64, dgx-spark, gpu]
 ```
 
@@ -41,6 +41,10 @@ them only for temporary debugging or deliberate host pinning.
 ## Mindset
 
 - Keep fast jobs and long proof/build jobs on separate runner labels.
+- Require `build-heavy` for proof, compiler, and Foundry jobs. The generic
+  `build` label alone does not distinguish high-memory hosts from lighter,
+  cgroup-capped build hosts and is not a sufficient resource bound for those
+  jobs.
 - Prefer one full Verity build runner per 8-core host. Lean jobs commonly use
   `LEAN_NUM_THREADS=8`; two such jobs on one 8-core host oversubscribe CPU,
   memory bandwidth, and the Lake cache.
@@ -76,7 +80,7 @@ RUNNER_TOKEN=<registration-token> \
 RUNNER_PROFILE=build \
 RUNNER_COUNT=1 \
 RUNNER_NAME_PREFIX=<short-hostname>-verity-build \
-RUNNER_LABELS_1=verity,build,hetzner,<host-label>,cpu-8,mem-64g \
+RUNNER_LABELS_1=verity,build,build-heavy,hetzner,<host-label>,cpu-8,mem-64g \
 scripts/install_self_hosted_runner.sh
 ```
 

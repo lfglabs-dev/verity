@@ -10,8 +10,24 @@
     "README.md",
     "TRUST_ASSUMPTIONS.md"
   ],
+  "build_paths": [
+    ".github/actions/**",
+    ".github/workflows/verify.yml",
+    "Verity/**",
+    "Verity.lean",
+    "Compiler/**",
+    "Compiler.lean",
+    "Contracts/**",
+    "Contracts.lean",
+    "examples/**",
+    "packages/**",
+    "lakefile.lean",
+    "lake-manifest.json",
+    "lean-toolchain"
+  ],
   "compiler_paths": [
     ".github/actions/**",
+    ".github/workflows/verify.yml",
     "Verity/**",
     "!Verity/Proofs/**",
     "Compiler/**",
@@ -61,6 +77,18 @@
     "foundry-patched",
     "foundry-multi-seed",
     "failure-hints"
+  ],
+  "heavy_runner_jobs": [
+    "build",
+    "build-audits",
+    "build-compiler-binaries",
+    "compiler-audits",
+    "compiler-regressions",
+    "lean-profile",
+    "foundry-gas-calibration",
+    "foundry",
+    "foundry-patched",
+    "foundry-multi-seed"
   ],
   "expected_job_needs": {
     "closed-pr-cleanup": [],
@@ -134,7 +162,7 @@
     "closed-pr-cleanup": "github.event_name == 'pull_request' && github.event.action == 'closed'",
     "changes": "github.event_name != 'pull_request' || github.event.action != 'closed'",
     "checks": "github.event_name != 'pull_request' || github.event.action != 'closed'",
-    "timeout-watchdog": "needs.checks.result == 'success' && !(github.event_name == 'workflow_dispatch' && inputs.clean_build)",
+    "timeout-watchdog": "needs.checks.result == 'success' && !(github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.clean_build))",
     "build": "needs.checks.result == 'success' && needs.changes.outputs.build == 'true'",
     "build-audits": "needs.checks.result == 'success' && needs.build.result == 'success' && needs.changes.outputs.build == 'true'",
     "build-compiler-binaries": "needs.checks.result == 'success' && needs.build.result == 'success' && needs.changes.outputs.compiler == 'true'",
@@ -169,11 +197,11 @@
     "changes": 5,
     "checks": 10,
     "timeout-watchdog": 5,
-    "build": "${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.clean_build && '60' || '35') }}",
+    "build": "${{ fromJSON((github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.clean_build)) && '60' || '35') }}",
     "build-audits": 20,
     "build-compiler-binaries": 360,
     "compiler-audits": 45,
-    "compiler-regressions": "${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.clean_build && '150' || '90') }}",
+    "compiler-regressions": "${{ fromJSON((github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.clean_build)) && '150' || '90') }}",
     "lean-profile": 45,
     "foundry-gas-calibration": 15,
     "foundry": 30,
@@ -219,10 +247,10 @@
     "SOLC_VERSION": "0.8.33",
     "SOLC_URL": "https://binaries.soliditylang.org/linux-amd64/solc-linux-amd64-v0.8.33+commit.64118f21",
     "SOLC_SHA256": "1274e5c4621ae478090c5a1f48466fd3c5f658ed9e14b15a0b213dc806215468",
-    "VERIFY_CLEAN_BUILD": "${{ github.event_name == 'workflow_dispatch' && inputs.clean_build && 'true' || 'false' }}",
+    "VERIFY_CLEAN_BUILD": "${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.clean_build)) && 'true' || 'false' }}",
     "VERIFY_FORCE_FULL_RUN": "${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.force_full_run)) && 'true' || 'false' }}",
-    "VERIFY_USE_STICKY_DISKS": "${{ (github.event_name == 'workflow_dispatch' && inputs.clean_build) && 'false' || 'true' }}",
-    "VERIFY_DISABLE_LAKE_CACHE_RESTORE": "${{ github.event_name == 'workflow_dispatch' && inputs.clean_build && 'true' || 'false' }}",
+    "VERIFY_USE_STICKY_DISKS": "${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.clean_build)) && 'false' || 'true' }}",
+    "VERIFY_DISABLE_LAKE_CACHE_RESTORE": "${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.clean_build)) && 'true' || 'false' }}",
     "VERIFY_CACHE_BUCKET": "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('ref-{0}', github.ref_name) }}",
     "VERIFY_MAIN_CACHE_BUCKET": "ref-main",
     "VERIFY_LOCAL_ARTIFACT_ROOT": "/srv/verity-ci-cache/artifacts"
@@ -288,6 +316,18 @@
         "with": {
           "submodules": "recursive"
         }
+      },
+      {
+        "name": "Materialize reused checkout",
+        "run": "git reset --hard HEAD"
+      },
+      {
+        "name": "Cleanup stale local artifacts",
+        "run": "cleanup_script=\"${RUNNER_TEMP}/ci-local-persistence-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.sh\"\ngit show HEAD:scripts/ci_local_persistence.sh > \"${cleanup_script}\"\nchmod +x \"${cleanup_script}\"\n\"${cleanup_script}\" cleanup --max-age-hours 24"
+      },
+      {
+        "name": "Rematerialize checkout after cleanup",
+        "run": "git reset --hard HEAD"
       },
       {
         "name": "Setup Lean",
@@ -377,6 +417,15 @@
         "uses": "actions/checkout@v6",
         "with": {
           "submodules": "recursive"
+        }
+      },
+      {
+        "name": "Restore compiler ccache fallback cache",
+        "if": "env.VERIFY_CLEAN_BUILD != 'true'",
+        "uses": "actions/cache/restore@v5",
+        "with": {
+          "path": "${{ runner.temp }}/compiler-ccache-cache",
+          "key": "compiler-ccache-cache-${{ env.VERIFY_CACHE_BUCKET }}-${{ runner.os }}-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('lakefile.lean') }}-${{ hashFiles('lake-manifest.json') }}-${{ github.run_id }}"
         }
       },
       {
