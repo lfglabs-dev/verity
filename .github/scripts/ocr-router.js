@@ -72,6 +72,7 @@ async function main() {
   if (decision.mode === 'large-lean-hotspots') {
     await applyScoutStage(decision, diff, resolveScoutConfig(process.env));
   }
+  const packetPlanPath = writePacketReviewPlan(decision, diff);
   const metrics = buildMetrics({
     prNumber,
     headSha,
@@ -99,6 +100,8 @@ async function main() {
     result_path: resultPath,
     diff_base: diff.base,
     router_version: ROUTER_VERSION,
+    packet_review_planned: String(Boolean(packetPlanPath)),
+    packet_plan_path: packetPlanPath || '',
   });
 
   console.log(`OCR route: ${decision.mode} (${decision.reason})`);
@@ -335,6 +338,79 @@ function buildReviewPackets(files) {
     .map((packet, index) => ({ ...packet, packet_id: `pkt-${index + 1}` }));
 }
 
+// P1 (packet semantic review): materialize the scout-selected packets as an
+// executable plan. `ocr review` has no --include flag, so each group is scoped
+// by EXCLUDING the exact complement — every other changed supported file. The
+// exclusion list is bounded by the diff itself, never a glob over the repo.
+function writePacketReviewPlan(decision, diff) {
+  if (decision.mode !== 'large-lean-hotspots') return '';
+  const packets = decision.packets || [];
+  if (packets.length === 0) return '';
+  const runnerTemp = process.env.RUNNER_TEMP || '.';
+  const byFile = new Map();
+  for (const packet of packets) {
+    if (!byFile.has(packet.path)) byFile.set(packet.path, []);
+    byFile.get(packet.path).push(packet.packet_id);
+  }
+  const allSupported = diff.files.filter(f => f.supported && !isExcluded(f.path)).map(f => f.path);
+  const groups = [...byFile.entries()]
+    .map(([file, packetIds]) => ({
+      files: [file],
+      packet_ids: packetIds,
+      exclude: allSupported.filter(other => other !== file),
+    }))
+    .slice(0, PACKET_REVIEW_MAX_GROUPS);
+  const plan = {
+    schema_version: 1,
+    diff_base: diff.base,
+    head: diff.head,
+    total_groups_available: byFile.size,
+    groups,
+  };
+  const planPath = path.join(runnerTemp, 'ocr-packet-plan.json');
+  fs.writeFileSync(planPath, `${JSON.stringify(plan, null, 2)}\n`);
+  return planPath;
+}
+
+const PACKET_REVIEW_MAX_GROUPS = 4;
+
+// P5 (grounded scout dossiers): a bounded, node-side outline of each packet's
+// file — declarations plus soundness-relevant markers. Full LSP diagnostics
+// remain the packet reviewer's job (its MCP session has lean_diagnostic_messages);
+// the scout only needs enough structure to ask anchored questions.
+const OUTLINE_DECL_RE = /^\s*(?:@\[[^\]]*\]\s*)?(?:private\s+|protected\s+|noncomputable\s+|unsafe\s+|partial\s+)*(theorem|lemma|def|abbrev|instance|structure|inductive|class|axiom|opaque)\b[^:=]{0,120}/;
+const OUTLINE_MARKER_RE = /\b(sorry|admit|native_decide|axiom)\b/;
+const outlineCache = new Map();
+function leanOutlineForFile(filePath) {
+  if (!/\.lean$/.test(filePath)) return undefined;
+  if (outlineCache.has(filePath)) return outlineCache.get(filePath);
+  let outline;
+  try {
+    const text = fs.readFileSync(filePath, 'utf8');
+    const decls = [];
+    const markers = [];
+    const lines = text.split(/\r?\n/);
+    for (let i = 0; i < lines.length; i += 1) {
+      const line = lines[i];
+      const decl = OUTLINE_DECL_RE.exec(line);
+      if (decl && decls.length < 40) decls.push(`L${i + 1}: ${line.trim().slice(0, 140)}`);
+      if (OUTLINE_MARKER_RE.test(line) && !/^\s*--/.test(line) && markers.length < 20) {
+        markers.push(`L${i + 1}: ${line.trim().slice(0, 120)}`);
+      }
+    }
+    outline = {
+      declarations: decls,
+      soundness_markers: markers.length ? markers : undefined,
+    };
+    const raw = JSON.stringify(outline);
+    if (raw.length > 2000) outline = { declarations: decls.slice(0, 20), soundness_markers: markers.slice(0, 10), truncated: true };
+  } catch (err) {
+    outline = undefined;
+  }
+  outlineCache.set(filePath, outline);
+  return outline;
+}
+
 function renderHunkExcerpt(hunk, maxLines) {
   return hunk.lines.slice(0, maxLines).map(line => {
     const prefix = line.type === 'add' ? '+' : line.type === 'del' ? '-' : ' ';
@@ -521,6 +597,7 @@ function buildRiskDossier(decision, diff, options = {}) {
     summary: packet.summary,
     changed_lines: packet.changed_lines,
     diff_excerpt: packet.diff_excerpt,
+    file_outline: leanOutlineForFile(packet.path),
   }));
 
   const supported = diff.files.filter(f => f.supported);
@@ -1410,7 +1487,7 @@ function buildPacketizedResult(decision, metrics) {
     })),
     warnings: [{
       type: 'coverage',
-      message: 'Large Lean scout mode covers ranked hotspots only. Codex/human review must cover skipped hunks and proof obligations; OCR strong packet review is not wired yet.',
+      message: 'Large Lean scout mode covers ranked hotspots only. Scout-selected packets get a bounded semantic OCR pass (see packet coverage); Codex/human review must still cover unselected hunks and proof obligations.',
     }],
     summary: {
       files_reviewed: uniqueCount(packets.map(p => p.path)),
@@ -1462,7 +1539,6 @@ function renderPacketFinding(packet) {
       lines.push(`- L${sample.line}: ${renderCodeSample(sample.text)}`);
     }
   }
-  lines.push('_Scout triage coverage marker — not a final OCR semantic review or approval._');
   return lines.join('\n');
 }
 
@@ -1567,6 +1643,8 @@ module.exports = {
   appendRubricItem,
   unionScoutPackets,
   renderPacketFinding,
+  writePacketReviewPlan,
+  leanOutlineForFile,
   parseScoutJson,
   sanitizeScoutErrorDetail,
   buildRiskDossier,

@@ -2006,6 +2006,130 @@ function testResolveLensesSubsetAndFallback() {
   assert.deepStrictEqual(unknown.map(l => l.id), router.LENSES.map(l => l.id));
 }
 
+
+function testPacketPlanScopesGroupsByComplementExclusion() {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ocr-packet-plan-'));
+  const previousRunnerTemp = process.env.RUNNER_TEMP;
+  process.env.RUNNER_TEMP = tmp;
+  try {
+    const decision = {
+      mode: 'large-lean-hotspots',
+      packets: [
+        { packet_id: 'pkt-1', path: 'Compiler/Proofs/A.lean' },
+        { packet_id: 'pkt-2', path: 'Compiler/Proofs/A.lean' },
+        { packet_id: 'pkt-3', path: 'Compiler/Proofs/B.lean' },
+      ],
+    };
+    const diff = {
+      base: 'basesha',
+      head: 'headsha',
+      files: [
+        { path: 'Compiler/Proofs/A.lean', supported: true },
+        { path: 'Compiler/Proofs/B.lean', supported: true },
+        { path: 'Compiler/Proofs/C.lean', supported: true },
+        { path: 'vendor/generated/out.json', supported: true },
+      ],
+    };
+    const planPath = router.writePacketReviewPlan(decision, diff);
+    assert.ok(planPath && fs.existsSync(planPath));
+    const plan = JSON.parse(fs.readFileSync(planPath, 'utf8'));
+    assert.strictEqual(plan.diff_base, 'basesha');
+    assert.strictEqual(plan.head, 'headsha');
+    assert.strictEqual(plan.groups.length, 2);
+    const groupA = plan.groups.find(g => g.files[0] === 'Compiler/Proofs/A.lean');
+    assert.deepStrictEqual(groupA.packet_ids, ['pkt-1', 'pkt-2']);
+    // Complement exclusion: every other changed *included* file, never the
+    // group's own file; router-excluded paths (artifacts/) must not leak in.
+    assert.ok(groupA.exclude.includes('Compiler/Proofs/B.lean'));
+    assert.ok(groupA.exclude.includes('Compiler/Proofs/C.lean'));
+    assert.ok(!groupA.exclude.includes('Compiler/Proofs/A.lean'));
+    assert.ok(!groupA.exclude.some(p => p.includes('/generated/')));
+  } finally {
+    if (previousRunnerTemp === undefined) delete process.env.RUNNER_TEMP;
+    else process.env.RUNNER_TEMP = previousRunnerTemp;
+  }
+}
+
+function testPacketPlanNotWrittenOutsideLargeLean() {
+  const planPath = router.writePacketReviewPlan({ mode: 'medium-lean', packets: [{ packet_id: 'pkt-1', path: 'A.lean' }] }, { base: 'b', head: 'h', files: [] });
+  assert.strictEqual(planPath, '');
+}
+
+function testLeanOutlineExtractsDeclarationsAndSoundnessMarkers() {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ocr-outline-'));
+  const leanPath = path.join(tmp, 'Sample.lean');
+  fs.writeFileSync(leanPath, [
+    'import Foo',
+    'theorem good : True := by trivial',
+    'def helper (n : Nat) : Nat := n',
+    'lemma pending : False := by sorry',
+    '-- sorry in a comment must not count',
+  ].join('\n'));
+  const outline = router.leanOutlineForFile(leanPath);
+  assert.ok(outline.declarations.some(d => d.includes('theorem good')));
+  assert.ok(outline.declarations.some(d => d.includes('def helper')));
+  assert.ok(outline.soundness_markers.some(m => m.includes('sorry')));
+  assert.strictEqual(outline.soundness_markers.some(m => m.includes('comment must not count')), false);
+  assert.strictEqual(router.leanOutlineForFile('README.md'), undefined);
+}
+
+function testPacketFindingCarriesNoTrailingCaveat() {
+  const body = router.renderPacketFinding({
+    path: 'Compiler/Proofs/A.lean',
+    summary: '10 changed line(s) near Compiler/Proofs/A.lean:1',
+    signals: [],
+    added_sample: [],
+    scout_reason: 'reason',
+    scout_question: 'question',
+  });
+  // The caveat now leads the posted comment (post-ocr-review renderComment),
+  // so the router body must not duplicate it at the tail.
+  assert.ok(!body.includes('coverage marker'));
+}
+
+
+function testScoutMarkerLeadsWithNonReviewCaveat() {
+  const body = postOcrReview.renderComment({
+    category: 'large-lean-hotspots',
+    severity: 'high',
+    content: '**Findings (3 lenses):**',
+  });
+  assert.ok(body.startsWith('🟡 **OCR scout — question de triage (non-review)'));
+  assert.ok(body.indexOf('pas une review sémantique') < body.indexOf('Findings'));
+}
+
+function testPacketSemanticVerdictLineReportsCoverage() {
+  const body = postOcrReview.buildReviewBody({
+    tag: '<!-- test -->',
+    result: {
+      status: 'scout_triage_with_packet_review',
+      summary: {
+        packet_semantic: {
+          covered_groups: 2,
+          total_groups: 3,
+          total_groups_available: 5,
+          per_group: [
+            { files: ['A.lean'], status: 'success', findings: 1 },
+            { files: ['B.lean'], status: 'success', findings: 0 },
+            { files: ['C.lean'], status: 'timeout', error: 'killed' },
+          ],
+        },
+      },
+    },
+    comments: [],
+    selected: [],
+    overflow: [],
+    summaryOnly: [],
+    warnings: [],
+    stderr: '',
+    metrics: { mode: 'large-lean-hotspots' },
+  });
+  assert.ok(body.includes('2/3 paquet(s) reviewés sémantiquement'));
+  assert.ok(body.includes('Paquets non couverts par la review sémantique'));
+  assert.ok(body.includes('C.lean'));
+  assert.ok(body.includes("2 groupe(s) de paquets au-delà du budget"));
+}
+
 async function run() {
   testNoSupportedFilesSkipped();
   testOneLeanFileNormal();
@@ -2104,6 +2228,12 @@ async function run() {
   await testLegacyLargeLeanBaseTagDedupsOnlyMatchingScoutConfig();
   testScoutProviderErrorsNeutralizeMentions();
   testLargeLeanScoutDedupVariesBySanitizedScoutConfig();
+  testPacketPlanScopesGroupsByComplementExclusion();
+  testPacketPlanNotWrittenOutsideLargeLean();
+  testLeanOutlineExtractsDeclarationsAndSoundnessMarkers();
+  testPacketFindingCarriesNoTrailingCaveat();
+  testScoutMarkerLeadsWithNonReviewCaveat();
+  testPacketSemanticVerdictLineReportsCoverage();
   console.log('OCR routing tests passed');
 }
 

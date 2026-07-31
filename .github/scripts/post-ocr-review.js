@@ -116,6 +116,7 @@ module.exports = async function postOcrReview({ github, context, core }) {
       issue_number: pull_number,
       body,
     });
+    await publishSemanticReviewCheck({ github, core, owner, repo, head_sha: commit_id, mode, result, retryable: true });
     return;
   }
 
@@ -129,6 +130,7 @@ module.exports = async function postOcrReview({ github, context, core }) {
       body,
       comments: selected.map(toReviewComment),
     });
+    await minimizeStaleScoutComments({ github, core, owner, repo, pull_number, commit_id });
   } catch (err) {
     core.warning(`Batch createReview failed: ${err.message}`);
     const fallbackBody = `${body.replace(successTag, retryableTag)}\n\n⚠️ Inline publication failed, so OCR findings are summarized here instead.\n\n${renderInlineFallback(selected)}\n\n${fenced(String(err.message || err))}`;
@@ -139,7 +141,87 @@ module.exports = async function postOcrReview({ github, context, core }) {
       body: fallbackBody,
     });
   }
+
+  await publishSemanticReviewCheck({ github, core, owner, repo, head_sha: commit_id, mode, result, retryable: retryableResult });
 };
+
+// P2: a second, honest check. The workflow job itself stays green whenever the
+// pipeline ran, so this check-run carries the real review meaning: success
+// only when a semantic review actually covered the diff (full OCR, or every
+// planned packet group); neutral for triage-only or partial coverage.
+async function publishSemanticReviewCheck({ github, core, owner, repo, head_sha, mode, result, retryable }) {
+  try {
+    let conclusion = 'neutral';
+    let title = 'Triage only — no semantic review';
+    const packet = result.summary?.packet_semantic;
+    if (retryable || result.status === 'error') {
+      conclusion = 'failure';
+      title = 'Review errored — treat as unreviewed';
+    } else if (mode === 'no-supported' || result.status === 'no-supported') {
+      conclusion = 'neutral';
+      title = 'No OCR-supported files in diff';
+    } else if (mode !== 'large-lean-hotspots' && result.status !== 'scout_triage') {
+      conclusion = 'success';
+      title = `Full OCR semantic review (${mode})`;
+    } else if (packet && packet.total_groups > 0) {
+      const covered = `${packet.covered_groups}/${packet.total_groups}`;
+      if (packet.covered_groups === packet.total_groups) {
+        conclusion = 'success';
+        title = `Packet semantic review: ${covered} groups covered`;
+      } else {
+        conclusion = 'neutral';
+        title = `Partial packet review: ${covered} groups — rest is triage-only`;
+      }
+    }
+    await github.rest.checks.create({
+      owner,
+      repo,
+      name: 'OCR semantic review',
+      head_sha,
+      status: 'completed',
+      conclusion,
+      output: {
+        title,
+        summary: 'Semantic-review coverage published by post-ocr-review.js. Neutral means the diff (or part of it) only received scout triage: do not read the green pipeline job as review coverage.',
+      },
+    });
+  } catch (err) {
+    core.warning(`Semantic review check not published: ${err.message}`);
+  }
+}
+
+// P4: once a newer head has a successful post, older heads' scout markers are
+// noise that reads like open findings. Minimize (fold as OUTDATED) every OCR
+// inline comment whose original commit differs from the current head.
+async function minimizeStaleScoutComments({ github, core, owner, repo, pull_number, commit_id }) {
+  try {
+    const comments = await github.paginate(github.rest.pulls.listReviewComments, {
+      owner,
+      repo,
+      pull_number,
+      per_page: 100,
+    });
+    const stale = comments.filter(c =>
+      c.user?.login === 'github-actions[bot]'
+      && c.original_commit_id
+      && c.original_commit_id !== commit_id
+      && /(Scout triage coverage marker|OCR scout — question de triage|OpenCodeReview)/.test(c.body || ''),
+    );
+    for (const comment of stale) {
+      try {
+        await github.graphql(
+          `mutation($id: ID!) { minimizeComment(input: { subjectId: $id, classifier: OUTDATED }) { minimizedComment { isMinimized } } }`,
+          { id: comment.node_id },
+        );
+      } catch (err) {
+        core.warning(`minimizeComment failed for ${comment.id}: ${err.message}`);
+      }
+    }
+    if (stale.length) core.notice(`Minimized ${stale.length} stale OCR comment(s) from previous heads.`);
+  } catch (err) {
+    core.warning(`Stale scout comment minimization skipped: ${err.message}`);
+  }
+}
 
 async function hasExistingTag(github, { owner, repo, pull_number, tag }) {
   const issueComments = await github.paginate(github.rest.issues.listComments, {
@@ -315,8 +397,24 @@ function buildReviewBody({ tag, result, comments, selected, overflow, summaryOnl
   const summary = result.summary || {};
   const mode = metrics?.mode || summary.mode || 'unknown';
 
+  setPacketSemantic(result.summary?.packet_semantic);
   let body = `${tag}\n## OpenCodeReview first-pass review\n\n`;
   body += `${verdictLine({ status, mode, comments, retryable })}\n\n`;
+  const packetSemantic = result.summary?.packet_semantic;
+  if (mode === 'large-lean-hotspots' && packetSemantic) {
+    const uncovered = (packetSemantic.per_group || []).filter(g => g.status !== 'success');
+    if (uncovered.length > 0) {
+      body += `### Paquets non couverts par la review sémantique\n\n`;
+      for (const g of uncovered.slice(0, 10)) {
+        body += `- **${escapeMd((g.files || []).join(', '))}** — ${escapeMd(g.status)}${g.error ? ` (${escapeMd(firstLine(g.error))})` : ''}\n`;
+      }
+      body += `\n`;
+    }
+    const extraGroups = (packetSemantic.total_groups_available ?? 0) - (packetSemantic.total_groups ?? 0);
+    if (extraGroups > 0) {
+      body += `📝 ${extraGroups} groupe(s) de paquets au-delà du budget n'ont eu que le triage scout.\n\n`;
+    }
+  }
 
   if (message) body += `${escapeMd(message)}\n\n`;
   if (selected.length > 0) body += `✅ Posted ${selected.length} inline comment(s).\n`;
@@ -346,6 +444,9 @@ function buildReviewBody({ tag, result, comments, selected, overflow, summaryOnl
     body += `\n`;
   }
 
+  if (stderr && /deadline|timed? ?out/i.test(stderr)) {
+    body += `### Warnings\n\n- **timeout**: OCR stderr mentions a subtask deadline/timeout — findings may be incomplete; consider raising the mode timeout.\n\n`;
+  }
   if (stderr) {
     const interesting = stderr.split('\n').filter(line => /warning|error|failed|fatal/i.test(line)).slice(0, 20).join('\n');
     if (interesting) {
@@ -381,6 +482,10 @@ function severityRollup(comments) {
 
 // One plain-language line a reviewer can act on without decoding router
 // internals. Mode/status/version details live in the folded metrics block.
+let _packetSemantic = null;
+function setPacketSemantic(value) { _packetSemantic = value || null; }
+function metricsPacketSemantic() { return _packetSemantic; }
+
 function verdictLine({ status, mode, comments, retryable }) {
   const rollup = severityRollup(comments);
   const findings = comments.length
@@ -396,6 +501,12 @@ function verdictLine({ status, mode, comments, retryable }) {
     return `🔴 **Review errored** (${findings} before the failure) — treat this PR as unreviewed by OCR.`;
   }
   if (mode === 'large-lean-hotspots') {
+    const packet = metricsPacketSemantic();
+    if (packet && packet.total_groups > 0) {
+      const covered = `${packet.covered_groups}/${packet.total_groups}`;
+      const grade = packet.covered_groups === packet.total_groups ? '🟢' : '🟡';
+      return `${grade} **Scout triage + ${covered} paquet(s) reviewés sémantiquement.** ${findings}; les hunks hors paquets restent à couvrir par un humain ou Codex.`;
+    }
     return `🟡 **Scout triage only — not a full review.** ${findings}; a human or Codex must still cover the unflagged hunks and proof obligations.`;
   }
   if (comments.length > 0) {
@@ -532,7 +643,17 @@ function formatDuration(ms) {
 }
 
 function renderComment(c) {
-  let body = `**OpenCodeReview${badge(c)}**\n\n${String(c.content || '').trim()}`;
+  if (c.category === 'large-lean-hotspots') {
+    // P3: scout markers are coverage QUESTIONS, not findings. Lead with the
+    // caveat so a controller or human never mistakes one for a review verdict.
+    return `🟡 **OCR scout — question de triage (non-review)${badge(c)}**\n\n`
+      + `_Question de couverture pour le reviewer humain/Codex — pas une review sémantique finale ni une approbation._\n\n`
+      + `${String(c.content || '').trim()}`;
+  }
+  const label = c.category === 'packet-semantic'
+    ? `**OpenCodeReview — packet semantic review${badge(c)}**`
+    : `**OpenCodeReview${badge(c)}**`;
+  let body = `${label}\n\n${String(c.content || '').trim()}`;
   if (c.suggestion_code) {
     body += `\n\nSuggested change:\n${fenced(String(c.suggestion_code))}`;
   }
@@ -580,6 +701,7 @@ function escapeMd(s) {
 }
 
 module.exports.isRetryableResult = isRetryableResult;
+module.exports.renderComment = renderComment;
 module.exports.buildReviewBody = buildReviewBody;
 module.exports.extractOcrSummary = extractOcrSummary;
 module.exports.buildDedupKey = buildDedupKey;
