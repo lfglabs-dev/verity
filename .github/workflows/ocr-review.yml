@@ -16,6 +16,8 @@ permissions:
   contents: read
   pull-requests: write
   issues: write
+  # post-ocr-review.js publishes the honest "OCR semantic review" check-run.
+  checks: write
 
 concurrency:
   group: ocr-review-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr_number }}-${{ github.event_name }}
@@ -141,13 +143,13 @@ jobs:
           node "$GITHUB_WORKSPACE/ocr-trusted/.github/scripts/ocr-router.js"
 
       - name: Setup uv
-        if: steps.pr.outputs.skip != 'true' && steps.route.outputs.should_run_ocr == 'true' && steps.route.outputs.has_lean == 'true'
+        if: steps.pr.outputs.skip != 'true' && (steps.route.outputs.should_run_ocr == 'true' || steps.route.outputs.packet_review_planned == 'true') && steps.route.outputs.has_lean == 'true'
         uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
         with:
           version: "0.11.31"
 
       - name: Prepare repository-pinned Lean toolchain for LSP evidence
-        if: steps.pr.outputs.skip != 'true' && steps.route.outputs.should_run_ocr == 'true' && steps.route.outputs.has_lean == 'true'
+        if: steps.pr.outputs.skip != 'true' && (steps.route.outputs.should_run_ocr == 'true' || steps.route.outputs.packet_review_planned == 'true') && steps.route.outputs.has_lean == 'true'
         env:
           # Never reuse the runner's elan store for a PR-selected toolchain.
           # The run/attempt suffix also prevents stale self-hosted runner state
@@ -158,7 +160,7 @@ jobs:
           "$GITHUB_WORKSPACE/ocr-trusted/.github/scripts/prepare-lean-lsp.sh" "$GITHUB_WORKSPACE/repo"
 
       - name: Install OpenCodeReview
-        if: steps.pr.outputs.skip != 'true' && steps.route.outputs.should_run_ocr == 'true'
+        if: steps.pr.outputs.skip != 'true' && (steps.route.outputs.should_run_ocr == 'true' || steps.route.outputs.packet_review_planned == 'true')
         run: |
           set -euo pipefail
           # Keep the OCR client out of the self-hosted runner's global npm
@@ -169,7 +171,7 @@ jobs:
           ocr version
 
       - name: Configure bounded Lean LSP evidence
-        if: steps.pr.outputs.skip != 'true' && steps.route.outputs.should_run_ocr == 'true' && steps.route.outputs.has_lean == 'true'
+        if: steps.pr.outputs.skip != 'true' && (steps.route.outputs.should_run_ocr == 'true' || steps.route.outputs.packet_review_planned == 'true') && steps.route.outputs.has_lean == 'true'
         env:
           HOME: ${{ runner.temp }}/ocr-home
           ELAN_HOME: ${{ runner.temp }}/ocr-elan-${{ github.run_id }}-${{ github.run_attempt }}
@@ -231,6 +233,28 @@ jobs:
             > "$RUNNER_TEMP/ocr-result.json" \
             2> "$RUNNER_TEMP/ocr-stderr.log" || true
           test -s "$RUNNER_TEMP/ocr-result.json" || echo '{"status":"error","comments":[],"message":"OCR produced no JSON output"}' > "$RUNNER_TEMP/ocr-result.json"
+
+      - name: Run OCR packet reviews
+        # P1: bounded semantic review of scout-selected packets on large-lean
+        # PRs. Disable with repo variable OCR_PACKET_REVIEW_ENABLED=false.
+        if: steps.pr.outputs.skip != 'true' && steps.route.outputs.packet_review_planned == 'true' && vars.OCR_PACKET_REVIEW_ENABLED != 'false'
+        working-directory: repo
+        env:
+          HOME: ${{ runner.temp }}/ocr-home
+          OCR_LLM_URL: ${{ secrets.OCR_LLM_URL }}
+          OCR_LLM_TOKEN: ${{ secrets.OCR_LLM_KEY }}
+          OCR_LLM_MODEL: reviewer
+          OCR_USE_ANTHROPIC: "false"
+          OCR_LLM_TIMEOUT: "300"
+          OCR_PACKET_PLAN_PATH: ${{ steps.route.outputs.packet_plan_path }}
+          OCR_RESULT_PATH: ${{ runner.temp }}/ocr-result.json
+          OCR_METRICS_PATH: ${{ runner.temp }}/ocr-metrics.json
+          OCR_RULES_PATH: ${{ runner.temp }}/ocr-tools/rules.json
+          OCR_PACKET_TIMEOUT_MINUTES: ${{ vars.OCR_PACKET_TIMEOUT_MINUTES || '10' }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME"
+          node "$GITHUB_WORKSPACE/ocr-trusted/.github/scripts/ocr-packet-review.js"
 
       - name: Post OCR review
         if: steps.pr.outputs.skip != 'true' && always() && !cancelled() && steps.route.outcome == 'success' && (steps.route.outputs.should_run_ocr != 'true' || steps.ocr.outcome == 'success')

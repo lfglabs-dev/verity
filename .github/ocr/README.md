@@ -63,3 +63,31 @@ The hard guarded modes are fallback behavior only. During the pilot, a 3-file Le
 Deduplication includes the commit, rules hash, reviewer version, router version, and routing mode. Retryable OCR statuses such as `completed_with_errors` do not write the success dedup tag, while deterministic `no-supported` and `large-lean-hotspots` routing posts use a stable success tag to avoid repeated `/ocr review` spam for the same commit and router policy.
 
 Promote beyond pilot only after comparing OCR vs Codex on real PRs for true positives, false positives, latency, and cost.
+
+## Large-Lean packet semantic review (2026-07-31)
+
+Large Lean PRs (≥3 Lean files or >800 changed lines) previously stopped at
+scout triage. The route now continues:
+
+1. The multi-lens scout selects packets as before; the router writes an
+   executable plan (`ocr-packet-plan.json`) grouping selected packets by file.
+2. `ocr-packet-review.js` runs the real `ocr review` once per group, scoped by
+   excluding the exact complement (every other changed supported file — `ocr`
+   has no `--include` flag). ~10 min budget per group, at most 4 groups, one
+   at a time; a group failure never discards another group's findings.
+3. `post-ocr-review.js` publishes an **`OCR semantic review` check-run** that
+   carries the honest meaning: `success` only when a semantic review covered
+   the diff (full OCR, or all planned packet groups), `neutral` for
+   triage-only/partial coverage, `failure` on errored runs. The pipeline job
+   staying green only means the pipeline ran.
+4. Scout inline markers now lead with a "question de triage (non-review)"
+   caveat, stale markers from older heads are minimized as OUTDATED on the
+   next successful post, and the summary's first line reports
+   `covered/total` packet groups with uncovered groups listed unfolded.
+5. Scout dossiers embed a bounded node-side outline of each packet's file
+   (declarations + `sorry`/`axiom`/`native_decide` markers). Full LSP
+   diagnostics remain the packet reviewer's tools via its `lean_lsp` MCP
+   session.
+
+Kill switch: repo variable `OCR_PACKET_REVIEW_ENABLED=false`;
+per-group budget: `OCR_PACKET_TIMEOUT_MINUTES` (default 10).
