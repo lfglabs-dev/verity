@@ -46,10 +46,14 @@ theorem RawSummary.ofYulResult_refines_of_eq
     (hEvents : yul.events = ir.events) :
     (RawSummary.ofYulResultOn observableSlots yul).toExecutionSummary? =
       (RawSummary.ofIRResultOn observableSlots ir).toExecutionSummary? := by
-  cases yul
-  cases ir
-  simp_all [RawSummary.ofYulResultOn, RawSummary.ofIRResultOn]
-  funext slot
-  exact hStorage slot.1 slot.2
+  have hStorageOn :
+      (fun slot : ObservableStorageSlot observableSlots =>
+        yul.finalStorage (IRStorageSlot.ofNat slot.1)) =
+      (fun slot : ObservableStorageSlot observableSlots =>
+        ir.finalStorage (IRStorageSlot.ofNat slot.1)) := by
+    funext slot
+    exact hStorage slot.1 slot.2
+  simp [RawSummary.ofYulResultOn, RawSummary.ofIRResultOn,
+    hSuccess, hReturn, hEvents, hStorageOn]
 
 end Compiler.Proofs.YulGeneration
