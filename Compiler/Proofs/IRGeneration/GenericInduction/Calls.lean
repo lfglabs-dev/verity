@@ -650,6 +650,42 @@ structure DirectInternalHelperHeadStepCatalog
           (Stmt.internalCallAssign names calleeName args)
           compiledIR
 
+/-- Spec-functions-aware sibling of `DirectInternalHelperHeadStepCatalog`.
+
+Direct internal-call heads compile their arguments through
+`compileInternalCallArgs ... spec.functions`, so their compiled IR is not
+determined by the default empty internal-function compiler argument recorded by
+`DirectInternalHelperHeadStepCatalog`. This catalog therefore carries the
+`CompiledStmtStepWithHelpersAndHelperIRWithInternals` witnesses directly, which
+is what the `WithInternals` list interfaces consume. -/
+structure DirectInternalHelperHeadStepCatalogWithInternals
+    (runtimeContract : IRContract)
+    (spec : CompilationModel)
+    (fields : List Field)
+    (fn : FunctionSpec) : Prop where
+  call :
+    ∀ {scope : List String} {calleeName : String} {args : List Expr},
+      calleeName ∈ helperCallNames fn →
+      ∃ compiledIR,
+        CompiledStmtStepWithHelpersAndHelperIRWithInternals
+          runtimeContract
+          spec
+          fields
+          scope
+          (Stmt.internalCall calleeName args)
+          compiledIR
+  assign :
+    ∀ {scope : List String} {names : List String} {calleeName : String} {args : List Expr},
+      calleeName ∈ helperCallNames fn →
+      ∃ compiledIR,
+        CompiledStmtStepWithHelpersAndHelperIRWithInternals
+          runtimeContract
+          spec
+          fields
+          scope
+          (Stmt.internalCallAssign names calleeName args)
+          compiledIR
+
 /-- Mid-level Tier 4 seam: future rank induction can package direct-helper
 singletons here by proving compilation succeeds for the head and that the exact
 singleton IR execution matches the source helper-aware step. The mechanical
@@ -1704,6 +1740,32 @@ theorem stmtListDirectInternalHelperCallStepInterface_of_headStepCatalog
       runtimeContract spec fields scope fn.body := by
   exact
     stmtListDirectInternalHelperCallStepInterface_of_internalCallSteps_of_helperCallNames
+      (runtimeContract := runtimeContract)
+      (spec := spec)
+      (fields := fields)
+      (scope := scope)
+      (stmts := fn.body)
+      hcatalog.call
+
+/-- Assemble the exact spec-functions-aware direct void-helper-call list
+interface from a body-local `WithInternals` head-step catalog. This is the
+`WithInternals` counterpart of
+`stmtListDirectInternalHelperCallStepInterface_of_headStepCatalog`: it records
+the `compileStmt ... spec.functions` head shape that direct internal calls
+actually compile through, and, as there, the return-binding half of the catalog
+is neither exposed nor required. -/
+theorem stmtListDirectInternalHelperCallStepInterfaceWithInternals_of_headStepCatalog
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {fn : FunctionSpec}
+    (hcatalog :
+      DirectInternalHelperHeadStepCatalogWithInternals runtimeContract spec fields fn) :
+    StmtListDirectInternalHelperCallStepInterfaceWithInternals
+      runtimeContract spec fields scope fn.body := by
+  exact
+    stmtListDirectInternalHelperCallStepInterfaceWithInternals_of_internalCallSteps_of_helperCallNames
       (runtimeContract := runtimeContract)
       (spec := spec)
       (fields := fields)
