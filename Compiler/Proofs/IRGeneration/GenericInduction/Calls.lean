@@ -1687,6 +1687,30 @@ theorem stmtListDirectInternalHelperStepInterfaces_of_headStepCatalog
         (stmts := fn.body)
         hcatalog.assign
 
+/-- Assemble the exact direct void-helper-call list interface from a body-local
+head-step catalog.  Unlike
+`stmtListDirectInternalHelperStepInterfaces_of_headStepCatalog`, this consumer
+does not expose or require the return-binding interface: the call proof is
+obtained solely from the catalog's void-call execution witnesses. -/
+theorem stmtListDirectInternalHelperCallStepInterface_of_headStepCatalog
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {fn : FunctionSpec}
+    (hcatalog :
+      DirectInternalHelperHeadStepCatalog runtimeContract spec fields fn) :
+    StmtListDirectInternalHelperCallStepInterface
+      runtimeContract spec fields scope fn.body := by
+  exact
+    stmtListDirectInternalHelperCallStepInterface_of_internalCallSteps_of_helperCallNames
+      (runtimeContract := runtimeContract)
+      (spec := spec)
+      (fields := fields)
+      (scope := scope)
+      (stmts := fn.body)
+      hcatalog.call
+
 private theorem internalFunctionYulName_head (calleeName : String) :
     (CompilationModel.internalFunctionYulName calleeName).toList.head? = some 'i' := by
   simp [CompilationModel.internalFunctionYulName, CompilationModel.internalFunctionPrefix]
