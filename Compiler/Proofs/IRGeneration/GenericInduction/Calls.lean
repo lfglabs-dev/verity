@@ -650,24 +650,36 @@ structure DirectInternalHelperHeadStepCatalog
           (Stmt.internalCallAssign names calleeName args)
           compiledIR
 
-/-- Spec-functions-aware sibling of `DirectInternalHelperHeadStepCatalog`.
+/-- A statement occurrence together with the scope obtained by processing the
+preceding statements in the same list. -/
+inductive StmtOccursAtScope :
+    List String → List String → Stmt → List Stmt → Prop where
+  | head {scope : List String} {stmt : Stmt} {rest : List Stmt} :
+      StmtOccursAtScope scope scope stmt (stmt :: rest)
+  | tail {scope occurrenceScope : List String} {head target : Stmt} {rest : List Stmt} :
+      StmtOccursAtScope (stmtNextScope scope head) occurrenceScope target rest →
+      StmtOccursAtScope scope occurrenceScope target (head :: rest)
+
+/-- Spec-functions-aware call-only sibling of
+`DirectInternalHelperHeadStepCatalog`.
 
 Direct internal-call heads compile their arguments through
 `compileInternalCallArgs ... spec.functions`, so their compiled IR is not
 determined by the default empty internal-function compiler argument recorded by
 `DirectInternalHelperHeadStepCatalog`. This catalog therefore carries the
 `CompiledStmtStepWithHelpersAndHelperIRWithInternals` witnesses directly for
-the exact call statements occurring in the function body. Indexing by the
-statement, rather than only its callee, avoids demanding witnesses for
-wrong-arity argument lists that do not occur in the body. -/
-structure DirectInternalHelperHeadStepCatalogWithInternals
+the exact void-call statements at their prefix-derived scopes. Indexing by the
+scoped occurrence avoids demanding witnesses for wrong-arity argument lists or
+scopes that do not occur in the body. -/
+structure DirectInternalHelperCallHeadStepCatalogWithInternals
     (runtimeContract : IRContract)
     (spec : CompilationModel)
     (fields : List Field)
+    (initialScope : List String)
     (fn : FunctionSpec) : Prop where
   call :
     ∀ {scope : List String} {calleeName : String} {args : List Expr},
-      Stmt.internalCall calleeName args ∈ fn.body →
+      StmtOccursAtScope initialScope scope (Stmt.internalCall calleeName args) fn.body →
       ∃ compiledIR,
         CompiledStmtStepWithHelpersAndHelperIRWithInternals
           runtimeContract
@@ -675,17 +687,6 @@ structure DirectInternalHelperHeadStepCatalogWithInternals
           fields
           scope
           (Stmt.internalCall calleeName args)
-          compiledIR
-  assign :
-    ∀ {scope : List String} {names : List String} {calleeName : String} {args : List Expr},
-      Stmt.internalCallAssign names calleeName args ∈ fn.body →
-      ∃ compiledIR,
-        CompiledStmtStepWithHelpersAndHelperIRWithInternals
-          runtimeContract
-          spec
-          fields
-          scope
-          (Stmt.internalCallAssign names calleeName args)
           compiledIR
 
 /-- Mid-level Tier 4 seam: future rank induction can package direct-helper
@@ -1750,13 +1751,13 @@ theorem stmtListDirectInternalHelperCallStepInterface_of_headStepCatalog
       hcatalog.call
 
 /-- Assemble the exact spec-functions-aware direct void-helper-call list
-interface from a body-local `WithInternals` head-step catalog. This is the
+interface from a body-local call-only `WithInternals` head-step catalog. This is the
 `WithInternals` counterpart of
 `stmtListDirectInternalHelperCallStepInterface_of_headStepCatalog`: it records
 the `compileStmt ... spec.functions` head shape that direct internal calls
-actually compile through, and, as there, the return-binding half of the catalog
-is neither exposed nor required. The recursion retains membership in the
-original body so the catalog is only queried for call sites that occur there. -/
+actually compile through. The recursion retains each call's prefix-derived
+scope, so the catalog is only queried for call sites at scopes that occur in the
+body. -/
 theorem stmtListDirectInternalHelperCallStepInterfaceWithInternals_of_headStepCatalog
     {runtimeContract : IRContract}
     {spec : CompilationModel}
@@ -1764,17 +1765,19 @@ theorem stmtListDirectInternalHelperCallStepInterfaceWithInternals_of_headStepCa
     {scope : List String}
     {fn : FunctionSpec}
     (hcatalog :
-      DirectInternalHelperHeadStepCatalogWithInternals runtimeContract spec fields fn) :
+      DirectInternalHelperCallHeadStepCatalogWithInternals
+        runtimeContract spec fields scope fn) :
     StmtListDirectInternalHelperCallStepInterfaceWithInternals
       runtimeContract spec fields scope fn.body := by
   have go :
-      ∀ (stmts : List Stmt),
-        (∀ stmt, stmt ∈ stmts → stmt ∈ fn.body) →
-        ∀ (scope : List String),
-          StmtListDirectInternalHelperCallStepInterfaceWithInternals
-            runtimeContract spec fields scope stmts := by
-    intro stmts hsubset scope
-    induction stmts generalizing scope with
+      ∀ {currentScope : List String} {stmts : List Stmt},
+        (∀ {occurrenceScope : List String} {stmt : Stmt},
+          StmtOccursAtScope currentScope occurrenceScope stmt stmts →
+          StmtOccursAtScope scope occurrenceScope stmt fn.body) →
+        StmtListDirectInternalHelperCallStepInterfaceWithInternals
+          runtimeContract spec fields currentScope stmts := by
+    intro currentScope stmts hembed
+    induction stmts generalizing currentScope with
     | nil =>
         exact .nil
     | cons stmt rest ih =>
@@ -1783,16 +1786,16 @@ theorem stmtListDirectInternalHelperCallStepInterfaceWithInternals_of_headStepCa
           cases stmt with
           | internalCall calleeName args =>
               rcases hcatalog.call
-                  (scope := scope) (calleeName := calleeName) (args := args)
-                  (hsubset _ (by simp)) with
+                  (scope := currentScope) (calleeName := calleeName) (args := args)
+                  (hembed StmtOccursAtScope.head) with
                 ⟨compiledIR, hcompiled⟩
               exact ⟨compiledIR, hcompiled⟩
           | _ =>
               simp [stmtTouchesDirectInternalHelperCallSurface] at hdirect
         · apply ih
-          intro tailStmt hmem
-          exact hsubset tailStmt (by simp [hmem])
-  exact go fn.body (by intros; assumption) scope
+          intro occurrenceScope tailStmt hocc
+          exact hembed (StmtOccursAtScope.tail hocc)
+  exact go (fun hocc => hocc)
 
 private theorem internalFunctionYulName_head (calleeName : String) :
     (CompilationModel.internalFunctionYulName calleeName).toList.head? = some 'i' := by
