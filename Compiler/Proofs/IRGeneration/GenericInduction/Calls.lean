@@ -656,8 +656,10 @@ Direct internal-call heads compile their arguments through
 `compileInternalCallArgs ... spec.functions`, so their compiled IR is not
 determined by the default empty internal-function compiler argument recorded by
 `DirectInternalHelperHeadStepCatalog`. This catalog therefore carries the
-`CompiledStmtStepWithHelpersAndHelperIRWithInternals` witnesses directly, which
-is what the `WithInternals` list interfaces consume. -/
+`CompiledStmtStepWithHelpersAndHelperIRWithInternals` witnesses directly for
+the exact call statements occurring in the function body. Indexing by the
+statement, rather than only its callee, avoids demanding witnesses for
+wrong-arity argument lists that do not occur in the body. -/
 structure DirectInternalHelperHeadStepCatalogWithInternals
     (runtimeContract : IRContract)
     (spec : CompilationModel)
@@ -665,7 +667,7 @@ structure DirectInternalHelperHeadStepCatalogWithInternals
     (fn : FunctionSpec) : Prop where
   call :
     ∀ {scope : List String} {calleeName : String} {args : List Expr},
-      calleeName ∈ helperCallNames fn →
+      Stmt.internalCall calleeName args ∈ fn.body →
       ∃ compiledIR,
         CompiledStmtStepWithHelpersAndHelperIRWithInternals
           runtimeContract
@@ -676,7 +678,7 @@ structure DirectInternalHelperHeadStepCatalogWithInternals
           compiledIR
   assign :
     ∀ {scope : List String} {names : List String} {calleeName : String} {args : List Expr},
-      calleeName ∈ helperCallNames fn →
+      Stmt.internalCallAssign names calleeName args ∈ fn.body →
       ∃ compiledIR,
         CompiledStmtStepWithHelpersAndHelperIRWithInternals
           runtimeContract
@@ -1753,7 +1755,8 @@ interface from a body-local `WithInternals` head-step catalog. This is the
 `stmtListDirectInternalHelperCallStepInterface_of_headStepCatalog`: it records
 the `compileStmt ... spec.functions` head shape that direct internal calls
 actually compile through, and, as there, the return-binding half of the catalog
-is neither exposed nor required. -/
+is neither exposed nor required. The recursion retains membership in the
+original body so the catalog is only queried for call sites that occur there. -/
 theorem stmtListDirectInternalHelperCallStepInterfaceWithInternals_of_headStepCatalog
     {runtimeContract : IRContract}
     {spec : CompilationModel}
@@ -1764,14 +1767,32 @@ theorem stmtListDirectInternalHelperCallStepInterfaceWithInternals_of_headStepCa
       DirectInternalHelperHeadStepCatalogWithInternals runtimeContract spec fields fn) :
     StmtListDirectInternalHelperCallStepInterfaceWithInternals
       runtimeContract spec fields scope fn.body := by
-  exact
-    stmtListDirectInternalHelperCallStepInterfaceWithInternals_of_internalCallSteps_of_helperCallNames
-      (runtimeContract := runtimeContract)
-      (spec := spec)
-      (fields := fields)
-      (scope := scope)
-      (stmts := fn.body)
-      hcatalog.call
+  have go :
+      ∀ (stmts : List Stmt),
+        (∀ stmt, stmt ∈ stmts → stmt ∈ fn.body) →
+        ∀ (scope : List String),
+          StmtListDirectInternalHelperCallStepInterfaceWithInternals
+            runtimeContract spec fields scope stmts := by
+    intro stmts hsubset scope
+    induction stmts generalizing scope with
+    | nil =>
+        exact .nil
+    | cons stmt rest ih =>
+        refine .cons ?_ ?_
+        · intro hdirect
+          cases stmt with
+          | internalCall calleeName args =>
+              rcases hcatalog.call
+                  (scope := scope) (calleeName := calleeName) (args := args)
+                  (hsubset _ (by simp)) with
+                ⟨compiledIR, hcompiled⟩
+              exact ⟨compiledIR, hcompiled⟩
+          | _ =>
+              simp [stmtTouchesDirectInternalHelperCallSurface] at hdirect
+        · apply ih
+          intro tailStmt hmem
+          exact hsubset tailStmt (by simp [hmem])
+  exact go fn.body (by intros; assumption) scope
 
 private theorem internalFunctionYulName_head (calleeName : String) :
     (CompilationModel.internalFunctionYulName calleeName).toList.head? = some 'i' := by
