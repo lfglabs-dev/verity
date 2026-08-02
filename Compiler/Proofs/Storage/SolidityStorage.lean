@@ -1,5 +1,6 @@
 import Compiler.Proofs.MappingSlot
 import Compiler.CompilationModel.ExpressionCompile
+import Compiler.CodegenCommon
 import Verity.Core.Model.Types
 
 namespace Compiler.Proofs.Storage
@@ -36,6 +37,41 @@ theorem mappingSlot_preimage (baseSlot key : Nat) :
       preimage = abiEncodeMappingSlot baseSlot key ∧
       mappingSlotPointer baseSlot key = KeccakEngine.keccak256 preimage := by
   exact ⟨abiEncodeMappingSlot baseSlot key, rfl, rfl⟩
+
+/-- Structurally interpret the emitted `mappingSlot` helper. Matching every
+    statement keeps the bridge sensitive to the two stores' order and addresses,
+    as well as the hash range. -/
+def compiledMappingSlotPointer
+    (stmt : Compiler.Yul.YulStmt) (scratchBase baseSlot key : Nat) : Option ByteArray :=
+  match stmt with
+  | .funcDef "mappingSlot" ["baseSlot", "key"] ["slot"] [
+      .exprStmt (.call "mstore" [.lit keyPtr, .ident "key"]),
+      .exprStmt (.call "mstore" [.lit slotPtr, .ident "baseSlot"]),
+      .assign "slot" (.call "keccak256" [.lit hashPtr, .lit hashSize])] =>
+      if keyPtr == scratchBase && slotPtr == scratchBase + 32 &&
+          hashPtr == scratchBase && hashSize == 64 then
+        some (KeccakEngine.keccak256 (abiEncodeMappingSlot baseSlot key))
+      else
+        none
+  | _ => none
+
+/-- The emitted `mappingSlot` helper computes the canonical Solidity mapping
+    pointer. Any change to its line-by-line Yul shape is observable here. -/
+theorem compiledMappingSlotPointer_eq_mappingSlotPointer
+    (scratchBase baseSlot key : Nat) :
+    compiledMappingSlotPointer
+        (Compiler.CodegenCommon.mappingSlotFuncAt scratchBase)
+        scratchBase baseSlot key =
+      some (mappingSlotPointer baseSlot key) := by
+  simp [compiledMappingSlotPointer, Compiler.CodegenCommon.mappingSlotFuncAt,
+    mappingSlotPointer]
+
+/-- The pointer returned by the emitted helper is the same mapping slot used by
+    source evaluation through `abstractMappingSlot`. -/
+theorem mappingSlotPointer_eq_abstractMappingSlot (baseSlot key : Nat) :
+    EvmYul.fromByteArrayBigEndian (mappingSlotPointer baseSlot key) =
+      Compiler.Proofs.abstractMappingSlot baseSlot key := by
+  rfl
 
 /-- Mask for a packed Solidity field of `width` low-order bits. -/
 def packedMask (width : Nat) : Nat := 2 ^ width - 1
@@ -74,7 +110,7 @@ def compiledPackedRead (word : Word) (offset width : Nat) : Word :=
 /-- The helper for a Yul packed read is the interpretation of the real compiler
     path in `ExpressionCompile.lean`. -/
 theorem yulReadPackedWord_eq_compiledExpr (word : Word) (offset width : Nat)
-    (hwidth : width < 256) :
+    (hwidth : width ≤ 256) :
     yulReadPackedWord word offset width = compiledPackedRead word offset width := by
   have hfield :
       Compiler.CompilationModel.findFieldWithResolvedSlot
@@ -94,10 +130,16 @@ theorem yulReadPackedWord_eq_compiledExpr (word : Word) (offset width : Nat)
             .lit (packedMask width)]) := by
     simp only [Compiler.CompilationModel.compileExprWithInternals, hmapping,
       Bool.false_eq_true, if_false, hfield]
-    simp [packedReadBridgeField, Compiler.CompilationModel.packedMaskNat,
-      Nat.not_le.mpr hwidth, packedMask]
-    change Except.ok _ = Except.ok _
-    rfl
+    by_cases hlt : width < 256
+    · simp [packedReadBridgeField, Compiler.CompilationModel.packedMaskNat,
+        Nat.not_le.mpr hlt, packedMask]
+      change Except.ok _ = Except.ok _
+      rfl
+    · have heq : width = 256 := Nat.le_antisymm hwidth (Nat.le_of_not_gt hlt)
+      subst width
+      simp [packedReadBridgeField, Compiler.CompilationModel.packedMaskNat, packedMask]
+      change Except.ok _ = Except.ok _
+      rfl
   unfold compiledPackedRead
   rw [hcompile]
   simp [isCompiledPackedReadExpr]
