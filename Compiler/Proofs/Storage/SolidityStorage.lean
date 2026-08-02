@@ -24,13 +24,6 @@ abbrev SolidityStorage := ContractId → ByteArray → Word
 def mappingSlotPointer (baseSlot key : Nat) : ByteArray :=
   KeccakEngine.keccak256 (abiEncodeMappingSlot baseSlot key)
 
-/-- Reading a mapping key is precisely reading its canonical Keccak pointer. -/
-theorem mappingSlot_of_key (storage : SolidityStorage) (id : ContractId)
-    (baseSlot key : Nat) :
-    storage id (mappingSlotPointer baseSlot key) =
-      storage id (KeccakEngine.keccak256 (abiEncodeMappingSlot baseSlot key)) := by
-  rfl
-
 /-- Every pointer constructed for a mapping entry carries the canonical Solidity
     ABI preimage `(key, baseSlot)`. This is the usable preimage direction and does
     not postulate injectivity of Keccak. -/
@@ -74,6 +67,70 @@ theorem mappingSlotPointer_eq_abstractMappingSlot (baseSlot key : Nat) :
     EvmYul.fromByteArrayBigEndian (mappingSlotPointer baseSlot key) =
       Compiler.Proofs.abstractMappingSlot baseSlot key := by
   rfl
+
+/-- Synthetic mapping field used to expose the executable source mapping case. -/
+def mappingSlotBridgeField (baseSlot : Nat) : Compiler.CompilationModel.Field :=
+  { name := "__mapping_slot_bridge",
+    ty := .mappingTyped (.simple .uint256), slot := some baseSlot }
+
+/-- A slot-reflecting world makes a source read return its actual storage slot. -/
+def mappingSlotBridgeState : SourceSemantics.RuntimeState :=
+  { world := { Verity.defaultState with storage := fun slot => slot }, bindings := [] }
+
+/-- A source mapping expression evaluated in a slot-reflecting world exposes
+    the exact slot passed to `readFieldWord`. -/
+def sourceMappingSlotRead (baseSlot key : Nat) : Option Nat :=
+  SourceSemantics.evalExpr [mappingSlotBridgeField baseSlot] mappingSlotBridgeState
+    (.mapping "__mapping_slot_bridge" (.literal key))
+
+/-- The emitted helper's decoded result is precisely the slot consumed by the
+    executable source mapping-read case. This joins the generated helper and
+    `evalExpr` through `abstractMappingSlot`, rather than merely unfolding two
+    copies of the Keccak definition. -/
+theorem compiledMappingSlotPointer_eq_sourceMappingSlotRead
+    (scratchBase baseSlot key : Nat) (hkey : key < Compiler.Constants.evmModulus) :
+    Option.map EvmYul.fromByteArrayBigEndian
+        (compiledMappingSlotPointer
+          (Compiler.CodegenCommon.mappingSlotFuncAt scratchBase)
+          scratchBase baseSlot key) =
+      sourceMappingSlotRead baseSlot key := by
+  rw [compiledMappingSlotPointer_eq_mappingSlotPointer,
+    Option.map_some, mappingSlotPointer_eq_abstractMappingSlot]
+  have hfield : Compiler.CompilationModel.findFieldWithResolvedSlot
+      [mappingSlotBridgeField baseSlot] "__mapping_slot_bridge" =
+      some (mappingSlotBridgeField baseSlot, baseSlot) := by
+    rfl
+  unfold sourceMappingSlotRead
+  rw [SourceSemantics.evalExpr]
+  simp only [SourceSemantics.evalExpr]
+  rw [hfield]
+  simp [mappingSlotBridgeField, mappingSlotBridgeState, SourceSemantics.readFieldWord,
+    SourceSemantics.wordNormalize]
+  change Compiler.Proofs.solidityMappingSlot baseSlot key =
+    Compiler.Proofs.solidityMappingSlot baseSlot
+      (key % Compiler.Constants.evmModulus) % Compiler.Constants.evmModulus
+  rw [Nat.mod_eq_of_lt (Compiler.Proofs.solidityMappingSlot_lt_evmModulus
+    baseSlot (key % Compiler.Constants.evmModulus))]
+  rw [Nat.mod_eq_of_lt hkey]
+
+/-- Reading a mapping key uses the pointer returned by the emitted `mappingSlot`
+    helper, and decoding that same pointer yields the slot consumed by the
+    executable source evaluator. -/
+theorem mappingSlot_of_key (storage : SolidityStorage) (id : ContractId)
+    (scratchBase baseSlot key : Nat) (hkey : key < Compiler.Constants.evmModulus) :
+    Option.map (storage id)
+        (compiledMappingSlotPointer
+          (Compiler.CodegenCommon.mappingSlotFuncAt scratchBase)
+          scratchBase baseSlot key) =
+        some (storage id (mappingSlotPointer baseSlot key)) ∧
+      Option.map EvmYul.fromByteArrayBigEndian
+        (compiledMappingSlotPointer
+          (Compiler.CodegenCommon.mappingSlotFuncAt scratchBase)
+          scratchBase baseSlot key) =
+        sourceMappingSlotRead baseSlot key := by
+  constructor
+  · rw [compiledMappingSlotPointer_eq_mappingSlotPointer, Option.map_some]
+  · exact compiledMappingSlotPointer_eq_sourceMappingSlotRead scratchBase baseSlot key hkey
 
 /-- Mask for a packed Solidity field of `width` low-order bits. -/
 def packedMask (width : Nat) : Nat := 2 ^ width - 1
@@ -150,19 +207,11 @@ The definitions below pin the source end against the *executable* evaluator
 evaluator the rest of the source semantics runs on, rather than a restatement
 of the Yul model. -/
 
-/-- Struct member carrying the packed placement under test. -/
-def packedReadBridgeMember (offset width : Nat) : Compiler.CompilationModel.StructMember :=
-  { name := "value", wordOffset := 0, packed := some { offset := offset, width := width } }
-
-/-- Storage field whose struct value carries that packed member. -/
-def packedReadBridgeStructField (offset width : Nat) : Compiler.CompilationModel.Field :=
-  { name := "__packed_read_bridge_struct",
-    ty := .mappingStruct .uint256 [packedReadBridgeMember offset width],
-    slot := some 0 }
-
-/-- The source expression that drives the packed branch of `evalExpr`. -/
+/-- The source expression compiled and evaluated by the bridge. Keeping this as
+    the same `Expr.storage` value on both sides prevents the proof from silently
+    comparing two different evaluator/compiler cases. -/
 def packedReadBridgeSourceExpr : Compiler.CompilationModel.Expr :=
-  .structMember "__packed_read_bridge_struct" (.literal 0) "value"
+  .storage "__packed_read_bridge"
 
 /-- Structural predicate on the source IR: `e` is a struct-member read whose
     resolved member is packed at exactly `offset`/`width`. This is the shape the
@@ -171,14 +220,11 @@ def packedReadBridgeSourceExpr : Compiler.CompilationModel.Expr :=
 def isSourcePackedRead (fields : List Compiler.CompilationModel.Field)
     (e : Compiler.CompilationModel.Expr) (offset width : Nat) : Bool :=
   match e with
-  | .structMember field _ memberName =>
-      match Compiler.CompilationModel.findStructMembers fields field with
-      | some members =>
-          match Compiler.CompilationModel.findStructMember members memberName with
-          | some member =>
-              match member.packed with
-              | some packed => packed.offset == offset && packed.width == width
-              | none => false
+  | .storage fieldName =>
+      match Compiler.CompilationModel.findFieldWithResolvedSlot fields fieldName with
+      | some (field, _) =>
+          match field.packedBits with
+          | some packed => packed.offset == offset && packed.width == width
           | none => false
       | none => false
   | _ => false
@@ -192,9 +238,9 @@ def packedReadBridgeState (word : Word) : SourceSemantics.RuntimeState :=
 
 /-- The packed read performed by the executable source evaluator. -/
 def sourceEvalPackedRead (word : Word) (offset width : Nat) : Option Nat :=
-  if isSourcePackedRead [packedReadBridgeStructField offset width]
+  if isSourcePackedRead [packedReadBridgeField offset width]
       packedReadBridgeSourceExpr offset width then
-    SourceSemantics.evalExpr [packedReadBridgeStructField offset width]
+    SourceSemantics.evalExpr [packedReadBridgeField offset width]
       (packedReadBridgeState word) packedReadBridgeSourceExpr
   else
     none
@@ -254,11 +300,17 @@ private theorem uint256_packed_extract (raw : Nat)
 
 /-- The bridge expression really is a source packed read at `offset`/`width`. -/
 theorem isSourcePackedRead_bridge (offset width : Nat) :
-    isSourcePackedRead [packedReadBridgeStructField offset width]
+    isSourcePackedRead [packedReadBridgeField offset width]
       packedReadBridgeSourceExpr offset width = true := by
-  simp [isSourcePackedRead, packedReadBridgeSourceExpr, packedReadBridgeStructField,
-    packedReadBridgeMember, Compiler.CompilationModel.findStructMembers,
-    Compiler.CompilationModel.findStructMember]
+  have hfield :
+      Compiler.CompilationModel.findFieldWithResolvedSlot
+        [packedReadBridgeField offset width] "__packed_read_bridge" =
+        some (packedReadBridgeField offset width, 0) := by
+    rfl
+  unfold isSourcePackedRead
+  dsimp only [packedReadBridgeSourceExpr]
+  rw [hfield]
+  simp [packedReadBridgeField]
 
 /-- The compiler's packed read agrees with the packed read the executable source
     evaluator performs. Changing the emitted operand order, mask or offset breaks
@@ -270,14 +322,22 @@ theorem compiledPackedRead_eq_sourceEvalPackedRead (word : Word) (offset width :
       some (compiledPackedRead word offset width).toNat := by
   have hraw : word.toNat % Verity.Core.Uint256.modulus < 2 ^ 256 :=
     Nat.mod_lt _ Verity.Core.Uint256.modulus_pos
-  have heval : SourceSemantics.evalExpr [packedReadBridgeStructField offset width]
+  have heval : SourceSemantics.evalExpr [packedReadBridgeField offset width]
       (packedReadBridgeState word) packedReadBridgeSourceExpr =
       some (Verity.Core.Uint256.and
         (Verity.Core.Uint256.shr (Verity.Core.Uint256.ofNat offset)
           (Verity.Core.Uint256.ofNat (word.toNat % Verity.Core.Uint256.modulus)))
         (Verity.Core.Uint256.ofNat
-          (Compiler.CompilationModel.packedMaskNat { offset := offset, width := width }))).val :=
-    rfl
+          (Compiler.CompilationModel.packedMaskNat { offset := offset, width := width }))).val := by
+    have hfield :
+        Compiler.CompilationModel.findFieldWithResolvedSlot
+          [packedReadBridgeField offset width] "__packed_read_bridge" =
+          some (packedReadBridgeField offset width, 0) := by
+      rfl
+    unfold packedReadBridgeSourceExpr
+    rw [SourceSemantics.evalExpr, hfield]
+    simp [packedReadBridgeField, packedReadBridgeState,
+      SourceSemantics.readFieldWord, SourceSemantics.wordNormalize]
   have hextract := uint256_packed_extract (word.toNat % Verity.Core.Uint256.modulus)
     { offset := offset, width := width } hraw hoffset
   rw [← yulReadPackedWord_eq_compiledExpr word offset width hwidth]
@@ -371,47 +431,70 @@ theorem compiledSstoreStmts_eq (slot value : Nat) :
 def writeSlotLit (write : StorageWrite) : Nat :=
   EvmYul.fromByteArrayBigEndian write.slot
 
-/-- The `sstore` sequence the compiler emits for a whole source storage diff. -/
-def compiledSstoreProgram (diff : StorageDiff) : List Compiler.Yul.YulStmt :=
-  diff.flatMap fun write => compiledSstoreStmts (writeSlotLit write) write.value.toNat
+/-- A source diff is executable as one Yul contract invocation only when every
+    write belongs to that contract and every key has the canonical EVM width. -/
+def ValidSstoreDiff (currentContract : ContractId) (diff : StorageDiff) : Prop :=
+  ∀ write ∈ diff, write.contract = currentContract ∧ write.slot.size = 32
+
+/-- The `sstore` sequence the compiler emits for a whole valid source storage
+    diff. The contract and canonical-key checks are deliberately retained in
+    the program boundary instead of being reconstructed after decoding slots. -/
+def compiledSstoreProgram (currentContract : ContractId) (diff : StorageDiff) :
+    List Compiler.Yul.YulStmt :=
+  diff.flatMap fun write =>
+    if write.contract == currentContract && write.slot.size == 32 then
+      compiledSstoreStmts (writeSlotLit write) write.value.toNat
+    else []
 
 /-- Structurally interpret emitted Yul statements as storage updates. Each
     statement must be exactly the `sstore(slot, value)` call that
     `compileSetStorage` emits for the corresponding source write; any other
     statement shape, slot operand or value operand leaves storage untouched. -/
 def compiledYulSstores :
-    List Compiler.Yul.YulStmt → StorageDiff → SolidityStorage → SolidityStorage
-  | .exprStmt (.call "sstore" [.lit slot, .lit value]) :: stmts, write :: writes, storage =>
-      if slot == writeSlotLit write &&
+    ContractId → List Compiler.Yul.YulStmt → StorageDiff → SolidityStorage → SolidityStorage
+  | currentContract, .exprStmt (.call "sstore" [.lit slot, .lit value]) :: stmts,
+      write :: writes, storage =>
+      if write.contract == currentContract && write.slot.size == 32 &&
+          slot == writeSlotLit write &&
           value == write.value.toNat % Compiler.CompilationModel.uint256Modulus then
-        compiledYulSstores stmts writes (applyStorageWrite write storage)
+        compiledYulSstores currentContract stmts writes (applyStorageWrite write storage)
       else storage
-  | _, _, storage => storage
+  | _, _, _, storage => storage
 
 /-- Canonical interpretation of the equivalent sequence of Yul `sstore` calls:
     walk the statements the compiler emits for `diff` and apply each store. -/
-def applyYulSstores (diff : StorageDiff) (storage : SolidityStorage) : SolidityStorage :=
-  compiledYulSstores (compiledSstoreProgram diff) diff storage
+def applyYulSstores (currentContract : ContractId) (diff : StorageDiff)
+    (storage : SolidityStorage) : SolidityStorage :=
+  compiledYulSstores currentContract (compiledSstoreProgram currentContract diff) diff storage
 
-theorem applyYulSstores_eq_compiledYulSstores (diff : StorageDiff) (storage : SolidityStorage) :
-    applyYulSstores diff storage =
-      compiledYulSstores (compiledSstoreProgram diff) diff storage := rfl
+theorem applyYulSstores_eq_compiledYulSstores (currentContract : ContractId)
+    (diff : StorageDiff) (storage : SolidityStorage) :
+    applyYulSstores currentContract diff storage =
+      compiledYulSstores currentContract (compiledSstoreProgram currentContract diff) diff storage :=
+  rfl
 
 /-- The emitted `sstore` sequence, structurally interpreted, performs exactly the
     canonical source storage rewrite. -/
-theorem applyYulSstores_eq_applyStateRewrite (diff : StorageDiff) (storage : SolidityStorage) :
-    applyYulSstores diff storage = applyStateRewrite diff storage := by
+theorem applyYulSstores_eq_applyStateRewrite (currentContract : ContractId)
+    (diff : StorageDiff) (storage : SolidityStorage)
+    (hvalid : ValidSstoreDiff currentContract diff) :
+    applyYulSstores currentContract diff storage = applyStateRewrite diff storage := by
   unfold applyYulSstores
   induction diff generalizing storage with
   | nil => rfl
   | cons write writes ih =>
-      have hprog : compiledSstoreProgram (write :: writes) =
+      have hhead := hvalid write (by simp)
+      have htail : ValidSstoreDiff currentContract writes := by
+        intro tail hmem
+        exact hvalid tail (by simp [hmem])
+      have hprog : compiledSstoreProgram currentContract (write :: writes) =
           .exprStmt (.call "sstore" [.lit (writeSlotLit write),
               .lit (write.value.toNat % Compiler.CompilationModel.uint256Modulus)]) ::
-            compiledSstoreProgram writes := by
-        simp [compiledSstoreProgram, compiledSstoreStmts_eq]
+            compiledSstoreProgram currentContract writes := by
+        simp [compiledSstoreProgram, hhead.1, hhead.2, compiledSstoreStmts_eq]
       rw [hprog, applyStateRewrite_cons]
-      simp only [compiledYulSstores, beq_self_eq_true, Bool.and_self, if_true]
-      exact ih (applyStorageWrite write storage)
+      simp only [compiledYulSstores, hhead.1, hhead.2, beq_self_eq_true,
+        Bool.and_self, if_true]
+      exact ih (applyStorageWrite write storage) htail
 
 end Compiler.Proofs.Storage
