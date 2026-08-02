@@ -2896,6 +2896,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.stmtListDirectInternalHelperStepInterfaces_of_headStepCatalog
   Compiler.Proofs.IRGeneration.stmtListDirectInternalHelperCallStepInterface_of_headStepCatalog
   Compiler.Proofs.IRGeneration.stmtListDirectInternalHelperCallStepInterfaceWithInternals_of_headStepCatalog
+  Compiler.Proofs.IRGeneration.stmtListDirectInternalHelperAssignStepInterfaceWithInternals_of_headStepCatalog
   -- Compiler.Proofs.IRGeneration.internalFunctionYulName_head  -- private
   -- Compiler.Proofs.IRGeneration.internalFunctionYulName_ne_of_head  -- private
   -- Compiler.Proofs.IRGeneration.internalFunctionYulName_ne_stop  -- private
@@ -6442,4 +6443,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6033 theorems/lemmas (4180 public, 1853 private, 0 sorry'd)
+-- Total: 6034 theorems/lemmas (4181 public, 1853 private, 0 sorry'd)
