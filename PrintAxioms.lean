@@ -4339,8 +4339,17 @@ end Verity.AxiomAudit
   Compiler.Proofs.Storage.compiledMappingSlotPointer_eq_mappingSlotPointer
   Compiler.Proofs.Storage.mappingSlotPointer_eq_abstractMappingSlot
   Compiler.Proofs.Storage.yulReadPackedWord_eq_compiledExpr
+  -- Compiler.Proofs.Storage.land_packedMaskNat  -- private
+  -- Compiler.Proofs.Storage.packedMaskNat_lt  -- private
+  -- Compiler.Proofs.Storage.uint256_packed_extract  -- private
+  Compiler.Proofs.Storage.isSourcePackedRead_bridge
+  Compiler.Proofs.Storage.compiledPackedRead_eq_sourceEvalPackedRead
   Compiler.Proofs.Storage.sourceRead_of_packedWord
   Compiler.Proofs.Storage.packedWord_of_sourceRead
+  Compiler.Proofs.Storage.applyStateRewrite_cons
+  Compiler.Proofs.Storage.compiledSstoreStmts_eq
+  Compiler.Proofs.Storage.applyYulSstores_eq_compiledYulSstores
+  Compiler.Proofs.Storage.applyYulSstores_eq_applyStateRewrite
 
   -- Compiler/Proofs/StorageBounds.lean
   Compiler.Proofs.StorageBounds.storageArray_element_val_lt
@@ -6454,4 +6463,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6042 theorems/lemmas (4189 public, 1853 private, 0 sorry'd)
+-- Total: 6051 theorems/lemmas (4195 public, 1856 private, 0 sorry'd)
