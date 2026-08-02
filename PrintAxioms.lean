@@ -84,6 +84,7 @@ import Compiler.Proofs.KeccakBound
 import Compiler.Proofs.MappingSlot
 import Compiler.Proofs.StorageBounds
 import Compiler.Proofs.StorageLens
+import Compiler.Proofs.Storage.SolidityStorage
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBodyClosure.Base
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBodyClosure.Generic
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBodyClosure.Safe
@@ -197,6 +198,12 @@ syntax (name := verityPrintAxioms) "#verity_print_axioms " "[" ident* "]" : comm
 end Verity.AxiomAudit
 
 #verity_print_axioms [
+
+  -- Compiler/Proofs/Storage/SolidityStorage.lean
+  Compiler.Proofs.Storage.mappingSlot_of_key
+  Compiler.Proofs.Storage.mappingSlot_preimage
+  Compiler.Proofs.Storage.sourceRead_of_packedWord
+  Compiler.Proofs.Storage.packedWord_of_sourceRead
 
   -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeStepLemmas.lean
   Compiler.Proofs.YulGeneration.Backends.Native.step_calldataload_ok
