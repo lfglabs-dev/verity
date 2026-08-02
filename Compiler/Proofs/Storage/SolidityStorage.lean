@@ -1,4 +1,5 @@
 import Compiler.Proofs.MappingSlot
+import Compiler.CompilationModel.ExpressionCompile
 import Verity.Core.Model.Types
 
 namespace Compiler.Proofs.Storage
@@ -46,6 +47,60 @@ def sourceReadPackedWord (word : Word) (offset width : Nat) : Word :=
 /-- Yul's `and(shr(offset, sload(pointer)), mask)` interpretation. -/
 def yulReadPackedWord (word : Word) (offset width : Nat) : Word :=
   IRStorageWord.ofNat ((word.toNat / 2 ^ offset) % 2 ^ width)
+
+/-- Synthetic scalar field used to expose the packed-storage compiler branch. -/
+def packedReadBridgeField (offset width : Nat) : Compiler.CompilationModel.Field :=
+  { name := "__packed_read_bridge", ty := .uint256, slot := some 0,
+    packedBits := some { offset := offset, width := width } }
+
+/-- Interpret the exact packed-storage expression emitted by
+    `compileExprWithInternals`. The deliberately structural match makes changes
+    to the emitted operator order, offset, load, slot, or mask observable here. -/
+def isCompiledPackedReadExpr : Compiler.Yul.YulExpr → Nat → Nat → Bool
+  | .call "and" [.call "shr" [.lit shift, .call "sload" [.lit 0]], .lit mask],
+      offset, width => shift == offset && mask == packedMask width
+  | _, _, _ => false
+
+def compiledPackedRead (word : Word) (offset width : Nat) : Word :=
+  let emitted := Compiler.CompilationModel.compileExprWithInternals
+      [packedReadBridgeField offset width] .calldata []
+      (.storage "__packed_read_bridge")
+  match emitted with
+  | .ok expr =>
+      if isCompiledPackedReadExpr expr offset width then yulReadPackedWord word offset width
+      else IRStorageWord.ofNat 0
+  | .error _ => IRStorageWord.ofNat 0
+
+/-- The helper for a Yul packed read is the interpretation of the real compiler
+    path in `ExpressionCompile.lean`. -/
+theorem yulReadPackedWord_eq_compiledExpr (word : Word) (offset width : Nat)
+    (hwidth : width < 256) :
+    yulReadPackedWord word offset width = compiledPackedRead word offset width := by
+  have hfield :
+      Compiler.CompilationModel.findFieldWithResolvedSlot
+        [packedReadBridgeField offset width] "__packed_read_bridge" =
+        some (packedReadBridgeField offset width, 0) := by
+    rfl
+  have hmapping :
+      Compiler.CompilationModel.isMapping
+        [packedReadBridgeField offset width] "__packed_read_bridge" = false := by
+    rfl
+  have hcompile :
+      Compiler.CompilationModel.compileExprWithInternals
+          [packedReadBridgeField offset width] .calldata []
+          (.storage "__packed_read_bridge") =
+        .ok (.call "and"
+          [.call "shr" [.lit offset, .call "sload" [.lit 0]],
+            .lit (packedMask width)]) := by
+    simp only [Compiler.CompilationModel.compileExprWithInternals, hmapping,
+      Bool.false_eq_true, if_false, hfield]
+    simp [packedReadBridgeField, Compiler.CompilationModel.packedMaskNat,
+      Nat.not_le.mpr hwidth, packedMask]
+    change Except.ok _ = Except.ok _
+    rfl
+  unfold compiledPackedRead
+  rw [hcompile]
+  simp [isCompiledPackedReadExpr]
 
 /-- A source packed-word read produces the same word as the corresponding Yul
     `sload`/`shr`/`and` sequence. -/
