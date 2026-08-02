@@ -720,6 +720,23 @@ structure DirectInternalHelperAssignHeadStepCatalogWithInternals
           (Stmt.internalCallAssign names calleeName args)
           compiledIR
 
+/-- Body-local head-step catalog for direct `Expr.internalCall` results bound
+by `Stmt.letVar`, indexed by their prefix-derived scopes. -/
+structure DirectInternalHelperExprCallHeadStepCatalogWithInternals
+    (runtimeContract : IRContract)
+    (spec : CompilationModel)
+    (fields : List Field)
+    (initialScope : List String)
+    (fn : FunctionSpec) : Prop where
+  exprCall :
+    ∀ {scope : List String} {name calleeName : String} {args : List Expr},
+      StmtOccursAtScope initialScope scope
+        (Stmt.letVar name (Expr.internalCall calleeName args)) fn.body →
+      ∃ compiledIR,
+        CompiledStmtStepWithHelpersAndHelperIRWithInternals
+          runtimeContract spec fields scope
+          (Stmt.letVar name (Expr.internalCall calleeName args)) compiledIR
+
 /-- Mid-level Tier 4 seam: future rank induction can package direct-helper
 singletons here by proving compilation succeeds for the head and that the exact
 singleton IR execution matches the source helper-aware step. The mechanical
@@ -1871,6 +1888,50 @@ theorem stmtListDirectInternalHelperAssignStepInterfaceWithInternals_of_headStep
               exact ⟨compiledIR, hcompiled⟩
           | _ =>
               simp [stmtTouchesDirectInternalHelperAssignSurface] at hdirect
+        · apply ih
+          intro occurrenceScope tailStmt hocc
+          exact hembed (StmtOccursAtScope.tail hocc)
+  exact go (fun hocc => hocc)
+
+/-- Assemble the consumed spec-functions-aware expression-helper list interface
+for bodies whose expression-helper surface consists exactly of direct
+`Expr.internalCall` results bound by `Stmt.letVar`. The coverage premise keeps
+the catalog narrow while making the resulting witness directly usable as the
+`hexpr` input of `fullHelperAwareListWitnessWithInternals_of_allInterfaces`. -/
+theorem stmtListDirectInternalHelperExprCallStepInterfaceWithInternals_of_headStepCatalog
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {fn : FunctionSpec}
+    (hcatalog :
+      DirectInternalHelperExprCallHeadStepCatalogWithInternals
+        runtimeContract spec fields scope fn)
+    (hcoverage :
+      ∀ {occurrenceScope : List String} {stmt : Stmt},
+        StmtOccursAtScope scope occurrenceScope stmt fn.body →
+        stmtTouchesExprInternalHelperSurface stmt = true →
+        ∃ name calleeName args,
+          stmt = Stmt.letVar name (Expr.internalCall calleeName args)) :
+    StmtListExprInternalHelperStepInterfaceWithInternals
+      runtimeContract spec fields scope fn.body := by
+  have go :
+      ∀ {currentScope : List String} {stmts : List Stmt},
+        (∀ {occurrenceScope : List String} {stmt : Stmt},
+          StmtOccursAtScope currentScope occurrenceScope stmt stmts →
+          StmtOccursAtScope scope occurrenceScope stmt fn.body) →
+        StmtListExprInternalHelperStepInterfaceWithInternals
+          runtimeContract spec fields currentScope stmts := by
+    intro currentScope stmts hembed
+    induction stmts generalizing currentScope with
+    | nil =>
+        exact .nil
+    | cons stmt rest ih =>
+        refine .cons ?_ ?_
+        · intro hexpr
+          rcases hcoverage (hembed StmtOccursAtScope.head) hexpr with
+            ⟨name, calleeName, args, rfl⟩
+          exact hcatalog.exprCall (hembed StmtOccursAtScope.head)
         · apply ih
           intro occurrenceScope tailStmt hocc
           exact hembed (StmtOccursAtScope.tail hocc)
