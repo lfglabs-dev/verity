@@ -720,26 +720,6 @@ structure DirectInternalHelperAssignHeadStepCatalogWithInternals
           (Stmt.internalCallAssign names calleeName args)
           compiledIR
 
-/-- Spec-functions-aware exact step interface for direct expression-position
-helper calls consumed by `Stmt.letVar`. -/
-inductive StmtListDirectInternalHelperExprCallStepInterfaceWithInternals
-    (runtimeContract : IRContract)
-    (spec : CompilationModel)
-    (fields : List Field) : List String → List Stmt → Prop where
-  | nil {scope : List String} :
-      StmtListDirectInternalHelperExprCallStepInterfaceWithInternals
-        runtimeContract spec fields scope []
-  | cons {scope : List String} {stmt : Stmt} {rest : List Stmt} :
-      (∀ {name calleeName : String} {args : List Expr},
-        stmt = Stmt.letVar name (Expr.internalCall calleeName args) →
-        ∃ compiledIR,
-          CompiledStmtStepWithHelpersAndHelperIRWithInternals
-            runtimeContract spec fields scope stmt compiledIR) →
-      StmtListDirectInternalHelperExprCallStepInterfaceWithInternals
-        runtimeContract spec fields (stmtNextScope scope stmt) rest →
-      StmtListDirectInternalHelperExprCallStepInterfaceWithInternals
-        runtimeContract spec fields scope (stmt :: rest)
-
 /-- Body-local head-step catalog for direct `Expr.internalCall` results bound
 by `Stmt.letVar`, indexed by their prefix-derived scopes. -/
 structure DirectInternalHelperExprCallHeadStepCatalogWithInternals
@@ -1913,9 +1893,11 @@ theorem stmtListDirectInternalHelperAssignStepInterfaceWithInternals_of_headStep
           exact hembed (StmtOccursAtScope.tail hocc)
   exact go (fun hocc => hocc)
 
-/-- Assemble the exact spec-functions-aware list interface for direct
-`Expr.internalCall` results consumed by `Stmt.letVar` from a body-local
-head-step catalog. -/
+/-- Assemble the consumed spec-functions-aware expression-helper list interface
+for bodies whose expression-helper surface consists exactly of direct
+`Expr.internalCall` results bound by `Stmt.letVar`. The coverage premise keeps
+the catalog narrow while making the resulting witness directly usable as the
+`hexpr` input of `fullHelperAwareListWitnessWithInternals_of_allInterfaces`. -/
 theorem stmtListDirectInternalHelperExprCallStepInterfaceWithInternals_of_headStepCatalog
     {runtimeContract : IRContract}
     {spec : CompilationModel}
@@ -1924,15 +1906,21 @@ theorem stmtListDirectInternalHelperExprCallStepInterfaceWithInternals_of_headSt
     {fn : FunctionSpec}
     (hcatalog :
       DirectInternalHelperExprCallHeadStepCatalogWithInternals
-        runtimeContract spec fields scope fn) :
-    StmtListDirectInternalHelperExprCallStepInterfaceWithInternals
+        runtimeContract spec fields scope fn)
+    (hcoverage :
+      ∀ {occurrenceScope : List String} {stmt : Stmt},
+        StmtOccursAtScope scope occurrenceScope stmt fn.body →
+        stmtTouchesExprInternalHelperSurface stmt = true →
+        ∃ name calleeName args,
+          stmt = Stmt.letVar name (Expr.internalCall calleeName args)) :
+    StmtListExprInternalHelperStepInterfaceWithInternals
       runtimeContract spec fields scope fn.body := by
   have go :
       ∀ {currentScope : List String} {stmts : List Stmt},
         (∀ {occurrenceScope : List String} {stmt : Stmt},
           StmtOccursAtScope currentScope occurrenceScope stmt stmts →
           StmtOccursAtScope scope occurrenceScope stmt fn.body) →
-        StmtListDirectInternalHelperExprCallStepInterfaceWithInternals
+        StmtListExprInternalHelperStepInterfaceWithInternals
           runtimeContract spec fields currentScope stmts := by
     intro currentScope stmts hembed
     induction stmts generalizing currentScope with
@@ -1940,8 +1928,9 @@ theorem stmtListDirectInternalHelperExprCallStepInterfaceWithInternals_of_headSt
         exact .nil
     | cons stmt rest ih =>
         refine .cons ?_ ?_
-        · intro name calleeName args hstmt
-          subst stmt
+        · intro hexpr
+          rcases hcoverage (hembed StmtOccursAtScope.head) hexpr with
+            ⟨name, calleeName, args, rfl⟩
           exact hcatalog.exprCall (hembed StmtOccursAtScope.head)
         · apply ih
           intro occurrenceScope tailStmt hocc
