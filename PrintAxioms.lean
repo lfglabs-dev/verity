@@ -82,9 +82,9 @@ import Compiler.Proofs.IRGeneration.SupportedFragment
 import Compiler.Proofs.IRGeneration.SupportedSpec
 import Compiler.Proofs.KeccakBound
 import Compiler.Proofs.MappingSlot
+import Compiler.Proofs.Storage.SolidityStorage
 import Compiler.Proofs.StorageBounds
 import Compiler.Proofs.StorageLens
-import Compiler.Proofs.Storage.SolidityStorage
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBodyClosure.Base
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBodyClosure.Generic
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBodyClosure.Safe
@@ -198,12 +198,6 @@ syntax (name := verityPrintAxioms) "#verity_print_axioms " "[" ident* "]" : comm
 end Verity.AxiomAudit
 
 #verity_print_axioms [
-
-  -- Compiler/Proofs/Storage/SolidityStorage.lean
-  Compiler.Proofs.Storage.mappingSlot_of_key
-  Compiler.Proofs.Storage.mappingSlot_preimage
-  Compiler.Proofs.Storage.sourceRead_of_packedWord
-  Compiler.Proofs.Storage.packedWord_of_sourceRead
 
   -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeStepLemmas.lean
   Compiler.Proofs.YulGeneration.Backends.Native.step_calldataload_ok
@@ -4339,6 +4333,12 @@ end Verity.AxiomAudit
   Compiler.Proofs.solidityMappingSlot_add_lt_evmModulus
   Compiler.Proofs.solidityMappingSlot_add_wordOffset_lt_evmModulus
 
+  -- Compiler/Proofs/Storage/SolidityStorage.lean
+  Compiler.Proofs.Storage.mappingSlot_of_key
+  Compiler.Proofs.Storage.mappingSlot_preimage
+  Compiler.Proofs.Storage.sourceRead_of_packedWord
+  Compiler.Proofs.Storage.packedWord_of_sourceRead
+
   -- Compiler/Proofs/StorageBounds.lean
   Compiler.Proofs.StorageBounds.storageArray_element_val_lt
   Compiler.Proofs.StorageBounds.storageArray_element_bounded
@@ -6451,4 +6451,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6035 theorems/lemmas (4182 public, 1853 private, 0 sorry'd)
+-- Total: 6039 theorems/lemmas (4186 public, 1853 private, 0 sorry'd)
