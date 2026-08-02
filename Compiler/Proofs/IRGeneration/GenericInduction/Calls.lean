@@ -720,6 +720,43 @@ structure DirectInternalHelperAssignHeadStepCatalogWithInternals
           (Stmt.internalCallAssign names calleeName args)
           compiledIR
 
+/-- Spec-functions-aware exact step interface for direct expression-position
+helper calls consumed by `Stmt.letVar`. -/
+inductive StmtListDirectInternalHelperExprCallStepInterfaceWithInternals
+    (runtimeContract : IRContract)
+    (spec : CompilationModel)
+    (fields : List Field) : List String → List Stmt → Prop where
+  | nil {scope : List String} :
+      StmtListDirectInternalHelperExprCallStepInterfaceWithInternals
+        runtimeContract spec fields scope []
+  | cons {scope : List String} {stmt : Stmt} {rest : List Stmt} :
+      (∀ {name calleeName : String} {args : List Expr},
+        stmt = Stmt.letVar name (Expr.internalCall calleeName args) →
+        ∃ compiledIR,
+          CompiledStmtStepWithHelpersAndHelperIRWithInternals
+            runtimeContract spec fields scope stmt compiledIR) →
+      StmtListDirectInternalHelperExprCallStepInterfaceWithInternals
+        runtimeContract spec fields (stmtNextScope scope stmt) rest →
+      StmtListDirectInternalHelperExprCallStepInterfaceWithInternals
+        runtimeContract spec fields scope (stmt :: rest)
+
+/-- Body-local head-step catalog for direct `Expr.internalCall` results bound
+by `Stmt.letVar`, indexed by their prefix-derived scopes. -/
+structure DirectInternalHelperExprCallHeadStepCatalogWithInternals
+    (runtimeContract : IRContract)
+    (spec : CompilationModel)
+    (fields : List Field)
+    (initialScope : List String)
+    (fn : FunctionSpec) : Prop where
+  exprCall :
+    ∀ {scope : List String} {name calleeName : String} {args : List Expr},
+      StmtOccursAtScope initialScope scope
+        (Stmt.letVar name (Expr.internalCall calleeName args)) fn.body →
+      ∃ compiledIR,
+        CompiledStmtStepWithHelpersAndHelperIRWithInternals
+          runtimeContract spec fields scope
+          (Stmt.letVar name (Expr.internalCall calleeName args)) compiledIR
+
 /-- Mid-level Tier 4 seam: future rank induction can package direct-helper
 singletons here by proving compilation succeeds for the head and that the exact
 singleton IR execution matches the source helper-aware step. The mechanical
@@ -1871,6 +1908,41 @@ theorem stmtListDirectInternalHelperAssignStepInterfaceWithInternals_of_headStep
               exact ⟨compiledIR, hcompiled⟩
           | _ =>
               simp [stmtTouchesDirectInternalHelperAssignSurface] at hdirect
+        · apply ih
+          intro occurrenceScope tailStmt hocc
+          exact hembed (StmtOccursAtScope.tail hocc)
+  exact go (fun hocc => hocc)
+
+/-- Assemble the exact spec-functions-aware list interface for direct
+`Expr.internalCall` results consumed by `Stmt.letVar` from a body-local
+head-step catalog. -/
+theorem stmtListDirectInternalHelperExprCallStepInterfaceWithInternals_of_headStepCatalog
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {fn : FunctionSpec}
+    (hcatalog :
+      DirectInternalHelperExprCallHeadStepCatalogWithInternals
+        runtimeContract spec fields scope fn) :
+    StmtListDirectInternalHelperExprCallStepInterfaceWithInternals
+      runtimeContract spec fields scope fn.body := by
+  have go :
+      ∀ {currentScope : List String} {stmts : List Stmt},
+        (∀ {occurrenceScope : List String} {stmt : Stmt},
+          StmtOccursAtScope currentScope occurrenceScope stmt stmts →
+          StmtOccursAtScope scope occurrenceScope stmt fn.body) →
+        StmtListDirectInternalHelperExprCallStepInterfaceWithInternals
+          runtimeContract spec fields currentScope stmts := by
+    intro currentScope stmts hembed
+    induction stmts generalizing currentScope with
+    | nil =>
+        exact .nil
+    | cons stmt rest ih =>
+        refine .cons ?_ ?_
+        · intro name calleeName args hstmt
+          subst stmt
+          exact hcatalog.exprCall (hembed StmtOccursAtScope.head)
         · apply ih
           intro occurrenceScope tailStmt hocc
           exact hembed (StmtOccursAtScope.tail hocc)
