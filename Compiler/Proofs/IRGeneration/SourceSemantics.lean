@@ -1157,7 +1157,14 @@ def evalExpr (fields : List Field) (state : RuntimeState) : Expr → Option Nat
   | .immutable name => some (state.immutable name).val
   | .storage fieldName =>
       match findFieldWithResolvedSlot fields fieldName with
-      | some (field, slot) => some (readFieldWord state.world field slot).val
+      | some (field, slot) =>
+          let rawWord := (readFieldWord state.world field slot).val
+          match field.packedBits with
+          | none => some rawWord
+          | some packed =>
+              some (Verity.Core.Uint256.and
+                (Verity.Core.Uint256.shr packed.offset rawWord)
+                (packedMaskNat packed)).val
       | none => none
   | .storageAddr fieldName =>
       match findFieldWithResolvedSlot fields fieldName with
@@ -1543,7 +1550,14 @@ private theorem evalExpr_storage
     (fieldName : String) :
       evalExpr fields state (.storage fieldName) =
         match findFieldWithResolvedSlot fields fieldName with
-        | some (field, slot) => some (readFieldWord state.world field slot).val
+        | some (field, slot) =>
+            let rawWord := (readFieldWord state.world field slot).val
+            match field.packedBits with
+            | none => some rawWord
+            | some packed =>
+                some (Verity.Core.Uint256.and
+                  (Verity.Core.Uint256.shr packed.offset rawWord)
+                  (packedMaskNat packed)).val
         | none => none := rfl
 
 private theorem evalExpr_storageAddr
@@ -3527,7 +3541,14 @@ mutual
     | .immutable name => some (state.immutable name).val
     | .storage fieldName =>
         match findFieldWithResolvedSlot fields fieldName with
-        | some (field, slot) => some (readFieldWord state.world field slot).val
+        | some (field, slot) =>
+            let rawWord := (readFieldWord state.world field slot).val
+            match field.packedBits with
+            | none => some rawWord
+            | some packed =>
+                some (Verity.Core.Uint256.and
+                  (Verity.Core.Uint256.shr packed.offset rawWord)
+                  (packedMaskNat packed)).val
         | none => none
     | .storageAddr fieldName =>
         match findFieldWithResolvedSlot fields fieldName with

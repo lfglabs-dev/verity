@@ -6946,10 +6946,7 @@ private theorem compiledStmtStep_letStorageField
   preserves runtime state extraFuel hexact hscope hbounded hruntime hslack := by
     have hEvalSrc : SourceSemantics.evalExpr fields runtime (.storage fieldName) =
         some (runtime.world.storage (SourceSemantics.wordNormalize slot)).val := by
-      change (match findFieldWithResolvedSlot fields fieldName with
-        | some (field, s) => some (SourceSemantics.readFieldWord runtime.world field s).val
-        | none => none) = _
-      rw [hfind]
+      rw [SourceSemantics.evalExpr, hfind]
       rfl
     have hresolved := findResolvedFieldAtSlotCopy_of_findFieldWithResolvedSlot_singleton
       hnoConflict hfind
@@ -7111,10 +7108,7 @@ private theorem compiledStmtStep_assignStorageField
   preserves runtime state extraFuel hexact hscope hbounded hruntime hslack := by
     have hEvalSrc : SourceSemantics.evalExpr fields runtime (.storage fieldName) =
         some (runtime.world.storage (SourceSemantics.wordNormalize slot)).val := by
-      change (match findFieldWithResolvedSlot fields fieldName with
-        | some (field, s) => some (SourceSemantics.readFieldWord runtime.world field s).val
-        | none => none) = _
-      rw [hfind]
+      rw [SourceSemantics.evalExpr, hfind]
       rfl
     have hresolved := findResolvedFieldAtSlotCopy_of_findFieldWithResolvedSlot_singleton
       hnoConflict hfind

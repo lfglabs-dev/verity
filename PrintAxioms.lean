@@ -82,6 +82,7 @@ import Compiler.Proofs.IRGeneration.SupportedFragment
 import Compiler.Proofs.IRGeneration.SupportedSpec
 import Compiler.Proofs.KeccakBound
 import Compiler.Proofs.MappingSlot
+import Compiler.Proofs.Storage.SolidityStorage
 import Compiler.Proofs.StorageBounds
 import Compiler.Proofs.StorageLens
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBodyClosure.Base
@@ -4332,6 +4333,25 @@ end Verity.AxiomAudit
   Compiler.Proofs.solidityMappingSlot_add_lt_evmModulus
   Compiler.Proofs.solidityMappingSlot_add_wordOffset_lt_evmModulus
 
+  -- Compiler/Proofs/Storage/SolidityStorage.lean
+  Compiler.Proofs.Storage.mappingSlot_preimage
+  Compiler.Proofs.Storage.compiledMappingSlotPointer_eq_mappingSlotPointer
+  Compiler.Proofs.Storage.mappingSlotPointer_eq_abstractMappingSlot
+  Compiler.Proofs.Storage.compiledMappingSlotPointer_eq_sourceMappingSlotRead
+  Compiler.Proofs.Storage.mappingSlot_of_key
+  Compiler.Proofs.Storage.yulReadPackedWord_eq_compiledExpr
+  -- Compiler.Proofs.Storage.land_packedMaskNat  -- private
+  -- Compiler.Proofs.Storage.packedMaskNat_lt  -- private
+  -- Compiler.Proofs.Storage.uint256_packed_extract  -- private
+  Compiler.Proofs.Storage.isSourcePackedRead_bridge
+  Compiler.Proofs.Storage.compiledPackedRead_eq_sourceEvalPackedRead
+  Compiler.Proofs.Storage.sourceRead_of_packedWord
+  Compiler.Proofs.Storage.packedWord_of_sourceRead
+  Compiler.Proofs.Storage.applyStateRewrite_cons
+  Compiler.Proofs.Storage.compiledSstoreStmts_eq
+  Compiler.Proofs.Storage.applyYulSstores_eq_compiledYulSstores
+  Compiler.Proofs.Storage.applyYulSstores_eq_applyStateRewrite
+
   -- Compiler/Proofs/StorageBounds.lean
   Compiler.Proofs.StorageBounds.storageArray_element_val_lt
   Compiler.Proofs.StorageBounds.storageArray_element_bounded
@@ -6444,4 +6464,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6035 theorems/lemmas (4182 public, 1853 private, 0 sorry'd)
+-- Total: 6052 theorems/lemmas (4196 public, 1856 private, 0 sorry'd)
