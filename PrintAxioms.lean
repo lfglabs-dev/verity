@@ -4336,6 +4336,7 @@ end Verity.AxiomAudit
   -- Compiler/Proofs/Storage/SolidityStorage.lean
   Compiler.Proofs.Storage.mappingSlot_of_key
   Compiler.Proofs.Storage.mappingSlot_preimage
+  Compiler.Proofs.Storage.yulReadPackedWord_eq_compiledExpr
   Compiler.Proofs.Storage.sourceRead_of_packedWord
   Compiler.Proofs.Storage.packedWord_of_sourceRead
 
@@ -6451,4 +6452,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6039 theorems/lemmas (4186 public, 1853 private, 0 sorry'd)
+-- Total: 6040 theorems/lemmas (4187 public, 1853 private, 0 sorry'd)
