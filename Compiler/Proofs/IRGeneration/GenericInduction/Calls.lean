@@ -689,6 +689,37 @@ structure DirectInternalHelperCallHeadStepCatalogWithInternals
           (Stmt.internalCall calleeName args)
           compiledIR
 
+/-- Spec-functions-aware return-binding-call-only sibling of
+`DirectInternalHelperHeadStepCatalog`.
+
+Direct internal-call-assignment heads compile their arguments through
+`compileInternalCallArgs ... spec.functions`, so their compiled IR is not
+determined by the default empty internal-function compiler argument recorded by
+`DirectInternalHelperHeadStepCatalog`. This catalog therefore carries the
+`CompiledStmtStepWithHelpersAndHelperIRWithInternals` witnesses directly for
+the exact return-binding call statements at their prefix-derived scopes.
+Indexing by the scoped occurrence avoids demanding witnesses for wrong-arity
+argument lists or scopes that do not occur in the body. -/
+structure DirectInternalHelperAssignHeadStepCatalogWithInternals
+    (runtimeContract : IRContract)
+    (spec : CompilationModel)
+    (fields : List Field)
+    (initialScope : List String)
+    (fn : FunctionSpec) : Prop where
+  assign :
+    ∀ {scope : List String} {names : List String} {calleeName : String}
+        {args : List Expr},
+      StmtOccursAtScope initialScope scope
+        (Stmt.internalCallAssign names calleeName args) fn.body →
+      ∃ compiledIR,
+        CompiledStmtStepWithHelpersAndHelperIRWithInternals
+          runtimeContract
+          spec
+          fields
+          scope
+          (Stmt.internalCallAssign names calleeName args)
+          compiledIR
+
 /-- Mid-level Tier 4 seam: future rank induction can package direct-helper
 singletons here by proving compilation succeeds for the head and that the exact
 singleton IR execution matches the source helper-aware step. The mechanical
@@ -1792,6 +1823,54 @@ theorem stmtListDirectInternalHelperCallStepInterfaceWithInternals_of_headStepCa
               exact ⟨compiledIR, hcompiled⟩
           | _ =>
               simp [stmtTouchesDirectInternalHelperCallSurface] at hdirect
+        · apply ih
+          intro occurrenceScope tailStmt hocc
+          exact hembed (StmtOccursAtScope.tail hocc)
+  exact go (fun hocc => hocc)
+
+/-- Assemble the exact spec-functions-aware direct return-binding-helper-call
+list interface from a body-local assign-only `WithInternals` head-step catalog.
+This is the `WithInternals` counterpart of the assign half of
+`stmtListDirectInternalHelperStepInterfaces_of_headStepCatalog`: it records the
+`compileStmt ... spec.functions` head shape that direct internal call
+assignments actually compile through. The recursion retains each call's
+prefix-derived scope, so the catalog is only queried for call sites at scopes
+that occur in the body. -/
+theorem stmtListDirectInternalHelperAssignStepInterfaceWithInternals_of_headStepCatalog
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {fn : FunctionSpec}
+    (hcatalog :
+      DirectInternalHelperAssignHeadStepCatalogWithInternals
+        runtimeContract spec fields scope fn) :
+    StmtListDirectInternalHelperAssignStepInterfaceWithInternals
+      runtimeContract spec fields scope fn.body := by
+  have go :
+      ∀ {currentScope : List String} {stmts : List Stmt},
+        (∀ {occurrenceScope : List String} {stmt : Stmt},
+          StmtOccursAtScope currentScope occurrenceScope stmt stmts →
+          StmtOccursAtScope scope occurrenceScope stmt fn.body) →
+        StmtListDirectInternalHelperAssignStepInterfaceWithInternals
+          runtimeContract spec fields currentScope stmts := by
+    intro currentScope stmts hembed
+    induction stmts generalizing currentScope with
+    | nil =>
+        exact .nil
+    | cons stmt rest ih =>
+        refine .cons ?_ ?_
+        · intro hdirect
+          cases stmt with
+          | internalCallAssign names calleeName args =>
+              rcases hcatalog.assign
+                  (scope := currentScope) (names := names)
+                  (calleeName := calleeName) (args := args)
+                  (hembed StmtOccursAtScope.head) with
+                ⟨compiledIR, hcompiled⟩
+              exact ⟨compiledIR, hcompiled⟩
+          | _ =>
+              simp [stmtTouchesDirectInternalHelperAssignSurface] at hdirect
         · apply ih
           intro occurrenceScope tailStmt hocc
           exact hembed (StmtOccursAtScope.tail hocc)
