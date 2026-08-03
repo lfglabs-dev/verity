@@ -4369,12 +4369,17 @@ end Verity.AxiomAudit
   Compiler.Proofs.Storage.compiledStorageArrayElement_eq
   Compiler.Proofs.Storage.storageArrayElement_eq_storageArrayElement
   Compiler.Proofs.Storage.storageArrayElement_eq_canonicalStorageRead
+  Compiler.Proofs.Storage.storageArrayElement_outOfBounds
   Compiler.Proofs.Storage.compiledSetStorageArrayElement_eq
   Compiler.Proofs.Storage.setStorageArrayElement_eq_compiledSetStorageArrayElement
+  Compiler.Proofs.Storage.setStorageArrayElement_outOfBounds
   Compiler.Proofs.Storage.compiledStorageArrayPush_eq
   Compiler.Proofs.Storage.pushStorageArray_eq_compiledStorageArrayPush
+  Compiler.Proofs.Storage.pushStorageArray_ignoresCallerLength
   Compiler.Proofs.Storage.pushStorageArray_source_length
   Compiler.Proofs.Storage.popStorageArray_eq_compiledStorageArrayPop
+  Compiler.Proofs.Storage.popStorageArray_empty
+  Compiler.Proofs.Storage.popStorageArray_ignoresCallerLength
   Compiler.Proofs.Storage.popStorageArray_source_length
   Compiler.Proofs.Storage.setStorageArrayElement_source_length
   Compiler.Proofs.Storage.applyStateRewrite_storageArrayElementWrite
@@ -6493,4 +6498,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6078 theorems/lemmas (4222 public, 1856 private, 0 sorry'd)
+-- Total: 6083 theorems/lemmas (4227 public, 1856 private, 0 sorry'd)

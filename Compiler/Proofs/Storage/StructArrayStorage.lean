@@ -329,7 +329,8 @@ theorem compiledStorageArrayElement_eq (slot index : Nat) :
     helper as the canonical element pointer it loads.  Matching the whole helper
     body keeps the bounds check, the scratch `mstore`, the hash range and the
     final `add` observable. -/
-def compiledStorageArrayElementPointer (helper : YulStmt) (slot index : Nat) :
+def compiledStorageArrayElementPointer (helper : YulStmt) (storage : SolidityStorage)
+    (id : ContractId) (slot index : Nat) :
     Option ByteArray :=
   match helper with
   | .funcDef name ["slot", "index"] ["word"] [
@@ -340,7 +341,7 @@ def compiledStorageArrayElementPointer (helper : YulStmt) (slot index : Nat) :
       .let_ "__array_base" (.call "keccak256" [.lit hashPtr, .lit hashSize]),
       .assign "word" (.call "sload" [.call "add" [.ident "__array_base", .ident "index"]])] =>
       if name == checkedStorageArrayElementHelperName && storePtr == 0 && hashPtr == 0 &&
-          hashSize == 32 then
+          hashSize == 32 && index < (storage id (slotPointer slot)).toNat then
         some (storageArrayElementPointer slot index)
       else
         none
@@ -348,19 +349,32 @@ def compiledStorageArrayElementPointer (helper : YulStmt) (slot index : Nat) :
 
 /-- The emitted checked-element helper computes the canonical Solidity element
     pointer.  Any change to its line-by-line Yul shape is observable here. -/
-theorem storageArrayElement_eq_storageArrayElement (slot index : Nat) :
-    compiledStorageArrayElementPointer checkedStorageArrayElementHelper slot index =
+theorem storageArrayElement_eq_storageArrayElement (storage : SolidityStorage)
+    (id : ContractId) (slot index : Nat)
+    (hindex : index < (storage id (slotPointer slot)).toNat) :
+    compiledStorageArrayElementPointer checkedStorageArrayElementHelper storage id slot index =
       some (storageArrayElementPointer slot index) := by
-  simp [compiledStorageArrayElementPointer, checkedStorageArrayElementHelper]
+  simp [compiledStorageArrayElementPointer, checkedStorageArrayElementHelper, hindex]
 
 /-- Reading canonical storage at the interpreted element pointer is the same as
     reading it at the canonical element pointer for `(slot, index)`. -/
 theorem storageArrayElement_eq_canonicalStorageRead (storage : SolidityStorage)
-    (id : ContractId) (slot index : Nat) :
+    (id : ContractId) (slot index : Nat)
+    (hindex : index < (storage id (slotPointer slot)).toNat) :
     Option.map (storage id)
-        (compiledStorageArrayElementPointer checkedStorageArrayElementHelper slot index) =
+        (compiledStorageArrayElementPointer checkedStorageArrayElementHelper storage id slot index) =
       some (storage id (storageArrayElementPointer slot index)) := by
-  rw [storageArrayElement_eq_storageArrayElement, Option.map_some]
+  rw [storageArrayElement_eq_storageArrayElement storage id slot index hindex, Option.map_some]
+
+/-- A checked read rejects an index at or beyond the length loaded from the
+    canonical array slot. -/
+theorem storageArrayElement_outOfBounds (storage : SolidityStorage)
+    (id : ContractId) (slot index : Nat)
+    (hindex : (storage id (slotPointer slot)).toNat ≤ index) :
+    compiledStorageArrayElementPointer checkedStorageArrayElementHelper storage id slot index =
+      none := by
+  simp [compiledStorageArrayElementPointer, checkedStorageArrayElementHelper,
+    Nat.not_lt.mpr hindex]
 
 /-! ### Storage-array writes
 
@@ -405,7 +419,8 @@ theorem compiledSetStorageArrayElement_eq (slot index value : Nat) :
 
 /-- Structurally interpret the emitted element-assignment block as the canonical
     storage diff it performs. -/
-def interpretCompiledSetStorageArrayElement (currentContract : Nat) :
+def interpretCompiledSetStorageArrayElement (storage : SolidityStorage) (id : ContractId)
+    (currentContract : Nat) :
     List YulStmt → Option StorageDiff
   | [.block [
       .let_ "__array_len" (.call "sload" [.lit slot]),
@@ -416,7 +431,8 @@ def interpretCompiledSetStorageArrayElement (currentContract : Nat) :
       .let_ "__array_base" (.call "keccak256" [.lit hashPtr, .lit hashSize]),
       .exprStmt (.call "sstore"
         [.call "add" [.ident "__array_base", .ident "__array_index"], .lit value])]] =>
-      if storePtr == 0 && storeSlot == slot && hashPtr == 0 && hashSize == 32 then
+      if storePtr == 0 && storeSlot == slot && hashPtr == 0 && hashSize == 32 &&
+          index < (storage id (slotPointer slot)).toNat then
         some [storageArrayElementWrite currentContract slot index (IRStorageWord.ofNat value)]
       else
         none
@@ -425,13 +441,24 @@ def interpretCompiledSetStorageArrayElement (currentContract : Nat) :
 /-- The statements the compiler actually emits for an element assignment realise
     exactly the canonical single-slot write at the element pointer. -/
 theorem setStorageArrayElement_eq_compiledSetStorageArrayElement
-    (currentContract slot index value : Nat) :
+    (storage : SolidityStorage) (id : ContractId) (currentContract slot index value : Nat)
+    (hindex : index % uint256Modulus < (storage id (slotPointer slot)).toNat) :
     Option.bind (compiledSetStorageArrayElement slot index value).toOption
-        (interpretCompiledSetStorageArrayElement currentContract) =
+        (interpretCompiledSetStorageArrayElement storage id currentContract) =
       some [storageArrayElementWrite currentContract slot
         (index % uint256Modulus) (IRStorageWord.ofNat (value % uint256Modulus))] := by
   rw [compiledSetStorageArrayElement_eq]
-  simp [Except.toOption, interpretCompiledSetStorageArrayElement]
+  simp [Except.toOption, interpretCompiledSetStorageArrayElement, hindex]
+
+/-- Element assignment performs no write when its normalized index fails the
+    guard against the canonically loaded length. -/
+theorem setStorageArrayElement_outOfBounds
+    (storage : SolidityStorage) (id : ContractId) (currentContract slot index value : Nat)
+    (hindex : (storage id (slotPointer slot)).toNat ≤ index % uint256Modulus) :
+    Option.bind (compiledSetStorageArrayElement slot index value).toOption
+        (interpretCompiledSetStorageArrayElement storage id currentContract) = none := by
+  rw [compiledSetStorageArrayElement_eq]
+  simp [Except.toOption, interpretCompiledSetStorageArrayElement, Nat.not_lt.mpr hindex]
 
 /-- The real compiler output for a storage-array push. -/
 def compiledStorageArrayPush (slot value : Nat) : Except String (List YulStmt) :=
@@ -457,7 +484,8 @@ theorem compiledStorageArrayPush_eq (slot value : Nat) :
 
 /-- Structurally interpret the emitted push block as the canonical storage diff
     it performs: the element write at the old length, then the length bump. -/
-def interpretCompiledStorageArrayPush (currentContract oldLength : Nat) :
+def interpretCompiledStorageArrayPush (storage : SolidityStorage) (id : ContractId)
+    (currentContract : Nat) :
     List YulStmt → Option StorageDiff
   | [.block [
       .let_ "__array_len" (.call "sload" [.lit slot]),
@@ -469,6 +497,7 @@ def interpretCompiledStorageArrayPush (currentContract oldLength : Nat) :
         [.lit lengthSlot, .call "add" [.ident "__array_len", .lit one]])]] =>
       if storePtr == 0 && storeSlot == slot && hashPtr == 0 && hashSize == 32 &&
           lengthSlot == slot && one == 1 then
+        let oldLength := (storage id (slotPointer slot)).toNat
         some [storageArrayElementWrite currentContract slot oldLength (IRStorageWord.ofNat value),
           storageArrayLengthWrite currentContract slot (oldLength + 1)]
       else
@@ -479,14 +508,30 @@ def interpretCompiledStorageArrayPush (currentContract oldLength : Nat) :
     canonical two-slot diff: store the value one past the end, then record the
     incremented length. -/
 theorem pushStorageArray_eq_compiledStorageArrayPush
-    (currentContract slot value oldLength : Nat) :
+    (storage : SolidityStorage) (id : ContractId) (currentContract slot value : Nat) :
     Option.bind (compiledStorageArrayPush slot value).toOption
-        (interpretCompiledStorageArrayPush currentContract oldLength) =
-      some [storageArrayElementWrite currentContract slot oldLength
+        (interpretCompiledStorageArrayPush storage id currentContract) =
+      some [storageArrayElementWrite currentContract slot
+          (storage id (slotPointer slot)).toNat
           (IRStorageWord.ofNat (value % uint256Modulus)),
-        storageArrayLengthWrite currentContract slot (oldLength + 1)] := by
+        storageArrayLengthWrite currentContract slot
+          ((storage id (slotPointer slot)).toNat + 1)] := by
   rw [compiledStorageArrayPush_eq]
   simp [Except.toOption, interpretCompiledStorageArrayPush]
+
+/-- A caller-supplied length is irrelevant: push always uses the canonical
+    length word.  This regression makes the mismatched-length case explicit. -/
+theorem pushStorageArray_ignoresCallerLength
+    (storage : SolidityStorage) (id : ContractId) (currentContract slot value claimed : Nat)
+    (_hmismatch : claimed ≠ (storage id (slotPointer slot)).toNat) :
+    Option.bind (compiledStorageArrayPush slot value).toOption
+        (interpretCompiledStorageArrayPush storage id currentContract) =
+      some [storageArrayElementWrite currentContract slot
+          (storage id (slotPointer slot)).toNat
+          (IRStorageWord.ofNat (value % uint256Modulus)),
+        storageArrayLengthWrite currentContract slot
+          ((storage id (slotPointer slot)).toNat + 1)] :=
+  pushStorageArray_eq_compiledStorageArrayPush storage id currentContract slot value
 
 /-- A push extends the source-level array by exactly the pushed value, so the
     canonical element write above lands one past the previous end. -/
@@ -501,7 +546,8 @@ def compiledStorageArrayPop (slot : Nat) : Except String (List YulStmt) :=
 
 /-- Structurally interpret the emitted pop block as the canonical storage diff
     it performs: zero the vacated element, then record the decremented length. -/
-def interpretCompiledStorageArrayPop (currentContract newLength : Nat) :
+def interpretCompiledStorageArrayPop (storage : SolidityStorage) (id : ContractId)
+    (currentContract : Nat) :
     List YulStmt → Option StorageDiff
   | [.block [
       .let_ "__array_len" (.call "sload" [.lit slot]),
@@ -514,7 +560,9 @@ def interpretCompiledStorageArrayPop (currentContract newLength : Nat) :
         [.call "add" [.ident "__array_base", .ident "__array_new_len"], .lit zeroLit]),
       .exprStmt (.call "sstore" [.lit lengthSlot, .ident "__array_new_len"])]] =>
       if storePtr == 0 && storeSlot == slot && hashPtr == 0 && hashSize == 32 &&
-          lengthSlot == slot && one == 1 && zeroLit == 0 then
+          lengthSlot == slot && one == 1 && zeroLit == 0 &&
+          0 < (storage id (slotPointer slot)).toNat then
+        let newLength := (storage id (slotPointer slot)).toNat - 1
         some [storageArrayElementWrite currentContract slot newLength (IRStorageWord.ofNat 0),
           storageArrayLengthWrite currentContract slot newLength]
       else
@@ -525,11 +573,15 @@ def interpretCompiledStorageArrayPop (currentContract newLength : Nat) :
     canonical two-slot diff: clear the vacated element, then record the
     decremented length.  The emitted `iszero` guard keeps the empty-array revert
     observable. -/
-theorem popStorageArray_eq_compiledStorageArrayPop (currentContract slot newLength : Nat) :
+theorem popStorageArray_eq_compiledStorageArrayPop
+    (storage : SolidityStorage) (id : ContractId) (currentContract slot : Nat)
+    (hnonempty : 0 < (storage id (slotPointer slot)).toNat) :
     Option.bind (compiledStorageArrayPop slot).toOption
-        (interpretCompiledStorageArrayPop currentContract newLength) =
-      some [storageArrayElementWrite currentContract slot newLength (IRStorageWord.ofNat 0),
-        storageArrayLengthWrite currentContract slot newLength] := by
+        (interpretCompiledStorageArrayPop storage id currentContract) =
+      some [storageArrayElementWrite currentContract slot
+          ((storage id (slotPointer slot)).toNat - 1) (IRStorageWord.ofNat 0),
+        storageArrayLengthWrite currentContract slot
+          ((storage id (slotPointer slot)).toNat - 1)] := by
   have hcompiled : compiledStorageArrayPop slot =
       .ok [.block [
         .let_ "__array_len" (.call "sload" [.lit slot]),
@@ -542,7 +594,42 @@ theorem popStorageArray_eq_compiledStorageArrayPop (currentContract slot newLeng
           [.call "add" [.ident "__array_base", .ident "__array_new_len"], .lit 0]),
         .exprStmt (.call "sstore" [.lit slot, .ident "__array_new_len"])]] := rfl
   rw [hcompiled]
-  simp [Except.toOption, interpretCompiledStorageArrayPop]
+  simp [Except.toOption, interpretCompiledStorageArrayPop, hnonempty]
+
+/-- Pop evaluates the emitted empty-array guard against canonical storage and
+    therefore yields no writes for an empty array. -/
+theorem popStorageArray_empty
+    (storage : SolidityStorage) (id : ContractId) (currentContract slot : Nat)
+    (hempty : (storage id (slotPointer slot)).toNat = 0) :
+    Option.bind (compiledStorageArrayPop slot).toOption
+        (interpretCompiledStorageArrayPop storage id currentContract) = none := by
+  have hcompiled : compiledStorageArrayPop slot =
+      .ok [.block [
+        .let_ "__array_len" (.call "sload" [.lit slot]),
+        .if_ (.call "iszero" [.ident "__array_len"]) [
+          .exprStmt (.call "revert" [.lit 0, .lit 0])],
+        .let_ "__array_new_len" (.call "sub" [.ident "__array_len", .lit 1]),
+        .exprStmt (.call "mstore" [.lit 0, .lit slot]),
+        .let_ "__array_base" (.call "keccak256" [.lit 0, .lit 32]),
+        .exprStmt (.call "sstore"
+          [.call "add" [.ident "__array_base", .ident "__array_new_len"], .lit 0]),
+        .exprStmt (.call "sstore" [.lit slot, .ident "__array_new_len"])]] := rfl
+  rw [hcompiled]
+  simp [Except.toOption, interpretCompiledStorageArrayPop, hempty]
+
+/-- A mismatched caller prediction cannot influence pop: the cleared index and
+    stored length are derived from the canonical length word. -/
+theorem popStorageArray_ignoresCallerLength
+    (storage : SolidityStorage) (id : ContractId) (currentContract slot claimed : Nat)
+    (hnonempty : 0 < (storage id (slotPointer slot)).toNat)
+    (_hmismatch : claimed ≠ (storage id (slotPointer slot)).toNat - 1) :
+    Option.bind (compiledStorageArrayPop slot).toOption
+        (interpretCompiledStorageArrayPop storage id currentContract) =
+      some [storageArrayElementWrite currentContract slot
+          ((storage id (slotPointer slot)).toNat - 1) (IRStorageWord.ofNat 0),
+        storageArrayLengthWrite currentContract slot
+          ((storage id (slotPointer slot)).toNat - 1)] :=
+  popStorageArray_eq_compiledStorageArrayPop storage id currentContract slot hnonempty
 
 /-- A source-level pop shortens the array by exactly one element, matching the
     length the canonical pop diff records. -/
