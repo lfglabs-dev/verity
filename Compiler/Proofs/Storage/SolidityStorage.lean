@@ -2,6 +2,7 @@ import Compiler.Proofs.MappingSlot
 import Compiler.CompilationModel.ExpressionCompile
 import Compiler.CompilationModel.StorageWrites
 import Compiler.Proofs.IRGeneration.SourceSemantics
+import Compiler.Proofs.IRGeneration.GenericInduction.Main
 import Compiler.CodegenCommon
 import Verity.Core.Model.Types
 
@@ -9,6 +10,7 @@ namespace Compiler.Proofs.Storage
 
 open Compiler.Proofs
 open Compiler.Proofs.IRGeneration
+open Compiler Compiler.CompilationModel Compiler.Yul
 
 /-- Stable identity used to separate the storage of distinct contracts. -/
 abbrev ContractId := Nat
@@ -496,5 +498,176 @@ theorem applyYulSstores_eq_applyStateRewrite (currentContract : ContractId)
       simp only [compiledYulSstores, hhead.1, hhead.2, beq_self_eq_true,
         Bool.and_self, if_true]
       exact ih (applyStorageWrite write storage) htail
+
+/-! ### Canonical storage preservation for compiled statement lists -/
+
+/-- Expose the real single-slot mapping-write compiler branch with literal key
+    and value operands. -/
+def compiledMappingSstoreStmts (baseSlot key : Nat) (value : Word) : List YulStmt :=
+  match compileMappingSlotWrite [mappingSlotBridgeField baseSlot]
+      "__mapping_slot_bridge" (.lit key) (.lit value.toNat) "mapping bridge" with
+  | .ok stmts => stmts
+  | .error _ => []
+
+/-- Structurally interpret the mapping `sstore` emitted by
+    `compileMappingSlotWrite`.  The helper body, outer statement shape, emitted
+    base/key operands, and emitted value all remain observable. -/
+def interpretCompiledMappingSstore
+    (helper : YulStmt) (scratchBase currentContract : Nat)
+    (stmt : YulStmt) (storage : SolidityStorage) : SolidityStorage :=
+  match stmt with
+  | .exprStmt (.call "sstore"
+      [.call "mappingSlot" [.lit emittedBaseSlot, .lit emittedKey], .lit emittedValue]) =>
+      match compiledMappingSlotPointer helper scratchBase emittedBaseSlot emittedKey with
+      | some pointer => applyStorageWrite
+          { contract := currentContract, slot := pointer,
+            value := IRStorageWord.ofNat emittedValue } storage
+      | none => storage
+  | _ => storage
+
+/-- The actual mapping-slot `sstore` emitted by `compileMappingSlotWrite` is the
+    canonical source update. -/
+theorem compiledMappingSstore_eq_canonicalSstore
+    (scratchBase currentContract baseSlot key : Nat) (value : Word)
+    (storage : SolidityStorage) :
+    compiledMappingSstoreStmts baseSlot key value =
+        [.exprStmt (.call "sstore"
+          [.call "mappingSlot" [.lit baseSlot, .lit key], .lit value.toNat])] ∧
+      interpretCompiledMappingSstore
+          (Compiler.CodegenCommon.mappingSlotFuncAt scratchBase)
+          scratchBase currentContract
+          (.exprStmt (.call "sstore"
+            [.call "mappingSlot" [.lit baseSlot, .lit key], .lit value.toNat])) storage =
+        applyStorageWrite
+          { contract := currentContract,
+            slot := mappingSlotPointer baseSlot key,
+            value := value } storage := by
+  constructor
+  · rfl
+  · simp [interpretCompiledMappingSstore,
+      compiledMappingSlotPointer_eq_mappingSlotPointer, IRStorageWord.ofNat_toNat]
+
+/-- Exact statement-list preservation for the legacy compile shape.  The result
+    relation contains `runtimeStateMatchesIR`, whose first conjunct equates the
+    compiled storage with the executable source semantics' encoded storage.
+    Unlike a freestanding storage-diff statement, this theorem is tied to the
+    actual compilation and executions of `fn.body`. -/
+theorem compilerStmtList_obeys_canonical_storage
+    (runtimeContract : IRContract)
+    (model : CompilationModel)
+    (fn : FunctionSpec)
+    (bodyStmts : List YulStmt)
+    (helperFuel : Nat)
+    (tx : IRTransaction)
+    (initialWorld : Verity.ContractState)
+    (state : IRState)
+    (bindings : List (String × Nat))
+    (extraFuel : Nat)
+    (hextraFuel : sizeOf bodyStmts - bodyStmts.length ≤ extraFuel)
+    (hfuelPos : 0 < helperFuel)
+    (hnormalized : SourceSemantics.effectiveFields model = model.fields)
+    (hnoEvents : model.events = [])
+    (hnoErrors : model.errors = [])
+    (hnoAdtTypes : model.adtTypes = [])
+    (hhelperFree : StmtListHelperFreeStepInterface
+      (SourceSemantics.effectiveFields model) (fn.params.map (·.name)) fn.body)
+    (hcall : StmtListDirectInternalHelperCallStepInterface
+      runtimeContract model (SourceSemantics.effectiveFields model)
+      (fn.params.map (·.name)) fn.body)
+    (hassign : StmtListDirectInternalHelperAssignStepInterface
+      runtimeContract model (SourceSemantics.effectiveFields model)
+      (fn.params.map (·.name)) fn.body)
+    (hexpr : StmtListExprInternalHelperStepInterface
+      runtimeContract model (SourceSemantics.effectiveFields model)
+      (fn.params.map (·.name)) fn.body)
+    (hstruct : StmtListStructuralInternalHelperStepInterface
+      runtimeContract model (SourceSemantics.effectiveFields model)
+      (fn.params.map (·.name)) fn.body)
+    (hresidual : StmtListResidualHelperSurfaceStepInterface
+      runtimeContract model (SourceSemantics.effectiveFields model)
+      (fn.params.map (·.name)) fn.body)
+    (hlegacy : StmtListHelperFreeCompiledLegacyCompatible
+      (SourceSemantics.effectiveFields model) (fn.params.map (·.name)) fn.body)
+    (hbodyCompile :
+      compileStmtList model.fields model.events model.errors .calldata [] false
+        (fn.params.map (·.name)) model.adtTypes fn.body = Except.ok bodyStmts)
+    (hscope : FunctionBody.scopeNamesPresent (fn.params.map (·.name)) bindings)
+    (hbounded : FunctionBody.bindingsBounded bindings)
+    (hstateRuntime : FunctionBody.runtimeStateMatchesIR
+      (SourceSemantics.effectiveFields model)
+      { world := SourceSemantics.withTransactionContext initialWorld tx
+        bindings := []
+        selector := tx.functionSelector }
+      state)
+    (hstateBindings : FunctionBody.bindingsExactlyMatchIRVars bindings state)
+    (hnoInternalFunctions : runtimeContract.internalFunctions = []) :
+    SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
+      runtimeContract model fn bodyStmts helperFuel tx initialWorld state bindings extraFuel := by
+  exact
+    supported_function_body_correct_from_exact_state_generic_finer_split_internal_helper_surface_steps_and_helper_ir
+      runtimeContract model fn bodyStmts helperFuel tx initialWorld state bindings extraFuel
+      hextraFuel hfuelPos hnormalized hnoEvents hnoErrors hnoAdtTypes hhelperFree
+      hcall hassign hexpr hstruct hresidual hlegacy hbodyCompile hscope hbounded
+      hstateRuntime hstateBindings hnoInternalFunctions
+
+/-- Spec-functions-aware exact statement-list preservation.  All four Phase 1C
+    helper interfaces are assembled into the proof of the relation between the
+    actual helper-aware source and compiled executions. -/
+theorem compilerStmtListWithInternals_obeys_canonical_storage
+    (runtimeContract : IRContract)
+    (model : CompilationModel)
+    (fn : FunctionSpec)
+    (bodyStmts : List YulStmt)
+    (helperFuel : Nat)
+    (tx : IRTransaction)
+    (initialWorld : Verity.ContractState)
+    (state : IRState)
+    (bindings : List (String × Nat))
+    (extraFuel : Nat)
+    (hextraFuel : sizeOf bodyStmts - bodyStmts.length ≤ extraFuel)
+    (hfuelPos : 0 < helperFuel)
+    (hnormalized : SourceSemantics.effectiveFields model = model.fields)
+    (hnoEvents : model.events = [])
+    (hnoErrors : model.errors = [])
+    (hnoAdtTypes : model.adtTypes = [])
+    (hhelperFree : StmtListHelperFreeStepInterfaceWithInternals
+      runtimeContract model (SourceSemantics.effectiveFields model)
+      (fn.params.map (·.name)) fn.body)
+    (hcall : StmtListDirectInternalHelperCallStepInterfaceWithInternals
+      runtimeContract model (SourceSemantics.effectiveFields model)
+      (fn.params.map (·.name)) fn.body)
+    (hassign : StmtListDirectInternalHelperAssignStepInterfaceWithInternals
+      runtimeContract model (SourceSemantics.effectiveFields model)
+      (fn.params.map (·.name)) fn.body)
+    (hexpr : StmtListExprInternalHelperStepInterfaceWithInternals
+      runtimeContract model (SourceSemantics.effectiveFields model)
+      (fn.params.map (·.name)) fn.body)
+    (hstruct : StmtListStructuralInternalHelperStepInterfaceWithInternals
+      runtimeContract model (SourceSemantics.effectiveFields model)
+      (fn.params.map (·.name)) fn.body)
+    (hresidual : StmtListResidualHelperSurfaceStepInterfaceWithInternals
+      runtimeContract model (SourceSemantics.effectiveFields model)
+      (fn.params.map (·.name)) fn.body)
+    (hbodyCompile :
+      compileStmtList model.fields model.events model.errors .calldata [] false
+        (fn.params.map (·.name)) model.adtTypes fn.body model.functions =
+          Except.ok bodyStmts)
+    (hscope : FunctionBody.scopeNamesPresent (fn.params.map (·.name)) bindings)
+    (hbounded : FunctionBody.bindingsBounded bindings)
+    (hstateRuntime : FunctionBody.runtimeStateMatchesIR
+      (SourceSemantics.effectiveFields model)
+      { world := SourceSemantics.withTransactionContext initialWorld tx
+        bindings := []
+        selector := tx.functionSelector }
+      state)
+    (hstateBindings : FunctionBody.bindingsExactlyMatchIRVars bindings state) :
+    SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
+      runtimeContract model fn bodyStmts helperFuel tx initialWorld state bindings extraFuel := by
+  exact
+    supported_function_body_correct_from_exact_state_generic_split_helper_steps_and_helper_ir_with_internals
+      runtimeContract model fn bodyStmts helperFuel tx initialWorld state bindings extraFuel
+      hextraFuel hfuelPos hnormalized hnoEvents hnoErrors hnoAdtTypes hhelperFree
+      hcall hassign hexpr hstruct hresidual hbodyCompile hscope hbounded
+      hstateRuntime hstateBindings
 
 end Compiler.Proofs.Storage
