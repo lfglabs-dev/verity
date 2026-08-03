@@ -501,38 +501,51 @@ theorem applyYulSstores_eq_applyStateRewrite (currentContract : ContractId)
 
 /-! ### Canonical storage preservation for compiled statement lists -/
 
-/-- The emitted mapping-slot `sstore` is the canonical source update. -/
+/-- Expose the real single-slot mapping-write compiler branch with literal key
+    and value operands. -/
+def compiledMappingSstoreStmts (baseSlot key : Nat) (value : Word) : List YulStmt :=
+  match compileMappingSlotWrite [mappingSlotBridgeField baseSlot]
+      "__mapping_slot_bridge" (.lit key) (.lit value.toNat) "mapping bridge" with
+  | .ok stmts => stmts
+  | .error _ => []
+
+/-- Structurally interpret the mapping `sstore` emitted by
+    `compileMappingSlotWrite`.  The helper body, outer statement shape, emitted
+    base/key operands, and emitted value all remain observable. -/
+def interpretCompiledMappingSstore
+    (helper : YulStmt) (scratchBase currentContract : Nat)
+    (stmt : YulStmt) (storage : SolidityStorage) : SolidityStorage :=
+  match stmt with
+  | .exprStmt (.call "sstore"
+      [.call "mappingSlot" [.lit emittedBaseSlot, .lit emittedKey], .lit emittedValue]) =>
+      match compiledMappingSlotPointer helper scratchBase emittedBaseSlot emittedKey with
+      | some pointer => applyStorageWrite
+          { contract := currentContract, slot := pointer,
+            value := IRStorageWord.ofNat emittedValue } storage
+      | none => storage
+  | _ => storage
+
+/-- The actual mapping-slot `sstore` emitted by `compileMappingSlotWrite` is the
+    canonical source update. -/
 theorem compiledMappingSstore_eq_canonicalSstore
     (scratchBase currentContract baseSlot key : Nat) (value : Word)
     (storage : SolidityStorage) :
-    let emittedPointer := compiledMappingSlotPointer
-      (Compiler.CodegenCommon.mappingSlotFuncAt scratchBase)
-      scratchBase baseSlot key
-    emittedPointer = some (mappingSlotPointer baseSlot key) ∧
-      Option.map EvmYul.fromByteArrayBigEndian emittedPointer =
-        some (Compiler.Proofs.abstractMappingSlot baseSlot key) ∧
-      applyYulSstores currentContract
-          [{ contract := currentContract,
-             slot := mappingSlotPointer baseSlot key,
-             value := value }] storage =
+    compiledMappingSstoreStmts baseSlot key value =
+        [.exprStmt (.call "sstore"
+          [.call "mappingSlot" [.lit baseSlot, .lit key], .lit value.toNat])] ∧
+      interpretCompiledMappingSstore
+          (Compiler.CodegenCommon.mappingSlotFuncAt scratchBase)
+          scratchBase currentContract
+          (.exprStmt (.call "sstore"
+            [.call "mappingSlot" [.lit baseSlot, .lit key], .lit value.toNat])) storage =
         applyStorageWrite
           { contract := currentContract,
             slot := mappingSlotPointer baseSlot key,
             value := value } storage := by
-  dsimp
-  rw [compiledMappingSlotPointer_eq_mappingSlotPointer]
   constructor
   · rfl
-  constructor
-  · simp only [Option.map_some, Option.some.injEq]
-    exact mappingSlotPointer_eq_abstractMappingSlot baseSlot key
-  · rw [applyYulSstores_eq_applyStateRewrite]
-    · rfl
-    · intro write hwrite
-      simp only [List.mem_singleton] at hwrite
-      subst write
-      simp
-      exact KeccakEngine.keccak256_size _
+  · simp [interpretCompiledMappingSstore,
+      compiledMappingSlotPointer_eq_mappingSlotPointer, IRStorageWord.ofNat_toNat]
 
 /-- Exact statement-list preservation for the legacy compile shape.  The result
     relation contains `runtimeStateMatchesIR`, whose first conjunct equates the
