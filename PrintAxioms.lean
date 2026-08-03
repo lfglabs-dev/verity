@@ -83,6 +83,7 @@ import Compiler.Proofs.IRGeneration.SupportedSpec
 import Compiler.Proofs.KeccakBound
 import Compiler.Proofs.MappingSlot
 import Compiler.Proofs.Storage.SolidityStorage
+import Compiler.Proofs.Storage.StructArrayStorage
 import Compiler.Proofs.StorageBounds
 import Compiler.Proofs.StorageLens
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBodyClosure.Base
@@ -4355,6 +4356,31 @@ end Verity.AxiomAudit
   Compiler.Proofs.Storage.compilerStmtList_obeys_canonical_storage
   Compiler.Proofs.Storage.compilerStmtListWithInternals_obeys_canonical_storage
 
+  -- Compiler/Proofs/Storage/StructArrayStorage.lean
+  Compiler.Proofs.Storage.structMemberPointer_eq_abstractMappingSlot
+  Compiler.Proofs.Storage.compiledStructMemberRead_eq
+  Compiler.Proofs.Storage.compilerStructMember_eq_storageStructRead
+  Compiler.Proofs.Storage.compiledStructMemberSlot_eq_sourceStructMemberSlotRead
+  Compiler.Proofs.Storage.compiledStructMemberWrite_eq
+  Compiler.Proofs.Storage.compilerStructMemberWrite_eq_storageStructWrite
+  Compiler.Proofs.Storage.storageArrayBasePointer_preimage
+  Compiler.Proofs.Storage.compiledStorageArrayLength_eq
+  Compiler.Proofs.Storage.storageArrayLength_eq_storageArrayLength
+  Compiler.Proofs.Storage.compiledStorageArrayElement_eq
+  Compiler.Proofs.Storage.storageArrayElement_eq_storageArrayElement
+  Compiler.Proofs.Storage.storageArrayElement_eq_canonicalStorageRead
+  Compiler.Proofs.Storage.compiledSetStorageArrayElement_eq
+  Compiler.Proofs.Storage.setStorageArrayElement_eq_compiledSetStorageArrayElement
+  Compiler.Proofs.Storage.compiledStorageArrayPush_eq
+  Compiler.Proofs.Storage.pushStorageArray_eq_compiledStorageArrayPush
+  Compiler.Proofs.Storage.pushStorageArray_source_length
+  Compiler.Proofs.Storage.popStorageArray_eq_compiledStorageArrayPop
+  Compiler.Proofs.Storage.popStorageArray_source_length
+  Compiler.Proofs.Storage.setStorageArrayElement_source_length
+  Compiler.Proofs.Storage.applyStateRewrite_storageArrayElementWrite
+  Compiler.Proofs.Storage.applyStateRewrite_storageArrayPush
+  Compiler.Proofs.Storage.applyStateRewrite_storageArrayPop
+
   -- Compiler/Proofs/StorageBounds.lean
   Compiler.Proofs.StorageBounds.storageArray_element_val_lt
   Compiler.Proofs.StorageBounds.storageArray_element_bounded
@@ -6467,4 +6493,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6055 theorems/lemmas (4199 public, 1856 private, 0 sorry'd)
+-- Total: 6078 theorems/lemmas (4222 public, 1856 private, 0 sorry'd)
