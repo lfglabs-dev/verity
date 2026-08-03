@@ -4392,6 +4392,10 @@ end Verity.AxiomAudit
   Compiler.Proofs.Storage.popStorageArray_ignoresCallerLength
   Compiler.Proofs.Storage.popStorageArray_source_length
   Compiler.Proofs.Storage.setStorageArrayElement_source_length
+  Compiler.Proofs.Storage.sourceStorageArraySetAt_getElem?_of_ne
+  Compiler.Proofs.Storage.sourceStorageArraySetAt_length
+  Compiler.Proofs.Storage.sourceStorageArraySetAt_getElem?_same
+  Compiler.Proofs.Storage.sourceStorageArrayDropLast_getElem?
   Compiler.Proofs.Storage.applyStateRewrite_storageArrayElementWrite
   Compiler.Proofs.Storage.applyStateRewrite_storageArrayPush
   Compiler.Proofs.Storage.applyStateRewrite_storageArrayPop
@@ -6516,4 +6520,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6101 theorems/lemmas (4245 public, 1856 private, 0 sorry'd)
+-- Total: 6105 theorems/lemmas (4249 public, 1856 private, 0 sorry'd)

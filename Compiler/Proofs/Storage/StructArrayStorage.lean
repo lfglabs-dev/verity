@@ -452,25 +452,35 @@ theorem setStructMember_exec_matches_canonical_target
         (.setStructMember "__struct_bridge" (.literal key) "__struct_bridge_member"
           (.literal value)) =
       .continue (sourceStructMemberWriteState baseSlot key wordOffset value world) ∧
-    (applyStorageWrite
-        { contract := currentContract,
-          slot := structMemberPointer baseSlot key wordOffset,
-          value := IRStorageWord.ofNat value } storage)
-      currentContract (structMemberPointer baseSlot key wordOffset) =
-        IRStorageWord.ofNat value := by
+    let rewritten := applyStateRewrite
+      [{ contract := currentContract,
+         slot := structMemberPointer baseSlot key wordOffset,
+         value := IRStorageWord.ofNat value }] storage
+    StructMemberCoherent rewritten currentContract baseSlot key wordOffset
+      (sourceStructMemberWriteWorld baseSlot key wordOffset value world) := by
   have hslots : findFieldWriteSlots [structBridgeField baseSlot wordOffset]
       "__struct_bridge" = some [baseSlot] := rfl
   have hmembers : findStructMembers [structBridgeField baseSlot wordOffset]
       "__struct_bridge" = some [structBridgeMember wordOffset] := rfl
   have hmember : findStructMember [structBridgeMember wordOffset]
       "__struct_bridge_member" = some (structBridgeMember wordOffset) := rfl
+  have hfield : findFieldWithResolvedSlot [structBridgeField baseSlot wordOffset]
+      "__struct_bridge" = some (structBridgeField baseSlot wordOffset, baseSlot) := rfl
+  have htrans : SourceSemantics.fieldIsTransient [structBridgeField baseSlot wordOffset]
+      "__struct_bridge" = false := rfl
   constructor
   · simp [SourceSemantics.execStmt, hslots, hmembers, hmember, findStructMember,
       structBridgeMember, sourceStructMemberWriteState, sourceStructMemberWriteWorld,
       SourceSemantics.evalExpr,
       SourceSemantics.wordNormalize_eq_mod, Nat.mod_eq_of_lt hkey,
       Nat.mod_eq_of_lt hvalue]
-  · simp [applyStorageWrite]
+  · simp [applyStateRewrite, StructMemberCoherent, sourceStructMemberWriteWorld,
+      SourceSemantics.writeAddressKeyedMappingWordFieldSlots,
+      SourceSemantics.writeMappingTargets, htrans,
+      Verity.Core.UINT256_MODULUS, Compiler.Constants.evmModulus,
+      Compiler.Proofs.abstractMappingSlot,
+      SourceSemantics.wordNormalize_eq_mod, Nat.mod_eq_of_lt hkey,
+      Nat.mod_eq_of_lt hvalue]
 
 /-- Packed assignment is parameterized by the old canonical word, member
     location and bit layout.  Its canonical target is the complete
@@ -478,6 +488,7 @@ theorem setStructMember_exec_matches_canonical_target
 theorem setPackedStructMember_exec_matches_canonical_target
     (storage : SolidityStorage) (currentContract baseSlot key wordOffset value : Nat)
     (packed : PackedBits) (world : Verity.ContractState)
+    (hcoherent : StructMemberCoherent storage currentContract baseSlot key wordOffset world)
     (hvalid : packedBitsValid packed = true)
     (hkey : key < Compiler.Constants.evmModulus)
     (hvalue : value < Compiler.Constants.evmModulus) :
@@ -487,31 +498,44 @@ theorem setPackedStructMember_exec_matches_canonical_target
           "__packed_struct_bridge_member" (.literal value)) =
       .continue (sourcePackedStructMemberWriteState
         baseSlot key wordOffset value packed world) ∧
-    (applyStorageWrite
-        { contract := currentContract,
-          slot := structMemberPointer baseSlot key wordOffset,
-          value := IRStorageWord.ofNat
-            (SourceSemantics.packedWordWrite
-              (storage currentContract
-                (structMemberPointer baseSlot key wordOffset)).toNat value packed) } storage)
-      currentContract (structMemberPointer baseSlot key wordOffset) =
-        IRStorageWord.ofNat
-          (SourceSemantics.packedWordWrite
-            (storage currentContract
-              (structMemberPointer baseSlot key wordOffset)).toNat value packed) := by
+    let rewritten := applyStateRewrite
+      [{ contract := currentContract,
+         slot := structMemberPointer baseSlot key wordOffset,
+         value := IRStorageWord.ofNat
+           (SourceSemantics.packedWordWrite
+             (storage currentContract
+               (structMemberPointer baseSlot key wordOffset)).toNat value packed) }] storage
+    StructMemberCoherent rewritten currentContract baseSlot key wordOffset
+      (sourcePackedStructMemberWriteWorld baseSlot key wordOffset value packed world) := by
   have hslots : findFieldWriteSlots [packedStructBridgeField baseSlot wordOffset packed]
       "__packed_struct_bridge" = some [baseSlot] := rfl
   have hmembers : findStructMembers [packedStructBridgeField baseSlot wordOffset packed]
       "__packed_struct_bridge" = some [packedStructBridgeMember wordOffset packed] := rfl
   have hmember : findStructMember [packedStructBridgeMember wordOffset packed]
       "__packed_struct_bridge_member" = some (packedStructBridgeMember wordOffset packed) := rfl
+  have hfield : findFieldWithResolvedSlot [packedStructBridgeField baseSlot wordOffset packed]
+      "__packed_struct_bridge" =
+        some (packedStructBridgeField baseSlot wordOffset packed, baseSlot) := rfl
+  have htrans : SourceSemantics.fieldIsTransient
+      [packedStructBridgeField baseSlot wordOffset packed]
+      "__packed_struct_bridge" = false := rfl
   constructor
   · simp [SourceSemantics.execStmt, hslots, hmembers, hmember, findStructMember,
       packedStructBridgeMember, sourcePackedStructMemberWriteState,
       sourcePackedStructMemberWriteWorld,
       SourceSemantics.evalExpr, SourceSemantics.wordNormalize_eq_mod,
       Nat.mod_eq_of_lt hkey, Nat.mod_eq_of_lt hvalue, hvalid]
-  · simp [applyStorageWrite]
+  · rw [StructMemberCoherent] at hcoherent
+    rw [Compiler.Proofs.abstractMappingSlot_eq_solidity] at hcoherent
+    simp [applyStateRewrite, StructMemberCoherent, sourcePackedStructMemberWriteWorld,
+      SourceSemantics.writeAddressKeyedMappingPackedWordFieldSlots,
+      SourceSemantics.writeAddressKeyedMappingPackedWordSlots,
+      htrans, SourceSemantics.packedWordWrite,
+      Verity.Core.UINT256_MODULUS, Compiler.Constants.evmModulus,
+      Compiler.Proofs.abstractMappingSlot,
+      SourceSemantics.wordNormalize_eq_mod,
+      Nat.mod_eq_of_lt hkey, Nat.mod_eq_of_lt hvalue]
+    rw [hcoherent]
 
 /-! ## Dynamic storage arrays
 
@@ -1007,6 +1031,97 @@ theorem setStorageArrayElement_source_length (values updated : List Verity.Core.
     updated.length = values.length :=
   Compiler.Proofs.StorageBounds.storageArraySetAt_length values index value updated h
 
+/-- Updating one source-array index leaves every other indexed value unchanged. -/
+theorem sourceStorageArraySetAt_getElem?_of_ne
+    (values updated : List Verity.Core.Uint256) (index j : Nat)
+    (value x : Verity.Core.Uint256)
+    (hset : SourceSemantics.storageArraySetAt values index value = some updated)
+    (hne : j ≠ index) (hj : updated[j]? = some x) :
+    values[j]? = some x := by
+  induction values generalizing updated index j with
+  | nil => simp [SourceSemantics.storageArraySetAt] at hset
+  | cons head rest ih =>
+      cases index with
+      | zero =>
+          simp [SourceSemantics.storageArraySetAt] at hset
+          subst updated
+          cases j with
+          | zero => contradiction
+          | succ j => simpa using hj
+      | succ index =>
+          simp [SourceSemantics.storageArraySetAt, bind, Option.bind] at hset
+          split at hset
+          · simp at hset
+          · rename_i updatedRest heq
+            simp at hset
+            subst updated
+            cases j with
+            | zero => simpa using hj
+            | succ j =>
+                simp only [List.getElem?_cons_succ] at hj ⊢
+                apply ih updatedRest index j heq (by omega) hj
+
+theorem sourceStorageArraySetAt_length
+    (values updated : List Verity.Core.Uint256) (index : Nat)
+    (value : Verity.Core.Uint256)
+    (hset : SourceSemantics.storageArraySetAt values index value = some updated) :
+    updated.length = values.length := by
+  induction values generalizing updated index with
+  | nil => simp [SourceSemantics.storageArraySetAt] at hset
+  | cons head rest ih =>
+      cases index with
+      | zero => simp [SourceSemantics.storageArraySetAt] at hset; subst updated; simp
+      | succ index =>
+          simp [SourceSemantics.storageArraySetAt, bind, Option.bind] at hset
+          split at hset
+          · simp at hset
+          · rename_i updatedRest heq
+            simp at hset
+            subst updated
+            simp [ih updatedRest index heq]
+
+theorem sourceStorageArraySetAt_getElem?_same
+    (values updated : List Verity.Core.Uint256) (index : Nat)
+    (value : Verity.Core.Uint256)
+    (hset : SourceSemantics.storageArraySetAt values index value = some updated) :
+    updated[index]? = some value := by
+  induction values generalizing updated index with
+  | nil => simp [SourceSemantics.storageArraySetAt] at hset
+  | cons head rest ih =>
+      cases index with
+      | zero => simp [SourceSemantics.storageArraySetAt] at hset; subst updated; simp
+      | succ index =>
+          simp [SourceSemantics.storageArraySetAt, bind, Option.bind] at hset
+          split at hset
+          · simp at hset
+          · rename_i updatedRest heq
+            simp at hset
+            subst updated
+            simpa using ih updatedRest index heq
+
+/-- Dropping the last source-array element preserves every remaining index. -/
+theorem sourceStorageArrayDropLast_getElem?
+    (values updated : List Verity.Core.Uint256) (j : Nat) (x : Verity.Core.Uint256)
+    (hdrop : SourceSemantics.storageArrayDropLast? values = some updated)
+    (hj : updated[j]? = some x) : values[j]? = some x := by
+  induction values generalizing updated j with
+  | nil => simp [SourceSemantics.storageArrayDropLast?] at hdrop
+  | cons head rest ih =>
+      match rest with
+      | [] => simp [SourceSemantics.storageArrayDropLast?] at hdrop; subst updated; simp at hj
+      | next :: tail =>
+          simp [SourceSemantics.storageArrayDropLast?, bind, Option.bind] at hdrop
+          split at hdrop
+          · simp at hdrop
+          · rename_i updatedRest heq
+            simp at hdrop
+            subst updated
+            cases j with
+            | zero => simpa using hj
+            | succ j =>
+                simp only [List.getElem?_cons_succ] at hj ⊢
+                exact ih updatedRest j heq hj
+
 /-! ### Canonical diffs applied to `SolidityStorage`
 
 The interpreters above produce `StorageDiff`s, so the existing
@@ -1181,6 +1296,9 @@ theorem setStorageArrayElement_compiled_exec_coherent
     (hindex : index < values.length)
     (hword : index < Compiler.Constants.evmModulus)
     (hvalue : value < Compiler.Constants.evmModulus)
+    (hlengthSlot : storageArrayElementPointer slot index ≠ slotPointer slot)
+    (helementSlots : ∀ j, j < updated.length → j ≠ index →
+      storageArrayElementPointer slot j ≠ storageArrayElementPointer slot index)
     (hset : SourceSemantics.storageArraySetAt values index value = some updated) :
     Option.bind (compiledSetStorageArrayElement slot index value).toOption
         (interpretCompiledSetStorageArrayElement storage currentContract) =
@@ -1189,7 +1307,12 @@ theorem setStorageArrayElement_compiled_exec_coherent
         (.setStorageArrayElement "__array_bridge" (.literal index) (.literal value)) =
       .continue { arrayBridgeState slot values with
         world := SourceSemantics.writeStorageArray
-          (arrayBridgeState slot values).world slot updated } := by
+          (arrayBridgeState slot values).world slot updated } ∧
+    StorageArrayCoherent
+      (applyStateRewrite
+        [storageArrayElementWrite currentContract slot index (IRStorageWord.ofNat value)]
+        storage) currentContract slot
+      (SourceSemantics.writeStorageArray (arrayBridgeState slot values).world slot updated) := by
   have hcanonical : index < (storage currentContract (slotPointer slot)).toNat := by
     rw [hcoherent.1]
     simpa [arrayBridgeState] using hindex
@@ -1203,8 +1326,30 @@ theorem setStorageArrayElement_compiled_exec_coherent
     simpa [hind, hvaluemod] using
       setStorageArrayElement_eq_compiledSetStorageArrayElement storage currentContract slot
         index value hbound
-  · exact (setStorageArrayElement_exec_preserved storage currentContract slot index value
-      values updated hword hvalue hset).1
+  · constructor
+    · exact (setStorageArrayElement_exec_preserved storage currentContract slot index value
+        values updated hword hvalue hset).1
+    · constructor
+      · simp [applyStateRewrite, storageArrayElementWrite, applyStorageWrite,
+          Ne.symm hlengthSlot, SourceSemantics.writeStorageArray,
+          sourceStorageArraySetAt_length values updated index value hset]
+        simpa [arrayBridgeState] using hcoherent.1
+      · intro j x hj
+        simp [SourceSemantics.writeStorageArray] at hj
+        by_cases hji : j = index
+        · subst j
+          have hsame := sourceStorageArraySetAt_getElem?_same values updated index value hset
+          rw [hsame] at hj
+          simp at hj
+          subst x
+          simp [applyStateRewrite, storageArrayElementWrite, applyStorageWrite,
+            IRStorageWord.ofNat_toNat, Verity.Core.UINT256_MODULUS,
+            Compiler.Constants.evmModulus, Nat.mod_eq_of_lt hvalue]
+        · have hsep := helementSlots j (List.getElem?_eq_some_iff.mp hj).1 hji
+          simp [applyStateRewrite, storageArrayElementWrite, applyStorageWrite, hsep]
+          apply hcoherent.2 j x
+          simpa [arrayBridgeState] using
+            sourceStorageArraySetAt_getElem?_of_ne values updated index j value x hset hji hj
 
 /-- Push derives its index from the canonical length word; coherence identifies
     that word with the executable source array length. -/
@@ -1215,7 +1360,11 @@ theorem pushStorageArray_compiled_exec_coherent
       (arrayBridgeState slot values).world)
     (hvalue : value < Compiler.Constants.evmModulus)
     (hroom : values.length + 1 < Compiler.Constants.evmModulus)
-    (hdistinct : storageArrayElementPointer slot values.length ≠ slotPointer slot) :
+    (hdistinct : storageArrayElementPointer slot values.length ≠ slotPointer slot)
+    (helementSlots : ∀ j, j < values.length →
+      storageArrayElementPointer slot j ≠ storageArrayElementPointer slot values.length)
+    (hlengthElements : ∀ j, j < values.length →
+      storageArrayElementPointer slot j ≠ slotPointer slot) :
     Option.bind (compiledStorageArrayPush slot value).toOption
         (interpretCompiledStorageArrayPush storage currentContract) =
       some [storageArrayElementWrite currentContract slot values.length
@@ -1225,7 +1374,15 @@ theorem pushStorageArray_compiled_exec_coherent
         (.storageArrayPush "__array_bridge" (.literal value)) =
       .continue { arrayBridgeState slot values with
         world := SourceSemantics.writeStorageArray (arrayBridgeState slot values).world slot
-          (values ++ [(value : Verity.Core.Uint256)]) } := by
+          (values ++ [(value : Verity.Core.Uint256)]) } ∧
+    StorageArrayCoherent
+      (applyStateRewrite
+        [storageArrayElementWrite currentContract slot values.length
+            (IRStorageWord.ofNat value),
+          storageArrayLengthWrite currentContract slot (values.length + 1)] storage)
+      currentContract slot
+      (SourceSemantics.writeStorageArray (arrayBridgeState slot values).world slot
+        (values ++ [(value : Verity.Core.Uint256)])) := by
   have hlength : (storage currentContract (slotPointer slot)).toNat = values.length := by
     simpa [arrayBridgeState] using hcoherent.1
   have hvaluemod : value % uint256Modulus = value := Nat.mod_eq_of_lt hvalue
@@ -1233,8 +1390,38 @@ theorem pushStorageArray_compiled_exec_coherent
   · simpa [hlength, hvaluemod] using
       pushStorageArray_eq_compiledStorageArrayPush storage currentContract slot value
         (by simpa [hlength] using hroom)
-  · exact (pushStorageArray_exec_preserved storage currentContract slot value values
-      hvalue hroom hdistinct).1
+  · constructor
+    · exact (pushStorageArray_exec_preserved storage currentContract slot value values
+        hvalue hroom hdistinct).1
+    · constructor
+      · simp [applyStateRewrite, storageArrayElementWrite, storageArrayLengthWrite,
+          applyStorageWrite, SourceSemantics.writeStorageArray,
+          Verity.Core.UINT256_MODULUS, Compiler.Constants.evmModulus,
+          Nat.mod_eq_of_lt hroom]
+      · intro j x hj
+        simp [SourceSemantics.writeStorageArray] at hj
+        by_cases hjlast : j = values.length
+        · subst j
+          simp at hj
+          subst x
+          simp [applyStateRewrite, storageArrayElementWrite, storageArrayLengthWrite,
+            applyStorageWrite, hdistinct, IRStorageWord.ofNat_toNat,
+            Verity.Core.UINT256_MODULUS, Compiler.Constants.evmModulus,
+            Nat.mod_eq_of_lt hvalue]
+        · have hjlt : j < values.length := by
+            have := (List.getElem?_eq_some_iff.mp hj).1
+            simp at this
+            omega
+          have hsep := helementSlots j hjlt
+          have hlengthSep := hlengthElements j hjlt
+          simp [applyStateRewrite, storageArrayElementWrite, storageArrayLengthWrite,
+            applyStorageWrite, hsep, hlengthSep]
+          apply hcoherent.2 j x
+          have hx : values[j] = x := by
+            simpa [List.getElem?_append, hjlt] using hj
+          have hold : values[j]? = some x := by
+            rw [List.getElem?_eq_getElem hjlt, hx]
+          simpa [arrayBridgeState] using hold
 
 /-- Pop's empty guard and decremented index are both derived from the same
     canonical length word that coherence relates to the source array. -/
@@ -1244,7 +1431,11 @@ theorem popStorageArray_compiled_exec_coherent
     (hcoherent : StorageArrayCoherent storage currentContract slot
       (arrayBridgeState slot values).world)
     (hdrop : SourceSemantics.storageArrayDropLast? values = some updated)
-    (hdistinct : storageArrayElementPointer slot updated.length ≠ slotPointer slot) :
+    (hdistinct : storageArrayElementPointer slot updated.length ≠ slotPointer slot)
+    (helementSlots : ∀ j, j < updated.length →
+      storageArrayElementPointer slot j ≠ storageArrayElementPointer slot updated.length)
+    (hlengthElements : ∀ j, j < updated.length →
+      storageArrayElementPointer slot j ≠ slotPointer slot) :
     Option.bind (compiledStorageArrayPop slot).toOption
         (interpretCompiledStorageArrayPop storage currentContract) =
       some [storageArrayElementWrite currentContract slot updated.length
@@ -1254,7 +1445,14 @@ theorem popStorageArray_compiled_exec_coherent
         (.storageArrayPop "__array_bridge") =
       .continue { arrayBridgeState slot values with
         world := SourceSemantics.writeStorageArray
-          (arrayBridgeState slot values).world slot updated } := by
+          (arrayBridgeState slot values).world slot updated } ∧
+    StorageArrayCoherent
+      (applyStateRewrite
+        [storageArrayElementWrite currentContract slot updated.length
+            (IRStorageWord.ofNat 0),
+          storageArrayLengthWrite currentContract slot updated.length] storage)
+      currentContract slot
+      (SourceSemantics.writeStorageArray (arrayBridgeState slot values).world slot updated) := by
   have hlength : (storage currentContract (slotPointer slot)).toNat = values.length := by
     simpa [arrayBridgeState] using hcoherent.1
   have hlen : updated.length + 1 = values.length :=
@@ -1264,11 +1462,34 @@ theorem popStorageArray_compiled_exec_coherent
     omega
   have hnew : (storage currentContract (slotPointer slot)).toNat - 1 = updated.length := by
     omega
+  have hupdatedRoom : updated.length < Compiler.Constants.evmModulus := by
+    change updated.length < 2 ^ 256
+    have hwordlt := IRStorageWord.toNat_lt_size (storage currentContract (slotPointer slot))
+    rw [hlength, ← hlen] at hwordlt
+    simp [EvmYul.UInt256.size, Compiler.Constants.evmModulus,
+      Verity.Core.UINT256_MODULUS] at hwordlt
+    omega
   constructor
   · simpa [hnew] using
       popStorageArray_eq_compiledStorageArrayPop storage currentContract slot hnonempty
-  · exact (popStorageArray_exec_preserved storage currentContract slot values updated
-      hdrop hdistinct).1
+  · constructor
+    · exact (popStorageArray_exec_preserved storage currentContract slot values updated
+        hdrop hdistinct).1
+    · constructor
+      · simp [applyStateRewrite, storageArrayElementWrite, storageArrayLengthWrite,
+          applyStorageWrite, SourceSemantics.writeStorageArray,
+          Verity.Core.UINT256_MODULUS, Compiler.Constants.evmModulus,
+          Nat.mod_eq_of_lt hupdatedRoom]
+      · intro j x hj
+        simp [SourceSemantics.writeStorageArray] at hj
+        have hjlt := (List.getElem?_eq_some_iff.mp hj).1
+        have hsep := helementSlots j hjlt
+        have hlengthSep := hlengthElements j hjlt
+        simp [applyStateRewrite, storageArrayElementWrite, storageArrayLengthWrite,
+          applyStorageWrite, hsep, hlengthSep]
+        apply hcoherent.2 j x
+        simpa [arrayBridgeState] using
+          sourceStorageArrayDropLast_getElem? values updated j x hdrop hj
 
 /-- Empty pop is coherent end-to-end: both executable source semantics and the
     emitted-Yul interpreter reject it, with no canonical diff. -/
