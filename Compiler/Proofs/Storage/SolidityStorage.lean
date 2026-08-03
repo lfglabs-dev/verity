@@ -499,6 +499,20 @@ theorem applyYulSstores_eq_applyStateRewrite (currentContract : ContractId)
         Bool.and_self, if_true]
       exact ih (applyStorageWrite write storage) htail
 
+/-- Canonical storage agreement is closed under a valid compiled/source state
+    rewrite: equal pre-states produce equal post-states.  The live canonical
+    relation is equality itself, as used by `runtimeStateMatchesIR`; keeping it
+    explicit here avoids introducing a parallel storage relation. -/
+theorem applyStateRewrite_preserves_canonicalStorageRel
+    (currentContract : ContractId) (diff : StorageDiff)
+    (yulStorage sourceStorage : SolidityStorage)
+    (hstorage : yulStorage = sourceStorage)
+    (hvalid : ValidSstoreDiff currentContract diff) :
+    applyYulSstores currentContract diff yulStorage =
+      applyStateRewrite diff sourceStorage := by
+  subst sourceStorage
+  exact applyYulSstores_eq_applyStateRewrite currentContract diff yulStorage hvalid
+
 /-! ### Canonical storage preservation for compiled statement lists -/
 
 /-- Expose the real single-slot mapping-write compiler branch with literal key
