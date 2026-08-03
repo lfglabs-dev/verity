@@ -298,6 +298,115 @@ theorem compiledPackedStructMemberWrite_eq
   change Except.ok _ = Except.ok _
   rfl
 
+/-- Evaluate the EVM bit operations emitted for a packed read-modify-write.
+    This definition deliberately spells out `and`/`not`/`shl`/`or`, rather
+    than taking the source-level packed write as its result. -/
+def evalEmittedPackedWordWrite (current value : Nat) (packed : PackedBits) : Nat :=
+  let packedValue := Verity.Core.Uint256.and value (packedMaskNat packed)
+  let cleared := Verity.Core.Uint256.and current
+    (Verity.Core.Uint256.not (packedShiftedMaskNat packed))
+  (Verity.Core.Uint256.or cleared
+    (Verity.Core.Uint256.shl packed.offset packedValue)).val
+
+/-- The emitted EVM bit-operation sequence computes the source evaluator's
+    canonical packed replacement word. -/
+theorem evalEmittedPackedWordWrite_eq_packedWordWrite
+    (current value : Nat) (packed : PackedBits) :
+    evalEmittedPackedWordWrite current value packed =
+      SourceSemantics.packedWordWrite current value packed := by
+  rfl
+
+/-- Interpret precisely the packed-write block emitted by the real compiler.
+    A syntactically different block is rejected; the accepted block evaluates
+    its read-modify-write operations against the old canonical slot word. -/
+def interpretCompiledPackedStructMemberWrite (storage : SolidityStorage)
+    (currentContract baseSlot key wordOffset value : Nat) (packed : PackedBits) :
+    List YulStmt → Option StorageDiff
+  | [.block [
+          .let_ "__compat_value" (.lit emittedValue),
+          .let_ "__compat_packed" (.call "and"
+            [.ident "__compat_value", .lit emittedMask]),
+          .let_ "__compat_slot_word" (.call "sload"
+            [.call "add" [.call "mappingSlot" [.lit emittedBase, .lit emittedKey],
+              .lit emittedOffset]]),
+          .let_ "__compat_slot_cleared" (.call "and" [
+            .ident "__compat_slot_word",
+            .call "not" [.lit emittedShiftedMask]]),
+          .exprStmt (.call "sstore" [
+            .call "add" [.call "mappingSlot" [.lit writeBase, .lit writeKey],
+              .lit writeOffset],
+            .call "or" [.ident "__compat_slot_cleared",
+              .call "shl" [.lit emittedShift, .ident "__compat_packed"]]])]] =>
+      if emittedValue == value % uint256Modulus &&
+          emittedMask == packedMaskNat packed &&
+          emittedBase == baseSlot && emittedKey == key % uint256Modulus &&
+          emittedOffset == wordOffset && writeBase == emittedBase &&
+          writeKey == emittedKey && writeOffset == emittedOffset &&
+          emittedShiftedMask == packedShiftedMaskNat packed &&
+          emittedShift == packed.offset then
+        some ([StorageWrite.mk currentContract
+          (structMemberPointer baseSlot (key % uint256Modulus) wordOffset)
+          (IRStorageWord.ofNat (evalEmittedPackedWordWrite
+            (storage currentContract
+              (structMemberPointer baseSlot (key % uint256Modulus) wordOffset)).toNat
+            (value % uint256Modulus) packed))] : StorageDiff)
+      else none
+  | [.block [
+          .let_ "__compat_value" (.lit emittedValue),
+          .let_ "__compat_packed" (.call "and"
+            [.ident "__compat_value", .lit emittedMask]),
+          .let_ "__compat_slot_word" (.call "sload"
+            [.call "mappingSlot" [.lit emittedBase, .lit emittedKey]]),
+          .let_ "__compat_slot_cleared" (.call "and" [
+            .ident "__compat_slot_word", .call "not" [.lit emittedShiftedMask]]),
+          .exprStmt (.call "sstore" [
+            .call "mappingSlot" [.lit writeBase, .lit writeKey],
+            .call "or" [.ident "__compat_slot_cleared",
+              .call "shl" [.lit emittedShift, .ident "__compat_packed"]]])]] =>
+      if emittedValue == value % uint256Modulus &&
+          emittedMask == packedMaskNat packed && emittedBase == baseSlot &&
+          emittedKey == key % uint256Modulus && wordOffset == 0 &&
+          writeBase == emittedBase && writeKey == emittedKey &&
+          emittedShiftedMask == packedShiftedMaskNat packed &&
+          emittedShift == packed.offset then
+        some ([StorageWrite.mk currentContract
+          (structMemberPointer baseSlot (key % uint256Modulus) wordOffset)
+          (IRStorageWord.ofNat (evalEmittedPackedWordWrite
+            (storage currentContract
+              (structMemberPointer baseSlot (key % uint256Modulus) wordOffset)).toNat
+            (value % uint256Modulus) packed))] : StorageDiff)
+      else none
+  | _ => none
+
+/-- Running the interpreter on the real compiler result yields the canonical
+    packed-word storage diff.  This connects compiler emission, execution of
+    its bit operations, and `SourceSemantics.packedWordWrite` in one theorem. -/
+theorem compiledPackedStructMemberWrite_exec_eq_canonical
+    (storage : SolidityStorage) (currentContract baseSlot key wordOffset value : Nat)
+    (packed : PackedBits) (hvalid : packedBitsValid packed = true) :
+    Option.bind
+        (compileSetStructMember
+          [packedStructBridgeField baseSlot wordOffset packed] .calldata
+          "__packed_struct_bridge" (.literal key) "__packed_struct_bridge_member"
+          (.literal value)).toOption
+        (interpretCompiledPackedStructMemberWrite storage currentContract baseSlot key
+          wordOffset value packed) =
+      some ([StorageWrite.mk currentContract
+        (structMemberPointer baseSlot (key % uint256Modulus) wordOffset)
+        (IRStorageWord.ofNat (SourceSemantics.packedWordWrite
+          (storage currentContract
+            (structMemberPointer baseSlot (key % uint256Modulus) wordOffset)).toNat
+          (value % uint256Modulus) packed))] : StorageDiff) := by
+  rw [compiledPackedStructMemberWrite_eq baseSlot key wordOffset value packed hvalid]
+  unfold structMemberSlotYul
+  by_cases hzero : wordOffset = 0
+  · subst hzero
+    simp [Except.toOption, interpretCompiledPackedStructMemberWrite,
+      evalEmittedPackedWordWrite_eq_packedWordWrite]
+  · have hzb : (wordOffset == 0) = false := by simpa using hzero
+    simp [hzb, Except.toOption, interpretCompiledPackedStructMemberWrite,
+      evalEmittedPackedWordWrite_eq_packedWordWrite]
+
 /-- Structurally interpret the emitted struct-member `sstore` as a canonical
     storage update.  The emitted base slot, key, word offset and value all stay
     observable, and the `mappingSlot` helper body is re-checked. -/

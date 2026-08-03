@@ -4382,6 +4382,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.Storage.compiledStructMemberWrite_eq
   Compiler.Proofs.Storage.compiledPackedStructMemberWrite_regression
   Compiler.Proofs.Storage.compiledPackedStructMemberWrite_eq
+  Compiler.Proofs.Storage.evalEmittedPackedWordWrite_eq_packedWordWrite
+  Compiler.Proofs.Storage.compiledPackedStructMemberWrite_exec_eq_canonical
   Compiler.Proofs.Storage.compilerStructMemberWrite_eq_storageStructWrite
   Compiler.Proofs.Storage.structMember_eq_sourceEval
   Compiler.Proofs.Storage.packedStructMember_eq_sourceEval
@@ -6537,4 +6539,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6119 theorems/lemmas (4263 public, 1856 private, 0 sorry'd)
+-- Total: 6121 theorems/lemmas (4265 public, 1856 private, 0 sorry'd)
