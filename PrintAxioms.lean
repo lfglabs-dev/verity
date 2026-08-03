@@ -4364,7 +4364,10 @@ end Verity.AxiomAudit
   Compiler.Proofs.Storage.compiledStructMemberSlot_eq_sourceStructMemberSlotRead
   Compiler.Proofs.Storage.compiledStructMemberWrite_eq
   Compiler.Proofs.Storage.compiledPackedStructMemberWrite_regression
+  Compiler.Proofs.Storage.compiledPackedStructMemberWrite_eq
   Compiler.Proofs.Storage.compilerStructMemberWrite_eq_storageStructWrite
+  Compiler.Proofs.Storage.structMember_eq_sourceEval
+  Compiler.Proofs.Storage.packedStructMember_eq_sourceEval
   Compiler.Proofs.Storage.storageArrayBasePointer_preimage
   Compiler.Proofs.Storage.compiledStorageArrayLength_eq
   Compiler.Proofs.Storage.storageArrayLength_eq_storageArrayLength
@@ -4389,6 +4392,10 @@ end Verity.AxiomAudit
   Compiler.Proofs.Storage.applyStateRewrite_storageArrayElementWrite
   Compiler.Proofs.Storage.applyStateRewrite_storageArrayPush
   Compiler.Proofs.Storage.applyStateRewrite_storageArrayPop
+  Compiler.Proofs.Storage.setStorageArrayElement_exec_preserved
+  Compiler.Proofs.Storage.pushStorageArray_exec_preserved
+  Compiler.Proofs.Storage.popStorageArray_exec_empty
+  Compiler.Proofs.Storage.popStorageArray_exec_preserved
 
   -- Compiler/Proofs/StorageBounds.lean
   Compiler.Proofs.StorageBounds.storageArray_element_val_lt
@@ -6502,4 +6509,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6087 theorems/lemmas (4231 public, 1856 private, 0 sorry'd)
+-- Total: 6094 theorems/lemmas (4238 public, 1856 private, 0 sorry'd)

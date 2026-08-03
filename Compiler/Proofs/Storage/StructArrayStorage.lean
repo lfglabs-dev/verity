@@ -256,6 +256,48 @@ theorem compiledPackedStructMemberWrite_regression :
   simp only [packedStructBridgeField, packedStructBridgeMember]
   rfl
 
+/-- Parameterized form of the packed write bridge.  It exposes the complete
+    read-modify-write for every member location and bit range. -/
+theorem compiledPackedStructMemberWrite_eq
+    (baseSlot key wordOffset value : Nat) (packed : PackedBits)
+    (hvalid : packedBitsValid packed = true) :
+    compileSetStructMember
+        [packedStructBridgeField baseSlot wordOffset packed] .calldata
+        "__packed_struct_bridge" (.literal key) "__packed_struct_bridge_member"
+        (.literal value) =
+      .ok [.block [
+        .let_ "__compat_value" (.lit (value % uint256Modulus)),
+        .let_ "__compat_packed" (.call "and"
+          [.ident "__compat_value", .lit (packedMaskNat packed)]),
+        .let_ "__compat_slot_word" (.call "sload"
+          [structMemberSlotYul baseSlot (key % uint256Modulus) wordOffset]),
+        .let_ "__compat_slot_cleared" (.call "and" [
+          .ident "__compat_slot_word", .call "not" [.lit (packedShiftedMaskNat packed)]]),
+        .exprStmt (.call "sstore" [
+          structMemberSlotYul baseSlot (key % uint256Modulus) wordOffset,
+          .call "or" [.ident "__compat_slot_cleared",
+            .call "shl" [.lit packed.offset, .ident "__compat_packed"]]])]] := by
+  have hmap2 : isMapping2 [packedStructBridgeField baseSlot wordOffset packed]
+      "__packed_struct_bridge" = false := rfl
+  have hmap : isMapping [packedStructBridgeField baseSlot wordOffset packed]
+      "__packed_struct_bridge" = true := rfl
+  have hmembers : findStructMembers [packedStructBridgeField baseSlot wordOffset packed]
+      "__packed_struct_bridge" = some [packedStructBridgeMember wordOffset packed] := rfl
+  have hmember : findStructMember [packedStructBridgeMember wordOffset packed]
+      "__packed_struct_bridge_member" = some (packedStructBridgeMember wordOffset packed) := rfl
+  have hslots : findFieldWriteSlots [packedStructBridgeField baseSlot wordOffset packed]
+      "__packed_struct_bridge" = some [baseSlot] := rfl
+  have hfield : findFieldWithResolvedSlot [packedStructBridgeField baseSlot wordOffset packed]
+      "__packed_struct_bridge" =
+        some (packedStructBridgeField baseSlot wordOffset packed, baseSlot) := rfl
+  simp only [compileSetStructMember, compileExprWithInternals, hmap2, Bool.false_eq_true,
+    if_false, hmembers, hmember]
+  unfold compileMappingPackedSlotWrite
+  rw [hmap, hslots, hfield]
+  simp [packedStructBridgeField, packedStructBridgeMember, hvalid, structMemberSlotYul]
+  change Except.ok _ = Except.ok _
+  rfl
+
 /-- Structurally interpret the emitted struct-member `sstore` as a canonical
     storage update.  The emitted base slot, key, word offset and value all stay
     observable, and the `mappingSlot` helper body is re-checked. -/
@@ -304,6 +346,73 @@ theorem compilerStructMemberWrite_eq_storageStructWrite
   · have hzb : (wordOffset == 0) = false := by simpa using hzero
     simp [hzb, interpretCompiledStructMemberSstore,
       compiledMappingSlotPointer_eq_mappingSlotPointer, IRStorageWord.ofNat_toNat]
+
+/-! ### Executable struct-member coherence -/
+
+/-- One source contract world and canonical storage agree on the complete word
+    containing a struct member.  This relation is deliberately about the raw
+    word: the same invariant covers unpacked members and every valid packed bit
+    range, including preservation of neighbouring packed members. -/
+def StructMemberCoherent (storage : SolidityStorage) (currentContract : ContractId)
+    (baseSlot key wordOffset : Nat) (world : Verity.ContractState) : Prop :=
+  (storage currentContract (structMemberPointer baseSlot key wordOffset)).toNat =
+    (world.storage ((Compiler.Proofs.abstractMappingSlot baseSlot key + wordOffset) %
+      Compiler.Constants.evmModulus)).val
+
+/-- Under raw-word coherence, an unpacked canonical struct load equals the
+    executable source evaluator's result. -/
+theorem structMember_eq_sourceEval (storage : SolidityStorage)
+    (currentContract baseSlot key wordOffset : Nat) (world : Verity.ContractState)
+    (hcoherent : StructMemberCoherent storage currentContract baseSlot key wordOffset world)
+    (hkey : key < Compiler.Constants.evmModulus) :
+    (storage currentContract (structMemberPointer baseSlot key wordOffset)).toNat =
+      (SourceSemantics.evalExpr [structBridgeField baseSlot wordOffset]
+        { world := world, bindings := [] }
+        (.structMember "__struct_bridge" (.literal key) "__struct_bridge_member")).getD 0 := by
+  have hfield : findFieldWithResolvedSlot [structBridgeField baseSlot wordOffset]
+      "__struct_bridge" = some (structBridgeField baseSlot wordOffset, baseSlot) := rfl
+  have hmembers : findStructMembers [structBridgeField baseSlot wordOffset]
+      "__struct_bridge" = some [structBridgeMember wordOffset] := rfl
+  rw [SourceSemantics.evalExpr]
+  simp only [SourceSemantics.evalExpr, hfield, hmembers, structBridgeMember,
+    SourceSemantics.wordNormalize_eq_mod, Nat.mod_eq_of_lt hkey]
+  simp only [findStructMember, structBridgeField, SourceSemantics.readFieldWord,
+    Option.getD_some]
+  simpa [StructMemberCoherent, structMemberPointer_eq_abstractMappingSlot] using hcoherent
+
+/-- The semantic value of a packed member extracted from its canonical raw
+    word.  This is the same `shr`/`and` operation executed by both Yul and the
+    source evaluator. -/
+def canonicalPackedStructValue (storage : SolidityStorage) (currentContract : ContractId)
+    (baseSlot key wordOffset : Nat) (packed : PackedBits) : Nat :=
+  (Verity.Core.Uint256.and
+    (Verity.Core.Uint256.shr packed.offset
+      (storage currentContract (structMemberPointer baseSlot key wordOffset)).toNat)
+    (packedMaskNat packed)).val
+
+/-- Packed struct reads are related parametrically to executable source
+    evaluation, not merely checked on one emitted example. -/
+theorem packedStructMember_eq_sourceEval (storage : SolidityStorage)
+    (currentContract baseSlot key wordOffset : Nat) (packed : PackedBits)
+    (world : Verity.ContractState)
+    (hcoherent : StructMemberCoherent storage currentContract baseSlot key wordOffset world)
+    (hkey : key < Compiler.Constants.evmModulus) :
+    canonicalPackedStructValue storage currentContract baseSlot key wordOffset packed =
+      (SourceSemantics.evalExpr [packedStructBridgeField baseSlot wordOffset packed]
+        { world := world, bindings := [] }
+        (.structMember "__packed_struct_bridge" (.literal key)
+          "__packed_struct_bridge_member")).getD 0 := by
+  have hfield : findFieldWithResolvedSlot [packedStructBridgeField baseSlot wordOffset packed]
+      "__packed_struct_bridge" =
+        some (packedStructBridgeField baseSlot wordOffset packed, baseSlot) := rfl
+  have hmembers : findStructMembers [packedStructBridgeField baseSlot wordOffset packed]
+      "__packed_struct_bridge" = some [packedStructBridgeMember wordOffset packed] := rfl
+  rw [SourceSemantics.evalExpr]
+  simp only [SourceSemantics.evalExpr, hfield, hmembers, packedStructBridgeMember,
+    SourceSemantics.wordNormalize_eq_mod, Nat.mod_eq_of_lt hkey]
+  simp [findStructMember, packedStructBridgeField, SourceSemantics.readFieldWord,
+    canonicalPackedStructValue, StructMemberCoherent] at hcoherent ⊢
+  rw [← hcoherent]
 
 /-! ## Dynamic storage arrays
 
@@ -822,5 +931,120 @@ theorem applyStateRewrite_storageArrayPop
           storage) := by
   rw [applyStateRewrite_cons, applyStateRewrite_cons]
   rfl
+
+/-! ### Executable source-write preservation
+
+The following family closes the loop between the interpreted Yul diffs and
+`SourceSemantics.execStmt`.  Each theorem runs the real source statement and
+checks the observable canonical words produced by the corresponding diff. -/
+
+/-- A successful executable element assignment and its compiled canonical diff
+    store the same value at the same normalized index. -/
+theorem setStorageArrayElement_exec_preserved
+    (storage : SolidityStorage) (currentContract slot index value : Nat)
+    (values updated : List Verity.Core.Uint256)
+    (hindex : index < Compiler.Constants.evmModulus)
+    (hvalue : value < Compiler.Constants.evmModulus)
+    (hset : SourceSemantics.storageArraySetAt values index value = some updated) :
+    SourceSemantics.execStmt [arrayBridgeField slot] (arrayBridgeState slot values)
+        (.setStorageArrayElement "__array_bridge" (.literal index) (.literal value)) =
+      .continue { arrayBridgeState slot values with
+        world := SourceSemantics.writeStorageArray
+          (arrayBridgeState slot values).world slot updated } ∧
+    (applyStateRewrite
+        [storageArrayElementWrite currentContract slot index (IRStorageWord.ofNat value)]
+        storage) currentContract (storageArrayElementPointer slot index) =
+      IRStorageWord.ofNat value := by
+  constructor
+  · have hfield : findFieldWithResolvedSlot [arrayBridgeField slot] "__array_bridge" =
+        some (arrayBridgeField slot, slot) := rfl
+    rw [SourceSemantics.execStmt, hfield]
+    simp only [arrayBridgeField]
+    simp [SourceSemantics.evalExpr, SourceSemantics.wordNormalize_eq_mod,
+      Nat.mod_eq_of_lt hindex, Nat.mod_eq_of_lt hvalue, arrayBridgeState, hset]
+  · simp [applyStateRewrite, storageArrayElementWrite, applyStorageWrite]
+
+/-- Executable push appends at the source length, while the interpreted Yul
+    writes that same element index and the same non-overflowing new length. -/
+theorem pushStorageArray_exec_preserved
+    (storage : SolidityStorage) (currentContract slot value : Nat)
+    (values : List Verity.Core.Uint256)
+    (hvalue : value < Compiler.Constants.evmModulus)
+    (hroom : values.length + 1 < Compiler.Constants.evmModulus)
+    (hdistinct : storageArrayElementPointer slot values.length ≠ slotPointer slot) :
+    SourceSemantics.execStmt [arrayBridgeField slot] (arrayBridgeState slot values)
+        (.storageArrayPush "__array_bridge" (.literal value)) =
+      .continue { arrayBridgeState slot values with
+        world := SourceSemantics.writeStorageArray (arrayBridgeState slot values).world slot
+          (values ++ [(value : Verity.Core.Uint256)]) } ∧
+    let rewritten := applyStateRewrite
+      [storageArrayElementWrite currentContract slot values.length (IRStorageWord.ofNat value),
+        storageArrayLengthWrite currentContract slot (values.length + 1)] storage
+    rewritten currentContract (storageArrayElementPointer slot values.length) =
+        IRStorageWord.ofNat value ∧
+      rewritten currentContract (slotPointer slot) =
+        IRStorageWord.ofNat (values.length + 1) := by
+  constructor
+  · have hfield : findFieldWithResolvedSlot [arrayBridgeField slot] "__array_bridge" =
+        some (arrayBridgeField slot, slot) := rfl
+    rw [SourceSemantics.execStmt, hfield]
+    simp only [arrayBridgeField]
+    simp [SourceSemantics.evalExpr, SourceSemantics.wordNormalize_eq_mod,
+      Nat.mod_eq_of_lt hvalue, arrayBridgeState]
+  · dsimp
+    constructor
+    · simp [applyStateRewrite, storageArrayElementWrite, storageArrayLengthWrite,
+        applyStorageWrite, hdistinct]
+    · simp [applyStateRewrite, storageArrayElementWrite, storageArrayLengthWrite,
+        applyStorageWrite]
+
+/-- Executable pop reverts exactly for the empty source array.  The compiled
+    interpreter independently observes the same empty condition from canonical
+    storage via `popStorageArray_empty`. -/
+theorem popStorageArray_exec_empty (storage : SolidityStorage)
+    (currentContract slot : Nat)
+    (hempty : (storage currentContract (slotPointer slot)).toNat = 0) :
+    SourceSemantics.execStmt [arrayBridgeField slot] (arrayBridgeState slot [])
+        (.storageArrayPop "__array_bridge") = .revert ∧
+      Option.bind (compiledStorageArrayPop slot).toOption
+        (interpretCompiledStorageArrayPop storage currentContract) = none := by
+  constructor
+  · have hfield : findFieldWithResolvedSlot [arrayBridgeField slot] "__array_bridge" =
+        some (arrayBridgeField slot, slot) := rfl
+    rw [SourceSemantics.execStmt, hfield]
+    simp [arrayBridgeField, arrayBridgeState, SourceSemantics.storageArrayDropLast?]
+  · exact popStorageArray_empty storage currentContract slot hempty
+
+/-- For a nonempty executable pop, the source removes the last value and the
+    canonical diff records the same new length while clearing that vacated
+    index. -/
+theorem popStorageArray_exec_preserved
+    (storage : SolidityStorage) (currentContract slot : Nat)
+    (values updated : List Verity.Core.Uint256)
+    (hdrop : SourceSemantics.storageArrayDropLast? values = some updated)
+    (hdistinct : storageArrayElementPointer slot updated.length ≠ slotPointer slot) :
+    SourceSemantics.execStmt [arrayBridgeField slot] (arrayBridgeState slot values)
+        (.storageArrayPop "__array_bridge") =
+      .continue { arrayBridgeState slot values with
+        world := SourceSemantics.writeStorageArray
+          (arrayBridgeState slot values).world slot updated } ∧
+    let rewritten := applyStateRewrite
+      [storageArrayElementWrite currentContract slot updated.length (IRStorageWord.ofNat 0),
+        storageArrayLengthWrite currentContract slot updated.length] storage
+    rewritten currentContract (storageArrayElementPointer slot updated.length) =
+        IRStorageWord.ofNat 0 ∧
+      rewritten currentContract (slotPointer slot) =
+        IRStorageWord.ofNat updated.length := by
+  constructor
+  · have hfield : findFieldWithResolvedSlot [arrayBridgeField slot] "__array_bridge" =
+        some (arrayBridgeField slot, slot) := rfl
+    rw [SourceSemantics.execStmt, hfield]
+    simp [arrayBridgeField, arrayBridgeState, hdrop]
+  · dsimp
+    constructor
+    · simp [applyStateRewrite, storageArrayElementWrite, storageArrayLengthWrite,
+        applyStorageWrite, hdistinct]
+    · simp [applyStateRewrite, storageArrayElementWrite, storageArrayLengthWrite,
+        applyStorageWrite]
 
 end Compiler.Proofs.Storage
