@@ -4369,6 +4369,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.Storage.compiledStorageArrayElement_eq
   Compiler.Proofs.Storage.storageArrayElement_eq_storageArrayElement
   Compiler.Proofs.Storage.storageArrayElement_eq_canonicalStorageRead
+  Compiler.Proofs.Storage.storageArrayElement_eq_sourceEval
   Compiler.Proofs.Storage.storageArrayElement_outOfBounds
   Compiler.Proofs.Storage.compiledSetStorageArrayElement_eq
   Compiler.Proofs.Storage.setStorageArrayElement_eq_compiledSetStorageArrayElement
@@ -6498,4 +6499,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6083 theorems/lemmas (4227 public, 1856 private, 0 sorry'd)
+-- Total: 6084 theorems/lemmas (4228 public, 1856 private, 0 sorry'd)
