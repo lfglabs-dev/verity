@@ -49,6 +49,7 @@ import Compiler.Proofs.IRGeneration.Contract
 import Compiler.Proofs.IRGeneration.ContractFeatureTest
 import Compiler.Proofs.IRGeneration.ContractShape
 import Compiler.Proofs.IRGeneration.DenoteAgreement
+import Compiler.Proofs.IRGeneration.DenoteEquivalence
 import Compiler.Proofs.IRGeneration.DenoteFunctionAgreement
 import Compiler.Proofs.IRGeneration.Dispatch
 import Compiler.Proofs.IRGeneration.DynamicAbiRefinement
@@ -2239,6 +2240,22 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.DenoteAgreement.execStmt_forEachSetBit_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.execStmt_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.execStmtList_eq
+
+  -- Compiler/Proofs/IRGeneration/DenoteEquivalence.lean
+  Compiler.Proofs.IRGeneration.DenoteEquivalence.arithmetic_constructor
+  Compiler.Proofs.IRGeneration.DenoteEquivalence.storage_read_constructor
+  Compiler.Proofs.IRGeneration.DenoteEquivalence.storage_write_constructor
+  Compiler.Proofs.IRGeneration.DenoteEquivalence.control_flow_constructor
+  Compiler.Proofs.IRGeneration.DenoteEquivalence.revert_constructor
+  Compiler.Proofs.IRGeneration.DenoteEquivalence.statement_list_composition
+  Compiler.Proofs.IRGeneration.DenoteEquivalence.toIRTransaction_functionSelector
+  Compiler.Proofs.IRGeneration.DenoteEquivalence.toIRTransaction_args
+  Compiler.Proofs.IRGeneration.DenoteEquivalence.effectiveFields_eq
+  Compiler.Proofs.IRGeneration.DenoteEquivalence.encodeStorage_eq
+  Compiler.Proofs.IRGeneration.DenoteEquivalence.revertedResult_eq
+  Compiler.Proofs.IRGeneration.DenoteEquivalence.successResult_eq
+  Compiler.Proofs.IRGeneration.DenoteEquivalence.withTransactionContext_eq
+  Compiler.Proofs.IRGeneration.DenoteEquivalence.denote_eq_sourceSemantics
 
   -- Compiler/Proofs/IRGeneration/DenoteFunctionAgreement.lean
   Compiler.Proofs.IRGeneration.DenoteAgreement.dedupNatPreserve_go_eq
@@ -6467,4 +6484,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6055 theorems/lemmas (4199 public, 1856 private, 0 sorry'd)
+-- Total: 6069 theorems/lemmas (4213 public, 1856 private, 0 sorry'd)
