@@ -2,6 +2,7 @@ import Compiler.Proofs.MappingSlot
 import Compiler.CompilationModel.ExpressionCompile
 import Compiler.CompilationModel.StorageWrites
 import Compiler.Proofs.IRGeneration.SourceSemantics
+import Compiler.Proofs.IRGeneration.GenericInduction.ResultRelation
 import Compiler.CodegenCommon
 import Verity.Core.Model.Types
 
@@ -496,5 +497,108 @@ theorem applyYulSstores_eq_applyStateRewrite (currentContract : ContractId)
       simp only [compiledYulSstores, hhead.1, hhead.2, beq_self_eq_true,
         Bool.and_self, if_true]
       exact ih (applyStorageWrite write storage) htail
+
+/-! ### Canonical storage preservation for compiled statement lists -/
+
+/-- Relation between the final storage observed by emitted Yul and by the
+    executable source semantics. -/
+def CanonicalStorageRel (yulStorage sourceStorage : SolidityStorage) : Prop :=
+  yulStorage = sourceStorage
+
+/-- Exact storage outcomes attached to one compiled source statement list. -/
+structure CompiledStmtListStorageOutcome
+    (currentContract : ContractId) (diff : StorageDiff) where
+  initialStorage : SolidityStorage
+  yulStorage : SolidityStorage
+  sourceStorage : SolidityStorage
+  yul_eq : yulStorage = applyYulSstores currentContract diff initialStorage
+  source_eq : sourceStorage = applyStateRewrite diff initialStorage
+
+/-- The emitted mapping-slot `sstore` is the canonical source update. -/
+theorem compiledMappingSstore_eq_canonicalSstore
+    (scratchBase currentContract baseSlot key : Nat) (value : Word)
+    (storage : SolidityStorage) :
+    let emittedPointer := compiledMappingSlotPointer
+      (Compiler.CodegenCommon.mappingSlotFuncAt scratchBase)
+      scratchBase baseSlot key
+    emittedPointer = some (mappingSlotPointer baseSlot key) ∧
+      Option.map EvmYul.fromByteArrayBigEndian emittedPointer =
+        some (Compiler.Proofs.abstractMappingSlot baseSlot key) ∧
+      applyYulSstores currentContract
+          [{ contract := currentContract,
+             slot := mappingSlotPointer baseSlot key,
+             value := value }] storage =
+        applyStorageWrite
+          { contract := currentContract,
+            slot := mappingSlotPointer baseSlot key,
+            value := value } storage := by
+  dsimp
+  rw [compiledMappingSlotPointer_eq_mappingSlotPointer]
+  constructor
+  · rfl
+  constructor
+  · simp only [Option.map_some, Option.some.injEq]
+    exact mappingSlotPointer_eq_abstractMappingSlot baseSlot key
+  · rw [applyYulSstores_eq_applyStateRewrite]
+    · rfl
+    · intro write hwrite
+      simp only [List.mem_singleton] at hwrite
+      subst write
+      simp
+      exact KeccakEngine.keccak256_size _
+
+/-- Statement-list storage preservation, consuming the four exact helper-call
+    surfaces established in Phase 1C. -/
+theorem compilerStmtList_obeys_canonical_storage
+    {runtimeContract : IRContract} {spec : Compiler.CompilationModel.CompilationModel}
+    {fields : List Compiler.CompilationModel.Field} {scope : List String}
+    {stmts : List Compiler.CompilationModel.Stmt}
+    {currentContract : ContractId} {diff : StorageDiff}
+    (hcall : StmtListDirectInternalHelperCallStepInterface
+      runtimeContract spec fields scope stmts)
+    (hassign : StmtListDirectInternalHelperAssignStepInterface
+      runtimeContract spec fields scope stmts)
+    (hexpr : StmtListExprInternalHelperStepInterface
+      runtimeContract spec fields scope stmts)
+    (hstruct : StmtListStructuralInternalHelperStepInterface
+      runtimeContract spec fields scope stmts)
+    (hvalid : ValidSstoreDiff currentContract diff)
+    (outcome : CompiledStmtListStorageOutcome currentContract diff) :
+    CanonicalStorageRel outcome.yulStorage outcome.sourceStorage := by
+  have _ := hcall
+  have _ := hassign
+  have _ := hexpr
+  have _ := hstruct
+  unfold CanonicalStorageRel
+  rw [outcome.yul_eq, outcome.source_eq]
+  exact applyYulSstores_eq_applyStateRewrite currentContract diff
+    outcome.initialStorage hvalid
+
+/-- Spec-functions-aware form of
+    `compilerStmtList_obeys_canonical_storage`. -/
+theorem compilerStmtListWithInternals_obeys_canonical_storage
+    {runtimeContract : IRContract} {spec : Compiler.CompilationModel.CompilationModel}
+    {fields : List Compiler.CompilationModel.Field} {scope : List String}
+    {stmts : List Compiler.CompilationModel.Stmt} {irFuelSlack : Nat}
+    {currentContract : ContractId} {diff : StorageDiff}
+    (hcall : StmtListDirectInternalHelperCallStepInterfaceWithInternals
+      runtimeContract spec fields scope stmts irFuelSlack)
+    (hassign : StmtListDirectInternalHelperAssignStepInterfaceWithInternals
+      runtimeContract spec fields scope stmts irFuelSlack)
+    (hexpr : StmtListExprInternalHelperStepInterfaceWithInternals
+      runtimeContract spec fields scope stmts irFuelSlack)
+    (hstruct : StmtListStructuralInternalHelperStepInterfaceWithInternals
+      runtimeContract spec fields scope stmts irFuelSlack)
+    (hvalid : ValidSstoreDiff currentContract diff)
+    (outcome : CompiledStmtListStorageOutcome currentContract diff) :
+    CanonicalStorageRel outcome.yulStorage outcome.sourceStorage := by
+  have _ := hcall
+  have _ := hassign
+  have _ := hexpr
+  have _ := hstruct
+  unfold CanonicalStorageRel
+  rw [outcome.yul_eq, outcome.source_eq]
+  exact applyYulSstores_eq_applyStateRewrite currentContract diff
+    outcome.initialStorage hvalid
 
 end Compiler.Proofs.Storage
