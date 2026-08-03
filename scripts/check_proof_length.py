@@ -36,6 +36,12 @@ HARD_LIMIT = 50
 # before the check was introduced. New proofs must not be added here without a
 # justification comment in the PR explaining why decomposition is not feasible.
 ALLOWLIST: set[str] = {
+    # #2081 canonical-storage consequences: these wrappers are signature-dominated
+    # adapters carrying the exact compile, execution, helper-interface, and state
+    # premises. Their proof bodies only invoke the corresponding generic theorem;
+    # splitting would hide which premises tie storage to the actual executions.
+    "compilerStmtList_obeys_canonical_storage",
+    "compilerStmtListWithInternals_obeys_canonical_storage",
     # #2080 direct-helper dispatch seams: these are signature-dominated adapters
     # that carry the helper table, compilation, and state/fuel relations together.
     # Splitting them would duplicate the same witness plumbing without reducing
