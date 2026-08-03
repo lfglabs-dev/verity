@@ -1,4 +1,4 @@
-import Compiler.Proofs.IRGeneration.DenoteAgreement
+import Compiler.Proofs.IRGeneration.DenoteFunctionAgreement
 
 /-!
 # Equivalence of the canonical denotation and source semantics
@@ -6,7 +6,7 @@ import Compiler.Proofs.IRGeneration.DenoteAgreement
 This module closes the semantic bridge promised by `Denote.lean`.  The theorem
 `denote_eq_sourceSemantics` is deliberately stated at the existing
 `SupportedFunction` boundary.  Consequently raw calls, ECM, `memoryArray*`,
-dynamic-array accessors, unsafe Yul, internal calls, richer returns, and every
+dynamic-array accessors, unsupported Yul, internal calls, richer returns, and every
 other constructor rejected by the feature-local supported-fragment predicates
 are outside the theorem.  Adding a newly denoted constructor therefore only
 requires extending the corresponding constructor lemma in
@@ -74,32 +74,32 @@ def toIRTransaction (tx : DenoteTransaction) : IRTransaction :=
     functionSelector := tx.functionSelector
     args := tx.args }
 
-def toSourceResult (result : DenoteResult) : SourceSemantics.SourceContractResult :=
-  { success := result.success
-    returnValue := result.returnValue
-    finalStorage := result.finalStorage
-    events := result.events }
+@[simp] theorem toIRTransaction_functionSelector (tx : DenoteTransaction) :
+    (toIRTransaction tx).functionSelector = tx.functionSelector := rfl
+
+@[simp] theorem toIRTransaction_args (tx : DenoteTransaction) :
+    (toIRTransaction tx).args = tx.args := rfl
+
+abbrev toSourceResult := DenoteAgreement.toSourceResult
 
 @[simp] theorem effectiveFields_eq (spec : CompilationModel) :
-    Denote.effectiveFields spec = SourceSemantics.effectiveFields spec := rfl
+    Denote.effectiveFields spec = SourceSemantics.effectiveFields spec :=
+  DenoteAgreement.effectiveFields_eq spec
 
 theorem encodeStorage_eq (spec : CompilationModel) (world : Verity.ContractState) :
-    Denote.encodeStorage sourceOracle spec world = SourceSemantics.encodeStorage spec world := by
-  funext slot
-  rfl
+    Denote.encodeStorage sourceOracle spec world = SourceSemantics.encodeStorage spec world :=
+  DenoteAgreement.encodeStorage_eq spec world
 
 theorem revertedResult_eq (spec : CompilationModel) (world : Verity.ContractState) :
     toSourceResult (Denote.revertedResult sourceOracle spec world) =
-      SourceSemantics.revertedResult spec world := by
-  ext <;> simp [toSourceResult, Denote.revertedResult, SourceSemantics.revertedResult,
-    encodeStorage_eq]
+      SourceSemantics.revertedResult spec world :=
+  DenoteAgreement.toSourceResult_revertedResult spec world
 
 theorem successResult_eq (spec : CompilationModel) (world : Verity.ContractState)
     (ret : Option Nat) :
     toSourceResult (Denote.successResult sourceOracle spec world ret) =
-      SourceSemantics.successResult spec world ret := by
-  ext <;> simp [toSourceResult, Denote.successResult, SourceSemantics.successResult,
-    encodeStorage_eq]
+      SourceSemantics.successResult spec world ret :=
+  DenoteAgreement.toSourceResult_successResult spec world ret
 
 theorem withTransactionContext_eq (world : Verity.ContractState) (tx : DenoteTransaction) :
     Denote.withTransactionContext world tx =
@@ -109,7 +109,7 @@ theorem withTransactionContext_eq (world : Verity.ContractState) (tx : DenoteTra
 
 `SupportedFunction` is the explicit exclusion boundary: its core/state/call/
 effect interfaces reject raw calls, ECM, `memoryArray*`, dynamic calldata-array
-operations, unsafe constructs, internal calls, richer returns, and all other
+operations, unsupported constructs, internal calls, richer returns, and all other
 constructors not admitted by the current denoted fragment.  From the same
 initial world and transaction environment, both semantics have identical
 success/revert behavior, return value, final storage, and encoded event trace.
@@ -124,30 +124,43 @@ theorem denote_eq_sourceSemantics
     stmtListTouchesUnsupportedContractSurface_eq_false_of_featureClosed fn.body
       hsupported.body.core.surfaceClosed
       hsupported.body.state.surfaceClosed
-      hsupported.body.calls.surfaceClosed
+      (SupportedBodyCallInterface.surfaceClosed (hBody := hsupported.body))
       hsupported.body.effects.surfaceClosed
   simp only [Denote.denoteFunction, SourceSemantics.interpretFunction,
-    withTransactionContext_eq, effectiveFields_eq]
-  cases hbind : Denote.bindExternalParams tx.functionSelector fn.params tx.args with
+    withTransactionContext_eq, effectiveFields_eq, Denote.bindExternalParams,
+    SourceSemantics.bindExternalParams, toIRTransaction_functionSelector,
+    toIRTransaction_args]
+  cases hbind : DynamicAbi.bindExternalParams tx.functionSelector fn.params tx.args with
   | none =>
-      rw [revertedResult_eq]
-      rfl
+      simp only [revertedResult_eq]
   | some bindings =>
+      simp only
       have hevents := SourceSemantics.execStmtListWithEvents_eq_execStmtList_of_contractSurfaceClosed
         (SourceSemantics.effectiveFields spec) spec.events fn.body hsurface
         { world := SourceSemantics.withTransactionContext initialWorld (toIRTransaction tx)
           bindings := bindings
           selector := tx.functionSelector }
       rw [hevents]
-      have hagree := statement_list_composition (Denote.effectiveFields spec)
-        { world := Denote.withTransactionContext initialWorld tx
-          bindings := bindings
-          selector := tx.functionSelector } fn.body
-      cases hout : Denote.execStmtList sourceOracle (Denote.effectiveFields spec)
-          { world := Denote.withTransactionContext initialWorld tx
+      have hagree :
+          toStmtResult (Denote.execStmtList sourceOracle
+            (SourceSemantics.effectiveFields spec)
+            { world := SourceSemantics.withTransactionContext initialWorld (toIRTransaction tx)
+              bindings := bindings
+              selector := tx.functionSelector } fn.body) =
+            SourceSemantics.execStmtList (SourceSemantics.effectiveFields spec)
+              { world := SourceSemantics.withTransactionContext initialWorld (toIRTransaction tx)
+                bindings := bindings
+                selector := tx.functionSelector } fn.body := by
+        simpa only [DenoteAgreement.toRuntimeState] using
+          statement_list_composition (SourceSemantics.effectiveFields spec)
+            { world := SourceSemantics.withTransactionContext initialWorld (toIRTransaction tx)
+              bindings := bindings
+              selector := tx.functionSelector } fn.body
+      rw [← hagree]
+      cases Denote.execStmtList sourceOracle (SourceSemantics.effectiveFields spec)
+          { world := SourceSemantics.withTransactionContext initialWorld (toIRTransaction tx)
             bindings := bindings
             selector := tx.functionSelector } fn.body <;>
-        simp [hout, toStmtResult] at hagree <;>
-        simp [hout, hagree, successResult_eq, revertedResult_eq]
+        simp [DenoteAgreement.toStmtResult, DenoteAgreement.toRuntimeState]
 
 end Compiler.Proofs.IRGeneration.DenoteEquivalence
