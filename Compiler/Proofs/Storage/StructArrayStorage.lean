@@ -64,6 +64,17 @@ def structBridgeField (baseSlot wordOffset : Nat) : Field :=
     ty := .mappingStruct .uint256 [structBridgeMember wordOffset],
     slot := some baseSlot }
 
+/-- Packed variant of the bridge member.  Keeping `packed` explicit exercises
+    the compiler's `shr`/`and` read and read-modify-write assignment paths. -/
+def packedStructBridgeMember (wordOffset : Nat) (packed : PackedBits) : StructMember :=
+  { name := "__packed_struct_bridge_member", ty := .uint256,
+    wordOffset := wordOffset, packed := some packed }
+
+def packedStructBridgeField (baseSlot wordOffset : Nat) (packed : PackedBits) : Field :=
+  { name := "__packed_struct_bridge",
+    ty := .mappingStruct .uint256 [packedStructBridgeMember wordOffset packed],
+    slot := some baseSlot }
+
 /-- The slot expression the compiler builds for a struct member: the mapping
     pointer, advanced by `wordOffset` only when that offset is non-zero. -/
 def structMemberSlotYul (baseSlot key wordOffset : Nat) : YulExpr :=
@@ -84,6 +95,20 @@ theorem compiledStructMemberRead_eq (baseSlot key wordOffset : Nat) :
       .ok (.call "sload"
         [structMemberSlotYul baseSlot (key % uint256Modulus) wordOffset]) := by
   unfold compiledStructMemberRead
+  simp only [compileExprWithInternals]
+  rfl
+
+/-- Packed member reads extract exactly the declared bit range from the same
+    canonical struct-member slot used by unpacked members. -/
+theorem compiledPackedStructMemberRead_eq
+    (baseSlot key wordOffset : Nat) (packed : PackedBits) :
+    compileExprWithInternals [packedStructBridgeField baseSlot wordOffset packed] .calldata []
+        (.structMember "__packed_struct_bridge" (.literal key)
+          "__packed_struct_bridge_member") =
+      .ok (.call "and" [
+        .call "shr" [.lit packed.offset,
+          .call "sload" [structMemberSlotYul baseSlot (key % uint256Modulus) wordOffset]],
+        .lit (packedMaskNat packed)]) := by
   simp only [compileExprWithInternals]
   rfl
 
@@ -180,6 +205,55 @@ theorem compiledStructMemberWrite_eq (baseSlot key wordOffset value : Nat) :
           .lit (value % uint256Modulus)])] := by
   unfold compiledStructMemberWrite
   simp only [compileSetStructMember, compileExprWithInternals]
+  rfl
+
+/-- Packed assignment is a canonical-slot read-modify-write: it masks the new
+    subfield, clears only its shifted range in the loaded word, and ORs the
+    shifted value back.  Thus bits outside `packedShiftedMaskNat packed` remain
+    sourced from the old canonical word. -/
+theorem compiledPackedStructMemberWrite_regression :
+    compileSetStructMember
+        [packedStructBridgeField 7 2 { offset := 8, width := 16 }] .calldata
+        "__packed_struct_bridge" (.literal 11) "__packed_struct_bridge_member"
+        (.literal 5) =
+      .ok [.block [
+        .let_ "__compat_value" (.lit 5),
+        .let_ "__compat_packed" (.call "and"
+          [.ident "__compat_value", .lit (packedMaskNat { offset := 8, width := 16 })]),
+        .let_ "__compat_slot_word" (.call "sload"
+          [structMemberSlotYul 7 11 2]),
+        .let_ "__compat_slot_cleared" (.call "and" [
+          .ident "__compat_slot_word",
+          .call "not" [.lit (packedShiftedMaskNat { offset := 8, width := 16 })]]),
+        .exprStmt (.call "sstore" [
+          structMemberSlotYul 7 11 2,
+          .call "or" [.ident "__compat_slot_cleared",
+            .call "shl" [.lit 8, .ident "__compat_packed"]]])]] := by
+  have hmap2 : isMapping2 [packedStructBridgeField 7 2 { offset := 8, width := 16 }]
+      "__packed_struct_bridge" = false := rfl
+  have hmap : isMapping [packedStructBridgeField 7 2 { offset := 8, width := 16 }]
+      "__packed_struct_bridge" = true := rfl
+  have hmembers : findStructMembers
+      [packedStructBridgeField 7 2 { offset := 8, width := 16 }]
+      "__packed_struct_bridge" =
+        some [packedStructBridgeMember 2 { offset := 8, width := 16 }] := rfl
+  have hmember : findStructMember
+      [packedStructBridgeMember 2 { offset := 8, width := 16 }]
+      "__packed_struct_bridge_member" =
+        some (packedStructBridgeMember 2 { offset := 8, width := 16 }) := rfl
+  have hslots : findFieldWriteSlots
+      [packedStructBridgeField 7 2 { offset := 8, width := 16 }]
+      "__packed_struct_bridge" = some [7] := rfl
+  have hfield : findFieldWithResolvedSlot
+      [packedStructBridgeField 7 2 { offset := 8, width := 16 }]
+      "__packed_struct_bridge" =
+        some (packedStructBridgeField 7 2 { offset := 8, width := 16 }, 7) := rfl
+  simp only [compileSetStructMember, compileExprWithInternals, hmap2, Bool.false_eq_true,
+    if_false, hmembers, hmember]
+  unfold compileMappingPackedSlotWrite
+  rw [hmap, hslots]
+  rw [hfield]
+  simp only [packedStructBridgeField, packedStructBridgeMember]
   rfl
 
 /-- Structurally interpret the emitted struct-member `sstore` as a canonical
@@ -368,18 +442,18 @@ theorem storageArrayElement_eq_canonicalStorageRead (storage : SolidityStorage)
 
 /-- Canonical array words and the executable source array describe the same
     length and element values for one contract and one field slot. -/
-def StorageArrayCoherent (storage : SolidityStorage) (id : ContractId) (slot : Nat)
-    (values : List Verity.Core.Uint256) : Prop :=
-  (storage id (slotPointer slot)).toNat = values.length ∧
-    ∀ index value, values[index]? = some value →
-      (storage id (storageArrayElementPointer slot index)).toNat = value.val
+def StorageArrayCoherent (storage : SolidityStorage) (currentContract : ContractId)
+    (slot : Nat) (world : Verity.ContractState) : Prop :=
+  (storage currentContract (slotPointer slot)).toNat = (world.storageArray slot).length ∧
+    ∀ index value, (world.storageArray slot)[index]? = some value →
+      (storage currentContract (storageArrayElementPointer slot index)).toNat = value.val
 
 /-- Under the explicit source/canonical coherence invariant, interpreting the
     checked compiled read and loading its canonical word agrees with executable
     `SourceSemantics.evalExpr`. -/
 theorem storageArrayElement_eq_sourceEval (storage : SolidityStorage)
     (id : ContractId) (slot index : Nat) (values : List Verity.Core.Uint256)
-    (hcoherent : StorageArrayCoherent storage id slot values)
+    (hcoherent : StorageArrayCoherent storage id slot (arrayBridgeState slot values).world)
     (hindex : index < values.length)
     (hword : index < Compiler.Constants.evmModulus) :
     Option.map IRStorageWord.toNat
@@ -389,7 +463,10 @@ theorem storageArrayElement_eq_sourceEval (storage : SolidityStorage)
       SourceSemantics.evalExpr [arrayBridgeField slot] (arrayBridgeState slot values)
         (.storageArrayElement "__array_bridge" (.literal index)) := by
   have hcanonical : index < (storage id (slotPointer slot)).toNat := by
-    simpa [hcoherent.1] using hindex
+    have hlength := hcoherent.1
+    simp [arrayBridgeState] at hlength
+    rw [hlength]
+    exact hindex
   rw [storageArrayElement_eq_storageArrayElement storage id slot index hcanonical]
   have hnth : ∃ value, values[index]? = some value := by
     exact List.getElem?_eq_getElem hindex |>.symm ▸ ⟨values[index], rfl⟩
@@ -405,7 +482,7 @@ theorem storageArrayElement_eq_sourceEval (storage : SolidityStorage)
       Nat.mod_eq_of_lt hword, hfield]
     simp [arrayBridgeField, arrayBridgeState, hvalue]
   rw [hsource]
-  exact congrArg some (hcoherent.2 index value hvalue)
+  exact congrArg some (hcoherent.2 index value (by simpa [arrayBridgeState] using hvalue))
 
 /-- A checked read rejects an index at or beyond the length loaded from the
     canonical array slot. -/
@@ -536,9 +613,9 @@ def interpretCompiledStorageArrayPush (storage : SolidityStorage)
         [.call "add" [.ident "__array_base", .ident "__array_len"], .lit value]),
       .exprStmt (.call "sstore"
         [.lit lengthSlot, .call "add" [.ident "__array_len", .lit one]])]] =>
+      let oldLength := (storage currentContract (slotPointer slot)).toNat
       if storePtr == 0 && storeSlot == slot && hashPtr == 0 && hashSize == 32 &&
-          lengthSlot == slot && one == 1 then
-        let oldLength := (storage currentContract (slotPointer slot)).toNat
+          lengthSlot == slot && one == 1 && oldLength + 1 < Compiler.Constants.evmModulus then
         some [storageArrayElementWrite currentContract slot oldLength (IRStorageWord.ofNat value),
           storageArrayLengthWrite currentContract slot (oldLength + 1)]
       else
@@ -549,7 +626,9 @@ def interpretCompiledStorageArrayPush (storage : SolidityStorage)
     canonical two-slot diff: store the value one past the end, then record the
     incremented length. -/
 theorem pushStorageArray_eq_compiledStorageArrayPush
-    (storage : SolidityStorage) (currentContract slot value : Nat) :
+    (storage : SolidityStorage) (currentContract slot value : Nat)
+    (hroom : (storage currentContract (slotPointer slot)).toNat + 1 <
+      Compiler.Constants.evmModulus) :
     Option.bind (compiledStorageArrayPush slot value).toOption
         (interpretCompiledStorageArrayPush storage currentContract) =
       some [storageArrayElementWrite currentContract slot
@@ -558,12 +637,14 @@ theorem pushStorageArray_eq_compiledStorageArrayPush
         storageArrayLengthWrite currentContract slot
           ((storage currentContract (slotPointer slot)).toNat + 1)] := by
   rw [compiledStorageArrayPush_eq]
-  simp [Except.toOption, interpretCompiledStorageArrayPush]
+  simp [Except.toOption, interpretCompiledStorageArrayPush, hroom]
 
 /-- A caller-supplied length is irrelevant: push always uses the canonical
     length word.  This regression makes the mismatched-length case explicit. -/
 theorem pushStorageArray_ignoresCallerLength
     (storage : SolidityStorage) (currentContract slot value claimed : Nat)
+    (hroom : (storage currentContract (slotPointer slot)).toNat + 1 <
+      Compiler.Constants.evmModulus)
     (_hmismatch : claimed ≠ (storage currentContract (slotPointer slot)).toNat) :
     Option.bind (compiledStorageArrayPush slot value).toOption
         (interpretCompiledStorageArrayPush storage currentContract) =
@@ -572,12 +653,25 @@ theorem pushStorageArray_ignoresCallerLength
           (IRStorageWord.ofNat (value % uint256Modulus)),
         storageArrayLengthWrite currentContract slot
           ((storage currentContract (slotPointer slot)).toNat + 1)] :=
-  pushStorageArray_eq_compiledStorageArrayPush storage currentContract slot value
+  pushStorageArray_eq_compiledStorageArrayPush storage currentContract slot value hroom
+
+/-- At the largest representable length the source-level length increment would
+    not be coherent with the EVM word written by Yul, so the preservation
+    interpreter deliberately rejects that state. -/
+theorem pushStorageArray_maxLength_rejected
+    (storage : SolidityStorage) (currentContract slot value : Nat)
+    (hmax : (storage currentContract (slotPointer slot)).toNat + 1 ≥
+      Compiler.Constants.evmModulus) :
+    Option.bind (compiledStorageArrayPush slot value).toOption
+        (interpretCompiledStorageArrayPush storage currentContract) = none := by
+  rw [compiledStorageArrayPush_eq]
+  simp [Except.toOption, interpretCompiledStorageArrayPush, Nat.not_lt.mpr hmax]
 
 /-- A push extends the source-level array by exactly the pushed value, so the
     canonical element write above lands one past the previous end. -/
 theorem pushStorageArray_source_length (values : List Verity.Core.Uint256)
-    (value : Verity.Core.Uint256) :
+    (value : Verity.Core.Uint256)
+    (_hroom : values.length + 1 < Compiler.Constants.evmModulus) :
     (values ++ [value]).length = values.length + 1 := by
   simp
 
