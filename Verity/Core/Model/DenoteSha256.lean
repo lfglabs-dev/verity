@@ -43,9 +43,12 @@ structure StaticCallRequest where
   outputSize : Nat
   input : ByteArray
 
+/-- A successful SHA-256 precompile result is intrinsically one digest. -/
+abbrev Digest := { bytes : ByteArray // bytes.size = digestSize }
+
 /-- The only call-level effects relevant to the SHA-256 precompile. -/
 inductive StaticCallResult where
-  | success (returnData : ByteArray)
+  | success (digest : Digest)
   | failure
 
 /-- External interpretation of a static call. -/
@@ -86,22 +89,20 @@ def denote (oracle : StaticCallOracle) (world : Verity.ContractState)
   match oracle (request world.memory inputOffset inputSize outputOffset) with
   | .failure => .revert
   | .success digest =>
-      if digest.size = digestSize then
-        .success (digestWord digest) (writeDigest world outputOffset digest)
-      else
-        .revert
+      .success (digestWord digest) (writeDigest world outputOffset digest)
 
 /-- The named FIPS assumption.  `fipsSha256` denotes SHA-256 as specified by
 FIPS 180-4; the hypothesis states that every successful EVM precompile call at
-address `0x02` returns exactly that 32-byte digest for the requested memory
-slice.  It makes no availability/success assumption. -/
+address `0x02` returns exactly that digest for the requested memory slice.
+The result type enforces the 32-byte width, and the hypothesis makes no
+availability/success assumption. -/
 def sha256_correct (oracle : StaticCallOracle)
     (fipsSha256 : ByteArray → ByteArray) : Prop :=
   ∀ req digest,
     req.address = precompileAddress →
     req.outputSize = digestSize →
     oracle req = .success digest →
-    digest = fipsSha256 req.input ∧ digest.size = digestSize
+    digest.val = fipsSha256 req.input
 
 /-! ## Slice, offset, and padding facts -/
 
@@ -161,10 +162,11 @@ theorem denote_failure (oracle : StaticCallOracle) (world : Verity.ContractState
   simp [denote, hfail]
 
 /-- Composition theorem connecting slicing, the address-2 static call, FIPS
-correctness, the 32-byte output check, and the final memory write. -/
+correctness, the structurally guaranteed 32-byte output, and the final memory
+write. -/
 theorem denote_success_compose (oracle : StaticCallOracle)
     (fipsSha256 : ByteArray → ByteArray) (world : Verity.ContractState)
-    (inputOffset inputSize outputOffset : Nat) (digest : ByteArray)
+    (inputOffset inputSize outputOffset : Nat) (digest : Digest)
     (sha256_correct : sha256_correct oracle fipsSha256)
     (hcall : oracle (request world.memory inputOffset inputSize outputOffset) =
       .success digest) :
@@ -176,13 +178,8 @@ theorem denote_success_compose (oracle : StaticCallOracle)
   have hcorrect := sha256_correct
     (request world.memory inputOffset inputSize outputOffset)
     digest rfl rfl hcall
-  have heq : digest = fipsSha256 (memorySlice world.memory inputOffset inputSize) := by
-    simpa [request] using hcorrect.1
-  have hsize : (fipsSha256 (memorySlice world.memory inputOffset inputSize)).size =
-      digestSize := by
-    rw [← heq]
-    exact hcorrect.2
-  rw [heq] at hcall
-  simp [denote, hcall, hsize, digestSize]
+  have heq : digest.val = fipsSha256 (memorySlice world.memory inputOffset inputSize) := by
+    simpa [request] using hcorrect
+  simp [denote, hcall, heq]
 
 end Compiler.CompilationModel.Denote.Sha256
