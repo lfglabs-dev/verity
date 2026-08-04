@@ -82,6 +82,7 @@ import Compiler.Proofs.IRGeneration.SourceSemantics
 import Compiler.Proofs.IRGeneration.SupportedFragment
 import Compiler.Proofs.IRGeneration.SupportedSpec
 import Compiler.Proofs.KeccakBound
+import Compiler.Proofs.LoopSimulation
 import Compiler.Proofs.MappingSlot
 import Compiler.Proofs.Storage.SolidityStorage
 import Compiler.Proofs.Storage.StructArrayStorage
@@ -4329,6 +4330,31 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.fromBytes'_lt_of_length_le  -- private
   Compiler.Proofs.fromByteArrayBigEndian_lt_of_size
 
+  -- Compiler/Proofs/LoopSimulation.lean
+  Compiler.Proofs.LoopSimulation.loopIndices_zero
+  Compiler.Proofs.LoopSimulation.loopIndices_succ
+  Compiler.Proofs.LoopSimulation.forEachFrom_eq_foldl
+  Compiler.Proofs.LoopSimulation.forEach_eq_foldl
+  Compiler.Proofs.LoopSimulation.foldl_eq_forEach
+  Compiler.Proofs.LoopSimulation.forEachFrom_preserves_indexInvariant
+  Compiler.Proofs.LoopSimulation.forEach_preserves_indexInvariant
+  Compiler.Proofs.LoopSimulation.forEachFrom_trace_order
+  Compiler.Proofs.LoopSimulation.forEach_trace_order
+  Compiler.Proofs.LoopSimulation.foldl_rel
+  Compiler.Proofs.LoopSimulation.forEach_rel
+  Compiler.Proofs.LoopSimulation.normalizeUInt256_eq_val
+  Compiler.Proofs.LoopSimulation.normalizeUInt256_lt
+  Compiler.Proofs.LoopSimulation.normalizeUInt256_idem
+  Compiler.Proofs.LoopSimulation.normalizeUInt256_eq_self
+  Compiler.Proofs.LoopSimulation.normalizeUInt256_add
+  Compiler.Proofs.LoopSimulation.normalizeUInt256_succ
+  Compiler.Proofs.LoopSimulation.iterateMappingWrites_eq_stateRewrite
+  Compiler.Proofs.LoopSimulation.mappingReadAt_of_key
+  Compiler.Proofs.LoopSimulation.mappingIteration_compiled_eq_canonical
+  Compiler.Proofs.LoopSimulation.forEach_sum_eq_foldl_getD
+  Compiler.Proofs.LoopSimulation.foldl_range_getD_eq_foldl
+  Compiler.Proofs.LoopSimulation.forEach_sum_over_array
+
   -- Compiler/Proofs/MappingSlot.lean
   Compiler.Proofs.abstractMappingSlot_eq_solidity
   Compiler.Proofs.abstractMappingTag_eq_zero
@@ -6539,4 +6565,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6121 theorems/lemmas (4265 public, 1856 private, 0 sorry'd)
+-- Total: 6144 theorems/lemmas (4288 public, 1856 private, 0 sorry'd)
