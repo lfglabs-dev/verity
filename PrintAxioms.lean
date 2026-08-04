@@ -4369,6 +4369,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.Storage.compiledSstoreStmts_eq
   Compiler.Proofs.Storage.applyYulSstores_eq_compiledYulSstores
   Compiler.Proofs.Storage.applyYulSstores_eq_applyStateRewrite
+  Compiler.Proofs.Storage.runtimeStateMatchesIR_storageProjections_eq
+  Compiler.Proofs.Storage.applyStateRewrite_preserves_canonicalStorageRel
   Compiler.Proofs.Storage.compiledMappingSstore_eq_canonicalSstore
   Compiler.Proofs.Storage.compilerStmtList_obeys_canonical_storage
   Compiler.Proofs.Storage.compilerStmtListWithInternals_obeys_canonical_storage
@@ -6539,4 +6541,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6121 theorems/lemmas (4265 public, 1856 private, 0 sorry'd)
+-- Total: 6123 theorems/lemmas (4267 public, 1856 private, 0 sorry'd)
