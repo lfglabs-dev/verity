@@ -499,19 +499,55 @@ theorem applyYulSstores_eq_applyStateRewrite (currentContract : ContractId)
         Bool.and_self, if_true]
       exact ih (applyStorageWrite write storage) htail
 
-/-- Canonical storage agreement is closed under a valid compiled/source state
-    rewrite: equal pre-states produce equal post-states.  The live canonical
-    relation is equality itself, as used by `runtimeStateMatchesIR`; keeping it
-    explicit here avoids introducing a parallel storage relation. -/
+/-- Project the live IR storage of one executing contract into canonical,
+    contract-indexed Solidity storage. Other contracts are outside this
+    invocation and are represented by zero. -/
+def irStorageProjection (currentContract : ContractId) (state : IRState) :
+    SolidityStorage :=
+  fun contract slot =>
+    if contract = currentContract then
+      state.storage (IRStorageSlot.ofNat (EvmYul.fromByteArrayBigEndian slot))
+    else 0
+
+/-- Project the source runtime storage of one executing contract through the
+    same `encodeStorageAt` view used by `runtimeStateMatchesIR`. -/
+def sourceStorageProjection (fields : List Field) (currentContract : ContractId)
+    (runtime : SourceSemantics.RuntimeState) : SolidityStorage :=
+  fun contract slot =>
+    if contract = currentContract then
+      IRStorageWord.ofNat (SourceSemantics.encodeStorageAt fields runtime.world
+        (IRStorageSlot.ofNat (EvmYul.fromByteArrayBigEndian slot)).toNat)
+    else 0
+
+/-- The storage conjunct of `runtimeStateMatchesIR`, expressed on the canonical
+    contract/key storage surface consumed by state rewrites. -/
+theorem runtimeStateMatchesIR_storageProjections_eq
+    (fields : List Field) (currentContract : ContractId)
+    (runtime : SourceSemantics.RuntimeState) (state : IRState)
+    (hruntime : FunctionBody.runtimeStateMatchesIR fields runtime state) :
+    irStorageProjection currentContract state =
+      sourceStorageProjection fields currentContract runtime := by
+  funext contract slot
+  by_cases hcontract : contract = currentContract
+  · simp only [irStorageProjection, sourceStorageProjection, hcontract, if_true]
+    rw [hruntime.1]
+  · simp [irStorageProjection, sourceStorageProjection, hcontract]
+
+/-- A valid compiled/source rewrite preserves the live runtime/IR storage
+    relation, projected onto the canonical contract/key surface. The premise is
+    the actual `runtimeStateMatchesIR` invariant rather than an unrelated
+    equality between two abstract storages. -/
 theorem applyStateRewrite_preserves_canonicalStorageRel
-    (currentContract : ContractId) (diff : StorageDiff)
-    (yulStorage sourceStorage : SolidityStorage)
-    (hstorage : yulStorage = sourceStorage)
+    (fields : List Field) (currentContract : ContractId) (diff : StorageDiff)
+    (runtime : SourceSemantics.RuntimeState) (state : IRState)
+    (hruntime : FunctionBody.runtimeStateMatchesIR fields runtime state)
     (hvalid : ValidSstoreDiff currentContract diff) :
-    applyYulSstores currentContract diff yulStorage =
-      applyStateRewrite diff sourceStorage := by
-  subst sourceStorage
-  exact applyYulSstores_eq_applyStateRewrite currentContract diff yulStorage hvalid
+    applyYulSstores currentContract diff
+        (irStorageProjection currentContract state) =
+      applyStateRewrite diff
+        (sourceStorageProjection fields currentContract runtime) := by
+  rw [applyYulSstores_eq_applyStateRewrite currentContract diff _ hvalid,
+    runtimeStateMatchesIR_storageProjections_eq fields currentContract runtime state hruntime]
 
 /-! ### Canonical storage preservation for compiled statement lists -/
 
