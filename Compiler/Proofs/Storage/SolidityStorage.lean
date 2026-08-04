@@ -505,7 +505,7 @@ theorem applyYulSstores_eq_applyStateRewrite (currentContract : ContractId)
 def irStorageProjection (currentContract : ContractId) (state : IRState) :
     SolidityStorage :=
   fun contract slot =>
-    if contract = currentContract then
+    if contract = currentContract ∧ slot.size = 32 then
       state.storage (IRStorageSlot.ofNat (EvmYul.fromByteArrayBigEndian slot))
     else 0
 
@@ -514,7 +514,7 @@ def irStorageProjection (currentContract : ContractId) (state : IRState) :
 def sourceStorageProjection (fields : List Field) (currentContract : ContractId)
     (runtime : SourceSemantics.RuntimeState) : SolidityStorage :=
   fun contract slot =>
-    if contract = currentContract then
+    if contract = currentContract ∧ slot.size = 32 then
       IRStorageWord.ofNat (SourceSemantics.encodeStorageAt fields runtime.world
         (IRStorageSlot.ofNat (EvmYul.fromByteArrayBigEndian slot)).toNat)
     else 0
@@ -529,8 +529,11 @@ theorem runtimeStateMatchesIR_storageProjections_eq
       sourceStorageProjection fields currentContract runtime := by
   funext contract slot
   by_cases hcontract : contract = currentContract
-  · simp only [irStorageProjection, sourceStorageProjection, hcontract, if_true]
-    rw [hruntime.1]
+  · by_cases hslot : slot.size = 32
+    · simp only [irStorageProjection, sourceStorageProjection, hcontract, hslot,
+        and_self, if_true]
+      rw [hruntime.1]
+    · simp [irStorageProjection, sourceStorageProjection, hslot]
   · simp [irStorageProjection, sourceStorageProjection, hcontract]
 
 /-- A valid compiled/source rewrite preserves the live runtime/IR storage
