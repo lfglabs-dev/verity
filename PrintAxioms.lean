@@ -4342,6 +4342,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.LoopSimulation.forEach_trace_order
   Compiler.Proofs.LoopSimulation.foldl_rel
   Compiler.Proofs.LoopSimulation.forEach_rel
+  -- Compiler.Proofs.LoopSimulation.execForEachLoop_continue_eq_forEachFrom  -- private
+  Compiler.Proofs.LoopSimulation.forEach_rel_execForEachLoop_sound
   Compiler.Proofs.LoopSimulation.normalizeUInt256_eq_val
   Compiler.Proofs.LoopSimulation.normalizeUInt256_lt
   Compiler.Proofs.LoopSimulation.normalizeUInt256_idem
@@ -6567,4 +6569,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6146 theorems/lemmas (4290 public, 1856 private, 0 sorry'd)
+-- Total: 6148 theorems/lemmas (4291 public, 1857 private, 0 sorry'd)
