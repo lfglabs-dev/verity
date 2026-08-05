@@ -13,6 +13,7 @@ lean_lib «Compiler» where
     .andSubmodules `Compiler,
     .one `Verity.Macro,
     .andSubmodules `Verity.Macro,
+    .one `Verity.Proofs.LoopSimulation,
     .one `Verity.Proofs.Stdlib.Automation,
     .one `Verity.Proofs.Stdlib.MappingAutomation
   ]
