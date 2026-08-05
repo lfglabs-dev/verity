@@ -1118,7 +1118,7 @@ private theorem eventUnindexedStores_cons_continue
   rcases hok with ⟨heval, hsupport, hlt, hshape, hsize, hkind⟩
   constructor
   · simp [SourceSemantics.writeUnindexedEventScratchFrom, hkind]
-    convert hwriteTail using 1 <;> first | rfl | simp [eventUnindexedNextMemory]
+    convert hwriteTail using 1 <;> rfl
   · have hstmt :
         scalarEventUnindexedStoresFrom ((param, srcExpr, argExpr) :: rest)
             (wordIdx * 32) =
@@ -2473,8 +2473,8 @@ private theorem eventCollectExprListNames_subset_scope
 
 private theorem eventStmtNextScope_emit_included
     {scope : List String} {eventName : String} {args : List Expr}
-    (hcore : ∀ expr ∈ args, FunctionBody.ExprCompileCore expr)
-    (hinScope : ∀ expr ∈ args, FunctionBody.exprBoundNamesInScope expr scope) :
+    (_hcore : ∀ expr ∈ args, FunctionBody.ExprCompileCore expr)
+    (_hinScope : ∀ expr ∈ args, FunctionBody.exprBoundNamesInScope expr scope) :
     FunctionBody.scopeNamesIncluded
       (stmtNextScope scope (Stmt.emit eventName args)) scope := by
   intro name hmem

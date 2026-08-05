@@ -7,7 +7,7 @@ open YulExpr
 open Compiler.Hex (natToHexUnpadded natToHex)
 
 private def indentStr (n : Nat) : String :=
-  String.mk (List.replicate (n * 4) ' ')
+  String.ofList (List.replicate (n * 4) ' ')
 
 mutual
 def ppExpr : YulExpr → String
