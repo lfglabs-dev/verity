@@ -1,4 +1,5 @@
 import Compiler.Proofs.Storage.SolidityStorage
+import Compiler.Proofs.IRGeneration.SourceSemantics
 import Verity.Core.Uint256
 
 namespace Compiler.Proofs.LoopSimulation
@@ -148,6 +149,66 @@ theorem forEach_rel
     Rel (forEach envStep env bound) (forEach accStep acc bound) := by
   rw [forEach_eq_foldl, forEach_eq_foldl]
   exact foldl_rel Rel envStep accStep hstep (List.range bound) env acc hinit
+
+private theorem execForEachLoop_continue_eq_forEachFrom
+    (varName : String)
+    (runBody : Compiler.Proofs.IRGeneration.SourceSemantics.RuntimeState →
+      Compiler.Proofs.IRGeneration.SourceSemantics.StmtResult)
+    (envStep : Compiler.Proofs.IRGeneration.SourceSemantics.RuntimeState → Nat →
+      Compiler.Proofs.IRGeneration.SourceSemantics.RuntimeState)
+    (hbody : ∀ env index,
+      runBody
+          { env with bindings :=
+              (Compiler.Proofs.IRGeneration.SourceSemantics.bindValue env.bindings varName
+                (Compiler.Proofs.IRGeneration.SourceSemantics.wordNormalize index)) } =
+        .continue (envStep env index))
+    (env : Compiler.Proofs.IRGeneration.SourceSemantics.RuntimeState)
+    (index remaining : Nat) :
+    Compiler.Proofs.IRGeneration.SourceSemantics.execForEachLoop
+        varName runBody env index remaining =
+      .continue (forEachFrom envStep env index remaining) := by
+  induction remaining generalizing env index with
+  | zero => rfl
+  | succ remaining ih =>
+      rw [Compiler.Proofs.IRGeneration.SourceSemantics.execForEachLoop,
+        hbody, forEachFrom]
+      exact ih (envStep env index) (index + 1)
+
+/-- Bridge the pure loop simulation to `SourceSemantics.execForEachLoop` when
+every body execution successfully continues.  The `hbody` premise includes the
+concrete semantics' normalized loop-index binding.  Early `.stop`, `.return`,
+and `.revert` results are intentionally outside this successful-continuation
+lemma: `execForEachLoop` propagates each immediately, so they require a
+result-aware relation rather than the total-state `forEach_rel` contract. -/
+theorem forEach_rel_execForEachLoop_sound
+    {Acc : Type}
+    (Rel : EnvAccRel
+      Compiler.Proofs.IRGeneration.SourceSemantics.RuntimeState Acc)
+    (varName : String)
+    (runBody : Compiler.Proofs.IRGeneration.SourceSemantics.RuntimeState →
+      Compiler.Proofs.IRGeneration.SourceSemantics.StmtResult)
+    (envStep : Compiler.Proofs.IRGeneration.SourceSemantics.RuntimeState → Nat →
+      Compiler.Proofs.IRGeneration.SourceSemantics.RuntimeState)
+    (accStep : Acc → Nat → Acc)
+    (hbody : ∀ env index,
+      runBody
+          { env with bindings :=
+              (Compiler.Proofs.IRGeneration.SourceSemantics.bindValue env.bindings varName
+                (Compiler.Proofs.IRGeneration.SourceSemantics.wordNormalize index)) } =
+        .continue (envStep env index))
+    (hstep : ∀ env acc index, Rel env acc →
+      Rel (envStep env index) (accStep acc index))
+    (bound : Nat)
+    (env : Compiler.Proofs.IRGeneration.SourceSemantics.RuntimeState)
+    (acc : Acc) (hinit : Rel env acc) :
+    Compiler.Proofs.IRGeneration.SourceSemantics.execForEachLoop
+        varName runBody env 0 bound =
+      .continue (forEach envStep env bound) ∧
+    Rel (forEach envStep env bound) (forEach accStep acc bound) := by
+  constructor
+  · simpa [forEach] using
+      execForEachLoop_continue_eq_forEachFrom varName runBody envStep hbody env 0 bound
+  · exact forEach_rel Rel envStep accStep hstep bound env acc hinit
 
 /-! ## UInt256 normalization -/
 
