@@ -575,7 +575,7 @@ private theorem evalPureBuiltinViaEvmYulLean_byte_normalized (index value : Nat)
           ⟨255⟩)) = _
     unfold EvmYul.UInt256.shiftRight
     rw [if_neg hguard, hshift]; simp [hgt, EvmYul.UInt256.land, EvmYul.UInt256.toNat,
-      EvmYul.UInt256.ofNat, Id.run, Fin.land, Fin.shiftRight, Fin.ofNat,
+      EvmYul.UInt256.ofNat, Id.run, Fin.land, Fin.ofNat,
       Nat.shiftRight_eq_div_pow]
     rw [show (255 : Nat) % EvmYul.UInt256.size = 255 from by unfold EvmYul.UInt256.size; omega]
     change

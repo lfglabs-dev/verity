@@ -5164,7 +5164,7 @@ private theorem stmtTouchesUnsupportedContractSurface_eq_false_of_featureClosed
   | forEach _ _ _ | forEachSetBit _ _ _ => cases hcore
   | setStorageWord _ _ _ => cases hstate
   | _ =>
-      all_goals (simp only [stmtTouchesUnsupportedContractSurface]; first | assumption | cases hcore | cases heffects | cases hcalls)
+      all_goals (simp only [stmtTouchesUnsupportedContractSurface]; assumption)
 termination_by sizeOf stmt
 
 theorem stmtListTouchesUnsupportedContractSurface_eq_false_of_featureClosed
@@ -7565,13 +7565,13 @@ private theorem counter_noFallback :
     ∀ fn ∈ counterSupportedSpecModel.functions, fn.name != "fallback" := by
   intro fn hfn
   simp [counterSupportedSpecModel] at hfn
-  rcases hfn with rfl <;> decide
+  (rcases hfn with rfl; decide)
 
 private theorem counter_noReceive :
     ∀ fn ∈ counterSupportedSpecModel.functions, fn.name != "receive" := by
   intro fn hfn
   simp [counterSupportedSpecModel] at hfn
-  rcases hfn with rfl <;> decide
+  (rcases hfn with rfl; decide)
 
 private def counter_supported_function :
     ∀ fn, fn ∈ counterSupportedSpecModel.functions →
@@ -7664,13 +7664,13 @@ private theorem simpleStorage_noFallback :
     ∀ fn ∈ simpleStorageSupportedSpecModel.functions, fn.name != "fallback" := by
   intro fn hfn
   simp [simpleStorageSupportedSpecModel] at hfn
-  rcases hfn with rfl <;> decide
+  (rcases hfn with rfl; decide)
 
 private theorem simpleStorage_noReceive :
     ∀ fn ∈ simpleStorageSupportedSpecModel.functions, fn.name != "receive" := by
   intro fn hfn
   simp [simpleStorageSupportedSpecModel] at hfn
-  rcases hfn with rfl <;> decide
+  (rcases hfn with rfl; decide)
 
 private def simpleStorage_supported_function :
     ∀ fn, fn ∈ simpleStorageSupportedSpecModel.functions →

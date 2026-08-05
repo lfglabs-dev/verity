@@ -787,7 +787,7 @@ theorem findResolvedFieldAtSlotCopyFrom_of_member
             exact Or.inl (List.mem_reverse.mpr htargetInEntries)
           exact (firstFieldWriteSlotConflictCopyFrom_some_of_seen_slot_member
             htargetInSeen hfind hwrite hslot hunpacked) hnoConflict
-        · push_neg at hcapture
+        · push Not at hcapture
           rw [show
             (decide (SourceSemantics.wordNormalize (field.slot.getD idx) =
                 SourceSemantics.wordNormalize targetSlot) ||
@@ -6717,7 +6717,6 @@ theorem compiledStmtStep_ite
           FunctionBody.runtimeStateMatchesIR_setVar_irrelevant
             (name := tempName) (value := condVal) hruntime
         have hElse6 : sizeOf elseIR + 6 ≤ sizeOf compiledIR := by
-          change sizeOf elseIR + 6 ≤ sizeOf compiledIR
           simp_wf
           omega
         let branchExtraFuel :=
@@ -6809,7 +6808,6 @@ theorem compiledStmtStep_ite
           FunctionBody.runtimeStateMatchesIR_setVar_irrelevant
             (name := tempName) (value := condVal) hruntime
         have hThen5 : sizeOf thenIR + 5 ≤ sizeOf compiledIR := by
-          change sizeOf thenIR + 5 ≤ sizeOf compiledIR
           simp_wf
           omega
         let branchExtraFuel :=
@@ -6935,7 +6933,7 @@ private theorem compiledStmtStep_letStorageField
     (hnoConflict : firstFieldWriteSlotConflict fields = none)
     (hfind : findFieldWithResolvedSlot fields fieldName =
       some ({ name := fieldName, ty := FieldType.uint256 }, slot))
-    (hfieldInScope : fieldName ∈ scope) :
+    (_hfieldInScope : fieldName ∈ scope) :
     CompiledStmtStep fields scope (.letVar tmp (Expr.storage fieldName))
       [YulStmt.let_ tmp (YulExpr.call "sload" [YulExpr.lit slot])] where
   compileOk := by
@@ -7012,7 +7010,7 @@ private theorem compiledStmtStep_letStorageAddrField
     (hnoConflict : firstFieldWriteSlotConflict fields = none)
     (hfind : findFieldWithResolvedSlot fields fieldName =
       some ({ name := fieldName, ty := FieldType.address }, slot))
-    (hfieldInScope : fieldName ∈ scope) :
+    (_hfieldInScope : fieldName ∈ scope) :
     CompiledStmtStep fields scope (.letVar tmp (Expr.storageAddr fieldName))
       [YulStmt.let_ tmp (YulExpr.call "sload" [YulExpr.lit slot])] where
   compileOk := by
@@ -7097,7 +7095,7 @@ private theorem compiledStmtStep_assignStorageField
     (hnoConflict : firstFieldWriteSlotConflict fields = none)
     (hfind : findFieldWithResolvedSlot fields fieldName =
       some ({ name := fieldName, ty := FieldType.uint256 }, slot))
-    (hfieldInScope : fieldName ∈ scope) :
+    (_hfieldInScope : fieldName ∈ scope) :
     CompiledStmtStep fields scope (.assignVar name (Expr.storage fieldName))
       [YulStmt.assign name (YulExpr.call "sload" [YulExpr.lit slot])] where
   compileOk := by
@@ -7175,7 +7173,7 @@ private theorem compiledStmtStep_assignStorageAddrField
     (hnoConflict : firstFieldWriteSlotConflict fields = none)
     (hfind : findFieldWithResolvedSlot fields fieldName =
       some ({ name := fieldName, ty := FieldType.address }, slot))
-    (hfieldInScope : fieldName ∈ scope) :
+    (_hfieldInScope : fieldName ∈ scope) :
     CompiledStmtStep fields scope (.assignVar name (Expr.storageAddr fieldName))
       [YulStmt.assign name (YulExpr.call "sload" [YulExpr.lit slot])] where
   compileOk := by
