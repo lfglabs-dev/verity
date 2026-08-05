@@ -18,6 +18,7 @@ from pathlib import Path
 from property_utils import ROOT
 
 WARNING_RE = re.compile(r"^warning:\s+(.+?\.lean):\d+:\d+:\s+(.*)$")
+DEPENDENCY_SOURCE_PREFIXES = ("Conform/", "EvmYul/")
 
 
 def parse_warnings(log_path: Path) -> tuple[Counter[str], Counter[str]]:
@@ -35,9 +36,8 @@ def parse_warnings(log_path: Path) -> tuple[Counter[str], Counter[str]]:
             continue
         file_path, message = match.groups()
         # Skip warnings from dependency packages — we only track our own code.
-        # Match both absolute paths (``/.lake/packages/…``) and relative paths
-        # (``.lake/packages/…``, ``lake-packages/…``) to cover every form Lean
-        # may emit depending on the working directory.
+        # Match both package-directory paths and the source-root-relative paths
+        # emitted by the legacy remote runner for the pinned EVMYulLean package.
         if (
             "/lake-packages/" in file_path
             or "/.lake/packages/" in file_path
@@ -45,6 +45,7 @@ def parse_warnings(log_path: Path) -> tuple[Counter[str], Counter[str]]:
             or file_path.startswith(".lake/packages/")
             or file_path.startswith("./lake-packages/")
             or file_path.startswith("./.lake/packages/")
+            or file_path.startswith(DEPENDENCY_SOURCE_PREFIXES)
         ):
             continue
         by_file[file_path] += 1

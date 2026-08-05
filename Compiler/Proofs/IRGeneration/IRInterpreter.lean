@@ -4463,8 +4463,7 @@ theorem interpretIRWithInternalsZeroConservativeExtensionGoal_of_dispatchGoal
     (contract : IRContract) :
     InterpretIRWithInternalsZeroConservativeExtensionDispatchGoal contract →
       InterpretIRWithInternalsZeroConservativeExtensionGoal contract := by
-  intro hdispatch
-  intro hlegacy tx initialState
+  intro hdispatch hlegacy tx initialState
   let stateWithTx := applyIRTransactionContext tx initialState
   cases hfind : contract.functions.find? (·.selector == tx.functionSelector) with
   | none =>
