@@ -5,7 +5,7 @@
 
 .PHONY: help setup setup-elan setup-solc setup-foundry \
         verify verify-packages verify-targeted profile-lean test test-foundry test-python axiom-report \
-        compile generate-yul check test-evmyullean-fork \
+        compile generate-yul check checks test-evmyullean-fork \
         refresh-status all clean
 
 # Pinned versions (must match .github/workflows/verify.yml)
@@ -167,6 +167,8 @@ check: ## Run local CI-equivalent checks job (no Lean build, no solc)
 	python3 scripts/update_doc_numbers.py --check
 	python3 -m unittest discover -s scripts -p 'test_*.py' -v
 	@echo "All checks passed."
+
+checks: check ## Compatibility alias for the CI-equivalent checks job
 
 refresh-status: ## Regenerate verification artifact
 	scripts/refresh_verification_artifacts.sh
