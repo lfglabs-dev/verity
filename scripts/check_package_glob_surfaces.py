@@ -17,6 +17,7 @@ BRIDGE_GLOBS = {
     ("one", "Verity.Macro"),
     ("andSubmodules", "Verity.Macro"),
     ("submodules", "Verity.Macro"),
+    ("one", "Verity.Proofs.LoopSimulation"),
     ("one", "Verity.Proofs.Stdlib.Automation"),
     ("one", "Verity.Proofs.Stdlib.MappingAutomation"),
 }
