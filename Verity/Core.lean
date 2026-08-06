@@ -7,6 +7,7 @@
 
 import Verity.Core.Address
 import Verity.Core.Int256
+import Verity.Core.NarrowTypes
 import Verity.Core.Uint16
 import Verity.Core.Uint256
 import Verity.Core.FiniteSet
@@ -23,6 +24,103 @@ abbrev Bytes32 := Verity.Core.Uint256
 abbrev Int256 := Verity.Core.Int256
 abbrev Uint16 := Verity.Core.Uint16
 abbrev Uint256 := Verity.Core.Uint256
+abbrev UIntN := Verity.Core.UIntN
+abbrev IntN := Verity.Core.IntN
+abbrev BytesN := Verity.Core.BytesN
+
+abbrev Uint24 := UIntN 24
+abbrev Uint32 := UIntN 32
+abbrev Uint40 := UIntN 40
+abbrev Uint48 := UIntN 48
+abbrev Uint56 := UIntN 56
+abbrev Uint64 := UIntN 64
+abbrev Uint72 := UIntN 72
+abbrev Uint80 := UIntN 80
+abbrev Uint88 := UIntN 88
+abbrev Uint96 := UIntN 96
+abbrev Uint104 := UIntN 104
+abbrev Uint112 := UIntN 112
+abbrev Uint120 := UIntN 120
+abbrev Uint128 := UIntN 128
+abbrev Uint136 := UIntN 136
+abbrev Uint144 := UIntN 144
+abbrev Uint152 := UIntN 152
+abbrev Uint160 := UIntN 160
+abbrev Uint168 := UIntN 168
+abbrev Uint176 := UIntN 176
+abbrev Uint184 := UIntN 184
+abbrev Uint192 := UIntN 192
+abbrev Uint200 := UIntN 200
+abbrev Uint208 := UIntN 208
+abbrev Uint216 := UIntN 216
+abbrev Uint224 := UIntN 224
+abbrev Uint232 := UIntN 232
+abbrev Uint240 := UIntN 240
+abbrev Uint248 := UIntN 248
+
+abbrev Int8 := IntN 8
+abbrev Int16 := IntN 16
+abbrev Int24 := IntN 24
+abbrev Int32 := IntN 32
+abbrev Int40 := IntN 40
+abbrev Int48 := IntN 48
+abbrev Int56 := IntN 56
+abbrev Int64 := IntN 64
+abbrev Int72 := IntN 72
+abbrev Int80 := IntN 80
+abbrev Int88 := IntN 88
+abbrev Int96 := IntN 96
+abbrev Int104 := IntN 104
+abbrev Int112 := IntN 112
+abbrev Int120 := IntN 120
+abbrev Int128 := IntN 128
+abbrev Int136 := IntN 136
+abbrev Int144 := IntN 144
+abbrev Int152 := IntN 152
+abbrev Int160 := IntN 160
+abbrev Int168 := IntN 168
+abbrev Int176 := IntN 176
+abbrev Int184 := IntN 184
+abbrev Int192 := IntN 192
+abbrev Int200 := IntN 200
+abbrev Int208 := IntN 208
+abbrev Int216 := IntN 216
+abbrev Int224 := IntN 224
+abbrev Int232 := IntN 232
+abbrev Int240 := IntN 240
+abbrev Int248 := IntN 248
+
+abbrev Bytes1 := BytesN 1
+abbrev Bytes2 := BytesN 2
+abbrev Bytes3 := BytesN 3
+abbrev Bytes4 := BytesN 4
+abbrev Bytes5 := BytesN 5
+abbrev Bytes6 := BytesN 6
+abbrev Bytes7 := BytesN 7
+abbrev Bytes8 := BytesN 8
+abbrev Bytes9 := BytesN 9
+abbrev Bytes10 := BytesN 10
+abbrev Bytes11 := BytesN 11
+abbrev Bytes12 := BytesN 12
+abbrev Bytes13 := BytesN 13
+abbrev Bytes14 := BytesN 14
+abbrev Bytes15 := BytesN 15
+abbrev Bytes16 := BytesN 16
+abbrev Bytes17 := BytesN 17
+abbrev Bytes18 := BytesN 18
+abbrev Bytes19 := BytesN 19
+abbrev Bytes20 := BytesN 20
+abbrev Bytes21 := BytesN 21
+abbrev Bytes22 := BytesN 22
+abbrev Bytes23 := BytesN 23
+abbrev Bytes24 := BytesN 24
+abbrev Bytes25 := BytesN 25
+abbrev Bytes26 := BytesN 26
+abbrev Bytes27 := BytesN 27
+abbrev Bytes28 := BytesN 28
+abbrev Bytes29 := BytesN 29
+abbrev Bytes30 := BytesN 30
+abbrev Bytes31 := BytesN 31
 
 @[simp] def toInt256 (value : Uint256) : Int256 :=
   Verity.Core.Int256.ofUint256 value

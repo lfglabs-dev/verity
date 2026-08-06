@@ -807,6 +807,11 @@ private theorem eventEvalIRExpr_normalizeEventWord :
       exact eventEvalIRExpr_normalizeEventWord_uint8 heval
   | .uint16, _, _, _, _, heval, _ => by
       exact eventEvalIRExpr_normalizeEventWord_uint16 heval
+  | .uintN _, _, _, _, _, heval, hlt
+  | .intN _, _, _, _, _, heval, hlt
+  | .bytesN _, _, _, _, _, heval, hlt => by
+      simpa [normalizeEventWord, SourceSemantics.normalizeEventValue,
+        Nat.mod_eq_of_lt hlt] using heval
   | .address, _, _, _, _, heval, _ => by
       exact eventEvalIRExpr_normalizeEventWord_address heval
   | .bool, _, _, _, _, heval, _ => by
@@ -846,15 +851,16 @@ private theorem eventNormalizeEventValue_lt_evmModulus :
   | .bytes32, value, _, hlt => by
       simpa [SourceSemantics.normalizeEventValue,
         SourceSemantics.wordNormalize, Nat.mod_eq_of_lt hlt]
-  | .uint8, value, _, _ => by
-      exact Nat.lt_of_le_of_lt Nat.and_le_left
-        (FunctionBody.wordNormalize_lt_evmModulus value)
-  | .uint16, value, _, _ => by
-      exact Nat.lt_of_le_of_lt Nat.and_le_left
-        (FunctionBody.wordNormalize_lt_evmModulus value)
+  | .uint8, value, _, _
+  | .uint16, value, _, _
   | .address, value, _, _ => by
       exact Nat.lt_of_le_of_lt Nat.and_le_left
         (FunctionBody.wordNormalize_lt_evmModulus value)
+  | .uintN _, value, _, hlt
+  | .intN _, value, _, hlt
+  | .bytesN _, value, _, hlt => by
+      simpa [SourceSemantics.normalizeEventValue,
+        SourceSemantics.wordNormalize, Nat.mod_eq_of_lt hlt]
   | .bool, value, _, _ => by
       by_cases hzero :
           value % Compiler.Constants.evmModulus = 0 <;>
@@ -894,6 +900,10 @@ private theorem eventNormalizeEventValue_lt_evmModulus_any :
   | .uint16, value => by
       exact Nat.lt_of_le_of_lt Nat.and_le_left
         (FunctionBody.wordNormalize_lt_evmModulus value)
+  | .uintN _, value
+  | .intN _, value
+  | .bytesN _, value => by
+      exact FunctionBody.wordNormalize_lt_evmModulus value
   | .address, value => by
       exact Nat.lt_of_le_of_lt Nat.and_le_left
         (FunctionBody.wordNormalize_lt_evmModulus value)

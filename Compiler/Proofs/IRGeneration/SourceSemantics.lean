@@ -732,6 +732,7 @@ def decodeSupportedParamWord (ty : ParamType) (word : Nat) : Option Nat :=
   | .uint256 | .int256 | .bytes32 => some word
   | .uint8 => some (word &&& (uint8Modulus - 1))
   | .uint16 => some (word &&& (2^16 - 1))
+  | .uintN _ | .intN _ | .bytesN _ => some word
   | .address => some (word &&& Compiler.Constants.addressMask)
   | .bool => some (if word = 0 then 0 else 1)
   | _ => none

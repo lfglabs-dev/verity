@@ -276,6 +276,9 @@ theorem abiScalarNormalize_lt_evm_of_lt_evm
   | int256 => simpa using hv
   | uint8 => exact abiScalarNormalize_uint8_lt_evm v
   | uint16 => exact abiScalarNormalize_uint16_lt_evm v
+  | uintN _ => simpa [abiScalarNormalize] using hv
+  | intN _ => simpa [abiScalarNormalize] using hv
+  | bytesN _ => simpa [abiScalarNormalize] using hv
   | address => exact abiScalarNormalize_address_lt_evm v
   | bool => exact abiScalarNormalize_bool_lt_evm v
   | bytes32 => simpa using hv
@@ -339,6 +342,9 @@ theorem abiScalarNormalize_idempotent (ty : ParamType) (v : Nat) :
   | int256 => rfl
   | uint8 => exact abiScalarNormalize_uint8_idem v
   | uint16 => exact abiScalarNormalize_uint16_idem v
+  | uintN _ => rfl
+  | intN _ => rfl
+  | bytesN _ => rfl
   | address => exact abiScalarNormalize_address_idem v
   | bool => exact abiScalarNormalize_bool_idem v
   | bytes32 => rfl
@@ -352,7 +358,9 @@ theorem abiScalarNormalize_idempotent (ty : ParamType) (v : Nat) :
       exact abiScalarNormalize_idempotent baseType v
 
 def IsStaticScalarParamType : ParamType → Prop
-  | .uint256 | .int256 | .uint8 | .uint16 | .address | .bool | .bytes32 => True
+  | .uint256 | .int256 | .uint8 | .uint16
+  | .uintN _ | .intN _ | .bytesN _
+  | .address | .bool | .bytes32 => True
   | .newtypeOf _ baseType => IsStaticScalarParamType baseType
   | _ => False
 
@@ -364,6 +372,9 @@ theorem eventHeadWordSize_static_scalar_eq_32
   | int256 => simp [eventHeadWordSize, paramHeadSize]
   | uint8 => simp [eventHeadWordSize, paramHeadSize]
   | uint16 => simp [eventHeadWordSize, paramHeadSize]
+  | uintN _ => simp [eventHeadWordSize, paramHeadSize]
+  | intN _ => simp [eventHeadWordSize, paramHeadSize]
+  | bytesN _ => simp [eventHeadWordSize, paramHeadSize]
   | address => simp [eventHeadWordSize, paramHeadSize]
   | bool => simp [eventHeadWordSize, paramHeadSize]
   | bytes32 => simp [eventHeadWordSize, paramHeadSize]

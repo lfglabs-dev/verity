@@ -644,7 +644,9 @@ def validateExternalCallTargetsInConstructor
 
 mutual
 def supportedCustomErrorParamType : ParamType → Bool
-  | ParamType.uint256 | ParamType.int256 | ParamType.uint8 | ParamType.uint16 | ParamType.address | ParamType.bool | ParamType.bytes32 | ParamType.bytes | ParamType.string => true
+  | ParamType.uint256 | ParamType.int256 | ParamType.uint8 | ParamType.uint16
+  | ParamType.uintN _ | ParamType.intN _ | ParamType.bytesN _
+  | ParamType.address | ParamType.bool | ParamType.bytes32 | ParamType.bytes | ParamType.string => true
   | ParamType.array elemTy => supportedCustomErrorParamType elemTy
   | ParamType.fixedArray elemTy _ => supportedCustomErrorParamType elemTy
   | ParamType.tuple elemTys => supportedCustomErrorParamTypes elemTys

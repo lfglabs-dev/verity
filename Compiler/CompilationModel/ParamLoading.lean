@@ -12,7 +12,9 @@ open Compiler
 open Compiler.Yul
 
 def isScalarParamType : ParamType → Bool
-  | ParamType.uint256 | ParamType.int256 | ParamType.uint8 | ParamType.uint16 | ParamType.address | ParamType.bool | ParamType.bytes32 => true
+  | ParamType.uint256 | ParamType.int256 | ParamType.uint8 | ParamType.uint16
+  | ParamType.uintN _ | ParamType.intN _ | ParamType.bytesN _
+  | ParamType.address | ParamType.bool | ParamType.bytes32 => true
   | _ => false
 
 private def dynamicArrayElementStrideWords (elemTy : ParamType) : Nat :=
@@ -110,6 +112,12 @@ def genScalarLoad
       [YulStmt.let_ name (YulExpr.call "and" [load, YulExpr.lit 255])]
   | ParamType.uint16 =>
       [YulStmt.let_ name (YulExpr.call "and" [load, YulExpr.lit 65535])]
+  | ParamType.uintN _ =>
+      [YulStmt.let_ name load]
+  | ParamType.intN _ =>
+      [YulStmt.let_ name load]
+  | ParamType.bytesN _ =>
+      [YulStmt.let_ name load]
   | ParamType.bytes32 =>
       [YulStmt.let_ name load]
   | ParamType.address =>
@@ -125,7 +133,9 @@ def genStaticTypeLoads
     (loadWord : YulExpr → YulExpr) (name : String) (ty : ParamType) (offset : Nat) :
     List YulStmt :=
   match ty with
-  | ParamType.uint256 | ParamType.int256 | ParamType.uint8 | ParamType.uint16 | ParamType.address | ParamType.bool | ParamType.bytes32 =>
+  | ParamType.uint256 | ParamType.int256 | ParamType.uint8 | ParamType.uint16
+  | ParamType.uintN _ | ParamType.intN _ | ParamType.bytesN _
+  | ParamType.address | ParamType.bool | ParamType.bytes32 =>
       genScalarLoad loadWord name ty offset
   | ParamType.fixedArray elemTy n =>
       (List.range n).flatMap fun i =>
@@ -149,7 +159,9 @@ def genSingleParamLoad
     (headSize : Nat) (baseOffset : Nat) (name : String) (ty : ParamType) (headOffset : Nat) :
     List YulStmt :=
   match ty with
-  | ParamType.uint256 | ParamType.int256 | ParamType.uint8 | ParamType.uint16 | ParamType.address | ParamType.bool | ParamType.bytes32 =>
+  | ParamType.uint256 | ParamType.int256 | ParamType.uint8 | ParamType.uint16
+  | ParamType.uintN _ | ParamType.intN _ | ParamType.bytesN _
+  | ParamType.address | ParamType.bool | ParamType.bytes32 =>
     genScalarLoad loadWord name ty headOffset
   | ParamType.tuple elemTypes =>
     if isDynamicParamType ty then

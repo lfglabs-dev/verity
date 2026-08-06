@@ -1016,6 +1016,11 @@ theorem decodeSupportedParamWord_lt_evmModulus
       exact decodeSupportedParamWord_masked_lt_evmModulus (hmasked := .inl rfl) hdecode
   | uint16 =>
       exact decodeSupportedParamWord_masked_lt_evmModulus (hmasked := .inr (.inl rfl)) hdecode
+  | uintN _ | intN _ | bytesN _ =>
+      simp only [SourceSemantics.decodeSupportedParamWord, SourceSemantics.wordNormalize,
+        Option.some.injEq] at hdecode
+      subst value
+      exact Nat.mod_lt _ (by simp [Compiler.Constants.evmModulus])
   | address =>
       exact decodeSupportedParamWord_masked_lt_evmModulus (hmasked := .inr (.inr rfl)) hdecode
   | bool =>

@@ -3032,19 +3032,8 @@ private theorem genParamLoadBodyFrom_scalar_legacy
         baseOffset rest (headOffset + paramHeadSize param.ty)
         (by intro p hp; exact hsupported p (by simp [hp]))
       cases hty : param.ty <;> simp [SupportedExternalParamType, hty] at hsupported
-      · simpa [genParamLoadBodyFrom, genSingleParamLoad, genScalarLoad, hty]
-          using legacyCompatibleExternalStmtList_append (.let_ _ _ [] .nil) htail
-      · simpa [genParamLoadBodyFrom, genSingleParamLoad, genScalarLoad, hty]
-          using legacyCompatibleExternalStmtList_append (.let_ _ _ [] .nil) htail
-      · simpa [genParamLoadBodyFrom, genSingleParamLoad, genScalarLoad, hty]
-          using legacyCompatibleExternalStmtList_append (.let_ _ _ [] .nil) htail
-      · simpa [genParamLoadBodyFrom, genSingleParamLoad, genScalarLoad, hty]
-          using legacyCompatibleExternalStmtList_append (.let_ _ _ [] .nil) htail
-      · simpa [genParamLoadBodyFrom, genSingleParamLoad, genScalarLoad, hty]
-          using legacyCompatibleExternalStmtList_append (.let_ _ _ [] .nil) htail
-      · simpa [genParamLoadBodyFrom, genSingleParamLoad, genScalarLoad, hty]
-          using legacyCompatibleExternalStmtList_append (.let_ _ _ [] .nil) htail
-      · simpa [genParamLoadBodyFrom, genSingleParamLoad, genScalarLoad, hty]
+      all_goals
+        simpa [genParamLoadBodyFrom, genSingleParamLoad, genScalarLoad, hty]
           using legacyCompatibleExternalStmtList_append (.let_ _ _ [] .nil) htail
 
 private theorem genParamLoads_scalar_legacy

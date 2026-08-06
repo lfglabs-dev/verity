@@ -671,6 +671,15 @@ def _parse_tuple_elements(inner: str) -> list[str]:
 
 def _sol_type(lean_ty: str) -> str:
     ty = _normalize_type(lean_ty)
+    narrow_uint = re.fullmatch(r"Uint(\d+)", ty)
+    if narrow_uint and int(narrow_uint.group(1)) != 8 and 8 <= int(narrow_uint.group(1)) <= 248 and int(narrow_uint.group(1)) % 8 == 0:
+        return f"uint{narrow_uint.group(1)}"
+    narrow_int = re.fullmatch(r"Int(\d+)", ty)
+    if narrow_int and 8 <= int(narrow_int.group(1)) <= 248 and int(narrow_int.group(1)) % 8 == 0:
+        return f"int{narrow_int.group(1)}"
+    fixed_bytes = re.fullmatch(r"Bytes(\d+)", ty)
+    if fixed_bytes and 1 <= int(fixed_bytes.group(1)) <= 31:
+        return f"bytes{fixed_bytes.group(1)}"
     if ty == "Uint256":
         return "uint256"
     if ty == "Int256":
@@ -710,6 +719,15 @@ def _sol_tuple_value_type(lean_ty: str) -> str:
 
 def _example_value(lean_ty: str) -> str:
     ty = _normalize_type(lean_ty)
+    narrow_uint = re.fullmatch(r"Uint(\d+)", ty)
+    if narrow_uint and int(narrow_uint.group(1)) != 8 and 8 <= int(narrow_uint.group(1)) <= 248:
+        return f"uint{narrow_uint.group(1)}(1)"
+    narrow_int = re.fullmatch(r"Int(\d+)", ty)
+    if narrow_int and 8 <= int(narrow_int.group(1)) <= 248:
+        return f"int{narrow_int.group(1)}(1)"
+    fixed_bytes = re.fullmatch(r"Bytes(\d+)", ty)
+    if fixed_bytes and 1 <= int(fixed_bytes.group(1)) <= 31:
+        return f"bytes{fixed_bytes.group(1)}(uint{int(fixed_bytes.group(1)) * 8}(0xBEEF))"
     if ty == "Uint256":
         return "uint256(1)"
     if ty == "Int256":
@@ -1188,7 +1206,8 @@ def _resolve_value_expr(
 
 def _return_shape_assertion(lean_ty: str, fn_name: str) -> str:
     ty = _normalize_type(lean_ty)
-    if ty in {"Uint256", "Int256", "Uint8", "Address", "Bool", "Bytes32"}:
+    if (ty in {"Uint256", "Int256", "Uint8", "Address", "Bool", "Bytes32"}
+            or re.fullmatch(r"(?:Uint|Int|Bytes)\d+", ty)):
         return (
             f'        assertEq(ret.length, 32, "{fn_name} ABI return length mismatch (expected 32 bytes)");'
         )

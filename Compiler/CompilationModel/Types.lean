@@ -15,6 +15,9 @@ def ParamType.toIRType : ParamType → IRType
   | int256 => IRType.uint256
   | uint8 => IRType.uint256
   | uint16 => IRType.uint256
+  | uintN _ => IRType.uint256
+  | intN _ => IRType.uint256
+  | bytesN _ => IRType.uint256
   | address => IRType.address
   | bool => IRType.uint256
   | bytes32 => IRType.uint256  -- bytes32 is a 256-bit value
