@@ -26,7 +26,16 @@ contract PropertyNarrowTypesTest is YulTestBase {
         uint128 actual = abi.decode(ret, (uint128));
         assertEq(actual, uint128(1), "echoUint128 should preserve the expected value");
     }
-    // Property 2: echoInt64 returns the direct parameter value
+    // Property 2: echoUint96 returns the direct parameter value
+    function testAuto_EchoUint96_ReturnsDirectParam() public {
+        vm.prank(alice);
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("echoUint96(uint96)", uint96(1)));
+        require(ok, "echoUint96 reverted unexpectedly");
+        assertEq(ret.length, 32, "echoUint96 ABI return length mismatch (expected 32 bytes)");
+        uint96 actual = abi.decode(ret, (uint96));
+        assertEq(actual, uint96(1), "echoUint96 should preserve the expected value");
+    }
+    // Property 3: echoInt64 returns the direct parameter value
     function testAuto_EchoInt64_ReturnsDirectParam() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("echoInt64(int64)", int64(1)));
@@ -35,7 +44,16 @@ contract PropertyNarrowTypesTest is YulTestBase {
         int64 actual = abi.decode(ret, (int64));
         assertEq(actual, int64(1), "echoInt64 should preserve the expected value");
     }
-    // Property 3: echoBytes20 returns the direct parameter value
+    // Property 4: echoBytes4 returns the direct parameter value
+    function testAuto_EchoBytes4_ReturnsDirectParam() public {
+        vm.prank(alice);
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("echoBytes4(bytes4)", bytes4(uint32(0xBEEF))));
+        require(ok, "echoBytes4 reverted unexpectedly");
+        assertEq(ret.length, 32, "echoBytes4 ABI return length mismatch (expected 32 bytes)");
+        bytes4 actual = abi.decode(ret, (bytes4));
+        assertEq(actual, bytes4(uint32(0xBEEF)), "echoBytes4 should preserve the expected value");
+    }
+    // Property 5: echoBytes20 returns the direct parameter value
     function testAuto_EchoBytes20_ReturnsDirectParam() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("echoBytes20(bytes20)", bytes20(uint160(0xBEEF))));
@@ -44,7 +62,16 @@ contract PropertyNarrowTypesTest is YulTestBase {
         bytes20 actual = abi.decode(ret, (bytes20));
         assertEq(actual, bytes20(uint160(0xBEEF)), "echoBytes20 should preserve the expected value");
     }
-    // Property 4: TODO decode and assert `castUint128` result
+    // Property 6: TODO decode and assert `mulUint248` result
+    function testTODO_MulUint248_DecodeAndAssert() public {
+        vm.prank(alice);
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("mulUint248(uint248,uint248)", uint248(1), uint248(1)));
+        require(ok, "mulUint248 reverted unexpectedly");
+        assertEq(ret.length, 32, "mulUint248 ABI return length mismatch (expected 32 bytes)");
+        // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
+        ret;
+    }
+    // Property 7: TODO decode and assert `castUint128` result
     function testTODO_CastUint128_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("castUint128(uint256)", uint256(1)));
@@ -53,7 +80,7 @@ contract PropertyNarrowTypesTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 5: TODO decode and assert `castInt64` result
+    // Property 8: TODO decode and assert `castInt64` result
     function testTODO_CastInt64_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("castInt64(uint256)", uint256(1)));
@@ -62,7 +89,7 @@ contract PropertyNarrowTypesTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 6: TODO decode and assert `castBytes20` result
+    // Property 9: TODO decode and assert `castBytes20` result
     function testTODO_CastBytes20_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("castBytes20(uint256)", uint256(1)));

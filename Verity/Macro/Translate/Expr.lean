@@ -4831,8 +4831,18 @@ def translateSafeRequireBind
       let aExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals a
       let bExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals b
       let valueExpr : Term ← `(Compiler.CompilationModel.Expr.mul $aExpr $bExpr)
-      let guardExpr : Term ← `(Compiler.CompilationModel.Expr.lt $valueExpr
-        (Compiler.CompilationModel.Expr.literal $(natTerm (2 ^ bits))))
+      -- Check the mathematical product before evaluating the wrapping EVM `mul`.
+      -- Looking only at `valueExpr < 2^bits` is unsound for widths above 128:
+      -- a valid pair of narrow operands can overflow 256 bits and wrap to a small
+      -- word (for example, `2^128 * 2^128` wraps to zero).
+      let zeroExpr : Term ← `(Compiler.CompilationModel.Expr.literal 0)
+      let divisorZeroExpr : Term ← `(Compiler.CompilationModel.Expr.eq $bExpr $zeroExpr)
+      let maxExpr : Term ←
+        `(Compiler.CompilationModel.Expr.literal $(natTerm (2 ^ bits - 1)))
+      let quotientExpr : Term ← `(Compiler.CompilationModel.Expr.div $maxExpr $bExpr)
+      let withinWidthExpr : Term ← `(Compiler.CompilationModel.Expr.le $aExpr $quotientExpr)
+      let guardExpr : Term ←
+        `(Compiler.CompilationModel.Expr.logicalOr $divisorZeroExpr $withinWidthExpr)
       pure (some #[
         (← `(Compiler.CompilationModel.Stmt.require $guardExpr "Panic(0x11): narrow arithmetic overflow")),
         (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $valueExpr))
