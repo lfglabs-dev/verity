@@ -10,6 +10,9 @@ Lean 4.31 exposes correctness lemmas for `String.startsWith`, so these closed
 facts reduce through the kernel without a native-code trust boundary.
 -/
 
+/-- Compiler-reserved loop variable used by allocation-footprint wrappers. -/
+def allocationIndexScratch : String := "__allocation_index"
+
 theorem compatScratch_startsWith_reserved
     {name : String}
     (h :
