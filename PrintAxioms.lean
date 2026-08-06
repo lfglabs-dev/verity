@@ -32,6 +32,7 @@ import Contracts.SimpleToken.Proofs.Isolation
 import Contracts.SimpleToken.Proofs.Supply
 import Contracts.Vault.Proofs.Correctness
 import Contracts.Vault.Proofs.Native
+import Verity.Proofs.LoopSimulationResultAware
 import Verity.Proofs.Stdlib.Automation
 import Verity.Proofs.Stdlib.ListSum
 import Verity.Proofs.Stdlib.MappingAutomation
@@ -604,6 +605,12 @@ end Verity.AxiomAudit
   Contracts.Vault.Proofs.Native.vaultMinimal_functions_bridged
   Contracts.Vault.Proofs.Native.vaultMinimal_runtime_lowers_native
   Contracts.Vault.Proofs.Native.vaultMinimal_totalAssets_nativeResultsMatchOn_revert_of_nonzero_value
+
+  -- Verity/Proofs/LoopSimulationResultAware.lean
+  Verity.Proofs.LoopSimulationResultAware.execResultAwareForEach_append_of_earlyExit
+  Verity.Proofs.LoopSimulationResultAware.forEach_rel_execForEachLoop_result_aware
+  Verity.Proofs.LoopSimulationResultAware.execResultAwareForEach_success_bridge
+  Verity.Proofs.LoopSimulationResultAware.execResultAwareForEach_earlyExit_bridge
 
   -- Verity/Proofs/Stdlib/Automation.lean
   Verity.Proofs.Stdlib.Automation.isSuccess_success
@@ -6569,4 +6576,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6148 theorems/lemmas (4291 public, 1857 private, 0 sorry'd)
+-- Total: 6152 theorems/lemmas (4295 public, 1857 private, 0 sorry'd)
