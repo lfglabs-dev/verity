@@ -1,18 +1,18 @@
 import Verity.Core.Model.DenoteExternalCalls
+import Verity.Core.Model.DynamicAbi
 
 /-!
 # Dynamic memory, bytes, and ABI denotation
 
 This module is the byte-precise memory layer of the canonical denotation.  It
 models the operations emitted by Verity's Yul lowering: `mstore`, `mload`,
-`mstore8`, `calldatacopy`, `returndatacopy`, `returndatasize`, `return`, and
-`revert`.  Memory is zero-filled and expands in 32-byte words through the
+`mstore8`, `calldatacopy`, `returndatacopy`, `mcopy`, `returndatasize`,
+`return`, and `revert`.  Memory is zero-filled and expands in 32-byte words through the
 highest byte touched, exactly as EVM memory does.  `returndatacopy` is the only
 operation in this slice that can fail: unlike calldata, returndata is not
 zero-extended.
 
-`mcopy`, `codecopy`, and `extcodecopy` are out of scope: the compiler does not
-emit them for the supported source fragment.  Gas accounting and the EVM's
+`codecopy` and `extcodecopy` are out of scope.  Gas accounting and the EVM's
 address-space limit are also deliberately outside the canonical functional
 model.
 
@@ -39,6 +39,14 @@ structure Memory where
   bytes : Nat → Byte
   size : Nat
 
+/-- A typed, bounded view of a contiguous memory range.  The dependent
+`contents` field makes it impossible to observe a byte outside the declared
+region without first supplying an in-bounds index. -/
+structure MemoryRegion where
+  offset : Nat
+  size : Nat
+  contents : Fin size → Byte
+
 def Memory.empty : Memory :=
   { bytes := fun _ => zeroByte, size := 0 }
 
@@ -57,6 +65,11 @@ def Memory.writeByte (memory : Memory) (offset : Nat) (value : Byte) : Memory :=
 
 def Memory.readWord (memory : Memory) (offset : Nat) : Word :=
   fun index => memory.readByte (offset + index)
+
+def Memory.region (memory : Memory) (offset size : Nat) : MemoryRegion :=
+  { offset := offset
+    size := size
+    contents := fun index => memory.readByte (offset + index) }
 
 def Memory.writeWord (memory : Memory) (offset : Nat) (value : Word) : Memory :=
   let expanded := memory.expand (offset + 32)
@@ -112,6 +125,10 @@ theorem Memory.copyFrom_at (memory : Memory) (source : Nat → Byte)
   · rename_i h
     exact False.elim (h ⟨by omega, by omega⟩)
 
+@[simp] theorem Memory.region_contents (memory : Memory) (offset size : Nat)
+    (index : Fin size) :
+    (memory.region offset size).contents index = memory.readByte (offset + index) := rfl
+
 /-! ## Operations and their result -/
 
 /-- The byte-memory operations present in generated Yul.  Calldata is total
@@ -123,6 +140,7 @@ inductive MemoryOp where
   | mstore8 (offset : Nat) (value : Byte)
   | calldatacopy (destOffset sourceOffset size : Nat) (calldata : Nat → Byte)
   | returndatacopy (destOffset sourceOffset size : Nat) (returndata : List Byte)
+  | mcopy (destOffset sourceOffset size : Nat)
   | returndatasize (returndata : List Byte)
 
 inductive Result where
@@ -148,6 +166,8 @@ def denoteMemoryOp : MemoryOp → Memory → Result
         .ok (memory.copyFrom (listByte returndata) dest source size)
       else
         .outOfBounds
+  | .mcopy dest source size, memory =>
+      .ok (memory.copyFrom memory.readByte dest source size)
   | .returndatasize returndata, memory => .value returndata.length memory
 
 @[simp] theorem denoteMemoryOp_mstore (memory : Memory) (offset : Nat) (value : Word) :
@@ -176,8 +196,78 @@ theorem denoteMemoryOp_returndatacopy_of_oob (memory : Memory) (returndata : Lis
     denoteMemoryOp (.returndatacopy dest source size returndata) memory = .outOfBounds := by
   simp [denoteMemoryOp, Nat.not_le_of_lt h]
 
+@[simp] theorem denoteMemoryOp_mcopy (memory : Memory) (dest source size : Nat) :
+    denoteMemoryOp (.mcopy dest source size) memory =
+      .ok (memory.copyFrom memory.readByte dest source size) := rfl
+
+/-- `mcopy` reads from the pre-copy snapshot, including when source and
+destination overlap. -/
+theorem Memory.mcopy_at (memory : Memory) (dest source size : Nat) (index : Fin size) :
+    (memory.copyFrom memory.readByte dest source size).bytes (dest + index) =
+      memory.readByte (source + index) := by
+  exact Memory.copyFrom_at memory memory.readByte dest source size index
+
 @[simp] theorem denoteMemoryOp_returndatasize (memory : Memory) (returndata : List Byte) :
     denoteMemoryOp (.returndatasize returndata) memory = .value returndata.length memory := rfl
+
+/-! ## ABI head/tail representation
+
+The ABI represents a dynamic byte string by a relative pointer in the static
+head and a length-prefixed payload in the tail.  Keeping words abstract here
+is intentional: byte order belongs to the Yul word encoder, while the layout
+and its inverse are independent of that representation. -/
+
+structure AbiDynamicBytes where
+  relativeOffset : Word
+  lengthWord : Word
+  payload : List Byte
+
+structure AbiHeadTail where
+  head : Word
+  tailLength : Word
+  tailPayload : List Byte
+
+def encodeAbiDynamicBytes (value : AbiDynamicBytes) : AbiHeadTail :=
+  { head := value.relativeOffset
+    tailLength := value.lengthWord
+    tailPayload := value.payload }
+
+def decodeAbiDynamicBytes (encoding : AbiHeadTail) : AbiDynamicBytes :=
+  { relativeOffset := encoding.head
+    lengthWord := encoding.tailLength
+    payload := encoding.tailPayload }
+
+@[simp] theorem decode_encode_abiDynamicBytes (value : AbiDynamicBytes) :
+    decodeAbiDynamicBytes (encodeAbiDynamicBytes value) = value := by
+  cases value
+  rfl
+
+@[simp] theorem encode_decode_abiDynamicBytes (encoding : AbiHeadTail) :
+    encodeAbiDynamicBytes (decodeAbiDynamicBytes encoding) = encoding := by
+  cases encoding
+  rfl
+
+/-- Materialize an ABI head/tail value into byte memory.  The payload copy is
+last, matching generated Yul and giving it the usual snapshot-free source. -/
+def Memory.writeAbiDynamicBytes (memory : Memory) (headOffset tailOffset : Nat)
+    (value : AbiDynamicBytes) : Memory :=
+  let withHead := memory.writeWord headOffset value.relativeOffset
+  let withLength := withHead.writeWord tailOffset value.lengthWord
+  withLength.copyFrom (listByte value.payload) (tailOffset + 32) 0 value.payload.length
+
+theorem Memory.writeAbiDynamicBytes_payload (memory : Memory) (headOffset tailOffset : Nat)
+    (value : AbiDynamicBytes) (index : Fin value.payload.length) :
+    (memory.writeAbiDynamicBytes headOffset tailOffset value).bytes (tailOffset + 32 + index) =
+      listByte value.payload index := by
+  simpa [Memory.writeAbiDynamicBytes] using
+    Memory.copyFrom_at
+      ((memory.writeWord headOffset value.relativeOffset).writeWord tailOffset value.lengthWord)
+      (listByte value.payload) (tailOffset + 32) 0 value.payload.length index
+
+/-- The canonical dynamic-ABI word decoder used by `Denote` is shared rather
+than reimplemented by the byte-memory layer. -/
+theorem decodeSupportedParamWord_agrees (ty : ParamType) (word : Nat) :
+    Denote.decodeSupportedParamWord ty word = DynamicAbi.decodeSupportedParamWord ty word := rfl
 
 /-! ## Return/revert slices and external-call bridge -/
 
