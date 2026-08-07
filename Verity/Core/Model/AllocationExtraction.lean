@@ -190,10 +190,9 @@ decreasing_by simp_wf; omega
 def storageAccesses (fn : FunctionSpec) : List (String × AllocKind) :=
   storageAccessesBody fn.body
 
-/-- Stable contract discriminator.  The declarative model currently has a
-contract name rather than a numeric address, so allocation summaries use the
-same neutral contract id as the single-contract source semantics. -/
-def contractId (_spec : CompilationModel) : ContractId := 0
+/-- Stable, explicit contract discriminator. Existing model literals default
+to identity `1`; multi-contract models set distinct identities. -/
+def contractId (spec : CompilationModel) : ContractId := spec.contractId
 
 def resolveAccess (spec : CompilationModel) (access : String × AllocKind) : Option AllocEntry :=
   match findFieldWithResolvedSlot spec.fields access.1 with
@@ -206,16 +205,23 @@ def extractAllocation (spec : CompilationModel) (fn : FunctionSpec) : Allocation
   { slots := (storageAccesses fn).filterMap (resolveAccess spec)
     returns := functionReturns fn }
 
-/-- Allocation entries already contain resolved canonical slots; this
-projection names that boundary explicitly for downstream proofs. -/
-def canonicalSlot (_spec : CompilationModel) (_contract : ContractId) (slot : Nat) : Nat := slot
+/-- Contract-sensitive canonical slot name. Contract id `0` deliberately keeps
+the historical slot number; positive ids occupy exponentially separated names. -/
+def canonicalSlot (_spec : CompilationModel) (contract : ContractId) (slot : Nat) : Nat :=
+  if contract = 0 then slot else 2 ^ contract * (2 * slot + 1)
 
 theorem extractAllocation_canonical
     (spec : CompilationModel) (fn : FunctionSpec)
     (_h : validateFunctionSpec fn = .ok ()) :
     ∀ entry ∈ (extractAllocation spec fn).slots,
-      entry.slot = canonicalSlot spec entry.contract entry.slot := by
-  intro entry _
+      canonicalSlot spec entry.contract entry.slot =
+        canonicalSlot spec (contractId spec) entry.slot := by
+  intro entry hentry
+  simp only [extractAllocation, List.mem_filterMap] at hentry
+  obtain ⟨access, _, hresolve⟩ := hentry
+  unfold resolveAccess at hresolve
+  split at hresolve <;> simp_all
+  cases hresolve
   rfl
 
 /-- Allocation visible after a call boundary: only successful calls commit. -/
