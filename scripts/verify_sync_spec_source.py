@@ -282,6 +282,9 @@ SPEC = {'check_only_paths': ['.github/workflows/**',
                                                                       '}}-${{ '
                                                                       "hashFiles('lake-manifest.json') "
                                                                       '}}-${{ github.run_id }}'}},
+                                       {'name': 'Rebuild the cached contract state module',
+                                        'run': 'rm -f .lake/build/lib/lean/Verity/Core.{olean,ilean,trace}\n'
+                                               'rm -f .lake/build/ir/Verity/Core.{c,o,trace}'},
                                        {'name': 'Prebuild shared audit Lean targets',
                                         'run': 'set -o pipefail\n'
                                                'lake build PrintAxioms 2>&1 | tee -a '

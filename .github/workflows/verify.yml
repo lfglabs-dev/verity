@@ -391,6 +391,11 @@ jobs:
           disable-lake-cache-restore: ${{ env.VERIFY_DISABLE_LAKE_CACHE_RESTORE }}
           cache-primary-key: lake-${{ runner.os }}-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('lakefile.lean') }}-${{ hashFiles('lake-manifest.json') }}-${{ github.run_id }}
 
+      - name: Rebuild the cached contract state module
+        run: |
+          rm -f .lake/build/lib/lean/Verity/Core.{olean,ilean,trace}
+          rm -f .lake/build/ir/Verity/Core.{c,o,trace}
+
       - name: Build and verify all proofs
         run: |
           set -o pipefail

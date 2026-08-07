@@ -343,6 +343,10 @@
         }
       },
       {
+        "name": "Rebuild the cached contract state module",
+        "run": "rm -f .lake/build/lib/lean/Verity/Core.{olean,ilean,trace}\nrm -f .lake/build/ir/Verity/Core.{c,o,trace}"
+      },
+      {
         "name": "Prebuild shared audit Lean targets",
         "run": "set -o pipefail\nlake build PrintAxioms 2>&1 | tee -a lake-build.log"
       },
