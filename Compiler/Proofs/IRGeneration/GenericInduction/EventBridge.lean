@@ -736,6 +736,23 @@ private theorem eventEvalIRExpr_topic0
 The compiled `normalizeEventWord` masking matches the source-side
 `normalizeEventValue` on every proof-supported scalar parameter type. -/
 
+private theorem land_mod_evm_right (a b : Nat) :
+    (a % Compiler.Constants.evmModulus) &&& (b % Compiler.Constants.evmModulus) =
+      (a % Compiler.Constants.evmModulus) &&& b := by
+  rw [show Compiler.Constants.evmModulus = 2 ^ 256 by rfl]
+  rw [← Nat.and_two_pow_sub_one_eq_mod b 256, ← Nat.land_assoc,
+    Nat.and_two_pow_sub_one_eq_mod]
+  exact Nat.mod_eq_of_lt (by
+    rw [Nat.land_comm]
+    exact Nat.and_lt_two_pow b (Nat.mod_lt a (by positivity)))
+
+private theorem uint256OfNat_mod_evm (n : Nat) :
+    Verity.Core.Uint256.ofNat (n % Compiler.Constants.evmModulus) =
+      Verity.Core.Uint256.ofNat n := by
+  apply Verity.Core.Uint256.ext
+  simp [Verity.Core.Uint256.modulus, Compiler.Constants.evmModulus,
+    Verity.Core.UINT256_MODULUS, Nat.mod_mod]
+
 private theorem eventEvalIRExpr_normalizeEventWord_uint8
     {state : IRState} {exprIR : YulExpr} {value : Nat}
     (heval : evalIRExpr state exprIR = some value) :
@@ -808,10 +825,16 @@ private theorem eventEvalIRExpr_normalizeEventWord :
   | .uint16, _, _, _, _, heval, _ => by
       exact eventEvalIRExpr_normalizeEventWord_uint16 heval
   | .uintN _, _, _, _, _, heval, hlt
-  | .intN _, _, _, _, _, heval, hlt
   | .bytesN _, _, _, _, _, heval, hlt => by
-      simpa [normalizeEventWord, SourceSemantics.normalizeEventValue,
-        Nat.mod_eq_of_lt hlt] using heval
+      simp [normalizeEventWord, SourceSemantics.normalizeEventValue,
+        evalIRExpr, evalIRCall, evalIRExprs,
+        Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
+        heval, Nat.mod_eq_of_lt hlt, land_mod_evm_right]
+  | .intN _, _, _, _, _, heval, hlt => by
+      simp [normalizeEventWord, SourceSemantics.normalizeEventValue,
+        evalIRExpr, evalIRCall, evalIRExprs,
+        Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
+        heval, Nat.mod_eq_of_lt hlt, uint256OfNat_mod_evm]
   | .address, _, _, _, _, heval, _ => by
       exact eventEvalIRExpr_normalizeEventWord_address heval
   | .bool, _, _, _, _, heval, _ => by
@@ -856,11 +879,13 @@ private theorem eventNormalizeEventValue_lt_evmModulus :
   | .address, value, _, _ => by
       exact Nat.lt_of_le_of_lt Nat.and_le_left
         (FunctionBody.wordNormalize_lt_evmModulus value)
-  | .uintN _, value, _, hlt
-  | .intN _, value, _, hlt
-  | .bytesN _, value, _, hlt => by
-      simpa [SourceSemantics.normalizeEventValue,
-        SourceSemantics.wordNormalize, Nat.mod_eq_of_lt hlt]
+  | .uintN _, value, _, _
+  | .bytesN _, value, _, _ => by
+      exact Nat.lt_of_le_of_lt Nat.and_le_left
+        (FunctionBody.wordNormalize_lt_evmModulus value)
+  | .intN _, value, _, _ => by
+      exact (Verity.Core.Uint256.signextend
+        (Verity.Core.Uint256.ofNat _) (Verity.Core.Uint256.ofNat _)).isLt
   | .bool, value, _, _ => by
       by_cases hzero :
           value % Compiler.Constants.evmModulus = 0 <;>
@@ -901,9 +926,12 @@ private theorem eventNormalizeEventValue_lt_evmModulus_any :
       exact Nat.lt_of_le_of_lt Nat.and_le_left
         (FunctionBody.wordNormalize_lt_evmModulus value)
   | .uintN _, value
-  | .intN _, value
   | .bytesN _, value => by
-      exact FunctionBody.wordNormalize_lt_evmModulus value
+      exact Nat.lt_of_le_of_lt Nat.and_le_left
+        (FunctionBody.wordNormalize_lt_evmModulus value)
+  | .intN _, value => by
+      exact (Verity.Core.Uint256.signextend
+        (Verity.Core.Uint256.ofNat _) (Verity.Core.Uint256.ofNat _)).isLt
   | .address, value => by
       exact Nat.lt_of_le_of_lt Nat.and_le_left
         (FunctionBody.wordNormalize_lt_evmModulus value)
