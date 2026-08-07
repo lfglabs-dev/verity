@@ -2998,6 +2998,8 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.eventSignatureScratchStores_continue  -- private
   -- Compiler.Proofs.IRGeneration.eventSignatureTopic_of_memorySliceWords_eq  -- private
   -- Compiler.Proofs.IRGeneration.eventEvalIRExpr_topic0  -- private
+  -- Compiler.Proofs.IRGeneration.land_mod_evm_right  -- private
+  -- Compiler.Proofs.IRGeneration.uint256OfNat_mod_evm  -- private
   -- Compiler.Proofs.IRGeneration.eventEvalIRExpr_normalizeEventWord_uint8  -- private
   -- Compiler.Proofs.IRGeneration.eventEvalIRExpr_normalizeEventWord_uint16  -- private
   -- Compiler.Proofs.IRGeneration.eventEvalIRExpr_normalizeEventWord_address  -- private
@@ -6589,4 +6591,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6165 theorems/lemmas (4298 public, 1867 private, 0 sorry'd)
+-- Total: 6167 theorems/lemmas (4298 public, 1869 private, 0 sorry'd)
