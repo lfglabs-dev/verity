@@ -71,6 +71,9 @@ structure Event where
 -- State monad for contract execution
 structure ContractState where
   storage : Nat → Uint256                -- Uint256 storage mapping
+  /-- Storage worlds for explicitly identified contracts. Contract id `0` is
+      represented by `storage` through the compatibility lenses below. -/
+  contractStorage : Nat → Nat → Uint256 := fun _ _ => 0
   transientStorage : Nat → Uint256       -- EIP-1153 transient storage mapping
   storageAddr : Nat → Address            -- Address storage mapping
   storageMap : Nat → Address → Uint256  -- Mapping storage (Address → Uint256)
@@ -115,6 +118,20 @@ def readSlot (s : ContractState) (slot : Nat) : Uint256 :=
 
 def writeSlot (s : ContractState) (slot : Nat) (value : Uint256) : ContractState :=
   { s with storage := fun sl => if sl == slot then value else s.storage sl }
+
+/-- Read a word from a contract-separated storage world. Contract id `0`
+    deliberately denotes the legacy, unqualified `storage` world. -/
+def readContractSlot (s : ContractState) (contract : Nat) (slot : Nat) : Uint256 :=
+  if contract == 0 then s.readSlot slot else s.contractStorage contract slot
+
+/-- Write a word in a contract-separated storage world. Contract id `0`
+    deliberately updates the legacy, unqualified `storage` world. -/
+def writeContractSlot (s : ContractState) (contract : Nat) (slot : Nat)
+    (value : Uint256) : ContractState :=
+  if contract == 0 then s.writeSlot slot value
+  else
+    { s with contractStorage := fun c sl =>
+        if c == contract && sl == slot then value else s.contractStorage c sl }
 
 def readAddrSlot (s : ContractState) (slot : Nat) : Address :=
   s.storageAddr slot
@@ -164,6 +181,32 @@ def writeArray (s : ContractState) (slot : Nat) (values : List Uint256) : Contra
     (h : slot' ≠ slot) (v : Uint256) :
     (s.writeSlot slot v).readSlot slot' = s.readSlot slot' := by
   simp [readSlot, writeSlot, h]
+
+@[storage_simps] theorem readContractSlot_zero (s : ContractState) (slot : Nat) :
+    s.readContractSlot 0 slot = s.readSlot slot := by
+  simp [readContractSlot]
+
+@[storage_simps] theorem readContractSlot_writeContractSlot_same
+    (s : ContractState) (contract slot : Nat) (v : Uint256) :
+    (s.writeContractSlot contract slot v).readContractSlot contract slot = v := by
+  by_cases h : contract = 0
+  · subst contract
+    simp [readContractSlot, writeContractSlot, readSlot, writeSlot]
+  · simp [readContractSlot, writeContractSlot, h]
+
+@[storage_simps] theorem readContractSlot_writeContractSlot_other_contract
+    (s : ContractState) {contract contract' slot : Nat} (h : contract' ≠ contract)
+    (v : Uint256) :
+    (s.writeContractSlot contract slot v).readContractSlot contract' slot =
+      s.readContractSlot contract' slot := by
+  by_cases hc : contract = 0
+  · subst contract
+    have hc' : contract' ≠ 0 := h
+    simp [readContractSlot, writeContractSlot, writeSlot, hc']
+  · by_cases hc' : contract' = 0
+    · subst contract'
+      simp [readContractSlot, writeContractSlot, readSlot, hc]
+    · simp [readContractSlot, writeContractSlot, hc, hc', h]
 
 @[storage_simps] theorem readAddrSlot_writeAddrSlot_same (s : ContractState) (slot : Nat)
     (v : Address) : (s.writeAddrSlot slot v).readAddrSlot slot = v := by
