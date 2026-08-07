@@ -422,36 +422,26 @@ theorem genScalarLoad_calldataload_bridged
   | ParamType.uint256, _
   | ParamType.int256, _
   | ParamType.bytes32, _ =>
-      simp only [genScalarLoad, List.mem_singleton] at hMem
-      subst hMem
-      exact BridgedStmt.straight _
-        (BridgedStraightStmt.let_ name _ (bridgedExpr_calldataload_lit offset))
+      simp only [genScalarLoad, List.mem_singleton] at hMem; subst hMem
+      exact BridgedStmt.straight _ (BridgedStraightStmt.let_ name _ (bridgedExpr_calldataload_lit offset))
   | ParamType.uintN bits, _ =>
-      simp only [genScalarLoad, List.mem_singleton] at hMem
-      subst hMem
-      exact BridgedStmt.straight _
-        (BridgedStraightStmt.let_ name _
-          (bridgedExpr_and_lit_mask _ (bridgedExpr_calldataload_lit offset) (2 ^ bits - 1)))
+      simp only [genScalarLoad, List.mem_singleton] at hMem; subst hMem
+      exact BridgedStmt.straight _ (BridgedStraightStmt.let_ name _
+        (bridgedExpr_and_lit_mask _ (bridgedExpr_calldataload_lit offset) (2 ^ bits - 1)))
   | ParamType.intN bits, _ =>
-      simp only [genScalarLoad, List.mem_singleton] at hMem
-      subst hMem
-      exact BridgedStmt.straight _
-        (BridgedStraightStmt.let_ name _
-          (bridgedExpr_signextend_lit (bits / 8 - 1) _
-            (bridgedExpr_calldataload_lit offset)))
+      simp only [genScalarLoad, List.mem_singleton] at hMem; subst hMem
+      exact BridgedStmt.straight _ (BridgedStraightStmt.let_ name _
+        (bridgedExpr_signextend_lit (bits / 8 - 1) _ (bridgedExpr_calldataload_lit offset)))
   | ParamType.bytesN bytes, _ =>
-      simp only [genScalarLoad, List.mem_singleton] at hMem
-      subst hMem
-      exact BridgedStmt.straight _
-        (BridgedStraightStmt.let_ name _
-          (bridgedExpr_and_lit_mask _ (bridgedExpr_calldataload_lit offset)
-            ((2 ^ (8 * bytes) - 1) * 2 ^ (8 * (32 - bytes)))))
+      simp only [genScalarLoad, List.mem_singleton] at hMem; subst hMem
+      exact BridgedStmt.straight _ (BridgedStraightStmt.let_ name _
+        (bridgedExpr_and_lit_mask _ (bridgedExpr_calldataload_lit offset)
+          ((2 ^ (8 * bytes) - 1) * 2 ^ (8 * (32 - bytes)))))
   | ParamType.uint8, _ =>
       simp only [genScalarLoad, List.mem_singleton] at hMem
       subst hMem
-      exact BridgedStmt.straight _
-        (BridgedStraightStmt.let_ name _
-          (bridgedExpr_and_lit_mask _ (bridgedExpr_calldataload_lit offset) 255))
+      exact BridgedStmt.straight _ (BridgedStraightStmt.let_ name _
+        (bridgedExpr_and_lit_mask _ (bridgedExpr_calldataload_lit offset) 255))
   | ParamType.uint16, _ =>
       simp only [genScalarLoad, List.mem_singleton] at hMem
       subst hMem
