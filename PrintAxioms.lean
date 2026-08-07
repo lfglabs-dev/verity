@@ -3848,7 +3848,11 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.ParamLoading.supportedExternalParamType_cases  -- private
   -- Compiler.Proofs.IRGeneration.ParamLoading.execIRStmts_cons_of_execIRStmt_continue  -- private
   -- Compiler.Proofs.IRGeneration.ParamLoading.execIRStmts_cons_of_execIRStmt_continue_extraFuel  -- private
+  -- Compiler.Proofs.IRGeneration.ParamLoading.land_mod_evm_right  -- private
   -- Compiler.Proofs.IRGeneration.ParamLoading.exec_genScalarLoad_supported_then_word_passthrough  -- private
+  -- Compiler.Proofs.IRGeneration.ParamLoading.exec_genScalarLoad_supported_then_uintN  -- private
+  -- Compiler.Proofs.IRGeneration.ParamLoading.exec_genScalarLoad_supported_then_intN  -- private
+  -- Compiler.Proofs.IRGeneration.ParamLoading.exec_genScalarLoad_supported_then_bytesN  -- private
   -- Compiler.Proofs.IRGeneration.ParamLoading.exec_genScalarLoad_supported_then_uint8  -- private
   -- Compiler.Proofs.IRGeneration.ParamLoading.exec_genScalarLoad_supported_then_uint16  -- private
   -- Compiler.Proofs.IRGeneration.ParamLoading.exec_genScalarLoad_supported_then_address  -- private
@@ -6585,4 +6589,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6161 theorems/lemmas (4298 public, 1863 private, 0 sorry'd)
+-- Total: 6165 theorems/lemmas (4298 public, 1867 private, 0 sorry'd)
