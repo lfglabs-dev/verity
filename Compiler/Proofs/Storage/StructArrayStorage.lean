@@ -578,7 +578,7 @@ theorem setStructMember_exec_matches_canonical_target
   · simp [SourceSemantics.execStmt, hslots, hmembers, findStructMember,
       structBridgeMember, sourceStructMemberWriteState, sourceStructMemberWriteWorld,
       SourceSemantics.evalExpr,
-      SourceSemantics.wordNormalize_eq_mod,
+      SourceSemantics.wordNormalize_eq_mod, Nat.mod_eq_of_lt hkey,
       Nat.mod_eq_of_lt hvalue]
   · simp [applyStateRewrite, StructMemberCoherent, sourceStructMemberWriteWorld,
       SourceSemantics.writeAddressKeyedMappingWordFieldSlots,
