@@ -1213,6 +1213,7 @@ private def eventNormalizationSpec : CompilationModel :=
     ]
     functions := [] }
 
+set_option maxRecDepth 2000 in
 example :
     SourceSemantics.eventFromResolvedArgs? eventNormalizationSpec.events "Evt"
       [2, Compiler.Constants.addressMask + 18, 300] =
