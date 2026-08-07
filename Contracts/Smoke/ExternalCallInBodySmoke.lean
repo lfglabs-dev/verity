@@ -34,13 +34,13 @@ verity_contract ExternalCallInBodySmoke where
     returnDataCopy(96, 0, size)
     return (add (add (add pureRoundtrip roundtrip) success) observed)
 
-example : ExternalCallInBodySmoke.linkedRead_modelBody.head? =
-    some (Compiler.CompilationModel.Stmt.externalCallBind
-      ["depositable"] "getDepositableEther" []) := rfl
+example : ExternalCallInBodySmoke.linkedRead_modelBody.take 1 =
+    [Compiler.CompilationModel.Stmt.externalCallBind
+      ["depositable"] "getDepositableEther" []] := rfl
 
-example : ExternalCallInBodySmoke.linkedWrite_modelBody.head? =
-    some (Compiler.CompilationModel.Stmt.externalCallBind [] "deposit"
-      [ .param "amount", .param "pubkey_data_offset", .param "pubkey_length" ]) := rfl
+example : ExternalCallInBodySmoke.linkedWrite_modelBody.take 1 =
+    [Compiler.CompilationModel.Stmt.externalCallBind [] "deposit"
+      [ .param "amount", .param "pubkey_data_offset", .param "pubkey_length" ]] := rfl
 
 example : ExternalCallInBodySmoke.lowLevel_modelBody.take 7 =
     [ Compiler.CompilationModel.Stmt.mstore (.literal 0) (.param "amount")
