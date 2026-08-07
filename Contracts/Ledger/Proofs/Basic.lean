@@ -48,6 +48,7 @@ theorem getBalance_preserves_state (s : ContractState) (addr : Address) :
 private theorem deposit_unfold (s : ContractState) (amount : Uint256) :
     (deposit amount).run s = ContractResult.success ()
     { «storage» := s.storage,
+      contractStorage := s.contractStorage,
       transientStorage := s.transientStorage,
       storageAddr := s.storageAddr,
       storageMap := fun slotIdx addr =>
@@ -108,6 +109,7 @@ private theorem withdraw_unfold (s : ContractState) (amount : Uint256)
   (h_balance : s.storageMap 0 s.sender >= amount) :
   (withdraw amount).run s = ContractResult.success ()
     { «storage» := s.storage,
+      contractStorage := s.contractStorage,
       transientStorage := s.transientStorage,
       storageAddr := s.storageAddr,
       storageMap := fun slotIdx addr =>
@@ -180,6 +182,7 @@ private theorem transfer_unfold_other (s : ContractState) (toAddr : Address) (am
   (h_ne : s.sender ≠ toAddr) :
   (transfer toAddr amount).run s = ContractResult.success ()
     { «storage» := s.storage,
+      contractStorage := s.contractStorage,
       transientStorage := s.transientStorage,
       storageAddr := s.storageAddr,
       storageMap := fun slotIdx addr =>
@@ -285,6 +288,7 @@ theorem transfer_succeeds_recipient_overflow (s : ContractState) (toAddr : Addre
   ∃ s', (transfer toAddr amount).run s = ContractResult.success () s' := by
   let s' : ContractState :=
     { «storage» := s.storage,
+      contractStorage := s.contractStorage,
       transientStorage := s.transientStorage,
       storageAddr := s.storageAddr,
       storageMap := fun slotIdx addr =>
