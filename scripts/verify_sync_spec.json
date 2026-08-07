@@ -337,7 +337,7 @@
           "use-sticky-disks": "${{ env.VERIFY_USE_STICKY_DISKS }}",
           "sticky-disk-key-prefix": "verify",
           "use-build-sticky-disk": "${{ env.VERIFY_USE_STICKY_DISKS }}",
-          "build-sticky-disk-key": "verify-build-base-${{ env.VERIFY_CACHE_BUCKET }}-${{ runner.os }}-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('lakefile.lean') }}-${{ hashFiles('lake-manifest.json') }}",
+          "build-sticky-disk-key": "verify-build-base-${{ env.VERIFY_CACHE_BUCKET }}-${{ runner.os }}-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('lakefile.lean') }}-${{ hashFiles('lake-manifest.json') }}-${{ hashFiles('Verity/Core.lean') }}",
           "disable-lake-cache-restore": "${{ env.VERIFY_DISABLE_LAKE_CACHE_RESTORE }}",
           "cache-primary-key": "lake-${{ runner.os }}-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('lakefile.lean') }}-${{ hashFiles('lake-manifest.json') }}-${{ github.run_id }}"
         }
