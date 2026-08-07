@@ -320,7 +320,7 @@ private theorem land_idempotent_right (v mask : Nat) :
 private theorem uint256_ofNat_val (value : Verity.Core.Uint256) :
     Verity.Core.Uint256.ofNat value.val = value := by
   apply Verity.Core.Uint256.ext
-  simp [Verity.Core.Uint256.ofNat, Nat.mod_eq_of_lt value.isLt]
+  exact Nat.mod_eq_of_lt value.isLt
 
 private theorem uint256_signextend_idempotent
     (byteIdx value : Verity.Core.Uint256) :
@@ -328,7 +328,43 @@ private theorem uint256_signextend_idempotent
         (Verity.Core.Uint256.signextend byteIdx value) =
       Verity.Core.Uint256.signextend byteIdx value := by
   unfold Verity.Core.Uint256.signextend
-  split <;> simp_all
+  by_cases hlarge : byteIdx.val ≥ 31
+  · simp [hlarge]
+  · by_cases hsign : value.val &&& 2 ^ (byteIdx.val * 8 + 7) = 0
+    · have hbit : value.val.testBit (byteIdx.val * 8 + 7) = false := by
+        rw [Nat.and_two_pow] at hsign
+        cases h : value.val.testBit (byteIdx.val * 8 + 7) <;> simp_all
+      have hmaskedLt : value.val % 2 ^ (byteIdx.val * 8 + 7 + 1) <
+          Verity.Core.Uint256.modulus := by
+        have hpow : 2 ^ (byteIdx.val * 8 + 7 + 1) < 2 ^ 256 := by
+          apply Nat.pow_lt_pow_right (by omega)
+          omega
+        exact lt_trans (Nat.mod_lt _ (Nat.two_pow_pos _)) (by simpa [Verity.Core.Uint256.modulus,
+          Verity.Core.UINT256_MODULUS] using hpow)
+      have hmaskedSign :
+          value.val % 2 ^ (byteIdx.val * 8 + 7 + 1) &&&
+              2 ^ (byteIdx.val * 8 + 7) = 0 := by
+        rw [Nat.and_two_pow]
+        simp [Nat.testBit_mod_two_pow, hbit]
+      simp [hlarge, hsign, Nat.and_two_pow_sub_one_eq_mod,
+        Nat.mod_eq_of_lt hmaskedLt, hmaskedSign]
+    · have hbit : value.val.testBit (byteIdx.val * 8 + 7) = true := by
+        rw [Nat.and_two_pow] at hsign
+        cases h : value.val.testBit (byteIdx.val * 8 + 7) <;> simp_all
+      let highMask := Verity.Core.Uint256.modulus - 1 -
+        (2 ^ (byteIdx.val * 8 + 7 + 1) - 1)
+      have hhighLt : highMask < 2 ^ 256 := by
+        dsimp [highMask, Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS]
+        omega
+      have horLt : value.val ||| highMask < Verity.Core.Uint256.modulus := by
+        simpa [Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS] using
+          Nat.or_lt_two_pow value.isLt hhighLt
+      have horSign : (value.val ||| highMask) &&&
+          2 ^ (byteIdx.val * 8 + 7) ≠ 0 := by
+        rw [Nat.and_two_pow]
+        simp [Nat.testBit_or, hbit]
+      simp [hlarge, hsign, highMask, Nat.mod_eq_of_lt horLt, horSign,
+        Nat.or_self_right]
 
 @[simp] theorem abiScalarNormalize_uint8_idem (v : Nat) :
     abiScalarNormalize ParamType.uint8 (abiScalarNormalize ParamType.uint8 v) =
@@ -349,10 +385,12 @@ private theorem uint256_signextend_idempotent
 private theorem abiScalarNormalize_uintN_idem (bits v : Nat) :
     abiScalarNormalize (.uintN bits) (abiScalarNormalize (.uintN bits) v) =
       abiScalarNormalize (.uintN bits) v := by
-  rw [abiScalarNormalize]
-  rw [Nat.mod_eq_of_lt (abiScalarNormalize_lt_evm_of_lt_evm (.uintN bits)
-    (Nat.mod_lt _ (by norm_num [Compiler.Constants.evmModulus])))]
-  rw [abiScalarNormalize]
+  have hlt : (v % Compiler.Constants.evmModulus &&& (2 ^ bits - 1)) <
+      Compiler.Constants.evmModulus :=
+    lt_of_le_of_lt Nat.and_le_left
+      (Nat.mod_lt _ (by norm_num [Compiler.Constants.evmModulus]))
+  simp only [abiScalarNormalize]
+  rw [Nat.mod_eq_of_lt hlt]
   exact land_idempotent_right (v % Compiler.Constants.evmModulus) (2 ^ bits - 1)
 
 private theorem abiScalarNormalize_intN_idem (bits v : Nat) :
@@ -368,10 +406,13 @@ private theorem abiScalarNormalize_intN_idem (bits v : Nat) :
 private theorem abiScalarNormalize_bytesN_idem (bytes v : Nat) :
     abiScalarNormalize (.bytesN bytes) (abiScalarNormalize (.bytesN bytes) v) =
       abiScalarNormalize (.bytesN bytes) v := by
-  rw [abiScalarNormalize]
-  rw [Nat.mod_eq_of_lt (abiScalarNormalize_lt_evm_of_lt_evm (.bytesN bytes)
-    (Nat.mod_lt _ (by norm_num [Compiler.Constants.evmModulus])))]
-  rw [abiScalarNormalize]
+  have hlt : (v % Compiler.Constants.evmModulus &&&
+      ((2 ^ (8 * bytes) - 1) * 2 ^ (8 * (32 - bytes)))) <
+      Compiler.Constants.evmModulus :=
+    lt_of_le_of_lt Nat.and_le_left
+      (Nat.mod_lt _ (by norm_num [Compiler.Constants.evmModulus]))
+  simp only [abiScalarNormalize]
+  rw [Nat.mod_eq_of_lt hlt]
   exact land_idempotent_right (v % Compiler.Constants.evmModulus)
     ((2 ^ (8 * bytes) - 1) * 2 ^ (8 * (32 - bytes)))
 
