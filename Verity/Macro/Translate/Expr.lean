@@ -494,8 +494,14 @@ def mkImmutableBoundBody
         match imm.ty with
         | .uint256 | .uint8 | .bytes32 =>
             pure #[← `(doElem| let $(imm.ident) ← getStorage $(slotField.ident))]
+        | .uintN bits =>
+            pure #[← `(doElem| let $(imm.ident) := narrowUInt $(natTerm bits) (← getStorage $(slotField.ident)))]
         | .int256 =>
             pure #[← `(doElem| let $(imm.ident) := toInt256 (← getStorage $(slotField.ident)))]
+        | .intN bits =>
+            pure #[← `(doElem| let $(imm.ident) := narrowInt $(natTerm bits) (← getStorage $(slotField.ident)))]
+        | .bytesN bytes =>
+            pure #[← `(doElem| let $(imm.ident) := narrowBytes $(natTerm bytes) (← getStorage $(slotField.ident)))]
         | .bool =>
             let rawName := mkIdent (Name.mkSimple s!"__verity_immutable_raw_{imm.name}")
             pure #[
@@ -1548,7 +1554,8 @@ unsafe def qualifiedSingleBindType
         s!"qualified helper '{qualifiedFunctionDisplayName fnName}' returns multiple values; use tuple destructuring"
 
 def customErrorRequiresDirectParamRef : ValueType → Bool
-  | .uint256 | .int256 | .uint8 | .uint16 | .address | .bool | .bytes32 => false
+  | .uint256 | .int256 | .uint8 | .uint16 | .uintN _ | .intN _ | .bytesN _
+  | .address | .bool | .bytes32 => false
   | .newtype _ baseType => customErrorRequiresDirectParamRef baseType
   | _ => true
 
@@ -3330,10 +3337,11 @@ partial def translatePureExprWithTypes
         `(Compiler.CompilationModel.Expr.memoryArrayLength $(strTerm name))
       else
         `(Compiler.CompilationModel.Expr.arrayLength $(strTerm (← expectStringOrIdent name)))
-  | `(term| arrayElement $name:term $index:term) =>
+  | `(term| arrayElement $name:term $index:term) => do
+      let raw ←
       -- verity#1849, G2: `arrayElement (arrayElement <param> <i>).<dynField> <k>`
       -- lowers through `Expr.arrayElementDynamicMemberElement`.
-      if let some (paramName, outerIndex, _fieldTy, _elemTy, wordOffset) :=
+        if let some (paramName, outerIndex, _fieldTy, _elemTy, wordOffset) :=
           arrayElementDynamicMemberProjection? params name then
         let outerIndexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals outerIndex visitingConstants
         let innerIndexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants
@@ -3342,7 +3350,7 @@ partial def translatePureExprWithTypes
             $outerIndexExpr
             $(natTerm wordOffset)
             $innerIndexExpr)
-      else if let some (paramName, outerIndex, _fieldTy, _elemTy, wordOffset) :=
+        else if let some (paramName, outerIndex, _fieldTy, _elemTy, wordOffset) :=
           localArrayElementDynamicMemberProjection? locals name then
         let outerIndexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals outerIndex visitingConstants
         let innerIndexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants
@@ -3351,21 +3359,34 @@ partial def translatePureExprWithTypes
             $outerIndexExpr
             $(natTerm wordOffset)
             $innerIndexExpr)
-      else if let some (paramName, _fieldTy, wordOffset) :=
+        else if let some (paramName, _fieldTy, wordOffset) :=
           paramDynamicMemberProjection? params name then
         let innerIndexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants
         `(Compiler.CompilationModel.Expr.paramDynamicMemberElement
             $(strTerm paramName)
             $(natTerm wordOffset)
             $innerIndexExpr)
-      else if let some (name, _) := localMemoryArray? locals name then
+        else if let some (name, _) := localMemoryArray? locals name then
         `(Compiler.CompilationModel.Expr.memoryArrayElement
             $(strTerm name)
             $(← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants))
-      else
-        `(Compiler.CompilationModel.Expr.arrayElement
-            $(strTerm (← expectStringOrIdent name))
-            $(← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants))
+        else
+          `(Compiler.CompilationModel.Expr.arrayElement
+              $(strTerm (← expectStringOrIdent name))
+              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants))
+      let elemTy ← inferPureExprType fields constDecls immutableDecls #[] params locals stx visitingConstants
+      match elemTy with
+      | .uintN bits =>
+          `(Compiler.CompilationModel.Expr.bitAnd $raw
+              (Compiler.CompilationModel.Expr.literal $(natTerm (2 ^ bits - 1))))
+      | .intN bits =>
+          `(Compiler.CompilationModel.Expr.signextend
+              (Compiler.CompilationModel.Expr.literal $(natTerm (bits / 8 - 1))) $raw)
+      | .bytesN bytes =>
+          let mask := (2 ^ (8 * bytes) - 1) * 2 ^ (8 * (32 - bytes))
+          `(Compiler.CompilationModel.Expr.bitAnd $raw
+              (Compiler.CompilationModel.Expr.literal $(natTerm mask)))
+      | _ => pure raw
   | `(term| ceilDiv $a $b) =>
       `(Compiler.CompilationModel.Expr.ceilDiv
           $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants)

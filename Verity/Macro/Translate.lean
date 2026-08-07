@@ -1618,6 +1618,19 @@ private def immutableInitStmtTerms
       match imm.ty with
       | .uint256 | .int256 | .uint8 | .uint16 | .bytes32 | .bool =>
           `(Compiler.CompilationModel.Stmt.setImmutable $(strTerm imm.name) $valueExpr)
+      | .uintN bits =>
+          `(Compiler.CompilationModel.Stmt.setImmutable $(strTerm imm.name)
+              (Compiler.CompilationModel.Expr.bitAnd $valueExpr
+                (Compiler.CompilationModel.Expr.literal $(natTerm (2 ^ bits - 1)))))
+      | .intN bits =>
+          `(Compiler.CompilationModel.Stmt.setImmutable $(strTerm imm.name)
+              (Compiler.CompilationModel.Expr.signextend
+                (Compiler.CompilationModel.Expr.literal $(natTerm (bits / 8 - 1))) $valueExpr))
+      | .bytesN bytes =>
+          let mask := (2 ^ (8 * bytes) - 1) * 2 ^ (8 * (32 - bytes))
+          `(Compiler.CompilationModel.Stmt.setImmutable $(strTerm imm.name)
+              (Compiler.CompilationModel.Expr.bitAnd $valueExpr
+                (Compiler.CompilationModel.Expr.literal $(natTerm mask))))
       | .address =>
           `(Compiler.CompilationModel.Stmt.setImmutable $(strTerm imm.name) $valueExpr)
       | _ =>

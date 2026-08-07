@@ -245,7 +245,9 @@ private def constructorArgAliases (params : List Param) : List YulStmt :=
           YulExpr.ident s!"{param.name}_offset"
         else
           match param.ty with
-          | ParamType.uint256 | ParamType.int256 | ParamType.uint8 | ParamType.uint16 | ParamType.address | ParamType.bool | ParamType.bytes32 =>
+          | ParamType.uint256 | ParamType.int256 | ParamType.uint8 | ParamType.uint16
+          | ParamType.uintN _ | ParamType.intN _ | ParamType.bytesN _
+          | ParamType.address | ParamType.bool | ParamType.bytes32 =>
               YulExpr.ident param.name
           | _ =>
               YulExpr.call "mload" [YulExpr.lit headOffset]
