@@ -727,7 +727,7 @@ def _example_value(lean_ty: str) -> str:
         return f"int{narrow_int.group(1)}(1)"
     fixed_bytes = re.fullmatch(r"Bytes(\d+)", ty)
     if fixed_bytes and 1 <= int(fixed_bytes.group(1)) <= 31:
-        return f"bytes{fixed_bytes.group(1)}(uint{int(fixed_bytes.group(1)) * 8}(0xBEEF))"
+        return f"bytes{fixed_bytes.group(1)}(uint{int(fixed_bytes.group(1)) * 8}(0x01))"
     if ty == "Uint256":
         return "uint256(1)"
     if ty == "Int256":

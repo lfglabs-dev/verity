@@ -1915,7 +1915,9 @@ partial def inferPureExprType
       pure .uint256
   | `(term| $n:num) =>
       pure .uint256
-  | `(term| add $a $b) | `(term| sub $a $b) | `(term| mul $a $b) => do
+  | `(term| add $a $b) | `(term| $a + $b)
+    | `(term| sub $a $b) | `(term| $a - $b)
+    | `(term| mul $a $b) | `(term| $a * $b) => do
       let lhsTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants
       let rhsTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals b visitingConstants
       let (lhsTy, rhsTy) := preferSignedNumericLiteralPeer a b lhsTy rhsTy
@@ -2401,6 +2403,17 @@ partial def inferBindSourceType
           requireWordLikeType b "safe uint helper" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals b)
           pure .uint256
       | _ => throwErrorAt rhs "unsupported requireSomeUint source; expected safeAdd, safeSub, safeMul, or safeDiv"
+  | `(term| narrowAddPanic $a:term $b:term)
+  | `(term| narrowSubPanic $a:term $b:term)
+  | `(term| narrowMulPanic $a:term $b:term) => do
+      let lhsTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals a
+      let rhsTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals b
+      match lhsTy, rhsTy with
+      | .uintN lhsBits, .uintN rhsBits =>
+          if lhsBits == rhsBits then pure (.uintN lhsBits)
+          else throwErrorAt rhs "narrow panic arithmetic requires operands of the same width"
+      | _, _ =>
+          throwErrorAt rhs "narrow panic arithmetic requires UIntN operands"
   -- Typed-error counterpart to `requireSomeUint`. `requireSomeUintError
   -- (safeXxx a b) ErrName(args)` validates the same `safeXxx` source shape
   -- and result type; argument-type validation against the contract's
@@ -3113,13 +3126,15 @@ partial def translatePureExprWithTypes
           (Compiler.CompilationModel.Expr.literal 1)
           (Compiler.CompilationModel.Expr.literal 0))
   | `(term| $n:num) => `(Compiler.CompilationModel.Expr.literal $n)
-  | `(term| add $a $b) | `(term| sub $a $b) | `(term| mul $a $b) => do
+  | `(term| add $a $b) | `(term| $a + $b)
+    | `(term| sub $a $b) | `(term| $a - $b)
+    | `(term| mul $a $b) | `(term| $a * $b) => do
       let resultTy ← inferPureExprType fields constDecls immutableDecls #[] params locals stx visitingConstants
       let lhs ← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants
       let rhs ← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants
       let raw ← match stx with
-        | `(term| add $_ $_) => `(Compiler.CompilationModel.Expr.add $lhs $rhs)
-        | `(term| sub $_ $_) => `(Compiler.CompilationModel.Expr.sub $lhs $rhs)
+        | `(term| add $_ $_) | `(term| $_ + $_) => `(Compiler.CompilationModel.Expr.add $lhs $rhs)
+        | `(term| sub $_ $_) | `(term| $_ - $_) => `(Compiler.CompilationModel.Expr.sub $lhs $rhs)
         | _ => `(Compiler.CompilationModel.Expr.mul $lhs $rhs)
       match resultTy with
       | .uintN bits =>
@@ -3137,8 +3152,13 @@ partial def translatePureExprWithTypes
       let lhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals a visitingConstants
       let rhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals b visitingConstants
       let (lhsTy, rhsTy) := preferSignedNumericLiteralPeer a b lhsTy rhsTy
-      if lhsTy == .int256 && rhsTy == .int256 then
-        `(Compiler.CompilationModel.Expr.sdiv $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
+      if lhsTy == rhsTy && isSignedWordValueType lhsTy then
+        let raw ← `(Compiler.CompilationModel.Expr.sdiv $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
+        match lhsTy with
+        | .intN bits =>
+            `(Compiler.CompilationModel.Expr.signextend
+                (Compiler.CompilationModel.Expr.literal $(natTerm (bits / 8 - 1))) $raw)
+        | _ => pure raw
       else
         `(Compiler.CompilationModel.Expr.div $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
   | `(term| sdiv $a $b) => `(Compiler.CompilationModel.Expr.sdiv $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
@@ -3146,8 +3166,13 @@ partial def translatePureExprWithTypes
       let lhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals a visitingConstants
       let rhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals b visitingConstants
       let (lhsTy, rhsTy) := preferSignedNumericLiteralPeer a b lhsTy rhsTy
-      if lhsTy == .int256 && rhsTy == .int256 then
-        `(Compiler.CompilationModel.Expr.smod $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
+      if lhsTy == rhsTy && isSignedWordValueType lhsTy then
+        let raw ← `(Compiler.CompilationModel.Expr.smod $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
+        match lhsTy with
+        | .intN bits =>
+            `(Compiler.CompilationModel.Expr.signextend
+                (Compiler.CompilationModel.Expr.literal $(natTerm (bits / 8 - 1))) $raw)
+        | _ => pure raw
       else
         `(Compiler.CompilationModel.Expr.mod $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
   | `(term| smod $a $b) => `(Compiler.CompilationModel.Expr.smod $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
@@ -3186,7 +3211,7 @@ partial def translatePureExprWithTypes
       let lhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals a visitingConstants
       let rhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals b visitingConstants
       let (lhsTy, rhsTy) := preferSignedNumericLiteralPeer a b lhsTy rhsTy
-      if lhsTy == .int256 && rhsTy == .int256 then
+      if lhsTy == rhsTy && isSignedWordValueType lhsTy then
         `(Compiler.CompilationModel.Expr.logicalNot
             (Compiler.CompilationModel.Expr.slt
               $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants)
@@ -3197,7 +3222,7 @@ partial def translatePureExprWithTypes
       let lhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals a visitingConstants
       let rhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals b visitingConstants
       let (lhsTy, rhsTy) := preferSignedNumericLiteralPeer a b lhsTy rhsTy
-      if lhsTy == .int256 && rhsTy == .int256 then
+      if lhsTy == rhsTy && isSignedWordValueType lhsTy then
         `(Compiler.CompilationModel.Expr.sgt $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
       else
         `(Compiler.CompilationModel.Expr.gt $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
@@ -3206,7 +3231,7 @@ partial def translatePureExprWithTypes
       let lhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals a visitingConstants
       let rhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals b visitingConstants
       let (lhsTy, rhsTy) := preferSignedNumericLiteralPeer a b lhsTy rhsTy
-      if lhsTy == .int256 && rhsTy == .int256 then
+      if lhsTy == rhsTy && isSignedWordValueType lhsTy then
         `(Compiler.CompilationModel.Expr.slt $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
       else
         `(Compiler.CompilationModel.Expr.lt $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
@@ -3215,7 +3240,7 @@ partial def translatePureExprWithTypes
       let lhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals a visitingConstants
       let rhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals b visitingConstants
       let (lhsTy, rhsTy) := preferSignedNumericLiteralPeer a b lhsTy rhsTy
-      if lhsTy == .int256 && rhsTy == .int256 then
+      if lhsTy == rhsTy && isSignedWordValueType lhsTy then
         `(Compiler.CompilationModel.Expr.logicalNot
             (Compiler.CompilationModel.Expr.sgt
               $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants)

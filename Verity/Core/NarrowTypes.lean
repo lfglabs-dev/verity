@@ -86,9 +86,21 @@ def add (a b : IntN bits) : IntN bits := ofInt bits (a.toInt + b.toInt)
 def sub (a b : IntN bits) : IntN bits := ofInt bits (a.toInt - b.toInt)
 def mul (a b : IntN bits) : IntN bits := ofInt bits (a.toInt * b.toInt)
 def div (a b : IntN bits) : IntN bits :=
-  if b.toInt = 0 then ofInt bits 0 else ofInt bits (a.toInt / b.toInt)
+  let lhs := a.toInt
+  let rhs := b.toInt
+  if rhs = 0 then ofInt bits 0
+  else
+    let quotient := lhs.natAbs / rhs.natAbs
+    if (lhs < 0) == (rhs < 0) then ofInt bits (Int.ofNat quotient)
+    else ofInt bits (-Int.ofNat quotient)
 def mod (a b : IntN bits) : IntN bits :=
-  if b.toInt = 0 then ofInt bits 0 else ofInt bits (a.toInt % b.toInt)
+  let lhs := a.toInt
+  let rhs := b.toInt
+  if rhs = 0 then ofInt bits 0
+  else
+    let remainder := lhs.natAbs % rhs.natAbs
+    if lhs < 0 then ofInt bits (-Int.ofNat remainder)
+    else ofInt bits (Int.ofNat remainder)
 
 instance : Add (IntN bits) := ⟨add⟩
 instance : Sub (IntN bits) := ⟨sub⟩

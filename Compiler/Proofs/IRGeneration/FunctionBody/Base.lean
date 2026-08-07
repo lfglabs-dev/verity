@@ -1020,7 +1020,10 @@ theorem decodeSupportedParamWord_lt_evmModulus
       simp only [SourceSemantics.decodeSupportedParamWord, SourceSemantics.wordNormalize,
         Option.some.injEq] at hdecode
       subst value
-      exact Nat.mod_lt _ (by simp [Compiler.Constants.evmModulus])
+      first
+      | exact Verity.Core.Uint256.isLt _
+      | rw [show Compiler.Constants.evmModulus = 2 ^ 256 by rfl, Nat.land_comm]
+        exact Nat.and_lt_two_pow _ (Verity.Core.Uint256.ofNat word).isLt
   | address =>
       exact decodeSupportedParamWord_masked_lt_evmModulus (hmasked := .inr (.inr rfl)) hdecode
   | bool =>

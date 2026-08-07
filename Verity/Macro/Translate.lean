@@ -1016,6 +1016,7 @@ private partial def translateDoElems
     (immutableDecls : Array ImmutableDecl)
     (externalDecls : Array ExternalDecl)
     (functions : Array FunctionDecl)
+    (returnTy : ValueType)
     (params : Array ParamDecl)
     (locals : Array TypedLocal)
     (mutableLocals : Array String)
@@ -1025,7 +1026,7 @@ private partial def translateDoElems
   let mut stmts : Array Term := #[]
   for elem in elems do
     let (newStmts, newLocals, newMutableLocals) ←
-      translateDoElem fields constDecls immutableDecls externalDecls functions params branchLocals branchMutableLocals elem
+      translateDoElem fields constDecls immutableDecls externalDecls functions returnTy params branchLocals branchMutableLocals elem
     stmts := stmts ++ newStmts
     branchLocals := newLocals
     branchMutableLocals := newMutableLocals
@@ -1037,13 +1038,14 @@ private partial def translateDoSeqToStmtTerms
     (immutableDecls : Array ImmutableDecl)
     (externalDecls : Array ExternalDecl)
     (functions : Array FunctionDecl)
+    (returnTy : ValueType)
     (params : Array ParamDecl)
     (locals : Array TypedLocal)
     (mutableLocals : Array String)
     (doSeq : DoSeq) : CommandElabM (Array Term) := do
   match doSeq with
   | `(doSeq| $[$elems:doElem]*) =>
-      pure (← (translateDoElems fields constDecls immutableDecls externalDecls functions params locals mutableLocals elems)).1
+      pure (← (translateDoElems fields constDecls immutableDecls externalDecls functions returnTy params locals mutableLocals elems)).1
   | _ => throwErrorAt doSeq "unsupported branch body; expected do-sequence"
 
 private partial def translateDoElem
@@ -1052,6 +1054,7 @@ private partial def translateDoElem
     (immutableDecls : Array ImmutableDecl)
     (externalDecls : Array ExternalDecl)
     (functions : Array FunctionDecl)
+    (returnTy : ValueType)
     (params : Array ParamDecl)
     (locals : Array TypedLocal)
     (mutableLocals : Array String)
@@ -1190,17 +1193,17 @@ private partial def translateDoElem
   | some result => pure result
   | none => match elem with
       | `(doElem| let _ := ($rhs:term : $_ty:term)) =>
-          translateDoElem fields constDecls immutableDecls externalDecls functions params locals mutableLocals
+          translateDoElem fields constDecls immutableDecls externalDecls functions returnTy params locals mutableLocals
             (← `(doElem| let _ := $rhs:term))
       | `(doElem| let _ := $rhs:term) =>
           let discardName := freshSyntheticLocalName "discard" params locals mutableLocals
           let discardIdent := mkIdent (Name.mkSimple discardName)
-          translateDoElem fields constDecls immutableDecls externalDecls functions params locals mutableLocals
+          translateDoElem fields constDecls immutableDecls externalDecls functions returnTy params locals mutableLocals
             (← `(doElem| let $discardIdent:ident := $rhs:term))
       | `(doElem| let _ ← $rhs:term) =>
           let discardName := freshSyntheticLocalName "__discard" params locals mutableLocals
           let discardIdent := mkIdent (Name.mkSimple discardName)
-          translateDoElem fields constDecls immutableDecls externalDecls functions params locals mutableLocals
+          translateDoElem fields constDecls immutableDecls externalDecls functions returnTy params locals mutableLocals
             (← `(doElem| let $discardIdent:ident ← $rhs:term))
       | `(doElem| let mut $name:ident := $rhs:term) =>
           let varName := toString name.getId
@@ -1405,13 +1408,25 @@ private partial def translateDoElem
               | some valueExprs =>
                   pure (#[(← `(Compiler.CompilationModel.Stmt.returnValues [ $[$valueExprs],* ]))], locals, mutableLocals)
               | none =>
-                  pure (#[(← `(Compiler.CompilationModel.Stmt.return $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value)))], locals, mutableLocals)
+                  let valueExpr ←
+                    match returnTy with
+                    | .bytesN bytes =>
+                        match stripParens value with
+                        | `(term| $n:num) =>
+                            let literal ← natFromSyntax n
+                            let normalized := (literal % 2 ^ (8 * bytes)) * 2 ^ (8 * (32 - bytes))
+                            `(Compiler.CompilationModel.Expr.literal $(natTerm normalized))
+                        | _ =>
+                            translatePureExprWithTypes fields constDecls immutableDecls params locals value
+                    | _ =>
+                        translatePureExprWithTypes fields constDecls immutableDecls params locals value
+                  pure (#[(← `(Compiler.CompilationModel.Stmt.return $valueExpr))], locals, mutableLocals)
       | `(doElem| pure ()) =>
           pure (#[], locals, mutableLocals)
       | `(doElem| if $cond:term then $thenBranch:doSeq else $elseBranch:doSeq) =>
           let condExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals cond
-          let thenStmts ← translateDoSeqToStmtTerms fields constDecls immutableDecls externalDecls functions params locals mutableLocals thenBranch
-          let elseStmts ← translateDoSeqToStmtTerms fields constDecls immutableDecls externalDecls functions params locals mutableLocals elseBranch
+          let thenStmts ← translateDoSeqToStmtTerms fields constDecls immutableDecls externalDecls functions returnTy params locals mutableLocals thenBranch
+          let elseStmts ← translateDoSeqToStmtTerms fields constDecls immutableDecls externalDecls functions returnTy params locals mutableLocals elseBranch
           pure
             (#[(← `(Compiler.CompilationModel.Stmt.ite
               $condExpr
@@ -1426,7 +1441,7 @@ private partial def translateDoElem
           validateTryCatchHandlerDoesNotUsePayload handler payloadName? catchElems
           let attemptExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals attempt
           let catchTranslation ←
-            translateDoElems fields constDecls immutableDecls externalDecls functions params locals mutableLocals catchElems
+            translateDoElems fields constDecls immutableDecls externalDecls functions returnTy params locals mutableLocals catchElems
           let catchStmts := catchTranslation.1
           pure
             (#[
@@ -1446,7 +1461,7 @@ private partial def translateDoElem
           let bodyStmts ←
             match stripParens body with
             | `(term| do $[$inner:doElem]*) =>
-                pure (← (translateDoElems fields constDecls immutableDecls externalDecls functions params (locals.push (mkTypedLocal loopVar .uint256)) mutableLocals inner)).1
+                pure (← (translateDoElems fields constDecls immutableDecls externalDecls functions returnTy params (locals.push (mkTypedLocal loopVar .uint256)) mutableLocals inner)).1
             | _ => throwErrorAt body "forEach body must be a do block"
           pure
             (#[(← `(Compiler.CompilationModel.Stmt.forEach
@@ -1461,7 +1476,7 @@ private partial def translateDoElem
           let bodyStmts ←
             match stripParens body with
             | `(term| do $[$inner:doElem]*) =>
-                pure (← (translateDoElems fields constDecls immutableDecls externalDecls functions params (locals.push (mkTypedLocal loopVar .uint256)) mutableLocals inner)).1
+                pure (← (translateDoElems fields constDecls immutableDecls externalDecls functions returnTy params (locals.push (mkTypedLocal loopVar .uint256)) mutableLocals inner)).1
             | _ => throwErrorAt body "forEachSetBit body must be a do block"
           pure
             (#[(← `(Compiler.CompilationModel.Stmt.forEachSetBit
@@ -1502,7 +1517,7 @@ private partial def translateDoElem
               locals,
               mutableLocals)
       | `(doElem| unsafe $reason:str do $body:doSeq) =>
-          let bodyStmts ← translateDoSeqToStmtTerms fields constDecls immutableDecls externalDecls functions params locals mutableLocals body
+          let bodyStmts ← translateDoSeqToStmtTerms fields constDecls immutableDecls externalDecls functions returnTy params locals mutableLocals body
           let reasonStr := reason.getString
           pure
             (#[(← `(Compiler.CompilationModel.Stmt.unsafeBlock
@@ -1573,7 +1588,7 @@ private def translateBodyToStmtTerms
       let rolePrelude ← roleGuardPreludeStmtTerms fields roleDecls fn
       let modifierPrelude ← fn.modifiers.mapM fun modIdent =>
         `(Compiler.CompilationModel.Stmt.internalCall $(strTerm (modifierInternalName (toString modIdent.getId))) [])
-      let stmts := guardPrelude ++ rolePrelude ++ modifierPrelude ++ (← translateDoElems fields constDecls immutableDecls externalDecls functions fn.params #[] #[] elems).1
+      let stmts := guardPrelude ++ rolePrelude ++ modifierPrelude ++ (← translateDoElems fields constDecls immutableDecls externalDecls functions fn.returnTy fn.params #[] #[] elems).1
       let mut stmts := stmts
       if fn.returnTy == .unit then
         stmts := stmts.push (← `(Compiler.CompilationModel.Stmt.stop))
@@ -1589,7 +1604,7 @@ private def translateConstructorBodyToStmtTerms
     (ctor : ConstructorDecl) : CommandElabM (Array Term) := do
   match ctor.body with
   | `(term| do $[$elems:doElem]*) =>
-      pure (← (translateDoElems fields constDecls immutableDecls externalDecls functions ctor.params #[] #[] elems)).1
+      pure (← (translateDoElems fields constDecls immutableDecls externalDecls functions .unit ctor.params #[] #[] elems)).1
   | _ => throwErrorAt ctor.body "constructor body must be a do block"
 
 private def immutableInitStmtTerms
@@ -2418,7 +2433,7 @@ private def mkSpecCommand
     let bodyTerms ←
       match modDecl.body with
       | `(term| do $[$elems:doElem]*) =>
-          pure (← (translateDoElems fields constDecls immutableDecls externalDecls functions #[] #[] #[] elems)).1
+          pure (← (translateDoElems fields constDecls immutableDecls externalDecls functions .unit #[] #[] #[] elems)).1
       | _ => throwErrorAt modDecl.body "modifier body must be a do block"
     let bodyTerms := bodyTerms.push (← `(Compiler.CompilationModel.Stmt.stop))
     `( ({

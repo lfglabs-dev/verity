@@ -47,20 +47,20 @@ contract PropertyNarrowTypesTest is YulTestBase {
     // Property 4: echoBytes4 returns the direct parameter value
     function testAuto_EchoBytes4_ReturnsDirectParam() public {
         vm.prank(alice);
-        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("echoBytes4(bytes4)", bytes4(uint32(0xBEEF))));
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("echoBytes4(bytes4)", bytes4(uint32(0x01))));
         require(ok, "echoBytes4 reverted unexpectedly");
         assertEq(ret.length, 32, "echoBytes4 ABI return length mismatch (expected 32 bytes)");
         bytes4 actual = abi.decode(ret, (bytes4));
-        assertEq(actual, bytes4(uint32(0xBEEF)), "echoBytes4 should preserve the expected value");
+        assertEq(actual, bytes4(uint32(0x01)), "echoBytes4 should preserve the expected value");
     }
     // Property 5: echoBytes20 returns the direct parameter value
     function testAuto_EchoBytes20_ReturnsDirectParam() public {
         vm.prank(alice);
-        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("echoBytes20(bytes20)", bytes20(uint160(0xBEEF))));
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("echoBytes20(bytes20)", bytes20(uint160(0x01))));
         require(ok, "echoBytes20 reverted unexpectedly");
         assertEq(ret.length, 32, "echoBytes20 ABI return length mismatch (expected 32 bytes)");
         bytes20 actual = abi.decode(ret, (bytes20));
-        assertEq(actual, bytes20(uint160(0xBEEF)), "echoBytes20 should preserve the expected value");
+        assertEq(actual, bytes20(uint160(0x01)), "echoBytes20 should preserve the expected value");
     }
     // Property 6: TODO decode and assert `wrappingAddUint128` result
     function testTODO_WrappingAddUint128_DecodeAndAssert() public {
