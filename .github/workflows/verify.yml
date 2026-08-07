@@ -395,6 +395,7 @@ jobs:
         run: |
           rm -f .lake/build/lib/lean/Verity/Core.{olean,ilean,trace}
           rm -f .lake/build/ir/Verity/Core.{c,o,trace}
+          rm -rf .lake/build/lib/lean/Contracts .lake/build/ir/Contracts
 
       - name: Build and verify all proofs
         run: |
