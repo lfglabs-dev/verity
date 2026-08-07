@@ -1338,7 +1338,9 @@ private partial def translateDoElem
               | none =>
                   let safeBind? ← translateSafeRequireBind fields constDecls immutableDecls params locals varName rhs
                   match safeBind? with
-                  | some safeStmts => pure (safeStmts, locals.push (mkTypedLocal varName .uint256), mutableLocals)
+                  | some safeStmts =>
+                      let safeTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals rhs
+                      pure (safeStmts, locals.push (mkTypedLocal varName safeTy), mutableLocals)
                   | none =>
                       match (← translateERC20BindStmt? fields constDecls immutableDecls functions params locals varName rhs) with
                       | some stmt =>
