@@ -123,6 +123,7 @@ theorem transferOwnership_unfold (s : ContractState) (newOwner : Address)
   (h_owner : s.sender = s.storageAddr 0) :
   (transferOwnership newOwner).run s = ContractResult.success ()
     { «storage» := s.storage,
+      contractStorage := s.contractStorage,
       transientStorage := s.transientStorage,
       storageAddr := fun slotIdx => if (slotIdx == 0) = true then newOwner else s.storageAddr slotIdx,
       storageMap := s.storageMap,

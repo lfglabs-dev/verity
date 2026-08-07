@@ -112,6 +112,7 @@ theorem increment_unfold (s : ContractState)
   (h_owner : s.sender = s.storageAddr 0) :
   (increment.run s) = ContractResult.success ()
     { «storage» := fun slotIdx => if (slotIdx == 1) = true then EVM.Uint256.add (s.storage 1) 1 else s.storage slotIdx,
+      contractStorage := s.contractStorage,
       transientStorage := s.transientStorage,
       storageAddr := s.storageAddr,
       storageMap := s.storageMap,
@@ -166,6 +167,7 @@ theorem decrement_unfold (s : ContractState)
   (h_owner : s.sender = s.storageAddr 0) :
   (decrement.run s) = ContractResult.success ()
     { «storage» := fun slotIdx => if (slotIdx == 1) = true then EVM.Uint256.sub (s.storage 1) 1 else s.storage slotIdx,
+      contractStorage := s.contractStorage,
       transientStorage := s.transientStorage,
       storageAddr := s.storageAddr,
       storageMap := s.storageMap,
@@ -219,6 +221,7 @@ theorem transferOwnership_unfold (s : ContractState) (newOwner : Address)
   (h_owner : s.sender = s.storageAddr 0) :
   (transferOwnership newOwner).run s = ContractResult.success ()
     { «storage» := s.storage,
+      contractStorage := s.contractStorage,
       transientStorage := s.transientStorage,
       storageAddr := fun slotIdx => if (slotIdx == 0) = true then newOwner else s.storageAddr slotIdx,
       storageMap := s.storageMap,
