@@ -739,15 +739,14 @@ def exprTouchesUnsupportedConstructorRawCalldataSurface : Expr → Bool
   | .chainid | .msgValue | .selfBalance | .blockTimestamp | .blockNumber
   | .blobbasefee | .constructorArg _ | .returndataSize | .extcodesize _ => false
   | .calldatasize => true
-  | .storage _ | .storageAddr _ | .memoryArrayLength _
+  | .storage _ | .storageAddr _ | .arrayLength _ | .memoryArrayLength _
   | .storageArrayLength _ => false
-  | .arrayLength _ | .arrayElement _ _ | .dynamicBytesEq _ _ => true
   | .logicalNot a | .bitNot a | .mload a | .tload a | .returndataOptionalBoolAt a =>
       exprTouchesUnsupportedConstructorRawCalldataSurface a
   | .calldataload _ =>
       true
   | .mapping _ a | .mappingWord _ a _ | .mappingPackedWord _ a _ _
-  | .mappingUint _ a | .structMember _ a _
+  | .mappingUint _ a | .structMember _ a _ | .arrayElement _ a
   | .memoryArrayElement _ a
   | .arrayElementWord _ a _ _
   | .arrayElementDynamicWord _ a _
@@ -772,6 +771,7 @@ def exprTouchesUnsupportedConstructorRawCalldataSurface : Expr → Bool
   | .mapping2 _ a b | .mapping2Word _ a b _ | .structMember2 _ a b _ =>
       exprTouchesUnsupportedConstructorRawCalldataSurface a ||
         exprTouchesUnsupportedConstructorRawCalldataSurface b
+  | .dynamicBytesEq _ _ => false
   | .ite c t e | .mulDivDown c t e | .mulDivUp c t e
   | .mulDiv512Down c t e | .mulDiv512Up c t e =>
       exprTouchesUnsupportedConstructorRawCalldataSurface c ||
