@@ -145,8 +145,7 @@ macro_rules
   | `(evmCall($[$_args:term],*)) => `(by exact default)
   | `(evmStaticCall($[$_args:term],*)) => `(by exact default)
   | `(memoryLoad($_offset)) => `(by exact default)
-  | `(returnDataSize()) =>
-      `(by first | exact (pure returndataSize) | exact returndataSize)
+  | `(returnDataSize()) => `(by exact default)
   | `(memoryStore($_offset, $_value)) => `(by exact default)
   | `(returnDataCopy($_destOffset, $_sourceOffset, $_size)) => `(by exact default)
   | `(intrinsic $_name:term $_lowering:term $_args:term) =>

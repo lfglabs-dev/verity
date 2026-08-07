@@ -30,7 +30,7 @@ verity_contract ExternalCallInBodySmoke where
     let roundtrip ← memoryLoad(0)
     let success ← evmCall(50000, target, amount, 0, 32, 64, 32)
     let observed ← evmStaticCall(50000, target, 0, 32, 64, 32)
-    let size ← returnDataSize()
+    let size : Uint256 ← returnDataSize()
     returnDataCopy(96, 0, size)
     return (add (add (add pureRoundtrip roundtrip) success) observed)
 
