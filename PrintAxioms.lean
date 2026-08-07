@@ -1035,8 +1035,13 @@ end Verity.AxiomAudit
   Compiler.Proofs.AbiEncoding.abiScalarNormalize_lt_evm_of_lt_evm
   Compiler.Proofs.AbiEncoding.abiScalarNormalize_address_fixed
   -- Compiler.Proofs.AbiEncoding.land_idempotent_right  -- private
+  -- Compiler.Proofs.AbiEncoding.uint256_ofNat_val  -- private
+  -- Compiler.Proofs.AbiEncoding.uint256_signextend_idempotent  -- private
   Compiler.Proofs.AbiEncoding.abiScalarNormalize_uint8_idem
   Compiler.Proofs.AbiEncoding.abiScalarNormalize_uint16_idem
+  -- Compiler.Proofs.AbiEncoding.abiScalarNormalize_uintN_idem  -- private
+  -- Compiler.Proofs.AbiEncoding.abiScalarNormalize_intN_idem  -- private
+  -- Compiler.Proofs.AbiEncoding.abiScalarNormalize_bytesN_idem  -- private
   Compiler.Proofs.AbiEncoding.abiScalarNormalize_address_idem
   Compiler.Proofs.AbiEncoding.abiScalarNormalize_bool_idem
   Compiler.Proofs.AbiEncoding.abiScalarNormalize_idempotent
@@ -4504,6 +4509,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.isDynamicParamType_false_of_static_scalar
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_calldataload_lit  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_and_lit_mask  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_signextend_lit  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_and_hex_mask  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_iszero_iszero  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_iszero_ident  -- private
@@ -6576,4 +6582,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6152 theorems/lemmas (4295 public, 1857 private, 0 sorry'd)
+-- Total: 6158 theorems/lemmas (4295 public, 1863 private, 0 sorry'd)

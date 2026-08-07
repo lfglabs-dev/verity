@@ -346,7 +346,7 @@ private theorem uint256_signextend_idempotent
   rw [abiScalarNormalize_uint16]
   exact land_idempotent_right (v % Compiler.Constants.evmModulus) 65535
 
-@[simp] theorem abiScalarNormalize_uintN_idem (bits v : Nat) :
+private theorem abiScalarNormalize_uintN_idem (bits v : Nat) :
     abiScalarNormalize (.uintN bits) (abiScalarNormalize (.uintN bits) v) =
       abiScalarNormalize (.uintN bits) v := by
   rw [abiScalarNormalize]
@@ -355,7 +355,7 @@ private theorem uint256_signextend_idempotent
   rw [abiScalarNormalize]
   exact land_idempotent_right (v % Compiler.Constants.evmModulus) (2 ^ bits - 1)
 
-@[simp] theorem abiScalarNormalize_intN_idem (bits v : Nat) :
+private theorem abiScalarNormalize_intN_idem (bits v : Nat) :
     abiScalarNormalize (.intN bits) (abiScalarNormalize (.intN bits) v) =
       abiScalarNormalize (.intN bits) v := by
   simp only [abiScalarNormalize]
@@ -365,7 +365,7 @@ private theorem uint256_signextend_idempotent
       (Verity.Core.Uint256.ofNat (bits / 8 - 1))
       (Verity.Core.Uint256.ofNat v))
 
-@[simp] theorem abiScalarNormalize_bytesN_idem (bytes v : Nat) :
+private theorem abiScalarNormalize_bytesN_idem (bytes v : Nat) :
     abiScalarNormalize (.bytesN bytes) (abiScalarNormalize (.bytesN bytes) v) =
       abiScalarNormalize (.bytesN bytes) v := by
   rw [abiScalarNormalize]
