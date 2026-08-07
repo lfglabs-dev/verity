@@ -1502,6 +1502,9 @@ structure ConstructorSpec where
 
 structure CompilationModel where
   name : String
+  /-- Stable contract identity used by contract-separated storage semantics.
+      Existing model literals remain source-compatible and default to `1`. -/
+  contractId : Nat := 1
   fields : List Field
   immutables : List ImmutableSpec := []
   /-- Explicit owner/admin/minter/relayer-style access-control declarations.
