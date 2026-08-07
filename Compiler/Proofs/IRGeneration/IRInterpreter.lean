@@ -111,15 +111,20 @@ def irWordToBytesBE (word : Nat) : ByteArray :=
   ⟨((List.range 32).map
     (fun index => UInt8.ofNat ((word / (256 ^ (31 - index))) % 256))).toArray⟩
 
+/-- Read one byte from word-addressed proof-IR memory.  Memory words use the
+EVM's big-endian byte order, so an unaligned byte offset selects within the
+word at the preceding 32-byte boundary. -/
+def irMemoryByte (memory : Nat → Nat) (offset : Nat) : UInt8 :=
+  let address := offset % Compiler.Constants.evmModulus
+  let byteIndex := address % 32
+  let wordBase := address - byteIndex
+  UInt8.ofNat ((memory wordBase / (256 ^ (31 - byteIndex))) % 256)
+
 /-- Exact byte slice read by `keccak256(offset, size)` from the proof IR's
-word-addressed memory.  Verity emits word-aligned memory regions, so each
-successive cell is based at `offset + 32 * index`; the final cell is truncated
-to the requested byte length. -/
+word-addressed memory.  Reading byte-by-byte preserves arbitrary byte offsets;
+the common aligned case is the concatenation of successive 32-byte cells. -/
 def irMemorySliceBytesBE (memory : Nat → Nat) (offset size : Nat) : ByteArray :=
-  let bytes := (memorySliceWords memory offset size).foldl
-    (fun acc word => acc ++ irWordToBytesBE word)
-    ByteArray.empty
-  bytes.extract 0 size
+  ⟨((List.range size).map (fun index => irMemoryByte memory (offset + index))).toArray⟩
 
 /-- Proof-side model of `keccak256(offset, size)` over linear memory, using
 the in-tree Ethereum Keccak implementation on the exact requested byte slice. -/
