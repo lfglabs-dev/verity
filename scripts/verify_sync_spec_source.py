@@ -282,9 +282,10 @@ SPEC = {'check_only_paths': ['.github/workflows/**',
                                                                       '}}-${{ '
                                                                       "hashFiles('lake-manifest.json') "
                                                                       '}}-${{ github.run_id }}'}},
-                                       {'name': 'Rebuild the cached contract state module',
+                                       {'name': 'Rebuild cached local Lean modules',
                                         'run': 'rm -rf .lake/build/lib/lean/Verity .lake/build/ir/Verity\n'
-                                               'rm -rf .lake/build/lib/lean/Contracts .lake/build/ir/Contracts'},
+                                               'rm -rf .lake/build/lib/lean/Contracts .lake/build/ir/Contracts\n'
+                                               'rm -rf .lake/build/lib/lean/Compiler .lake/build/ir/Compiler'},
                                        {'name': 'Prebuild shared audit Lean targets',
                                         'run': 'set +e\n'
                                                'lake build PrintAxioms 2>&1 | tee -a lake-build.log\n'

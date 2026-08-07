@@ -343,8 +343,8 @@
         }
       },
       {
-        "name": "Rebuild the cached contract state module",
-        "run": "rm -rf .lake/build/lib/lean/Verity .lake/build/ir/Verity\nrm -rf .lake/build/lib/lean/Contracts .lake/build/ir/Contracts"
+        "name": "Rebuild cached local Lean modules",
+        "run": "rm -rf .lake/build/lib/lean/Verity .lake/build/ir/Verity\nrm -rf .lake/build/lib/lean/Contracts .lake/build/ir/Contracts\nrm -rf .lake/build/lib/lean/Compiler .lake/build/ir/Compiler"
       },
       {
         "name": "Prebuild shared audit Lean targets",
