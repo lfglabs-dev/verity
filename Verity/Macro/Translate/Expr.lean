@@ -193,6 +193,28 @@ partial def contractValueTypeTerm (ty : ValueType) : CommandElabM Term :=
   | .adt _ _ => `(Uint256)  -- ADTs represented as tag value at contract level
 end
 
+def normalizeTranslatedExprForType
+    (expectedTy : ValueType) (source : Term) (expr : Term) : CommandElabM Term := do
+  match expectedTy with
+  | .uintN bits =>
+      `(Compiler.CompilationModel.Expr.bitAnd $expr
+          (Compiler.CompilationModel.Expr.literal $(natTerm (2 ^ bits - 1))))
+  | .intN bits =>
+      `(Compiler.CompilationModel.Expr.signextend
+          (Compiler.CompilationModel.Expr.literal $(natTerm (bits / 8 - 1))) $expr)
+  | .bytesN bytes =>
+      match stripParens source with
+      | `(term| $n:num) =>
+          let literal ← natFromSyntax n
+          let normalized := (literal % 2 ^ (8 * bytes)) * 2 ^ (8 * (32 - bytes))
+          `(Compiler.CompilationModel.Expr.literal $(natTerm normalized))
+      | _ =>
+          let mask := (2 ^ (8 * bytes) - 1) * 2 ^ (8 * (32 - bytes))
+          `(Compiler.CompilationModel.Expr.bitAnd $expr
+              (Compiler.CompilationModel.Expr.literal $(natTerm mask)))
+  | .newtype _ baseType => normalizeTranslatedExprForType baseType source expr
+  | _ => pure expr
+
 def immutableHiddenName (imm : ImmutableDecl) : String :=
   s!"__immutable_{imm.name}"
 
@@ -3009,10 +3031,11 @@ partial def translatePureExprWithTypes
   -- Direct dynamic-tuple parameter leaf projection (verity#1832): read a
   -- single-word static field at a fixed head offset from a dynamically
   -- encoded struct parameter.
-  if let some (paramName, _fieldTy, wordOffset) := paramDynamicHeadProjection? params stx then
-    `(Compiler.CompilationModel.Expr.paramDynamicHeadWord
+  if let some (paramName, fieldTy, wordOffset) := paramDynamicHeadProjection? params stx then
+    let raw ← `(Compiler.CompilationModel.Expr.paramDynamicHeadWord
       $(strTerm paramName)
       $(natTerm wordOffset))
+    normalizeTranslatedExprForType fieldTy stx raw
   else
   if (paramDynamicMemberProjection? params stx).isSome then
     throwErrorAt stx "dynamic struct parameter member cannot be used as a scalar expression; pass it to a helper/external expecting an Array or use arrayLength/arrayElement"
