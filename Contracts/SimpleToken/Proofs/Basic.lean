@@ -142,8 +142,7 @@ private theorem mint_unfold (s : ContractState) (toAddr : Address) (amount : Uin
   (mint toAddr amount).run s = ContractResult.success ()
     { «storage» := fun slotIdx =>
         if (slotIdx == 2) = true then EVM.Uint256.add (s.storage 2) amount else s.storage slotIdx,
-        contractStorage := s.contractStorage,
-        transientStorage := s.transientStorage,
+        contractStorage := s.contractStorage, transientStorage := s.transientStorage,
         storageAddr := s.storageAddr,
         storageMap := fun slotIdx addr =>
         if (slotIdx == 1 && addr == toAddr) = true then EVM.Uint256.add (s.storageMap 1 toAddr) amount
