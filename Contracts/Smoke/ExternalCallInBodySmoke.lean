@@ -53,9 +53,17 @@ example : (ExternalCallInBodySmoke.lowLevel_modelBody).take 7 =
     , Compiler.CompilationModel.Stmt.letVar "size" .returndataSize
     , Compiler.CompilationModel.Stmt.returndataCopy (.literal 96) (.literal 0) (.localVar "size") ] := rfl
 
-#check ExternalCallInBodySmoke.linkedRead_semantic_preservation
-#check ExternalCallInBodySmoke.linkedWrite_semantic_preservation
-#check ExternalCallInBodySmoke.lowLevel_semantic_preservation
+example : ExternalCallInBodySmoke.linkedRead_model.body =
+    ExternalCallInBodySmoke.linkedRead_modelBody :=
+  ExternalCallInBodySmoke.linkedRead_semantic_preservation
+
+example : ExternalCallInBodySmoke.linkedWrite_model.body =
+    ExternalCallInBodySmoke.linkedWrite_modelBody :=
+  ExternalCallInBodySmoke.linkedWrite_semantic_preservation
+
+example : ExternalCallInBodySmoke.lowLevel_model.body =
+    ExternalCallInBodySmoke.lowLevel_modelBody :=
+  ExternalCallInBodySmoke.lowLevel_semantic_preservation
 
 /-- error: unsupported expression in verity_contract body (see #1003 for planned macro support expansions) -/
 #guard_msgs in
