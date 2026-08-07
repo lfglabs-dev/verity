@@ -1325,6 +1325,63 @@ example : failWithModelUsesDeclaredCustomError = true := by native_decide
 
 end MacroStatelessSectionsSmoke
 
+namespace MacroNarrowNormalizationSmoke
+
+open Verity hiding pure bind
+open Verity.EVM.Uint256
+
+verity_contract MacroNarrowNormalization where
+  storage
+
+  struct DynamicInput where
+    values : Array Uint256,
+    tag : Uint24
+
+  errors
+    error BadTag(Bytes4)
+
+  function readTag (input : DynamicInput) : Uint24 := do
+    return input.tag
+
+  function overwriteTag (seed : Uint24) : Uint24 := do
+    let mut tag := seed
+    tag := 16777216
+    return tag
+
+  function failWithTag () : Unit := do
+    revert BadTag(0xdeadbeef)
+
+def dynamicNarrowProjectionIsCanonicalized : Bool :=
+  match MacroNarrowNormalization.readTag_modelBody with
+  | [Stmt.return
+      (Expr.bitAnd
+        (Expr.paramDynamicHeadWord "input" 1)
+        (Expr.literal mask))] => mask == 2 ^ 24 - 1
+  | _ => false
+
+example : dynamicNarrowProjectionIsCanonicalized = true := by native_decide
+
+def mutableNarrowAssignmentIsCanonicalized : Bool :=
+  MacroNarrowNormalization.overwriteTag_modelBody.any fun stmt =>
+    match stmt with
+    | Stmt.assignVar "tag"
+        (Expr.bitAnd (Expr.literal 16777216) (Expr.literal mask)) =>
+        mask == 2 ^ 24 - 1
+    | _ => false
+
+example : mutableNarrowAssignmentIsCanonicalized = true := by native_decide
+
+def customErrorBytesLiteralIsCanonicalized : Bool :=
+  MacroNarrowNormalization.failWithTag_modelBody.any fun stmt =>
+    match stmt with
+    | Stmt.revertError "BadTag" [Expr.literal value] =>
+        value == 0xdeadbeef * 2 ^ 224
+    | _ => false
+
+example : customErrorBytesLiteralIsCanonicalized = true := by native_decide
+
+end MacroNarrowNormalizationSmoke
+
 namespace MacroSafeMulRequireSmoke
 
 def safeAddRequireLowersToOverflowGuard : Bool :=

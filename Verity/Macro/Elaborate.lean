@@ -118,7 +118,7 @@ def elabVerityContract : CommandElab := fun stx => do
     elabCommand (← mkStorageNamespaceCommand (toString contractName.getId) storageNamespace)
 
     for fn in functions do
-      let fnCmds ← mkFunctionCommandsPublic fields roleDecls constDecls immutableDecls externalDecls functions fn
+      let fnCmds ← mkFunctionCommandsPublic fields roleDecls errorDecls constDecls immutableDecls externalDecls functions fn
       for cmd in fnCmds do
         elabCommand cmd
       elabCommand (← mkBridgeCommand fn.ident)
