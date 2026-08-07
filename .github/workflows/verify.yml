@@ -407,8 +407,17 @@ jobs:
 
       - name: Prebuild shared audit Lean targets
         run: |
-          set -o pipefail
+          set +e
           lake build PrintAxioms 2>&1 | tee -a lake-build.log
+          build_status=${PIPESTATUS[0]}
+          if [ "${build_status}" -ne 0 ]; then
+            diagnostics="$(grep -E 'error:|unsolved goals|declaration uses|failed to synthesize|maximum recursion depth' lake-build.log | tail -80)"
+            diagnostics="${diagnostics//'%'/'%25'}"
+            diagnostics="${diagnostics//$'\n'/'%0A'}"
+            diagnostics="${diagnostics//$'\r'/'%0D'}"
+            echo "::error title=PrintAxioms prebuild diagnostics::${diagnostics}"
+            exit "${build_status}"
+          fi
 
       - name: Check storage layout audit artifacts (#1897)
         run: make verify-storage-layout

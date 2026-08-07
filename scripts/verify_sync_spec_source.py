@@ -287,9 +287,17 @@ SPEC = {'check_only_paths': ['.github/workflows/**',
                                                'rm -f .lake/build/ir/Verity/Core.{c,o,trace}\n'
                                                'rm -rf .lake/build/lib/lean/Contracts .lake/build/ir/Contracts'},
                                        {'name': 'Prebuild shared audit Lean targets',
-                                        'run': 'set -o pipefail\n'
-                                               'lake build PrintAxioms 2>&1 | tee -a '
-                                               'lake-build.log'},
+                                        'run': 'set +e\n'
+                                               'lake build PrintAxioms 2>&1 | tee -a lake-build.log\n'
+                                               'build_status=${PIPESTATUS[0]}\n'
+                                               'if [ "${build_status}" -ne 0 ]; then\n'
+                                               "  diagnostics=\"$(grep -E 'error:|unsolved goals|declaration uses|failed to synthesize|maximum recursion depth' lake-build.log | tail -80)\"\n"
+                                               "  diagnostics=\"${diagnostics//'%'/'%25'}\"\n"
+                                               "  diagnostics=\"${diagnostics//$'\\n'/'%0A'}\"\n"
+                                               "  diagnostics=\"${diagnostics//$'\\r'/'%0D'}\"\n"
+                                               '  echo "::error title=PrintAxioms prebuild diagnostics::${diagnostics}"\n'
+                                               '  exit "${build_status}"\n'
+                                               'fi'},
                                        {'name': 'Upload prepared Lean workspace build',
                                         'uses': 'actions/upload-artifact@v7',
                                         'with': {'name': 'lean-workspace-build',

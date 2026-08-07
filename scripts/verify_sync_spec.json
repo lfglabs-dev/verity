@@ -348,7 +348,7 @@
       },
       {
         "name": "Prebuild shared audit Lean targets",
-        "run": "set -o pipefail\nlake build PrintAxioms 2>&1 | tee -a lake-build.log"
+        "run": "set +e\nlake build PrintAxioms 2>&1 | tee -a lake-build.log\nbuild_status=${PIPESTATUS[0]}\nif [ \"${build_status}\" -ne 0 ]; then\n  diagnostics=\"$(grep -E 'error:|unsolved goals|declaration uses|failed to synthesize|maximum recursion depth' lake-build.log | tail -80)\"\n  diagnostics=\"${diagnostics//'%'/'%25'}\"\n  diagnostics=\"${diagnostics//$'\\n'/'%0A'}\"\n  diagnostics=\"${diagnostics//$'\\r'/'%0D'}\"\n  echo \"::error title=PrintAxioms prebuild diagnostics::${diagnostics}\"\n  exit \"${build_status}\"\nfi"
       },
       {
         "name": "Upload prepared Lean workspace build",
