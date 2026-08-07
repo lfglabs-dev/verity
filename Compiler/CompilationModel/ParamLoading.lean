@@ -112,12 +112,14 @@ def genScalarLoad
       [YulStmt.let_ name (YulExpr.call "and" [load, YulExpr.lit 255])]
   | ParamType.uint16 =>
       [YulStmt.let_ name (YulExpr.call "and" [load, YulExpr.lit 65535])]
-  | ParamType.uintN _ =>
-      [YulStmt.let_ name load]
-  | ParamType.intN _ =>
-      [YulStmt.let_ name load]
-  | ParamType.bytesN _ =>
-      [YulStmt.let_ name load]
+  | ParamType.uintN bits =>
+      [YulStmt.let_ name (YulExpr.call "and" [load, YulExpr.lit (2 ^ bits - 1)])]
+  | ParamType.intN bits =>
+      [YulStmt.let_ name
+        (YulExpr.call "signextend" [YulExpr.lit (bits / 8 - 1), load])]
+  | ParamType.bytesN bytes =>
+      [YulStmt.let_ name (YulExpr.call "and" [load,
+        YulExpr.lit ((2 ^ (8 * bytes) - 1) * 2 ^ (8 * (32 - bytes)))])]
   | ParamType.bytes32 =>
       [YulStmt.let_ name load]
   | ParamType.address =>

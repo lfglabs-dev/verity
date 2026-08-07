@@ -3113,9 +3113,22 @@ partial def translatePureExprWithTypes
           (Compiler.CompilationModel.Expr.literal 1)
           (Compiler.CompilationModel.Expr.literal 0))
   | `(term| $n:num) => `(Compiler.CompilationModel.Expr.literal $n)
-  | `(term| add $a $b) => `(Compiler.CompilationModel.Expr.add $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
-  | `(term| sub $a $b) => `(Compiler.CompilationModel.Expr.sub $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
-  | `(term| mul $a $b) => `(Compiler.CompilationModel.Expr.mul $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
+  | `(term| add $a $b) | `(term| sub $a $b) | `(term| mul $a $b) => do
+      let resultTy ← inferPureExprType fields constDecls immutableDecls #[] params locals stx visitingConstants
+      let lhs ← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants
+      let rhs ← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants
+      let raw ← match stx with
+        | `(term| add $_ $_) => `(Compiler.CompilationModel.Expr.add $lhs $rhs)
+        | `(term| sub $_ $_) => `(Compiler.CompilationModel.Expr.sub $lhs $rhs)
+        | _ => `(Compiler.CompilationModel.Expr.mul $lhs $rhs)
+      match resultTy with
+      | .uintN bits =>
+          `(Compiler.CompilationModel.Expr.bitAnd $raw
+              (Compiler.CompilationModel.Expr.literal $(natTerm (2 ^ bits - 1))))
+      | .intN bits =>
+          `(Compiler.CompilationModel.Expr.signextend
+              (Compiler.CompilationModel.Expr.literal $(natTerm (bits / 8 - 1))) $raw)
+      | _ => pure raw
   | `(term| pow $a $b) | `(term| $a ^ $b) =>
       `(Compiler.CompilationModel.Expr.externalCall Compiler.CompilationModel.builtinExpName
           [$(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants),

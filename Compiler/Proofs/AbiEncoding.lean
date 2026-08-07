@@ -29,6 +29,14 @@ passthroughs, so the spec is identity for `uint256`, `int256`, and `bytes32`. -/
 def abiScalarNormalize : ParamType → Nat → Nat
   | .uint8, v => (v % Compiler.Constants.evmModulus) &&& 255
   | .uint16, v => (v % Compiler.Constants.evmModulus) &&& 65535
+  | .uintN bits, v => (v % Compiler.Constants.evmModulus) &&& (2 ^ bits - 1)
+  | .intN bits, v =>
+      (Verity.Core.Uint256.signextend
+        (Verity.Core.Uint256.ofNat (bits / 8 - 1))
+        (Verity.Core.Uint256.ofNat v)).val
+  | .bytesN bytes, v =>
+      (v % Compiler.Constants.evmModulus) &&&
+        ((2 ^ (8 * bytes) - 1) * 2 ^ (8 * (32 - bytes)))
   | .address, v => (v % Compiler.Constants.evmModulus) &&& Compiler.Constants.addressMask
   | .bool, v => if v % Compiler.Constants.evmModulus = 0 then 0 else 1
   | .newtypeOf _ baseType, v => abiScalarNormalize baseType v

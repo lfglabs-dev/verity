@@ -17,7 +17,13 @@ def normalizeEventWord (ty : ParamType) (expr : YulExpr) : YulExpr :=
   match ty with
   | ParamType.uint8 => YulExpr.call "and" [expr, YulExpr.lit 255]
   | ParamType.uint16 => YulExpr.call "and" [expr, YulExpr.lit 65535]
-  | ParamType.uintN _ | ParamType.intN _ | ParamType.bytesN _ => expr
+  | ParamType.uintN bits =>
+      YulExpr.call "and" [expr, YulExpr.lit (2 ^ bits - 1)]
+  | ParamType.intN bits =>
+      YulExpr.call "signextend" [YulExpr.lit (bits / 8 - 1), expr]
+  | ParamType.bytesN bytes =>
+      YulExpr.call "and" [expr,
+        YulExpr.lit ((2 ^ (8 * bytes) - 1) * 2 ^ (8 * (32 - bytes)))]
   | ParamType.address => YulExpr.call "and" [expr, YulExpr.hex addressMask]
   | ParamType.bool => yulToBool expr
   | ParamType.newtypeOf _ baseType => normalizeEventWord baseType expr

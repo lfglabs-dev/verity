@@ -32,6 +32,15 @@ verity_contract NarrowTypes where
   function echoBytes20 (value : Bytes20) : Bytes20 := do
     return value
 
+  function wrappingAddUint128 (a : Uint128, b : Uint128) : Uint128 := do
+    return a + b
+
+  function wrappingSubUint128 (a : Uint128, b : Uint128) : Uint128 := do
+    return a - b
+
+  function wrappingMulUint128 (a : Uint128, b : Uint128) : Uint128 := do
+    return a * b
+
   function mulUint248 (a : Uint248, b : Uint248) : Uint248 := do
     let result ← narrowMulPanic a b
     return result
