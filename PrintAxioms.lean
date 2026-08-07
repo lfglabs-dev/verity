@@ -1027,6 +1027,9 @@ end Verity.AxiomAudit
   Compiler.Proofs.AbiEncoding.encodeStaticCustomErrorArg_eval_eq_normalizeEventWord_eval
   Compiler.Proofs.AbiEncoding.encodeStaticCustomErrorArg_agrees_with_normalizeEventWord_uint8
   Compiler.Proofs.AbiEncoding.encodeStaticCustomErrorArg_agrees_with_normalizeEventWord_uint16
+  Compiler.Proofs.AbiEncoding.encodeStaticCustomErrorArg_uintN_eq
+  Compiler.Proofs.AbiEncoding.encodeStaticCustomErrorArg_intN_eq
+  Compiler.Proofs.AbiEncoding.encodeStaticCustomErrorArg_bytesN_eq
   Compiler.Proofs.AbiEncoding.abiScalarNormalize_bool_output
   Compiler.Proofs.AbiEncoding.abiScalarNormalize_uint8_lt_evm
   Compiler.Proofs.AbiEncoding.abiScalarNormalize_uint16_lt_evm
@@ -6582,4 +6585,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6158 theorems/lemmas (4295 public, 1863 private, 0 sorry'd)
+-- Total: 6161 theorems/lemmas (4298 public, 1863 private, 0 sorry'd)

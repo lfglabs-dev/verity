@@ -246,6 +246,24 @@ theorem encodeStaticCustomErrorArg_agrees_with_normalizeEventWord_uint16
   encodeStaticCustomErrorArg_eval_eq_normalizeEventWord_eval name ParamType.uint16 s e out hout
     (Or.inr (Or.inr (Or.inr (Or.inl rfl))))
 
+@[simp] theorem encodeStaticCustomErrorArg_uintN_eq
+    (name : String) (bits : Nat) (e : YulExpr) :
+    encodeStaticCustomErrorArg name (.uintN bits) e =
+      .ok (normalizeEventWord (.uintN bits) e) := by
+  rfl
+
+@[simp] theorem encodeStaticCustomErrorArg_intN_eq
+    (name : String) (bits : Nat) (e : YulExpr) :
+    encodeStaticCustomErrorArg name (.intN bits) e =
+      .ok (normalizeEventWord (.intN bits) e) := by
+  rfl
+
+@[simp] theorem encodeStaticCustomErrorArg_bytesN_eq
+    (name : String) (bytes : Nat) (e : YulExpr) :
+    encodeStaticCustomErrorArg name (.bytesN bytes) e =
+      .ok (normalizeEventWord (.bytesN bytes) e) := by
+  rfl
+
 theorem abiScalarNormalize_bool_output (v : Nat) :
     abiScalarNormalize ParamType.bool v = 0 ∨ abiScalarNormalize ParamType.bool v = 1 := by
   unfold abiScalarNormalize

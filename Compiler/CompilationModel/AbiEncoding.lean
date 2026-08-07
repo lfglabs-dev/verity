@@ -21,7 +21,11 @@ def encodeStaticCustomErrorArg (errorName : String) (ty : ParamType) (argExpr : 
       pure (YulExpr.call "and" [argExpr, YulExpr.lit 65535])
   | ParamType.uintN bits =>
       pure (YulExpr.call "and" [argExpr, YulExpr.lit (2 ^ bits - 1)])
-  | ParamType.intN _ | ParamType.bytesN _ => pure argExpr
+  | ParamType.intN bits =>
+      pure (YulExpr.call "signextend" [YulExpr.lit (bits / 8 - 1), argExpr])
+  | ParamType.bytesN bytes =>
+      pure (YulExpr.call "and" [argExpr,
+        YulExpr.lit ((2 ^ (8 * bytes) - 1) * 2 ^ (8 * (32 - bytes)))])
   | ParamType.address =>
       pure (YulExpr.call "and" [argExpr, YulExpr.hex addressMask])
   | ParamType.bool =>
