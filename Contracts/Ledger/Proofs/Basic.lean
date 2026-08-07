@@ -288,6 +288,7 @@ theorem transfer_succeeds_recipient_overflow (s : ContractState) (toAddr : Addre
   ∃ s', (transfer toAddr amount).run s = ContractResult.success () s' := by
   let s' : ContractState :=
     { «storage» := s.storage,
+      contractStorage := s.contractStorage,
       transientStorage := s.transientStorage,
       storageAddr := s.storageAddr,
       storageMap := fun slotIdx addr =>

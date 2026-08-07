@@ -173,7 +173,6 @@ private theorem mint_unfold (s : ContractState) (toAddr : Address) (amount : Uin
   simp only [Contracts.SimpleToken.onlyOwner, isOwner,
     Contracts.SimpleToken.ownerSlot, Contracts.SimpleToken.balancesSlot,
     Contracts.SimpleToken.totalSupplySlot, h_owner, beq_self_eq_true, ite_true]
-  -- Unfold and rewrite safeAdd results for both checks
   unfold requireSomeUint
   rw [h_safe_bal]
   simp only [Verity.pure, Pure.pure, Verity.bind, Bind.bind,
