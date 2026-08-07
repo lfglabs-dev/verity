@@ -3883,8 +3883,7 @@ private theorem genScalarLoad_calldataload_callsDisjoint
       (YulExpr.call "calldataload" [YulExpr.lit offset]) := by
     simp only [yulExprCallsDisjointFromInternalTable]
     refine ⟨hcd, ?_⟩
-    intro arg harg
-    simp only [List.mem_singleton] at harg
+    intro arg harg; simp only [List.mem_singleton] at harg
     subst harg
     simp only [yulExprCallsDisjointFromInternalTable]
   cases ty <;> simp only [SupportedExternalParamType] at hsupported ⊢
@@ -3894,29 +3893,25 @@ private theorem genScalarLoad_calldataload_callsDisjoint
     | (refine .let_ _ _ [] ?_ .nil
        simp only [yulExprCallsDisjointFromInternalTable]
        refine ⟨hand, ?_⟩
-       intro arg harg
-       simp only [List.mem_cons, List.not_mem_nil, or_false] at harg
+       intro arg harg; simp only [List.mem_cons, List.not_mem_nil, or_false] at harg
        rcases harg with h1 | h2
        · subst h1; exact hload
        · subst h2; simp only [yulExprCallsDisjointFromInternalTable])
     | (refine .let_ _ _ [] ?_ .nil
        simp only [yulExprCallsDisjointFromInternalTable]
        refine ⟨hsignextend, ?_⟩
-       intro arg harg
-       simp only [List.mem_cons, List.not_mem_nil, or_false] at harg
+       intro arg harg; simp only [List.mem_cons, List.not_mem_nil, or_false] at harg
        rcases harg with h1 | h2
        · subst h1; simp only [yulExprCallsDisjointFromInternalTable]
        · subst h2; exact hload)
     | (refine .let_ _ _ [] ?_ .nil
        simp only [yulExprCallsDisjointFromInternalTable]
        refine ⟨hiszero, ?_⟩
-       intro arg harg
-       simp only [List.mem_singleton] at harg
+       intro arg harg; simp only [List.mem_singleton] at harg
        subst harg
        simp only [yulExprCallsDisjointFromInternalTable]
        refine ⟨hiszero, ?_⟩
-       intro arg2 harg2
-       simp only [List.mem_singleton] at harg2
+       intro arg2 harg2; simp only [List.mem_singleton] at harg2
        subst harg2
        exact hload)
 
