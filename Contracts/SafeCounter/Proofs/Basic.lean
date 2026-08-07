@@ -57,6 +57,7 @@ private theorem increment_unfold (s : ContractState)
   (h_no_overflow : (s.storage 0 : Nat) + 1 ≤ MAX_UINT256) :
   (increment).run s = ContractResult.success ()
     { «storage» := fun k => if (k == 0) = true then s.storage 0 + 1 else s.storage k,
+      contractStorage := s.contractStorage,
       transientStorage := s.transientStorage,
       storageAddr := s.storageAddr,
       storageMap := s.storageMap,
@@ -124,6 +125,7 @@ private theorem decrement_unfold (s : ContractState)
   (h_no_underflow : (s.storage 0 : Nat) ≥ 1) :
   (decrement).run s = ContractResult.success ()
     { «storage» := fun k => if (k == 0) = true then s.storage 0 - 1 else s.storage k,
+      contractStorage := s.contractStorage,
       transientStorage := s.transientStorage,
       storageAddr := s.storageAddr,
       storageMap := s.storageMap,

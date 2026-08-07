@@ -824,12 +824,25 @@ private theorem eventEvalIRExpr_normalizeEventWord :
       exact eventEvalIRExpr_normalizeEventWord_uint8 heval
   | .uint16, _, _, _, _, heval, _ => by
       exact eventEvalIRExpr_normalizeEventWord_uint16 heval
-  | .uintN _, _, _, _, _, heval, hlt
-  | .bytesN _, _, _, _, _, heval, hlt => by
+  | .uintN bits, _, _, value, _, heval, hlt => by
+      have hvalue : value % Compiler.Constants.evmModulus = value :=
+        Nat.mod_eq_of_lt hlt
       simp [normalizeEventWord, SourceSemantics.normalizeEventValue,
         evalIRExpr, evalIRCall, evalIRExprs,
         Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
-        heval, Nat.mod_eq_of_lt hlt, land_mod_evm_right]
+        heval, hvalue]
+      nth_rewrite 1 [← hvalue]
+      rw [land_mod_evm_right, Nat.and_two_pow_sub_one_eq_mod]
+      exact congrArg (fun n => n % 2 ^ bits) hvalue
+  | .bytesN _, _, _, value, _, heval, hlt => by
+      have hvalue : value % Compiler.Constants.evmModulus = value :=
+        Nat.mod_eq_of_lt hlt
+      simp [normalizeEventWord, SourceSemantics.normalizeEventValue,
+        evalIRExpr, evalIRCall, evalIRExprs,
+        Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
+        heval, hvalue]
+      nth_rewrite 1 [← hvalue]
+      rw [land_mod_evm_right, hvalue]
   | .intN _, _, _, _, _, heval, hlt => by
       simp [normalizeEventWord, SourceSemantics.normalizeEventValue,
         evalIRExpr, evalIRCall, evalIRExprs,
