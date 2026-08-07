@@ -380,11 +380,13 @@ private partial def validateEffectStmtExprTypes
       requireDeclaredValueType value "setMemoryArrayElement value" elemTy
         (← inferPureExprType fields constDecls immutableDecls externalDecls params locals value)
       pure ()
-  | `(term| mstore $offset:term $value:term) | `(term| tstore $offset:term $value:term) => do
+  | `(term| mstore $offset:term $value:term) | `(term| memoryStore($offset, $value))
+    | `(term| tstore $offset:term $value:term) => do
       let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals offset
       let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals value
   | `(term| calldatacopy $destOffset:term $sourceOffset:term $size:term)
-    | `(term| returndataCopy $destOffset:term $sourceOffset:term $size:term) => do
+    | `(term| returndataCopy $destOffset:term $sourceOffset:term $size:term)
+    | `(term| returnDataCopy($destOffset, $sourceOffset, $size)) => do
       let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals destOffset
       let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals sourceOffset
       let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals size
@@ -438,6 +440,14 @@ private partial def validateEffectStmtExprTypes
           for x in xs do
             let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals x
       | _ => throwErrorAt args "expected list literal [..]"
+  | `(term| callExternal $name:ident ($[$args:term],*)) => do
+      let extName := toString name.getId
+      let ext ← match externalDecls.find? (fun ext => ext.name == extName) with
+        | some ext => pure ext
+        | none => throwErrorAt name s!"unknown linked external '{extName}'"
+      unless ext.returnTys.isEmpty do
+        throwErrorAt stx s!"callExternal '{extName}' returns values; bind it with `let ... ← ...`"
+      let _ ← translateLinkedExternalCallArgs fields constDecls immutableDecls params locals args
   | `(term| revertReturndata) =>
       pure ()
   | _ =>
@@ -901,7 +911,7 @@ private def translateEffectStmt
       `(Compiler.CompilationModel.Stmt.unsafeBlock
           "write memory-backed uint256 array element"
           [Compiler.CompilationModel.Stmt.mstore $elementOffsetExpr $valueExpr])
-  | `(term| mstore $offset:term $value:term) =>
+  | `(term| mstore $offset:term $value:term) | `(term| memoryStore($offset, $value)) =>
       `(Compiler.CompilationModel.Stmt.mstore
           $(← translatePureExprWithTypes fields constDecls immutableDecls params locals offset)
           $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value))
@@ -914,7 +924,8 @@ private def translateEffectStmt
           $(← translatePureExprWithTypes fields constDecls immutableDecls params locals destOffset)
           $(← translatePureExprWithTypes fields constDecls immutableDecls params locals sourceOffset)
           $(← translatePureExprWithTypes fields constDecls immutableDecls params locals size))
-  | `(term| returndataCopy $destOffset:term $sourceOffset:term $size:term) =>
+  | `(term| returndataCopy $destOffset:term $sourceOffset:term $size:term)
+    | `(term| returnDataCopy($destOffset, $sourceOffset, $size)) =>
       `(Compiler.CompilationModel.Stmt.returndataCopy
           $(← translatePureExprWithTypes fields constDecls immutableDecls params locals destOffset)
           $(← translatePureExprWithTypes fields constDecls immutableDecls params locals sourceOffset)
@@ -956,6 +967,15 @@ private def translateEffectStmt
           [ $[$resultNameTerms],* ]
           $(strTerm targetFn)
           [ $[$argExprs],* ])
+  | `(term| callExternal $name:ident ($[$args:term],*)) =>
+      let extName := toString name.getId
+      let ext ← match externalDecls.find? (fun ext => ext.name == extName) with
+        | some ext => pure ext
+        | none => throwErrorAt name s!"unknown linked external '{extName}'"
+      unless ext.returnTys.isEmpty do
+        throwErrorAt stx s!"callExternal '{extName}' returns values; bind it with `let ... ← ...`"
+      let argExprs ← translateLinkedExternalCallArgs fields constDecls immutableDecls params locals args
+      `(Compiler.CompilationModel.Stmt.externalCallBind [] $(strTerm extName) [ $[$argExprs],* ])
   | `(term| setStructMember $field:term $key:term $member:term $value:term) =>
       let fieldName := ← expectStringOrIdent field
       let memberName := ← expectStringOrIdent member
@@ -1244,6 +1264,26 @@ private partial def translateDoElem
           if localNames.contains varName then
             throwErrorAt name s!"duplicate local variable '{varName}'"
           match stripParens rhs with
+          | `(term| callExternal $externalName:ident ($[$args:term],*)) =>
+              let extName := toString externalName.getId
+              let ext ← match externalDecls.find? (fun ext => ext.name == extName) with
+                | some ext => pure ext
+                | none => throwErrorAt externalName s!"unknown linked external '{extName}'"
+              match ext.returnTys.toList with
+              | [retTy] =>
+                  let argExprs ← translateLinkedExternalCallArgs fields constDecls immutableDecls params locals args
+                  let flatNames ← flattenExternalResultNames varName retTy
+                  let resultTerms := flatNames.toArray.map strTerm
+                  let source := match staticStructDirectFieldLocals? varName retTy with
+                    | some fieldLocals => LocalSource.externalStaticStruct fieldLocals
+                    | none => LocalSource.value
+                  pure
+                    (#[(← `(Compiler.CompilationModel.Stmt.externalCallBind
+                        [ $[$resultTerms],* ] $(strTerm extName) [ $[$argExprs],* ]))],
+                      locals.push { name := varName, ty := retTy, source := source },
+                      mutableLocals)
+              | [] => throwErrorAt rhs s!"callExternal '{extName}' returns Unit; invoke it as a statement"
+              | _ => throwErrorAt rhs s!"callExternal '{extName}' returns multiple values; use externalCallBind with explicit result names"
           | `(term| callResult $_extName:term $_args:term) =>
               match (← callResultBindStmt? fields constDecls immutableDecls externalDecls params locals rhs varName) with
               | some (stmt, resultLocal) => pure (#[stmt], locals.push resultLocal, mutableLocals)

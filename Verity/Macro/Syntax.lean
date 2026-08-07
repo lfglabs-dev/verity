@@ -121,6 +121,17 @@ syntax "adt " str : term
 syntax "adt " str " [" sepBy(term, ",") "]" : term
 syntax "tryCatch " term:max ppSpace term:max : doElem
 
+-- Explicit function-body spellings for the P0 low-level interaction surface.
+-- `callExternal` is declaration-driven; `evmCall`/`evmStaticCall` expose the
+-- EVM fields directly and intentionally use distinct names.
+syntax (name := callExternalTerm) "callExternal " ident "(" sepBy(term, ",") ")" : term
+syntax (name := evmCallTerm) "evmCall(" sepBy(term, ",") ")" : term
+syntax (name := evmStaticCallTerm) "evmStaticCall(" sepBy(term, ",") ")" : term
+syntax (name := memoryLoadTerm) "memoryLoad(" term ")" : term
+syntax (name := returnDataSizeTerm) "returnDataSize()" : term
+syntax (name := memoryStoreTerm) "memoryStore(" term "," term ")" : term
+syntax (name := returnDataCopyTerm) "returnDataCopy(" term "," term "," term ")" : term
+
 -- Compile-time Keccak-256 of a string literal (#1973). The hash is
 -- materialised at elaboration time (outside contracts) or contract
 -- translation time (inside `verity_contract` bodies). Non-literal
@@ -130,6 +141,13 @@ syntax "tryCatch " term:max ppSpace term:max : doElem
 syntax:max (name := keccakStringTerm) "keccakString " str : term
 
 macro_rules
+  | `(callExternal $_name:ident ($[$_args:term],*)) => `(by exact default)
+  | `(evmCall($[$_args:term],*)) => `(by exact default)
+  | `(evmStaticCall($[$_args:term],*)) => `(by exact default)
+  | `(memoryLoad($_offset)) => `(by exact default)
+  | `(returnDataSize()) => `(by exact default)
+  | `(memoryStore($_offset, $_value)) => `(by exact default)
+  | `(returnDataCopy($_destOffset, $_sourceOffset, $_size)) => `(by exact default)
   | `(intrinsic $_name:term $_lowering:term $_args:term) =>
       `(panic! "verity intrinsic has no default EDSL semantics; add a consumer macro_rules override")
   | `(intrinsic_cancun $_name:term $_lowering:term $_args:term) =>

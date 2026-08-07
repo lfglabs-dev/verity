@@ -1881,7 +1881,7 @@ partial def inferPureExprType
             match contextAccessorBareName? name with
             | some accessor => inferContextAccessorOrLocal accessor
             | none => throwErrorAt stx s!"unknown variable '{name}'"
-  | `(term| calldatasize) | `(term| returndataSize) =>
+  | `(term| calldatasize) | `(term| returndataSize) | `(term| returnDataSize()) =>
       pure .uint256
   | `(term| zeroAddress) =>
       match lookupTypedLocalType? locals "zeroAddress" <|> params.findSome? (fun p =>
@@ -1994,7 +1994,7 @@ partial def inferPureExprType
   | `(term| ! $a) => do
       requireBoolType a "logical not" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants)
       pure .bool
-  | `(term| mload $offset) | `(term| tload $offset) | `(term| calldataload $offset)
+  | `(term| mload $offset) | `(term| memoryLoad($offset)) | `(term| tload $offset) | `(term| calldataload $offset)
     | `(term| extcodesize $offset) => do
       requireWordLikeType offset "word offset expression" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals offset visitingConstants)
       pure .uint256
@@ -2010,10 +2010,18 @@ partial def inferPureExprType
       for arg in [gas, target, value, inOffset, inSize, outOffset, outSize] do
         requireWordLikeType arg "low-level call" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals arg visitingConstants)
       pure .uint256
+  | `(term| evmCall($gas, $target, $value, $inOffset, $inSize, $outOffset, $outSize)) => do
+      for arg in [gas, target, value, inOffset, inSize, outOffset, outSize] do
+        requireWordLikeType arg "low-level call" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals arg visitingConstants)
+      pure .uint256
   | `(term| staticcall $gas $target $inOffset $inSize $outOffset $outSize)
     | `(term| delegatecall $gas $target $inOffset $inSize $outOffset $outSize) => do
       for arg in [gas, target, inOffset, inSize, outOffset, outSize] do
         requireWordLikeType arg "low-level call" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals arg visitingConstants)
+      pure .uint256
+  | `(term| evmStaticCall($gas, $target, $inOffset, $inSize, $outOffset, $outSize)) => do
+      for arg in [gas, target, inOffset, inSize, outOffset, outSize] do
+        requireWordLikeType arg "low-level staticcall" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals arg visitingConstants)
       pure .uint256
   | `(term| arrayLength $name:term) =>
       -- verity#1849, G1: accept `arrayLength (arrayElement <param> <i>).<dynField>`
@@ -2122,6 +2130,9 @@ partial def inferPureExprType
           | [] => throwErrorAt name s!"externalCall '{extName}' returns no values; use `let success ← tryExternalCall \"{extName}\" [...]` instead"
           | _ => throwErrorAt name s!"externalCall '{extName}' returns {ext.returnTys.size} values; use `let (success, ...) ← tryExternalCall \"{extName}\" [...]` for multi-return"
       | none => pure .uint256
+  | `(term| callExternal $name:ident ($[$xs:term],*)) =>
+      inferPureExprType fields constDecls immutableDecls externalDecls params locals
+        (← `(externalCall $(strTerm (toString name.getId)) [ $[$xs],* ])) visitingConstants
   | `(term| intrinsic_cancun $name:term $_lowering:term $args:term)
   | `(term| intrinsic_prague $name:term $_lowering:term $args:term)
   | `(term| intrinsic_fusaka $name:term $_lowering:term $args:term)
@@ -2201,6 +2212,20 @@ partial def inferBindSourceType
     (rhs : Term) : CommandElabM ValueType := do
   let rhs := stripParens rhs
   match rhs with
+  | `(term| memoryLoad($_))
+    | `(term| returnDataSize())
+    | `(term| evmCall($_, $_, $_, $_, $_, $_, $_))
+    | `(term| evmStaticCall($_, $_, $_, $_, $_, $_)) =>
+      inferPureExprType fields constDecls immutableDecls externalDecls params locals rhs
+  | `(term| callExternal $name:ident ($[$_args:term],*)) =>
+      let extName := toString name.getId
+      let ext ← match externalDecls.find? (fun ext => ext.name == extName) with
+        | some ext => pure ext
+        | none => throwErrorAt name s!"unknown linked external '{extName}'"
+      match ext.returnTys.toList with
+      | [retTy] => pure retTy
+      | [] => throwErrorAt rhs s!"callExternal '{extName}' returns Unit; invoke it as a statement"
+      | _ => throwErrorAt rhs s!"callExternal '{extName}' returns multiple values; use externalCallBind with explicit result names"
   | `(term| callResult $name:term $_args:term) =>
       let extName := ← expectStringOrIdent name
       let ext ←
@@ -3097,7 +3122,7 @@ partial def translatePureExprWithTypes
       else
         translateConstantExpr fields constDecls immutableDecls visitingConstants name
   | `(term| calldatasize) => `(Compiler.CompilationModel.Expr.calldatasize)
-  | `(term| returndataSize) => `(Compiler.CompilationModel.Expr.returndataSize)
+  | `(term| returndataSize) | `(term| returnDataSize()) => `(Compiler.CompilationModel.Expr.returndataSize)
   | `(term| zeroAddress) =>
       if params.any (fun p => p.name == "zeroAddress") || localNames.contains "zeroAddress" then
         lookupVarExpr params localNames "zeroAddress"
@@ -3263,7 +3288,7 @@ partial def translatePureExprWithTypes
   | `(term| or $a $b) => `(Compiler.CompilationModel.Expr.bitOr $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
   | `(term| xor $a $b) => `(Compiler.CompilationModel.Expr.bitXor $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
   | `(term| not $a) => `(Compiler.CompilationModel.Expr.bitNot $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants))
-  | `(term| mload $offset) =>
+  | `(term| mload $offset) | `(term| memoryLoad($offset)) =>
       `(Compiler.CompilationModel.Expr.mload
           $(← translatePureExprWithTypes fields constDecls immutableDecls params locals offset visitingConstants))
   | `(term| tload $offset) =>
@@ -3294,6 +3319,15 @@ partial def translatePureExprWithTypes
           $(← translatePureExprWithTypes fields constDecls immutableDecls params locals inSize visitingConstants)
           $(← translatePureExprWithTypes fields constDecls immutableDecls params locals outOffset visitingConstants)
           $(← translatePureExprWithTypes fields constDecls immutableDecls params locals outSize visitingConstants))
+  | `(term| evmCall($gas, $target, $value, $inOffset, $inSize, $outOffset, $outSize)) =>
+      `(Compiler.CompilationModel.Expr.call
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals gas visitingConstants)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals target visitingConstants)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value visitingConstants)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals inOffset visitingConstants)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals inSize visitingConstants)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals outOffset visitingConstants)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals outSize visitingConstants))
   | `(term| staticcall $gas $target $inOffset $inSize $outOffset $outSize) =>
       `(Compiler.CompilationModel.Expr.staticcall
           $(← translatePureExprWithTypes fields constDecls immutableDecls params locals gas visitingConstants)
@@ -3302,6 +3336,17 @@ partial def translatePureExprWithTypes
           $(← translatePureExprWithTypes fields constDecls immutableDecls params locals inSize visitingConstants)
           $(← translatePureExprWithTypes fields constDecls immutableDecls params locals outOffset visitingConstants)
           $(← translatePureExprWithTypes fields constDecls immutableDecls params locals outSize visitingConstants))
+  | `(term| evmStaticCall($gas, $target, $inOffset, $inSize, $outOffset, $outSize)) =>
+      `(Compiler.CompilationModel.Expr.staticcall
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals gas visitingConstants)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals target visitingConstants)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals inOffset visitingConstants)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals inSize visitingConstants)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals outOffset visitingConstants)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals outSize visitingConstants))
+  | `(term| callExternal $name:ident ($[$xs:term],*)) =>
+      translatePureExprWithTypes fields constDecls immutableDecls params locals
+        (← `(externalCall $(strTerm (toString name.getId)) [ $[$xs],* ])) visitingConstants
   | `(term| delegatecall $gas $target $inOffset $inSize $outOffset $outSize) =>
       `(Compiler.CompilationModel.Expr.delegatecall
           $(← translatePureExprWithTypes fields constDecls immutableDecls params locals gas visitingConstants)
@@ -4600,6 +4645,11 @@ def translateBindSource
     (rhs : Term) : CommandElabM Term := do
   let rhs := stripParens rhs
   match rhs with
+  | `(term| memoryLoad($_))
+    | `(term| returnDataSize())
+    | `(term| evmCall($_, $_, $_, $_, $_, $_, $_))
+    | `(term| evmStaticCall($_, $_, $_, $_, $_, $_)) =>
+      translatePureExprWithTypes fields constDecls immutableDecls params locals rhs
   | `(term| getStorage $field:ident) =>
       let f ← lookupStorageField fields (toString field.getId)
       match f.ty with
