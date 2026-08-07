@@ -804,6 +804,35 @@ private theorem eventEvalIRExpr_normalizeEventWord_bool
       Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
       heval, hzero, hone]
 
+private theorem eventEvalIRExpr_normalizeEventWord_uintN
+    (bits : Nat) {state : IRState} {exprIR : YulExpr} {value : Nat}
+    (heval : evalIRExpr state exprIR = some value)
+    (hlt : value < Compiler.Constants.evmModulus) :
+    evalIRExpr state (normalizeEventWord (.uintN bits) exprIR) =
+      some (SourceSemantics.normalizeEventValue (.uintN bits) value) := by
+  have hvalue : value % Compiler.Constants.evmModulus = value := Nat.mod_eq_of_lt hlt
+  simp [normalizeEventWord, SourceSemantics.normalizeEventValue,
+    evalIRExpr, evalIRCall, evalIRExprs,
+    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
+    heval, hvalue]
+  nth_rewrite 1 [← hvalue]
+  rw [land_mod_evm_right, Nat.and_two_pow_sub_one_eq_mod]
+  exact congrArg (fun n => n % 2 ^ bits) hvalue
+
+private theorem eventEvalIRExpr_normalizeEventWord_bytesN
+    (bytes : Nat) {state : IRState} {exprIR : YulExpr} {value : Nat}
+    (heval : evalIRExpr state exprIR = some value)
+    (hlt : value < Compiler.Constants.evmModulus) :
+    evalIRExpr state (normalizeEventWord (.bytesN bytes) exprIR) =
+      some (SourceSemantics.normalizeEventValue (.bytesN bytes) value) := by
+  have hvalue : value % Compiler.Constants.evmModulus = value := Nat.mod_eq_of_lt hlt
+  simp [normalizeEventWord, SourceSemantics.normalizeEventValue,
+    evalIRExpr, evalIRCall, evalIRExprs,
+    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
+    heval, hvalue]
+  nth_rewrite 1 [← hvalue]
+  rw [land_mod_evm_right, hvalue]
+
 private theorem eventEvalIRExpr_normalizeEventWord :
     ∀ (ty : ParamType) {state : IRState} {exprIR : YulExpr} {value : Nat},
       eventParamScalarProofSupported ty = true →
@@ -820,38 +849,19 @@ private theorem eventEvalIRExpr_normalizeEventWord :
   | .bytes32, _, _, _, _, heval, hlt => by
       simpa [normalizeEventWord, SourceSemantics.normalizeEventValue,
         Nat.mod_eq_of_lt hlt] using heval
-  | .uint8, _, _, _, _, heval, _ => by
-      exact eventEvalIRExpr_normalizeEventWord_uint8 heval
-  | .uint16, _, _, _, _, heval, _ => by
-      exact eventEvalIRExpr_normalizeEventWord_uint16 heval
-  | .uintN bits, _, _, value, _, heval, hlt => by
-      have hvalue : value % Compiler.Constants.evmModulus = value :=
-        Nat.mod_eq_of_lt hlt
-      simp [normalizeEventWord, SourceSemantics.normalizeEventValue,
-        evalIRExpr, evalIRCall, evalIRExprs,
-        Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
-        heval, hvalue]
-      nth_rewrite 1 [← hvalue]
-      rw [land_mod_evm_right, Nat.and_two_pow_sub_one_eq_mod]
-      exact congrArg (fun n => n % 2 ^ bits) hvalue
-  | .bytesN _, _, _, value, _, heval, hlt => by
-      have hvalue : value % Compiler.Constants.evmModulus = value :=
-        Nat.mod_eq_of_lt hlt
-      simp [normalizeEventWord, SourceSemantics.normalizeEventValue,
-        evalIRExpr, evalIRCall, evalIRExprs,
-        Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
-        heval, hvalue]
-      nth_rewrite 1 [← hvalue]
-      rw [land_mod_evm_right, hvalue]
+  | .uint8, _, _, _, _, heval, _ => eventEvalIRExpr_normalizeEventWord_uint8 heval
+  | .uint16, _, _, _, _, heval, _ => eventEvalIRExpr_normalizeEventWord_uint16 heval
+  | .uintN bits, _, _, _, _, heval, hlt =>
+      eventEvalIRExpr_normalizeEventWord_uintN bits heval hlt
+  | .bytesN bytes, _, _, _, _, heval, hlt =>
+      eventEvalIRExpr_normalizeEventWord_bytesN bytes heval hlt
   | .intN _, _, _, _, _, heval, hlt => by
       simp [normalizeEventWord, SourceSemantics.normalizeEventValue,
         evalIRExpr, evalIRCall, evalIRExprs,
         Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
         heval, Nat.mod_eq_of_lt hlt, uint256OfNat_mod_evm]
-  | .address, _, _, _, _, heval, _ => by
-      exact eventEvalIRExpr_normalizeEventWord_address heval
-  | .bool, _, _, _, _, heval, _ => by
-      exact eventEvalIRExpr_normalizeEventWord_bool heval
+  | .address, _, _, _, _, heval, _ => eventEvalIRExpr_normalizeEventWord_address heval
+  | .bool, _, _, _, _, heval, _ => eventEvalIRExpr_normalizeEventWord_bool heval
   | .newtypeOf _ baseType, _, _, _, hsupport, heval, hlt => by
       have hbase : eventParamScalarProofSupported baseType = true := by
         simpa [eventParamScalarProofSupported, eventParamScalarCompileSupported]
