@@ -870,6 +870,23 @@ def preferSignedNumericLiteralPeer
     if rhsTy == .uint256 && lhsTy == .int256 && isNatLiteralTerm rhs then .int256 else rhsTy
   (lhsTy, rhsTy)
 
+def preferNarrowNumericLiteralPeer
+    (lhs rhs : Term)
+    (lhsTy rhsTy : ValueType) : ValueType × ValueType :=
+  let lhsTy :=
+    if lhsTy == .uint256 && isNatLiteralTerm lhs then
+      match rhsTy with
+      | .uintN _ | .intN _ => rhsTy
+      | _ => lhsTy
+    else lhsTy
+  let rhsTy :=
+    if rhsTy == .uint256 && isNatLiteralTerm rhs then
+      match lhsTy with
+      | .uintN _ | .intN _ => lhsTy
+      | _ => rhsTy
+    else rhsTy
+  preferSignedNumericLiteralPeer lhs rhs lhsTy rhsTy
+
 def lookupTypedLocalType? (locals : Array TypedLocal) (name : String) : Option ValueType :=
   locals.findSome? fun localTy =>
     if localTy.name == name then some localTy.ty else none
@@ -1927,7 +1944,7 @@ partial def inferPureExprType
     | `(term| mul $a $b) | `(term| $a * $b) => do
       let lhsTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants
       let rhsTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals b visitingConstants
-      let (lhsTy, rhsTy) := preferSignedNumericLiteralPeer a b lhsTy rhsTy
+      let (lhsTy, rhsTy) := preferNarrowNumericLiteralPeer a b lhsTy rhsTy
       classifyWordArithmeticResultType stx "word arithmetic" lhsTy rhsTy
   | `(term| bitAnd $a $b)
     | `(term| bitOr $a $b) | `(term| bitXor $a $b) | `(term| and $a $b)
@@ -1944,7 +1961,7 @@ partial def inferPureExprType
   | `(term| div $a $b) | `(term| $a / $b) | `(term| mod $a $b) | `(term| $a % $b) => do
       let lhsTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants
       let rhsTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals b visitingConstants
-      let (lhsTy, rhsTy) := preferSignedNumericLiteralPeer a b lhsTy rhsTy
+      let (lhsTy, rhsTy) := preferNarrowNumericLiteralPeer a b lhsTy rhsTy
       classifyWordArithmeticResultType stx "division/modulo" lhsTy rhsTy
   | `(term| sdiv $a $b) | `(term| smod $a $b) => do
       let lhsTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants
@@ -1977,7 +1994,7 @@ partial def inferPureExprType
   | `(term| $a >= $b) | `(term| $a > $b) | `(term| $a < $b) | `(term| $a <= $b) => do
       let lhsTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants
       let rhsTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals b visitingConstants
-      let (lhsTy, rhsTy) := preferSignedNumericLiteralPeer a b lhsTy rhsTy
+      let (lhsTy, rhsTy) := preferNarrowNumericLiteralPeer a b lhsTy rhsTy
       discard <| classifyWordArithmeticResultType stx "ordering comparison" lhsTy rhsTy
       pure .bool
   | `(term| $a && $b) | `(term| $a || $b) => do
@@ -3138,16 +3155,22 @@ partial def translatePureExprWithTypes
   | `(term| toUint256 $a:term) => translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants
   | `(term| narrowUInt $bits:num $a:term) => do
       let width ← natFromSyntax bits
+      unless width >= 8 && width < 256 && width % 8 == 0 do
+        throwErrorAt bits "narrowUInt width must be a byte multiple from 8 through 248"
       `(Compiler.CompilationModel.Expr.bitAnd
         $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants)
         (Compiler.CompilationModel.Expr.literal $(natTerm (2 ^ width - 1))))
   | `(term| narrowInt $bits:num $a:term) => do
       let width ← natFromSyntax bits
+      unless width >= 8 && width < 256 && width % 8 == 0 do
+        throwErrorAt bits "narrowInt width must be a byte multiple from 8 through 248"
       `(Compiler.CompilationModel.Expr.signextend
         (Compiler.CompilationModel.Expr.literal $(natTerm (width / 8 - 1)))
         $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants))
   | `(term| narrowBytes $bytes:num $a:term) => do
       let width ← natFromSyntax bytes
+      unless width >= 1 && width < 32 do
+        throwErrorAt bytes "narrowBytes width must be from 1 through 31"
       let mask := (2 ^ (8 * width) - 1) * 2 ^ (8 * (32 - width))
       `(Compiler.CompilationModel.Expr.bitAnd
         $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants)
@@ -3183,7 +3206,7 @@ partial def translatePureExprWithTypes
   | `(term| div $a $b) | `(term| $a / $b) => do
       let lhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals a visitingConstants
       let rhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals b visitingConstants
-      let (lhsTy, rhsTy) := preferSignedNumericLiteralPeer a b lhsTy rhsTy
+      let (lhsTy, rhsTy) := preferNarrowNumericLiteralPeer a b lhsTy rhsTy
       if lhsTy == rhsTy && isSignedWordValueType lhsTy then
         let raw ← `(Compiler.CompilationModel.Expr.sdiv $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
         match lhsTy with
@@ -3197,7 +3220,7 @@ partial def translatePureExprWithTypes
   | `(term| mod $a $b) | `(term| $a % $b) => do
       let lhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals a visitingConstants
       let rhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals b visitingConstants
-      let (lhsTy, rhsTy) := preferSignedNumericLiteralPeer a b lhsTy rhsTy
+      let (lhsTy, rhsTy) := preferNarrowNumericLiteralPeer a b lhsTy rhsTy
       if lhsTy == rhsTy && isSignedWordValueType lhsTy then
         let raw ← `(Compiler.CompilationModel.Expr.smod $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
         match lhsTy with
@@ -3242,7 +3265,7 @@ partial def translatePureExprWithTypes
   | `(term| $a >= $b) => do
       let lhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals a visitingConstants
       let rhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals b visitingConstants
-      let (lhsTy, rhsTy) := preferSignedNumericLiteralPeer a b lhsTy rhsTy
+      let (lhsTy, rhsTy) := preferNarrowNumericLiteralPeer a b lhsTy rhsTy
       if lhsTy == rhsTy && isSignedWordValueType lhsTy then
         `(Compiler.CompilationModel.Expr.logicalNot
             (Compiler.CompilationModel.Expr.slt
@@ -3253,7 +3276,7 @@ partial def translatePureExprWithTypes
   | `(term| $a > $b) => do
       let lhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals a visitingConstants
       let rhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals b visitingConstants
-      let (lhsTy, rhsTy) := preferSignedNumericLiteralPeer a b lhsTy rhsTy
+      let (lhsTy, rhsTy) := preferNarrowNumericLiteralPeer a b lhsTy rhsTy
       if lhsTy == rhsTy && isSignedWordValueType lhsTy then
         `(Compiler.CompilationModel.Expr.sgt $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
       else
@@ -3262,7 +3285,7 @@ partial def translatePureExprWithTypes
   | `(term| $a < $b) => do
       let lhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals a visitingConstants
       let rhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals b visitingConstants
-      let (lhsTy, rhsTy) := preferSignedNumericLiteralPeer a b lhsTy rhsTy
+      let (lhsTy, rhsTy) := preferNarrowNumericLiteralPeer a b lhsTy rhsTy
       if lhsTy == rhsTy && isSignedWordValueType lhsTy then
         `(Compiler.CompilationModel.Expr.slt $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
       else
@@ -3271,7 +3294,7 @@ partial def translatePureExprWithTypes
   | `(term| $a <= $b) => do
       let lhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals a visitingConstants
       let rhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals b visitingConstants
-      let (lhsTy, rhsTy) := preferSignedNumericLiteralPeer a b lhsTy rhsTy
+      let (lhsTy, rhsTy) := preferNarrowNumericLiteralPeer a b lhsTy rhsTy
       if lhsTy == rhsTy && isSignedWordValueType lhsTy then
         `(Compiler.CompilationModel.Expr.logicalNot
             (Compiler.CompilationModel.Expr.sgt
@@ -4079,7 +4102,8 @@ def tupleReturnValueExprs?
 
 partial def staticInternalHelperBindingNames (name : String) (ty : ValueType) : List String :=
   match ty with
-  | .uint256 | .int256 | .uint8 | .uint16 | .address | .bool | .bytes32 => [name]
+  | .uint256 | .int256 | .uint8 | .uint16 | .uintN _ | .intN _ | .bytesN _
+  | .address | .bool | .bytes32 => [name]
   | .fixedArray elemTy size =>
       (List.range size).flatMap fun idx =>
         staticInternalHelperBindingNames s!"{name}_{idx}" elemTy

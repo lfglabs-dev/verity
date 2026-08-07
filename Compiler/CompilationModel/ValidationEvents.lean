@@ -93,6 +93,13 @@ def validateEventArgShapesNode (fnName : String) (params : List Param)
       if eventDef.params.length != args.length then
         throw s!"Compilation error: event '{eventName}' expects {eventDef.params.length} args, got {args.length}"
       for (eventParam, arg) in eventDef.params.zip args do
+        match eventParam.ty with
+        | .uintN _ | .intN _ | .bytesN _ =>
+            match arg with
+            | .param _ => pure ()
+            | _ =>
+                throw s!"Compilation error: function '{fnName}' event '{eventName}' narrow param '{eventParam.name}' currently requires a direct parameter reference so executable and generated event words agree."
+        | _ => pure ()
         match arg with
         | Expr.param name =>
             match findParamType params name with
