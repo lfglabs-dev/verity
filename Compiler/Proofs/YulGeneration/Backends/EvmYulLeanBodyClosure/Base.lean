@@ -344,6 +344,17 @@ private theorem bridgedExpr_and_lit_mask
   · exact hE
   · exact BridgedExpr.lit mask
 
+/-- `signextend(lit byteIdx, e)` is bridged whenever `e` is. -/
+private theorem bridgedExpr_signextend_lit
+    (byteIdx : Nat) (e : YulExpr) (hE : BridgedExpr e) :
+    BridgedExpr (YulExpr.call "signextend" [YulExpr.lit byteIdx, e]) := by
+  refine BridgedExpr.call "signextend" _ (Or.inl (by simp [bridgedBuiltins])) ?_
+  intro arg hMem
+  simp only [List.mem_cons, List.mem_nil_iff, or_false] at hMem
+  rcases hMem with rfl | rfl
+  · exact BridgedExpr.lit byteIdx
+  · exact hE
+
 /-- `and(e, hex mask)` is a `BridgedExpr` whenever `e` is. -/
 private theorem bridgedExpr_and_hex_mask
     (e : YulExpr) (hE : BridgedExpr e) (mask : Nat) :
@@ -410,14 +421,31 @@ theorem genScalarLoad_calldataload_bridged
   match ty, hScalar with
   | ParamType.uint256, _
   | ParamType.int256, _
-  | ParamType.uintN _, _
-  | ParamType.intN _, _
-  | ParamType.bytesN _, _
   | ParamType.bytes32, _ =>
       simp only [genScalarLoad, List.mem_singleton] at hMem
       subst hMem
       exact BridgedStmt.straight _
         (BridgedStraightStmt.let_ name _ (bridgedExpr_calldataload_lit offset))
+  | ParamType.uintN bits, _ =>
+      simp only [genScalarLoad, List.mem_singleton] at hMem
+      subst hMem
+      exact BridgedStmt.straight _
+        (BridgedStraightStmt.let_ name _
+          (bridgedExpr_and_lit_mask _ (bridgedExpr_calldataload_lit offset) (2 ^ bits - 1)))
+  | ParamType.intN bits, _ =>
+      simp only [genScalarLoad, List.mem_singleton] at hMem
+      subst hMem
+      exact BridgedStmt.straight _
+        (BridgedStraightStmt.let_ name _
+          (bridgedExpr_signextend_lit (bits / 8 - 1) _
+            (bridgedExpr_calldataload_lit offset)))
+  | ParamType.bytesN bytes, _ =>
+      simp only [genScalarLoad, List.mem_singleton] at hMem
+      subst hMem
+      exact BridgedStmt.straight _
+        (BridgedStraightStmt.let_ name _
+          (bridgedExpr_and_lit_mask _ (bridgedExpr_calldataload_lit offset)
+            ((2 ^ (8 * bytes) - 1) * 2 ^ (8 * (32 - bytes)))))
   | ParamType.uint8, _ =>
       simp only [genScalarLoad, List.mem_singleton] at hMem
       subst hMem

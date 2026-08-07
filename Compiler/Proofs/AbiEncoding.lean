@@ -284,9 +284,14 @@ theorem abiScalarNormalize_lt_evm_of_lt_evm
   | int256 => simpa using hv
   | uint8 => exact abiScalarNormalize_uint8_lt_evm v
   | uint16 => exact abiScalarNormalize_uint16_lt_evm v
-  | uintN _ => simpa [abiScalarNormalize] using hv
-  | intN _ => simpa [abiScalarNormalize] using hv
-  | bytesN _ => simpa [abiScalarNormalize] using hv
+  | uintN bits =>
+      exact lt_of_le_of_lt (Nat.and_le_left) (Nat.mod_lt _ (by norm_num [Compiler.Constants.evmModulus]))
+  | intN bits =>
+      exact (Verity.Core.Uint256.signextend
+        (Verity.Core.Uint256.ofNat (bits / 8 - 1))
+        (Verity.Core.Uint256.ofNat v)).isLt
+  | bytesN bytes =>
+      exact lt_of_le_of_lt (Nat.and_le_left) (Nat.mod_lt _ (by norm_num [Compiler.Constants.evmModulus]))
   | address => exact abiScalarNormalize_address_lt_evm v
   | bool => exact abiScalarNormalize_bool_lt_evm v
   | bytes32 => simpa using hv
@@ -312,6 +317,19 @@ private theorem land_idempotent_right (v mask : Nat) :
     (v &&& mask) &&& mask = v &&& mask := by
   rw [Nat.land_assoc, Nat.and_self]
 
+private theorem uint256_ofNat_val (value : Verity.Core.Uint256) :
+    Verity.Core.Uint256.ofNat value.val = value := by
+  apply Verity.Core.Uint256.ext
+  simp [Verity.Core.Uint256.ofNat, Nat.mod_eq_of_lt value.isLt]
+
+private theorem uint256_signextend_idempotent
+    (byteIdx value : Verity.Core.Uint256) :
+    Verity.Core.Uint256.signextend byteIdx
+        (Verity.Core.Uint256.signextend byteIdx value) =
+      Verity.Core.Uint256.signextend byteIdx value := by
+  unfold Verity.Core.Uint256.signextend
+  split <;> simp_all
+
 @[simp] theorem abiScalarNormalize_uint8_idem (v : Nat) :
     abiScalarNormalize ParamType.uint8 (abiScalarNormalize ParamType.uint8 v) =
       abiScalarNormalize ParamType.uint8 v := by
@@ -327,6 +345,35 @@ private theorem land_idempotent_right (v mask : Nat) :
   rw [Nat.mod_eq_of_lt (abiScalarNormalize_uint16_lt_evm v)]
   rw [abiScalarNormalize_uint16]
   exact land_idempotent_right (v % Compiler.Constants.evmModulus) 65535
+
+@[simp] theorem abiScalarNormalize_uintN_idem (bits v : Nat) :
+    abiScalarNormalize (.uintN bits) (abiScalarNormalize (.uintN bits) v) =
+      abiScalarNormalize (.uintN bits) v := by
+  rw [abiScalarNormalize]
+  rw [Nat.mod_eq_of_lt (abiScalarNormalize_lt_evm_of_lt_evm (.uintN bits)
+    (Nat.mod_lt _ (by norm_num [Compiler.Constants.evmModulus])))]
+  rw [abiScalarNormalize]
+  exact land_idempotent_right (v % Compiler.Constants.evmModulus) (2 ^ bits - 1)
+
+@[simp] theorem abiScalarNormalize_intN_idem (bits v : Nat) :
+    abiScalarNormalize (.intN bits) (abiScalarNormalize (.intN bits) v) =
+      abiScalarNormalize (.intN bits) v := by
+  simp only [abiScalarNormalize]
+  rw [uint256_ofNat_val]
+  exact congrArg Verity.Core.Uint256.val
+    (uint256_signextend_idempotent
+      (Verity.Core.Uint256.ofNat (bits / 8 - 1))
+      (Verity.Core.Uint256.ofNat v))
+
+@[simp] theorem abiScalarNormalize_bytesN_idem (bytes v : Nat) :
+    abiScalarNormalize (.bytesN bytes) (abiScalarNormalize (.bytesN bytes) v) =
+      abiScalarNormalize (.bytesN bytes) v := by
+  rw [abiScalarNormalize]
+  rw [Nat.mod_eq_of_lt (abiScalarNormalize_lt_evm_of_lt_evm (.bytesN bytes)
+    (Nat.mod_lt _ (by norm_num [Compiler.Constants.evmModulus])))]
+  rw [abiScalarNormalize]
+  exact land_idempotent_right (v % Compiler.Constants.evmModulus)
+    ((2 ^ (8 * bytes) - 1) * 2 ^ (8 * (32 - bytes)))
 
 @[simp] theorem abiScalarNormalize_address_idem (v : Nat) :
     abiScalarNormalize ParamType.address (abiScalarNormalize ParamType.address v) =
@@ -350,9 +397,9 @@ theorem abiScalarNormalize_idempotent (ty : ParamType) (v : Nat) :
   | int256 => rfl
   | uint8 => exact abiScalarNormalize_uint8_idem v
   | uint16 => exact abiScalarNormalize_uint16_idem v
-  | uintN _ => rfl
-  | intN _ => rfl
-  | bytesN _ => rfl
+  | uintN bits => exact abiScalarNormalize_uintN_idem bits v
+  | intN bits => exact abiScalarNormalize_intN_idem bits v
+  | bytesN bytes => exact abiScalarNormalize_bytesN_idem bytes v
   | address => exact abiScalarNormalize_address_idem v
   | bool => exact abiScalarNormalize_bool_idem v
   | bytes32 => rfl

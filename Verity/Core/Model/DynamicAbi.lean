@@ -37,7 +37,13 @@ def decodeSupportedParamWord (ty : ParamType) (word : Nat) : Option Nat :=
   | .uint256 | .int256 | .bytes32 => some word
   | .uint8 => some (word &&& (uint8Modulus - 1))
   | .uint16 => some (word &&& (2^16 - 1))
-  | .uintN _ | .intN _ | .bytesN _ => some word
+  | .uintN bits => some (word &&& (2 ^ bits - 1))
+  | .intN bits => some
+      (Verity.Core.Uint256.signextend
+        (Verity.Core.Uint256.ofNat (bits / 8 - 1))
+        (Verity.Core.Uint256.ofNat word)).val
+  | .bytesN bytes => some
+      (word &&& ((2 ^ (8 * bytes) - 1) * 2 ^ (8 * (32 - bytes))))
   | .address => some (word &&& Compiler.Constants.addressMask)
   | .bool => some (if word = 0 then 0 else 1)
   | _ => none
