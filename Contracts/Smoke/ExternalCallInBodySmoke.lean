@@ -30,19 +30,19 @@ verity_contract ExternalCallInBodySmoke where
     let roundtrip ← memoryLoad(0)
     let success ← evmCall(50000, target, amount, 0, 32, 64, 32)
     let observed ← evmStaticCall(50000, target, 0, 32, 64, 32)
-    let size : Uint256 ← returnDataSize()
+    let size ← returnDataSize()
     returnDataCopy(96, 0, size)
     return (add (add (add pureRoundtrip roundtrip) success) observed)
 
-example : ExternalCallInBodySmoke.linkedRead_modelBody.take 1 =
+example : (ExternalCallInBodySmoke.linkedRead_modelBody).take 1 =
     [Compiler.CompilationModel.Stmt.externalCallBind
       ["depositable"] "getDepositableEther" []] := rfl
 
-example : ExternalCallInBodySmoke.linkedWrite_modelBody.take 1 =
+example : (ExternalCallInBodySmoke.linkedWrite_modelBody).take 1 =
     [Compiler.CompilationModel.Stmt.externalCallBind [] "deposit"
       [ .param "amount", .param "pubkey_data_offset", .param "pubkey_length" ]] := rfl
 
-example : ExternalCallInBodySmoke.lowLevel_modelBody.take 7 =
+example : (ExternalCallInBodySmoke.lowLevel_modelBody).take 7 =
     [ Compiler.CompilationModel.Stmt.mstore (.literal 0) (.param "amount")
     , Compiler.CompilationModel.Stmt.letVar "pureRoundtrip" (.add (.mload (.literal 0)) (.literal 0))
     , Compiler.CompilationModel.Stmt.letVar "roundtrip" (.mload (.literal 0))
