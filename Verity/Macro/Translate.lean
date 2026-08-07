@@ -1376,8 +1376,31 @@ private partial def translateDoElem
                                         $(natTerm argExprs.size)
                                         false)
                                       [ $targetExpr, $[$argExprs],* ])
+                              let normalization? ←
+                                match retTy with
+                                | .uintN bits => do
+                                    let normalization ← `(Compiler.CompilationModel.Stmt.assignVar $(strTerm varName)
+                                      (Compiler.CompilationModel.Expr.bitAnd
+                                        (Compiler.CompilationModel.Expr.localVar $(strTerm varName))
+                                        (Compiler.CompilationModel.Expr.literal $(natTerm (2 ^ bits - 1)))))
+                                    pure (some normalization)
+                                | .intN bits => do
+                                    let normalization ← `(Compiler.CompilationModel.Stmt.assignVar $(strTerm varName)
+                                      (Compiler.CompilationModel.Expr.signextend
+                                        (Compiler.CompilationModel.Expr.literal $(natTerm (bits / 8 - 1)))
+                                        (Compiler.CompilationModel.Expr.localVar $(strTerm varName))))
+                                    pure (some normalization)
+                                | .bytesN bytes => do
+                                    let normalization ← `(Compiler.CompilationModel.Stmt.assignVar $(strTerm varName)
+                                      (Compiler.CompilationModel.Expr.bitAnd
+                                        (Compiler.CompilationModel.Expr.localVar $(strTerm varName))
+                                        (Compiler.CompilationModel.Expr.literal
+                                          $(natTerm ((2 ^ (8 * bytes) - 1) * 2 ^ (8 * (32 - bytes)))))))
+                                    pure (some normalization)
+                                | _ => pure none
+                              let stmts := match normalization? with | some normalization => #[stmt, normalization] | none => #[stmt]
                               pure
-                                (#[stmt],
+                                (stmts,
                                   locals.push (mkTypedLocal varName retTy),
                                   mutableLocals)
                           | some (_, _, _, none, _) =>
