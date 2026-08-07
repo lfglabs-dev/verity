@@ -3004,6 +3004,8 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.eventEvalIRExpr_normalizeEventWord_uint16  -- private
   -- Compiler.Proofs.IRGeneration.eventEvalIRExpr_normalizeEventWord_address  -- private
   -- Compiler.Proofs.IRGeneration.eventEvalIRExpr_normalizeEventWord_bool  -- private
+  -- Compiler.Proofs.IRGeneration.eventEvalIRExpr_normalizeEventWord_uintN  -- private
+  -- Compiler.Proofs.IRGeneration.eventEvalIRExpr_normalizeEventWord_bytesN  -- private
   -- Compiler.Proofs.IRGeneration.eventEvalIRExpr_normalizeEventWord  -- private
   -- Compiler.Proofs.IRGeneration.eventNormalizeEventValue_lt_evmModulus  -- private
   -- Compiler.Proofs.IRGeneration.eventNormalizeEventValue_lt_evmModulus_any  -- private
@@ -6591,4 +6593,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6167 theorems/lemmas (4298 public, 1869 private, 0 sorry'd)
+-- Total: 6169 theorems/lemmas (4298 public, 1871 private, 0 sorry'd)
