@@ -402,9 +402,57 @@ def validateNonReentrantForkCompatibility
     | none =>
         pure ()
 
+mutual
+  private def validateParamTypeWidth (context : String) : ParamType → Except String Unit
+    | .uintN bits | .intN bits =>
+        if 8 ≤ bits && bits ≤ 248 && bits % 8 = 0 then
+          pure ()
+        else
+          throw s!"Compilation error: {context} has invalid narrow integer width {bits}; expected a multiple of 8 between 8 and 248."
+    | .bytesN bytes =>
+        if 1 ≤ bytes && bytes ≤ 31 then
+          pure ()
+        else
+          throw s!"Compilation error: {context} has invalid fixed-bytes width {bytes}; expected a width between 1 and 31."
+    | .tuple elemTypes => validateParamTypeWidths context elemTypes
+    | .array elemType | .fixedArray elemType _ | .newtypeOf _ elemType =>
+        validateParamTypeWidth context elemType
+    | _ => pure ()
+
+  private def validateParamTypeWidths (context : String) : List ParamType → Except String Unit
+    | [] => pure ()
+    | ty :: rest => do
+        validateParamTypeWidth context ty
+        validateParamTypeWidths context rest
+end
+
 private def validateCompileInputsBeforeFieldWriteConflict
     (spec : CompilationModel) : Except String Unit := do
   validateIdentifierShapes spec
+  for fn in spec.functions do
+    for param in fn.params do
+      validateParamTypeWidth s!"function '{fn.name}' parameter '{param.name}'" param.ty
+    for returnTy in fn.returns do
+      validateParamTypeWidth s!"function '{fn.name}' return type" returnTy
+  match spec.constructor with
+  | none => pure ()
+  | some ctor =>
+      for param in ctor.params do
+        validateParamTypeWidth s!"constructor parameter '{param.name}'" param.ty
+  for eventDef in spec.events do
+    for param in eventDef.params do
+      validateParamTypeWidth s!"event '{eventDef.name}' parameter '{param.name}'" param.ty
+  for errorDef in spec.errors do
+    for paramTy in errorDef.params do
+      validateParamTypeWidth s!"custom error '{errorDef.name}' parameter" paramTy
+  for ext in spec.externals do
+    for paramTy in ext.params do
+      validateParamTypeWidth s!"external function '{ext.name}' parameter" paramTy
+    match ext.returnType with
+    | some returnTy => validateParamTypeWidth s!"external function '{ext.name}' return type" returnTy
+    | none => pure ()
+    for returnTy in ext.returns do
+      validateParamTypeWidth s!"external function '{ext.name}' return type" returnTy
   match (collectUsedExternalAssumptions spec).find? (fun ext => ext.linkMode == .external) with
   | some ext =>
       throw s!"Compilation error: {spec.name} uses raw linked-helper lowering for external ABI dependency '{ext.name}'. `linked_as := external` dependencies must lower through an ABI-call ECM such as Compiler.Modules.Calls.withReturn so returndata and revert data are preserved."

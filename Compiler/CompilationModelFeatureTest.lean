@@ -2632,6 +2632,18 @@ private def selectorSmokeSpec : CompilationModel := {
   ]
 }
 
+private def invalidNarrowParamSpec (ty : ParamType) : CompilationModel := {
+  name := "InvalidNarrowParam"
+  fields := []
+  «constructor» := none
+  functions := [{
+    name := "bad"
+    params := [{ name := "value", ty }]
+    returnType := none
+    body := [Stmt.stop]
+  }]
+}
+
 private def envRuntimeSmokeSpec : CompilationModel := {
   name := "EnvRuntimeSmoke"
   fields := []
@@ -5502,6 +5514,18 @@ set_option maxRecDepth 4096 in
     | .ok _ => false
     | .error msg => contains msg "Selector count mismatch"
   expectTrue "selector mismatch is rejected with deterministic diagnostic" mismatchRejected
+  expectCompileErrorContains
+    "manually constructed uintN widths are validated"
+    (invalidNarrowParamSpec (.uintN 7))
+    "invalid narrow integer width 7"
+  expectCompileErrorContains
+    "manually constructed intN widths are validated"
+    (invalidNarrowParamSpec (.array (.intN 0)))
+    "invalid narrow integer width 0"
+  expectCompileErrorContains
+    "manually constructed bytesN widths are validated"
+    (invalidNarrowParamSpec (.tuple [.bytesN 33]))
+    "invalid fixed-bytes width 33"
   expectCompileErrorContains
     "reserved compiler prefix is rejected in function parameters"
     reservedParamSpec
