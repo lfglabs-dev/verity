@@ -4445,7 +4445,13 @@ private theorem compileExpr_constructor_mode_eq
       simp only [exprTouchesUnsupportedCoreSurface] at hcore
       simp only [exprTouchesUnsupportedConstructorRawCalldataSurface] at hraw
       simp [compileExprWithInternals, compileExpr_constructor_mode_eq hcore hraw]
-  | .keccak256 _ _, hcore, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
+  | .keccak256 offset size, hcore, hraw => by
+      simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
+      simp only [exprTouchesUnsupportedConstructorRawCalldataSurface,
+        Bool.or_eq_false_iff] at hraw
+      simp [compileExprWithInternals,
+        compileExpr_constructor_mode_eq hcore.1 hraw.1,
+        compileExpr_constructor_mode_eq hcore.2 hraw.2]
   | .call .., hcore, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
   | .staticcall .., hcore, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
   | .delegatecall .., hcore, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
@@ -4457,11 +4463,14 @@ private theorem compileExpr_constructor_mode_eq
   | .localVar _, _, _ => by simp [compileExprWithInternals]
   | .externalCall _ _, hcore, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
   | .internalCall _ _, hcore, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
-  | .arrayLength _, hcore, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
-  | .arrayElement _ _, hcore, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
+  | .arrayLength _, _, hraw =>
+      by simp [exprTouchesUnsupportedConstructorRawCalldataSurface] at hraw
+  | .arrayElement _ _, _, hraw =>
+      by simp [exprTouchesUnsupportedConstructorRawCalldataSurface] at hraw
   | .storageArrayLength _, hcore, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
   | .storageArrayElement _ _, hcore, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
-  | .dynamicBytesEq _ _, hcore, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
+  | .dynamicBytesEq _ _, _, hraw =>
+      by simp [exprTouchesUnsupportedConstructorRawCalldataSurface] at hraw
   | .add a b, hcore, hraw
   | .sub a b, hcore, hraw
   | .mul a b, hcore, hraw
