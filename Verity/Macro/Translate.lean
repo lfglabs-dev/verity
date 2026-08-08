@@ -1167,8 +1167,8 @@ private partial def translateDoElem
                           | none => throwErrorAt rhs "unable to infer tuple local types"
                   | none =>
                       match (← tryExternalCallBindStmt? fields constDecls immutableDecls externalDecls params locals rhs names) with
-                      | some (stmt, typedPairs) =>
-                          pure (some (#[(stmt)], locals ++ typedPairs, mutableLocals))
+                      | some (stmts, typedPairs) =>
+                          pure (some (stmts, locals ++ typedPairs, mutableLocals))
                       | none => throwErrorAt rhs "tuple destructuring currently requires a tuple literal, tuple-typed parameter, structMembers/structMembers2 source, internal helper call, or tryExternalCall"
           | _ =>
               match (← arrayElementTupleDestructureStmts? fields constDecls immutableDecls params locals mutableLocals rhs names) with
@@ -1210,8 +1210,8 @@ private partial def translateDoElem
                               | none => throwErrorAt rhs "unable to infer tuple local types"
                       | none =>
                           match (← tryExternalCallBindStmt? fields constDecls immutableDecls externalDecls params locals rhs names) with
-                          | some (stmt, typedPairs) =>
-                              pure (some (#[(stmt)], locals ++ typedPairs, mutableLocals))
+                          | some (stmts, typedPairs) =>
+                              pure (some (stmts, locals ++ typedPairs, mutableLocals))
                           | none =>
                               let valueExprs ← tupleValueExprs fields constDecls immutableDecls params locals rhs
                               if names.size != valueExprs.size then
@@ -1248,8 +1248,8 @@ private partial def translateDoElem
                   | none => throwErrorAt rhs "unable to infer tuple local types"
           | none =>
               match (← tryExternalCallBindStmt? fields constDecls immutableDecls externalDecls params locals rhs names) with
-              | some (stmt, typedPairs) =>
-                  pure (some (#[(stmt)], locals ++ typedPairs, mutableLocals))
+              | some (stmts, typedPairs) =>
+                  pure (some (stmts, locals ++ typedPairs, mutableLocals))
               | none => throwErrorAt rhs "tuple bind sources must be internal helper calls or tryExternalCall"
       | none => pure none
     else
@@ -1345,7 +1345,7 @@ private partial def translateDoElem
               | _ => throwErrorAt rhs s!"callExternal '{extName}' returns multiple values; use externalCallBind with explicit result names"
           | `(term| callResult $_extName:term $_args:term) =>
               match (← callResultBindStmt? fields constDecls immutableDecls externalDecls params locals rhs varName) with
-              | some (stmt, resultLocal) => pure (#[stmt], locals.push resultLocal, mutableLocals)
+              | some (stmts, resultLocal) => pure (stmts, locals.push resultLocal, mutableLocals)
               | none => throwErrorAt rhs "invalid callResult bind"
           | `(term| ecmCall $moduleFactory:term $args:term) =>
               let argExprs ← expectEcmExprList fields constDecls immutableDecls params locals args

@@ -29,12 +29,15 @@ verity_contract ExternalCallInBodySmoke where
     external deposit(Uint256, Bytes)
     external narrowEcho(Bytes4) -> (Uint256)
     external dirtyUint() -> (Uint32)
+    external dirtyUint_try() -> (Bool, Uint32)
     external dirtyInt() -> (Int32)
     external dirtyBytes() -> (Bytes4)
     external dirtySink(Uint32) -> (Uint32)
     external consumeUint8(Uint8)
     external consumeUint16(Uint16)
     external consume(Uint256)
+    external notifyBool(Bool)
+    external notifyBool_try(Bool) -> (Bool)
   function reentrancy_trusted linkedRead () : Uint256 := do
     let depositable ← callExternal getDepositableEther()
     return depositable
@@ -67,6 +70,18 @@ verity_contract ExternalCallInBodySmoke where
   function reentrancy_trusted bindDirtyUint () : Uint32 := do
     let result ← callExternal dirtyUint()
     return result
+
+  function reentrancy_trusted tryDirtyUint () : Uint32 := do
+    let (_success, result) ← tryExternalCall "dirtyUint" []
+    return result
+
+  function reentrancy_trusted callResultDirtyUint () : Uint32 := do
+    let result ← callResult "dirtyUint" []
+    return result.returndata
+
+  function reentrancy_trusted tryNotifyBool (flag : Bool) : Bool := do
+    let success ← tryExternalCall "notifyBool" [flag]
+    return success
 
   function reentrancy_trusted bindNestedExternalArg () : Uint32 := do
     let result ← callExternal dirtySink(callExternal dirtyUint())
@@ -203,6 +218,18 @@ example : ExternalCallInBodySmoke.storeDirtyUint_modelBody =
 example : (ExternalCallInBodySmoke.bindDirtyUint_modelBody).take 2 =
     [ .externalCallBind ["result"] "dirtyUint" []
     , .assignVar "result" (.bitAnd (.localVar "result") (.literal (2 ^ 32 - 1))) ] := rfl
+
+example : (ExternalCallInBodySmoke.tryDirtyUint_modelBody).take 2 =
+    [ .tryExternalCallBind "_success" ["result"] "dirtyUint" []
+    , .assignVar "result" (.bitAnd (.localVar "result") (.literal (2 ^ 32 - 1))) ] := rfl
+
+example : (ExternalCallInBodySmoke.callResultDirtyUint_modelBody).take 2 =
+    [ .tryExternalCallBind "result_success" ["result_returndata"] "dirtyUint" []
+    , .assignVar "result_returndata"
+        (.bitAnd (.localVar "result_returndata") (.literal (2 ^ 32 - 1))) ] := rfl
+
+example : (ExternalCallInBodySmoke.tryNotifyBool_modelBody).take 1 =
+    [.tryExternalCallBind "success" [] "notifyBool" [.param "flag"]] := rfl
 
 example : (ExternalCallInBodySmoke.bindNestedExternalArg_modelBody).take 1 =
     [.externalCallBind ["result"] "dirtySink"

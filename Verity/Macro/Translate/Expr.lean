@@ -2670,14 +2670,13 @@ partial def inferTupleSourceTypes?
                   | _ => pure none
         | `(term| tryExternalCall $name:term $args:term) =>
             let extName := ← expectStringOrIdent name
-            match stripParens args with
-            | `(term| [ $[$xs],* ]) =>
-                for x in xs do
-                  requireWordOrDirectArrayType x s!"tryExternalCall '{extName}' argument"
-                    (← inferPureExprType fields constDecls immutableDecls externalDecls params locals x)
-            | _ => throwErrorAt args "expected list literal [..]"
             match externalDecls.find? (fun ext => ext.name == extName) with
-            | some ext =>
+            | some ext => do
+                match stripParens args with
+                | `(term| [ $[$xs],* ]) =>
+                    validateLinkedExternalCallArgs fields constDecls immutableDecls externalDecls params locals
+                      extName ext.params xs
+                | _ => throwErrorAt args "expected list literal [..]"
                 -- tryExternalCall returns (success : Bool, result₁ : T₁, ..., resultₙ : Tₙ)
                 pure (some (#[.bool] ++ ext.returnTys))
             | none =>
@@ -4567,12 +4566,11 @@ def tupleInternalCallAssignStmt?
       | none =>
           pure none
 
-/-- Try to translate a tuple‐destructured `tryExternalCall "name" [args]` RHS into
-    a `Stmt.tryExternalCallBind` term.  Returns `none` when the RHS is not a
-    `tryExternalCall` application.  Returns the statement term and the inferred
-    types for each bound name (Bool for success flag, Uint256 for all result
-    vars — precise return types require external decl lookup which happens in
-    the validation pass).  (#1727, Axis 1 Step 5f) -/
+/-- Try to translate a tuple‐destructured `tryExternalCall "name" [args]` RHS.
+    Returns `none` when the RHS is not a `tryExternalCall` application.  Returns
+    the generated statements and inferred types for each bound name.  Narrow result
+    words are normalized immediately after the call bind.  (#1727, Axis 1
+    Step 5f) -/
 def tryExternalCallBindStmt?
     (fields : Array StorageFieldDecl)
     (constDecls : Array ConstantDecl)
@@ -4581,7 +4579,7 @@ def tryExternalCallBindStmt?
     (params : Array ParamDecl)
     (locals : Array TypedLocal)
     (rhs : Term)
-    (names : Array (Option String)) : CommandElabM (Option (Term × Array TypedLocal)) := do
+    (names : Array (Option String)) : CommandElabM (Option (Array Term × Array TypedLocal)) := do
   let rhs := stripParens rhs
   match rhs with
   | `(term| tryExternalCall $name:term $args:term) =>
@@ -4620,21 +4618,28 @@ def tryExternalCallBindStmt?
       let resultTys := ext.returnTys
       let mut flattenedResultVars : Array String := #[]
       let mut visibleLocals : Array TypedLocal := #[mkTypedLocal successVar .bool]
+      let mut normalizations : Array Term := #[]
       for (resultVar, resultTy) in resultVars.toArray.zip resultTys do
         let flatNames ← flattenExternalResultNames resultVar resultTy
+        unless flatNames.length == 1 || (staticStructDirectFieldLocals? resultVar resultTy).isSome do
+          throwErrorAt rhs
+            s!"tryExternalCall '{extName}' cannot bind flattened composite return type {renderValueType resultTy} to source variable '{resultVar}'"
         flattenedResultVars := flattenedResultVars ++ flatNames.toArray
         let source :=
           match staticStructDirectFieldLocals? resultVar resultTy with
           | some fieldLocals => LocalSource.externalStaticStruct fieldLocals
           | none => LocalSource.value
         visibleLocals := visibleLocals.push { name := resultVar, ty := resultTy, source := source }
+        if flatNames.length == 1 then
+          if let some normalization ← normalizeBoundValueStmt? resultTy rhs resultVar then
+            normalizations := normalizations.push normalization
       let resultVarTerms := flattenedResultVars.map strTerm
       let stmt ← `(Compiler.CompilationModel.Stmt.tryExternalCallBind
           $successVarTerm
           [ $[$resultVarTerms],* ]
           $(strTerm extName)
           [ $[$argExprs],* ])
-      pure (some (stmt, visibleLocals))
+      pure (some (#[stmt] ++ normalizations, visibleLocals))
   | _ => pure none
 
 /-- Translate `let r ← callResult "name" [args]` into the existing try-call
@@ -4648,7 +4653,7 @@ def callResultBindStmt?
     (params : Array ParamDecl)
     (locals : Array TypedLocal)
     (rhs : Term)
-    (resultName : String) : CommandElabM (Option (Term × TypedLocal)) := do
+    (resultName : String) : CommandElabM (Option (Array Term × TypedLocal)) := do
   let rhs := stripParens rhs
   match rhs with
   | `(term| callResult $name:term $args:term) =>
@@ -4674,12 +4679,14 @@ def callResultBindStmt?
       let usedAfterSuccess : Array TypedLocal := locals.push (mkTypedLocal successVar .bool)
       let mut fieldLocals : List (String × String) := [("success", successVar)]
       let mut resultVars : Array String := #[]
+      let mut resultVarTys : Array ValueType := #[]
       let mut resultFields : List (String × ValueType) := [("success", .bool)]
       match ext.returnTys.toList with
       | [] => pure ()
       | [retTy] =>
           let payloadVar := freshSyntheticLocalName s!"{resultName}_returndata" params usedAfterSuccess #[]
           resultVars := resultVars.push payloadVar
+          resultVarTys := resultVarTys.push retTy
           fieldLocals := fieldLocals ++ [("returndata", payloadVar)]
           resultFields := resultFields ++ [("returndata", retTy)]
       | retTys =>
@@ -4689,6 +4696,7 @@ def callResultBindStmt?
             let payloadVar := freshSyntheticLocalName s!"{resultName}_{fieldName}" params indexedLocals #[]
             indexedLocals := indexedLocals.push (mkTypedLocal payloadVar retTy)
             resultVars := resultVars.push payloadVar
+            resultVarTys := resultVarTys.push retTy
             fieldLocals := fieldLocals ++ [(fieldName, payloadVar)]
             resultFields := resultFields ++ [(fieldName, retTy)]
       let resultVarTerms := resultVars.map strTerm
@@ -4697,11 +4705,15 @@ def callResultBindStmt?
           [ $[$resultVarTerms],* ]
           $(strTerm extName)
           [ $[$argExprs],* ])
+      let mut normalizations : Array Term := #[]
+      for (resultVar, resultTy) in resultVars.zip resultVarTys do
+        if let some normalization ← normalizeBoundValueStmt? resultTy rhs resultVar then
+          normalizations := normalizations.push normalization
       let resultLocal : TypedLocal :=
         { name := resultName
           ty := .struct "Call.Result" resultFields
           source := .externalStaticStruct fieldLocals }
-      pure (some (stmt, resultLocal))
+      pure (some (#[stmt] ++ normalizations, resultLocal))
   | _ => pure none
 
 def expectExprList
