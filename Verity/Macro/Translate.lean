@@ -1180,7 +1180,8 @@ private partial def translateDoElem
                       pure (some (stmts, locals.push syntheticLocal ++ typedPairs, mutableLocals))
                   | none => throwErrorAt rhs "unable to infer tuple local types"
               | none =>
-                  match (← tupleLiteralOrStructValueExprs? fields constDecls immutableDecls params locals rhs) with
+                  match (← tupleLiteralOrStructValueExprs? fields constDecls immutableDecls params locals rhs
+                    (some (translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals))) with
                   | some valueExprs =>
                       if names.size != valueExprs.size then
                         throwErrorAt patDecl s!"tuple destructuring binds {names.size} names, but the source provides {valueExprs.size} values"
@@ -1529,7 +1530,8 @@ private partial def translateDoElem
           | some (stmts, syntheticLocal) =>
               pure (stmts, locals.push syntheticLocal, mutableLocals)
           | none =>
-              match (← tupleReturnValueExprs? fields constDecls immutableDecls params locals value) with
+              match (← tupleReturnValueExprs? fields constDecls immutableDecls params locals value
+                (some (translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals))) with
               | some valueExprs =>
                   pure (#[(← `(Compiler.CompilationModel.Stmt.returnValues [ $[$valueExprs],* ]))], locals, mutableLocals)
               | none =>

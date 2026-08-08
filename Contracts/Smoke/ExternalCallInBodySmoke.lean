@@ -154,6 +154,13 @@ verity_contract ExternalCallInBodySmoke where
     let result ← getMappingUint values (callExternal narrowEcho(0xdeadbeef))
     return result
 
+  function reentrancy_trusted tupleNestedExternalResult () : Uint32 := do
+    let (result, _) := (callExternal dirtyUint(), 0)
+    return result
+
+  function reentrancy_trusted tupleNestedExternalReturn () : Tuple [Uint32, Uint256] := do
+    return (callExternal dirtyUint(), 0)
+
   function reentrancy_trusted pureDirtyInt () : Int32 := do
     let result := callExternal dirtyInt()
     return result
@@ -342,6 +349,13 @@ example : (ExternalCallInBodySmoke.mappingNestedExternalArg_modelBody).take 1 =
 example : ExternalCallInBodySmoke.mappingNestedExternalArg_model.body =
     ExternalCallInBodySmoke.mappingNestedExternalArg_modelBody :=
   ExternalCallInBodySmoke.mappingNestedExternalArg_semantic_preservation
+
+example : ExternalCallInBodySmoke.tupleNestedExternalResult_modelBody =
+    [.letVar "result" (.bitAnd (.externalCall "dirtyUint" []) (.literal (2 ^ 32 - 1))),
+     .return (.localVar "result")] := rfl
+
+example : ExternalCallInBodySmoke.tupleNestedExternalReturn_modelBody =
+    [.returnValues [(.bitAnd (.externalCall "dirtyUint" []) (.literal (2 ^ 32 - 1))), .literal 0]] := rfl
 
 example : ExternalCallInBodySmoke.legacyNarrowArgs_model.body =
     ExternalCallInBodySmoke.legacyNarrowArgs_modelBody :=

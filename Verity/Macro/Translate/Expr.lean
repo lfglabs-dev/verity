@@ -4116,12 +4116,17 @@ def tupleLiteralOrStructValueExprs?
     (immutableDecls : Array ImmutableDecl)
     (params : Array ParamDecl)
     (locals : Array TypedLocal)
-    (rhs : Term) : CommandElabM (Option (Array Term)) := do
+    (rhs : Term)
+    (translateExpr? : Option (Term → CommandElabM Term) := none) : CommandElabM (Option (Array Term)) := do
+  let translateExpr (expr : Term) : CommandElabM Term :=
+    match translateExpr? with
+    | some translate => translate expr
+    | none => translatePureExprWithTypes fields constDecls immutableDecls params locals expr
   let structCtorValueExprs? : CommandElabM (Option (Array Term)) := do
     match qualifiedFunctionAppSyntax? (stripParens rhs) with
     | some (name, ctorArgs) =>
         if name.toString.endsWith ".mk" then
-          pure (some (← ctorArgs.mapM (translatePureExprWithTypes fields constDecls immutableDecls params locals)))
+          pure (some (← ctorArgs.mapM translateExpr))
         else
           pure none
     | none =>
@@ -4131,7 +4136,7 @@ def tupleLiteralOrStructValueExprs?
             | .ident _ raw _ _ =>
                 if raw.toString.endsWith ".mk" then
                   let ctorArgs := (args.getD 1 Syntax.missing).getArgs.map (fun syn => ⟨syn⟩)
-                  pure (some (← ctorArgs.mapM (translatePureExprWithTypes fields constDecls immutableDecls params locals)))
+                  pure (some (← ctorArgs.mapM translateExpr))
                 else
                   pure none
             | _ => pure none
@@ -4145,7 +4150,7 @@ def tupleLiteralOrStructValueExprs?
           let _ ← lookupStructMemberDecl fields fieldName memberName false
           `(Compiler.CompilationModel.Expr.structMember
               $(strTerm fieldName)
-              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key)
+              $(← translateExpr key)
               $(strTerm memberName))
         pure (some exprs)
     | `(term| structMembers2 $field:term $key1:term $key2:term $members:term) => do
@@ -4155,14 +4160,14 @@ def tupleLiteralOrStructValueExprs?
           let _ ← lookupStructMemberDecl fields fieldName memberName true
           `(Compiler.CompilationModel.Expr.structMember2
               $(strTerm fieldName)
-              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key1)
-              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key2)
+              $(← translateExpr key1)
+              $(← translateExpr key2)
               $(strTerm memberName))
         pure (some exprs)
     | _ => pure none
   match tupleElemsFromTerm? rhs with
   | some elems =>
-      pure (some (← elems.mapM (translatePureExprWithTypes fields constDecls immutableDecls params locals)))
+      pure (some (← elems.mapM translateExpr))
   | none =>
       match ← arrayElementTupleElemExprs? fields constDecls immutableDecls params locals rhs with
       | some exprs => pure (some exprs)
@@ -4195,8 +4200,9 @@ def tupleReturnValueExprs?
     (immutableDecls : Array ImmutableDecl)
     (params : Array ParamDecl)
     (locals : Array TypedLocal)
-    (rhs : Term) : CommandElabM (Option (Array Term)) := do
-  match (← tupleLiteralOrStructValueExprs? fields constDecls immutableDecls params locals rhs) with
+    (rhs : Term)
+    (translateExpr? : Option (Term → CommandElabM Term) := none) : CommandElabM (Option (Array Term)) := do
+  match (← tupleLiteralOrStructValueExprs? fields constDecls immutableDecls params locals rhs translateExpr?) with
   | some exprs => pure (some exprs)
   | none =>
       match stripParens rhs with
