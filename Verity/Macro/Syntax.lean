@@ -142,12 +142,12 @@ syntax:max (name := keccakStringTerm) "keccakString " str : term
 
 macro_rules
   | `(doElem| let $name:ident ← returnDataSize()) =>
-      `(doElem| let $name ← (fun s => _root_.Verity.ContractResult.success 0 s))
+      `(doElem| let $name ← (fun s => .success 0 s))
   | `(callExternal $_name:ident ($[$_args:term],*)) => `(by exact default)
   | `(evmCall($[$_args:term],*)) => `(by exact default)
   | `(evmStaticCall($[$_args:term],*)) => `(by exact default)
   | `(memoryLoad($_offset)) => `(by exact default)
-  | `(returnDataSize()) => `(term| (0 : _root_.Verity.Uint256))
+  | `(returnDataSize()) => `(0)
   | `(memoryStore($_offset, $_value)) => `(by exact default)
   | `(returnDataCopy($_destOffset, $_sourceOffset, $_size)) => `(by exact default)
   | `(intrinsic $_name:term $_lowering:term $_args:term) =>
