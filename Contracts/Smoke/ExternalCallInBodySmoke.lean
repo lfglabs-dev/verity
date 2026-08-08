@@ -208,6 +208,20 @@ verity_contract ExternalCallInBodySmoke where
     let parenthesized ← (returnDataSize())
     return parenthesized
 
+verity_contract AdtLinkedPayloadSmoke where
+  inductive
+    Maybe := | Nothing | Just(value : Uint32)
+  storage
+    result : Maybe := slot 0
+  linked_externals
+    external dirtyUint() -> (Uint32)
+  function store () : Unit := do
+    setStorage result (adt "Just" [callExternal dirtyUint()])
+
+example : (AdtLinkedPayloadSmoke.store_modelBody).take 1 =
+    [.setStorage "result" (.adtConstruct "Maybe" "Just"
+      [(.bitAnd (.externalCall "dirtyUint" []) (.literal (2 ^ 32 - 1)))])] := rfl
+
 example : (ExternalCallInBodySmoke.linkedRead_modelBody).take 1 =
     [Compiler.CompilationModel.Stmt.externalCallBind
       ["depositable"] "getDepositableEther" []] := rfl

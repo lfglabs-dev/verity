@@ -620,13 +620,15 @@ private def translateAdtConstructForStorage
     (fields : Array StorageFieldDecl)
     (constDecls : Array ConstantDecl)
     (immutableDecls : Array ImmutableDecl)
+    (externalDecls : Array ExternalDecl)
     (params : Array ParamDecl)
     (locals : Array TypedLocal)
     (adtName : String)
     (value : Term) : CommandElabM Term := do
   match adtConstructorSyntax? value with
   | some (variantName, args) =>
-      let argExprs ← args.mapM (translatePureExprWithTypes fields constDecls immutableDecls params locals)
+      let argExprs ← args.mapM
+        (translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals)
       `(Compiler.CompilationModel.Expr.adtConstruct
           $(strTerm adtName)
           $(strTerm variantName)
@@ -730,7 +732,7 @@ private def translateEffectStmt
       | some adtName =>
           `(Compiler.CompilationModel.Stmt.setStorage
               $(strTerm f.name)
-              $(← translateAdtConstructForStorage fields constDecls immutableDecls params locals adtName value))
+              $(← translateAdtConstructForStorage fields constDecls immutableDecls externalDecls params locals adtName value))
       | none =>
           match f.ty with
           | .scalar .uint256 | .scalar .int256 | .scalar (.newtype _ .uint256) =>
@@ -738,7 +740,7 @@ private def translateEffectStmt
           | .scalar (.adt adtName _) =>
               `(Compiler.CompilationModel.Stmt.setStorage
                   $(strTerm f.name)
-                  $(← translateAdtConstructForStorage fields constDecls immutableDecls params locals adtName value))
+                  $(← translateAdtConstructForStorage fields constDecls immutableDecls externalDecls params locals adtName value))
           | .scalar .address | .scalar (.newtype _ .address) =>
               throwErrorAt stx s!"field '{f.name}' is Address-valued; use setStorageAddr"
           | .dynamicArray _ =>
