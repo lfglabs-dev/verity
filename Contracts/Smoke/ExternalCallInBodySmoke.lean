@@ -7,6 +7,15 @@ open Verity hiding pure bind
 open Verity.EVM.Uint256
 open Verity.Stdlib.Math
 
+def linkedOperandEcmModule : Compiler.ECM.ExternalCallModule where
+  name := "linkedOperandEcm"
+  numArgs := 1
+  resultVars := []
+  writesState := false
+  readsState := false
+  axioms := []
+  compile := fun _ctx _args => pure []
+
 -- P0 #1003 coverage for linked calls and explicit low-level body syntax.
 -- `callExternal` is declaration-driven; target/value fields belong to `evmCall`.
 verity_contract ExternalCallInBodySmoke where
@@ -85,6 +94,15 @@ verity_contract ExternalCallInBodySmoke where
 
   function reentrancy_trusted helperNestedExternalArg () : Unit := do
     consumeHelper (callExternal narrowEcho(0xdeadbeef))
+
+  function reentrancy_trusted monadicLoadDirtyUint ()
+    local_obligations [low_level_frame := assumed "Reading memory through a linked-call offset is an explicit refinement boundary."]
+    : Uint256 := do
+    let value ← memoryLoad(callExternal dirtyUint())
+    return value
+
+  function reentrancy_trusted ecmNestedExternalArg () : Unit := do
+    ecmDo linkedOperandEcmModule [callExternal narrowEcho(0xdeadbeef)]
 
   function reentrancy_trusted pureDirtyInt () : Int32 := do
     let result := callExternal dirtyInt()
@@ -201,6 +219,15 @@ example : ExternalCallInBodySmoke.helperNestedExternalArg_modelBody =
       [(.externalCall "narrowEcho"
         [(.literal 100720434702924942364018397558880508427273416251376888068364465368051161759744)])]] := rfl
 
+example : (ExternalCallInBodySmoke.monadicLoadDirtyUint_modelBody).take 1 =
+    [.letVar "value" (.mload
+      (.bitAnd (.externalCall "dirtyUint" []) (.literal (2 ^ 32 - 1))))] := rfl
+
+example : ExternalCallInBodySmoke.ecmNestedExternalArg_modelBody =
+    [.ecm linkedOperandEcmModule
+      [(.externalCall "narrowEcho"
+        [(.literal 100720434702924942364018397558880508427273416251376888068364465368051161759744)])]] := rfl
+
 example : ExternalCallInBodySmoke.legacyNarrowArgs_model.body =
     ExternalCallInBodySmoke.legacyNarrowArgs_modelBody :=
   ExternalCallInBodySmoke.legacyNarrowArgs_semantic_preservation
@@ -216,6 +243,14 @@ example : ExternalCallInBodySmoke.customErrorNestedExternalArg_model.body =
 example : ExternalCallInBodySmoke.helperNestedExternalArg_model.body =
     ExternalCallInBodySmoke.helperNestedExternalArg_modelBody :=
   ExternalCallInBodySmoke.helperNestedExternalArg_semantic_preservation
+
+example : ExternalCallInBodySmoke.monadicLoadDirtyUint_model.body =
+    ExternalCallInBodySmoke.monadicLoadDirtyUint_modelBody :=
+  ExternalCallInBodySmoke.monadicLoadDirtyUint_semantic_preservation
+
+example : ExternalCallInBodySmoke.ecmNestedExternalArg_model.body =
+    ExternalCallInBodySmoke.ecmNestedExternalArg_modelBody :=
+  ExternalCallInBodySmoke.ecmNestedExternalArg_semantic_preservation
 
 example : (ExternalCallInBodySmoke.pureDirtyInt_modelBody).take 1 =
     [.letVar "result" (.signextend (.literal 3) (.externalCall "dirtyInt" []))] := rfl

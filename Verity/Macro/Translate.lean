@@ -718,6 +718,8 @@ private def translateEffectStmt
    | `(term| ecmDo $module:term $args:term) =>
       validateEffectOnlyEcmModuleTerm module
       let argExprs ← expectExprList fields constDecls immutableDecls params locals args
+        (some (translateDeclaredPureExpr
+          fields constDecls immutableDecls externalDecls params locals))
       `(Compiler.CompilationModel.Stmt.ecm
           $module
           [ $[$argExprs],* ])
@@ -1346,6 +1348,8 @@ private partial def translateDoElem
               | none => throwErrorAt rhs "invalid callResult bind"
           | `(term| ecmCall $moduleFactory:term $args:term) =>
               let argExprs ← expectEcmExprList fields constDecls immutableDecls params locals args
+                (some (translateDeclaredPureExpr
+                  fields constDecls immutableDecls externalDecls params locals))
               let moduleTerm ← `(term| (($moduleFactory) $(strTerm varName)))
               validateSingleResultEcmModuleTerm moduleTerm varName
               pure
@@ -1645,6 +1649,8 @@ private partial def translateDoElem
           ensureFreshLocalNames localNames (resultVars.map some) names
           validateResultEcmModuleTerm module resultVars
           let argExprs ← expectEcmExprList fields constDecls immutableDecls params locals args
+            (some (translateDeclaredPureExpr
+              fields constDecls immutableDecls externalDecls params locals))
           let typedLocals := resultVars.map (fun name => mkTypedLocal name .uint256)
           pure
             (#[(← `(Compiler.CompilationModel.Stmt.ecm

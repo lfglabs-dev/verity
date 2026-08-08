@@ -4711,7 +4711,12 @@ def expectEcmExprList
     (immutableDecls : Array ImmutableDecl)
     (params : Array ParamDecl)
     (locals : Array TypedLocal)
-    (stx : Term) : CommandElabM (Array Term) := do
+    (stx : Term)
+    (translateExpr? : Option (Term → CommandElabM Term) := none) : CommandElabM (Array Term) := do
+  let translateExpr (x : Term) :=
+    match translateExpr? with
+    | some translate => translate x
+    | none => translatePureExprWithTypes fields constDecls immutableDecls params locals x
   match stripParens stx with
   | `(term| [ $[$xs],* ]) =>
       let mut out : Array Term := #[]
@@ -4724,12 +4729,12 @@ def expectEcmExprList
             else
               match ← translateAbiEncodeProjection? fields constDecls immutableDecls params locals x with
               | some exprs => out := out ++ exprs
-              | none => out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals x)
+              | none => out := out.push (← translateExpr x)
         | none =>
             if let some (paramName, index, fieldTy, _elemTy, wordOffset) :=
                 arrayElementDynamicMemberProjection? params x then
               if externalCallDynamicArgSupported fieldTy then
-                  let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index
+                  let indexExpr ← translateExpr index
                   out := out.push (← `(Compiler.CompilationModel.Expr.arrayElementDynamicMemberDataOffset
                     $(strTerm paramName)
                     $indexExpr
@@ -4739,11 +4744,11 @@ def expectEcmExprList
                     $indexExpr
                     $(natTerm wordOffset)))
               else
-                out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals x)
+                out := out.push (← translateExpr x)
             else if let some (paramName, index, fieldTy, _elemTy, wordOffset) :=
                 localArrayElementDynamicMemberProjection? locals x then
               if externalCallDynamicArgSupported fieldTy then
-                  let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index
+                  let indexExpr ← translateExpr index
                   out := out.push (← `(Compiler.CompilationModel.Expr.arrayElementDynamicMemberDataOffset
                     $(strTerm paramName)
                     $indexExpr
@@ -4753,7 +4758,7 @@ def expectEcmExprList
                     $indexExpr
                     $(natTerm wordOffset)))
               else
-                out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals x)
+                out := out.push (← translateExpr x)
             else if let some (paramName, fieldTy, wordOffset) :=
                 paramDynamicMemberProjection? params x then
               if externalCallDynamicArgSupported fieldTy then
@@ -4764,11 +4769,11 @@ def expectEcmExprList
                     $(strTerm paramName)
                     $(natTerm wordOffset)))
               else
-                out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals x)
+                out := out.push (← translateExpr x)
             else
               match ← translateAbiEncodeProjection? fields constDecls immutableDecls params locals x with
               | some exprs => out := out ++ exprs
-              | none => out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals x)
+              | none => out := out.push (← translateExpr x)
       pure out
   | _ => throwErrorAt stx "expected list literal [..]"
 
@@ -4875,7 +4880,7 @@ def translateBindSource
     | `(term| returnDataSize())
     | `(term| evmCall($_, $_, $_, $_, $_, $_, $_))
     | `(term| evmStaticCall($_, $_, $_, $_, $_, $_)) =>
-      translatePureExprWithTypes fields constDecls immutableDecls params locals rhs
+      translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals rhs
   | `(term| getStorage $field:ident) =>
       let f ← lookupStorageField fields (toString field.getId)
       match f.ty with
