@@ -1374,7 +1374,19 @@ private partial def translateDoElem
               -- Zero-return tryExternalCall: `let success ← tryExternalCall "fn" [args]`
               -- produces Stmt.tryExternalCallBind successVar [] externalName args
               let targetFn := ← expectStringOrIdent extName
-              let argExprs ← expectExprList fields constDecls immutableDecls params locals args
+              let ext ←
+                match externalDecls.find? (fun ext => ext.name == targetFn) with
+                | some ext => pure ext
+                | none => throwErrorAt rhs s!"unknown external function '{targetFn}'"
+              let argTerms ← match stripParens args with
+                | `(term| [ $[$xs],* ]) => pure xs
+                | _ => throwErrorAt args "expected list literal [..]"
+              validateLinkedExternalCallArgs fields constDecls immutableDecls externalDecls params locals
+                targetFn ext.params argTerms
+              let argExprs ← translateLinkedExternalCallArgs
+                fields constDecls immutableDecls params locals argTerms (some ext.params)
+                (some (translateDeclaredPureExpr
+                  fields constDecls immutableDecls externalDecls params locals))
               pure
                 (#[(← `(Compiler.CompilationModel.Stmt.tryExternalCallBind
                         $(strTerm varName)
