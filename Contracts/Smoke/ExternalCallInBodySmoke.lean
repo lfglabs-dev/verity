@@ -19,7 +19,11 @@ verity_contract ExternalCallInBodySmoke where
     external dirtyInt() -> (Int32)
     external dirtyBytes() -> (Bytes4)
     external dirtySink(Uint32) -> (Uint32)
+    external consumeUint8(Uint8)
+    external consumeUint16(Uint16)
     external consume(Uint256)
+  errors
+    error Failure(Uint256)
 
   function reentrancy_trusted linkedRead () : Uint256 := do
     let depositable ← callExternal getDepositableEther()
@@ -65,6 +69,22 @@ verity_contract ExternalCallInBodySmoke where
     local_obligations [low_level_frame := assumed "Logging a linked-call result is an explicit refinement boundary."]
     : Unit := do
     rawLog [callExternal dirtyUint()] 0 0
+
+  function reentrancy_trusted legacyNarrowArgs () : Unit := do
+    callExternal consumeUint8(0x100)
+    callExternal consumeUint16(0x10000)
+
+  function reentrancy_trusted emitNestedExternalArg () : Unit := do
+    emit "Seen" [callExternal narrowEcho(0xdeadbeef)]
+
+  function reentrancy_trusted customErrorNestedExternalArg () : Unit := do
+    requireError 1 Failure(callExternal narrowEcho(0xdeadbeef))
+
+  function consumeHelper (_value : Uint256) : Unit := do
+    pure ()
+
+  function reentrancy_trusted helperNestedExternalArg () : Unit := do
+    consumeHelper (callExternal narrowEcho(0xdeadbeef))
 
   function reentrancy_trusted pureDirtyInt () : Int32 := do
     let result := callExternal dirtyInt()
@@ -161,6 +181,41 @@ example : ExternalCallInBodySmoke.statementNestedExternalArg_modelBody =
 example : ExternalCallInBodySmoke.logDirtyUint_modelBody =
     [.rawLog [(.bitAnd (.externalCall "dirtyUint" []) (.literal (2 ^ 32 - 1)))]
       (.literal 0) (.literal 0)] := rfl
+
+example : ExternalCallInBodySmoke.legacyNarrowArgs_modelBody =
+    [ .externalCallBind [] "consumeUint8" [(.bitAnd (.literal 0x100) (.literal 255))]
+    , .externalCallBind [] "consumeUint16" [(.bitAnd (.literal 0x10000) (.literal 65535))] ] := rfl
+
+example : ExternalCallInBodySmoke.emitNestedExternalArg_modelBody =
+    [.emit "Seen"
+      [(.externalCall "narrowEcho"
+        [(.literal 100720434702924942364018397558880508427273416251376888068364465368051161759744)])]] := rfl
+
+example : ExternalCallInBodySmoke.customErrorNestedExternalArg_modelBody =
+    [.requireError (.literal 1) "Failure"
+      [(.externalCall "narrowEcho"
+        [(.literal 100720434702924942364018397558880508427273416251376888068364465368051161759744)])]] := rfl
+
+example : ExternalCallInBodySmoke.helperNestedExternalArg_modelBody =
+    [.internalCall "__verity_internal_helper_consumeHelper"
+      [(.externalCall "narrowEcho"
+        [(.literal 100720434702924942364018397558880508427273416251376888068364465368051161759744)])]] := rfl
+
+example : ExternalCallInBodySmoke.legacyNarrowArgs_model.body =
+    ExternalCallInBodySmoke.legacyNarrowArgs_modelBody :=
+  ExternalCallInBodySmoke.legacyNarrowArgs_semantic_preservation
+
+example : ExternalCallInBodySmoke.emitNestedExternalArg_model.body =
+    ExternalCallInBodySmoke.emitNestedExternalArg_modelBody :=
+  ExternalCallInBodySmoke.emitNestedExternalArg_semantic_preservation
+
+example : ExternalCallInBodySmoke.customErrorNestedExternalArg_model.body =
+    ExternalCallInBodySmoke.customErrorNestedExternalArg_modelBody :=
+  ExternalCallInBodySmoke.customErrorNestedExternalArg_semantic_preservation
+
+example : ExternalCallInBodySmoke.helperNestedExternalArg_model.body =
+    ExternalCallInBodySmoke.helperNestedExternalArg_modelBody :=
+  ExternalCallInBodySmoke.helperNestedExternalArg_semantic_preservation
 
 example : (ExternalCallInBodySmoke.pureDirtyInt_modelBody).take 1 =
     [.letVar "result" (.signextend (.literal 3) (.externalCall "dirtyInt" []))] := rfl

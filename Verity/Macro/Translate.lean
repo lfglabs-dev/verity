@@ -38,13 +38,16 @@ private def translateCustomErrorArgExprs
     (locals : Array TypedLocal)
     (errorDecls : Array ErrorDecl)
     (errorName : String)
-    (args : Array Term) : CommandElabM (Array Term) := do
+    (args : Array Term)
+    (translateExpr? : Option (Term → CommandElabM Term) := none) : CommandElabM (Array Term) := do
   let some errorDecl := errorDecls.find? (fun decl => decl.name == errorName)
     | throwError s!"unknown custom error '{errorName}'"
   if args.size != errorDecl.params.size then
     throwError s!"custom error '{errorName}' expects {errorDecl.params.size} args, got {args.size}"
   args.zip errorDecl.params |>.mapM fun (arg, expectedTy) => do
-    let raw ← translatePureExprWithTypes fields constDecls immutableDecls params locals arg
+    let raw ← match translateExpr? with
+      | some translate => translate arg
+      | none => translatePureExprWithTypes fields constDecls immutableDecls params locals arg
     normalizeTranslatedExprForType expectedTy arg raw
 
 mutual
@@ -973,6 +976,8 @@ private def translateEffectStmt
   | `(term| emit $eventName:term $args:term) =>
       let evName := ← expectStringOrIdent eventName
       let argExprs ← expectEmitExprList fields constDecls immutableDecls params locals args
+        (some (translateDeclaredPureExpr
+          fields constDecls immutableDecls externalDecls params locals))
       `(Compiler.CompilationModel.Stmt.emit $(strTerm evName) [ $[$argExprs],* ])
   | `(term| rawLog $topics:term $dataOffset:term $dataSize:term) =>
       let topicExprs ← expectExprList fields constDecls immutableDecls params locals topics
@@ -1055,6 +1060,8 @@ private def translateEffectStmt
               s!"helper call '{fn.name}' returns {renderValueType fn.returnTy}; use `let ... ← {fn.name} ...` or tuple destructuring"
           let argExprs ← translateInternalHelperCallArgs
             fields constDecls immutableDecls params locals fn argTerms
+            (some (translateDeclaredPureExpr
+              fields constDecls immutableDecls externalDecls params locals))
           `(Compiler.CompilationModel.Stmt.internalCall
               $(strTerm (internalHelperSpecNameFor fn))
               [ $[$argExprs],* ])
@@ -1410,6 +1417,8 @@ private partial def translateDoElem
               | some (fn, argTerms, elemTy) =>
                   let argExprs ← translateInternalHelperCallArgs
                     fields constDecls immutableDecls params locals fn argTerms
+                    (some (translateDeclaredPureExpr
+                      fields constDecls immutableDecls externalDecls params locals))
                   let resultNameTerms := #[
                     strTerm (memoryArrayDataOffsetName varName),
                     strTerm (memoryArrayLengthName varName)
@@ -1585,6 +1594,8 @@ private partial def translateDoElem
       | `(doElem| requireError $cond:term $errorName:ident($args,*)) =>
           let argExprs ← translateCustomErrorArgExprs fields constDecls immutableDecls params locals
             errorDecls (toString errorName.getId) args.getElems
+            (some (translateDeclaredPureExpr
+              fields constDecls immutableDecls externalDecls params locals))
           pure
             (#[(← `(Compiler.CompilationModel.Stmt.requireError
                     $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals cond)
@@ -1595,6 +1606,8 @@ private partial def translateDoElem
       | `(doElem| revert $errorName:ident($args,*)) =>
           let argExprs ← translateCustomErrorArgExprs fields constDecls immutableDecls params locals
             errorDecls (toString errorName.getId) args.getElems
+            (some (translateDeclaredPureExpr
+              fields constDecls immutableDecls externalDecls params locals))
           pure
             (#[(← `(Compiler.CompilationModel.Stmt.revertError
                     $(strTerm (toString errorName.getId))
@@ -1604,6 +1617,8 @@ private partial def translateDoElem
       | `(doElem| revertError $errorName:ident($args,*)) =>
           let argExprs ← translateCustomErrorArgExprs fields constDecls immutableDecls params locals
             errorDecls (toString errorName.getId) args.getElems
+            (some (translateDeclaredPureExpr
+              fields constDecls immutableDecls externalDecls params locals))
           pure
             (#[(← `(Compiler.CompilationModel.Stmt.revertError
                     $(strTerm (toString errorName.getId))
@@ -1650,6 +1665,8 @@ private partial def translateDoElem
                     let tempName := freshSyntheticLocalName "emit_array" params branchLocals mutableLocals
                     let argExprs ← translateInternalHelperCallArgs
                       fields constDecls immutableDecls params branchLocals fn argTerms
+                      (some (translateDeclaredPureExpr
+                        fields constDecls immutableDecls externalDecls params branchLocals))
                     let resultNameTerms := #[
                       strTerm (memoryArrayDataOffsetName tempName),
                       strTerm (memoryArrayLengthName tempName)
@@ -1665,7 +1682,10 @@ private partial def translateDoElem
                     let tempTerm : Term := ⟨(mkIdent (Name.mkSimple tempName)).raw⟩
                     emitArgs := emitArgs.push (← translateEmitArgExpr fields constDecls immutableDecls params branchLocals tempTerm)
                 | none =>
-                    emitArgs := emitArgs.push (← translateEmitArgExpr fields constDecls immutableDecls params branchLocals arg)
+                    emitArgs := emitArgs.push (← translateEmitArgExpr
+                      fields constDecls immutableDecls params branchLocals arg
+                      (some (translateDeclaredPureExpr
+                        fields constDecls immutableDecls externalDecls params branchLocals)))
               stmts := stmts.push (← `(Compiler.CompilationModel.Stmt.emit $(strTerm evName) [ $[$emitArgs],* ]))
               pure (stmts, locals, mutableLocals)
           | _ => throwErrorAt values "expected list literal [..]"

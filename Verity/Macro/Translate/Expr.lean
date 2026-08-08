@@ -196,6 +196,12 @@ end
 def normalizeTranslatedExprForType
     (expectedTy : ValueType) (source : Term) (expr : Term) : CommandElabM Term := do
   match expectedTy with
+  | .uint8 =>
+      `(Compiler.CompilationModel.Expr.bitAnd $expr
+          (Compiler.CompilationModel.Expr.literal 255))
+  | .uint16 =>
+      `(Compiler.CompilationModel.Expr.bitAnd $expr
+          (Compiler.CompilationModel.Expr.literal 65535))
   | .uintN bits =>
       `(Compiler.CompilationModel.Expr.bitAnd $expr
           (Compiler.CompilationModel.Expr.literal $(natTerm (2 ^ bits - 1))))
@@ -219,10 +225,10 @@ def normalizeBoundValueStmt?
     (expectedTy : ValueType) (source : Term) (name : String) : CommandElabM (Option Term) := do
   let needsNormalization :=
     match expectedTy with
-    | .uintN _ | .intN _ | .bytesN _ => true
+    | .uint8 | .uint16 | .uintN _ | .intN _ | .bytesN _ => true
     | .newtype _ baseType =>
         match baseType with
-        | .uintN _ | .intN _ | .bytesN _ => true
+        | .uint8 | .uint16 | .uintN _ | .intN _ | .bytesN _ => true
         | _ => false
     | _ => false
   unless needsNormalization do return none
@@ -4244,7 +4250,12 @@ def translateInternalHelperCallArgs
     (params : Array ParamDecl)
     (locals : Array TypedLocal)
     (fn : FunctionDecl)
-    (argTerms : Array Term) : CommandElabM (Array Term) := do
+    (argTerms : Array Term)
+    (translateExpr? : Option (Term → CommandElabM Term) := none) : CommandElabM (Array Term) := do
+  let translateExpr (arg : Term) : CommandElabM Term :=
+    match translateExpr? with
+    | some translate => translate arg
+    | none => translatePureExprWithTypes fields constDecls immutableDecls params locals arg
   let mut out : Array Term := #[]
   for idx in [:argTerms.size] do
     let some arg := argTerms[idx]? | pure ()
@@ -4263,7 +4274,7 @@ def translateInternalHelperCallArgs
                 arrayElementDynamicMemberProjection? params arg then
               match fieldTy with
               | .array _ =>
-                  let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index
+                  let indexExpr ← translateExpr index
                   out := out.push (← `(Compiler.CompilationModel.Expr.arrayElementDynamicMemberDataOffset
                     $(strTerm paramName)
                     $indexExpr
@@ -4278,7 +4289,7 @@ def translateInternalHelperCallArgs
                 localArrayElementDynamicMemberProjection? locals arg then
               match fieldTy with
               | .array _ =>
-                  let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index
+                  let indexExpr ← translateExpr index
                   out := out.push (← `(Compiler.CompilationModel.Expr.arrayElementDynamicMemberDataOffset
                     $(strTerm paramName)
                     $indexExpr
@@ -4316,10 +4327,10 @@ def translateInternalHelperCallArgs
                 | _ =>
                     out := out.push (← `(Compiler.CompilationModel.Expr.param $(strTerm s!"{name}_data_offset")))
               else
-                out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals arg)
+                out := out.push (← translateExpr arg)
           | none =>
               if let some (paramName, index, _elemTy) := arrayElementDynamicTupleArg? params arg then
-                let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index
+                let indexExpr ← translateExpr index
                 out := out.push (← `(Compiler.CompilationModel.Expr.arrayElementDynamicDataOffset
                   $(strTerm paramName)
                   $indexExpr))
@@ -4327,7 +4338,7 @@ def translateInternalHelperCallArgs
                   arrayElementDynamicMemberProjection? params arg then
                 match fnParam.ty, fieldTy with
                 | .bytes, .bytes | .string, .string =>
-                    let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index
+                    let indexExpr ← translateExpr index
                     out := out.push (← `(Compiler.CompilationModel.Expr.arrayElementDynamicMemberDataOffset
                       $(strTerm paramName)
                       $indexExpr
@@ -4337,12 +4348,12 @@ def translateInternalHelperCallArgs
                       $indexExpr
                       $(natTerm wordOffset)))
                 | _, _ =>
-                    out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals arg)
+                    out := out.push (← translateExpr arg)
               else if let some (paramName, index, fieldTy, _elemTy, wordOffset) :=
                   localArrayElementDynamicMemberProjection? locals arg then
                 match fnParam.ty, fieldTy with
                 | .bytes, .bytes | .string, .string =>
-                    let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index
+                    let indexExpr ← translateExpr index
                     out := out.push (← `(Compiler.CompilationModel.Expr.arrayElementDynamicMemberDataOffset
                       $(strTerm paramName)
                       $indexExpr
@@ -4352,7 +4363,7 @@ def translateInternalHelperCallArgs
                       $indexExpr
                       $(natTerm wordOffset)))
                 | _, _ =>
-                    out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals arg)
+                    out := out.push (← translateExpr arg)
               else if let some (paramName, fieldTy, wordOffset) :=
                   paramDynamicMemberProjection? params arg then
                 match fnParam.ty, fieldTy with
@@ -4364,23 +4375,23 @@ def translateInternalHelperCallArgs
                       $(strTerm paramName)
                       $(natTerm wordOffset)))
                 | _, _ =>
-                    out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals arg)
+                    out := out.push (← translateExpr arg)
               else
-                out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals arg)
+                out := out.push (← translateExpr arg)
         else
           if isStaticCompositeInternalHelperType fnParam.ty then
             match directParamNameWithType? params arg with
             | some (name, ty) =>
                 let bindingNames := staticInternalHelperBindingNames name ty
                 if bindingNames.isEmpty then
-                  out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals arg)
+                  out := out.push (← translateExpr arg)
                 else
                   for bindingName in bindingNames do
                     out := out.push (← `(Compiler.CompilationModel.Expr.param $(strTerm bindingName)))
             | none =>
-                out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals arg)
+                out := out.push (← translateExpr arg)
           else
-            out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals arg)
+            out := out.push (← translateExpr arg)
   pure out
 
 def translateLinkedExternalCallArgs
@@ -4468,7 +4479,12 @@ partial def translateDeclaredPureExpr
     (externalDecls : Array ExternalDecl)
     (params : Array ParamDecl)
     (locals : Array TypedLocal)
-    (stx : Term) : CommandElabM Term := do
+    (stx : Term)
+    (translateExpr? : Option (Term → CommandElabM Term) := none) : CommandElabM Term := do
+  let translateExpr (arg : Term) : CommandElabM Term :=
+    match translateExpr? with
+    | some translate => translate arg
+    | none => translatePureExprWithTypes fields constDecls immutableDecls params locals arg
   let lower : Ident → Array Term → CommandElabM Term := fun name args => do
     let extName := toString name.getId
     let ext ← match externalDecls.find? (fun ext => ext.name == extName) with
@@ -4518,6 +4534,8 @@ def tupleInternalCallAssignStmt?
       ensureCallableAsInternalHelper rhs fn
       let argExprs ← translateInternalHelperCallArgs
         fields constDecls immutableDecls params locals fn argTerms
+        (some (translateDeclaredPureExpr
+          fields constDecls immutableDecls externalDecls params locals))
       pure (some (← `(Compiler.CompilationModel.Stmt.internalCallAssign
         [ $[$resultNameTerms],* ]
         $(strTerm (internalHelperSpecNameFor fn))
@@ -4765,14 +4783,14 @@ def translateEmitArgExpr
     `(Compiler.CompilationModel.Expr.memoryArrayLength $(strTerm name))
   else if let some (paramName, index, _fieldTy, _elemTy, wordOffset) :=
       localArrayElementDynamicMemberProjection? locals stx then
-    let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index
+    let indexExpr ← translateExpr index
     `(Compiler.CompilationModel.Expr.arrayElementDynamicMemberLength
         $(strTerm paramName)
         $indexExpr
         $(natTerm wordOffset))
   else if let some (paramName, index, _fieldTy, _elemTy, wordOffset) :=
       arrayElementDynamicMemberProjection? params stx then
-    let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index
+    let indexExpr ← translateExpr index
     `(Compiler.CompilationModel.Expr.arrayElementDynamicMemberLength
         $(strTerm paramName)
         $indexExpr
@@ -4788,7 +4806,7 @@ def translateEmitArgExpr
         $(strTerm paramName)
         $(natTerm wordOffset))
   else
-    translatePureExprWithTypes fields constDecls immutableDecls params locals stx
+    translateExpr stx
 
 def expectEmitExprList
     (fields : Array StorageFieldDecl)
@@ -4796,10 +4814,12 @@ def expectEmitExprList
     (immutableDecls : Array ImmutableDecl)
     (params : Array ParamDecl)
     (locals : Array TypedLocal)
-    (stx : Term) : CommandElabM (Array Term) := do
+    (stx : Term)
+    (translateExpr? : Option (Term → CommandElabM Term) := none) : CommandElabM (Array Term) := do
   match stripParens stx with
   | `(term| [ $[$xs],* ]) =>
-      xs.mapM (translateEmitArgExpr fields constDecls immutableDecls params locals)
+      xs.mapM fun x => translateEmitArgExpr
+        fields constDecls immutableDecls params locals x translateExpr?
   | _ => throwErrorAt stx "expected list literal [..]"
 
 def inferEmitArgExprType
@@ -5045,6 +5065,8 @@ def translateBindSource
           ensureCallableAsInternalHelper rhs fn
           let argExprs ← translateInternalHelperCallArgs
             fields constDecls immutableDecls params locals fn argTerms
+            (some (translateDeclaredPureExpr
+              fields constDecls immutableDecls externalDecls params locals))
           `(Compiler.CompilationModel.Expr.internalCall
               $(strTerm (internalHelperSpecNameFor fn))
               [ $[$argExprs],* ])
