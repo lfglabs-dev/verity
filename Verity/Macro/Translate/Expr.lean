@@ -4778,7 +4778,12 @@ def translateEmitArgExpr
     (immutableDecls : Array ImmutableDecl)
     (params : Array ParamDecl)
     (locals : Array TypedLocal)
-    (stx : Term) : CommandElabM Term := do
+    (stx : Term)
+    (translateExpr? : Option (Term → CommandElabM Term) := none) : CommandElabM Term := do
+  let translateExpr (x : Term) :=
+    match translateExpr? with
+    | some translate => translate x
+    | none => translatePureExprWithTypes fields constDecls immutableDecls params locals x
   if let some (name, _) := localMemoryArray? locals stx then
     `(Compiler.CompilationModel.Expr.memoryArrayLength $(strTerm name))
   else if let some (paramName, index, _fieldTy, _elemTy, wordOffset) :=
