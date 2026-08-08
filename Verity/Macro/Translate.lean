@@ -540,6 +540,7 @@ private def translateERC20BindStmt?
     (fields : Array StorageFieldDecl)
     (constDecls : Array ConstantDecl)
     (immutableDecls : Array ImmutableDecl)
+    (externalDecls : Array ExternalDecl)
     (functions : Array FunctionDecl)
     (params : Array ParamDecl)
     (locals : Array TypedLocal)
@@ -553,8 +554,8 @@ private def translateERC20BindStmt?
           throwErrorAt rhs
             s!"ERC-20 helper form '{localFn.name}' conflicts with contract function '{localFn.name}'; rename the function or avoid the direct helper syntax here"
       | none =>
-          let tokenExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals token
-          let ownerExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals owner
+          let tokenExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals token
+          let ownerExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals owner
           pure <| some (← `(Compiler.CompilationModel.Stmt.ecm
             (Compiler.Modules.ERC20.balanceOfModule $(strTerm varName))
             [$tokenExpr, $ownerExpr]))
@@ -564,9 +565,9 @@ private def translateERC20BindStmt?
           throwErrorAt rhs
             s!"ERC-20 helper form '{localFn.name}' conflicts with contract function '{localFn.name}'; rename the function or avoid the direct helper syntax here"
       | none =>
-          let tokenExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals token
-          let ownerExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals owner
-          let spenderExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals spender
+          let tokenExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals token
+          let ownerExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals owner
+          let spenderExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals spender
           pure <| some (← `(Compiler.CompilationModel.Stmt.ecm
             (Compiler.Modules.ERC20.allowanceModule $(strTerm varName))
             [$tokenExpr, $ownerExpr, $spenderExpr]))
@@ -576,7 +577,7 @@ private def translateERC20BindStmt?
           throwErrorAt rhs
             s!"ERC-20 helper form '{localFn.name}' conflicts with contract function '{localFn.name}'; rename the function or avoid the direct helper syntax here"
       | none =>
-          let tokenExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals token
+          let tokenExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals token
           pure <| some (← `(Compiler.CompilationModel.Stmt.ecm
             (Compiler.Modules.ERC20.totalSupplyModule $(strTerm varName))
             [$tokenExpr]))
@@ -1445,7 +1446,7 @@ private partial def translateDoElem
                         fields constDecls immutableDecls externalDecls functions params locals rhs
                       pure (safeStmts, locals.push (mkTypedLocal varName safeTy), mutableLocals)
                   | none =>
-                      match (← translateERC20BindStmt? fields constDecls immutableDecls functions params locals varName rhs) with
+                      match (← translateERC20BindStmt? fields constDecls immutableDecls externalDecls functions params locals varName rhs) with
                       | some stmt =>
                           pure (#[(stmt)], locals.push (mkTypedLocal varName .uint256), mutableLocals)
                       | none =>

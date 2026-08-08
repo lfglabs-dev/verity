@@ -87,7 +87,7 @@ verity_contract ExternalCallInBodySmoke where
     emit "Seen" [callExternal narrowEcho(0xdeadbeef)]
 
   function reentrancy_trusted customErrorNestedExternalArg () : Unit := do
-    requireError 1 Failure(callExternal narrowEcho(0xdeadbeef))
+    requireError true Failure(callExternal narrowEcho(0xdeadbeef))
 
   function consumeHelper (_value : Uint256) : Unit := do
     pure ()
@@ -103,6 +103,18 @@ verity_contract ExternalCallInBodySmoke where
 
   function reentrancy_trusted ecmNestedExternalArg () : Unit := do
     ecmDo linkedOperandEcmModule [callExternal narrowEcho(0xdeadbeef)]
+
+  function reentrancy_trusted erc20BalanceNestedExternalArg () : Uint256 := do
+    let result ← balanceOf 1 (callExternal narrowEcho(0xdeadbeef))
+    return result
+
+  function reentrancy_trusted erc20AllowanceNestedExternalArg () : Uint256 := do
+    let result ← allowance 1 2 (callExternal narrowEcho(0xdeadbeef))
+    return result
+
+  function reentrancy_trusted erc20SupplyNestedExternalArg () : Uint256 := do
+    let result ← totalSupply (callExternal narrowEcho(0xdeadbeef))
+    return result
 
   function reentrancy_trusted pureDirtyInt () : Int32 := do
     let result := callExternal dirtyInt()
@@ -225,6 +237,21 @@ example : (ExternalCallInBodySmoke.monadicLoadDirtyUint_modelBody).take 1 =
 
 example : ExternalCallInBodySmoke.ecmNestedExternalArg_modelBody =
     [.ecm linkedOperandEcmModule
+      [(.externalCall "narrowEcho"
+        [(.literal 100720434702924942364018397558880508427273416251376888068364465368051161759744)])]] := rfl
+
+example : (ExternalCallInBodySmoke.erc20BalanceNestedExternalArg_modelBody).take 1 =
+    [.ecm (Compiler.Modules.ERC20.balanceOfModule "result")
+      [(.literal 1), (.externalCall "narrowEcho"
+        [(.literal 100720434702924942364018397558880508427273416251376888068364465368051161759744)])]] := rfl
+
+example : (ExternalCallInBodySmoke.erc20AllowanceNestedExternalArg_modelBody).take 1 =
+    [.ecm (Compiler.Modules.ERC20.allowanceModule "result")
+      [(.literal 1), (.literal 2), (.externalCall "narrowEcho"
+        [(.literal 100720434702924942364018397558880508427273416251376888068364465368051161759744)])]] := rfl
+
+example : (ExternalCallInBodySmoke.erc20SupplyNestedExternalArg_modelBody).take 1 =
+    [.ecm (Compiler.Modules.ERC20.totalSupplyModule "result")
       [(.externalCall "narrowEcho"
         [(.literal 100720434702924942364018397558880508427273416251376888068364465368051161759744)])]] := rfl
 
