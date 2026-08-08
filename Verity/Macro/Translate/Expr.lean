@@ -4319,7 +4319,7 @@ def translateInternalHelperCallArgs
                 out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals arg)
           | none =>
               if let some (paramName, index, _elemTy) := arrayElementDynamicTupleArg? params arg then
-                let indexExpr ← translateExpr index
+                let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index
                 out := out.push (← `(Compiler.CompilationModel.Expr.arrayElementDynamicDataOffset
                   $(strTerm paramName)
                   $indexExpr))
