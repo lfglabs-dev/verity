@@ -107,4 +107,28 @@ verity_contract CompositeLinkedCallBindRejected where
     let result ← callExternal pair(value)
     return result
 
+/-- error: callExternal 'pair' return type cannot be used as a pure single-word expression -/
+#guard_msgs in
+verity_contract CompositePureLinkedCallRejected where
+  storage
+  linked_externals
+    external pair(Uint256) -> (Tuple [Uint256, Uint256])
+  function bad (value : Uint256) : Tuple [Uint256, Uint256] := do
+    let result := callExternal pair(value)
+    return result
+
+/-- error: memory-store value must be word-like, got Bytes -/
+#guard_msgs in
+verity_contract DynamicMemoryStoreRejected where
+  storage
+  function bad (payload : Bytes) : Unit := do
+    memoryStore(0, payload)
+
+/-- error: returndata-copy destination offset must be word-like, got Bytes -/
+#guard_msgs in
+verity_contract DynamicReturnDataCopyRejected where
+  storage
+  function bad (payload : Bytes) : Unit := do
+    returnDataCopy(payload, 0, 32)
+
 end Contracts.Smoke

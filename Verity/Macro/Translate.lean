@@ -399,14 +399,19 @@ private partial def validateEffectStmtExprTypes
       pure ()
   | `(term| mstore $offset:term $value:term) | `(term| memoryStore($offset, $value))
     | `(term| tstore $offset:term $value:term) => do
-      let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals offset
-      let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals value
+      requireWordLikeType offset "memory-store offset"
+        (← inferPureExprType fields constDecls immutableDecls externalDecls params locals offset)
+      requireWordLikeType value "memory-store value"
+        (← inferPureExprType fields constDecls immutableDecls externalDecls params locals value)
   | `(term| calldatacopy $destOffset:term $sourceOffset:term $size:term)
     | `(term| returndataCopy $destOffset:term $sourceOffset:term $size:term)
     | `(term| returnDataCopy($destOffset, $sourceOffset, $size)) => do
-      let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals destOffset
-      let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals sourceOffset
-      let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals size
+      requireWordLikeType destOffset "returndata-copy destination offset"
+        (← inferPureExprType fields constDecls immutableDecls externalDecls params locals destOffset)
+      requireWordLikeType sourceOffset "returndata-copy source offset"
+        (← inferPureExprType fields constDecls immutableDecls externalDecls params locals sourceOffset)
+      requireWordLikeType size "returndata-copy size"
+        (← inferPureExprType fields constDecls immutableDecls externalDecls params locals size)
   | `(term| rawLog $topics:term $dataOffset:term $dataSize:term) => do
       match stripParens topics with
       | `(term| [ $[$xs],* ]) =>
@@ -1299,6 +1304,9 @@ private partial def translateDoElem
                     extName ext.params args
                   let argExprs ← translateLinkedExternalCallArgs fields constDecls immutableDecls params locals args
                   let flatNames ← flattenExternalResultNames varName retTy
+                  for flatName in flatNames do
+                    if localNames.contains flatName then
+                      throwErrorAt rhs s!"callExternal '{extName}' generated result name '{flatName}' collides with an existing local"
                   let resultTerms := flatNames.toArray.map strTerm
                   let source ← match staticStructDirectFieldLocals? varName retTy with
                     | some fieldLocals => pure (LocalSource.externalStaticStruct fieldLocals)

@@ -2165,7 +2165,10 @@ partial def inferPureExprType
       match externalDecls.find? (fun ext => ext.name == extName) with
       | some ext =>
           match ext.returnTys.toList with
-          | [retTy] => pure retTy
+          | [retTy] =>
+              unless isSingleWordStaticValueType retTy do
+                throwErrorAt name s!"callExternal '{extName}' return type cannot be used as a pure single-word expression"
+              pure retTy
           | [] => throwErrorAt name s!"externalCall '{extName}' returns no values; use `let success ← tryExternalCall \"{extName}\" [...]` instead"
           | _ => throwErrorAt name s!"externalCall '{extName}' returns {ext.returnTys.size} values; use `let (success, ...) ← tryExternalCall \"{extName}\" [...]` for multi-return"
       | none => pure .uint256
