@@ -656,9 +656,9 @@ private def translateEffectStmt
           throwErrorAt stx
             s!"ERC-20 helper form '{localFn.name}' conflicts with contract function '{localFn.name}'; rename the function or avoid the direct helper syntax here"
       | _ =>
-          let tokenExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals token
-          let toExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals to
-          let amountExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals amount
+          let tokenExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals token
+          let toExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals to
+          let amountExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals amount
           `(Compiler.CompilationModel.Stmt.ecm
               Compiler.Modules.ERC20.safeTransferModule
               [$tokenExpr, $toExpr, $amountExpr])
@@ -668,10 +668,10 @@ private def translateEffectStmt
           throwErrorAt stx
             s!"ERC-20 helper form '{localFn.name}' conflicts with contract function '{localFn.name}'; rename the function or avoid the direct helper syntax here"
       | _ =>
-          let tokenExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals token
-          let fromExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals fromAddr
-          let toExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals to
-          let amountExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals amount
+          let tokenExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals token
+          let fromExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals fromAddr
+          let toExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals to
+          let amountExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals amount
           `(Compiler.CompilationModel.Stmt.ecm
               Compiler.Modules.ERC20.safeTransferFromModule
               [$tokenExpr, $fromExpr, $toExpr, $amountExpr])
@@ -681,9 +681,9 @@ private def translateEffectStmt
            throwErrorAt stx
              s!"ERC-20 helper form '{localFn.name}' conflicts with contract function '{localFn.name}'; rename the function or avoid the direct helper syntax here"
        | _ =>
-           let tokenExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals token
-           let spenderExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals spender
-           let amountExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals amount
+           let tokenExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals token
+           let spenderExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals spender
+           let amountExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals amount
            `(Compiler.CompilationModel.Stmt.ecm
                Compiler.Modules.ERC20.safeApproveModule
                [$tokenExpr, $spenderExpr, $amountExpr])
@@ -693,9 +693,9 @@ private def translateEffectStmt
            throwErrorAt stx
              s!"ERC-20 helper form '{localFn.name}' conflicts with contract function '{localFn.name}'; rename the function or avoid the direct helper syntax here"
        | _ =>
-           let tokenExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals token
-           let toExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals to
-           let amountExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals amount
+           let tokenExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals token
+           let toExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals to
+           let amountExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals amount
            `(Compiler.CompilationModel.Stmt.ecm
                Compiler.Modules.ERC20.legacyStringSafeTransferModule
                [$tokenExpr, $toExpr, $amountExpr])
@@ -705,10 +705,10 @@ private def translateEffectStmt
            throwErrorAt stx
              s!"ERC-20 helper form '{localFn.name}' conflicts with contract function '{localFn.name}'; rename the function or avoid the direct helper syntax here"
        | _ =>
-           let tokenExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals token
-           let fromExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals fromAddr
-           let toExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals to
-           let amountExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals amount
+           let tokenExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals token
+           let fromExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals fromAddr
+           let toExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals to
+           let amountExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals amount
            `(Compiler.CompilationModel.Stmt.ecm
                Compiler.Modules.ERC20.legacyStringSafeTransferFromModule
                [$tokenExpr, $fromExpr, $toExpr, $amountExpr])
@@ -728,7 +728,7 @@ private def translateEffectStmt
       | none =>
           match f.ty with
           | .scalar .uint256 | .scalar .int256 | .scalar (.newtype _ .uint256) =>
-              `(Compiler.CompilationModel.Stmt.setStorage $(strTerm f.name) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value))
+              `(Compiler.CompilationModel.Stmt.setStorage $(strTerm f.name) $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals value))
           | .scalar (.adt adtName _) =>
               `(Compiler.CompilationModel.Stmt.setStorage
                   $(strTerm f.name)
@@ -743,7 +743,7 @@ private def translateEffectStmt
       let f ← lookupStorageField fields (toString field.getId)
       match f.ty with
       | .scalar .address | .scalar (.newtype _ .address) =>
-          `(Compiler.CompilationModel.Stmt.setStorageAddr $(strTerm f.name) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value))
+          `(Compiler.CompilationModel.Stmt.setStorageAddr $(strTerm f.name) $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals value))
       | .scalar .uint256 | .scalar (.newtype _ .uint256) =>
           throwErrorAt stx s!"field '{f.name}' is Uint256-valued; use setStorage"
       | .dynamicArray _ =>
@@ -757,7 +757,7 @@ private def translateEffectStmt
           `(Compiler.CompilationModel.Stmt.setStorageWord
               $(strTerm f.name)
               $(natTerm (← natFromSyntax wordOffset))
-              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value))
+              $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals value))
       | .dynamicArray _ =>
           throwErrorAt stx s!"field '{f.name}' is a storage dynamic array; setPackedStorage requires a scalar root slot"
       | .mappingAddressToUint256 | .mappingUintToUint256 | .mapping2AddressToAddressToUint256
@@ -769,13 +769,13 @@ private def translateEffectStmt
       | .mappingAddressToUint256 =>
           `(Compiler.CompilationModel.Stmt.setMapping
               $(strTerm f.name)
-              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key)
-              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value))
+              $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals key)
+              $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals value))
       | .mappingUintToUint256 =>
           `(Compiler.CompilationModel.Stmt.setMappingUint
               $(strTerm f.name)
-              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key)
-              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value))
+              $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals key)
+              $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals value))
       | .mapping2AddressToAddressToUint256 =>
           throwErrorAt stx s!"field '{f.name}' is a double mapping; use setMapping2"
       | .mappingChain _ =>
@@ -791,8 +791,8 @@ private def translateEffectStmt
       | .mappingAddressToUint256 =>
           `(Compiler.CompilationModel.Stmt.setMapping
               $(strTerm f.name)
-              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key)
-              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value))
+              $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals key)
+              $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals value))
       | .mappingUintToUint256 =>
           throwErrorAt stx s!"field '{f.name}' is Uint256-keyed; use setMappingUintAddr"
       | .mapping2AddressToAddressToUint256 =>
@@ -810,8 +810,8 @@ private def translateEffectStmt
       | .mappingUintToUint256 =>
           `(Compiler.CompilationModel.Stmt.setMappingUint
               $(strTerm f.name)
-              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key)
-              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value))
+              $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals key)
+              $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals value))
       | .mappingAddressToUint256 =>
           throwErrorAt stx s!"field '{f.name}' is Address-keyed; use setMapping"
       | .mapping2AddressToAddressToUint256 =>
@@ -829,8 +829,8 @@ private def translateEffectStmt
       | .mappingUintToUint256 =>
           `(Compiler.CompilationModel.Stmt.setMappingUint
               $(strTerm f.name)
-              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key)
-              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value))
+              $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals key)
+              $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals value))
       | .mappingAddressToUint256 =>
           throwErrorAt stx s!"field '{f.name}' is Address-keyed; use setMappingAddr"
       | .mapping2AddressToAddressToUint256 =>
@@ -848,9 +848,9 @@ private def translateEffectStmt
       | .mappingAddressToUint256 | .mappingUintToUint256 =>
           `(Compiler.CompilationModel.Stmt.setMappingWord
               $(strTerm f.name)
-              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key)
+              $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals key)
               $wordOffset
-              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value))
+              $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals value))
       | .mapping2AddressToAddressToUint256 =>
           throwErrorAt stx s!"field '{f.name}' is a double mapping; use setMapping2Word"
       | .mappingStruct _ _ =>
@@ -868,9 +868,9 @@ private def translateEffectStmt
       | .mapping2AddressToAddressToUint256 =>
           `(Compiler.CompilationModel.Stmt.setMapping2
               $(strTerm f.name)
-              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key1)
-              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key2)
-              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value))
+              $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals key1)
+              $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals key2)
+              $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals value))
       | .mappingStruct2 _ _ _ =>
           throwErrorAt stx s!"field '{f.name}' is a nested struct mapping; use setStructMember2"
       | .mappingStruct _ _ =>
@@ -883,11 +883,11 @@ private def translateEffectStmt
       | some keyTypes =>
           if keyTerms.size != keyTypes.length then
             throwErrorAt stx s!"field '{f.name}' expects {keyTypes.length} mapping keys, but setMappingN received {keyTerms.size}"
-          let keyExprs ← keyTerms.mapM (translatePureExprWithTypes fields constDecls immutableDecls params locals)
+          let keyExprs ← keyTerms.mapM (translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals)
           `(Compiler.CompilationModel.Stmt.setMappingChain
               $(strTerm f.name)
               [ $[$keyExprs],* ]
-              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value))
+              $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals value))
       | none =>
           match f.ty with
           | .mappingStruct _ _ | .mappingStruct2 _ _ _ =>
@@ -899,7 +899,7 @@ private def translateEffectStmt
       | .dynamicArray _ =>
           `(Compiler.CompilationModel.Stmt.storageArrayPush
               $(strTerm f.name)
-              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value))
+              $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals value))
       | _ => throwErrorAt stx s!"field '{f.name}' is not a storage dynamic array"
   | `(term| popStorageArray $field:ident) =>
       let f ← lookupStorageField fields (toString field.getId)
@@ -913,19 +913,19 @@ private def translateEffectStmt
       | .dynamicArray _ =>
           `(Compiler.CompilationModel.Stmt.setStorageArrayElement
               $(strTerm f.name)
-              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals index)
-              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value))
+              $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals index)
+              $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals value))
       | _ => throwErrorAt stx s!"field '{f.name}' is not a storage dynamic array"
   | `(term| require $cond $msg) =>
       `(Compiler.CompilationModel.Stmt.require
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals cond)
+          $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals cond)
           $(strTerm (← expectStringLiteral msg)))
   | `(term| setMemoryArrayElement $name:term $index:term $value:term) => do
       let (arrayName, elemTy) ← requireSupportedMemoryArrayLocal name "setMemoryArrayElement" locals
       unless isSingleWordStaticValueType elemTy do
         throwErrorAt name s!"setMemoryArrayElement currently supports only Array<wordLike> memory locals, got Array {renderValueType elemTy}"
-      let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index
-      let valueExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals value
+      let indexExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals index
+      let valueExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals value
       let dataOffsetExpr : Term ←
         `(Compiler.CompilationModel.Expr.localVar $(strTerm (memoryArrayDataOffsetName arrayName)))
       let elementOffsetExpr : Term ←
@@ -937,23 +937,23 @@ private def translateEffectStmt
           [Compiler.CompilationModel.Stmt.mstore $elementOffsetExpr $valueExpr])
   | `(term| mstore $offset:term $value:term) | `(term| memoryStore($offset, $value)) =>
       `(Compiler.CompilationModel.Stmt.mstore
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals offset)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value))
+          $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals offset)
+          $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals value))
   | `(term| tstore $offset:term $value:term) =>
       `(Compiler.CompilationModel.Stmt.tstore
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals offset)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value))
+          $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals offset)
+          $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals value))
   | `(term| calldatacopy $destOffset:term $sourceOffset:term $size:term) =>
       `(Compiler.CompilationModel.Stmt.calldatacopy
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals destOffset)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals sourceOffset)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals size))
+          $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals destOffset)
+          $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals sourceOffset)
+          $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals size))
   | `(term| returndataCopy $destOffset:term $sourceOffset:term $size:term)
     | `(term| returnDataCopy($destOffset, $sourceOffset, $size)) =>
       `(Compiler.CompilationModel.Stmt.returndataCopy
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals destOffset)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals sourceOffset)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals size))
+          $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals destOffset)
+          $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals sourceOffset)
+          $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals size))
   | `(term| revertReturndata) =>
       `(Compiler.CompilationModel.Stmt.revertReturndata)
   | `(term| returnValues $values:term) =>
@@ -967,7 +967,7 @@ private def translateEffectStmt
       `(Compiler.CompilationModel.Stmt.returnStorageWords $(strTerm (← expectStringOrIdent name)))
   | `(term| returnCodeData $pointer:term) =>
       `(Compiler.CompilationModel.Stmt.returnCodeData
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals pointer))
+          $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals pointer))
   | `(term| emit $eventName:term $args:term) =>
       let evName := ← expectStringOrIdent eventName
       let argExprs ← expectEmitExprList fields constDecls immutableDecls params locals args
@@ -976,8 +976,8 @@ private def translateEffectStmt
       let topicExprs ← expectExprList fields constDecls immutableDecls params locals topics
       `(Compiler.CompilationModel.Stmt.rawLog
           [ $[$topicExprs],* ]
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals dataOffset)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals dataSize))
+          $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals dataOffset)
+          $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals dataSize))
   | `(term| externalCallBind $names:term $fnName:term $args:term) =>
       let resultNames := ← expectStringList names
       let resultNameTerms := resultNames.map strTerm
@@ -1008,28 +1008,28 @@ private def translateEffectStmt
       let _ ← lookupStructMemberDecl fields fieldName memberName false
       `(Compiler.CompilationModel.Stmt.setStructMember
           $(strTerm fieldName)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key)
+          $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals key)
           $(strTerm memberName)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value))
+          $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals value))
   | `(term| setStructMember2 $field:term $key1:term $key2:term $member:term $value:term) =>
       let fieldName := ← expectStringOrIdent field
       let memberName := ← expectStringOrIdent member
       let _ ← lookupStructMemberDecl fields fieldName memberName true
       `(Compiler.CompilationModel.Stmt.setStructMember2
           $(strTerm fieldName)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key1)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key2)
+          $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals key1)
+          $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals key2)
           $(strTerm memberName)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value))
+          $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals value))
   | _ =>
       -- void typed interface call in statement position lowers to the
       -- no-return ECM (selector + args call, failure-returndata bubbled, but
       -- no returndatasize check and no return decode).
       match ← resolveTypedInterfaceCall? fields constDecls immutableDecls externalDecls params locals stx with
       | some (ext, target, argTerms, none, selector) =>
-          let targetExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals target
+          let targetExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals target
           let argExprs ← argTerms.mapM
-            (translatePureExprWithTypes fields constDecls immutableDecls params locals)
+            (translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals)
           let isStaticTerm ← if ext.isView then `(true) else `(false)
           `(Compiler.CompilationModel.Stmt.ecm
               (Compiler.Modules.Calls.noReturnModule

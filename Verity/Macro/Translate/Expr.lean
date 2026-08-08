@@ -4319,7 +4319,7 @@ def translateInternalHelperCallArgs
                 out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals arg)
           | none =>
               if let some (paramName, index, _elemTy) := arrayElementDynamicTupleArg? params arg then
-                let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index
+                let indexExpr ← translateExpr index
                 out := out.push (← `(Compiler.CompilationModel.Expr.arrayElementDynamicDataOffset
                   $(strTerm paramName)
                   $indexExpr))
@@ -4390,11 +4390,16 @@ def translateLinkedExternalCallArgs
     (params : Array ParamDecl)
     (locals : Array TypedLocal)
     (argTerms : Array Term)
-    (expectedTypes : Option (Array ValueType) := none) : CommandElabM (Array Term) := do
+    (expectedTypes : Option (Array ValueType) := none)
+    (translateExpr? : Option (Term → CommandElabM Term) := none) : CommandElabM (Array Term) := do
+  let translateExpr (arg : Term) : CommandElabM Term :=
+    match translateExpr? with
+    | some translate => translate arg
+    | none => translatePureExprWithTypes fields constDecls immutableDecls params locals arg
   let mut out : Array Term := #[]
   for (arg, argIdx) in argTerms.zipIdx do
     let translateScalar : CommandElabM Term := do
-      let raw ← translatePureExprWithTypes fields constDecls immutableDecls params locals arg
+      let raw ← translateExpr arg
       match expectedTypes >>= (·[argIdx]?) with
       | some expectedTy => normalizeTranslatedExprForType expectedTy arg raw
       | none => pure raw
@@ -4416,7 +4421,7 @@ def translateLinkedExternalCallArgs
             else if let some (paramName, index, fieldTy, _elemTy, wordOffset) :=
                 arrayElementDynamicMemberProjection? params arg then
               if externalCallDynamicArgSupported fieldTy then
-                let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index
+                let indexExpr ← translateExpr index
                 out := out.push (← `(Compiler.CompilationModel.Expr.arrayElementDynamicMemberDataOffset
                   $(strTerm paramName)
                   $indexExpr
@@ -4430,7 +4435,7 @@ def translateLinkedExternalCallArgs
             else if let some (paramName, index, fieldTy, _elemTy, wordOffset) :=
                 localArrayElementDynamicMemberProjection? locals arg then
               if externalCallDynamicArgSupported fieldTy then
-                let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index
+                let indexExpr ← translateExpr index
                 out := out.push (← `(Compiler.CompilationModel.Expr.arrayElementDynamicMemberDataOffset
                   $(strTerm paramName)
                   $indexExpr
@@ -4456,7 +4461,7 @@ def translateLinkedExternalCallArgs
               out := out.push (← translateScalar)
   pure out
 
-def translateDeclaredPureExpr
+partial def translateDeclaredPureExpr
     (fields : Array StorageFieldDecl)
     (constDecls : Array ConstantDecl)
     (immutableDecls : Array ImmutableDecl)
@@ -4477,6 +4482,8 @@ def translateDeclaredPureExpr
           throwErrorAt name s!"callExternal '{extName}' return type cannot be used as a pure single-word expression"
         let argExprs ← translateLinkedExternalCallArgs
           fields constDecls immutableDecls params locals args (some ext.params)
+          (some (translateDeclaredPureExpr
+            fields constDecls immutableDecls externalDecls params locals))
         let callExpr ←
           `(Compiler.CompilationModel.Expr.externalCall $(strTerm extName) [ $[$argExprs],* ])
         normalizeTranslatedExprForType retTy stx callExpr

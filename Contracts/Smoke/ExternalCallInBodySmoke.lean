@@ -18,6 +18,7 @@ verity_contract ExternalCallInBodySmoke where
     external dirtyUint() -> (Uint32)
     external dirtyInt() -> (Int32)
     external dirtyBytes() -> (Bytes4)
+    external dirtySink(Uint32) -> (Uint32)
 
   function reentrancy_trusted linkedRead () : Uint256 := do
     let depositable ← callExternal getDepositableEther()
@@ -39,6 +40,14 @@ verity_contract ExternalCallInBodySmoke where
 
   function reentrancy_trusted nestedDirtyUint () : Bool := do
     return (callExternal dirtyUint()) == 1
+
+  function reentrancy_trusted nestedExternalArg () : Uint32 := do
+    return callExternal dirtySink(callExternal dirtyUint())
+
+  function reentrancy_trusted storeDirtyUint ()
+    local_obligations [low_level_frame := assumed "Writing a linked-call result to memory is an explicit refinement boundary."]
+    : Unit := do
+    memoryStore(0, callExternal dirtyUint())
 
   function reentrancy_trusted bindDirtyUint () : Uint32 := do
     let result ← callExternal dirtyUint()
@@ -113,6 +122,16 @@ example : ExternalCallInBodySmoke.nestedDirtyUint_modelBody =
       (.bitAnd (.externalCall "dirtyUint" []) (.literal (2 ^ 32 - 1)))
       (.literal 1))] := rfl
 
+example : ExternalCallInBodySmoke.nestedExternalArg_modelBody =
+    [.return (.bitAnd
+      (.externalCall "dirtySink"
+        [(.bitAnd (.externalCall "dirtyUint" []) (.literal (2 ^ 32 - 1)))])
+      (.literal (2 ^ 32 - 1)))] := rfl
+
+example : ExternalCallInBodySmoke.storeDirtyUint_modelBody =
+    [.mstore (.literal 0)
+      (.bitAnd (.externalCall "dirtyUint" []) (.literal (2 ^ 32 - 1)))] := rfl
+
 example : (ExternalCallInBodySmoke.bindDirtyUint_modelBody).take 2 =
     [ .externalCallBind ["result"] "dirtyUint" []
     , .assignVar "result" (.bitAnd (.localVar "result") (.literal (2 ^ 32 - 1))) ] := rfl
@@ -144,6 +163,14 @@ example : ExternalCallInBodySmoke.directDirtyUint_model.body =
 example : ExternalCallInBodySmoke.nestedDirtyUint_model.body =
     ExternalCallInBodySmoke.nestedDirtyUint_modelBody :=
   ExternalCallInBodySmoke.nestedDirtyUint_semantic_preservation
+
+example : ExternalCallInBodySmoke.nestedExternalArg_model.body =
+    ExternalCallInBodySmoke.nestedExternalArg_modelBody :=
+  ExternalCallInBodySmoke.nestedExternalArg_semantic_preservation
+
+example : ExternalCallInBodySmoke.storeDirtyUint_model.body =
+    ExternalCallInBodySmoke.storeDirtyUint_modelBody :=
+  ExternalCallInBodySmoke.storeDirtyUint_semantic_preservation
 
 example : ExternalCallInBodySmoke.bindDirtyUint_model.body =
     ExternalCallInBodySmoke.bindDirtyUint_modelBody :=
