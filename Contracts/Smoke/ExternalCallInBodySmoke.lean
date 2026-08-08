@@ -494,7 +494,7 @@ verity_contract MalformedPureLinkedCallRejected where
     let result := callExternal scalarPair(payload)
     return result
 
-/-- error: callExternal 'pair' return type expands to 2 values and cannot be bound to one source variable -/
+/-- error: callExternal 'pair' return type cannot be bound to one source variable; bind composite results explicitly -/
 #guard_msgs in
 verity_contract CompositeLinkedCallBindRejected where
   storage
@@ -502,6 +502,18 @@ verity_contract CompositeLinkedCallBindRejected where
     external pair(Uint256) -> (Tuple [Uint256, Uint256])
   function bad (value : Uint256) : Tuple [Uint256, Uint256] := do
     let result ← callExternal pair(value)
+    return result
+
+/-- error: callExternal 'single' return type cannot be bound to one source variable; bind composite results explicitly -/
+#guard_msgs in
+verity_contract SingleLeafCompositeLinkedCallBindRejected where
+  storage
+  struct Single where
+    value : Uint256
+  linked_externals
+    external single() -> (Single)
+  function bad () : Single := do
+    let result ← callExternal single()
     return result
 
 /-- error: callExternal 'pair' return type cannot be used as a pure single-word expression -/

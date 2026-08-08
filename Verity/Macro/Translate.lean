@@ -1322,6 +1322,8 @@ private partial def translateDoElem
                 | none => throwErrorAt externalName s!"unknown linked external '{extName}'"
               match ext.returnTys.toList with
               | [retTy] =>
+                  unless isSingleWordStaticValueType retTy do
+                    throwErrorAt rhs s!"callExternal '{extName}' return type cannot be bound to one source variable; bind composite results explicitly"
                   validateLinkedExternalCallArgs fields constDecls immutableDecls externalDecls params locals
                     extName ext.params args
                   let argExprs ← translateLinkedExternalCallArgs fields constDecls immutableDecls params locals args
