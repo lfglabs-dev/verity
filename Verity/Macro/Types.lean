@@ -18,6 +18,9 @@ inductive ValueType where
   | int256
   | uint8
   | uint16
+  | uintN (bits : Nat)
+  | intN (bits : Nat)
+  | bytesN (bytes : Nat)
   | address
   | bytes32
   | bool
@@ -348,6 +351,16 @@ partial def valueTypeFromSyntax
   | `(term| Unit) => pure .unit
   | `(term| $id:ident) =>
       let tyName := toString id.getId
+      if let some bits := parseNarrowTypeSuffix "Uint" tyName then
+        if validIntegerWidth bits then pure (.uintN bits)
+        else throwErrorAt ty s!"invalid Solidity unsigned integer width {bits}; expected a multiple of 8 from 8 through 248"
+      else if let some bits := parseNarrowTypeSuffix "Int" tyName then
+        if validIntegerWidth bits then pure (.intN bits)
+        else throwErrorAt ty s!"invalid Solidity signed integer width {bits}; expected a multiple of 8 from 8 through 248"
+      else if let some bytes := parseNarrowTypeSuffix "Bytes" tyName then
+        if 1 ≤ bytes && bytes ≤ 31 then pure (.bytesN bytes)
+        else throwErrorAt ty s!"invalid Solidity fixed-bytes width {bytes}; expected Bytes1 through Bytes31"
+      else
       -- Try resolving as a user-defined newtype (#1727, Axis 1 Steps 3a/3b)
       match newtypes.find? (fun nt => nt.name == tyName) with
       | some nt => pure (.newtype nt.name nt.baseType)
@@ -363,5 +376,14 @@ partial def valueTypeFromSyntax
           | none => throwErrorAt ty "unsupported type '{ty}'; expected Uint256, Int256, Uint8, Uint16, Address, Bytes32, Bool, String, Bytes, Array <type>, FixedArray <type> <size>, Tuple [...], Unit, a user-defined struct, or a user-defined type from the `types` or `inductive` section"
   | _ =>
       throwErrorAt ty "unsupported type '{ty}'; expected Uint256, Int256, Uint8, Uint16, Address, Bytes32, Bool, String, Bytes, Array <type>, FixedArray <type> <size>, Tuple [...], Unit, a user-defined struct, or a user-defined type from the `types` or `inductive` section"
+
+where
+  parseNarrowTypeSuffix (typePrefix name : String) : Option Nat := do
+    guard (name.startsWith typePrefix)
+    let suffix := name.drop typePrefix.length
+    guard (!suffix.isEmpty)
+    suffix.toNat?
+  validIntegerWidth (bits : Nat) : Bool :=
+    8 ≤ bits && bits ≤ 248 && bits % 8 == 0
 
 end Verity.Macro

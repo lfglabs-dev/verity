@@ -153,6 +153,15 @@ def validateImmutableInitialization (immutables : List ImmutableSpec)
 def isStorageWordArrayParam : ParamType → Bool
   | ty => isWordArrayParam ty
 
+def isCanonicalReturnArrayElem : ParamType → Bool
+  | .uintN _ | .intN _ | .bytesN _ => false
+  | .newtypeOf _ baseType => isCanonicalReturnArrayElem baseType
+  | ty => isSingleWordStaticParamType ty
+
+def isCanonicalReturnArrayParam : ParamType → Bool
+  | .array elemType => isCanonicalReturnArrayElem elemType
+  | _ => false
+
 /-- Node-local check for statement parameter references; nested statement
     bodies are reached via the canonical `Stmt.forDeepM`. -/
 def validateStmtParamReferencesNode (fnName : String) (params : List Param) :
@@ -160,7 +169,7 @@ def validateStmtParamReferencesNode (fnName : String) (params : List Param) :
   | Stmt.returnArray name =>
       match findParamType params name with
       | some ty =>
-          if isWordArrayParam ty then
+          if isCanonicalReturnArrayParam ty then
             pure ()
           else
             throw s!"Compilation error: function '{fnName}' returnArray '{name}' requires an array parameter with single-word static elements, got {repr ty}"
@@ -257,7 +266,7 @@ def validateReturnShapesNode (fnName : String) (params : List Param)
   | Stmt.returnArray name =>
       match findParamType params name with
       | some ty =>
-          if !isWordArrayParam ty then
+          if !isCanonicalReturnArrayParam ty then
             throw s!"Compilation error: function '{fnName}' uses Stmt.returnArray with parameter '{name}' of type {repr ty}; only arrays with single-word static elements are currently supported"
           else if expectedReturns == [ty] then
             pure ()
@@ -266,7 +275,7 @@ def validateReturnShapesNode (fnName : String) (params : List Param)
       | none =>
           match expectedReturns with
           | [ty] =>
-              if isWordArrayParam ty then
+              if isCanonicalReturnArrayParam ty then
                 pure ()
               else
                 throw s!"Compilation error: function '{fnName}' uses Stmt.returnArray with memory array '{name}', but declared return type {repr ty} is not a supported word array"

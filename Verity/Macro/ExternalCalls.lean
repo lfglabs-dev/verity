@@ -57,7 +57,8 @@ def parseExternal
   | _ => throwErrorAt stx "invalid external declaration"
 
 private def externalExecutableWordType? : ValueType → Bool
-  | .uint256 | .int256 | .uint8 | .uint16 | .address | .bytes32 | .bool => true
+  | .uint256 | .int256 | .uint8 | .uint16 | .uintN _ | .intN _ | .bytesN _
+  | .address | .bytes32 | .bool => true
   | .newtype _ baseType => externalExecutableWordType? baseType
   | _ => false
 

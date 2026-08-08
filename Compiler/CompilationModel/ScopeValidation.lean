@@ -18,6 +18,7 @@ mutual
     | ParamType.int256 => false
     | ParamType.uint8 => false
     | ParamType.uint16 => false
+    | ParamType.uintN _ | ParamType.intN _ | ParamType.bytesN _ => false
     | ParamType.address => false
     | ParamType.bool => false
     | ParamType.bytes32 => false
@@ -39,7 +40,9 @@ decreasing_by all_goals simp_wf; all_goals omega
 end
 
 def isScalarParamTypeForScope : ParamType → Bool
-  | ParamType.uint256 | ParamType.int256 | ParamType.uint8 | ParamType.uint16 | ParamType.address | ParamType.bool | ParamType.bytes32 => true
+  | ParamType.uint256 | ParamType.int256 | ParamType.uint8 | ParamType.uint16
+  | ParamType.uintN _ | ParamType.intN _ | ParamType.bytesN _
+  | ParamType.address | ParamType.bool | ParamType.bytes32 => true
   | _ => false
 
 def paramBindingNames (param : Param) : List String :=

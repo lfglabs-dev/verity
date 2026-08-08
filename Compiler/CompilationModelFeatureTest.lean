@@ -1325,6 +1325,63 @@ example : failWithModelUsesDeclaredCustomError = true := by native_decide
 
 end MacroStatelessSectionsSmoke
 
+namespace MacroNarrowNormalizationSmoke
+
+open Verity hiding pure bind
+open Verity.EVM.Uint256
+
+verity_contract MacroNarrowNormalization where
+  storage
+
+  struct DynamicInput where
+    values : Array Uint256,
+    tag : Uint24
+
+  errors
+    error BadTag(Bytes4)
+
+  function readTag (input : DynamicInput) : Uint24 := do
+    return input.tag
+
+  function overwriteTag (seed : Uint24) : Uint24 := do
+    let mut tag := seed
+    tag := 16777216
+    return tag
+
+  function failWithTag () : Unit := do
+    revert BadTag(0xdeadbeef)
+
+def dynamicNarrowProjectionIsCanonicalized : Bool :=
+  match MacroNarrowNormalization.readTag_modelBody with
+  | [Stmt.return
+      (Expr.bitAnd
+        (Expr.paramDynamicHeadWord "input" 1)
+        (Expr.literal mask))] => mask == 2 ^ 24 - 1
+  | _ => false
+
+example : dynamicNarrowProjectionIsCanonicalized = true := by native_decide
+
+def mutableNarrowAssignmentIsCanonicalized : Bool :=
+  MacroNarrowNormalization.overwriteTag_modelBody.any fun stmt =>
+    match stmt with
+    | Stmt.assignVar "tag"
+        (Expr.bitAnd (Expr.literal 16777216) (Expr.literal mask)) =>
+        mask == 2 ^ 24 - 1
+    | _ => false
+
+example : mutableNarrowAssignmentIsCanonicalized = true := by native_decide
+
+def customErrorBytesLiteralIsCanonicalized : Bool :=
+  MacroNarrowNormalization.failWithTag_modelBody.any fun stmt =>
+    match stmt with
+    | Stmt.revertError "BadTag" [Expr.literal value] =>
+        value == 0xdeadbeef * 2 ^ 224
+    | _ => false
+
+example : customErrorBytesLiteralIsCanonicalized = true := by native_decide
+
+end MacroNarrowNormalizationSmoke
+
 namespace MacroSafeMulRequireSmoke
 
 def safeAddRequireLowersToOverflowGuard : Bool :=
@@ -2630,6 +2687,18 @@ private def selectorSmokeSpec : CompilationModel := {
       body := [Stmt.return (Expr.storage "value")]
     }
   ]
+}
+
+private def invalidNarrowParamSpec (ty : ParamType) : CompilationModel := {
+  name := "InvalidNarrowParam"
+  fields := []
+  «constructor» := none
+  functions := [{
+    name := "bad"
+    params := [{ name := "value", ty }]
+    returnType := none
+    body := [Stmt.stop]
+  }]
 }
 
 private def envRuntimeSmokeSpec : CompilationModel := {
@@ -5502,6 +5571,18 @@ set_option maxRecDepth 4096 in
     | .ok _ => false
     | .error msg => contains msg "Selector count mismatch"
   expectTrue "selector mismatch is rejected with deterministic diagnostic" mismatchRejected
+  expectCompileErrorContains
+    "manually constructed uintN widths are validated"
+    (invalidNarrowParamSpec (.uintN 7))
+    "invalid narrow integer width 7"
+  expectCompileErrorContains
+    "manually constructed intN widths are validated"
+    (invalidNarrowParamSpec (.array (.intN 0)))
+    "invalid narrow integer width 0"
+  expectCompileErrorContains
+    "manually constructed bytesN widths are validated"
+    (invalidNarrowParamSpec (.tuple [.bytesN 33]))
+    "invalid fixed-bytes width 33"
   expectCompileErrorContains
     "reserved compiler prefix is rejected in function parameters"
     reservedParamSpec

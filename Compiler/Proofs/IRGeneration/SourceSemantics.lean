@@ -89,6 +89,13 @@ def normalizeEventValue (ty : ParamType) (value : Nat) : Nat :=
   match ty with
   | .uint8 => word &&& (uint8Modulus - 1)
   | .uint16 => word &&& (2^16 - 1)
+  | .uintN bits => word &&& (2 ^ bits - 1)
+  | .intN bits =>
+      (Verity.Core.Uint256.signextend
+        (Verity.Core.Uint256.ofNat (bits / 8 - 1))
+        (Verity.Core.Uint256.ofNat word)).val
+  | .bytesN bytes =>
+      word &&& ((2 ^ (8 * bytes) - 1) * 2 ^ (8 * (32 - bytes)))
   | .address => word &&& Compiler.Constants.addressMask
   | .bool => if word = 0 then 0 else 1
   -- Mirrors the compiler's newtype erasure in `normalizeEventWord`.
@@ -731,6 +738,13 @@ def decodeSupportedParamWord (ty : ParamType) (word : Nat) : Option Nat :=
   | .uint256 | .int256 | .bytes32 => some word
   | .uint8 => some (word &&& (uint8Modulus - 1))
   | .uint16 => some (word &&& (2^16 - 1))
+  | .uintN bits => some (word &&& (2 ^ bits - 1))
+  | .intN bits => some
+      (Verity.Core.Uint256.signextend
+        (Verity.Core.Uint256.ofNat (bits / 8 - 1))
+        (Verity.Core.Uint256.ofNat word)).val
+  | .bytesN bytes => some
+      (word &&& ((2 ^ (8 * bytes) - 1) * 2 ^ (8 * (32 - bytes))))
   | .address => some (word &&& Compiler.Constants.addressMask)
   | .bool => some (if word = 0 then 0 else 1)
   | _ => none

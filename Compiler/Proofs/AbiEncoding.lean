@@ -29,6 +29,14 @@ passthroughs, so the spec is identity for `uint256`, `int256`, and `bytes32`. -/
 def abiScalarNormalize : ParamType → Nat → Nat
   | .uint8, v => (v % Compiler.Constants.evmModulus) &&& 255
   | .uint16, v => (v % Compiler.Constants.evmModulus) &&& 65535
+  | .uintN bits, v => (v % Compiler.Constants.evmModulus) &&& (2 ^ bits - 1)
+  | .intN bits, v =>
+      (Verity.Core.Uint256.signextend
+        (Verity.Core.Uint256.ofNat (bits / 8 - 1))
+        (Verity.Core.Uint256.ofNat v)).val
+  | .bytesN bytes, v =>
+      (v % Compiler.Constants.evmModulus) &&&
+        ((2 ^ (8 * bytes) - 1) * 2 ^ (8 * (32 - bytes)))
   | .address, v => (v % Compiler.Constants.evmModulus) &&& Compiler.Constants.addressMask
   | .bool, v => if v % Compiler.Constants.evmModulus = 0 then 0 else 1
   | .newtypeOf _ baseType, v => abiScalarNormalize baseType v
@@ -238,6 +246,24 @@ theorem encodeStaticCustomErrorArg_agrees_with_normalizeEventWord_uint16
   encodeStaticCustomErrorArg_eval_eq_normalizeEventWord_eval name ParamType.uint16 s e out hout
     (Or.inr (Or.inr (Or.inr (Or.inl rfl))))
 
+@[simp] theorem encodeStaticCustomErrorArg_uintN_eq
+    (name : String) (bits : Nat) (e : YulExpr) :
+    encodeStaticCustomErrorArg name (.uintN bits) e =
+      .ok (normalizeEventWord (.uintN bits) e) := by
+  rfl
+
+@[simp] theorem encodeStaticCustomErrorArg_intN_eq
+    (name : String) (bits : Nat) (e : YulExpr) :
+    encodeStaticCustomErrorArg name (.intN bits) e =
+      .ok (normalizeEventWord (.intN bits) e) := by
+  rfl
+
+@[simp] theorem encodeStaticCustomErrorArg_bytesN_eq
+    (name : String) (bytes : Nat) (e : YulExpr) :
+    encodeStaticCustomErrorArg name (.bytesN bytes) e =
+      .ok (normalizeEventWord (.bytesN bytes) e) := by
+  rfl
+
 theorem abiScalarNormalize_bool_output (v : Nat) :
     abiScalarNormalize ParamType.bool v = 0 ∨ abiScalarNormalize ParamType.bool v = 1 := by
   unfold abiScalarNormalize
@@ -276,6 +302,14 @@ theorem abiScalarNormalize_lt_evm_of_lt_evm
   | int256 => simpa using hv
   | uint8 => exact abiScalarNormalize_uint8_lt_evm v
   | uint16 => exact abiScalarNormalize_uint16_lt_evm v
+  | uintN bits =>
+      exact lt_of_le_of_lt (Nat.and_le_left) (Nat.mod_lt _ (by norm_num [Compiler.Constants.evmModulus]))
+  | intN bits =>
+      exact (Verity.Core.Uint256.signextend
+        (Verity.Core.Uint256.ofNat (bits / 8 - 1))
+        (Verity.Core.Uint256.ofNat v)).isLt
+  | bytesN bytes =>
+      exact lt_of_le_of_lt (Nat.and_le_left) (Nat.mod_lt _ (by norm_num [Compiler.Constants.evmModulus]))
   | address => exact abiScalarNormalize_address_lt_evm v
   | bool => exact abiScalarNormalize_bool_lt_evm v
   | bytes32 => simpa using hv
@@ -301,6 +335,55 @@ private theorem land_idempotent_right (v mask : Nat) :
     (v &&& mask) &&& mask = v &&& mask := by
   rw [Nat.land_assoc, Nat.and_self]
 
+private theorem uint256_ofNat_val (value : Verity.Core.Uint256) :
+    Verity.Core.Uint256.ofNat value.val = value := by
+  apply Verity.Core.Uint256.ext
+  exact Nat.mod_eq_of_lt value.isLt
+
+private theorem uint256_signextend_idempotent
+    (byteIdx value : Verity.Core.Uint256) :
+    Verity.Core.Uint256.signextend byteIdx
+        (Verity.Core.Uint256.signextend byteIdx value) =
+      Verity.Core.Uint256.signextend byteIdx value := by
+  unfold Verity.Core.Uint256.signextend
+  by_cases hlarge : byteIdx.val ≥ 31
+  · simp [hlarge]
+  · by_cases hsign : value.val &&& 2 ^ (byteIdx.val * 8 + 7) = 0
+    · have hbit : value.val.testBit (byteIdx.val * 8 + 7) = false := by
+        rw [Nat.and_two_pow] at hsign
+        cases h : value.val.testBit (byteIdx.val * 8 + 7) <;> simp_all
+      have hmaskedLt : value.val % 2 ^ (byteIdx.val * 8 + 7 + 1) <
+          Verity.Core.Uint256.modulus := by
+        have hpow : 2 ^ (byteIdx.val * 8 + 7 + 1) < 2 ^ 256 := by
+          apply Nat.pow_lt_pow_right (by omega)
+          omega
+        exact lt_trans (Nat.mod_lt _ (Nat.two_pow_pos _)) (by simpa [Verity.Core.Uint256.modulus,
+          Verity.Core.UINT256_MODULUS] using hpow)
+      have hmaskedSign :
+          value.val % 2 ^ (byteIdx.val * 8 + 7 + 1) &&&
+              2 ^ (byteIdx.val * 8 + 7) = 0 := by
+        rw [Nat.and_two_pow]
+        simp [Nat.testBit_mod_two_pow, hbit]
+      simp [hlarge, hsign, Nat.and_two_pow_sub_one_eq_mod,
+        Nat.mod_eq_of_lt hmaskedLt, hmaskedSign]
+    · have hbit : value.val.testBit (byteIdx.val * 8 + 7) = true := by
+        rw [Nat.and_two_pow] at hsign
+        cases h : value.val.testBit (byteIdx.val * 8 + 7) <;> simp_all
+      let highMask := Verity.Core.Uint256.modulus - 1 -
+        (2 ^ (byteIdx.val * 8 + 7 + 1) - 1)
+      have hhighLt : highMask < 2 ^ 256 := by
+        dsimp [highMask, Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS]
+        omega
+      have horLt : value.val ||| highMask < Verity.Core.Uint256.modulus := by
+        simpa [Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS] using
+          Nat.or_lt_two_pow value.isLt hhighLt
+      have horSign : (value.val ||| highMask) &&&
+          2 ^ (byteIdx.val * 8 + 7) ≠ 0 := by
+        rw [Nat.and_two_pow]
+        simp [Nat.testBit_or, hbit]
+      simp [hlarge, hsign, highMask, Nat.mod_eq_of_lt horLt, horSign,
+        Nat.or_self_right]
+
 @[simp] theorem abiScalarNormalize_uint8_idem (v : Nat) :
     abiScalarNormalize ParamType.uint8 (abiScalarNormalize ParamType.uint8 v) =
       abiScalarNormalize ParamType.uint8 v := by
@@ -316,6 +399,40 @@ private theorem land_idempotent_right (v mask : Nat) :
   rw [Nat.mod_eq_of_lt (abiScalarNormalize_uint16_lt_evm v)]
   rw [abiScalarNormalize_uint16]
   exact land_idempotent_right (v % Compiler.Constants.evmModulus) 65535
+
+private theorem abiScalarNormalize_uintN_idem (bits v : Nat) :
+    abiScalarNormalize (.uintN bits) (abiScalarNormalize (.uintN bits) v) =
+      abiScalarNormalize (.uintN bits) v := by
+  have hlt : (v % Compiler.Constants.evmModulus &&& (2 ^ bits - 1)) <
+      Compiler.Constants.evmModulus :=
+    lt_of_le_of_lt Nat.and_le_left
+      (Nat.mod_lt _ (by norm_num [Compiler.Constants.evmModulus]))
+  simp only [abiScalarNormalize]
+  rw [Nat.mod_eq_of_lt hlt]
+  exact land_idempotent_right (v % Compiler.Constants.evmModulus) (2 ^ bits - 1)
+
+private theorem abiScalarNormalize_intN_idem (bits v : Nat) :
+    abiScalarNormalize (.intN bits) (abiScalarNormalize (.intN bits) v) =
+      abiScalarNormalize (.intN bits) v := by
+  simp only [abiScalarNormalize]
+  rw [uint256_ofNat_val]
+  exact congrArg Verity.Core.Uint256.val
+    (uint256_signextend_idempotent
+      (Verity.Core.Uint256.ofNat (bits / 8 - 1))
+      (Verity.Core.Uint256.ofNat v))
+
+private theorem abiScalarNormalize_bytesN_idem (bytes v : Nat) :
+    abiScalarNormalize (.bytesN bytes) (abiScalarNormalize (.bytesN bytes) v) =
+      abiScalarNormalize (.bytesN bytes) v := by
+  have hlt : (v % Compiler.Constants.evmModulus &&&
+      ((2 ^ (8 * bytes) - 1) * 2 ^ (8 * (32 - bytes)))) <
+      Compiler.Constants.evmModulus :=
+    lt_of_le_of_lt Nat.and_le_left
+      (Nat.mod_lt _ (by norm_num [Compiler.Constants.evmModulus]))
+  simp only [abiScalarNormalize]
+  rw [Nat.mod_eq_of_lt hlt]
+  exact land_idempotent_right (v % Compiler.Constants.evmModulus)
+    ((2 ^ (8 * bytes) - 1) * 2 ^ (8 * (32 - bytes)))
 
 @[simp] theorem abiScalarNormalize_address_idem (v : Nat) :
     abiScalarNormalize ParamType.address (abiScalarNormalize ParamType.address v) =
@@ -339,6 +456,9 @@ theorem abiScalarNormalize_idempotent (ty : ParamType) (v : Nat) :
   | int256 => rfl
   | uint8 => exact abiScalarNormalize_uint8_idem v
   | uint16 => exact abiScalarNormalize_uint16_idem v
+  | uintN bits => exact abiScalarNormalize_uintN_idem bits v
+  | intN bits => exact abiScalarNormalize_intN_idem bits v
+  | bytesN bytes => exact abiScalarNormalize_bytesN_idem bytes v
   | address => exact abiScalarNormalize_address_idem v
   | bool => exact abiScalarNormalize_bool_idem v
   | bytes32 => rfl
@@ -352,7 +472,9 @@ theorem abiScalarNormalize_idempotent (ty : ParamType) (v : Nat) :
       exact abiScalarNormalize_idempotent baseType v
 
 def IsStaticScalarParamType : ParamType → Prop
-  | .uint256 | .int256 | .uint8 | .uint16 | .address | .bool | .bytes32 => True
+  | .uint256 | .int256 | .uint8 | .uint16
+  | .uintN _ | .intN _ | .bytesN _
+  | .address | .bool | .bytes32 => True
   | .newtypeOf _ baseType => IsStaticScalarParamType baseType
   | _ => False
 
@@ -364,6 +486,9 @@ theorem eventHeadWordSize_static_scalar_eq_32
   | int256 => simp [eventHeadWordSize, paramHeadSize]
   | uint8 => simp [eventHeadWordSize, paramHeadSize]
   | uint16 => simp [eventHeadWordSize, paramHeadSize]
+  | uintN _ => simp [eventHeadWordSize, paramHeadSize]
+  | intN _ => simp [eventHeadWordSize, paramHeadSize]
+  | bytesN _ => simp [eventHeadWordSize, paramHeadSize]
   | address => simp [eventHeadWordSize, paramHeadSize]
   | bool => simp [eventHeadWordSize, paramHeadSize]
   | bytes32 => simp [eventHeadWordSize, paramHeadSize]

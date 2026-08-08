@@ -671,6 +671,15 @@ def _parse_tuple_elements(inner: str) -> list[str]:
 
 def _sol_type(lean_ty: str) -> str:
     ty = _normalize_type(lean_ty)
+    narrow_uint = re.fullmatch(r"Uint(\d+)", ty)
+    if narrow_uint and int(narrow_uint.group(1)) != 8 and 8 <= int(narrow_uint.group(1)) <= 248 and int(narrow_uint.group(1)) % 8 == 0:
+        return f"uint{narrow_uint.group(1)}"
+    narrow_int = re.fullmatch(r"Int(\d+)", ty)
+    if narrow_int and 8 <= int(narrow_int.group(1)) <= 248 and int(narrow_int.group(1)) % 8 == 0:
+        return f"int{narrow_int.group(1)}"
+    fixed_bytes = re.fullmatch(r"Bytes(\d+)", ty)
+    if fixed_bytes and 1 <= int(fixed_bytes.group(1)) <= 31:
+        return f"bytes{fixed_bytes.group(1)}"
     if ty == "Uint256":
         return "uint256"
     if ty == "Int256":
@@ -710,6 +719,15 @@ def _sol_tuple_value_type(lean_ty: str) -> str:
 
 def _example_value(lean_ty: str) -> str:
     ty = _normalize_type(lean_ty)
+    narrow_uint = re.fullmatch(r"Uint(\d+)", ty)
+    if narrow_uint and int(narrow_uint.group(1)) != 8 and 8 <= int(narrow_uint.group(1)) <= 248:
+        return f"uint{narrow_uint.group(1)}(1)"
+    narrow_int = re.fullmatch(r"Int(\d+)", ty)
+    if narrow_int and 8 <= int(narrow_int.group(1)) <= 248:
+        return f"int{narrow_int.group(1)}(1)"
+    fixed_bytes = re.fullmatch(r"Bytes(\d+)", ty)
+    if fixed_bytes and 1 <= int(fixed_bytes.group(1)) <= 31:
+        return f"bytes{fixed_bytes.group(1)}(uint{int(fixed_bytes.group(1)) * 8}(0x01))"
     if ty == "Uint256":
         return "uint256(1)"
     if ty == "Int256":
@@ -1188,7 +1206,8 @@ def _resolve_value_expr(
 
 def _return_shape_assertion(lean_ty: str, fn_name: str) -> str:
     ty = _normalize_type(lean_ty)
-    if ty in {"Uint256", "Int256", "Uint8", "Address", "Bool", "Bytes32"}:
+    if (ty in {"Uint256", "Int256", "Uint8", "Address", "Bool", "Bytes32"}
+            or re.fullmatch(r"(?:Uint|Int|Bytes)\d+", ty)):
         return (
             f'        assertEq(ret.length, 32, "{fn_name} ABI return length mismatch (expected 32 bytes)");'
         )
@@ -2950,6 +2969,60 @@ def render_contract_test(contract: ContractDecl) -> str:
         arr[0] = x;
     }
 """
+
+    if contract.name == "NarrowTypes":
+        tests.append(r'''    // Narrow scalar boundary and dirty-word regressions execute deployed generated Yul.
+    function testBoundary_NarrowTypes() public {
+        (bool okNeg, bytes memory negRet) = target.call(
+            abi.encodeWithSignature("echoInt64(int64)", type(int64).min));
+        require(okNeg, "negative int64 reverted");
+        assertEq(abi.decode(negRet, (int64)), type(int64).min);
+
+        (bool okAdd, bytes memory addRet) = target.call(
+            abi.encodeWithSignature("wrappingAddUint128(uint128,uint128)", type(uint128).max, uint128(1)));
+        require(okAdd, "wrapping add reverted");
+        assertEq(abi.decode(addRet, (uint128)), uint128(0));
+
+        (bool okSub, bytes memory subRet) = target.call(
+            abi.encodeWithSignature("wrappingSubUint128(uint128,uint128)", uint128(0), uint128(1)));
+        require(okSub, "wrapping sub reverted");
+        assertEq(abi.decode(subRet, (uint128)), type(uint128).max);
+
+        (bool okMul, bytes memory mulRet) = target.call(
+            abi.encodeWithSignature("wrappingMulUint128(uint128,uint128)", type(uint128).max, uint128(2)));
+        require(okMul, "wrapping mul reverted");
+        assertEq(abi.decode(mulRet, (uint128)), type(uint128).max - 1);
+    }
+
+    function testMalformed_NarrowCalldataCanonicalized() public {
+        bytes4 uintSelector = bytes4(keccak256("echoUint128(uint128)"));
+        (bool okUint, bytes memory uintRet) = target.call(
+            abi.encodePacked(uintSelector, bytes32(type(uint256).max)));
+        require(okUint, "dirty uint128 calldata reverted");
+        assertEq(abi.decode(uintRet, (uint128)), type(uint128).max);
+
+        bytes4 bytesSelector = bytes4(keccak256("echoBytes4(bytes4)"));
+        bytes32 dirtyBytes4 = bytes32((uint256(0xdeadbeef) << 224) | 0x1234);
+        (bool okBytes, bytes memory bytesRet) = target.call(
+            abi.encodePacked(bytesSelector, dirtyBytes4));
+        require(okBytes, "dirty bytes4 calldata reverted");
+        assertEq(abi.decode(bytesRet, (bytes4)), bytes4(0xdeadbeef));
+    }
+
+    function testRegression_FixedBytesLiteralEquality() public {
+        (bool okEq, bytes memory eqRet) = target.call(
+            abi.encodeWithSignature("isBytes4Literal(bytes4)", bytes4(0xdeadbeef)));
+        require(okEq, "bytes4 equality reverted");
+        assertTrue(abi.decode(eqRet, (bool)), "bytes4 literal equality must use ABI alignment");
+
+        (bool okNe, bytes memory neRet) = target.call(
+            abi.encodeWithSignature(
+                "isNotBytes20Literal(bytes20)",
+                bytes20(0x1234567890abcdef1234567890abcdef12345678)));
+        require(okNe, "bytes20 inequality reverted");
+        assertFalse(abi.decode(neRet, (bool)), "bytes20 literal inequality must use ABI alignment");
+    }
+''')
 
     return f"""// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.33;

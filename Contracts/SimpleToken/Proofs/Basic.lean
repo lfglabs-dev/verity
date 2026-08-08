@@ -284,7 +284,7 @@ private theorem transfer_unfold_other (s : ContractState) (toAddr : Address) (am
   (h_no_overflow : (s.storageMap 1 toAddr : Nat) + (amount : Nat) ≤ MAX_UINT256) :
   (transfer toAddr amount).run s = ContractResult.success ()
     { «storage» := s.storage,
-        contractStorage := s.contractStorage,
+      contractStorage := s.contractStorage,
         transientStorage := s.transientStorage,
         storageAddr := s.storageAddr,
         storageMap := fun slotIdx addr =>

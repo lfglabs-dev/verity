@@ -82,7 +82,8 @@ def eventDynamicArraySource?
 
 def eventParamScalarCompileSupported (ty : ParamType) : Bool :=
   match ty with
-  | .uint256 | .int256 | .uint8 | .uint16 | .address | .bool | .bytes32 => true
+  | .uint256 | .int256 | .uint8 | .uint16 | .uintN _ | .intN _ | .bytesN _
+  | .address | .bool | .bytes32 => true
   | .string | .tuple _ | .array _ | .fixedArray _ _ | .bytes => false
   | .adt _ _ => false
   | .newtypeOf _ baseType => eventParamScalarCompileSupported baseType

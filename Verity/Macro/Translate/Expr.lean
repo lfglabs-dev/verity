@@ -30,6 +30,9 @@ partial def modelParamTypeTerm (ty : ValueType) : CommandElabM Term :=
   | .int256 => `(Compiler.CompilationModel.ParamType.int256)
   | .uint8 => `(Compiler.CompilationModel.ParamType.uint8)
   | .uint16 => `(Compiler.CompilationModel.ParamType.uint16)
+  | .uintN bits => `(Compiler.CompilationModel.ParamType.uintN $(natTerm bits))
+  | .intN bits => `(Compiler.CompilationModel.ParamType.intN $(natTerm bits))
+  | .bytesN bytes => `(Compiler.CompilationModel.ParamType.bytesN $(natTerm bytes))
   | .address => `(Compiler.CompilationModel.ParamType.address)
   | .bytes32 => `(Compiler.CompilationModel.ParamType.bytes32)
   | .bool => `(Compiler.CompilationModel.ParamType.bool)
@@ -59,6 +62,7 @@ def modelReturnTypeTerm (ty : ValueType) : CommandElabM Term :=
   | .int256 => `(none)
   | .uint8 => `(none)
   | .uint16 => `(none)
+  | .uintN _ | .intN _ | .bytesN _ => `(none)
   | .address => `(some Compiler.CompilationModel.FieldType.address)
   | .bytes32 => `(none)
   | .bool => `(none)
@@ -78,6 +82,9 @@ partial def modelReturnsTerm (ty : ValueType) : CommandElabM Term :=
   | .int256 => `([Compiler.CompilationModel.ParamType.int256])
   | .uint8 => `([Compiler.CompilationModel.ParamType.uint8])
   | .uint16 => `([Compiler.CompilationModel.ParamType.uint16])
+  | .uintN bits => `([Compiler.CompilationModel.ParamType.uintN $(natTerm bits)])
+  | .intN bits => `([Compiler.CompilationModel.ParamType.intN $(natTerm bits)])
+  | .bytesN bytes => `([Compiler.CompilationModel.ParamType.bytesN $(natTerm bytes)])
   | .address => `([Compiler.CompilationModel.ParamType.address])
   | .bytes32 => `([Compiler.CompilationModel.ParamType.bytes32])
   | .bool => `([Compiler.CompilationModel.ParamType.bool])
@@ -104,6 +111,9 @@ partial def valueTypeFromModelParamType? : Compiler.CompilationModel.ParamType �
   | .int256 => some .int256
   | .uint8 => some .uint8
   | .uint16 => some .uint16
+  | .uintN bits => some (.uintN bits)
+  | .intN bits => some (.intN bits)
+  | .bytesN bytes => some (.bytesN bytes)
   | .address => some .address
   | .bool => some .bool
   | .bytes32 => some .bytes32
@@ -164,6 +174,9 @@ partial def contractValueTypeTerm (ty : ValueType) : CommandElabM Term :=
   | .int256 => `(Int256)
   | .uint8 => `(Uint256)
   | .uint16 => `(Uint16)
+  | .uintN bits => `(UIntN $(natTerm bits))
+  | .intN bits => `(IntN $(natTerm bits))
+  | .bytesN bytes => `(BytesN $(natTerm bytes))
   | .address => `(Address)
   | .bytes32 => `(Bytes32)
   | .bool => `(Bool)
@@ -179,6 +192,28 @@ partial def contractValueTypeTerm (ty : ValueType) : CommandElabM Term :=
   | .struct name _ => pure (mkIdent (Name.mkSimple name))
   | .adt _ _ => `(Uint256)  -- ADTs represented as tag value at contract level
 end
+
+def normalizeTranslatedExprForType
+    (expectedTy : ValueType) (source : Term) (expr : Term) : CommandElabM Term := do
+  match expectedTy with
+  | .uintN bits =>
+      `(Compiler.CompilationModel.Expr.bitAnd $expr
+          (Compiler.CompilationModel.Expr.literal $(natTerm (2 ^ bits - 1))))
+  | .intN bits =>
+      `(Compiler.CompilationModel.Expr.signextend
+          (Compiler.CompilationModel.Expr.literal $(natTerm (bits / 8 - 1))) $expr)
+  | .bytesN bytes =>
+      match stripParens source with
+      | `(term| $n:num) =>
+          let literal ← natFromSyntax n
+          let normalized := (literal % 2 ^ (8 * bytes)) * 2 ^ (8 * (32 - bytes))
+          `(Compiler.CompilationModel.Expr.literal $(natTerm normalized))
+      | _ =>
+          let mask := (2 ^ (8 * bytes) - 1) * 2 ^ (8 * (32 - bytes))
+          `(Compiler.CompilationModel.Expr.bitAnd $expr
+              (Compiler.CompilationModel.Expr.literal $(natTerm mask)))
+  | .newtype _ baseType => normalizeTranslatedExprForType baseType source expr
+  | _ => pure expr
 
 def immutableHiddenName (imm : ImmutableDecl) : String :=
   s!"__immutable_{imm.name}"
@@ -204,7 +239,8 @@ def immutableStorageFieldDecl
     ident := immutableSlotIdent imm
     name := immutableHiddenName imm
     ty := match imm.ty with
-      | .uint256 | .int256 | .uint8 | .uint16 | .bytes32 | .bool => .scalar .uint256
+      | .uint256 | .int256 | .uint8 | .uint16 | .uintN _ | .intN _ | .bytesN _
+      | .bytes32 | .bool => .scalar .uint256
       | .address => .scalar .address
       | _ => .scalar imm.ty
     slotNum := immutableSlotIndex fields idx
@@ -214,7 +250,8 @@ def immutableStorageFieldDecl
 
 def validateImmutableType (imm : ImmutableDecl) : CommandElabM Unit :=
   match imm.ty with
-  | .uint256 | .int256 | .uint8 | .uint16 | .address | .bytes32 | .bool => pure ()
+  | .uint256 | .int256 | .uint8 | .uint16 | .uintN _ | .intN _ | .bytesN _
+  | .address | .bytes32 | .bool => pure ()
   | _ =>
       throwErrorAt imm.ident
         s!"contract immutables currently support only Uint256, Int256, Uint8, Address, Bytes32, and Bool; '{imm.name}' uses unsupported type"
@@ -479,8 +516,14 @@ def mkImmutableBoundBody
         match imm.ty with
         | .uint256 | .uint8 | .bytes32 =>
             pure #[← `(doElem| let $(imm.ident) ← getStorage $(slotField.ident))]
+        | .uintN bits =>
+            pure #[← `(doElem| let $(imm.ident) := narrowUInt $(natTerm bits) (← getStorage $(slotField.ident)))]
         | .int256 =>
             pure #[← `(doElem| let $(imm.ident) := toInt256 (← getStorage $(slotField.ident)))]
+        | .intN bits =>
+            pure #[← `(doElem| let $(imm.ident) := narrowInt $(natTerm bits) (← getStorage $(slotField.ident)))]
+        | .bytesN bytes =>
+            pure #[← `(doElem| let $(imm.ident) := narrowBytes $(natTerm bytes) (← getStorage $(slotField.ident)))]
         | .bool =>
             let rawName := mkIdent (Name.mkSimple s!"__verity_immutable_raw_{imm.name}")
             pure #[
@@ -640,12 +683,13 @@ def findContextAccessorShadowName?
   | none => locals.find? (fun localName => matchesBareName localName name)
 
 def isSignedWordValueType : ValueType → Bool
-  | .int256 => true
+  | .int256 | .intN _ => true
   | .newtype _ baseType => isSignedWordValueType baseType
   | _ => false
 
 def isWordLikeValueType : ValueType → Bool
-  | .uint256 | .int256 | .uint8 | .uint16 | .address | .bytes32 => true
+  | .uint256 | .int256 | .uint8 | .uint16 | .uintN _ | .intN _ | .bytesN _
+  | .address | .bytes32 => true
   | .newtype _ baseType => isWordLikeValueType baseType
   | _ => false
 
@@ -661,7 +705,8 @@ def externalCallDynamicArgSupported (ty : ValueType) : Bool :=
   | _ => false
 
 partial def staticAbiWordCount? : ValueType → Option Nat
-  | .uint256 | .int256 | .uint8 | .uint16 | .address | .bytes32 | .bool => some 1
+  | .uint256 | .int256 | .uint8 | .uint16 | .uintN _ | .intN _ | .bytesN _
+  | .address | .bytes32 | .bool => some 1
   | .fixedArray elemTy size => do
       let elemWords ← staticAbiWordCount? elemTy
       some (size * elemWords)
@@ -683,7 +728,8 @@ partial def staticAbiWordCount? : ValueType → Option Nat
   | _ => none
 
 partial def staticAbiLeafNames? : ValueType → Option (List String)
-  | .uint256 | .int256 | .uint8 | .uint16 | .address | .bytes32 | .bool => some [""]
+  | .uint256 | .int256 | .uint8 | .uint16 | .uintN _ | .intN _ | .bytesN _
+  | .address | .bytes32 | .bool => some [""]
   | .fixedArray elemTy size => do
       let elemNames ← staticAbiLeafNames? elemTy
       let mut out : List String := []
@@ -727,7 +773,8 @@ def flattenExternalResultNames
       throwError s!"external result '{baseName}' has a dynamic type; bind dynamic external returns explicitly"
 
 partial def abiLocalHeadWordCount? : ValueType → Option Nat
-  | .uint256 | .int256 | .uint8 | .uint16 | .address | .bytes32 | .bool
+  | .uint256 | .int256 | .uint8 | .uint16 | .uintN _ | .intN _ | .bytesN _
+  | .address | .bytes32 | .bool
   | .string | .bytes | .array _ => some 1
   | .fixedArray elemTy size => do
       match staticAbiWordCount? elemTy with
@@ -757,7 +804,8 @@ partial def valueTypeUsesDynamicData : ValueType → Bool
   | .struct _ fields => fields.any (fun field => valueTypeUsesDynamicData field.snd)
   | .newtype _ baseType => valueTypeUsesDynamicData baseType
   | .adt _ _ => false  -- ADTs are stored as tag + fixed-width slots, not dynamic
-  | .uint256 | .int256 | .uint8 | .uint16 | .address | .bytes32 | .bool | .unit => false
+  | .uint256 | .int256 | .uint8 | .uint16 | .uintN _ | .intN _ | .bytesN _
+  | .address | .bytes32 | .bool | .unit => false
 
 partial def abiParentHeadWordCount? (ty : ValueType) : Option Nat :=
   match ty with
@@ -773,7 +821,8 @@ partial def abiParentHeadWordCount? (ty : ValueType) : Option Nat :=
       else
         abiLocalHeadWordCount? ty
   | .newtype _ baseType => abiParentHeadWordCount? baseType
-  | .uint256 | .int256 | .uint8 | .uint16 | .address | .bytes32 | .bool => some 1
+  | .uint256 | .int256 | .uint8 | .uint16 | .uintN _ | .intN _ | .bytesN _
+  | .address | .bytes32 | .bool => some 1
   | .adt _ _ | .unit => none
 
 def classifyWordArithmeticResultType
@@ -784,6 +833,10 @@ def classifyWordArithmeticResultType
     throwErrorAt stx s!"{context} requires a word-like value (Uint256, Int256, Uint8, Address, or Bytes32), got {reprStr lhsTy}"
   unless isWordLikeValueType rhsTy do
     throwErrorAt stx s!"{context} requires a word-like value (Uint256, Int256, Uint8, Address, or Bytes32), got {reprStr rhsTy}"
+  if lhsTy == rhsTy then
+    match lhsTy with
+    | .uintN _ | .intN _ => return lhsTy
+    | _ => pure ()
   if isSignedWordValueType lhsTy || isSignedWordValueType rhsTy then
     if lhsTy == .int256 && rhsTy == .int256 then
       pure .int256
@@ -809,7 +862,7 @@ def isNatLiteralTerm (stx : Term) : Bool :=
   | _ => false
 
 def numericLiteralCompatibleValueType : ValueType → Bool
-  | .uint256 | .int256 | .uint8 | .uint16 => true
+  | .uint256 | .int256 | .uint8 | .uint16 | .uintN _ | .intN _ | .bytesN _ => true
   | .newtype _ baseType => numericLiteralCompatibleValueType baseType
   | _ => false
 
@@ -838,6 +891,23 @@ def preferSignedNumericLiteralPeer
   let rhsTy :=
     if rhsTy == .uint256 && lhsTy == .int256 && isNatLiteralTerm rhs then .int256 else rhsTy
   (lhsTy, rhsTy)
+
+def preferNarrowNumericLiteralPeer
+    (lhs rhs : Term)
+    (lhsTy rhsTy : ValueType) : ValueType × ValueType :=
+  let lhsTy :=
+    if lhsTy == .uint256 && isNatLiteralTerm lhs then
+      match rhsTy with
+      | .uintN _ | .intN _ => rhsTy
+      | _ => lhsTy
+    else lhsTy
+  let rhsTy :=
+    if rhsTy == .uint256 && isNatLiteralTerm rhs then
+      match lhsTy with
+      | .uintN _ | .intN _ => lhsTy
+      | _ => rhsTy
+    else rhsTy
+  preferSignedNumericLiteralPeer lhs rhs lhsTy rhsTy
 
 def lookupTypedLocalType? (locals : Array TypedLocal) (name : String) : Option ValueType :=
   locals.findSome? fun localTy =>
@@ -1523,7 +1593,8 @@ unsafe def qualifiedSingleBindType
         s!"qualified helper '{qualifiedFunctionDisplayName fnName}' returns multiple values; use tuple destructuring"
 
 def customErrorRequiresDirectParamRef : ValueType → Bool
-  | .uint256 | .int256 | .uint8 | .uint16 | .address | .bool | .bytes32 => false
+  | .uint256 | .int256 | .uint8 | .uint16 | .uintN _ | .intN _ | .bytesN _
+  | .address | .bool | .bytes32 => false
   | .newtype _ baseType => customErrorRequiresDirectParamRef baseType
   | _ => true
 
@@ -1873,15 +1944,29 @@ partial def inferPureExprType
   | `(term| toUint256 $a:term) => do
       requireWordLikeType a "toUint256" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants)
       pure .uint256
+  | `(term| narrowUInt $bits:num $a:term) => do
+      let width ← natFromSyntax bits
+      requireWordLikeType a "narrowUInt" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants)
+      pure (.uintN width)
+  | `(term| narrowInt $bits:num $a:term) => do
+      let width ← natFromSyntax bits
+      requireWordLikeType a "narrowInt" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants)
+      pure (.intN width)
+  | `(term| narrowBytes $bytes:num $a:term) => do
+      let width ← natFromSyntax bytes
+      requireWordLikeType a "narrowBytes" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants)
+      pure (.bytesN width)
   | `(term| boolToWord $a:term) =>
       requireBoolType a "boolToWord" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants)
       pure .uint256
   | `(term| $n:num) =>
       pure .uint256
-  | `(term| add $a $b) | `(term| sub $a $b) | `(term| mul $a $b) => do
+  | `(term| add $a $b) | `(term| $a + $b)
+    | `(term| sub $a $b) | `(term| $a - $b)
+    | `(term| mul $a $b) | `(term| $a * $b) => do
       let lhsTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants
       let rhsTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals b visitingConstants
-      let (lhsTy, rhsTy) := preferSignedNumericLiteralPeer a b lhsTy rhsTy
+      let (lhsTy, rhsTy) := preferNarrowNumericLiteralPeer a b lhsTy rhsTy
       classifyWordArithmeticResultType stx "word arithmetic" lhsTy rhsTy
   | `(term| bitAnd $a $b)
     | `(term| bitOr $a $b) | `(term| bitXor $a $b) | `(term| and $a $b)
@@ -1898,7 +1983,7 @@ partial def inferPureExprType
   | `(term| div $a $b) | `(term| $a / $b) | `(term| mod $a $b) | `(term| $a % $b) => do
       let lhsTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants
       let rhsTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals b visitingConstants
-      let (lhsTy, rhsTy) := preferSignedNumericLiteralPeer a b lhsTy rhsTy
+      let (lhsTy, rhsTy) := preferNarrowNumericLiteralPeer a b lhsTy rhsTy
       classifyWordArithmeticResultType stx "division/modulo" lhsTy rhsTy
   | `(term| sdiv $a $b) | `(term| smod $a $b) => do
       let lhsTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants
@@ -1931,7 +2016,7 @@ partial def inferPureExprType
   | `(term| $a >= $b) | `(term| $a > $b) | `(term| $a < $b) | `(term| $a <= $b) => do
       let lhsTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants
       let rhsTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals b visitingConstants
-      let (lhsTy, rhsTy) := preferSignedNumericLiteralPeer a b lhsTy rhsTy
+      let (lhsTy, rhsTy) := preferNarrowNumericLiteralPeer a b lhsTy rhsTy
       discard <| classifyWordArithmeticResultType stx "ordering comparison" lhsTy rhsTy
       pure .bool
   | `(term| $a && $b) | `(term| $a || $b) => do
@@ -2364,6 +2449,17 @@ partial def inferBindSourceType
           requireWordLikeType b "safe uint helper" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals b)
           pure .uint256
       | _ => throwErrorAt rhs "unsupported requireSomeUint source; expected safeAdd, safeSub, safeMul, or safeDiv"
+  | `(term| narrowAddPanic $a:term $b:term)
+  | `(term| narrowSubPanic $a:term $b:term)
+  | `(term| narrowMulPanic $a:term $b:term) => do
+      let lhsTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals a
+      let rhsTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals b
+      match lhsTy, rhsTy with
+      | .uintN lhsBits, .uintN rhsBits =>
+          if lhsBits == rhsBits then pure (.uintN lhsBits)
+          else throwErrorAt rhs "narrow panic arithmetic requires operands of the same width"
+      | _, _ =>
+          throwErrorAt rhs "narrow panic arithmetic requires UIntN operands"
   -- Typed-error counterpart to `requireSomeUint`. `requireSomeUintError
   -- (safeXxx a b) ErrName(args)` validates the same `safeXxx` source shape
   -- and result type; argument-type validation against the contract's
@@ -2935,10 +3031,11 @@ partial def translatePureExprWithTypes
   -- Direct dynamic-tuple parameter leaf projection (verity#1832): read a
   -- single-word static field at a fixed head offset from a dynamically
   -- encoded struct parameter.
-  if let some (paramName, _fieldTy, wordOffset) := paramDynamicHeadProjection? params stx then
-    `(Compiler.CompilationModel.Expr.paramDynamicHeadWord
+  if let some (paramName, fieldTy, wordOffset) := paramDynamicHeadProjection? params stx then
+    let raw ← `(Compiler.CompilationModel.Expr.paramDynamicHeadWord
       $(strTerm paramName)
       $(natTerm wordOffset))
+    normalizeTranslatedExprForType fieldTy stx raw
   else
   if (paramDynamicMemberProjection? params stx).isSome then
     throwErrorAt stx "dynamic struct parameter member cannot be used as a scalar expression; pass it to a helper/external expecting an Array or use arrayLength/arrayElement"
@@ -3054,15 +3151,52 @@ partial def translatePureExprWithTypes
   | `(term| addressToWord $a:term) => translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants
   | `(term| toInt256 $a:term) => translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants
   | `(term| toUint256 $a:term) => translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants
+  | `(term| narrowUInt $bits:num $a:term) => do
+      let width ← natFromSyntax bits
+      unless width >= 8 && width < 256 && width % 8 == 0 do
+        throwErrorAt bits "narrowUInt width must be a byte multiple from 8 through 248"
+      `(Compiler.CompilationModel.Expr.bitAnd
+        $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants)
+        (Compiler.CompilationModel.Expr.literal $(natTerm (2 ^ width - 1))))
+  | `(term| narrowInt $bits:num $a:term) => do
+      let width ← natFromSyntax bits
+      unless width >= 8 && width < 256 && width % 8 == 0 do
+        throwErrorAt bits "narrowInt width must be a byte multiple from 8 through 248"
+      `(Compiler.CompilationModel.Expr.signextend
+        (Compiler.CompilationModel.Expr.literal $(natTerm (width / 8 - 1)))
+        $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants))
+  | `(term| narrowBytes $bytes:num $a:term) => do
+      let width ← natFromSyntax bytes
+      unless width >= 1 && width < 32 do
+        throwErrorAt bytes "narrowBytes width must be from 1 through 31"
+      let mask := (2 ^ (8 * width) - 1) * 2 ^ (8 * (32 - width))
+      `(Compiler.CompilationModel.Expr.bitAnd
+        $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants)
+        (Compiler.CompilationModel.Expr.literal $(natTerm mask)))
   | `(term| boolToWord $a:term) =>
       `(Compiler.CompilationModel.Expr.ite
           $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants)
           (Compiler.CompilationModel.Expr.literal 1)
           (Compiler.CompilationModel.Expr.literal 0))
   | `(term| $n:num) => `(Compiler.CompilationModel.Expr.literal $n)
-  | `(term| add $a $b) => `(Compiler.CompilationModel.Expr.add $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
-  | `(term| sub $a $b) => `(Compiler.CompilationModel.Expr.sub $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
-  | `(term| mul $a $b) => `(Compiler.CompilationModel.Expr.mul $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
+  | `(term| add $a $b) | `(term| $a + $b)
+    | `(term| sub $a $b) | `(term| $a - $b)
+    | `(term| mul $a $b) | `(term| $a * $b) => do
+      let resultTy ← inferPureExprType fields constDecls immutableDecls #[] params locals stx visitingConstants
+      let lhs ← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants
+      let rhs ← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants
+      let raw ← match stx with
+        | `(term| add $_ $_) | `(term| $_ + $_) => `(Compiler.CompilationModel.Expr.add $lhs $rhs)
+        | `(term| sub $_ $_) | `(term| $_ - $_) => `(Compiler.CompilationModel.Expr.sub $lhs $rhs)
+        | _ => `(Compiler.CompilationModel.Expr.mul $lhs $rhs)
+      match resultTy with
+      | .uintN bits =>
+          `(Compiler.CompilationModel.Expr.bitAnd $raw
+              (Compiler.CompilationModel.Expr.literal $(natTerm (2 ^ bits - 1))))
+      | .intN bits =>
+          `(Compiler.CompilationModel.Expr.signextend
+              (Compiler.CompilationModel.Expr.literal $(natTerm (bits / 8 - 1))) $raw)
+      | _ => pure raw
   | `(term| pow $a $b) | `(term| $a ^ $b) =>
       `(Compiler.CompilationModel.Expr.externalCall Compiler.CompilationModel.builtinExpName
           [$(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants),
@@ -3070,18 +3204,28 @@ partial def translatePureExprWithTypes
   | `(term| div $a $b) | `(term| $a / $b) => do
       let lhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals a visitingConstants
       let rhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals b visitingConstants
-      let (lhsTy, rhsTy) := preferSignedNumericLiteralPeer a b lhsTy rhsTy
-      if lhsTy == .int256 && rhsTy == .int256 then
-        `(Compiler.CompilationModel.Expr.sdiv $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
+      let (lhsTy, rhsTy) := preferNarrowNumericLiteralPeer a b lhsTy rhsTy
+      if lhsTy == rhsTy && isSignedWordValueType lhsTy then
+        let raw ← `(Compiler.CompilationModel.Expr.sdiv $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
+        match lhsTy with
+        | .intN bits =>
+            `(Compiler.CompilationModel.Expr.signextend
+                (Compiler.CompilationModel.Expr.literal $(natTerm (bits / 8 - 1))) $raw)
+        | _ => pure raw
       else
         `(Compiler.CompilationModel.Expr.div $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
   | `(term| sdiv $a $b) => `(Compiler.CompilationModel.Expr.sdiv $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
   | `(term| mod $a $b) | `(term| $a % $b) => do
       let lhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals a visitingConstants
       let rhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals b visitingConstants
-      let (lhsTy, rhsTy) := preferSignedNumericLiteralPeer a b lhsTy rhsTy
-      if lhsTy == .int256 && rhsTy == .int256 then
-        `(Compiler.CompilationModel.Expr.smod $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
+      let (lhsTy, rhsTy) := preferNarrowNumericLiteralPeer a b lhsTy rhsTy
+      if lhsTy == rhsTy && isSignedWordValueType lhsTy then
+        let raw ← `(Compiler.CompilationModel.Expr.smod $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
+        match lhsTy with
+        | .intN bits =>
+            `(Compiler.CompilationModel.Expr.signextend
+                (Compiler.CompilationModel.Expr.literal $(natTerm (bits / 8 - 1))) $raw)
+        | _ => pure raw
       else
         `(Compiler.CompilationModel.Expr.mod $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
   | `(term| smod $a $b) => `(Compiler.CompilationModel.Expr.smod $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
@@ -3101,9 +3245,24 @@ partial def translatePureExprWithTypes
         let (lhsName, rhsName) ← dynamicEqParamNames stx params a b lhsTy rhsTy
         `(Compiler.CompilationModel.Expr.dynamicBytesEq $(strTerm lhsName) $(strTerm rhsName))
       else
+        let lhs ← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants
+        let rhs ← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants
+        let lhs ← match rhsTy with
+          | .bytesN bytes =>
+              if isNatLiteralTerm a then
+                `(Compiler.CompilationModel.Expr.shl
+                    (Compiler.CompilationModel.Expr.literal $(natTerm (8 * (32 - bytes)))) $lhs)
+              else pure lhs
+          | _ => pure lhs
+        let rhs ← match lhsTy with
+          | .bytesN bytes =>
+              if isNatLiteralTerm b then
+                `(Compiler.CompilationModel.Expr.shl
+                    (Compiler.CompilationModel.Expr.literal $(natTerm (8 * (32 - bytes)))) $rhs)
+              else pure rhs
+          | _ => pure rhs
         `(Compiler.CompilationModel.Expr.eq
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
+          $lhs $rhs)
   | `(term| $a != $b) => do
       let lhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals a visitingConstants
       let rhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals b visitingConstants
@@ -3112,15 +3271,30 @@ partial def translatePureExprWithTypes
         `(Compiler.CompilationModel.Expr.logicalNot
             (Compiler.CompilationModel.Expr.dynamicBytesEq $(strTerm lhsName) $(strTerm rhsName)))
       else
+        let lhs ← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants
+        let rhs ← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants
+        let lhs ← match rhsTy with
+          | .bytesN bytes =>
+              if isNatLiteralTerm a then
+                `(Compiler.CompilationModel.Expr.shl
+                    (Compiler.CompilationModel.Expr.literal $(natTerm (8 * (32 - bytes)))) $lhs)
+              else pure lhs
+          | _ => pure lhs
+        let rhs ← match lhsTy with
+          | .bytesN bytes =>
+              if isNatLiteralTerm b then
+                `(Compiler.CompilationModel.Expr.shl
+                    (Compiler.CompilationModel.Expr.literal $(natTerm (8 * (32 - bytes)))) $rhs)
+              else pure rhs
+          | _ => pure rhs
         `(Compiler.CompilationModel.Expr.logicalNot
             (Compiler.CompilationModel.Expr.eq
-              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants)
-              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants)))
+              $lhs $rhs))
   | `(term| $a >= $b) => do
       let lhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals a visitingConstants
       let rhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals b visitingConstants
-      let (lhsTy, rhsTy) := preferSignedNumericLiteralPeer a b lhsTy rhsTy
-      if lhsTy == .int256 && rhsTy == .int256 then
+      let (lhsTy, rhsTy) := preferNarrowNumericLiteralPeer a b lhsTy rhsTy
+      if lhsTy == rhsTy && isSignedWordValueType lhsTy then
         `(Compiler.CompilationModel.Expr.logicalNot
             (Compiler.CompilationModel.Expr.slt
               $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants)
@@ -3130,8 +3304,8 @@ partial def translatePureExprWithTypes
   | `(term| $a > $b) => do
       let lhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals a visitingConstants
       let rhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals b visitingConstants
-      let (lhsTy, rhsTy) := preferSignedNumericLiteralPeer a b lhsTy rhsTy
-      if lhsTy == .int256 && rhsTy == .int256 then
+      let (lhsTy, rhsTy) := preferNarrowNumericLiteralPeer a b lhsTy rhsTy
+      if lhsTy == rhsTy && isSignedWordValueType lhsTy then
         `(Compiler.CompilationModel.Expr.sgt $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
       else
         `(Compiler.CompilationModel.Expr.gt $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
@@ -3139,8 +3313,8 @@ partial def translatePureExprWithTypes
   | `(term| $a < $b) => do
       let lhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals a visitingConstants
       let rhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals b visitingConstants
-      let (lhsTy, rhsTy) := preferSignedNumericLiteralPeer a b lhsTy rhsTy
-      if lhsTy == .int256 && rhsTy == .int256 then
+      let (lhsTy, rhsTy) := preferNarrowNumericLiteralPeer a b lhsTy rhsTy
+      if lhsTy == rhsTy && isSignedWordValueType lhsTy then
         `(Compiler.CompilationModel.Expr.slt $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
       else
         `(Compiler.CompilationModel.Expr.lt $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
@@ -3148,8 +3322,8 @@ partial def translatePureExprWithTypes
   | `(term| $a <= $b) => do
       let lhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals a visitingConstants
       let rhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals b visitingConstants
-      let (lhsTy, rhsTy) := preferSignedNumericLiteralPeer a b lhsTy rhsTy
-      if lhsTy == .int256 && rhsTy == .int256 then
+      let (lhsTy, rhsTy) := preferNarrowNumericLiteralPeer a b lhsTy rhsTy
+      if lhsTy == rhsTy && isSignedWordValueType lhsTy then
         `(Compiler.CompilationModel.Expr.logicalNot
             (Compiler.CompilationModel.Expr.sgt
               $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants)
@@ -3239,10 +3413,11 @@ partial def translatePureExprWithTypes
         `(Compiler.CompilationModel.Expr.memoryArrayLength $(strTerm name))
       else
         `(Compiler.CompilationModel.Expr.arrayLength $(strTerm (← expectStringOrIdent name)))
-  | `(term| arrayElement $name:term $index:term) =>
+  | `(term| arrayElement $name:term $index:term) => do
+      let raw ←
       -- verity#1849, G2: `arrayElement (arrayElement <param> <i>).<dynField> <k>`
       -- lowers through `Expr.arrayElementDynamicMemberElement`.
-      if let some (paramName, outerIndex, _fieldTy, _elemTy, wordOffset) :=
+        if let some (paramName, outerIndex, _fieldTy, _elemTy, wordOffset) :=
           arrayElementDynamicMemberProjection? params name then
         let outerIndexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals outerIndex visitingConstants
         let innerIndexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants
@@ -3251,7 +3426,7 @@ partial def translatePureExprWithTypes
             $outerIndexExpr
             $(natTerm wordOffset)
             $innerIndexExpr)
-      else if let some (paramName, outerIndex, _fieldTy, _elemTy, wordOffset) :=
+        else if let some (paramName, outerIndex, _fieldTy, _elemTy, wordOffset) :=
           localArrayElementDynamicMemberProjection? locals name then
         let outerIndexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals outerIndex visitingConstants
         let innerIndexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants
@@ -3260,21 +3435,34 @@ partial def translatePureExprWithTypes
             $outerIndexExpr
             $(natTerm wordOffset)
             $innerIndexExpr)
-      else if let some (paramName, _fieldTy, wordOffset) :=
+        else if let some (paramName, _fieldTy, wordOffset) :=
           paramDynamicMemberProjection? params name then
         let innerIndexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants
         `(Compiler.CompilationModel.Expr.paramDynamicMemberElement
             $(strTerm paramName)
             $(natTerm wordOffset)
             $innerIndexExpr)
-      else if let some (name, _) := localMemoryArray? locals name then
+        else if let some (name, _) := localMemoryArray? locals name then
         `(Compiler.CompilationModel.Expr.memoryArrayElement
             $(strTerm name)
             $(← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants))
-      else
-        `(Compiler.CompilationModel.Expr.arrayElement
-            $(strTerm (← expectStringOrIdent name))
-            $(← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants))
+        else
+          `(Compiler.CompilationModel.Expr.arrayElement
+              $(strTerm (← expectStringOrIdent name))
+              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants))
+      let elemTy ← inferPureExprType fields constDecls immutableDecls #[] params locals stx visitingConstants
+      match elemTy with
+      | .uintN bits =>
+          `(Compiler.CompilationModel.Expr.bitAnd $raw
+              (Compiler.CompilationModel.Expr.literal $(natTerm (2 ^ bits - 1))))
+      | .intN bits =>
+          `(Compiler.CompilationModel.Expr.signextend
+              (Compiler.CompilationModel.Expr.literal $(natTerm (bits / 8 - 1))) $raw)
+      | .bytesN bytes =>
+          let mask := (2 ^ (8 * bytes) - 1) * 2 ^ (8 * (32 - bytes))
+          `(Compiler.CompilationModel.Expr.bitAnd $raw
+              (Compiler.CompilationModel.Expr.literal $(natTerm mask)))
+      | _ => pure raw
   | `(term| ceilDiv $a $b) =>
       `(Compiler.CompilationModel.Expr.ceilDiv
           $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants)
@@ -3922,7 +4110,8 @@ def tupleReturnValueExprs?
 
 partial def staticInternalHelperBindingNames (name : String) (ty : ValueType) : List String :=
   match ty with
-  | .uint256 | .int256 | .uint8 | .uint16 | .address | .bool | .bytes32 => [name]
+  | .uint256 | .int256 | .uint8 | .uint16 | .uintN _ | .intN _ | .bytesN _
+  | .address | .bool | .bytes32 => [name]
   | .fixedArray elemTy size =>
       (List.range size).flatMap fun idx =>
         staticInternalHelperBindingNames s!"{name}_{idx}" elemTy
@@ -4705,6 +4894,16 @@ def translateSafeRequireBind
     (locals : Array TypedLocal)
     (varName : String)
     (rhs : Term) : CommandElabM (Option (Array Term)) := do
+  let narrowBitsOf (term : Term) : CommandElabM Nat := do
+    match stripParens term with
+    | `(term| $name:ident) =>
+        let raw := toString name.getId
+        let ty? := lookupTypedLocalType? locals raw <|>
+          params.findSome? (fun p => if p.name == raw then some p.ty else none)
+        match ty? with
+        | some (.uintN bits) => pure bits
+        | _ => throwErrorAt term "narrow arithmetic requires a UintN operand"
+    | _ => throwErrorAt term "narrow arithmetic currently requires direct UintN operands"
   let translateSafeUintGuardAndValue (optExpr : Term) (label : String) :
       CommandElabM (Term × Term) := do
     match stripParens optExpr with
@@ -4743,6 +4942,47 @@ def translateSafeRequireBind
         throwErrorAt rhs s!"unsupported {label} source; expected safeAdd, safeSub, safeMul, or safeDiv"
   let rhs := stripParens rhs
   match rhs with
+  | `(term| narrowAddPanic $a:term $b:term) =>
+      let bits ← narrowBitsOf a
+      let aExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals a
+      let bExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals b
+      let valueExpr : Term ← `(Compiler.CompilationModel.Expr.add $aExpr $bExpr)
+      let guardExpr : Term ← `(Compiler.CompilationModel.Expr.lt $valueExpr
+        (Compiler.CompilationModel.Expr.literal $(natTerm (2 ^ bits))))
+      pure (some #[
+        (← `(Compiler.CompilationModel.Stmt.require $guardExpr "Panic(0x11): narrow arithmetic overflow")),
+        (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $valueExpr))
+      ])
+  | `(term| narrowSubPanic $a:term $b:term) =>
+      let aExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals a
+      let bExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals b
+      let valueExpr : Term ← `(Compiler.CompilationModel.Expr.sub $aExpr $bExpr)
+      let guardExpr : Term ← `(Compiler.CompilationModel.Expr.ge $aExpr $bExpr)
+      pure (some #[
+        (← `(Compiler.CompilationModel.Stmt.require $guardExpr "Panic(0x11): narrow arithmetic underflow")),
+        (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $valueExpr))
+      ])
+  | `(term| narrowMulPanic $a:term $b:term) =>
+      let bits ← narrowBitsOf a
+      let aExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals a
+      let bExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals b
+      let valueExpr : Term ← `(Compiler.CompilationModel.Expr.mul $aExpr $bExpr)
+      -- Check the mathematical product before evaluating the wrapping EVM `mul`.
+      -- Looking only at `valueExpr < 2^bits` is unsound for widths above 128:
+      -- a valid pair of narrow operands can overflow 256 bits and wrap to a small
+      -- word (for example, `2^128 * 2^128` wraps to zero).
+      let zeroExpr : Term ← `(Compiler.CompilationModel.Expr.literal 0)
+      let divisorZeroExpr : Term ← `(Compiler.CompilationModel.Expr.eq $bExpr $zeroExpr)
+      let maxExpr : Term ←
+        `(Compiler.CompilationModel.Expr.literal $(natTerm (2 ^ bits - 1)))
+      let quotientExpr : Term ← `(Compiler.CompilationModel.Expr.div $maxExpr $bExpr)
+      let withinWidthExpr : Term ← `(Compiler.CompilationModel.Expr.le $aExpr $quotientExpr)
+      let guardExpr : Term ←
+        `(Compiler.CompilationModel.Expr.logicalOr $divisorZeroExpr $withinWidthExpr)
+      pure (some #[
+        (← `(Compiler.CompilationModel.Stmt.require $guardExpr "Panic(0x11): narrow arithmetic overflow")),
+        (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $valueExpr))
+      ])
   | `(term| requireSomeUint $optExpr:term $msg:term) =>
       let msgLit ← strTerm <$> expectStringLiteral msg
       let (guardExpr, valueExpr) ← translateSafeUintGuardAndValue optExpr "requireSomeUint"

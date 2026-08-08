@@ -10,7 +10,9 @@ import Compiler.CompilationModel.ScopeValidation
 namespace Compiler.CompilationModel
 
 def customErrorRequiresDirectParamRef : ParamType → Bool
-  | ParamType.uint256 | ParamType.int256 | ParamType.uint8 | ParamType.uint16 | ParamType.address | ParamType.bool | ParamType.bytes32 => false
+  | ParamType.uint256 | ParamType.int256 | ParamType.uint8 | ParamType.uint16
+  | ParamType.uintN _ | ParamType.intN _ | ParamType.bytesN _
+  | ParamType.address | ParamType.bool | ParamType.bytes32 => false
   | _ => true
 
 def validateDirectParamCustomErrorArg
@@ -91,6 +93,13 @@ def validateEventArgShapesNode (fnName : String) (params : List Param)
       if eventDef.params.length != args.length then
         throw s!"Compilation error: event '{eventName}' expects {eventDef.params.length} args, got {args.length}"
       for (eventParam, arg) in eventDef.params.zip args do
+        match eventParam.ty with
+        | .uintN _ | .intN _ | .bytesN _ =>
+            match arg with
+            | .param _ => pure ()
+            | _ =>
+                throw s!"Compilation error: function '{fnName}' event '{eventName}' narrow param '{eventParam.name}' currently requires a direct parameter reference so executable and generated event words agree."
+        | _ => pure ()
         match arg with
         | Expr.param name =>
             match findParamType params name with

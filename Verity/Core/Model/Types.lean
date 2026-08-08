@@ -193,6 +193,9 @@ inductive ParamType
   | int256
   | uint8
   | uint16
+  | uintN (bits : Nat)
+  | intN (bits : Nat)
+  | bytesN (bytes : Nat)
   | address
   | bool                                   -- Solidity bool (ABI-encoded as 32-byte 0/1)
   | bytes32                                -- Fixed 32-byte value

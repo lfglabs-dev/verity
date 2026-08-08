@@ -8,6 +8,101 @@ import Verity.Stdlib.Math
 
 namespace Contracts
 
+abbrev UIntN := Verity.UIntN
+abbrev IntN := Verity.IntN
+abbrev BytesN := Verity.BytesN
+abbrev Uint24 := Verity.UIntN 24
+abbrev Uint32 := Verity.UIntN 32
+abbrev Uint40 := Verity.UIntN 40
+abbrev Uint48 := Verity.UIntN 48
+abbrev Uint56 := Verity.UIntN 56
+abbrev Uint64 := Verity.UIntN 64
+abbrev Uint72 := Verity.UIntN 72
+abbrev Uint80 := Verity.UIntN 80
+abbrev Uint88 := Verity.UIntN 88
+abbrev Uint96 := Verity.UIntN 96
+abbrev Uint104 := Verity.UIntN 104
+abbrev Uint112 := Verity.UIntN 112
+abbrev Uint120 := Verity.UIntN 120
+abbrev Uint128 := Verity.UIntN 128
+abbrev Uint136 := Verity.UIntN 136
+abbrev Uint144 := Verity.UIntN 144
+abbrev Uint152 := Verity.UIntN 152
+abbrev Uint160 := Verity.UIntN 160
+abbrev Uint168 := Verity.UIntN 168
+abbrev Uint176 := Verity.UIntN 176
+abbrev Uint184 := Verity.UIntN 184
+abbrev Uint192 := Verity.UIntN 192
+abbrev Uint200 := Verity.UIntN 200
+abbrev Uint208 := Verity.UIntN 208
+abbrev Uint216 := Verity.UIntN 216
+abbrev Uint224 := Verity.UIntN 224
+abbrev Uint232 := Verity.UIntN 232
+abbrev Uint240 := Verity.UIntN 240
+abbrev Uint248 := Verity.UIntN 248
+abbrev Int8 := Verity.IntN 8
+abbrev Int16 := Verity.IntN 16
+abbrev Int24 := Verity.IntN 24
+abbrev Int32 := Verity.IntN 32
+abbrev Int40 := Verity.IntN 40
+abbrev Int48 := Verity.IntN 48
+abbrev Int56 := Verity.IntN 56
+abbrev Int64 := Verity.IntN 64
+abbrev Int72 := Verity.IntN 72
+abbrev Int80 := Verity.IntN 80
+abbrev Int88 := Verity.IntN 88
+abbrev Int96 := Verity.IntN 96
+abbrev Int104 := Verity.IntN 104
+abbrev Int112 := Verity.IntN 112
+abbrev Int120 := Verity.IntN 120
+abbrev Int128 := Verity.IntN 128
+abbrev Int136 := Verity.IntN 136
+abbrev Int144 := Verity.IntN 144
+abbrev Int152 := Verity.IntN 152
+abbrev Int160 := Verity.IntN 160
+abbrev Int168 := Verity.IntN 168
+abbrev Int176 := Verity.IntN 176
+abbrev Int184 := Verity.IntN 184
+abbrev Int192 := Verity.IntN 192
+abbrev Int200 := Verity.IntN 200
+abbrev Int208 := Verity.IntN 208
+abbrev Int216 := Verity.IntN 216
+abbrev Int224 := Verity.IntN 224
+abbrev Int232 := Verity.IntN 232
+abbrev Int240 := Verity.IntN 240
+abbrev Int248 := Verity.IntN 248
+abbrev Bytes1 := Verity.BytesN 1
+abbrev Bytes2 := Verity.BytesN 2
+abbrev Bytes3 := Verity.BytesN 3
+abbrev Bytes4 := Verity.BytesN 4
+abbrev Bytes5 := Verity.BytesN 5
+abbrev Bytes6 := Verity.BytesN 6
+abbrev Bytes7 := Verity.BytesN 7
+abbrev Bytes8 := Verity.BytesN 8
+abbrev Bytes9 := Verity.BytesN 9
+abbrev Bytes10 := Verity.BytesN 10
+abbrev Bytes11 := Verity.BytesN 11
+abbrev Bytes12 := Verity.BytesN 12
+abbrev Bytes13 := Verity.BytesN 13
+abbrev Bytes14 := Verity.BytesN 14
+abbrev Bytes15 := Verity.BytesN 15
+abbrev Bytes16 := Verity.BytesN 16
+abbrev Bytes17 := Verity.BytesN 17
+abbrev Bytes18 := Verity.BytesN 18
+abbrev Bytes19 := Verity.BytesN 19
+abbrev Bytes20 := Verity.BytesN 20
+abbrev Bytes21 := Verity.BytesN 21
+abbrev Bytes22 := Verity.BytesN 22
+abbrev Bytes23 := Verity.BytesN 23
+abbrev Bytes24 := Verity.BytesN 24
+abbrev Bytes25 := Verity.BytesN 25
+abbrev Bytes26 := Verity.BytesN 26
+abbrev Bytes27 := Verity.BytesN 27
+abbrev Bytes28 := Verity.BytesN 28
+abbrev Bytes29 := Verity.BytesN 29
+abbrev Bytes30 := Verity.BytesN 30
+abbrev Bytes31 := Verity.BytesN 31
+
 open Verity hiding pure bind
 open Verity.EVM.Uint256
 open Verity.Stdlib.Math
@@ -129,6 +224,15 @@ instance : CustomErrorArg Uint256 where
 instance : CustomErrorArg Uint16 where
   encode value := toString value.toNat
 
+instance : CustomErrorArg (UIntN bits) where
+  encode value := toString value.toNat
+
+instance : CustomErrorArg (IntN bits) where
+  encode value := toString value.toInt
+
+instance : CustomErrorArg (BytesN bytes) where
+  encode value := toString value.toNat
+
 instance : CustomErrorArg Nat where
   encode value := toString value
 
@@ -173,6 +277,37 @@ def requireSomeUintCustomError (opt : Option Uint256) (name : String) (args : Li
   | none => do
     let _ ← revertCustomError name args
     return 0
+
+/-- Solidity-style explicit narrowing conversions. Unsigned and signed casts
+keep the low `bits`; fixed-bytes casts interpret the ABI word as left-aligned. -/
+def narrowUInt (bits : Nat) (value : Uint256) : UIntN bits :=
+  Verity.Core.UIntN.ofUint256 bits value
+
+def narrowInt (bits : Nat) (value : Uint256) : IntN bits :=
+  Verity.Core.IntN.ofUint256 bits value
+
+def narrowBytes (bytes : Nat) (value : Uint256) : BytesN bytes :=
+  Verity.Core.BytesN.ofUint256 bytes value
+
+/-- Checked narrow arithmetic used by executable models. The macro lowers the
+same source forms to width-specific guards before the Yul arithmetic result. -/
+def narrowAddPanic {bits : Nat} (a b : UIntN bits) : Contract (UIntN bits) := fun state =>
+  if a.val + b.val < 2 ^ bits then
+    ContractResult.success (Verity.Core.UIntN.ofNat bits (a.val + b.val)) state
+  else
+    ContractResult.revert "Panic(0x11): narrow arithmetic overflow" state
+
+def narrowSubPanic {bits : Nat} (a b : UIntN bits) : Contract (UIntN bits) := fun state =>
+  if b.val ≤ a.val then
+    ContractResult.success (Verity.Core.UIntN.ofNat bits (a.val - b.val)) state
+  else
+    ContractResult.revert "Panic(0x11): narrow arithmetic underflow" state
+
+def narrowMulPanic {bits : Nat} (a b : UIntN bits) : Contract (UIntN bits) := fun state =>
+  if a.val * b.val < 2 ^ bits then
+    ContractResult.success (Verity.Core.UIntN.ofNat bits (a.val * b.val)) state
+  else
+    ContractResult.revert "Panic(0x11): narrow arithmetic overflow" state
 
 /-- Executable counterpart to the `Stmt.panicCode` model/IR surface. Reverts
 unconditionally, mirroring Solidity's built-in `Panic(uint256)` payload that the
@@ -365,6 +500,12 @@ instance : ExternalArg Uint256 where
   toWord value := value
 instance : ExternalArg Uint16 where
   toWord value := value.toUint256
+instance : ExternalArg (UIntN bits) where
+  toWord value := value.toUint256
+instance : ExternalArg (IntN bits) where
+  toWord value := value.toUint256
+instance : ExternalArg (BytesN bytes) where
+  toWord value := value.toUint256
 instance : ExternalArg Int256 where
   toWord value := value.word
 instance : ExternalArg Address where
@@ -379,6 +520,12 @@ instance : ExternalResult Uint256 where
   fromWord value := value
 instance : ExternalResult Uint16 where
   fromWord value := Verity.wordToUint16 value
+instance : ExternalResult (UIntN bits) where
+  fromWord value := Verity.Core.UIntN.ofUint256 bits value
+instance : ExternalResult (IntN bits) where
+  fromWord value := Verity.Core.IntN.ofUint256 bits value
+instance : ExternalResult (BytesN bytes) where
+  fromWord value := Verity.Core.BytesN.ofUint256 bytes value
 instance : ExternalResult Int256 where
   fromWord value := toInt256 value
 instance : ExternalResult Address where

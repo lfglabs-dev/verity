@@ -1027,6 +1027,9 @@ end Verity.AxiomAudit
   Compiler.Proofs.AbiEncoding.encodeStaticCustomErrorArg_eval_eq_normalizeEventWord_eval
   Compiler.Proofs.AbiEncoding.encodeStaticCustomErrorArg_agrees_with_normalizeEventWord_uint8
   Compiler.Proofs.AbiEncoding.encodeStaticCustomErrorArg_agrees_with_normalizeEventWord_uint16
+  Compiler.Proofs.AbiEncoding.encodeStaticCustomErrorArg_uintN_eq
+  Compiler.Proofs.AbiEncoding.encodeStaticCustomErrorArg_intN_eq
+  Compiler.Proofs.AbiEncoding.encodeStaticCustomErrorArg_bytesN_eq
   Compiler.Proofs.AbiEncoding.abiScalarNormalize_bool_output
   Compiler.Proofs.AbiEncoding.abiScalarNormalize_uint8_lt_evm
   Compiler.Proofs.AbiEncoding.abiScalarNormalize_uint16_lt_evm
@@ -1035,8 +1038,13 @@ end Verity.AxiomAudit
   Compiler.Proofs.AbiEncoding.abiScalarNormalize_lt_evm_of_lt_evm
   Compiler.Proofs.AbiEncoding.abiScalarNormalize_address_fixed
   -- Compiler.Proofs.AbiEncoding.land_idempotent_right  -- private
+  -- Compiler.Proofs.AbiEncoding.uint256_ofNat_val  -- private
+  -- Compiler.Proofs.AbiEncoding.uint256_signextend_idempotent  -- private
   Compiler.Proofs.AbiEncoding.abiScalarNormalize_uint8_idem
   Compiler.Proofs.AbiEncoding.abiScalarNormalize_uint16_idem
+  -- Compiler.Proofs.AbiEncoding.abiScalarNormalize_uintN_idem  -- private
+  -- Compiler.Proofs.AbiEncoding.abiScalarNormalize_intN_idem  -- private
+  -- Compiler.Proofs.AbiEncoding.abiScalarNormalize_bytesN_idem  -- private
   Compiler.Proofs.AbiEncoding.abiScalarNormalize_address_idem
   Compiler.Proofs.AbiEncoding.abiScalarNormalize_bool_idem
   Compiler.Proofs.AbiEncoding.abiScalarNormalize_idempotent
@@ -2992,10 +3000,14 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.eventSignatureScratchStores_continue  -- private
   -- Compiler.Proofs.IRGeneration.eventSignatureTopic_of_memorySliceWords_eq  -- private
   -- Compiler.Proofs.IRGeneration.eventEvalIRExpr_topic0  -- private
+  -- Compiler.Proofs.IRGeneration.land_mod_evm_right  -- private
+  -- Compiler.Proofs.IRGeneration.uint256OfNat_mod_evm  -- private
   -- Compiler.Proofs.IRGeneration.eventEvalIRExpr_normalizeEventWord_uint8  -- private
   -- Compiler.Proofs.IRGeneration.eventEvalIRExpr_normalizeEventWord_uint16  -- private
   -- Compiler.Proofs.IRGeneration.eventEvalIRExpr_normalizeEventWord_address  -- private
   -- Compiler.Proofs.IRGeneration.eventEvalIRExpr_normalizeEventWord_bool  -- private
+  -- Compiler.Proofs.IRGeneration.eventEvalIRExpr_normalizeEventWord_uintN  -- private
+  -- Compiler.Proofs.IRGeneration.eventEvalIRExpr_normalizeEventWord_bytesN  -- private
   -- Compiler.Proofs.IRGeneration.eventEvalIRExpr_normalizeEventWord  -- private
   -- Compiler.Proofs.IRGeneration.eventNormalizeEventValue_lt_evmModulus  -- private
   -- Compiler.Proofs.IRGeneration.eventNormalizeEventValue_lt_evmModulus_any  -- private
@@ -3842,7 +3854,11 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.ParamLoading.supportedExternalParamType_cases  -- private
   -- Compiler.Proofs.IRGeneration.ParamLoading.execIRStmts_cons_of_execIRStmt_continue  -- private
   -- Compiler.Proofs.IRGeneration.ParamLoading.execIRStmts_cons_of_execIRStmt_continue_extraFuel  -- private
+  -- Compiler.Proofs.IRGeneration.ParamLoading.land_mod_evm_right  -- private
   -- Compiler.Proofs.IRGeneration.ParamLoading.exec_genScalarLoad_supported_then_word_passthrough  -- private
+  -- Compiler.Proofs.IRGeneration.ParamLoading.exec_genScalarLoad_supported_then_uintN  -- private
+  -- Compiler.Proofs.IRGeneration.ParamLoading.exec_genScalarLoad_supported_then_intN  -- private
+  -- Compiler.Proofs.IRGeneration.ParamLoading.exec_genScalarLoad_supported_then_bytesN  -- private
   -- Compiler.Proofs.IRGeneration.ParamLoading.exec_genScalarLoad_supported_then_uint8  -- private
   -- Compiler.Proofs.IRGeneration.ParamLoading.exec_genScalarLoad_supported_then_uint16  -- private
   -- Compiler.Proofs.IRGeneration.ParamLoading.exec_genScalarLoad_supported_then_address  -- private
@@ -4502,6 +4518,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.isDynamicParamType_false_of_static_scalar
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_calldataload_lit  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_and_lit_mask  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_signextend_lit  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_and_hex_mask  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_iszero_iszero  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_iszero_ident  -- private
@@ -6574,4 +6591,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6150 theorems/lemmas (4296 public, 1854 private, 0 sorry'd)
+-- Total: 6167 theorems/lemmas (4299 public, 1868 private, 0 sorry'd)

@@ -10,6 +10,7 @@ mutual
     | ParamType.int256 => false
     | ParamType.uint8 => false
     | ParamType.uint16 => false
+    | ParamType.uintN _ | ParamType.intN _ | ParamType.bytesN _ => false
     | ParamType.address => false
     | ParamType.bool => false
     | ParamType.bytes32 => false
@@ -37,6 +38,7 @@ mutual
     | ParamType.int256 => 32
     | ParamType.uint8 => 32
     | ParamType.uint16 => 32
+    | ParamType.uintN _ | ParamType.intN _ | ParamType.bytesN _ => 32
     | ParamType.address => 32
     | ParamType.bool => 32
     | ParamType.bytes32 => 32
@@ -71,14 +73,16 @@ mutual
     | ParamType.fixedArray elemTy n =>
         if isDynamicParamType (ParamType.fixedArray elemTy n) then 1 else n * paramParentHeadWords elemTy
     | ParamType.newtypeOf _ baseType => paramParentHeadWords baseType
-    | ParamType.uint256 | ParamType.int256 | ParamType.uint8 | ParamType.uint16 | ParamType.address
+    | ParamType.uint256 | ParamType.int256 | ParamType.uint8 | ParamType.uint16
+    | ParamType.uintN _ | ParamType.intN _ | ParamType.bytesN _ | ParamType.address
     | ParamType.bool | ParamType.bytes32 => 1
     | ParamType.adt _ maxFields => 1 + maxFields
 
   /-- Number of 32-byte words in the local head of an ABI value once its dynamic
   tail has been entered. Dynamic children occupy one offset word in that head. -/
   partial def paramLocalHeadWords : ParamType → Nat
-    | ParamType.uint256 | ParamType.int256 | ParamType.uint8 | ParamType.uint16 | ParamType.address
+    | ParamType.uint256 | ParamType.int256 | ParamType.uint8 | ParamType.uint16
+    | ParamType.uintN _ | ParamType.intN _ | ParamType.bytesN _ | ParamType.address
     | ParamType.bool | ParamType.bytes32 | ParamType.string | ParamType.bytes
     | ParamType.array _ => 1
     | ParamType.fixedArray elemTy n => n * paramParentHeadWords elemTy

@@ -17,6 +17,13 @@ def normalizeEventWord (ty : ParamType) (expr : YulExpr) : YulExpr :=
   match ty with
   | ParamType.uint8 => YulExpr.call "and" [expr, YulExpr.lit 255]
   | ParamType.uint16 => YulExpr.call "and" [expr, YulExpr.lit 65535]
+  | ParamType.uintN bits =>
+      YulExpr.call "and" [expr, YulExpr.lit (2 ^ bits - 1)]
+  | ParamType.intN bits =>
+      YulExpr.call "signextend" [YulExpr.lit (bits / 8 - 1), expr]
+  | ParamType.bytesN bytes =>
+      YulExpr.call "and" [expr,
+        YulExpr.lit ((2 ^ (8 * bytes) - 1) * 2 ^ (8 * (32 - bytes)))]
   | ParamType.address => YulExpr.call "and" [expr, YulExpr.hex addressMask]
   | ParamType.bool => yulToBool expr
   | ParamType.newtypeOf _ baseType => normalizeEventWord baseType expr
@@ -25,7 +32,9 @@ def normalizeEventWord (ty : ParamType) (expr : YulExpr) : YulExpr :=
 partial def staticCompositeLeaves (baseName : String) (ty : ParamType) :
     List (ParamType × YulExpr) :=
   match ty with
-  | ParamType.uint256 | ParamType.int256 | ParamType.uint8 | ParamType.uint16 | ParamType.address | ParamType.bool | ParamType.bytes32 =>
+  | ParamType.uint256 | ParamType.int256 | ParamType.uint8 | ParamType.uint16
+  | ParamType.uintN _ | ParamType.intN _ | ParamType.bytesN _
+  | ParamType.address | ParamType.bool | ParamType.bytes32 =>
       [(ty, YulExpr.ident baseName)]
   | ParamType.fixedArray elemTy n =>
       (List.range n).flatMap fun i =>
@@ -42,7 +51,9 @@ partial def staticCompositeLeaves (baseName : String) (ty : ParamType) :
 partial def staticCompositeLeafTypeOffsets
     (baseOffset : Nat) (ty : ParamType) : List (Nat × ParamType) :=
   match ty with
-  | ParamType.uint256 | ParamType.int256 | ParamType.uint8 | ParamType.uint16 | ParamType.address | ParamType.bool | ParamType.bytes32 =>
+  | ParamType.uint256 | ParamType.int256 | ParamType.uint8 | ParamType.uint16
+  | ParamType.uintN _ | ParamType.intN _ | ParamType.bytesN _
+  | ParamType.address | ParamType.bool | ParamType.bytes32 =>
       [(baseOffset, ty)]
   | ParamType.fixedArray elemTy n =>
       (List.range n).flatMap fun i =>
@@ -67,7 +78,9 @@ partial def compileIndexedInPlaceEncoding
     (srcBase dstBase : YulExpr) (stem : String) :
     Except String (List YulStmt × YulExpr) := do
   match ty with
-  | ParamType.uint256 | ParamType.int256 | ParamType.uint8 | ParamType.uint16 | ParamType.address | ParamType.bool | ParamType.bytes32 =>
+  | ParamType.uint256 | ParamType.int256 | ParamType.uint8 | ParamType.uint16
+  | ParamType.uintN _ | ParamType.intN _ | ParamType.bytesN _
+  | ParamType.address | ParamType.bool | ParamType.bytes32 =>
       let loaded := dynamicWordLoad dynamicSource srcBase
       pure ([
         YulStmt.exprStmt (YulExpr.call "mstore" [dstBase, normalizeEventWord ty loaded])
