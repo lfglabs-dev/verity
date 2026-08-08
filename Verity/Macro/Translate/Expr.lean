@@ -2179,8 +2179,13 @@ partial def inferPureExprType
         | none => throwErrorAt name s!"unknown linked external '{extName}'"
       validateLinkedExternalCallArgs fields constDecls immutableDecls externalDecls params locals
         extName ext.params xs
-      inferPureExprType fields constDecls immutableDecls externalDecls params locals
-        (← `(externalCall $(strTerm extName) [ $[$xs],* ])) visitingConstants
+      match ext.returnTys.toList with
+      | [retTy] =>
+          unless isSingleWordStaticValueType retTy do
+            throwErrorAt name s!"callExternal '{extName}' return type cannot be used as a pure single-word expression"
+          pure retTy
+      | [] => throwErrorAt name s!"callExternal '{extName}' returns no values"
+      | _ => throwErrorAt name s!"callExternal '{extName}' returns multiple values"
   | `(term| intrinsic_cancun $name:term $_lowering:term $args:term)
   | `(term| intrinsic_prague $name:term $_lowering:term $args:term)
   | `(term| intrinsic_fusaka $name:term $_lowering:term $args:term)

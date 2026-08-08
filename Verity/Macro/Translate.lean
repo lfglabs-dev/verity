@@ -1304,20 +1304,13 @@ private partial def translateDoElem
                     extName ext.params args
                   let argExprs ← translateLinkedExternalCallArgs fields constDecls immutableDecls params locals args
                   let flatNames ← flattenExternalResultNames varName retTy
-                  for flatName in flatNames do
-                    if localNames.contains flatName then
-                      throwErrorAt rhs s!"callExternal '{extName}' generated result name '{flatName}' collides with an existing local"
+                  if flatNames.length != 1 then
+                    throwErrorAt rhs s!"callExternal '{extName}' return type expands to {flatNames.length} values and cannot be bound to one source variable"
                   let resultTerms := flatNames.toArray.map strTerm
-                  let source ← match staticStructDirectFieldLocals? varName retTy with
-                    | some fieldLocals => pure (LocalSource.externalStaticStruct fieldLocals)
-                    | none => do
-                        if flatNames.length != 1 then
-                          throwErrorAt rhs s!"callExternal '{extName}' return type expands to {flatNames.length} values and cannot be bound to one source variable"
-                        pure LocalSource.value
                   pure
                     (#[(← `(Compiler.CompilationModel.Stmt.externalCallBind
                         [ $[$resultTerms],* ] $(strTerm extName) [ $[$argExprs],* ]))],
-                      locals.push { name := varName, ty := retTy, source := source },
+                      locals.push { name := varName, ty := retTy, source := LocalSource.value },
                       mutableLocals)
               | [] => throwErrorAt rhs s!"callExternal '{extName}' returns Unit; invoke it as a statement"
               | _ => throwErrorAt rhs s!"callExternal '{extName}' returns multiple values; use externalCallBind with explicit result names"
