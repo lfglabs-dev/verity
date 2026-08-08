@@ -20,6 +20,9 @@ def linkedOperandEcmModule : Compiler.ECM.ExternalCallModule where
 -- `callExternal` is declaration-driven; target/value fields belong to `evmCall`.
 verity_contract ExternalCallInBodySmoke where
   storage
+  errors
+    error Failure(Uint256)
+
   linked_externals
     external getDepositableEther() -> (Uint256)
     external deposit(Uint256, Bytes)
@@ -31,9 +34,6 @@ verity_contract ExternalCallInBodySmoke where
     external consumeUint8(Uint8)
     external consumeUint16(Uint16)
     external consume(Uint256)
-  errors
-    error Failure(Uint256)
-
   function reentrancy_trusted linkedRead () : Uint256 := do
     let depositable ← callExternal getDepositableEther()
     return depositable
