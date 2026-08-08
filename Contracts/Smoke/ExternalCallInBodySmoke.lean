@@ -15,6 +15,9 @@ verity_contract ExternalCallInBodySmoke where
     external getDepositableEther() -> (Uint256)
     external deposit(Uint256, Bytes)
     external narrowEcho(Bytes4) -> (Uint256)
+    external dirtyUint() -> (Uint32)
+    external dirtyInt() -> (Int32)
+    external dirtyBytes() -> (Bytes4)
 
   function reentrancy_trusted linkedRead () : Uint256 := do
     let depositable ← callExternal getDepositableEther()
@@ -25,6 +28,30 @@ verity_contract ExternalCallInBodySmoke where
 
   function reentrancy_trusted pureNarrow () : Uint256 := do
     let result := callExternal narrowEcho(0xdeadbeef)
+    return result
+
+  function reentrancy_trusted pureDirtyUint () : Uint32 := do
+    let result := callExternal dirtyUint()
+    return result
+
+  function reentrancy_trusted bindDirtyUint () : Uint32 := do
+    let result ← callExternal dirtyUint()
+    return result
+
+  function reentrancy_trusted pureDirtyInt () : Int32 := do
+    let result := callExternal dirtyInt()
+    return result
+
+  function reentrancy_trusted bindDirtyInt () : Int32 := do
+    let result ← callExternal dirtyInt()
+    return result
+
+  function reentrancy_trusted pureDirtyBytes () : Bytes4 := do
+    let result := callExternal dirtyBytes()
+    return result
+
+  function reentrancy_trusted bindDirtyBytes () : Bytes4 := do
+    let result ← callExternal dirtyBytes()
     return result
 
   function reentrancy_trusted lowLevel (target : Uint256, amount : Uint256)
@@ -68,6 +95,53 @@ example : (ExternalCallInBodySmoke.pureNarrow_modelBody).take 1 =
 example : ExternalCallInBodySmoke.pureNarrow_model.body =
     ExternalCallInBodySmoke.pureNarrow_modelBody :=
   ExternalCallInBodySmoke.pureNarrow_semantic_preservation
+
+example : (ExternalCallInBodySmoke.pureDirtyUint_modelBody).take 1 =
+    [.letVar "result" (.bitAnd (.externalCall "dirtyUint" []) (.literal (2 ^ 32 - 1)))] := rfl
+
+example : (ExternalCallInBodySmoke.bindDirtyUint_modelBody).take 2 =
+    [ .externalCallBind ["result"] "dirtyUint" []
+    , .assignVar "result" (.bitAnd (.localVar "result") (.literal (2 ^ 32 - 1))) ] := rfl
+
+example : (ExternalCallInBodySmoke.pureDirtyInt_modelBody).take 1 =
+    [.letVar "result" (.signextend (.literal 3) (.externalCall "dirtyInt" []))] := rfl
+
+example : (ExternalCallInBodySmoke.bindDirtyInt_modelBody).take 2 =
+    [ .externalCallBind ["result"] "dirtyInt" []
+    , .assignVar "result" (.signextend (.literal 3) (.localVar "result")) ] := rfl
+
+example : (ExternalCallInBodySmoke.pureDirtyBytes_modelBody).take 1 =
+    [.letVar "result" (.bitAnd (.externalCall "dirtyBytes" [])
+      (.literal ((2 ^ 32 - 1) * 2 ^ 224)))] := rfl
+
+example : (ExternalCallInBodySmoke.bindDirtyBytes_modelBody).take 2 =
+    [ .externalCallBind ["result"] "dirtyBytes" []
+    , .assignVar "result" (.bitAnd (.localVar "result")
+        (.literal ((2 ^ 32 - 1) * 2 ^ 224))) ] := rfl
+
+example : ExternalCallInBodySmoke.pureDirtyUint_model.body =
+    ExternalCallInBodySmoke.pureDirtyUint_modelBody :=
+  ExternalCallInBodySmoke.pureDirtyUint_semantic_preservation
+
+example : ExternalCallInBodySmoke.bindDirtyUint_model.body =
+    ExternalCallInBodySmoke.bindDirtyUint_modelBody :=
+  ExternalCallInBodySmoke.bindDirtyUint_semantic_preservation
+
+example : ExternalCallInBodySmoke.pureDirtyInt_model.body =
+    ExternalCallInBodySmoke.pureDirtyInt_modelBody :=
+  ExternalCallInBodySmoke.pureDirtyInt_semantic_preservation
+
+example : ExternalCallInBodySmoke.bindDirtyInt_model.body =
+    ExternalCallInBodySmoke.bindDirtyInt_modelBody :=
+  ExternalCallInBodySmoke.bindDirtyInt_semantic_preservation
+
+example : ExternalCallInBodySmoke.pureDirtyBytes_model.body =
+    ExternalCallInBodySmoke.pureDirtyBytes_modelBody :=
+  ExternalCallInBodySmoke.pureDirtyBytes_semantic_preservation
+
+example : ExternalCallInBodySmoke.bindDirtyBytes_model.body =
+    ExternalCallInBodySmoke.bindDirtyBytes_modelBody :=
+  ExternalCallInBodySmoke.bindDirtyBytes_semantic_preservation
 
 example : (ExternalCallInBodySmoke.lowLevel_modelBody).take 7 =
     [ Compiler.CompilationModel.Stmt.mstore (.literal 0) (.param "amount")

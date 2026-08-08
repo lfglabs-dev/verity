@@ -1313,9 +1313,14 @@ private partial def translateDoElem
                   if flatNames.length != 1 then
                     throwErrorAt rhs s!"callExternal '{extName}' return type expands to {flatNames.length} values and cannot be bound to one source variable"
                   let resultTerms := flatNames.toArray.map strTerm
+                  let bindStmt ← `(Compiler.CompilationModel.Stmt.externalCallBind
+                    [ $[$resultTerms],* ] $(strTerm extName) [ $[$argExprs],* ])
+                  let normalization? ← normalizeBoundValueStmt? retTy rhs varName
+                  let stmts := match normalization? with
+                    | some normalization => #[bindStmt, normalization]
+                    | none => #[bindStmt]
                   pure
-                    (#[(← `(Compiler.CompilationModel.Stmt.externalCallBind
-                        [ $[$resultTerms],* ] $(strTerm extName) [ $[$argExprs],* ]))],
+                    (stmts,
                       locals.push { name := varName, ty := retTy, source := LocalSource.value },
                       mutableLocals)
               | [] => throwErrorAt rhs s!"callExternal '{extName}' returns Unit; invoke it as a statement"
@@ -1453,28 +1458,7 @@ private partial def translateDoElem
                                         $(natTerm argExprs.size)
                                         false)
                                       [ $targetExpr, $[$argExprs],* ])
-                              let normalization? ←
-                                match retTy with
-                                | .uintN bits => do
-                                    let normalization ← `(Compiler.CompilationModel.Stmt.assignVar $(strTerm varName)
-                                      (Compiler.CompilationModel.Expr.bitAnd
-                                        (Compiler.CompilationModel.Expr.localVar $(strTerm varName))
-                                        (Compiler.CompilationModel.Expr.literal $(natTerm (2 ^ bits - 1)))))
-                                    pure (some normalization)
-                                | .intN bits => do
-                                    let normalization ← `(Compiler.CompilationModel.Stmt.assignVar $(strTerm varName)
-                                      (Compiler.CompilationModel.Expr.signextend
-                                        (Compiler.CompilationModel.Expr.literal $(natTerm (bits / 8 - 1)))
-                                        (Compiler.CompilationModel.Expr.localVar $(strTerm varName))))
-                                    pure (some normalization)
-                                | .bytesN bytes => do
-                                    let normalization ← `(Compiler.CompilationModel.Stmt.assignVar $(strTerm varName)
-                                      (Compiler.CompilationModel.Expr.bitAnd
-                                        (Compiler.CompilationModel.Expr.localVar $(strTerm varName))
-                                        (Compiler.CompilationModel.Expr.literal
-                                          $(natTerm ((2 ^ (8 * bytes) - 1) * 2 ^ (8 * (32 - bytes)))))))
-                                    pure (some normalization)
-                                | _ => pure none
+                              let normalization? ← normalizeBoundValueStmt? retTy rhs varName
                               let stmts := match normalization? with | some normalization => #[stmt, normalization] | none => #[stmt]
                               pure
                                 (stmts,

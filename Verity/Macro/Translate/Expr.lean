@@ -215,6 +215,21 @@ def normalizeTranslatedExprForType
   | .newtype _ baseType => normalizeTranslatedExprForType baseType source expr
   | _ => pure expr
 
+def normalizeBoundValueStmt?
+    (expectedTy : ValueType) (source : Term) (name : String) : CommandElabM (Option Term) := do
+  let needsNormalization :=
+    match expectedTy with
+    | .uintN _ | .intN _ | .bytesN _ => true
+    | .newtype _ baseType =>
+        match baseType with
+        | .uintN _ | .intN _ | .bytesN _ => true
+        | _ => false
+    | _ => false
+  unless needsNormalization do return none
+  let localExpr ← `(Compiler.CompilationModel.Expr.localVar $(strTerm name))
+  let normalized ← normalizeTranslatedExprForType expectedTy source localExpr
+  return some (← `(Compiler.CompilationModel.Stmt.assignVar $(strTerm name) $normalized))
+
 def immutableHiddenName (imm : ImmutableDecl) : String :=
   s!"__immutable_{imm.name}"
 
@@ -4779,7 +4794,9 @@ def translateBindSource
             throwErrorAt name s!"callExternal '{extName}' return type cannot be used as a pure single-word expression"
           let argExprs ← translateLinkedExternalCallArgs
             fields constDecls immutableDecls params locals args (some ext.params)
-          `(Compiler.CompilationModel.Expr.externalCall $(strTerm extName) [ $[$argExprs],* ])
+          let callExpr ←
+            `(Compiler.CompilationModel.Expr.externalCall $(strTerm extName) [ $[$argExprs],* ])
+          normalizeTranslatedExprForType retTy rhs callExpr
       | [] => throwErrorAt name s!"callExternal '{extName}' returns no values"
       | _ => throwErrorAt name s!"callExternal '{extName}' returns multiple values"
   | `(term| memoryLoad($_))

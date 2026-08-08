@@ -41,4 +41,58 @@ contract PropertyExternalCallInBodySmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
+    // Property 4: TODO decode and assert `pureDirtyUint` result
+    function testTODO_PureDirtyUint_DecodeAndAssert() public {
+        vm.prank(alice);
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("pureDirtyUint()"));
+        require(ok, "pureDirtyUint reverted unexpectedly");
+        assertEq(ret.length, 32, "pureDirtyUint ABI return length mismatch (expected 32 bytes)");
+        // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
+        ret;
+    }
+    // Property 5: TODO decode and assert `bindDirtyUint` result
+    function testTODO_BindDirtyUint_DecodeAndAssert() public {
+        vm.prank(alice);
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("bindDirtyUint()"));
+        require(ok, "bindDirtyUint reverted unexpectedly");
+        assertEq(ret.length, 32, "bindDirtyUint ABI return length mismatch (expected 32 bytes)");
+        // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
+        ret;
+    }
+    // Property 6: TODO decode and assert `pureDirtyInt` result
+    function testTODO_PureDirtyInt_DecodeAndAssert() public {
+        vm.prank(alice);
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("pureDirtyInt()"));
+        require(ok, "pureDirtyInt reverted unexpectedly");
+        assertEq(ret.length, 32, "pureDirtyInt ABI return length mismatch (expected 32 bytes)");
+        // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
+        ret;
+    }
+    // Property 7: TODO decode and assert `bindDirtyInt` result
+    function testTODO_BindDirtyInt_DecodeAndAssert() public {
+        vm.prank(alice);
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("bindDirtyInt()"));
+        require(ok, "bindDirtyInt reverted unexpectedly");
+        assertEq(ret.length, 32, "bindDirtyInt ABI return length mismatch (expected 32 bytes)");
+        // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
+        ret;
+    }
+    // Property 8: TODO decode and assert `pureDirtyBytes` result
+    function testTODO_PureDirtyBytes_DecodeAndAssert() public {
+        vm.prank(alice);
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("pureDirtyBytes()"));
+        require(ok, "pureDirtyBytes reverted unexpectedly");
+        assertEq(ret.length, 32, "pureDirtyBytes ABI return length mismatch (expected 32 bytes)");
+        // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
+        ret;
+    }
+    // Property 9: TODO decode and assert `bindDirtyBytes` result
+    function testTODO_BindDirtyBytes_DecodeAndAssert() public {
+        vm.prank(alice);
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("bindDirtyBytes()"));
+        require(ok, "bindDirtyBytes reverted unexpectedly");
+        assertEq(ret.length, 32, "bindDirtyBytes ABI return length mismatch (expected 32 bytes)");
+        // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
+        ret;
+    }
 }
