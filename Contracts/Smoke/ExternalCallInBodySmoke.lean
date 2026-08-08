@@ -41,9 +41,11 @@ verity_contract ExternalCallInBodySmoke where
 
   function reentrancy_trusted discardedReturnDataSize ()
     local_obligations [low_level_frame := assumed "Reading returndata size is an explicit refinement boundary."]
-    : Unit := do
+    : Uint256 := do
     let _ ← returnDataSize()
-    return ()
+    let _ ← (returnDataSize())
+    let parenthesized ← (returnDataSize())
+    return parenthesized
 
 example : (ExternalCallInBodySmoke.linkedRead_modelBody).take 1 =
     [Compiler.CompilationModel.Stmt.externalCallBind
@@ -76,8 +78,10 @@ example : ExternalCallInBodySmoke.lowLevel_model.body =
     ExternalCallInBodySmoke.lowLevel_modelBody :=
   ExternalCallInBodySmoke.lowLevel_semantic_preservation
 
-example : (ExternalCallInBodySmoke.discardedReturnDataSize_modelBody).take 1 =
-    [Compiler.CompilationModel.Stmt.letVar "__discard" .returndataSize] := rfl
+example : (ExternalCallInBodySmoke.discardedReturnDataSize_modelBody).take 3 =
+    [ Compiler.CompilationModel.Stmt.letVar "__discard" .returndataSize
+    , Compiler.CompilationModel.Stmt.letVar "__discard_1" .returndataSize
+    , Compiler.CompilationModel.Stmt.letVar "parenthesized" .returndataSize ] := rfl
 
 example : ExternalCallInBodySmoke.discardedReturnDataSize_model.body =
     ExternalCallInBodySmoke.discardedReturnDataSize_modelBody :=

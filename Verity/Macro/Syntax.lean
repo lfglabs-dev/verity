@@ -141,6 +141,10 @@ syntax (name := returnDataCopyTerm) "returnDataCopy(" term "," term "," term ")"
 syntax:max (name := keccakStringTerm) "keccakString " str : term
 
 macro_rules
+  | `(doElem| let _ ← (returnDataSize())) =>
+      `(doElem| let _ ← (fun s => .success 0 s))
+  | `(doElem| let $name:ident ← (returnDataSize())) =>
+      `(doElem| let $name ← (fun s => .success 0 s))
   | `(doElem| let _ ← returnDataSize()) =>
       `(doElem| let _ ← (fun s => .success 0 s))
   | `(doElem| let $name:ident ← returnDataSize()) =>
