@@ -2240,6 +2240,25 @@ partial def lookupNamedValueType?
     <|> immutableDecls.findSome? (fun imm => if imm.name == name then some imm.ty else none)
     <|> constDecls.findSome? (fun constant => if constant.name == name then some constant.ty else none)
 
+partial def validateLinkedExternalCallArgs
+    (fields : Array StorageFieldDecl)
+    (constDecls : Array ConstantDecl)
+    (immutableDecls : Array ImmutableDecl)
+    (externalDecls : Array ExternalDecl)
+    (params : Array ParamDecl)
+    (locals : Array TypedLocal)
+    (externalName : String)
+    (expectedTypes : Array ValueType)
+    (args : Array Term) : CommandElabM Unit := do
+  unless args.size == expectedTypes.size do
+    throwError s!"callExternal '{externalName}' expects {expectedTypes.size} args, got {args.size}"
+  for ((arg, expectedTy), argIdx) in args.zip expectedTypes |>.zipIdx do
+    let actualTy ← inferPureExprType
+      fields constDecls immutableDecls externalDecls params locals arg
+    unless argumentTypeMatchesParam arg actualTy expectedTy do
+      throwErrorAt arg
+        s!"callExternal '{externalName}' argument {argIdx + 1} expects {renderValueType expectedTy}, got {renderValueType actualTy}"
+
 partial def inferBindSourceType
     (fields : Array StorageFieldDecl)
     (constDecls : Array ConstantDecl)
@@ -2261,6 +2280,8 @@ partial def inferBindSourceType
       let ext ← match externalDecls.find? (fun ext => ext.name == extName) with
         | some ext => pure ext
         | none => throwErrorAt name s!"unknown linked external '{extName}'"
+      validateLinkedExternalCallArgs fields constDecls immutableDecls externalDecls params locals
+        extName ext.params _args
       match ext.returnTys.toList with
       | [retTy] => pure retTy
       | [] => throwErrorAt rhs s!"callExternal '{extName}' returns Unit; invoke it as a statement"

@@ -72,4 +72,14 @@ verity_contract MalformedEvmCallRejected where
   function bad (target : Uint256) : Uint256 := do
     return evmCall(1, target)
 
+/-- error: callExternal 'scalarPair' expects 2 args, got 1 -/
+#guard_msgs in
+verity_contract MalformedLinkedCallRejected where
+  storage
+  linked_externals
+    external scalarPair(Uint256, Uint256) -> (Uint256)
+  function bad (payload : Bytes) : Uint256 := do
+    let result ← callExternal scalarPair(payload)
+    return result
+
 end Contracts.Smoke

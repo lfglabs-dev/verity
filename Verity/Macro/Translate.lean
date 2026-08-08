@@ -464,6 +464,8 @@ private partial def validateEffectStmtExprTypes
         | none => throwErrorAt name s!"unknown linked external '{extName}'"
       unless ext.returnTys.isEmpty do
         throwErrorAt stx s!"callExternal '{extName}' returns values; bind it with `let ... ← ...`"
+      validateLinkedExternalCallArgs fields constDecls immutableDecls externalDecls params locals
+        extName ext.params args
       let _ ← translateLinkedExternalCallArgs fields constDecls immutableDecls params locals args
   | `(term| revertReturndata) =>
       pure ()
@@ -991,6 +993,8 @@ private def translateEffectStmt
         | none => throwErrorAt name s!"unknown linked external '{extName}'"
       unless ext.returnTys.isEmpty do
         throwErrorAt stx s!"callExternal '{extName}' returns values; bind it with `let ... ← ...`"
+      validateLinkedExternalCallArgs fields constDecls immutableDecls externalDecls params locals
+        extName ext.params args
       let argExprs ← translateLinkedExternalCallArgs fields constDecls immutableDecls params locals args
       `(Compiler.CompilationModel.Stmt.externalCallBind [] $(strTerm extName) [ $[$argExprs],* ])
   | `(term| setStructMember $field:term $key:term $member:term $value:term) =>
@@ -1291,6 +1295,8 @@ private partial def translateDoElem
                 | none => throwErrorAt externalName s!"unknown linked external '{extName}'"
               match ext.returnTys.toList with
               | [retTy] =>
+                  validateLinkedExternalCallArgs fields constDecls immutableDecls externalDecls params locals
+                    extName ext.params args
                   let argExprs ← translateLinkedExternalCallArgs fields constDecls immutableDecls params locals args
                   let flatNames ← flattenExternalResultNames varName retTy
                   let resultTerms := flatNames.toArray.map strTerm
