@@ -162,7 +162,7 @@ The latest benchmark report is in
 
 ## Maintenance Expectations
 
-Each CI host should have the weekly Verity maintenance timer installed. It
+Each CI host should have the daily Verity maintenance timer installed. It
 should:
 
 - run `scripts/ci_local_persistence.sh cleanup`;

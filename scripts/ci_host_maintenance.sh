@@ -22,7 +22,7 @@ Usage:
 
 Subcommands:
   run              Prune stale Verity CI cache entries, vacuum journald, and prune unused Docker data.
-  install-systemd  Install and enable a weekly systemd timer for this script.
+  install-systemd  Install and enable a daily systemd timer for this script.
 
 Environment:
   CACHE_ROOT                    Default: /srv/verity-ci-cache
