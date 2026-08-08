@@ -20,6 +20,7 @@ def linkedOperandEcmModule : Compiler.ECM.ExternalCallModule where
 -- `callExternal` is declaration-driven; target/value fields belong to `evmCall`.
 verity_contract ExternalCallInBodySmoke where
   storage
+    values : Uint256 → Uint256 := slot 0
   errors
     error Failure(Uint256)
 
@@ -114,6 +115,10 @@ verity_contract ExternalCallInBodySmoke where
 
   function reentrancy_trusted erc20SupplyNestedExternalArg () : Uint256 := do
     let result ← totalSupply (callExternal narrowEcho(0xdeadbeef))
+    return result
+
+  function reentrancy_trusted mappingNestedExternalArg () : Uint256 := do
+    let result ← getMappingUint values (callExternal narrowEcho(0xdeadbeef))
     return result
 
   function reentrancy_trusted pureDirtyInt () : Int32 := do
@@ -254,6 +259,15 @@ example : (ExternalCallInBodySmoke.erc20SupplyNestedExternalArg_modelBody).take 
     [.ecm (Compiler.Modules.ERC20.totalSupplyModule "result")
       [(.externalCall "narrowEcho"
         [(.literal 100720434702924942364018397558880508427273416251376888068364465368051161759744)])]] := rfl
+
+example : (ExternalCallInBodySmoke.mappingNestedExternalArg_modelBody).take 1 =
+    [.letVar "result" (.mappingUint "values"
+      (.externalCall "narrowEcho"
+        [(.literal 100720434702924942364018397558880508427273416251376888068364465368051161759744)]))] := rfl
+
+example : ExternalCallInBodySmoke.mappingNestedExternalArg_model.body =
+    ExternalCallInBodySmoke.mappingNestedExternalArg_modelBody :=
+  ExternalCallInBodySmoke.mappingNestedExternalArg_semantic_preservation
 
 example : ExternalCallInBodySmoke.legacyNarrowArgs_model.body =
     ExternalCallInBodySmoke.legacyNarrowArgs_modelBody :=

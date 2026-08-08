@@ -4855,6 +4855,8 @@ def translateBindSource
     (locals : Array TypedLocal)
     (rhs : Term) : CommandElabM Term := do
   let rhs := stripParens rhs
+  let translateOperand := translateDeclaredPureExpr
+    fields constDecls immutableDecls externalDecls params locals
   match rhs with
   | `(term| callExternal $name:ident ($[$args:term],*)) =>
       let extName := toString name.getId
@@ -4919,15 +4921,15 @@ def translateBindSource
       | .dynamicArray _ =>
           `(Compiler.CompilationModel.Expr.storageArrayElement
               $(strTerm f.name)
-              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals index))
+              $(← translateOperand index))
       | _ => throwErrorAt rhs s!"field '{f.name}' is not a storage dynamic array"
   | `(term| getMapping $field:ident $key:term) =>
       let f ← lookupStorageField fields (toString field.getId)
       match f.ty with
       | .mappingAddressToUint256 =>
-          `(Compiler.CompilationModel.Expr.mapping $(strTerm f.name) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key))
+          `(Compiler.CompilationModel.Expr.mapping $(strTerm f.name) $(← translateOperand key))
       | .mappingUintToUint256 =>
-          `(Compiler.CompilationModel.Expr.mappingUint $(strTerm f.name) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key))
+          `(Compiler.CompilationModel.Expr.mappingUint $(strTerm f.name) $(← translateOperand key))
       | .mapping2AddressToAddressToUint256 =>
           throwErrorAt rhs s!"field '{f.name}' is a double mapping; use getMapping2"
       | .mappingChain _ =>
@@ -4941,7 +4943,7 @@ def translateBindSource
       let f ← lookupStorageField fields (toString field.getId)
       match f.ty with
       | .mappingAddressToUint256 =>
-          `(Compiler.CompilationModel.Expr.mapping $(strTerm f.name) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key))
+          `(Compiler.CompilationModel.Expr.mapping $(strTerm f.name) $(← translateOperand key))
       | .mappingUintToUint256 =>
           throwErrorAt rhs s!"field '{f.name}' is Uint256-keyed; use getMappingUintAddr"
       | .mapping2AddressToAddressToUint256 =>
@@ -4957,7 +4959,7 @@ def translateBindSource
       let f ← lookupStorageField fields (toString field.getId)
       match f.ty with
       | .mappingUintToUint256 =>
-          `(Compiler.CompilationModel.Expr.mappingUint $(strTerm f.name) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key))
+          `(Compiler.CompilationModel.Expr.mappingUint $(strTerm f.name) $(← translateOperand key))
       | .mappingAddressToUint256 =>
           throwErrorAt rhs s!"field '{f.name}' is Address-keyed; use getMapping"
       | .mapping2AddressToAddressToUint256 =>
@@ -4973,7 +4975,7 @@ def translateBindSource
       let f ← lookupStorageField fields (toString field.getId)
       match f.ty with
       | .mappingUintToUint256 =>
-          `(Compiler.CompilationModel.Expr.mappingUint $(strTerm f.name) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key))
+          `(Compiler.CompilationModel.Expr.mappingUint $(strTerm f.name) $(← translateOperand key))
       | .mappingAddressToUint256 =>
           throwErrorAt rhs s!"field '{f.name}' is Address-keyed; use getMappingAddr"
       | .mapping2AddressToAddressToUint256 =>
@@ -4991,7 +4993,7 @@ def translateBindSource
       | .mappingAddressToUint256 | .mappingUintToUint256 =>
           `(Compiler.CompilationModel.Expr.mappingWord
               $(strTerm f.name)
-              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key)
+              $(← translateOperand key)
               $wordOffset)
       | .mapping2AddressToAddressToUint256 =>
           throwErrorAt rhs s!"field '{f.name}' is a double mapping; use getMapping2Word"
@@ -5010,8 +5012,8 @@ def translateBindSource
       | .mapping2AddressToAddressToUint256 =>
           `(Compiler.CompilationModel.Expr.mapping2
               $(strTerm f.name)
-              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key1)
-              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key2))
+              $(← translateOperand key1)
+              $(← translateOperand key2))
       | .mappingStruct2 _ _ _ =>
           throwErrorAt rhs s!"field '{f.name}' is a nested struct mapping; use structMember2"
       | .mappingStruct _ _ =>
@@ -5024,7 +5026,7 @@ def translateBindSource
       | some keyTypes =>
           if keyTerms.size != keyTypes.length then
             throwErrorAt rhs s!"field '{f.name}' expects {keyTypes.length} mapping keys, but getMappingN received {keyTerms.size}"
-          let keyExprs ← keyTerms.mapM (translatePureExprWithTypes fields constDecls immutableDecls params locals)
+          let keyExprs ← keyTerms.mapM translateOperand
           `(Compiler.CompilationModel.Expr.mappingChain
               $(strTerm f.name)
               [ $[$keyExprs],* ])
@@ -5039,7 +5041,7 @@ def translateBindSource
       let _ ← lookupStructMemberDecl fields fieldName memberName false
       `(Compiler.CompilationModel.Expr.structMember
           $(strTerm fieldName)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key)
+          $(← translateOperand key)
           $(strTerm memberName))
   | `(term| structMember2 $field:term $key1:term $key2:term $member:term) =>
       let fieldName := ← expectStringOrIdent field
@@ -5047,8 +5049,8 @@ def translateBindSource
       let _ ← lookupStructMemberDecl fields fieldName memberName true
       `(Compiler.CompilationModel.Expr.structMember2
           $(strTerm fieldName)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key1)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key2)
+          $(← translateOperand key1)
+          $(← translateOperand key2)
           $(strTerm memberName))
   | `(term| msgSender) | `(term| Verity.msgSender) => `(Compiler.CompilationModel.Expr.caller)
   | `(term| msgValue) | `(term| Verity.msgValue) => `(Compiler.CompilationModel.Expr.msgValue)
@@ -5068,7 +5070,7 @@ def translateBindSource
       `(Compiler.CompilationModel.Expr.chainid)
   | `(term| tload $offset:term) =>
       `(Compiler.CompilationModel.Expr.tload
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals offset))
+          $(← translateOperand offset))
   | _ =>
       match ← resolveLocalFunctionApp? fields constDecls immutableDecls externalDecls functions params locals rhs with
       | some (fn, argTerms) =>
@@ -5083,8 +5085,7 @@ def translateBindSource
       | none =>
           match ← resolveQualifiedFunctionApp? fields constDecls immutableDecls externalDecls params locals rhs with
           | some (qualifiedName, argTerms) =>
-              let argExprs ← argTerms.mapM
-                (translatePureExprWithTypes fields constDecls immutableDecls params locals)
+              let argExprs ← argTerms.mapM translateOperand
               `(Compiler.CompilationModel.Expr.internalCall
                   $(strTerm (qualifiedInternalHelperName functions qualifiedName))
                   [ $[$argExprs],* ])
