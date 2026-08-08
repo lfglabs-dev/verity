@@ -218,6 +218,13 @@ def normalizeTranslatedExprForType
           let mask := (2 ^ (8 * bytes) - 1) * 2 ^ (8 * (32 - bytes))
           `(Compiler.CompilationModel.Expr.bitAnd $expr
               (Compiler.CompilationModel.Expr.literal $(natTerm mask)))
+  | .address =>
+      `(Compiler.CompilationModel.Expr.bitAnd $expr
+          (Compiler.CompilationModel.Expr.literal $(natTerm (2 ^ 160 - 1))))
+  | .bool =>
+      `(Compiler.CompilationModel.Expr.logicalNot
+          (Compiler.CompilationModel.Expr.eq $expr
+            (Compiler.CompilationModel.Expr.literal 0)))
   | .newtype _ baseType => normalizeTranslatedExprForType baseType source expr
   | _ => pure expr
 
@@ -225,10 +232,10 @@ def normalizeBoundValueStmt?
     (expectedTy : ValueType) (source : Term) (name : String) : CommandElabM (Option Term) := do
   let needsNormalization :=
     match expectedTy with
-    | .uint8 | .uint16 | .uintN _ | .intN _ | .bytesN _ => true
+    | .uint8 | .uint16 | .uintN _ | .intN _ | .bytesN _ | .address | .bool => true
     | .newtype _ baseType =>
         match baseType with
-        | .uint8 | .uint16 | .uintN _ | .intN _ | .bytesN _ => true
+        | .uint8 | .uint16 | .uintN _ | .intN _ | .bytesN _ | .address | .bool => true
         | _ => false
     | _ => false
   unless needsNormalization do return none
@@ -3848,6 +3855,15 @@ partial def syntaxMentionsIdent (stx : Syntax) (name : String) : Bool :=
   | .node _ _ args => args.any (fun child => syntaxMentionsIdent child name)
   | _ => false
 
+partial def syntaxContainsCallExternal (stx : Syntax) : Bool :=
+  match stx with
+  | .node _ _ args =>
+      if let `(term| callExternal $_name:ident ($[$_args:term],*)) := stx then
+        true
+      else
+        args.any syntaxContainsCallExternal
+  | _ => false
+
 def freshSyntheticLocalName
     (base : String)
     (params : Array ParamDecl)
@@ -5144,6 +5160,9 @@ def translateSafeRequireBind
     | _ => throwErrorAt term "narrow arithmetic currently requires direct UintN operands"
   let translateSafeUintGuardAndValue (optExpr : Term) (label : String) :
       CommandElabM (Term × Term) := do
+    if syntaxContainsCallExternal optExpr then
+      throwErrorAt optExpr
+        s!"{label} operands cannot contain callExternal because safe-arithmetic lowering reuses operands in both the guard and result; bind the external result first"
     match stripParens optExpr with
     | `(term| safeAdd $a:term $b:term) =>
         let aExpr ← translateOperand a

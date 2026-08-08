@@ -39,6 +39,8 @@ verity_contract ExternalCallInBodySmoke where
     external dirtyPair_try() -> (Bool, NarrowPair)
     external dirtyInt() -> (Int32)
     external dirtyBytes() -> (Bytes4)
+    external dirtyAddress() -> (Address)
+    external dirtyBool() -> (Bool)
     external dirtySink(Uint32) -> (Uint32)
     external consumeUint8(Uint8)
     external consumeUint16(Uint16)
@@ -94,8 +96,12 @@ verity_contract ExternalCallInBodySmoke where
     let (_success, result) ← tryExternalCall "dirtyPair" []
     return result.narrow
 
-  function reentrancy_trusted safeBindDirtyUint () : Uint256 := do
-    let result ← requireSomeUint (safeAdd (callExternal dirtyUint()) 1) "overflow"
+  function reentrancy_trusted bindDirtyAddress () : Address := do
+    let result ← callExternal dirtyAddress()
+    return result
+
+  function reentrancy_trusted bindDirtyBool () : Bool := do
+    let result ← callExternal dirtyBool()
     return result
 
   function reentrancy_trusted leanHelperNestedExternal () : Uint256 := do
@@ -256,7 +262,8 @@ example : (ExternalCallInBodySmoke.callResultDirtyUint_modelBody).take 2 =
         (.bitAnd (.localVar "result_returndata") (.literal (2 ^ 32 - 1))) ] := rfl
 
 example : (ExternalCallInBodySmoke.tryNotifyBool_modelBody).take 1 =
-    [.tryExternalCallBind "success" [] "notifyBool" [.param "flag"]] := rfl
+    [.tryExternalCallBind "success" [] "notifyBool"
+      [(.logicalNot (.eq (.param "flag") (.literal 0)))]] := rfl
 
 example : (ExternalCallInBodySmoke.tryDirtyPair_modelBody).take 3 =
     [ .tryExternalCallBind "_success" ["result_narrow", "result_wide"] "dirtyPair" []
@@ -264,14 +271,13 @@ example : (ExternalCallInBodySmoke.tryDirtyPair_modelBody).take 3 =
         (.bitAnd (.localVar "result_narrow") (.literal (2 ^ 32 - 1)))
     , .return (.localVar "result_narrow") ] := rfl
 
-example : (ExternalCallInBodySmoke.safeBindDirtyUint_modelBody).take 2 =
-    [ .require
-        (.ge
-          (.add (.bitAnd (.externalCall "dirtyUint" []) (.literal (2 ^ 32 - 1))) (.literal 1))
-          (.bitAnd (.externalCall "dirtyUint" []) (.literal (2 ^ 32 - 1))))
-        "overflow"
-    , .letVar "result"
-        (.add (.bitAnd (.externalCall "dirtyUint" []) (.literal (2 ^ 32 - 1))) (.literal 1)) ] := rfl
+example : (ExternalCallInBodySmoke.bindDirtyAddress_modelBody).take 2 =
+    [ .externalCallBind ["result"] "dirtyAddress" []
+    , .assignVar "result" (.bitAnd (.localVar "result") (.literal (2 ^ 160 - 1))) ] := rfl
+
+example : (ExternalCallInBodySmoke.bindDirtyBool_modelBody).take 2 =
+    [ .externalCallBind ["result"] "dirtyBool" []
+    , .assignVar "result" (.logicalNot (.eq (.localVar "result") (.literal 0))) ] := rfl
 
 example : ExternalCallInBodySmoke.leanHelperNestedExternal_modelBody =
     [.return (.externalCall "narrowEcho"
@@ -538,6 +544,16 @@ verity_contract CompositePureLinkedCallRejected where
     external pair(Uint256) -> (Tuple [Uint256, Uint256])
   function bad (value : Uint256) : Tuple [Uint256, Uint256] := do
     let result := callExternal pair(value)
+    return result
+
+/-- error: requireSomeUint operands cannot contain callExternal because safe-arithmetic lowering reuses operands in both the guard and result; bind the external result first -/
+#guard_msgs in
+verity_contract EffectfulSafeArithmeticOperandRejected where
+  storage
+  linked_externals
+    external dirtyUint() -> (Uint32)
+  function bad () : Uint256 := do
+    let result ← requireSomeUint (safeAdd (callExternal dirtyUint()) 1) "overflow"
     return result
 
 /-- error: memory-store value requires a word-like value (Uint256, Int256, Uint8, Address, or Bytes32), got Verity.Macro.ValueType.bytes -/
