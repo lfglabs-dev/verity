@@ -958,6 +958,8 @@ private def translateEffectStmt
       `(Compiler.CompilationModel.Stmt.revertReturndata)
   | `(term| returnValues $values:term) =>
       let valueExprs ← expectExprList fields constDecls immutableDecls params locals values
+        (some (translateDeclaredPureExpr
+          fields constDecls immutableDecls externalDecls params locals))
       `(Compiler.CompilationModel.Stmt.returnValues [ $[$valueExprs],* ])
   | `(term| returnArray $name:term) =>
       `(Compiler.CompilationModel.Stmt.returnArray $(strTerm (← expectStringOrIdent name)))
@@ -974,6 +976,8 @@ private def translateEffectStmt
       `(Compiler.CompilationModel.Stmt.emit $(strTerm evName) [ $[$argExprs],* ])
   | `(term| rawLog $topics:term $dataOffset:term $dataSize:term) =>
       let topicExprs ← expectExprList fields constDecls immutableDecls params locals topics
+        (some (translateDeclaredPureExpr
+          fields constDecls immutableDecls externalDecls params locals))
       `(Compiler.CompilationModel.Stmt.rawLog
           [ $[$topicExprs],* ]
           $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals dataOffset)
@@ -1000,7 +1004,9 @@ private def translateEffectStmt
         throwErrorAt stx s!"callExternal '{extName}' returns values; bind it with `let ... ← ...`"
       validateLinkedExternalCallArgs fields constDecls immutableDecls externalDecls params locals
         extName ext.params args
-      let argExprs ← translateLinkedExternalCallArgs fields constDecls immutableDecls params locals args (some ext.params)
+      let argExprs ← translateLinkedExternalCallArgs fields constDecls immutableDecls params locals args
+        (some ext.params) (some (translateDeclaredPureExpr
+          fields constDecls immutableDecls externalDecls params locals))
       `(Compiler.CompilationModel.Stmt.externalCallBind [] $(strTerm extName) [ $[$argExprs],* ])
   | `(term| setStructMember $field:term $key:term $member:term $value:term) =>
       let fieldName := ← expectStringOrIdent field
@@ -1308,7 +1314,9 @@ private partial def translateDoElem
               | [retTy] =>
                   validateLinkedExternalCallArgs fields constDecls immutableDecls externalDecls params locals
                     extName ext.params args
-                  let argExprs ← translateLinkedExternalCallArgs fields constDecls immutableDecls params locals args (some ext.params)
+                  let argExprs ← translateLinkedExternalCallArgs fields constDecls immutableDecls params locals args
+                    (some ext.params) (some (translateDeclaredPureExpr
+                      fields constDecls immutableDecls externalDecls params locals))
                   let flatNames ← flattenExternalResultNames varName retTy
                   if flatNames.length != 1 then
                     throwErrorAt rhs s!"callExternal '{extName}' return type expands to {flatNames.length} values and cannot be bound to one source variable"

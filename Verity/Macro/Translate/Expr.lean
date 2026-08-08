@@ -4671,14 +4671,19 @@ def expectExprList
     (immutableDecls : Array ImmutableDecl)
     (params : Array ParamDecl)
     (locals : Array TypedLocal)
-    (stx : Term) : CommandElabM (Array Term) := do
+    (stx : Term)
+    (translateExpr? : Option (Term → CommandElabM Term) := none) : CommandElabM (Array Term) := do
+  let translateExpr (x : Term) :=
+    match translateExpr? with
+    | some translate => translate x
+    | none => translatePureExprWithTypes fields constDecls immutableDecls params locals x
   match stripParens stx with
   | `(term| [ $[$xs],* ]) =>
       let mut out : Array Term := #[]
       for x in xs do
         match ← translateAbiEncodeProjection? fields constDecls immutableDecls params locals x with
         | some exprs => out := out ++ exprs
-        | none => out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals x)
+        | none => out := out.push (← translateExpr x)
       pure out
   | _ => throwErrorAt stx "expected list literal [..]"
 
@@ -4834,6 +4839,8 @@ def translateBindSource
             throwErrorAt name s!"callExternal '{extName}' return type cannot be used as a pure single-word expression"
           let argExprs ← translateLinkedExternalCallArgs
             fields constDecls immutableDecls params locals args (some ext.params)
+            (some (translateDeclaredPureExpr
+              fields constDecls immutableDecls externalDecls params locals))
           let callExpr ←
             `(Compiler.CompilationModel.Expr.externalCall $(strTerm extName) [ $[$argExprs],* ])
           normalizeTranslatedExprForType retTy rhs callExpr

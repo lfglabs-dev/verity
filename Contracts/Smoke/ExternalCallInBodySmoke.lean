@@ -19,6 +19,7 @@ verity_contract ExternalCallInBodySmoke where
     external dirtyInt() -> (Int32)
     external dirtyBytes() -> (Bytes4)
     external dirtySink(Uint32) -> (Uint32)
+    external consume(Uint256)
 
   function reentrancy_trusted linkedRead () : Uint256 := do
     let depositable ← callExternal getDepositableEther()
@@ -52,6 +53,18 @@ verity_contract ExternalCallInBodySmoke where
   function reentrancy_trusted bindDirtyUint () : Uint32 := do
     let result ← callExternal dirtyUint()
     return result
+
+  function reentrancy_trusted bindNestedExternalArg () : Uint32 := do
+    let result ← callExternal dirtySink(callExternal dirtyUint())
+    return result
+
+  function reentrancy_trusted statementNestedExternalArg () : Unit := do
+    callExternal consume(callExternal narrowEcho(0xdeadbeef))
+
+  function reentrancy_trusted logDirtyUint ()
+    local_obligations [low_level_frame := assumed "Logging a linked-call result is an explicit refinement boundary."]
+    : Unit := do
+    rawLog [callExternal dirtyUint()] 0 0
 
   function reentrancy_trusted pureDirtyInt () : Int32 := do
     let result := callExternal dirtyInt()
@@ -136,6 +149,19 @@ example : (ExternalCallInBodySmoke.bindDirtyUint_modelBody).take 2 =
     [ .externalCallBind ["result"] "dirtyUint" []
     , .assignVar "result" (.bitAnd (.localVar "result") (.literal (2 ^ 32 - 1))) ] := rfl
 
+example : (ExternalCallInBodySmoke.bindNestedExternalArg_modelBody).take 1 =
+    [.externalCallBind ["result"] "dirtySink"
+      [(.bitAnd (.externalCall "dirtyUint" []) (.literal (2 ^ 32 - 1)))]] := rfl
+
+example : ExternalCallInBodySmoke.statementNestedExternalArg_modelBody =
+    [.externalCallBind [] "consume"
+      [(.externalCall "narrowEcho"
+        [(.literal 100720434702924942364018397558880508427273416251376888068364465368051161759744)])]] := rfl
+
+example : ExternalCallInBodySmoke.logDirtyUint_modelBody =
+    [.rawLog [(.bitAnd (.externalCall "dirtyUint" []) (.literal (2 ^ 32 - 1)))]
+      (.literal 0) (.literal 0)] := rfl
+
 example : (ExternalCallInBodySmoke.pureDirtyInt_modelBody).take 1 =
     [.letVar "result" (.signextend (.literal 3) (.externalCall "dirtyInt" []))] := rfl
 
@@ -175,6 +201,18 @@ example : ExternalCallInBodySmoke.storeDirtyUint_model.body =
 example : ExternalCallInBodySmoke.bindDirtyUint_model.body =
     ExternalCallInBodySmoke.bindDirtyUint_modelBody :=
   ExternalCallInBodySmoke.bindDirtyUint_semantic_preservation
+
+example : ExternalCallInBodySmoke.bindNestedExternalArg_model.body =
+    ExternalCallInBodySmoke.bindNestedExternalArg_modelBody :=
+  ExternalCallInBodySmoke.bindNestedExternalArg_semantic_preservation
+
+example : ExternalCallInBodySmoke.statementNestedExternalArg_model.body =
+    ExternalCallInBodySmoke.statementNestedExternalArg_modelBody :=
+  ExternalCallInBodySmoke.statementNestedExternalArg_semantic_preservation
+
+example : ExternalCallInBodySmoke.logDirtyUint_model.body =
+    ExternalCallInBodySmoke.logDirtyUint_modelBody :=
+  ExternalCallInBodySmoke.logDirtyUint_semantic_preservation
 
 example : ExternalCallInBodySmoke.pureDirtyInt_model.body =
     ExternalCallInBodySmoke.pureDirtyInt_modelBody :=
