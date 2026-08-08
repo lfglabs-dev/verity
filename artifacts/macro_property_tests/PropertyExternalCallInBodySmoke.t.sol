@@ -32,4 +32,13 @@ contract PropertyExternalCallInBodySmokeTest is YulTestBase {
         (bool ok,) = target.call(abi.encodeWithSignature("linkedWrite(uint256,bytes)", uint256(1), hex"CAFE"));
         require(ok, "linkedWrite reverted unexpectedly");
     }
+    // Property 3: TODO decode and assert `pureNarrow` result
+    function testTODO_PureNarrow_DecodeAndAssert() public {
+        vm.prank(alice);
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("pureNarrow()"));
+        require(ok, "pureNarrow reverted unexpectedly");
+        assertEq(ret.length, 32, "pureNarrow ABI return length mismatch (expected 32 bytes)");
+        // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
+        ret;
+    }
 }
