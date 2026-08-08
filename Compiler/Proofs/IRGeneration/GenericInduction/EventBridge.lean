@@ -713,7 +713,15 @@ private theorem eventSignatureTopic_of_memorySliceWords_eq
     abstractKeccakMemorySlice memory ptr
         (bytesFromString (eventSignature eventDef)).length =
       SourceSemantics.eventSignatureTopic eventDef := by
-  simp [abstractKeccakMemorySlice, SourceSemantics.eventSignatureTopic, hslice]
+  have hbytes :
+      irMemorySliceBytesBE memory ptr (bytesFromString (eventSignature eventDef)).length =
+        irMemorySliceBytesBE (SourceSemantics.eventSignatureMemory eventDef) 0
+          (bytesFromString (eventSignature eventDef)).length := by
+    simp only [irMemorySliceBytesBE]
+    rw [hslice]
+  unfold abstractKeccakMemorySlice SourceSemantics.eventSignatureTopic
+  rw [hbytes]
+  rfl
 
 private theorem eventEvalIRExpr_topic0
     {state : IRState} {eventDef : EventDef} {ptr : Nat}
@@ -1496,11 +1504,8 @@ private theorem eventKeccakFold_lt_evmModulus (words : List Nat) (acc : Nat) :
 private theorem eventSignatureTopic_lt_evmModulus (eventDef : EventDef) :
     SourceSemantics.eventSignatureTopic eventDef <
       Compiler.Constants.evmModulus := by
-  simpa [SourceSemantics.eventSignatureTopic, abstractKeccakMemorySlice] using
-    eventKeccakFold_lt_evmModulus
-      (memorySliceWords (SourceSemantics.eventSignatureMemory eventDef) 0
-        (bytesFromString (eventSignature eventDef)).length)
-      (bytesFromString (eventSignature eventDef)).length
+  unfold SourceSemantics.eventSignatureTopic abstractKeccakMemorySlice
+  exact Nat.mod_lt _ (by norm_num [Compiler.Constants.evmModulus])
 
 private theorem eventFromResolvedArgs?_encoded
     {events : List EventDef} {eventName : String} {values : List Nat}

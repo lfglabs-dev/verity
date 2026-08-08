@@ -213,6 +213,11 @@ theorem exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
       simp only [exprTouchesUnsupportedContractSurface] at hsurface
       exact .mload
         (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hsurface)
+  | .keccak256 offset size, hsurface =>
+      simp only [exprTouchesUnsupportedContractSurface, Bool.or_eq_false_iff] at hsurface
+      exact .keccak256
+        (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hsurface.1)
+        (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hsurface.2)
   | .ite cond thenVal elseVal, hsurface =>
       simp only [exprTouchesUnsupportedContractSurface, Bool.or_eq_false_iff] at hsurface
       exact .ite
@@ -852,6 +857,7 @@ private theorem exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
   | bitAnd hL hR ihL ihR
   | bitOr hL hR ihL ihR
   | bitXor hL hR ihL ihR
+  | keccak256 hL hR ihL ihR
   | slt hL hR ihL ihR | sgt hL hR ihL ihR | sdiv hL hR ihL ihR
   | smod hL hR ihL ihR | sar hL hR ihL ihR | byte hL hR ihL ihR | signextend hL hR ihL ihR =>
       rename_i lhs rhs
@@ -1977,6 +1983,7 @@ theorem collectExprNames_mem_exprBoundNames_of_core
   | logicalAnd hL hR ihL ihR | logicalOr hL hR ihL ihR
   | shl hL hR ihL ihR | shr hL hR ihL ihR | min hL hR ihL ihR | max hL hR ihL ihR
   | ceilDiv hL hR ihL ihR | wMulDown hL hR ihL ihR | wDivUp hL hR ihL ihR
+  | keccak256 hL hR ihL ihR
   | slt hL hR ihL ihR | sgt hL hR ihL ihR | sdiv hL hR ihL ihR
   | smod hL hR ihL ihR | sar hL hR ihL ihR | byte hL hR ihL ihR | signextend hL hR ihL ihR =>
       intro name hmem

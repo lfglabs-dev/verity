@@ -36,6 +36,11 @@ HARD_LIMIT = 50
 # before the check was introduced. New proofs must not be added here without a
 # justification comment in the PR explaining why decomposition is not feasible.
 ALLOWLIST: set[str] = {
+    # #2083 expression-surface closure: both proofs are mechanical constructor/list
+    # traversals kept whole so the denotation and scanner cases remain auditable
+    # against the corresponding exhaustive expression definitions.
+    "denote_evalExpr_eq",
+    "exprListTouchesUnsupportedContractSurface_eq_false_of_featureClosed",
     # #2081 canonical-storage consequences: these wrappers are signature-dominated
     # adapters carrying the exact compile, execution, helper-interface, and state
     # premises. Their proof bodies only invoke the corresponding generic theorem;

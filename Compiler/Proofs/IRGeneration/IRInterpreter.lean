@@ -21,6 +21,7 @@ import Compiler.Proofs.MappingSlot
 import Compiler.Proofs.YulGeneration.LogNames
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBuiltinSemantics
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanPureBuiltinLemmas
+import Compiler.Keccak.Sponge
 import Verity.Core
 
 -- The Layer A log-cross-cast theorems (IRStmtPreservesObsAt_of_log0..log4)
@@ -105,15 +106,27 @@ def memorySliceWords (memory : Nat → Nat) (offset size : Nat) : List Nat :=
   (List.range (byteWordCount size)).map
     (fun i => memory ((offset + i * 32) % Compiler.Constants.evmModulus))
 
-/-- Proof-side model of `keccak256(offset, size)` over linear memory.
+/-- Big-endian 32-byte encoding of a proof-IR memory word. -/
+def irWordToBytesBE (word : Nat) : ByteArray :=
+  ⟨((List.range 32).map
+    (fun index => UInt8.ofNat ((word / (256 ^ (31 - index))) % 256))).toArray⟩
 
-The proof IR keeps memory word-addressed and intentionally abstracts the
-cryptographic permutation. The important property for event proofs is that the
-same memory slice maps to the same topic in source and IR semantics. -/
+/-- Exact byte slice read by `keccak256(offset, size)` from the proof IR's
+word-addressed memory.  Verity emits word-aligned memory regions, so each
+successive cell is based at `offset + 32 * index`; the final cell is truncated
+to the requested byte length. -/
+def irMemorySliceBytesBE (memory : Nat → Nat) (offset size : Nat) : ByteArray :=
+  let bytes := (memorySliceWords memory offset size).foldl
+    (fun acc word => acc ++ irWordToBytesBE word)
+    ByteArray.empty
+  bytes.extract 0 size
+
+/-- Proof-side model of `keccak256(offset, size)` over linear memory, using
+the in-tree Ethereum Keccak implementation on the exact requested byte slice. -/
 def abstractKeccakMemorySlice (memory : Nat → Nat) (offset size : Nat) : Nat :=
-  (memorySliceWords memory offset size).foldl
-    (fun acc word => ((acc * 16777619) + word) % Compiler.Constants.evmModulus)
-    (size % Compiler.Constants.evmModulus)
+  KeccakEngine.byteArrayToNatBE
+      (KeccakEngine.keccak256 (irMemorySliceBytesBE memory offset size)) %
+    Compiler.Constants.evmModulus
 
 /-- Read the word-aligned memory payload that a Yul `log*` instruction records.
 The proof IR models log data at word granularity, so byte sizes are truncated to

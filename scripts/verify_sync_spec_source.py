@@ -273,7 +273,7 @@ SPEC = {'check_only_paths': ['.github/workflows/**',
                                                  'use-sticky-disks': '${{ env.VERIFY_USE_STICKY_DISKS }}',
                                                  'sticky-disk-key-prefix': 'verify',
                                                  'use-build-sticky-disk': '${{ env.VERIFY_USE_STICKY_DISKS }}',
-                                                 'build-sticky-disk-key': "verify-build-base-${{ env.VERIFY_CACHE_BUCKET }}-${{ runner.os }}-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('lakefile.lean') }}-${{ hashFiles('lake-manifest.json') }}",
+                                                 'build-sticky-disk-key': "verify-build-base-${{ env.VERIFY_CACHE_BUCKET }}-${{ runner.os }}-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('lakefile.lean') }}-${{ hashFiles('lake-manifest.json') }}-${{ hashFiles('Verity/Core.lean') }}",
                                                  'disable-lake-cache-restore': '${{ env.VERIFY_DISABLE_LAKE_CACHE_RESTORE }}',
                                                  'cache-primary-key': 'lake-${{ runner.os }}-${{ '
                                                                       "hashFiles('lean-toolchain') "
@@ -282,10 +282,22 @@ SPEC = {'check_only_paths': ['.github/workflows/**',
                                                                       '}}-${{ '
                                                                       "hashFiles('lake-manifest.json') "
                                                                       '}}-${{ github.run_id }}'}},
+                                       {'name': 'Rebuild cached local Lean modules',
+                                        'run': 'rm -rf .lake/build/lib/lean/Verity .lake/build/ir/Verity\n'
+                                               'rm -rf .lake/build/lib/lean/Contracts .lake/build/ir/Contracts\n'
+                                               'rm -rf .lake/build/lib/lean/Compiler .lake/build/ir/Compiler'},
                                        {'name': 'Prebuild shared audit Lean targets',
-                                        'run': 'set -o pipefail\n'
-                                               'lake build PrintAxioms 2>&1 | tee -a '
-                                               'lake-build.log'},
+                                        'run': 'set +e\n'
+                                               'lake build PrintAxioms 2>&1 | tee -a lake-build.log\n'
+                                               'build_status=${PIPESTATUS[0]}\n'
+                                               'if [ "${build_status}" -ne 0 ]; then\n'
+                                               "  diagnostics=\"$(grep -E 'error:|unsolved goals|declaration uses|failed to synthesize|maximum recursion depth' lake-build.log | tail -80)\"\n"
+                                               "  diagnostics=\"${diagnostics//'%'/'%25'}\"\n"
+                                               "  diagnostics=\"${diagnostics//$'\\n'/'%0A'}\"\n"
+                                               "  diagnostics=\"${diagnostics//$'\\r'/'%0D'}\"\n"
+                                               '  echo "::error title=PrintAxioms prebuild diagnostics::${diagnostics}"\n'
+                                               '  exit "${build_status}"\n'
+                                               'fi'},
                                        {'name': 'Upload prepared Lean workspace build',
                                         'uses': 'actions/upload-artifact@v7',
                                         'with': {'name': 'lean-workspace-build',

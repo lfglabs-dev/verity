@@ -600,6 +600,8 @@ def dynamicArrayBinding? (bindings : Env) (name : String) :
     Option (Nat × Nat) :=
   DynamicAbi.dynamicArrayBinding? bindings name
 
+abbrev arrayElement? := DynamicAbi.arrayElement?
+
 abbrev externalCalldataSize :=
   DynamicAbi.externalCalldataSize
 
@@ -627,6 +629,17 @@ def evalExpr (oracle : DenoteOracle) (fields : List Field) (state : DenoteState)
     Expr → Option Nat
   | .memoryArrayLength _ => none
   | .memoryArrayElement _ _ => none
+  | .arrayLength name =>
+      lookupBinding? state.bindings s!"{name}_length"
+  | .arrayElement name index => do
+      let idx ← evalExpr oracle fields state index
+      let (dataOffset, length) ← dynamicArrayBinding? state.bindings name
+      arrayElement? state.selector state.world.calldata dataOffset length idx
+  | .dynamicBytesEq lhsName rhsName => do
+      let (lhsOffset, lhsLength) ← dynamicArrayBinding? state.bindings lhsName
+      let (rhsOffset, rhsLength) ← dynamicArrayBinding? state.bindings rhsName
+      some (boolWord (DynamicAbi.dynamicBytesEqCalldata state.selector state.world.calldata
+        lhsOffset lhsLength rhsOffset rhsLength))
   | .arrayElementDynamicDataOffset name index => do
       let idx ← evalExpr oracle fields state index
       let (dataOffset, length) ← dynamicArrayBinding? state.bindings name
