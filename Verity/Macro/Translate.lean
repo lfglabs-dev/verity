@@ -1451,7 +1451,7 @@ private partial def translateDoElem
                           source := .memoryArray },
                       mutableLocals)
               | none =>
-                  let safeBind? ← translateSafeRequireBind fields constDecls immutableDecls params locals varName rhs
+                  let safeBind? ← translateSafeRequireBind fields constDecls immutableDecls externalDecls params locals varName rhs
                   match safeBind? with
                   | some safeStmts =>
                       let safeTy ← inferBindSourceType
@@ -1777,7 +1777,7 @@ private def immutableInitStmtTerms
       | _ =>
           throwErrorAt imm.ident s!"immutable '{imm.name}' uses unsupported type"
     let checkedInit? ←
-      translateSafeRequireBind fields constDecls #[] ctorParams #[]
+      translateSafeRequireBind fields constDecls #[] #[] ctorParams #[]
         "__immutable_init_value" imm.body
     match checkedInit? with
     | some stmts =>
@@ -1880,7 +1880,24 @@ private def isVoidTypedInterfaceCall?
     | pure false
   pure ext.returnTys.isEmpty
 
+private def annotateExecutableLinkedCall?
+    (externalDecls : Array ExternalDecl)
+    (term : Term) : CommandElabM Term := do
+  match stripParens term with
+  | `(term| callExternal $name:ident ($[$_args:term],*)) =>
+      let extName := toString name.getId
+      match externalDecls.find? (fun ext => ext.name == extName) with
+      | some ext =>
+          match ext.returnTys.toList with
+          | [retTy] =>
+              let retTyTerm ← contractValueTypeTerm retTy
+              `(($term : $retTyTerm))
+          | _ => pure term
+      | none => pure term
+  | _ => pure term
+
 mutual
+
 private partial def rewriteForEachExecutableDoSeq
     (externalDecls : Array ExternalDecl)
     (params : Array ParamDecl)
@@ -1935,7 +1952,20 @@ private partial def rewriteForEachExecutableDoElem
           let retTyTerm ← contractValueTypeTerm retTy
           pure (#[← `(doElem| let $name:ident := (panic! "typed interface calls are compiler-only in executable wrappers" : $retTyTerm))],
             locals.push (mkTypedLocal (toString name.getId) retTy))
-      | none => pure (#[elem], locals)
+      | none =>
+          match stripParens rhs with
+          | `(term| tryExternalCall $extNameTerm:term $_args:term) =>
+              let extName := ← expectStringOrIdent extNameTerm
+              match externalDecls.find? (fun ext => ext.name == extName) with
+              | some ext =>
+                  match ext.returnTys.toList with
+                  | [] =>
+                      pure (#[← `(doElem| let ($name:ident, _) ←
+                        ($rhs : _root_.Verity.Contract (Bool × Unit)))],
+                        locals.push (mkTypedLocal (toString name.getId) .bool))
+                  | _ => pure (#[elem], locals)
+              | none => pure (#[elem], locals)
+          | _ => pure (#[elem], locals)
   | `(doElem| let $pat:term ← $rhs:term) =>
       match tupleBinderNames? pat with
       | some _ =>
@@ -1985,6 +2015,12 @@ private partial def rewriteForEachExecutableDoElem
   | `(doElem| unsafe $_reason:str do $body:doSeq) =>
       let body ← rewriteForEachExecutableDoSeq externalDecls params locals body
       pure (#[← `(doElem| do $body)], locals)
+  | `(doElem| emit $eventName:term [ $[$args:term],* ]) =>
+      let args ← args.mapM (annotateExecutableLinkedCall? externalDecls)
+      pure (#[← `(doElem| emit $eventName [ $[$args],* ])], locals)
+  | `(doElem| requireError $cond:term $errorName:ident($args,*)) =>
+      let args ← args.getElems.mapM (annotateExecutableLinkedCall? externalDecls)
+      pure (#[← `(doElem| requireError $cond $errorName:ident($args,*))], locals)
   | `(doElem| $stmt:term) =>
       -- a void typed interface call in statement position is compiler-only;
       -- drop it from the executable wrapper (it returns nothing to bind).

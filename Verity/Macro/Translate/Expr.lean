@@ -2489,37 +2489,17 @@ partial def inferBindSourceType
       pure .uint256
   | `(term| tryExternalCall $name:term $args:term) => do
       let extName := ← expectStringOrIdent name
+      let ext ← match externalDecls.find? (fun ext => ext.name == extName) with
+        | some ext => pure ext
+        | none => throwErrorAt rhs s!"unknown external function '{extName}'"
       match stripParens args with
       | `(term| [ $[$xs],* ]) =>
-          for x in xs do
-            -- verity#1849, G3: accept `Array <wordLike>` / `bytes` / `string`
-            -- direct param refs alongside word-like args.
-            if let some (_, _, fieldTy, _elemTy, _) := arrayElementDynamicMemberProjection? params x then
-              match fieldTy with
-              | .array elemTy =>
-                  unless externalCallDynamicArgSupported (.array elemTy) do
-                    throwErrorAt x s!"tryExternalCall '{extName}' dynamic-member argument currently supports only Array<wordLike> members, got {renderValueType fieldTy}"
-              | _ =>
-                  throwErrorAt x s!"tryExternalCall '{extName}' dynamic-member argument requires an Array-typed member, got {renderValueType fieldTy}"
-            else if let some (_, _, fieldTy, _elemTy, _) := localArrayElementDynamicMemberProjection? locals x then
-              match fieldTy with
-              | .array elemTy =>
-                  unless externalCallDynamicArgSupported (.array elemTy) do
-                    throwErrorAt x s!"tryExternalCall '{extName}' dynamic-member alias argument currently supports only Array<wordLike> members, got {renderValueType fieldTy}"
-              | _ =>
-                  throwErrorAt x s!"tryExternalCall '{extName}' dynamic-member alias argument requires an Array-typed member, got {renderValueType fieldTy}"
-            else
-              requireWordOrDirectArrayType x s!"tryExternalCall '{extName}' argument"
-                (← inferPureExprType fields constDecls immutableDecls externalDecls params locals x)
+          validateLinkedExternalCallArgs fields constDecls immutableDecls externalDecls params locals
+            extName ext.params xs
       | _ => throwErrorAt args "expected list literal [..]"
-      match externalDecls.find? (fun ext => ext.name == extName) with
-      | some ext =>
-          if ext.returnTys.size > 0 then
-            throwErrorAt rhs s!"tryExternalCall '{extName}' returns {ext.returnTys.size} value(s); use tuple destructuring: `let (success, ...) ← tryExternalCall ...`"
-          -- Zero-return external: success flag only
-          pure .bool
-      | none =>
-          throwErrorAt rhs s!"unknown external function '{extName}'"
+      if ext.returnTys.size > 0 then
+        throwErrorAt rhs s!"tryExternalCall '{extName}' returns {ext.returnTys.size} value(s); use tuple destructuring: `let (success, ...) ← tryExternalCall ...`"
+      pure .bool
   | `(term| requireSomeUint $optExpr:term $_msg:term) =>
       match stripParens optExpr with
       | `(term| safeAdd $a:term $b:term)
@@ -3035,7 +3015,8 @@ partial def translateLeanDefCall?
     (params : Array ParamDecl)
     (locals : Array TypedLocal)
     (stx : Term)
-    (visitingConstants : List String) : CommandElabM (Option Term) := do
+    (visitingConstants : List String)
+    (linkedExternalLowerer? : Option LinkedExternalLowerer := none) : CommandElabM (Option Term) := do
   let some (head, fnDisplay, argTerms) := leanDefAppSyntax? stx
     | pure none
   let some fnName ← resolveLeanDefName? head
@@ -3043,8 +3024,11 @@ partial def translateLeanDefCall?
   let some info ← leanDefInfo? fnName
     | pure none
   let (paramTypeExprs, resultTypeExpr) := peelForallTypes info.type
-  let argTypes ← argTerms.mapM
-    (inferPureExprType fields constDecls immutableDecls externalDecls params locals · visitingConstants)
+  let inferArgType (arg : Term) :=
+    match linkedExternalLowerer? with
+    | some lowerer => lowerer.inferType arg visitingConstants
+    | none => inferPureExprType fields constDecls immutableDecls externalDecls params locals arg visitingConstants
+  let argTypes ← argTerms.mapM inferArgType
   checkLeanDefCallArgs stx.raw fnDisplay argTerms paramTypeExprs argTypes
   match valueTypeFromLeanTypeExpr? resultTypeExpr with
   | some ty => requireSupportedLocalBindingType stx.raw s!"Lean helper '{fnDisplay}' return" ty
@@ -3054,7 +3038,7 @@ partial def translateLeanDefCall?
   let some body := peelLambdaBody info.value argTerms.size
     | throwErrorAt stx s!"Lean helper '{fnDisplay}' body is not a transparent function definition"
   let argExprs ← argTerms.mapM
-    (translatePureExprWithTypes fields constDecls immutableDecls params locals · visitingConstants)
+    (translatePureExprWithTypes fields constDecls immutableDecls params locals · visitingConstants linkedExternalLowerer?)
   pure (some (← translateLeanExprFromDef fields constDecls immutableDecls params locals stx.raw fnDisplay argExprs body))
 
 partial def translatePureExprWithTypes
@@ -3742,7 +3726,7 @@ partial def translatePureExprWithTypes
           $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key2 visitingConstants linkedExternalLowerer?)
           $(strTerm memberName))
   | _ =>
-      match ← translateLeanDefCall? fields constDecls immutableDecls #[] params locals stx visitingConstants with
+      match ← translateLeanDefCall? fields constDecls immutableDecls #[] params locals stx visitingConstants linkedExternalLowerer? with
       | some expr => pure expr
       | none => throwErrorAt stx "unsupported expression in verity_contract body (see #1003 for planned macro support expansions)"
 end
@@ -4630,7 +4614,12 @@ def tryExternalCallBindStmt?
           | some fieldLocals => LocalSource.externalStaticStruct fieldLocals
           | none => LocalSource.value
         visibleLocals := visibleLocals.push { name := resultVar, ty := resultTy, source := source }
-        if flatNames.length == 1 then
+        if let .struct _ fields := resultTy then
+          if let some fieldLocals := staticStructDirectFieldLocals? resultVar resultTy then
+            for ((_, fieldTy), (_, fieldLocal)) in fields.zip fieldLocals do
+              if let some normalization ← normalizeBoundValueStmt? fieldTy rhs fieldLocal then
+                normalizations := normalizations.push normalization
+        else if flatNames.length == 1 then
           if let some normalization ← normalizeBoundValueStmt? resultTy rhs resultVar then
             normalizations := normalizations.push normalization
       let resultVarTerms := flattenedResultVars.map strTerm
@@ -5130,10 +5119,13 @@ def translateSafeRequireBind
     (fields : Array StorageFieldDecl)
     (constDecls : Array ConstantDecl)
     (immutableDecls : Array ImmutableDecl)
+    (externalDecls : Array ExternalDecl)
     (params : Array ParamDecl)
     (locals : Array TypedLocal)
     (varName : String)
     (rhs : Term) : CommandElabM (Option (Array Term)) := do
+  let translateOperand :=
+    translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals
   let narrowBitsOf (term : Term) : CommandElabM Nat := do
     match stripParens term with
     | `(term| $name:ident) =>
@@ -5148,20 +5140,20 @@ def translateSafeRequireBind
       CommandElabM (Term × Term) := do
     match stripParens optExpr with
     | `(term| safeAdd $a:term $b:term) =>
-        let aExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals a
-        let bExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals b
+        let aExpr ← translateOperand a
+        let bExpr ← translateOperand b
         let valueExpr : Term ← `(Compiler.CompilationModel.Expr.add $aExpr $bExpr)
         let guardExpr : Term ← `(Compiler.CompilationModel.Expr.ge $valueExpr $aExpr)
         pure (guardExpr, valueExpr)
     | `(term| safeSub $a:term $b:term) =>
-        let aExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals a
-        let bExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals b
+        let aExpr ← translateOperand a
+        let bExpr ← translateOperand b
         let valueExpr : Term ← `(Compiler.CompilationModel.Expr.sub $aExpr $bExpr)
         let guardExpr : Term ← `(Compiler.CompilationModel.Expr.ge $aExpr $bExpr)
         pure (guardExpr, valueExpr)
     | `(term| safeMul $a:term $b:term) =>
-        let aExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals a
-        let bExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals b
+        let aExpr ← translateOperand a
+        let bExpr ← translateOperand b
         let valueExpr : Term ← `(Compiler.CompilationModel.Expr.mul $aExpr $bExpr)
         let zeroExpr : Term ← `(Compiler.CompilationModel.Expr.literal 0)
         let divisorZeroExpr : Term ← `(Compiler.CompilationModel.Expr.eq $bExpr $zeroExpr)
@@ -5170,8 +5162,8 @@ def translateSafeRequireBind
         let guardExpr : Term ← `(Compiler.CompilationModel.Expr.logicalOr $divisorZeroExpr $noOverflowExpr)
         pure (guardExpr, valueExpr)
     | `(term| safeDiv $a:term $b:term) =>
-        let aExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals a
-        let bExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals b
+        let aExpr ← translateOperand a
+        let bExpr ← translateOperand b
         let valueExpr : Term ← `(Compiler.CompilationModel.Expr.div $aExpr $bExpr)
         let zeroExpr : Term ← `(Compiler.CompilationModel.Expr.literal 0)
         let guardExpr : Term ←
@@ -5184,8 +5176,8 @@ def translateSafeRequireBind
   match rhs with
   | `(term| narrowAddPanic $a:term $b:term) =>
       let bits ← narrowBitsOf a
-      let aExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals a
-      let bExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals b
+      let aExpr ← translateOperand a
+      let bExpr ← translateOperand b
       let valueExpr : Term ← `(Compiler.CompilationModel.Expr.add $aExpr $bExpr)
       let guardExpr : Term ← `(Compiler.CompilationModel.Expr.lt $valueExpr
         (Compiler.CompilationModel.Expr.literal $(natTerm (2 ^ bits))))
@@ -5194,8 +5186,8 @@ def translateSafeRequireBind
         (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $valueExpr))
       ])
   | `(term| narrowSubPanic $a:term $b:term) =>
-      let aExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals a
-      let bExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals b
+      let aExpr ← translateOperand a
+      let bExpr ← translateOperand b
       let valueExpr : Term ← `(Compiler.CompilationModel.Expr.sub $aExpr $bExpr)
       let guardExpr : Term ← `(Compiler.CompilationModel.Expr.ge $aExpr $bExpr)
       pure (some #[
@@ -5204,8 +5196,8 @@ def translateSafeRequireBind
       ])
   | `(term| narrowMulPanic $a:term $b:term) =>
       let bits ← narrowBitsOf a
-      let aExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals a
-      let bExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals b
+      let aExpr ← translateOperand a
+      let bExpr ← translateOperand b
       let valueExpr : Term ← `(Compiler.CompilationModel.Expr.mul $aExpr $bExpr)
       -- Check the mathematical product before evaluating the wrapping EVM `mul`.
       -- Looking only at `valueExpr < 2^bits` is unsound for widths above 128:
@@ -5236,7 +5228,7 @@ def translateSafeRequireBind
   -- error name and argument list.
   | `(term| requireSomeUintError $optExpr:term $errorName:ident($args,*)) =>
       let errorNameLit := strTerm (toString errorName.getId)
-      let argExprs ← args.getElems.mapM (translatePureExprWithTypes fields constDecls immutableDecls params locals)
+      let argExprs ← args.getElems.mapM translateOperand
       let (guardExpr, valueExpr) ← translateSafeUintGuardAndValue optExpr "requireSomeUintError"
       pure (some #[
         (← `(Compiler.CompilationModel.Stmt.requireError $guardExpr $errorNameLit [ $[$argExprs],* ])),
@@ -5250,8 +5242,8 @@ def translateSafeRequireBind
   -- and `Panic(0x12)` (division by zero) opcodes.
   | `(term| addPanic $a:term $b:term) =>
       let msgLit := strTerm "Panic(0x11): arithmetic overflow"
-      let aExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals a
-      let bExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals b
+      let aExpr ← translateOperand a
+      let bExpr ← translateOperand b
       let valueExpr : Term ← `(Compiler.CompilationModel.Expr.add $aExpr $bExpr)
       let guardExpr : Term ← `(Compiler.CompilationModel.Expr.ge $valueExpr $aExpr)
       pure (some #[
@@ -5260,8 +5252,8 @@ def translateSafeRequireBind
       ])
   | `(term| subPanic $a:term $b:term) =>
       let msgLit := strTerm "Panic(0x11): arithmetic underflow"
-      let aExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals a
-      let bExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals b
+      let aExpr ← translateOperand a
+      let bExpr ← translateOperand b
       let valueExpr : Term ← `(Compiler.CompilationModel.Expr.sub $aExpr $bExpr)
       let guardExpr : Term ← `(Compiler.CompilationModel.Expr.ge $aExpr $bExpr)
       pure (some #[
@@ -5270,8 +5262,8 @@ def translateSafeRequireBind
       ])
   | `(term| mulPanic $a:term $b:term) =>
       let msgLit := strTerm "Panic(0x11): arithmetic overflow"
-      let aExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals a
-      let bExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals b
+      let aExpr ← translateOperand a
+      let bExpr ← translateOperand b
       let valueExpr : Term ← `(Compiler.CompilationModel.Expr.mul $aExpr $bExpr)
       let zeroExpr : Term ← `(Compiler.CompilationModel.Expr.literal 0)
       let divisorZeroExpr : Term ← `(Compiler.CompilationModel.Expr.eq $bExpr $zeroExpr)
@@ -5284,8 +5276,8 @@ def translateSafeRequireBind
       ])
   | `(term| divPanic $a:term $b:term) =>
       let msgLit := strTerm "Panic(0x12): division by zero"
-      let aExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals a
-      let bExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals b
+      let aExpr ← translateOperand a
+      let bExpr ← translateOperand b
       let valueExpr : Term ← `(Compiler.CompilationModel.Expr.div $aExpr $bExpr)
       let zeroExpr : Term ← `(Compiler.CompilationModel.Expr.literal 0)
       let guardExpr : Term ←

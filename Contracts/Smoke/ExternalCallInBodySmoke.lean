@@ -16,11 +16,16 @@ def linkedOperandEcmModule : Compiler.ECM.ExternalCallModule where
   axioms := []
   compile := fun _ctx _args => pure []
 
+def linkedWordPassthrough (value : Uint256) : Uint256 := value
+
 -- P0 #1003 coverage for linked calls and explicit low-level body syntax.
 -- `callExternal` is declaration-driven; target/value fields belong to `evmCall`.
 verity_contract ExternalCallInBodySmoke where
   storage
     values : Uint256 → Uint256 := slot 0
+  struct NarrowPair where
+    narrow : Uint32,
+    wide : Uint256
   errors
     error Failure(Uint256)
 
@@ -30,6 +35,8 @@ verity_contract ExternalCallInBodySmoke where
     external narrowEcho(Bytes4) -> (Uint256)
     external dirtyUint() -> (Uint32)
     external dirtyUint_try() -> (Bool, Uint32)
+    external dirtyPair() -> (NarrowPair)
+    external dirtyPair_try() -> (Bool, NarrowPair)
     external dirtyInt() -> (Int32)
     external dirtyBytes() -> (Bytes4)
     external dirtySink(Uint32) -> (Uint32)
@@ -82,6 +89,17 @@ verity_contract ExternalCallInBodySmoke where
   function reentrancy_trusted tryNotifyBool (flag : Bool) : Bool := do
     let success ← tryExternalCall "notifyBool" [flag]
     return success
+
+  function reentrancy_trusted tryDirtyPair () : Uint32 := do
+    let (_success, result) ← tryExternalCall "dirtyPair" []
+    return result.narrow
+
+  function reentrancy_trusted safeBindDirtyUint () : Uint256 := do
+    let result ← requireSomeUint (safeAdd (callExternal dirtyUint()) 1) "overflow"
+    return result
+
+  function reentrancy_trusted leanHelperNestedExternal () : Uint256 := do
+    return linkedWordPassthrough (callExternal narrowEcho(0xdeadbeef))
 
   function reentrancy_trusted bindNestedExternalArg () : Uint32 := do
     let result ← callExternal dirtySink(callExternal dirtyUint())
@@ -208,12 +226,14 @@ example : ExternalCallInBodySmoke.nestedDirtyUint_modelBody =
 example : ExternalCallInBodySmoke.nestedExternalArg_modelBody =
     [.return (.bitAnd
       (.externalCall "dirtySink"
-        [(.bitAnd (.externalCall "dirtyUint" []) (.literal (2 ^ 32 - 1)))])
-      (.literal (2 ^ 32 - 1)))] := rfl
+        [(.bitAnd
+          (.bitAnd (.externalCall "dirtyUint" []) (.literal 4294967295))
+          (.literal 4294967295))])
+      (.literal 4294967295))] := rfl
 
 example : ExternalCallInBodySmoke.storeDirtyUint_modelBody =
     [.mstore (.literal 0)
-      (.bitAnd (.externalCall "dirtyUint" []) (.literal (2 ^ 32 - 1)))] := rfl
+      (.bitAnd (.externalCall "dirtyUint" []) (.literal 4294967295)), .stop] := rfl
 
 example : (ExternalCallInBodySmoke.bindDirtyUint_modelBody).take 2 =
     [ .externalCallBind ["result"] "dirtyUint" []
@@ -231,37 +251,63 @@ example : (ExternalCallInBodySmoke.callResultDirtyUint_modelBody).take 2 =
 example : (ExternalCallInBodySmoke.tryNotifyBool_modelBody).take 1 =
     [.tryExternalCallBind "success" [] "notifyBool" [.param "flag"]] := rfl
 
+example : (ExternalCallInBodySmoke.tryDirtyPair_modelBody).take 3 =
+    [ .tryExternalCallBind "_success" ["result_narrow", "result_wide"] "dirtyPair" []
+    , .assignVar "result_narrow"
+        (.bitAnd (.localVar "result_narrow") (.literal (2 ^ 32 - 1)))
+    , .return (.localVar "result_narrow") ] := rfl
+
+example : (ExternalCallInBodySmoke.safeBindDirtyUint_modelBody).take 2 =
+    [ .require
+        (.ge
+          (.add (.bitAnd (.externalCall "dirtyUint" []) (.literal (2 ^ 32 - 1))) (.literal 1))
+          (.bitAnd (.externalCall "dirtyUint" []) (.literal (2 ^ 32 - 1))))
+        "overflow"
+    , .letVar "result"
+        (.add (.bitAnd (.externalCall "dirtyUint" []) (.literal (2 ^ 32 - 1))) (.literal 1)) ] := rfl
+
+example : ExternalCallInBodySmoke.leanHelperNestedExternal_modelBody =
+    [.return (.externalCall "narrowEcho"
+      [(.literal 100720434702924942364018397558880508427273416251376888068364465368051161759744)])] := rfl
+
 example : (ExternalCallInBodySmoke.bindNestedExternalArg_modelBody).take 1 =
     [.externalCallBind ["result"] "dirtySink"
-      [(.bitAnd (.externalCall "dirtyUint" []) (.literal (2 ^ 32 - 1)))]] := rfl
+      [(.bitAnd
+        (.bitAnd (.externalCall "dirtyUint" []) (.literal 4294967295))
+        (.literal 4294967295))]] := rfl
 
 example : ExternalCallInBodySmoke.statementNestedExternalArg_modelBody =
     [.externalCallBind [] "consume"
       [(.externalCall "narrowEcho"
-        [(.literal 100720434702924942364018397558880508427273416251376888068364465368051161759744)])]] := rfl
+        [(.literal 100720434702924942364018397558880508427273416251376888068364465368051161759744)])],
+      .stop] := rfl
 
 example : ExternalCallInBodySmoke.logDirtyUint_modelBody =
     [.rawLog [(.bitAnd (.externalCall "dirtyUint" []) (.literal (2 ^ 32 - 1)))]
-      (.literal 0) (.literal 0)] := rfl
+      (.literal 0) (.literal 0), .stop] := rfl
 
 example : ExternalCallInBodySmoke.legacyNarrowArgs_modelBody =
     [ .externalCallBind [] "consumeUint8" [(.bitAnd (.literal 0x100) (.literal 255))]
-    , .externalCallBind [] "consumeUint16" [(.bitAnd (.literal 0x10000) (.literal 65535))] ] := rfl
+    , .externalCallBind [] "consumeUint16" [(.bitAnd (.literal 0x10000) (.literal 65535))]
+    , .stop ] := rfl
 
 example : ExternalCallInBodySmoke.emitNestedExternalArg_modelBody =
     [.emit "Seen"
       [(.externalCall "narrowEcho"
-        [(.literal 100720434702924942364018397558880508427273416251376888068364465368051161759744)])]] := rfl
+        [(.literal 100720434702924942364018397558880508427273416251376888068364465368051161759744)])],
+      .stop] := rfl
 
 example : ExternalCallInBodySmoke.customErrorNestedExternalArg_modelBody =
     [.requireError (.literal 1) "Failure"
       [(.externalCall "narrowEcho"
-        [(.literal 100720434702924942364018397558880508427273416251376888068364465368051161759744)])]] := rfl
+        [(.literal 100720434702924942364018397558880508427273416251376888068364465368051161759744)])],
+      .stop] := rfl
 
 example : ExternalCallInBodySmoke.helperNestedExternalArg_modelBody =
-    [.internalCall "__verity_internal_helper_consumeHelper"
+    [.internalCall "internal_consumeHelper"
       [(.externalCall "narrowEcho"
-        [(.literal 100720434702924942364018397558880508427273416251376888068364465368051161759744)])]] := rfl
+        [(.literal 100720434702924942364018397558880508427273416251376888068364465368051161759744)])],
+      .stop] := rfl
 
 example : (ExternalCallInBodySmoke.monadicLoadDirtyUint_modelBody).take 1 =
     [.letVar "value" (.mload
@@ -270,7 +316,8 @@ example : (ExternalCallInBodySmoke.monadicLoadDirtyUint_modelBody).take 1 =
 example : ExternalCallInBodySmoke.ecmNestedExternalArg_modelBody =
     [.ecm linkedOperandEcmModule
       [(.externalCall "narrowEcho"
-        [(.literal 100720434702924942364018397558880508427273416251376888068364465368051161759744)])]] := rfl
+        [(.literal 100720434702924942364018397558880508427273416251376888068364465368051161759744)])],
+      .stop] := rfl
 
 example : (ExternalCallInBodySmoke.erc20BalanceNestedExternalArg_modelBody).take 1 =
     [.ecm (Compiler.Modules.ERC20.balanceOfModule "result")
