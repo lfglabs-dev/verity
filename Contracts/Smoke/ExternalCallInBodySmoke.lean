@@ -117,14 +117,14 @@ verity_contract CompositePureLinkedCallRejected where
     let result := callExternal pair(value)
     return result
 
-/-- error: memory-store value must be word-like, got Bytes -/
+/-- error: memory-store value requires a word-like value (Uint256, Int256, Uint8, Address, or Bytes32), got Verity.Macro.ValueType.bytes -/
 #guard_msgs in
 verity_contract DynamicMemoryStoreRejected where
   storage
   function bad (payload : Bytes) : Unit := do
     memoryStore(0, payload)
 
-/-- error: returndata-copy destination offset must be word-like, got Bytes -/
+/-- error: returndata-copy destination offset requires a word-like value (Uint256, Int256, Uint8, Address, or Bytes32), got Verity.Macro.ValueType.bytes -/
 #guard_msgs in
 verity_contract DynamicReturnDataCopyRejected where
   storage
