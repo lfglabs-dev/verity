@@ -14,6 +14,7 @@ verity_contract ExternalCallInBodySmoke where
   linked_externals
     external getDepositableEther() -> (Uint256)
     external deposit(Uint256, Bytes)
+    external narrowEcho(Bytes4) -> (Uint256)
 
   function reentrancy_trusted linkedRead () : Uint256 := do
     let depositable ← callExternal getDepositableEther()
@@ -21,6 +22,10 @@ verity_contract ExternalCallInBodySmoke where
 
   function reentrancy_trusted linkedWrite (amount : Uint256, pubkey : Bytes) : Unit := do
     callExternal deposit(amount, pubkey)
+
+  function reentrancy_trusted pureNarrow () : Uint256 := do
+    let result := callExternal narrowEcho(0xdeadbeef)
+    return result
 
   function reentrancy_trusted lowLevel (target : Uint256, amount : Uint256)
     local_obligations [low_level_frame := assumed "Raw EVM call, memory, and returndata choreography is an explicit refinement boundary."]
@@ -54,6 +59,15 @@ example : (ExternalCallInBodySmoke.linkedRead_modelBody).take 1 =
 example : (ExternalCallInBodySmoke.linkedWrite_modelBody).take 1 =
     [Compiler.CompilationModel.Stmt.externalCallBind [] "deposit"
       [ .param "amount", .param "pubkey_data_offset", .param "pubkey_length" ]] := rfl
+
+example : (ExternalCallInBodySmoke.pureNarrow_modelBody).take 1 =
+    [Compiler.CompilationModel.Stmt.letVar "result"
+      (.externalCall "narrowEcho" [
+        .literal 100720434702924942364018397558880508427273416251376888068364465368051161759744])] := rfl
+
+example : ExternalCallInBodySmoke.pureNarrow_model.body =
+    ExternalCallInBodySmoke.pureNarrow_modelBody :=
+  ExternalCallInBodySmoke.pureNarrow_semantic_preservation
 
 example : (ExternalCallInBodySmoke.lowLevel_modelBody).take 7 =
     [ Compiler.CompilationModel.Stmt.mstore (.literal 0) (.param "amount")

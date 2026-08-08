@@ -4766,6 +4766,22 @@ def translateBindSource
     (rhs : Term) : CommandElabM Term := do
   let rhs := stripParens rhs
   match rhs with
+  | `(term| callExternal $name:ident ($[$args:term],*)) =>
+      let extName := toString name.getId
+      let ext ← match externalDecls.find? (fun ext => ext.name == extName) with
+        | some ext => pure ext
+        | none => throwErrorAt name s!"unknown linked external '{extName}'"
+      validateLinkedExternalCallArgs fields constDecls immutableDecls externalDecls params locals
+        extName ext.params args
+      match ext.returnTys.toList with
+      | [retTy] =>
+          unless isSingleWordStaticValueType retTy do
+            throwErrorAt name s!"callExternal '{extName}' return type cannot be used as a pure single-word expression"
+          let argExprs ← translateLinkedExternalCallArgs
+            fields constDecls immutableDecls params locals args (some ext.params)
+          `(Compiler.CompilationModel.Expr.externalCall $(strTerm extName) [ $[$argExprs],* ])
+      | [] => throwErrorAt name s!"callExternal '{extName}' returns no values"
+      | _ => throwErrorAt name s!"callExternal '{extName}' returns multiple values"
   | `(term| memoryLoad($_))
     | `(term| returnDataSize())
     | `(term| evmCall($_, $_, $_, $_, $_, $_, $_))

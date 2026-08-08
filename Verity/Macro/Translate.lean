@@ -1258,7 +1258,10 @@ private partial def translateDoElem
           let varName := toString name.getId
           if localNames.contains varName then
             throwErrorAt name s!"duplicate local variable '{varName}'"
-          let rhsExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals rhs
+          let rhsExpr ← match stripParens rhs with
+            | `(term| callExternal $_ ($[$_],*)) =>
+                translateBindSource fields constDecls immutableDecls externalDecls functions params locals rhs
+            | _ => translatePureExprWithTypes fields constDecls immutableDecls params locals rhs
           let ty ← inferPureExprType fields constDecls immutableDecls externalDecls params locals rhs
           let interfaceName? ← interfaceNameOfTerm? params locals rhs
           pure
@@ -1281,7 +1284,10 @@ private partial def translateDoElem
                       source := .arrayElement paramName index elemTy },
                   mutableLocals)
           | none =>
-              let rhsExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals rhs
+              let rhsExpr ← match stripParens rhs with
+                | `(term| callExternal $_ ($[$_],*)) =>
+                    translateBindSource fields constDecls immutableDecls externalDecls functions params locals rhs
+                | _ => translatePureExprWithTypes fields constDecls immutableDecls params locals rhs
               let ty ← inferPureExprType fields constDecls immutableDecls externalDecls params locals rhs
               let interfaceName? ← interfaceNameOfTerm? params locals rhs
               pure
