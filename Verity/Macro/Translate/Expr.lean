@@ -3055,7 +3055,8 @@ partial def translatePureExprWithTypes
     (params : Array ParamDecl)
     (locals : Array TypedLocal)
     (stx : Term)
-    (visitingConstants : List String := []) : CommandElabM Term := do
+    (visitingConstants : List String := [])
+    (linkedExternalLowerer? : Option (Ident → Array Term → CommandElabM Term) := none) : CommandElabM Term := do
   let stx := stripParens stx
   let localNames := typedLocalNames locals
   let translateIntrinsic (name lowering args minForkTerm : Term) : CommandElabM Term := do
@@ -3063,12 +3064,12 @@ partial def translatePureExprWithTypes
     let argsExprs ←
       match stripParens args with
       | `(term| [ $[$xs],* ]) =>
-          xs.mapM (translatePureExprWithTypes fields constDecls immutableDecls params locals · visitingConstants)
+          xs.mapM (translatePureExprWithTypes fields constDecls immutableDecls params locals · visitingConstants linkedExternalLowerer?)
       | _ => throwErrorAt args "expected list literal [..]"
     `(Compiler.CompilationModel.Expr.intrinsic $(strTerm intrinsicName) $lowering
         $minForkTerm [ $[$argsExprs],* ])
   if let some (paramName, index, _fieldTy, elemTy, wordOffset) := arrayElementStructProjection? params stx then
-    let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants
+    let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants linkedExternalLowerer?
     if valueTypeUsesDynamicData elemTy then
       `(Compiler.CompilationModel.Expr.arrayElementDynamicWord
         $(strTerm paramName)
@@ -3086,7 +3087,7 @@ partial def translatePureExprWithTypes
         $(natTerm wordOffset))
   else
   if let some (paramName, index, _fieldTy, elemTy, wordOffset) := localArrayElementStructProjection? locals stx then
-    let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants
+    let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants linkedExternalLowerer?
     if valueTypeUsesDynamicData elemTy then
       `(Compiler.CompilationModel.Expr.arrayElementDynamicWord
         $(strTerm paramName)
@@ -3147,7 +3148,7 @@ partial def translatePureExprWithTypes
             | none => throwErrorAt target "abiHeadWord requires a direct parameter, dynamic local alias, or `arrayElement <param> <index>` target"
       match index? with
       | some index =>
-          let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants
+          let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants linkedExternalLowerer?
           if valueTypeUsesDynamicData ty then
             `(Compiler.CompilationModel.Expr.arrayElementDynamicWord
               $(strTerm paramName)
@@ -3220,18 +3221,18 @@ partial def translatePureExprWithTypes
         `(Compiler.CompilationModel.Expr.literal 0)
   | `(term| isZeroAddress $a:term) =>
       `(Compiler.CompilationModel.Expr.eq
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?)
           (Compiler.CompilationModel.Expr.literal 0))
-  | `(term| wordToAddress $a:term) => translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants
-  | `(term| addressToWord $a:term) => translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants
-  | `(term| toInt256 $a:term) => translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants
-  | `(term| toUint256 $a:term) => translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants
+  | `(term| wordToAddress $a:term) => translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?
+  | `(term| addressToWord $a:term) => translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?
+  | `(term| toInt256 $a:term) => translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?
+  | `(term| toUint256 $a:term) => translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?
   | `(term| narrowUInt $bits:num $a:term) => do
       let width ← natFromSyntax bits
       unless width >= 8 && width < 256 && width % 8 == 0 do
         throwErrorAt bits "narrowUInt width must be a byte multiple from 8 through 248"
       `(Compiler.CompilationModel.Expr.bitAnd
-        $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants)
+        $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?)
         (Compiler.CompilationModel.Expr.literal $(natTerm (2 ^ width - 1))))
   | `(term| narrowInt $bits:num $a:term) => do
       let width ← natFromSyntax bits
@@ -3239,18 +3240,18 @@ partial def translatePureExprWithTypes
         throwErrorAt bits "narrowInt width must be a byte multiple from 8 through 248"
       `(Compiler.CompilationModel.Expr.signextend
         (Compiler.CompilationModel.Expr.literal $(natTerm (width / 8 - 1)))
-        $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants))
+        $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?))
   | `(term| narrowBytes $bytes:num $a:term) => do
       let width ← natFromSyntax bytes
       unless width >= 1 && width < 32 do
         throwErrorAt bytes "narrowBytes width must be from 1 through 31"
       let mask := (2 ^ (8 * width) - 1) * 2 ^ (8 * (32 - width))
       `(Compiler.CompilationModel.Expr.bitAnd
-        $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants)
+        $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?)
         (Compiler.CompilationModel.Expr.literal $(natTerm mask)))
   | `(term| boolToWord $a:term) =>
       `(Compiler.CompilationModel.Expr.ite
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?)
           (Compiler.CompilationModel.Expr.literal 1)
           (Compiler.CompilationModel.Expr.literal 0))
   | `(term| $n:num) => `(Compiler.CompilationModel.Expr.literal $n)
@@ -3258,8 +3259,8 @@ partial def translatePureExprWithTypes
     | `(term| sub $a $b) | `(term| $a - $b)
     | `(term| mul $a $b) | `(term| $a * $b) => do
       let resultTy ← inferPureExprType fields constDecls immutableDecls #[] params locals stx visitingConstants
-      let lhs ← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants
-      let rhs ← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants
+      let lhs ← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?
+      let rhs ← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?
       let raw ← match stx with
         | `(term| add $_ $_) | `(term| $_ + $_) => `(Compiler.CompilationModel.Expr.add $lhs $rhs)
         | `(term| sub $_ $_) | `(term| $_ - $_) => `(Compiler.CompilationModel.Expr.sub $lhs $rhs)
@@ -3274,45 +3275,45 @@ partial def translatePureExprWithTypes
       | _ => pure raw
   | `(term| pow $a $b) | `(term| $a ^ $b) =>
       `(Compiler.CompilationModel.Expr.externalCall Compiler.CompilationModel.builtinExpName
-          [$(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants),
-           $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants)])
+          [$(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?),
+           $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?)])
   | `(term| div $a $b) | `(term| $a / $b) => do
       let lhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals a visitingConstants
       let rhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals b visitingConstants
       let (lhsTy, rhsTy) := preferNarrowNumericLiteralPeer a b lhsTy rhsTy
       if lhsTy == rhsTy && isSignedWordValueType lhsTy then
-        let raw ← `(Compiler.CompilationModel.Expr.sdiv $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
+        let raw ← `(Compiler.CompilationModel.Expr.sdiv $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?))
         match lhsTy with
         | .intN bits =>
             `(Compiler.CompilationModel.Expr.signextend
                 (Compiler.CompilationModel.Expr.literal $(natTerm (bits / 8 - 1))) $raw)
         | _ => pure raw
       else
-        `(Compiler.CompilationModel.Expr.div $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
-  | `(term| sdiv $a $b) => `(Compiler.CompilationModel.Expr.sdiv $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
+        `(Compiler.CompilationModel.Expr.div $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?))
+  | `(term| sdiv $a $b) => `(Compiler.CompilationModel.Expr.sdiv $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?))
   | `(term| mod $a $b) | `(term| $a % $b) => do
       let lhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals a visitingConstants
       let rhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals b visitingConstants
       let (lhsTy, rhsTy) := preferNarrowNumericLiteralPeer a b lhsTy rhsTy
       if lhsTy == rhsTy && isSignedWordValueType lhsTy then
-        let raw ← `(Compiler.CompilationModel.Expr.smod $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
+        let raw ← `(Compiler.CompilationModel.Expr.smod $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?))
         match lhsTy with
         | .intN bits =>
             `(Compiler.CompilationModel.Expr.signextend
                 (Compiler.CompilationModel.Expr.literal $(natTerm (bits / 8 - 1))) $raw)
         | _ => pure raw
       else
-        `(Compiler.CompilationModel.Expr.mod $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
-  | `(term| smod $a $b) => `(Compiler.CompilationModel.Expr.smod $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
-  | `(term| bitAnd $a $b) => `(Compiler.CompilationModel.Expr.bitAnd $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
-  | `(term| bitOr $a $b) => `(Compiler.CompilationModel.Expr.bitOr $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
-  | `(term| bitXor $a $b) => `(Compiler.CompilationModel.Expr.bitXor $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
-  | `(term| bitNot $a) => `(Compiler.CompilationModel.Expr.bitNot $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants))
-  | `(term| shl $shift $value) => `(Compiler.CompilationModel.Expr.shl $(← translatePureExprWithTypes fields constDecls immutableDecls params locals shift visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value visitingConstants))
-  | `(term| shr $shift $value) => `(Compiler.CompilationModel.Expr.shr $(← translatePureExprWithTypes fields constDecls immutableDecls params locals shift visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value visitingConstants))
-  | `(term| sar $shift $value) => `(Compiler.CompilationModel.Expr.sar $(← translatePureExprWithTypes fields constDecls immutableDecls params locals shift visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value visitingConstants))
-  | `(term| byte $index $value) => `(Compiler.CompilationModel.Expr.byte $(← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value visitingConstants))
-  | `(term| signextend $byteIndex $value) => `(Compiler.CompilationModel.Expr.signextend $(← translatePureExprWithTypes fields constDecls immutableDecls params locals byteIndex visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value visitingConstants))
+        `(Compiler.CompilationModel.Expr.mod $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?))
+  | `(term| smod $a $b) => `(Compiler.CompilationModel.Expr.smod $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?))
+  | `(term| bitAnd $a $b) => `(Compiler.CompilationModel.Expr.bitAnd $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?))
+  | `(term| bitOr $a $b) => `(Compiler.CompilationModel.Expr.bitOr $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?))
+  | `(term| bitXor $a $b) => `(Compiler.CompilationModel.Expr.bitXor $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?))
+  | `(term| bitNot $a) => `(Compiler.CompilationModel.Expr.bitNot $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?))
+  | `(term| shl $shift $value) => `(Compiler.CompilationModel.Expr.shl $(← translatePureExprWithTypes fields constDecls immutableDecls params locals shift visitingConstants linkedExternalLowerer?) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value visitingConstants linkedExternalLowerer?))
+  | `(term| shr $shift $value) => `(Compiler.CompilationModel.Expr.shr $(← translatePureExprWithTypes fields constDecls immutableDecls params locals shift visitingConstants linkedExternalLowerer?) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value visitingConstants linkedExternalLowerer?))
+  | `(term| sar $shift $value) => `(Compiler.CompilationModel.Expr.sar $(← translatePureExprWithTypes fields constDecls immutableDecls params locals shift visitingConstants linkedExternalLowerer?) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value visitingConstants linkedExternalLowerer?))
+  | `(term| byte $index $value) => `(Compiler.CompilationModel.Expr.byte $(← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants linkedExternalLowerer?) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value visitingConstants linkedExternalLowerer?))
+  | `(term| signextend $byteIndex $value) => `(Compiler.CompilationModel.Expr.signextend $(← translatePureExprWithTypes fields constDecls immutableDecls params locals byteIndex visitingConstants linkedExternalLowerer?) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value visitingConstants linkedExternalLowerer?))
   | `(term| $a == $b) => do
       let lhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals a visitingConstants
       let rhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals b visitingConstants
@@ -3320,8 +3321,8 @@ partial def translatePureExprWithTypes
         let (lhsName, rhsName) ← dynamicEqParamNames stx params a b lhsTy rhsTy
         `(Compiler.CompilationModel.Expr.dynamicBytesEq $(strTerm lhsName) $(strTerm rhsName))
       else
-        let lhs ← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants
-        let rhs ← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants
+        let lhs ← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?
+        let rhs ← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?
         let lhs ← match rhsTy with
           | .bytesN bytes =>
               if isNatLiteralTerm a then
@@ -3346,8 +3347,8 @@ partial def translatePureExprWithTypes
         `(Compiler.CompilationModel.Expr.logicalNot
             (Compiler.CompilationModel.Expr.dynamicBytesEq $(strTerm lhsName) $(strTerm rhsName)))
       else
-        let lhs ← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants
-        let rhs ← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants
+        let lhs ← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?
+        let rhs ← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?
         let lhs ← match rhsTy with
           | .bytesN bytes =>
               if isNatLiteralTerm a then
@@ -3372,28 +3373,28 @@ partial def translatePureExprWithTypes
       if lhsTy == rhsTy && isSignedWordValueType lhsTy then
         `(Compiler.CompilationModel.Expr.logicalNot
             (Compiler.CompilationModel.Expr.slt
-              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants)
-              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants)))
+              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?)
+              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?)))
       else
-        `(Compiler.CompilationModel.Expr.ge $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
+        `(Compiler.CompilationModel.Expr.ge $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?))
   | `(term| $a > $b) => do
       let lhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals a visitingConstants
       let rhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals b visitingConstants
       let (lhsTy, rhsTy) := preferNarrowNumericLiteralPeer a b lhsTy rhsTy
       if lhsTy == rhsTy && isSignedWordValueType lhsTy then
-        `(Compiler.CompilationModel.Expr.sgt $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
+        `(Compiler.CompilationModel.Expr.sgt $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?))
       else
-        `(Compiler.CompilationModel.Expr.gt $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
-  | `(term| sgt $a $b) => `(Compiler.CompilationModel.Expr.sgt $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
+        `(Compiler.CompilationModel.Expr.gt $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?))
+  | `(term| sgt $a $b) => `(Compiler.CompilationModel.Expr.sgt $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?))
   | `(term| $a < $b) => do
       let lhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals a visitingConstants
       let rhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals b visitingConstants
       let (lhsTy, rhsTy) := preferNarrowNumericLiteralPeer a b lhsTy rhsTy
       if lhsTy == rhsTy && isSignedWordValueType lhsTy then
-        `(Compiler.CompilationModel.Expr.slt $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
+        `(Compiler.CompilationModel.Expr.slt $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?))
       else
-        `(Compiler.CompilationModel.Expr.lt $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
-  | `(term| slt $a $b) => `(Compiler.CompilationModel.Expr.slt $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
+        `(Compiler.CompilationModel.Expr.lt $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?))
+  | `(term| slt $a $b) => `(Compiler.CompilationModel.Expr.slt $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?))
   | `(term| $a <= $b) => do
       let lhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals a visitingConstants
       let rhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals b visitingConstants
@@ -3401,35 +3402,35 @@ partial def translatePureExprWithTypes
       if lhsTy == rhsTy && isSignedWordValueType lhsTy then
         `(Compiler.CompilationModel.Expr.logicalNot
             (Compiler.CompilationModel.Expr.sgt
-              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants)
-              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants)))
+              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?)
+              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?)))
       else
-        `(Compiler.CompilationModel.Expr.le $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
-  | `(term| $a && $b) => `(Compiler.CompilationModel.Expr.logicalAnd $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
-  | `(term| $a || $b) => `(Compiler.CompilationModel.Expr.logicalOr $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
-  | `(term| logicalAnd $a $b) => `(Compiler.CompilationModel.Expr.logicalAnd $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
-  | `(term| logicalOr $a $b) => `(Compiler.CompilationModel.Expr.logicalOr $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
-  | `(term| logicalNot $a) => `(Compiler.CompilationModel.Expr.logicalNot $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants))
-  | `(term| and $a $b) => `(Compiler.CompilationModel.Expr.bitAnd $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
-  | `(term| or $a $b) => `(Compiler.CompilationModel.Expr.bitOr $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
-  | `(term| xor $a $b) => `(Compiler.CompilationModel.Expr.bitXor $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
-  | `(term| not $a) => `(Compiler.CompilationModel.Expr.bitNot $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants))
+        `(Compiler.CompilationModel.Expr.le $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?))
+  | `(term| $a && $b) => `(Compiler.CompilationModel.Expr.logicalAnd $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?))
+  | `(term| $a || $b) => `(Compiler.CompilationModel.Expr.logicalOr $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?))
+  | `(term| logicalAnd $a $b) => `(Compiler.CompilationModel.Expr.logicalAnd $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?))
+  | `(term| logicalOr $a $b) => `(Compiler.CompilationModel.Expr.logicalOr $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?))
+  | `(term| logicalNot $a) => `(Compiler.CompilationModel.Expr.logicalNot $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?))
+  | `(term| and $a $b) => `(Compiler.CompilationModel.Expr.bitAnd $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?))
+  | `(term| or $a $b) => `(Compiler.CompilationModel.Expr.bitOr $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?))
+  | `(term| xor $a $b) => `(Compiler.CompilationModel.Expr.bitXor $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?))
+  | `(term| not $a) => `(Compiler.CompilationModel.Expr.bitNot $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?))
   | `(term| mload $offset) | `(term| memoryLoad($offset)) =>
       `(Compiler.CompilationModel.Expr.mload
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals offset visitingConstants))
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals offset visitingConstants linkedExternalLowerer?))
   | `(term| tload $offset) =>
       `(Compiler.CompilationModel.Expr.tload
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals offset visitingConstants))
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals offset visitingConstants linkedExternalLowerer?))
   | `(term| calldataload $offset) =>
       `(Compiler.CompilationModel.Expr.calldataload
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals offset visitingConstants))
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals offset visitingConstants linkedExternalLowerer?))
   | `(term| extcodesize $addr) =>
       `(Compiler.CompilationModel.Expr.extcodesize
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals addr visitingConstants))
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals addr visitingConstants linkedExternalLowerer?))
   | `(term| keccak256 $offset $size) =>
       `(Compiler.CompilationModel.Expr.keccak256
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals offset visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals size visitingConstants))
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals offset visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals size visitingConstants linkedExternalLowerer?))
   -- Compile-time Keccak-256 of a string literal (#1973): hash the literal
   -- now and emit a plain numeric literal. The parser already rejects
   -- non-literal arguments, so the digest is unconditionally static.
@@ -3438,63 +3439,67 @@ partial def translatePureExprWithTypes
       `(Compiler.CompilationModel.Expr.literal $(natTerm digest))
   | `(term| call $gas $target $value $inOffset $inSize $outOffset $outSize) =>
       `(Compiler.CompilationModel.Expr.call
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals gas visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals target visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals inOffset visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals inSize visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals outOffset visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals outSize visitingConstants))
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals gas visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals target visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals inOffset visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals inSize visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals outOffset visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals outSize visitingConstants linkedExternalLowerer?))
   | `(term| evmCall($gas, $target, $value, $inOffset, $inSize, $outOffset, $outSize)) =>
       `(Compiler.CompilationModel.Expr.call
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals gas visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals target visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals inOffset visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals inSize visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals outOffset visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals outSize visitingConstants))
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals gas visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals target visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals inOffset visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals inSize visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals outOffset visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals outSize visitingConstants linkedExternalLowerer?))
   | `(term| staticcall $gas $target $inOffset $inSize $outOffset $outSize) =>
       `(Compiler.CompilationModel.Expr.staticcall
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals gas visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals target visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals inOffset visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals inSize visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals outOffset visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals outSize visitingConstants))
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals gas visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals target visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals inOffset visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals inSize visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals outOffset visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals outSize visitingConstants linkedExternalLowerer?))
   | `(term| evmStaticCall($gas, $target, $inOffset, $inSize, $outOffset, $outSize)) =>
       `(Compiler.CompilationModel.Expr.staticcall
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals gas visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals target visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals inOffset visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals inSize visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals outOffset visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals outSize visitingConstants))
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals gas visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals target visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals inOffset visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals inSize visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals outOffset visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals outSize visitingConstants linkedExternalLowerer?))
   | `(term| callExternal $name:ident ($[$xs:term],*)) =>
-      translatePureExprWithTypes fields constDecls immutableDecls params locals
-        (← `(externalCall $(strTerm (toString name.getId)) [ $[$xs],* ])) visitingConstants
+      match linkedExternalLowerer? with
+      | some lower => lower name xs
+      | none =>
+          translatePureExprWithTypes fields constDecls immutableDecls params locals
+            (← `(externalCall $(strTerm (toString name.getId)) [ $[$xs],* ]))
+            visitingConstants linkedExternalLowerer?
   | `(term| delegatecall $gas $target $inOffset $inSize $outOffset $outSize) =>
       `(Compiler.CompilationModel.Expr.delegatecall
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals gas visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals target visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals inOffset visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals inSize visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals outOffset visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals outSize visitingConstants))
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals gas visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals target visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals inOffset visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals inSize visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals outOffset visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals outSize visitingConstants linkedExternalLowerer?))
   | `(term| arrayLength $name:term) =>
       -- verity#1849, G1: `arrayLength (arrayElement <param> <i>).<dynField>`
       -- lowers through `Expr.arrayElementDynamicMemberLength`, reading the
       -- length word of the dynamic member at the resolved head offset.
       if let some (paramName, index, _fieldTy, _elemTy, wordOffset) :=
           arrayElementDynamicMemberProjection? params name then
-        let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants
+        let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants linkedExternalLowerer?
         `(Compiler.CompilationModel.Expr.arrayElementDynamicMemberLength
             $(strTerm paramName)
             $indexExpr
             $(natTerm wordOffset))
       else if let some (paramName, index, _fieldTy, _elemTy, wordOffset) :=
           localArrayElementDynamicMemberProjection? locals name then
-        let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants
+        let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants linkedExternalLowerer?
         `(Compiler.CompilationModel.Expr.arrayElementDynamicMemberLength
             $(strTerm paramName)
             $indexExpr
@@ -3514,8 +3519,8 @@ partial def translatePureExprWithTypes
       -- lowers through `Expr.arrayElementDynamicMemberElement`.
         if let some (paramName, outerIndex, _fieldTy, _elemTy, wordOffset) :=
           arrayElementDynamicMemberProjection? params name then
-        let outerIndexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals outerIndex visitingConstants
-        let innerIndexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants
+        let outerIndexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals outerIndex visitingConstants linkedExternalLowerer?
+        let innerIndexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants linkedExternalLowerer?
         `(Compiler.CompilationModel.Expr.arrayElementDynamicMemberElement
             $(strTerm paramName)
             $outerIndexExpr
@@ -3523,8 +3528,8 @@ partial def translatePureExprWithTypes
             $innerIndexExpr)
         else if let some (paramName, outerIndex, _fieldTy, _elemTy, wordOffset) :=
           localArrayElementDynamicMemberProjection? locals name then
-        let outerIndexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals outerIndex visitingConstants
-        let innerIndexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants
+        let outerIndexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals outerIndex visitingConstants linkedExternalLowerer?
+        let innerIndexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants linkedExternalLowerer?
         `(Compiler.CompilationModel.Expr.arrayElementDynamicMemberElement
             $(strTerm paramName)
             $outerIndexExpr
@@ -3532,7 +3537,7 @@ partial def translatePureExprWithTypes
             $innerIndexExpr)
         else if let some (paramName, _fieldTy, wordOffset) :=
           paramDynamicMemberProjection? params name then
-        let innerIndexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants
+        let innerIndexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants linkedExternalLowerer?
         `(Compiler.CompilationModel.Expr.paramDynamicMemberElement
             $(strTerm paramName)
             $(natTerm wordOffset)
@@ -3540,11 +3545,11 @@ partial def translatePureExprWithTypes
         else if let some (name, _) := localMemoryArray? locals name then
         `(Compiler.CompilationModel.Expr.memoryArrayElement
             $(strTerm name)
-            $(← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants))
+            $(← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants linkedExternalLowerer?))
         else
           `(Compiler.CompilationModel.Expr.arrayElement
               $(strTerm (← expectStringOrIdent name))
-              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants))
+              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants linkedExternalLowerer?))
       let elemTy ← inferPureExprType fields constDecls immutableDecls #[] params locals stx visitingConstants
       match elemTy with
       | .uintN bits =>
@@ -3560,43 +3565,43 @@ partial def translatePureExprWithTypes
       | _ => pure raw
   | `(term| ceilDiv $a $b) =>
       `(Compiler.CompilationModel.Expr.ceilDiv
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?))
   | `(term| mulDivDown $a $b $c) =>
       `(Compiler.CompilationModel.Expr.mulDivDown
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals c visitingConstants))
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals c visitingConstants linkedExternalLowerer?))
   | `(term| mulDivUp $a $b $c) =>
       `(Compiler.CompilationModel.Expr.mulDivUp
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals c visitingConstants))
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals c visitingConstants linkedExternalLowerer?))
   | `(term| mulDiv512Down $a $b $c) =>
       `(Compiler.CompilationModel.Expr.mulDiv512Down
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals c visitingConstants))
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals c visitingConstants linkedExternalLowerer?))
   | `(term| mulDiv512Up $a $b $c) =>
       `(Compiler.CompilationModel.Expr.mulDiv512Up
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals c visitingConstants))
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals c visitingConstants linkedExternalLowerer?))
   | `(term| wMulDown $a $b) =>
       `(Compiler.CompilationModel.Expr.wMulDown
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?))
   | `(term| wDivUp $a $b) =>
       `(Compiler.CompilationModel.Expr.wDivUp
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
-  | `(term| min $a $b) => `(Compiler.CompilationModel.Expr.min $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
-  | `(term| max $a $b) => `(Compiler.CompilationModel.Expr.max $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?))
+  | `(term| min $a $b) => `(Compiler.CompilationModel.Expr.min $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?))
+  | `(term| max $a $b) => `(Compiler.CompilationModel.Expr.max $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?))
   | `(term| ite $cond $thenVal $elseVal) =>
       `(Compiler.CompilationModel.Expr.ite
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals cond visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals thenVal visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals elseVal visitingConstants))
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals cond visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals thenVal visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals elseVal visitingConstants linkedExternalLowerer?))
   -- Native Lean `if ... then ... else ...` term, equivalent to
   -- `ite cond thenVal elseVal` for the macro lowering.  Lets contract
   -- authors write idiomatic expressions like
@@ -3604,9 +3609,9 @@ partial def translatePureExprWithTypes
   -- without falling back to per-shape helper functions.
   | `(term| if $cond:term then $thenVal:term else $elseVal:term) =>
       `(Compiler.CompilationModel.Expr.ite
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals cond visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals thenVal visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals elseVal visitingConstants))
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals cond visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals thenVal visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals elseVal visitingConstants linkedExternalLowerer?))
   | `(term| externalCall $name:term $args:term) =>
       let extName := ← expectStringOrIdent name
       let argsExprs ←
@@ -3620,12 +3625,12 @@ partial def translatePureExprWithTypes
                     out := out.push (← `(Compiler.CompilationModel.Expr.param $(strTerm s!"{name}_data_offset")))
                     out := out.push (← `(Compiler.CompilationModel.Expr.param $(strTerm s!"{name}_length")))
                   else
-                    out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals arg visitingConstants)
+                    out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals arg visitingConstants linkedExternalLowerer?)
               | none =>
                   if let some (paramName, index, fieldTy, _elemTy, wordOffset) :=
                       arrayElementDynamicMemberProjection? params arg then
                     if externalCallDynamicArgSupported fieldTy then
-                      let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants
+                      let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants linkedExternalLowerer?
                       out := out.push (← `(Compiler.CompilationModel.Expr.arrayElementDynamicMemberDataOffset
                         $(strTerm paramName)
                         $indexExpr
@@ -3635,11 +3640,11 @@ partial def translatePureExprWithTypes
                         $indexExpr
                         $(natTerm wordOffset)))
                     else
-                      out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals arg visitingConstants)
+                      out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals arg visitingConstants linkedExternalLowerer?)
                   else if let some (paramName, index, fieldTy, _elemTy, wordOffset) :=
                       localArrayElementDynamicMemberProjection? locals arg then
                     if externalCallDynamicArgSupported fieldTy then
-                      let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants
+                      let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index visitingConstants linkedExternalLowerer?
                       out := out.push (← `(Compiler.CompilationModel.Expr.arrayElementDynamicMemberDataOffset
                         $(strTerm paramName)
                         $indexExpr
@@ -3649,7 +3654,7 @@ partial def translatePureExprWithTypes
                         $indexExpr
                         $(natTerm wordOffset)))
                     else
-                      out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals arg visitingConstants)
+                      out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals arg visitingConstants linkedExternalLowerer?)
                   else if let some (paramName, fieldTy, wordOffset) :=
                       paramDynamicMemberProjection? params arg then
                     if externalCallDynamicArgSupported fieldTy then
@@ -3660,9 +3665,9 @@ partial def translatePureExprWithTypes
                         $(strTerm paramName)
                         $(natTerm wordOffset)))
                     else
-                      out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals arg visitingConstants)
+                      out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals arg visitingConstants linkedExternalLowerer?)
                   else
-                    out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals arg visitingConstants)
+                    out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals arg visitingConstants linkedExternalLowerer?)
             pure out
         | _ => throwErrorAt args "expected list literal [..]"
       `(Compiler.CompilationModel.Expr.externalCall $(strTerm extName) [ $[$argsExprs],* ])
@@ -3686,13 +3691,13 @@ partial def translatePureExprWithTypes
       let minForkTerm ← hardForkTermFromParsed minFork
       translateIntrinsic name lowering args minForkTerm
   | `(term| clz $x:term) =>
-      let xExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals x visitingConstants
+      let xExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals x visitingConstants linkedExternalLowerer?
       `(Compiler.CompilationModel.Expr.intrinsic "clz"
           (Verity.Core.Intrinsics.YulLowering.verbatim 1 1 "1e")
           Verity.Core.Intrinsics.HardFork.osaka
           [$xExpr])
   | `(term| msb $x:term) =>
-      let xExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals x visitingConstants
+      let xExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals x visitingConstants linkedExternalLowerer?
       let clzExpr ← `(Compiler.CompilationModel.Expr.intrinsic "clz"
           (Verity.Core.Intrinsics.YulLowering.verbatim 1 1 "1e")
           Verity.Core.Intrinsics.HardFork.osaka
@@ -3704,15 +3709,15 @@ partial def translatePureExprWithTypes
   | `(term| fork_if_at_least $fork:ident then $thenExpr:term else $elseExpr:term) =>
       `(Compiler.CompilationModel.Expr.forkIfAtLeast
           $(← hardForkTermFromIdent fork)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals thenExpr visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals elseExpr visitingConstants))
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals thenExpr visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals elseExpr visitingConstants linkedExternalLowerer?))
   | `(term| structMember $field:term $key:term $member:term) =>
       let fieldName := ← expectStringOrIdent field
       let memberName := ← expectStringOrIdent member
       let _ ← lookupStructMemberDecl fields fieldName memberName false
       `(Compiler.CompilationModel.Expr.structMember
           $(strTerm fieldName)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key visitingConstants)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key visitingConstants linkedExternalLowerer?)
           $(strTerm memberName))
   | `(term| structMember2 $field:term $key1:term $key2:term $member:term) =>
       let fieldName := ← expectStringOrIdent field
@@ -3720,8 +3725,8 @@ partial def translatePureExprWithTypes
       let _ ← lookupStructMemberDecl fields fieldName memberName true
       `(Compiler.CompilationModel.Expr.structMember2
           $(strTerm fieldName)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key1 visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key2 visitingConstants)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key1 visitingConstants linkedExternalLowerer?)
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key2 visitingConstants linkedExternalLowerer?)
           $(strTerm memberName))
   | _ =>
       match ← translateLeanDefCall? fields constDecls immutableDecls #[] params locals stx visitingConstants with
@@ -4450,6 +4455,34 @@ def translateLinkedExternalCallArgs
             else
               out := out.push (← translateScalar)
   pure out
+
+def translateDeclaredPureExpr
+    (fields : Array StorageFieldDecl)
+    (constDecls : Array ConstantDecl)
+    (immutableDecls : Array ImmutableDecl)
+    (externalDecls : Array ExternalDecl)
+    (params : Array ParamDecl)
+    (locals : Array TypedLocal)
+    (stx : Term) : CommandElabM Term := do
+  let lower : Ident → Array Term → CommandElabM Term := fun name args => do
+    let extName := toString name.getId
+    let ext ← match externalDecls.find? (fun ext => ext.name == extName) with
+      | some ext => pure ext
+      | none => throwErrorAt name s!"unknown linked external '{extName}'"
+    validateLinkedExternalCallArgs fields constDecls immutableDecls externalDecls params locals
+      extName ext.params args
+    match ext.returnTys.toList with
+    | [retTy] =>
+        unless isSingleWordStaticValueType retTy do
+          throwErrorAt name s!"callExternal '{extName}' return type cannot be used as a pure single-word expression"
+        let argExprs ← translateLinkedExternalCallArgs
+          fields constDecls immutableDecls params locals args (some ext.params)
+        let callExpr ←
+          `(Compiler.CompilationModel.Expr.externalCall $(strTerm extName) [ $[$argExprs],* ])
+        normalizeTranslatedExprForType retTy stx callExpr
+    | [] => throwErrorAt name s!"callExternal '{extName}' returns no values"
+    | _ => throwErrorAt name s!"callExternal '{extName}' returns multiple values"
+  translatePureExprWithTypes fields constDecls immutableDecls params locals stx [] (some lower)
 
 def tupleInternalCallAssignStmt?
     (fields : Array StorageFieldDecl)

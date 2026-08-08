@@ -34,6 +34,12 @@ verity_contract ExternalCallInBodySmoke where
     let result := callExternal dirtyUint()
     return result
 
+  function reentrancy_trusted directDirtyUint () : Uint32 := do
+    return callExternal dirtyUint()
+
+  function reentrancy_trusted nestedDirtyUint () : Bool := do
+    return (callExternal dirtyUint()) == 1
+
   function reentrancy_trusted bindDirtyUint () : Uint32 := do
     let result ← callExternal dirtyUint()
     return result
@@ -99,6 +105,14 @@ example : ExternalCallInBodySmoke.pureNarrow_model.body =
 example : (ExternalCallInBodySmoke.pureDirtyUint_modelBody).take 1 =
     [.letVar "result" (.bitAnd (.externalCall "dirtyUint" []) (.literal (2 ^ 32 - 1)))] := rfl
 
+example : ExternalCallInBodySmoke.directDirtyUint_modelBody =
+    [.return (.bitAnd (.externalCall "dirtyUint" []) (.literal (2 ^ 32 - 1)))] := rfl
+
+example : ExternalCallInBodySmoke.nestedDirtyUint_modelBody =
+    [.return (.eq
+      (.bitAnd (.externalCall "dirtyUint" []) (.literal (2 ^ 32 - 1)))
+      (.literal 1))] := rfl
+
 example : (ExternalCallInBodySmoke.bindDirtyUint_modelBody).take 2 =
     [ .externalCallBind ["result"] "dirtyUint" []
     , .assignVar "result" (.bitAnd (.localVar "result") (.literal (2 ^ 32 - 1))) ] := rfl
@@ -122,6 +136,14 @@ example : (ExternalCallInBodySmoke.bindDirtyBytes_modelBody).take 2 =
 example : ExternalCallInBodySmoke.pureDirtyUint_model.body =
     ExternalCallInBodySmoke.pureDirtyUint_modelBody :=
   ExternalCallInBodySmoke.pureDirtyUint_semantic_preservation
+
+example : ExternalCallInBodySmoke.directDirtyUint_model.body =
+    ExternalCallInBodySmoke.directDirtyUint_modelBody :=
+  ExternalCallInBodySmoke.directDirtyUint_semantic_preservation
+
+example : ExternalCallInBodySmoke.nestedDirtyUint_model.body =
+    ExternalCallInBodySmoke.nestedDirtyUint_modelBody :=
+  ExternalCallInBodySmoke.nestedDirtyUint_semantic_preservation
 
 example : ExternalCallInBodySmoke.bindDirtyUint_model.body =
     ExternalCallInBodySmoke.bindDirtyUint_modelBody :=

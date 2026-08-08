@@ -1261,7 +1261,7 @@ private partial def translateDoElem
           let rhsExpr ← match stripParens rhs with
             | `(term| callExternal $_ ($[$_],*)) =>
                 translateBindSource fields constDecls immutableDecls externalDecls functions params locals rhs
-            | _ => translatePureExprWithTypes fields constDecls immutableDecls params locals rhs
+            | _ => translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals rhs
           let ty ← inferPureExprType fields constDecls immutableDecls externalDecls params locals rhs
           let interfaceName? ← interfaceNameOfTerm? params locals rhs
           pure
@@ -1287,7 +1287,7 @@ private partial def translateDoElem
               let rhsExpr ← match stripParens rhs with
                 | `(term| callExternal $_ ($[$_],*)) =>
                     translateBindSource fields constDecls immutableDecls externalDecls functions params locals rhs
-                | _ => translatePureExprWithTypes fields constDecls immutableDecls params locals rhs
+                | _ => translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals rhs
               let ty ← inferPureExprType fields constDecls immutableDecls externalDecls params locals rhs
               let interfaceName? ← interfaceNameOfTerm? params locals rhs
               pure
@@ -1340,10 +1340,10 @@ private partial def translateDoElem
                   locals.push (mkTypedLocal varName .uint256),
                   mutableLocals)
           | `(term| ecrecover $hash:term $v:term $r:term $s:term) =>
-              let hashExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals hash
-              let vExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals v
-              let rExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals r
-              let sExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals s
+              let hashExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals hash
+              let vExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals v
+              let rExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals r
+              let sExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals s
               pure
                 (#[(← `(Compiler.CompilationModel.Stmt.ecm
                         (Compiler.Modules.Precompiles.ecrecoverModule $(strTerm varName))
@@ -1366,7 +1366,7 @@ private partial def translateDoElem
           | `(term| allocArray $len:term) =>
               requireWordLikeType len "allocArray length"
                 (← inferPureExprType fields constDecls immutableDecls externalDecls params locals len)
-              let lenExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals len
+              let lenExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals len
               let lengthName := memoryArrayLengthName varName
               let dataOffsetName := memoryArrayDataOffsetName varName
               let lengthLocal : Term ← `(Compiler.CompilationModel.Expr.localVar $(strTerm lengthName))
@@ -1430,9 +1430,9 @@ private partial def translateDoElem
                       | none =>
                           match ← resolveTypedInterfaceCall? fields constDecls immutableDecls externalDecls params locals rhs with
                           | some (ext, target, argTerms, some retTy, selector) =>
-                              let targetExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals target
+                              let targetExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals target
                               let argExprs ← argTerms.mapM
-                                (translatePureExprWithTypes fields constDecls immutableDecls params locals)
+                                (translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals)
                               let stmt ←
                                 if ext.isView then
                                   match staticAbiWordCount? retTy with
@@ -1482,7 +1482,7 @@ private partial def translateDoElem
             throwErrorAt name s!"cannot assign immutable variable '{varName}'; declare it with 'let mut'"
           let some localInfo := locals.find? (fun entry => entry.name == varName)
             | throwErrorAt name s!"cannot resolve type of mutable variable '{varName}'"
-          let rawRhsExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals rhs
+          let rawRhsExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals rhs
           let rhsExpr ← normalizeTranslatedExprForType localInfo.ty rhs rawRhsExpr
           pure
             (#[(← `(Compiler.CompilationModel.Stmt.assignVar $(strTerm varName) $rhsExpr))],
@@ -1506,14 +1506,14 @@ private partial def translateDoElem
                             let normalized := (literal % 2 ^ (8 * bytes)) * 2 ^ (8 * (32 - bytes))
                             `(Compiler.CompilationModel.Expr.literal $(natTerm normalized))
                         | _ =>
-                            translatePureExprWithTypes fields constDecls immutableDecls params locals value
+                            translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals value
                     | _ =>
-                        translatePureExprWithTypes fields constDecls immutableDecls params locals value
+                        translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals value
                   pure (#[(← `(Compiler.CompilationModel.Stmt.return $valueExpr))], locals, mutableLocals)
       | `(doElem| pure ()) =>
           pure (#[], locals, mutableLocals)
       | `(doElem| if $cond:term then $thenBranch:doSeq else $elseBranch:doSeq) =>
-          let condExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals cond
+          let condExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals cond
           let thenStmts ← translateDoSeqToStmtTerms fields constDecls immutableDecls externalDecls errorDecls functions returnTy params locals mutableLocals thenBranch
           let elseStmts ← translateDoSeqToStmtTerms fields constDecls immutableDecls externalDecls errorDecls functions returnTy params locals mutableLocals elseBranch
           pure
@@ -1528,7 +1528,7 @@ private partial def translateDoElem
             freshSyntheticLocalName "verity_try_success" params locals mutableLocals
           let (payloadName?, catchElems) ← parseTryCatchHandler handler
           validateTryCatchHandlerDoesNotUsePayload handler payloadName? catchElems
-          let attemptExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals attempt
+          let attemptExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals attempt
           let catchTranslation ←
             translateDoElems fields constDecls immutableDecls externalDecls errorDecls functions returnTy params locals mutableLocals catchElems
           let catchStmts := catchTranslation.1
@@ -1546,7 +1546,7 @@ private partial def translateDoElem
             mutableLocals)
       | `(doElem| forEach $name:term $count:term $body:term) =>
           let loopVar := ← expectStringOrIdent name
-          let countExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals count
+          let countExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals count
           let bodyStmts ←
             match stripParens body with
             | `(term| do $[$inner:doElem]*) =>
@@ -1561,7 +1561,7 @@ private partial def translateDoElem
               mutableLocals)
       | `(doElem| forEachSetBit $name:term $bitmap:term $body:term) =>
           let loopVar := ← expectStringOrIdent name
-          let bitmapExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals bitmap
+          let bitmapExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals bitmap
           let bodyStmts ←
             match stripParens body with
             | `(term| do $[$inner:doElem]*) =>
@@ -1579,7 +1579,7 @@ private partial def translateDoElem
             errorDecls (toString errorName.getId) args.getElems
           pure
             (#[(← `(Compiler.CompilationModel.Stmt.requireError
-                    $(← translatePureExprWithTypes fields constDecls immutableDecls params locals cond)
+                    $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals cond)
                     $(strTerm (toString errorName.getId))
                     [ $[$argExprs],* ]))],
               locals,
@@ -1605,7 +1605,7 @@ private partial def translateDoElem
       | `(doElem| panic($code:term)) =>
           pure
             (#[(← `(Compiler.CompilationModel.Stmt.panicCode
-                    $(← translatePureExprWithTypes fields constDecls immutableDecls params locals code)))],
+                    $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals code)))],
               locals,
               mutableLocals)
       | `(doElem| unsafe $reason:str do $body:doSeq) =>
