@@ -2170,8 +2170,14 @@ partial def inferPureExprType
           | _ => throwErrorAt name s!"externalCall '{extName}' returns {ext.returnTys.size} values; use `let (success, ...) ← tryExternalCall \"{extName}\" [...]` for multi-return"
       | none => pure .uint256
   | `(term| callExternal $name:ident ($[$xs:term],*)) =>
+      let extName := toString name.getId
+      let ext ← match externalDecls.find? (fun ext => ext.name == extName) with
+        | some ext => pure ext
+        | none => throwErrorAt name s!"unknown linked external '{extName}'"
+      validateLinkedExternalCallArgs fields constDecls immutableDecls externalDecls params locals
+        extName ext.params xs
       inferPureExprType fields constDecls immutableDecls externalDecls params locals
-        (← `(externalCall $(strTerm (toString name.getId)) [ $[$xs],* ])) visitingConstants
+        (← `(externalCall $(strTerm extName) [ $[$xs],* ])) visitingConstants
   | `(term| intrinsic_cancun $name:term $_lowering:term $args:term)
   | `(term| intrinsic_prague $name:term $_lowering:term $args:term)
   | `(term| intrinsic_fusaka $name:term $_lowering:term $args:term)

@@ -34,6 +34,11 @@ verity_contract ExternalCallInBodySmoke where
     returnDataCopy(96, 0, size)
     return (add (add (add pureRoundtrip roundtrip) success) observed)
 
+  function reentrancy_trusted composedReturnDataSize ()
+    local_obligations [low_level_frame := assumed "Reading returndata size is an explicit refinement boundary."]
+    : Uint256 := do
+    return (add (returnDataSize()) 1)
+
 example : (ExternalCallInBodySmoke.linkedRead_modelBody).take 1 =
     [Compiler.CompilationModel.Stmt.externalCallBind
       ["depositable"] "getDepositableEther" []] := rfl
@@ -80,6 +85,26 @@ verity_contract MalformedLinkedCallRejected where
     external scalarPair(Uint256, Uint256) -> (Uint256)
   function bad (payload : Bytes) : Uint256 := do
     let result ← callExternal scalarPair(payload)
+    return result
+
+/-- error: callExternal 'scalarPair' expects 2 args, got 1 -/
+#guard_msgs in
+verity_contract MalformedPureLinkedCallRejected where
+  storage
+  linked_externals
+    external scalarPair(Uint256, Uint256) -> (Uint256)
+  function bad (payload : Bytes) : Uint256 := do
+    let result := callExternal scalarPair(payload)
+    return result
+
+/-- error: callExternal 'pair' return type expands to 2 values and cannot be bound to one source variable -/
+#guard_msgs in
+verity_contract CompositeLinkedCallBindRejected where
+  storage
+  linked_externals
+    external pair(Uint256) -> (Tuple [Uint256, Uint256])
+  function bad (value : Uint256) : Tuple [Uint256, Uint256] := do
+    let result ← callExternal pair(value)
     return result
 
 end Contracts.Smoke

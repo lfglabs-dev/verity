@@ -1302,7 +1302,10 @@ private partial def translateDoElem
                   let resultTerms := flatNames.toArray.map strTerm
                   let source := match staticStructDirectFieldLocals? varName retTy with
                     | some fieldLocals => LocalSource.externalStaticStruct fieldLocals
-                    | none => LocalSource.value
+                    | none =>
+                        if flatNames.size != 1 then
+                          throwErrorAt rhs s!"callExternal '{extName}' return type expands to {flatNames.size} values and cannot be bound to one source variable"
+                        LocalSource.value
                   pure
                     (#[(← `(Compiler.CompilationModel.Stmt.externalCallBind
                         [ $[$resultTerms],* ] $(strTerm extName) [ $[$argExprs],* ]))],
