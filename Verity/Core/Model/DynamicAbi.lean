@@ -60,6 +60,44 @@ where
   lookupBinding? (bindings : List (String × Nat)) (name : String) : Option Nat :=
     bindings.find? (fun entry => entry.1 == name) |>.map Prod.snd
 
+/-- Semantics of the checked single-word calldata-array helper.  Out-of-range
+indices fail (the generated helper reverts); in-range indices read the ABI word
+at `dataOffset + 32 * index`. -/
+def arrayElement? (selector : Nat) (calldata : List Nat)
+    (dataOffset length index : Nat) : Option Nat :=
+  if index < length then
+    some (calldataloadWord selector calldata (dataOffset + index * 32))
+  else
+    none
+
+/-- The first byte of a `calldataload`, matching Yul `byte(0,
+calldataload(offset))`. -/
+def calldataByte (selector : Nat) (calldata : List Nat) (offset : Nat) : Nat :=
+  calldataloadWord selector calldata offset / (2 ^ 248) % 256
+
+/-- Byte-for-byte equality over two calldata regions.  This is the functional
+counterpart of `dynamicBytesEqCalldataHelper`; unequal lengths short-circuit to
+`false`. -/
+def dynamicBytesEqCalldata (selector : Nat) (calldata : List Nat)
+    (lhsOffset lhsLength rhsOffset rhsLength : Nat) : Bool :=
+  lhsLength = rhsLength &&
+    (List.range lhsLength).all (fun index =>
+      calldataByte selector calldata (lhsOffset + index) =
+        calldataByte selector calldata (rhsOffset + index))
+
+@[simp] theorem arrayElement?_index_oob
+    (selector : Nat) (calldata : List Nat) (dataOffset length index : Nat)
+    (h : length ≤ index) :
+    arrayElement? selector calldata dataOffset length index = none := by
+  simp [arrayElement?, Nat.not_lt.mpr h]
+
+@[simp] theorem arrayElement?_index_in_bounds
+    (selector : Nat) (calldata : List Nat) (dataOffset length index : Nat)
+    (h : index < length) :
+    arrayElement? selector calldata dataOffset length index =
+      some (calldataloadWord selector calldata (dataOffset + index * 32)) := by
+  simp [arrayElement?, h]
+
 def externalCalldataSize (calldata : List Nat) : Nat :=
   4 + 32 * calldata.length
 

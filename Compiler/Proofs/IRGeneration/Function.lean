@@ -4412,134 +4412,155 @@ private theorem compileExpr_constructor_mode_eq
     {fields : List Field} :
     ∀ {expr : Expr},
       exprTouchesUnsupportedCoreSurface expr = false →
+      exprTouchesUnsupportedCallSurface expr = false →
       exprTouchesUnsupportedConstructorRawCalldataSurface expr = false →
       compileExprWithInternals fields .memory [] expr =
         compileExprWithInternals fields .calldata [] expr
-  | .literal _, _, _ => by simp [compileExprWithInternals]
-  | .param _, _, _ => by simp [compileExprWithInternals]
-  | .constructorArg _, _, _ => by simp [compileExprWithInternals]
-  | .storage _, _, _ => by simp [compileExprWithInternals]
-  | .storageAddr _, _, _ => by simp [compileExprWithInternals]
-  | .mapping _ _, hcore, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
-  | .mappingWord _ _ _, hcore, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
-  | .mappingPackedWord _ _ _ _, hcore, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
-  | .mapping2 _ _ _, hcore, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
-  | .mapping2Word _ _ _ _, hcore, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
-  | .mappingUint _ _, hcore, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
-  | .mappingChain _ _, hcore, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
-  | .structMember _ _ _, hcore, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
-  | .structMember2 _ _ _ _, hcore, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
-  | .caller, _, _ => by simp [compileExprWithInternals]
-  | .contractAddress, _, _ => by simp [compileExprWithInternals]
-  | .txOrigin, _, _ => by simp [compileExprWithInternals]
-  | .chainid, _, _ => by simp [compileExprWithInternals]
-  | .msgValue, _, _ => by simp [compileExprWithInternals]
-  | .blockTimestamp, _, _ => by simp [compileExprWithInternals]
-  | .blockNumber, _, _ => by simp [compileExprWithInternals]
-  | .blobbasefee, _, _ => by simp [compileExprWithInternals]
-  | .mload _, hcore, hraw => by
+  | .literal _, _, _, _ => by simp [compileExprWithInternals]
+  | .param _, _, _, _ => by simp [compileExprWithInternals]
+  | .constructorArg _, _, _, _ => by simp [compileExprWithInternals]
+  | .storage _, _, _, _ => by simp [compileExprWithInternals]
+  | .storageAddr _, _, _, _ => by simp [compileExprWithInternals]
+  | .mapping _ _, hcore, _, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
+  | .mappingWord _ _ _, hcore, _, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
+  | .mappingPackedWord _ _ _ _, hcore, _, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
+  | .mapping2 _ _ _, hcore, _, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
+  | .mapping2Word _ _ _ _, hcore, _, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
+  | .mappingUint _ _, hcore, _, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
+  | .mappingChain _ _, hcore, _, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
+  | .structMember _ _ _, hcore, _, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
+  | .structMember2 _ _ _ _, hcore, _, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
+  | .caller, _, _, _ => by simp [compileExprWithInternals]
+  | .contractAddress, _, _, _ => by simp [compileExprWithInternals]
+  | .txOrigin, _, _, _ => by simp [compileExprWithInternals]
+  | .chainid, _, _, _ => by simp [compileExprWithInternals]
+  | .msgValue, _, _, _ => by simp [compileExprWithInternals]
+  | .blockTimestamp, _, _, _ => by simp [compileExprWithInternals]
+  | .blockNumber, _, _, _ => by simp [compileExprWithInternals]
+  | .blobbasefee, _, _, _ => by simp [compileExprWithInternals]
+  | .mload _, hcore, hcall, hraw => by
       simp only [exprTouchesUnsupportedCoreSurface] at hcore
+      simp only [exprTouchesUnsupportedCallSurface] at hcall
       simp only [exprTouchesUnsupportedConstructorRawCalldataSurface] at hraw
-      simp [compileExprWithInternals, compileExpr_constructor_mode_eq hcore hraw]
-  | .tload _, hcore, hraw => by
+      simp [compileExprWithInternals, compileExpr_constructor_mode_eq hcore hcall hraw]
+  | .tload _, hcore, hcall, hraw => by
       simp only [exprTouchesUnsupportedCoreSurface] at hcore
+      simp only [exprTouchesUnsupportedCallSurface] at hcall
       simp only [exprTouchesUnsupportedConstructorRawCalldataSurface] at hraw
-      simp [compileExprWithInternals, compileExpr_constructor_mode_eq hcore hraw]
-  | .keccak256 _ _, hcore, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
-  | .call .., hcore, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
-  | .staticcall .., hcore, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
-  | .delegatecall .., hcore, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
-  | .calldatasize, _, hraw => by simp [exprTouchesUnsupportedConstructorRawCalldataSurface] at hraw
-  | .calldataload _, _, hraw => by simp [exprTouchesUnsupportedConstructorRawCalldataSurface] at hraw
-  | .returndataSize, hcore, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
-  | .extcodesize _, hcore, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
-  | .returndataOptionalBoolAt _, hcore, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
-  | .localVar _, _, _ => by simp [compileExprWithInternals]
-  | .externalCall _ _, hcore, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
-  | .internalCall _ _, hcore, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
-  | .arrayLength _, hcore, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
-  | .arrayElement _ _, hcore, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
-  | .storageArrayLength _, hcore, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
-  | .storageArrayElement _ _, hcore, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
-  | .dynamicBytesEq _ _, hcore, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
-  | .add a b, hcore, hraw
-  | .sub a b, hcore, hraw
-  | .mul a b, hcore, hraw
-  | .div a b, hcore, hraw
-  | .sdiv a b, hcore, hraw
-  | .mod a b, hcore, hraw
-  | .smod a b, hcore, hraw
-  | .bitAnd a b, hcore, hraw
-  | .bitOr a b, hcore, hraw
-  | .bitXor a b, hcore, hraw
-  | .shl a b, hcore, hraw
-  | .shr a b, hcore, hraw
-  | .sar a b, hcore, hraw
-  | .byte a b, hcore, hraw
-  | .signextend a b, hcore, hraw
-  | .eq a b, hcore, hraw
-  | .ge a b, hcore, hraw
-  | .gt a b, hcore, hraw
-  | .sgt a b, hcore, hraw
-  | .lt a b, hcore, hraw
-  | .slt a b, hcore, hraw
-  | .le a b, hcore, hraw
-  | .logicalAnd a b, hcore, hraw
-  | .logicalOr a b, hcore, hraw
-  | .ceilDiv a b, hcore, hraw
-  | .wMulDown a b, hcore, hraw
-  | .wDivUp a b, hcore, hraw
-  | .min a b, hcore, hraw
-  | .max a b, hcore, hraw => by
+      simp [compileExprWithInternals, compileExpr_constructor_mode_eq hcore hcall hraw]
+  | .keccak256 offset size, hcore, hcall, hraw => by
       simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
+      simp only [exprTouchesUnsupportedCallSurface, Bool.or_eq_false_iff] at hcall
+      simp only [exprTouchesUnsupportedConstructorRawCalldataSurface,
+        Bool.or_eq_false_iff] at hraw
+      simp [compileExprWithInternals,
+        compileExpr_constructor_mode_eq hcore.1 hcall.1 hraw.1,
+        compileExpr_constructor_mode_eq hcore.2 hcall.2 hraw.2]
+  | .call .., hcore, _, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
+  | .staticcall .., hcore, _, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
+  | .delegatecall .., hcore, _, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
+  | .calldatasize, _, _, hraw => by simp [exprTouchesUnsupportedConstructorRawCalldataSurface] at hraw
+  | .calldataload _, _, _, hraw => by simp [exprTouchesUnsupportedConstructorRawCalldataSurface] at hraw
+  | .returndataSize, hcore, _, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
+  | .extcodesize _, hcore, _, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
+  | .returndataOptionalBoolAt _, hcore, _, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
+  | .localVar _, _, _, _ => by simp [compileExprWithInternals]
+  | .externalCall _ _, hcore, _, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
+  | .internalCall _ _, hcore, _, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
+  | .arrayLength _, _, hcall, _ => by simp [exprTouchesUnsupportedCallSurface] at hcall
+  | .arrayElement _ _, _, hcall, _ => by simp [exprTouchesUnsupportedCallSurface] at hcall
+  | .storageArrayLength _, hcore, _, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
+  | .storageArrayElement _ _, hcore, _, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
+  | .dynamicBytesEq _ _, _, hcall, _ => by simp [exprTouchesUnsupportedCallSurface] at hcall
+  | .add a b, hcore, hcall, hraw
+  | .sub a b, hcore, hcall, hraw
+  | .mul a b, hcore, hcall, hraw
+  | .div a b, hcore, hcall, hraw
+  | .sdiv a b, hcore, hcall, hraw
+  | .mod a b, hcore, hcall, hraw
+  | .smod a b, hcore, hcall, hraw
+  | .bitAnd a b, hcore, hcall, hraw
+  | .bitOr a b, hcore, hcall, hraw
+  | .bitXor a b, hcore, hcall, hraw
+  | .shl a b, hcore, hcall, hraw
+  | .shr a b, hcore, hcall, hraw
+  | .sar a b, hcore, hcall, hraw
+  | .byte a b, hcore, hcall, hraw
+  | .signextend a b, hcore, hcall, hraw
+  | .eq a b, hcore, hcall, hraw
+  | .ge a b, hcore, hcall, hraw
+  | .gt a b, hcore, hcall, hraw
+  | .sgt a b, hcore, hcall, hraw
+  | .lt a b, hcore, hcall, hraw
+  | .slt a b, hcore, hcall, hraw
+  | .le a b, hcore, hcall, hraw
+  | .logicalAnd a b, hcore, hcall, hraw
+  | .logicalOr a b, hcore, hcall, hraw
+  | .ceilDiv a b, hcore, hcall, hraw
+  | .wMulDown a b, hcore, hcall, hraw
+  | .wDivUp a b, hcore, hcall, hraw
+  | .min a b, hcore, hcall, hraw
+  | .max a b, hcore, hcall, hraw => by
+      simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
+      simp only [exprTouchesUnsupportedCallSurface, Bool.or_eq_false_iff] at hcall
       simp only [exprTouchesUnsupportedConstructorRawCalldataSurface,
         Bool.or_eq_false_iff] at hraw
       rcases hcore with ⟨hcoreA, hcoreB⟩
+      rcases hcall with ⟨hcallA, hcallB⟩
       rcases hraw with ⟨hrawA, hrawB⟩
-      simp [compileExprWithInternals, compileExpr_constructor_mode_eq hcoreA hrawA,
-        compileExpr_constructor_mode_eq hcoreB hrawB]
-  | .bitNot a, hcore, hraw
-  | .logicalNot a, hcore, hraw => by
+      simp [compileExprWithInternals, compileExpr_constructor_mode_eq hcoreA hcallA hrawA,
+        compileExpr_constructor_mode_eq hcoreB hcallB hrawB]
+  | .bitNot a, hcore, hcall, hraw
+  | .logicalNot a, hcore, hcall, hraw => by
       simp only [exprTouchesUnsupportedCoreSurface] at hcore
+      simp only [exprTouchesUnsupportedCallSurface] at hcall
       simp only [exprTouchesUnsupportedConstructorRawCalldataSurface] at hraw
-      simp [compileExprWithInternals, compileExpr_constructor_mode_eq hcore hraw]
-  | .mulDivDown a b c, hcore, hraw
-  | .mulDivUp a b c, hcore, hraw
-  | .ite a b c, hcore, hraw => by
+      simp [compileExprWithInternals, compileExpr_constructor_mode_eq hcore hcall hraw]
+  | .mulDivDown a b c, hcore, hcall, hraw
+  | .mulDivUp a b c, hcore, hcall, hraw
+  | .ite a b c, hcore, hcall, hraw => by
       simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff,
         Bool.or_assoc] at hcore
+      simp only [exprTouchesUnsupportedCallSurface, Bool.or_eq_false_iff,
+        Bool.or_assoc] at hcall
       simp only [exprTouchesUnsupportedConstructorRawCalldataSurface,
         Bool.or_eq_false_iff, Bool.or_assoc] at hraw
       rcases hcore with ⟨hcoreA, hcoreB, hcoreC⟩
+      rcases hcall with ⟨hcallA, hcallB, hcallC⟩
       rcases hraw with ⟨hrawA, hrawB, hrawC⟩
-      simp [compileExprWithInternals, compileExpr_constructor_mode_eq hcoreA hrawA,
-        compileExpr_constructor_mode_eq hcoreB hrawB,
-        compileExpr_constructor_mode_eq hcoreC hrawC]
+      simp [compileExprWithInternals, compileExpr_constructor_mode_eq hcoreA hcallA hrawA,
+        compileExpr_constructor_mode_eq hcoreB hcallB hrawB,
+        compileExpr_constructor_mode_eq hcoreC hcallC hrawC]
 
 private theorem compileExprList_constructor_mode_eq
     {fields : List Field} :
     ∀ {exprs : List Expr},
       exprs.all (fun expr => exprTouchesUnsupportedCoreSurface expr == false) = true →
+      exprs.all (fun expr => exprTouchesUnsupportedCallSurface expr == false) = true →
       exprListTouchesUnsupportedConstructorRawCalldataSurface exprs = false →
       compileExprListWithInternals fields .memory [] exprs =
         compileExprListWithInternals fields .calldata [] exprs
-  | [], _, _ => by simp [compileExprListWithInternals, pure, Except.pure]
-  | expr :: rest, hcore, hraw => by
+  | [], _, _, _ => by simp [compileExprListWithInternals, pure, Except.pure]
+  | expr :: rest, hcore, hcall, hraw => by
       simp only [List.all_cons, Bool.and_eq_true, Bool.beq_eq_decide_eq,
         decide_eq_true_eq] at hcore
       simp only [exprListTouchesUnsupportedConstructorRawCalldataSurface,
         Bool.or_eq_false_iff] at hraw
+      simp only [List.all_cons, Bool.and_eq_true, Bool.beq_eq_decide_eq,
+        decide_eq_true_eq] at hcall
       rcases hcore with ⟨hcoreHead, hcoreTail⟩
+      rcases hcall with ⟨hcallHead, hcallTail⟩
       rcases hraw with ⟨hrawHead, hrawTail⟩
       simp [compileExprListWithInternals,
-        compileExpr_constructor_mode_eq hcoreHead hrawHead,
-        compileExprList_constructor_mode_eq hcoreTail hrawTail,
+        compileExpr_constructor_mode_eq hcoreHead hcallHead hrawHead,
+        compileExprList_constructor_mode_eq hcoreTail hcallTail hrawTail,
         Bind.bind, Except.bind, Functor.map, Except.map]
 
 private theorem compileRequireFailCond_constructor_mode_eq
     {fields : List Field}
     {cond : Expr}
     (hcoreClosed : exprTouchesUnsupportedCoreSurface cond = false)
+    (hcallClosed : exprTouchesUnsupportedCallSurface cond = false)
     (hrawClosed : exprTouchesUnsupportedConstructorRawCalldataSurface cond = false) :
     compileRequireFailCondWithInternals fields .memory [] cond =
       compileRequireFailCondWithInternals fields .calldata [] cond := by
@@ -4547,19 +4568,21 @@ private theorem compileRequireFailCond_constructor_mode_eq
     try simp_all [compileRequireFailCondWithInternals,
       compileExpr_constructor_mode_eq]
   · simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcoreClosed
+    simp only [exprTouchesUnsupportedCallSurface, Bool.or_eq_false_iff] at hcallClosed
     simp only [exprTouchesUnsupportedConstructorRawCalldataSurface,
       Bool.or_eq_false_iff] at hrawClosed
     simp [
       compileRequireFailCondWithInternals,
-      compileExpr_constructor_mode_eq hcoreClosed.1 hrawClosed.1,
-      compileExpr_constructor_mode_eq hcoreClosed.2 hrawClosed.2]
+      compileExpr_constructor_mode_eq hcoreClosed.1 hcallClosed.1 hrawClosed.1,
+      compileExpr_constructor_mode_eq hcoreClosed.2 hcallClosed.2 hrawClosed.2]
   · simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcoreClosed
+    simp only [exprTouchesUnsupportedCallSurface, Bool.or_eq_false_iff] at hcallClosed
     simp only [exprTouchesUnsupportedConstructorRawCalldataSurface,
       Bool.or_eq_false_iff] at hrawClosed
     simp [
       compileRequireFailCondWithInternals,
-      compileExpr_constructor_mode_eq hcoreClosed.1 hrawClosed.1,
-      compileExpr_constructor_mode_eq hcoreClosed.2 hrawClosed.2]
+      compileExpr_constructor_mode_eq hcoreClosed.1 hcallClosed.1 hrawClosed.1,
+      compileExpr_constructor_mode_eq hcoreClosed.2 hcallClosed.2 hrawClosed.2]
 
 mutual
 private theorem compileStmt_constructor_mode_eq
