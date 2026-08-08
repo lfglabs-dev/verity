@@ -4369,9 +4369,15 @@ def translateLinkedExternalCallArgs
     (immutableDecls : Array ImmutableDecl)
     (params : Array ParamDecl)
     (locals : Array TypedLocal)
-    (argTerms : Array Term) : CommandElabM (Array Term) := do
+    (argTerms : Array Term)
+    (expectedTypes : Option (Array ValueType) := none) : CommandElabM (Array Term) := do
   let mut out : Array Term := #[]
-  for arg in argTerms do
+  for (arg, argIdx) in argTerms.zipIdx do
+    let translateScalar : CommandElabM Term := do
+      let raw ← translatePureExprWithTypes fields constDecls immutableDecls params locals arg
+      match expectedTypes >>= (·[argIdx]?) with
+      | some expectedTy => normalizeTranslatedExprForType expectedTy arg raw
+      | none => pure raw
     match ← translateAbiEncodeProjection? fields constDecls immutableDecls params locals arg with
     | some exprs =>
         out := out ++ exprs
@@ -4382,9 +4388,12 @@ def translateLinkedExternalCallArgs
               out := out.push (← `(Compiler.CompilationModel.Expr.param $(strTerm s!"{name}_data_offset")))
               out := out.push (← `(Compiler.CompilationModel.Expr.param $(strTerm s!"{name}_length")))
             else
-              out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals arg)
+              out := out.push (← translateScalar)
         | none =>
-            if let some (paramName, index, fieldTy, _elemTy, wordOffset) :=
+            if let some (name, _) := localMemoryArray? locals arg then
+              out := out.push (← `(Compiler.CompilationModel.Expr.localVar $(strTerm s!"{name}_data_offset")))
+              out := out.push (← `(Compiler.CompilationModel.Expr.localVar $(strTerm s!"{name}_length")))
+            else if let some (paramName, index, fieldTy, _elemTy, wordOffset) :=
                 arrayElementDynamicMemberProjection? params arg then
               if externalCallDynamicArgSupported fieldTy then
                 let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index
@@ -4424,7 +4433,7 @@ def translateLinkedExternalCallArgs
               else
                 throwErrorAt arg s!"linked external dynamic-member argument currently supports only Array<wordLike>/bytes/string members, got {renderValueType fieldTy}"
             else
-              out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals arg)
+              out := out.push (← translateScalar)
   pure out
 
 def tupleInternalCallAssignStmt?

@@ -1000,7 +1000,7 @@ private def translateEffectStmt
         throwErrorAt stx s!"callExternal '{extName}' returns values; bind it with `let ... ← ...`"
       validateLinkedExternalCallArgs fields constDecls immutableDecls externalDecls params locals
         extName ext.params args
-      let argExprs ← translateLinkedExternalCallArgs fields constDecls immutableDecls params locals args
+      let argExprs ← translateLinkedExternalCallArgs fields constDecls immutableDecls params locals args (some ext.params)
       `(Compiler.CompilationModel.Stmt.externalCallBind [] $(strTerm extName) [ $[$argExprs],* ])
   | `(term| setStructMember $field:term $key:term $member:term $value:term) =>
       let fieldName := ← expectStringOrIdent field
@@ -1302,7 +1302,7 @@ private partial def translateDoElem
               | [retTy] =>
                   validateLinkedExternalCallArgs fields constDecls immutableDecls externalDecls params locals
                     extName ext.params args
-                  let argExprs ← translateLinkedExternalCallArgs fields constDecls immutableDecls params locals args
+                  let argExprs ← translateLinkedExternalCallArgs fields constDecls immutableDecls params locals args (some ext.params)
                   let flatNames ← flattenExternalResultNames varName retTy
                   if flatNames.length != 1 then
                     throwErrorAt rhs s!"callExternal '{extName}' return type expands to {flatNames.length} values and cannot be bound to one source variable"
