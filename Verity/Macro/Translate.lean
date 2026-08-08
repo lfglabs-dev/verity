@@ -1303,8 +1303,8 @@ private partial def translateDoElem
                   let source ← match staticStructDirectFieldLocals? varName retTy with
                     | some fieldLocals => pure (LocalSource.externalStaticStruct fieldLocals)
                     | none => do
-                        if flatNames.size != 1 then
-                          throwErrorAt rhs s!"callExternal '{extName}' return type expands to {flatNames.size} values and cannot be bound to one source variable"
+                        if flatNames.length != 1 then
+                          throwErrorAt rhs s!"callExternal '{extName}' return type expands to {flatNames.length} values and cannot be bound to one source variable"
                         pure LocalSource.value
                   pure
                     (#[(← `(Compiler.CompilationModel.Stmt.externalCallBind
