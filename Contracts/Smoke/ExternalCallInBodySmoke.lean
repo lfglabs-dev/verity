@@ -39,6 +39,12 @@ verity_contract ExternalCallInBodySmoke where
     : Uint256 := do
     return (add (returnDataSize()) 1)
 
+  function reentrancy_trusted discardedReturnDataSize ()
+    local_obligations [low_level_frame := assumed "Reading returndata size is an explicit refinement boundary."]
+    : Unit := do
+    let _ ← returnDataSize()
+    return ()
+
 example : (ExternalCallInBodySmoke.linkedRead_modelBody).take 1 =
     [Compiler.CompilationModel.Stmt.externalCallBind
       ["depositable"] "getDepositableEther" []] := rfl
@@ -69,6 +75,13 @@ example : ExternalCallInBodySmoke.linkedWrite_model.body =
 example : ExternalCallInBodySmoke.lowLevel_model.body =
     ExternalCallInBodySmoke.lowLevel_modelBody :=
   ExternalCallInBodySmoke.lowLevel_semantic_preservation
+
+example : (ExternalCallInBodySmoke.discardedReturnDataSize_modelBody).take 1 =
+    [Compiler.CompilationModel.Stmt.letVar "__discard" .returndataSize] := rfl
+
+example : ExternalCallInBodySmoke.discardedReturnDataSize_model.body =
+    ExternalCallInBodySmoke.discardedReturnDataSize_modelBody :=
+  ExternalCallInBodySmoke.discardedReturnDataSize_semantic_preservation
 
 /-- error: unsupported expression in verity_contract body (see #1003 for planned macro support expansions) -/
 #guard_msgs in
