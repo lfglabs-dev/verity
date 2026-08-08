@@ -32,6 +32,12 @@ verity_contract NarrowTypes where
   function echoBytes20 (value : Bytes20) : Bytes20 := do
     return value
 
+  function isBytes4Literal (value : Bytes4) : Bool := do
+    return value == 0xdeadbeef
+
+  function isNotBytes20Literal (value : Bytes20) : Bool := do
+    return 0x1234567890abcdef1234567890abcdef12345678 != value
+
   function wrappingAddUint128 (a : Uint128, b : Uint128) : Uint128 := do
     return a + b
 

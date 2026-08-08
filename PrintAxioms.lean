@@ -2594,6 +2594,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.FunctionBody.compileExpr_div_ok
   Compiler.Proofs.IRGeneration.FunctionBody.compileExpr_mod_ok
   Compiler.Proofs.IRGeneration.FunctionBody.compileExpr_mload_ok
+  Compiler.Proofs.IRGeneration.FunctionBody.compileExpr_keccak256_ok
+  -- Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_keccak256_of_compiled  -- private
   -- Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_mload_of_compiled  -- private
   Compiler.Proofs.IRGeneration.FunctionBody.compileExpr_tload_ok
   -- Compiler.Proofs.IRGeneration.FunctionBody.calldataloadWord_lt_evmModulus  -- private
@@ -4227,7 +4229,6 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.stmtListTouchesUnsupportedCallSurface_eq_featureOr
   -- Compiler.Proofs.IRGeneration.exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed  -- private
   -- Compiler.Proofs.IRGeneration.exprListTouchesUnsupportedContractSurface_eq_false_of_featureClosed  -- private
-  -- Compiler.Proofs.IRGeneration.exprTouchesUnsupportedCallSurface_eq_false_of_coreClosed  -- private
   -- Compiler.Proofs.IRGeneration.stmtListFeatureClosed_cons_inv  -- private
   -- Compiler.Proofs.IRGeneration.stmtListFeatureClosedExceptMappingWrites_cons_inv  -- private
   -- Compiler.Proofs.IRGeneration.stmtTouchesUnsupportedContractSurface_eq_false_of_featureClosed  -- private
@@ -4244,9 +4245,6 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.stmtListTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed_exceptMappingWrites
   Compiler.Proofs.IRGeneration.SupportedBodyCallInterface.surfaceClosed
   Compiler.Proofs.IRGeneration.SupportedBodyCallInterface.surfaceClosed_exceptMappingWrites
-  -- Compiler.Proofs.IRGeneration.exprUsesArrayElement_eq_false_of_coreClosed  -- private
-  -- Compiler.Proofs.IRGeneration.exprUsesStorageArrayElement_eq_false_of_coreClosed  -- private
-  -- Compiler.Proofs.IRGeneration.exprUsesDynamicBytesEq_eq_false_of_coreClosed  -- private
   -- Compiler.Proofs.IRGeneration.exprCompileCore_usesArrayElement_false  -- private
   -- Compiler.Proofs.IRGeneration.exprCompileCore_usesStorageArrayElement_false  -- private
   -- Compiler.Proofs.IRGeneration.exprCompileCore_usesDynamicBytesEq_false  -- private
@@ -6593,4 +6591,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6169 theorems/lemmas (4298 public, 1871 private, 0 sorry'd)
+-- Total: 6167 theorems/lemmas (4299 public, 1868 private, 0 sorry'd)

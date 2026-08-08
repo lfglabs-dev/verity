@@ -72,7 +72,7 @@ theorem denote_evalExpr_eq (fields : List Field) (s : DenoteState) :
   | .memoryArrayLength _ | .memoryArrayElement .. | .paramDynamicMemberLength ..
   | .paramDynamicMemberDataOffset .. | .paramDynamicMemberElement ..
   | .paramDynamicStaticComposite .. | .paramDynamicHeadWord ..
-  | .arrayLength _ | .arrayElement .. | .arrayElementWord ..
+  | .arrayLength _ | .arrayElementWord ..
   | .call .. | .staticcall .. | .delegatecall .. | .extcodesize _
   | .returndataOptionalBoolAt _ | .externalCall .. | .internalCall ..
   | .intrinsic .. | .forkIfAtLeast .. | .mulDiv512Down .. | .mulDiv512Up ..
@@ -84,6 +84,7 @@ theorem denote_evalExpr_eq (fields : List Field) (s : DenoteState) :
   | .mapping _ a | .mappingWord _ a _ | .mappingPackedWord _ a _ _
   | .mappingUint _ a | .mappingChain _ [a] | .structMember _ a _
   | .storageArrayElement _ a
+  | .arrayElement _ a
   | .arrayElementDynamicWord _ a _
   | .arrayElementDynamicDataOffset _ a
   | .arrayElementDynamicMemberLength _ a _

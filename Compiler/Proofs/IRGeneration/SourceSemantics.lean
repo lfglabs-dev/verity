@@ -54,8 +54,7 @@ engine applied to the word-aligned memory slice, returned as a big-endian word.
 Uses the real `KeccakEngine.keccak256`, so the modelled digest is the genuine
 Keccak-256 of the slice (no abstract placeholder). -/
 def keccakMemorySlice (memory : Nat → Verity.Core.Uint256) (offset size : Nat) : Nat :=
-  wordNormalize (KeccakEngine.byteArrayToNatBE
-    (KeccakEngine.keccak256 (memorySliceBytesBE memory offset size)))
+  abstractKeccakMemorySlice (fun address => (memory address).val) offset size
 
 /-- Low-level proof encoding of an emitted event.
 
@@ -1124,6 +1123,9 @@ private def ceilDivVal (lhs rhs : Verity.Core.Uint256) : Nat :=
 private abbrev dynamicArrayBinding? :=
   DynamicAbi.dynamicArrayBinding?
 
+private abbrev arrayElement? :=
+  DynamicAbi.arrayElement?
+
 private abbrev arrayElementDynamicHeadOffset? :=
   DynamicAbi.arrayElementDynamicHeadOffset?
 
@@ -1142,6 +1144,17 @@ private abbrev arrayElementDynamicMemberElement? :=
 def evalExpr (fields : List Field) (state : RuntimeState) : Expr → Option Nat
   | .memoryArrayLength _ => none
   | .memoryArrayElement _ _ => none
+  | .arrayLength name =>
+      lookupBinding? state.bindings s!"{name}_length"
+  | .arrayElement name index => do
+      let idx ← evalExpr fields state index
+      let (dataOffset, length) ← dynamicArrayBinding? state.bindings name
+      arrayElement? state.selector state.world.calldata dataOffset length idx
+  | .dynamicBytesEq lhsName rhsName => do
+      let (lhsOffset, lhsLength) ← dynamicArrayBinding? state.bindings lhsName
+      let (rhsOffset, rhsLength) ← dynamicArrayBinding? state.bindings rhsName
+      some (boolWord (DynamicAbi.dynamicBytesEqCalldata state.selector state.world.calldata
+        lhsOffset lhsLength rhsOffset rhsLength))
   | .arrayElementDynamicDataOffset name index => do
       let idx ← evalExpr fields state index
       let (dataOffset, length) ← dynamicArrayBinding? state.bindings name
@@ -1622,7 +1635,8 @@ private theorem evalExpr_arrayLength
     (fields : List Field)
     (state : RuntimeState)
     (name : String) :
-    evalExpr fields state (.arrayLength name) = none := rfl
+    evalExpr fields state (.arrayLength name) =
+      lookupBinding? state.bindings s!"{name}_length" := rfl
 
 private theorem evalExpr_memoryArrayLength
     (fields : List Field)
@@ -1634,7 +1648,11 @@ private theorem evalExpr_dynamicBytesEq
     (fields : List Field)
     (state : RuntimeState)
     (lhsName rhsName : String) :
-    evalExpr fields state (.dynamicBytesEq lhsName rhsName) = none := rfl
+    evalExpr fields state (.dynamicBytesEq lhsName rhsName) = (do
+      let (lhsOffset, lhsLength) ← dynamicArrayBinding? state.bindings lhsName
+      let (rhsOffset, rhsLength) ← dynamicArrayBinding? state.bindings rhsName
+      some (boolWord (DynamicAbi.dynamicBytesEqCalldata state.selector state.world.calldata
+        lhsOffset lhsLength rhsOffset rhsLength))) := rfl
 
 private theorem evalExpr_externalCall
     (fields : List Field)
@@ -2067,7 +2085,10 @@ private theorem evalExpr_arrayElement
     (state : RuntimeState)
     (name : String)
     (index : Expr) :
-    evalExpr fields state (.arrayElement name index) = none := rfl
+    evalExpr fields state (.arrayElement name index) = (do
+      let idx ← evalExpr fields state index
+      let (dataOffset, length) ← dynamicArrayBinding? state.bindings name
+      arrayElement? state.selector state.world.calldata dataOffset length idx) := rfl
 
 private theorem evalExpr_memoryArrayElement
     (fields : List Field)
@@ -3857,6 +3878,18 @@ mutual
         let off ← evalExprWithHelpers spec fields fuel state offExpr
         let size ← evalExprWithHelpers spec fields fuel state sizeExpr
         some (keccakMemorySlice state.world.memory off size)
+    | .arrayLength name =>
+        lookupBinding? state.bindings s!"{name}_length"
+    | .arrayElement name index => do
+        let idx ← evalExprWithHelpers spec fields fuel state index
+        let (dataOffset, length) ← dynamicArrayBinding? state.bindings name
+        arrayElement? state.selector state.world.calldata dataOffset length idx
+    | .dynamicBytesEq lhsName rhsName => do
+        let (lhsOffset, lhsLength) ← dynamicArrayBinding? state.bindings lhsName
+        let (rhsOffset, rhsLength) ← dynamicArrayBinding? state.bindings rhsName
+        some (boolWord (DynamicAbi.dynamicBytesEqCalldata
+          state.selector state.world.calldata
+          lhsOffset lhsLength rhsOffset rhsLength))
     | .arrayElementDynamicWord name index wordOffset => do
         let idx ← evalExprWithHelpers spec fields fuel state index
         let (dataOffset, length) ← dynamicArrayBinding? state.bindings name
@@ -3892,14 +3925,13 @@ mutual
     | .paramDynamicHeadWord _ _ | .paramDynamicStaticComposite _ _
     | .paramDynamicMemberLength _ _
     | .paramDynamicMemberDataOffset _ _ | .paramDynamicMemberElement _ _ _
-    | .arrayLength _ | .memoryArrayLength _
-    | .arrayElement _ _ | .memoryArrayElement _ _
+    | .memoryArrayLength _
+    | .memoryArrayElement _ _
     | .arrayElementWord _ _ _ _
     | .extcodesize _ | .returndataSize | .returndataOptionalBoolAt _
     | .call _ _ _ _ _ _ _ | .staticcall _ _ _ _ _ _ | .delegatecall _ _ _ _ _ _
     | .externalCall _ _ | .mappingChain _ _ | .intrinsic _ _ _ _
     | .forkIfAtLeast _ _ _
-    | .dynamicBytesEq _ _
     | .adtConstruct _ _ _ | .adtTag _ _ | .adtField _ _ _ _ _ => none
   termination_by expr => (fuel, sizeOf expr)
   decreasing_by all_goals (simp_wf; omega)
@@ -5259,7 +5291,7 @@ mutual
           evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed spec fields fuel state b hsurface
         simpa [evalExprWithHelpers, evalExpr_mapping, evalExpr_mappingUint, hb]
     | arrayElement _ b =>
-        simp [evalExprWithHelpers, evalExpr_arrayElement]
+        simp [exprTouchesUnsupportedHelperSurface] at hsurface
     | memoryArrayElement _ b =>
         simp [evalExprWithHelpers, evalExpr_memoryArrayElement]
     | arrayElementWord _ b _ _ =>

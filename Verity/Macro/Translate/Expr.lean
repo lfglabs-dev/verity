@@ -3245,9 +3245,24 @@ partial def translatePureExprWithTypes
         let (lhsName, rhsName) ← dynamicEqParamNames stx params a b lhsTy rhsTy
         `(Compiler.CompilationModel.Expr.dynamicBytesEq $(strTerm lhsName) $(strTerm rhsName))
       else
+        let lhs ← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants
+        let rhs ← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants
+        let lhs ← match rhsTy with
+          | .bytesN bytes =>
+              if isNatLiteralTerm a then
+                `(Compiler.CompilationModel.Expr.shl
+                    (Compiler.CompilationModel.Expr.literal $(natTerm (8 * (32 - bytes)))) $lhs)
+              else pure lhs
+          | _ => pure lhs
+        let rhs ← match lhsTy with
+          | .bytesN bytes =>
+              if isNatLiteralTerm b then
+                `(Compiler.CompilationModel.Expr.shl
+                    (Compiler.CompilationModel.Expr.literal $(natTerm (8 * (32 - bytes)))) $rhs)
+              else pure rhs
+          | _ => pure rhs
         `(Compiler.CompilationModel.Expr.eq
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants)
-          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants))
+          $lhs $rhs)
   | `(term| $a != $b) => do
       let lhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals a visitingConstants
       let rhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals b visitingConstants
@@ -3256,10 +3271,25 @@ partial def translatePureExprWithTypes
         `(Compiler.CompilationModel.Expr.logicalNot
             (Compiler.CompilationModel.Expr.dynamicBytesEq $(strTerm lhsName) $(strTerm rhsName)))
       else
+        let lhs ← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants
+        let rhs ← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants
+        let lhs ← match rhsTy with
+          | .bytesN bytes =>
+              if isNatLiteralTerm a then
+                `(Compiler.CompilationModel.Expr.shl
+                    (Compiler.CompilationModel.Expr.literal $(natTerm (8 * (32 - bytes)))) $lhs)
+              else pure lhs
+          | _ => pure lhs
+        let rhs ← match lhsTy with
+          | .bytesN bytes =>
+              if isNatLiteralTerm b then
+                `(Compiler.CompilationModel.Expr.shl
+                    (Compiler.CompilationModel.Expr.literal $(natTerm (8 * (32 - bytes)))) $rhs)
+              else pure rhs
+          | _ => pure rhs
         `(Compiler.CompilationModel.Expr.logicalNot
             (Compiler.CompilationModel.Expr.eq
-              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants)
-              $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants)))
+              $lhs $rhs))
   | `(term| $a >= $b) => do
       let lhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals a visitingConstants
       let rhsTy ← inferPureExprType fields constDecls immutableDecls #[] params locals b visitingConstants

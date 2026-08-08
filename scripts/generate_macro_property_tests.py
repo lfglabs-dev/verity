@@ -3008,6 +3008,20 @@ def render_contract_test(contract: ContractDecl) -> str:
         require(okBytes, "dirty bytes4 calldata reverted");
         assertEq(abi.decode(bytesRet, (bytes4)), bytes4(0xdeadbeef));
     }
+
+    function testRegression_FixedBytesLiteralEquality() public {
+        (bool okEq, bytes memory eqRet) = target.call(
+            abi.encodeWithSignature("isBytes4Literal(bytes4)", bytes4(0xdeadbeef)));
+        require(okEq, "bytes4 equality reverted");
+        assertTrue(abi.decode(eqRet, (bool)), "bytes4 literal equality must use ABI alignment");
+
+        (bool okNe, bytes memory neRet) = target.call(
+            abi.encodeWithSignature(
+                "isNotBytes20Literal(bytes20)",
+                bytes20(0x1234567890abcdef1234567890abcdef12345678)));
+        require(okNe, "bytes20 inequality reverted");
+        assertFalse(abi.decode(neRet, (bool)), "bytes20 literal inequality must use ABI alignment");
+    }
 ''')
 
     return f"""// SPDX-License-Identifier: MIT

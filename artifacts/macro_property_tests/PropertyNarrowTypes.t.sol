@@ -62,7 +62,25 @@ contract PropertyNarrowTypesTest is YulTestBase {
         bytes20 actual = abi.decode(ret, (bytes20));
         assertEq(actual, bytes20(uint160(0x01)), "echoBytes20 should preserve the expected value");
     }
-    // Property 6: TODO decode and assert `wrappingAddUint128` result
+    // Property 6: isBytes4Literal returns the declared constant result
+    function testAuto_IsBytes4Literal_ReturnsDeclaredConstant() public {
+        vm.prank(alice);
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("isBytes4Literal(bytes4)", bytes4(uint32(0x01))));
+        require(ok, "isBytes4Literal reverted unexpectedly");
+        assertEq(ret.length, 32, "isBytes4Literal ABI return length mismatch (expected 32 bytes)");
+        bool actual = abi.decode(ret, (bool));
+        assertEq(actual, (bytes4(uint32(0x01)) == 0xdeadbeef), "isBytes4Literal should return the declared constant");
+    }
+    // Property 7: isNotBytes20Literal returns the declared constant result
+    function testAuto_IsNotBytes20Literal_ReturnsDeclaredConstant() public {
+        vm.prank(alice);
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("isNotBytes20Literal(bytes20)", bytes20(uint160(0x01))));
+        require(ok, "isNotBytes20Literal reverted unexpectedly");
+        assertEq(ret.length, 32, "isNotBytes20Literal ABI return length mismatch (expected 32 bytes)");
+        bool actual = abi.decode(ret, (bool));
+        assertEq(actual, (0x1234567890abcdef1234567890abcdef12345678 != bytes20(uint160(0x01))), "isNotBytes20Literal should return the declared constant");
+    }
+    // Property 8: TODO decode and assert `wrappingAddUint128` result
     function testTODO_WrappingAddUint128_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("wrappingAddUint128(uint128,uint128)", uint128(1), uint128(1)));
@@ -71,7 +89,7 @@ contract PropertyNarrowTypesTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 7: TODO decode and assert `wrappingSubUint128` result
+    // Property 9: TODO decode and assert `wrappingSubUint128` result
     function testTODO_WrappingSubUint128_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("wrappingSubUint128(uint128,uint128)", uint128(1), uint128(1)));
@@ -80,7 +98,7 @@ contract PropertyNarrowTypesTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 8: TODO decode and assert `wrappingMulUint128` result
+    // Property 10: TODO decode and assert `wrappingMulUint128` result
     function testTODO_WrappingMulUint128_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("wrappingMulUint128(uint128,uint128)", uint128(1), uint128(1)));
@@ -89,7 +107,7 @@ contract PropertyNarrowTypesTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 9: TODO decode and assert `mulUint248` result
+    // Property 11: TODO decode and assert `mulUint248` result
     function testTODO_MulUint248_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("mulUint248(uint248,uint248)", uint248(1), uint248(1)));
@@ -98,7 +116,7 @@ contract PropertyNarrowTypesTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 10: TODO decode and assert `castUint128` result
+    // Property 12: TODO decode and assert `castUint128` result
     function testTODO_CastUint128_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("castUint128(uint256)", uint256(1)));
@@ -107,7 +125,7 @@ contract PropertyNarrowTypesTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 11: TODO decode and assert `castInt64` result
+    // Property 13: TODO decode and assert `castInt64` result
     function testTODO_CastInt64_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("castInt64(uint256)", uint256(1)));
@@ -116,7 +134,7 @@ contract PropertyNarrowTypesTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 12: TODO decode and assert `castBytes20` result
+    // Property 14: TODO decode and assert `castBytes20` result
     function testTODO_CastBytes20_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("castBytes20(uint256)", uint256(1)));
@@ -161,5 +179,19 @@ contract PropertyNarrowTypesTest is YulTestBase {
             abi.encodePacked(bytesSelector, dirtyBytes4));
         require(okBytes, "dirty bytes4 calldata reverted");
         assertEq(abi.decode(bytesRet, (bytes4)), bytes4(0xdeadbeef));
+    }
+
+    function testRegression_FixedBytesLiteralEquality() public {
+        (bool okEq, bytes memory eqRet) = target.call(
+            abi.encodeWithSignature("isBytes4Literal(bytes4)", bytes4(0xdeadbeef)));
+        require(okEq, "bytes4 equality reverted");
+        assertTrue(abi.decode(eqRet, (bool)), "bytes4 literal equality must use ABI alignment");
+
+        (bool okNe, bytes memory neRet) = target.call(
+            abi.encodeWithSignature(
+                "isNotBytes20Literal(bytes20)",
+                bytes20(0x1234567890abcdef1234567890abcdef12345678)));
+        require(okNe, "bytes20 inequality reverted");
+        assertFalse(abi.decode(neRet, (bool)), "bytes20 literal inequality must use ABI alignment");
     }
 }
