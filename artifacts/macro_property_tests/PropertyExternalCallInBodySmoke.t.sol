@@ -131,7 +131,13 @@ contract PropertyExternalCallInBodySmokeTest is YulTestBase {
         (bool ok,) = target.call(abi.encodeWithSignature("helperNestedExternalArg()"));
         require(ok, "helperNestedExternalArg reverted unexpectedly");
     }
-    // Property 16: TODO decode and assert `pureDirtyInt` result
+    // Property 16: ecmNestedExternalArg has no unexpected revert
+    function testAuto_EcmNestedExternalArg_NoUnexpectedRevert() public {
+        vm.prank(alice);
+        (bool ok,) = target.call(abi.encodeWithSignature("ecmNestedExternalArg()"));
+        require(ok, "ecmNestedExternalArg reverted unexpectedly");
+    }
+    // Property 17: TODO decode and assert `pureDirtyInt` result
     function testTODO_PureDirtyInt_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("pureDirtyInt()"));
@@ -140,7 +146,7 @@ contract PropertyExternalCallInBodySmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 17: TODO decode and assert `bindDirtyInt` result
+    // Property 18: TODO decode and assert `bindDirtyInt` result
     function testTODO_BindDirtyInt_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("bindDirtyInt()"));
@@ -149,7 +155,7 @@ contract PropertyExternalCallInBodySmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 18: TODO decode and assert `pureDirtyBytes` result
+    // Property 19: TODO decode and assert `pureDirtyBytes` result
     function testTODO_PureDirtyBytes_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("pureDirtyBytes()"));
@@ -158,7 +164,7 @@ contract PropertyExternalCallInBodySmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 19: TODO decode and assert `bindDirtyBytes` result
+    // Property 20: TODO decode and assert `bindDirtyBytes` result
     function testTODO_BindDirtyBytes_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("bindDirtyBytes()"));
