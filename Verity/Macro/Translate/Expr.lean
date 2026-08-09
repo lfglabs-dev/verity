@@ -1749,17 +1749,6 @@ partial def peelLambdaBody (value : Expr) (arity : Nat) : Option Expr :=
       | .lam _ _ body _ => peelLambdaBody body n
       | _ => none
 
-partial def countBVarUses (target : Nat) (expr : Expr) : Nat :=
-  match expr with
-  | .bvar idx => if idx == target then 1 else 0
-  | .app fn arg => countBVarUses target fn + countBVarUses target arg
-  | .lam _ type body _ | .forallE _ type body _ =>
-      countBVarUses target type + countBVarUses (target + 1) body
-  | .letE _ type value body _ =>
-      countBVarUses target type + countBVarUses target value + countBVarUses (target + 1) body
-  | .mdata _ body | .proj _ _ body => countBVarUses target body
-  | _ => 0
-
 partial def leanDefAppSyntax? (stx : Term) : Option (Syntax × String × Array Term) :=
   let stx := stripParens stx
   match stx.raw with
@@ -2186,7 +2175,14 @@ partial def inferPureExprType
               requireSupportedArrayElementSourceType name "arrayElement" sourceTy
         | _ =>
             requireSupportedArrayElementSourceType name "arrayElement" sourceTy
-  | `(term| mulDivDown $a $b $c) | `(term| mulDivUp $a $b $c) => do
+  | `(term| mulDivDown $a $b $c) => do
+      for arg in [a, b, c] do
+        requireWordLikeType arg "mulDiv" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals arg visitingConstants)
+      pure .uint256
+  | `(term| mulDivUp $a $b $c) => do
+      if syntaxContainsCallExternal c then
+        throwErrorAt c
+          "mulDivUp divisor cannot contain callExternal because expression lowering reuses it; bind the external result first"
       for arg in [a, b, c] do
         requireWordLikeType arg "mulDiv" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals arg visitingConstants)
       pure .uint256
@@ -3068,9 +3064,9 @@ partial def translateLeanDefCall?
   for (arg, argIdx) in argTerms.zipIdx do
     if syntaxContainsCallExternal arg.raw then
       let bvarIdx := argTerms.size - 1 - argIdx
-      unless countBVarUses bvarIdx body == 1 do
+      unless body == .bvar bvarIdx do
         throwErrorAt stx
-          s!"Lean helper '{fnDisplay}' arguments cannot contain callExternal because transparent-helper inlining may reuse or discard arguments; bind the external result first"
+          s!"Lean helper '{fnDisplay}' arguments cannot contain callExternal unless the helper is a direct passthrough because transparent-helper and expression lowering may duplicate or discard arguments; bind the external result first"
   let inferArgType (arg : Term) :=
     match linkedExternalLowerer? with
     | some lowerer => lowerer.inferType arg visitingConstants
@@ -4826,6 +4822,9 @@ def expectEcmExprList
             if let some (paramName, index, fieldTy, _elemTy, wordOffset) :=
                 arrayElementDynamicMemberProjection? params x then
               if externalCallDynamicArgSupported fieldTy then
+                  if syntaxContainsCallExternal index then
+                    throwErrorAt index
+                      "ECM dynamic projection indices cannot contain callExternal because ABI lowering reuses the index for offset and length; bind the external result first"
                   let indexExpr ← translateExpr index
                   out := out.push (← `(Compiler.CompilationModel.Expr.arrayElementDynamicMemberDataOffset
                     $(strTerm paramName)
@@ -4840,6 +4839,9 @@ def expectEcmExprList
             else if let some (paramName, index, fieldTy, _elemTy, wordOffset) :=
                 localArrayElementDynamicMemberProjection? locals x then
               if externalCallDynamicArgSupported fieldTy then
+                  if syntaxContainsCallExternal index then
+                    throwErrorAt index
+                      "ECM dynamic projection indices cannot contain callExternal because ABI lowering reuses the index for offset and length; bind the external result first"
                   let indexExpr ← translateExpr index
                   out := out.push (← `(Compiler.CompilationModel.Expr.arrayElementDynamicMemberDataOffset
                     $(strTerm paramName)

@@ -20,6 +20,8 @@ def linkedWordPassthrough (value : Uint256) : Uint256 := value
 
 def linkedWordTwice (value : Uint256) : Uint256 := value + value
 
+def linkedBoolTruthy (value : Bool) : Bool := if value then true else false
+
 -- P0 #1003 coverage for linked calls and explicit low-level body syntax.
 -- `callExternal` is declaration-driven; target/value fields belong to `evmCall`.
 verity_contract ExternalCallInBodySmoke where
@@ -626,7 +628,7 @@ verity_contract EffectfulShortCircuitOperandRejected where
   function bad (flag : Bool) : Bool := do
     return flag && callExternal dirtyBool()
 
-/-- error: Lean helper 'linkedWordTwice' arguments cannot contain callExternal because transparent-helper inlining may reuse or discard arguments; bind the external result first -/
+/-- error: Lean helper 'linkedWordTwice' arguments cannot contain callExternal unless the helper is a direct passthrough because transparent-helper and expression lowering may duplicate or discard arguments; bind the external result first -/
 #guard_msgs in
 verity_contract EffectfulTransparentHelperArgumentRejected where
   storage
@@ -634,6 +636,24 @@ verity_contract EffectfulTransparentHelperArgumentRejected where
     external dirtyWord() -> (Uint256)
   function bad () : Uint256 := do
     return linkedWordTwice (callExternal dirtyWord())
+
+/-- error: Lean helper 'linkedBoolTruthy' arguments cannot contain callExternal unless the helper is a direct passthrough because transparent-helper and expression lowering may duplicate or discard arguments; bind the external result first -/
+#guard_msgs in
+verity_contract EffectfulTransparentHelperLoweringRejected where
+  storage
+  linked_externals
+    external dirtyBool() -> (Bool)
+  function bad () : Bool := do
+    return linkedBoolTruthy (callExternal dirtyBool())
+
+/-- error: mulDivUp divisor cannot contain callExternal because expression lowering reuses it; bind the external result first -/
+#guard_msgs in
+verity_contract EffectfulMulDivUpDivisorRejected where
+  storage
+  linked_externals
+    external dirtyWord() -> (Uint256)
+  function bad () : Uint256 := do
+    return mulDivUp 10 2 (callExternal dirtyWord())
 
 /-- error: dynamic projection indices cannot contain callExternal because ABI lowering reuses the index for offset and length; bind the external result first -/
 #guard_msgs in
@@ -646,6 +666,17 @@ verity_contract EffectfulDynamicProjectionIndexRejected where
     external consume(Array Uint256)
   function bad (payloads : Array Payload) : Unit := do
     callExternal consume((arrayElement payloads (callExternal dirtyUint())).values)
+
+/-- error: ECM dynamic projection indices cannot contain callExternal because ABI lowering reuses the index for offset and length; bind the external result first -/
+#guard_msgs in
+verity_contract EffectfulEcmDynamicProjectionIndexRejected where
+  storage
+  struct Payload where
+    values : Array Uint256
+  linked_externals
+    external dirtyUint() -> (Uint32)
+  function bad (payloads : Array Payload) : Unit := do
+    ecmBind [] linkedOperandEcmModule [(arrayElement payloads (callExternal dirtyUint())).values]
 
 /-- error: memory-store value requires a word-like value (Uint256, Int256, Uint8, Address, or Bytes32), got Verity.Macro.ValueType.bytes -/
 #guard_msgs in
