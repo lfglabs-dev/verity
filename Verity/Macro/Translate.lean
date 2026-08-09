@@ -1856,6 +1856,8 @@ private partial def rewriteForEachExecutableDoElem
           | _ => pure (#[elem], locals)
       | `(term| getStorage $field:ident) =>
           match fields.find? (fun candidate => candidate.name == toString field.getId) with
+          | some { isTransient := true, packedBits := some (offset, width), .. } =>
+              pure (#[← `(doElem| let $name:ident ← _root_.Verity.getPackedTransientStorage $field:ident $(natTerm offset) $(natTerm width))], locals)
           | some { packedBits := some (offset, width), .. } =>
               pure (#[← `(doElem| let $name:ident ←
                 _root_.Verity.getPackedStorage $field:ident $(natTerm offset) $(natTerm width))], locals)
@@ -1928,6 +1930,9 @@ private partial def rewriteForEachExecutableDoElem
           | _ => pure (#[elem], locals)
       | `(term| setStorage $field:ident $value:term) =>
           match fields.find? (fun candidate => candidate.name == toString field.getId) with
+          | some { isTransient := true, packedBits := some (offset, width), .. } =>
+              pure (#[← `(doElem| _root_.Verity.setPackedTransientStorage
+                $field:ident $(natTerm offset) $(natTerm width) $value:term)], locals)
           | some { packedBits := some (offset, width), .. } =>
               pure (#[← `(doElem| _root_.Verity.setPackedStorage
                 $field:ident $(natTerm offset) $(natTerm width) $value:term)], locals)

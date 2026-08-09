@@ -235,26 +235,30 @@ where
       match f.ty with
       | FieldType.adt _ maxFields =>
           (List.range (maxFields + 1)).map fun offset =>
-            (slot + offset, if offset == 0 then f.name else s!"{f.name}.payload[{offset - 1}]")
+            ((slot + offset) % Compiler.Constants.evmModulus,
+             if offset == 0 then f.name else s!"{f.name}.payload[{offset - 1}]")
       | FieldType.fixedArrayUint128 size =>
           (List.range (max 1 ((size + 1) / 2))).map fun offset =>
-            (slot + offset, s!"{f.name}.packedWord[{offset}]")
-      | _ => [(slot, f.name)]
+            ((slot + offset) % Compiler.Constants.evmModulus,
+             s!"{f.name}.packedWord[{offset}]")
+      | _ => [(slot % Compiler.Constants.evmModulus, f.name)]
     canonical ++
       (f.aliasSlots.zipIdx.flatMap (fun (aliasSlot, aliasIdx) =>
         match f.ty with
         | FieldType.adt _ maxFields =>
             (List.range (maxFields + 1)).map fun offset =>
-              (aliasSlot + offset,
+              ((aliasSlot + offset) % Compiler.Constants.evmModulus,
                if offset == 0 then
                  s!"{f.name}.aliasSlots[{aliasIdx}]"
                else
                  s!"{f.name}.aliasSlots[{aliasIdx}].payload[{offset - 1}]")
         | FieldType.fixedArrayUint128 size =>
             (List.range (max 1 ((size + 1) / 2))).map fun offset =>
-              (aliasSlot + offset, s!"{f.name}.aliasSlots[{aliasIdx}].packedWord[{offset}]")
+              ((aliasSlot + offset) % Compiler.Constants.evmModulus,
+               s!"{f.name}.aliasSlots[{aliasIdx}].packedWord[{offset}]")
         | _ =>
-            [(aliasSlot, s!"{f.name}.aliasSlots[{aliasIdx}]")]))
+            [(aliasSlot % Compiler.Constants.evmModulus,
+              s!"{f.name}.aliasSlots[{aliasIdx}]")]))
 
 def firstInvalidPackedBits (fields : List Field) :
     Option (String × PackedBits) :=

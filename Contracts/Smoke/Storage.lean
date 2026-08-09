@@ -94,6 +94,28 @@ example :
       MixedStorageSpacePackingSmoke.spec [] = .ok () := by
   native_decide
 
+verity_contract TransientPackedExecutableSmoke where
+  storage
+    transient transientValue : Uint128 := slot 20
+
+  function setTransientValue (value : Uint256) : Unit := do
+    setStorage transientValue value
+
+  function getTransientValue () : Uint256 := do
+    let value ← getStorage transientValue
+    return value
+
+example :
+    let result := (TransientPackedExecutableSmoke.setTransientValue 7).run defaultState
+    result.snd.storage 20 = 0 ∧ result.snd.transientStorage 20 = 7 := by
+  decide
+
+example :
+    (((do
+      TransientPackedExecutableSmoke.setTransientValue 7
+      TransientPackedExecutableSmoke.getTransientValue) : Contract Uint256).run defaultState).fst = 7 := by
+  rfl
+
 example :
     Compiler.CompilationModel.firstFieldWriteSlotConflict (fields := [
       ⟨"persistentA", .uint256, false, some 41, none, []⟩,
@@ -123,6 +145,16 @@ example : InterleavedStorageSpacePackingSmoke.spec.fields.map (fun field =>
 example :
     (Compiler.CompilationModel.firstReservedSlotWriteConflict
       PackedStorageLoweringSmoke.spec.fields [{ start := 2, end_ := 2 }]).isSome = true := by
+  native_decide
+
+example :
+    (match Compiler.CompilationModel.firstReservedSlotWriteConflict
+      [⟨"wrappingArray", .fixedArrayUint128 3, false,
+        some (Compiler.Constants.evmModulus - 1), none, []⟩]
+      [{ start := 0, end_ := 0 }] with
+    | some (resolvedSlot, owner, rangeIdx, _) =>
+        resolvedSlot == 0 && owner == "wrappingArray.packedWord[1]" && rangeIdx == 0
+    | none => false) = true := by
   native_decide
 
 verity_contract UintMapSmoke where
