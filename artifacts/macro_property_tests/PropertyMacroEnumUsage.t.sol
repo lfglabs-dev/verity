@@ -50,7 +50,13 @@ contract PropertyMacroEnumUsageTest is YulTestBase {
         (bool ok,) = target.call(abi.encodeWithSignature("setStatus(uint8)", uint8(0)));
         require(ok, "setStatus reverted unexpectedly");
     }
-    // Property 5: getStatus reads storage slot 0 and decodes the result
+    // Property 5: announceStatus has no unexpected revert
+    function testAuto_AnnounceStatus_NoUnexpectedRevert() public {
+        vm.prank(alice);
+        (bool ok,) = target.call(abi.encodeWithSignature("announceStatus(uint8)", uint8(0)));
+        require(ok, "announceStatus reverted unexpectedly");
+    }
+    // Property 6: getStatus reads storage slot 0 and decodes the result
     function testAuto_GetStatus_ReadsConfiguredStorage() public {
         uint8 expected = uint8(0);
         vm.store(target, bytes32(uint256(0)), bytes32(uint256(expected)));
@@ -61,13 +67,13 @@ contract PropertyMacroEnumUsageTest is YulTestBase {
         uint8 actual = abi.decode(ret, (uint8));
         assertEq(actual, expected, "getStatus should return storage slot 0");
     }
-    // Property 6: setStatusAt has no unexpected revert
+    // Property 7: setStatusAt has no unexpected revert
     function testAuto_SetStatusAt_NoUnexpectedRevert() public {
         vm.prank(alice);
         (bool ok,) = target.call(abi.encodeWithSignature("setStatusAt(uint256,uint8)", uint256(1), uint8(0)));
         require(ok, "setStatusAt reverted unexpectedly");
     }
-    // Property 7: getStatusAt reads the configured mapping value
+    // Property 8: getStatusAt reads the configured mapping value
     function testAuto_GetStatusAt_ReadsConfiguredMapping() public {
         uint8 expected = uint8(0);
         vm.store(target, _mappingSlot(bytes32(uint256(uint256(1))), 1), bytes32(uint256(expected)));
