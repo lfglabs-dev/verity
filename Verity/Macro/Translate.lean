@@ -2836,14 +2836,25 @@ private partial def localBinderNames (stx : Syntax) : CommandElabM (Array String
   let nested ← stx.getArgs.mapM localBinderNames
   pure (nested.foldl (· ++ ·) here)
 
-private def substitutePureInitializerParams
-    (bindings : Array (String × Syntax)) (body : Term) : Term :=
-  ⟨body.raw.rewriteBottomUp fun node =>
+private partial def substitutePureInitializerParamSyntax
+    (bindings : Array (String × Syntax)) (node : Syntax) : Syntax :=
     match node with
     | .ident _ _ name _ =>
         bindings.find? (fun binding => binding.1 == name.toString)
           |>.map (·.2) |>.getD node
-    | _ => node⟩
+    | _ =>
+        let args := node.getArgs
+        if node.getKind == `Lean.Parser.Term.app && !args.isEmpty then
+          -- The application head names a helper/constant, not a constructor
+          -- parameter reference.  Rebind only its argument expressions.
+          node.setArgs (args.mapIdx fun idx arg =>
+            if idx == 0 then arg else substitutePureInitializerParamSyntax bindings arg)
+        else
+          node.setArgs (args.map (substitutePureInitializerParamSyntax bindings))
+
+private def substitutePureInitializerParams
+    (bindings : Array (String × Syntax)) (body : Term) : Term :=
+  ⟨substitutePureInitializerParamSyntax bindings body.raw⟩
 
 private def composeConstructors
     (parentName : Ident) (parentCtor : Option ConstructorDecl)

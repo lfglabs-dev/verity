@@ -34,14 +34,17 @@ CHECK_CONTRACT_RE = re.compile(r"^\s*#check_contract\s+([A-Za-z_][A-Za-z0-9_]*)\
 _FUNCTION_MODIFIER = (
     r"(?:payable|view|pure|no_external_calls"
     r"|allow_post_interaction_writes|cei_safe|reentrancy_trusted"
-    r"|nonreentrant\([^)]*\))"
+    r"|nonreentrant\([^)]*\)|virtual|override)"
 )
 FUNCTION_RE = re.compile(
-    rf"^\s*function\s+(?:{_FUNCTION_MODIFIER}\s+)*([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*:\s*(.+?)\s*:=\s*",
+    rf"^\s*function\s+(?:{_FUNCTION_MODIFIER}\s+)*([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)"
+    rf"(?:\s+with\s+[A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*)?\s*:\s*(.+?)\s*:=\s*",
 )
 CONSTRUCTOR_RE = re.compile(
     r"^\s*constructor\s*\(([^)]*)\)"
-    r"(?:\s+[A-Za-z_][A-Za-z0-9_.]*\s*\([^)]*\))?\s*:=\s*"
+    r"(?:\s+payable)?"
+    r"(?:\s+[A-Za-z_][A-Za-z0-9_.]*\s*\([^)]*\))?"
+    r"(?:\s+local_obligations\s*\[[^]]*\])?\s*:=\s*"
 )
 # `_IDENT` captures a user-facing identifier with optional `«…»` raw-identifier
 # escape (verity#1847). The capture group excludes the guillemets so downstream
@@ -165,6 +168,7 @@ class ContractDecl:
     storage_types: dict[str, str] = field(default_factory=dict)
     transient_slots: frozenset[str] = frozenset()
     newtypes: dict[str, str] = field(default_factory=dict)
+    structs: dict[str, tuple[ParamDecl, ...]] = field(default_factory=dict)
     constants: dict[str, ValueDecl] = field(default_factory=dict)
     immutables: dict[str, ValueDecl] = field(default_factory=dict)
 
@@ -371,6 +375,7 @@ def parse_contracts(text: str, source: Path) -> dict[str, ContractDecl]:
             storage_types=dict(current_storage_types),
             transient_slots=frozenset(current_transient_slots),
             newtypes=dict(current_newtypes),
+            structs=dict(current_structs),
             constants=dict(current_constants),
             immutables=dict(current_immutables),
         )
@@ -665,11 +670,12 @@ def collect_contracts(paths: list[Path]) -> dict[str, ContractDecl]:
             return child
         parent = resolve(child.parent_name)
         merged_newtypes = parent.newtypes | child.newtypes
+        merged_structs = parent.structs | child.structs
         child_functions = tuple(
             replace(
                 fn,
-                params=_resolve_decl_types_in_params(fn.params, merged_newtypes, {}),
-                return_type=_resolve_decl_type(fn.return_type, merged_newtypes, {}),
+                params=_resolve_decl_types_in_params(fn.params, merged_newtypes, merged_structs),
+                return_type=_resolve_decl_type(fn.return_type, merged_newtypes, merged_structs),
             )
             for fn in child.functions
         )
@@ -677,7 +683,7 @@ def collect_contracts(paths: list[Path]) -> dict[str, ContractDecl]:
         if child_constructor is not None:
             child_constructor = replace(
                 child_constructor,
-                params=_resolve_decl_types_in_params(child_constructor.params, merged_newtypes, {}),
+                params=_resolve_decl_types_in_params(child_constructor.params, merged_newtypes, merged_structs),
             )
         inherited_functions = {
             (fn.name, tuple(param.lean_type for param in fn.params)): fn
@@ -693,6 +699,7 @@ def collect_contracts(paths: list[Path]) -> dict[str, ContractDecl]:
             storage_types=parent.storage_types | child.storage_types,
             transient_slots=parent.transient_slots | child.transient_slots,
             newtypes=merged_newtypes,
+            structs=merged_structs,
             constants=parent.constants | child.constants,
             immutables=parent.immutables | child.immutables,
         )
