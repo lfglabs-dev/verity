@@ -31,6 +31,8 @@ def eqWordHelper (a : Uint256) (b : Uint256) : Uint256 :=
   if a = b then 1 else 0
 
 verity_contract ModifierInheritanceBase where
+  types
+    InheritedValue : Uint256
   storage
     owner : Address := slot 0
 
@@ -53,8 +55,13 @@ verity_contract ModifierInheritanceChild is ModifierInheritanceBase where
     setStorage counter 7
 
   function bump () with onlyOwner : Unit := do
-    let current ← getStorage counter
-    setStorage counter (current + 1)
+    -- Modifier-local bindings have their own scope and may be reused here.
+    let sender ← getStorage counter
+    setStorage counter (sender + 1)
+
+  -- Child signatures may use user-defined types declared by the parent.
+  function setInherited (next : InheritedValue) : Unit := do
+    setStorage counter next
 
   function override value () : Uint256 := do
     return 2

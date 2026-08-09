@@ -354,7 +354,11 @@ partial def valueTypeFromSyntax
       pure (.tuple elems.toList)
   | `(term| Unit) => pure .unit
   | `(term| $id:ident) =>
-      let tyName := toString id.getId
+      -- Inherited declarations have already been elaborated, so an
+      -- unqualified type written in the child may carry its resolved
+      -- namespace here.  Contract-local type tables store the source-local
+      -- name; compare that final component consistently.
+      let tyName := id.getId.getString!
       if let some bits := parseNarrowTypeSuffix "Uint" tyName then
         if validIntegerWidth bits then pure (.uintN bits)
         else throwErrorAt ty s!"invalid Solidity unsigned integer width {bits}; expected a multiple of 8 from 8 through 248"

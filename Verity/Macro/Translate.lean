@@ -2852,7 +2852,9 @@ private def composeConstructors
       let combinedBody ← `(do $[$parentElems:doElem]* $[$childElems:doElem]*)
       pure (some {
         child with
-        isPayable := parent.isPayable || child.isPayable
+        -- The child constructor is the externally visible constructor.  A
+        -- payable parent initializer must not widen its mutability.
+        isPayable := child.isPayable
         localObligations := parent.localObligations ++ child.localObligations
         parentName? := none
         parentArgs := #[]
@@ -2918,7 +2920,14 @@ private def inlineModifierPrefixes
         let modifierName := toString modifierIdent.getId
         let some modDecl := modifiers.find? (fun candidate => candidate.name == modifierName)
           | throwErrorAt modifierIdent s!"function '{fn.name}' references unknown modifier '{modifierName}'"
-        prelude := prelude ++ (← doElems modDecl.body)
+        let modifierElems ← doElems modDecl.body
+        -- A modifier's locals have their own lexical scope in Solidity.  An
+        -- always-taken branch preserves that scope in the flattened EDSL IR,
+        -- so modifier-local names may be reused by later modifiers or by the
+        -- function body.
+        let scopedElem ← `(doElem| if true then $[$modifierElems:doElem]* else
+          require false "unreachable modifier scope")
+        prelude := prelude.push scopedElem
       let bodyElems ← doElems fn.body
       let inlined ← `(do $[$prelude:doElem]* $[$bodyElems:doElem]*)
       pure { fn with modifiers := #[], body := inlined }
@@ -2957,11 +2966,23 @@ def parseContractSyntax
     : CommandElabM ParsedContractSyntax := do
   match stx with
   | `(command| verity_contract $contractName:ident $[is $parentName:ident]? where $[types $[$newtypeDecls:verityNewtype]*]? $[inductive $[$adtDecls:verityAdtDecl]*]? $[$nsSpec:verityNamespaceSpec]? storage $[$storageItems:verityStorageItem]* $[roles $[$roleDecls:verityRoleDecl]*]? $[$structDecls:verityStructDecl]* $[errors $[$errorDecls:verityError]*]? $[event_defs $[$eventDecls:verityEvent]*]? $[constants $[$constantDecls:verityConstant]*]? $[immutables $[$immutableDecls:verityImmutable]*]? $[interfaces $[$interfaceDecls:verityInterface]*]? $[linked_externals $[$externalDecls:verityExternal]*]? $[$ctor:verityConstructor]? $[$entrypoints:veritySpecialEntrypoint]* $[$modifierDecls:verityModifier]* $[$functions:verityFunction]*) =>
+      -- Resolve inheritance before parsing the child: inherited user-defined
+      -- types are valid in every child declaration and function signature.
+      let currentNs ← getCurrNamespace
+      let mut parent? : Option ParsedContractSyntax := none
+      if let some parentIdent := parentName then
+        let candidates := [currentNs ++ parentIdent.getId, parentIdent.getId]
+        for candidate in candidates do
+          if parent?.isNone then
+            parent? ← lookupContractSyntax candidate
+        if parent?.isNone then
+          throwErrorAt parentIdent s!"unknown parent contract '{parentIdent.getId}'; import or declare the parent before the child"
       -- Parse newtypes first — they are needed by all downstream type resolution
       let parsedNewtypes ←
         match newtypeDecls with
         | some decls => decls.mapM parseNewtype
         | none => pure #[]
+      let typeNewtypes := parent?.map (fun p => p.newtypeDecls ++ parsedNewtypes) |>.getD parsedNewtypes
       -- Validate: no duplicate type names
       let mut seenNames : Array String := #[]
       for nt in parsedNewtypes do
@@ -2975,7 +2996,8 @@ def parseContractSyntax
           throwErrorAt nt.ident s!"type name '{nt.name}' shadows a built-in type"
       let mut parsedStructs : Array StructDecl := #[]
       for structStx in structDecls do
-        let parsedStruct ← parseStructDecl parsedNewtypes parsedStructs structStx
+        let inheritedStructs := parent?.map (fun p => p.structDecls) |>.getD #[]
+        let parsedStruct ← parseStructDecl typeNewtypes (inheritedStructs ++ parsedStructs) structStx
         if seenNames.contains parsedStruct.name then
           throwErrorAt parsedStruct.ident s!"duplicate type name '{parsedStruct.name}'"
         if builtinTypeNames.contains parsedStruct.name then
@@ -2985,8 +3007,10 @@ def parseContractSyntax
       -- Parse ADT declarations (#1727, Axis 1 Step 5a)
       let parsedAdts ←
         match adtDecls with
-        | some decls => decls.mapM (parseAdtDecl parsedNewtypes)
+        | some decls => decls.mapM (parseAdtDecl typeNewtypes)
         | none => pure #[]
+      let typeStructs := parent?.map (fun p => p.structDecls ++ parsedStructs) |>.getD parsedStructs
+      let typeAdts := parent?.map (fun p => p.adtDecls ++ parsedAdts) |>.getD parsedAdts
       -- Validate: no duplicate ADT names
       for adtDecl in parsedAdts do
         if seenNames.contains adtDecl.name then
@@ -3021,23 +3045,23 @@ def parseContractSyntax
       let namespaceFromContractSpec : Bool := nsSpec.isSome
       let parsedErrors ←
         match errorDecls with
-        | some decls => decls.mapM (parseError parsedNewtypes parsedStructs parsedAdts)
+        | some decls => decls.mapM (parseError typeNewtypes typeStructs typeAdts)
         | none => pure #[]
       let parsedEvents ←
         match eventDecls with
-        | some decls => decls.mapM (parseEvent parsedNewtypes parsedStructs parsedAdts)
+        | some decls => decls.mapM (parseEvent typeNewtypes typeStructs typeAdts)
         | none => pure #[]
       let parsedConstants ←
         match constantDecls with
-        | some decls => decls.mapM (parseConstant parsedNewtypes)
+        | some decls => decls.mapM (parseConstant typeNewtypes)
         | none => pure #[]
       let parsedImmutables ←
         match immutableDecls with
-        | some decls => decls.mapM (parseImmutable parsedNewtypes)
+        | some decls => decls.mapM (parseImmutable typeNewtypes)
         | none => pure #[]
       let parsedInterfaces ←
         match interfaceDecls with
-        | some decls => decls.mapM (parseInterface parsedNewtypes parsedStructs parsedAdts)
+        | some decls => decls.mapM (parseInterface typeNewtypes typeStructs typeAdts)
         | none => pure #[]
       let seenTypeLocalNames := seenNames.map localDeclName
       let mut seenInterfaceNames : Array String := #[]
@@ -3053,7 +3077,7 @@ def parseContractSyntax
       let interfaceNames := parsedInterfaces.map (·.name)
       let parsedExternals ←
         match externalDecls with
-        | some decls => decls.mapM (parseExternal parsedNewtypes parsedStructs parsedAdts)
+        | some decls => decls.mapM (parseExternal typeNewtypes typeStructs typeAdts)
         | none => pure #[]
       let parsedExternals := interfaceExternals parsedInterfaces ++ parsedExternals
       -- Apply namespace offsets to parsed storage fields (#1730).  In-storage
@@ -3078,12 +3102,12 @@ def parseContractSyntax
               firstNamespaceOpt := some offset
               firstNamespaceLocked := true
         | none =>
-            match (← parseTransientStorageItem parsedNewtypes parsedStructs parsedAdts item) with
+            match (← parseTransientStorageItem typeNewtypes typeStructs typeAdts item) with
             | some field =>
                 parsedFields := parsedFields.push { field with slotNum := field.slotNum + currentNamespaceOffset }
                 firstNamespaceLocked := true
             | none =>
-                match (← parseStorageStructItem parsedNewtypes parsedStructs parsedAdts item) with
+                match (← parseStorageStructItem typeNewtypes typeStructs typeAdts item) with
                 | some (structFields, accessor) =>
                     parsedFields := parsedFields ++
                       (structFields.map fun field => { field with slotNum := field.slotNum + currentNamespaceOffset })
@@ -3096,7 +3120,7 @@ def parseContractSyntax
                 | none =>
                     match (← storageFieldFromItem? item) with
                     | some fieldStx =>
-                        let field ← parseStorageField parsedNewtypes parsedStructs parsedAdts fieldStx
+                        let field ← parseStorageField typeNewtypes typeStructs typeAdts fieldStx
                         parsedFields := parsedFields.push { field with slotNum := field.slotNum + currentNamespaceOffset }
                         firstNamespaceLocked := true
                     | none =>
@@ -3123,7 +3147,7 @@ def parseContractSyntax
         assignOverloadInternalIdents
           (← monomorphizeHigherOrderHelpers
             ((← entrypoints.mapM parseSpecialEntrypoint) ++
-              (← functions.mapM (parseFunction parsedNewtypes parsedStructs parsedAdts interfaceNames))))
+              (← functions.mapM (parseFunction typeNewtypes typeStructs typeAdts interfaceNames))))
       let own : ParsedContractSyntax := {
         contractName := contractName
         parentName? := parentName
@@ -3138,7 +3162,7 @@ def parseContractSyntax
         constDecls := parsedConstants
         immutableDecls := parsedImmutables
         externalDecls := parsedExternals
-        ctor := (← ctor.mapM (parseConstructor parsedNewtypes parsedStructs parsedAdts))
+        ctor := (← ctor.mapM (parseConstructor typeNewtypes typeStructs typeAdts))
         modifiers := parsedModifiers
         functions := parsedFunctions
         storageNamespace := firstNamespaceOpt
@@ -3146,14 +3170,7 @@ def parseContractSyntax
       match parentName with
       | none => pure { own with functions := (← inlineModifierPrefixes own.modifiers own.functions) }
       | some parentIdent =>
-          let currentNs ← getCurrNamespace
-          let candidates := [parentIdent.getId, currentNs ++ parentIdent.getId]
-          let mut parent? : Option ParsedContractSyntax := none
-          for candidate in candidates do
-            if parent?.isNone then
-              parent? ← lookupContractSyntax candidate
-          let some parent := parent?
-            | throwErrorAt parentIdent s!"unknown parent contract '{parentIdent.getId}'; import or declare the parent before the child"
+          let some parent := parent? | unreachable!
           let flattened ← flattenSingleInheritance parentIdent parent own
           pure { flattened with
             functions := (← inlineModifierPrefixes flattened.modifiers flattened.functions) }
