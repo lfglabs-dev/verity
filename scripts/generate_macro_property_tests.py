@@ -335,6 +335,7 @@ def parse_contracts(text: str, source: Path) -> dict[str, ContractDecl]:
     current_body: list[str] = []
     guard_pending = False
     in_types_block = False
+    in_enums_block = False
     in_storage_block = False
     in_constants_block = False
     in_immutables_block = False
@@ -369,7 +370,7 @@ def parse_contracts(text: str, source: Path) -> dict[str, ContractDecl]:
         current_body = []
 
     def flush_current() -> None:
-        nonlocal current_name, current_namespace, current_parent_name, current_constructor, current_storage_slots, current_transient_slots, current_storage_types, current_newtypes, current_structs, current_constants, current_immutables, current_functions, in_types_block, in_storage_block, in_constants_block, in_immutables_block, pending_storage_lines, current_struct_block_comment
+        nonlocal current_name, current_namespace, current_parent_name, current_constructor, current_storage_slots, current_transient_slots, current_storage_types, current_newtypes, current_structs, current_constants, current_immutables, current_functions, in_types_block, in_enums_block, in_storage_block, in_constants_block, in_immutables_block, pending_storage_lines, current_struct_block_comment
         if current_name is None:
             return
         flush_struct()

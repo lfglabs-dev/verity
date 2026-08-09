@@ -59,6 +59,7 @@ def parseExternal
 private def externalExecutableWordType? : ValueType → Bool
   | .uint256 | .int256 | .uint8 | .uint16 | .uintN _ | .intN _ | .bytesN _
   | .address | .bytes32 | .bool => true
+  | .enum _ _ => true
   | .newtype _ baseType => externalExecutableWordType? baseType
   | _ => false
 

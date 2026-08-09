@@ -44,7 +44,7 @@ Constructs outside that scope are still listed so gaps can be counted honestly.
 
 | Construct | Signature | Status | Notes / needed feature |
 |---|---|---|---|
-| enum `StakingModuleStatus` | `{Active, DepositsPaused, Stopped}` | ❌ | `enum` — workaround: encode as `Uint8` (SRTypes docs literally say "stored as `uint8` to avoid problems") |
+| enum `StakingModuleStatus` | `{Active, DepositsPaused, Stopped}` | ✅ | Native uint8-backed enum declarations, members, and checked casts (#2088). |
 
 ### 1.2 Interfaces (referenced, not implemented)
 
@@ -85,7 +85,7 @@ Constructs outside that scope are still listed so gaps can be counted honestly.
 | `StakingModuleFeesSet` | `(uint256 indexed, uint256, uint256, address)` | ✅ | |
 | `StakingModuleMaxDepositsPerBlockSet` | `(uint256 indexed, uint256, address)` | ✅ | |
 | `StakingModuleMinDepositBlockDistanceSet` | `(uint256 indexed, uint256, address)` | ✅ | |
-| `StakingModuleStatusSet` | `(uint256 indexed, StakingModuleStatus, address)` | ❌ | enum payload — workaround: emit as `uint8` |
+| `StakingModuleStatusSet` | `(uint256 indexed, StakingModuleStatus, address)` | ✅ | Enum event payloads erase to `uint8` in the ABI. |
 | `WithdrawalCredentialsSet` | `(bytes32, address)` | ✅ | |
 | `StakingRouterETHDeposited` | `(uint256 indexed, uint256)` | ✅ | |
 | `DepositableEthReceived` | `(uint256)` | ✅ | |
@@ -168,12 +168,12 @@ For brevity: `external onlyRole(X)` in every management function collapses into
 | `getStakingModule(uint256) view returns (StakingModule)` | external | ❌ | same struct |
 | `getStakingModulesCount() view returns (uint256)` | external | ✅ | |
 | `hasStakingModule(uint256) view returns (bool)` | public | ✅ | |
-| `getStakingModuleStatus(uint256) view returns (StakingModuleStatus)` | public | ❌ | enum return |
+| `getStakingModuleStatus(uint256) view returns (StakingModuleStatus)` | public | ✅ | Enum returns erase to `uint8` in the ABI. |
 | `getContractVersion() view returns (uint256)` | external | ✅ | |
 | `getStakingModuleSummary` / `getNodeOperatorSummary` | external view | ✅ | scalar tuple returns |
 | `getAllStakingModuleDigests / getStakingModuleDigests(uint256[])` | external view | ❌ | nested-struct memory arrays |
 | `getAllNodeOperatorDigests / getNodeOperatorDigests(...)` | external view | 🚧 | flatten to tuple[] |
-| `setStakingModuleStatus(uint256, StakingModuleStatus)` | external `onlyRole` | ❌ | enum arg |
+| `setStakingModuleStatus(uint256, StakingModuleStatus)` | external `onlyRole` | ✅ | Enum parameters and storage values are supported. |
 | `getStakingModuleIsStopped / IsDepositsPaused / IsActive` | external view returns (bool) | ❌ | derived from enum status |
 | `getStakingModuleNonce / LastDepositBlock / MinDepositBlockDistance / MaxDepositsPerBlock` | external view returns (uint256) | 🚧 | value stored as `uint64`; cast up |
 | `getStakingModuleActiveValidatorsCount(uint256) view returns (uint256, uint256)` | external | ✅ | |

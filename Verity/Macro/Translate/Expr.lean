@@ -52,6 +52,7 @@ partial def modelParamTypeTerm (ty : ValueType) : CommandElabM Term :=
   | .newtype name baseType => do
       let baseTerm ← modelParamTypeTerm baseType
       `(Compiler.CompilationModel.ParamType.newtypeOf $(Lean.quote name) $baseTerm)
+  | .enum _ _ => `(Compiler.CompilationModel.ParamType.uint8)
   | .adt name maxFields => do
       `(Compiler.CompilationModel.ParamType.adt $(Lean.quote name) $(Lean.quote maxFields))
 
@@ -73,6 +74,7 @@ def modelReturnTypeTerm (ty : ValueType) : CommandElabM Term :=
   | .tuple _ => `(none)
   | .struct _ _ => `(none)
   | .newtype _ baseType => modelReturnTypeTerm baseType
+  | .enum _ _ => `(none)
   | .adt _ _ => `(none)  -- ADTs are not directly returnable as single FieldType
 
 partial def modelReturnsTerm (ty : ValueType) : CommandElabM Term :=
@@ -103,6 +105,7 @@ partial def modelReturnsTerm (ty : ValueType) : CommandElabM Term :=
   | .newtype name baseType => do
       let baseTerm ← modelParamTypeTerm baseType
       `([Compiler.CompilationModel.ParamType.newtypeOf $(Lean.quote name) $baseTerm])
+  | .enum _ _ => `([Compiler.CompilationModel.ParamType.uint8])
   | .adt name maxFields => do
       `([Compiler.CompilationModel.ParamType.adt $(Lean.quote name) $(Lean.quote maxFields)])
 
@@ -189,6 +192,7 @@ partial def contractValueTypeTerm (ty : ValueType) : CommandElabM Term :=
   | .tuple elemTys => mkTupleContractType elemTys
   | .unit => `(Unit)
   | .newtype _ baseType => contractValueTypeTerm baseType  -- Erased to base type at contract level
+  | .enum _ _ => `(Uint256)
   | .struct name _ => pure (mkIdent (Name.mkSimple name))
   | .adt _ _ => `(Uint256)  -- ADTs represented as tag value at contract level
 end
@@ -213,6 +217,7 @@ def normalizeTranslatedExprForType
           `(Compiler.CompilationModel.Expr.bitAnd $expr
               (Compiler.CompilationModel.Expr.literal $(natTerm mask)))
   | .newtype _ baseType => normalizeTranslatedExprForType baseType source expr
+  | .enum _ _ => `(Compiler.CompilationModel.Expr.bitAnd $expr (Compiler.CompilationModel.Expr.literal 255))
   | _ => pure expr
 
 def immutableHiddenName (imm : ImmutableDecl) : String :=
@@ -692,6 +697,7 @@ def isWordLikeValueType : ValueType → Bool
   | .uint256 | .int256 | .uint8 | .uint16 | .uintN _ | .intN _ | .bytesN _
   | .address | .bytes32 => true
   | .newtype _ baseType => isWordLikeValueType baseType
+  | .enum _ _ => true
   | _ => false
 
 def isSingleWordStaticValueType : ValueType → Bool
@@ -726,6 +732,7 @@ partial def staticAbiWordCount? : ValueType → Option Nat
           | _, _ => none)
         (some 0)
   | .newtype _ baseType => staticAbiWordCount? baseType
+  | .enum _ _ => some 1
   | _ => none
 
 partial def staticAbiLeafNames? : ValueType → Option (List String)
@@ -753,6 +760,7 @@ partial def staticAbiLeafNames? : ValueType → Option (List String)
           out := out ++ [if suffix == "" then fieldName else s!"{fieldName}_{suffix}"]
       some out
   | .newtype _ baseType => staticAbiLeafNames? baseType
+  | .enum _ _ => some [""]
   | _ => none
 
 partial def staticStructDirectFieldLocals?
@@ -796,6 +804,7 @@ partial def abiLocalHeadWordCount? : ValueType → Option Nat
           | _, _ => none)
         (some 0)
   | .newtype _ baseType => abiLocalHeadWordCount? baseType
+  | .enum _ _ => some 1
   | .adt _ _ | .unit => none
 
 partial def valueTypeUsesDynamicData : ValueType → Bool
@@ -804,6 +813,7 @@ partial def valueTypeUsesDynamicData : ValueType → Bool
   | .tuple elemTys => elemTys.any valueTypeUsesDynamicData
   | .struct _ fields => fields.any (fun field => valueTypeUsesDynamicData field.snd)
   | .newtype _ baseType => valueTypeUsesDynamicData baseType
+  | .enum _ _ => false
   | .adt _ _ => false  -- ADTs are stored as tag + fixed-width slots, not dynamic
   | .uint256 | .int256 | .uint8 | .uint16 | .uintN _ | .intN _ | .bytesN _
   | .address | .bytes32 | .bool | .unit => false
@@ -822,6 +832,7 @@ partial def abiParentHeadWordCount? (ty : ValueType) : Option Nat :=
       else
         abiLocalHeadWordCount? ty
   | .newtype _ baseType => abiParentHeadWordCount? baseType
+  | .enum _ _ => some 1
   | .uint256 | .int256 | .uint8 | .uint16 | .uintN _ | .intN _ | .bytesN _
   | .address | .bytes32 | .bool => some 1
   | .adt _ _ | .unit => none
@@ -865,6 +876,7 @@ def isNatLiteralTerm (stx : Term) : Bool :=
 def numericLiteralCompatibleValueType : ValueType → Bool
   | .uint256 | .int256 | .uint8 | .uint16 | .uintN _ | .intN _ | .bytesN _ => true
   | .newtype _ baseType => numericLiteralCompatibleValueType baseType
+  | .enum _ _ => false
   | _ => false
 
 def argumentTypeMatchesParam (arg : Term) (argTy paramTy : ValueType) : Bool :=
@@ -1597,6 +1609,7 @@ def customErrorRequiresDirectParamRef : ValueType → Bool
   | .uint256 | .int256 | .uint8 | .uint16 | .uintN _ | .intN _ | .bytesN _
   | .address | .bool | .bytes32 => false
   | .newtype _ baseType => customErrorRequiresDirectParamRef baseType
+  | .enum _ _ => false
   | _ => true
 
 def directParamRefName? (stx : Term) : Option String :=
@@ -2263,6 +2276,7 @@ partial def inferBindSourceType
       | .scalar (.uintN bits) => pure (.uintN bits)
       | .scalar .int256 => pure .int256
       | .scalar (.newtype ntName (.uint256)) => pure (.newtype ntName .uint256)
+      | .scalar (.enum name memberCount) => pure (.enum name memberCount)
       | .scalar (.adt name maxFields) => pure (.adt name maxFields)
       | .scalar (.newtype _ (.address)) => throwErrorAt rhs s!"field '{f.name}' is Address-based newtype; use getStorageAddr"
       | .scalar .address => throwErrorAt rhs s!"field '{f.name}' is Address; use getStorageAddr"
@@ -4685,7 +4699,7 @@ def translateBindSource
       let f ← lookupStorageField fields (toString field.getId)
       match f.ty with
       | .scalar .uint256 | .scalar .int256 | .scalar .uint16 | .scalar (.uintN _)
-      | .scalar (.newtype _ .uint256) | .scalar (.adt _ _) =>
+      | .scalar (.newtype _ .uint256) | .scalar (.enum _ _) | .scalar (.adt _ _) =>
           `(Compiler.CompilationModel.Expr.storage $(strTerm f.name))
       | .scalar .bool => throwErrorAt rhs s!"field '{f.name}' is Bool; encode as Uint256 and use getStorage"
       | .scalar .address | .scalar (.newtype _ .address) =>

@@ -3126,6 +3126,25 @@ private partial def modifierSyntaxTerminates (stx : Syntax) : Bool :=
           |>.contains name.toString
     | _ => stx.getArgs.any modifierSyntaxTerminates)
 
+private def guardEnumParams (fn : FunctionDecl) : CommandElabM FunctionDecl := do
+  let guards ← fn.params.filterMapM fun param => do
+    match param.ty with
+    | .enum _ memberCount =>
+        let bound := natTerm memberCount
+        pure (some (← `(doElem|
+          if $(param.ident) < $bound then
+            pure ()
+          else
+            panic(0x21))))
+    | _ => pure none
+  if guards.isEmpty then
+    pure fn
+  else
+    match fn.body with
+    | `(term| do $[$elems:doElem]*) =>
+        pure { fn with body := (← `(term| do $[$guards:doElem]* $[$elems:doElem]*)) }
+    | _ => throwErrorAt fn.body "function body must be a do block"
+
 private def roleKindOfStorageField? (field : StorageFieldDecl) : Option RoleKind :=
   match field.ty with
   | .scalar .address | .scalar (.newtype _ .address) => some .scalarAddress
@@ -3359,11 +3378,31 @@ def parseContractSyntax
         if modifierSyntaxTerminates modDecl.body.raw then
           throwErrorAt modDecl.body
             s!"modifier '{modDecl.name}' contains a terminating return; modifiers must only contain non-terminating precondition statements"
-      let parsedFunctions :=
-        assignOverloadInternalIdents
+      let parsedUserFunctions ←
+        (assignOverloadInternalIdents
           (← monomorphizeHigherOrderHelpers
             ((← entrypoints.mapM parseSpecialEntrypoint) ++
-              (← functions.mapM (parseFunction typeNewtypes typeStructs typeAdts interfaceNames))))
+              (← functions.mapM (parseFunction typeNewtypes typeStructs typeAdts interfaceNames))))).mapM
+          guardEnumParams
+      let mut enumCastFunctions : Array FunctionDecl := #[]
+      for enumDecl in parsedEnums do
+        let argId := mkIdentFrom enumDecl.ident (Name.mkSimple "x")
+        let bound := natTerm enumDecl.members.size
+        let body ← `(term| do
+          if $argId < $bound then
+            return $argId
+          else
+            panic(0x21))
+        enumCastFunctions := enumCastFunctions.push {
+          ident := enumDecl.ident
+          name := enumDecl.name
+          params := #[{ ident := argId, name := "x", ty := .uint256 }]
+          returnTy := .enum enumDecl.name enumDecl.members.size
+          isPure := true
+          isInternal := true
+          body := body
+        }
+      let parsedFunctions := enumCastFunctions ++ parsedUserFunctions
       let own : ParsedContractSyntax := {
         contractName := contractName
         parentName? := parentName

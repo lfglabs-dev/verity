@@ -168,7 +168,7 @@ macro_rules
           $(Lean.quote (toString errorName.getId))
           [ $[$encodedArgs],* ])
   | `(doElem| panic($code:term)) => do
-      let panicFn := Lean.mkIdentFrom code `_root_.Contracts.revertPanic
+      let panicFn := Lean.mkIdentFrom code `_root_.Contracts.revertPanicAs
       `(doElem| $panicFn:ident $code)
   | `(requireSomeUintError $optExpr:term $errorName:ident($args,*)) => do
       let requireFn := Lean.mkIdentFrom errorName `_root_.Contracts.requireSomeUintCustomError
@@ -316,6 +316,12 @@ decimal panic code; on-chain the compiled contract reverts with the ABI-encoded
 `Panic(uint256)` selector + code instead. -/
 def revertPanic (code : Uint256) : Contract Unit :=
   revertCustomError "Panic" [CustomErrorArg.encode code]
+
+/-- Polymorphic executable counterpart used when a terminating panic appears in
+an expression-valued generated body. Keep `revertPanic`'s public signature
+source-compatible for direct callers. -/
+def revertPanicAs {α : Type} (code : Uint256) : Contract α :=
+  fun state => ContractResult.revert s!"Panic({code.val})" state
 
 private def wordToSigned (value : Uint256) : Int :=
   (toInt256 value : Int)
