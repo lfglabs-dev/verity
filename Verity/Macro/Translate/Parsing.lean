@@ -525,7 +525,7 @@ def parseModifierUse (stx : TSyntax `verityModifierUse) : CommandElabM (Array Id
 
 def parseFunction (newtypes : Array NewtypeDecl) (structDecls : Array StructDecl := #[]) (adtDecls : Array AdtDecl := #[]) (interfaceNames : Array String := #[]) (stx : Syntax) : CommandElabM FunctionDecl := do
   match stx with
-  | `(verityFunction| function $[$modsBefore:verityMutability]* $[$pureMod?:pureMutabilityMarker]? $[$modsAfter:verityMutability]* $name:ident ($[$params:verityParam],*) $[$guard?:verityInitGuard]? $[$modifierUse?:verityModifierUse]? $[$requiresRoleClause?:verityRequiresRole]? $[$modifiesClause?:verityModifies]? $[$localObligations?:verityLocalObligations]? : $retTy:term := $body:term) => do
+  | `(verityFunction| function $[$modsBefore:verityMutability]* $[$pureMod?:pureMutabilityMarker]? $[$modsAfter:verityMutability]* $[$dispatch:verityDispatch]* $name:ident ($[$params:verityParam],*) $[$guard?:verityInitGuard]? $[$modifierUse?:verityModifierUse]? $[$requiresRoleClause?:verityRequiresRole]? $[$modifiesClause?:verityModifies]? $[$localObligations?:verityLocalObligations]? : $retTy:term := $body:term) => do
       let mut_ ← parseMutabilityModifiers (modsBefore ++ modsAfter) stx
       let mut_ := { mut_ with isPure := pureMod?.isSome }
       let parsedParams ← params.mapM (parseFunctionParamWithInterfaces newtypes structDecls adtDecls interfaceNames)
@@ -553,6 +553,18 @@ def parseFunction (newtypes : Array NewtypeDecl) (structDecls : Array StructDecl
         match localObligations? with
         | some obligations => parseLocalObligations obligations
         | none => pure #[]
+      let isVirtual := dispatch.any fun d =>
+        match d with
+        | `(verityDispatch| virtual) => true
+        | _ => false
+      let isOverride := dispatch.any fun d =>
+        match d with
+        | `(verityDispatch| override) => true
+        | _ => false
+      if isVirtual && isOverride then
+        throwErrorAt name s!"function '{toString name.getId}' cannot be both virtual and override"
+      if dispatch.size > 1 then
+        throwErrorAt name s!"function '{toString name.getId}' has a duplicate dispatch annotation"
       pure {
         ident := name
         name := toString name.getId
@@ -572,12 +584,46 @@ def parseFunction (newtypes : Array NewtypeDecl) (structDecls : Array StructDecl
         modifies := parsedModifies
         localObligations := parsedLocalObligations
         modifiers := parsedModifiers
+        isVirtual := isVirtual
+        isOverride := isOverride
         body := body
       }
   | _ => throwErrorAt stx "invalid function declaration"
 
 def parseConstructor (newtypes : Array NewtypeDecl) (structDecls : Array StructDecl := #[]) (adtDecls : Array AdtDecl := #[]) (stx : Syntax) : CommandElabM ConstructorDecl := do
   match stx with
+  | `(verityConstructor| constructor ($[$params:verityParam],*) payable $parent:ident($[$args:term],*) local_obligations [ $[$obligations:verityLocalObligation],* ] := $body:term) =>
+      pure {
+        params := ← params.mapM (parseParam newtypes structDecls adtDecls)
+        isPayable := true
+        localObligations := ← obligations.mapM parseLocalObligation
+        parentName? := some parent
+        parentArgs := args
+        body := body
+      }
+  | `(verityConstructor| constructor ($[$params:verityParam],*) payable $parent:ident($[$args:term],*) := $body:term) =>
+      pure {
+        params := ← params.mapM (parseParam newtypes structDecls adtDecls)
+        isPayable := true
+        parentName? := some parent
+        parentArgs := args
+        body := body
+      }
+  | `(verityConstructor| constructor ($[$params:verityParam],*) $parent:ident($[$args:term],*) local_obligations [ $[$obligations:verityLocalObligation],* ] := $body:term) =>
+      pure {
+        params := ← params.mapM (parseParam newtypes structDecls adtDecls)
+        localObligations := ← obligations.mapM parseLocalObligation
+        parentName? := some parent
+        parentArgs := args
+        body := body
+      }
+  | `(verityConstructor| constructor ($[$params:verityParam],*) $parent:ident($[$args:term],*) := $body:term) =>
+      pure {
+        params := ← params.mapM (parseParam newtypes structDecls adtDecls)
+        parentName? := some parent
+        parentArgs := args
+        body := body
+      }
   | `(verityConstructor| constructor ($[$params:verityParam],*) payable local_obligations [ $[$obligations:verityLocalObligation],* ] := $body:term) =>
       pure {
         params := ← params.mapM (parseParam newtypes structDecls adtDecls)

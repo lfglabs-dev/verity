@@ -30,4 +30,36 @@ def plusInt256Helper (a : Uint256) (b : Int256) : Uint256 :=
 def eqWordHelper (a : Uint256) (b : Uint256) : Uint256 :=
   if a = b then 1 else 0
 
+verity_contract ModifierInheritanceBase where
+  storage
+    owner : Address := slot 0
+
+  constructor (initialOwner : Address) := do
+    setStorageAddr owner initialOwner
+
+  modifier onlyOwner := do
+    let sender ← msgSender
+    let currentOwner ← getStorageAddr owner
+    require (sender == currentOwner) "Caller is not the owner"
+
+  function virtual value () : Uint256 := do
+    return 1
+
+verity_contract ModifierInheritanceChild is ModifierInheritanceBase where
+  storage
+    counter : Uint256 := slot 1
+
+  constructor (initialOwner : Address) ModifierInheritanceBase(initialOwner) := do
+    setStorage counter 7
+
+  function bump () with onlyOwner : Unit := do
+    let current ← getStorage counter
+    setStorage counter (current + 1)
+
+  function override value () : Uint256 := do
+    return 2
+
+#check_contract ModifierInheritanceBase
+#check_contract ModifierInheritanceChild
+
 end Contracts.Smoke

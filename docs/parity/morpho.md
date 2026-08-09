@@ -29,8 +29,9 @@ storage projections and is therefore excluded from the parity target.
 3. No mapping-of-mapping-of-mapping with proofs (2 max) — `position[id][user]`
    is fine (mapping2), and `MarketParams` inside `idToMarketParams[id]` is a
    struct-in-mapping.
-4. No inheritance, no first-class modifiers, no `abi.encode`, no `try/catch`,
-   no callback (`onMorphoSupply`, `onMorphoRepay`, `onMorphoSupplyCollateral`,
+4. Single inheritance and precondition-only modifiers are supported; multiple
+   inheritance, modifier postludes, `abi.encode`, and `try/catch` remain gaps.
+5. No callback (`onMorphoSupply`, `onMorphoRepay`, `onMorphoSupplyCollateral`,
    `onMorphoLiquidate`, `onMorphoFlashLoan`) trust-boundary primitive.
 
 Rows marked 🚧 with "packed struct in mapping (#1976)" assume the EDSL packs
@@ -74,8 +75,8 @@ Total constructs counted: **72**.
 | # | Construct | Solidity | Verity status | Note |
 |---|-----------|----------|---------------|------|
 | 17 | Constructor | `constructor(address newOwner)` | ✅ | `keccak256(abi.encode(...))` inside → 🚧 (see row 20). |
-| 18 | Modifier | `modifier onlyOwner()` | ❌ | **First-class modifiers** not in EDSL — inline `require(msg.sender == owner)`. |
-| 19 | Inheritance | `contract Morpho is IMorphoStaticTyping` | ❌ | **Inheritance** not supported. Match the ABI structurally. |
+| 18 | Modifier | `modifier onlyOwner()` | ✅ | Precondition-only modifiers are inlined as require prefixes. |
+| 19 | Inheritance | `contract Morpho is IMorphoStaticTyping` | ✅ | Flattened single inheritance is supported. |
 | 20 | Call | `keccak256(abi.encode(DOMAIN_TYPEHASH, block.chainid, address(this)))` | ❌ | **`abi.encode`** not supported. |
 
 ### 1.4 Owner functions

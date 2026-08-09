@@ -238,6 +238,8 @@ structure FunctionDecl where
   modifies : Array Ident := #[]
   localObligations : Array LocalObligationDecl := #[]
   modifiers : Array Ident := #[]
+  isVirtual : Bool := false
+  isOverride : Bool := false
   body : Term
 
 structure InterfaceFunctionDecl where
@@ -261,6 +263,8 @@ structure ConstructorDecl where
   params : Array ParamDecl
   isPayable : Bool := false
   localObligations : Array LocalObligationDecl := #[]
+  parentName? : Option Ident := none
+  parentArgs : Array Term := #[]
   body : Term
 
 def strTerm (s : String) : Term := ⟨Syntax.mkStrLit s⟩

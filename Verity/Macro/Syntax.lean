@@ -34,6 +34,7 @@ declare_syntax_cat verityNamespaceSpec
 declare_syntax_cat veritySpecialEntrypoint
 declare_syntax_cat verityModifier
 declare_syntax_cat verityModifierUse
+declare_syntax_cat verityDispatch
 declare_syntax_cat verityRoleDecl
 declare_syntax_cat verityFunction
 declare_syntax_cat verityIntrinsicClause
@@ -96,6 +97,8 @@ syntax "allow_post_interaction_writes" : verityMutability
 syntax "nonreentrant(" ident ")" : verityMutability
 syntax "cei_safe" : verityMutability
 syntax "reentrancy_trusted" : verityMutability
+syntax "virtual" : verityDispatch
+syntax "override" : verityDispatch
 syntax "modifies(" sepBy1(ident, ",") ")" : verityModifies
 syntax "requires(" ident ")" : verityRequiresRole
 syntax ident " : " term:max : verityNewtype
@@ -151,14 +154,14 @@ syntax "requireError " term:max ppSpace ident "(" sepBy(term, ",") ")" : doElem
 syntax (name := requireSomeUintErrorTerm) "requireSomeUintError " term:max ppSpace ident "(" sepBy(term, ",") ")" : term
 syntax "ecmBind " term:max ppSpace term:max ppSpace term:max : doElem
 syntax (priority := high) "unsafe " str " do " doSeq : doElem
-syntax "constructor " "(" sepBy(verityParam, ",") ")" (ppSpace verityLocalObligations)? " := " term : verityConstructor
-syntax "constructor " "(" sepBy(verityParam, ",") ")" " payable" (ppSpace verityLocalObligations)? " := " term : verityConstructor
+syntax "constructor " "(" sepBy(verityParam, ",") ")" (ppSpace ident "(" sepBy(term, ",") ")")? (ppSpace verityLocalObligations)? " := " term : verityConstructor
+syntax "constructor " "(" sepBy(verityParam, ",") ")" " payable" (ppSpace ident "(" sepBy(term, ",") ")")? (ppSpace verityLocalObligations)? " := " term : verityConstructor
 syntax "receive" (ppSpace verityLocalObligations)? " := " term : veritySpecialEntrypoint
 syntax "fallback" (ppSpace verityLocalObligations)? " := " term : veritySpecialEntrypoint
 syntax "modifier " ident " := " term : verityModifier
 syntax "with " sepBy1(ident, ",") : verityModifierUse
 syntax ident " := " ident : verityRoleDecl
-syntax "function " verityMutability* (pureMutabilityMarker)? verityMutability* ident " (" sepBy(verityParam, ",") ")" (ppSpace verityInitGuard)? (ppSpace verityModifierUse)? (ppSpace verityRequiresRole)? (ppSpace verityModifies)? (ppSpace verityLocalObligations)? " : " term " := " term : verityFunction
+syntax "function " verityMutability* (pureMutabilityMarker)? verityMutability* verityDispatch* ident " (" sepBy(verityParam, ",") ")" (ppSpace verityInitGuard)? (ppSpace verityModifierUse)? (ppSpace verityRequiresRole)? (ppSpace verityModifies)? (ppSpace verityLocalObligations)? " : " term " := " term : verityFunction
 
 -- verity_intrinsic syntax (minimal one-argument shape for consumer-owned intrinsics)
 -- `pure` is parsed as an identifier here to avoid reserving it as a global
@@ -190,7 +193,7 @@ syntax (name := verityIntrinsicCmd)
   ident " := " term ";" ident "[" sepBy(verityIntrinsicObligation, ",") "]" : command
 
 syntax (name := verityContractCmd)
-  "verity_contract " ident " where "
+  "verity_contract " ident (" is " ident)? " where "
   ("types " verityNewtype+)?
   ("inductive " verityAdtDecl+)?
   (verityNamespaceSpec)?

@@ -2776,6 +2776,7 @@ private partial def offsetStorageAccessorTree (offset : Nat) : StorageAccessorTr
 
 structure ParsedContractSyntax where
   contractName : Ident
+  parentName? : Option Ident := none
   newtypeDecls : Array NewtypeDecl
   structDecls : Array StructDecl
   adtDecls : Array AdtDecl
@@ -2791,6 +2792,136 @@ structure ParsedContractSyntax where
   modifiers : Array ModifierDecl
   functions : Array FunctionDecl
   storageNamespace : Option Nat
+
+abbrev ContractSyntaxRegistry := List (Name × ParsedContractSyntax)
+
+private def addContractSyntaxEntry
+    (state : ContractSyntaxRegistry) (entry : Name × ParsedContractSyntax) : ContractSyntaxRegistry :=
+  entry :: state.filter (fun prior => prior.1 != entry.1)
+
+initialize contractSyntaxRef : IO.Ref ContractSyntaxRegistry ← IO.mkRef []
+
+def registerContractSyntax (name : Name) (parsed : ParsedContractSyntax) : IO Unit :=
+  contractSyntaxRef.modify fun state => addContractSyntaxEntry state (name, parsed)
+
+private def lookupContractSyntax (name : Name) : IO (Option ParsedContractSyntax) := do
+  pure ((← contractSyntaxRef.get).find? (fun entry => entry.1 == name) |>.map (·.2))
+
+private def substituteSyntax
+    (bindings : Array (String × Syntax)) (stx : Syntax) : Syntax :=
+  stx.rewriteBottomUp fun node =>
+    match node with
+    | .ident _ _ name _ =>
+        match bindings.find? (fun binding => binding.1 == name.toString) with
+        | some binding => binding.2
+        | none => node
+    | _ => node
+
+private def doElems (body : Term) : CommandElabM (Array (TSyntax `doElem)) := do
+  match body with
+  | `(term| do $[$elems:doElem]*) => pure elems
+  | _ => throwErrorAt body "constructor body must be a do block"
+
+private def composeConstructors
+    (parentName : Ident) (parentCtor : Option ConstructorDecl)
+    (childCtor : Option ConstructorDecl) : CommandElabM (Option ConstructorDecl) := do
+  match parentCtor, childCtor with
+  | none, none => pure none
+  | none, some child =>
+      if child.parentName?.isSome then
+        throwErrorAt child.parentName?.get! "parent constructor call supplied, but the parent has no constructor"
+      pure (some child)
+  | some parent, none =>
+      if !parent.params.isEmpty then
+        throwErrorAt parentName s!"parent constructor '{toString parentName.getId}' expects {parent.params.size} argument(s); add an explicit parent constructor call"
+      pure (some { parent with parentName? := none, parentArgs := #[] })
+  | some parent, some child =>
+      let calledParent ← match child.parentName? with
+        | some called => pure called
+        | none => throwErrorAt parentName s!"constructor must call parent constructor '{toString parentName.getId}'"
+      if calledParent.getId != parentName.getId then
+        throwErrorAt calledParent s!"constructor calls '{calledParent.getId}', expected direct parent '{parentName.getId}'"
+      if child.parentArgs.size != parent.params.size then
+        throwErrorAt calledParent s!"parent constructor '{parentName.getId}' expects {parent.params.size} argument(s), got {child.parentArgs.size}"
+      let bindings := parent.params.zip child.parentArgs |>.map fun pair =>
+        (pair.1.name, pair.2.raw)
+      let parentElems ← doElems parent.body
+      let parentElems := parentElems.map fun elem =>
+        ⟨substituteSyntax bindings elem.raw⟩
+      let childElems ← doElems child.body
+      let combinedBody ← `(do $[$parentElems:doElem]* $[$childElems:doElem]*)
+      pure (some {
+        child with
+        isPayable := parent.isPayable || child.isPayable
+        localObligations := parent.localObligations ++ child.localObligations
+        parentName? := none
+        parentArgs := #[]
+        body := combinedBody
+      })
+
+private def flattenSingleInheritance
+    (parentName : Ident) (parent child : ParsedContractSyntax) : CommandElabM ParsedContractSyntax := do
+  let duplicateFields := child.fields.filter fun field => parent.fields.any (fun inherited => inherited.name == field.name)
+  if let some field := duplicateFields[0]? then
+    throwErrorAt field.ident s!"storage field '{field.name}' duplicates an inherited field"
+  let duplicateModifiers := child.modifiers.filter fun modDecl =>
+    parent.modifiers.any (fun inherited => inherited.name == modDecl.name)
+  if let some modDecl := duplicateModifiers[0]? then
+    throwErrorAt modDecl.ident s!"modifier '{modDecl.name}' duplicates an inherited modifier"
+  let mut functions := parent.functions
+  for fn in child.functions do
+    let inherited? := functions.find? (fun inherited => functionSignatureKey inherited == functionSignatureKey fn)
+    match fn.isOverride, inherited? with
+    | true, none =>
+        throwErrorAt fn.ident s!"function '{fn.name}' is marked override, but no inherited function has the same signature"
+    | true, some inherited =>
+        if !inherited.isVirtual then
+          throwErrorAt fn.ident s!"function '{fn.name}' overrides a non-virtual inherited function"
+        functions := functions.map fun candidate =>
+          if functionSignatureKey candidate == functionSignatureKey fn then
+            { fn with isOverride := false }
+          else
+            candidate
+    | false, some _ =>
+        throwErrorAt fn.ident s!"function '{fn.name}' has the same signature as an inherited function; add override (the inherited function must be virtual)"
+    | false, none =>
+        functions := functions.push fn
+  let ctor ← composeConstructors parentName parent.ctor child.ctor
+  pure {
+    child with
+    parentName? := some parentName
+    newtypeDecls := parent.newtypeDecls ++ child.newtypeDecls
+    structDecls := parent.structDecls ++ child.structDecls
+    adtDecls := parent.adtDecls ++ child.adtDecls
+    fields := parent.fields ++ child.fields
+    roleDecls := parent.roleDecls ++ child.roleDecls
+    storageStructAccessors := parent.storageStructAccessors ++ child.storageStructAccessors
+    errorDecls := parent.errorDecls ++ child.errorDecls
+    eventDecls := parent.eventDecls ++ child.eventDecls
+    constDecls := parent.constDecls ++ child.constDecls
+    immutableDecls := parent.immutableDecls ++ child.immutableDecls
+    externalDecls := parent.externalDecls ++ child.externalDecls
+    ctor := ctor
+    modifiers := parent.modifiers ++ child.modifiers
+    functions := functions
+    storageNamespace := child.storageNamespace.orElse (fun _ => parent.storageNamespace)
+  }
+
+private def inlineModifierPrefixes
+    (modifiers : Array ModifierDecl) (functions : Array FunctionDecl) : CommandElabM (Array FunctionDecl) :=
+  functions.mapM fun fn => do
+    if fn.modifiers.isEmpty then
+      pure fn
+    else
+      let mut prelude : Array (TSyntax `doElem) := #[]
+      for modifierIdent in fn.modifiers do
+        let modifierName := toString modifierIdent.getId
+        let some modDecl := modifiers.find? (fun candidate => candidate.name == modifierName)
+          | throwErrorAt modifierIdent s!"function '{fn.name}' references unknown modifier '{modifierName}'"
+        prelude := prelude ++ (← doElems modDecl.body)
+      let bodyElems ← doElems fn.body
+      let inlined ← `(do $[$prelude:doElem]* $[$bodyElems:doElem]*)
+      pure { fn with modifiers := #[], body := inlined }
 
 private def roleKindOfStorageField? (field : StorageFieldDecl) : Option RoleKind :=
   match field.ty with
@@ -2825,7 +2956,7 @@ def parseContractSyntax
     (stx : Syntax)
     : CommandElabM ParsedContractSyntax := do
   match stx with
-  | `(command| verity_contract $contractName:ident where $[types $[$newtypeDecls:verityNewtype]*]? $[inductive $[$adtDecls:verityAdtDecl]*]? $[$nsSpec:verityNamespaceSpec]? storage $[$storageItems:verityStorageItem]* $[roles $[$roleDecls:verityRoleDecl]*]? $[$structDecls:verityStructDecl]* $[errors $[$errorDecls:verityError]*]? $[event_defs $[$eventDecls:verityEvent]*]? $[constants $[$constantDecls:verityConstant]*]? $[immutables $[$immutableDecls:verityImmutable]*]? $[interfaces $[$interfaceDecls:verityInterface]*]? $[linked_externals $[$externalDecls:verityExternal]*]? $[$ctor:verityConstructor]? $[$entrypoints:veritySpecialEntrypoint]* $[$modifierDecls:verityModifier]* $[$functions:verityFunction]*) =>
+  | `(command| verity_contract $contractName:ident $[is $parentName:ident]? where $[types $[$newtypeDecls:verityNewtype]*]? $[inductive $[$adtDecls:verityAdtDecl]*]? $[$nsSpec:verityNamespaceSpec]? storage $[$storageItems:verityStorageItem]* $[roles $[$roleDecls:verityRoleDecl]*]? $[$structDecls:verityStructDecl]* $[errors $[$errorDecls:verityError]*]? $[event_defs $[$eventDecls:verityEvent]*]? $[constants $[$constantDecls:verityConstant]*]? $[immutables $[$immutableDecls:verityImmutable]*]? $[interfaces $[$interfaceDecls:verityInterface]*]? $[linked_externals $[$externalDecls:verityExternal]*]? $[$ctor:verityConstructor]? $[$entrypoints:veritySpecialEntrypoint]* $[$modifierDecls:verityModifier]* $[$functions:verityFunction]*) =>
       -- Parse newtypes first — they are needed by all downstream type resolution
       let parsedNewtypes ←
         match newtypeDecls with
@@ -2987,8 +3118,15 @@ def parseContractSyntax
         if seenRoleNames.contains role.name then
           throwErrorAt role.ident s!"duplicate role declaration '{role.name}'"
         seenRoleNames := seenRoleNames.push role.name
-      pure {
+      let parsedModifiers ← modifierDecls.mapM parseModifier
+      let parsedFunctions :=
+        assignOverloadInternalIdents
+          (← monomorphizeHigherOrderHelpers
+            ((← entrypoints.mapM parseSpecialEntrypoint) ++
+              (← functions.mapM (parseFunction parsedNewtypes parsedStructs parsedAdts interfaceNames))))
+      let own : ParsedContractSyntax := {
         contractName := contractName
+        parentName? := parentName
         newtypeDecls := parsedNewtypes
         structDecls := parsedStructs
         adtDecls := parsedAdts
@@ -3001,14 +3139,24 @@ def parseContractSyntax
         immutableDecls := parsedImmutables
         externalDecls := parsedExternals
         ctor := (← ctor.mapM (parseConstructor parsedNewtypes parsedStructs parsedAdts))
-        modifiers := (← modifierDecls.mapM parseModifier)
-        functions :=
-          assignOverloadInternalIdents
-            (← monomorphizeHigherOrderHelpers
-              ((← entrypoints.mapM parseSpecialEntrypoint) ++
-                (← functions.mapM (parseFunction parsedNewtypes parsedStructs parsedAdts interfaceNames))))
+        modifiers := parsedModifiers
+        functions := parsedFunctions
         storageNamespace := firstNamespaceOpt
       }
+      match parentName with
+      | none => pure { own with functions := (← inlineModifierPrefixes own.modifiers own.functions) }
+      | some parentIdent =>
+          let currentNs ← getCurrNamespace
+          let candidates := [parentIdent.getId, currentNs ++ parentIdent.getId]
+          let mut parent? : Option ParsedContractSyntax := none
+          for candidate in candidates do
+            if parent?.isNone then
+              parent? ← lookupContractSyntax candidate
+          let some parent := parent?
+            | throwErrorAt parentIdent s!"unknown parent contract '{parentIdent.getId}'; import or declare the parent before the child"
+          let flattened ← flattenSingleInheritance parentIdent parent own
+          pure { flattened with
+            functions := (← inlineModifierPrefixes flattened.modifiers flattened.functions) }
   | _ => throwErrorAt stx "invalid verity_contract declaration"
 
 private def mkConstantDefCommand (constant : ConstantDecl) : CommandElabM Cmd := do
