@@ -2848,6 +2848,8 @@ private def composeConstructors
           | .ident _ _ name _ => name.toString == param.name
           | _ => false
         if !isIdentityArg then
+          if child.params.any (fun childParam => childParam.name == param.name) then
+            throwErrorAt arg s!"parent constructor parameter '{param.name}' conflicts with a child constructor parameter; rename the child parameter"
           let binding ← `(doElem| let $param.ident := $arg)
           parentBindings := parentBindings.push binding
       let scopedParent ← `(doElem| if true then
@@ -2888,6 +2890,12 @@ private def flattenSingleInheritance
           throwErrorAt fn.ident s!"function '{fn.name}' overrides a non-virtual inherited function"
         if !inherited.isPayable && fn.isPayable then
           throwErrorAt fn.ident s!"function '{fn.name}' cannot widen a nonpayable inherited function to payable"
+        if inherited.isPayable && !fn.isPayable then
+          throwErrorAt fn.ident s!"function '{fn.name}' cannot change an inherited payable function to nonpayable"
+        if inherited.isPure && !fn.isPure then
+          throwErrorAt fn.ident s!"function '{fn.name}' cannot weaken an inherited pure function"
+        if inherited.isView && !fn.isView && !fn.isPure then
+          throwErrorAt fn.ident s!"function '{fn.name}' cannot weaken an inherited view function to state-mutating"
         functions := functions.map fun candidate =>
           if functionSignatureKey candidate == functionSignatureKey fn then
             { fn with isOverride := false }

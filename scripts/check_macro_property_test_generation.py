@@ -50,6 +50,8 @@ EXCLUDED_CONTRACTS = {
     "ConstructorHygieneBase",
     "PayableConstructorBase",
     "NonpayableVirtualBase",
+    "ViewVirtualBase",
+    "PureVirtualBase",
     "InheritedOverloadBase",
 }
 

@@ -86,6 +86,16 @@ verity_contract ConstructorHygieneChild is ConstructorHygieneBase where
 
 #check_contract ConstructorHygieneChild
 
+/--
+error: parent constructor parameter 'owner' conflicts with a child constructor parameter; rename the child parameter
+-/
+#guard_msgs in
+verity_contract ConstructorBindingCollisionRejected is ConstructorHygieneBase where
+  storage
+
+  constructor (owner : Address, admin : Address) ConstructorHygieneBase(admin) := do
+    pure ()
+
 -- A child with no constructor has an implicit nonpayable constructor even
 -- when it runs a zero-argument payable parent initializer.
 verity_contract PayableConstructorBase where
@@ -115,6 +125,38 @@ verity_contract PayableOverrideRejected is NonpayableVirtualBase where
   storage
 
   function payable override value () : Uint256 := do
+    return 2
+
+verity_contract ViewVirtualBase where
+  storage
+
+  function view virtual value () : Uint256 := do
+    return 1
+
+/--
+error: function 'value' cannot weaken an inherited view function to state-mutating
+-/
+#guard_msgs in
+verity_contract ViewOverrideRejected is ViewVirtualBase where
+  storage
+
+  function override value () : Uint256 := do
+    return 2
+
+verity_contract PureVirtualBase where
+  storage
+
+  function pure virtual value () : Uint256 := do
+    return 1
+
+/--
+error: function 'value' cannot weaken an inherited pure function
+-/
+#guard_msgs in
+verity_contract PureOverrideRejected is PureVirtualBase where
+  storage
+
+  function view override value () : Uint256 := do
     return 2
 
 -- Overloads introduced on opposite sides of the inheritance boundary receive
