@@ -1854,6 +1854,12 @@ private partial def rewriteForEachExecutableDoElem
               pure (#[← `(doElem| let $name:ident ←
                 _root_.Verity.getFixedStorageArrayElement $field:ident $(natTerm size) $index:term)], locals)
           | _ => pure (#[elem], locals)
+      | `(term| getStorage $field:ident) =>
+          match fields.find? (fun candidate => candidate.name == toString field.getId) with
+          | some { packedBits := some (offset, width), .. } =>
+              pure (#[← `(doElem| let $name:ident ←
+                _root_.Verity.getPackedStorage $field:ident $(natTerm offset) $(natTerm width))], locals)
+          | _ => pure (#[elem], locals)
       | _ =>
           match ← typedInterfaceCallReturnType? externalDecls params locals rhs with
           | some retTy =>
@@ -1919,6 +1925,12 @@ private partial def rewriteForEachExecutableDoElem
           | some { ty := .scalar (.fixedArray (.uintN 128) size), .. } =>
               pure (#[← `(doElem| _root_.Verity.setFixedStorageArrayElement
                 $field:ident $(natTerm size) $index:term $value:term)], locals)
+          | _ => pure (#[elem], locals)
+      | `(term| setStorage $field:ident $value:term) =>
+          match fields.find? (fun candidate => candidate.name == toString field.getId) with
+          | some { packedBits := some (offset, width), .. } =>
+              pure (#[← `(doElem| _root_.Verity.setPackedStorage
+                $field:ident $(natTerm offset) $(natTerm width) $value:term)], locals)
           | _ => pure (#[elem], locals)
       | _ =>
           if (← isVoidTypedInterfaceCall? externalDecls params locals stmt) then
@@ -2918,6 +2930,13 @@ def parseContractSyntax
                     | none =>
                         throwErrorAt item "unsupported storage item"
       parsedFields := applyAutomaticPackedLayout parsedFields
+      for field in parsedFields do
+        if field.isTransient then
+          match field.ty with
+          | .scalar (.fixedArray _ _) =>
+              throwErrorAt field.ident
+                "transient fixed arrays are not supported until fixed-array lowering uses tload/tstore"
+          | _ => pure ()
       let parsedRoles ←
         match roleDecls with
         | some decls => decls.mapM (parseRoleDecl parsedFields)

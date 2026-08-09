@@ -330,6 +330,11 @@ theorem writeAddressKeyedMapping2FieldSlots_eq
 @[simp] theorem writeUintSlots_eq (w : Verity.ContractState) (slots : List Nat) (v : Nat) :
     Denote.writeUintSlots w slots v = SourceSemantics.writeUintSlots w slots v := rfl
 
+@[simp] theorem writeFixedUint128ArrayElementSlots_eq
+    (w : Verity.ContractState) (slots : List Nat) (size index value : Nat) :
+    Denote.writeFixedUint128ArrayElementSlots w slots size index value =
+      SourceSemantics.writeFixedUint128ArrayElementSlots w slots size index value := rfl
+
 @[simp] theorem writeStorageWordSlots_eq
     (w : Verity.ContractState) (slots : List Nat) (off v : Nat) :
     Denote.writeStorageWordSlots w slots off v =
@@ -507,6 +512,7 @@ macro "denote_stmt_arm" : tactic =>
          writeUintKeyedMappingFieldSlots_eq, writeAddressKeyedMapping2FieldSlots_eq,
          storageArraySetAt_eq,
          storageArrayDropLast?_eq,
+         writeFixedUint128ArrayElementSlots_eq,
          SourceSemantics.eventFromResolvedArgs?,
          SourceSemantics.eventScratchMemoryAfterEmit?])
      all_goals subst_vars
@@ -519,6 +525,7 @@ macro "denote_stmt_arm" : tactic =>
              writeUintKeyedMappingFieldSlots_eq, writeAddressKeyedMapping2FieldSlots_eq,
              storageArraySetAt_eq,
              storageArrayDropLast?_eq,
+             writeFixedUint128ArrayElementSlots_eq,
              SourceSemantics.eventFromResolvedArgs?,
              SourceSemantics.eventScratchMemoryAfterEmit?]))
 

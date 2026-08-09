@@ -200,18 +200,23 @@ def fieldUsesDynamicArrayStorage (field : Field) : Bool :=
   | .dynamicArray _ => true
   | _ => false
 
-def findResolvedFieldAtSlot (fields : List Field) (slot : Nat) : Option Field :=
+def findResolvedFieldAtStorageSlot (fields : List Field) (isTransient : Bool)
+    (slot : Nat) : Option Field :=
   let rec go (remaining : List Field) (idx : Nat) : Option Field :=
     match remaining with
     | [] => none
     | field :: rest =>
         let resolvedSlot := field.slot.getD idx
-        if wordNormalize resolvedSlot = wordNormalize slot ||
-            (field.aliasSlots.map wordNormalize).contains (wordNormalize slot) then
+        if field.isTransient == isTransient &&
+            (wordNormalize resolvedSlot = wordNormalize slot ||
+            (field.aliasSlots.map wordNormalize).contains (wordNormalize slot)) then
           some field
         else
           go rest (idx + 1)
   go fields 0
+
+def findResolvedFieldAtSlot (fields : List Field) (slot : Nat) : Option Field :=
+  findResolvedFieldAtStorageSlot fields false slot
 
 def findDynamicArrayElementAtSlot (oracle : DenoteOracle)
     (fields : List Field) (world : Verity.ContractState) (targetSlot : Nat) : Option Nat :=
@@ -401,6 +406,29 @@ def packedWordWrite (current value : Nat) (packed : PackedBits) : Nat :=
   let packedValue := Verity.Core.Uint256.and value maskNat
   let cleared := Verity.Core.Uint256.and current (Verity.Core.Uint256.not shiftedMaskNat)
   (Verity.Core.Uint256.or cleared (Verity.Core.Uint256.shl packed.offset packedValue)).val
+
+def readFixedUint128ArrayElement
+    (world : Verity.ContractState) (slot size index : Nat) : Option Nat :=
+  if index < size then
+    let word := (world.storage (wordNormalize (slot + index / 2))).val
+    some (Verity.Core.Uint256.and
+      (Verity.Core.Uint256.shr ((index % 2) * 128) word)
+      ((2 ^ 128 - 1 : Nat))).val
+  else
+    none
+
+def writeFixedUint128ArrayElementSlots
+    (world : Verity.ContractState) (slots : List Nat) (size index value : Nat) :
+    Option Verity.ContractState :=
+  if index < size then
+    let offset := (index % 2) * 128
+    let packed : PackedBits := { offset := offset, width := 128 }
+    let targets := slots.map (fun slot => wordNormalize (slot + index / 2))
+    some { world with storage := fun slot =>
+      if targets.contains slot then packedWordWrite (world.storage slot).val value packed
+      else world.storage slot }
+  else
+    none
 
 def writeAddressKeyedMappingPackedWordSlots (oracle : DenoteOracle)
     (world : Verity.ContractState) (slots : List Nat) (key wordOffset : Nat)
@@ -697,6 +725,8 @@ def evalExpr (oracle : DenoteOracle) (fields : List Field) (state : DenoteState)
           match (state.world.readArray slot)[idx]? with
           | some value => some value.val
           | none => none
+      | some ({ ty := .fixedArrayUint128 size, .. }, slot) =>
+          readFixedUint128ArrayElement state.world slot size idx
       | _ => none
   | .caller => some state.world.sender.val
   | .contractAddress => some state.world.thisAddress.val
@@ -1212,6 +1242,11 @@ mutual
             match storageArraySetAt (state.world.readArray slot) idx resolved with
             | some updated =>
                 .continue { state with world := writeStorageArray state.world slot updated }
+            | none => .revert
+        | some ({ ty := .fixedArrayUint128 size, .. }, _), some idx, some resolved =>
+            match findFieldWriteSlots fields fieldName >>= fun slots =>
+                writeFixedUint128ArrayElementSlots state.world slots size idx resolved with
+            | some world => .continue { state with world := world }
             | none => .revert
         | _, _, _ => .revert
     | state, .setStorageAddr fieldName value =>

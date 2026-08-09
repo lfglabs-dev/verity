@@ -6,7 +6,7 @@ import Compiler.TypedIRCompiler
 import Compiler.TypedIRCompilerCorrectness
 import Compiler.TypedIRLowering
 import Compiler.Proofs.IRGeneration.IRInterpreter
-import Contracts.SpecAliases
+import Contracts.Specs
 import Contracts.Smoke
 
 namespace Verity.Core.Free
@@ -838,7 +838,7 @@ example :
   native_decide
 
 def compiledCounterIncrementFinalSlot : Option Nat :=
-  match compileFunctionNamed Compiler.Specs.counterSpec "increment" with
+  match compileFunctionNamed Contracts.Counter.spec "increment" with
   | .error _ => none
   | .ok block =>
       match evalTBlock counterTypedInit block with
@@ -850,7 +850,7 @@ example : compiledCounterIncrementFinalSlot = counterIRFinalSlot := by
   native_decide
 
 def compiledSimpleStorageStoreFinalSlot : Option Nat :=
-  match compileFunctionNamed Compiler.Specs.simpleStorageSpec "store" with
+  match compileFunctionNamed Contracts.SimpleStorage.spec "store" with
   | .error _ => none
   | .ok block =>
       match block.params with
@@ -869,7 +869,7 @@ example : compiledSimpleStorageStoreFinalSlot = simpleStorageIRFinalSlot := by
   native_decide
 
 def compiledCounterLoweredFinalSlot : Option Nat :=
-  match compileFunctionNamed Compiler.Specs.counterSpec "increment" with
+  match compileFunctionNamed Contracts.Counter.spec "increment" with
   | .error _ => none
   | .ok block =>
       execLoweredSlot0 256 (mkIRStateFromTyped counterTypedInit block) block
@@ -882,7 +882,7 @@ def compiledCounterDecrementFinalSlot : Option Nat :=
   let initWorld : Verity.ContractState :=
     { counterTypedInitWorld with «storage» := fun i => if i = 0 then 41 else 0 }
   let initTyped : TExecState := { world := initWorld }
-  match compileFunctionNamed Compiler.Specs.counterSpec "decrement" with
+  match compileFunctionNamed Contracts.Counter.spec "decrement" with
   | .error _ => none
   | .ok block =>
       match evalTBlock initTyped block with
@@ -893,7 +893,7 @@ def compiledCounterDecrementLoweredFinalSlot : Option Nat :=
   let initWorld : Verity.ContractState :=
     { counterTypedInitWorld with «storage» := fun i => if i = 0 then 41 else 0 }
   let initTyped : TExecState := { world := initWorld }
-  match compileFunctionNamed Compiler.Specs.counterSpec "decrement" with
+  match compileFunctionNamed Contracts.Counter.spec "decrement" with
   | .error _ => none
   | .ok block =>
       execLoweredSlot0 256 (mkIRStateFromTyped initTyped block) block
@@ -906,7 +906,7 @@ def compiledCounterGetCountReturn : Option Nat :=
   let initWorld : Verity.ContractState :=
     { counterTypedInitWorld with «storage» := fun i => if i = 0 then 41 else 0 }
   let initTyped : TExecState := { world := initWorld }
-  match compileFunctionNamed Compiler.Specs.counterSpec "getCount" with
+  match compileFunctionNamed Contracts.Counter.spec "getCount" with
   | .error _ => none
   | .ok block =>
       execLoweredReturn 256 (mkIRStateFromTyped initTyped block) block
@@ -927,7 +927,7 @@ example : chainidLoweredReturn = some 104 := by
   native_decide
 
 def compiledSimpleStorageLoweredFinalSlot : Option Nat :=
-  match compileFunctionNamed Compiler.Specs.simpleStorageSpec "store" with
+  match compileFunctionNamed Contracts.SimpleStorage.spec "store" with
   | .error _ => none
   | .ok block =>
       match block.params with
@@ -947,7 +947,7 @@ def compiledSimpleStorageRetrieveReturn : Option Nat :=
   let initWorld : Verity.ContractState :=
     { simpleStorageTypedInitWorld with «storage» := fun i => if i = 0 then 77 else 0 }
   let initTyped : TExecState := { world := initWorld }
-  match compileFunctionNamed Compiler.Specs.simpleStorageSpec "retrieve" with
+  match compileFunctionNamed Contracts.SimpleStorage.spec "retrieve" with
   | .error _ => none
   | .ok block =>
       execLoweredReturn 256 (mkIRStateFromTyped initTyped block) block
@@ -957,8 +957,8 @@ example : compiledSimpleStorageRetrieveReturn = some 77 := by
   native_decide
 
 def compiledSimpleStorageStoreRetrieveRoundtrip : Option Nat :=
-  match compileFunctionNamed Compiler.Specs.simpleStorageSpec "store",
-        compileFunctionNamed Compiler.Specs.simpleStorageSpec "retrieve" with
+  match compileFunctionNamed Contracts.SimpleStorage.spec "store",
+        compileFunctionNamed Contracts.SimpleStorage.spec "retrieve" with
   | .ok storeBlock, .ok retrieveBlock =>
       match storeBlock.params with
       | [] => none
@@ -979,7 +979,7 @@ example : compiledSimpleStorageStoreRetrieveRoundtrip = some 99 := by
 
 /-- Smoke test: Ledger.transfer compiles successfully (exercises bool→uint256 coercion). -/
 def compiledLedgerTransferBlock : Option TBlock :=
-  match compileFunctionNamed Compiler.Specs.ledgerSpec "transfer" with
+  match compileFunctionNamed Contracts.Ledger.spec "transfer" with
   | .ok block => some block
   | .error _ => none
 
@@ -988,7 +988,7 @@ example : compiledLedgerTransferBlock.isSome = true := by
 
 /-- End-to-end Ledger.transfer: non-self transfer updates both balances correctly. -/
 def compiledLedgerTransferResult : Option (Nat × Nat) :=
-  match compileFunctionNamed Compiler.Specs.ledgerSpec "transfer" with
+  match compileFunctionNamed Contracts.Ledger.spec "transfer" with
   | .error _ => none
   | .ok block =>
       match block.params with
@@ -1018,7 +1018,7 @@ example : compiledLedgerTransferResult = some (70, 80) := by
 
 /-- Smoke test: Owned.getOwner compiles successfully (exercises returnAddr path). -/
 def compiledOwnedGetOwnerBlock : Option TBlock :=
-  match compileFunctionNamed Compiler.Specs.ownedSpec "getOwner" with
+  match compileFunctionNamed Contracts.Owned.spec "getOwner" with
   | .ok block => some block
   | .error _ => none
 
@@ -1027,7 +1027,7 @@ example : compiledOwnedGetOwnerBlock.isSome = true := by
 
 /-- End-to-end Owned.getOwner: returns the stored owner address via typed IR lowering. -/
 def compiledOwnedGetOwnerReturn : Option Nat :=
-  match compileFunctionNamed Compiler.Specs.ownedSpec "getOwner" with
+  match compileFunctionNamed Contracts.Owned.spec "getOwner" with
   | .error _ => none
   | .ok block =>
       let initWorld : Verity.ContractState :=
@@ -1041,7 +1041,7 @@ example : compiledOwnedGetOwnerReturn = some 42 := by
 
 /-- Smoke test: Owned.transferOwnership compiles successfully (exercises requireOwner + setStorageAddr). -/
 def compiledOwnedTransferOwnershipBlock : Option TBlock :=
-  match compileFunctionNamed Compiler.Specs.ownedSpec "transferOwnership" with
+  match compileFunctionNamed Contracts.Owned.spec "transferOwnership" with
   | .ok block => some block
   | .error _ => none
 
@@ -1050,7 +1050,7 @@ example : compiledOwnedTransferOwnershipBlock.isSome = true := by
 
 /-- End-to-end Owned.transferOwnership (happy path): owner transfers ownership. -/
 def compiledOwnedTransferOwnershipSuccess : Option Nat :=
-  match compileFunctionNamed Compiler.Specs.ownedSpec "transferOwnership" with
+  match compileFunctionNamed Contracts.Owned.spec "transferOwnership" with
   | .error _ => none
   | .ok block =>
       match block.params with
@@ -1073,7 +1073,7 @@ example : compiledOwnedTransferOwnershipSuccess = some 99 := by native_decide
 
 /-- End-to-end Owned.transferOwnership (revert path): non-owner is rejected. -/
 def compiledOwnedTransferOwnershipReverts : Bool :=
-  match compileFunctionNamed Compiler.Specs.ownedSpec "transferOwnership" with
+  match compileFunctionNamed Contracts.Owned.spec "transferOwnership" with
   | .error _ => false
   | .ok block =>
       match block.params with
@@ -1101,20 +1101,20 @@ private def compilesOk (spec : Compiler.CompilationModel.CompilationModel) (fn :
   | .error _ => false
 
 /-- Smoke test: all Ledger spec functions compile to typed IR. -/
-example : compilesOk Compiler.Specs.ledgerSpec "deposit" = true := by native_decide
-example : compilesOk Compiler.Specs.ledgerSpec "withdraw" = true := by native_decide
-example : compilesOk Compiler.Specs.ledgerSpec "getBalance" = true := by native_decide
+example : compilesOk Contracts.Ledger.spec "deposit" = true := by native_decide
+example : compilesOk Contracts.Ledger.spec "withdraw" = true := by native_decide
+example : compilesOk Contracts.Ledger.spec "getBalance" = true := by native_decide
 
 /-- Smoke test: all Vault spec functions compile to typed IR. -/
-example : compilesOk Compiler.Specs.vaultSpec "deposit" = true := by native_decide
-example : compilesOk Compiler.Specs.vaultSpec "withdraw" = true := by native_decide
-example : compilesOk Compiler.Specs.vaultSpec "balanceOf" = true := by native_decide
-example : compilesOk Compiler.Specs.vaultSpec "totalAssets" = true := by native_decide
-example : compilesOk Compiler.Specs.vaultSpec "totalSupply" = true := by native_decide
+example : compilesOk Contracts.Vault.spec "deposit" = true := by native_decide
+example : compilesOk Contracts.Vault.spec "withdraw" = true := by native_decide
+example : compilesOk Contracts.Vault.spec "balanceOf" = true := by native_decide
+example : compilesOk Contracts.Vault.spec "totalAssets" = true := by native_decide
+example : compilesOk Contracts.Vault.spec "totalSupply" = true := by native_decide
 
 /-- End-to-end Vault.deposit: sender shares and 1:1 totals increase together. -/
 def compiledVaultDepositResult : Option (Nat × Nat × Nat) :=
-  match compileFunctionNamed Compiler.Specs.vaultSpec "deposit" with
+  match compileFunctionNamed Contracts.Vault.spec "deposit" with
   | .error _ => none
   | .ok block =>
       match block.params with
@@ -1139,7 +1139,7 @@ example : compiledVaultDepositResult = some (150, 150, 150) := by native_decide
 
 /-- End-to-end Vault.withdraw (happy path): sufficient shares burn 1:1 from balances and totals. -/
 def compiledVaultWithdrawSuccess : Option (Nat × Nat × Nat) :=
-  match compileFunctionNamed Compiler.Specs.vaultSpec "withdraw" with
+  match compileFunctionNamed Contracts.Vault.spec "withdraw" with
   | .error _ => none
   | .ok block =>
       match block.params with
@@ -1164,7 +1164,7 @@ example : compiledVaultWithdrawSuccess = some (70, 70, 70) := by native_decide
 
 /-- End-to-end Vault.withdraw (revert path): insufficient shares are rejected. -/
 def compiledVaultWithdrawReverts : Bool :=
-  match compileFunctionNamed Compiler.Specs.vaultSpec "withdraw" with
+  match compileFunctionNamed Contracts.Vault.spec "withdraw" with
   | .error _ => false
   | .ok block =>
       match block.params with
@@ -1189,7 +1189,7 @@ example : compiledVaultWithdrawReverts = true := by native_decide
 
 /-- End-to-end Ledger.deposit: increases sender balance via mapping write. -/
 def compiledLedgerDepositResult : Option Nat :=
-  match compileFunctionNamed Compiler.Specs.ledgerSpec "deposit" with
+  match compileFunctionNamed Contracts.Ledger.spec "deposit" with
   | .error _ => none
   | .ok block =>
       match block.params with
@@ -1213,7 +1213,7 @@ example : compiledLedgerDepositResult = some 150 := by native_decide
 
 /-- End-to-end Ledger.withdraw (happy path): sufficient balance succeeds. -/
 def compiledLedgerWithdrawSuccess : Option Nat :=
-  match compileFunctionNamed Compiler.Specs.ledgerSpec "withdraw" with
+  match compileFunctionNamed Contracts.Ledger.spec "withdraw" with
   | .error _ => none
   | .ok block =>
       match block.params with
@@ -1237,7 +1237,7 @@ example : compiledLedgerWithdrawSuccess = some 70 := by native_decide
 
 /-- End-to-end Ledger.withdraw (revert path): insufficient balance reverts. -/
 def compiledLedgerWithdrawReverts : Bool :=
-  match compileFunctionNamed Compiler.Specs.ledgerSpec "withdraw" with
+  match compileFunctionNamed Contracts.Ledger.spec "withdraw" with
   | .error _ => false
   | .ok block =>
       match block.params with
@@ -1261,7 +1261,7 @@ example : compiledLedgerWithdrawReverts = true := by native_decide
 
 /-- End-to-end OwnedCounter.increment (happy path): owner can increment. -/
 def compiledOwnedCounterIncrementSuccess : Option Nat :=
-  match compileFunctionNamed Compiler.Specs.ownedCounterSpec "increment" with
+  match compileFunctionNamed Contracts.OwnedCounter.spec "increment" with
   | .error _ => none
   | .ok block =>
       let initWorld : Verity.ContractState :=
@@ -1279,7 +1279,7 @@ example : compiledOwnedCounterIncrementSuccess = some 11 := by native_decide
 
 /-- End-to-end OwnedCounter.increment (revert path): non-owner is rejected. -/
 def compiledOwnedCounterIncrementReverts : Bool :=
-  match compileFunctionNamed Compiler.Specs.ownedCounterSpec "increment" with
+  match compileFunctionNamed Contracts.OwnedCounter.spec "increment" with
   | .error _ => false
   | .ok block =>
       let initWorld : Verity.ContractState :=
@@ -1296,15 +1296,15 @@ def compiledOwnedCounterIncrementReverts : Bool :=
 example : compiledOwnedCounterIncrementReverts = true := by native_decide
 
 /-- Smoke test: all OwnedCounter spec functions compile to typed IR. -/
-example : compilesOk Compiler.Specs.ownedCounterSpec "increment" = true := by native_decide
-example : compilesOk Compiler.Specs.ownedCounterSpec "decrement" = true := by native_decide
-example : compilesOk Compiler.Specs.ownedCounterSpec "getCount" = true := by native_decide
-example : compilesOk Compiler.Specs.ownedCounterSpec "getOwner" = true := by native_decide
-example : compilesOk Compiler.Specs.ownedCounterSpec "transferOwnership" = true := by native_decide
+example : compilesOk Contracts.OwnedCounter.spec "increment" = true := by native_decide
+example : compilesOk Contracts.OwnedCounter.spec "decrement" = true := by native_decide
+example : compilesOk Contracts.OwnedCounter.spec "getCount" = true := by native_decide
+example : compilesOk Contracts.OwnedCounter.spec "getOwner" = true := by native_decide
+example : compilesOk Contracts.OwnedCounter.spec "transferOwnership" = true := by native_decide
 
 /-- End-to-end OwnedCounter.transferOwnership (happy path): owner transfers ownership, count unchanged. -/
 def compiledOwnedCounterTransferOwnershipSuccess : Option (Nat × Nat) :=
-  match compileFunctionNamed Compiler.Specs.ownedCounterSpec "transferOwnership" with
+  match compileFunctionNamed Contracts.OwnedCounter.spec "transferOwnership" with
   | .error _ => none
   | .ok block =>
       match block.params with
@@ -1328,7 +1328,7 @@ example : compiledOwnedCounterTransferOwnershipSuccess = some (99, 10) := by nat
 
 /-- End-to-end OwnedCounter.transferOwnership (revert path): non-owner is rejected. -/
 def compiledOwnedCounterTransferOwnershipReverts : Bool :=
-  match compileFunctionNamed Compiler.Specs.ownedCounterSpec "transferOwnership" with
+  match compileFunctionNamed Contracts.OwnedCounter.spec "transferOwnership" with
   | .error _ => false
   | .ok block =>
       match block.params with
@@ -1351,11 +1351,11 @@ def compiledOwnedCounterTransferOwnershipReverts : Bool :=
 example : compiledOwnedCounterTransferOwnershipReverts = true := by native_decide
 
 /-- Smoke test: all SimpleToken spec functions compile to typed IR. -/
-example : compilesOk Compiler.Specs.simpleTokenSpec "mint" = true := by native_decide
-example : compilesOk Compiler.Specs.simpleTokenSpec "transfer" = true := by native_decide
-example : compilesOk Compiler.Specs.simpleTokenSpec "balanceOf" = true := by native_decide
-example : compilesOk Compiler.Specs.simpleTokenSpec "totalSupply" = true := by native_decide
-example : compilesOk Compiler.Specs.simpleTokenSpec "owner" = true := by native_decide
+example : compilesOk Contracts.SimpleToken.spec "mint" = true := by native_decide
+example : compilesOk Contracts.SimpleToken.spec "transfer" = true := by native_decide
+example : compilesOk Contracts.SimpleToken.spec "balanceOf" = true := by native_decide
+example : compilesOk Contracts.SimpleToken.spec "totalSupply" = true := by native_decide
+example : compilesOk Contracts.SimpleToken.spec "owner" = true := by native_decide
 
 private def erc20Spec : Compiler.CompilationModel.CompilationModel :=
   Contracts.ERC20.spec
@@ -1731,13 +1731,13 @@ def compiledERC721TransferUnauthorizedReverts : Bool :=
 example : compiledERC721TransferUnauthorizedReverts = true := by native_decide
 
 /-- Smoke test: all SafeCounter spec functions compile to typed IR. -/
-example : compilesOk Compiler.Specs.safeCounterSpec "increment" = true := by native_decide
-example : compilesOk Compiler.Specs.safeCounterSpec "decrement" = true := by native_decide
-example : compilesOk Compiler.Specs.safeCounterSpec "getCount" = true := by native_decide
+example : compilesOk Contracts.SafeCounter.spec "increment" = true := by native_decide
+example : compilesOk Contracts.SafeCounter.spec "decrement" = true := by native_decide
+example : compilesOk Contracts.SafeCounter.spec "getCount" = true := by native_decide
 
 /-- End-to-end SafeCounter.increment (happy path): count 5 → 6. -/
 def compiledSafeCounterIncrementSuccess : Option Nat :=
-  match compileFunctionNamed Compiler.Specs.safeCounterSpec "increment" with
+  match compileFunctionNamed Contracts.SafeCounter.spec "increment" with
   | .error _ => none
   | .ok block =>
       let initWorld : Verity.ContractState :=
@@ -1752,7 +1752,7 @@ example : compiledSafeCounterIncrementSuccess = some 6 := by native_decide
 
 /-- End-to-end SafeCounter.decrement (happy path): count 5 → 4. -/
 def compiledSafeCounterDecrementSuccess : Option Nat :=
-  match compileFunctionNamed Compiler.Specs.safeCounterSpec "decrement" with
+  match compileFunctionNamed Contracts.SafeCounter.spec "decrement" with
   | .error _ => none
   | .ok block =>
       let initWorld : Verity.ContractState :=
@@ -1767,7 +1767,7 @@ example : compiledSafeCounterDecrementSuccess = some 4 := by native_decide
 
 /-- End-to-end SafeCounter.decrement (underflow): count=0 reverts. -/
 def compiledSafeCounterDecrementUnderflow : Bool :=
-  match compileFunctionNamed Compiler.Specs.safeCounterSpec "decrement" with
+  match compileFunctionNamed Contracts.SafeCounter.spec "decrement" with
   | .error _ => false
   | .ok block =>
       let initWorld : Verity.ContractState :=
@@ -1782,7 +1782,7 @@ example : compiledSafeCounterDecrementUnderflow = true := by native_decide
 
 /-- End-to-end SafeCounter.getCount: returns stored count via lowered pipeline. -/
 def compiledSafeCounterGetCountReturn : Option Nat :=
-  match compileFunctionNamed Compiler.Specs.safeCounterSpec "getCount" with
+  match compileFunctionNamed Contracts.SafeCounter.spec "getCount" with
   | .error _ => none
   | .ok block =>
       let initWorld : Verity.ContractState :=
@@ -2465,7 +2465,7 @@ example (init : TExecState) :
 
 /-- End-to-end Ledger.getBalance: compiled block preserves state (return is read-only). -/
 def compiledLedgerGetBalancePreservesState : Bool :=
-  match compileFunctionNamed Compiler.Specs.ledgerSpec "getBalance" with
+  match compileFunctionNamed Contracts.Ledger.spec "getBalance" with
   | .error _ => false
   | .ok block =>
       match block.params with
@@ -2488,7 +2488,7 @@ example : compiledLedgerGetBalancePreservesState = true := by native_decide
 
 /-- End-to-end SimpleToken.balanceOf: compiled block preserves state (return is read-only). -/
 def compiledSimpleTokenBalanceOfPreservesState : Bool :=
-  match compileFunctionNamed Compiler.Specs.simpleTokenSpec "balanceOf" with
+  match compileFunctionNamed Contracts.SimpleToken.spec "balanceOf" with
   | .error _ => false
   | .ok block =>
       match block.params with
@@ -2511,7 +2511,7 @@ example : compiledSimpleTokenBalanceOfPreservesState = true := by native_decide
 
 /-- End-to-end SimpleToken.totalSupply: compiled block preserves state (return is read-only). -/
 def compiledSimpleTokenTotalSupplyPreservesState : Bool :=
-  match compileFunctionNamed Compiler.Specs.simpleTokenSpec "totalSupply" with
+  match compileFunctionNamed Contracts.SimpleToken.spec "totalSupply" with
   | .error _ => false
   | .ok block =>
       let initWorld : Verity.ContractState :=
@@ -2526,7 +2526,7 @@ example : compiledSimpleTokenTotalSupplyPreservesState = true := by native_decid
 
 /-- End-to-end SimpleToken.owner: compiled block preserves state (return is read-only). -/
 def compiledSimpleTokenOwnerPreservesState : Bool :=
-  match compileFunctionNamed Compiler.Specs.simpleTokenSpec "owner" with
+  match compileFunctionNamed Contracts.SimpleToken.spec "owner" with
   | .error _ => false
   | .ok block =>
       let initWorld : Verity.ContractState :=
@@ -2655,7 +2655,7 @@ example (fields : List Field)
 
 /-- End-to-end ERC20.totalSupply: compiled block executes without reverting. -/
 def compiledERC20TotalSupplyPreservesState : Bool :=
-  match compileFunctionNamed Compiler.Specs.erc20Spec "totalSupply" with
+  match compileFunctionNamed Contracts.ERC20.spec "totalSupply" with
   | .error _ => false
   | .ok block =>
       let initWorld : Verity.ContractState :=
@@ -2670,7 +2670,7 @@ example : compiledERC20TotalSupplyPreservesState = true := by native_decide
 
 /-- End-to-end ERC20.owner: compiled block executes without reverting. -/
 def compiledERC20OwnerPreservesState : Bool :=
-  match compileFunctionNamed Compiler.Specs.erc20Spec "owner" with
+  match compileFunctionNamed Contracts.ERC20.spec "owner" with
   | .error _ => false
   | .ok block =>
       let initWorld : Verity.ContractState :=
@@ -2685,7 +2685,7 @@ example : compiledERC20OwnerPreservesState = true := by native_decide
 
 /-- End-to-end ERC20.balanceOf: compiled block executes without reverting. -/
 def compiledERC20BalanceOfPreservesState : Bool :=
-  match compileFunctionNamed Compiler.Specs.erc20Spec "balanceOf" with
+  match compileFunctionNamed Contracts.ERC20.spec "balanceOf" with
   | .error _ => false
   | .ok block =>
       match block.params with
@@ -2708,7 +2708,7 @@ example : compiledERC20BalanceOfPreservesState = true := by native_decide
 
 /-- End-to-end ERC20.allowanceOf: compiled block executes without reverting. -/
 def compiledERC20AllowanceOfPreservesState : Bool :=
-  match compileFunctionNamed Compiler.Specs.erc20Spec "allowanceOf" with
+  match compileFunctionNamed Contracts.ERC20.spec "allowanceOf" with
   | .error _ => false
   | .ok block =>
       match block.params with
@@ -2733,7 +2733,7 @@ example : compiledERC20AllowanceOfPreservesState = true := by native_decide
 
 /-- End-to-end ERC20.approve: compiled block executes without reverting. -/
 def compiledERC20ApprovePreservesState : Bool :=
-  match compileFunctionNamed Compiler.Specs.erc20Spec "approve" with
+  match compileFunctionNamed Contracts.ERC20.spec "approve" with
   | .error _ => false
   | .ok block =>
       match block.params with
@@ -3095,7 +3095,7 @@ def isOwnerMatchSwitch (ownerAddrName ownerWordName : String) : Compiler.Yul.Yul
 /-- ERC721.getApproved must keep the owner-existence guard and the corrected
 slot layout from `Compiler.TypedIRCompilerCorrectness`. -/
 def compiledERC721GetApprovedHasExpectedBody : Bool :=
-  match compileFunctionNamed Compiler.Specs.erc721Spec "getApproved" with
+  match compileFunctionNamed Contracts.ERC721.spec "getApproved" with
   | .error _ => false
   | .ok block =>
       match block.params, lowerTStmts block.body with
@@ -3118,7 +3118,7 @@ example : compiledERC721GetApprovedHasExpectedBody = true := by native_decide
 
 /-- ERC721.getApproved should revert for an unminted token. -/
 def compiledERC721GetApprovedRejectsUnminted : Bool :=
-  match compileFunctionNamed Compiler.Specs.erc721Spec "getApproved" with
+  match compileFunctionNamed Contracts.ERC721.spec "getApproved" with
   | .error _ => false
   | .ok block =>
       match block.params with
@@ -3140,7 +3140,7 @@ example : compiledERC721GetApprovedRejectsUnminted = true := by native_decide
 /-- ERC721.getApproved should load the approval from slot 5 after passing the
 owner check on slot 4. -/
 def compiledERC721GetApprovedLoadsApproval : Bool :=
-  match compileFunctionNamed Compiler.Specs.erc721Spec "getApproved" with
+  match compileFunctionNamed Contracts.ERC721.spec "getApproved" with
   | .error _ => false
   | .ok block =>
       match block.params, returnedWordName? (lowerTStmts block.body) with
@@ -3168,7 +3168,7 @@ example : compiledERC721GetApprovedLoadsApproval = true := by native_decide
 
 /-- ERC721.approve must keep both owner checks and write to slot 5. -/
 def compiledERC721ApproveHasExpectedBody : Bool :=
-  match compileFunctionNamed Compiler.Specs.erc721Spec "approve" with
+  match compileFunctionNamed Contracts.ERC721.spec "approve" with
   | .error _ => false
   | .ok block =>
       match block.params, lowerTStmts block.body with
@@ -3197,7 +3197,7 @@ example : compiledERC721ApproveHasExpectedBody = true := by native_decide
 
 /-- ERC721.approve should reject unminted tokens. -/
 def compiledERC721ApproveRejectsUnminted : Bool :=
-  match compileFunctionNamed Compiler.Specs.erc721Spec "approve" with
+  match compileFunctionNamed Contracts.ERC721.spec "approve" with
   | .error _ => false
   | .ok block =>
       match block.params with
@@ -3218,7 +3218,7 @@ example : compiledERC721ApproveRejectsUnminted = true := by native_decide
 
 /-- ERC721.approve should reject callers that are not the token owner. -/
 def compiledERC721ApproveRejectsNonOwner : Bool :=
-  match compileFunctionNamed Compiler.Specs.erc721Spec "approve" with
+  match compileFunctionNamed Contracts.ERC721.spec "approve" with
   | .error _ => false
   | .ok block =>
       match block.params with
@@ -3242,7 +3242,7 @@ example : compiledERC721ApproveRejectsNonOwner = true := by native_decide
 
 /-- ERC721.approve writes approvals into slot 5 on success. -/
 def compiledERC721ApproveWritesApproval : Bool :=
-  match compileFunctionNamed Compiler.Specs.erc721Spec "approve" with
+  match compileFunctionNamed Contracts.ERC721.spec "approve" with
   | .error _ => false
   | .ok block =>
       match block.params with

@@ -528,6 +528,19 @@ def getStorage (s : StorageSlot Uint256) : Contract Uint256 :=
 def setStorage (s : StorageSlot Uint256) (value : Uint256) : Contract Unit :=
   fun state => ContractResult.success () (state.writeSlot s.slot value)
 
+def getPackedStorage (s : StorageSlot Uint256) (offset width : Nat) : Contract Uint256 :=
+  fun state =>
+    ContractResult.success
+      ((state.readSlot s.slot).val / (2 ^ offset : Nat) % (2 ^ width : Nat)) state
+
+def setPackedStorage (s : StorageSlot Uint256) (offset width : Nat) (value : Uint256) : Contract Unit :=
+  fun state =>
+    let current := (state.readSlot s.slot).val
+    let updated := (current / (2 ^ (offset + width) : Nat) * (2 ^ (offset + width) : Nat) +
+      current % (2 ^ offset : Nat) +
+      (value.val % (2 ^ width : Nat)) * (2 ^ offset : Nat) : Nat)
+    ContractResult.success () (state.writeSlot s.slot updated)
+
 @[simp] theorem getStorage_run (s : StorageSlot Uint256) (state : ContractState) :
   (getStorage s).run state = ContractResult.success (state.storage s.slot) state := rfl
 

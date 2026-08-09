@@ -106,18 +106,22 @@ theorem bindSupportedParams_eq :
 
 theorem findResolvedFieldAtSlot_go_eq :
     ∀ (remaining : List Field) (slot idx : Nat),
-      Denote.findResolvedFieldAtSlot.go slot remaining idx =
-        SourceSemantics.findResolvedFieldAtSlot.go slot remaining idx
+      Denote.findResolvedFieldAtStorageSlot.go false slot remaining idx =
+        SourceSemantics.findResolvedFieldAtStorageSlot.go false slot remaining idx
   | [], _, _ => rfl
   | field :: rest, slot, idx => by
-      simp only [Denote.findResolvedFieldAtSlot.go, SourceSemantics.findResolvedFieldAtSlot.go]
+      simp only [Denote.findResolvedFieldAtStorageSlot.go,
+        SourceSemantics.findResolvedFieldAtStorageSlot.go]
       rw [findResolvedFieldAtSlot_go_eq rest slot (idx + 1)]
       rfl
 
 @[simp] theorem findResolvedFieldAtSlot_eq (fields : List Field) (slot : Nat) :
     Denote.findResolvedFieldAtSlot fields slot =
       SourceSemantics.findResolvedFieldAtSlot fields slot :=
-  findResolvedFieldAtSlot_go_eq fields slot 0
+  by
+    simp only [Denote.findResolvedFieldAtSlot, SourceSemantics.findResolvedFieldAtSlot,
+      Denote.findResolvedFieldAtStorageSlot, SourceSemantics.findResolvedFieldAtStorageSlot]
+    exact findResolvedFieldAtSlot_go_eq fields slot 0
 
 theorem findDynamicArrayElementAtSlot_scanElements_eq (targetSlot : Nat) :
     ∀ (baseSlot : Nat) (values : List Verity.Core.Uint256) (idx : Nat),

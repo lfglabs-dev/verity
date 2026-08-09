@@ -32,34 +32,31 @@ def parseStorageField (newtypes : Array NewtypeDecl) (structDecls : Array Struct
 private def narrowStorageWidth? : StorageType → Option Nat
   | .scalar .uint16 => some 16
   | .scalar (.uintN bits) => some bits
-  | .scalar (.newtype _ base) => narrowStorageWidth? (.scalar base)
   | _ => none
 
 /-- Assign Solidity-compatible least-significant-first offsets to consecutive
     narrow declarations sharing the same explicit base-slot anchor. -/
 def applyAutomaticPackedLayout (fields : Array StorageFieldDecl) : Array StorageFieldDecl := Id.run do
   let mut out := #[]
-  let mut anchor? : Option Nat := none
-  let mut currentSlot := 0
-  let mut offset := 0
+  let mut persistentCursor : Option (Nat × Nat × Nat) := none
+  let mut transientCursor : Option (Nat × Nat × Nat) := none
   for field in fields do
     match narrowStorageWidth? field.ty with
     | some width =>
-        let sameAnchor := anchor? == some field.slotNum &&
-          out.back?.any (fun previous => previous.isTransient == field.isTransient)
-        let nextOffset := if sameAnchor then offset else 0
+        let cursor := if field.isTransient then transientCursor else persistentCursor
+        let sameAnchor := cursor.any (fun (anchor, _, _) => anchor == field.slotNum)
+        let currentSlot := cursor.map (fun (_, current, _) => current) |>.getD field.slotNum
+        let nextOffset := if sameAnchor then cursor.map (fun (_, _, off) => off) |>.getD 0 else 0
         let (resolvedSlot, bitOffset) :=
           if nextOffset + width <= 256 then
             (if sameAnchor then currentSlot else field.slotNum, nextOffset)
           else (currentSlot + 1, 0)
         out := out.push { field with slotNum := resolvedSlot, packedBits := some (bitOffset, width) }
-        anchor? := some field.slotNum
-        currentSlot := resolvedSlot
-        offset := bitOffset + width
+        let nextCursor := some (field.slotNum, resolvedSlot, bitOffset + width)
+        if field.isTransient then transientCursor := nextCursor else persistentCursor := nextCursor
     | none =>
         out := out.push field
-        anchor? := none
-        offset := 0
+        if field.isTransient then transientCursor := none else persistentCursor := none
   return out
 
 def parseTransientStorageItem (newtypes : Array NewtypeDecl) (structDecls : Array StructDecl := #[]) (adtDecls : Array AdtDecl := #[])

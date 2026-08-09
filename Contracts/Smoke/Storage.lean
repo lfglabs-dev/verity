@@ -53,6 +53,13 @@ example : PackedStorageLoweringSmoke.spec.fields.any (fun field =>
       | Compiler.CompilationModel.FieldType.fixedArrayUint128 4 => true
       | _ => false) := by decide
 
+example :
+    (((do
+      PackedStorageLoweringSmoke.setFlags 7
+      PackedStorageLoweringSmoke.setEpoch 9) : Contract Unit).run defaultState).snd.storage 0 =
+      (7 + 9 * 2 ^ 16 : Nat) := by
+  rfl
+
 verity_contract PackedStorageSpillSmoke where
   storage
     a : Uint128 := slot 10
@@ -76,6 +83,47 @@ example : MixedStorageSpacePackingSmoke.spec.fields.map (fun field =>
     (field.slot, field.isTransient, field.packedBits)) == [
       (some 20, false, some { offset := 0, width := 128 }),
       (some 20, true, some { offset := 0, width := 128 })] := by decide
+
+example :
+    Compiler.CompilationModel.firstFieldWriteSlotConflict
+      MixedStorageSpacePackingSmoke.spec.fields = none := by
+  native_decide
+
+example :
+    Compiler.CompilationModel.validateCompileInputs
+      MixedStorageSpacePackingSmoke.spec [] = .ok () := by
+  native_decide
+
+example :
+    Compiler.CompilationModel.firstFieldWriteSlotConflict (fields := [
+      ⟨"persistentA", .uint256, false, some 41, none, []⟩,
+      ⟨"persistentB", .uint256, false, some 41, none, []⟩
+    ]) = some (41, "persistentA", "persistentB") := by
+  native_decide
+
+example :
+    Compiler.CompilationModel.firstFieldWriteSlotConflict (fields := [
+      ⟨"transientA", .uint256, true, some 42, none, []⟩,
+      ⟨"transientB", .uint256, true, some 42, none, []⟩
+    ]) = some (42, "transientA", "transientB") := by
+  native_decide
+
+verity_contract InterleavedStorageSpacePackingSmoke where
+  storage
+    a : Uint128 := slot 30
+    transient b : Uint128 := slot 30
+    c : Uint128 := slot 30
+
+example : InterleavedStorageSpacePackingSmoke.spec.fields.map (fun field =>
+    (field.slot, field.isTransient, field.packedBits)) == [
+      (some 30, false, some { offset := 0, width := 128 }),
+      (some 30, true, some { offset := 0, width := 128 }),
+      (some 30, false, some { offset := 128, width := 128 })] := by decide
+
+example :
+    (Compiler.CompilationModel.firstReservedSlotWriteConflict
+      PackedStorageLoweringSmoke.spec.fields [{ start := 2, end_ := 2 }]).isSome = true := by
+  native_decide
 
 verity_contract UintMapSmoke where
   storage
