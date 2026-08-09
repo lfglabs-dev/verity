@@ -17,7 +17,16 @@ contract PropertyNonreentrantModifiesSmokeTest is YulTestBase {
         require(target != address(0), "Deploy failed");
     }
 
-    // Property 1: getBalance reads storage slot 2 and decodes the result
+    // Property 1: TODO decode and assert `deposit` result
+    function testTODO_Deposit_DecodeAndAssert() public {
+        vm.prank(alice);
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("deposit(uint256)", uint256(1)));
+        require(ok, "deposit reverted unexpectedly");
+        assertEq(ret.length, 32, "deposit ABI return length mismatch (expected 32 bytes)");
+        // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
+        ret;
+    }
+    // Property 2: getBalance reads storage slot 2 and decodes the result
     function testAuto_GetBalance_ReadsConfiguredStorage() public {
         uint256 expected = uint256(1);
         vm.store(target, bytes32(uint256(2)), bytes32(uint256(expected)));

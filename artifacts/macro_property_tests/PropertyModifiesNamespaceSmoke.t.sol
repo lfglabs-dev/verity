@@ -17,7 +17,19 @@ contract PropertyModifiesNamespaceSmokeTest is YulTestBase {
         require(target != address(0), "Deploy failed");
     }
 
-    // Property 1: getCounter reads storage slot 0 and decodes the result
+    // Property 1: increment has no unexpected revert
+    function testAuto_Increment_NoUnexpectedRevert() public {
+        vm.prank(alice);
+        (bool ok,) = target.call(abi.encodeWithSignature("increment()"));
+        require(ok, "increment reverted unexpectedly");
+    }
+    // Property 2: transferOwnership has no unexpected revert
+    function testAuto_TransferOwnership_NoUnexpectedRevert() public {
+        vm.prank(alice);
+        (bool ok,) = target.call(abi.encodeWithSignature("transferOwnership(address)", alice));
+        require(ok, "transferOwnership reverted unexpectedly");
+    }
+    // Property 3: getCounter reads storage slot 0 and decodes the result
     function testAuto_GetCounter_ReadsConfiguredStorage() public {
         uint256 expected = uint256(1);
         vm.store(target, bytes32(uint256(0)), bytes32(uint256(expected)));

@@ -40,7 +40,11 @@ _FUNCTION_MODIFIER = (
 )
 FUNCTION_RE = re.compile(
     rf"^\s*function\s+(?:{_FUNCTION_MODIFIER}\s+)*([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)"
-    rf"(?:\s+with\s+[A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*)?\s*:\s*(.+?)\s*:=\s*",
+    rf"(?:\s+(?:initializer\([^)]+\)|reinitializer\([^)]+\)))?"
+    rf"(?:\s+with\s+[A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*)?"
+    rf"(?:\s+requires\([^)]+\))?"
+    rf"(?:\s+modifies\([^)]+\))?"
+    rf"(?:\s+local_obligations\s*\[[^]]*\])?\s*:\s*(.+?)\s*:=\s*",
 )
 # Constructor ABI parameters are the first balanced group and cannot themselves
 # contain parentheses in the supported type grammar.  Match only that prefix;
@@ -143,6 +147,7 @@ class FunctionDecl:
     params: tuple[ParamDecl, ...]
     return_type: str
     body: tuple[str, ...] = ()
+    requires_role: bool = False
 
 
 @dataclass(frozen=True)
@@ -353,6 +358,7 @@ def parse_contracts(text: str, source: Path) -> dict[str, ContractDecl]:
             params=current_function.params,
             return_type=current_function.return_type,
             body=tuple(current_body),
+            requires_role=current_function.requires_role,
         )
         # Higher-order internal helpers (#1747) are monomorphized away before
         # lowering, so they never reach the external ABI; drop them here to
@@ -566,6 +572,7 @@ def parse_contracts(text: str, source: Path) -> dict[str, ContractDecl]:
                     _split_params(params_src), current_newtypes, current_structs
                 ),
                 return_type=ret_ty,
+                requires_role=" requires(" in line,
             )
             in_storage_block = False
             in_constants_block = False
@@ -3018,7 +3025,15 @@ def render_contract_test(contract: ContractDecl) -> str:
         encode_args = ", ".join([f'"{sig}"', *call_args]) if call_args else f'"{sig}"'
         fn_camel = _fn_camel(fn.name)
 
-        if _normalize_type(fn.return_type) == "Unit":
+        if fn.requires_role:
+            body = f"""    // Property {idx}: {fn.name} enforces its required role
+    function testAuto_{fn_camel}_RejectsUnauthorizedCaller() public {{
+        vm.prank(alice);
+        (bool ok,) = target.call(abi.encodeWithSignature({encode_args}));
+        require(!ok, "{fn.name} accepted an unauthorized caller");
+    }}
+"""
+        elif _normalize_type(fn.return_type) == "Unit":
             body = f"""    // Property {idx}: {fn.name} has no unexpected revert
     function testAuto_{fn_camel}_NoUnexpectedRevert() public {{
         vm.prank(alice);

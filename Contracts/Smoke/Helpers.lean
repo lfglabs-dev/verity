@@ -447,6 +447,26 @@ verity_contract InheritedRoleChild is InheritedRoleBase where
 #check_contract InheritedRoleChild
 
 /--
+error: modifier 'earlyExit' contains a terminating return; modifiers must only contain non-terminating precondition statements
+-/
+#guard_msgs in
+verity_contract TerminatingModifierRejected where
+  storage
+
+  modifier earlyExit := do
+    returnValues [1, 2]
+
+  function pair () with earlyExit : Tuple [Uint256, Uint256] := do
+    return (3, 4)
+
+/--
+error: cross-namespace inheritance is not supported because inherited bodies must retain the parent's lexical namespace; declare the child in the parent's namespace
+-/
+#guard_msgs in
+verity_contract CrossNamespaceInheritanceRejected is Contracts.Counter where
+  storage
+
+/--
 error: role 'operator' duplicates an inherited role
 -/
 #guard_msgs in

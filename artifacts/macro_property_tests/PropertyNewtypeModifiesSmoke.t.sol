@@ -17,7 +17,13 @@ contract PropertyNewtypeModifiesSmokeTest is YulTestBase {
         require(target != address(0), "Deploy failed");
     }
 
-    // Property 1: getNextId reads storage slot 0 and decodes the result
+    // Property 1: mint has no unexpected revert
+    function testAuto_Mint_NoUnexpectedRevert() public {
+        vm.prank(alice);
+        (bool ok,) = target.call(abi.encodeWithSignature("mint(uint256,uint256)", uint256(1), uint256(1)));
+        require(ok, "mint reverted unexpectedly");
+    }
+    // Property 2: getNextId reads storage slot 0 and decodes the result
     function testAuto_GetNextId_ReadsConfiguredStorage() public {
         uint256 expected = uint256(1);
         vm.store(target, bytes32(uint256(0)), bytes32(uint256(expected)));

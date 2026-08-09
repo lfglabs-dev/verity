@@ -128,6 +128,23 @@ class ParseContractsTests(unittest.TestCase):
         out = gen._split_params("to : Address, amount : Uint256")
         self.assertEqual([(p.name, p.lean_type) for p in out], [("to", "Address"), ("amount", "Uint256")])
 
+    def test_parse_function_post_parameter_clauses(self) -> None:
+        src = textwrap.dedent(
+            """
+            verity_contract Guarded where
+              storage
+                owner : Address := slot 0
+
+              function audit (value : Uint256) initializer(owner) with onlyOwner requires(owner) modifies(owner) local_obligations [safe := proved "ok"] : Uint256 := do
+                return value
+            """
+        )
+        parsed = gen.parse_contracts(src, Path("dummy.lean"))
+        fn = parsed["Guarded"].functions[0]
+        self.assertEqual(fn.name, "audit")
+        self.assertEqual(fn.return_type, "Uint256")
+        self.assertTrue(fn.requires_role)
+
     def test_parse_inline_struct_param_as_tuple(self) -> None:
         src = textwrap.dedent(
             """

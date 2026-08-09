@@ -3058,6 +3058,14 @@ private def inlineModifierPrefixes
       let inlined ← `(do $[$prelude:doElem]* $[$bodyElems:doElem]*)
       pure { fn with modifiers := #[], body := inlined }
 
+private partial def modifierSyntaxTerminates (stx : Syntax) : Bool :=
+  stx.getKind == ``Lean.Parser.Term.doReturn ||
+    (match stx with
+    | .ident _ _ name _ =>
+        #["returnValues", "returnArray", "returnBytes", "returnStorageWords", "returnCodeData"]
+          |>.contains name.toString
+    | _ => stx.getArgs.any modifierSyntaxTerminates)
+
 private def roleKindOfStorageField? (field : StorageFieldDecl) : Option RoleKind :=
   match field.ty with
   | .scalar .address | .scalar (.newtype _ .address) => some .scalarAddress
@@ -3098,11 +3106,18 @@ def parseContractSyntax
       let mut parent? : Option ParsedContractSyntax := none
       if let some parentIdent := parentName then
         let candidates := [currentNs ++ parentIdent.getId, parentIdent.getId]
+        let mut resolvedParentName? : Option Name := none
         for candidate in candidates do
           if parent?.isNone then
             parent? ← lookupContractSyntax candidate
+            if parent?.isSome then
+              resolvedParentName? := some candidate
         if parent?.isNone then
           throwErrorAt parentIdent s!"unknown parent contract '{parentIdent.getId}'; import or declare the parent before the child"
+        if let some resolvedParentName := resolvedParentName? then
+          if resolvedParentName.getPrefix != currentNs then
+            throwErrorAt parentIdent
+              "cross-namespace inheritance is not supported because inherited bodies must retain the parent's lexical namespace; declare the child in the parent's namespace"
       -- Parse newtypes first — they are needed by all downstream type resolution
       let parsedNewtypes ←
         match newtypeDecls with
@@ -3280,6 +3295,10 @@ def parseContractSyntax
           throwErrorAt role.ident s!"duplicate role declaration '{role.name}'"
         seenRoleNames := seenRoleNames.push role.name
       let parsedModifiers ← modifierDecls.mapM parseModifier
+      for modDecl in parsedModifiers do
+        if modifierSyntaxTerminates modDecl.body.raw then
+          throwErrorAt modDecl.body
+            s!"modifier '{modDecl.name}' contains a terminating return; modifiers must only contain non-terminating precondition statements"
       let parsedFunctions :=
         assignOverloadInternalIdents
           (← monomorphizeHigherOrderHelpers
