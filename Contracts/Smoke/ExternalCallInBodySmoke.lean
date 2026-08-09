@@ -574,7 +574,7 @@ verity_contract EffectfulSafeArithmeticOperandRejected where
     let result ← requireSomeUint (safeAdd (callExternal dirtyUint()) 1) "overflow"
     return result
 
-/-- error: conditional branches cannot contain callExternal because expression lowering evaluates both branches; use statement-level control flow -/
+/-- error: conditional operands cannot contain callExternal because expression lowering duplicates the condition and evaluates both branches; use statement-level control flow -/
 #guard_msgs in
 verity_contract EffectfulConditionalBranchRejected where
   storage
@@ -582,6 +582,38 @@ verity_contract EffectfulConditionalBranchRejected where
     external dirtyUint() -> (Uint32)
   function bad (flag : Bool) : Uint32 := do
     return ite flag (callExternal dirtyUint()) 0
+
+/-- error: conditional operands cannot contain callExternal because expression lowering duplicates the condition and evaluates both branches; use statement-level control flow -/
+#guard_msgs in
+verity_contract EffectfulConditionalConditionRejected where
+  storage
+  linked_externals
+    external dirtyBool() -> (Bool)
+  function bad () : Uint256 := do
+    return ite (callExternal dirtyBool()) 1 0
+
+/-- error: duplicated expression operands cannot contain callExternal; bind the external result first -/
+#guard_msgs in
+verity_contract EffectfulDuplicatedOperandRejected where
+  storage
+  linked_externals
+    external dirtyUint() -> (Uint32)
+  function bad () : Uint256 := do
+    return min (callExternal dirtyUint()) 1
+
+/-- error: tryExternalCall 'dirtyPair' flattened result variable 'result_narrow' conflicts with an existing local -/
+#guard_msgs in
+verity_contract FlattenedTryResultCollisionRejected where
+  storage
+  struct NarrowPair where
+    narrow : Uint32,
+    wide : Uint256
+  linked_externals
+    external dirtyPair() -> (NarrowPair)
+  function bad () : Uint32 := do
+    let result_narrow := 7
+    let (_success, result) ← tryExternalCall "dirtyPair" []
+    return result.narrow
 
 /-- error: short-circuit logical operands cannot contain callExternal because expression lowering evaluates both operands; bind the external result first -/
 #guard_msgs in

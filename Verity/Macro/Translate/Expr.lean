@@ -2011,9 +2011,15 @@ partial def inferPureExprType
       let lhsTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants
       let rhsTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals b visitingConstants
       classifyUnsignedWordArithmeticResultType stx "bitwise word arithmetic" lhsTy rhsTy
-  | `(term| pow $a $b) | `(term| $a ^ $b)
-  | `(term| min $a $b) | `(term| max $a $b) | `(term| wMulDown $a $b) | `(term| wDivUp $a $b)
+  | `(term| min $a $b) | `(term| max $a $b) | `(term| wDivUp $a $b)
   | `(term| ceilDiv $a $b) => do
+      if syntaxContainsCallExternal a || syntaxContainsCallExternal b then
+        throwErrorAt stx
+          "duplicated expression operands cannot contain callExternal; bind the external result first"
+      let lhsTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants
+      let rhsTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals b visitingConstants
+      classifyUnsignedWordArithmeticResultType stx "unsigned word arithmetic" lhsTy rhsTy
+  | `(term| pow $a $b) | `(term| $a ^ $b) | `(term| wMulDown $a $b) => do
       let lhsTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants
       let rhsTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals b visitingConstants
       classifyUnsignedWordArithmeticResultType stx "unsigned word arithmetic" lhsTy rhsTy
@@ -2178,9 +2184,9 @@ partial def inferPureExprType
         requireWordLikeType arg "mulDiv512" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals arg visitingConstants)
       pure .uint256
   | `(term| ite $cond $thenVal $elseVal) => do
-      if syntaxContainsCallExternal thenVal || syntaxContainsCallExternal elseVal then
+      if syntaxContainsCallExternal cond || syntaxContainsCallExternal thenVal || syntaxContainsCallExternal elseVal then
         throwErrorAt stx
-          "conditional branches cannot contain callExternal because expression lowering evaluates both branches; use statement-level control flow"
+          "conditional operands cannot contain callExternal because expression lowering duplicates the condition and evaluates both branches; use statement-level control flow"
       requireBoolType cond "ite condition" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals cond visitingConstants)
       let thenTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals thenVal visitingConstants
       let elseTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals elseVal visitingConstants
@@ -4629,6 +4635,7 @@ def tryExternalCallBindStmt?
         throwErrorAt rhs s!"tryExternalCall '{extName}' binds {resultVars.length} result value(s), but the external declaration returns {ext.returnTys.size}"
       let resultTys := ext.returnTys
       let mut flattenedResultVars : Array String := #[]
+      let existingNames := (params.map (fun p => p.name)) ++ typedLocalNames locals
       let mut visibleLocals : Array TypedLocal := #[mkTypedLocal successVar .bool]
       let mut normalizations : Array Term := #[]
       if let some normalization ← normalizeBoundValueStmt? .bool rhs successVar then
@@ -4638,6 +4645,14 @@ def tryExternalCallBindStmt?
         unless flatNames.length == 1 || (staticStructDirectFieldLocals? resultVar resultTy).isSome do
           throwErrorAt rhs
             s!"tryExternalCall '{extName}' cannot bind flattened composite return type {renderValueType resultTy} to source variable '{resultVar}'"
+        for flatName in flatNames do
+          if existingNames.contains flatName then
+            throwErrorAt rhs
+              s!"tryExternalCall '{extName}' flattened result variable '{flatName}' conflicts with an existing local"
+          if flatName == successVar || flattenedResultVars.contains flatName ||
+              (flatName != resultVar && resultVars.contains flatName) then
+            throwErrorAt rhs
+              s!"tryExternalCall '{extName}' generates duplicate flattened result variable '{flatName}'"
         flattenedResultVars := flattenedResultVars ++ flatNames.toArray
         let source :=
           match staticStructDirectFieldLocals? resultVar resultTy with
