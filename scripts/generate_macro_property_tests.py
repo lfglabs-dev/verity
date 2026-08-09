@@ -693,12 +693,13 @@ def collect_contracts(paths: list[Path]) -> dict[str, ContractDecl]:
         if child.parent_name is None:
             resolved[name] = child
             return child
-        parent_qualified = (
-            child.parent_name
-            if "." in child.parent_name
-            else ".".join((*child.namespace, child.parent_name))
-        )
-        parent_decl = qualified_contracts.get(parent_qualified)
+        if "." in child.parent_name:
+            parent_decl = qualified_contracts.get(child.parent_name)
+        else:
+            relative_parent = ".".join((*child.namespace, child.parent_name))
+            parent_decl = qualified_contracts.get(relative_parent)
+            if parent_decl is None:
+                parent_decl = qualified_contracts.get(child.parent_name)
         if parent_decl is None:
             raise ValueError(
                 f"unresolved parent contract '{child.parent_name}' for '{child.name}'"

@@ -68,6 +68,19 @@ class ParseContractsTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "unresolved parent contract 'Base'"):
                 gen.collect_contracts([child_source, unrelated_source])
 
+    def test_collect_contracts_falls_back_to_root_parent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source = Path(tmpdir) / "Contracts.lean"
+            source.write_text(
+                "verity_contract Base where\n  storage\n\n"
+                "namespace A\n"
+                "verity_contract Child is Base where\n  storage\n"
+                "end A\n",
+                encoding="utf-8",
+            )
+            contracts = gen.collect_contracts([source])
+            self.assertEqual(contracts["Child"].parent_name, "Base")
+
     def test_parse_contracts_rejects_duplicate_unqualified_names(self) -> None:
         src = textwrap.dedent(
             """

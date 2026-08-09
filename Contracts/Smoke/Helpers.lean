@@ -301,4 +301,20 @@ verity_contract InheritedOverloadChild is InheritedOverloadBase where
 
 #check_contract InheritedOverloadChild
 
+verity_contract InheritedRoleBase where
+  storage
+    owner : Address := slot 0
+  roles
+    operator := owner
+
+/--
+error: role 'operator' duplicates an inherited role
+-/
+#guard_msgs in
+verity_contract InheritedRoleCollisionRejected is InheritedRoleBase where
+  storage
+    admin : Address := slot 0
+  roles
+    operator := admin
+
 end Contracts.Smoke

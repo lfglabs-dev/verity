@@ -2930,6 +2930,10 @@ private def flattenSingleInheritance
     parent.modifiers.any (fun inherited => inherited.name == modDecl.name)
   if let some modDecl := duplicateModifiers[0]? then
     throwErrorAt modDecl.ident s!"modifier '{modDecl.name}' duplicates an inherited modifier"
+  let duplicateRoles := child.roleDecls.filter fun roleDecl =>
+    parent.roleDecls.any (fun inherited => inherited.name == roleDecl.name)
+  if let some roleDecl := duplicateRoles[0]? then
+    throwErrorAt roleDecl.ident s!"role '{roleDecl.name}' duplicates an inherited role"
   let mut functions := parent.functions
   for fn in child.functions do
     let inherited? := functions.find? (fun inherited => functionSignatureKey inherited == functionSignatureKey fn)
