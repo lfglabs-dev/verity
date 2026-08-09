@@ -3159,8 +3159,16 @@ private partial def modifierSyntaxTerminates (stx : Syntax) : Bool :=
           |>.contains name.toString
     | _ => stx.getArgs.any modifierSyntaxTerminates)
 
-private def guardEnumParams (fn : FunctionDecl) : CommandElabM FunctionDecl := do
-  let guards ← fn.params.filterMapM fun param => do
+private partial def containsEnumValueType : ValueType → Bool
+  | .enum _ _ => true
+  | .array elemTy | .fixedArray elemTy _ => containsEnumValueType elemTy
+  | .tuple elemTys => elemTys.any containsEnumValueType
+  | .struct _ fields => fields.any (fun field => containsEnumValueType field.snd)
+  | .newtype _ baseTy => containsEnumValueType baseTy
+  | _ => false
+
+private def enumParamGuards (params : Array ParamDecl) : CommandElabM (Array (TSyntax `doElem)) :=
+  params.filterMapM fun param => do
     match param.ty with
     | .enum _ memberCount =>
         let bound := natTerm memberCount
@@ -3169,14 +3177,28 @@ private def guardEnumParams (fn : FunctionDecl) : CommandElabM FunctionDecl := d
             pure ()
           else
             panic(0x21))))
-    | _ => pure none
+    | ty =>
+        if containsEnumValueType ty then
+          throwErrorAt param.ident
+            "enum values nested in Array, FixedArray, Tuple, Struct, or newtype parameters are not yet supported; pass enum values as direct parameters so range validation remains explicit"
+        pure none
+
+private def prependEnumGuards
+    (params : Array ParamDecl) (body : Term) : CommandElabM Term := do
+  let guards ← enumParamGuards params
   if guards.isEmpty then
-    pure fn
+    pure body
   else
-    match fn.body with
+    match body with
     | `(term| do $[$elems:doElem]*) =>
-        pure { fn with body := (← `(term| do $[$guards:doElem]* $[$elems:doElem]*)) }
-    | _ => throwErrorAt fn.body "function body must be a do block"
+        `(term| do $[$guards:doElem]* $[$elems:doElem]*)
+    | _ => throwErrorAt body "function or constructor body must be a do block"
+
+private def guardEnumParams (fn : FunctionDecl) : CommandElabM FunctionDecl := do
+  pure { fn with body := ← prependEnumGuards fn.params fn.body }
+
+private def guardEnumConstructor (ctor : ConstructorDecl) : CommandElabM ConstructorDecl := do
+  pure { ctor with body := ← prependEnumGuards ctor.params ctor.body }
 
 private def roleKindOfStorageField? (field : StorageFieldDecl) : Option RoleKind :=
   match field.ty with
@@ -3451,7 +3473,8 @@ def parseContractSyntax
         immutableDecls := parsedImmutables
         interfaceDecls := parsedInterfaces
         externalDecls := parsedExternals
-        ctor := (← ctor.mapM (parseConstructor typeNewtypes typeStructs typeAdts))
+        ctor := (← ctor.mapM fun ctorStx => do
+          guardEnumConstructor (← parseConstructor typeNewtypes typeStructs typeAdts ctorStx))
         modifiers := parsedModifiers
         functions := parsedFunctions
         storageNamespace := firstNamespaceOpt
