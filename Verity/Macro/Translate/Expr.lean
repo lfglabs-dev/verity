@@ -52,10 +52,7 @@ partial def modelParamTypeTerm (ty : ValueType) : CommandElabM Term :=
   | .newtype name baseType => do
       let baseTerm ← modelParamTypeTerm baseType
       `(Compiler.CompilationModel.ParamType.newtypeOf $(Lean.quote name) $baseTerm)
-  -- Keep the ABI spelling uint8 while loading the full calldata word so the
-  -- enum guard can reject non-canonical values before any narrowing occurs.
-  | .enum _ _ =>
-      `(Compiler.CompilationModel.ParamType.newtypeOf "__verity_enum" Compiler.CompilationModel.ParamType.uint256)
+  | .enum _ _ => `(Compiler.CompilationModel.ParamType.uint8)
   | .adt name maxFields => do
       `(Compiler.CompilationModel.ParamType.adt $(Lean.quote name) $(Lean.quote maxFields))
 

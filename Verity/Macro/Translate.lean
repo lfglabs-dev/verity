@@ -2021,7 +2021,13 @@ private def mkContractFnValue (params : Array ParamDecl) (body : Term) : Command
 
 private def mkModelParamsTerm (params : Array ParamDecl) : CommandElabM Term := do
   let xs ← params.mapM fun p => do
-    `(Compiler.CompilationModel.Param.mk $(strTerm p.name) $(← modelParamTypeTerm p.ty))
+    let tyTerm ← match p.ty with
+      -- Function/constructor enum inputs keep the uint8 ABI spelling but load
+      -- the full word so the injected enum guard observes non-canonical data.
+      | .enum _ _ =>
+          `(Compiler.CompilationModel.ParamType.newtypeOf "__verity_enum" Compiler.CompilationModel.ParamType.uint256)
+      | ty => modelParamTypeTerm ty
+    `(Compiler.CompilationModel.Param.mk $(strTerm p.name) $tyTerm)
   `([ $[$xs],* ])
 
 private def storageSlotInnerTypeTerm (ty : StorageType) : CommandElabM Term := do
