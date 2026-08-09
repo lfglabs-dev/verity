@@ -7,6 +7,61 @@ open Verity hiding pure bind
 open Verity.EVM.Uint256
 open Verity.Stdlib.Math
 
+verity_contract PackedStorageLoweringSmoke where
+  storage
+    flags : Uint16 := slot 0
+    epoch : Uint32 := slot 0
+    amount : Uint128 := slot 0
+    collateral : FixedArray Uint128 4 := slot 1
+
+  function setFlags (value : Uint256) : Unit := do
+    setStorage flags value
+
+  function setEpoch (value : Uint256) : Unit := do
+    setStorage epoch value
+
+  function setAmount (value : Uint256) : Unit := do
+    setStorage amount value
+
+  function collateralAt (index : Uint256) : Uint128 := do
+    let value ← getStorageArrayElement collateral index
+    return value
+
+  function setCollateralAt (index : Uint256, value : Uint128) : Unit := do
+    setStorageArrayElement collateral index value
+
+example : PackedStorageLoweringSmoke.spec.fields.any (fun field =>
+    field.name == "flags" && field.slot == some 0 &&
+      field.packedBits == some { offset := 0, width := 16 }) := by decide
+
+example : PackedStorageLoweringSmoke.spec.fields.any (fun field =>
+    field.name == "epoch" && field.slot == some 0 &&
+      field.packedBits == some { offset := 16, width := 32 }) := by decide
+
+example : PackedStorageLoweringSmoke.spec.fields.any (fun field =>
+    field.name == "amount" && field.slot == some 0 &&
+      field.packedBits == some { offset := 48, width := 128 }) := by decide
+
+example : PackedStorageLoweringSmoke.spec.fields.any (fun field =>
+    field.name == "collateral" && field.slot == some 1 &&
+      match field.ty with
+      | Compiler.CompilationModel.FieldType.fixedArrayUint128 4 => true
+      | _ => false) := by decide
+
+verity_contract PackedStorageSpillSmoke where
+  storage
+    a : Uint128 := slot 10
+    b : Uint128 := slot 10
+    c : Uint128 := slot 10
+    d : Uint128 := slot 10
+
+example : PackedStorageSpillSmoke.spec.fields.map (fun field =>
+    (field.slot, field.packedBits)) == [
+      (some 10, some { offset := 0, width := 128 }),
+      (some 10, some { offset := 128, width := 128 }),
+      (some 11, some { offset := 0, width := 128 }),
+      (some 11, some { offset := 128, width := 128 })] := by decide
+
 verity_contract UintMapSmoke where
   storage
     values : Uint256 → Uint256 := slot 0

@@ -361,7 +361,11 @@ where
             ((slot + offset) % Compiler.Constants.evmModulus,
                if offset == 0 then f.name else s!"{f.name}.payload[{offset - 1}]",
                none)
-        | _ => [(slot % Compiler.Constants.evmModulus, f.name, f.packedBits)]
+      | FieldType.fixedArrayUint128 size =>
+          (List.range (max 1 ((size + 1) / 2))).map fun offset =>
+            ((slot + offset) % Compiler.Constants.evmModulus,
+             s!"{f.name}.packedWord[{offset}]", none)
+      | _ => [(slot % Compiler.Constants.evmModulus, f.name, f.packedBits)]
       canonical ++
         (f.aliasSlots.zipIdx.flatMap (fun (aliasSlot, aliasIdx) =>
           match f.ty with
@@ -373,6 +377,10 @@ where
                  else
                    s!"{f.name}.aliasSlots[{aliasIdx}].payload[{offset - 1}]",
                  none)
+          | FieldType.fixedArrayUint128 size =>
+              (List.range (max 1 ((size + 1) / 2))).map fun offset =>
+                ((aliasSlot + offset) % Compiler.Constants.evmModulus,
+                 s!"{f.name}.aliasSlots[{aliasIdx}].packedWord[{offset}]", none)
           | _ =>
               [(aliasSlot % Compiler.Constants.evmModulus,
                 s!"{f.name}.aliasSlots[{aliasIdx}]", f.packedBits)]))

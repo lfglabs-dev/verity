@@ -91,6 +91,7 @@ def storageArrayElemTypeToParamType : StorageArrayElemType → ParamType
 def fieldTypeToParamType : FieldType → ParamType
   | FieldType.uint256 => ParamType.uint256
   | FieldType.address => ParamType.address
+  | FieldType.fixedArrayUint128 size => ParamType.fixedArray (.uintN 128) size
   | FieldType.adt name maxFields => ParamType.adt name maxFields
   | FieldType.dynamicArray elemType => ParamType.array (storageArrayElemTypeToParamType elemType)
   | FieldType.mappingTyped _ => ParamType.uint256

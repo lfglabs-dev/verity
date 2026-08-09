@@ -29,6 +29,38 @@ def parseStorageField (newtypes : Array NewtypeDecl) (structDecls : Array Struct
       }
   | _ => throwErrorAt stx "invalid storage field declaration"
 
+private def narrowStorageWidth? : StorageType → Option Nat
+  | .scalar .uint16 => some 16
+  | .scalar (.uintN bits) => some bits
+  | .scalar (.newtype _ base) => narrowStorageWidth? (.scalar base)
+  | _ => none
+
+/-- Assign Solidity-compatible least-significant-first offsets to consecutive
+    narrow declarations sharing the same explicit base-slot anchor. -/
+def applyAutomaticPackedLayout (fields : Array StorageFieldDecl) : Array StorageFieldDecl := Id.run do
+  let mut out := #[]
+  let mut anchor? : Option Nat := none
+  let mut currentSlot := 0
+  let mut offset := 0
+  for field in fields do
+    match narrowStorageWidth? field.ty with
+    | some width =>
+        let sameAnchor := anchor? == some field.slotNum
+        let nextOffset := if sameAnchor then offset else 0
+        let (resolvedSlot, bitOffset) :=
+          if nextOffset + width <= 256 then
+            (if sameAnchor then currentSlot else field.slotNum, nextOffset)
+          else (currentSlot + 1, 0)
+        out := out.push { field with slotNum := resolvedSlot, packedBits := some (bitOffset, width) }
+        anchor? := some field.slotNum
+        currentSlot := resolvedSlot
+        offset := bitOffset + width
+    | none =>
+        out := out.push field
+        anchor? := none
+        offset := 0
+  return out
+
 def parseTransientStorageItem (newtypes : Array NewtypeDecl) (structDecls : Array StructDecl := #[]) (adtDecls : Array AdtDecl := #[])
     (stx : TSyntax `verityStorageItem) : CommandElabM (Option StorageFieldDecl) := do
   match stx with

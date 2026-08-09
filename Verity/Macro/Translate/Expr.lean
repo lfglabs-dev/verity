@@ -221,6 +221,7 @@ def immutableHiddenName (imm : ImmutableDecl) : String :=
 def storageFieldFootprintSize (field : StorageFieldDecl) : Nat :=
   match field.ty with
   | .scalar (.adt _ maxFields) => maxFields + 1
+  | .scalar (.fixedArray (.uintN 128) size) => (size + 1) / 2
   | _ => 1
 
 def immutableSlotIndex (fields : Array StorageFieldDecl) (idx : Nat) : Nat :=
@@ -2258,6 +2259,8 @@ partial def inferBindSourceType
       let f ← lookupStorageField fields (toString field.getId)
       match f.ty with
       | .scalar .uint256 => pure .uint256
+      | .scalar .uint16 => pure .uint16
+      | .scalar (.uintN bits) => pure (.uintN bits)
       | .scalar .int256 => pure .int256
       | .scalar (.newtype ntName (.uint256)) => pure (.newtype ntName .uint256)
       | .scalar (.adt name maxFields) => pure (.adt name maxFields)
@@ -2294,6 +2297,7 @@ partial def inferBindSourceType
       | .dynamicArray .bool => pure .bool
       | .dynamicArray .uint8 => pure .uint8
       | .dynamicArray .bytes32 => pure .bytes32
+      | .scalar (.fixedArray (.uintN 128) _) => pure (.uintN 128)
       | _ => throwErrorAt rhs s!"field '{f.name}' is not a storage dynamic array"
   | `(term| getMapping $field:ident $key:term) | `(term| getMappingUint $field:ident $key:term)
     | `(term| getMappingWord $field:ident $key:term $_wordOffset:num) => do
@@ -4680,7 +4684,8 @@ def translateBindSource
   | `(term| getStorage $field:ident) =>
       let f ← lookupStorageField fields (toString field.getId)
       match f.ty with
-      | .scalar .uint256 | .scalar .int256 | .scalar (.newtype _ .uint256) | .scalar (.adt _ _) =>
+      | .scalar .uint256 | .scalar .int256 | .scalar .uint16 | .scalar (.uintN _)
+      | .scalar (.newtype _ .uint256) | .scalar (.adt _ _) =>
           `(Compiler.CompilationModel.Expr.storage $(strTerm f.name))
       | .scalar .bool => throwErrorAt rhs s!"field '{f.name}' is Bool; encode as Uint256 and use getStorage"
       | .scalar .address | .scalar (.newtype _ .address) =>
@@ -4712,7 +4717,7 @@ def translateBindSource
   | `(term| getStorageArrayElement $field:ident $index:term) =>
       let f ← lookupStorageField fields (toString field.getId)
       match f.ty with
-      | .dynamicArray _ =>
+      | .dynamicArray _ | .scalar (.fixedArray (.uintN 128) _) =>
           `(Compiler.CompilationModel.Expr.storageArrayElement
               $(strTerm f.name)
               $(← translatePureExprWithTypes fields constDecls immutableDecls params locals index))

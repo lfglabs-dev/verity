@@ -114,6 +114,8 @@ def storageArrayElemUsesOneStorageWord : StorageArrayElemType → Bool
 inductive FieldType
   | uint256
   | address
+  /-- Solidity-packed fixed `uint128[N]`: two elements per storage word. -/
+  | fixedArrayUint128 (size : Nat)
   /-- Storage-backed tagged union: tag at the canonical slot followed by
       `maxFields` payload slots. -/
   | adt (name : String) (maxFields : Nat)

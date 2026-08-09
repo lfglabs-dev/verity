@@ -542,6 +542,11 @@ def compileExprWithInternals (fields : List Field)
                 YulExpr.lit slot,
                 ← compileExprWithInternals fields dynamicSource internalFunctions index
               ])
+          | .fixedArrayUint128 size => do
+              pure (YulExpr.call checkedFixedUint128ArrayElementHelperName [
+                YulExpr.lit slot, YulExpr.lit size,
+                ← compileExprWithInternals fields dynamicSource internalFunctions index
+              ])
           | _ =>
               throw s!"Compilation error: field '{field}' is not a storage dynamic array; use Expr.storageArrayElement only with FieldType.dynamicArray"
       | none =>

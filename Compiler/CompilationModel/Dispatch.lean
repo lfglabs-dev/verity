@@ -808,7 +808,7 @@ def compileValidatedCore (spec : CompilationModel) (selectors : List Nat)
       [])
   let storageArrayElementHelpers :=
     if storageArrayHelpersRequired then
-      [checkedStorageArrayElementHelper]
+      [checkedStorageArrayElementHelper, checkedFixedUint128ArrayElementHelper]
     else
       []
   let dynamicBytesEqHelpers :=

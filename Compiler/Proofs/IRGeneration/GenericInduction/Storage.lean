@@ -517,6 +517,11 @@ private theorem fieldWriteEntriesAt_alias_mem
         simp [fieldWriteEntriesAt, firstFieldWriteSlotConflict.fieldOccupiedSlots,
           SourceSemantics.wordNormalize]
         exact Or.inr ⟨slot, ⟨aliasIdx, halias⟩, by simp [SourceSemantics.wordNormalize]⟩
+    | fixedArrayUint128 size =>
+        simp [fieldWriteEntriesAt, firstFieldWriteSlotConflict.fieldOccupiedSlots,
+          SourceSemantics.wordNormalize, halias]
+        exact Or.inr ⟨_, none,
+          slot, aliasIdx, halias, Or.inl ⟨rfl, rfl, rfl⟩⟩
     | adt _ maxFields =>
         simp [fieldWriteEntriesAt, firstFieldWriteSlotConflict.fieldOccupiedSlots,
           SourceSemantics.wordNormalize]
@@ -6203,7 +6208,7 @@ theorem compiledStmtStep_setStorage_aliasSlots
     cases hty : f.ty with
     | adt name maxFields =>
         exact False.elim (hNotAdt name maxFields hty)
-    | uint256 | address | dynamicArray | mappingTyped | mappingStruct | mappingStruct2 =>
+    | uint256 | address | fixedArrayUint128 | dynamicArray | mappingTyped | mappingStruct | mappingStruct2 =>
         simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, CompilationModel.compileSetStorage,
           hNotMapping, hfind, hwriteSlots, halias, hunpacked, hnotTransient, hvalueIR, hty,
           pure, Except.pure, Bind.bind, Except.bind]

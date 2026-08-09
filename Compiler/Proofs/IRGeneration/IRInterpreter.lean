@@ -2224,12 +2224,13 @@ Yul name begins with one of these:
   template intrinsics (`YulLowering.templateHelperName` names every template
   helper `__verity_intrinsic_template_…`);
 * `checked_` — checked-arithmetic helpers (`checked_add_t_uint256`, …);
-* `panic_error_` — Solidity-compatible panic reverts (`panic_error_0x11`, …).
+* `panic_error_` — Solidity-compatible panic reverts (`panic_error_0x11`, …);
+* `storage_array_` — Solidity-compatible fixed-array index helpers.
 None of the EVM/Yul builtins emitted by the ABI param-load prologue
 (`calldataload`, `calldatasize`, `lt`, `revert`, `and`, `iszero`) begins with any
 of these, so they are provably *not* reserved. -/
 def reservedInternalHelperPrefixes : List String :=
-  [CompilationModel.internalFunctionPrefix, "__verity_", "checked_", "panic_error_"]
+  [CompilationModel.internalFunctionPrefix, "__verity_", "checked_", "panic_error_", "storage_array_"]
 
 /-- A helper name is *reserved* when it carries one of the compiler's reserved
 helper prefixes. Phrased via `String.toList.take` (rather than `String.startsWith`)

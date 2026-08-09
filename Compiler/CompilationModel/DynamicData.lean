@@ -97,6 +97,9 @@ def fullMulDivUpHelperName : String :=
 def checkedStorageArrayElementHelperName : String :=
   "__verity_storage_array_element_checked"
 
+def checkedFixedUint128ArrayElementHelperName : String :=
+  "storage_array_index_access_uint128"
+
 def dynamicBytesEqCalldataHelperName : String :=
   "__verity_dynamic_bytes_eq_calldata"
 
@@ -903,6 +906,20 @@ def checkedStorageArrayElementHelper : YulStmt :=
     ])
   ]
 
+def checkedFixedUint128ArrayElementHelper : YulStmt :=
+  YulStmt.funcDef checkedFixedUint128ArrayElementHelperName ["slot", "length", "index"] ["value"] [
+    YulStmt.if_ (YulExpr.call "iszero" [YulExpr.call "lt" [YulExpr.ident "index", YulExpr.ident "length"]]) [
+      YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+    ],
+    YulStmt.let_ "word" (YulExpr.call "sload" [
+      YulExpr.call "add" [YulExpr.ident "slot", YulExpr.call "div" [YulExpr.ident "index", YulExpr.lit 2]]
+    ]),
+    YulStmt.assign "value" (YulExpr.call "and" [
+      YulExpr.call "shr" [YulExpr.call "mul" [YulExpr.call "mod" [YulExpr.ident "index", YulExpr.lit 2], YulExpr.lit 128], YulExpr.ident "word"],
+      YulExpr.hex (2^128 - 1)
+    ])
+  ]
+
 private def dynamicBytesEqHelper (helperName loadOp : String) : YulStmt :=
   YulStmt.funcDef helperName
     ["lhs_data_offset", "lhs_length", "rhs_data_offset", "rhs_length"]
@@ -1041,6 +1058,10 @@ def dynamicBytesEqMemoryHelper : YulStmt :=
 @[simp] theorem yulFuncDefName?_checkedStorageArrayElementHelper :
     yulFuncDefName? checkedStorageArrayElementHelper =
       some checkedStorageArrayElementHelperName := rfl
+
+@[simp] theorem yulFuncDefName?_checkedFixedUint128ArrayElementHelper :
+    yulFuncDefName? checkedFixedUint128ArrayElementHelper =
+      some checkedFixedUint128ArrayElementHelperName := rfl
 
 @[simp] theorem yulFuncDefName?_dynamicBytesEqCalldataHelper :
     yulFuncDefName? dynamicBytesEqCalldataHelper =

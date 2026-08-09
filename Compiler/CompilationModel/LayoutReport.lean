@@ -48,6 +48,8 @@ private def fieldTypeJson : FieldType → String
       jsonObject [("kind", jsonString "uint256")]
   | .address =>
       jsonObject [("kind", jsonString "address")]
+  | .fixedArrayUint128 size =>
+      jsonObject [("kind", jsonString "fixedArrayUint128"), ("size", jsonNat size)]
   | .adt name maxFields =>
       jsonObject [
         ("kind", jsonString "adt"),
@@ -133,6 +135,7 @@ finite, declared subset. -/
 
 private def familyKindString : FieldType → String
   | .uint256 | .address | .adt _ _ => "scalar"
+  | .fixedArrayUint128 _ => "fixedArray"
   | .dynamicArray _ => "dynamicArray"
   | .mappingTyped mt =>
       if (mappingTypeKeyTypes mt).length ≥ 2 then "nestedMapping" else "mapping"
@@ -143,7 +146,7 @@ private def familyKindString : FieldType → String
     non-collision justification. `null` for plain scalars, where
     non-alias reduces to declared-slot distinctness. -/
 private def familyKeccakPreimage : FieldType → Nat → String
-  | .uint256, _ | .address, _ | .adt _ _, _ => "null"
+  | .uint256, _ | .address, _ | .adt _ _, _ | .fixedArrayUint128 _, _ => "null"
   | .dynamicArray _, slot =>
       -- elements at keccak256(rootSlot) + i
       jsonString s!"keccak256(slot={slot})"
@@ -201,7 +204,7 @@ private def storageFamilyJson (declaredField : Field) (idx : Nat) : String :=
     discharges them via either a `decide`/`native_decide` lemma (for the
     finite scalar subset) or a named local keccak assumption. -/
 private def isKeccakDerivedFamily : FieldType → Bool
-  | .uint256 | .address | .adt _ _ => false
+  | .uint256 | .address | .adt _ _ | .fixedArrayUint128 _ => false
   | _ => true
 
 /-- Effective scalar write slot set for a single field: the declared/derived

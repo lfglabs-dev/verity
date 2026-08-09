@@ -176,8 +176,8 @@ def modelFieldTypeTerm (ty : StorageType) : CommandElabM Term :=
   | .scalar .uint256 => `(Compiler.CompilationModel.FieldType.uint256)
   | .scalar .int256 => `(Compiler.CompilationModel.FieldType.uint256)
   | .scalar .uint8 => throwError "storage fields cannot be Uint8; use Uint256 encoding"
-  | .scalar .uint16 => throwError "storage fields cannot be Uint16; use Uint256 encoding"
-  | .scalar (.uintN _) => throwError "storage fields cannot use narrow integers yet; packed storage is tracked separately in #2060"
+  | .scalar .uint16 => `(Compiler.CompilationModel.FieldType.uint256)
+  | .scalar (.uintN _) => `(Compiler.CompilationModel.FieldType.uint256)
   | .scalar (.intN _) => throwError "storage fields cannot use narrow integers yet; packed storage is tracked separately in #2060"
   | .scalar (.bytesN _) => throwError "storage fields cannot use fixed bytes yet; packed storage is tracked separately in #2060"
   | .scalar .address => `(Compiler.CompilationModel.FieldType.address)
@@ -186,7 +186,9 @@ def modelFieldTypeTerm (ty : StorageType) : CommandElabM Term :=
   | .scalar .string => throwError "storage fields cannot be String; use Uint256 encoding"
   | .scalar .bytes => throwError "storage fields cannot be Bytes; use Uint256 encoding"
   | .scalar (.array _) => throwError "storage fields cannot be Array; use mapping encodings"
-  | .scalar (.fixedArray _ _) => throwError "storage fields cannot be FixedArray; use mapping encodings"
+  | .scalar (.fixedArray (.uintN 128) size) =>
+      `(Compiler.CompilationModel.FieldType.fixedArrayUint128 $(natTerm size))
+  | .scalar (.fixedArray _ _) => throwError "storage fixed arrays currently support only Uint128 elements"
   | .scalar (.tuple _) => throwError "storage fields cannot be Tuple; use mapping encodings"
   | .scalar (.struct _ _) =>
       throwError

@@ -710,7 +710,8 @@ private def translateEffectStmt
               $(← translateAdtConstructForStorage fields constDecls immutableDecls params locals adtName value))
       | none =>
           match f.ty with
-          | .scalar .uint256 | .scalar .int256 | .scalar (.newtype _ .uint256) =>
+          | .scalar .uint256 | .scalar .int256 | .scalar .uint16 | .scalar (.uintN _)
+          | .scalar (.newtype _ .uint256) =>
               `(Compiler.CompilationModel.Stmt.setStorage $(strTerm f.name) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value))
           | .scalar (.adt adtName _) =>
               `(Compiler.CompilationModel.Stmt.setStorage
@@ -729,7 +730,7 @@ private def translateEffectStmt
           `(Compiler.CompilationModel.Stmt.setStorageAddr $(strTerm f.name) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value))
       | .scalar .uint256 | .scalar (.newtype _ .uint256) =>
           throwErrorAt stx s!"field '{f.name}' is Uint256-valued; use setStorage"
-      | .dynamicArray _ =>
+      | .dynamicArray _ | .scalar (.fixedArray (.uintN 128) _) =>
           throwErrorAt stx s!"field '{f.name}' is a storage dynamic array; use pushStorageArray/popStorageArray/setStorageArrayElement"
       | _ =>
           throwErrorAt stx s!"field '{f.name}' is not Address; use setStorage"
@@ -893,7 +894,7 @@ private def translateEffectStmt
   | `(term| setStorageArrayElement $field:ident $index:term $value:term) =>
       let f ← lookupStorageField fields (toString field.getId)
       match f.ty with
-      | .dynamicArray _ =>
+      | .dynamicArray _ | .scalar (.fixedArray (.uintN 128) _) =>
           `(Compiler.CompilationModel.Stmt.setStorageArrayElement
               $(strTerm f.name)
               $(← translatePureExprWithTypes fields constDecls immutableDecls params locals index)
@@ -1938,8 +1939,8 @@ private def storageSlotInnerTypeTerm (ty : StorageType) : CommandElabM Term := d
     | .scalar .uint256 => `(Uint256)
     | .scalar .int256 => `(Uint256)
     | .scalar .uint8 => throwError "storage field cannot be Uint8; use Uint256 encoding"
-    | .scalar .uint16 => throwError "storage field cannot be Uint16; use Uint256 encoding"
-    | .scalar (.uintN _) => throwError "narrow integer storage is tracked separately in #2060"
+    | .scalar .uint16 => `(Uint256)
+    | .scalar (.uintN _) => `(Uint256)
     | .scalar (.intN _) => throwError "narrow integer storage is tracked separately in #2060"
     | .scalar (.bytesN _) => throwError "fixed-bytes storage is tracked separately in #2060"
     | .scalar .address => `(Address)
@@ -1948,7 +1949,8 @@ private def storageSlotInnerTypeTerm (ty : StorageType) : CommandElabM Term := d
     | .scalar .string => throwError "storage field cannot be String; use Uint256 encoding"
     | .scalar .bytes => throwError "storage field cannot be Bytes; use Uint256 encoding"
     | .scalar (.array _) => throwError "storage field cannot be Array; use mapping encodings"
-    | .scalar (.fixedArray _ _) => throwError "storage field cannot be FixedArray; use mapping encodings"
+    | .scalar (.fixedArray (.uintN 128) _) => `(List Uint128)
+    | .scalar (.fixedArray _ _) => throwError "storage fixed arrays currently support only Uint128 elements"
     | .scalar (.tuple _) => throwError "storage field cannot be Tuple; use mapping encodings"
     | .scalar (.struct _ _) => throwError "storage field cannot be named struct; use mapping encodings"
     | .scalar .unit => throwError "storage field cannot be Unit"
@@ -2896,6 +2898,7 @@ def parseContractSyntax
                         firstNamespaceLocked := true
                     | none =>
                         throwErrorAt item "unsupported storage item"
+      parsedFields := applyAutomaticPackedLayout parsedFields
       let parsedRoles ←
         match roleDecls with
         | some decls => decls.mapM (parseRoleDecl parsedFields)

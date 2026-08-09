@@ -680,6 +680,10 @@ instance : StorageArrayElem Bool where
   toWord value := boolToWord value
   fromWord value := value != 0
 
+instance : StorageArrayElem (UIntN bits) where
+  toWord value := Verity.Core.UIntN.toUint256 value
+  fromWord value := Verity.Core.UIntN.ofUint256 bits value
+
 -- Storage dynamic-array operations (#1571), routed through the canonical lens API
 def getStorageArrayLength {α : Type} (s : StorageSlot (List α)) : Contract Uint256 :=
   fun state => ContractResult.success (((state.readArray s.slot).length : Nat) : Uint256) state
