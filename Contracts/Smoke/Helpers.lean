@@ -168,6 +168,63 @@ verity_contract InheritedInterfaceChild is InheritedInterfaceBase where
 
 #check_contract InheritedInterfaceChild
 
+-- Empty interfaces are valid marker types and must survive inheritance even
+-- though they generate no interface-backed external declarations.
+verity_contract InheritedEmptyInterfaceBase where
+  storage
+
+  interfaces
+    interface IMarker where
+    end
+
+verity_contract InheritedEmptyInterfaceChild is InheritedEmptyInterfaceBase where
+  storage
+
+  function acceptMarker (_marker : IMarker) : Unit := do
+    pure ()
+
+#check_contract InheritedEmptyInterfaceChild
+
+verity_contract InheritedTypeNameBase where
+  types
+    Amount : Uint256
+  storage
+
+/--
+error: duplicate type name 'Amount'
+-/
+#guard_msgs in
+verity_contract InheritedTypeNameCollisionRejected is InheritedTypeNameBase where
+  types
+    Amount : Address
+  storage
+
+verity_contract NamespacedFieldBase where
+  storage_namespace "base"
+  storage
+    baseValue : Uint256 := slot 0
+
+verity_contract NamespacedFieldChild is NamespacedFieldBase where
+  storage_namespace "child"
+  storage
+    childValue : Uint256 := slot 0
+
+example : NamespacedFieldChild.spec.storageNamespace =
+    NamespacedFieldBase.spec.storageNamespace := by
+  rfl
+
+verity_contract EmptyNamespacedBase where
+  storage_namespace "empty-base"
+  storage
+
+verity_contract NamespacedFirstChild is EmptyNamespacedBase where
+  storage_namespace "first-child"
+  storage
+    childValue : Uint256 := slot 0
+
+example : NamespacedFirstChild.spec.storageNamespace = some NamespacedFirstChild.storageNamespace := by
+  rfl
+
 -- A child with no constructor has an implicit nonpayable constructor even
 -- when it runs a zero-argument payable parent initializer.
 verity_contract PayableConstructorBase where

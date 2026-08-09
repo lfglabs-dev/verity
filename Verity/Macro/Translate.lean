@@ -2787,6 +2787,7 @@ structure ParsedContractSyntax where
   eventDecls : Array EventDecl
   constDecls : Array ConstantDecl
   immutableDecls : Array ImmutableDecl
+  interfaceDecls : Array InterfaceDecl
   externalDecls : Array ExternalDecl
   ctor : Option ConstructorDecl
   modifiers : Array ModifierDecl
@@ -2986,6 +2987,7 @@ private def flattenSingleInheritance
     eventDecls := parent.eventDecls ++ child.eventDecls
     constDecls := parent.constDecls ++ child.constDecls
     immutableDecls := inheritedImmutables ++ child.immutableDecls
+    interfaceDecls := parent.interfaceDecls ++ child.interfaceDecls
     externalDecls := parent.externalDecls ++ child.externalDecls
     ctor := ctor
     modifiers := parent.modifiers ++ child.modifiers
@@ -2993,7 +2995,12 @@ private def flattenSingleInheritance
     -- Reassign them across the flattened set so cross-boundary overloads are
     -- collision-free as well.
     functions := assignOverloadInternalIdents functions
-    storageNamespace := child.storageNamespace.orElse (fun _ => parent.storageNamespace)
+    -- Flattening emits parent fields first, so report the namespace belonging
+    -- to whichever contract contributes the first field in the final layout.
+    storageNamespace :=
+      if !parent.fields.isEmpty then parent.storageNamespace
+      else if !child.fields.isEmpty then child.storageNamespace
+      else child.storageNamespace.orElse (fun _ => parent.storageNamespace)
   }
 
 private def inlineModifierPrefixes
@@ -3075,11 +3082,16 @@ def parseContractSyntax
         | none => pure #[]
       let typeNewtypes := parent?.map (fun p => p.newtypeDecls ++ parsedNewtypes) |>.getD parsedNewtypes
       -- Validate: no duplicate type names
-      let mut seenNames : Array String := #[]
+      let inheritedTypeNames := parent?.map (fun p =>
+        (p.newtypeDecls.map (fun decl => localDeclName decl.name)) ++
+        (p.structDecls.map (fun decl => localDeclName decl.name)) ++
+        (p.adtDecls.map (fun decl => localDeclName decl.name))) |>.getD #[]
+      let mut seenNames : Array String := inheritedTypeNames
       for nt in parsedNewtypes do
-        if seenNames.contains nt.name then
+        let ntLocalName := localDeclName nt.name
+        if seenNames.contains ntLocalName then
           throwErrorAt nt.ident s!"duplicate type name '{nt.name}'"
-        seenNames := seenNames.push nt.name
+        seenNames := seenNames.push ntLocalName
       -- Validate: type names don't shadow built-in types
       let builtinTypeNames := #["Uint256", "Int256", "Uint8", "Address", "Bytes32", "Bool", "String", "Bytes", "Unit", "Array", "Tuple"]
       for nt in parsedNewtypes do
@@ -3089,11 +3101,12 @@ def parseContractSyntax
       for structStx in structDecls do
         let inheritedStructs := parent?.map (fun p => p.structDecls) |>.getD #[]
         let parsedStruct ← parseStructDecl typeNewtypes (inheritedStructs ++ parsedStructs) structStx
-        if seenNames.contains parsedStruct.name then
+        let structLocalName := localDeclName parsedStruct.name
+        if seenNames.contains structLocalName then
           throwErrorAt parsedStruct.ident s!"duplicate type name '{parsedStruct.name}'"
         if builtinTypeNames.contains parsedStruct.name then
           throwErrorAt parsedStruct.ident s!"struct name '{parsedStruct.name}' shadows a built-in type"
-        seenNames := seenNames.push parsedStruct.name
+        seenNames := seenNames.push structLocalName
         parsedStructs := parsedStructs.push parsedStruct
       -- Parse ADT declarations (#1727, Axis 1 Step 5a)
       let parsedAdts ←
@@ -3104,9 +3117,10 @@ def parseContractSyntax
       let typeAdts := parent?.map (fun p => p.adtDecls ++ parsedAdts) |>.getD parsedAdts
       -- Validate: no duplicate ADT names
       for adtDecl in parsedAdts do
-        if seenNames.contains adtDecl.name then
+        let adtLocalName := localDeclName adtDecl.name
+        if seenNames.contains adtLocalName then
           throwErrorAt adtDecl.ident s!"duplicate type name '{adtDecl.name}'"
-        seenNames := seenNames.push adtDecl.name
+        seenNames := seenNames.push adtLocalName
       -- Validate: ADT names don't shadow built-in types
       for adtDecl in parsedAdts do
         if builtinTypeNames.contains adtDecl.name then
@@ -3154,8 +3168,9 @@ def parseContractSyntax
         match interfaceDecls with
         | some decls => decls.mapM (parseInterface typeNewtypes typeStructs typeAdts)
         | none => pure #[]
-      let seenTypeLocalNames := seenNames.map localDeclName
-      let mut seenInterfaceNames : Array String := #[]
+      let seenTypeLocalNames := seenNames
+      let mut seenInterfaceNames : Array String := parent?.map (fun p =>
+        p.interfaceDecls.map (fun iface => localDeclName iface.name)) |>.getD #[]
       for iface in parsedInterfaces do
         let ifaceLocalName := localDeclName iface.name
         if seenTypeLocalNames.contains ifaceLocalName then
@@ -3166,7 +3181,7 @@ def parseContractSyntax
           throwErrorAt iface.ident s!"duplicate interface name '{ifaceLocalName}'"
         seenInterfaceNames := seenInterfaceNames.push ifaceLocalName
       let inheritedInterfaceNames := parent?.map (fun p =>
-        p.externalDecls.filterMap (·.interfaceName?)) |>.getD #[]
+        p.interfaceDecls.map (·.name)) |>.getD #[]
       let interfaceNames := inheritedInterfaceNames ++ parsedInterfaces.map (·.name)
       let parsedExternals ←
         match externalDecls with
@@ -3255,6 +3270,7 @@ def parseContractSyntax
         eventDecls := parsedEvents
         constDecls := parsedConstants
         immutableDecls := parsedImmutables
+        interfaceDecls := parsedInterfaces
         externalDecls := parsedExternals
         ctor := (← ctor.mapM (parseConstructor typeNewtypes typeStructs typeAdts))
         modifiers := parsedModifiers
