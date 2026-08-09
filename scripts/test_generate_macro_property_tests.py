@@ -38,7 +38,7 @@ class ParseContractsTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "unresolved parent contract 'Missing'"):
                 gen.collect_contracts([source])
 
-    def test_collect_contracts_rejects_qualified_parent_without_namespace_key(self) -> None:
+    def test_collect_contracts_rejects_missing_qualified_parent(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             source = Path(tmpdir) / "Contracts.lean"
             source.write_text(
@@ -46,8 +46,27 @@ class ParseContractsTests(unittest.TestCase):
                 "verity_contract Child is Other.Base where\n  storage\n",
                 encoding="utf-8",
             )
-            with self.assertRaisesRegex(ValueError, "cannot be resolved unambiguously"):
+            with self.assertRaisesRegex(ValueError, "unresolved parent contract 'Other.Base'"):
                 gen.collect_contracts([source])
+
+    def test_collect_contracts_rejects_unrelated_namespace_parent_alias(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            child_source = Path(tmpdir) / "Child.lean"
+            child_source.write_text(
+                "namespace A\n"
+                "verity_contract Child is Base where\n  storage\n"
+                "end A\n",
+                encoding="utf-8",
+            )
+            unrelated_source = Path(tmpdir) / "Base.lean"
+            unrelated_source.write_text(
+                "namespace B\n"
+                "verity_contract Base where\n  storage\n"
+                "end B\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "unresolved parent contract 'Base'"):
+                gen.collect_contracts([child_source, unrelated_source])
 
     def test_parse_contracts_rejects_duplicate_unqualified_names(self) -> None:
         src = textwrap.dedent(

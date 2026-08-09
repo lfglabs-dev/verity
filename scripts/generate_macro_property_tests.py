@@ -23,6 +23,8 @@ CONTRACT_RE = re.compile(
     r"^\s*verity_contract\s+([A-Za-z_][A-Za-z0-9_]*)"
     r"(?:\s+is\s+([A-Za-z_][A-Za-z0-9_.]*))?\s+where\s*$"
 )
+NAMESPACE_RE = re.compile(r"^\s*namespace\s+([A-Za-z_][A-Za-z0-9_.]*)\s*$")
+END_NAMESPACE_RE = re.compile(r"^\s*end\s+([A-Za-z_][A-Za-z0-9_.]*)\s*$")
 CHECK_CONTRACT_RE = re.compile(r"^\s*#check_contract\s+([A-Za-z_][A-Za-z0-9_]*)\s*$")
 # Optional leading mutability modifiers (`function <modifier>* <name> (...)`,
 # Verity/Macro/Syntax.lean). They sit between `function` and the name, so the
@@ -162,6 +164,7 @@ class ContractDecl:
     functions: tuple[FunctionDecl, ...]
     storage_slots: dict[str, int]
     source: Path
+    namespace: tuple[str, ...] = ()
     parent_name: str | None = None
     storage_types: dict[str, str] = field(default_factory=dict)
     transient_slots: frozenset[str] = frozenset()
@@ -308,6 +311,8 @@ def _resolve_decl_types_in_params(
 def parse_contracts(text: str, source: Path) -> dict[str, ContractDecl]:
     contracts: dict[str, ContractDecl] = {}
     current_name: str | None = None
+    current_namespace: tuple[str, ...] = ()
+    namespace_stack: list[tuple[str, ...]] = []
     current_parent_name: str | None = None
     current_constructor: ConstructorDecl | None = None
     current_storage_slots: dict[str, int] = {}
@@ -358,7 +363,7 @@ def parse_contracts(text: str, source: Path) -> dict[str, ContractDecl]:
         current_body = []
 
     def flush_current() -> None:
-        nonlocal current_name, current_parent_name, current_constructor, current_storage_slots, current_transient_slots, current_storage_types, current_newtypes, current_structs, current_constants, current_immutables, current_functions, in_types_block, in_storage_block, in_constants_block, in_immutables_block, pending_storage_lines, current_struct_block_comment
+        nonlocal current_name, current_namespace, current_parent_name, current_constructor, current_storage_slots, current_transient_slots, current_storage_types, current_newtypes, current_structs, current_constants, current_immutables, current_functions, in_types_block, in_storage_block, in_constants_block, in_immutables_block, pending_storage_lines, current_struct_block_comment
         if current_name is None:
             return
         flush_struct()
@@ -370,6 +375,7 @@ def parse_contracts(text: str, source: Path) -> dict[str, ContractDecl]:
             )
         contracts[current_name] = ContractDecl(
             name=current_name,
+            namespace=current_namespace,
             parent_name=current_parent_name,
             constructor=current_constructor,
             functions=tuple(current_functions),
@@ -383,6 +389,7 @@ def parse_contracts(text: str, source: Path) -> dict[str, ContractDecl]:
             immutables=dict(current_immutables),
         )
         current_name = None
+        current_namespace = ()
         current_parent_name = None
         current_constructor = None
         current_storage_slots = {}
@@ -401,6 +408,16 @@ def parse_contracts(text: str, source: Path) -> dict[str, ContractDecl]:
         pending_storage_lines = []
 
     for line in text.splitlines():
+        namespace_match = NAMESPACE_RE.match(line)
+        if namespace_match:
+            flush_current()
+            namespace_stack.append(tuple(namespace_match.group(1).split(".")))
+            continue
+        end_namespace_match = END_NAMESPACE_RE.match(line)
+        if end_namespace_match and namespace_stack:
+            flush_current()
+            namespace_stack.pop()
+            continue
         if line.strip() == "#guard_msgs in":
             flush_current()
             guard_pending = True
@@ -412,6 +429,7 @@ def parse_contracts(text: str, source: Path) -> dict[str, ContractDecl]:
                 continue
             flush_current()
             current_name = cm.group(1)
+            current_namespace = tuple(part for ns in namespace_stack for part in ns)
             current_parent_name = cm.group(2)
             continue
 
@@ -663,6 +681,10 @@ def collect_contracts(paths: list[Path]) -> dict[str, ContractDecl]:
                 raise ValueError(f"duplicate contract '{name}' in {prev} and {contract.source}")
             all_contracts[name] = contract
     resolved: dict[str, ContractDecl] = {}
+    qualified_contracts = {
+        ".".join((*contract.namespace, contract.name)): contract
+        for contract in all_contracts.values()
+    }
 
     def resolve(name: str) -> ContractDecl:
         if name in resolved:
@@ -671,16 +693,17 @@ def collect_contracts(paths: list[Path]) -> dict[str, ContractDecl]:
         if child.parent_name is None:
             resolved[name] = child
             return child
-        if "." in child.parent_name:
-            raise ValueError(
-                f"qualified parent contract '{child.parent_name}' for '{child.name}' "
-                "cannot be resolved unambiguously by the property generator"
-            )
-        parent_key = child.parent_name
-        if parent_key not in all_contracts:
+        parent_qualified = (
+            child.parent_name
+            if "." in child.parent_name
+            else ".".join((*child.namespace, child.parent_name))
+        )
+        parent_decl = qualified_contracts.get(parent_qualified)
+        if parent_decl is None:
             raise ValueError(
                 f"unresolved parent contract '{child.parent_name}' for '{child.name}'"
             )
+        parent_key = parent_decl.name
         parent = resolve(parent_key)
         merged_newtypes = parent.newtypes | child.newtypes
         merged_structs = parent.structs | child.structs
