@@ -69,6 +69,28 @@ verity_contract ModifierInheritanceChild is ModifierInheritanceBase where
 #check_contract ModifierInheritanceBase
 #check_contract ModifierInheritanceChild
 
+-- An intermediate override may remain virtual for a further derived contract.
+verity_contract VirtualOverrideMiddle is ModifierInheritanceBase where
+  storage
+
+  constructor (initialOwner : Address) ModifierInheritanceBase(initialOwner) := do
+    pure ()
+
+  function virtual override value () : Uint256 := do
+    return 2
+
+verity_contract VirtualOverrideLeaf is VirtualOverrideMiddle where
+  storage
+
+  constructor (initialOwner : Address) VirtualOverrideMiddle(initialOwner) := do
+    pure ()
+
+  function override value () : Uint256 := do
+    return 3
+
+#check_contract VirtualOverrideMiddle
+#check_contract VirtualOverrideLeaf
+
 -- Constructor arguments are bound lexically: the parameter `owner` in the
 -- parent body must not rewrite the storage-field operand with the same name.
 verity_contract ConstructorHygieneBase where

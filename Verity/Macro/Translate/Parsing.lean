@@ -561,9 +561,15 @@ def parseFunction (newtypes : Array NewtypeDecl) (structDecls : Array StructDecl
         match d with
         | `(verityDispatch| override) => true
         | _ => false
-      if isVirtual && isOverride then
-        throwErrorAt name s!"function '{toString name.getId}' cannot be both virtual and override"
-      if dispatch.size > 1 then
+      let virtualCount := dispatch.countP fun d =>
+        match d with
+        | `(verityDispatch| virtual) => true
+        | _ => false
+      let overrideCount := dispatch.countP fun d =>
+        match d with
+        | `(verityDispatch| override) => true
+        | _ => false
+      if virtualCount > 1 || overrideCount > 1 then
         throwErrorAt name s!"function '{toString name.getId}' has a duplicate dispatch annotation"
       pure {
         ident := name
