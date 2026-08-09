@@ -16,6 +16,28 @@ import generate_macro_property_tests as gen
 
 
 class ParseContractsTests(unittest.TestCase):
+    def test_parse_inherited_constructor_with_nested_parent_argument(self) -> None:
+        src = textwrap.dedent(
+            """
+            verity_contract Child is Base where
+              storage
+              constructor (x : Uint256) Base(helper(x)) := do
+                pure ()
+            """
+        )
+        parsed = gen.parse_contracts(src, Path("dummy.lean"))
+        self.assertEqual(parsed["Child"].constructor.params[0].name, "x")
+
+    def test_collect_contracts_rejects_unresolved_parent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source = Path(tmpdir) / "Child.lean"
+            source.write_text(
+                "verity_contract Child is Missing where\n  storage\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "unresolved parent contract 'Missing'"):
+                gen.collect_contracts([source])
+
     def test_parse_two_contracts(self) -> None:
         src = textwrap.dedent(
             """

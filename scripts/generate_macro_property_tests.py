@@ -40,12 +40,10 @@ FUNCTION_RE = re.compile(
     rf"^\s*function\s+(?:{_FUNCTION_MODIFIER}\s+)*([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)"
     rf"(?:\s+with\s+[A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*)?\s*:\s*(.+?)\s*:=\s*",
 )
-CONSTRUCTOR_RE = re.compile(
-    r"^\s*constructor\s*\(([^)]*)\)"
-    r"(?:\s+payable)?"
-    r"(?:\s+[A-Za-z_][A-Za-z0-9_.]*\s*\([^)]*\))?"
-    r"(?:\s+local_obligations\s*\[[^]]*\])?\s*:=\s*"
-)
+# Constructor ABI parameters are the first balanced group and cannot themselves
+# contain parentheses in the supported type grammar.  Match only that prefix;
+# the remaining macro syntax may contain arbitrarily nested parent-call terms.
+CONSTRUCTOR_RE = re.compile(r"^\s*constructor\s*\(([^)]*)\)")
 # `_IDENT` captures a user-facing identifier with optional `«…»` raw-identifier
 # escape (verity#1847). The capture group excludes the guillemets so downstream
 # name lookups stay consistent with the compiled CompilationModel param/field
@@ -665,10 +663,15 @@ def collect_contracts(paths: list[Path]) -> dict[str, ContractDecl]:
         if name in resolved:
             return resolved[name]
         child = all_contracts[name]
-        if child.parent_name is None or child.parent_name not in all_contracts:
+        if child.parent_name is None:
             resolved[name] = child
             return child
-        parent = resolve(child.parent_name)
+        parent_key = child.parent_name.rsplit(".", 1)[-1]
+        if parent_key not in all_contracts:
+            raise ValueError(
+                f"unresolved parent contract '{child.parent_name}' for '{child.name}'"
+            )
+        parent = resolve(parent_key)
         merged_newtypes = parent.newtypes | child.newtypes
         merged_structs = parent.structs | child.structs
         child_functions = tuple(
