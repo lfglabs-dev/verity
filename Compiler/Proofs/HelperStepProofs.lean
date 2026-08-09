@@ -1628,7 +1628,7 @@ theorem directInternalHelperCallHeadStepCatalogWithInternals_of_supportedEvidenc
     (hRuntime : SupportedRuntimeHelperTableInterface spec runtimeContract)
     (hsite :
       ∀ {scope calleeName args}
-        (hoccurs : StmtOccursAtScope initialScope scope
+        (_hoccurs : StmtOccursAtScope initialScope scope
           (Stmt.internalCall calleeName args) fn.body)
         (hmem : calleeName ∈ helperCallNames fn),
         (hHelpers.summaryOfCall hmem).summary.helperRank < hHelpers.helperRank →
