@@ -49,6 +49,22 @@ class ParseContractsTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "cannot be resolved unambiguously"):
                 gen.collect_contracts([source])
 
+    def test_parse_contracts_rejects_duplicate_unqualified_names(self) -> None:
+        src = textwrap.dedent(
+            """
+            namespace A
+            verity_contract Base where
+              storage
+            end A
+            namespace B
+            verity_contract Base where
+              storage
+            end B
+            """
+        )
+        with self.assertRaisesRegex(ValueError, "duplicate contract 'Base'"):
+            gen.parse_contracts(src, Path("dummy.lean"))
+
     def test_parse_two_contracts(self) -> None:
         src = textwrap.dedent(
             """

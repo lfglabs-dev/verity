@@ -363,6 +363,11 @@ def parse_contracts(text: str, source: Path) -> dict[str, ContractDecl]:
             return
         flush_struct()
         flush_function()
+        if current_name in contracts:
+            raise ValueError(
+                f"duplicate contract '{current_name}' in {source}; "
+                "namespace-qualified property registry keys are required"
+            )
         contracts[current_name] = ContractDecl(
             name=current_name,
             parent_name=current_parent_name,
