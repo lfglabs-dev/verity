@@ -2865,9 +2865,9 @@ private def substitutePureInitializerParams
   ⟨substitutePureInitializerParamSyntax bindings body.raw⟩
 
 private def composeConstructors
-    (parentName : Ident) (parentCtor : Option ConstructorDecl)
-    (childCtor : Option ConstructorDecl) : CommandElabM (Option ConstructorDecl) := do
-  match parentCtor, childCtor with
+    (parentName : Ident) (parentContract childContract : ParsedContractSyntax) :
+    CommandElabM (Option ConstructorDecl) := do
+  match parentContract.ctor, childContract.ctor with
   | none, none => pure none
   | none, some child =>
       if child.parentName?.isSome then
@@ -2887,6 +2887,16 @@ private def composeConstructors
         throwErrorAt calledParent s!"constructor calls '{calledParent.getId}', expected direct parent '{parentName.getId}'"
       if child.parentArgs.size != parent.params.size then
         throwErrorAt calledParent s!"parent constructor '{parentName.getId}' expects {parent.params.size} argument(s), got {child.parentArgs.size}"
+      for (param, arg) in parent.params.zip child.parentArgs do
+        let argTy ← inferPureExprType
+          (parentContract.fields ++ childContract.fields)
+          (parentContract.constDecls ++ childContract.constDecls)
+          (parentContract.immutableDecls ++ childContract.immutableDecls)
+          (parentContract.externalDecls ++ childContract.externalDecls)
+          child.params #[] arg
+        unless argumentTypeMatchesParam arg argTy param.ty do
+          throwErrorAt arg
+            s!"parent constructor parameter '{param.name}' expects {renderValueType param.ty}, got {renderValueType argTy}"
       let inheritedBinderNames := parent.boundParentParamNames ++ (← localBinderNames parent.body.raw)
       if let some captured := inheritedBinderNames.find? (fun name =>
           child.params.any (fun childParam => childParam.name == name)) then
@@ -2901,9 +2911,12 @@ private def composeConstructors
       for (param, arg) in parent.params.zip child.parentArgs do
         -- Reuse an identically named child parameter directly.  Introducing
         -- a redundant `let x := x` would be rejected as parameter shadowing.
-        let isIdentityArg := match arg.raw with
-          | .ident _ _ name _ => name.toString == param.name
-          | _ => false
+        let identityChildParam? := match arg.raw with
+          | .ident _ _ name _ =>
+              child.params.find? (fun (childParam : ParamDecl) =>
+                name.toString == param.name && childParam.name == param.name)
+          | _ => none
+        let isIdentityArg := identityChildParam?.isSome
         if !isIdentityArg then
           if child.params.any (fun childParam => childParam.name == param.name) then
             throwErrorAt arg s!"parent constructor parameter '{param.name}' conflicts with a child constructor parameter; rename the child parameter"
@@ -2980,7 +2993,7 @@ private def flattenSingleInheritance
         parent.immutableDecls.map fun imm =>
           { imm with body := substitutePureInitializerParams bindings imm.body }
     | _, _ => parent.immutableDecls
-  let ctor ← composeConstructors parentName parent.ctor child.ctor
+  let ctor ← composeConstructors parentName parent child
   pure {
     child with
     parentName? := some parentName

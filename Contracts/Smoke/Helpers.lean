@@ -86,6 +86,22 @@ verity_contract ConstructorHygieneChild is ConstructorHygieneBase where
 
 #check_contract ConstructorHygieneChild
 
+verity_contract NarrowConstructorBase where
+  storage
+
+  constructor (value : Uint8) := do
+    pure ()
+
+/--
+error: parent constructor parameter 'value' expects Verity.Macro.ValueType.uint8, got Verity.Macro.ValueType.uint256
+-/
+#guard_msgs in
+verity_contract NarrowConstructorMismatchRejected is NarrowConstructorBase where
+  storage
+
+  constructor (value : Uint256) NarrowConstructorBase(value) := do
+    pure ()
+
 /--
 error: parent constructor parameter 'owner' conflicts with a child constructor parameter; rename the child parameter
 -/
