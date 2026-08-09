@@ -53,9 +53,13 @@ inductive StorageType where
   | scalar (ty : ValueType)
   | dynamicArray (elemTy : Compiler.CompilationModel.StorageArrayElemType)
   | mappingAddressToUint256
+  | mappingAddressToEnum (name : String) (memberCount : Nat)
   | mapping2AddressToAddressToUint256
+  | mapping2AddressToAddressToEnum (name : String) (memberCount : Nat)
   | mappingUintToUint256
+  | mappingUintToEnum (name : String) (memberCount : Nat)
   | mappingChain (keyTypes : List MappingKeyType)
+  | mappingChainEnum (keyTypes : List MappingKeyType) (name : String) (memberCount : Nat)
   | mappingStruct (keyType : MappingKeyType) (members : List StructMemberDecl)
   | mappingStruct2 (outerKey : MappingKeyType) (innerKey : MappingKeyType) (members : List StructMemberDecl)
   deriving BEq

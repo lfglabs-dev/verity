@@ -52,7 +52,10 @@ partial def modelParamTypeTerm (ty : ValueType) : CommandElabM Term :=
   | .newtype name baseType => do
       let baseTerm ← modelParamTypeTerm baseType
       `(Compiler.CompilationModel.ParamType.newtypeOf $(Lean.quote name) $baseTerm)
-  | .enum _ _ => `(Compiler.CompilationModel.ParamType.uint8)
+  -- Keep the ABI spelling uint8 while loading the full calldata word so the
+  -- enum guard can reject non-canonical values before any narrowing occurs.
+  | .enum _ _ =>
+      `(Compiler.CompilationModel.ParamType.newtypeOf "__verity_enum" Compiler.CompilationModel.ParamType.uint256)
   | .adt name maxFields => do
       `(Compiler.CompilationModel.ParamType.adt $(Lean.quote name) $(Lean.quote maxFields))
 
@@ -2319,13 +2322,15 @@ partial def inferBindSourceType
       let f ← lookupStorageField fields (toString field.getId)
       match f.ty with
       | .mappingAddressToUint256 | .mappingUintToUint256 => pure .uint256
+      | .mappingAddressToEnum name memberCount | .mappingUintToEnum name memberCount =>
+          pure (.enum name memberCount)
       | .mappingStruct _ _ =>
           throwErrorAt rhs s!"field '{f.name}' is a struct-valued mapping; use structMember"
       | .mappingStruct2 _ _ _ =>
           throwErrorAt rhs s!"field '{f.name}' is a nested struct mapping; use structMember2"
-      | .mapping2AddressToAddressToUint256 =>
+      | .mapping2AddressToAddressToUint256 | .mapping2AddressToAddressToEnum _ _ =>
           throwErrorAt rhs s!"field '{f.name}' is a double mapping; use getMapping2"
-      | .mappingChain _ =>
+      | .mappingChain _ | .mappingChainEnum _ _ _ =>
           throwErrorAt rhs s!"field '{f.name}' uses {storageTypeMappingDepth? f.ty |>.getD 0} mapping keys; use getMappingN"
       | .dynamicArray _ =>
           throwErrorAt rhs s!"field '{f.name}' is a storage dynamic array; use getStorageArrayLength/getStorageArrayElement"
@@ -2335,13 +2340,15 @@ partial def inferBindSourceType
       let f ← lookupStorageField fields (toString field.getId)
       match f.ty with
       | .mappingAddressToUint256 | .mappingUintToUint256 => pure .address
+      | .mappingAddressToEnum _ _ | .mappingUintToEnum _ _ =>
+          throwErrorAt rhs s!"field '{f.name}' is enum-valued; use getMapping/getMappingUint"
       | .mappingStruct _ _ =>
           throwErrorAt rhs s!"field '{f.name}' is a struct-valued mapping; use structMember"
       | .mappingStruct2 _ _ _ =>
           throwErrorAt rhs s!"field '{f.name}' is a nested struct mapping; use structMember2"
-      | .mapping2AddressToAddressToUint256 =>
+      | .mapping2AddressToAddressToUint256 | .mapping2AddressToAddressToEnum _ _ =>
           throwErrorAt rhs s!"field '{f.name}' is a double mapping; use getMapping2"
-      | .mappingChain _ =>
+      | .mappingChain _ | .mappingChainEnum _ _ _ =>
           throwErrorAt rhs s!"field '{f.name}' uses {storageTypeMappingDepth? f.ty |>.getD 0} mapping keys; use getMappingN"
       | .dynamicArray _ =>
           throwErrorAt rhs s!"field '{f.name}' is a storage dynamic array; use getStorageArrayLength/getStorageArrayElement"
@@ -2352,6 +2359,7 @@ partial def inferBindSourceType
       let f ← lookupStorageField fields (toString field.getId)
       match f.ty with
       | .mapping2AddressToAddressToUint256 => pure .uint256
+      | .mapping2AddressToAddressToEnum name memberCount => pure (.enum name memberCount)
       | .mappingStruct2 _ _ _ =>
           throwErrorAt rhs s!"field '{f.name}' is a nested struct mapping; use structMember2"
       | .mappingStruct _ _ =>
@@ -2365,7 +2373,9 @@ partial def inferBindSourceType
       match storageTypeMappingKeyTypes? f.ty with
       | some keyTypes =>
           if keyTerms.size == keyTypes.length then
-            pure .uint256
+            match f.ty with
+            | .mappingChainEnum _ name memberCount => pure (.enum name memberCount)
+            | _ => pure .uint256
           else
             throwErrorAt rhs s!"field '{f.name}' expects {keyTypes.length} mapping keys, but getMappingN received {keyTerms.size}"
       | none =>
@@ -4739,13 +4749,13 @@ def translateBindSource
   | `(term| getMapping $field:ident $key:term) =>
       let f ← lookupStorageField fields (toString field.getId)
       match f.ty with
-      | .mappingAddressToUint256 =>
+      | .mappingAddressToUint256 | .mappingAddressToEnum _ _ =>
           `(Compiler.CompilationModel.Expr.mapping $(strTerm f.name) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key))
-      | .mappingUintToUint256 =>
+      | .mappingUintToUint256 | .mappingUintToEnum _ _ =>
           `(Compiler.CompilationModel.Expr.mappingUint $(strTerm f.name) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key))
-      | .mapping2AddressToAddressToUint256 =>
+      | .mapping2AddressToAddressToUint256 | .mapping2AddressToAddressToEnum _ _ =>
           throwErrorAt rhs s!"field '{f.name}' is a double mapping; use getMapping2"
-      | .mappingChain _ =>
+      | .mappingChain _ | .mappingChainEnum _ _ _ =>
           throwErrorAt rhs s!"field '{f.name}' uses {storageTypeMappingDepth? f.ty |>.getD 0} mapping keys; use getMappingN"
       | .dynamicArray _ =>
           throwErrorAt rhs s!"field '{f.name}' is a storage dynamic array; use getStorageArrayLength/getStorageArrayElement"
@@ -4759,9 +4769,11 @@ def translateBindSource
           `(Compiler.CompilationModel.Expr.mapping $(strTerm f.name) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key))
       | .mappingUintToUint256 =>
           throwErrorAt rhs s!"field '{f.name}' is Uint256-keyed; use getMappingUintAddr"
-      | .mapping2AddressToAddressToUint256 =>
+      | .mappingAddressToEnum _ _ | .mappingUintToEnum _ _ =>
+          throwErrorAt rhs s!"field '{f.name}' is enum-valued; use getMapping/getMappingUint"
+      | .mapping2AddressToAddressToUint256 | .mapping2AddressToAddressToEnum _ _ =>
           throwErrorAt rhs s!"field '{f.name}' is a double mapping; use getMapping2"
-      | .mappingChain _ =>
+      | .mappingChain _ | .mappingChainEnum _ _ _ =>
           throwErrorAt rhs s!"field '{f.name}' uses {storageTypeMappingDepth? f.ty |>.getD 0} mapping keys; use getMappingN"
       | .dynamicArray _ =>
           throwErrorAt rhs s!"field '{f.name}' is a storage dynamic array; use getStorageArrayLength/getStorageArrayElement"
@@ -4771,13 +4783,13 @@ def translateBindSource
   | `(term| getMappingUint $field:ident $key:term) =>
       let f ← lookupStorageField fields (toString field.getId)
       match f.ty with
-      | .mappingUintToUint256 =>
+      | .mappingUintToUint256 | .mappingUintToEnum _ _ =>
           `(Compiler.CompilationModel.Expr.mappingUint $(strTerm f.name) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key))
-      | .mappingAddressToUint256 =>
+      | .mappingAddressToUint256 | .mappingAddressToEnum _ _ =>
           throwErrorAt rhs s!"field '{f.name}' is Address-keyed; use getMapping"
-      | .mapping2AddressToAddressToUint256 =>
+      | .mapping2AddressToAddressToUint256 | .mapping2AddressToAddressToEnum _ _ =>
           throwErrorAt rhs s!"field '{f.name}' is a double mapping; use getMapping2"
-      | .mappingChain _ =>
+      | .mappingChain _ | .mappingChainEnum _ _ _ =>
           throwErrorAt rhs s!"field '{f.name}' uses {storageTypeMappingDepth? f.ty |>.getD 0} mapping keys; use getMappingN"
       | .dynamicArray _ =>
           throwErrorAt rhs s!"field '{f.name}' is a storage dynamic array; use getStorageArrayLength/getStorageArrayElement"
@@ -4791,9 +4803,11 @@ def translateBindSource
           `(Compiler.CompilationModel.Expr.mappingUint $(strTerm f.name) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key))
       | .mappingAddressToUint256 =>
           throwErrorAt rhs s!"field '{f.name}' is Address-keyed; use getMappingAddr"
-      | .mapping2AddressToAddressToUint256 =>
+      | .mappingAddressToEnum _ _ | .mappingUintToEnum _ _ =>
+          throwErrorAt rhs s!"field '{f.name}' is enum-valued; use getMapping/getMappingUint"
+      | .mapping2AddressToAddressToUint256 | .mapping2AddressToAddressToEnum _ _ =>
           throwErrorAt rhs s!"field '{f.name}' is a double mapping; use getMapping2"
-      | .mappingChain _ =>
+      | .mappingChain _ | .mappingChainEnum _ _ _ =>
           throwErrorAt rhs s!"field '{f.name}' uses {storageTypeMappingDepth? f.ty |>.getD 0} mapping keys; use getMappingN"
       | .dynamicArray _ =>
           throwErrorAt rhs s!"field '{f.name}' is a storage dynamic array; use getStorageArrayLength/getStorageArrayElement"
@@ -4803,12 +4817,13 @@ def translateBindSource
   | `(term| getMappingWord $field:ident $key:term $wordOffset:num) =>
       let f ← lookupStorageField fields (toString field.getId)
       match f.ty with
-      | .mappingAddressToUint256 | .mappingUintToUint256 =>
+      | .mappingAddressToUint256 | .mappingUintToUint256
+        | .mappingAddressToEnum _ _ | .mappingUintToEnum _ _ =>
           `(Compiler.CompilationModel.Expr.mappingWord
               $(strTerm f.name)
               $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key)
               $wordOffset)
-      | .mapping2AddressToAddressToUint256 =>
+      | .mapping2AddressToAddressToUint256 | .mapping2AddressToAddressToEnum _ _ =>
           throwErrorAt rhs s!"field '{f.name}' is a double mapping; use getMapping2Word"
       | .mappingStruct _ _ =>
           throwErrorAt rhs s!"field '{f.name}' is a struct-valued mapping; use structMember"
@@ -4817,12 +4832,12 @@ def translateBindSource
       | .dynamicArray _ =>
           throwErrorAt rhs s!"field '{f.name}' is a storage dynamic array; use getStorageArrayLength/getStorageArrayElement"
       | .scalar _ => throwErrorAt rhs s!"field '{f.name}' is not a mapping"
-      | .mappingChain _ =>
+      | .mappingChain _ | .mappingChainEnum _ _ _ =>
           throwErrorAt rhs s!"field '{f.name}' uses {storageTypeMappingDepth? f.ty |>.getD 0} mapping keys; use getMappingN"
   | `(term| getMapping2 $field:ident $key1:term $key2:term) =>
       let f ← lookupStorageField fields (toString field.getId)
       match f.ty with
-      | .mapping2AddressToAddressToUint256 =>
+      | .mapping2AddressToAddressToUint256 | .mapping2AddressToAddressToEnum _ _ =>
           `(Compiler.CompilationModel.Expr.mapping2
               $(strTerm f.name)
               $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key1)

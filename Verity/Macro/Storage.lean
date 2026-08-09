@@ -98,13 +98,20 @@ def storageTypeFromSyntax
   let (arrowArgs, arrowResult) ← collectArrowChainTypes ty
   if !arrowArgs.isEmpty then
     match (← valueTypeFromSyntax newtypes structDecls adtDecls arrowResult) with
-    | .uint256 | .enum _ _ =>
+    | .uint256 =>
         let keyTypes ← arrowArgs.mapM keyTypeFromSyntax
         match keyTypes with
         | [.address] => pure .mappingAddressToUint256
         | [.uint256] => pure .mappingUintToUint256
         | [.address, .address] => pure .mapping2AddressToAddressToUint256
         | _ => pure (.mappingChain keyTypes)
+    | .enum name memberCount =>
+        let keyTypes ← arrowArgs.mapM keyTypeFromSyntax
+        match keyTypes with
+        | [.address] => pure (.mappingAddressToEnum name memberCount)
+        | [.uint256] => pure (.mappingUintToEnum name memberCount)
+        | [.address, .address] => pure (.mapping2AddressToAddressToEnum name memberCount)
+        | _ => pure (.mappingChainEnum keyTypes name memberCount)
     | _ =>
         throwErrorAt ty "unsupported mapping value type; expected Uint256 or an enum"
   else
@@ -137,13 +144,23 @@ def modelMappingKeyTypeTerm : MappingKeyType → CommandElabM Term
 
 def storageTypeMappingKeyTypes? : StorageType → Option (List MappingKeyType)
   | .mappingAddressToUint256 => some [.address]
+  | .mappingAddressToEnum _ _ => some [.address]
   | .mapping2AddressToAddressToUint256 => some [.address, .address]
+  | .mapping2AddressToAddressToEnum _ _ => some [.address, .address]
   | .mappingUintToUint256 => some [.uint256]
+  | .mappingUintToEnum _ _ => some [.uint256]
   | .mappingChain keyTypes => some keyTypes
+  | .mappingChainEnum keyTypes _ _ => some keyTypes
   | _ => none
 
 def storageTypeMappingDepth? (ty : StorageType) : Option Nat :=
   storageTypeMappingKeyTypes? ty |>.map List.length
+
+def storageTypeMappingValueType? : StorageType → Option ValueType
+  | .mappingAddressToEnum name memberCount | .mapping2AddressToAddressToEnum name memberCount
+    | .mappingUintToEnum name memberCount | .mappingChainEnum _ name memberCount =>
+      some (.enum name memberCount)
+  | _ => none
 
 def storageKeyTypeContractTerm : MappingKeyType → CommandElabM Term
   | .address => `(Address)
@@ -213,7 +230,15 @@ def modelFieldTypeTerm (ty : StorageType) : CommandElabM Term :=
   | .mappingAddressToUint256 =>
       `(Compiler.CompilationModel.FieldType.mappingTyped
           (Compiler.CompilationModel.MappingType.simple Compiler.CompilationModel.MappingKeyType.address))
+  | .mappingAddressToEnum _ _ =>
+      `(Compiler.CompilationModel.FieldType.mappingTyped
+          (Compiler.CompilationModel.MappingType.simple Compiler.CompilationModel.MappingKeyType.address))
   | .mapping2AddressToAddressToUint256 =>
+      `(Compiler.CompilationModel.FieldType.mappingTyped
+          (Compiler.CompilationModel.MappingType.nested
+            Compiler.CompilationModel.MappingKeyType.address
+            Compiler.CompilationModel.MappingKeyType.address))
+  | .mapping2AddressToAddressToEnum _ _ =>
       `(Compiler.CompilationModel.FieldType.mappingTyped
           (Compiler.CompilationModel.MappingType.nested
             Compiler.CompilationModel.MappingKeyType.address
@@ -221,7 +246,14 @@ def modelFieldTypeTerm (ty : StorageType) : CommandElabM Term :=
   | .mappingUintToUint256 =>
       `(Compiler.CompilationModel.FieldType.mappingTyped
           (Compiler.CompilationModel.MappingType.simple Compiler.CompilationModel.MappingKeyType.uint256))
+  | .mappingUintToEnum _ _ =>
+      `(Compiler.CompilationModel.FieldType.mappingTyped
+          (Compiler.CompilationModel.MappingType.simple Compiler.CompilationModel.MappingKeyType.uint256))
   | .mappingChain keyTypes => do
+      let keyTypeTerms := (← keyTypes.mapM modelMappingKeyTypeTerm).toArray
+      `(Compiler.CompilationModel.FieldType.mappingTyped
+          (Compiler.CompilationModel.MappingType.chain [ $[$keyTypeTerms],* ]))
+  | .mappingChainEnum keyTypes _ _ => do
       let keyTypeTerms := (← keyTypes.mapM modelMappingKeyTypeTerm).toArray
       `(Compiler.CompilationModel.FieldType.mappingTyped
           (Compiler.CompilationModel.MappingType.chain [ $[$keyTypeTerms],* ]))

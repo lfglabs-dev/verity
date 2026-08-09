@@ -45,7 +45,7 @@ verity_contract MacroEnumUsage where
     return value
 
 def identityUsesUint8Abi : Bool :=
-  MacroEnumUsage.identity_model.params == [Param.mk "value" .uint8] &&
+  paramTypeToSolidityString MacroEnumUsage.identity_model.params[0]!.ty == "uint8" &&
     MacroEnumUsage.identity_model.returns == [ParamType.uint8]
 
 example : identityUsesUint8Abi = true := by native_decide

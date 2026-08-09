@@ -354,6 +354,9 @@ private partial def validateEffectStmtExprTypes
       match f.adtInfo?, f.ty with
       | some _, _ => pure ()
       | none, .scalar (.adt _ _) => pure ()
+      | _, .scalar (expectedTy@(.enum _ _)) =>
+          requireDeclaredValueType value "setStorage value" expectedTy
+            (← inferPureExprType fields constDecls immutableDecls externalDecls params locals value)
       | _, _ =>
           let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals value
           pure ()
@@ -373,21 +376,35 @@ private partial def validateEffectStmtExprTypes
       let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals index
       let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals value
       pure ()
-  | `(term| setMapping $_field:ident $key:term $value:term) | `(term| setMappingAddr $_field:ident $key:term $value:term)
-    | `(term| setMappingUint $_field:ident $key:term $value:term) | `(term| setMappingUintAddr $_field:ident $key:term $value:term)
-    | `(term| setMappingWord $_field:ident $key:term $_wordOffset:num $value:term)
-    | `(term| setStructMember $_field:term $key:term $_member:term $value:term) => do
+  | `(term| setMapping $field:ident $key:term $value:term) | `(term| setMappingAddr $field:ident $key:term $value:term)
+    | `(term| setMappingUint $field:ident $key:term $value:term) | `(term| setMappingUintAddr $field:ident $key:term $value:term)
+    | `(term| setMappingWord $field:ident $key:term $_wordOffset:num $value:term) => do
+      let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals key
+      let actualTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals value
+      if let some f := fields.find? (fun f => f.name == toString field.getId) then
+        if let some expectedTy := storageTypeMappingValueType? f.ty then
+          requireDeclaredValueType value "mapping value" expectedTy actualTy
+  | `(term| setStructMember $_field:term $key:term $_member:term $value:term) => do
       let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals key
       let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals value
-  | `(term| setMapping2 $_field:ident $key1:term $key2:term $value:term)
-    | `(term| setStructMember2 $_field:term $key1:term $key2:term $_member:term $value:term) => do
+  | `(term| setMapping2 $field:ident $key1:term $key2:term $value:term) => do
+      let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals key1
+      let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals key2
+      let actualTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals value
+      if let some f := fields.find? (fun f => f.name == toString field.getId) then
+        if let some expectedTy := storageTypeMappingValueType? f.ty then
+          requireDeclaredValueType value "mapping value" expectedTy actualTy
+  | `(term| setStructMember2 $_field:term $key1:term $key2:term $_member:term $value:term) => do
       let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals key1
       let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals key2
       let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals value
-  | `(term| setMappingN $_field:ident $keys:term $value:term) => do
+  | `(term| setMappingN $field:ident $keys:term $value:term) => do
       for key in (← expectMappingKeyTerms keys) do
         let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals key
-      let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals value
+      let actualTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals value
+      if let some f := fields.find? (fun f => f.name == toString field.getId) then
+        if let some expectedTy := storageTypeMappingValueType? f.ty then
+          requireDeclaredValueType value "mapping value" expectedTy actualTy
   | `(term| setMemoryArrayElement $name:term $index:term $value:term) => do
       let (_, elemTy) ← requireSupportedMemoryArrayLocal name "setMemoryArrayElement" locals
       unless isSingleWordStaticValueType elemTy do
@@ -745,24 +762,25 @@ private def translateEffectStmt
       | .dynamicArray _ =>
           throwErrorAt stx s!"field '{f.name}' is a storage dynamic array; setPackedStorage requires a scalar root slot"
       | .mappingAddressToUint256 | .mappingUintToUint256 | .mapping2AddressToAddressToUint256
-      | .mappingChain _ | .mappingStruct _ _ | .mappingStruct2 _ _ _ =>
+      | .mappingAddressToEnum _ _ | .mappingUintToEnum _ _ | .mapping2AddressToAddressToEnum _ _
+      | .mappingChain _ | .mappingChainEnum _ _ _ | .mappingStruct _ _ | .mappingStruct2 _ _ _ =>
           throwErrorAt stx s!"field '{f.name}' is a mapping; setPackedStorage requires a scalar root slot"
   | `(term| setMapping $field:ident $key:term $value:term) =>
       let f ← lookupStorageField fields (toString field.getId)
       match f.ty with
-      | .mappingAddressToUint256 =>
+      | .mappingAddressToUint256 | .mappingAddressToEnum _ _ =>
           `(Compiler.CompilationModel.Stmt.setMapping
               $(strTerm f.name)
               $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key)
               $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value))
-      | .mappingUintToUint256 =>
+      | .mappingUintToUint256 | .mappingUintToEnum _ _ =>
           `(Compiler.CompilationModel.Stmt.setMappingUint
               $(strTerm f.name)
               $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key)
               $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value))
-      | .mapping2AddressToAddressToUint256 =>
+      | .mapping2AddressToAddressToUint256 | .mapping2AddressToAddressToEnum _ _ =>
           throwErrorAt stx s!"field '{f.name}' is a double mapping; use setMapping2"
-      | .mappingChain _ =>
+      | .mappingChain _ | .mappingChainEnum _ _ _ =>
           throwErrorAt stx s!"field '{f.name}' uses {storageTypeMappingDepth? f.ty |>.getD 0} mapping keys; use setMappingN"
       | .dynamicArray _ =>
           throwErrorAt stx s!"field '{f.name}' is a storage dynamic array; use pushStorageArray/popStorageArray/setStorageArrayElement"
@@ -779,9 +797,11 @@ private def translateEffectStmt
               $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value))
       | .mappingUintToUint256 =>
           throwErrorAt stx s!"field '{f.name}' is Uint256-keyed; use setMappingUintAddr"
-      | .mapping2AddressToAddressToUint256 =>
+      | .mappingAddressToEnum _ _ | .mappingUintToEnum _ _ =>
+          throwErrorAt stx s!"field '{f.name}' is enum-valued; use setMapping/setMappingUint"
+      | .mapping2AddressToAddressToUint256 | .mapping2AddressToAddressToEnum _ _ =>
           throwErrorAt stx s!"field '{f.name}' is a double mapping; use setMapping2"
-      | .mappingChain _ =>
+      | .mappingChain _ | .mappingChainEnum _ _ _ =>
           throwErrorAt stx s!"field '{f.name}' uses {storageTypeMappingDepth? f.ty |>.getD 0} mapping keys; use setMappingN"
       | .dynamicArray _ =>
           throwErrorAt stx s!"field '{f.name}' is a storage dynamic array; use pushStorageArray/popStorageArray/setStorageArrayElement"
@@ -791,16 +811,16 @@ private def translateEffectStmt
   | `(term| setMappingUint $field:ident $key:term $value:term) =>
       let f ← lookupStorageField fields (toString field.getId)
       match f.ty with
-      | .mappingUintToUint256 =>
+      | .mappingUintToUint256 | .mappingUintToEnum _ _ =>
           `(Compiler.CompilationModel.Stmt.setMappingUint
               $(strTerm f.name)
               $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key)
               $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value))
-      | .mappingAddressToUint256 =>
+      | .mappingAddressToUint256 | .mappingAddressToEnum _ _ =>
           throwErrorAt stx s!"field '{f.name}' is Address-keyed; use setMapping"
-      | .mapping2AddressToAddressToUint256 =>
+      | .mapping2AddressToAddressToUint256 | .mapping2AddressToAddressToEnum _ _ =>
           throwErrorAt stx s!"field '{f.name}' is a double mapping; use setMapping2"
-      | .mappingChain _ =>
+      | .mappingChain _ | .mappingChainEnum _ _ _ =>
           throwErrorAt stx s!"field '{f.name}' uses {storageTypeMappingDepth? f.ty |>.getD 0} mapping keys; use setMappingN"
       | .dynamicArray _ =>
           throwErrorAt stx s!"field '{f.name}' is a storage dynamic array; use pushStorageArray/popStorageArray/setStorageArrayElement"
@@ -817,9 +837,11 @@ private def translateEffectStmt
               $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value))
       | .mappingAddressToUint256 =>
           throwErrorAt stx s!"field '{f.name}' is Address-keyed; use setMappingAddr"
-      | .mapping2AddressToAddressToUint256 =>
+      | .mappingAddressToEnum _ _ | .mappingUintToEnum _ _ =>
+          throwErrorAt stx s!"field '{f.name}' is enum-valued; use setMapping/setMappingUint"
+      | .mapping2AddressToAddressToUint256 | .mapping2AddressToAddressToEnum _ _ =>
           throwErrorAt stx s!"field '{f.name}' is a double mapping; use setMapping2"
-      | .mappingChain _ =>
+      | .mappingChain _ | .mappingChainEnum _ _ _ =>
           throwErrorAt stx s!"field '{f.name}' uses {storageTypeMappingDepth? f.ty |>.getD 0} mapping keys; use setMappingN"
       | .dynamicArray _ =>
           throwErrorAt stx s!"field '{f.name}' is a storage dynamic array; use pushStorageArray/popStorageArray/setStorageArrayElement"
@@ -829,13 +851,14 @@ private def translateEffectStmt
   | `(term| setMappingWord $field:ident $key:term $wordOffset:num $value:term) =>
       let f ← lookupStorageField fields (toString field.getId)
       match f.ty with
-      | .mappingAddressToUint256 | .mappingUintToUint256 =>
+      | .mappingAddressToUint256 | .mappingUintToUint256
+        | .mappingAddressToEnum _ _ | .mappingUintToEnum _ _ =>
           `(Compiler.CompilationModel.Stmt.setMappingWord
               $(strTerm f.name)
               $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key)
               $wordOffset
               $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value))
-      | .mapping2AddressToAddressToUint256 =>
+      | .mapping2AddressToAddressToUint256 | .mapping2AddressToAddressToEnum _ _ =>
           throwErrorAt stx s!"field '{f.name}' is a double mapping; use setMapping2Word"
       | .mappingStruct _ _ =>
           throwErrorAt stx s!"field '{f.name}' is a struct-valued mapping; use setStructMember"
@@ -844,12 +867,12 @@ private def translateEffectStmt
       | .dynamicArray _ =>
           throwErrorAt stx s!"field '{f.name}' is a storage dynamic array; use pushStorageArray/popStorageArray/setStorageArrayElement"
       | .scalar _ => throwErrorAt stx s!"field '{f.name}' is not a mapping"
-      | .mappingChain _ =>
+      | .mappingChain _ | .mappingChainEnum _ _ _ =>
           throwErrorAt stx s!"field '{f.name}' uses {storageTypeMappingDepth? f.ty |>.getD 0} mapping keys; use setMappingN"
   | `(term| setMapping2 $field:ident $key1:term $key2:term $value:term) =>
       let f ← lookupStorageField fields (toString field.getId)
       match f.ty with
-      | .mapping2AddressToAddressToUint256 =>
+      | .mapping2AddressToAddressToUint256 | .mapping2AddressToAddressToEnum _ _ =>
           `(Compiler.CompilationModel.Stmt.setMapping2
               $(strTerm f.name)
               $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key1)
@@ -2039,9 +2062,13 @@ private def storageSlotInnerTypeTerm (ty : StorageType) : CommandElabM Term := d
     | .dynamicArray .uint8 => throwError "storage dynamic arrays currently support only Uint256 elements on the macro path"
     | .dynamicArray .bytes32 => `(List Uint256)
     | .mappingAddressToUint256 => `(Address → Uint256)
+    | .mappingAddressToEnum _ _ => `(Address → Uint256)
     | .mapping2AddressToAddressToUint256 => `(Address → Address → Uint256)
+    | .mapping2AddressToAddressToEnum _ _ => `(Address → Address → Uint256)
     | .mappingUintToUint256 => `(Uint256 → Uint256)
+    | .mappingUintToEnum _ _ => `(Uint256 → Uint256)
     | .mappingChain keyTypes => mkStorageMappingTy keyTypes
+    | .mappingChainEnum keyTypes _ _ => mkStorageMappingTy keyTypes
     | .mappingStruct keyType _ => `(($(← storageKeyTypeContractTerm keyType) → Uint256))
     | .mappingStruct2 outerKey innerKey _ =>
         `(($(← storageKeyTypeContractTerm outerKey) → $(← storageKeyTypeContractTerm innerKey) → Uint256))

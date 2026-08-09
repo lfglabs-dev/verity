@@ -47,6 +47,7 @@ contract EnumFeatureTest is Test, YulTestBase {
         _assertCallParity(abi.encodeWithSignature("castStatus(uint256)", 2));
         _assertCallParity(abi.encodeWithSignature("castStatus(uint256)", 3));
         _assertCallParity(abi.encodeWithSignature("castStatus(uint256)", type(uint256).max));
+        _assertCallParity(abi.encodeWithSelector(bytes4(keccak256("identity(uint8)")), uint256(0x100)));
     }
 
     function testStorageAndMappingParity() public {
