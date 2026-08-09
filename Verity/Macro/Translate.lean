@@ -1392,12 +1392,14 @@ private partial def translateDoElem
                 fields constDecls immutableDecls params locals argTerms (some ext.params)
                 (some (translateDeclaredPureExpr
                   fields constDecls immutableDecls externalDecls params locals))
+              let bindStmt ← `(Compiler.CompilationModel.Stmt.tryExternalCallBind
+                  $(strTerm varName)
+                  []
+                  $(strTerm targetFn)
+                  [ $[$argExprs],* ])
+              let successNormalization ← normalizeBoundValueStmt? .bool rhs varName
               pure
-                (#[(← `(Compiler.CompilationModel.Stmt.tryExternalCallBind
-                        $(strTerm varName)
-                        []
-                        $(strTerm targetFn)
-                        [ $[$argExprs],* ]))],
+                (#[bindStmt] ++ successNormalization.toArray,
                   locals.push (mkTypedLocal varName .bool),
                   mutableLocals)
           | `(term| allocArray $len:term) =>

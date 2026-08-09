@@ -268,16 +268,19 @@ example : (ExternalCallInBodySmoke.bindDirtyUint_modelBody).take 2 =
 
 example : (ExternalCallInBodySmoke.tryDirtyUint_modelBody).take 2 =
     [ .tryExternalCallBind "_success" ["result"] "dirtyUint" []
-    , .assignVar "result" (.bitAnd (.localVar "result") (.literal (2 ^ 32 - 1))) ] := rfl
+    , .assignVar "_success" (.logicalNot (.eq (.localVar "_success") (.literal 0))) ] := rfl
 
-example : (ExternalCallInBodySmoke.callResultDirtyUint_modelBody).take 2 =
+example : (ExternalCallInBodySmoke.callResultDirtyUint_modelBody).take 3 =
     [ .tryExternalCallBind "result_success" ["result_returndata"] "dirtyUint" []
+    , .assignVar "result_success"
+        (.logicalNot (.eq (.localVar "result_success") (.literal 0)))
     , .assignVar "result_returndata"
         (.bitAnd (.localVar "result_returndata") (.literal (2 ^ 32 - 1))) ] := rfl
 
-example : (ExternalCallInBodySmoke.tryNotifyBool_modelBody).take 1 =
+example : (ExternalCallInBodySmoke.tryNotifyBool_modelBody).take 2 =
     [.tryExternalCallBind "success" [] "notifyBool"
-      [(.logicalNot (.eq (.param "flag") (.literal 0)))]] := rfl
+      [(.logicalNot (.eq (.param "flag") (.literal 0)))],
+     .assignVar "success" (.logicalNot (.eq (.localVar "success") (.literal 0)))] := rfl
 
 example : (ExternalCallInBodySmoke.tryDirtyPair_modelBody).take 3 =
     [ .tryExternalCallBind "_success" ["result_narrow", "result_wide"] "dirtyPair" []
@@ -569,6 +572,24 @@ verity_contract EffectfulSafeArithmeticOperandRejected where
   function bad () : Uint256 := do
     let result ← requireSomeUint (safeAdd (callExternal dirtyUint()) 1) "overflow"
     return result
+
+/-- error: conditional branches cannot contain callExternal because expression lowering evaluates both branches; use statement-level control flow -/
+#guard_msgs in
+verity_contract EffectfulConditionalBranchRejected where
+  storage
+  linked_externals
+    external dirtyUint() -> (Uint32)
+  function bad (flag : Bool) : Uint32 := do
+    return ite flag (callExternal dirtyUint()) 0
+
+/-- error: short-circuit logical operands cannot contain callExternal because expression lowering evaluates both operands; bind the external result first -/
+#guard_msgs in
+verity_contract EffectfulShortCircuitOperandRejected where
+  storage
+  linked_externals
+    external dirtyBool() -> (Bool)
+  function bad (flag : Bool) : Bool := do
+    return flag && callExternal dirtyBool()
 
 /-- error: memory-store value requires a word-like value (Uint256, Int256, Uint8, Address, or Bytes32), got Verity.Macro.ValueType.bytes -/
 #guard_msgs in

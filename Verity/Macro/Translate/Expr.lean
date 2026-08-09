@@ -1821,6 +1821,15 @@ partial def inferLeanDefCallType?
       throwErrorAt stx
         s!"Lean helper '{fnDisplay}' uses an unsupported return type; supported pure helper returns are Uint256, Int256, Address, Bytes32/Uint256, and Bool"
 
+partial def syntaxContainsCallExternal (stx : Syntax) : Bool :=
+  match stx with
+  | .node _ _ args =>
+      if let `(term| callExternal $_name:ident ($[$_args:term],*)) := stx then
+        true
+      else
+        args.any syntaxContainsCallExternal
+  | _ => false
+
 partial def inferPureExprType
     (fields : Array StorageFieldDecl)
     (constDecls : Array ConstantDecl)
@@ -2048,6 +2057,9 @@ partial def inferPureExprType
       discard <| classifyWordArithmeticResultType stx "ordering comparison" lhsTy rhsTy
       pure .bool
   | `(term| $a && $b) | `(term| $a || $b) => do
+      if syntaxContainsCallExternal a || syntaxContainsCallExternal b then
+        throwErrorAt stx
+          "short-circuit logical operands cannot contain callExternal because expression lowering evaluates both operands; bind the external result first"
       requireBoolType a "logical operator" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants)
       requireBoolType b "logical operator" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals b visitingConstants)
       pure .bool
@@ -2166,6 +2178,9 @@ partial def inferPureExprType
         requireWordLikeType arg "mulDiv512" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals arg visitingConstants)
       pure .uint256
   | `(term| ite $cond $thenVal $elseVal) => do
+      if syntaxContainsCallExternal thenVal || syntaxContainsCallExternal elseVal then
+        throwErrorAt stx
+          "conditional branches cannot contain callExternal because expression lowering evaluates both branches; use statement-level control flow"
       requireBoolType cond "ite condition" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals cond visitingConstants)
       let thenTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals thenVal visitingConstants
       let elseTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals elseVal visitingConstants
@@ -3855,15 +3870,6 @@ partial def syntaxMentionsIdent (stx : Syntax) (name : String) : Bool :=
   | .node _ _ args => args.any (fun child => syntaxMentionsIdent child name)
   | _ => false
 
-partial def syntaxContainsCallExternal (stx : Syntax) : Bool :=
-  match stx with
-  | .node _ _ args =>
-      if let `(term| callExternal $_name:ident ($[$_args:term],*)) := stx then
-        true
-      else
-        args.any syntaxContainsCallExternal
-  | _ => false
-
 def freshSyntheticLocalName
     (base : String)
     (params : Array ParamDecl)
@@ -4625,6 +4631,8 @@ def tryExternalCallBindStmt?
       let mut flattenedResultVars : Array String := #[]
       let mut visibleLocals : Array TypedLocal := #[mkTypedLocal successVar .bool]
       let mut normalizations : Array Term := #[]
+      if let some normalization ← normalizeBoundValueStmt? .bool rhs successVar then
+        normalizations := normalizations.push normalization
       for (resultVar, resultTy) in resultVars.toArray.zip resultTys do
         let flatNames ← flattenExternalResultNames resultVar resultTy
         unless flatNames.length == 1 || (staticStructDirectFieldLocals? resultVar resultTy).isSome do
@@ -4717,6 +4725,8 @@ def callResultBindStmt?
           $(strTerm extName)
           [ $[$argExprs],* ])
       let mut normalizations : Array Term := #[]
+      if let some normalization ← normalizeBoundValueStmt? .bool rhs successVar then
+        normalizations := normalizations.push normalization
       for (resultVar, resultTy) in resultVars.zip resultVarTys do
         if let some normalization ← normalizeBoundValueStmt? resultTy rhs resultVar then
           normalizations := normalizations.push normalization
