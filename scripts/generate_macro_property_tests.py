@@ -14,12 +14,15 @@ from __future__ import annotations
 
 import argparse
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from property_utils import ROOT
 
-CONTRACT_RE = re.compile(r"^\s*verity_contract\s+([A-Za-z_][A-Za-z0-9_]*)\s+where\s*$")
+CONTRACT_RE = re.compile(
+    r"^\s*verity_contract\s+([A-Za-z_][A-Za-z0-9_]*)"
+    r"(?:\s+is\s+([A-Za-z_][A-Za-z0-9_.]*))?\s+where\s*$"
+)
 CHECK_CONTRACT_RE = re.compile(r"^\s*#check_contract\s+([A-Za-z_][A-Za-z0-9_]*)\s*$")
 # Optional leading mutability modifiers (`function <modifier>* <name> (...)`,
 # Verity/Macro/Syntax.lean). They sit between `function` and the name, so the
@@ -36,7 +39,10 @@ _FUNCTION_MODIFIER = (
 FUNCTION_RE = re.compile(
     rf"^\s*function\s+(?:{_FUNCTION_MODIFIER}\s+)*([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*:\s*(.+?)\s*:=\s*",
 )
-CONSTRUCTOR_RE = re.compile(r"^\s*constructor\s*\(([^)]*)\)\s*:=\s*")
+CONSTRUCTOR_RE = re.compile(
+    r"^\s*constructor\s*\(([^)]*)\)"
+    r"(?:\s+[A-Za-z_][A-Za-z0-9_.]*\s*\([^)]*\))?\s*:=\s*"
+)
 # `_IDENT` captures a user-facing identifier with optional `«…»` raw-identifier
 # escape (verity#1847). The capture group excludes the guillemets so downstream
 # name lookups stay consistent with the compiled CompilationModel param/field
@@ -155,6 +161,7 @@ class ContractDecl:
     functions: tuple[FunctionDecl, ...]
     storage_slots: dict[str, int]
     source: Path
+    parent_name: str | None = None
     storage_types: dict[str, str] = field(default_factory=dict)
     transient_slots: frozenset[str] = frozenset()
     newtypes: dict[str, str] = field(default_factory=dict)
@@ -299,6 +306,7 @@ def _resolve_decl_types_in_params(
 def parse_contracts(text: str, source: Path) -> dict[str, ContractDecl]:
     contracts: dict[str, ContractDecl] = {}
     current_name: str | None = None
+    current_parent_name: str | None = None
     current_constructor: ConstructorDecl | None = None
     current_storage_slots: dict[str, int] = {}
     current_transient_slots: set[str] = set()
@@ -348,13 +356,14 @@ def parse_contracts(text: str, source: Path) -> dict[str, ContractDecl]:
         current_body = []
 
     def flush_current() -> None:
-        nonlocal current_name, current_constructor, current_storage_slots, current_transient_slots, current_storage_types, current_newtypes, current_structs, current_constants, current_immutables, current_functions, in_types_block, in_storage_block, in_constants_block, in_immutables_block, pending_storage_lines, current_struct_block_comment
+        nonlocal current_name, current_parent_name, current_constructor, current_storage_slots, current_transient_slots, current_storage_types, current_newtypes, current_structs, current_constants, current_immutables, current_functions, in_types_block, in_storage_block, in_constants_block, in_immutables_block, pending_storage_lines, current_struct_block_comment
         if current_name is None:
             return
         flush_struct()
         flush_function()
         contracts[current_name] = ContractDecl(
             name=current_name,
+            parent_name=current_parent_name,
             constructor=current_constructor,
             functions=tuple(current_functions),
             storage_slots=dict(current_storage_slots),
@@ -366,6 +375,7 @@ def parse_contracts(text: str, source: Path) -> dict[str, ContractDecl]:
             immutables=dict(current_immutables),
         )
         current_name = None
+        current_parent_name = None
         current_constructor = None
         current_storage_slots = {}
         current_transient_slots = set()
@@ -394,6 +404,7 @@ def parse_contracts(text: str, source: Path) -> dict[str, ContractDecl]:
                 continue
             flush_current()
             current_name = cm.group(1)
+            current_parent_name = cm.group(2)
             continue
 
         # Clear guard_pending on any non-blank, non-comment line that isn't
@@ -643,7 +654,54 @@ def collect_contracts(paths: list[Path]) -> dict[str, ContractDecl]:
                 prev = all_contracts[name].source
                 raise ValueError(f"duplicate contract '{name}' in {prev} and {contract.source}")
             all_contracts[name] = contract
-    return all_contracts
+    resolved: dict[str, ContractDecl] = {}
+
+    def resolve(name: str) -> ContractDecl:
+        if name in resolved:
+            return resolved[name]
+        child = all_contracts[name]
+        if child.parent_name is None or child.parent_name not in all_contracts:
+            resolved[name] = child
+            return child
+        parent = resolve(child.parent_name)
+        merged_newtypes = parent.newtypes | child.newtypes
+        child_functions = tuple(
+            replace(
+                fn,
+                params=_resolve_decl_types_in_params(fn.params, merged_newtypes, {}),
+                return_type=_resolve_decl_type(fn.return_type, merged_newtypes, {}),
+            )
+            for fn in child.functions
+        )
+        child_constructor = child.constructor
+        if child_constructor is not None:
+            child_constructor = replace(
+                child_constructor,
+                params=_resolve_decl_types_in_params(child_constructor.params, merged_newtypes, {}),
+            )
+        inherited_functions = {
+            (fn.name, tuple(param.lean_type for param in fn.params)): fn
+            for fn in parent.functions
+        }
+        for fn in child_functions:
+            inherited_functions[(fn.name, tuple(param.lean_type for param in fn.params))] = fn
+        merged = replace(
+            child,
+            constructor=child_constructor,
+            functions=tuple(inherited_functions.values()),
+            storage_slots=parent.storage_slots | child.storage_slots,
+            storage_types=parent.storage_types | child.storage_types,
+            transient_slots=parent.transient_slots | child.transient_slots,
+            newtypes=merged_newtypes,
+            constants=parent.constants | child.constants,
+            immutables=parent.immutables | child.immutables,
+        )
+        resolved[name] = merged
+        return merged
+
+    for contract_name in all_contracts:
+        resolve(contract_name)
+    return resolved
 
 
 def _parse_tuple_elements(inner: str) -> list[str]:

@@ -50,11 +50,16 @@ EXCLUDED_CONTRACTS = {
     "ConstructorHygieneBase",
     "AncestorConstructorBase",
     "AncestorConstructorMiddle",
+    "ConstructorLocalBase",
+    "InheritedImmutableBase",
+    "InheritedInterfaceBase",
+    "InheritedInterfaceChild",
     "PayableConstructorBase",
     "NonpayableVirtualBase",
     "ViewVirtualBase",
     "PureVirtualBase",
     "ModifierParameterCollisionBase",
+    "ModifierLoopCollisionBase",
     "InheritedOverloadBase",
 }
 

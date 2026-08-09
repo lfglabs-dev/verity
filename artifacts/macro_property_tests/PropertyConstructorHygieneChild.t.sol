@@ -4,16 +4,16 @@ pragma solidity ^0.8.33;
 import "./yul/YulTestBase.sol";
 
 /**
- * @title PropertyModifierInheritanceBaseTest
+ * @title PropertyConstructorHygieneChildTest
  * @notice Auto-generated baseline property stubs from `verity_contract` declarations.
  * @dev Source: Contracts/Smoke/Helpers.lean
  */
-contract PropertyModifierInheritanceBaseTest is YulTestBase {
+contract PropertyConstructorHygieneChildTest is YulTestBase {
     address target;
     address alice = address(0x1111);
 
     function setUp() public {
-        target = deployYulWithArgs("ModifierInheritanceBase", abi.encode(alice));
+        target = deployYulWithArgs("ConstructorHygieneChild", abi.encode(alice));
         require(target != address(0), "Deploy failed");
     }
 

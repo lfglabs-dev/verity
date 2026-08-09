@@ -2812,21 +2812,38 @@ private def doElems (body : Term) : CommandElabM (Array (TSyntax `doElem)) := do
   | `(term| do $[$elems:doElem]*) => pure elems
   | _ => throwErrorAt body "constructor body must be a do block"
 
-private partial def localBinderNames (stx : Syntax) : Array String :=
-  let here :=
+private partial def localBinderNames (stx : Syntax) : CommandElabM (Array String) := do
+  let here ←
     if stx.getKind == `Lean.Parser.Term.doLet then
       let binder := stx[3][0][0]
       match binder with
-      | .ident _ raw _ _ => #[raw.toString]
-      | _ => (tupleBinderNames? binder).getD #[] |>.filterMap id
+      | .ident _ raw _ _ => pure #[raw.toString]
+      | _ => pure <| (tupleBinderNames? binder).getD #[] |>.filterMap id
     else if stx.getKind == `Lean.Parser.Term.doLetArrow then
       let binder := stx[3][0]
       match binder with
-      | .ident _ raw _ _ => #[raw.toString]
-      | _ => (tupleBinderNames? binder).getD #[] |>.filterMap id
+      | .ident _ raw _ _ => pure #[raw.toString]
+      | _ => pure <| (tupleBinderNames? binder).getD #[] |>.filterMap id
     else
-      #[]
-  stx.getArgs.foldl (fun names child => names ++ localBinderNames child) here
+      match (⟨stx⟩ : TSyntax `doElem) with
+      | `(doElem| forEach $name:term $_count:term $_body:term) =>
+          pure #[← expectStringOrIdent name]
+      | `(doElem| forEachSetBit $name:term $_bitmap:term $_body:term) =>
+          pure #[← expectStringOrIdent name]
+      | `(doElem| ecmBind $names:term $_module:term $_args:term) =>
+          expectStringList names
+      | _ => pure #[]
+  let nested ← stx.getArgs.mapM localBinderNames
+  pure (nested.foldl (· ++ ·) here)
+
+private def substitutePureInitializerParams
+    (bindings : Array (String × Syntax)) (body : Term) : Term :=
+  ⟨body.raw.rewriteBottomUp fun node =>
+    match node with
+    | .ident _ _ name _ =>
+        bindings.find? (fun binding => binding.1 == name.toString)
+          |>.map (·.2) |>.getD node
+    | _ => node⟩
 
 private def composeConstructors
     (parentName : Ident) (parentCtor : Option ConstructorDecl)
@@ -2851,7 +2868,8 @@ private def composeConstructors
         throwErrorAt calledParent s!"constructor calls '{calledParent.getId}', expected direct parent '{parentName.getId}'"
       if child.parentArgs.size != parent.params.size then
         throwErrorAt calledParent s!"parent constructor '{parentName.getId}' expects {parent.params.size} argument(s), got {child.parentArgs.size}"
-      if let some captured := parent.boundParentParamNames.find? (fun name =>
+      let inheritedBinderNames := parent.boundParentParamNames ++ (← localBinderNames parent.body.raw)
+      if let some captured := inheritedBinderNames.find? (fun name =>
           child.params.any (fun childParam => childParam.name == name)) then
         throwErrorAt calledParent s!"ancestor constructor binding '{captured}' conflicts with a child constructor parameter; rename the child parameter"
       let parentElems ← doElems parent.body
@@ -2860,7 +2878,7 @@ private def composeConstructors
       -- `owner` must not rewrite the storage-field operand in
       -- `setStorageAddr owner owner` (nor a nested local binder).
       let mut parentBindings : Array (TSyntax `doElem) := #[]
-      let mut boundParentParamNames := parent.boundParentParamNames
+      let mut boundParentParamNames := inheritedBinderNames
       for (param, arg) in parent.params.zip child.parentArgs do
         -- Reuse an identically named child parameter directly.  Introducing
         -- a redundant `let x := x` would be rejected as parameter shadowing.
@@ -2931,6 +2949,14 @@ private def flattenSingleInheritance
         throwErrorAt fn.ident s!"function '{fn.name}' has the same signature as an inherited function; add override (the inherited function must be virtual)"
     | false, none =>
         functions := functions.push fn
+  let inheritedImmutables :=
+    match parent.ctor, child.ctor with
+    | some parentCtor, some childCtor =>
+        let bindings := parentCtor.params.zip childCtor.parentArgs |>.map fun (param, arg) =>
+          (param.name, arg.raw)
+        parent.immutableDecls.map fun imm =>
+          { imm with body := substitutePureInitializerParams bindings imm.body }
+    | _, _ => parent.immutableDecls
   let ctor ← composeConstructors parentName parent.ctor child.ctor
   pure {
     child with
@@ -2944,7 +2970,7 @@ private def flattenSingleInheritance
     errorDecls := parent.errorDecls ++ child.errorDecls
     eventDecls := parent.eventDecls ++ child.eventDecls
     constDecls := parent.constDecls ++ child.constDecls
-    immutableDecls := parent.immutableDecls ++ child.immutableDecls
+    immutableDecls := inheritedImmutables ++ child.immutableDecls
     externalDecls := parent.externalDecls ++ child.externalDecls
     ctor := ctor
     modifiers := parent.modifiers ++ child.modifiers
@@ -2967,7 +2993,7 @@ private def inlineModifierPrefixes
         let some modDecl := modifiers.find? (fun candidate => candidate.name == modifierName)
           | throwErrorAt modifierIdent s!"function '{fn.name}' references unknown modifier '{modifierName}'"
         let modifierElems ← doElems modDecl.body
-        let modifierLocals := localBinderNames modDecl.body.raw
+        let modifierLocals ← localBinderNames modDecl.body.raw
         if let some captured := modifierLocals.find? (fun name =>
             fn.params.any (fun param => param.name == name)) then
           throwErrorAt modifierIdent s!"modifier '{modifierName}' local '{captured}' conflicts with a function parameter; rename one of them"
@@ -3124,7 +3150,9 @@ def parseContractSyntax
         if seenInterfaceNames.contains ifaceLocalName then
           throwErrorAt iface.ident s!"duplicate interface name '{ifaceLocalName}'"
         seenInterfaceNames := seenInterfaceNames.push ifaceLocalName
-      let interfaceNames := parsedInterfaces.map (·.name)
+      let inheritedInterfaceNames := parent?.map (fun p =>
+        p.externalDecls.filterMap (·.interfaceName?)) |>.getD #[]
+      let interfaceNames := inheritedInterfaceNames ++ parsedInterfaces.map (·.name)
       let parsedExternals ←
         match externalDecls with
         | some decls => decls.mapM (parseExternal typeNewtypes typeStructs typeAdts)

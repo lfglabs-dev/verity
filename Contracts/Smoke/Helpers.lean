@@ -118,6 +118,56 @@ verity_contract AncestorConstructorCollisionRejected is AncestorConstructorMiddl
   constructor (owner : Address, admin : Address) AncestorConstructorMiddle(admin) := do
     pure ()
 
+verity_contract ConstructorLocalBase where
+  storage
+
+  constructor () := do
+    let sender ← msgSender
+    require (sender == sender) "sender"
+
+/--
+error: ancestor constructor binding 'sender' conflicts with a child constructor parameter; rename the child parameter
+-/
+#guard_msgs in
+verity_contract ConstructorLocalCollisionRejected is ConstructorLocalBase where
+  storage
+
+  constructor (sender : Address) ConstructorLocalBase() := do
+    pure ()
+
+verity_contract InheritedImmutableBase where
+  storage
+
+  immutables
+    deployer : Address := initialOwner
+
+  constructor (initialOwner : Address) := do
+    pure ()
+
+verity_contract InheritedImmutableChild is InheritedImmutableBase where
+  storage
+
+  constructor (admin : Address) InheritedImmutableBase(admin) := do
+    pure ()
+
+#check_contract InheritedImmutableChild
+
+verity_contract InheritedInterfaceBase where
+  storage
+
+  interfaces
+    interface IOracle where
+      function price() view returns (Uint256)
+    end
+
+verity_contract InheritedInterfaceChild is InheritedInterfaceBase where
+  storage
+
+  function read (_oracle : IOracle) : Unit := do
+    pure ()
+
+#check_contract InheritedInterfaceChild
+
 -- A child with no constructor has an implicit nonpayable constructor even
 -- when it runs a zero-argument payable parent initializer.
 verity_contract PayableConstructorBase where
@@ -216,6 +266,23 @@ verity_contract ModifierParameterCollisionRejected is ModifierParameterCollision
   storage
 
   function check (sender : Address) with captureSender : Unit := do
+    pure ()
+
+verity_contract ModifierLoopCollisionBase where
+  storage
+
+  modifier loopSender := do
+    forEach "sender" 1 (do
+      require (sender == 0) "sender")
+
+/--
+error: modifier 'loopSender' local 'sender' conflicts with a function parameter; rename one of them
+-/
+#guard_msgs in
+verity_contract ModifierLoopCollisionRejected is ModifierLoopCollisionBase where
+  storage
+
+  function check (sender : Uint256) with loopSender : Unit := do
     pure ()
 
 -- Overloads introduced on opposite sides of the inheritance boundary receive
