@@ -263,6 +263,9 @@ structure ConstructorDecl where
   params : Array ParamDecl
   isPayable : Bool := false
   localObligations : Array LocalObligationDecl := #[]
+  /-- Parent-parameter names introduced as lexical bindings while flattening
+      ancestor constructors.  Used to reject capture by later descendants. -/
+  boundParentParamNames : Array String := #[]
   parentName? : Option Ident := none
   parentArgs : Array Term := #[]
   body : Term

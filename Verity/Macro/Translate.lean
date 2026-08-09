@@ -2812,6 +2812,22 @@ private def doElems (body : Term) : CommandElabM (Array (TSyntax `doElem)) := do
   | `(term| do $[$elems:doElem]*) => pure elems
   | _ => throwErrorAt body "constructor body must be a do block"
 
+private partial def localBinderNames (stx : Syntax) : Array String :=
+  let here :=
+    if stx.getKind == `Lean.Parser.Term.doLet then
+      let binder := stx[3][0][0]
+      match binder with
+      | .ident _ raw _ _ => #[raw.toString]
+      | _ => (tupleBinderNames? binder).getD #[] |>.filterMap id
+    else if stx.getKind == `Lean.Parser.Term.doLetArrow then
+      let binder := stx[3][0]
+      match binder with
+      | .ident _ raw _ _ => #[raw.toString]
+      | _ => (tupleBinderNames? binder).getD #[] |>.filterMap id
+    else
+      #[]
+  stx.getArgs.foldl (fun names child => names ++ localBinderNames child) here
+
 private def composeConstructors
     (parentName : Ident) (parentCtor : Option ConstructorDecl)
     (childCtor : Option ConstructorDecl) : CommandElabM (Option ConstructorDecl) := do
@@ -2835,12 +2851,16 @@ private def composeConstructors
         throwErrorAt calledParent s!"constructor calls '{calledParent.getId}', expected direct parent '{parentName.getId}'"
       if child.parentArgs.size != parent.params.size then
         throwErrorAt calledParent s!"parent constructor '{parentName.getId}' expects {parent.params.size} argument(s), got {child.parentArgs.size}"
+      if let some captured := parent.boundParentParamNames.find? (fun name =>
+          child.params.any (fun childParam => childParam.name == name)) then
+        throwErrorAt calledParent s!"ancestor constructor binding '{captured}' conflicts with a child constructor parameter; rename the child parameter"
       let parentElems ← doElems parent.body
       -- Bind parent arguments in a nested lexical scope instead of rewriting
       -- identifier syntax.  The latter is not hygienic: a parameter named
       -- `owner` must not rewrite the storage-field operand in
       -- `setStorageAddr owner owner` (nor a nested local binder).
       let mut parentBindings : Array (TSyntax `doElem) := #[]
+      let mut boundParentParamNames := parent.boundParentParamNames
       for (param, arg) in parent.params.zip child.parentArgs do
         -- Reuse an identically named child parameter directly.  Introducing
         -- a redundant `let x := x` would be rejected as parameter shadowing.
@@ -2852,6 +2872,7 @@ private def composeConstructors
             throwErrorAt arg s!"parent constructor parameter '{param.name}' conflicts with a child constructor parameter; rename the child parameter"
           let binding ← `(doElem| let $param.ident := $arg)
           parentBindings := parentBindings.push binding
+          boundParentParamNames := boundParentParamNames.push param.name
       let scopedParent ← `(doElem| if true then
         $[$parentBindings:doElem]*
         $[$parentElems:doElem]*
@@ -2865,6 +2886,7 @@ private def composeConstructors
         -- payable parent initializer must not widen its mutability.
         isPayable := child.isPayable
         localObligations := parent.localObligations ++ child.localObligations
+        boundParentParamNames := boundParentParamNames
         parentName? := none
         parentArgs := #[]
         body := combinedBody
@@ -2896,6 +2918,10 @@ private def flattenSingleInheritance
           throwErrorAt fn.ident s!"function '{fn.name}' cannot weaken an inherited pure function"
         if inherited.isView && !fn.isView && !fn.isPure then
           throwErrorAt fn.ident s!"function '{fn.name}' cannot weaken an inherited view function to state-mutating"
+        if inherited.isInternal != fn.isInternal then
+          throwErrorAt fn.ident s!"function '{fn.name}' must preserve inherited internal/external visibility"
+        if inherited.returnTy != fn.returnTy then
+          throwErrorAt fn.ident s!"function '{fn.name}' must preserve the inherited return type"
         functions := functions.map fun candidate =>
           if functionSignatureKey candidate == functionSignatureKey fn then
             { fn with isOverride := false }
@@ -2941,6 +2967,10 @@ private def inlineModifierPrefixes
         let some modDecl := modifiers.find? (fun candidate => candidate.name == modifierName)
           | throwErrorAt modifierIdent s!"function '{fn.name}' references unknown modifier '{modifierName}'"
         let modifierElems ← doElems modDecl.body
+        let modifierLocals := localBinderNames modDecl.body.raw
+        if let some captured := modifierLocals.find? (fun name =>
+            fn.params.any (fun param => param.name == name)) then
+          throwErrorAt modifierIdent s!"modifier '{modifierName}' local '{captured}' conflicts with a function parameter; rename one of them"
         -- A modifier's locals have their own lexical scope in Solidity.  An
         -- always-taken branch preserves that scope in the flattened EDSL IR,
         -- so modifier-local names may be reused by later modifiers or by the

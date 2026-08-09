@@ -48,10 +48,13 @@ EXCLUDED_CONTRACTS = {
     # child contracts in Contracts/Smoke/Helpers.lean.  Standalone generated
     # Foundry stubs for these bases would not cover the flattening behavior.
     "ConstructorHygieneBase",
+    "AncestorConstructorBase",
+    "AncestorConstructorMiddle",
     "PayableConstructorBase",
     "NonpayableVirtualBase",
     "ViewVirtualBase",
     "PureVirtualBase",
+    "ModifierParameterCollisionBase",
     "InheritedOverloadBase",
 }
 

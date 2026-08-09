@@ -96,6 +96,28 @@ verity_contract ConstructorBindingCollisionRejected is ConstructorHygieneBase wh
   constructor (owner : Address, admin : Address) ConstructorHygieneBase(admin) := do
     pure ()
 
+verity_contract AncestorConstructorBase where
+  storage
+
+  constructor (owner : Address) := do
+    pure ()
+
+verity_contract AncestorConstructorMiddle is AncestorConstructorBase where
+  storage
+
+  constructor (admin : Address) AncestorConstructorBase(admin) := do
+    pure ()
+
+/--
+error: ancestor constructor binding 'owner' conflicts with a child constructor parameter; rename the child parameter
+-/
+#guard_msgs in
+verity_contract AncestorConstructorCollisionRejected is AncestorConstructorMiddle where
+  storage
+
+  constructor (owner : Address, admin : Address) AncestorConstructorMiddle(admin) := do
+    pure ()
+
 -- A child with no constructor has an implicit nonpayable constructor even
 -- when it runs a zero-argument payable parent initializer.
 verity_contract PayableConstructorBase where
@@ -158,6 +180,43 @@ verity_contract PureOverrideRejected is PureVirtualBase where
 
   function view override value () : Uint256 := do
     return 2
+
+/--
+error: function 'value' must preserve inherited internal/external visibility
+-/
+#guard_msgs in
+verity_contract VisibilityOverrideRejected is NonpayableVirtualBase where
+  storage
+
+  function internal override value () : Uint256 := do
+    return 2
+
+/--
+error: function 'value' must preserve the inherited return type
+-/
+#guard_msgs in
+verity_contract ReturnTypeOverrideRejected is NonpayableVirtualBase where
+  storage
+
+  function override value () : Address := do
+    return zeroAddress
+
+verity_contract ModifierParameterCollisionBase where
+  storage
+
+  modifier captureSender := do
+    let sender ← msgSender
+    require (sender == sender) "sender"
+
+/--
+error: modifier 'captureSender' local 'sender' conflicts with a function parameter; rename one of them
+-/
+#guard_msgs in
+verity_contract ModifierParameterCollisionRejected is ModifierParameterCollisionBase where
+  storage
+
+  function check (sender : Address) with captureSender : Unit := do
+    pure ()
 
 -- Overloads introduced on opposite sides of the inheritance boundary receive
 -- distinct generated Lean identifiers after flattening.
