@@ -666,7 +666,12 @@ def collect_contracts(paths: list[Path]) -> dict[str, ContractDecl]:
         if child.parent_name is None:
             resolved[name] = child
             return child
-        parent_key = child.parent_name.rsplit(".", 1)[-1]
+        if "." in child.parent_name:
+            raise ValueError(
+                f"qualified parent contract '{child.parent_name}' for '{child.name}' "
+                "cannot be resolved unambiguously by the property generator"
+            )
+        parent_key = child.parent_name
         if parent_key not in all_contracts:
             raise ValueError(
                 f"unresolved parent contract '{child.parent_name}' for '{child.name}'"
