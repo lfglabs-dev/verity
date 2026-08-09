@@ -56,7 +56,7 @@ def applyAutomaticPackedLayout (fields : Array StorageFieldDecl) : Array Storage
         let (resolvedSlot, bitOffset) :=
           if nextOffset + width <= 256 then
             (if sameAnchor then currentSlot else field.slotNum, nextOffset)
-          else (currentSlot + 1, 0)
+          else ((currentSlot + 1) % Compiler.Constants.evmModulus, 0)
         out := out.push { field with slotNum := resolvedSlot, packedBits := some (bitOffset, width) }
         let nextCursor := some (field.slotNum, resolvedSlot, bitOffset + width)
         if field.isTransient then transientCursor := nextCursor else persistentCursor := nextCursor

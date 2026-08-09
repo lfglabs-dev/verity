@@ -35,7 +35,19 @@ contract PropertyPackedStorageLoweringSmokeTest is YulTestBase {
         (bool ok,) = target.call(abi.encodeWithSignature("setAmount(uint128)", uint128(1)));
         require(ok, "setAmount reverted unexpectedly");
     }
-    // Property 4: getFlags reads storage slot 0 and decodes the result
+    // Property 4: rewriteAmount has no unexpected revert
+    function testAuto_RewriteAmount_NoUnexpectedRevert() public {
+        vm.prank(alice);
+        (bool ok,) = target.call(abi.encodeWithSignature("rewriteAmount()"));
+        require(ok, "rewriteAmount reverted unexpectedly");
+    }
+    // Property 5: incrementAmount has no unexpected revert
+    function testAuto_IncrementAmount_NoUnexpectedRevert() public {
+        vm.prank(alice);
+        (bool ok,) = target.call(abi.encodeWithSignature("incrementAmount(uint128)", uint128(1)));
+        require(ok, "incrementAmount reverted unexpectedly");
+    }
+    // Property 6: getFlags reads storage slot 0 and decodes the result
     function testAuto_GetFlags_ReadsConfiguredStorage() public {
         uint16 expected = uint16(1);
         vm.store(target, bytes32(uint256(0)), bytes32(uint256(expected)));
@@ -46,7 +58,7 @@ contract PropertyPackedStorageLoweringSmokeTest is YulTestBase {
         uint16 actual = abi.decode(ret, (uint16));
         assertEq(actual, expected, "getFlags should return storage slot 0");
     }
-    // Property 5: TODO decode and assert `collateralAt` result
+    // Property 7: TODO decode and assert `collateralAt` result
     function testTODO_CollateralAt_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("collateralAt(uint256)", uint256(1)));
@@ -55,7 +67,7 @@ contract PropertyPackedStorageLoweringSmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 6: setCollateralAt has no unexpected revert
+    // Property 8: setCollateralAt has no unexpected revert
     function testAuto_SetCollateralAt_NoUnexpectedRevert() public {
         vm.prank(alice);
         (bool ok,) = target.call(abi.encodeWithSignature("setCollateralAt(uint256,uint128)", uint256(1), uint128(1)));

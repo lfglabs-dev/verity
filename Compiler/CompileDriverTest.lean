@@ -150,6 +150,7 @@ private def layoutReportSpec : CompilationModel := {
   fields := [
     layoutReportAdminField,
     layoutReportPausedField,
+    layoutReportFixedArrayField,
     layoutReportBalancesField,
     layoutReportLiquidationLocksField
   ]
@@ -186,6 +187,13 @@ where
     let base : Field := { name := "balances", ty := FieldType.mappingTyped (.simple .address) }
     { base with
       «slot» := some 7
+    }
+
+  layoutReportFixedArrayField : Field :=
+    let base : Field := { name := "checkpoints", ty := FieldType.fixedArrayUint128 4 }
+    { base with
+      «slot» := some 10
+      aliasSlots := [60]
     }
 
   layoutReportLiquidationLocksField : Field :=
@@ -226,6 +234,15 @@ private def proxyLayoutIncompatibleSpec : CompilationModel := {
     { name := "pendingImplementation", ty := FieldType.address, «slot» := some 1 },
     { name := "admin", ty := FieldType.address, «slot» := some 2 },
     { name := "implementation", ty := FieldType.address, «slot» := some 3 }
+  ]
+  «constructor» := none
+  functions := []
+}
+
+private def proxyLayoutFixedArrayCandidateSpec : CompilationModel := {
+  name := "ProxyLayoutFixedArrayCandidate"
+  fields := proxyLayoutBaselineSpec.fields ++ [
+    { name := "checkpoints", ty := FieldType.fixedArrayUint128 4, «slot» := some 10 }
   ]
   «constructor» := none
   functions := []
@@ -1480,6 +1497,11 @@ unsafe def runTests : IO Unit := do
     throw (IO.userError "✗ layout report emits effective alias slots")
   if !contains layoutReport "\"name\":\"paused\",\"declaredSlot\":6,\"canonicalSlot\":6,\"declaredAliasSlots\":[],\"effectiveAliasSlots\":[101],\"writeSlots\":[6,101]" then
     throw (IO.userError "✗ layout report emits derived slot-alias writes")
+  if !contains layoutReport "\"name\":\"checkpoints\",\"declaredSlot\":10,\"canonicalSlot\":10,\"declaredAliasSlots\":[60],\"effectiveAliasSlots\":[60],\"writeSlots\":[10,11,60,61]" then
+    throw (IO.userError "✗ layout report expands fixed-array canonical and alias footprints")
+  if !contains layoutReport "\"a\":\"paused\",\"b\":\"liquidationLocks\"" ||
+      !contains layoutReport "\"aLocationKind\":\"persistent\",\"bLocationKind\":\"transient\"" then
+    throw (IO.userError "✗ layout report records storage-space identity in non-alias claims")
   if !contains layoutReport "\"packedBits\":{\"offset\":8,\"width\":8}" then
     throw (IO.userError "✗ layout report emits packed field metadata")
   if !contains layoutReport "\"kind\":\"mapping\",\"keys\":[\"address\"],\"valueKind\":\"uint256\"" then
@@ -1507,6 +1529,11 @@ unsafe def runTests : IO Unit := do
   if !contains layoutCompatibilityReport "\"reservedSlotConsumption\":[{\"field\":\"pendingImplementation\",\"slots\":[10]}]" then
     throw (IO.userError "✗ layout compatibility report emits reserved-slot consumption")
   IO.println "✓ layout compatibility report emits upgrade-layout preservation summary"
+
+  let fixedArrayCompatibilityReport :=
+    emitLayoutCompatibilityReportJson proxyLayoutBaselineSpec proxyLayoutFixedArrayCandidateSpec
+  if !contains fixedArrayCompatibilityReport "\"reservedSlotConsumption\":[{\"field\":\"checkpoints\",\"slots\":[10,11]}]" then
+    throw (IO.userError "✗ layout compatibility report expands fixed-array footprints")
 
   let incompatibleLayoutCompatibilityReport :=
     emitLayoutCompatibilityReportJson proxyLayoutBaselineSpec proxyLayoutIncompatibleSpec

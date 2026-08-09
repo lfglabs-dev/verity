@@ -1863,7 +1863,8 @@ private partial def rewriteForEachExecutableDoElem
                 `(_root_.Verity.getPackedStorage $field:ident $(natTerm offset) $(natTerm width))
               pure (#[← `(doElem| let $name:ident ← do
                 let word ← $read:term
-                pure (_root_.Verity.wordToUint16 word))], locals)
+                pure (_root_.Verity.wordToUint16 word))],
+                locals.push (mkTypedLocal (toString name.getId) .uint16))
           | some { ty := .scalar (.uintN bits), isTransient, packedBits := some (offset, width), .. } =>
               let bitsTerm := natTerm bits
               let read ← if isTransient then
@@ -1872,7 +1873,8 @@ private partial def rewriteForEachExecutableDoElem
                 `(_root_.Verity.getPackedStorage $field:ident $(natTerm offset) $(natTerm width))
               pure (#[← `(doElem| let $name:ident ← do
                 let word ← $read:term
-                pure (_root_.Verity.Core.UIntN.ofUint256 $bitsTerm word))], locals)
+                pure (_root_.Verity.Core.UIntN.ofUint256 $bitsTerm word))],
+                locals.push (mkTypedLocal (toString name.getId) (.uintN bits)))
           | some { isTransient := true, packedBits := some (offset, width), .. } =>
               let read ←
                 `(_root_.Verity.getPackedTransientStorage $field:ident $(natTerm offset) $(natTerm width))
@@ -1950,15 +1952,9 @@ private partial def rewriteForEachExecutableDoElem
           | _ => pure (#[elem], locals)
       | `(term| setStorage $field:ident $value:term) =>
           match fields.find? (fun candidate => candidate.name == toString field.getId) with
-          | some { ty := .scalar (.uintN bits), isTransient, packedBits := some (offset, width), .. } =>
-              let _bits := bits
-              let valueTy? := match stripParens value with
-                | `(term| $id:ident) =>
-                    let name := toString id.getId
-                    (locals.find? (fun entry => entry.name == name)).map (fun entry => entry.ty) <|>
-                      (params.find? (fun param => param.name == name)).map (fun param => param.ty)
-                | _ => none
-              let encoded ← if valueTy?.any (fun ty => match ty with | .uintN _ => true | _ => false) then
+          | some { ty := .scalar (.uintN _bits), isTransient, packedBits := some (offset, width), .. } =>
+              let valueTy ← inferPureExprType fields #[] #[] externalDecls params locals value
+              let encoded ← if match valueTy with | .uintN _ => true | _ => false then
                 `(_root_.Verity.Core.UIntN.toUint256 $value:term)
               else
                 pure value

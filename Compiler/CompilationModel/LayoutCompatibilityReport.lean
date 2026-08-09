@@ -55,6 +55,15 @@ private structure FieldLayoutInfo where
   effectiveAliasSlots : List Nat
   writeSlots : List Nat
   packedBits : Option PackedBits
+  isTransient : Bool
+
+private def expandedWriteSlots (ty : FieldType) (bases : List Nat) : List Nat :=
+  let words := match ty with
+    | .fixedArrayUint128 size => max 1 ((size + 1) / 2)
+    | _ => 1
+  dedupNatPreserve <| bases.flatMap fun base =>
+    (List.range words).map fun offset =>
+      (base + offset) % Compiler.Constants.evmModulus
 
 private def fieldLayoutInfo (declaredField effectiveField : Field) (idx : Nat) : FieldLayoutInfo :=
   let canonicalSlot := declaredField.slot.getD idx
@@ -63,8 +72,9 @@ private def fieldLayoutInfo (declaredField effectiveField : Field) (idx : Nat) :
     ty := declaredField.ty
     canonicalSlot := canonicalSlot
     effectiveAliasSlots := effectiveAliasSlots
-    writeSlots := canonicalSlot :: effectiveAliasSlots
-    packedBits := declaredField.packedBits }
+    writeSlots := expandedWriteSlots declaredField.ty (canonicalSlot :: effectiveAliasSlots)
+    packedBits := declaredField.packedBits
+    isTransient := declaredField.isTransient }
 
 private def collectFieldLayouts
     (declaredFields effectiveFields : List Field)
@@ -134,8 +144,6 @@ private def compatibilityChanges
     (baseline candidate : CompilationModel) : List LayoutCompatibilityChange :=
   let baselineFields := fieldLayouts baseline
   let candidateFields := fieldLayouts candidate
-  let baselineWriteSlots :=
-    baselineFields.foldl (fun acc field => acc ++ field.writeSlots) []
   let baselineChanges :=
     baselineFields.foldl
       (fun acc baselineField =>
@@ -192,6 +200,8 @@ private def compatibilityChanges
         match findFieldLayout? baselineFields candidateField.name with
         | some _ => acc
         | none =>
+            let baselineWriteSlots := baselineFields.foldl (fun acc field =>
+              if field.isTransient == candidateField.isTransient then acc ++ field.writeSlots else acc) []
             let overlaps := overlappingSlots candidateField.writeSlots baselineWriteSlots
             if overlaps.isEmpty then
               acc

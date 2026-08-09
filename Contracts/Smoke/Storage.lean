@@ -23,6 +23,13 @@ verity_contract PackedStorageLoweringSmoke where
   function setAmount (value : Uint128) : Unit := do
     setStorage amount value
 
+  function rewriteAmount () : Unit := do
+    let current ← getStorage amount
+    setStorage amount current
+
+  function incrementAmount (value : Uint128) : Unit := do
+    setStorage amount (value + 1)
+
   function getFlags () : Uint16 := do
     let value ← getStorage flags
     return value
@@ -121,6 +128,17 @@ example : PackedStorageSpillSmoke.spec.fields.map (fun field =>
       (some 10, some { offset := 128, width := 128 }),
       (some 11, some { offset := 0, width := 128 }),
       (some 11, some { offset := 128, width := 128 })] := by decide
+
+verity_contract PackedStorageWrappingSpillSmoke where
+  storage
+    a : Uint128 := slot 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+    b : Uint128 := slot 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+    c : Uint128 := slot 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+
+example : PackedStorageWrappingSpillSmoke.spec.fields.map (fun field => field.slot) == [
+    some (Compiler.Constants.evmModulus - 1),
+    some (Compiler.Constants.evmModulus - 1),
+    some 0] := by decide
 
 verity_contract MixedStorageSpacePackingSmoke where
   storage
