@@ -3226,9 +3226,10 @@ def parseContractSyntax
               throwErrorAt field.ident
                 "transient fixed arrays are not supported until fixed-array lowering uses tload/tstore"
           | _ => pure ()
+      let roleFields := parent?.map (fun p => p.fields ++ parsedFields) |>.getD parsedFields
       let parsedRoles ←
         match roleDecls with
-        | some decls => decls.mapM (parseRoleDecl parsedFields)
+        | some decls => decls.mapM (parseRoleDecl roleFields)
         | none => pure #[]
       let mut seenRoleNames : Array String := #[]
       for role in parsedRoles do

@@ -307,6 +307,16 @@ verity_contract InheritedRoleBase where
   roles
     operator := owner
 
+verity_contract InheritedRoleChild is InheritedRoleBase where
+  storage
+  roles
+    auditor := owner
+
+  function audit () requires(auditor) : Unit := do
+    pure ()
+
+#check_contract InheritedRoleChild
+
 /--
 error: role 'operator' duplicates an inherited role
 -/
