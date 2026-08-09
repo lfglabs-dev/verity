@@ -173,6 +173,23 @@ verity_contract ConstructorLocalCollisionRejected is ConstructorLocalBase where
   constructor (sender : Address) ConstructorLocalBase() := do
     pure ()
 
+verity_contract ConstructorTupleAliasBase where
+  storage
+
+  constructor () := do
+    let config_0 ← msgValue
+    require (config_0 == config_0) "config"
+
+/--
+error: ancestor constructor binding 'config_0' conflicts with a child constructor parameter; rename the child parameter
+-/
+#guard_msgs in
+verity_contract ConstructorTupleAliasCollisionRejected is ConstructorTupleAliasBase where
+  storage
+
+  constructor (config : Tuple [Uint256, Uint256]) ConstructorTupleAliasBase() := do
+    pure ()
+
 verity_contract InheritedImmutableBase where
   storage
 
@@ -361,6 +378,23 @@ verity_contract ModifierParameterCollisionRejected is ModifierParameterCollision
   storage
 
   function check (sender : Address) with captureSender : Unit := do
+    pure ()
+
+verity_contract ModifierTupleAliasBase where
+  storage
+
+  modifier captureConfig := do
+    let config_0 ← msgValue
+    require (config_0 == config_0) "config"
+
+/--
+error: modifier 'captureConfig' local 'config_0' conflicts with a function parameter; rename one of them
+-/
+#guard_msgs in
+verity_contract ModifierTupleAliasCollisionRejected is ModifierTupleAliasBase where
+  storage
+
+  function check (config : Tuple [Uint256, Uint256]) with captureConfig : Unit := do
     pure ()
 
 verity_contract ModifierLoopCollisionBase where

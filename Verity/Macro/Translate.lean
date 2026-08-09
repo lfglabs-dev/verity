@@ -2864,6 +2864,14 @@ private def substitutePureInitializerParams
     (bindings : Array (String × Syntax)) (body : Term) : Term :=
   ⟨substitutePureInitializerParamSyntax bindings body.raw⟩
 
+/-- Whether a parameter reserves `name` in the lowered function namespace.
+Tuple parameters synthesize aliases such as `config_0` for their components. -/
+private def paramReservesName (param : ParamDecl) (name : String) : Bool :=
+  param.name == name || match param.ty with
+    | .tuple elemTys => (elemTys.toArray.zipIdx).any fun (_, idx) =>
+        s!"{param.name}_{idx}" == name
+    | _ => false
+
 private def composeConstructors
     (parentName : Ident) (parentContract childContract : ParsedContractSyntax) :
     CommandElabM (Option ConstructorDecl) := do
@@ -2899,7 +2907,7 @@ private def composeConstructors
             s!"parent constructor parameter '{param.name}' expects {renderValueType param.ty}, got {renderValueType argTy}"
       let inheritedBinderNames := parent.boundParentParamNames ++ (← localBinderNames parent.body.raw)
       if let some captured := inheritedBinderNames.find? (fun name =>
-          child.params.any (fun childParam => childParam.name == name)) then
+          child.params.any (fun childParam => paramReservesName childParam name)) then
         throwErrorAt calledParent s!"ancestor constructor binding '{captured}' conflicts with a child constructor parameter; rename the child parameter"
       let parentElems ← doElems parent.body
       -- Bind parent arguments in a nested lexical scope instead of rewriting
@@ -2918,7 +2926,7 @@ private def composeConstructors
           | _ => none
         let isIdentityArg := identityChildParam?.isSome
         if !isIdentityArg then
-          if child.params.any (fun childParam => childParam.name == param.name) then
+          if child.params.any (fun childParam => paramReservesName childParam param.name) then
             throwErrorAt arg s!"parent constructor parameter '{param.name}' conflicts with a child constructor parameter; rename the child parameter"
           let binding ← `(doElem| let $param.ident := $arg)
           parentBindings := parentBindings.push binding
@@ -3037,7 +3045,7 @@ private def inlineModifierPrefixes
         let modifierElems ← doElems modDecl.body
         let modifierLocals ← localBinderNames modDecl.body.raw
         if let some captured := modifierLocals.find? (fun name =>
-            fn.params.any (fun param => param.name == name)) then
+            fn.params.any (fun param => paramReservesName param name)) then
           throwErrorAt modifierIdent s!"modifier '{modifierName}' local '{captured}' conflicts with a function parameter; rename one of them"
         -- A modifier's locals have their own lexical scope in Solidity.  An
         -- always-taken branch preserves that scope in the flattened EDSL IR,
