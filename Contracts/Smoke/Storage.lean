@@ -20,7 +20,7 @@ verity_contract PackedStorageLoweringSmoke where
   function setEpoch (value : Uint256) : Unit := do
     setStorage epoch value
 
-  function setAmount (value : Uint256) : Unit := do
+  function setAmount (value : Uint128) : Unit := do
     setStorage amount value
 
   function getFlags () : Uint16 := do
@@ -90,6 +90,23 @@ example :
         body := [] } =
       .error "Compilation error: function 'badLegacyFixedArrayReturn' uses fixedArrayUint128 in legacy returnType; use an explicit supported returns declaration" := by
   rfl
+
+example :
+    Compiler.CompilationModel.firstMappingPackedBits
+      [⟨"badPackedArray", .fixedArrayUint128 2, false, some 9,
+        some { offset := 0, width := 128 }, []⟩] = some "badPackedArray" := by
+  rfl
+
+private def badTransientFixedArraySpec : Compiler.CompilationModel.CompilationModel :=
+  { name := "BadTransientFixedArray"
+    fields := [⟨"items", .fixedArrayUint128 2, true, some 0, none, []⟩]
+    «constructor» := none
+    functions := [] }
+
+example :
+    Compiler.CompilationModel.validateCompileInputs badTransientFixedArraySpec [] =
+      .error "Compilation error: transient fixed array field 'items' is unsupported in BadTransientFixedArray; fixedArrayUint128 lowering uses persistent storage." := by
+  native_decide
 
 verity_contract PackedStorageSpillSmoke where
   storage

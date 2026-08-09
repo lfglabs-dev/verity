@@ -567,7 +567,13 @@ private def validateCompileInputsBeforeFieldWriteConflict
       pure ()
   match firstMappingPackedBits spec.fields with
   | some fieldName =>
-      throw s!"Compilation error: field '{fieldName}' is a mapping and cannot declare packedBits in {spec.name} ({issue623Ref}). Packed subfields are only supported for value-word fields."
+      throw s!"Compilation error: field '{fieldName}' cannot declare packedBits in {spec.name} ({issue623Ref}). Packed subfields are only supported for value-word fields."
+  | none =>
+      pure ()
+  match spec.fields.find? (fun field => field.isTransient &&
+      match field.ty with | .fixedArrayUint128 _ => true | _ => false) with
+  | some field =>
+      throw s!"Compilation error: transient fixed array field '{field.name}' is unsupported in {spec.name}; fixedArrayUint128 lowering uses persistent storage."
   | none =>
       pure ()
   match firstUnsupportedStorageArrayElemType spec.fields with

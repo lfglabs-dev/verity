@@ -32,7 +32,7 @@ contract PropertyPackedStorageLoweringSmokeTest is YulTestBase {
     // Property 3: setAmount has no unexpected revert
     function testAuto_SetAmount_NoUnexpectedRevert() public {
         vm.prank(alice);
-        (bool ok,) = target.call(abi.encodeWithSignature("setAmount(uint256)", uint256(1)));
+        (bool ok,) = target.call(abi.encodeWithSignature("setAmount(uint128)", uint128(1)));
         require(ok, "setAmount reverted unexpectedly");
     }
     // Property 4: getFlags reads storage slot 0 and decodes the result

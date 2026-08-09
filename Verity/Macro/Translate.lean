@@ -1950,6 +1950,25 @@ private partial def rewriteForEachExecutableDoElem
           | _ => pure (#[elem], locals)
       | `(term| setStorage $field:ident $value:term) =>
           match fields.find? (fun candidate => candidate.name == toString field.getId) with
+          | some { ty := .scalar (.uintN bits), isTransient, packedBits := some (offset, width), .. } =>
+              let _bits := bits
+              let valueTy? := match stripParens value with
+                | `(term| $id:ident) =>
+                    let name := toString id.getId
+                    (locals.find? (fun entry => entry.name == name)).map (fun entry => entry.ty) <|>
+                      (params.find? (fun param => param.name == name)).map (fun param => param.ty)
+                | _ => none
+              let encoded ← if valueTy?.any (fun ty => match ty with | .uintN _ => true | _ => false) then
+                `(_root_.Verity.Core.UIntN.toUint256 $value:term)
+              else
+                pure value
+              let write ← if isTransient then
+                `(_root_.Verity.setPackedTransientStorage
+                  $field:ident $(natTerm offset) $(natTerm width) $encoded:term)
+              else
+                `(_root_.Verity.setPackedStorage
+                  $field:ident $(natTerm offset) $(natTerm width) $encoded:term)
+              pure (#[← `(doElem| $write:term)], locals)
           | some { isTransient := true, packedBits := some (offset, width), .. } =>
               pure (#[← `(doElem| _root_.Verity.setPackedTransientStorage
                 $field:ident $(natTerm offset) $(natTerm width) $value:term)], locals)
