@@ -27,7 +27,7 @@ lean_lib «Contracts» where
     .one `Contracts.Common,
     .one `Contracts.Specs,
     .one `Contracts.Interpreter,
-    .andSubmodules `Contracts.Examples,
+    .submodules `Contracts.Examples,
     .andSubmodules `Contracts.Smoke,
     .andSubmodules `Contracts.Counter,
     .andSubmodules `Contracts.SimpleStorage,
